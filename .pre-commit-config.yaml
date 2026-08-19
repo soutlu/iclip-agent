@@ -1,0 +1,35 @@
+repos:
+  - repo: local
+    hooks:
+      - id: server-ruff-check
+        name: server ruff check --fix
+        entry: bash -c 'cd server && uv run ruff check --fix .'
+        language: system
+        pass_filenames: false
+        files: ^server/
+      - id: server-ruff-format
+        name: server ruff format
+        entry: bash -c 'cd server && uv run ruff format .'
+        language: system
+        pass_filenames: false
+        files: ^server/
+      - id: web-lint-staged
+        name: web lint-staged
+        entry: bash -c 'cd web && pnpm lint-staged'
+        language: system
+        pass_filenames: false
+        files: ^web/
+  - repo: local
+    hooks:
+      - id: server-typecheck-push
+        name: server pyright (pre-push)
+        entry: bash -c 'cd server && uv run pyright'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: server-tests-push
+        name: server default gate (pre-push)
+        entry: bash -c 'cd server && uv run pytest -m "unit or integration_no_llm" -q'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

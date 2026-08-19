@@ -1,0 +1,29 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# node
+node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/coverage/
+
+# tooling
+.DS_Store
+*.log
+
+# web 冻结迁入时带入的本地文件
+web/.env.local
+web/.tanstack/

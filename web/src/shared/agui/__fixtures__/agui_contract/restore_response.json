@@ -1,0 +1,28 @@
+{
+  "description": "restore 端点响应信封。activeRun 是后端对「是否有 run 可重连」的唯一决策：非 null 时前端挂载后自动触发一次 startRun（服务端归因为 attach）；null 时前端不得自行判定重连。",
+  "response": {
+    "headId": "msg_a1",
+    "messages": [
+      { "id": "msg_u1", "role": "user", "content": "帮我规划分镜" },
+      {
+        "id": "msg_u2",
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "参考这张图和这段视频" },
+          {
+            "type": "image",
+            "source": { "type": "url", "value": "https://oss.example.com/ref.jpg" }
+          },
+          {
+            "type": "video",
+            "source": { "type": "url", "value": "https://oss.example.com/ref.mp4" }
+          }
+        ]
+      },
+      { "id": "msg_a1", "role": "assistant", "content": "分镜共 6 个场景，" }
+    ],
+    "members": [],
+    "state": { "draft": { "stage": "review", "revision": 2 } },
+    "activeRun": { "runId": "run_a" }
+  }
+}

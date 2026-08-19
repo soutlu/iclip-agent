@@ -1,0 +1,98 @@
+# 通用前端 CI 模板（GitLab CI）
+# 放置路径：.gitlab-ci.yml
+#
+# 与 GitHub Actions 模板等价：质量契约收敛在 `npm run ci:check`，
+# yaml 只是薄壳。详见 ci/github-actions.yml 头部注释与 ARCHITECTURE.md §7。
+
+stages:
+  - check
+  - build
+  # - e2e
+
+default:
+  image: node:22
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+
+# 同分支旧流水线自动取消
+workflow:
+  auto_cancel:
+    on_new_commit: interruptible
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# 质量契约：lint + typecheck + arch:check + 单测（含 tests/arch）
+quality-contract:
+  stage: check
+  interruptible: true
+  script:
+    - npm run ci:check
+  after_script:
+    # 失败时输出依赖图违规详情，便于在日志里直接定位条款
+    - |
+      if [ "$CI_JOB_STATUS" = "failed" ]; then
+        npx depcruise src --config .dependency-cruiser.cjs --output-type err-long || true
+      fi
+
+# 架构基线防倒退：known-violations 只许缩小（仅 MR 上跑；清零删除后自动通过）
+baseline-ratchet:
+  stage: check
+  interruptible: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+  script:
+    - |
+      BASELINE=".dependency-cruiser-known-violations.json"
+      if [ ! -f "$BASELINE" ]; then
+        echo "✅ 无基线文件（架构旧账已清零）"
+        exit 0
+      fi
+      git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --depth=1
+      if ! git cat-file -e "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:$BASELINE" 2>/dev/null; then
+        echo "✅ 基线文件首次引入"
+        exit 0
+      fi
+      BASE_COUNT=$(git show "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:$BASELINE" | node -e \
+        "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).length))")
+      HEAD_COUNT=$(node -e "console.log(require('./$BASELINE').length)")
+      echo "基线违规数：base=$BASE_COUNT → head=$HEAD_COUNT"
+      if [ "$HEAD_COUNT" -gt "$BASE_COUNT" ]; then
+        echo "❌ 架构基线只允许缩小（ARCHITECTURE.md §8）。新增违规请修复，而不是写进基线。"
+        exit 1
+      fi
+      echo "✅ 基线未增大"
+
+# 构建验证：server-only 毒丸与框架级错误的唯一暴露点
+build:
+  stage: build
+  interruptible: true
+  script:
+    - npm run build
+  # BFF 项目按需注入构建期必需变量：
+  # variables:
+  #   BACKEND_ORIGIN: "http://ci-placeholder.invalid"
+  # e2e 启用时保留产物：
+  # artifacts:
+  #   paths:
+  #     - .next/        # Vite 项目改为 dist/
+  #   expire_in: 1 day
+
+# 端到端测试（可选启用）
+# e2e:
+#   stage: e2e
+#   needs: [build]
+#   image: mcr.microsoft.com/playwright:v1.59.0-noble
+#   script:
+#     - npm run test:e2e
+#   artifacts:
+#     when: on_failure
+#     paths:
+#       - playwright-report/
+#     expire_in: 7 days

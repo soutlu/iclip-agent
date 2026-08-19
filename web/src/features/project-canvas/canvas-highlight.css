@@ -1,0 +1,111 @@
+/* ===== Canvas highlight flash ===== */
+@keyframes canvasNodeReveal {
+  0% {
+    opacity: 0;
+    transform: translateX(28px);
+    clip-path: inset(0 100% 0 0 round 28px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    clip-path: inset(0 0 0 0 round 28px);
+  }
+}
+
+@keyframes canvasFragmentEnter {
+  0% {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes canvasHighlightFlash {
+  0% {
+    opacity: 0;
+    transform: scale(0.98);
+    box-shadow: 0 0 0 transparent;
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-canvas-card-border) 12%, transparent);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-canvas-card-border) 6%, transparent);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.01);
+    box-shadow: 0 0 0 transparent;
+  }
+}
+
+.canvas-node-reveal {
+  transform-origin: left center;
+  animation: canvasNodeReveal 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.canvas-fragment-enter {
+  animation: canvasFragmentEnter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.canvas-highlight-flash {
+  animation: canvasHighlightFlash 1.2s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-node-reveal,
+  .canvas-fragment-enter,
+  .canvas-highlight-flash {
+    animation: none;
+  }
+}
+
+.project-react-flow {
+  background: transparent;
+}
+
+.project-react-flow .react-flow__background {
+  background: transparent;
+}
+
+.project-react-flow .react-flow__node {
+  background: transparent;
+  border: none;
+}
+
+.project-react-flow .react-flow__node:focus,
+.project-react-flow .react-flow__node:focus-visible {
+  outline: none;
+}
+
+.canvas-node-drag-surface,
+.canvas-node-drag-surface * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.canvas-node-drag-surface {
+  cursor: grab;
+  touch-action: none;
+}
+
+.canvas-node-drag-surface:active {
+  cursor: grabbing;
+}
+
+.canvas-node-drag-surface .canvas-node-copyable,
+.canvas-node-drag-surface .canvas-node-copyable * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.project-react-flow .react-flow__attribution {
+  display: none;
+}

@@ -1,0 +1,12 @@
+{
+  "description": "归因 ②：input 含新用户消息但 thread 已有在途 run。显式拒绝，消息留在客户端可重发——任何路径不得静默吞消息。",
+  "runMode": null,
+  "events": [
+    { "type": "RUN_STARTED", "threadId": "th_demo", "runId": "run_b" },
+    {
+      "type": "RUN_ERROR",
+      "message": "thread 已有在途 run，等待其完成或重连后再发送",
+      "code": "RUN_IN_PROGRESS"
+    }
+  ]
+}

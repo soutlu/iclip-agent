@@ -1,0 +1,336 @@
+diff --git a/dist/runtime/AgUiThreadRuntimeCore.js b/dist/runtime/AgUiThreadRuntimeCore.js
+index 8c847209ef1855477c02c80f807768bdf0fdaf49..1f7a4f145525ed508397ed937cd848ba3d5bcd1f 100644
+--- a/dist/runtime/AgUiThreadRuntimeCore.js
++++ b/dist/runtime/AgUiThreadRuntimeCore.js
+@@ -2 +2 @@
+-import { AG_UI_METADATA_NAMESPACE, RunAggregator, tryParseJSON } from "./adapter/run-aggregator.js";
++import { AG_UI_METADATA_NAMESPACE, RunAggregator, isExplicitToolErrorResult, tryParseJSON } from "./adapter/run-aggregator.js";
+@@ -694,4 +694,5 @@
+-				return {
+-					...part,
+-					result: tryParseJSON(event.content ?? ""),
+-					...event.role === "tool" ? { isError: false } : {},
++				const result = tryParseJSON(event.content ?? "");
++				return {
++					...part,
++					result,
++					...isExplicitToolErrorResult(result) ? { isError: true } : event.role === "tool" ? { isError: false } : {},
+diff --git a/dist/runtime/adapter/conversions.js b/dist/runtime/adapter/conversions.js
+index db9229dbf164a2ab7ed4e6c1f1da3b9e2e16b84e..12ccba343d31c6331fd7524bd241b5dd15f87558 100644
+--- a/dist/runtime/adapter/conversions.js
++++ b/dist/runtime/adapter/conversions.js
+@@ -215,7 +215,7 @@ function toSnapshotAttachments(content) {
+ 	return attachments;
+ }
+ function buildUserContent(message) {
+-	const contentParts = Array.isArray(message.content) ? message.content.filter((part) => !(isObject(part) && part.type === "file")) : [];
++	const contentParts = Array.isArray(message.content) ? message.content : [];
+ 	const attachments = message.attachments ?? [];
+ 	const converted = [];
+ 	if (typeof message.content === "string" && message.content.length > 0) converted.push({
+@@ -314,15 +314,60 @@ function toAssistantSnapshotMessage(rawMessage) {
+ 		...interrupts ? { metadata: { custom: { [AG_UI_METADATA_NAMESPACE]: { interrupts } } } } : {}
+ 	};
+ }
++const snapshotMediaFallbackMimeTypes = {
++	image: "image/*",
++	audio: "audio/*",
++	video: "video/*",
++	document: "application/octet-stream"
++};
++function toOrderedUserSnapshotContent(content) {
++	if (!Array.isArray(content)) return void 0;
++	const parts = [];
++	let hasMedia = false;
++	for (const rawPart of content) {
++		if (!isObject(rawPart)) continue;
++		const part = getString(rawPart, "type") === "binary" ? upgradeBinaryInputPart(rawPart) : rawPart;
++		if (!part) continue;
++		const type = getString(part, "type");
++		if (type === "text") {
++			const text = getString(part, "text");
++			if (text !== void 0 && text.length > 0) parts.push({
++				type: "text",
++				text
++			});
++			continue;
++		}
++		if (type === void 0 || !mediaInputTypes.has(type)) continue;
++		const source = inputSourceToString(part.source);
++		if (!source) continue;
++		hasMedia = true;
++		const filename = isObject(part.metadata) ? getString(part.metadata, "filename") : void 0;
++		parts.push({
++			type: "file",
++			data: source.value,
++			mimeType: source.mimeType ?? snapshotMediaFallbackMimeTypes[type] ?? "application/octet-stream",
++			...filename !== void 0 && { filename }
++		});
++	}
++	if (!hasMedia) return void 0;
++	return parts;
++}
+ function toUserOrSystemSnapshotMessage(role, rawMessage) {
+ 	const messageName = getString(rawMessage, "name");
+-	const attachments = role === "user" ? toSnapshotAttachments(rawMessage.content) : [];
++	if (role === "user") {
++		const ordered = toOrderedUserSnapshotContent(rawMessage.content);
++		if (ordered) return {
++			id: getString(rawMessage, "id") ?? generateId(),
++			role,
++			content: ordered,
++			...messageName !== void 0 ? { name: messageName } : {}
++		};
++	}
+ 	return {
+ 		id: getString(rawMessage, "id") ?? generateId(),
+ 		role,
+ 		content: extractText(rawMessage.content),
+-		...messageName !== void 0 ? { name: messageName } : {},
+-		...attachments.length > 0 ? { attachments } : {}
++		...messageName !== void 0 ? { name: messageName } : {}
+ 	};
+ }
+ function fromAgUiMessages(messages, options) {
+diff --git a/dist/runtime/adapter/run-aggregator.js b/dist/runtime/adapter/run-aggregator.js
+index 96ae3f8544e3ebde0e56bbf2858dcea4bb3feba5..cf59a9ab5c29dbfb95e6559a3691a2e1ddb54f33 100644
+--- a/dist/runtime/adapter/run-aggregator.js
++++ b/dist/runtime/adapter/run-aggregator.js
+@@ -5,0 +6 @@
++const isExplicitToolErrorResult = (result) => typeof result === "object" && result !== null && "error" in result && result.error === true;
+@@ -300 +301 @@
+-		entry.isError = isError;
++		entry.isError = isExplicitToolErrorResult(entry.result) ? true : isError;
+@@ -410 +411 @@
+-export { AG_UI_METADATA_NAMESPACE, RunAggregator, tryParseJSON };
++export { AG_UI_METADATA_NAMESPACE, RunAggregator, isExplicitToolErrorResult, tryParseJSON };
+diff --git a/dist/runtime/adapter/subscriber.d.ts b/dist/runtime/adapter/subscriber.d.ts
+index 48684554075e65e17db7f424e4d4f428d16fac6a..66574121147439ef37f75f4beb83a38667d8e1ec 100644
+--- a/dist/runtime/adapter/subscriber.d.ts
++++ b/dist/runtime/adapter/subscriber.d.ts
+@@ -85,6 +85,9 @@ type Subscriber = {
+   onRunFinishedEvent?: (payload: {
+     event: unknown;
+   }) => void;
++  onRunErrorEvent?: (payload: {
++    event: unknown;
++  }) => void;
+   onRunFinalized?: () => void;
+   onRunFailed?: (payload: {
+     error: Error;
+diff --git a/dist/runtime/adapter/subscriber.js b/dist/runtime/adapter/subscriber.js
+index f7ce036272b3a4d455b4b11533f017cd194c9d06..7ea7fe78395c4a1e91f6a50bdd90ec4b7455f1b2 100644
+--- a/dist/runtime/adapter/subscriber.js
++++ b/dist/runtime/adapter/subscriber.js
+@@ -64,6 +64,19 @@ const createAgUiSubscriber = (options) => {
+ 			runFinishedDispatched = true;
+ 			dispatch(parsed);
+ 		},
++		onRunErrorEvent: ({ event }) => {
++			const parsed = ensureEvent(event, "RUN_ERROR", logger);
++			if (!parsed) return;
++			runFinishedDispatched = true;
++			if (parsed.code === "ACTIVE_ELSEWHERE" || parsed.code === "CANCELLED") {
++				dispatch({
++					type: "RUN_CANCELLED",
++					runId
++				});
++				return;
++			}
++			dispatch(parsed);
++		},
+ 		onRunFinalized: () => {
+ 			if (runFinishedDispatched) return;
+ 			dispatch({
+diff --git a/src/runtime/AgUiThreadRuntimeCore.ts b/src/runtime/AgUiThreadRuntimeCore.ts
+index ed008a963bfbae059d03ba7d7c4155fad8765913..4bad0a778b9e76e759e7a0ecaa81cc3ffe0ba07e 100644
+--- a/src/runtime/AgUiThreadRuntimeCore.ts
++++ b/src/runtime/AgUiThreadRuntimeCore.ts
+@@ -22,6 +22,7 @@ import type { ReadonlyJSONValue } from "assistant-stream/utils";
+ import {
+   AG_UI_METADATA_NAMESPACE,
+   type AgUiCustomMetadata,
++  isExplicitToolErrorResult,
+   RunAggregator,
+   tryParseJSON,
+ } from "./adapter/run-aggregator";
+@@ -1066,10 +1067,17 @@ export class AgUiThreadRuntimeCore {
+         if (part.type !== "tool-call" || part.toolCallId !== event.toolCallId)
+           return part;
+         matchedToolCall = true;
++        const result = tryParseJSON(
++          event.content ?? "",
++        ) as ReadonlyJSONValue;
+         return {
+           ...part,
+-          result: tryParseJSON(event.content ?? "") as ReadonlyJSONValue,
+-          ...(event.role === "tool" ? { isError: false } : {}),
++          result,
++          ...(isExplicitToolErrorResult(result)
++            ? { isError: true }
++            : event.role === "tool"
++              ? { isError: false }
++              : {}),
+           ...(event.messageId
+             ? { unstable_toolMessageId: event.messageId }
+             : {}),
+diff --git a/src/runtime/adapter/conversions.ts b/src/runtime/adapter/conversions.ts
+index 48ceabbe882939823324e2718b7f5a07ed9029fe..51c75b856ee52cc785b1293aa420b64e81dc45ef 100644
+--- a/src/runtime/adapter/conversions.ts
++++ b/src/runtime/adapter/conversions.ts
+@@ -320,13 +320,10 @@ function toSnapshotAttachments(content: unknown): SnapshotAttachment[] {
+ }
+ 
+ function buildUserContent(message: ThreadMessageLike): string | InputContent[] {
+-  // File parts in message.content are intentionally skipped: the canonical
+-  // binary payload for files always flows through message.attachments.
+-  const contentParts = Array.isArray(message.content)
+-    ? message.content.filter(
+-        (part) => !(isObject(part) && part.type === "file"),
+-      )
+-    : [];
++  // File parts in message.content are converted in place: their position
++  // among text parts carries semantics (interleaved media references), so
++  // they must not be rerouted through trailing attachments.
++  const contentParts = Array.isArray(message.content) ? message.content : [];
+ 
+   const attachments = message.attachments ?? [];
+ 
+@@ -497,19 +494,82 @@ function toAssistantSnapshotMessage(
+   };
+ }
+ 
++// Fallback media types keep kind derivation working for wire media parts
++// whose source omits an explicit mimeType.
++const snapshotMediaFallbackMimeTypes: Record<string, string> = {
++  image: "image/*",
++  audio: "audio/*",
++  video: "video/*",
++  document: "application/octet-stream",
++};
++
++// Media parts in user content are preserved in place (interleaved with text)
++// instead of being flattened into trailing attachments: part position carries
++// semantics. Every media part becomes an internal `file` part so mimeType and
++// filename survive the snapshot round-trip and re-send.
++function toOrderedUserSnapshotContent(
++  content: unknown,
++): Exclude<CoreThreadMessageLike["content"], string> | undefined {
++  if (!Array.isArray(content)) return undefined;
++  const parts: Record<string, unknown>[] = [];
++  let hasMedia = false;
++  for (const rawPart of content) {
++    if (!isObject(rawPart)) continue;
++    const part =
++      getString(rawPart, "type") === "binary"
++        ? upgradeBinaryInputPart(rawPart)
++        : rawPart;
++    if (!part) continue;
++    const type = getString(part, "type");
++    if (type === "text") {
++      const text = getString(part, "text");
++      if (text !== undefined && text.length > 0) {
++        parts.push({ type: "text", text });
++      }
++      continue;
++    }
++    if (type === undefined || !mediaInputTypes.has(type)) continue;
++    const source = inputSourceToString(part.source);
++    if (!source) continue;
++    hasMedia = true;
++    const filename = isObject(part.metadata)
++      ? getString(part.metadata, "filename")
++      : undefined;
++    parts.push({
++      type: "file",
++      data: source.value,
++      mimeType:
++        source.mimeType ??
++        snapshotMediaFallbackMimeTypes[type] ??
++        "application/octet-stream",
++      ...(filename !== undefined && { filename }),
++    });
++  }
++  if (!hasMedia) return undefined;
++  return parts as Exclude<CoreThreadMessageLike["content"], string>;
++}
++
+ function toUserOrSystemSnapshotMessage(
+   role: "user" | "system",
+   rawMessage: Record<string, unknown>,
+ ): CoreThreadMessageLike {
+   const messageName = getString(rawMessage, "name");
+-  const attachments =
+-    role === "user" ? toSnapshotAttachments(rawMessage.content) : [];
++  if (role === "user") {
++    const ordered = toOrderedUserSnapshotContent(rawMessage.content);
++    if (ordered) {
++      return {
++        id: getString(rawMessage, "id") ?? generateId(),
++        role,
++        content: ordered,
++        ...(messageName !== undefined ? { name: messageName } : {}),
++      };
++    }
++  }
+   return {
+     id: getString(rawMessage, "id") ?? generateId(),
+     role,
+     content: extractText(rawMessage.content),
+     ...(messageName !== undefined ? { name: messageName } : {}),
+-    ...(attachments.length > 0 ? { attachments } : {}),
+   };
+ }
+ 
+diff --git a/src/runtime/adapter/run-aggregator.ts b/src/runtime/adapter/run-aggregator.ts
+index 0169a9c01811092d5b6659da584bcef03552cd1b..b144e2ffaec83ad35de8b54acae89223c01c0959 100644
+--- a/src/runtime/adapter/run-aggregator.ts
++++ b/src/runtime/adapter/run-aggregator.ts
+@@ -42,0 +43,6 @@
++export const isExplicitToolErrorResult = (result: unknown) =>
++  typeof result === "object" &&
++  result !== null &&
++  "error" in result &&
++  result.error === true;
++
+@@ -422,7 +428,7 @@ export class RunAggregator {
+       this.partOrder.push({ kind: "tool-call", toolCallId: id });
+     }
+     entry.result = tryParseJSON(content);
+-    entry.isError = isError;
++    entry.isError = isExplicitToolErrorResult(entry.result) ? true : isError;
+     if (toolMessageId) {
+       entry.toolMessageId = toolMessageId;
+     }
+diff --git a/src/runtime/adapter/subscriber.ts b/src/runtime/adapter/subscriber.ts
+index be5b6cfca9a64b79d0c1c50d9592d54826c60dd6..bd64352234c0ee5fb6d960d45e1c41f5b41f740d 100644
+--- a/src/runtime/adapter/subscriber.ts
++++ b/src/runtime/adapter/subscriber.ts
+@@ -34,6 +34,7 @@ type Subscriber = {
+   onCustomEvent?: (payload: { event: unknown }) => void;
+   onRawEvent?: (payload: { event: unknown }) => void;
+   onRunFinishedEvent?: (payload: { event: unknown }) => void;
++  onRunErrorEvent?: (payload: { event: unknown }) => void;
+   onRunFinalized?: () => void;
+   onRunFailed?: (payload: { error: Error }) => void;
+ };
+@@ -148,6 +149,19 @@ export const createAgUiSubscriber = (
+       runFinishedDispatched = true;
+       dispatch(parsed);
+     },
++    onRunErrorEvent: ({ event }) => {
++      const parsed = ensureEvent(event, "RUN_ERROR", logger);
++      if (!parsed) return;
++      runFinishedDispatched = true;
++      if (
++        parsed.code === "ACTIVE_ELSEWHERE" ||
++        parsed.code === "CANCELLED"
++      ) {
++        dispatch({ type: "RUN_CANCELLED", runId });
++        return;
++      }
++      dispatch(parsed);
++    },
+     onRunFinalized: () => {
+       if (runFinishedDispatched) return;
+       dispatch({ type: "RUN_FINISHED", runId });

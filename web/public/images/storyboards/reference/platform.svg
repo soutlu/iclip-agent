@@ -1,0 +1,16 @@
+<svg viewBox="0 0 800 450" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice"><linearGradient id="ph" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4452"></stop><stop offset="1" stop-color="#232a3e"></stop></linearGradient>
+  <rect width="800" height="450" fill="url(#ph)"></rect>
+  <rect y="90" width="800" height="10" fill="#f2c879" opacity=".22"></rect>
+  <rect x="60" y="60" width="90" height="14" rx="7" fill="#f6ead0" opacity="0.5"></rect><rect x="220" y="60" width="90" height="14" rx="7" fill="#f6ead0" opacity="0.44"></rect><rect x="380" y="60" width="90" height="14" rx="7" fill="#f6ead0" opacity="0.38"></rect><rect x="540" y="60" width="90" height="14" rx="7" fill="#f6ead0" opacity="0.32"></rect><rect x="700" y="60" width="90" height="14" rx="7" fill="#f6ead0" opacity="0.26"></rect>
+  <rect y="240" width="800" height="14" fill="#171c2c"></rect>
+  <path d="M0,254 L800,254 L800,450 L0,450 Z" fill="#2c3147"></path>
+  <path d="M0,300 L800,286 L800,300 L0,316 Z" fill="#e8b34a" opacity=".75"></path>
+  <rect x="80" y="330" width="240" height="16" rx="8" fill="#3f4763"></rect>
+  <rect x="96" y="346" width="12" height="52" fill="#2a3049"></rect><rect x="292" y="346" width="12" height="52" fill="#2a3049"></rect>
+  <rect x="110" y="298" width="180" height="34" rx="8" fill="#3f4763"></rect>
+  <rect x="520" y="120" width="150" height="60" rx="8" fill="#171c2c" stroke="#3f4763" stroke-width="3"></rect>
+  <text x="595" y="157" text-anchor="middle" font-size="22" fill="#f2c879" font-family="sans-serif">2 号站台</text>
+  <ellipse cx="620" cy="392" rx="90" ry="12" fill="#f2c879" opacity=".12"></ellipse>
+  <g transform="translate(660,372) scale(1.15)" fill="#1c2133">
+    <circle cx="0" cy="-50" r="9"></circle><path d="M-8,-42 Q0,-46 8,-42 L10,-8 L6,-4 L7,26 L2,26 L0,0 L-2,26 L-7,26 L-6,-4 L-10,-8 Z"></path></g>
+  <rect x="380" y="330" width="52" height="66" rx="6" fill="#232a3e" stroke="#3f4763" stroke-width="3"></rect></svg>

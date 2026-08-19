@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Producer 设计系统 · M3</title>
+<!--
+  ============================================================================
+  Producer Design System · M3 规范基线（v15 已落地）
+  事实源：src/app/base.css + src/app/globals.css @theme（v14 配色 + v15 规范均已落地，同名同值）。
+  v15 已落地内容（2026-07-26 回写代码）：
+    字阶 7 档：body 基准 14px、全站下限 11px（10 / 10.5px 废除）
+    焦点环 3px + 2px offset · 禁用容器 12%（--color-disabled-container）
+    动效 150/250/400ms · 新增 --ease-decel / --ease-accel 不对称缓动
+    海拔 4 档：新增 --shadow-1 悬浮小件轻影
+    断点 600 / 840 窗口分级 · 图标按钮热区外扩 48px
+    组件规格成册（§05：8 控件标准尺寸 + 全站统一状态规则）
+    深色方案备案（§11：同色板 M3 dark 换档映射，MCU 计算；暂不启用，单浅色红线不变）
+  v15.1 存量清零（2026-07-26）：全站散落字面值吸附到 token/字阶（design-guard 基线 11 项全 0）；
+    字阶补 title-lg 20 / headline-lg 32 / display-sm 45 与画布字阶 text-canvas-*（18/20/22/24/26/28）；
+    新增媒体中立遮罩 --media-*、--color-on-scrim、局部堆叠 --z-local-*、brief 色卡与 AI 渐变身份色；
+    设计规范文档收敛为本文件一份（原 design-system.md 工程细则并入 frontend-implementation.md）
+  使用规则详见 docs/design-system.md；门禁 pnpm lint:design。单一浅色主题。
+  ============================================================================
+-->
+<style>
+  :root {
+    /* ===== 页面自身（poster 装饰，非产品 token） ===== */
+    --pg-bg: #0a0f1c;
+    --pg-card: #151d2e;
+    --pg-border: rgba(148, 163, 184, 0.14);
+    --pg-text: #e9edf4;
+    --pg-muted: #97a1b4;
+    --pg-accent: #53d7ef;
+
+    /* ===== ① Primitives（6 族 × 13 tone，MCU v0.4.0 生成） ===== */
+    --p0:#000000; --p10:#001f25; --p20:#00363e; --p30:#004e5a; --p40:#006876; --p50:#008395;
+    --p60:#009fb4; --p70:#29bbd2; --p80:#53d7ef; --p90:#a1efff; --p95:#d4f7ff; --p99:#f7fdff; --p100:#ffffff;
+    --s0:#000000; --s10:#002115; --s20:#003827; --s30:#15503c; --s40:#316853; --s50:#4a826a;
+    --s60:#649c83; --s70:#7eb79d; --s80:#99d3b8; --s90:#b4efd3; --s95:#c2fee1; --s99:#f4fff7; --s100:#ffffff;
+    --t0:#000000; --t10:#261a00; --t20:#402d00; --t30:#5b4300; --t40:#795900; --t50:#987100;
+    --t60:#b58a21; --t70:#d2a53b; --t80:#f0c053; --t90:#ffdf9f; --t95:#ffefd4; --t99:#fffbff; --t100:#ffffff;
+    --n0:#000000; --n10:#191c1f; --n20:#2e3134; --n30:#44474a; --n40:#5c5f62; --n50:#74777b;
+    --n60:#8e9194; --n70:#a9abaf; --n80:#c4c7ca; --n90:#e1e2e6; --n92:#e6e8ec; --n94:#eceef2;
+    --n95:#eff1f5; --n96:#f2f4f7; --n98:#f8f9fd; --n99:#fbfcff; --n100:#ffffff;
+    --nv0:#000000; --nv10:#161c21; --nv20:#2b3136; --nv30:#41484d; --nv40:#595f65; --nv50:#71787e;
+    --nv60:#8b9198; --nv70:#a6acb2; --nv80:#c1c7ce; --nv90:#dde3ea; --nv95:#ebf1f8; --nv99:#fbfcff; --nv100:#ffffff;
+    --e0:#000000; --e10:#410001; --e20:#690003; --e30:#910809; --e40:#b4271f; --e50:#d74034;
+    --e60:#fa5a4a; --e70:#ff8a7b; --e80:#ffb4aa; --e90:#ffdad5; --e95:#ffedea; --e99:#fffbff; --e100:#ffffff;
+
+    /* ===== ② Semantic roles（与 base.css 同名） ===== */
+    --color-primary: var(--p40);
+    --color-primary-hover: var(--p50);
+    --color-on-primary: var(--p100);
+    --color-primary-container: var(--p90);
+    --color-on-primary-container: var(--p10);
+    --color-primary-container-solid: var(--p70);
+    --color-primary-container-soft: var(--p95);
+    --color-secondary: var(--s40);
+    --color-on-secondary: var(--s100);
+    --color-secondary-container: var(--s90);
+    --color-on-secondary-container: var(--s10);
+    --color-tertiary: var(--t40);
+    --color-on-tertiary: var(--t100);
+    --color-tertiary-container: var(--t90);
+    --color-on-tertiary-container: var(--t10);
+    --color-error: var(--e40);
+    --color-on-error: var(--e100);
+    --color-error-container: var(--e90);
+    --color-on-error-container: var(--e10);
+    --color-warning: var(--color-tertiary);
+    --color-on-warning: var(--color-on-tertiary);
+    --color-warning-container: var(--color-tertiary-container);
+    --color-on-warning-container: var(--color-on-tertiary-container);
+    --color-surface: var(--n98);
+    --color-on-surface: var(--n10);
+    --color-surface-variant: var(--nv90);
+    --color-on-surface-variant: var(--nv30);
+    --color-outline: var(--nv50);
+    --color-outline-variant: var(--nv80);
+    --color-surface-container-lowest: var(--n100);
+    --color-surface-container-low: var(--n96);
+    --color-surface-container: var(--n94);
+    --color-surface-container-high: var(--n92);
+    --color-surface-container-highest: var(--n90);
+    --color-inverse-surface: var(--n20);
+    --color-inverse-on-surface: var(--n95);
+    --color-inverse-primary: var(--p80);
+
+    /* ===== ④ 尺度（globals.css @theme + base.css） ===== */
+    --radius-none:0; --radius-xs:4px; --radius-sm:8px; --radius-md:12px; --radius-lg:16px;
+    --radius-xl:20px; --radius-2xl:28px; --radius-3xl:32px; --radius-4xl:48px; --radius-full:9999px;
+    --shadow-1: 0 2px 8px rgba(25,28,31,0.08), 0 1px 3px rgba(25,28,31,0.05);
+    --shadow-2: 0 6px 20px rgba(25,28,31,0.11), 0 2px 6px rgba(25,28,31,0.07);
+    --shadow-3: 0 20px 56px rgba(25,28,31,0.22);
+    --dur-s:150ms; --dur-m:250ms; --dur-l:400ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --ease-decel: cubic-bezier(0, 0, 0, 1);
+    --ease-accel: cubic-bezier(0.3, 0, 1, 1);
+
+    /* ===== 深色方案备案（§11，同色板 MCU tone；未进 base.css） ===== */
+    --dkn4:#0b0f11; --dkn6:#101417; --dkn12:#1d2023; --dkn17:#272a2d; --dkn22:#323538;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--pg-bg);
+    background-image: radial-gradient(rgba(148,163,184,0.12) 1px, transparent 1px);
+    background-size: 24px 24px;
+    min-height: 100vh;
+    padding: 36px 24px 64px;
+    font-family: -apple-system, "SF Pro Text", "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--pg-text);
+    font-size: 14px;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .poster {
+    max-width: 1280px; margin: 0 auto;
+    background: #0f1626;
+    border: 1.5px solid rgba(83,215,239,0.45);
+    border-radius: 26px;
+    padding: 34px 32px 40px;
+    box-shadow: 0 0 0 5px rgba(83,215,239,0.06), 0 40px 120px rgba(0,0,0,0.5);
+  }
+  .poster-head { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:30px; padding:0 4px; }
+  .poster-head .title { font-size:19px; font-weight:700; letter-spacing:0.02em; }
+  .poster-head .title b { color: var(--pg-accent); }
+  .poster-head .note { color: var(--pg-muted); font-size:12.5px; }
+  .poster-head .note b { color: var(--pg-text); font-weight:600; }
+
+  .section-title {
+    font-size: 13.5px; font-weight: 700; letter-spacing: 0.08em;
+    color: var(--pg-muted); margin: 40px 4px 16px;
+  }
+  .section-title:first-of-type { margin-top: 0; }
+  .section-title em { color: var(--pg-accent); font-style: normal; }
+
+  .card { background: var(--pg-card); border: 1px solid var(--pg-border); border-radius: 18px; padding: 22px; }
+  .card.light { background: var(--color-surface); border-color: rgba(25,28,31,0.1); color: var(--color-on-surface); }
+
+  /* ===== M3 标准地图与章节导读 ===== */
+  .m3map { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .m3map .mi { border:1px solid var(--pg-border); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+  .m3map .mi .mn { font-size:13.5px; font-weight:650; }
+  .m3map .mi .mn small { color:var(--pg-muted); font-weight:400; margin-left:6px; font-size:11.5px; }
+  .m3map .mi .mw { font-size:12.5px; color:var(--pg-muted); }
+  .m3map .mi .mw b { color:var(--pg-accent); font-weight:600; }
+  .m3map .mi .st { align-self:flex-start; font-size:12px; font-weight:650; padding:2px 10px; border-radius:999px; margin-top:auto; }
+  .st.ok { color:#7ee3a8; background:rgba(126,227,168,0.12); }
+  .st.dev { color:#f0c053; background:rgba(240,192,83,0.12); }
+  .st.na { color:var(--pg-muted); background:rgba(148,163,184,0.12); }
+  .sec-intro { margin:-4px 4px 14px; max-width:1120px; font-size:13.5px; line-height:1.8; color:var(--pg-muted); }
+  .sec-intro b { color:var(--pg-text); font-weight:600; }
+  .m3tag { font-size:11.5px; font-weight:600; letter-spacing:0.04em; color:var(--pg-muted); border:1px solid var(--pg-border); border-radius:999px; padding:2px 10px; margin-left:10px; vertical-align:2px; }
+
+  /* ================= 00 · Token 架构 ================= */
+  .arch { display:flex; align-items:stretch; gap:0; flex-wrap:wrap; }
+  .arch .step { flex:1; min-width:200px; background:rgba(255,255,255,0.03); border:1px solid var(--pg-border); border-radius:14px; padding:16px 18px; position:relative; }
+  .arch .step + .step { margin-left: 34px; }
+  .arch .step + .step::before { content:"→"; position:absolute; left:-27px; top:50%; transform:translateY(-50%); color:var(--pg-accent); font-size:19px; font-weight:700; }
+  .arch .step .no { font-size:12px; color:var(--pg-accent); font-weight:700; letter-spacing:0.08em; }
+  .arch .step h4 { font-size:15px; margin:5px 0 7px; }
+  .arch .step p { font-size:13px; color:var(--pg-muted); line-height:1.65; }
+  .arch .step p code { color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  .arch .step .tag { display:inline-block; margin-top:10px; font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--pg-border); color:var(--pg-muted); }
+  .arch .step .tag.stop { color:#ff8a7b; border-color:rgba(255,138,123,0.4); }
+  .arch .step .tag.go { color:#7ee3a8; border-color:rgba(126,227,168,0.35); }
+
+  /* ================= 01 · 色板 ================= */
+  .palettes { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .palette .p-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+  .palette .p-name { font-size:15px; font-weight:650; }
+  .palette .p-name small { font-weight:400; color:var(--pg-muted); margin-left:7px; font-size:12px; }
+  .palette .p-hex { font-size:12px; color:var(--pg-muted); }
+  .palette .p-strip { display:flex; gap:3px; }
+  .palette .p-strip i {
+    flex:1; height:52px; border-radius:6px; display:flex; align-items:flex-end; justify-content:center;
+    padding-bottom:6px; font-size:11px; font-style:normal; font-family:ui-monospace,Menlo,monospace;
+  }
+  .palette .p-strip i.dk { color: rgba(11,18,32,0.62); }
+  .palette .p-strip i.lt { color: rgba(240,244,248,0.82); }
+  .palette .p-strip i.role { box-shadow: inset 0 0 0 2px rgba(255,255,255,0.9), 0 0 0 2px rgba(255,255,255,0.16); font-weight:700; }
+  .palette .p-strip i.role-lt { box-shadow: inset 0 0 0 2px rgba(11,18,32,0.6); font-weight:700; }
+  .palette .p-roles { display:flex; gap:8px; margin-top:12px; }
+  .palette .pair { flex:1; border-radius:10px; padding:9px 13px; display:flex; justify-content:space-between; align-items:center; font-size:12px; font-family:ui-monospace,Menlo,monospace; }
+  .palette .pair b { font-size:15px; font-weight:600; }
+  .palette .pair span { opacity:0.75; }
+
+  /* ================= 02 · 角色映射 ================= */
+  .scheme { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:14px; }
+  .scheme .col { display:flex; flex-direction:column; gap:5px; }
+  .scheme .blk { border-radius:12px; padding:13px 14px; }
+  .scheme .blk.main { min-height:76px; display:flex; flex-direction:column; justify-content:space-between; }
+  .scheme .blk .r-name { font-size:13.5px; font-weight:650; }
+  .scheme .blk .r-val { font-size:11.5px; font-family:ui-monospace,Menlo,monospace; opacity:0.8; margin-top:3px; }
+  .scheme .blk.thin { padding:9px 14px; border-radius:10px; }
+  .scheme .blk.thin .r-name { font-size:12.5px; }
+  .scheme .ext-badge { display:inline-block; font-size:11px; font-weight:700; letter-spacing:0.05em; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,0.22); }
+
+  .surface-card { color: var(--color-on-surface); }
+  .surface-card .s-head { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .surface-card .s-head .s-title { font-size:15px; font-weight:700; }
+  .surface-card .s-head .s-demo { font-size:13.5px; }
+  .surface-card .s-head .s-demo .sec { color: var(--color-on-surface-variant); }
+  .srf-stack { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
+  .srf-stack .cell { border:1px solid rgba(25,28,31,0.14); border-radius:10px; padding:12px 12px 10px; min-height:78px; display:flex; flex-direction:column; justify-content:space-between; }
+  .srf-stack .cell .nm { font-size:12.5px; font-weight:650; color:var(--color-on-surface); line-height:1.35; }
+  .srf-stack .cell .vv { font-size:11.5px; font-family:ui-monospace,Menlo,monospace; color:var(--color-on-surface-variant); margin-top:8px; }
+  .srf-foot { display:flex; gap:14px; margin-top:14px; flex-wrap:wrap; }
+  .srf-foot .box { flex:1; min-width:220px; border-radius:12px; padding:13px 15px; }
+  .srf-foot .inv { background: var(--color-inverse-surface); color: var(--color-inverse-on-surface); display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .srf-foot .inv .chiplet { background: var(--color-inverse-primary); color: var(--p10); border-radius:999px; padding:4px 12px; font-size:12px; font-weight:650; }
+  .srf-foot .outl { border:1px solid rgba(25,28,31,0.14); display:flex; flex-direction:column; gap:8px; justify-content:center; }
+  .srf-foot .outl .lrow { display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--color-on-surface); }
+  .srf-foot .outl .lrow .swl { width:44px; height:14px; border-radius:4px; }
+  .srf-foot .outl .lrow span { color: var(--color-on-surface-variant); font-family:ui-monospace,Menlo,monospace; font-size:11.5px; }
+  .srf-foot .fixedr { border:1px solid rgba(25,28,31,0.14); }
+  .srf-foot .fixedr .frow { display:flex; gap:5px; margin-top:8px; }
+  .srf-foot .fixedr .frow i { flex:1; height:26px; border-radius:6px; }
+  .srf-foot .fixedr .fl { font-size:12.5px; font-weight:650; }
+
+  /* ================= 03 · State layers ================= */
+  .states { display:grid; grid-template-columns: repeat(5, 1fr) 1.35fr; gap:12px; align-items:stretch; }
+  .states .st { border:1px solid rgba(25,28,31,0.12); border-radius:12px; padding:14px; min-height:96px; display:flex; flex-direction:column; justify-content:space-between; color:var(--color-on-surface); }
+  .states .st .sn { font-size:13px; font-weight:650; }
+  .states .st .sv { font-size:12px; font-family:ui-monospace,Menlo,monospace; color:var(--color-on-surface-variant); }
+  .states .focusdemo { display:flex; flex-direction:column; gap:10px; align-items:flex-start; justify-content:center; border:1px dashed rgba(25,28,31,0.2); border-radius:12px; padding:14px 16px; }
+  .states .focusdemo button {
+    font:650 14px/1 inherit; font-family:inherit; padding:10px 20px; border:none; border-radius:var(--radius-md);
+    background: var(--color-primary); color: var(--color-on-primary); cursor:pointer;
+    outline: 3px solid var(--color-primary); outline-offset: 2px;
+  }
+  .states .focusdemo button.dis {
+    background: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
+    color: color-mix(in srgb, var(--color-on-surface) 38%, transparent);
+    outline: none; cursor: not-allowed;
+  }
+  .states .focusdemo .cap { font-size:12.5px; color:var(--color-on-surface-variant); line-height:1.5; }
+  .states .disab { color: color-mix(in srgb, var(--color-on-surface) 38%, transparent); font-weight:650; font-size:13.5px; }
+
+  /* ================= 04 · 组件 ================= */
+  .compgrid { display:grid; grid-template-columns:repeat(5,1fr); gap:16px 14px; }
+  .compgrid .cc { display:flex; flex-direction:column; align-items:center; gap:10px; justify-content:flex-end; }
+  .compgrid .cc .lab { font-size:12px; color:var(--color-on-surface-variant); text-align:center; line-height:1.45; }
+  .ui-btn { font:650 14px/20px inherit; font-family:inherit; padding:10px 22px; border:none; border-radius:var(--radius-md); cursor:pointer; transition: transform var(--dur-s) var(--ease), background var(--dur-s) var(--ease); }
+  .ui-btn:hover { transform:scale(1.05); }
+  .ui-btn:active { transform:scale(0.95); }
+  .ui-btn.primary { background:var(--color-primary); color:var(--color-on-primary); }
+  .ui-btn.primary:hover { background:var(--color-primary-hover); }
+  .ui-btn.tonal { background:var(--color-secondary-container); color:var(--color-on-secondary-container); }
+  .ui-btn.inverted { background:var(--color-inverse-surface); color:var(--color-inverse-on-surface); }
+  .ui-btn.outlined { background:transparent; color:var(--color-primary); border:1px solid var(--color-outline); }
+  .ui-btn.danger { background:var(--color-error); color:var(--color-on-error); }
+  .bubble { max-width:100%; border-radius:var(--radius-xl); padding:11px 15px; font-size:13px; line-height:18px; }
+  .bubble.user { background:var(--color-secondary-container); color:var(--color-on-secondary-container); border:1px solid color-mix(in srgb, var(--color-secondary) 35%, transparent); }
+  .bubble.assistant { background:var(--color-surface-container-lowest); color:var(--color-on-surface); border:1px solid var(--color-outline-variant); }
+  .ui-input { width:100%; display:flex; align-items:center; gap:9px; background:rgba(255,255,255,0.76); border:1px solid var(--color-outline); border-radius:var(--radius-lg); padding:11px 15px; color:var(--color-on-surface-variant); font-size:14px; }
+  .ui-chip { display:inline-flex; align-items:center; gap:7px; background:var(--color-primary-container-soft); border:1.5px solid var(--color-primary-container-solid); color:var(--color-on-primary-container); font-size:13px; font-weight:600; border-radius:var(--radius-full); padding:7px 15px; }
+  .ui-tag { display:inline-flex; align-items:center; background:var(--color-primary-container-solid); color:var(--p10); font-size:12px; font-weight:650; border-radius:var(--radius-xs); padding:4px 9px; }
+  .iconrow { display:flex; gap:8px; }
+  .iconbtn { position:relative; width:40px; height:40px; border-radius:var(--radius-full); display:flex; align-items:center; justify-content:center; color:var(--color-on-surface-variant); cursor:pointer; transition:background var(--dur-s) var(--ease); }
+  .iconbtn::after { content:""; position:absolute; inset:-4px; border-radius:inherit; }
+  .iconbtn.showhit::after { border:1.5px dashed color-mix(in srgb, var(--color-on-surface) 32%, transparent); }
+  .iconbtn:hover { background: color-mix(in srgb, var(--color-on-surface) 8%, transparent); }
+  .iconbtn.active { background:var(--color-primary-container); color:var(--color-on-primary-container); }
+  .linkdemo { font-size:14px; color:var(--color-primary); border-bottom:1px solid color-mix(in srgb, var(--color-primary) 34%, transparent); padding-bottom:1px; cursor:pointer; }
+  .statusrow { display:flex; gap:16px; font-size:13px; font-weight:650; }
+  .statusrow .stt { display:flex; align-items:center; gap:6px; }
+  .statusrow .dot { width:9px; height:9px; border-radius:50%; }
+  .comp-foot { display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap; margin-top:20px; padding-top:16px; border-top:1px dashed rgba(25,28,31,0.16); }
+
+  /* ================= 05 · 组件规格 ================= */
+  .specgrid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .sc { border:1px solid rgba(25,28,31,0.1); border-radius:12px; overflow:hidden; display:flex; flex-direction:column; }
+  .sc .stage { flex:1; min-height:104px; display:flex; align-items:center; justify-content:center; background:var(--color-surface); padding:18px 14px; }
+  .sc .sl { border-top:1px dashed rgba(25,28,31,0.14); background:var(--color-surface-container-lowest); padding:9px 13px 11px; font-size:12px; color:var(--color-on-surface-variant); line-height:1.5; }
+  .sc .sl b { display:block; color:var(--color-on-surface); font-size:12.5px; margin-bottom:2px; }
+  .menu-demo { background:var(--color-surface-container-lowest); border-radius:var(--radius-md); box-shadow:var(--shadow-2); padding:4px; width:132px; }
+  .menu-demo i { display:flex; align-items:center; height:36px; border-radius:var(--radius-sm); padding:0 12px; font-style:normal; font-size:13px; color:var(--color-on-surface); }
+  .menu-demo i.hov { background:color-mix(in srgb, var(--color-on-surface) 8%, transparent); }
+  .dlg-demo { width:150px; height:84px; background:var(--color-surface-container-lowest); border-radius:var(--radius-2xl); box-shadow:var(--shadow-3); }
+  .spec-states { margin-top:16px; padding-top:14px; border-top:1px dashed rgba(25,28,31,0.16); font-size:12.5px; color:var(--color-on-surface-variant); line-height:1.8; }
+  .spec-states b { color:var(--color-on-surface); }
+
+  /* ================= 05 · 字阶 ================= */
+  .typegrid { display:grid; grid-template-columns: 1fr 340px; gap:16px; }
+  .typerow { display:flex; align-items:baseline; gap:20px; padding:13px 4px; border-bottom:1px dashed var(--pg-border); }
+  .typerow:last-child { border-bottom:none; }
+  .typerow .sample { color:#e4eaf3; white-space:nowrap; letter-spacing:-0.01em; }
+  .typerow .meta { margin-left:auto; text-align:right; flex-shrink:0; }
+  .typerow .meta .tname { font-size:13px; font-weight:650; color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; }
+  .typerow .meta .tval { font-size:12.5px; color:var(--pg-muted); margin-top:2px; }
+  .fontcard p { font-size:13px; color:var(--pg-muted); line-height:1.8; }
+  .fontcard p b { color:var(--pg-text); font-weight:600; }
+  .fontcard .fa { font-size:44px; color:#e4eaf3; line-height:1.2; }
+  .fontcard .fa.serif { font-family: Georgia, "Times New Roman", serif; font-style: italic; }
+  .fontcard hr { border:none; border-top:1px dashed var(--pg-border); margin:14px 0; }
+
+  /* ================= 06 · 圆角尺 ================= */
+  .shapes { display:flex; gap:20px; align-items:flex-end; flex-wrap:wrap; }
+  .shape-item { text-align:center; color:var(--pg-muted); font-size:12.5px; line-height:1.55; }
+  .shape-item .box { width:76px; height:58px; margin:0 auto 9px; background:rgba(83,215,239,0.1); border:1.5px solid var(--pg-accent); }
+  .shape-item .name { color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; font-size:12.5px; font-weight:600; }
+
+  /* ================= 07 · 海拔与动效 ================= */
+  .duo2 { display:grid; grid-template-columns: 1.2fr 1fr; gap:16px; }
+  .elev { display:flex; gap:12px; align-items:center; justify-content:center; padding:28px 4px; flex-wrap:wrap; }
+  .elev .tile { width:134px; height:106px; background:var(--color-surface-container-lowest); border-radius:var(--radius-lg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; color:var(--color-on-surface); }
+  .elev .tile .en { font-size:13.5px; font-weight:650; }
+  .elev .tile .ev { font-size:12px; color:var(--color-on-surface-variant); font-family:ui-monospace,Menlo,monospace; }
+  .elev .tile.flat { border:1px solid var(--color-outline-variant); }
+  .elev .tile.e1 { box-shadow: var(--shadow-1); }
+  .elev .tile.e2 { box-shadow: var(--shadow-2); }
+  .elev .tile.e3 { box-shadow: var(--shadow-3); }
+  .motion .mrow { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
+  .motion .mrow .mn { width:118px; font-size:13px; color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; }
+  .motion .mrow .track { flex:1; height:10px; border-radius:5px; background:rgba(148,163,184,0.16); overflow:hidden; }
+  .motion .mrow .track i { display:block; height:100%; width:22%; border-radius:5px; background:var(--pg-accent); transition-property:width; transition-timing-function:var(--ease); }
+  .motion:hover .track i { width:100%; }
+  .motion .mrow.s .track i { transition-duration: var(--dur-s); }
+  .motion .mrow.m .track i { transition-duration: var(--dur-m); }
+  .motion .mrow.l .track i { transition-duration: var(--dur-l); }
+  .motion .mfoot { display:flex; gap:10px; margin-top:18px; }
+  .motion .curve { flex:1; display:flex; align-items:center; gap:10px; background:rgba(255,255,255,0.03); border:1px solid var(--pg-border); border-radius:10px; padding:9px 11px; min-width:0; }
+  .motion .curve svg { flex-shrink:0; }
+  .motion .curve b { display:block; font-size:12.5px; color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; font-weight:600; }
+  .motion .curve span { display:block; font-size:12px; color:var(--pg-muted); margin-top:2px; line-height:1.45; }
+
+  /* ================= 08 · 层级与布局 ================= */
+  .bpbar { display:flex; gap:5px; margin-bottom:20px; }
+  .bpbar .seg { border:1px solid rgba(83,215,239,0.25); border-radius:10px; padding:10px 14px; min-width:0; }
+  .bpbar .s1 { flex:600; background:rgba(83,215,239,0.05); }
+  .bpbar .s2 { flex:240; background:rgba(83,215,239,0.11); }
+  .bpbar .s3 { flex:440; background:rgba(83,215,239,0.18); }
+  .bpbar b { display:block; font-size:13px; color:var(--pg-text); white-space:nowrap; }
+  .bpbar span { font-size:12px; color:var(--pg-muted); }
+  .zwrap { position:relative; height:236px; }
+  .zstep { position:absolute; width:186px; padding:11px 14px; background:rgba(21,29,46,0.94); border:1px solid rgba(83,215,239,0.3); border-radius:12px; }
+  .zstep .zn { font-size:13px; font-weight:650; }
+  .zstep .zv { font-size:12px; color:var(--pg-muted); font-family:ui-monospace,Menlo,monospace; margin-top:3px; }
+  .laygrid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:18px; }
+  .laygrid .lt { border:1px dashed var(--pg-border); border-radius:10px; padding:11px 14px; }
+  .laygrid .lt .lrow1 { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .laygrid .lt .ln { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; color:var(--pg-text); font-weight:600; }
+  .laygrid .lt .lv { font-family:ui-monospace,Menlo,monospace; font-size:13px; color:var(--pg-accent); flex-shrink:0; }
+  .laygrid .lt .ld { font-size:12.5px; color:var(--pg-muted); margin-top:4px; }
+
+  /* ================= 09 · 领域扩展 ================= */
+  .fam { display:flex; align-items:flex-start; gap:16px; padding:13px 4px; border-bottom:1px dashed var(--pg-border); }
+  .fam:last-child { border-bottom:none; }
+  .fam .fname { width:200px; flex-shrink:0; }
+  .fam .fname b { font-size:13.5px; font-weight:650; color:var(--pg-text); display:block; }
+  .fam .fname span { font-size:12px; color:var(--pg-muted); font-family:ui-monospace,Menlo,monospace; }
+  .fam .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chipd { display:inline-flex; align-items:center; gap:8px; font-size:12.5px; color:var(--pg-text); background:rgba(255,255,255,0.035); border:1px solid var(--pg-border); border-radius:8px; padding:6px 11px; }
+  .chipd .dot { width:15px; height:15px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); flex-shrink:0; }
+  .chipd.paper { border:none; font-weight:600; }
+
+  /* ================= 11 · 深色方案（备案） ================= */
+  .darkcard { background:var(--dkn6); border:1px solid rgba(148,163,184,0.22); color:var(--n90); }
+  .dk-surf { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
+  .dk-surf .cell { border:1px solid rgba(225,226,230,0.14); border-radius:10px; padding:12px 12px 10px; min-height:74px; display:flex; flex-direction:column; justify-content:space-between; }
+  .dk-surf .cell .nm { font-size:12.5px; font-weight:650; color:var(--n90); line-height:1.35; }
+  .dk-surf .cell .vv { font-size:11.5px; font-family:ui-monospace,Menlo,monospace; color:var(--nv80); margin-top:8px; }
+  .dk-foot { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px dashed rgba(225,226,230,0.16); }
+  .dk-foot .demo-btn { font:650 14px/20px inherit; font-family:inherit; padding:10px 22px; border:none; border-radius:var(--radius-md); background:var(--p80); color:var(--p20); }
+  .dk-foot .demo-bubble { border-radius:var(--radius-xl); padding:10px 14px; font-size:13px; background:var(--s30); color:var(--s90); }
+  .dk-foot .demo-chip { display:inline-flex; align-items:center; gap:7px; border-radius:var(--radius-full); padding:7px 15px; font-size:13px; font-weight:600; background:var(--t30); color:var(--t90); }
+  .dk-foot .demo-link { font-size:13px; color:var(--p80); border-bottom:1px solid color-mix(in srgb, var(--p80) 40%, transparent); }
+  .dk-foot .demo-text { font-size:13px; color:var(--n90); }
+  .dk-foot .demo-text span { color:var(--nv80); }
+
+  @media (max-width: 1080px) {
+    .palettes, .scheme, .compgrid, .states, .m3map, .specgrid { grid-template-columns: 1fr 1fr; }
+    .typegrid, .duo2 { grid-template-columns: 1fr; }
+    .srf-stack, .dk-surf { grid-template-columns: repeat(3,1fr); }
+    .zwrap { display:none; }
+    .bpbar, .motion .mfoot { flex-direction:column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="poster">
+  <div class="poster-head">
+    <div class="title">Producer <b>设计系统</b> · M3 全景</div>
+    <div class="note">v15.1 <b>规范基线</b>（已落地 base.css / globals.css，2026-07-26；存量清零、门禁基线全 0；深色方案仅备案）· 单一浅色主题 · 本文件是唯一设计规范</div>
+  </div>
+
+  <!-- ============ M3 标准地图 ============ -->
+  <div class="section-title"><em>M3 标准地图</em>　Material Design 3 由哪些子系统构成、各节对应关系与合规状态</div>
+  <div class="card" style="margin-bottom:8px">
+    <div class="m3map">
+      <div class="mi"><span class="mn">颜色<small>Color</small></span><span class="mw">→ <b>§01 · 02 · 10</b>　整套用色怎么生成、怎么用</span><span class="st ok">✓ 已对齐（v14）</span></div>
+      <div class="mi"><span class="mn">字体排印<small>Typography</small></span><span class="mw">→ <b>§06</b>　全站文字该用哪几种字号</span><span class="st ok">✓ 正文 14 · 下限 11</span></div>
+      <div class="mi"><span class="mn">形状<small>Shape</small></span><span class="mw">→ <b>§07</b>　什么组件配多大圆角</span><span class="st ok">✓ 完全对齐</span></div>
+      <div class="mi"><span class="mn">海拔<small>Elevation</small></span><span class="mw">→ <b>§08</b>　怎么表现一个东西「浮」在页面上</span><span class="st ok">✓ 4 档阶梯</span></div>
+      <div class="mi"><span class="mn">动效<small>Motion</small></span><span class="mw">→ <b>§08</b>　动画多快、怎么加减速</span><span class="st ok">✓ M3 时值 · 三条曲线</span></div>
+      <div class="mi"><span class="mn">交互状态<small>Interaction States</small></span><span class="mw">→ <b>§03</b>　悬停、按下、选中时的反馈</span><span class="st ok">✓ 焦点环 3px · 含手感自定</span></div>
+      <div class="mi"><span class="mn">设计令牌<small>Design Tokens</small></span><span class="mw">→ <b>§00</b>　颜色尺寸都存成变量统一管理</span><span class="st ok">✓ 已对齐</span></div>
+      <div class="mi"><span class="mn">组件规格<small>Components</small></span><span class="mw">→ <b>§04 · 05</b>　按钮、输入框等的标准尺寸形态</span><span class="st ok">✓ 规格成册（M3 密度 −3 档 + 四处形状签名）</span></div>
+      <div class="mi"><span class="mn">布局自适应<small>Layout / Adaptive</small></span><span class="mw">→ <b>§09</b>　不同屏幕宽度下怎么排版</span><span class="st ok">✓ 600 / 840 分级</span></div>
+      <div class="mi"><span class="mn">无障碍<small>Accessibility</small></span><span class="mw">→ 贯穿全页　看得清、点得到、键盘能操作</span><span class="st ok">✓ 热区 48 · 对比达标</span></div>
+      <div class="mi"><span class="mn">图标<small>Icons</small></span><span class="mw">M3 自带一套官方图标库</span><span class="st na">未采用 · 自有 SVG</span></div>
+      <div class="mi"><span class="mn">深色方案<small>Dark Scheme</small></span><span class="mw">→ <b>§11</b>　明暗两套配色，同一色板换档位</span><span class="st dev">备案 · 暂不启用</span></div>
+    </div>
+  </div>
+
+  <!-- ============ 00 · Token 架构 ============ -->
+  <div class="section-title">00 · <em>Token 分层架构</em><span class="m3tag">M3 Foundations · Design Tokens</span></div>
+  <div class="sec-intro">可以理解成<b>变量管理</b>：颜色不直接写死在界面代码里，而是先存成一份总色卡（① 原子色板），再给每个颜色起「用途名」（② 层，比如"主按钮色""正文色"），界面代码只写用途名。好处：将来换色只改一处定义，全站生效——这次 v14 换色就是这么做到的。另有自动检查工具（design-guard）拦住任何写死色号的代码。</div>
+  <div class="card">
+    <div class="arch">
+      <div class="step">
+        <div class="no">① PRIMITIVES</div>
+        <h4>原子色板</h4>
+        <p>6 族 × 13 tone · HCT<br><code>--p40 --n95 --nv30 …</code></p>
+        <span class="tag stop">组件禁止直接引用</span>
+      </div>
+      <div class="step">
+        <div class="no">② SEMANTIC ROLES</div>
+        <h4>M3 语义角色</h4>
+        <p>四件套 + state layer<br><code>--color-primary --color-surface-*</code></p>
+        <span class="tag go">新代码引用这一层</span>
+      </div>
+      <div class="step">
+        <div class="no">③ DOMAIN TOKENS</div>
+        <h4>领域扩展</h4>
+        <p>业务别名与扩展色<br><code>--color-chat-* --color-brief-*</code></p>
+        <span class="tag go">领域组件引用</span>
+      </div>
+      <div class="step">
+        <div class="no">④ SCALES</div>
+        <h4>尺度体系</h4>
+        <p>圆角 · 字阶 · 阴影 · 动效 · z · 布局<br><code>rounded-md text-body --dur-s</code></p>
+        <span class="tag go">TSX 工具类 / CSS var()</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 01 · 色板 ============ -->
+  <div class="section-title">01 · <em>色板体系</em>　6 族 × 13 阶<span class="m3tag">M3 Styles · Color</span></div>
+  <div class="sec-intro">M3 配色的第一步：选一个品牌色，由算法把它从深到浅推出 <b>13 个梯度</b>（0 = 纯黑，100 = 纯白），这一排叫一个「色族」。之后全站只从这些梯度里挑颜色。最大的好处：两个梯度只要相差 40 以上，文字放上去<b>一定看得清</b>——可读性是数学保证的，不用逐个肉眼检查。<b>加白框的格子</b>就是当前正在使用的档位，悬停可以看到具体用途。</div>
+  <div class="palettes">
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--p80)">Primary · 青<small>h213 c48</small></span><span class="p-hex mono">40 #006876</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--p0)" title="#000000">0</i><i class="lt" style="background:var(--p10)" title="#001F25 ← on-container">10</i><i class="lt" style="background:var(--p20)" title="#00363E">20</i><i class="lt" style="background:var(--p30)" title="#004E5A">30</i><i class="lt role" style="background:var(--p40)" title="#006876 ← primary">40</i><i class="lt role" style="background:var(--p50)" title="#008395 ← primary-hover">50</i><i class="dk role-lt" style="background:var(--p60)" title="#009FB4 ← 画布选中">60</i><i class="dk role-lt" style="background:var(--p70)" title="#29BBD2 ← container-solid">70</i><i class="dk" style="background:var(--p80)" title="#53D7EF ← inverse-primary">80</i><i class="dk role-lt" style="background:var(--p90)" title="#A1EFFF ← primary-container">90</i><i class="dk role-lt" style="background:var(--p95)" title="#D4F7FF ← container-soft">95</i><i class="dk" style="background:var(--p99)" title="#F7FDFF">99</i><i class="dk" style="background:var(--p100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-primary);color:var(--color-on-primary)"><b>Aa</b><span>primary</span></div>
+        <div class="pair" style="background:var(--color-primary-container);color:var(--color-on-primary-container)"><b>Aa</b><span>container</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--s80)">Secondary · 薄荷<small>h168 c30</small></span><span class="p-hex mono">40 #316853</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--s0)" title="#000000">0</i><i class="lt" style="background:var(--s10)" title="#002115 ← on-container">10</i><i class="lt" style="background:var(--s20)" title="#003827">20</i><i class="lt" style="background:var(--s30)" title="#15503C">30</i><i class="lt role" style="background:var(--s40)" title="#316853 ← secondary">40</i><i class="lt" style="background:var(--s50)" title="#4A826A">50</i><i class="dk" style="background:var(--s60)" title="#649C83">60</i><i class="dk" style="background:var(--s70)" title="#7EB79D">70</i><i class="dk" style="background:var(--s80)" title="#99D3B8 ← fixed-dim">80</i><i class="dk role-lt" style="background:var(--s90)" title="#B4EFD3 ← secondary-container">90</i><i class="dk" style="background:var(--s95)" title="#C2FEE1">95</i><i class="dk" style="background:var(--s99)" title="#F4FFF7">99</i><i class="dk" style="background:var(--s100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-secondary);color:var(--color-on-secondary)"><b>Aa</b><span>secondary</span></div>
+        <div class="pair" style="background:var(--color-secondary-container);color:var(--color-on-secondary-container)"><b>Aa</b><span>container</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--t80)">Tertiary · 琥珀<small>h86 c44</small></span><span class="p-hex mono">40 #795900</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--t0)" title="#000000">0</i><i class="lt role" style="background:var(--t10)" title="#261A00 ← on-container">10</i><i class="lt" style="background:var(--t20)" title="#402D00">20</i><i class="lt" style="background:var(--t30)" title="#5B4300">30</i><i class="lt role" style="background:var(--t40)" title="#795900 ← tertiary（= warning）">40</i><i class="lt" style="background:var(--t50)" title="#987100">50</i><i class="dk" style="background:var(--t60)" title="#B58A21">60</i><i class="dk" style="background:var(--t70)" title="#D2A53B">70</i><i class="dk" style="background:var(--t80)" title="#F0C053 ← fixed-dim">80</i><i class="dk role-lt" style="background:var(--t90)" title="#FFDF9F ← tertiary-container">90</i><i class="dk" style="background:var(--t95)" title="#FFEFD4">95</i><i class="dk" style="background:var(--t99)" title="#FFFBFF">99</i><i class="dk" style="background:var(--t100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-tertiary);color:var(--color-on-tertiary)"><b>Aa</b><span>tertiary</span></div>
+        <div class="pair" style="background:var(--color-tertiary-container);color:var(--color-on-tertiary-container)"><b>Aa</b><span>container</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--n80)">Neutral · 蓝灰<small>h240 c5</small></span><span class="p-hex mono">98 #F8F9FD</span></div>
+      <div class="p-strip">
+        <i class="lt role" style="background:var(--n0)" title="#000000 ← scrim/shadow">0</i><i class="lt role" style="background:var(--n10)" title="#191C1F ← on-surface">10</i><i class="lt role" style="background:var(--n20)" title="#2E3134 ← inverse-surface">20</i><i class="lt" style="background:var(--n30)" title="#44474A">30</i><i class="lt" style="background:var(--n40)" title="#5C5F62">40</i><i class="lt" style="background:var(--n50)" title="#74777B">50</i><i class="dk" style="background:var(--n60)" title="#8E9194">60</i><i class="dk" style="background:var(--n70)" title="#A9ABAF">70</i><i class="dk" style="background:var(--n80)" title="#C4C7CA">80</i><i class="dk role-lt" style="background:var(--n90)" title="#E1E2E6 ← container-highest（92/94/96/98 扩展档见 Surface 卡）">90</i><i class="dk" style="background:var(--n95)" title="#EFF1F5">95</i><i class="dk role-lt" style="background:var(--n98)" title="#F8F9FD ← surface">98</i><i class="dk role-lt" style="background:var(--n100)" title="#FFFFFF ← container-lowest">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-surface);color:var(--color-on-surface);box-shadow:inset 0 0 0 1px var(--nv80)"><b>Aa</b><span>surface</span></div>
+        <div class="pair" style="background:var(--color-inverse-surface);color:var(--color-inverse-on-surface)"><b>Aa</b><span>inverse</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--nv70)">Neutral-Variant<small>h240 c8</small></span><span class="p-hex mono">50 #71787E</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--nv0)" title="#000000">0</i><i class="lt" style="background:var(--nv10)" title="#161C21">10</i><i class="lt" style="background:var(--nv20)" title="#2B3136">20</i><i class="lt role" style="background:var(--nv30)" title="#41484D ← on-surface-variant">30</i><i class="lt role" style="background:var(--nv40)" title="#595F65 ← chat-muted-text">40</i><i class="lt role" style="background:var(--nv50)" title="#71787E ← outline">50</i><i class="dk" style="background:var(--nv60)" title="#8B9198">60</i><i class="dk" style="background:var(--nv70)" title="#A6ACB2 ← 点阵基色">70</i><i class="dk role-lt" style="background:var(--nv80)" title="#C1C7CE ← outline-variant">80</i><i class="dk role-lt" style="background:var(--nv90)" title="#DDE3EA ← surface-variant">90</i><i class="dk" style="background:var(--nv95)" title="#EBF1F8">95</i><i class="dk" style="background:var(--nv99)" title="#FBFCFF">99</i><i class="dk" style="background:var(--nv100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-surface-variant);color:var(--color-on-surface-variant)"><b>Aa</b><span>variant</span></div>
+        <div class="pair" style="background:var(--color-outline);color:#ffffff"><b>Aa</b><span>outline</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--e70)">Error · 红<small>h26 c76</small></span><span class="p-hex mono">40 #B4271F</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--e0)" title="#000000">0</i><i class="lt role" style="background:var(--e10)" title="#410001 ← on-container">10</i><i class="lt" style="background:var(--e20)" title="#690003">20</i><i class="lt role" style="background:var(--e30)" title="#910809 ← 危险文字">30</i><i class="lt role" style="background:var(--e40)" title="#B4271F ← error">40</i><i class="lt" style="background:var(--e50)" title="#D74034">50</i><i class="dk" style="background:var(--e60)" title="#FA5A4A">60</i><i class="dk" style="background:var(--e70)" title="#FF8A7B">70</i><i class="dk role-lt" style="background:var(--e80)" title="#FFB4AA ← danger-border">80</i><i class="dk role-lt" style="background:var(--e90)" title="#FFDAD5 ← error-container">90</i><i class="dk" style="background:var(--e95)" title="#FFEDEA">95</i><i class="dk" style="background:var(--e99)" title="#FFFBFF">99</i><i class="dk" style="background:var(--e100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-error);color:var(--color-on-error)"><b>Aa</b><span>error</span></div>
+        <div class="pair" style="background:var(--color-error-container);color:var(--color-on-error-container)"><b>Aa</b><span>container</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ 02 · 角色映射 ============ -->
+  <div class="section-title">02 · <em>颜色角色</em><span class="m3tag">M3 Styles · Color</span></div>
+  <div class="sec-intro">M3 不允许「想用哪个色号就用哪个」，而是给颜色定<b>岗位</b>：Primary 是最抢眼的品牌色（主按钮用它）、On Primary 是写在它上面的文字色、Container 是同色系的浅色底、On Container 是浅底上的文字——<b>四个永远配套用</b>，任何组合都保证看得清。下面的 Surface 是页面和卡片的底色，6 档由白到灰，用来表示「谁叠在谁上面」：越靠上的层越白。</div>
+
+  <div class="scheme">
+    <div class="col">
+      <div class="blk main" style="background:var(--color-primary);color:var(--color-on-primary)"><span class="r-name">Primary</span><span class="r-val">P40 #006876</span></div>
+      <div class="blk thin" style="background:var(--color-on-primary);color:var(--color-primary);border:1px solid var(--nv80)"><span class="r-name">On Primary</span></div>
+      <div class="blk main" style="background:var(--color-primary-container);color:var(--color-on-primary-container)"><span class="r-name">Primary Container</span><span class="r-val">P90 #A1EFFF</span></div>
+      <div class="blk thin" style="background:var(--color-on-primary-container);color:var(--color-primary-container)"><span class="r-name">On Container · P10</span></div>
+    </div>
+    <div class="col">
+      <div class="blk main" style="background:var(--color-secondary);color:var(--color-on-secondary)"><span class="r-name">Secondary</span><span class="r-val">S40 #316853</span></div>
+      <div class="blk thin" style="background:var(--color-on-secondary);color:var(--color-secondary);border:1px solid var(--nv80)"><span class="r-name">On Secondary</span></div>
+      <div class="blk main" style="background:var(--color-secondary-container);color:var(--color-on-secondary-container)"><span class="r-name">Secondary Container</span><span class="r-val">S90 #B4EFD3</span></div>
+      <div class="blk thin" style="background:var(--color-on-secondary-container);color:var(--color-secondary-container)"><span class="r-name">On Container · S10</span></div>
+    </div>
+    <div class="col">
+      <div class="blk main" style="background:var(--color-tertiary);color:var(--color-on-tertiary)"><span class="r-name">Tertiary</span><span class="r-val">T40 #795900</span></div>
+      <div class="blk thin" style="background:var(--color-on-tertiary);color:var(--color-tertiary);border:1px solid var(--nv80)"><span class="r-name">On Tertiary</span></div>
+      <div class="blk main" style="background:var(--color-tertiary-container);color:var(--color-on-tertiary-container)"><span class="r-name">Tertiary Container</span><span class="r-val">T90 #FFDF9F</span></div>
+      <div class="blk thin" style="background:var(--color-on-tertiary-container);color:var(--color-tertiary-container)"><span class="r-name">On Container · T10</span></div>
+    </div>
+    <div class="col">
+      <div class="blk main" style="background:var(--color-error);color:var(--color-on-error)"><span class="r-name">Error</span><span class="r-val">E40 #B4271F</span></div>
+      <div class="blk thin" style="background:var(--color-on-error);color:var(--color-error);border:1px solid var(--nv80)"><span class="r-name">On Error</span></div>
+      <div class="blk main" style="background:var(--color-error-container);color:var(--color-on-error-container)"><span class="r-name">Error Container</span><span class="r-val">E90 #FFDAD5</span></div>
+      <div class="blk thin" style="background:var(--color-on-error-container);color:var(--color-error-container)"><span class="r-name">On Container · E10</span></div>
+    </div>
+    <div class="col">
+      <div class="blk main" style="background:var(--color-warning);color:var(--color-on-warning)"><span class="r-name">Warning <span class="ext-badge">T 族别名</span></span><span class="r-val">= T40 #795900</span></div>
+      <div class="blk thin" style="background:var(--color-on-warning);color:var(--color-warning);border:1px solid var(--nv80)"><span class="r-name">On Warning</span></div>
+      <div class="blk main" style="background:var(--color-warning-container);color:var(--color-on-warning-container)"><span class="r-name">Warning Container</span><span class="r-val">= T90 #FFDF9F</span></div>
+      <div class="blk thin" style="background:var(--color-on-warning-container);color:var(--color-warning-container)"><span class="r-name">On Container</span></div>
+    </div>
+  </div>
+
+  <div class="card light surface-card">
+    <div class="s-head">
+      <span class="s-title">Surface · N98 #F8F9FD</span>
+      <span class="s-demo">On Surface 主文字 · <span class="sec">On Surface Variant 次级文字</span></span>
+    </div>
+    <div class="srf-stack">
+      <div class="cell" style="background:var(--color-surface-container-lowest)"><span class="nm">Container Lowest<br>卡片</span><span class="vv">N100 #FFFFFF</span></div>
+      <div class="cell" style="background:var(--color-surface-container-low)"><span class="nm">Container Low</span><span class="vv">N96 #F2F4F7</span></div>
+      <div class="cell" style="background:var(--color-surface-container)"><span class="nm">Container</span><span class="vv">N94 #ECEEF2</span></div>
+      <div class="cell" style="background:var(--color-surface-container-high)"><span class="nm">Container High</span><span class="vv">N92 #E6E8EC</span></div>
+      <div class="cell" style="background:var(--color-surface-container-highest)"><span class="nm">Container Highest</span><span class="vv">N90 #E1E2E6</span></div>
+      <div class="cell" style="background:var(--color-surface-variant)"><span class="nm">Surface Variant<br>弱底</span><span class="vv">NV90 #DDE3EA</span></div>
+    </div>
+    <div class="srf-foot">
+      <div class="box inv">
+        <div><div style="font-size:13.5px;font-weight:650">Inverse Surface · N20</div></div>
+        <span class="chiplet">Inverse Primary P80</span>
+      </div>
+      <div class="box outl">
+        <div class="lrow"><i class="swl" style="background:var(--color-outline)"></i>Outline<span>NV50 #71787E</span></div>
+        <div class="lrow"><i class="swl" style="background:var(--color-outline-variant)"></i>Outline Variant<span>NV80 #C1C7CE</span></div>
+      </div>
+      <div class="box fixedr">
+        <div class="fl">Fixed 90 / Fixed-Dim 80</div>
+        <div class="frow">
+          <i style="background:var(--p90)" title="primary-fixed P90"></i><i style="background:var(--p80)" title="primary-fixed-dim P80"></i>
+          <i style="background:var(--s90)" title="secondary-fixed S90"></i><i style="background:var(--s80)" title="secondary-fixed-dim S80"></i>
+          <i style="background:var(--t90)" title="tertiary-fixed T90"></i><i style="background:var(--t80)" title="tertiary-fixed-dim T80"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 03 · State Layers ============ -->
+  <div class="section-title">03 · <em>交互状态层</em><span class="m3tag">M3 Foundations · Interaction</span></div>
+  <div class="sec-intro">鼠标移上去、按下去时组件要有反馈。M3 的做法不是给每个组件单独挑一个悬停色，而是<b>一条全站统一的规则</b>：把文字色以很低的不透明度「罩」在原底色上——悬停罩 8%，选中/按下罩 12%，拖拽罩 16%（下面五块就是效果）。右侧演示两件事：<b>键盘选中时的描边光圈</b>（3px 主色描边、外扩 2px，够粗才能一眼找到焦点）；<b>禁用态的统一画法</b>（文字降到 38% 透明、底色降到 12%，全站一个样）。悬停时的轻微放大是本项目自己加的手感，保留。</div>
+  <div class="card light">
+    <div class="states">
+      <div class="st" style="background:var(--color-surface-container-lowest)"><span class="sn">Enabled</span><span class="sv">0%</span></div>
+      <div class="st" style="background:color-mix(in srgb, var(--color-on-surface) 8%, var(--color-surface-container-lowest))"><span class="sn">Hover</span><span class="sv">8%</span></div>
+      <div class="st" style="background:color-mix(in srgb, var(--color-on-surface) 12%, var(--color-surface-container-lowest))"><span class="sn">Focus</span><span class="sv">12%</span></div>
+      <div class="st" style="background:color-mix(in srgb, var(--color-on-surface) 12%, var(--color-surface-container-lowest))"><span class="sn">Pressed</span><span class="sv">12%</span></div>
+      <div class="st" style="background:color-mix(in srgb, var(--color-on-surface) 16%, var(--color-surface-container-lowest))"><span class="sn">Dragged</span><span class="sv">16%</span></div>
+      <div class="focusdemo">
+        <div style="display:flex;gap:12px;align-items:center">
+          <button type="button">键盘焦点</button>
+          <button type="button" class="dis">禁用</button>
+        </div>
+        <span class="cap">:focus-visible · 3px primary + 2px offset　·　<span class="disab">禁用 = 文字 38% + 容器 12%</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 04 · 组件落地 ============ -->
+  <div class="section-title">04 · <em>角色落地组件</em><span class="m3tag">M3 Components</span></div>
+  <div class="sec-intro">前面的「颜色岗位」用到真实控件上的样子：主按钮、次要按钮、聊天气泡、输入框、标签等各自取哪个颜色。<b>把鼠标移上去</b>可以感受悬停和按下的反馈。图标按钮外圈的虚线是<b>「热区」</b>：按钮视觉还是 40px，但可点的范围外扩到 48×48——按钮不用变大，手指也不用精确命中图标本身。</div>
+  <div class="card light">
+    <div class="compgrid">
+      <div class="cc"><button class="ui-btn primary">主按钮</button><span class="lab">primary · hover P50</span></div>
+      <div class="cc"><button class="ui-btn tonal">Tonal</button><span class="lab">secondary-container</span></div>
+      <div class="cc"><button class="ui-btn inverted">反色</button><span class="lab">inverse-surface</span></div>
+      <div class="cc"><button class="ui-btn outlined">描边</button><span class="lab">outline + primary</span></div>
+      <div class="cc"><button class="ui-btn danger">删除</button><span class="lab">error</span></div>
+      <div class="cc"><div class="bubble user">帮我生成一支 15 秒口播视频</div><span class="lab">用户气泡 · secondary-container</span></div>
+      <div class="cc"><div class="bubble assistant">好的，先确认脚本结构…</div><span class="lab">助手气泡 · lowest + outline-variant</span></div>
+      <div class="cc"><div class="ui-input">搜索项目…</div><span class="lab">输入框 · outline / radius lg</span></div>
+      <div class="cc">
+        <div style="display:flex;gap:10px;align-items:center"><span class="ui-chip">M01 分镜</span><span class="ui-tag">@chip</span></div>
+        <span class="lab">container-soft / solid</span>
+      </div>
+      <div class="cc">
+        <div class="iconrow">
+          <span class="iconbtn active"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          <span class="iconbtn showhit"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+          <span class="iconbtn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+        </div>
+        <span class="lab">视觉 40 / 热区 48（虚线）· 选中 = primary-container</span>
+      </div>
+    </div>
+    <div class="comp-foot">
+      <span class="linkdemo">链接 · primary</span>
+      <span class="statusrow">
+        <span class="stt" style="color:var(--color-secondary)"><i class="dot" style="background:var(--color-secondary)"></i>成功</span>
+        <span class="stt" style="color:var(--color-warning)"><i class="dot" style="background:var(--color-warning)"></i>运行</span>
+        <span class="stt" style="color:var(--color-error)"><i class="dot" style="background:var(--color-error)"></i>失败</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- ============ 05 · 组件规格 ============ -->
+  <div class="section-title">05 · <em>组件规格</em><span class="m3tag">M3 Components · 密度 −3 档 + 形状签名</span></div>
+  <div class="sec-intro">每个常用控件的<b>标准尺寸</b>一次定死：高度、圆角、字号、阴影、热区都从前面几把尺上取值，之后任何页面出现同类控件都照抄本节，不允许出现「差不多大」的变体。几何取 <b>M3 官方规格的密度 −3 档</b>（官方为桌面高密度界面预留的档位，每档 −4px：输入框 56→44、菜单项 48→36；按钮 40、图标按钮 40/48、弹窗圆角 28 与官方默认一致），另有<b>四处形状签名</b>属有意偏离：按钮圆角 12（官方胶囊）、Chip 全圆（官方 8）、菜单圆角 12（官方 4）、弹窗宽 ≤582（官方 560）。四条通用规则全站一致：<b>可点热区 ≥48、可点尺寸下限 24、悬停罩 8%、禁用 38%/12%</b>。</div>
+  <div class="card light">
+    <div class="specgrid">
+      <div class="sc"><div class="stage"><button class="ui-btn primary">主按钮</button></div><div class="sl"><b>按钮</b>高 40 · 圆角 12 · 字 14 · 热区 48</div></div>
+      <div class="sc"><div class="stage"><span class="iconbtn showhit" style="background:color-mix(in srgb, var(--color-on-surface) 8%, transparent)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span></div><div class="sl"><b>图标按钮</b>视觉 40 · 热区 48 · 圆角 full</div></div>
+      <div class="sc"><div class="stage"><div class="ui-input" style="width:180px">搜索项目…</div></div><div class="sl"><b>输入框</b>高 44 · 圆角 16 · 字 14</div></div>
+      <div class="sc"><div class="stage"><span class="ui-chip">M01 分镜</span></div><div class="sl"><b>Chip 胶囊</b>高 34 · 圆角 full · 字 13</div></div>
+      <div class="sc"><div class="stage"><span class="ui-tag">@chip</span></div><div class="sl"><b>小标签</b>高 24（可点下限）· 圆角 4 · 字 12</div></div>
+      <div class="sc"><div class="stage"><div class="menu-demo"><i>重命名</i><i class="hov">复制链接</i><i>删除</i></div></div><div class="sl"><b>菜单</b>圆角 12 · 项高 36 · shadow-2</div></div>
+      <div class="sc"><div class="stage"><div class="bubble user" style="max-width:150px">帮我生成分镜脚本</div></div><div class="sl"><b>聊天气泡</b>圆角 20 · 内距 11×15 · 字 13</div></div>
+      <div class="sc"><div class="stage"><div class="dlg-demo"></div></div><div class="sl"><b>弹窗 / Composer</b>圆角 28 · shadow-3 · 宽 ≤582</div></div>
+    </div>
+    <div class="spec-states"><b>状态规则（全组件一条）</b>　悬停 = 罩 8% + 放大 1.05　·　按下 = 罩 12% + 缩小 0.95　·　键盘焦点 = 3px 描边 + 外扩 2　·　禁用 = 文字 38% / 底 12%　·　过渡 = 150ms 标准曲线</div>
+  </div>
+
+  <!-- ============ 06 · 字阶 ============ -->
+  <div class="section-title">06 · <em>字阶</em><span class="m3tag">M3 Styles · Typography</span></div>
+  <div class="sec-intro">M3 把全站文字归成几类：超大展示字（display）、页面标题（headline）、卡片标题（title）、正文（body）、小标签（label / caption），每类给<b>固定的字号和行高</b>，不允许出现表外的随意字号——页面才有节奏感。UI 主尺 <b>10 档</b>：正文基准 <b>14px</b>（M3 标准值）；最小 <b>11px</b> 是全站下限，比这更小的字在任何屏幕上都难看清，一律不用。另有一把<b>画布字阶</b>（右下）：React Flow 缩放画布内的放大字号，约为 UI 字阶 2 倍，仅限画布卡与工作台节点使用（v15.1 存量收口后，全站再无表外字号，机械门禁基线为零）。</div>
+  <div class="typegrid">
+    <div class="card">
+      <div class="typerow"><span class="sample" style="font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:57px;line-height:64px">Aa 创作</span><span class="meta"><span class="tname">text-display</span><div class="tval">57 / 64 · Hero serif</div></span></div>
+      <div class="typerow"><span class="sample" style="font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:45px;line-height:1.1">紧凑 Hero</span><span class="meta"><span class="tname">text-display-sm</span><div class="tval">45 · M3 display-medium</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:32px;line-height:1.2">品牌字标 / 紧凑大标题</span><span class="meta"><span class="tname">text-headline-lg</span><div class="tval">32 · M3 headline-large</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:28px;line-height:36px">从一句话开始</span><span class="meta"><span class="tname">text-headline</span><div class="tval">28 / 36</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:20px;line-height:1.3">对话框头 / 分区大标题</span><span class="meta"><span class="tname">text-title-lg</span><div class="tval">20 · 自研档</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:16px;line-height:24px">卡片标题 / 面板标题</span><span class="meta"><span class="tname">text-title</span><div class="tval">16 / 24</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:14px;line-height:20px">正文基准 · 按钮、Tab、导航、输入框</span><span class="meta"><span class="tname">text-body ★ 基准</span><div class="tval">14 / 20 · M3 body-medium</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:13px;line-height:18px">紧凑正文 · 密集表格、次要段落</span><span class="meta"><span class="tname">text-body-sm</span><div class="tval">13 / 18</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:12px;line-height:16px">标签、日期</span><span class="meta"><span class="tname">text-label</span><div class="tval">12 / 16</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:11px;line-height:16px">时间码、角标、分区标签 · 全站最小</span><span class="meta"><span class="tname">text-caption</span><div class="tval">11 / 16 · 下限</div></span></div>
+    </div>
+    <div class="card fontcard">
+      <div class="fa">Aa 汉字</div>
+      <p><b>--font-producer-ui</b><br>CapCut Sans Text → SF Pro → PingFang SC</p>
+      <hr>
+      <div class="fa serif">Aa Serif</div>
+      <p><b>--font-home-display</b><br>Source Serif 4 italic</p>
+      <hr>
+      <p>html <b>16px</b> · 正文基准 <b>14px</b> · 下限 <b>11px</b> · 行高 <b>1.35</b></p>
+      <hr>
+      <p><b>画布字阶</b>（text-canvas-*，仅限缩放画布/放大阅读面）<br>
+      label <b>18</b> · body <b>20</b> · body-lg <b>22</b> · title-sm <b>24</b> · title <b>26</b> · title-lg <b>28</b></p>
+    </div>
+  </div>
+
+  <!-- ============ 07 · 圆角尺 ============ -->
+  <div class="section-title">07 · <em>圆角尺</em><span class="m3tag">M3 Styles · Shape</span></div>
+  <div class="sec-intro">组件的圆角不能随手写，要从这把<b>固定的尺</b>上取值：小东西用小圆角（标签 4、按钮 12），大面板用大圆角（弹窗 28、工作台 32），同类组件必须同一档。本尺 10 档与 M3 最新版完全一致。</div>
+  <div class="card">
+    <div class="shapes">
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-none)"></div><div class="name">none 0</div>贴边</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-xs)"></div><div class="name">xs 4</div>行内代码</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-sm)"></div><div class="name">sm 8</div>菜单项</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-md)"></div><div class="name">md 12</div>按钮 / 菜单</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-lg)"></div><div class="name">lg 16</div>输入框</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-xl);height:64px"></div><div class="name">xl 20</div>气泡</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-2xl);width:90px;height:72px"></div><div class="name">2xl 28</div>Composer / Dialog</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-3xl);width:100px;height:80px"></div><div class="name">3xl 32</div>工作台</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-4xl);width:130px;height:100px"></div><div class="name">4xl 48</div>预览舞台</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-full);width:120px;height:50px"></div><div class="name">full</div>图标按钮 / 胶囊</div>
+    </div>
+  </div>
+
+  <!-- ============ 08 · 海拔与动效 ============ -->
+  <div class="section-title">08 · <em>海拔与动效</em><span class="m3tag">M3 Styles · Elevation / Motion</span></div>
+  <div class="sec-intro">「海拔」= 怎么表现一个东西浮在页面上。思路沿用 M3 新版：平铺内容用<b>背景深浅</b>区分层次（见 §02 的 Surface 六档），真正悬浮的才配阴影，共<b>四档</b>——静态卡片零投影、悬浮小件轻影、菜单浮层中影、弹窗重影。右侧是动画节奏：微交互 150 毫秒、面板开合 250、入场和大面积过渡 400（都取 M3 标准档位）；速度曲线有三条：<b>停在原地的变化用「标准」，出现的东西用「进场」（减速落定），消失的东西用「退场」（加速离开，时长取进场的一半）</b>。鼠标放到右卡上能看到三种速度的差别。</div>
+  <div class="duo2">
+    <div class="card light">
+      <div class="elev">
+        <div class="tile flat"><span class="en">静态表面</span><span class="ev">零投影</span></div>
+        <div class="tile e1"><span class="en">悬浮小件</span><span class="ev">--shadow-1</span></div>
+        <div class="tile e2"><span class="en">菜单 · 浮层</span><span class="ev">--shadow-2</span></div>
+        <div class="tile e3"><span class="en">弹窗</span><span class="ev">--shadow-3</span></div>
+      </div>
+    </div>
+    <div class="card motion">
+      <div class="mrow s"><span class="mn">--dur-s 150ms</span><div class="track"><i></i></div></div>
+      <div class="mrow m"><span class="mn">--dur-m 250ms</span><div class="track"><i></i></div></div>
+      <div class="mrow l"><span class="mn">--dur-l 400ms</span><div class="track"><i></i></div></div>
+      <div class="mfoot">
+        <div class="curve"><svg width="38" height="38" viewBox="-10 -10 120 120"><path d="M0,100 C20,100 0,0 100,0" fill="none" stroke="#53d7ef" stroke-width="6"/></svg><div><b>--ease 标准</b><span>原地的状态变化</span></div></div>
+        <div class="curve"><svg width="38" height="38" viewBox="-10 -10 120 120"><path d="M0,100 C0,100 0,0 100,0" fill="none" stroke="#7ee3a8" stroke-width="6"/></svg><div><b>--ease-decel 进场</b><span>出现时减速落定</span></div></div>
+        <div class="curve"><svg width="38" height="38" viewBox="-10 -10 120 120"><path d="M0,100 C30,100 100,0 100,0" fill="none" stroke="#f0c053" stroke-width="6"/></svg><div><b>--ease-accel 退场</b><span>消失时加速离开</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 09 · 层级与布局 ============ -->
+  <div class="section-title">09 · <em>层级与布局</em><span class="m3tag">M3 Foundations · Layout + 工程扩展</span></div>
+  <div class="sec-intro">屏幕宽度分<b>三档</b>（取 M3 的 600 / 840 分界）：窄屏单列、中屏双栏可折叠、宽屏画布与聊天面板并排；全站间距一律取 <b>4 的倍数</b>。中间的阶梯是<b>「谁压住谁」的登记表</b>——弹窗永远盖住导航、导航盖住内容，所有浮层按表取号，避免各处随意写数字打架（工程约定，M3 没有这个概念）；最下面是全站固定的布局尺寸（顶栏高、输入区宽等），改版时只动这几个数。</div>
+  <div class="card">
+    <div class="bpbar">
+      <div class="seg s1"><b>紧凑 &lt;600</b><span>单列 · 聊天/画布切换显示</span></div>
+      <div class="seg s2"><b>中等 600–840</b><span>双栏 · 副面板可折叠</span></div>
+      <div class="seg s3"><b>展开 ≥840</b><span>画布 + 聊天面板并排</span></div>
+    </div>
+    <div class="zwrap">
+      <div class="zstep" style="left:0;bottom:0"><div class="zn">layer-base</div><div class="zv">--z-base: 0</div></div>
+      <div class="zstep" style="left:132px;bottom:24px"><div class="zn">layer-canvas</div><div class="zv">--z-canvas: 2</div></div>
+      <div class="zstep" style="left:264px;bottom:48px"><div class="zn">layer-content</div><div class="zv">--z-content: 5</div></div>
+      <div class="zstep" style="left:396px;bottom:72px"><div class="zn">layer-panel</div><div class="zv">--z-panel: 10</div></div>
+      <div class="zstep" style="left:528px;bottom:96px"><div class="zn">layer-sidebar</div><div class="zv">--z-sidebar: 40</div></div>
+      <div class="zstep" style="left:660px;bottom:120px"><div class="zn">layer-header</div><div class="zv">--z-header: 50</div></div>
+      <div class="zstep" style="left:792px;bottom:144px"><div class="zn">layer-overlay</div><div class="zv">--z-overlay: 90</div></div>
+      <div class="zstep" style="left:924px;bottom:168px;border-color:var(--pg-accent)"><div class="zn" style="color:var(--pg-accent)">layer-popup</div><div class="zv">--z-popup: 100</div></div>
+    </div>
+    <div class="laygrid">
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-header-height</span><span class="lv">72px</span></div><div class="ld">Header 固定高</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-stage-padding</span><span class="lv">20px</span></div><div class="ld">项目页 stage 内距</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-composer-max</span><span class="lv">582px</span></div><div class="ld">Composer 最大宽</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-agent-log-width</span><span class="lv">280px</span></div><div class="ld">Agent Log 宽</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-home-hero-max</span><span class="lv">1120px</span></div><div class="ld">首页 Hero 最大宽</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-…chat-panel-height-offset</span><span class="lv">calc()</span></div><div class="ld">聊天面板避让复合计算</div></div>
+    </div>
+  </div>
+
+  <!-- ============ 10 · 领域扩展 token ============ -->
+  <div class="section-title">10 · <em>领域扩展色</em><span class="m3tag">M3 Customization · Extended Colors</span></div>
+  <div class="sec-intro">标准 6 个色族之外，产品总有业务专属色（图表、书签、聊天里的 Agent 绿）。M3 的态度是：<b>可以加，但要「调和」</b>——把这些颜色的色相往品牌青偏一点（harmonize），让它们看起来和全站是一家人，v14 已全部处理。标注笔颜色和暖纸面板是刻意保留原样的例外：前者要醒目、后者是质感设定。</div>
+  <div class="card">
+
+    <div class="fam">
+      <div class="fname"><b>聊天</b><span>--color-chat-*</span></div>
+      <div class="chips">
+        <span class="chipd" style="background:var(--color-secondary-container);color:var(--color-on-secondary-container);border-color:color-mix(in srgb,var(--color-secondary) 35%,transparent)">用户气泡 S90</span>
+        <span class="chipd" style="background:var(--n100);color:var(--n10);border-color:var(--nv80)">助手气泡 N100</span>
+        <span class="chipd"><i class="dot" style="background:var(--nv40)"></i>muted 文字 NV40</span>
+        <span class="chipd" style="background:#f2f7ed;color:#213219;border-color:rgba(113,136,58,0.24)"><i class="dot" style="background:#009e77;border:none"></i>Agent 身份</span>
+        <span class="chipd"><i class="dot" style="background:var(--s40)"></i>success</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-warning)"></i>running</span>
+        <span class="chipd"><i class="dot" style="background:var(--e40)"></i>error</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>编辑器引用身份</b><span>--color-reference-*</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:#8a8a84"></i>图片</span>
+        <span class="chipd"><i class="dot" style="background:#5b6bc0"></i>视频</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-primary)"></i>音频</span>
+        <span class="chipd"><i class="dot" style="background:#d9a13b"></i>标注</span>
+        <span class="chipd"><i class="dot" style="background:#c05b2b"></i>箭头</span>
+        <span class="chipd"><i class="dot" style="background:#9368b7"></i>画笔</span>
+        <span class="chipd"><i class="dot" style="background:#3e8e7e"></i>线框</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>标注笔触</b><span>--color-annotation-*</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:#e04f3f"></i>red</span>
+        <span class="chipd"><i class="dot" style="background:#e9a13b"></i>orange</span>
+        <span class="chipd"><i class="dot" style="background:#3f9fd0"></i>blue</span>
+        <span class="chipd"><i class="dot" style="background:#46b06f"></i>green</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>图表系列</b><span>--color-chart-1..4</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:#07a8c4"></i>1</span>
+        <span class="chipd"><i class="dot" style="background:#375971"></i>2</span>
+        <span class="chipd"><i class="dot" style="background:#e0a800"></i>3</span>
+        <span class="chipd"><i class="dot" style="background:#2fc6be"></i>4</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>画布产物书签</b><span>--color-artifact-*</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:#bda669"></i>brief</span>
+        <span class="chipd"><i class="dot" style="background:#638fa7"></i>图像分析</span>
+        <span class="chipd"><i class="dot" style="background:#9291b6"></i>markdown</span>
+        <span class="chipd"><i class="dot" style="background:#ab8f6e"></i>storyboard</span>
+        <span class="chipd"><i class="dot" style="background:#9d86a0"></i>ui-card</span>
+        <span class="chipd"><i class="dot" style="background:#6fa2a6"></i>视频提示词</span>
+        <span class="chipd"><i class="dot" style="background:#101318"></i>rail-bg</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>纸面色板</b><span>--color-brief-* / --color-sb-table-*</span></div>
+      <div class="chips">
+        <span class="chipd paper" style="background:#f7f1e8;color:#1f2522">Creative Brief 暖纸 #F7F1E8</span>
+        <span class="chipd paper" style="background:#faf6f0;color:#121614"><i class="dot" style="background:#4a7c59;border:none"></i>分镜表纸面 #FAF6F0</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>运行监控浮条</b><span>--storyboards-monitor-*</span></div>
+      <div class="chips">
+        <span class="chipd paper" style="background:rgba(21,24,29,0.96);color:#f0ede4;border:1px solid rgba(216,177,106,0.28)">
+          <i class="dot" style="background:#d8b16a;border:none"></i>gold
+          <i class="dot" style="background:#2dd4bf;border:none"></i>running
+          <i class="dot" style="background:#3ecf8e;border:none"></i>complete
+        </span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>玻璃拟态</b><span>--color-glass-surface</span></div>
+      <div class="chips">
+        <span class="chipd">rgba(255,255,255,0.76) + backdrop-blur</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ 11 · 深色方案（备案） ============ -->
+  <div class="section-title">11 · <em>深色方案（备案）</em><span class="m3tag">M3 Styles · Dark Scheme</span></div>
+  <div class="sec-intro">深色不是「把颜色反过来」，而是<b>同一套色板换档位</b>：浅色主色取 40 档，深色改取 80 档（黑底上要更亮才看得清）；浅色容器取 90 档，深色改 30 档；页面底色用接近黑的 6 档。因为出自同一套色板，明暗两版天生是一家人；将来要开深色，只需替换 ② 层角色定义，组件代码零改动。<b>当前产品仍是单一浅色主题（架构红线），本节只备案、不启用。</b>所有配对对比度 ≥7.2:1，已验算。</div>
+  <div class="card darkcard">
+    <div class="scheme">
+      <div class="col">
+        <div class="blk main" style="background:var(--p80);color:var(--p20)"><span class="r-name">Primary</span><span class="r-val">P80 #53D7EF</span></div>
+        <div class="blk thin" style="background:var(--p30);color:var(--p90)"><span class="r-name">Container · P30</span></div>
+      </div>
+      <div class="col">
+        <div class="blk main" style="background:var(--s80);color:var(--s20)"><span class="r-name">Secondary</span><span class="r-val">S80 #99D3B8</span></div>
+        <div class="blk thin" style="background:var(--s30);color:var(--s90)"><span class="r-name">Container · S30</span></div>
+      </div>
+      <div class="col">
+        <div class="blk main" style="background:var(--t80);color:var(--t20)"><span class="r-name">Tertiary</span><span class="r-val">T80 #F0C053</span></div>
+        <div class="blk thin" style="background:var(--t30);color:var(--t90)"><span class="r-name">Container · T30</span></div>
+      </div>
+      <div class="col">
+        <div class="blk main" style="background:var(--e80);color:var(--e20)"><span class="r-name">Error</span><span class="r-val">E80 #FFB4AA</span></div>
+        <div class="blk thin" style="background:var(--e30);color:var(--e90)"><span class="r-name">Container · E30</span></div>
+      </div>
+      <div class="col">
+        <div class="blk main" style="background:var(--t80);color:var(--t20)"><span class="r-name">Warning <span class="ext-badge">T 族别名</span></span><span class="r-val">= T80</span></div>
+        <div class="blk thin" style="background:var(--t30);color:var(--t90)"><span class="r-name">Container · = T30</span></div>
+      </div>
+    </div>
+    <div class="dk-surf">
+      <div class="cell" style="background:var(--dkn4)"><span class="nm">Lowest</span><span class="vv">N4 #0B0F11</span></div>
+      <div class="cell" style="background:var(--dkn6)"><span class="nm">Surface<br>页面底</span><span class="vv">N6 #101417</span></div>
+      <div class="cell" style="background:var(--n10)"><span class="nm">Low</span><span class="vv">N10 #191C1F</span></div>
+      <div class="cell" style="background:var(--dkn12)"><span class="nm">Container</span><span class="vv">N12 #1D2023</span></div>
+      <div class="cell" style="background:var(--dkn17)"><span class="nm">High</span><span class="vv">N17 #272A2D</span></div>
+      <div class="cell" style="background:var(--dkn22)"><span class="nm">Highest</span><span class="vv">N22 #323538</span></div>
+    </div>
+    <div class="dk-foot">
+      <button type="button" class="demo-btn">主按钮</button>
+      <span class="demo-bubble">用户气泡 · S30</span>
+      <span class="demo-chip">● 运行中 · T30</span>
+      <span class="demo-link">链接 · P80</span>
+      <span class="demo-text">正文 N90 <span>· 次级 NV80 · Outline NV60 / NV30</span></span>
+    </div>
+  </div>
+
+</div>
+
+</body></html>

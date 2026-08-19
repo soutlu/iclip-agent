@@ -1,0 +1,58 @@
+/* ===== Project Canvas Video Generation ===== */
+.video-generation-dotted-background {
+  background-color: var(--color-storyboard-canvas);
+  background-image: radial-gradient(
+    circle at center,
+    var(--color-storyboard-canvas-dot) 0 1px,
+    transparent 1.35px
+  );
+  background-position: 0 0;
+  background-size: 26px 26px;
+}
+
+.video-generation-dotted-background::before,
+.video-generation-dotted-background::after {
+  position: absolute;
+  inset: -16%;
+  background-image: radial-gradient(
+    circle at center,
+    var(--color-storyboard-canvas-dot) 0 1.15px,
+    transparent 1.5px
+  );
+  background-size: 26px 26px;
+  content: '';
+  pointer-events: none;
+}
+
+.video-generation-dotted-background::before {
+  animation: video-generation-dots-drift 18s linear infinite;
+  mask-image:
+    radial-gradient(circle at 56% 24%, black 0 19%, transparent 42%),
+    radial-gradient(circle at 78% 76%, black 0 15%, transparent 36%);
+  opacity: 0.74;
+}
+
+.video-generation-dotted-background::after {
+  animation: video-generation-dots-drift 28s linear infinite reverse;
+  background-size: 31px 31px;
+  mask-image: radial-gradient(circle at 48% 54%, black 0 22%, transparent 48%);
+  opacity: 0.36;
+  transform: rotate(1.2deg);
+}
+
+@keyframes video-generation-dots-drift {
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: 52px 52px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-generation-dotted-background::before,
+  .video-generation-dotted-background::after {
+    animation: none;
+  }
+}
