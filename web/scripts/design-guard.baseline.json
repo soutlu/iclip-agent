@@ -1,0 +1,13 @@
+{
+  "bare-hex-color": 0,
+  "bare-rgb-color": 0,
+  "arbitrary-shadow": 0,
+  "literal-box-shadow": 0,
+  "arbitrary-radius": 0,
+  "bare-border-radius": 0,
+  "arbitrary-text-size": 0,
+  "bare-font-size": 0,
+  "bare-z-index-css": 0,
+  "bare-z-index-tsx": 0,
+  "outline-none": 0
+}

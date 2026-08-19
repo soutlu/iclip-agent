@@ -1,0 +1,12 @@
+{
+  "description": "归因 ⑦：run 已终态但 buffer 尚在，全量回放至 RUN_FINISHED。客户端凭 messageId upsert 幂等吸收。",
+  "runMode": "replay",
+  "events": [
+    { "type": "RUN_STARTED", "threadId": "th_demo", "runId": "run_a" },
+    { "type": "TEXT_MESSAGE_START", "messageId": "msg_a1", "role": "assistant" },
+    { "type": "TEXT_MESSAGE_CONTENT", "messageId": "msg_a1", "delta": "分镜规划完成。" },
+    { "type": "TEXT_MESSAGE_END", "messageId": "msg_a1" },
+    { "type": "STATE_SNAPSHOT", "snapshot": { "draft": { "stage": "review", "revision": 2 } } },
+    { "type": "RUN_FINISHED", "threadId": "th_demo", "runId": "run_a" }
+  ]
+}

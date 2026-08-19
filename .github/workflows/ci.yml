@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: iclip_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ICLIP_TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Sync dependencies
+        run: uv sync
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Typecheck
+        run: uv run pyright
+      - name: Architecture graph
+        run: uv run tach check
+      - name: Default test gate (real Postgres)
+        run: uv run pytest -m "unit or integration_no_llm"
+      - name: Alembic to head against service Postgres
+        env:
+          ICLIP_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
+        run: uv run alembic upgrade head
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: ci:check
+        run: pnpm ci:check
+      - name: Build
+        run: pnpm build

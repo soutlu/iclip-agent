@@ -1,0 +1,73 @@
+[project]
+name = "iclip"
+version = "0.1.0"
+description = "iClip Agent 后端：FastAPI 宿主 + PydanticAI 运行内核（M1 起）"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "fastapi-users[sqlalchemy]>=14",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "alembic>=1.13",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.15",
+    "pyyaml>=6",
+    "httpx>=0.27",
+    "structlog>=24",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "asgi-lifespan>=2",
+    "testcontainers[postgres]>=4",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+    "tach>=0.20",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/iclip"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# RUF001/002/003：中文全角标点是本仓文案约定，不是笔误。
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests", "scripts"]
+# 第三方库（fastapi-users / sqlalchemy / testcontainers）无完整类型导出产生的 Unknown 噪音；
+# 结构性 strict 检查全部保留。
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
+reportMissingTypeStubs = false
+# FastAPI 路由处理器是装饰器注册的闭包，对静态分析天然“未使用”。
+reportUnusedFunction = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "unit: 纯逻辑与进程内契约（默认门禁）",
+    "integration_no_llm: 无 LLM 的集成面，identity 域使用真实 Postgres（默认门禁）",
+    "integration_llm: 真实模型（外部门禁）",
+    "e2e_full: 全链路（外部门禁）",
+    "external: 依赖外部凭证（外部门禁）",
+]

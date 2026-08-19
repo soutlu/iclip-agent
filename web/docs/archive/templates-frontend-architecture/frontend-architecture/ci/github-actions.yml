@@ -1,0 +1,148 @@
+# 通用前端 CI 模板（GitHub Actions）
+# 放置路径：.github/workflows/ci.yml
+#
+# 设计原则（与 ARCHITECTURE.md §7 对应）：
+#   1. 质量契约收敛在 `npm run ci:check`（lint → typecheck → arch:check → test:unit），
+#      本 yaml 只是契约的薄壳——本地跑 ci:check 与 CI 结果完全一致，换 CI 平台不换契约。
+#   2. build 单独成 job：server-only 毒丸、框架级错误只在构建期暴露（vitest 中毒丸被 stub）。
+#   3. 架构基线防倒退：基线文件 diff 只允许缩小（guard-baseline job）。
+#   4. e2e 可选启用，依赖 build 产物。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一 PR 的旧流水线自动取消，省 runner 时间
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # 质量契约：lint + typecheck + arch:check + 单测（含 tests/arch）
+  # ──────────────────────────────────────────────────────────
+  check:
+    name: Quality contract (ci:check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run quality contract
+        run: npm run ci:check
+
+      # 失败时输出依赖图违规报告，便于在 Actions 页直接定位条款
+      - name: Explain architecture violations (on failure)
+        if: failure()
+        run: npx depcruise src --config .dependency-cruiser.cjs --output-type err-long || true
+
+  # ──────────────────────────────────────────────────────────
+  # 架构基线防倒退：known-violations 文件只许缩小不许增大
+  # （仅 brownfield 接入期存在该文件；清零删除后本 job 自动跳过）
+  # ──────────────────────────────────────────────────────────
+  guard-baseline:
+    name: Architecture baseline ratchet
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Baseline may only shrink
+        run: |
+          BASELINE=".dependency-cruiser-known-violations.json"
+          BASE_REF="origin/${{ github.base_ref }}"
+          # 基线文件不存在 = 已清零，直接通过
+          if [ ! -f "$BASELINE" ]; then
+            echo "✅ 无基线文件（架构旧账已清零）"
+            exit 0
+          fi
+          # 基线是本 PR 新建的（brownfield 首次接入），放行
+          if ! git cat-file -e "$BASE_REF:$BASELINE" 2>/dev/null; then
+            echo "✅ 基线文件首次引入"
+            exit 0
+          fi
+          BASE_COUNT=$(git show "$BASE_REF:$BASELINE" | node -e \
+            "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).length))")
+          HEAD_COUNT=$(node -e "console.log(require('./$BASELINE').length)")
+          echo "基线违规数：base=$BASE_COUNT → head=$HEAD_COUNT"
+          if [ "$HEAD_COUNT" -gt "$BASE_COUNT" ]; then
+            echo "❌ 架构基线只允许缩小（ARCHITECTURE.md §8）。"
+            echo "   新增的依赖违规请修复，而不是写进基线。"
+            exit 1
+          fi
+          echo "✅ 基线未增大"
+
+  # ──────────────────────────────────────────────────────────
+  # 构建验证：毒丸（server-only）与框架级错误的唯一暴露点
+  # ──────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        # BFF 项目按需注入构建期必需的环境变量：
+        # env:
+        #   BACKEND_ORIGIN: http://ci-placeholder.invalid
+
+      # e2e 启用时取消注释，把产物传给 e2e job
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     name: build-output
+      #     path: .next/        # Vite 项目改为 dist/
+      #     retention-days: 1
+
+  # ──────────────────────────────────────────────────────────
+  # 端到端测试（可选启用：项目有 tests/e2e 后取消注释）
+  # ──────────────────────────────────────────────────────────
+  # e2e:
+  #   name: E2E (Playwright)
+  #   runs-on: ubuntu-latest
+  #   needs: build
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: ${{ env.NODE_VERSION }}
+  #         cache: npm
+  #     - run: npm ci
+  #     - uses: actions/download-artifact@v4
+  #       with:
+  #         name: build-output
+  #         path: .next/
+  #     - run: npx playwright install --with-deps chromium
+  #     - run: npm run test:e2e
+  #     - uses: actions/upload-artifact@v4
+  #       if: failure()
+  #       with:
+  #         name: playwright-report
+  #         path: playwright-report/
+  #         retention-days: 7

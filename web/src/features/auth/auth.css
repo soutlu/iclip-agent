@@ -1,0 +1,398 @@
+/* ===== Auth Page Background ===== */
+.producer-auth-page {
+  background: linear-gradient(135deg, var(--color-background-top) 0%, var(--color-background) 100%);
+}
+
+.producer-auth-bg-image {
+  opacity: 0.94;
+  transform: scale(1.018);
+  transform-origin: 33% 50%;
+  object-position: 33% 50%;
+  filter: saturate(0.98) contrast(1.02) brightness(1.03);
+  animation: producer-auth-bg-drift 30s ease-in-out infinite alternate;
+}
+
+.producer-auth-bg-fade {
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-surface) 2%, transparent) 0%,
+      color-mix(in srgb, var(--color-surface) 16%, transparent) 43%,
+      color-mix(in srgb, var(--color-surface) 78%, transparent) 67%,
+      color-mix(in srgb, var(--color-surface) 96%, transparent) 100%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-surface-container-lowest) 34%, transparent) 0%,
+      color-mix(in srgb, var(--color-surface) 6%, transparent) 46%,
+      color-mix(in srgb, var(--color-surface) 26%, transparent) 100%
+    );
+}
+
+.producer-auth-bg-ambient {
+  /* 环境光斑沿用 M3 两族：青 = primary-fixed-dim，薄荷 = secondary-fixed-dim */
+  background:
+    linear-gradient(
+      112deg,
+      transparent 16%,
+      color-mix(in srgb, var(--color-primary-fixed-dim) 22%, transparent) 42%,
+      transparent 68%
+    ),
+    linear-gradient(
+      72deg,
+      transparent 24%,
+      color-mix(in srgb, var(--color-secondary-fixed-dim) 18%, transparent) 54%,
+      transparent 78%
+    );
+  filter: blur(42px);
+  opacity: 0.42;
+  transform: translate3d(-2%, 0, 0);
+  animation: producer-auth-ambient-drift 22s ease-in-out infinite alternate;
+}
+
+.producer-auth-bg-grid {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--color-outline) 4.5%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-outline) 4.5%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 28px 28px;
+  mask-image: linear-gradient(90deg, transparent 0%, black 16%, black 78%, transparent 100%);
+  opacity: 0.18;
+  animation: producer-auth-grid-drift 36s linear infinite;
+}
+
+.producer-auth-bg-grain {
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--color-on-surface) 1.2%, transparent) 0 1px,
+      transparent 1px 3px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-on-surface) 1%, transparent) 0 1px,
+      transparent 1px 4px
+    );
+  mix-blend-mode: multiply;
+  opacity: 0.16;
+}
+
+/* 品牌字标：无边框 serif 字标，沿用首页标题的 display 字体 */
+.producer-auth-brand-link {
+  display: inline-flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  color: var(--color-on-background);
+  font-family: var(--font-home-display);
+  font-size: var(--text-headline-lg);
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  outline: none;
+  transition:
+    opacity 180ms ease,
+    transform 160ms ease;
+}
+
+.producer-auth-brand-link:hover {
+  opacity: 0.68;
+}
+
+.producer-auth-brand-link:focus-visible {
+  opacity: 0.68;
+  box-shadow: 0 0 0 3px var(--color-ring-highlight);
+}
+
+.producer-auth-brand-link:active {
+  transform: translateY(1px);
+}
+
+.producer-auth-kicker {
+  color: var(--color-on-surface-variant);
+}
+
+.producer-auth-title {
+  color: var(--color-on-background);
+  letter-spacing: 0;
+}
+
+.producer-auth-subtitle {
+  color: var(--color-on-surface-variant);
+}
+
+.producer-auth-field {
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-input-bg);
+  color: var(--color-on-surface-variant);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--color-surface-container-lowest) 86%, transparent);
+}
+
+.producer-auth-field:focus-within {
+  border-color: var(--color-ring-highlight);
+  background: var(--color-top-layer);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--color-primary-container) 55%, transparent),
+    inset 0 1px color-mix(in srgb, var(--color-surface-container-lowest) 94%, transparent);
+}
+
+.producer-auth-field > svg {
+  flex-shrink: 0;
+  color: var(--color-on-surface-variant);
+  transition: color 180ms ease;
+}
+
+.producer-auth-field:focus-within > svg {
+  color: var(--color-on-background);
+}
+
+.producer-auth-input {
+  color: var(--color-on-background);
+  caret-color: var(--color-on-background);
+  outline: none; /* 焦点指示由外壳 .producer-auth-field:focus-within 承担（M3 text field 容器模式） */
+}
+
+.producer-auth-input::placeholder {
+  color: var(--color-on-surface-variant);
+  opacity: 0.72;
+}
+
+.producer-auth-visibility-button {
+  color: var(--color-on-surface-variant);
+}
+
+.producer-auth-visibility-button:hover,
+.producer-auth-visibility-button:focus-visible {
+  background: var(--color-btn-hover);
+  color: var(--color-on-background);
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.producer-auth-error {
+  color: var(--color-danger-text);
+}
+
+/* 无边框卡片（v13：静态表面零投影，改由细边框与玻璃高光区分边缘） */
+.producer-auth-panel-shell {
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-3xl);
+}
+
+.producer-auth-panel-card {
+  min-height: 480px;
+  padding: 46px 46px 38px;
+  border-radius: var(--radius-3xl);
+  /* 卡面是玻璃白底 + 两族 container 的淡染：青染左上、薄荷染右下，保持以白为主 */
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary-container) 38%, transparent),
+      transparent 52%,
+      color-mix(in srgb, var(--color-secondary-container) 44%, transparent)
+    ),
+    var(--color-glass-surface);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--color-surface-container-lowest) 92%, transparent);
+  backdrop-filter: blur(26px) saturate(1.08);
+}
+
+.producer-auth-input:-webkit-autofill,
+.producer-auth-input:-webkit-autofill:hover,
+.producer-auth-input:-webkit-autofill:focus,
+.producer-auth-input:-webkit-autofill:active {
+  /* !important 不可省：Browser autofill injects UA colors above author styles. */
+  -webkit-box-shadow: 0 0 0 1000px var(--color-top-layer) inset !important;
+  -webkit-text-fill-color: var(--color-on-background) !important;
+  background-color: var(--color-top-layer) !important;
+  background-image: none;
+  box-shadow: 0 0 0 1000px var(--color-top-layer) inset !important;
+  caret-color: var(--color-on-background);
+  transition:
+    background-color 999999s ease-out,
+    color 999999s ease-out,
+    -webkit-text-fill-color 999999s ease-out;
+}
+
+/* 飞书主按钮：登录页唯一的高强调操作，沿用全局 on-background 深色款。 */
+.producer-auth-feishu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--color-on-background);
+  color: var(--color-top-layer);
+  outline: none;
+  transition:
+    filter 180ms ease,
+    transform 160ms ease;
+}
+
+.producer-auth-feishu-button:hover,
+.producer-auth-feishu-button:focus-visible {
+  filter: brightness(1.18);
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.producer-auth-feishu-button:active {
+  filter: brightness(0.94);
+  transform: scale(0.99);
+}
+
+.producer-auth-feishu-button:disabled {
+  opacity: 0.72;
+}
+
+/* 账号密码辅助通道的折叠触发器。 */
+.producer-auth-secondary-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 2px;
+  color: var(--color-on-surface-variant);
+  outline: none;
+  transition: color 160ms ease;
+}
+
+.producer-auth-secondary-toggle:hover,
+.producer-auth-secondary-toggle:focus-visible {
+  color: var(--color-on-background);
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.producer-auth-secondary-toggle > svg {
+  transition: transform 200ms ease;
+}
+
+/* 密码登录提交按钮：次级通道用次级强调（surface 款）。 */
+.producer-auth-submit-button {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-md);
+  background: var(--color-control-bg);
+  color: var(--color-on-background);
+  outline: none;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    transform 160ms ease;
+}
+
+.producer-auth-submit-button:hover,
+.producer-auth-submit-button:focus-visible {
+  border-color: var(--color-border-hover);
+  background: var(--color-top-layer);
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.producer-auth-submit-button:active {
+  transform: scale(0.99);
+}
+
+.producer-auth-submit-button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.producer-auth-divider {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-outline) 30%, transparent),
+    transparent
+  );
+}
+
+.producer-auth-divider-label {
+  color: var(--color-on-surface-variant);
+  opacity: 0.78;
+}
+
+@keyframes producer-auth-bg-drift {
+  from {
+    transform: scale(1.012) translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: scale(1.028) translate3d(-14px, 8px, 0);
+  }
+}
+
+@keyframes producer-auth-ambient-drift {
+  from {
+    transform: translate3d(-2%, 0, 0);
+    opacity: 0.36;
+  }
+
+  to {
+    transform: translate3d(2%, 1%, 0);
+    opacity: 0.54;
+  }
+}
+
+@keyframes producer-auth-grid-drift {
+  from {
+    background-position:
+      0 0,
+      0 0;
+  }
+
+  to {
+    background-position:
+      28px 28px,
+      28px 28px;
+  }
+}
+
+@media (max-width: 599px) {
+  .producer-auth-bg-image {
+    object-position: 28% 50%;
+  }
+
+  .producer-auth-bg-fade {
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--color-surface) 26%, transparent) 0%,
+        color-mix(in srgb, var(--color-surface) 74%, transparent) 45%,
+        color-mix(in srgb, var(--color-surface) 96%, transparent) 100%
+      ),
+      linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--color-surface) 10%, transparent),
+        color-mix(in srgb, var(--color-surface) 44%, transparent)
+      );
+  }
+
+  .producer-auth-panel-shell {
+    border-radius: var(--radius-2xl);
+  }
+
+  .producer-auth-panel-card {
+    min-height: auto;
+    padding: 32px 22px 28px;
+    border-radius: var(--radius-2xl);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .producer-auth-bg-image,
+  .producer-auth-bg-ambient,
+  .producer-auth-bg-grid {
+    animation: none;
+  }
+}

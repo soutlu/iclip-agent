@@ -1,0 +1,85 @@
+/*
+ * 全局样式编排器：集中声明 Tailwind @theme，并按域编排 @import；不写组件规则。
+ *
+ * 各段样式按域拆分到 feature/shared/app 子文件；import 顺序与拆分前的
+ * 原文件段落顺序严格一致——所有自定义规则都在匿名层（unlayered），
+ * 顺序即级联优先级，调整顺序可能改变同优先级选择器的胜负。
+ */
+@layer theme, base, components, utilities;
+@import '../../node_modules/tailwindcss/theme.css' layer(theme);
+@import '../../node_modules/tailwindcss/preflight.css' layer(base);
+@tailwind utilities;
+
+/* 唯一圆角标尺：同时驱动 CSS token 和 Tailwind rounded-* utilities。 */
+@theme {
+  --radius-none: 0;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-3xl: 32px;
+  --radius-4xl: 48px;
+  --radius-full: 9999px;
+}
+
+/* v15 窗口分级（M3 window size classes）：compact <600 / medium 600–840 / expanded ≥840。
+   覆写 Tailwind sm/md：sm: = medium 起点 600，md: = expanded 起点 840；lg 及以上保持默认。
+   手写媒体查询与 useBreakpoint 同用这两档，内容特调阈值（1100/1180 等）不在此列。 */
+@theme {
+  --breakpoint-sm: 600px;
+  --breakpoint-md: 840px;
+}
+
+/* 唯一字阶（M3 type scale，v15 七档）：同时驱动 --text-* CSS 变量和 Tailwind text-* 工具类。
+   TSX 一律使用 text-caption/label/body-sm/body/title/headline/display，
+   禁止 text-[Npx] 任意值；CSS 使用 var(--text-*)。旧 -line 别名见 base.css。 */
+@theme {
+  --text-caption: 11px; /* 全站下限（v15：10 / 10.5 废除，刻度、角标、分区标签并入本档） */
+  --text-caption--line-height: 16px;
+  --text-label: 12px; /* 标签、日期 */
+  --text-label--line-height: 16px;
+  --text-body-sm: 13px; /* 紧凑正文（时间戳、辅助说明） */
+  --text-body-sm--line-height: 18px;
+  --text-body: 14px; /* 正文基准（M3 body-medium，v15 起为 body 元素默认）；按钮、Tab、导航、chip、输入框 */
+  --text-body--line-height: 20px;
+  --text-title: 16px;
+  --text-title--line-height: 24px;
+  --text-title-lg: 20px; /* 大标题（对话框头、分区 h2；介于 title/headline，自研档） */
+  --text-headline: 28px;
+  --text-headline--line-height: 36px;
+  --text-headline-lg: 32px; /* M3 headline-large；品牌字标、紧凑页大标题、画布大字 */
+  --text-display-sm: 45px; /* M3 display-medium；紧凑 hero 标题 */
+  --text-display: 57px;
+  --text-display--line-height: 64px;
+}
+
+/* 画布展示字阶（React Flow 缩放画布内的放大字号，约为 UI 字阶 2 倍；v15.1 存量收口，
+   仅限画布卡/工作台节点与放大阅读面使用，普通 UI 一律用上方字阶） */
+@theme {
+  --text-canvas-label: 18px;
+  --text-canvas-body: 20px;
+  --text-canvas-body-lg: 22px;
+  --text-canvas-title-sm: 24px;
+  --text-canvas-title: 26px;
+  --text-canvas-title-lg: 28px;
+}
+
+@import './fonts.css';
+@import './base.css';
+@import '../features/home/home.css';
+@import '../features/storyboards/storyboards.css';
+@import '../features/analytics/analytics.css';
+@import '../features/admin-users/admin-users.css';
+@import '../features/auth/auth.css';
+@import '../features/project-canvas/canvas-video-generation.css';
+@import '../shared/composer/composer.css';
+@import './popup-animations.css';
+@import '../features/project-canvas/canvas-highlight.css';
+@import '../features/project-canvas/storyboard-workbench.css';
+@import './banner-animations.css';
+@import '../shared/editor/tiptap.css';
+@import '../features/chat/chat-scrollbar.css';
+@import '../shared/markdown/markdown.css';
+@import './utility-classes.css';

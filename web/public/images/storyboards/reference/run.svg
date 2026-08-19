@@ -1,0 +1,19 @@
+<svg viewBox="0 0 800 450" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice"><linearGradient id="tun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c9bfa8"></stop><stop offset="1" stop-color="#6f6558"></stop></linearGradient>
+  <rect width="800" height="450" fill="url(#tun)"></rect>
+  <path d="M300,0 L500,0 L640,450 L160,450 Z" fill="#e5dac2" opacity="0.55"></path>
+  <path d="M330,30 L470,30 L580,450 L220,450 Z" fill="#d5c8ac" opacity="0.5"></path>
+  <line x1="300" y1="0" x2="160" y2="64" stroke="#57493a" stroke-width="3" opacity=".4"></line>
+  <line x1="500" y1="0" x2="640" y2="64" stroke="#57493a" stroke-width="3" opacity=".4"></line><line x1="276" y1="64" x2="148" y2="128" stroke="#57493a" stroke-width="3" opacity=".4"></line>
+  <line x1="524" y1="64" x2="652" y2="128" stroke="#57493a" stroke-width="3" opacity=".4"></line><line x1="252" y1="128" x2="136" y2="192" stroke="#57493a" stroke-width="3" opacity=".4"></line>
+  <line x1="548" y1="128" x2="664" y2="192" stroke="#57493a" stroke-width="3" opacity=".4"></line><line x1="228" y1="192" x2="124" y2="256" stroke="#57493a" stroke-width="3" opacity=".4"></line>
+  <line x1="572" y1="192" x2="676" y2="256" stroke="#57493a" stroke-width="3" opacity=".4"></line><line x1="204" y1="256" x2="112" y2="320" stroke="#57493a" stroke-width="3" opacity=".4"></line>
+  <line x1="596" y1="256" x2="688" y2="320" stroke="#57493a" stroke-width="3" opacity=".4"></line><line x1="180" y1="320" x2="100" y2="384" stroke="#57493a" stroke-width="3" opacity=".4"></line>
+  <line x1="620" y1="320" x2="700" y2="384" stroke="#57493a" stroke-width="3" opacity=".4"></line><line x1="156" y1="384" x2="88" y2="448" stroke="#57493a" stroke-width="3" opacity=".4"></line>
+  <line x1="644" y1="384" x2="712" y2="448" stroke="#57493a" stroke-width="3" opacity=".4"></line>
+  <line x1="230" y1="90" x2="570" y2="90" stroke="#57493a" stroke-width="4" opacity=".35"></line><line x1="238" y1="148" x2="562" y2="148" stroke="#57493a" stroke-width="4" opacity=".35"></line><line x1="246" y1="206" x2="554" y2="206" stroke="#57493a" stroke-width="4" opacity=".35"></line><line x1="254" y1="264" x2="546" y2="264" stroke="#57493a" stroke-width="4" opacity=".35"></line><line x1="262" y1="322" x2="538" y2="322" stroke="#57493a" stroke-width="4" opacity=".35"></line><line x1="270" y1="380" x2="530" y2="380" stroke="#57493a" stroke-width="4" opacity=".35"></line>
+  <g transform="translate(400,300) scale(1.9)" fill="#5a4636">
+    <circle cx="6" cy="-52" r="9"></circle><path d="M4,-44 L-8,-18 L-22,2 L-14,6 L0,-10 L6,4 L-2,26 L6,28 L16,6 L12,-14 L22,-26 L16,-32 Z"></path>
+    <path d="M12,-40 L30,-30 L28,-24 L10,-32 Z"></path></g>
+  <path d="M350,240 q-40,10 -60,40" stroke="#c0543f" stroke-width="6" fill="none" opacity=".7"></path><path d="M452,236 q34,16 44,48" stroke="#c0543f" stroke-width="6" fill="none" opacity=".55"></path>
+  <path d="M300,250 l-46,-10 M296,278 l-52,2 M306,306 l-48,14" stroke="#8d8069" stroke-width="4" stroke-linecap="round" opacity=".6"></path>
+  <text x="36" y="52" font-size="17" fill="#4c4438" font-family="sans-serif" letter-spacing="3">地铁入口 · 下行</text></svg>

@@ -1,0 +1,18 @@
+<svg viewBox="0 0 800 450" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice"><linearGradient id="cw" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4c5c68"></stop><stop offset="1" stop-color="#33404c"></stop></linearGradient>
+  <rect width="800" height="450" fill="url(#cw)"></rect>
+  <rect x="0" y="60" width="800" height="130" fill="#5d7080"></rect>
+  <rect x="60" y="78" width="200" height="96" rx="10" fill="#1c2430"></rect>
+  <rect x="300" y="78" width="200" height="96" rx="10" fill="#1c2430"></rect>
+  <rect x="540" y="78" width="200" height="96" rx="10" fill="#1c2430"></rect>
+
+  <rect y="190" width="800" height="12" fill="#2c3844"></rect>
+  <line x1="120" y1="20" x2="120" y2="60" stroke="#8fa2b0" stroke-width="5"></line><circle cx="120" cy="72" r="12" fill="none" stroke="#8fa2b0" stroke-width="5"></circle><line x1="280" y1="20" x2="280" y2="60" stroke="#8fa2b0" stroke-width="5"></line><circle cx="280" cy="72" r="12" fill="none" stroke="#8fa2b0" stroke-width="5"></circle><line x1="440" y1="20" x2="440" y2="60" stroke="#8fa2b0" stroke-width="5"></line><circle cx="440" cy="72" r="12" fill="none" stroke="#8fa2b0" stroke-width="5"></circle><line x1="600" y1="20" x2="600" y2="60" stroke="#8fa2b0" stroke-width="5"></line><circle cx="600" cy="72" r="12" fill="none" stroke="#8fa2b0" stroke-width="5"></circle>
+  <rect x="40" y="270" width="320" height="26" rx="13" fill="#7a3f2e"></rect>
+  <rect x="440" y="270" width="320" height="26" rx="13" fill="#7a3f2e"></rect>
+  <g transform="translate(190,332) scale(1.5)" fill="#2c3844">
+    <circle cx="0" cy="-50" r="9"></circle><path d="M-8,-42 Q0,-46 8,-42 L10,-8 L6,-4 L7,26 L2,26 L0,0 L-2,26 L-7,26 L-6,-4 L-10,-8 Z"></path></g>
+  <g transform="translate(610,332) scale(1.5)" fill="#2c3844">
+    <circle cx="0" cy="-50" r="9"></circle><path d="M-8,-42 Q0,-46 8,-42 L10,-8 L6,-4 L7,26 L2,26 L0,0 L-2,26 L-7,26 L-6,-4 L-10,-8 Z"></path></g>
+  <rect y="296" width="800" height="154" fill="#424f5c"></rect>
+
+  <text x="400" y="420" text-anchor="middle" font-size="15" fill="#aebfc9" font-family="sans-serif" letter-spacing="4">车厢 · 23:49</text></svg>
