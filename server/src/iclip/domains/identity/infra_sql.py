@@ -38,7 +38,9 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     username: Mapped[str | None] = mapped_column(String(150), unique=True, nullable=True)
     display_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     avatar_url: Mapped[str] = mapped_column(String(1024), default="", nullable=False)
-    role: Mapped[str] = mapped_column(String(16), default="viewer", nullable=False)
+    # 密码注册的默认身份；SSO 首登在 sync 中覆写为 ["editor"]。
+    roles: Mapped[list[str]] = mapped_column(JSONB, default=lambda: ["viewer"], nullable=False)
+    direct_permissions: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
     city: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     job_title: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     departments: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
@@ -125,7 +127,8 @@ def account_from_row(row: User) -> UserAccount:
         username=row.username,
         display_name=row.display_name,
         avatar_url=row.avatar_url,
-        role=row.role,
+        roles=tuple(row.roles),
+        direct_permissions=frozenset(row.direct_permissions),
         is_active=row.is_active,
         city=row.city,
         job_title=row.job_title,
@@ -179,23 +182,32 @@ class SqlUserRepository:
             )
             return tuple(account_from_row(row) for row in rows), int(total)
 
-    async def update_admin_fields(
+    async def update_access_fields(
         self,
         user_id: uuid.UUID,
         *,
-        role: str | None,
+        roles: tuple[str, ...] | None,
+        direct_permissions: frozenset[str] | None,
         is_active: bool | None,
     ) -> UserAccount | None:
         async with self._sessions() as session, session.begin():
             row = await session.get(User, user_id)
             if row is None:
                 return None
-            if role is not None:
-                row.role = role
+            if roles is not None:
+                row.roles = list(roles)
+            if direct_permissions is not None:
+                row.direct_permissions = sorted(direct_permissions)
             if is_active is not None:
                 row.is_active = is_active
             await session.flush()
             return account_from_row(row)
+
+    async def ensure_role(self, user_id: uuid.UUID, role: str) -> None:
+        async with self._sessions() as session, session.begin():
+            row = await session.get(User, user_id)
+            if row is not None and role not in row.roles:
+                row.roles = [*row.roles, role]
 
     async def touch_last_login(self, user_id: uuid.UUID, at: datetime) -> None:
         async with self._sessions() as session, session.begin():
@@ -209,7 +221,7 @@ class SqlUserRepository:
         *,
         display_name: str,
         avatar_url: str,
-        role: str | None,
+        roles: tuple[str, ...] | None,
         city: str | None,
         job_title: str | None,
         departments: tuple[PmsDepartment, ...] | None,
@@ -222,8 +234,8 @@ class SqlUserRepository:
                 row.display_name = display_name
             if avatar_url:
                 row.avatar_url = avatar_url
-            if role is not None:
-                row.role = role
+            if roles is not None:
+                row.roles = list(roles)
             if city is not None:
                 row.city = city
             if job_title is not None:
@@ -282,12 +294,6 @@ class SqlApiKeyRepository:
                 row.last_used_at = at
 
 
-def make_session_factory_repositories(
-    sessions: SessionFactory,
-) -> tuple[SqlUserRepository, SqlApiKeyRepository]:
-    return SqlUserRepository(sessions), SqlApiKeyRepository(sessions)
-
-
 async def get_user_row_by_username(session: AsyncSession, username: str) -> User | None:
     """按 username 查用户行（fastapi-users 适配层的登录标识解析用）。"""
 
@@ -306,5 +312,4 @@ __all__ = [
     "account_from_row",
     "department_to_json",
     "get_user_row_by_username",
-    "make_session_factory_repositories",
 ]

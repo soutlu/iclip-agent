@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from iclip.domains.identity.models import ApiKeyRecord, PmsDepartment, UserAccount
@@ -11,7 +12,8 @@ from iclip.domains.identity.models import ApiKeyRecord, PmsDepartment, UserAccou
 def make_account(
     *,
     user_id: uuid.UUID | None = None,
-    role: str = "editor",
+    roles: tuple[str, ...] = ("editor",),
+    direct_permissions: frozenset[str] = frozenset(),
     is_active: bool = True,
     username: str | None = "luke",
     email: str = "luke@example.com",
@@ -22,7 +24,8 @@ def make_account(
         username=username,
         display_name="Luke",
         avatar_url="",
-        role=role,
+        roles=roles,
+        direct_permissions=direct_permissions,
         is_active=is_active,
         city="",
         job_title="",
@@ -60,20 +63,30 @@ class InMemoryUserRepository:
         ordered = sorted(self.accounts.values(), key=lambda a: a.created_at or datetime.now(UTC))
         return tuple(ordered[offset : offset + limit]), len(ordered)
 
-    async def update_admin_fields(
-        self, user_id: uuid.UUID, *, role: str | None, is_active: bool | None
+    async def update_access_fields(
+        self,
+        user_id: uuid.UUID,
+        *,
+        roles: tuple[str, ...] | None,
+        direct_permissions: frozenset[str] | None,
+        is_active: bool | None,
     ) -> UserAccount | None:
         account = self.accounts.get(user_id)
         if account is None:
             return None
-        from dataclasses import replace
-
-        if role is not None:
-            account = replace(account, role=role)
+        if roles is not None:
+            account = replace(account, roles=roles)
+        if direct_permissions is not None:
+            account = replace(account, direct_permissions=direct_permissions)
         if is_active is not None:
             account = replace(account, is_active=is_active)
         self.accounts[user_id] = account
         return account
+
+    async def ensure_role(self, user_id: uuid.UUID, role: str) -> None:
+        account = self.accounts.get(user_id)
+        if account is not None and role not in account.roles:
+            self.accounts[user_id] = replace(account, roles=(*account.roles, role))
 
     async def touch_last_login(self, user_id: uuid.UUID, at: datetime) -> None:
         pass
@@ -88,8 +101,6 @@ class InMemoryApiKeyRepository:
         self.hashes: dict[str, uuid.UUID] = {}
 
     async def add(self, record: ApiKeyRecord, *, token_hash: str) -> None:
-        from dataclasses import replace
-
         stored = replace(record, created_at=datetime.now(UTC))
         self.records[record.id] = stored
         self.hashes[token_hash] = record.id
@@ -108,15 +119,11 @@ class InMemoryApiKeyRepository:
         return tuple(records)
 
     async def revoke(self, key_id: uuid.UUID, at: datetime) -> None:
-        from dataclasses import replace
-
         record = self.records.get(key_id)
         if record is not None and record.revoked_at is None:
             self.records[key_id] = replace(record, revoked_at=at)
 
     async def touch_last_used(self, key_id: uuid.UUID, at: datetime) -> None:
-        from dataclasses import replace
-
         record = self.records.get(key_id)
         if record is not None:
             self.records[key_id] = replace(record, last_used_at=at)

@@ -15,9 +15,10 @@ class CreateApiKey:
 
 @dataclass(frozen=True, slots=True)
 class UpdateUser:
-    """管理员对用户的调整；None 表示不变。"""
+    """用户管理面的调整；None 表示不变。"""
 
-    role: str | None = None
+    roles: tuple[str, ...] | None = None
+    direct_permissions: frozenset[str] | None = None
     is_active: bool | None = None
 
 

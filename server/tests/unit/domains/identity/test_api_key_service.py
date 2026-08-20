@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,7 +15,6 @@ from iclip.common.errors import (
     ValidationFailed,
 )
 from iclip.domains.identity.commands import CreateApiKey
-from iclip.domains.identity.rbac import permissions_for
 from iclip.domains.identity.service import (
     API_KEY_TOKEN_PREFIX,
     IdentityService,
@@ -46,8 +46,17 @@ def test_token_shape() -> None:
     assert generate_api_key_token() != token
 
 
+def test_user_principal_permissions_are_role_union_plus_direct_grants() -> None:
+    account = make_account(roles=("viewer",), direct_permissions=frozenset({"generation:submit"}))
+    service, _, _ = make_service(account)
+    principal = service.principal_for_user(account)
+    assert principal.has("projects:read")
+    assert principal.has("generation:submit")
+    assert not principal.has("projects:write")
+
+
 async def test_issue_and_authenticate_round_trip() -> None:
-    owner = make_account(role="editor")
+    owner = make_account(roles=("root",))
     service, _, _ = make_service(owner)
     principal = service.principal_for_user(owner)
 
@@ -63,19 +72,32 @@ async def test_issue_and_authenticate_round_trip() -> None:
     assert key_principal.permissions == {"projects:read"}
 
 
-async def test_issue_rejects_permissions_beyond_owner() -> None:
-    owner = make_account(role="viewer")
+async def test_issue_requires_api_keys_issue_permission() -> None:
+    owner = make_account(roles=("editor",))
     service, _, _ = make_service(owner)
     principal = service.principal_for_user(owner)
     with pytest.raises(PermissionDenied):
         await service.issue_api_key(
-            principal,
-            CreateApiKey(name="k", permissions=frozenset({"projects:write"})),
+            principal, CreateApiKey(name="k", permissions=frozenset({"projects:read"}))
         )
 
 
+async def test_direct_grant_of_issue_permission_still_caps_key_at_owner_permissions() -> None:
+    owner = make_account(roles=("viewer",), direct_permissions=frozenset({"api_keys:issue"}))
+    service, _, _ = make_service(owner)
+    principal = service.principal_for_user(owner)
+    with pytest.raises(PermissionDenied):
+        await service.issue_api_key(
+            principal, CreateApiKey(name="k", permissions=frozenset({"projects:write"}))
+        )
+    record, _ = await service.issue_api_key(
+        principal, CreateApiKey(name="k", permissions=frozenset({"projects:read"}))
+    )
+    assert record.permissions == {"projects:read"}
+
+
 async def test_issue_rejects_unknown_permission_and_empty_grant() -> None:
-    owner = make_account(role="admin")
+    owner = make_account(roles=("root",))
     service, _, _ = make_service(owner)
     principal = service.principal_for_user(owner)
     with pytest.raises(ValidationFailed):
@@ -87,11 +109,11 @@ async def test_issue_rejects_unknown_permission_and_empty_grant() -> None:
 
 
 async def test_api_key_principal_cannot_issue_keys() -> None:
-    owner = make_account(role="admin")
+    owner = make_account(roles=("root",))
     service, _, _ = make_service(owner)
     principal = service.principal_for_user(owner)
     _, token = await service.issue_api_key(
-        principal, CreateApiKey(name="k", permissions=frozenset({"users:manage"}))
+        principal, CreateApiKey(name="k", permissions=frozenset({"api_keys:issue"}))
     )
     key_principal = await service.authenticate_api_key(token)
     with pytest.raises(PermissionDenied):
@@ -100,22 +122,24 @@ async def test_api_key_principal_cannot_issue_keys() -> None:
         )
 
 
-async def test_owner_demotion_shrinks_key_effective_permissions() -> None:
-    owner = make_account(role="admin")
+async def test_key_permissions_are_explicit_grant_set_independent_of_owner_roles() -> None:
+    owner = make_account(roles=("root",))
     service, users, _ = make_service(owner)
     principal = service.principal_for_user(owner)
     _, token = await service.issue_api_key(
         principal, CreateApiKey(name="k", permissions=frozenset({"users:manage"}))
     )
-    await users.update_admin_fields(owner.id, role="viewer", is_active=None)
+    await users.update_access_fields(
+        owner.id, roles=("viewer",), direct_permissions=None, is_active=None
+    )
 
+    # key 有效权限 = 显式授权集，不随属主角色变化
     key_principal = await service.authenticate_api_key(token)
-    assert key_principal.permissions == frozenset()
-    assert key_principal.permissions <= permissions_for("viewer")
+    assert key_principal.permissions == {"users:manage"}
 
 
 async def test_revoked_expired_and_inactive_owner_all_fail_auth() -> None:
-    owner = make_account(role="editor")
+    owner = make_account(roles=("root",))
     service, users, api_keys = make_service(owner)
     principal = service.principal_for_user(owner)
 
@@ -136,8 +160,6 @@ async def test_revoked_expired_and_inactive_owner_all_fail_auth() -> None:
         ),
     )
     expired = next(r for r in (await api_keys.list_for_owner(owner.id)) if r.name == "b")
-    from dataclasses import replace
-
     api_keys.records[expired.id] = replace(
         expired, expires_at=datetime.now(UTC) - timedelta(seconds=1)
     )
@@ -147,14 +169,14 @@ async def test_revoked_expired_and_inactive_owner_all_fail_auth() -> None:
     _, live_token = await service.issue_api_key(
         principal, CreateApiKey(name="c", permissions=frozenset({"projects:read"}))
     )
-    await users.update_admin_fields(owner.id, role=None, is_active=False)
+    await users.update_access_fields(owner.id, roles=None, direct_permissions=None, is_active=False)
     with pytest.raises(AuthenticationFailed):
         await service.authenticate_api_key(live_token)
 
 
 async def test_revoke_hides_others_keys_as_not_found() -> None:
-    owner = make_account(role="editor")
-    stranger = make_account(role="editor", username="mallory", email="m@example.com")
+    owner = make_account(roles=("root",))
+    stranger = make_account(roles=("editor",), username="mallory", email="m@example.com")
     service, _, api_keys = make_service(owner, stranger)
     principal = service.principal_for_user(owner)
     await service.issue_api_key(

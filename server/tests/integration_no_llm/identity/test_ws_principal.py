@@ -28,7 +28,7 @@ def _install_ws_routes(app: FastAPI) -> None:
             await websocket.close(code=1008)
             return
         await websocket.accept()
-        await websocket.send_json({"kind": principal.kind, "display": principal.display})
+        await websocket.send_json({"kind": principal.kind, "label": principal.audit_label})
         await websocket.close()
 
 
@@ -46,10 +46,16 @@ def _register_and_login(tc: TestClient) -> str:
     return cookie
 
 
-def test_cookie_and_bearer_handshakes(ws_app: FastAPI) -> None:
+def test_cookie_and_bearer_handshakes(ws_app: FastAPI, migrated_pg: str) -> None:
+    import asyncio
+
+    from tests.integration_no_llm.conftest import set_roles_in_db
+
     _install_ws_routes(ws_app)
     with TestClient(ws_app) as tc:
         cookie = _register_and_login(tc)
+        # 签发 key 需要 root（api_keys:issue）
+        asyncio.run(set_roles_in_db(migrated_pg, "luke@example.com", ["root"]))
         key = tc.post("/api-keys", json={"name": "ws", "permissions": ["agent:read"]})
         assert key.status_code == 201, key.text
         token = key.json()["apiKey"]["token"]
@@ -60,7 +66,7 @@ def test_cookie_and_bearer_handshakes(ws_app: FastAPI) -> None:
         with tc.websocket_connect("/ws-echo", headers={"Authorization": f"Bearer {token}"}) as ws:
             payload = ws.receive_json()
             assert payload["kind"] == "api_key"
-            assert payload["display"].endswith("#ws")
+            assert payload["label"].endswith("#ws")
 
 
 def test_anonymous_handshake_denied(ws_app: FastAPI) -> None:

@@ -1,10 +1,11 @@
 """引导型管理 CLI：直连数据库，绕过 API 层。
 
-第一个 admin 只能从这里产生（密码注册默认 viewer、SSO 默认 editor，均无法自提权）。
+root 引导有两条路：SSO 场景配置 ICLIP_ROOT_EMAIL，非 SSO 场景用这里的 set-roles
+（密码注册默认 viewer、SSO 首登默认 editor，均无法自提权）。
 
 用法：
     uv run --env-file ../.env python -m scripts.admin list-users
-    uv run --env-file ../.env python -m scripts.admin set-role <username_or_email> admin
+    uv run --env-file ../.env python -m scripts.admin set-roles <username_or_email> root,editor
     uv run --env-file ../.env python -m scripts.admin issue-key <username_or_email> <key名> <perm1,perm2>
 """
 
@@ -58,14 +59,19 @@ async def _list_users() -> None:
             )
             for row in rows:
                 flags = "" if row.is_active else " [停用]"
-                print(f"{row.id}  {row.username or '-':<20} {row.email:<32} {row.role}{flags}")
+                roles = ",".join(row.roles) or "-"
+                print(f"{row.id}  {row.username or '-':<20} {row.email:<32} {roles}{flags}")
     finally:
         await engine.dispose()
 
 
-async def _set_role(identifier: str, role: str) -> None:
-    if role not in ROLES:
-        sys.exit(f"未知角色: {role}（可选: {', '.join(ROLES)}）")
+async def _set_roles(identifier: str, roles_csv: str) -> None:
+    roles = [r.strip() for r in roles_csv.split(",") if r.strip()]
+    unknown = set(roles) - set(ROLES)
+    if not roles or unknown:
+        sys.exit(
+            f"角色列表非法（未知: {', '.join(sorted(unknown)) or '空'}；可选: {', '.join(ROLES)}）"
+        )
     engine = create_async_engine(_database_url())
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:
@@ -73,8 +79,8 @@ async def _set_role(identifier: str, role: str) -> None:
         async with sessions() as session, session.begin():
             row = await session.get(User, user.id)
             assert row is not None
-            row.role = role
-        print(f"已把 {identifier} 的角色设为 {role}")
+            row.roles = roles
+        print(f"已把 {identifier} 的角色设为 {','.join(roles)}")
     finally:
         await engine.dispose()
 
@@ -111,9 +117,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="iClip 引导型管理 CLI")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list-users")
-    p_role = sub.add_parser("set-role")
-    p_role.add_argument("identifier")
-    p_role.add_argument("role")
+    p_roles = sub.add_parser("set-roles")
+    p_roles.add_argument("identifier")
+    p_roles.add_argument("roles", help="逗号分隔角色列表")
     p_key = sub.add_parser("issue-key")
     p_key.add_argument("identifier")
     p_key.add_argument("name")
@@ -122,8 +128,8 @@ def main() -> None:
 
     if args.command == "list-users":
         asyncio.run(_list_users())
-    elif args.command == "set-role":
-        asyncio.run(_set_role(args.identifier, args.role))
+    elif args.command == "set-roles":
+        asyncio.run(_set_roles(args.identifier, args.roles))
     else:
         asyncio.run(_issue_key(args.identifier, args.name, args.permissions))
 

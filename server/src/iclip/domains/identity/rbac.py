@@ -1,14 +1,15 @@
-"""角色 → 产品权限矩阵：后端唯一事实源，前端只按 /users/me 的 permissions 做展示。
+"""权限词汇表与预置角色：后端唯一事实源，前端只按 /users/me 的 permissions 做展示。
 
-单一权限词汇表（agent 面权限并入产品矩阵，不存在第二套 scope 空间）。
+统一权限抽象：授权的唯一货币是权限集合（frozenset[str]）。
+  用户有效权限   = 所分配角色的权限并集 ∪ 直接授权
+  API key 有效权限 = key 显式授权集
+角色只是权限集合的命名快捷方式（代码内预置，无角色管理表）。
 权限是端点级能力门控，与行级归属（他人资源返 404）正交。
 """
 
 from __future__ import annotations
 
-from iclip.domains.identity.models import Role
-
-ROLES: tuple[Role, ...] = ("admin", "editor", "viewer")
+from collections.abc import Iterable
 
 PERMISSIONS: tuple[str, ...] = (
     "projects:read",
@@ -21,6 +22,7 @@ PERMISSIONS: tuple[str, ...] = (
     "generation:submit",
     "analytics:read",
     "users:manage",
+    "api_keys:issue",
     "agent:read",
     "agent:run",
 )
@@ -34,24 +36,41 @@ _VIEWER = frozenset(
         "agent:read",
     }
 )
-_EDITOR = frozenset(PERMISSIONS) - {"analytics:read", "users:manage"}
-_ADMIN = frozenset(PERMISSIONS)
+_EDITOR = frozenset(PERMISSIONS) - {"analytics:read", "users:manage", "api_keys:issue"}
+# root 由全量计算而来：新增权限自动流入，不会漏。
+_ROOT = frozenset(PERMISSIONS)
 
-ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
-    "admin": _ADMIN,
+ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
+    "root": _ROOT,
     "editor": _EDITOR,
     "viewer": _VIEWER,
 }
 
+ROLES: tuple[str, ...] = tuple(ROLE_PERMISSIONS)
 
-def permissions_for(role: str) -> frozenset[str]:
-    """返回角色的产品权限；未知角色无任何权限。"""
+ROOT_ROLE = "root"
 
-    return ROLE_PERMISSIONS.get(role, frozenset())  # type: ignore[arg-type]
+
+def effective_permissions(
+    roles: Iterable[str], direct_permissions: Iterable[str] = ()
+) -> frozenset[str]:
+    """角色权限并集 ∪ 直接授权；未知角色贡献空集。"""
+
+    granted = frozenset(direct_permissions)
+    for role in roles:
+        granted |= ROLE_PERMISSIONS.get(role, frozenset())
+    return granted
 
 
 def is_known_role(role: str) -> bool:
     return role in ROLE_PERMISSIONS
 
 
-__all__ = ["PERMISSIONS", "ROLES", "ROLE_PERMISSIONS", "is_known_role", "permissions_for"]
+__all__ = [
+    "PERMISSIONS",
+    "ROLES",
+    "ROLE_PERMISSIONS",
+    "ROOT_ROLE",
+    "effective_permissions",
+    "is_known_role",
+]

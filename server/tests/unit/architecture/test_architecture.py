@@ -91,7 +91,7 @@ def test_cross_module_imports_only_public() -> None:
 
 
 def test_models_and_commands_are_pure() -> None:
-    """models.py / commands.py 只许 stdlib 与 iclip.common。"""
+    """models.py / commands.py 只许 stdlib、iclip.common 与本模块。"""
 
     import sys
 
@@ -100,19 +100,18 @@ def test_models_and_commands_are_pure() -> None:
     for name in ("models.py", "commands.py"):
         for path in (SRC / "domains").rglob(name):
             for top in _imported_top_levels(path):
-                if top in stdlib or top == "iclip":
-                    tree = ast.parse(path.read_text(encoding="utf-8"))
-                    for node in ast.walk(tree):
-                        if (
-                            isinstance(node, ast.ImportFrom)
-                            and node.module
-                            and node.module.startswith("iclip.")
-                            and not node.module.startswith("iclip.common")
-                            and not node.module.startswith(f"iclip.domains.{path.parent.name}")
-                        ):
-                            violations.append(f"{_rel(path)}: {node.module}")
-                    continue
-                violations.append(f"{_rel(path)}: 第三方 {top}")
+                if top not in stdlib and top != "iclip":
+                    violations.append(f"{_rel(path)}: 第三方 {top}")
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module
+                    and node.module.startswith("iclip.")
+                    and not node.module.startswith("iclip.common")
+                    and not node.module.startswith(f"iclip.domains.{path.parent.name}")
+                ):
+                    violations.append(f"{_rel(path)}: {node.module}")
     assert not violations, "\n".join(violations)
 
 

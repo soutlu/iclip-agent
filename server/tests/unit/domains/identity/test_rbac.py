@@ -1,24 +1,31 @@
-"""角色矩阵不变量。"""
+"""权限词汇表与预置角色的不变量。"""
 
 from __future__ import annotations
 
-from iclip.domains.identity.rbac import PERMISSIONS, ROLE_PERMISSIONS, permissions_for
+from iclip.domains.identity.rbac import (
+    PERMISSIONS,
+    ROLE_PERMISSIONS,
+    ROOT_ROLE,
+    effective_permissions,
+)
 
 
 def test_role_hierarchy_is_strictly_nested() -> None:
-    viewer, editor, admin = (
+    viewer, editor, root = (
         ROLE_PERMISSIONS["viewer"],
         ROLE_PERMISSIONS["editor"],
-        ROLE_PERMISSIONS["admin"],
+        ROLE_PERMISSIONS["root"],
     )
-    assert viewer < editor < admin
-    assert admin == frozenset(PERMISSIONS)
+    assert viewer < editor < root
+    # root 由全量计算而来：新增权限自动流入
+    assert root == frozenset(PERMISSIONS)
 
 
-def test_editor_lacks_exactly_admin_only_permissions() -> None:
+def test_editor_lacks_exactly_root_only_permissions() -> None:
     assert frozenset(PERMISSIONS) - ROLE_PERMISSIONS["editor"] == {
         "analytics:read",
         "users:manage",
+        "api_keys:issue",
     }
 
 
@@ -32,6 +39,18 @@ def test_viewer_is_read_only_plus_agent_read() -> None:
     }
 
 
-def test_unknown_role_has_no_permissions() -> None:
-    assert permissions_for("root") == frozenset()
-    assert permissions_for("") == frozenset()
+def test_effective_permissions_is_role_union_plus_direct_grants() -> None:
+    assert effective_permissions(("viewer",), {"generation:submit"}) == (
+        ROLE_PERMISSIONS["viewer"] | {"generation:submit"}
+    )
+    assert effective_permissions(("viewer", "editor")) == ROLE_PERMISSIONS["editor"]
+
+
+def test_unknown_role_contributes_nothing() -> None:
+    assert effective_permissions(("admin",)) == frozenset()
+    assert effective_permissions((), ()) == frozenset()
+
+
+def test_only_root_can_issue_api_keys() -> None:
+    holders = [name for name, perms in ROLE_PERMISSIONS.items() if "api_keys:issue" in perms]
+    assert holders == [ROOT_ROLE]

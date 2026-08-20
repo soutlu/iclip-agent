@@ -28,12 +28,12 @@ from iclip.domains.identity.infra_sql import OAuthAccount, SessionFactory, User
 from iclip.domains.identity.middleware import require_authenticated, require_permission
 from iclip.domains.identity.models import Principal
 from iclip.domains.identity.pms import PmsUnavailable, PmsUserClient
-from iclip.domains.identity.rbac import permissions_for
+from iclip.domains.identity.rbac import ROOT_ROLE
 from iclip.domains.identity.repository import UserRepository
 from iclip.domains.identity.schemas import (
+    ApiKeyCreatedEnvelope,
     ApiKeyCreatedOut,
     ApiKeyCreateIn,
-    ApiKeyEnvelope,
     ApiKeysEnvelope,
     SsoAuthorizeOut,
     UserEnvelope,
@@ -102,9 +102,7 @@ def create_users_router(service: IdentityService) -> APIRouter:
     ) -> UsersPageOut:
         accounts, total = await service.list_users_page(principal, page=page, page_size=page_size)
         return UsersPageOut(
-            items=[
-                user_out(account, permissions=permissions_for(account.role)) for account in accounts
-            ],
+            items=[user_out(account) for account in accounts],
             total=total,
             page=page,
             page_size=page_size,
@@ -118,11 +116,21 @@ def create_users_router(service: IdentityService) -> APIRouter:
     ) -> UserEnvelope:
         try:
             account = await service.update_user(
-                principal, user_id, UpdateUser(role=patch.role, is_active=patch.is_active)
+                principal,
+                user_id,
+                UpdateUser(
+                    roles=tuple(patch.roles) if patch.roles is not None else None,
+                    direct_permissions=(
+                        frozenset(patch.direct_permissions)
+                        if patch.direct_permissions is not None
+                        else None
+                    ),
+                    is_active=patch.is_active,
+                ),
             )
         except SelfManagementForbidden as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return UserEnvelope(user=user_out(account, permissions=permissions_for(account.role)))
+        return UserEnvelope(user=user_out(account))
 
     return router
 
@@ -130,11 +138,11 @@ def create_users_router(service: IdentityService) -> APIRouter:
 def create_api_keys_router(service: IdentityService) -> APIRouter:
     router = APIRouter()
 
-    @router.post("/api-keys", response_model=ApiKeyEnvelope, status_code=201)
+    @router.post("/api-keys", response_model=ApiKeyCreatedEnvelope, status_code=201)
     async def create_key(
         body: ApiKeyCreateIn,
         principal: Annotated[Principal, Depends(require_authenticated)],
-    ) -> ApiKeyEnvelope:
+    ) -> ApiKeyCreatedEnvelope:
         record, token = await service.issue_api_key(
             principal,
             CreateApiKey(
@@ -144,7 +152,7 @@ def create_api_keys_router(service: IdentityService) -> APIRouter:
             ),
         )
         base = api_key_out(record)
-        return ApiKeyEnvelope(
+        return ApiKeyCreatedEnvelope(
             api_key=ApiKeyCreatedOut(**base.model_dump(by_alias=False), token=token)
         )
 
@@ -172,6 +180,7 @@ def create_sso_router(
     verifier: SsoVerifier,
     pms_client: PmsUserClient | None,
     users: UserRepository,
+    root_email: str | None,
 ) -> APIRouter:
     router = APIRouter(prefix="/auth/sso")
     user_manager_ctx = make_user_manager_context(sessions, secret=auth.secret)
@@ -221,11 +230,14 @@ def create_sso_router(
             user.id,
             display_name=session.name,
             avatar_url=session.avatar_url,
-            role="editor" if was_new else None,
+            roles=("editor",) if was_new else None,
             city=profile.city if profile is not None else None,
             job_title=profile.job_title if profile is not None else None,
             departments=profile.departments if profile is not None else None,
         )
+        # root 引导：配置指定的邮箱登录即确保持有 root 角色（唯一自动授权入口）。
+        if root_email and user.email.lower() == root_email.lower():
+            await users.ensure_role(user.id, ROOT_ROLE)
         await users.touch_last_login(user.id, datetime.now(UTC))
 
         token = await build_jwt_strategy(auth).write_token(user)

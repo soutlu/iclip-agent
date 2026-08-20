@@ -8,16 +8,15 @@ from iclip.domains.identity.middleware import (
     websocket_origin_allowed,
     websocket_principal,
 )
-from iclip.domains.identity.models import Principal, Role, UserAccount
-from iclip.domains.identity.rbac import PERMISSIONS, ROLES, permissions_for
+from iclip.domains.identity.models import Principal, UserAccount
+from iclip.domains.identity.rbac import PERMISSIONS, ROLES, effective_permissions
 
 __all__ = [
     "PERMISSIONS",
     "ROLES",
     "Principal",
-    "Role",
     "UserAccount",
-    "permissions_for",
+    "effective_permissions",
     "require_authenticated",
     "require_permission",
     "websocket_origin_allowed",

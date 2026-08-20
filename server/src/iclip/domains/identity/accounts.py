@@ -1,6 +1,6 @@
 """fastapi-users 装配：UserManager、cookie-JWT 认证后端、注册 schema。
 
-密码注册强制 ``viewer``（列默认值 + UserCreate 无 role 字段）；登录支持
+密码注册强制 ``roles=["viewer"]``（列默认值 + UserCreate 无 roles 字段）；登录支持
 username 或 email；登录成功刷新 ``last_login_at``。
 """
 
@@ -46,7 +46,7 @@ class CookieAuthSettings:
 
 class UserRead(schemas.BaseUser[uuid.UUID]):
     username: str | None = None
-    role: str = "viewer"
+    roles: list[str] = ["viewer"]  # noqa: RUF012 — pydantic 字段默认值按实例拷贝
 
 
 class UserCreate(schemas.BaseUserCreate):

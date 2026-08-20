@@ -18,7 +18,7 @@ from iclip.common.errors import (
 )
 from iclip.domains.identity.commands import CreateApiKey, UpdateUser
 from iclip.domains.identity.models import ApiKeyRecord, Principal, UserAccount
-from iclip.domains.identity.rbac import PERMISSIONS, is_known_role, permissions_for
+from iclip.domains.identity.rbac import PERMISSIONS, effective_permissions, is_known_role
 from iclip.domains.identity.repository import ApiKeyRepository, UserRepository
 
 API_KEY_TOKEN_PREFIX = "iclip_sk_"
@@ -27,7 +27,7 @@ _MAX_KEY_NAME_LENGTH = 200
 
 
 class SelfManagementForbidden(ValidationFailed):
-    """管理员不能撤销自己的 admin 角色或停用自己（wire 层映射 400）。"""
+    """用户管理者不能修改自己的授权或停用自己（wire 层映射 400）。"""
 
 
 def generate_api_key_token() -> str:
@@ -59,14 +59,14 @@ class IdentityService:
         return Principal(
             kind="user",
             user_id=account.id,
-            permissions=permissions_for(account.role),
-            display=account.username or account.email,
+            permissions=effective_permissions(account.roles, account.direct_permissions),
+            audit_label=account.username or account.email,
         )
 
     async def authenticate_api_key(self, token: str) -> Principal:
         """校验 Bearer API key 并构造主体；任何一步不满足都判定凭证无效。
 
-        有效权限 = key 授予集 ∩ 属主当下角色权限——属主降权/停用即时生效。
+        有效权限 = key 显式授权集；属主停用/吊销/过期即失效。
         """
 
         if not token.startswith(API_KEY_TOKEN_PREFIX):
@@ -80,14 +80,13 @@ class IdentityService:
         owner = await self._users.get(record.owner_user_id)
         if owner is None or not owner.is_active:
             raise AuthenticationFailed("API key 属主不可用")
-        effective = record.permissions & permissions_for(owner.role)
         await self._api_keys.touch_last_used(record.id, now)
         return Principal(
             kind="api_key",
             user_id=owner.id,
             api_key_id=record.id,
-            permissions=frozenset(effective),
-            display=f"{owner.username or owner.email}#{record.name}",
+            permissions=record.permissions,
+            audit_label=f"{owner.username or owner.email}#{record.name}",
         )
 
     async def get_account(self, user_id: uuid.UUID) -> UserAccount:
@@ -105,9 +104,11 @@ class IdentityService:
 
         if principal.kind != "user":
             raise PermissionDenied("API key 不能签发新的 API key")
+        if not principal.has("api_keys:issue"):
+            raise PermissionDenied("需要 api_keys:issue 权限")
         name = command.name.strip()
         if not name or len(name) > _MAX_KEY_NAME_LENGTH:
-            raise ValidationFailed("key 名称必须非空且不超过 200 字符")
+            raise ValidationFailed(f"key 名称必须非空且不超过 {_MAX_KEY_NAME_LENGTH} 字符")
         if not command.permissions:
             raise ValidationFailed("key 至少授予一项权限")
         unknown = command.permissions - set(PERMISSIONS)
@@ -161,15 +162,24 @@ class IdentityService:
     ) -> UserAccount:
         if not principal.has("users:manage"):
             raise PermissionDenied("需要 users:manage 权限")
-        if patch.role is not None and not is_known_role(patch.role):
-            raise ValidationFailed(f"未知角色: {patch.role}")
+        if patch.roles is not None:
+            unknown_roles = {role for role in patch.roles if not is_known_role(role)}
+            if unknown_roles:
+                raise ValidationFailed(f"未知角色: {', '.join(sorted(unknown_roles))}")
+        if patch.direct_permissions is not None:
+            unknown = patch.direct_permissions - set(PERMISSIONS)
+            if unknown:
+                raise ValidationFailed(f"未知权限: {', '.join(sorted(unknown))}")
         if user_id == principal.user_id:
-            if patch.role is not None and patch.role != "admin":
-                raise SelfManagementForbidden("不能撤销自己的管理员角色")
+            if patch.roles is not None or patch.direct_permissions is not None:
+                raise SelfManagementForbidden("不能修改自己的授权")
             if patch.is_active is False:
                 raise SelfManagementForbidden("不能停用自己")
-        updated = await self._users.update_admin_fields(
-            user_id, role=patch.role, is_active=patch.is_active
+        updated = await self._users.update_access_fields(
+            user_id,
+            roles=patch.roles,
+            direct_permissions=patch.direct_permissions,
+            is_active=patch.is_active,
         )
         if updated is None:
             raise NotFound("用户不存在")

@@ -64,6 +64,7 @@ class SsoSection(_Section):
     base_url_env: str
     app_name: str
     redirect_url_env: str
+    root_email_env: str = "ICLIP_ROOT_EMAIL"
 
 
 class PmsSection(_Section):
@@ -125,6 +126,7 @@ class ResolvedSso:
     app_name: str
     redirect_url: str
     pms_base_url: str | None
+    root_email: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,11 +163,13 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
     if sso_base:
         redirect = _require_env(config.sso.redirect_url_env, hint="SSO 前端落地路由完整 URL")
         pms_base = os.environ.get(config.pms.base_url_env, "").strip() or None
+        root_email = os.environ.get(config.sso.root_email_env, "").strip() or None
         sso = ResolvedSso(
             base_url=sso_base,
             app_name=config.sso.app_name,
             redirect_url=redirect,
             pms_base_url=pms_base,
+            root_email=root_email,
         )
 
     return ResolvedSettings(

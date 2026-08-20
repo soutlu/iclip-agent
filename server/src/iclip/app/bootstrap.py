@@ -57,6 +57,7 @@ def build_app(
             app_name=settings.sso.app_name,
             redirect_url=settings.sso.redirect_url,
             pms_base_url=settings.sso.pms_base_url,
+            root_email=settings.sso.root_email,
         )
         if settings.sso is not None
         else None,

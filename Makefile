@@ -1,6 +1,6 @@
 # 根级唯一命令入口；新增命令必须加进来，不散落在文档或口头约定里。
 
-.PHONY: setup dev lint format format-check typecheck tach test check db-upgrade test-external web-check
+.PHONY: setup dev lint format format-check typecheck tach test check db-upgrade test-external web-check hooks
 
 setup:
 	cd server && uv sync
@@ -37,3 +37,6 @@ test-external:
 
 web-check:
 	cd web && pnpm ci:check
+
+hooks:
+	cd server && uv run pre-commit install -t pre-commit -t pre-push

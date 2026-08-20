@@ -32,9 +32,9 @@ class PrincipalResolver:
     async def resolve(
         self, headers: Mapping[str, str], cookies: Mapping[str, str]
     ) -> Principal | None:
-        authorization = headers.get("authorization", "")
-        if authorization.lower().startswith("bearer "):
-            token = authorization[7:].strip()
+        scheme, _, bearer_token = headers.get("authorization", "").partition(" ")
+        if scheme.lower() == "bearer":
+            token = bearer_token.strip()
             if token.startswith(API_KEY_TOKEN_PREFIX):
                 try:
                     return await self.service.authenticate_api_key(token)
