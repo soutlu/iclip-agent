@@ -43,9 +43,12 @@ def pg_url() -> Generator[str]:
         yield explicit
         return
     try:
-        from testcontainers.postgres import PostgresContainer
+        from testcontainers.community.postgres import PostgresContainer
     except ImportError:
-        pytest.skip("无 ICLIP_TEST_DATABASE_URL 且未安装 testcontainers")
+        try:
+            from testcontainers.postgres import PostgresContainer  # 旧命名空间兜底
+        except ImportError:
+            pytest.skip("无 ICLIP_TEST_DATABASE_URL 且未安装 testcontainers")
     try:
         container = PostgresContainer("postgres:16", driver="asyncpg")
         container.start()
@@ -90,6 +93,7 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
     monkeypatch.delenv("WANGOON_SSO_BASE_URL", raising=False)
     monkeypatch.delenv("WANGOON_PMS_BASE_URL", raising=False)
     monkeypatch.delenv("ICLIP_SSO_REDIRECT_URL", raising=False)
+    monkeypatch.delenv("ICLIP_ROOT_EMAIL", raising=False)
 
 
 async def _fresh_engine(url: str):
@@ -139,17 +143,27 @@ def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
 
 
 @pytest.fixture
+def root_email() -> str | None:
+    """测试可覆写：非空即启用 root 引导（ICLIP_ROOT_EMAIL）。"""
+
+    return None
+
+
+@pytest.fixture
 async def sso_app(
     monkeypatch: pytest.MonkeyPatch,
     base_env: None,
     migrated_pg: str,
     sso_transport: httpx.MockTransport,
     pms_transport: httpx.MockTransport | None,
+    root_email: str | None,
 ) -> AsyncGenerator[FastAPI]:
     """SSO 开启的 app；协议外呼经 MockTransport。"""
 
     monkeypatch.setenv("WANGOON_SSO_BASE_URL", "https://sso.test")
     monkeypatch.setenv("ICLIP_SSO_REDIRECT_URL", "https://app.test/auth/sso/landing")
+    if root_email:
+        monkeypatch.setenv("ICLIP_ROOT_EMAIL", root_email)
     if pms_transport is not None:
         monkeypatch.setenv("WANGOON_PMS_BASE_URL", "https://pms.test")
 
@@ -200,15 +214,17 @@ async def register_and_login(
     return str(created.json()["id"])
 
 
-async def set_role_in_db(pg_url: str, email: str, role: str) -> None:
-    """测试内的角色引导（生产路径是 scripts/admin.py）。"""
+async def set_roles_in_db(pg_url: str, email: str, roles: list[str]) -> None:
+    """测试内的角色引导（生产路径是 ICLIP_ROOT_EMAIL / scripts/admin.py）。"""
+
+    import json
 
     engine = create_async_engine(pg_url)
     try:
         async with engine.begin() as conn:
             await conn.execute(
-                text("UPDATE iclip.users SET role = :role WHERE email = :email"),
-                {"role": role, "email": email},
+                text("UPDATE iclip.users SET roles = CAST(:roles AS jsonb) WHERE email = :email"),
+                {"roles": json.dumps(roles), "email": email},
             )
     finally:
         await engine.dispose()

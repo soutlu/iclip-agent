@@ -1,10 +1,10 @@
 # iclip-agent 架构文档
 
-> **维护约定**：随实现同步更新——装配顺序、模块依赖、路由面、表结构变更时同步本文。当前版本反映 **M0 地基**；后续范围与顺序由用户决定。领域语言见 [CONTEXT.md](CONTEXT.md)，测试策略见 [test-design.md](test-design.md)。
+> **维护约定**：本文只记录现状，随实现同步更新——装配顺序、模块依赖、路由面、表结构变更时同步本文；未实现的部分不进本文，由用户决定后续范围与顺序。领域语言见 [CONTEXT.md](CONTEXT.md)，测试策略见 [test-design.md](test-design.md)。
 
 ## 1. 定位与运行拓扑
 
-iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 monorepo（`server/` + `web/`）。**Postgres 是唯一事实源**；认证支持双主体（cookie 用户 + Bearer API key）；Agent 引擎为 PydanticAI（M1 接入，关在 harness 围栏内）。
+iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 monorepo（`server/` + `web/`）。**Postgres 是唯一事实源**；认证支持双主体（cookie 用户 + Bearer API key）；Agent 引擎选定 PydanticAI（尚未接入，关在 harness 围栏内）。
 
 ```text
 ╭──────────────╮   ╭──────────────────╮
@@ -17,7 +17,6 @@ iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 mo
 │ server/ FastAPI（每 worker 一份）          │
 │  PrincipalResolver（唯一信任点）           │
 │  /healthz /auth/* /users/* /api-keys/*   │
-│  M1 起：/agui/* · sessions · workspace    │
 ╰────────────────────┬────────────────────╯
                      ▼
           ╭─────────────────────╮
@@ -47,7 +46,7 @@ iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 mo
 
 围栏（tach + 架构测试强制）：`pydantic_ai`/`ag_ui` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`fastapi` 只在 app、`domains/*/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`domains/*/infra_sql.py`、app 组合根；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
-M0 现状：`harness/`、`capabilities/` 为空包预留（围栏已生效）；六接缝（RunTarget / CapabilityContract / ConversationStore / RunLedger / EventJournal / Policy 执法层）的接口随 M1 首个实现定义，不提前写投机 ABC。
+现状：`harness/`、`capabilities/` 为空包占位（围栏已生效）；RunTarget / CapabilityContract / ConversationStore / RunLedger / EventJournal / Policy 执法层等接缝随首个实现定义，不提前写投机 ABC。
 
 ## 3. 目录布局
 
@@ -56,17 +55,16 @@ M0 现状：`harness/`、`capabilities/` 为空包预留（围栏已生效）；
 | `server/src/iclip/main.py` / `asgi.py` | CLI serve 入口 / ASGI 导出入口 |
 | `server/src/iclip/app/` | **唯一组合根**：装配、entrypoints、lifespan |
 | `server/src/iclip/config/` | RuntimeConfig（pydantic-settings YAML 源 + `*_env` 校验层） |
-| `server/src/iclip/domains/identity/` | M0 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
-| `server/src/iclip/harness/` | M1 起：engine、conversation、agui、workspace、skills |
-| `server/src/iclip/capabilities/` | M2 起：业务能力包 |
-| `server/src/iclip/platform/` | `db/`（引擎句柄、ownership）、`http.py`（领域错误→HTTP 单点映射） |
+| `server/src/iclip/domains/identity/` | 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
+| `server/src/iclip/harness/` | 空包占位：通用 agent 内核 |
+| `server/src/iclip/capabilities/` | 空包占位：业务能力包（同上） |
+| `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射） |
 | `server/src/iclip/common/` | 错误分类、typed id、路径安全 |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只存 `*_env` 名，不存密钥） |
 | `server/migrations/` | Alembic（0001 identity baseline） |
-| `server/scripts/admin.py` | 引导型管理 CLI（set-role / list-users / issue-key） |
-| `server/assets/` | prompt 四件套 + SKILL.md 资产（M1 起迁入） |
+| `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
 | `web/` | Producer 前端纯拷贝迁入，冻结 |
-| `contract/` | 跨端合同：conventions.md + golden fixtures v2（M1 起） |
+| `contract/` | 跨端合同：conventions.md（golden fixtures v2 尚未启用） |
 
 ## 4. 装配流程
 
@@ -83,7 +81,7 @@ M0 现状：`harness/`、`capabilities/` 为空包预留（围栏已生效）；
 | `app` | 服务名 |
 | `db` | `url_env`、`schema`（默认 `iclip`） |
 | `security` | `secret_env`、cookie 名（`iclip_session`）/secure/有效期、`cors_allow_origins`（禁 `"*"`） |
-| `sso` | `base_url_env`（env 空即 SSO 关闭）、`app_name`、`redirect_url_env` |
+| `sso` | `base_url_env`（env 空即 SSO 关闭）、`app_name`、`redirect_url_env`、`root_email_env`（该邮箱 SSO 登录即持有 root；env 空即关闭引导） |
 | `pms` | `base_url_env`（env 空即关闭 PMS 资料同步） |
 | `ops` | `log_level` |
 
@@ -92,20 +90,20 @@ M0 现状：`harness/`、`capabilities/` 为空包预留（围栏已生效）；
 - **Principal**：`kind ∈ {user, api_key}` + `user_id` + `api_key_id?` + 生效权限集。PrincipalResolver 每 hop 只解析一次：cookie → JWT 验签一次 + 活跃用户加载一次；Bearer → SHA-256 查表 + 活跃 key/属主加载（过期/吊销/属主停用即拒）。写入 `request.state.principal`；WS 握手复用同一解析 dependency（cookie 走 Origin 校验：无 Origin 放行 / 白名单跨域 / 否则同源，拒绝 close 1008）。
 - **账号**：fastapi-users（cookie transport + JWT strategy）；登录支持 username 或 email；密码注册强制 `viewer`；登录 204 + Set-Cookie，响应体不含 token。
 - **SSO**（identity-provider 模式）：跳转 `{base}/sso/issue/jwt?redirect_uri=...&_fromApp=...`；验证 `GET {base}/sso/rpc/session/verify?jwt=...` → `{result:"OK", userSession:{innerUserId, unionId, name, email, avatarUrl}}`；PMS `GET {base}/pms-console/user/selectUserById/{innerUserId}`（Authorization: SSO jwt）→ `{success:true, data:{city, jobTitle, depts:[...]}}`。callback 内 verify → PMS（**失败显式终止**）→ fastapi-users oauth 关联（`associate_by_email`，`oauth_name="wangoon_sso"`，首登默认 editor）→ 铸自有 cookie。此后普通请求零外呼。
-- **API key**：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希 + 前缀；授予集在创建时校验 ⊆ 属主权限，解析时取交集。本人管理自己的 key，`users:manage` 管全部。
-- **RBAC**：单一产品权限词汇表由 `identity/rbac.py` 单点定义；`require_permission(perm)` 只读 Principal。行级归属：不可见 `NotFound`、可见无权 `PermissionDenied`（`platform.db.ownership.scope_to_owner` 为防 IDOR 统一原语）。
+- **API key**：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希 + 前缀；签发需 `api_keys:issue`（仅 root 角色持有），授予集签发时校验 ⊆ 签发者当下权限；解析时有效权限即 key 显式授权集（不随属主角色变化；属主停用/吊销/过期即 401）。本人管理自己的 key，`users:manage` 管全部。
+- **权限体系**：授权的唯一货币是权限集合（[adr/0002](adr/0002-unified-permission-model.md)）。用户有效权限 = 所分配角色的权限并集 ∪ 直接授权；角色是代码内预置的权限集合快捷方式（root/editor/viewer，root = 全量计算），无角色管理表。`require_permission(perm)` 只读 Principal。行级归属：不可见 `NotFound`、可见无权 `PermissionDenied`（`platform.db.ownership.scope_to_owner` 为防 IDOR 统一原语）。
 
 ## 7. 数据模型与迁移
 
 | 表（schema=iclip） | 用途 | 关键点 |
 |----|------|--------|
-| `users` | 账号（fastapi-users） | UUID PK、email 唯一、username 唯一可空、`role` 默认 viewer、PMS `city`/`job_title`/`departments` JSONB、`last_login_at` |
+| `users` | 账号（fastapi-users） | UUID PK、email 唯一、username 唯一可空、`roles` JSONB（默认 `["viewer"]`）、`direct_permissions` JSONB、PMS `city`/`job_title`/`departments` JSONB、`last_login_at` |
 | `oauth_accounts` | SSO 外部身份 | FK → users 级联删除、`oauth_name=wangoon_sso` |
 | `api_keys` | 机器凭证 | `owner_user_id` FK、`token_hash` 唯一、`token_prefix`、`permissions` JSONB、`expires_at`/`revoked_at`/`last_used_at` |
 
 唯一 provisioning 路径：人工 `make db-upgrade`（`alembic upgrade head`，所有环境一致）；迁移契约测试用 scratch 环境验证 head 与聚合元数据零漂移。
 
-## 8. 路由面（M0）
+## 8. 路由面
 
 | 方法 & 路径 | 权限 | 说明 |
 |------------|------|------|
@@ -113,14 +111,14 @@ M0 现状：`harness/`、`capabilities/` 为空包预留（围栏已生效）；
 | `POST /auth/register` / `POST /auth/login` | 公开 | 注册默认 viewer；登录 204 + Set-Cookie |
 | `POST /auth/logout` | 登录 | 清 cookie |
 | `GET /auth/sso/authorize` / `GET /auth/sso/callback` | 公开（SSO 启用时；关闭即 404） | 见 §6 |
-| `GET /users/me` | 任意活跃主体 | `{user:{...}}` 信封，camelCase，含 role/permissions/city/jobTitle/departments |
-| `GET /users`、`PATCH /users/{id}` | users:manage | 用户列表 / 改角色 |
+| `GET /users/me` | 任意活跃主体 | `{user:{...}}` 信封，camelCase，含 roles/directPermissions/permissions/city/jobTitle/departments |
+| `GET /users`、`PATCH /users/{id}` | users:manage | 用户列表 / 调整角色与直接授权（不能改自己的授权或停用自己） |
 | `POST /api-keys`、`GET /api-keys`、`DELETE /api-keys/{id}` | 登录（本人）；users:manage 管全部 | 创建响应含一次性明文 |
 
-M1 增补：`/agui/*` 命令面、sessions、workspace 路由。
+`/agui/*` 命令面、sessions、workspace 等尚未实现的路由由用户决定后续范围与顺序。
 
 ## 9. 运维
 
-- `scripts/admin.py`：`set-role <username> <role>`、`list-users`、`issue-key`——直连 DB 绕过 API，专为「第一个 admin」引导设计。
-- 日志：structlog（结构化，级别来自 `ops.log_level`）。观测接入（OTLP → Langfuse）随 M1 引擎接入落地。
+- `scripts/admin.py`：`set-roles <username> <role1,role2>`、`list-users`、`issue-key`——直连 DB 绕过 API，专为非 SSO 场景的 root 引导设计（SSO 场景用 `ICLIP_ROOT_EMAIL`）。
+- 日志：structlog（结构化，级别来自 `ops.log_level`）。观测（OTLP → Langfuse）尚未接入。
 - 测试门禁与命令：见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。

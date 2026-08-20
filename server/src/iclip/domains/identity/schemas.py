@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
 from iclip.domains.identity.models import ApiKeyRecord, PmsDepartment, Principal, UserAccount
+from iclip.domains.identity.rbac import effective_permissions
 
 
 class CamelModel(BaseModel):
@@ -34,7 +35,8 @@ class UserOut(CamelModel):
     username: str | None
     display_name: str
     avatar_url: str
-    role: str
+    roles: list[str]
+    direct_permissions: list[str]
     permissions: list[str]
     is_active: bool
     city: str
@@ -56,7 +58,8 @@ class UsersPageOut(CamelModel):
 
 
 class UserPatchIn(CamelModel):
-    role: str | None = None
+    roles: list[str] | None = None
+    direct_permissions: list[str] | None = None
     is_active: bool | None = None
 
 
@@ -81,7 +84,9 @@ class ApiKeyCreatedOut(ApiKeyOut):
     token: str
 
 
-class ApiKeyEnvelope(CamelModel):
+class ApiKeyCreatedEnvelope(CamelModel):
+    """创建响应专用信封——含一次性明文 token。"""
+
     api_key: ApiKeyCreatedOut
 
 
@@ -109,14 +114,19 @@ def _department_out(dept: PmsDepartment) -> DepartmentOut:
     )
 
 
-def user_out(account: UserAccount, *, permissions: frozenset[str]) -> UserOut:
+def user_out(account: UserAccount, *, permissions: frozenset[str] | None = None) -> UserOut:
+    """用户视图；``permissions`` 缺省为账号有效权限（角色并集 ∪ 直接授权）。"""
+
+    if permissions is None:
+        permissions = effective_permissions(account.roles, account.direct_permissions)
     return UserOut(
         id=account.id,
         email=account.email,
         username=account.username,
         display_name=account.display_name,
         avatar_url=account.avatar_url,
-        role=account.role,
+        roles=list(account.roles),
+        direct_permissions=sorted(account.direct_permissions),
         permissions=sorted(permissions),
         is_active=account.is_active,
         city=account.city,
@@ -128,6 +138,8 @@ def user_out(account: UserAccount, *, permissions: frozenset[str]) -> UserOut:
 
 
 def user_out_for_principal(account: UserAccount, principal: Principal) -> UserOut:
+    """``/users/me`` 专用：权限取主体生效集（API key 场景为 key 显式授权集）。"""
+
     return user_out(account, permissions=principal.permissions)
 
 
@@ -146,8 +158,8 @@ def api_key_out(record: ApiKeyRecord) -> ApiKeyOut:
 
 __all__ = [
     "ApiKeyCreateIn",
+    "ApiKeyCreatedEnvelope",
     "ApiKeyCreatedOut",
-    "ApiKeyEnvelope",
     "ApiKeyOut",
     "ApiKeysEnvelope",
     "CamelModel",

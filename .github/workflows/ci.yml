@@ -30,8 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Sync dependencies
-        run: uv sync
+      - name: Sync dependencies (lockfile 精确 pin)
+        run: uv sync --locked
       - name: Lint
         run: uv run ruff check .
       - name: Format check
@@ -56,7 +56,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          # monorepo 根目录无 package.json，需显式指到 web/ 读 packageManager
+          package_json_file: web/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 22

@@ -17,6 +17,7 @@ sso:
   base_url_env: WANGOON_SSO_BASE_URL # env 为空即 SSO 关闭（/auth/sso/* 不挂载）
   app_name: iclip
   redirect_url_env: ICLIP_SSO_REDIRECT_URL
+  root_email_env: ICLIP_ROOT_EMAIL # 该邮箱 SSO 登录即自动持有 root 角色；env 为空即关闭引导
 
 pms:
   base_url_env: WANGOON_PMS_BASE_URL # env 为空即关闭 SSO 登录时的 PMS 资料同步

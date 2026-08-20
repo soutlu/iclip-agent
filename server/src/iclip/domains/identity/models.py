@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-Role = Literal["admin", "editor", "viewer"]
 PrincipalKind = Literal["user", "api_key"]
 
 
@@ -36,7 +35,8 @@ class UserAccount:
     username: str | None
     display_name: str
     avatar_url: str
-    role: str
+    roles: tuple[str, ...]
+    direct_permissions: frozenset[str]
     is_active: bool
     city: str
     job_title: str
@@ -64,14 +64,16 @@ class ApiKeyRecord:
 class Principal:
     """唯一可信调用主体；下游一切授权与审计只消费本对象。
 
-    ``kind == "api_key"`` 时 ``permissions`` 已是 key 授予集与属主当下
-    角色权限的交集。
+    ``permissions`` 是主体的有效权限集：用户为角色并集 ∪ 直接授权，
+    API key 为 key 显式授权集。``audit_label`` 是日志/审计输出用的
+    人类可读主体标识（用户为 username/email，key 为「属主#key名」；
+    M1 harness 消费）。
     """
 
     kind: PrincipalKind
     user_id: uuid.UUID
     permissions: frozenset[str]
-    display: str
+    audit_label: str
     api_key_id: uuid.UUID | None = field(default=None)
 
     def has(self, permission: str) -> bool:
@@ -83,6 +85,5 @@ __all__ = [
     "PmsDepartment",
     "Principal",
     "PrincipalKind",
-    "Role",
     "UserAccount",
 ]

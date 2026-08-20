@@ -31,12 +31,16 @@ from iclip.domains.identity.sso import SsoVerifier
 
 @dataclass(frozen=True, slots=True)
 class SsoRuntime:
-    """identity 自持的 SSO 运行设置；``pms_base_url`` 为空即不同步 PMS 资料。"""
+    """identity 自持的 SSO 运行设置；``pms_base_url`` 为空即不同步 PMS 资料。
+
+    ``root_email`` 非空时，该邮箱 SSO 登录即自动持有 root 角色（root 引导）。
+    """
 
     base_url: str
     app_name: str
     redirect_url: str
     pms_base_url: str | None
+    root_email: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,7 +98,7 @@ def build_identity_module(
         pms = pms_client
         if pms is None and sso.pms_base_url:
             pms = PmsUserClient(base_url=sso.pms_base_url)
-        routers.append(create_sso_router(sessions, auth, verifier, pms, users))
+        routers.append(create_sso_router(sessions, auth, verifier, pms, users, sso.root_email))
 
     return IdentityModule(
         routers=tuple(routers),

@@ -74,7 +74,7 @@ async def test_first_login_creates_editor_with_pms_profile(sso_app: FastAPI) -> 
         me = await client.get("/users/me")
     assert me.status_code == 200
     user = me.json()["user"]
-    assert user["role"] == "editor"
+    assert user["roles"] == ["editor"]
     assert user["displayName"] == "Luke W"
     assert user["email"] == "luke@corp.test"
     assert user["city"] == "杭州"
@@ -82,21 +82,35 @@ async def test_first_login_creates_editor_with_pms_profile(sso_app: FastAPI) -> 
     assert [d["name"] for d in user["departments"]] == ["市场部"]
 
 
-async def test_second_login_reuses_account_and_keeps_role(
+async def test_second_login_reuses_account_and_keeps_roles(
     sso_app: FastAPI, migrated_pg: str
 ) -> None:
-    from tests.integration_no_llm.conftest import set_role_in_db
+    from tests.integration_no_llm.conftest import set_roles_in_db
 
     async with make_client(sso_app) as client:
         assert (await client.get("/auth/sso/callback", params={"jwt": "j1"})).status_code == 204
-    await set_role_in_db(migrated_pg, "luke@corp.test", "admin")
+    await set_roles_in_db(migrated_pg, "luke@corp.test", ["root", "editor"])
 
     async with make_client(sso_app) as client:
         assert (await client.get("/auth/sso/callback", params={"jwt": "j2"})).status_code == 204
         me = await client.get("/users/me")
     user = me.json()["user"]
-    # 非首登不重置角色；同 unionId 命中同一账号
-    assert user["role"] == "admin"
+    # 非首登不重置本地授权；同 unionId 命中同一账号
+    assert user["roles"] == ["root", "editor"]
+
+
+class TestRootBootstrap:
+    @pytest.fixture
+    def root_email(self) -> str | None:
+        return "LUKE@corp.test"  # 大小写不敏感匹配
+
+    async def test_configured_root_email_gets_root_role(self, sso_app: FastAPI) -> None:
+        async with make_client(sso_app) as client:
+            assert (await client.get("/auth/sso/callback", params={"jwt": "j"})).status_code == 204
+            me = await client.get("/users/me")
+        user = me.json()["user"]
+        assert set(user["roles"]) == {"editor", "root"}
+        assert "api_keys:issue" in user["permissions"]
 
 
 class TestFailurePaths:

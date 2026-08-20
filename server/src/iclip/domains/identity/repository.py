@@ -16,13 +16,18 @@ class UserRepository(Protocol):
         """按创建时间倒序分页；返回 (本页, 总数)。"""
         ...
 
-    async def update_admin_fields(
+    async def update_access_fields(
         self,
         user_id: uuid.UUID,
         *,
-        role: str | None,
+        roles: tuple[str, ...] | None,
+        direct_permissions: frozenset[str] | None,
         is_active: bool | None,
     ) -> UserAccount | None: ...
+
+    async def ensure_role(self, user_id: uuid.UUID, role: str) -> None:
+        """幂等地给用户追加角色（root 引导用）。"""
+        ...
 
     async def touch_last_login(self, user_id: uuid.UUID, at: datetime) -> None: ...
 
@@ -32,12 +37,12 @@ class UserRepository(Protocol):
         *,
         display_name: str,
         avatar_url: str,
-        role: str | None,
+        roles: tuple[str, ...] | None,
         city: str | None,
         job_title: str | None,
         departments: tuple[PmsDepartment, ...] | None,
     ) -> None:
-        """SSO 登录后同步展示资料；None 字段不变（role 仅首登时传入）。"""
+        """SSO 登录后同步展示资料；None 字段不变（roles 仅首登时传入）。"""
         ...
 
 

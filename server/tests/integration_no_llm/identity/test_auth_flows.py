@@ -15,7 +15,8 @@ async def test_register_login_me_logout_round_trip(client: httpx.AsyncClient) ->
     user = me.json()["user"]
     assert user["id"] == user_id
     assert user["username"] == "luke"
-    assert user["role"] == "viewer"
+    assert user["roles"] == ["viewer"]
+    assert user["directPermissions"] == []
     assert set(user["permissions"]) == {
         "projects:read",
         "tasks:read",
