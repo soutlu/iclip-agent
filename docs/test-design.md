@@ -23,7 +23,7 @@
 
 ### 0.4 执行节奏
 
-开发内环只跑被改 surface 的定向测试（surface → 路径映射见 AGENTS.md §4）；提交前 `make check`；合入前 CI 全链。不在迭代中反复跑全量。
+开发内环只跑被改 surface 的定向测试（按 §1 测试树目录与 §3 登记表定位对应用例）；提交前 `make check`；合入前 CI 全链。不在迭代中反复跑全量。
 
 ## §1 四层测试树
 
@@ -82,6 +82,6 @@ integration_no_llm 使用真实 Postgres，解析顺序：
 
 ## §4 已知不可测 / 人工清单
 
-- SSO / PMS 真实环境联通性：人工验收（AGENTS.md §6），自动化测试只打 fake 协议客户端。
+- SSO / PMS 真实环境联通性：人工验收（AGENTS.md「需要人工执行的事」），自动化测试只打 fake 协议客户端。
 - LLM 输出语义质量：不进自动化门禁，自动测试只断言协议与结构。
 - cookie `Secure` / 反代 WS upgrade 等部署属性：部署检查表，人工。
