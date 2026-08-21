@@ -1,5 +1,9 @@
 name: ci
 
+# 公开仓最小权限：CI 只需读代码，防止 fork PR 借 token 写仓库
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
