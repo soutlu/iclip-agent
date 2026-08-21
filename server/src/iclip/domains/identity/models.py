@@ -66,8 +66,7 @@ class Principal:
 
     ``permissions`` 是主体的有效权限集：用户为角色并集 ∪ 直接授权，
     API key 为 key 显式授权集。``audit_label`` 是日志/审计输出用的
-    人类可读主体标识（用户为 username/email，key 为「属主#key名」；
-    M1 harness 消费）。
+    人类可读主体标识（用户为 username/email，key 为「属主#key名」）。
     """
 
     kind: PrincipalKind

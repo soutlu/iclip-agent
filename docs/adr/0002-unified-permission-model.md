@@ -1,11 +1,11 @@
 # ADR-0002: 统一权限抽象——权限集合是唯一授权货币
 
 - 状态：已接受（2026-08-19）
-- 取代：早期「key 权限 ⊆ 属主当下权限、属主降权即时生效」与 admin/editor/viewer 三级角色体系设想
+- 关联：[ADR-0001](0001-architecture-foundations.md) §4（双主体身份）
 
 ## 背景
 
-M0 交付的权限体系有两套并行语义：用户按单一角色（admin/editor/viewer）推导权限，API key 按「显式授予集 ∩ 属主当下角色权限」推导权限。两者都最终落在 `Principal.permissions`，但上游规则不同：角色是身份等级，key 权限要在签发与解析两处对齐属主。想要精细化控制（给某个用户多加一项权限）只能升整级角色。
+最初的权限体系有两套并行语义：用户按单一角色（admin/editor/viewer）推导权限，API key 按「显式授予集 ∩ 属主当下角色权限」推导权限。两者都最终落在 `Principal.permissions`，但上游规则不同：角色是身份等级，key 权限要在签发与解析两处对齐属主。想要精细化控制（给某个用户多加一项权限）只能升整级角色。
 
 ## 决策
 
@@ -25,5 +25,5 @@ API key 有效权限 = key 显式授权集
 ## 后果
 
 - 下游零改动：`require_permission` 与一切授权检查只消费 `Principal.permissions`，本来就与角色无关。
-- wire 契约变更：`role` → `roles` + `directPermissions`（`/users/me`、`GET /users`、`PATCH /users/{id}`）。`web/` 冻结期不改，M3 切换清单处理。
-- 全新数据库前提下直接改 0001 baseline 迁移（`users.role` → `users.roles` + `users.direct_permissions`），无数据迁移。
+- wire 契约：`/users/me`、`GET /users`、`PATCH /users/{id}` 暴露 `roles` + `directPermissions`（不再有单值 `role`）。
+- 直接改 0001 baseline 迁移（`users.roles` + `users.direct_permissions`），无数据迁移。

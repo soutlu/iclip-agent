@@ -12,7 +12,7 @@ SRC = Path(__file__).resolve().parents[3] / "src" / "iclip"
 
 # 框架 → 允许直接 import 的文件（相对 src/iclip 的 glob 语义前缀）
 FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
-    ("pydantic_ai", "ag_ui"): ("harness/", "capabilities/"),
+    ("pydantic_ai",): ("harness/", "capabilities/"),
     ("pydantic_ai_harness",): ("harness/",),
     ("fastapi", "starlette"): (
         "app/",
@@ -24,6 +24,8 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("sqlalchemy",): (
         "platform/db/",
         "app/",
+        # harness 环的唯一 SQL 适配器：官方 StepPersistence 协议的 PG 后端。
+        "harness/step_store_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
 }
