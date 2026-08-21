@@ -82,6 +82,6 @@ integration_no_llm 使用真实 Postgres，解析顺序：
 
 ## §4 已知不可测 / 人工清单
 
-- SSO / PMS 真实环境联通性：人工验收（AGENTS.md §6），自动化测试只打 fake 协议客户端。
+- SSO / PMS 真实环境联通性：人工验收（AGENTS.md「需要人工执行的事」），自动化测试只打 fake 协议客户端。
 - LLM 输出语义质量：不进自动化门禁，自动测试只断言协议与结构。
 - cookie `Secure` / 反代 WS upgrade 等部署属性：部署检查表，人工。
