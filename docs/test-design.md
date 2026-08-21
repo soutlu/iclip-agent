@@ -56,7 +56,7 @@ integration_no_llm 使用真实 Postgres，解析顺序：
 
 | ID | 层 | 行为 | 风险 |
 |----|----|------|------|
-| T-ARCH-01 | unit | tach 依赖图 + 框架围栏（pydantic_ai/fastapi/sqlalchemy/fastapi-users 各归其位，相对导入一并解析） | 分层腐蚀 |
+| T-ARCH-01 | unit | tach 依赖图 + 框架围栏（pydantic_ai/pydantic_ai_harness/fastapi/sqlalchemy/fastapi-users 各归其位，相对导入一并解析） | 分层腐蚀 |
 | T-ARCH-02 | unit | 跨模块只准 import 对方 public.py；models/commands 只许 stdlib+common | 耦合扩散 |
 | T-ARCH-03 | unit | 无静默 except fallback | 静默降级 |
 | T-COLL-01 | unit | collection contract：越位测试文件被拒收；棘轮基线为空且无陈旧条目 | 测试树腐蚀 |
@@ -75,6 +75,9 @@ integration_no_llm 使用真实 Postgres，解析顺序：
 | T-WS-01 | integration_no_llm | WS 握手 principal 解析：cookie（同源/白名单/非法 Origin 拒 1008）与 Bearer 各分支 | 双主体传输无关 |
 | T-USERS-01 | integration_no_llm | `GET /users` / `PATCH /users/{id}` 仅 users:manage；调整角色/直接授权即时生效；不能改自己的授权或停用自己 | 越权 |
 | T-MIG-01 | integration_no_llm | alembic upgrade head 于 scratch 环境成功；表结构与聚合元数据零漂移 | 迁移漂移 |
+| T-STORE-01 | integration_no_llm | PG step store 满足官方 `StepStore` / `MediaStore` 协议；register 单发、list_runs 排序与过滤、快照 complete/interrupted 读门、保留集裁剪、tool_effects upsert | 与官方语义漂移 |
+| T-STORE-02 | integration_no_llm | 真实 Agent（FunctionModel）挂官方 StepPersistence 跑通：运行/事件/工具账落库，续跑历史与 `all_messages()` 逐字节一致 | 运行历史不可续 |
+| T-STORE-03 | integration_no_llm | 消息负载无损往返：含 `NUL(\u0000)` 转义的文本、≥64KiB 媒体外置与还原 | 存储层静默损坏 |
 | T-ADMIN-01 | integration_no_llm | root 引导：`ICLIP_ROOT_EMAIL` SSO 登录即持有 root；CLI set-roles 直连 DB（非 SSO 场景） | 引导链路 |
 
 ## §4 已知不可测 / 人工清单

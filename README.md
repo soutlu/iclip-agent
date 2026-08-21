@@ -4,10 +4,10 @@ Productor——AI 视频创作产品。用户在网页里与 AI agent 对话，�
 
 ## 仓库结构
 
-- `server/` —— 后端服务（Python 3.13 / FastAPI；Agent 引擎规划采用 PydanticAI，尚未接入）
+- `server/` —— 后端服务（Python 3.13 / FastAPI；Agent 引擎 PydanticAI）
 - `web/` —— 前端应用（React SPA：聊天 + 项目画布）
 - `contract/` —— 前后端接口合同约定
-- `docs/` —— 架构、领域、重写计划等文档
+- `docs/` —— 领域锚点、架构、测试设计与架构决策记录
 
 ## 环境要求
 

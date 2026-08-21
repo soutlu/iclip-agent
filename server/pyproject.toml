@@ -1,7 +1,7 @@
 [project]
 name = "iclip"
 version = "0.1.0"
-description = "iClip Agent 后端：FastAPI 宿主 + PydanticAI 运行内核（M1 起）"
+description = "iClip Agent 后端：FastAPI 宿主 + PydanticAI 运行内核"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",
@@ -15,6 +15,8 @@ dependencies = [
     "pyyaml>=6",
     "httpx>=0.27",
     "structlog>=24",
+    "pydantic-ai-slim>=2.32",
+    "pydantic-ai-harness==0.24.0",
 ]
 
 [dependency-groups]

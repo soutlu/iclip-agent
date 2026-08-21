@@ -1,10 +1,10 @@
 # iclip-agent 架构文档
 
-> **维护约定**：本文只记录现状，随实现同步更新——装配顺序、模块依赖、路由面、表结构变更时同步本文；未实现的部分不进本文，由用户决定后续范围与顺序。领域语言见 [CONTEXT.md](CONTEXT.md)，测试策略见 [test-design.md](test-design.md)。
+> **维护约定**：本文只记录现状，随实现同步更新——装配顺序、模块依赖、路由面、表结构变更时同步本文；未实现的部分不进本文。领域语言见 [CONTEXT.md](CONTEXT.md)，测试策略见 [test-design.md](test-design.md)。
 
 ## 1. 定位与运行拓扑
 
-iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 monorepo（`server/` + `web/`）。**Postgres 是唯一事实源**；认证支持双主体（cookie 用户 + Bearer API key）；Agent 引擎选定 PydanticAI（尚未接入，关在 harness 围栏内）。
+iclip-agent 是 Productor 视频创作产品的后端与合同主体：模块化单体 monorepo（`server/` + `web/`）。**Postgres 是唯一事实源**；认证支持双主体（cookie 用户 + Bearer API key）；Agent 引擎选定 PydanticAI（关在 harness 围栏内；运行持久化 PG 后端已落地，引擎运行面尚未装配）。
 
 ```text
 ╭──────────────╮   ╭──────────────────╮
@@ -44,9 +44,9 @@ iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 mo
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏（tach + 架构测试强制）：`pydantic_ai`/`ag_ui` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`fastapi` 只在 app、`domains/*/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`domains/*/infra_sql.py`、app 组合根；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
+围栏（tach + 架构测试强制）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`fastapi` 只在 app、`domains/*/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`domains/*/infra_sql.py`、app 组合根，外加 harness 环唯一 SQL 适配器 `harness/step_store_pg.py`；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
-现状：`harness/`、`capabilities/` 为空包占位（围栏已生效）；RunTarget / CapabilityContract / ConversationStore / RunLedger / EventJournal / Policy 执法层等接缝随首个实现定义，不提前写投机 ABC。
+现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）；`capabilities/` 为空包占位（围栏已生效）。接口随首个实现定义，不提前写投机 ABC。
 
 ## 3. 目录布局
 
@@ -56,15 +56,15 @@ iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 mo
 | `server/src/iclip/app/` | **唯一组合根**：装配、entrypoints、lifespan |
 | `server/src/iclip/config/` | RuntimeConfig（pydantic-settings YAML 源 + `*_env` 校验层） |
 | `server/src/iclip/domains/identity/` | 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
-| `server/src/iclip/harness/` | 空包占位：通用 agent 内核 |
-| `server/src/iclip/capabilities/` | 空包占位：业务能力包（同上） |
+| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 pydantic_ai_harness StepPersistence / MediaStore 协议的 PG 后端） |
+| `server/src/iclip/capabilities/` | 空包占位：业务能力包 |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射） |
 | `server/src/iclip/common/` | 错误分类、typed id、路径安全 |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只存 `*_env` 名，不存密钥） |
-| `server/migrations/` | Alembic（0001 identity baseline） |
+| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
-| `web/` | Producer 前端纯拷贝迁入，冻结 |
-| `contract/` | 跨端合同：conventions.md（golden fixtures v2 尚未启用） |
+| `web/` | UI 参考稿（只读） |
+| `contract/` | 跨端合同：conventions.md |
 
 ## 4. 装配流程
 
@@ -101,6 +101,16 @@ iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 mo
 | `oauth_accounts` | SSO 外部身份 | FK → users 级联删除、`oauth_name=wangoon_sso` |
 | `api_keys` | 机器凭证 | `owner_user_id` FK、`token_hash` 唯一、`token_prefix`、`permissions` JSONB、`expires_at`/`revoked_at`/`last_used_at` |
 
+| 表（schema=agent_runtime） | 用途 | 关键点 |
+|----|------|--------|
+| `runs` | Agent 运行血缘（run_id / conversation_id / parent_run_id） | 结构严格镜像官方 pydantic_ai_harness StepPersistence 存储形状（本仓决策：只换数据库实现，不改表结构） |
+| `events` | append-only 逐步事件 | 同上；`(run_id, seq)` 索引 |
+| `snapshots` | 可续跑的消息历史快照 | 同上；`state ∈ {complete, interrupted}`；`messages` 存 JSON 文本（text，非 jsonb） |
+| `tool_effects` | 工具副作用账 | 同上；PK `(run_id, tool_call_id)` upsert |
+| `media` | 内容寻址媒体（sha256 主键） | 同上；≥64KiB 负载自快照外置 |
+
+写入方：`harness/step_store_pg.py`（实现官方异步 `StepStore` / `MediaStore` 协议，挂到 `Agent(capabilities=[StepPersistence(...)])`）；DDL 由 Alembic 0002 拥有，store 不自建表。
+
 唯一 provisioning 路径：人工 `make db-upgrade`（`alembic upgrade head`，所有环境一致）；迁移契约测试用 scratch 环境验证 head 与聚合元数据零漂移。
 
 ## 8. 路由面
@@ -115,10 +125,8 @@ iclip-agent 是 Productor 视频创作产品的重写主体：模块化单体 mo
 | `GET /users`、`PATCH /users/{id}` | users:manage | 用户列表 / 调整角色与直接授权（不能改自己的授权或停用自己） |
 | `POST /api-keys`、`GET /api-keys`、`DELETE /api-keys/{id}` | 登录（本人）；users:manage 管全部 | 创建响应含一次性明文 |
 
-`/agui/*` 命令面、sessions、workspace 等尚未实现的路由由用户决定后续范围与顺序。
-
 ## 9. 运维
 
 - `scripts/admin.py`：`set-roles <username> <role1,role2>`、`list-users`、`issue-key`——直连 DB 绕过 API，专为非 SSO 场景的 root 引导设计（SSO 场景用 `ICLIP_ROOT_EMAIL`）。
-- 日志：structlog（结构化，级别来自 `ops.log_level`）。观测（OTLP → Langfuse）尚未接入。
+- 日志：structlog（结构化，级别来自 `ops.log_level`）。观测尚未接入。
 - 测试门禁与命令：见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
