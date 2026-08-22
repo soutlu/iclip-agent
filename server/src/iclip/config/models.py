@@ -23,15 +23,17 @@ from pydantic_settings import (
 _MIN_SECRET_LENGTH = 32
 
 
-class _Section(BaseModel):
+class ConfigSection(BaseModel):
+    """所有配置段的共同约束：frozen + 未知字段即拒。"""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class AppSection(_Section):
+class AppSection(ConfigSection):
     name: str
 
 
-class DbSection(_Section):
+class DbSection(ConfigSection):
     url_env: str
     db_schema: str = Field("iclip", alias="schema")
 
@@ -45,7 +47,7 @@ class DbSection(_Section):
         return value
 
 
-class SecuritySection(_Section):
+class SecuritySection(ConfigSection):
     secret_env: str
     session_cookie_name: str = "iclip_session"
     session_lifetime_seconds: int = 604800
@@ -60,18 +62,18 @@ class SecuritySection(_Section):
         return value
 
 
-class SsoSection(_Section):
+class SsoSection(ConfigSection):
     base_url_env: str
     app_name: str
     redirect_url_env: str
     root_email_env: str = "ICLIP_ROOT_EMAIL"
 
 
-class PmsSection(_Section):
+class PmsSection(ConfigSection):
     base_url_env: str
 
 
-class OpsSection(_Section):
+class OpsSection(ConfigSection):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
 

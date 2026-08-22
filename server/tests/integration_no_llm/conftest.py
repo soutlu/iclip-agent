@@ -24,6 +24,7 @@ from iclip.config import (
     DbSection,
     OpsSection,
     PmsSection,
+    ResolvedAgent,
     RuntimeConfig,
     SecuritySection,
     SsoSection,
@@ -106,10 +107,19 @@ async def _fresh_engine(url: str):
 
 
 @pytest.fixture
-async def app(base_env: None, migrated_pg: str) -> AsyncGenerator[FastAPI]:
+def agent_declarations() -> tuple[ResolvedAgent, ...]:
+    """测试可覆写：非空即注册对应 agent（默认无 agent，/agents/* 全部 404）。"""
+
+    return ()
+
+
+@pytest.fixture
+async def app(
+    base_env: None, migrated_pg: str, agent_declarations: tuple[ResolvedAgent, ...]
+) -> AsyncGenerator[FastAPI]:
     engine = await _fresh_engine(migrated_pg)
     try:
-        yield build_app(make_runtime_config(), engine=engine)
+        yield build_app(make_runtime_config(), agents=agent_declarations, engine=engine)
     finally:
         await engine.dispose()
 
