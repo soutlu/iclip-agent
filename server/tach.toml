@@ -28,7 +28,7 @@ depends_on = ["iclip.common"]
 # 业务能力包，唯一同时认识 harness 与 domains 的适配环。
 [[modules]]
 path = "iclip.capabilities"
-depends_on = ["iclip.common", "iclip.harness"]
+depends_on = ["iclip.common", "iclip.harness", "iclip.domains.identity"]
 
 # 组合根：唯一可以 import 一切的地方。
 [[modules]]

@@ -99,6 +99,43 @@ async def test_second_login_reuses_account_and_keeps_roles(
     assert user["roles"] == ["root", "editor"]
 
 
+class TestBindingToExistingAccount:
+    """同邮箱的既有账号首次走 SSO：只关联身份，不重置授权（ADR-0002）。"""
+
+    @pytest.fixture
+    def sso_transport(self) -> httpx.MockTransport:
+        # 邮箱换成可通过密码注册的域名，以便先造出一个既有账号。
+        return _json_transport(
+            {
+                "result": "OK",
+                "userSession": {
+                    "innerUserId": 42,
+                    "unionId": "u-42",
+                    "name": "Luke W",
+                    "email": "luke@example.com",
+                    "avatarUrl": "https://a/1.png",
+                },
+            }
+        )
+
+    async def test_first_sso_login_keeps_existing_roles(
+        self, sso_app: FastAPI, migrated_pg: str
+    ) -> None:
+        from tests.integration_no_llm.conftest import register_and_login, set_roles_in_db
+
+        async with make_client(sso_app) as client:
+            await register_and_login(client, username="luke", email="luke@example.com")
+        await set_roles_in_db(migrated_pg, "luke@example.com", ["root"])
+
+        async with make_client(sso_app) as client:
+            assert (await client.get("/auth/sso/callback", params={"jwt": "j"})).status_code == 204
+            me = await client.get("/users/me")
+        user = me.json()["user"]
+        assert user["roles"] == ["root"]
+        # 资料字段照常同步，只有授权字段不许被身份提供方改写
+        assert user["city"] == "杭州"
+
+
 class TestRootBootstrap:
     @pytest.fixture
     def root_email(self) -> str | None:

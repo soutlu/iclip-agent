@@ -1,35 +1,49 @@
-# 跨端合同约定
+# 跨端合同约定 (API Conventions)
 
-> 对外 wire 契约的总约定，**由后端定义**：本文件是合同事实源，前端按本文对接。
+> **核心声明**：对外的网络传输契约 (Wire Contract) **统一由后端定义**。本文档是跨端协议的唯一事实源，前端及所有外部调用方必须严格按照本约定进行对接。
 
-## 1. 部署与路径
+## 1. 部署与路由路径
 
-- 前端浏览器只调同源 `/api/*`；dev 由 vite proxy、prod 由反代把 `^/api` rewrite 掉直达后端根路径（`/api/users/me` → 后端 `/users/me`）。无 BFF。
-- 反代与 vite proxy 必须放行 WebSocket upgrade（`ws: true` / 透传 `Upgrade` 头）。
+- **路径代理**：前端浏览器代码只应调用同源的 `/api/*`。在开发环境 (dev) 由 Vite Proxy 代理，在生产环境 (prod) 由 Nginx/Ingress 反向代理，将 `^/api` rewrite 掉后直达后端根路径（例如前端调用 `/api/users/me`，实际到达后端为 `/users/me`）。**本项目不设 BFF 层**。
+- **WebSocket 支持**：反向代理与 Vite Proxy 必须显式放行 WebSocket upgrade（配置 `ws: true` 或透传 `Upgrade` 与 `Connection` 头）。
 
-## 2. 双主体认证
+## 2. 双主体认证 (Dual Principals)
 
-- **浏览器用户**：HttpOnly cookie `iclip_session`（JWT）。后端种、浏览器自动携带；前端 JavaScript 不持有、不存储、不转发任何 token。登录 `POST /auth/login`（form-urlencoded）成功返回 204 + Set-Cookie，响应体不含 token。
-- **机器调用方**：`Authorization: Bearer iclip_sk_...`。key 有效权限即签发时的显式授权集（不随属主角色变化；签发需 `api_keys:issue`，授予集 ⊆ 签发者当下权限，见 [ADR-0002](../docs/adr/0002-unified-permission-model.md)）；创建响应仅一次返回明文。
-- 两类主体命中同一套端点与权限词汇表；服务端把任何客户端提交的身份字段视为不可信。
-- WebSocket 握手：浏览器走 cookie + Origin 校验（非法 Origin 拒绝 close 1008）；机器走握手头 Bearer。
+- **浏览器端用户**：基于 HttpOnly Cookie 的会话管理 (`iclip_session` JWT)。Cookie 完全由后端种入，浏览器原生自动携带；前端 JavaScript **绝对不持有、不存储、不转发**任何类型的 Token。
+  - 登录接口：`POST /auth/login`（接受 `form-urlencoded`），成功则返回 `204 No Content` 并带上 `Set-Cookie`，响应体中不再包含 Token 数据。
+- **机器端调用方**：基于 Bearer Token 的无状态调用（请求头携带 `Authorization: Bearer iclip_sk_...`）。
+  - API Key 权限完全等价于其创建时的“显式授予集”（见 [ADR-0002](../docs/adr/0002-unified-permission-model.md)），不再随属主的角色变动而膨胀。其明文内容只在成功创建的响应包中下发唯一一次。
+- **一致性防线**：两类主体在后端都会被一致地收拢为 `Principal` 并命中相同的路由权限与校验规则。任何由客户端自主提交的身份类字段均被视为不可信声明，将被直接抛弃或仅作普通文本处理。
+- **WebSocket 握手**：浏览器的 WS 握手依赖 Cookie 校验与 Origin 校验（跨域非白名单的非法 Origin 直接触发 `Close 1008`）；机器调用的 WS 则通过标准的头信息传递 Bearer Token。
 
-## 3. Payload 风格
+## 3. 数据载荷与格式 (Payload Formatting)
 
-- HTTP API 一律 **camelCase**（含查询参数与响应字段）。
-- 登录态唯一事实源：`GET /users/me` → `{ "user": { ...camelCase, roles[], directPermissions[], permissions[], city, jobTitle, departments[] } }`；401 表示未登录（[ADR-0002](../docs/adr/0002-unified-permission-model.md)）。
-- 时间戳 ISO 8601 UTC；id 为服务端生成的不可猜测字符串。
+- **命名规范**：HTTP API 的所有的字段（包括 Request Body、Query Parameters 及 JSON Response）**一律采用 camelCase (驼峰命名法)**。目前有两处历史例外，新端点不得照此办理：
+  - `GET /auth/sso/authorize` 的响应字段名是 `authorization_url`（前端 zod 已锁定这个名字）。
+  - `POST /auth/register` 的请求体与响应体沿用 fastapi-users 自带的模型，带 `is_active` / `is_superuser` / `is_verified` 三个下划线字段。
+- **当前登录态查询**：客户端判断用户是否登录的唯一事实源为调用 `GET /users/me`。
+  - 成功示例：`{ "user": { ...camelCase, roles: [], directPermissions: [], permissions: [], city: "", jobTitle: "", departments: [] } }`。
+  - 如果返回 `401 Unauthorized`，则代表用户当前为未登录或会话过期状态。
+- **类型标准**：时间戳强制统一使用 **ISO 8601 UTC** 格式；所有的资源 ID 必须为服务端生成的不可猜测字符串。
 
-## 4. 错误信封
+## 4. 错误处理与响应信封
 
-错误响应为 JSON `{ "detail": "<人类可读消息>" }`；领域错误到状态码的映射固定：
+业务逻辑判定的错误（下称领域错误）统一返回 JSON 信封 `{ "detail": "<人类可读的报错消息>" }`，其状态码映射固定如下：
 
-| 领域错误 | HTTP |
-|---|---|
-| AuthenticationFailed（未认证 / 凭证无效 / key 吊销过期） | 401 |
-| PermissionDenied（可见但无权） | 403 |
-| NotFound（不存在**或不可见**——不泄露存在性） | 404 |
-| Conflict（乐观并发 / 状态机冲突） | 409 |
-| ValidationFailed（请求语义非法） | 422 |
+| 领域内部错误分类 | HTTP 状态码 | 释义与边界 |
+|------------------|-------------|------------|
+| **AuthenticationFailed** | `401` | 用户未登录 / 凭证无效或伪造 / API Key 已吊销或过期 |
+| **PermissionDenied** | `403` | 用户已知晓资源存在，但当前拥有的权限集合不足以操作此资源 |
+| **NotFound** | `404` | 资源确实不存在，**或资源存在但对当前用户不可见**（绝不越权泄露资源存在性） |
+| **Conflict** | `409` | 发生乐观锁并发冲突、或者请求触发了不合法的状态机转换（如撤回已确认的任务） |
+| **ValidationFailed** | `422` | 请求参数结构非法、或违反了强类型的业务语义校验规则 |
 
-不做部分成功、不做静默降级：结构非法即整体失败。
+**上表之外，客户端还必须处理以下三种情况**——它们不走上面的映射，写错误处理时不要漏：
+
+| 场景 | 实际返回 | 说明 |
+|------|---------|------|
+| 请求体结构不合法（少字段、类型不对） | `422`，但 `detail` 是**数组**而不是字符串 | 由 FastAPI 自己拦下，没走领域错误信封。数组里每项含 `loc` / `msg` / `type` |
+| 登录、注册相关的失败 | 一律 `400` | `/auth/login` 与 `/auth/register` 直接挂 fastapi-users 自带路由：密码错误、账号被停用、用户名或邮箱重复都是 400；其中密码过短的 `detail` 是个**对象**（含 `code` / `reason`） |
+| `PATCH /users/{id}` 改自己的授权、或停用自己 | `400` | 自我保护规则，不是 422 |
+
+> **容错原则**：本项目绝不执行“部分成功 (Partial Success)”响应，也不做“静默降级”。只要客户端请求的数据结构或语义有一处非法，整次请求将原子性失败。

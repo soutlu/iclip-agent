@@ -4,7 +4,9 @@
 
 ## 1. 定位与运行拓扑
 
-iclip-agent 是 Productor 视频创作产品的后端与合同主体：模块化单体 monorepo（`server/` + `web/`）。**Postgres 是唯一事实源**；认证支持双主体（cookie 用户 + Bearer API key）；Agent 引擎选定 PydanticAI（关在 harness 围栏内；运行持久化 PG 后端已落地，引擎运行面尚未装配）。
+iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模块化单体架构 (Modular Monolith)，在单个代码库中管理（`server/` + `web/`）。**PostgreSQL 数据库是本系统全局唯一的事实源**。
+
+认证方面，系统支持双主体身份体系（即 Cookie 会话用户 + Bearer API key 机器用户）。Agent 引擎层我们选定了 PydanticAI，并将其安全地隔离在 `harness` 围栏内（目前后端已实现基于 Postgres 的运行历史持久化，但完整的 Agent 运行面暂未装配）。
 
 ```text
 ╭──────────────╮   ╭──────────────────╮
@@ -19,9 +21,10 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：模块化
 │  /healthz /auth/* /users/* /api-keys/*   │
 ╰────────────────────┬────────────────────╯
                      ▼
-          ╭─────────────────────╮
-          │ Postgres（schema=iclip）│
-          ╰─────────────────────╯
+    ╭────────────────────────────────╮
+    │ Postgres                       │
+    │  iclip + agent_runtime schema  │
+    ╰────────────────────────────────╯
 ```
 
 ## 2. 三环分层
@@ -59,17 +62,17 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：模块化
 | `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 pydantic_ai_harness StepPersistence / MediaStore 协议的 PG 后端） |
 | `server/src/iclip/capabilities/` | 空包占位：业务能力包 |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射） |
-| `server/src/iclip/common/` | 错误分类、typed id、路径安全 |
+| `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只存 `*_env` 名，不存密钥） |
 | `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
 | `web/` | UI 参考稿（只读） |
-| `contract/` | 跨端合同：conventions.md |
+| `contract/` | 跨端合同契约存放处 |
 
 ## 4. 装配流程
 
-1. `asgi.py` 读 `ICLIP_CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：YAML 加载（extra=forbid、拒绝未知字段）+ `*_env` 解析（运行必需 env 缺失即 fail fast）。
-2. 组合根 `app/bootstrap`：构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`WANGOON_SSO_BASE_URL` 空即不装）→ 新建唯一 FastAPI，安装 PrincipalResolver 中间件 → 注册路由（healthz、auth、users、api-keys、可选 sso）→ lifespan（engine dispose）。
+1. `asgi.py` 读 `ICLIP_CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 `*_env` 声明解析成真实值（运行必需的环境变量缺失即在此 fail fast）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`WANGOON_SSO_BASE_URL` 空即不装）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan（engine dispose）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -87,7 +90,7 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：模块化
 
 ## 6. identity 模块（双主体）
 
-- **Principal**：`kind ∈ {user, api_key}` + `user_id` + `api_key_id?` + 生效权限集。PrincipalResolver 每 hop 只解析一次：cookie → JWT 验签一次 + 活跃用户加载一次；Bearer → SHA-256 查表 + 活跃 key/属主加载（过期/吊销/属主停用即拒）。写入 `request.state.principal`；WS 握手复用同一解析 dependency（cookie 走 Origin 校验：无 Origin 放行 / 白名单跨域 / 否则同源，拒绝 close 1008）。
+- **Principal**：`kind ∈ {user, api_key}` + `user_id` + `api_key_id?` + 生效权限集。PrincipalResolver 每 hop 只解析一次：cookie → JWT 验签一次 + 活跃用户加载一次；Bearer → SHA-256 查表 + 活跃 key/属主加载（过期/吊销/属主停用即拒）。写入 `request.state.principal`。中间件对 http 与 websocket 两种连接都建立 principal，但**只解析、不拒绝**；产品侧目前还没有任何 WS 端点。来源校验以 `websocket_origin_allowed`（无 Origin 放行 / 白名单跨域 / 否则同源）提供，**需要 WS 端点自己调用、并在不通过时 close 1008**——中间件不会代劳。
 - **账号**：fastapi-users（cookie transport + JWT strategy）；登录支持 username 或 email；密码注册强制 `viewer`；登录 204 + Set-Cookie，响应体不含 token。
 - **SSO**（identity-provider 模式）：跳转 `{base}/sso/issue/jwt?redirect_uri=...&_fromApp=...`；验证 `GET {base}/sso/rpc/session/verify?jwt=...` → `{result:"OK", userSession:{innerUserId, unionId, name, email, avatarUrl}}`；PMS `GET {base}/pms-console/user/selectUserById/{innerUserId}`（Authorization: SSO jwt）→ `{success:true, data:{city, jobTitle, depts:[...]}}`。callback 内 verify → PMS（**失败显式终止**）→ fastapi-users oauth 关联（`associate_by_email`，`oauth_name="wangoon_sso"`，首登默认 editor）→ 铸自有 cookie。此后普通请求零外呼。
 - **API key**：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希 + 前缀；签发需 `api_keys:issue`（仅 root 角色持有），授予集签发时校验 ⊆ 签发者当下权限；解析时有效权限即 key 显式授权集（不随属主角色变化；属主停用/吊销/过期即 401）。本人管理自己的 key，`users:manage` 管全部。
@@ -111,7 +114,7 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：模块化
 
 写入方：`harness/step_store_pg.py`（实现官方异步 `StepStore` / `MediaStore` 协议，挂到 `Agent(capabilities=[StepPersistence(...)])`）；DDL 由 Alembic 0002 拥有，store 不自建表。
 
-唯一 provisioning 路径：人工 `make db-upgrade`（`alembic upgrade head`，所有环境一致）；迁移契约测试用 scratch 环境验证 head 与聚合元数据零漂移。
+唯一 provisioning 路径：人工 `make db-upgrade`（`alembic upgrade head`，所有环境一致）；迁移契约测试用 scratch 环境验证 head 与 identity 的 ORM 元数据零漂移——该断言只覆盖 `iclip` schema，`agent_runtime` 这五张表另挂一份独立元数据，不在断言范围内。
 
 ## 8. 路由面
 
@@ -123,7 +126,8 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：模块化
 | `GET /auth/sso/authorize` / `GET /auth/sso/callback` | 公开（SSO 启用时；关闭即 404） | 见 §6 |
 | `GET /users/me` | 任意活跃主体 | `{user:{...}}` 信封，camelCase，含 roles/directPermissions/permissions/city/jobTitle/departments |
 | `GET /users`、`PATCH /users/{id}` | users:manage | 用户列表 / 调整角色与直接授权（不能改自己的授权或停用自己） |
-| `POST /api-keys`、`GET /api-keys`、`DELETE /api-keys/{id}` | 登录（本人）；users:manage 管全部 | 创建响应含一次性明文 |
+| `POST /api-keys` | `api_keys:issue`（仅 root **角色**持有；也可经直接授权单独授予）；api key 主体一律被拒 | 创建响应含一次性明文；属主恒为调用者本人 |
+| `GET /api-keys`、`DELETE /api-keys/{id}` | 登录（本人）；users:manage 管全部 | 列表只返回展示前缀 |
 
 ## 9. 运维
 
