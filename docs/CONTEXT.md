@@ -8,7 +8,7 @@
 
 - **产品**：Productor 是 AI 视频创作产品。用户在项目中与 AI agent 对话推进创作：从参考素材拆解，到镜头 prompt 表，再到镜头帧与媒体生成。需求方下发视频创作任务（Video Task），策划师确认任务并在 Storyboard 会话中执行。
 - **系统**：`web/`（React SPA，同源 `/api` 直连后端）+ `server/`（FastAPI 模块化单体）+ Postgres（唯一事实源）。外部依赖：wangoon SSO 与 PMS（企业身份与部门资料）、OSS 对象存储（presign 直传）、LLM 引擎（PydanticAI）与媒体生成 provider。
-- **`web/` 的角色**：**UI 参考稿**——产品行为与信息架构的需求来源，只读，不是合同事实源；对外合同由后端定义（[../contract/conventions.md](../contract/conventions.md)）。
+- **`web/` 的角色**：**UI 参考稿**——产品行为与信息架构的需求来源，只读，不是合同事实源；对外合同由后端定义（见 [../contract/](../contract/) 目录）。
 
 ## 术语
 
@@ -78,7 +78,7 @@ _不是_：React Flow 瞬态、viewport、单节点事件日志。
 
 ## 不变量
 
-每条代码路径都必须成立；能机械守卫的由门禁强制（AGENTS.md §7），尚未实现部分落地时即入门禁。破坏任何一条都是设计变更，须显式决策。
+每条代码路径都必须成立；能机械守卫的由门禁强制（[../AGENTS.md](../AGENTS.md) §4「机械护栏」），尚未实现部分落地时即入门禁。破坏任何一条都是设计变更，须显式决策。
 
 1. **Postgres 是唯一持久化事实源。** 业务事实、agent 运行与消息历史、workspace 文件都落 Postgres；worker 进程内存只承载当前连接、当前 run 或性能缓存，绝不承载跨 worker 正确性。
 2. **可信身份只来自宿主建立的唯一 `Principal`。** PrincipalResolver 每 hop 只解析一次（cookie 验签一次 / key 哈希查表一次 + 活跃属主加载一次），写入 `request.state.principal`；下游不得再解码 token、查询用户或消费客户端身份字段。Principal 解析与传输无关：HTTP 中间件、WS 握手（cookie + Origin 校验）与 Bearer 头共用同一解析器。

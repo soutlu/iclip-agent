@@ -73,22 +73,27 @@ def test_framework_fences() -> None:
 
 
 def test_cross_module_imports_only_public() -> None:
-    """跨业务模块只准 import 对方 public。"""
+    """跨业务模块只准 import 对方 public;capabilities 引 domains 同样只准走 public。"""
 
     violations: list[str] = []
     domains = [p.name for p in (SRC / "domains").iterdir() if p.is_dir()]
-    for path in (SRC / "domains").rglob("*.py"):
-        rel = _rel(path)
-        own = rel.split("/")[1]
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom) or not node.module:
-                continue
-            parts = node.module.split(".")
-            if parts[:2] == ["iclip", "domains"] and len(parts) >= 3:
-                target = parts[2]
-                if target in domains and target != own and (len(parts) < 4 or parts[3] != "public"):
-                    violations.append(f"{rel}: 绕过 public 引 {node.module}")
+    for root_name, has_own in (("domains", True), ("capabilities", False)):
+        for path in (SRC / root_name).rglob("*.py"):
+            rel = _rel(path)
+            own = rel.split("/")[1] if has_own else None
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom) or not node.module:
+                    continue
+                parts = node.module.split(".")
+                if parts[:2] == ["iclip", "domains"] and len(parts) >= 3:
+                    target = parts[2]
+                    if (
+                        target in domains
+                        and target != own
+                        and (len(parts) < 4 or parts[3] != "public")
+                    ):
+                        violations.append(f"{rel}: 绕过 public 引 {node.module}")
     assert not violations, "\n".join(violations)
 
 
