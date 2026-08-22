@@ -13,6 +13,14 @@
 | T-COLL-01 | unit | collection contract：越位测试文件被拒收；棘轮基线为空且无陈旧条目 | 测试树腐蚀 |
 | T-CONFIG-01 | unit | 运行必需 env 缺失 → 加载/启动期报错并指向字段 | 静默降级 |
 | T-CONFIG-02 | unit | YAML 未知字段 / 坏形状 → 拒绝 | 配置漂移 |
+| T-AGENTCFG-01 | unit | `agents.yaml` **缺失即报错**（不降级成空注册表）；文件存在但内容空 / `agent: {}` → 空注册表；`spec` 解析为绝对路径、同目录 `instructions.md` 按约定挂上（缺则 None） | 静默降级 |
+| T-AGENTCFG-02 | unit | 未知字段（段内与顶层）、非 mapping 文档 → 拒绝；主/子 `spec` 文件不存在 → 启动期报错并指向声明位置 | 配置漂移 / 静默降级 |
+| T-AGENTASM-01 | unit | 装配以 `name=<agent id>` 覆盖 spec 的 `name`（两个 id 指向同名 spec 仍可区分）；子 agent name 取自目录名 | 运行身份歧义 |
+| T-AGENTASM-02 | unit | `instructions.md` 并入模型实际收到的指令；空白文件等价于「无提示词」，不注入空指令 | 提示词静默丢失/污染 |
+| T-AGENTASM-03 | unit | 声明了 subagent 即挂上 `delegate_task` 且下属名进提示词；spec 声明未知模型 → 装配期即失败 | 装配期冻结失效 |
+| T-AGENTASM-04 | unit | 未注册 id → NotFound、请求体不合协议 → ValidationFailed，且两者都在返回事件流之前抛出 | 错误在流中途才暴露 |
+| T-AGENTAPI-01 | unit | `/agents/{id}/chat`：无主体 401、缺 `agent:run` 403、非 JSON content-type 415（且未派发运行）、未注册 id 404、坏 body 422、正常 200 + `text/event-stream` 首帧 | 越权 / CSRF / 错误映射 |
+| T-AGENTAPI-02 | unit | `OPTIONS /agents/{id}/chat` 返 204 且不含任何 `Access-Control-Allow-*` 头 | CSRF 防线被削弱 |
 | T-RBAC-01 | unit | 预置角色投影（root/editor/viewer 全断言，root=全量计算）；有效权限=角色并集∪直接授权；未知角色零权限；`api_keys:issue` 仅 root | 越权 |
 | T-KEY-01 | unit | key 生成格式 `iclip_sk_`、哈希与前缀派生；签发需 `api_keys:issue`；授予集 ⊄ 签发者权限 → 拒绝；key 主体不能签发 key | 凭证泄露/越权 |
 | T-AUTH-01 | integration_no_llm | 注册（默认 viewer）→ 登录（204 + Set-Cookie）→ `GET /users/me`（{user:{...}} 信封、permissions 投影） | 主链路 |
@@ -30,4 +38,5 @@
 | T-STORE-01 | integration_no_llm | PG step store 满足官方 `StepStore` / `MediaStore` 协议；register 单发、list_runs 排序与过滤、快照 complete/interrupted 读门、保留集裁剪、tool_effects upsert | 与官方语义漂移 |
 | T-STORE-02 | integration_no_llm | 真实 Agent（FunctionModel）挂官方 StepPersistence 跑通：运行/事件/工具账落库，续跑历史与 `all_messages()` 解析成 JSON 后结构一致 | 运行历史不可续 |
 | T-STORE-03 | integration_no_llm | 消息负载无损往返：含 `NUL(\u0000)` 转义的文本、≥64KiB 媒体外置与还原 | 存储层静默损坏 |
+| T-AGENTRUN-01 | integration_no_llm | 真实 app + 真实用户：匿名 401、viewer 403、editor 跑通 `test` 模型 200 流；未注册 id 404、非 JSON 415、坏 body 422、OPTIONS 不放行 | 双主体与 agent 运行面的联动 |
 | T-ADMIN-01 | integration_no_llm | root 引导：`ICLIP_ROOT_EMAIL` SSO 登录即持有 root；CLI set-roles 直连 DB（非 SSO 场景） | 引导链路 |
