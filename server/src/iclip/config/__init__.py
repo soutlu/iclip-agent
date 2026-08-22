@@ -1,3 +1,11 @@
+from iclip.config.agents import (
+    AgentsDeclaration,
+    AgentSection,
+    ResolvedAgent,
+    ResolvedSubAgent,
+    SubAgentSection,
+    load_agent_declarations,
+)
 from iclip.config.models import (
     AppSection,
     DbSection,
@@ -14,16 +22,22 @@ from iclip.config.models import (
 )
 
 __all__ = [
+    "AgentSection",
+    "AgentsDeclaration",
     "AppSection",
     "DbSection",
     "OpsSection",
     "PmsSection",
+    "ResolvedAgent",
     "ResolvedSecurity",
     "ResolvedSettings",
     "ResolvedSso",
+    "ResolvedSubAgent",
     "RuntimeConfig",
     "SecuritySection",
     "SsoSection",
+    "SubAgentSection",
+    "load_agent_declarations",
     "load_runtime_config",
     "resolve_settings",
 ]

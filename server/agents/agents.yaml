@@ -1,0 +1,25 @@
+# Agent 装配声明。与 configs/config.yaml 分工：那一份是运维配置（只存 env 变量名），
+# 这一份是产品资产的装配声明——启用哪些 agent、各自用哪份 spec、谁带谁。
+#
+# 键名即 agent id：它同时是 URL 里的 {agent_id}，也会被强制写成 agent 的 name
+# （落库与提示词里出现的就是它）。spec 路径相对本文件所在目录。
+# 每个 spec 同目录下的 instructions.md 会作为提示词自动并入（没有该文件即不并）。
+#
+# 本文件当前为空：注册表为空，/agents/* 路由照常挂载，任何 id 都返回 404。
+# 形状示例（真实内容由使用者填写）：
+#
+# agent:
+#   storyboard:                          # 单 agent
+#     spec: storyboard/agent.yaml
+#
+#   producer:                            # 主 + 从
+#     spec: producer/agent.yaml
+#     subagent:
+#       # 以下三个字段名与 harness SubAgent 一致，是本仓对 harness 的唯一泄漏面。
+#       - spec: shot-writer/agent.yaml
+#         timeout_seconds: 180           # 单次派活墙钟上限（秒）
+#         max_calls: 3                   # 单轮最多派几次
+#       - spec: researcher/agent.yaml
+#         on_failure: 失败就基于现有信息继续，不要反复重试。
+
+agent: {}

@@ -20,6 +20,11 @@ depends_on = ["iclip.common"]
 path = "iclip.domains.identity"
 depends_on = ["iclip.common", "iclip.platform.db", "iclip.platform.http"]
 
+# agent 运行的 HTTP 面：只认识注入进来的事件流工厂，不认识 harness。
+[[modules]]
+path = "iclip.domains.agents"
+depends_on = ["iclip.domains.identity"]
+
 # 通用 agent 内核，不认识业务。
 [[modules]]
 path = "iclip.harness"
@@ -39,6 +44,7 @@ depends_on = [
     "iclip.platform.http",
     "iclip.config",
     "iclip.domains.identity",
+    "iclip.domains.agents",
     "iclip.harness",
     "iclip.capabilities",
 ]

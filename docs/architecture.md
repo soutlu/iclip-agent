@@ -47,9 +47,9 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏（tach + 架构测试强制）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`fastapi` 只在 app、`domains/*/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`domains/*/infra_sql.py`、app 组合根，外加 harness 环唯一 SQL 适配器 `harness/step_store_pg.py`；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
+围栏（tach + 架构测试强制）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`domains/*/infra_sql.py`、app 组合根，外加 harness 环唯一 SQL 适配器 `harness/step_store_pg.py`；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
-现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）；`capabilities/` 为空包占位（围栏已生效）。接口随首个实现定义，不提前写投机 ABC。
+现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 为空包占位（围栏已生效）。接口随首个实现定义，不提前写投机 ABC。
 
 ## 3. 目录布局
 
@@ -59,11 +59,13 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 | `server/src/iclip/app/` | **唯一组合根**：装配、entrypoints、lifespan |
 | `server/src/iclip/config/` | RuntimeConfig（pydantic-settings YAML 源 + `*_env` 校验层） |
 | `server/src/iclip/domains/identity/` | 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
-| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 pydantic_ai_harness StepPersistence / MediaStore 协议的 PG 后端） |
+| `server/src/iclip/domains/agents/` | agent 运行的 HTTP 面：`api.py`（`/agents/{agent_id}/chat`），只认识注入的事件流工厂 |
+| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）与 `agents.py`（agent 装配 + 官方协议事件流） |
 | `server/src/iclip/capabilities/` | 空包占位：业务能力包 |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只存 `*_env` 名，不存密钥） |
+| `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词） |
 | `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
 | `web/` | UI 参考稿（只读） |
@@ -71,8 +73,8 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 
 ## 4. 装配流程
 
-1. `asgi.py` 读 `ICLIP_CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 `*_env` 声明解析成真实值（运行必需的环境变量缺失即在此 fail fast）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`WANGOON_SSO_BASE_URL` 空即不装）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan（engine dispose）。
+1. `asgi.py` 读 `ICLIP_CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `ICLIP_AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`，文件缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 `*_env` 声明解析成真实值（运行必需的环境变量缺失即在此 fail fast）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`WANGOON_SSO_BASE_URL` 空即不装）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan（engine dispose）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -87,6 +89,23 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 | `sso` | `base_url_env`（env 空即 SSO 关闭）、`app_name`、`redirect_url_env`、`root_email_env`（该邮箱 SSO 登录即持有 root；env 空即关闭引导） |
 | `pms` | `base_url_env`（env 空即关闭 PMS 资料同步） |
 | `ops` | `log_level` |
+
+另一份声明文件 `server/agents/agents.yaml`（路径由 `--agents` / `ICLIP_AGENTS_FILE` 给出）与 `config.yaml` 分工：那一份是运维配置，这一份是 agent 装配声明——启用哪些 agent、各自用哪份官方 spec、谁带谁。同样 frozen + `extra="forbid"`。**「没有 agent」由文件内容表达（`agent: {}`），不由文件缺席表达**——声明文件必须存在，否则报错。
+
+```yaml
+agent:                                 # 键名即 agent id
+  storyboard:
+    spec: storyboard/agent.yaml        # 相对本文件目录；同目录 instructions.md 自动并入
+  producer:
+    spec: producer/agent.yaml
+    subagent:                          # 有此段即主从，无此段即单 agent
+      - spec: shot-writer/agent.yaml
+        timeout_seconds: 180           # 本段三个字段名与 harness SubAgent 一致
+        max_calls: 3
+        on_failure: 就此收手
+```
+
+两条强制规则：**agent id 是唯一权威身份**——装配时以 `name=<id>` 覆盖 spec 里的 `name`，避免两个 id 指向同名 spec 后落库无法区分；子 agent 的 name 取自其 spec 所在**目录名**（同一条「身份来自声明而非 spec 内容」的规矩，因此空 `agent.yaml` 也能用）。**磁盘扫描必须显式关闭**（`agent_folders=None`）——harness 默认会扫 `<cwd>/.agents|.claude/agents/` 与家目录同名目录，否则开发者个人的 agent 定义会静默变成生产下属。
 
 ## 6. identity 模块（双主体）
 
@@ -128,6 +147,8 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 | `GET /users`、`PATCH /users/{id}` | users:manage | 用户列表 / 调整角色与直接授权（不能改自己的授权或停用自己） |
 | `POST /api-keys` | `api_keys:issue`（仅 root **角色**持有；也可经直接授权单独授予）；api key 主体一律被拒 | 创建响应含一次性明文；属主恒为调用者本人 |
 | `GET /api-keys`、`DELETE /api-keys/{id}` | 登录（本人）；users:manage 管全部 | 列表只返回展示前缀 |
+| `POST /agents/{agent_id}/chat` | `agent:run` | 官方 Vercel AI Data Stream 协议流（`text/event-stream`）。强制 `Content-Type: application/json`，否则 415；未注册 id 404；请求体形状不合法 422 |
+| `OPTIONS /agents/{agent_id}/chat` | 公开 | 204 且**刻意不带任何 `Access-Control-Allow-*` 头**：与上面的 content-type 要求组成一对 CSRF 防线（免检 content-type 都能塞 JSON 且不触发预检，故要求非免检类型来强制预检，再在此拒掉） |
 
 ## 9. 运维
 

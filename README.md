@@ -15,6 +15,7 @@
 │   ├── tests/          # 测试用例 (分为 unit 与 integration)
 │   ├── migrations/     # Alembic 数据库迁移脚本
 │   ├── configs/        # 服务配置文件
+│   ├── agents/         # Agent 装配声明与各 agent 的 spec/提示词
 │   └── pyproject.toml  # 后端依赖配置 (uv)
 ├── web/                # 前端服务代码 (Node.js/React/pnpm)
 ├── docs/               # 架构设计、测试指南、业务概念等系统文档

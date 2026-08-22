@@ -11,6 +11,7 @@ import uvicorn
 def main() -> None:
     parser = argparse.ArgumentParser(description="iClip Agent server")
     parser.add_argument("--config", default="configs/config.yaml")
+    parser.add_argument("--agents", default="agents/agents.yaml")
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=7788)
     parser.add_argument("--reload", action="store_true")
@@ -23,6 +24,7 @@ def main() -> None:
         parser.error("--reload 与多 worker 互斥")
 
     os.environ["ICLIP_CONFIG_FILE"] = args.config
+    os.environ["ICLIP_AGENTS_FILE"] = args.agents
     uvicorn.run(
         "iclip.asgi:app",
         host=args.host,
