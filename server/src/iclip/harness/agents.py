@@ -1,10 +1,8 @@
 """Agent 装配与官方协议事件流：全仓唯一 import ``pydantic_ai_harness`` 的装配点。
 
-装配在启动期一次性完成并冻结（``defer_model_check`` 留默认值，模型/凭证缺失
-即在此刻失败，而不是等到第一个请求）。运行期只按 id 取用。
-
-对外只暴露两件事：注册表里有哪些 id，以及「给一段请求体、还一串协议帧」。
-这个接缝刻意不碰任何 HTTP 类型——它同样能被后台任务和测试直接驱动。
+装配在启动期完成并冻结，运行期只按 id 取用。每个 agent（含子代理）挂官方
+``StepPersistence`` 落 ``step_store``，模型从传入的 ``models`` 表按名字取
+（spec 里的 ``model:`` 被覆盖）。
 """
 
 from __future__ import annotations
@@ -14,13 +12,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import ValidationError
-from pydantic_ai import Agent
+from pydantic_ai import Agent, AgentSpec
 from pydantic_ai.capabilities import AgentCapability
+from pydantic_ai.models import Model
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai_harness.step_persistence import StepPersistence, StepStore
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
 from iclip.common.errors import NotFound, ValidationFailed
+from iclip.harness.models import BuiltModels
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +31,7 @@ class SubAgentDefinition:
 
     name: str
     spec: Path
+    model: str
     instructions: Path | None = None
     timeout_seconds: float | None = None
     max_calls: int | None = None
@@ -41,8 +44,15 @@ class AgentDefinition:
 
     agent_id: str
     spec: Path
+    model: str
     instructions: Path | None = None
     subagents: tuple[SubAgentDefinition, ...] = ()
+
+
+def _read_spec(path: Path) -> AgentSpec:
+    """读 spec；空文件视为没有额外声明。"""
+
+    return AgentSpec.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
 
 
 def _read_instructions(path: Path | None) -> str | None:
@@ -53,26 +63,55 @@ def _read_instructions(path: Path | None) -> str | None:
     return path.read_text(encoding="utf-8").strip() or None
 
 
+def _pick_model(models: BuiltModels, model: str, *, declared_by: str) -> Model:
+    """按名字取模型；名字未声明即报错。"""
+
+    picked = models.get(model)
+    if picked is None:
+        known = ", ".join(models) or "（config.yaml 的 models 段是空的）"
+        raise RuntimeError(f"{declared_by} 引用了未声明的模型 {model!r}；已声明的有: {known}")
+    return picked
+
+
 def _load_agent(
     spec: Path,
     instructions: Path | None,
     *,
-    name: str | None = None,
-    capabilities: Sequence[AgentCapability[Any]] | None = None,
+    name: str,
+    model: Model,
+    step_store: StepStore,
+    extra: Sequence[AgentCapability[Any]] = (),
 ) -> Agent[Any, Any]:
-    return Agent.from_file(
-        spec,
+    """装一个 agent；``name`` 同时是它在 run 记录里的 ``agent_name``。
+
+    ``StepPersistence`` 不带 ``run_id``：官方按 ``{agent_name}-{短 uuid}`` 逐次
+    materialise，因此同一个 capability 实例被并发的多次运行共用是安全的。
+    """
+
+    return Agent.from_spec(
+        _read_spec(spec),
+        model=model,
         name=name,
         instructions=_read_instructions(instructions),
-        capabilities=capabilities,
+        capabilities=[StepPersistence(store=step_store, agent_name=name), *extra],
     )
 
 
-def _build_subagents(definitions: Sequence[SubAgentDefinition]) -> SubAgents[Any]:
+def _build_subagents(
+    definitions: Sequence[SubAgentDefinition],
+    step_store: StepStore,
+    models: BuiltModels,
+) -> SubAgents[Any]:
     return SubAgents(
         agents=[
             SubAgent(
-                _load_agent(sub.spec, sub.instructions, name=sub.name),
+                _load_agent(
+                    sub.spec,
+                    sub.instructions,
+                    name=sub.name,
+                    model=_pick_model(models, sub.model, declared_by=f"子 agent {sub.name}"),
+                    step_store=step_store,
+                ),
                 timeout_seconds=sub.timeout_seconds,
                 max_calls=sub.max_calls,
                 on_failure=sub.on_failure,
@@ -114,17 +153,27 @@ class AgentRegistry:
         return adapter.encode_stream(adapter.run_stream())
 
 
-def build_agent_registry(definitions: Sequence[AgentDefinition]) -> AgentRegistry:
-    """按声明装配全部 agent；id 重复由调用方的声明结构保证不会发生。"""
+def build_agent_registry(
+    definitions: Sequence[AgentDefinition],
+    *,
+    step_store: StepStore,
+    models: BuiltModels,
+) -> AgentRegistry:
+    """按声明装配全部 agent。``step_store`` 与 ``models`` 无默认值。"""
 
     agents: dict[str, Agent[Any, Any]] = {}
     for definition in definitions:
-        capabilities = [_build_subagents(definition.subagents)] if definition.subagents else None
         agents[definition.agent_id] = _load_agent(
             definition.spec,
             definition.instructions,
             name=definition.agent_id,
-            capabilities=capabilities,
+            model=_pick_model(models, definition.model, declared_by=f"agent {definition.agent_id}"),
+            step_store=step_store,
+            extra=(
+                [_build_subagents(definition.subagents, step_store, models)]
+                if definition.subagents
+                else ()
+            ),
         )
     return AgentRegistry(agents=agents)
 

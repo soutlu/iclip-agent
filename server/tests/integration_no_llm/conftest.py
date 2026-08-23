@@ -15,6 +15,7 @@ import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
+from pydantic_ai.models.test import TestModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -106,6 +107,9 @@ async def _fresh_engine(url: str):
     return engine
 
 
+TEST_MODEL_NAME = "test-model"
+
+
 @pytest.fixture
 def agent_declarations() -> tuple[ResolvedAgent, ...]:
     """测试可覆写：非空即注册对应 agent（默认无 agent，/agents/* 全部 404）。"""
@@ -114,12 +118,24 @@ def agent_declarations() -> tuple[ResolvedAgent, ...]:
 
 
 @pytest.fixture
+def models() -> dict[str, TestModel]:
+    """官方 test 替身；agent 声明引用 TEST_MODEL_NAME。"""
+
+    return {TEST_MODEL_NAME: TestModel()}
+
+
+@pytest.fixture
 async def app(
-    base_env: None, migrated_pg: str, agent_declarations: tuple[ResolvedAgent, ...]
+    base_env: None,
+    migrated_pg: str,
+    agent_declarations: tuple[ResolvedAgent, ...],
+    models: dict[str, TestModel],
 ) -> AsyncGenerator[FastAPI]:
     engine = await _fresh_engine(migrated_pg)
     try:
-        yield build_app(make_runtime_config(), agents=agent_declarations, engine=engine)
+        yield build_app(
+            make_runtime_config(), agents=agent_declarations, engine=engine, models=models
+        )
     finally:
         await engine.dispose()
 

@@ -27,13 +27,17 @@ class SubAgentSection(ConfigSection):
     """一条派活关系。三个控制字段与官方 harness ``SubAgent`` 同名。"""
 
     spec: str
+    model: str
     timeout_seconds: float | None = None
     max_calls: int | None = None
     on_failure: str | None = None
 
 
 class AgentSection(ConfigSection):
+    """``model`` 引用 ``config.yaml`` 中 ``models`` 段的键名。"""
+
     spec: str
+    model: str
     subagent: tuple[SubAgentSection, ...] = ()
 
 
@@ -49,6 +53,7 @@ class ResolvedSubAgent:
     name: str
     spec: Path
     instructions: Path | None
+    model: str
     timeout_seconds: float | None
     max_calls: int | None
     on_failure: str | None
@@ -61,6 +66,7 @@ class ResolvedAgent:
     agent_id: str
     spec: Path
     instructions: Path | None
+    model: str
     subagents: tuple[ResolvedSubAgent, ...]
 
 
@@ -80,6 +86,7 @@ def _resolve_subagent(
         name=spec.parent.name,
         spec=spec,
         instructions=instructions,
+        model=sub.model,
         timeout_seconds=sub.timeout_seconds,
         max_calls=sub.max_calls,
         on_failure=sub.on_failure,
@@ -109,6 +116,7 @@ def load_agent_declarations(path: Path) -> tuple[ResolvedAgent, ...]:
                 agent_id=agent_id,
                 spec=spec,
                 instructions=instructions,
+                model=section.model,
                 subagents=tuple(
                     _resolve_subagent(base_dir, sub, declared_by=f"agent.{agent_id}.subagent")
                     for sub in section.subagent

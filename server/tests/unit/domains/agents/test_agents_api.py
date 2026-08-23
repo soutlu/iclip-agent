@@ -14,6 +14,8 @@ import httpx
 import pytest
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from pydantic_ai.models.test import TestModel
+from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
 from iclip.common.errors import DomainError
 from iclip.domains.agents.api import AgentEventStream, create_agents_router
@@ -68,8 +70,12 @@ def registry(tmp_path: Path) -> AgentRegistry:
     spec_dir = tmp_path / AGENT_ID
     spec_dir.mkdir()
     spec = spec_dir / "agent.yaml"
-    spec.write_text("model: test\n", encoding="utf-8")
-    return build_agent_registry((AgentDefinition(agent_id=AGENT_ID, spec=spec),))
+    spec.write_text("", encoding="utf-8")
+    return build_agent_registry(
+        (AgentDefinition(agent_id=AGENT_ID, spec=spec, model="m"),),
+        step_store=InMemoryStepStore(),
+        models={"m": TestModel()},
+    )
 
 
 def client_for(app: FastAPI) -> httpx.AsyncClient:

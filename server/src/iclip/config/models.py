@@ -73,6 +73,16 @@ class PmsSection(ConfigSection):
     base_url_env: str
 
 
+class ModelSection(ConfigSection):
+    """一个命名模型。``provider`` 是官方 provider 名；``model`` 缺省即键名。"""
+
+    provider: str
+    api: Literal["chat", "responses"] = "chat"
+    api_key_env: str
+    base_url: str | None = None
+    model: str | None = None
+
+
 class OpsSection(ConfigSection):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -85,6 +95,7 @@ class RuntimeConfig(BaseSettings):
     security: SecuritySection
     sso: SsoSection
     pms: PmsSection
+    models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
     ops: OpsSection = OpsSection()
 
     @classmethod
@@ -132,6 +143,18 @@ class ResolvedSso:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedModel:
+    """一个命名模型解析后的装配事实。``name`` 是 agent 引用的名字。"""
+
+    name: str
+    provider: str
+    model: str
+    api: Literal["chat", "responses"]
+    api_key: str
+    base_url: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedSettings:
     """启动期从环境变量解析出的运行值；SSO 关闭时 ``sso is None``。"""
 
@@ -140,6 +163,7 @@ class ResolvedSettings:
     db_schema: str
     security: ResolvedSecurity
     sso: ResolvedSso | None
+    models: tuple[ResolvedModel, ...]
     log_level: str
 
 
@@ -174,6 +198,18 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             root_email=root_email,
         )
 
+    models = tuple(
+        ResolvedModel(
+            name=name,
+            provider=section.provider,
+            model=section.model or name,
+            api=section.api,
+            api_key=_require_env(section.api_key_env, hint=f"模型 {name} 的 API Key"),
+            base_url=section.base_url,
+        )
+        for name, section in config.models.items()
+    )
+
     return ResolvedSettings(
         app_name=config.app.name,
         database_url=database_url,
@@ -186,5 +222,6 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             cors_allow_origins=config.security.cors_allow_origins,
         ),
         sso=sso,
+        models=models,
         log_level=config.ops.log_level,
     )
