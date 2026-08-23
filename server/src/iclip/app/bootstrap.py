@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from iclip.app.logging import configure_logging
 from iclip.common.errors import DomainError
-from iclip.config import ResolvedAgent, RuntimeConfig, resolve_settings
+from iclip.config import ResolvedAgent, ResolvedModel, RuntimeConfig, resolve_settings
 from iclip.domains.agents.api import create_agents_router
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
@@ -25,6 +25,8 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
 )
+from iclip.harness.models import BuiltModels, ModelSpec, build_models
+from iclip.harness.step_store_pg import PgStepStore
 from iclip.platform.http import status_code_for
 
 
@@ -39,11 +41,13 @@ def _agent_definitions(declared: Sequence[ResolvedAgent]) -> tuple[AgentDefiniti
         AgentDefinition(
             agent_id=agent.agent_id,
             spec=agent.spec,
+            model=agent.model,
             instructions=agent.instructions,
             subagents=tuple(
                 SubAgentDefinition(
                     name=sub.name,
                     spec=sub.spec,
+                    model=sub.model,
                     instructions=sub.instructions,
                     timeout_seconds=sub.timeout_seconds,
                     max_calls=sub.max_calls,
@@ -56,15 +60,30 @@ def _agent_definitions(declared: Sequence[ResolvedAgent]) -> tuple[AgentDefiniti
     )
 
 
+def _model_specs(declared: Sequence[ResolvedModel]) -> tuple[ModelSpec, ...]:
+    return tuple(
+        ModelSpec(
+            name=model.name,
+            provider=model.provider,
+            model=model.model,
+            api=model.api,
+            api_key=model.api_key,
+            base_url=model.base_url,
+        )
+        for model in declared
+    )
+
+
 def build_app(
     config: RuntimeConfig,
     *,
     agents: Sequence[ResolvedAgent] = (),
     engine: AsyncEngine | None = None,
+    models: BuiltModels | None = None,
     sso_verifier: SsoVerifier | None = None,
     pms_client: PmsUserClient | None = None,
 ) -> FastAPI:
-    """装配公开 app。测试可注入 engine 与 SSO/PMS 协议替身。"""
+    """装配公开 app。测试可注入 engine、模型表与 SSO/PMS 协议替身。"""
 
     settings = resolve_settings(config)
     if settings.db_schema != DB_SCHEMA:
@@ -99,8 +118,12 @@ def build_app(
         sso_verifier=sso_verifier,
         pms_client=pms_client,
     )
-    # 启动期一次性装配并冻结：模型/凭证/spec 缺失在这一步失败，不留到首个请求。
-    agent_registry = build_agent_registry(_agent_definitions(agents))
+    # step store 与 identity 共用同一个 engine（表在 agent_runtime schema）。
+    agent_registry = build_agent_registry(
+        _agent_definitions(agents),
+        step_store=PgStepStore(active_engine),
+        models=build_models(_model_specs(settings.models)) if models is None else models,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:

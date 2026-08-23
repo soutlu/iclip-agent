@@ -22,5 +22,14 @@ sso:
 pms:
   base_url_env: WANGOON_PMS_BASE_URL # env 为空即关闭 SSO 登录时的 PMS 资料同步
 
+models:
+  # 键名即模型名，也是 agents.yaml 里 model 字段引用的名字。
+  # provider 是官方 provider 名，决定厂商适配；api 不写即 chat。
+  qwen3.8-max:
+    provider: alibaba
+    api: responses
+    api_key_env: ALIBABA_API_KEY
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 新加坡站换 dashscope-intl
+
 ops:
   log_level: INFO

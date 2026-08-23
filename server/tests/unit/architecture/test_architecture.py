@@ -29,6 +29,8 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "harness/step_store_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
+    # 模型装配唯一需要直接碰 openai SDK 的地方（给兼容端点造客户端）。
+    ("openai",): ("harness/models.py",),
 }
 # sqlalchemy 在业务模块中只准出现在 infra_sql.py
 _SQLALCHEMY_DOMAIN_FILE = "infra_sql.py"

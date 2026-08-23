@@ -9,7 +9,8 @@ from pydantic import ValidationError
 
 from iclip.config import load_agent_declarations
 
-SPEC = "model: test\n"
+SPEC = "# 模型在 agents.yaml 里指定\n"
+MODEL = "qwen"
 
 
 def make_agent_dir(root: Path, name: str, *, instructions: str | None = None) -> None:
@@ -45,7 +46,9 @@ def test_empty_agent_section_yields_empty_registry(tmp_path: Path) -> None:
 
 def test_single_agent_resolves_spec_and_instructions(tmp_path: Path) -> None:
     make_agent_dir(tmp_path, "storyboard", instructions="写镜头表。")
-    path = write_declaration(tmp_path, "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n")
+    path = write_declaration(
+        tmp_path, "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n    model: qwen\n"
+    )
 
     (declared,) = load_agent_declarations(path)
 
@@ -57,7 +60,9 @@ def test_single_agent_resolves_spec_and_instructions(tmp_path: Path) -> None:
 
 def test_instructions_absent_is_none(tmp_path: Path) -> None:
     make_agent_dir(tmp_path, "storyboard")
-    path = write_declaration(tmp_path, "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n")
+    path = write_declaration(
+        tmp_path, "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n    model: qwen\n"
+    )
 
     (declared,) = load_agent_declarations(path)
 
@@ -72,8 +77,10 @@ def test_subagent_controls_parsed(tmp_path: Path) -> None:
         "agent:\n"
         "  producer:\n"
         "    spec: producer/agent.yaml\n"
+        "    model: qwen\n"
         "    subagent:\n"
         "      - spec: shot-writer/agent.yaml\n"
+        "        model: local\n"
         "        timeout_seconds: 180\n"
         "        max_calls: 3\n"
         "        on_failure: 就此收手\n",
@@ -83,6 +90,7 @@ def test_subagent_controls_parsed(tmp_path: Path) -> None:
     (sub,) = declared.subagents
 
     assert sub.spec == (tmp_path / "shot-writer" / "agent.yaml").resolve()
+    assert (declared.model, sub.model) == ("qwen", "local")  # 主从各自指定模型
     assert (sub.timeout_seconds, sub.max_calls, sub.on_failure) == (180.0, 3, "就此收手")
 
 
@@ -90,7 +98,7 @@ def test_unknown_key_rejected(tmp_path: Path) -> None:
     make_agent_dir(tmp_path, "storyboard")
     path = write_declaration(
         tmp_path,
-        "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n    model: test\n",
+        "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n    model: qwen\n    retries: 3\n",
     )
     with pytest.raises(ValidationError):
         load_agent_declarations(path)
@@ -103,7 +111,9 @@ def test_unknown_top_level_section_rejected(tmp_path: Path) -> None:
 
 
 def test_missing_spec_file_fails_fast(tmp_path: Path) -> None:
-    path = write_declaration(tmp_path, "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n")
+    path = write_declaration(
+        tmp_path, "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n    model: qwen\n"
+    )
     with pytest.raises(RuntimeError, match="spec 文件不存在"):
         load_agent_declarations(path)
 
@@ -115,8 +125,10 @@ def test_missing_subagent_spec_file_fails_fast(tmp_path: Path) -> None:
         "agent:\n"
         "  producer:\n"
         "    spec: producer/agent.yaml\n"
+        "    model: qwen\n"
         "    subagent:\n"
-        "      - spec: ghost/agent.yaml\n",
+        "      - spec: ghost/agent.yaml\n"
+        "        model: qwen\n",
     )
     with pytest.raises(RuntimeError, match="subagent 声明的 spec 文件不存在"):
         load_agent_declarations(path)
@@ -128,8 +140,20 @@ def test_non_mapping_document_rejected(tmp_path: Path) -> None:
 
 
 def test_shipped_declaration_loads(tmp_path: Path) -> None:
-    """仓内 agents/agents.yaml 必须可加载（当前为空注册表）。"""
+    """仓内 agents/agents.yaml 必须可加载，且引用的 spec 与模型名都写了。"""
 
     shipped = Path(__file__).resolve().parents[3] / "agents" / "agents.yaml"
-    assert shipped.is_file()
-    assert load_agent_declarations(shipped) == ()
+    declared = load_agent_declarations(shipped)
+    assert [agent.agent_id for agent in declared] == ["assistant"]
+    for agent in declared:
+        assert agent.spec.is_file()
+        assert agent.model
+
+
+def test_agent_without_model_rejected(tmp_path: Path) -> None:
+    """没有默认模型：漏写就拒收，不悄悄挑一个。"""
+
+    make_agent_dir(tmp_path, "storyboard")
+    path = write_declaration(tmp_path, "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n")
+    with pytest.raises(ValidationError):
+        load_agent_declarations(path)
