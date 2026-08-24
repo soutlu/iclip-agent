@@ -94,6 +94,69 @@ def test_subagent_controls_parsed(tmp_path: Path) -> None:
     assert (sub.timeout_seconds, sub.max_calls, sub.on_failure) == (180.0, 3, "就此收手")
 
 
+def test_skills_and_packs_resolve_per_agent(tmp_path: Path) -> None:
+    """主从各挂各的：下属不继承主 agent 的 skill 与能力包。"""
+
+    make_agent_dir(tmp_path, "producer")
+    make_agent_dir(tmp_path, "shot-writer")
+    (tmp_path / "skills" / "拆解素材").mkdir(parents=True)
+    path = write_declaration(
+        tmp_path,
+        "agent:\n"
+        "  producer:\n"
+        "    spec: producer/agent.yaml\n"
+        "    model: qwen\n"
+        "    skills: [拆解素材]\n"
+        "    packs: [video]\n"
+        "    subagent:\n"
+        "      - spec: shot-writer/agent.yaml\n"
+        "        model: qwen\n"
+        "        skills: [拆解素材]\n",
+    )
+
+    (declared,) = load_agent_declarations(path)
+    (sub,) = declared.subagents
+
+    assert declared.skills is not None
+    assert declared.skills.library == (tmp_path / "skills").resolve()
+    assert declared.skills.names == ("拆解素材",)
+    assert declared.packs == ("video",)
+    # 下属只有显式给它的那一样：挂了 skill，没挂能力包。
+    assert sub.skills is not None and sub.skills.names == ("拆解素材",)
+    assert sub.packs == ()
+
+
+def test_no_skills_declared_mounts_nothing(tmp_path: Path) -> None:
+    """写空列表和不写是同一件事：都不挂，也都不要求 skill 库存在。"""
+
+    make_agent_dir(tmp_path, "storyboard")
+    path = write_declaration(
+        tmp_path,
+        "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n    model: qwen\n    skills: []\n",
+    )
+
+    (declared,) = load_agent_declarations(path)
+
+    assert declared.skills is None
+
+
+def test_declared_skills_without_library_fails_loudly(tmp_path: Path) -> None:
+    """声明要挂 skill 却没有库：部署漏目录必须报错，不能降级成没挂。"""
+
+    make_agent_dir(tmp_path, "storyboard")
+    path = write_declaration(
+        tmp_path,
+        "agent:\n"
+        "  storyboard:\n"
+        "    spec: storyboard/agent.yaml\n"
+        "    model: qwen\n"
+        "    skills: [拆解素材]\n",
+    )
+
+    with pytest.raises(RuntimeError, match="skill 库不存在"):
+        load_agent_declarations(path)
+
+
 def test_unknown_key_rejected(tmp_path: Path) -> None:
     make_agent_dir(tmp_path, "storyboard")
     path = write_declaration(

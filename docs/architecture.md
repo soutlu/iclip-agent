@@ -60,16 +60,16 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | 路径 | 职责 |
 |------|------|
 | `server/src/iclip/main.py` / `asgi.py` | CLI serve 入口 / ASGI 导出入口 |
-| `server/src/iclip/app/` | **唯一组合根**：装配、entrypoints、lifespan |
+| `server/src/iclip/app/` | **唯一组合根**：装配、entrypoints、lifespan + `packs.py`（业务能力包的名字表） |
 | `server/src/iclip/config/` | RuntimeConfig（pydantic-settings YAML 源 + `*_env` 校验层） |
 | `server/src/iclip/domains/identity/` | 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
 | `server/src/iclip/domains/agents/` | agent 运行的 HTTP 面：`api.py`（发起运行 + 接着读事件），只认识注入进来的运行入口 |
-| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`runs.py`（后台运行与可重放流）与 `run_stream_redis.py`（事件流的 Redis 后端） |
-| `server/src/iclip/capabilities/` | 空包占位：业务能力包 |
+| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）与 `run_stream_redis.py`（事件流的 Redis 后端） |
+| `server/src/iclip/capabilities/` | 空包占位：业务能力包（落地一个包就在 `app/packs.py` 登记名字） |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只存 `*_env` 名，不存密钥） |
-| `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词） |
+| `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词）+ `skills/`（skill 库，一个子目录一个 skill） |
 | `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
 | `web/` | UI 参考稿（只读） |
@@ -77,7 +77,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 
 ## 4. 装配流程
 
-1. `asgi.py` 读 `ICLIP_CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `ICLIP_AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`，文件缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
+1. `asgi.py` 读 `ICLIP_CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `ICLIP_AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
 2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 `*_env` 声明解析成真实值（运行必需的环境变量缺失即在此 fail fast）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`WANGOON_SSO_BASE_URL` 空即不装）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 关停顺序：**先收后台运行，再关 Redis，最后 dispose engine**（后台运行还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
@@ -103,11 +103,14 @@ agent:                                 # 键名即 agent id
   storyboard:
     spec: storyboard/agent.yaml        # 相对本文件目录；同目录 instructions.md 自动并入
     model: qwen3.8-max                 # 引用 config.yaml models 段的键名，必填
+    skills: [storyboard-workflow]      # 从同级 skills/ 库里挑，不写即不挂
+    packs: [video]                     # 业务能力包名（登记在 app/packs.py），不写即不挂
   producer:
     spec: producer/agent.yaml
     model: qwen3.8-max
     subagent:                          # 有此段即主从，无此段即单 agent
       - spec: shot-writer/agent.yaml
+        skills: [storyboard-workflow]  # 下属各挂各的，不继承主 agent
         timeout_seconds: 180           # 本段三个字段名与 harness SubAgent 一致
         max_calls: 3
         on_failure: 就此收手
@@ -116,6 +119,33 @@ agent:                                 # 键名即 agent id
 **模型由声明决定，不由 spec 决定**：`agents.yaml` 的 `model` 字段引用 `config.yaml` 的命名模型，spec 里的 `model:` 一律被覆盖（模型连着端点与密钥，属于运维决策）。引用了未声明的名字即装配期报错。spec 文件允许为空——模型在 `agents.yaml`、提示词在 `instructions.md`，spec 可以没内容可写。
 
 **每个 agent（含子代理）装配时都挂官方 `StepPersistence`**，store 为 `PgStepStore`（见 §7）。组合根传入的 `step_store` 是必填参数、无内存兜底默认值——装配一个不落库的注册表在类型上就写不出来。子代理的 `parent_run_id` 由 harness 的 contextvar 自动推断，不需要手工穿线。
+
+### 能力挂载（skill 与业务能力包）
+
+**挂什么能力由声明决定，一个 agent 只拥有声明给它的那几样。** 两类材料分开走：
+
+- **skill** 是模型面文本资产（流程知识、判断标准、产出格式），放 `server/agents/skills/<skill 名>/`（`SKILL.md` + 可选 `references/`）。库路径在加载声明时解析成绝对路径，不留给官方 `Skills` 按进程工作目录去猜——同一份代码在不同工作目录下行为不同且不报错，是最难查的那类问题。挑了库里没有的名字即装配期报错。
+- **业务能力包** 是一组类型化工具，包本体在 `capabilities/`，名字登记在 `app/packs.py`（与 `models` 段同一个套路：声明面只出现名字，实现由代码持有）。能力包**必须**在代码里装：包带着函数，官方刻意不给这类 capability 序列化名，YAML 表达不出来。名字没登记即装配期报错。
+
+**挂 skill 库就一定同时挂 `get_skill_reference` 工具**（`harness/skills.py`）。官方 `Skills` 只读 `SKILL.md`，不碰 `references/`；库里放着分支规则而没有读它的手段，模型会照着正文的指示去读、然后无从下手——这种静默失效比报错更难查。工具的访问边界与挂载范围严格一致：没挂给这个 agent 的 skill，它的 references 也读不到（官方文档明说 `include`/`exclude` 不是访问边界，所以边界只能落在工具里）。越界、非 `.md`、不存在都回可重试提示并报出有哪些文件；自家资产编码坏了则直接失败（重试改不了坏文件）。
+
+**下属只拥有显式给它的能力**：子 agent 的 `skills`/`packs` 独立声明，不继承主 agent。能力包这条路官方已堵死——capability 挂上去的 toolset 绑在注册它的那次运行上，派活是另起一次运行，结构上就不转发。真正要守的是 `shared_capabilities` 保持空着（它是「给每个下属统一追加能力」的口子，一开就绕过声明）；`inherit_tools` 只影响直接注册在 `Agent(toolsets=[...])` 上的工具，本仓的工具一律经 capability 挂载，因此别把工具直接注册到 agent 上。
+
+### 运行依赖（工具怎么拿到调用方身份）
+
+**一次运行的 deps 就是发起它的 `Principal`**，经官方的依赖注入机制传入：HTTP 端点把中间件建立的主体交给运行入口 → `AgentRuns.open(deps=…)` → `registry.start(…, deps)` → 官方 `run_stream(deps=…)`。业务工具按 `RunContext[Principal]` 写，子 agent 由官方自动转发（`deps=ctx.deps`），无需穿线。
+
+harness 一侧这个参数的类型是 `object` 且全程不解包——那一环不认识业务身份，围栏因此是结构性满足的，不靠自觉。唯一写具体类型的地方是 `domains/agents/api.py` 的 `AgentRuns` 协议。`owner` 保持独立参数：它只是流名字的归属段。
+
+**deps 只放身份，不放 I/O 句柄。** 官方文档的例子把 http client / db session 放进 deps，因为那些例子没有组合根；本仓有，服务经 `app/packs.py` 的闭包在装配期注入。更硬的理由是 `Agent[DepsT]` 整体参数化——同一个 agent 上所有能力包共享同一个 deps 类型，把服务塞进去，它就会变成每落地一个包就加一个字段、每个包都耦合全体的共享契约。而且运行不绑 HTTP 请求，请求作用域的 session 放进 deps 就是悬空引用。
+
+三条不能破的规矩：
+
+- **不给 deps 实现 `StateHandler`。** 官方 adapter 会把客户端提交的 `state` 写进实现了该协议的 deps；那等于让客户端往可信身份对象里塞东西。`Principal` 是普通 frozen dataclass，客户端发来的 state 被忽略并留一条 warning——这是正确的信任姿态，不是缺陷（本系统不消费 AG-UI state）。
+- **身份是每次运行传入的，不是装配期挂上的。** 注册表启动期冻结、跨运行共享；把身份挂上去就串人。
+- **捕获即冻结**：主体在发起时抓一次，跑到一半吊销 key 不会中断这次运行（运行不由请求持有的自然推论）。将来的续跑路径没有 HTTP 请求，deps 要从库里的归属事实重建。
+
+注：`deps_type` 官方只用于静态类型、运行期不做校验，本仓的 agent 是 `Agent[Any, Any]`，所以「工具声明的 deps 类型与实际传入不一致」不由类型检查拦住，而由 `T-DEPS-01/02` 两条测试守。
 
 两条强制规则：**agent id 是唯一权威身份**——装配时以 `name=<id>` 覆盖 spec 里的 `name`，避免两个 id 指向同名 spec 后落库无法区分；子 agent 的 name 取自其 spec 所在**目录名**（同一条「身份来自声明而非 spec 内容」的规矩，因此空 `agent.yaml` 也能用）。**磁盘扫描必须显式关闭**（`agent_folders=None`）——harness 默认会扫 `<cwd>/.agents|.claude/agents/` 与家目录同名目录，否则开发者个人的 agent 定义会静默变成生产下属。
 

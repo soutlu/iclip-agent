@@ -45,6 +45,13 @@
 | T-STORE-02 | integration_no_llm | 真实 Agent（FunctionModel）挂官方 StepPersistence 跑通：运行/事件/工具账落库，续跑历史与 `all_messages()` 解析成 JSON 后结构一致 | 运行历史不可续 |
 | T-STORE-03 | integration_no_llm | 消息负载无损往返：含 `NUL(\u0000)` 转义的文本、≥64KiB 媒体外置与还原 | 存储层静默损坏 |
 | T-AGENTRUN-01 | integration_no_llm | 真实 app + 真实用户：匿名 401、viewer 403、editor 跑通 `test` 模型 200 流；未注册 id 404、非 JSON 415、坏 body 422、OPTIONS 不放行 | 双主体与 agent 运行面的联动 |
+| T-SKILL-01 | unit | 声明的 skill 名不在库里 → 装配期报错；声明了 skill 却没有库目录 → 加载期报错；空列表与不写同义（都不挂、也不要求库存在）；库与 `get_skill_reference` 成对挂载 | 静默降级成「没挂」 |
+| T-SKILL-02 | unit | `get_skill_reference`（经真 Agent 调用）：授权 skill 的 `.md` 读得到；没挂载的 skill、越界路径（`..`/绝对路径）、非 `.md`、不存在 → 可重试提示且报出有哪些文件；超上限截断且显式标注；编码坏了直接失败不重试 | 越权读别人的 references / 静默少给一段 / 模型在重试上打转 |
+| T-DEPS-01 | unit | `start` 收到的 deps 一路进到工具的 `ctx.deps`（协议面与官方 `override(deps=…)` 两条路各验一次）| 工具拿不到宿主依赖 |
+| T-DEPS-02 | integration_no_llm | 完整 HTTP 路径：工具拿到的是发起这次运行的主体；两个用户各跑一次，各拿自己的主体 | 身份串人 / deps 被装配期捕获 |
+| T-SKILL-03 | integration_no_llm | 完整 app 跑一次运行：声明里挂的 skill 真的到达那个 agent（模型看得到官方 `load_capability` 与 `get_skill_reference`）| 声明→运行的翻译被删掉后无声丢失 SOP |
+| T-PACK-01 | unit | 能力包按名字解析；名字没登记 → 装配期报错（错误里列出已登记的）；没声明即不挂 | agent 带着半套工具上线 |
+| T-SUBAGENT-01 | unit | 子 agent 只拿到声明给它的能力：主 agent 的能力包工具不出现在下属的工具集里，反之亦然 | 能力经继承隐式扩散 |
 | T-BOOT-01 | unit | 声明了 agent 却没配 `redis` 段 → 启动即报错；没声明 agent 则整组 agent 路由不挂（请求 404），也不需要 Redis | 静默降级 |
 | T-STREAM-01 | integration_no_llm | 真 TCP 断开（uvicorn）：读到一半断线后运行继续跑完，续读能看到断开之后才产生的内容与正常终态，完整快照照样落库 | 断开即白跑 |
 | T-STREAM-02 | integration_no_llm | 真 Redis 上带 `Last-Event-ID` 续读只补发之后的事件；换个用户拿同一个运行 id 一律 404 | 重放错位 / 越权读别人的运行 |

@@ -42,7 +42,15 @@ def declared_agent(tmp_path: Path) -> ResolvedAgent:
     spec_dir.mkdir(parents=True, exist_ok=True)
     spec = spec_dir / "agent.yaml"
     spec.write_text("", encoding="utf-8")
-    return ResolvedAgent(agent_id=AGENT_ID, spec=spec, instructions=None, model="m", subagents=())
+    return ResolvedAgent(
+        agent_id=AGENT_ID,
+        spec=spec,
+        instructions=None,
+        model="m",
+        skills=None,
+        packs=(),
+        subagents=(),
+    )
 
 
 @pytest.fixture

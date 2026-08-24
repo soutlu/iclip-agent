@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
-from pydantic_ai.messages import ModelMessage, ModelRequest
+from pydantic_ai import RunContext
+from pydantic_ai.capabilities import Capability
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai_harness.step_persistence import InMemoryStepStore
@@ -26,6 +30,17 @@ BODY = run_input_bytes(thread_id="c1")
 
 
 MODEL_NAME = "m"
+
+
+@dataclass(frozen=True)
+class Caller:
+    """deps 的替身：这一层不认识业务身份，只验穿线本身。
+
+    必须定义在模块级——工具的注解在 ``from __future__ import annotations`` 下
+    是字符串，注册工具时按模块全局求值，函数内的局部类解析不到。
+    """
+
+    label: str
 
 
 def store() -> InMemoryStepStore:
@@ -121,7 +136,7 @@ async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
 async def frames(registry: AgentRegistry, agent_id: str, body: bytes = BODY) -> list[str]:
     """跑一次，收下全部编码帧。"""
 
-    return [text async for text, _ in registry.start(agent_id, body).frames]
+    return [text async for text, _ in registry.start(agent_id, body, None).frames]
 
 
 async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
@@ -161,7 +176,9 @@ async def test_stream_emits_protocol_frames(tmp_path: Path) -> None:
         models=models(),
     )
 
-    collected = [(text, last) async for text, last in registry.start("storyboard", BODY).frames]
+    collected = [
+        (text, last) async for text, last in registry.start("storyboard", BODY, None).frames
+    ]
 
     # 首帧固定是 RUN_STARTED，并把客户端给的那两个 id 原样带回去。
     first = json.loads(collected[0][0].removeprefix("data: "))
@@ -216,10 +233,120 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
     assert runs[1].parent_run_id == runs[0].run_id  # 派活谱系无需手工穿线
 
 
+async def test_subagent_only_gets_the_capabilities_declared_for_it(tmp_path: Path) -> None:
+    """隔离是需求，不是巧合：下属看不见主 agent 的能力包工具，反之亦然。
+
+    靠的是官方两个默认值（``inherit_tools`` 为假、``shared_capabilities`` 为空）。
+    谁哪天把它们打开，这条就会红。
+    """
+
+    def parent_only_tool() -> str:
+        """只给主 agent 的工具。"""
+
+        return "父"
+
+    def child_only_tool() -> str:
+        """只给下属的工具。"""
+
+        return "子"
+
+    seen: dict[str, tuple[str, ...]] = {}
+
+    async def parent_delegates(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        if len(messages) == 1:
+            seen["parent"] = tuple(tool.name for tool in info.function_tools)
+            yield {
+                0: DeltaToolCall(
+                    name="delegate_task",
+                    json_args='{"agent_name": "shot-writer", "task": "写三个镜头"}',
+                )
+            }
+        else:
+            yield "done"
+
+    async def child_records(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen["child"] = tuple(tool.name for tool in info.function_tools)
+        return ModelResponse(parts=[TextPart("done")])
+
+    parent = make_spec(tmp_path, "producer")
+    child = make_spec(tmp_path, "shot-writer")
+    registry = build_agent_registry(
+        (
+            AgentDefinition(
+                agent_id="producer",
+                spec=parent,
+                model=MODEL_NAME,
+                capabilities=(Capability[Any](id="parent-pack", tools=[parent_only_tool]),),
+                subagents=(
+                    SubAgentDefinition(
+                        name="shot-writer",
+                        spec=child,
+                        model="recorder",
+                        capabilities=(Capability[Any](id="child-pack", tools=[child_only_tool]),),
+                    ),
+                ),
+            ),
+        ),
+        step_store=store(),
+        models={MODEL_NAME: TestModel(), "recorder": FunctionModel(child_records)},
+    )
+
+    with registry.agents["producer"].override(
+        model=FunctionModel(stream_function=parent_delegates)
+    ):
+        await frames(registry, "producer")
+
+    assert "parent_only_tool" in seen["parent"] and "delegate_task" in seen["parent"]
+    assert "child_only_tool" not in seen["parent"]
+    assert seen["child"] == ("child_only_tool",)
+
+
+async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
+    """``start`` 收到的 deps 一路进到工具的 ``ctx.deps``。
+
+    这一层不认识业务身份，所以用一个替身对象验穿线本身。工具替身用官方的
+    ``override(deps=...)``（官方给的 deps 测试接口）另测一遍：装配好的 agent
+    不经协议面也能喂 deps，说明工具不依赖那条路径。
+    """
+
+    def whoami(ctx: RunContext[Caller]) -> str:
+        """报出当前调用方。"""
+
+        return ctx.deps.label
+
+    spec = make_spec(tmp_path, "storyboard")
+    registry = build_agent_registry(
+        (
+            AgentDefinition(
+                agent_id="storyboard",
+                spec=spec,
+                model=MODEL_NAME,
+                capabilities=(Capability[Any](id="identity", tools=[whoami]),),
+            ),
+        ),
+        step_store=store(),
+        models=models(),
+    )
+
+    # 协议面这条路：deps 由 start 传入。
+    body = "".join(
+        [text async for text, _ in registry.start("storyboard", BODY, Caller("经协议面")).frames]
+    )
+    assert "经协议面" in body
+
+    # 官方的 deps 覆写这条路：同一个 agent，不经协议面。
+    agent = registry.agents["storyboard"]
+    with agent.override(deps=Caller("经官方覆写")):
+        result = await agent.run("你是谁")
+    assert "经官方覆写" in str(result.output)
+
+
 def test_unknown_id_raises_not_found_before_streaming(tmp_path: Path) -> None:
     registry = build_agent_registry((), step_store=store(), models=models())
     with pytest.raises(NotFound, match="未注册的 agent"):
-        registry.start("ghost", BODY)
+        registry.start("ghost", BODY, None)
 
 
 def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path) -> None:
@@ -230,7 +357,7 @@ def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path
         models=models(),
     )
     with pytest.raises(ValidationFailed):
-        registry.start("storyboard", b'{"nope": true}')
+        registry.start("storyboard", b'{"nope": true}', None)
 
 
 def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:

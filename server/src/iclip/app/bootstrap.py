@@ -12,12 +12,14 @@ from redis.asyncio import BlockingConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from iclip.app.logging import configure_logging
+from iclip.app.packs import resolve_packs
 from iclip.common.errors import DomainError
 from iclip.config import (
     ResolvedAgent,
     ResolvedModel,
     ResolvedRedis,
     RuntimeConfig,
+    SkillMount,
     resolve_settings,
 )
 from iclip.domains.agents.api import create_agents_router
@@ -28,6 +30,7 @@ from iclip.domains.identity.module import SsoRuntime, build_identity_module
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
 from iclip.harness.agents import (
+    AgentCapabilities,
     AgentDefinition,
     SubAgentDefinition,
     build_agent_registry,
@@ -35,8 +38,22 @@ from iclip.harness.agents import (
 from iclip.harness.models import BuiltModels, ModelSpec, build_models
 from iclip.harness.run_stream_redis import RedisRunStream, RunStream
 from iclip.harness.runs import RunBroker, RunStreamSettings
+from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.platform.http import status_code_for
+
+
+def _capabilities(
+    skills: SkillMount | None, packs: Sequence[str], *, declared_by: str
+) -> AgentCapabilities:
+    """把声明里的名字翻译成真的能力实例。
+
+    skill 与能力包都是「不写即不挂」，所以两边都空就是一个空元组——这个 agent
+    只有 spec 与提示词。
+    """
+
+    mounted = build_skill_capabilities(skills.library, skills.names) if skills else ()
+    return (*mounted, *resolve_packs(packs, declared_by=declared_by))
 
 
 def _agent_definitions(declared: Sequence[ResolvedAgent]) -> tuple[AgentDefinition, ...]:
@@ -52,12 +69,18 @@ def _agent_definitions(declared: Sequence[ResolvedAgent]) -> tuple[AgentDefiniti
             spec=agent.spec,
             model=agent.model,
             instructions=agent.instructions,
+            capabilities=_capabilities(
+                agent.skills, agent.packs, declared_by=f"agent {agent.agent_id}"
+            ),
             subagents=tuple(
                 SubAgentDefinition(
                     name=sub.name,
                     spec=sub.spec,
                     model=sub.model,
                     instructions=sub.instructions,
+                    capabilities=_capabilities(
+                        sub.skills, sub.packs, declared_by=f"子 agent {sub.name}"
+                    ),
                     timeout_seconds=sub.timeout_seconds,
                     max_calls=sub.max_calls,
                     on_failure=sub.on_failure,

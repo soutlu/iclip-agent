@@ -31,8 +31,12 @@ _SSE_HEADERS = {
 class AgentRuns(Protocol):
     """agent 运行的入口：发起、定位、读事件。"""
 
-    async def open(self, *, owner: str, agent_id: str, body: bytes) -> str:
-        """发起一次运行（已经在跑就什么都不做），返回它的流名字。"""
+    async def open(self, *, owner: str, agent_id: str, body: bytes, deps: Principal) -> str:
+        """发起一次运行（已经在跑就什么都不做），返回它的流名字。
+
+        ``deps`` 是这次运行的可信身份，工具执行时经 ``ctx.deps`` 取用。它与
+        ``owner`` 分开传：后者只用来算流的名字，而这个要一路进到运行里去。
+        """
         ...
 
     def locate(self, *, owner: str, agent_id: str, run_id: str) -> str:
@@ -80,7 +84,13 @@ def create_agents_router(runs: AgentRuns) -> APIRouter:
                 content={"detail": f"需要 Content-Type: {JSON_MEDIA_TYPE}"},
             )
         run_key = await runs.open(
-            owner=str(principal.user_id), agent_id=agent_id, body=await request.body()
+            owner=str(principal.user_id),
+            agent_id=agent_id,
+            body=await request.body(),
+            # 运行带着发起它的那个主体跑到底：工具的授权与审计只认这个对象，
+            # 不认请求体里的任何字段。运行脱离了这次 HTTP 请求，所以身份是在
+            # 这里捕获一次、随运行冻结（跑到一半吊销 key 不会中断它）。
+            deps=principal,
         )
         return _stream(await runs.feed(run_key, after=None))
 

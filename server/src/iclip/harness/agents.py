@@ -1,8 +1,9 @@
-"""Agent 装配与官方协议事件流：全仓唯一 import ``pydantic_ai_harness`` 的装配点。
+"""Agent 装配与官方协议事件流：把声明变成一张冻结的 id → Agent 表。
 
 装配在启动期完成并冻结，运行期只按 id 取用。每个 agent（含子代理）挂官方
 ``StepPersistence`` 落 ``step_store``，模型从传入的 ``models`` 表按名字取
-（spec 里的 ``model:`` 被覆盖）。
+（spec 里的 ``model:`` 被覆盖），能力从传入的 ``capabilities`` 挂（skill 库与
+业务能力包都由组合根译好，本模块不认识它们是什么）。
 """
 
 from __future__ import annotations
@@ -25,6 +26,9 @@ from pydantic_ai_harness.subagents import SubAgent, SubAgents
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.harness.models import BuiltModels
 
+AgentCapabilities = tuple[AgentCapability[Any], ...]
+"""一组待挂载的能力；具体来自 skill 还是业务能力包由组合根决定。"""
+
 
 @dataclass(frozen=True, slots=True)
 class SubAgentDefinition:
@@ -34,6 +38,7 @@ class SubAgentDefinition:
     spec: Path
     model: str
     instructions: Path | None = None
+    capabilities: AgentCapabilities = ()
     timeout_seconds: float | None = None
     max_calls: int | None = None
     on_failure: str | None = None
@@ -47,6 +52,7 @@ class AgentDefinition:
     spec: Path
     model: str
     instructions: Path | None = None
+    capabilities: AgentCapabilities = ()
     subagents: tuple[SubAgentDefinition, ...] = ()
 
 
@@ -112,6 +118,7 @@ def _build_subagents(
                     name=sub.name,
                     model=_pick_model(models, sub.model, declared_by=f"子 agent {sub.name}"),
                     step_store=step_store,
+                    extra=sub.capabilities,
                 ),
                 timeout_seconds=sub.timeout_seconds,
                 max_calls=sub.max_calls,
@@ -123,13 +130,26 @@ def _build_subagents(
         # 以及 ~ 下的同名目录——开发者个人的 agent 定义会静默变成生产下属，
         # 同一份代码在不同机器上行为不同且不报错。子 agent 一律走显式声明。
         agent_folders=None,
+        # 下属只拥有上面显式给它的能力。能力包这条路官方已经堵死：capability 挂
+        # 上去的 toolset 绑在「注册了这个 capability 的那次运行」上，派活是另起
+        # 一次运行，所以它结构上就不转发（连打开 inherit_tools 也不转发）。
+        #
+        # 真正要守的是 shared_capabilities——它是「给每个下属统一追加能力」的口
+        # 子，一开就绕过声明：谁能动什么不再看 agents.yaml，而是看这里写了什么。
+        # 保持空着。
+        #
+        # inherit_tools 影响的是直接注册在 Agent(toolsets=[...]) 上的工具。本仓
+        # 的工具一律经 capability 挂载，所以它对我们没有作用面；反过来说，别把
+        # 工具直接注册到 agent 上，那会把这条路打开。
     )
 
 
 _TERMINAL_EVENTS = frozenset({EventType.RUN_FINISHED, EventType.RUN_ERROR})
 
 
-async def _encoded_frames(adapter: AGUIAdapter[Any, Any]) -> AsyncIterator[tuple[str, bool]]:
+async def _encoded_frames(
+    adapter: AGUIAdapter[Any, Any], deps: object
+) -> AsyncIterator[tuple[str, bool]]:
     """把协议事件逐个编码成 SSE 帧，并标出哪一帧是最后一帧。
 
     终帧要在编码之前从事件对象上认出来。存进流里的帧是一段不透明的文本，谁去
@@ -141,10 +161,13 @@ async def _encoded_frames(adapter: AGUIAdapter[Any, Any]) -> AsyncIterator[tuple
 
     一条流最后必定有一帧终帧：官方 adapter 把运行中的异常也转成 ``RUN_ERROR``
     事件发出来，正常跑完则是 ``RUN_FINISHED``。
+
+    ``deps`` 原样交给官方接口，工具执行时经 ``ctx.deps`` 取用。这里不看它是什
+    么：宿主传什么就是什么，本模块不认识业务身份。
     """
 
     encoder = adapter.build_event_stream()
-    async for event in adapter.run_stream():
+    async for event in adapter.run_stream(deps=deps):
         yield encoder.encode_event(event), event.type in _TERMINAL_EVENTS
 
 
@@ -169,7 +192,7 @@ class AgentRegistry:
     def ids(self) -> tuple[str, ...]:
         return tuple(self.agents)
 
-    def start(self, agent_id: str, body: bytes) -> RunHandle:
+    def start(self, agent_id: str, body: bytes, deps: object) -> RunHandle:
         """准备一次运行：校验请求，返回运行 id 和一个还没开始跑的帧流。
 
         未注册的 id 抛 ``NotFound``、请求体形状不合法抛 ``ValidationFailed``，
@@ -181,6 +204,10 @@ class AgentRegistry:
         这次运行起的名字，用来把收到的事件对回自己这次请求，断线重连时也靠它
         找回同一条流；落库时不看它——库里那条运行记录的 id 是服务端自己生成
         的，所以拿客户端的运行 id 去库里查一次运行，是查不到的。
+
+        ``deps`` 是宿主给这次运行的依赖，被返回的帧流闭包捕获，运行真正跑起来
+        时交给官方接口。它是**每次运行**传进来的，不是装配期挂在 agent 上的——
+        注册表是启动期冻结的共享对象，把身份挂上去就串了人。
         """
 
         agent = self.agents.get(agent_id)
@@ -191,7 +218,7 @@ class AgentRegistry:
         except ValidationError as exc:
             raise ValidationFailed("请求体不符合 AG-UI 协议") from exc
         adapter = AGUIAdapter[Any, Any](agent=agent, run_input=run_input)
-        return RunHandle(run_id=run_input.run_id, frames=_encoded_frames(adapter))
+        return RunHandle(run_id=run_input.run_id, frames=_encoded_frames(adapter, deps))
 
 
 def build_agent_registry(
@@ -211,15 +238,19 @@ def build_agent_registry(
             model=_pick_model(models, definition.model, declared_by=f"agent {definition.agent_id}"),
             step_store=step_store,
             extra=(
-                [_build_subagents(definition.subagents, step_store, models)]
-                if definition.subagents
-                else ()
+                *definition.capabilities,
+                *(
+                    [_build_subagents(definition.subagents, step_store, models)]
+                    if definition.subagents
+                    else ()
+                ),
             ),
         )
     return AgentRegistry(agents=agents)
 
 
 __all__ = [
+    "AgentCapabilities",
     "AgentDefinition",
     "AgentRegistry",
     "RunHandle",
