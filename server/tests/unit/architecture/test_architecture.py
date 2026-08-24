@@ -10,7 +10,10 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[3] / "src" / "iclip"
 
-# 框架 → 允许直接 import 的文件（相对 src/iclip 的 glob 语义前缀）
+# 框架 → 允许直接 import 的文件（相对 src/iclip 的 glob 语义前缀）。
+#
+# 这张表是登记表，不是配额：新增一个碰外部存储或框架的文件不是违规，但必须在
+# 这里登记一行，并同步 docs/architecture.md 的落点表；没登记的 import 直接拒。
 FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("pydantic_ai",): ("harness/", "capabilities/"),
     ("pydantic_ai_harness",): ("harness/",),
@@ -28,15 +31,18 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("sqlalchemy",): (
         "platform/db/",
         "app/",
-        # harness 环的唯一 SQL 适配器：官方 StepPersistence 协议的 PG 后端。
+        # 协议后端跟着「说这门协议的那一环」走：这是官方 StepPersistence 的 PG
+        # 后端，而 harness/agents.py 正是按 StepStore 协议标类型的那一方。
         "harness/step_store_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
     # 模型装配唯一需要直接碰 openai SDK 的地方（给兼容端点造客户端）。
     ("openai",): ("harness/models.py",),
 }
-# sqlalchemy 在业务模块中只准出现在 infra_sql.py
-_SQLALCHEMY_DOMAIN_FILE = "infra_sql.py"
+# 模块自有的 SQL 放自己模块里的 infra_sql.py——下面这些前缀底下按文件名放行。
+# 与上面那条协议后端规则并列：谁拥有这张表，SQL 就落在谁的模块里。
+_SQLALCHEMY_MODULE_FILE = "infra_sql.py"
+_SQLALCHEMY_MODULE_PREFIXES = ("domains/", "capabilities/")
 
 
 def _python_files() -> list[Path]:
@@ -69,8 +75,8 @@ def test_framework_fences() -> None:
                 continue
             if (
                 frameworks == ("sqlalchemy",)
-                and rel.startswith("domains/")
-                and path.name == _SQLALCHEMY_DOMAIN_FILE
+                and rel.startswith(_SQLALCHEMY_MODULE_PREFIXES)
+                and path.name == _SQLALCHEMY_MODULE_FILE
             ):
                 continue
             if not any(rel == prefix or rel.startswith(prefix) for prefix in allowed):
