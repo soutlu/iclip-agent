@@ -8,6 +8,8 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 
 认证方面，系统支持双主体身份体系（即 Cookie 会话用户 + Bearer API key 机器用户）。Agent 引擎层我们选定了 PydanticAI，并将其安全地隔离在 `harness` 围栏内；agent 的运行历史（run 血缘、逐步事件、可续跑快照、工具副作用账）落 Postgres 的 `agent_runtime` schema。模型经 `config.yaml` 的命名表装配，agent 在 `agents.yaml` 里引用名字。
 
+agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件写进 Redis 的一条可重放流，HTTP 只订阅（见 §10 与 [adr/0003](adr/0003-detached-runs-and-replayable-streams.md)）。**Redis 只承载在途与近期的事件流，不是事实源**；持久事实照旧只在 Postgres。
+
 ```text
 ╭──────────────╮   ╭──────────────────╮
 │ web/（浏览器） │   │ 机器调用方         │
@@ -19,12 +21,14 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 │ server/ FastAPI（每 worker 一份）          │
 │  PrincipalResolver（唯一信任点）           │
 │  /healthz /auth/* /users/* /api-keys/*   │
-╰────────────────────┬────────────────────╯
-                     ▼
-    ╭────────────────────────────────╮
-    │ Postgres                       │
-    │  iclip + agent_runtime schema  │
-    ╰────────────────────────────────╯
+│  /agents/*（发起运行 / 接着读事件）         │
+╰──────┬───────────────────────┬──────────╯
+       ▼                       ▼
+╭──────────────────╮  ╭────────────────────────────────╮
+│ Redis            │  │ Postgres                       │
+│  在途/近期事件流   │  │  iclip + agent_runtime schema  │
+│  （可重放，非事实源）│  │  （唯一事实源）                  │
+╰──────────────────╯  ╰────────────────────────────────╯
 ```
 
 ## 2. 三环分层
@@ -47,7 +51,7 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏（tach + 架构测试强制）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`domains/*/infra_sql.py`、app 组合根，外加 harness 环唯一 SQL 适配器 `harness/step_store_pg.py`；`openai` 只在 `harness/models.py`；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
+围栏（tach + 架构测试强制）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`domains/*/infra_sql.py`、app 组合根，外加 harness 环唯一 SQL 适配器 `harness/step_store_pg.py`；`redis` 只在 harness 环唯一 Redis 适配器 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
 现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 为空包占位（围栏已生效）。接口随首个实现定义，不提前写投机 ABC。
 
@@ -59,8 +63,8 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 | `server/src/iclip/app/` | **唯一组合根**：装配、entrypoints、lifespan |
 | `server/src/iclip/config/` | RuntimeConfig（pydantic-settings YAML 源 + `*_env` 校验层） |
 | `server/src/iclip/domains/identity/` | 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
-| `server/src/iclip/domains/agents/` | agent 运行的 HTTP 面：`api.py`（`/agents/{agent_id}/chat`），只认识注入的事件流工厂 |
-| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）与 `agents.py`（agent 装配 + 官方协议事件流） |
+| `server/src/iclip/domains/agents/` | agent 运行的 HTTP 面：`api.py`（发起运行 + 接着读事件），只认识注入进来的运行入口 |
+| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`runs.py`（后台运行与可重放流）与 `run_stream_redis.py`（事件流的 Redis 后端） |
 | `server/src/iclip/capabilities/` | 空包占位：业务能力包 |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
@@ -74,7 +78,7 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 ## 4. 装配流程
 
 1. `asgi.py` 读 `ICLIP_CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `ICLIP_AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`，文件缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 `*_env` 声明解析成真实值（运行必需的环境变量缺失即在此 fail fast）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`WANGOON_SSO_BASE_URL` 空即不装）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan（engine dispose）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 `*_env` 声明解析成真实值（运行必需的环境变量缺失即在此 fail fast）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`WANGOON_SSO_BASE_URL` 空即不装）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 关停顺序：**先收后台运行，再关 Redis，最后 dispose engine**（后台运行还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -88,6 +92,7 @@ iclip-agent 是 Productor 视频创作产品的后端与合同主体：采用模
 | `security` | `secret_env`、cookie 名（`iclip_session`）/secure/有效期、`cors_allow_origins`（禁 `"*"`） |
 | `sso` | `base_url_env`（env 空即 SSO 关闭）、`app_name`、`redirect_url_env`、`root_email_env`（该邮箱 SSO 登录即持有 root；env 空即关闭引导） |
 | `pms` | `base_url_env`（env 空即关闭 PMS 资料同步） |
+| `redis` | 运行事件流：`url_env`、`replay_window_seconds`、`max_frames`、`max_connections`（声明了 agent 即必填，缺段启动报错） |
 | `models` | 命名模型表：键名即模型名，值为 `provider` / `api`（`chat`\|`responses`，默认 chat）/ `api_key_env` / `base_url?` / `model?`（只在键名不是模型名时写） |
 | `ops` | `log_level` |
 
@@ -166,7 +171,8 @@ agent:                                 # 键名即 agent id
 | `GET /users`、`PATCH /users/{id}` | users:manage | 用户列表 / 调整角色与直接授权（不能改自己的授权或停用自己） |
 | `POST /api-keys` | `api_keys:issue`（仅 root **角色**持有；也可经直接授权单独授予）；api key 主体一律被拒 | 创建响应含一次性明文；属主恒为调用者本人 |
 | `GET /api-keys`、`DELETE /api-keys/{id}` | 登录（本人）；users:manage 管全部 | 列表只返回展示前缀 |
-| `POST /agents/{agent_id}/chat` | `agent:run` | 官方 AG-UI 协议流（`text/event-stream`，请求体为官方 `RunAgentInput`）。强制 `Content-Type: application/json`，否则 415；未注册 id 404；请求体形状不合法 422 |
+| `POST /agents/{agent_id}/chat` | `agent:run` | 发起一次运行并订阅它的事件（`text/event-stream`，请求体为官方 `RunAgentInput`）。强制 `Content-Type: application/json`，否则 415；未注册 id 404；请求体形状不合法 422；同一个运行 id 再来一次是接着读，不重复跑 |
+| `GET /agents/{agent_id}/chat/{run_id}` | `agent:run` | 接着读同一次运行的事件。位置取 `Last-Event-ID` 头，其次 `?from=`，都没有就整段重放；已经读到末尾就直接收流。没有这次运行 404，过了重放窗口 409，运行 id 或位置形状不合法 422。别人的运行一律 404（流名字里带归属）|
 | `OPTIONS /agents/{agent_id}/chat` | 公开 | 204 且**刻意不带任何 `Access-Control-Allow-*` 头**：与上面的 content-type 要求组成一对 CSRF 防线（免检 content-type 都能塞 JSON 且不触发预检，故要求非免检类型来强制预检，再在此拒掉） |
 
 ## 9. 运维
@@ -174,3 +180,32 @@ agent:                                 # 键名即 agent id
 - `scripts/admin.py`：`set-roles <username> <role1,role2>`、`list-users`、`issue-key`——直连 DB 绕过 API，专为非 SSO 场景的 root 引导设计（SSO 场景用 `ICLIP_ROOT_EMAIL`）。
 - 日志：structlog（结构化，级别来自 `ops.log_level`）。观测尚未接入。
 - 测试门禁与命令：见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
+
+## 10. 运行事件流
+
+一次 agent 运行分成两半：**跑**和**读**。跑的那一半是个后台任务，不绑在任何一次 HTTP 请求上；读的那一半就是订阅，来了又走都不影响跑的人。中间只有 Redis 里的一条流。决策与权衡见 [adr/0003](adr/0003-detached-runs-and-replayable-streams.md)。
+
+```text
+POST /agents/{id}/chat            GET /agents/{id}/chat/{run_id}
+  │ 抢到生产权就起后台任务            │ Last-Event-ID: 1787543423217-0
+  │ 抢不到说明已经有人在跑            │
+  ▼                                ▼
+后台任务：AG-UI 事件 → 编码 → 写流   从给定位置往后读，读到终帧为止
+  │ 另有心跳任务定期续存活标记
+  ▼
+Postgres（StepPersistence 照旧落库）
+```
+
+| Redis 键 | 放什么 |
+|---|---|
+| `iclip:agent:run:{用户 id}:{agent id}:{运行 id}` | 事件流本体，一帧一条；最后一帧带「结束了」的标记位 |
+| 同名 + `:state` | 这条流处在哪个阶段：`live`（有人在写，心跳续期）/ `done`（写完了，与流同寿命）/ 键不存在（什么都没有） |
+
+几条不能改的规矩：
+
+- **三个阶段各对应一种处置**，`done` 与「键不存在」不能合并成一个「没人在写」：前者说明读者只是读到了末尾（就此收流，不造事件），后者才是写的人没留下结局就消失了（写一帧可重试的中断收尾）。`done` 标记同时挡住第二个生产者——不然重放窗口内同一个运行 id 再来一次会重跑一遍，而重复的帧全落在终帧之后，读的人看不见，白烧的是模型调用。
+- **终帧靠流上的标记位判断**，不去解析帧内容——存进流的帧对读的人是不透明的一段文本。读到第一个带标记的帧就停，后面的一律不看（这条顺带化解了「生产者和收尾的人各写了一帧终帧」的竞争：谁先写谁算）。
+- **心跳是独立任务**，不搭在写帧上。模型一次调用几十秒不出事件是常态，把续期挂在写帧的节奏上会把活着的运行判成死的。
+- **活跃运行的流不裁剪**，只在运行结束时给整条流定重放窗口。裁了中间段，带位置来续读的人会拿到一个有空洞的流而不知情。
+- **收尾也要定重放窗口**，不管收尾的是写的人还是读的人。漏了后者的话，进程每崩一次就在 Redis 里留下一条永不过期的流。
+- **读事件会挂在 Redis 上等**，一等就是一个阻塞窗口那么久，期间占住一条连接。所以 `max_connections` 是「同时能有多少人在看事件流」的天花板；建客户端时 socket 超时也必须比这个等待窗口宽出一截，否则客户端会先把自己判超时。连接池用「满了排队」而不是「满了报错」：报错砸中的可能是后台运行的心跳，那会让看的人多把跑的人弄死。

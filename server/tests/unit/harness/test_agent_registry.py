@@ -118,6 +118,12 @@ async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
     assert await sent_instructions(registry, "a") is None
 
 
+async def frames(registry: AgentRegistry, agent_id: str, body: bytes = BODY) -> list[str]:
+    """跑一次，收下全部编码帧。"""
+
+    return [text async for text, _ in registry.start(agent_id, body).frames]
+
+
 async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
     parent = make_spec(tmp_path, "producer")
     child = make_spec(tmp_path, "shot-writer", spec="model: test\n")
@@ -142,9 +148,9 @@ async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
         models=models(),
     )
 
-    frames = "".join([f async for f in registry.stream("producer", BODY, None)])
-    assert "delegate_task" in frames
-    assert "shot-writer" in frames
+    body = "".join(await frames(registry, "producer"))
+    assert "delegate_task" in body
+    assert "shot-writer" in body
 
 
 async def test_stream_emits_protocol_frames(tmp_path: Path) -> None:
@@ -155,13 +161,14 @@ async def test_stream_emits_protocol_frames(tmp_path: Path) -> None:
         models=models(),
     )
 
-    frames = [f async for f in registry.stream("storyboard", BODY, None)]
+    collected = [(text, last) async for text, last in registry.start("storyboard", BODY).frames]
 
     # 首帧固定是 RUN_STARTED，并把客户端给的那两个 id 原样带回去。
-    first = json.loads(frames[0].removeprefix("data: "))
+    first = json.loads(collected[0][0].removeprefix("data: "))
     assert first["type"] == "RUN_STARTED"
     assert (first["threadId"], first["runId"]) == ("c1", "run-1")
-    assert len(frames) > 1
+    # 只有最后一帧带「结束了」的标记，读的人靠它知道流到头了。
+    assert [last for _, last in collected] == [False] * (len(collected) - 1) + [True]
 
 
 async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
@@ -201,8 +208,7 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
     )
 
     with registry.agents["producer"].override(model=FunctionModel(stream_function=delegate_once)):
-        async for _ in registry.stream("producer", BODY, None):
-            pass
+        await frames(registry, "producer")
 
     runs = await step_store.list_runs()
     assert [run.agent_name for run in runs] == ["producer", "shot-writer"]
@@ -213,7 +219,7 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
 def test_unknown_id_raises_not_found_before_streaming(tmp_path: Path) -> None:
     registry = build_agent_registry((), step_store=store(), models=models())
     with pytest.raises(NotFound, match="未注册的 agent"):
-        registry.stream("ghost", BODY, None)
+        registry.start("ghost", BODY)
 
 
 def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path) -> None:
@@ -224,7 +230,7 @@ def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path
         models=models(),
     )
     with pytest.raises(ValidationFailed):
-        registry.stream("storyboard", b'{"nope": true}', None)
+        registry.start("storyboard", b'{"nope": true}')
 
 
 def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:

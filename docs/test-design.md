@@ -47,13 +47,15 @@ server/tests/
   - **默认门禁**：通过 `pytest -m "unit or integration_no_llm"` 运行。
   - **外部门禁**：通过 `make test-external` 运行（若缺少真实外部凭证则自动 skip，但**不得产生 fail**）。
 
-## §2 Postgres 测试环境规则 (针对 integration_no_llm)
+## §2 Postgres / Redis 测试环境规则 (针对 integration_no_llm)
 
 针对需要数据库的集成测试 (`integration_no_llm`)，数据库连接解析顺序如下：
 
 1. 如果环境变量 `ICLIP_TEST_DATABASE_URL` 被显式设置，则直连该库（适用于本地已有库或 CI 容器）。
 2. 若未设置环境变量，但本地 Docker 可用，则通过 Testcontainers 自动拉起一个一次性的 Postgres（Session 级别复用）。
 3. 如果两者皆不可用，则直接 Skip。**注意：CI 必须提供 service container，因此 CI 上永远不允许出现静默 Skip**。
+
+Redis 走同一套顺序（`ICLIP_TEST_REDIS_URL` > testcontainers > skip），但**只有声明了 agent 的测试才会去要它**，别的测试不会因此多起一个容器。
 
 **注意：** 测试代码只准使用临时环境（scratch schema 或一次性容器），严禁执行诸如 `DROP` 之类的操作影响或破坏配置在运行中的业务库结构。
 
@@ -67,3 +69,4 @@ server/tests/
 - SSO / PMS 真实环境联通性：人工验收（见 [../AGENTS.md](../AGENTS.md) §3 验证矩阵），自动化测试只打替身协议客户端。
 - LLM 输出语义质量：不进自动化门禁，自动测试只断言协议与结构。
 - cookie `Secure` / 反代 WS upgrade 等部署属性：部署检查表，人工。
+- 「客户端断开」这类行为测不了替身传输：httpx 的 ASGITransport 会把整个响应缓冲完才交出来，用它写出来的「读一半就断」其实是读完之后才松手。要验真断开必须起真服务器（见 `test_run_detached.py`）。

@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import httpx
@@ -14,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.config import ResolvedAgent, ResolvedSubAgent
-from tests.helpers.agui import run_input
+from tests.helpers.agui import run_input, sse_events
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
     register_and_login,
@@ -110,7 +109,7 @@ async def test_run_streams_protocol_frames(client: httpx.AsyncClient, pg_url: st
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join([chunk async for chunk in response.aiter_text()])
 
-    assert json.loads(body.split("\n\n")[0].removeprefix("data: "))["type"] == "RUN_STARTED"
+    assert sse_events(body)[0]["type"] == "RUN_STARTED"
     # 子代理已装配：派活工具对模型可见。
     assert "delegate_task" in body
 

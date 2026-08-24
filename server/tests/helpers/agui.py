@@ -37,3 +37,17 @@ def run_input_bytes(**kwargs: Any) -> bytes:
     """同上，但给出 JSON 字节——harness 那层的入口直接收 bytes。"""
 
     return json.dumps(run_input(**kwargs)).encode("utf-8")
+
+
+def sse_events(body: str) -> list[dict[str, Any]]:
+    """从 SSE 正文里取出事件。"""
+
+    return [
+        json.loads(block.split("data: ", 1)[1]) for block in body.split("\n\n") if "data: " in block
+    ]
+
+
+def sse_cursors(body: str) -> list[str]:
+    """从 SSE 正文里取出每帧的位置（客户端断线后要报回来的那个值）。"""
+
+    return [line.removeprefix("id: ") for line in body.splitlines() if line.startswith("id: ")]

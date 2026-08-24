@@ -73,6 +73,20 @@ class PmsSection(ConfigSection):
     base_url_env: str
 
 
+class RedisSection(ConfigSection):
+    """运行事件流的 Redis 落点。声明了 agent 就必须配这一段。"""
+
+    url_env: str
+    replay_window_seconds: int = 3600
+    max_frames: int = 100_000
+    max_connections: int = 64
+    """连接池上限。
+
+    每个正在读流的客户端都会占住一条连接不放（它一直阻塞着等新事件），
+    所以这个数就是「同时能有多少人在看事件流」的天花板，不是普通的性能旋钮。
+    """
+
+
 class ModelSection(ConfigSection):
     """一个命名模型。``provider`` 是官方 provider 名；``model`` 缺省即键名。"""
 
@@ -95,6 +109,7 @@ class RuntimeConfig(BaseSettings):
     security: SecuritySection
     sso: SsoSection
     pms: PmsSection
+    redis: RedisSection | None = None
     models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
     ops: OpsSection = OpsSection()
 
@@ -143,6 +158,14 @@ class ResolvedSso:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedRedis:
+    url: str
+    replay_window_seconds: int
+    max_frames: int
+    max_connections: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedModel:
     """一个命名模型解析后的装配事实。``name`` 是 agent 引用的名字。"""
 
@@ -163,6 +186,7 @@ class ResolvedSettings:
     db_schema: str
     security: ResolvedSecurity
     sso: ResolvedSso | None
+    redis: ResolvedRedis | None
     models: tuple[ResolvedModel, ...]
     log_level: str
 
@@ -198,6 +222,15 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             root_email=root_email,
         )
 
+    redis: ResolvedRedis | None = None
+    if config.redis is not None:
+        redis = ResolvedRedis(
+            url=_require_env(config.redis.url_env, hint="Redis 连接串"),
+            replay_window_seconds=config.redis.replay_window_seconds,
+            max_frames=config.redis.max_frames,
+            max_connections=config.redis.max_connections,
+        )
+
     models = tuple(
         ResolvedModel(
             name=name,
@@ -222,6 +255,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             cors_allow_origins=config.security.cors_allow_origins,
         ),
         sso=sso,
+        redis=redis,
         models=models,
         log_level=config.ops.log_level,
     )
