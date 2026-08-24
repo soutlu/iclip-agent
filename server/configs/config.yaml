@@ -22,6 +22,13 @@ sso:
 pms:
   base_url_env: WANGOON_PMS_BASE_URL # env 为空即关闭 SSO 登录时的 PMS 资料同步
 
+redis:
+  # agent 运行的事件流。声明了 agent 就必须配这一段，否则启动即报错。
+  url_env: ICLIP_REDIS_URL
+  replay_window_seconds: 3600 # 运行结束后事件还能重放多久
+  max_frames: 100000 # 单次运行的事件上限，超了就中断（可重试）
+  max_connections: 64 # 同时能有多少人在读事件流：每个读者占住一条连接
+
 models:
   # 键名即模型名，也是 agents.yaml 里 model 字段引用的名字。
   # provider 是官方 provider 名，决定厂商适配；api 不写即 chat。

@@ -25,6 +25,7 @@ from iclip.config import (
     DbSection,
     OpsSection,
     PmsSection,
+    RedisSection,
     ResolvedAgent,
     RuntimeConfig,
     SecuritySection,
@@ -63,6 +64,34 @@ def pg_url() -> Generator[str]:
 
 
 @pytest.fixture(scope="session")
+def redis_url() -> Generator[str]:
+    """真实 Redis，解析顺序同 Postgres：显式 env > 一次性容器 > 不可用即 skip。
+
+    只有声明了 agent 的测试才会用到它（见 ``stream_url``），别的测试不会因此
+    多起一个容器。
+    """
+
+    explicit = os.environ.get("ICLIP_TEST_REDIS_URL", "").strip()
+    if explicit:
+        yield explicit
+        return
+    try:
+        from testcontainers.community.redis import RedisContainer
+    except ImportError:
+        pytest.skip("无 ICLIP_TEST_REDIS_URL 且未安装 testcontainers 的 redis 模块")
+    try:
+        container = RedisContainer("redis:7")
+        container.start()
+    except Exception as exc:
+        pytest.skip(f"本地无可用 Docker/Redis: {exc}")
+    try:
+        host = container.get_container_host_ip()
+        yield f"redis://{host}:{container.get_exposed_port(6379)}/0"
+    finally:
+        container.stop()
+
+
+@pytest.fixture(scope="session")
 def migrated_pg(pg_url: str) -> str:
     """对测试库执行 alembic upgrade head（每会话一次）。"""
 
@@ -73,7 +102,10 @@ def migrated_pg(pg_url: str) -> str:
     return pg_url
 
 
-def make_runtime_config() -> RuntimeConfig:
+REDIS_URL_ENV = "ICLIP_TEST_REDIS_ENDPOINT"
+
+
+def make_runtime_config(*, with_redis: bool = False) -> RuntimeConfig:
     return RuntimeConfig(
         app=AppSection(name="iclip-test"),
         db=DbSection(url_env="ICLIP_DATABASE_URL", schema="iclip"),
@@ -84,6 +116,7 @@ def make_runtime_config() -> RuntimeConfig:
             redirect_url_env="ICLIP_SSO_REDIRECT_URL",
         ),
         pms=PmsSection(base_url_env="WANGOON_PMS_BASE_URL"),
+        redis=RedisSection(url_env=REDIS_URL_ENV) if with_redis else None,
         ops=OpsSection(log_level="WARNING"),
     )
 
@@ -125,16 +158,34 @@ def models() -> dict[str, TestModel]:
 
 
 @pytest.fixture
+def stream_url(
+    request: pytest.FixtureRequest, agent_declarations: tuple[ResolvedAgent, ...]
+) -> str | None:
+    """声明了 agent 才去要 Redis：没有 agent 的测试不该为此起容器。"""
+
+    if not agent_declarations:
+        return None
+    return str(request.getfixturevalue("redis_url"))
+
+
+@pytest.fixture
 async def app(
+    monkeypatch: pytest.MonkeyPatch,
     base_env: None,
     migrated_pg: str,
     agent_declarations: tuple[ResolvedAgent, ...],
     models: dict[str, TestModel],
+    stream_url: str | None,
 ) -> AsyncGenerator[FastAPI]:
+    if stream_url is not None:
+        monkeypatch.setenv(REDIS_URL_ENV, stream_url)
     engine = await _fresh_engine(migrated_pg)
     try:
         yield build_app(
-            make_runtime_config(), agents=agent_declarations, engine=engine, models=models
+            make_runtime_config(with_redis=stream_url is not None),
+            agents=agent_declarations,
+            engine=engine,
+            models=models,
         )
     finally:
         await engine.dispose()

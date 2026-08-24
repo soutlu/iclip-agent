@@ -1,14 +1,17 @@
-"""agent 运行的 HTTP 驱动适配器：官方 Vercel AI 协议流。
+"""agent 运行的 HTTP 驱动适配器：官方 AG-UI 协议流。
 
-本文件只认识 starlette/fastapi 与一个注入进来的事件流工厂。引擎侧类型
-（``pydantic_ai`` / ``pydantic_ai_harness``）在围栏另一侧，从这里结构上
-无法 import——HTTP 与 agent 引擎的分离是机械的，不靠自觉。
+两个端点：POST 发起一次运行，GET 接着读同一次运行的事件。运行本身跑在这次
+HTTP 请求之外，所以客户端断开只是没人读了，运行不会被取消。
+
+本文件只认识 starlette/fastapi 与一个注入进来的运行入口。引擎侧类型
+（``pydantic_ai`` / ``pydantic_ai_harness`` / ``ag_ui``）在围栏另一侧，从这里
+结构上无法 import——HTTP 与 agent 引擎的分离是机械的，不靠自觉。
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
-from typing import Annotated
+from collections.abc import AsyncIterator
+from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -18,12 +21,35 @@ from iclip.domains.identity.public import Principal, require_permission
 JSON_MEDIA_TYPE = "application/json"
 SSE_MEDIA_TYPE = "text/event-stream"
 
-AgentEventStream = Callable[[str, bytes, str | None], AsyncIterator[str]]
-"""``(agent_id, 请求体, accept 头) -> 协议帧流``。"""
+_SSE_HEADERS = {
+    "cache-control": "no-cache",
+    # 反向代理默认会攒够一批再往下发，事件流会被攒住。这个头让 nginx 别缓冲。
+    "x-accel-buffering": "no",
+}
 
 
-def create_agents_router(stream: AgentEventStream) -> APIRouter:
-    """挂 ``/agents/{agent_id}/chat``；未注册的 id 由事件流工厂抛 NotFound → 404。"""
+class AgentRuns(Protocol):
+    """agent 运行的入口：发起、定位、读事件。"""
+
+    async def open(self, *, owner: str, agent_id: str, body: bytes) -> str:
+        """发起一次运行（已经在跑就什么都不做），返回它的流名字。"""
+        ...
+
+    def locate(self, *, owner: str, agent_id: str, run_id: str) -> str:
+        """算出一次已有运行的流名字。"""
+        ...
+
+    async def feed(self, run_key: str, *, after: str | None) -> AsyncIterator[str]:
+        """读事件；``after`` 是上次读到的位置，``None`` 即从头。"""
+        ...
+
+
+def _stream(frames: AsyncIterator[str]) -> Response:
+    return StreamingResponse(frames, media_type=SSE_MEDIA_TYPE, headers=_SSE_HEADERS)
+
+
+def create_agents_router(runs: AgentRuns) -> APIRouter:
+    """挂 agent 运行的两个端点；未注册的 id 由运行入口抛 NotFound → 404。"""
 
     router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -43,7 +69,7 @@ def create_agents_router(stream: AgentEventStream) -> APIRouter:
     async def chat(
         agent_id: str,
         request: Request,
-        _principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> Response:
         media_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
         if media_type != JSON_MEDIA_TYPE:
@@ -53,10 +79,33 @@ def create_agents_router(stream: AgentEventStream) -> APIRouter:
                 status_code=415,
                 content={"detail": f"需要 Content-Type: {JSON_MEDIA_TYPE}"},
             )
-        frames = stream(agent_id, await request.body(), request.headers.get("accept"))
-        return StreamingResponse(frames, media_type=SSE_MEDIA_TYPE)
+        run_key = await runs.open(
+            owner=str(principal.user_id), agent_id=agent_id, body=await request.body()
+        )
+        return _stream(await runs.feed(run_key, after=None))
+
+    @router.get("/{agent_id}/chat/{run_id}")
+    async def resume(
+        agent_id: str,
+        run_id: str,
+        request: Request,
+        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+    ) -> Response:
+        """接着读一次已经发起过的运行。
+
+        位置优先取标准 SSE 的 ``Last-Event-ID`` 头（浏览器原生 EventSource 断
+        线重连时会自动带上），没有就看 ``?from=``，两个都没有就从头重放。
+
+        这里不需要 POST 那对 CSRF 防线：读事件没有副作用，而且跨域拿不到响应
+        体——我们不发 CORS 放行头。别人的运行也读不到：流名字里带着归属，换个
+        人来同一个运行 id 就是另一条不存在的流，返回 404。
+        """
+
+        run_key = runs.locate(owner=str(principal.user_id), agent_id=agent_id, run_id=run_id)
+        after = request.headers.get("last-event-id") or request.query_params.get("from")
+        return _stream(await runs.feed(run_key, after=after or None))
 
     return router
 
 
-__all__ = ["JSON_MEDIA_TYPE", "SSE_MEDIA_TYPE", "AgentEventStream", "create_agents_router"]
+__all__ = ["JSON_MEDIA_TYPE", "SSE_MEDIA_TYPE", "AgentRuns", "create_agents_router"]

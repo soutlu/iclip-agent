@@ -26,7 +26,7 @@
 
 ## 启动指南
 
-本地开发环境需要预先安装 [Python 3.13](https://www.python.org/)、[uv](https://docs.astral.sh/uv/)、[Node.js ≥ 22.12](https://nodejs.org/) 以及 PostgreSQL 数据库。
+本地开发环境需要预先安装 [Python 3.13](https://www.python.org/)、[uv](https://docs.astral.sh/uv/)、[Node.js ≥ 22.12](https://nodejs.org/)、PostgreSQL 数据库，以及 Redis（承载 agent 运行的事件流，断线重连要靠它）。
 
 所有的常规操作均统一在 `Makefile` 中管理。
 

@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from ag_ui.core import EventType
 from pydantic import ValidationError
 from pydantic_ai import Agent, AgentSpec
 from pydantic_ai.capabilities import AgentCapability
 from pydantic_ai.models import Model
-from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.ui.ag_ui import AGUIAdapter
 from pydantic_ai_harness.step_persistence import StepPersistence, StepStore
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
@@ -125,6 +126,39 @@ def _build_subagents(
     )
 
 
+_TERMINAL_EVENTS = frozenset({EventType.RUN_FINISHED, EventType.RUN_ERROR})
+
+
+async def _encoded_frames(adapter: AGUIAdapter[Any, Any]) -> AsyncIterator[tuple[str, bool]]:
+    """把协议事件逐个编码成 SSE 帧，并标出哪一帧是最后一帧。
+
+    终帧要在编码之前从事件对象上认出来。存进流里的帧是一段不透明的文本，谁去
+    读它都不该再解析一遍才知道流结束了没有。
+
+    帧一律编码成 SSE。整条流是可重放的，重放时得给出和当初一样的字节，所以编
+    码不看请求头的 ``Accept``——不能让先来的那个请求决定后来重连的人拿到什么
+    格式。
+
+    一条流最后必定有一帧终帧：官方 adapter 把运行中的异常也转成 ``RUN_ERROR``
+    事件发出来，正常跑完则是 ``RUN_FINISHED``。
+    """
+
+    encoder = adapter.build_event_stream()
+    async for event in adapter.run_stream():
+        yield encoder.encode_event(event), event.type in _TERMINAL_EVENTS
+
+
+@dataclass(frozen=True, slots=True)
+class RunHandle:
+    """一次准备好但还没开始跑的运行。
+
+    ``run_id`` 是客户端给这次运行起的名字；``frames`` 要等有人读它才真的开跑。
+    """
+
+    run_id: str
+    frames: AsyncIterator[tuple[str, bool]]
+
+
 @dataclass(frozen=True, slots=True)
 class AgentRegistry:
     """启动期冻结的 id → Agent 映射。"""
@@ -135,22 +169,29 @@ class AgentRegistry:
     def ids(self) -> tuple[str, ...]:
         return tuple(self.agents)
 
-    def stream(self, agent_id: str, body: bytes, accept: str | None) -> AsyncIterator[str]:
-        """跑一次运行，返回官方 Vercel AI 协议的编码帧流。
+    def start(self, agent_id: str, body: bytes) -> RunHandle:
+        """准备一次运行：校验请求，返回运行 id 和一个还没开始跑的帧流。
 
         未注册的 id 抛 ``NotFound``、请求体形状不合法抛 ``ValidationFailed``，
-        两者都在返回迭代器之前发生，因此调用方能拿到正常的错误响应。
+        两者都在这里就发生，还没开始产生任何事件，因此调用方能拿到正常的错误
+        响应。返回的帧流要等到有人开始读它才真的把 agent 跑起来。
+
+        请求体里客户端给了两个 id，作用完全不同。会话 id（``threadId``）决定
+        这次运行归到哪段对话，服务端照它归档。运行 id（``runId``）是客户端给
+        这次运行起的名字，用来把收到的事件对回自己这次请求，断线重连时也靠它
+        找回同一条流；落库时不看它——库里那条运行记录的 id 是服务端自己生成
+        的，所以拿客户端的运行 id 去库里查一次运行，是查不到的。
         """
 
         agent = self.agents.get(agent_id)
         if agent is None:
             raise NotFound(f"未注册的 agent: {agent_id}")
         try:
-            run_input = VercelAIAdapter.build_run_input(body)
+            run_input = AGUIAdapter.build_run_input(body)
         except ValidationError as exc:
-            raise ValidationFailed("请求体不符合 Vercel AI 协议") from exc
-        adapter = VercelAIAdapter[Any, Any](agent=agent, run_input=run_input, accept=accept)
-        return adapter.encode_stream(adapter.run_stream())
+            raise ValidationFailed("请求体不符合 AG-UI 协议") from exc
+        adapter = AGUIAdapter[Any, Any](agent=agent, run_input=run_input)
+        return RunHandle(run_id=run_input.run_id, frames=_encoded_frames(adapter))
 
 
 def build_agent_registry(
@@ -181,6 +222,7 @@ def build_agent_registry(
 __all__ = [
     "AgentDefinition",
     "AgentRegistry",
+    "RunHandle",
     "SubAgentDefinition",
     "build_agent_registry",
 ]

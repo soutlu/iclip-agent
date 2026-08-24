@@ -8,11 +8,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from redis.asyncio import BlockingConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from iclip.app.logging import configure_logging
 from iclip.common.errors import DomainError
-from iclip.config import ResolvedAgent, ResolvedModel, RuntimeConfig, resolve_settings
+from iclip.config import (
+    ResolvedAgent,
+    ResolvedModel,
+    ResolvedRedis,
+    RuntimeConfig,
+    resolve_settings,
+)
 from iclip.domains.agents.api import create_agents_router
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
@@ -26,6 +33,8 @@ from iclip.harness.agents import (
     build_agent_registry,
 )
 from iclip.harness.models import BuiltModels, ModelSpec, build_models
+from iclip.harness.run_stream_redis import RedisRunStream, RunStream
+from iclip.harness.runs import RunBroker, RunStreamSettings
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.platform.http import status_code_for
 
@@ -74,16 +83,32 @@ def _model_specs(declared: Sequence[ResolvedModel]) -> tuple[ModelSpec, ...]:
     )
 
 
+_SOCKET_TIMEOUT_MARGIN = 5.0
+"""socket 超时比阻塞等待多留的余量（秒）。"""
+
+
+def _stream_settings(redis: ResolvedRedis | None) -> RunStreamSettings:
+    """配置段缺席时（测试注入了自己的事件流）用默认时长与容量。"""
+
+    if redis is None:
+        return RunStreamSettings()
+    return RunStreamSettings(
+        replay_window_seconds=redis.replay_window_seconds,
+        max_frames=redis.max_frames,
+    )
+
+
 def build_app(
     config: RuntimeConfig,
     *,
     agents: Sequence[ResolvedAgent] = (),
     engine: AsyncEngine | None = None,
     models: BuiltModels | None = None,
+    run_stream: RunStream | None = None,
     sso_verifier: SsoVerifier | None = None,
     pms_client: PmsUserClient | None = None,
 ) -> FastAPI:
-    """装配公开 app。测试可注入 engine、模型表与 SSO/PMS 协议替身。"""
+    """装配公开 app。测试可注入 engine、模型表、事件流与 SSO/PMS 协议替身。"""
 
     settings = resolve_settings(config)
     if settings.db_schema != DB_SCHEMA:
@@ -124,12 +149,44 @@ def build_app(
         step_store=PgStepStore(active_engine),
         models=build_models(_model_specs(settings.models)) if models is None else models,
     )
+    # 事件流只在真有 agent 时才装（同 SSO：能力没配就不挂对应路由）。
+    redis_client: Redis | None = None
+    broker: RunBroker | None = None
+    if agents:
+        stream_settings = _stream_settings(settings.redis)
+        if run_stream is None:
+            if settings.redis is None:
+                raise RuntimeError(
+                    "声明了 agent 就必须配 redis 段：运行的事件写进 Redis 才能断线重放"
+                )
+            redis_client = Redis(
+                # 连接池满了要排队等，不能直接报错。读事件的人多是常态（每个人
+                # 占住一条连接不放），而报错砸中的可能是后台运行的心跳——心跳
+                # 一断，租约就过期，一个活得好好的运行会被判成中断。看的人多不
+                # 该有本事把跑的人弄死。
+                connection_pool=BlockingConnectionPool.from_url(
+                    settings.redis.url,
+                    decode_responses=True,
+                    max_connections=settings.redis.max_connections,
+                    # 读事件时会挂在 Redis 上等新事件，一等就是 block_ms 那么久。
+                    # socket 超时必须比这个等待时间宽出一截，否则客户端会先把自己
+                    # 判成超时——那正是「模型算得久、没有新事件」的正常情况。
+                    socket_timeout=stream_settings.block_ms / 1000 + _SOCKET_TIMEOUT_MARGIN,
+                )
+            )
+            run_stream = RedisRunStream(redis_client)
+        broker = RunBroker(agent_registry, run_stream, stream_settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         try:
             yield
         finally:
+            # 顺序要紧：后台运行还在用这个 engine 落库，先把它们收掉再关连接。
+            if broker is not None:
+                await broker.shutdown()
+            if redis_client is not None:
+                await redis_client.aclose()
             if owns_engine:
                 await active_engine.dispose()
 
@@ -148,7 +205,8 @@ def build_app(
 
     for router in identity.routers:
         app.include_router(router)
-    app.include_router(create_agents_router(agent_registry.stream))
+    if broker is not None:
+        app.include_router(create_agents_router(broker))
 
     # 中间件顺序（先加的在内层）：Principal 解析在内，CORS 在外
     # （preflight 无凭证也必须被 CORS 应答）。
