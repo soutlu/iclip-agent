@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from pydantic_ai import Agent, AgentSpec
 from pydantic_ai.capabilities import AgentCapability
 from pydantic_ai.models import Model
-from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.ui.ag_ui import AGUIAdapter
 from pydantic_ai_harness.step_persistence import StepPersistence, StepStore
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
@@ -136,20 +136,26 @@ class AgentRegistry:
         return tuple(self.agents)
 
     def stream(self, agent_id: str, body: bytes, accept: str | None) -> AsyncIterator[str]:
-        """跑一次运行，返回官方 Vercel AI 协议的编码帧流。
+        """跑一次运行，返回官方 AG-UI 协议的编码帧流。
 
         未注册的 id 抛 ``NotFound``、请求体形状不合法抛 ``ValidationFailed``，
         两者都在返回迭代器之前发生，因此调用方能拿到正常的错误响应。
+
+        请求体里客户端给了两个 id，作用完全不同。会话 id（``threadId``）决定
+        这次运行归到哪段对话，服务端照它归档。运行 id（``runId``）只是客户端
+        用来把收到的事件对回自己这次请求的标签，落库时根本不看它——库里那条
+        运行记录的 id 是服务端自己生成的。所以拿客户端的运行 id 去库里查一次
+        运行，是查不到的。
         """
 
         agent = self.agents.get(agent_id)
         if agent is None:
             raise NotFound(f"未注册的 agent: {agent_id}")
         try:
-            run_input = VercelAIAdapter.build_run_input(body)
+            run_input = AGUIAdapter.build_run_input(body)
         except ValidationError as exc:
-            raise ValidationFailed("请求体不符合 Vercel AI 协议") from exc
-        adapter = VercelAIAdapter[Any, Any](agent=agent, run_input=run_input, accept=accept)
+            raise ValidationFailed("请求体不符合 AG-UI 协议") from exc
+        adapter = AGUIAdapter[Any, Any](agent=agent, run_input=run_input, accept=accept)
         return adapter.encode_stream(adapter.run_stream())
 
 

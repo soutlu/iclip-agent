@@ -1,4 +1,4 @@
-"""agent 运行的 HTTP 驱动适配器：官方 Vercel AI 协议流。
+"""agent 运行的 HTTP 驱动适配器：官方 AG-UI 协议流。
 
 本文件只认识 starlette/fastapi 与一个注入进来的事件流工厂。引擎侧类型
 （``pydantic_ai`` / ``pydantic_ai_harness``）在围栏另一侧，从这里结构上

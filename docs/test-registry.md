@@ -7,7 +7,7 @@
 
 | ID | 层 (Layer) | 期望断言行为 (Behavior) | 预防风险 (Risk) |
 |----|----|------|------|
-| T-ARCH-01 | unit | tach 依赖图（相对导入同样解析）+ 框架围栏（pydantic_ai/pydantic_ai_harness/fastapi/sqlalchemy/fastapi-users 各归其位） | 分层腐蚀 |
+| T-ARCH-01 | unit | tach 依赖图（相对导入同样解析）+ 框架围栏（pydantic_ai/pydantic_ai_harness/ag_ui/fastapi/sqlalchemy/fastapi-users 各归其位） | 分层腐蚀 |
 | T-ARCH-02 | unit | 跨模块只准 import 对方 public.py；models/commands 只许 stdlib+common | 耦合扩散 |
 | T-ARCH-03 | unit | 无静默 except fallback | 静默降级 |
 | T-COLL-01 | unit | collection contract：越位测试文件被拒收；棘轮基线为空且无陈旧条目 | 测试树腐蚀 |

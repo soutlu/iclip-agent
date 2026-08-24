@@ -14,6 +14,9 @@ SRC = Path(__file__).resolve().parents[3] / "src" / "iclip"
 FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("pydantic_ai",): ("harness/", "capabilities/"),
     ("pydantic_ai_harness",): ("harness/",),
+    # AG-UI 的协议类型只准在 harness 里用。HTTP 面拿到的是已经编码好的字符串，
+    # 让它直接碰协议对象的话，以后换协议就得连业务代码一起改。
+    ("ag_ui",): ("harness/",),
     ("fastapi", "starlette"): (
         "app/",
         "domains/identity/api.py",

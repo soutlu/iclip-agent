@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -18,12 +19,10 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
 )
+from tests.helpers.agui import run_input_bytes
 
 SPEC = "model: test\n"
-BODY = (
-    b'{"trigger":"submit-message","id":"c1",'
-    b'"messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"hi"}]}]}'
-)
+BODY = run_input_bytes(thread_id="c1")
 
 
 MODEL_NAME = "m"
@@ -158,7 +157,10 @@ async def test_stream_emits_protocol_frames(tmp_path: Path) -> None:
 
     frames = [f async for f in registry.stream("storyboard", BODY, None)]
 
-    assert frames[0] == 'data: {"type":"start"}\n\n'
+    # 首帧固定是 RUN_STARTED，并把客户端给的那两个 id 原样带回去。
+    first = json.loads(frames[0].removeprefix("data: "))
+    assert first["type"] == "RUN_STARTED"
+    assert (first["threadId"], first["runId"]) == ("c1", "run-1")
     assert len(frames) > 1
 
 
@@ -204,7 +206,7 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
 
     runs = await step_store.list_runs()
     assert [run.agent_name for run in runs] == ["producer", "shot-writer"]
-    assert runs[0].conversation_id == "c1"  # 协议请求体的 id 即会话 id
+    assert runs[0].conversation_id == "c1"  # 协议请求体的 threadId 即会话 id
     assert runs[1].parent_run_id == runs[0].run_id  # 派活谱系无需手工穿线
 
 

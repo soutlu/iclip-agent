@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
@@ -22,14 +23,11 @@ from iclip.domains.agents.api import AgentEventStream, create_agents_router
 from iclip.domains.identity.models import Principal
 from iclip.harness.agents import AgentDefinition, AgentRegistry, build_agent_registry
 from iclip.platform.http import status_code_for
+from tests.helpers.agui import run_input
 
 AGENT_ID = "storyboard"
 URL = f"/agents/{AGENT_ID}/chat"
-BODY = {
-    "trigger": "submit-message",
-    "id": "conversation-1",
-    "messages": [{"id": "m1", "role": "user", "parts": [{"type": "text", "text": "hi"}]}],
-}
+BODY = run_input()
 
 
 def principal(*permissions: str) -> Principal:
@@ -146,4 +144,4 @@ async def test_run_streams_protocol_frames(registry: AgentRegistry) -> None:
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join([chunk async for chunk in response.aiter_text()])
 
-    assert body.startswith('data: {"type":"start"}')
+    assert json.loads(body.split("\n\n")[0].removeprefix("data: "))["type"] == "RUN_STARTED"

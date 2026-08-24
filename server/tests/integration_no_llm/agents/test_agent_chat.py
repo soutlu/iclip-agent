@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -13,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.config import ResolvedAgent, ResolvedSubAgent
+from tests.helpers.agui import run_input
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
     register_and_login,
@@ -21,11 +23,7 @@ from tests.integration_no_llm.conftest import (
 
 AGENT_ID = "storyboard"
 URL = f"/agents/{AGENT_ID}/chat"
-BODY = {
-    "trigger": "submit-message",
-    "id": "conversation-1",
-    "messages": [{"id": "m1", "role": "user", "parts": [{"type": "text", "text": "hi"}]}],
-}
+BODY = run_input()
 
 
 def write_spec(root: Path, name: str) -> Path:
@@ -112,7 +110,7 @@ async def test_run_streams_protocol_frames(client: httpx.AsyncClient, pg_url: st
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join([chunk async for chunk in response.aiter_text()])
 
-    assert body.startswith('data: {"type":"start"}')
+    assert json.loads(body.split("\n\n")[0].removeprefix("data: "))["type"] == "RUN_STARTED"
     # 子代理已装配：派活工具对模型可见。
     assert "delegate_task" in body
 
@@ -123,7 +121,8 @@ async def test_run_is_recorded_in_postgres(client: httpx.AsyncClient, pg_url: st
     await login_as_editor(client, pg_url)
     conversation_id = "conversation-persisted"
 
-    async with client.stream("POST", URL, json={**BODY, "id": conversation_id}) as response:
+    body = run_input(thread_id=conversation_id)
+    async with client.stream("POST", URL, json=body) as response:
         assert response.status_code == 200
         async for _ in response.aiter_text():
             pass
