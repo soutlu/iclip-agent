@@ -51,9 +51,9 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
+围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/generation/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
-现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）。接口随首个实现定义，不提前写投机 ABC。
+现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）与 `generation/`（媒体生成，见 §11）。接口随首个实现定义，不提前写投机 ABC。
 
 **外部存储落点（登记表，不是配额）**：新增一个碰 SQL/Redis 的文件不是违规，是要登记——在架构测试的 `FRAMEWORK_FENCES` 加一行，并在下表加一行。落在哪一环有两条并列规则：**实现官方协议的后端**跟着「说这门协议的那一环」走；**模块或能力包自有的存储**放自己模块里的 `infra_sql.py`。
 
@@ -63,6 +63,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `harness/step_store_pg.py` | PG | 官方 `StepStore`/`MediaStore` 协议的后端；harness 是说这门协议的那一环 |
 | `harness/run_stream_redis.py` | Redis | 运行事件流是 harness 自己的机制 |
 | `domains/*/infra_sql.py` | PG | 该 domain 自有的表 |
+| `platform/object_store/` | OSS | 公开对象存储的适配器；业务侧只认 `PublicObjectStore` 协议 |
 | `capabilities/*/infra_sql.py` | PG | 该能力包自有的表 |
 | `app/` | 建 engine 与 Redis 客户端 | 唯一组合根 |
 
@@ -72,42 +73,63 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 |------|------|
 | `server/src/iclip/main.py` / `asgi.py` | CLI serve 入口 / ASGI 导出入口 |
 | `server/src/iclip/app/` | **唯一组合根**：装配、entrypoints、lifespan + `capability_table.py`（capability 的名字表） |
-| `server/src/iclip/config/` | RuntimeConfig（pydantic-settings YAML 源 + `*_env` 校验层） |
+| `server/src/iclip/config/` | RuntimeConfig：YAML 源（形状）+ 那几个 `*Env` 类（环境变量清单） |
 | `server/src/iclip/domains/identity/` | 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
 | `server/src/iclip/domains/agents/` | agent 运行的 HTTP 面：`api.py`（发起运行 + 接着读事件）、`public.py`（`AgentRunDeps`：一次运行的身份 + 所属对话），只认识注入进来的运行入口 |
+| `server/src/iclip/domains/generation/` | 媒体生成：`schemas.py`（请求类型，同时是 wire 与入库形状）、`models.py`（job 行）、`repository.py`/`infra_sql.py`（只有事实，没有排期）、`provider.py` + `multiflow.py`（视频）/`nano_banana.py`（图像）、`queue.py`（三条队列 + 任务体 + 捡卡死任务）、`service.py`/`api.py`/`module.py` |
 | `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）与 `run_stream_redis.py`（事件流的 Redis 后端） |
 | `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`store.py`（路径语法 + 后端 Protocol）、`capability.py`（能力本体 + 工具集）、`scope.py`（工作区归谁）、`infra_sql.py`（PG 后端） |
-| `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射） |
+| `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（公开对象存储，阿里云 OSS） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
-| `server/configs/config.yaml` | 唯一 Runtime Configuration（只存 `*_env` 名，不存密钥） |
+| `server/configs/config.yaml` | 唯一 Runtime Configuration（只有形状；地址与凭证在环境变量里） |
 | `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词）+ `skills/`（skill 库，一个子目录一个 skill） |
-| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表） |
+| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表；0004 媒体生成任务表；0005 procrastinate 的排期表；0006 去掉 0004 里的排期列） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
 | `web/` | UI 参考稿（只读） |
 | `contract/` | 跨端合同契约存放处 |
 
 ## 4. 装配流程
 
-1. `asgi.py` 读 `ICLIP_CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `ICLIP_AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 `*_env` 声明解析成真实值（运行必需的环境变量缺失即在此 fail fast）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`WANGOON_SSO_BASE_URL` 空即不装）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 关停顺序：**先收后台运行，再关 Redis，最后 dispose engine**（后台运行还在用这个 engine 落库）。
+1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
 
-单文件 `server/configs/config.yaml`，pydantic-settings `YamlConfigSettingsSource` 加载，全部模型 frozen + `extra="forbid"`。**YAML 只存 env 变量名**（`*_env` 字段），bootstrap 从环境读取值：
+**一条线切开：YAML 管形状，环境变量管值。**
 
-| Section | 内容 |
+- `server/configs/config.yaml` 说「装什么、什么形状」——声明哪些模型、哪些节奏、哪些名字。它进仓。经 pydantic-settings `YamlConfigSettingsSource` 加载，全部模型 frozen + `extra="forbid"`。
+- 环境变量说「连到哪儿、用什么凭证」——地址与密钥。**它不进仓**，也因此仓里查不到我们在调谁的哪个接口。
+
+env 的读取交给 pydantic-settings：`config/models.py` 里那几个 `*Env` 类每个字段用 `validation_alias` 写死它对应的变量名，所以**那几个类就是这个服务的环境变量清单**。缺了哪几个它一次全报出来，报的是变量名本身。变量名一律不带品牌/公司前缀。
+
+| 环境变量 | 什么时候必需 |
+|---------|------------|
+| `DATABASE_URL`（必须 `postgresql+asyncpg://`）、`AUTH_SECRET`（≥32 字符） | 总是 |
+| `SSO_BASE_URL` | **它就是 SSO 的开关**：为空即整项关闭（`/auth/sso/*` 不挂载） |
+| `SSO_REDIRECT_URL` | SSO 开启时必需 |
+| `PMS_BASE_URL`、`ROOT_EMAIL` | 可选：分别开启 PMS 资料同步、root 引导 |
+| `REDIS_URL` | 声明了 `redis` 段时必需 |
+| `VIDEO_SUBMIT_URL` | **它就是媒体生成的开关**：为空即整项关闭（`/generations` 不挂载、后台不跑） |
+| `VIDEO_STATUS_BASE_URL`、`VIDEO_API_KEY`、`IMAGE_TEXT_TO_IMAGE_URL`、`IMAGE_EDIT_URL`、`OSS_BUCKET`、`OSS_ENDPOINT`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_PUBLIC_URL_BASE` | 媒体生成开启时全部必需（半开着比关着更糟） |
+| `CONFIG_FILE`、`AGENTS_FILE` | 可选：两份声明文件的路径，缺省 `configs/config.yaml` / `agents/agents.yaml` |
+
+**空串与只有空白等于没设。** 那种半配置最难查，所以在类型上就拒掉（`min_length=1` + 先 strip）。
+
+| YAML Section | 内容（只有形状，没有地址与凭证） |
 |---------|------|
 | `app` | 服务名 |
-| `db` | `url_env`、`schema`（默认 `iclip`） |
-| `security` | `secret_env`、cookie 名（`iclip_session`）/secure/有效期、`cors_allow_origins`（禁 `"*"`） |
-| `sso` | `base_url_env`（env 空即 SSO 关闭）、`app_name`、`redirect_url_env`、`root_email_env`（该邮箱 SSO 登录即持有 root；env 空即关闭引导） |
-| `pms` | `base_url_env`（env 空即关闭 PMS 资料同步） |
-| `redis` | 运行事件流：`url_env`、`replay_window_seconds`、`max_frames`、`max_connections`（声明了 agent 即必填，缺段启动报错） |
+| `db` | `schema`（默认 `iclip`） |
+| `security` | cookie 名（`iclip_session`）/secure/有效期、`cors_allow_origins`（禁 `"*"`） |
+| `sso` | `app_name`：我们在对方那边注册的应用名 |
+| `redis` | 运行事件流的调参：`replay_window_seconds`、`max_frames`、`max_connections`（声明了 agent 即必填，缺段启动报错） |
+| `media_generation` | `video`（`model` / `user_name`）、`image`（`user_name`）、`poll_interval_seconds`、`job_timeout_seconds`。并发、错误重试间隔、关停宽限、心跳这些是实现细节，默认值在 `GenerationQueueSettings` 里，不进 YAML |
 | `models` | 命名模型表：键名即模型名，值为 `provider` / `api`（`chat`\|`responses`，默认 chat）/ `api_key_env` / `base_url?` / `model?`（只在键名不是模型名时写） |
 | `ops` | `log_level` |
 
-另一份声明文件 `server/agents/agents.yaml`（路径由 `--agents` / `ICLIP_AGENTS_FILE` 给出）与 `config.yaml` 分工：那一份是运维配置，这一份是 agent 装配声明——启用哪些 agent、各自用哪份官方 spec、谁带谁。同样 frozen + `extra="forbid"`。**「没有 agent」由文件内容表达（`agent: {}`），不由文件缺席表达**——声明文件必须存在，否则报错。
+`models.*.api_key_env` 是 YAML 里**唯一**还留着变量名的地方：每个模型各自一把 key，用哪个变量取是这条声明的一部分，没法用一套写死的别名表达。
+
+另一份声明文件 `server/agents/agents.yaml`（路径由 `--agents` / `AGENTS_FILE` 给出）与 `config.yaml` 分工：那一份是运维配置，这一份是 agent 装配声明——启用哪些 agent、各自用哪份官方 spec、谁带谁。同样 frozen + `extra="forbid"`。**「没有 agent」由文件内容表达（`agent: {}`），不由文件缺席表达**——声明文件必须存在，否则报错。
 
 ```yaml
 agent:                                 # 键名即 agent id
@@ -198,6 +220,8 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 | `users` | 账号（fastapi-users） | UUID PK、email 唯一、username 唯一可空、`roles` JSONB（默认 `["viewer"]`）、`direct_permissions` JSONB、PMS `city`/`job_title`/`departments` JSONB、`last_login_at` |
 | `oauth_accounts` | SSO 外部身份 | FK → users 级联删除、`oauth_name=wangoon_sso` |
 | `api_keys` | 机器凭证 | `owner_user_id` FK、`token_hash` 唯一、`token_prefix`、`permissions` JSONB、`expires_at`/`revoked_at`/`last_used_at` |
+| `generation_jobs` | 一次媒体生成的事实（**不含排期**） | `owner_user_id` FK 级联删除、`api_key_id` **故意不建外键**（审计事实要活得比那把 key 久）、`request` JSONB、`status`、`provider_task_id`/`provider_status`/`provider_snapshot`、`output_url`、`error_code`/`error_message`、四个时刻；见 §11 |
+| `public.procrastinate_*`（4 张） | 生成任务的**排期机械**，不是事实 | procrastinate 3.9.0 自带的 DDL，原文冻在迁移 0005 里。落在 `public` 而不是 `iclip`：它的 SQL 全是不带 schema 的裸名字，塞进 `iclip` 要给它的连接一直配对的 `search_path`，多一处必须两边一致的配置。**升级它的做法是把它新增的迁移脚本抄成一个新 revision**，不是改 0005 |
 
 | 表（schema=agent_runtime） | 用途 | 关键点 |
 |----|------|--------|
@@ -210,7 +234,7 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 
 写入方：`harness/step_store_pg.py`（实现官方异步 `StepStore` / `MediaStore` 协议，挂到 `Agent(capabilities=[StepPersistence(...)])`）；DDL 由 Alembic 0002 拥有，store 不自建表。
 
-唯一 provisioning 路径：人工 `make db-upgrade`（`alembic upgrade head`，所有环境一致）；迁移契约测试用 scratch 环境验证 head 与 identity 的 ORM 元数据零漂移——该断言只覆盖 `iclip` schema，`agent_runtime` 那几张表另挂独立元数据，不在断言范围内——所以往这个 schema 加表时，迁移要人工 `make db-upgrade` 确认一次。
+唯一 provisioning 路径：人工 `make db-upgrade`（`alembic upgrade head`，所有环境一致）；迁移契约测试用 scratch 环境验证 head 与 ORM 元数据零漂移。该断言覆盖 `iclip` schema 下的**全部**表，因此每个在这个 schema 里有表的模块都要把自己的元数据加进测试的 `_MODULE_METADATA`（少加一行，那张表的漂移就无人看守）；`agent_runtime` 那几张表另挂独立元数据，不在断言范围内——所以往那个 schema 加表时，迁移要人工 `make db-upgrade` 确认一次。
 
 ## 8. 路由面
 
@@ -224,13 +248,15 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 | `GET /users`、`PATCH /users/{id}` | users:manage | 用户列表 / 调整角色与直接授权（不能改自己的授权或停用自己） |
 | `POST /api-keys` | `api_keys:issue`（仅 root **角色**持有；也可经直接授权单独授予）；api key 主体一律被拒 | 创建响应含一次性明文；属主恒为调用者本人 |
 | `GET /api-keys`、`DELETE /api-keys/{id}` | 登录（本人）；users:manage 管全部 | 列表只返回展示前缀 |
+| `POST /generations` | `generation:submit` | 受理一次生成：校验 + 落一行 `pending`，返回 202 与它的 id。**这一步不碰 provider**（图像接口一次要等几分钟，留在请求里客户端会先超时）|
+| `GET /generations`、`GET /generations/{id}` | `generation:read` | 列表（`limit` ≤ 100）与查单个。别人的一律 404；`users:manage` 看全部。响应不含 provider 原始快照与排队机制字段 |
 | `POST /agents/{agent_id}/chat` | `agent:run` | 发起一次运行并订阅它的事件（`text/event-stream`，请求体为官方 `RunAgentInput`）。强制 `Content-Type: application/json`，否则 415；未注册 id 404；请求体形状不合法 422；同一个运行 id 再来一次是接着读，不重复跑 |
 | `GET /agents/{agent_id}/chat/{run_id}` | `agent:run` | 接着读同一次运行的事件。位置取 `Last-Event-ID` 头，其次 `?from=`，都没有就整段重放；已经读到末尾就直接收流。没有这次运行 404，过了重放窗口 409，运行 id 或位置形状不合法 422。别人的运行一律 404（流名字里带归属）|
 | `OPTIONS /agents/{agent_id}/chat` | 公开 | 204 且**刻意不带任何 `Access-Control-Allow-*` 头**：与上面的 content-type 要求组成一对 CSRF 防线（免检 content-type 都能塞 JSON 且不触发预检，故要求非免检类型来强制预检，再在此拒掉） |
 
 ## 9. 运维
 
-- `scripts/admin.py`：`set-roles <username> <role1,role2>`、`list-users`、`issue-key`——直连 DB 绕过 API，专为非 SSO 场景的 root 引导设计（SSO 场景用 `ICLIP_ROOT_EMAIL`）。
+- `scripts/admin.py`：`set-roles <username> <role1,role2>`、`list-users`、`issue-key`——直连 DB 绕过 API，专为非 SSO 场景的 root 引导设计（SSO 场景用 `ROOT_EMAIL`）。
 - 日志：structlog（结构化，级别来自 `ops.log_level`）。观测尚未接入。
 - 测试门禁与命令：见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
 
@@ -262,3 +288,44 @@ Postgres（StepPersistence 照旧落库）
 - **活跃运行的流不裁剪**，只在运行结束时给整条流定重放窗口。裁了中间段，带位置来续读的人会拿到一个有空洞的流而不知情。
 - **收尾也要定重放窗口**，不管收尾的是写的人还是读的人。漏了后者的话，进程每崩一次就在 Redis 里留下一条永不过期的流。
 - **读事件会挂在 Redis 上等**，一等就是一个阻塞窗口那么久，期间占住一条连接。所以 `max_connections` 是「同时能有多少人在看事件流」的天花板；建客户端时 socket 超时也必须比这个等待窗口宽出一截，否则客户端会先把自己判超时。连接池用「满了排队」而不是「满了报错」：报错砸中的可能是后台运行的心跳，那会让看的人多把跑的人弄死。
+
+## 11. 媒体生成
+
+一次生成是一行持久事实，从受理到出结果全程在 `iclip.generation_jobs` 里推进。HTTP 只负责受理与查询；真的去调外部接口是后台的事。决定与权衡见 [adr/0004](adr/0004-generation-queue-in-postgres.md)。
+
+```text
+POST /generations                     procrastinate（三条队列，各自一个 worker）
+  │ 校验 + 落 pending                   │
+  │ + defer 提交任务，202               ├─ generation-submit-image ┐
+  ▼                                    ├─ generation-submit-video ┘ 标 submitting → 调 provider
+iclip.generation_jobs ◀────────────────┤      重跑时看见 submitting → 判失败（不重投）
+  （一次生成的事实，不含排期）             ├─ generation-poll：查一次状态
+                                       │      还在跑 → 抛 StillRunning，5 秒后重来
+                                       │      成了 / 废了 → 终态
+                                       └─ 每分钟：把失联 worker 手上的任务捡回来
+```
+
+**排期归 procrastinate，事实归我们。** 「谁该跑、几点跑、几个同时跑、进程死了谁发现」在它的表里（`public.procrastinate_*`，见 §7）；`iclip.generation_jobs` 只回答「这次生成是谁发起的、发给了谁、到哪一步了、结果是什么」。清空它的表只丢排期，不丢任何一次生成的事实——所以不变量 1 仍然成立。
+
+几条不能改的规矩：
+
+- **同一件事只在一处记。** 排期字段（试了几次、下次几点、谁在处理）已经从 `generation_jobs` 上删掉了（迁移 0006）。两处各存一份必然分叉，而分叉的那一刻没人知道该信谁。
+- **三条队列切开，是因为耗时差着数量级**（图片提交 300 秒 / 视频提交 30 秒 / 查状态 1 秒）。混在一条里，一批图片会把视频按在后面等。每条一个 worker，并发各 100。
+- **并发按「纯等待」定（各 100）。** 一次提交或查询几乎整段时间都挂在对方的 socket 上，CPU 是空的。这不需要加大数据库连接池：连接只在状态跳转那几毫秒里开合，**从不跨着那次 HTTP 调用握着**。真正的天花板在别处——图像结果转存走 `oss2` 这个同步 SDK，包在 `asyncio.to_thread` 里，受默认线程池（约 `CPU+4`）限制；上传要是成为瓶颈，那是要显式配一个执行器，不是调这里的并发。
+- **「还在跑」借重试通道走，但它不是失败。** 任务抛 `StillRunning`，由我们自己的重试策略决定隔多久再来。**不是每次 defer 一个新任务**——那样一个生成一小时能往它的表里写七百多行；借重试通道的话，一个生成始终只占一行。
+- **「还在跑」按固定间隔再问，不做逐次拉长的退避。** 退避省下的是几次廉价的状态查询，代价却是「做完了却没人发现」的延迟越拖越久，而且拖得最狠的正是跑得最久的那些任务（那时已经退到上限）。用户盯着进度条等的就是这个延迟。**只有「问不通」才隔得更久**（对方躺下时几百个在飞的任务每 5 秒重试一次只会让它更起不来）。真撞上限流再谈退避，那时该由它明确告诉我们，不由我们先猜。
+- **重试策略不许设次数上限。** 界在任务体的第一句话，不在计数器：轮询撞上总时限就写终态并正常返回，提交重读那行看见 `submitting` 就判失败并正常返回——**上限是守卫给的，所以每个任务最多多跑一次就自己停了**。反过来在策略上设了上限，次数用完的任务会落在终态上，而它对应的那一行还停在 `submitting`：一次可能已经付过钱的生成，永远没有结论，也没人知道。
+- **卡在 `submitting` 上的行一律判失败，绝不自动重投。** 两家接口都没有幂等键，重投一次就是重复付一次钱。「不知道上次发出去没有」的正确处置是把事实照实记下来让人决定，不替他猜。同理，提交阶段的失败一概是终态，连网络超时也不重试。**这次收尾的写入带状态守卫**（只在这行还停在 `submitting` 时才落）：判断和写入之间隔着一次 await，那当口原来那个进程可能刚把真结果写完——谁有真结果谁说话，绝不把一次已经付过钱的成功盖成失败。**整套「重跑是安全的」就靠这个守卫**，不靠「不会重跑」。
+- **进程死掉之后任务怎么回来，分两种，别只想着一种。** 优雅关停（发版）打断在飞的任务时，任务是抛异常结束的，重试策略把它重排回待办——这一半不用管。**硬杀**（SIGKILL、OOM、机器没了）那一半必须自己捡：procrastinate 自动维护 worker 心跳，但**不会**自动重跑失联 worker 手上的任务（`get_stalled_jobs` 只是个查询，`retry_job` 要自己调）。所以有一个每分钟跑一次的周期任务干这件事，它**挂在轮询队列上**——周期任务 defer 到没有 worker 消费的队列会永远躺在那儿，而且不报错。
+- **心跳判活跟任务多长无关**，所以不需要「按最坏耗时估租约」那一套。一个正在做 300 秒图片提交的活 worker 每 10 秒报一次心跳，永远不会被误判；心跳断 30 秒就认为它没了。
+- **落行与排队做不到一个事务里。** 行走 asyncpg、队列走 psycopg（procrastinate 只支持它），两个驱动就是两个事务。排队失败时把那行判失败（`QUEUE_DEFER_FAILED`）并把错误抛给调用方——留一个「永远 pending」的行更糟，那看起来像还在排队。崩在两步中间会留下一个没有任务的 `pending` 行：罕见、看得见、由人重新发起。
+- **信号处理器归 uvicorn。** 起 worker 时必须显式关掉 procrastinate 的（它默认装），否则两边都抢 SIGTERM，关停顺序变成谁先注册谁说了算。
+- **关停先给宽限期，到了就打断。** 无限等一次十几分钟的图像提交，等于把整个进程的关停拖那么久，而部署环境的关停超时一到照样会杀进程——那时被打断的东西一样多，只是没人记下来。
+- **模型与渠道由请求带来，我们不替调用方换。** 视频那家的模型是请求体里的参数（`model`，不给就用配置里的默认模型）；图像那家的模型写死在接口地址里，真正可选的是 `channel`（`dev`/`pro`）。两者取值不同价钱也不同，所以替调用方偷偷换一个等于悄悄改了这次花多少钱——和悄悄重投是同一类毛病。**一次调用，报错就是报错**，不自动重试也不换渠道；错误码只负责让人分清「送到了没有」（`PROVIDER_UNREACHABLE` 可放心重发 / `PROVIDER_RESULT_UNKNOWN` 可能已计费，先核对），不驱动任何自动动作。实际用了哪个模型/渠道记进 `provider_snapshot`——配置里的默认值将来会改，旧行得说得清当时用的是什么。
+- **没见过的 provider 状态一律报错**，不当成「还在跑」——那等于对方新加了一个终态而我们一直轮询下去，一个已经结束的任务永远不会收尾。固定间隔没有自我收敛的性质，所以总时限（`job_timeout_seconds`）是必需的兜底，不是可选项：从提交算起超过就判超时。
+- **所有时刻都取数据库的时钟**（`now()`），一个都不从应用进程取。多台应用服务器的时钟差几秒，「这次生成花了多久」「谁先写的」就都对不上，而这些是要拿去对账的。
+- **图像结果转存成自己的公开对象。** 图像接口返回的是会过期的签名 URL，直接存库过几天就是烂链接；生成一到手就下载转存，`output_url` 存的是不会过期的地址。**视频结果本轮直接存 provider 给的地址**，没有转存。
+
+**同步接口一步落到终态。** 图像那条没有「先提交后轮询」两步，回执和结果一起回来，所以对账 id（`provider_task_id`）与 `submitted_at` 只有在写完成态那一步才有机会落库——错过就永远没人写它们。视频那条 `submitted_at` 早就填过，完成时保持原值，不改成「拿到结果的时刻」。
+
+**请求类型只有一套定义**（`schemas.py` 的 pydantic 模型）：它既是 HTTP 请求体，也是入库形状（`model_dump(by_alias=True)`，camelCase，`kind` 不重复存——那是表上的一列）。读回来按 `kind` 挑 `TypeAdapter` 校验一遍，形状坏了响亮失败。因此「HTTP 进得来的东西」和「从库里读回来的东西」走的是同一条判定路径，不会一边合法一边不合法。响应刻意不含 `provider_snapshot`——里面带着 provider 的签名 URL。

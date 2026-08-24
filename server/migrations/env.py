@@ -1,4 +1,4 @@
-"""Alembic 环境：URL 来自 attributes（测试程序化注入优先）或 ICLIP_DATABASE_URL。"""
+"""Alembic 环境：URL 来自 attributes（测试程序化注入优先）或 DATABASE_URL。"""
 
 from __future__ import annotations
 
@@ -16,11 +16,9 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    url = context.config.attributes.get("sqlalchemy_url") or os.environ.get(
-        "ICLIP_DATABASE_URL", ""
-    )
+    url = context.config.attributes.get("sqlalchemy_url") or os.environ.get("DATABASE_URL", "")
     if not url:
-        raise RuntimeError("缺少数据库连接串：attributes['sqlalchemy_url'] 或 ICLIP_DATABASE_URL")
+        raise RuntimeError("缺少数据库连接串：attributes['sqlalchemy_url'] 或 DATABASE_URL")
     return url
 
 

@@ -12,6 +12,11 @@ depends_on = []
 path = "iclip.platform.http"
 depends_on = ["iclip.common"]
 
+# 公开对象存储：只认识 OSS SDK 与 stdlib，不认识业务。
+[[modules]]
+path = "iclip.platform.object_store"
+depends_on = []
+
 [[modules]]
 path = "iclip.config"
 depends_on = ["iclip.common"]
@@ -24,6 +29,16 @@ depends_on = ["iclip.common", "iclip.platform.db", "iclip.platform.http"]
 [[modules]]
 path = "iclip.domains.agents"
 depends_on = ["iclip.domains.identity"]
+
+# 媒体生成：自有的表 + 两家外部生成接口 + 后台推进器。
+[[modules]]
+path = "iclip.domains.generation"
+depends_on = [
+    "iclip.common",
+    "iclip.platform.db",
+    "iclip.platform.object_store",
+    "iclip.domains.identity",
+]
 
 # 通用 agent 内核，不认识业务。
 [[modules]]
@@ -47,9 +62,11 @@ depends_on = [
     "iclip.common",
     "iclip.platform.db",
     "iclip.platform.http",
+    "iclip.platform.object_store",
     "iclip.config",
     "iclip.domains.identity",
     "iclip.domains.agents",
+    "iclip.domains.generation",
     "iclip.harness",
     "iclip.capabilities",
 ]

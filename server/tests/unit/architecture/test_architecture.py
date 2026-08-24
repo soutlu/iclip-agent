@@ -24,6 +24,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "app/",
         "domains/identity/api.py",
         "domains/agents/api.py",
+        "domains/generation/api.py",
         "domains/identity/middleware.py",
         "domains/identity/accounts.py",
         "main.py",
@@ -38,6 +39,15 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
     # 模型装配唯一需要直接碰 openai SDK 的地方（给兼容端点造客户端）。
     ("openai",): ("harness/models.py",),
+    # 阿里云 OSS SDK 只在对象存储适配器里；业务侧只认 PublicObjectStore 协议。
+    ("oss2",): ("platform/object_store/",),
+    # 生成任务的排队机械。queue.py 是唯一说这门话的地方；module.py 只为了在签名里
+    # 写出连接器的类型；组合根造那个连接器（它决定本仓用哪个数据库驱动）。
+    ("procrastinate",): (
+        "domains/generation/queue.py",
+        "domains/generation/module.py",
+        "app/",
+    ),
 }
 # 模块自有的 SQL 放自己模块里的 infra_sql.py——下面这些前缀底下按文件名放行。
 # 与上面那条协议后端规则并列：谁拥有这张表，SQL 就落在谁的模块里。

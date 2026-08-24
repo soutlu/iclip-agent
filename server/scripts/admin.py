@@ -1,6 +1,6 @@
 """引导型管理 CLI：直连数据库，绕过 API 层。
 
-root 引导有两条路：SSO 场景配置 ICLIP_ROOT_EMAIL，非 SSO 场景用这里的 set-roles
+root 引导有两条路：SSO 场景配置 ROOT_EMAIL，非 SSO 场景用这里的 set-roles
 （密码注册默认 viewer、SSO 首登默认 editor，均无法自提权）。
 
 用法：
@@ -31,9 +31,9 @@ from iclip.domains.identity.service import (
 
 
 def _database_url() -> str:
-    url = os.environ.get("ICLIP_DATABASE_URL", "").strip()
+    url = os.environ.get("DATABASE_URL", "").strip()
     if not url:
-        sys.exit("缺少环境变量 ICLIP_DATABASE_URL")
+        sys.exit("缺少环境变量 DATABASE_URL")
     return url
 
 

@@ -18,7 +18,7 @@ TanStack Router 文件式路由 + TanStack Query 数据层，浏览器经同源 
 - 浏览器只调用同源 `/api/*`；vite proxy / 生产反代负责 `^/api` → 后端根路径 rewrite（见 `vite.config.ts`）。代理目标经 shell 环境变量 `VITE_BACKEND_PROXY_TARGET` 配置（`process.env` 读取，不走 `.env` 文件）。
 - 不恢复任何形态的 BFF、cookie 换发或 `producer_access_token`。
 - 登录态事实源是 `GET /api/users/me`（返回 `{user: {...camelCase}}` 包装），经 react-query-auth 进 TanStack Query 缓存（`src/shared/auth/session.ts`）。
-- `ICLIP_FRONTEND_PUBLIC_ORIGIN` 只用于由启动器派生 SSO 回跳地址。Vite 必须让 `/api` 保持当前页面同源，不得通过 3xx 把 API 请求重定向到另一个 Host；同一登录会话不得在 `localhost`、`127.0.0.1` 或局域网地址之间混用 host-only cookie。
+- `FRONTEND_PUBLIC_ORIGIN` 只用于由启动器派生 SSO 回跳地址。Vite 必须让 `/api` 保持当前页面同源，不得通过 3xx 把 API 请求重定向到另一个 Host；同一登录会话不得在 `localhost`、`127.0.0.1` 或局域网地址之间混用 host-only cookie。
 - 真实后端开发使用纯 backend profile，不注册 Service Worker；浏览器 MSW 只允许出现在显式 `prototype` / `mock` profile，不能把真实认证与局部 mock 混进默认全栈运行时。
 
 ## 后果
@@ -26,5 +26,5 @@ TanStack Router 文件式路由 + TanStack Query 数据层，浏览器经同源 
 - 路由守卫从 Next proxy/middleware 改为 TanStack Router `beforeLoad`（async，`src/shared/auth/guards.ts`）。
 - AG-UI、项目、上传等所有接口调用从 BFF 路径改为同源直连（当前端点清单见 `../backend_api.md`）。
 - 环境变量从 `NEXT_PUBLIC_*` 改为 `VITE_*`，只经 `src/shared/config/env.ts` 的 zod schema 读取（如 `VITE_AGUI_TARGET_PATH`，默认 `/teams/producer`）。
-- 后端 SSO 回跳地址（`ICLIP_SSO_REDIRECT_URL`）指向前端路由 `/auth/sso/landing`，由页面用 jwt 调 `GET /api/auth/sso/callback` 换会话 cookie。
+- 后端 SSO 回跳地址（`SSO_REDIRECT_URL`）指向前端路由 `/auth/sso/landing`，由页面用 jwt 调 `GET /api/auth/sso/callback` 换会话 cookie。
 - 普通接口 401 只触发一次不使用缓存的 `/users/me` 复核；确认未登录后由路由守卫跳转，不能把一次 endpoint 401 直接固化为本地未登录态。

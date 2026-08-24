@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
+import procrastinate
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,6 +22,7 @@ from iclip.capabilities.workspace.infra_sql import PgWorkspaceStore
 from iclip.common.errors import DomainError
 from iclip.config import (
     ResolvedAgent,
+    ResolvedMediaGeneration,
     ResolvedModel,
     ResolvedRedis,
     RuntimeConfig,
@@ -28,6 +30,11 @@ from iclip.config import (
     resolve_settings,
 )
 from iclip.domains.agents.api import create_agents_router
+from iclip.domains.generation.infra_sql import SqlGenerationRepository
+from iclip.domains.generation.module import GenerationModule, build_generation_module
+from iclip.domains.generation.multiflow import MultiflowSettings
+from iclip.domains.generation.nano_banana import NanoBananaSettings
+from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
 from iclip.domains.identity.middleware import PrincipalMiddleware
@@ -46,6 +53,12 @@ from iclip.harness.runs import RunBroker, RunStreamSettings
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.platform.http import status_code_for
+from iclip.platform.object_store.oss import (
+    OssObjectStore,
+    OssSettings,
+    PublicObjectStore,
+    validate_public_url_base,
+)
 
 
 def _capabilities(
@@ -138,6 +151,59 @@ def _stream_settings(redis: ResolvedRedis | None) -> RunStreamSettings:
     )
 
 
+def _generation_module(
+    settings: ResolvedMediaGeneration,
+    engine: AsyncEngine,
+    *,
+    database_url: str,
+    object_store: PublicObjectStore | None,
+    queue_connector: procrastinate.BaseConnector | None,
+) -> GenerationModule:
+    """把配置环的运行值翻译成 generation 的入参。
+
+    与 identity 的 ``CookieAuthSettings`` / harness 的 ``ModelSpec`` 同一个套路：
+    业务模块读不到 config，翻译是组合根的活。
+    """
+
+    store = object_store
+    if store is None:
+        oss = settings.object_store
+        store = OssObjectStore(
+            OssSettings(
+                bucket=oss.bucket,
+                endpoint=oss.endpoint,
+                access_key_id=oss.access_key_id,
+                access_key_secret=oss.access_key_secret,
+                public_url_base=validate_public_url_base(oss.public_url_base),
+            )
+        )
+    return build_generation_module(
+        SqlGenerationRepository(engine),
+        video=MultiflowSettings(
+            submit_url=settings.video_submit_url,
+            status_base_url=settings.video_status_base_url,
+            api_key=settings.video_api_key,
+            model=settings.video_model,
+            user_name=settings.video_user_name,
+        ),
+        image=NanoBananaSettings(
+            text_to_image_url=settings.image_text_to_image_url,
+            image_edit_url=settings.image_edit_url,
+            user_name=settings.image_user_name,
+        ),
+        object_store=store,
+        queue_connector=(
+            queue_connector
+            if queue_connector is not None
+            else procrastinate.PsycopgConnector(conninfo=queue_dsn(database_url))
+        ),
+        queue_settings=GenerationQueueSettings(
+            poll_interval_seconds=settings.poll_interval_seconds,
+            job_timeout_seconds=settings.job_timeout_seconds,
+        ),
+    )
+
+
 def build_app(
     config: RuntimeConfig,
     *,
@@ -147,8 +213,10 @@ def build_app(
     run_stream: RunStream | None = None,
     sso_verifier: SsoVerifier | None = None,
     pms_client: PmsUserClient | None = None,
+    object_store: PublicObjectStore | None = None,
+    queue_connector: procrastinate.BaseConnector | None = None,
 ) -> FastAPI:
-    """装配公开 app。测试可注入 engine、模型表、事件流与 SSO/PMS 协议替身。"""
+    """装配公开 app。测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储与队列连接器。"""
 
     settings = resolve_settings(config)
     if settings.db_schema != DB_SCHEMA:
@@ -191,6 +259,18 @@ def build_app(
         step_store=PgStepStore(active_engine),
         models=build_models(_model_specs(settings.models)) if models is None else models,
     )
+    # 媒体生成：配了就装，没配就整组路由不挂（同 SSO 的口径）。
+    generation = (
+        _generation_module(
+            settings.media_generation,
+            active_engine,
+            database_url=settings.database_url,
+            object_store=object_store,
+            queue_connector=queue_connector,
+        )
+        if settings.media_generation is not None
+        else None
+    )
     # 事件流只在真有 agent 时才装（同 SSO：能力没配就不挂对应路由）。
     redis_client: Redis | None = None
     broker: RunBroker | None = None
@@ -221,10 +301,17 @@ def build_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+        if generation is not None:
+            # 队列的连接要先开：HTTP 面受理一次生成时就要往队列里排。
+            await generation.queue.app.open_async()
+            generation.queue.start()
         try:
             yield
         finally:
             # 顺序要紧：后台运行还在用这个 engine 落库，先把它们收掉再关连接。
+            if generation is not None:
+                await generation.queue.stop()
+                await generation.queue.app.close_async()
             if broker is not None:
                 await broker.shutdown()
             if redis_client is not None:
@@ -247,6 +334,8 @@ def build_app(
 
     for router in identity.routers:
         app.include_router(router)
+    for router in generation.routers if generation is not None else ():
+        app.include_router(router)
     if broker is not None:
         app.include_router(create_agents_router(broker))
 
@@ -264,6 +353,7 @@ def build_app(
 
     app.state.identity = identity
     app.state.agents = agent_registry
+    app.state.generation = generation
     return app
 
 

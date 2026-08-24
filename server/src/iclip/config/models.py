@@ -1,8 +1,17 @@
-"""Runtime Configuration：YAML 只存环境变量名（``*_env``），不存密钥值。
+"""Runtime Configuration：YAML 管形状，环境变量管值。
 
-加载分两步：``load_runtime_config`` 解析 YAML 为 frozen 模型（extra=forbid），
-``resolve_settings`` 在启动期读取环境变量并快速失败——运行必需项缺失即抛错，
-可选能力（SSO / PMS）由对应 env 是否为空决定开关。
+两份东西分得很清：
+
+- **YAML 说「装什么、什么形状」** —— 声明哪些模型、哪些节奏、哪些名字。它进仓。
+- **环境变量说「连到哪儿、用什么凭证」** —— 地址与密钥。它不进仓，也不该进。
+
+env 的读取交给 pydantic-settings：每个字段用 ``validation_alias`` 写死它对应的变量
+名，所以下面那几个 ``*Env`` 类**就是这个服务的环境变量清单**——想知道要配什么，看
+它们就够了。缺了哪几个它会一次全报出来，报的是变量名本身，不是内部字段名。
+
+**可选能力的开关是我们自己判断的**（那是策略，不是机械）：某个地址的 env 为空就整
+项关闭；一旦非空，那一组的其余变量就都是必需的——半开着比关着更糟，路由挂上了、点
+下去才发现某个地址没配。
 """
 
 from __future__ import annotations
@@ -10,9 +19,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -22,11 +31,97 @@ from pydantic_settings import (
 
 _MIN_SECRET_LENGTH = 32
 
+RequiredEnv = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+"""必需的环境变量值。**设成空串或只有空白等于没设**——那种半配置最难查。"""
+
+OptionalEnv = Annotated[str, StringConstraints(strip_whitespace=True)]
+"""可以缺的环境变量值；缺了就是空串。"""
+
+SSO_BASE_URL_ENV: Final = "SSO_BASE_URL"
+"""SSO 的总开关：这个地址为空即整项关闭。"""
+
+VIDEO_SUBMIT_URL_ENV: Final = "VIDEO_SUBMIT_URL"
+"""媒体生成的总开关：这个地址为空即整项关闭。"""
+
 
 class ConfigSection(BaseModel):
-    """所有配置段的共同约束：frozen + 未知字段即拒。"""
+    """所有 YAML 段的共同约束：frozen + 未知字段即拒。"""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class EnvSettings(BaseSettings):
+    """所有 env 段的共同约束：frozen，且只认自己声明的那几个变量。"""
+
+    model_config = SettingsConfigDict(frozen=True, extra="ignore")
+
+
+# ── 环境变量清单 ──────────────────────────────────────────────────────────────
+
+
+class CoreEnv(EnvSettings):
+    """任何时候都必需的两个。"""
+
+    database_url: RequiredEnv = Field(validation_alias="DATABASE_URL")
+    auth_secret: RequiredEnv = Field(validation_alias="AUTH_SECRET")
+
+    @field_validator("database_url")
+    @classmethod
+    def _must_be_asyncpg(cls, value: str) -> str:
+        if not value.startswith("postgresql+asyncpg://"):
+            raise ValueError("必须是 postgresql+asyncpg:// 连接串")
+        return value
+
+    @field_validator("auth_secret")
+    @classmethod
+    def _long_enough(cls, value: str) -> str:
+        if len(value) < _MIN_SECRET_LENGTH:
+            raise ValueError(f"长度必须 ≥ {_MIN_SECRET_LENGTH} 字符")
+        return value
+
+
+class SsoEnv(EnvSettings):
+    """SSO 的地址。只在 ``SSO_BASE_URL`` 非空时才构造，所以落地路由是必需的。"""
+
+    base_url: RequiredEnv = Field(validation_alias=SSO_BASE_URL_ENV)
+    redirect_url: RequiredEnv = Field(validation_alias="SSO_REDIRECT_URL")
+    pms_base_url: OptionalEnv = Field("", validation_alias="PMS_BASE_URL")
+    root_email: OptionalEnv = Field("", validation_alias="ROOT_EMAIL")
+
+
+class RedisEnv(EnvSettings):
+    """运行事件流的 Redis。声明了 ``redis`` 段就必需。"""
+
+    url: RequiredEnv = Field(validation_alias="REDIS_URL")
+
+
+class ObjectStoreEnv(EnvSettings):
+    """公开对象存储（阿里云 OSS）的凭证。开了媒体生成就必需。
+
+    变量名不带本仓前缀：对象存储的凭证不是本仓专有的东西。
+    """
+
+    bucket: RequiredEnv = Field(validation_alias="OSS_BUCKET")
+    endpoint: RequiredEnv = Field(validation_alias="OSS_ENDPOINT")
+    access_key_id: RequiredEnv = Field(validation_alias="OSS_ACCESS_KEY_ID")
+    access_key_secret: RequiredEnv = Field(validation_alias="OSS_ACCESS_KEY_SECRET")
+    public_url_base: RequiredEnv = Field(validation_alias="OSS_PUBLIC_URL_BASE")
+
+
+class MediaGenerationEnv(EnvSettings):
+    """两家生成接口的地址与凭证。只在总开关非空时才构造，所以这里全是必需的。
+
+    图片那两个地址要**完整的**（含路径）：接口路由不留在仓里，这是个公开仓。
+    """
+
+    video_submit_url: RequiredEnv = Field(validation_alias=VIDEO_SUBMIT_URL_ENV)
+    video_status_base_url: RequiredEnv = Field(validation_alias="VIDEO_STATUS_BASE_URL")
+    video_api_key: RequiredEnv = Field(validation_alias="VIDEO_API_KEY")
+    image_text_to_image_url: RequiredEnv = Field(validation_alias="IMAGE_TEXT_TO_IMAGE_URL")
+    image_edit_url: RequiredEnv = Field(validation_alias="IMAGE_EDIT_URL")
+
+
+# ── YAML 的形状 ───────────────────────────────────────────────────────────────
 
 
 class AppSection(ConfigSection):
@@ -34,7 +129,6 @@ class AppSection(ConfigSection):
 
 
 class DbSection(ConfigSection):
-    url_env: str
     db_schema: str = Field("iclip", alias="schema")
 
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
@@ -48,7 +142,6 @@ class DbSection(ConfigSection):
 
 
 class SecuritySection(ConfigSection):
-    secret_env: str
     session_cookie_name: str = "iclip_session"
     session_lifetime_seconds: int = 604800
     cookie_secure: bool = False
@@ -63,20 +156,14 @@ class SecuritySection(ConfigSection):
 
 
 class SsoSection(ConfigSection):
-    base_url_env: str
+    """SSO 里唯一不属于「地址与凭证」的东西：我们在对方那边注册的应用名。"""
+
     app_name: str
-    redirect_url_env: str
-    root_email_env: str = "ICLIP_ROOT_EMAIL"
-
-
-class PmsSection(ConfigSection):
-    base_url_env: str
 
 
 class RedisSection(ConfigSection):
-    """运行事件流的 Redis 落点。声明了 agent 就必须配这一段。"""
+    """运行事件流的调参。地址在 ``RedisEnv``。"""
 
-    url_env: str
     replay_window_seconds: int = 3600
     max_frames: int = 100_000
     max_connections: int = 64
@@ -88,13 +175,46 @@ class RedisSection(ConfigSection):
 
 
 class ModelSection(ConfigSection):
-    """一个命名模型。``provider`` 是官方 provider 名；``model`` 缺省即键名。"""
+    """一个命名模型。``provider`` 是官方 provider 名；``model`` 缺省即键名。
+
+    ``api_key_env`` 是**这一条**用哪个变量取 key——每个模型的 key 各自一个变量，
+    这属于声明的一部分，没法用一套写死的别名表达，所以它留在 YAML 里。
+    """
 
     provider: str
     api: Literal["chat", "responses"] = "chat"
     api_key_env: str
     base_url: str | None = None
     model: str | None = None
+
+
+class VideoGenerationSection(ConfigSection):
+    """视频生成里对方约定的取值。地址与 key 在 ``MediaGenerationEnv``。"""
+
+    model: str
+    user_name: str
+
+
+class ImageGenerationSection(ConfigSection):
+    """图像生成里对方约定的取值。地址在 ``MediaGenerationEnv``。"""
+
+    user_name: str
+
+
+class MediaGenerationSection(ConfigSection):
+    """媒体生成的节奏与对方约定的取值。
+
+    整项能力的开关在环境里（``VIDEO_SUBMIT_URL`` 为空即关闭），不在这份文件
+    里。关闭时 ``/generations`` 不挂载、后台也不跑。
+
+    只暴露两个节奏参数：查得多勤、多久算超时。并发与关停宽限是实现细节（按「纯等
+    待」定的高值），默认值在 ``GenerationQueueSettings`` 里，真要调再往上抬。
+    """
+
+    video: VideoGenerationSection
+    image: ImageGenerationSection
+    poll_interval_seconds: int = Field(default=5, ge=1)
+    job_timeout_seconds: int = Field(default=3600, ge=1)
 
 
 class OpsSection(ConfigSection):
@@ -108,8 +228,8 @@ class RuntimeConfig(BaseSettings):
     db: DbSection
     security: SecuritySection
     sso: SsoSection
-    pms: PmsSection
     redis: RedisSection | None = None
+    media_generation: MediaGenerationSection | None = None
     models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
     ops: OpsSection = OpsSection()
 
@@ -122,8 +242,8 @@ class RuntimeConfig(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # 只吃 YAML（经 init kwargs 注入路径）与显式 init 值；
-        # 环境变量不直接覆盖配置结构——env 只承载 *_env 指向的值。
+        # 只吃 YAML（经 init kwargs 注入路径）与显式 init 值。这一份是「形状」，
+        # 环境变量管的是「值」，两者不该互相覆盖。
         return (init_settings,)
 
 
@@ -137,6 +257,9 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     if not data:
         raise ValueError(f"配置文件为空或不是 mapping: {path}")
     return RuntimeConfig(**data)
+
+
+# ── 装配期的运行值 ────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +289,26 @@ class ResolvedRedis:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedMediaGeneration:
+    """媒体生成的运行值：env 里的地址凭证 + YAML 里的取值与节奏。
+
+    ``object_store`` 必有——图像结果不转存就会烂链接。
+    """
+
+    video_submit_url: str
+    video_status_base_url: str
+    video_api_key: str
+    video_model: str
+    video_user_name: str
+    image_text_to_image_url: str
+    image_edit_url: str
+    image_user_name: str
+    object_store: ObjectStoreEnv
+    poll_interval_seconds: int
+    job_timeout_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedModel:
     """一个命名模型解析后的装配事实。``name`` 是 agent 引用的名字。"""
 
@@ -179,7 +322,7 @@ class ResolvedModel:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedSettings:
-    """启动期从环境变量解析出的运行值；SSO 关闭时 ``sso is None``。"""
+    """启动期解析出的运行值；SSO 关闭时 ``sso is None``。"""
 
     app_name: str
     database_url: str
@@ -187,68 +330,90 @@ class ResolvedSettings:
     security: ResolvedSecurity
     sso: ResolvedSso | None
     redis: ResolvedRedis | None
+    media_generation: ResolvedMediaGeneration | None
     models: tuple[ResolvedModel, ...]
     log_level: str
 
 
-def _require_env(name: str, *, hint: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise RuntimeError(f"缺少运行必需的环境变量 {name}（{hint}）")
-    return value
+def _from_env[EnvT: EnvSettings](cls: type[EnvT]) -> EnvT:
+    """从环境变量构造一个 env 段。
+
+    类型检查器按字段签名以为这些值该由调用方传进来，而它们本来就该由环境提供。把这
+    条说明集中在这一处，而不是每个构造点各贴一条忽略。
+    """
+
+    return cls()  # pyright: ignore[reportCallIssue]
+
+
+def _switched_on(env_name: str) -> bool:
+    """可选能力的开关：那个地址的 env 为空就是没开。
+
+    这一步必须在读那一组其余变量**之前**做——不然「没开这项能力」和「开了但没配
+    全」就分不开了。
+    """
+
+    return bool(os.environ.get(env_name, "").strip())
+
+
+def _resolve_media_generation(
+    section: MediaGenerationSection | None,
+) -> ResolvedMediaGeneration | None:
+    """解析媒体生成；没声明或总开关为空即这项能力关闭。
+
+    一旦开启，这一组 env 与对象存储的 env 就都是必需的，缺哪几个 pydantic 一次全报
+    出来（报的是变量名）。对象存储同样必需：图像接口给的是会过期的签名 URL，不转存
+    就等于往库里写一批几天后失效的链接。
+    """
+
+    if section is None or not _switched_on(VIDEO_SUBMIT_URL_ENV):
+        return None
+    env = _from_env(MediaGenerationEnv)
+    return ResolvedMediaGeneration(
+        video_submit_url=env.video_submit_url,
+        video_status_base_url=env.video_status_base_url,
+        video_api_key=env.video_api_key,
+        video_model=section.video.model,
+        video_user_name=section.video.user_name,
+        image_text_to_image_url=env.image_text_to_image_url,
+        image_edit_url=env.image_edit_url,
+        image_user_name=section.image.user_name,
+        object_store=_from_env(ObjectStoreEnv),
+        poll_interval_seconds=section.poll_interval_seconds,
+        job_timeout_seconds=section.job_timeout_seconds,
+    )
 
 
 def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
-    """读取 ``*_env`` 指向的环境变量并快速失败。"""
+    """把 YAML 的形状和环境变量的值合成装配期要用的运行值，缺什么当场失败。"""
 
-    database_url = _require_env(config.db.url_env, hint="Postgres 连接串")
-    if not database_url.startswith("postgresql+asyncpg://"):
-        raise RuntimeError(f"{config.db.url_env} 必须是 postgresql+asyncpg:// 连接串")
-    secret = _require_env(config.security.secret_env, hint="会话 JWT 签名密钥")
-    if len(secret) < _MIN_SECRET_LENGTH:
-        raise RuntimeError(f"{config.security.secret_env} 长度必须 ≥ {_MIN_SECRET_LENGTH} 字符")
+    core = _from_env(CoreEnv)
 
     sso: ResolvedSso | None = None
-    sso_base = os.environ.get(config.sso.base_url_env, "").strip()
-    if sso_base:
-        redirect = _require_env(config.sso.redirect_url_env, hint="SSO 前端落地路由完整 URL")
-        pms_base = os.environ.get(config.pms.base_url_env, "").strip() or None
-        root_email = os.environ.get(config.sso.root_email_env, "").strip() or None
+    if _switched_on(SSO_BASE_URL_ENV):
+        env = _from_env(SsoEnv)
         sso = ResolvedSso(
-            base_url=sso_base,
+            base_url=env.base_url,
             app_name=config.sso.app_name,
-            redirect_url=redirect,
-            pms_base_url=pms_base,
-            root_email=root_email,
+            redirect_url=env.redirect_url,
+            pms_base_url=env.pms_base_url or None,
+            root_email=env.root_email or None,
         )
 
     redis: ResolvedRedis | None = None
     if config.redis is not None:
         redis = ResolvedRedis(
-            url=_require_env(config.redis.url_env, hint="Redis 连接串"),
+            url=_from_env(RedisEnv).url,
             replay_window_seconds=config.redis.replay_window_seconds,
             max_frames=config.redis.max_frames,
             max_connections=config.redis.max_connections,
         )
 
-    models = tuple(
-        ResolvedModel(
-            name=name,
-            provider=section.provider,
-            model=section.model or name,
-            api=section.api,
-            api_key=_require_env(section.api_key_env, hint=f"模型 {name} 的 API Key"),
-            base_url=section.base_url,
-        )
-        for name, section in config.models.items()
-    )
-
     return ResolvedSettings(
         app_name=config.app.name,
-        database_url=database_url,
+        database_url=core.database_url,
         db_schema=config.db.db_schema,
         security=ResolvedSecurity(
-            secret=secret,
+            secret=core.auth_secret,
             cookie_name=config.security.session_cookie_name,
             lifetime_seconds=config.security.session_lifetime_seconds,
             cookie_secure=config.security.cookie_secure,
@@ -256,6 +421,30 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
         ),
         sso=sso,
         redis=redis,
-        models=models,
+        media_generation=_resolve_media_generation(config.media_generation),
+        models=tuple(
+            ResolvedModel(
+                name=name,
+                provider=model.provider,
+                model=model.model or name,
+                api=model.api,
+                api_key=_require_model_key(name, model.api_key_env),
+                base_url=model.base_url,
+            )
+            for name, model in config.models.items()
+        ),
         log_level=config.ops.log_level,
     )
+
+
+def _require_model_key(name: str, env_name: str) -> str:
+    """取某个模型的 API Key。
+
+    这一处仍然是「按 YAML 里给的变量名去环境里取」：每个模型各自一个变量，变量名是
+    声明的一部分（见 ``ModelSection.api_key_env``），没法用写死的别名表达。
+    """
+
+    value = os.environ.get(env_name, "").strip()
+    if not value:
+        raise RuntimeError(f"缺少运行必需的环境变量 {env_name}（模型 {name} 的 API Key）")
+    return value

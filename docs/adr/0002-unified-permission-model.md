@@ -19,7 +19,7 @@ API key 有效权限 = key 显式授权集
 - **角色降格为权限集合的命名快捷方式**：代码内预置 `root`（全量计算，新权限自动流入）/ `editor` / `viewer`，无角色管理表、无角色 CRUD。用户持多角色（`users.roles` JSONB）+ 可选直接授权（`users.direct_permissions` JSONB）。
 - **签发权是一项普通权限**：新增 `api_keys:issue`，仅 root 角色持有——「API key 只能由 root 签发」不再是特判，而是同一词汇表内的门控。签发时仍校验授予集 ⊆ 签发者当下权限，且 API key 主体不能签发新 key（防套娃）。
 - **解析时不再与属主角色求交集**：key 有效权限就是显式授权集。放弃「属主降权 → key 即时降权」（签发已收敛到 root，该路径不复存在）；属主停用、key 吊销/过期仍即时 401。
-- **root 引导**：SSO 场景配置 `ICLIP_ROOT_EMAIL`（该邮箱登录即幂等持有 root）；非 SSO 场景走 `scripts/admin.py set-roles`。SSO/PMS 同步只在首次建号写默认角色（editor），此后不触碰 `roles`/`direct_permissions`——授权字段属主是 root，不是身份提供方。
+- **root 引导**：SSO 场景配置 `ROOT_EMAIL`（该邮箱登录即幂等持有 root）；非 SSO 场景走 `scripts/admin.py set-roles`。SSO/PMS 同步只在首次建号写默认角色（editor），此后不触碰 `roles`/`direct_permissions`——授权字段属主是 root，不是身份提供方。
 - **自我保护**：users:manage 持有者不能修改自己的授权（roles/直接授权）、不能停用自己。
 
 ## 后果
