@@ -1,6 +1,6 @@
 """integration_no_llm 夹具：真实 Postgres 三级解析 + 迁移 + app 装配。
 
-Postgres 解析顺序：显式 ``ICLIP_TEST_DATABASE_URL`` > testcontainers 本地兜底
+Postgres 解析顺序：显式 ``TEST_DATABASE_URL`` > testcontainers 本地兜底
 > 不可用即 skip（CI 必须提供 service container，因此 CI 永不静默 skip）。
 """
 
@@ -24,7 +24,6 @@ from iclip.config import (
     AppSection,
     DbSection,
     OpsSection,
-    PmsSection,
     RedisSection,
     ResolvedAgent,
     RuntimeConfig,
@@ -41,7 +40,7 @@ TEST_SECRET = "test-secret-0123456789-0123456789-xyz"
 
 @pytest.fixture(scope="session")
 def pg_url() -> Generator[str]:
-    explicit = os.environ.get("ICLIP_TEST_DATABASE_URL", "").strip()
+    explicit = os.environ.get("TEST_DATABASE_URL", "").strip()
     if explicit:
         yield explicit
         return
@@ -51,7 +50,7 @@ def pg_url() -> Generator[str]:
         try:
             from testcontainers.postgres import PostgresContainer  # 旧命名空间兜底
         except ImportError:
-            pytest.skip("无 ICLIP_TEST_DATABASE_URL 且未安装 testcontainers")
+            pytest.skip("无 TEST_DATABASE_URL 且未安装 testcontainers")
     try:
         container = PostgresContainer("postgres:16", driver="asyncpg")
         container.start()
@@ -71,14 +70,14 @@ def redis_url() -> Generator[str]:
     多起一个容器。
     """
 
-    explicit = os.environ.get("ICLIP_TEST_REDIS_URL", "").strip()
+    explicit = os.environ.get("TEST_REDIS_URL", "").strip()
     if explicit:
         yield explicit
         return
     try:
         from testcontainers.community.redis import RedisContainer
     except ImportError:
-        pytest.skip("无 ICLIP_TEST_REDIS_URL 且未安装 testcontainers 的 redis 模块")
+        pytest.skip("无 TEST_REDIS_URL 且未安装 testcontainers 的 redis 模块")
     try:
         container = RedisContainer("redis:7")
         container.start()
@@ -102,33 +101,27 @@ def migrated_pg(pg_url: str) -> str:
     return pg_url
 
 
-REDIS_URL_ENV = "ICLIP_TEST_REDIS_ENDPOINT"
-
-
 def make_runtime_config(*, with_redis: bool = False) -> RuntimeConfig:
+    """测试用的 YAML 形状。地址与凭证不在这里——它们由 env 提供（见 ``base_env``）。"""
+
     return RuntimeConfig(
         app=AppSection(name="iclip-test"),
-        db=DbSection(url_env="ICLIP_DATABASE_URL", schema="iclip"),
-        security=SecuritySection(secret_env="ICLIP_AUTH_SECRET"),
-        sso=SsoSection(
-            base_url_env="WANGOON_SSO_BASE_URL",
-            app_name="iclip",
-            redirect_url_env="ICLIP_SSO_REDIRECT_URL",
-        ),
-        pms=PmsSection(base_url_env="WANGOON_PMS_BASE_URL"),
-        redis=RedisSection(url_env=REDIS_URL_ENV) if with_redis else None,
+        db=DbSection(schema="iclip"),
+        security=SecuritySection(),
+        sso=SsoSection(app_name="iclip"),
+        redis=RedisSection() if with_redis else None,
         ops=OpsSection(log_level="WARNING"),
     )
 
 
 @pytest.fixture
 def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
-    monkeypatch.setenv("ICLIP_DATABASE_URL", migrated_pg)
-    monkeypatch.setenv("ICLIP_AUTH_SECRET", TEST_SECRET)
-    monkeypatch.delenv("WANGOON_SSO_BASE_URL", raising=False)
-    monkeypatch.delenv("WANGOON_PMS_BASE_URL", raising=False)
-    monkeypatch.delenv("ICLIP_SSO_REDIRECT_URL", raising=False)
-    monkeypatch.delenv("ICLIP_ROOT_EMAIL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", migrated_pg)
+    monkeypatch.setenv("AUTH_SECRET", TEST_SECRET)
+    monkeypatch.delenv("SSO_BASE_URL", raising=False)
+    monkeypatch.delenv("PMS_BASE_URL", raising=False)
+    monkeypatch.delenv("SSO_REDIRECT_URL", raising=False)
+    monkeypatch.delenv("ROOT_EMAIL", raising=False)
 
 
 async def _fresh_engine(url: str):
@@ -178,7 +171,7 @@ async def app(
     stream_url: str | None,
 ) -> AsyncGenerator[FastAPI]:
     if stream_url is not None:
-        monkeypatch.setenv(REDIS_URL_ENV, stream_url)
+        monkeypatch.setenv("REDIS_URL", stream_url)
     engine = await _fresh_engine(migrated_pg)
     try:
         yield build_app(
@@ -221,7 +214,7 @@ def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
 
 @pytest.fixture
 def root_email() -> str | None:
-    """测试可覆写：非空即启用 root 引导（ICLIP_ROOT_EMAIL）。"""
+    """测试可覆写：非空即启用 root 引导（ROOT_EMAIL）。"""
 
     return None
 
@@ -237,12 +230,12 @@ async def sso_app(
 ) -> AsyncGenerator[FastAPI]:
     """SSO 开启的 app；协议外呼经 MockTransport。"""
 
-    monkeypatch.setenv("WANGOON_SSO_BASE_URL", "https://sso.test")
-    monkeypatch.setenv("ICLIP_SSO_REDIRECT_URL", "https://app.test/auth/sso/landing")
+    monkeypatch.setenv("SSO_BASE_URL", "https://sso.test")
+    monkeypatch.setenv("SSO_REDIRECT_URL", "https://app.test/auth/sso/landing")
     if root_email:
-        monkeypatch.setenv("ICLIP_ROOT_EMAIL", root_email)
+        monkeypatch.setenv("ROOT_EMAIL", root_email)
     if pms_transport is not None:
-        monkeypatch.setenv("WANGOON_PMS_BASE_URL", "https://pms.test")
+        monkeypatch.setenv("PMS_BASE_URL", "https://pms.test")
 
     verifier = SsoVerifier(
         base_url="https://sso.test",
@@ -292,7 +285,7 @@ async def register_and_login(
 
 
 async def set_roles_in_db(pg_url: str, email: str, roles: list[str]) -> None:
-    """测试内的角色引导（生产路径是 ICLIP_ROOT_EMAIL / scripts/admin.py）。"""
+    """测试内的角色引导（生产路径是 ROOT_EMAIL / scripts/admin.py）。"""
 
     import json
 

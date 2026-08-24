@@ -72,7 +72,7 @@ _不是_：按内容高度或视窗变化可随意改写的状态。
 每条代码路径都必须成立；能机械守卫的已由门禁强制（见 AGENTS.md §7）。破坏任何一条是设计变更，不是重构。
 
 1. **登录态只存在于后端种的 HttpOnly `iclip_session` cookie**；`GET /api/users/me` 是登录态唯一事实源（经 react-query-auth 进 TanStack Query 缓存）。前端 JavaScript 不持有、不存储、不转发任何 token（[ADR-0001](docs/adr/0001-vite-spa-same-origin-no-bff.md)）。
-2. **浏览器只调用同源 `/api/*`**；vite proxy / 生产反代负责 `^/api` rewrite，cookie 自动携带，前端不注入 `Authorization` 头。Vite 不得把 `/api` 重定向到另一个 origin；host-only cookie 不跨 `localhost` / `127.0.0.1` 共享，同一登录会话必须固定 Host。`ICLIP_FRONTEND_PUBLIC_ORIGIN` 只定义 SSO 回跳的前端公开 origin。
+2. **浏览器只调用同源 `/api/*`**；vite proxy / 生产反代负责 `^/api` rewrite，cookie 自动携带，前端不注入 `Authorization` 头。Vite 不得把 `/api` 重定向到另一个 origin；host-only cookie 不跨 `localhost` / `127.0.0.1` 共享，同一登录会话必须固定 Host。`FRONTEND_PUBLIC_ORIGIN` 只定义 SSO 回跳的前端公开 origin。
 3. **身份只来自后端**：聊天、HITL 与 tool log 使用 `message.id` / `toolCallId`（加 part index）；Workspace artifact 使用 canonical path 派生的 `workspace:${path}`；不存在前端派生轮次 id。
 4. **画布持久化产物只从 Session Workspace list/read 恢复**；messages 只负责聊天渲染，`{ message, path }` 只触发重新读取。
 5. **`threadId === sessionId`**；session 运行态（messages、interrupts、eventIndex、stream lifecycle）只属于对应 `ProjectChatProvider(sessionId)`，project 层只管理列表、active、indicators 与订阅集合。`RUN_STARTED.runId` 只标识当前 AG-UI 生命周期；普通 run 的断流恢复只使用服务端提供的 `rawEvent.run_id + agui.event_index` 瞬态游标，前端不得假定两种 run id 相等。HITL continuation 的 `resume[]` 是一次性用户响应，断流后不得自动重发或与 `reconnect` 组合，只能在重新挂载后从 session restore 恢复。

@@ -83,7 +83,7 @@ Producer 当前是 Next.js 16（App Router）应用，实际形态是"重客户�
 
 > 原第 1 项"白名单移到后端"已取消：临时白名单已于 2026-07-08 从 BFF 直接删除，准入控制统一走后端既有的用户权限体系（`is_active` + RBAC 角色权限），不再有前端侧准入概念。
 
-1. **`ICLIP_SSO_REDIRECT_URL` 改指前端路由** `https://<前端域名>/auth/sso/landing`（现指向 BFF 的 `/api/auth/sso/landing`）。每个环境都要改。
+1. **`SSO_REDIRECT_URL` 改指前端路由** `https://<前端域名>/auth/sso/landing`（现指向 BFF 的 `/api/auth/sso/landing`）。每个环境都要改。
 2. **确认 `cookie_secure` 配置**：dev（http）必须为 `false`（否则浏览器不存 cookie），生产（https）为 `true`。
 3. **WS Origin 白名单**（`ws_api.py` 的 `_origin_allowed`）确认包含新前端 origin。
 4. （可选）公开 `GET /config` 返回 `ssoLoginEnabled`（idesign 后端做法）。不加也可行：SSO 关闭时 SSO router 不挂载（`identity/api.py:66` 条件挂载），前端探测 `GET /auth/sso/authorize` 是否 404 即可决定登录页要不要渲染 SSO 按钮。
@@ -298,7 +298,7 @@ Next 特有 API 替换点（调研已定位全部使用位置，量都很小）�
 | `NEXT_PUBLIC_PRODUCER_BACKEND_WS_URL` | **删除**（WS 同源相对路径） |
 | `NEXT_ALLOWED_DEV_ORIGINS` | 删除（如需要用 vite `server.allowedHosts`） |
 | `HOST` / `PORT`（scripts，:3013） | vite `server.port` 约定（建议保留 3013 减少环境联动） |
-| 后端侧 `ICLIP_SSO_REDIRECT_URL` | 改指前端 `/auth/sso/landing`（Phase 0） |
+| 后端侧 `SSO_REDIRECT_URL` | 改指前端 `/auth/sso/landing`（Phase 0） |
 
 所有客户端变量只从 `src/shared/config/env.ts` 读（zod 校验，新变量先进 `EnvSchema`）。
 
@@ -307,7 +307,7 @@ Next 特有 API 替换点（调研已定位全部使用位置，量都很小）�
 ## 6. 发布顺序
 
 1. 后端配置核对：`cookie_secure`、WS Origin 白名单（白名单准入已由既有用户权限体系承担，无后端代码变更）。
-2. 前端切换：部署 Vite dist + 反代；同步更新 `ICLIP_SSO_REDIRECT_URL`。
+2. 前端切换：部署 Vite dist + 反代；同步更新 `SSO_REDIRECT_URL`。
 3. 切换后浏览器里旧的 `producer_access_token` cookie 自然失效（无人读取），用户重新登录一次即可。
 4. 回滚路径：反代切回 Next 服务即可（Phase 0 的后端改动对旧 BFF 无破坏）。
 
@@ -321,7 +321,7 @@ Next 特有 API 替换点（调研已定位全部使用位置，量都很小）�
 | 2 | 会话时长语义变化：`producer_access_token` 固定 7 天 → 后端 `lifetime_seconds` 说了算 | 确认后端配置符合预期时长 |
 | 3 | AG-UI SSE 经代理断流/缓冲 | Phase 3 第一件事冒烟聊天流；生产 nginx `proxy_buffering off` + 长 `proxy_read_timeout` |
 | 4 | `cookie_secure=true` 时 http dev 环境浏览器不存 cookie（登录"成功"但无会话） | Phase 0 逐环境核对配置 |
-| 5 | `ICLIP_SSO_REDIRECT_URL` 是环境级配置，易漏改 | 发布 checklist 逐环境核对 |
+| 5 | `SSO_REDIRECT_URL` 是环境级配置，易漏改 | 发布 checklist 逐环境核对 |
 | 6 | dev(vite rewrite) 与 prod(nginx rewrite) 语义不一致导致"本地好的线上 404" | 两处 rewrite 规则在本文档 §3 固化为同一语义；e2e 跑生产构建 |
 | 7 | `/api/presign` 特殊映射易被想当然写成 `/api/files/presign` | §4c 已标注；迁移时对照 route.ts 逐个核对 |
 | 8 | 现网 WS 鉴权链路本就可疑（bearer 子协议后端不认） | 迁移时验证 WS 推送端到端可用，视为顺手修复 |

@@ -1,41 +1,53 @@
-# 唯一 Runtime Configuration。YAML 只存环境变量名（*_env），不存任何密钥值。
+# 唯一 Runtime Configuration。
+#
+# 这份文件说「装什么、什么形状」；地址与凭证一概不在这里，它们由环境变量提供，
+# 清单见 src/iclip/config/models.py 里那几个 *Env 类。
 app:
   name: iclip-agent
 
 db:
-  url_env: ICLIP_DATABASE_URL
   schema: iclip
 
 security:
-  secret_env: ICLIP_AUTH_SECRET
   session_cookie_name: iclip_session
   session_lifetime_seconds: 604800
   cookie_secure: false
   cors_allow_origins: []
 
 sso:
-  base_url_env: WANGOON_SSO_BASE_URL # env 为空即 SSO 关闭（/auth/sso/* 不挂载）
+  # 我们在对方那边注册的应用名。整项 SSO 的开关是 SSO_BASE_URL 这个环境变量：
+  # 为空即关闭（/auth/sso/* 不挂载）。
   app_name: iclip
-  redirect_url_env: ICLIP_SSO_REDIRECT_URL
-  root_email_env: ICLIP_ROOT_EMAIL # 该邮箱 SSO 登录即自动持有 root 角色；env 为空即关闭引导
-
-pms:
-  base_url_env: WANGOON_PMS_BASE_URL # env 为空即关闭 SSO 登录时的 PMS 资料同步
 
 redis:
-  # agent 运行的事件流。声明了 agent 就必须配这一段，否则启动即报错。
-  url_env: ICLIP_REDIS_URL
+  # agent 运行的事件流。声明了 agent 就必须有这一段，否则启动即报错；地址在
+  # REDIS_URL。
   replay_window_seconds: 3600 # 运行结束后事件还能重放多久
   max_frames: 100000 # 单次运行的事件上限，超了就中断（可重试）
   max_connections: 64 # 同时能有多少人在读事件流：每个读者占住一条连接
 
+media_generation:
+  # 媒体生成。开关是 VIDEO_SUBMIT_URL 这个环境变量：为空即整项关闭（/generations
+  # 不挂载、后台不跑）；一旦非空，那一组地址与对象存储的凭证就都是必需的。
+  video:
+    model: mmt-seedance-2-0 # 对方的模型名，不是本仓 models 段里的键
+    user_name: iclip-agent # 对方要求的稳定调用方标识，用于它那边对账
+  image:
+    user_name: iclip-agent
+  # 后台队列的节奏。并发、错误重试间隔、关停宽限、心跳是实现细节，默认值在代码里。
+  poll_interval_seconds: 5 # 每隔多久查一次状态（固定间隔，不做退避）
+  job_timeout_seconds: 3600 # 提交后超过这么久还没终态就判失败
+
 models:
   # 键名即模型名，也是 agents.yaml 里 model 字段引用的名字。
   # provider 是官方 provider 名，决定厂商适配；api 不写即 chat。
+  #
+  # api_key_env 是这里唯一还留着「变量名」的地方：每个模型各自一把 key，用哪个变量
+  # 取是这条声明的一部分，没法用一套写死的名字表达。
   qwen3.8-max:
     provider: alibaba
     api: responses
-    api_key_env: ALIBABA_API_KEY
+    api_key_env: MODEL_API_KEY
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 新加坡站换 dashscope-intl
 
 ops:

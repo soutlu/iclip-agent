@@ -23,8 +23,8 @@ def main() -> None:
     if args.reload and args.workers > 1:
         parser.error("--reload 与多 worker 互斥")
 
-    os.environ["ICLIP_CONFIG_FILE"] = args.config
-    os.environ["ICLIP_AGENTS_FILE"] = args.agents
+    os.environ["CONFIG_FILE"] = args.config
+    os.environ["AGENTS_FILE"] = args.agents
     uvicorn.run(
         "iclip.asgi:app",
         host=args.host,

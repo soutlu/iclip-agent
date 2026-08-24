@@ -36,9 +36,9 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      ICLIP_TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
       # CI 上不许静默 skip：这两个都给了，跑不起来就是红的。
-      ICLIP_TEST_REDIS_URL: redis://localhost:6379/0
+      TEST_REDIS_URL: redis://localhost:6379/0
     defaults:
       run:
         working-directory: server
@@ -59,7 +59,7 @@ jobs:
         run: uv run pytest -m "unit or integration_no_llm"
       - name: Alembic to head against service Postgres
         env:
-          ICLIP_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
         run: uv run alembic upgrade head
 
   web:
