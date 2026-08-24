@@ -48,7 +48,7 @@ def declared_agent(tmp_path: Path) -> ResolvedAgent:
         instructions=None,
         model="m",
         skills=None,
-        packs=(),
+        capabilities=(),
         subagents=(),
     )
 

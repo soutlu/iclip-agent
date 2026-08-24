@@ -136,7 +136,7 @@ async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
 async def frames(registry: AgentRegistry, agent_id: str, body: bytes = BODY) -> list[str]:
     """跑一次，收下全部编码帧。"""
 
-    return [text async for text, _ in registry.start(agent_id, body, None).frames]
+    return [text async for text, _ in registry.start(agent_id, body, lambda _: None).frames]
 
 
 async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
@@ -177,7 +177,8 @@ async def test_stream_emits_protocol_frames(tmp_path: Path) -> None:
     )
 
     collected = [
-        (text, last) async for text, last in registry.start("storyboard", BODY, None).frames
+        (text, last)
+        async for text, last in registry.start("storyboard", BODY, lambda _: None).frames
     ]
 
     # 首帧固定是 RUN_STARTED，并把客户端给的那两个 id 原样带回去。
@@ -332,7 +333,12 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
 
     # 协议面这条路：deps 由 start 传入。
     body = "".join(
-        [text async for text, _ in registry.start("storyboard", BODY, Caller("经协议面")).frames]
+        [
+            text
+            async for text, _ in registry.start(
+                "storyboard", BODY, lambda _: Caller("经协议面")
+            ).frames
+        ]
     )
     assert "经协议面" in body
 
@@ -346,7 +352,28 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
 def test_unknown_id_raises_not_found_before_streaming(tmp_path: Path) -> None:
     registry = build_agent_registry((), step_store=store(), models=models())
     with pytest.raises(NotFound, match="未注册的 agent"):
-        registry.start("ghost", BODY, None)
+        registry.start("ghost", BODY, lambda _: None)
+
+
+def test_empty_thread_id_raises_validation_failed_before_streaming(tmp_path: Path) -> None:
+    """协议把 threadId 标成必填，但空串照样过 pydantic。
+
+    会话 id 是要拿去分隔离段的（工作区就按它分文件夹），空的当不了段。所以在这
+    一层——拥有协议的这一层——就拒掉，而不是让它一路漂到某个存储层去报一句看不懂
+    的话。这里就位也意味着它发生在开流之前，客户端拿到的是一个正常的错误响应。
+    """
+
+    spec = make_spec(tmp_path, "storyboard")
+    registry = build_agent_registry(
+        (AgentDefinition(agent_id="storyboard", spec=spec, model=MODEL_NAME),),
+        step_store=store(),
+        models=models(),
+    )
+    called: list[str] = []
+    with pytest.raises(ValidationFailed, match="threadId"):
+        registry.start("storyboard", run_input_bytes(thread_id=""), lambda cid: called.append(cid))
+    # 拒在造依赖之前：宿主的回调根本没被调用过。
+    assert called == []
 
 
 def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path) -> None:
@@ -357,7 +384,7 @@ def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path
         models=models(),
     )
     with pytest.raises(ValidationFailed):
-        registry.start("storyboard", b'{"nope": true}', None)
+        registry.start("storyboard", b'{"nope": true}', lambda _: None)
 
 
 def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:

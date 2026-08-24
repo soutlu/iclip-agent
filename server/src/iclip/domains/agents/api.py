@@ -10,12 +10,13 @@ HTTP 请求之外，所以客户端断开只是没人读了，运行不会被取
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal, require_permission
 
 JSON_MEDIA_TYPE = "application/json"
@@ -31,11 +32,22 @@ _SSE_HEADERS = {
 class AgentRuns(Protocol):
     """agent 运行的入口：发起、定位、读事件。"""
 
-    async def open(self, *, owner: str, agent_id: str, body: bytes, deps: Principal) -> str:
+    async def open(
+        self,
+        *,
+        owner: str,
+        agent_id: str,
+        body: bytes,
+        deps: Callable[[str], AgentRunDeps],
+    ) -> str:
         """发起一次运行（已经在跑就什么都不做），返回它的流名字。
 
-        ``deps`` 是这次运行的可信身份，工具执行时经 ``ctx.deps`` 取用。它与
-        ``owner`` 分开传：后者只用来算流的名字，而这个要一路进到运行里去。
+        ``deps`` 造出这次运行的依赖，工具执行时经 ``ctx.deps`` 取用。给的是函数
+        而不是现成的对象，因为依赖里有一半在这一层还拿不到：会话 id 在请求体
+        里，而请求体是 AG-UI 协议的形状，解析它是围栏另一侧的事。所以这一层给
+        身份，那一层解析出会话 id 之后回调这个函数把两半拼起来。
+
+        它与 ``owner`` 分开传：后者只用来算流的名字，这个要一路进到运行里去。
         """
         ...
 
@@ -83,14 +95,25 @@ def create_agents_router(runs: AgentRuns) -> APIRouter:
                 status_code=415,
                 content={"detail": f"需要 Content-Type: {JSON_MEDIA_TYPE}"},
             )
+
+        def deps_for(conversation_id: str) -> AgentRunDeps:
+            """把这次运行的身份与它所属的对话绑成一个对象。
+
+            身份在这里捕获一次、随运行冻结（运行脱离了这次 HTTP 请求，跑到一半
+            吊销 key 不会中断它）。工具的授权与审计只认这个对象里的 principal，
+            不认请求体里的任何字段。
+
+            会话 id 由围栏另一侧解析并校验后回调进来（它是协议字段，归拥有协议
+            的那一层管），这里只负责把两半拼起来。
+            """
+
+            return AgentRunDeps(principal=principal, conversation_id=conversation_id)
+
         run_key = await runs.open(
             owner=str(principal.user_id),
             agent_id=agent_id,
             body=await request.body(),
-            # 运行带着发起它的那个主体跑到底：工具的授权与审计只认这个对象，
-            # 不认请求体里的任何字段。运行脱离了这次 HTTP 请求，所以身份是在
-            # 这里捕获一次、随运行冻结（跑到一半吊销 key 不会中断它）。
-            deps=principal,
+            deps=deps_for,
         )
         return _stream(await runs.feed(run_key, after=None))
 

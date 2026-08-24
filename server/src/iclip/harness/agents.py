@@ -3,12 +3,12 @@
 装配在启动期完成并冻结，运行期只按 id 取用。每个 agent（含子代理）挂官方
 ``StepPersistence`` 落 ``step_store``，模型从传入的 ``models`` 表按名字取
 （spec 里的 ``model:`` 被覆盖），能力从传入的 ``capabilities`` 挂（skill 库与
-业务能力包都由组合根译好，本模块不认识它们是什么）。
+capability 都由组合根译好，本模块不认识它们是什么）。
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,7 +27,7 @@ from iclip.common.errors import NotFound, ValidationFailed
 from iclip.harness.models import BuiltModels
 
 AgentCapabilities = tuple[AgentCapability[Any], ...]
-"""一组待挂载的能力；具体来自 skill 还是业务能力包由组合根决定。"""
+"""一组待挂载的能力；具体来自 skill 还是名字表由组合根决定。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,7 +192,7 @@ class AgentRegistry:
     def ids(self) -> tuple[str, ...]:
         return tuple(self.agents)
 
-    def start(self, agent_id: str, body: bytes, deps: object) -> RunHandle:
+    def start(self, agent_id: str, body: bytes, deps: Callable[[str], object]) -> RunHandle:
         """准备一次运行：校验请求，返回运行 id 和一个还没开始跑的帧流。
 
         未注册的 id 抛 ``NotFound``、请求体形状不合法抛 ``ValidationFailed``，
@@ -205,9 +205,13 @@ class AgentRegistry:
         找回同一条流；落库时不看它——库里那条运行记录的 id 是服务端自己生成
         的，所以拿客户端的运行 id 去库里查一次运行，是查不到的。
 
-        ``deps`` 是宿主给这次运行的依赖，被返回的帧流闭包捕获，运行真正跑起来
-        时交给官方接口。它是**每次运行**传进来的，不是装配期挂在 agent 上的——
-        注册表是启动期冻结的共享对象，把身份挂上去就串了人。
+        ``deps`` 造出宿主给这次运行的依赖：会话 id 是从这里解析出来的（宿主那
+        一层拿不到，请求体是协议的形状），所以它拿会话 id 回调宿主，宿主把依赖
+        拼全。结果被返回的帧流闭包捕获，运行真正跑起来时交给官方接口。
+
+        依赖是**每次运行**传进来的，不是装配期挂在 agent 上的——注册表是启动期
+        冻结的共享对象，把身份挂上去就串了人。宿主在这个回调里抛出的错误也发生
+        在开流之前，所以它照样能变成一个正常的错误响应。
         """
 
         agent = self.agents.get(agent_id)
@@ -217,8 +221,14 @@ class AgentRegistry:
             run_input = AGUIAdapter.build_run_input(body)
         except ValidationError as exc:
             raise ValidationFailed("请求体不符合 AG-UI 协议") from exc
+        if not run_input.thread_id:
+            # 协议把 threadId 标成必填，但空串照样过 pydantic。会话 id 是要拿去
+            # 分隔离段的，空的当不了段，所以在这里（拥有协议的这一层）就拒掉，
+            # 而不是让它一路漂到某个存储层报一句看不懂的话。
+            raise ValidationFailed("请求体的 threadId 是空的")
         adapter = AGUIAdapter[Any, Any](agent=agent, run_input=run_input)
-        return RunHandle(run_id=run_input.run_id, frames=_encoded_frames(adapter, deps))
+        resolved = deps(run_input.thread_id)
+        return RunHandle(run_id=run_input.run_id, frames=_encoded_frames(adapter, resolved))
 
 
 def build_agent_registry(

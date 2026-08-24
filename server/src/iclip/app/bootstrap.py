@@ -11,8 +11,13 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import BlockingConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
+from iclip.app.capability_table import (
+    CapabilityTable,
+    build_capability_table,
+    resolve_capabilities,
+)
 from iclip.app.logging import configure_logging
-from iclip.app.packs import resolve_packs
+from iclip.capabilities.workspace.infra_sql import PgWorkspaceStore
 from iclip.common.errors import DomainError
 from iclip.config import (
     ResolvedAgent,
@@ -44,19 +49,25 @@ from iclip.platform.http import status_code_for
 
 
 def _capabilities(
-    skills: SkillMount | None, packs: Sequence[str], *, declared_by: str
+    skills: SkillMount | None,
+    names: Sequence[str],
+    *,
+    table: CapabilityTable,
+    declared_by: str,
 ) -> AgentCapabilities:
     """把声明里的名字翻译成真的能力实例。
 
-    skill 与能力包都是「不写即不挂」，所以两边都空就是一个空元组——这个 agent
-    只有 spec 与提示词。
+    skill 与 capability 都是「不写即不挂」，所以两边都空就是一个空元组——这个
+    agent 只有 spec 与提示词。
     """
 
     mounted = build_skill_capabilities(skills.library, skills.names) if skills else ()
-    return (*mounted, *resolve_packs(packs, declared_by=declared_by))
+    return (*mounted, *resolve_capabilities(names, table=table, declared_by=declared_by))
 
 
-def _agent_definitions(declared: Sequence[ResolvedAgent]) -> tuple[AgentDefinition, ...]:
+def _agent_definitions(
+    declared: Sequence[ResolvedAgent], *, table: CapabilityTable
+) -> tuple[AgentDefinition, ...]:
     """把配置环的声明翻译成 harness 的入参类型。
 
     harness 环只依赖 common，读不到 config——这层翻译是组合根的活，
@@ -70,7 +81,10 @@ def _agent_definitions(declared: Sequence[ResolvedAgent]) -> tuple[AgentDefiniti
             model=agent.model,
             instructions=agent.instructions,
             capabilities=_capabilities(
-                agent.skills, agent.packs, declared_by=f"agent {agent.agent_id}"
+                agent.skills,
+                agent.capabilities,
+                table=table,
+                declared_by=f"agent {agent.agent_id}",
             ),
             subagents=tuple(
                 SubAgentDefinition(
@@ -79,7 +93,10 @@ def _agent_definitions(declared: Sequence[ResolvedAgent]) -> tuple[AgentDefiniti
                     model=sub.model,
                     instructions=sub.instructions,
                     capabilities=_capabilities(
-                        sub.skills, sub.packs, declared_by=f"子 agent {sub.name}"
+                        sub.skills,
+                        sub.capabilities,
+                        table=table,
+                        declared_by=f"子 agent {sub.name}",
                     ),
                     timeout_seconds=sub.timeout_seconds,
                     max_calls=sub.max_calls,
@@ -166,9 +183,11 @@ def build_app(
         sso_verifier=sso_verifier,
         pms_client=pms_client,
     )
-    # step store 与 identity 共用同一个 engine（表在 agent_runtime schema）。
+    # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     agent_registry = build_agent_registry(
-        _agent_definitions(agents),
+        _agent_definitions(
+            agents, table=build_capability_table(workspace_store=PgWorkspaceStore(active_engine))
+        ),
         step_store=PgStepStore(active_engine),
         models=build_models(_model_specs(settings.models)) if models is None else models,
     )

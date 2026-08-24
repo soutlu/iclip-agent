@@ -7,7 +7,8 @@
 # 每个 spec 同目录下的 instructions.md 会作为提示词自动并入（没有该文件即不并）。
 #
 # skills 从本文件同级的 skills/ 库里按目录名挑（一个子目录一个 skill，含 SKILL.md）；
-# packs 是业务能力包名，实现登记在 src/iclip/app/packs.py。两者都是不写即不挂，
+# capabilities 是 capability 名，实现登记在 src/iclip/app/capability_table.py；目前已
+# 登记的是 workspace（一段对话一个文本工作区，主 agent 与下属共用）。两者都是不写即不挂，
 # 而且子 agent 不继承主 agent 的——下属只拥有显式给它的那几样。
 #
 # 形状示例（真实内容由使用者填写）：
@@ -18,8 +19,8 @@
 #     model: qwen3.8-max
 #     skills:                            # 挑 skills/ 库里的哪几个
 #       - storyboard-workflow
-#     packs:                             # 挂哪几个业务能力包
-#       - video
+#     capabilities:                      # 挂哪几个 capability
+#       - workspace
 #
 #   producer:                            # 主 + 从
 #     spec: producer/agent.yaml

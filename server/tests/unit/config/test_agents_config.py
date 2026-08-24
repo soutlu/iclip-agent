@@ -94,7 +94,7 @@ def test_subagent_controls_parsed(tmp_path: Path) -> None:
     assert (sub.timeout_seconds, sub.max_calls, sub.on_failure) == (180.0, 3, "就此收手")
 
 
-def test_skills_and_packs_resolve_per_agent(tmp_path: Path) -> None:
+def test_skills_and_capabilities_resolve_per_agent(tmp_path: Path) -> None:
     """主从各挂各的：下属不继承主 agent 的 skill 与能力包。"""
 
     make_agent_dir(tmp_path, "producer")
@@ -107,7 +107,7 @@ def test_skills_and_packs_resolve_per_agent(tmp_path: Path) -> None:
         "    spec: producer/agent.yaml\n"
         "    model: qwen\n"
         "    skills: [拆解素材]\n"
-        "    packs: [video]\n"
+        "    capabilities: [video]\n"
         "    subagent:\n"
         "      - spec: shot-writer/agent.yaml\n"
         "        model: qwen\n"
@@ -120,10 +120,10 @@ def test_skills_and_packs_resolve_per_agent(tmp_path: Path) -> None:
     assert declared.skills is not None
     assert declared.skills.library == (tmp_path / "skills").resolve()
     assert declared.skills.names == ("拆解素材",)
-    assert declared.packs == ("video",)
+    assert declared.capabilities == ("video",)
     # 下属只有显式给它的那一样：挂了 skill，没挂能力包。
     assert sub.skills is not None and sub.skills.names == ("拆解素材",)
-    assert sub.packs == ()
+    assert sub.capabilities == ()
 
 
 def test_no_skills_declared_mounts_nothing(tmp_path: Path) -> None:
