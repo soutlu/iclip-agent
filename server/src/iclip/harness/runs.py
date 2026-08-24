@@ -91,16 +91,25 @@ class RunBroker:
             )
         return f"{owner}:{agent_id}:{run_id}"
 
-    async def open(self, *, owner: str, agent_id: str, body: bytes) -> str:
+    async def open(self, *, owner: str, agent_id: str, body: bytes, deps: object) -> str:
         """发起一次运行，返回它在流里的名字。
 
         同一个运行 id 再来一次不会重复跑：抢不到生产权就说明已经有人在跑（或
         者刚跑完、事件还在重放窗口里），这次调用只是把名字算出来给人去读。
 
         未注册的 agent 与不合协议的请求体都在这里就抛出来，还没开始流。
+
+        ``deps`` 是宿主给这次运行的依赖（本仓传的是可信主体），类型写 ``object``
+        并且全程不解包——这一层不认识业务，它只负责把东西送到官方接口手上。
+        ``owner`` 不能拿它来推：那是流名字的归属段，得是个字符串。
+
+        一次运行被判中断（生产者没留下结局）后客户端重发，那是**一次新的运行、
+        新捕获一次身份**——用重发者当时的主体，不去把上一次的身份从什么地方复
+        活。也没有可复活的地方：谁跑的那次运行并没有落库（见 architecture.md
+        §7 的表结构），而进程内存里的东西不是可信事实源。
         """
 
-        handle = self._registry.start(agent_id, body)
+        handle = self._registry.start(agent_id, body, deps)
         run_key = self._run_key(owner, agent_id, handle.run_id)
         if await self._stream.claim(run_key, lease_seconds=self._settings.lease_seconds):
             task = asyncio.create_task(self._produce(run_key, handle.frames))

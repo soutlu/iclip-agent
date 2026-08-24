@@ -1,8 +1,10 @@
 from iclip.config.agents import (
     AgentsDeclaration,
     AgentSection,
+    CapabilitySection,
     ResolvedAgent,
     ResolvedSubAgent,
+    SkillMount,
     SubAgentSection,
     load_agent_declarations,
 )
@@ -29,6 +31,7 @@ __all__ = [
     "AgentSection",
     "AgentsDeclaration",
     "AppSection",
+    "CapabilitySection",
     "DbSection",
     "ModelSection",
     "OpsSection",
@@ -43,6 +46,7 @@ __all__ = [
     "ResolvedSubAgent",
     "RuntimeConfig",
     "SecuritySection",
+    "SkillMount",
     "SsoSection",
     "SubAgentSection",
     "load_agent_declarations",

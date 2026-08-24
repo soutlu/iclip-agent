@@ -52,6 +52,8 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
             spec=spec,
             instructions=None,
             model=TEST_MODEL_NAME,
+            skills=None,
+            packs=(),
             subagents=(),
         ),
     )

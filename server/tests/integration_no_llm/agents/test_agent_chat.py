@@ -43,12 +43,16 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
             spec=parent,
             instructions=None,
             model=TEST_MODEL_NAME,
+            skills=None,
+            packs=(),
             subagents=(
                 ResolvedSubAgent(
                     name="shot-writer",
                     spec=child,
                     instructions=None,
                     model=TEST_MODEL_NAME,
+                    skills=None,
+                    packs=(),
                     timeout_seconds=180,
                     max_calls=3,
                     on_failure=None,
