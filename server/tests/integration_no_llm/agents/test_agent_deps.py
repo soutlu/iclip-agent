@@ -20,7 +20,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AgentCapability, Capability
 
 from iclip.config import ResolvedAgent
-from iclip.domains.identity.public import Principal
+from iclip.domains.agents.public import AgentRunDeps
 from tests.helpers.agui import run_input, sse_events
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
@@ -33,18 +33,23 @@ AGENT_ID = "storyboard"
 URL = f"/agents/{AGENT_ID}/chat"
 
 
-def identity_pack() -> tuple[AgentCapability[Principal], ...]:
-    """一个只做一件事的能力包：把工具看到的主体报出来。
+def identity_capability() -> tuple[AgentCapability[AgentRunDeps], ...]:
+    """一件只做一件事的能力：把工具看到的运行依赖报出来。
 
-    工具按 ``RunContext[Principal]`` 写——这就是业务能力包里工具的形状。
+    工具按 ``RunContext[AgentRunDeps]`` 写——这就是能力里工具的形状。
     """
 
-    def whoami(ctx: RunContext[Principal]) -> str:
+    def whoami(ctx: RunContext[AgentRunDeps]) -> str:
         """报出当前调用方。"""
 
-        return ctx.deps.audit_label
+        return ctx.deps.principal.audit_label
 
-    return (Capability[Principal](id="identity", tools=[whoami]),)
+    def which_conversation(ctx: RunContext[AgentRunDeps]) -> str:
+        """报出这次运行所属的对话。"""
+
+        return ctx.deps.conversation_id
+
+    return (Capability[AgentRunDeps](id="identity", tools=[whoami, which_conversation]),)
 
 
 @pytest.fixture
@@ -60,22 +65,30 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
             instructions=None,
             model=TEST_MODEL_NAME,
             skills=None,
-            packs=("identity",),
+            capabilities=("identity",),
             subagents=(),
         ),
     )
 
 
 @pytest.fixture(autouse=True)
-def registered_pack(monkeypatch: pytest.MonkeyPatch) -> None:
-    """把上面那个包登记进名字表，让声明里的 packs: [identity] 解析得到。"""
+def registered_capability(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把上面那件能力登记进名字表，让声明里的 capabilities: [identity] 解析得到。
 
-    from iclip.app import packs
+    名字表由组合根建起来（能力要拿运行期的存储后端），所以这里替的是组合根手里
+    那个函数，而不是某个模块级常量。
+    """
 
-    monkeypatch.setattr(packs, "PACKS", {"identity": identity_pack})
+    from iclip.app import bootstrap
+    from iclip.app.capability_table import CapabilityTable
+
+    def only_identity(**_: object) -> CapabilityTable:
+        return {"identity": identity_capability()}
+
+    monkeypatch.setattr(bootstrap, "build_capability_table", only_identity)
 
 
-async def whoami_said(client: httpx.AsyncClient, run_id: str) -> list[str]:
+async def tools_said(client: httpx.AsyncClient, run_id: str) -> list[str]:
     """跑一次，取出工具实际返回的那几个字。
 
     官方 ``test`` 模型会把每个可见工具都调一遍，所以工具的返回值以
@@ -91,12 +104,21 @@ async def whoami_said(client: httpx.AsyncClient, run_id: str) -> list[str]:
     return [event["content"] for event in sse_events(raw) if event["type"] == "TOOL_CALL_RESULT"]
 
 
+def said_by(reported: list[str], *, among: set[str]) -> list[str]:
+    """从工具返回值里挑出属于某一组的那些（``test`` 模型会把每个工具都调一遍）。"""
+
+    return [value for value in reported if value in among]
+
+
 async def test_tool_receives_the_caller_principal(client: httpx.AsyncClient, pg_url: str) -> None:
     await register_and_login(client, username="caller-alpha", email="alpha@example.com")
     await set_roles_in_db(pg_url, "alpha@example.com", ["editor"])
 
     # audit_label 是 username（没有 username 才退到 email）。
-    assert await whoami_said(client, "run-whoami") == ["caller-alpha"]
+    reported = await tools_said(client, "run-whoami")
+    assert "caller-alpha" in reported
+    # 对话 id 也一路到了工具手上——工作区就是按它分文件夹的。
+    assert "thread-run-whoami" in reported
 
 
 async def test_each_run_carries_its_own_principal(
@@ -106,12 +128,13 @@ async def test_each_run_carries_its_own_principal(
 
     await register_and_login(client, username="caller-alpha", email="alpha@example.com")
     await set_roles_in_db(pg_url, "alpha@example.com", ["editor"])
-    mine = await whoami_said(client, "run-mine")
+    names = {"caller-alpha", "caller-beta"}
+    mine = await tools_said(client, "run-mine")
 
     async with make_client(app) as other:
         await register_and_login(other, username="caller-beta", email="beta@example.com")
         await set_roles_in_db(pg_url, "beta@example.com", ["editor"])
-        theirs = await whoami_said(other, "run-theirs")
+        theirs = await tools_said(other, "run-theirs")
 
-    assert mine == ["caller-alpha"]
-    assert theirs == ["caller-beta"]
+    assert said_by(mine, among=names) == ["caller-alpha"]
+    assert said_by(theirs, among=names) == ["caller-beta"]

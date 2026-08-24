@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
 from ag_ui.core import RunErrorEvent
@@ -91,7 +91,9 @@ class RunBroker:
             )
         return f"{owner}:{agent_id}:{run_id}"
 
-    async def open(self, *, owner: str, agent_id: str, body: bytes, deps: object) -> str:
+    async def open(
+        self, *, owner: str, agent_id: str, body: bytes, deps: Callable[[str], object]
+    ) -> str:
         """发起一次运行，返回它在流里的名字。
 
         同一个运行 id 再来一次不会重复跑：抢不到生产权就说明已经有人在跑（或
@@ -99,9 +101,9 @@ class RunBroker:
 
         未注册的 agent 与不合协议的请求体都在这里就抛出来，还没开始流。
 
-        ``deps`` 是宿主给这次运行的依赖（本仓传的是可信主体），类型写 ``object``
-        并且全程不解包——这一层不认识业务，它只负责把东西送到官方接口手上。
-        ``owner`` 不能拿它来推：那是流名字的归属段，得是个字符串。
+        ``deps`` 是造依赖的函数（注册表解析出会话 id 后回调它），返回类型写
+        ``object`` 并且全程不解包——这一层不认识业务，它只负责把东西送到官方接口
+        手上。``owner`` 不能拿它来推：那是流名字的归属段，得是个字符串。
 
         一次运行被判中断（生产者没留下结局）后客户端重发，那是**一次新的运行、
         新捕获一次身份**——用重发者当时的主体，不去把上一次的身份从什么地方复

@@ -40,12 +40,14 @@
 | T-SSO-04 | integration_no_llm | 同邮箱既有账号首次 SSO 登录：只关联身份，不重置 roles/直接授权（资料字段照常同步） | 身份提供方改写授权 |
 | T-WS-01 | integration_no_llm | WS 握手 principal 解析：cookie（同源/白名单/非法 Origin 拒 1008）与 Bearer 各分支 | 双主体传输无关 |
 | T-USERS-01 | integration_no_llm | `GET /users` / `PATCH /users/{id}` 仅 users:manage；调整角色/直接授权即时生效；不能改自己的授权或停用自己 | 越权 |
-| T-MIG-01 | integration_no_llm | alembic upgrade head 于 scratch 环境成功；`iclip` schema 下的表结构与 identity 的 ORM 元数据零漂移（`agent_runtime` 的五张表不在断言内） | 迁移漂移 |
+| T-MIG-01 | integration_no_llm | alembic upgrade head 于 scratch 环境成功；`iclip` schema 下的表结构与 identity 的 ORM 元数据零漂移（`agent_runtime` 的表不在断言内，往该 schema 加表须人工 `make db-upgrade` 确认） | 迁移漂移 |
 | T-STORE-01 | integration_no_llm | PG step store 满足官方 `StepStore` / `MediaStore` 协议；register 单发、list_runs 排序与过滤、快照 complete/interrupted 读门、保留集裁剪、tool_effects upsert | 与官方语义漂移 |
 | T-STORE-02 | integration_no_llm | 真实 Agent（FunctionModel）挂官方 StepPersistence 跑通：运行/事件/工具账落库，续跑历史与 `all_messages()` 解析成 JSON 后结构一致 | 运行历史不可续 |
 | T-STORE-03 | integration_no_llm | 消息负载无损往返：含 `NUL(\u0000)` 转义的文本、≥64KiB 媒体外置与还原 | 存储层静默损坏 |
 | T-AGENTRUN-01 | integration_no_llm | 真实 app + 真实用户：匿名 401、viewer 403、editor 跑通 `test` 模型 200 流；未注册 id 404、非 JSON 415、坏 body 422、OPTIONS 不放行 | 双主体与 agent 运行面的联动 |
 | T-SKILL-01 | unit | 声明的 skill 名不在库里 → 装配期报错；声明了 skill 却没有库目录 → 加载期报错；空列表与不写同义（都不挂、也不要求库存在）；库与 `get_skill_reference` 成对挂载 | 静默降级成「没挂」 |
+| T-WORKSPACE-01 | unit | 路径语法（`..`/绝对路径/反斜杠/控制字符/超长超深一律拒；`//` 与首斜杠规范化；Unicode 两种写法归一成同一文件）；命名空间是 `{user}/{conversation}`、deps 不对时 `for_run` 即失败（不退回公共命名空间）；同一用户两段对话互不可见；**下属写、主 agent 读回来走同一个文件夹**（改成读 `ctx.conversation_id` 此断言即红）；六件工具的行为与错误翻译（读不到/读越界/`old_text` 零次或多次匹配/删不存在/配额两种上限各自的自救提示）；`list` 按段边界限定；检索大小写不敏感且 `%` 为字面量、少报要标注；能力 id 写死、`get_serialization_name()` 为 None；**挂到真 Agent 上跑通**（六件工具都到模型面前、文件落进发起方的命名空间） | 越界访问 / 静默改错地方 / 静默少给 / 装配面接不上 |
+| T-WORKSPACE-02 | integration_no_llm | `PgWorkspaceStore` 对真库：生成列 `size_bytes` 与内容一致；CAS 报出实际版本、对已删文件报冲突而非静默新建；NUL 字节在驱动之前被拒；**并发写不同路径时命名空间配额仍关严**（预热连接池后两个写真交错，摘掉 advisory 锁此断言即红）；覆盖只算差量；列目录按码位序（显式 `COLLATE "C"`，不吃服务器 locale）与段边界；命名空间互不可见 | 配额被并发撑爆 / 排序随部署漂移 / 静默重建 |
 | T-SKILL-02 | unit | `get_skill_reference`（经真 Agent 调用）：授权 skill 的 `.md` 读得到；没挂载的 skill、越界路径（`..`/绝对路径）、非 `.md`、不存在 → 可重试提示且报出有哪些文件；超上限截断且显式标注；编码坏了直接失败不重试 | 越权读别人的 references / 静默少给一段 / 模型在重试上打转 |
 | T-DEPS-01 | unit | `start` 收到的 deps 一路进到工具的 `ctx.deps`（协议面与官方 `override(deps=…)` 两条路各验一次）| 工具拿不到宿主依赖 |
 | T-DEPS-02 | integration_no_llm | 完整 HTTP 路径：工具拿到的是发起这次运行的主体；两个用户各跑一次，各拿自己的主体 | 身份串人 / deps 被装配期捕获 |

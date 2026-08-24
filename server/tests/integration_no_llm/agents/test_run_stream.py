@@ -50,7 +50,7 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
             instructions=None,
             model=TEST_MODEL_NAME,
             skills=None,
-            packs=(),
+            capabilities=(),
             subagents=(),
         ),
     )
@@ -137,7 +137,7 @@ async def test_expired_replay_window_is_refused(tmp_path: Path, redis_client: Re
         owner=OWNER,
         agent_id=AGENT_ID,
         body=json.dumps(run_input(run_id="run-window")).encode(),
-        deps=None,
+        deps=lambda _: None,
     )
     async for _ in await broker.feed(run_key, after=None):
         pass
@@ -187,12 +187,12 @@ async def test_second_post_appends_nothing(tmp_path: Path, redis_client: Redis) 
 
     broker = broker_for(tmp_path, redis_client, RunStreamSettings(block_ms=200))
     body = json.dumps(run_input(run_id="run-twice")).encode()
-    run_key = await broker.open(owner=OWNER, agent_id=AGENT_ID, body=body, deps=None)
+    run_key = await broker.open(owner=OWNER, agent_id=AGENT_ID, body=body, deps=lambda _: None)
     async for _ in await broker.feed(run_key, after=None):
         pass
     written = await redis_client.xlen(f"iclip:agent:run:{run_key}")
 
-    again = await broker.open(owner=OWNER, agent_id=AGENT_ID, body=body, deps=None)
+    again = await broker.open(owner=OWNER, agent_id=AGENT_ID, body=body, deps=lambda _: None)
     # 万一真起了第二个生产者，给它留出足够时间把帧写进来。
     await asyncio.sleep(0.3)
 
@@ -210,7 +210,7 @@ async def test_resume_at_the_end_of_a_finished_run_just_closes(
         owner=OWNER,
         agent_id=AGENT_ID,
         body=json.dumps(run_input(run_id="run-tail")).encode(),
-        deps=None,
+        deps=lambda _: None,
     )
     frames = [frame async for frame in await broker.feed(run_key, after=None)]
     last_cursor = sse_cursors("".join(frames))[-1]

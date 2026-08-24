@@ -26,14 +26,14 @@ SKILLS_DIRNAME = "skills"
 
 
 class CapabilitySection(ConfigSection):
-    """挂什么能力：从 skill 库里挑哪几个、挂哪几个业务能力包。
+    """挂什么能力：从 skill 库里挑哪几个、挂哪几个 capability。
 
     两者都是「不写即不挂」。子 agent 也带这两个字段且不继承主 agent 的——
     下属只拥有显式给它的东西。
     """
 
     skills: tuple[str, ...] = ()
-    packs: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
 
 
 class SubAgentSection(CapabilitySection):
@@ -80,7 +80,7 @@ class ResolvedSubAgent:
     instructions: Path | None
     model: str
     skills: SkillMount | None
-    packs: tuple[str, ...]
+    capabilities: tuple[str, ...]
     timeout_seconds: float | None
     max_calls: int | None
     on_failure: str | None
@@ -95,7 +95,7 @@ class ResolvedAgent:
     instructions: Path | None
     model: str
     skills: SkillMount | None
-    packs: tuple[str, ...]
+    capabilities: tuple[str, ...]
     subagents: tuple[ResolvedSubAgent, ...]
 
 
@@ -134,7 +134,7 @@ def _resolve_subagent(
         instructions=instructions,
         model=sub.model,
         skills=_resolve_skills(base_dir, sub.skills, declared_by=declared_by),
-        packs=sub.packs,
+        capabilities=sub.capabilities,
         timeout_seconds=sub.timeout_seconds,
         max_calls=sub.max_calls,
         on_failure=sub.on_failure,
@@ -166,7 +166,7 @@ def load_agent_declarations(path: Path) -> tuple[ResolvedAgent, ...]:
                 instructions=instructions,
                 model=section.model,
                 skills=_resolve_skills(base_dir, section.skills, declared_by=f"agent.{agent_id}"),
-                packs=section.packs,
+                capabilities=section.capabilities,
                 subagents=tuple(
                     _resolve_subagent(base_dir, sub, declared_by=f"agent.{agent_id}.subagent")
                     for sub in section.subagent

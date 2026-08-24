@@ -1,0 +1,508 @@
+"""工作区能力：路径语法边界、六件工具的行为与错误翻译、命名空间隔离。
+
+存储用进程内替身（走和 PG 实现同一条判定序列），所以这一层测的是「能力和工具
+面的语义」，不是 SQL。真库那一侧另有集成验收。
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from pydantic_ai import Agent, ModelRetry
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    RetryPromptPart,
+    TextPart,
+    ToolCallPart,
+)
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.tools import RunContext
+from pydantic_ai.usage import RunUsage
+from pydantic_ai_harness.subagents import SubAgent, SubAgents
+
+from iclip.capabilities.workspace.capability import (
+    CAPABILITY_ID,
+    Workspace,
+    WorkspaceToolset,
+    workspace_capability,
+)
+from iclip.capabilities.workspace.scope import workspace_namespace
+from iclip.capabilities.workspace.store import (
+    InvalidPath,
+    QuotaExceeded,
+    VersionConflict,
+    WorkspaceFile,
+    normalize_path,
+)
+from iclip.domains.agents.public import AgentRunDeps
+from iclip.domains.identity.models import Principal
+from tests.helpers.workspace import FakeWorkspaceStore
+
+USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
+OTHER_USER = uuid.UUID("22222222-2222-2222-2222-222222222222")
+THREAD = "thread-1"
+OTHER_THREAD = "thread-2"
+NS = f"{USER}/{THREAD}"
+
+
+def make_principal(user_id: uuid.UUID = USER) -> Principal:
+    return Principal(
+        kind="user",
+        user_id=user_id,
+        permissions=frozenset({"agent:run"}),
+        audit_label="luke",
+        api_key_id=None,
+    )
+
+
+def make_deps(user_id: uuid.UUID = USER, conversation_id: str = THREAD) -> AgentRunDeps:
+    return AgentRunDeps(principal=make_principal(user_id), conversation_id=conversation_id)
+
+
+def make_context(deps: object) -> RunContext[object]:
+    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage())
+
+
+@pytest.fixture
+def store() -> FakeWorkspaceStore:
+    return FakeWorkspaceStore()
+
+
+@pytest.fixture
+def capability(store: FakeWorkspaceStore) -> Workspace[object]:
+    return workspace_capability(store=store, namespace=workspace_namespace)
+
+
+@pytest.fixture
+def tools(capability: Workspace[object]) -> WorkspaceToolset[object]:
+    return WorkspaceToolset(capability)
+
+
+@pytest.fixture
+def ctx() -> RunContext[object]:
+    return make_context(make_deps())
+
+
+# --------------------------------------------------------------------------
+# 路径语法：边界就是这套字符串规则本身
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../etc/passwd",
+        "分镜/../../secrets.md",
+        "a/./b.md",
+        "..",
+        "notes\\a.md",
+        "notes/",
+        "",
+        "/",
+        "a\x00b.md",
+        "/".join("x" * 2 for _ in range(20)),
+        "x" * 200 + ".md",
+    ],
+)
+def test_illegal_paths_are_refused(path: str) -> None:
+    """越界靠语法拦，不靠 resolve——这里根本没有 inode 可以 resolve。"""
+
+    with pytest.raises(InvalidPath):
+        normalize_path(path)
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        ("/分镜/第一集.md", "分镜/第一集.md"),
+        ("分镜//第一集.md", "分镜/第一集.md"),
+        ("笔记.md", "笔记.md"),
+    ],
+)
+def test_paths_are_canonicalized(given: str, expected: str) -> None:
+    assert normalize_path(given) == expected
+
+
+def test_unicode_paths_normalize_to_one_file() -> None:
+    """同一个名字的两种 Unicode 写法必须是同一个文件，不能变成两个。
+
+    带音符的字母有两种合法码位写法：预组合的单个码位，和基字母加组合符号。
+    不归一化的话，模型第二次写同一个文件名会新建出第二个文件来。
+    """
+
+    assert normalize_path("caf\u00e9.md") == normalize_path("cafe\u0301.md")
+
+
+# --------------------------------------------------------------------------
+# 命名空间：算不出来就失败，绝不退回公共空间
+# --------------------------------------------------------------------------
+
+
+def test_namespace_is_the_conversation_under_the_trusted_user() -> None:
+    """对话 id 是客户端给的，只能当次级段；外层必须是可信的用户 id。"""
+
+    assert workspace_namespace(make_context(make_deps())) == f"{USER}/{THREAD}"
+
+
+def test_namespace_fails_closed_when_deps_is_not_a_run_deps() -> None:
+    """运行身份没注进来是装配 bug；退回一个公共命名空间等于把所有人并成一个。"""
+
+    with pytest.raises(RuntimeError, match="不是 AgentRunDeps"):
+        workspace_namespace(make_context({"user_id": str(USER)}))
+
+
+def test_a_forged_conversation_id_cannot_escape_its_user() -> None:
+    """伪造 threadId 最多只能碰到自己的另一段对话，跨不到别人名下。"""
+
+    assert workspace_namespace(make_context(make_deps())).startswith(f"{USER}/")
+
+
+async def test_for_run_resolves_scope_before_any_tool_is_touched(
+    capability: Workspace[object],
+) -> None:
+    """身份不对时这次运行就该失败，而不是等模型碰巧调了工作区工具才暴露。"""
+
+    with pytest.raises(RuntimeError, match="不是 AgentRunDeps"):
+        await capability.for_run(make_context("这不是运行依赖"))
+
+
+async def test_two_users_do_not_see_each_other(
+    tools: WorkspaceToolset[object], store: FakeWorkspaceStore
+) -> None:
+    mine = make_context(make_deps())
+    theirs = make_context(make_deps(OTHER_USER))
+    await tools.write_file(mine, "笔记.md", "我的稿子")
+    assert "笔记.md" in await tools.list_files(mine)
+    assert await tools.list_files(theirs) == "工作区还没有任何文件。"
+    assert await store.read(f"{OTHER_USER}/{THREAD}", "笔记.md") is None
+
+
+async def test_two_conversations_of_one_user_do_not_see_each_other(
+    tools: WorkspaceToolset[object],
+) -> None:
+    """一段对话一个工作区：换一段对话就是一张干净的工作台。"""
+
+    here = make_context(make_deps())
+    there = make_context(make_deps(conversation_id=OTHER_THREAD))
+    await tools.write_file(here, "笔记.md", "这段对话的稿子")
+    assert await tools.list_files(there) == "工作区还没有任何文件。"
+
+
+# --------------------------------------------------------------------------
+# 六件工具
+# --------------------------------------------------------------------------
+
+
+async def test_write_then_read_round_trip(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    assert "已写入 分镜/第一集.md" in await tools.write_file(
+        ctx, "分镜/第一集.md", "镜头一\n镜头二"
+    )
+    assert await tools.read_file(ctx, "分镜/第一集.md") == "     1\t镜头一\n     2\t镜头二"
+
+
+async def test_read_missing_file_is_retryable(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    with pytest.raises(ModelRetry, match="用 list_files"):
+        await tools.read_file(ctx, "不存在.md")
+
+
+async def test_read_pages_and_says_how_much_is_left(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "长稿.md", "\n".join(f"第{n}行" for n in range(1, 11)))
+    page = await tools.read_file(ctx, "长稿.md", offset=3, limit=2)
+    assert "     3\t第3行" in page
+    assert "     4\t第4行" in page
+    # 少给了内容就必须说出来，不能让模型以为自己读完了。
+    assert "还有 6 行没读" in page
+
+
+async def test_read_past_the_end_is_retryable(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "短稿.md", "只有一行")
+    with pytest.raises(ModelRetry, match="只有 1 行"):
+        await tools.read_file(ctx, "短稿.md", offset=99)
+
+
+async def test_edit_replaces_a_unique_match(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "稿.md", "开场是夜景\n结尾是日景")
+    await tools.edit_file(ctx, "稿.md", "夜景", "黄昏")
+    assert "开场是黄昏" in await tools.read_file(ctx, "稿.md")
+
+
+async def test_edit_refuses_an_ambiguous_match(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    """出现多次就报错，绝不挑一个改——静默改错地方比报错难查得多。"""
+
+    await tools.write_file(ctx, "稿.md", "夜景\n夜景")
+    with pytest.raises(ModelRetry, match="出现了 2 次"):
+        await tools.edit_file(ctx, "稿.md", "夜景", "黄昏")
+
+
+async def test_edit_reports_a_miss_instead_of_guessing(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "稿.md", "夜景")
+    with pytest.raises(ModelRetry, match="找不到这段原文"):
+        await tools.edit_file(ctx, "稿.md", "雨景", "黄昏")
+
+
+async def test_edit_on_a_missing_file_points_at_write_file(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    with pytest.raises(ModelRetry, match="要新建就用 write_file"):
+        await tools.edit_file(ctx, "不存在.md", "夜景", "黄昏")
+
+
+async def test_edit_surfaces_a_concurrent_change_instead_of_clobbering_it(
+    store: FakeWorkspaceStore, ctx: RunContext[object]
+) -> None:
+    """``edit_file`` 是读—改—写；中间被人插一刀就得失败，不能把别人的改动盖掉。"""
+
+    class RacingStore(FakeWorkspaceStore):
+        async def read(self, namespace: str, path: str) -> WorkspaceFile | None:
+            found = await super().read(namespace, path)
+            # 模拟「读完之后、写回之前，另一个运行落地了一次写入」。
+            await super().write(namespace, path, "别人写的内容")
+            return found
+
+    racing = RacingStore()
+    await racing.write(NS, "稿.md", "夜景")
+    tools = WorkspaceToolset(workspace_capability(store=racing, namespace=workspace_namespace))
+    with pytest.raises(ModelRetry, match="重新读一遍"):
+        await tools.edit_file(ctx, "稿.md", "夜景", "黄昏")
+
+
+async def test_delete_removes_the_file_and_reports_a_miss(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "废稿.md", "不要了")
+    assert await tools.delete_file(ctx, "废稿.md") == "已删除 废稿.md"
+    with pytest.raises(ModelRetry, match="无从删除"):
+        await tools.delete_file(ctx, "废稿.md")
+
+
+async def test_list_scopes_by_segment_boundary(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    """给的是「分镜」就只该看到分镜目录下的，不能把「分镜稿.md」也算进去。"""
+
+    await tools.write_file(ctx, "分镜/第一集.md", "a")
+    await tools.write_file(ctx, "分镜稿.md", "b")
+    listed = await tools.list_files(ctx, prefix="分镜")
+    assert "分镜/第一集.md" in listed
+    assert "分镜稿.md" not in listed
+
+
+async def test_search_reports_the_matching_lines(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "稿.md", "开场是夜景\n中段是雨\n结尾也是夜景")
+    found = await tools.search_files(ctx, "夜景")
+    assert "稿.md:1" in found
+    assert "稿.md:3" in found
+    assert "稿.md:2" not in found
+
+
+async def test_search_is_case_insensitive_and_literal(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "稿.md", "SCENE 100%\n别的行")
+    assert "稿.md:1" in await tools.search_files(ctx, "scene")
+    # % 是字面量而不是通配符，否则检索会命中一切。
+    assert "没有包含" in await tools.search_files(ctx, "%别的")
+
+
+async def test_search_without_hits_says_so(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "稿.md", "夜景")
+    assert "没有包含" in await tools.search_files(ctx, "雨景")
+
+
+async def test_search_flags_that_it_held_matches_back(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    await tools.write_file(ctx, "a.md", "夜景")
+    await tools.write_file(ctx, "b.md", "夜景")
+    found = await tools.search_files(ctx, "夜景", limit=1)
+    assert "只报了一部分" in found
+
+
+# --------------------------------------------------------------------------
+# 容量上限
+# --------------------------------------------------------------------------
+
+
+async def test_oversized_file_is_refused_with_the_file_limit(ctx: RunContext[object]) -> None:
+    tools = WorkspaceToolset(
+        workspace_capability(
+            store=FakeWorkspaceStore(max_file_bytes=100), namespace=workspace_namespace
+        )
+    )
+    with pytest.raises(ModelRetry, match="超过单文件上限"):
+        await tools.write_file(ctx, "稿.md", "x" * 101)
+
+
+async def test_full_workspace_tells_the_model_how_to_recover(ctx: RunContext[object]) -> None:
+    """撞上总量上限必须给出自救手段，否则模型就卡死在这儿了。"""
+
+    tools = WorkspaceToolset(
+        workspace_capability(
+            store=FakeWorkspaceStore(max_namespace_bytes=100), namespace=workspace_namespace
+        )
+    )
+    await tools.write_file(ctx, "a.md", "x" * 80)
+    with pytest.raises(ModelRetry, match="删掉"):
+        await tools.write_file(ctx, "b.md", "y" * 80)
+    # 覆盖同一个文件只算差量，不该被自己的旧内容挡住。
+    assert "已写入 a.md" in await tools.write_file(ctx, "a.md", "z" * 90)
+
+
+async def test_quota_and_conflict_are_distinguishable(store: FakeWorkspaceStore) -> None:
+    """两种失败给模型的提示完全相反，所以存储层必须报成两种错。"""
+
+    small = FakeWorkspaceStore(max_namespace_bytes=10)
+    with pytest.raises(QuotaExceeded):
+        await small.write(NS, "a.md", "x" * 20)
+    await store.write(NS, "a.md", "x")
+    with pytest.raises(VersionConflict):
+        await store.write(NS, "a.md", "y", expected_version=99)
+
+
+# --------------------------------------------------------------------------
+# 能力的装配面
+# --------------------------------------------------------------------------
+
+
+def test_capability_has_a_stable_id(capability: Workspace[object]) -> None:
+    """``for_run`` 每次返新实例，官方按 id 认能力，所以 id 必须写死。"""
+
+    assert capability.id == CAPABILITY_ID
+    assert WorkspaceToolset(capability).id == CAPABILITY_ID
+
+
+def test_capability_opts_out_of_spec_construction() -> None:
+    """不关掉的话，官方默认拿类名当序列化名，等于宣称自己能从 YAML 造出来。"""
+
+    assert Workspace.get_serialization_name() is None
+
+
+def test_capability_contributes_static_guidance(capability: Workspace[object]) -> None:
+    instructions = capability.get_instructions()
+    assert isinstance(instructions, str)
+    assert "edit_file" in instructions
+
+
+async def test_capability_attaches_to_a_real_agent(store: FakeWorkspaceStore) -> None:
+    """挂到真 Agent 上跑一次。
+
+    装配面上的错——dataclass 字段顺序、``for_run`` 的签名、工具集有没有真的被
+    官方接进去——直接调工具集是验不出来的，只有让框架自己走一遍才暴露。
+    """
+
+    seen: list[tuple[str, ...]] = []
+
+    def script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(tuple(tool.name for tool in info.function_tools))
+        if len(seen) == 1:
+            return ModelResponse(
+                parts=[ToolCallPart("write_file", {"path": "稿.md", "content": "夜景"})]
+            )
+        if len(seen) == 2:
+            return ModelResponse(parts=[ToolCallPart("list_files", {})])
+        return ModelResponse(parts=[TextPart("写完了")])
+
+    agent = Agent(
+        FunctionModel(script),
+        deps_type=AgentRunDeps,
+        capabilities=[workspace_capability(store=store, namespace=workspace_namespace)],
+    )
+    result = await agent.run("起个稿", deps=make_deps())
+
+    assert result.output == "写完了"
+    # 六件工具都到了模型面前。
+    assert set(seen[0]) == {
+        "read_file",
+        "write_file",
+        "edit_file",
+        "delete_file",
+        "list_files",
+        "search_files",
+    }
+    # 文件真的落进了「这个用户的这段对话」名下。
+    stored = await store.read(NS, "稿.md")
+    assert stored is not None and stored.content == "夜景"
+
+
+async def test_a_subagent_shares_the_conversation_workspace(store: FakeWorkspaceStore) -> None:
+    """下属写的稿子，主 agent 读得到——这是「一段对话一个工作区」要的那个效果。
+
+    派活是**另起一次运行**，所以这条不是显然的。官方转发 deps 但不转发运行自己
+    的 ``conversation_id``（实测过），工作区因此从 deps 取对话 id；要是改成读
+    ``ctx.conversation_id``，下属就会拿到一个新生成的 id、写进另一个文件夹，主
+    agent 什么都读不到，而且不会报错——白干一场，静默。
+    """
+
+    workspace = workspace_capability(store=store, namespace=workspace_namespace)
+
+    def child_script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if not any(isinstance(message, ModelResponse) for message in messages):
+            return ModelResponse(
+                parts=[ToolCallPart("write_file", {"path": "分镜/第一集.md", "content": "镜头一"})]
+            )
+        return ModelResponse(parts=[TextPart("下属写完了")])
+
+    worker = Agent(
+        FunctionModel(child_script),
+        name="worker",
+        deps_type=AgentRunDeps,
+        capabilities=[workspace],
+    )
+
+    turns: list[str] = []
+
+    def parent_script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        turns.append("turn")
+        if len(turns) == 1:
+            return ModelResponse(
+                parts=[ToolCallPart("delegate_task", {"agent_name": "worker", "task": "写第一集"})]
+            )
+        if len(turns) == 2:
+            return ModelResponse(parts=[ToolCallPart("read_file", {"path": "分镜/第一集.md"})])
+        return ModelResponse(parts=[TextPart("我读到了下属写的稿子")])
+
+    boss = Agent(
+        FunctionModel(parent_script),
+        name="boss",
+        deps_type=AgentRunDeps,
+        capabilities=[workspace, SubAgents(agents=[SubAgent(worker)], agent_folders=None)],
+    )
+
+    result = await boss.run("安排下去", deps=make_deps())
+
+    # 断言落在「没有产生重试」上：只看最终输出是不够的——文件不在的时候
+    # read_file 抛的是 ModelRetry，模型收下重试提示接着往下走，最终输出照样是
+    # 那句话，一条静默失败就这么被漏过去了。
+    retries = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, RetryPromptPart)
+    ]
+    assert retries == [], f"主 agent 读不到下属写的文件: {retries}"
+    assert result.output == "我读到了下属写的稿子"
+    # 文件就落在「这个用户的这段对话」名下，不在下属自己新开的地方。
+    stored = await store.read(NS, "分镜/第一集.md")
+    assert stored is not None and stored.content == "镜头一"
+    assert [entry.path for entry in await store.entries(NS)] == ["分镜/第一集.md"]
