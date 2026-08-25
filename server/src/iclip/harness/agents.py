@@ -8,7 +8,7 @@ capability 都由组合根译好，本模块不认识它们是什么）。
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -148,7 +148,7 @@ _TERMINAL_EVENTS = frozenset({EventType.RUN_FINISHED, EventType.RUN_ERROR})
 
 
 async def _encoded_frames(
-    adapter: AGUIAdapter[Any, Any], deps: object
+    adapter: AGUIAdapter[Any, Any], deps: object, run_id: str
 ) -> AsyncIterator[tuple[str, bool]]:
     """把协议事件逐个编码成 SSE 帧，并标出哪一帧是最后一帧。
 
@@ -164,10 +164,15 @@ async def _encoded_frames(
 
     ``deps`` 原样交给官方接口，工具执行时经 ``ctx.deps`` 取用。这里不看它是什
     么：宿主传什么就是什么，本模块不认识业务身份。
+
+    ``run_id`` 把客户端给这次运行起的名字交给引擎，于是它会被盖到每一条消息、每
+    一条快照和遥测 span 上。不这么做的话，客户端手上的名字和落库的运行记录之间没
+    有任何可对上的东西——用户报「刚才这条回复不对」就查不到它。落库那条记录的主
+    键仍由官方自己派生，不受这里影响。
     """
 
     encoder = adapter.build_event_stream()
-    async for event in adapter.run_stream(deps=deps):
+    async for event in adapter.run_stream(deps=deps, run_id=run_id):
         yield encoder.encode_event(event), event.type in _TERMINAL_EVENTS
 
 
@@ -175,10 +180,12 @@ async def _encoded_frames(
 class RunHandle:
     """一次准备好但还没开始跑的运行。
 
-    ``run_id`` 是客户端给这次运行起的名字；``frames`` 要等有人读它才真的开跑。
+    ``run_id`` 是客户端给这次运行起的名字，``conversation_id`` 是它所属的那段对话
+    （两个都从请求体里解析出来）；``frames`` 要等有人读它才真的开跑。
     """
 
     run_id: str
+    conversation_id: str
     frames: AsyncIterator[tuple[str, bool]]
 
 
@@ -192,7 +199,9 @@ class AgentRegistry:
     def ids(self) -> tuple[str, ...]:
         return tuple(self.agents)
 
-    def start(self, agent_id: str, body: bytes, deps: Callable[[str], object]) -> RunHandle:
+    async def start(
+        self, agent_id: str, body: bytes, deps: Callable[[str, str], Awaitable[object]]
+    ) -> RunHandle:
         """准备一次运行：校验请求，返回运行 id 和一个还没开始跑的帧流。
 
         未注册的 id 抛 ``NotFound``、请求体形状不合法抛 ``ValidationFailed``，
@@ -202,12 +211,16 @@ class AgentRegistry:
         请求体里客户端给了两个 id，作用完全不同。会话 id（``threadId``）决定
         这次运行归到哪段对话，服务端照它归档。运行 id（``runId``）是客户端给
         这次运行起的名字，用来把收到的事件对回自己这次请求，断线重连时也靠它
-        找回同一条流；落库时不看它——库里那条运行记录的 id 是服务端自己生成
-        的，所以拿客户端的运行 id 去库里查一次运行，是查不到的。
+        找回同一条流；它还会被交给引擎盖到消息与快照上（见 ``_encoded_frames``），
+        但**不是**库里那条运行记录的主键——主键由官方自己派生，拿这个 id 直接
+        查主键是查不到的。
 
-        ``deps`` 造出宿主给这次运行的依赖：会话 id 是从这里解析出来的（宿主那
-        一层拿不到，请求体是协议的形状），所以它拿会话 id 回调宿主，宿主把依赖
-        拼全。结果被返回的帧流闭包捕获，运行真正跑起来时交给官方接口。
+        ``deps`` 造出宿主给这次运行的依赖：两个 id 都是从请求体里解析出来的（宿主
+        那一层拿不到，请求体是协议的形状），所以拿它们回调宿主，宿主把依赖拼全。结
+        果被返回的帧流闭包捕获，运行真正跑起来时交给官方接口。
+
+        它是个可等待的调用：宿主在这里要读库（这段对话是不是这个人的、是不是这个
+        agent 的），那件事没法同步做。
 
         依赖是**每次运行**传进来的，不是装配期挂在 agent 上的——注册表是启动期
         冻结的共享对象，把身份挂上去就串了人。宿主在这个回调里抛出的错误也发生
@@ -227,8 +240,12 @@ class AgentRegistry:
             # 而不是让它一路漂到某个存储层报一句看不懂的话。
             raise ValidationFailed("请求体的 threadId 是空的")
         adapter = AGUIAdapter[Any, Any](agent=agent, run_input=run_input)
-        resolved = deps(run_input.thread_id)
-        return RunHandle(run_id=run_input.run_id, frames=_encoded_frames(adapter, resolved))
+        resolved = await deps(run_input.thread_id, run_input.run_id)
+        return RunHandle(
+            run_id=run_input.run_id,
+            conversation_id=run_input.thread_id,
+            frames=_encoded_frames(adapter, resolved, run_input.run_id),
+        )
 
 
 def build_agent_registry(

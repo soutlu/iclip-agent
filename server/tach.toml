@@ -30,6 +30,12 @@ depends_on = ["iclip.common", "iclip.platform.db", "iclip.platform.http"]
 path = "iclip.domains.agents"
 depends_on = ["iclip.domains.identity"]
 
+# 对话：自有的表。不认识 agent 引擎，也不认识工作区——删对话要连带清掉的那些东西
+# 由组合根接线进来（见 domains/conversations/service.py 的 PurgeDerived）。
+[[modules]]
+path = "iclip.domains.conversations"
+depends_on = ["iclip.common", "iclip.domains.identity"]
+
 # 媒体生成：自有的表 + 两家外部生成接口 + 后台推进器。
 [[modules]]
 path = "iclip.domains.generation"
@@ -66,6 +72,7 @@ depends_on = [
     "iclip.config",
     "iclip.domains.identity",
     "iclip.domains.agents",
+    "iclip.domains.conversations",
     "iclip.domains.generation",
     "iclip.harness",
     "iclip.capabilities",

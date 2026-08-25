@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
@@ -21,6 +22,7 @@ from iclip.app.capability_table import (
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.workspace.infra_sql import PgWorkspaceStore
+from iclip.capabilities.workspace.scope import namespace_for
 from iclip.common.errors import DomainError
 from iclip.config import (
     ResolvedAgent,
@@ -33,6 +35,8 @@ from iclip.config import (
     resolve_settings,
 )
 from iclip.domains.agents.api import create_agents_router
+from iclip.domains.conversations.infra_sql import SqlConversationRepository
+from iclip.domains.conversations.module import build_conversations_module
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.module import GenerationModule, build_generation_module
 from iclip.domains.generation.multiflow import MultiflowSettings
@@ -294,12 +298,27 @@ def build_app(
         else None
     )
     shot_video_client = _shot_video_client(settings.shot_video)
+    workspace_store = PgWorkspaceStore(active_engine)
+
+    async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
+        """删掉一段对话时，连带清空它在工作区里的地盘。
+
+        这条线只能接在组合根：对话那一侧不该知道工作区的存在，工作区那一侧也不该
+        知道有「对话」这种东西。这里是唯一同时认识两者的地方。
+        """
+
+        await workspace_store.purge_namespace(namespace_for(owner, str(conversation_id)))
+
+    conversations = build_conversations_module(
+        SqlConversationRepository(active_engine),
+        purge_derived=purge_conversation_workspace,
+    )
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     agent_registry = build_agent_registry(
         _agent_definitions(
             agents,
             table=build_capability_table(
-                workspace_store=PgWorkspaceStore(active_engine),
+                workspace_store=workspace_store,
                 generation_service=generation.service if generation is not None else None,
                 object_store=public_objects,
                 http_client=shot_video_client,
@@ -376,8 +395,10 @@ def build_app(
         app.include_router(router)
     for router in generation.routers if generation is not None else ():
         app.include_router(router)
+    for router in conversations.routers:
+        app.include_router(router)
     if broker is not None:
-        app.include_router(create_agents_router(broker))
+        app.include_router(create_agents_router(broker, conversations.service))
 
     # 中间件顺序（先加的在内层）：Principal 解析在内，CORS 在外
     # （preflight 无凭证也必须被 CORS 应答）。
@@ -393,6 +414,7 @@ def build_app(
 
     app.state.identity = identity
     app.state.agents = agent_registry
+    app.state.conversations = conversations
     app.state.generation = generation
     return app
 

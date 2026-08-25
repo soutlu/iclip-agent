@@ -20,6 +20,7 @@ from iclip.config import ResolvedAgent, SkillMount
 from tests.helpers.agui import run_input
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
+    new_conversation,
     register_and_login,
     set_roles_in_db,
 )
@@ -84,7 +85,8 @@ async def test_declared_skill_reaches_the_running_agent(
     await register_and_login(client)
     await set_roles_in_db(pg_url, "luke@example.com", ["editor"])
 
-    async with client.stream("POST", f"/agents/{AGENT_ID}/chat", json=run_input()) as response:
+    body = run_input(thread_id=await new_conversation(client, AGENT_ID))
+    async with client.stream("POST", f"/agents/{AGENT_ID}/chat", json=body) as response:
         assert response.status_code == 200
         async for _ in response.aiter_text():
             pass

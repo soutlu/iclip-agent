@@ -16,11 +16,22 @@ id 底下，伪造 id 最多只能碰到自己的另一段对话。
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from pydantic_ai.tools import RunContext
 
 from iclip.domains.agents.public import AgentRunDeps
+
+
+def namespace_for(owner: uuid.UUID, conversation_id: str) -> str:
+    """按「谁的 + 哪段对话」拼出命名空间。
+
+    这个拼法只写在这里一处。删对话时要连带清空对应的地盘，那件事发生在别的模块，
+    要是它自己再拼一遍，两处哪天不一致就会静默删错地方（或者一个也删不掉）。
+    """
+
+    return f"{owner}/{conversation_id}"
 
 
 def workspace_namespace(ctx: RunContext[Any]) -> str:
@@ -37,7 +48,7 @@ def workspace_namespace(ctx: RunContext[Any]) -> str:
             f"工作区算不出命名空间：这次运行的 deps 是 {type(deps).__name__}，"
             "不是 AgentRunDeps——运行身份没有注入进来。"
         )
-    return f"{deps.principal.user_id}/{deps.conversation_id}"
+    return namespace_for(deps.principal.user_id, deps.conversation_id)
 
 
-__all__ = ["workspace_namespace"]
+__all__ = ["namespace_for", "workspace_namespace"]

@@ -200,6 +200,26 @@ class PgWorkspaceStore:
             ).first()
         return deleted is not None
 
+    async def purge_namespace(self, namespace: str) -> int:
+        """清空整个命名空间，返回删掉几个文件。
+
+        **不在 ``WorkspaceStore`` 协议上**：那套接口是给模型用的工具面，模型不该有
+        「一次抹掉整块地盘」这种动作。这个方法只给宿主在删除对话时调用。
+
+        照样先拿锁：不加锁它能插在写者的「查」和「写」之间，写者随后那条 upsert 就
+        走 INSERT 分支，把刚删干净的地盘又留下一个文件。
+        """
+
+        table = workspace_files_table
+        async with self._engine.begin() as conn:
+            await self._lock(conn, namespace)
+            deleted = (
+                await conn.execute(
+                    delete(table).where(table.c.namespace == namespace).returning(table.c.path)
+                )
+            ).all()
+        return len(deleted)
+
     async def entries(self, namespace: str, *, prefix: str = "") -> Sequence[FileEntry]:
         table = workspace_files_table
         conditions = [table.c.namespace == namespace]

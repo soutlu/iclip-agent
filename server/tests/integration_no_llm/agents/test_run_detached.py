@@ -28,13 +28,13 @@ from iclip.config import ResolvedAgent
 from tests.helpers.agui import run_input, sse_events
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
+    new_conversation,
     register_and_login,
     set_roles_in_db,
 )
 
 AGENT_ID = "storyboard"
 PATH = f"/agents/{AGENT_ID}/chat"
-THREAD_ID = "thread-detached"
 RUN_ID = "run-detached"
 BEFORE = "断开之前"
 AFTER = "断开之后"
@@ -104,7 +104,8 @@ async def test_disconnect_leaves_the_run_running(
             await register_and_login(client)
             await set_roles_in_db(pg_url, "luke@example.com", ["editor"])
 
-            body = run_input(thread_id=THREAD_ID, run_id=RUN_ID)
+            conversation_id = await new_conversation(client, AGENT_ID)
+            body = run_input(thread_id=conversation_id, run_id=RUN_ID)
             async with client.stream("POST", PATH, json=body) as response:
                 assert response.status_code == 200
                 async for chunk in response.aiter_text():
@@ -115,7 +116,7 @@ async def test_disconnect_leaves_the_run_running(
             assert not gate.is_set()
             gate.set()
 
-            resumed = await client.get(f"{PATH}/{RUN_ID}")
+            resumed = await client.get(f"{PATH}/{conversation_id}/{RUN_ID}")
 
         assert resumed.status_code == 200
         # 断开之后才产生的内容也在流里，说明运行没被那次断开带走。
@@ -132,7 +133,7 @@ async def test_disconnect_leaves_the_run_running(
                         "JOIN agent_runtime.runs r ON r.run_id = s.run_id "
                         "WHERE r.conversation_id = :cid AND s.state = 'complete'"
                     ),
-                    {"cid": THREAD_ID},
+                    {"cid": conversation_id},
                 )
             ).scalar_one()
     finally:

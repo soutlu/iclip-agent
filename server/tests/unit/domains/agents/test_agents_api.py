@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic_ai.models.test import TestModel
 from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
-from iclip.common.errors import DomainError
+from iclip.common.errors import DomainError, NotFound
 from iclip.domains.agents.api import create_agents_router
 from iclip.domains.identity.models import Principal
 from iclip.harness.agents import AgentDefinition, build_agent_registry
@@ -30,7 +30,23 @@ from tests.helpers.run_stream import MemoryRunStream
 AGENT_ID = "storyboard"
 URL = f"/agents/{AGENT_ID}/chat"
 RUN_ID = "run-1"
-BODY = run_input(run_id=RUN_ID)
+CONVERSATION_ID = "conversation-1"
+BODY = run_input(thread_id=CONVERSATION_ID, run_id=RUN_ID)
+
+
+class FakeConversations:
+    """对话那一侧的替身：记下每次核对，可以让它一律拒绝。"""
+
+    def __init__(self, *, rejects: bool = False) -> None:
+        self.rejects = rejects
+        self.calls: list[tuple[uuid.UUID, str, str, str]] = []
+
+    async def begin_run(
+        self, *, owner: uuid.UUID, agent_id: str, conversation_id: str, run_id: str
+    ) -> None:
+        self.calls.append((owner, agent_id, conversation_id, run_id))
+        if self.rejects:
+            raise NotFound("没有这段对话")
 
 
 def principal(*permissions: str) -> Principal:
@@ -45,7 +61,12 @@ def principal(*permissions: str) -> Principal:
 _RUNNER = principal("agent:run")
 
 
-def build_test_app(broker: RunBroker, *, granted: Principal | None = _RUNNER) -> FastAPI:
+def build_test_app(
+    broker: RunBroker,
+    *,
+    granted: Principal | None = _RUNNER,
+    conversations: FakeConversations | None = None,
+) -> FastAPI:
     """组装一个只挂 agent 路由的 app，复用组合根同一份领域错误映射。"""
 
     app = FastAPI()
@@ -62,7 +83,7 @@ def build_test_app(broker: RunBroker, *, granted: Principal | None = _RUNNER) ->
     async def _domain_error(_request: Request, exc: DomainError) -> JSONResponse:
         return JSONResponse(status_code=status_code_for(exc), content={"detail": str(exc)})
 
-    app.include_router(create_agents_router(broker))
+    app.include_router(create_agents_router(broker, conversations or FakeConversations()))
     return app
 
 
@@ -105,7 +126,9 @@ async def resume_run(
     client: httpx.AsyncClient, *, run_id: str = RUN_ID, after: str | None = None
 ) -> str:
     headers = {"last-event-id": after} if after else None
-    async with client.stream("GET", f"{URL}/{run_id}", headers=headers) as response:
+    async with client.stream(
+        "GET", f"{URL}/{CONVERSATION_ID}/{run_id}", headers=headers
+    ) as response:
         assert response.status_code == 200, await response.aread()
         return "".join([chunk async for chunk in response.aiter_text()])
 
@@ -127,7 +150,7 @@ async def test_no_principal_is_401(broker: RunBroker) -> None:
 async def test_resume_requires_permission(broker: RunBroker) -> None:
     app = build_test_app(broker, granted=principal("agent:read"))
     async with client_for(app) as client:
-        response = await client.get(f"{URL}/{RUN_ID}")
+        response = await client.get(f"{URL}/{CONVERSATION_ID}/{RUN_ID}")
     assert response.status_code == 403
 
 
@@ -156,7 +179,7 @@ async def test_unknown_agent_id_is_404(broker: RunBroker) -> None:
     app = build_test_app(broker)
     async with client_for(app) as client:
         started = await client.post("/agents/ghost/chat", json=BODY)
-        resumed = await client.get(f"/agents/ghost/chat/{RUN_ID}")
+        resumed = await client.get(f"/agents/ghost/chat/{CONVERSATION_ID}/{RUN_ID}")
     assert (started.status_code, resumed.status_code) == (404, 404)
 
 
@@ -172,7 +195,7 @@ async def test_illegal_run_id_is_422(broker: RunBroker, stream: MemoryRunStream)
 
     app = build_test_app(broker)
     async with client_for(app) as client:
-        response = await client.get(f"{URL}/other-user:storyboard:run-1")
+        response = await client.get(f"{URL}/{CONVERSATION_ID}/other-user:storyboard:run-1")
 
     assert response.status_code == 422
     assert stream.frames == {}
@@ -184,7 +207,9 @@ async def test_illegal_cursor_is_422_before_streaming(broker: RunBroker) -> None
     app = build_test_app(broker)
     async with client_for(app) as client:
         await start_run(client)
-        response = await client.get(f"{URL}/{RUN_ID}", headers={"last-event-id": "not-a-cursor"})
+        response = await client.get(
+            f"{URL}/{CONVERSATION_ID}/{RUN_ID}", headers={"last-event-id": "not-a-cursor"}
+        )
 
     assert response.status_code == 422
 
@@ -207,7 +232,7 @@ async def test_resume_at_the_end_just_closes(broker: RunBroker) -> None:
 async def test_resume_of_unknown_run_is_404(broker: RunBroker) -> None:
     app = build_test_app(broker)
     async with client_for(app) as client:
-        response = await client.get(f"{URL}/never-started")
+        response = await client.get(f"{URL}/{CONVERSATION_ID}/never-started")
     assert response.status_code == 404
 
 
@@ -258,3 +283,41 @@ async def test_second_post_attaches_instead_of_running_again(
 
     assert len(next(iter(stream.frames.values()))) == frames_after_first
     assert sse_cursors(second) == sse_cursors(first)
+
+
+async def test_unknown_conversation_is_404_without_running(
+    broker: RunBroker, stream: MemoryRunStream
+) -> None:
+    """会话核对必须发生在开流之前：一旦开始发事件，再想报 404 就只能在流中途炸。"""
+
+    conversations = FakeConversations(rejects=True)
+    app = build_test_app(broker, conversations=conversations)
+    async with client_for(app) as client:
+        response = await client.post(URL, json=BODY)
+
+    assert response.status_code == 404
+    assert (stream.frames, stream.states) == ({}, {})
+
+
+async def test_run_registers_itself_on_the_conversation(broker: RunBroker) -> None:
+    """核对时把「谁、哪个 agent、哪段对话、哪次运行」四样都交出去。"""
+
+    conversations = FakeConversations()
+    app = build_test_app(broker, conversations=conversations)
+    async with client_for(app) as client:
+        await start_run(client)
+
+    assert conversations.calls == [(_RUNNER.user_id, AGENT_ID, CONVERSATION_ID, RUN_ID)]
+
+
+async def test_same_run_id_in_another_conversation_is_a_separate_stream(
+    broker: RunBroker, stream: MemoryRunStream
+) -> None:
+    """同一个运行 id 换一段对话就是另一条流，不会串到一起去。"""
+
+    app = build_test_app(broker)
+    async with client_for(app) as client:
+        await start_run(client)
+        await start_run(client, run_input(thread_id="conversation-2", run_id=RUN_ID))
+
+    assert len(stream.frames) == 2

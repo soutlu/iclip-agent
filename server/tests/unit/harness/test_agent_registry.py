@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -133,10 +133,20 @@ async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
     assert await sent_instructions(registry, "a") is None
 
 
+def deps_stub(value: object = None) -> Callable[[str, str], Awaitable[object]]:
+    """造依赖的替身：宿主在真身里要读库，所以这个回调是可等待的。"""
+
+    async def _deps(_conversation_id: str, _run_id: str) -> object:
+        return value
+
+    return _deps
+
+
 async def frames(registry: AgentRegistry, agent_id: str, body: bytes = BODY) -> list[str]:
     """跑一次，收下全部编码帧。"""
 
-    return [text async for text, _ in registry.start(agent_id, body, lambda _: None).frames]
+    handle = await registry.start(agent_id, body, deps_stub())
+    return [text async for text, _ in handle.frames]
 
 
 async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
@@ -176,10 +186,8 @@ async def test_stream_emits_protocol_frames(tmp_path: Path) -> None:
         models=models(),
     )
 
-    collected = [
-        (text, last)
-        async for text, last in registry.start("storyboard", BODY, lambda _: None).frames
-    ]
+    handle = await registry.start("storyboard", BODY, deps_stub())
+    collected = [(text, last) async for text, last in handle.frames]
 
     # 首帧固定是 RUN_STARTED，并把客户端给的那两个 id 原样带回去。
     first = json.loads(collected[0][0].removeprefix("data: "))
@@ -332,14 +340,8 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
     )
 
     # 协议面这条路：deps 由 start 传入。
-    body = "".join(
-        [
-            text
-            async for text, _ in registry.start(
-                "storyboard", BODY, lambda _: Caller("经协议面")
-            ).frames
-        ]
-    )
+    handle = await registry.start("storyboard", BODY, deps_stub(Caller("经协议面")))
+    body = "".join([text async for text, _ in handle.frames])
     assert "经协议面" in body
 
     # 官方的 deps 覆写这条路：同一个 agent，不经协议面。
@@ -349,13 +351,13 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
     assert "经官方覆写" in str(result.output)
 
 
-def test_unknown_id_raises_not_found_before_streaming(tmp_path: Path) -> None:
+async def test_unknown_id_raises_not_found_before_streaming(tmp_path: Path) -> None:
     registry = build_agent_registry((), step_store=store(), models=models())
     with pytest.raises(NotFound, match="未注册的 agent"):
-        registry.start("ghost", BODY, lambda _: None)
+        await registry.start("ghost", BODY, deps_stub())
 
 
-def test_empty_thread_id_raises_validation_failed_before_streaming(tmp_path: Path) -> None:
+async def test_empty_thread_id_raises_validation_failed_before_streaming(tmp_path: Path) -> None:
     """协议把 threadId 标成必填，但空串照样过 pydantic。
 
     会话 id 是要拿去分隔离段的（工作区就按它分文件夹），空的当不了段。所以在这
@@ -369,14 +371,19 @@ def test_empty_thread_id_raises_validation_failed_before_streaming(tmp_path: Pat
         step_store=store(),
         models=models(),
     )
-    called: list[str] = []
+    called: list[tuple[str, str]] = []
+
+    async def recording_deps(conversation_id: str, run_id: str) -> object:
+        called.append((conversation_id, run_id))
+        return None
+
     with pytest.raises(ValidationFailed, match="threadId"):
-        registry.start("storyboard", run_input_bytes(thread_id=""), lambda cid: called.append(cid))
+        await registry.start("storyboard", run_input_bytes(thread_id=""), recording_deps)
     # 拒在造依赖之前：宿主的回调根本没被调用过。
     assert called == []
 
 
-def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path) -> None:
+async def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path) -> None:
     spec = make_spec(tmp_path, "storyboard")
     registry = build_agent_registry(
         (AgentDefinition(agent_id="storyboard", spec=spec, model=MODEL_NAME),),
@@ -384,7 +391,7 @@ def test_malformed_body_raises_validation_failed_before_streaming(tmp_path: Path
         models=models(),
     )
     with pytest.raises(ValidationFailed):
-        registry.start("storyboard", b'{"nope": true}', lambda _: None)
+        await registry.start("storyboard", b'{"nope": true}', deps_stub())
 
 
 def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:

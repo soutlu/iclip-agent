@@ -25,6 +25,7 @@
 | T-MODELCFG-01 | unit | `models` 段：键名即模型名（`model` 字段只在起名时覆盖）；`api` 默认 chat、非法值即拒；声明了某模型但其 `api_key_env` 为空即启动报错 | 静默降级 |
 | T-AGENTASM-06 | unit | agent / 子 agent 引用未声明的模型名即装配期报错；spec 里的 `model:` 被声明覆盖 | 模型声明双写打架 |
 | T-AGENTAPI-01 | unit | `/agents/{id}/chat`：无主体 401、缺 `agent:run` 403、非 JSON content-type 415（且未派发运行）、未注册 id 404、坏 body 422、正常 200 + `text/event-stream` 首帧；续读端点同样要权限、运行 id 形状不合法 422、没有这次运行 404 | 越权 / CSRF / 错误映射 |
+| T-AGENTAPI-04 | unit | 会话关卡与流名字：陌生会话 404 **且一帧都没派发**（核对必须在开流之前，否则只能在流中途爆开）；核对时「谁 / 哪个 agent / 哪段对话 / 哪次运行」四样都交出去；**同一个运行 id 换一段对话就是另一条流**（名字里少了会话那一段此断言即红）| 错误在流中途才暴露 / 两段对话串到一条流 |
 | T-AGENTAPI-03 | unit | 每帧都带位置；带位置续读只拿之后的事件、不带位置整段重放；位置形状不合法在开流之前就 422；从末尾续读直接收流（不造中断事件）| 重连语义漂移 / 错误在流中途才暴露 |
 | T-AGENTAPI-02 | unit | `OPTIONS /agents/{id}/chat` 返 204 且不含任何 `Access-Control-Allow-*` 头 | CSRF 防线被削弱 |
 | T-OSS-01 | unit | 公开对象存储适配器：公网 URL 拼接与 key 编码、同 key 已存在即复用不重写、能逃出前缀的 key 一律拒、SDK 异常收成一种、公网前缀非 http 即启动报错 | 对象目录逃逸 / 桶里堆垃圾 |
@@ -55,7 +56,9 @@
 | T-STORE-01 | integration_no_llm | PG step store 满足官方 `StepStore` / `MediaStore` 协议；register 单发、list_runs 排序与过滤、快照 complete/interrupted 读门、保留集裁剪、tool_effects upsert | 与官方语义漂移 |
 | T-STORE-02 | integration_no_llm | 真实 Agent（FunctionModel）挂官方 StepPersistence 跑通：运行/事件/工具账落库，续跑历史与 `all_messages()` 解析成 JSON 后结构一致 | 运行历史不可续 |
 | T-STORE-03 | integration_no_llm | 消息负载无损往返：含 `NUL(\u0000)` 转义的文本、≥64KiB 媒体外置与还原 | 存储层静默损坏 |
-| T-AGENTRUN-01 | integration_no_llm | 真实 app + 真实用户：匿名 401、viewer 403、editor 跑通 `test` 模型 200 流；未注册 id 404、非 JSON 415、坏 body 422、OPTIONS 不放行 | 双主体与 agent 运行面的联动 |
+| T-AGENTRUN-01 | integration_no_llm | 真实 app + 真实用户：匿名 401、viewer 403、editor 跑通 `test` 模型 200 流；未注册 id 404、非 JSON 415、坏 body 422、OPTIONS 不放行；自己编的会话 id、别人的会话 id、以及**同一个 id 的大写写法**都是 404（大写解析出的是同一个 UUID，但下游用的是原样字符串，放行它会长出第二个工作区和第二条流）；跑过一次之后对话上记着 `lastRunId`，且客户端铸造的运行 id 被盖进了落库的消息里 | 双主体与 agent 运行面的联动 / 客户端自造会话 / 两套 id 事后对不上 |
+| T-CONV-01 | integration_no_llm | `/conversations` 全链路：匿名 401、viewer 建不了（但列表可读）、开→列→改名→删走通，id 由服务端发放、`lastRunId` 初始为空、列表按最近活动倒序（改名也算活动）；别人的对话列表里没有、改名与删除都 404；不存在的 id 404；坏 payload 422 | 越权 / 会话归属泄露 |
+| T-CONV-02 | integration_no_llm | 删对话把这段对话的工作区文件一并删掉，且**只删这一段**（另一段对话的文件还在）——两张表之间没有外键，这条连带关系断了不会报错，只会留下再没人看得见的文件 | 删不干净 / 删过头 |
 | T-SKILL-01 | unit | 声明的 skill 名不在库里 → 装配期报错；声明了 skill 却没有库目录 → 加载期报错；空列表与不写同义（都不挂、也不要求库存在）；库与 `get_skill_reference` 成对挂载 | 静默降级成「没挂」 |
 | T-WORKSPACE-01 | unit | 路径语法（`..`/绝对路径/反斜杠/控制字符/超长超深一律拒；`//` 与首斜杠规范化；Unicode 两种写法归一成同一文件）；命名空间是 `{user}/{conversation}`、deps 不对时 `for_run` 即失败（不退回公共命名空间）；同一用户两段对话互不可见；**下属写、主 agent 读回来走同一个文件夹**（改成读 `ctx.conversation_id` 此断言即红）；六件工具的行为与错误翻译（读不到/读越界/`old_text` 零次或多次匹配/删不存在/配额两种上限各自的自救提示）；`list` 按段边界限定；检索大小写不敏感且 `%` 为字面量、少报要标注；能力 id 写死、`get_serialization_name()` 为 None；**挂到真 Agent 上跑通**（六件工具都到模型面前、文件落进发起方的命名空间） | 越界访问 / 静默改错地方 / 静默少给 / 装配面接不上 |
 | T-WORKSPACE-02 | integration_no_llm | `PgWorkspaceStore` 对真库：生成列 `size_bytes` 与内容一致；CAS 报出实际版本、对已删文件报冲突而非静默新建；NUL 字节在驱动之前被拒；**并发写不同路径时命名空间配额仍关严**（预热连接池后两个写真交错，摘掉 advisory 锁此断言即红）；覆盖只算差量；列目录按码位序（显式 `COLLATE "C"`，不吃服务器 locale）与段边界；命名空间互不可见 | 配额被并发撑爆 / 排序随部署漂移 / 静默重建 |

@@ -53,21 +53,37 @@
 `POST /agents/{agentId}/chat` 是唯一的 agent 对话入口，走**官方 AG-UI 协议**，不是本仓自创的格式。
 
 - **请求体**：官方 `RunAgentInput`。七个字段全部必填，一个都不能省（少任何一个都是 `422`）：`threadId`、`runId`、`state`、`messages`、`tools`、`context`、`forwardedProps`。
-  - `threadId` 即会话身份，同一会话的多次运行必须复用它——服务端据此把运行归到同一会话。
-  - `runId` 由客户端铸造，只用于把协议事件对回本次请求；它**不是**服务端的运行主键，两者不通用。
+  - `threadId` 即会话身份，同一会话的多次运行必须复用它——服务端据此把运行归到同一会话。它**必须是 `POST /conversations` 发放的 id**：客户端自己编一个会被拒（见下）。
+  - `runId` 由客户端铸造，用来把协议事件对回本次请求、断线时找回同一条流。服务端会把它盖到这次运行的消息与快照上，但它**不是**运行记录的主键——主键由服务端自己生成，拿 `runId` 直接查主键查不到。
 - **响应**：`200` + `text/event-stream`。每帧形如 `id: <位置>\ndata: <AG-UI 事件 JSON>\n\n`，首帧为 `RUN_STARTED`，终帧为 `RUN_FINISHED` 或 `RUN_ERROR`。字段名沿用 AG-UI 官方拼写（`threadId` / `runId` / `type` 等），不套用本文 §3 的 camelCase 改写规则。本端点只发 SSE，不做 `Accept` 协商。
 - **运行不绑在这次请求上**：断开连接只是结束订阅，运行会继续跑完。同一个 `runId` 再 POST 一次不会重跑，而是接着读同一条流。
 - **必须发 `Content-Type: application/json`**，否则 `415`——这不是洁癖，是 CSRF 防线的一半：浏览器能跨域直接发的三种 content-type 都能塞 JSON 且不触发预检，所以这里刻意要求一个非免检类型来强制预检，再由 `OPTIONS /agents/{agentId}/chat` 拒掉预检（返 `204` 且不带任何 `Access-Control-Allow-*` 头）。跨域调用方拿不到这个端点。
 - **权限**：需要 `agent:run`。未注册的 `agentId` 返 `404`（不泄露它是否存在）。
+- **`threadId` 必须是自己名下、且属于这个 agent 的会话**，否则 `404`：不存在、是别人的、或者当初是给另一个 agent 开的，三种情况一律当作不存在。这一步发生在开流之前，所以拿到的是正常的错误响应而不是流中途的报错。
 
 ### 断线重连
 
-`GET /agents/{agentId}/chat/{runId}` 接着读同一次运行的事件。
+`GET /agents/{agentId}/chat/{conversationId}/{runId}` 接着读同一次运行的事件。会话 id 要跟着一起给：一次运行由「谁 + 哪段对话 + 哪个 agent + 哪次运行」共同指认，少一段就找不到。
 
 - **位置**：把最后收到的那帧的 `id` 放进标准的 `Last-Event-ID` 请求头（浏览器原生 `EventSource` 会自动带上），也可以用 `?from=<位置>`；两个都不给就从头整段重放。
 - `404`：没有这次运行（也包括别人的运行——运行只对发起它的用户可见）。
 - `409`：这次运行的事件已经过了重放窗口，接不上了，要重新发起运行。**服务端绝不默默跳到当前位置**，所以收到 200 就意味着中间没有缺口。
-- `422`：`runId` 形状不合法（只允许字母、数字、`.`、`_`、`-`，不超过 128 字符），或位置的形状不合法（必须是原样回传的某帧 `id`）。
+- `422`：`runId` 或 `conversationId` 形状不合法（只允许字母、数字、`.`、`_`、`-`，不超过 128 字符），或位置的形状不合法（必须是原样回传的某帧 `id`）。
 - 位置已经在末尾（该看的都看过了）：正常 `200`，然后直接收流，不再补发任何事件。
 - **终帧可能是 `RUN_ERROR` 且 `code` 为 `RUN_INTERRUPTED`**：表示这次运行没跑完就断了（例如服务端进程重启），可以重新发起。它不代表模型或业务出错。
 - 权限同 POST：需要 `agent:run`。
+
+## 6. 对话 (Conversations)
+
+一段对话就是界面上的一个聊天窗口，它的 id 即 AG-UI 的 `threadId`。**id 一律由服务端发放**：会话是服务端记录在案的事实（有归属、有名字、能删），客户端自己编一个发去 `POST /agents/{agentId}/chat` 会得到 `404`。
+
+| 端点 | 权限 | 说明 |
+|------|------|------|
+| `POST /conversations` | `agent:run` | 开一段新对话。请求体 `{ agentId, title? }`，不给 `title` 就用默认名。`201` + `{ conversation: {...} }` |
+| `GET /conversations?limit=20` | `agent:read` | 列出自己的对话，**最近活动的排在前面**（`limit` 取值 1–100）。`200` + `{ items: [...] }` |
+| `PATCH /conversations/{id}` | `agent:run` | 改名。请求体 `{ title }`。`200` + `{ conversation: {...} }` |
+| `DELETE /conversations/{id}` | `agent:run` | 删掉这段对话，**agent 在这段对话里写下的工作区文件一并删除**。`204` |
+
+- `conversation` 的形状：`{ id, agentId, title, lastRunId, createdAt, updatedAt }`。`lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`）——刷新页面后拿它去续读那条流。
+- **只看得到自己的对话**：别人的一律 `404`，不返 `403`（那会泄露这个 id 确实有人在用）。治理者也没有看别人对话的口子。
+- 删除只带走对话与它的工作区文件；`agent_runtime` 里的运行记录留着，那是账本。
