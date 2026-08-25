@@ -1,4 +1,4 @@
-"""PgWorkspaceStore 对真实 Postgres 的验收。
+"""PgFileStore 对真实 Postgres 的验收。
 
 重点不是「读写通不通」，而是几件只有真库才能证明的事：生成列自己算得对、
 ``pg_advisory_xact_lock`` 真的把跨行的容量聚合关严了、CAS 报得出实际版本、
@@ -15,8 +15,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from iclip.capabilities.workspace.infra_sql import PgWorkspaceStore
-from iclip.capabilities.workspace.store import (
+from iclip.platform.file_store.pg import PgFileStore
+from iclip.platform.file_store.store import (
     InvalidContent,
     InvalidPath,
     QuotaExceeded,
@@ -34,8 +34,8 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
 
 
 @pytest.fixture
-def store(engine: AsyncEngine) -> PgWorkspaceStore:
-    return PgWorkspaceStore(engine)
+def store(engine: AsyncEngine) -> PgFileStore:
+    return PgFileStore(engine)
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ def namespace() -> str:
     return str(uuid.uuid4())
 
 
-async def test_round_trip_and_version_bump(store: PgWorkspaceStore, namespace: str) -> None:
+async def test_round_trip_and_version_bump(store: PgFileStore, namespace: str) -> None:
     first = await store.write(namespace, "分镜/第一集.md", "镜头一")
     assert (first.version, first.size_bytes) == (1, len("镜头一".encode()))
 
@@ -57,7 +57,7 @@ async def test_round_trip_and_version_bump(store: PgWorkspaceStore, namespace: s
 
 
 async def test_generated_column_matches_the_content(
-    store: PgWorkspaceStore, engine: AsyncEngine, namespace: str
+    store: PgFileStore, engine: AsyncEngine, namespace: str
 ) -> None:
     """size_bytes 由 PG 自己算，不可能和 content 漂移——容量上限就靠它。"""
 
@@ -76,9 +76,7 @@ async def test_generated_column_matches_the_content(
     assert size == len(content.encode())
 
 
-async def test_stale_version_reports_the_actual_one(
-    store: PgWorkspaceStore, namespace: str
-) -> None:
+async def test_stale_version_reports_the_actual_one(store: PgFileStore, namespace: str) -> None:
     await store.write(namespace, "稿.md", "一稿")
     await store.write(namespace, "稿.md", "二稿")
     with pytest.raises(VersionConflict) as raised:
@@ -90,7 +88,7 @@ async def test_stale_version_reports_the_actual_one(
 
 
 async def test_cas_on_a_deleted_file_never_silently_recreates_it(
-    store: PgWorkspaceStore, namespace: str
+    store: PgFileStore, namespace: str
 ) -> None:
     """带版本号写一个已经不存在的文件是冲突，不是新建。"""
 
@@ -103,7 +101,7 @@ async def test_cas_on_a_deleted_file_never_silently_recreates_it(
 
 
 async def test_delete_reports_whether_anything_was_there(
-    store: PgWorkspaceStore, namespace: str
+    store: PgFileStore, namespace: str
 ) -> None:
     assert await store.delete(namespace, "没有.md") is False
     await store.write(namespace, "有.md", "x")
@@ -111,7 +109,7 @@ async def test_delete_reports_whether_anything_was_there(
 
 
 async def test_nul_bytes_are_refused_before_the_driver_sees_them(
-    store: PgWorkspaceStore, namespace: str
+    store: PgFileStore, namespace: str
 ) -> None:
     """PG 的 text 存不了 NUL。不挡就是一个裸驱动错误，而不是一句能重试的话。"""
 
@@ -119,9 +117,7 @@ async def test_nul_bytes_are_refused_before_the_driver_sees_them(
         await store.write(namespace, "稿.md", "前\x00后")
 
 
-async def test_illegal_paths_never_reach_the_database(
-    store: PgWorkspaceStore, namespace: str
-) -> None:
+async def test_illegal_paths_never_reach_the_database(store: PgFileStore, namespace: str) -> None:
     """路径语法在存储层强制——这里是协议边界，绕不过去。"""
 
     with pytest.raises(InvalidPath):
@@ -131,7 +127,7 @@ async def test_illegal_paths_never_reach_the_database(
 
 
 async def test_oversized_file_is_refused(engine: AsyncEngine, namespace: str) -> None:
-    store = PgWorkspaceStore(engine, max_file_bytes=64)
+    store = PgFileStore(engine, max_file_bytes=64)
     with pytest.raises(QuotaExceeded) as raised:
         await store.write(namespace, "稿.md", "x" * 65)
     assert raised.value.scope == "file"
@@ -140,7 +136,7 @@ async def test_oversized_file_is_refused(engine: AsyncEngine, namespace: str) ->
 async def test_overwrite_counts_only_the_delta(engine: AsyncEngine, namespace: str) -> None:
     """覆盖同一个文件不该被自己的旧内容挡住，否则一撞上限就再也改不动了。"""
 
-    store = PgWorkspaceStore(engine, max_namespace_bytes=100)
+    store = PgFileStore(engine, max_namespace_bytes=100)
     await store.write(namespace, "稿.md", "x" * 90)
     written = await store.write(namespace, "稿.md", "y" * 95)
     assert written.size_bytes == 95
@@ -163,7 +159,7 @@ async def test_namespace_quota_holds_under_concurrent_writes_to_different_paths(
     warmed = await asyncio.gather(engine.connect(), engine.connect())
     await asyncio.gather(*(connection.close() for connection in warmed))
 
-    store = PgWorkspaceStore(engine, max_namespace_bytes=100)
+    store = PgFileStore(engine, max_namespace_bytes=100)
     results = await asyncio.gather(
         store.write(namespace, "a.md", "x" * 80),
         store.write(namespace, "b.md", "y" * 80),
@@ -178,7 +174,7 @@ async def test_namespace_quota_holds_under_concurrent_writes_to_different_paths(
 
 
 async def test_entries_scope_by_segment_boundary_and_sort(
-    store: PgWorkspaceStore, namespace: str
+    store: PgFileStore, namespace: str
 ) -> None:
     await store.write(namespace, "分镜/第二集.md", "b")
     await store.write(namespace, "分镜/第一集.md", "a")
@@ -191,16 +187,14 @@ async def test_entries_scope_by_segment_boundary_and_sort(
     assert scoped == ["分镜/第一集.md", "分镜/第二集.md"]
 
 
-async def test_namespaces_are_isolated(store: PgWorkspaceStore) -> None:
+async def test_namespaces_are_isolated(store: PgFileStore) -> None:
     mine, theirs = str(uuid.uuid4()), str(uuid.uuid4())
     await store.write(mine, "稿.md", "我的")
     assert await store.read(theirs, "稿.md") is None
     assert await store.entries(theirs) == []
 
 
-async def test_search_matches_lines_case_insensitively(
-    store: PgWorkspaceStore, namespace: str
-) -> None:
+async def test_search_matches_lines_case_insensitively(store: PgFileStore, namespace: str) -> None:
     await store.write(namespace, "稿.md", "开场是夜景\n中段是雨\n结尾也是夜景")
     await store.write(namespace, "笔记.md", "SCENE 100")
 
@@ -211,9 +205,7 @@ async def test_search_matches_lines_case_insensitively(
     assert [match.path for match in lowered.matches] == ["笔记.md"]
 
 
-async def test_search_treats_wildcards_as_literal_text(
-    store: PgWorkspaceStore, namespace: str
-) -> None:
+async def test_search_treats_wildcards_as_literal_text(store: PgFileStore, namespace: str) -> None:
     """``%`` 当通配符会让检索命中一切；它必须是字面量。"""
 
     await store.write(namespace, "稿.md", "进度 100%\n别的行")
@@ -221,9 +213,7 @@ async def test_search_treats_wildcards_as_literal_text(
     assert not (await store.search(namespace, "%别的", limit=10)).matches
 
 
-async def test_search_says_when_it_held_matches_back(
-    store: PgWorkspaceStore, namespace: str
-) -> None:
+async def test_search_says_when_it_held_matches_back(store: PgFileStore, namespace: str) -> None:
     await store.write(namespace, "a.md", "夜景")
     await store.write(namespace, "b.md", "夜景")
     result = await store.search(namespace, "夜景", limit=1)
@@ -231,7 +221,7 @@ async def test_search_says_when_it_held_matches_back(
     assert result.truncated is True
 
 
-async def test_search_caps_matches_per_file(store: PgWorkspaceStore, namespace: str) -> None:
+async def test_search_caps_matches_per_file(store: PgFileStore, namespace: str) -> None:
     """一个词在一份稿子里出现几十次很常见，不能让一个文件占满整个结果。"""
 
     await store.write(namespace, "稿.md", "\n".join("夜景" for _ in range(20)))

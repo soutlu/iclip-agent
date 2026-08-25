@@ -1,4 +1,4 @@
-"""工作区存储的进程内替身。
+"""文件存储的进程内替身。
 
 刻意走**和 PG 实现同一条判定序列**：校验路径 → 判单文件上限 → 上锁 → 查版本 →
 查用量 → 判总量 → 写。真库那边的顺序是想清楚才定的（先查后判换来精确错误），
@@ -15,15 +15,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from iclip.capabilities.workspace.store import (
+from iclip.platform.file_store.store import (
     DEFAULT_MAX_FILE_BYTES,
     DEFAULT_MAX_NAMESPACE_BYTES,
     MAX_SEARCH_FILES,
     FileEntry,
     QuotaExceeded,
     SearchResult,
+    StoredFile,
     VersionConflict,
-    WorkspaceFile,
     build_matches,
     normalize_path,
     validate_content,
@@ -41,8 +41,8 @@ class _Row:
         return len(self.content.encode("utf-8"))
 
 
-class FakeWorkspaceStore:
-    """``WorkspaceStore`` 的内存实现。"""
+class FakeFileStore:
+    """``FileStore`` 的内存实现。"""
 
     def __init__(
         self,
@@ -55,12 +55,12 @@ class FakeWorkspaceStore:
         self._max_file_bytes = max_file_bytes
         self._max_namespace_bytes = max_namespace_bytes
 
-    async def read(self, namespace: str, path: str) -> WorkspaceFile | None:
+    async def read(self, namespace: str, path: str) -> StoredFile | None:
         key = normalize_path(path)
         row = self._rows.get((namespace, key))
         if row is None:
             return None
-        return WorkspaceFile(path=key, content=row.content, version=row.version)
+        return StoredFile(path=key, content=row.content, version=row.version)
 
     async def write(
         self, namespace: str, path: str, content: str, *, expected_version: int | None = None
@@ -131,4 +131,4 @@ class FakeWorkspaceStore:
         return SearchResult(matches=found[:limit], truncated=truncated)
 
 
-__all__ = ["FakeWorkspaceStore"]
+__all__ = ["FakeFileStore"]

@@ -224,36 +224,6 @@ async def crop_cells(path: Path, boxes: Sequence[tuple[int, int, int, int]]) -> 
     return cells
 
 
-async def shrink(data: bytes, *, max_edge: int) -> bytes:
-    """把一张图缩到长边不超过 ``max_edge``，返回 JPEG 字节。
-
-    只用于附给模型看的那一份：一张 4K 帧几兆字节，几张就把一次请求撑爆。
-    """
-
-    return await _run_with_input(
-        [
-            "ffmpeg",
-            "-v",
-            "error",
-            "-i",
-            "pipe:0",
-            "-frames:v",
-            "1",
-            "-vf",
-            f"scale='if(gt(iw,ih),min({max_edge},iw),-2)':'if(gt(iw,ih),-2,min({max_edge},ih))'",
-            "-q:v",
-            "4",
-            "-f",
-            "image2",
-            "-c:v",
-            "mjpeg",
-            "pipe:1",
-        ],
-        stdin=data,
-        timeout=CROP_TIMEOUT_SECONDS,
-    )
-
-
 async def _run(args: list[str], *, timeout: float) -> bytes:
     """起一个子进程，等它退出，返回 stdout。超时先 kill 再 wait，不留僵尸。"""
 
@@ -272,29 +242,6 @@ async def _run(args: list[str], *, timeout: float) -> bytes:
     return stdout
 
 
-async def _run_with_input(args: list[str], *, stdin: bytes, timeout: float) -> bytes:
-    """同 ``_run``，但把字节从 stdin 喂进去。"""
-
-    process = await asyncio.create_subprocess_exec(
-        *args,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(stdin), timeout=timeout)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-        raise MediaError(f"{args[0]} 超过 {timeout:.0f} 秒还没结束") from None
-    if process.returncode != 0:
-        detail = stderr.decode(errors="replace")[:_STDERR_LIMIT]
-        raise MediaError(f"{args[0]} 失败（退出码 {process.returncode}）: {detail}")
-    if not stdout:
-        raise MediaError(f"{args[0]} 没有输出")
-    return stdout
-
-
 __all__ = [
     "DETECT_WIDTH",
     "EXTRACT_TIMEOUT_SECONDS",
@@ -307,5 +254,4 @@ __all__ = [
     "fetched",
     "ffmpeg_available",
     "probe_duration_ms",
-    "shrink",
 ]

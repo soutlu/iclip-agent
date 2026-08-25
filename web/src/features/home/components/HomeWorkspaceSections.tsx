@@ -24,8 +24,6 @@ const WORKSPACE_TABS = [
   { id: 'tasks', label: 'Tasks' },
   { id: 'inspiration', label: 'Inspiration' },
   { id: 'storyboards', label: 'Storyboards' },
-  { id: 'canvas', label: 'Canvas projects' },
-  { id: 'agent', label: 'Agent projects' },
 ] as const
 
 type WorkspaceTabId = (typeof WORKSPACE_TABS)[number]['id']
@@ -34,16 +32,6 @@ const INSPIRATION_CATEGORIES = ['ERP', '爆款视频', '模特形象', '场景�
 
 type InspirationCategory = (typeof INSPIRATION_CATEGORIES)[number]
 
-const AGENT_PROJECT_SKELETON_IDS = [
-  'agent-project-skeleton-1',
-  'agent-project-skeleton-2',
-  'agent-project-skeleton-3',
-]
-const CANVAS_PROJECT_SKELETON_IDS = [
-  'canvas-project-skeleton-1',
-  'canvas-project-skeleton-2',
-  'canvas-project-skeleton-3',
-]
 const STORYBOARD_PROJECT_SKELETON_IDS = [
   'storyboard-project-skeleton-1',
   'storyboard-project-skeleton-2',
@@ -79,24 +67,6 @@ const createLiftedProjectMenuAnchorRect = (rect: DOMRect): DOMRect => ({
 })
 
 /**
- * 生成 Agent 项目卡片的跳转地址。
- *
- * @param project - 首页项目摘要。
- * @returns Agent 项目页地址。
- */
-const createAgentProjectHref = (project: RecentProjectItem) =>
-  `/projects/${encodeURIComponent(project.id)}`
-
-/**
- * 生成 Canvas 项目卡片的跳转地址。
- *
- * @param project - 首页项目摘要。
- * @returns 统一项目页地址。
- */
-const createCanvasProjectHref = (project: RecentProjectItem) =>
-  `/projects/${encodeURIComponent(project.id)}`
-
-/**
  * 生成 Storyboard 项目卡片的跳转地址。
  *
  * @param project - 首页项目摘要。
@@ -108,7 +78,6 @@ const createStoryboardProjectHref = (project: RecentProjectItem) =>
 export default function HomeWorkspaceSections() {
   const [activeTab, setActiveTab] = useState<WorkspaceTabId>('tasks')
   const {
-    createProject,
     groups,
     isCreatingProject,
     isLoading,
@@ -122,10 +91,6 @@ export default function HomeWorkspaceSections() {
   const projects = useMemo(() => groups.flatMap((group) => group.items), [groups])
   const agentProjects = useMemo(
     () => projects.filter((project) => project.kind === 'agent'),
-    [projects],
-  )
-  const canvasProjects = useMemo(
-    () => projects.filter((project) => project.kind === 'direct'),
     [projects],
   )
   const storyboardProjectIdsQuery = useQuery({
@@ -151,24 +116,6 @@ export default function HomeWorkspaceSections() {
       ? storyboardProjectIdsQuery.error.message
       : '加载 Storyboard 项目失败'
     : projectActionError
-
-  /**
-   * 从 Agent 项目入口创建 Agent 项目。
-   *
-   * @returns 无返回值。
-   */
-  const handleCreateAgentProject = () => {
-    void createProject({ kind: 'agent' })
-  }
-
-  /**
-   * 从 Canvas 项目入口创建 Direct 项目。
-   *
-   * @returns 无返回值。
-   */
-  const handleCreateCanvasProject = () => {
-    void createProject({ kind: 'direct' })
-  }
 
   return (
     <section
@@ -206,29 +153,6 @@ export default function HomeWorkspaceSections() {
           onRenameProject={renameProject}
         />
       ) : null}
-      {activeTab === 'canvas' ? (
-        <CanvasProjectsPanel
-          isCreatingProject={isCreatingProject}
-          isLoading={isLoading}
-          projectActionError={projectActionError}
-          projects={canvasProjects}
-          renamingProjectIds={renamingProjectIds}
-          onCreateProject={handleCreateCanvasProject}
-          onRenameProject={renameProject}
-        />
-      ) : null}
-      {activeTab === 'agent' ? (
-        <AgentProjectsPanel
-          isCreatingProject={isCreatingProject}
-          isLoading={isLoading}
-          projectActionError={projectActionError}
-          projects={agentProjects}
-          renamingProjectIds={renamingProjectIds}
-          onCreateProject={handleCreateAgentProject}
-          onRenameProject={renameProject}
-        />
-      ) : null}
-
       <div className="home-end-marker mt-24 flex items-center gap-8 text-body font-semibold">
         <span className="h-px flex-1 bg-[var(--home-border)]" />
         <span>You've reached the end</span>
@@ -371,42 +295,6 @@ type ProjectPanelProps = Omit<
   WorkspaceProjectsPanelProps,
   'loadingSkeletonIds' | 'projectAriaLabelPrefix' | 'projectHref' | 'projectIconName'
 >
-
-/**
- * 渲染 Canvas 项目列表。
- *
- * @param props - Canvas 项目列表属性。
- * @returns Canvas 项目网格面板。
- */
-function CanvasProjectsPanel(props: ProjectPanelProps) {
-  return (
-    <WorkspaceProjectsPanel
-      {...props}
-      loadingSkeletonIds={CANVAS_PROJECT_SKELETON_IDS}
-      projectAriaLabelPrefix="Canvas"
-      projectHref={createCanvasProjectHref}
-      projectIconName="movie"
-    />
-  )
-}
-
-/**
- * 渲染 Agent 项目列表。
- *
- * @param props - Agent 项目列表属性。
- * @returns Agent 项目网格面板。
- */
-function AgentProjectsPanel(props: ProjectPanelProps) {
-  return (
-    <WorkspaceProjectsPanel
-      {...props}
-      loadingSkeletonIds={AGENT_PROJECT_SKELETON_IDS}
-      projectAriaLabelPrefix="Agent"
-      projectHref={createAgentProjectHref}
-      projectIconName="movie"
-    />
-  )
-}
 
 function CreateProjectCard({
   disabled,

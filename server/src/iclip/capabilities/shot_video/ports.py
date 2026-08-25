@@ -1,18 +1,16 @@
 """能力包对外要的东西：三个窄协议，真身由组合根接上去。
 
 不直接 import 生成域和 OSS——引一次，下一个能力包就照抄，围栏就破了。协议窄到
-单测能手写替身。
+单测能手写替身。文件存储不在这里另写一份：那是平台层的 ``FileStore`` 协议，和
+工作区能力用的是同一份。
 """
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol
 
-from pydantic_ai.tools import RunContext
-
-from iclip.capabilities.workspace.store import WorkspaceStore
 from iclip.domains.identity.public import Principal
 
 ImageChannel = Literal["dev", "pro"]
@@ -83,20 +81,6 @@ class VideoUnderstanding(Protocol):
     async def parse(self, video_url: str) -> str: ...
 
 
-@runtime_checkable
-class WorkspaceProvider(Protocol):
-    """挂在同一个 agent 上、管着工作区的那个能力，长什么样。
-
-    只声明要用到的两样：那份存储，和这次运行的命名空间。写成协议而不是认
-    ``Workspace`` 这个类，是为了不把工作区能力的实现绑进来——``WorkspaceStore`` 本
-    身就是一份纯协议，依赖它够了。
-    """
-
-    store: WorkspaceStore
-
-    def resolve_scope(self, ctx: RunContext[Any]) -> str: ...
-
-
 __all__ = [
     "ImageChannel",
     "ImageGenerations",
@@ -106,5 +90,4 @@ __all__ = [
     "JobStatus",
     "PublicObjectWriter",
     "VideoUnderstanding",
-    "WorkspaceProvider",
 ]

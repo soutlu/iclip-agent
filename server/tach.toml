@@ -17,6 +17,12 @@ depends_on = ["iclip.common"]
 path = "iclip.platform.object_store"
 depends_on = []
 
+# 命名空间化文本文件存储：工作区能力把它暴露给模型，别的能力往同一处落文件也
+# 走它。只认识 SQL 与 stdlib，命名空间按什么分由调用方决定。
+[[modules]]
+path = "iclip.platform.file_store"
+depends_on = []
+
 [[modules]]
 path = "iclip.config"
 depends_on = ["iclip.common"]
@@ -56,6 +62,7 @@ depends_on = ["iclip.common"]
 path = "iclip.capabilities"
 depends_on = [
     "iclip.common",
+    "iclip.platform.file_store",
     "iclip.harness",
     "iclip.domains.identity",
     "iclip.domains.agents",
@@ -69,6 +76,7 @@ depends_on = [
     "iclip.platform.db",
     "iclip.platform.http",
     "iclip.platform.object_store",
+    "iclip.platform.file_store",
     "iclip.config",
     "iclip.domains.identity",
     "iclip.domains.agents",

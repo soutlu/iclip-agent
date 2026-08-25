@@ -21,6 +21,9 @@
 | T-AGENTASM-03 | unit | 声明了 subagent 即挂上 `delegate_task` 且下属名进提示词 | 装配期冻结失效 |
 | T-AGENTASM-04 | unit | 未注册 id → NotFound、请求体不合协议 → ValidationFailed，且两者都在返回事件流之前抛出 | 错误在流中途才暴露 |
 | T-AGENTASM-05 | unit | 协议流路径真的落库：主 agent 与被派活下属各留一条 run，会话 id 取自请求体、`parent_run_id` 自动指向主 run | 运行事实只活在进程内存 |
+| T-MEDIA-01 | unit | 媒体引用协议两个方向：入站视频/音频/文件只留一行自包含 tag（模型面不收字节）、图片是一对 tag 把一份缩到长边 1024 的像素包在中间、顺序与纯文本原样；内嵌 base64 按内容哈希落地（同一份字节重发落回同一个地址）；不可用的媒体**原位**换成一句提示而不是被丢掉；出站一条 tag 连同它包住的像素与闭标签收成一个 part、还原出来的是 tag 里的原图地址 | 视频走到模型适配层才炸 / 同一张图每轮换身份 / 附件静默消失 / tag 漏给前端 |
+| T-AGENTASM-07 | unit | 带附件的请求体在**协议入口**就换好形状：模型收到的是 tag（视频只有空 tag、图片的缩略像素被一对 tag 包着），媒体 part 到不了模型适配层 | 错误在流中途才暴露 |
+| T-HIST-01 | unit | 历史的取材与过滤：客户端塞进来的 system 消息不回传；最后一次运行没留下完整快照时回退到上一次（崩一次不该带走整段历史）| 提示词面外泄 / 崩一次历史全没 |
 | T-MODEL-01 | unit | 命名模型装配：端点与 key 来自配置（含只收 api_key 的 provider 走 openai_client）；`api: responses` 显式分派且厂商 profile 不丢；有专属模型类的 provider（Ollama 等）不被拍平；未知 provider、responses 用在非 OpenAI 兼容 provider 上均装配期报错 | 静默走错端点 / 丢厂商适配 |
 | T-MODELCFG-01 | unit | `models` 段：键名即模型名（`model` 字段只在起名时覆盖）；`api` 默认 chat、非法值即拒；声明了某模型但其 `api_key_env` 为空即启动报错 | 静默降级 |
 | T-AGENTASM-06 | unit | agent / 子 agent 引用未声明的模型名即装配期报错；spec 里的 `model:` 被声明覆盖 | 模型声明双写打架 |
@@ -58,10 +61,12 @@
 | T-STORE-03 | integration_no_llm | 消息负载无损往返：含 `NUL(\u0000)` 转义的文本、≥64KiB 媒体外置与还原 | 存储层静默损坏 |
 | T-AGENTRUN-01 | integration_no_llm | 真实 app + 真实用户：匿名 401、viewer 403、editor 跑通 `test` 模型 200 流；未注册 id 404、非 JSON 415、坏 body 422、OPTIONS 不放行；自己编的会话 id、别人的会话 id、以及**同一个 id 的大写写法**都是 404（大写解析出的是同一个 UUID，但下游用的是原样字符串，放行它会长出第二个工作区和第二条流）；跑过一次之后对话上记着 `lastRunId`，且客户端铸造的运行 id 被盖进了落库的消息里 | 双主体与 agent 运行面的联动 / 客户端自造会话 / 两套 id 事后对不上 |
 | T-CONV-01 | integration_no_llm | `/conversations` 全链路：匿名 401、viewer 建不了（但列表可读）、开→列→改名→删走通，id 由服务端发放、`lastRunId` 初始为空、列表按最近活动倒序（改名也算活动）；别人的对话列表里没有、改名与删除都 404；不存在的 id 404；坏 payload 422 | 越权 / 会话归属泄露 |
+| T-CONV-03 | integration_no_llm | `GET /conversations/{id}/messages`：发出去是媒体 part、读回来还是媒体 part（中间那副 tag 形状不外露），喂过模型的缩略图不回传；一次运行都没跑过是空列表；别人的对话 404 | 刷新即丢历史 / tag 漏给前端 / 历史响应驮着一堆图 |
 | T-CONV-02 | integration_no_llm | 删对话把这段对话的工作区文件一并删掉，且**只删这一段**（另一段对话的文件还在）——两张表之间没有外键，这条连带关系断了不会报错，只会留下再没人看得见的文件 | 删不干净 / 删过头 |
 | T-SKILL-01 | unit | 声明的 skill 名不在库里 → 装配期报错；声明了 skill 却没有库目录 → 加载期报错；空列表与不写同义（都不挂、也不要求库存在）；库与 `get_skill_reference` 成对挂载 | 静默降级成「没挂」 |
-| T-WORKSPACE-01 | unit | 路径语法（`..`/绝对路径/反斜杠/控制字符/超长超深一律拒；`//` 与首斜杠规范化；Unicode 两种写法归一成同一文件）；命名空间是 `{user}/{conversation}`、deps 不对时 `for_run` 即失败（不退回公共命名空间）；同一用户两段对话互不可见；**下属写、主 agent 读回来走同一个文件夹**（改成读 `ctx.conversation_id` 此断言即红）；六件工具的行为与错误翻译（读不到/读越界/`old_text` 零次或多次匹配/删不存在/配额两种上限各自的自救提示）；`list` 按段边界限定；检索大小写不敏感且 `%` 为字面量、少报要标注；能力 id 写死、`get_serialization_name()` 为 None；**挂到真 Agent 上跑通**（六件工具都到模型面前、文件落进发起方的命名空间） | 越界访问 / 静默改错地方 / 静默少给 / 装配面接不上 |
-| T-WORKSPACE-02 | integration_no_llm | `PgWorkspaceStore` 对真库：生成列 `size_bytes` 与内容一致；CAS 报出实际版本、对已删文件报冲突而非静默新建；NUL 字节在驱动之前被拒；**并发写不同路径时命名空间配额仍关严**（预热连接池后两个写真交错，摘掉 advisory 锁此断言即红）；覆盖只算差量；列目录按码位序（显式 `COLLATE "C"`，不吃服务器 locale）与段边界；命名空间互不可见 | 配额被并发撑爆 / 排序随部署漂移 / 静默重建 |
+| T-WORKSPACE-01 | unit | 路径语法（`..`/绝对路径/反斜杠/控制字符/超长超深一律拒；`//` 与首斜杠规范化；Unicode 两种写法归一成同一文件）；命名空间是 `{user}/{conversation}`、deps 不对时 `for_run` 即失败（不退回公共命名空间）；同一用户两段对话互不可见；**下属写、主 agent 读回来走同一个文件夹**（改成读 `ctx.conversation_id` 此断言即红）；六件工具的行为与错误翻译（读不到/读越界/`old_text` 零次或多次匹配/删不存在/配额两种上限各自的自救提示）；`list` 按段边界限定；检索大小写不敏感且 `%` 为字面量、少报要标注；**取地盘走 `FileSpace.resolve()` 而不是规则的原样值**（绕开即红——绕开不报错，只让收同一个 `FileSpace` 的另一件能力算出别的字符串）；能力 id 写死、`get_serialization_name()` 为 None；**挂到真 Agent 上跑通**（六件工具都到模型面前、文件落进发起方的命名空间） | 越界访问 / 静默改错地方 / 静默少给 / 装配面接不上 |
+| T-WORKSPACE-03 | unit | `FileSpace.resolve()`：命名空间自己也过路径语法（`//` 与首斜杠规范化；`..`/`.`/空/尾斜杠一律拒）；规则自己抛就让它抛，不吞掉退回公共命名空间 | 两个调用方算出不同的地盘 / 隔离根是纸做的 |
+| T-WORKSPACE-02 | integration_no_llm | `PgFileStore` 对真库：生成列 `size_bytes` 与内容一致；CAS 报出实际版本、对已删文件报冲突而非静默新建；NUL 字节在驱动之前被拒；**并发写不同路径时命名空间配额仍关严**（预热连接池后两个写真交错，摘掉 advisory 锁此断言即红）；覆盖只算差量；列目录按码位序（显式 `COLLATE "C"`，不吃服务器 locale）与段边界；命名空间互不可见 | 配额被并发撑爆 / 排序随部署漂移 / 静默重建 |
 | T-SKILL-02 | unit | `get_skill_reference`（经真 Agent 调用）：授权 skill 的 `.md` 读得到；没挂载的 skill、越界路径（`..`/绝对路径）、非 `.md`、不存在 → 可重试提示且报出有哪些文件；超上限截断且显式标注；编码坏了直接失败不重试 | 越权读别人的 references / 静默少给一段 / 模型在重试上打转 |
 | T-DEPS-01 | unit | `start` 收到的 deps 一路进到工具的 `ctx.deps`（协议面与官方 `override(deps=…)` 两条路各验一次）| 工具拿不到宿主依赖 |
 | T-DEPS-02 | integration_no_llm | 完整 HTTP 路径：工具拿到的是发起这次运行的主体；两个用户各跑一次，各拿自己的主体 | 身份串人 / deps 被装配期捕获 |
@@ -77,9 +82,9 @@
 | T-CONFIG-03 | unit | `redis` 段：配了就必须有 `REDIS_URL`（缺了报出变量名）、默认值显式、缺段即无事件流 | 静默降级 |
 | T-AGENTRUN-02 | integration_no_llm | 完整 HTTP 路径跑一次运行后，`agent_runtime.runs` 有对应会话的 run（id 前缀为 agent id），`agent_runtime.events` 首帧为 `run_started` | 运行事实只活在进程内存 |
 | T-SHOT-01 | unit | 切格几何（纯函数）：PGM 解析的七类坏输入各自被拒；分隔带不在等分线上时按它切、外圈边框另修；**检测不到时退回等分且 `detected` 为假**（只量到一个轴也算没量到）；离等分线太远的白带不当网格线；黑色格间距同样算；行列数越界、像素长度对不上即拒；画幅收缩在容差内不动、大偏差照常裁（那是正常操作）、空盒即拒；缩放坐标还原 | 静默切歪 / 把错误整形成「看起来对」 |
-| T-SHOT-02 | unit | 四件工具的语义（出图/对象存储/拆解/工作区都用替身）：能力 id 写死、`get_serialization_name()` 为 None、`get_instructions()` 为 None（接力顺序归 skill，不由能力包注入）、四件工具都到模型面前；deps 不是 `AgentRunDeps` → 直接炸而不是可重试提示；**同一个 agent 上没挂 `workspace` 即报错指向 `agents.yaml`**（自带一份存储的后果是模型的 `read_file` 看不见这些文件，静默）；拆解文档写进工作区、只回路径，取帧与拆片各自算出的路径落在同一份文件上；同名视频不共用一份文档；非 http 地址在碰网络之前被拒；拆解失败翻成可重试提示 | 越界输入 / 装配面接不上 / 两边看不见同一份文件 |
+| T-SHOT-02 | unit | 四件工具的语义（出图/对象存储/拆解/文件存储都用替身）：能力 id 写死、`get_serialization_name()` 为 None、`get_instructions()` 为 None（接力顺序归 skill，不由能力包注入）、四件工具都到模型面前；deps 不是 `AgentRunDeps` → 直接炸而不是可重试提示；**写出去的文件落在规范化之后的地盘**（绕开 `resolve()` 即红，那正是模型的 `read_file` 看不见这些文件的成因）；拆解文档写进工作区、只回路径，取帧与拆片各自算出的路径落在同一份文件上；同名视频不共用一份文档；非 http 地址在碰网络之前被拒；拆解失败翻成可重试提示 | 越界输入 / 装配面接不上 / 两边看不见同一份文件 |
 | T-SHOT-03 | unit | 逐格请求的校验与出图的重试升级：没有取帧账本即指向 `plan_shot_frames`；帧号形状错、不在账本里、同批重复、prompt 为空、条数不在 1-4 **都在提交之前**被拒（一次都没提交）；整版按 `4k` 提交且空格由中性面板补满；`PROVIDER_UNREACHABLE` 与 `PROVIDER_SERVER_ERROR` 才自动再发，dev 试满再升 pro（渠道序列 dev,dev,pro）；**`PROVIDER_RESULT_UNKNOWN` / `PROVIDER_REJECTED` / `OUTPUT_*` / `SUBMIT_INTERRUPTED` / `PROVIDER_TIMEOUT` 一次都不重发**；画幅不合规在提交之前拒；等超时也要把记录 id 报回去 | 重复计费 / 悄悄改计费 / 一次生成没有结论 |
 | T-SHOT-04 | integration_no_llm | 真起 ffmpeg（素材由 ffmpeg 自己合成，经替身传输喂进去）：切格真按非等分的网格线走（四格实际像素尺寸各不相同，等分切法给不出这个结果），图比检测宽度大时坐标按比例还原回原图；整片按秒抽帧的栅格是全片统一的（镜头 1 拿 0/1000ms、镜头 2 拿 2000ms → `S1-1`/`S1-2`/`S2-1`），拼板落公开地址、账本落工作区，同一视频同一份文档第二次直接复用不重抽；越界时间码报出实际时长；出图收敛后真切格、只留请求的那几格、版记录逐帧带 prompt；整图取不回来是失败而不是空结果；`ReadMediaFile` 真把画面附在结果里 | 几何只在纸面上对 / 重复抽帧与重复计费 / 下载失败炸成 500 |
 | T-SHOTCFG-01 | unit | `shot_video`：`VIDEO_UNDERSTANDING_URL` 为空即整项关闭（段留着也一样）；开了则 key 必需（缺了报变量名）；**开了但媒体生成没开即启动报错**（出图与对象存储都走生成那一套）；模型名来自 YAML | 半开着的能力 / 静默降级 |
-| T-SHOTBOOT-01 | unit | 依赖不齐时 `shot_video` 不进名字表，引用它的 agent 在装配期报「未登记的 capability」；依赖齐了才登记得上；适配器把不合规的画幅/档位翻成能力包自己的错误类型（不外泄领域错误） | agent 带着半套工具上线 |
+| T-SHOTBOOT-01 | unit | 依赖不齐时 `shot_video` 不进名字表，引用它的 agent 在装配期报「未登记的 capability」；依赖齐了才登记得上；**挂了 `shot_video` 没挂 `workspace` 在装配期报错指向 `agents.yaml`**（两边共用同一个存储与命名空间规则，少挂一个的失效是静默的：文档照写照读，只是模型看不见）；适配器把不合规的画幅/档位翻成能力包自己的错误类型（不外泄领域错误） | agent 带着半套工具上线 |
 | T-ADMIN-01 | integration_no_llm | root 引导：`ROOT_EMAIL` SSO 登录即持有 root；CLI set-roles 直连 DB（非 SSO 场景） | 引导链路 |

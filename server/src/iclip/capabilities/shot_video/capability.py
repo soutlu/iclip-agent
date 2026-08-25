@@ -1,9 +1,9 @@
 """镜头素材能力：拆参考片、等间隔取帧分板、按批出帧、读图。
 
 四件工具靠工作区里的两份文件接力：拆解文档（`video/<名>.md`）与取帧账本
-（`frames/extraction.json`）。工作区是从本次运行认领的（`ctx.capabilities`），不
-从组合根另接一份——同一个 agent 上挂着的那个工作区，才是模型用 `read_file` /
-`edit_file` 看得见、改得动的那个。所以时间码写坏了它自己就能修。
+（`frames/extraction.json`）。落在哪由构造时给进来的 `FileSpace` 决定，和工作区能
+力收的是同一个——所以模型用 `read_file` / `edit_file` 看见的就是这几件工具写的那
+批文件，时间码写坏了它自己就能修。本包不认识工作区能力。
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from pydantic_ai import ModelRetry, ToolReturn
 from pydantic_ai.agent.abstract import AgentInstructions
 from pydantic_ai.capabilities import AbstractCapability
-from pydantic_ai.messages import BinaryContent
+from pydantic_ai.messages import ImageUrl
 from pydantic_ai.tools import AgentDepsT, RunContext
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
@@ -51,7 +51,6 @@ from iclip.capabilities.shot_video.ports import (
     InvalidImageRequest,
     PublicObjectWriter,
     VideoUnderstanding,
-    WorkspaceProvider,
 )
 from iclip.capabilities.shot_video.prompt import (
     GRID_CELLS,
@@ -70,9 +69,15 @@ from iclip.capabilities.shot_video.shots import (
     parse_shot_rows,
     sample_rows,
 )
-from iclip.capabilities.workspace.store import QuotaExceeded, WorkspaceStore
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
+from iclip.harness.media import (
+    IMAGE_CONTEXT_MAX_EDGE,
+    media_tag_close,
+    media_tag_open,
+    resized_image_url,
+)
+from iclip.platform.file_store.store import FileSpace, FileStore, QuotaExceeded
 
 CAPABILITY_ID: Final = "shot_video"
 
@@ -83,9 +88,6 @@ GRID_RECORD_VERSION: Final = 1
 
 GRID_RESOLUTION: Final = "4k"
 """整图按最高档出。切成 4 格后每格只剩四分之一线性分辨率，低档不够交付。"""
-
-VIEW_MAX_EDGE: Final = 1024
-"""附给模型看的那份图的长边像素。交付用的原图另存，不受这个限制。"""
 
 _JPEG: Final = "image/jpeg"
 _OSS_PREFIX: Final = "shot-frames"
@@ -101,12 +103,6 @@ _RESENDABLE: Final = frozenset({"PROVIDER_UNREACHABLE", "PROVIDER_SERVER_ERROR"}
 **判据只有一条：这次失败有没有可能已经计费。** 连不上、对方 5xx 没产出——这两
 种确定没扣钱。其余一律停手报错：``PROVIDER_RESULT_UNKNOWN`` 可能已扣过钱，
 ``OUTPUT_*`` 是图出了只是没转存成功，重发都等于为同一版付两次。
-"""
-
-WORKSPACE_ID: Final = "workspace"
-"""工作区能力登记的名字。
-
-写死一个字符串而不是去 import 那边的常量：认得它是谁靠的是协议，不是那个类。
 """
 
 _STATUS_DONE: Final = "done"
@@ -144,6 +140,13 @@ class GenerationPolicy:
 @dataclass
 class ShotVideo(AbstractCapability[AgentDepsT]):
     """把四件工具挂到 agent 上。"""
+
+    space: FileSpace
+    """拆解文档与取帧账本落在哪。必须和工作区能力收的是同一个。
+
+    「同一个」由组合根保证：这里只认平台层这一件东西，不认识工作区能力。两边要
+    是各接各的，文档照写照读，只是模型的 ``read_file`` 看不见它——失效是静默的。
+    """
 
     generations: ImageGenerations
     objects: PublicObjectWriter
@@ -362,21 +365,22 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         _ = _principal(ctx)
         _require_http(url, what="图片地址")
+        # 附地址而不是字节：厂商自己去取图，我们既不下载也不转码。缩放交给 OSS 的
+        # 参数（见 resized_image_url），附的是缩略档，tag 里写的仍是原图地址。
+        view = ImageUrl(url=resized_image_url(url, max_edge=IMAGE_CONTEXT_MAX_EDGE))
         try:
-            async with ffmpeg.fetched(
-                self._cap.client, url, max_bytes=ffmpeg.MAX_IMAGE_BYTES, suffix=".img"
-            ) as source:
-                data = await asyncio.to_thread(source.read_bytes)
-            view = await ffmpeg.shrink(data, max_edge=VIEW_MAX_EDGE)
-        except ffmpeg.MediaError as exc:
-            raise ModelRetry(str(exc)) from exc
+            _ = view.media_type
+        except ValueError as exc:
+            raise ModelRetry(f"这个地址看不出图片格式，确认它是一张图的直链：{url}") from exc
+        # 像素包在一对 tag 中间：地址与它显示的那张图在上下文里是连着的一段，模型
+        # 要把这张图交给别的工具时，抄的是 tag 里的原图地址而不是缩略档。
         return ToolReturn(
             return_value=f"已读取图片 {url}，其原始内容已附在本工具结果中。",
-            content=[BinaryContent(data=view, media_type=_JPEG)],
+            content=[media_tag_open("image", url), view, media_tag_close("image")],
         )
 
     async def _shot_rows(
-        self, files: WorkspaceStore, namespace: str, doc_path: str
+        self, files: FileStore, namespace: str, doc_path: str
     ) -> tuple[tuple[ShotSpan, ...], ...]:
         """从拆解文档读逐镜时间区间；读不出就给出一条模型能自己走的修复路径。"""
 
@@ -499,7 +503,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
     async def _collect(
         self,
-        files: WorkspaceStore,
+        files: FileStore,
         namespace: str,
         job: ImageJob,
         *,
@@ -580,7 +584,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         }
 
     async def _load_extraction(
-        self, files: WorkspaceStore, namespace: str, *, expected_key: str | None
+        self, files: FileStore, namespace: str, *, expected_key: str | None
     ) -> dict[str, Any] | None:
         """读取帧账本；版本不符或（给定时）key 不匹配一律视为不存在。"""
 
@@ -599,26 +603,16 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             return None
         return document
 
-    async def _write(self, files: WorkspaceStore, namespace: str, path: str, content: str) -> None:
+    async def _write(self, files: FileStore, namespace: str, path: str, content: str) -> None:
         try:
             await files.write(namespace, path, content)
         except QuotaExceeded as exc:
             raise ModelRetry(f"工作区写不下 {path}：{exc} 用 delete_file 清掉不用的文件。") from exc
 
-    def _workspace(self, ctx: RunContext[AgentDepsT]) -> tuple[WorkspaceStore, str]:
-        """认领这次运行里挂着的工作区。
+    def _workspace(self, ctx: RunContext[AgentDepsT]) -> tuple[FileStore, str]:
+        """这次运行的文件存储与命名空间。命名空间算不出来就让它抛，不退回公共的。"""
 
-        不从组合根接一份自己的：这几件工具写的文档和账本，模型要用 `read_file` /
-        `edit_file` 去看去改。两边各拿各的存储，迟早落到不同的地方去。
-        """
-
-        found = ctx.capabilities.get(WORKSPACE_ID)
-        if not isinstance(found, WorkspaceProvider):
-            raise RuntimeError(
-                f"这个 agent 没挂 {WORKSPACE_ID} 能力，"
-                "而拆解文档与取帧账本都写在工作区里——在 agents.yaml 里给它补上。"
-            )
-        return found.store, found.resolve_scope(ctx)
+        return self._cap.space.store, self._cap.space.resolve(ctx)
 
 
 def video_doc_path(video_url: str) -> str:
@@ -715,6 +709,7 @@ def _sha256_file(path: Path) -> str:
 
 def shot_video_capability(
     *,
+    space: FileSpace,
     generations: ImageGenerations,
     objects: PublicObjectWriter,
     understanding: VideoUnderstanding,
@@ -724,6 +719,7 @@ def shot_video_capability(
     """造一个镜头素材能力。组合根用这个，不直接碰 dataclass 的字段顺序。"""
 
     return ShotVideo[Any](
+        space=space,
         generations=generations,
         objects=objects,
         understanding=understanding,
@@ -737,7 +733,6 @@ __all__ = [
     "EXTRACTION_PATH",
     "GRID_RECORDS_DIR",
     "GRID_RESOLUTION",
-    "VIEW_MAX_EDGE",
     "FrameRequest",
     "GenerationPolicy",
     "ShotVideo",

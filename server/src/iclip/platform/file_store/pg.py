@@ -1,4 +1,4 @@
-"""工作区文件的 Postgres 后端。表在 ``agent_runtime`` schema，DDL 由 Alembic 拥有。
+"""``FileStore`` 的 Postgres 后端。表在 ``agent_runtime`` schema，DDL 由 Alembic 拥有。
 
 **每次变更都先拿命名空间的 advisory 锁**，然后在 Python 里做判断，最后发一条
 普通 upsert。这个顺序是想清楚的：
@@ -41,15 +41,15 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from iclip.capabilities.workspace.store import (
+from iclip.platform.file_store.store import (
     DEFAULT_MAX_FILE_BYTES,
     DEFAULT_MAX_NAMESPACE_BYTES,
     MAX_SEARCH_FILES,
     FileEntry,
     QuotaExceeded,
     SearchResult,
+    StoredFile,
     VersionConflict,
-    WorkspaceFile,
     build_matches,
     normalize_path,
     validate_content,
@@ -87,8 +87,8 @@ _BY_CODE_POINT = workspace_files_table.c.path.collate("C")
 """
 
 
-class PgWorkspaceStore:
-    """``WorkspaceStore`` 的 Postgres 实现。"""
+class PgFileStore:
+    """``FileStore`` 的 Postgres 实现。"""
 
     def __init__(
         self,
@@ -112,7 +112,7 @@ class PgWorkspaceStore:
             text("SELECT pg_advisory_xact_lock(hashtext(:namespace))"), {"namespace": namespace}
         )
 
-    async def read(self, namespace: str, path: str) -> WorkspaceFile | None:
+    async def read(self, namespace: str, path: str) -> StoredFile | None:
         key = normalize_path(path)
         table = workspace_files_table
         async with self._engine.connect() as conn:
@@ -125,7 +125,7 @@ class PgWorkspaceStore:
             ).first()
         if row is None:
             return None
-        return WorkspaceFile(path=key, content=row[0], version=int(row[1]))
+        return StoredFile(path=key, content=row[0], version=int(row[1]))
 
     async def write(
         self, namespace: str, path: str, content: str, *, expected_version: int | None = None
@@ -203,7 +203,7 @@ class PgWorkspaceStore:
     async def purge_namespace(self, namespace: str) -> int:
         """清空整个命名空间，返回删掉几个文件。
 
-        **不在 ``WorkspaceStore`` 协议上**：那套接口是给模型用的工具面，模型不该有
+        **不在 ``FileStore`` 协议上**：那套接口是给模型用的工具面，模型不该有
         「一次抹掉整块地盘」这种动作。这个方法只给宿主在删除对话时调用。
 
         照样先拿锁：不加锁它能插在写者的「查」和「写」之间，写者随后那条 upsert 就
@@ -273,7 +273,7 @@ class PgWorkspaceStore:
 
 __all__ = [
     "DB_SCHEMA",
-    "PgWorkspaceStore",
+    "PgFileStore",
     "metadata_obj",
     "workspace_files_table",
 ]

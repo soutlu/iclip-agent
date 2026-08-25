@@ -1,6 +1,6 @@
 """镜头素材能力：工具面的语义、出图的重试与升级、装配面接得上。
 
-出图、对象存储、视频拆解、工作区都用进程内替身，所以这一层测的是「工具怎么决
+出图、对象存储、视频拆解、文件存储都用进程内替身，所以这一层测的是「工具怎么决
 策」。碰 ffmpeg 的那两件在这里只验它们动手之前就把前置条件拦下了——真跑一遍在集
 成层。
 """
@@ -37,17 +37,17 @@ from iclip.capabilities.shot_video.parser import (
     ArkVideoUnderstanding,
     VideoUnderstandingError,
 )
-from iclip.capabilities.workspace.capability import Workspace, workspace_capability
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
+from iclip.platform.file_store.store import FileSpace
+from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import (
     FakeGenerations,
     FakeObjects,
     FakeUnderstanding,
     Outcome,
 )
-from tests.helpers.workspace import FakeWorkspaceStore
 
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
 VIDEO = "https://cdn.test/ref.mp4"
@@ -83,22 +83,8 @@ def make_deps() -> AgentRunDeps:
     )
 
 
-def make_context(deps: object, files: FakeWorkspaceStore | None = None) -> RunContext[object]:
-    """一次运行的上下文。
-
-    工作区能力要真的挂上去：镜头素材那几件工具是从 ``ctx.capabilities`` 里认领它
-    的，不挂就跟线上少挂一个能力是同一个症状。
-    """
-
-    mounted: dict[str, Workspace[object]] = {}
-    if files is not None:
-        mounted["workspace"] = workspace_capability(store=files, namespace=workspace_namespace)
-    return RunContext[object](
-        deps=deps,
-        model=TestModel(),
-        usage=RunUsage(),
-        capabilities=mounted,  # type: ignore[arg-type]
-    )
+def make_context(deps: object) -> RunContext[object]:
+    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage())
 
 
 def ledger(*cell_ids: str) -> str:
@@ -140,15 +126,19 @@ def understanding() -> FakeUnderstanding:
 
 
 @pytest.fixture
-def files() -> FakeWorkspaceStore:
-    return FakeWorkspaceStore()
+def files() -> FakeFileStore:
+    return FakeFileStore()
 
 
 @pytest.fixture
 def capability(
-    generations: FakeGenerations, objects: FakeObjects, understanding: FakeUnderstanding
+    files: FakeFileStore,
+    generations: FakeGenerations,
+    objects: FakeObjects,
+    understanding: FakeUnderstanding,
 ) -> ShotVideo[object]:
     return shot_video_capability(
+        space=FileSpace(store=files, namespace=workspace_namespace),
         generations=generations,
         objects=objects,
         understanding=understanding,
@@ -165,8 +155,8 @@ def tools(capability: ShotVideo[object]) -> ShotVideoToolset[object]:
 
 
 @pytest.fixture
-def ctx(files: FakeWorkspaceStore) -> RunContext[object]:
-    return make_context(make_deps(), files)
+def ctx() -> RunContext[object]:
+    return make_context(make_deps())
 
 
 # ── 装配面 ────────────────────────────────────────────────────────────────────
@@ -213,25 +203,34 @@ async def test_four_tools_reach_the_model(capability: ShotVideo[object]) -> None
     ]
 
 
-async def test_missing_run_identity_is_a_bug_not_a_retry(
-    tools: ShotVideoToolset[object], files: FakeWorkspaceStore
-) -> None:
+async def test_missing_run_identity_is_a_bug_not_a_retry(tools: ShotVideoToolset[object]) -> None:
     """deps 不对是装配出错，不该翻成一句让模型重试的话——它改不动这个。"""
 
     with pytest.raises(RuntimeError, match="AgentRunDeps"):
-        await tools.video_parser_md(make_context(object(), files), VIDEO)
+        await tools.video_parser_md(make_context(object()), VIDEO)
 
 
-async def test_workspace_must_be_mounted_on_the_same_agent(
-    tools: ShotVideoToolset[object],
+async def test_files_land_in_the_normalized_namespace(
+    objects: FakeObjects, understanding: FakeUnderstanding, files: FakeFileStore
 ) -> None:
-    """工作区从本次运行认领，不自带一份。没挂就当场说清楚该去哪儿补。
+    """本能力写文件的地盘必须经 ``FileSpace.resolve()``，不能拿规则算出来的原样值。
 
-    自带一份的后果是静默的：文档照写照读，只是模型的 `read_file` 看不见它。
+    绕开它不会报错，只是文件落进另一个字符串——工作区那侧照规范化算，于是模型的
+    ``read_file`` 看不见这几件工具写的东西。
     """
 
-    with pytest.raises(RuntimeError, match=r"agents\.yaml"):
-        await tools.video_parser_md(make_context(make_deps()), VIDEO)
+    toolset = shot_video_capability(
+        space=FileSpace(store=files, namespace=lambda _ctx: f"{USER}//thread-1"),
+        generations=FakeGenerations(),
+        objects=objects,
+        understanding=understanding,
+        client=None,  # type: ignore[arg-type]  # 这一层不走取素材那条路
+        policy=FAST,
+    ).get_toolset()
+    assert isinstance(toolset, ShotVideoToolset)
+
+    result = await toolset.video_parser_md(make_context(make_deps()), VIDEO)
+    assert await files.read(NAMESPACE, result["path"]) is not None
 
 
 # ── 视频拆解 ──────────────────────────────────────────────────────────────────
@@ -241,7 +240,7 @@ async def test_parse_writes_the_document_and_returns_its_path(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
     understanding: FakeUnderstanding,
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
 ) -> None:
     """正文进工作区，工具只回路径——文档要被后面几步反复读，不该每轮都占上下文。"""
 
@@ -385,7 +384,7 @@ async def test_plan_needs_the_document_first(
 
 
 async def test_plan_points_at_a_repair_the_model_can_perform(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeWorkspaceStore
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
 ) -> None:
     """时间码读不出时给的是一条可执行的修法，不是一句「解析失败」。"""
 
@@ -396,7 +395,7 @@ async def test_plan_points_at_a_repair_the_model_can_perform(
 
 
 async def test_plan_rejects_a_document_with_a_broken_timecode(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeWorkspaceStore
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
 ) -> None:
     """终点不晚于起点就取不出任何一帧，在这里拦住比抽完再发现便宜。"""
 
@@ -433,7 +432,7 @@ async def test_generate_needs_the_extraction_ledger(
 async def test_generate_checks_every_cell_before_paying(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
     generations: FakeGenerations,
     frames: list[FrameRequest],
     expected: str,
@@ -447,7 +446,7 @@ async def test_generate_checks_every_cell_before_paying(
 async def test_generate_reference_urls_must_be_http(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
     generations: FakeGenerations,
 ) -> None:
     await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
@@ -459,7 +458,7 @@ async def test_generate_reference_urls_must_be_http(
 
 
 async def test_generate_refuses_an_empty_global_reference(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeWorkspaceStore
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
 ) -> None:
     await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
     with pytest.raises(ModelRetry, match="global_reference"):
@@ -472,7 +471,7 @@ async def test_generate_refuses_an_empty_global_reference(
 
 
 async def submit_once(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeWorkspaceStore
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
 ) -> dict[str, Any]:
     """走一次出图。收敛后的切格要 ffmpeg，所以这里用的都是失败结局。"""
 
@@ -485,7 +484,7 @@ async def submit_once(
 async def test_generate_submits_a_full_grid_at_the_top_tier(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
     generations: FakeGenerations,
 ) -> None:
     """一格也按四格提交：切完每格只剩四分之一分辨率，档位低了不够交付。"""
@@ -505,7 +504,7 @@ async def test_generate_submits_a_full_grid_at_the_top_tier(
 async def test_generate_retries_only_what_never_arrived(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
     generations: FakeGenerations,
 ) -> None:
     """连不上是确定没计费的失败，重发一次是安全的。"""
@@ -522,7 +521,7 @@ async def test_generate_retries_only_what_never_arrived(
 async def test_generate_escalates_to_pro_after_dev(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
     generations: FakeGenerations,
 ) -> None:
     generations.outcomes = [
@@ -549,7 +548,7 @@ async def test_generate_escalates_to_pro_after_dev(
 async def test_generate_stops_where_money_may_already_be_spent(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
     generations: FakeGenerations,
     error_code: str,
 ) -> None:
@@ -564,7 +563,7 @@ async def test_generate_stops_where_money_may_already_be_spent(
 async def test_generate_rejects_bad_parameters_before_paying(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
     generations: FakeGenerations,
 ) -> None:
     """参数不合规是在提交之前拒的，一分钱没花，所以让模型改了重来。"""
@@ -581,12 +580,13 @@ async def test_generate_gives_up_waiting_but_names_the_record(
     ctx: RunContext[object],
     generations: FakeGenerations,
     objects: FakeObjects,
-    files: FakeWorkspaceStore,
+    files: FakeFileStore,
 ) -> None:
     """等超时不等于这次生成没了：把记录 id 报回去，人还能自己去查。"""
 
     generations.outcomes = [Outcome(status="submitted", output_url=None)]
     toolset = shot_video_capability(
+        space=FileSpace(store=files, namespace=workspace_namespace),
         generations=generations,
         objects=objects,
         understanding=FakeUnderstanding(),

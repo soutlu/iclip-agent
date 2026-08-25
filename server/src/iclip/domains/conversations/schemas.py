@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Final
+from typing import Annotated, Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -53,6 +53,16 @@ class ConversationsPageOut(CamelModel):
     items: list[ConversationOut]
 
 
+class ConversationMessagesOut(CamelModel):
+    """一段对话已经发生过的消息。
+
+    ``messages`` 里是 AG-UI 官方形状的消息，字段名沿用 AG-UI 的拼写，不套这一层的
+    camelCase 改写——它们要原样喂回 ``POST /agents/{agentId}/chat`` 的请求体。
+    """
+
+    messages: list[dict[str, Any]]
+
+
 def conversation_out(conversation: Conversation) -> ConversationOut:
     """领域行 → wire 形状。属主不外发：调用方看到的本来就只有自己的对话。"""
 
@@ -72,6 +82,7 @@ __all__ = [
     "MAX_TITLE_CHARS",
     "ConversationEnvelope",
     "ConversationIn",
+    "ConversationMessagesOut",
     "ConversationOut",
     "ConversationRename",
     "ConversationsPageOut",

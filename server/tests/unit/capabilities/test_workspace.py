@@ -30,16 +30,17 @@ from iclip.capabilities.workspace.capability import (
     workspace_capability,
 )
 from iclip.capabilities.workspace.scope import workspace_namespace
-from iclip.capabilities.workspace.store import (
-    InvalidPath,
-    QuotaExceeded,
-    VersionConflict,
-    WorkspaceFile,
-    normalize_path,
-)
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
-from tests.helpers.workspace import FakeWorkspaceStore
+from iclip.platform.file_store.store import (
+    FileSpace,
+    InvalidPath,
+    QuotaExceeded,
+    StoredFile,
+    VersionConflict,
+    normalize_path,
+)
+from tests.helpers.file_store import FakeFileStore
 
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
 OTHER_USER = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -66,14 +67,18 @@ def make_context(deps: object) -> RunContext[object]:
     return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage())
 
 
-@pytest.fixture
-def store() -> FakeWorkspaceStore:
-    return FakeWorkspaceStore()
+def make_workspace(store: FakeFileStore) -> Workspace[object]:
+    return workspace_capability(space=FileSpace(store=store, namespace=workspace_namespace))
 
 
 @pytest.fixture
-def capability(store: FakeWorkspaceStore) -> Workspace[object]:
-    return workspace_capability(store=store, namespace=workspace_namespace)
+def store() -> FakeFileStore:
+    return FakeFileStore()
+
+
+@pytest.fixture
+def capability(store: FakeFileStore) -> Workspace[object]:
+    return make_workspace(store)
 
 
 @pytest.fixture
@@ -160,6 +165,17 @@ def test_a_forged_conversation_id_cannot_escape_its_user() -> None:
     assert workspace_namespace(make_context(make_deps())).startswith(f"{USER}/")
 
 
+def test_scope_goes_through_normalization() -> None:
+    """本能力取地盘必须经 ``FileSpace.resolve()``，不能拿规则算出来的原样值。
+
+    绕开它不会报错，只会让另一件收同一个 ``FileSpace`` 的能力算出**另一个**字符
+    串——两边各写各的地方，而且写读都成功。
+    """
+
+    dirty = FileSpace(store=FakeFileStore(), namespace=lambda _ctx: f"{USER}//{THREAD}")
+    assert workspace_capability(space=dirty).resolve_scope(make_context(make_deps())) == NS
+
+
 async def test_for_run_resolves_scope_before_any_tool_is_touched(
     capability: Workspace[object],
 ) -> None:
@@ -170,7 +186,7 @@ async def test_for_run_resolves_scope_before_any_tool_is_touched(
 
 
 async def test_two_users_do_not_see_each_other(
-    tools: WorkspaceToolset[object], store: FakeWorkspaceStore
+    tools: WorkspaceToolset[object], store: FakeFileStore
 ) -> None:
     mine = make_context(make_deps())
     theirs = make_context(make_deps(OTHER_USER))
@@ -265,12 +281,12 @@ async def test_edit_on_a_missing_file_points_at_write_file(
 
 
 async def test_edit_surfaces_a_concurrent_change_instead_of_clobbering_it(
-    store: FakeWorkspaceStore, ctx: RunContext[object]
+    store: FakeFileStore, ctx: RunContext[object]
 ) -> None:
     """``edit_file`` 是读—改—写；中间被人插一刀就得失败，不能把别人的改动盖掉。"""
 
-    class RacingStore(FakeWorkspaceStore):
-        async def read(self, namespace: str, path: str) -> WorkspaceFile | None:
+    class RacingStore(FakeFileStore):
+        async def read(self, namespace: str, path: str) -> StoredFile | None:
             found = await super().read(namespace, path)
             # 模拟「读完之后、写回之前，另一个运行落地了一次写入」。
             await super().write(namespace, path, "别人写的内容")
@@ -278,7 +294,7 @@ async def test_edit_surfaces_a_concurrent_change_instead_of_clobbering_it(
 
     racing = RacingStore()
     await racing.write(NS, "稿.md", "夜景")
-    tools = WorkspaceToolset(workspace_capability(store=racing, namespace=workspace_namespace))
+    tools = WorkspaceToolset(make_workspace(racing))
     with pytest.raises(ModelRetry, match="重新读一遍"):
         await tools.edit_file(ctx, "稿.md", "夜景", "黄昏")
 
@@ -345,11 +361,7 @@ async def test_search_flags_that_it_held_matches_back(
 
 
 async def test_oversized_file_is_refused_with_the_file_limit(ctx: RunContext[object]) -> None:
-    tools = WorkspaceToolset(
-        workspace_capability(
-            store=FakeWorkspaceStore(max_file_bytes=100), namespace=workspace_namespace
-        )
-    )
+    tools = WorkspaceToolset(make_workspace(FakeFileStore(max_file_bytes=100)))
     with pytest.raises(ModelRetry, match="超过单文件上限"):
         await tools.write_file(ctx, "稿.md", "x" * 101)
 
@@ -357,11 +369,7 @@ async def test_oversized_file_is_refused_with_the_file_limit(ctx: RunContext[obj
 async def test_full_workspace_tells_the_model_how_to_recover(ctx: RunContext[object]) -> None:
     """撞上总量上限必须给出自救手段，否则模型就卡死在这儿了。"""
 
-    tools = WorkspaceToolset(
-        workspace_capability(
-            store=FakeWorkspaceStore(max_namespace_bytes=100), namespace=workspace_namespace
-        )
-    )
+    tools = WorkspaceToolset(make_workspace(FakeFileStore(max_namespace_bytes=100)))
     await tools.write_file(ctx, "a.md", "x" * 80)
     with pytest.raises(ModelRetry, match="删掉"):
         await tools.write_file(ctx, "b.md", "y" * 80)
@@ -369,10 +377,10 @@ async def test_full_workspace_tells_the_model_how_to_recover(ctx: RunContext[obj
     assert "已写入 a.md" in await tools.write_file(ctx, "a.md", "z" * 90)
 
 
-async def test_quota_and_conflict_are_distinguishable(store: FakeWorkspaceStore) -> None:
+async def test_quota_and_conflict_are_distinguishable(store: FakeFileStore) -> None:
     """两种失败给模型的提示完全相反，所以存储层必须报成两种错。"""
 
-    small = FakeWorkspaceStore(max_namespace_bytes=10)
+    small = FakeFileStore(max_namespace_bytes=10)
     with pytest.raises(QuotaExceeded):
         await small.write(NS, "a.md", "x" * 20)
     await store.write(NS, "a.md", "x")
@@ -414,7 +422,7 @@ def test_capability_guidance_says_only_what_no_docstring_can(
         assert tool_name not in instructions
 
 
-async def test_capability_attaches_to_a_real_agent(store: FakeWorkspaceStore) -> None:
+async def test_capability_attaches_to_a_real_agent(store: FakeFileStore) -> None:
     """挂到真 Agent 上跑一次。
 
     装配面上的错——dataclass 字段顺序、``for_run`` 的签名、工具集有没有真的被
@@ -436,7 +444,7 @@ async def test_capability_attaches_to_a_real_agent(store: FakeWorkspaceStore) ->
     agent = Agent(
         FunctionModel(script),
         deps_type=AgentRunDeps,
-        capabilities=[workspace_capability(store=store, namespace=workspace_namespace)],
+        capabilities=[make_workspace(store)],
     )
     result = await agent.run("起个稿", deps=make_deps())
 
@@ -455,7 +463,7 @@ async def test_capability_attaches_to_a_real_agent(store: FakeWorkspaceStore) ->
     assert stored is not None and stored.content == "夜景"
 
 
-async def test_a_subagent_shares_the_conversation_workspace(store: FakeWorkspaceStore) -> None:
+async def test_a_subagent_shares_the_conversation_workspace(store: FakeFileStore) -> None:
     """下属写的稿子，主 agent 读得到——这是「一段对话一个工作区」要的那个效果。
 
     派活是**另起一次运行**，所以这条不是显然的。官方转发 deps 但不转发运行自己
@@ -464,7 +472,7 @@ async def test_a_subagent_shares_the_conversation_workspace(store: FakeWorkspace
     agent 什么都读不到，而且不会报错——白干一场，静默。
     """
 
-    workspace = workspace_capability(store=store, namespace=workspace_namespace)
+    workspace = make_workspace(store)
 
     def child_script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         if not any(isinstance(message, ModelResponse) for message in messages):

@@ -19,6 +19,7 @@ from tempfile import TemporaryDirectory
 import httpx
 import pytest
 from pydantic_ai import ModelRetry
+from pydantic_ai.messages import ImageUrl
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
@@ -34,16 +35,17 @@ from iclip.capabilities.shot_video.capability import (
 )
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.shot_video.grid import grid_cell_boxes, scale_box
-from iclip.capabilities.workspace.capability import Workspace, workspace_capability
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
+from iclip.platform.file_store.store import FileSpace
+from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import FakeGenerations, FakeObjects, FakeUnderstanding, Outcome
-from tests.helpers.workspace import FakeWorkspaceStore
 
 pytestmark = pytest.mark.skipif(not ffmpeg_available(), reason="本机 PATH 上没有 ffmpeg/ffprobe")
 
 GRID_URL = "https://cdn.test/grid.png"
+OSS_IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
 BIG_GRID_URL = "https://cdn.test/grid-4k.png"
 VIDEO_URL = "https://cdn.test/clip.mp4"
 USER = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -160,9 +162,7 @@ def make_client(payloads: dict[str, bytes]) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def make_context(files: FakeWorkspaceStore) -> RunContext[object]:
-    """一次运行的上下文；工作区能力真的挂上去，工具从这里认领它。"""
-
+def make_context() -> RunContext[object]:
     deps = AgentRunDeps(
         principal=Principal(
             kind="user",
@@ -173,24 +173,18 @@ def make_context(files: FakeWorkspaceStore) -> RunContext[object]:
         ),
         conversation_id="thread-1",
     )
-    mounted: dict[str, Workspace[object]] = {
-        "workspace": workspace_capability(store=files, namespace=workspace_namespace)
-    }
-    return RunContext[object](
-        deps=deps,
-        model=TestModel(),
-        usage=RunUsage(),
-        capabilities=mounted,  # type: ignore[arg-type]
-    )
+    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage())
 
 
 def make_tools(
     client: httpx.AsyncClient,
     objects: FakeObjects,
+    files: FakeFileStore,
     *,
     generations: FakeGenerations | None = None,
 ) -> ShotVideoToolset[object]:
     toolset = shot_video_capability(
+        space=FileSpace(store=files, namespace=workspace_namespace),
         generations=generations or FakeGenerations(),
         objects=objects,
         understanding=FakeUnderstanding(),
@@ -260,11 +254,13 @@ async def test_plan_extracts_every_second_and_boards_them(media: dict[str, bytes
     """3 秒的片子按秒抽帧：两个镜头共 3 个栅格点，同一个结构层级拼成一张板。"""
 
     objects = FakeObjects()
-    files = FakeWorkspaceStore()
+    files = FakeFileStore()
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
     client = make_client(media)
     try:
-        result = await make_tools(client, objects).plan_shot_frames(make_context(files), VIDEO_URL)
+        result = await make_tools(client, objects, files).plan_shot_frames(
+            make_context(), VIDEO_URL
+        )
     finally:
         await client.aclose()
 
@@ -284,13 +280,13 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
     """同一份视频加同一份拆解文档，第二次直接复用，不重抽也不重传。"""
 
     objects = FakeObjects()
-    files = FakeWorkspaceStore()
+    files = FakeFileStore()
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
     client = make_client(media)
     try:
-        tools = make_tools(client, objects)
-        await tools.plan_shot_frames(make_context(files), VIDEO_URL)
-        again = await tools.plan_shot_frames(make_context(files), VIDEO_URL)
+        tools = make_tools(client, objects, files)
+        await tools.plan_shot_frames(make_context(), VIDEO_URL)
+        again = await tools.plan_shot_frames(make_context(), VIDEO_URL)
     finally:
         await client.aclose()
 
@@ -301,12 +297,14 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
 async def test_plan_refuses_timecodes_beyond_the_clip(media: dict[str, bytes]) -> None:
     """超出时长的时间码要说清楚这段片子有多长，模型才改得动。"""
 
-    files = FakeWorkspaceStore()
+    files = FakeFileStore()
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), "**[00:00.000-00:09.000]** 中景")
     client = make_client(media)
     try:
         with pytest.raises(ModelRetry, match="越界"):
-            await make_tools(client, FakeObjects()).plan_shot_frames(make_context(files), VIDEO_URL)
+            await make_tools(client, FakeObjects(), files).plan_shot_frames(
+                make_context(), VIDEO_URL
+            )
     finally:
         await client.aclose()
 
@@ -318,16 +316,16 @@ async def test_generate_cuts_the_grid_and_records_the_batch(media: dict[str, byt
     """一次两格：切出四格只留前两格，版记录里逐帧带上它的 prompt。"""
 
     objects = FakeObjects()
-    files = FakeWorkspaceStore()
+    files = FakeFileStore()
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
     generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
     client = make_client(media)
     try:
-        tools = make_tools(client, objects, generations=generations)
-        await tools.plan_shot_frames(make_context(files), VIDEO_URL)
+        tools = make_tools(client, objects, files, generations=generations)
+        await tools.plan_shot_frames(make_context(), VIDEO_URL)
         boards_written = len(objects.written)
         result = await tools.generate_shot_frames(
-            make_context(files),
+            make_context(),
             [
                 FrameRequest(no="S1-1", prompt="雨中中景"),
                 FrameRequest(no="S2-1", prompt="鞋底特写"),
@@ -356,15 +354,15 @@ async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked
 ) -> None:
     """图出了但取不回来是失败，不是空结果——错误要带着记录 id 报出去。"""
 
-    files = FakeWorkspaceStore()
+    files = FakeFileStore()
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
     generations = FakeGenerations(outcomes=[Outcome(output_url="https://cdn.test/gone.png")])
     client = make_client(media)
     try:
-        tools = make_tools(client, FakeObjects(), generations=generations)
-        await tools.plan_shot_frames(make_context(files), VIDEO_URL)
+        tools = make_tools(client, FakeObjects(), files, generations=generations)
+        await tools.plan_shot_frames(make_context(), VIDEO_URL)
         result = await tools.generate_shot_frames(
-            make_context(files), [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+            make_context(), [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
         )
     finally:
         await client.aclose()
@@ -377,27 +375,37 @@ async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked
 # ── 读图 ──────────────────────────────────────────────────────────────────────
 
 
-async def test_read_media_file_attaches_the_picture(media: dict[str, bytes]) -> None:
-    """只回一句话没用：板上的帧号得让模型真的看见。"""
+async def test_read_media_file_attaches_the_picture_by_url() -> None:
+    """附地址而不是字节：不下载、不转码，缩放交给对象存储的参数。
 
-    client = make_client(media)
+    像素包在一对 tag 中间，tag 里写的是原图地址——那是这张图的身份，模型要拿它去
+    调别的工具，抄成缩略档就出错了。
+    """
+
+    client = make_client({})
     try:
-        result = await make_tools(client, FakeObjects()).read_media_file(
-            make_context(FakeWorkspaceStore()), GRID_URL
+        result = await make_tools(client, FakeObjects(), FakeFileStore()).read_media_file(
+            make_context(), OSS_IMAGE_URL
         )
     finally:
         await client.aclose()
 
-    assert result.content is not None and len(result.content) == 1
-    assert GRID_URL in str(result.return_value)
+    assert result.content == [
+        f'<image url="{OSS_IMAGE_URL}">',
+        ImageUrl(url=f"{OSS_IMAGE_URL}?x-oss-process=image/resize,l_1024"),
+        "</image>",
+    ]
+    assert OSS_IMAGE_URL in str(result.return_value)
 
 
-async def test_unreachable_media_fails_with_a_retryable_message() -> None:
+async def test_an_address_with_no_readable_format_is_refused() -> None:
+    """看不出是什么图就别附给模型：厂商那边拉回来也认不出，报错还发生在它那侧。"""
+
     client = make_client({})
     try:
-        with pytest.raises(ModelRetry, match="取不到素材"):
-            await make_tools(client, FakeObjects()).read_media_file(
-                make_context(FakeWorkspaceStore()), GRID_URL
+        with pytest.raises(ModelRetry, match="看不出图片格式"):
+            await make_tools(client, FakeObjects(), FakeFileStore()).read_media_file(
+                make_context(), "https://cdn.test/no-extension"
             )
     finally:
         await client.aclose()
