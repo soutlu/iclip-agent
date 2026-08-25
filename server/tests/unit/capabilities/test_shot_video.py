@@ -742,7 +742,11 @@ async def test_anchor_sheet_submits_a_full_square_grid_without_references(
     request = generations.submitted[0]
     assert request.reference_image_urls == ()
     assert (request.aspect_ratio, request.resolution) == (ANCHOR_ASPECT, GRID_RESOLUTION)
-    assert request.prompt.count("description:") == 4
+    # 空格由中性面板补满，凑够一张 2×2。
+    assert request.prompt.count("visual_prompt:") == 4
+    # 正文与镜头帧那版同一段，少的只有「全局参考设定」——补拍没有参考图可写。
+    assert "全局参考设定" not in request.prompt
+    assert request.prompt.startswith("1. Core Command")
     # 失败时给的是空的 images，不是空的 frames——调用方按这件工具的产物名去取。
     assert result["images"] == []
 

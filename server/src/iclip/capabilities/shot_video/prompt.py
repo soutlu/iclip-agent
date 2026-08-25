@@ -1,7 +1,7 @@
 """整版 prompt 的分段拼接。纯拼接、零模型调用。
 
-两版：镜头帧那版带「全局参考设定」，各格属于同一场戏；补拍参考图那版没有参考图，
-各格是彼此无关的实体设定图。逐格文字都由调用方撰写后经工具入参传进来。
+逐格 visual_prompt 与「全局参考设定」都由调用方撰写后经工具入参传进来。补拍那版
+没有「全局参考设定」一段，正文其余部分与镜头帧那版相同。
 """
 
 from __future__ import annotations
@@ -29,65 +29,49 @@ def assemble_grid_prompt(
         raise ValueError(f"visual_prompts 必须是 1-{GRID_CELLS} 条")
     if not global_reference.strip():
         raise ValueError("global_reference 不能为空")
-    padded = [*visual_prompts, *[FILLER_CELL_PROMPT] * (GRID_CELLS - len(visual_prompts))]
-
-    storyboard = ["storyboard:"]
-    for index, prompt in enumerate(padded, start=1):
-        storyboard.append(f"  - frame_id: {index}")
-        storyboard.append(f'    visual_prompt: "{prompt}"')
 
     return "\n".join(
         [
             "1. 全局参考设定",
             global_reference.strip(),
             "",
-            "2. Core Command",
-            f"A clean {GRID_ROWS}x{GRID_COLS} storyboard grid with four equal panels "
-            f"on {target_aspect} aspect ratio.",
-            "",
-            "3. Storyboard Details",
-            "\n".join(storyboard),
-            "",
-            "4. Mandatory Suffix",
-            f"Aspect Ratio: {target_aspect}",
-            f"OUTPUT: A clean {GRID_ROWS}x{GRID_COLS} grid with no borders, no text, "
-            "no captions and no watermarks.",
+            *_body(visual_prompts, target_aspect=target_aspect, first_section=2),
         ]
     )
 
 
 def assemble_anchor_prompt(*, cells: Sequence[str], target_aspect: str) -> str:
-    """拼一版补拍参考图的整版 prompt。
-
-    没有「全局参考设定」段：补拍不带参考图，每格的文字就是该实体外观的全部依据。
-    整版明说各格彼此无关，否则模型会把四格当成一场戏、给它们编出统一的光线与背景。
-    """
+    """拼一版补拍参考图的整版 prompt。补拍不带参考图，所以没有「全局参考设定」段。"""
 
     if not 1 <= len(cells) <= GRID_CELLS:
         raise ValueError(f"cells 必须是 1-{GRID_CELLS} 条")
+
+    return "\n".join(_body(cells, target_aspect=target_aspect, first_section=1))
+
+
+def _body(cells: Sequence[str], *, target_aspect: str, first_section: int) -> list[str]:
+    """两版共用的正文三段，段号从 ``first_section`` 起算。"""
+
     padded = [*cells, *[FILLER_CELL_PROMPT] * (GRID_CELLS - len(cells))]
 
-    panels = ["panels:"]
-    for index, cell in enumerate(padded, start=1):
-        panels.append(f"  - panel_id: {index}")
-        panels.append(f'    description: "{cell}"')
+    storyboard = ["storyboard:"]
+    for index, prompt in enumerate(padded, start=1):
+        storyboard.append(f"  - frame_id: {index}")
+        storyboard.append(f'    visual_prompt: "{prompt}"')
 
-    return "\n".join(
-        [
-            "1. Core Command",
-            f"A clean {GRID_ROWS}x{GRID_COLS} reference sheet with four equal panels "
-            f"on {target_aspect} aspect ratio. Each panel is an independent reference "
-            "plate; the panels share no scene, no story and no continuity.",
-            "",
-            "2. Panel Details",
-            "\n".join(panels),
-            "",
-            "3. Mandatory Suffix",
-            f"Aspect Ratio: {target_aspect}",
-            f"OUTPUT: A clean {GRID_ROWS}x{GRID_COLS} grid with no borders, no text, "
-            "no captions and no watermarks.",
-        ]
-    )
+    return [
+        f"{first_section}. Core Command",
+        f"A clean {GRID_ROWS}x{GRID_COLS} storyboard grid with four equal panels "
+        f"on {target_aspect} aspect ratio.",
+        "",
+        f"{first_section + 1}. Storyboard Details",
+        "\n".join(storyboard),
+        "",
+        f"{first_section + 2}. Mandatory Suffix",
+        f"Aspect Ratio: {target_aspect}",
+        f"OUTPUT: A clean {GRID_ROWS}x{GRID_COLS} grid with no borders, no text, "
+        "no captions and no watermarks.",
+    ]
 
 
 __all__ = [
