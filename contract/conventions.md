@@ -101,7 +101,7 @@
 
 ### 上传附件
 
-附件要先成为一个后端与模型都取得到的 **HTTP(S) 地址**，再作为媒体 part 放进消息。`POST /agents/{agentId}/chat` 也接受 `source.type` 为 `data` 的内嵌 base64（单个 16MB 以内，且仅限常见图/音/视频类型），但那是兜底路径：正常路径是先把文件传到对象存储拿到地址。
+附件要先成为一个后端与模型都取得到的 **HTTP(S) 地址**，再作为媒体 part 放进消息。拿地址的口是 `POST /uploads`（见 §10）。`POST /agents/{agentId}/chat` 也接受 `source.type` 为 `data` 的内嵌 base64（单个 16MB 以内，且仅限常见图/音/视频类型），但那是兜底路径：正常路径是先把文件传上去拿到地址。
 
 传不进来的附件不会让整条请求失败，而是在消息里原位变成一句 `[媒体不可用：…]`，模型据此知道有东西没进来。
 
@@ -139,14 +139,34 @@
 |------|------|------|
 | `GET /tasks?status=&limit=20` | `tasks:read` | 列出需求单，**最近改动的排在前面**（`limit` 取值 1–100）。`status` 可选，取 `draft` / `published` / `confirmed` / `withdrawn` 之一，别的值 `422`。`200` + `{ items: [...] }` |
 | `GET /tasks/{id}` | `tasks:read` | `200` + `{ task: {...} }` |
-| `POST /tasks` | `tasks:write` | 提一张需求单，落地即 `draft`。请求体 `{ title, priority?, deadline?, brief? }`（`title` 1–200 字，`priority` 取 0–100，默认 0）。`201` + `{ task: {...} }` |
+| `POST /tasks` | `tasks:write` | 提一张需求单，落地即 `draft`。请求体 `{ title, styleNo, priority?, deadline?, brief? }`（`title` 1–200 字，`styleNo` 必填，`priority` 取 0–100，默认 0）。`201` + `{ task: {...} }` |
 | `PUT /tasks/{id}` | `tasks:write` | **整体覆盖**（不是局部合并）。请求体同上，`title` 必填。`200` + `{ task: {...} }` |
 | `POST /tasks/{id}/publish` | `tasks:write` | 下发。`200` + `{ task: {...} }` |
 | `POST /tasks/{id}/confirm` | `tasks:write` | 接单。`200` + `{ task: {...} }` |
 | `POST /tasks/{id}/withdraw` | `tasks:write` | 撤回。`200` + `{ task: {...} }` |
 | `DELETE /tasks/{id}` | `tasks:write` | 删掉草稿。`204` |
 
-`task` 的形状：`{ id, title, status, priority, deadline, creatorUserId, brief, createdAt, updatedAt }`。`creatorUserId` 是提需求的那个人——客户端靠它判断当前用户能不能改这张草稿。**创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`（整个请求体不接受未声明的字段）。
+`task` 的形状：`{ id, title, status, priority, deadline, creatorUserId, style, brief, createdAt, updatedAt }`。`creatorUserId` 是提需求的那个人——客户端靠它判断当前用户能不能改这张草稿。**创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`（整个请求体不接受未声明的字段）。
+
+### 款号
+
+款号有两个落点：`styleNo` 只在创建请求体里，是主款号；`brief.styleNos` 是要拍的款全集（≤ 20 个），**主款排首位**。不给全集，服务端补成 `[styleNo]`；给了但首位不是主款 → `422`。
+
+`PUT` 是整体覆盖，所以这条在改动时也守着，但两种状态的结果不同：**改草稿**不给 `styleNos` 会被补回原值，首位给错 `422`；**已下发的**不给就等于动了冻结字段，返 `409`（见下文「下发即冻结」）。
+
+`style` 是服务端按 `styleNo` 查产品资料后冻结的一份快照，形状 `{ styleNo, brand, category, previewImageUrl }`。
+
+- **创建后不可改写**，没有端点能改。`PUT` 请求体里带 `styleNo` 或 `style` 一律 `422`。想换款就提一张新的。
+- **只有 `styleNo` 一定有值。** `brand` / `category` 上游没名字时是空字符串（同 §7）；`previewImageUrl` 在这个款没有产品图时也是空字符串——**客户端要显示「主图不可用」，不要当错误，也不要拿 URL 规则去校验它**。
+- `previewImageUrl` 是首图转存到本仓对象存储后的地址。它只做列表封面，不进 `brief.referenceImages`。
+
+创建时款号这一步的失败口径：
+
+| 情况 | 返回 |
+|------|------|
+| 产品资料里查不到这个款（或已被上游标记删除） | `422`，`detail` 说明是哪个款号 |
+| 服务端没配产品资料库或对象存储 | `422`，不会落一张没有款的需求单 |
+| 首图取不到、或转存写不进对象存储 | `5xx`，这次创建整体不落地 |
 
 ### 状态机
 
@@ -165,7 +185,7 @@
 
 `published` / `confirmed` 状态下，需求方写下的创作输入**冻结**。`PUT` 是整体覆盖，服务端会把提交上来的 `brief` 和库里的逐字段比对：
 
-- **仍可修改**：`title`、`priority`、`deadline`（管理信息），以及 `brief` 里的 `durationSeconds`、`ratio`、`requirementDescription`、`referenceImages`、`referenceVideos`（接单之后才补得出来的那几项）。
+- **仍可修改**：`title`、`priority`、`deadline`（管理信息），以及 `brief` 里的 `durationSeconds`、`ratio`、`requirementDescription`、`referenceImages`、`referenceVideos`（接单之后才补得出来的那几项）。`brief.styleNos` **不在**这几项里：要拍哪几个款是需求方的决定，下发之后动它是 `409`。
 - **其余 `brief` 字段有任何一项与库里不同 → `409`**，并在 `detail` 里列出是哪几个字段。所以正确的改法是：先 `GET` 拿到当前这张单子，改动允许的字段，再整体 `PUT` 回来。
 - `deadline` 在非草稿状态下**不能清空**（`422`）。
 
@@ -190,7 +210,8 @@
 | `durationSeconds` | `int \| null` | 期望时长，取值 3–50 |
 | `ratio` | `string \| null` | 画幅，取 `1:1` / `3:4` / `4:3` / `9:16` / `16:9` / `21:9` |
 | `language`、`platform` | `string`（≤ 200） | 语言与投放平台 |
-| `referenceImages`、`referenceVideos` | `string[]`（各 ≤ 16 条） | 参考素材地址，**只收 `http://` 或 `https://`**，别的 scheme `422` |
+| `styleNos` | `string[]`（≤ 20 条，每条 1–64 字符） | 要拍的款全集，主款排首位（见上文「款号与它的快照」） |
+| `referenceImages`、`referenceVideos` | `string[]`（各 ≤ 16 条） | 参考素材地址，**只收 `http://` 或 `https://`**，别的 scheme `422`。本地文件先经 `POST /uploads`（§10）换成地址 |
 
 `brief` 不接受未声明的字段（多给一个就是 `422`）。
 
@@ -226,3 +247,24 @@
 - `category` 是**平台口径的英文类目**，和产品资料接口里的 PDM 品类不是一套，两边不互相翻译。
 - 没有匹配的视频返回 `{"items": []}`，不是 404。
 - 服务端没配爆款库时这组路由整个不挂载。
+
+## 10. 上传 (Uploads)
+
+`POST /uploads` 把一个文件变成一个公网地址。需求单的参考素材（§8）与对话附件（§6）都要求 HTTP(S) 地址，这是拿地址的唯一口。权限 `assets:write`。
+
+```
+POST /uploads
+Content-Type: multipart/form-data
+file: <二进制>
+
+201
+{ "upload": { "url": "https://…/uploads/<sha256>.jpg", "contentType": "image/jpeg" } }
+```
+
+- **没有素材账本**：不发 id、不记归属，产物就是那个地址，谁引用谁自己记。**没有按 id 查回来的接口**，别指望。
+- **同内容同地址**：对象 key 由内容的 SHA-256 派生，重复上传拿回同一个地址，客户端不必自己去重。
+- **文件名不进地址**：后缀由 content type 决定。要保留原始文件名，自己在引用侧记。
+- **只收图 / 视频 / 音频**：`image/jpeg`、`image/png`、`image/webp`、`image/gif`、`video/mp4`、`video/quicktime`、`video/webm`、`audio/mpeg`、`audio/mp4`、`audio/wav`。表外的类型 `422`。
+- **单个文件 ≤ 256 MiB**，超了 `422`；空文件也是 `422`。
+- 对象存储写不进去 → `502`（`422` 是这个文件不该传，`502` 是该传但没传成，可以重试）。
+- 服务端没配对象存储时这个端点不挂载，请求是 `404`。

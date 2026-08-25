@@ -21,6 +21,7 @@ from iclip.app.capability_table import (
     resolve_capabilities,
 )
 from iclip.app.logging import configure_logging
+from iclip.app.task_styles import ProductStyleSnapshots, UnavailableStyleSnapshots
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.workspace.scope import namespace_for
 from iclip.common.errors import DomainError
@@ -56,6 +57,8 @@ from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.products.module import build_products_module
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
+from iclip.domains.tasks.ports import StyleSnapshots
+from iclip.domains.uploads.module import build_uploads_module
 from iclip.harness.agents import (
     AgentCapabilities,
     AgentDefinition,
@@ -294,11 +297,12 @@ def build_app(
     queue_connector: procrastinate.BaseConnector | None = None,
     product_catalog_engine: AsyncEngine | None = None,
     inspirations_engine: AsyncEngine | None = None,
+    style_snapshots: StyleSnapshots | None = None,
 ) -> FastAPI:
     """装配公开 app。
 
-    测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储、队列连接器，以及产品
-    目录库与爆款视频库这两个外部只读源。
+    测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储、队列连接器、产品目录库
+    与爆款视频库这两个外部只读源，以及需求单要的款号快照。
     """
 
     settings = resolve_settings(config)
@@ -399,8 +403,20 @@ def build_app(
         purge_derived=purge_conversation_workspace,
         read_history=read_conversation_history,
     )
-    # 创作需求单：只要一张自己的表，没有可配置的开关——它不依赖任何外部服务。
-    tasks = build_tasks_module(SqlTaskRepository(active_engine))
+    # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
+    # 或对象存储缺一个，就借不到——那时装个只会响亮拒绝的替代品，而不是让它悄悄记空。
+    tasks = build_tasks_module(
+        SqlTaskRepository(active_engine),
+        style_snapshots
+        if style_snapshots is not None
+        else (
+            ProductStyleSnapshots(products.catalog, public_objects)
+            if products is not None and public_objects is not None
+            else UnavailableStyleSnapshots()
+        ),
+    )
+    # 上传：只认对象存储。没配就整组路由不挂载（同产品资料与爆款视频的口径）。
+    uploads = build_uploads_module(public_objects) if public_objects is not None else None
     agent_registry = build_agent_registry(
         _agent_definitions(
             agents,
@@ -494,6 +510,8 @@ def build_app(
         app.include_router(router)
     for router in tasks.routers:
         app.include_router(router)
+    for router in uploads.routers if uploads is not None else ():
+        app.include_router(router)
     if broker is not None:
         app.include_router(create_agents_router(broker, conversations.service))
 
@@ -516,6 +534,7 @@ def build_app(
     app.state.products = products
     app.state.inspirations = inspirations
     app.state.tasks = tasks
+    app.state.uploads = uploads
     return app
 
 

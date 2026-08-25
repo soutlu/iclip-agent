@@ -20,6 +20,7 @@ from iclip.domains.tasks.models import TaskStatus
 from iclip.domains.tasks.schemas import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    TaskCreateIn,
     TaskEnvelope,
     TaskIn,
     TasksPageOut,
@@ -33,7 +34,7 @@ def create_tasks_router(service: TaskService) -> APIRouter:
 
     @router.post("", response_model=TaskEnvelope, status_code=201)
     async def create_task(
-        body: TaskIn,
+        body: TaskCreateIn,
         principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
     ) -> TaskEnvelope:
         task = await service.create(principal, body)

@@ -46,7 +46,10 @@ class TaskRepository(Protocol):
         deadline: datetime | None,
         brief: TaskBrief,
     ) -> Task | None:
-        """整体覆盖一行。状态不再是 ``expect`` 就什么都不做并返回 ``None``。"""
+        """整体覆盖一行。状态不再是 ``expect`` 就什么都不做并返回 ``None``。
+
+        参数里没有款号快照，这是故意的：它创建时冻结，之后不该有任何写入路径碰得到。
+        """
         ...
 
     async def publish(self, task_id: uuid.UUID) -> Task | None:

@@ -1,9 +1,11 @@
-"""创作需求单的 wire 形状，以及 brief 的类型。
+"""创作需求单的 wire 形状，以及 brief 与款号快照的类型。
 
 **brief 只有一套定义。** 它既是 HTTP 进得来的形状，也是入库的形状：字段有哪些、时长
 取值范围多大、参考素材最多几条，全在这里由 pydantic 判一次，不再另写一份手工校验。
 落库存 ``model_dump(by_alias=True)``（camelCase），读回来用 ``brief_from_payload``
 重新校验一遍——库里的行可能是上一个版本的进程写的，形状坏了要响亮失败，不降级。
+
+款号快照（``TaskStyle``）走同一套路，但它不在 brief 里，而是自己一列。
 
 字段名对外一律 camelCase（见仓库根的 contract/conventions.md §3）。
 """
@@ -26,6 +28,8 @@ MAX_TITLE_CHARS: Final = 200
 MAX_SHORT_TEXT_CHARS: Final = 200
 MAX_DESCRIPTION_CHARS: Final = 4000
 MAX_REFERENCE_URLS: Final = 16
+MAX_STYLE_NO_CHARS: Final = 64
+MAX_STYLE_NOS: Final = 20
 MIN_DURATION_SECONDS: Final = 3
 MAX_DURATION_SECONDS: Final = 50
 DEFAULT_LIST_LIMIT: Final = 20
@@ -45,6 +49,8 @@ class CamelModel(BaseModel):
 ShortText = Annotated[str, Field(max_length=MAX_SHORT_TEXT_CHARS)]
 Description = Annotated[str, Field(max_length=MAX_DESCRIPTION_CHARS)]
 ReferenceUrls = Annotated[list[str], Field(max_length=MAX_REFERENCE_URLS)]
+StyleNo = Annotated[str, Field(min_length=1, max_length=MAX_STYLE_NO_CHARS)]
+StyleNos = Annotated[list[StyleNo], Field(max_length=MAX_STYLE_NOS)]
 
 
 def _http_only(urls: list[str]) -> list[str]:
@@ -58,6 +64,35 @@ def _http_only(urls: list[str]) -> list[str]:
         if not url.startswith(("http://", "https://")):
             raise ValueError(f"[{index}] 必须是 http:// 或 https:// 地址")
     return urls
+
+
+class TaskStyle(CamelModel):
+    """下单那天主款长什么样，创建时冻结。
+
+    抄一份而不是每次回头查产品资料：上游随时改名换图，历史需求单不该跟着变样。除了
+    款号，另三项在上游缺名缺图时是空字符串。
+    """
+
+    style_no: StyleNo
+    brand: ShortText = ""
+    category: ShortText = ""
+    preview_image_url: str = ""
+    """列表封面：首图转存到本仓对象存储后的地址。不进 ``brief.reference_images``。"""
+
+
+def style_to_payload(style: TaskStyle) -> dict[str, Any]:
+    """入库形状：camelCase，与 wire 完全一致（同 brief）。"""
+
+    return style.model_dump(by_alias=True)
+
+
+def style_from_payload(payload: dict[str, Any]) -> TaskStyle:
+    """从库里读回来的款号快照重新校验一遍；形状坏了响亮失败，不降级。"""
+
+    try:
+        return TaskStyle.model_validate(payload)
+    except Exception as exc:
+        raise ValidationFailed(f"需求单的款号快照形状非法：{exc}") from exc
 
 
 class TaskBrief(CamelModel):
@@ -85,6 +120,9 @@ class TaskBrief(CamelModel):
     ratio: TaskRatio | None = None
     language: ShortText = ""
     platform: ShortText = ""
+
+    style_nos: StyleNos = Field(default_factory=list)
+    """要拍的款全集，主款排首位。首位与 ``TaskStyle`` 那一列一致，由 service 对齐。"""
 
     reference_images: ReferenceUrls = Field(default_factory=list)
     reference_videos: ReferenceUrls = Field(default_factory=list)
@@ -140,6 +178,16 @@ class TaskIn(CamelModel):
     brief: TaskBrief = EMPTY_BRIEF
 
 
+class TaskCreateIn(TaskIn):
+    """建一张需求单。比 ``TaskIn`` 多一个主款号。
+
+    主款号只在创建时收：快照冻结之后就不许改写了，所以 ``PUT`` 用的还是 ``TaskIn``，
+    往里塞 ``styleNo`` 会被 ``extra="forbid"`` 挡成 422——想换款就提一张新的。
+    """
+
+    style_no: StyleNo
+
+
 class TaskOut(CamelModel):
     id: uuid.UUID
     title: str
@@ -149,6 +197,7 @@ class TaskOut(CamelModel):
     creator_user_id: uuid.UUID
     """谁提的这张需求单。需求单是大家都看得见的工作队列，所以这一项对外可见——
     客户端也要靠它判断当前这个人能不能改草稿。"""
+    style: TaskStyle
     brief: TaskBrief
     created_at: datetime
     updated_at: datetime
@@ -172,6 +221,7 @@ def task_out(task: Task) -> TaskOut:
         priority=task.priority,
         deadline=task.deadline,
         creator_user_id=task.creator_user_id,
+        style=task.style,
         brief=task.brief,
         created_at=task.created_at,
         updated_at=task.updated_at,
@@ -186,16 +236,22 @@ __all__ = [
     "MAX_LIST_LIMIT",
     "MAX_REFERENCE_URLS",
     "MAX_SHORT_TEXT_CHARS",
+    "MAX_STYLE_NOS",
+    "MAX_STYLE_NO_CHARS",
     "MAX_TITLE_CHARS",
     "MIN_DURATION_SECONDS",
     "PLANNER_FIELDS",
     "TaskBrief",
+    "TaskCreateIn",
     "TaskEnvelope",
     "TaskIn",
     "TaskOut",
     "TaskRatio",
+    "TaskStyle",
     "TasksPageOut",
     "brief_from_payload",
     "brief_to_payload",
+    "style_from_payload",
+    "style_to_payload",
     "task_out",
 ]

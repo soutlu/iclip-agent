@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Final, Literal
 
-from iclip.domains.tasks.schemas import TaskBrief
+from iclip.domains.tasks.schemas import TaskBrief, TaskStyle
 
 TaskStatus = Literal["draft", "published", "confirmed", "withdrawn"]
 
@@ -45,6 +45,8 @@ class Task:
     deadline: datetime | None
     """什么时候要。草稿可以先空着；一旦下发就必须有（数据库上也有一条 CHECK 守着）。"""
     creator_user_id: uuid.UUID
+    style: TaskStyle
+    """下单那天主款长什么样。创建时冻结，之后没有任何写入路径能改它。"""
     brief: TaskBrief
     created_at: datetime
     updated_at: datetime

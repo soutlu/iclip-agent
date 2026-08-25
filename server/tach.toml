@@ -42,10 +42,16 @@ depends_on = ["iclip.domains.identity"]
 path = "iclip.domains.conversations"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 创作需求单：自有的表。全公司可见的工作队列，不认识任何别的业务模块。
+# 创作需求单：自有的表。全公司可见的工作队列，不认识任何别的业务模块——款号快照要的
+# 产品资料与对象存储由组合根按 ports.py 的窄协议接进来。
 [[modules]]
 path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.domains.identity"]
+
+# 上传：本仓唯一的上传口，不建表也不记账本，产物就是一个公网地址。
+[[modules]]
+path = "iclip.domains.uploads"
+depends_on = ["iclip.common", "iclip.domains.identity", "iclip.platform.object_store"]
 
 # 媒体生成：自有的表 + 两家外部生成接口 + 后台推进器。
 [[modules]]
@@ -100,6 +106,7 @@ depends_on = [
     "iclip.domains.inspirations",
     "iclip.domains.products",
     "iclip.domains.tasks",
+    "iclip.domains.uploads",
     "iclip.harness",
     "iclip.capabilities",
 ]

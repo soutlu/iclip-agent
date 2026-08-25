@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.helpers.tasks import STYLE_NO
 from tests.integration_no_llm.conftest import (
     make_client,
     register_and_login,
@@ -45,7 +46,14 @@ async def login_as_editor(client: httpx.AsyncClient, pg_url: str, *, username: s
 
 async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
     return await client.post(
-        URL, json={"title": "秋冬新品短视频", "brief": BRIEF, "deadline": future(), **body}
+        URL,
+        json={
+            "title": "秋冬新品短视频",
+            "styleNo": STYLE_NO,
+            "brief": BRIEF,
+            "deadline": future(),
+            **body,
+        },
     )
 
 
@@ -99,6 +107,35 @@ async def test_brief_survives_the_round_trip(client: httpx.AsyncClient, pg_url: 
     # 没填的字段有确定的空值，不是缺字段。
     assert read_back["audience"] == ""
     assert read_back["referenceVideos"] == []
+
+
+async def test_style_snapshot_survives_the_round_trip(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """款号快照存的是自己一列，不在 brief 里；存进去读回来是同一份。"""
+
+    await login_as_editor(client, pg_url)
+    created = (await create(client)).json()["task"]
+
+    read_back = (await client.get(f"{URL}/{created['id']}")).json()["task"]
+
+    assert read_back["style"] == created["style"]
+    assert read_back["style"]["styleNo"] == STYLE_NO
+    assert read_back["brief"]["styleNos"] == [STYLE_NO]
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.connect() as conn:
+            stored = (
+                await conn.execute(
+                    text("SELECT style FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
+                    {"id": created["id"]},
+                )
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+    # 入库就是 camelCase 的那一份，和 wire 一致——不存在第二套字段名。
+    assert stored == created["style"]
 
 
 async def test_timestamps_come_from_the_database_clock(
@@ -161,11 +198,12 @@ async def test_status_guard_stops_a_write_built_on_stale_reading(
 
 
 @pytest.mark.parametrize(
-    ("status", "deadline", "brief", "constraint"),
+    ("status", "deadline", "brief", "style", "constraint"),
     [
-        ("nonsense", "now()", "'{}'::jsonb", "tasks_status_check"),
-        ("published", "NULL", "'{}'::jsonb", "tasks_deadline_check"),
-        ("draft", "now()", "'[]'::jsonb", "tasks_brief_object_check"),
+        ("nonsense", "now()", "'{}'::jsonb", "'{}'::jsonb", "tasks_status_check"),
+        ("published", "NULL", "'{}'::jsonb", "'{}'::jsonb", "tasks_deadline_check"),
+        ("draft", "now()", "'[]'::jsonb", "'{}'::jsonb", "tasks_brief_object_check"),
+        ("draft", "now()", "'{}'::jsonb", "'[]'::jsonb", "tasks_style_object_check"),
     ],
 )
 async def test_constraints_live_on_the_table(
@@ -174,16 +212,18 @@ async def test_constraints_live_on_the_table(
     status: str,
     deadline: str,
     brief: str,
+    style: str,
     constraint: str,
 ) -> None:
-    """三条规则写在表上，不只写在 Python 里：破了就是数据本身错了。"""
+    """四条规则写在表上，不只写在 Python 里：破了就是数据本身错了。"""
 
     user_id = await login_as_editor(client, pg_url)
     statement = text(
         "INSERT INTO iclip.tasks"
-        " (id, title, status, priority, deadline, creator_user_id, brief, created_at, updated_at)"
+        " (id, title, status, priority, deadline, creator_user_id, style, brief,"
+        " created_at, updated_at)"
         f" VALUES (gen_random_uuid(), 't', :status, 0, {deadline}, CAST(:owner AS uuid),"
-        f" {brief}, now(), now())"
+        f" {style}, {brief}, now(), now())"
     )
     engine = create_async_engine(pg_url)
     try:
@@ -227,7 +267,7 @@ async def test_viewer_reads_everyones_tasks_but_writes_none(
     async with make_client(app) as other:
         await register_and_login(other, username="viewer", email="viewer@example.com")
         listed = await other.get(URL)
-        blocked = await other.post(URL, json={"title": "我也提一个"})
+        blocked = await other.post(URL, json={"title": "我也提一个", "styleNo": STYLE_NO})
         forbidden = await other.delete(f"{URL}/{task['id']}")
 
     assert [item["id"] for item in listed.json()["items"]] == [task["id"]]
