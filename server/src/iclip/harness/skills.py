@@ -1,12 +1,12 @@
-"""skill 库的装配：按需加载的流程指令，加一把读 references 的钥匙。
+"""skill 库的装配：按需加载的流程指令，加一件读 references 的工具。
 
 一个 skill 就是库里的一个子目录：``SKILL.md`` 的简介先进模型视野，正文等它
 真觉得用得上才加载。正文旁边常放 ``references/``——那是刻意拆出去的分支规则
 （比如三种改编模式各一份，只该读命中的那一份），所以它们不能并进正文。
 
 官方 ``Skills`` 只读 ``SKILL.md``，不碰 ``references/``。库里放着分支规则而
-没有读它的工具，模型会照着正文里的指示去读、然后发现无从下手——这种静默失效
-比报错更难查。所以这里把两者绑成一次装配：**要挂库就一起挂钥匙**。
+没有读它的工具，模型会照着正文里的指示去读、然后发现无从下手，且不报错。所以
+两者绑成一次装配：**挂库就一起挂那件工具**。
 """
 
 from __future__ import annotations
@@ -36,8 +36,7 @@ def build_skill_capabilities(
     ``names`` 里有库里不存在的名字，官方 ``Skills`` 在这里就报错（装配期
     fail fast，而不是等模型去点一个不存在的 skill）。
 
-    一个都不挑是调用方的错，不是「挂一个空的」：那样装出来的是一份空目录加一
-    把开不了任何门的钥匙，agent 白拿一个工具。「不挂」由根本不调用本函数表达。
+    一个都不挑即报错。「不挂」由根本不调用本函数表达。
     """
 
     granted = tuple(names)
@@ -47,12 +46,11 @@ def build_skill_capabilities(
 
 
 def _references_capability(library: Path, granted: tuple[str, ...]) -> Capability[Any]:
-    """把读 references 的钥匙做成一个工具。
+    """把读 references 做成一件工具。
 
     它跟着 skill 库一起挂：没挂库的 agent 连这个工具都没有。但在挂了库的 agent
     里它从第一轮就可见，不像 skill 正文那样等模型点了才加载——官方 ``Skills``
-    在内部自造 deferred capability，插不进去一个工具。这点噪音换的是「加载了
-    skill 就一定读得到它的分支规则」。
+    在内部自造 deferred capability，插不进去一个工具。
     """
 
     def get_skill_reference(skill: str, name: str) -> str:

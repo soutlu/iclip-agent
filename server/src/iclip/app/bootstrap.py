@@ -429,8 +429,7 @@ def build_app(
             redis_client = Redis(
                 # 连接池满了要排队等，不能直接报错。读事件的人多是常态（每个人
                 # 占住一条连接不放），而报错砸中的可能是后台运行的心跳——心跳
-                # 一断，租约就过期，一个活得好好的运行会被判成中断。看的人多不
-                # 该有本事把跑的人弄死。
+                # 一断，租约就过期，一个还在跑的运行会被判成中断。
                 connection_pool=BlockingConnectionPool.from_url(
                     settings.redis.url,
                     decode_responses=True,
