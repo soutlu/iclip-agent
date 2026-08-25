@@ -111,7 +111,6 @@ depends_on = [
     "iclip.domains.inspirations",
     "iclip.domains.products",
     "iclip.domains.tasks",
-    "iclip.domains.uploads",
     "iclip.harness",
     "iclip.capabilities",
 ]

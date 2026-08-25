@@ -8,7 +8,7 @@ from typing import Any
 from iclip.domains.assets.api import create_assets_router, create_uploads_router
 from iclip.domains.assets.repository import AssetRepository
 from iclip.domains.assets.service import AssetService
-from iclip.platform.object_store.oss import SignedUploadStore
+from iclip.platform.object_store.oss import PublicBucket
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,7 @@ class AssetsModule:
     service: AssetService
 
 
-def build_assets_module(repo: AssetRepository, objects: SignedUploadStore) -> AssetsModule:
+def build_assets_module(repo: AssetRepository, objects: PublicBucket) -> AssetsModule:
     """装配 assets。它要一张自己的表和那个公开桶，不依赖任何别的业务模块。"""
 
     service = AssetService(repo, objects)

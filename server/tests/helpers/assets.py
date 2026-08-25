@@ -48,7 +48,7 @@ class InMemoryAssetRepository:
 
 
 class FakeBucket:
-    """``SignedUploadStore`` 的内存替身：桶里有什么由测试直接摆。
+    """``PublicBucket`` 的内存替身：桶里有什么由测试直接摆。
 
     ``put`` 就是「浏览器拿着签名地址传上去了」这件事的替身——真实路径里那一步不经过
     我们的进程。
@@ -63,6 +63,12 @@ class FakeBucket:
         self.objects[object_key] = StoredObject(
             object_key=object_key, content_type=content_type, size_bytes=size_bytes
         )
+
+    async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
+        """转存那条路走的是这一件：字节确实经过我们的进程。"""
+
+        self.put(object_key, content_type=content_type, size_bytes=len(content))
+        return self.public_url(object_key)
 
     def sign_put(self, *, object_key: str, content_type: str) -> str:
         self.signed.append((object_key, content_type))

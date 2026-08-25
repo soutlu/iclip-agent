@@ -84,7 +84,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/src/iclip/domains/products/` | 产品资料查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`tables.py`（码→名字的三张常量表）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
 | `server/src/iclip/domains/inspirations/` | 爆款视频查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
 | `server/src/iclip/domains/tasks/` | 创作需求单：`schemas.py`（brief 与款号快照的类型，同时是 wire 与入库形状）、`models.py`（需求单行 + 状态常量）、`repository.py`/`infra_sql.py`（自有的表；写方法都带状态守卫）、`service.py`（状态机 + 冻结规则 + 谁能改）、`ports.py`（要向外借的那一件事：按款号抄快照）、`api.py`/`module.py`。不依赖任何别的业务模块 |
-| `server/src/iclip/domains/assets/` | 素材账本：`models.py`（素材行 + 收哪些类型、收多大）、`repository.py`/`infra_sql.py`（自有的表；只有登记一条写路径）、`schemas.py`（wire 形状）、`service.py`（签直传许可 + 回桶里核实后登记）、`api.py`（`/uploads/*` 与 `/assets/*` 两组路由）/`module.py`。见 §16 |
+| `server/src/iclip/domains/assets/` | 素材账本：`models.py`（素材行 + 收哪些类型、收多大、图片尺寸区间）、`images.py`（量图片尺寸、卡区间）、`repository.py`/`infra_sql.py`（自有的表；只有登记一条写路径）、`schemas.py`（wire 形状）、`service.py`（签直传许可 + 回桶里核实后登记 + 转存外部地址）、`api.py`（`/uploads/*` 与 `/assets/*` 两组路由）/`module.py`。见 §16 |
 | `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）、`run_stream_redis.py`（事件流的 Redis 后端）、`media.py`（媒体引用协议：前端形状 ↔ 模型形状）与 `materials.py`（素材范围：从消息里算出模型能交给工具的地址，见 §5） |
 | `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`capability.py`（能力本体 + 六件工具）、`scope.py`（工作区归谁：运行 → 命名空间的规则）；与 `shot_video/`：`capability.py`（四件工具）、`shots.py`（镜头区间解析 + 等间隔采样，纯计算）、`board.py`（预览板拼版与帧号叠印）、`grid.py`（切格几何，纯函数）、`prompt.py`（整版 prompt 拼接）、`ffmpeg.py`（异步子进程 + 取素材）、`parser.py`（视频拆解的 Responses 适配器 + 提示词）、`ports.py`（对外要的三个窄协议）。能力包之间互不 import |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（公开对象存储，阿里云 OSS：`layout.py` 桶里的完整布局 + `oss.py` 适配器）、`file_store/`（命名空间化文本文件存储：`store.py` 路径语法 + `FileStore` 协议 + `FileSpace`「存储 × 命名空间规则」，`pg.py` PG 后端） |
@@ -480,13 +480,17 @@ POST /uploads/sign     发一个 assetId、按它算出 key、签一条限时 PU
   │
   ▼
 POST /assets/{assetId} 回桶里核实：真实 key、多大、什么类型 → 落一行
+
+POST /assets/import    另一条路：给外部地址 → 搬进桶里 → 落一行
 ```
 
 几个决定与它们的理由：
 
 - **名字在传之前就发。** 传字节是副作用，它发生之前双方必须先就「这个对象叫什么」达成一致，否则连接在响应到达前断掉，那份已经落进桶里的东西就没人认领了。和运行 id 必须预先铸造是同一条道理（CONTEXT 不变量 8），只是这里由服务端铸造，更严一档。登记之前 assetId 还不是一份素材，是个没兑现的登记名额——`GET /assets/{id}` 一律 404。
 - **登记不采信客户端的任何声明。** 那个端点连请求体都没有：key 由 assetId 派生、大小与类型从桶里读回来。客户端能左右的只有「登记哪一个 assetId」，而那个 id 是服务端发的、猜不着的。类型这条之所以可信，是因为签名时把 `Content-Type` 一起签了进去——换一个去传，OSS 那边验签就不过。
-- **行上存 object key，不存 URL。** key 是身份，地址是它按当前公网前缀拼出来的投影：换一次 CDN 域名只动一个环境变量，存量数据不用迁。代价是账本里放不下外部地址——这正是想要的：**要进账本，字节就得先转存进我们自己的桶**。
+- **行上存 object key，不存 URL。** key 是身份，地址是它按当前公网前缀拼出来的投影：换一次 CDN 域名只动一个环境变量，存量数据不用迁。代价是账本里放不下外部地址——这正是想要的：**要进账本，字节就得先转存进我们自己的桶**。`POST /assets/import` 就是这条路：产品图和爆款库的视频都从这儿进来，`assetId` 按源地址算，所以同一个地址只搬一次。
+- **图片尺寸这道闸，两条路量法不同。** 直传信客户端在签名时报的宽高；转存自己量。理由是账本里没有宽高列——谎报污染不了任何落库的事实，最坏是一张超范围的图混进库里。要在直传那条路上实测，就得把每一份字节从桶里整份读回来，用这个代价换那点收益不值。而转存的字节本来就在进程里，量一次是免费的，所以要卡的真正对象（产品图、爆款库）拿到的是实测门槛。
+- **需求单封面不受这道闸管。** 那条路（`app/task_styles.py`）搬的是主款首图，压根不经过账本，也不该因为一张图小了就让人提不了需求单。
 - **大小上限只在登记这一步卡。** 预签名 PUT 签不进长度限制（那是表单上传才有的东西），所以超限的字节确实会先落进桶里；我们保证的是它拿不到账本上的一行。没被登记的对象就是桶里的垃圾，按 `uploads/` 前缀清理。
 - **素材是全公司共用的。** 不做归属过滤，`creator_user_id` 只是查询维度与审计依据，不是访问边界；外键用 restrict，账本上的事实不跟着账号消失。
 - **它不是「对话素材」那道校验。** 工具能不能用某个地址，判据仍然是「这段对话的模型请求侧逐字出现过吗」（见 §5 与 CONTEXT）。登记过不等于拿到通行证，两件事互不替代。

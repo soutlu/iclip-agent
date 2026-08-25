@@ -82,7 +82,9 @@ async def upload(
 ) -> httpx.Response:
     """走完整条链：签名 → （替身桶里）落字节 → 登记。"""
 
-    signed = await client.post("/uploads/sign", json={"contentType": content_type})
+    signed = await client.post(
+        "/uploads/sign", json={"contentType": content_type, "width": 1200, "height": 1600}
+    )
     assert signed.status_code == 200, signed.text
     asset_id = signed.json()["assetId"]
     ext = {"image/jpeg": "jpg", "video/mp4": "mp4"}[content_type]
