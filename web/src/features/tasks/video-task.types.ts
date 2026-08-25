@@ -73,11 +73,12 @@ export type VideoTaskBrief = VideoTaskBriefFields & {
 
 export type VideoTask = {
   brief: VideoTaskBrief
-  createdAt: null | string
+  createdAt: string
+  /** 提这张需求单的人。草稿只有本人或治理者能改，前端靠它决定按钮给不给点。 */
+  creatorUserId: string
   deadline: null | string
   id: string
   priority: number
-  schemaVersion: number
   status: VideoTaskStatus
   style: {
     brand: string
@@ -86,11 +87,17 @@ export type VideoTask = {
     styleNo: string
   }
   title: string
-  updatedAt: null | string
+  updatedAt: string
 }
 
+/**
+ * 任务引用的一份参考素材。
+ *
+ * `id` 就是 `url`：brief 里存的是地址，这份索引也按地址建（见 `video-task.api.ts` 的
+ * `indexTaskAssets`）。`mimeType` 从地址的扩展名读，认不出来是 `null`。
+ */
 export type VideoTaskAsset = {
-  assetType: 'audio' | 'image' | 'video'
+  assetType: 'image' | 'video'
   id: string
   mimeType: null | string
   url: string

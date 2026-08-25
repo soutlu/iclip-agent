@@ -1,108 +1,91 @@
+/**
+ * 创作需求单的接口层（后端合同见仓库根 `contract/conventions.md` §7 §8 §10）。
+ *
+ * 一条要点贯穿全文：**brief 里的参考素材存的是地址，不是素材 id**。本地文件先走直传
+ * 换成地址，外部地址（产品图、爆款视频）先转存换成我们自己的地址——外链会烂。
+ */
+
 import { z } from 'zod'
 import type {
   CreateVideoTaskInput,
   ProductInfo,
   VideoTask,
+  VideoTaskAsset,
   VideoTaskBriefFields,
   VideoTaskSnapshot,
 } from '@/features/tasks/video-task.types'
-import {
-  importInspirationVideos,
-  importWebInspirationVideos,
-} from '@/features/tasks/api/inspiration.api'
 import { apiFetch } from '@/shared/api/client'
-import { uploadAndRegisterAsset } from '@/shared/lib/file-upload'
+import { importAssetFromUrl, uploadAndRegisterAsset } from '@/shared/lib/file-upload'
 
 const videoTaskStatusSchema = z.enum(['confirmed', 'draft', 'published', 'withdrawn'])
 const MIN_DURATION_SECONDS = 3
 const MAX_DURATION_SECONDS = 50
 const DURATION_ERROR_MESSAGE = '时长必须是 3–50 秒的整数'
+/** 列表一次最多取多少条（后端上限）。 */
+const LIST_LIMIT = 100
+
+/** 后端没填的可选文本给的是空字符串，可选数字与画幅给的是 null。 */
+const optionalTextSchema = z.string().optional()
+const absentAsUndefined = <T>(value: null | T | undefined) => value ?? undefined
 
 const videoTaskBriefSchema = z
   .object({
-    theme: z.string().optional(),
-    purpose: z.string().optional(),
-    audience: z.string().optional(),
-    selling: z.string().optional(),
-    scene: z.string().optional(),
-    department: z.string().optional(),
-    videoType: z.string().optional(),
-    durationSeconds: z
-      .number()
-      .int()
-      .min(MIN_DURATION_SECONDS)
-      .max(MAX_DURATION_SECONDS)
-      .optional(),
-    ratio: z.string().optional(),
-    language: z.string().optional(),
-    platform: z.string().optional(),
-    color: z.string().optional(),
-    contentType: z.string().optional(),
-    requester: z.string().optional(),
-    requirementDescription: z.string().optional(),
-    styleNos: z.array(z.string()).optional(),
+    audience: optionalTextSchema,
+    color: optionalTextSchema,
+    contentType: optionalTextSchema,
+    department: optionalTextSchema,
+    durationSeconds: z.number().int().nullable().optional().transform(absentAsUndefined),
+    language: optionalTextSchema,
+    platform: optionalTextSchema,
+    purpose: optionalTextSchema,
+    ratio: z.string().nullable().optional().transform(absentAsUndefined),
     referenceImages: z.array(z.string()),
     referenceVideos: z.array(z.string()),
+    requester: optionalTextSchema,
+    requirementDescription: optionalTextSchema,
+    scene: optionalTextSchema,
+    selling: optionalTextSchema,
+    styleNos: z.array(z.string()).optional(),
+    theme: optionalTextSchema,
+    videoType: optionalTextSchema,
   })
   .strict()
 
 const videoTaskSchema = z.object({
   brief: videoTaskBriefSchema,
-  createdAt: z.string().nullable(),
+  createdAt: z.string(),
+  creatorUserId: z.string(),
   deadline: z.string().nullable(),
   id: z.string().min(1),
   priority: z.number(),
-  schemaVersion: z.number().int(),
   status: videoTaskStatusSchema,
   style: z.object({
     brand: z.string(),
     category: z.string(),
-    previewImageUrl: z.string().url(),
+    /** 这个款没有产品图时是空字符串，不是错误——所以这里不按 URL 规则校验。 */
+    previewImageUrl: z.string(),
     styleNo: z.string(),
   }),
   title: z.string(),
-  updatedAt: z.string().nullable(),
+  updatedAt: z.string(),
 })
 
 const videoTaskResponseSchema = z.object({ task: videoTaskSchema })
-const videoTasksResponseSchema = z.object({ tasks: z.array(videoTaskSchema) })
-const productInfoSchema = z.object({
-  brand: z.string(),
-  category: z.string(),
-  colors: z.array(
-    z.object({
-      id: z.string().min(1),
-      name: z.string().min(1),
-    }),
-  ),
-  images: z.array(
-    z.object({
-      color: z.string().nullable(),
-      id: z.string().min(1),
-      url: z.string().url(),
-    }),
-  ),
-  styleNo: z.string().min(1),
-})
-const productInfoResponseSchema = z.object({ product: productInfoSchema })
+const videoTasksResponseSchema = z.object({ items: z.array(videoTaskSchema) })
 
-const videoTaskAssetSchema = z.object({
-  assetType: z.enum(['audio', 'image', 'video']),
-  id: z.string().min(1),
-  mimeType: z.string().nullable(),
-  url: z.string().url(),
+/** 产品资料只声明前端用到的字段；码一定有，名字可能是 null。 */
+const productResponseSchema = z.object({
+  product: z.object({
+    brand: z.object({ code: z.string(), name: z.string().nullable() }),
+    category: z.object({ code: z.string(), name: z.string().nullable() }),
+    colors: z.array(z.object({ code: z.string(), name: z.string().nullable() })),
+    images: z.array(z.object({ id: z.string().min(1), url: z.string().url() })),
+    styleNo: z.string().min(1),
+  }),
 })
-
-const videoTaskAssetsResponseSchema = z.object({ assets: z.array(videoTaskAssetSchema) })
 
 export const VIDEO_TASKS_QUERY_KEY = ['video-tasks'] as const
 
-/**
- * 规范化可选 Brief 文本并保留数字型生成参数。
- *
- * @param brief - 创建任务表单中的概述与关键元素。
- * @returns 可直接写入 Video Task API 的 Brief 对象。
- */
 const BRIEF_FIELD_ORDER = [
   'theme',
   'purpose',
@@ -121,6 +104,12 @@ const BRIEF_FIELD_ORDER = [
   'requirementDescription',
 ] as const satisfies readonly (keyof VideoTaskBriefFields)[]
 
+/**
+ * 规范化可选 Brief 文本并保留数字型生成参数。
+ *
+ * @param brief - 创建任务表单中的概述与关键元素。
+ * @returns 可直接写入需求单接口的 Brief 对象。
+ */
 const createBriefPayload = (
   brief: VideoTaskBriefFields,
 ): Record<string, number | string | string[]> => {
@@ -162,106 +151,96 @@ const createDeadlineIso = (value: string) => {
   return new Date(`${value}T23:59:59`).toISOString()
 }
 
-const taskAssetIds = (task: VideoTask) => [
-  ...task.brief.referenceImages,
-  ...task.brief.referenceVideos,
-]
+/**
+ * 需求单的标题。
+ *
+ * 表单里没有「标题」这一栏而后端要求必填，所以按主题取；主题空着就退回主款号——列表里
+ * 总得有个认得出来的名字。
+ *
+ * @param brief - 表单填的 Brief。
+ * @param styleNo - 主款号。
+ * @returns 提交用的标题。
+ */
+const taskTitleFrom = (brief: VideoTaskBriefFields, styleNo: string) =>
+  brief.theme?.trim() || styleNo
+
+const MIME_TYPE_BY_EXTENSION: Record<string, string> = {
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  mov: 'video/quicktime',
+  mp4: 'video/mp4',
+  png: 'image/png',
+  webp: 'image/webp',
+}
 
 /**
- * 读取一组 Task 引用的全局素材并组成统一快照。
+ * 从地址的扩展名读出媒体类型。
  *
- * @param tasks - 需要解析素材的 Task。
- * @param options - 请求控制选项。
- * @param options.signal - 用于取消素材请求的 AbortSignal。
- * @returns Task 与按素材 ID 建立的索引。
+ * @param url - 素材地址。
+ * @returns 认得出来的媒体类型，否则 null。
  */
-const resolveVideoTaskSnapshot = async (
-  tasks: VideoTask[],
-  { signal }: { signal?: AbortSignal } = {},
-): Promise<VideoTaskSnapshot> => {
-  const assetIds = Array.from(new Set(tasks.flatMap(taskAssetIds)))
+const mimeTypeFromUrl = (url: string): null | string => {
+  const path = URL.canParse(url) ? new URL(url).pathname : url
+  const extension = path.split('.').at(-1)?.toLowerCase()
+  return (extension === undefined ? null : MIME_TYPE_BY_EXTENSION[extension]) ?? null
+}
 
-  if (assetIds.length === 0) {
-    return { assetsById: {}, tasks }
+/**
+ * 按地址索引任务引用的参考素材。
+ *
+ * brief 里存的就是地址，所以这份索引的键是地址本身（`id` 与 `url` 同值）。图还是视频看
+ * 它在哪个数组里；具体类型从扩展名读，读不出来是 null——认不出类型的素材本来就不该被
+ * 下游当成图或视频用。
+ *
+ * @param tasks - 当前列表里的任务。
+ * @returns 地址 → 素材。
+ */
+const indexTaskAssets = (tasks: VideoTask[]): Record<string, VideoTaskAsset> => {
+  const assetsByUrl: Record<string, VideoTaskAsset> = {}
+
+  for (const task of tasks) {
+    const grouped = [
+      ['image', task.brief.referenceImages],
+      ['video', task.brief.referenceVideos],
+    ] as const
+
+    for (const [assetType, urls] of grouped) {
+      for (const url of urls) {
+        assetsByUrl[url] = { assetType, id: url, mimeType: mimeTypeFromUrl(url), url }
+      }
+    }
   }
 
-  const search = new URLSearchParams()
-  for (const assetId of assetIds) {
-    search.append('assetId', assetId)
-  }
-  const { assets } = await apiFetch(`/assets?${search.toString()}`, videoTaskAssetsResponseSchema, {
-    cache: 'no-store',
-    fallbackErrorMessage: '加载任务素材失败',
-    signal,
-  })
-
-  return {
-    assetsById: Object.fromEntries(assets.map((asset) => [asset.id, asset])),
-    tasks,
-  }
+  return assetsByUrl
 }
 
 export const listVideoTaskSnapshot = async ({
   signal,
 }: { signal?: AbortSignal } = {}): Promise<VideoTaskSnapshot> => {
-  const { tasks } = await apiFetch('/video-tasks', videoTasksResponseSchema, {
+  const { items } = await apiFetch(`/tasks?limit=${LIST_LIMIT}`, videoTasksResponseSchema, {
     cache: 'no-store',
     fallbackErrorMessage: '加载任务失败',
     signal,
   })
 
-  return resolveVideoTaskSnapshot(tasks, { signal })
+  return { assetsById: indexTaskAssets(items), tasks: items }
 }
 
-const importProductImagesResponseSchema = z.object({
-  assets: z.array(
-    z.object({
-      assetId: z.string().min(1),
-      imageId: z.string().min(1),
-      url: z.string().url(),
-    }),
-  ),
-})
-
-type ImportedProductImageAsset = z.infer<typeof importProductImagesResponseSchema>['assets'][number]
-
 /**
- * 把策划师选中的产品图一批处理成参考图素材：后端按需转存 OSS 并登记 import Asset。
+ * 按完整款号精确读取产品资料，不创建任务。
  *
- * 产品图数量可能非常大，浏览用源地址、只有选中图才转存；形态与上传图片一致
- * （内容进 OSS → 登记 Asset），前端拿回 Asset id 直接进 referenceImages。
- *
- * @param input - Style 号与选中的产品图 id。
- * @param input.imageIds - 选中的产品图 id（少量）。
- * @param input.styleNo - 产品 Style 号。
- * @returns 与请求顺序一致的素材登记结果。
- */
-const importProductImages = async ({
-  imageIds,
-  styleNo,
-}: {
-  imageIds: string[]
-  styleNo: string
-}): Promise<ImportedProductImageAsset[]> =>
-  (
-    await apiFetch('/video-tasks/product-images/import', importProductImagesResponseSchema, {
-      body: { imageIds, styleNo },
-      fallbackErrorMessage: '产品图转存失败',
-      method: 'POST',
-    })
-  ).assets
-
-/**
- * 按完整 Style 号精确读取 PDM 产品信息，不创建 Task。
+ * @param styleNo - PDM 款号。
+ * @param options - 请求控制选项。
+ * @param options.signal - 用于取消请求的 AbortSignal。
+ * @returns 表单与产品图选择器用的产品资料。
  */
 export const getProductInfo = async (
   styleNo: string,
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<ProductInfo> => {
-  const search = new URLSearchParams({ styleNo: styleNo.trim() })
   const { product } = await apiFetch(
-    `/video-tasks/product-info?${search.toString()}`,
-    productInfoResponseSchema,
+    `/products/${encodeURIComponent(styleNo.trim())}`,
+    productResponseSchema,
     {
       cache: 'no-store',
       fallbackErrorMessage: '读取产品信息失败',
@@ -269,14 +248,22 @@ export const getProductInfo = async (
     },
   )
 
-  return product
+  return {
+    // 名字来自服务端对照表，上游出新码时是 null；没名字就退回码，不自己猜。
+    brand: product.brand.name ?? product.brand.code,
+    category: product.category.name ?? product.category.code,
+    colors: product.colors.map((color) => ({ id: color.code, name: color.name ?? color.code })),
+    // 产品资料不说哪张图属于哪个颜色，所以「按颜色筛图」这一档在这里恒为空。
+    images: product.images.map((image) => ({ color: null, id: image.id, url: image.url })),
+    styleNo: product.styleNo,
+  }
 }
 
 /**
- * 上传用户参考素材，并用完整输入原子地创建 Task。
+ * 上传用户参考素材，并用完整输入创建需求单。
  *
  * @param input - 款号、Brief、用户上传的参考图和参考视频。
- * @returns 后端保存后的 Task。
+ * @returns 后端保存后的需求单（草稿）。
  */
 export const createVideoTask = async ({
   brief,
@@ -287,20 +274,22 @@ export const createVideoTask = async ({
 }: CreateVideoTaskInput): Promise<VideoTask> => {
   const normalizedStyleNo = styleNo.trim()
   const briefPayload = createBriefPayload(brief)
-  const [imageAssets, videoAssets] = await Promise.all([
+  const [uploadedImages, uploadedVideos] = await Promise.all([
     Promise.all(referenceImages.map((file) => uploadAndRegisterAsset(file))),
     Promise.all(referenceVideos.map((file) => uploadAndRegisterAsset(file))),
   ])
+
   return (
-    await apiFetch('/video-tasks', videoTaskResponseSchema, {
+    await apiFetch('/tasks', videoTaskResponseSchema, {
       body: {
         brief: {
           ...briefPayload,
-          referenceImages: imageAssets.map((asset) => asset.id),
-          referenceVideos: videoAssets.map((asset) => asset.id),
+          referenceImages: uploadedImages.map((asset) => asset.url),
+          referenceVideos: uploadedVideos.map((asset) => asset.url),
         },
         deadline: createDeadlineIso(deadline),
         styleNo: normalizedStyleNo,
+        title: taskTitleFrom(brief, normalizedStyleNo),
       },
       fallbackErrorMessage: '创建任务失败',
       method: 'POST',
@@ -308,36 +297,60 @@ export const createVideoTask = async ({
   ).task
 }
 
-/** 策划师确认 Task 时补充的 Brief 字段与最终参考素材清单。 */
+/** 本次新选的一条爆款视频。 */
+export type SelectedInspirationSource =
+  { ossUrl: null | string; source: 'library' } | { source: 'web' }
+
+/** 策划师确认需求单时补充的 Brief 字段与最终参考素材清单（全部是地址）。 */
 export type VideoTaskConfirmationInput = {
   /** 从首个参考视频元数据提取并四舍五入的时长。 */
   durationSeconds?: number
-  /** 按用户选择顺序保存的爆款库与联网候选；保存时分别按需转存。 */
-  inspirationVideos: (
-    { source: 'library'; videoId: string } | { selectionToken: string; source: 'web' }
-  )[]
-  /** 保留的既有参考图 Asset（id + url，url 用于与新选产品图去重）。 */
-  keptImageAssets: { id: string; url: string }[]
+  /** 本次新选的爆款视频，按用户选择顺序；保存时按源地址转存。 */
+  inspirationVideos: SelectedInspirationSource[]
+  /** 保留下来的既有参考图地址。 */
+  keptImageUrls: string[]
+  /** 保留下来的既有参考视频地址。 */
+  keptVideoUrls: string[]
   /** 新上传的图片文件。 */
   newImageFiles: File[]
   /** 新上传的视频文件。 */
   newVideoFiles: File[]
-  /** 本次新选中的产品图（按 Style 分组，一批转存并登记）。 */
-  productImagePicks: { imageIds: string[]; styleNo: string }[]
+  /** 本次新选中的产品图地址（转存后换成我们自己的地址）。 */
+  productImageUrls: string[]
   /** 确认阶段可调整的成片比例。 */
   ratio: string
-  /** 确认阶段补入旁白后的完整需求描述 HTML。 */
+  /** 确认阶段补入旁白后的完整需求描述。 */
   requirementDescription: string
-  /** 无需转存的既有参考视频 Asset id。 */
-  videoAssetIds: string[]
 }
 
 /**
- * 保存策划师补充的确认信息与参考素材：上传、产品图批量登记与推荐视频登记并行完成后
- * 整单 PUT 回任务。
+ * 取一条新选爆款视频可以转存的源地址。
  *
- * 后端在 published/confirmed 状态只允许 requirementDescription、durationSeconds、
- * ratio、referenceImages、referenceVideos（连同管理信息）变化，其余 brief 字段原样回传。
+ * 联网搜索那一路给不出来：候选只有平台页面地址，没有视频文件地址，而本仓后端没有「去
+ * 平台下载」这件事。所以这里响亮失败，不静默丢掉用户的选择。
+ *
+ * @param video - 用户选中的一条爆款视频。
+ * @returns 可转存的源地址。
+ */
+const inspirationSourceUrl = (video: SelectedInspirationSource) => {
+  if (video.source === 'web') {
+    throw new Error('联网搜索到的视频还不能保存进需求单，请改用库内爆款视频或上传文件。')
+  }
+
+  if (!video.ossUrl) {
+    throw new Error('这条爆款视频没有可转存的视频地址，请选别的或上传文件。')
+  }
+
+  return video.ossUrl
+}
+
+/**
+ * 保存策划师补充的确认信息与参考素材：上传、产品图与爆款视频转存并行完成后整单 PUT。
+ *
+ * PUT 是整体覆盖。下发之后后端只允许 `requirementDescription`、`durationSeconds`、
+ * `ratio`、`referenceImages`、`referenceVideos` 连同管理信息变化，其余 brief 字段必须
+ * 原样回传——所以这里从 `task.brief` 铺开再覆盖那几项，而不是自己拼一份。请求体里也不能
+ * 带 `style`：款号快照创建后就冻结了，带上是 422。
  *
  * @param task - 当前任务（提供回传所需的完整字段）。
  * @param input - 整理后的参考素材清单。
@@ -356,80 +369,40 @@ export const updateVideoTaskConfirmation = async (
     throw new Error(DURATION_ERROR_MESSAGE)
   }
 
-  const inspirationVideoIds = input.inspirationVideos.flatMap((video) =>
-    video.source === 'library' ? [video.videoId] : [],
-  )
-  const webInspirationSelectionTokens = input.inspirationVideos.flatMap((video) =>
-    video.source === 'web' ? [video.selectionToken] : [],
-  )
-  const [uploadedImages, uploadedVideos, importedVideos, importedWebVideos, importedProductAssets] =
-    await Promise.all([
-      Promise.all(input.newImageFiles.map((file) => uploadAndRegisterAsset(file))),
-      Promise.all(input.newVideoFiles.map((file) => uploadAndRegisterAsset(file))),
-      // 与产品图侧一致：没有新选爆款视频时不发 `{ videoIds: [] }` 的转存请求。
-      inspirationVideoIds.length > 0 ? importInspirationVideos(inspirationVideoIds) : [],
-      webInspirationSelectionTokens.length > 0
-        ? importWebInspirationVideos({
-            selectionTokens: webInspirationSelectionTokens,
-            taskId: task.id,
-          })
-        : [],
-      Promise.all(input.productImagePicks.map((pick) => importProductImages(pick))).then((groups) =>
-        groups.flat(),
-      ),
-    ])
-
-  // 重复勾选已保存过的产品图会命中同一 OSS URL：按 URL 与保留项去重，不写重复引用。
-  const keptImageUrls = new Set(input.keptImageAssets.map((asset) => asset.url))
-  const productAssetIds = Array.from(
-    new Set(
-      importedProductAssets
-        .filter((asset) => !keptImageUrls.has(asset.url))
-        .map((asset) => asset.assetId),
-    ),
-  )
-  const libraryAssetIdByVideoId = new Map(
-    importedVideos.map((asset) => [asset.videoId, asset.assetId] as const),
-  )
-  const webAssetIdBySelectionToken = new Map(
-    importedWebVideos.map((asset) => [asset.selectionToken, asset.assetId] as const),
-  )
-  const inspirationAssetIds = input.inspirationVideos.map((video) => {
-    const assetId =
-      video.source === 'library'
-        ? libraryAssetIdByVideoId.get(video.videoId)
-        : webAssetIdBySelectionToken.get(video.selectionToken)
-    if (assetId === undefined) {
-      throw new Error('参考视频转存结果与选择结果不一致')
-    }
-    return assetId
-  })
+  const inspirationUrls = input.inspirationVideos.map(inspirationSourceUrl)
+  const [uploadedImages, uploadedVideos, productImages, inspirationVideos] = await Promise.all([
+    Promise.all(input.newImageFiles.map((file) => uploadAndRegisterAsset(file))),
+    Promise.all(input.newVideoFiles.map((file) => uploadAndRegisterAsset(file))),
+    Promise.all(input.productImageUrls.map((url) => importAssetFromUrl(url))),
+    Promise.all(inspirationUrls.map((url) => importAssetFromUrl(url))),
+  ])
 
   return (
-    await apiFetch(`/video-tasks/${encodeURIComponent(task.id)}`, videoTaskResponseSchema, {
+    await apiFetch(`/tasks/${encodeURIComponent(task.id)}`, videoTaskResponseSchema, {
       body: {
         brief: {
           ...task.brief,
           durationSeconds: input.durationSeconds,
-          ratio: input.ratio,
-          referenceImages: [
-            ...input.keptImageAssets.map((asset) => asset.id),
-            ...productAssetIds,
-            ...uploadedImages.map((asset) => asset.id),
-          ],
+          ratio: input.ratio.trim() || null,
+          // 同一张产品图重复勾选会转存成同一个地址，去重后不写重复引用。
+          referenceImages: Array.from(
+            new Set([
+              ...input.keptImageUrls,
+              ...productImages.map((asset) => asset.url),
+              ...uploadedImages.map((asset) => asset.url),
+            ]),
+          ),
           referenceVideos: Array.from(
             new Set([
-              ...input.videoAssetIds,
-              ...inspirationAssetIds,
-              ...uploadedVideos.map((asset) => asset.id),
+              ...input.keptVideoUrls,
+              ...inspirationVideos.map((asset) => asset.url),
+              ...uploadedVideos.map((asset) => asset.url),
             ]),
           ),
           requirementDescription: input.requirementDescription,
         },
         deadline: task.deadline,
         priority: task.priority,
-        schemaVersion: task.schemaVersion,
-        style: task.style,
         title: task.title,
       },
       fallbackErrorMessage: '保存确认信息失败',
@@ -440,31 +413,33 @@ export const updateVideoTaskConfirmation = async (
 
 export const publishVideoTask = async (taskId: string): Promise<VideoTask> =>
   (
-    await apiFetch(`/video-tasks/${encodeURIComponent(taskId)}/publish`, videoTaskResponseSchema, {
+    await apiFetch(`/tasks/${encodeURIComponent(taskId)}/publish`, videoTaskResponseSchema, {
       fallbackErrorMessage: '发布任务失败',
       method: 'POST',
     })
   ).task
 
 /**
- * 策划师确认一条已下发（published）的 Task。
+ * 策划师接下一条已下发的需求单。
  *
- * @param taskId - 待确认的 Task id。
- * @returns 确认后（confirmed）的 Task。
+ * @param taskId - 待确认的任务 id。
+ * @returns 确认后（confirmed）的任务。
  */
 export const confirmVideoTask = async (taskId: string): Promise<VideoTask> =>
   (
-    await apiFetch(`/video-tasks/${encodeURIComponent(taskId)}/confirm`, videoTaskResponseSchema, {
+    await apiFetch(`/tasks/${encodeURIComponent(taskId)}/confirm`, videoTaskResponseSchema, {
       fallbackErrorMessage: '确认任务失败',
       method: 'POST',
     })
   ).task
 
 /**
- * 下发一条 Task：先原子创建草稿，再立即发布给策划师确认。
+ * 下发一条需求单：先建草稿，再立即发布给策划师确认。
  *
- * @param input - 与创建相同的完整输入（主 Style 取 brief.styleNos 首位）。
- * @returns 发布后（published）的 Task。
+ * 不是原子操作：草稿建成而发布失败时那张草稿留在库里，用户能在列表里看到它。
+ *
+ * @param input - 与创建相同的完整输入。
+ * @returns 发布后（published）的任务。
  */
 export const dispatchVideoTask = async (input: CreateVideoTaskInput): Promise<VideoTask> => {
   const created = await createVideoTask(input)

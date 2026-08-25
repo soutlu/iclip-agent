@@ -48,9 +48,19 @@ export const mockProjects = [
 /** dev:mock 内存任务账本（node 测试一律用 server.use 覆盖，不依赖此状态）。 */
 const mockVideoTasks: Array<Record<string, unknown> & { id: string; status: string }> = []
 
-/** dev:mock 内存素材账本：登记（upload/import）后可被 GET /assets 解析。 */
-const mockAssets: Array<{ assetType: string; id: string; mimeType: null | string; url: string }> =
-  []
+/** dev:mock 内存素材账本：登记（直传或转存）之后可被 GET /assets 列出。 */
+const mockAssets: Array<{
+  assetType: string
+  contentType: string
+  createdAt: string
+  creatorUserId: string
+  id: string
+  sizeBytes: number
+  url: string
+}> = []
+
+/** 签名时说过的类型：登记那一步没有请求体，mock 只能靠它还原（真后端是回桶里读）。 */
+const mockSignedContentTypes = new Map<string, string>()
 
 /** 爆款库推荐视频固定样本（排序字段齐全，sortBy 在 handler 内生效）。 */
 export const mockInspirationVideos = [
@@ -149,20 +159,30 @@ const mockWebInspirationDurations = {
  * @param input - 素材类型、MIME 与最终 URL。
  * @returns 已入账本的素材记录。
  */
-const registerMockAsset = ({
-  assetType,
-  mimeType,
-  url,
-}: {
-  assetType: string
-  mimeType: null | string
-  url: string
-}) => {
+const MOCK_EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+}
+
+const registerMockAsset = ({ assetId, contentType }: { assetId: string; contentType: string }) => {
+  const existing = mockAssets.find((asset) => asset.id === assetId)
+  if (existing) {
+    return existing
+  }
+
+  const extension = MOCK_EXTENSION_BY_CONTENT_TYPE[contentType] ?? 'bin'
   const asset = {
-    assetType,
-    id: `mock-asset-${String(mockAssets.length + 1)}`,
-    mimeType,
-    url,
+    assetType: contentType.startsWith('video/') ? 'video' : 'image',
+    contentType,
+    createdAt: new Date().toISOString(),
+    creatorUserId: mockAuthUser.id,
+    id: assetId,
+    sizeBytes: 1024,
+    // 地址带上真实扩展名：前端按它判断媒体类型（见 video-task.api.ts）。
+    url: `https://oss.mock.example.com/public/${assetId}.${extension}`,
   }
   mockAssets.push(asset)
   return asset
@@ -200,22 +220,24 @@ export const handlers = [
   // GET /projects：当前登录用户可访问的项目文件夹列表，响应为 { projects } 包装。
   http.get('*/api/projects', () => HttpResponse.json({ projects: mockProjects })),
 
-  // ── Video Task（src/features/tasks/api/video-task.api.ts）──────────────────
+  // ── 创作需求单（src/features/tasks/api/video-task.api.ts）──────────────────
   // 浏览器原型的内存任务账本：下发（create+publish）与确认在 dev:mock 下可走通全流程。
-  http.get('*/api/video-tasks', () => HttpResponse.json({ tasks: mockVideoTasks })),
-  http.post('*/api/video-tasks', async ({ request }) => {
+  http.get('*/api/tasks', () => HttpResponse.json({ items: mockVideoTasks })),
+  http.post('*/api/tasks', async ({ request }) => {
     const body = (await request.json()) as {
       brief?: Record<string, unknown>
       deadline?: null | string
       styleNo?: string
+      title?: string
     }
+    const now = new Date().toISOString()
     const task = {
       brief: { referenceImages: [], referenceVideos: [], ...body.brief },
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      creatorUserId: mockAuthUser.id,
       deadline: body.deadline ?? null,
       id: `mock-task-${String(mockVideoTasks.length + 1)}`,
       priority: 0,
-      schemaVersion: 1,
       status: 'draft',
       style: {
         brand: 'NORTIV8',
@@ -223,102 +245,103 @@ export const handlers = [
         previewImageUrl: 'https://assets.example.com/SNST26006U-1.jpg',
         styleNo: body.styleNo ?? '',
       },
-      title: body.styleNo ?? '',
-      updatedAt: new Date().toISOString(),
+      title: body.title ?? body.styleNo ?? '',
+      updatedAt: now,
     }
     mockVideoTasks.push(task)
     return HttpResponse.json({ task }, { status: 201 })
   }),
-  // PUT /video-tasks/{taskId}：published/confirmed 下仅参考素材（连同 deadline）可变，
-  // mock 不复刻冻结校验，直接整单覆盖。
-  http.put('*/api/video-tasks/:taskId', async ({ params, request }) => {
+  // PUT /tasks/{taskId} 是整体覆盖；mock 不复刻「下发即冻结」那套比对，直接盖。
+  http.put('*/api/tasks/:taskId', async ({ params, request }) => {
     const task = mockVideoTasks.find((item) => item.id === String(params.taskId))
     if (!task) {
-      return HttpResponse.json({ detail: 'Video Task 不存在' }, { status: 404 })
+      return HttpResponse.json({ detail: '需求单不存在' }, { status: 404 })
     }
     const body = (await request.json()) as { brief?: Record<string, unknown> }
     task.brief = { ...(task.brief as Record<string, unknown>), ...body.brief }
     task.updatedAt = new Date().toISOString()
     return HttpResponse.json({ task })
   }),
-  http.post('*/api/video-tasks/:taskId/publish', ({ params }) =>
+  http.post('*/api/tasks/:taskId/publish', ({ params }) =>
     transitionMockVideoTask(String(params.taskId), 'published'),
   ),
-  http.post('*/api/video-tasks/:taskId/confirm', ({ params }) =>
+  http.post('*/api/tasks/:taskId/confirm', ({ params }) =>
     transitionMockVideoTask(String(params.taskId), 'confirmed'),
   ),
-  http.get('*/api/video-tasks/product-info', ({ request }) => {
-    const styleNo = new URL(request.url).searchParams.get('styleNo')
+
+  // ── 产品资料（src/features/tasks/api/video-task.api.ts）────────────────────
+  // GET /products/{styleNo}：码永远有、名字可能是 null；图不带颜色归属。
+  http.get('*/api/products/:styleNo', ({ params }) => {
+    const styleNo = String(params.styleNo)
     if (styleNo !== 'SNST26006U') {
-      return HttpResponse.json({ detail: `未找到 Style ${styleNo ?? ''}` }, { status: 404 })
+      return HttpResponse.json({ detail: `未找到款号 ${styleNo}` }, { status: 404 })
     }
 
     return HttpResponse.json({
       product: {
-        brand: 'NORTIV8',
-        category: '运动凉鞋',
+        brand: { code: '2', name: 'NORTIV8' },
+        category: { code: 'SD', id: 61, name: '运动凉鞋' },
+        colors: [
+          { code: 'BK07', name: 'ALL BLACK' },
+          { code: 'BL03', name: 'BLUE/BLACK' },
+          { code: 'GY01', name: null },
+        ],
         images: Array.from({ length: 6 }, (_, index) => ({
-          color: index < 4 ? 'BLUE/BLACK' : 'ALL BLACK',
+          height: 508,
           id: `SNST26006U-${String(index + 1)}`,
           url: `https://assets.example.com/products/mock-product/image-${String(index + 1)}.jpg`,
+          width: 644,
         })),
-        colors: [
-          { id: '7', name: 'ALL BLACK' },
-          { id: '3', name: 'BLUE/BLACK' },
-          { id: '9', name: 'GREY/ORANGE' },
-        ],
         styleNo,
+        styleWms: 'SNST26006U-WMS',
       },
     })
   }),
 
-  // POST /video-tasks/product-images/import：选中产品图一批「按需转存 OSS + 登记 import
-  // Asset」。产品图量级很大，禁止批量搬运——product-info 里除首图外都是源地址，仅选中图经此处理。
-  http.post('*/api/video-tasks/product-images/import', async ({ request }) => {
-    const body = (await request.json()) as { imageIds?: string[] }
+  // ── 素材账本（src/shared/lib/file-upload.ts）───────────────────────────────
+  // 签名 → 直传 PUT → 登记；外部地址走转存。内容在 dev:mock 下不真正存储。
+  http.post('*/api/uploads/sign', async ({ request }) => {
+    const body = (await request.json()) as { contentType?: string }
+    const contentType = body.contentType ?? 'image/jpeg'
+    const assetId = `mock-asset-${String(mockSignedContentTypes.size + 1)}`
+    // 登记那一步没有请求体，类型只能由「签名时说过什么」记着——真后端是回桶里读。
+    mockSignedContentTypes.set(assetId, contentType)
     return HttpResponse.json({
-      assets: (body.imageIds ?? []).map((imageId) => {
-        const asset = registerMockAsset({
-          assetType: 'image',
-          mimeType: null,
-          url: `https://oss.mock.example.com/product-catalog/${encodeURIComponent(imageId)}.jpg`,
-        })
-        return { assetId: asset.id, imageId, url: asset.url }
-      }),
-    })
-  }),
-
-  // ── 全局素材账本（src/features/tasks/api/video-task.api.ts）─────────────────
-  // POST /assets：登记 upload/import 素材；GET /assets?assetId=…：按 id 批量解析。
-  http.post('*/api/assets', async ({ request }) => {
-    const body = (await request.json()) as {
-      assetType?: string
-      mimeType?: null | string
-      url?: string
-    }
-    const asset = registerMockAsset({
-      assetType: body.assetType ?? 'image',
-      mimeType: body.mimeType ?? null,
-      url: body.url ?? '',
-    })
-    return HttpResponse.json({ asset }, { status: 201 })
-  }),
-  http.get('*/api/assets', ({ request }) => {
-    const wanted = new Set(new URL(request.url).searchParams.getAll('assetId'))
-    return HttpResponse.json({ assets: mockAssets.filter((asset) => wanted.has(asset.id)) })
-  }),
-
-  // POST /presign + OSS 直传 PUT：dev:mock 下让上传链路可走通（内容不真正存储）。
-  http.post('*/api/presign', async ({ request }) => {
-    const body = (await request.json()) as { ext?: string }
-    const key = `mock-upload-${String(Date.now())}.${body.ext ?? 'bin'}`
-    return HttpResponse.json({
-      content_type: 'application/octet-stream',
-      public_url: `https://oss.mock.example.com/public/${key}`,
-      upload_url: `https://oss.mock.example.com/upload/${key}`,
+      assetId,
+      upload: {
+        expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+        headers: { 'Content-Type': contentType },
+        method: 'PUT',
+        url: `https://oss.mock.example.com/upload/${assetId}`,
+      },
     })
   }),
   http.put('https://oss.mock.example.com/upload/*', () => new HttpResponse(null, { status: 200 })),
+  http.post('*/api/assets/import', async ({ request }) => {
+    const source = ((await request.json()) as { url?: string }).url ?? ''
+    return HttpResponse.json(
+      {
+        // 真后端按源地址算 uuid5；mock 拿地址本身当键，同样是「一个地址只有一行」。
+        asset: registerMockAsset({
+          assetId: `mock-import-${encodeURIComponent(source)}`,
+          contentType: source.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg',
+        }),
+      },
+      { status: 201 },
+    )
+  }),
+  http.post('*/api/assets/:assetId', ({ params }) => {
+    const assetId = String(params.assetId)
+    const contentType = mockSignedContentTypes.get(assetId)
+    if (contentType === undefined) {
+      return HttpResponse.json({ detail: '这份素材还没传上来，传完再登记' }, { status: 409 })
+    }
+    return HttpResponse.json(
+      { asset: registerMockAsset({ assetId, contentType }) },
+      { status: 201 },
+    )
+  }),
+  http.get('*/api/assets', () => HttpResponse.json({ items: mockAssets })),
 
   // ── 创作灵感目录（src/features/tasks/api/inspiration.api.ts）────────────────
   // POST /inspirations/videos/search：按 styleNos 命中样本并按 sortBy 服务端排序。
@@ -404,54 +427,5 @@ export const handlers = [
       platform,
       source: 'web',
     })
-  }),
-  // POST /inspirations/videos/web-import：只下载本次保存明确选中的 opaque token。
-  http.post('*/api/inspirations/videos/web-import', async ({ request }) => {
-    const body = (await request.json()) as { selectionTokens?: string[]; taskId?: string }
-    const candidates = Object.entries(mockWebInspirationPosts).flatMap(([platform, posts]) =>
-      posts.map((post) => ({ ...post, platform })),
-    )
-    return HttpResponse.json(
-      {
-        assets: (body.selectionTokens ?? []).flatMap((selectionToken) => {
-          const candidate = candidates.find((item) => item.selectionToken === selectionToken)
-          if (!candidate) {
-            return []
-          }
-          const url = `https://oss.mock.example.com/web-inspirations/${candidate.platform}/${candidate.platformVideoId}.mp4`
-          const asset =
-            mockAssets.find((item) => item.url === url) ??
-            registerMockAsset({ assetType: 'video', mimeType: 'video/mp4', url })
-          return [
-            {
-              assetId: asset.id,
-              durationSeconds: candidate.durationSeconds,
-              platform: candidate.platform,
-              platformVideoId: candidate.platformVideoId,
-              selectionToken,
-              url,
-            },
-          ]
-        }),
-      },
-      { status: 201 },
-    )
-  }),
-  // POST /inspirations/videos/import：只转存用户点名的视频；相同源 URL 由后端稳定 key 复用。
-  http.post('*/api/inspirations/videos/import', async ({ request }) => {
-    const body = (await request.json()) as { videoIds?: string[] }
-    return HttpResponse.json(
-      {
-        assets: (body.videoIds ?? []).map((videoId) => {
-          const asset = registerMockAsset({
-            assetType: 'video',
-            mimeType: 'video/mp4',
-            url: `https://oss.mock.example.com/inspiration-videos/by-source/${encodeURIComponent(videoId)}`,
-          })
-          return { assetId: asset.id, url: asset.url, videoId }
-        }),
-      },
-      { status: 201 },
-    )
   }),
 ]

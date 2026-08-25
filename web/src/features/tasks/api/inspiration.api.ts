@@ -32,16 +32,6 @@ const inspirationSearchResponseSchema = z.object({
   ),
 })
 
-const inspirationImportResponseSchema = z.object({
-  assets: z.array(
-    z.object({
-      assetId: z.string().min(1),
-      url: z.string().url(),
-      videoId: z.string().min(1),
-    }),
-  ),
-})
-
 const webInspirationCandidateSchema = z.object({
   creatorHandle: z.string().nullable(),
   durationSeconds: z.number().positive().nullable(),
@@ -91,19 +81,6 @@ const webInspirationEnrichResponseSchema = z.object({
   source: z.literal('web'),
 })
 
-const webInspirationImportResponseSchema = z.object({
-  assets: z.array(
-    z.object({
-      assetId: z.string().min(1),
-      durationSeconds: z.number().positive().nullable(),
-      platform: webInspirationPlatformSchema,
-      platformVideoId: z.string().min(1),
-      selectionToken: z.string().min(1),
-      url: z.string().url(),
-    }),
-  ),
-})
-
 export type InspirationVideo = z.infer<typeof inspirationVideoSchema>
 export type WebInspirationCandidate = z.infer<typeof webInspirationCandidateSchema>
 export type WebInspirationEnrichedItem = z.infer<typeof webInspirationEnrichedItemSchema>
@@ -120,9 +97,6 @@ export type SelectedInspirationVideo =
 
 type InspirationVideoSearchResult = z.infer<typeof inspirationSearchResponseSchema>
 export type WebInspirationSearchResult = z.infer<typeof webInspirationSearchResponseSchema>
-export type ImportedWebInspirationVideo = z.infer<
-  typeof webInspirationImportResponseSchema
->['assets'][number]
 
 export const inspirationVideoSelectionKey = (video: SelectedInspirationVideo) =>
   video.source === 'library'
@@ -150,16 +124,6 @@ export const searchInspirationVideos = async (
     method: 'POST',
     signal,
   })
-
-/** 把用户点名的爆款库视频按需转存应用 OSS，并登记为参考视频 Asset。 */
-export const importInspirationVideos = async (videoIds: string[]) =>
-  (
-    await apiFetch('/inspirations/videos/import', inspirationImportResponseSchema, {
-      body: { videoIds },
-      fallbackErrorMessage: '爆款视频转存失败',
-      method: 'POST',
-    })
-  ).assets
 
 /**
  * 用人工确认的品类、使用场景与可选卖点主动搜索一个平台。
@@ -237,16 +201,3 @@ export const enrichWebInspirationVideos = async (
   }
   return result.items
 }
-
-/** 只下载用户最终选中的联网候选，并登记为可写入 Task 的全局视频 Asset。 */
-export const importWebInspirationVideos = async (input: {
-  selectionTokens: string[]
-  taskId: string
-}): Promise<ImportedWebInspirationVideo[]> =>
-  (
-    await apiFetch('/inspirations/videos/web-import', webInspirationImportResponseSchema, {
-      body: input,
-      fallbackErrorMessage: '联网参考视频转存失败',
-      method: 'POST',
-    })
-  ).assets

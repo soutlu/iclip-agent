@@ -414,13 +414,15 @@ POST /api/assets/import       { "url": "https://…" }
 ## 7. 首页 Video Task
 
 ```http
-GET  /api/video-tasks
-GET  /api/video-tasks/{taskId}
-GET  /api/video-tasks/product-info?styleNo=SNST26006U
-POST /api/video-tasks
-POST /api/video-tasks/{taskId}/publish
-POST /api/video-tasks/{taskId}/confirm
-POST /api/video-tasks/{taskId}/withdraw
+GET  /api/tasks?status=&limit=100          -> { "items": [...] }
+GET  /api/tasks/{taskId}                   -> { "task": {...} }
+GET  /api/products/{styleNo}               -> { "product": {...} }
+POST /api/tasks
+PUT  /api/tasks/{taskId}                   整体覆盖，不是局部合并
+POST /api/tasks/{taskId}/publish
+POST /api/tasks/{taskId}/confirm
+POST /api/tasks/{taskId}/withdraw
+DELETE /api/tasks/{taskId}                 只有草稿能删
 
 {
   "styleNo": "SNST26006U",
@@ -443,7 +445,9 @@ POST /api/video-tasks/{taskId}/withdraw
 
 任务页分「下发 Task（需求方）/ 确认 Task（策划师）」两种视角，状态机为 `draft → published（下发）→ confirmed（确认）→ withdrawn`（published 与 confirmed 均可撤回）。下发提交 = `POST /api/video-tasks` 创建 draft 后立即 `POST …/publish`；策划师在确认视角按部门 / 需求人 / 品牌筛选 published 任务并 `POST …/confirm`，published 与 confirmed 任务均可作为 Storyboard 创作来源。参考媒资不再是发布必要条件（Ref Vid 非必填）。
 
-确认视角的展开详情内置确认补充与「创作材料」编辑区：策划师点击需求描述的修改按钮后复用 Tiptap 编辑整段中文标题纯文本，可按需追加 `口播旁白：…`，不建立平行 Brief 字段。比例从 `9:16`、`16:9`、`3:4`、`1:1` 等规范选项中选择；时长可直接调整，有参考视频时默认读取最终清单中首个视频的媒体元数据并四舍五入为整数秒，用户可覆盖，最终值仍遵守 `3–50` 秒约束。策划师还可从已选 Style 的产品图中多选参考图、上传补充图片（两者统称参考图），也可在「爆款视频」弹层选择库内推荐或主动联网搜索，并保留视频上传入口。推荐池只在打开弹层后查询；选中完成后，视频退出推荐语义，和已有视频、上传视频统一排列在参考视频列表。保存时新上传文件走 presign + `POST /api/assets`（`source=upload`）；选中的产品图按 Style 分组调用 `POST /api/video-tasks/product-images/import`（`{styleNo, imageIds}`，只处理选中的少量图片）；选中的库内爆款视频调用 `POST /api/inspirations/videos/import`（`{videoIds}`）完成转存和 Asset 登记。联网搜索只返回可用官方播放器预览的候选，不下载视频；前端在外层「保存创作材料」时才把选中候选的 opaque `selectionToken` 交给 `POST /api/inspirations/videos/web-import`，并把返回的 `assetId` 写入待保存的 `referenceVideos`。确认结果与最终素材清单通过 `PUT /api/video-tasks/{taskId}` 整单保存。后端在 `POST /video-tasks` 与该 PUT 的写入边界把每个参考视频转成 H.264 MP4 派生 Asset，并在响应 Task 中返回派生 Asset id；转码失败则本次 Task 不写入，Agent 不参与转码。后端在 published/confirmed 状态只允许 `requirementDescription`、`durationSeconds`、`ratio`、`referenceImages`、`referenceVideos`（连同管理信息）变化，其余 Brief 字段必须原样回传；素材更新时重新校验 Asset 存在、未归档且类型匹配。
+确认视角的展开详情内置确认补充与「创作材料」编辑区：策划师点击需求描述的修改按钮后复用 Tiptap 编辑整段中文标题纯文本，可按需追加 `口播旁白：…`，不建立平行 Brief 字段。比例从 `9:16`、`16:9`、`3:4`、`1:1` 等规范选项中选择；时长可直接调整，有参考视频时默认读取最终清单中首个视频的媒体元数据并四舍五入为整数秒，用户可覆盖，最终值仍遵守 `3–50` 秒约束。策划师还可从已选 Style 的产品图中多选参考图、上传补充图片（两者统称参考图），也可在「爆款视频」弹层选择库内推荐或主动联网搜索，并保留视频上传入口。推荐池只在打开弹层后查询；选中完成后，视频退出推荐语义，和已有视频、上传视频统一排列在参考视频列表。保存时：新上传的文件走 §6 的上传链路；**选中的产品图与库内爆款视频各自走 `POST /api/assets/import` 逐个转存**，拿回我们自己的地址。确认结果与最终素材清单通过 `PUT /api/tasks/{taskId}` 整单保存——请求体不能带 `style`（款号快照创建后冻结，带上是 422）。后端在 published/confirmed 状态只允许 `requirementDescription`、`durationSeconds`、`ratio`、`referenceImages`、`referenceVideos` 连同管理信息变化，其余 Brief 字段必须原样回传，所以前端从响应里的 `task.brief` 铺开再覆盖那几项。
+
+**联网搜索爆款视频这条路后端还没有。** 候选只有平台页面地址、没有视频文件地址，转存无从下手；选中联网候选后保存会明确报错，不会静默丢掉。库内爆款视频的搜索接口也还没对齐（后端收的是 WMS 编号而不是 PDM 款号，响应里没有匹配层级）。
 
 ```
 POST /api/inspirations/videos/search
@@ -486,8 +490,10 @@ PDM 图片只用于 Style 查询与产品信息展示：后端先把图片内容
 
 创建流程固定为：
 
-1. 用户选择的所有参考图片、参考视频先经 `/api/presign` 上传，再分别用 `POST /api/assets` 登记为 `source=upload` 的全局 Asset；不选择参考素材时跳过此步。
-2. 前端只调用一次 `POST /api/video-tasks`，提交唯一必填的 `styleNo`、可选截止时间和当前完整 Brief；图片、视频 Asset id 分别放入 `brief.referenceImages`、`brief.referenceVideos`，两组都允许为空。
-3. 后端只用 `styleNo` 查询 PDM，把产品图转存 OSS，并在插入前统一校验全部引用属于当前用户、未归档、`source=upload` 且类型匹配；参考视频在同一写入边界转成 H.264 MP4 派生 Asset，Task 保存并返回派生 id。全部步骤成功后一次写入完整 draft，不创建等待 `PUT` 补写的中间记录。
+1. 用户选择的参考图片与参考视频先走 §6 的上传（签名 → PUT → 登记），拿到我们自己的公网地址；不选参考素材时跳过此步。
+2. 前端调一次 `POST /api/tasks`，提交 `title`、`styleNo`、可选截止时间和当前完整 Brief；**图片与视频的地址**分别放入 `brief.referenceImages`、`brief.referenceVideos`，两组都允许为空。表单里没有「标题」这一栏，前端按 `brief.theme` 取，主题为空时退回主款号。
+3. 后端用 `styleNo` 查 PDM，把首图转存后冻结成 `style` 快照，一次写入完整 draft。
 
-`brief` 的规范顺序是 `theme`、`purpose`、`audience`、`selling`、`scene`、`department`、`videoType`、`durationSeconds`、`ratio`、`language`、`platform`、`color`、`contentType`、`requester`、`requirementDescription`、`styleNos`、`referenceImages`、`referenceVideos`。`department` 在表单中只读展示当前登录用户 PMS 部门数组中的全部有效名称，按返回顺序去重并以 `、` 连接；创建时后端从可信当前用户重新派生并覆盖客户端同名输入，作为 Task 部门快照，未同步部门时不写该字段。`styleNos` 是多选 Style 号全集（主 Style 排首位并同时作为顶层 `styleNo` 生成产品快照）；`requester` 由前端自动取当前登录用户（`displayName`，无则回退 `username`）写入，表单只读展示、不可手填；`requirementDescription` 是按段落换行的纯文本，前端 Tiptap 以 `getText()` 读取内容。下发模板预置场景、服装、道具、灯光、动作姿势、人物族裔、制作备注七项灰字提示：用户完全未填写或清空时把七条提示物化为默认正文；一旦有用户内容就原样提交，不自动补齐其它空行。确认人可以修改整段文本并按需追加口播旁白。所有用户图片不再区分产品、模特或场景，统一进入 `referenceImages`；视频统一进入 `referenceVideos`。`character`、`reference`、`models`、`scenes`、`refVideos` 与 `style.productImages` 已从 Task 契约移除。列表页用 `GET /api/assets?assetId=...` 只解析 Brief 中的 Asset id；Storyboard 读取同一组 Brief 引用作为创作输入，产品首图转存后的 OSS URL 仍只做任务封面预览。
+**`brief` 里存的是地址，不是 Asset id。** 所以列表页不再需要「按 id 批量解析素材」这一步；前端把两个数组里的地址就地索引起来给详情页用（见 `video-task.api.ts` 的 `indexTaskAssets`）。
+
+`brief` 的规范顺序是 `theme`、`purpose`、`audience`、`selling`、`scene`、`department`、`videoType`、`durationSeconds`、`ratio`、`language`、`platform`、`color`、`contentType`、`requester`、`requirementDescription`、`styleNos`、`referenceImages`、`referenceVideos`。`department` 在表单中只读展示当前登录用户 PMS 部门数组中的全部有效名称，按返回顺序去重并以 `、` 连接；创建时后端从可信当前用户重新派生并覆盖客户端同名输入，作为 Task 部门快照，未同步部门时不写该字段。`styleNos` 是多选 Style 号全集（主 Style 排首位并同时作为顶层 `styleNo` 生成产品快照）；`requester` 由前端自动取当前登录用户（`displayName`，无则回退 `username`）写入，表单只读展示、不可手填；`requirementDescription` 是按段落换行的纯文本，前端 Tiptap 以 `getText()` 读取内容。下发模板预置场景、服装、道具、灯光、动作姿势、人物族裔、制作备注七项灰字提示：用户完全未填写或清空时把七条提示物化为默认正文；一旦有用户内容就原样提交，不自动补齐其它空行。确认人可以修改整段文本并按需追加口播旁白。所有用户图片不再区分产品、模特或场景，统一进入 `referenceImages`；视频统一进入 `referenceVideos`。`character`、`reference`、`models`、`scenes`、`refVideos` 与 `style.productImages` 已从 Task 契约移除。Storyboard 读取同一组 Brief 引用作为创作输入，产品首图转存后的 OSS URL 仍只做任务封面预览——它不进 `brief.referenceImages`。
