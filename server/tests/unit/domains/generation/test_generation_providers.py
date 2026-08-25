@@ -15,6 +15,7 @@ from iclip.domains.generation.nano_banana import (
     NanoBananaSettings,
 )
 from iclip.domains.generation.provider import ProviderError
+from iclip.platform.object_store.layout import MEDIA_PATHS
 from tests.helpers.generation import MemoryObjectStore, image_request, make_job, video_request
 
 VIDEO_SETTINGS = MultiflowSettings(
@@ -147,8 +148,9 @@ async def test_image_generation_rehosts_result_and_returns_stable_url() -> None:
     )
     submission = await provider.submit(job)
 
-    assert submission.output_url == f"{store.base}/generated-images/{job.id}.png"
-    assert store.objects[f"generated-images/{job.id}.png"] == (b"PNGDATA", "image/png")
+    key = MEDIA_PATHS.generated_image(job_id=job.id, ext="png")
+    assert submission.output_url == f"{store.base}/{key}"
+    assert store.objects[key] == (b"PNGDATA", "image/png")
     assert submission.provider_status == "succeeded", "同步接口提交完就已经是终态"
 
 

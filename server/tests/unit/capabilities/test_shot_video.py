@@ -52,6 +52,7 @@ from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
 from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import FileSpace
+from iclip.platform.object_store.layout import MEDIA_PATHS
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import (
     FakeGenerations,
@@ -166,6 +167,7 @@ def capability(
         space=FileSpace(store=files, namespace=workspace_namespace),
         generations=generations,
         objects=objects,
+        paths=MEDIA_PATHS,
         understanding=understanding,
         client=None,  # type: ignore[arg-type]  # 这一层不走取素材那条路
         policy=FAST,
@@ -250,6 +252,7 @@ async def test_files_land_in_the_normalized_namespace(
         space=FileSpace(store=files, namespace=lambda _ctx: f"{USER}//thread-1"),
         generations=FakeGenerations(),
         objects=objects,
+        paths=MEDIA_PATHS,
         understanding=understanding,
         client=None,  # type: ignore[arg-type]  # 这一层不走取素材那条路
         policy=FAST,
@@ -686,6 +689,7 @@ async def test_generate_gives_up_waiting_but_names_the_record(
         space=FileSpace(store=files, namespace=workspace_namespace),
         generations=generations,
         objects=objects,
+        paths=MEDIA_PATHS,
         understanding=FakeUnderstanding(),
         client=None,  # type: ignore[arg-type]
         policy=GenerationPolicy(

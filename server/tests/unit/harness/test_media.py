@@ -36,15 +36,20 @@ IMAGE_URL = f"{OSS}/style.jpg"
 
 @dataclass
 class FakeStore:
-    """最小状态机：按 key 存一份，同 key 复用同一个地址。"""
+    """最小状态机：按摘要存一份，同摘要复用同一个地址。
+
+    地址长什么样是组合根那边的桶布局决定的，这里只要「同摘要同地址」这一条性质。
+    """
 
     written: dict[str, bytes] | None = None
 
-    async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
+    async def put_inline_media(
+        self, *, digest: str, ext: str, content: bytes, content_type: str
+    ) -> str:
         if self.written is None:
             self.written = {}
-        self.written[object_key] = content
-        return f"{OSS}/{object_key}"
+        self.written[f"{digest}.{ext}"] = content
+        return f"{OSS}/{digest}.{ext}"
 
 
 def user(*parts: InputContent) -> UserMessage:
@@ -188,7 +193,7 @@ async def test_string_content_and_other_roles_are_untouched() -> None:
 async def test_inline_content_lands_on_one_address_per_content() -> None:
     """前端每轮重送整段历史，同一份字节必须落回同一个地址，否则身份每轮都变。"""
 
-    codec = MediaCodec(objects=FakeStore())
+    codec = MediaCodec(inline_store=FakeStore())
     same = data_part("image", b"\xff\xd8\xffsame", mime="image/jpeg")
     other = data_part("image", b"\xff\xd8\xffother", mime="image/jpeg")
 
@@ -226,7 +231,7 @@ async def test_unusable_media_is_replaced_in_place_not_dropped(
 ) -> None:
     """模型得知道有东西没进来，否则它会以为用户什么都没发。"""
 
-    parts = await parts_of(MediaCodec(objects=FakeStore()), text("看这个"), part)
+    parts = await parts_of(MediaCodec(inline_store=FakeStore()), text("看这个"), part)
 
     assert len(parts) == 2
     assert parts[1].text.startswith("[媒体不可用：")  # pyright: ignore[reportAttributeAccessIssue]

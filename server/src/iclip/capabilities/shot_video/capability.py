@@ -52,6 +52,7 @@ from iclip.capabilities.shot_video.ports import (
     ImageRequest,
     InvalidImageRequest,
     PublicObjectWriter,
+    ShotVideoPaths,
     VideoUnderstanding,
 )
 from iclip.capabilities.shot_video.prompt import (
@@ -109,10 +110,6 @@ SHOT_MIN_SECONDS: Final = 4
 SHOT_MAX_SECONDS: Final = 30
 
 _JPEG: Final = "image/jpeg"
-_OSS_PREFIX: Final = "shot-frames"
-"""预览板与镜头帧在公开桶里的根。板按取帧键分目录，帧按生成记录分目录。"""
-_ANCHOR_OSS_PREFIX: Final = "anchor-sheets"
-"""补拍设定图在公开桶里的根，按生成记录分目录。"""
 _DOC_DIR: Final = "video"
 
 _IMAGE_REF = re.compile(r"@Image(\d+)")
@@ -187,6 +184,7 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
 
     generations: ImageGenerations
     objects: PublicObjectWriter
+    paths: ShotVideoPaths
     understanding: VideoUnderstanding
     client: httpx.AsyncClient
     """取素材用的 HTTP 客户端，由组合根持有（连接池不该每次调用重建）。"""
@@ -598,7 +596,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                     geometry=geometry,
                 )
                 url = await self._cap.objects.put_public_object(
-                    object_key=f"{_OSS_PREFIX}/{key}/board/{index}.jpg",
+                    object_key=self._cap.paths.shot_board(extraction_key=key, index=index),
                     content=image,
                     content_type=_JPEG,
                 )
@@ -695,7 +693,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         urls = await asyncio.gather(
             *(
                 self._cap.objects.put_public_object(
-                    object_key=f"{_OSS_PREFIX}/{job.job_id}/out/{cell_id}.jpg",
+                    object_key=self._cap.paths.shot_cell(job_id=job.job_id, cell_id=cell_id),
                     content=cell,
                     content_type=_JPEG,
                 )
@@ -762,7 +760,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         urls = await asyncio.gather(
             *(
                 self._cap.objects.put_public_object(
-                    object_key=f"{_ANCHOR_OSS_PREFIX}/{job.job_id}/{index}.jpg",
+                    object_key=self._cap.paths.anchor_sheet(job_id=job.job_id, index=index),
                     content=cell,
                     content_type=_JPEG,
                 )
@@ -1034,6 +1032,7 @@ def shot_video_capability(
     space: FileSpace,
     generations: ImageGenerations,
     objects: PublicObjectWriter,
+    paths: ShotVideoPaths,
     understanding: VideoUnderstanding,
     client: httpx.AsyncClient,
     policy: GenerationPolicy | None = None,
@@ -1044,6 +1043,7 @@ def shot_video_capability(
         space=space,
         generations=generations,
         objects=objects,
+        paths=paths,
         understanding=understanding,
         client=client,
         policy=policy if policy is not None else GenerationPolicy(),
