@@ -13,7 +13,7 @@
 | Session Workspace / assets / generations | `/api/sessions/{sessionId}*` | `src/features/projects/api/producer-session-workspace.api.ts` + `src/features/chat/runtime/project-agui-runtime.ts` |
 | AG-UI 运行 | `/api/agui/teams/producer*`、`/api/agui/agents/storyboard*`；run 历史走 `/api/sessions/{sessionId}/runs` | `src/features/chat/runtime/`、`src/features/storyboards/runtime/` |
 | 视频生成 | `/api/video-generations` | `src/features/projects/api/producer-project.api.ts` |
-| 上传预签名 | `/api/presign` | `src/shared/lib/file-upload.ts` |
+| 素材上传与转存 | `/api/uploads/sign`、`/api/assets*` | `src/shared/lib/file-upload.ts` |
 | 用量分析 | `/api/analytics/generation-stats` | `src/features/analytics/` |
 
 ## 1. 登录态
@@ -383,29 +383,46 @@ Content-Type: application/json
 - `inputs` 由前端把参考图/视频/音频 URL 按 `mediaType` 拆分（`splitVideoGenerationReferenceUrls()`）；本地附件必须先经 presign 上传成远端 URL。
 - 提交成功后：Agent scope 合并本次 generation 并刷新 Session Workspace、assets 与 generations，让 generated-video artifact 进入画布并驱动后台轮询；Direct scope 只写 route-local 任务列表并同步 `video-generation-task` 节点。
 
-## 6. 文件上传预签名
+## 6. 素材上传与转存
+
+一份素材 = 后端桶里的一个对象 + 素材账本上的一行。上传三步走（`uploadAndRegisterAsset()`）：
 
 ```http
-POST /api/presign
-Content-Type: application/json
+POST /api/uploads/sign        { "contentType": "image/png", "width": 1200, "height": 1600 }
+→ { "assetId": "…", "upload": { "url": "…", "method": "PUT", "headers": {…}, "expiresAt": "…" } }
 
-{ "ext": "png", "dir": "producer/media/image" }
+PUT <upload.url>              body 是文件本身，headers 原样带上
+
+POST /api/assets/{assetId}    空 body → { "asset": { "id", "assetType", "url", "contentType", … } }
 ```
 
-返回上传签名 URL、object key、公网访问 URL 和 content type；前端随后直传 OSS（PUT），拿 `publicUrl` / `contentType` 写入 AG-UI 消息或生成请求。OSS 直传的 403 与会话权限无关，只有 presign 接口本身的 403 才按未授权上报。支持的扩展名与 `dir` 约束以后端配置为准。
+- **`upload.headers` 原样带上**：`Content-Type` 被签进了签名里，换一个值 OSS 就验签不过。OSS 直传的 403 与会话权限无关，只有后端接口本身的 403 才按未授权上报。
+- **登记没有请求体**：真实 key、多大、什么类型全部由后端从桶里读回来，客户端报什么都不作数。地址与媒体类型取登记返回的那一行。
+- **只收图和视频**：`image/jpeg`、`image/png`、`image/webp`、`video/mp4`、`video/quicktime`。音频与其它文件在前端就拦下（后端不收）。
+- **图片尺寸**：短边 ≥ 300px、长边 ≤ 6000px。宽高在签名那一步由前端读出来报上去（`createImageBitmap`），不合格的图压根不用先传。
+- **身份先于发送存在**：`assetId` 在字节动之前就发下来，发送失败素材仍在库里可复用。身份是 `id`，`url` 只是后端按对象 key 拼出来的投影。
 
-**上传即登记**：composer 的本地附件（聊天，以及首页/画布的视频生成入口）在 PUT 成功后、提交前统一调 `POST /api/assets`（`registerUploadedAsset()`，body `{assetType, source: "upload", url, mimeType, sessionId?, sizeBytes?, metadata: {filename}}`）由素材库签发身份——get-or-create 语义，同 URL 幂等命中同一行；只有聊天入口透传 `sessionId` 作为登记地点（provenance），它不构成授权、不写 session 账本（入账由后端在消息真正进入对话时完成）。提交失败时素材已在库中，重试按 URL 命中同一身份。
+外部地址（产品图、爆款库视频）走转存（`importAssetFromUrl()`）：
+
+```http
+POST /api/assets/import       { "url": "https://…" }
+→ { "asset": { … } }
+```
+
+`assetId` 由源地址算出来，同一个地址转存多少次都是同一行；类型、大小、尺寸由后端实测。
 
 ## 7. 首页 Video Task
 
 ```http
-GET  /api/video-tasks
-GET  /api/video-tasks/{taskId}
-GET  /api/video-tasks/product-info?styleNo=SNST26006U
-POST /api/video-tasks
-POST /api/video-tasks/{taskId}/publish
-POST /api/video-tasks/{taskId}/confirm
-POST /api/video-tasks/{taskId}/withdraw
+GET  /api/tasks?status=&limit=100          -> { "items": [...] }
+GET  /api/tasks/{taskId}                   -> { "task": {...} }
+GET  /api/products/{styleNo}               -> { "product": {...} }
+POST /api/tasks
+PUT  /api/tasks/{taskId}                   整体覆盖，不是局部合并
+POST /api/tasks/{taskId}/publish
+POST /api/tasks/{taskId}/confirm
+POST /api/tasks/{taskId}/withdraw
+DELETE /api/tasks/{taskId}                 只有草稿能删
 
 {
   "styleNo": "SNST26006U",
@@ -428,7 +445,11 @@ POST /api/video-tasks/{taskId}/withdraw
 
 任务页分「下发 Task（需求方）/ 确认 Task（策划师）」两种视角，状态机为 `draft → published（下发）→ confirmed（确认）→ withdrawn`（published 与 confirmed 均可撤回）。下发提交 = `POST /api/video-tasks` 创建 draft 后立即 `POST …/publish`；策划师在确认视角按部门 / 需求人 / 品牌筛选 published 任务并 `POST …/confirm`，published 与 confirmed 任务均可作为 Storyboard 创作来源。参考媒资不再是发布必要条件（Ref Vid 非必填）。
 
-确认视角的展开详情内置确认补充与「创作材料」编辑区：策划师点击需求描述的修改按钮后复用 Tiptap 编辑整段中文标题纯文本，可按需追加 `口播旁白：…`，不建立平行 Brief 字段。比例从 `9:16`、`16:9`、`3:4`、`1:1` 等规范选项中选择；时长可直接调整，有参考视频时默认读取最终清单中首个视频的媒体元数据并四舍五入为整数秒，用户可覆盖，最终值仍遵守 `3–50` 秒约束。策划师还可从已选 Style 的产品图中多选参考图、上传补充图片（两者统称参考图），也可在「爆款视频」弹层选择库内推荐或主动联网搜索，并保留视频上传入口。推荐池只在打开弹层后查询；选中完成后，视频退出推荐语义，和已有视频、上传视频统一排列在参考视频列表。保存时新上传文件走 presign + `POST /api/assets`（`source=upload`）；选中的产品图按 Style 分组调用 `POST /api/video-tasks/product-images/import`（`{styleNo, imageIds}`，只处理选中的少量图片）；选中的库内爆款视频调用 `POST /api/inspirations/videos/import`（`{videoIds}`）完成转存和 Asset 登记。联网搜索只返回可用官方播放器预览的候选，不下载视频；前端在外层「保存创作材料」时才把选中候选的 opaque `selectionToken` 交给 `POST /api/inspirations/videos/web-import`，并把返回的 `assetId` 写入待保存的 `referenceVideos`。确认结果与最终素材清单通过 `PUT /api/video-tasks/{taskId}` 整单保存。后端在 `POST /video-tasks` 与该 PUT 的写入边界把每个参考视频转成 H.264 MP4 派生 Asset，并在响应 Task 中返回派生 Asset id；转码失败则本次 Task 不写入，Agent 不参与转码。后端在 published/confirmed 状态只允许 `requirementDescription`、`durationSeconds`、`ratio`、`referenceImages`、`referenceVideos`（连同管理信息）变化，其余 Brief 字段必须原样回传；素材更新时重新校验 Asset 存在、未归档且类型匹配。
+确认视角的展开详情内置确认补充与「创作材料」编辑区：策划师点击需求描述的修改按钮后复用 Tiptap 编辑整段中文标题纯文本，可按需追加 `口播旁白：…`，不建立平行 Brief 字段。比例从 `9:16`、`16:9`、`3:4`、`1:1` 等规范选项中选择；时长可直接调整，有参考视频时默认读取最终清单中首个视频的媒体元数据并四舍五入为整数秒，用户可覆盖，最终值仍遵守 `3–50` 秒约束。策划师还可从已选 Style 的产品图中多选参考图、上传补充图片（两者统称参考图），也可在「爆款视频」弹层选择库内推荐或主动联网搜索，并保留视频上传入口。推荐池只在打开弹层后查询；选中完成后，视频退出推荐语义，和已有视频、上传视频统一排列在参考视频列表。保存时：新上传的文件走 §6 的上传链路；**选中的产品图与库内爆款视频各自走 `POST /api/assets/import` 逐个转存**，拿回我们自己的地址。确认结果与最终素材清单通过 `PUT /api/tasks/{taskId}` 整单保存——请求体不能带 `style`（款号快照创建后冻结，带上是 422）。后端在 published/confirmed 状态只允许 `requirementDescription`、`durationSeconds`、`ratio`、`referenceImages`、`referenceVideos` 连同管理信息变化，其余 Brief 字段必须原样回传，所以前端从响应里的 `task.brief` 铺开再覆盖那几项。
+
+**库内爆款视频搜索收的是 WMS 编号，不是 PDM 款号。** 需求单只记 PDM 款号，所以弹层打开时先用 `listStyleWmsCodes()` 逐个 `GET /api/products/{styleNo}` 换出 `styleWms`（查不到的款落下，不连累整次搜索），再拿编号去搜。响应里没有「匹配层级」这一档，所以 UI 上也没有同款 / 替代款标签；`ossUrl` 可能为 `null`，那种条目选不了（没有可转存的东西）。
+
+**联网搜索爆款视频这条路后端还没有。** 候选只有平台页面地址、没有视频文件地址，转存无从下手；选中联网候选后保存会明确报错，不会静默丢掉。
 
 ```
 POST /api/inspirations/videos/search
@@ -471,8 +492,10 @@ PDM 图片只用于 Style 查询与产品信息展示：后端先把图片内容
 
 创建流程固定为：
 
-1. 用户选择的所有参考图片、参考视频先经 `/api/presign` 上传，再分别用 `POST /api/assets` 登记为 `source=upload` 的全局 Asset；不选择参考素材时跳过此步。
-2. 前端只调用一次 `POST /api/video-tasks`，提交唯一必填的 `styleNo`、可选截止时间和当前完整 Brief；图片、视频 Asset id 分别放入 `brief.referenceImages`、`brief.referenceVideos`，两组都允许为空。
-3. 后端只用 `styleNo` 查询 PDM，把产品图转存 OSS，并在插入前统一校验全部引用属于当前用户、未归档、`source=upload` 且类型匹配；参考视频在同一写入边界转成 H.264 MP4 派生 Asset，Task 保存并返回派生 id。全部步骤成功后一次写入完整 draft，不创建等待 `PUT` 补写的中间记录。
+1. 用户选择的参考图片与参考视频先走 §6 的上传（签名 → PUT → 登记），拿到我们自己的公网地址；不选参考素材时跳过此步。
+2. 前端调一次 `POST /api/tasks`，提交 `title`、`styleNo`、可选截止时间和当前完整 Brief；**图片与视频的地址**分别放入 `brief.referenceImages`、`brief.referenceVideos`，两组都允许为空。表单里没有「标题」这一栏，前端按 `brief.theme` 取，主题为空时退回主款号。
+3. 后端用 `styleNo` 查 PDM，把首图转存后冻结成 `style` 快照，一次写入完整 draft。
 
-`brief` 的规范顺序是 `theme`、`purpose`、`audience`、`selling`、`scene`、`department`、`videoType`、`durationSeconds`、`ratio`、`language`、`platform`、`color`、`contentType`、`requester`、`requirementDescription`、`styleNos`、`referenceImages`、`referenceVideos`。`department` 在表单中只读展示当前登录用户 PMS 部门数组中的全部有效名称，按返回顺序去重并以 `、` 连接；创建时后端从可信当前用户重新派生并覆盖客户端同名输入，作为 Task 部门快照，未同步部门时不写该字段。`styleNos` 是多选 Style 号全集（主 Style 排首位并同时作为顶层 `styleNo` 生成产品快照）；`requester` 由前端自动取当前登录用户（`displayName`，无则回退 `username`）写入，表单只读展示、不可手填；`requirementDescription` 是按段落换行的纯文本，前端 Tiptap 以 `getText()` 读取内容。下发模板预置场景、服装、道具、灯光、动作姿势、人物族裔、制作备注七项灰字提示：用户完全未填写或清空时把七条提示物化为默认正文；一旦有用户内容就原样提交，不自动补齐其它空行。确认人可以修改整段文本并按需追加口播旁白。所有用户图片不再区分产品、模特或场景，统一进入 `referenceImages`；视频统一进入 `referenceVideos`。`character`、`reference`、`models`、`scenes`、`refVideos` 与 `style.productImages` 已从 Task 契约移除。列表页用 `GET /api/assets?assetId=...` 只解析 Brief 中的 Asset id；Storyboard 读取同一组 Brief 引用作为创作输入，产品首图转存后的 OSS URL 仍只做任务封面预览。
+**`brief` 里存的是地址，不是 Asset id。** 所以列表页不再需要「按 id 批量解析素材」这一步；前端把两个数组里的地址就地索引起来给详情页用（见 `video-task.api.ts` 的 `indexTaskAssets`）。
+
+`brief` 的规范顺序是 `theme`、`purpose`、`audience`、`selling`、`scene`、`department`、`videoType`、`durationSeconds`、`ratio`、`language`、`platform`、`color`、`contentType`、`requester`、`requirementDescription`、`styleNos`、`referenceImages`、`referenceVideos`。`department` 在表单中只读展示当前登录用户 PMS 部门数组中的全部有效名称，按返回顺序去重并以 `、` 连接；创建时后端从可信当前用户重新派生并覆盖客户端同名输入，作为 Task 部门快照，未同步部门时不写该字段。`styleNos` 是多选 Style 号全集（主 Style 排首位并同时作为顶层 `styleNo` 生成产品快照）；`requester` 由前端自动取当前登录用户（`displayName`，无则回退 `username`）写入，表单只读展示、不可手填；`requirementDescription` 是按段落换行的纯文本，前端 Tiptap 以 `getText()` 读取内容。下发模板预置场景、服装、道具、灯光、动作姿势、人物族裔、制作备注七项灰字提示：用户完全未填写或清空时把七条提示物化为默认正文；一旦有用户内容就原样提交，不自动补齐其它空行。确认人可以修改整段文本并按需追加口播旁白。所有用户图片不再区分产品、模特或场景，统一进入 `referenceImages`；视频统一进入 `referenceVideos`。`character`、`reference`、`models`、`scenes`、`refVideos` 与 `style.productImages` 已从 Task 契约移除。Storyboard 读取同一组 Brief 引用作为创作输入，产品首图转存后的 OSS URL 仍只做任务封面预览——它不进 `brief.referenceImages`。

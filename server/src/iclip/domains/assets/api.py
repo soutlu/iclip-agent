@@ -1,7 +1,8 @@
 """素材的 HTTP 面。
 
 两组路由，一件事：``/uploads/*`` 是文件进系统的入口，``/assets/*`` 是账本。分开是因为
-它们的对象不同——前者操作的是桶里的字节，后者操作的是账本上的行。
+它们的对象不同——前者操作的是桶里的字节，后者操作的是账本上的行。转存挂在账本这一
+组，因为它交付的是账本上的一行，搬字节只是它的手段。
 
 权限用现成的 ``assets:read`` / ``assets:write``，权限词汇表里早就留好了这两个名字。
 素材是全公司共用的，所以这里不存在「别人的返 404」那套写法：不存在才 404。
@@ -19,6 +20,7 @@ from iclip.domains.assets.schemas import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
     AssetEnvelope,
+    AssetImportIn,
     AssetsPageOut,
     UploadInstruction,
     UploadSignIn,
@@ -37,7 +39,7 @@ def create_uploads_router(service: AssetService) -> APIRouter:
         body: UploadSignIn,
         _: Annotated[Principal, Depends(require_permission("assets:write"))],
     ) -> UploadTicketOut:
-        ticket = service.sign_upload(body.content_type)
+        ticket = service.sign_upload(body)
         return UploadTicketOut(
             asset_id=ticket.asset_id,
             upload=UploadInstruction(
@@ -52,6 +54,21 @@ def create_uploads_router(service: AssetService) -> APIRouter:
 
 def create_assets_router(service: AssetService) -> APIRouter:
     router = APIRouter(prefix="/assets", tags=["assets"])
+
+    # 这条必须声明在 ``/{asset_id}`` 之前：路由按声明顺序匹配，反过来的话 import
+    # 会被当成一个 assetId，报一个「不是合法 UUID」的 422。
+    @router.post("/import", response_model=AssetEnvelope, status_code=201)
+    async def import_asset(
+        body: AssetImportIn,
+        principal: Annotated[Principal, Depends(require_permission("assets:write"))],
+    ) -> AssetEnvelope:
+        """把一个外部地址上的东西转存进我们的桶并登记，返回带新地址的那一行。
+
+        同一个地址重复调用返回同一行（也还是 201），不会在桶里搬第二份。
+        """
+
+        asset = await service.import_from_url(principal, body.url)
+        return AssetEnvelope(asset=asset_out(asset, url=service.public_url(asset)))
 
     @router.post("/{asset_id}", response_model=AssetEnvelope, status_code=201)
     async def register_asset(

@@ -30,11 +30,13 @@ from iclip.domains.tasks.models import (
     Task,
     TaskStatus,
 )
+from iclip.domains.tasks.ports import StyleSnapshots
 from iclip.domains.tasks.repository import TaskRepository
 from iclip.domains.tasks.schemas import (
     MAX_LIST_LIMIT,
     PLANNER_FIELDS,
     TaskBrief,
+    TaskCreateIn,
     TaskIn,
 )
 
@@ -46,12 +48,17 @@ _CONFLICT_RACED = "这张需求单刚被别人改过，请重新读一次再试"
 class TaskService:
     """建需求单、读需求单、改它、把它推过状态机。"""
 
-    def __init__(self, repo: TaskRepository) -> None:
+    def __init__(self, repo: TaskRepository, snapshots: StyleSnapshots) -> None:
         self._repo = repo
+        self._snapshots = snapshots
 
-    async def create(self, principal: Principal, body: TaskIn) -> Task:
-        """提一张新需求单。落地就是草稿，发布是另一个动作。"""
+    async def create(self, principal: Principal, body: TaskCreateIn) -> Task:
+        """提一张新需求单。落地就是草稿，发布是另一个动作。
 
+        款号先抄成快照冻结进这一行，抄不到就整体失败：说不清拍哪个款的单子不如不落地。
+        """
+
+        style = await self._snapshots.of(body.style_no)
         now = datetime.now(UTC)
         return await self._repo.create(
             Task(
@@ -61,7 +68,10 @@ class TaskService:
                 priority=body.priority,
                 deadline=body.deadline,
                 creator_user_id=principal.user_id,
-                brief=body.brief,
+                style=style,
+                brief=body.brief.model_copy(
+                    update={"style_nos": _style_nos_for(body.style_no, body.brief)}
+                ),
                 # 两个时刻在插入时由数据库改写成它自己的 now()；这里的值不落库，
                 # 只是把 dataclass 填满。
                 created_at=now,
@@ -103,7 +113,11 @@ class TaskService:
             title=body.title,
             priority=body.priority,
             deadline=body.deadline,
-            brief=body.brief,
+            # 主款号跟着快照走，覆盖不掉：PUT 是整体覆盖，不对齐一次的话不给 styleNos
+            # 就把它清空了，给错首位就和快照说的不是同一个款。
+            brief=body.brief.model_copy(
+                update={"style_nos": _style_nos_for(task.style.style_no, body.brief)}
+            ),
         )
         if saved is None:
             raise Conflict(_CONFLICT_RACED)
@@ -172,6 +186,19 @@ class TaskService:
         _require_creator_or_manager(principal, task, action="删除这张草稿")
         if not await self._repo.delete(task_id, expect=STATUS_DRAFT):
             raise Conflict(_CONFLICT_RACED)
+
+
+def _style_nos_for(style_no: str, brief: TaskBrief) -> list[str]:
+    """对齐主款号与 brief 里的款号全集，返回该落库的那一份。
+
+    不对齐的后果是静默的：封面显示的款和详情里列的款各说一套，没人会发现。
+    """
+
+    if not brief.style_nos:
+        return [style_no]
+    if brief.style_nos[0] != style_no:
+        raise ValidationFailed(f"brief.styleNos 的首位必须是主款号 {style_no}")
+    return list(brief.style_nos)
 
 
 def _require_status(task: Task, expected: TaskStatus, *, action: str) -> None:

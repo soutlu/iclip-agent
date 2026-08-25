@@ -42,7 +42,8 @@ depends_on = ["iclip.domains.identity"]
 path = "iclip.domains.conversations"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 创作需求单：自有的表。全公司可见的工作队列，不认识任何别的业务模块。
+# 创作需求单：自有的表。全公司可见的工作队列，不认识任何别的业务模块——款号快照要的
+# 产品资料与对象存储由组合根按 ports.py 的窄协议接进来。
 [[modules]]
 path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.domains.identity"]

@@ -39,6 +39,19 @@ MAX_BYTES: Final[Mapping[AssetType, int]] = {
 按前缀清理掉。
 """
 
+MIN_SHORT_EDGE_PIXELS: Final = 300
+MAX_LONG_EDGE_PIXELS: Final = 6000
+"""图片的尺寸区间：短边不足的剪不出画面，长边超了的后面每一步都在白烧算力。
+
+只管图，视频的分辨率不在这里管。
+"""
+
+IMPORT_NAMESPACE: Final = uuid.UUID("6f1f4e6a-0d1a-4c9d-9d0e-5f2a3b7c8d90")
+"""转存用它给源地址算 uuid5，算出来的就是 ``assetId``。
+
+**换掉这个值，所有存量转存素材都会被当成没搬过、再搬一遍。**
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class UploadTicket:
@@ -76,4 +89,13 @@ class Asset:
     created_at: datetime
 
 
-__all__ = ["MAX_BYTES", "UPLOAD_TYPES", "Asset", "AssetType", "UploadTicket"]
+__all__ = [
+    "IMPORT_NAMESPACE",
+    "MAX_BYTES",
+    "MAX_LONG_EDGE_PIXELS",
+    "MIN_SHORT_EDGE_PIXELS",
+    "UPLOAD_TYPES",
+    "Asset",
+    "AssetType",
+    "UploadTicket",
+]

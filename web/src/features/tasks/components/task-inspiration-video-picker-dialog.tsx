@@ -3,7 +3,6 @@ import { Check, ExternalLink, Eye, Play, Search } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   enrichWebInspirationVideos,
-  type InspirationMatchLevel,
   type InspirationSortKey,
   type InspirationVideo,
   inspirationVideoSelectionKey,
@@ -14,8 +13,8 @@ import {
   type WebInspirationSearchResult,
   type WebInspirationMetrics,
 } from '@/features/tasks/api/inspiration.api'
+import { listStyleWmsCodes } from '@/features/tasks/api/video-task.api'
 import type { SettingsChoiceOption } from '@/shared/composer'
-import { cn } from '@/shared/lib/utils'
 import TaskOptionDropdown from './task-option-dropdown'
 import TaskPickerDialog, { togglePicked } from './task-picker-dialog'
 import TaskWebVideoPreviewDialog from './task-web-video-preview-dialog'
@@ -26,15 +25,8 @@ const SORT_OPTIONS: readonly SettingsChoiceOption<InspirationSortKey>[] = [
   { label: '按播放量', value: 'views' },
   { label: '按曝光量', value: 'impressions' },
   { label: '按点击量', value: 'clicks' },
-  { label: '按 GMV', value: 'revenueAmount' },
+  { label: '按 GMV', value: 'revenue' },
 ]
-
-const MATCH_LEVEL_LABELS: Record<InspirationMatchLevel, string> = {
-  exact: '同款',
-  none: '无匹配',
-  sameBrandCategory: '同品牌品类替代',
-  sameCategory: '同品类替代',
-}
 
 type WebPlatformSearchState =
   | { status: 'error'; message: string }
@@ -91,7 +83,7 @@ const metricFormatter = new Intl.NumberFormat('zh-CN', {
 const INSPIRATION_POOL_LIMIT = 50
 
 const metricValue = (video: InspirationVideo, key: InspirationSortKey): number =>
-  key === 'revenueAmount' ? Number(video.metrics.revenueAmount) : video.metrics[key]
+  key === 'revenue' ? Number(video.metrics.revenue) : video.metrics[key]
 
 /** 完整候选池的本地重排，与服务端排序同构：主指标降序，成交、播放依次决胜。 */
 const sortInspirationVideos = (videos: InspirationVideo[], key: InspirationSortKey) =>
@@ -154,24 +146,33 @@ export default function TaskInspirationVideoPickerDialog({
     selectedVideosRef.current = selectedVideos
   }, [selectedVideos])
 
+  // 爆款库按 WMS 编号存，需求单只记 PDM 款号，所以先换一次编号再搜。
+  const styleWmsQuery = useQuery({
+    queryFn: ({ signal }) => listStyleWmsCodes(styleNos, { signal }),
+    queryKey: ['style-wms-codes', styleNos],
+  })
+  const styleWmsList = styleWmsQuery.data ?? []
+  const canSearch = styleWmsList.length > 0
+
   // 推荐池只按默认排序拉一次；结果未截断即候选池完整，切排序时本地重排、不再查库。
   const inspirationPoolQuery = useQuery({
+    enabled: canSearch,
     queryFn: ({ signal }) =>
       searchInspirationVideos(
-        { limit: INSPIRATION_POOL_LIMIT, sortBy: 'orders', styleNos },
+        { limit: INSPIRATION_POOL_LIMIT, sortBy: 'orders', styleWmsList },
         { signal },
       ),
-    queryKey: ['inspiration-videos', taskId, styleNos],
+    queryKey: ['inspiration-videos', taskId, styleWmsList],
   })
   const poolTruncated = (inspirationPoolQuery.data?.items.length ?? 0) >= INSPIRATION_POOL_LIMIT
   const usesServerSort = poolTruncated && sortBy !== 'orders'
   // 截断池换排序必须回服务端（top-N 取样随排序变化）；保留上一份列表避免闪空加载态。
   const serverSortQuery = useQuery({
-    enabled: usesServerSort,
+    enabled: canSearch && usesServerSort,
     placeholderData: keepPreviousData,
     queryFn: ({ signal }) =>
-      searchInspirationVideos({ limit: INSPIRATION_POOL_LIMIT, sortBy, styleNos }, { signal }),
-    queryKey: ['inspiration-videos', taskId, sortBy, styleNos],
+      searchInspirationVideos({ limit: INSPIRATION_POOL_LIMIT, sortBy, styleWmsList }, { signal }),
+    queryKey: ['inspiration-videos', taskId, sortBy, styleWmsList],
   })
   const inspirationQuery = usesServerSort ? serverSortQuery : inspirationPoolQuery
   const inspirationItems = useMemo(() => {
@@ -181,10 +182,6 @@ export default function TaskInspirationVideoPickerDialog({
     }
     return sortInspirationVideos(items, sortBy)
   }, [inspirationQuery.data, sortBy, usesServerSort])
-
-  const matchLevelByStyle = new Map(
-    inspirationQuery.data?.matches.map((match) => [match.styleNo, match.matchLevel]) ?? [],
-  )
 
   const changeSelection = (videos: SelectedInspirationVideo[]) => {
     selectedVideosRef.current = videos
@@ -454,12 +451,18 @@ export default function TaskInspirationVideoPickerDialog({
 
       {resultSource === 'library' ? (
         <>
-          {inspirationQuery.isLoading ? (
+          {styleWmsQuery.isLoading || inspirationQuery.isLoading ? (
             <p className="home-task-materials-state">正在加载推荐视频…</p>
           ) : null}
-          {inspirationQuery.error ? (
+          {(styleWmsQuery.error ?? inspirationQuery.error) ? (
             <p className="home-task-materials-state home-task-materials-state--error" role="alert">
-              {inspirationQuery.error.message}
+              {(styleWmsQuery.error ?? inspirationQuery.error)?.message}
+            </p>
+          ) : null}
+          {/* 换不出编号就搜不了。这是正常结果（款在产品资料里查不到），得说出来，不能空着。 */}
+          {styleWmsQuery.data && !canSearch ? (
+            <p className="home-task-materials-state">
+              这些款在产品资料里换不出 WMS 编号，搜不了爆款视频。
             </p>
           ) : null}
           {inspirationQuery.data && inspirationItems.length === 0 ? (
@@ -468,18 +471,20 @@ export default function TaskInspirationVideoPickerDialog({
           {inspirationItems.length > 0 ? (
             <ul aria-label="推荐参考视频" className="home-task-recommended-list">
               {inspirationItems.map((item) => {
-                const matchLevel = matchLevelByStyle.get(item.styleNo)
                 const candidate: SelectedInspirationVideo = { ...item, source: 'library' }
                 const selected = selectedVideos.some(
                   (video) =>
                     inspirationVideoSelectionKey(video) === inspirationVideoSelectionKey(candidate),
                 )
+                // 没有转存副本就没有可搬进素材库的东西，选了也保存不进去。
+                const selectable = item.ossUrl !== null
                 return (
                   <li key={item.videoId}>
                     <button
                       aria-label={`推荐视频 ${item.videoId}`}
                       aria-pressed={selected}
                       className="home-task-recommended-card"
+                      disabled={!selectable}
                       type="button"
                       onClick={() =>
                         changeSelection(
@@ -487,31 +492,28 @@ export default function TaskInspirationVideoPickerDialog({
                         )
                       }
                     >
-                      <video
-                        className="home-task-recommended-video"
-                        muted
-                        playsInline
-                        preload="metadata"
-                        src={item.ossUrl}
-                      />
+                      {item.ossUrl === null ? null : (
+                        <video
+                          className="home-task-recommended-video"
+                          muted
+                          playsInline
+                          preload="metadata"
+                          src={item.ossUrl}
+                        />
+                      )}
                       <span className="home-task-recommended-info">
                         <span className="home-task-recommended-title">
-                          <strong>{item.styleNo}</strong>
-                          <span
-                            className={cn(
-                              'home-task-detail-tag',
-                              matchLevel === 'exact' ? 'home-task-detail-tag--primary' : '',
-                            )}
-                          >
-                            {matchLevel ? MATCH_LEVEL_LABELS[matchLevel] : '替代款'}
-                          </span>
+                          <strong>{item.styleWms}</strong>
+                          {selectable ? null : (
+                            <span className="home-task-detail-tag">无可用视频</span>
+                          )}
                         </span>
                         <span className="home-task-recommended-metrics">
                           曝光 {metricFormatter.format(item.metrics.impressions)} · 播放{' '}
                           {metricFormatter.format(item.metrics.views)} · 点击{' '}
                           {metricFormatter.format(item.metrics.clicks)} · 成交{' '}
                           {metricFormatter.format(item.metrics.orders)} · GMV{' '}
-                          {metricFormatter.format(Math.round(Number(item.metrics.revenueAmount)))}
+                          {metricFormatter.format(Math.round(Number(item.metrics.revenue)))}
                         </span>
                         {item.creatorHandle || item.postedDate ? (
                           <span className="home-task-recommended-meta">

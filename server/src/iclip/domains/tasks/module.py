@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from iclip.domains.tasks.api import create_tasks_router
+from iclip.domains.tasks.ports import StyleSnapshots
 from iclip.domains.tasks.repository import TaskRepository
 from iclip.domains.tasks.service import TaskService
 
@@ -19,10 +20,14 @@ class TasksModule:
     service: TaskService
 
 
-def build_tasks_module(repo: TaskRepository) -> TasksModule:
-    """装配 tasks。它只要一张自己的表，不依赖任何别的模块。"""
+def build_tasks_module(repo: TaskRepository, snapshots: StyleSnapshots) -> TasksModule:
+    """装配 tasks。
 
-    service = TaskService(repo)
+    一张自己的表，外加一个「按款号抄快照」的窄协议——真身在组合根（那里才认识产品资料
+    库和对象存储），这一环只认协议。
+    """
+
+    service = TaskService(repo, snapshots)
     return TasksModule(routers=(create_tasks_router(service),), service=service)
 
 

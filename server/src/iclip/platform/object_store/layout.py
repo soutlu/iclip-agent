@@ -9,6 +9,7 @@
         ├── shot-frames/{extractionKey}/board/{n}.jpg     参考片的取帧预览板
         ├── shot-frames/{jobId}/out/{cellId}.jpg          出图整图切出来的镜头帧
         ├── anchor-sheets/{jobId}/{n}.jpg                 补拍设定图切格
+        ├── task-styles/{sha256}.{ext}                    需求单封面（主款首图转存）
         └── uploads/{assetId}.{ext}                       用户上传的素材
 
 每一段文件名都从某个 id 或某段内容算出来，没有一个是调用方起的名字：地址要么按业务
@@ -60,6 +61,11 @@ class MediaPaths:
         """补拍设定图切出来的一格。"""
 
         return f"{OSS_ROOT}/anchor-sheets/{job_id}/{index}.jpg"
+
+    def task_style_cover(self, *, digest: str, ext: str) -> str:
+        """需求单封面。按**源地址**摘要定名：同一张产品图被多少张需求单引用都只搬一次。"""
+
+        return f"{OSS_ROOT}/task-styles/{digest}.{ext}"
 
     def upload(self, *, asset_id: uuid.UUID, ext: str) -> str:
         """用户上传的素材。"""

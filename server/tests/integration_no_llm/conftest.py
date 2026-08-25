@@ -32,6 +32,7 @@ from iclip.config import (
 )
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
+from tests.helpers.tasks import StubStyleSnapshots
 
 SERVER_DIR = Path(__file__).resolve().parents[2]
 
@@ -185,6 +186,9 @@ async def app(
             agents=agent_declarations,
             engine=engine,
             models=models,
+            # 款号快照的内容来自 PDM 与对象存储，这一层不连它们；替身给一份固定快照，
+            # 让「快照存进库读回来还是同一份」这件事仍然在真库上被验到。
+            style_snapshots=StubStyleSnapshots(),
         )
     finally:
         await engine.dispose()

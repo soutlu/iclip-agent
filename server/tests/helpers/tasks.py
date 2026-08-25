@@ -6,15 +6,47 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from iclip.common.errors import NotFound
+from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.tasks.models import STATUS_DRAFT, Task, TaskStatus
-from iclip.domains.tasks.schemas import TaskBrief
+from iclip.domains.tasks.schemas import TaskBrief, TaskStyle
+
+STYLE_NO = "SBPU24001W"
 
 
 def make_brief(**overrides: Any) -> TaskBrief:
     fields: dict[str, Any] = {"theme": "秋冬新品", "requirement_description": "三十秒的上身效果"}
     fields.update(overrides)
     return TaskBrief(**fields)
+
+
+def make_style(**overrides: Any) -> TaskStyle:
+    fields: dict[str, Any] = {
+        "style_no": STYLE_NO,
+        "brand": "Bruno Marc",
+        "category": "高跟鞋",
+        "preview_image_url": "https://cdn.example.com/task-styles/cover.jpg",
+    }
+    fields.update(overrides)
+    return TaskStyle(**fields)
+
+
+class StubStyleSnapshots:
+    """``StyleSnapshots`` 的替身：认识 ``known`` 里的款，别的都当查不到。
+
+    真身要查产品资料库再把首图搬进对象存储，那两样都不在单测的射程里；这个端口窄到
+    一句话就能替掉，所以单测验的是「查不到怎么办、抄到了存哪去」的分支。
+    """
+
+    def __init__(self, known: dict[str, TaskStyle] | None = None) -> None:
+        self.known = known if known is not None else {STYLE_NO: make_style()}
+        self.asked: list[str] = []
+
+    async def of(self, style_no: str) -> TaskStyle:
+        self.asked.append(style_no)
+        found = self.known.get(style_no)
+        if found is None:
+            raise ValidationFailed(f"款号 {style_no} 在产品资料里查不到")
+        return found
 
 
 def future(days: int = 7) -> datetime:
@@ -26,6 +58,7 @@ def make_task(
     status: TaskStatus = STATUS_DRAFT,
     creator_user_id: uuid.UUID | None = None,
     brief: TaskBrief | None = None,
+    style: TaskStyle | None = None,
     deadline: datetime | None = None,
     title: str = "秋冬新品短视频",
     priority: int = 0,
@@ -40,6 +73,7 @@ def make_task(
         if deadline is not None
         else (None if status == STATUS_DRAFT else future()),
         creator_user_id=creator_user_id or uuid.uuid4(),
+        style=style or make_style(),
         brief=brief or make_brief(),
         created_at=now,
         updated_at=now,
@@ -120,4 +154,12 @@ class InMemoryTaskRepository:
         return updated
 
 
-__all__ = ["InMemoryTaskRepository", "future", "make_brief", "make_task"]
+__all__ = [
+    "STYLE_NO",
+    "InMemoryTaskRepository",
+    "StubStyleSnapshots",
+    "future",
+    "make_brief",
+    "make_style",
+    "make_task",
+]

@@ -2,9 +2,7 @@ import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 
 /** 爆款库推荐视频的排序维度（服务端排序，直接决定 top-N 取样）。 */
-export type InspirationSortKey = 'clicks' | 'impressions' | 'orders' | 'revenueAmount' | 'views'
-
-export type InspirationMatchLevel = 'exact' | 'none' | 'sameBrandCategory' | 'sameCategory'
+export type InspirationSortKey = 'clicks' | 'impressions' | 'orders' | 'revenue' | 'views'
 
 const inspirationVideoSchema = z.object({
   creatorHandle: z.string().nullable(),
@@ -12,35 +10,20 @@ const inspirationVideoSchema = z.object({
     clicks: z.number(),
     impressions: z.number(),
     orders: z.number(),
-    revenueAmount: z.string(),
+    /** 十进制原样的字符串，不走浮点。 */
+    revenue: z.string(),
     views: z.number(),
   }),
-  ossUrl: z.string().min(1),
+  /** 转存副本的地址。**可能没有**——没有的就选不了，因为没有可搬进素材库的东西。 */
+  ossUrl: z.string().nullable(),
   postedDate: z.string().nullable(),
-  styleNo: z.string(),
+  /** WMS 编号，不是 PDM 款号。 */
+  styleWms: z.string(),
   videoId: z.string().min(1),
-  videoUrl: z.string().nullable(),
+  videoUrl: z.string(),
 })
 
-const inspirationSearchResponseSchema = z.object({
-  items: z.array(inspirationVideoSchema),
-  matches: z.array(
-    z.object({
-      matchLevel: z.enum(['exact', 'none', 'sameBrandCategory', 'sameCategory']),
-      styleNo: z.string(),
-    }),
-  ),
-})
-
-const inspirationImportResponseSchema = z.object({
-  assets: z.array(
-    z.object({
-      assetId: z.string().min(1),
-      url: z.string().url(),
-      videoId: z.string().min(1),
-    }),
-  ),
-})
+const inspirationSearchResponseSchema = z.object({ items: z.array(inspirationVideoSchema) })
 
 const webInspirationCandidateSchema = z.object({
   creatorHandle: z.string().nullable(),
@@ -91,19 +74,6 @@ const webInspirationEnrichResponseSchema = z.object({
   source: z.literal('web'),
 })
 
-const webInspirationImportResponseSchema = z.object({
-  assets: z.array(
-    z.object({
-      assetId: z.string().min(1),
-      durationSeconds: z.number().positive().nullable(),
-      platform: webInspirationPlatformSchema,
-      platformVideoId: z.string().min(1),
-      selectionToken: z.string().min(1),
-      url: z.string().url(),
-    }),
-  ),
-})
-
 export type InspirationVideo = z.infer<typeof inspirationVideoSchema>
 export type WebInspirationCandidate = z.infer<typeof webInspirationCandidateSchema>
 export type WebInspirationEnrichedItem = z.infer<typeof webInspirationEnrichedItemSchema>
@@ -120,9 +90,6 @@ export type SelectedInspirationVideo =
 
 type InspirationVideoSearchResult = z.infer<typeof inspirationSearchResponseSchema>
 export type WebInspirationSearchResult = z.infer<typeof webInspirationSearchResponseSchema>
-export type ImportedWebInspirationVideo = z.infer<
-  typeof webInspirationImportResponseSchema
->['assets'][number]
 
 export const inspirationVideoSelectionKey = (video: SelectedInspirationVideo) =>
   video.source === 'library'
@@ -130,36 +97,34 @@ export const inspirationVideoSelectionKey = (video: SelectedInspirationVideo) =>
     : `${video.platform}:${video.platformVideoId}`
 
 /**
- * 按准确 Style 搜索爆款库参考视频（无同款时服务端按品牌/品类逐级回退）。
+ * 按 WMS 编号搜索爆款库参考视频。
  *
- * @param input - Style 号集合与排序维度。
+ * **收的是 WMS 编号，不是 PDM 款号**——两套编码不通用，传错会安静地搜不到东西。编号从
+ * `listStyleWmsCodes()` 拿（它去产品资料里换）。排序与截断都在服务端做：换一个 `sortBy`
+ * 是换一批样本，不是把同一批本地重排。
+ *
+ * @param input - WMS 编号集合与排序维度。
  * @param input.limit - 返回条数上限；返回条数小于它说明候选池已完整。
  * @param input.sortBy - 排序维度（曝光/播放/点击/成交/GMV）。
- * @param input.styleNos - 任务关联的 Style 号。
+ * @param input.styleWmsList - 任务关联款的 WMS 编号（1–20 个）。
  * @param options - 请求控制选项。
  * @param options.signal - 用于取消的 AbortSignal。
- * @returns 推荐视频列表与每个 Style 的匹配层级。
+ * @returns 推荐视频列表。
  */
 export const searchInspirationVideos = async (
-  { limit, sortBy, styleNos }: { limit: number; sortBy: InspirationSortKey; styleNos: string[] },
+  {
+    limit,
+    sortBy,
+    styleWmsList,
+  }: { limit: number; sortBy: InspirationSortKey; styleWmsList: string[] },
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<InspirationVideoSearchResult> =>
   apiFetch('/inspirations/videos/search', inspirationSearchResponseSchema, {
-    body: { limit, sortBy, styleNos },
+    body: { limit, sortBy, styleWmsList },
     fallbackErrorMessage: '加载推荐参考视频失败',
     method: 'POST',
     signal,
   })
-
-/** 把用户点名的爆款库视频按需转存应用 OSS，并登记为参考视频 Asset。 */
-export const importInspirationVideos = async (videoIds: string[]) =>
-  (
-    await apiFetch('/inspirations/videos/import', inspirationImportResponseSchema, {
-      body: { videoIds },
-      fallbackErrorMessage: '爆款视频转存失败',
-      method: 'POST',
-    })
-  ).assets
 
 /**
  * 用人工确认的品类、使用场景与可选卖点主动搜索一个平台。
@@ -237,16 +202,3 @@ export const enrichWebInspirationVideos = async (
   }
   return result.items
 }
-
-/** 只下载用户最终选中的联网候选，并登记为可写入 Task 的全局视频 Asset。 */
-export const importWebInspirationVideos = async (input: {
-  selectionTokens: string[]
-  taskId: string
-}): Promise<ImportedWebInspirationVideo[]> =>
-  (
-    await apiFetch('/inspirations/videos/web-import', webInspirationImportResponseSchema, {
-      body: input,
-      fallbackErrorMessage: '联网参考视频转存失败',
-      method: 'POST',
-    })
-  ).assets

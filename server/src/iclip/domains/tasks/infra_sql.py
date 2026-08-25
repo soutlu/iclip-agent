@@ -42,7 +42,13 @@ from iclip.domains.tasks.models import (
     Task,
     TaskStatus,
 )
-from iclip.domains.tasks.schemas import TaskBrief, brief_from_payload, brief_to_payload
+from iclip.domains.tasks.schemas import (
+    TaskBrief,
+    brief_from_payload,
+    brief_to_payload,
+    style_from_payload,
+    style_to_payload,
+)
 
 DB_SCHEMA: Final = "iclip"
 
@@ -67,6 +73,8 @@ tasks_table = Table(
         ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="restrict"),
         nullable=False,
     ),
+    # 下单那天主款的样子。不塞进 brief：那是需求方填的，这是服务端抄的，可改性不同。
+    Column("style", JSONB, nullable=False),
     Column("brief", JSONB, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
@@ -76,6 +84,7 @@ tasks_table = Table(
         f"status = '{STATUS_DRAFT}' OR deadline IS NOT NULL", name="tasks_deadline_check"
     ),
     CheckConstraint("jsonb_typeof(brief) = 'object'", name="tasks_brief_object_check"),
+    CheckConstraint("jsonb_typeof(style) = 'object'", name="tasks_style_object_check"),
 )
 
 _ROWS = tasks_table.c
@@ -93,6 +102,7 @@ def _row(mapping: RowMapping) -> Task:
         priority=mapping["priority"],
         deadline=mapping["deadline"],
         creator_user_id=mapping["creator_user_id"],
+        style=style_from_payload(mapping["style"]),
         brief=brief_from_payload(mapping["brief"]),
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
@@ -115,6 +125,7 @@ class SqlTaskRepository:
                 priority=task.priority,
                 deadline=task.deadline,
                 creator_user_id=task.creator_user_id,
+                style=style_to_payload(task.style),
                 brief=brief_to_payload(task.brief),
                 created_at=func.now(),
                 updated_at=func.now(),

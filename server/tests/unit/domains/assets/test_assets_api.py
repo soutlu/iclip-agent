@@ -17,7 +17,11 @@ from fastapi.responses import JSONResponse
 
 from iclip.common.errors import DomainError
 from iclip.domains.assets.api import create_assets_router, create_uploads_router
-from iclip.domains.assets.models import MAX_BYTES
+from iclip.domains.assets.models import (
+    MAX_BYTES,
+    MAX_LONG_EDGE_PIXELS,
+    MIN_SHORT_EDGE_PIXELS,
+)
 from iclip.domains.assets.service import AssetService
 from iclip.domains.identity.models import Principal
 from iclip.platform.http import status_code_for
@@ -64,8 +68,19 @@ def client(app: FastAPI) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
 
 
-async def sign(http: httpx.AsyncClient, content_type: str = "image/jpeg") -> httpx.Response:
-    return await http.post("/uploads/sign", json={"contentType": content_type})
+async def sign(
+    http: httpx.AsyncClient,
+    content_type: str = "image/jpeg",
+    *,
+    width: int | None = 1200,
+    height: int | None = 1600,
+) -> httpx.Response:
+    body: dict[str, object] = {"contentType": content_type}
+    if width is not None:
+        body["width"] = width
+    if height is not None:
+        body["height"] = height
+    return await http.post("/uploads/sign", json=body)
 
 
 # --- 权限 ---------------------------------------------------------------
@@ -73,7 +88,12 @@ async def sign(http: httpx.AsyncClient, content_type: str = "image/jpeg") -> htt
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [("POST", "/uploads/sign"), ("POST", f"/assets/{uuid.uuid4()}"), ("GET", "/assets")],
+    [
+        ("POST", "/uploads/sign"),
+        ("POST", f"/assets/{uuid.uuid4()}"),
+        ("POST", "/assets/import"),
+        ("GET", "/assets"),
+    ],
 )
 async def test_no_principal_is_unauthorized(method: str, path: str) -> None:
     app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=None)
@@ -133,6 +153,57 @@ async def test_unsupported_types_are_refused_before_signing(content_type: str) -
 
     assert response.status_code == 422
     assert bucket.signed == []
+
+
+# --- 图片尺寸 -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [
+        (MIN_SHORT_EDGE_PIXELS - 1, 4000),
+        (4000, MIN_SHORT_EDGE_PIXELS - 1),
+        (MAX_LONG_EDGE_PIXELS + 1, 4000),
+        (4000, MAX_LONG_EDGE_PIXELS + 1),
+    ],
+)
+async def test_out_of_range_images_are_refused_before_signing(width: int, height: int) -> None:
+    """横竖都一样：只看短边够不够、长边超没超。不合格的压根不用传上来。"""
+
+    bucket = FakeBucket()
+    app = build_test_app(InMemoryAssetRepository(), bucket, granted=editor())
+    async with client(app) as http:
+        response = await sign(http, width=width, height=height)
+
+    assert response.status_code == 422
+    assert bucket.signed == []
+
+
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [(MIN_SHORT_EDGE_PIXELS, MIN_SHORT_EDGE_PIXELS), (MAX_LONG_EDGE_PIXELS, MAX_LONG_EDGE_PIXELS)],
+)
+async def test_the_bounds_themselves_pass(width: int, height: int) -> None:
+    app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
+    async with client(app) as http:
+        assert (await sign(http, width=width, height=height)).status_code == 200
+
+
+async def test_an_image_must_report_its_size() -> None:
+    """尺寸由客户端报（账本里没有宽高列，谎报污染不了任何落库的事实），但必须报。"""
+
+    app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
+    async with client(app) as http:
+        assert (await sign(http, width=None, height=None)).status_code == 422
+        assert (await sign(http, width=1200, height=None)).status_code == 422
+
+
+async def test_video_needs_no_size() -> None:
+    app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
+    async with client(app) as http:
+        response = await sign(http, "video/mp4", width=None, height=None)
+
+    assert response.status_code == 200
 
 
 # --- 登记 ---------------------------------------------------------------

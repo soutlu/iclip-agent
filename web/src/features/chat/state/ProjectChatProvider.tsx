@@ -645,9 +645,7 @@ function ProjectChatBusinessProvider({
       setSubmissionInFlight(true)
 
       try {
-        const preparedParts = await prepareComposerMessagePartsForSubmission(message.parts, {
-          sessionId,
-        })
+        const preparedParts = await prepareComposerMessagePartsForSubmission(message.parts)
         postRunMetadataControllerRef.current?.abort()
         postRunMetadataControllerRef.current = null
 
@@ -680,7 +678,6 @@ function ProjectChatBusinessProvider({
       isProjectLocalRunActive,
       requestComposerFocus,
       restoreComposerDraft,
-      sessionId,
       setComposerRequestErrorMessage,
       setSubmissionInFlight,
       threadRuntime,

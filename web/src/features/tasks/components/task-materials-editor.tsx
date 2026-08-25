@@ -130,39 +130,23 @@ export default function TaskMaterialsEditor({
     selectedVideoUrls.length !== referencedVideoAssets.length
 
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const videoAssetIdByUrl = new Map(
-        referencedVideoAssets.map((asset) => [asset.url, asset.id] as const),
-      )
-      // 勾选的产品图按 Style 分组，交给 API 层一批「转存 + 登记」成参考图素材。
-      const picksByStyle = new Map<string, PickedProductImage[]>()
-      for (const pick of pickedProductImages) {
-        picksByStyle.set(pick.styleNo, [...(picksByStyle.get(pick.styleNo) ?? []), pick])
-      }
-      return updateVideoTaskConfirmation(task, {
+    mutationFn: () =>
+      updateVideoTaskConfirmation(task, {
         durationSeconds: confirmation.durationSeconds,
         inspirationVideos: selectedInspirationVideos.map((video) =>
           video.source === 'library'
-            ? { source: 'library' as const, videoId: video.videoId }
-            : { selectionToken: video.selectionToken, source: 'web' as const },
+            ? { ossUrl: video.ossUrl, source: 'library' as const }
+            : { source: 'web' as const },
         ),
-        keptImageAssets: keptImageAssets.map((asset) => ({ id: asset.id, url: asset.url })),
+        keptImageUrls: keptImageAssets.map((asset) => asset.url),
+        keptVideoUrls: selectedVideoUrls,
         newImageFiles: taskMediaAttachmentsToFiles(imageUploads.attachments),
         newVideoFiles: taskMediaAttachmentsToFiles(videoUploads.attachments),
-        productImagePicks: Array.from(picksByStyle.entries(), ([styleNo, picks]) => ({
-          imageIds: picks.map((pick) => pick.id),
-          styleNo,
-        })),
+        // 勾选的产品图交给 API 层逐张转存成我们自己的地址。
+        productImageUrls: pickedProductImages.map((pick) => pick.url),
         ratio: confirmation.ratio.trim(),
         requirementDescription: confirmation.requirementDescription,
-        videoAssetIds: [
-          ...selectedVideoUrls.flatMap((url) => {
-            const assetId = videoAssetIdByUrl.get(url)
-            return assetId === undefined ? [] : [assetId]
-          }),
-        ],
-      })
-    },
+      }),
     onSuccess: async () => {
       setSelectedInspirationVideos([])
       await queryClient.invalidateQueries({ queryKey: VIDEO_TASKS_QUERY_KEY })
@@ -386,11 +370,17 @@ export default function TaskMaterialsEditor({
                 </figure>
               )
             }
+            // 库内视频不一定有转存副本；没有的在选择器里就选不上，这里只是把类型收窄。
+            const sourceUrl = video.ossUrl
+            if (sourceUrl === null) {
+              return null
+            }
+
             const openVideoPreview = () => {
               openPreview({
-                fileName: assetPreviewFileName(video.ossUrl, label),
+                fileName: assetPreviewFileName(sourceUrl, label),
                 mediaType: 'video',
-                url: video.ossUrl,
+                url: sourceUrl,
               })
             }
 
@@ -410,9 +400,9 @@ export default function TaskMaterialsEditor({
                     muted
                     playsInline
                     preload="metadata"
-                    src={video.ossUrl}
+                    src={sourceUrl}
                     onLoadedMetadata={(event) =>
-                      recordVideoDuration(video.ossUrl, event.currentTarget.duration)
+                      recordVideoDuration(sourceUrl, event.currentTarget.duration)
                     }
                   />
                 </button>

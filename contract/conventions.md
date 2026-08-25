@@ -139,14 +139,34 @@
 |------|------|------|
 | `GET /tasks?status=&limit=20` | `tasks:read` | 列出需求单，**最近改动的排在前面**（`limit` 取值 1–100）。`status` 可选，取 `draft` / `published` / `confirmed` / `withdrawn` 之一，别的值 `422`。`200` + `{ items: [...] }` |
 | `GET /tasks/{id}` | `tasks:read` | `200` + `{ task: {...} }` |
-| `POST /tasks` | `tasks:write` | 提一张需求单，落地即 `draft`。请求体 `{ title, priority?, deadline?, brief? }`（`title` 1–200 字，`priority` 取 0–100，默认 0）。`201` + `{ task: {...} }` |
+| `POST /tasks` | `tasks:write` | 提一张需求单，落地即 `draft`。请求体 `{ title, styleNo, priority?, deadline?, brief? }`（`title` 1–200 字，`styleNo` 必填，`priority` 取 0–100，默认 0）。`201` + `{ task: {...} }` |
 | `PUT /tasks/{id}` | `tasks:write` | **整体覆盖**（不是局部合并）。请求体同上，`title` 必填。`200` + `{ task: {...} }` |
 | `POST /tasks/{id}/publish` | `tasks:write` | 下发。`200` + `{ task: {...} }` |
 | `POST /tasks/{id}/confirm` | `tasks:write` | 接单。`200` + `{ task: {...} }` |
 | `POST /tasks/{id}/withdraw` | `tasks:write` | 撤回。`200` + `{ task: {...} }` |
 | `DELETE /tasks/{id}` | `tasks:write` | 删掉草稿。`204` |
 
-`task` 的形状：`{ id, title, status, priority, deadline, creatorUserId, brief, createdAt, updatedAt }`。`creatorUserId` 是提需求的那个人——客户端靠它判断当前用户能不能改这张草稿。**创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`（整个请求体不接受未声明的字段）。
+`task` 的形状：`{ id, title, status, priority, deadline, creatorUserId, style, brief, createdAt, updatedAt }`。`creatorUserId` 是提需求的那个人——客户端靠它判断当前用户能不能改这张草稿。**创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`（整个请求体不接受未声明的字段）。
+
+### 款号
+
+款号有两个落点：`styleNo` 只在创建请求体里，是主款号；`brief.styleNos` 是要拍的款全集（≤ 20 个），**主款排首位**。不给全集，服务端补成 `[styleNo]`；给了但首位不是主款 → `422`。
+
+`PUT` 是整体覆盖，所以这条在改动时也守着，但两种状态的结果不同：**改草稿**不给 `styleNos` 会被补回原值，首位给错 `422`；**已下发的**不给就等于动了冻结字段，返 `409`（见下文「下发即冻结」）。
+
+`style` 是服务端按 `styleNo` 查产品资料后冻结的一份快照，形状 `{ styleNo, brand, category, previewImageUrl }`。
+
+- **创建后不可改写**，没有端点能改。`PUT` 请求体里带 `styleNo` 或 `style` 一律 `422`。想换款就提一张新的。
+- **只有 `styleNo` 一定有值。** `brand` / `category` 上游没名字时是空字符串（同 §7）；`previewImageUrl` 在这个款没有产品图时也是空字符串——**客户端要显示「主图不可用」，不要当错误，也不要拿 URL 规则去校验它**。
+- `previewImageUrl` 是首图转存到本仓对象存储后的地址。它只做列表封面，不进 `brief.referenceImages`。
+
+创建时款号这一步的失败口径：
+
+| 情况 | 返回 |
+|------|------|
+| 产品资料里查不到这个款（或已被上游标记删除） | `422`，`detail` 说明是哪个款号 |
+| 服务端没配产品资料库或对象存储 | `422`，不会落一张没有款的需求单 |
+| 首图取不到、或转存写不进对象存储 | `5xx`，这次创建整体不落地 |
 
 ### 状态机
 
@@ -165,7 +185,7 @@
 
 `published` / `confirmed` 状态下，需求方写下的创作输入**冻结**。`PUT` 是整体覆盖，服务端会把提交上来的 `brief` 和库里的逐字段比对：
 
-- **仍可修改**：`title`、`priority`、`deadline`（管理信息），以及 `brief` 里的 `durationSeconds`、`ratio`、`requirementDescription`、`referenceImages`、`referenceVideos`（接单之后才补得出来的那几项）。
+- **仍可修改**：`title`、`priority`、`deadline`（管理信息），以及 `brief` 里的 `durationSeconds`、`ratio`、`requirementDescription`、`referenceImages`、`referenceVideos`（接单之后才补得出来的那几项）。`brief.styleNos` **不在**这几项里：要拍哪几个款是需求方的决定，下发之后动它是 `409`。
 - **其余 `brief` 字段有任何一项与库里不同 → `409`**，并在 `detail` 里列出是哪几个字段。所以正确的改法是：先 `GET` 拿到当前这张单子，改动允许的字段，再整体 `PUT` 回来。
 - `deadline` 在非草稿状态下**不能清空**（`422`）。
 
@@ -190,7 +210,8 @@
 | `durationSeconds` | `int \| null` | 期望时长，取值 3–50 |
 | `ratio` | `string \| null` | 画幅，取 `1:1` / `3:4` / `4:3` / `9:16` / `16:9` / `21:9` |
 | `language`、`platform` | `string`（≤ 200） | 语言与投放平台 |
-| `referenceImages`、`referenceVideos` | `string[]`（各 ≤ 16 条） | 参考素材地址，**只收 `http://` 或 `https://`**，别的 scheme `422` |
+| `styleNos` | `string[]`（≤ 20 条，每条 1–64 字符） | 要拍的款全集，主款排首位（见上文「款号与它的快照」） |
+| `referenceImages`、`referenceVideos` | `string[]`（各 ≤ 16 条） | 参考素材地址，**只收 `http://` 或 `https://`**，别的 scheme `422`。本地文件先走 §10 的直传换成地址 |
 
 `brief` 不接受未声明的字段（多给一个就是 `422`）。
 
@@ -231,17 +252,20 @@
 
 一份素材 = 我们自己桶里的一个对象 + 账本上的一行。上传分两步，中间那一步是**浏览器直接把字节 PUT 到对象存储**——不经过后端（参考片能到几百 MB）。
 
+外部地址上的东西（产品图、爆款库的视频）走另一条路：`POST /assets/import` 把它**转存**进我们的桶再登记。账本行上只有对象 key，没有放外部地址的地方——外链会烂，我们的不会。
+
 和需求单一样，**素材是全公司共用的**：谁有 `assets:read` 谁就看得见全部，`creatorUserId` 只是查询维度，不是访问边界。
 
 | 端点 | 权限 | 说明 |
 |------|------|------|
 | `POST /uploads/sign` | `assets:write` | 领一个 `assetId` 和一条限时直传地址。`200` |
 | `POST /assets/{assetId}` | `assets:write` | 传完之后来登记。**没有请求体。** `201` |
+| `POST /assets/import` | `assets:write` | 把一个外部地址转存进来并登记。`201` |
 | `GET /assets?creatorUserId=&assetType=&limit=20` | `assets:read` | 列出素材，最近登记的在前（`limit` 1–100）。`200` + `{ items: [...] }` |
 | `GET /assets/{assetId}` | `assets:read` | 单条。`200` |
 
 ```jsonc
-// ① POST /uploads/sign
+// ① POST /uploads/sign        （传图还要带 width / height）
 { "contentType": "video/mp4" }
 → 200
 { "assetId": "0f9c3a1e-77b4-4c2e-9a51-2d8e6b0f4a13",
@@ -266,7 +290,21 @@
 - **登记可以重复调**：客户端断线重试是正常路径，第二次返回同一行（还是 `201`）。
 - **收什么**：`image/jpeg`、`image/png`、`image/webp`、`video/mp4`、`video/quicktime`。别的类型在 `sign` 那一步就 `422`。
 - **多大**：图片 16MB、视频 512MB。**超限是在登记那一步才拒（`422`）**，字节已经传进桶里了——它只是拿不到账本上的行，随后会被清理。前端最好自己先量一下再传。
+- **图片尺寸**：短边 ≥ 300px、长边 ≤ 6000px，横竖同一把尺子。直传这条路上**尺寸由客户端在 `sign` 时报**（`width` / `height`，传图必填，传视频不用给），不合格当场 `422`，不用先传上来。账本里没有宽高列，所以谎报污染不了任何落库的事实——最坏是一张超范围的图混进库里。转存那条路字节经过后端，尺寸是量出来的。
 - **传上来之前就登记是 `409`**（「还没传上来」是状态冲突，不是参数错），猜一个没人签过的 `assetId` 去登记同样是 `409`。
 - **`url` 是拼出来的，不是存的。** 账本里存的是对象 key；哪天换了 CDN 域名，同一份素材读出来就是新地址。**不要把 `url` 当作素材的身份**，`id` 才是。
+**转存。** 给一个地址，拿回一行素材，形状和登记完全一样：
+
+```jsonc
+// POST /assets/import
+{ "url": "https://pdm.example.com/styles/SBPU24001W/1.jpg" }
+→ 201
+{ "asset": { "id": "…", "assetType": "image",
+             "url": "https://…/iclip/agent/uploads/….jpg", "…": "…" } }
+```
+
+- **`assetId` 由源地址算出来**：同一个地址转存多少次都是同一行，第二次连请求都不往上游发。代价是上游原地换了图我们不会跟着更新——那正是转存要的效果。
+- 类型、大小、尺寸全是**实测**的，上游报什么不作数。取不回来、类型不收、尺寸不合格都是 `422`。
+- **不跟随重定向**：`3xx` 直接当取不回来。
 - 服务端没配对象存储时这两组路由整个不挂载，请求是 `404`。
 - **能登记不等于 agent 能用。** agent 工具只接受「这段对话里出现过」的地址（见 §5），素材库里有这一条并不构成通行证——要让 agent 用它，得把它发进对话里。

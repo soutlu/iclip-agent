@@ -26,9 +26,22 @@ class CamelModel(BaseModel):
 
 
 class UploadSignIn(CamelModel):
-    """要传什么类型。取值范围见 ``models.UPLOAD_TYPES``。"""
+    """要传什么类型、图有多大。类型的取值范围见 ``models.UPLOAD_TYPES``。"""
 
     content_type: str = Field(min_length=1, max_length=100)
+    width: int | None = Field(default=None, ge=1)
+    height: int | None = Field(default=None, ge=1)
+    """图片的像素尺寸，传图必填、传视频不用给。区间见 ``models`` 里那两个常量。
+
+    尺寸在这一步就卡掉，是为了让登记那条口子保持没有请求体；也为了不合格的图压根
+    不用先传上来。
+    """
+
+
+class AssetImportIn(CamelModel):
+    """要转存哪个外部地址。"""
+
+    url: str = Field(min_length=1, max_length=2048)
 
 
 class UploadInstruction(CamelModel):
@@ -93,6 +106,7 @@ __all__ = [
     "DEFAULT_LIST_LIMIT",
     "MAX_LIST_LIMIT",
     "AssetEnvelope",
+    "AssetImportIn",
     "AssetOut",
     "AssetsPageOut",
     "UploadInstruction",
