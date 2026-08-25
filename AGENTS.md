@@ -13,6 +13,7 @@
 |----------------|--------------------------|
 | `make setup` | **装配环境**：依次安装后端的 `uv` 依赖与前端的 `pnpm` 依赖。 |
 | `make dev` | **本地启动**：启动后端服务（需前置配置 `.env`，并确保 Postgres 与 Redis 可用）。 |
+| `make up` | **整套起来做真实测试**：容器化的 Postgres 与 Redis、外部只读库的隧道、建表、后端、前端一条命令拉齐，Ctrl-C 一起收。可反复执行，不会清库。 |
 | `make check` | **提交前门禁**：一键执行 Lint、格式化、类型检查、架构依赖检查和常规测试。 |
 | `make test` | **执行测试**：执行单元与集成测试（自动使用 Testcontainers 启动临时 Postgres 与 Redis，跳过真实 LLM）。 |
 | `make db-upgrade`| **数据库演进**：将 PostgreSQL 的表结构通过 Alembic 升级到最新（系统启动时不会自动建表）。 |

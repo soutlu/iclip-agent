@@ -1,6 +1,6 @@
 # 根级唯一命令入口；新增命令必须加进来，不散落在文档或口头约定里。
 
-.PHONY: setup dev lint format format-check typecheck tach test check db-upgrade test-external web-check hooks
+.PHONY: setup dev up lint format format-check typecheck tach test check db-upgrade test-external web-check hooks
 
 setup:
 	cd server && uv sync
@@ -8,6 +8,9 @@ setup:
 
 dev:
 	cd server && uv run --env-file ../.env python -m iclip.main --config configs/config.yaml --reload
+
+up:
+	bash scripts/dev-up.sh
 
 lint:
 	cd server && uv run ruff check .
