@@ -15,7 +15,7 @@
 │   ├── tests/          # 测试用例 (分为 unit 与 integration)
 │   ├── migrations/     # Alembic 数据库迁移脚本
 │   ├── configs/        # 服务配置文件
-│   ├── agents/         # Agent 装配声明与各 agent 的 spec/提示词
+│   ├── agents/         # Agent 装配声明、各 agent 的 spec/提示词，以及 skills/ 技能库
 │   └── pyproject.toml  # 后端依赖配置 (uv)
 ├── web/                # 前端服务代码 (Node.js/React/pnpm)
 ├── docs/               # 架构设计、测试指南、业务概念等系统文档
@@ -45,6 +45,8 @@ make setup
 ```bash
 cp .env.example .env
 ```
+
+仓内的 `storyboard` agent 挂了镜头素材能力，因此媒体生成与视频理解那两组变量必须填齐，否则启动即报错。只想跑对话不碰镜头素材的话，把 `server/agents/agents.yaml` 里 `storyboard` 那条声明去掉。
 
 > 媒体生成（视频/图片）是可选能力：`VIDEO_SUBMIT_URL` 留空即整项关闭，`/generations` 不挂载、后台也不跑。要开就得把那一组变量连对象存储（生成结果转存用）一起填齐——只填一半会在启动时报错，因为半开着的能力比关着更难查。
 

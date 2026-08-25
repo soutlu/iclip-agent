@@ -9,7 +9,8 @@
 # skills 从本文件同级的 skills/ 库里按目录名挑（一个子目录一个 skill，含 SKILL.md）；
 # capabilities 是 capability 名，实现登记在 src/iclip/app/capability_table.py；目前已
 # 登记的有 workspace（一段对话一个文本工作区，主 agent 与下属共用）和 shot_video（拆参
-# 考片、取帧、出图、切格；要 VIDEO_UNDERSTANDING_URL 与媒体生成都开着才登记得上，否则
+# 考片、取帧、出图切格、补拍设定图、交付镜头组 prompt 表；要 VIDEO_UNDERSTANDING_URL
+# 与媒体生成都开着才登记得上，否则
 # 引用它会在装配期报错；它写的文件要靠 workspace 让模型看见，所以必须和 workspace 一起
 # 挂，只挂它一个也在装配期报错）。两者都是不写即不挂，而且子 agent 不继承主 agent 的——
 # 下属只拥有显式给它的那几样。
@@ -42,3 +43,12 @@ agent:
   assistant:
     spec: assistant/agent.yaml
     model: qwen3.8-max
+
+  storyboard:
+    spec: storyboard/agent.yaml
+    model: qwen3.8-max
+    skills:
+      - storyboard-workflow
+    capabilities:
+      - workspace
+      - shot_video

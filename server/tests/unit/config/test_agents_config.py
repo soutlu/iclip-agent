@@ -203,14 +203,19 @@ def test_non_mapping_document_rejected(tmp_path: Path) -> None:
 
 
 def test_shipped_declaration_loads(tmp_path: Path) -> None:
-    """仓内 agents/agents.yaml 必须可加载，且引用的 spec 与模型名都写了。"""
+    """仓内 agents/agents.yaml 必须可加载，且引用的 spec、模型名与 skill 都真的在。"""
 
     shipped = Path(__file__).resolve().parents[3] / "agents" / "agents.yaml"
     declared = load_agent_declarations(shipped)
-    assert [agent.agent_id for agent in declared] == ["assistant"]
+    assert [agent.agent_id for agent in declared] == ["assistant", "storyboard"]
     for agent in declared:
         assert agent.spec.is_file()
         assert agent.model
+        if agent.skills is None:
+            continue
+        # 挑的 skill 名打错只在装配期才炸，这里提前到单测里。
+        for name in agent.skills.names:
+            assert (agent.skills.library / name / "SKILL.md").is_file()
 
 
 def test_agent_without_model_rejected(tmp_path: Path) -> None:

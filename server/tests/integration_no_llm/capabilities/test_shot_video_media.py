@@ -391,6 +391,43 @@ async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked
     assert "取不到素材" in result["error"]
 
 
+async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
+    media: dict[str, bytes],
+) -> None:
+    """补拍两格：切出四格只留前两格，版记录里逐格带上它的描述。
+
+    补拍不做画幅收缩，所以切出来的就是网格线量出的那块——两格字节不同正是「按线
+    切」的证据（那张合成图四格颜色各异）。
+    """
+
+    objects = FakeObjects()
+    files = FakeFileStore()
+    generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
+    client = make_client(media)
+    try:
+        tools = make_tools(client, objects, files, generations=generations)
+        result = await tools.generate_anchor_sheet(
+            make_context(), ["全身正面平视的女性", "空景全景平视的门厅"]
+        )
+    finally:
+        await client.aclose()
+
+    assert result["status"] == "done"
+    assert [image["index"] for image in result["images"]] == [1, 2]
+    assert len(objects.written) == 2
+
+    stored = await files.read(NAMESPACE, result["record"])
+    assert stored is not None
+    record = json.loads(stored.content)
+    assert record["gridUrl"] == GRID_URL
+    assert [cell["description"] for cell in record["cells"]] == [
+        "全身正面平视的女性",
+        "空景全景平视的门厅",
+    ]
+    written = list(objects.written.values())
+    assert written[0] != written[1]
+
+
 # ── 读图 ──────────────────────────────────────────────────────────────────────
 
 
