@@ -17,6 +17,12 @@ depends_on = ["iclip.common"]
 path = "iclip.platform.object_store"
 depends_on = []
 
+# 命名空间化文本文件存储：工作区能力把它暴露给模型，别的能力往同一处落文件也
+# 走它。只认识 SQL 与 stdlib，命名空间按什么分由调用方决定。
+[[modules]]
+path = "iclip.platform.file_store"
+depends_on = []
+
 [[modules]]
 path = "iclip.config"
 depends_on = ["iclip.common"]
@@ -34,6 +40,11 @@ depends_on = ["iclip.domains.identity"]
 # 由组合根接线进来（见 domains/conversations/service.py 的 PurgeDerived）。
 [[modules]]
 path = "iclip.domains.conversations"
+depends_on = ["iclip.common", "iclip.domains.identity"]
+
+# 创作需求单：自有的表。全公司可见的工作队列，不认识任何别的业务模块。
+[[modules]]
+path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
 # 媒体生成：自有的表 + 两家外部生成接口 + 后台推进器。
@@ -66,6 +77,7 @@ depends_on = ["iclip.common"]
 path = "iclip.capabilities"
 depends_on = [
     "iclip.common",
+    "iclip.platform.file_store",
     "iclip.harness",
     "iclip.domains.identity",
     "iclip.domains.agents",
@@ -79,6 +91,7 @@ depends_on = [
     "iclip.platform.db",
     "iclip.platform.http",
     "iclip.platform.object_store",
+    "iclip.platform.file_store",
     "iclip.config",
     "iclip.domains.identity",
     "iclip.domains.agents",
@@ -86,6 +99,7 @@ depends_on = [
     "iclip.domains.generation",
     "iclip.domains.inspirations",
     "iclip.domains.products",
+    "iclip.domains.tasks",
     "iclip.harness",
     "iclip.capabilities",
 ]

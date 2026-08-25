@@ -20,8 +20,8 @@ from iclip.capabilities.workspace.capability import Workspace
 from iclip.config import ResolvedShotVideo
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
+from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import FakeObjects
-from tests.helpers.workspace import FakeWorkspaceStore
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ def test_nothing_declared_mounts_nothing(table: CapabilityTable) -> None:
 def test_workspace_is_registered_under_its_declaration_name() -> None:
     """``agents.yaml`` 里写 capabilities: [workspace] 得真能装出工作区来。"""
 
-    built = build_capability_table(workspace_store=FakeWorkspaceStore())
+    built = build_capability_table(workspace_store=FakeFileStore())
     resolved = resolve_capabilities(("workspace",), table=built, declared_by="agent storyboard")
     assert [type(capability) for capability in resolved] == [Workspace]
 
@@ -75,7 +75,7 @@ def test_workspace_is_registered_under_its_declaration_name() -> None:
 def test_shot_video_needs_its_whole_backing() -> None:
     """依赖不齐就不登记这个名字——引用它的 agent 会在装配期响亮地失败。"""
 
-    built = build_capability_table(workspace_store=FakeWorkspaceStore())
+    built = build_capability_table(workspace_store=FakeFileStore())
     assert "shot_video" not in built
     with pytest.raises(RuntimeError, match="引用了未登记的 capability 'shot_video'"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
@@ -83,14 +83,32 @@ def test_shot_video_needs_its_whole_backing() -> None:
 
 def test_shot_video_is_registered_when_backed(shot_video_settings: ResolvedShotVideo) -> None:
     built = build_capability_table(
-        workspace_store=FakeWorkspaceStore(),
+        workspace_store=FakeFileStore(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
         http_client=cast("httpx.AsyncClient", object()),
         shot_video=shot_video_settings,
     )
-    resolved = resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
-    assert [type(capability) for capability in resolved] == [ShotVideo]
+    resolved = resolve_capabilities(
+        ("workspace", "shot_video"), table=built, declared_by="agent storyboard"
+    )
+    assert [type(capability) for capability in resolved] == [Workspace, ShotVideo]
+
+
+def test_shot_video_without_workspace_fails_at_assembly(
+    shot_video_settings: ResolvedShotVideo,
+) -> None:
+    """镜头素材写的文档要靠工作区的工具让模型看见；少挂一个的失效是静默的，所以装配期就拦。"""
+
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        generation_service=cast("GenerationService", object()),
+        object_store=FakeObjects(),
+        http_client=cast("httpx.AsyncClient", object()),
+        shot_video=shot_video_settings,
+    )
+    with pytest.raises(RuntimeError, match=r"没挂 'workspace'.*agents\.yaml"):
+        resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
 
 
 async def test_generations_adapter_translates_and_reports_bad_parameters() -> None:

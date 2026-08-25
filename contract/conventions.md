@@ -35,7 +35,7 @@
 | **AuthenticationFailed** | `401` | 用户未登录 / 凭证无效或伪造 / API Key 已吊销或过期 |
 | **PermissionDenied** | `403` | 用户已知晓资源存在，但当前拥有的权限集合不足以操作此资源 |
 | **NotFound** | `404` | 资源确实不存在，**或资源存在但对当前用户不可见**（绝不越权泄露资源存在性） |
-| **Conflict** | `409` | 发生乐观锁并发冲突、或者请求触发了不合法的状态机转换（如撤回已确认的任务） |
+| **Conflict** | `409` | 请求与资源**当前状态**冲突：乐观锁并发冲突、不合法的状态机转换（如撤回已撤回的需求单），以及在当前状态下不许改的字段（如改动已下发需求单的创作输入） |
 | **ValidationFailed** | `422` | 请求参数结构非法、或违反了强类型的业务语义校验规则 |
 
 **上表之外，客户端还必须处理以下三种情况**——它们不走上面的映射，写错误处理时不要漏：
@@ -81,12 +81,29 @@
 |------|------|------|
 | `POST /conversations` | `agent:run` | 开一段新对话。请求体 `{ agentId, title? }`，不给 `title` 就用默认名。`201` + `{ conversation: {...} }` |
 | `GET /conversations?limit=20` | `agent:read` | 列出自己的对话，**最近活动的排在前面**（`limit` 取值 1–100）。`200` + `{ items: [...] }` |
+| `GET /conversations/{id}/messages` | `agent:read` | 读这段对话已经发生过的消息（刷新、重新登录后靠它拿回历史）。`200` + `{ messages: [...] }` |
 | `PATCH /conversations/{id}` | `agent:run` | 改名。请求体 `{ title }`。`200` + `{ conversation: {...} }` |
 | `DELETE /conversations/{id}` | `agent:run` | 删掉这段对话，**agent 在这段对话里写下的工作区文件一并删除**。`204` |
 
 - `conversation` 的形状：`{ id, agentId, title, lastRunId, createdAt, updatedAt }`。`lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`）——刷新页面后拿它去续读那条流。
 - **只看得到自己的对话**：别人的一律 `404`，不返 `403`（那会泄露这个 id 确实有人在用）。治理者也没有看别人对话的口子。
 - 删除只带走对话与它的工作区文件；`agent_runtime` 里的运行记录留着，那是账本。
+
+### 读历史
+
+`messages` 里是**官方 AG-UI 形状**的消息，字段名沿用 AG-UI 拼写（不套 §3 的 camelCase 改写）：它们要能原样放进 `POST /agents/{agentId}/chat` 请求体的 `messages` 再发一次。
+
+- 返回的是这段对话**服务端最新的那份存档**。一次运行都没跑过、或者第一次运行就崩在落档之前，返回 `{ "messages": [] }`，不是 404。
+- **服务端在 agent 跑出一步之后才落档**，所以最后一次运行如果崩在落档之前，用户刚发的那条消息不会出现在这里（它在服务端从未被记下）。那次运行发生了什么，由它那条流的 `RUN_ERROR` 告诉你。
+- 用户消息里的附件是规范的媒体 part（`{ "type": "video", "source": { "type": "url", "value": "…" }, "metadata": { "filename": "…" } }`），跟当初发上来的一致。服务端在内部会把它换成另一副给模型看的形状，那副形状不会出现在这里。
+- `system` 消息不返回。其余原样：模型上下文里有什么，这里就有什么——工具读进来的图片也照常带着它的内容出现。
+- 别人的对话 `404`，口径同上。
+
+### 上传附件
+
+附件要先成为一个后端与模型都取得到的 **HTTP(S) 地址**，再作为媒体 part 放进消息。`POST /agents/{agentId}/chat` 也接受 `source.type` 为 `data` 的内嵌 base64（单个 16MB 以内，且仅限常见图/音/视频类型），但那是兜底路径：正常路径是先把文件传到对象存储拿到地址。
+
+传不进来的附件不会让整条请求失败，而是在消息里原位变成一句 `[媒体不可用：…]`，模型据此知道有东西没进来。
 
 ## 7. 产品资料查询 (Products)
 
@@ -114,7 +131,70 @@
 - 款号不存在、或已被上游标记删除，一律 `404`。
 - 服务端没配目录库时这组路由整个不挂载，请求同样是 `404`。
 
-## 8. 爆款视频查询 (Inspirations)
+## 8. 创作需求单 (Tasks)
+
+一张需求单是一份记录在案的视频创作要求。它和本文其余资源最大的不同：**它没有属主，是全公司共用的一张工作队列**。谁有 `tasks:read` 谁就看得见全部——所以这里不适用「别人的一律 404」那条规则，看得见但不让你改返回的是 `403`，`404` 只意味着这张单子不存在。
+
+| 端点 | 权限 | 说明 |
+|------|------|------|
+| `GET /tasks?status=&limit=20` | `tasks:read` | 列出需求单，**最近改动的排在前面**（`limit` 取值 1–100）。`status` 可选，取 `draft` / `published` / `confirmed` / `withdrawn` 之一，别的值 `422`。`200` + `{ items: [...] }` |
+| `GET /tasks/{id}` | `tasks:read` | `200` + `{ task: {...} }` |
+| `POST /tasks` | `tasks:write` | 提一张需求单，落地即 `draft`。请求体 `{ title, priority?, deadline?, brief? }`（`title` 1–200 字，`priority` 取 0–100，默认 0）。`201` + `{ task: {...} }` |
+| `PUT /tasks/{id}` | `tasks:write` | **整体覆盖**（不是局部合并）。请求体同上，`title` 必填。`200` + `{ task: {...} }` |
+| `POST /tasks/{id}/publish` | `tasks:write` | 下发。`200` + `{ task: {...} }` |
+| `POST /tasks/{id}/confirm` | `tasks:write` | 接单。`200` + `{ task: {...} }` |
+| `POST /tasks/{id}/withdraw` | `tasks:write` | 撤回。`200` + `{ task: {...} }` |
+| `DELETE /tasks/{id}` | `tasks:write` | 删掉草稿。`204` |
+
+`task` 的形状：`{ id, title, status, priority, deadline, creatorUserId, brief, createdAt, updatedAt }`。`creatorUserId` 是提需求的那个人——客户端靠它判断当前用户能不能改这张草稿。**创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`（整个请求体不接受未声明的字段）。
+
+### 状态机
+
+`draft` →（publish）→ `published` →（confirm）→ `confirmed`；`published` 与 `confirmed` 都可以（withdraw）→ `withdrawn`。
+
+- **`withdrawn` 是终态**：改不动、删不掉、也回不到 `published`。不做了就撤回，撤回留痕；想重新来就提一张新的。
+- **走不通的流转一律 `409`**，不是 `422`：撤回一张已撤回的、确认一张还是草稿的、发布一张已下发的，都是 `409`。
+- **只有 `draft` 能删**，下发之后 `DELETE` 返回 `409`。
+
+### 谁能改
+
+- **草稿是提它的人的私事**：`PUT` 与 `DELETE` 只有创建者本人或持 `users:manage` 的治理者能做，其他人 `403`。`publish` 同理——下发是需求方的决定。
+- **下发之后的流转是公事**：`confirm` 与 `withdraw` 任何持 `tasks:write` 的人都能做，`PUT` 也不再挑人（因为那时能改的只剩下面这几项）。
+
+### 下发即冻结
+
+`published` / `confirmed` 状态下，需求方写下的创作输入**冻结**。`PUT` 是整体覆盖，服务端会把提交上来的 `brief` 和库里的逐字段比对：
+
+- **仍可修改**：`title`、`priority`、`deadline`（管理信息），以及 `brief` 里的 `durationSeconds`、`ratio`、`requirementDescription`、`referenceImages`、`referenceVideos`（接单之后才补得出来的那几项）。
+- **其余 `brief` 字段有任何一项与库里不同 → `409`**，并在 `detail` 里列出是哪几个字段。所以正确的改法是：先 `GET` 拿到当前这张单子，改动允许的字段，再整体 `PUT` 回来。
+- `deadline` 在非草稿状态下**不能清空**（`422`）。
+
+### 发布关卡
+
+`POST /tasks/{id}/publish` 会拒绝以下情况：
+
+- 不是 `draft` → `409`
+- 调用者既不是创建者也没有 `users:manage` → `403`
+- 没有 `deadline` → `422`
+- `brief` 里 `requirementDescription`、`theme`、`referenceImages`、`referenceVideos` **四项全空**（等于没说要做什么）→ `422`
+- `deadline` 已经过去 → `409`（这个比较由服务端的数据库时钟做，不看客户端的钟）
+
+### brief 的字段
+
+全部可选，不填就是空字符串 / `null` / 空数组——需求方通常分几次填完。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `theme`、`purpose`、`audience`、`selling`、`scene`、`department`、`videoType`、`color`、`contentType`、`requester` | `string`（≤ 200） | 需求方填的创作输入 |
+| `requirementDescription` | `string`（≤ 4000） | 需求描述 |
+| `durationSeconds` | `int \| null` | 期望时长，取值 3–50 |
+| `ratio` | `string \| null` | 画幅，取 `1:1` / `3:4` / `4:3` / `9:16` / `16:9` / `21:9` |
+| `language`、`platform` | `string`（≤ 200） | 语言与投放平台 |
+| `referenceImages`、`referenceVideos` | `string[]`（各 ≤ 16 条） | 参考素材地址，**只收 `http://` 或 `https://`**，别的 scheme `422` |
+
+`brief` 不接受未声明的字段（多给一个就是 `422`）。
+
+## 9. 爆款视频查询 (Inspirations)
 
 `POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `assets:read`。
 

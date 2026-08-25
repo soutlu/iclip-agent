@@ -1,13 +1,13 @@
 """工作区能力：给 agent 一个跨会话持久的文本工作面。
 
 按官方 capability 的写法长：``AbstractCapability`` 的子类，贡献一个工具集加一
-段静态指引；存储是 ``WorkspaceStore`` 协议，所以这里既不认识 Postgres，也不认
-识我们的表。命名空间是一个 ``ctx -> str`` 的函数，由组合根注入——能力包因此不
-需要知道「租户」在这个系统里是用什么表示的。
+段静态指引；文件落在哪由组合根注入的 ``FileSpace`` 决定（平台层的存储协议 + 一
+条算命名空间的规则），所以这里既不认识 Postgres，也不认识我们的表，更不需要知道
+「租户」在这个系统里是用什么表示的。
 
 不实现 ``from_spec``，并且把 ``get_serialization_name`` 显式关成 ``None``：官方
 的默认值是类名，也就是说不关就等于对外宣称「我能从 YAML spec 里造出来」，而
-store 和 namespace 都是运行期对象，造不出来。声明面在上一层——``agents.yaml``
+``FileSpace`` 是运行期对象，造不出来。声明面在上一层——``agents.yaml``
 里写 ``capabilities: [workspace]``。
 
 也不做 ``before_model_request`` 注入。官方 ``Memory`` 往每轮请求里塞记忆是因为
@@ -17,7 +17,7 @@ store 和 namespace 都是运行期对象，造不出来。声明面在上一层
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
@@ -27,13 +27,13 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.tools import AgentDepsT, RunContext
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
-from iclip.capabilities.workspace.store import (
+from iclip.platform.file_store.store import (
     FileEntry,
+    FileSpace,
     InvalidContent,
     InvalidPath,
     QuotaExceeded,
     VersionConflict,
-    WorkspaceStore,
     normalize_path,
 )
 
@@ -60,15 +60,12 @@ _GUIDANCE = "这段对话有一个持久的工作目录，你和你派出去的�
 class Workspace(AbstractCapability[AgentDepsT]):
     """把工作区工具集挂到 agent 上。"""
 
-    store: WorkspaceStore
-    """存储后端。"""
+    space: FileSpace
+    """文件落在哪：存储后端 + 从本次运行算命名空间的规则。
 
-    namespace: Callable[[RunContext[AgentDepsT]], str]
-    """从本次运行的依赖里算出隔离命名空间。
-
-    做成函数而不是字符串，是为了让「按什么分工作区」这个决定留在组合根：那里
-    才看得见身份是怎么表示的。函数抛异常就让它抛——算不出命名空间时唯一正确
-    的行为是让这次运行失败，绝不能退回某个公共命名空间。
+    命名空间做成规则而不是字符串，是为了让「按什么分工作区」这个决定留在组合
+    根：那里才看得见身份是怎么表示的。规则抛异常就让它抛——算不出命名空间时唯
+    一正确的行为是让这次运行失败，绝不能退回某个公共命名空间。
     """
 
     # 显式 kw_only：父类的 ``id`` 本来就是关键字字段，重新声明时得保持这一点，
@@ -97,9 +94,7 @@ class Workspace(AbstractCapability[AgentDepsT]):
         return self._resolve_scope(ctx)
 
     def _resolve_scope(self, ctx: RunContext[AgentDepsT]) -> str:
-        # 命名空间自己也要过路径语法：它是隔离根，一旦里面混进 ".." 或空段，
-        # 隔离就是纸做的。
-        return normalize_path(self.namespace(ctx))
+        return self.space.resolve(ctx)
 
     def get_toolset(self) -> AgentToolset[AgentDepsT] | None:
         return WorkspaceToolset(self)
@@ -153,7 +148,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
 
         key = _checked(path)
         scope = self._capability.resolve_scope(ctx)
-        stored = await self._capability.store.read(scope, key)
+        stored = await self._capability.space.store.read(scope, key)
         if stored is None:
             raise ModelRetry(f"工作区里没有 {key!r}。用 list_files 看看有哪些文件。")
         if offset < 1:
@@ -206,7 +201,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         if not old_text:
             raise ModelRetry("old_text 不能为空；要新建或整份覆盖就用 write_file。")
         scope = self._capability.resolve_scope(ctx)
-        stored = await self._capability.store.read(scope, key)
+        stored = await self._capability.space.store.read(scope, key)
         if stored is None:
             raise ModelRetry(f"工作区里没有 {key!r}。要新建就用 write_file。")
         occurrences = stored.content.count(old_text)
@@ -236,7 +231,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
 
         key = _checked(path)
         scope = self._capability.resolve_scope(ctx)
-        if not await self._capability.store.delete(scope, key):
+        if not await self._capability.space.store.delete(scope, key):
             raise ModelRetry(f"工作区里没有 {key!r}，无从删除。")
         return f"已删除 {key}"
 
@@ -271,7 +266,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         if not query:
             raise ModelRetry("要检索的文本不能为空。")
         scope = self._capability.resolve_scope(ctx)
-        result = await self._capability.store.search(
+        result = await self._capability.space.store.search(
             scope, query, limit=min(limit, MAX_SEARCH_RESULTS)
         )
         if not result.matches:
@@ -287,7 +282,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         """写入并把存储层的失败翻成模型能自己处理的重试。"""
 
         try:
-            return await self._capability.store.write(
+            return await self._capability.space.store.write(
                 scope, key, content, expected_version=expected_version
             )
         except InvalidContent as exc:
@@ -301,17 +296,15 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
 
     async def _entries(self, scope: str, prefix: str) -> Sequence[FileEntry]:
         try:
-            return await self._capability.store.entries(scope, prefix=prefix)
+            return await self._capability.space.store.entries(scope, prefix=prefix)
         except InvalidPath as exc:
             raise ModelRetry(str(exc)) from exc
 
 
-def workspace_capability(
-    *, store: WorkspaceStore, namespace: Callable[[RunContext[Any]], str]
-) -> Workspace[Any]:
+def workspace_capability(*, space: FileSpace) -> Workspace[Any]:
     """造一个工作区能力。组合根用这个，不直接碰 dataclass 的字段顺序。"""
 
-    return Workspace[Any](store=store, namespace=namespace)
+    return Workspace[Any](space=space)
 
 
 __all__ = [

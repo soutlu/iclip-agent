@@ -645,18 +645,6 @@
   border-bottom: 1px solid var(--analytics-soft-line);
   color: inherit;
   text-decoration: none;
-  transition:
-    color 160ms ease,
-    opacity 160ms ease;
-}
-
-.analytics-attention-item:hover {
-  opacity: 0.78;
-}
-
-.analytics-attention-item:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
 }
 
 .analytics-attention-item h3 {

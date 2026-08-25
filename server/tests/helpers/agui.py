@@ -15,18 +15,20 @@ def run_input(
     thread_id: str = "conversation-1",
     run_id: str = "run-1",
     text: str = "hi",
+    content: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """一条最小的合法请求体。
 
     ``thread_id`` 是会话 id：同一个值代表同一段对话，服务端据此把多次运行
-    归到一起。
+    归到一起。给了 ``content`` 就用它当这条用户消息的内容（带附件的形状），
+    否则是纯文本 ``text``。
     """
 
     return {
         "threadId": thread_id,
         "runId": run_id,
         "state": {},
-        "messages": [{"id": "m1", "role": "user", "content": text}],
+        "messages": [{"id": "m1", "role": "user", "content": content if content else text}],
         "tools": [],
         "context": [],
         "forwardedProps": {},

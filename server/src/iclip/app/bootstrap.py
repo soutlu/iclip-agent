@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
+from typing import Any
 
 import httpx
 import procrastinate
@@ -21,7 +22,6 @@ from iclip.app.capability_table import (
 )
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.capabilities.workspace.infra_sql import PgWorkspaceStore
 from iclip.capabilities.workspace.scope import namespace_for
 from iclip.common.errors import DomainError
 from iclip.config import (
@@ -54,17 +54,22 @@ from iclip.domains.inspirations.catalog_pg import PgInspirationCatalog
 from iclip.domains.inspirations.module import build_inspirations_module
 from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.products.module import build_products_module
+from iclip.domains.tasks.infra_sql import SqlTaskRepository
+from iclip.domains.tasks.module import build_tasks_module
 from iclip.harness.agents import (
     AgentCapabilities,
     AgentDefinition,
     SubAgentDefinition,
     build_agent_registry,
 )
+from iclip.harness.history import HistoryReader
+from iclip.harness.media import MediaCodec
 from iclip.harness.models import BuiltModels, ModelSpec, build_models
 from iclip.harness.run_stream_redis import RedisRunStream, RunStream
 from iclip.harness.runs import RunBroker, RunStreamSettings
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
+from iclip.platform.file_store.pg import PgFileStore
 from iclip.platform.http import status_code_for
 from iclip.platform.object_store.oss import (
     OssObjectStore,
@@ -364,7 +369,7 @@ def build_app(
         else None
     )
     owns_inspiration_engine = inspiration_engine is not None and inspirations_engine is None
-    workspace_store = PgWorkspaceStore(active_engine)
+    workspace_store = PgFileStore(active_engine)
 
     async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
         """删掉一段对话时，连带清空它在工作区里的地盘。
@@ -375,11 +380,27 @@ def build_app(
 
         await workspace_store.purge_namespace(namespace_for(owner, str(conversation_id)))
 
+    # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
+    step_store = PgStepStore(active_engine)
+    media = MediaCodec(objects=public_objects)
+    history = HistoryReader(snapshots=step_store, media=media)
+
+    async def read_conversation_history(conversation_id: uuid.UUID) -> tuple[dict[str, Any], ...]:
+        """读一段对话里发生过的消息。
+
+        这条线同样只能接在组合根：消息落在 agent 引擎的账本里，而对话那一侧不认识
+        引擎，引擎那一侧也不认识「谁的对话」。
+        """
+
+        return await history.read(str(conversation_id))
+
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
         purge_derived=purge_conversation_workspace,
+        read_history=read_conversation_history,
     )
-    # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
+    # 创作需求单：只要一张自己的表，没有可配置的开关——它不依赖任何外部服务。
+    tasks = build_tasks_module(SqlTaskRepository(active_engine))
     agent_registry = build_agent_registry(
         _agent_definitions(
             agents,
@@ -391,8 +412,9 @@ def build_app(
                 shot_video=settings.shot_video,
             ),
         ),
-        step_store=PgStepStore(active_engine),
+        step_store=step_store,
         models=build_models(_model_specs(settings.models)) if models is None else models,
+        media=media,
     )
     # 事件流只在真有 agent 时才装（同 SSO：能力没配就不挂对应路由）。
     redis_client: Redis | None = None
@@ -471,6 +493,8 @@ def build_app(
         app.include_router(router)
     for router in conversations.routers:
         app.include_router(router)
+    for router in tasks.routers:
+        app.include_router(router)
     if broker is not None:
         app.include_router(create_agents_router(broker, conversations.service))
 
@@ -492,6 +516,7 @@ def build_app(
     app.state.generation = generation
     app.state.products = products
     app.state.inspirations = inspirations
+    app.state.tasks = tasks
     return app
 
 

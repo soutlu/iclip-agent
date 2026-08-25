@@ -22,6 +22,7 @@ from redis.asyncio import Redis
 from iclip.common.errors import Conflict, NotFound
 from iclip.config import ResolvedAgent
 from iclip.harness.agents import AgentDefinition, build_agent_registry
+from iclip.harness.media import MediaCodec
 from iclip.harness.run_stream_redis import RedisRunStream
 from iclip.harness.runs import INTERRUPTED_CODE, RunBroker, RunStreamSettings
 from tests.helpers.agui import run_input, sse_cursors, sse_events
@@ -86,6 +87,7 @@ def broker_for(
         (AgentDefinition(agent_id=AGENT_ID, spec=spec, model="m"),),
         step_store=InMemoryStepStore(),
         models={"m": TestModel()},
+        media=MediaCodec(),
     )
     return RunBroker(registry, RedisRunStream(client), settings)
 

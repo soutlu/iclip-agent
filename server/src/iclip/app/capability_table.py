@@ -31,13 +31,13 @@ from iclip.capabilities.shot_video.ports import (
 )
 from iclip.capabilities.workspace.capability import workspace_capability
 from iclip.capabilities.workspace.scope import workspace_namespace
-from iclip.capabilities.workspace.store import WorkspaceStore
 from iclip.config import ResolvedShotVideo
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
 from iclip.harness.agents import AgentCapabilities
+from iclip.platform.file_store.store import FileSpace, FileStore
 
 CapabilityTable = Mapping[str, AgentCapabilities]
 """名字 → 这个名字挂上去的那几件能力。
@@ -45,6 +45,14 @@ CapabilityTable = Mapping[str, AgentCapabilities]
 值是元组而不是单件，因为一个名字挂多件是真实存在的形状（skill 库就是「按需加载
 的指令 + 读 references 的工具」两件）。同一个实例被多个 agent 共用是安全的：
 capability 的 ``for_run`` 每次运行克隆一份，运行期状态不落在共享实例上。
+"""
+
+REQUIRES: Mapping[str, tuple[str, ...]] = {"shot_video": ("workspace",)}
+"""挂某个名字就必须一起挂的名字。
+
+``shot_video`` 写的文档与账本要靠 ``workspace`` 的 ``read_file`` / ``edit_file``
+让模型看得见、改得动；少挂一个的后果是静默的——文档照写照读，只是模型看不见。
+所以在装配期就拦，而不是等模型撞上去。
 """
 
 
@@ -106,7 +114,7 @@ def _first_problem(exc: ValidationError) -> str:
 
 def build_capability_table(
     *,
-    workspace_store: WorkspaceStore,
+    workspace_store: FileStore,
     generation_service: GenerationService | None = None,
     object_store: PublicObjectWriter | None = None,
     http_client: httpx.AsyncClient | None = None,
@@ -120,8 +128,11 @@ def build_capability_table(
     工具上线的 agent，症状是「它不干活」，最难查。
     """
 
+    # 往工作区落文件的能力收的是同一个 FileSpace：各接各的话，文档照写照读、
+    # 只是模型的 read_file 看不见——失效是静默的。
+    space = FileSpace(store=workspace_store, namespace=workspace_namespace)
     table: dict[str, AgentCapabilities] = {
-        "workspace": (workspace_capability(store=workspace_store, namespace=workspace_namespace),),
+        "workspace": (workspace_capability(space=space),),
     }
     if (
         shot_video is not None
@@ -131,6 +142,7 @@ def build_capability_table(
     ):
         table["shot_video"] = (
             shot_video_capability(
+                space=space,
                 generations=GenerationsAdapter(generation_service),
                 objects=object_store,
                 understanding=ArkVideoUnderstanding(
@@ -156,7 +168,7 @@ def build_capability_table(
 def resolve_capabilities(
     names: Sequence[str], *, table: CapabilityTable, declared_by: str
 ) -> AgentCapabilities:
-    """按名字取能力；名字没登记即报错（装配期 fail fast）。"""
+    """按名字取能力；名字没登记、或少挂了它要求同挂的名字，即报错（装配期 fail fast）。"""
 
     resolved: AgentCapabilities = ()
     for name in names:
@@ -166,11 +178,18 @@ def resolve_capabilities(
             raise RuntimeError(
                 f"{declared_by} 引用了未登记的 capability {name!r}；已登记的有: {known}"
             )
+        missing = [required for required in REQUIRES.get(name, ()) if required not in names]
+        if missing:
+            raise RuntimeError(
+                f"{declared_by} 挂了 capability {name!r} 却没挂 {', '.join(map(repr, missing))}——"
+                f"{name} 写的文件要靠它们让模型看见；在 agents.yaml 里一起挂上。"
+            )
         resolved = (*resolved, *found)
     return resolved
 
 
 __all__ = [
+    "REQUIRES",
     "CapabilityTable",
     "GenerationsAdapter",
     "build_capability_table",

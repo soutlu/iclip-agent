@@ -1,33 +1,8 @@
-import { Link } from '@tanstack/react-router'
 import type {
   AnalyticsAttentionItem,
   AnalyticsUserStat,
 } from '@/features/analytics/api/generation-analytics'
-import { storePreferredProducerProjectSessionId } from '@/features/projects'
 import { formatDecimal, formatDuration, formatNumber, formatRate } from './analytics-snapshot.utils'
-
-/**
- * 生成关注项对应的项目入口。
- *
- * @param row - 关注项。
- * @returns 项目页路径。
- */
-const createAttentionProjectHref = (row: AnalyticsAttentionItem) =>
-  `/projects/${encodeURIComponent(row.projectId)}`
-
-/**
- * 记录关注项对应的 Agent session，便于进入项目页后打开具体上下文。
- *
- * @param row - 关注项。
- * @returns 无返回值。
- */
-const rememberAttentionSession = (row: AnalyticsAttentionItem) => {
-  if (row.sessionId === null) {
-    return
-  }
-
-  storePreferredProducerProjectSessionId(row.projectId, row.sessionId)
-}
 
 /**
  * 渲染用户统计表格。
@@ -96,13 +71,7 @@ export function AttentionTable({ rows }: { rows: AnalyticsAttentionItem[] }) {
       ) : (
         <div className="analytics-attention-list">
           {rows.map((row) => (
-            <Link
-              key={row.id}
-              aria-label={`查看${row.project}的生成原因`}
-              className="analytics-attention-item"
-              to={createAttentionProjectHref(row)}
-              onClick={() => rememberAttentionSession(row)}
-            >
+            <article key={row.id} className="analytics-attention-item">
               <div>
                 <h3>{row.project}</h3>
                 <p>{row.reason}</p>
@@ -121,8 +90,8 @@ export function AttentionTable({ rows }: { rows: AnalyticsAttentionItem[] }) {
                   <dd>{formatDuration(row.avgDurationSeconds)}</dd>
                 </div>
               </dl>
-              <span className="analytics-attention-action">查看</span>
-            </Link>
+              <span className="analytics-attention-action">已停用</span>
+            </article>
           ))}
         </div>
       )}

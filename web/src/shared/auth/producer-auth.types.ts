@@ -22,8 +22,8 @@ export type ProducerAuthUser = {
   username: null | string
   displayName: string
   avatarUrl: string
-  // 后端 RBAC 是唯一事实源；前端只按 /users/me 下发的 role 与 permissions 做 UI 展示。
-  role: string
+  // 后端 RBAC 是唯一事实源；前端只按 /users/me 下发的 roles 与 permissions 做 UI 展示。
+  roles: readonly string[]
   permissions: readonly string[]
   city?: string
   jobTitle?: string

@@ -1,6 +1,6 @@
 import HomeHeaderActions from '@/features/home/components/HomeHeaderActions'
-import HomeHero from '@/features/home/components/HomeHero'
 import HomeWorkspaceSections from '@/features/home/components/HomeWorkspaceSections'
+import { HOME_HERO_TITLE } from '@/features/home/utils/create-home.constants'
 import useHasMounted from '@/shared/hooks/useHasMounted'
 import RouteBootShell from '@/shared/ui/RouteBootShell'
 
@@ -29,7 +29,14 @@ export default function HomeRoute() {
           >
             <div className="flex w-full shrink-0 flex-col items-center bg-transparent px-4 pt-8 pb-16 sm:px-8 sm:pt-8 sm:pb-28">
               <div className="flex w-full max-w-[var(--layout-home-content-max)] flex-col gap-[var(--home-section-gap)]">
-                <HomeHero />
+                <section className="mx-auto w-full max-w-[var(--layout-home-hero-max)] text-center">
+                  <div className="mx-auto max-w-[var(--layout-home-title-max)]">
+                    <h1 className="home-title text-center">{HOME_HERO_TITLE}</h1>
+                  </div>
+                  <p className="mt-5 text-body font-medium text-[var(--home-text-muted)]">
+                    Agent 与 Canvas 创作工作区当前已停用
+                  </p>
+                </section>
                 <HomeWorkspaceSections />
               </div>
             </div>

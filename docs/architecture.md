@@ -51,9 +51,9 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/conversations/api.py`、`domains/generation/api.py`、`domains/products/api.py`、`domains/inspirations/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py` 与读外部只读源的 `domains/products/catalog_pg.py`、`domains/inspirations/catalog_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
+围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/conversations/api.py`、`domains/generation/api.py`、`domains/products/api.py`、`domains/inspirations/api.py`、`domains/tasks/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`platform/file_store/`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py` 与读外部只读源的 `domains/products/catalog_pg.py`、`domains/inspirations/catalog_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
-现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）、`conversations/`（对话，见 §12）、`generation/`（媒体生成，见 §11）、`products/`（产品资料查询，见 §13）与 `inspirations/`（爆款视频查询，见 §14）。接口随首个实现定义，不提前写投机 ABC。
+现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）与 `shot_video/`（镜头素材，见 §5），**能力包之间互不 import**——两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边；`platform/` 含 `file_store/`（命名空间化文本文件存储，工作区的后端）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）、`conversations/`（对话，见 §12）、`generation/`（媒体生成，见 §11）、`products/`（产品资料查询，见 §13）、`tasks/`（创作需求单，见 §14）与 `inspirations/`（爆款视频查询，见 §15）。接口随首个实现定义，不提前写投机 ABC。
 
 **外部存储落点（登记表，不是配额）**：新增一个碰 SQL/Redis 的文件不是违规，是要登记——在架构测试的 `FRAMEWORK_FENCES` 加一行，并在下表加一行。落在哪一环有两条并列规则：**实现官方协议的后端**跟着「说这门协议的那一环」走；**模块或能力包自有的存储**放自己模块里的 `infra_sql.py`。
 
@@ -64,6 +64,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `harness/run_stream_redis.py` | Redis | 运行事件流是 harness 自己的机制 |
 | `domains/*/infra_sql.py` | PG | 该 domain 自有的表 |
 | `platform/object_store/` | OSS | 公开对象存储的适配器；业务侧只认 `PublicObjectStore` 协议 |
+| `platform/file_store/` | PG | 命名空间化文本文件存储的后端（表 `agent_runtime.workspace_files`）；能力侧只认 `FileStore` 协议 |
 | `capabilities/*/infra_sql.py` | PG | 该能力包自有的表 |
 | `domains/inspirations/catalog_pg.py` | PG（外部只读源） | 数仓的爆款榜与视频打标结果，同样不是本模块自有的表 |
 | `domains/products/catalog_pg.py` | PG（外部只读源） | 这些表是别人的（PDM 的同步副本），不是本模块自有的表——所以不叫 `infra_sql.py`，那个名字在本表里的口径是「自有」|
@@ -82,13 +83,14 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/src/iclip/domains/generation/` | 媒体生成：`schemas.py`（请求类型，同时是 wire 与入库形状）、`models.py`（job 行）、`repository.py`/`infra_sql.py`（只有事实，没有排期）、`provider.py` + `multiflow.py`（视频）/`nano_banana.py`（图像）、`queue.py`（三条队列 + 任务体 + 捡卡死任务）、`service.py`/`api.py`/`module.py` |
 | `server/src/iclip/domains/products/` | 产品资料查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`tables.py`（码→名字的三张常量表）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
 | `server/src/iclip/domains/inspirations/` | 爆款视频查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
-| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）与 `run_stream_redis.py`（事件流的 Redis 后端） |
-| `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`store.py`（路径语法 + 后端 Protocol）、`capability.py`（能力本体 + 工具集）、`scope.py`（工作区归谁）、`infra_sql.py`（PG 后端）；与 `shot_video/`：`capability.py`（四件工具）、`shots.py`（镜头区间解析 + 等间隔采样，纯计算）、`board.py`（预览板拼版与帧号叠印）、`grid.py`（切格几何，纯函数）、`prompt.py`（整版 prompt 拼接）、`ffmpeg.py`（异步子进程 + 取素材）、`parser.py`（视频拆解的 Responses 适配器 + 提示词）、`ports.py`（对外要的四个窄协议） |
-| `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（公开对象存储，阿里云 OSS） |
+| `server/src/iclip/domains/tasks/` | 创作需求单：`schemas.py`（brief 的类型，同时是 wire 与入库形状）、`models.py`（需求单行 + 状态常量）、`repository.py`/`infra_sql.py`（自有的表；写方法都带状态守卫）、`service.py`（状态机 + 冻结规则 + 谁能改）、`api.py`/`module.py`。不依赖任何别的业务模块 |
+| `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）、`run_stream_redis.py`（事件流的 Redis 后端）、`media.py`（媒体引用协议：前端形状 ↔ 模型形状）与 `materials.py`（素材范围：从消息里算出模型能交给工具的地址，见 §5） |
+| `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`capability.py`（能力本体 + 六件工具）、`scope.py`（工作区归谁：运行 → 命名空间的规则）；与 `shot_video/`：`capability.py`（四件工具）、`shots.py`（镜头区间解析 + 等间隔采样，纯计算）、`board.py`（预览板拼版与帧号叠印）、`grid.py`（切格几何，纯函数）、`prompt.py`（整版 prompt 拼接）、`ffmpeg.py`（异步子进程 + 取素材）、`parser.py`（视频拆解的 Responses 适配器 + 提示词）、`ports.py`（对外要的三个窄协议）。能力包之间互不 import |
+| `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（公开对象存储，阿里云 OSS）、`file_store/`（命名空间化文本文件存储：`store.py` 路径语法 + `FileStore` 协议 + `FileSpace`「存储 × 命名空间规则」，`pg.py` PG 后端） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只有形状；地址与凭证在环境变量里） |
 | `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词）+ `skills/`（skill 库，一个子目录一个 skill） |
-| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表；0004 媒体生成任务表；0005 procrastinate 的排期表；0006 去掉 0004 里的排期列；0007 对话表） |
+| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表；0004 媒体生成任务表；0005 procrastinate 的排期表；0006 去掉 0004 里的排期列；0007 对话表；0008 创作需求单表） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
 | `web/` | UI 参考稿（只读） |
 | `contract/` | 跨端合同契约存放处 |
@@ -96,7 +98,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ## 4. 装配流程
 
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要一个「删对话时连带清掉派生物」的回调，组合根在这里把它接到工作区的清空上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 配了产品资料目录 / 爆款视频库时各建一个只读 engine 并装对应模块（两个连接都在会话层设成只读）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要一个「删对话时连带清掉派生物」的回调，组合根在这里把它接到工作区的清空上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 装 tasks 模块（只要一张自己的表，没有开关，也不认识别的模块）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 配了产品资料目录 / 爆款视频库时各建一个只读 engine 并装对应模块（两个连接都在会话层设成只读）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、conversations、配了目录时的 products 与 inspirations、tasks、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -169,7 +171,7 @@ agent:                                 # 键名即 agent id
 **挂什么能力由声明决定，一个 agent 只拥有声明给它的那几样。** 两类材料分开走：
 
 - **skill** 是模型面文本资产（流程知识、判断标准、产出格式），放 `server/agents/skills/<skill 名>/`（`SKILL.md` + 可选 `references/`）。库路径在加载声明时解析成绝对路径，不留给官方 `Skills` 按进程工作目录去猜——同一份代码在不同工作目录下行为不同且不报错，是最难查的那类问题。挑了库里没有的名字即装配期报错。
-- **capability** 是一组类型化工具（外加可选的指令与钩子），实现在 `capabilities/`，名字登记在 `app/capability_table.py`（与 `models` 段同一个套路：声明面只出现名字，实现由代码持有）。名字没登记即装配期报错。
+- **capability** 是一组类型化工具（外加可选的指令与钩子），实现在 `capabilities/`，名字登记在 `app/capability_table.py`（与 `models` 段同一个套路：声明面只出现名字，实现由代码持有）。名字没登记即装配期报错；一个名字要求同挂另一个（表里的 `REQUIRES`，如 `shot_video` 要求 `workspace`）而声明里少了，同样装配期报错。
 
   官方 agent spec（每个 agent 目录下的 `agent.yaml`）自己也有 `capabilities:` 段，而装配走的正是 `Agent.from_spec`，所以**那条路现在是通的**：能声明 14 个 pydantic_ai 内置能力（`WebSearch`/`MCP`/`Thinking`/`ToolSearch`/`Instrumentation` 等）。harness 的能力（含 `Memory`）不在默认注册表里，要写进 spec 得给 `from_spec` 传 `custom_capability_types`。两条路的分工：**spec 那条只传得进 YAML 能序列化的值**，所以需要运行期对象（连接池、domain 服务）的能力走 `agents.yaml` 的名字表。官方自己也止步于此——它的 `Memory` 在 spec 里只给内存/文件/sqlite 三种后端，明明有 Postgres 的实现却不给选。
 
@@ -182,12 +184,13 @@ agent:                                 # 键名即 agent id
 
 **镜头素材（`capabilities: [shot_video]`）** 给 agent 四件围着一条产线的工具：`video_parser_md`（拆参考片，文档写进工作区）→ `plan_shot_frames`（整片按秒抽帧，按结构层级拼成带帧号的预览板）→ `generate_shot_frames`（按选中的帧号出一张 2×2 网格图并切成 4 帧）→ `ReadMediaFile`（把一张图附进上下文给模型看）。它建立在媒体生成之上——出图走 generation 域的服务，帧与切格产物落生成用的那个公开对象存储——所以两项要么一起开、要么一起关，开关是 `VIDEO_UNDERSTANDING_URL`。几个决定与它们的理由：
 
-- **接力靠工作区里的两份文件，而工作区是从本次运行认领的。** 拆解文档（`video/<名>.md`）与取帧账本（`frames/extraction.json`）都落在**这个 agent 自己挂着的那个工作区**里：`shot_video` 不从组合根另接一份存储，而是在工具里从 `ctx.capabilities` 取出 `workspace` 能力（挂了它才有工作区权限，没挂就当场报错说去 `agents.yaml` 补）。这样模型的 `read_file` / `edit_file` 看见的就是同一批文件——时间码写坏了它自己就能改完重来，这也是取帧那条错误提示能给出可执行修法的前提。认的是**能力包自己声明的窄协议**（`ports.WorkspaceProvider`），不是 `Workspace` 那个类：和 `ImageGenerations` / `PublicObjectWriter` 同一个套路，依赖倒置在消费方这一侧。
+- **接力靠工作区里的两份文件，而能力包不认识工作区能力。** 拆解文档（`video/<名>.md`）与取帧账本（`frames/extraction.json`）都要让模型用 `read_file` / `edit_file` 看得见、改得动——时间码写坏了它自己就能改完重来，这也是取帧那条错误提示能给出可执行修法的前提。做法是两件能力都在构造器里收同一个 `FileSpace`——平台层把「存储 + 从本次运行算命名空间的规则」这两样焊成一件，组合根（`capability_table.py`）造一个递给两边，所以配错在结构上不可能，两边写读的必然是同一批文件。命名空间的规范化（挡住 `..` 与空段，隔离根不能是纸做的）也收在 `FileSpace.resolve()` 里，调用方走的是同一条路而不是各自记得做。`shot_video` 不 import `workspace/` 里的任何东西，也不在工具里去 `ctx.capabilities` 认领兄弟能力——那会把兄弟的内部形状写进自己的协议里。少挂一个的失效是静默的（文档照写照读，只是模型看不见），所以 `REQUIRES` 让「挂了 `shot_video` 没挂 `workspace`」在装配期就报错，错误消息指向 `agents.yaml`。
 - **能力包不注入指令**（`get_instructions()` 返回 `None`）。四件工具怎么接力是流程知识，归 skill；工具 docstring 只回答「这个工具是什么」。这条界线见 [tool-design.md](tool-design.md) §0。
+- **地址只收这段对话里出现过的**（`harness/materials.py`）。模型传进来的地址只有两个来源：从上下文里抄的，或者自己编的——收到的都是同一个字符串，`http://` 前缀判不出区别。`run_materials(ctx.messages)` 把**模型请求那一侧**（用户消息、工具结果、agent 指令）的文本连成一段，校验就两条：这个地址在里面逐字出现过吗；被 tag 声明过种类的，种类对得上吗。响应侧一律不算——模型在正文里写一个地址、或拿它调一次工具，都不该让它自己给自己发通行证；厂商内建工具（联网搜索那类）的返回也在响应侧，一并挡住：让外部网页内容指挥我们的服务器去取素材比模型自己编还危险。`RetryPromptPart` 同样不算，而且报错**不回显被拒的地址**——回显一次，模型重试时它就成了「出现过」的东西。**种类只在声明过时查**：那个信息只有用户附件带得来（`MediaCodec` 把附件换成 `<video url="…">`），本能力产出的预览板与镜头帧是 JSON 字段里的裸串，对它们查种类等于把自己的产物拒在门外。这是**来源约束不是安全边界**——工作区是模型可写的，写个地址进去再 `read_file` 读回来就绕过了；防 SSRF 得在出网取素材那一层单独做。判定用子串包含而不是把地址正则抽出来：工具返回是 dict 就会被序列化成 JSON（里面的 tag 因此带转义引号、扫不出种类，地址本身仍在），是字符串则原样留着（`read_file` 读回账本因此连种类一起认得回来）。
 - **视频拆解不走命名模型表，也不做成 agent。** pydantic-ai 的 OpenAI 适配器（Chat Completions 与 Responses 两条都是）对视频输入直接抛 `NotImplementedError`，只有 Google / Anthropic 那几个专属模型类支持视频；而本仓的模型全是 OpenAI 兼容的。所以 `parser.py` 自己说一次 Responses 协议，形状与两家生成 provider 一致（地址与凭证来自环境变量）。它也不是 agent：这次调用没有工具、没有多轮，做成 agent 只会凭空多一层运行血缘，而且派活那条路只递得进文本（`delegate_task(agent_name, task: str)`），视频根本传不下去。**提示词写死在 `parser.py` 里**——它和输出结构是一体的（第 2 节定义几个结构节点、第 4 节就得有几行），拆开放会让改它的人看不见这层绑定。
 - **出图的重试与升级归工具，不归 provider。** 不变量 9 管的是模型调用接口那一层：`nano_banana.py` 至今一次调用就是一次调用，不重试也不换渠道。工具是它的**调用方**，和人点两次按钮是同一个身份——所以先在 dev 试、试不通再升 pro 这件事发生在工具里，**每次尝试各落一行 `generation_jobs`**，渠道记在行上，账面上看得见试了几次、各花在哪。**判据只有一条：这次失败有没有可能已经计费。** 只有 `PROVIDER_UNREACHABLE`（连都没连上）和 `PROVIDER_SERVER_ERROR`（对方 5xx 且没有产出）会自动再发；`PROVIDER_RESULT_UNKNOWN`（送出去了但结果不明）、`PROVIDER_REJECTED`（对方明确拒绝）、`OUTPUT_*`（图生成好了只是没转存成功）一律停手并把错误码原样报出来。升级只在失败时发生——「出了图但不够好」是一次新的需求，不是重试。
 - **切格按图上真实的分隔带走，检测不到时退回等分并说出来。** 生成的拼图常带外边框和不等宽的格间距，机械等分会让每格带一条白边或错半格。检测在降采样到 640 宽的灰度图上做（分隔带是大尺度结构，成本因此低两个数量级），裁剪回到原图坐标，四格一次 `filter_complex` 裁完（每格起一个 ffmpeg 会把整张 4K 图解码四遍）。整图固定按 `4k` 出：切成四格后每格只剩四分之一线性分辨率，低档不够交付。**退回等分不是静默的**：结果里明说这一格是量出来的还是猜的——等分切出来的图长得和正常结果一模一样，不说就没人知道。
-- **像素存一份大的、看一份小的。** 帧与切格产物按内容哈希落公开对象存储（它们要当参考图交给生成接口，对方是自己去下载那个地址的；内容寻址顺带保证同一帧不会在桶里堆重复），预览板与切出来的帧则由 `ReadMediaFile` 按需读进上下文（缩到长边 1024）——整片按秒抽出来的候选帧可能上百张，一次全附进去既贵又没法逐张判断。
+- **像素存一份大的、看一份小的。** 帧与切格产物按内容哈希落公开对象存储（它们要当参考图交给生成接口，对方是自己去下载那个地址的；内容寻址顺带保证同一帧不会在桶里堆重复），预览板与切出来的帧则由 `ReadMediaFile` 按需读进上下文——附的是地址而不是字节，缩到长边 1024 靠对象存储的缩放参数，服务端既不下载也不转码——整片按秒抽出来的候选帧可能上百张，一次全附进去既贵又没法逐张判断。
 - **ffmpeg 一律异步起进程、每个都有超时。** 同步的 `subprocess.run` 会把整个 worker 的事件循环按住几十秒——被拖住的不只是这次运行，是这个进程上所有正在读事件流的人。装配时检查 PATH 上有没有 ffmpeg/ffprobe，没有就启动报错，不等模型撞上去。
 
 **挂 skill 库就一定同时挂 `get_skill_reference` 工具**（`harness/skills.py`）。官方 `Skills` 只读 `SKILL.md`，不碰 `references/`；库里放着分支规则而没有读它的手段，模型会照着正文的指示去读、然后无从下手——这种静默失效比报错更难查。工具的访问边界与挂载范围严格一致：没挂给这个 agent 的 skill，它的 references 也读不到（官方文档明说 `include`/`exclude` 不是访问边界，所以边界只能落在工具里）。越界、非 `.md`、不存在都回可重试提示并报出有哪些文件；自家资产编码坏了则直接失败（重试改不了坏文件）。
@@ -200,7 +203,7 @@ agent:                                 # 键名即 agent id
 
 harness 一侧这个参数的类型是 `object` 且全程不解包——那一环不认识业务身份，围栏因此是结构性满足的，不靠自觉。唯一写具体类型的地方是 `domains/agents/api.py` 的 `AgentRuns` 协议。`owner` 保持独立参数：它只是流名字的归属段。
 
-**deps 只放身份，不放 I/O 句柄。** 官方文档的例子把 http client / db session 放进 deps，因为那些例子没有组合根；本仓有，服务经 `app/capability_table.py` 的闭包在装配期注入。更硬的理由是 `Agent[DepsT]` 整体参数化——同一个 agent 上所有能力共享同一个 deps 类型，把服务塞进去，它就会变成每落地一件能力就加一个字段、每件都耦合全体的共享契约。而且运行不绑 HTTP 请求，请求作用域的 session 放进 deps 就是悬空引用。
+**deps 只放身份，不放 I/O 句柄。** 官方文档的例子把 http client / db session 放进 deps，因为那些例子没有组合根；本仓有，服务经 `app/capability_table.py` 的闭包在装配期注入。更硬的理由是 `Agent[DepsT]` 整体参数化——同一个 agent 上所有能力共享同一个 deps 类型，把服务塞进去，它就会变成每落地一件能力就加一个字段、每件都耦合全体的共享契约。而且运行不绑 HTTP 请求，请求作用域的 session 放进 deps 就是悬空引用。**还有一条最硬的：deps 会原样转发给下属**（对话 id 搭的正是这趟车），所以放进去的句柄是**环境权限**——每个下属的每件工具都拿得到，不管它挂没挂对应的能力。「挂了才有权限」因此只能靠构造器注入，靠 deps 就是反过来的。
 
 deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对话」是因为它同样是**每次运行**的事实，而且派活时官方转发 deps、不转发运行自己的 `conversation_id`，所以要让下属知道自己在哪段对话里，只有这一条路。
 
@@ -244,6 +247,7 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 | `oauth_accounts` | SSO 外部身份 | FK → users 级联删除、`oauth_name=wangoon_sso` |
 | `api_keys` | 机器凭证 | `owner_user_id` FK、`token_hash` 唯一、`token_prefix`、`permissions` JSONB、`expires_at`/`revoked_at`/`last_used_at` |
 | `conversations` | 一段对话（会话） | `owner_user_id` FK 级联删除、`agent_id`（agent 在配置里声明，库里没有对应的行，故无外键）、`title`、`last_run_id`（客户端为最近一次运行铸造的 id）、`created_at`/`updated_at`；索引 `(owner_user_id, updated_at DESC)` 支撑「我的对话，最近的排前面」；见 §12 |
+| `tasks` | 一张创作需求单 | `creator_user_id` FK **restrict 不级联**（下发过的需求单是公司账本上的事实，不跟着账号消失）、`status` + CHECK（四个值）、`deadline` + CHECK（非草稿必须有）、`brief` JSONB + CHECK（必须是 object）、`priority`；索引 `(updated_at DESC)` 支撑「最近改动的排前面」；见 §13 |
 | `generation_jobs` | 一次媒体生成的事实（**不含排期**） | `owner_user_id` FK 级联删除、`api_key_id` **故意不建外键**（审计事实要活得比那把 key 久）、`request` JSONB、`status`、`provider_task_id`/`provider_status`/`provider_snapshot`、`output_url`、`error_code`/`error_message`、四个时刻；见 §11 |
 | `public.procrastinate_*`（4 张） | 生成任务的**排期机械**，不是事实 | procrastinate 3.9.0 自带的 DDL，原文冻在迁移 0005 里。落在 `public` 而不是 `iclip`：它的 SQL 全是不带 schema 的裸名字，塞进 `iclip` 要给它的连接一直配对的 `search_path`，多一处必须两边一致的配置。**升级它的做法是把它新增的迁移脚本抄成一个新 revision**，不是改 0005 |
 
@@ -279,6 +283,14 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 | `POST /conversations` | `agent:run` | 开一段对话；id 由服务端生成，客户端拿它当 `threadId` |
 | `GET /conversations` | `agent:read` | 我的对话，最近活动的排前面（`limit` ≤ 100）。别人的看不见，治理者也没有看别人的口子 |
 | `PATCH /conversations/{id}`、`DELETE /conversations/{id}` | `agent:run` | 改名 / 删除；删除连带清掉这段对话的工作区文件。别人的一律 404 |
+| `GET /tasks` | `tasks:read` | 需求单列表，最近改动的排前面（`limit` ≤ 100，可加 `status=` 筛一档）。**人人看得见全部**——它是工作队列，不是私人资源 |
+| `GET /tasks/{id}` | `tasks:read` | 查一张。不存在才 404 |
+| `POST /tasks` | `tasks:write` | 提一张需求单，落地即草稿。创建者取自主体，请求体里给一律 422 |
+| `PUT /tasks/{id}` | `tasks:write` | 整体覆盖。草稿只有创建者或治理者能改（否则 403）；下发之后谁都能改，但只剩管理信息与那几项补充字段，动了冻结的创作输入 409 |
+| `POST /tasks/{id}/publish` | `tasks:write` | 下发。仅草稿，仅创建者或治理者；要有期限且期限未到（比较在数据库里做），brief 要说清做什么，否则 422/409 |
+| `POST /tasks/{id}/confirm` | `tasks:write` | 接单。仅已下发；接单不挑人 |
+| `POST /tasks/{id}/withdraw` | `tasks:write` | 撤回。仅已下发或已接单；终态，回不去 |
+| `DELETE /tasks/{id}` | `tasks:write` | 删草稿，仅创建者或治理者。下发之后删不掉（409），要停就撤回 |
 | `POST /agents/{agent_id}/chat` | `agent:run` | 发起一次运行并订阅它的事件（`text/event-stream`，请求体为官方 `RunAgentInput`）。强制 `Content-Type: application/json`，否则 415；未注册 id 404；请求体形状不合法 422；**`threadId` 不是自己名下、且属于这个 agent 的对话 → 404**（核对发生在开流之前）；同一个运行 id 再来一次是接着读，不重复跑 |
 | `GET /agents/{agent_id}/chat/{conversation_id}/{run_id}` | `agent:run` | 接着读同一次运行的事件。位置取 `Last-Event-ID` 头，其次 `?from=`，都没有就整段重放；已经读到末尾就直接收流。没有这次运行 404，过了重放窗口 409，两个 id 或位置形状不合法 422。别人的运行一律 404（流名字里带归属）|
 | `OPTIONS /agents/{agent_id}/chat` | 公开 | 204 且**刻意不带任何 `Access-Control-Allow-*` 头**：与上面的 content-type 要求组成一对 CSRF 防线（免检 content-type 都能塞 JSON 且不触发预检，故要求非免检类型来强制预检，再在此拒掉） |
@@ -405,7 +417,34 @@ GET /products/{styleNo}
 - **连接在会话层设成只读。** 那个库的账号本身有写权限，我们只该读；把只读钉在自己这边，就不依赖对方的授权配置哪天有没有改对。
 - **查得到款、图和色为空是正常结果**，不是错误：上游同步不全是常态。
 
-## 14. 爆款视频查询
+## 14. 创作需求单
+
+一张需求单是「要做什么片子」这件事的持久事实。它和本文其余部分最大的不同是：**它没有属主**。对话是私人的，生成记录是私人的，需求单是**全公司的一张工作队列**——谁有 `tasks:read` 谁就看得见全部，所以这里用不上 `platform/db` 的行级归属原语，「别人的一律 404」那套写法在这个模块里一次都不出现。判断只落在「能不能改」这一侧：看得见但不让改是 403。
+
+状态机四档，走不通的流转一律 409（合同把 409 的释义定成「与资源当前状态冲突」）：
+
+```text
+        ╭───────╮  publish   ╭───────────╮  confirm   ╭───────────╮
+        │ draft │───────────▶│ published │───────────▶│ confirmed │
+        ╰───┬───╯            ╰─────┬─────╯            ╰─────┬─────╯
+            │                      │                        │
+       delete（仅创建者）           ╰────────┬───────────────╯
+            │                               │ withdraw
+            ▼                               ▼
+         （没了）                      ╭───────────╮
+                                      │ withdrawn │ 终态：改不动、删不掉
+                                      ╰───────────╯
+```
+
+三件事值得单独记：
+
+- **下发即冻结。** `published` 之后，需求方写下的创作输入不许再动；能改的只剩管理信息（标题、优先级、期限）与接单之后才补得出的那五项（时长、画幅、需求描述、参考图、参考视频，登记在 `schemas.PLANNER_FIELDS`）。接单的人是照着那份需求开工的，改了等于让两边看到的需求不一样。PUT 是整体覆盖，所以服务层拿提交上来的 brief 和库里的逐字段比一遍，冻结的那些有一项不同就拒——而不是默默改回去。
+- **期限的比较发生在数据库里。** 「发布时期限必须还没到」这句写在 `UPDATE` 的 `WHERE` 里，用的是 `now()`。应用进程的钟快了几秒，同一张需求单就会在这台机器上发得出去、在另一台上发不出去。
+- **每个写方法都带状态守卫。** 调用方读到这一行时它是什么状态，就把那个状态交回来当写入条件（`expect=`）。判断和写入之间隔着一次 await，那当口别人可能刚把它撤回；对不上就一行也改不到，服务层把它翻译成 409 并让人重读一次。
+
+brief 只有一套定义（同 §11 的生成请求）：`schemas.TaskBrief` 既是 wire 形状也是入库形状，落库存 camelCase，读回来重新校验一遍，形状坏了响亮失败。
+
+## 15. 爆款视频查询
 
 给一组款，拿回这些款下表现最好的那批短视频：地址、作者、发布日期、五项指标、CT 归属与平台类目。**只读、零副作用、不建表**——数据在外部一个 Postgres 里（数仓的爆款榜 + 视频打标结果）。
 

@@ -1,12 +1,12 @@
-"""工作区文件的存储契约：路径语法、错误、后端 Protocol。
+"""命名空间化文本文件的存储契约：路径语法、错误、后端 Protocol。
 
-工作区是 agent 自己写自己读的持久文本面——脚本草稿、分镜清单这类东西。放在
+这些文件是 agent 自己写自己读的持久文本面——脚本草稿、分镜清单这类东西。放在
 数据库而不是本地目录里，是因为服务多进程部署：本地目录只有写它的那个进程看
 得见，换个进程接着干活就什么都找不到。
 
 本模块不碰数据库，也不碰任何真实文件。路径校验是**纯字符串**的——不 resolve、
 不 stat、不看软链接，因为这里根本没有 inode 可看。边界就是这套语法本身：段里
-不许出现 ``.`` 与 ``..``，所以拼不出越界的路径；命名空间由装配期给定，模型连
+不许出现 ``.`` 与 ``..``，所以拼不出越界的路径；命名空间由调用方给定，模型连
 它的存在都看不见。
 
 错误故意不用 ``common.errors``：那一套是领域错误，会被 HTTP 处理器映射成状态
@@ -17,10 +17,10 @@ HTTP 层就该是 500，而不是伪装成一个 409。
 from __future__ import annotations
 
 import unicodedata
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 MAX_PATH_CHARS = 512
 MAX_SEGMENTS = 16
@@ -42,19 +42,19 @@ MAX_SNIPPET_CHARS = 200
 """单条命中片段的字符上限。"""
 
 
-class WorkspaceError(Exception):
-    """工作区操作失败的基类。"""
+class FileStoreError(Exception):
+    """文件存储操作失败的基类。"""
 
 
-class InvalidPath(WorkspaceError):
+class InvalidPath(FileStoreError):
     """路径不合语法。"""
 
 
-class InvalidContent(WorkspaceError):
+class InvalidContent(FileStoreError):
     """内容里有存不进去的字节。"""
 
 
-class VersionConflict(WorkspaceError):
+class VersionConflict(FileStoreError):
     """文件在读到与写回之间被别人改过（或删掉了）。"""
 
     def __init__(self, path: str, *, expected: int, actual: int | None) -> None:
@@ -67,7 +67,7 @@ class VersionConflict(WorkspaceError):
         self.actual = actual
 
 
-class QuotaExceeded(WorkspaceError):
+class QuotaExceeded(FileStoreError):
     """写入会超出容量上限。"""
 
     def __init__(
@@ -89,7 +89,7 @@ class QuotaExceeded(WorkspaceError):
 
 
 @dataclass(frozen=True, slots=True)
-class WorkspaceFile:
+class StoredFile:
     """一个文件的全文与它的版本号。
 
     没有「截断」这回事：单文件有字节上限，所以整份读得下。这不是省事——
@@ -130,7 +130,7 @@ class SearchResult:
 
 
 def normalize_path(path: str) -> str:
-    """校验并规范化一个工作区路径，不合语法就抛 ``InvalidPath``。
+    """校验并规范化一个文件路径，不合语法就抛 ``InvalidPath``。
 
     规范形式：相对路径、``/`` 分隔、无首尾斜杠。字符集不限 ASCII——``分镜/
     第一集.md`` 是这个产品里最正常的文件名。先做 NFC 规范化，免得同一个名字
@@ -208,15 +208,15 @@ def build_matches(
     return tuple(matches)
 
 
-class WorkspaceStore(Protocol):
-    """工作区文件的存储后端。
+class FileStore(Protocol):
+    """命名空间化文本文件的存储后端。
 
     路径语法由实现方在每个方法里强制——这里是协议边界，将来多一个调用方也绕
     不过去。容量上限同理归实现方：它必须和写入落在同一个事务里，否则「查一下
     用量再写」中间那道缝就是超额的入口。
     """
 
-    async def read(self, namespace: str, path: str) -> WorkspaceFile | None: ...
+    async def read(self, namespace: str, path: str) -> StoredFile | None: ...
 
     async def write(
         self, namespace: str, path: str, content: str, *, expected_version: int | None = None
@@ -229,6 +229,34 @@ class WorkspaceStore(Protocol):
     async def search(self, namespace: str, query: str, *, limit: int) -> SearchResult: ...
 
 
+@dataclass(frozen=True, slots=True)
+class FileSpace:
+    """一处文件地盘：落在哪个后端，以及本次运行该用哪个命名空间。
+
+    两样焊在一起，是因为它们必须配套：同一个后端配上不同的命名空间规则，两个调
+    用方就各写各的地方——而且写和读都成功，只是彼此看不见。装配期造一个递给所有
+    要用它的人，配错在结构上就不可能了。
+    """
+
+    store: FileStore
+
+    namespace: Callable[[Any], str]
+    """从本次运行算出命名空间。
+
+    入参写成 ``Any`` 而不是引擎的运行上下文：这一层不认识那个框架（围栏也不许它
+    认识）。真正的类型由调用方在自己那一侧标。
+    """
+
+    def resolve(self, ctx: Any) -> str:
+        """算出本次运行的命名空间，并过一遍路径语法。
+
+        命名空间是隔离根，混进 ``..`` 或空段，隔离就是纸做的。所有调用方都从这里
+        要命名空间，「同一条规则、同一种规范化」才是结构保证的，而不是各自记得做。
+        """
+
+        return normalize_path(self.namespace(ctx))
+
+
 __all__ = [
     "DEFAULT_MAX_FILE_BYTES",
     "DEFAULT_MAX_NAMESPACE_BYTES",
@@ -239,15 +267,16 @@ __all__ = [
     "MAX_SEGMENT_CHARS",
     "MAX_SNIPPET_CHARS",
     "FileEntry",
+    "FileSpace",
+    "FileStore",
+    "FileStoreError",
     "InvalidContent",
     "InvalidPath",
     "QuotaExceeded",
     "SearchMatch",
     "SearchResult",
+    "StoredFile",
     "VersionConflict",
-    "WorkspaceError",
-    "WorkspaceFile",
-    "WorkspaceStore",
     "build_matches",
     "normalize_path",
     "validate_content",
