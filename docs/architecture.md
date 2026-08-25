@@ -51,9 +51,9 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/conversations/api.py`、`domains/generation/api.py`、`domains/products/api.py`、`domains/tasks/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`platform/file_store/`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py` 与读外部只读源的 `domains/products/catalog_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
+围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/conversations/api.py`、`domains/generation/api.py`、`domains/products/api.py`、`domains/inspirations/api.py`、`domains/tasks/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`platform/file_store/`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py` 与读外部只读源的 `domains/products/catalog_pg.py`、`domains/inspirations/catalog_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
-现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）与 `shot_video/`（镜头素材，见 §5），**能力包之间互不 import**——两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边；`platform/` 含 `file_store/`（命名空间化文本文件存储，工作区的后端）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）、`conversations/`（对话，见 §12）、`generation/`（媒体生成，见 §11）、`products/`（产品资料查询，见 §13）与 `tasks/`（创作需求单，见 §14）。接口随首个实现定义，不提前写投机 ABC。
+现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）与 `shot_video/`（镜头素材，见 §5），**能力包之间互不 import**——两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边；`platform/` 含 `file_store/`（命名空间化文本文件存储，工作区的后端）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）、`conversations/`（对话，见 §12）、`generation/`（媒体生成，见 §11）、`products/`（产品资料查询，见 §13）、`tasks/`（创作需求单，见 §14）与 `inspirations/`（爆款视频查询，见 §15）。接口随首个实现定义，不提前写投机 ABC。
 
 **外部存储落点（登记表，不是配额）**：新增一个碰 SQL/Redis 的文件不是违规，是要登记——在架构测试的 `FRAMEWORK_FENCES` 加一行，并在下表加一行。落在哪一环有两条并列规则：**实现官方协议的后端**跟着「说这门协议的那一环」走；**模块或能力包自有的存储**放自己模块里的 `infra_sql.py`。
 
@@ -66,6 +66,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `platform/object_store/` | OSS | 公开对象存储的适配器；业务侧只认 `PublicObjectStore` 协议 |
 | `platform/file_store/` | PG | 命名空间化文本文件存储的后端（表 `agent_runtime.workspace_files`）；能力侧只认 `FileStore` 协议 |
 | `capabilities/*/infra_sql.py` | PG | 该能力包自有的表 |
+| `domains/inspirations/catalog_pg.py` | PG（外部只读源） | 数仓的爆款榜与视频打标结果，同样不是本模块自有的表 |
 | `domains/products/catalog_pg.py` | PG（外部只读源） | 这些表是别人的（PDM 的同步副本），不是本模块自有的表——所以不叫 `infra_sql.py`，那个名字在本表里的口径是「自有」|
 | `app/` | 建 engine 与 Redis 客户端 | 唯一组合根 |
 
@@ -81,6 +82,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/src/iclip/domains/conversations/` | 对话（会话）：`models.py`（对话行）、`repository.py`/`infra_sql.py`（自有的表）、`schemas.py`（wire 形状）、`service.py`（含删除时连带清理的口子）、`api.py`/`module.py`。不认识 agent 引擎，也不认识工作区 |
 | `server/src/iclip/domains/generation/` | 媒体生成：`schemas.py`（请求类型，同时是 wire 与入库形状）、`models.py`（job 行）、`repository.py`/`infra_sql.py`（只有事实，没有排期）、`provider.py` + `multiflow.py`（视频）/`nano_banana.py`（图像）、`queue.py`（三条队列 + 任务体 + 捡卡死任务）、`service.py`/`api.py`/`module.py` |
 | `server/src/iclip/domains/products/` | 产品资料查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`tables.py`（码→名字的三张常量表）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
+| `server/src/iclip/domains/inspirations/` | 爆款视频查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
 | `server/src/iclip/domains/tasks/` | 创作需求单：`schemas.py`（brief 的类型，同时是 wire 与入库形状）、`models.py`（需求单行 + 状态常量）、`repository.py`/`infra_sql.py`（自有的表；写方法都带状态守卫）、`service.py`（状态机 + 冻结规则 + 谁能改）、`api.py`/`module.py`。不依赖任何别的业务模块 |
 | `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）、`run_stream_redis.py`（事件流的 Redis 后端）、`media.py`（媒体引用协议：前端形状 ↔ 模型形状）与 `materials.py`（素材范围：从消息里算出模型能交给工具的地址，见 §5） |
 | `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`capability.py`（能力本体 + 六件工具）、`scope.py`（工作区归谁：运行 → 命名空间的规则）；与 `shot_video/`：`capability.py`（四件工具）、`shots.py`（镜头区间解析 + 等间隔采样，纯计算）、`board.py`（预览板拼版与帧号叠印）、`grid.py`（切格几何，纯函数）、`prompt.py`（整版 prompt 拼接）、`ffmpeg.py`（异步子进程 + 取素材）、`parser.py`（视频拆解的 Responses 适配器 + 提示词）、`ports.py`（对外要的三个窄协议）。能力包之间互不 import |
@@ -96,7 +98,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ## 4. 装配流程
 
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要一个「删对话时连带清掉派生物」的回调，组合根在这里把它接到工作区的清空上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 装 tasks 模块（只要一张自己的表，没有开关，也不认识别的模块）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 配了产品资料目录时建它的只读 engine 并装 products 模块（连接在会话层就设成只读）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、conversations、配了目录时的 products、tasks、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要一个「删对话时连带清掉派生物」的回调，组合根在这里把它接到工作区的清空上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 装 tasks 模块（只要一张自己的表，没有开关，也不认识别的模块）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 配了产品资料目录 / 爆款视频库时各建一个只读 engine 并装对应模块（两个连接都在会话层设成只读）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、conversations、配了目录时的 products 与 inspirations、tasks、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -121,6 +123,7 @@ env 的读取交给 pydantic-settings：`config/models.py` 里那几个 `*Env` �
 | `VIDEO_UNDERSTANDING_API_KEY` | 镜头素材能力开启时必需；且此时媒体生成必须也开着（出图与对象存储都走它），否则启动报错 |
 | `PRODUCT_CATALOG_DATABASE_URL` | **它就是产品资料查询的开关**：为空即整项关闭（`/products` 不挂载）|
 | `PRODUCT_IMAGE_BASE_URL` | 产品资料查询开启时必需：产品图所在公开桶的地址前缀（半开着比关着更糟——查得到款却给不出图）|
+| `INSPIRATION_DATABASE_URL` | **它就是爆款视频查询的开关**：为空即整项关闭（`/inspirations/*` 不挂载）。视频地址在库里就是完整的，不用另配前缀 |
 | `CONFIG_FILE`、`AGENTS_FILE` | 可选：两份声明文件的路径，缺省 `configs/config.yaml` / `agents/agents.yaml` |
 
 **空串与只有空白等于没设。** 那种半配置最难查，所以在类型上就拒掉（`min_length=1` + 先 strip）。
@@ -276,6 +279,7 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 | `POST /generations` | `generation:submit` | 受理一次生成：校验 + 落一行 `pending`，返回 202 与它的 id。**这一步不碰 provider**（图像接口一次要等几分钟，留在请求里客户端会先超时）|
 | `GET /generations`、`GET /generations/{id}` | `generation:read` | 列表（`limit` ≤ 100）与查单个。别人的一律 404；`users:manage` 看全部。响应不含 provider 原始快照与排队机制字段 |
 | `GET /products/{styleNo}` | `assets:read` | 按 PDM 款号查一个款：品牌、品类、颜色、产品图。零副作用；查不到 404。没配目录库时整组不挂载。见 §13 |
+| `POST /inspirations/videos/search` | `assets:read` | 按 **WMS 编号**搜这些款的爆款视频，服务端按指定维度取 top-N。零副作用；没配爆款库时整组不挂载。见 §14 |
 | `POST /conversations` | `agent:run` | 开一段对话；id 由服务端生成，客户端拿它当 `threadId` |
 | `GET /conversations` | `agent:read` | 我的对话，最近活动的排前面（`limit` ≤ 100）。别人的看不见，治理者也没有看别人的口子 |
 | `PATCH /conversations/{id}`、`DELETE /conversations/{id}` | `agent:run` | 改名 / 删除；删除连带清掉这段对话的工作区文件。别人的一律 404 |
@@ -439,3 +443,25 @@ GET /products/{styleNo}
 - **每个写方法都带状态守卫。** 调用方读到这一行时它是什么状态，就把那个状态交回来当写入条件（`expect=`）。判断和写入之间隔着一次 await，那当口别人可能刚把它撤回；对不上就一行也改不到，服务层把它翻译成 409 并让人重读一次。
 
 brief 只有一套定义（同 §11 的生成请求）：`schemas.TaskBrief` 既是 wire 形状也是入库形状，落库存 camelCase，读回来重新校验一遍，形状坏了响亮失败。
+
+## 15. 爆款视频查询
+
+给一组款，拿回这些款下表现最好的那批短视频：地址、作者、发布日期、五项指标、CT 归属与平台类目。**只读、零副作用、不建表**——数据在外部一个 Postgres 里（数仓的爆款榜 + 视频打标结果）。
+
+```text
+POST /inspirations/videos/search  { styleWmsList, sortBy, limit }
+  │  按 WMS 编号过滤，在库里按指定维度排序后截断
+  ▼
+爆款榜（一行一条视频，video_id 是主键）
+  └─ LEFT JOIN 打标表：拿转存过的可播地址
+```
+
+几个决定与它们的理由：
+
+- **过滤用的是 WMS 编号，不是 PDM 款号。** 这不是选择：全库 287 个款号拿去比对，按 WMS 编号命中 196 个，按 PDM 款号只命中 1 个。传错那一种的失效是静默的（返回空列表），所以字段名里带着 `wms`——让传错的人在名字上先愣一下。产品资料接口响应里的 `styleWms` 就是拿来喂这里的。
+- **排序在库里做。** 一次二十个款能命中近千条视频，取的是那个维度上的前 N 条；捞回应用里再排等于换了一批样本。排序维度是封闭枚举，**调用方给的字符串永远只是键**，进 SQL 的是代码里那张表的值。
+- **指标原样给，不合成综合分。** 哪个维度算「爆」是调用方的判断。钱走 `Decimal`，不走浮点。
+- **不去重。** `video_id` 是那张表的主键，一条视频只有一行；`popular_mon` 是它上榜的月份，不是累积维度。排序尾巴上跟一个 `video_id`，让指标持平时的先后是确定的。
+- **可播地址可能没有。** 转存过的副本只有八成，缺的那些照样返回——原始平台地址一直都在。
+- **这里的类目和产品资料里的品类不是一套。** 这边是平台口径的英文类目（`Casual Trainers`），那边是 PDM 品类（`高跟鞋 / Pumps`）；两个系统各说各的，中间不存在映射，我们也不翻译。
+- **CT 归属这边反而有。** 上游行上就带着 CT 全名；产品资料那边拿不到（见 §13），所以同一个概念在一个接口里有值、在另一个里是 `null`。

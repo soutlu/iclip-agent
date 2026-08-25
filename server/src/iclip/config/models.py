@@ -49,6 +49,9 @@ VIDEO_UNDERSTANDING_URL_ENV: Final = "VIDEO_UNDERSTANDING_URL"
 PRODUCT_CATALOG_DATABASE_URL_ENV: Final = "PRODUCT_CATALOG_DATABASE_URL"
 """产品资料查询的总开关：这个连接串为空即整项关闭（`/products` 不挂载）。"""
 
+INSPIRATION_DATABASE_URL_ENV: Final = "INSPIRATION_DATABASE_URL"
+"""爆款视频查询的总开关：这个连接串为空即整项关闭（`/inspirations/*` 不挂载）。"""
+
 
 class ConfigSection(BaseModel):
     """所有 YAML 段的共同约束：frozen + 未知字段即拒。"""
@@ -145,6 +148,12 @@ class ProductCatalogEnv(EnvSettings):
 
     database_url: RequiredEnv = Field(validation_alias=PRODUCT_CATALOG_DATABASE_URL_ENV)
     image_base_url: RequiredEnv = Field(validation_alias="PRODUCT_IMAGE_BASE_URL")
+
+
+class InspirationEnv(EnvSettings):
+    """爆款视频库：外部只读库的连接串。视频地址在行上是完整的，不用另配前缀。"""
+
+    database_url: RequiredEnv = Field(validation_alias=INSPIRATION_DATABASE_URL_ENV)
 
 
 # ── YAML 的形状 ───────────────────────────────────────────────────────────────
@@ -386,6 +395,13 @@ class ResolvedProductCatalog:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedInspirations:
+    """爆款视频查询的运行值。"""
+
+    database_url: str
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedModel:
     """一个命名模型解析后的装配事实。``name`` 是 agent 引用的名字。"""
 
@@ -410,6 +426,7 @@ class ResolvedSettings:
     media_generation: ResolvedMediaGeneration | None
     shot_video: ResolvedShotVideo | None
     product_catalog: ResolvedProductCatalog | None
+    inspirations: ResolvedInspirations | None
     models: tuple[ResolvedModel, ...]
     log_level: str
 
@@ -505,6 +522,14 @@ def _resolve_product_catalog() -> ResolvedProductCatalog | None:
     return ResolvedProductCatalog(database_url=env.database_url, image_base_url=env.image_base_url)
 
 
+def _resolve_inspirations() -> ResolvedInspirations | None:
+    """解析爆款视频查询；连接串为空即整项关闭。它同样没有 YAML 段——没有可调的形状。"""
+
+    if not _switched_on(INSPIRATION_DATABASE_URL_ENV):
+        return None
+    return ResolvedInspirations(database_url=_from_env(InspirationEnv).database_url)
+
+
 def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
     """把 YAML 的形状和环境变量的值合成装配期要用的运行值，缺什么当场失败。"""
 
@@ -549,6 +574,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             config.shot_video, generation_on=media_generation is not None
         ),
         product_catalog=_resolve_product_catalog(),
+        inspirations=_resolve_inspirations(),
         models=tuple(
             ResolvedModel(
                 name=name,

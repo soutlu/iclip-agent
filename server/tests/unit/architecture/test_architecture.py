@@ -27,6 +27,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "domains/conversations/api.py",
         "domains/generation/api.py",
         "domains/products/api.py",
+        "domains/inspirations/api.py",
         "domains/tasks/api.py",
         "domains/identity/middleware.py",
         "domains/identity/accounts.py",
@@ -43,6 +44,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         # 外部只读源：这些表是别人的（PDM 的同步副本），不是本模块自有的表，所以
         # 不叫 infra_sql.py——那个名字在落点表里的口径是「该模块自有的表」。
         "domains/products/catalog_pg.py",
+        "domains/inspirations/catalog_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
     # 模型装配唯一需要直接碰 openai SDK 的地方（给兼容端点造客户端）。

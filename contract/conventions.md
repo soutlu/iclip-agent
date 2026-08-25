@@ -193,3 +193,36 @@
 | `referenceImages`、`referenceVideos` | `string[]`（各 ≤ 16 条） | 参考素材地址，**只收 `http://` 或 `https://`**，别的 scheme `422` |
 
 `brief` 不接受未声明的字段（多给一个就是 `422`）。
+
+## 9. 爆款视频查询 (Inspirations)
+
+`POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `assets:read`。
+
+```json
+// 请求
+{ "styleWmsList": ["SNMT241M"], "sortBy": "orders", "limit": 50 }
+
+// 响应
+{ "items": [{
+    "videoId": "7519657364165856542",
+    "styleWms": "SNMT241M",
+    "videoUrl": "https://www.tiktok.com/@…/video/…",
+    "ossUrl": "https://…/….mp4",
+    "creatorHandle": "fraw_berry",
+    "postedDate": "2025-06-24",
+    "combatTeam": "Nortiv8",
+    "category": "Casual Trainers",
+    "metrics": { "impressions": 20455, "views": 152446, "clicks": 38,
+                 "orders": 56, "revenue": "3171.510000" },
+    "popular": { "brand": true, "kol": false, "tt": true }
+}] }
+```
+
+- **`styleWmsList` 收的是 WMS 编号，不是 PDM 款号。** 两套编码不通用，传成款号会安静地搜不到东西。拿 `GET /products/{styleNo}` 响应里的 `styleWms` 来喂它。
+- `sortBy ∈ impressions | views | clicks | orders | revenue`（默认 `orders`），`limit` 取值 1–100（默认 50），`styleWmsList` 1–20 个。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
+- `metrics.revenue` 是**字符串**（十进制原样，不走浮点）；其余四项是整数。
+- `popular` 三个标记彼此独立，可以同时为 `true`。
+- `ossUrl` 可能为 `null`（不是每条都有转存副本），`videoUrl` 一定有。
+- `category` 是**平台口径的英文类目**，和产品资料接口里的 PDM 品类不是一套，两边不互相翻译。
+- 没有匹配的视频返回 `{"items": []}`，不是 404。
+- 服务端没配爆款库时这组路由整个不挂载。

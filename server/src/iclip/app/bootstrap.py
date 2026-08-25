@@ -26,6 +26,7 @@ from iclip.capabilities.workspace.scope import namespace_for
 from iclip.common.errors import DomainError
 from iclip.config import (
     ResolvedAgent,
+    ResolvedInspirations,
     ResolvedMediaGeneration,
     ResolvedModel,
     ResolvedProductCatalog,
@@ -49,6 +50,8 @@ from iclip.domains.identity.middleware import PrincipalMiddleware
 from iclip.domains.identity.module import SsoRuntime, build_identity_module
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
+from iclip.domains.inspirations.catalog_pg import PgInspirationCatalog
+from iclip.domains.inspirations.module import build_inspirations_module
 from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.products.module import build_products_module
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
@@ -210,13 +213,31 @@ def _product_catalog_engine(
 
     if settings is None:
         return None
-    if injected is not None:
-        return injected
+    return injected if injected is not None else _read_only_engine(settings.database_url)
+
+
+def _read_only_engine(database_url: str) -> AsyncEngine:
+    """外部只读源的连接。
+
+    **只读钉在会话层**：那些库的账号本身可能有写权限，而我们只该读它们。钉在自己
+    这边就不依赖对方的授权配置哪天有没有改对。
+    """
+
     return create_async_engine(
-        settings.database_url,
+        database_url,
         pool_pre_ping=True,
         connect_args={"server_settings": {"default_transaction_read_only": "on"}},
     )
+
+
+def _inspirations_engine(
+    settings: ResolvedInspirations | None, injected: AsyncEngine | None
+) -> AsyncEngine | None:
+    """爆款视频库的连接；没配这项能力就没有。"""
+
+    if settings is None:
+        return None
+    return injected if injected is not None else _read_only_engine(settings.database_url)
 
 
 def _generation_module(
@@ -272,10 +293,12 @@ def build_app(
     object_store: PublicObjectStore | None = None,
     queue_connector: procrastinate.BaseConnector | None = None,
     product_catalog_engine: AsyncEngine | None = None,
+    inspirations_engine: AsyncEngine | None = None,
 ) -> FastAPI:
     """装配公开 app。
 
-    测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储、队列连接器与产品目录库。
+    测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储、队列连接器，以及产品
+    目录库与爆款视频库这两个外部只读源。
     """
 
     settings = resolve_settings(config)
@@ -339,6 +362,13 @@ def build_app(
         else None
     )
     owns_catalog_engine = catalog_engine is not None and product_catalog_engine is None
+    inspiration_engine = _inspirations_engine(settings.inspirations, inspirations_engine)
+    inspirations = (
+        build_inspirations_module(PgInspirationCatalog(inspiration_engine))
+        if inspiration_engine is not None
+        else None
+    )
+    owns_inspiration_engine = inspiration_engine is not None and inspirations_engine is None
     workspace_store = PgFileStore(active_engine)
 
     async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
@@ -433,6 +463,8 @@ def build_app(
                 await shot_video_client.aclose()
             if owns_catalog_engine and catalog_engine is not None:
                 await catalog_engine.dispose()
+            if owns_inspiration_engine and inspiration_engine is not None:
+                await inspiration_engine.dispose()
             if redis_client is not None:
                 await redis_client.aclose()
             if owns_engine:
@@ -456,6 +488,8 @@ def build_app(
     for router in generation.routers if generation is not None else ():
         app.include_router(router)
     for router in products.routers if products is not None else ():
+        app.include_router(router)
+    for router in inspirations.routers if inspirations is not None else ():
         app.include_router(router)
     for router in conversations.routers:
         app.include_router(router)
@@ -481,6 +515,7 @@ def build_app(
     app.state.conversations = conversations
     app.state.generation = generation
     app.state.products = products
+    app.state.inspirations = inspirations
     app.state.tasks = tasks
     return app
 

@@ -62,6 +62,11 @@ depends_on = [
 path = "iclip.domains.products"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
+# 爆款视频查询：读外部的数仓爆款榜，自己不建表。
+[[modules]]
+path = "iclip.domains.inspirations"
+depends_on = ["iclip.common", "iclip.domains.identity"]
+
 # 通用 agent 内核，不认识业务。
 [[modules]]
 path = "iclip.harness"
@@ -92,6 +97,7 @@ depends_on = [
     "iclip.domains.agents",
     "iclip.domains.conversations",
     "iclip.domains.generation",
+    "iclip.domains.inspirations",
     "iclip.domains.products",
     "iclip.domains.tasks",
     "iclip.harness",
