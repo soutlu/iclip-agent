@@ -8,8 +8,10 @@
 #
 # skills 从本文件同级的 skills/ 库里按目录名挑（一个子目录一个 skill，含 SKILL.md）；
 # capabilities 是 capability 名，实现登记在 src/iclip/app/capability_table.py；目前已
-# 登记的是 workspace（一段对话一个文本工作区，主 agent 与下属共用）。两者都是不写即不挂，
-# 而且子 agent 不继承主 agent 的——下属只拥有显式给它的那几样。
+# 登记的有 workspace（一段对话一个文本工作区，主 agent 与下属共用）和 shot_video（拆参
+# 考片、取帧、出图、切格；要 VIDEO_UNDERSTANDING_URL 与媒体生成都开着才登记得上，否则
+# 引用它会在装配期报错）。两者都是不写即不挂，而且子 agent 不继承主 agent 的——下属只
+# 拥有显式给它的那几样。
 #
 # 形状示例（真实内容由使用者填写）：
 #

@@ -15,11 +15,28 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping, Sequence
 
+import httpx
+from pydantic import ValidationError
+
+from iclip.capabilities.shot_video.capability import GenerationPolicy, shot_video_capability
+from iclip.capabilities.shot_video.parser import ArkVideoUnderstanding
+from iclip.capabilities.shot_video.ports import (
+    ImageJob,
+    ImageRequest,
+    InvalidImageRequest,
+    PublicObjectWriter,
+)
 from iclip.capabilities.workspace.capability import workspace_capability
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.capabilities.workspace.store import WorkspaceStore
+from iclip.config import ResolvedShotVideo
+from iclip.domains.generation.models import GenerationJob
+from iclip.domains.generation.schemas import ImageGenerationIn
+from iclip.domains.generation.service import GenerationService
+from iclip.domains.identity.public import Principal
 from iclip.harness.agents import AgentCapabilities
 
 CapabilityTable = Mapping[str, AgentCapabilities]
@@ -31,12 +48,109 @@ capability 的 ``for_run`` 每次运行克隆一份，运行期状态不落在�
 """
 
 
-def build_capability_table(*, workspace_store: WorkspaceStore) -> CapabilityTable:
-    """建立名字表。落地一个能力就在这里登记一个名字。"""
+class GenerationsAdapter:
+    """把 generation 域的服务接到能力包的窄协议上。
 
-    return {
+    翻译只做两件事：拼出生成域那套唯一的请求定义（取值合不合法由它判，这里不再
+    写一遍），以及把 job 行收窄成能力包看得懂的几个字段。
+    """
+
+    def __init__(self, service: GenerationService) -> None:
+        self._service = service
+
+    async def submit(self, principal: Principal, request: ImageRequest) -> ImageJob:
+        try:
+            # 走 model_validate 而不是构造器：画幅与档位是封闭枚举，模型给的是自
+            # 由字符串，判定归生成域那套唯一的请求定义，不在这里再写一遍。
+            payload = ImageGenerationIn.model_validate(
+                {
+                    "prompt": request.prompt,
+                    "channel": request.channel,
+                    "aspect_ratio": request.aspect_ratio,
+                    "resolution": request.resolution,
+                    "reference_image_urls": list(request.reference_image_urls),
+                }
+            )
+        except ValidationError as exc:
+            raise InvalidImageRequest(_first_problem(exc)) from exc
+        return _job_view(await self._service.submit(principal, payload))
+
+    async def get(self, principal: Principal, job_id: uuid.UUID) -> ImageJob:
+        return _job_view(await self._service.get(principal, job_id))
+
+
+def _job_view(job: GenerationJob) -> ImageJob:
+    """job 行 → 能力包要的那几个字段。渠道从请求快照上取（那才是这次真用的）。"""
+
+    request = job.request
+    return ImageJob(
+        job_id=job.id,
+        status=job.status,
+        channel=request.channel if isinstance(request, ImageGenerationIn) else "dev",
+        output_url=job.output_url,
+        error_code=job.error_code,
+        error_message=job.error_message,
+    )
+
+
+def _first_problem(exc: ValidationError) -> str:
+    """挑一条说得清的出来。
+
+    模型一次只改得动一处，把十条校验错误原样甩过去只会让它无从下手。
+    """
+
+    first = exc.errors()[0]
+    where = ".".join(str(part) for part in first["loc"]) or "参数"
+    return f"{where}: {first['msg']}"
+
+
+def build_capability_table(
+    *,
+    workspace_store: WorkspaceStore,
+    generation_service: GenerationService | None = None,
+    object_store: PublicObjectWriter | None = None,
+    http_client: httpx.AsyncClient | None = None,
+    shot_video: ResolvedShotVideo | None = None,
+) -> CapabilityTable:
+    """建立名字表。落地一个能力就在这里登记一个名字。
+
+    ``shot_video`` 那几个入参要么一起有、要么一起没有：它建立在媒体生成之上（出
+    图走生成域，产物落生成用的那个对象存储），配置解析那一步已经保证了这一点。
+    没配就是不登记这个名字，而 agent 声明里引用它会在装配期报错——一个带着半套
+    工具上线的 agent，症状是「它不干活」，最难查。
+    """
+
+    table: dict[str, AgentCapabilities] = {
         "workspace": (workspace_capability(store=workspace_store, namespace=workspace_namespace),),
     }
+    if (
+        shot_video is not None
+        and generation_service is not None
+        and object_store is not None
+        and http_client is not None
+    ):
+        table["shot_video"] = (
+            shot_video_capability(
+                generations=GenerationsAdapter(generation_service),
+                objects=object_store,
+                understanding=ArkVideoUnderstanding(
+                    http_client,
+                    url=shot_video.understanding_url,
+                    api_key=shot_video.understanding_api_key,
+                    model=shot_video.understanding_model,
+                ),
+                client=http_client,
+                policy=GenerationPolicy(
+                    poll_interval_seconds=shot_video.poll_interval_seconds,
+                    dev_attempts=shot_video.dev_attempts,
+                    pro_attempts=shot_video.pro_attempts,
+                    backoff_seconds=shot_video.backoff_seconds,
+                    backoff_factor=shot_video.backoff_factor,
+                    total_timeout_seconds=shot_video.job_timeout_seconds,
+                ),
+            ),
+        )
+    return table
 
 
 def resolve_capabilities(
@@ -56,4 +170,9 @@ def resolve_capabilities(
     return resolved
 
 
-__all__ = ["CapabilityTable", "build_capability_table", "resolve_capabilities"]
+__all__ = [
+    "CapabilityTable",
+    "GenerationsAdapter",
+    "build_capability_table",
+    "resolve_capabilities",
+]

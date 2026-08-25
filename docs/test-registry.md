@@ -73,4 +73,10 @@
 | T-STREAM-05 | integration_no_llm | 跑完之后同一个运行 id 再发起一次：流的长度一帧不多（断言不能比对读到的事件——重复的帧落在终帧之后，读不到）| 重跑一遍白烧模型调用 |
 | T-CONFIG-03 | unit | `redis` 段：配了就必须有 `REDIS_URL`（缺了报出变量名）、默认值显式、缺段即无事件流 | 静默降级 |
 | T-AGENTRUN-02 | integration_no_llm | 完整 HTTP 路径跑一次运行后，`agent_runtime.runs` 有对应会话的 run（id 前缀为 agent id），`agent_runtime.events` 首帧为 `run_started` | 运行事实只活在进程内存 |
+| T-SHOT-01 | unit | 切格几何（纯函数）：PGM 解析的七类坏输入各自被拒；分隔带不在等分线上时按它切、外圈边框另修；**检测不到时退回等分且 `detected` 为假**（只量到一个轴也算没量到）；离等分线太远的白带不当网格线；黑色格间距同样算；行列数越界、像素长度对不上即拒；画幅收缩在容差内不动、大偏差照常裁（那是正常操作）、空盒即拒；缩放坐标还原 | 静默切歪 / 把错误整形成「看起来对」 |
+| T-SHOT-02 | unit | 四件工具的语义（出图/对象存储/拆解都用替身）：能力 id 写死、`get_serialization_name()` 为 None、`get_instructions()` 为 None（接力顺序归 skill，不由能力包注入）、四件工具都到模型面前；deps 不是 `AgentRunDeps` → 直接炸而不是可重试提示；非 http 地址、时间码六类坏写法、超过每次 8 帧、行列数越界**都在碰网络与子进程之前**被拒；拆解失败翻成可重试提示 | 越界输入 / 装配面接不上 / 白跑一次下载 |
+| T-SHOT-03 | unit | 出图的重试与升级：一次成功只提交一次；`PROVIDER_UNREACHABLE` 与 `PROVIDER_SERVER_ERROR` 才自动再发，dev 试满再升 pro（渠道序列 dev,dev,pro）；**`PROVIDER_RESULT_UNKNOWN` / `PROVIDER_REJECTED` / `OUTPUT_*` / `SUBMIT_INTERRUPTED` / `PROVIDER_TIMEOUT` 一次都不重发**；参数不合规在提交之前拒（一次都没提交）；等超时也要把记录 id 报回去；试过几次要出现在结果里 | 重复计费 / 悄悄改计费 / 一次生成没有结论 |
+| T-SHOT-04 | integration_no_llm | 真起 ffmpeg（素材由 ffmpeg 自己合成，经替身传输喂进去）：切格真按非等分的网格线走（四格实际像素尺寸各不相同，等分切法给不出这个结果）、目标画幅收缩落到像素上、切完与抽完的画面都附在结果里；按时间码抽帧尺寸正确；超出时长的时间码报出实际时长；取不到素材翻成可重试提示 | 几何只在纸面上对 / 下载失败炸成 500 |
+| T-SHOTCFG-01 | unit | `shot_video`：`VIDEO_UNDERSTANDING_URL` 为空即整项关闭（段留着也一样）；开了则 key 必需（缺了报变量名）；**开了但媒体生成没开即启动报错**（出图与对象存储都走生成那一套）；模型名来自 YAML | 半开着的能力 / 静默降级 |
+| T-SHOTBOOT-01 | unit | 依赖不齐时 `shot_video` 不进名字表，引用它的 agent 在装配期报「未登记的 capability」；依赖齐了才登记得上；适配器把不合规的画幅/档位翻成能力包自己的错误类型（不外泄领域错误） | agent 带着半套工具上线 |
 | T-ADMIN-01 | integration_no_llm | root 引导：`ROOT_EMAIL` SSO 登录即持有 root；CLI set-roles 直连 DB（非 SSO 场景） | 引导链路 |

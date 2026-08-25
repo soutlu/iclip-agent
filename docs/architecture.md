@@ -78,7 +78,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/src/iclip/domains/agents/` | agent 运行的 HTTP 面：`api.py`（发起运行 + 接着读事件）、`public.py`（`AgentRunDeps`：一次运行的身份 + 所属对话），只认识注入进来的运行入口 |
 | `server/src/iclip/domains/generation/` | 媒体生成：`schemas.py`（请求类型，同时是 wire 与入库形状）、`models.py`（job 行）、`repository.py`/`infra_sql.py`（只有事实，没有排期）、`provider.py` + `multiflow.py`（视频）/`nano_banana.py`（图像）、`queue.py`（三条队列 + 任务体 + 捡卡死任务）、`service.py`/`api.py`/`module.py` |
 | `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）与 `run_stream_redis.py`（事件流的 Redis 后端） |
-| `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`store.py`（路径语法 + 后端 Protocol）、`capability.py`（能力本体 + 工具集）、`scope.py`（工作区归谁）、`infra_sql.py`（PG 后端） |
+| `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`store.py`（路径语法 + 后端 Protocol）、`capability.py`（能力本体 + 工具集）、`scope.py`（工作区归谁）、`infra_sql.py`（PG 后端）；与 `shot_video/`：`capability.py`（四件工具）、`grid.py`（切格几何，纯函数）、`ffmpeg.py`（异步子进程 + 取素材）、`parser.py`（视频拆解的 Responses 适配器 + 提示词）、`ports.py`（对外要的三个窄协议） |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（公开对象存储，阿里云 OSS） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只有形状；地址与凭证在环境变量里） |
@@ -91,7 +91,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ## 4. 装配流程
 
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -112,6 +112,8 @@ env 的读取交给 pydantic-settings：`config/models.py` 里那几个 `*Env` �
 | `REDIS_URL` | 声明了 `redis` 段时必需 |
 | `VIDEO_SUBMIT_URL` | **它就是媒体生成的开关**：为空即整项关闭（`/generations` 不挂载、后台不跑） |
 | `VIDEO_STATUS_BASE_URL`、`VIDEO_API_KEY`、`IMAGE_TEXT_TO_IMAGE_URL`、`IMAGE_EDIT_URL`、`OSS_BUCKET`、`OSS_ENDPOINT`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_PUBLIC_URL_BASE` | 媒体生成开启时全部必需（半开着比关着更糟） |
+| `VIDEO_UNDERSTANDING_URL` | **它就是镜头素材能力的开关**：为空即整项关闭（`shot_video` 不登记进名字表） |
+| `VIDEO_UNDERSTANDING_API_KEY` | 镜头素材能力开启时必需；且此时媒体生成必须也开着（出图与对象存储都走它），否则启动报错 |
 | `CONFIG_FILE`、`AGENTS_FILE` | 可选：两份声明文件的路径，缺省 `configs/config.yaml` / `agents/agents.yaml` |
 
 **空串与只有空白等于没设。** 那种半配置最难查，所以在类型上就拒掉（`min_length=1` + 先 strip）。
@@ -124,6 +126,7 @@ env 的读取交给 pydantic-settings：`config/models.py` 里那几个 `*Env` �
 | `sso` | `app_name`：我们在对方那边注册的应用名 |
 | `redis` | 运行事件流的调参：`replay_window_seconds`、`max_frames`、`max_connections`（声明了 agent 即必填，缺段启动报错） |
 | `media_generation` | `video`（`model` / `user_name`）、`image`（`user_name`）、`poll_interval_seconds`、`job_timeout_seconds`。并发、错误重试间隔、关停宽限、心跳这些是实现细节，默认值在 `GenerationQueueSettings` 里，不进 YAML |
+| `shot_video` | 镜头素材能力：`understanding_model`（拆解视频用对方哪个模型）、出图的等待与重试节奏（`poll_interval_seconds` / `dev_attempts` / `pro_attempts` / `backoff_seconds` / `backoff_factor` / `job_timeout_seconds`） |
 | `models` | 命名模型表：键名即模型名，值为 `provider` / `api`（`chat`\|`responses`，默认 chat）/ `api_key_env` / `base_url?` / `model?`（只在键名不是模型名时写） |
 | `ops` | `log_level` |
 
@@ -137,7 +140,7 @@ agent:                                 # 键名即 agent id
     spec: storyboard/agent.yaml        # 相对本文件目录；同目录 instructions.md 自动并入
     model: qwen3.8-max                 # 引用 config.yaml models 段的键名，必填
     skills: [storyboard-workflow]      # 从同级 skills/ 库里挑，不写即不挂
-    capabilities: [workspace]          # capability 名（登记在 app/capability_table.py），不写即不挂
+    capabilities: [workspace, shot_video]  # capability 名（登记在 app/capability_table.py），不写即不挂
   producer:
     spec: producer/agent.yaml
     model: qwen3.8-max
@@ -168,6 +171,16 @@ agent:                                 # 键名即 agent id
 - **改一段用精确字符串匹配，不用行号。** 行号是某一个版本的文件的坐标，过期的行号区间会静默替换掉错误的行；精确匹配过期时的失败模式是响亮的「零次/多次匹配」。`edit_file` 内部带版本号写回（读—改—写受并发保护），版本号不进工具参数。
 - **容量上限在存储层强制，且每次变更先拿命名空间的 advisory 锁。** 命名空间总量是跨行聚合，单条语句的原子性保护不了它。拿到锁之后判断放在 Python 里，「容量满」和「版本冲突」因此是两种可分辨的错误——塞进 `ON CONFLICT ... WHERE` 的守卫只能返回 0 行，而这两件事给模型的提示完全相反。
 - 只放文本；二进制走已有的内容寻址媒体（`media` 表 + `media+sha256://`）。
+
+**镜头素材（`capabilities: [shot_video]`）** 给 agent 四件围着一条产线的工具：`parse_video`（拆参考片）→ `extract_video_frames`（按时间码取帧）→ `generate_image`（出图）→ `cut_grid_image`（把 2×2 拼图切成单帧）。它建立在媒体生成之上——出图走 generation 域的服务，帧与切格产物落生成用的那个公开对象存储——所以两项要么一起开、要么一起关，开关是 `VIDEO_UNDERSTANDING_URL`。几个决定与它们的理由：
+
+- **工具之间没有暗账。** 逐镜时间码由模型从拆解文档里挑出来、逐个当入参传给取帧，而不是上一件工具把它写进某个约定路径的文件、下一件再去读。那种暗账文件模型自己也能改能删，而且「拆解结果」和「取帧计划」两处各存一份必然分叉。
+- **能力包不注入指令**（`get_instructions()` 返回 `None`）。四件工具怎么接力是流程知识，归 skill；工具 docstring 只回答「这个工具是什么」。这条界线见 [tool-design.md](tool-design.md) §0。
+- **视频拆解不走命名模型表，也不做成 agent。** pydantic-ai 的 OpenAI 适配器（Chat Completions 与 Responses 两条都是）对视频输入直接抛 `NotImplementedError`，只有 Google / Anthropic 那几个专属模型类支持视频；而本仓的模型全是 OpenAI 兼容的。所以 `parser.py` 自己说一次 Responses 协议，形状与两家生成 provider 一致（地址与凭证来自环境变量）。它也不是 agent：这次调用没有工具、没有多轮，做成 agent 只会凭空多一层运行血缘，而且派活那条路只递得进文本（`delegate_task(agent_name, task: str)`），视频根本传不下去。**提示词写死在 `parser.py` 里**——它和输出结构是一体的（第 2 节定义几个结构节点、第 4 节就得有几行），拆开放会让改它的人看不见这层绑定。
+- **出图的重试与升级归工具，不归 provider。** 不变量 9 管的是模型调用接口那一层：`nano_banana.py` 至今一次调用就是一次调用，不重试也不换渠道。工具是它的**调用方**，和人点两次按钮是同一个身份——所以先在 dev 试、试不通再升 pro 这件事发生在工具里，**每次尝试各落一行 `generation_jobs`**，渠道记在行上，账面上看得见试了几次、各花在哪。**判据只有一条：这次失败有没有可能已经计费。** 只有 `PROVIDER_UNREACHABLE`（连都没连上）和 `PROVIDER_SERVER_ERROR`（对方 5xx 且没有产出）会自动再发；`PROVIDER_RESULT_UNKNOWN`（送出去了但结果不明）、`PROVIDER_REJECTED`（对方明确拒绝）、`OUTPUT_*`（图生成好了只是没转存成功）一律停手并把错误码原样报出来。升级只在失败时发生——「出了图但不够好」是一次新的需求，不是重试。
+- **切格按图上真实的分隔带走，检测不到时退回等分并说出来。** 生成的拼图常带外边框和不等宽的格间距，机械等分会让每格带一条白边或错半格。检测在降采样到 640 宽的灰度图上做（分隔带是大尺度结构，成本因此低两个数量级），裁剪回到原图坐标，四格一次 `filter_complex` 裁完（每格起一个 ffmpeg 会把整张 4K 图解码四遍）。**退回等分不是静默的**：结果里明说这一格是量出来的还是猜的——等分切出来的图长得和正常结果一模一样，不说就没人知道。
+- **像素存一份大的、看一份小的。** 帧与切格产物按内容哈希落公开对象存储（它们要当参考图交给生成接口，对方是自己去下载那个地址的；内容寻址顺带保证同一帧不会在桶里堆重复），同时缩到长边 1024 附在工具结果里给模型看。一次最多取 8 帧，上限的理由是模型面而不是性能。
+- **ffmpeg 一律异步起进程、每个都有超时。** 同步的 `subprocess.run` 会把整个 worker 的事件循环按住几十秒——被拖住的不只是这次运行，是这个进程上所有正在读事件流的人。装配时检查 PATH 上有没有 ffmpeg/ffprobe，没有就启动报错，不等模型撞上去。
 
 **挂 skill 库就一定同时挂 `get_skill_reference` 工具**（`harness/skills.py`）。官方 `Skills` 只读 `SKILL.md`，不碰 `references/`；库里放着分支规则而没有读它的手段，模型会照着正文的指示去读、然后无从下手——这种静默失效比报错更难查。工具的访问边界与挂载范围严格一致：没挂给这个 agent 的 skill，它的 references 也读不到（官方文档明说 `include`/`exclude` 不是访问边界，所以边界只能落在工具里）。越界、非 `.md`、不存在都回可重试提示并报出有哪些文件；自家资产编码坏了则直接失败（重试改不了坏文件）。
 

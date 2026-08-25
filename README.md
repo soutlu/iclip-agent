@@ -91,5 +91,6 @@ cd web && pnpm dev
 - **[docs/CONTEXT.md](docs/CONTEXT.md)**: **系统上下文与领域锚点**。收录了本项目所有核心名词的定义、系统生命周期以及**绝对不能违背的底层逻辑与不变量**（例如数据库读写原则、权限隔离逻辑等）。
 - **[docs/architecture.md](docs/architecture.md)**: **架构设计地图**。展示了后端的三环分层（组合根 `app/` 之下，通用内核 `harness/`、业务能力包 `capabilities/`、业务模块 `domains/` 三者互不越界，共同建立在 `platform/` 与 `common/` 之上）与模块装配逻辑。
 - **[docs/adr/](docs/adr/)**: **架构决策记录 (Architecture Decision Records)**。记录了系统演进过程中的重要技术选择、架构方案定型及其背后的上下文与权衡考虑（如 ADR-0001 的三环分层与引擎地基、ADR-0002 的统一权限抽象模型）。
+- **[docs/tool-design.md](docs/tool-design.md)**: **工具编写规范**。约定 agent 工具面向模型的文本的写法与禁区。
 - **[docs/test-design.md](docs/test-design.md)**: **测试设计规范**。阐述了现有的测点设计思路与如何编写符合规范的测试用例。
 - **[docs/test-registry.md](docs/test-registry.md)**: **测试点登记表**。逐条列出每个测试点断言什么行为、防的是哪类风险。

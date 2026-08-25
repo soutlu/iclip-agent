@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
+import httpx
 import procrastinate
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,7 @@ from iclip.app.capability_table import (
     resolve_capabilities,
 )
 from iclip.app.logging import configure_logging
+from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.workspace.infra_sql import PgWorkspaceStore
 from iclip.common.errors import DomainError
 from iclip.config import (
@@ -25,6 +27,7 @@ from iclip.config import (
     ResolvedMediaGeneration,
     ResolvedModel,
     ResolvedRedis,
+    ResolvedShotVideo,
     RuntimeConfig,
     SkillMount,
     resolve_settings,
@@ -140,6 +143,20 @@ _SOCKET_TIMEOUT_MARGIN = 5.0
 """socket 超时比阻塞等待多留的余量（秒）。"""
 
 
+def _shot_video_client(settings: ResolvedShotVideo | None) -> httpx.AsyncClient | None:
+    """镜头素材能力取素材与调拆解接口用的连接池。
+
+    ffmpeg 在这里检查：抽帧与切格全靠它，PATH 上没有的话那两件工具每次调用都会
+    失败——那是部署环境的问题，该在启动时就说清楚，不该等模型撞上去。
+    """
+
+    if settings is None:
+        return None
+    if not ffmpeg_available():
+        raise RuntimeError("配了 shot_video 但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
+    return httpx.AsyncClient(follow_redirects=True)
+
+
 def _stream_settings(redis: ResolvedRedis | None) -> RunStreamSettings:
     """配置段缺席时（测试注入了自己的事件流）用默认时长与容量。"""
 
@@ -151,12 +168,31 @@ def _stream_settings(redis: ResolvedRedis | None) -> RunStreamSettings:
     )
 
 
+def _object_store(
+    settings: ResolvedMediaGeneration, injected: PublicObjectStore | None
+) -> PublicObjectStore:
+    """公开对象存储：生成结果和镜头素材共用这一个（测试可注入替身）。"""
+
+    if injected is not None:
+        return injected
+    oss = settings.object_store
+    return OssObjectStore(
+        OssSettings(
+            bucket=oss.bucket,
+            endpoint=oss.endpoint,
+            access_key_id=oss.access_key_id,
+            access_key_secret=oss.access_key_secret,
+            public_url_base=validate_public_url_base(oss.public_url_base),
+        )
+    )
+
+
 def _generation_module(
     settings: ResolvedMediaGeneration,
     engine: AsyncEngine,
     *,
     database_url: str,
-    object_store: PublicObjectStore | None,
+    object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
 ) -> GenerationModule:
     """把配置环的运行值翻译成 generation 的入参。
@@ -165,18 +201,6 @@ def _generation_module(
     业务模块读不到 config，翻译是组合根的活。
     """
 
-    store = object_store
-    if store is None:
-        oss = settings.object_store
-        store = OssObjectStore(
-            OssSettings(
-                bucket=oss.bucket,
-                endpoint=oss.endpoint,
-                access_key_id=oss.access_key_id,
-                access_key_secret=oss.access_key_secret,
-                public_url_base=validate_public_url_base(oss.public_url_base),
-            )
-        )
     return build_generation_module(
         SqlGenerationRepository(engine),
         video=MultiflowSettings(
@@ -191,7 +215,7 @@ def _generation_module(
             image_edit_url=settings.image_edit_url,
             user_name=settings.image_user_name,
         ),
-        object_store=store,
+        object_store=object_store,
         queue_connector=(
             queue_connector
             if queue_connector is not None
@@ -251,25 +275,39 @@ def build_app(
         sso_verifier=sso_verifier,
         pms_client=pms_client,
     )
-    # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
-    agent_registry = build_agent_registry(
-        _agent_definitions(
-            agents, table=build_capability_table(workspace_store=PgWorkspaceStore(active_engine))
-        ),
-        step_store=PgStepStore(active_engine),
-        models=build_models(_model_specs(settings.models)) if models is None else models,
-    )
     # 媒体生成：配了就装，没配就整组路由不挂（同 SSO 的口径）。
+    # 它排在 agent 装配之前，是因为镜头素材能力要用它的服务与对象存储。
+    public_objects = (
+        _object_store(settings.media_generation, object_store)
+        if settings.media_generation is not None
+        else None
+    )
     generation = (
         _generation_module(
             settings.media_generation,
             active_engine,
             database_url=settings.database_url,
-            object_store=object_store,
+            object_store=public_objects,
             queue_connector=queue_connector,
         )
-        if settings.media_generation is not None
+        if settings.media_generation is not None and public_objects is not None
         else None
+    )
+    shot_video_client = _shot_video_client(settings.shot_video)
+    # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
+    agent_registry = build_agent_registry(
+        _agent_definitions(
+            agents,
+            table=build_capability_table(
+                workspace_store=PgWorkspaceStore(active_engine),
+                generation_service=generation.service if generation is not None else None,
+                object_store=public_objects,
+                http_client=shot_video_client,
+                shot_video=settings.shot_video,
+            ),
+        ),
+        step_store=PgStepStore(active_engine),
+        models=build_models(_model_specs(settings.models)) if models is None else models,
     )
     # 事件流只在真有 agent 时才装（同 SSO：能力没配就不挂对应路由）。
     redis_client: Redis | None = None
@@ -314,6 +352,8 @@ def build_app(
                 await generation.queue.app.close_async()
             if broker is not None:
                 await broker.shutdown()
+            if shot_video_client is not None:
+                await shot_video_client.aclose()
             if redis_client is not None:
                 await redis_client.aclose()
             if owns_engine:

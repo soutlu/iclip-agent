@@ -36,6 +36,8 @@ MANIFEST = (
     "OSS_ACCESS_KEY_ID",
     "OSS_ACCESS_KEY_SECRET",
     "OSS_PUBLIC_URL_BASE",
+    "VIDEO_UNDERSTANDING_URL",
+    "VIDEO_UNDERSTANDING_API_KEY",
     "T_QWEN_KEY",
 )
 
@@ -348,3 +350,82 @@ def test_media_generation_half_configured_fails_loudly(
     monkeypatch.delenv(missing)
     with pytest.raises(ValidationError, match=missing):
         resolve_settings(config)
+
+
+SHOT_VIDEO = """
+shot_video:
+  understanding_model: seed-vision
+  dev_attempts: 2
+  pro_attempts: 1
+"""
+
+SHOT_VIDEO_ENV = {
+    "VIDEO_UNDERSTANDING_URL": "https://vision.test/responses",
+    "VIDEO_UNDERSTANDING_API_KEY": "ark",
+}
+
+
+def _shot_video_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    _media_env(monkeypatch)
+    for name, value in SHOT_VIDEO_ENV.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_shot_video_off_when_understanding_url_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """开关在环境里：地址为空即整项关闭，哪怕 YAML 里留着这一段。
+
+    真有 agent 声明要用它，装配期会在名字表那里报「引用了未登记的 capability」，
+    所以这里安静地关掉不会变成一个查不出来的「它不干活」。
+    """
+
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
+    _shot_video_env(monkeypatch)
+    monkeypatch.delenv("VIDEO_UNDERSTANDING_URL")
+
+    assert resolve_settings(config).shot_video is None
+
+
+def test_shot_video_resolves_shape_and_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
+    _shot_video_env(monkeypatch)
+    shot = resolve_settings(config).shot_video
+
+    assert shot is not None
+    assert shot.understanding_url == "https://vision.test/responses"
+    assert shot.understanding_model == "seed-vision", "对方的模型名来自 YAML"
+    assert (shot.dev_attempts, shot.pro_attempts) == (2, 1)
+
+
+def test_shot_video_half_configured_fails_loudly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
+    _shot_video_env(monkeypatch)
+    monkeypatch.delenv("VIDEO_UNDERSTANDING_API_KEY")
+    with pytest.raises(ValidationError, match="VIDEO_UNDERSTANDING_API_KEY"):
+        resolve_settings(config)
+
+
+def test_shot_video_without_media_generation_fails_loudly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """出图与对象存储都走生成那一套，生成没开就是半开着——不许悄悄降级。"""
+
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
+    _shot_video_env(monkeypatch)
+    monkeypatch.delenv("VIDEO_SUBMIT_URL")
+    with pytest.raises(RuntimeError, match="VIDEO_SUBMIT_URL"):
+        resolve_settings(config)
+
+
+def test_shot_video_section_absent_means_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA))
+    _shot_video_env(monkeypatch)
+
+    assert resolve_settings(config).shot_video is None
