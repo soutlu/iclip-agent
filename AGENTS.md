@@ -38,7 +38,7 @@
 | **常规逻辑 / 日常提交** | `make check` | 代码规范、Tach 架构检查必须 0 报错；测试全绿通过。 |
 | **架构分层 / 新增模块** | `make check` (Tach 环节) | 控制台未报告“依赖方向违规”（例如下层 Domain 绝不能反向依赖上层）。 |
 | **agent 运行 / 事件流** | `make test` | `T-STREAM-*` 全绿；其中断开语义那条会真起一个 uvicorn（替身传输测不出「读一半就断」）。 |
-| **数据库模型变更** | `make db-upgrade` + `make test` | Alembic `upgrade head` 无异常；`T-MIG-01` 通过。注意这条测试只比对 `iclip` schema 下 identity 的表与 ORM 定义；`agent_runtime` 下的表没有自动比对，改了要自己确认迁移已同步写好。 |
+| **数据库模型变更** | `make db-upgrade` + `make test` | Alembic `upgrade head` 无异常；`T-MIG-01` 通过。注意它比对的是 `iclip` schema 下**全部**的表与 ORM 定义，所以新建表的模块必须把自己的元数据加进那条测试的名单，否则连自己那张表都在无人看守之列；`agent_runtime` 下的表则完全没有自动比对，改了要自己确认迁移已同步写好。 |
 | **权限与鉴权逻辑** | `make test` (拦截鉴权) | 身份与权限测试集（`T-RBAC-01`, `T-KEY-*`, `T-AUTH-*`）全部绿灯。 |
 | **接入第三方 API (如 SSO/PMS)**| `make test` + 人工验收 | 打替身客户端的 SSO/PMS 用例（在 `integration_no_llm` 层，由 `make test` 执行）全绿；且需在本地环境完整走通一次真实的登录回调链路并输出正常日志。 |
 | **前端相关** | `make web-check` | 前端的格式、Lint、设计规范与类型检查全绿。它不含构建，CI 会另外跑一次 `pnpm build`，所以本地过了仍可能被 CI 的构建步骤拦下。 |

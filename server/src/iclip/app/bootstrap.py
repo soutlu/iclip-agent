@@ -59,6 +59,8 @@ from iclip.domains.inspirations.catalog_pg import PgInspirationCatalog
 from iclip.domains.inspirations.module import build_inspirations_module
 from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.products.module import build_products_module
+from iclip.domains.projects.infra_sql import SqlProjectRepository
+from iclip.domains.projects.module import build_projects_module
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
 from iclip.domains.tasks.ports import StyleSnapshots
@@ -429,6 +431,7 @@ def build_app(
         purge_derived=purge_conversation_workspace,
         read_history=read_conversation_history,
     )
+    projects = build_projects_module(SqlProjectRepository(active_engine))
     # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
     # 或对象存储缺一个，就借不到——那时装个只会响亮拒绝的替代品，而不是让它悄悄记空。
     tasks = build_tasks_module(
@@ -540,6 +543,8 @@ def build_app(
         app.include_router(router)
     for router in conversations.routers:
         app.include_router(router)
+    for router in projects.routers:
+        app.include_router(router)
     for router in tasks.routers:
         app.include_router(router)
     if broker is not None:
@@ -563,6 +568,7 @@ def build_app(
     app.state.generation = generation
     app.state.products = products
     app.state.inspirations = inspirations
+    app.state.projects = projects
     app.state.tasks = tasks
     return app
 

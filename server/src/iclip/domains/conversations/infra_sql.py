@@ -47,6 +47,21 @@ conversations_table = Table(
     Column("agent_id", Text, nullable=False),
     Column("title", Text, nullable=False),
     Column("last_run_id", Text, nullable=True),
+    # 这段对话是为哪张需求单开的。空着就是「直接开始创作」，不属于任何一张单。
+    # set null 而不是 cascade：删掉一张单不该带走别人为它跑过的对话。
+    Column(
+        "task_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.tasks.id", ondelete="set null"),
+        nullable=True,
+    ),
+    # 放在哪个项目里，最多一个，随时可以换。空着就是没归类。
+    Column(
+        "project_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.projects.id", ondelete="set null"),
+        nullable=True,
+    ),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
@@ -56,6 +71,21 @@ _ROWS = conversations_table.c
 # 列表页就这一个查询：我的对话，最近活动的排前面。首列是属主，所以不用再单独给
 # owner_user_id 建索引。
 Index("ix_conversations_owner_recent", _ROWS.owner_user_id, _ROWS.updated_at.desc())
+
+# 这两条都带 WHERE：没挂单、没进项目的对话是多数，不该占索引。
+# 单那条按 created_at 升序——「这张单的第几次尝试」就是按它排出来的。
+Index(
+    "ix_conversations_task",
+    _ROWS.task_id,
+    _ROWS.created_at,
+    postgresql_where=_ROWS.task_id.isnot(None),
+)
+Index(
+    "ix_conversations_project",
+    _ROWS.project_id,
+    _ROWS.updated_at.desc(),
+    postgresql_where=_ROWS.project_id.isnot(None),
+)
 
 
 def _row(mapping: RowMapping) -> Conversation:
