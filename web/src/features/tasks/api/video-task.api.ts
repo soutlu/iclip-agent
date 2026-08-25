@@ -3,7 +3,6 @@ import type {
   CreateVideoTaskInput,
   ProductInfo,
   VideoTask,
-  VideoTaskAsset,
   VideoTaskBriefFields,
   VideoTaskSnapshot,
 } from '@/features/tasks/video-task.types'
@@ -12,7 +11,7 @@ import {
   importWebInspirationVideos,
 } from '@/features/tasks/api/inspiration.api'
 import { apiFetch } from '@/shared/api/client'
-import { presignAndUpload } from '@/shared/lib/file-upload'
+import { uploadAndRegisterAsset } from '@/shared/lib/file-upload'
 
 const videoTaskStatusSchema = z.enum(['confirmed', 'draft', 'published', 'withdrawn'])
 const MIN_DURATION_SECONDS = 3
@@ -94,7 +93,6 @@ const videoTaskAssetSchema = z.object({
   url: z.string().url(),
 })
 
-const videoTaskAssetResponseSchema = z.object({ asset: videoTaskAssetSchema })
 const videoTaskAssetsResponseSchema = z.object({ assets: z.array(videoTaskAssetSchema) })
 
 export const VIDEO_TASKS_QUERY_KEY = ['video-tasks'] as const
@@ -203,34 +201,6 @@ const resolveVideoTaskSnapshot = async (
   }
 }
 
-/**
- * 上传并登记一项 Task 全局素材。
- *
- * @param file - 用户选择的本地文件。
- * @param assetType - 素材业务类型。
- * @returns 后端登记后的素材记录。
- */
-const uploadGlobalTaskAsset = async (
-  file: File,
-  assetType: VideoTaskAsset['assetType'],
-): Promise<VideoTaskAsset> => {
-  const uploaded = await presignAndUpload(file)
-
-  return (
-    await apiFetch('/assets', videoTaskAssetResponseSchema, {
-      body: {
-        assetType,
-        mimeType: uploaded.contentType,
-        sizeBytes: file.size,
-        source: 'upload',
-        url: uploaded.publicUrl,
-      },
-      fallbackErrorMessage: '登记任务素材失败',
-      method: 'POST',
-    })
-  ).asset
-}
-
 export const listVideoTaskSnapshot = async ({
   signal,
 }: { signal?: AbortSignal } = {}): Promise<VideoTaskSnapshot> => {
@@ -318,8 +288,8 @@ export const createVideoTask = async ({
   const normalizedStyleNo = styleNo.trim()
   const briefPayload = createBriefPayload(brief)
   const [imageAssets, videoAssets] = await Promise.all([
-    Promise.all(referenceImages.map((file) => uploadGlobalTaskAsset(file, 'image'))),
-    Promise.all(referenceVideos.map((file) => uploadGlobalTaskAsset(file, 'video'))),
+    Promise.all(referenceImages.map((file) => uploadAndRegisterAsset(file))),
+    Promise.all(referenceVideos.map((file) => uploadAndRegisterAsset(file))),
   ])
   return (
     await apiFetch('/video-tasks', videoTaskResponseSchema, {
@@ -394,8 +364,8 @@ export const updateVideoTaskConfirmation = async (
   )
   const [uploadedImages, uploadedVideos, importedVideos, importedWebVideos, importedProductAssets] =
     await Promise.all([
-      Promise.all(input.newImageFiles.map((file) => uploadGlobalTaskAsset(file, 'image'))),
-      Promise.all(input.newVideoFiles.map((file) => uploadGlobalTaskAsset(file, 'video'))),
+      Promise.all(input.newImageFiles.map((file) => uploadAndRegisterAsset(file))),
+      Promise.all(input.newVideoFiles.map((file) => uploadAndRegisterAsset(file))),
       // 与产品图侧一致：没有新选爆款视频时不发 `{ videoIds: [] }` 的转存请求。
       inspirationVideoIds.length > 0 ? importInspirationVideos(inspirationVideoIds) : [],
       webInspirationSelectionTokens.length > 0

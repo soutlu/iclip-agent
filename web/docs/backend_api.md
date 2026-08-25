@@ -13,7 +13,7 @@
 | Session Workspace / assets / generations | `/api/sessions/{sessionId}*` | `src/features/projects/api/producer-session-workspace.api.ts` + `src/features/chat/runtime/project-agui-runtime.ts` |
 | AG-UI 运行 | `/api/agui/teams/producer*`、`/api/agui/agents/storyboard*`；run 历史走 `/api/sessions/{sessionId}/runs` | `src/features/chat/runtime/`、`src/features/storyboards/runtime/` |
 | 视频生成 | `/api/video-generations` | `src/features/projects/api/producer-project.api.ts` |
-| 上传预签名 | `/api/presign` | `src/shared/lib/file-upload.ts` |
+| 素材上传与转存 | `/api/uploads/sign`、`/api/assets*` | `src/shared/lib/file-upload.ts` |
 | 用量分析 | `/api/analytics/generation-stats` | `src/features/analytics/` |
 
 ## 1. 登录态
@@ -383,18 +383,33 @@ Content-Type: application/json
 - `inputs` 由前端把参考图/视频/音频 URL 按 `mediaType` 拆分（`splitVideoGenerationReferenceUrls()`）；本地附件必须先经 presign 上传成远端 URL。
 - 提交成功后：Agent scope 合并本次 generation 并刷新 Session Workspace、assets 与 generations，让 generated-video artifact 进入画布并驱动后台轮询；Direct scope 只写 route-local 任务列表并同步 `video-generation-task` 节点。
 
-## 6. 文件上传预签名
+## 6. 素材上传与转存
+
+一份素材 = 后端桶里的一个对象 + 素材账本上的一行。上传三步走（`uploadAndRegisterAsset()`）：
 
 ```http
-POST /api/presign
-Content-Type: application/json
+POST /api/uploads/sign        { "contentType": "image/png", "width": 1200, "height": 1600 }
+→ { "assetId": "…", "upload": { "url": "…", "method": "PUT", "headers": {…}, "expiresAt": "…" } }
 
-{ "ext": "png", "dir": "producer/media/image" }
+PUT <upload.url>              body 是文件本身，headers 原样带上
+
+POST /api/assets/{assetId}    空 body → { "asset": { "id", "assetType", "url", "contentType", … } }
 ```
 
-返回上传签名 URL、object key、公网访问 URL 和 content type；前端随后直传 OSS（PUT），拿 `publicUrl` / `contentType` 写入 AG-UI 消息或生成请求。OSS 直传的 403 与会话权限无关，只有 presign 接口本身的 403 才按未授权上报。支持的扩展名与 `dir` 约束以后端配置为准。
+- **`upload.headers` 原样带上**：`Content-Type` 被签进了签名里，换一个值 OSS 就验签不过。OSS 直传的 403 与会话权限无关，只有后端接口本身的 403 才按未授权上报。
+- **登记没有请求体**：真实 key、多大、什么类型全部由后端从桶里读回来，客户端报什么都不作数。地址与媒体类型取登记返回的那一行。
+- **只收图和视频**：`image/jpeg`、`image/png`、`image/webp`、`video/mp4`、`video/quicktime`。音频与其它文件在前端就拦下（后端不收）。
+- **图片尺寸**：短边 ≥ 300px、长边 ≤ 6000px。宽高在签名那一步由前端读出来报上去（`createImageBitmap`），不合格的图压根不用先传。
+- **身份先于发送存在**：`assetId` 在字节动之前就发下来，发送失败素材仍在库里可复用。身份是 `id`，`url` 只是后端按对象 key 拼出来的投影。
 
-**上传即登记**：composer 的本地附件（聊天，以及首页/画布的视频生成入口）在 PUT 成功后、提交前统一调 `POST /api/assets`（`registerUploadedAsset()`，body `{assetType, source: "upload", url, mimeType, sessionId?, sizeBytes?, metadata: {filename}}`）由素材库签发身份——get-or-create 语义，同 URL 幂等命中同一行；只有聊天入口透传 `sessionId` 作为登记地点（provenance），它不构成授权、不写 session 账本（入账由后端在消息真正进入对话时完成）。提交失败时素材已在库中，重试按 URL 命中同一身份。
+外部地址（产品图、爆款库视频）走转存（`importAssetFromUrl()`）：
+
+```http
+POST /api/assets/import       { "url": "https://…" }
+→ { "asset": { … } }
+```
+
+`assetId` 由源地址算出来，同一个地址转存多少次都是同一行；类型、大小、尺寸由后端实测。
 
 ## 7. 首页 Video Task
 

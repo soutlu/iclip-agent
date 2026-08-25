@@ -2,7 +2,7 @@ import type {
   ComposerFileAttachment,
   MediaComposerMessagePart,
 } from '@/shared/composer/composer.types'
-import { presignAndUpload, registerUploadedAsset } from '@/shared/lib/file-upload'
+import { uploadAndRegisterAsset } from '@/shared/lib/file-upload'
 import { createOpaqueIdSuffix } from '@/shared/lib/opaque-id'
 
 export interface ComposerMediaNameSeed {
@@ -622,82 +622,30 @@ const createComposerUploadError = (attachmentName: string, error: unknown) => {
 }
 
 /**
- * 校验并读取 OSS 上传返回的公开访问地址。
+ * 将本地 composer 附件上传进素材库并转换为可提交的 file part。
  *
- * @param publicUrl - 上传工具返回的 publicUrl。
- * @returns 去除首尾空白后的公开访问 URL。
- * @throws 当返回值为空时抛出附件上传错误。
- */
-const normalizeUploadedPublicUrl = (publicUrl: string) => {
-  const normalizedUrl = publicUrl.trim()
-
-  if (normalizedUrl.length === 0) {
-    throw new Error('上传返回缺少 publicUrl。')
-  }
-
-  return normalizedUrl
-}
-
-/**
- * 校验并读取 OSS 上传返回的媒体类型。
- *
- * @param contentType - 上传工具返回的 contentType。
- * @returns 去除首尾空白后的 contentType。
- * @throws 当返回值为空时抛出附件上传错误。
- */
-const normalizeUploadedContentType = (contentType: string) => {
-  const normalizedContentType = contentType.trim()
-
-  if (normalizedContentType.length === 0) {
-    throw new Error('上传返回缺少 contentType。')
-  }
-
-  return normalizedContentType
-}
-
-/** 提交准备阶段的上传上下文。 */
-export interface ComposerSubmissionUploadOptions {
-  /** 当前会话 id；透传给素材库登记作登记地点（provenance）。 */
-  sessionId?: string
-}
-
-/**
- * 将本地 composer 附件上传到 OSS、登记素材库身份并转换为可提交的 file part。
- *
- * 「上传即登记」：PUT 成功后由素材库签发身份（get-or-create），消息发送后
- * 后端按 URL 命中同一行——身份先于发送存在，发送失败素材仍在库中可复用。
+ * 身份先于发送存在：`assetId` 在字节动之前就由后端发下来，发送失败素材仍在库中可复用。
+ * 地址与媒体类型都取登记返回的那一行——后端是从桶里读回来的，不是我们报上去的。
  *
  * @param attachment - delivery 为 local 的 composer 附件。
- * @param options - 上传上下文（sessionId 等）。
- * @returns 使用 OSS publicUrl 和返回 contentType 的提交 file part。
- * @throws 当本地 File 缺失、上传或登记失败、上传结果不完整时抛出附件错误。
+ * @returns 使用素材库公网地址与登记类型的提交 file part。
+ * @throws 当本地 File 缺失、类型不收、图片尺寸不合格、上传或登记失败时抛出附件错误。
  */
 const uploadLocalComposerAttachmentToFilePart = async (
   attachment: ComposerFileAttachment,
-  options: ComposerSubmissionUploadOptions = {},
 ): Promise<ComposerFilePart> => {
   if (!isLocalAttachment(attachment)) {
     throw new Error(`附件 ${attachment.name} 缺少可上传的本地文件。`)
   }
 
   try {
-    const uploadedFile = await presignAndUpload(attachment.file)
-    const mediaType = normalizeUploadedContentType(uploadedFile.contentType)
-    const url = normalizeUploadedPublicUrl(uploadedFile.publicUrl)
-    await registerUploadedAsset({
-      assetType: attachment.kind,
-      filename: attachment.name,
-      mimeType: mediaType,
-      sessionId: options.sessionId,
-      sizeBytes: attachment.file.size,
-      url,
-    })
+    const asset = await uploadAndRegisterAsset(attachment.file)
 
     return {
       filename: attachment.name,
-      mediaType,
+      mediaType: asset.contentType,
       type: 'file',
-      url,
+      url: asset.url,
     }
   } catch (error) {
     throw createComposerUploadError(attachment.name, error)
@@ -791,19 +739,16 @@ export const createRemoteComposerAttachmentsFromFileParts = (
 export type PreparedComposerMessagePart = { type: 'text'; text: string } | ComposerFilePart
 
 /**
- * 准备发送给 AG-UI 的有序消息 part：本地附件上传 OSS 并登记素材库身份，
- * 媒体位置原样保留。
+ * 准备发送给 AG-UI 的有序消息 part：本地附件上传并登记进素材库，媒体位置原样保留。
  *
  * 同一附件被多个 chip 引用时只上传、登记一次，产出的 file part 按位置复用。
  *
  * @param parts - 聊天提交的有序消息 part。
- * @param options - 上传上下文（sessionId 透传素材库作登记地点）。
  * @returns 文本原样、媒体替换为远端 file part 的有序列表。
  * @throws 当本地附件上传或登记失败、附件数据不完整时抛出可分类的附件错误。
  */
 export const prepareComposerMessagePartsForSubmission = async (
   parts: readonly MediaComposerMessagePart[],
-  options: ComposerSubmissionUploadOptions = {},
 ): Promise<PreparedComposerMessagePart[]> => {
   const filePartByAttachmentId = new Map<string, ComposerFilePart>()
   const prepared: PreparedComposerMessagePart[] = []
@@ -820,7 +765,7 @@ export const prepareComposerMessagePartsForSubmission = async (
     if (!filePart) {
       filePart =
         attachment.delivery === 'local'
-          ? await uploadLocalComposerAttachmentToFilePart(attachment, options)
+          ? await uploadLocalComposerAttachmentToFilePart(attachment)
           : composerAttachmentToFilePart({ attachment, resolveUrl: false })
 
       if (getComposerAttachmentKindFromMediaType(filePart.mediaType) !== attachment.kind) {
@@ -840,19 +785,17 @@ export const prepareComposerMessagePartsForSubmission = async (
  * 准备发送给 AG-UI 的附件 file part。
  *
  * @param attachments - 当前草稿中待发送的 composer 附件。
- * @param options - 上传上下文（sessionId 透传素材库作登记地点）。
  * @returns 使用远端可访问 URL 的提交 file part 列表。
  * @throws 当本地附件上传或登记失败、附件数据不完整时抛出可分类的附件错误。
  */
 export const prepareComposerAttachmentsForSubmission = async (
   attachments: ComposerFileAttachment[],
-  options: ComposerSubmissionUploadOptions = {},
 ): Promise<PreparedComposerAttachmentsForSubmission> => {
   const preparedAttachments = await Promise.all(
     attachments.map(async (attachment) => {
       const filePart =
         attachment.delivery === 'local'
-          ? await uploadLocalComposerAttachmentToFilePart(attachment, options)
+          ? await uploadLocalComposerAttachmentToFilePart(attachment)
           : composerAttachmentToFilePart({ attachment, resolveUrl: false })
 
       if (getComposerAttachmentKindFromMediaType(filePart.mediaType) !== attachment.kind) {

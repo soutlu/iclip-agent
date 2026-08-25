@@ -54,7 +54,7 @@ AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + 
 | AG-UI 聊天运行态（timeline / HITL / restore / 重连） | 人工验收                   | timeline 身份键只来自后端 id；interrupt 正确规范化；断线恢复不丢消息、不重复消息                                                                                                  |
 | 画布产物解析与渲染                                   | 人工验收                   | Workspace documents → artifact 解析正确；Markdown / video-prompt 恢复条件成立                                                                                                     |
 | 画布布局与坐标持久化                                 | 人工验收                   | 服务器快照 hydrate、drag-stop 提交生效、manual 坐标不被自动布局改写                                                                                                               |
-| 附件上传链路                                         | 人工验收                   | presign → PUT → publicUrl 全链路可用                                                                                                                                              |
+| 附件上传链路                                         | 人工验收                   | sign → PUT → register 全链路可用；图片尺寸不合格时报错文案可读                                                                                                                    |
 | 主链路（登录 → 项目 → 聊天）                         | 人工验收                   | 全链路走通                                                                                                                                                                        |
 | UI 视觉（token / 布局 / 聊天 / 画布样式）            | 人工验收（见 §6）          | 桌面 + 移动截图；画布中文两列表格首行高度正常                                                                                                                                     |
 
