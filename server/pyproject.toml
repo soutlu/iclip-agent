@@ -23,6 +23,9 @@ dependencies = [
     # procrastinate 只声明 psycopg[pool]，那个 extra 不带 libpq。不显式要 binary
     # 的话，装完 import psycopg 就直接炸（本机没有系统 libpq）。
     "psycopg[binary,pool]>=3.2",
+    # 预览板拼版与叠印帧号。10.1 起 ImageFont.load_default 才接受 size，低版本
+    # 是运行时才炸，不是 import 就炸。
+    "pillow>=10.1",
 ]
 
 [dependency-groups]

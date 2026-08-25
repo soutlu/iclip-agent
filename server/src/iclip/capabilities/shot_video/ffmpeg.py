@@ -21,7 +21,9 @@ _STDERR_LIMIT = 400
 _DOWNLOAD_CHUNK = 256 * 1024
 
 PROBE_TIMEOUT_SECONDS = 30.0
-FRAME_TIMEOUT_SECONDS = 60.0
+EXTRACT_TIMEOUT_SECONDS = 900.0
+"""整片按秒抽帧的上限。它要把整段视频解码一遍，和取单帧不是一个量级。"""
+
 CROP_TIMEOUT_SECONDS = 120.0
 DOWNLOAD_TIMEOUT_SECONDS = 300.0
 
@@ -104,37 +106,36 @@ async def probe_duration_ms(path: Path) -> int:
     return round(seconds * 1000)
 
 
-async def frame_at(path: Path, *, position_ms: int) -> bytes:
-    """取某个时刻那一帧，返回 JPEG 字节。
+async def extract_frames(path: Path, *, fps: float, out_dir: Path) -> list[Path]:
+    """按固定帧率整片抽帧，落进 ``out_dir``，返回按时间升序的文件路径。
 
-    ``-ss`` 必须在 ``-i`` 前：那是输入侧快速定位，代价与视频长度无关；放在后面
-    会从头解到那一秒，每取一帧都重来一遍。
+    第 i 张（0 起）对应源视频 ``i / fps`` 秒处。返回路径不返回字节：一段几分钟的
+    片子按秒抽就是几百张，全捧在内存里没必要。
     """
 
-    stdout = await _run(
+    if fps <= 0:
+        raise MediaError(f"抽帧帧率必须为正: {fps}")
+    await _run(
         [
             "ffmpeg",
             "-v",
             "error",
-            "-ss",
-            f"{position_ms / 1000:.3f}",
             "-i",
             str(path),
-            "-frames:v",
-            "1",
+            "-vf",
+            f"fps={fps}",
             "-q:v",
             "2",
             "-f",
             "image2",
-            "-c:v",
-            "mjpeg",
-            "pipe:1",
+            str(out_dir / "f%06d.jpg"),
         ],
-        timeout=FRAME_TIMEOUT_SECONDS,
+        timeout=EXTRACT_TIMEOUT_SECONDS,
     )
-    if not stdout:
-        raise MediaError(f"第 {position_ms} 毫秒处没抽出帧")
-    return stdout
+    frames = sorted(out_dir.glob("f*.jpg"))
+    if not frames:
+        raise MediaError(f"整片抽帧没产出任何帧: {path.name}")
+    return frames
 
 
 async def decode_gray(path: Path, *, max_width: int = DETECT_WIDTH) -> tuple[GrayImage, int]:
@@ -296,14 +297,15 @@ async def _run_with_input(args: list[str], *, stdin: bytes, timeout: float) -> b
 
 __all__ = [
     "DETECT_WIDTH",
+    "EXTRACT_TIMEOUT_SECONDS",
     "MAX_IMAGE_BYTES",
     "MAX_VIDEO_BYTES",
     "MediaError",
     "crop_cells",
     "decode_gray",
+    "extract_frames",
     "fetched",
     "ffmpeg_available",
-    "frame_at",
     "probe_duration_ms",
     "shrink",
 ]

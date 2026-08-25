@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
 
+from pydantic_ai.tools import RunContext
+
+from iclip.capabilities.workspace.store import WorkspaceStore
 from iclip.domains.identity.public import Principal
 
 ImageChannel = Literal["dev", "pro"]
@@ -80,6 +83,20 @@ class VideoUnderstanding(Protocol):
     async def parse(self, video_url: str) -> str: ...
 
 
+@runtime_checkable
+class WorkspaceProvider(Protocol):
+    """挂在同一个 agent 上、管着工作区的那个能力，长什么样。
+
+    只声明要用到的两样：那份存储，和这次运行的命名空间。写成协议而不是认
+    ``Workspace`` 这个类，是为了不把工作区能力的实现绑进来——``WorkspaceStore`` 本
+    身就是一份纯协议，依赖它够了。
+    """
+
+    store: WorkspaceStore
+
+    def resolve_scope(self, ctx: RunContext[Any]) -> str: ...
+
+
 __all__ = [
     "ImageChannel",
     "ImageGenerations",
@@ -89,4 +106,5 @@ __all__ = [
     "JobStatus",
     "PublicObjectWriter",
     "VideoUnderstanding",
+    "WorkspaceProvider",
 ]

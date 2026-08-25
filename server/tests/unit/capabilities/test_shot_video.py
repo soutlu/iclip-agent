@@ -1,8 +1,8 @@
 """镜头素材能力：工具面的语义、出图的重试与升级、装配面接得上。
 
-出图、对象存储、视频拆解都用进程内替身（`tests/helpers/shot_video.py`），所以
-这一层测的是「工具怎么决策」，不是 ffmpeg 也不是真的生成后端。碰 ffmpeg 的那两
-件工具在这里只验它们在动手之前就把坏参数拦下来了——真跑一遍在集成层。
+出图、对象存储、视频拆解、工作区都用进程内替身，所以这一层测的是「工具怎么决
+策」。碰 ffmpeg 的那两件在这里只验它们动手之前就把前置条件拦下了——真跑一遍在集
+成层。
 """
 
 from __future__ import annotations
@@ -23,17 +23,22 @@ from pydantic_ai.usage import RunUsage
 
 from iclip.capabilities.shot_video.capability import (
     CAPABILITY_ID,
-    MAX_FRAMES_PER_CALL,
+    EXTRACTION_PATH,
+    GRID_RESOLUTION,
+    FrameRequest,
     GenerationPolicy,
     ShotVideo,
     ShotVideoToolset,
     shot_video_capability,
+    video_doc_path,
 )
 from iclip.capabilities.shot_video.parser import (
     SYSTEM_PROMPT,
     ArkVideoUnderstanding,
     VideoUnderstandingError,
 )
+from iclip.capabilities.workspace.capability import Workspace, workspace_capability
+from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
 from tests.helpers.shot_video import (
@@ -42,10 +47,19 @@ from tests.helpers.shot_video import (
     FakeUnderstanding,
     Outcome,
 )
+from tests.helpers.workspace import FakeWorkspaceStore
 
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
 VIDEO = "https://cdn.test/ref.mp4"
-IMAGE = "https://cdn.test/grid.png"
+NAMESPACE = f"{USER}/thread-1"
+
+# 一份最小的拆解文档：一个结构层级一行，行内两个镜头。
+DOCUMENT = (
+    "## 4、逐镜拉片表\n"
+    "| 结构层级 | Storyline |\n"
+    "| Rain-Step Hook | **[00:00.000-00:02.000]** 中景……<br><br>"
+    "**[00:02.000-00:04.000]** 特写…… |\n"
+)
 
 # 替身不碰网络也不起子进程，把节奏压到最小，测试就不会真的睡上几秒。
 FAST = GenerationPolicy(
@@ -69,8 +83,45 @@ def make_deps() -> AgentRunDeps:
     )
 
 
-def make_context(deps: object) -> RunContext[object]:
-    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage())
+def make_context(deps: object, files: FakeWorkspaceStore | None = None) -> RunContext[object]:
+    """一次运行的上下文。
+
+    工作区能力要真的挂上去：镜头素材那几件工具是从 ``ctx.capabilities`` 里认领它
+    的，不挂就跟线上少挂一个能力是同一个症状。
+    """
+
+    mounted: dict[str, Workspace[object]] = {}
+    if files is not None:
+        mounted["workspace"] = workspace_capability(store=files, namespace=workspace_namespace)
+    return RunContext[object](
+        deps=deps,
+        model=TestModel(),
+        usage=RunUsage(),
+        capabilities=mounted,  # type: ignore[arg-type]
+    )
+
+
+def ledger(*cell_ids: str) -> str:
+    """一份取帧账本，只放逐格请求校验用得到的那部分。"""
+
+    return json.dumps(
+        {
+            "extractionVersion": 1,
+            "extractionKey": "k",
+            "intervalMs": 1000,
+            "video": {"url": VIDEO, "contentHash": "sha256:x"},
+            "boards": [
+                {
+                    "board": 1,
+                    "url": "https://cdn.test/board.jpg",
+                    "shots": [1],
+                    "layout": "2x2",
+                    "cells": [{"id": cell, "shotId": 1} for cell in cell_ids],
+                }
+            ],
+            "shotsWithoutCells": [],
+        }
+    )
 
 
 @pytest.fixture
@@ -85,7 +136,12 @@ def objects() -> FakeObjects:
 
 @pytest.fixture
 def understanding() -> FakeUnderstanding:
-    return FakeUnderstanding()
+    return FakeUnderstanding(document=DOCUMENT)
+
+
+@pytest.fixture
+def files() -> FakeWorkspaceStore:
+    return FakeWorkspaceStore()
 
 
 @pytest.fixture
@@ -109,8 +165,8 @@ def tools(capability: ShotVideo[object]) -> ShotVideoToolset[object]:
 
 
 @pytest.fixture
-def ctx() -> RunContext[object]:
-    return make_context(make_deps())
+def ctx(files: FakeWorkspaceStore) -> RunContext[object]:
+    return make_context(make_deps(), files)
 
 
 # ── 装配面 ────────────────────────────────────────────────────────────────────
@@ -126,7 +182,7 @@ def test_capability_id_is_fixed(capability: ShotVideo[object]) -> None:
 
 
 def test_not_constructible_from_spec() -> None:
-    """三个依赖都是运行期对象，YAML 里造不出来——所以不对外宣称能反序列化。"""
+    """依赖都是运行期对象，YAML 里造不出来——所以不对外宣称能反序列化。"""
 
     assert ShotVideo.get_serialization_name() is None
 
@@ -149,41 +205,83 @@ async def test_four_tools_reach_the_model(capability: ShotVideo[object]) -> None
 
     agent = Agent(FunctionModel(script), capabilities=[capability])
     await agent.run("看看你有什么", deps=make_deps())
-    assert seen == ["cut_grid_image", "extract_video_frames", "generate_image", "parse_video"]
+    assert seen == [
+        "ReadMediaFile",
+        "generate_shot_frames",
+        "plan_shot_frames",
+        "video_parser_md",
+    ]
 
 
 async def test_missing_run_identity_is_a_bug_not_a_retry(
-    tools: ShotVideoToolset[object],
+    tools: ShotVideoToolset[object], files: FakeWorkspaceStore
 ) -> None:
     """deps 不对是装配出错，不该翻成一句让模型重试的话——它改不动这个。"""
 
     with pytest.raises(RuntimeError, match="AgentRunDeps"):
-        await tools.parse_video(make_context(object()), VIDEO)
+        await tools.video_parser_md(make_context(object(), files), VIDEO)
+
+
+async def test_workspace_must_be_mounted_on_the_same_agent(
+    tools: ShotVideoToolset[object],
+) -> None:
+    """工作区从本次运行认领，不自带一份。没挂就当场说清楚该去哪儿补。
+
+    自带一份的后果是静默的：文档照写照读，只是模型的 `read_file` 看不见它。
+    """
+
+    with pytest.raises(RuntimeError, match=r"agents\.yaml"):
+        await tools.video_parser_md(make_context(make_deps()), VIDEO)
 
 
 # ── 视频拆解 ──────────────────────────────────────────────────────────────────
 
 
-async def test_parse_video_returns_the_document(
+async def test_parse_writes_the_document_and_returns_its_path(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
     understanding: FakeUnderstanding,
+    files: FakeWorkspaceStore,
 ) -> None:
-    """文档直接回给模型，不落任何约定路径的暗账文件。"""
+    """正文进工作区，工具只回路径——文档要被后面几步反复读，不该每轮都占上下文。"""
 
-    result = await tools.parse_video(ctx, VIDEO)
-    assert result == understanding.document
+    result = await tools.video_parser_md(ctx, VIDEO)
+    assert result["path"] == video_doc_path(VIDEO)
     assert understanding.calls == [VIDEO]
+    stored = await files.read(NAMESPACE, result["path"])
+    assert stored is not None
+    assert stored.content == DOCUMENT
 
 
-async def test_parse_video_translates_failure(
+async def test_parse_and_plan_agree_on_where_the_document_lives(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], understanding: FakeUnderstanding
+) -> None:
+    """两件工具各算各的路径。算不到同一份文件上，取帧就永远读不到刚写的那份。
+
+    拆解出一份没有时间码的文档：取帧报的是「解析失败」而不是「文档不存在」，就说
+    明它确实读到了上一步写下的那一份。
+    """
+
+    understanding.document = "## 4、逐镜拉片表\n没有任何时间码\n"
+    await tools.video_parser_md(ctx, VIDEO)
+    with pytest.raises(ModelRetry, match="解析失败"):
+        await tools.plan_shot_frames(ctx, VIDEO)
+
+
+def test_document_path_survives_two_videos_of_the_same_name() -> None:
+    """两段不同的片子完全可能同名；同名共用一份文档就是互相覆盖。"""
+
+    assert video_doc_path("https://a.test/ref.mp4") != video_doc_path("https://b.test/ref.mp4")
+
+
+async def test_parse_translates_failure(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
     understanding: FakeUnderstanding,
 ) -> None:
     understanding.error = VideoUnderstandingError("接口连不上")
     with pytest.raises(ModelRetry, match="连不上"):
-        await tools.parse_video(ctx, VIDEO)
+        await tools.video_parser_md(ctx, VIDEO)
 
 
 @pytest.mark.parametrize("url", ["ref.mp4", "file:///etc/passwd", "ftp://host/a.mp4"])
@@ -191,7 +289,7 @@ async def test_tools_only_take_http_urls(
     tools: ShotVideoToolset[object], ctx: RunContext[object], url: str
 ) -> None:
     with pytest.raises(ModelRetry, match="http"):
-        await tools.parse_video(ctx, url)
+        await tools.video_parser_md(ctx, url)
 
 
 # ── 视频拆解接口的响应处理 ────────────────────────────────────────────────────
@@ -227,7 +325,7 @@ async def test_parser_takes_the_output_text_and_skips_reasoning() -> None:
 async def test_parser_refuses_a_response_that_did_not_finish(status: str) -> None:
     """撞上输出长度上限时对方照样返 200，正文却缺了尾巴。
 
-    把那半份文档交出去，下游会从一张被截断的镜头表里挑时间码，而且没人知道少了
+    把那半份文档交出去，取帧会从一张被截断的镜头表里读时间码，而且没人知道少了
     一段——所以宁可失败，并把对方说的状态原样带出来。
     """
 
@@ -274,69 +372,166 @@ async def test_parser_sends_the_video_as_a_native_part() -> None:
     assert seen["model"] == "seed-vision"
 
 
-# ── 抽帧与切格：动手之前就把坏参数拦下 ──────────────────────────────────────
+# ── 取帧：动手之前就把前置条件拦下 ──────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "timestamps",
-    [[], ["3.8"], ["00:03,800"], ["00:60.000"], ["abc"], ["00:03.800"] * (MAX_FRAMES_PER_CALL + 1)],
-    ids=["empty", "no-colon", "comma", "bad-seconds", "text", "too-many"],
-)
-async def test_frame_timestamps_are_checked_first(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], timestamps: list[str]
+async def test_plan_needs_the_document_first(
+    tools: ShotVideoToolset[object], ctx: RunContext[object]
 ) -> None:
     """替身里没有 HTTP 客户端，所以能走到这里就证明它没先去取素材。"""
 
-    with pytest.raises(ModelRetry):
-        await tools.extract_video_frames(ctx, VIDEO, timestamps)
+    with pytest.raises(ModelRetry, match="video_parser_md"):
+        await tools.plan_shot_frames(ctx, VIDEO)
 
 
-@pytest.mark.parametrize(("rows", "cols"), [(0, 2), (2, 0), (7, 2), (2, 7)])
-async def test_grid_side_is_checked_first(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], rows: int, cols: int
+async def test_plan_points_at_a_repair_the_model_can_perform(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeWorkspaceStore
 ) -> None:
-    with pytest.raises(ModelRetry, match="rows"):
-        await tools.cut_grid_image(ctx, IMAGE, rows=rows, cols=cols)
+    """时间码读不出时给的是一条可执行的修法，不是一句「解析失败」。"""
+
+    await files.write(NAMESPACE, video_doc_path(VIDEO), "## 4、逐镜拉片表\n没有任何时间码\n")
+    with pytest.raises(ModelRetry) as raised:
+        await tools.plan_shot_frames(ctx, VIDEO)
+    assert "edit_file" in str(raised.value)
+
+
+async def test_plan_rejects_a_document_with_a_broken_timecode(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeWorkspaceStore
+) -> None:
+    """终点不晚于起点就取不出任何一帧，在这里拦住比抽完再发现便宜。"""
+
+    await files.write(NAMESPACE, video_doc_path(VIDEO), "**[00:05.000-00:02.000]** 中景")
+    with pytest.raises(ModelRetry, match="终点不晚于起点"):
+        await tools.plan_shot_frames(ctx, VIDEO)
+
+
+# ── 按批出帧：账本与逐格请求的校验 ──────────────────────────────────────────
+
+
+async def test_generate_needs_the_extraction_ledger(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], generations: FakeGenerations
+) -> None:
+    with pytest.raises(ModelRetry, match="plan_shot_frames"):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+        )
+    assert generations.submitted == []
+
+
+@pytest.mark.parametrize(
+    ("frames", "expected"),
+    [
+        ([], "1-4"),
+        ([FrameRequest(no=f"S1-{index}", prompt="猫") for index in range(1, 6)], "1-4"),
+        ([FrameRequest(no="8-3", prompt="猫")], "形状"),
+        ([FrameRequest(no="S9-9", prompt="猫")], "不在取帧账本"),
+        ([FrameRequest(no="S1-1", prompt="猫"), FrameRequest(no="S1-1", prompt="狗")], "重复"),
+        ([FrameRequest(no="S1-1", prompt="  ")], "为空"),
+    ],
+    ids=["empty", "too-many", "bad-shape", "unknown", "duplicate", "blank-prompt"],
+)
+async def test_generate_checks_every_cell_before_paying(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeWorkspaceStore,
+    generations: FakeGenerations,
+    frames: list[FrameRequest],
+    expected: str,
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1", "S1-2", "S1-3", "S1-4"))
+    with pytest.raises(ModelRetry, match=expected):
+        await tools.generate_shot_frames(ctx, frames, [], "全局", "9:16")
+    assert generations.submitted == []
+
+
+async def test_generate_reference_urls_must_be_http(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeWorkspaceStore,
+    generations: FakeGenerations,
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
+    with pytest.raises(ModelRetry, match="参考图"):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], ["grid.png"], "全局", "9:16"
+        )
+    assert generations.submitted == []
+
+
+async def test_generate_refuses_an_empty_global_reference(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeWorkspaceStore
+) -> None:
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
+    with pytest.raises(ModelRetry, match="global_reference"):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "  ", "9:16"
+        )
 
 
 # ── 出图：重试与升级 ─────────────────────────────────────────────────────────
 
 
-async def test_generate_image_happy_path(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], generations: FakeGenerations
+async def submit_once(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeWorkspaceStore
+) -> dict[str, Any]:
+    """走一次出图。收敛后的切格要 ffmpeg，所以这里用的都是失败结局。"""
+
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
+    return await tools.generate_shot_frames(
+        ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局参考", "9:16"
+    )
+
+
+async def test_generate_submits_a_full_grid_at_the_top_tier(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeWorkspaceStore,
+    generations: FakeGenerations,
 ) -> None:
-    result = await tools.generate_image(ctx, "一只猫", "16:9")
-    assert "https://cdn.test/out.png" in result
-    assert generations.channels() == ["dev"]
+    """一格也按四格提交：切完每格只剩四分之一分辨率，档位低了不够交付。"""
+
+    generations.outcomes = [
+        Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
+    ]
+    await submit_once(tools, ctx, files)
+    request = generations.submitted[0]
+    assert request.resolution == GRID_RESOLUTION
+    assert request.aspect_ratio == "9:16"
+    assert "全局参考" in request.prompt
+    # 空格由中性面板补满，凑够一张 2×2。
+    assert request.prompt.count("visual_prompt:") == 4
 
 
-async def test_generate_image_retries_only_what_never_arrived(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], generations: FakeGenerations
+async def test_generate_retries_only_what_never_arrived(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeWorkspaceStore,
+    generations: FakeGenerations,
 ) -> None:
     """连不上是确定没计费的失败，重发一次是安全的。"""
 
     generations.outcomes = [
         Outcome(status="failed", output_url=None, error_code="PROVIDER_UNREACHABLE"),
-        Outcome(),
+        Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED"),
     ]
-    result = await tools.generate_image(ctx, "一只猫", "16:9")
-    assert "https://cdn.test/out.png" in result
+    result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev", "dev"]
-    # 试过的那次也要说出来：它是一行真实的生成记录。
-    assert "PROVIDER_UNREACHABLE" in result
+    assert "PROVIDER_REJECTED" in result["error"]
 
 
-async def test_generate_image_escalates_to_pro_after_dev(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], generations: FakeGenerations
+async def test_generate_escalates_to_pro_after_dev(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeWorkspaceStore,
+    generations: FakeGenerations,
 ) -> None:
     generations.outcomes = [
-        Outcome(status="failed", output_url=None, error_code="PROVIDER_UNREACHABLE"),
-        Outcome(status="failed", output_url=None, error_code="PROVIDER_SERVER_ERROR"),
-        Outcome(),
+        Outcome(status="failed", output_url=None, error_code="PROVIDER_UNREACHABLE")
     ]
-    result = await tools.generate_image(ctx, "一只猫", "16:9")
+    result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev", "dev", "pro"]
-    assert "https://cdn.test/out.png" in result
+    assert result["status"] == "failed"
+    assert result["frames"] == []
 
 
 @pytest.mark.parametrize(
@@ -351,51 +546,42 @@ async def test_generate_image_escalates_to_pro_after_dev(
         "PROVIDER_TIMEOUT",
     ],
 )
-async def test_generate_image_stops_where_money_may_already_be_spent(
+async def test_generate_stops_where_money_may_already_be_spent(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
+    files: FakeWorkspaceStore,
     generations: FakeGenerations,
     error_code: str,
 ) -> None:
     """这些失败都可能已经计费（或再发一次也是同样答复），一次都不许自动重发。"""
 
     generations.outcomes = [Outcome(status="failed", output_url=None, error_code=error_code)]
-    result = await tools.generate_image(ctx, "一只猫", "16:9")
+    result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev"]
-    assert error_code in result
+    assert error_code in result["error"]
 
 
-async def test_generate_image_exhausts_every_channel_then_reports(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], generations: FakeGenerations
-) -> None:
-    generations.outcomes = [
-        Outcome(status="failed", output_url=None, error_code="PROVIDER_UNREACHABLE")
-    ]
-    result = await tools.generate_image(ctx, "一只猫", "16:9")
-    assert generations.channels() == ["dev", "dev", "pro"]
-    assert "失败" in result
-
-
-async def test_generate_image_rejects_bad_parameters_before_paying(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], generations: FakeGenerations
+async def test_generate_rejects_bad_parameters_before_paying(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeWorkspaceStore,
+    generations: FakeGenerations,
 ) -> None:
     """参数不合规是在提交之前拒的，一分钱没花，所以让模型改了重来。"""
 
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
     with pytest.raises(ModelRetry, match="aspect_ratio"):
-        await tools.generate_image(ctx, "一只猫", "17:9")
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "17:9"
+        )
     assert generations.submitted == []
 
 
-async def test_generate_image_reference_urls_must_be_http(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], generations: FakeGenerations
-) -> None:
-    with pytest.raises(ModelRetry, match="参考图"):
-        await tools.generate_image(ctx, "一只猫", "16:9", reference_image_urls=["grid.png"])
-    assert generations.submitted == []
-
-
-async def test_generate_image_gives_up_waiting_but_names_the_record(
-    ctx: RunContext[object], generations: FakeGenerations, objects: FakeObjects
+async def test_generate_gives_up_waiting_but_names_the_record(
+    ctx: RunContext[object],
+    generations: FakeGenerations,
+    objects: FakeObjects,
+    files: FakeWorkspaceStore,
 ) -> None:
     """等超时不等于这次生成没了：把记录 id 报回去，人还能自己去查。"""
 
@@ -414,6 +600,6 @@ async def test_generate_image_gives_up_waiting_but_names_the_record(
         ),
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
-    result = await toolset.generate_image(ctx, "一只猫", "16:9")
-    assert "TOOL_WAIT_TIMEOUT" in result
-    assert str(generations.job_ids[0]) in result
+    result = await submit_once(toolset, ctx, files)
+    assert "TOOL_WAIT_TIMEOUT" in result["error"]
+    assert str(generations.job_ids[0]) in result["error"]
