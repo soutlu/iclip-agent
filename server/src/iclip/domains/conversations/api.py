@@ -1,7 +1,7 @@
 """对话的 HTTP 面。
 
-五个端点：开一段、列出我的、读历史、改名、删掉。读用 ``agent:read``，会改动的用
-``agent:run``——能不能看和能不能跑本来就是两件事。
+七个端点：开一段、列出我的、列出某张单下我的尝试、读历史、改名、换项目、删掉。读用
+``agent:read``，会改动的用 ``agent:run``——能不能看和能不能跑本来就是两件事。
 
 别人的对话一律 404，不返 403：那会泄露「这个 id 确实存在」。
 """
@@ -17,6 +17,7 @@ from iclip.domains.conversations.schemas import (
     ConversationEnvelope,
     ConversationIn,
     ConversationMessagesOut,
+    ConversationProjectIn,
     ConversationRename,
     ConversationsPageOut,
     conversation_out,
@@ -33,7 +34,13 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         body: ConversationIn,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> ConversationEnvelope:
-        conversation = await service.create(principal, agent_id=body.agent_id, title=body.title)
+        conversation = await service.create(
+            principal,
+            agent_id=body.agent_id,
+            title=body.title,
+            task_id=body.task_id,
+            project_id=body.project_id,
+        )
         return ConversationEnvelope(conversation=conversation_out(conversation))
 
     @router.get("", response_model=ConversationsPageOut)
@@ -52,6 +59,21 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         messages = await service.history(principal, conversation_id)
         return ConversationMessagesOut(messages=list(messages))
 
+    @router.get("/by-task/{task_id}", response_model=ConversationsPageOut)
+    async def list_task_attempts(
+        task_id: uuid.UUID,
+        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+    ) -> ConversationsPageOut:
+        """列出自己在这张需求单下的尝试，按开始时间正序。
+
+        路径写成 ``/conversations/by-task/{id}`` 而不是 ``/tasks/{id}/conversations``：
+        这是对话这一侧的查询，只看得到自己的那几段——挂在需求单下面会让人以为看到的是
+        全部。
+        """
+
+        found = await service.list_for_task(principal, task_id)
+        return ConversationsPageOut(items=[conversation_out(item) for item in found])
+
     @router.patch("/{conversation_id}", response_model=ConversationEnvelope)
     async def rename_conversation(
         conversation_id: uuid.UUID,
@@ -59,6 +81,17 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> ConversationEnvelope:
         conversation = await service.rename(principal, conversation_id, title=body.title)
+        return ConversationEnvelope(conversation=conversation_out(conversation))
+
+    @router.put("/{conversation_id}/project", response_model=ConversationEnvelope)
+    async def set_conversation_project(
+        conversation_id: uuid.UUID,
+        body: ConversationProjectIn,
+        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+    ) -> ConversationEnvelope:
+        conversation = await service.set_project(
+            principal, conversation_id, project_id=body.project_id
+        )
         return ConversationEnvelope(conversation=conversation_out(conversation))
 
     @router.delete("/{conversation_id}", status_code=204)

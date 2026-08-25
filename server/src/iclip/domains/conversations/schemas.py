@@ -26,14 +26,30 @@ Title = Annotated[str, Field(min_length=1, max_length=MAX_TITLE_CHARS)]
 
 
 class ConversationIn(CamelModel):
-    """新建一段对话。不给名字就用默认名。"""
+    """新建一段对话。不给名字就用默认名。
+
+    ``taskId`` 只在这里给：它说的是这段对话的由来，开完就定了。``projectId`` 之后还能
+    换（见 ``ConversationProjectIn``）。两个都不给就是「直接开始创作」。
+    """
 
     agent_id: Annotated[str, Field(min_length=1, max_length=MAX_AGENT_ID_CHARS)]
     title: Title | None = None
+    task_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
 
 
 class ConversationRename(CamelModel):
     title: Title
+
+
+class ConversationProjectIn(CamelModel):
+    """把这段对话放进某个项目，或者拿出来（给 ``null``）。
+
+    单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON
+    里长得一样，分不出来。
+    """
+
+    project_id: uuid.UUID | None
 
 
 class ConversationOut(CamelModel):
@@ -41,6 +57,8 @@ class ConversationOut(CamelModel):
     agent_id: str
     title: str
     last_run_id: str | None
+    task_id: uuid.UUID | None
+    project_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
 
@@ -71,6 +89,8 @@ def conversation_out(conversation: Conversation) -> ConversationOut:
         agent_id=conversation.agent_id,
         title=conversation.title,
         last_run_id=conversation.last_run_id,
+        task_id=conversation.task_id,
+        project_id=conversation.project_id,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
     )
@@ -84,6 +104,7 @@ __all__ = [
     "ConversationIn",
     "ConversationMessagesOut",
     "ConversationOut",
+    "ConversationProjectIn",
     "ConversationRename",
     "ConversationsPageOut",
     "conversation_out",

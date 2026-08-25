@@ -67,6 +67,19 @@ class TaskRepository(Protocol):
         """流转状态。当前状态不是 ``expect`` 就什么都不做并返回 ``None``。"""
         ...
 
+    async def list_project_ids(self, task_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
+        """这张单挂了哪些项目。没挂就是空的。"""
+        ...
+
+    async def set_project_ids(
+        self, task_id: uuid.UUID, *, project_ids: tuple[uuid.UUID, ...]
+    ) -> tuple[uuid.UUID, ...]:
+        """整体覆盖这张单挂的项目（给空的就是全部取消），返回落库后的那一组。
+
+        项目不存在时抛 ``ValidationFailed``——那是外键挡下来的，这一层不认识项目表。
+        """
+        ...
+
     async def delete(self, task_id: uuid.UUID, *, expect: TaskStatus) -> bool:
         """删掉一行；状态对不上就什么都不做并返回 ``False``。"""
         ...

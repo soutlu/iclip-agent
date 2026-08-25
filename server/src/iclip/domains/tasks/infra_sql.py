@@ -22,6 +22,7 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    PrimaryKeyConstraint,
     Table,
     Text,
     Uuid,
@@ -32,9 +33,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.row import RowMapping
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from iclip.common.errors import NotFound
+from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.tasks.models import (
     STATUS_DRAFT,
     STATUS_PUBLISHED,
@@ -92,6 +94,32 @@ _ROWS = tasks_table.c
 # 列表页就这一个查询：最近改动的排前面（可以再按状态筛一档，那是行数很少之后的事，
 # 走顺序过滤就够）。
 Index("ix_tasks_updated", _ROWS.updated_at.desc())
+
+# 一张单挂了哪些项目。挂在这一侧而不是 projects 那一侧：它是这张单的一个属性
+# （「这摊活算在哪几个项目里」），而项目并不因为少了一张单就变成别的东西。
+# 指向 projects 的外键写成字符串，所以这个模块不用 import 那个域。
+task_projects_table = Table(
+    "task_projects",
+    metadata_obj,
+    Column(
+        "task_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.tasks.id", ondelete="cascade"),
+        nullable=False,
+    ),
+    Column(
+        "project_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.projects.id", ondelete="cascade"),
+        nullable=False,
+    ),
+    # 两列即主键：同一张单挂同一个项目两遍，在表结构上就放不下。
+    PrimaryKeyConstraint("task_id", "project_id"),
+)
+
+# 主键首列是 task_id，「这张单挂了哪些项目」够用了；反过来问「这个项目里有哪些单」
+# 得自己一个索引。
+Index("ix_task_projects_project", task_projects_table.c.project_id)
 
 
 def _row(mapping: RowMapping) -> Task:
@@ -220,10 +248,43 @@ class SqlTaskRepository:
             row = (await conn.execute(statement)).first()
         return row is not None
 
+    async def list_project_ids(self, task_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
+        statement = select(task_projects_table.c.project_id).where(
+            task_projects_table.c.task_id == task_id
+        )
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(statement)).scalars().all()
+        return tuple(rows)
+
+    async def set_project_ids(
+        self, task_id: uuid.UUID, *, project_ids: tuple[uuid.UUID, ...]
+    ) -> tuple[uuid.UUID, ...]:
+        # 一个事务里先清后插：整体覆盖的语义要求中间不存在「旧的删了、新的还没进去」
+        # 被别人看到的时刻。
+        try:
+            async with self._engine.begin() as conn:
+                await conn.execute(
+                    delete(task_projects_table).where(task_projects_table.c.task_id == task_id)
+                )
+                if project_ids:
+                    await conn.execute(
+                        task_projects_table.insert(),
+                        [
+                            {"task_id": task_id, "project_id": project_id}
+                            # 去重靠这里而不是靠主键报错：调用方给重了不该是个错误，
+                            # 「挂两遍」和「挂一遍」本来就是同一件事。
+                            for project_id in dict.fromkeys(project_ids)
+                        ],
+                    )
+        except IntegrityError as exc:
+            raise ValidationFailed("指定的项目里有不存在的") from exc
+        return await self.list_project_ids(task_id)
+
 
 __all__ = [
     "DB_SCHEMA",
     "SqlTaskRepository",
     "metadata_obj",
+    "task_projects_table",
     "tasks_table",
 ]

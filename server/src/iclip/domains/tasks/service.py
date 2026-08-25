@@ -52,6 +52,24 @@ class TaskService:
         self._repo = repo
         self._snapshots = snapshots
 
+    async def list_project_ids(self, task_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
+        """这张单算在哪几个项目里。先确认单在（不在就 404）。"""
+
+        await self._repo.get(task_id)
+        return await self._repo.list_project_ids(task_id)
+
+    async def set_project_ids(
+        self, task_id: uuid.UUID, *, project_ids: tuple[uuid.UUID, ...]
+    ) -> tuple[uuid.UUID, ...]:
+        """整体覆盖这张单挂的项目（给空的就是全部取消）。
+
+        公事，持 ``tasks:write`` 就能做，所以不挑人——归类这摊活跟谁提的需求无关。
+        不受「下发即冻结」约束：项目是管理信息，不是需求方写下的创作输入。
+        """
+
+        await self._repo.get(task_id)
+        return await self._repo.set_project_ids(task_id, project_ids=project_ids)
+
     async def create(self, principal: Principal, body: TaskCreateIn) -> Task:
         """提一张新需求单。落地就是草稿，发布是另一个动作。
 

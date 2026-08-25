@@ -24,9 +24,10 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.engine.row import RowMapping
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from iclip.common.errors import NotFound
+from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.conversations.models import Conversation
 
 DB_SCHEMA: Final = "iclip"
@@ -47,6 +48,21 @@ conversations_table = Table(
     Column("agent_id", Text, nullable=False),
     Column("title", Text, nullable=False),
     Column("last_run_id", Text, nullable=True),
+    # 这段对话是为哪张需求单开的。空着就是「直接开始创作」，不属于任何一张单。
+    # set null 而不是 cascade：删掉一张单不该带走别人为它跑过的对话。
+    Column(
+        "task_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.tasks.id", ondelete="set null"),
+        nullable=True,
+    ),
+    # 放在哪个项目里，最多一个，随时可以换。空着就是没归类。
+    Column(
+        "project_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.projects.id", ondelete="set null"),
+        nullable=True,
+    ),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
@@ -57,6 +73,21 @@ _ROWS = conversations_table.c
 # owner_user_id 建索引。
 Index("ix_conversations_owner_recent", _ROWS.owner_user_id, _ROWS.updated_at.desc())
 
+# 这两条都带 WHERE：没挂单、没进项目的对话是多数，不该占索引。
+# 单那条按 created_at 升序——「这张单的第几次尝试」就是按它排出来的。
+Index(
+    "ix_conversations_task",
+    _ROWS.task_id,
+    _ROWS.created_at,
+    postgresql_where=_ROWS.task_id.isnot(None),
+)
+Index(
+    "ix_conversations_project",
+    _ROWS.project_id,
+    _ROWS.updated_at.desc(),
+    postgresql_where=_ROWS.project_id.isnot(None),
+)
+
 
 def _row(mapping: RowMapping) -> Conversation:
     return Conversation(
@@ -65,9 +96,27 @@ def _row(mapping: RowMapping) -> Conversation:
         agent_id=mapping["agent_id"],
         title=mapping["title"],
         last_run_id=mapping["last_run_id"],
+        task_id=mapping["task_id"],
+        project_id=mapping["project_id"],
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
     )
+
+
+def _reject_missing_reference(error: IntegrityError) -> ValidationFailed:
+    """外键挡下来的引用错误翻成领域错误。
+
+    这一层不认识需求单表和项目表（架构上就不许认识），所以「那张单/那个项目在不在」
+    只能由外键回答。区分是哪一个靠约束名——拿不到名字时就都报，比报错但说不清好。
+    """
+
+    constraint = getattr(getattr(error, "orig", None), "diag", None)
+    name = getattr(constraint, "constraint_name", None) or ""
+    if "task" in name:
+        return ValidationFailed("没有这张需求单")
+    if "project" in name:
+        return ValidationFailed("没有这个项目")
+    return ValidationFailed("指定的需求单或项目不存在")
 
 
 class SqlConversationRepository:
@@ -85,13 +134,18 @@ class SqlConversationRepository:
                 agent_id=conversation.agent_id,
                 title=conversation.title,
                 last_run_id=None,
+                task_id=conversation.task_id,
+                project_id=conversation.project_id,
                 created_at=func.now(),
                 updated_at=func.now(),
             )
             .returning(*conversations_table.c)
         )
-        async with self._engine.begin() as conn:
-            row = (await conn.execute(statement)).mappings().one()
+        try:
+            async with self._engine.begin() as conn:
+                row = (await conn.execute(statement)).mappings().one()
+        except IntegrityError as exc:
+            raise _reject_missing_reference(exc) from exc
         return _row(row)
 
     async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> Conversation:
@@ -114,6 +168,36 @@ class SqlConversationRepository:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(statement)).mappings().all()
         return tuple(_row(row) for row in rows)
+
+    async def list_for_task(
+        self, *, task_id: uuid.UUID, owner: uuid.UUID
+    ) -> tuple[Conversation, ...]:
+        statement = (
+            select(conversations_table)
+            .where(_ROWS.task_id == task_id, _ROWS.owner_user_id == owner)
+            .order_by(_ROWS.created_at)
+        )
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(statement)).mappings().all()
+        return tuple(_row(row) for row in rows)
+
+    async def set_project(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, project_id: uuid.UUID | None
+    ) -> Conversation:
+        statement = (
+            update(conversations_table)
+            .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner)
+            .values(project_id=project_id, updated_at=func.now())
+            .returning(*conversations_table.c)
+        )
+        try:
+            async with self._engine.begin() as conn:
+                row = (await conn.execute(statement)).mappings().one_or_none()
+        except IntegrityError as exc:
+            raise _reject_missing_reference(exc) from exc
+        if row is None:
+            raise NotFound("没有这段对话")
+        return _row(row)
 
     async def rename(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, title: str
