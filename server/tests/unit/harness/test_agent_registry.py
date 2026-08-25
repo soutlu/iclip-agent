@@ -11,7 +11,14 @@ from typing import Any
 import pytest
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Capability
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart
+from pydantic_ai.messages import (
+    ImageUrl,
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai_harness.step_persistence import InMemoryStepStore
@@ -23,6 +30,7 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
 )
+from iclip.harness.media import MediaCodec
 from tests.helpers.agui import run_input_bytes
 
 SPEC = "model: test\n"
@@ -66,7 +74,9 @@ def make_spec(root: Path, name: str, *, spec: str = SPEC, instructions: str | No
 
 
 def test_empty_definitions_yield_empty_registry() -> None:
-    assert build_agent_registry((), step_store=store(), models=models()).ids == ()
+    assert (
+        build_agent_registry((), step_store=store(), models=models(), media=MediaCodec()).ids == ()
+    )
 
 
 def test_agent_id_overrides_spec_name(tmp_path: Path) -> None:
@@ -80,6 +90,7 @@ def test_agent_id_overrides_spec_name(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
 
     assert registry.ids == ("storyboard", "producer")
@@ -108,6 +119,7 @@ async def test_instructions_file_merged(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
 
     assert await sent_instructions(registry, "storyboard") == "写镜头表。"
@@ -128,6 +140,7 @@ async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
 
     assert await sent_instructions(registry, "a") is None
@@ -171,6 +184,7 @@ async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
 
     body = "".join(await frames(registry, "producer"))
@@ -184,6 +198,7 @@ async def test_stream_emits_protocol_frames(tmp_path: Path) -> None:
         (AgentDefinition(agent_id="storyboard", spec=spec, model=MODEL_NAME),),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
 
     handle = await registry.start("storyboard", BODY, deps_stub())
@@ -231,6 +246,7 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
         ),
         step_store=step_store,
         models=models(),
+        media=MediaCodec(),
     )
 
     with registry.agents["producer"].override(model=FunctionModel(stream_function=delegate_once)):
@@ -300,6 +316,7 @@ async def test_subagent_only_gets_the_capabilities_declared_for_it(tmp_path: Pat
         ),
         step_store=store(),
         models={MODEL_NAME: TestModel(), "recorder": FunctionModel(child_records)},
+        media=MediaCodec(),
     )
 
     with registry.agents["producer"].override(
@@ -337,6 +354,7 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
 
     # 协议面这条路：deps 由 start 传入。
@@ -352,7 +370,7 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
 
 
 async def test_unknown_id_raises_not_found_before_streaming(tmp_path: Path) -> None:
-    registry = build_agent_registry((), step_store=store(), models=models())
+    registry = build_agent_registry((), step_store=store(), models=models(), media=MediaCodec())
     with pytest.raises(NotFound, match="未注册的 agent"):
         await registry.start("ghost", BODY, deps_stub())
 
@@ -370,6 +388,7 @@ async def test_empty_thread_id_raises_validation_failed_before_streaming(tmp_pat
         (AgentDefinition(agent_id="storyboard", spec=spec, model=MODEL_NAME),),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
     called: list[tuple[str, str]] = []
 
@@ -389,6 +408,7 @@ async def test_malformed_body_raises_validation_failed_before_streaming(tmp_path
         (AgentDefinition(agent_id="storyboard", spec=spec, model=MODEL_NAME),),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
     with pytest.raises(ValidationFailed):
         await registry.start("storyboard", b'{"nope": true}', deps_stub())
@@ -403,6 +423,7 @@ def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:
             (AgentDefinition(agent_id="storyboard", spec=spec, model="ghost"),),
             step_store=store(),
             models=models(),
+            media=MediaCodec(),
         )
 
 
@@ -421,6 +442,7 @@ def test_unknown_subagent_model_name_fails_at_assembly(tmp_path: Path) -> None:
             ),
             step_store=store(),
             models=models(),
+            media=MediaCodec(),
         )
 
 
@@ -432,6 +454,65 @@ def test_spec_model_field_is_overridden(tmp_path: Path) -> None:
         (AgentDefinition(agent_id="storyboard", spec=spec, model=MODEL_NAME),),
         step_store=store(),
         models=models(),
+        media=MediaCodec(),
     )
 
     assert isinstance(registry.agents["storyboard"].model, TestModel)
+
+
+async def test_media_parts_reach_the_model_as_tags(tmp_path: Path) -> None:
+    """带附件的请求体到不了模型面：视频换成一行地址，图片额外留一份像素。
+
+    这条守的是改写挂在了协议入口上。挂漏了的话，视频会一路走到模型适配层才炸
+    （官方 OpenAI 模型对视频 URL 直接抛），那时已经开了流，只能变成流中途的报错。
+    """
+
+    seen: list[list[ModelMessage]] = []
+
+    async def capture(messages: list[ModelMessage], _info: AgentInfo) -> AsyncIterator[str]:
+        seen.append(messages)
+        yield "ok"
+
+    spec = make_spec(tmp_path, "producer")
+    registry = build_agent_registry(
+        (AgentDefinition(agent_id="producer", spec=spec, model=MODEL_NAME),),
+        step_store=store(),
+        models=models(),
+        media=MediaCodec(),
+    )
+    body = run_input_bytes(
+        thread_id="c1",
+        content=[
+            {"type": "text", "text": "参考这个片子"},
+            {
+                "type": "video",
+                "source": {"type": "url", "value": "https://oss/ref.mp4", "mimeType": "video/mp4"},
+                "metadata": {"filename": "ref.mp4"},
+            },
+            {
+                "type": "image",
+                "source": {
+                    "type": "url",
+                    "value": "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg",
+                    "mimeType": "image/jpeg",
+                },
+            },
+        ],
+    )
+
+    with registry.agents["producer"].override(model=FunctionModel(stream_function=capture)):
+        await frames(registry, "producer", body)
+
+    prompt = seen[0][0].parts[0]
+    assert isinstance(prompt, UserPromptPart)
+    assert prompt.content == [
+        "参考这个片子",
+        '<video url="https://oss/ref.mp4" name="ref.mp4"></video>',
+        '<image url="https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg">',
+        ImageUrl(
+            url="https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
+            "?x-oss-process=image/resize,l_1024",
+            media_type="image/jpeg",
+        ),
+        "</image>",
+    ]

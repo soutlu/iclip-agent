@@ -24,6 +24,7 @@ from pydantic_ai_harness.step_persistence import StepPersistence, StepStore
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
 from iclip.common.errors import NotFound, ValidationFailed
+from iclip.harness.media import MediaCodec
 from iclip.harness.models import BuiltModels
 
 AgentCapabilities = tuple[AgentCapability[Any], ...]
@@ -194,6 +195,8 @@ class AgentRegistry:
     """启动期冻结的 id → Agent 映射。"""
 
     agents: Mapping[str, Agent[Any, Any]]
+    media: MediaCodec
+    """媒体引用协议：把请求体里的媒体 part 换成模型形状（见 ``harness.media``）。"""
 
     @property
     def ids(self) -> tuple[str, ...]:
@@ -239,6 +242,11 @@ class AgentRegistry:
             # 分隔离段的，空的当不了段，所以在这里（拥有协议的这一层）就拒掉，
             # 而不是让它一路漂到某个存储层报一句看不懂的话。
             raise ValidationFailed("请求体的 threadId 是空的")
+        # 媒体换形状要放在这里：往后就是引擎的地盘了，而且这一步会写对象存储，失
+        # 败得赶在开流之前变成一个正常的错误响应。
+        run_input = run_input.model_copy(
+            update={"messages": await self.media.rewrite(run_input.messages)}
+        )
         adapter = AGUIAdapter[Any, Any](agent=agent, run_input=run_input)
         resolved = await deps(run_input.thread_id, run_input.run_id)
         return RunHandle(
@@ -253,8 +261,9 @@ def build_agent_registry(
     *,
     step_store: StepStore,
     models: BuiltModels,
+    media: MediaCodec,
 ) -> AgentRegistry:
-    """按声明装配全部 agent。``step_store`` 与 ``models`` 无默认值。"""
+    """按声明装配全部 agent。三个依赖都无默认值。"""
 
     agents: dict[str, Agent[Any, Any]] = {}
     for definition in definitions:
@@ -273,7 +282,7 @@ def build_agent_registry(
                 ),
             ),
         )
-    return AgentRegistry(agents=agents)
+    return AgentRegistry(agents=agents, media=media)
 
 
 __all__ = [

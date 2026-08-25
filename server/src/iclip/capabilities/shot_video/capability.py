@@ -1,9 +1,9 @@
 """镜头素材能力：拆参考片、等间隔取帧分板、按批出帧、读图。
 
 四件工具靠工作区里的两份文件接力：拆解文档（`video/<名>.md`）与取帧账本
-（`frames/extraction.json`）。工作区是从本次运行认领的（`ctx.capabilities`），不
-从组合根另接一份——同一个 agent 上挂着的那个工作区，才是模型用 `read_file` /
-`edit_file` 看得见、改得动的那个。所以时间码写坏了它自己就能修。
+（`frames/extraction.json`）。落在哪由构造时给进来的 `FileSpace` 决定，和工作区能
+力收的是同一个——所以模型用 `read_file` / `edit_file` 看见的就是这几件工具写的那
+批文件，时间码写坏了它自己就能修。本包不认识工作区能力。
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ from typing import Any, Final
 
 import httpx
 from pydantic import BaseModel
-from pydantic_ai import ModelRetry, ToolReturn
+from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
 from pydantic_ai.capabilities import AbstractCapability
-from pydantic_ai.messages import BinaryContent
+from pydantic_ai.messages import ImageUrl
 from pydantic_ai.tools import AgentDepsT, RunContext
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
@@ -51,7 +51,6 @@ from iclip.capabilities.shot_video.ports import (
     InvalidImageRequest,
     PublicObjectWriter,
     VideoUnderstanding,
-    WorkspaceProvider,
 )
 from iclip.capabilities.shot_video.prompt import (
     GRID_CELLS,
@@ -70,9 +69,18 @@ from iclip.capabilities.shot_video.shots import (
     parse_shot_rows,
     sample_rows,
 )
-from iclip.capabilities.workspace.store import QuotaExceeded, WorkspaceStore
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
+from iclip.harness.materials import RunMaterials, run_materials
+from iclip.harness.media import (
+    IMAGE_CONTEXT_MAX_EDGE,
+    MediaKind,
+    media_kind_label,
+    media_tag_close,
+    media_tag_open,
+    resized_image_url,
+)
+from iclip.platform.file_store.store import FileSpace, FileStore, QuotaExceeded
 
 CAPABILITY_ID: Final = "shot_video"
 
@@ -83,9 +91,6 @@ GRID_RECORD_VERSION: Final = 1
 
 GRID_RESOLUTION: Final = "4k"
 """整图按最高档出。切成 4 格后每格只剩四分之一线性分辨率，低档不够交付。"""
-
-VIEW_MAX_EDGE: Final = 1024
-"""附给模型看的那份图的长边像素。交付用的原图另存，不受这个限制。"""
 
 _JPEG: Final = "image/jpeg"
 _OSS_PREFIX: Final = "shot-frames"
@@ -101,12 +106,6 @@ _RESENDABLE: Final = frozenset({"PROVIDER_UNREACHABLE", "PROVIDER_SERVER_ERROR"}
 **判据只有一条：这次失败有没有可能已经计费。** 连不上、对方 5xx 没产出——这两
 种确定没扣钱。其余一律停手报错：``PROVIDER_RESULT_UNKNOWN`` 可能已扣过钱，
 ``OUTPUT_*`` 是图出了只是没转存成功，重发都等于为同一版付两次。
-"""
-
-WORKSPACE_ID: Final = "workspace"
-"""工作区能力登记的名字。
-
-写死一个字符串而不是去 import 那边的常量：认得它是谁靠的是协议，不是那个类。
 """
 
 _STATUS_DONE: Final = "done"
@@ -144,6 +143,13 @@ class GenerationPolicy:
 @dataclass
 class ShotVideo(AbstractCapability[AgentDepsT]):
     """把四件工具挂到 agent 上。"""
+
+    space: FileSpace
+    """拆解文档与取帧账本落在哪。必须和工作区能力收的是同一个。
+
+    「同一个」由组合根保证：这里只认平台层这一件东西，不认识工作区能力。两边要
+    是各接各的，文档照写照读，只是模型的 ``read_file`` 看不见它——失效是静默的。
+    """
 
     generations: ImageGenerations
     objects: PublicObjectWriter
@@ -186,6 +192,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
           ``**[00:03.800-00:05.600]**``。
         - 同一段视频不要重复拆解——每次调用都是一次新的拆解，不复用上次结果。
         - 文档正文不随本工具返回；要看内容用 `read_file` 读返回的路径。
+        - 只接受这段对话里出现过的视频地址；自己拼的、以及对话里那些图片的地址，
+          都会被拒。
 
         Args:
             ctx: 框架给的运行上下文。
@@ -194,6 +202,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         files, namespace = self._workspace(ctx)
         _require_http(video_url, what="视频地址")
+        _require_material(run_materials(ctx.messages), video_url, kind="video", what="视频地址")
         path = video_doc_path(video_url)
         try:
             content = await self._cap.understanding.parse(video_url)
@@ -214,6 +223,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         - 同一视频与同一份拆解文档重复调用会直接复用既有结果，不重复抽帧。
         - 该视频尚未拆解、拆解文档读不出镜头时间戳、或时间戳超出视频时长时返回
           错误。
+        - 只接受这段对话里出现过的视频地址；自己拼的、以及对话里那些图片的地址，
+          都会被拒。
 
         Args:
             ctx: 框架给的运行上下文。
@@ -222,6 +233,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         files, namespace = self._workspace(ctx)
         _require_http(video_url, what="视频地址")
+        _require_material(run_materials(ctx.messages), video_url, kind="video", what="视频地址")
         doc_path = video_doc_path(video_url)
         rows = await self._shot_rows(files, namespace, doc_path)
         try:
@@ -291,6 +303,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         - 需要多次调用时，在同一次回复中并行发起，不要串行等待。
         - 生成需要数分钟，调用会阻塞到收敛后返回。
         - 每次调用都重新提交生成，没有复用；同一批帧不满意就改 prompt 再调。
+        - 参考图只接受这段对话里出现过的地址；自己拼的、以及对话里那些视频的地
+          址，都会被拒。
         - 每批成功后把逐帧 no/shot/prompt/url 与本批入参写进版记录
           ``frames/grids/<jobId>.json``。
         - 该视频尚未抽帧、帧号格式错误、帧号不存在或重复时返回错误。
@@ -310,8 +324,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             raise ModelRetry("取帧账本不存在或版本不兼容，先调用 plan_shot_frames。")
         cell_ids, prompts = _resolve_requests(frames, document)
         references = tuple(reference_images)
+        materials = run_materials(ctx.messages)
         for url in references:
             _require_http(url, what="参考图地址")
+            _require_material(materials, url, kind="image", what="参考图地址")
         try:
             prompt = assemble_grid_prompt(
                 global_reference=global_reference,
@@ -347,13 +363,15 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             target_aspect=target_aspect,
         )
 
-    async def read_media_file(self, ctx: RunContext[AgentDepsT], url: str) -> ToolReturn:
+    async def read_media_file(self, ctx: RunContext[AgentDepsT], url: str) -> list[str | ImageUrl]:
         """读取一张图片，原始内容以多模态形式附在工具结果中。
 
         - 本工具通常是你会希望并行使用的工具：需要看多张图时在同一次回复中发起多
           次调用，不要分多轮逐张读取。
         - 已读取且仍在上下文中的图片不要重复读取。
         - 本工具只读图片。视频信息读拆解文档，文本与产物文件用 `read_file`。
+        - 只接受这段对话里出现过的地址；自行构造的一律被拒。上下文里已经翻不到那
+          个地址时，用 `read_file` 读回记着它的那份账本或版记录。
 
         Args:
             ctx: 框架给的运行上下文。
@@ -362,21 +380,24 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         _ = _principal(ctx)
         _require_http(url, what="图片地址")
+        _require_material(run_materials(ctx.messages), url, kind="image", what="图片地址")
+        # 附地址而不是字节：厂商自己去取图，我们既不下载也不转码。缩放交给 OSS 的
+        # 参数（见 resized_image_url），附的是缩略档，tag 里写的仍是原图地址。
         try:
-            async with ffmpeg.fetched(
-                self._cap.client, url, max_bytes=ffmpeg.MAX_IMAGE_BYTES, suffix=".img"
-            ) as source:
-                data = await asyncio.to_thread(source.read_bytes)
-            view = await ffmpeg.shrink(data, max_edge=VIEW_MAX_EDGE)
-        except ffmpeg.MediaError as exc:
-            raise ModelRetry(str(exc)) from exc
-        return ToolReturn(
-            return_value=f"已读取图片 {url}，其原始内容已附在本工具结果中。",
-            content=[BinaryContent(data=view, media_type=_JPEG)],
-        )
+            view = ImageUrl(url=resized_image_url(url, max_edge=IMAGE_CONTEXT_MAX_EDGE))
+            _ = view.media_type
+        except ValueError as exc:
+            raise ModelRetry(f"这张图读不了（{exc}）") from exc
+        # 三段直接当返回值，于是它们留在这条工具结果里。换成 ToolReturn(content=...)
+        # 的话，官方会把多模态那份接成紧随其后的一条**用户**消息——模型会读到一条用户
+        # 没发过的消息，历史里也多出一条。
+        #
+        # 像素包在一对 tag 中间：地址与它显示的那张图是连着的一段，模型要把这张图交
+        # 给别的工具时，抄的是 tag 里的原图地址而不是缩略档。
+        return [media_tag_open("image", url), view, media_tag_close("image")]
 
     async def _shot_rows(
-        self, files: WorkspaceStore, namespace: str, doc_path: str
+        self, files: FileStore, namespace: str, doc_path: str
     ) -> tuple[tuple[ShotSpan, ...], ...]:
         """从拆解文档读逐镜时间区间；读不出就给出一条模型能自己走的修复路径。"""
 
@@ -499,7 +520,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
     async def _collect(
         self,
-        files: WorkspaceStore,
+        files: FileStore,
         namespace: str,
         job: ImageJob,
         *,
@@ -580,7 +601,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         }
 
     async def _load_extraction(
-        self, files: WorkspaceStore, namespace: str, *, expected_key: str | None
+        self, files: FileStore, namespace: str, *, expected_key: str | None
     ) -> dict[str, Any] | None:
         """读取帧账本；版本不符或（给定时）key 不匹配一律视为不存在。"""
 
@@ -599,26 +620,16 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             return None
         return document
 
-    async def _write(self, files: WorkspaceStore, namespace: str, path: str, content: str) -> None:
+    async def _write(self, files: FileStore, namespace: str, path: str, content: str) -> None:
         try:
             await files.write(namespace, path, content)
         except QuotaExceeded as exc:
             raise ModelRetry(f"工作区写不下 {path}：{exc} 用 delete_file 清掉不用的文件。") from exc
 
-    def _workspace(self, ctx: RunContext[AgentDepsT]) -> tuple[WorkspaceStore, str]:
-        """认领这次运行里挂着的工作区。
+    def _workspace(self, ctx: RunContext[AgentDepsT]) -> tuple[FileStore, str]:
+        """这次运行的文件存储与命名空间。命名空间算不出来就让它抛，不退回公共的。"""
 
-        不从组合根接一份自己的：这几件工具写的文档和账本，模型要用 `read_file` /
-        `edit_file` 去看去改。两边各拿各的存储，迟早落到不同的地方去。
-        """
-
-        found = ctx.capabilities.get(WORKSPACE_ID)
-        if not isinstance(found, WorkspaceProvider):
-            raise RuntimeError(
-                f"这个 agent 没挂 {WORKSPACE_ID} 能力，"
-                "而拆解文档与取帧账本都写在工作区里——在 agents.yaml 里给它补上。"
-            )
-        return found.store, found.resolve_scope(ctx)
+        return self._cap.space.store, self._cap.space.resolve(ctx)
 
 
 def video_doc_path(video_url: str) -> str:
@@ -651,6 +662,36 @@ def _principal(ctx: RunContext[AgentDepsT]) -> Principal:
 def _require_http(url: str, *, what: str) -> None:
     if not url.startswith(("http://", "https://")):
         raise ModelRetry(f"{what}必须是 http:// 或 https:// 开头；收到的是 {url!r}。")
+
+
+def _require_material(materials: RunMaterials, url: str, *, kind: MediaKind, what: str) -> None:
+    """要求这个地址是本对话的素材：出现过；被声明过种类的，种类还得对得上。
+
+    种类只在「声明过」时查：那个信息只有用户发的附件带得来（tag 写在上面），本能
+    力自己产出的地址是裸的，对它们查种类等于把自己的产物拒在门外。
+
+    错误消息一律**不回显被拒的地址**。回显了，模型重试一次就把它洗成上下文里出现
+    过的东西了——下一次同样的调用就会放行。
+    """
+
+    if not materials.appears(url):
+        known = materials.declared(kind)
+        if known:
+            raise ModelRetry(
+                f"这个{what}不是这段对话里的素材。本对话的{media_kind_label(kind)}有："
+                f"{'、'.join(known)}。逐字抄其中一个。"
+            )
+        raise ModelRetry(
+            f"这个{what}不是这段对话里的素材。只能用对话里给你的地址、或工具结果里"
+            f"返回的地址，不要自己拼；本能力写下的地址也记在 {EXTRACTION_PATH} 与 "
+            f"{GRID_RECORDS_DIR}/ 下，用 read_file 读回来再用。"
+        )
+    declared = materials.kind_of(url)
+    if declared is not None and declared != kind:
+        raise ModelRetry(
+            f"这个地址在对话里是一份{media_kind_label(declared)}，当不了{what}。"
+            f"换一个{media_kind_label(kind)}的地址。"
+        )
 
 
 def _check_in_range(rows: Sequence[Sequence[ShotSpan]], *, duration_ms: int) -> None:
@@ -715,6 +756,7 @@ def _sha256_file(path: Path) -> str:
 
 def shot_video_capability(
     *,
+    space: FileSpace,
     generations: ImageGenerations,
     objects: PublicObjectWriter,
     understanding: VideoUnderstanding,
@@ -724,6 +766,7 @@ def shot_video_capability(
     """造一个镜头素材能力。组合根用这个，不直接碰 dataclass 的字段顺序。"""
 
     return ShotVideo[Any](
+        space=space,
         generations=generations,
         objects=objects,
         understanding=understanding,
@@ -737,7 +780,6 @@ __all__ = [
     "EXTRACTION_PATH",
     "GRID_RECORDS_DIR",
     "GRID_RESOLUTION",
-    "VIEW_MAX_EDGE",
     "FrameRequest",
     "GenerationPolicy",
     "ShotVideo",

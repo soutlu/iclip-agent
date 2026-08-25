@@ -22,6 +22,7 @@ from iclip.common.errors import DomainError, NotFound
 from iclip.domains.agents.api import create_agents_router
 from iclip.domains.identity.models import Principal
 from iclip.harness.agents import AgentDefinition, build_agent_registry
+from iclip.harness.media import MediaCodec
 from iclip.harness.runs import RunBroker
 from iclip.platform.http import status_code_for
 from tests.helpers.agui import run_input, sse_cursors, sse_events
@@ -102,6 +103,7 @@ def broker(tmp_path: Path, stream: MemoryRunStream) -> RunBroker:
         (AgentDefinition(agent_id=AGENT_ID, spec=spec, model="m"),),
         step_store=InMemoryStepStore(),
         models={"m": TestModel()},
+        media=MediaCodec(),
     )
     return RunBroker(registry, stream)
 

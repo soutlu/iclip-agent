@@ -7,7 +7,7 @@ from typing import Any
 
 from iclip.domains.conversations.api import create_conversations_router
 from iclip.domains.conversations.repository import ConversationRepository
-from iclip.domains.conversations.service import ConversationService, PurgeDerived
+from iclip.domains.conversations.service import ConversationService, PurgeDerived, ReadHistory
 
 
 @dataclass(frozen=True)
@@ -19,15 +19,18 @@ class ConversationsModule:
 
 
 def build_conversations_module(
-    repo: ConversationRepository, *, purge_derived: PurgeDerived
+    repo: ConversationRepository,
+    *,
+    purge_derived: PurgeDerived,
+    read_history: ReadHistory,
 ) -> ConversationsModule:
     """装配 conversations。
 
-    ``purge_derived`` 是「删对话时连带删掉派生物」的口子，由组合根接线；本模块不知道
-    接上去的是什么，见 ``service.py``。
+    ``purge_derived``（删对话时连带删掉派生物）与 ``read_history``（读这段对话发生过
+    的消息）都是由组合根接线的口子；本模块不知道接上去的是什么，见 ``service.py``。
     """
 
-    service = ConversationService(repo, purge_derived=purge_derived)
+    service = ConversationService(repo, purge_derived=purge_derived, read_history=read_history)
     return ConversationsModule(
         routers=(create_conversations_router(service),),
         service=service,

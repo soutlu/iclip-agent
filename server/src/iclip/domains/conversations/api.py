@@ -1,6 +1,6 @@
 """对话的 HTTP 面。
 
-四个端点：开一段、列出我的、改名、删掉。读用 ``agent:read``，会改动的用
+五个端点：开一段、列出我的、读历史、改名、删掉。读用 ``agent:read``，会改动的用
 ``agent:run``——能不能看和能不能跑本来就是两件事。
 
 别人的对话一律 404，不返 403：那会泄露「这个 id 确实存在」。
@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from iclip.domains.conversations.schemas import (
     ConversationEnvelope,
     ConversationIn,
+    ConversationMessagesOut,
     ConversationRename,
     ConversationsPageOut,
     conversation_out,
@@ -42,6 +43,14 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
     ) -> ConversationsPageOut:
         found = await service.list_recent(principal, limit=limit)
         return ConversationsPageOut(items=[conversation_out(item) for item in found])
+
+    @router.get("/{conversation_id}/messages", response_model=ConversationMessagesOut)
+    async def read_conversation_messages(
+        conversation_id: uuid.UUID,
+        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+    ) -> ConversationMessagesOut:
+        messages = await service.history(principal, conversation_id)
+        return ConversationMessagesOut(messages=list(messages))
 
     @router.patch("/{conversation_id}", response_model=ConversationEnvelope)
     async def rename_conversation(

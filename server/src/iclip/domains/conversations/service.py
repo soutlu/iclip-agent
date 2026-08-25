@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.conversations.models import Conversation
@@ -27,12 +28,35 @@ PurgeDerived = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """
 
 
-class ConversationService:
-    """建对话、列对话、改名、删除，以及在对话里开始一次运行。"""
+ReadHistory = Callable[[uuid.UUID], Awaitable[tuple[dict[str, Any], ...]]]
+"""读一段对话里已经发生过的消息，入参是对话 id。
 
-    def __init__(self, repo: ConversationRepository, *, purge_derived: PurgeDerived) -> None:
+**这一层不知道消息长什么样。** 对话的归属归它管（能不能看是它的判断），但消息存在
+哪、什么形状是别人的知识，所以这里只留一个口子，接什么由组合根决定。
+"""
+
+
+class ConversationService:
+    """建对话、列对话、改名、删除，以及读这段对话的历史。"""
+
+    def __init__(
+        self,
+        repo: ConversationRepository,
+        *,
+        purge_derived: PurgeDerived,
+        read_history: ReadHistory,
+    ) -> None:
         self._repo = repo
         self._purge_derived = purge_derived
+        self._read_history = read_history
+
+    async def history(
+        self, principal: Principal, conversation_id: uuid.UUID
+    ) -> tuple[dict[str, Any], ...]:
+        """读这段对话的历史。先确认它是自己的，别人的一律 404。"""
+
+        await self._repo.get(conversation_id, owner=principal.user_id)
+        return await self._read_history(conversation_id)
 
     async def create(
         self, principal: Principal, *, agent_id: str, title: str | None = None

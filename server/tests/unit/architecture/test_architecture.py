@@ -33,6 +33,8 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ),
     ("sqlalchemy",): (
         "platform/db/",
+        # 命名空间化文本文件存储的 PG 后端；和 object_store/oss.py 同一类东西。
+        "platform/file_store/",
         "app/",
         # 协议后端跟着「说这门协议的那一环」走：这是官方 StepPersistence 的 PG
         # 后端，而 harness/agents.py 正是按 StepStore 协议标类型的那一方。

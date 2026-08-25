@@ -427,6 +427,28 @@ class PgStepStore:
             return None
         return await self._snapshot_from_row(run_id, row)
 
+    async def latest_conversation_snapshot(
+        self, *, conversation_id: str
+    ) -> ContinuableSnapshot | None:
+        """这段对话最新的一份完整快照（非协议方法）。
+
+        快照按运行分片存，但 ``seq`` 是全表自增的，所以「最新的一份」一句 SQL 就能取
+        到，不必先列运行再逐个问。派活出去的下属另有自己的会话 id，不会混进来。
+        """
+
+        stmt = (
+            select(snapshots_table)
+            .where(snapshots_table.c.conversation_id == conversation_id)
+            .where(snapshots_table.c.state == "complete")
+            .order_by(snapshots_table.c.seq.desc())
+            .limit(1)
+        )
+        async with self._engine.connect() as conn:
+            row = (await conn.execute(stmt)).one_or_none()
+        if row is None:
+            return None
+        return await self._snapshot_from_row(cast("_SnapshotRow", row).run_id, row)
+
     async def list_snapshots(
         self, *, run_id: str, include_interrupted: bool = False
     ) -> list[ContinuableSnapshot]:
@@ -529,6 +551,7 @@ class PgStepStore:
 class _SnapshotRow:
     """快照行的结构声明（仅供类型检查，运行时是 SQLAlchemy Row）。"""
 
+    run_id: str
     step_index: int
     conversation_id: str | None
     parent_run_id: str | None
