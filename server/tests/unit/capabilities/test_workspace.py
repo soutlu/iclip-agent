@@ -398,10 +398,20 @@ def test_capability_opts_out_of_spec_construction() -> None:
     assert Workspace.get_serialization_name() is None
 
 
-def test_capability_contributes_static_guidance(capability: Workspace[object]) -> None:
+def test_capability_guidance_says_only_what_no_docstring_can(
+    capability: Workspace[object],
+) -> None:
+    """指引只说「这个工作区是什么、归谁」。
+
+    怎么用那六件工具已经写在各自的 docstring 与错误消息里；指引每轮都进上下文，
+    在这儿重复一遍就是每轮都付一次钱。
+    """
+
     instructions = capability.get_instructions()
     assert isinstance(instructions, str)
-    assert "edit_file" in instructions
+    assert "工作目录" in instructions
+    for tool_name in ("read_file", "write_file", "edit_file", "delete_file", "list_files"):
+        assert tool_name not in instructions
 
 
 async def test_capability_attaches_to_a_real_agent(store: FakeWorkspaceStore) -> None:

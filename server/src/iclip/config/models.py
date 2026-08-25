@@ -43,6 +43,9 @@ SSO_BASE_URL_ENV: Final = "SSO_BASE_URL"
 VIDEO_SUBMIT_URL_ENV: Final = "VIDEO_SUBMIT_URL"
 """媒体生成的总开关：这个地址为空即整项关闭。"""
 
+VIDEO_UNDERSTANDING_URL_ENV: Final = "VIDEO_UNDERSTANDING_URL"
+"""镜头素材能力的总开关：这个地址为空即整项关闭（`shot_video` 不登记）。"""
+
 
 class ConfigSection(BaseModel):
     """所有 YAML 段的共同约束：frozen + 未知字段即拒。"""
@@ -119,6 +122,16 @@ class MediaGenerationEnv(EnvSettings):
     video_api_key: RequiredEnv = Field(validation_alias="VIDEO_API_KEY")
     image_text_to_image_url: RequiredEnv = Field(validation_alias="IMAGE_TEXT_TO_IMAGE_URL")
     image_edit_url: RequiredEnv = Field(validation_alias="IMAGE_EDIT_URL")
+
+
+class VideoUnderstandingEnv(EnvSettings):
+    """视频拆解接口的地址与凭证。只在总开关非空时才构造。
+
+    地址要完整的（含路径）：接口路由不留在仓里。
+    """
+
+    url: RequiredEnv = Field(validation_alias=VIDEO_UNDERSTANDING_URL_ENV)
+    api_key: RequiredEnv = Field(validation_alias="VIDEO_UNDERSTANDING_API_KEY")
 
 
 # ── YAML 的形状 ───────────────────────────────────────────────────────────────
@@ -217,6 +230,33 @@ class MediaGenerationSection(ConfigSection):
     job_timeout_seconds: int = Field(default=3600, ge=1)
 
 
+class ShotVideoSection(ConfigSection):
+    """镜头素材能力里对方约定的取值与节奏。地址与 key 在 ``VideoUnderstandingEnv``。
+
+    这项能力**建立在媒体生成之上**：出图走生成域，帧与切格产物落生成用的那个公
+    开对象存储。所以生成没开的时候它也装不起来。
+    """
+
+    understanding_model: str
+    """拆解视频用对方哪个模型。"""
+
+    poll_interval_seconds: float = Field(default=5.0, gt=0)
+    """出图之后隔多久查一次结果。"""
+
+    dev_attempts: int = Field(default=2, ge=1)
+    """先在 dev 渠道试几次。"""
+
+    pro_attempts: int = Field(default=1, ge=0)
+    """dev 试完还不成，再在 pro 渠道试几次。0 即不升级。"""
+
+    backoff_seconds: float = Field(default=5.0, gt=0)
+    """两次重试之间的起始间隔，之后逐次乘以 ``backoff_factor``。"""
+
+    backoff_factor: float = Field(default=3.0, ge=1)
+    job_timeout_seconds: float = Field(default=1800.0, gt=0)
+    """一次出图工具调用总共等多久；超了就把记录 id 报回去，让人自己查。"""
+
+
 class OpsSection(ConfigSection):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -230,6 +270,7 @@ class RuntimeConfig(BaseSettings):
     sso: SsoSection
     redis: RedisSection | None = None
     media_generation: MediaGenerationSection | None = None
+    shot_video: ShotVideoSection | None = None
     models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
     ops: OpsSection = OpsSection()
 
@@ -309,6 +350,21 @@ class ResolvedMediaGeneration:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedShotVideo:
+    """镜头素材能力的运行值。"""
+
+    understanding_url: str
+    understanding_api_key: str
+    understanding_model: str
+    poll_interval_seconds: float
+    dev_attempts: int
+    pro_attempts: int
+    backoff_seconds: float
+    backoff_factor: float
+    job_timeout_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedModel:
     """一个命名模型解析后的装配事实。``name`` 是 agent 引用的名字。"""
 
@@ -331,6 +387,7 @@ class ResolvedSettings:
     sso: ResolvedSso | None
     redis: ResolvedRedis | None
     media_generation: ResolvedMediaGeneration | None
+    shot_video: ResolvedShotVideo | None
     models: tuple[ResolvedModel, ...]
     log_level: str
 
@@ -383,6 +440,37 @@ def _resolve_media_generation(
     )
 
 
+def _resolve_shot_video(
+    section: ShotVideoSection | None, *, generation_on: bool
+) -> ResolvedShotVideo | None:
+    """解析镜头素材能力；没声明或总开关为空即这项能力关闭。
+
+    开关为空就是干脆没开（哪怕 YAML 留着这一段）——真有 agent 声明要用它，装配
+    期会在名字表那里报「未登记的 capability」，该响的地方会响。但开关配了、媒体
+    生成却没开是「半开着」：出图与对象存储都走生成那一套，所以直接报错。
+    """
+
+    if section is None or not _switched_on(VIDEO_UNDERSTANDING_URL_ENV):
+        return None
+    if not generation_on:
+        raise RuntimeError(
+            f"配了 {VIDEO_UNDERSTANDING_URL_ENV} 但媒体生成没开：镜头素材能力的出图与"
+            f"对象存储都走生成那一套，要么补上 {VIDEO_SUBMIT_URL_ENV}，要么把它清空"
+        )
+    env = _from_env(VideoUnderstandingEnv)
+    return ResolvedShotVideo(
+        understanding_url=env.url,
+        understanding_api_key=env.api_key,
+        understanding_model=section.understanding_model,
+        poll_interval_seconds=section.poll_interval_seconds,
+        dev_attempts=section.dev_attempts,
+        pro_attempts=section.pro_attempts,
+        backoff_seconds=section.backoff_seconds,
+        backoff_factor=section.backoff_factor,
+        job_timeout_seconds=section.job_timeout_seconds,
+    )
+
+
 def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
     """把 YAML 的形状和环境变量的值合成装配期要用的运行值，缺什么当场失败。"""
 
@@ -408,6 +496,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             max_connections=config.redis.max_connections,
         )
 
+    media_generation = _resolve_media_generation(config.media_generation)
     return ResolvedSettings(
         app_name=config.app.name,
         database_url=core.database_url,
@@ -421,7 +510,10 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
         ),
         sso=sso,
         redis=redis,
-        media_generation=_resolve_media_generation(config.media_generation),
+        media_generation=media_generation,
+        shot_video=_resolve_shot_video(
+            config.shot_video, generation_on=media_generation is not None
+        ),
         models=tuple(
             ResolvedModel(
                 name=name,

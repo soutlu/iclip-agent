@@ -38,6 +38,22 @@ media_generation:
   poll_interval_seconds: 5 # 每隔多久查一次状态（固定间隔，不做退避）
   job_timeout_seconds: 3600 # 提交后超过这么久还没终态就判失败
 
+shot_video:
+  # 镜头素材能力（capability 名 shot_video）：拆参考片、取帧、出图、切格。
+  # 开关是 VIDEO_UNDERSTANDING_URL 这个环境变量：为空即整项关闭（名字不登记，
+  # agent 声明里引用它会在装配期报错）。它建立在媒体生成之上——出图走生成域，
+  # 帧与切格产物落生成用的那个公开对象存储——所以生成没开时配了这一段即启动报错。
+  understanding_model: doubao-seed-2-0-lite-260428 # 对方的模型名，不是 models 段的键
+  # 出图的等待与重试。渠道从 dev 起，试满 dev_attempts 次还不成再升 pro。
+  # 只有「确定没计费」的失败才会重试（连不上、对方 5xx）；「送到了但结果不明」
+  # 一律停手报错——那次可能已经扣过钱了。
+  poll_interval_seconds: 5 # 提交之后隔多久查一次结果
+  dev_attempts: 2
+  pro_attempts: 1
+  backoff_seconds: 5 # 首次重试前等多久，之后逐次乘以 backoff_factor
+  backoff_factor: 3
+  job_timeout_seconds: 1800 # 一次出图工具调用总共等多久
+
 models:
   # 键名即模型名，也是 agents.yaml 里 model 字段引用的名字。
   # provider 是官方 provider 名，决定厂商适配；api 不写即 chat。

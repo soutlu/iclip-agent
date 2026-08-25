@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
 from ag_ui.core import RunErrorEvent
@@ -29,7 +29,11 @@ INTERRUPTED_CODE = "RUN_INTERRUPTED"
 """收尾用的错误码：运行没跑完就断了，客户端可以重新发起。"""
 
 _SSE = EventEncoder(accept="text/event-stream")
-_RUN_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
+_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
+"""流名字里每一段的形状。
+
+名字是用冒号拼出来的，所以段里绝不能出现冒号——否则调用方给的一个 id 就能把自己
+伪装成别的段，拼出一条本不属于他的流。"""
 _CURSOR = re.compile(r"\d{1,20}-\d{1,20}")
 
 
@@ -78,21 +82,31 @@ class RunBroker:
         # 被垃圾回收掉。
         self._producers: set[asyncio.Task[None]] = set()
 
-    def _run_key(self, owner: str, agent_id: str, run_id: str) -> str:
+    def _run_key(self, owner: str, conversation_id: str, agent_id: str, run_id: str) -> str:
         """给这次运行在 Redis 里定个名字。
 
-        名字里带上是谁的运行。运行 id 是客户端自己起的，带上归属之后它就只是
-        「这个用户自己那一摊里的一个名字」，猜别人的 id 也落不到别人的流上。
+        名字里带上是谁的、哪段对话的运行。运行 id 是客户端自己起的，带上这两段之后
+        它就只是「这个用户这段对话里的一个名字」——猜别人的 id 落不到别人的流上，
+        而同一个人在两段对话里复用同一个运行 id 也不会串到一起去。
         """
 
-        if not _RUN_ID.fullmatch(run_id):
+        if not _ID.fullmatch(run_id):
             raise ValidationFailed(
                 "运行 id 只能是字母、数字、点、下划线、短横线，且不超过 128 字符"
             )
-        return f"{owner}:{agent_id}:{run_id}"
+        if not _ID.fullmatch(conversation_id):
+            raise ValidationFailed(
+                "会话 id 只能是字母、数字、点、下划线、短横线，且不超过 128 字符"
+            )
+        return f"{owner}:{conversation_id}:{agent_id}:{run_id}"
 
     async def open(
-        self, *, owner: str, agent_id: str, body: bytes, deps: Callable[[str], object]
+        self,
+        *,
+        owner: str,
+        agent_id: str,
+        body: bytes,
+        deps: Callable[[str, str], Awaitable[object]],
     ) -> str:
         """发起一次运行，返回它在流里的名字。
 
@@ -101,7 +115,7 @@ class RunBroker:
 
         未注册的 agent 与不合协议的请求体都在这里就抛出来，还没开始流。
 
-        ``deps`` 是造依赖的函数（注册表解析出会话 id 后回调它），返回类型写
+        ``deps`` 是造依赖的函数（注册表解析出两个 id 后回调它），返回类型写
         ``object`` 并且全程不解包——这一层不认识业务，它只负责把东西送到官方接口
         手上。``owner`` 不能拿它来推：那是流名字的归属段，得是个字符串。
 
@@ -111,8 +125,8 @@ class RunBroker:
         §7 的表结构），而进程内存里的东西不是可信事实源。
         """
 
-        handle = self._registry.start(agent_id, body, deps)
-        run_key = self._run_key(owner, agent_id, handle.run_id)
+        handle = await self._registry.start(agent_id, body, deps)
+        run_key = self._run_key(owner, handle.conversation_id, agent_id, handle.run_id)
         if await self._stream.claim(run_key, lease_seconds=self._settings.lease_seconds):
             task = asyncio.create_task(self._produce(run_key, handle.frames))
             self._producers.add(task)
@@ -121,12 +135,16 @@ class RunBroker:
         # 生过，丢掉不会留下任何东西。
         return run_key
 
-    def locate(self, *, owner: str, agent_id: str, run_id: str) -> str:
-        """算出一次已有运行在流里的名字（重连时用）。"""
+    def locate(self, *, owner: str, conversation_id: str, agent_id: str, run_id: str) -> str:
+        """算出一次已有运行在流里的名字（重连时用）。
+
+        这里不查库核对这段对话归谁：名字的归属段是从凭证来的，换个人来同一组 id 就
+        是另一条不存在的流，读不到。多问一次库挡不住任何原本挡不住的东西。
+        """
 
         if agent_id not in self._registry.ids:
             raise NotFound(f"未注册的 agent: {agent_id}")
-        return self._run_key(owner, agent_id, run_id)
+        return self._run_key(owner, conversation_id, agent_id, run_id)
 
     async def feed(self, run_key: str, *, after: str | None) -> AsyncIterator[str]:
         """读这次运行的事件，``after`` 是上次读到的位置（``None`` 即从头）。

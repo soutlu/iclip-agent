@@ -10,10 +10,15 @@ from __future__ import annotations
 from sqlalchemy import MetaData, inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from iclip.domains.conversations.infra_sql import metadata_obj as conversations_metadata
 from iclip.domains.generation.infra_sql import metadata_obj as generation_metadata
 from iclip.domains.identity.infra_sql import DB_SCHEMA, Base
 
-_MODULE_METADATA: tuple[MetaData, ...] = (Base.metadata, generation_metadata)
+_MODULE_METADATA: tuple[MetaData, ...] = (
+    Base.metadata,
+    conversations_metadata,
+    generation_metadata,
+)
 
 
 async def test_alembic_head_matches_orm_metadata(migrated_pg: str) -> None:

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -16,6 +17,8 @@ from iclip.config import ResolvedAgent, ResolvedSubAgent
 from tests.helpers.agui import run_input, sse_events
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
+    make_client,
+    new_conversation,
     register_and_login,
     set_roles_in_db,
 )
@@ -107,8 +110,9 @@ async def test_malformed_body_is_422(client: httpx.AsyncClient, pg_url: str) -> 
 
 async def test_run_streams_protocol_frames(client: httpx.AsyncClient, pg_url: str) -> None:
     await login_as_editor(client, pg_url)
+    body = run_input(thread_id=await new_conversation(client, AGENT_ID))
 
-    async with client.stream("POST", URL, json=BODY) as response:
+    async with client.stream("POST", URL, json=body) as response:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join([chunk async for chunk in response.aiter_text()])
@@ -122,7 +126,7 @@ async def test_run_is_recorded_in_postgres(client: httpx.AsyncClient, pg_url: st
     """走完整 HTTP 路径的一次运行必须在 agent_runtime 留下 run 与步骤事件。"""
 
     await login_as_editor(client, pg_url)
-    conversation_id = "conversation-persisted"
+    conversation_id = await new_conversation(client, AGENT_ID)
 
     body = run_input(thread_id=conversation_id)
     async with client.stream("POST", URL, json=body) as response:
@@ -163,3 +167,76 @@ async def test_run_is_recorded_in_postgres(client: httpx.AsyncClient, pg_url: st
 
     assert run_id.startswith(f"{AGENT_ID}-")
     assert kinds[0] == "run_started"
+
+
+async def test_unknown_conversation_is_404(client: httpx.AsyncClient, pg_url: str) -> None:
+    """会话 id 由服务端发放：客户端自己编一个，发消息就被拒。"""
+
+    await login_as_editor(client, pg_url)
+    response = await client.post(URL, json=run_input(thread_id="conversation-i-made-up"))
+    assert response.status_code == 404
+
+
+async def test_another_users_conversation_is_404(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """别人的会话一律当作不存在，不返 403——那会泄露这个 id 确实有人在用。"""
+
+    await login_as_editor(client, pg_url)
+    conversation_id = await new_conversation(client, AGENT_ID)
+
+    async with make_client(app) as other:
+        await register_and_login(other, username="mallory", email="mallory@example.com")
+        await set_roles_in_db(pg_url, "mallory@example.com", ["editor"])
+        response = await other.post(URL, json=run_input(thread_id=conversation_id))
+
+    assert response.status_code == 404
+
+
+async def test_run_is_recorded_on_the_conversation(client: httpx.AsyncClient, pg_url: str) -> None:
+    """跑过一次之后，对话上记着最近一次运行的 id——刷新页面靠它接回那条流。"""
+
+    await login_as_editor(client, pg_url)
+    conversation_id = await new_conversation(client, AGENT_ID)
+
+    async with client.stream(
+        "POST", URL, json=run_input(thread_id=conversation_id, run_id="run-latest")
+    ) as response:
+        assert response.status_code == 200
+        async for _ in response.aiter_text():
+            pass
+
+    listed = await client.get("/conversations")
+    assert [item["lastRunId"] for item in listed.json()["items"]] == ["run-latest"]
+
+    # 客户端铸造的那个 id 也被盖进了消息里：库里那条运行记录的主键跟它不是一个东西，
+    # 没有这一层，用户报「刚才那条回复不对」就没法从它查回落库的事实。
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.connect() as conn:
+            messages = (
+                await conn.execute(
+                    text(
+                        "SELECT s.messages FROM agent_runtime.snapshots s "
+                        "WHERE s.conversation_id = :cid ORDER BY s.seq DESC LIMIT 1"
+                    ),
+                    {"cid": conversation_id},
+                )
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+
+    assert "run-latest" in messages
+
+
+async def test_conversation_id_must_match_byte_for_byte(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """大写写法解析出的是同一个 UUID，但下游用的是原样字符串——放行它会长出第二个
+    工作区和第二条事件流，而删除对话时又碰不到它们。"""
+
+    await login_as_editor(client, pg_url)
+    conversation_id = await new_conversation(client, AGENT_ID)
+
+    response = await client.post(URL, json=run_input(thread_id=conversation_id.upper()))
+    assert response.status_code == 404

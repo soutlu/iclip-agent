@@ -71,5 +71,6 @@
 - **[docs/CONTEXT.md](docs/CONTEXT.md)**：【领域锚点】所有名词定义、生命周期和最高不可变逻辑（开发必读）。
 - **[docs/architecture.md](docs/architecture.md)**：【架构地图】模块的划分逻辑和装配流程。
 - **[docs/adr/](docs/adr/)**：【架构决策记录】系统演进中的核心技术方案选择及其背后的权衡思考。
+- **[docs/tool-design.md](docs/tool-design.md)**：【工具编写规范】agent 工具模型面文本（docstring、指引、错误消息）怎么写。
 - **[docs/test-design.md](docs/test-design.md)**：【测试设计】怎么写出符合规范的自动化用例、测试分几层、数据库测试环境规则。
 - **[docs/test-registry.md](docs/test-registry.md)**：【测试点登记表】每个测试点断言什么行为、防的是哪类风险。

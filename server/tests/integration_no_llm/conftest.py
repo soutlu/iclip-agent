@@ -298,3 +298,15 @@ async def set_roles_in_db(pg_url: str, email: str, roles: list[str]) -> None:
             )
     finally:
         await engine.dispose()
+
+
+async def new_conversation(client: httpx.AsyncClient, agent_id: str) -> str:
+    """开一段对话，返回它的 id（AG-UI 请求体里的 ``threadId`` 用的就是它）。
+
+    agent 端点只认服务端自己发出去的会话 id，所以凡是要真跑一次运行的用例都得
+    先走这一步。
+    """
+
+    created = await client.post("/conversations", json={"agentId": agent_id})
+    assert created.status_code == 201, created.text
+    return str(created.json()["conversation"]["id"])

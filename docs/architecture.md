@@ -51,9 +51,9 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/generation/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
+围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/conversations/api.py`、`domains/generation/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
-现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）与 `generation/`（媒体生成，见 §11）。接口随首个实现定义，不提前写投机 ABC。
+现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）、`conversations/`（对话，见 §12）与 `generation/`（媒体生成，见 §11）。接口随首个实现定义，不提前写投机 ABC。
 
 **外部存储落点（登记表，不是配额）**：新增一个碰 SQL/Redis 的文件不是违规，是要登记——在架构测试的 `FRAMEWORK_FENCES` 加一行，并在下表加一行。落在哪一环有两条并列规则：**实现官方协议的后端**跟着「说这门协议的那一环」走；**模块或能力包自有的存储**放自己模块里的 `infra_sql.py`。
 
@@ -76,14 +76,15 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/src/iclip/config/` | RuntimeConfig：YAML 源（形状）+ 那几个 `*Env` 类（环境变量清单） |
 | `server/src/iclip/domains/identity/` | 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
 | `server/src/iclip/domains/agents/` | agent 运行的 HTTP 面：`api.py`（发起运行 + 接着读事件）、`public.py`（`AgentRunDeps`：一次运行的身份 + 所属对话），只认识注入进来的运行入口 |
+| `server/src/iclip/domains/conversations/` | 对话（会话）：`models.py`（对话行）、`repository.py`/`infra_sql.py`（自有的表）、`schemas.py`（wire 形状）、`service.py`（含删除时连带清理的口子）、`api.py`/`module.py`。不认识 agent 引擎，也不认识工作区 |
 | `server/src/iclip/domains/generation/` | 媒体生成：`schemas.py`（请求类型，同时是 wire 与入库形状）、`models.py`（job 行）、`repository.py`/`infra_sql.py`（只有事实，没有排期）、`provider.py` + `multiflow.py`（视频）/`nano_banana.py`（图像）、`queue.py`（三条队列 + 任务体 + 捡卡死任务）、`service.py`/`api.py`/`module.py` |
 | `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）与 `run_stream_redis.py`（事件流的 Redis 后端） |
-| `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`store.py`（路径语法 + 后端 Protocol）、`capability.py`（能力本体 + 工具集）、`scope.py`（工作区归谁）、`infra_sql.py`（PG 后端） |
+| `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`store.py`（路径语法 + 后端 Protocol）、`capability.py`（能力本体 + 工具集）、`scope.py`（工作区归谁）、`infra_sql.py`（PG 后端）；与 `shot_video/`：`capability.py`（四件工具）、`shots.py`（镜头区间解析 + 等间隔采样，纯计算）、`board.py`（预览板拼版与帧号叠印）、`grid.py`（切格几何，纯函数）、`prompt.py`（整版 prompt 拼接）、`ffmpeg.py`（异步子进程 + 取素材）、`parser.py`（视频拆解的 Responses 适配器 + 提示词）、`ports.py`（对外要的四个窄协议） |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（公开对象存储，阿里云 OSS） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只有形状；地址与凭证在环境变量里） |
 | `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词）+ `skills/`（skill 库，一个子目录一个 skill） |
-| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表；0004 媒体生成任务表；0005 procrastinate 的排期表；0006 去掉 0004 里的排期列） |
+| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表；0004 媒体生成任务表；0005 procrastinate 的排期表；0006 去掉 0004 里的排期列；0007 对话表） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
 | `web/` | UI 参考稿（只读） |
 | `contract/` | 跨端合同契约存放处 |
@@ -91,7 +92,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ## 4. 装配流程
 
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要一个「删对话时连带清掉派生物」的回调，组合根在这里把它接到工作区的清空上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -112,6 +113,8 @@ env 的读取交给 pydantic-settings：`config/models.py` 里那几个 `*Env` �
 | `REDIS_URL` | 声明了 `redis` 段时必需 |
 | `VIDEO_SUBMIT_URL` | **它就是媒体生成的开关**：为空即整项关闭（`/generations` 不挂载、后台不跑） |
 | `VIDEO_STATUS_BASE_URL`、`VIDEO_API_KEY`、`IMAGE_TEXT_TO_IMAGE_URL`、`IMAGE_EDIT_URL`、`OSS_BUCKET`、`OSS_ENDPOINT`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_PUBLIC_URL_BASE` | 媒体生成开启时全部必需（半开着比关着更糟） |
+| `VIDEO_UNDERSTANDING_URL` | **它就是镜头素材能力的开关**：为空即整项关闭（`shot_video` 不登记进名字表） |
+| `VIDEO_UNDERSTANDING_API_KEY` | 镜头素材能力开启时必需；且此时媒体生成必须也开着（出图与对象存储都走它），否则启动报错 |
 | `CONFIG_FILE`、`AGENTS_FILE` | 可选：两份声明文件的路径，缺省 `configs/config.yaml` / `agents/agents.yaml` |
 
 **空串与只有空白等于没设。** 那种半配置最难查，所以在类型上就拒掉（`min_length=1` + 先 strip）。
@@ -124,6 +127,7 @@ env 的读取交给 pydantic-settings：`config/models.py` 里那几个 `*Env` �
 | `sso` | `app_name`：我们在对方那边注册的应用名 |
 | `redis` | 运行事件流的调参：`replay_window_seconds`、`max_frames`、`max_connections`（声明了 agent 即必填，缺段启动报错） |
 | `media_generation` | `video`（`model` / `user_name`）、`image`（`user_name`）、`poll_interval_seconds`、`job_timeout_seconds`。并发、错误重试间隔、关停宽限、心跳这些是实现细节，默认值在 `GenerationQueueSettings` 里，不进 YAML |
+| `shot_video` | 镜头素材能力：`understanding_model`（拆解视频用对方哪个模型）、出图的等待与重试节奏（`poll_interval_seconds` / `dev_attempts` / `pro_attempts` / `backoff_seconds` / `backoff_factor` / `job_timeout_seconds`） |
 | `models` | 命名模型表：键名即模型名，值为 `provider` / `api`（`chat`\|`responses`，默认 chat）/ `api_key_env` / `base_url?` / `model?`（只在键名不是模型名时写） |
 | `ops` | `log_level` |
 
@@ -137,7 +141,7 @@ agent:                                 # 键名即 agent id
     spec: storyboard/agent.yaml        # 相对本文件目录；同目录 instructions.md 自动并入
     model: qwen3.8-max                 # 引用 config.yaml models 段的键名，必填
     skills: [storyboard-workflow]      # 从同级 skills/ 库里挑，不写即不挂
-    capabilities: [workspace]          # capability 名（登记在 app/capability_table.py），不写即不挂
+    capabilities: [workspace, shot_video]  # capability 名（登记在 app/capability_table.py），不写即不挂
   producer:
     spec: producer/agent.yaml
     model: qwen3.8-max
@@ -169,6 +173,16 @@ agent:                                 # 键名即 agent id
 - **容量上限在存储层强制，且每次变更先拿命名空间的 advisory 锁。** 命名空间总量是跨行聚合，单条语句的原子性保护不了它。拿到锁之后判断放在 Python 里，「容量满」和「版本冲突」因此是两种可分辨的错误——塞进 `ON CONFLICT ... WHERE` 的守卫只能返回 0 行，而这两件事给模型的提示完全相反。
 - 只放文本；二进制走已有的内容寻址媒体（`media` 表 + `media+sha256://`）。
 
+**镜头素材（`capabilities: [shot_video]`）** 给 agent 四件围着一条产线的工具：`video_parser_md`（拆参考片，文档写进工作区）→ `plan_shot_frames`（整片按秒抽帧，按结构层级拼成带帧号的预览板）→ `generate_shot_frames`（按选中的帧号出一张 2×2 网格图并切成 4 帧）→ `ReadMediaFile`（把一张图附进上下文给模型看）。它建立在媒体生成之上——出图走 generation 域的服务，帧与切格产物落生成用的那个公开对象存储——所以两项要么一起开、要么一起关，开关是 `VIDEO_UNDERSTANDING_URL`。几个决定与它们的理由：
+
+- **接力靠工作区里的两份文件，而工作区是从本次运行认领的。** 拆解文档（`video/<名>.md`）与取帧账本（`frames/extraction.json`）都落在**这个 agent 自己挂着的那个工作区**里：`shot_video` 不从组合根另接一份存储，而是在工具里从 `ctx.capabilities` 取出 `workspace` 能力（挂了它才有工作区权限，没挂就当场报错说去 `agents.yaml` 补）。这样模型的 `read_file` / `edit_file` 看见的就是同一批文件——时间码写坏了它自己就能改完重来，这也是取帧那条错误提示能给出可执行修法的前提。认的是**能力包自己声明的窄协议**（`ports.WorkspaceProvider`），不是 `Workspace` 那个类：和 `ImageGenerations` / `PublicObjectWriter` 同一个套路，依赖倒置在消费方这一侧。
+- **能力包不注入指令**（`get_instructions()` 返回 `None`）。四件工具怎么接力是流程知识，归 skill；工具 docstring 只回答「这个工具是什么」。这条界线见 [tool-design.md](tool-design.md) §0。
+- **视频拆解不走命名模型表，也不做成 agent。** pydantic-ai 的 OpenAI 适配器（Chat Completions 与 Responses 两条都是）对视频输入直接抛 `NotImplementedError`，只有 Google / Anthropic 那几个专属模型类支持视频；而本仓的模型全是 OpenAI 兼容的。所以 `parser.py` 自己说一次 Responses 协议，形状与两家生成 provider 一致（地址与凭证来自环境变量）。它也不是 agent：这次调用没有工具、没有多轮，做成 agent 只会凭空多一层运行血缘，而且派活那条路只递得进文本（`delegate_task(agent_name, task: str)`），视频根本传不下去。**提示词写死在 `parser.py` 里**——它和输出结构是一体的（第 2 节定义几个结构节点、第 4 节就得有几行），拆开放会让改它的人看不见这层绑定。
+- **出图的重试与升级归工具，不归 provider。** 不变量 9 管的是模型调用接口那一层：`nano_banana.py` 至今一次调用就是一次调用，不重试也不换渠道。工具是它的**调用方**，和人点两次按钮是同一个身份——所以先在 dev 试、试不通再升 pro 这件事发生在工具里，**每次尝试各落一行 `generation_jobs`**，渠道记在行上，账面上看得见试了几次、各花在哪。**判据只有一条：这次失败有没有可能已经计费。** 只有 `PROVIDER_UNREACHABLE`（连都没连上）和 `PROVIDER_SERVER_ERROR`（对方 5xx 且没有产出）会自动再发；`PROVIDER_RESULT_UNKNOWN`（送出去了但结果不明）、`PROVIDER_REJECTED`（对方明确拒绝）、`OUTPUT_*`（图生成好了只是没转存成功）一律停手并把错误码原样报出来。升级只在失败时发生——「出了图但不够好」是一次新的需求，不是重试。
+- **切格按图上真实的分隔带走，检测不到时退回等分并说出来。** 生成的拼图常带外边框和不等宽的格间距，机械等分会让每格带一条白边或错半格。检测在降采样到 640 宽的灰度图上做（分隔带是大尺度结构，成本因此低两个数量级），裁剪回到原图坐标，四格一次 `filter_complex` 裁完（每格起一个 ffmpeg 会把整张 4K 图解码四遍）。整图固定按 `4k` 出：切成四格后每格只剩四分之一线性分辨率，低档不够交付。**退回等分不是静默的**：结果里明说这一格是量出来的还是猜的——等分切出来的图长得和正常结果一模一样，不说就没人知道。
+- **像素存一份大的、看一份小的。** 帧与切格产物按内容哈希落公开对象存储（它们要当参考图交给生成接口，对方是自己去下载那个地址的；内容寻址顺带保证同一帧不会在桶里堆重复），预览板与切出来的帧则由 `ReadMediaFile` 按需读进上下文（缩到长边 1024）——整片按秒抽出来的候选帧可能上百张，一次全附进去既贵又没法逐张判断。
+- **ffmpeg 一律异步起进程、每个都有超时。** 同步的 `subprocess.run` 会把整个 worker 的事件循环按住几十秒——被拖住的不只是这次运行，是这个进程上所有正在读事件流的人。装配时检查 PATH 上有没有 ffmpeg/ffprobe，没有就启动报错，不等模型撞上去。
+
 **挂 skill 库就一定同时挂 `get_skill_reference` 工具**（`harness/skills.py`）。官方 `Skills` 只读 `SKILL.md`，不碰 `references/`；库里放着分支规则而没有读它的手段，模型会照着正文的指示去读、然后无从下手——这种静默失效比报错更难查。工具的访问边界与挂载范围严格一致：没挂给这个 agent 的 skill，它的 references 也读不到（官方文档明说 `include`/`exclude` 不是访问边界，所以边界只能落在工具里）。越界、非 `.md`、不存在都回可重试提示并报出有哪些文件；自家资产编码坏了则直接失败（重试改不了坏文件）。
 
 **下属只拥有显式给它的能力**：子 agent 的 `skills`/`capabilities` 独立声明，不继承主 agent。这条路官方已堵死——capability 挂上去的 toolset 绑在注册它的那次运行上，派活是另起一次运行，结构上就不转发。真正要守的是 `shared_capabilities` 保持空着（它是「给每个下属统一追加能力」的口子，一开就绕过声明）；`inherit_tools` 只影响直接注册在 `Agent(toolsets=[...])` 上的工具，本仓的工具一律经 capability 挂载，因此别把工具直接注册到 agent 上。
@@ -182,6 +196,8 @@ harness 一侧这个参数的类型是 `object` 且全程不解包——那一�
 **deps 只放身份，不放 I/O 句柄。** 官方文档的例子把 http client / db session 放进 deps，因为那些例子没有组合根；本仓有，服务经 `app/capability_table.py` 的闭包在装配期注入。更硬的理由是 `Agent[DepsT]` 整体参数化——同一个 agent 上所有能力共享同一个 deps 类型，把服务塞进去，它就会变成每落地一件能力就加一个字段、每件都耦合全体的共享契约。而且运行不绑 HTTP 请求，请求作用域的 session 放进 deps 就是悬空引用。
 
 deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对话」是因为它同样是**每次运行**的事实，而且派活时官方转发 deps、不转发运行自己的 `conversation_id`，所以要让下属知道自己在哪段对话里，只有这一条路。
+
+**造 deps 的那个回调同时是会话的关卡**：它拿到协议解析出的两个 id（会话与运行），核对这段对话是不是调用者的、是不是这个 agent 的，并把这次运行记在对话上（`last_run_id`）。位置是被逼出来的——必须发生在开流之前，一旦开始发事件，再想报 404 就只能在流中途爆开。它因此是个可等待的调用（要读库）。重连时这个回调会再走一遍（运行 id 抢不到生产权，但请求体照样被解析），所以核对必须可以重复做，而它本来就是：记的是「最近一次运行是谁」，重复写同一个值没有影响。
 
 三条不能破的规矩：
 
@@ -220,6 +236,7 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 | `users` | 账号（fastapi-users） | UUID PK、email 唯一、username 唯一可空、`roles` JSONB（默认 `["viewer"]`）、`direct_permissions` JSONB、PMS `city`/`job_title`/`departments` JSONB、`last_login_at` |
 | `oauth_accounts` | SSO 外部身份 | FK → users 级联删除、`oauth_name=wangoon_sso` |
 | `api_keys` | 机器凭证 | `owner_user_id` FK、`token_hash` 唯一、`token_prefix`、`permissions` JSONB、`expires_at`/`revoked_at`/`last_used_at` |
+| `conversations` | 一段对话（会话） | `owner_user_id` FK 级联删除、`agent_id`（agent 在配置里声明，库里没有对应的行，故无外键）、`title`、`last_run_id`（客户端为最近一次运行铸造的 id）、`created_at`/`updated_at`；索引 `(owner_user_id, updated_at DESC)` 支撑「我的对话，最近的排前面」；见 §12 |
 | `generation_jobs` | 一次媒体生成的事实（**不含排期**） | `owner_user_id` FK 级联删除、`api_key_id` **故意不建外键**（审计事实要活得比那把 key 久）、`request` JSONB、`status`、`provider_task_id`/`provider_status`/`provider_snapshot`、`output_url`、`error_code`/`error_message`、四个时刻；见 §11 |
 | `public.procrastinate_*`（4 张） | 生成任务的**排期机械**，不是事实 | procrastinate 3.9.0 自带的 DDL，原文冻在迁移 0005 里。落在 `public` 而不是 `iclip`：它的 SQL 全是不带 schema 的裸名字，塞进 `iclip` 要给它的连接一直配对的 `search_path`，多一处必须两边一致的配置。**升级它的做法是把它新增的迁移脚本抄成一个新 revision**，不是改 0005 |
 
@@ -250,8 +267,11 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 | `GET /api-keys`、`DELETE /api-keys/{id}` | 登录（本人）；users:manage 管全部 | 列表只返回展示前缀 |
 | `POST /generations` | `generation:submit` | 受理一次生成：校验 + 落一行 `pending`，返回 202 与它的 id。**这一步不碰 provider**（图像接口一次要等几分钟，留在请求里客户端会先超时）|
 | `GET /generations`、`GET /generations/{id}` | `generation:read` | 列表（`limit` ≤ 100）与查单个。别人的一律 404；`users:manage` 看全部。响应不含 provider 原始快照与排队机制字段 |
-| `POST /agents/{agent_id}/chat` | `agent:run` | 发起一次运行并订阅它的事件（`text/event-stream`，请求体为官方 `RunAgentInput`）。强制 `Content-Type: application/json`，否则 415；未注册 id 404；请求体形状不合法 422；同一个运行 id 再来一次是接着读，不重复跑 |
-| `GET /agents/{agent_id}/chat/{run_id}` | `agent:run` | 接着读同一次运行的事件。位置取 `Last-Event-ID` 头，其次 `?from=`，都没有就整段重放；已经读到末尾就直接收流。没有这次运行 404，过了重放窗口 409，运行 id 或位置形状不合法 422。别人的运行一律 404（流名字里带归属）|
+| `POST /conversations` | `agent:run` | 开一段对话；id 由服务端生成，客户端拿它当 `threadId` |
+| `GET /conversations` | `agent:read` | 我的对话，最近活动的排前面（`limit` ≤ 100）。别人的看不见，治理者也没有看别人的口子 |
+| `PATCH /conversations/{id}`、`DELETE /conversations/{id}` | `agent:run` | 改名 / 删除；删除连带清掉这段对话的工作区文件。别人的一律 404 |
+| `POST /agents/{agent_id}/chat` | `agent:run` | 发起一次运行并订阅它的事件（`text/event-stream`，请求体为官方 `RunAgentInput`）。强制 `Content-Type: application/json`，否则 415；未注册 id 404；请求体形状不合法 422；**`threadId` 不是自己名下、且属于这个 agent 的对话 → 404**（核对发生在开流之前）；同一个运行 id 再来一次是接着读，不重复跑 |
+| `GET /agents/{agent_id}/chat/{conversation_id}/{run_id}` | `agent:run` | 接着读同一次运行的事件。位置取 `Last-Event-ID` 头，其次 `?from=`，都没有就整段重放；已经读到末尾就直接收流。没有这次运行 404，过了重放窗口 409，两个 id 或位置形状不合法 422。别人的运行一律 404（流名字里带归属）|
 | `OPTIONS /agents/{agent_id}/chat` | 公开 | 204 且**刻意不带任何 `Access-Control-Allow-*` 头**：与上面的 content-type 要求组成一对 CSRF 防线（免检 content-type 都能塞 JSON 且不触发预检，故要求非免检类型来强制预检，再在此拒掉） |
 
 ## 9. 运维
@@ -265,7 +285,7 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 一次 agent 运行分成两半：**跑**和**读**。跑的那一半是个后台任务，不绑在任何一次 HTTP 请求上；读的那一半就是订阅，来了又走都不影响跑的人。中间只有 Redis 里的一条流。决策与权衡见 [adr/0003](adr/0003-detached-runs-and-replayable-streams.md)。
 
 ```text
-POST /agents/{id}/chat            GET /agents/{id}/chat/{run_id}
+POST /agents/{id}/chat            GET /agents/{id}/chat/{会话 id}/{运行 id}
   │ 抢到生产权就起后台任务            │ Last-Event-ID: 1787543423217-0
   │ 抢不到说明已经有人在跑            │
   ▼                                ▼
@@ -277,7 +297,7 @@ Postgres（StepPersistence 照旧落库）
 
 | Redis 键 | 放什么 |
 |---|---|
-| `iclip:agent:run:{用户 id}:{agent id}:{运行 id}` | 事件流本体，一帧一条；最后一帧带「结束了」的标记位 |
+| `iclip:agent:run:{用户 id}:{会话 id}:{agent id}:{运行 id}` | 事件流本体，一帧一条；最后一帧带「结束了」的标记位。名字里有会话那一段，所以同一个人在两段对话里复用同一个运行 id 也不会串到一条流上 |
 | 同名 + `:state` | 这条流处在哪个阶段：`live`（有人在写，心跳续期）/ `done`（写完了，与流同寿命）/ 键不存在（什么都没有） |
 
 几条不能改的规矩：
@@ -329,3 +349,21 @@ iclip.generation_jobs ◀────────────────┤    
 **同步接口一步落到终态。** 图像那条没有「先提交后轮询」两步，回执和结果一起回来，所以对账 id（`provider_task_id`）与 `submitted_at` 只有在写完成态那一步才有机会落库——错过就永远没人写它们。视频那条 `submitted_at` 早就填过，完成时保持原值，不改成「拿到结果的时刻」。
 
 **请求类型只有一套定义**（`schemas.py` 的 pydantic 模型）：它既是 HTTP 请求体，也是入库形状（`model_dump(by_alias=True)`，camelCase，`kind` 不重复存——那是表上的一列）。读回来按 `kind` 挑 `TypeAdapter` 校验一遍，形状坏了响亮失败。因此「HTTP 进得来的东西」和「从库里读回来的东西」走的是同一条判定路径，不会一边合法一边不合法。响应刻意不含 `provider_snapshot`——里面带着 provider 的签名 URL。
+
+## 12. 对话（会话）
+
+一段对话就是用户在界面上看到的一个聊天窗口，它的 id 就是 AG-UI 的 `threadId`。**id 由服务端发放**（`POST /conversations`），发消息时服务端核对它是不是调用者的；核对失败一律 404。这一条把「会话存在」从「客户端说了算的一个字符串」变成了服务端记录在案的事实，于是列表、改名、删除才成立，工作区的隔离段也不再只靠「反正外层套着用户 id」兜底。
+
+一段对话下有很多次运行，两者的 id 各管各的：
+
+| id | 谁生成 | 用来做什么 |
+|---|---|---|
+| 会话 id（`threadId`） | 服务端 | 认领这段对话：归档运行、划工作区地盘、算事件流的名字 |
+| 运行 id（`runId`） | 客户端 | 认领这一次运行：断线重连、同一个 id 再发一次是接着读而不是重跑 |
+| 落库的 `run_id` | 官方 `StepPersistence` | 运行记录的主键（`{agent 名}-{短 uuid}`）；主 agent 与每个下属各一条 |
+
+**运行 id 必须由客户端铸造**，不能改成服务端生成：客户端要在副作用发生**之前**就知道这次运行叫什么，否则连接在响应到达前断掉，那次运行就成了没人认领的孤儿——钱花了，接不回来，重试还会再跑一次。它是幂等键，不是名字。服务端生成的那个 id 走另一条路：客户端给的 `runId` 会被交给引擎盖到这次运行的消息与快照上（`run_stream(run_id=…)`），所以两边虽然不是同一个主键，事后仍能对上。
+
+**运行记录（`agent_runtime.runs`）不加指向 `conversations` 的外键。** 那几张表是官方结构的镜像（只换数据库实现，不改表结构），而且它记的是引擎的运行——一次对话里主 agent 一行、每个下属各一行——跟「用户发的一条消息」不是一回事。两边靠 `conversation_id` 这个字段对上，已经有索引。
+
+**删除对话连带删掉工作区文件，但这条线接在组合根。** 工作区靠拼出来的命名空间 `{用户 id}/{对话 id}` 认领地盘，两张表之间没有外键，所以连带关系只能由代码保证。conversations 只声明一个「删掉这段对话派生出来的东西」的口子（`PurgeDerived`），不知道接上去的是什么；命名空间怎么拼只写在 `capabilities/workspace/scope.py` 一处（两处拼法哪天不一致，就会静默删错地方）。**先删派生的，再删对话行**：两者在不同的连接上凑不成一个事务，顺序是唯一能给的保证——崩在中间留下「派生的没了、对话还在」，再删一次即可；反过来才麻烦，对话行没了那些文件就再没人认领。运行记录不删，那是账本。

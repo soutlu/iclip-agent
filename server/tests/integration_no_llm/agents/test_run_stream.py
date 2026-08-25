@@ -35,6 +35,13 @@ from tests.integration_no_llm.conftest import (
 AGENT_ID = "storyboard"
 URL = f"/agents/{AGENT_ID}/chat"
 OWNER = "11111111-1111-1111-1111-111111111111"
+CONVERSATION = "22222222-2222-2222-2222-222222222222"
+
+
+async def no_deps(_conversation_id: str, _run_id: str) -> object:
+    """直连 broker 的用例不经过 HTTP 面，所以没有对话要核对。"""
+
+    return None
 
 
 @pytest.fixture
@@ -95,18 +102,32 @@ async def drain(response: httpx.Response) -> str:
     return "".join([chunk async for chunk in response.aiter_text()])
 
 
+async def new_conversation(client: httpx.AsyncClient) -> str:
+    """开一段对话，拿它的 id 当 AG-UI 的 threadId。
+
+    会话必须先由服务端建出来：agent 端点只认自己发出去的 id。
+    """
+
+    created = await client.post("/conversations", json={"agentId": AGENT_ID})
+    assert created.status_code == 201, created.text
+    return str(created.json()["conversation"]["id"])
+
+
 async def test_resume_continues_from_last_event_id(client: httpx.AsyncClient, pg_url: str) -> None:
     """标准 SSE 的 Last-Event-ID：只补发那之后的事件。"""
 
     await login_as_editor(client, pg_url)
-    body = run_input(thread_id="thread-resume", run_id="run-resume")
+    conversation = await new_conversation(client)
+    body = run_input(thread_id=conversation, run_id="run-resume")
 
     async with client.stream("POST", URL, json=body) as response:
         first = await drain(response)
     all_cursors = sse_cursors(first)
     assert len(all_cursors) > 1
 
-    resumed = await client.get(f"{URL}/run-resume", headers={"last-event-id": all_cursors[0]})
+    resumed = await client.get(
+        f"{URL}/{conversation}/run-resume", headers={"last-event-id": all_cursors[0]}
+    )
     assert sse_cursors(resumed.text) == all_cursors[1:]
 
 
@@ -116,13 +137,14 @@ async def test_another_users_run_is_not_visible(
     """流名字里带着归属：换个人拿同一个运行 id 什么都读不到。"""
 
     await login_as_editor(client, pg_url)
-    body = run_input(thread_id="thread-mine", run_id="run-mine")
+    conversation = await new_conversation(client)
+    body = run_input(thread_id=conversation, run_id="run-mine")
     async with client.stream("POST", URL, json=body) as response:
         await drain(response)
 
     async with make_client(app) as other:
         await login_as_editor(other, pg_url, username="mallory")
-        stolen = await other.get(f"{URL}/run-mine")
+        stolen = await other.get(f"{URL}/{conversation}/run-mine")
 
     assert stolen.status_code == 404
 
@@ -137,7 +159,7 @@ async def test_expired_replay_window_is_refused(tmp_path: Path, redis_client: Re
         owner=OWNER,
         agent_id=AGENT_ID,
         body=json.dumps(run_input(run_id="run-window")).encode(),
-        deps=lambda _: None,
+        deps=no_deps,
     )
     async for _ in await broker.feed(run_key, after=None):
         pass
@@ -159,7 +181,7 @@ async def test_gone_producer_is_sealed_as_retryable(tmp_path: Path, redis_client
     settings = RunStreamSettings(lease_seconds=1, block_ms=200)
     broker = broker_for(tmp_path, redis_client, settings)
     stream = RedisRunStream(redis_client)
-    run_key = f"{OWNER}:{AGENT_ID}:run-orphan"
+    run_key = f"{OWNER}:{CONVERSATION}:{AGENT_ID}:run-orphan"
 
     assert await stream.claim(run_key, lease_seconds=settings.lease_seconds)
     await stream.append(run_key, 'data: {"type":"RUN_STARTED"}\n\n', last=False)
@@ -187,12 +209,12 @@ async def test_second_post_appends_nothing(tmp_path: Path, redis_client: Redis) 
 
     broker = broker_for(tmp_path, redis_client, RunStreamSettings(block_ms=200))
     body = json.dumps(run_input(run_id="run-twice")).encode()
-    run_key = await broker.open(owner=OWNER, agent_id=AGENT_ID, body=body, deps=lambda _: None)
+    run_key = await broker.open(owner=OWNER, agent_id=AGENT_ID, body=body, deps=no_deps)
     async for _ in await broker.feed(run_key, after=None):
         pass
     written = await redis_client.xlen(f"iclip:agent:run:{run_key}")
 
-    again = await broker.open(owner=OWNER, agent_id=AGENT_ID, body=body, deps=lambda _: None)
+    again = await broker.open(owner=OWNER, agent_id=AGENT_ID, body=body, deps=no_deps)
     # 万一真起了第二个生产者，给它留出足够时间把帧写进来。
     await asyncio.sleep(0.3)
 
@@ -210,7 +232,7 @@ async def test_resume_at_the_end_of_a_finished_run_just_closes(
         owner=OWNER,
         agent_id=AGENT_ID,
         body=json.dumps(run_input(run_id="run-tail")).encode(),
-        deps=lambda _: None,
+        deps=no_deps,
     )
     frames = [frame async for frame in await broker.feed(run_key, after=None)]
     last_cursor = sse_cursors("".join(frames))[-1]
@@ -226,7 +248,7 @@ async def test_sealed_stream_gets_a_replay_window(tmp_path: Path, redis_client: 
     settings = RunStreamSettings(lease_seconds=1, block_ms=200, replay_window_seconds=120)
     broker = broker_for(tmp_path, redis_client, settings)
     stream = RedisRunStream(redis_client)
-    run_key = f"{OWNER}:{AGENT_ID}:run-ttl"
+    run_key = f"{OWNER}:{CONVERSATION}:{AGENT_ID}:run-ttl"
 
     assert await stream.claim(run_key, lease_seconds=settings.lease_seconds)
     await stream.append(run_key, 'data: {"type":"RUN_STARTED"}\n\n', last=False)

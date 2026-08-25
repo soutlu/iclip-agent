@@ -25,6 +25,7 @@ from tests.helpers.agui import run_input, sse_events
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
     make_client,
+    new_conversation,
     register_and_login,
     set_roles_in_db,
 )
@@ -88,7 +89,9 @@ def registered_capability(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bootstrap, "build_capability_table", only_identity)
 
 
-async def tools_said(client: httpx.AsyncClient, run_id: str) -> list[str]:
+async def tools_said(
+    client: httpx.AsyncClient, run_id: str, *, conversation_id: str | None = None
+) -> list[str]:
     """跑一次，取出工具实际返回的那几个字。
 
     官方 ``test`` 模型会把每个可见工具都调一遍，所以工具的返回值以
@@ -97,7 +100,8 @@ async def tools_said(client: httpx.AsyncClient, run_id: str) -> list[str]:
     取名的运气）。
     """
 
-    body = run_input(thread_id=f"thread-{run_id}", run_id=run_id)
+    conversation_id = conversation_id or await new_conversation(client, AGENT_ID)
+    body = run_input(thread_id=conversation_id, run_id=run_id)
     async with client.stream("POST", URL, json=body) as response:
         assert response.status_code == 200
         raw = "".join([chunk async for chunk in response.aiter_text()])
@@ -114,11 +118,13 @@ async def test_tool_receives_the_caller_principal(client: httpx.AsyncClient, pg_
     await register_and_login(client, username="caller-alpha", email="alpha@example.com")
     await set_roles_in_db(pg_url, "alpha@example.com", ["editor"])
 
+    conversation_id = await new_conversation(client, AGENT_ID)
+
     # audit_label 是 username（没有 username 才退到 email）。
-    reported = await tools_said(client, "run-whoami")
+    reported = await tools_said(client, "run-whoami", conversation_id=conversation_id)
     assert "caller-alpha" in reported
     # 对话 id 也一路到了工具手上——工作区就是按它分文件夹的。
-    assert "thread-run-whoami" in reported
+    assert conversation_id in reported
 
 
 async def test_each_run_carries_its_own_principal(

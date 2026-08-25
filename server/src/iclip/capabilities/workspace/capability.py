@@ -48,17 +48,12 @@ CAPABILITY_ID: Final = "workspace"
 MAX_READ_LINES: Final = 400
 MAX_SEARCH_RESULTS: Final = 50
 
-_GUIDANCE = (
-    "你有一个属于当前这段对话的工作区，放你自己的工作文本——脚本草稿、分镜清单、"
-    "调研笔记这类要在这段对话里反复改的东西。它不是给用户看的交付物，也不是聊天"
-    "记录。这段对话里你派出去的下属和你共用同一个工作区，所以它也是和下属交接稿"
-    "子的地方。\n"
-    "接手时先用 `list_files` 看看这段对话已经攒了什么，别从零重来。改动已有文件优"
-    "先用 `edit_file` 改那一段，不要用 `write_file` 整份重写——重写会把你没看过的"
-    "部分一起覆盖掉。工作区有容量上限，撞上了就用 `delete_file` 清掉不再需要的"
-    "文件。\n"
-    "只放文本。图片、音视频不要往这里塞。"
-)
+_GUIDANCE = "这段对话有一个持久的工作目录，你和你派出去的下属共用同一个根，所有路径都相对它。"
+"""只说这个目录是什么。
+
+路径怎么写、怎么用那六件工具，都写在各自的 docstring、参数描述与错误消息里了，
+在这儿再说一遍就是每轮都要付钱的重复。这条界线见 `docs/tool-design.md` §0。
+"""
 
 
 @dataclass
@@ -178,7 +173,8 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         """写一个工作区文件，已存在就整份覆盖。
 
         覆盖就是覆盖：别人（或你自己上一轮）改过的内容会一起没掉。只改其中一
-        段就用 ``edit_file``，那条路径带并发保护。
+        段就用 ``edit_file``，那条路径带并发保护。只放文本，图片和音视频不要写
+        进来。
 
         Args:
             ctx: 框架给的运行上下文。
@@ -246,6 +242,8 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
 
     async def list_files(self, ctx: RunContext[AgentDepsT], prefix: str = "") -> str:
         """列出工作区里的文件。
+
+        接手一段对话先用它看看已经攒了什么，别从零重来。
 
         Args:
             ctx: 框架给的运行上下文。
