@@ -14,7 +14,7 @@ import type {
   VideoTaskBriefFields,
   VideoTaskSnapshot,
 } from '@/features/tasks/video-task.types'
-import { apiFetch } from '@/shared/api/client'
+import { ApiError, apiFetch } from '@/shared/api/client'
 import { importAssetFromUrl, uploadAndRegisterAsset } from '@/shared/lib/file-upload'
 
 const videoTaskStatusSchema = z.enum(['confirmed', 'draft', 'published', 'withdrawn'])
@@ -23,6 +23,8 @@ const MAX_DURATION_SECONDS = 50
 const DURATION_ERROR_MESSAGE = '时长必须是 3–50 秒的整数'
 /** 列表一次最多取多少条（后端上限）。 */
 const LIST_LIMIT = 100
+/** 参考图与参考视频各自的条数上限（后端上限）。 */
+const MAX_REFERENCE_URLS = 16
 
 /** 后端没填的可选文本给的是空字符串，可选数字与画幅给的是 null。 */
 const optionalTextSchema = z.string().optional()
@@ -81,6 +83,8 @@ const productResponseSchema = z.object({
     colors: z.array(z.object({ code: z.string(), name: z.string().nullable() })),
     images: z.array(z.object({ id: z.string().min(1), url: z.string().url() })),
     styleNo: z.string().min(1),
+    /** 同一个款在 WMS 那边的编号。搜爆款视频要用它，和 `styleNo` 不通用。 */
+    styleWms: z.string(),
   }),
 })
 
@@ -226,6 +230,13 @@ export const listVideoTaskSnapshot = async ({
   return { assetsById: indexTaskAssets(items), tasks: items }
 }
 
+const fetchProduct = (styleNo: string, { signal }: { signal?: AbortSignal }) =>
+  apiFetch(`/products/${encodeURIComponent(styleNo.trim())}`, productResponseSchema, {
+    cache: 'no-store',
+    fallbackErrorMessage: '读取产品信息失败',
+    signal,
+  })
+
 /**
  * 按完整款号精确读取产品资料，不创建任务。
  *
@@ -238,15 +249,7 @@ export const getProductInfo = async (
   styleNo: string,
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<ProductInfo> => {
-  const { product } = await apiFetch(
-    `/products/${encodeURIComponent(styleNo.trim())}`,
-    productResponseSchema,
-    {
-      cache: 'no-store',
-      fallbackErrorMessage: '读取产品信息失败',
-      signal,
-    },
-  )
+  const { product } = await fetchProduct(styleNo, { signal })
 
   return {
     // 名字来自服务端对照表，上游出新码时是 null；没名字就退回码，不自己猜。
@@ -257,6 +260,38 @@ export const getProductInfo = async (
     images: product.images.map((image) => ({ color: null, id: image.id, url: image.url })),
     styleNo: product.styleNo,
   }
+}
+
+/**
+ * 把一组 PDM 款号换成 WMS 编号。
+ *
+ * 需求单只记 PDM 款号，而爆款库按 WMS 编号存——两套编码不通用，所以搜爆款视频之前得
+ * 先去产品资料里换一次。查不到的款直接落下，不因为一个款连累整次搜索。
+ *
+ * @param styleNos - PDM 款号。
+ * @param options - 请求控制选项。
+ * @param options.signal - 用于取消请求的 AbortSignal。
+ * @returns 换到的 WMS 编号，去重后保持入参顺序。
+ */
+export const listStyleWmsCodes = async (
+  styleNos: readonly string[],
+  { signal }: { signal?: AbortSignal } = {},
+): Promise<string[]> => {
+  const resolved = await Promise.all(
+    styleNos.map(async (styleNo) => {
+      try {
+        return (await fetchProduct(styleNo, { signal })).product.styleWms
+      } catch (error) {
+        // 这个款在产品资料里查不到就落下它；别的错（会话失效、请求被取消）照常往外抛。
+        if (error instanceof ApiError && error.status === 404) {
+          return ''
+        }
+        throw error
+      }
+    }),
+  )
+
+  return Array.from(new Set(resolved.filter(Boolean)))
 }
 
 /**
@@ -332,6 +367,18 @@ export type VideoTaskConfirmationInput = {
  * @param video - 用户选中的一条爆款视频。
  * @returns 可转存的源地址。
  */
+/**
+ * 参考素材条数不能超上限。
+ *
+ * @param label - 用于报错的中文名（参考图 / 参考视频）。
+ * @param count - 这一类最终会写进去多少条（去重前，按最坏情况数）。
+ */
+const assertReferenceCount = (label: string, count: number) => {
+  if (count > MAX_REFERENCE_URLS) {
+    throw new Error(`${label}最多 ${MAX_REFERENCE_URLS} 条，现在有 ${count} 条，先去掉几个。`)
+  }
+}
+
 const inspirationSourceUrl = (video: SelectedInspirationSource) => {
   if (video.source === 'web') {
     throw new Error('联网搜索到的视频还不能保存进需求单，请改用库内爆款视频或上传文件。')
@@ -368,6 +415,17 @@ export const updateVideoTaskConfirmation = async (
   ) {
     throw new Error(DURATION_ERROR_MESSAGE)
   }
+
+  // 条数在动手转存之前先数一遍：后端超限返回的 detail 是一个数组，前端的错误提取只认
+  // 字符串，撞上去只会显示一句「保存失败（422）」。
+  assertReferenceCount(
+    '参考图',
+    input.keptImageUrls.length + input.productImageUrls.length + input.newImageFiles.length,
+  )
+  assertReferenceCount(
+    '参考视频',
+    input.keptVideoUrls.length + input.inspirationVideos.length + input.newVideoFiles.length,
+  )
 
   const inspirationUrls = input.inspirationVideos.map(inspirationSourceUrl)
   const [uploadedImages, uploadedVideos, productImages, inspirationVideos] = await Promise.all([

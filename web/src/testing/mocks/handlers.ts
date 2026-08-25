@@ -70,12 +70,12 @@ export const mockInspirationVideos = [
       clicks: 4200,
       impressions: 1200000,
       orders: 320,
-      revenueAmount: '12999.50',
+      revenue: '12999.50',
       views: 90000,
     },
     ossUrl: 'https://oss.example.com/inspiration/video-orders.mp4',
     postedDate: '2026-07-08',
-    styleNo: 'SNST26006U',
+    styleWms: 'SNST26006U-WMS',
     videoId: 'video-orders',
     videoUrl: 'https://video.example.com/video-orders.mp4',
   },
@@ -85,14 +85,14 @@ export const mockInspirationVideos = [
       clicks: 9000,
       impressions: 2600000,
       orders: 120,
-      revenueAmount: '5200.00',
+      revenue: '5200.00',
       views: 480000,
     },
     ossUrl: 'https://oss.example.com/inspiration/video-views.mp4',
     postedDate: '2026-06-21',
-    styleNo: 'SNST26006U',
+    styleWms: 'SNST26006U-WMS',
     videoId: 'video-views',
-    videoUrl: null,
+    videoUrl: 'https://video.example.com/video-views.mp4',
   },
   {
     creatorHandle: null,
@@ -100,14 +100,14 @@ export const mockInspirationVideos = [
       clicks: 1500,
       impressions: 600000,
       orders: 45,
-      revenueAmount: '1800.00',
+      revenue: '1800.00',
       views: 30000,
     },
-    ossUrl: 'https://oss.example.com/inspiration/video-substitute.mp4',
+    ossUrl: null,
     postedDate: null,
-    styleNo: 'RAIN2026',
+    styleWms: 'RAIN2026-WMS',
     videoId: 'video-substitute',
-    videoUrl: null,
+    videoUrl: 'https://video.example.com/video-substitute.mp4',
   },
 ]
 
@@ -153,12 +153,6 @@ const mockWebInspirationDurations = {
   youtube: 24,
 } as const
 
-/**
- * 登记一条内存素材（upload / import 共用），并分配稳定递增 id。
- *
- * @param input - 素材类型、MIME 与最终 URL。
- * @returns 已入账本的素材记录。
- */
 const MOCK_EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -167,6 +161,12 @@ const MOCK_EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
   'video/quicktime': 'mov',
 }
 
+/**
+ * 登记一条内存素材（直传与转存共用）。
+ *
+ * @param input - 素材 id 与 content type。
+ * @returns 已入账本的那一行；同一个 id 重复登记返回同一行。
+ */
 const registerMockAsset = ({ assetId, contentType }: { assetId: string; contentType: string }) => {
   const existing = mockAssets.find((asset) => asset.id === assetId)
   if (existing) {
@@ -344,29 +344,15 @@ export const handlers = [
   http.get('*/api/assets', () => HttpResponse.json({ items: mockAssets })),
 
   // ── 创作灵感目录（src/features/tasks/api/inspiration.api.ts）────────────────
-  // POST /inspirations/videos/search：按 styleNos 命中样本并按 sortBy 服务端排序。
+  // POST /inspirations/videos/search：收 WMS 编号（不是 PDM 款号），按 sortBy 服务端排序。
   http.post('*/api/inspirations/videos/search', async ({ request }) => {
-    const body = (await request.json()) as { sortBy?: string; styleNos?: string[] }
-    const styleNos = body.styleNos ?? []
-    const exact = new Set(
-      mockInspirationVideos
-        .filter((video) => styleNos.includes(video.styleNo))
-        .map((video) => video.styleNo),
-    )
-    const sortBy = body.sortBy ?? 'orders'
+    const sortBy = ((await request.json()) as { sortBy?: string }).sortBy ?? 'orders'
     const items = [...mockInspirationVideos].sort((left, right) =>
       sortBy === 'clicks' || sortBy === 'impressions' || sortBy === 'orders' || sortBy === 'views'
         ? right.metrics[sortBy] - left.metrics[sortBy]
-        : Number(right.metrics.revenueAmount) - Number(left.metrics.revenueAmount),
+        : Number(right.metrics.revenue) - Number(left.metrics.revenue),
     )
-    return HttpResponse.json({
-      count: items.length,
-      items,
-      matches: styleNos.map((styleNo) => ({
-        matchLevel: exact.has(styleNo) ? 'exact' : 'sameCategory',
-        styleNo,
-      })),
-    })
+    return HttpResponse.json({ items })
   }),
   // POST /inspirations/videos/web-search：每次只搜索一个平台，只返回可预览候选。
   http.post('*/api/inspirations/videos/web-search', async ({ request }) => {

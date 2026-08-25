@@ -370,11 +370,17 @@ export default function TaskMaterialsEditor({
                 </figure>
               )
             }
+            // 库内视频不一定有转存副本；没有的在选择器里就选不上，这里只是把类型收窄。
+            const sourceUrl = video.ossUrl
+            if (sourceUrl === null) {
+              return null
+            }
+
             const openVideoPreview = () => {
               openPreview({
-                fileName: assetPreviewFileName(video.ossUrl, label),
+                fileName: assetPreviewFileName(sourceUrl, label),
                 mediaType: 'video',
-                url: video.ossUrl,
+                url: sourceUrl,
               })
             }
 
@@ -394,9 +400,9 @@ export default function TaskMaterialsEditor({
                     muted
                     playsInline
                     preload="metadata"
-                    src={video.ossUrl}
+                    src={sourceUrl}
                     onLoadedMetadata={(event) =>
-                      recordVideoDuration(video.ossUrl, event.currentTarget.duration)
+                      recordVideoDuration(sourceUrl, event.currentTarget.duration)
                     }
                   />
                 </button>
