@@ -60,7 +60,7 @@ const readDepartments = (record: Record<string, unknown>) => {
  * 从未知值中解析认证用户对象。
  *
  * SSO 首登自动建号的用户没有 username，此时展示信息回退到 displayName，
- * 因此只有 id 是硬性要求。role/permissions 缺失时按无任何权限处理。
+ * 因此只有 id 是硬性要求。roles/permissions 缺失时按无任何权限处理。
  *
  * @param payload - 后端返回的 user 字段。
  * @returns 符合前端契约的认证用户。
@@ -82,7 +82,7 @@ export const parseProducerAuthUser = (payload: unknown): ProducerAuthUser => {
     displayName: readNonEmptyString(payload, 'displayName') ?? '',
     id,
     permissions: readStringArray(payload, 'permissions'),
-    role: readNonEmptyString(payload, 'role') ?? '',
+    roles: readStringArray(payload, 'roles'),
     username: readNonEmptyString(payload, 'username'),
   }
 

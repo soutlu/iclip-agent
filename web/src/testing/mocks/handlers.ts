@@ -29,7 +29,7 @@ export const mockAuthUser = {
   displayName: '测试用户',
   id: 'user-1',
   permissions: ['projects:read', 'projects:write'],
-  role: 'editor',
+  roles: ['editor'],
   username: 'tester',
 }
 
