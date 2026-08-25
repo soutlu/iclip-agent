@@ -42,3 +42,12 @@ agent:
   assistant:
     spec: assistant/agent.yaml
     model: qwen3.8-max
+
+  storyboard:
+    spec: storyboard/agent.yaml
+    model: qwen3.8-max
+    skills:
+      - storyboard-workflow
+    capabilities:
+      - workspace
+      - shot_video
