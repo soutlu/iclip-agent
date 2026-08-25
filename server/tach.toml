@@ -42,6 +42,11 @@ depends_on = ["iclip.domains.identity"]
 path = "iclip.domains.conversations"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
+# 创作需求单：自有的表。全公司可见的工作队列，不认识任何别的业务模块。
+[[modules]]
+path = "iclip.domains.tasks"
+depends_on = ["iclip.common", "iclip.domains.identity"]
+
 # 媒体生成：自有的表 + 两家外部生成接口 + 后台推进器。
 [[modules]]
 path = "iclip.domains.generation"
@@ -88,6 +93,7 @@ depends_on = [
     "iclip.domains.conversations",
     "iclip.domains.generation",
     "iclip.domains.products",
+    "iclip.domains.tasks",
     "iclip.harness",
     "iclip.capabilities",
 ]

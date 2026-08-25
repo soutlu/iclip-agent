@@ -51,6 +51,8 @@ from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
 from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.products.module import build_products_module
+from iclip.domains.tasks.infra_sql import SqlTaskRepository
+from iclip.domains.tasks.module import build_tasks_module
 from iclip.harness.agents import (
     AgentCapabilities,
     AgentDefinition,
@@ -367,6 +369,8 @@ def build_app(
         purge_derived=purge_conversation_workspace,
         read_history=read_conversation_history,
     )
+    # 创作需求单：只要一张自己的表，没有可配置的开关——它不依赖任何外部服务。
+    tasks = build_tasks_module(SqlTaskRepository(active_engine))
     agent_registry = build_agent_registry(
         _agent_definitions(
             agents,
@@ -455,6 +459,8 @@ def build_app(
         app.include_router(router)
     for router in conversations.routers:
         app.include_router(router)
+    for router in tasks.routers:
+        app.include_router(router)
     if broker is not None:
         app.include_router(create_agents_router(broker, conversations.service))
 
@@ -475,6 +481,7 @@ def build_app(
     app.state.conversations = conversations
     app.state.generation = generation
     app.state.products = products
+    app.state.tasks = tasks
     return app
 
 
