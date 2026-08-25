@@ -121,7 +121,7 @@ def test_unknown_skill_name_fails_at_assembly(tmp_path: Path) -> None:
 
 
 def test_mounting_zero_skills_is_a_caller_error(tmp_path: Path) -> None:
-    """一个都不挑不是「挂一个空的」：那会装出一把开不了任何门的钥匙。"""
+    """一个都不挑即报错，不是「挂一个空的」。"""
 
     make_skill(tmp_path, SKILL)
     with pytest.raises(ValueError, match="至少要挑一个 skill"):
@@ -149,7 +149,7 @@ async def test_granted_skill_reference_is_readable(tmp_path: Path) -> None:
 
 
 async def test_ungranted_skill_references_are_refused(tmp_path: Path) -> None:
-    """include 只管「模型看得见哪些 skill」，访问边界在这把钥匙上。"""
+    """include 只管「模型看得见哪些 skill」，访问边界在读 references 那件工具上。"""
 
     make_skill(tmp_path, SKILL)
     make_skill(tmp_path, OTHER, references={"规范.md": "别人的正文"})

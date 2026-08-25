@@ -91,7 +91,7 @@ async def test_declared_skill_reaches_the_running_agent(
         async for _ in response.aiter_text():
             pass
 
-    # 官方的按需加载入口（skill 正文靠它加载）与我们那把读 references 的钥匙，
-    # 两个都得在——只有前者说明库挂上了但读不到分支规则。
+    # 官方的按需加载入口（skill 正文靠它加载）与读 references 的工具，两个都得
+    # 在——只有前者说明库挂上了但读不到分支规则。
     assert "load_capability" in seen_tools
     assert "get_skill_reference" in seen_tools
