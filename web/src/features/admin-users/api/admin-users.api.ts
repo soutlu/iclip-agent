@@ -2,8 +2,8 @@ import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import { isRecord } from '@/shared/lib/guards'
 
-/** 后端 RBAC 支持的角色（与 iclip_agent rbac.ROLES 对齐）。 */
-export type AdminUserRoleId = 'admin' | 'editor' | 'viewer'
+/** 后端 RBAC 支持的角色，与 rbac.ROLE_PERMISSIONS 的键一致；发未知角色后端返 400。 */
+export type AdminUserRoleId = 'editor' | 'root' | 'viewer'
 
 export type AdminUserRoleOption = {
   id: AdminUserRoleId
@@ -11,7 +11,7 @@ export type AdminUserRoleOption = {
 }
 
 export const ADMIN_USER_ROLE_OPTIONS: AdminUserRoleOption[] = [
-  { id: 'admin', label: '管理员' },
+  { id: 'root', label: '超级管理员' },
   { id: 'editor', label: '编辑者' },
   { id: 'viewer', label: '查看者' },
 ]
@@ -23,7 +23,7 @@ export type AdminUser = {
   email: string
   displayName: string
   avatarUrl: string
-  role: string
+  roles: string[]
   isActive: boolean
   createdAt: string
   lastLoginAt: null | string
@@ -37,7 +37,7 @@ export type AdminUsersPage = {
 }
 
 export type AdminUserPatch = {
-  role?: AdminUserRoleId
+  roles?: AdminUserRoleId[]
   isActive?: boolean
 }
 
@@ -68,11 +68,30 @@ const readNullableString = (record: Record<string, unknown>, field: string) => {
 }
 
 /**
+ * 从响应对象中读取字符串数组字段。
+ *
+ * @param record - 响应对象。
+ * @param field - 字段名。
+ * @returns 字段是数组时返回其中的字符串项，否则返回空数组。
+ */
+const readStringArray = (record: Record<string, unknown>, field: string): string[] => {
+  const value = record[field]
+
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.filter((item): item is string => typeof item === 'string')
+}
+
+/**
  * 解析用户管理接口返回的单个用户。
+ *
+ * 只授了直接权限、没分配角色的账号 roles 为空数组，属正常态，不做非空要求。
  *
  * @param payload - 后端返回的用户对象。
  * @returns 符合前端契约的用户。
- * @throws 当缺少 id/role/isActive 等关键字段时抛出错误。
+ * @throws 当缺少 id/isActive 等关键字段时抛出错误。
  */
 export const parseAdminUser = (payload: unknown): AdminUser => {
   if (!isRecord(payload)) {
@@ -80,10 +99,9 @@ export const parseAdminUser = (payload: unknown): AdminUser => {
   }
 
   const id = readNullableString(payload, 'id')
-  const role = readNullableString(payload, 'role')
   const isActive = payload.isActive
 
-  if (!id || !role || typeof isActive !== 'boolean') {
+  if (!id || typeof isActive !== 'boolean') {
     throw new Error('用户响应格式无效')
   }
 
@@ -95,7 +113,7 @@ export const parseAdminUser = (payload: unknown): AdminUser => {
     id,
     isActive,
     lastLoginAt: readNullableString(payload, 'lastLoginAt'),
-    role,
+    roles: readStringArray(payload, 'roles'),
     username: readNullableString(payload, 'username'),
   }
 }
@@ -145,12 +163,13 @@ export const fetchAdminUsersPage = async (
 /**
  * 管理员调整用户角色/启停用（后端 `users:manage` 权限门控）。
  *
- * 后端业务规则：不能撤销自己的管理员角色、不能停用自己（违反时返回带文案的 400）。
+ * roles 是整体替换语义：传什么就是这个用户之后的全部角色。
+ * 后端业务规则：不能改自己的授权、不能停用自己（违反时返回带文案的 400）。
  *
  * @param userId - 目标用户 id。
  * @param patch - 要调整的字段；未提供的字段保持不变。
  * @returns 更新后的用户。
- * @throws 后端拒绝（非法角色、自降权、自停用）或响应结构非法时抛出错误。
+ * @throws 后端拒绝（未知角色、改自己的授权、自停用）或响应结构非法时抛出错误。
  */
 export const updateAdminUser = async (
   userId: string,
@@ -158,8 +177,8 @@ export const updateAdminUser = async (
 ): Promise<AdminUser> => {
   const body: Record<string, unknown> = {}
 
-  if (patch.role !== undefined) {
-    body.role = patch.role
+  if (patch.roles !== undefined) {
+    body.roles = patch.roles
   }
 
   if (patch.isActive !== undefined) {

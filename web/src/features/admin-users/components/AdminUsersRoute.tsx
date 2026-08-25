@@ -28,7 +28,7 @@ type AdminUserRowProps = {
  * 渲染用户管理页（管理员为用户配置角色/启停用）。
  *
  * 数据直连后端 `GET /users` 与 `PATCH /users/{id}`（`users:manage` 权限门控）；
- * 当前登录管理员自己的行禁用调整控件，对齐后端「不能自降权/自停用」规则。
+ * 当前登录管理员自己的行禁用调整控件，对齐后端「不能改自己的授权/不能停用自己」规则。
  *
  * @returns 用户管理页面。
  */
@@ -235,7 +235,9 @@ export default function AdminUsersRoute() {
  */
 function AdminUserRow({ disabled, isSelf, user, onPatch }: AdminUserRowProps) {
   const userLabel = user.displayName || user.username || user.email
-  const knownRole = ADMIN_USER_ROLE_OPTIONS.some((option) => option.id === user.role)
+  // 下拉框只编辑单个角色，选中即整体替换 roles；后端目前每个账号也只分配一个角色。
+  const currentRole = user.roles[0] ?? ''
+  const knownRole = ADMIN_USER_ROLE_OPTIONS.some((option) => option.id === currentRole)
   const controlsDisabled = disabled || isSelf
   const selfHint = isSelf ? '不能调整自己的账号' : undefined
 
@@ -253,20 +255,20 @@ function AdminUserRow({ disabled, isSelf, user, onPatch }: AdminUserRowProps) {
           <select
             className="admin-users-role-select"
             disabled={controlsDisabled}
-            value={user.role}
+            value={currentRole}
             onChange={(event) => {
               const option = ADMIN_USER_ROLE_OPTIONS.find(
                 (candidate) => candidate.id === event.target.value,
               )
 
-              if (!option || option.id === user.role) {
+              if (!option || option.id === currentRole) {
                 return
               }
 
-              onPatch(user, { role: option.id })
+              onPatch(user, { roles: [option.id] })
             }}
           >
-            {knownRole ? null : <option value={user.role}>{user.role}</option>}
+            {knownRole ? null : <option value={currentRole}>{currentRole || '未分配角色'}</option>}
             {ADMIN_USER_ROLE_OPTIONS.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}

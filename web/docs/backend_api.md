@@ -37,7 +37,7 @@ username=luke&password=secret
 GET /api/users/me
 ```
 
-返回 `{ "user": { ...camelCase 字段，含 role / permissions } }` 包装，是登录态唯一事实源。SSO 用户还包含 `city`、`jobTitle` 与完整 `departments[]`；部门字段为 `id`、`uid`、`name`、`parentId`、`parentUid`、`leaderUserId`、`leaderUserUid`、`source`、`type`、`order`。密码用户或尚未重新登录同步的存量用户返回空城市、空职位和空部门数组。401 表示未登录。页面/功能门控判 `user.permissions` 里的后端权限字符串（如 `analytics:read`），不使用前端用户名白名单。
+返回 `{ "user": { ...camelCase 字段，含 roles / directPermissions / permissions } }` 包装，是登录态唯一事实源。`roles` 是数组（后端预置角色为 `root` / `editor` / `viewer`），`permissions` 是角色并集 ∪ 直接授权后的有效权限。SSO 用户还包含 `city`、`jobTitle` 与完整 `departments[]`；部门字段为 `id`、`uid`、`name`、`parentId`、`parentUid`、`leaderUserId`、`leaderUserUid`、`source`、`type`、`order`。密码用户或尚未重新登录同步的存量用户返回空城市、空职位和空部门数组。401 表示未登录。页面/功能门控判 `user.permissions` 里的后端权限字符串（如 `analytics:read`），不使用前端用户名白名单。
 
 ### 退出
 
