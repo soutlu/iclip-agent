@@ -125,6 +125,7 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
     # 开发机上真配了产品目录库的话，别让它悄悄混进每个测试的 app。
     monkeypatch.delenv("PRODUCT_CATALOG_DATABASE_URL", raising=False)
     monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL", raising=False)
+    monkeypatch.delenv("INSPIRATION_DATABASE_URL", raising=False)
 
 
 async def _fresh_engine(url: str):
