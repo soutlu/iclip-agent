@@ -38,6 +38,7 @@ from iclip.domains.generation.provider import (
     ProviderSubmission,
 )
 from iclip.domains.generation.schemas import ImageGenerationIn
+from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
 
 PROVIDER_NAME: Final = "nano_banana_pro"
@@ -48,7 +49,6 @@ _GENERATE_TIMEOUT_SECONDS: Final = 300.0
 _DOWNLOAD_TIMEOUT_SECONDS: Final = 60.0
 _MAX_IMAGE_BYTES: Final = 64 * 1024 * 1024
 
-_OBJECT_KEY_PREFIX: Final = "generated-images"
 _MIME_BY_SUFFIX: Final = {
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -113,7 +113,7 @@ class NanoBananaImageProvider:
         suffix = _SUFFIX_BY_MIME[mime]
         try:
             output_url = await self._object_store.put_public_object(
-                object_key=f"{_OBJECT_KEY_PREFIX}/{job.id}.{suffix}",
+                object_key=MEDIA_PATHS.generated_image(job_id=job.id, ext=suffix),
                 content=content,
                 content_type=mime,
             )

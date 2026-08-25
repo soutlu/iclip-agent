@@ -40,6 +40,9 @@ OptionalEnv = Annotated[str, StringConstraints(strip_whitespace=True)]
 SSO_BASE_URL_ENV: Final = "SSO_BASE_URL"
 """SSO 的总开关：这个地址为空即整项关闭。"""
 
+OSS_BUCKET_ENV: Final = "OSS_BUCKET"
+"""公开对象存储的总开关：桶名为空即整项关闭（``/uploads/*`` 与 ``/assets/*`` 不挂载）。"""
+
 VIDEO_SUBMIT_URL_ENV: Final = "VIDEO_SUBMIT_URL"
 """媒体生成的总开关：这个地址为空即整项关闭。"""
 
@@ -105,12 +108,13 @@ class RedisEnv(EnvSettings):
 
 
 class ObjectStoreEnv(EnvSettings):
-    """公开对象存储（阿里云 OSS）的凭证。开了媒体生成就必需。
+    """公开对象存储（阿里云 OSS）的地址与凭证。
 
-    变量名不带本仓前缀：对象存储的凭证不是本仓专有的东西。
+    它自己就是一项能力（素材上传、生成结果转存、镜头帧落地都用它），所以有自己的
+    开关，不挂在别人下面。变量名不带本仓前缀：对象存储的凭证不是本仓专有的东西。
     """
 
-    bucket: RequiredEnv = Field(validation_alias="OSS_BUCKET")
+    bucket: RequiredEnv = Field(validation_alias=OSS_BUCKET_ENV)
     endpoint: RequiredEnv = Field(validation_alias="OSS_ENDPOINT")
     access_key_id: RequiredEnv = Field(validation_alias="OSS_ACCESS_KEY_ID")
     access_key_secret: RequiredEnv = Field(validation_alias="OSS_ACCESS_KEY_SECRET")
@@ -353,10 +357,7 @@ class ResolvedRedis:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedMediaGeneration:
-    """媒体生成的运行值：env 里的地址凭证 + YAML 里的取值与节奏。
-
-    ``object_store`` 必有——图像结果不转存就会烂链接。
-    """
+    """媒体生成的运行值：env 里的地址凭证 + YAML 里的取值与节奏。"""
 
     video_submit_url: str
     video_status_base_url: str
@@ -366,7 +367,6 @@ class ResolvedMediaGeneration:
     image_text_to_image_url: str
     image_edit_url: str
     image_user_name: str
-    object_store: ObjectStoreEnv
     poll_interval_seconds: int
     job_timeout_seconds: int
 
@@ -423,6 +423,7 @@ class ResolvedSettings:
     security: ResolvedSecurity
     sso: ResolvedSso | None
     redis: ResolvedRedis | None
+    object_store: ObjectStoreEnv | None
     media_generation: ResolvedMediaGeneration | None
     shot_video: ResolvedShotVideo | None
     product_catalog: ResolvedProductCatalog | None
@@ -451,18 +452,31 @@ def _switched_on(env_name: str) -> bool:
     return bool(os.environ.get(env_name, "").strip())
 
 
+def _resolve_object_store() -> ObjectStoreEnv | None:
+    """解析公开对象存储；桶名为空即整项关闭。它没有 YAML 段——没有可调的形状。"""
+
+    if not _switched_on(OSS_BUCKET_ENV):
+        return None
+    return _from_env(ObjectStoreEnv)
+
+
 def _resolve_media_generation(
-    section: MediaGenerationSection | None,
+    section: MediaGenerationSection | None, *, object_store_on: bool
 ) -> ResolvedMediaGeneration | None:
     """解析媒体生成；没声明或总开关为空即这项能力关闭。
 
-    一旦开启，这一组 env 与对象存储的 env 就都是必需的，缺哪几个 pydantic 一次全报
-    出来（报的是变量名）。对象存储同样必需：图像接口给的是会过期的签名 URL，不转存
-    就等于往库里写一批几天后失效的链接。
+    一旦开启，这一组 env 就都是必需的，缺哪几个 pydantic 一次全报出来（报的是变量
+    名）。对象存储也必须开着：图像接口给的是会过期的签名 URL，不转存就等于往库里写
+    一批几天后失效的链接。
     """
 
     if section is None or not _switched_on(VIDEO_SUBMIT_URL_ENV):
         return None
+    if not object_store_on:
+        raise RuntimeError(
+            f"配了 {VIDEO_SUBMIT_URL_ENV} 但对象存储没开：图片生成结果要转存成自己的公开"
+            f"对象，否则库里存的是几天后就失效的签名地址。补上 {OSS_BUCKET_ENV} 那一组"
+        )
     env = _from_env(MediaGenerationEnv)
     return ResolvedMediaGeneration(
         video_submit_url=env.video_submit_url,
@@ -473,7 +487,6 @@ def _resolve_media_generation(
         image_text_to_image_url=env.image_text_to_image_url,
         image_edit_url=env.image_edit_url,
         image_user_name=section.image.user_name,
-        object_store=_from_env(ObjectStoreEnv),
         poll_interval_seconds=section.poll_interval_seconds,
         job_timeout_seconds=section.job_timeout_seconds,
     )
@@ -555,7 +568,10 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             max_connections=config.redis.max_connections,
         )
 
-    media_generation = _resolve_media_generation(config.media_generation)
+    object_store = _resolve_object_store()
+    media_generation = _resolve_media_generation(
+        config.media_generation, object_store_on=object_store is not None
+    )
     return ResolvedSettings(
         app_name=config.app.name,
         database_url=core.database_url,
@@ -569,6 +585,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
         ),
         sso=sso,
         redis=redis,
+        object_store=object_store,
         media_generation=media_generation,
         shot_video=_resolve_shot_video(
             config.shot_video, generation_on=media_generation is not None

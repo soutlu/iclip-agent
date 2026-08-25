@@ -14,9 +14,6 @@ dependencies = [
     "pydantic-settings>=2.15",
     "pyyaml>=6",
     "httpx>=0.27",
-    # multipart 表单解析。fastapi-users 的登录路由早就在用它，但上传口是我们自己
-    # 声明的 multipart 端点，不该靠别人的依赖顺手带进来。
-    "python-multipart>=0.0.20",
     "structlog>=24",
     "pydantic-ai-slim[openai,ag-ui]>=2.32",  # OpenAI 兼容端点（含百炼）+ AG-UI 协议面
     "redis>=5",  # 运行事件流（Redis Streams）

@@ -63,9 +63,6 @@ MAX_INLINE_MEDIA_BYTES: Final = 16 * 1024 * 1024
 IMAGE_CONTEXT_MAX_EDGE: Final = 1024
 """喂给模型的那份图的长边像素。tag 里的身份地址永远是原图，缩放只发生在喂像素这一刻。"""
 
-_OSS_PREFIX: Final = "chat-media"
-"""内嵌媒体物化后落在公开桶里的根。"""
-
 _EXT_BY_MIME: Final[Mapping[str, str]] = {
     "image/jpeg": "jpg",
     "image/png": "png",
@@ -93,11 +90,17 @@ _OPEN_RE: Final = re.compile(_OPEN)
 _CLOSE_RE: Final = re.compile(r"</(image|video|audio|file)>")
 
 
-class MediaObjectStore(Protocol):
-    """内嵌媒体物化所需的对象存储；组合根注入实现，本模块不认识是哪家云。"""
+class InlineMediaStore(Protocol):
+    """内嵌媒体的落点；组合根注入实现，本模块不认识是哪家云、更不认识它落在哪个目录。
 
-    async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
-        """写入公开对象，返回它的公网 URL。"""
+    收的是「这份字节的摘要」而不是一根 key：地址长什么样是存储那一侧的布局决定，
+    这里只负责说清「同一份字节必须落回同一个地方」。
+    """
+
+    async def put_inline_media(
+        self, *, digest: str, ext: str, content: bytes, content_type: str
+    ) -> str:
+        """写入并返回公网 URL；同一个摘要已经在了即复用。"""
         ...
 
 
@@ -300,9 +303,9 @@ def _wrapped_length(items: Sequence[InputContent], start: int, kind: MediaKind) 
 
 @dataclass(frozen=True, slots=True)
 class MediaCodec:
-    """两个方向的转换器。``objects`` 为空即没有内嵌上传的落点。"""
+    """两个方向的转换器。``inline_store`` 为空即没有内嵌上传的落点。"""
 
-    objects: MediaObjectStore | None = None
+    inline_store: InlineMediaStore | None = None
 
     async def rewrite(self, messages: Sequence[Message]) -> list[Message]:
         """入站：把用户消息里的媒体 part 换成模型形状。
@@ -398,7 +401,7 @@ class MediaCodec:
             return media.url if _is_http_url(media.url) else _notice(media, "地址不是 HTTP/HTTPS")
         if not media.data:
             return _notice(media, "既没有地址也没有内容")
-        if self.objects is None:
+        if self.inline_store is None:
             return _notice(media, "本服务没有配置对象存储，内嵌上传不可用")
         mime = (media.mime_type or "").split(";")[0].strip().lower()
         ext = _EXT_BY_MIME.get(mime)
@@ -412,11 +415,11 @@ class MediaCodec:
             return _notice(media, "内容为空")
         if len(content) > MAX_INLINE_MEDIA_BYTES:
             return _notice(media, f"内容超过 {MAX_INLINE_MEDIA_BYTES // (1024 * 1024)}MB 上限")
-        # key 由内容算出：前端每轮都会把整段历史重送一遍，同一份字节必须落到同一
+        # 地址由内容算出：前端每轮都会把整段历史重送一遍，同一份字节必须落到同一
         # 个地址上，否则同一张图每轮换一个身份，还白传一次。
-        digest = hashlib.sha256(content).hexdigest()
-        return await self.objects.put_public_object(
-            object_key=f"{_OSS_PREFIX}/{digest}.{ext}",
+        return await self.inline_store.put_inline_media(
+            digest=hashlib.sha256(content).hexdigest(),
+            ext=ext,
             content=content,
             content_type=mime,
         )
@@ -425,9 +428,9 @@ class MediaCodec:
 __all__ = [
     "IMAGE_CONTEXT_MAX_EDGE",
     "MAX_INLINE_MEDIA_BYTES",
+    "InlineMediaStore",
     "MediaCodec",
     "MediaKind",
-    "MediaObjectStore",
     "MediaTag",
     "iter_media_tags",
     "media_kind_label",

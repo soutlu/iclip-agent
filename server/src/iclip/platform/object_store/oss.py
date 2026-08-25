@@ -1,15 +1,19 @@
-"""阿里云 OSS 的公开对象写入。
+"""阿里云 OSS 的公开对象读写。
 
-只有一件事要做：把一段字节放到一个稳定的 key 上，返回它的公网 URL。签名、分片、
-重试这些都由官方 SDK 负责，这里不重造——本文件只做三件官方 SDK 不管的事：把
-key 拼成公网 URL、把同步调用挪出事件循环、把 SDK 的异常收成一种。
+签名、分片、重试这些都由官方 SDK 负责，这里不重造——本文件只做几件官方 SDK 不管
+的事：把 key 拼成公网 URL、把同步调用挪出事件循环、把 SDK 的异常收成一种、把不属
+于本服务命名空间的 key 挡在外面。
 
 **为什么要有这一层。** 图片生成接口返回的是会过期的签名 URL，直接存进库里，过几
 天链接就烂了。所以生成结果一到手就下载下来转存成自己的公开对象，库里存的是这个
 不会过期的地址。
 
-写入按稳定 key 做幂等：同一个 key 已经存在就直接复用，不重复上传。key 由调用方
-用业务 id 派生，所以「同一次生成重跑一遍」不会在桶里堆垃圾。
+写入按稳定 key 做幂等：同一个 key 已经存在就直接复用，不重复上传。key 一律由
+[layout.py](layout.py) 发，所以「同一次生成重跑一遍」不会在桶里堆垃圾。
+
+**直传这条路为什么在这儿而不在业务侧。** 大文件（参考片能到几百 MB）穿过应用进程
+是这一层当初就想避免的事，所以浏览器拿预签名 URL 直接 PUT 到桶里。签名是本地 HMAC
+计算，不走网络。
 """
 
 from __future__ import annotations
@@ -20,6 +24,28 @@ from typing import Any, Protocol
 from urllib.parse import quote, urlsplit
 
 import oss2
+
+from iclip.platform.object_store.layout import OSS_ROOT
+
+SIGNED_PUT_EXPIRES_SECONDS = 3600
+"""预签名 PUT 的有效期：这条地址过了这么久就不能再用来发起上传。
+
+定得这么宽有两个原因，都不是「上传本来就要这么久」：一是挑文件、填表单那段时间也在
+里面走，二是参考片能到几百 MB，慢网上传本身也不短。**没有去核实过一次跨越了到期时刻
+的上传会不会被中途拒掉**，所以不要把余量压到刚好够传。
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class StoredObject:
+    """桶里已经存在的一个对象。
+
+    这三项都是桶自己说的，不是调用方报的：登记素材时全部事实都从这里来。
+    """
+
+    object_key: str
+    content_type: str
+    size_bytes: int
 
 
 class ObjectStoreUnavailable(Exception):
@@ -34,12 +60,43 @@ class ObjectStoreUnavailable(Exception):
 class PublicObjectStore(Protocol):
     """把字节写到公开地址上的最小端口。
 
-    业务侧只依赖这个协议，测试给替身即可；换云厂商也只换实现。
+    只想写字节的调用方（生成结果转存、镜头帧落地）依赖这一个就够，不必认识直传那几
+    件。测试给替身即可；换云厂商也只换实现。
     """
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
         """写入公开对象，返回它的公网 URL；同 key 已存在即复用。"""
         ...
+
+
+class SignedUploadStore(Protocol):
+    """浏览器直传这条路要用的三件。"""
+
+    def sign_put(self, *, object_key: str, content_type: str) -> str:
+        """签一条限时的 PUT 地址，交给浏览器直传。
+
+        ``content_type`` 被签进签名里：拿着这条地址换一个类型去传，OSS 那边验签就
+        不过。所以对象存下来时的类型是服务端定的，登记时读回来即可采信。
+        """
+        ...
+
+    async def find_object(self, *, prefix: str) -> StoredObject | None:
+        """按前缀找唯一那个对象；没有就是 ``None``。
+
+        直传是浏览器直接对着桶做的，服务端没有旁证——「到底传上来没有」只能来问桶。
+        """
+        ...
+
+    def public_url(self, object_key: str) -> str:
+        """把 key 拼成公网地址。
+
+        库里存的是 key，地址是它的投影：换 CDN 域名只动一个环境变量，存量数据不用迁。
+        """
+        ...
+
+
+class PublicBucket(PublicObjectStore, SignedUploadStore, Protocol):
+    """整只桶。组合根注入的是它，各消费者按自己要的那一半声明依赖。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +131,53 @@ class OssObjectStore:
         if not content:
             raise ValueError("对象内容不能为空")
         await asyncio.to_thread(self._put, key, content, content_type)
-        return f"{self._public_url_base}/{quote(key, safe='/')}"
+        return self.public_url(key)
+
+    def sign_put(self, *, object_key: str, content_type: str) -> str:
+        """签一条限时的 PUT 地址。本地 HMAC，不走网络，可以直接在请求处理器里调。"""
+
+        key = _validate_object_key(object_key)
+        if not content_type.strip():
+            raise ValueError("预签名 PUT 必须指定内容类型")
+        try:
+            return str(
+                self._bucket.sign_url(
+                    "PUT",
+                    key,
+                    SIGNED_PUT_EXPIRES_SECONDS,
+                    headers={"Content-Type": content_type},
+                    # key 里的 / 不转义。不开这个的话签出来的地址是 uploads%2Fxxx，
+                    # 传上去就成了一个名字里带斜杠的对象，和我们要的 key 不是同一个。
+                    slash_safe=True,
+                )
+            )
+        except oss2.exceptions.OssError as exc:  # pragma: no cover - 本地计算，理论上不会走到
+            raise ObjectStoreUnavailable(f"OSS 签名失败: {exc}") from exc
+
+    async def find_object(self, *, prefix: str) -> StoredObject | None:
+        """按前缀找唯一那个对象。列举与读元信息都走网络，所以整段挪到线程里。"""
+
+        return await asyncio.to_thread(self._find, _validate_object_key(prefix))
+
+    def public_url(self, object_key: str) -> str:
+        return f"{self._public_url_base}/{quote(object_key, safe='/')}"
+
+    def _find(self, prefix: str) -> StoredObject | None:
+        try:
+            listed = self._bucket.list_objects(prefix=prefix, max_keys=2)
+            entries = list(listed.object_list)
+            if not entries:
+                return None
+            if len(entries) > 1:
+                raise ObjectStoreUnavailable(f"前缀 {prefix} 下不止一个对象，无法确定是哪个")
+            head = self._bucket.head_object(entries[0].key)
+        except oss2.exceptions.OssError as exc:
+            raise ObjectStoreUnavailable(f"OSS 读取失败: {exc}") from exc
+        return StoredObject(
+            object_key=entries[0].key,
+            content_type=str(head.content_type or "").split(";")[0].strip(),
+            size_bytes=int(head.content_length),
+        )
 
     def _put(self, object_key: str, content: bytes, content_type: str) -> None:
         """同步上传；已存在即跳过。
@@ -98,10 +201,11 @@ def _build_bucket(settings: OssSettings) -> oss2.Bucket:
 
 
 def _validate_object_key(object_key: str) -> str:
-    """拒掉能逃出对象目录的 key。
+    """拒掉能逃出本服务命名空间的 key。
 
-    key 由业务 id 拼出来，但拼的那一步在别的模块里；这里当边界再挡一次，免得
-    某个上游哪天把用户输入拼进去。
+    key 由 ``layout.py`` 发，但拼的那一步在别的模块里；这里当边界再挡一次，免得
+    某个上游哪天把用户输入拼进去。命名空间那一条也在这里守：桶是公司共用的，少写
+    一段前缀不该是「悄悄落到桶根上」，该是当场失败。
     """
 
     key = object_key.strip().strip("/")
@@ -109,6 +213,8 @@ def _validate_object_key(object_key: str) -> str:
         raise ValueError("对象 key 不能为空")
     if any(segment in {"", ".", ".."} for segment in key.split("/")):
         raise ValueError("对象 key 不能包含空段或 . / ..")
+    if not key.startswith(f"{OSS_ROOT}/"):
+        raise ValueError(f"对象 key 必须落在 {OSS_ROOT}/ 下面: {key}")
     return key
 
 
@@ -123,9 +229,11 @@ def validate_public_url_base(value: str) -> str:
 
 
 __all__ = [
+    "SIGNED_PUT_EXPIRES_SECONDS",
     "ObjectStoreUnavailable",
     "OssObjectStore",
     "OssSettings",
     "PublicObjectStore",
+    "StoredObject",
     "validate_public_url_base",
 ]

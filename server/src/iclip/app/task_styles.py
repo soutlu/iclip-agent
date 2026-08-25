@@ -2,8 +2,7 @@
 
 它接在组合根，因为抄快照要同时碰产品资料库和对象存储，而需求单域不认识那两个地盘。
 
-封面要转存：产品资料给的是上游图库地址，上游换图之后就烂了。对象 key 由源地址派生，
-所以同一张产品图被多少张需求单引用都只搬一次。
+封面要转存：产品资料给的是上游图库地址，上游换图之后就烂了。落点由 ``layout.py`` 发。
 """
 
 from __future__ import annotations
@@ -17,9 +16,9 @@ import httpx
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.tasks.schemas import TaskStyle
+from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import PublicObjectStore
 
-_OSS_PREFIX = "task-styles"
 _DOWNLOAD_TIMEOUT_SECONDS = 20.0
 _FALLBACK_IMAGE_CONTENT_TYPE = "image/jpeg"
 
@@ -75,9 +74,10 @@ class ProductStyleSnapshots:
 def _preview_object_key(source_url: str) -> str:
     """源地址 → 稳定的对象 key。后缀只是好认，实际类型由写入时的 content type 决定。"""
 
-    digest = hashlib.sha256(source_url.encode()).hexdigest()
-    suffix = PurePosixPath(urlsplit(source_url).path).suffix.lstrip(".").lower() or "jpg"
-    return f"{_OSS_PREFIX}/{digest}.{suffix}"
+    return MEDIA_PATHS.task_style_cover(
+        digest=hashlib.sha256(source_url.encode()).hexdigest(),
+        ext=PurePosixPath(urlsplit(source_url).path).suffix.lstrip(".").lower() or "jpg",
+    )
 
 
 class UnavailableStyleSnapshots:

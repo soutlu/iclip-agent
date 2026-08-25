@@ -48,10 +48,14 @@ depends_on = ["iclip.common", "iclip.domains.identity"]
 path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 上传：本仓唯一的上传口，不建表也不记账本，产物就是一个公网地址。
+# 素材账本：自有的表 + 公开桶（直传签名、登记时回桶里核实）。
 [[modules]]
-path = "iclip.domains.uploads"
-depends_on = ["iclip.common", "iclip.domains.identity", "iclip.platform.object_store"]
+path = "iclip.domains.assets"
+depends_on = [
+    "iclip.common",
+    "iclip.platform.object_store",
+    "iclip.domains.identity",
+]
 
 # 媒体生成：自有的表 + 两家外部生成接口 + 后台推进器。
 [[modules]]
@@ -101,6 +105,7 @@ depends_on = [
     "iclip.config",
     "iclip.domains.identity",
     "iclip.domains.agents",
+    "iclip.domains.assets",
     "iclip.domains.conversations",
     "iclip.domains.generation",
     "iclip.domains.inspirations",

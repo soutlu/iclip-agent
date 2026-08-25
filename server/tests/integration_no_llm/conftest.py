@@ -127,6 +127,8 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
     monkeypatch.delenv("PRODUCT_CATALOG_DATABASE_URL", raising=False)
     monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL", raising=False)
     monkeypatch.delenv("INSPIRATION_DATABASE_URL", raising=False)
+    # 同理，别让开发机上那把真桶凭证混进来——测试要么注入替身桶，要么就没有桶。
+    monkeypatch.delenv("OSS_BUCKET", raising=False)
 
 
 async def _fresh_engine(url: str):

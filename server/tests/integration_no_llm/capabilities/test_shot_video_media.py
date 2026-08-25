@@ -40,6 +40,7 @@ from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
 from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import FileSpace
+from iclip.platform.object_store.layout import MEDIA_PATHS
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import FakeGenerations, FakeObjects, FakeUnderstanding, Outcome
 
@@ -206,6 +207,7 @@ def make_tools(
         space=FileSpace(store=files, namespace=workspace_namespace),
         generations=generations or FakeGenerations(),
         objects=objects,
+        paths=MEDIA_PATHS,
         understanding=FakeUnderstanding(),
         client=client,
         policy=FAST,

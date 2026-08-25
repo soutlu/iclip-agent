@@ -1,7 +1,7 @@
 """iclip.tasks：加一列款号快照
 
 Revision ID: a4d7c9518e63
-Revises: f1e6b83d2c47
+Revises: b6a3f109d84e
 Create Date: 2026-08-25 14:00:00.000000
 
 需求单原来记不下「要拍哪个款」，而款号正是这张单子的由来。
@@ -22,7 +22,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "a4d7c9518e63"
-down_revision: str | None = "f1e6b83d2c47"
+down_revision: str | None = "b6a3f109d84e"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -26,6 +27,7 @@ from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.workspace.scope import namespace_for
 from iclip.common.errors import DomainError
 from iclip.config import (
+    ObjectStoreEnv,
     ResolvedAgent,
     ResolvedInspirations,
     ResolvedMediaGeneration,
@@ -38,6 +40,8 @@ from iclip.config import (
     resolve_settings,
 )
 from iclip.domains.agents.api import create_agents_router
+from iclip.domains.assets.infra_sql import SqlAssetRepository
+from iclip.domains.assets.module import build_assets_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.module import build_conversations_module
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
@@ -58,7 +62,6 @@ from iclip.domains.products.module import build_products_module
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
 from iclip.domains.tasks.ports import StyleSnapshots
-from iclip.domains.uploads.module import build_uploads_module
 from iclip.harness.agents import (
     AgentCapabilities,
     AgentDefinition,
@@ -74,9 +77,11 @@ from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.platform.file_store.pg import PgFileStore
 from iclip.platform.http import status_code_for
+from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import (
     OssObjectStore,
     OssSettings,
+    PublicBucket,
     PublicObjectStore,
     validate_public_url_base,
 )
@@ -187,22 +192,43 @@ def _stream_settings(redis: ResolvedRedis | None) -> RunStreamSettings:
 
 
 def _object_store(
-    settings: ResolvedMediaGeneration, injected: PublicObjectStore | None
-) -> PublicObjectStore:
-    """公开对象存储：生成结果和镜头素材共用这一个（测试可注入替身）。"""
+    settings: ObjectStoreEnv | None, injected: PublicBucket | None
+) -> PublicBucket | None:
+    """公开对象存储：素材上传、生成结果转存、镜头帧共用这一个（测试可注入替身）。"""
 
     if injected is not None:
         return injected
-    oss = settings.object_store
+    if settings is None:
+        return None
     return OssObjectStore(
         OssSettings(
-            bucket=oss.bucket,
-            endpoint=oss.endpoint,
-            access_key_id=oss.access_key_id,
-            access_key_secret=oss.access_key_secret,
-            public_url_base=validate_public_url_base(oss.public_url_base),
+            bucket=settings.bucket,
+            endpoint=settings.endpoint,
+            access_key_id=settings.access_key_id,
+            access_key_secret=settings.access_key_secret,
+            public_url_base=validate_public_url_base(settings.public_url_base),
         )
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _InlineMediaLanding:
+    """聊天里内嵌上传的媒体落到公开桶的哪个位置。
+
+    这条线只能接在组合根：agent 内核那一环不认识 platform，所以它只说「同一份字节
+    要落回同一个地方」，落在哪个目录由这里按桶布局补上。
+    """
+
+    objects: PublicObjectStore
+
+    async def put_inline_media(
+        self, *, digest: str, ext: str, content: bytes, content_type: str
+    ) -> str:
+        return await self.objects.put_public_object(
+            object_key=MEDIA_PATHS.chat_media(digest=digest, ext=ext),
+            content=content,
+            content_type=content_type,
+        )
 
 
 def _product_catalog_engine(
@@ -293,7 +319,7 @@ def build_app(
     run_stream: RunStream | None = None,
     sso_verifier: SsoVerifier | None = None,
     pms_client: PmsUserClient | None = None,
-    object_store: PublicObjectStore | None = None,
+    object_store: PublicBucket | None = None,
     queue_connector: procrastinate.BaseConnector | None = None,
     product_catalog_engine: AsyncEngine | None = None,
     inspirations_engine: AsyncEngine | None = None,
@@ -338,13 +364,11 @@ def build_app(
         sso_verifier=sso_verifier,
         pms_client=pms_client,
     )
+    # 公开对象存储：它自己就是一项能力（素材上传、生成结果转存、镜头帧落地都用它），
+    # 配了就有，没配这几件各自不挂。它排在最前面，是因为后面几个都要用它。
+    public_objects = _object_store(settings.object_store, object_store)
     # 媒体生成：配了就装，没配就整组路由不挂（同 SSO 的口径）。
     # 它排在 agent 装配之前，是因为镜头素材能力要用它的服务与对象存储。
-    public_objects = (
-        _object_store(settings.media_generation, object_store)
-        if settings.media_generation is not None
-        else None
-    )
     generation = (
         _generation_module(
             settings.media_generation,
@@ -386,7 +410,9 @@ def build_app(
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(active_engine)
-    media = MediaCodec(objects=public_objects)
+    media = MediaCodec(
+        inline_store=_InlineMediaLanding(public_objects) if public_objects is not None else None
+    )
     history = HistoryReader(snapshots=step_store, media=media)
 
     async def read_conversation_history(conversation_id: uuid.UUID) -> tuple[dict[str, Any], ...]:
@@ -415,8 +441,12 @@ def build_app(
             else UnavailableStyleSnapshots()
         ),
     )
-    # 上传：只认对象存储。没配就整组路由不挂载（同产品资料与爆款视频的口径）。
-    uploads = build_uploads_module(public_objects) if public_objects is not None else None
+    # 素材：表一直在（迁移建的），但没有桶就没有上传与登记这回事，整组路由不挂。
+    assets = (
+        build_assets_module(SqlAssetRepository(active_engine), public_objects)
+        if public_objects is not None
+        else None
+    )
     agent_registry = build_agent_registry(
         _agent_definitions(
             agents,
@@ -502,6 +532,8 @@ def build_app(
         app.include_router(router)
     for router in generation.routers if generation is not None else ():
         app.include_router(router)
+    for router in assets.routers if assets is not None else ():
+        app.include_router(router)
     for router in products.routers if products is not None else ():
         app.include_router(router)
     for router in inspirations.routers if inspirations is not None else ():
@@ -509,8 +541,6 @@ def build_app(
     for router in conversations.routers:
         app.include_router(router)
     for router in tasks.routers:
-        app.include_router(router)
-    for router in uploads.routers if uploads is not None else ():
         app.include_router(router)
     if broker is not None:
         app.include_router(create_agents_router(broker, conversations.service))
@@ -534,7 +564,6 @@ def build_app(
     app.state.products = products
     app.state.inspirations = inspirations
     app.state.tasks = tasks
-    app.state.uploads = uploads
     return app
 
 
