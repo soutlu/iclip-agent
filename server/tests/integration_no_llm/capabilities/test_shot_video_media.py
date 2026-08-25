@@ -378,8 +378,8 @@ async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked
 async def test_read_media_file_attaches_the_picture_by_url() -> None:
     """附地址而不是字节：不下载、不转码，缩放交给对象存储的参数。
 
-    像素包在一对 tag 中间，tag 里写的是原图地址——那是这张图的身份，模型要拿它去
-    调别的工具，抄成缩略档就出错了。
+    三段直接是返回值，所以图留在工具结果里；tag 里写的是原图地址——那是这张图的
+    身份，模型要拿它去调别的工具，抄成缩略档就出错了。
     """
 
     client = make_client({})
@@ -390,20 +390,19 @@ async def test_read_media_file_attaches_the_picture_by_url() -> None:
     finally:
         await client.aclose()
 
-    assert result.content == [
+    assert result == [
         f'<image url="{OSS_IMAGE_URL}">',
         ImageUrl(url=f"{OSS_IMAGE_URL}?x-oss-process=image/resize,l_1024"),
         "</image>",
     ]
-    assert OSS_IMAGE_URL in str(result.return_value)
 
 
-async def test_an_address_with_no_readable_format_is_refused() -> None:
-    """看不出是什么图就别附给模型：厂商那边拉回来也认不出，报错还发生在它那侧。"""
+async def test_an_address_that_cannot_be_read_is_refused() -> None:
+    """看不出是什么图、或者缩不了，就别附给模型：报错发生在厂商那侧更难查。"""
 
     client = make_client({})
     try:
-        with pytest.raises(ModelRetry, match="看不出图片格式"):
+        with pytest.raises(ModelRetry, match="读不了"):
             await make_tools(client, FakeObjects(), FakeFileStore()).read_media_file(
                 make_context(), "https://cdn.test/no-extension"
             )

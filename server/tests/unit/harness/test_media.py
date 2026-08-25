@@ -218,6 +218,7 @@ async def test_inline_content_lands_on_one_address_per_content() -> None:
             "上限",
         ),
         (url_part("video", "file:///etc/passwd", mime="video/mp4"), "HTTP"),
+        (url_part("image", "https://cdn.example.com/a.jpg", mime="image/jpeg"), "缩放参数"),
     ],
 )
 async def test_unusable_media_is_replaced_in_place_not_dropped(
@@ -300,5 +301,8 @@ def test_text_that_is_not_a_tag_stays_text() -> None:
         f"{IMAGE_URL}?v=2",  # 已经带 query：再拼一个就废了
     ],
 )
-def test_resize_only_applies_where_it_works(url: str) -> None:
-    assert resized_image_url(url, max_edge=1024) == url
+def test_an_address_that_cannot_be_resized_is_refused(url: str) -> None:
+    """缩不了就抛，不原样返回：4K 原图整个进上下文没有任何信号，只有账单会涨。"""
+
+    with pytest.raises(ValueError):
+        resized_image_url(url, max_edge=1024)

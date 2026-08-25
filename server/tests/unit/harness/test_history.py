@@ -1,20 +1,12 @@
-"""历史读回来的取材与过滤：system 不外发，崩掉的运行不带走整段历史。"""
+"""历史读回来的取材与过滤：取最新那份存档，system 不外发。"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    SystemPromptPart,
-    UserPromptPart,
-)
-from pydantic_ai_harness.step_persistence import (
-    ContinuableSnapshot,
-    InMemoryStepStore,
-    RunRecord,
-)
+from pydantic_ai.messages import ModelMessage, ModelRequest, SystemPromptPart, UserPromptPart
+from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 
 from iclip.harness.history import HistoryReader
 from iclip.harness.media import MediaCodec
@@ -22,42 +14,44 @@ from iclip.harness.media import MediaCodec
 CONVERSATION = "c1"
 
 
-async def read_after(*runs: tuple[str, list[ModelMessage] | None]) -> tuple[dict[str, Any], ...]:
-    """按顺序登记几次运行（``None`` 表示这次没留下完整快照），再读历史。"""
+@dataclass
+class FakeSnapshots:
+    """按对话存一份最新存档的最小状态机。"""
 
-    store = InMemoryStepStore()
-    for run_id, messages in runs:
-        await store.register_run(RunRecord(run_id=run_id, conversation_id=CONVERSATION))
-        if messages is not None:
-            await store.save_snapshot(
-                ContinuableSnapshot(run_id=run_id, step_index=0, messages=messages)
-            )
-    return await HistoryReader(step_store=store, media=MediaCodec()).read(CONVERSATION)
+    latest: ContinuableSnapshot | None = None
+
+    async def latest_conversation_snapshot(
+        self, *, conversation_id: str
+    ) -> ContinuableSnapshot | None:
+        return self.latest if conversation_id == CONVERSATION else None
+
+
+async def read(messages: list[ModelMessage] | None) -> tuple[dict[str, Any], ...]:
+    snapshot = (
+        None
+        if messages is None
+        else ContinuableSnapshot(run_id="r1", step_index=0, messages=messages)
+    )
+    reader = HistoryReader(snapshots=FakeSnapshots(latest=snapshot), media=MediaCodec())
+    return await reader.read(CONVERSATION)
+
+
+async def test_a_conversation_with_no_snapshot_is_empty() -> None:
+    """一份存档都没有（还没跑过、或者第一次运行就崩在落档之前）就是空的。"""
+
+    assert await read(None) == ()
 
 
 async def test_system_messages_from_the_client_are_not_echoed_back() -> None:
-    history = await read_after(
-        (
-            "r1",
-            [
-                ModelRequest(
-                    parts=[
-                        SystemPromptPart(content="客户端自己塞的"),
-                        UserPromptPart(content="你好"),
-                    ]
-                )
-            ],
-        )
+    history = await read(
+        [
+            ModelRequest(
+                parts=[
+                    SystemPromptPart(content="客户端自己塞的"),
+                    UserPromptPart(content="你好"),
+                ]
+            )
+        ]
     )
 
     assert [message["role"] for message in history] == ["user"]
-
-
-async def test_a_run_that_left_no_snapshot_does_not_take_the_history_with_it() -> None:
-    """最后那次运行可能崩在半路（进程重启、模型报错），历史不该因此整段消失。"""
-
-    done: list[ModelMessage] = [ModelRequest(parts=[UserPromptPart(content="上一轮说过的话")])]
-
-    history = await read_after(("r1", done), ("r2", None))
-
-    assert [message["content"] for message in history] == ["上一轮说过的话"]

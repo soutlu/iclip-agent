@@ -18,9 +18,9 @@ import base64
 import binascii
 import hashlib
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final, Literal, Protocol
+from typing import Final, Literal, Protocol, cast
 from urllib.parse import urlsplit
 
 from ag_ui.core import (
@@ -170,16 +170,37 @@ def parse_media_tag(text: str) -> MediaTag | None:
     )
 
 
+def iter_media_tags(text: str) -> Iterator[MediaTag]:
+    """扫出一段文本里的全部 tag。
+
+    只扫开标签：空标签的开头也是它，两种形状都扫得到，同一条也不会数两遍。
+    """
+
+    for match in _OPEN_RE.finditer(text):
+        kind = cast("MediaKind", match.group(1))
+        url, name = match.group(2), match.group(3)
+        yield MediaTag(
+            kind=kind,
+            url=_unescape_attr(url),
+            name=_unescape_attr(name) if name else None,
+            wraps=not text.startswith(media_tag_close(kind), match.end()),
+        )
+
+
 def resized_image_url(url: str, *, max_edge: int) -> str:
     """给图片地址挂上 OSS 的缩放参数（长边 ``max_edge``，OSS 不放大小图）。
 
-    只处理阿里云 OSS 域且不带 query 的地址，其余原样返回——公网前缀换成自定义
-    域名之后缩放会静默失效，那时要回来扩这个判断。
+    缩放不了就抛，不原样返回：一张 4K 原图整个进上下文没有任何信号，只有账单会涨。
+    部署换成自定义公网域之后读图会立刻响亮地失败，那时来扩这里的判断。
+
+    带 query 的地址同理——再拼一个参数上去只会得到一个废地址。
     """
 
     parsed = urlsplit(url)
-    if parsed.query or not (parsed.hostname or "").endswith(".aliyuncs.com"):
-        return url
+    if not (parsed.hostname or "").endswith(".aliyuncs.com"):
+        raise ValueError(f"这个域名不支持缩放参数，图片没法缩到长边 {max_edge}: {url!r}")
+    if parsed.query:
+        raise ValueError(f"地址已经带了 query，没法再挂缩放参数: {url!r}")
     return f"{url}?x-oss-process=image/resize,l_{max_edge}"
 
 
@@ -309,6 +330,11 @@ class MediaCodec:
                         )
                     )
                     continue
+                try:
+                    view = resized_image_url(landed, max_edge=IMAGE_CONTEXT_MAX_EDGE)
+                except ValueError as exc:
+                    parts.append(TextInputContent(type="text", text=_notice(parsed, str(exc)).text))
+                    continue
                 parts.append(
                     TextInputContent(
                         type="text", text=media_tag_open("image", landed, name=parsed.filename)
@@ -318,9 +344,7 @@ class MediaCodec:
                     ImageInputContent(
                         type="image",
                         source=InputContentUrlSource(
-                            type="url",
-                            value=resized_image_url(landed, max_edge=IMAGE_CONTEXT_MAX_EDGE),
-                            mime_type=parsed.mime_type,
+                            type="url", value=view, mime_type=parsed.mime_type
                         ),
                     )
                 )
@@ -399,6 +423,7 @@ __all__ = [
     "MediaKind",
     "MediaObjectStore",
     "MediaTag",
+    "iter_media_tags",
     "media_tag",
     "media_tag_close",
     "media_tag_open",

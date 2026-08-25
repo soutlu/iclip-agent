@@ -21,7 +21,7 @@ from typing import Any, Final
 
 import httpx
 from pydantic import BaseModel
-from pydantic_ai import ModelRetry, ToolReturn
+from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ImageUrl
@@ -350,7 +350,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             target_aspect=target_aspect,
         )
 
-    async def read_media_file(self, ctx: RunContext[AgentDepsT], url: str) -> ToolReturn:
+    async def read_media_file(self, ctx: RunContext[AgentDepsT], url: str) -> list[str | ImageUrl]:
         """读取一张图片，原始内容以多模态形式附在工具结果中。
 
         - 本工具通常是你会希望并行使用的工具：需要看多张图时在同一次回复中发起多
@@ -367,17 +367,18 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         _require_http(url, what="图片地址")
         # 附地址而不是字节：厂商自己去取图，我们既不下载也不转码。缩放交给 OSS 的
         # 参数（见 resized_image_url），附的是缩略档，tag 里写的仍是原图地址。
-        view = ImageUrl(url=resized_image_url(url, max_edge=IMAGE_CONTEXT_MAX_EDGE))
         try:
+            view = ImageUrl(url=resized_image_url(url, max_edge=IMAGE_CONTEXT_MAX_EDGE))
             _ = view.media_type
         except ValueError as exc:
-            raise ModelRetry(f"这个地址看不出图片格式，确认它是一张图的直链：{url}") from exc
-        # 像素包在一对 tag 中间：地址与它显示的那张图在上下文里是连着的一段，模型
-        # 要把这张图交给别的工具时，抄的是 tag 里的原图地址而不是缩略档。
-        return ToolReturn(
-            return_value=f"已读取图片 {url}，其原始内容已附在本工具结果中。",
-            content=[media_tag_open("image", url), view, media_tag_close("image")],
-        )
+            raise ModelRetry(f"这张图读不了（{exc}）") from exc
+        # 三段直接当返回值，于是它们留在这条工具结果里。换成 ToolReturn(content=...)
+        # 的话，官方会把多模态那份接成紧随其后的一条**用户**消息——模型会读到一条用户
+        # 没发过的消息，历史里也多出一条。
+        #
+        # 像素包在一对 tag 中间：地址与它显示的那张图是连着的一段，模型要把这张图交
+        # 给别的工具时，抄的是 tag 里的原图地址而不是缩略档。
+        return [media_tag_open("image", url), view, media_tag_close("image")]
 
     async def _shot_rows(
         self, files: FileStore, namespace: str, doc_path: str

@@ -315,7 +315,7 @@ def build_app(
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(active_engine)
     media = MediaCodec(objects=public_objects)
-    history = HistoryReader(step_store=step_store, media=media)
+    history = HistoryReader(snapshots=step_store, media=media)
 
     async def read_conversation_history(conversation_id: uuid.UUID) -> tuple[dict[str, Any], ...]:
         """读一段对话里发生过的消息。
