@@ -52,6 +52,11 @@ depends_on = [
     "iclip.domains.identity",
 ]
 
+# 产品资料查询：读外部的 PDM 同步副本，自己不建表。
+[[modules]]
+path = "iclip.domains.products"
+depends_on = ["iclip.common", "iclip.domains.identity"]
+
 # 通用 agent 内核，不认识业务。
 [[modules]]
 path = "iclip.harness"
@@ -82,6 +87,7 @@ depends_on = [
     "iclip.domains.agents",
     "iclip.domains.conversations",
     "iclip.domains.generation",
+    "iclip.domains.products",
     "iclip.harness",
     "iclip.capabilities",
 ]
