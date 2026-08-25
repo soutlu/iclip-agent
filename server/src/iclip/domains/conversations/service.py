@@ -59,9 +59,19 @@ class ConversationService:
         return await self._read_history(conversation_id)
 
     async def create(
-        self, principal: Principal, *, agent_id: str, title: str | None = None
+        self,
+        principal: Principal,
+        *,
+        agent_id: str,
+        title: str | None = None,
+        task_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
     ) -> Conversation:
-        """开一段新对话。id 在这里生成，客户端拿它当会话身份用。"""
+        """开一段新对话。id 在这里生成，客户端拿它当会话身份用。
+
+        两个归属都可以不给：那就是「直接开始创作」，既不属于哪张单，也没放进项目。
+        给了但不存在，由外键挡下来（这一层不认识那两张表）。
+        """
 
         now = datetime.now(UTC)
         return await self._repo.create(
@@ -71,12 +81,24 @@ class ConversationService:
                 agent_id=agent_id,
                 title=title or DEFAULT_TITLE,
                 last_run_id=None,
+                task_id=task_id,
+                project_id=project_id,
                 # 两个时刻在插入时由数据库改写成它自己的 now()；这里的值不落库，
                 # 只是把 dataclass 填满。
                 created_at=now,
                 updated_at=now,
             )
         )
+
+    async def list_for_task(
+        self, principal: Principal, task_id: uuid.UUID
+    ) -> tuple[Conversation, ...]:
+        """列出自己在某张需求单下的尝试，按开始时间正序（第几次就是这个顺序）。
+
+        只列自己的：对话是私有的，一张单人人可见不等于这张单下面谁跑过什么也人人可见。
+        """
+
+        return await self._repo.list_for_task(task_id=task_id, owner=principal.user_id)
 
     async def list_recent(
         self, principal: Principal, *, limit: int = 20
@@ -91,6 +113,18 @@ class ConversationService:
         self, principal: Principal, conversation_id: uuid.UUID, *, title: str
     ) -> Conversation:
         return await self._repo.rename(conversation_id, owner=principal.user_id, title=title)
+
+    async def set_project(
+        self, principal: Principal, conversation_id: uuid.UUID, *, project_id: uuid.UUID | None
+    ) -> Conversation:
+        """把这段对话放进某个项目，或者给 ``None`` 拿出来。
+
+        不校验「这个项目得是它那张单挂过的」：单挂的项目是新建时的默认值，不是围栏。
+        """
+
+        return await self._repo.set_project(
+            conversation_id, owner=principal.user_id, project_id=project_id
+        )
 
     async def delete(self, principal: Principal, conversation_id: uuid.UUID) -> None:
         """删掉这段对话，连带删掉它派生出来的东西。

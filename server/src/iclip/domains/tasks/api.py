@@ -23,6 +23,8 @@ from iclip.domains.tasks.schemas import (
     TaskCreateIn,
     TaskEnvelope,
     TaskIn,
+    TaskProjectsIn,
+    TaskProjectsOut,
     TasksPageOut,
     task_out,
 )
@@ -86,6 +88,25 @@ def create_tasks_router(service: TaskService) -> APIRouter:
         _: Annotated[Principal, Depends(require_permission("tasks:write"))],
     ) -> TaskEnvelope:
         return TaskEnvelope(task=task_out(await service.withdraw(task_id)))
+
+    @router.get("/{task_id}/projects", response_model=TaskProjectsOut)
+    async def read_task_projects(
+        task_id: uuid.UUID,
+        _: Annotated[Principal, Depends(require_permission("tasks:read"))],
+    ) -> TaskProjectsOut:
+        found = await service.list_project_ids(task_id)
+        return TaskProjectsOut(project_ids=list(found))
+
+    @router.put("/{task_id}/projects", response_model=TaskProjectsOut)
+    async def set_task_projects(
+        task_id: uuid.UUID,
+        body: TaskProjectsIn,
+        _: Annotated[Principal, Depends(require_permission("tasks:write"))],
+    ) -> TaskProjectsOut:
+        """整体覆盖这张单挂的项目。PUT 而不是 POST：给什么就是最终的那一组。"""
+
+        saved = await service.set_project_ids(task_id, project_ids=tuple(body.project_ids))
+        return TaskProjectsOut(project_ids=list(saved))
 
     @router.delete("/{task_id}", status_code=204)
     async def delete_task(

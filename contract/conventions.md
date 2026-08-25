@@ -79,15 +79,27 @@
 
 | 端点 | 权限 | 说明 |
 |------|------|------|
-| `POST /conversations` | `agent:run` | 开一段新对话。请求体 `{ agentId, title? }`，不给 `title` 就用默认名。`201` + `{ conversation: {...} }` |
+| `POST /conversations` | `agent:run` | 开一段新对话。请求体 `{ agentId, title?, taskId?, projectId? }`，不给 `title` 就用默认名。`201` + `{ conversation: {...} }` |
 | `GET /conversations?limit=20` | `agent:read` | 列出自己的对话，**最近活动的排在前面**（`limit` 取值 1–100）。`200` + `{ items: [...] }` |
+| `GET /conversations/by-task/{taskId}` | `agent:read` | 列出自己在这张需求单下的尝试，**按开始时间正序**（第几次尝试就是这个顺序）。`200` + `{ items: [...] }` |
 | `GET /conversations/{id}/messages` | `agent:read` | 读这段对话已经发生过的消息（刷新、重新登录后靠它拿回历史）。`200` + `{ messages: [...] }` |
 | `PATCH /conversations/{id}` | `agent:run` | 改名。请求体 `{ title }`。`200` + `{ conversation: {...} }` |
+| `PUT /conversations/{id}/project` | `agent:run` | 换个项目，或者给 `{ projectId: null }` 把它拿出来。`200` + `{ conversation: {...} }` |
 | `DELETE /conversations/{id}` | `agent:run` | 删掉这段对话，**agent 在这段对话里写下的工作区文件一并删除**。`204` |
 
-- `conversation` 的形状：`{ id, agentId, title, lastRunId, createdAt, updatedAt }`。`lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`）——刷新页面后拿它去续读那条流。
-- **只看得到自己的对话**：别人的一律 `404`，不返 `403`（那会泄露这个 id 确实有人在用）。治理者也没有看别人对话的口子。
+- `conversation` 的形状：`{ id, agentId, title, lastRunId, taskId, projectId, createdAt, updatedAt }`。`lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`）——刷新页面后拿它去续读那条流。
+- **只看得到自己的对话**：别人的一律 `404`，不返 `403`（那会泄露这个 id 确实有人在用）。治理者也没有看别人对话的口子。按需求单列尝试也是同一个口径：只列自己的——一张单人人可见，不等于这张单下面谁跑过什么也人人可见。
 - 删除只带走对话与它的工作区文件；`agent_runtime` 里的运行记录留着，那是账本。
+
+### 两处归属
+
+`taskId` 说的是这段对话为哪张需求单而开，`projectId` 说的是它放在哪个项目里。两个都可以不给——那就是**直接开始创作**，不属于任何一张单、也没归类。
+
+- **一张单下面可以有好几段对话**，每段就是一次尝试；第几次按 `createdAt` 排。
+- `taskId` 只在开对话时给，之后不改：它说的是这段对话的由来，改了等于改历史。`projectId` 随时能换（`PUT .../project`），但**一段对话最多待在一个项目里**。
+- 两处都给不存在的 id 是 `422`。
+- `projectId` **不要求是那张单挂过的项目**：单挂的项目只是新建对话时的默认值，不是围栏。
+- **删项目、删需求单都不带走对话**，只把对话上那一列置空。
 
 ### 读历史
 
@@ -131,6 +143,25 @@
 - 款号不存在、或已被上游标记删除，一律 `404`。
 - 服务端没配目录库时这组路由整个不挂载，请求同样是 `404`。
 
+## 7.5 项目 (Projects)
+
+项目是归拢用的口袋：需求单和对话往里放，方便按一摊活找东西。它自己不承载创作事实——里面装的东西没了它还在，它没了里面的东西也还在。
+
+可见性口径同需求单：**没有属主，谁有 `projects:read` 谁就看得见全部**。所以这里也不适用「别人的一律 404」，`404` 只意味着这个项目不存在。
+
+| 端点 | 权限 | 说明 |
+|------|------|------|
+| `GET /projects?limit=20` | `projects:read` | 列出项目，**最近改动的排在前面**（`limit` 取值 1–100）。`200` + `{ items: [...] }` |
+| `GET /projects/{id}` | `projects:read` | `200` + `{ project: {...} }` |
+| `POST /projects` | `projects:write` | 开一个新项目。请求体 `{ name }`（1–200 字）。`201` + `{ project: {...} }` |
+| `PATCH /projects/{id}` | `projects:write` | 改名。请求体 `{ name }`。`200` + `{ project: {...} }` |
+| `DELETE /projects/{id}` | `projects:write` | 删掉这个项目。`204` |
+
+`project` 的形状：`{ id, name, creatorUserId, createdAt, updatedAt }`。**创建者取自登录身份**，请求体里带它一律 `422`。
+
+- **改名是公事，删除不是。** 谁都会往项目里放东西，所以改名任何持 `projects:write` 的人都能做；删除只有开它的人或治理者能做（看得见但不让删是 `403`），因为它会把别人对话上的归属一并置空。
+- **删项目不带走任何东西**：需求单那边的关联消失，对话那边只是 `projectId` 变 `null`。
+
 ## 8. 创作需求单 (Tasks)
 
 一张需求单是一份记录在案的视频创作要求。它和本文其余资源最大的不同：**它没有属主，是全公司共用的一张工作队列**。谁有 `tasks:read` 谁就看得见全部——所以这里不适用「别人的一律 404」那条规则，看得见但不让你改返回的是 `403`，`404` 只意味着这张单子不存在。
@@ -144,6 +175,8 @@
 | `POST /tasks/{id}/publish` | `tasks:write` | 下发。`200` + `{ task: {...} }` |
 | `POST /tasks/{id}/confirm` | `tasks:write` | 接单。`200` + `{ task: {...} }` |
 | `POST /tasks/{id}/withdraw` | `tasks:write` | 撤回。`200` + `{ task: {...} }` |
+| `GET /tasks/{id}/projects` | `tasks:read` | 这张单算在哪几个项目里。`200` + `{ projectIds: [...] }` |
+| `PUT /tasks/{id}/projects` | `tasks:write` | **整体覆盖**这张单挂的项目，给 `{ projectIds: [] }` 就是全部取消（最多 20 个，重复的 id 不算错、落库时去重，给不存在的项目 `422`）。`200` + `{ projectIds: [...] }` |
 | `DELETE /tasks/{id}` | `tasks:write` | 删掉草稿。`204` |
 
 `task` 的形状：`{ id, title, status, priority, deadline, creatorUserId, style, brief, createdAt, updatedAt }`。`creatorUserId` 是提需求的那个人——客户端靠它判断当前用户能不能改这张草稿。**创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`（整个请求体不接受未声明的字段）。

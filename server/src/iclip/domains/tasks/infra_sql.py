@@ -33,9 +33,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.row import RowMapping
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from iclip.common.errors import NotFound
+from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.tasks.models import (
     STATUS_DRAFT,
     STATUS_PUBLISHED,
@@ -246,6 +247,38 @@ class SqlTaskRepository:
         async with self._engine.begin() as conn:
             row = (await conn.execute(statement)).first()
         return row is not None
+
+    async def list_project_ids(self, task_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
+        statement = select(task_projects_table.c.project_id).where(
+            task_projects_table.c.task_id == task_id
+        )
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(statement)).scalars().all()
+        return tuple(rows)
+
+    async def set_project_ids(
+        self, task_id: uuid.UUID, *, project_ids: tuple[uuid.UUID, ...]
+    ) -> tuple[uuid.UUID, ...]:
+        # 一个事务里先清后插：整体覆盖的语义要求中间不存在「旧的删了、新的还没进去」
+        # 被别人看到的时刻。
+        try:
+            async with self._engine.begin() as conn:
+                await conn.execute(
+                    delete(task_projects_table).where(task_projects_table.c.task_id == task_id)
+                )
+                if project_ids:
+                    await conn.execute(
+                        task_projects_table.insert(),
+                        [
+                            {"task_id": task_id, "project_id": project_id}
+                            # 去重靠这里而不是靠主键报错：调用方给重了不该是个错误，
+                            # 「挂两遍」和「挂一遍」本来就是同一件事。
+                            for project_id in dict.fromkeys(project_ids)
+                        ],
+                    )
+        except IntegrityError as exc:
+            raise ValidationFailed("指定的项目里有不存在的") from exc
+        return await self.list_project_ids(task_id)
 
 
 __all__ = [

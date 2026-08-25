@@ -27,10 +27,28 @@ class ConversationRepository(Protocol):
         """按最近活动倒序列出这个人的对话。"""
         ...
 
+    async def list_for_task(
+        self, *, task_id: uuid.UUID, owner: uuid.UUID
+    ) -> tuple[Conversation, ...]:
+        """按开始时间正序列出这个人在某张需求单下的尝试。
+
+        第几次尝试就是这个顺序，所以是正序而不是倒序（别处都按最近活动倒序）。
+        """
+        ...
+
     async def rename(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, title: str
     ) -> Conversation:
         """改名，返回改完的整行。"""
+        ...
+
+    async def set_project(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, project_id: uuid.UUID | None
+    ) -> Conversation:
+        """换个项目，或者给 ``None`` 把它拿出来。返回改完的整行。
+
+        项目不存在时抛 ``ValidationFailed``——那是外键挡下来的，这一层不认识项目表。
+        """
         ...
 
     async def delete(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> None:

@@ -90,10 +90,23 @@ class InMemoryTaskRepository:
 
     def __init__(self, tasks: list[Task] | None = None) -> None:
         self.tasks: dict[uuid.UUID, Task] = {task.id: task for task in tasks or []}
+        self.project_ids: dict[uuid.UUID, tuple[uuid.UUID, ...]] = {}
 
     async def create(self, task: Task) -> Task:
         self.tasks[task.id] = task
         return task
+
+    async def list_project_ids(self, task_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
+        return self.project_ids.get(task_id, ())
+
+    async def set_project_ids(
+        self, task_id: uuid.UUID, *, project_ids: tuple[uuid.UUID, ...]
+    ) -> tuple[uuid.UUID, ...]:
+        # 去重照真实实现来：调用方给重了不是错误，「挂两遍」和「挂一遍」是同一件事。
+        # 替身不校验项目存不存在——那是外键的事，这里没有外键。
+        saved = tuple(dict.fromkeys(project_ids))
+        self.project_ids[task_id] = saved
+        return saved
 
     async def get(self, task_id: uuid.UUID) -> Task:
         found = self.tasks.get(task_id)
