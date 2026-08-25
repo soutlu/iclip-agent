@@ -19,7 +19,7 @@ from tempfile import TemporaryDirectory
 import httpx
 import pytest
 from pydantic_ai import ModelRetry
-from pydantic_ai.messages import ImageUrl
+from pydantic_ai.messages import ImageUrl, ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
@@ -38,6 +38,7 @@ from iclip.capabilities.shot_video.grid import grid_cell_boxes, scale_box
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
+from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import FileSpace
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import FakeGenerations, FakeObjects, FakeUnderstanding, Outcome
@@ -162,7 +163,20 @@ def make_client(payloads: dict[str, bytes]) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def make_context() -> RunContext[object]:
+_USER_SENT = (
+    f"{media_tag('video', VIDEO_URL, name='clip.mp4')}"
+    f"{media_tag('image', OSS_IMAGE_URL, name='style.jpg')} 帮我拆一下"
+)
+"""用户把参考片和参考图发进来之后，模型上下文里的那一行。"""
+
+
+def make_context(*, said: str = _USER_SENT) -> RunContext[object]:
+    """造一次运行的上下文，默认当作素材都已经发进来了。
+
+    工具只收这段对话里出现过的地址（见 `harness/materials.py`），消息里没有它们的
+    话，每件工具都会先被素材校验拦下——那不是这些用例想测的东西。
+    """
+
     deps = AgentRunDeps(
         principal=Principal(
             kind="user",
@@ -173,7 +187,12 @@ def make_context() -> RunContext[object]:
         ),
         conversation_id="thread-1",
     )
-    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage())
+    return RunContext[object](
+        deps=deps,
+        model=TestModel(),
+        usage=RunUsage(),
+        messages=[ModelRequest(parts=[UserPromptPart(content=said)])],
+    )
 
 
 def make_tools(
@@ -400,11 +419,12 @@ async def test_read_media_file_attaches_the_picture_by_url() -> None:
 async def test_an_address_that_cannot_be_read_is_refused() -> None:
     """看不出是什么图、或者缩不了，就别附给模型：报错发生在厂商那侧更难查。"""
 
+    unreadable = "https://cdn.test/no-extension"
     client = make_client({})
     try:
         with pytest.raises(ModelRetry, match="读不了"):
             await make_tools(client, FakeObjects(), FakeFileStore()).read_media_file(
-                make_context(), "https://cdn.test/no-extension"
+                make_context(said=media_tag("image", unreadable)), unreadable
             )
     finally:
         await client.aclose()

@@ -126,6 +126,12 @@ def media_tag_open(kind: MediaKind, url: str, *, name: str | None = None) -> str
     return f'<{kind} url="{_escape_attr(url)}"{name_attr}>'
 
 
+def media_kind_label(kind: MediaKind) -> str:
+    """这个种类给人看的名字。"""
+
+    return _LABEL_BY_KIND[kind]
+
+
 def media_tag_close(kind: MediaKind) -> str:
     """造一条闭标签。"""
 
@@ -424,6 +430,7 @@ __all__ = [
     "MediaObjectStore",
     "MediaTag",
     "iter_media_tags",
+    "media_kind_label",
     "media_tag",
     "media_tag_close",
     "media_tag_open",

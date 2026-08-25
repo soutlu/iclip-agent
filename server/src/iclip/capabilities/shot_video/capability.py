@@ -71,8 +71,11 @@ from iclip.capabilities.shot_video.shots import (
 )
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
+from iclip.harness.materials import RunMaterials, run_materials
 from iclip.harness.media import (
     IMAGE_CONTEXT_MAX_EDGE,
+    MediaKind,
+    media_kind_label,
     media_tag_close,
     media_tag_open,
     resized_image_url,
@@ -189,6 +192,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
           ``**[00:03.800-00:05.600]**``。
         - 同一段视频不要重复拆解——每次调用都是一次新的拆解，不复用上次结果。
         - 文档正文不随本工具返回；要看内容用 `read_file` 读返回的路径。
+        - 只接受这段对话里出现过的视频地址；自己拼的、以及对话里那些图片的地址，
+          都会被拒。
 
         Args:
             ctx: 框架给的运行上下文。
@@ -197,6 +202,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         files, namespace = self._workspace(ctx)
         _require_http(video_url, what="视频地址")
+        _require_material(run_materials(ctx.messages), video_url, kind="video", what="视频地址")
         path = video_doc_path(video_url)
         try:
             content = await self._cap.understanding.parse(video_url)
@@ -217,6 +223,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         - 同一视频与同一份拆解文档重复调用会直接复用既有结果，不重复抽帧。
         - 该视频尚未拆解、拆解文档读不出镜头时间戳、或时间戳超出视频时长时返回
           错误。
+        - 只接受这段对话里出现过的视频地址；自己拼的、以及对话里那些图片的地址，
+          都会被拒。
 
         Args:
             ctx: 框架给的运行上下文。
@@ -225,6 +233,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         files, namespace = self._workspace(ctx)
         _require_http(video_url, what="视频地址")
+        _require_material(run_materials(ctx.messages), video_url, kind="video", what="视频地址")
         doc_path = video_doc_path(video_url)
         rows = await self._shot_rows(files, namespace, doc_path)
         try:
@@ -294,6 +303,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         - 需要多次调用时，在同一次回复中并行发起，不要串行等待。
         - 生成需要数分钟，调用会阻塞到收敛后返回。
         - 每次调用都重新提交生成，没有复用；同一批帧不满意就改 prompt 再调。
+        - 参考图只接受这段对话里出现过的地址；自己拼的、以及对话里那些视频的地
+          址，都会被拒。
         - 每批成功后把逐帧 no/shot/prompt/url 与本批入参写进版记录
           ``frames/grids/<jobId>.json``。
         - 该视频尚未抽帧、帧号格式错误、帧号不存在或重复时返回错误。
@@ -313,8 +324,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             raise ModelRetry("取帧账本不存在或版本不兼容，先调用 plan_shot_frames。")
         cell_ids, prompts = _resolve_requests(frames, document)
         references = tuple(reference_images)
+        materials = run_materials(ctx.messages)
         for url in references:
             _require_http(url, what="参考图地址")
+            _require_material(materials, url, kind="image", what="参考图地址")
         try:
             prompt = assemble_grid_prompt(
                 global_reference=global_reference,
@@ -357,6 +370,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
           次调用，不要分多轮逐张读取。
         - 已读取且仍在上下文中的图片不要重复读取。
         - 本工具只读图片。视频信息读拆解文档，文本与产物文件用 `read_file`。
+        - 只接受这段对话里出现过的地址；自行构造的一律被拒。上下文里已经翻不到那
+          个地址时，用 `read_file` 读回记着它的那份账本或版记录。
 
         Args:
             ctx: 框架给的运行上下文。
@@ -365,6 +380,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         _ = _principal(ctx)
         _require_http(url, what="图片地址")
+        _require_material(run_materials(ctx.messages), url, kind="image", what="图片地址")
         # 附地址而不是字节：厂商自己去取图，我们既不下载也不转码。缩放交给 OSS 的
         # 参数（见 resized_image_url），附的是缩略档，tag 里写的仍是原图地址。
         try:
@@ -646,6 +662,36 @@ def _principal(ctx: RunContext[AgentDepsT]) -> Principal:
 def _require_http(url: str, *, what: str) -> None:
     if not url.startswith(("http://", "https://")):
         raise ModelRetry(f"{what}必须是 http:// 或 https:// 开头；收到的是 {url!r}。")
+
+
+def _require_material(materials: RunMaterials, url: str, *, kind: MediaKind, what: str) -> None:
+    """要求这个地址是本对话的素材：出现过；被声明过种类的，种类还得对得上。
+
+    种类只在「声明过」时查：那个信息只有用户发的附件带得来（tag 写在上面），本能
+    力自己产出的地址是裸的，对它们查种类等于把自己的产物拒在门外。
+
+    错误消息一律**不回显被拒的地址**。回显了，模型重试一次就把它洗成上下文里出现
+    过的东西了——下一次同样的调用就会放行。
+    """
+
+    if not materials.appears(url):
+        known = materials.declared(kind)
+        if known:
+            raise ModelRetry(
+                f"这个{what}不是这段对话里的素材。本对话的{media_kind_label(kind)}有："
+                f"{'、'.join(known)}。逐字抄其中一个。"
+            )
+        raise ModelRetry(
+            f"这个{what}不是这段对话里的素材。只能用对话里给你的地址、或工具结果里"
+            f"返回的地址，不要自己拼；本能力写下的地址也记在 {EXTRACTION_PATH} 与 "
+            f"{GRID_RECORDS_DIR}/ 下，用 read_file 读回来再用。"
+        )
+    declared = materials.kind_of(url)
+    if declared is not None and declared != kind:
+        raise ModelRetry(
+            f"这个地址在对话里是一份{media_kind_label(declared)}，当不了{what}。"
+            f"换一个{media_kind_label(kind)}的地址。"
+        )
 
 
 def _check_in_range(rows: Sequence[Sequence[ShotSpan]], *, duration_ms: int) -> None:

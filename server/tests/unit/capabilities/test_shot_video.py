@@ -15,7 +15,14 @@ from typing import Any
 import httpx
 import pytest
 from pydantic_ai import Agent, ModelRetry
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
@@ -40,6 +47,7 @@ from iclip.capabilities.shot_video.parser import (
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
+from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import FileSpace
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import (
@@ -52,6 +60,9 @@ from tests.helpers.shot_video import (
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
 VIDEO = "https://cdn.test/ref.mp4"
 NAMESPACE = f"{USER}/thread-1"
+
+# 用户把参考片发进来之后，模型上下文里就是这么一行——素材校验认的就是它。
+_USER_SENT_VIDEO = f"{media_tag('video', VIDEO, name='ref.mp4')} 帮我拆一下"
 
 # 一份最小的拆解文档：一个结构层级一行，行内两个镜头。
 DOCUMENT = (
@@ -83,8 +94,19 @@ def make_deps() -> AgentRunDeps:
     )
 
 
-def make_context(deps: object) -> RunContext[object]:
-    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage())
+def make_context(deps: object, *, said: str = _USER_SENT_VIDEO) -> RunContext[object]:
+    """造一次运行的上下文，默认当作用户已经把参考片发进来了。
+
+    素材校验要在消息里逐字找得到地址（见 `harness/materials.py`），所以不给消息的
+    话，每件工具都会先被素材校验拦下——那不是这些用例想测的东西。
+    """
+
+    return RunContext[object](
+        deps=deps,
+        model=TestModel(),
+        usage=RunUsage(),
+        messages=[ModelRequest(parts=[UserPromptPart(content=said)])],
+    )
 
 
 def ledger(*cell_ids: str) -> str:
@@ -289,6 +311,76 @@ async def test_tools_only_take_http_urls(
 ) -> None:
     with pytest.raises(ModelRetry, match="http"):
         await tools.video_parser_md(ctx, url)
+
+
+# ── 素材范围 ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("tool_name", ["video_parser_md", "plan_shot_frames"])
+async def test_video_tools_refuse_an_address_the_conversation_never_had(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], tool_name: str
+) -> None:
+    """模型编一个地址，就别让服务器去下载它。
+
+    这两件都要把整片拉下来，是三件工具里最贵的一对，所以拦在动手之前。报错里把这
+    段对话真有的视频列回去，模型才有得抄。
+    """
+
+    call = getattr(tools, tool_name)
+    with pytest.raises(ModelRetry, match=VIDEO) as failure:
+        await call(ctx, "https://cdn.test/made-up.mp4")
+
+    # 不回显被拒的地址：回显一次，模型重试时它就成了「上下文里出现过」的东西。
+    assert "made-up" not in str(failure.value)
+
+
+async def test_video_tools_refuse_an_image_the_user_sent(
+    tools: ShotVideoToolset[object],
+) -> None:
+    """用户发的是图，拿去当参考片——种类是 tag 明写的，认得出来。"""
+
+    image = "https://cdn.test/poster.jpg"
+    ctx = make_context(make_deps(), said=media_tag("image", image, name="poster.jpg"))
+    with pytest.raises(ModelRetry, match="图片"):
+        await tools.plan_shot_frames(ctx, image)
+
+
+async def test_reference_images_refuse_a_video(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+) -> None:
+    """反过来也拦：参考片的地址当不了参考图。"""
+
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
+    with pytest.raises(ModelRetry, match="视频"):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [VIDEO], "全局", "9:16"
+        )
+
+
+async def test_read_media_file_takes_an_address_from_a_tool_result(
+    tools: ShotVideoToolset[object], ctx: RunContext[object]
+) -> None:
+    """预览板地址只在工具结果的 JSON 里，没有 tag——照样是本对话的素材。"""
+
+    board = "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/1.jpg"
+    ctx.messages.append(
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="plan_shot_frames",
+                    content={"boards": [{"board": 1, "url": board}]},
+                    tool_call_id="1",
+                )
+            ]
+        )
+    )
+
+    assert await tools.read_media_file(ctx, board)
+
+    with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
+        await tools.read_media_file(
+            ctx, "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/9.jpg"
+        )
 
 
 # ── 视频拆解接口的响应处理 ────────────────────────────────────────────────────
