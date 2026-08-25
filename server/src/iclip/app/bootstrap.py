@@ -28,6 +28,7 @@ from iclip.config import (
     ResolvedAgent,
     ResolvedMediaGeneration,
     ResolvedModel,
+    ResolvedProductCatalog,
     ResolvedRedis,
     ResolvedShotVideo,
     RuntimeConfig,
@@ -48,6 +49,8 @@ from iclip.domains.identity.middleware import PrincipalMiddleware
 from iclip.domains.identity.module import SsoRuntime, build_identity_module
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
+from iclip.domains.products.catalog_pg import PgProductCatalog
+from iclip.domains.products.module import build_products_module
 from iclip.harness.agents import (
     AgentCapabilities,
     AgentDefinition,
@@ -191,6 +194,26 @@ def _object_store(
     )
 
 
+def _product_catalog_engine(
+    settings: ResolvedProductCatalog | None, injected: AsyncEngine | None
+) -> AsyncEngine | None:
+    """产品资料目录那个库的连接；没配这项能力就没有。
+
+    **连接在会话层就设成只读**：那个库的账号本身有写权限，而我们只该读它。把只读钉
+    在自己这边，就不依赖对方的授权配置哪天有没有改对。
+    """
+
+    if settings is None:
+        return None
+    if injected is not None:
+        return injected
+    return create_async_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        connect_args={"server_settings": {"default_transaction_read_only": "on"}},
+    )
+
+
 def _generation_module(
     settings: ResolvedMediaGeneration,
     engine: AsyncEngine,
@@ -243,8 +266,12 @@ def build_app(
     pms_client: PmsUserClient | None = None,
     object_store: PublicObjectStore | None = None,
     queue_connector: procrastinate.BaseConnector | None = None,
+    product_catalog_engine: AsyncEngine | None = None,
 ) -> FastAPI:
-    """装配公开 app。测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储与队列连接器。"""
+    """装配公开 app。
+
+    测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储、队列连接器与产品目录库。
+    """
 
     settings = resolve_settings(config)
     if settings.db_schema != DB_SCHEMA:
@@ -298,6 +325,15 @@ def build_app(
         else None
     )
     shot_video_client = _shot_video_client(settings.shot_video)
+    catalog_engine = _product_catalog_engine(settings.product_catalog, product_catalog_engine)
+    products = (
+        build_products_module(
+            PgProductCatalog(catalog_engine, image_base_url=settings.product_catalog.image_base_url)
+        )
+        if settings.product_catalog is not None and catalog_engine is not None
+        else None
+    )
+    owns_catalog_engine = catalog_engine is not None and product_catalog_engine is None
     workspace_store = PgWorkspaceStore(active_engine)
 
     async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
@@ -373,6 +409,8 @@ def build_app(
                 await broker.shutdown()
             if shot_video_client is not None:
                 await shot_video_client.aclose()
+            if owns_catalog_engine and catalog_engine is not None:
+                await catalog_engine.dispose()
             if redis_client is not None:
                 await redis_client.aclose()
             if owns_engine:
@@ -395,6 +433,8 @@ def build_app(
         app.include_router(router)
     for router in generation.routers if generation is not None else ():
         app.include_router(router)
+    for router in products.routers if products is not None else ():
+        app.include_router(router)
     for router in conversations.routers:
         app.include_router(router)
     if broker is not None:
@@ -416,6 +456,7 @@ def build_app(
     app.state.agents = agent_registry
     app.state.conversations = conversations
     app.state.generation = generation
+    app.state.products = products
     return app
 
 

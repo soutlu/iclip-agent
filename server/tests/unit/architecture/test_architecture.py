@@ -26,6 +26,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "domains/agents/api.py",
         "domains/conversations/api.py",
         "domains/generation/api.py",
+        "domains/products/api.py",
         "domains/identity/middleware.py",
         "domains/identity/accounts.py",
         "main.py",
@@ -36,6 +37,9 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         # 协议后端跟着「说这门协议的那一环」走：这是官方 StepPersistence 的 PG
         # 后端，而 harness/agents.py 正是按 StepStore 协议标类型的那一方。
         "harness/step_store_pg.py",
+        # 外部只读源：这些表是别人的（PDM 的同步副本），不是本模块自有的表，所以
+        # 不叫 infra_sql.py——那个名字在落点表里的口径是「该模块自有的表」。
+        "domains/products/catalog_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
     # 模型装配唯一需要直接碰 openai SDK 的地方（给兼容端点造客户端）。

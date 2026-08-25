@@ -87,3 +87,29 @@
 - `conversation` 的形状：`{ id, agentId, title, lastRunId, createdAt, updatedAt }`。`lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`）——刷新页面后拿它去续读那条流。
 - **只看得到自己的对话**：别人的一律 `404`，不返 `403`（那会泄露这个 id 确实有人在用）。治理者也没有看别人对话的口子。
 - 删除只带走对话与它的工作区文件；`agent_runtime` 里的运行记录留着，那是账本。
+
+## 7. 产品资料查询 (Products)
+
+`GET /products/{styleNo}` 按 **PDM 款号**精确查一个款，只读、零副作用。权限 `assets:read`（三个预置角色都有）。
+
+```json
+{ "product": {
+    "styleNo": "SBPU24001W",
+    "styleWms": "SDFA2310W-NEW",
+    "status": "effective",
+    "devYear": "24",
+    "brand":      { "code": "1",  "name": "Bruno Marc" },
+    "category":   { "id": 52, "code": "PU", "name": "高跟鞋", "en": "Pumps" },
+    "combatTeam": null,
+    "colors": [{ "code": "BL02", "name": "BLACK",
+                 "group": { "code": "BL", "name": "黑色系" }, "rgb": "0,0,0" }],
+    "images": [{ "id": "1991", "url": "https://…/….webp", "width": 644, "height": 508 }]
+} }
+```
+
+- **码永远有，名字可能为 `null`。** `brand.code` / `category.id` / `colors[].group.code` 来自上游，一定有；对应的 `name` 来自服务端的对照表，上游出现新码时就是 `null`。**前端不要自己猜名字**，也不要把 `null` 当成错误。
+- **`styleWms` 不是 `styleNo` 的别名。** 它是同一个款在 WMS 那边的编号，两套编码不通用；要按款去别的系统查东西时用它。
+- **`combatTeam` 目前恒为 `null`**：上游同步款资料时还没带这一列。字段先在合同里占好位置，等它有值时前端不用改。
+- **`colors` 和 `images` 可能是空数组**，这是正常结果（上游资料不全），不是错误。`images[].width`/`height` 也可能为 `null`。
+- 款号不存在、或已被上游标记删除，一律 `404`。
+- 服务端没配目录库时这组路由整个不挂载，请求同样是 `404`。
