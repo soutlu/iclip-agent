@@ -1,9 +1,10 @@
-"""镜头素材能力：拆参考片、等间隔取帧分板、按批出帧、读图。
+"""镜头素材能力：拆参考片、等间隔取帧分板、按批出帧、补拍设定图、读图、交付镜头组。
 
-四件工具靠工作区里的两份文件接力：拆解文档（`video/<名>.md`）与取帧账本
-（`frames/extraction.json`）。落在哪由构造时给进来的 `FileSpace` 决定，和工作区能
-力收的是同一个——所以模型用 `read_file` / `edit_file` 看见的就是这几件工具写的那
-批文件，时间码写坏了它自己就能修。本包不认识工作区能力。
+六件工具靠工作区里的几份文件接力：拆解文档（`video/<名>.md`）、取帧账本
+（`frames/extraction.json`）、逐批版记录（`frames/grids/`、`anchors/`），终点是
+`video_shot.json`。落在哪由构造时给进来的 `FileSpace` 决定，和工作区能力收的是同
+一个——所以模型用 `read_file` / `edit_file` 看见的就是这几件工具写的那批文件，时
+间码写坏了它自己就能修。本包不认识工作区能力。
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import json
 import re
 import time
 from collections.abc import Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -56,6 +58,7 @@ from iclip.capabilities.shot_video.prompt import (
     GRID_CELLS,
     GRID_COLS,
     GRID_ROWS,
+    assemble_anchor_prompt,
     assemble_grid_prompt,
 )
 from iclip.capabilities.shot_video.shots import (
@@ -88,14 +91,32 @@ EXTRACTION_PATH: Final = "frames/extraction.json"
 EXTRACTION_VERSION: Final = 1
 GRID_RECORDS_DIR: Final = "frames/grids"
 GRID_RECORD_VERSION: Final = 1
+ANCHOR_RECORDS_DIR: Final = "anchors"
+ANCHOR_RECORD_VERSION: Final = 1
+SHOTS_PATH: Final = "video_shot.json"
 
 GRID_RESOLUTION: Final = "4k"
 """整图按最高档出。切成 4 格后每格只剩四分之一线性分辨率，低档不够交付。"""
 
+ANCHOR_ASPECT: Final = "1:1"
+"""补拍整版的画幅。方版分四格后每格也接近方形，站得下全身像也放得下空景。
+
+补拍出来的是参考图，不是要交付的画面，所以不跟目标画幅走——按 9:16 出一版再切，
+每格会窄到只剩一条。切格后也不再按画幅收缩：那一刀裁掉的是实体本身。
+"""
+
+SHOT_MIN_SECONDS: Final = 4
+SHOT_MAX_SECONDS: Final = 30
+
 _JPEG: Final = "image/jpeg"
 _OSS_PREFIX: Final = "shot-frames"
 """预览板与镜头帧在公开桶里的根。板按取帧键分目录，帧按生成记录分目录。"""
+_ANCHOR_OSS_PREFIX: Final = "anchor-sheets"
+"""补拍设定图在公开桶里的根，按生成记录分目录。"""
 _DOC_DIR: Final = "video"
+
+_IMAGE_REF = re.compile(r"@Image(\d+)")
+"""镜头组 prompt 里指向参考图的记号。"""
 
 _UNSAFE_STEM = re.compile(r"[^A-Za-z0-9_-]+")
 _STEM_CHARS: Final = 40
@@ -111,12 +132,25 @@ _RESENDABLE: Final = frozenset({"PROVIDER_UNREACHABLE", "PROVIDER_SERVER_ERROR"}
 _STATUS_DONE: Final = "done"
 _STATUS_FAILED: Final = "failed"
 
+_EVEN_SPLIT_NOTICE: Final = (
+    " 整图没找到清晰的网格线，按等分切的——单格可能带白边或错半格，用之前先看一眼。"
+)
+
 
 class FrameRequest(BaseModel):
     """一格的生成请求。"""
 
     no: str
     prompt: str
+
+
+class VideoShotRequest(BaseModel):
+    """一个镜头组的交付内容。"""
+
+    index: int
+    prompt: str
+    seconds: int
+    image_urls: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,10 +176,10 @@ class GenerationPolicy:
 
 @dataclass
 class ShotVideo(AbstractCapability[AgentDepsT]):
-    """把四件工具挂到 agent 上。"""
+    """把六件工具挂到 agent 上。"""
 
     space: FileSpace
-    """拆解文档与取帧账本落在哪。必须和工作区能力收的是同一个。
+    """拆解文档、账本与镜头组产物落在哪。必须和工作区能力收的是同一个。
 
     「同一个」由组合根保证：这里只认平台层这一件东西，不认识工作区能力。两边要
     是各接各的，文档照写照读，只是模型的 ``read_file`` 看不见它——失效是静默的。
@@ -175,7 +209,7 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
 
 
 class ShotVideoToolset(FunctionToolset[AgentDepsT]):
-    """四件工具。"""
+    """六件工具。"""
 
     def __init__(self, capability: ShotVideo[AgentDepsT]) -> None:
         super().__init__(id=CAPABILITY_ID)
@@ -183,7 +217,9 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         self.add_function(self.video_parser_md, name="video_parser_md")
         self.add_function(self.plan_shot_frames, name="plan_shot_frames")
         self.add_function(self.generate_shot_frames, name="generate_shot_frames")
+        self.add_function(self.generate_anchor_sheet, name="generate_anchor_sheet")
         self.add_function(self.read_media_file, name="ReadMediaFile")
+        self.add_function(self.write_video_shots, name="write_video_shots")
 
     async def video_parser_md(self, ctx: RunContext[AgentDepsT], video_url: str) -> dict[str, Any]:
         """拆解一段参考视频，把拆解文档写进工作区，返回它的路径。
@@ -363,6 +399,47 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             target_aspect=target_aspect,
         )
 
+    async def generate_anchor_sheet(
+        self, ctx: RunContext[AgentDepsT], cells: list[str]
+    ) -> dict[str, Any]:
+        """按文字补拍设定图：一次调用出一张 2×2 网格图、切成 4 格返回逐格 URL。
+
+        - 一格一个实体，cells 每条是那一格画面的完整描述；返回的 `index` 就是它在
+          cells 里的位置。
+        - 一批 1-4 条；不足 4 条时空格由中性面板补满并在切格后丢弃。
+        - 本工具不收参考图，每格的文字就是那一格的全部依据。要按已有的图生成画面
+          用 `generate_shot_frames`。
+        - 需要多次调用时，在同一次回复中并行发起，不要串行等待。
+        - 生成需要数分钟，调用会阻塞到收敛后返回。
+        - 每次调用都重新提交生成，没有复用；同一批实体不要补拍第二次。
+        - 每批成功后把逐格 index/description/url 写进版记录
+          ``anchors/<jobId>.json``。
+
+        Args:
+            ctx: 框架给的运行上下文。
+            cells: 逐格描述，1-4 条。
+        """
+
+        files, namespace = self._workspace(ctx)
+        principal = _principal(ctx)
+        descriptions = _resolve_cells(cells)
+        job = await self._generate(
+            principal,
+            ImageRequest(
+                prompt=assemble_anchor_prompt(cells=descriptions, target_aspect=ANCHOR_ASPECT),
+                aspect_ratio=ANCHOR_ASPECT,
+                resolution=GRID_RESOLUTION,
+                channel="dev",
+            ),
+        )
+        if job.status != "completed" or not job.output_url:
+            return _failed_payload(
+                f"{job.error_code or '未知'} {job.error_message or ''}".rstrip()
+                + f"（{job.channel} 渠道，记录 {job.job_id}）",
+                items_key="images",
+            )
+        return await self._collect_anchors(files, namespace, job, descriptions=descriptions)
+
     async def read_media_file(self, ctx: RunContext[AgentDepsT], url: str) -> list[str | ImageUrl]:
         """读取一张图片，原始内容以多模态形式附在工具结果中。
 
@@ -395,6 +472,79 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         # 像素包在一对 tag 中间：地址与它显示的那张图是连着的一段，模型要把这张图交
         # 给别的工具时，抄的是 tag 里的原图地址而不是缩略档。
         return [media_tag_open("image", url), view, media_tag_close("image")]
+
+    async def write_video_shots(
+        self,
+        ctx: RunContext[AgentDepsT],
+        aspect_ratio: str,
+        shots: list[VideoShotRequest],
+    ) -> dict[str, Any]:
+        """交付镜头组 prompt 表：校验后写成工作区里的 ``video_shot.json``。
+
+        - 镜头组 prompt 表只经本工具交付。不要用 `write_file` 写 ``video_shot.json``
+          或它的副本。
+        - `index` 从 1 连续编号，`seconds` 是 4-30 的整数。
+        - `image_urls` 只收 `generate_shot_frames` 生成过的镜头帧地址；自己拼的、
+          以及对话里那些素材图的地址都会被拒。上下文里翻不到时用 `read_file` 读
+          ``frames/grids/`` 下的版记录取回来。
+        - `image_urls` 的顺序即 prompt 里 ``@Image1..N`` 的编号，写到的最大编号不
+          得超过这一组的张数。
+        - 每次调用整份覆盖，不是追加：重做时把全部镜头组一起传。
+        - 任一条不合规即整份拒收，不会写下半份。
+
+        Args:
+            ctx: 框架给的运行上下文。
+            aspect_ratio: 目标画幅，如 ``9:16``。
+            shots: 逐个镜头组，按 index 顺序排列。
+        """
+
+        files, namespace = self._workspace(ctx)
+        try:
+            parse_aspect(aspect_ratio)
+        except GridError as exc:
+            raise ModelRetry(str(exc)) from exc
+        rows = _resolve_shots(shots, known=await self._known_frame_urls(files, namespace))
+        await self._write(
+            files,
+            namespace,
+            SHOTS_PATH,
+            json.dumps({"aspectRatio": aspect_ratio, "shots": rows}, ensure_ascii=False, indent=2),
+        )
+        seconds = sum(shot.seconds for shot in shots)
+        return {
+            "message": (
+                f"镜头组 prompt 表已交付到 {SHOTS_PATH}：{len(rows)} 个镜头组，合计 {seconds} 秒。"
+            ),
+            "path": SHOTS_PATH,
+        }
+
+    async def _known_frame_urls(self, files: FileStore, namespace: str) -> set[str]:
+        """本次对话已经生成过的镜头帧地址，从逐批版记录里收。
+
+        以版记录为准而不是取帧账本：账本里的是参考视频的候选帧，不是生成出来的镜
+        头帧，交付的必须是后者。
+        """
+
+        urls: set[str] = set()
+        for entry in await files.entries(namespace, prefix=GRID_RECORDS_DIR):
+            stored = await files.read(namespace, entry.path)
+            if stored is None:
+                continue
+            try:
+                record = json.loads(stored.content)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            frames = record.get("frames")
+            if not isinstance(frames, list):
+                continue
+            for frame in frames:
+                if isinstance(frame, dict):
+                    url = frame.get("url")
+                    if isinstance(url, str):
+                        urls.add(url)
+        return urls
 
     async def _shot_rows(
         self, files: FileStore, namespace: str, doc_path: str
@@ -536,19 +686,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         if not grid_url:
             return _failed_payload("生成记录未携带结果 URL")
         try:
-            async with ffmpeg.fetched(
-                self._cap.client, grid_url, max_bytes=ffmpeg.MAX_IMAGE_BYTES, suffix=".img"
-            ) as source:
-                gray, full_width = await ffmpeg.decode_gray(source)
-                layout = grid_cell_boxes(gray, rows=GRID_ROWS, cols=GRID_COLS)
-                ratio = parse_aspect(target_aspect)
-                boxes = [
-                    fit_box_to_aspect(
-                        scale_box(box, from_width=gray.width, to_width=full_width), ratio
-                    )
-                    for box in layout.boxes
-                ]
-                cells = await ffmpeg.crop_cells(source, boxes)
+            cells, detected = await self._slice_grid(grid_url, aspect=target_aspect)
         except (ffmpeg.MediaError, GridError) as exc:
             return _failed_payload(str(exc))
         if len(cells) != GRID_CELLS:
@@ -588,10 +726,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         message = (
             f"生成完成 {len(frames_payload)} 帧（{job.channel} 渠道），版记录见 {record_path}。"
         )
-        if not layout.detected:
-            message += (
-                " 整图没找到清晰的网格线，按等分切的——单格可能带白边或错半格，用之前先看一眼。"
-            )
+        if not detected:
+            message += _EVEN_SPLIT_NOTICE
         return {
             "message": message,
             "status": _STATUS_DONE,
@@ -599,6 +735,86 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             "record": record_path,
             "error": None,
         }
+
+    async def _collect_anchors(
+        self,
+        files: FileStore,
+        namespace: str,
+        job: ImageJob,
+        *,
+        descriptions: Sequence[str],
+    ) -> dict[str, Any]:
+        """取整图、切格、逐格落公开地址、写版记录。补位的中性面板格在此丢弃。
+
+        切格后不按画幅收缩：补拍出来的是参考图，那一刀裁掉的会是实体本身。
+        """
+
+        grid_url = job.output_url
+        if not grid_url:
+            return _failed_payload("生成记录未携带结果 URL", items_key="images")
+        try:
+            cells, detected = await self._slice_grid(grid_url, aspect=None)
+        except (ffmpeg.MediaError, GridError) as exc:
+            return _failed_payload(str(exc), items_key="images")
+        if len(cells) != GRID_CELLS:
+            return _failed_payload("整图切格数量异常", items_key="images")
+
+        urls = await asyncio.gather(
+            *(
+                self._cap.objects.put_public_object(
+                    object_key=f"{_ANCHOR_OSS_PREFIX}/{job.job_id}/{index}.jpg",
+                    content=cell,
+                    content_type=_JPEG,
+                )
+                for index, cell in enumerate(cells[: len(descriptions)], start=1)
+            )
+        )
+        images = [{"index": index, "url": url} for index, url in enumerate(urls, start=1)]
+        record_path = f"{ANCHOR_RECORDS_DIR}/{job.job_id}.json"
+        record = {
+            "anchorRecordVersion": ANCHOR_RECORD_VERSION,
+            "jobId": str(job.job_id),
+            "gridUrl": grid_url,
+            "sheetAspect": ANCHOR_ASPECT,
+            "cells": [
+                {**image, "description": description}
+                for image, description in zip(images, descriptions, strict=True)
+            ],
+            "createdAt": int(time.time()),
+        }
+        await self._write(
+            files, namespace, record_path, json.dumps(record, ensure_ascii=False, indent=2)
+        )
+        message = f"补拍完成 {len(images)} 格（{job.channel} 渠道），版记录见 {record_path}。"
+        if not detected:
+            message += _EVEN_SPLIT_NOTICE
+        return {
+            "message": message,
+            "status": _STATUS_DONE,
+            "images": images,
+            "record": record_path,
+            "error": None,
+        }
+
+    async def _slice_grid(self, grid_url: str, *, aspect: str | None) -> tuple[list[bytes], bool]:
+        """取回整图按网格线切开；``aspect`` 给定时每格再居中收到该画幅。
+
+        第二个返回值是「两个轴都量到了真实网格线」。退回等分时切出来的格子外观正
+        常，不标出来就没人知道它是猜的。
+        """
+
+        async with ffmpeg.fetched(
+            self._cap.client, grid_url, max_bytes=ffmpeg.MAX_IMAGE_BYTES, suffix=".img"
+        ) as source:
+            gray, full_width = await ffmpeg.decode_gray(source)
+            layout = grid_cell_boxes(gray, rows=GRID_ROWS, cols=GRID_COLS)
+            boxes = [
+                scale_box(box, from_width=gray.width, to_width=full_width) for box in layout.boxes
+            ]
+            if aspect is not None:
+                ratio = parse_aspect(aspect)
+                boxes = [fit_box_to_aspect(box, ratio) for box in boxes]
+            return await ffmpeg.crop_cells(source, boxes), layout.detected
 
     async def _load_extraction(
         self, files: FileStore, namespace: str, *, expected_key: str | None
@@ -735,13 +951,72 @@ def _resolve_requests(
     return cell_ids, prompts
 
 
-def _failed_payload(error: str) -> dict[str, Any]:
-    """生成未收敛时的返回值。"""
+def _resolve_cells(cells: Sequence[str]) -> list[str]:
+    """校验补拍的逐格描述。"""
+
+    if not 1 <= len(cells) <= GRID_CELLS:
+        raise ModelRetry(f"cells 必须是 1-{GRID_CELLS} 条，当前 {len(cells)} 条。")
+    descriptions: list[str] = []
+    for position, cell in enumerate(cells, start=1):
+        description = cell.strip()
+        if not description:
+            raise ModelRetry(f"第 {position} 格的描述为空。")
+        descriptions.append(description)
+    return descriptions
+
+
+def _resolve_shots(
+    shots: Sequence[VideoShotRequest], *, known: AbstractSet[str]
+) -> list[dict[str, Any]]:
+    """校验镜头组并整理成落文件的形状。有一条不合规就整份拒收。"""
+
+    if not shots:
+        raise ModelRetry("shots 一条都没有；镜头组 prompt 表不能是空的。")
+    rows: list[dict[str, Any]] = []
+    for position, shot in enumerate(shots, start=1):
+        if shot.index != position:
+            raise ModelRetry(f"index 要从 1 连续编号：第 {position} 条写的是 {shot.index}。")
+        prompt = shot.prompt.strip()
+        if not prompt:
+            raise ModelRetry(f"镜头组 {shot.index} 的 prompt 为空。")
+        if not SHOT_MIN_SECONDS <= shot.seconds <= SHOT_MAX_SECONDS:
+            raise ModelRetry(
+                f"镜头组 {shot.index} 的 seconds 是 {shot.seconds}，只收 "
+                f"{SHOT_MIN_SECONDS}-{SHOT_MAX_SECONDS}；重新切分这一组再交付。"
+            )
+        if not shot.image_urls:
+            raise ModelRetry(f"镜头组 {shot.index} 的 image_urls 为空；每组至少要有一张镜头帧。")
+        unknown = [url for url in shot.image_urls if url not in known]
+        if unknown:
+            raise ModelRetry(
+                f"镜头组 {shot.index} 里有 {len(unknown)} 个地址不是 generate_shot_frames "
+                f"生成出来的镜头帧。逐字抄工具返回值；上下文里翻不到就用 read_file 读 "
+                f"{GRID_RECORDS_DIR}/ 下的版记录取回来。"
+            )
+        highest = max((int(number) for number in _IMAGE_REF.findall(prompt)), default=0)
+        if highest > len(shot.image_urls):
+            raise ModelRetry(
+                f"镜头组 {shot.index} 的 prompt 写到了 @Image{highest}，但这一组只有 "
+                f"{len(shot.image_urls)} 张镜头帧。"
+            )
+        rows.append(
+            {
+                "index": shot.index,
+                "prompt": prompt,
+                "seconds": shot.seconds,
+                "imageUrls": list(shot.image_urls),
+            }
+        )
+    return rows
+
+
+def _failed_payload(error: str, *, items_key: str = "frames") -> dict[str, Any]:
+    """生成未收敛时的返回值。``items_key`` 是这件工具本来该给出的那批东西。"""
 
     return {
         "message": f"生成失败：{error}",
         "status": _STATUS_FAILED,
-        "frames": [],
+        items_key: [],
         "error": error,
     }
 
@@ -776,14 +1051,20 @@ def shot_video_capability(
 
 
 __all__ = [
+    "ANCHOR_ASPECT",
+    "ANCHOR_RECORDS_DIR",
     "CAPABILITY_ID",
     "EXTRACTION_PATH",
     "GRID_RECORDS_DIR",
     "GRID_RESOLUTION",
+    "SHOTS_PATH",
+    "SHOT_MAX_SECONDS",
+    "SHOT_MIN_SECONDS",
     "FrameRequest",
     "GenerationPolicy",
     "ShotVideo",
     "ShotVideoToolset",
+    "VideoShotRequest",
     "shot_video_capability",
     "video_doc_path",
 ]

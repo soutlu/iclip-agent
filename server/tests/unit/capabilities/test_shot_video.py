@@ -29,13 +29,16 @@ from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
 
 from iclip.capabilities.shot_video.capability import (
+    ANCHOR_ASPECT,
     CAPABILITY_ID,
     EXTRACTION_PATH,
     GRID_RESOLUTION,
+    SHOTS_PATH,
     FrameRequest,
     GenerationPolicy,
     ShotVideo,
     ShotVideoToolset,
+    VideoShotRequest,
     shot_video_capability,
     video_doc_path,
 )
@@ -205,8 +208,8 @@ def test_no_capability_instructions(capability: ShotVideo[object]) -> None:
     assert capability.get_instructions() is None
 
 
-async def test_four_tools_reach_the_model(capability: ShotVideo[object]) -> None:
-    """挂到真 Agent 上：四件工具都出现在模型看得到的工具表里。"""
+async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> None:
+    """挂到真 Agent 上：六件工具都出现在模型看得到的工具表里。"""
 
     seen: list[str] = []
 
@@ -219,9 +222,11 @@ async def test_four_tools_reach_the_model(capability: ShotVideo[object]) -> None
     await agent.run("看看你有什么", deps=make_deps())
     assert seen == [
         "ReadMediaFile",
+        "generate_anchor_sheet",
         "generate_shot_frames",
         "plan_shot_frames",
         "video_parser_md",
+        "write_video_shots",
     ]
 
 
@@ -695,3 +700,159 @@ async def test_generate_gives_up_waiting_but_names_the_record(
     result = await submit_once(toolset, ctx, files)
     assert "TOOL_WAIT_TIMEOUT" in result["error"]
     assert str(generations.job_ids[0]) in result["error"]
+
+
+# ── 补拍设定图 ────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("cells", "message"),
+    [
+        ([], "1-4"),
+        (["人"] * 5, "1-4"),
+        (["人", "   "], "第 2 格"),
+    ],
+)
+async def test_anchor_sheet_rejects_bad_cells_before_paying(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    generations: FakeGenerations,
+    cells: list[str],
+    message: str,
+) -> None:
+    """条数越界、描述为空都在提交之前拒——拒晚了这一版已经计过费。"""
+
+    with pytest.raises(ModelRetry, match=message):
+        await tools.generate_anchor_sheet(ctx, cells)
+    assert generations.submitted == []
+
+
+async def test_anchor_sheet_submits_a_full_square_grid_without_references(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    generations: FakeGenerations,
+) -> None:
+    """补拍是纯文生图：不带参考图，按方版最高档出，空格补满。"""
+
+    generations.outcomes = [
+        Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
+    ]
+    result = await tools.generate_anchor_sheet(ctx, ["全身正面平视的女性", "空景全景平视的门厅"])
+
+    request = generations.submitted[0]
+    assert request.reference_image_urls == ()
+    assert (request.aspect_ratio, request.resolution) == (ANCHOR_ASPECT, GRID_RESOLUTION)
+    assert request.prompt.count("description:") == 4
+    # 失败时给的是空的 images，不是空的 frames——调用方按这件工具的产物名去取。
+    assert result["images"] == []
+
+
+# ── 交付镜头组 prompt 表 ──────────────────────────────────────────────────────
+
+FRAME_URL = "https://cdn.test/frames/s1-1.jpg"
+OTHER_FRAME_URL = "https://cdn.test/frames/s2-1.jpg"
+
+
+def grid_record(*urls: str) -> str:
+    """一份出帧版记录，只放交付校验用得到的那部分。"""
+
+    return json.dumps(
+        {
+            "gridRecordVersion": 1,
+            "jobId": "job-1",
+            "frames": [{"no": f"S{index}-1", "url": url} for index, url in enumerate(urls, 1)],
+        }
+    )
+
+
+def one_shot(**overrides: Any) -> VideoShotRequest:
+    fields: dict[str, Any] = {
+        "index": 1,
+        "prompt": "0-8s 全景 平视 固定，她走进门厅 @Image1。不要字幕，不要背景音乐。",
+        "seconds": 8,
+        "image_urls": [FRAME_URL],
+    }
+    return VideoShotRequest(**{**fields, **overrides})
+
+
+async def deliver(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeFileStore,
+    shots: list[VideoShotRequest],
+    *,
+    aspect_ratio: str = "9:16",
+) -> dict[str, Any]:
+    """把一份已生成的帧记录铺好，再走一次交付。"""
+
+    await files.write(NAMESPACE, "frames/grids/job-1.json", grid_record(FRAME_URL, OTHER_FRAME_URL))
+    return await tools.write_video_shots(ctx, aspect_ratio, shots)
+
+
+async def test_delivered_table_lands_in_the_workspace(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+) -> None:
+    """交付即落文件：模型的 `read_file` 与下一轮的定位都只认这份文件。"""
+
+    result = await deliver(
+        tools,
+        ctx,
+        files,
+        [one_shot(), one_shot(index=2, seconds=12, image_urls=[FRAME_URL, OTHER_FRAME_URL])],
+    )
+
+    assert result["path"] == SHOTS_PATH
+    assert "20 秒" in result["message"]
+    stored = await files.read(NAMESPACE, SHOTS_PATH)
+    assert stored is not None
+    document = json.loads(stored.content)
+    assert document["aspectRatio"] == "9:16"
+    assert [row["index"] for row in document["shots"]] == [1, 2]
+    assert document["shots"][1]["imageUrls"] == [FRAME_URL, OTHER_FRAME_URL]
+
+
+@pytest.mark.parametrize(
+    ("shots", "message"),
+    [
+        ([], "一条都没有"),
+        ([one_shot(index=2)], "连续编号"),
+        ([one_shot(prompt="   ")], "prompt 为空"),
+        ([one_shot(seconds=3)], "4-30"),
+        ([one_shot(seconds=31)], "4-30"),
+        ([one_shot(image_urls=[])], "image_urls 为空"),
+        ([one_shot(image_urls=["https://cdn.test/编的.jpg"])], "不是 generate_shot_frames"),
+        (
+            [one_shot(prompt="0-8s 她走进门厅 @Image2。")],
+            "@Image2",
+        ),
+    ],
+)
+async def test_delivery_rejects_the_whole_table(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeFileStore,
+    shots: list[VideoShotRequest],
+    message: str,
+) -> None:
+    """有一条不合规就整份拒收，不留下半份产物。"""
+
+    with pytest.raises(ModelRetry, match=message):
+        await deliver(tools, ctx, files, shots)
+    assert await files.read(NAMESPACE, SHOTS_PATH) is None
+
+
+async def test_delivery_rejects_a_bad_aspect_ratio(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+) -> None:
+    with pytest.raises(ModelRetry, match="画幅"):
+        await deliver(tools, ctx, files, [one_shot()], aspect_ratio="竖版")
+    assert await files.read(NAMESPACE, SHOTS_PATH) is None
+
+
+async def test_delivery_without_any_generated_frame_points_at_the_records(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+) -> None:
+    """一帧都还没生成时，报的是「去哪儿找地址」而不是「地址不对」。"""
+
+    with pytest.raises(ModelRetry, match="frames/grids/"):
+        await tools.write_video_shots(ctx, "9:16", [one_shot()])
