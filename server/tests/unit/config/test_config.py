@@ -38,6 +38,8 @@ MANIFEST = (
     "OSS_PUBLIC_URL_BASE",
     "VIDEO_UNDERSTANDING_URL",
     "VIDEO_UNDERSTANDING_API_KEY",
+    "PRODUCT_CATALOG_DATABASE_URL",
+    "PRODUCT_IMAGE_BASE_URL",
     "T_QWEN_KEY",
 )
 
@@ -429,3 +431,49 @@ def test_shot_video_section_absent_means_off(
     _shot_video_env(monkeypatch)
 
     assert resolve_settings(config).shot_video is None
+
+
+PRODUCT_CATALOG_ENV = {
+    "PRODUCT_CATALOG_DATABASE_URL": "postgresql+asyncpg://reader@catalog.test/catalog",
+    "PRODUCT_IMAGE_BASE_URL": "https://bucket.test",
+}
+
+
+def _product_catalog_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    _core(monkeypatch)
+    for name, value in PRODUCT_CATALOG_ENV.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_product_catalog_off_when_database_url_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """开关在环境里，而且这项能力没有 YAML 段——连接串为空就是整项关闭。"""
+
+    config = load_runtime_config(write(tmp_path, VALID))
+    _core(monkeypatch)
+
+    assert resolve_settings(config).product_catalog is None
+
+
+def test_product_catalog_resolves_both_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_runtime_config(write(tmp_path, VALID))
+    _product_catalog_env(monkeypatch)
+    catalog = resolve_settings(config).product_catalog
+
+    assert catalog is not None
+    assert catalog.image_base_url == "https://bucket.test"
+
+
+def test_product_catalog_half_configured_fails_loudly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """查得到款却给不出图片地址，是那种点进去才发现的半开着。"""
+
+    config = load_runtime_config(write(tmp_path, VALID))
+    _product_catalog_env(monkeypatch)
+    monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL")
+    with pytest.raises(ValidationError, match="PRODUCT_IMAGE_BASE_URL"):
+        resolve_settings(config)

@@ -46,6 +46,9 @@ VIDEO_SUBMIT_URL_ENV: Final = "VIDEO_SUBMIT_URL"
 VIDEO_UNDERSTANDING_URL_ENV: Final = "VIDEO_UNDERSTANDING_URL"
 """镜头素材能力的总开关：这个地址为空即整项关闭（`shot_video` 不登记）。"""
 
+PRODUCT_CATALOG_DATABASE_URL_ENV: Final = "PRODUCT_CATALOG_DATABASE_URL"
+"""产品资料查询的总开关：这个连接串为空即整项关闭（`/products` 不挂载）。"""
+
 
 class ConfigSection(BaseModel):
     """所有 YAML 段的共同约束：frozen + 未知字段即拒。"""
@@ -132,6 +135,16 @@ class VideoUnderstandingEnv(EnvSettings):
 
     url: RequiredEnv = Field(validation_alias=VIDEO_UNDERSTANDING_URL_ENV)
     api_key: RequiredEnv = Field(validation_alias="VIDEO_UNDERSTANDING_API_KEY")
+
+
+class ProductCatalogEnv(EnvSettings):
+    """产品资料目录：外部只读库的连接串 + 产品图所在公开桶的前缀。
+
+    两个一起有才有意义：查得到款却给不出图片地址，是那种「点进去才发现」的半开着。
+    """
+
+    database_url: RequiredEnv = Field(validation_alias=PRODUCT_CATALOG_DATABASE_URL_ENV)
+    image_base_url: RequiredEnv = Field(validation_alias="PRODUCT_IMAGE_BASE_URL")
 
 
 # ── YAML 的形状 ───────────────────────────────────────────────────────────────
@@ -365,6 +378,14 @@ class ResolvedShotVideo:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedProductCatalog:
+    """产品资料目录的运行值：外部只读库 + 产品图公开桶前缀。"""
+
+    database_url: str
+    image_base_url: str
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedModel:
     """一个命名模型解析后的装配事实。``name`` 是 agent 引用的名字。"""
 
@@ -388,6 +409,7 @@ class ResolvedSettings:
     redis: ResolvedRedis | None
     media_generation: ResolvedMediaGeneration | None
     shot_video: ResolvedShotVideo | None
+    product_catalog: ResolvedProductCatalog | None
     models: tuple[ResolvedModel, ...]
     log_level: str
 
@@ -471,6 +493,18 @@ def _resolve_shot_video(
     )
 
 
+def _resolve_product_catalog() -> ResolvedProductCatalog | None:
+    """解析产品资料目录；连接串为空即整项关闭（``/products`` 不挂载）。
+
+    它没有 YAML 段：这项能力没有可调的形状，只有「连到哪儿、图片在哪个桶」两个值。
+    """
+
+    if not _switched_on(PRODUCT_CATALOG_DATABASE_URL_ENV):
+        return None
+    env = _from_env(ProductCatalogEnv)
+    return ResolvedProductCatalog(database_url=env.database_url, image_base_url=env.image_base_url)
+
+
 def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
     """把 YAML 的形状和环境变量的值合成装配期要用的运行值，缺什么当场失败。"""
 
@@ -514,6 +548,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
         shot_video=_resolve_shot_video(
             config.shot_video, generation_on=media_generation is not None
         ),
+        product_catalog=_resolve_product_catalog(),
         models=tuple(
             ResolvedModel(
                 name=name,
