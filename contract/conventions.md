@@ -101,7 +101,7 @@
 
 ### 上传附件
 
-附件要先成为一个后端与模型都取得到的 **HTTP(S) 地址**，再作为媒体 part 放进消息。`POST /agents/{agentId}/chat` 也接受 `source.type` 为 `data` 的内嵌 base64（单个 16MB 以内，且仅限常见图/音/视频类型），但那是兜底路径：正常路径是先把文件传到对象存储拿到地址。
+附件要先成为一个后端与模型都取得到的 **HTTP(S) 地址**，再作为媒体 part 放进消息。`POST /agents/{agentId}/chat` 也接受 `source.type` 为 `data` 的内嵌 base64（单个 16MB 以内，且仅限常见图/音/视频类型），但那是兜底路径：正常路径是先把文件传到对象存储拿到地址（`POST /uploads/sign` 直传，见 §10）。走直传拿地址不要求登记进素材库——**登记与否和 agent 能不能用这个地址无关**，判据永远是「它在这段对话里出现过没有」。
 
 传不进来的附件不会让整条请求失败，而是在消息里原位变成一句 `[媒体不可用：…]`，模型据此知道有东西没进来。
 
@@ -226,3 +226,47 @@
 - `category` 是**平台口径的英文类目**，和产品资料接口里的 PDM 品类不是一套，两边不互相翻译。
 - 没有匹配的视频返回 `{"items": []}`，不是 404。
 - 服务端没配爆款库时这组路由整个不挂载。
+
+## 10. 素材上传与账本 (Assets)
+
+一份素材 = 我们自己桶里的一个对象 + 账本上的一行。上传分两步，中间那一步是**浏览器直接把字节 PUT 到对象存储**——不经过后端（参考片能到几百 MB）。
+
+和需求单一样，**素材是全公司共用的**：谁有 `assets:read` 谁就看得见全部，`creatorUserId` 只是查询维度，不是访问边界。
+
+| 端点 | 权限 | 说明 |
+|------|------|------|
+| `POST /uploads/sign` | `assets:write` | 领一个 `assetId` 和一条限时直传地址。`200` |
+| `POST /assets/{assetId}` | `assets:write` | 传完之后来登记。**没有请求体。** `201` |
+| `GET /assets?creatorUserId=&assetType=&limit=20` | `assets:read` | 列出素材，最近登记的在前（`limit` 1–100）。`200` + `{ items: [...] }` |
+| `GET /assets/{assetId}` | `assets:read` | 单条。`200` |
+
+```jsonc
+// ① POST /uploads/sign
+{ "contentType": "video/mp4" }
+→ 200
+{ "assetId": "0f9c3a1e-77b4-4c2e-9a51-2d8e6b0f4a13",
+  "upload": { "url": "https://…?OSSAccessKeyId=…&Expires=…&Signature=…",
+              "method": "PUT",
+              "headers": { "Content-Type": "video/mp4" },
+              "expiresAt": "2026-08-25T09:12:00Z" } }
+
+// ② 浏览器：PUT 到 upload.url，把 upload.headers 原样带上，body 是文件本身
+
+// ③ POST /assets/0f9c3a1e-77b4-4c2e-9a51-2d8e6b0f4a13     （空 body）
+→ 201
+{ "asset": { "id": "0f9c3a1e-…", "assetType": "video",
+             "url": "https://…/iclip/agent/uploads/0f9c3a1e-….mp4",
+             "contentType": "video/mp4", "sizeBytes": 18234112,
+             "creatorUserId": "…", "createdAt": "2026-08-25T09:10:31Z" } }
+```
+
+- **`upload.headers` 必须原样带上。** `Content-Type` 被签进了签名里，换一个值去 PUT 会被对象存储拒掉（`403`，那是它返回的，不是我们）。
+- **`expiresAt` 之前必须把上传发起**（有效期一小时）。过期了就重新调一次 `sign`，会拿到一个新的 `assetId`。一次上传如果传到一半跨过了这个时刻会怎样，我们没有核实过，**别把余量压到刚好够传**。
+- **登记之前那个 `assetId` 还不是一份素材**，`GET /assets/{id}` 会 `404`。它是个「登记名额」——服务端在字节动之前就把名字发下来，是为了断线时那份已经传上去的东西仍然认领得回来。
+- **登记可以重复调**：客户端断线重试是正常路径，第二次返回同一行（还是 `201`）。
+- **收什么**：`image/jpeg`、`image/png`、`image/webp`、`video/mp4`、`video/quicktime`。别的类型在 `sign` 那一步就 `422`。
+- **多大**：图片 16MB、视频 512MB。**超限是在登记那一步才拒（`422`）**，字节已经传进桶里了——它只是拿不到账本上的行，随后会被清理。前端最好自己先量一下再传。
+- **传上来之前就登记是 `409`**（「还没传上来」是状态冲突，不是参数错），猜一个没人签过的 `assetId` 去登记同样是 `409`。
+- **`url` 是拼出来的，不是存的。** 账本里存的是对象 key；哪天换了 CDN 域名，同一份素材读出来就是新地址。**不要把 `url` 当作素材的身份**，`id` 才是。
+- 服务端没配对象存储时这两组路由整个不挂载，请求是 `404`。
+- **能登记不等于 agent 能用。** agent 工具只接受「这段对话里出现过」的地址（见 §5），素材库里有这一条并不构成通行证——要让 agent 用它，得把它发进对话里。

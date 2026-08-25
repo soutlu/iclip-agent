@@ -38,6 +38,7 @@ from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
 from iclip.harness.agents import AgentCapabilities
 from iclip.platform.file_store.store import FileSpace, FileStore
+from iclip.platform.object_store.layout import MEDIA_PATHS
 
 CapabilityTable = Mapping[str, AgentCapabilities]
 """名字 → 这个名字挂上去的那几件能力。
@@ -145,6 +146,7 @@ def build_capability_table(
                 space=space,
                 generations=GenerationsAdapter(generation_service),
                 objects=object_store,
+                paths=MEDIA_PATHS,
                 understanding=ArkVideoUnderstanding(
                     http_client,
                     url=shot_video.understanding_url,

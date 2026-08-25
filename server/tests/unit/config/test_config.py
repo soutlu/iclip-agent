@@ -335,13 +335,12 @@ def test_media_generation_resolves_both_providers_and_store(
     assert media.video_model == "seedance", "对方的模型名来自 YAML"
     assert media.image_text_to_image_url == "https://image.test/text-to-image"
     assert media.image_edit_url == "https://image.test/image-edit"
-    assert media.object_store.public_url_base == "https://cdn.test"
     assert (media.poll_interval_seconds, media.job_timeout_seconds) == (5, 3600)
 
 
 @pytest.mark.parametrize(
     "missing",
-    ["VIDEO_STATUS_BASE_URL", "VIDEO_API_KEY", "IMAGE_EDIT_URL", "OSS_BUCKET"],
+    ["VIDEO_STATUS_BASE_URL", "VIDEO_API_KEY", "IMAGE_EDIT_URL"],
 )
 def test_media_generation_half_configured_fails_loudly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str
@@ -352,6 +351,41 @@ def test_media_generation_half_configured_fails_loudly(
     _media_env(monkeypatch)
     monkeypatch.delenv(missing)
     with pytest.raises(ValidationError, match=missing):
+        resolve_settings(config)
+
+
+def test_object_store_is_its_own_switch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """桶名为空即整项关闭：素材上传那组路由不挂，但服务照常起得来。"""
+
+    config = load_runtime_config(write(tmp_path, VALID))
+    _media_env(monkeypatch)
+    monkeypatch.delenv("VIDEO_SUBMIT_URL")
+    monkeypatch.delenv("OSS_BUCKET")
+
+    assert resolve_settings(config).object_store is None
+
+
+@pytest.mark.parametrize("missing", ["OSS_ENDPOINT", "OSS_ACCESS_KEY_ID", "OSS_PUBLIC_URL_BASE"])
+def test_object_store_half_configured_fails_loudly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    config = load_runtime_config(write(tmp_path, VALID))
+    _media_env(monkeypatch)
+    monkeypatch.delenv("VIDEO_SUBMIT_URL")
+    monkeypatch.delenv(missing)
+    with pytest.raises(ValidationError, match=missing):
+        resolve_settings(config)
+
+
+def test_media_generation_without_a_bucket_fails_loudly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """生成开着、桶没开是「半开着」：图片结果没处转存，库里就会存一批会过期的地址。"""
+
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA))
+    _media_env(monkeypatch)
+    monkeypatch.delenv("OSS_BUCKET")
+    with pytest.raises(RuntimeError, match="OSS_BUCKET"):
         resolve_settings(config)
 
 

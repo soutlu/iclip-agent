@@ -75,6 +75,25 @@ class PublicObjectWriter(Protocol):
         ...
 
 
+class ShotVideoPaths(Protocol):
+    """这项能力的产物在公开桶里落在哪。
+
+    本能力不自己拼 key：桶里的布局是平台那一侧的事实源，组合根把它递进来。
+    """
+
+    def shot_board(self, *, extraction_key: str, index: int) -> str:
+        """取帧预览板。"""
+        ...
+
+    def shot_cell(self, *, job_id: uuid.UUID, cell_id: str) -> str:
+        """出图整图切出来的一格。"""
+        ...
+
+    def anchor_sheet(self, *, job_id: uuid.UUID, index: int) -> str:
+        """补拍设定图切出来的一格。"""
+        ...
+
+
 class VideoUnderstanding(Protocol):
     """把一段视频交给多模态模型，拿回一份拆解文档。"""
 
@@ -89,5 +108,6 @@ __all__ = [
     "InvalidImageRequest",
     "JobStatus",
     "PublicObjectWriter",
+    "ShotVideoPaths",
     "VideoUnderstanding",
 ]

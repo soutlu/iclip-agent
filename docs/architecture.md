@@ -51,9 +51,9 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/conversations/api.py`、`domains/generation/api.py`、`domains/products/api.py`、`domains/inspirations/api.py`、`domains/tasks/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`platform/file_store/`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py` 与读外部只读源的 `domains/products/catalog_pg.py`、`domains/inspirations/catalog_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
+围栏（tach + 架构测试强制，只走 `server/src/`——测试代码不在围栏内）：`pydantic_ai` 只在 harness+capabilities；`pydantic_ai_harness` 仅 harness；`ag_ui`（AG-UI 协议包）仅 harness；`fastapi`/`starlette` 只在 app、`domains/identity/api.py`、`domains/agents/api.py`、`domains/conversations/api.py`、`domains/generation/api.py`、`domains/products/api.py`、`domains/inspirations/api.py`、`domains/tasks/api.py`、`domains/assets/api.py`、`identity/middleware.py`、`identity/accounts.py`（fastapi-users 装配）、`main.py`；`sqlalchemy` 只在 `platform/db`、`platform/file_store/`、app 组合根、各模块自己的 `infra_sql.py`（`domains/*`、`capabilities/*`），外加协议后端 `harness/step_store_pg.py` 与读外部只读源的 `domains/products/catalog_pg.py`、`domains/inspirations/catalog_pg.py`；`redis` 只在 `harness/run_stream_redis.py` 与 app 组合根（建客户端）；`openai` 只在 `harness/models.py`；`oss2` 只在 `platform/object_store/`；`procrastinate` 只在 `domains/generation/queue.py`（说这门话的唯一地方）、`domains/generation/module.py`（签名里要写连接器的类型）与 app 组合根（造那个连接器——用哪个数据库驱动是组合根的决定）；`fastapi-users` 只在 identity。跨模块只准 import 对方 `public.py`。
 
-现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）与 `shot_video/`（镜头素材，见 §5），**能力包之间互不 import**——两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边；`platform/` 含 `file_store/`（命名空间化文本文件存储，工作区的后端）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）、`conversations/`（对话，见 §12）、`generation/`（媒体生成，见 §11）、`products/`（产品资料查询，见 §13）、`tasks/`（创作需求单，见 §14）与 `inspirations/`（爆款视频查询，见 §15）。接口随首个实现定义，不提前写投机 ABC。
+现状：`harness/` 含官方 StepPersistence 协议的 PG 后端（见 §7）与 agent 装配（`agents.py`，声明格式见 §5、路由见 §8）；`capabilities/` 含 `workspace/`（agent 的持久文本工作区，见 §5）与 `shot_video/`（镜头素材，见 §5），**能力包之间互不 import**——两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边；`platform/` 含 `file_store/`（命名空间化文本文件存储，工作区的后端）；`domains/` 含 `identity/`（见 §6）、`agents/`（agent 运行的 HTTP 面）、`conversations/`（对话，见 §12）、`generation/`（媒体生成，见 §11）、`products/`（产品资料查询，见 §13）、`tasks/`（创作需求单，见 §14）、`inspirations/`（爆款视频查询，见 §15）与 `assets/`（素材账本，见 §16）。接口随首个实现定义，不提前写投机 ABC。
 
 **外部存储落点（登记表，不是配额）**：新增一个碰 SQL/Redis 的文件不是违规，是要登记——在架构测试的 `FRAMEWORK_FENCES` 加一行，并在下表加一行。落在哪一环有两条并列规则：**实现官方协议的后端**跟着「说这门协议的那一环」走；**模块或能力包自有的存储**放自己模块里的 `infra_sql.py`。
 
@@ -63,7 +63,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `harness/step_store_pg.py` | PG | 官方 `StepStore`/`MediaStore` 协议的后端；harness 是说这门协议的那一环 |
 | `harness/run_stream_redis.py` | Redis | 运行事件流是 harness 自己的机制 |
 | `domains/*/infra_sql.py` | PG | 该 domain 自有的表 |
-| `platform/object_store/` | OSS | 公开对象存储的适配器；业务侧只认 `PublicObjectStore` 协议 |
+| `platform/object_store/` | OSS | 公开对象存储的适配器；业务侧只认协议（写字节的 `PublicObjectStore`、直传那三件的 `SignedUploadStore`）。**桶里的完整布局在 `layout.py`**：每一根 key 都由它发，写入方不自己拼前缀 |
 | `platform/file_store/` | PG | 命名空间化文本文件存储的后端（表 `agent_runtime.workspace_files`）；能力侧只认 `FileStore` 协议 |
 | `capabilities/*/infra_sql.py` | PG | 该能力包自有的表 |
 | `domains/inspirations/catalog_pg.py` | PG（外部只读源） | 数仓的爆款榜与视频打标结果，同样不是本模块自有的表 |
@@ -84,13 +84,14 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/src/iclip/domains/products/` | 产品资料查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`tables.py`（码→名字的三张常量表）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
 | `server/src/iclip/domains/inspirations/` | 爆款视频查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
 | `server/src/iclip/domains/tasks/` | 创作需求单：`schemas.py`（brief 的类型，同时是 wire 与入库形状）、`models.py`（需求单行 + 状态常量）、`repository.py`/`infra_sql.py`（自有的表；写方法都带状态守卫）、`service.py`（状态机 + 冻结规则 + 谁能改）、`api.py`/`module.py`。不依赖任何别的业务模块 |
+| `server/src/iclip/domains/assets/` | 素材账本：`models.py`（素材行 + 收哪些类型、收多大）、`repository.py`/`infra_sql.py`（自有的表；只有登记一条写路径）、`schemas.py`（wire 形状）、`service.py`（签直传许可 + 回桶里核实后登记）、`api.py`（`/uploads/*` 与 `/assets/*` 两组路由）/`module.py`。见 §16 |
 | `server/src/iclip/harness/` | 通用 agent 内核；现含 `step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）、`run_stream_redis.py`（事件流的 Redis 后端）、`media.py`（媒体引用协议：前端形状 ↔ 模型形状）与 `materials.py`（素材范围：从消息里算出模型能交给工具的地址，见 §5） |
 | `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）；现含 `workspace/`：`capability.py`（能力本体 + 六件工具）、`scope.py`（工作区归谁：运行 → 命名空间的规则）；与 `shot_video/`：`capability.py`（四件工具）、`shots.py`（镜头区间解析 + 等间隔采样，纯计算）、`board.py`（预览板拼版与帧号叠印）、`grid.py`（切格几何，纯函数）、`prompt.py`（整版 prompt 拼接）、`ffmpeg.py`（异步子进程 + 取素材）、`parser.py`（视频拆解的 Responses 适配器 + 提示词）、`ports.py`（对外要的三个窄协议）。能力包之间互不 import |
-| `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（公开对象存储，阿里云 OSS）、`file_store/`（命名空间化文本文件存储：`store.py` 路径语法 + `FileStore` 协议 + `FileSpace`「存储 × 命名空间规则」，`pg.py` PG 后端） |
+| `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（公开对象存储，阿里云 OSS：`layout.py` 桶里的完整布局 + `oss.py` 适配器）、`file_store/`（命名空间化文本文件存储：`store.py` 路径语法 + `FileStore` 协议 + `FileSpace`「存储 × 命名空间规则」，`pg.py` PG 后端） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
 | `server/configs/config.yaml` | 唯一 Runtime Configuration（只有形状；地址与凭证在环境变量里） |
 | `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词）+ `skills/`（skill 库，一个子目录一个 skill） |
-| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表；0004 媒体生成任务表；0005 procrastinate 的排期表；0006 去掉 0004 里的排期列；0007 对话表；0008 创作需求单表） |
+| `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表；0004 媒体生成任务表；0005 procrastinate 的排期表；0006 去掉 0004 里的排期列；0007 对话表；0008 创作需求单表；0009 素材账本） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
 | `web/` | UI 参考稿（只读） |
 | `contract/` | 跨端合同契约存放处 |
@@ -98,7 +99,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ## 4. 装配流程
 
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要一个「删对话时连带清掉派生物」的回调，组合根在这里把它接到工作区的清空上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 装 tasks 模块（只要一张自己的表，没有开关，也不认识别的模块）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 与对象存储一起装，缺一个 env 即报错）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 配了产品资料目录 / 爆款视频库时各建一个只读 engine 并装对应模块（两个连接都在会话层设成只读）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、conversations、配了目录时的 products 与 inspirations、tasks、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要一个「删对话时连带清掉派生物」的回调，组合根在这里把它接到工作区的清空上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 装 tasks 模块（只要一张自己的表，没有开关，也不认识别的模块）→ 配了公开对象存储时建它（`OSS_BUCKET` 非空即开；素材、生成、镜头帧共用这一只桶）并装 assets 模块（没有桶就没有上传这回事，整组路由不挂）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 一起装，缺一个 env 即报错；对象存储没开也报错——图片结果没处转存）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 配了产品资料目录 / 爆款视频库时各建一个只读 engine 并装对应模块（两个连接都在会话层设成只读）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、配了桶时的 uploads 与 assets、conversations、配了目录时的 products 与 inspirations、tasks、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -465,3 +466,26 @@ POST /inspirations/videos/search  { styleWmsList, sortBy, limit }
 - **可播地址可能没有。** 转存过的副本只有八成，缺的那些照样返回——原始平台地址一直都在。
 - **这里的类目和产品资料里的品类不是一套。** 这边是平台口径的英文类目（`Casual Trainers`），那边是 PDM 品类（`高跟鞋 / Pumps`）；两个系统各说各的，中间不存在映射，我们也不翻译。
 - **CT 归属这边反而有。** 上游行上就带着 CT 全名；产品资料那边拿不到（见 §13），所以同一个概念在一个接口里有值、在另一个里是 `null`。
+
+## 16. 素材账本与直传
+
+系统里「我们手上有哪些素材」的唯一答案。一份素材 = 公开桶里的一个对象 + 账本上的一行。
+
+```text
+POST /uploads/sign     发一个 assetId、按它算出 key、签一条限时 PUT 地址
+  │                    ← 不落库、不留内存状态
+  ▼
+浏览器 PUT 到 OSS      ← 字节不穿过应用进程（参考片能到几百 MB）
+  │
+  ▼
+POST /assets/{assetId} 回桶里核实：真实 key、多大、什么类型 → 落一行
+```
+
+几个决定与它们的理由：
+
+- **名字在传之前就发。** 传字节是副作用，它发生之前双方必须先就「这个对象叫什么」达成一致，否则连接在响应到达前断掉，那份已经落进桶里的东西就没人认领了。和运行 id 必须预先铸造是同一条道理（CONTEXT 不变量 8），只是这里由服务端铸造，更严一档。登记之前 assetId 还不是一份素材，是个没兑现的登记名额——`GET /assets/{id}` 一律 404。
+- **登记不采信客户端的任何声明。** 那个端点连请求体都没有：key 由 assetId 派生、大小与类型从桶里读回来。客户端能左右的只有「登记哪一个 assetId」，而那个 id 是服务端发的、猜不着的。类型这条之所以可信，是因为签名时把 `Content-Type` 一起签了进去——换一个去传，OSS 那边验签就不过。
+- **行上存 object key，不存 URL。** key 是身份，地址是它按当前公网前缀拼出来的投影：换一次 CDN 域名只动一个环境变量，存量数据不用迁。代价是账本里放不下外部地址——这正是想要的：**要进账本，字节就得先转存进我们自己的桶**。
+- **大小上限只在登记这一步卡。** 预签名 PUT 签不进长度限制（那是表单上传才有的东西），所以超限的字节确实会先落进桶里；我们保证的是它拿不到账本上的一行。没被登记的对象就是桶里的垃圾，按 `uploads/` 前缀清理。
+- **素材是全公司共用的。** 不做归属过滤，`creator_user_id` 只是查询维度与审计依据，不是访问边界；外键用 restrict，账本上的事实不跟着账号消失。
+- **它不是「对话素材」那道校验。** 工具能不能用某个地址，判据仍然是「这段对话的模型请求侧逐字出现过吗」（见 §5 与 CONTEXT）。登记过不等于拿到通行证，两件事互不替代。

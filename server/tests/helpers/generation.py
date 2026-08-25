@@ -25,6 +25,7 @@ from iclip.domains.generation.schemas import (
     ImageGenerationIn,
     VideoGenerationIn,
 )
+from iclip.platform.object_store.oss import StoredObject
 
 
 def video_request(**overrides: Any) -> VideoGenerationIn:
@@ -233,7 +234,12 @@ class ScriptedProvider:
 
 
 class MemoryObjectStore:
-    """``PublicObjectStore`` 的内存替身。"""
+    """``PublicBucket`` 的内存替身：写字节、签直传、按前缀找回来。
+
+    直传那一半也在这里，是因为组合根注入的是整只桶——它同时喂给生成与素材两侧。
+    ``sign_put`` 返回的地址不指向任何真东西，测试直接调 ``put_public_object`` 模拟
+    「浏览器传上去了」。
+    """
 
     def __init__(self, *, base: str = "https://cdn.example.test") -> None:
         self.base = base
@@ -241,6 +247,19 @@ class MemoryObjectStore:
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
         self.objects[object_key] = (content, content_type)
+        return self.public_url(object_key)
+
+    def sign_put(self, *, object_key: str, content_type: str) -> str:
+        return f"{self.base}/{object_key}?signed-for={content_type}"
+
+    async def find_object(self, *, prefix: str) -> StoredObject | None:
+        found = [key for key in self.objects if key.startswith(prefix)]
+        if not found:
+            return None
+        content, content_type = self.objects[found[0]]
+        return StoredObject(object_key=found[0], content_type=content_type, size_bytes=len(content))
+
+    def public_url(self, object_key: str) -> str:
         return f"{self.base}/{object_key}"
 
 

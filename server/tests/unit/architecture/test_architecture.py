@@ -29,6 +29,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "domains/products/api.py",
         "domains/inspirations/api.py",
         "domains/tasks/api.py",
+        "domains/assets/api.py",
         "domains/identity/middleware.py",
         "domains/identity/accounts.py",
         "main.py",

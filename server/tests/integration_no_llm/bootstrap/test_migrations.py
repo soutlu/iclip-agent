@@ -10,6 +10,7 @@ from __future__ import annotations
 from sqlalchemy import MetaData, inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from iclip.domains.assets.infra_sql import metadata_obj as assets_metadata
 from iclip.domains.conversations.infra_sql import metadata_obj as conversations_metadata
 from iclip.domains.generation.infra_sql import metadata_obj as generation_metadata
 from iclip.domains.identity.infra_sql import DB_SCHEMA, Base
@@ -17,6 +18,7 @@ from iclip.domains.tasks.infra_sql import metadata_obj as tasks_metadata
 
 _MODULE_METADATA: tuple[MetaData, ...] = (
     Base.metadata,
+    assets_metadata,
     conversations_metadata,
     generation_metadata,
     tasks_metadata,
