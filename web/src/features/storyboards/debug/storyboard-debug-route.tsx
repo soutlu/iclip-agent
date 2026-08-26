@@ -2,7 +2,6 @@ import {
   useAui,
   useAuiState,
   type CreateAppendMessage,
-  type ThreadMessage,
   type ToolCallMessagePart,
 } from '@assistant-ui/react'
 import { useQuery } from '@tanstack/react-query'
@@ -12,7 +11,6 @@ import {
   CircleCheck,
   CircleStop,
   Clock3,
-  FileText,
   FlaskConical,
   Image as ImageIcon,
   LoaderCircle,
@@ -25,15 +23,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import {
   ProjectConversationTimeline,
   projectConversationTimelineItemsFromAssistantMessages,
-  workspaceWriteResultsRevision,
 } from '@/features/chat'
-import {
-  createProducerProject,
-  createProducerProjectSession,
-  getProducerProject,
-  listProducerSessionWorkspaceFiles,
-  readProducerSessionWorkspaceFile,
-} from '@/features/projects'
+import { createConversation } from '@/features/conversations'
 import {
   listVideoTaskSnapshot,
   VIDEO_TASKS_QUERY_KEY,
@@ -47,8 +38,7 @@ import {
 } from '@/features/storyboards/runtime/storyboard-agent-submission'
 import { StoryboardAssistantProvider } from '@/features/storyboards/runtime/storyboard-assistant-provider'
 import { useAguiConnection } from '@/shared/agui/provider'
-import { ApiError } from '@/shared/api/client'
-import { STORYBOARD_AGUI_TARGET } from '@/shared/config/agui-target'
+import { STORYBOARD_AGENT } from '@/shared/config/agui-target'
 import { cn } from '@/shared/lib/utils'
 import {
   InlineMediaThumbnail,
@@ -59,8 +49,8 @@ import {
 import DebugToolResultImages from './debug-tool-result-images'
 import GenerateShotFramesToolDetails from './generate-shot-frames-tool-details'
 
-const DEBUG_PROJECT_STORAGE_KEY = 'producer.storyboardDebug.projectId'
-const DEBUG_PROJECT_TITLE = 'Storyboard 调试'
+/** 对话标题的后端上限。 */
+const MAX_CONVERSATION_TITLE_CHARS = 200
 
 const DEBUG_INPUT_CLASS =
   'rounded-lg border border-[var(--color-outline)] bg-[var(--color-surface-container-lowest)] text-body text-[var(--color-on-surface)] transition-colors duration-[var(--dur-s)] hover:border-[var(--color-primary)] disabled:cursor-not-allowed disabled:bg-[var(--color-disabled-container)] disabled:text-[var(--color-disabled-text)]'
@@ -72,7 +62,7 @@ const DEBUG_PRIMARY_BUTTON_CLASS =
   'hit-48 relative inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[var(--color-primary)] px-5 text-body font-semibold text-[var(--color-on-primary)] shadow-[var(--shadow-1)] transition duration-[var(--dur-s)] ease-[var(--ease)] hover:-translate-y-0.5 hover:bg-[var(--color-primary-hover)] hover:shadow-[var(--shadow-2)] active:translate-y-0 active:scale-95 disabled:cursor-not-allowed disabled:bg-[var(--color-disabled-container)] disabled:text-[var(--color-disabled-text)] disabled:shadow-none sm:h-10'
 
 type DebugRun = {
-  sessionId: string
+  conversationId: string
   submission: CreateAppendMessage | null
 }
 
@@ -121,148 +111,6 @@ function DebugToolCallDetails({ toolCall }: { toolCall: ToolCallMessagePart }) {
       </div>
     </section>
   )
-}
-
-/** 调试页从 Session Workspace 事实源读取工具实际写入的文件。 */
-function DebugWorkspaceFiles({
-  messages,
-  sessionId,
-}: {
-  messages: readonly ThreadMessage[]
-  sessionId: string
-}) {
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const writeRevision = useMemo(
-    () => workspaceWriteResultsRevision({ memberSegments: [], messages }),
-    [messages],
-  )
-  const workspaceQuery = useQuery({
-    queryFn: async ({ signal }) => {
-      const paths = await listProducerSessionWorkspaceFiles(sessionId, { signal })
-      return Promise.all(
-        paths.map((path) => readProducerSessionWorkspaceFile(sessionId, path, { signal })),
-      )
-    },
-    queryKey: ['storyboard-debug-workspace-files', sessionId, writeRevision],
-  })
-  const selectedDocument =
-    workspaceQuery.data?.find((document) => document.path === selectedPath) ??
-    workspaceQuery.data?.[0]
-
-  return (
-    <aside
-      aria-label="Workspace 文件"
-      className={cn(DEBUG_PANEL_CLASS, 'flex h-full min-h-0 min-w-0 flex-col')}
-    >
-      <div className="flex items-center justify-between border-b border-[var(--color-outline-variant)] px-4 py-3">
-        <h2
-          className="flex items-center gap-2 text-body font-semibold text-[var(--color-on-surface)]"
-          id="debug-workspace-title"
-        >
-          <FileText aria-hidden="true" size={16} />
-          Workspace 文件
-        </h2>
-        {workspaceQuery.data ? (
-          <div className="flex items-center gap-3 text-label text-[var(--color-on-surface-variant)]">
-            <span className="flex items-center gap-1 text-[var(--color-secondary)]">
-              <CircleCheck aria-hidden="true" size={14} />
-              已同步
-            </span>
-            <span>{workspaceQuery.data.length} 个文件</span>
-          </div>
-        ) : null}
-      </div>
-
-      {workspaceQuery.isPending ? (
-        <p className="px-4 py-5 text-body-sm text-[var(--color-on-surface-variant)]" role="status">
-          正在读取 Workspace…
-        </p>
-      ) : workspaceQuery.isError ? (
-        <p className="px-4 py-5 text-body-sm text-[var(--color-error)]" role="alert">
-          {workspaceQuery.error instanceof Error
-            ? workspaceQuery.error.message
-            : '读取 Workspace 文件失败'}
-        </p>
-      ) : workspaceQuery.data.length === 0 ? (
-        <p className="px-4 py-5 text-body-sm text-[var(--color-on-surface-variant)]">
-          暂无工具写入文件
-        </p>
-      ) : selectedDocument ? (
-        <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[minmax(9rem,2fr)_minmax(0,3fr)]">
-          <nav
-            aria-label="Workspace 文件列表"
-            className="thin-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-outline-variant)] p-2 lg:block lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0"
-          >
-            {workspaceQuery.data.map((document) => (
-              <button
-                aria-pressed={document.path === selectedDocument.path}
-                className={cn(
-                  'flex min-w-0 shrink-0 cursor-pointer items-center gap-2 rounded-sm px-3 py-2 text-left font-mono text-body-sm transition-colors duration-[var(--dur-s)] lg:mb-1 lg:w-full',
-                  document.path === selectedDocument.path
-                    ? 'bg-[var(--color-primary-container)] text-[var(--color-on-primary-container)]'
-                    : 'text-[var(--color-on-surface-variant)] hover:bg-[var(--color-state-hover)] hover:text-[var(--color-on-surface)]',
-                )}
-                key={document.path}
-                onClick={() => setSelectedPath(document.path)}
-                title={document.path}
-                type="button"
-              >
-                <FileText aria-hidden="true" className="shrink-0" size={15} />
-                <span className="truncate">{document.path}</span>
-              </button>
-            ))}
-          </nav>
-          <section
-            aria-labelledby="debug-selected-file-title"
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
-          >
-            <h3
-              className="shrink-0 border-b border-[var(--color-outline-variant)] px-4 py-3 font-mono text-body-sm font-semibold text-[var(--color-on-surface)]"
-              id="debug-selected-file-title"
-              title={selectedDocument.path}
-            >
-              {selectedDocument.path}
-            </h3>
-            <pre
-              aria-labelledby="debug-selected-file-title"
-              className="thin-scrollbar min-h-0 flex-1 overflow-auto bg-[var(--color-surface-container-low)] p-4 font-mono text-caption whitespace-pre-wrap text-[var(--color-on-surface)]"
-              tabIndex={0}
-            >
-              {selectedDocument.content}
-            </pre>
-          </section>
-        </div>
-      ) : null}
-    </aside>
-  )
-}
-
-/**
- * 复用（或创建）本浏览器专属的 Storyboard 调试项目。
- *
- * 调试 session 必须挂在一个 agent 项目下才能通过后端运行目标校验；
- * 项目 id 记在 localStorage，失效（被删 / 换环境）时自动重建。
- *
- * @returns 可用的调试项目 id。
- */
-const ensureDebugProject = async () => {
-  const storedId = window.localStorage.getItem(DEBUG_PROJECT_STORAGE_KEY)
-  if (storedId) {
-    try {
-      const project = await getProducerProject(storedId)
-      if (project.kind !== 'agent') {
-        throw new Error(`调试项目类型无效：${project.kind}`)
-      }
-      return project.id
-    } catch (error) {
-      if (!(error instanceof ApiError && error.status === 404)) throw error
-      window.localStorage.removeItem(DEBUG_PROJECT_STORAGE_KEY)
-    }
-  }
-
-  const project = await createProducerProject({ kind: 'agent', title: DEBUG_PROJECT_TITLE })
-  window.localStorage.setItem(DEBUG_PROJECT_STORAGE_KEY, project.id)
-  return project.id
 }
 
 type DebugReferenceAsset = {
@@ -421,12 +269,12 @@ function DebugTaskInput({
  * 之后复用项目对话的 timeline 投影与渲染；本页不维护第二套 AG-UI 解释器。
  */
 function StoryboardDebugRun({
+  conversationId,
   runtimeErrorMessage,
-  sessionId,
   submission,
 }: {
+  conversationId: string
   runtimeErrorMessage: string
-  sessionId: string
   submission: CreateAppendMessage | null
 }) {
   const aui = useAui()
@@ -551,12 +399,12 @@ function StoryboardDebugRun({
           </div>
         </div>
         <div className="flex items-center gap-3 rounded-md bg-[var(--color-surface-container-low)] px-3 py-2 sm:max-w-72">
-          <span className="text-label text-[var(--color-on-surface-variant)]">SESSION</span>
+          <span className="text-label text-[var(--color-on-surface-variant)]">对话</span>
           <code
             className="truncate font-mono text-body-sm font-semibold text-[var(--color-on-surface)]"
-            title={sessionId}
+            title={conversationId}
           >
-            {sessionId.slice(0, 12)}
+            {conversationId.slice(0, 12)}
           </code>
         </div>
       </header>
@@ -571,53 +419,45 @@ function StoryboardDebugRun({
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,2fr)_minmax(0,3fr)] gap-4 md:grid-cols-5 md:grid-rows-1">
-        <section
-          aria-label="Agent 输出"
-          className={cn(
-            DEBUG_PANEL_CLASS,
-            'flex min-h-0 min-w-0 flex-col overflow-hidden md:col-span-3',
-          )}
-        >
-          {timelineItems.length === 0 ? (
-            <div className="grid min-h-0 flex-1 place-items-center border border-dashed border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] p-6 text-center">
-              <div className="flex max-w-sm flex-col items-center">
-                {failureMessage ? (
-                  <TriangleAlert
-                    aria-hidden="true"
-                    className="mb-3 text-[var(--color-error)]"
-                    size={24}
-                  />
-                ) : (
-                  <LoaderCircle
-                    aria-hidden="true"
-                    className="mb-3 animate-spin text-[var(--color-primary)]"
-                    size={24}
-                  />
-                )}
-                <p className="text-body font-semibold text-[var(--color-on-surface)]">
-                  {failureMessage ? '本次运行没有可显示输出' : '等待第一条运行事件'}
-                </p>
-                <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
-                  {failureMessage
-                    ? '失败原因已在上方显示，可以返回运行配置后重试。'
-                    : '会话注水完成后将自动提交 Brief，无需再次操作。'}
-                </p>
-              </div>
+      <section
+        aria-label="Agent 输出"
+        className={cn(DEBUG_PANEL_CLASS, 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden')}
+      >
+        {timelineItems.length === 0 ? (
+          <div className="grid min-h-0 flex-1 place-items-center border border-dashed border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] p-6 text-center">
+            <div className="flex max-w-sm flex-col items-center">
+              {failureMessage ? (
+                <TriangleAlert
+                  aria-hidden="true"
+                  className="mb-3 text-[var(--color-error)]"
+                  size={24}
+                />
+              ) : (
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="mb-3 animate-spin text-[var(--color-primary)]"
+                  size={24}
+                />
+              )}
+              <p className="text-body font-semibold text-[var(--color-on-surface)]">
+                {failureMessage ? '本次运行没有可显示输出' : '等待第一条运行事件'}
+              </p>
+              <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
+                {failureMessage
+                  ? '失败原因已在上方显示，可以返回运行配置后重试。'
+                  : '历史加载完成后将自动提交 Brief，无需再次操作。'}
+              </p>
             </div>
-          ) : (
-            <ProjectConversationTimeline
-              activeInterrupt={null}
-              renderToolDetails={renderToolDetails}
-              timelineItems={timelineItems}
-              title="Agent 输出"
-            />
-          )}
-        </section>
-        <div className="min-h-0 min-w-0 md:col-span-2">
-          <DebugWorkspaceFiles messages={messages} sessionId={sessionId} />
-        </div>
-      </div>
+          </div>
+        ) : (
+          <ProjectConversationTimeline
+            activeInterrupt={null}
+            renderToolDetails={renderToolDetails}
+            timelineItems={timelineItems}
+            title="Agent 输出"
+          />
+        )}
+      </section>
     </section>
   )
 }
@@ -627,18 +467,19 @@ function StoryboardDebugRun({
  *
  * 由任务确认列表的调试入口携带 taskId 进入时，取该 Task Brief 的三字段
  * 拼成 prompt，参考图 / 参考视频作为媒体随消息发送（与正式页提交同构）；
- * 直接访问时退回手动输入三字段。每次提交都在调试项目下新建一个绑定
- * storyboard 运行目标的 session，不承载对话——只用于观察单次运行的完整过程。
+ * 直接访问时退回手动输入三字段。每次提交都开一段新的 storyboard 对话，不在旧对话上
+ * 续聊——只用于观察单次运行的完整过程。
  *
  * @param props - 调试页属性。
+ * @param props.conversationId - 刷新后从 URL 带回来的对话 id；有它就直接读历史。
  * @param props.taskId - 入口携带的来源 Task id；缺省即手动输入模式。
  * @returns Storyboard 调试页面。
  */
 export default function StoryboardDebugRoute({
-  sessionId: restoredSessionId,
+  conversationId: restoredConversationId,
   taskId,
 }: {
-  sessionId?: string
+  conversationId?: string
   taskId?: string
 }) {
   const navigate = useNavigate()
@@ -649,9 +490,9 @@ export default function StoryboardDebugRoute({
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [run, setRun] = useState<DebugRun | null>(() =>
-    restoredSessionId ? { sessionId: restoredSessionId, submission: null } : null,
+    restoredConversationId ? { conversationId: restoredConversationId, submission: null } : null,
   )
-  const [runningSessionId, setRunningSessionId] = useState<string | null>(null)
+  const [runningConversationId, setRunningConversationId] = useState<string | null>(null)
 
   const taskLibraryQuery = useQuery({
     enabled: Boolean(taskId) && !run,
@@ -676,16 +517,16 @@ export default function StoryboardDebugRoute({
     }
   }, [])
 
-  const handleRunningChange = useCallback((sessionId: string, running: boolean) => {
+  const handleRunningChange = useCallback((conversationId: string, running: boolean) => {
     if (running) setErrorMessage('')
-    setRunningSessionId((current) => {
-      if (running) return sessionId
-      return current === sessionId ? null : current
+    setRunningConversationId((current) => {
+      if (running) return conversationId
+      return current === conversationId ? null : current
     })
   }, [])
   const handleRuntimeError = useCallback((error: Error) => {
     setErrorMessage(error.message || 'Storyboard Agent 运行失败。')
-    setRunningSessionId(null)
+    setRunningConversationId(null)
   }, [])
   const handleBack = useCallback(() => {
     if (router.history.canGoBack()) {
@@ -750,18 +591,24 @@ export default function StoryboardDebugRoute({
       const submission = createSubmission()
       if (!submission) return
 
-      const projectId = await ensureDebugProject()
-      const session = await createProducerProjectSession(projectId, {
-        target: STORYBOARD_AGUI_TARGET.id,
+      // 每次提交开一段新对话：调试页只看单次运行，不在旧对话上续聊。带上 taskId，后端就
+      // 知道这段对话是为哪张单开的（之后按单列尝试能找到它）。
+      const conversation = await createConversation({
+        agentId: STORYBOARD_AGENT.id,
+        taskId,
+        title: `调试 · ${selectedTask?.title ?? '手动 Brief'}`.slice(
+          0,
+          MAX_CONVERSATION_TITLE_CHARS,
+        ),
       })
-      setRun({ sessionId: session.id, submission })
+      setRun({ conversationId: conversation.id, submission })
       void navigate({
         replace: true,
-        search: { sessionId: session.id, taskId },
+        search: { conversationId: conversation.id, taskId },
         to: '/storyboard-debug',
       })
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '创建调试 session 失败')
+      setErrorMessage(error instanceof Error ? error.message : '创建对话失败')
     } finally {
       setSubmitting(false)
     }
@@ -817,10 +664,10 @@ export default function StoryboardDebugRoute({
           {run ? (
             <button
               className={DEBUG_SECONDARY_BUTTON_CLASS}
-              disabled={runningSessionId === run.sessionId}
+              disabled={runningConversationId === run.conversationId}
               onClick={() => {
                 setErrorMessage('')
-                setRunningSessionId(null)
+                setRunningConversationId(null)
                 setRun(null)
                 void navigate({
                   replace: true,
@@ -829,7 +676,9 @@ export default function StoryboardDebugRoute({
                 })
               }}
               title={
-                runningSessionId === run.sessionId ? '当前运行结束后可新建运行' : '返回运行配置'
+                runningConversationId === run.conversationId
+                  ? '当前运行结束后可新建运行'
+                  : '返回运行配置'
               }
               type="button"
             >
@@ -853,15 +702,15 @@ export default function StoryboardDebugRoute({
         {run ? (
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <StoryboardAssistantProvider
-              key={run.sessionId}
+              conversationId={run.conversationId}
+              key={run.conversationId}
               onRunningChange={handleRunningChange}
               onRuntimeError={handleRuntimeError}
-              sessionId={run.sessionId}
               showThinking
             >
               <StoryboardDebugRun
+                conversationId={run.conversationId}
                 runtimeErrorMessage={errorMessage}
-                sessionId={run.sessionId}
                 submission={run.submission}
               />
             </StoryboardAssistantProvider>
@@ -1011,7 +860,7 @@ export default function StoryboardDebugRoute({
                   <Play aria-hidden="true" fill="currentColor" size={16} />
                 )}
                 {submitting
-                  ? '正在创建会话…'
+                  ? '正在开对话…'
                   : taskId && !selectedTask
                     ? taskQueryError || taskMissing
                       ? 'Task 不可用'

@@ -6,7 +6,7 @@ import type {
 } from '@/features/video-task-sessions/video-task-session.types'
 import { apiFetch } from '@/shared/api/client'
 import { requiredStringSchema } from '@/shared/api/schemas'
-import { STORYBOARD_AGUI_TARGET } from '@/shared/config/agui-target'
+import { STORYBOARD_AGENT } from '@/shared/config/agui-target'
 
 const videoTaskSessionSchema = z.strictObject({
   createdAt: requiredStringSchema('VideoTaskSession 缺少 createdAt'),
@@ -31,7 +31,7 @@ export const createVideoTaskSession = async (
     await apiFetch('/video-task-sessions', videoTaskSessionResponseSchema, {
       body: {
         ...input,
-        target: STORYBOARD_AGUI_TARGET.id,
+        target: STORYBOARD_AGENT.id,
       },
       cache: 'no-store',
       fallbackErrorMessage: '创建 Storyboard Session 失败',

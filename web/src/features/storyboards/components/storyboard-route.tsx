@@ -491,10 +491,10 @@ export function StoryboardWorkspace({
 
   return storyboards.map((storyboard) => (
     <StoryboardAssistantProvider
+      conversationId={storyboard.sessionId}
       key={storyboard.sessionId}
       onRunningChange={handleRunningChange}
       onRuntimeError={handleRuntimeError}
-      sessionId={storyboard.sessionId}
     >
       {storyboard.sessionId === selectedStoryboardId ? (
         <StoryboardWorkspaceContent

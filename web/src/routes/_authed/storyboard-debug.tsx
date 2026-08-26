@@ -13,7 +13,7 @@ export const Route = createFileRoute('/_authed/storyboard-debug')({
   },
   component: StoryboardDebugPage,
   validateSearch: z.object({
-    sessionId: z.string().trim().min(1).optional(),
+    conversationId: z.string().trim().min(1).optional(),
     taskId: z.string().optional(),
   }),
 })
@@ -24,7 +24,7 @@ export const Route = createFileRoute('/_authed/storyboard-debug')({
  * @returns Storyboard 调试 feature 页面。
  */
 function StoryboardDebugPage() {
-  const { sessionId, taskId } = Route.useSearch()
+  const { conversationId, taskId } = Route.useSearch()
 
-  return <StoryboardDebugRoute sessionId={sessionId} taskId={taskId} />
+  return <StoryboardDebugRoute conversationId={conversationId} taskId={taskId} />
 }

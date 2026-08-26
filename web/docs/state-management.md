@@ -41,7 +41,7 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 ### Contracts
 
 - 浏览器只调用同源 `/api/*`；vite proxy（prod 反代同语义）把 `^/api` rewrite 掉转发给后端。所有请求 `credentials: "same-origin"`，cookie 自动携带；前端不注入任何 `Authorization` 头。
-- `src/shared/config/agui-target.ts` 是前端 AG-UI target descriptor 的唯一事实源，每个 descriptor 统一提供 `{ id, path, apiPrefix }`。Producer 使用由 `VITE_AGUI_TARGET_PATH` 解析出的 `PRODUCER_AGUI_TARGET`，Storyboard 使用固定的 `STORYBOARD_AGUI_TARGET`；各 feature 不得再分别维护 target id、path 或 `/api` 前缀常量。
+- `src/shared/config/agui-target.ts` 是前端 agent 运行端点的唯一事实源。Storyboard 使用固定的 `STORYBOARD_AGENT`（`{ id: "storyboard", runUrl: "/api/agents/storyboard/chat" }`，对应本仓后端 `POST /agents/{agentId}/chat`）；Producer 聊天仍使用由 `VITE_AGUI_TARGET_PATH` 解析出的 `PRODUCER_AGUI_TARGET`（`{ id, path, apiPrefix }`，旧后端形状，尚未接到本仓后端）。各 feature 不得再分别维护 agent id 或 `/api` 前缀常量。
 - `VITE_AGUI_TARGET_PATH` 由 `src/shared/config/env.ts` 的 zod schema 读取，默认 `/agui/teams/producer`，只接受 `/agui/teams/<team_id>` 或 `/agui/agents/<agent_id>`；允许省略开头斜杠和末尾斜杠，`src/shared/config/agui-target.ts` 负责规范化并在非法时抛错。
 - AG-UI run 直接使用对应 descriptor 的 `apiPrefix`，restore 使用 `${descriptor.path}/restore` 交给 `apiFetch` 或 `${descriptor.apiPrefix}/restore` 作为完整同源端点；run 历史直接使用 AgentOS 官方 `GET /api/sessions/{sessionId}/runs`。
 - 默认 target 是后端已注册的 `/agui/teams/producer`，不得恢复为旧命名空间或未注册 team。
@@ -51,10 +51,12 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - 首页 Agent projects 卡片是 project 文件夹入口，只能链接到 `/projects/{projectId}`；卡片本身不选择或写入具体 session，Producer 项目路由只加载与 `VITE_AGUI_TARGET_PATH` 同 id（默认 `producer`）的 sessions，缺少时再创建一个。
 - 首页 Storyboards 只展示 `GET /api/video-task-sessions` 返回非空关系的 Agent Projects；新建入口是 Tasks 面板的“进入 Storyboard”，先创建 Project，再创建第一条 VideoTaskSession。
 - 项目页初始化 session tabs 必须以 `GET /api/projects/{projectId}/sessions` 返回的完整项目 session 列表为事实源，按当前工作台 target 过滤后再选择 active session。不得把 project 入口降级为首页项目列表里的首条 session，也不得把项目页初始化绑定到 `GET /api/projects/{projectId}` 里的 `sessionIds` 聚合字段。
-- Storyboard 页面按显式 `videoTaskId` 读取 Task，按 `session.id` 管理选择、运行与输出；不得按 Project 的 `sessionIds` 顺序、target、Task 顺序或时间做推断式关联。一个 Project 可以有多个 Storyboard，每条关系常驻一个独立 AG-UI runtime host（`shared/agui` 通用装配，ADR-0006），仅 active session 渲染工作台；切换任务不 `cancelRun`、不中断其它 session 的后台流。restore 消费全量信封（`activeRun`/`messages`/`state`），`activeRun` 非 null 时注水后自动 attach；不得复制 messages、isRunning 出 runtime（运行徽标只经 host 内 reporter 上报布尔值）。
+- Storyboard 页面按显式 `videoTaskId` 读取 Task，按对话 id 管理选择、运行与输出；不得按 Project 的 `sessionIds` 顺序、target、Task 顺序或时间做推断式关联。一个 Project 可以有多个 Storyboard，每段对话常驻一个独立 AG-UI runtime host（`shared/agui` 通用装配 `AguiConversationRuntimeProvider`，ADR-0006），仅 active 对话渲染工作台；切换任务不 `cancelRun`、不中断其它对话的后台流。历史经 `GET /api/conversations/{id}/messages` 读回注水，没有「在途 run」决策，注水后不自动发起任何 run；不得复制 messages、isRunning 出 runtime（运行徽标只经 host 内 reporter 上报布尔值）。
+- Storyboard 调试页（`/storyboard-debug`）每次提交先 `POST /api/conversations`（`agentId: "storyboard"`，带来源 `taskId`），拿到对话 id 后再 append 首条 user 消息发起运行；URL 参数 `conversationId` 用于刷新后读回历史。
 - `DELETE /api/projects/{projectId}` 删除项目文件夹，删除成功后前端从首页最近项目列表移除对应项目。
-- 普通 AG-UI run 使用官方 `threadId` 字段，值必须等于当前 `sessionId`（后端会话 id），不得使用项目文件夹 id 替代。
-- Storyboard run 固定使用 `STORYBOARD_AGUI_TARGET`（当前 `/api/agui/agents/storyboard`）；前端只配置 `threadId=sessionId` 和 descriptor URL，不传 `passMedia`。媒体直传由后端 target 配置决定。
+- 普通 AG-UI run 使用官方 `threadId` 字段，值必须等于服务端发放的对话 id，不得使用项目文件夹 id 替代。
+- Storyboard run 固定使用 `STORYBOARD_AGENT.runUrl`（`/api/agents/storyboard/chat`）；前端只配置 `threadId=对话 id` 和这个 URL，参考素材作为 `file` part（`data` 为 HTTP 地址）随首条消息发送，媒体换形状由服务端做。
+- 断线不自动重发 `startRun`：本仓后端的运行不绑在请求上，再 POST 一次是开新运行；传输中断只呈现为错误，刷新页面从存档读回。
 
 ### Tests Required
 
@@ -63,7 +65,8 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - 首页 Storyboard project 卡片断言 `href=/storyboards/{projectId}`，并且列表只包含存在显式 VideoTaskSession 的 Project。
 - Storyboard 页面用例覆盖多条关系映射为多个 Storyboard、添加 Task 创建新关系、切换后输出仍属于各自 `sessionId`。
 - `ProjectRoute` 初始加载断言调用 `listProducerProjectSessions(projectId)`，只使用与当前 AG-UI target id 匹配的 sessions 挂载 runtime；没有匹配 session 时正向创建一个当前 target session。
-- `/agents/<id>` override 覆盖 `PRODUCER_AGUI_TARGET` 的 `id/path/apiPrefix` 派生；target path normalize 覆盖缺少开头斜杠和带末尾斜杠，Storyboard 用例固定消费 `STORYBOARD_AGUI_TARGET`。
+- `/agents/<id>` override 覆盖 `PRODUCER_AGUI_TARGET` 的 `id/path/apiPrefix` 派生；target path normalize 覆盖缺少开头斜杠和带末尾斜杠，Storyboard 用例固定消费 `STORYBOARD_AGENT`。
+- Storyboard 调试页用例覆盖：提交先 `POST /api/conversations`（带 `agentId: "storyboard"` 与 `taskId`），随后 `POST /api/agents/storyboard/chat` 的 `threadId` 等于返回的对话 id；传输中断不触发第二次 POST。
 
 ## 视频生成提交
 
@@ -117,7 +120,7 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - `RUN_STARTED.rawEvent.run_id`：后端诊断用的源 run id；前端不得读取它定位恢复流、维护游标或派生 runtime 状态。
 - `ProjectChatTimelineItem.id`：前端 React key，必须直接来自后端 `message.id`、`toolCallId` 和 part index，不得使用前端派生 `turn-N`。
 - `ProjectChatProvider.timelineItems`：聊天侧栏唯一对话投影，按消息历史生成连续可滚动 timeline，不维护 `turns`、`selectedTurn` 或 `runningTurnId`。
-- `ProjectAssistantRuntimeProvider`（`features/chat/agui/provider.tsx`）：项目页唯一 assistant-ui AG-UI runtime provider，是通用装配 `shared/agui/provider.tsx`（`AguiSessionRuntimeProvider`）的薄包装，只补 producer team 特有的成员事件消费与 restore 成员历史注水。`threadId` 固定等于当前 `sessionId`；原厂 `HttpAgent` 单 URL，无 runtime 换代。连接恢复状态收敛在 `shared/agui/recovery.ts` 的 4 态 reducer（`idle | streaming | interrupted(attempt) | degraded`），断线重连 = 指数退避后重发一次普通 `startRun`，新 run/attach/回放/快照由后端归因。Storyboard 复用同一通用装配（ADR-0006）。
+- `ProjectAssistantRuntimeProvider`（`features/chat/agui/provider.tsx`）：项目页唯一 assistant-ui AG-UI runtime provider，是通用装配 `shared/agui/provider.tsx`（`AguiConversationRuntimeProvider`）的薄包装，只补 producer team 特有的成员事件消费与 restore 成员历史注水。`threadId` 固定等于当前 `sessionId`；原厂 `HttpAgent` 单 URL，无 runtime 换代。传输层错误归一在 `shared/agui/transport.ts`（断网、无终止事件的 EOF → 一个错误交给 `onError`），**没有自动重连**：本仓后端再 POST 一次就是开新运行。Storyboard 复用同一通用装配（ADR-0006）。
 - `features/chat/agui/history.ts`：restore 信封解析与加载（官方 `ThreadHistoryAdapter` 由 `shared/agui/provider.tsx` 内建，restore 注水 + 透传后端唯一恢复决策 `activeRun`）；不得保存 backend run id、event cursor、消息/工具开合账本或任何前端重连判定。
 - `useAuiState((state) => state.thread.state)`：Project Chat 业务层读取当前 AG-UI state 的唯一入口；messages 与运行状态分别直接读取 `state.thread.messages` 和 `state.thread.isRunning`。
 - `ProjectRoute.activeSessionId`：当前项目页可见 session；只控制哪个 session workspace 被渲染，不承载聊天 messages、interrupts 或恢复状态。
@@ -208,14 +211,12 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 | `role="tool"` 没有匹配的 assistant tool call | 视为无效历史并丢弃，不合成 fake assistant message |
 | active local run 期间 Workspace/assets/generations 刷新先返回 | 只同步 artifact、media 和 generation records，不 reset live messages 或覆盖 assistant-ui thread state |
 | RUN_FINISHED 后 final/convergence 刷新返回 | 只刷新业务 state 与项目元数据，不 reset runtime messages |
-| HITL continuation 在收到 `RUN_STARTED` 后断线 | 不再次提交 `resume[]`；退避后重发普通 `startRun`，由后端归因 attach 观察同一后台 run |
-| restore 返回 `activeRun` 非 null | 注水完成后自动触发一次普通 `startRun`（后端归因为 attach），body 不含 backendRunId/eventIndex/reconnect |
-| restore 返回 `activeRun: null` | 不触发重连，按普通历史展示（前端不查 runs list） |
+| HITL continuation 在收到 `RUN_STARTED` 后断线 | 不再次提交 `resume[]`，也不自动重发 `startRun`；后台 run 由后端持有 |
 | restore 返回 409（多在途 run / paused 无 requirement） | 直接暴露协议错误，不静默降级成普通历史 |
-| transport 中断但旧页面仍在 | 进入 `interrupted`（重连中禁写），指数退避后重发普通 `startRun`；回放按 messageId 幂等吸收，无 runtime 换代 |
-| 后端返回 `RUN_ERROR ACTIVE_ELSEWHERE` | 与 transport 中断同治：退避重试，超上限进 `degraded` 等待手动重试 |
-| 后端返回 `RUN_ERROR RUN_IN_PROGRESS` | 消息标记未送达留在本地，提示等待重连完成；绝不静默丢弃 |
-| 后端返回 `RUN_ERROR CANCELLED` | 呈现「已停止」中性终态，不按错误处理 |
+| transport 中断但旧页面仍在 | `shared/agui/transport.ts` 收敛为一个错误交给 `onError`，呈现为错误；**不自动重发 `startRun`**（再发一次是开新运行） |
+| 后端返回 `RUN_ERROR RUN_INTERRUPTED` | 服务端进程没跑完就没了；按普通失败呈现，由用户决定是否重新发起 |
+| 后端返回 `RUN_ERROR RUN_IN_PROGRESS` | 消息标记未送达留在本地；绝不静默丢弃 |
+| 后端返回 `RUN_ERROR ACTIVE_ELSEWHERE` / `CANCELLED` | `@assistant-ui/react-ag-ui` 补丁映射为 `RUN_CANCELLED`，呈现「已停止」中性终态，不按错误处理 |
 | restore pending ask interrupt 已写入 message metadata | `fromAgUiMessages()` 恢复 `requires-action`，公开 interrupt hook 生成 active interrupt 和 resume payload |
 | 后端 restore contract 缺本轮 assistant 或 ask anchor | 后端契约测试失败；前端不合成、修复或交叉校验 placeholder / fake tool-call |
 | `ask_user_question` 已回答后刷新历史 | 保留为“工具确认”历史卡片，并展示每题答案 |

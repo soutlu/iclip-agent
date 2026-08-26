@@ -53,9 +53,13 @@ export const PRODUCER_AGUI_TARGET = {
   path: AGUI_TARGET.path,
 } as const
 
-/** Storyboard Agent 使用的固定 AG-UI 注册目标。 */
-export const STORYBOARD_AGUI_TARGET = {
-  apiPrefix: '/api/agui/agents/storyboard',
+/**
+ * Storyboard agent：后端 `agents.yaml` 里声明的 id，同时是运行端点 URL 里的那一段。
+ *
+ * `runUrl` 是完整的同源 SSE 端点（`POST /agents/{agentId}/chat`），交给 `@ag-ui/client`
+ * 的 `HttpAgent`；开对话用 `id`（`POST /conversations` 的 `agentId`）。
+ */
+export const STORYBOARD_AGENT = {
   id: 'storyboard',
-  path: '/agui/agents/storyboard',
+  runUrl: '/api/agents/storyboard/chat',
 } as const

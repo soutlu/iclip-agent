@@ -2,7 +2,6 @@ import type { Message } from '@ag-ui/client'
 import { ExportedMessageRepository, type ThreadMessageLike } from '@assistant-ui/react'
 import type { ReadonlyJSONValue } from 'assistant-stream/utils'
 import { z } from 'zod'
-import type { AguiActiveRun } from '@/shared/agui/provider'
 import { apiFetch } from '@/shared/api/client'
 import { requiredStringSchema, wireRecordSchema } from '@/shared/api/schemas'
 import { PRODUCER_AGUI_TARGET } from '@/shared/config/agui-target'
@@ -10,6 +9,11 @@ import { assistantMessagesFromAguiMessages } from '../runtime/project-agui-messa
 import type { ProjectRestoreMemberRun } from '../runtime/project-member-segments'
 
 export const AGUI_RESTORE_ENDPOINT = `${PRODUCER_AGUI_TARGET.apiPrefix}/restore`
+
+/** restore 响应里的在途 run 决策。 */
+export interface AguiActiveRun {
+  runId: string
+}
 
 export interface ProjectRestoreResult {
   activeRun: AguiActiveRun | null

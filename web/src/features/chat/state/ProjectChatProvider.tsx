@@ -36,10 +36,7 @@ import {
 } from '../runtime/project-conversation-timeline'
 import { producerProjectMediaToMediaComposerLibraryMedia } from '../runtime/project-state.adapters'
 import { workspaceWriteResultsRevision } from '../runtime/project-workspace-tool-results'
-import ProjectAssistantRuntimeProvider, {
-  useProjectConnection,
-  useProjectMemberSegments,
-} from '../agui/provider'
+import ProjectAssistantRuntimeProvider, { useProjectMemberSegments } from '../agui/provider'
 import {
   type ProjectChatAskUserQuestionContextValue,
   ProjectChatActivityContext,
@@ -191,7 +188,6 @@ function ProjectChatBusinessProvider({
   runtimeError,
 }: ProjectChatBusinessProviderProps) {
   const memberSegments = useProjectMemberSegments()
-  const { state: connectionState } = useProjectConnection()
   const pendingAguiInterrupts = useAgUiInterrupts()
   const threadRuntime = useThreadRuntime()
   const aguiState = useAuiState((state) => state.thread.state)
@@ -257,15 +253,10 @@ function ProjectChatBusinessProvider({
   }, [pendingAguiInterrupts, pendingInterruptResponses])
 
   const activeInterruptRef = useRef<ProjectChatInterrupt | null>(null)
-  const connectionPhaseRef = useRef(connectionState.phase)
 
   useEffect(() => {
     activeInterruptRef.current = activeInterrupt
   }, [activeInterrupt])
-
-  useEffect(() => {
-    connectionPhaseRef.current = connectionState.phase
-  }, [connectionState.phase])
 
   useEffect(() => {
     threadMessagesRef.current = [...threadMessages]
@@ -623,17 +614,6 @@ function ProjectChatBusinessProvider({
 
       if (isProjectLocalRunActive()) {
         setComposerRequestErrorMessage('当前 Agent 正在运行，请等待完成后再发送。')
-        requestComposerFocus()
-        return
-      }
-
-      // 重连期间禁写是「永不静默吞消息」的第一道防线（第二道是服务端
-      // RUN_IN_PROGRESS 显式拒绝，ADR-0005）。
-      if (
-        connectionPhaseRef.current === 'interrupted' ||
-        connectionPhaseRef.current === 'degraded'
-      ) {
-        setComposerRequestErrorMessage('连接已中断，正在恢复，请稍后再发送。')
         requestComposerFocus()
         return
       }
