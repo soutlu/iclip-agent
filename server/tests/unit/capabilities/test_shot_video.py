@@ -395,7 +395,10 @@ async def test_read_media_file_takes_an_address_from_a_tool_result(
 
 
 def ark(
-    handler: Callable[[httpx.Request], httpx.Response], *, thinking: str | None = None
+    handler: Callable[[httpx.Request], httpx.Response],
+    *,
+    thinking: str | None = None,
+    fps: float | None = None,
 ) -> ArkVideoUnderstanding:
     return ArkVideoUnderstanding(
         httpx.AsyncClient(transport=httpx.MockTransport(handler)),
@@ -403,6 +406,7 @@ def ark(
         api_key="ark",
         model="seed-vision",
         thinking=thinking,
+        fps=fps,
     )
 
 
@@ -484,6 +488,19 @@ async def test_parser_sends_the_configured_reasoning_effort() -> None:
 
     await ark(handler, thinking="medium").parse(VIDEO)
     assert seen["reasoning"] == {"effort": "medium"}
+
+
+async def test_parser_sends_the_configured_fps_on_the_video_part() -> None:
+    """抽帧率跟着视频那一段走：不配就不发，配了就贴在 input_video 上。"""
+
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json=responses_body())
+
+    await ark(handler, fps=5).parse(VIDEO)
+    assert seen["input"][1]["content"][0] == {"type": "input_video", "video_url": VIDEO, "fps": 5}
 
 
 # ── 取帧：动手之前就把前置条件拦下 ──────────────────────────────────────────

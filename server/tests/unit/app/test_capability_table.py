@@ -37,6 +37,7 @@ def shot_video_settings() -> ResolvedShotVideo:
         understanding_api_key="ark",
         understanding_model="seed-vision",
         understanding_thinking="medium",
+        understanding_fps=5,
         poll_interval_seconds=5.0,
         dev_attempts=2,
         pro_attempts=1,
