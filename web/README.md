@@ -35,9 +35,9 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
     │   ├── project-canvas/     # 项目画布、节点与导出
     │   ├── project-workspace/  # 项目工作台壳与视频合成
     │   ├── projects/           # 项目 API 与生成事件（WS）
-    │   ├── storyboards/        # Task 驱动的 Storyboard 会话页面
-    │   ├── tasks/              # Video Task 下发与确认
-    │   └── video-task-sessions/ # Video Task 与 Session 的显式关系
+    │   ├── conversations/      # 对话（AG-UI threadId）与它的工作区文件
+    │   ├── storyboards/        # 一张需求单的 Storyboard 工作台与调试页
+    │   └── tasks/              # Video Task 下发与确认
     ├── shared/                 # 横切能力（不依赖业务层）
     │   ├── api/                # apiFetch、query-client
     │   ├── config/             # env.ts 环境变量唯一入口

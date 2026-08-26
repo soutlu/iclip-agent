@@ -13,6 +13,8 @@ export const Route = createFileRoute('/_authed/storyboards/$taskId')({
   },
   component: StoryboardsPage,
   validateSearch: z.object({
+    /** 看这张单的哪一次尝试（对话 id）；缺省看最新的那次。 */
+    attempt: z.string().optional(),
     demo: z.literal(SDHS2496W_DEMO_MODE).optional(),
   }),
 })
@@ -24,7 +26,7 @@ export const Route = createFileRoute('/_authed/storyboards/$taskId')({
  */
 function StoryboardsPage() {
   const { taskId } = Route.useParams()
-  const { demo } = Route.useSearch()
+  const { attempt, demo } = Route.useSearch()
 
-  return <StoryboardRoute demoMode={demo} taskId={taskId} />
+  return <StoryboardRoute attemptConversationId={attempt} demoMode={demo} taskId={taskId} />
 }

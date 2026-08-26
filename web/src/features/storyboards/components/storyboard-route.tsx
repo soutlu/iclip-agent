@@ -13,6 +13,7 @@ import {
 } from 'react'
 import { useAui, useAuiState } from '@assistant-ui/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import {
   createConversation,
   listTaskConversations,
@@ -65,10 +66,6 @@ import {
   useStoryboardAgentMonitor,
   type StoryboardAgentMonitorHandle,
 } from '@/features/storyboards/components/use-storyboard-agent-monitor'
-import {
-  readPreferredStoryboardConversationId,
-  storePreferredStoryboardConversationId,
-} from '@/features/storyboards/data/storyboard-conversation-selection'
 import { storyboardAgentRunFromThread } from '@/features/storyboards/runtime/storyboard-agent'
 import { StoryboardAssistantProvider } from '@/features/storyboards/runtime/storyboard-assistant-provider'
 import { createStoryboardAgentSubmission } from '@/features/storyboards/runtime/storyboard-agent-submission'
@@ -387,14 +384,17 @@ const StoryboardRouteState = ({
  * 一张需求单的 Storyboard 工作台。
  *
  * @param props - 路由属性。
+ * @param props.attemptConversationId - URL 上指定要看的那次尝试；缺省看最新的一次。
  * @param props.demoMode - 演示模式。
  * @param props.taskId - 当前需求单 id。
  * @returns 这张单的历次尝试与工作台。
  */
 export default function StoryboardRoute({
+  attemptConversationId,
   demoMode,
   taskId,
 }: {
+  attemptConversationId?: string
   demoMode?: StoryboardDemoMode
   taskId: string
 }) {
@@ -460,7 +460,13 @@ export default function StoryboardRoute({
     )
   }
 
-  return <StoryboardWorkspace task={task} workspace={workspace} />
+  return (
+    <StoryboardWorkspace
+      attemptConversationId={attemptConversationId}
+      task={task}
+      workspace={workspace}
+    />
+  )
 }
 
 /**
@@ -483,26 +489,32 @@ const createStoryboardAttempt = (task: VideoTask) =>
  * 运行；跨尝试保留的编辑状态（镜头选择、标注历史、本地版本）提升到本层，切换时不丢。
  *
  * @param props - 工作台属性。
+ * @param props.attemptConversationId - URL 上指定要看的那次尝试。
  * @param props.task - 当前需求单。
  * @param props.workspace - 这张单的历次尝试。
  * @returns 书签栈、单画布工作台、受控 Brief 和底部时间线。
  */
 export function StoryboardWorkspace({
+  attemptConversationId,
   task,
   workspace,
 }: {
+  attemptConversationId?: string
   task: VideoTask
   workspace: StoryboardWorkspace
 }) {
+  const navigate = useNavigate()
   const [storyboards, setStoryboards] = useState<StoryboardEditor[]>(() => workspace.storyboards)
   const [selectedStoryboardId, setSelectedStoryboardId] = useState(() => {
-    const firstStoryboard = workspace.storyboards[0]
-    if (!firstStoryboard) throw new Error('Storyboard 工作台必须至少有一次尝试')
-    const preferred = readPreferredStoryboardConversationId(task.id)
-    return preferred &&
-      workspace.storyboards.some((storyboard) => storyboard.conversationId === preferred)
-      ? preferred
-      : firstStoryboard.conversationId
+    // 默认看最新那次：刚点完「开始真实运行」进来，要看的就是刚开的那一次，不是第一次。
+    const newest = workspace.storyboards.at(-1)
+    if (!newest) throw new Error('Storyboard 工作台必须至少有一次尝试')
+    return attemptConversationId &&
+      workspace.storyboards.some(
+        (storyboard) => storyboard.conversationId === attemptConversationId,
+      )
+      ? attemptConversationId
+      : newest.conversationId
   })
   const [briefOpen, setBriefOpen] = useState(false)
   const [selectedShotIds, setSelectedShotIds] = useState(() =>
@@ -550,7 +562,13 @@ export function StoryboardWorkspace({
     }
 
     setSelectedStoryboardId(storyboard.conversationId)
-    storePreferredStoryboardConversationId(task.id, storyboard.conversationId)
+    // 同步进 URL：刷新、收藏、发给别人看的都是同一次尝试。
+    void navigate({
+      params: { taskId: task.id },
+      replace: true,
+      search: (current) => ({ ...current, attempt: storyboard.conversationId }),
+      to: '/storyboards/$taskId',
+    })
     setBriefOpen(true)
   }
 
