@@ -238,7 +238,7 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - 聊天 hydrate：后端返回 UUID user message 后可直接生成连续 user-message timeline item；不得补本地 `turn-N` message。
 - 聊天 timeline：普通文本气泡、普通工具分段、ask 历史/active 原位置、重复 ask upsert、response shell 单例移动、ask 隐藏、子 agent speaker 切换、真实成员 id 的中文映射、raw 字段不泄露。
 - Producer 业务数据 hydrate：媒体库来自 session assets/generations，输入媒体只接受 `source = upload | import`；Workspace list 顺序保留，read 返回的 `{ path, content, etag }` 生成 artifact；`image/{assetId}.md` 聚合为固定领域 id 的图片分析，根目录 `video_shot.json` 恢复视频提示词，普通 artifact 身份为 `kind + workspace:${path}` 且不携带 `turnId`。
-- Workspace 写入刷新：已完成工具结果 `{ message, path }` 触发 list/read 重取并使用 ETag；result 正文不成为 artifact 内容，重复通知不重复刷新。
+- Workspace 写入刷新：已完成的写入工具结果触发 list/read 重取并使用 ETag。结果形状后端有两种——写文件那几件回一句完成文案（纯字符串），交付镜头组的回 `{ message, path }`；两种都认，认不出来的形状按普通工具走通用文案，不抛错。result 正文不成为 artifact 内容，重复通知不重复刷新。
 - generic AG-UI state：restore 与 live `STATE_SNAPSHOT` 可包含任意合法对象且不含 Producer 私有字段，assistant-ui runtime 仍能正常 hydrate 与更新。
 - 富文本 artifact：视频解析与 Video Brief 的富 Markdown / HTML 经统一 renderer 呈现；测试覆盖安全/渲染边界，不对服务端正文格式做通用快照锁定。
 - active interrupt：ask panel 只按 `targetId/toolCallId` 匹配，不按 turn 匹配；restore message metadata 必须能恢复为 active ask panel 并提交 selections resume；多个 pending interrupts 必须按 runtime pending 顺序逐个处理，最终 resume payload 保持同一顺序。

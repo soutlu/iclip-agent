@@ -20,9 +20,13 @@ export interface WorkspaceWriteToolResult {
 }
 
 /**
- * 读取成功写入单个 Workspace 文件的标准工具结果。
+ * 读取成功写入单个 Workspace 文件的工具结果。
  *
  * 结果只充当重新读取 Workspace 的失效提示；文件正文仍只来自 Workspace API。
+ *
+ * 后端两种回法都要认：写文件那几件回一句完成文案（纯字符串），交付镜头组的回
+ * `{ message, path }`。认不出来的形状返回 null 走通用文案——这个函数在渲染工具
+ * 日志的路径上被调用，抛错会连整页一起打掉。
  */
 export const workspaceWriteToolResult = ({
   output,
@@ -35,18 +39,20 @@ export const workspaceWriteToolResult = ({
     return null
   }
 
+  if (typeof output === 'string') {
+    const message = nonEmptyString(output)
+    // path 只进失效提示的去重键，而 scopeId + toolCallId 已经唯一。
+    return message ? { message, path: '' } : null
+  }
+
   if (!isRecord(output)) {
-    throw new Error(`${rawToolName} 工具结果必须是对象`)
+    return null
   }
 
   const message = nonEmptyString(output.message)
   const path = nonEmptyString(output.path)
 
-  if (!message || !path) {
-    throw new Error(`${rawToolName} 工具结果必须包含非空 message 和 path`)
-  }
-
-  return { message, path }
+  return message && path ? { message, path } : null
 }
 
 const assistantToolResult = (
