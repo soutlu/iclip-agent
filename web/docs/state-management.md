@@ -136,7 +136,7 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - `WorkspaceDocument = { path, content, etag }`：`path` 是后端 canonical 逻辑路径，Workspace artifact identity 为 `workspace:${path}`；`content` 只来自 read 端点。
 - 可见 Workspace documents：`path` 以 `.md` / `.markdown` / `.mdx` 结尾，或精确等于根目录 `video_shot.json`。后端 list 顺序保留到画布投影。
 - `image/{assetId}.md` / `video/{assetId}.md`：path basename 是 session AssetId，必须精确关联 `source = upload | import` 且媒体类型一致的 asset；未知 asset、generation output 或类型不一致都显式失败。
-- Workspace 写入工具的成功结果 `{ message, path }` 只是失效通知；`toolCallId + path` 只用于识别新的已完成写入并触发全量 Workspace 重读，不从 result 提取正文。
+- 工具结果只是失效通知：`scope + toolCallId` 用于识别新出现的已完成工具结果并触发全量 Workspace 重读，不按工具名筛（写工作区的不止写文件那几件），也不从 result 提取正文。
 
 ### Contracts
 
@@ -184,7 +184,7 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - AG-UI message snapshot 的标准消息、tool result、error/status 与附件转换统一交给官方 `fromAgUiMessages()`；Productor 只在转换前用 `member_id` 消歧重复的 `delegate_task_to_member` toolCallId，转换后恢复原始 id，并过滤内部 confirmation 与孤立 tool-result assistant message。
 - 未匹配任何 assistant tool call 的 `role="tool"` message 是无效历史，不得合成 fake assistant message，也不得进入普通聊天 timeline。
 - `projectToolStateFromAssistantPart()` 只消费已规范化的 assistant-ui part：`isError` 优先映射 failed，其次 `result !== undefined` 映射 completed，其次 running assistant message 映射 running，最后才是 started。
-- Workspace 写工具的 `{ message, path }` 只触发 canonical path 的业务数据重新读取，不参与普通 tool log started/completed/failed 判断，也不提供 artifact 正文。
+- 工具结果只触发业务数据重新读取，不参与普通 tool log started/completed/failed 判断，也不提供 artifact 正文；结果对象自带 `message` 时用它当日志完成文案（纯字符串结果一律不取，`read_file` 之类回的就是文件正文）。
 - 后端完成普通 tool 时必须返回带匹配 `toolCallId` 的 `role="tool"` message；缺失或孤立 tool result 不做前端兼容。
 - 普通 tool log 默认从所有非特殊 assistant-ui tool-call 生成；`ask_user_question`、`delegate_task_to_member` 和 `confirm*` 继续走专用 timeline 组件或内部协议过滤，不进入普通 tool log。已知工具必须提供中文 action 映射：`get_skill_instructions`、`get_skill_reference`、`image_parser`、`video_parser`、`read_file`、`list_files`、`search_content`、`write_file`、`edit_file`。未知普通工具不得静默丢弃，必须以原始 tool name 生成可见日志。
 - 连续普通工具合并为 `tool-log-segment`，默认一行、点击展开多行；遇到文本、ask 或子 agent 特殊组件时必须结束当前工具段。
@@ -238,7 +238,7 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - 聊天 hydrate：后端返回 UUID user message 后可直接生成连续 user-message timeline item；不得补本地 `turn-N` message。
 - 聊天 timeline：普通文本气泡、普通工具分段、ask 历史/active 原位置、重复 ask upsert、response shell 单例移动、ask 隐藏、子 agent speaker 切换、真实成员 id 的中文映射、raw 字段不泄露。
 - Producer 业务数据 hydrate：媒体库来自 session assets/generations，输入媒体只接受 `source = upload | import`；Workspace list 顺序保留，read 返回的 `{ path, content, etag }` 生成 artifact；`image/{assetId}.md` 聚合为固定领域 id 的图片分析，根目录 `video_shot.json` 恢复视频提示词，普通 artifact 身份为 `kind + workspace:${path}` 且不携带 `turnId`。
-- Workspace 写入刷新：已完成工具结果 `{ message, path }` 触发 list/read 重取并使用 ETag；result 正文不成为 artifact 内容，重复通知不重复刷新。
+- Workspace 重读刷新：任何已完成的工具结果触发 list/read 重取并使用 ETag，不按工具名筛。result 正文不成为 artifact 内容，重复通知不重复刷新。
 - generic AG-UI state：restore 与 live `STATE_SNAPSHOT` 可包含任意合法对象且不含 Producer 私有字段，assistant-ui runtime 仍能正常 hydrate 与更新。
 - 富文本 artifact：视频解析与 Video Brief 的富 Markdown / HTML 经统一 renderer 呈现；测试覆盖安全/渲染边界，不对服务端正文格式做通用快照锁定。
 - active interrupt：ask panel 只按 `targetId/toolCallId` 匹配，不按 turn 匹配；restore message metadata 必须能恢复为 active ask panel 并提交 selections resume；多个 pending interrupts 必须按 runtime pending 顺序逐个处理，最终 resume payload 保持同一顺序。
