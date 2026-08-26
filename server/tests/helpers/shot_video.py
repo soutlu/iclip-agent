@@ -81,12 +81,15 @@ class FakeGenerations:
 
 @dataclass
 class FakeObjects:
-    """记下写过哪些 key，返回一个可预测的公网地址。"""
+    """记下写过哪些 key，返回一个可预测的公网地址；``error`` 设上就每次都抛它。"""
 
     written: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    error: Exception | None = None
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
         _ = content_type
+        if self.error is not None:
+            raise self.error
         self.written[object_key] = content
         return f"https://cdn.test/{object_key}"
 

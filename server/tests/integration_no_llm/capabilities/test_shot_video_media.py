@@ -26,7 +26,9 @@ from pydantic_ai.usage import RunUsage
 
 from iclip.capabilities.shot_video import ffmpeg
 from iclip.capabilities.shot_video.capability import (
+    ANCHOR_RECORDS_DIR,
     EXTRACTION_PATH,
+    GRID_RECORDS_DIR,
     FrameRequest,
     GenerationPolicy,
     ShotVideoToolset,
@@ -35,6 +37,7 @@ from iclip.capabilities.shot_video.capability import (
 )
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.shot_video.grid import grid_cell_boxes, scale_box
+from iclip.capabilities.shot_video.ports import ObjectWriteFailed
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
@@ -61,6 +64,9 @@ DOCUMENT = (
 )
 
 FAST = GenerationPolicy(poll_interval_seconds=0.001, backoff_seconds=0.001, backoff_factor=1.0)
+
+STORE_DOWN = "OSS 写入失败（试了 3 次）: Read timed out"
+"""对象存储那一侧重试完仍没存下来时，经组合根适配器翻过来的那句话。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,6 +336,25 @@ async def test_plan_refuses_timecodes_beyond_the_clip(media: dict[str, bytes]) -
         await client.aclose()
 
 
+async def test_plan_asks_for_a_retry_when_a_board_cannot_be_stored(
+    media: dict[str, bytes],
+) -> None:
+    """预览板没存下来是一句可重试提示，不是整次运行中断；账本也不能留——留了的话下一
+    次调用会当成已完成直接复用，而板的地址根本不存在。"""
+
+    objects = FakeObjects(error=ObjectWriteFailed(STORE_DOWN))
+    files = FakeFileStore()
+    await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
+    client = make_client(media)
+    try:
+        with pytest.raises(ModelRetry, match="重新调用一次"):
+            await make_tools(client, objects, files).plan_shot_frames(make_context(), VIDEO_URL)
+    finally:
+        await client.aclose()
+
+    assert await files.read(NAMESPACE, EXTRACTION_PATH) is None
+
+
 # ── 按批出帧：收敛后真的切格、落帧、写版记录 ────────────────────────────────
 
 
@@ -391,6 +416,54 @@ async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked
     assert result["status"] == "failed"
     assert result["frames"] == []
     assert "取不到素材" in result["error"]
+
+
+async def test_generate_reports_unstored_frames_without_calling_the_generation_failed(
+    media: dict[str, bytes],
+) -> None:
+    """图出了也计费了，只是切出来的帧没存下来：带着记录 id 说清这一点，不报成「生成
+    失败」；版记录也不留——里面没有一个能用的地址。"""
+
+    objects = FakeObjects()
+    files = FakeFileStore()
+    await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
+    generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
+    client = make_client(media)
+    try:
+        tools = make_tools(client, objects, files, generations=generations)
+        await tools.plan_shot_frames(make_context(), VIDEO_URL)
+        objects.error = ObjectWriteFailed(STORE_DOWN)
+        result = await tools.generate_shot_frames(
+            make_context(), [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+        )
+    finally:
+        await client.aclose()
+
+    assert result["status"] == "failed"
+    assert result["frames"] == []
+    assert "生成失败" not in result["message"]
+    assert "生成已完成" in result["message"]
+    assert str(generations.job_ids[0]) in result["error"]
+    assert "Read timed out" in result["error"]
+    assert not await files.entries(NAMESPACE, prefix=GRID_RECORDS_DIR)
+
+
+async def test_anchor_sheet_reports_unstored_cells_the_same_way(media: dict[str, bytes]) -> None:
+    objects = FakeObjects(error=ObjectWriteFailed(STORE_DOWN))
+    files = FakeFileStore()
+    generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
+    client = make_client(media)
+    try:
+        result = await make_tools(
+            client, objects, files, generations=generations
+        ).generate_anchor_sheet(make_context(), ["全身正面平视的女性"])
+    finally:
+        await client.aclose()
+
+    assert result["status"] == "failed"
+    assert result["images"] == []
+    assert "生成失败" not in result["message"]
+    assert not await files.entries(NAMESPACE, prefix=ANCHOR_RECORDS_DIR)
 
 
 async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(

@@ -51,6 +51,7 @@ from iclip.capabilities.shot_video.ports import (
     ImageJob,
     ImageRequest,
     InvalidImageRequest,
+    ObjectWriteFailed,
     PublicObjectWriter,
     ShotVideoPaths,
     VideoUnderstanding,
@@ -292,6 +293,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                     )
         except (ffmpeg.MediaError, BoardError) as exc:
             raise ModelRetry(str(exc)) from exc
+        except ObjectWriteFailed as exc:
+            raise ModelRetry(
+                f"候选帧预览板没存进对象存储：{exc}。重新调用一次；已经存下的板会直接复用，不重传。"
+            ) from exc
         if not reused:
             await self._write(
                 files,
@@ -690,16 +695,15 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         if len(cells) != GRID_CELLS:
             return _failed_payload("整图切格数量异常")
 
-        urls = await asyncio.gather(
-            *(
-                self._cap.objects.put_public_object(
-                    object_key=self._cap.paths.shot_cell(job_id=job.job_id, cell_id=cell_id),
-                    content=cell,
-                    content_type=_JPEG,
-                )
-                for cell_id, cell in zip(cell_ids, cells, strict=False)
+        try:
+            urls = await self._put_all(
+                [
+                    (self._cap.paths.shot_cell(job_id=job.job_id, cell_id=cell_id), cell)
+                    for cell_id, cell in zip(cell_ids, cells, strict=False)
+                ]
             )
-        )
+        except ObjectWriteFailed as exc:
+            return _unstored_payload(exc, job)
         frames_payload = [
             {"no": cell_id, "shot": parse_cell_id(cell_id)[0], "url": url}
             for cell_id, url in zip(cell_ids, urls, strict=True)
@@ -757,16 +761,15 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         if len(cells) != GRID_CELLS:
             return _failed_payload("整图切格数量异常", items_key="images")
 
-        urls = await asyncio.gather(
-            *(
-                self._cap.objects.put_public_object(
-                    object_key=self._cap.paths.anchor_sheet(job_id=job.job_id, index=index),
-                    content=cell,
-                    content_type=_JPEG,
-                )
-                for index, cell in enumerate(cells[: len(descriptions)], start=1)
+        try:
+            urls = await self._put_all(
+                [
+                    (self._cap.paths.anchor_sheet(job_id=job.job_id, index=index), cell)
+                    for index, cell in enumerate(cells[: len(descriptions)], start=1)
+                ]
             )
-        )
+        except ObjectWriteFailed as exc:
+            return _unstored_payload(exc, job, items_key="images")
         images = [{"index": index, "url": url} for index, url in enumerate(urls, start=1)]
         record_path = f"{ANCHOR_RECORDS_DIR}/{job.job_id}.json"
         record = {
@@ -793,6 +796,29 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             "record": record_path,
             "error": None,
         }
+
+    async def _put_all(self, cells: Sequence[tuple[str, bytes]]) -> list[str]:
+        """把切出来的格并行落公开地址，按原顺序返回地址。
+
+        等全部收尾再报第一个失败：默认的 gather 在第一个失败时就抛，其余还在跑的上传
+        就成了没人认领的任务，它们随后的失败只会在日志里留一句「异常从未被取回」。
+        """
+
+        results = await asyncio.gather(
+            *(
+                self._cap.objects.put_public_object(
+                    object_key=object_key, content=content, content_type=_JPEG
+                )
+                for object_key, content in cells
+            ),
+            return_exceptions=True,
+        )
+        urls: list[str] = []
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+            urls.append(result)
+        return urls
 
     async def _slice_grid(self, grid_url: str, *, aspect: str | None) -> tuple[list[bytes], bool]:
         """取回整图按网格线切开；``aspect`` 给定时每格再居中收到该画幅。
@@ -1013,6 +1039,23 @@ def _failed_payload(error: str, *, items_key: str = "frames") -> dict[str, Any]:
 
     return {
         "message": f"生成失败：{error}",
+        "status": _STATUS_FAILED,
+        items_key: [],
+        "error": error,
+    }
+
+
+def _unstored_payload(
+    exc: ObjectWriteFailed, job: ImageJob, *, items_key: str = "frames"
+) -> dict[str, Any]:
+    """图出了、切出来的格却没存进对象存储时的返回值。
+
+    不说成「生成失败」：那次生成已经收敛并计费了，只是产物没落地。
+    """
+
+    error = f"切出来的图没存进对象存储：{exc}（{job.channel} 渠道，记录 {job.job_id}）"
+    return {
+        "message": f"生成已完成，但{error}。重新调用一次。",
         "status": _STATUS_FAILED,
         items_key: [],
         "error": error,

@@ -1,7 +1,8 @@
-"""T-OSS-01：公开对象存储适配器的 key 边界、URL 拼接、幂等写与直传签名。
+"""T-OSS-01：公开对象存储适配器的 key 边界、URL 拼接、幂等写、瞬时故障重试与直传签名。
 
 不打真 OSS：bucket 用替身。这一层自己只做这几件事（拼公网 URL、把同步调用挪出事件
-循环、把 SDK 异常收成一种、把不属于本服务命名空间的 key 挡在外面），验的就是它们。
+循环、对网络故障与 5xx 再发几次、把 SDK 异常收成一种、把不属于本服务命名空间的 key
+挡在外面），验的就是它们。
 """
 
 from __future__ import annotations
@@ -9,8 +10,10 @@ from __future__ import annotations
 import oss2
 import pytest
 
+import iclip.platform.object_store.oss as oss_module
 from iclip.platform.object_store.layout import OSS_ROOT
 from iclip.platform.object_store.oss import (
+    RETRY_ATTEMPTS,
     ObjectStoreUnavailable,
     OssObjectStore,
     OssSettings,
@@ -27,6 +30,23 @@ SETTINGS = OssSettings(
 )
 
 KEY = f"{OSS_ROOT}/generated-images/a.png"
+
+
+@pytest.fixture(autouse=True)
+def no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """重试之间不真等：这里验的是次数与分类，不是节奏。"""
+
+    monkeypatch.setattr(oss_module, "RETRY_BACKOFF_SECONDS", 0.0)
+
+
+def timeout() -> oss2.exceptions.RequestError:
+    """SDK 把 requests 的读超时包成这个形状（status 为 -2）。"""
+
+    return oss2.exceptions.RequestError(OSError("Read timed out. (read timeout=60)"))
+
+
+def server_error(status: int) -> oss2.exceptions.ServerError:
+    return oss2.exceptions.ServerError(status, {}, b"", {})
 
 
 class FakeObjectInfo:
@@ -50,20 +70,24 @@ class FakeBucket:
         self,
         *,
         existing: set[str] | None = None,
-        fail: bool = False,
+        failures: list[Exception] | None = None,
         listed: list[str] | None = None,
         head: FakeHead | None = None,
     ) -> None:
         self.existing = existing or set()
-        self.fail = fail
+        self.failures = list(failures or [])
+        """按顺序抛给接下来的每次请求；用完就正常应答。剩几个就说明少发了几次。"""
         self.listed = listed or []
         self.head = head
         self.writes: list[tuple[str, bytes, str]] = []
         self.signed: list[tuple[str, str, int, dict[str, str], bool]] = []
 
+    def _answer(self) -> None:
+        if self.failures:
+            raise self.failures.pop(0)
+
     def object_exists(self, object_key: str) -> bool:
-        if self.fail:
-            raise oss2.exceptions.RequestError(OSError("boom"))
+        self._answer()
         return object_key in self.existing
 
     def put_object(self, object_key: str, content: bytes, headers: dict[str, str]) -> None:
@@ -81,8 +105,7 @@ class FakeBucket:
         return f"https://oss.test/{key}?signed"
 
     def list_objects(self, prefix: str, max_keys: int) -> FakeListing:
-        if self.fail:
-            raise oss2.exceptions.RequestError(OSError("boom"))
+        self._answer()
         return FakeListing([key for key in self.listed if key.startswith(prefix)][:max_keys])
 
     def head_object(self, key: str) -> FakeHead:
@@ -156,13 +179,64 @@ async def test_empty_content_is_rejected() -> None:
         )
 
 
-async def test_sdk_failure_becomes_one_known_error() -> None:
-    """调用方只需要认一种失败；不让 SDK 的异常类型漏到业务侧。"""
+async def test_a_network_blip_is_retried_and_the_write_still_lands() -> None:
+    """读超时这类网络故障再发一次多半就过了；一次抖动不该把上层整次运行打死。"""
 
-    with pytest.raises(ObjectStoreUnavailable):
-        await store(FakeBucket(fail=True)).put_public_object(
+    bucket = FakeBucket(failures=[timeout()])
+    url = await store(bucket).put_public_object(
+        object_key=KEY, content=b"X", content_type="image/png"
+    )
+
+    assert url == f"https://cdn.test/{KEY}"
+    assert bucket.writes == [(KEY, b"X", "image/png")]
+
+
+async def test_a_server_side_5xx_is_retried_too() -> None:
+    bucket = FakeBucket(failures=[server_error(503)])
+    await store(bucket).put_public_object(object_key=KEY, content=b"X", content_type="image/png")
+
+    assert len(bucket.writes) == 1
+
+
+async def test_sdk_failure_becomes_one_known_error_once_the_attempts_run_out() -> None:
+    """调用方只需要认一种失败，不让 SDK 的异常类型漏到业务侧；报错要说明试过几次，
+    不然日志看起来像只发了一枪。"""
+
+    bucket = FakeBucket(failures=[timeout() for _ in range(RETRY_ATTEMPTS + 1)])
+    with pytest.raises(ObjectStoreUnavailable, match=f"试了 {RETRY_ATTEMPTS} 次"):
+        await store(bucket).put_public_object(
             object_key=KEY, content=b"X", content_type="image/png"
         )
+
+    assert len(bucket.failures) == 1  # 正好发了 RETRY_ATTEMPTS 次，没多发
+    assert bucket.writes == []
+
+
+async def test_client_side_rejections_are_not_retried() -> None:
+    """403 这类是我们自己的问题（凭证、key），再发也是同一个答案——重试只会多等几倍。"""
+
+    bucket = FakeBucket(failures=[server_error(403), server_error(403)])
+    with pytest.raises(ObjectStoreUnavailable) as failure:
+        await store(bucket).put_public_object(
+            object_key=KEY, content=b"X", content_type="image/png"
+        )
+
+    assert "试了" not in str(failure.value)
+    assert len(bucket.failures) == 1  # 只发了一次
+    assert bucket.writes == []
+
+
+async def test_find_object_survives_a_network_blip() -> None:
+    bucket = FakeBucket(
+        failures=[timeout()],
+        listed=[KEY],
+        head=FakeHead(content_type="image/png", content_length=7),
+    )
+
+    found = await store(bucket).find_object(prefix=f"{OSS_ROOT}/generated-images/a.")
+
+    assert found is not None
+    assert found.object_key == KEY
 
 
 def test_signed_put_binds_the_content_type_and_keeps_slashes() -> None:

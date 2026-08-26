@@ -11,15 +11,21 @@ from pydantic_ai.capabilities import Capability
 from iclip.app.capability_table import (
     CapabilityTable,
     GenerationsAdapter,
+    ObjectWriterAdapter,
     build_capability_table,
     resolve_capabilities,
 )
 from iclip.capabilities.shot_video.capability import ShotVideo
-from iclip.capabilities.shot_video.ports import ImageRequest, InvalidImageRequest
+from iclip.capabilities.shot_video.ports import (
+    ImageRequest,
+    InvalidImageRequest,
+    ObjectWriteFailed,
+)
 from iclip.capabilities.workspace.capability import Workspace
 from iclip.config import ResolvedShotVideo
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
+from iclip.platform.object_store.oss import ObjectStoreUnavailable
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import FakeObjects
 
@@ -121,3 +127,23 @@ async def test_generations_adapter_translates_and_reports_bad_parameters() -> No
             cast("Principal", object()),
             ImageRequest(prompt="猫", aspect_ratio="17:9", resolution="1k", channel="dev"),
         )
+
+
+class _StoreDown:
+    async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
+        _ = (object_key, content, content_type)
+        raise ObjectStoreUnavailable("OSS 写入失败（试了 3 次）: Read timed out")
+
+
+async def test_object_writer_adapter_translates_the_failure_and_passes_urls_through() -> None:
+    """平台层的异常能力包不认识，穿出工具就是整次运行中断；适配器翻成能力包自己的类型。"""
+
+    with pytest.raises(ObjectWriteFailed, match="Read timed out"):
+        await ObjectWriterAdapter(_StoreDown()).put_public_object(
+            object_key="k", content=b"x", content_type="image/jpeg"
+        )
+
+    url = await ObjectWriterAdapter(FakeObjects()).put_public_object(
+        object_key="k", content=b"x", content_type="image/jpeg"
+    )
+    assert url == "https://cdn.test/k"
