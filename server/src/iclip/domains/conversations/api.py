@@ -1,7 +1,8 @@
 """对话的 HTTP 面。
 
-七个端点：开一段、列出我的、列出某张单下我的尝试、读历史、改名、换项目、删掉。读用
-``agent:read``，会改动的用 ``agent:run``——能不能看和能不能跑本来就是两件事。
+九个端点：开一段、列出我的、列出某张单下我的尝试、读历史、列工作区文件、读工作区文件、
+改名、换项目、删掉。读用 ``agent:read``，会改动的用 ``agent:run``——能不能看和能不能跑本来
+就是两件事。
 
 别人的对话一律 404，不返 403：那会泄露「这个 id 确实存在」。
 """
@@ -15,6 +16,10 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from iclip.domains.conversations.schemas import (
     ConversationEnvelope,
+    ConversationFileContentOut,
+    ConversationFileEnvelope,
+    ConversationFileOut,
+    ConversationFilesOut,
     ConversationIn,
     ConversationMessagesOut,
     ConversationProjectIn,
@@ -58,6 +63,39 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
     ) -> ConversationMessagesOut:
         messages = await service.history(principal, conversation_id)
         return ConversationMessagesOut(messages=list(messages))
+
+    @router.get("/{conversation_id}/workspace/files", response_model=ConversationFilesOut)
+    async def list_conversation_files(
+        conversation_id: uuid.UUID,
+        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+    ) -> ConversationFilesOut:
+        found = await service.files(principal, conversation_id)
+        return ConversationFilesOut(
+            files=[
+                ConversationFileOut(
+                    path=entry.path,
+                    size_bytes=entry.size_bytes,
+                    version=entry.version,
+                    updated_at=entry.updated_at,
+                )
+                for entry in found
+            ]
+        )
+
+    @router.get("/{conversation_id}/workspace/file", response_model=ConversationFileEnvelope)
+    async def read_conversation_file(
+        conversation_id: uuid.UUID,
+        path: Annotated[str, Query(min_length=1)],
+        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+    ) -> ConversationFileEnvelope:
+        """路径放在查询串里而不是路径段里：文件路径自己就带 ``/``。"""
+
+        found = await service.file(principal, conversation_id, path=path)
+        return ConversationFileEnvelope(
+            file=ConversationFileContentOut(
+                path=found.path, content=found.content, version=found.version
+            )
+        )
 
     @router.get("/by-task/{task_id}", response_model=ConversationsPageOut)
     async def list_task_attempts(

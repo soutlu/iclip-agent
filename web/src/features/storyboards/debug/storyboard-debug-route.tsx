@@ -47,6 +47,7 @@ import {
   type MediaPreviewItem,
 } from '@/shared/ui/media'
 import DebugToolResultImages from './debug-tool-result-images'
+import DebugWorkspaceFiles from './debug-workspace-files'
 import GenerateShotFramesToolDetails from './generate-shot-frames-tool-details'
 
 /** 对话标题的后端上限。 */
@@ -419,45 +420,57 @@ function StoryboardDebugRun({
         </div>
       ) : null}
 
-      <section
-        aria-label="Agent 输出"
-        className={cn(DEBUG_PANEL_CLASS, 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden')}
-      >
-        {timelineItems.length === 0 ? (
-          <div className="grid min-h-0 flex-1 place-items-center border border-dashed border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] p-6 text-center">
-            <div className="flex max-w-sm flex-col items-center">
-              {failureMessage ? (
-                <TriangleAlert
-                  aria-hidden="true"
-                  className="mb-3 text-[var(--color-error)]"
-                  size={24}
-                />
-              ) : (
-                <LoaderCircle
-                  aria-hidden="true"
-                  className="mb-3 animate-spin text-[var(--color-primary)]"
-                  size={24}
-                />
-              )}
-              <p className="text-body font-semibold text-[var(--color-on-surface)]">
-                {failureMessage ? '本次运行没有可显示输出' : '等待第一条运行事件'}
-              </p>
-              <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
-                {failureMessage
-                  ? '失败原因已在上方显示，可以返回运行配置后重试。'
-                  : '历史加载完成后将自动提交 Brief，无需再次操作。'}
-              </p>
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,2fr)_minmax(0,3fr)] gap-4 md:grid-cols-5 md:grid-rows-1">
+        <section
+          aria-label="Agent 输出"
+          className={cn(
+            DEBUG_PANEL_CLASS,
+            'flex min-h-0 min-w-0 flex-col overflow-hidden md:col-span-3',
+          )}
+        >
+          {timelineItems.length === 0 ? (
+            <div className="grid min-h-0 flex-1 place-items-center border border-dashed border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] p-6 text-center">
+              <div className="flex max-w-sm flex-col items-center">
+                {failureMessage ? (
+                  <TriangleAlert
+                    aria-hidden="true"
+                    className="mb-3 text-[var(--color-error)]"
+                    size={24}
+                  />
+                ) : (
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="mb-3 animate-spin text-[var(--color-primary)]"
+                    size={24}
+                  />
+                )}
+                <p className="text-body font-semibold text-[var(--color-on-surface)]">
+                  {failureMessage ? '本次运行没有可显示输出' : '等待第一条运行事件'}
+                </p>
+                <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
+                  {failureMessage
+                    ? '失败原因已在上方显示，可以返回运行配置后重试。'
+                    : '历史加载完成后将自动提交 Brief，无需再次操作。'}
+                </p>
+              </div>
             </div>
-          </div>
-        ) : (
-          <ProjectConversationTimeline
-            activeInterrupt={null}
-            renderToolDetails={renderToolDetails}
-            timelineItems={timelineItems}
-            title="Agent 输出"
+          ) : (
+            <ProjectConversationTimeline
+              activeInterrupt={null}
+              renderToolDetails={renderToolDetails}
+              timelineItems={timelineItems}
+              title="Agent 输出"
+            />
+          )}
+        </section>
+        <div className="min-h-0 min-w-0 md:col-span-2">
+          <DebugWorkspaceFiles
+            conversationId={conversationId}
+            isRunning={isRunning}
+            messages={messages}
           />
-        )}
-      </section>
+        </div>
+      </div>
     </section>
   )
 }

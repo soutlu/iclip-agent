@@ -52,7 +52,7 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - 首页 Storyboards 只展示 `GET /api/video-task-sessions` 返回非空关系的 Agent Projects；新建入口是 Tasks 面板的“进入 Storyboard”，先创建 Project，再创建第一条 VideoTaskSession。
 - 项目页初始化 session tabs 必须以 `GET /api/projects/{projectId}/sessions` 返回的完整项目 session 列表为事实源，按当前工作台 target 过滤后再选择 active session。不得把 project 入口降级为首页项目列表里的首条 session，也不得把项目页初始化绑定到 `GET /api/projects/{projectId}` 里的 `sessionIds` 聚合字段。
 - Storyboard 页面按显式 `videoTaskId` 读取 Task，按对话 id 管理选择、运行与输出；不得按 Project 的 `sessionIds` 顺序、target、Task 顺序或时间做推断式关联。一个 Project 可以有多个 Storyboard，每段对话常驻一个独立 AG-UI runtime host（`shared/agui` 通用装配 `AguiConversationRuntimeProvider`，ADR-0006），仅 active 对话渲染工作台；切换任务不 `cancelRun`、不中断其它对话的后台流。历史经 `GET /api/conversations/{id}/messages` 读回注水，没有「在途 run」决策，注水后不自动发起任何 run；不得复制 messages、isRunning 出 runtime（运行徽标只经 host 内 reporter 上报布尔值）。
-- Storyboard 调试页（`/storyboard-debug`）每次提交先 `POST /api/conversations`（`agentId: "storyboard"`，带来源 `taskId`），拿到对话 id 后再 append 首条 user 消息发起运行；URL 参数 `conversationId` 用于刷新后读回历史。
+- Storyboard 调试页（`/storyboard-debug`）每次提交先 `POST /api/conversations`（`agentId: "storyboard"`，带来源 `taskId`），拿到对话 id 后再 append 首条 user 消息发起运行；URL 参数 `conversationId` 用于刷新后读回历史。右侧「Workspace 文件」面板从 `GET /api/conversations/{id}/workspace/files|file` 只读；重拉时机 = 聊天流里工具结果条数 + 运行是否结束（TanStack Query key 的一部分），正文按 `version` 缓存。
 - `DELETE /api/projects/{projectId}` 删除项目文件夹，删除成功后前端从首页最近项目列表移除对应项目。
 - 普通 AG-UI run 使用官方 `threadId` 字段，值必须等于服务端发放的对话 id，不得使用项目文件夹 id 替代。
 - Storyboard run 固定使用 `STORYBOARD_AGENT.runUrl`（`/api/agents/storyboard/chat`）；前端只配置 `threadId=对话 id` 和这个 URL，参考素材作为 `file` part（`data` 为 HTTP 地址）随首条消息发送，媒体换形状由服务端做。

@@ -162,3 +162,82 @@ async def test_malformed_payload_is_422(client: httpx.AsyncClient, pg_url: str) 
     await login_as_editor(client, pg_url)
     assert (await client.post(URL, json={"agentId": ""})).status_code == 422
     assert (await client.post(URL, json={"nope": 1})).status_code == 422
+
+
+async def seed_workspace_files(pg_url: str, namespace: str, files: dict[str, str]) -> None:
+    """直接往工作区表里放几份稿子，装作 agent 在这段对话里写过。"""
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.begin() as conn:
+            for path, content in files.items():
+                await conn.execute(
+                    text(
+                        "INSERT INTO agent_runtime.workspace_files "
+                        "(namespace, path, content, version, created_at, updated_at) "
+                        "VALUES (:ns, :path, :content, 1, now(), now())"
+                    ),
+                    {"ns": namespace, "path": path, "content": content},
+                )
+    finally:
+        await engine.dispose()
+
+
+async def test_workspace_files_can_be_listed_and_read(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """界面上的工作区面板靠这两个端点：列出这段对话里写下的文件，再按路径读正文。
+
+    只看得到这一段对话的：同一个人另一段对话里的稿子不混进来。路径带 ``/`` 走查询串，
+    这里用带目录的路径把编解码那一趟也走一遍。
+    """
+
+    user_id = await login_as_editor(client, pg_url)
+    mine = (await create(client, title="这段")).json()["conversation"]["id"]
+    other = (await create(client, title="另一段")).json()["conversation"]["id"]
+    await seed_workspace_files(
+        pg_url, f"{user_id}/{mine}", {"分镜/第一集.md": "第一集的稿子", "提纲.md": "三幕"}
+    )
+    await seed_workspace_files(pg_url, f"{user_id}/{other}", {"别的.md": "不该出现"})
+
+    listed = await client.get(f"{URL}/{mine}/workspace/files")
+    assert listed.status_code == 200, listed.text
+    files = listed.json()["files"]
+    # 按码点排（分 < 提），不是按写入顺序。
+    assert [item["path"] for item in files] == ["分镜/第一集.md", "提纲.md"]
+    assert {item["version"] for item in files} == {1}
+    assert all(item["sizeBytes"] > 0 and item["updatedAt"] for item in files)
+
+    read = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "分镜/第一集.md"})
+    assert read.status_code == 200, read.text
+    assert read.json() == {
+        "file": {"path": "分镜/第一集.md", "content": "第一集的稿子", "version": 1}
+    }
+
+    # 另一段对话只看得到它自己的；一份都没写过的是空列表，不是 404。
+    other_files = (await client.get(f"{URL}/{other}/workspace/files")).json()["files"]
+    assert [item["path"] for item in other_files] == ["别的.md"]
+    empty = (await create(client, title="空的")).json()["conversation"]["id"]
+    assert (await client.get(f"{URL}/{empty}/workspace/files")).json() == {"files": []}
+
+    # 没有这个文件是 404；路径不合语法是 422（用户给的输入，不能漏成 500）。
+    missing = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "没有.md"})
+    malformed = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "../越界.md"})
+    assert (missing.status_code, malformed.status_code) == (404, 422)
+
+    # 别人的对话：两个端点都是 404，和其他端点同一个口径。
+    async with make_client(app) as stranger:
+        await login_as_editor(stranger, pg_url, username="mallory")
+        listed_by_stranger = await stranger.get(f"{URL}/{mine}/workspace/files")
+        read_by_stranger = await stranger.get(
+            f"{URL}/{mine}/workspace/file", params={"path": "提纲.md"}
+        )
+    assert (listed_by_stranger.status_code, read_by_stranger.status_code) == (404, 404)
+
+
+async def test_workspace_files_require_login(client: httpx.AsyncClient) -> None:
+    some = "00000000-0000-0000-0000-000000000000"
+    assert (await client.get(f"{URL}/{some}/workspace/files")).status_code == 401
+    assert (
+        await client.get(f"{URL}/{some}/workspace/file", params={"path": "x"})
+    ).status_code == 401

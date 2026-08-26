@@ -7,7 +7,13 @@ from typing import Any
 
 from iclip.domains.conversations.api import create_conversations_router
 from iclip.domains.conversations.repository import ConversationRepository
-from iclip.domains.conversations.service import ConversationService, PurgeDerived, ReadHistory
+from iclip.domains.conversations.service import (
+    ConversationService,
+    ListDerivedFiles,
+    PurgeDerived,
+    ReadDerivedFile,
+    ReadHistory,
+)
 
 
 @dataclass(frozen=True)
@@ -23,14 +29,23 @@ def build_conversations_module(
     *,
     purge_derived: PurgeDerived,
     read_history: ReadHistory,
+    list_derived_files: ListDerivedFiles,
+    read_derived_file: ReadDerivedFile,
 ) -> ConversationsModule:
     """装配 conversations。
 
-    ``purge_derived``（删对话时连带删掉派生物）与 ``read_history``（读这段对话发生过
-    的消息）都是由组合根接线的口子；本模块不知道接上去的是什么，见 ``service.py``。
+    四个口子都由组合根接线：``purge_derived``（删对话时连带删掉派生物）、``read_history``
+    （读这段对话发生过的消息）、``list_derived_files`` 与 ``read_derived_file``（列出、读取
+    agent 在这段对话里写下的文件）。本模块不知道接上去的是什么，见 ``service.py``。
     """
 
-    service = ConversationService(repo, purge_derived=purge_derived, read_history=read_history)
+    service = ConversationService(
+        repo,
+        purge_derived=purge_derived,
+        read_history=read_history,
+        list_derived_files=list_derived_files,
+        read_derived_file=read_derived_file,
+    )
     return ConversationsModule(
         routers=(create_conversations_router(service),),
         service=service,

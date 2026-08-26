@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,7 +25,7 @@ PurgeDerived = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 
 **这一层不知道那是什么。** 对话的生命周期归它管（删对话要连带删干净），但「附属物长
 什么样、存在哪张表、地盘怎么拼名字」是别人的知识。所以这里只留一个口子，接什么由组
-合根决定——本模块的代码里因此不会出现工作区的名字。
+合根决定——本模块的代码里因此不会出现工作区的存储与命名空间。
 """
 
 
@@ -36,8 +37,37 @@ ReadHistory = Callable[[uuid.UUID], Awaitable[tuple[dict[str, Any], ...]]]
 """
 
 
+@dataclass(frozen=True, slots=True)
+class DerivedFile:
+    """agent 在这段对话里写下的一个文件的元信息。"""
+
+    path: str
+    size_bytes: int
+    version: int
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedFileContent:
+    """一个派生文件的全文与版本号。"""
+
+    path: str
+    content: str
+    version: int
+
+
+ListDerivedFiles = Callable[[uuid.UUID, uuid.UUID], Awaitable[Sequence[DerivedFile]]]
+"""列出一段对话派生出来的文件，入参是 ``(属主, 对话 id)``。"""
+
+ReadDerivedFile = Callable[[uuid.UUID, uuid.UUID, str], Awaitable[DerivedFileContent | None]]
+"""读一段对话派生出来的某个文件，入参是 ``(属主, 对话 id, 路径)``；没有这个文件返回
+``None``。路径是用户给的字符串，不合语法时由接线方抛 ``ValidationFailed``——路径的语法
+归存储那一侧定，这里不重复一份。
+"""
+
+
 class ConversationService:
-    """建对话、列对话、改名、删除，以及读这段对话的历史。"""
+    """建对话、列对话、改名、删除，以及读这段对话的历史与派生文件。"""
 
     def __init__(
         self,
@@ -45,10 +75,14 @@ class ConversationService:
         *,
         purge_derived: PurgeDerived,
         read_history: ReadHistory,
+        list_derived_files: ListDerivedFiles,
+        read_derived_file: ReadDerivedFile,
     ) -> None:
         self._repo = repo
         self._purge_derived = purge_derived
         self._read_history = read_history
+        self._list_derived_files = list_derived_files
+        self._read_derived_file = read_derived_file
 
     async def history(
         self, principal: Principal, conversation_id: uuid.UUID
@@ -57,6 +91,25 @@ class ConversationService:
 
         await self._repo.get(conversation_id, owner=principal.user_id)
         return await self._read_history(conversation_id)
+
+    async def files(
+        self, principal: Principal, conversation_id: uuid.UUID
+    ) -> Sequence[DerivedFile]:
+        """列出这段对话里写下的文件。先确认它是自己的，别人的一律 404。"""
+
+        conversation = await self._repo.get(conversation_id, owner=principal.user_id)
+        return await self._list_derived_files(conversation.owner_user_id, conversation.id)
+
+    async def file(
+        self, principal: Principal, conversation_id: uuid.UUID, *, path: str
+    ) -> DerivedFileContent:
+        """读这段对话里的一个文件。对话不是自己的、或者没有这个文件，都是 404。"""
+
+        conversation = await self._repo.get(conversation_id, owner=principal.user_id)
+        found = await self._read_derived_file(conversation.owner_user_id, conversation.id, path)
+        if found is None:
+            raise NotFound("这段对话里没有这个文件")
+        return found
 
     async def create(
         self,
@@ -163,4 +216,13 @@ class ConversationService:
         await self._repo.touch_run(parsed, owner=owner, agent_id=agent_id, run_id=run_id)
 
 
-__all__ = ["MAX_LIST_LIMIT", "ConversationService", "PurgeDerived"]
+__all__ = [
+    "MAX_LIST_LIMIT",
+    "ConversationService",
+    "DerivedFile",
+    "DerivedFileContent",
+    "ListDerivedFiles",
+    "PurgeDerived",
+    "ReadDerivedFile",
+    "ReadHistory",
+]

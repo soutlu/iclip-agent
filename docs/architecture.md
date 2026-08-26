@@ -79,7 +79,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/src/iclip/config/` | RuntimeConfig：YAML 源（形状）+ 那几个 `*Env` 类（环境变量清单） |
 | `server/src/iclip/domains/identity/` | 唯一业务模块：八件套 + `middleware.py`（PrincipalResolver）+ `rbac.py` + `sso.py` + `pms.py` |
 | `server/src/iclip/domains/agents/` | agent 运行的 HTTP 面：`api.py`（发起运行 + 接着读事件）、`public.py`（`AgentRunDeps`：一次运行的身份 + 所属对话），只认识注入进来的运行入口 |
-| `server/src/iclip/domains/conversations/` | 对话（会话）：`models.py`（对话行）、`repository.py`/`infra_sql.py`（自有的表）、`schemas.py`（wire 形状）、`service.py`（含删除时连带清理的口子）、`api.py`/`module.py`。不认识 agent 引擎，也不认识工作区 |
+| `server/src/iclip/domains/conversations/` | 对话（会话）：`models.py`（对话行）、`repository.py`/`infra_sql.py`（自有的表）、`schemas.py`（wire 形状）、`service.py`（含删除时连带清理、读历史、列/读派生文件四个口子）、`api.py`/`module.py`。不认识 agent 引擎，也不认识工作区的存储与命名空间 |
 | `server/src/iclip/domains/generation/` | 媒体生成：`schemas.py`（请求类型，同时是 wire 与入库形状）、`models.py`（job 行）、`repository.py`/`infra_sql.py`（只有事实，没有排期）、`provider.py` + `multiflow.py`（视频）/`nano_banana.py`（图像）、`queue.py`（三条队列 + 任务体 + 捡卡死任务）、`service.py`/`api.py`/`module.py` |
 | `server/src/iclip/domains/products/` | 产品资料查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`tables.py`（码→名字的三张常量表）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
 | `server/src/iclip/domains/inspirations/` | 爆款视频查询：`catalog_pg.py`（外部只读源的唯一 SQL 出口）、`models.py`/`schemas.py`/`api.py`/`module.py`。自己不建表 |
@@ -100,7 +100,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ## 4. 装配流程
 
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid、拒绝未知字段），这一步不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、按目录约定找出同级 `instructions.md`、声明了 `skills` 时把同级 `skills/` 库解析成绝对路径，文件或目录缺失即报错（声明文件本身也必须存在：路径打错/部署漏目录必须大声失败，不降级成空注册表）。
-2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要一个「删对话时连带清掉派生物」的回调，组合根在这里把它接到工作区的清空上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 配了公开对象存储时建它（`OSS_BUCKET` 非空即开；素材、生成、镜头帧共用这一只桶）并装 assets 模块（没有桶就没有上传这回事，整组路由不挂）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 一起装，缺一个 env 即报错；对象存储没开也报错——图片结果没处转存）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 配了产品资料目录 / 爆款视频库时各建一个只读 engine 并装对应模块（两个连接都在会话层设成只读）→ 装 tasks 模块（它要一个「按款号抄快照」的窄协议，组合根在这里把它接到产品资料库与桶上；缺一个就接一个只会响亮拒绝的替代品——所以它排在 products 与桶之后）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、配了桶时的 uploads 与 assets、conversations、配了目录时的 products 与 inspirations、tasks、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
+2. 组合根 `app/bootstrap`：先 `resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量在此一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块（它要几个口子：「删对话时连带清掉派生物」「读历史」「列/读派生文件」，组合根在这里把它们分别接到工作区的清空与读取、引擎账本的读取器上——对话那侧不认识工作区，工作区那侧也不认识对话，只有组合根同时认识两者）→ 配了公开对象存储时建它（`OSS_BUCKET` 非空即开；素材、生成、镜头帧共用这一只桶）并装 assets 模块（没有桶就没有上传这回事，整组路由不挂）→ 开了媒体生成时装 generation 模块（`media_generation` 段 + `VIDEO_SUBMIT_URL` 非空；两家 provider 一起装，缺一个 env 即报错；对象存储没开也报错——图片结果没处转存）→ 开了镜头素材能力时建它取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe → 配了产品资料目录 / 爆款视频库时各建一个只读 engine 并装对应模块（两个连接都在会话层设成只读）→ 装 tasks 模块（它要一个「按款号抄快照」的窄协议，组合根在这里把它接到产品资料库与桶上；缺一个就接一个只会响亮拒绝的替代品——所以它排在 products 与桶之后）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来，所以生成模块要排在它前面——`shot_video` 用的是生成域的服务与对象存储）→ 声明了 agent 时再建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 就整组路由不挂）→ 新建唯一 FastAPI → 注册路由（healthz、auth、users、api-keys、可选 sso、开了生成时的 generations、配了桶时的 uploads 与 assets、conversations、配了目录时的 products 与 inspirations、tasks、有 agent 时的 agents）→ 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接（HTTP 面受理时就要往队列里排）再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**（它们还在用这个 engine 落库）。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -284,6 +284,8 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 | `POST /inspirations/videos/search` | `assets:read` | 按 **WMS 编号**搜这些款的爆款视频，服务端按指定维度取 top-N。零副作用；没配爆款库时整组不挂载。见 §14 |
 | `POST /conversations` | `agent:run` | 开一段对话；id 由服务端生成，客户端拿它当 `threadId` |
 | `GET /conversations` | `agent:read` | 我的对话，最近活动的排前面（`limit` ≤ 100）。别人的看不见，治理者也没有看别人的口子 |
+| `GET /conversations/{id}/messages` | `agent:read` | 这段对话发生过的消息（AG-UI 形状）。别人的一律 404 |
+| `GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file?path=` | `agent:read` | 列出 / 读取 agent 在这段对话里写下的工作区文件，只读。路径不合语法 422；别人的一律 404 |
 | `PATCH /conversations/{id}`、`DELETE /conversations/{id}` | `agent:run` | 改名 / 删除；删除连带清掉这段对话的工作区文件。别人的一律 404 |
 | `GET /tasks` | `tasks:read` | 需求单列表，最近改动的排前面（`limit` ≤ 100，可加 `status=` 筛一档）。**人人看得见全部**——它是工作队列，不是私人资源 |
 | `GET /tasks/{id}` | `tasks:read` | 查一张。不存在才 404 |
@@ -390,6 +392,8 @@ iclip.generation_jobs ◀────────────────┤    
 **运行记录（`agent_runtime.runs`）不加指向 `conversations` 的外键。** 那几张表是官方结构的镜像（只换数据库实现，不改表结构），而且它记的是引擎的运行——一次对话里主 agent 一行、每个下属各一行——跟「用户发的一条消息」不是一回事。两边靠 `conversation_id` 这个字段对上，已经有索引。
 
 **删除对话连带删掉工作区文件，但这条线接在组合根。** 工作区靠拼出来的命名空间 `{用户 id}/{对话 id}` 认领地盘，两张表之间没有外键，所以连带关系只能由代码保证。conversations 只声明一个「删掉这段对话派生出来的东西」的口子（`PurgeDerived`），不知道接上去的是什么；命名空间怎么拼只写在 `capabilities/workspace/scope.py` 一处（两处拼法哪天不一致，就会静默删错地方）。**先删派生的，再删对话行**：两者在不同的连接上凑不成一个事务，顺序是唯一能给的保证——崩在中间留下「派生的没了、对话还在」，再删一次即可；反过来才麻烦，对话行没了那些文件就再没人认领。运行记录不删，那是账本。
+
+**读历史与读工作区文件走同一种口子。** conversations 另外声明 `ReadHistory`（读这段对话的消息）、`ListDerivedFiles` / `ReadDerivedFile`（列出、读取派生文件），都由组合根接线：历史接到引擎账本的读取器上，文件接到工作区存储上（命名空间照样只在 `scope.py` 拼）。这一层只做归属判断——先确认对话是自己的，再去读；路径语法归存储那一侧定，不合法在组合根翻成 422，不漏成 500。工作区文件对外**只读、无推送**：界面想知道有没有新文件就重拉列表，按 `version` 判断正文变没变。
 
 ## 13. 产品资料查询
 

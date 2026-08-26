@@ -11,7 +11,7 @@
 | 项目文件夹 | `/api/projects*` | `src/features/projects/api/producer-project.api.ts` |
 | Video Task 与 Session 关系 | `/api/video-task-sessions*` | `src/features/video-task-sessions/` |
 | Session Workspace / assets / generations | `/api/sessions/{sessionId}*` | `src/features/projects/api/producer-session-workspace.api.ts` + `src/features/chat/runtime/project-agui-runtime.ts` |
-| 对话与 Storyboard 运行 | `/api/conversations*`、`/api/agents/storyboard/chat` | `src/features/conversations/api/`、`src/features/storyboards/runtime/`、`src/shared/agui/` |
+| 对话、对话工作区文件与 Storyboard 运行 | `/api/conversations*`（含 `/{id}/workspace/*`）、`/api/agents/storyboard/chat` | `src/features/conversations/api/`、`src/features/storyboards/runtime/`、`src/features/storyboards/debug/debug-workspace-files.tsx`、`src/shared/agui/` |
 | Producer 聊天运行（尚未接到本仓后端） | `/api/agui/teams/producer*`；run 历史走 `/api/sessions/{sessionId}/runs` | `src/features/chat/runtime/`、`src/features/chat/agui/` |
 | 视频生成 | `/api/video-generations` | `src/features/projects/api/producer-project.api.ts` |
 | 素材上传与转存 | `/api/uploads/sign`、`/api/assets*` | `src/shared/lib/file-upload.ts` |
@@ -233,6 +233,8 @@ Storyboard 调试页走的就是这一组。运行端点固定在 `src/shared/co
 ```http
 POST /api/conversations                         # 开一段对话：{ agentId, title?, taskId?, projectId? } → 201 { conversation }
 GET  /api/conversations/{id}/messages           # 读历史：{ messages: [AG-UI 消息] }
+GET  /api/conversations/{id}/workspace/files    # 这段对话里 agent 写下的文件：{ files: [{ path, sizeBytes, version, updatedAt }] }
+GET  /api/conversations/{id}/workspace/file?path=  # 读一个文件：{ file: { path, content, version } }
 POST /api/agents/storyboard/chat                # 运行：官方 RunAgentInput，text/event-stream
 ```
 
@@ -240,7 +242,7 @@ POST /api/agents/storyboard/chat                # 运行：官方 RunAgentInput�
 - 运行由 `@ag-ui/client` 的原厂 `HttpAgent` 发起（`Content-Type: application/json` + `Accept: text/event-stream`，七个字段齐全）；`runId` 由 assistant-ui runtime 铸造。用户消息里的参考素材是 `file` part（`data` 为 HTTP 地址），adapter 转成规范媒体 part，服务端再换成模型形状。
 - 历史经 `GET /conversations/{id}/messages` 读回、`fromAgUiMessages()` 还原后注水；一次都没跑过是空数组，不是 404。响应里没有「在途 run」决策，前端也不做。
 - **断线不自动重发。** 后端的运行不绑在这次请求上，会自己跑完并落库；再 POST 一次是开一次新运行。传输中断（断网、没收到终止事件就 EOF）在前端只呈现为一句错误，刷新页面从存档读回结果。终帧可能是 `RUN_ERROR` 且 `code` 为 `RUN_INTERRUPTED`（服务端进程没跑完就没了），按普通失败呈现。
-- 后端目前**没有**读工作区文件的接口，调试页不再展示「Workspace 文件」面板。
+- **「Workspace 文件」面板只读**，走上面两个 `workspace/*` 端点：列表带 `version`，正文查询按 `(path, version)` 缓存——版本没变就不重读。刷新时机不靠工具名：聊天流里每有一个工具调用出了结果、或运行结束，就重拉一次列表（写文件的不只 `write_file` 那几件，镜头素材工具也会顺手往工作区写）。路径不合语法是 422，没有这个文件是 404，别人的对话两个端点都是 404。没有推送：页面刷新后运行还在跑的话，要等下一次流事件才会更新。
 
 ### Producer 聊天运行（旧后端形状，尚未接到本仓后端）
 

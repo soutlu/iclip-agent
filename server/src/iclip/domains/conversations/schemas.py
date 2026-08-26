@@ -81,6 +81,29 @@ class ConversationMessagesOut(CamelModel):
     messages: list[dict[str, Any]]
 
 
+class ConversationFileOut(CamelModel):
+    """agent 在这段对话里写下的一个文件的元信息。``version`` 变了内容才变，前端据此决定要不要重读。"""
+
+    path: str
+    size_bytes: int
+    version: int
+    updated_at: datetime
+
+
+class ConversationFilesOut(CamelModel):
+    files: list[ConversationFileOut]
+
+
+class ConversationFileContentOut(CamelModel):
+    path: str
+    content: str
+    version: int
+
+
+class ConversationFileEnvelope(CamelModel):
+    file: ConversationFileContentOut
+
+
 def conversation_out(conversation: Conversation) -> ConversationOut:
     """领域行 → wire 形状。属主不外发：调用方看到的本来就只有自己的对话。"""
 
@@ -101,6 +124,10 @@ __all__ = [
     "MAX_AGENT_ID_CHARS",
     "MAX_TITLE_CHARS",
     "ConversationEnvelope",
+    "ConversationFileContentOut",
+    "ConversationFileEnvelope",
+    "ConversationFileOut",
+    "ConversationFilesOut",
     "ConversationIn",
     "ConversationMessagesOut",
     "ConversationOut",

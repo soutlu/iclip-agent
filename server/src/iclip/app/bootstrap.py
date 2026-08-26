@@ -25,7 +25,7 @@ from iclip.app.logging import configure_logging
 from iclip.app.task_styles import ProductStyleSnapshots, UnavailableStyleSnapshots
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.workspace.scope import namespace_for
-from iclip.common.errors import DomainError
+from iclip.common.errors import DomainError, ValidationFailed
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -44,6 +44,7 @@ from iclip.domains.assets.infra_sql import SqlAssetRepository
 from iclip.domains.assets.module import build_assets_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.module import build_conversations_module
+from iclip.domains.conversations.service import DerivedFile, DerivedFileContent
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.module import GenerationModule, build_generation_module
 from iclip.domains.generation.multiflow import MultiflowSettings
@@ -78,6 +79,7 @@ from iclip.harness.runs import RunBroker, RunStreamSettings
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.platform.file_store.pg import PgFileStore
+from iclip.platform.file_store.store import InvalidPath
 from iclip.platform.http import status_code_for
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import (
@@ -410,6 +412,35 @@ def build_app(
 
         await workspace_store.purge_namespace(namespace_for(owner, str(conversation_id)))
 
+    async def list_conversation_files(
+        owner: uuid.UUID, conversation_id: uuid.UUID
+    ) -> tuple[DerivedFile, ...]:
+        """列出 agent 在一段对话里写下的文件，给界面上的工作区面板看。"""
+
+        entries = await workspace_store.entries(namespace_for(owner, str(conversation_id)))
+        return tuple(
+            DerivedFile(
+                path=entry.path,
+                size_bytes=entry.size_bytes,
+                version=entry.version,
+                updated_at=entry.updated_at,
+            )
+            for entry in entries
+        )
+
+    async def read_conversation_file(
+        owner: uuid.UUID, conversation_id: uuid.UUID, path: str
+    ) -> DerivedFileContent | None:
+        """读其中一个文件。路径是用户给的，不合语法就是 422，不能漏成 500。"""
+
+        try:
+            stored = await workspace_store.read(namespace_for(owner, str(conversation_id)), path)
+        except InvalidPath as exc:
+            raise ValidationFailed(str(exc)) from exc
+        if stored is None:
+            return None
+        return DerivedFileContent(path=stored.path, content=stored.content, version=stored.version)
+
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(active_engine)
     media = MediaCodec(
@@ -430,6 +461,8 @@ def build_app(
         SqlConversationRepository(active_engine),
         purge_derived=purge_conversation_workspace,
         read_history=read_conversation_history,
+        list_derived_files=list_conversation_files,
+        read_derived_file=read_conversation_file,
     )
     projects = build_projects_module(SqlProjectRepository(active_engine))
     # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
