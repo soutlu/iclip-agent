@@ -62,7 +62,7 @@ AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + 
 
 - 前端 JavaScript 持有、存储或转发任何 token；恢复任何形态的 BFF、cookie 换发或 `producer_access_token`（[ADR-0001](docs/adr/0001-vite-spa-same-origin-no-bff.md)）。
 - 生成或依赖 `turn-N` / `turnId`——聊天、HITL 与 tool log 身份使用后端 `message.id` / `toolCallId`；Workspace artifact 身份使用 canonical path 派生的 `workspace:${path}`。
-- 从 AG-UI messages 或 tool result 正文提取画布产物——产物正文只从 Session Workspace list/read 恢复；成功写入工具的 `{ message, path }` 只是重新读取通知。
+- 从 AG-UI messages 或 tool result 正文提取画布产物——产物正文只从 Session Workspace list/read 恢复；工具结果只是重新读取通知。
 - 权限门控引入前端用户名白名单——只判 `user.permissions` 后端权限字符串。
 - 绕过 `apiFetch(path, schema)` 写裸 fetch REST（§3 三类豁免之外）；绕过 `env.ts` 直接读 `import.meta.env`。
 - 手改 `src/routeTree.gen.ts`。

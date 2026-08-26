@@ -25,7 +25,7 @@ export type {
 } from './contracts'
 export type { ProducerProjectMediaItem, ProducerProjectMediaKind } from './project-state.types'
 export { projectConversationTimelineItemsFromAssistantMessages } from './runtime/project-conversation-timeline'
-export { workspaceWriteResultsRevision } from './runtime/project-workspace-tool-results'
+export { completedToolResultsRevision } from './runtime/project-tool-results'
 export {
   producerProjectMediaToComposerReference,
   producerProjectMediaToMediaComposerLibraryMedia,

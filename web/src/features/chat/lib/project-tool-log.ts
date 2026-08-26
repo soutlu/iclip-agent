@@ -6,7 +6,6 @@ import type {
   ProjectToolLogEntry,
   ProjectToolLogStage,
 } from '../contracts'
-import { workspaceWriteToolResult } from '../runtime/project-workspace-tool-results'
 
 const PROJECT_TOOL_LOG_START_STATES = new Set(['input-available', 'input-streaming'])
 const PROJECT_TOOL_LOG_COMPLETED_STATES = new Set(['output-available'])
@@ -162,6 +161,18 @@ const targetLabelFromToolInput = ({
       return undefined
   }
 }
+
+/**
+ * 从工具结果里取一句给用户看的完成文案。
+ *
+ * 只认 `message` 字段：工具交付了什么，写在这个字段里的那句话说得比通用文案准。
+ * 纯字符串结果一律不取——`read_file` 之类回的就是文件正文，整份灌进日志。
+ *
+ * @param output - 工具调用输出。
+ * @returns 结果自带的完成文案；没有时返回空字符串。
+ */
+const toolResultMessage = (output: unknown) =>
+  isRecord(output) ? normalizeText(output.message) : ''
 
 /**
  * 判断工具名是否有当前启用的日志映射规则。
@@ -416,7 +427,7 @@ const getProjectToolLogStagePriority = (stage: ProjectToolLogStage) =>
  * @param params.rawToolName - 原始工具名。
  * @param params.stage - 工具调用阶段。
  * @param params.input - 工具调用输入。
- * @param params.output - 工具调用输出；标准 Workspace 写入结果可提供完成文案。
+ * @param params.output - 工具调用输出；结果自带 `message` 时用它当完成文案。
  * @param params.timestamp - 可选日志时间戳。
  * @param params.toolCallId - 工具调用 id。
  * @returns 工具调用 id 和工具名有效时返回工具日志；无效时返回 null。
@@ -456,20 +467,14 @@ export const createProjectToolLogEntry = ({
     input,
     rawToolName: normalizedRawToolName,
   })
-  const workspaceResult =
-    stage === 'completed'
-      ? workspaceWriteToolResult({
-          output,
-          rawToolName: normalizedRawToolName,
-        })
-      : null
+  const resultMessage = stage === 'completed' ? toolResultMessage(output) : ''
 
   return {
     actorLabel,
     dedupeKey,
     id: dedupeKey,
     message:
-      workspaceResult?.message ??
+      resultMessage ||
       formatProjectToolLogMessage({
         actorLabel,
         stage,

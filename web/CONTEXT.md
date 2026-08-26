@@ -22,8 +22,8 @@ _不是_：AG-UI 消息推导物、tool result 正文、前端缓存。
 **Workspace artifact identity**：
 Workspace 产物的稳定领域 id 由后端 canonical path 确定：`workspace:${path}`。它不是 message id、tool call id 或数据库 fact row id。
 
-**Workspace 写入通知**：
-`write_file` / `edit_file` / `image_parser` / `video_parser` / `write_video_shots` 成功结果统一为 `{ message, path }`。该结果只表示对 canonical path 重新 list/read；不携带、不替代 Workspace 正文。
+**Workspace 重读通知**：
+任何工具出了结果都触发一次 Workspace 全量 list/read——写工作区的不止 `write_file` 那几件，镜头素材工具也会顺手往里写，按工具名筛就会漏掉它们。工具结果只是这个通知，不携带、不替代 Workspace 正文。
 
 **项目（project）与会话（session）**：
 project 是后端生成 id 的项目文件夹入口：Producer Agent 与 Direct Canvas 使用 `/projects/{projectId}`，Task 驱动的 Storyboard 使用 `/storyboards/{projectId}`。session 是 Agno 会话，也是运行目标与聊天运行态的归属单位；`target` 建 session 时选定、之后不可改，同一 Agent project 可以包含不同 target 的 sessions。AG-UI `threadId` 恒等于当前 `sessionId`，不是项目文件夹 id。
@@ -74,7 +74,7 @@ _不是_：按内容高度或视窗变化可随意改写的状态。
 1. **登录态只存在于后端种的 HttpOnly `iclip_session` cookie**；`GET /api/users/me` 是登录态唯一事实源（经 react-query-auth 进 TanStack Query 缓存）。前端 JavaScript 不持有、不存储、不转发任何 token（[ADR-0001](docs/adr/0001-vite-spa-same-origin-no-bff.md)）。
 2. **浏览器只调用同源 `/api/*`**；vite proxy / 生产反代负责 `^/api` rewrite，cookie 自动携带，前端不注入 `Authorization` 头。Vite 不得把 `/api` 重定向到另一个 origin；host-only cookie 不跨 `localhost` / `127.0.0.1` 共享，同一登录会话必须固定 Host。`FRONTEND_PUBLIC_ORIGIN` 只定义 SSO 回跳的前端公开 origin。
 3. **身份只来自后端**：聊天、HITL 与 tool log 使用 `message.id` / `toolCallId`（加 part index）；Workspace artifact 使用 canonical path 派生的 `workspace:${path}`；不存在前端派生轮次 id。
-4. **画布持久化产物只从 Session Workspace list/read 恢复**；messages 只负责聊天渲染，`{ message, path }` 只触发重新读取。
+4. **画布持久化产物只从 Session Workspace list/read 恢复**；messages 只负责聊天渲染，工具结果只触发重新读取。
 5. **`threadId === sessionId`**；session 运行态（messages、interrupts、eventIndex、stream lifecycle）只属于对应 `ProjectChatProvider(sessionId)`，project 层只管理列表、active、indicators 与订阅集合。`RUN_STARTED.runId` 只标识当前 AG-UI 生命周期；普通 run 的断流恢复只使用服务端提供的 `rawEvent.run_id + agui.event_index` 瞬态游标，前端不得假定两种 run id 相等。HITL continuation 的 `resume[]` 是一次性用户响应，断流后不得自动重发或与 `reconnect` 组合，只能在重新挂载后从 session restore 恢复。
 6. **权限门控只判 `user.permissions` 后端权限字符串**（如 `analytics:read`）。
 7. **边界过 zod、非法即失败**：环境变量经 `env.ts` schema，REST 响应经 `apiFetch(path, schema)`；Workspace read/PUT 必须返回 `ETag`，缺失即失败。AG-UI state 是通用官方 state，前端不要求产品私有字段。

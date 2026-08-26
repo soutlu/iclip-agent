@@ -35,7 +35,7 @@ import {
   projectConversationTimelineItemsFromAssistantMessages,
 } from '../runtime/project-conversation-timeline'
 import { producerProjectMediaToMediaComposerLibraryMedia } from '../runtime/project-state.adapters'
-import { workspaceWriteResultsRevision } from '../runtime/project-workspace-tool-results'
+import { completedToolResultsRevision } from '../runtime/project-tool-results'
 import ProjectAssistantRuntimeProvider, { useProjectMemberSegments } from '../agui/provider'
 import {
   type ProjectChatAskUserQuestionContextValue,
@@ -229,14 +229,14 @@ function ProjectChatBusinessProvider({
   const postRunMetadataControllerRef = useRef<AbortController | null>(null)
   const generationRecordsRef = useRef<Record<string, unknown>[]>([])
   const lastGenerationRecordsKeyRef = useRef<string | null>(producerGenerationRecordsKey([]))
-  const lastWorkspaceWriteResultsRevisionRef = useRef<string | null>(null)
-  const runHasWorkspaceWriteRefreshRef = useRef(false)
+  const lastToolResultsRevisionRef = useRef<string | null>(null)
+  const runHasToolResultRefreshRef = useRef(false)
   const pendingDraftConsumedRef = useRef(false)
   const submissionInFlightRef = useRef(false)
   const threadMessagesRef = useRef<ThreadMessage[]>([])
   const wasThreadRunningRef = useRef(false)
-  const workspaceWriteRevision = useMemo(
-    () => workspaceWriteResultsRevision({ memberSegments, messages: threadMessages }),
+  const toolResultsRevision = useMemo(
+    () => completedToolResultsRevision({ memberSegments, messages: threadMessages }),
     [memberSegments, threadMessages],
   )
 
@@ -417,8 +417,8 @@ function ProjectChatBusinessProvider({
     setProjectMedia([])
     generationRecordsRef.current = []
     lastGenerationRecordsKeyRef.current = producerGenerationRecordsKey([])
-    lastWorkspaceWriteResultsRevisionRef.current = null
-    runHasWorkspaceWriteRefreshRef.current = false
+    lastToolResultsRevisionRef.current = null
+    runHasToolResultRefreshRef.current = false
     threadMessagesRef.current = []
 
     return () => {
@@ -477,29 +477,30 @@ function ProjectChatBusinessProvider({
     })
   }, [applyClassifiedError, isHydrated, refreshProjectBusinessState])
 
-  // 写入工具结果中的 path 只触发重读；画布正文始终来自 Workspace API。
+  // 任何工具出了结果都重读一次：写工作区的不止写文件那几件工具。结果正文不进
+  // 画布，画布正文始终来自 Workspace API。
   useEffect(() => {
     if (!isHydrated) {
       return
     }
 
-    if (lastWorkspaceWriteResultsRevisionRef.current === null) {
-      lastWorkspaceWriteResultsRevisionRef.current = workspaceWriteRevision
+    if (lastToolResultsRevisionRef.current === null) {
+      lastToolResultsRevisionRef.current = toolResultsRevision
       return
     }
 
-    if (lastWorkspaceWriteResultsRevisionRef.current === workspaceWriteRevision) {
+    if (lastToolResultsRevisionRef.current === toolResultsRevision) {
       return
     }
 
-    lastWorkspaceWriteResultsRevisionRef.current = workspaceWriteRevision
+    lastToolResultsRevisionRef.current = toolResultsRevision
 
     // 同一批事件已经进入终态时，由下面的终态 effect 做一次收敛重读。
     if (!threadIsRunning) {
       return
     }
 
-    runHasWorkspaceWriteRefreshRef.current = true
+    runHasToolResultRefreshRef.current = true
     void refreshProjectBusinessState({ lazy: true }).catch((error) => {
       applyClassifiedError({ error })
     })
@@ -508,7 +509,7 @@ function ProjectChatBusinessProvider({
     isHydrated,
     refreshProjectBusinessState,
     threadIsRunning,
-    workspaceWriteRevision,
+    toolResultsRevision,
   ])
 
   // React to runtime errors
@@ -533,11 +534,11 @@ function ProjectChatBusinessProvider({
     })
   }, [applyClassifiedError, sessionRunObservation.errorMessage])
 
-  // 未被写入结果刷新覆盖的 run 在终态收敛业务事实；成功完成时再刷新 session metadata。
+  // 未被工具结果刷新覆盖的 run 在终态收敛业务事实；成功完成时再刷新 session metadata。
   useEffect(() => {
     if (threadIsRunning) {
       if (!wasThreadRunningRef.current) {
-        runHasWorkspaceWriteRefreshRef.current = false
+        runHasToolResultRefreshRef.current = false
       }
       wasThreadRunningRef.current = true
       return
@@ -549,12 +550,12 @@ function ProjectChatBusinessProvider({
 
     wasThreadRunningRef.current = false
 
-    if (!runHasWorkspaceWriteRefreshRef.current) {
+    if (!runHasToolResultRefreshRef.current) {
       void refreshProjectBusinessState({ lazy: true }).catch((error) => {
         applyClassifiedError({ error })
       })
     }
-    runHasWorkspaceWriteRefreshRef.current = false
+    runHasToolResultRefreshRef.current = false
 
     if (sessionRunObservation.status !== 'COMPLETED') {
       return
