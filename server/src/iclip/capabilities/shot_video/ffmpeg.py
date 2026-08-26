@@ -227,8 +227,14 @@ async def crop_cells(path: Path, boxes: Sequence[tuple[int, int, int, int]]) -> 
 async def _run(args: list[str], *, timeout: float) -> bytes:
     """起一个子进程，等它退出，返回 stdout。超时先 kill 再 wait，不留僵尸。"""
 
+    # stdin 必须接空设备。ffmpeg 默认会去读标准输入等按键；服务在后台进程组里跑时
+    # （make up 就是），这一读会让内核把整个进程组停住——不只是 ffmpeg，后端一起僵住，
+    # 表现为「取帧永远不结束、所有请求都没回音」。超时也救不了：计时的进程自己也停了。
     process = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        *args,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
