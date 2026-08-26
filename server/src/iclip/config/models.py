@@ -231,6 +231,10 @@ class ModelSection(ConfigSection):
 
 ThinkingEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
+ArkReasoningEffort = Literal["minimal", "low", "medium", "high"]
+"""火山方舟文档只给这四档。对方不校验取值——配了别的它照样跑、只是静默按默认档来，
+所以这里在装配期就拒掉。"""
+
 
 class VideoGenerationSection(ConfigSection):
     """视频生成里对方约定的取值。地址与 key 在 ``MediaGenerationEnv``。"""
@@ -270,6 +274,9 @@ class ShotVideoSection(ConfigSection):
 
     understanding_model: str
     """拆解视频用对方哪个模型。"""
+
+    understanding_thinking: ArkReasoningEffort | None = None
+    """拆解模型的思考强度；不写即不发该参数，用对方默认档。"""
 
     poll_interval_seconds: float = Field(default=5.0, gt=0)
     """出图之后隔多久查一次结果。"""
@@ -383,6 +390,7 @@ class ResolvedShotVideo:
     understanding_url: str
     understanding_api_key: str
     understanding_model: str
+    understanding_thinking: ArkReasoningEffort | None
     poll_interval_seconds: float
     dev_attempts: int
     pro_attempts: int
@@ -520,6 +528,7 @@ def _resolve_shot_video(
         understanding_url=env.url,
         understanding_api_key=env.api_key,
         understanding_model=section.understanding_model,
+        understanding_thinking=section.understanding_thinking,
         poll_interval_seconds=section.poll_interval_seconds,
         dev_attempts=section.dev_attempts,
         pro_attempts=section.pro_attempts,

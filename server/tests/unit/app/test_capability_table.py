@@ -30,6 +30,7 @@ def shot_video_settings() -> ResolvedShotVideo:
         understanding_url="https://vision.test/responses",
         understanding_api_key="ark",
         understanding_model="seed-vision",
+        understanding_thinking="medium",
         poll_interval_seconds=5.0,
         dev_attempts=2,
         pro_attempts=1,

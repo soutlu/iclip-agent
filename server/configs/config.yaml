@@ -44,6 +44,7 @@ shot_video:
   # agent 声明里引用它会在装配期报错）。它建立在媒体生成之上——出图走生成域，
   # 帧与切格产物落生成用的那个公开对象存储——所以生成没开时配了这一段即启动报错。
   understanding_model: doubao-seed-2-0-lite-260428 # 对方的模型名，不是 models 段的键
+  understanding_thinking: medium # minimal / low / medium / high 四档；不写即用对方默认档
   # 出图的等待与重试。渠道从 dev 起，试满 dev_attempts 次还不成再升 pro。
   # 只有「确定没计费」的失败才会重试（连不上、对方 5xx）；「送到了但结果不明」
   # 一律停手报错——那次可能已经扣过钱了。

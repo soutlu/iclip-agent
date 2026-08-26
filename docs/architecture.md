@@ -138,7 +138,7 @@ env 的读取交给 pydantic-settings：`config/models.py` 里那几个 `*Env` �
 | `sso` | `app_name`：我们在对方那边注册的应用名 |
 | `redis` | 运行事件流的调参：`replay_window_seconds`、`max_frames`、`max_connections`（声明了 agent 即必填，缺段启动报错） |
 | `media_generation` | `video`（`model` / `user_name`）、`image`（`user_name`）、`poll_interval_seconds`、`job_timeout_seconds`。并发、错误重试间隔、关停宽限、心跳这些是实现细节，默认值在 `GenerationQueueSettings` 里，不进 YAML |
-| `shot_video` | 镜头素材能力：`understanding_model`（拆解视频用对方哪个模型）、出图的等待与重试节奏（`poll_interval_seconds` / `dev_attempts` / `pro_attempts` / `backoff_seconds` / `backoff_factor` / `job_timeout_seconds`） |
+| `shot_video` | 镜头素材能力：`understanding_model`（拆解视频用对方哪个模型）、`understanding_thinking`（拆解模型的思考强度，minimal / low / medium / high 四档，不写即对方默认档）、出图的等待与重试节奏（`poll_interval_seconds` / `dev_attempts` / `pro_attempts` / `backoff_seconds` / `backoff_factor` / `job_timeout_seconds`） |
 | `models` | 命名模型表：键名即模型名，值为 `provider` / `api`（`chat`\|`responses`，默认 chat）/ `api_key_env` / `base_url?` / `model?`（只在键名不是模型名时写）/ `thinking?`（思考强度 `none`…`max` 七档，不写即厂商默认档） |
 | `ops` | `log_level` |
 

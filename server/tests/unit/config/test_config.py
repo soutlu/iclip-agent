@@ -392,6 +392,7 @@ def test_media_generation_without_a_bucket_fails_loudly(
 SHOT_VIDEO = """
 shot_video:
   understanding_model: seed-vision
+  understanding_thinking: medium
   dev_attempts: 2
   pro_attempts: 1
 """
@@ -434,6 +435,7 @@ def test_shot_video_resolves_shape_and_credentials(
     assert shot is not None
     assert shot.understanding_url == "https://vision.test/responses"
     assert shot.understanding_model == "seed-vision", "对方的模型名来自 YAML"
+    assert shot.understanding_thinking == "medium"
     assert (shot.dev_attempts, shot.pro_attempts) == (2, 1)
 
 

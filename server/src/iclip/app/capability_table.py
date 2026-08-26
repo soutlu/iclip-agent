@@ -152,6 +152,7 @@ def build_capability_table(
                     url=shot_video.understanding_url,
                     api_key=shot_video.understanding_api_key,
                     model=shot_video.understanding_model,
+                    thinking=shot_video.understanding_thinking,
                 ),
                 client=http_client,
                 policy=GenerationPolicy(

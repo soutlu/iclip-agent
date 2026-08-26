@@ -93,11 +93,20 @@ class ArkVideoUnderstanding:
     ``client`` 由组合根传入（测试塞替身 transport），所以本类不自己造连接池。
     """
 
-    def __init__(self, client: httpx.AsyncClient, *, url: str, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        url: str,
+        api_key: str,
+        model: str,
+        thinking: str | None = None,
+    ) -> None:
         self._client = client
         self._url = url
         self._api_key = api_key
         self._model = model
+        self._thinking = thinking
 
     async def parse(self, video_url: str) -> str:
         """跑一次拆解，返回 Markdown 全文。"""
@@ -115,6 +124,8 @@ class ArkVideoUnderstanding:
                 },
             ],
         }
+        if self._thinking is not None:
+            payload["reasoning"] = {"effort": self._thinking}
         try:
             response = await self._client.post(
                 self._url,
