@@ -63,6 +63,14 @@ class ImageGenerations(Protocol):
     async def get(self, principal: Principal, job_id: uuid.UUID) -> ImageJob: ...
 
 
+class ObjectWriteFailed(Exception):
+    """对象存储没把这份字节存下来（那一侧已经重试过了）。
+
+    平台层有自己的异常，但本包不认识它（见模块 docstring），由组合根的适配器翻成这
+    个。工具认得它，才能把「没存下来」写进工具结果，而不是让它穿出工具打死整次运行。
+    """
+
+
 class PublicObjectWriter(Protocol):
     """把字节放到一个公网地址上。
 
@@ -71,7 +79,7 @@ class PublicObjectWriter(Protocol):
     """
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
-        """写入并返回公网 URL；同 key 已存在即复用。"""
+        """写入并返回公网 URL；同 key 已存在即复用。存不下来抛 ``ObjectWriteFailed``。"""
         ...
 
 
@@ -107,6 +115,7 @@ __all__ = [
     "ImageRequest",
     "InvalidImageRequest",
     "JobStatus",
+    "ObjectWriteFailed",
     "PublicObjectWriter",
     "ShotVideoPaths",
     "VideoUnderstanding",

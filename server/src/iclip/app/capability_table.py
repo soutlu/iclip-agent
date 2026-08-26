@@ -27,7 +27,7 @@ from iclip.capabilities.shot_video.ports import (
     ImageJob,
     ImageRequest,
     InvalidImageRequest,
-    PublicObjectWriter,
+    ObjectWriteFailed,
 )
 from iclip.capabilities.workspace.capability import workspace_capability
 from iclip.capabilities.workspace.scope import workspace_namespace
@@ -39,6 +39,7 @@ from iclip.domains.identity.public import Principal
 from iclip.harness.agents import AgentCapabilities
 from iclip.platform.file_store.store import FileSpace, FileStore
 from iclip.platform.object_store.layout import MEDIA_PATHS
+from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
 
 CapabilityTable = Mapping[str, AgentCapabilities]
 """名字 → 这个名字挂上去的那几件能力。
@@ -88,6 +89,25 @@ class GenerationsAdapter:
         return _job_view(await self._service.get(principal, job_id))
 
 
+class ObjectWriterAdapter:
+    """把平台层的对象存储接到能力包的窄协议上，只翻译那一种失败。
+
+    平台层的异常能力包不认识，穿出工具就是打死整次运行；翻成能力包自己的类型，工具
+    才能把它写进结果里让模型接着干。
+    """
+
+    def __init__(self, store: PublicObjectStore) -> None:
+        self._store = store
+
+    async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
+        try:
+            return await self._store.put_public_object(
+                object_key=object_key, content=content, content_type=content_type
+            )
+        except ObjectStoreUnavailable as exc:
+            raise ObjectWriteFailed(str(exc)) from exc
+
+
 def _job_view(job: GenerationJob) -> ImageJob:
     """job 行 → 能力包要的那几个字段。渠道从请求快照上取（那才是这次真用的）。"""
 
@@ -117,7 +137,7 @@ def build_capability_table(
     *,
     workspace_store: FileStore,
     generation_service: GenerationService | None = None,
-    object_store: PublicObjectWriter | None = None,
+    object_store: PublicObjectStore | None = None,
     http_client: httpx.AsyncClient | None = None,
     shot_video: ResolvedShotVideo | None = None,
 ) -> CapabilityTable:
@@ -145,7 +165,7 @@ def build_capability_table(
             shot_video_capability(
                 space=space,
                 generations=GenerationsAdapter(generation_service),
-                objects=object_store,
+                objects=ObjectWriterAdapter(object_store),
                 paths=MEDIA_PATHS,
                 understanding=ArkVideoUnderstanding(
                     http_client,
@@ -195,6 +215,7 @@ __all__ = [
     "REQUIRES",
     "CapabilityTable",
     "GenerationsAdapter",
+    "ObjectWriterAdapter",
     "build_capability_table",
     "resolve_capabilities",
 ]

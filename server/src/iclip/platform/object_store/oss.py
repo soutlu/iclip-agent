@@ -1,8 +1,9 @@
 """阿里云 OSS 的公开对象读写。
 
-签名、分片、重试这些都由官方 SDK 负责，这里不重造——本文件只做几件官方 SDK 不管
-的事：把 key 拼成公网 URL、把同步调用挪出事件循环、把 SDK 的异常收成一种、把不属
-于本服务命名空间的 key 挡在外面。
+签名、分片这些都由官方 SDK 负责，这里不重造——本文件只做几件官方 SDK 不管的事：
+把 key 拼成公网 URL、把同步调用挪出事件循环、对网络故障与 5xx 再试几次（SDK 对普
+通请求只发一次，一次读超时就直接抛）、把 SDK 的异常收成一种、把不属于本服务命名
+空间的 key 挡在外面。
 
 **为什么要有这一层。** 图片生成接口返回的是会过期的签名 URL，直接存进库里，过几
 天链接就烂了。所以生成结果一到手就下载下来转存成自己的公开对象，库里存的是这个
@@ -19,6 +20,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import quote, urlsplit
@@ -26,6 +29,12 @@ from urllib.parse import quote, urlsplit
 import oss2
 
 from iclip.platform.object_store.layout import OSS_ROOT
+
+RETRY_ATTEMPTS = 3
+"""一次读写最多发几次。只有网络故障与 OSS 那边的 5xx 才再发；4xx 再发也是同一个答案。"""
+
+RETRY_BACKOFF_SECONDS = 1.0
+"""两次尝试之间等多久，逐次线性加长。"""
 
 SIGNED_PUT_EXPIRES_SECONDS = 3600
 """预签名 PUT 的有效期：这条地址过了这么久就不能再用来发起上传。
@@ -118,7 +127,8 @@ class OssObjectStore:
         """``bucket`` 只给测试注入替身用；生产路径由 settings 自己造。"""
 
         self._public_url_base = settings.public_url_base.rstrip("/")
-        self._bucket = bucket if bucket is not None else _build_bucket(settings)
+        # SDK 没有类型标注，显式标成 Any，免得每次取它的成员都被判成「类型不明」。
+        self._bucket: Any = bucket if bucket is not None else _build_bucket(settings)
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
         """写入公开对象，返回公网 URL。
@@ -163,18 +173,20 @@ class OssObjectStore:
         return f"{self._public_url_base}/{quote(object_key, safe='/')}"
 
     def _find(self, prefix: str) -> StoredObject | None:
-        try:
-            listed = self._bucket.list_objects(prefix=prefix, max_keys=2)
-            entries = list(listed.object_list)
-            if not entries:
-                return None
-            if len(entries) > 1:
-                raise ObjectStoreUnavailable(f"前缀 {prefix} 下不止一个对象，无法确定是哪个")
-            head = self._bucket.head_object(entries[0].key)
-        except oss2.exceptions.OssError as exc:
-            raise ObjectStoreUnavailable(f"OSS 读取失败: {exc}") from exc
+        entries = list(
+            _with_retries(
+                lambda: self._bucket.list_objects(prefix=prefix, max_keys=2).object_list,
+                what="读取",
+            )
+        )
+        if not entries:
+            return None
+        if len(entries) > 1:
+            raise ObjectStoreUnavailable(f"前缀 {prefix} 下不止一个对象，无法确定是哪个")
+        key = entries[0].key
+        head = _with_retries(lambda: self._bucket.head_object(key), what="读取")
         return StoredObject(
-            object_key=entries[0].key,
+            object_key=key,
             content_type=str(head.content_type or "").split(";")[0].strip(),
             size_bytes=int(head.content_length),
         )
@@ -184,15 +196,37 @@ class OssObjectStore:
 
         存在性检查与写入之间有竞争窗口，但 key 是内容确定的（同一次生成同一个
         key、同一份字节），两个 worker 同时写同一个 key 的结果一样，所以这个窗口
-        没有后果。
+        没有后果。重试也是整段一起重：上一次的 PUT 其实已落地、只是等响应时超时的
+        话，这一次的存在性检查直接放行，不会重传。
         """
 
-        try:
+        def once() -> None:
             if self._bucket.object_exists(object_key):
                 return
             self._bucket.put_object(object_key, content, headers={"Content-Type": content_type})
+
+        _with_retries(once, what="写入")
+
+
+def _with_retries[T](action: Callable[[], T], *, what: str) -> T:
+    """同步跑一次 OSS 调用，网络故障与 5xx 最多再发到 ``RETRY_ATTEMPTS`` 次；其余失败原地收成一种。"""
+
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return action()
         except oss2.exceptions.OssError as exc:
-            raise ObjectStoreUnavailable(f"OSS 写入失败: {exc}") from exc
+            if attempt >= RETRY_ATTEMPTS or not _is_transient(exc):
+                tried = f"（试了 {attempt} 次）" if attempt > 1 else ""
+                raise ObjectStoreUnavailable(f"OSS {what}失败{tried}: {exc}") from exc
+            time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+
+
+def _is_transient(exc: oss2.exceptions.OssError) -> bool:
+    """读超时、连接断开这类网络故障，以及 OSS 那边的 5xx：换个时刻再发多半就过了。"""
+
+    return isinstance(exc, oss2.exceptions.RequestError) or exc.status >= 500
 
 
 def _build_bucket(settings: OssSettings) -> oss2.Bucket:
@@ -229,6 +263,8 @@ def validate_public_url_base(value: str) -> str:
 
 
 __all__ = [
+    "RETRY_ATTEMPTS",
+    "RETRY_BACKOFF_SECONDS",
     "SIGNED_PUT_EXPIRES_SECONDS",
     "ObjectStoreUnavailable",
     "OssObjectStore",
