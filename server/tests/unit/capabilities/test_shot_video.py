@@ -394,12 +394,15 @@ async def test_read_media_file_takes_an_address_from_a_tool_result(
 # ── 视频拆解接口的响应处理 ────────────────────────────────────────────────────
 
 
-def ark(handler: Callable[[httpx.Request], httpx.Response]) -> ArkVideoUnderstanding:
+def ark(
+    handler: Callable[[httpx.Request], httpx.Response], *, thinking: str | None = None
+) -> ArkVideoUnderstanding:
     return ArkVideoUnderstanding(
         httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         url="https://vision.test/responses",
         api_key="ark",
         model="seed-vision",
+        thinking=thinking,
     )
 
 
@@ -469,6 +472,18 @@ async def test_parser_sends_the_video_as_a_native_part() -> None:
     assert seen["input"][0]["content"][0]["text"] == SYSTEM_PROMPT
     assert seen["input"][1]["content"][0] == {"type": "input_video", "video_url": VIDEO}
     assert seen["model"] == "seed-vision"
+    assert "reasoning" not in seen, "没配思考强度就不发这个参数，交给对方默认档"
+
+
+async def test_parser_sends_the_configured_reasoning_effort() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json=responses_body())
+
+    await ark(handler, thinking="medium").parse(VIDEO)
+    assert seen["reasoning"] == {"effort": "medium"}
 
 
 # ── 取帧：动手之前就把前置条件拦下 ──────────────────────────────────────────
