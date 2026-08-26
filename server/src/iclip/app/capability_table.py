@@ -173,6 +173,7 @@ def build_capability_table(
                     api_key=shot_video.understanding_api_key,
                     model=shot_video.understanding_model,
                     thinking=shot_video.understanding_thinking,
+                    fps=shot_video.understanding_fps,
                 ),
                 client=http_client,
                 policy=GenerationPolicy(

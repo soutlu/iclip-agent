@@ -45,6 +45,9 @@ shot_video:
   # 帧与切格产物落生成用的那个公开对象存储——所以生成没开时配了这一段即启动报错。
   understanding_model: doubao-seed-2-0-lite-260428 # 对方的模型名，不是 models 段的键
   understanding_thinking: medium # minimal / low / medium / high 四档；不写即用对方默认档
+  # 每秒看几帧，0.2-5。对方默认 1 帧，快剪片一秒切两三刀就看不见剪辑点、时间码全压在整秒上；
+  # 5 帧下视频 token 约涨 4 倍，单次拆解耗时不变。
+  understanding_fps: 5
   # 出图的等待与重试。渠道从 dev 起，试满 dev_attempts 次还不成再升 pro。
   # 只有「确定没计费」的失败才会重试（连不上、对方 5xx）；「送到了但结果不明」
   # 一律停手报错——那次可能已经扣过钱了。

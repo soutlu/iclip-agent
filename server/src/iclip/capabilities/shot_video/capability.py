@@ -223,7 +223,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     async def video_parser_md(self, ctx: RunContext[AgentDepsT], video_url: str) -> dict[str, Any]:
         """拆解一段参考视频，把拆解文档写进工作区，返回它的路径。
 
-        - 文档含商业目的、结构分段、出场清单和逐镜拉片表，镜头时间码写成
+        - 文档含商业目的、结构分段、出场清单、逐镜拉片表和视听风格，镜头时间码写成
           ``**[00:03.800-00:05.600]**``。
         - 同一段视频不要重复拆解——每次调用都是一次新的拆解，不复用上次结果。
         - 文档正文不随本工具返回；要看内容用 `read_file` 读返回的路径。

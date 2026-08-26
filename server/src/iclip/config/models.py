@@ -278,6 +278,13 @@ class ShotVideoSection(ConfigSection):
     understanding_thinking: ArkReasoningEffort | None = None
     """拆解模型的思考强度；不写即不发该参数，用对方默认档。"""
 
+    understanding_fps: float | None = Field(default=None, ge=0.2, le=5)
+    """拆解模型每秒看几帧；不写即不发该参数，用对方默认档（1 帧）。
+
+    快剪片一秒切两三刀，每秒只看一帧就看不见剪辑点，时间码全压在整秒上。方舟只收
+    0.2-5，装配期就拦住。
+    """
+
     poll_interval_seconds: float = Field(default=5.0, gt=0)
     """出图之后隔多久查一次结果。"""
 
@@ -391,6 +398,7 @@ class ResolvedShotVideo:
     understanding_api_key: str
     understanding_model: str
     understanding_thinking: ArkReasoningEffort | None
+    understanding_fps: float | None
     poll_interval_seconds: float
     dev_attempts: int
     pro_attempts: int
@@ -529,6 +537,7 @@ def _resolve_shot_video(
         understanding_api_key=env.api_key,
         understanding_model=section.understanding_model,
         understanding_thinking=section.understanding_thinking,
+        understanding_fps=section.understanding_fps,
         poll_interval_seconds=section.poll_interval_seconds,
         dev_attempts=section.dev_attempts,
         pro_attempts=section.pro_attempts,

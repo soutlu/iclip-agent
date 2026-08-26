@@ -393,6 +393,7 @@ SHOT_VIDEO = """
 shot_video:
   understanding_model: seed-vision
   understanding_thinking: medium
+  understanding_fps: 5
   dev_attempts: 2
   pro_attempts: 1
 """
@@ -436,6 +437,7 @@ def test_shot_video_resolves_shape_and_credentials(
     assert shot.understanding_url == "https://vision.test/responses"
     assert shot.understanding_model == "seed-vision", "对方的模型名来自 YAML"
     assert shot.understanding_thinking == "medium"
+    assert shot.understanding_fps == 5
     assert (shot.dev_attempts, shot.pro_attempts) == (2, 1)
 
 
