@@ -63,10 +63,13 @@ models:
   # 取是这条声明的一部分，没法用一套写死的名字表达。
   qwen3.8-max:
     provider: alibaba
-    api: responses
+    # 走 chat 而不是 responses：百炼的 Responses 流式接口在一次并行调用多个工具时，
+    # 第二个起的工具名与参数会先报成第一个的、到结束事件才改对，而解析只认开头那一下，
+    # 后面的调用就全变成第一个的复制品，流程里的步骤会被静默吞掉。chat 接口没有这个问题。
     api_key_env: MODEL_API_KEY
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 新加坡站换 dashscope-intl
-    thinking: medium # 百炼默认是 xhigh
+    # 只有 low 实测思考是中文；medium 及以上、或走 responses，思考都会转成英文并带偏回复。
+    thinking: low # 百炼默认是 xhigh
 
 ops:
   log_level: INFO
