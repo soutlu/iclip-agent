@@ -57,6 +57,7 @@ shot_video:
 models:
   # 键名即模型名，也是 agents.yaml 里 model 字段引用的名字。
   # provider 是官方 provider 名，决定厂商适配；api 不写即 chat。
+  # thinking 是思考强度：none / minimal / low / medium / high / xhigh / max，不写即厂商默认档。
   #
   # api_key_env 是这里唯一还留着「变量名」的地方：每个模型各自一把 key，用哪个变量
   # 取是这条声明的一部分，没法用一套写死的名字表达。
@@ -65,6 +66,7 @@ models:
     api: responses
     api_key_env: MODEL_API_KEY
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 新加坡站换 dashscope-intl
+    thinking: medium # 百炼默认是 xhigh
 
 ops:
   log_level: INFO

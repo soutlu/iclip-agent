@@ -161,6 +161,7 @@ def _model_specs(declared: Sequence[ResolvedModel]) -> tuple[ModelSpec, ...]:
             api=model.api,
             api_key=model.api_key,
             base_url=model.base_url,
+            thinking=model.thinking,
         )
         for model in declared
     )
