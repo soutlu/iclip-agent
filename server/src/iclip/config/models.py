@@ -225,6 +225,11 @@ class ModelSection(ConfigSection):
     api_key_env: str
     base_url: str | None = None
     model: str | None = None
+    thinking: ThinkingEffort | None = None
+    """思考强度档位；不写即不发该参数，用厂商默认档。"""
+
+
+ThinkingEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 
 class VideoGenerationSection(ConfigSection):
@@ -411,6 +416,7 @@ class ResolvedModel:
     api: Literal["chat", "responses"]
     api_key: str
     base_url: str | None
+    thinking: ThinkingEffort | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -600,6 +606,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
                 api=model.api,
                 api_key=_require_model_key(name, model.api_key_env),
                 base_url=model.base_url,
+                thinking=model.thinking,
             )
             for name, model in config.models.items()
         ),

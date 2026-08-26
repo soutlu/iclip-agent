@@ -139,7 +139,7 @@ env 的读取交给 pydantic-settings：`config/models.py` 里那几个 `*Env` �
 | `redis` | 运行事件流的调参：`replay_window_seconds`、`max_frames`、`max_connections`（声明了 agent 即必填，缺段启动报错） |
 | `media_generation` | `video`（`model` / `user_name`）、`image`（`user_name`）、`poll_interval_seconds`、`job_timeout_seconds`。并发、错误重试间隔、关停宽限、心跳这些是实现细节，默认值在 `GenerationQueueSettings` 里，不进 YAML |
 | `shot_video` | 镜头素材能力：`understanding_model`（拆解视频用对方哪个模型）、出图的等待与重试节奏（`poll_interval_seconds` / `dev_attempts` / `pro_attempts` / `backoff_seconds` / `backoff_factor` / `job_timeout_seconds`） |
-| `models` | 命名模型表：键名即模型名，值为 `provider` / `api`（`chat`\|`responses`，默认 chat）/ `api_key_env` / `base_url?` / `model?`（只在键名不是模型名时写） |
+| `models` | 命名模型表：键名即模型名，值为 `provider` / `api`（`chat`\|`responses`，默认 chat）/ `api_key_env` / `base_url?` / `model?`（只在键名不是模型名时写）/ `thinking?`（思考强度 `none`…`max` 七档，不写即厂商默认档） |
 | `ops` | `log_level` |
 
 `models.*.api_key_env` 是 YAML 里**唯一**还留着变量名的地方：每个模型各自一把 key，用哪个变量取是这条声明的一部分，没法用一套写死的别名表达。
@@ -227,7 +227,9 @@ deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）。加上「对
 
 - **provider 名决定厂商适配**（schema 处理、严格输出开关、流式前导空白等），端点和 key 替代不了它。
 - **「provider 名 → 哪个 Model 类」交给官方 `infer_model`**，本仓不自己维护分派表——OpenRouter / Cerebras / Crusoe / Snowflake / Ollama / Zai 虽属 OpenAI 兼容却各有专属模型类，抄一份必然走偏。我们只用 `provider_factory` 接管 provider 的构造：key 与端点一律来自配置，杜绝官方默认的隐式 env 读取与默认端点。
-- **`api: responses` 是唯一越过官方分派的情况**：官方对多数 provider 默认给 Chat Completions，而百炼等厂商已支持 Responses；此时直接构造 `OpenAIResponsesModel` 并塞入我们的 provider（厂商 profile 照常生效）。写在非 OpenAI 兼容的 provider 上即装配期报错。
+- **`api: responses` 是唯一越过官方分派的情况**：官方对多数 provider 默认给 Chat Completions，而百炼等厂商已支持 Responses；此时构造本仓的 `RawReasoningResponsesModel`（官方 `OpenAIResponsesModel` 的子类）并塞入我们的 provider（厂商 profile 照常生效）。写在非 OpenAI 兼容的 provider 上即装配期报错。
+- **子类只做一件事：让原始思维链能显示。** 官方遵照 OpenAI「原始推理不给用户看」的家规，只把 summary 块写进思考正文，原始思维链块只存进 `provider_details.raw_content`；百炼这类兼容厂商流式又只发原始块、从不发 summary，照官方行为思考正文到不了前端。子类在 SDK 事件流上给每条原始块补一条同 id 的 summary 块，两者合进同一个 ThinkingPart：正文可显示，raw_content 照旧保留（回传厂商时靠它判断，丢了思考会被包成 `<think>` 标签的 assistant 文本发回去）。非流式回复厂商本来就放在 summary 里，不用管。
+- **`thinking` 走 OpenAI 方言的 `openai_reasoning_effort`，不走官方统一的 `thinking` 字段**：后者要过厂商 profile 的 `supports_thinking` 那道门，Qwen 的 profile 没开，值会被静默丢掉。chat 路径的官方分派入口不收 settings，写了 `thinking` 就按它选出的类再造一次。
 - 各家构造签名不统一：收 `base_url` 的直接传，只收 `api_key` 的走 `openai_client`。
 - 同名只造一个实例，被多个 agent 引用时共用连接池。
 

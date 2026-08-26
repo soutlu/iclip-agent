@@ -25,6 +25,7 @@
 | T-AGENTASM-07 | unit | 带附件的请求体在**协议入口**就换好形状：模型收到的是 tag（视频只有空 tag、图片的缩略像素被一对 tag 包着），媒体 part 到不了模型适配层 | 错误在流中途才暴露 |
 | T-HIST-01 | unit | 历史的取材与过滤：取这段对话**最新的那份完整快照**（一份都没有就是空的，不是报错）；客户端塞进来的 system 消息不回传 | 提示词面外泄 / 刷新即丢历史 |
 | T-MODEL-01 | unit | 命名模型装配：端点与 key 来自配置（含只收 api_key 的 provider 走 openai_client）；`api: responses` 显式分派且厂商 profile 不丢；有专属模型类的 provider（Ollama 等）不被拍平；未知 provider、responses 用在非 OpenAI 兼容 provider 上均装配期报错 | 静默走错端点 / 丢厂商适配 |
+| T-MODEL-02 | unit | `api: responses` 模型走真实 SSE 解析：流式原始思维链落进 `ThinkingPart.content`，且 `provider_details.raw_content` 保留；`thinking` 落到 chat / responses 两条路径的模型 settings 上，不写即无 settings | 思考静默不显示 / 回传形状退化 / 官方改名后覆写失效 |
 | T-MODELCFG-01 | unit | `models` 段：键名即模型名（`model` 字段只在起名时覆盖）；`api` 默认 chat、非法值即拒；声明了某模型但其 `api_key_env` 为空即启动报错 | 静默降级 |
 | T-AGENTASM-06 | unit | agent / 子 agent 引用未声明的模型名即装配期报错；spec 里的 `model:` 被声明覆盖 | 模型声明双写打架 |
 | T-AGENTAPI-01 | unit | `/agents/{id}/chat`：无主体 401、缺 `agent:run` 403、非 JSON content-type 415（且未派发运行）、未注册 id 404、坏 body 422、正常 200 + `text/event-stream` 首帧；续读端点同样要权限、运行 id 形状不合法 422、没有这次运行 404 | 越权 / CSRF / 错误映射 |
