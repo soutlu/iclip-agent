@@ -83,6 +83,8 @@
 | `GET /conversations?limit=20` | `agent:read` | 列出自己的对话，**最近活动的排在前面**（`limit` 取值 1–100）。`200` + `{ items: [...] }` |
 | `GET /conversations/by-task/{taskId}` | `agent:read` | 列出自己在这张需求单下的尝试，**按开始时间正序**（第几次尝试就是这个顺序）。`200` + `{ items: [...] }` |
 | `GET /conversations/{id}/messages` | `agent:read` | 读这段对话已经发生过的消息（刷新、重新登录后靠它拿回历史）。`200` + `{ messages: [...] }` |
+| `GET /conversations/{id}/workspace/files` | `agent:read` | 列出 agent 在这段对话里写下的工作区文件（按路径排序；一份都没写过是空数组）。`200` + `{ files: [{ path, sizeBytes, version, updatedAt }] }` |
+| `GET /conversations/{id}/workspace/file?path=…` | `agent:read` | 读其中一个文件的全文。路径放查询串（它自己就带 `/`）。`200` + `{ file: { path, content, version } }`；没有这个文件 `404`；路径不合语法 `422` |
 | `PATCH /conversations/{id}` | `agent:run` | 改名。请求体 `{ title }`。`200` + `{ conversation: {...} }` |
 | `PUT /conversations/{id}/project` | `agent:run` | 换个项目，或者给 `{ projectId: null }` 把它拿出来。`200` + `{ conversation: {...} }` |
 | `DELETE /conversations/{id}` | `agent:run` | 删掉这段对话，**agent 在这段对话里写下的工作区文件一并删除**。`204` |
@@ -90,6 +92,7 @@
 - `conversation` 的形状：`{ id, agentId, title, lastRunId, taskId, projectId, createdAt, updatedAt }`。`lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`）——刷新页面后拿它去续读那条流。
 - **只看得到自己的对话**：别人的一律 `404`，不返 `403`（那会泄露这个 id 确实有人在用）。治理者也没有看别人对话的口子。按需求单列尝试也是同一个口径：只列自己的——一张单人人可见，不等于这张单下面谁跑过什么也人人可见。
 - 删除只带走对话与它的工作区文件；`agent_runtime` 里的运行记录留着，那是账本。
+- 工作区文件只读，没有推送：`version` 变了内容才变，客户端按它决定要不要重读正文。什么时候重拉列表由客户端定——事件流里每有一个工具调用出结果就拉一次是够用的口径（写文件的不只那几件工作区工具）。
 
 ### 两处归属
 

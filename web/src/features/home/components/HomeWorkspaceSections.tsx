@@ -1,5 +1,4 @@
 import { Link } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
 import {
   type ChangeEvent,
   type KeyboardEvent,
@@ -15,7 +14,6 @@ import {
   type RecentProjectItem,
 } from '@/features/home/utils/create-home.constants'
 import { HomeTasksPanel } from '@/features/tasks'
-import { listVideoTaskSessions } from '@/features/video-task-sessions'
 import { cn } from '@/shared/lib/utils'
 import HippoIcon, { type HippoIconName } from '@/shared/ui/icons/HippoIcon'
 import PopupContent from '@/shared/ui/popup/PopupContent'
@@ -67,10 +65,13 @@ const createLiftedProjectMenuAnchorRect = (rect: DOMRect): DOMRect => ({
 })
 
 /**
- * 生成 Storyboard 项目卡片的跳转地址。
+ * 生成 Storyboard 卡片的跳转地址。
+ *
+ * 首页这一屏还按「项目」组织，而 Storyboard 工作台已经改成按需求单进（一张单一个
+ * 工作台，历次尝试列在左边）。首页接本仓后端时这一屏要跟着改，见 docs/backend_api.md。
  *
  * @param project - 首页项目摘要。
- * @returns 带后端 project id 的 Storyboard 工作台地址。
+ * @returns Storyboard 工作台地址。
  */
 const createStoryboardProjectHref = (project: RecentProjectItem) =>
   `/storyboards/${encodeURIComponent(project.id)}`
@@ -93,29 +94,7 @@ export default function HomeWorkspaceSections() {
     () => projects.filter((project) => project.kind === 'agent'),
     [projects],
   )
-  const storyboardProjectIdsQuery = useQuery({
-    enabled: activeTab === 'storyboards' && !isLoading,
-    queryFn: async () => {
-      const entries = await Promise.all(
-        agentProjects.map(
-          async (project) =>
-            [project.id, (await listVideoTaskSessions(project.id)).length > 0] as const,
-        ),
-      )
-      return new Set(entries.filter(([, isStoryboard]) => isStoryboard).map(([id]) => id))
-    },
-    queryKey: ['storyboard-project-ids', agentProjects.map((project) => project.id)],
-  })
-  const storyboardProjects = useMemo(
-    () =>
-      agentProjects.filter((project) => storyboardProjectIdsQuery.data?.has(project.id) === true),
-    [agentProjects, storyboardProjectIdsQuery.data],
-  )
-  const storyboardProjectError = storyboardProjectIdsQuery.isError
-    ? storyboardProjectIdsQuery.error instanceof Error
-      ? storyboardProjectIdsQuery.error.message
-      : '加载 Storyboard 项目失败'
-    : projectActionError
+  const storyboardProjects = agentProjects
 
   return (
     <section
@@ -146,8 +125,8 @@ export default function HomeWorkspaceSections() {
       {activeTab === 'storyboards' ? (
         <StoryboardsPanel
           isCreatingProject={isCreatingProject}
-          isLoading={isLoading || storyboardProjectIdsQuery.isPending}
-          projectActionError={storyboardProjectError}
+          isLoading={isLoading}
+          projectActionError={projectActionError}
           projects={storyboardProjects}
           renamingProjectIds={renamingProjectIds}
           onRenameProject={renameProject}

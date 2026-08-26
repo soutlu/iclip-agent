@@ -52,7 +52,7 @@ type StoryboardBriefPanelProps = {
   open: boolean
   storyboard: Pick<
     Storyboard,
-    'confirmedAt' | 'creativeInput' | 'sessionId' | 'status' | 'title'
+    'confirmedAt' | 'conversationId' | 'creativeInput' | 'status' | 'title'
   > & {
     shots: Array<{ id: string }>
   }
@@ -161,7 +161,7 @@ export default function StoryboardBriefPanel({
   useEffect(() => {
     setEditing(false)
     setEditableBrief(createEditableBrief(creativeInput))
-  }, [creativeInput, storyboard.sessionId])
+  }, [creativeInput, storyboard.conversationId])
 
   useEffect(() => {
     if (!open) return

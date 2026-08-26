@@ -32,9 +32,9 @@ project 是后端生成 id 的项目文件夹入口：Producer Agent 与 Direct 
 首页 Task 面板分需求方「下发 Task」与策划师「确认 Task」两种视角。下发 = 创建 draft 后立即 publish（状态机 `draft → published → confirmed → withdrawn`，published/confirmed 均可撤回、均可作创作来源）；策划师在确认视角按部门 / 需求人 / 品牌筛选并 `POST …/confirm`。下发表单的部门只读展示当前用户 PMS 部门数组中的全部有效名称（按返回顺序去重，以 `、` 连接），后端以同一可信资料覆盖请求并冻结到 `brief.department`；已有 Task 不随用户调岗动态改写。Brief 的需求描述是按段落换行的中文标题纯文本；下发时 Tiptap 预置场景、服装、道具、灯光、动作姿势、人物族裔、制作备注七项灰字提示，用户完全未填写或清空时把七条提示物化为默认正文，用户只要填写过内容就原样提交、不自动补齐其它行。确认时复用同一编辑器修改整段需求并可追加口播旁白。确认人还可调整比例、时长与参考素材；比例使用 `9:16`、`16:9`、`3:4`、`1:1` 等规范选项，时长默认取首个参考视频的媒体时长并四舍五入为秒且允许覆盖。参考视频 Asset id 在 Task 创建或更新响应中可能被后端替换为 H.264 MP4 派生 Asset id，前端以后端返回的 Task 为事实。`styleNos` 为多选 Style 全集，主 Style（首位）生成产品快照。
 _不是_：前端权限硬隔离（两视角当前同账号可切换）、后端选项字典（视频类型 / 平台 / 尺寸选项存展示值，可会话内自定义新增）。
 
-**VideoTaskSession**：
-Video Task 与 Agent Session 的显式关系。Storyboard 页面只通过 `GET /api/video-task-sessions?projectId=...` 获取映射；一个 Video Task 可以对应多个 Session，一个 Session 最多对应一个 Video Task。每个关系形成一个 Storyboard，使用自己的 `session.id` 作为 AG-UI `threadId`。Project 创建请求不携带运行目标或 Task id；Task 的「进入 Storyboard」在创建 Project 后创建第一条 VideoTaskSession。
-_不是_：Project 的来源字段、按 Session 顺序或 target 推断的映射。
+**一次尝试（Storyboard Attempt）**：
+一张需求单跑一次 Storyboard，就是一段对话。Storyboard 页面按需求单进（`/storyboards/{taskId}`），用 `GET /api/conversations/by-task/{taskId}` 列出自己在这张单下的历次尝试（后端按开始时间正序，左侧书签编号即第几次），每次尝试用自己的对话 id 作 AG-UI `threadId`。开始一次尝试就是 `POST /api/conversations`（`agentId` + `taskId`），不建项目、不建 session；项目只是个可选的口袋，随时 `PUT /api/conversations/{id}/project` 放进去。
+_不是_：Project 与 Task 之间的关系表、按顺序或时间推断的映射、「Storyboard 项目」这种类型。
 
 **联网检索事实（Web Search Fact）**：
 用户在爆款视频搜索前确认的品类、使用场景与可选卖点；界面可以用受控中英词对预置并允许修改，但请求只提交英文检索词。它是本次搜索的瞬态表单状态，不写入 Brief、Task 或浏览器持久存储。
@@ -82,7 +82,7 @@ _不是_：按内容高度或视窗变化可随意改写的状态。
 9. **布局只按稳定 `nodeId` 对齐业务节点**；不得使用数组下标、节点总数或可变排序生成会随业务数据增量变化的 ID。
 10. **`manual` 节点坐标最高优先**：artifact/media 同步、高度测量、fit view / zoom 都不得改写。
 11. **不伪造数据**：后端缺 `createdAt` / `updatedAt` 保留 `null`；孤立 tool result 丢弃而不合成 fake message；`video_shot.json` 无法结构化时显式投影失败，不 fallback。
-12. **Storyboard 只消费显式 VideoTaskSession**：Project 只负责找到 Session，Task 与 Session 必须按接口返回的 id 精确连接；页面通过 assistant-ui 官方 thread list 按 `sessionId` 切换和恢复会话，不维护 runtime registry 或运行记录副本。
+12. **Storyboard 只消费后端发放的对话 id**：页面按 URL 上的 `taskId` 读需求单、按 `by-task` 列出的对话切换与恢复各次尝试（当前看哪一次写在 URL 的 `attempt` 上），不维护 runtime registry 或运行记录副本。
 
 ## 禁止逻辑
 

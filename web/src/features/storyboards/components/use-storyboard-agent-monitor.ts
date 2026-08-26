@@ -23,7 +23,7 @@ export type StoryboardAgentMonitorHandle = ReturnType<typeof useStoryboardAgentM
  * @returns 监控浮条展示状态与操作。
  */
 export const useStoryboardAgentMonitor = (live: boolean) => {
-  const [monitorUiBySession, setMonitorUiBySession] = useState<
+  const [monitorUiByConversation, setMonitorUiByConversation] = useState<
     Record<string, StoryboardAgentMonitorUi>
   >({})
   const [nowMs, setNowMs] = useState(() => Date.now())
@@ -36,30 +36,30 @@ export const useStoryboardAgentMonitor = (live: boolean) => {
   }, [live])
 
   const update = (
-    sessionId: string,
+    conversationId: string,
     updater: (current: StoryboardAgentMonitorUi) => StoryboardAgentMonitorUi,
   ) => {
-    setMonitorUiBySession((current) => ({
+    setMonitorUiByConversation((current) => ({
       ...current,
-      [sessionId]: updater(current[sessionId] ?? DEFAULT_MONITOR_UI),
+      [conversationId]: updater(current[conversationId] ?? DEFAULT_MONITOR_UI),
     }))
   }
 
   return {
-    close: (sessionId: string) =>
-      update(sessionId, (current) => ({ ...current, expanded: false, open: false })),
-    dismiss: (sessionId: string) =>
-      update(sessionId, (current) => ({ ...current, dismissed: true })),
-    monitorUiBySession,
+    close: (conversationId: string) =>
+      update(conversationId, (current) => ({ ...current, expanded: false, open: false })),
+    dismiss: (conversationId: string) =>
+      update(conversationId, (current) => ({ ...current, dismissed: true })),
+    monitorUiByConversation,
     nowMs,
-    open: (sessionId: string, expanded = true) =>
-      update(sessionId, (current) => ({
+    open: (conversationId: string, expanded = true) =>
+      update(conversationId, (current) => ({
         ...current,
         dismissed: false,
         expanded,
         open: true,
       })),
-    toggleExpanded: (sessionId: string) =>
-      update(sessionId, (current) => ({ ...current, expanded: !current.expanded })),
+    toggleExpanded: (conversationId: string) =>
+      update(conversationId, (current) => ({ ...current, expanded: !current.expanded })),
   }
 }

@@ -8,13 +8,19 @@ import {
   type CSSProperties,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type SetStateAction,
 } from 'react'
 import { useAui, useAuiState } from '@assistant-ui/react'
-import { useQuery } from '@tanstack/react-query'
-import { getProducerProject } from '@/features/projects'
-import { listVideoTaskSnapshot, VIDEO_TASKS_QUERY_KEY } from '@/features/tasks'
-import { createVideoTaskSession, listVideoTaskSessions } from '@/features/video-task-sessions'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
+import {
+  createConversation,
+  listTaskConversations,
+  MAX_CONVERSATION_TITLE_CHARS,
+} from '@/features/conversations'
+import { listVideoTaskSnapshot, VIDEO_TASKS_QUERY_KEY, type VideoTask } from '@/features/tasks'
+import { STORYBOARD_AGENT } from '@/shared/config/agui-target'
 import {
   type Storyboard,
   type StoryboardShot,
@@ -52,7 +58,6 @@ import StoryboardBriefPanel, {
   type EditableStoryboardBrief,
 } from '@/features/storyboards/components/storyboard-brief-panel'
 import StoryboardTaskStack from '@/features/storyboards/components/storyboard-task-stack'
-import StoryboardTaskPicker from '@/features/storyboards/components/storyboard-task-picker'
 import StoryboardAgentMonitor, {
   StoryboardAgentSummary,
 } from '@/features/storyboards/components/storyboard-agent-monitor'
@@ -61,10 +66,6 @@ import {
   useStoryboardAgentMonitor,
   type StoryboardAgentMonitorHandle,
 } from '@/features/storyboards/components/use-storyboard-agent-monitor'
-import {
-  readPreferredStoryboardSessionId,
-  storePreferredStoryboardSessionId,
-} from '@/features/storyboards/data/storyboard-session-selection'
 import { storyboardAgentRunFromThread } from '@/features/storyboards/runtime/storyboard-agent'
 import { StoryboardAssistantProvider } from '@/features/storyboards/runtime/storyboard-assistant-provider'
 import { createStoryboardAgentSubmission } from '@/features/storyboards/runtime/storyboard-agent-submission'
@@ -318,44 +319,41 @@ const formatTimelineTime = (totalSeconds: number) => {
  */
 const createInitialShotSelection = (storyboards: StoryboardEditor[]) =>
   Object.fromEntries(
-    storyboards.map((storyboard) => [storyboard.sessionId, storyboard.shots[0]?.id ?? '']),
+    storyboards.map((storyboard) => [storyboard.conversationId, storyboard.shots[0]?.id ?? '']),
   )
 
 /**
- * 读取 Project 的显式 VideoTaskSession 关系，并建立 Storyboard 工作台。
+ * 读一张需求单的历次尝试，建立 Storyboard 工作台。
  *
- * @param projectId - 当前 Storyboard Project ID。
- * @param signal - 用于取消 Project、Task 与 Asset 请求的 AbortSignal。
- * @returns 当前 Project 对应的多 Session Storyboard 工作台。
- * @throws Project 类型不匹配、没有关系或数据读取失败时抛出错误。
+ * 一次尝试就是一段对话；一次都没跑过时返回空工作台，由上层给出「开始第一次」的入口，
+ * 而不是在打开页面时偷偷开一段对话。
+ *
+ * @param taskId - 当前需求单 id。
+ * @param signal - 用于取消这两个请求的 AbortSignal。
+ * @param demoMode - 演示模式（只对特定款号成立）。
+ * @returns 这张需求单的工作台与它自身。
+ * @throws 需求单不存在或数据读取失败时抛出错误。
  */
 const loadStoryboardWorkspace = async (
-  projectId: string,
+  taskId: string,
   signal: AbortSignal,
   demoMode?: StoryboardDemoMode,
 ) => {
-  const [project, relations, taskSnapshot] = await Promise.all([
-    getProducerProject(projectId, { signal }),
-    listVideoTaskSessions(projectId, { signal }),
+  const [conversations, taskSnapshot] = await Promise.all([
+    listTaskConversations(taskId, { signal }),
     listVideoTaskSnapshot({ signal }),
   ])
-  if (project.kind !== 'agent') {
-    throw new Error('当前 Project 不是 Storyboard 创作项目')
-  }
-  if (relations.length === 0) {
-    throw new Error('当前 Project 没有 VideoTaskSession')
+  const task = taskSnapshot.tasks.find((item) => item.id === taskId)
+  if (!task) {
+    throw new Error(`需求单不存在：${taskId}`)
   }
 
-  const workspace = createStoryboardWorkspace(project, relations, taskSnapshot)
-  if (!demoMode) {
-    return workspace
+  const workspace = createStoryboardWorkspace(task, conversations, taskSnapshot.assetsById)
+  if (!demoMode || workspace.storyboards.length === 0) {
+    return { task, workspace }
   }
 
-  const firstRelation = relations[0]
-  const task = taskSnapshot.tasks.find((item) => item.id === firstRelation?.videoTaskId)
-  if (!task) throw new Error('演示 Storyboard 的 Video Task 不存在')
-
-  return createSdhs2496wDemoWorkspace(workspace, task)
+  return { task, workspace: createSdhs2496wDemoWorkspace(workspace, task) }
 }
 
 /**
@@ -364,32 +362,48 @@ const loadStoryboardWorkspace = async (
  * @param props - 状态文案和可访问性角色。
  * @returns 与 Storyboard 工作台共用背景的居中状态页。
  */
-const StoryboardRouteState = ({ message, role }: { message: string; role?: 'alert' }) => (
+const StoryboardRouteState = ({
+  action,
+  message,
+  role,
+}: {
+  action?: ReactNode
+  message: string
+  role?: 'alert'
+}) => (
   <main className="storyboards-workspace storyboards-route-state" role={role}>
     <span className="storyboards-task-stack-logo" aria-hidden="true">
       <StoryboardIcon name="brand" size={18} title="Storyboard" />
     </span>
     <p>{message}</p>
+    {action}
   </main>
 )
 
 /**
- * 从后端 Project 与来源 Task 渲染 Storyboard 路由。
+ * 一张需求单的 Storyboard 工作台。
  *
- * @param props - Storyboard 项目路由属性。
- * @param props.projectId - 后端创建的 Storyboard project id。
- * @returns 真实 Task 驱动的 Storyboard 工作台。
+ * @param props - 路由属性。
+ * @param props.attemptConversationId - URL 上指定要看的那次尝试；缺省看最新的一次。
+ * @param props.demoMode - 演示模式。
+ * @param props.taskId - 当前需求单 id。
+ * @returns 这张单的历次尝试与工作台。
  */
 export default function StoryboardRoute({
+  attemptConversationId,
   demoMode,
-  projectId,
+  taskId,
 }: {
+  attemptConversationId?: string
   demoMode?: StoryboardDemoMode
-  projectId: string
+  taskId: string
 }) {
+  const queryClient = useQueryClient()
+  const [starting, setStarting] = useState(false)
+  const [startError, setStartError] = useState('')
   const workspaceQuery = useQuery({
-    queryFn: ({ signal }) => loadStoryboardWorkspace(projectId, signal, demoMode),
-    queryKey: ['storyboard-task-workspace', projectId, demoMode ?? null],
+    queryFn: ({ signal }) => loadStoryboardWorkspace(taskId, signal, demoMode),
+    queryKey: ['storyboard-task-workspace', taskId, demoMode ?? null],
   })
 
   useEffect(() => {
@@ -409,37 +423,98 @@ export default function StoryboardRoute({
     return <StoryboardRouteState message={message} role="alert" />
   }
 
-  return <StoryboardWorkspace projectId={projectId} workspace={workspaceQuery.data} />
+  const { task, workspace } = workspaceQuery.data
+
+  // 一次都没跑过：给个入口开第一段对话，而不是打开页面就替用户花钱跑一次。
+  if (workspace.storyboards.length === 0) {
+    const startFirstAttempt = async () => {
+      setStarting(true)
+      setStartError('')
+      try {
+        await createStoryboardAttempt(task)
+        await queryClient.invalidateQueries({
+          queryKey: ['storyboard-task-workspace', taskId],
+        })
+      } catch (error) {
+        setStartError(error instanceof Error ? error.message : '开始运行失败')
+      } finally {
+        setStarting(false)
+      }
+    }
+
+    return (
+      <StoryboardRouteState
+        action={
+          <button
+            className="storyboards-route-state-action"
+            disabled={starting}
+            onClick={() => void startFirstAttempt()}
+            type="button"
+          >
+            {starting ? '正在开始…' : '开始第一次运行'}
+          </button>
+        }
+        message={startError || `${task.title} 还没有跑过`}
+        role={startError ? 'alert' : undefined}
+      />
+    )
+  }
+
+  return (
+    <StoryboardWorkspace
+      attemptConversationId={attemptConversationId}
+      task={task}
+      workspace={workspace}
+    />
+  )
 }
+
+/**
+ * 为这张需求单开一段新的 storyboard 对话（也就是一次新的尝试）。
+ *
+ * @param task - 当前需求单。
+ * @returns 服务端发放的对话。
+ */
+const createStoryboardAttempt = (task: VideoTask) =>
+  createConversation({
+    agentId: STORYBOARD_AGENT.id,
+    taskId: task.id,
+    title: task.title.slice(0, MAX_CONVERSATION_TITLE_CHARS),
+  })
 
 /**
  * 渲染与参考设计一致的故事板工作台。
  *
- * 每个 Storyboard session 常驻一个独立 AG-UI runtime host（与 project 页
- * 同构）：切换任务不中断其它 session 的后台运行；跨任务保留的编辑状态
- * （镜头选择、标注历史、本地版本）提升到本层，随任务切换不丢失。
+ * 这张需求单的每一次尝试都常驻一个独立 AG-UI runtime host：切换书签不掐断别的那次
+ * 运行；跨尝试保留的编辑状态（镜头选择、标注历史、本地版本）提升到本层，切换时不丢。
  *
  * @param props - 工作台属性。
- * @param props.projectId - 当前后端 Storyboard project id。
- * @param props.workspace - 由 Project 来源 Task 建立的工作台数据。
- * @returns 书签任务栈、单画布工作台、受控 Brief 和底部时间线。
+ * @param props.attemptConversationId - URL 上指定要看的那次尝试。
+ * @param props.task - 当前需求单。
+ * @param props.workspace - 这张单的历次尝试。
+ * @returns 书签栈、单画布工作台、受控 Brief 和底部时间线。
  */
 export function StoryboardWorkspace({
-  projectId,
+  attemptConversationId,
+  task,
   workspace,
 }: {
-  projectId: string
+  attemptConversationId?: string
+  task: VideoTask
   workspace: StoryboardWorkspace
 }) {
+  const navigate = useNavigate()
   const [storyboards, setStoryboards] = useState<StoryboardEditor[]>(() => workspace.storyboards)
   const [selectedStoryboardId, setSelectedStoryboardId] = useState(() => {
-    const firstStoryboard = workspace.storyboards[0]
-    if (!firstStoryboard) throw new Error('Storyboard 工作台必须至少包含一个任务')
-    const preferred = readPreferredStoryboardSessionId(projectId)
-    return preferred &&
-      workspace.storyboards.some((storyboard) => storyboard.sessionId === preferred)
-      ? preferred
-      : firstStoryboard.sessionId
+    // 默认看最新那次：刚点完「开始真实运行」进来，要看的就是刚开的那一次，不是第一次。
+    const newest = workspace.storyboards.at(-1)
+    if (!newest) throw new Error('Storyboard 工作台必须至少有一次尝试')
+    return attemptConversationId &&
+      workspace.storyboards.some(
+        (storyboard) => storyboard.conversationId === attemptConversationId,
+      )
+      ? attemptConversationId
+      : newest.conversationId
   })
   const [briefOpen, setBriefOpen] = useState(false)
   const [selectedShotIds, setSelectedShotIds] = useState(() =>
@@ -451,18 +526,20 @@ export function StoryboardWorkspace({
   const [localRevisionsByShot, setLocalRevisionsByShot] = useState<
     Record<string, LocalStoryboardRevision[]>
   >({})
-  const [runningSessionIds, setRunningSessionIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [runningConversationIds, setRunningConversationIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
   const [runtimeErrorMessage, setRuntimeErrorMessage] = useState('')
-  const monitor = useStoryboardAgentMonitor(runningSessionIds.has(selectedStoryboardId))
+  const monitor = useStoryboardAgentMonitor(runningConversationIds.has(selectedStoryboardId))
 
-  const handleRunningChange = useCallback((sessionId: string, running: boolean) => {
-    setRunningSessionIds((current) => {
-      if (current.has(sessionId) === running) return current
+  const handleRunningChange = useCallback((conversationId: string, running: boolean) => {
+    setRunningConversationIds((current) => {
+      if (current.has(conversationId) === running) return current
       const next = new Set(current)
       if (running) {
-        next.add(sessionId)
+        next.add(conversationId)
       } else {
-        next.delete(sessionId)
+        next.delete(conversationId)
       }
       return next
     })
@@ -473,30 +550,36 @@ export function StoryboardWorkspace({
   }, [])
 
   /**
-   * 切换任务并打开对应 Brief；重复点击当前任务时切换 Brief 展开状态。
+   * 切换到另一次尝试并打开它的 Brief；重复点击当前这次则收放 Brief。
    *
-   * @param storyboard - 目标任务。
+   * @param storyboard - 目标尝试。
    * @returns 无返回值。
    */
   const selectStoryboard = (storyboard: StoryboardEditor) => {
-    if (storyboard.sessionId === selectedStoryboardId) {
+    if (storyboard.conversationId === selectedStoryboardId) {
       setBriefOpen((current) => !current)
       return
     }
 
-    setSelectedStoryboardId(storyboard.sessionId)
-    storePreferredStoryboardSessionId(projectId, storyboard.sessionId)
+    setSelectedStoryboardId(storyboard.conversationId)
+    // 同步进 URL：刷新、收藏、发给别人看的都是同一次尝试。
+    void navigate({
+      params: { taskId: task.id },
+      replace: true,
+      search: (current) => ({ ...current, attempt: storyboard.conversationId }),
+      to: '/storyboards/$taskId',
+    })
     setBriefOpen(true)
   }
 
   return storyboards.map((storyboard) => (
     <StoryboardAssistantProvider
-      key={storyboard.sessionId}
+      conversationId={storyboard.conversationId}
+      key={storyboard.conversationId}
       onRunningChange={handleRunningChange}
       onRuntimeError={handleRuntimeError}
-      sessionId={storyboard.sessionId}
     >
-      {storyboard.sessionId === selectedStoryboardId ? (
+      {storyboard.conversationId === selectedStoryboardId ? (
         <StoryboardWorkspaceContent
           annotationHistoriesByTarget={annotationHistoriesByTarget}
           briefOpen={briefOpen}
@@ -504,9 +587,9 @@ export function StoryboardWorkspace({
           monitor={monitor}
           onBriefOpenChange={setBriefOpen}
           onSelectStoryboard={selectStoryboard}
-          projectId={projectId}
-          runningSessionIds={runningSessionIds}
+          runningConversationIds={runningConversationIds}
           runtimeErrorMessage={runtimeErrorMessage}
+          task={task}
           selectedShotIds={selectedShotIds}
           selectedStoryboardId={selectedStoryboardId}
           setAnnotationHistoriesByTarget={setAnnotationHistoriesByTarget}
@@ -527,8 +610,7 @@ function StoryboardWorkspaceContent({
   monitor,
   onBriefOpenChange,
   onSelectStoryboard,
-  projectId,
-  runningSessionIds,
+  runningConversationIds,
   runtimeErrorMessage,
   selectedShotIds,
   selectedStoryboardId,
@@ -537,6 +619,7 @@ function StoryboardWorkspaceContent({
   setSelectedShotIds,
   setStoryboards,
   storyboards,
+  task,
 }: {
   annotationHistoriesByTarget: Record<string, AnnotationHistory>
   briefOpen: boolean
@@ -544,8 +627,7 @@ function StoryboardWorkspaceContent({
   monitor: StoryboardAgentMonitorHandle
   onBriefOpenChange: (open: boolean) => void
   onSelectStoryboard: (storyboard: StoryboardEditor) => void
-  projectId: string
-  runningSessionIds: ReadonlySet<string>
+  runningConversationIds: ReadonlySet<string>
   runtimeErrorMessage: string
   selectedShotIds: Record<string, string>
   selectedStoryboardId: string
@@ -554,18 +636,17 @@ function StoryboardWorkspaceContent({
   setSelectedShotIds: Dispatch<SetStateAction<Record<string, string>>>
   setStoryboards: Dispatch<SetStateAction<StoryboardEditor[]>>
   storyboards: StoryboardEditor[]
+  task: VideoTask
 }) {
   const aui = useAui()
   const agentMessages = useAuiState((state) => state.thread.messages)
   const agentIsRunning = useAuiState((state) => state.thread.isRunning)
-  const [taskPickerOpen, setTaskPickerOpen] = useState(false)
-  const [addingTasks, setAddingTasks] = useState(false)
-  const [addTaskError, setAddTaskError] = useState<null | string>(null)
+  const [startingAttempt, setStartingAttempt] = useState(false)
   const [selectedTool, setSelectedTool] = useState<AnnotationTool>('point')
   const [selectedColor, setSelectedColor] = useState<AnnotationColor>('red')
   const [selectedModel, setSelectedModel] = useState(() => {
     const initialStoryboard =
-      storyboards.find((storyboard) => storyboard.sessionId === selectedStoryboardId) ??
+      storyboards.find((storyboard) => storyboard.conversationId === selectedStoryboardId) ??
       storyboards[0]
     return initialStoryboard?.modelLabel ?? ''
   })
@@ -584,14 +665,14 @@ function StoryboardWorkspaceContent({
   const instructionReferenceInsertRequestId = useRef(0)
   const blankShotId = useRef(0)
 
+  // 素材快照给「再跑一次」用：新尝试的 Brief 与参考素材从同一份快照里取。
   const taskLibraryQuery = useQuery({
-    enabled: taskPickerOpen,
     queryFn: listVideoTaskSnapshot,
     queryKey: VIDEO_TASKS_QUERY_KEY,
   })
 
   const selectedStoryboard =
-    storyboards.find((storyboard) => storyboard.sessionId === selectedStoryboardId) ??
+    storyboards.find((storyboard) => storyboard.conversationId === selectedStoryboardId) ??
     storyboards[0]
   if (!selectedStoryboard) {
     throw new Error('Storyboard 工作台必须至少包含一个任务')
@@ -604,13 +685,13 @@ function StoryboardWorkspaceContent({
   const {
     close: closeMonitor,
     dismiss: dismissSummary,
-    monitorUiBySession,
+    monitorUiByConversation,
     nowMs,
     open: openRun,
     toggleExpanded: toggleMonitorExpanded,
   } = monitor
   const selectedShotId = selectedStoryboard
-    ? selectedShotIds[selectedStoryboard.sessionId]
+    ? selectedShotIds[selectedStoryboard.conversationId]
     : undefined
   const selectedShot =
     selectedStoryboard?.shots.find((shot) => shot.id === selectedShotId) ??
@@ -630,7 +711,9 @@ function StoryboardWorkspaceContent({
     [totalDuration],
   )
   const annotationTarget =
-    selectedStoryboard && selectedShot ? `${selectedStoryboard.sessionId}:${selectedShot.id}` : ''
+    selectedStoryboard && selectedShot
+      ? `${selectedStoryboard.conversationId}:${selectedShot.id}`
+      : ''
   const {
     clear: clearReferenceImages,
     errorMessage: referenceImageErrorMessage,
@@ -728,14 +811,16 @@ function StoryboardWorkspaceContent({
     if (selectedAgentRun?.phase !== 'completed') return
     setStoryboards((current) =>
       current.map((storyboard) =>
-        storyboard.sessionId === selectedAgentRun.sessionId && storyboard.status !== 'submitted'
+        storyboard.conversationId === selectedAgentRun.conversationId &&
+        storyboard.status !== 'submitted'
           ? { ...storyboard, status: 'submitted' }
           : storyboard,
       ),
     )
-  }, [selectedAgentRun?.phase, selectedAgentRun?.sessionId, setStoryboards])
+  }, [selectedAgentRun?.phase, selectedAgentRun?.conversationId, setStoryboards])
 
-  const selectedMonitorUi = monitorUiBySession[selectedStoryboard.sessionId] ?? DEFAULT_MONITOR_UI
+  const selectedMonitorUi =
+    monitorUiByConversation[selectedStoryboard.conversationId] ?? DEFAULT_MONITOR_UI
   const agentRunRecord = selectedAgentRun?.phase === 'running' ? null : selectedAgentRun
 
   const localRevisions = selectedShot ? (localRevisionsByShot[selectedShot.id] ?? []) : []
@@ -808,54 +893,32 @@ function StoryboardWorkspaceContent({
   }
 
   /**
-   * 把用户选中的真实 Task 加入当前任务轨道，并切换到最后加入的一项。
+   * 为这张需求单再开一次尝试，并切过去。
    *
-   * @param taskIds - 已有 Task 列表中的稳定 ID。
+   * 只开对话、不发消息：跑什么内容由用户在新书签里提交，这里不替他花钱。
+   *
    * @returns 无返回值。
    */
-  const addTasksToRail = async (taskIds: string[]) => {
-    setAddingTasks(true)
-    setAddTaskError(null)
+  const startAnotherAttempt = async () => {
+    setStartingAttempt(true)
+    setNotice('')
     try {
       const snapshot = taskLibraryQuery.data
-      if (!snapshot) throw new Error('已有任务列表尚未加载完成')
+      if (!snapshot) throw new Error('任务素材尚未加载完成')
 
-      const existingIds = new Set(storyboards.map((storyboard) => storyboard.videoTaskId))
-      const tasks = taskIds
-        .filter((taskId) => !existingIds.has(taskId))
-        .map((taskId) => {
-          const task = snapshot.tasks.find((item) => item.id === taskId)
-          if (!task) throw new Error(`选择的 Task 已不存在：${taskId}`)
-          return task
-        })
-      const relations = await Promise.all(
-        tasks.map((task) =>
-          createVideoTaskSession({
-            projectId,
-            videoTaskId: task.id,
-          }),
-        ),
-      )
-      const nextStoryboards = tasks.map((task, index) => {
-        const relation = relations[index]
-        if (!relation) throw new Error(`VideoTaskSession 创建结果缺少 Task：${task.id}`)
-        return createStoryboardFromTask(relation, task, snapshot.assetsById)
-      })
+      const conversation = await createStoryboardAttempt(task)
+      const storyboard = createStoryboardFromTask(conversation, task, snapshot.assetsById)
 
-      const lastStoryboard = nextStoryboards.at(-1)
-      if (!lastStoryboard) throw new Error('没有可添加到任务栏的 Task')
-
-      setStoryboards((current) => [...current, ...nextStoryboards])
+      setStoryboards((current) => [...current, storyboard])
       setSelectedShotIds((current) => ({
         ...current,
-        ...createInitialShotSelection(nextStoryboards),
+        ...createInitialShotSelection([storyboard]),
       }))
-      setTaskPickerOpen(false)
-      onSelectStoryboard(lastStoryboard)
+      onSelectStoryboard(storyboard)
     } catch (error) {
-      setAddTaskError(error instanceof Error ? error.message : String(error))
+      setNotice(error instanceof Error ? error.message : String(error))
     } finally {
-      setAddingTasks(false)
+      setStartingAttempt(false)
     }
   }
 
@@ -870,7 +933,7 @@ function StoryboardWorkspaceContent({
     clearReferenceImages()
     setSelectedShotIds((current) => ({
       ...current,
-      [selectedStoryboard.sessionId]: shot.id,
+      [selectedStoryboard.conversationId]: shot.id,
     }))
     setInstructionDocument(createEmptyStoryboardInstructionDocument())
     setInstructionReferenceInsertRequest(null)
@@ -901,7 +964,7 @@ function StoryboardWorkspaceContent({
     cancelAnnotationDraft()
     clearReferenceImages()
     blankShotId.current += 1
-    const newShotId = `${selectedStoryboard.sessionId}-blank-${blankShotId.current}`
+    const newShotId = `${selectedStoryboard.conversationId}-blank-${blankShotId.current}`
     const blankShot: StoryboardEditorShot = {
       aspectRatio: sourceShot.aspectRatio,
       cameraMovement: '待设置',
@@ -919,7 +982,7 @@ function StoryboardWorkspaceContent({
 
     setStoryboards((current) =>
       current.map((storyboard) => {
-        if (storyboard.sessionId !== selectedStoryboard.sessionId) return storyboard
+        if (storyboard.conversationId !== selectedStoryboard.conversationId) return storyboard
 
         const shots = [
           ...storyboard.shots.slice(0, afterShotIndex + 1),
@@ -932,7 +995,7 @@ function StoryboardWorkspaceContent({
     )
     setSelectedShotIds((current) => ({
       ...current,
-      [selectedStoryboard.sessionId]: newShotId,
+      [selectedStoryboard.conversationId]: newShotId,
     }))
     setInstructionDocument(createEmptyStoryboardInstructionDocument())
     setInstructionReferenceInsertRequest(null)
@@ -1254,7 +1317,7 @@ function StoryboardWorkspaceContent({
     })
     setStoryboards((current) =>
       current.map((storyboard) =>
-        storyboard.sessionId === selectedStoryboard.sessionId
+        storyboard.conversationId === selectedStoryboard.conversationId
           ? { ...storyboard, confirmedAt, status: 'confirmed' }
           : storyboard,
       ),
@@ -1271,7 +1334,7 @@ function StoryboardWorkspaceContent({
   const saveCreativeBrief = (brief: EditableStoryboardBrief) => {
     setStoryboards((current) =>
       current.map((storyboard) =>
-        storyboard.sessionId === selectedStoryboard.sessionId
+        storyboard.conversationId === selectedStoryboard.conversationId
           ? {
               ...storyboard,
               creativeInput: {
@@ -1297,11 +1360,11 @@ function StoryboardWorkspaceContent({
     }
     setNotice('')
     aui.thread().append(createStoryboardAgentSubmission(selectedStoryboard))
-    openRun(selectedStoryboard.sessionId, false)
+    openRun(selectedStoryboard.conversationId, false)
   }
 
   return (
-    <main className="storyboards-workspace" data-storyboard-project-id={projectId}>
+    <main className="storyboards-workspace" data-storyboard-task-id={task.id}>
       <div
         className="storyboards-body"
         onClick={(event) => {
@@ -1311,31 +1374,13 @@ function StoryboardWorkspaceContent({
         }}
       >
         <StoryboardTaskStack
-          activeId={selectedStoryboard.sessionId}
+          activeId={selectedStoryboard.conversationId}
           items={storyboards}
-          onAdd={() => setTaskPickerOpen(true)}
-          onSelect={onSelectStoryboard}
-          runningSessionIds={runningSessionIds}
-        />
-
-        <StoryboardTaskPicker
-          addedTaskIds={new Set(storyboards.map((storyboard) => storyboard.videoTaskId))}
-          assetsById={taskLibraryQuery.data?.assetsById ?? {}}
-          error={
-            addTaskError ??
-            (taskLibraryQuery.error instanceof Error
-              ? taskLibraryQuery.error.message
-              : taskLibraryQuery.error
-                ? '加载任务失败'
-                : null)
-          }
-          loading={taskLibraryQuery.isPending || addingTasks}
-          open={taskPickerOpen}
-          tasks={taskLibraryQuery.data?.tasks ?? []}
-          onClose={() => {
-            if (!addingTasks) setTaskPickerOpen(false)
+          onAdd={() => {
+            if (!startingAttempt) void startAnotherAttempt()
           }}
-          onConfirm={(taskIds) => void addTasksToRail(taskIds)}
+          onSelect={onSelectStoryboard}
+          runningConversationIds={runningConversationIds}
         />
 
         <div className="storyboards-main-grid">
@@ -1352,7 +1397,7 @@ function StoryboardWorkspaceContent({
             agentRun={selectedAgentRun}
             onConfirm={confirmCreativeBrief}
             onOpenChange={onBriefOpenChange}
-            onOpenRunRecord={() => openRun(selectedStoryboard.sessionId)}
+            onOpenRunRecord={() => openRun(selectedStoryboard.conversationId)}
             onSave={saveCreativeBrief}
             onSubmit={submitCreativeTask}
             open={briefOpen}
@@ -1748,8 +1793,8 @@ function StoryboardWorkspaceContent({
           </div>
           {!selectedMonitorUi.open && agentRunRecord && !selectedMonitorUi.dismissed ? (
             <StoryboardAgentSummary
-              onDismiss={() => dismissSummary(selectedStoryboard.sessionId)}
-              onOpen={() => openRun(selectedStoryboard.sessionId)}
+              onDismiss={() => dismissSummary(selectedStoryboard.conversationId)}
+              onOpen={() => openRun(selectedStoryboard.conversationId)}
               run={agentRunRecord}
             />
           ) : null}
@@ -1886,8 +1931,8 @@ function StoryboardWorkspaceContent({
           <StoryboardAgentMonitor
             expanded={selectedMonitorUi.expanded}
             nowMs={nowMs}
-            onClose={() => closeMonitor(selectedStoryboard.sessionId)}
-            onToggleExpanded={() => toggleMonitorExpanded(selectedStoryboard.sessionId)}
+            onClose={() => closeMonitor(selectedStoryboard.conversationId)}
+            onToggleExpanded={() => toggleMonitorExpanded(selectedStoryboard.conversationId)}
             run={selectedAgentRun}
           />
         ) : null}

@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import type { ProjectMemberSegment } from '@/features/chat/contracts'
-import AguiSessionRuntimeProvider, {
+import AguiConversationRuntimeProvider, {
   type AguiCustomEventPayload,
-  type AguiRestoreHistory,
-  useAguiConnection,
+  type AguiHistoryRepository,
 } from '@/shared/agui/provider'
 import { PRODUCER_AGUI_TARGET } from '@/shared/config/agui-target'
 import {
@@ -38,14 +37,10 @@ export const useProjectMemberSegments = () => {
   return segments
 }
 
-/** 读取连接恢复状态与手动重试入口（重连期间禁写、degraded 横幅用）。 */
-export const useProjectConnection = useAguiConnection
-
 /**
  * 为一个 project session 提供官方 AG-UI runtime。
  *
- * runtime 装配、restore→attach 触发与断线重连全部由通用
- * `AguiSessionRuntimeProvider` 承担（ADR-0005）；本层只补 producer team
+ * runtime 装配由通用 `AguiConversationRuntimeProvider` 承担；本层只补 producer team
  * 特有的两件事：restore 成员历史注水与 live `agui.member_event` 消费。
  */
 export default function ProjectAssistantRuntimeProvider({
@@ -61,11 +56,11 @@ export default function ProjectAssistantRuntimeProvider({
   }, [])
 
   const loadHistory = useCallback(
-    async (threadSessionId: string): Promise<AguiRestoreHistory> => {
+    async (threadSessionId: string): Promise<AguiHistoryRepository> => {
       const restored = await loadProjectRestoreHistory(threadSessionId)
       loadProjectMemberSegmentsFromRestore(memberSegmentsStateRef.current, restored.members)
       publishMemberSegments()
-      return { activeRun: restored.activeRun, repository: restored.repository }
+      return restored.repository
     },
     [publishMemberSegments],
   )
@@ -86,16 +81,16 @@ export default function ProjectAssistantRuntimeProvider({
 
   return (
     <ProjectMemberSegmentsContext.Provider value={memberSegments}>
-      <AguiSessionRuntimeProvider
+      <AguiConversationRuntimeProvider
+        conversationId={sessionId}
         loadHistory={loadHistory}
         onCustomEvent={handleCustomEvent}
         onRuntimeError={onRuntimeError}
         runUrl={AGUI_RUN_ENDPOINT}
-        sessionId={sessionId}
         showThinking
       >
         {children}
-      </AguiSessionRuntimeProvider>
+      </AguiConversationRuntimeProvider>
     </ProjectMemberSegmentsContext.Provider>
   )
 }

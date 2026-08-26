@@ -9,9 +9,10 @@
 | --- | --- | --- |
 | 登录态 | `/api/auth/login`、`/api/users/me`、`/api/auth/logout`、`/api/auth/sso/*` | `src/shared/auth/producer-auth.api.ts` |
 | 项目文件夹 | `/api/projects*` | `src/features/projects/api/producer-project.api.ts` |
-| Video Task 与 Session 关系 | `/api/video-task-sessions*` | `src/features/video-task-sessions/` |
+| 一张需求单跑过几次 | `/api/conversations/by-task/{taskId}` | `src/features/conversations/api/`、`src/features/storyboards/components/storyboard-route.tsx` |
 | Session Workspace / assets / generations | `/api/sessions/{sessionId}*` | `src/features/projects/api/producer-session-workspace.api.ts` + `src/features/chat/runtime/project-agui-runtime.ts` |
-| AG-UI 运行 | `/api/agui/teams/producer*`、`/api/agui/agents/storyboard*`；run 历史走 `/api/sessions/{sessionId}/runs` | `src/features/chat/runtime/`、`src/features/storyboards/runtime/` |
+| 对话、对话工作区文件与 Storyboard 运行 | `/api/conversations*`（含 `/{id}/workspace/*`）、`/api/agents/storyboard/chat` | `src/features/conversations/api/`、`src/features/storyboards/runtime/`、`src/features/storyboards/debug/debug-workspace-files.tsx`、`src/shared/agui/` |
+| Producer 聊天运行（尚未接到本仓后端） | `/api/agui/teams/producer*`；run 历史走 `/api/sessions/{sessionId}/runs` | `src/features/chat/runtime/`、`src/features/chat/agui/` |
 | 视频生成 | `/api/video-generations` | `src/features/projects/api/producer-project.api.ts` |
 | 素材上传与转存 | `/api/uploads/sign`、`/api/assets*` | `src/shared/lib/file-upload.ts` |
 | 用量分析 | `/api/analytics/generation-stats` | `src/features/analytics/` |
@@ -100,40 +101,6 @@ POST 每次创建一个普通多会话 session，运行目标在此处绑定而�
 ```
 
 POST 响应 `{ "session": { "id", "projectId", "target", "title", "createdAt", "updatedAt" } }`。target id 的合法性由后端运行目标注册表校验；同一 Project 可以创建多条 Session。Storyboard 不使用专属或单例 Session 接口。
-
-### VideoTaskSession
-
-```http
-POST /api/video-task-sessions
-Content-Type: application/json
-
-{ "projectId": "project-1", "videoTaskId": "task-1", "target": "storyboard" }
-```
-
-POST 为 Video Task 创建一个新的 Project Session 和显式关系，响应：
-
-```json
-{
-  "videoTaskSession": {
-    "videoTaskId": "task-1",
-    "createdAt": "2026-08-02T12:00:00Z",
-    "session": {
-      "id": "session-1",
-      "projectId": "project-1",
-      "target": "storyboard",
-      "title": "新对话",
-      "createdAt": "2026-08-02T12:00:00Z",
-      "updatedAt": "2026-08-02T12:00:00Z"
-    }
-  }
-}
-```
-
-```http
-GET /api/video-task-sessions?projectId={projectId}
-```
-
-GET 响应 `{ "videoTaskSessions": [...] }`。前端用 `videoTaskId` 与 Task 精确连接，用 `session.id` 作为该 Storyboard 的 AG-UI `threadId`；不得按 Project 的 Session 顺序、target 或时间推断关系。同一 Video Task 可创建多条关系，每条关系都有独立 Session。
 
 ### 项目画布布局
 
@@ -225,12 +192,33 @@ GET /api/sessions/{sessionId}/generations  -> { "generations": [...] }
 
 ## 4. AG-UI 协议
 
-Producer Agent 项目的 target 由 `VITE_AGUI_TARGET_PATH` 决定（默认 `/agui/teams/producer`）；Storyboard 固定使用已注册的 `/agui/agents/storyboard`。run 端点就是 target path 本身：
+### 对话与 Storyboard 运行（本仓后端，合同见根仓 `contract/conventions.md` §5 §6）
+
+Storyboard 调试页走的就是这一组。运行端点固定在 `src/shared/config/agui-target.ts` 的 `STORYBOARD_AGENT`（`id: "storyboard"`，`runUrl: "/api/agents/storyboard/chat"`）。
+
+```http
+POST /api/conversations                         # 开一段对话：{ agentId, title?, taskId?, projectId? } → 201 { conversation }
+GET  /api/conversations/by-task/{taskId}        # 这张单下自己的历次尝试，按开始时间正序：{ items: [conversation] }
+GET  /api/conversations/{id}/messages           # 读历史：{ messages: [AG-UI 消息] }
+GET  /api/conversations/{id}/workspace/files    # 这段对话里 agent 写下的文件：{ files: [{ path, sizeBytes, version, updatedAt }] }
+GET  /api/conversations/{id}/workspace/file?path=  # 读一个文件：{ file: { path, content, version } }
+POST /api/agents/storyboard/chat                # 运行：官方 RunAgentInput，text/event-stream
+```
+
+- **对话 id 由服务端发放，就是 AG-UI 的 `threadId`。** 先 `POST /conversations` 再跑；自己编一个 `threadId` 去跑是 404。调试页每次提交都开一段新对话，来源 Task 的 id 作为 `taskId` 一起给。
+- **Storyboard 正式页按需求单进**（`/storyboards/{taskId}`）：进页面先按单列出自己的历次尝试，每次尝试是一段对话。「开始真实运行」「再跑一次」都只是 `POST /conversations`，不建项目、不建 session——本仓后端没有「Storyboard 项目」这一层，项目只是个可选的口袋（`PUT /conversations/{id}/project` 随时放进去）。
+- 运行由 `@ag-ui/client` 的原厂 `HttpAgent` 发起（`Content-Type: application/json` + `Accept: text/event-stream`，七个字段齐全）；`runId` 由 assistant-ui runtime 铸造。用户消息里的参考素材是 `file` part（`data` 为 HTTP 地址），adapter 转成规范媒体 part，服务端再换成模型形状。
+- 历史经 `GET /conversations/{id}/messages` 读回、`fromAgUiMessages()` 还原后注水；一次都没跑过是空数组，不是 404。响应里没有「在途 run」决策，前端也不做。
+- **断线不自动重发。** 后端的运行不绑在这次请求上，会自己跑完并落库；再 POST 一次是开一次新运行。传输中断（断网、没收到终止事件就 EOF）在前端只呈现为一句错误，刷新页面从存档读回结果。终帧可能是 `RUN_ERROR` 且 `code` 为 `RUN_INTERRUPTED`（服务端进程没跑完就没了），按普通失败呈现。
+- **「Workspace 文件」面板只读**，走上面两个 `workspace/*` 端点：列表带 `version`，正文查询按 `(path, version)` 缓存——版本没变就不重读。刷新时机不靠工具名：聊天流里每有一个工具调用出了结果、或运行结束，就重拉一次列表（写文件的不只 `write_file` 那几件，镜头素材工具也会顺手往工作区写）。路径不合语法是 422，没有这个文件是 404，别人的对话两个端点都是 404。没有推送：页面刷新后运行还在跑的话，要等下一次流事件才会更新。
+
+### Producer 聊天运行（旧后端形状，尚未接到本仓后端）
+
+以下内容记录 `src/features/chat/` 仍在消费的端点形状，本仓 `server/` 并未实现它们。
 
 ```http
 POST /api/agui/teams/producer            # 运行（含 HITL resume）
 POST /api/agui/teams/producer/restore    # 历史恢复
-POST /api/agui/agents/storyboard         # Storyboard 运行
 GET  /api/sessions/{sessionId}/runs      # 官方 AgentOS session runs list
 ```
 
@@ -319,13 +307,12 @@ Content-Type: application/json
 - **replay**（终态 run 仍在缓冲）：全量回放至终止事件——同一条用户消息重发（请求丢失重试）会归因到这里，天然至多一次执行；
 - **snapshot**（缓冲缺失/截断）：以 DB 已落库事实合成 `MESSAGES_SNAPSHOT` + `STATE_SNAPSHOT` 收尾，前端零特殊处理。
 
-`RUN_ERROR` 错误码全集（golden fixtures 见 `src/shared/agui/__fixtures__/agui_contract/`）：
+`RUN_ERROR` 错误码全集：
 
-- `RUN_IN_PROGRESS`（终态）：携新用户消息撞在途 run 的显式拒绝，消息留在本地可重发——重连期间发送框禁用是第一道防线，本码是服务端兜底，任何路径不静默吞消息；
-- `ACTIVE_ELSEWHERE`（可重试）：run 在途但当前 worker 暂不可桥接，指数退避后重发普通 `startRun`；
-- `CANCELLED`（中性终态）：run 已被主动停止，前端呈现「已停止」。
+- `RUN_IN_PROGRESS`（终态）：携新用户消息撞在途 run 的显式拒绝，消息留在本地可重发；
+- `ACTIVE_ELSEWHERE` / `CANCELLED`：`@assistant-ui/react-ag-ui` 补丁把两者映射为 `RUN_CANCELLED`，前端呈现「已停止」。
 
-真实 transport 中断（网络异常或未收到终止事件的提前 EOF）与 `ACTIVE_ELSEWHERE` 同治：连接状态机进入 `interrupted`，指数退避（1s 起 ×2 + 抖动，上限 5 次后 `degraded` 等待手动重试）后重发普通 `startRun`；离线时等待 `online` 事件。用户主动 abort 保持静默。HITL continuation 断线后同样只靠归因 attach 观察已提交的 backend run，绝不重发 `resume[]`。
+真实 transport 中断（网络异常或未收到终止事件的提前 EOF）由 `src/shared/agui/transport.ts` 收敛为一个错误交给 runtime `onError`，前端**不自动重发** `startRun`（再发一次在本仓后端是开一次新运行）。用户主动 abort 保持静默。
 
 取消经 `POST /api/agui/teams/producer/runs/{runId}/cancel`（body `{"threadId": "..."}`）提交，返回 202；run 在服务端检查点收敛为 `CANCELLED` 终态。
 

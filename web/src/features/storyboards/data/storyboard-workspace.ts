@@ -1,11 +1,5 @@
-import type { ProducerProject } from '@/features/projects'
-import type { VideoTaskSession } from '@/features/video-task-sessions'
-import type {
-  VideoTask,
-  VideoTaskAsset,
-  VideoTaskOverviewField,
-  VideoTaskSnapshot,
-} from '@/features/tasks'
+import type { Conversation } from '@/features/conversations'
+import type { VideoTask, VideoTaskAsset, VideoTaskOverviewField } from '@/features/tasks'
 import type {
   StoryboardCreativeInput,
   StoryboardInputImage,
@@ -129,35 +123,26 @@ const createInputVideos = (
   })
 
 /**
- * 把真实 Project、Task 与 Asset 快照映射为 Storyboard 初始工作台。
+ * 把一张需求单的历次尝试映射为 Storyboard 工作台。
  *
- * Task 只提供创作输入，因此初始工作台不包含镜头，
- * 不把占位数据、产品图或参考视频伪装成 Agent 已经生成的 Storyboard 帧。
+ * 一次尝试就是一段对话；顺序由后端给（按开始时间正序），左侧书签的编号就是第几次。
+ * Task 只提供创作输入，所以这里不包含镜头——不把产品图或参考视频伪装成 Agent 已经
+ * 生成的 Storyboard 帧。
  *
- * @param project - 当前 Storyboard Project。
- * @param snapshot - Project 来源 Task 及其素材快照。
- * @returns 只包含当前 Task 的 Storyboard 工作台。
+ * @param task - 这个页面对应的需求单。
+ * @param conversations - 这张单下自己开过的对话，按开始时间正序。
+ * @param assetsById - 快照中按地址索引的真实素材。
+ * @returns 这张单的 Storyboard 工作台。
  */
 export const createStoryboardWorkspace = (
-  project: ProducerProject,
-  relations: VideoTaskSession[],
-  snapshot: VideoTaskSnapshot,
-): StoryboardWorkspace => {
-  const tasksById = new Map(snapshot.tasks.map((task) => [task.id, task]))
-
-  return {
-    storyboards: relations.map((relation) => {
-      if (relation.session.projectId !== project.id) {
-        throw new Error(`VideoTaskSession 不属于当前 Project：${relation.session.id}`)
-      }
-      const task = tasksById.get(relation.videoTaskId)
-      if (!task) {
-        throw new Error(`VideoTaskSession 引用的 Task 不存在：${relation.videoTaskId}`)
-      }
-      return createStoryboardFromTask(relation, task, snapshot.assetsById)
-    }),
-  }
-}
+  task: VideoTask,
+  conversations: Conversation[],
+  assetsById: Record<string, VideoTaskAsset>,
+): StoryboardWorkspace => ({
+  storyboards: conversations.map((conversation) =>
+    createStoryboardFromTask(conversation, task, assetsById),
+  ),
+})
 
 /**
  * 把 Task Brief 与素材映射为 Storyboard Agent 消费的创作输入。
@@ -184,15 +169,16 @@ export const createStoryboardCreativeInputFromTask = (
 })
 
 /**
- * 把任务列表中的真实 Task 映射为可加入当前左侧任务栏的 Storyboard 任务。
+ * 把一段对话映射为左侧书签上的一次尝试。
  *
- * @param task - 用户从已有任务列表中选中的 Task。
- * @param assetsById - 列表快照中按 ID 索引的真实素材。
- * @param title - 可选的 Storyboard 展示标题。
- * @returns 尚未运行 Agent 的 Storyboard 任务视图。
+ * @param conversation - 这次尝试的对话。
+ * @param task - 这段对话所属的需求单。
+ * @param assetsById - 列表快照中按地址索引的真实素材。
+ * @param title - 可选的展示标题，默认用需求单标题。
+ * @returns 尚未运行 Agent 的 Storyboard 视图。
  */
 export const createStoryboardFromTask = (
-  relation: VideoTaskSession,
+  conversation: Conversation,
   task: VideoTask,
   assetsById: Record<string, VideoTaskAsset>,
   title = task.title,
@@ -201,13 +187,13 @@ export const createStoryboardFromTask = (
 
   return {
     confirmedAt: null,
+    conversationId: conversation.id,
     creativeInput,
     modelLabel: 'Nano Banana',
-    sessionId: relation.session.id,
     shots: [],
-    // published 与 confirmed 均为可创作来源（与 storyboard-task-picker 的放行一致），Brief 即已确认。
+    // published 与 confirmed 都是可创作来源，Brief 即已确认。
     status: task.status === 'published' || task.status === 'confirmed' ? 'confirmed' : 'draft',
     title,
-    videoTaskId: relation.videoTaskId,
+    videoTaskId: task.id,
   }
 }

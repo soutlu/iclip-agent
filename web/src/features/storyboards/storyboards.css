@@ -20,6 +20,23 @@
   font-size: var(--text-label);
 }
 
+.storyboards-route-state-action {
+  cursor: pointer;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  padding: 10px 18px;
+  color: var(--color-on-primary);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+}
+
+.storyboards-route-state-action:disabled {
+  cursor: not-allowed;
+  background: var(--color-disabled-container);
+  color: var(--color-disabled-text);
+}
+
 .storyboards-workspace * {
   box-sizing: border-box;
 }

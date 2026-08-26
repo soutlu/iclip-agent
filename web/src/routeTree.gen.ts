@@ -15,7 +15,7 @@ import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as AuthedStoryboardDebugRouteImport } from './routes/_authed/storyboard-debug'
 import { Route as AuthedAnalyticsRouteImport } from './routes/_authed/analytics'
 import { Route as AuthSsoLandingRouteImport } from './routes/auth.sso.landing'
-import { Route as AuthedStoryboardsProjectIdRouteImport } from './routes/_authed/storyboards.$projectId'
+import { Route as AuthedStoryboardsTaskIdRouteImport } from './routes/_authed/storyboards.$taskId'
 import { Route as AuthedProjectsProjectIdRouteImport } from './routes/_authed/projects.$projectId'
 import { Route as AuthedAdminUsersRouteImport } from './routes/_authed/admin.users'
 
@@ -48,12 +48,11 @@ const AuthSsoLandingRoute = AuthSsoLandingRouteImport.update({
   path: '/auth/sso/landing',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthedStoryboardsProjectIdRoute =
-  AuthedStoryboardsProjectIdRouteImport.update({
-    id: '/storyboards/$projectId',
-    path: '/storyboards/$projectId',
-    getParentRoute: () => AuthedRoute,
-  } as any)
+const AuthedStoryboardsTaskIdRoute = AuthedStoryboardsTaskIdRouteImport.update({
+  id: '/storyboards/$taskId',
+  path: '/storyboards/$taskId',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedProjectsProjectIdRoute = AuthedProjectsProjectIdRouteImport.update({
   id: '/projects/$projectId',
   path: '/projects/$projectId',
@@ -72,7 +71,7 @@ export interface FileRoutesByFullPath {
   '/storyboard-debug': typeof AuthedStoryboardDebugRoute
   '/admin/users': typeof AuthedAdminUsersRoute
   '/projects/$projectId': typeof AuthedProjectsProjectIdRoute
-  '/storyboards/$projectId': typeof AuthedStoryboardsProjectIdRoute
+  '/storyboards/$taskId': typeof AuthedStoryboardsTaskIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesByTo {
@@ -82,7 +81,7 @@ export interface FileRoutesByTo {
   '/': typeof AuthedIndexRoute
   '/admin/users': typeof AuthedAdminUsersRoute
   '/projects/$projectId': typeof AuthedProjectsProjectIdRoute
-  '/storyboards/$projectId': typeof AuthedStoryboardsProjectIdRoute
+  '/storyboards/$taskId': typeof AuthedStoryboardsTaskIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesById {
@@ -94,7 +93,7 @@ export interface FileRoutesById {
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/admin/users': typeof AuthedAdminUsersRoute
   '/_authed/projects/$projectId': typeof AuthedProjectsProjectIdRoute
-  '/_authed/storyboards/$projectId': typeof AuthedStoryboardsProjectIdRoute
+  '/_authed/storyboards/$taskId': typeof AuthedStoryboardsTaskIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRouteTypes {
@@ -106,7 +105,7 @@ export interface FileRouteTypes {
     | '/storyboard-debug'
     | '/admin/users'
     | '/projects/$projectId'
-    | '/storyboards/$projectId'
+    | '/storyboards/$taskId'
     | '/auth/sso/landing'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -116,7 +115,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin/users'
     | '/projects/$projectId'
-    | '/storyboards/$projectId'
+    | '/storyboards/$taskId'
     | '/auth/sso/landing'
   id:
     | '__root__'
@@ -127,7 +126,7 @@ export interface FileRouteTypes {
     | '/_authed/'
     | '/_authed/admin/users'
     | '/_authed/projects/$projectId'
-    | '/_authed/storyboards/$projectId'
+    | '/_authed/storyboards/$taskId'
     | '/auth/sso/landing'
   fileRoutesById: FileRoutesById
 }
@@ -181,11 +180,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthSsoLandingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authed/storyboards/$projectId': {
-      id: '/_authed/storyboards/$projectId'
-      path: '/storyboards/$projectId'
-      fullPath: '/storyboards/$projectId'
-      preLoaderRoute: typeof AuthedStoryboardsProjectIdRouteImport
+    '/_authed/storyboards/$taskId': {
+      id: '/_authed/storyboards/$taskId'
+      path: '/storyboards/$taskId'
+      fullPath: '/storyboards/$taskId'
+      preLoaderRoute: typeof AuthedStoryboardsTaskIdRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/projects/$projectId': {
@@ -211,7 +210,7 @@ interface AuthedRouteChildren {
   AuthedIndexRoute: typeof AuthedIndexRoute
   AuthedAdminUsersRoute: typeof AuthedAdminUsersRoute
   AuthedProjectsProjectIdRoute: typeof AuthedProjectsProjectIdRoute
-  AuthedStoryboardsProjectIdRoute: typeof AuthedStoryboardsProjectIdRoute
+  AuthedStoryboardsTaskIdRoute: typeof AuthedStoryboardsTaskIdRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
@@ -220,7 +219,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedAdminUsersRoute: AuthedAdminUsersRoute,
   AuthedProjectsProjectIdRoute: AuthedProjectsProjectIdRoute,
-  AuthedStoryboardsProjectIdRoute: AuthedStoryboardsProjectIdRoute,
+  AuthedStoryboardsTaskIdRoute: AuthedStoryboardsTaskIdRoute,
 }
 
 const AuthedRouteWithChildren =

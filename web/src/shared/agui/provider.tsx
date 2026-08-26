@@ -7,39 +7,13 @@ import {
 import { useAgUiRuntime } from '@assistant-ui/react-ag-ui'
 import type { ReadonlyJSONValue } from 'assistant-stream/utils'
 import type { ReactNode } from 'react'
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from 'react'
-import {
-  AGUI_RUN_ERROR_CODES,
-  type AguiConnectionState,
-  aguiRetryDelayMs,
-  aguiRunErrorCode,
-  aguiTransportMiddleware,
-  initialAguiConnectionState,
-  isAguiTransportInterruption,
-  reduceAguiConnection,
-} from './recovery'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { aguiTransportMiddleware, isAguiTransportInterruption } from './transport'
 
-/** restore 响应中的后端恢复决策：唯一可 attach 的在途 run。 */
-export interface AguiActiveRun {
-  runId: string
-}
-
-/** restore 注水结果：assistant-ui repository + 后端 activeRun 决策。 */
-export interface AguiRestoreHistory {
-  activeRun: AguiActiveRun | null
-  repository: ExportedMessageRepository & {
-    state?: ReadonlyJSONValue
-    unstable_resume?: boolean
-  }
+/** 注水用的历史：assistant-ui repository（由后端返回的 AG-UI 消息还原而来）。 */
+export type AguiHistoryRepository = ExportedMessageRepository & {
+  state?: ReadonlyJSONValue
+  unstable_resume?: boolean
 }
 
 /** AG-UI CUSTOM 事件（结构化最小面，避免依赖 @ag-ui/core 内部类型）。 */
@@ -48,96 +22,81 @@ export interface AguiCustomEventPayload {
   value: unknown
 }
 
-interface AguiSessionRuntimeProviderProps {
+interface AguiConversationRuntimeProviderProps {
   children: ReactNode
-  /** target 专属的 restore 加载器；返回 repository 与 activeRun 决策。 */
-  loadHistory: (sessionId: string) => Promise<AguiRestoreHistory>
-  /** target 专属的 CUSTOM 事件消费（如 team 成员事件）；省略即忽略。 */
+  /** 对话 id：服务端发放，就是 AG-UI 的 `threadId`。 */
+  conversationId: string
+  /** 读这段对话的历史，还原成 repository。 */
+  loadHistory: (conversationId: string) => Promise<AguiHistoryRepository>
+  /** CUSTOM 事件消费；省略即忽略。 */
   onCustomEvent?: (event: AguiCustomEventPayload) => void
   onRuntimeError: (error: Error) => void
-  /** run 端点（即 target path 本身，含 `/api` 前缀）。 */
+  /** 运行端点（含 `/api` 前缀的完整同源 URL）。 */
   runUrl: string
-  sessionId: string
   showThinking: boolean
 }
 
 interface AguiConnectionContextValue {
   historyLoaded: boolean
-  retry: () => void
-  state: AguiConnectionState
 }
 
 const AguiConnectionContext = createContext<AguiConnectionContextValue | null>(null)
 
-/** 读取连接恢复状态与手动重试入口（重连期间禁写、degraded 横幅用）。 */
+/** 历史是否已注水完成（首条消息要等它之后再发）。 */
 export const useAguiConnection = () => {
   const connection = useContext(AguiConnectionContext)
 
   if (!connection) {
-    throw new Error('useAguiConnection 必须在 AguiSessionRuntimeProvider 内使用。')
+    throw new Error('useAguiConnection 必须在 AguiConversationRuntimeProvider 内使用。')
   }
 
   return connection
 }
 
+const TRANSPORT_INTERRUPTED_MESSAGE =
+  '连接断开了。后端会继续把这次运行跑完并落库，刷新页面可查看已存档的结果。'
+
 /**
- * 为一个 session 提供唯一的官方 AG-UI runtime（target 无关的通用装配）。
+ * 为一段对话提供唯一的官方 AG-UI runtime。
  *
- * 结构遵循 iclip_agent ADR-0005：原厂 `HttpAgent` 单 URL；restore 注水与
- * `activeRun` 决策来自官方 `ThreadHistoryAdapter`；断线重连退化为「退避后
- * 再触发一次普通 startRun」——是新 run、attach 桥接还是快照兜底由后端归因，
- * 前端不做任何路由决策，也没有 runtime 换代。
+ * 原厂 `HttpAgent` 单 URL（`POST /agents/{agentId}/chat`），历史经官方
+ * `ThreadHistoryAdapter` 从后端读回。断线只是没人读了：运行在后端照跑、照落库，
+ * 所以这里不自动重发——再发一次是开新运行。
  */
-export default function AguiSessionRuntimeProvider({
+export default function AguiConversationRuntimeProvider({
   children,
+  conversationId,
   loadHistory,
   onCustomEvent,
   onRuntimeError,
   runUrl,
-  sessionId,
   showThinking,
-}: AguiSessionRuntimeProviderProps) {
-  const [connection, dispatch] = useReducer(reduceAguiConnection, initialAguiConnectionState)
-  const pendingAttachRef = useRef<AguiActiveRun | null>(null)
-  const lastRunErrorCodeRef = useRef<string | null>(null)
-  const [attachTick, setAttachTick] = useState(0)
+}: AguiConversationRuntimeProviderProps) {
   const [historyLoaded, setHistoryLoaded] = useState(false)
 
   const agent = useMemo(() => {
-    const created = new HttpAgent({ threadId: sessionId, url: runUrl })
-    created.use(aguiTransportMiddleware(sessionId))
+    const created = new HttpAgent({ threadId: conversationId, url: runUrl })
+    created.use(aguiTransportMiddleware(conversationId))
     return created
-  }, [runUrl, sessionId])
+  }, [conversationId, runUrl])
 
   const history = useMemo<ThreadHistoryAdapter>(
     () => ({
-      // 消息由 AG-UI run 写入后端 Session；history adapter 只负责官方 restore 读取。
+      // 消息由后端在运行中落库；这里只负责读回来。
       append: () => Promise.resolve(undefined),
       load: async () => {
-        const restored = await loadHistory(sessionId)
-        pendingAttachRef.current = restored.activeRun
-        if (restored.activeRun) {
-          setAttachTick((tick) => tick + 1)
-        }
+        const repository = await loadHistory(conversationId)
         setHistoryLoaded(true)
-        return restored.repository
+        return repository
       },
     }),
-    [loadHistory, sessionId],
+    [conversationId, loadHistory],
   )
 
   const handleRuntimeError = useCallback(
     (error: Error) => {
       if (isAguiTransportInterruption(error)) {
-        dispatch({ type: 'interrupted' })
-        return
-      }
-      const code = lastRunErrorCodeRef.current
-      if (
-        code === AGUI_RUN_ERROR_CODES.activeElsewhere ||
-        code === AGUI_RUN_ERROR_CODES.cancelled
-      ) {
-        // ACTIVE_ELSEWHERE 已由订阅回调转入重连；CANCELLED 是中性终态。
+        onRuntimeError(new Error(TRANSPORT_INTERRUPTED_MESSAGE, { cause: error }))
         return
       }
       onRuntimeError(error)
@@ -154,95 +113,13 @@ export default function AguiSessionRuntimeProvider({
     showThinking,
   })
 
-  const startRecoveryRun = useCallback(() => {
-    const thread = runtime.thread.getState()
-    if (thread.isLoading || thread.isRunning) {
-      return false
-    }
-    runtime.thread.startRun({
-      parentId: thread.messages.at(-1)?.id ?? null,
-    })
-    return true
-  }, [runtime])
-
-  // restore 报告 activeRun：注水完成后自动触发一次 startRun（后端归因为 attach）。
   useEffect(() => {
-    if (attachTick === 0) {
+    if (!onCustomEvent) {
       return
     }
-
-    const startWhenHydrated = () => {
-      if (pendingAttachRef.current === null) {
-        return
-      }
-      const thread = runtime.thread.getState()
-      if (thread.isLoading || thread.isRunning) {
-        return
-      }
-      pendingAttachRef.current = null
-      runtime.thread.startRun({
-        parentId: thread.messages.at(-1)?.id ?? null,
-      })
-    }
-
-    startWhenHydrated()
-    return runtime.thread.subscribe(startWhenHydrated)
-  }, [attachTick, runtime])
-
-  // 传输中断 / ACTIVE_ELSEWHERE：指数退避后重发普通 startRun，离线时等待网络恢复。
-  useEffect(() => {
-    if (connection.phase !== 'interrupted') {
-      return
-    }
-
-    let timer: number | null = null
-    let onlineListener: (() => void) | null = null
-
-    const fire = () => {
-      timer = window.setTimeout(() => {
-        timer = null
-        startRecoveryRun()
-      }, aguiRetryDelayMs(connection.attempt))
-    }
-
-    if (navigator.onLine) {
-      fire()
-    } else {
-      onlineListener = fire
-      window.addEventListener('online', onlineListener, { once: true })
-    }
-
-    return () => {
-      if (timer !== null) {
-        window.clearTimeout(timer)
-      }
-      if (onlineListener) {
-        window.removeEventListener('online', onlineListener)
-      }
-    }
-  }, [connection, startRecoveryRun])
-
-  useEffect(() => {
     const subscription = agent.subscribe({
       onCustomEvent: ({ event }) => {
-        onCustomEvent?.({ name: event.name, value: event.value })
-      },
-      onRunErrorEvent: ({ event }) => {
-        const code = aguiRunErrorCode(event)
-        lastRunErrorCodeRef.current = code
-        if (code === AGUI_RUN_ERROR_CODES.activeElsewhere) {
-          dispatch({ type: 'interrupted' })
-          return
-        }
-        dispatch({ type: 'runSettled' })
-      },
-      onRunFinishedEvent: () => {
-        lastRunErrorCodeRef.current = null
-        dispatch({ type: 'runSettled' })
-      },
-      onRunStartedEvent: () => {
-        lastRunErrorCodeRef.current = null
-        dispatch({ type: 'runStarted' })
+        onCustomEvent({ name: event.name, value: event.value })
       },
     })
 
@@ -269,14 +146,8 @@ export default function AguiSessionRuntimeProvider({
   }, [agent])
 
   const connectionValue = useMemo<AguiConnectionContextValue>(
-    () => ({
-      historyLoaded,
-      retry: () => {
-        dispatch({ type: 'manualRetry' })
-      },
-      state: connection,
-    }),
-    [connection, historyLoaded],
+    () => ({ historyLoaded }),
+    [historyLoaded],
   )
 
   return (
