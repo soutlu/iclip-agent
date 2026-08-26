@@ -7,7 +7,7 @@ import { STORYBOARD_STATUS_LABELS } from '@/features/storyboards/components/stor
 
 type StoryboardTaskStackItem = Pick<
   Storyboard,
-  'creativeInput' | 'sessionId' | 'status' | 'title'
+  'conversationId' | 'creativeInput' | 'status' | 'title'
 > & {
   shots: Array<{ id: string }>
 }
@@ -17,22 +17,22 @@ type StoryboardTaskStackProps<T extends StoryboardTaskStackItem> = {
   items: T[]
   onAdd: () => void
   onSelect: (storyboard: T) => void
-  /** 有进行中 Agent 运行的 session 集合，书签显示运行徽标。 */
-  runningSessionIds?: ReadonlySet<string>
+  /** 有 Agent 正在跑的对话，书签显示运行徽标。 */
+  runningConversationIds?: ReadonlySet<string>
 }
 
 /**
- * 渲染由任务状态与款号驱动的 Storyboard 书签任务栈。
+ * 渲染这张需求单历次尝试的书签栈；书签上的编号就是第几次。
  *
- * @param props - 任务集合、当前任务与用户操作。
- * @returns 品牌、可访问的任务书签列表与新建入口。
+ * @param props - 历次尝试、当前选中项与用户操作。
+ * @returns 品牌、可访问的书签列表与「再跑一次」入口。
  */
 export default function StoryboardTaskStack<T extends StoryboardTaskStackItem>({
   activeId,
   items,
   onAdd,
   onSelect,
-  runningSessionIds,
+  runningConversationIds,
 }: StoryboardTaskStackProps<T>) {
   return (
     <nav className="storyboards-task-stack" aria-label="故事板任务">
@@ -48,16 +48,16 @@ export default function StoryboardTaskStack<T extends StoryboardTaskStackItem>({
           const styleNo =
             storyboard.creativeInput.styleNo ?? storyboard.creativeInput.category ?? '未设置款号'
           const statusLabel = STORYBOARD_STATUS_LABELS[storyboard.status]
-          const taskNumber = String(index + 1).padStart(2, '0')
-          const running = runningSessionIds?.has(storyboard.sessionId) ?? false
+          const attemptNumber = String(index + 1).padStart(2, '0')
+          const running = runningConversationIds?.has(storyboard.conversationId) ?? false
 
           return (
             <button
-              key={storyboard.sessionId}
+              key={storyboard.conversationId}
               type="button"
-              aria-label={`查看故事板项目 ${storyboard.title}`}
+              aria-label={`查看第 ${index + 1} 次运行 ${storyboard.title}`}
               aria-description={`款号：${styleNo}；状态：${STORYBOARD_STATUS_LABELS[storyboard.status]}${running ? '；Agent 运行中' : ''}`}
-              aria-pressed={storyboard.sessionId === activeId}
+              aria-pressed={storyboard.conversationId === activeId}
               className="storyboards-task-bookmark"
               data-running={running || undefined}
               data-status={storyboard.status}
@@ -75,7 +75,7 @@ export default function StoryboardTaskStack<T extends StoryboardTaskStackItem>({
                   size={5}
                   strokeWidth={0}
                 />
-                <span>{taskNumber}</span>
+                <span>{attemptNumber}</span>
               </span>
               <span className="storyboards-task-bookmark-copy">
                 <span className="storyboards-task-bookmark-style" title={styleNo}>
@@ -100,11 +100,11 @@ export default function StoryboardTaskStack<T extends StoryboardTaskStackItem>({
       <button
         type="button"
         className="storyboards-task-stack-add"
-        aria-label="添加任务"
+        aria-label="再跑一次"
         onClick={onAdd}
       >
-        <StoryboardIcon name="plus" size={15} title="添加任务" />
-        <span>新任务</span>
+        <StoryboardIcon name="plus" size={15} title="再跑一次" />
+        <span>再跑一次</span>
       </button>
     </nav>
   )

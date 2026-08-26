@@ -24,7 +24,7 @@ import {
   ProjectConversationTimeline,
   projectConversationTimelineItemsFromAssistantMessages,
 } from '@/features/chat'
-import { createConversation } from '@/features/conversations'
+import { createConversation, MAX_CONVERSATION_TITLE_CHARS } from '@/features/conversations'
 import {
   listVideoTaskSnapshot,
   VIDEO_TASKS_QUERY_KEY,
@@ -49,9 +49,6 @@ import {
 import DebugToolResultImages from './debug-tool-result-images'
 import DebugWorkspaceFiles from './debug-workspace-files'
 import GenerateShotFramesToolDetails from './generate-shot-frames-tool-details'
-
-/** 对话标题的后端上限。 */
-const MAX_CONVERSATION_TITLE_CHARS = 200
 
 const DEBUG_INPUT_CLASS =
   'rounded-lg border border-[var(--color-outline)] bg-[var(--color-surface-container-lowest)] text-body text-[var(--color-on-surface)] transition-colors duration-[var(--dur-s)] hover:border-[var(--color-primary)] disabled:cursor-not-allowed disabled:bg-[var(--color-disabled-container)] disabled:text-[var(--color-disabled-text)]'

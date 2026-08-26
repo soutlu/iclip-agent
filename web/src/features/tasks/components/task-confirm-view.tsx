@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Bug, Check } from 'lucide-react'
 import { useState } from 'react'
-import { createProducerProject } from '@/features/projects'
+import { createConversation, MAX_CONVERSATION_TITLE_CHARS } from '@/features/conversations'
 import { confirmVideoTask, VIDEO_TASKS_QUERY_KEY } from '@/features/tasks/api/video-task.api'
 import type { VideoTask } from '@/features/tasks/video-task.types'
-import { createVideoTaskSession } from '@/features/video-task-sessions'
 import type { SettingsChoiceOption } from '@/shared/composer'
+import { STORYBOARD_AGENT } from '@/shared/config/agui-target'
 import { briefDisplayValue } from './task-display'
 import TaskMaterialsEditor from './task-materials-editor'
 import TaskOptionDropdown from './task-option-dropdown'
@@ -51,22 +51,20 @@ export default function TaskConfirmView() {
       await queryClient.invalidateQueries({ queryKey: VIDEO_TASKS_QUERY_KEY })
     },
   })
+  // 开始运行 = 为这张单开一段 storyboard 对话（一次尝试），然后进这张单的工作台。
   const startStoryboardMutation = useMutation({
     mutationFn: async (task: VideoTask) => {
-      const project = await createProducerProject({
-        kind: 'agent',
-        title: task.title,
+      await createConversation({
+        agentId: STORYBOARD_AGENT.id,
+        taskId: task.id,
+        title: task.title.slice(0, MAX_CONVERSATION_TITLE_CHARS),
       })
-      await createVideoTaskSession({
-        projectId: project.id,
-        videoTaskId: task.id,
-      })
-      return project
+      return task
     },
-    onSuccess: async (project) => {
+    onSuccess: async (task) => {
       await navigate({
-        params: { projectId: project.id },
-        to: '/storyboards/$projectId',
+        params: { taskId: task.id },
+        to: '/storyboards/$taskId',
       })
     },
   })

@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 登录态 | `/api/auth/login`、`/api/users/me`、`/api/auth/logout`、`/api/auth/sso/*` | `src/shared/auth/producer-auth.api.ts` |
 | 项目文件夹 | `/api/projects*` | `src/features/projects/api/producer-project.api.ts` |
-| Video Task 与 Session 关系 | `/api/video-task-sessions*` | `src/features/video-task-sessions/` |
+| 一张需求单跑过几次 | `/api/conversations/by-task/{taskId}` | `src/features/conversations/api/`、`src/features/storyboards/components/storyboard-route.tsx` |
 | Session Workspace / assets / generations | `/api/sessions/{sessionId}*` | `src/features/projects/api/producer-session-workspace.api.ts` + `src/features/chat/runtime/project-agui-runtime.ts` |
 | 对话、对话工作区文件与 Storyboard 运行 | `/api/conversations*`（含 `/{id}/workspace/*`）、`/api/agents/storyboard/chat` | `src/features/conversations/api/`、`src/features/storyboards/runtime/`、`src/features/storyboards/debug/debug-workspace-files.tsx`、`src/shared/agui/` |
 | Producer 聊天运行（尚未接到本仓后端） | `/api/agui/teams/producer*`；run 历史走 `/api/sessions/{sessionId}/runs` | `src/features/chat/runtime/`、`src/features/chat/agui/` |
@@ -101,40 +101,6 @@ POST 每次创建一个普通多会话 session，运行目标在此处绑定而�
 ```
 
 POST 响应 `{ "session": { "id", "projectId", "target", "title", "createdAt", "updatedAt" } }`。target id 的合法性由后端运行目标注册表校验；同一 Project 可以创建多条 Session。Storyboard 不使用专属或单例 Session 接口。
-
-### VideoTaskSession
-
-```http
-POST /api/video-task-sessions
-Content-Type: application/json
-
-{ "projectId": "project-1", "videoTaskId": "task-1", "target": "storyboard" }
-```
-
-POST 为 Video Task 创建一个新的 Project Session 和显式关系，响应：
-
-```json
-{
-  "videoTaskSession": {
-    "videoTaskId": "task-1",
-    "createdAt": "2026-08-02T12:00:00Z",
-    "session": {
-      "id": "session-1",
-      "projectId": "project-1",
-      "target": "storyboard",
-      "title": "新对话",
-      "createdAt": "2026-08-02T12:00:00Z",
-      "updatedAt": "2026-08-02T12:00:00Z"
-    }
-  }
-}
-```
-
-```http
-GET /api/video-task-sessions?projectId={projectId}
-```
-
-GET 响应 `{ "videoTaskSessions": [...] }`。前端用 `videoTaskId` 与 Task 精确连接，用 `session.id` 作为该 Storyboard 的 AG-UI `threadId`；不得按 Project 的 Session 顺序、target 或时间推断关系。同一 Video Task 可创建多条关系，每条关系都有独立 Session。
 
 ### 项目画布布局
 
@@ -232,6 +198,7 @@ Storyboard 调试页走的就是这一组。运行端点固定在 `src/shared/co
 
 ```http
 POST /api/conversations                         # 开一段对话：{ agentId, title?, taskId?, projectId? } → 201 { conversation }
+GET  /api/conversations/by-task/{taskId}        # 这张单下自己的历次尝试，按开始时间正序：{ items: [conversation] }
 GET  /api/conversations/{id}/messages           # 读历史：{ messages: [AG-UI 消息] }
 GET  /api/conversations/{id}/workspace/files    # 这段对话里 agent 写下的文件：{ files: [{ path, sizeBytes, version, updatedAt }] }
 GET  /api/conversations/{id}/workspace/file?path=  # 读一个文件：{ file: { path, content, version } }
@@ -239,6 +206,7 @@ POST /api/agents/storyboard/chat                # 运行：官方 RunAgentInput�
 ```
 
 - **对话 id 由服务端发放，就是 AG-UI 的 `threadId`。** 先 `POST /conversations` 再跑；自己编一个 `threadId` 去跑是 404。调试页每次提交都开一段新对话，来源 Task 的 id 作为 `taskId` 一起给。
+- **Storyboard 正式页按需求单进**（`/storyboards/{taskId}`）：进页面先按单列出自己的历次尝试，每次尝试是一段对话。「开始真实运行」「再跑一次」都只是 `POST /conversations`，不建项目、不建 session——本仓后端没有「Storyboard 项目」这一层，项目只是个可选的口袋（`PUT /conversations/{id}/project` 随时放进去）。
 - 运行由 `@ag-ui/client` 的原厂 `HttpAgent` 发起（`Content-Type: application/json` + `Accept: text/event-stream`，七个字段齐全）；`runId` 由 assistant-ui runtime 铸造。用户消息里的参考素材是 `file` part（`data` 为 HTTP 地址），adapter 转成规范媒体 part，服务端再换成模型形状。
 - 历史经 `GET /conversations/{id}/messages` 读回、`fromAgUiMessages()` 还原后注水；一次都没跑过是空数组，不是 404。响应里没有「在途 run」决策，前端也不做。
 - **断线不自动重发。** 后端的运行不绑在这次请求上，会自己跑完并落库；再 POST 一次是开一次新运行。传输中断（断网、没收到终止事件就 EOF）在前端只呈现为一句错误，刷新页面从存档读回结果。终帧可能是 `RUN_ERROR` 且 `code` 为 `RUN_INTERRUPTED`（服务端进程没跑完就没了），按普通失败呈现。

@@ -6,11 +6,11 @@ export type StoryboardAgentRunPhase = 'completed' | 'failed' | 'running'
 
 /** 一次真实 Storyboard Agent 运行的用户可见快照。 */
 export type StoryboardAgentRun = {
+  conversationId: string
   errorMessage: null | string
   finalSeconds: null | number
   output: string
   phase: StoryboardAgentRunPhase
-  sessionId: string
   startedAtMs: number
   title: string
   videoTaskId: string
@@ -57,7 +57,7 @@ export const storyboardAgentRunFromThread = (
       finalSeconds,
       output,
       phase: 'failed',
-      sessionId: storyboard.sessionId,
+      conversationId: storyboard.conversationId,
       startedAtMs,
       title: storyboard.title,
       videoTaskId: storyboard.videoTaskId,
@@ -70,7 +70,7 @@ export const storyboardAgentRunFromThread = (
       finalSeconds: null,
       output,
       phase: 'running',
-      sessionId: storyboard.sessionId,
+      conversationId: storyboard.conversationId,
       startedAtMs,
       title: storyboard.title,
       videoTaskId: storyboard.videoTaskId,
@@ -82,7 +82,7 @@ export const storyboardAgentRunFromThread = (
     finalSeconds,
     output,
     phase: output.trim() ? 'completed' : 'failed',
-    sessionId: storyboard.sessionId,
+    conversationId: storyboard.conversationId,
     startedAtMs,
     title: storyboard.title,
     videoTaskId: storyboard.videoTaskId,

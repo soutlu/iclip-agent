@@ -47,11 +47,12 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 - 默认 target 是后端已注册的 `/agui/teams/producer`，不得恢复为旧命名空间或未注册 team。
 - `POST /api/projects` 只创建 Project 文件夹：Producer Agent 与 Storyboard 提交 `{ kind: "agent", title }`，普通项目提交 `{ kind: "direct", title }`；任何 Project 创建请求与响应都不包含 target 或 Video Task id。
 - `POST /api/projects/{projectId}/sessions` 必须提交 `{ target }`；session 响应也必须包含非空 target。target 建 session 时选定、之后不可改，同一 Project 可以包含不同 target 的 sessions。
-- `POST /api/video-task-sessions` 提交 `{ projectId, videoTaskId, target: "storyboard" }`，创建一个新的 Session 与显式关系；`GET /api/video-task-sessions?projectId=...` 是 Storyboard 页面 Task-Session 映射的唯一事实源。
+- Storyboard 页面按**需求单**组织：`/storyboards/{taskId}`，`GET /api/conversations/by-task/{taskId}` 是「这张单跑过几次」的唯一事实源（后端按开始时间正序，左侧书签编号即第几次）。没有「Storyboard 项目」「VideoTaskSession」这两层——本仓后端的项目只是个口袋（只有名字），一次尝试就是一段对话。
 - 首页 Agent projects 卡片是 project 文件夹入口，只能链接到 `/projects/{projectId}`；卡片本身不选择或写入具体 session，Producer 项目路由只加载与 `VITE_AGUI_TARGET_PATH` 同 id（默认 `producer`）的 sessions，缺少时再创建一个。
-- 首页 Storyboards 只展示 `GET /api/video-task-sessions` 返回非空关系的 Agent Projects；新建入口是 Tasks 面板的“进入 Storyboard”，先创建 Project，再创建第一条 VideoTaskSession。
+- 任务确认列表的「开始真实运行」= `POST /api/conversations`（`agentId: "storyboard"` + `taskId`），成功后进 `/storyboards/{taskId}`；不建项目、不建 session。页面里的「再跑一次」同理，只开对话不发消息——跑什么由用户在新书签里提交。这张单一次都没跑过时，页面给「开始第一次运行」的入口，打开页面本身不会偷偷开一段对话。
+- 首页那一屏仍按「项目」组织，尚未接本仓后端（项目列表还在读旧形状的 `kind`/`title`）；它的 Storyboards 卡片链接指向的还是旧的 `/storyboards/{projectId}` 语义，接首页时一并改。
 - 项目页初始化 session tabs 必须以 `GET /api/projects/{projectId}/sessions` 返回的完整项目 session 列表为事实源，按当前工作台 target 过滤后再选择 active session。不得把 project 入口降级为首页项目列表里的首条 session，也不得把项目页初始化绑定到 `GET /api/projects/{projectId}` 里的 `sessionIds` 聚合字段。
-- Storyboard 页面按显式 `videoTaskId` 读取 Task，按对话 id 管理选择、运行与输出；不得按 Project 的 `sessionIds` 顺序、target、Task 顺序或时间做推断式关联。一个 Project 可以有多个 Storyboard，每段对话常驻一个独立 AG-UI runtime host（`shared/agui` 通用装配 `AguiConversationRuntimeProvider`，ADR-0006），仅 active 对话渲染工作台；切换任务不 `cancelRun`、不中断其它对话的后台流。历史经 `GET /api/conversations/{id}/messages` 读回注水，没有「在途 run」决策，注水后不自动发起任何 run；不得复制 messages、isRunning 出 runtime（运行徽标只经 host 内 reporter 上报布尔值）。
+- Storyboard 页面按 URL 上的 `taskId` 读取 Task，按对话 id 管理选择、运行与输出；不得按顺序或时间做推断式关联。一张单可以有多次尝试，每段对话常驻一个独立 AG-UI runtime host（`shared/agui` 通用装配 `AguiConversationRuntimeProvider`，ADR-0006），仅 active 对话渲染工作台；切换任务不 `cancelRun`、不中断其它对话的后台流。历史经 `GET /api/conversations/{id}/messages` 读回注水，没有「在途 run」决策，注水后不自动发起任何 run；不得复制 messages、isRunning 出 runtime（运行徽标只经 host 内 reporter 上报布尔值）。
 - Storyboard 调试页（`/storyboard-debug`）每次提交先 `POST /api/conversations`（`agentId: "storyboard"`，带来源 `taskId`），拿到对话 id 后再 append 首条 user 消息发起运行；URL 参数 `conversationId` 用于刷新后读回历史。右侧「Workspace 文件」面板从 `GET /api/conversations/{id}/workspace/files|file` 只读；重拉时机 = 聊天流里工具结果条数 + 运行是否结束（TanStack Query key 的一部分），正文按 `version` 缓存。
 - `DELETE /api/projects/{projectId}` 删除项目文件夹，删除成功后前端从首页最近项目列表移除对应项目。
 - 普通 AG-UI run 使用官方 `threadId` 字段，值必须等于服务端发放的对话 id，不得使用项目文件夹 id 替代。
@@ -60,10 +61,9 @@ if (!canViewProducerAnalytics(user)) return <Forbidden />;
 
 ### Tests Required
 
-- 公开 API 用例覆盖 Project 创建不含 target、VideoTaskSession 创建与按 Project 列表、AG-UI run 使用正确 Session。
+- 公开 API 用例覆盖：开始运行只调 `POST /api/conversations`（`agentId` + `taskId`，不建项目）、按单列尝试用 `GET /api/conversations/by-task/{taskId}`、AG-UI run 的 `threadId` 等于选中那次尝试的对话 id。
 - 首页 Agent project 卡片断言 `href=/projects/{projectId}`，且点击卡片不创建、不选择 session。
-- 首页 Storyboard project 卡片断言 `href=/storyboards/{projectId}`，并且列表只包含存在显式 VideoTaskSession 的 Project。
-- Storyboard 页面用例覆盖多条关系映射为多个 Storyboard、添加 Task 创建新关系、切换后输出仍属于各自 `sessionId`。
+- Storyboard 页面用例覆盖：一张单的多次尝试映射为多个书签、「再跑一次」只开一段新对话、切换书签后输出仍属于各自 `conversationId`、一次都没跑过时给的是入口而不是自动开跑。
 - `ProjectRoute` 初始加载断言调用 `listProducerProjectSessions(projectId)`，只使用与当前 AG-UI target id 匹配的 sessions 挂载 runtime；没有匹配 session 时正向创建一个当前 target session。
 - `/agents/<id>` override 覆盖 `PRODUCER_AGUI_TARGET` 的 `id/path/apiPrefix` 派生；target path normalize 覆盖缺少开头斜杠和带末尾斜杠，Storyboard 用例固定消费 `STORYBOARD_AGENT`。
 - Storyboard 调试页用例覆盖：提交先 `POST /api/conversations`（带 `agentId: "storyboard"` 与 `taskId`），随后 `POST /api/agents/storyboard/chat` 的 `threadId` 等于返回的对话 id；传输中断不触发第二次 POST。

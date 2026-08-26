@@ -58,17 +58,18 @@ export type StoryboardInputVideo = StoryboardInputImage & {
   duration?: string
 }
 
-/** 一个 Video Task 在其独立 Session 中形成的 Storyboard。 */
+/** 同一张需求单的一次尝试：一段对话，加它到目前为止形成的 Storyboard。 */
 export type Storyboard = {
   aspectRatioPlan?: string
   confirmedAt: null | string
+  /** 这次尝试的对话 id，同时是 AG-UI 的 threadId。 */
+  conversationId: string
   creativeInput: StoryboardCreativeInput
   durationPlan?: string
   kindLabel?: string
   modelDescription?: string
   modelLabel: string
   shots: StoryboardShot[]
-  sessionId: string
   status: StoryboardStatus
   styleDescription?: string
   subtitle?: string
@@ -76,7 +77,7 @@ export type Storyboard = {
   videoTaskId: string
 }
 
-/** Storyboard 页面渲染所需的任务工作台数据。 */
+/** Storyboard 页面渲染所需的工作台数据：一张需求单的历次尝试，按开始时间正序。 */
 export type StoryboardWorkspace = {
   storyboards: Storyboard[]
 }

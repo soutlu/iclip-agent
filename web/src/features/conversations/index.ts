@@ -7,6 +7,8 @@ export {
 export {
   createConversation,
   listConversationMessages,
+  listTaskConversations,
+  MAX_CONVERSATION_TITLE_CHARS,
   type Conversation,
   type CreateConversationInput,
 } from './api/conversations.api'

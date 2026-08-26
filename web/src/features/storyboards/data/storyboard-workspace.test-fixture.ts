@@ -75,7 +75,7 @@ export const staticStoryboardWorkspace: StoryboardWorkspace = {
       kindLabel: '品牌短片',
       modelDescription: 'Gemini 2.5 Flash Image',
       modelLabel: 'Nano Banana',
-      sessionId: 'storyboard-session',
+      conversationId: 'storyboard-session',
       shots: [
         {
           aspectRatio: '16:9',
@@ -297,7 +297,7 @@ export const staticStoryboardWorkspace: StoryboardWorkspace = {
       kindLabel: '广告片',
       modelDescription: '字节跳动 · 即梦',
       modelLabel: 'Seedream 4.0',
-      sessionId: 'kitchen-session',
+      conversationId: 'kitchen-session',
       shots: [
         {
           aspectRatio: '16:9',
@@ -419,7 +419,7 @@ export const staticStoryboardWorkspace: StoryboardWorkspace = {
       kindLabel: '预告片',
       modelDescription: 'Midjourney Inc.',
       modelLabel: 'Midjourney v7',
-      sessionId: 'track-session',
+      conversationId: 'track-session',
       shots: [
         {
           aspectRatio: '9:16',
