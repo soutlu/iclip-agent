@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Producer 设计系统 · M3</title>
+<!--
+  Producer Design System · 前端视觉规范与组件契约的唯一事实源。
+  契约 = 下方第一个 <style> 内 :root（浅色）与 .dark（深色）两块中除 --pg-*（本页装饰）外的全部变量。
+  运行时 web/src/app/globals.css + base.css 逐名逐值镜像（去空格后逐字相等），双向对账由 pnpm lint:design 执行。
+  运行时代码只消费 token 与 @/shared/icons，不加载、不解析本文件。
+-->
+<style>
+  :root {
+    /* ===== 页面自身（poster 装饰，非产品 token） ===== */
+    --pg-bg: #0a0f1c;
+    --pg-card: #151d2e;
+    --pg-border: rgba(148, 163, 184, 0.14);
+    --pg-text: #e9edf4;
+    --pg-muted: #97a1b4;
+    --pg-accent: #53d7ef;
+
+    /* ===== 字体 ===== */
+    --font-producer-ui: 'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+    --font-home-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+
+    /* ===== ① Primitives（6 族 HCT 色板，MCU v0.4.0 生成；组件禁止直接引用） ===== */
+    --p0:#000000; --p10:#001f25; --p20:#00363e; --p30:#004e5a; --p40:#006876; --p50:#008395;
+    --p60:#009fb4; --p70:#29bbd2; --p80:#53d7ef; --p90:#a1efff; --p95:#d4f7ff; --p99:#f7fdff; --p100:#ffffff;
+    --s0:#000000; --s10:#002115; --s20:#003827; --s30:#15503c; --s40:#316853; --s50:#4a826a;
+    --s60:#649c83; --s70:#7eb79d; --s80:#99d3b8; --s90:#b4efd3; --s95:#c2fee1; --s99:#f4fff7; --s100:#ffffff;
+    --t0:#000000; --t10:#261a00; --t20:#402d00; --t30:#5b4300; --t40:#795900; --t50:#987100;
+    --t60:#b58a21; --t70:#d2a53b; --t80:#f0c053; --t90:#ffdf9f; --t95:#ffefd4; --t99:#fffbff; --t100:#ffffff;
+    /* Neutral 含深色 surface 档 4/6/12/17/22 与浅色 surface 档 92/94/96/98 */
+    --n0:#000000; --n4:#0b0f11; --n6:#101417; --n10:#191c1f; --n12:#1d2023; --n17:#272a2d; --n20:#2e3134; --n22:#323538;
+    --n30:#44474a; --n40:#5c5f62; --n50:#74777b; --n60:#8e9194; --n70:#a9abaf; --n80:#c4c7ca; --n90:#e1e2e6;
+    --n92:#e6e8ec; --n94:#eceef2; --n95:#eff1f5; --n96:#f2f4f7; --n98:#f8f9fd; --n99:#fbfcff; --n100:#ffffff;
+    --nv0:#000000; --nv10:#161c21; --nv20:#2b3136; --nv30:#41484d; --nv40:#595f65; --nv50:#71787e;
+    --nv60:#8b9198; --nv70:#a6acb2; --nv80:#c1c7ce; --nv90:#dde3ea; --nv95:#ebf1f8; --nv99:#fbfcff; --nv100:#ffffff;
+    --e0:#000000; --e10:#410001; --e20:#690003; --e30:#910809; --e40:#b4271f; --e50:#d74034;
+    --e60:#fa5a4a; --e70:#ff8a7b; --e80:#ffb4aa; --e90:#ffdad5; --e95:#ffedea; --e99:#fffbff; --e100:#ffffff;
+
+    /* ===== ② Semantic roles · 浅色（深色见 .dark，同名换档） ===== */
+    --color-primary: var(--p40);
+    --color-primary-hover: var(--p50);
+    --color-on-primary: var(--p100);
+    --color-primary-container: var(--p90);
+    --color-on-primary-container: var(--p10);
+    --color-primary-container-solid: var(--p70);
+    --color-primary-container-soft: var(--p95);
+    --color-secondary: var(--s40);
+    --color-on-secondary: var(--s100);
+    --color-secondary-container: var(--s90);
+    --color-on-secondary-container: var(--s10);
+    --color-tertiary: var(--t40);
+    --color-on-tertiary: var(--t100);
+    --color-tertiary-container: var(--t90);
+    --color-on-tertiary-container: var(--t10);
+    --color-error: var(--e40);
+    --color-on-error: var(--e100);
+    --color-error-container: var(--e90);
+    --color-on-error-container: var(--e10);
+    --color-surface: var(--n98);
+    --color-on-surface: var(--n10);
+    --color-surface-variant: var(--nv90);
+    --color-on-surface-variant: var(--nv30);
+    --color-outline: var(--nv50);
+    --color-outline-variant: var(--nv80);
+    --color-surface-container-lowest: var(--n100);
+    --color-surface-container-low: var(--n96);
+    --color-surface-container: var(--n94);
+    --color-surface-container-high: var(--n92);
+    --color-surface-container-highest: var(--n90);
+    --color-inverse-surface: var(--n20);
+    --color-inverse-on-surface: var(--n95);
+    --color-inverse-primary: var(--p80);
+    --color-scrim: var(--n0);
+    --color-shadow: var(--n0);
+    --color-primary-fixed: var(--p90);
+    --color-primary-fixed-dim: var(--p80);
+    --color-secondary-fixed: var(--s90);
+    --color-secondary-fixed-dim: var(--s80);
+    --color-tertiary-fixed: var(--t90);
+    --color-tertiary-fixed-dim: var(--t80);
+    /* 状态层：透明度是契约，颜色由透明度派生（明暗自动跟随 on-surface） */
+    --state-hover: 0.08;
+    --state-focus: 0.12;
+    --state-pressed: 0.12;
+    --state-dragged: 0.16;
+    --state-disabled-content: 0.38;
+    --state-disabled-container: 0.12;
+    --state-focus-ring: 3px;
+    --state-focus-offset: 2px;
+    --color-state-hover: color-mix(in srgb, var(--color-on-surface) calc(var(--state-hover) * 100%), transparent);
+    --color-state-focus: color-mix(in srgb, var(--color-on-surface) calc(var(--state-focus) * 100%), transparent);
+    --color-state-pressed: color-mix(in srgb, var(--color-on-surface) calc(var(--state-pressed) * 100%), transparent);
+    --color-state-dragged: color-mix(in srgb, var(--color-on-surface) calc(var(--state-dragged) * 100%), transparent);
+    --color-disabled-text: color-mix(in srgb, var(--color-on-surface) calc(var(--state-disabled-content) * 100%), transparent);
+    --color-disabled-container: color-mix(in srgb, var(--color-on-surface) calc(var(--state-disabled-container) * 100%), transparent);
+    --color-focus-ring: var(--color-primary);
+    --color-ring-highlight: color-mix(in srgb, var(--color-primary) 70%, transparent);
+    /* Warning = tertiary 族别名 */
+    --color-warning: var(--color-tertiary);
+    --color-on-warning: var(--color-on-tertiary);
+    --color-warning-container: var(--color-tertiary-container);
+    --color-on-warning-container: var(--color-on-tertiary-container);
+
+    /* ===== ③ 领域别名 · 随主题（引用 ② 层的自动跟随；直接取色板/字面值的在 .dark 另给值） ===== */
+    --color-background: var(--color-surface);
+    --color-background-top: var(--n100);
+    --color-background-bottom: var(--n95);
+    --color-on-background: var(--color-on-surface);
+    --color-top-layer: var(--n100);
+    --color-state-active: var(--color-primary-container);
+    --color-glass-base: var(--n100); /* 玻璃面基色：所有半透明白面由它派生，深色换成 n17 */
+    --color-glass-surface: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
+    --color-control-bg: color-mix(in srgb, var(--color-glass-base) 64%, transparent);
+    --color-btn-hover: var(--color-state-hover);
+    --color-media-stack-bg: color-mix(in srgb, var(--color-glass-base) 92%, transparent);
+    --color-media-stack-bg-hover: var(--color-glass-base);
+    --color-popup-bg: rgba(249, 252, 255, 0.98);
+    --color-chip-bg: color-mix(in srgb, var(--color-glass-base) 62%, transparent);
+    --color-chip-bg-glass: color-mix(in srgb, var(--color-glass-base) 52%, transparent);
+    --color-input-bg: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
+    --color-input-border: var(--color-outline);
+    --color-dot: color-mix(in srgb, var(--nv70) 28%, transparent);
+    --color-dot-pattern: color-mix(in srgb, var(--nv70) 12%, transparent);
+    --color-border: var(--color-outline-variant);
+    --color-header-divider: var(--color-outline-variant);
+    --color-border-hover: var(--color-outline);
+    --color-hover: var(--color-state-hover);
+    --color-danger-bg: var(--color-error-container);
+    --color-danger-border: var(--e80);
+    --color-danger-text: var(--e30);
+    --color-chip-border: var(--color-outline-variant);
+    --color-thumb-fallback: var(--n80);
+    --color-badge-border: var(--color-outline-variant);
+    --color-header-btn-bg: var(--n90);
+    --color-agent-log-bg: var(--n90);
+    --color-suggestion-bg: color-mix(in srgb, var(--color-on-surface) 5%, transparent);
+    --color-suggestion-border: var(--color-outline-variant);
+    --color-suggestion-badge: color-mix(in srgb, var(--color-on-surface) 20%, transparent);
+    /* 聊天 */
+    --color-chat-panel-bg: var(--color-surface);
+    --color-chat-panel-bg-start: var(--n100);
+    --color-chat-panel-bg-end: var(--n95);
+    --color-chat-panel-border: var(--color-outline-variant);
+    --color-chat-card-bg: var(--color-surface-container-lowest);
+    --color-chat-message-text: var(--color-on-surface);
+    --color-chat-secondary-text: var(--color-on-surface-variant);
+    --color-chat-muted-text: var(--nv40);
+    --color-chat-user-bg: var(--color-secondary-container);
+    --color-chat-user-bg-hover: color-mix(in srgb, var(--color-secondary-container) 92%, var(--color-on-secondary-container));
+    --color-chat-user-bg-active: color-mix(in srgb, var(--color-secondary-container) 88%, var(--color-on-secondary-container));
+    --color-chat-user-border: color-mix(in srgb, var(--color-secondary) 35%, transparent);
+    --color-chat-user-border-active: var(--color-secondary);
+    --color-chat-assistant-bg: var(--color-surface-container-lowest);
+    --color-chat-assistant-border: var(--color-outline-variant);
+    --color-chat-assistant-highlight: rgba(255, 255, 255, 0.85);
+    --color-chat-agent-avatar-bg: #e7f5df;
+    --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.28);
+    --color-chat-agent-identity-bg: #f2f7ed;
+    --color-chat-agent-identity-border: rgba(113, 136, 58, 0.24);
+    --color-chat-agent-identity-text: #213219;
+    --color-chat-agent-rail: #009e77;
+    --color-chat-inline-bg: color-mix(in srgb, var(--nv70) 10%, transparent);
+    --color-chat-inline-border: var(--color-outline-variant);
+    --color-chat-tool-bg: var(--n95);
+    --color-chat-tool-border: var(--color-outline-variant);
+    --color-chat-chip-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
+    --color-chat-chip-border: var(--color-outline-variant);
+    --color-chat-code-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
+    --color-chat-code-block-bg: var(--n95);
+    --color-chat-code-border: var(--color-outline-variant);
+    --color-chat-link-text: var(--color-primary);
+    --color-chat-link-border: color-mix(in srgb, var(--color-primary) 34%, transparent);
+    --color-chat-error-bg: var(--color-error-container);
+    --color-chat-error-border: var(--e80);
+    --color-chat-error-text: var(--e30);
+    --color-chat-status-success: var(--color-secondary);
+    --color-chat-status-error: var(--color-error);
+    --color-chat-status-running: var(--color-warning);
+    --color-chat-focus-ring: color-mix(in srgb, var(--color-secondary) 70%, transparent);
+    --shadow-chat-panel: 0 20px 48px rgba(67, 76, 88, 0.18);
+    --shadow-chat-user: 0 12px 26px rgba(0, 94, 72, 0.12), 0 0 0 1px rgba(0, 174, 135, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    --shadow-chat-assistant: 0 16px 34px rgba(67, 76, 88, 0.12), inset 0 1px 0 var(--color-chat-assistant-highlight);
+    --shadow-chat-agent-avatar: 0 8px 18px rgba(67, 76, 88, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+    --shadow-chat-agent-identity: 0 8px 18px rgba(67, 76, 88, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+    --shadow-rail-inset: inset 3px 0 0 var(--color-chat-agent-rail);
+    /* 画布与故事板工作台 */
+    --color-canvas-card-bg: var(--color-surface-container-lowest);
+    --color-canvas-card-text: var(--color-on-surface);
+    --color-canvas-card-border: var(--p60);
+    --color-canvas-label-text: var(--nv50);
+    --color-storyboard-canvas: #e9eef5;
+    --color-storyboard-canvas-dot: color-mix(in srgb, var(--nv50) 18%, transparent);
+    --shadow-storyboard-media: 0 1px 2px rgba(24, 28, 34, 0.07), 0 10px 22px -12px rgba(24, 28, 34, 0.2);
+    --shadow-storyboard-hero: 0 2px 4px rgba(24, 28, 34, 0.08), 0 18px 34px -14px rgba(24, 28, 34, 0.28);
+    --shadow-storyboard-sidebar-left: 12px 0 24px -18px color-mix(in srgb, var(--color-on-surface) 28%, transparent);
+    --shadow-storyboard-sidebar-right: -12px 0 24px -18px color-mix(in srgb, var(--color-on-surface) 28%, transparent);
+    --storyboard-node-shadow: 0 35px 96px rgba(16, 42, 67, 0.22);
+    --storyboard-node-surface: var(--n99);
+    --storyboard-node-selected-surface: var(--n95);
+    --storyboard-node-border: var(--storyboard-node-surface);
+    --storyboard-node-cover-bg: var(--storyboard-node-surface);
+    --storyboard-node-preview-bg: var(--storyboard-node-surface);
+    --storyboard-node-screen-empty: var(--storyboard-node-surface);
+    --storyboard-node-script-surface: var(--storyboard-node-surface);
+    --storyboard-node-tool-surface: var(--storyboard-node-surface);
+    --storyboard-node-panel-divider: #e5ebf2;
+    --storyboard-node-accent: #00cae0;
+    --storyboard-node-accent-line: var(--storyboard-node-accent);
+    --storyboard-node-ink: #090c14;
+    --storyboard-node-muted: rgba(24, 51, 78, 0.4);
+    --storyboard-node-muted-strong: rgba(21, 41, 60, 0.5);
+    --storyboard-node-preview-tool-text: rgba(9, 12, 20, 0.72);
+
+    /* ===== ③ 领域别名 · 主题中立（内容身份色、纸面材质、压在媒体上的遮罩；明暗不变） ===== */
+    --color-annotation-red: #e04f3f;
+    --color-annotation-orange: #e9a13b;
+    --color-annotation-blue: #3f9fd0;
+    --color-annotation-green: #46b06f;
+    --color-reference-image: #8a8a84;
+    --color-reference-video: #5b6bc0;
+    --color-reference-audio: var(--color-primary);
+    --color-reference-note: #d9a13b;
+    --color-reference-arrow: #c05b2b;
+    --color-reference-brush: #9368b7;
+    --color-reference-frame: #3e8e7e;
+    --color-on-reference: var(--color-on-primary);
+    --color-chart-1: #07a8c4;
+    --color-chart-2: #375971;
+    --color-chart-3: #e0a800;
+    --color-chart-4: #2fc6be;
+    --color-artifact-brief: #bda669;
+    --color-artifact-image-analysis: #638fa7;
+    --color-artifact-markdown: #9291b6;
+    --color-artifact-storyboard: #ab8f6e;
+    --color-artifact-ui-card: #9d86a0;
+    --color-artifact-video-prompt: #6fa2a6;
+    --color-artifact-rail-bg: #101318;
+    --color-brief-surface: #f7f1e8;
+    --color-brief-surface-bright: #fffdf8;
+    --color-brief-surface-muted: rgba(255, 255, 255, 0.66);
+    --color-brief-border: rgba(124, 112, 95, 0.18);
+    --color-brief-ink: #1f2522;
+    --color-brief-ink-secondary: #4c5550;
+    --color-brief-ink-soft: #5d655f;
+    --color-brief-amber: #6b4e16;
+    --color-brief-amber-soft: rgba(248, 224, 168, 0.28);
+    --color-brief-sage: #29543a;
+    --color-brief-sage-soft: rgba(74, 124, 89, 0.12);
+    --color-brief-danger: #8f2f2c;
+    --color-brief-danger-soft: rgba(184, 50, 48, 0.1);
+    --color-brief-board-1: #f3a8b8;
+    --color-brief-board-2: #eee8d2;
+    --color-brief-board-3: #92b88e;
+    --color-brief-board-4: #f8f0c4;
+    --color-brief-board-5: #ffcd00;
+    --color-brief-board-white: var(--n100);
+    --color-sb-table-accent: #4a7c59;
+    --color-sb-table-accent-soft: rgba(74, 124, 89, 0.12);
+    --color-sb-table-background: #faf6f0;
+    --color-sb-table-surface: #f5f1ea;
+    --color-sb-table-prompt-surface: rgba(255, 255, 255, 0.82);
+    --color-sb-table-line: rgba(116, 121, 110, 0.2);
+    --color-sb-table-badge-border: rgba(116, 121, 110, 0.16);
+    --color-sb-table-text: #121614;
+    --color-sb-table-text-secondary: #1f2522;
+    --color-sb-table-tertiary: #4a3818;
+    --color-sb-table-tertiary-soft: rgba(112, 92, 48, 0.12);
+    --color-sb-table-danger: #8f2f2c;
+    --color-sb-table-danger-soft: rgba(184, 50, 48, 0.12);
+    --color-sb-table-stage-hook-bg: rgba(112, 92, 48, 0.14);
+    --color-sb-table-stage-hook-text: #3d2c11;
+    --color-sb-table-stage-proof-bg: rgba(37, 82, 145, 0.12);
+    --color-sb-table-stage-proof-text: #183a64;
+    --color-sb-table-stage-demo-bg: rgba(74, 124, 89, 0.14);
+    --color-sb-table-stage-demo-text: #1f462b;
+    --color-sb-table-stage-closure-bg: rgba(31, 37, 34, 0.08);
+    --color-sb-table-stage-closure-text: #1f2522;
+    --color-sb-table-stage-neutral-bg: rgba(74, 124, 89, 0.1);
+    --color-sb-table-stage-neutral-text: #254332;
+    --storyboards-monitor-bg: rgba(21, 24, 29, 0.96);
+    --storyboards-monitor-border: rgba(216, 177, 106, 0.28);
+    --storyboards-monitor-gold: #d8b16a;
+    --storyboards-monitor-complete: #3ecf8e;
+    --storyboards-monitor-running: #2dd4bf;
+    --storyboards-monitor-line: #363c48;
+    --storyboards-monitor-muted: #9aa0ab;
+    --storyboards-monitor-text: #f0ede4;
+    --storyboard-node-timeline-badge: rgba(9, 12, 20, 0.68);
+    --storyboard-node-empty-preview-bg: var(--n0);
+    --color-on-scrim: var(--n100);
+    --media-scrim-cover: linear-gradient(180deg, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0.52) 100%);
+    --media-scrim-photo: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.72) 100%);
+    --media-scrim-photo-strong: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.24) 28%, rgba(0, 0, 0, 0.82) 100%);
+    --media-vignette: radial-gradient(circle at center, rgba(255, 255, 255, 0.18) 0%, rgba(0, 0, 0, 0.02) 36%, rgba(0, 0, 0, 0.26) 100%);
+    --media-gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(0, 0, 0, 0.16) 100%);
+    --color-ai-gradient-start: #a875ff;
+    --color-ai-gradient-end: #6d8cff;
+
+    /* ===== ④ 尺度 ===== */
+    /* 字阶（Tailwind @theme 同名；-line 为存量 CSS 别名） */
+    --text-caption: 11px; --text-caption--line-height: 16px;
+    --text-label: 12px; --text-label--line-height: 16px;
+    --text-body-sm: 13px; --text-body-sm--line-height: 18px;
+    --text-body: 14px; --text-body--line-height: 20px;
+    --text-title: 16px; --text-title--line-height: 24px;
+    --text-title-lg: 20px;
+    --text-headline: 28px; --text-headline--line-height: 36px;
+    --text-headline-lg: 32px;
+    --text-display-sm: 45px;
+    --text-display: 57px; --text-display--line-height: 64px;
+    --text-canvas-label: 18px; --text-canvas-body: 20px; --text-canvas-body-lg: 22px;
+    --text-canvas-title-sm: 24px; --text-canvas-title: 26px; --text-canvas-title-lg: 28px;
+    --text-display-line: var(--text-display--line-height, 64px);
+    --text-headline-line: var(--text-headline--line-height, 36px);
+    --text-title-line: var(--text-title--line-height, 24px);
+    --text-body-line: var(--text-body--line-height, 20px);
+    --text-body-sm-line: var(--text-body-sm--line-height, 18px);
+    --text-label-line: var(--text-label--line-height, 16px);
+    --text-caption-line: var(--text-caption--line-height, 16px);
+    /* 圆角 */
+    --radius-none:0; --radius-xs:4px; --radius-sm:8px; --radius-md:12px; --radius-lg:16px;
+    --radius-xl:20px; --radius-2xl:28px; --radius-3xl:32px; --radius-4xl:48px; --radius-full:9999px;
+    /* 断点（M3 窗口分级） */
+    --breakpoint-sm: 600px;
+    --breakpoint-md: 840px;
+    /* 海拔（深色见 .dark） */
+    --shadow-1: 0 2px 8px rgba(25, 28, 31, 0.08), 0 1px 3px rgba(25, 28, 31, 0.05);
+    --shadow-2: 0 6px 20px rgba(25, 28, 31, 0.11), 0 2px 6px rgba(25, 28, 31, 0.07);
+    --shadow-3: 0 20px 56px rgba(25, 28, 31, 0.22);
+    /* 动效 */
+    --dur-s: 150ms; --dur-m: 250ms; --dur-l: 400ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --ease-decel: cubic-bezier(0, 0, 0, 1);
+    --ease-accel: cubic-bezier(0.3, 0, 1, 1);
+    /* 控件尺寸与图标尺寸 */
+    --control-height-xs: 24px;  /* 小标签；可点尺寸下限 */
+    --control-height-sm: 34px;  /* Chip 胶囊 */
+    --control-height-md: 36px;  /* 菜单项、紧凑按钮 */
+    --control-height-lg: 40px;  /* 按钮、图标按钮 */
+    --control-height-xl: 44px;  /* 输入框 */
+    --control-hit-area: 48px;   /* 可点热区 */
+    --icon-xs: 12px; --icon-sm: 14px; --icon-md: 16px; --icon-lg: 20px; --icon-xl: 24px;
+    /* 层级 */
+    --z-base: 0; --z-canvas: 2; --z-content: 5; --z-panel: 10; --z-sidebar: 40;
+    --z-header: 50; --z-overlay: 90; --z-popup: 100;
+    --z-local-1: 1; --z-local-2: 2; --z-local-3: 3; --z-canvas-overlay: 40;
+    /* 布局 */
+    --layout-home-content-max: 100%;
+    --layout-home-hero-max: 1120px;
+    --layout-home-title-max: 980px;
+    --layout-project-header-height: 72px;
+    --layout-project-header-inline-start: 24px;
+    --layout-project-header-inline-end: 24px;
+    --layout-project-stage-padding: 20px;
+    --layout-project-composer-max: 582px;
+    --layout-project-composer-min: 0px;
+    --layout-project-composer-fluid: calc(100vw - 32px);
+    --layout-project-header-max-left: 375px;
+    --layout-project-agent-log-width: 280px;
+    --layout-project-agent-log-viewport-height: clamp(220px, 40vh, 320px);
+    --layout-project-composer-panel-reserve: 180px;
+    --layout-project-chat-panel-bottom-safe-area: calc(var(--layout-project-stage-padding) + var(--layout-project-composer-panel-reserve) + var(--layout-project-stage-padding));
+    --layout-project-chat-panel-height-offset: calc(var(--layout-project-header-height) + var(--layout-project-stage-padding) + var(--layout-project-chat-panel-bottom-safe-area));
+  }
+
+  /* ===== 深色：只换 ② 层档位与 ③ 层里直接取色板/字面值的项；①④ 与主题中立项不变 ===== */
+  .dark {
+    --color-primary: var(--p80);
+    --color-primary-hover: var(--p70);
+    --color-on-primary: var(--p20);
+    --color-primary-container: var(--p30);
+    --color-on-primary-container: var(--p90);
+    --color-primary-container-solid: var(--p70);
+    --color-primary-container-soft: var(--p20);
+    --color-secondary: var(--s80);
+    --color-on-secondary: var(--s20);
+    --color-secondary-container: var(--s30);
+    --color-on-secondary-container: var(--s90);
+    --color-tertiary: var(--t80);
+    --color-on-tertiary: var(--t20);
+    --color-tertiary-container: var(--t30);
+    --color-on-tertiary-container: var(--t90);
+    --color-error: var(--e80);
+    --color-on-error: var(--e20);
+    --color-error-container: var(--e30);
+    --color-on-error-container: var(--e90);
+    --color-surface: var(--n6);
+    --color-on-surface: var(--n90);
+    --color-surface-variant: var(--nv30);
+    --color-on-surface-variant: var(--nv80);
+    --color-outline: var(--nv60);
+    --color-outline-variant: var(--nv30);
+    --color-surface-container-lowest: var(--n4);
+    --color-surface-container-low: var(--n10);
+    --color-surface-container: var(--n12);
+    --color-surface-container-high: var(--n17);
+    --color-surface-container-highest: var(--n22);
+    --color-inverse-surface: var(--n90);
+    --color-inverse-on-surface: var(--n20);
+    --color-inverse-primary: var(--p40);
+    --color-background-top: var(--n12);
+    --color-background-bottom: var(--n4);
+    --color-top-layer: var(--n17);
+    --color-glass-base: var(--n17);
+    --color-popup-bg: rgba(29, 32, 35, 0.98);
+    --color-danger-border: var(--e60);
+    --color-danger-text: var(--e80);
+    --color-thumb-fallback: var(--n30);
+    --color-header-btn-bg: var(--n22);
+    --color-agent-log-bg: var(--n22);
+    --color-chat-panel-bg-start: var(--n12);
+    --color-chat-panel-bg-end: var(--n6);
+    --color-chat-muted-text: var(--nv70);
+    --color-chat-assistant-highlight: rgba(255, 255, 255, 0.1);
+    --color-chat-agent-avatar-bg: #1b2a20;
+    --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.4);
+    --color-chat-agent-identity-bg: #16211a;
+    --color-chat-agent-identity-border: rgba(113, 136, 58, 0.36);
+    --color-chat-agent-identity-text: #cfe3c5;
+    --color-chat-agent-rail: #33c39a;
+    --color-chat-tool-bg: var(--n12);
+    --color-chat-code-block-bg: var(--n12);
+    --color-chat-error-border: var(--e60);
+    --color-chat-error-text: var(--e80);
+    --shadow-chat-panel: 0 20px 48px rgba(0, 0, 0, 0.5);
+    --shadow-chat-user: 0 12px 26px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(153, 211, 184, 0.16);
+    --shadow-chat-assistant: 0 16px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--color-chat-assistant-highlight);
+    --shadow-chat-agent-avatar: 0 8px 18px rgba(0, 0, 0, 0.4);
+    --shadow-chat-agent-identity: 0 8px 18px rgba(0, 0, 0, 0.4);
+    --color-canvas-label-text: var(--nv60);
+    --color-storyboard-canvas: #14181d;
+    --shadow-storyboard-media: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 22px -12px rgba(0, 0, 0, 0.6);
+    --shadow-storyboard-hero: 0 2px 4px rgba(0, 0, 0, 0.3), 0 18px 34px -14px rgba(0, 0, 0, 0.7);
+    --shadow-storyboard-sidebar-left: 12px 0 24px -18px rgba(0, 0, 0, 0.6);
+    --shadow-storyboard-sidebar-right: -12px 0 24px -18px rgba(0, 0, 0, 0.6);
+    --storyboard-node-shadow: 0 35px 96px rgba(0, 0, 0, 0.6);
+    --storyboard-node-surface: var(--n12);
+    --storyboard-node-selected-surface: var(--n17);
+    --storyboard-node-panel-divider: var(--nv20);
+    --storyboard-node-ink: #e9edf4;
+    --storyboard-node-muted: rgba(200, 215, 230, 0.45);
+    --storyboard-node-muted-strong: rgba(200, 215, 230, 0.6);
+    --storyboard-node-preview-tool-text: rgba(233, 237, 244, 0.75);
+    --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+    --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.65);
+  }
+
+  /* ======================== 以下为本页排版（非契约） ======================== */
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--pg-bg);
+    background-image: radial-gradient(rgba(148,163,184,0.12) 1px, transparent 1px);
+    background-size: 24px 24px;
+    min-height: 100vh;
+    padding: 36px 24px 64px;
+    font-family: -apple-system, "SF Pro Text", "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--pg-text);
+    font-size: 14px;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .poster {
+    max-width: 1280px; margin: 0 auto;
+    background: #0f1626;
+    border: 1.5px solid rgba(83,215,239,0.45);
+    border-radius: 26px;
+    padding: 34px 32px 40px;
+    box-shadow: 0 0 0 5px rgba(83,215,239,0.06), 0 40px 120px rgba(0,0,0,0.5);
+  }
+  .poster-head { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:30px; padding:0 4px; }
+  .poster-head .title { font-size:19px; font-weight:700; letter-spacing:0.02em; }
+  .poster-head .title b { color: var(--pg-accent); }
+  .poster-head .note { color: var(--pg-muted); font-size:12.5px; }
+  .poster-head .note b { color: var(--pg-text); font-weight:600; }
+  .section-title { font-size: 13.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--pg-muted); margin: 40px 4px 16px; }
+  .section-title:first-of-type { margin-top: 0; }
+  .section-title em { color: var(--pg-accent); font-style: normal; }
+  .card { background: var(--pg-card); border: 1px solid var(--pg-border); border-radius: 18px; padding: 22px; }
+  .card.light { background: var(--color-surface); border-color: var(--color-outline-variant); color: var(--color-on-surface); }
+  .sec-intro { margin:-4px 4px 14px; max-width:1120px; font-size:13.5px; line-height:1.8; color:var(--pg-muted); }
+  .sec-intro b { color:var(--pg-text); font-weight:600; }
+  .sec-intro code, .rule code, .spec td code, .arch code { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--pg-text); background:rgba(255,255,255,0.06); padding:1px 5px; border-radius:4px; }
+  .m3tag { font-size:11.5px; font-weight:600; letter-spacing:0.04em; color:var(--pg-muted); border:1px solid var(--pg-border); border-radius:999px; padding:2px 10px; margin-left:10px; vertical-align:2px; }
+  .duo { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .duo2 { display:grid; grid-template-columns: 1.2fr 1fr; gap:16px; }
+
+  /* 00 架构 */
+  .arch { display:flex; align-items:stretch; gap:0; flex-wrap:wrap; }
+  .arch .step { flex:1; min-width:200px; background:rgba(255,255,255,0.03); border:1px solid var(--pg-border); border-radius:14px; padding:16px 18px; position:relative; }
+  .arch .step + .step { margin-left: 34px; }
+  .arch .step + .step::before { content:"→"; position:absolute; left:-27px; top:50%; transform:translateY(-50%); color:var(--pg-accent); font-size:19px; font-weight:700; }
+  .arch .step .no { font-size:12px; color:var(--pg-accent); font-weight:700; letter-spacing:0.08em; }
+  .arch .step h4 { font-size:15px; margin:5px 0 7px; }
+  .arch .step p { font-size:13px; color:var(--pg-muted); line-height:1.65; }
+  .arch .step .tag { display:inline-block; margin-top:10px; font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--pg-border); color:var(--pg-muted); }
+  .arch .step .tag.stop { color:#ff8a7b; border-color:rgba(255,138,123,0.4); }
+  .arch .step .tag.go { color:#7ee3a8; border-color:rgba(126,227,168,0.35); }
+
+  /* 通用规范表（契约表 / 矩阵 / 对照表） */
+  .spec { width:100%; border-collapse:collapse; font-size:12.5px; line-height:1.6; }
+  .spec th { text-align:left; font-weight:650; color:var(--pg-text); padding:9px 10px; border-bottom:1px solid rgba(148,163,184,0.3); font-size:12px; letter-spacing:0.04em; white-space:nowrap; }
+  .spec td { vertical-align:top; padding:10px 10px; border-bottom:1px dashed var(--pg-border); color:var(--pg-muted); }
+  .spec td:first-child { color:var(--pg-text); font-weight:650; white-space:nowrap; }
+  .spec tr:last-child td { border-bottom:none; }
+  .spec .c { text-align:center; }
+  .spec .must { color:#7ee3a8; font-weight:700; }
+  .spec .opt { color:#f0c053; }
+  .spec .no { color:rgba(151,161,180,0.45); }
+  .rule { border-left:3px solid var(--pg-accent); padding:8px 14px; margin:10px 0; font-size:13px; line-height:1.75; color:var(--pg-muted); background:rgba(255,255,255,0.025); border-radius:0 10px 10px 0; }
+  .rule b { color:var(--pg-text); }
+  .rule.stop { border-left-color:#ff8a7b; }
+
+  /* 01 色板 */
+  .palettes { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .palette .p-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+  .palette .p-name { font-size:15px; font-weight:650; }
+  .palette .p-name small { font-weight:400; color:var(--pg-muted); margin-left:7px; font-size:12px; }
+  .palette .p-hex { font-size:12px; color:var(--pg-muted); }
+  .palette .p-strip { display:flex; gap:3px; }
+  .palette .p-strip i { flex:1; height:52px; border-radius:6px; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px; font-size:11px; font-style:normal; font-family:ui-monospace,Menlo,monospace; }
+  .palette .p-strip i.dk { color: rgba(11,18,32,0.62); }
+  .palette .p-strip i.lt { color: rgba(240,244,248,0.82); }
+  .palette .p-strip i.role { box-shadow: inset 0 0 0 2px rgba(255,255,255,0.9), 0 0 0 2px rgba(255,255,255,0.16); font-weight:700; }
+  .palette .p-strip i.role-lt { box-shadow: inset 0 0 0 2px rgba(11,18,32,0.6); font-weight:700; }
+  .palette .p-roles { display:flex; gap:8px; margin-top:12px; }
+  .palette .pair { flex:1; border-radius:10px; padding:9px 13px; display:flex; justify-content:space-between; align-items:center; font-size:12px; font-family:ui-monospace,Menlo,monospace; }
+  .palette .pair b { font-size:15px; font-weight:600; }
+  .palette .pair span { opacity:0.75; }
+
+  /* 02 角色（同一套标记在 .dark 容器内自动换档） */
+  .theme-pair { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .theme-box { border-radius:16px; padding:18px; background:var(--color-surface); color:var(--color-on-surface); border:1px solid var(--color-outline-variant); }
+  .theme-box .tb-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; font-size:13.5px; font-weight:700; }
+  .theme-box .tb-head span { font-weight:400; font-size:12px; color:var(--color-on-surface-variant); font-family:ui-monospace,Menlo,monospace; }
+  .scheme { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:12px; }
+  .scheme .col { display:flex; flex-direction:column; gap:4px; }
+  .scheme .blk { border-radius:10px; padding:10px 11px; }
+  .scheme .blk.main { min-height:62px; display:flex; flex-direction:column; justify-content:space-between; }
+  .scheme .blk .r-name { font-size:12.5px; font-weight:650; }
+  .scheme .blk .r-val { font-size:11px; font-family:ui-monospace,Menlo,monospace; opacity:0.8; margin-top:3px; }
+  .scheme .blk.thin { padding:7px 11px; border-radius:8px; }
+  .scheme .blk.thin .r-name { font-size:12px; }
+  .srf-stack { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
+  .srf-stack .cell { border:1px solid var(--color-outline-variant); border-radius:10px; padding:10px 10px 8px; min-height:70px; display:flex; flex-direction:column; justify-content:space-between; }
+  .srf-stack .cell .nm { font-size:12px; font-weight:650; color:var(--color-on-surface); line-height:1.35; }
+  .srf-stack .cell .vv { font-size:11px; font-family:ui-monospace,Menlo,monospace; color:var(--color-on-surface-variant); margin-top:6px; }
+  .srf-foot { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
+  .srf-foot .box { flex:1; min-width:160px; border-radius:10px; padding:10px 12px; font-size:12px; }
+  .srf-foot .inv { background: var(--color-inverse-surface); color: var(--color-inverse-on-surface); display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .srf-foot .inv .chiplet { background: var(--color-inverse-primary); color: var(--color-on-primary-container); border-radius:999px; padding:3px 10px; font-size:11.5px; font-weight:650; }
+  .srf-foot .outl { border:1px solid var(--color-outline-variant); display:flex; flex-direction:column; gap:6px; justify-content:center; }
+  .srf-foot .outl .lrow { display:flex; align-items:center; gap:8px; color:var(--color-on-surface); }
+  .srf-foot .outl .lrow .swl { width:36px; height:12px; border-radius:4px; }
+  .srf-foot .outl .lrow span { color: var(--color-on-surface-variant); font-family:ui-monospace,Menlo,monospace; font-size:11px; }
+
+  /* 03 状态 */
+  .states { display:grid; grid-template-columns: repeat(5, 1fr) 1.35fr; gap:12px; align-items:stretch; }
+  .states .st { border:1px solid var(--color-outline-variant); border-radius:12px; padding:14px; min-height:96px; display:flex; flex-direction:column; justify-content:space-between; color:var(--color-on-surface); }
+  .states .st .sn { font-size:13px; font-weight:650; }
+  .states .st .sv { font-size:12px; font-family:ui-monospace,Menlo,monospace; color:var(--color-on-surface-variant); }
+  .states .focusdemo { display:flex; flex-direction:column; gap:10px; align-items:flex-start; justify-content:center; border:1px dashed var(--color-outline); border-radius:12px; padding:14px 16px; }
+  .states .focusdemo button { font:650 14px/1 inherit; font-family:inherit; padding:10px 20px; border:none; border-radius:var(--radius-md); background: var(--color-primary); color: var(--color-on-primary); cursor:pointer; outline: var(--state-focus-ring) solid var(--color-focus-ring); outline-offset: var(--state-focus-offset); }
+  .states .focusdemo button.dis { background: var(--color-disabled-container); color: var(--color-disabled-text); outline: none; cursor: not-allowed; }
+  .states .focusdemo .cap { font-size:12.5px; color:var(--color-on-surface-variant); line-height:1.5; }
+  .states .disab { color: var(--color-disabled-text); font-weight:650; font-size:13.5px; }
+
+  /* 04 组件落地 */
+  .compgrid { display:grid; grid-template-columns:repeat(5,1fr); gap:16px 14px; }
+  .compgrid .cc { display:flex; flex-direction:column; align-items:center; gap:10px; justify-content:flex-end; }
+  .compgrid .cc .lab { font-size:12px; color:var(--color-on-surface-variant); text-align:center; line-height:1.45; }
+  .ui-btn { font:650 var(--text-body)/var(--text-body--line-height) inherit; font-family:inherit; height:var(--control-height-lg); padding:0 22px; border:none; border-radius:var(--radius-md); cursor:pointer; transition: transform var(--dur-s) var(--ease), background var(--dur-s) var(--ease); }
+  .ui-btn:hover { transform:scale(1.05); }
+  .ui-btn:active { transform:scale(0.95); }
+  .ui-btn.primary { background:var(--color-primary); color:var(--color-on-primary); }
+  .ui-btn.primary:hover { background:var(--color-primary-hover); }
+  .ui-btn.tonal { background:var(--color-secondary-container); color:var(--color-on-secondary-container); }
+  .ui-btn.inverted { background:var(--color-inverse-surface); color:var(--color-inverse-on-surface); }
+  .ui-btn.outlined { background:transparent; color:var(--color-primary); border:1px solid var(--color-outline); }
+  .ui-btn.danger { background:var(--color-error); color:var(--color-on-error); }
+  .bubble { max-width:100%; border-radius:var(--radius-xl); padding:11px 15px; font-size:var(--text-body-sm); line-height:var(--text-body-sm--line-height); }
+  .bubble.user { background:var(--color-secondary-container); color:var(--color-on-secondary-container); border:1px solid var(--color-chat-user-border); }
+  .bubble.assistant { background:var(--color-surface-container-lowest); color:var(--color-on-surface); border:1px solid var(--color-outline-variant); }
+  .ui-input { width:100%; display:flex; align-items:center; gap:9px; height:var(--control-height-xl); background:var(--color-input-bg); border:1px solid var(--color-outline); border-radius:var(--radius-lg); padding:0 15px; color:var(--color-on-surface-variant); font-size:var(--text-body); }
+  .ui-chip { display:inline-flex; align-items:center; gap:7px; height:var(--control-height-sm); background:var(--color-primary-container-soft); border:1.5px solid var(--color-primary-container-solid); color:var(--color-on-primary-container); font-size:var(--text-body-sm); font-weight:600; border-radius:var(--radius-full); padding:0 15px; }
+  .ui-tag { display:inline-flex; align-items:center; height:var(--control-height-xs); background:var(--color-primary-container-solid); color:var(--p10); font-size:var(--text-label); font-weight:650; border-radius:var(--radius-xs); padding:0 9px; }
+  .iconrow { display:flex; gap:8px; }
+  .iconbtn { position:relative; width:var(--control-height-lg); height:var(--control-height-lg); border-radius:var(--radius-full); display:flex; align-items:center; justify-content:center; color:var(--color-on-surface-variant); cursor:pointer; transition:background var(--dur-s) var(--ease); }
+  .iconbtn svg { width:var(--icon-lg); height:var(--icon-lg); }
+  .iconbtn::after { content:""; position:absolute; inset:-4px; border-radius:inherit; }
+  .iconbtn.showhit::after { border:1.5px dashed color-mix(in srgb, var(--color-on-surface) 32%, transparent); }
+  .iconbtn:hover { background: var(--color-state-hover); }
+  .iconbtn.active { background:var(--color-primary-container); color:var(--color-on-primary-container); }
+  .linkdemo { font-size:var(--text-body); color:var(--color-primary); border-bottom:1px solid var(--color-chat-link-border); padding-bottom:1px; cursor:pointer; }
+  .statusrow { display:flex; gap:16px; font-size:var(--text-body-sm); font-weight:650; }
+  .statusrow .stt { display:flex; align-items:center; gap:6px; }
+  .statusrow .dot { width:9px; height:9px; border-radius:50%; }
+  .comp-foot { display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap; margin-top:20px; padding-top:16px; border-top:1px dashed var(--color-outline-variant); }
+
+  /* 05 组件契约 */
+  .specgrid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px; }
+  .sc { border:1px solid var(--color-outline-variant); border-radius:12px; overflow:hidden; display:flex; flex-direction:column; }
+  .sc .stage { flex:1; min-height:104px; display:flex; align-items:center; justify-content:center; background:var(--color-surface); padding:18px 14px; }
+  .sc .sl { border-top:1px dashed var(--color-outline-variant); background:var(--color-surface-container-lowest); padding:9px 13px 11px; font-size:12px; color:var(--color-on-surface-variant); line-height:1.5; }
+  .sc .sl b { display:block; color:var(--color-on-surface); font-size:12.5px; margin-bottom:2px; }
+  .menu-demo { background:var(--color-surface-container-lowest); border-radius:var(--radius-md); box-shadow:var(--shadow-2); padding:4px; width:132px; }
+  .menu-demo i { display:flex; align-items:center; height:var(--control-height-md); border-radius:var(--radius-sm); padding:0 12px; font-style:normal; font-size:var(--text-body-sm); color:var(--color-on-surface); }
+  .menu-demo i.hov { background:var(--color-state-hover); }
+  .dlg-demo { width:150px; height:84px; background:var(--color-surface-container-lowest); border-radius:var(--radius-2xl); box-shadow:var(--shadow-3); }
+
+  /* 06 字阶 */
+  .typegrid { display:grid; grid-template-columns: 1fr 340px; gap:16px; }
+  .typerow { display:flex; align-items:baseline; gap:20px; padding:13px 4px; border-bottom:1px dashed var(--pg-border); }
+  .typerow:last-child { border-bottom:none; }
+  .typerow .sample { color:#e4eaf3; white-space:nowrap; letter-spacing:-0.01em; }
+  .typerow .meta { margin-left:auto; text-align:right; flex-shrink:0; }
+  .typerow .meta .tname { font-size:13px; font-weight:650; color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; }
+  .typerow .meta .tval { font-size:12.5px; color:var(--pg-muted); margin-top:2px; }
+  .fontcard p { font-size:13px; color:var(--pg-muted); line-height:1.8; }
+  .fontcard p b { color:var(--pg-text); font-weight:600; }
+  .fontcard .fa { font-size:44px; color:#e4eaf3; line-height:1.2; }
+  .fontcard .fa.serif { font-family: Georgia, "Times New Roman", serif; font-style: italic; }
+  .fontcard hr { border:none; border-top:1px dashed var(--pg-border); margin:14px 0; }
+
+  /* 07 间距 */
+  .spacing { display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; }
+  .spacing .sp { text-align:center; font-size:12px; color:var(--pg-muted); }
+  .spacing .sp i { display:block; margin:0 auto 8px; background:var(--pg-accent); border-radius:2px; height:14px; }
+  .spacing .sp b { display:block; color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; font-weight:600; }
+
+  /* 08 圆角 */
+  .shapes { display:flex; gap:20px; align-items:flex-end; flex-wrap:wrap; }
+  .shape-item { text-align:center; color:var(--pg-muted); font-size:12.5px; line-height:1.55; }
+  .shape-item .box { width:76px; height:58px; margin:0 auto 9px; background:rgba(83,215,239,0.1); border:1.5px solid var(--pg-accent); }
+  .shape-item .name { color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; font-size:12.5px; font-weight:600; }
+
+  /* 09 海拔与动效 */
+  .elev { display:flex; gap:12px; align-items:center; justify-content:center; padding:28px 4px; flex-wrap:wrap; }
+  .elev .tile { width:134px; height:106px; background:var(--color-surface-container-lowest); border-radius:var(--radius-lg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; color:var(--color-on-surface); }
+  .elev .tile .en { font-size:13.5px; font-weight:650; }
+  .elev .tile .ev { font-size:12px; color:var(--color-on-surface-variant); font-family:ui-monospace,Menlo,monospace; }
+  .elev .tile.flat { border:1px solid var(--color-outline-variant); }
+  .elev .tile.e1 { box-shadow: var(--shadow-1); }
+  .elev .tile.e2 { box-shadow: var(--shadow-2); }
+  .elev .tile.e3 { box-shadow: var(--shadow-3); }
+  .motion .mrow { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
+  .motion .mrow .mn { width:118px; font-size:13px; color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; }
+  .motion .mrow .track { flex:1; height:10px; border-radius:5px; background:rgba(148,163,184,0.16); overflow:hidden; }
+  .motion .mrow .track i { display:block; height:100%; width:22%; border-radius:5px; background:var(--pg-accent); transition-property:width; transition-timing-function:var(--ease); }
+  .motion:hover .track i { width:100%; }
+  .motion .mrow.s .track i { transition-duration: var(--dur-s); }
+  .motion .mrow.m .track i { transition-duration: var(--dur-m); }
+  .motion .mrow.l .track i { transition-duration: var(--dur-l); }
+  .motion .mfoot { display:flex; gap:10px; margin-top:18px; }
+  .motion .curve { flex:1; display:flex; align-items:center; gap:10px; background:rgba(255,255,255,0.03); border:1px solid var(--pg-border); border-radius:10px; padding:9px 11px; min-width:0; }
+  .motion .curve svg { flex-shrink:0; }
+  .motion .curve b { display:block; font-size:12.5px; color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; font-weight:600; }
+  .motion .curve span { display:block; font-size:12px; color:var(--pg-muted); margin-top:2px; line-height:1.45; }
+
+  /* 10 层级与布局 */
+  .bpbar { display:flex; gap:5px; margin-bottom:20px; }
+  .bpbar .seg { border:1px solid rgba(83,215,239,0.25); border-radius:10px; padding:10px 14px; min-width:0; }
+  .bpbar .s1 { flex:600; background:rgba(83,215,239,0.05); }
+  .bpbar .s2 { flex:240; background:rgba(83,215,239,0.11); }
+  .bpbar .s3 { flex:440; background:rgba(83,215,239,0.18); }
+  .bpbar b { display:block; font-size:13px; color:var(--pg-text); white-space:nowrap; }
+  .bpbar span { font-size:12px; color:var(--pg-muted); }
+  .zwrap { position:relative; height:236px; }
+  .zstep { position:absolute; width:186px; padding:11px 14px; background:rgba(21,29,46,0.94); border:1px solid rgba(83,215,239,0.3); border-radius:12px; }
+  .zstep .zn { font-size:13px; font-weight:650; }
+  .zstep .zv { font-size:12px; color:var(--pg-muted); font-family:ui-monospace,Menlo,monospace; margin-top:3px; }
+  .laygrid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:18px; }
+  .laygrid .lt { border:1px dashed var(--pg-border); border-radius:10px; padding:11px 14px; }
+  .laygrid .lt .lrow1 { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .laygrid .lt .ln { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; color:var(--pg-text); font-weight:600; }
+  .laygrid .lt .lv { font-family:ui-monospace,Menlo,monospace; font-size:13px; color:var(--pg-accent); flex-shrink:0; }
+  .laygrid .lt .ld { font-size:12.5px; color:var(--pg-muted); margin-top:4px; }
+
+  /* 11 图标 */
+  .iconscale { display:flex; gap:22px; align-items:flex-end; flex-wrap:wrap; padding:6px 4px 2px; }
+  .iconscale .is { text-align:center; font-size:12px; color:var(--pg-muted); }
+  .iconscale .is svg { display:block; margin:0 auto 8px; color:var(--pg-accent); }
+  .iconscale .is b { display:block; color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; font-weight:600; }
+
+  /* 12 结构模板 */
+  .tpl { border:1px dashed rgba(83,215,239,0.4); border-radius:12px; padding:10px; font-size:12px; color:var(--pg-muted); }
+  .tpl .slot { border:1px solid var(--pg-border); border-radius:8px; padding:8px 10px; background:rgba(255,255,255,0.03); }
+  .tpl .slot b { color:var(--pg-text); font-family:ui-monospace,Menlo,monospace; font-weight:600; font-size:12px; }
+  .tpl .slot span { display:block; margin-top:2px; }
+  .tpl .row { display:flex; gap:8px; margin-top:8px; }
+  .tpl .row .slot { flex:1; }
+  .tpl .row .slot.w2 { flex:2; }
+  .tpl .stack { display:flex; flex-direction:column; gap:8px; }
+  .tplgrid { display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:14px; }
+  .tplgrid h5 { font-size:13px; color:var(--pg-text); margin-bottom:8px; }
+  .tplgrid h5 small { color:var(--pg-muted); font-weight:400; margin-left:6px; }
+
+  /* 13 领域扩展 */
+  .fam { display:flex; align-items:flex-start; gap:16px; padding:13px 4px; border-bottom:1px dashed var(--pg-border); }
+  .fam:last-child { border-bottom:none; }
+  .fam .fname { width:200px; flex-shrink:0; }
+  .fam .fname b { font-size:13.5px; font-weight:650; color:var(--pg-text); display:block; }
+  .fam .fname span { font-size:12px; color:var(--pg-muted); font-family:ui-monospace,Menlo,monospace; }
+  .fam .fname .kind { display:inline-block; margin-top:5px; font-size:11px; font-weight:650; padding:1px 8px; border-radius:999px; font-family:inherit; }
+  .kind.follow { color:#7ee3a8; background:rgba(126,227,168,0.12); }
+  .kind.neutral { color:#f0c053; background:rgba(240,192,83,0.12); }
+  .fam .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chipd { display:inline-flex; align-items:center; gap:8px; font-size:12.5px; color:var(--pg-text); background:rgba(255,255,255,0.035); border:1px solid var(--pg-border); border-radius:8px; padding:6px 11px; }
+  .chipd .dot { width:15px; height:15px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); flex-shrink:0; }
+  .chipd.paper { border:none; font-weight:600; }
+
+  @media (max-width: 1080px) {
+    .palettes, .scheme, .compgrid, .states, .specgrid, .tplgrid { grid-template-columns: 1fr 1fr; }
+    .typegrid, .duo, .duo2, .theme-pair { grid-template-columns: 1fr; }
+    .srf-stack { grid-template-columns: repeat(3,1fr); }
+    .zwrap { display:none; }
+    .bpbar, .motion .mfoot { flex-direction:column; }
+    .spec { display:block; overflow-x:auto; }
+  }
+</style>
+</head>
+<body>
+
+<div class="poster">
+  <div class="poster-head">
+    <div class="title">Producer <b>设计系统</b> · M3 全景</div>
+    <div class="note">契约文件 · 浅色 <b>:root</b> / 深色 <b>.dark</b> · 运行时逐值镜像 · <b>pnpm lint:design</b></div>
+  </div>
+
+  <!-- ============ 00 · Token 架构与工程契约 ============ -->
+  <div class="section-title">00 · <em>Token 分层与工程契约</em><span class="m3tag">M3 Foundations · Design Tokens</span></div>
+  <div class="sec-intro">Token 分四层：① 原子色板（组件禁止引用）→ ② 语义角色（浅色 <code>:root</code>、深色 <code>.dark</code> 同名换档）→ ③ 领域别名与扩展色 → ④ 尺度。组件只引用 ②③④。</div>
+  <div class="card">
+    <div class="arch">
+      <div class="step">
+        <div class="no">① PRIMITIVES</div>
+        <h4>原子色板</h4>
+        <p>6 族 HCT 色板<br><code>--p40 --n95 --nv30 …</code></p>
+        <span class="tag stop">组件禁止直接引用</span>
+      </div>
+      <div class="step">
+        <div class="no">② SEMANTIC ROLES</div>
+        <h4>M3 语义角色</h4>
+        <p>四件套 + surface 梯度 + 状态层<br><code>--color-primary --color-surface-*</code><br>浅色 <code>:root</code> / 深色 <code>.dark</code> 换档</p>
+        <span class="tag go">新代码引用这一层</span>
+      </div>
+      <div class="step">
+        <div class="no">③ DOMAIN TOKENS</div>
+        <h4>领域别名与扩展色</h4>
+        <p>随主题的别名 + 主题中立的内容色<br><code>--color-chat-* --color-brief-*</code></p>
+        <span class="tag go">领域组件引用</span>
+      </div>
+      <div class="step">
+        <div class="no">④ SCALES</div>
+        <h4>尺度体系</h4>
+        <p>字阶 · 圆角 · 海拔 · 动效 · 层级 · 控件与图标尺寸 · 布局<br><code>text-body rounded-md --dur-s --control-height-lg</code></p>
+        <span class="tag go">TSX 工具类 / CSS var()</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="duo" style="margin-top:14px">
+    <div class="card">
+      <div class="rule"><b>契约范围</b>　本页第一个 <code>&lt;style&gt;</code> 内 <code>:root</code> 与 <code>.dark</code> 两块中除 <code>--pg-*</code> 外的全部变量。运行时 <code>web/src/app/globals.css</code>（<code>@theme</code>）与 <code>base.css</code>（<code>:root</code> / <code>.dark</code>）逐名逐值镜像；比较时去掉全部空格后逐字相等。</div>
+      <div class="rule stop"><b>对账</b>　本页有而运行时无、值不同、运行时有而本页未登记，三者均报错。新增 token 先写本页，再镜像运行时。对账脚本附带注入漂移的自测。</div>
+      <div class="rule"><b>消费</b>　组件不加载、不解析本文件；颜色只经 ②③ 层，尺寸只经 ④ 层。主题切换：<code>&lt;html&gt;</code> 加减 <code>.dark</code>（<code>@custom-variant dark (&amp;:is(.dark *))</code>），默认跟随 <code>prefers-color-scheme</code>，用户选择存 localStorage。</div>
+      <div class="rule"><b>门禁</b>　<code>pnpm lint:design</code> = 对账 + design-guard（裸色值、表外字号 / 圆角 / 阴影 / 动效、Tailwind 原色板类、内联 style 颜色）。ESLint：<code>lucide-react</code> 只许 <code>shared/icons</code>、<code>radix-ui</code> 只许 <code>shared/ui</code> import。豁免须带理由：<code>// design-allow -- 原因</code>。</div>
+    </div>
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>要表达的</th><th>CSS 写法</th><th>TSX 工具类写法</th></tr></thead>
+        <tbody>
+          <tr><td>语义色</td><td><code>var(--color-primary)</code></td><td><code>bg-primary</code> <code>text-on-surface</code> <code>border-outline-variant</code></td></tr>
+          <tr><td>领域色</td><td><code>var(--color-chat-user-bg)</code></td><td><code>bg-chat-user-bg</code></td></tr>
+          <tr><td>字阶</td><td><code>font-size: var(--text-body)</code></td><td><code>text-body</code> <code>text-title-lg</code>（Tailwind 默认 <code>text-sm</code> 等已清除）</td></tr>
+          <tr><td>圆角</td><td><code>var(--radius-md)</code></td><td><code>rounded-md</code>（同名同值）</td></tr>
+          <tr><td>海拔</td><td><code>box-shadow: var(--shadow-2)</code></td><td><code>shadow-2</code></td></tr>
+          <tr><td>动效</td><td><code>var(--dur-s) var(--ease)</code></td><td><code>ui-motion-s / -m / -l</code>（时长 + 曲线一起）</td></tr>
+          <tr><td>层级</td><td><code>z-index: var(--z-popup)</code></td><td><code>layer-popup</code>（不用数字 z）</td></tr>
+          <tr><td>控件高度</td><td><code>height: var(--control-height-lg)</code></td><td><code>h-(--control-height-lg)</code></td></tr>
+          <tr><td>图标尺寸</td><td>—</td><td><code>&lt;Icon name="search" size="md" /&gt;</code>（内部 <code>size-(--icon-md)</code>）</td></tr>
+          <tr><td>交互状态</td><td>见 §03</td><td><code>ui-state</code>（hover/pressed/disabled 叠层）<code>ui-focus</code>（焦点环）</td></tr>
+        </tbody>
+      </table>
+      <div class="rule" style="margin-top:12px"><b>工具类</b>　<code>globals.css</code> 以 <code>@theme inline reference</code> 登记 ②③④ 层变量：变量名不变，不重复输出到 <code>:root</code>。禁止 <code>bg-[var(--color-*)]</code> 形式。</div>
+    </div>
+  </div>
+
+  <!-- ============ 01 · 色板 ============ -->
+  <div class="section-title">01 · <em>色板体系</em>　6 族 HCT 色板<span class="m3tag">M3 Styles · Color</span></div>
+  <div class="sec-intro">6 族 HCT 色板，每族 13 阶；Neutral 另有 4 / 6 / 12 / 17 / 22（深色 surface）与 92 / 94 / 96 / 98（浅色 surface 梯度）。组件禁止直接引用色板。文字与底色配对相差 ≥ 40 阶。白框 = 浅色主题在用档位。</div>
+  <div class="palettes">
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--p80)">Primary · 青<small>h213 c48</small></span><span class="p-hex mono">浅 40 · 深 80</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--p0)" title="#000000">0</i><i class="lt" style="background:var(--p10)" title="#001F25 ← on-container">10</i><i class="lt" style="background:var(--p20)" title="#00363E ← 深色 on-primary">20</i><i class="lt" style="background:var(--p30)" title="#004E5A ← 深色 container">30</i><i class="lt role" style="background:var(--p40)" title="#006876 ← primary">40</i><i class="lt role" style="background:var(--p50)" title="#008395 ← primary-hover">50</i><i class="dk role-lt" style="background:var(--p60)" title="#009FB4 ← 画布选中">60</i><i class="dk role-lt" style="background:var(--p70)" title="#29BBD2 ← container-solid">70</i><i class="dk" style="background:var(--p80)" title="#53D7EF ← inverse-primary · 深色 primary">80</i><i class="dk role-lt" style="background:var(--p90)" title="#A1EFFF ← primary-container">90</i><i class="dk role-lt" style="background:var(--p95)" title="#D4F7FF ← container-soft">95</i><i class="dk" style="background:var(--p99)" title="#F7FDFF">99</i><i class="dk" style="background:var(--p100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-primary);color:var(--color-on-primary)"><b>Aa</b><span>primary</span></div>
+        <div class="pair" style="background:var(--color-primary-container);color:var(--color-on-primary-container)"><b>Aa</b><span>container</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--s80)">Secondary · 薄荷<small>h168 c30</small></span><span class="p-hex mono">浅 40 · 深 80</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--s0)" title="#000000">0</i><i class="lt" style="background:var(--s10)" title="#002115 ← on-container">10</i><i class="lt" style="background:var(--s20)" title="#003827">20</i><i class="lt" style="background:var(--s30)" title="#15503C ← 深色 container">30</i><i class="lt role" style="background:var(--s40)" title="#316853 ← secondary">40</i><i class="lt" style="background:var(--s50)" title="#4A826A">50</i><i class="dk" style="background:var(--s60)" title="#649C83">60</i><i class="dk" style="background:var(--s70)" title="#7EB79D">70</i><i class="dk" style="background:var(--s80)" title="#99D3B8 ← fixed-dim · 深色 secondary">80</i><i class="dk role-lt" style="background:var(--s90)" title="#B4EFD3 ← secondary-container">90</i><i class="dk" style="background:var(--s95)" title="#C2FEE1">95</i><i class="dk" style="background:var(--s99)" title="#F4FFF7">99</i><i class="dk" style="background:var(--s100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-secondary);color:var(--color-on-secondary)"><b>Aa</b><span>secondary</span></div>
+        <div class="pair" style="background:var(--color-secondary-container);color:var(--color-on-secondary-container)"><b>Aa</b><span>container</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--t80)">Tertiary · 琥珀<small>h86 c44</small></span><span class="p-hex mono">浅 40 · 深 80</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--t0)" title="#000000">0</i><i class="lt role" style="background:var(--t10)" title="#261A00 ← on-container">10</i><i class="lt" style="background:var(--t20)" title="#402D00">20</i><i class="lt" style="background:var(--t30)" title="#5B4300 ← 深色 container">30</i><i class="lt role" style="background:var(--t40)" title="#795900 ← tertiary（= warning）">40</i><i class="lt" style="background:var(--t50)" title="#987100">50</i><i class="dk" style="background:var(--t60)" title="#B58A21">60</i><i class="dk" style="background:var(--t70)" title="#D2A53B">70</i><i class="dk" style="background:var(--t80)" title="#F0C053 ← fixed-dim · 深色 tertiary">80</i><i class="dk role-lt" style="background:var(--t90)" title="#FFDF9F ← tertiary-container">90</i><i class="dk" style="background:var(--t95)" title="#FFEFD4">95</i><i class="dk" style="background:var(--t99)" title="#FFFBFF">99</i><i class="dk" style="background:var(--t100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-tertiary);color:var(--color-on-tertiary)"><b>Aa</b><span>tertiary</span></div>
+        <div class="pair" style="background:var(--color-tertiary-container);color:var(--color-on-tertiary-container)"><b>Aa</b><span>container</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--n80)">Neutral · 蓝灰<small>h240 c5 · 22 档</small></span><span class="p-hex mono">浅 98 · 深 6</span></div>
+      <div class="p-strip">
+        <i class="lt role" style="background:var(--n0)" title="#000000 ← scrim/shadow">0</i><i class="lt" style="background:var(--n4)" title="#0B0F11 ← 深色 container-lowest">4</i><i class="lt" style="background:var(--n6)" title="#101417 ← 深色 surface">6</i><i class="lt role" style="background:var(--n10)" title="#191C1F ← on-surface · 深色 container-low">10</i><i class="lt" style="background:var(--n12)" title="#1D2023 ← 深色 container">12</i><i class="lt" style="background:var(--n17)" title="#272A2D ← 深色 container-high">17</i><i class="lt role" style="background:var(--n20)" title="#2E3134 ← inverse-surface">20</i><i class="lt" style="background:var(--n22)" title="#323538 ← 深色 container-highest">22</i><i class="lt" style="background:var(--n30)" title="#44474A">30</i><i class="lt" style="background:var(--n50)" title="#74777B">50</i><i class="dk" style="background:var(--n70)" title="#A9ABAF">70</i><i class="dk role-lt" style="background:var(--n90)" title="#E1E2E6 ← container-highest · 深色 on-surface">90</i><i class="dk" style="background:var(--n94)" title="#ECEEF2 ← container（92/94/96 梯度）">94</i><i class="dk role-lt" style="background:var(--n98)" title="#F8F9FD ← surface">98</i><i class="dk role-lt" style="background:var(--n100)" title="#FFFFFF ← container-lowest">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-surface);color:var(--color-on-surface);box-shadow:inset 0 0 0 1px var(--color-outline-variant)"><b>Aa</b><span>surface</span></div>
+        <div class="pair" style="background:var(--color-inverse-surface);color:var(--color-inverse-on-surface)"><b>Aa</b><span>inverse</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--nv70)">Neutral-Variant<small>h240 c8</small></span><span class="p-hex mono">浅 50 · 深 60</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--nv0)" title="#000000">0</i><i class="lt" style="background:var(--nv10)" title="#161C21">10</i><i class="lt" style="background:var(--nv20)" title="#2B3136">20</i><i class="lt role" style="background:var(--nv30)" title="#41484D ← on-surface-variant · 深色 outline-variant / surface-variant">30</i><i class="lt role" style="background:var(--nv40)" title="#595F65 ← chat-muted-text">40</i><i class="lt role" style="background:var(--nv50)" title="#71787E ← outline">50</i><i class="dk" style="background:var(--nv60)" title="#8B9198 ← 深色 outline">60</i><i class="dk" style="background:var(--nv70)" title="#A6ACB2 ← 点阵基色">70</i><i class="dk role-lt" style="background:var(--nv80)" title="#C1C7CE ← outline-variant · 深色 on-surface-variant">80</i><i class="dk role-lt" style="background:var(--nv90)" title="#DDE3EA ← surface-variant">90</i><i class="dk" style="background:var(--nv95)" title="#EBF1F8">95</i><i class="dk" style="background:var(--nv99)" title="#FBFCFF">99</i><i class="dk" style="background:var(--nv100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-surface-variant);color:var(--color-on-surface-variant)"><b>Aa</b><span>variant</span></div>
+        <div class="pair" style="background:var(--color-outline);color:var(--n100)"><b>Aa</b><span>outline</span></div>
+      </div>
+    </div>
+
+    <div class="card palette">
+      <div class="p-head"><span class="p-name" style="color:var(--e70)">Error · 红<small>h26 c76</small></span><span class="p-hex mono">浅 40 · 深 80</span></div>
+      <div class="p-strip">
+        <i class="lt" style="background:var(--e0)" title="#000000">0</i><i class="lt role" style="background:var(--e10)" title="#410001 ← on-container">10</i><i class="lt" style="background:var(--e20)" title="#690003">20</i><i class="lt role" style="background:var(--e30)" title="#910809 ← 危险文字 · 深色 container">30</i><i class="lt role" style="background:var(--e40)" title="#B4271F ← error">40</i><i class="lt" style="background:var(--e50)" title="#D74034">50</i><i class="dk" style="background:var(--e60)" title="#FA5A4A ← 深色 danger-border">60</i><i class="dk" style="background:var(--e70)" title="#FF8A7B">70</i><i class="dk role-lt" style="background:var(--e80)" title="#FFB4AA ← danger-border · 深色 error">80</i><i class="dk role-lt" style="background:var(--e90)" title="#FFDAD5 ← error-container">90</i><i class="dk" style="background:var(--e95)" title="#FFEDEA">95</i><i class="dk" style="background:var(--e99)" title="#FFFBFF">99</i><i class="dk" style="background:var(--e100)" title="#FFFFFF">100</i>
+      </div>
+      <div class="p-roles">
+        <div class="pair" style="background:var(--color-error);color:var(--color-on-error)"><b>Aa</b><span>error</span></div>
+        <div class="pair" style="background:var(--color-error-container);color:var(--color-on-error-container)"><b>Aa</b><span>container</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ 02 · 角色映射 ============ -->
+  <div class="section-title">02 · <em>颜色角色</em>　浅色 / 深色<span class="m3tag">M3 Styles · Color Schemes</span></div>
+  <div class="sec-intro">语义角色成套使用：primary / on-primary / primary-container / on-primary-container 四件不拆开。浅色 <code>:root</code>、深色 <code>.dark</code> 同名换档（主色 40→80，容器 90→30，surface 98→6，on-surface 10→90）。左右两块标记相同，右块仅多一层 <code>.dark</code>。对比度：四件套与 surface / on-surface 配对浅色 ≥ 6.46:1、深色 ≥ 7.23:1；on-surface-variant / surface-variant 浅 7.19、深 5.46；inverse-primary / inverse-surface 深 5.0；outline 描边浅 4.26 / 深 5.82（描边线 ≥ 3:1）。</div>
+  <div class="theme-pair">
+    <div class="theme-box">
+      <div class="tb-head">浅色 <span>:root</span></div>
+      <div class="scheme">
+        <div class="col">
+          <div class="blk main" style="background:var(--color-primary);color:var(--color-on-primary)"><span class="r-name">Primary</span><span class="r-val">P40</span></div>
+          <div class="blk main" style="background:var(--color-primary-container);color:var(--color-on-primary-container)"><span class="r-name">Container</span><span class="r-val">P90 / on P10</span></div>
+        </div>
+        <div class="col">
+          <div class="blk main" style="background:var(--color-secondary);color:var(--color-on-secondary)"><span class="r-name">Secondary</span><span class="r-val">S40</span></div>
+          <div class="blk main" style="background:var(--color-secondary-container);color:var(--color-on-secondary-container)"><span class="r-name">Container</span><span class="r-val">S90 / on S10</span></div>
+        </div>
+        <div class="col">
+          <div class="blk main" style="background:var(--color-tertiary);color:var(--color-on-tertiary)"><span class="r-name">Tertiary</span><span class="r-val">T40 · = warning</span></div>
+          <div class="blk main" style="background:var(--color-tertiary-container);color:var(--color-on-tertiary-container)"><span class="r-name">Container</span><span class="r-val">T90 / on T10</span></div>
+        </div>
+        <div class="col">
+          <div class="blk main" style="background:var(--color-error);color:var(--color-on-error)"><span class="r-name">Error</span><span class="r-val">E40</span></div>
+          <div class="blk main" style="background:var(--color-error-container);color:var(--color-on-error-container)"><span class="r-name">Container</span><span class="r-val">E90 / on E10</span></div>
+        </div>
+        <div class="col">
+          <div class="blk main" style="background:var(--color-inverse-surface);color:var(--color-inverse-on-surface)"><span class="r-name">Inverse</span><span class="r-val">N20 / on N95</span></div>
+          <div class="blk main" style="background:var(--color-surface-variant);color:var(--color-on-surface-variant)"><span class="r-name">Surface Variant</span><span class="r-val">NV90 / on NV30</span></div>
+        </div>
+      </div>
+      <div class="srf-stack">
+        <div class="cell" style="background:var(--color-surface-container-lowest)"><span class="nm">Lowest · 卡片</span><span class="vv">N100</span></div>
+        <div class="cell" style="background:var(--color-surface-container-low)"><span class="nm">Low</span><span class="vv">N96</span></div>
+        <div class="cell" style="background:var(--color-surface-container)"><span class="nm">Container</span><span class="vv">N94</span></div>
+        <div class="cell" style="background:var(--color-surface-container-high)"><span class="nm">High</span><span class="vv">N92</span></div>
+        <div class="cell" style="background:var(--color-surface-container-highest)"><span class="nm">Highest</span><span class="vv">N90</span></div>
+        <div class="cell" style="background:var(--color-surface)"><span class="nm">Surface · 页面底</span><span class="vv">N98</span></div>
+      </div>
+      <div class="srf-foot">
+        <div class="box inv"><span>Inverse Surface</span><span class="chiplet">Inverse Primary P80</span></div>
+        <div class="box outl">
+          <div class="lrow"><i class="swl" style="background:var(--color-outline)"></i>Outline<span>NV50</span></div>
+          <div class="lrow"><i class="swl" style="background:var(--color-outline-variant)"></i>Outline Variant<span>NV80</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="theme-box dark">
+      <div class="tb-head">深色 <span>.dark</span></div>
+      <div class="scheme">
+        <div class="col">
+          <div class="blk main" style="background:var(--color-primary);color:var(--color-on-primary)"><span class="r-name">Primary</span><span class="r-val">P80 / on P20</span></div>
+          <div class="blk main" style="background:var(--color-primary-container);color:var(--color-on-primary-container)"><span class="r-name">Container</span><span class="r-val">P30 / on P90</span></div>
+        </div>
+        <div class="col">
+          <div class="blk main" style="background:var(--color-secondary);color:var(--color-on-secondary)"><span class="r-name">Secondary</span><span class="r-val">S80 / on S20</span></div>
+          <div class="blk main" style="background:var(--color-secondary-container);color:var(--color-on-secondary-container)"><span class="r-name">Container</span><span class="r-val">S30 / on S90</span></div>
+        </div>
+        <div class="col">
+          <div class="blk main" style="background:var(--color-tertiary);color:var(--color-on-tertiary)"><span class="r-name">Tertiary</span><span class="r-val">T80 / on T20</span></div>
+          <div class="blk main" style="background:var(--color-tertiary-container);color:var(--color-on-tertiary-container)"><span class="r-name">Container</span><span class="r-val">T30 / on T90</span></div>
+        </div>
+        <div class="col">
+          <div class="blk main" style="background:var(--color-error);color:var(--color-on-error)"><span class="r-name">Error</span><span class="r-val">E80 / on E20</span></div>
+          <div class="blk main" style="background:var(--color-error-container);color:var(--color-on-error-container)"><span class="r-name">Container</span><span class="r-val">E30 / on E90</span></div>
+        </div>
+        <div class="col">
+          <div class="blk main" style="background:var(--color-inverse-surface);color:var(--color-inverse-on-surface)"><span class="r-name">Inverse</span><span class="r-val">N90 / on N20</span></div>
+          <div class="blk main" style="background:var(--color-surface-variant);color:var(--color-on-surface-variant)"><span class="r-name">Surface Variant</span><span class="r-val">NV30 / on NV80</span></div>
+        </div>
+      </div>
+      <div class="srf-stack">
+        <div class="cell" style="background:var(--color-surface-container-lowest)"><span class="nm">Lowest · 卡片</span><span class="vv">N4</span></div>
+        <div class="cell" style="background:var(--color-surface-container-low)"><span class="nm">Low</span><span class="vv">N10</span></div>
+        <div class="cell" style="background:var(--color-surface-container)"><span class="nm">Container</span><span class="vv">N12</span></div>
+        <div class="cell" style="background:var(--color-surface-container-high)"><span class="nm">High</span><span class="vv">N17</span></div>
+        <div class="cell" style="background:var(--color-surface-container-highest)"><span class="nm">Highest</span><span class="vv">N22</span></div>
+        <div class="cell" style="background:var(--color-surface)"><span class="nm">Surface · 页面底</span><span class="vv">N6</span></div>
+      </div>
+      <div class="srf-foot">
+        <div class="box inv"><span>Inverse Surface</span><span class="chiplet">Inverse Primary P40</span></div>
+        <div class="box outl">
+          <div class="lrow"><i class="swl" style="background:var(--color-outline)"></i>Outline<span>NV60</span></div>
+          <div class="lrow"><i class="swl" style="background:var(--color-outline-variant)"></i>Outline Variant<span>NV30</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <table class="spec">
+      <thead><tr><th>角色</th><th>浅色</th><th>深色</th><th>用在哪</th></tr></thead>
+      <tbody>
+        <tr><td>primary / on / container / on-container</td><td>P40 / P100 / P90 / P10</td><td>P80 / P20 / P30 / P90</td><td>主按钮、焦点环、选中底、链接</td></tr>
+        <tr><td>primary-hover · container-solid · container-soft</td><td>P50 · P70 · P95</td><td>P70 · P70 · P20</td><td>主按钮悬停；小件实色标签；大面浅底</td></tr>
+        <tr><td>secondary 四件套</td><td>S40 / S100 / S90 / S10</td><td>S80 / S20 / S30 / S90</td><td>用户气泡、成功状态</td></tr>
+        <tr><td>tertiary 四件套（= warning）</td><td>T40 / T100 / T90 / T10</td><td>T80 / T20 / T30 / T90</td><td>运行中、进行中、成就高亮</td></tr>
+        <tr><td>error 四件套</td><td>E40 / E100 / E90 / E10</td><td>E80 / E20 / E30 / E90</td><td>错误、危险操作</td></tr>
+        <tr><td>surface / on-surface</td><td>N98 / N10</td><td>N6 / N90</td><td>页面底 / 主文字</td></tr>
+        <tr><td>surface-container lowest → highest</td><td>N100 · 96 · 94 · 92 · 90</td><td>N4 · 10 · 12 · 17 · 22</td><td>谁叠在谁上面：浅色越上越白，深色越上越亮</td></tr>
+        <tr><td>surface-variant / on-surface-variant</td><td>NV90 / NV30</td><td>NV30 / NV80</td><td>弱底 / 次级文字</td></tr>
+        <tr><td>outline / outline-variant</td><td>NV50 / NV80</td><td>NV60 / NV30</td><td>输入框边 / 默认分隔线</td></tr>
+        <tr><td>inverse-surface / on / inverse-primary</td><td>N20 / N95 / P80</td><td>N90 / N20 / P40</td><td>反色按钮、toast</td></tr>
+        <tr><td>fixed / fixed-dim（三族）</td><td colspan="2" class="c">90 / 80，明暗<b>不变</b></td><td>需要跨主题稳定的色块（头像底、色卡）</td></tr>
+        <tr><td>scrim / shadow</td><td colspan="2" class="c">N0，明暗不变</td><td>遮罩、投影基色</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 03 · 交互状态契约 ============ -->
+  <div class="section-title">03 · <em>交互状态契约</em><span class="m3tag">M3 Foundations · Interaction</span></div>
+  <div class="sec-intro">交互反馈统一为状态层：on-surface 以 <code>--state-*</code> 透明度叠在底色上（hover 8%、focus / pressed 12%、dragged 16%）。键盘焦点 3px <code>--color-focus-ring</code> + 2px 外扩，仅 <code>:focus-visible</code>。禁用：文字 38%、容器 12%。运行时工具类 <code>ui-state</code>（叠层）、<code>ui-focus</code>（焦点环）；组件不自写 hover / pressed / disabled 颜色。</div>
+  <div class="card light">
+    <div class="states">
+      <div class="st" style="background:var(--color-surface-container-lowest)"><span class="sn">Enabled</span><span class="sv">0%</span></div>
+      <div class="st" style="background:color-mix(in srgb, var(--color-on-surface) 8%, var(--color-surface-container-lowest))"><span class="sn">Hover</span><span class="sv">--state-hover 8%</span></div>
+      <div class="st" style="background:color-mix(in srgb, var(--color-on-surface) 12%, var(--color-surface-container-lowest))"><span class="sn">Focus</span><span class="sv">--state-focus 12%</span></div>
+      <div class="st" style="background:color-mix(in srgb, var(--color-on-surface) 12%, var(--color-surface-container-lowest))"><span class="sn">Pressed</span><span class="sv">--state-pressed 12%</span></div>
+      <div class="st" style="background:color-mix(in srgb, var(--color-on-surface) 16%, var(--color-surface-container-lowest))"><span class="sn">Dragged</span><span class="sv">--state-dragged 16%</span></div>
+      <div class="focusdemo">
+        <div style="display:flex;gap:12px;align-items:center">
+          <button type="button">键盘焦点</button>
+          <button type="button" class="dis">禁用</button>
+        </div>
+        <span class="cap">:focus-visible · <code>--state-focus-ring</code> 3px + <code>--state-focus-offset</code> 2px　·　<span class="disab">禁用 = 文字 38% + 容器 12%</span></span>
+      </div>
+    </div>
+  </div>
+  <div class="duo" style="margin-top:14px">
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>状态</th><th>视觉</th><th>token / 工具类</th></tr></thead>
+        <tbody>
+          <tr><td>hover</td><td>on-surface 8% 叠层；按钮另加放大 1.05</td><td><code>--state-hover</code> · <code>ui-state</code></td></tr>
+          <tr><td>pressed</td><td>12% 叠层；按钮另加缩小 0.95</td><td><code>--state-pressed</code> · <code>ui-state</code></td></tr>
+          <tr><td>focus-visible</td><td>3px 主色描边 + 2px 外扩；只响应键盘，鼠标点击不显示</td><td><code>--state-focus-ring/offset</code> · <code>ui-focus</code></td></tr>
+          <tr><td>selected</td><td>底 primary-container，字 on-primary-container</td><td><code>--color-state-active</code></td></tr>
+          <tr><td>dragged</td><td>16% 叠层 + shadow-2</td><td><code>--state-dragged</code></td></tr>
+          <tr><td>disabled</td><td>文字 38%、容器 / 描边 12%；无 hover 反馈；<code>cursor: not-allowed</code></td><td><code>--color-disabled-text/container</code></td></tr>
+          <tr><td>loading</td><td>保持尺寸不变，内容替换为 spinner（icon-md），禁止交互</td><td>组件 prop <code>loading</code></td></tr>
+          <tr><td>invalid</td><td>描边 error，辅助文字 error；不改底色</td><td><code>--color-error</code></td></tr>
+          <tr><td>过渡</td><td>状态变化 150ms 标准曲线</td><td><code>ui-motion-s</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>组件 \ 状态</th><th class="c">hover</th><th class="c">pressed</th><th class="c">focus</th><th class="c">selected</th><th class="c">disabled</th><th class="c">loading</th><th class="c">invalid</th></tr></thead>
+        <tbody>
+          <tr><td>Button</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c no">—</td><td class="c must">●</td><td class="c opt">○</td><td class="c no">—</td></tr>
+          <tr><td>IconButton</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c opt">○</td><td class="c must">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+          <tr><td>Input / Textarea</td><td class="c must">●</td><td class="c no">—</td><td class="c must">●</td><td class="c no">—</td><td class="c must">●</td><td class="c no">—</td><td class="c must">●</td></tr>
+          <tr><td>Chip</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+          <tr><td>Tag / Badge</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td><td class="c opt">○</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+          <tr><td>Menu item</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c opt">○</td><td class="c must">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+          <tr><td>ToggleGroup item</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c must">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+          <tr><td>Slider thumb</td><td class="c must">●</td><td class="c no">—</td><td class="c must">●</td><td class="c no">—</td><td class="c must">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+          <tr><td>Dialog / Popover</td><td class="c no">—</td><td class="c no">—</td><td class="c must">● 焦点圈定</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td><td class="c no">—</td></tr>
+        </tbody>
+      </table>
+      <div class="rule" style="margin-top:12px"><b>●</b> 必备　<b>○</b> 按需（实现时按左表）　<b>—</b> 不适用</div>
+    </div>
+  </div>
+
+  <!-- ============ 04 · 组件落地 ============ -->
+  <div class="section-title">04 · <em>角色落地组件</em><span class="m3tag">M3 Components</span></div>
+  <div class="sec-intro">语义角色在基础控件上的取色。图标按钮视觉 40、热区 48（虚线）。</div>
+  <div class="card light">
+    <div class="compgrid">
+      <div class="cc"><button class="ui-btn primary">主按钮</button><span class="lab">primary · hover primary-hover</span></div>
+      <div class="cc"><button class="ui-btn tonal">Tonal</button><span class="lab">secondary-container</span></div>
+      <div class="cc"><button class="ui-btn inverted">反色</button><span class="lab">inverse-surface</span></div>
+      <div class="cc"><button class="ui-btn outlined">描边</button><span class="lab">outline + primary</span></div>
+      <div class="cc"><button class="ui-btn danger">删除</button><span class="lab">error</span></div>
+      <div class="cc"><div class="bubble user">帮我生成一支 15 秒口播视频</div><span class="lab">用户气泡 · secondary-container</span></div>
+      <div class="cc"><div class="bubble assistant">好的，先确认脚本结构…</div><span class="lab">助手气泡 · lowest + outline-variant</span></div>
+      <div class="cc"><div class="ui-input">搜索项目…</div><span class="lab">输入框 · outline / radius lg / 玻璃底</span></div>
+      <div class="cc">
+        <div style="display:flex;gap:10px;align-items:center"><span class="ui-chip">M01 分镜</span><span class="ui-tag">@chip</span></div>
+        <span class="lab">container-soft / solid</span>
+      </div>
+      <div class="cc">
+        <div class="iconrow">
+          <span class="iconbtn active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          <span class="iconbtn showhit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+          <span class="iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+        </div>
+        <span class="lab">视觉 40 / 热区 48（虚线）· 图标 icon-lg 20 · 选中 = primary-container</span>
+      </div>
+    </div>
+    <div class="comp-foot">
+      <span class="linkdemo">链接 · primary</span>
+      <span class="statusrow">
+        <span class="stt" style="color:var(--color-secondary)"><i class="dot" style="background:var(--color-secondary)"></i>成功</span>
+        <span class="stt" style="color:var(--color-warning)"><i class="dot" style="background:var(--color-warning)"></i>运行</span>
+        <span class="stt" style="color:var(--color-error)"><i class="dot" style="background:var(--color-error)"></i>失败</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- ============ 05 · 组件契约 ============ -->
+  <div class="section-title">05 · <em>可模板化组件契约</em><span class="m3tag">M3 Components · 密度 −3 档 + 形状签名</span></div>
+  <div class="sec-intro">基础组件（<code>web/src/shared/ui</code>）只拥有结构、尺寸档、语义变体与适用状态，不含业务文案与业务判断。高度取 <code>--control-height-*</code>，图标取 <code>--icon-*</code>，状态用 <code>ui-state</code> / <code>ui-focus</code>，变体以 <code>cva</code> 声明。几何为 M3 密度 −3 档；固定偏离：按钮圆角 12、Chip 圆角 full、菜单圆角 12、弹窗宽 ≤ 582。契约表之外的尺寸档与变体不实现。</div>
+  <div class="card light">
+    <div class="specgrid">
+      <div class="sc"><div class="stage"><button class="ui-btn primary">主按钮</button></div><div class="sl"><b>Button</b>高 lg 40 · 圆角 md · 字 body · 热区 48</div></div>
+      <div class="sc"><div class="stage"><span class="iconbtn showhit" style="background:var(--color-state-hover)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span></div><div class="sl"><b>IconButton</b>视觉 lg 40 · 热区 48 · 圆角 full · 图标 lg 20</div></div>
+      <div class="sc"><div class="stage"><div class="ui-input" style="width:180px">搜索项目…</div></div><div class="sl"><b>Input</b>高 xl 44 · 圆角 lg · 字 body</div></div>
+      <div class="sc"><div class="stage"><span class="ui-chip">M01 分镜</span></div><div class="sl"><b>Chip</b>高 sm 34 · 圆角 full · 字 body-sm</div></div>
+      <div class="sc"><div class="stage"><span class="ui-tag">@chip</span></div><div class="sl"><b>Tag / Badge</b>高 xs 24（可点下限）· 圆角 xs · 字 label</div></div>
+      <div class="sc"><div class="stage"><div class="menu-demo"><i>重命名</i><i class="hov">复制链接</i><i>删除</i></div></div><div class="sl"><b>Menu</b>圆角 md · 项高 md 36 · shadow-2</div></div>
+      <div class="sc"><div class="stage"><div class="bubble user" style="max-width:150px">帮我生成分镜脚本</div></div><div class="sl"><b>聊天气泡</b>圆角 xl · 内距 11×15 · 字 body-sm</div></div>
+      <div class="sc"><div class="stage"><div class="dlg-demo"></div></div><div class="sl"><b>Dialog / Composer</b>圆角 2xl · shadow-3 · 宽 ≤582</div></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <table class="spec">
+      <thead><tr><th>组件</th><th>结构（anatomy）</th><th>变体</th><th>尺寸契约</th><th>必备状态</th><th>底层</th></tr></thead>
+      <tbody>
+        <tr><td>Button</td><td>leading icon · label · trailing icon</td><td>primary · tonal · outlined · inverted · danger · ghost</td><td>lg 40（默认）· md 36（工具栏 / 表格内）· 圆角 md · 横向内距 22 / 16 · 图标 icon-md</td><td>hover pressed focus disabled（loading 按需）</td><td>原生 button</td></tr>
+        <tr><td>IconButton</td><td>icon · 可选角标</td><td>standard · tonal · selected</td><td>lg 40 视觉 / 48 热区 · md 36 / 44 · 圆角 full · 图标 icon-lg / icon-md · 必须带 aria-label</td><td>hover pressed focus disabled（selected 按需）</td><td>原生 button</td></tr>
+        <tr><td>Input · Textarea</td><td>leading icon · field · trailing action · helper / error text</td><td>outlined（默认）· glass（玻璃底，浮层内）</td><td>xl 44 · Textarea 最少 2 行 · 圆角 lg · 字 body · 描边 outline，聚焦 primary</td><td>hover focus disabled invalid（readonly 按需）</td><td>原生 input / textarea</td></tr>
+        <tr><td>Chip</td><td>leading icon / avatar · label · remove</td><td>filter（可选中）· reference（身份色 <code>--color-reference-*</code>）· assist</td><td>sm 34 · 圆角 full · 字 body-sm · 图标 icon-sm</td><td>hover pressed focus selected disabled</td><td>原生 button</td></tr>
+        <tr><td>Tag · Badge</td><td>label · 可选计数 / 状态点</td><td>solid · soft · status（success / running / error）</td><td>xs 24 · 圆角 xs · 字 label · 纯展示可低于 24，可点击不得低于</td><td>—（selected 按需）</td><td>span</td></tr>
+        <tr><td>Menu</td><td>surface · item（icon · label · shortcut）· separator · 可选 label</td><td>dropdown · context</td><td>圆角 md · 项高 md 36 · 项圆角 sm · shadow-2 · 层级 popup</td><td>item：hover pressed focus disabled；destructive 项用 error 字色</td><td>radix DropdownMenu</td></tr>
+        <tr><td>Popover · Tooltip</td><td>trigger · surface · content</td><td>popover（可交互）· tooltip（只读、延迟出现）</td><td>圆角 md（tooltip xs）· shadow-2 · 层级 popup · 进场 dur-m decel / 退场 dur-s accel</td><td>open / closed；popover 打开时焦点进入</td><td>radix Popover / Tooltip</td></tr>
+        <tr><td>Dialog · BottomSheet</td><td>scrim · surface · header · body · footer</td><td>dialog（居中，≥600）· sheet（贴底，&lt;600 自动切换）</td><td>圆角 2xl · shadow-3 · 宽 ≤582 · scrim = <code>--color-scrim</code> 32% · 层级 overlay / popup · dur-l</td><td>open / closed · 焦点圈定 · Esc 关闭</td><td>radix Dialog</td></tr>
+        <tr><td>ToggleGroup</td><td>item（icon / label）× n</td><td>single · multiple</td><td>lg 40 / md 36 · 组圆角 md · 项圆角 sm · 选中底 primary-container</td><td>item：hover pressed focus selected disabled</td><td>radix ToggleGroup</td></tr>
+        <tr><td>Slider</td><td>track · range · thumb</td><td>single · range</td><td>轨 4 · 拇指 20 · 拇指热区 44 · 轨色 surface-container-highest，range primary</td><td>thumb：hover focus dragged disabled</td><td>radix Slider</td></tr>
+        <tr><td>Toast</td><td>icon · message · action · close</td><td>neutral（inverse-surface）· error</td><td>圆角 md · shadow-3 · 层级 popup · 停留 4s，有 action 8s</td><td>—</td><td>shared/ui</td></tr>
+      </tbody>
+    </table>
+    <div class="rule" style="margin-top:12px">新变体先入本表再实现。组件被第二个 feature 复用时才上收 <code>shared/ui</code>（§14）。</div>
+  </div>
+
+  <!-- ============ 06 · 字阶 ============ -->
+  <div class="section-title">06 · <em>字阶</em><span class="m3tag">M3 Styles · Typography</span></div>
+  <div class="sec-intro">UI 字阶 10 档，正文基准 14px，下限 11px；画布字阶 6 档仅限缩放画布与工作台节点。运行时 <code>@theme</code> 清空 Tailwind 默认字号后声明这两把尺：<code>text-sm</code>、<code>text-[13px]</code> 均不可用。</div>
+  <div class="typegrid">
+    <div class="card">
+      <div class="typerow"><span class="sample" style="font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:57px;line-height:64px">Aa 创作</span><span class="meta"><span class="tname">text-display</span><div class="tval">57 / 64 · Hero serif</div></span></div>
+      <div class="typerow"><span class="sample" style="font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:45px;line-height:1.1">紧凑 Hero</span><span class="meta"><span class="tname">text-display-sm</span><div class="tval">45 · M3 display-medium</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:32px;line-height:1.2">品牌字标 / 紧凑大标题</span><span class="meta"><span class="tname">text-headline-lg</span><div class="tval">32 · M3 headline-large</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:28px;line-height:36px">从一句话开始</span><span class="meta"><span class="tname">text-headline</span><div class="tval">28 / 36</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:20px;line-height:1.3">对话框头 / 分区大标题</span><span class="meta"><span class="tname">text-title-lg</span><div class="tval">20 · 自研档</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:16px;line-height:24px">卡片标题 / 面板标题</span><span class="meta"><span class="tname">text-title</span><div class="tval">16 / 24</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:14px;line-height:20px">正文基准 · 按钮、Tab、导航、输入框</span><span class="meta"><span class="tname">text-body ★ 基准</span><div class="tval">14 / 20 · M3 body-medium</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:13px;line-height:18px">紧凑正文 · 密集表格、次要段落、气泡</span><span class="meta"><span class="tname">text-body-sm</span><div class="tval">13 / 18</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:12px;line-height:16px">标签、日期</span><span class="meta"><span class="tname">text-label</span><div class="tval">12 / 16</div></span></div>
+      <div class="typerow"><span class="sample" style="font-size:11px;line-height:16px">时间码、角标、分区标签 · 全站最小</span><span class="meta"><span class="tname">text-caption</span><div class="tval">11 / 16 · 下限</div></span></div>
+    </div>
+    <div class="card fontcard">
+      <div class="fa">Aa 汉字</div>
+      <p><b>--font-producer-ui</b><br>CapCut Sans Text → SF Pro → PingFang SC</p>
+      <hr>
+      <div class="fa serif">Aa Serif</div>
+      <p><b>--font-home-display</b><br>Source Serif 4 italic · 仅首页 Hero</p>
+      <hr>
+      <p>html <b>16px</b> · 正文基准 <b>14px</b> · 下限 <b>11px</b> · 默认行高 <b>1.35</b> · 字重只用 <b>400 / 500 / 650</b></p>
+      <hr>
+      <p><b>画布字阶</b>（text-canvas-*，仅限缩放画布 / 放大阅读面）<br>
+      label <b>18</b> · body <b>20</b> · body-lg <b>22</b> · title-sm <b>24</b> · title <b>26</b> · title-lg <b>28</b></p>
+    </div>
+  </div>
+
+  <!-- ============ 07 · 间距 ============ -->
+  <div class="section-title">07 · <em>间距刻度</em><span class="m3tag">M3 Foundations · Spacing</span></div>
+  <div class="sec-intro">间距取 4 的倍数，使用 Tailwind 默认刻度（<code>gap-1</code> = 4px … <code>p-12</code> = 48px），不设 <code>--space-*</code> token。任意值 <code>[Npx]</code> 仅限布局几何（固定宽高、定位偏移、栅格列宽），不用于 padding / gap / margin。</div>
+  <div class="card">
+    <div class="spacing">
+      <div class="sp"><i style="width:4px"></i><b>1</b>4 · 图标与文字</div>
+      <div class="sp"><i style="width:8px"></i><b>2</b>8 · 行内元素间</div>
+      <div class="sp"><i style="width:12px"></i><b>3</b>12 · 表单项间</div>
+      <div class="sp"><i style="width:16px"></i><b>4</b>16 · 卡片内距</div>
+      <div class="sp"><i style="width:20px"></i><b>5</b>20 · stage 内距</div>
+      <div class="sp"><i style="width:24px"></i><b>6</b>24 · 区块间</div>
+      <div class="sp"><i style="width:32px"></i><b>8</b>32 · 分区间</div>
+      <div class="sp"><i style="width:40px"></i><b>10</b>40 · 页面段落</div>
+      <div class="sp"><i style="width:48px"></i><b>12</b>48 · 页面级留白</div>
+    </div>
+    <div class="rule" style="margin-top:16px">① 同一容器内同类间距只用一档。② 组件内距由 §05 定，页面不覆写。③ 页面级留白只用 24 / 32 / 40 / 48。</div>
+  </div>
+
+  <!-- ============ 08 · 圆角尺 ============ -->
+  <div class="section-title">08 · <em>圆角尺</em><span class="m3tag">M3 Styles · Shape</span></div>
+  <div class="sec-intro">圆角 10 档，同类组件同一档。<code>rounded-*</code> 由同名 token 生成；<code>rounded-[Npx]</code> 禁止，几何补偿 <code>calc(var(--radius-*) - Npx)</code> 除外。</div>
+  <div class="card">
+    <div class="shapes">
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-none)"></div><div class="name">none 0</div>贴边</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-xs)"></div><div class="name">xs 4</div>标签 / 行内代码</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-sm)"></div><div class="name">sm 8</div>菜单项</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-md)"></div><div class="name">md 12</div>按钮 / 菜单 / 弹出层</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-lg)"></div><div class="name">lg 16</div>输入框 / 卡片</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-xl);height:64px"></div><div class="name">xl 20</div>气泡</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-2xl);width:90px;height:72px"></div><div class="name">2xl 28</div>Composer / Dialog</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-3xl);width:100px;height:80px"></div><div class="name">3xl 32</div>工作台</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-4xl);width:130px;height:100px"></div><div class="name">4xl 48</div>预览舞台</div>
+      <div class="shape-item"><div class="box" style="border-radius:var(--radius-full);width:120px;height:50px"></div><div class="name">full</div>图标按钮 / 胶囊</div>
+    </div>
+  </div>
+
+  <!-- ============ 09 · 海拔与动效 ============ -->
+  <div class="section-title">09 · <em>海拔与动效</em><span class="m3tag">M3 Styles · Elevation / Motion</span></div>
+  <div class="sec-intro">海拔四档：静态表面零投影、悬浮小件 <code>shadow-1</code>、菜单 / 浮层 <code>shadow-2</code>、弹窗 <code>shadow-3</code>；层次差异优先用 surface 梯度表达；深色阴影在 <code>.dark</code> 另给值。动效：<code>--dur-s</code> 150ms 微交互、<code>--dur-m</code> 250ms 面板开合、<code>--dur-l</code> 400ms 入场与大面积过渡；曲线 <code>--ease</code> 原地变化、<code>--ease-decel</code> 进场、<code>--ease-accel</code> 退场（退场时长取进场一半）。运行时工具类 <code>ui-motion-s / m / l</code>；Tailwind 默认 <code>duration-*</code>、<code>ease-*</code> 禁止。</div>
+  <div class="duo2">
+    <div class="card light">
+      <div class="elev">
+        <div class="tile flat"><span class="en">静态表面</span><span class="ev">零投影</span></div>
+        <div class="tile e1"><span class="en">悬浮小件</span><span class="ev">--shadow-1</span></div>
+        <div class="tile e2"><span class="en">菜单 · 浮层</span><span class="ev">--shadow-2</span></div>
+        <div class="tile e3"><span class="en">弹窗</span><span class="ev">--shadow-3</span></div>
+      </div>
+    </div>
+    <div class="card motion">
+      <div class="mrow s"><span class="mn">--dur-s 150ms</span><div class="track"><i></i></div></div>
+      <div class="mrow m"><span class="mn">--dur-m 250ms</span><div class="track"><i></i></div></div>
+      <div class="mrow l"><span class="mn">--dur-l 400ms</span><div class="track"><i></i></div></div>
+      <div class="mfoot">
+        <div class="curve"><svg width="38" height="38" viewBox="-10 -10 120 120"><path d="M0,100 C20,100 0,0 100,0" fill="none" stroke="#53d7ef" stroke-width="6"/></svg><div><b>--ease 标准</b><span>原地的状态变化</span></div></div>
+        <div class="curve"><svg width="38" height="38" viewBox="-10 -10 120 120"><path d="M0,100 C0,100 0,0 100,0" fill="none" stroke="#7ee3a8" stroke-width="6"/></svg><div><b>--ease-decel 进场</b><span>出现时减速落定</span></div></div>
+        <div class="curve"><svg width="38" height="38" viewBox="-10 -10 120 120"><path d="M0,100 C30,100 100,0 100,0" fill="none" stroke="#f0c053" stroke-width="6"/></svg><div><b>--ease-accel 退场</b><span>消失时加速离开</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 10 · 层级与布局 ============ -->
+  <div class="section-title">10 · <em>层级与布局</em><span class="m3tag">M3 Foundations · Layout + 工程扩展</span></div>
+  <div class="sec-intro">断点 600 / 840（紧凑 / 中等 / 展开）。层级按 <code>--z-*</code> 登记表取号，工具类 <code>layer-*</code>，禁止数字 z；<code>--z-local-1..3</code> 仅用于 <code>isolate</code> 容器内的兄弟排序。布局常量 <code>--layout-*</code>。</div>
+  <div class="card">
+    <div class="bpbar">
+      <div class="seg s1"><b>紧凑 &lt;600</b><span>单列 · 聊天/画布切换显示 · Dialog 变 BottomSheet</span></div>
+      <div class="seg s2"><b>中等 600–840</b><span>双栏 · 副面板可折叠</span></div>
+      <div class="seg s3"><b>展开 ≥840</b><span>画布 + 聊天面板并排 · Composer 最小 300</span></div>
+    </div>
+    <div class="zwrap">
+      <div class="zstep" style="left:0;bottom:0"><div class="zn">layer-base</div><div class="zv">--z-base: 0</div></div>
+      <div class="zstep" style="left:132px;bottom:24px"><div class="zn">layer-canvas</div><div class="zv">--z-canvas: 2</div></div>
+      <div class="zstep" style="left:264px;bottom:48px"><div class="zn">layer-content</div><div class="zv">--z-content: 5</div></div>
+      <div class="zstep" style="left:396px;bottom:72px"><div class="zn">layer-panel</div><div class="zv">--z-panel: 10</div></div>
+      <div class="zstep" style="left:528px;bottom:96px"><div class="zn">layer-sidebar</div><div class="zv">--z-sidebar: 40 · canvas-overlay 40</div></div>
+      <div class="zstep" style="left:660px;bottom:120px"><div class="zn">layer-header</div><div class="zv">--z-header: 50</div></div>
+      <div class="zstep" style="left:792px;bottom:144px"><div class="zn">layer-overlay</div><div class="zv">--z-overlay: 90 · scrim</div></div>
+      <div class="zstep" style="left:924px;bottom:168px;border-color:var(--pg-accent)"><div class="zn" style="color:var(--pg-accent)">layer-popup</div><div class="zv">--z-popup: 100 · 菜单 / 弹窗 / toast</div></div>
+    </div>
+    <div class="laygrid">
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-header-height</span><span class="lv">72px</span></div><div class="ld">Header 固定高</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-stage-padding</span><span class="lv">20px</span></div><div class="ld">项目页 stage 内距</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-composer-max</span><span class="lv">582px</span></div><div class="ld">Composer 最大宽（≥840 最小 300）</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-agent-log-width</span><span class="lv">280px</span></div><div class="ld">Agent Log 宽 · 视口高 clamp(220, 40vh, 320)</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-home-hero-max</span><span class="lv">1120px</span></div><div class="ld">首页 Hero 最大宽 · 标题 980</div></div>
+      <div class="lt"><div class="lrow1"><span class="ln">--layout-project-chat-panel-*</span><span class="lv">calc()</span></div><div class="ld">聊天面板避让：header + stage 内距 + composer 预留 180</div></div>
+    </div>
+  </div>
+
+  <!-- ============ 11 · 图标 ============ -->
+  <div class="section-title">11 · <em>图标</em><span class="m3tag">Iconography</span></div>
+  <div class="sec-intro">通用 UI 图标唯一来源：<code>@/shared/icons</code> 的 <code>&lt;Icon name size /&gt;</code>，内部为 lucide 名字表（<code>IconName</code> 类型）。业务代码禁止 <code>import 'lucide-react'</code>（ESLint）。尺寸 5 档取 <code>--icon-*</code>，描边 2，颜色 <code>currentColor</code>。品牌图形与插画放 <code>shared/ui/icons</code>，不进名字表。</div>
+  <div class="duo">
+    <div class="card">
+      <div class="iconscale">
+        <div class="is"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><b>xs 12</b>角标、计数旁</div>
+        <div class="is"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><b>sm 14</b>Chip、Tag 内</div>
+        <div class="is"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><b>md 16</b>按钮内、菜单项、正文行内</div>
+        <div class="is"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><b>lg 20</b>图标按钮、面板标题</div>
+        <div class="is"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><b>xl 24</b>空态、大按钮</div>
+      </div>
+    </div>
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>规则</th><th>做法</th></tr></thead>
+        <tbody>
+          <tr><td>装饰性图标</td><td>旁边已有文字表达同一含义 → <code>aria-hidden</code>，不带 label</td></tr>
+          <tr><td>语义性图标</td><td>单独承载含义（图标按钮、状态点）→ 必须传 <code>label</code>，缺失时组件直接抛错，不静默降级</td></tr>
+          <tr><td>加新图标</td><td>只在名字表里加一行：语义键 → lucide 组件。键名按用途起（<code>search</code> <code>close</code> <code>run</code>），不按图形起</td></tr>
+          <tr><td>改名 / 删除</td><td>一次迁完全部调用点，不留旧名兼容别名（<code>IconName</code> 类型会把漏网处报成编译错误）</td></tr>
+          <tr><td>颜色</td><td>永远 <code>currentColor</code>，由父元素文字色决定；状态色用 §02 的语义色包一层</td></tr>
+          <tr><td>存量内联 <code>&lt;svg&gt;</code></td><td>通用图标迁进名字表；品牌 / 插画留在 <code>shared/ui/icons</code>，门禁按数量棘轮只降不升</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ 12 · 结构模板 ============ -->
+  <div class="section-title">12 · <em>结构模板</em><span class="m3tag">Layout Templates</span></div>
+  <div class="sec-intro">全站骨架只有下列几种。模板定槽位、尺寸、底色、层级；槽位内容由 feature 决定，feature 不改槽位规格。</div>
+  <div class="card">
+    <div class="tplgrid">
+      <div>
+        <h5>应用壳 <small>项目页 · ≥840</small></h5>
+        <div class="tpl">
+          <div class="slot"><b>header</b><span>高 72 · surface · layer-header · 左区 ≤375</span></div>
+          <div class="row">
+            <div class="slot"><b>sidebar</b><span>glass-surface · layer-sidebar · 可折叠</span></div>
+            <div class="slot w2"><b>canvas</b><span>surface · layer-canvas · 点阵 --color-dot-pattern · stage 内距 20</span></div>
+            <div class="slot"><b>chat-panel</b><span>chat-panel-bg 渐变 · layer-panel · 底部避让 composer</span></div>
+          </div>
+          <div class="row"><div class="slot"><b>composer</b><span>宽 ≤582 · 圆角 2xl · glass · 预留高 180 · layer-content</span></div></div>
+          <div class="row"><div class="slot"><b>agent-log</b><span>宽 280 · 视口高 clamp(220,40vh,320) · agent-log-bg</span></div></div>
+        </div>
+      </div>
+      <div>
+        <h5>浮层 <small>Dialog · Menu · Popover</small></h5>
+        <div class="tpl stack">
+          <div class="slot"><b>scrim</b><span>--color-scrim 32% · layer-overlay（仅 Dialog）</span></div>
+          <div class="slot"><b>surface</b><span>container-lowest · 圆角 2xl / md · shadow-3 / 2 · layer-popup</span></div>
+          <div class="slot"><b>header</b><span>title-lg · 关闭 IconButton 右上</span></div>
+          <div class="slot"><b>body</b><span>内距 24 · 可滚动</span></div>
+          <div class="slot"><b>footer</b><span>右对齐 · 主按钮在最右 · gap 8</span></div>
+        </div>
+      </div>
+      <div>
+        <h5>画布卡 <small>artifact 渲染器</small></h5>
+        <div class="tpl stack">
+          <div class="slot"><b>card</b><span>canvas-card-bg · 圆角 lg · 选中描边 canvas-card-border</span></div>
+          <div class="slot"><b>rail</b><span>左缘 3px 身份色 --color-artifact-* · shadow-rail-inset</span></div>
+          <div class="slot"><b>header</b><span>text-canvas-title · label canvas-label-text</span></div>
+          <div class="slot"><b>body</b><span>text-canvas-body · 纸面类用 brief / sb-table 色板（主题中立）</span></div>
+          <div class="slot"><b>media</b><span>缩略图 + --media-scrim-* 遮罩 · 文字 on-scrim</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="rule" style="margin-top:14px"><b>首页</b>　viewport → hero（≤ 1120，标题 ≤ 980，text-display serif）→ 内容区（100%）。<b>紧凑（&lt; 600）</b>　应用壳单列；sidebar 变 BottomSheet；canvas / chat-panel 二选一；Dialog 变 BottomSheet。</div>
+  </div>
+
+  <!-- ============ 13 · 领域扩展色 ============ -->
+  <div class="section-title">13 · <em>领域扩展色</em><span class="m3tag">M3 Customization · Extended Colors</span></div>
+  <div class="sec-intro">领域扩展色分两类：<b>随主题</b>——引用 ② 层的自动跟随，直接取色板或字面值的在 <code>.dark</code> 另给值；<b>主题中立</b>——内容身份色、纸面材质、媒体遮罩，明暗不变。新增扩展色先向 primary 做色相调和。</div>
+  <div class="card">
+
+    <div class="fam">
+      <div class="fname"><b>聊天</b><span>--color-chat-*</span><br><span class="kind follow">随主题</span></div>
+      <div class="chips">
+        <span class="chipd" style="background:var(--color-secondary-container);color:var(--color-on-secondary-container);border-color:var(--color-chat-user-border)">用户气泡</span>
+        <span class="chipd" style="background:var(--color-surface-container-lowest);color:var(--color-on-surface);border-color:var(--color-outline-variant)">助手气泡</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-chat-muted-text)"></i>muted 文字 NV40 → NV70</span>
+        <span class="chipd" style="background:var(--color-chat-agent-identity-bg);color:var(--color-chat-agent-identity-text);border-color:var(--color-chat-agent-identity-border)"><i class="dot" style="background:var(--color-chat-agent-rail);border:none"></i>Agent 身份（深色另给值）</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-chat-status-success)"></i>success</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-chat-status-running)"></i>running</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-chat-status-error)"></i>error</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>玻璃面</b><span>--color-glass-base 派生</span><br><span class="kind follow">随主题</span></div>
+      <div class="chips">
+        <span class="chipd">glass-surface 76% · input-bg 76% · control-bg 64% · chip-bg 62% · chip-bg-glass 52% · media-stack-bg 92%</span>
+        <span class="chipd">基色 N100 → N17；只改 <code>--color-glass-base</code>，六个玻璃面一起换</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>画布 · 故事板工作台</b><span>--color-canvas-* · --storyboard-node-*</span><br><span class="kind follow">随主题</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:var(--color-canvas-card-border)"></i>画布选中 P60</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-storyboard-canvas)"></i>版本占位底 → #14181D</span>
+        <span class="chipd"><i class="dot" style="background:var(--storyboard-node-accent)"></i>节点 accent（不变）</span>
+        <span class="chipd"><i class="dot" style="background:var(--storyboard-node-surface)"></i>节点面 N99 → N12</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>编辑器引用身份</b><span>--color-reference-*</span><br><span class="kind neutral">主题中立</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:var(--color-reference-image)"></i>图片</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-reference-video)"></i>视频</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-reference-audio)"></i>音频 = primary</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-reference-note)"></i>标注</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-reference-arrow)"></i>箭头</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-reference-brush)"></i>画笔</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-reference-frame)"></i>线框</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>标注笔触</b><span>--color-annotation-*</span><br><span class="kind neutral">主题中立</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:var(--color-annotation-red)"></i>red</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-annotation-orange)"></i>orange</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-annotation-blue)"></i>blue</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-annotation-green)"></i>green</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>图表系列</b><span>--color-chart-1..4</span><br><span class="kind neutral">主题中立</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:var(--color-chart-1)"></i>1</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-chart-2)"></i>2</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-chart-3)"></i>3</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-chart-4)"></i>4</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>画布产物书签</b><span>--color-artifact-*</span><br><span class="kind neutral">主题中立</span></div>
+      <div class="chips">
+        <span class="chipd"><i class="dot" style="background:var(--color-artifact-brief)"></i>brief</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-artifact-image-analysis)"></i>图像分析</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-artifact-markdown)"></i>markdown</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-artifact-storyboard)"></i>storyboard</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-artifact-ui-card)"></i>ui-card</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-artifact-video-prompt)"></i>视频提示词</span>
+        <span class="chipd"><i class="dot" style="background:var(--color-artifact-rail-bg)"></i>rail-bg</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>纸面色板</b><span>--color-brief-* · --color-sb-table-*</span><br><span class="kind neutral">主题中立</span></div>
+      <div class="chips">
+        <span class="chipd paper" style="background:var(--color-brief-surface);color:var(--color-brief-ink)">Creative Brief 暖纸</span>
+        <span class="chipd paper" style="background:var(--color-sb-table-background);color:var(--color-sb-table-text)"><i class="dot" style="background:var(--color-sb-table-accent);border:none"></i>分镜表纸面</span>
+        <span class="chipd">色卡 fallback --color-brief-board-1..5</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>媒体中立层</b><span>--media-* · --color-on-scrim</span><br><span class="kind neutral">主题中立</span></div>
+      <div class="chips">
+        <span class="chipd">压在用户图片 / 视频上的黑白遮罩、暗角、高光；文字一律 on-scrim 白</span>
+      </div>
+    </div>
+
+    <div class="fam">
+      <div class="fname"><b>运行监控浮条 · AI 徽标</b><span>--storyboards-monitor-* · --color-ai-gradient-*</span><br><span class="kind neutral">主题中立</span></div>
+      <div class="chips">
+        <span class="chipd paper" style="background:var(--storyboards-monitor-bg);color:var(--storyboards-monitor-text);border:1px solid var(--storyboards-monitor-border)">
+          <i class="dot" style="background:var(--storyboards-monitor-gold);border:none"></i>gold
+          <i class="dot" style="background:var(--storyboards-monitor-running);border:none"></i>running
+          <i class="dot" style="background:var(--storyboards-monitor-complete);border:none"></i>complete
+        </span>
+        <span class="chipd paper" style="background:linear-gradient(90deg,var(--color-ai-gradient-start),var(--color-ai-gradient-end));color:#fff">AI 渐变</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ 14 · 收敛原则 ============ -->
+  <div class="section-title">14 · <em>收敛原则与变更流程</em><span class="m3tag">Governance</span></div>
+  <div class="duo">
+    <div class="card">
+      <div class="rule"><b>① Token 优先</b>　颜色、字号、圆角、阴影、时长、层级、控件高度一律取现有 token；没有则先加入本页，再镜像运行时。代码不出现字面值。</div>
+      <div class="rule"><b>② 模板只管结构</b>　骨架定槽位、尺寸、底色、层级；内容与业务判断属 feature。feature 不覆写槽位规格，模板不含业务文案。</div>
+      <div class="rule"><b>③ 两处复用再上收</b>　只在一个 feature 使用的组件 / 样式留在该 feature；第二个 feature 复用时进 §05 契约表并上收 <code>shared/ui</code>。不预先抽象。</div>
+      <div class="rule stop"><b>不做兼容别名</b>　改名或删除 token、变体、图标时一次迁完全部调用点并删旧名。</div>
+    </div>
+    <div class="card">
+      <table class="spec">
+        <thead><tr><th>步骤</th><th>做什么</th><th>怎么验证</th></tr></thead>
+        <tbody>
+          <tr><td>1 改规范</td><td>在本页对应章节改 token / 契约表 / 矩阵；颜色类同时补 <code>.dark</code></td><td>浏览器打开本页看效果（浅色卡与深色卡）</td></tr>
+          <tr><td>2 镜像运行时</td><td><code>base.css</code> / <code>globals.css</code> 同名同值；工具类经 <code>@theme inline reference</code> 自动出</td><td><code>pnpm lint:design</code> 对账通过</td></tr>
+          <tr><td>3 改组件</td><td>契约表变了才动 <code>shared/ui</code>；feature 只消费</td><td><code>pnpm lint</code>（ESLint 入口锁）· <code>pnpm typecheck</code></td></tr>
+          <tr><td>4 清存量</td><td>门禁报出的裸值、表外档位当次改完，不留基线</td><td><code>pnpm lint:design</code> 全绿</td></tr>
+          <tr><td>5 浏览器 QA</td><td>桌面 + 紧凑两档、浅色 + 深色两套截图</td><td>截图落 gitignore 的 <code>.artifacts/design-qa/</code>，不进仓库</td></tr>
+          <tr><td>6 提交</td><td><code>make web-check</code> 全绿后发 PR</td><td>CI 双端绿</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+</body></html>
