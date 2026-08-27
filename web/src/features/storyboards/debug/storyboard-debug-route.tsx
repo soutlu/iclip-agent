@@ -6,19 +6,6 @@ import {
 } from '@assistant-ui/react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useRouter } from '@tanstack/react-router'
-import {
-  ArrowLeft,
-  CircleCheck,
-  CircleStop,
-  Clock3,
-  FlaskConical,
-  Image as ImageIcon,
-  LoaderCircle,
-  Play,
-  RefreshCw,
-  TriangleAlert,
-  Video,
-} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   ProjectConversationTimeline,
@@ -39,6 +26,7 @@ import {
 import { StoryboardAssistantProvider } from '@/features/storyboards/runtime/storyboard-assistant-provider'
 import { useAguiConnection } from '@/shared/agui/provider'
 import { STORYBOARD_AGENT } from '@/shared/config/agui-target'
+import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import {
   InlineMediaThumbnail,
@@ -181,15 +169,15 @@ function DebugTaskInput({
             {task.brief.ratio?.trim() || '未填写'}
           </span>
           <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-surface-container px-3 text-body-sm font-medium text-on-surface">
-            <Clock3 aria-hidden="true" size={14} strokeWidth={1.8} />
+            <Icon decorative name="duration" size="sm" />
             {task.brief.durationSeconds ? `${task.brief.durationSeconds} 秒` : '时长未填写'}
           </span>
           <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-surface-container px-3 text-body-sm font-medium text-on-surface">
-            <ImageIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+            <Icon decorative name="image" size="sm" />
             {task.brief.referenceImages.length} 张参考图
           </span>
           <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-surface-container px-3 text-body-sm font-medium text-on-surface">
-            <Video aria-hidden="true" size={14} strokeWidth={1.8} />
+            <Icon decorative name="video" size="sm" />
             {task.brief.referenceVideos.length} 个参考视频
           </span>
         </div>
@@ -345,13 +333,13 @@ function StoryboardDebugRun({
     statusText = '已提交，等待响应'
   }
 
-  const StatusIcon = failureMessage
-    ? TriangleAlert
+  const statusIcon: IconName = failureMessage
+    ? 'warning'
     : runCancelled
-      ? CircleStop
+      ? 'stopped'
       : runFinished
-        ? CircleCheck
-        : LoaderCircle
+        ? 'success'
+        : 'loading'
   const waiting = !failureMessage && !runCancelled && !runFinished
 
   return (
@@ -372,11 +360,11 @@ function StoryboardDebugRun({
                     : 'bg-warning-container text-on-warning-container',
             )}
           >
-            <StatusIcon
-              aria-hidden="true"
+            <Icon
               className={waiting ? 'animate-spin' : undefined}
-              size={19}
-              strokeWidth={2}
+              decorative
+              name={statusIcon}
+              size="lg"
             />
           </span>
           <div className="min-w-0">
@@ -405,7 +393,7 @@ function StoryboardDebugRun({
           className="flex items-start gap-3 rounded-md bg-error-container p-4 text-body-sm text-on-error-container"
           role="alert"
         >
-          <TriangleAlert aria-hidden="true" className="mt-0.5 shrink-0" size={17} />
+          <Icon className="mt-0.5 shrink-0" decorative name="warning" size="md" />
           <p className="whitespace-pre-wrap">{failureMessage}</p>
         </div>
       ) : null}
@@ -422,12 +410,13 @@ function StoryboardDebugRun({
             <div className="grid min-h-0 flex-1 place-items-center border border-dashed border-outline-variant bg-surface-container-low p-6 text-center">
               <div className="flex max-w-sm flex-col items-center">
                 {failureMessage ? (
-                  <TriangleAlert aria-hidden="true" className="mb-3 text-error" size={24} />
+                  <Icon className="mb-3 text-error" decorative name="warning" size="xl" />
                 ) : (
-                  <LoaderCircle
-                    aria-hidden="true"
+                  <Icon
                     className="mb-3 animate-spin text-primary"
-                    size={24}
+                    decorative
+                    name="loading"
+                    size="xl"
                   />
                 )}
                 <p className="text-body font-semibold text-on-surface">
@@ -637,10 +626,10 @@ export default function StoryboardDebugRoute({
               title="返回上一页"
               type="button"
             >
-              <ArrowLeft aria-hidden="true" size={18} strokeWidth={2} />
+              <Icon decorative name="back" size="lg" />
             </button>
             <span className="hidden size-11 shrink-0 place-items-center rounded-lg bg-primary-container text-on-primary-container sm:grid">
-              <FlaskConical aria-hidden="true" size={22} strokeWidth={1.9} />
+              <Icon decorative name="experiment" size="lg" />
             </span>
             <div className="min-w-0">
               <p className="mb-1 flex items-center gap-2 text-label font-semibold tracking-widest text-primary">
@@ -678,7 +667,7 @@ export default function StoryboardDebugRoute({
               }
               type="button"
             >
-              <RefreshCw aria-hidden="true" size={16} strokeWidth={1.9} />
+              <Icon decorative name="refresh" size="md" />
               新建运行
             </button>
           ) : null}
@@ -690,7 +679,7 @@ export default function StoryboardDebugRoute({
             id="debug-form-error"
             role="alert"
           >
-            <TriangleAlert aria-hidden="true" className="mt-0.5 shrink-0" size={17} />
+            <Icon className="mt-0.5 shrink-0" decorative name="warning" size="md" />
             <p>{errorMessage}</p>
           </div>
         ) : null}
@@ -730,7 +719,7 @@ export default function StoryboardDebugRoute({
                     role="alert"
                   >
                     <span className="mb-4 grid size-10 place-items-center rounded-md bg-error-container text-on-error-container">
-                      <TriangleAlert aria-hidden="true" size={19} />
+                      <Icon decorative name="warning" size="lg" />
                     </span>
                     <h2
                       className="text-title font-semibold text-on-surface"
@@ -744,7 +733,7 @@ export default function StoryboardDebugRoute({
                       onClick={() => void taskLibraryQuery.refetch()}
                       type="button"
                     >
-                      <RefreshCw aria-hidden="true" size={16} />
+                      <Icon decorative name="refresh" size="md" />
                       重新加载
                     </button>
                   </section>
@@ -755,7 +744,7 @@ export default function StoryboardDebugRoute({
                     role="alert"
                   >
                     <span className="mb-4 grid size-10 place-items-center rounded-md bg-error-container text-on-error-container">
-                      <TriangleAlert aria-hidden="true" size={19} />
+                      <Icon decorative name="warning" size="lg" />
                     </span>
                     <h2
                       className="text-title font-semibold text-on-surface"
@@ -772,10 +761,11 @@ export default function StoryboardDebugRoute({
                     role="status"
                   >
                     <div className="flex flex-col items-center text-center">
-                      <LoaderCircle
-                        aria-hidden="true"
+                      <Icon
                         className="mb-3 animate-spin text-primary"
-                        size={24}
+                        decorative
+                        name="loading"
+                        size="xl"
                       />
                       <p className="text-body font-semibold">正在加载来源 Task</p>
                       <p className="mt-1 text-body-sm text-on-surface-variant">
@@ -847,9 +837,9 @@ export default function StoryboardDebugRoute({
                 type="submit"
               >
                 {submitting ? (
-                  <LoaderCircle aria-hidden="true" className="animate-spin" size={17} />
+                  <Icon className="animate-spin" decorative name="loading" size="md" />
                 ) : (
-                  <Play aria-hidden="true" fill="currentColor" size={16} />
+                  <Icon decorative name="play" size="md" />
                 )}
                 {submitting
                   ? '正在开对话…'

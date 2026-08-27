@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Clapperboard, Database, Play, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   inspirationVideoSelectionKey,
@@ -10,6 +9,7 @@ import {
   VIDEO_TASKS_QUERY_KEY,
 } from '@/features/tasks/api/video-task.api'
 import type { VideoTask, VideoTaskAsset } from '@/features/tasks/video-task.types'
+import { Icon } from '@/shared/icons'
 import { MediaPreviewDialog, useMediaPreview } from '@/shared/ui/media'
 import { assetPreviewFileName, handlePreviewKeyDown } from './task-display'
 import TaskErpImagePickerDialog, { type PickedProductImage } from './task-erp-image-picker-dialog'
@@ -168,7 +168,7 @@ export default function TaskMaterialsEditor({
             type="button"
             onClick={() => setErpPickerOpen(true)}
           >
-            <Database aria-hidden="true" size={14} strokeWidth={2} />
+            <Icon decorative name="library" size="sm" />
             ERP图片
           </button>
         </div>
@@ -203,7 +203,7 @@ export default function TaskMaterialsEditor({
                   type="button"
                   onClick={() => setKeptImageUrls((urls) => removeUrl(urls, asset.url))}
                 >
-                  <X aria-hidden="true" size={10} strokeWidth={2} />
+                  <Icon decorative name="close" size="xs" />
                 </button>
               </figure>
             )
@@ -244,7 +244,7 @@ export default function TaskMaterialsEditor({
                     )
                   }
                 >
-                  <X aria-hidden="true" size={10} strokeWidth={2} />
+                  <Icon decorative name="close" size="xs" />
                 </button>
               </figure>
             )
@@ -273,7 +273,7 @@ export default function TaskMaterialsEditor({
             type="button"
             onClick={() => setInspirationPickerOpen(true)}
           >
-            <Clapperboard aria-hidden="true" size={14} strokeWidth={2} />
+            <Icon decorative name="clip" size="sm" />
             爆款视频
           </button>
         </div>
@@ -317,7 +317,7 @@ export default function TaskMaterialsEditor({
                   type="button"
                   onClick={() => setSelectedVideoUrls((urls) => removeUrl(urls, asset.url))}
                 >
-                  <X aria-hidden="true" size={10} strokeWidth={2} />
+                  <Icon decorative name="close" size="xs" />
                 </button>
               </figure>
             )
@@ -350,7 +350,7 @@ export default function TaskMaterialsEditor({
                       />
                     ) : (
                       <span className="home-task-web-pending-placeholder">
-                        <Play aria-hidden="true" size={16} strokeWidth={2} />
+                        <Icon decorative name="play" size="md" />
                         <span>{webInspirationPlatformLabel(video.platform)}</span>
                       </span>
                     )}
@@ -365,7 +365,7 @@ export default function TaskMaterialsEditor({
                       )
                     }
                   >
-                    <X aria-hidden="true" size={10} strokeWidth={2} />
+                    <Icon decorative name="close" size="xs" />
                   </button>
                 </figure>
               )
@@ -416,7 +416,7 @@ export default function TaskMaterialsEditor({
                     )
                   }
                 >
-                  <X aria-hidden="true" size={10} strokeWidth={2} />
+                  <Icon decorative name="close" size="xs" />
                 </button>
               </figure>
             )

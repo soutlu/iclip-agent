@@ -1,9 +1,9 @@
 import { Dialog } from 'radix-ui'
-import { ExternalLink, X } from 'lucide-react'
 import type {
   WebInspirationCandidate,
   WebInspirationPlatform,
 } from '@/features/tasks/api/inspiration.api'
+import { Icon } from '@/shared/icons'
 import {
   resolveWebInspirationEmbedUrl,
   webInspirationPlatformLabel,
@@ -57,7 +57,7 @@ export default function TaskWebVideoPreviewDialog({
               {candidate.creatorHandle ? <p>{candidate.creatorHandle}</p> : null}
             </div>
             <Dialog.Close aria-label="关闭联网视频预览" type="button">
-              <X aria-hidden="true" size={17} strokeWidth={2.2} />
+              <Icon decorative name="close" size="md" />
             </Dialog.Close>
           </header>
 
@@ -82,7 +82,7 @@ export default function TaskWebVideoPreviewDialog({
             </span>
             <a href={candidate.postUrl} rel="noopener noreferrer" target="_blank">
               打开原帖
-              <ExternalLink aria-hidden="true" size={13} strokeWidth={2} />
+              <Icon decorative name="external" size="sm" />
             </a>
           </footer>
         </Dialog.Content>

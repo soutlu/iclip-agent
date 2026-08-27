@@ -1,12 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Bug, Check } from 'lucide-react'
 import { useState } from 'react'
 import { createConversation, MAX_CONVERSATION_TITLE_CHARS } from '@/features/conversations'
 import { confirmVideoTask, VIDEO_TASKS_QUERY_KEY } from '@/features/tasks/api/video-task.api'
 import type { VideoTask } from '@/features/tasks/video-task.types'
 import type { SettingsChoiceOption } from '@/shared/composer'
 import { STORYBOARD_AGENT } from '@/shared/config/agui-target'
+import { Icon } from '@/shared/icons'
 import { briefDisplayValue } from './task-display'
 import TaskMaterialsEditor from './task-materials-editor'
 import TaskOptionDropdown from './task-option-dropdown'
@@ -153,7 +153,7 @@ export default function TaskConfirmView() {
                     ? '正在确认…'
                     : '确认任务'}
                 </span>
-                <Check aria-hidden="true" size={15} strokeWidth={2} />
+                <Icon decorative name="check" size="md" />
               </button>
             ) : (
               <>
@@ -169,7 +169,7 @@ export default function TaskConfirmView() {
                       ? '正在进入…'
                       : '进入 Storyboard'}
                   </span>
-                  <ArrowRight aria-hidden="true" size={15} strokeWidth={1.8} />
+                  <Icon decorative name="next" size="md" />
                 </button>
                 <Link
                   className="home-task-start-button"
@@ -177,7 +177,7 @@ export default function TaskConfirmView() {
                   to="/storyboard-debug"
                 >
                   <span>调试运行</span>
-                  <Bug aria-hidden="true" size={15} strokeWidth={1.8} />
+                  <Icon decorative name="debug" size="md" />
                 </Link>
               </>
             )}

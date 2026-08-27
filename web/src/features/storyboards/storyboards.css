@@ -185,6 +185,12 @@
   content: none;
 }
 
+/* 播放键在深色蒙版上要实心才看得清，图标本身按规范只出描边，实心由这里补。 */
+.storyboards-brief-hero-play svg {
+  fill: currentColor;
+  stroke-width: 0;
+}
+
 .storyboards-brief-hero-tag {
   position: absolute;
   top: 8px;
@@ -474,7 +480,10 @@
   position: absolute;
   top: 5px;
   left: 50%;
-  color: var(--storyboards-task-bookmark-accent);
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--storyboards-task-bookmark-accent);
   transform: translateX(-50%);
 }
 
@@ -518,7 +527,10 @@
 
 .storyboards-task-bookmark-status-dot {
   flex: none;
-  color: var(--storyboards-task-bookmark-accent);
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--storyboards-task-bookmark-accent);
 }
 
 /* 选中态只使用 primary container 表达当前任务，不覆盖任务自身的状态色。

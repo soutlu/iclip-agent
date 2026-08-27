@@ -72,6 +72,7 @@ AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + 
 - UI 泄露内部协议字段（raw tool name、`member_id`、skill name、reference path、JSON 参数）。
 - 把默认 AG-UI target 改回旧命名空间（如 `/teams/producer`）或任何未注册 team（默认 `/agui/teams/producer`）。
 - 组件里新增与既有 token 等价的裸色值、裸 z-index 或一次性阴影——先补 `globals.css` token。
+- 组件直接 import `lucide-react`——图标只经 `@/shared/icons` 的 `Icon` 按语义名称使用，新图形先加进 `src/shared/icons/icon.tsx` 注册表；尺寸只取 `xs / sm / md / lg / xl` 五档。
 - 测试里（重写时同样适用）`vi.mock` 同仓模块、断言 className/style/哈希类名、手搓 `fetch` stub（网络一律 MSW）、写内部状态探针组件——行为归层与全部规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md) 测试要求。
 
 ## 6. 人类门禁
@@ -93,6 +94,7 @@ AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + 
 | 架构约束     | ✅ eslint-plugin-boundaries 依赖图（app / feature / shared / testing 四类元素；feature 间仅公开出口）                               | `eslint.config.js`；等价于 constraints.yaml 的角色                                        |
 | 边界校验     | ✅ zod：env schema + `apiFetch` 响应校验                                                                                            | `src/shared/config/env.ts`、`src/shared/api/client`                                       |
 | 设计系统守卫 | ✅ design-guard 棘轮基线（裸色、任意值阴影/圆角/字号、裸 z-index、outline-none 只降不升）                                           | `scripts/design-guard.mjs` + `scripts/design-guard.baseline.json`；`pnpm lint:design`     |
+| 图标入口     | ✅ `no-restricted-imports` 禁止 `lucide-react` 直连，只放行注册表本体                                                               | `eslint.config.js`；注册表在 `src/shared/icons/`                                          |
 | 自动化测试   | ❌ 无（含 test-guard 测试规范守卫；随 web 重构轨道重写，规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md)） | §4 的人工验收行是重写时的需求清单                                                         |
 | pre-commit   | ✅ 由根仓 pre-commit 框架跑 web lint-staged（eslint --fix + prettier）；web 自带 husky 在 monorepo 根下不生效                       | 根仓 `.pre-commit-config.yaml`                                                            |
 | pre-push     | ⚠️ 根仓 pre-push 只跑 server pyright，web 无 pre-push 检查（防线在 CI + 人类合并门禁）                                              | 根仓 `.pre-commit-config.yaml`                                                            |

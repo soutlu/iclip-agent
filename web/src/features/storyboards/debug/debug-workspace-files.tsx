@@ -1,11 +1,11 @@
 import type { ThreadMessage } from '@assistant-ui/react'
 import { useQuery } from '@tanstack/react-query'
-import { CircleCheck, FileText, LoaderCircle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   listConversationWorkspaceFiles,
   readConversationWorkspaceFile,
 } from '@/features/conversations'
+import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
 const PANEL_CLASS =
@@ -72,16 +72,16 @@ export default function DebugWorkspaceFiles({
           className="flex items-center gap-2 text-body font-semibold text-on-surface"
           id="debug-workspace-title"
         >
-          <FileText aria-hidden="true" size={16} />
+          <Icon decorative name="file" size="md" />
           Workspace 文件
         </h2>
         {files ? (
           <div className="flex items-center gap-3 text-label text-on-surface-variant">
             <span className="flex items-center gap-1 text-secondary">
               {filesQuery.isFetching ? (
-                <LoaderCircle aria-hidden="true" className="animate-spin" size={14} />
+                <Icon className="animate-spin" decorative name="loading" size="sm" />
               ) : (
-                <CircleCheck aria-hidden="true" size={14} />
+                <Icon decorative name="success" size="sm" />
               )}
               {filesQuery.isFetching ? '刷新中' : '已同步'}
             </span>
@@ -120,7 +120,7 @@ export default function DebugWorkspaceFiles({
                 title={file.path}
                 type="button"
               >
-                <FileText aria-hidden="true" className="shrink-0" size={15} />
+                <Icon className="shrink-0" decorative name="file" size="md" />
                 <span className="truncate">{file.path}</span>
               </button>
             ))}

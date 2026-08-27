@@ -66,6 +66,27 @@ export default tseslint.config(
     },
   },
 
+  // ── 图标唯一入口（注册表之外不得直连 lucide） ───────────────────────────
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/shared/icons/icon.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'lucide-react',
+              message:
+                '图标只经 @/shared/icons 的 Icon 使用语义名称；新图形先加进 src/shared/icons/icon.tsx 的注册表',
+            },
+          ],
+          patterns: ['lucide-react/*'],
+        },
+      ],
+    },
+  },
+
   // ── 架构边界（依赖方向硬约束，违反即报错） ──────────────────────────────
   //
   //   app(app/、routes/、main.tsx) → 可用 feature 公开出口(index.ts)、shared

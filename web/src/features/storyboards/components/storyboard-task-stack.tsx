@@ -1,5 +1,4 @@
 import { Link } from '@tanstack/react-router'
-import { Circle } from 'lucide-react'
 import taskBookmarkShellUrl from '@/features/storyboards/assets/generated/task-bookmark-shell-v2.svg?url&no-inline'
 import type { Storyboard } from '@/features/storyboards/model/storyboard-workspace'
 import StoryboardIcon from '@/features/storyboards/components/storyboard-icon'
@@ -69,12 +68,7 @@ export default function StoryboardTaskStack<T extends StoryboardTaskStackItem>({
                   className="storyboards-task-bookmark-mark-icon"
                   src={taskBookmarkShellUrl}
                 />
-                <Circle
-                  className="storyboards-task-bookmark-mark-status"
-                  fill="currentColor"
-                  size={5}
-                  strokeWidth={0}
-                />
+                <span className="storyboards-task-bookmark-mark-status" />
                 <span>{attemptNumber}</span>
               </span>
               <span className="storyboards-task-bookmark-copy">
@@ -82,13 +76,7 @@ export default function StoryboardTaskStack<T extends StoryboardTaskStackItem>({
                   {styleNo}
                 </span>
                 <span className="storyboards-task-bookmark-status">
-                  <Circle
-                    aria-hidden="true"
-                    className="storyboards-task-bookmark-status-dot"
-                    fill="currentColor"
-                    size={7}
-                    strokeWidth={0}
-                  />
+                  <span aria-hidden="true" className="storyboards-task-bookmark-status-dot" />
                   <span>{statusLabel}</span>
                 </span>
               </span>

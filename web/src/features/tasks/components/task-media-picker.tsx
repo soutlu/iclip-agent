@@ -1,6 +1,6 @@
-import { Plus, X } from 'lucide-react'
 import { type ChangeEvent, useRef } from 'react'
 import { type ComposerFileAttachment, useComposerFileDropZone } from '@/shared/composer'
+import { Icon } from '@/shared/icons'
 
 type TaskMediaKind = Extract<ComposerFileAttachment['kind'], 'image' | 'video'>
 type TaskMediaLayout = 'inline' | 'rail'
@@ -95,7 +95,7 @@ function TaskMediaRail({
               type="button"
               onClick={() => onRemove(attachment.id)}
             >
-              <X aria-hidden="true" size={10} strokeWidth={2} />
+              <Icon decorative name="close" size="xs" />
             </button>
           </figure>
         ))}
@@ -106,7 +106,7 @@ function TaskMediaRail({
           type="button"
           onClick={() => inputRef.current?.click()}
         >
-          <Plus aria-hidden="true" size={20} strokeWidth={1.6} />
+          <Icon decorative name="add" size="lg" />
           {layout === 'inline' && dropZone.isDragActive ? (
             <span className="home-task-media-drop-hint">释放以上传</span>
           ) : null}

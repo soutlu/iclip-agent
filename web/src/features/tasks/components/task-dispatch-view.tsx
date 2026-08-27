@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronUp, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { dispatchVideoTask, VIDEO_TASKS_QUERY_KEY } from '@/features/tasks/api/video-task.api'
+import { Icon } from '@/shared/icons'
 import TaskDispatchForm from './task-dispatch-form'
 import TaskTable from './task-table'
 import { useVideoTasksSnapshot } from './use-video-tasks-snapshot'
@@ -39,9 +39,9 @@ export default function TaskDispatchView() {
           onClick={() => (creating ? closeCreator() : setCreating(true))}
         >
           {creating ? (
-            <ChevronUp aria-hidden="true" size={15} />
+            <Icon decorative name="collapse" size="md" />
           ) : (
-            <Plus aria-hidden="true" size={15} />
+            <Icon decorative name="add" size="md" />
           )}
           <span>{creating ? '收起' : 'New task'}</span>
         </button>

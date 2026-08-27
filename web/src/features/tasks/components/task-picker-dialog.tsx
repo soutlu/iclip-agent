@@ -1,6 +1,6 @@
-import { X } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import type { ReactNode } from 'react'
+import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
 /**
@@ -78,7 +78,7 @@ export default function TaskPickerDialog({
                 {selectedCount} {countUnit}已选
               </span>
               <button aria-label={`关闭${title}`} type="button" onClick={onClose}>
-                <X aria-hidden="true" size={18} strokeWidth={2} />
+                <Icon decorative name="close" size="md" />
               </button>
             </div>
           </header>
