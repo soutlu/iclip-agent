@@ -1,10 +1,10 @@
-import { ChevronDown } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, useState } from 'react'
 import type {
   VideoTask,
   VideoTaskAsset,
   VideoTaskSnapshot,
 } from '@/features/tasks/video-task.types'
+import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/datetime'
 import { MediaPreviewDialog, type MediaPreviewItem, useMediaPreview } from '@/shared/ui/media'
 import {
@@ -295,12 +295,7 @@ const STATUS_COLUMN: TaskTableColumn = {
       <span className={`home-task-status home-task-status--${task.status}`}>
         {TASK_STATUS_LABELS[task.status]}
       </span>
-      <ChevronDown
-        aria-hidden="true"
-        className="home-task-expand-icon"
-        size={15}
-        strokeWidth={1.8}
-      />
+      <Icon className="home-task-expand-icon" decorative name="expand" size="md" />
     </>
   ),
 }

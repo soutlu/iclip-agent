@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
-import { Check, LockKeyhole, Pencil, Play, X } from 'lucide-react'
 import type {
   StoryboardCreativeInput,
   StoryboardCreativeOverview,
@@ -9,6 +8,7 @@ import type {
 } from '@/features/storyboards/model/storyboard-workspace'
 import { STORYBOARD_STATUS_LABELS } from '@/features/storyboards/components/storyboard-status'
 import type { StoryboardAgentRun } from '@/features/storyboards/runtime/storyboard-agent'
+import { Icon } from '@/shared/icons'
 import {
   MediaPreviewDialog,
   MediaThumbnailSurface,
@@ -208,7 +208,7 @@ export default function StoryboardBriefPanel({
               ref={closeButtonRef}
               type="button"
             >
-              <X aria-hidden="true" size={15} strokeWidth={1.8} />
+              <Icon decorative name="close" size="md" />
             </button>
           </span>
         </div>
@@ -236,7 +236,7 @@ export default function StoryboardBriefPanel({
                 url={heroVideo.previewUrl}
               />
               <span className="storyboards-brief-hero-play" aria-hidden="true">
-                <Play size={12} strokeWidth={0} fill="currentColor" />
+                <Icon decorative name="play" size="xs" />
               </span>
               <span className="storyboards-brief-hero-tag">
                 <strong>创作 Brief</strong>
@@ -340,7 +340,7 @@ export default function StoryboardBriefPanel({
               }}
             />
             <span className="storyboards-brief-checkbox" aria-hidden="true">
-              {confirmed ? <Check size={11} strokeWidth={3} /> : null}
+              {confirmed ? <Icon decorative name="check" size="xs" /> : null}
             </span>
             <span>{confirmed ? '创作 Brief 已确认' : '我已确认创作 Brief 内容无误'}</span>
             {confirmed && storyboard.confirmedAt ? <time>{storyboard.confirmedAt}</time> : null}
@@ -371,7 +371,7 @@ export default function StoryboardBriefPanel({
               disabled={!confirmed}
               onClick={onSubmit}
             >
-              {!confirmed ? <LockKeyhole size={12} aria-hidden="true" /> : null}
+              {!confirmed ? <Icon decorative name="locked" size="xs" /> : null}
               {agentRun?.phase === 'failed' ? '重新提交创作任务' : '提交创作任务'}
             </button>
           )}
@@ -386,7 +386,7 @@ export default function StoryboardBriefPanel({
               className="storyboards-brief-edit"
               onClick={() => setEditing(true)}
             >
-              <Pencil size={11} aria-hidden="true" />
+              <Icon decorative name="edit" size="xs" />
               修改 Brief / 素材
             </button>
           ) : null}

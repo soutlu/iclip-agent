@@ -1,6 +1,6 @@
-import { Plus } from 'lucide-react'
 import { ToggleGroup } from 'radix-ui'
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
 type TaskChoiceChipsBaseProps = {
@@ -122,7 +122,7 @@ export default function TaskChoiceChips(props: TaskChoiceChipsProps) {
       type="button"
       onClick={() => setAdding(true)}
     >
-      <Plus aria-hidden="true" size={13} strokeWidth={1.8} />
+      <Icon decorative name="add" size="sm" />
       <span>自定义</span>
     </button>
   )

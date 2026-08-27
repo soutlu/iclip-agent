@@ -1,6 +1,6 @@
-import { Check, ChevronDown } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
 import type { SettingsChoiceOption } from '@/shared/composer'
+import { Icon } from '@/shared/icons'
 
 /** 与 PopupContent 同一套弹层表面样式，保证迁移到 DropdownMenu 后视觉不变。 */
 const MENU_SURFACE_CLASS =
@@ -43,7 +43,7 @@ export default function TaskOptionDropdown<TValue extends string>({
           name={name}
         >
           {selectedLabel}
-          <ChevronDown aria-hidden="true" size={14} strokeWidth={1.8} />
+          <Icon decorative name="expand" size="sm" />
         </DropdownMenu.Trigger>
 
         <DropdownMenu.Portal>
@@ -72,7 +72,7 @@ export default function TaskOptionDropdown<TValue extends string>({
                 >
                   {option.label}
                   <DropdownMenu.ItemIndicator asChild>
-                    <Check size={15} strokeWidth={2.2} />
+                    <Icon decorative name="check" size="md" />
                   </DropdownMenu.ItemIndicator>
                 </DropdownMenu.RadioItem>
               ))}

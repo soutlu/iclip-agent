@@ -1,7 +1,7 @@
 import { useQueries } from '@tanstack/react-query'
-import { Check, ZoomIn } from 'lucide-react'
 import { useState } from 'react'
 import { getProductInfo } from '@/features/tasks/api/video-task.api'
+import { Icon } from '@/shared/icons'
 import type { MediaPreviewItem } from '@/shared/ui/media'
 import TaskPickerDialog, { togglePicked } from './task-picker-dialog'
 
@@ -124,7 +124,7 @@ export default function TaskErpImagePickerDialog({
                     >
                       <img alt={`${styleNo} 产品图 ${image.id}`} loading="lazy" src={image.url} />
                       <span aria-hidden="true" className="home-task-material-check">
-                        <Check size={11} strokeWidth={2.4} />
+                        <Icon decorative name="check" size="xs" />
                       </span>
                     </button>
                     <button
@@ -142,7 +142,7 @@ export default function TaskErpImagePickerDialog({
                         })
                       }
                     >
-                      <ZoomIn size={12} strokeWidth={2} />
+                      <Icon decorative name="zoom" size="xs" />
                     </button>
                   </div>
                 ))}

@@ -1,5 +1,4 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { Check, ExternalLink, Eye, Play, Search } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   enrichWebInspirationVideos,
@@ -15,6 +14,7 @@ import {
 } from '@/features/tasks/api/inspiration.api'
 import { listStyleWmsCodes } from '@/features/tasks/api/video-task.api'
 import type { SettingsChoiceOption } from '@/shared/composer'
+import { Icon } from '@/shared/icons'
 import TaskOptionDropdown from './task-option-dropdown'
 import TaskPickerDialog, { togglePicked } from './task-picker-dialog'
 import TaskWebVideoPreviewDialog from './task-web-video-preview-dialog'
@@ -386,7 +386,7 @@ export default function TaskInspirationVideoPickerDialog({
             type="button"
             onClick={() => setWebSearchOpen((open) => !open)}
           >
-            <Search aria-hidden="true" size={14} strokeWidth={2} />
+            <Icon decorative name="search" size="sm" />
             联网搜索
           </button>
         </div>
@@ -522,7 +522,7 @@ export default function TaskInspirationVideoPickerDialog({
                         ) : null}
                       </span>
                       <span aria-hidden="true" className="home-task-material-check">
-                        <Check size={11} strokeWidth={2.4} />
+                        <Icon decorative name="check" size="xs" />
                       </span>
                     </button>
                   </li>
@@ -634,7 +634,7 @@ export default function TaskInspirationVideoPickerDialog({
                                   aria-hidden="true"
                                   className="home-task-recommended-video home-task-web-video-placeholder"
                                 >
-                                  <Play size={18} strokeWidth={2} />
+                                  <Icon decorative name="play" size="lg" />
                                 </span>
                               )}
                               <span className="home-task-recommended-info">
@@ -683,7 +683,7 @@ export default function TaskInspirationVideoPickerDialog({
                                 </span>
                               </span>
                               <span aria-hidden="true" className="home-task-material-check">
-                                <Check size={11} strokeWidth={2.4} />
+                                <Icon decorative name="check" size="xs" />
                               </span>
                             </button>
                             <span
@@ -696,7 +696,7 @@ export default function TaskInspirationVideoPickerDialog({
                                 type="button"
                                 onClick={() => setPreviewCandidate(candidate)}
                               >
-                                <Eye aria-hidden="true" size={13} strokeWidth={2} />
+                                <Icon decorative name="preview" size="sm" />
                                 预览
                               </button>
                               <a
@@ -705,7 +705,7 @@ export default function TaskInspirationVideoPickerDialog({
                                 rel="noopener noreferrer"
                                 target="_blank"
                               >
-                                <ExternalLink aria-hidden="true" size={13} strokeWidth={2} />
+                                <Icon decorative name="external" size="sm" />
                                 原帖
                               </a>
                             </span>

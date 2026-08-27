@@ -1,9 +1,9 @@
 import { useMutation } from '@tanstack/react-query'
-import { X } from 'lucide-react'
 import { type FormEvent, type KeyboardEvent, useState } from 'react'
 import { getProductInfo } from '@/features/tasks/api/video-task.api'
 import type { CreateVideoTaskInput } from '@/features/tasks/video-task.types'
 import { useUser } from '@/shared/auth'
+import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/datetime'
 import TaskChoiceChips from './task-choice-chips'
 import { TaskMediaPicker } from './task-media-picker'
@@ -225,7 +225,7 @@ export default function TaskDispatchForm({
                       type="button"
                       onClick={() => removeStyle(style.styleNo)}
                     >
-                      <X aria-hidden="true" size={11} strokeWidth={2} />
+                      <Icon decorative name="close" size="xs" />
                     </button>
                   </li>
                 ))}
