@@ -1,5 +1,7 @@
 # ADR-0006：Storyboard 每个 Session 常驻独立 runtime host
 
+> **状态（2026-08-27）**：本决策描述的子系统已随前端重写整体删除，页面层重建时按本文重新落地或另开 ADR 取代。
+
 ## 状态
 
 已采纳（2026-08-05）。取代 ADR-0004 中「单 runtime + thread list 切换」的运行时形态；ADR-0004 的 Task-Session 映射与关系约束（显式 `VideoTaskSession`、禁止推断、`threadId = session.id`、媒体直传由后端 `pass_media` 决定）继续有效。

@@ -1,6 +1,7 @@
 import js from '@eslint/js'
 import pluginQuery from '@tanstack/eslint-plugin-query'
 import configPrettier from 'eslint-config-prettier'
+import jsxA11y from 'eslint-plugin-jsx-a11y-x'
 import boundaries from 'eslint-plugin-boundaries'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
@@ -43,6 +44,7 @@ export default tseslint.config(
       js.configs.recommended,
       ...tseslint.configs.recommendedTypeChecked,
       ...pluginQuery.configs['flat/recommended'],
+      jsxA11y.configs.recommended,
     ],
     languageOptions: {
       globals: globals.browser,
@@ -112,12 +114,14 @@ export default tseslint.config(
   // ── 架构边界（依赖方向硬约束，违反即报错） ──────────────────────────────
   //
   //   app(app/、routes/、main.tsx) → 可用 feature 公开出口(index.ts)、shared
-  //   features/<name>              → 本 feature 内部随意 + shared + 其它 feature 仅经 index.ts
+  //   features/<name>              → 本 feature 内部随意 + shared；跨 feature 一律禁止
   //   shared                       → 只能用 shared
   //   testing(src/testing)         → 测试基建；业务代码（app/feature/shared）不得 import，
   //                                  只有测试文件可用（测试文件整体豁免 boundaries，见下方测试块）
   //
-  //   跨 feature 依赖是允许的，但只准走对方的 index.ts 公开出口；深层 import 一律禁止。
+  //   跨 feature 不留口子——包括对方的 index.ts。两个 feature 要共用东西只有两条路：
+  //   下沉到 shared，或者在 routes / app 层把它们组装起来。旧前端就是靠「只走 index.ts」
+  //   这个口子长出 69 条跨 feature 边、把 index.ts 撑成事实上的公共层的。
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { boundaries },
@@ -164,7 +168,6 @@ export default tseslint.config(
                       captured: { featureName: '{{ from.element.captured.featureName }}' },
                     },
                   },
-                  { element: { type: 'feature', fileInternalPath: 'index.ts' } },
                 ],
               },
             },
@@ -196,21 +199,10 @@ export default tseslint.config(
     },
   },
 
-  // ── 组件与 hooks/工具混合导出的存量文件：HMR 退化为整页刷新，可接受 ────────
-  //    store/provider 文件按约定同时导出 Provider 组件与 hooks；其余为逐文件豁免。
+  // ── 契约组件同时导出组件与 cva variants：HMR 退化为整页刷新，可接受 ────────
+  //    store/provider 文件按约定同时导出 Provider 组件与 hooks，同理。
   {
-    files: [
-      'src/**/state/**/*',
-      // ProjectConversationPanel 拆分出的会话时间线子模块：按域内聚组件与判定/转换工具
-      'src/features/chat/components/sidebar/ProjectAgentIdentity.tsx',
-      'src/features/chat/components/sidebar/ProjectAskUserQuestionTimelineCard.tsx',
-      'src/features/chat/components/sidebar/ProjectMessageMarkdown.tsx',
-      'src/features/chat/components/sidebar/ProjectSubagentFlowCards.tsx',
-      'src/features/chat/components/sidebar/ProjectToolRunLog.tsx',
-      'src/features/project-canvas/components/nodes/video-generation-status-ui.tsx',
-      'src/shared/composer/VideoGenerationSettingsControl.tsx',
-      'src/shared/markdown/components/RichMarkdownCodeBlock.tsx',
-    ],
+    files: ['src/**/state/**/*', 'src/shared/ui/**'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },

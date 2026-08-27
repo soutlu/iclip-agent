@@ -1,6 +1,6 @@
-import { Link, useNavigate } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { useCallback } from 'react'
-import { canManageProducerUsers, canViewProducerAnalytics, useLogout, useUser } from '@/shared/auth'
+import { useLogout, useUser } from '@/shared/auth'
 import { cn } from '@/shared/lib/utils'
 import HippoIcon from '@/shared/ui/icons/HippoIcon'
 import PopupContent from '@/shared/ui/popup/PopupContent'
@@ -58,8 +58,6 @@ export default function ProducerUserMenu({
 
   // SSO 自动建号的用户没有 username，优先展示 SSO 同步来的 displayName。
   const userLabel = user?.displayName || user?.username || '用户'
-  const canOpenAnalytics = canViewProducerAnalytics(user)
-  const canOpenUserAdmin = canManageProducerUsers(user)
   const departments = user?.departments ?? []
   const hasProfileDetails = Boolean(user?.jobTitle || user?.city || departments.length)
   // 头像三级策略：SSO 头像图 > 用户名首字母（品牌青底） > 通用轮廓（未拿到用户时）。
@@ -148,28 +146,6 @@ export default function ProducerUserMenu({
             </dl>
           ) : null}
         </div>
-        {canOpenAnalytics ? (
-          <Link
-            to="/analytics"
-            role="menuitem"
-            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-on-background no-underline transition-colors duration-[var(--dur-s)] hover:bg-hover focus-visible:bg-hover"
-            onClick={closeMenu}
-          >
-            <span>生成统计</span>
-            <HippoIcon name="survey" size={16} />
-          </Link>
-        ) : null}
-        {canOpenUserAdmin ? (
-          <Link
-            to="/admin/users"
-            role="menuitem"
-            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-on-background no-underline transition-colors duration-[var(--dur-s)] hover:bg-hover focus-visible:bg-hover"
-            onClick={closeMenu}
-          >
-            <span>用户管理</span>
-            <HippoIcon name="setting" size={16} />
-          </Link>
-        ) : null}
         <button
           type="button"
           role="menuitem"

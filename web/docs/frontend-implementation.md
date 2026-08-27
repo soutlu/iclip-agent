@@ -1,6 +1,6 @@
 # 前端实现规范
 
-> 覆盖目录边界、组件、Hook、TypeScript、质量和测试。视觉规则见 [设计系统](./design-system.html)，跨层状态见 [状态与跨层契约](./state-management.md)。
+> 覆盖目录边界、黄金路径、组件、Hook、TypeScript、质量和测试。视觉规则见 [设计系统](../../design-system.html)，跨层状态见 [状态与跨层契约](./archive/state-management.md)。
 > 其中可机械化的规则（分层依赖、TS 严格性、部分代码风格）已由 ESLint flat config（boundaries 架构守卫）+ tsc strict 强制，以 `eslint.config.js` / `tsconfig.app.json` 为准；本文记录门禁之外仍需人判断的约定。
 
 ## 目录边界
@@ -9,11 +9,28 @@
 
 - `src/main.tsx → src/app/**`：应用壳（providers、router 装配、`globals.css`）。
 - `src/routes/**`：TanStack Router 文件式路由 = 薄胶水层，只做守卫（`beforeLoad`）+ search params + 组装 feature 页面；路由树自动生成到 `src/routeTree.gen.ts`（不手改、lint/format 排除）。
-- `src/features/<domain>/**`：业务竖切，互相隔离；对外能力只经各自 `index.ts` 显式导出，跨 feature 复用下沉 `shared/` 或在 routes/app 层组装。
-- `src/shared/**`：领域无关的横切能力（ui、api client、auth、markdown、config、lib）。
+- `src/features/<domain>/**`：业务竖切，互相**完全**隔离；`index.ts` 是给 routes / app 用的出口，不是给别的 feature 用的——跨 feature import 一律报错。共用的下沉 `shared/`，或在 routes / app 层组装。
+- `src/shared/**`：领域无关的横切能力（ui 契约组件、icons 注册表、api client、auth、config、lib、hooks）。
 - `src/testing/**`：开发原型与测试基建（当前为 MSW mocks 与 dev:mock 启动入口），只被测试与开发启动入口引用，业务代码不得引用。
 - 只被单一路由使用的组件先留在该 feature 内；被第二处真实复用时再下沉。
 - 新增文件前先 `rg` 查同类命名和现有 helper，避免新建平行实现；文件名 kebab-case。
+
+## 黄金路径
+
+### 新增一个页面
+
+1. `src/features/<name>/` 建目录，`index.ts` 只导出页面组件（跨 feature 禁止，index.ts 不是给别的 feature 用的，是给 routes / app 用的）。
+2. `src/routes/_authed/<path>.tsx` 写 `createFileRoute` 装配，只做守卫与 search params 校验；页头不用管，`_authed.tsx` 已经给了。
+3. 页面从 `@/shared/ui` 取组件（button / chip / dialog / field / menu / popup / tag / toast），图标从 `@/shared/icons` 按语义名取。布局按 `design-system.html` §结构模板。
+4. 需要新样式时先问：是不是 token 能表达？不能表达再问：是不是该进 `shared/ui` 契约层？两个都不是才写 feature CSS。
+5. 接口走 `apiFetch(path, schema)`，schema 按 `docs/backend_api.md` 写；新端点先补进那份文档。
+6. 需要别的 feature 的东西时不要 import——把它下沉 `shared/`，或者在 route 层把两个 feature 组装起来。
+7. 同一个 PR 里补测试，并在 `AGENTS.md` §4 验证矩阵加一行。
+8. `pnpm verify` 通过再提。
+
+### 新增一个契约组件
+
+先确认 `design-system.html` §组件契约 那张表里有它——表是契约，实现照表走，尺寸、状态、圆角、层级都不自己发挥。表里没有的先改表再写代码，改完 `pnpm lint:design` 会做规范与运行时的对账。
 
 ## 组件与 JSX
 
@@ -24,7 +41,7 @@
 - 不使用危险 JSX props，不重复写同一个 JSX 属性。
 - 无 children 的组件不要写额外闭合标签；使用 `<>...</>`，不写 `<Fragment>...</Fragment>`。
 - 使用 `target="_blank"` 时必须同时设置 `rel="noopener"`。
-- UI 颜色、字体、层级、间距、交互状态、圆角和阴影以 [设计系统](./design-system.html) 为准。
+- UI 颜色、字体、层级、间距、交互状态、圆角和阴影以 [设计系统](../../design-system.html) 为准。
 - className 拼接统一走 `cn()`（clsx + tailwind-merge），不手写模板拼接。
 - 新组件的多变体样式（`variant`/`size` 等档位 props）用 `cva`（class-variance-authority）声明；存量的零散条件类不做批量迁移。
 
@@ -66,30 +83,6 @@ export const ProjectCard = (props: ProjectCardProps) => {
 - 自定义 Hook 使用 `use*` 命名，返回值保持稳定结构。
 - feature 私有 Hook 放在该 feature 内；跨 feature 复用后再下沉 `shared/`。
 - 数据获取优先走现有 api helper（`src/shared/api/` 与各 feature 的 `api/`），并传递 `AbortSignal` 处理卸载、项目切换和新 run 中止。
-
-## Rich Markdown 渲染器
-
-- 画布 Markdown artifact 必须通过 `src/shared/markdown/RichMarkdownRenderer` 渲染，不在 artifact 卡片内重组 `react-markdown` 插件。
-- `RichMarkdownRendererProps` 固定为 `markdown: string`、`identity: string`、`className?: string`、`variant?: "canvas-preview" | "expanded-preview"`。
-- 调用方必须传稳定 `identity`，用于标题 id、测试定位和嵌套工具 key。
-- 插件链路固定包含 GFM、GitHub Alert、CJK 友好强调、数学公式、raw HTML、KaTeX、标题 id 和 SVG 自适应。
-- 模型 HTML 视为可信内容，不添加 sanitize、DOMPurify、allowlist 或兜底分支。
-- `<style>` 内容必须随整棵 Markdown 进入同一个 Shadow DOM，避免污染全局样式。
-- 代码块和表格工具只提供展示与复制；编辑、HTML live preview、Excel 导出不进入基础 renderer。
-- 画布节点需要大尺寸阅读时，用独立 dialog 展开预览，不直接拉高 canvas node。
-- 表格第一列常用于字段名或标签，保持紧凑且不拆中文字符换行（`white-space: nowrap`、`word-break: keep-all` 保护 CJK 标签宽度）；正文列可换行承接长文本，但不得因第一列被压成单字多行而撑高整行。
-- 修改 `.rich-markdown-body table` / `th` / `td` 或画布缩放相关样式时，必须用「短中文标签 + 长中文正文」两列表格在画布节点里验收首行高度。
-
-## 编辑器引用
-
-首页、项目聊天、Canvas 和 Storyboard 的正文 `@` 引用共用 `src/shared/editor` 一套实现：
-
-- **身份与 label**：Tiptap JSON 只保存稳定 `id`；reference catalog 为每个引用派生唯一 canonical `label`（`image_n` / `video_n` / `audio_n` / `Mxx`），chip、候选、搜索、剪贴板序列化和提交边界都用同一 label，不建立第二 label 或搜索别名；label 变化或附件重排不改写节点身份。
-- **排序与目录**：候选统一按 `image → video → audio → note → arrow → brush → frame` 排序，只展示当前输入框目录中实际存在的类型。Storyboard 可额外提供画面标注，但不得改变搜索、键盘、chip、图标、候选或提交规则。
-- **视觉规格**：正文 chip 固定高 20px，来源缩略图 16×16px，类型底座 12×12px，内部 SVG 7×7px，圆角 `--radius-sm`；候选菜单复用同一来源、图标与标签结构。类型图标统一用 `editor-reference-icons.svg` 的 `reference-*` symbol，颜色来自成对的 `--color-reference-*` 与 `--color-on-reference`（边框身份色 35%、背景 9%、图标底实色）。这些颜色只表达引用身份，不替代状态语义，也不跟随标注笔触色；组件不得重写色值或建第二套类型色。
-- **删除与失效**：用户在当前页面主动删除附件或标注时同步删除指向该来源的 Mention；撤销恢复来源不自动复活已删 Mention。外部 catalog 丢失来源时保留原 JSON 节点、显示「引用已失效」，由提交边界拒绝。
-- **入口能力**：可上传附件类型属于入口能力，不属于 Mention 规则——通用 Media Composer 允许图片/视频/音频；Storyboard 参考附件入口仅图片（`allowedKinds` 表达），不得在引用 adapter 内虚构入口无法创建的媒体类型。
-- **布局边界**：候选弹层可按容器空间上/下方展开，不改变排序与键盘规则；附件托盘属页面布局（Storyboard 托盘图片 28×28px），不纳入正文引用组件，也不能用于推导 chip 尺寸。
 
 ## TypeScript
 

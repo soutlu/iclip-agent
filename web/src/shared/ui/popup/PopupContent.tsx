@@ -76,7 +76,8 @@ export default function PopupContent({
           sideOffset={ALIGN_OFFSET}
           onOpenAutoFocus={(event) => event.preventDefault()}
           className={cn(
-            'layer-popup popup-menu-enter rounded-md border border-border bg-popup-bg shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+            'layer-popup rounded-md border border-border bg-popup-bg shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+            'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:duration-(--dur-m) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
             className,
           )}
           style={anchorRect ? style : { ...style, visibility: 'hidden' }}

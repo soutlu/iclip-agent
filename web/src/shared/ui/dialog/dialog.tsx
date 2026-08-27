@@ -34,6 +34,9 @@ export function DialogSurface({
           'layer-popup fixed flex flex-col overflow-hidden bg-surface-container-lowest text-on-surface shadow-[var(--shadow-3)]',
           'top-1/2 left-1/2 max-h-[86vh] w-[calc(100%-32px)] max-w-[582px] -translate-x-1/2 -translate-y-1/2 rounded-2xl',
           'max-sm:top-auto max-sm:bottom-0 max-sm:max-h-[92vh] max-sm:w-full max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-t-2xl max-sm:rounded-b-none',
+          'data-[state=open]:animate-in data-[state=open]:duration-(--dur-l) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
+          'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out',
+          'max-sm:data-[state=closed]:zoom-out-100 max-sm:data-[state=closed]:slide-out-to-bottom max-sm:data-[state=open]:zoom-in-100 max-sm:data-[state=open]:slide-in-from-bottom',
           className,
         )}
         {...props}

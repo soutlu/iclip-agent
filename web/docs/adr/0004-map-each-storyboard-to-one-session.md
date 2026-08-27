@@ -1,5 +1,7 @@
 # ADR-0004：每个 Storyboard 映射一个独立 Session
 
+> **状态（2026-08-27）**：本决策描述的子系统已随前端重写整体删除，页面层重建时按本文重新落地或另开 ADR 取代。
+
 ## 状态
 
 已采纳（2026-08-02）。运行时形态（单 runtime + thread list 切换）已被 [ADR-0006](0006-storyboard-per-session-runtime-hosts.md) 取代；Task-Session 映射与关系约束仍有效。

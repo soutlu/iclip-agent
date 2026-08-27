@@ -2,7 +2,7 @@
 
 本文是 Producer 前端的领域锚点：上下文（前端的背景事实）、术语（前端赖以工作的领域术语）、不变量（每条代码路径都必须成立的规则）、禁止逻辑（被刻意设计掉的推理模式）。
 
-命令、边界与门禁见 [AGENTS.md](AGENTS.md)；接口级契约细节见 [docs/state-management.md](docs/state-management.md) 与 [docs/backend_api.md](docs/backend_api.md)。
+命令、边界与门禁见 [AGENTS.md](AGENTS.md)；接口级契约细节见 [docs/archive/state-management.md](docs/archive/state-management.md) 与 [docs/backend_api.md](docs/backend_api.md)。
 
 ## 上下文
 

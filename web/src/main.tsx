@@ -1,5 +1,4 @@
 import '@xyflow/react/dist/style.css'
-import 'katex/dist/katex.min.css'
 import '@/app/globals.css'
 
 import { StrictMode } from 'react'
