@@ -81,37 +81,28 @@ const createStableSectionKeys = (sections: UiCardSection[]) => {
 function UiCardSectionView({ section }: { section: UiCardSection }) {
   switch (section.type) {
     case 'paragraph':
-      return (
-        <p className="text-body leading-relaxed text-[var(--color-canvas-card-text)]/78">
-          {section.text}
-        </p>
-      )
+      return <p className="text-body leading-relaxed text-canvas-card-text/78">{section.text}</p>
     case 'keyValue':
       return (
         <dl className="grid gap-3 sm:grid-cols-2">
           {createStableLabelValueKeys(section.rows).map(({ item, key }) => (
-            <div
-              key={key}
-              className="rounded-xl border border-[var(--color-border)] bg-black/[0.03] px-4 py-3"
-            >
-              <dt className="text-caption font-medium tracking-[0.16em] text-[var(--color-canvas-label-text)] uppercase">
+            <div key={key} className="rounded-xl border border-border bg-black/[0.03] px-4 py-3">
+              <dt className="text-caption font-medium tracking-[0.16em] text-canvas-label-text uppercase">
                 {item.label}
               </dt>
-              <dd className="mt-2 text-body leading-relaxed text-[var(--color-canvas-card-text)]">
-                {item.value}
-              </dd>
+              <dd className="mt-2 text-body leading-relaxed text-canvas-card-text">{item.value}</dd>
             </div>
           ))}
         </dl>
       )
     case 'list':
       return (
-        <ul className="space-y-2 text-body leading-relaxed text-[var(--color-canvas-card-text)]">
+        <ul className="space-y-2 text-body leading-relaxed text-canvas-card-text">
           {createStableTextKeys(section.items).map((item) => (
             <li key={item.key} className="flex items-start gap-3">
               <span
                 aria-hidden="true"
-                className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-canvas-card-border)]"
+                className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-canvas-card-border"
               />
               <span>{item.text}</span>
             </li>
@@ -124,12 +115,12 @@ function UiCardSectionView({ section }: { section: UiCardSection }) {
           {createStableLabelValueKeys(section.items).map(({ item, key }) => (
             <div
               key={key}
-              className="rounded-xl border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-canvas-card-border)_8%,transparent)] px-4 py-4"
+              className="rounded-xl border border-border bg-[color-mix(in_srgb,var(--color-canvas-card-border)_8%,transparent)] px-4 py-4"
             >
-              <p className="text-caption font-medium tracking-[0.16em] text-[var(--color-canvas-label-text)] uppercase">
+              <p className="text-caption font-medium tracking-[0.16em] text-canvas-label-text uppercase">
                 {item.label}
               </p>
-              <p className="mt-2 text-canvas-title-sm leading-none font-medium text-[var(--color-canvas-card-text)]">
+              <p className="mt-2 text-canvas-title-sm leading-none font-medium text-canvas-card-text">
                 {item.value}
               </p>
             </div>
@@ -138,7 +129,7 @@ function UiCardSectionView({ section }: { section: UiCardSection }) {
       )
     case 'media':
       return (
-        <figure className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-black/[0.04]">
+        <figure className="overflow-hidden rounded-xl border border-border bg-black/[0.04]">
           <div
             aria-hidden="true"
             className="w-full bg-cover bg-center bg-no-repeat"
@@ -147,7 +138,7 @@ function UiCardSectionView({ section }: { section: UiCardSection }) {
               backgroundImage: `url("${section.src}")`,
             }}
           />
-          <figcaption className="px-4 py-3 text-label text-[var(--color-canvas-card-text)]/72">
+          <figcaption className="px-4 py-3 text-label text-canvas-card-text/72">
             {section.alt}
           </figcaption>
         </figure>
@@ -158,7 +149,7 @@ function UiCardSectionView({ section }: { section: UiCardSection }) {
           {createStableTextKeys(section.items).map((item) => (
             <span
               key={item.key}
-              className="rounded-full border border-[var(--color-border)] bg-black/[0.03] px-3 py-1.5 text-label text-[var(--color-canvas-card-text)]/78"
+              className="rounded-full border border-border bg-black/[0.03] px-3 py-1.5 text-label text-canvas-card-text/78"
             >
               {item.text}
             </span>
@@ -189,7 +180,7 @@ export function UiCardCanvasBody({ uiCard }: { uiCard: UiCardArtifactOutput }) {
               {createStableTextKeys(uiCard.badges).map((badge) => (
                 <span
                   key={badge.key}
-                  className="rounded-full border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-canvas-card-border)_8%,transparent)] px-3 py-1 text-caption font-medium text-[var(--color-canvas-card-text)]/76"
+                  className="rounded-full border border-border bg-[color-mix(in_srgb,var(--color-canvas-card-border)_8%,transparent)] px-3 py-1 text-caption font-medium text-canvas-card-text/76"
                 >
                   {badge.text}
                 </span>
@@ -198,14 +189,14 @@ export function UiCardCanvasBody({ uiCard }: { uiCard: UiCardArtifactOutput }) {
           ) : null}
 
           <div className="space-y-1">
-            <p className="text-caption font-medium tracking-[0.18em] text-[var(--color-canvas-label-text)] uppercase">
+            <p className="text-caption font-medium tracking-[0.18em] text-canvas-label-text uppercase">
               UI Card
             </p>
-            <h2 className="text-canvas-title-lg leading-tight font-medium text-[var(--color-canvas-card-text)]">
+            <h2 className="text-canvas-title-lg leading-tight font-medium text-canvas-card-text">
               {uiCard.title}
             </h2>
             {uiCard.subtitle ? (
-              <p className="text-body leading-relaxed text-[var(--color-canvas-card-text)]/72">
+              <p className="text-body leading-relaxed text-canvas-card-text/72">
                 {uiCard.subtitle}
               </p>
             ) : null}
@@ -215,16 +206,13 @@ export function UiCardCanvasBody({ uiCard }: { uiCard: UiCardArtifactOutput }) {
         {uiCard.sections.length > 0 ? (
           <div className="space-y-4">
             {createStableSectionKeys(uiCard.sections).map(({ key, section }) => (
-              <section
-                key={key}
-                className="rounded-xl border border-[var(--color-border)] px-5 py-4"
-              >
+              <section key={key} className="rounded-xl border border-border px-5 py-4">
                 <UiCardSectionView section={section} />
               </section>
             ))}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-[var(--color-border)] px-5 py-6 text-body text-[var(--color-canvas-card-text)]/62">
+          <div className="rounded-xl border border-dashed border-border px-5 py-6 text-body text-canvas-card-text/62">
             暂无更多结构化内容。
           </div>
         )}

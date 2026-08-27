@@ -242,7 +242,9 @@ export default function MediaPreviewDialog({ onClose, preview }: MediaPreviewDia
                         <path d="M210.3,56.8A8,8,0,0,0,203,56H96A16,16,0,0,0,80,72V168.4A31.8,31.8,0,0,0,64,164c-17.6,0-32,12.1-32,27s14.4,27,32,27,32-12.1,32-27V112H200v56.4A31.8,31.8,0,0,0,184,164c-17.6,0-32,12.1-32,27s14.4,27,32,27,32-12.1,32-27V64A8,8,0,0,0,210.3,56.8ZM96,96V72H200V96Z" />
                       </svg>
                     </span>
-                    <span className="min-w-0 truncate text-sm font-medium">{preview.fileName}</span>
+                    <span className="min-w-0 truncate text-body font-medium">
+                      {preview.fileName}
+                    </span>
                   </div>
                   <audio
                     aria-label={dialogLabel}
@@ -260,7 +262,7 @@ export default function MediaPreviewDialog({ onClose, preview }: MediaPreviewDia
                 >
                   {imageLoadError ? (
                     <div
-                      className="flex items-center justify-center px-8 py-16 text-sm text-[var(--color-on-surface-variant)]"
+                      className="flex items-center justify-center px-8 py-16 text-body text-on-surface-variant"
                       style={{
                         minHeight: `${mediaBounds.maxHeight}px`,
                         minWidth: `${Math.min(mediaBounds.maxWidth, 560)}px`,
@@ -299,7 +301,7 @@ export default function MediaPreviewDialog({ onClose, preview }: MediaPreviewDia
                       {!imageLoaded ? (
                         <span
                           aria-hidden="true"
-                          className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-[var(--color-on-surface-variant)]"
+                          className="pointer-events-none absolute inset-0 flex items-center justify-center text-body text-on-surface-variant"
                         >
                           正在加载图片预览...
                         </span>

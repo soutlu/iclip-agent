@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.18"
   },
   "packageManager": "pnpm@9.15.9",
   "scripts": {
@@ -15,7 +15,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "lint:design": "node scripts/design-guard.mjs",
+    "lint:design": "node --test scripts/check-design-system.node-test.mjs && node scripts/check-design-system.mjs && node scripts/design-guard.mjs",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

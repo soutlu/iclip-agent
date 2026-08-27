@@ -92,7 +92,7 @@ export default function TaskChoiceChips(props: TaskChoiceChipsProps) {
   const chips = options.map((option) => (
     <ToggleGroup.Item
       className={cn(
-        'home-filter-chip transition-all duration-200 hover:-translate-y-px active:translate-y-0',
+        'home-filter-chip transition-all ui-motion-m hover:-translate-y-px active:translate-y-0',
         selectedValues.includes(option) ? 'home-filter-chip--active' : '',
       )}
       key={option}
@@ -117,7 +117,7 @@ export default function TaskChoiceChips(props: TaskChoiceChipsProps) {
   ) : (
     <button
       aria-label={`增加${label}选项`}
-      className="home-filter-chip home-task-choice-chip--add transition-all duration-200 hover:-translate-y-px active:translate-y-0"
+      className="home-filter-chip home-task-choice-chip--add transition-all ui-motion-m hover:-translate-y-px active:translate-y-0"
       ref={addButtonRef}
       type="button"
       onClick={() => setAdding(true)}

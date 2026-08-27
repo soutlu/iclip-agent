@@ -130,16 +130,16 @@ export default function ProjectComposer({ embedded = false }: ProjectComposerPro
 
   const rootClassName = embedded ? 'relative w-full' : 'relative w-full md:w-fit'
   const shellClassName = embedded
-    ? 'project-composer-embedded layer-local-1 relative flex w-full min-w-0 flex-col justify-end overflow-hidden rounded-none border-0 border-transparent text-[var(--color-on-background)] shadow-none'
-    : 'layer-local-1 relative flex w-full flex-col justify-end overflow-hidden text-[var(--color-on-background)] md:w-[68vw] md:max-w-[920px] md:min-w-[720px]'
+    ? 'project-composer-embedded layer-local-1 relative flex w-full min-w-0 flex-col justify-end overflow-hidden rounded-none border-0 border-transparent text-on-background shadow-none'
+    : 'layer-local-1 relative flex w-full flex-col justify-end overflow-hidden text-on-background md:w-[68vw] md:max-w-[920px] md:min-w-[720px]'
   const contentClassName = embedded
-    ? 'relative flex flex-col px-3 pb-2 pt-3 text-sm leading-[1.55]'
-    : 'relative flex flex-col px-5 pb-4 pt-4 text-sm leading-[1.6]'
+    ? 'relative flex flex-col px-3 pb-2 pt-3 text-body leading-[1.55]'
+    : 'relative flex flex-col px-5 pb-4 pt-4 text-body leading-[1.6]'
   const rowClassName = embedded
     ? 'flex flex-col gap-2 md:flex-row md:items-end md:gap-3'
     : 'flex flex-col gap-3 md:flex-row md:items-center md:gap-3'
   const editorClassName = embedded
-    ? 'min-h-[2.5rem] max-h-[12rem] overflow-y-auto whitespace-pre-wrap text-body leading-[1.55] transition-[min-height,max-height] duration-300 ease-out'
+    ? 'min-h-[2.5rem] max-h-[12rem] overflow-y-auto whitespace-pre-wrap text-body leading-[1.55] transition-[min-height,max-height] ui-motion-m'
     : 'min-h-[5rem] whitespace-pre-wrap text-body leading-[1.6] md:min-h-[6rem]'
 
   return (
@@ -192,7 +192,7 @@ export default function ProjectComposer({ embedded = false }: ProjectComposerPro
 
           {pendingUploadCount > 0 ? (
             <div
-              className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-control-bg)] px-3 py-2 text-label text-[var(--color-on-background)]"
+              className="mt-3 rounded-lg border border-border bg-control-bg px-3 py-2 text-label text-on-background"
               role="status"
             >
               处理中，正在准备 {pendingUploadCount.toString()} 个媒体文件
@@ -201,7 +201,7 @@ export default function ProjectComposer({ embedded = false }: ProjectComposerPro
 
           {attachmentErrorMessage ? (
             <div
-              className="mt-3 rounded-lg border border-[color:var(--color-chat-error-border)] bg-[color:var(--color-chat-error-bg)] px-3 py-2 text-label leading-5 text-[color:var(--color-chat-error-text)]"
+              className="mt-3 rounded-lg border border-chat-error-border bg-chat-error-bg px-3 py-2 text-label leading-5 text-chat-error-text"
               role="alert"
             >
               {attachmentErrorMessage}
@@ -210,7 +210,7 @@ export default function ProjectComposer({ embedded = false }: ProjectComposerPro
 
           {visibleRequestErrorMessage ? (
             <div
-              className="mt-3 rounded-lg border border-[color:var(--color-chat-error-border)] bg-[color:var(--color-chat-error-bg)] px-3 py-2 text-label leading-5 text-[color:var(--color-chat-error-text)]"
+              className="mt-3 rounded-lg border border-chat-error-border bg-chat-error-bg px-3 py-2 text-label leading-5 text-chat-error-text"
               role="alert"
             >
               {visibleRequestErrorMessage}

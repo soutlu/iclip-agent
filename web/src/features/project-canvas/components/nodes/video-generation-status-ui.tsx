@@ -18,50 +18,50 @@ interface VideoGenerationStatusMeta {
 const VIDEO_GENERATION_STATUS_META = {
   cancelled: {
     accent: 'muted',
-    dotClassName: 'bg-[var(--color-outline)]',
+    dotClassName: 'bg-outline',
     label: '已取消',
     progressWidth: '100%',
-    ringClassName: 'border-[var(--color-outline)]/55',
+    ringClassName: 'border-outline/55',
     status: 'cancelled',
   },
   failed: {
     accent: 'red',
-    dotClassName: 'bg-[var(--color-error)]',
+    dotClassName: 'bg-error',
     label: '生成失败',
     progressWidth: '100%',
-    ringClassName: 'border-[var(--color-error)]/55',
+    ringClassName: 'border-error/55',
     status: 'failed',
   },
   processing: {
     accent: 'amber',
-    dotClassName: 'bg-[var(--color-tertiary)]',
+    dotClassName: 'bg-tertiary',
     label: '生成中',
     progressWidth: '64%',
-    ringClassName: 'border-[var(--color-tertiary)]/60',
+    ringClassName: 'border-tertiary/60',
     status: 'processing',
   },
   queued: {
     accent: 'grey',
-    dotClassName: 'bg-[var(--color-on-surface-variant)]',
+    dotClassName: 'bg-on-surface-variant',
     label: '排队中',
     progressWidth: '28%',
-    ringClassName: 'border-[var(--color-on-surface-variant)]/55',
+    ringClassName: 'border-on-surface-variant/55',
     status: 'queued',
   },
   running: {
     accent: 'amber',
-    dotClassName: 'bg-[var(--color-tertiary)]',
+    dotClassName: 'bg-tertiary',
     label: '生成中',
     progressWidth: '72%',
-    ringClassName: 'border-[var(--color-tertiary)]/60',
+    ringClassName: 'border-tertiary/60',
     status: 'running',
   },
   succeeded: {
     accent: 'green',
-    dotClassName: 'bg-[var(--color-secondary)]',
+    dotClassName: 'bg-secondary',
     label: '生成成功',
     progressWidth: '100%',
-    ringClassName: 'border-[var(--color-secondary)]/58',
+    ringClassName: 'border-secondary/58',
     status: 'succeeded',
   },
 } as const satisfies Record<GeneratedVideoStatus, VideoGenerationStatusMeta>
@@ -114,16 +114,16 @@ function VideoGenerationStatusGlyph({ meta }: { meta: VideoGenerationStatusMeta 
       {isGenerating ? (
         <span
           className={cn(
-            'absolute inset-2 rounded-full border border-transparent border-t-[var(--color-tertiary)]/80',
+            'absolute inset-2 rounded-full border border-transparent border-t-tertiary/80',
             'animate-spin',
           )}
         />
       ) : null}
-      <span className="grid h-11 w-11 place-items-center rounded-full border border-[var(--color-outline-variant)] bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_80%,transparent)] opacity-100">
+      <span className="grid h-11 w-11 place-items-center rounded-full border border-outline-variant bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_80%,transparent)] opacity-100">
         {meta.status === 'succeeded' ? (
           <svg
             aria-hidden="true"
-            className="h-5 w-5 text-[color:var(--color-secondary)]"
+            className="h-5 w-5 text-secondary"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -137,12 +137,7 @@ function VideoGenerationStatusGlyph({ meta }: { meta: VideoGenerationStatusMeta 
             />
           </svg>
         ) : meta.status === 'failed' ? (
-          <svg
-            aria-hidden="true"
-            className="h-5 w-5 text-[color:var(--color-error)]"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
+          <svg aria-hidden="true" className="h-5 w-5 text-error" fill="none" viewBox="0 0 24 24">
             <title>生成失败</title>
             <path
               d="M7 7 17 17M17 7 7 17"
@@ -153,12 +148,7 @@ function VideoGenerationStatusGlyph({ meta }: { meta: VideoGenerationStatusMeta 
             />
           </svg>
         ) : meta.status === 'cancelled' ? (
-          <svg
-            aria-hidden="true"
-            className="h-5 w-5 text-[color:var(--color-outline)]"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
+          <svg aria-hidden="true" className="h-5 w-5 text-outline" fill="none" viewBox="0 0 24 24">
             <title>已取消</title>
             <path d="M7 12H17" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
           </svg>
@@ -190,7 +180,7 @@ export function VideoGenerationStatusTile({
   return (
     <div
       className={cn(
-        'relative isolate overflow-hidden rounded-xl border border-[var(--color-outline-variant)] bg-[var(--color-storyboard-canvas)] text-left transition-[transform,box-shadow,border-color] duration-[var(--dur-s)] ease-[var(--ease)]',
+        'relative isolate overflow-hidden rounded-xl border border-outline-variant bg-storyboard-canvas text-left transition-[transform,box-shadow,border-color] duration-[var(--dur-s)] ease-[var(--ease)]',
         className ?? 'aspect-[4/3]',
       )}
       data-video-generation-card="status"
@@ -199,7 +189,7 @@ export function VideoGenerationStatusTile({
     >
       <VideoGenerationDottedBackground />
 
-      <span className="pointer-events-none absolute top-4 left-4 inline-flex items-center gap-2 rounded-full border border-[var(--color-outline-variant)] bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_70%,transparent)] px-2.5 py-1 text-caption font-medium tracking-[0.16em] text-[color:var(--color-on-surface-variant)] uppercase backdrop-blur-md">
+      <span className="pointer-events-none absolute top-4 left-4 inline-flex items-center gap-2 rounded-full border border-outline-variant bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_70%,transparent)] px-2.5 py-1 text-caption font-medium tracking-[0.16em] text-on-surface-variant uppercase backdrop-blur-md">
         <span className={cn('h-1.5 w-1.5 rounded-full', meta.dotClassName)} />
         {meta.accent}
       </span>
@@ -212,7 +202,7 @@ export function VideoGenerationStatusTile({
         <div className="h-1 overflow-hidden rounded-full bg-black/[0.06]">
           <span
             className={[
-              'block h-full rounded-full transition-[width] duration-500 ease-out',
+              'block h-full rounded-full transition-[width] ui-motion-l',
               meta.dotClassName,
             ].join(' ')}
             style={{ width: meta.progressWidth }}
@@ -220,7 +210,7 @@ export function VideoGenerationStatusTile({
         </div>
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-title leading-tight font-medium text-[color:var(--color-on-surface)]">
+            <p className="truncate text-title leading-tight font-medium text-on-surface">
               {meta.label}
             </p>
           </div>

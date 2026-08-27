@@ -34,9 +34,9 @@ export default function CanvasNodeFrame({
   title,
 }: CanvasNodeFrameProps) {
   const borderClassName = selected
-    ? 'border-[var(--color-canvas-card-border)]'
+    ? 'border-canvas-card-border'
     : isHighlighted
-      ? 'border-[var(--color-border-hover)]'
+      ? 'border-border-hover'
       : 'border-transparent'
   return (
     <div
@@ -53,11 +53,11 @@ export default function CanvasNodeFrame({
           {/* 选中外环：外扩 6px，圆角随 --radius-2xl 同步补偿以保持与内环同心 */}
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute -inset-[6px] rounded-[calc(var(--radius-2xl)+6px)] border-2 border-[var(--color-ring-highlight)]"
+            className="pointer-events-none absolute -inset-[6px] rounded-[calc(var(--radius-2xl)+6px)] border-2 border-ring-highlight"
           />
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-[var(--color-canvas-card-border)]"
+            className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-canvas-card-border"
           />
         </>
       ) : null}
@@ -66,14 +66,14 @@ export default function CanvasNodeFrame({
         <span
           key={highlightToken}
           aria-hidden="true"
-          className="canvas-highlight-flash pointer-events-none absolute inset-0 rounded-2xl border-2 border-[var(--color-canvas-card-border)]"
+          className="canvas-highlight-flash pointer-events-none absolute inset-0 rounded-2xl border-2 border-canvas-card-border"
         />
       ) : null}
 
       <div
         ref={exportRef}
         className={cn(
-          'flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-[var(--color-canvas-card-bg)] text-[var(--color-canvas-card-text)]',
+          'flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-canvas-card-bg text-canvas-card-text',
           'transition-[transform,border-color] duration-[var(--dur-s)] ease-[var(--ease)]',
           borderClassName,
         )}

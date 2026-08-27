@@ -9,7 +9,7 @@ import {
 import { cn } from '@/shared/lib/utils'
 
 const PANEL_CLASS =
-  'overflow-hidden rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)]'
+  'overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest'
 
 /**
  * 决定何时重拉文件列表：每有一个工具调用出了结果，或运行结束，就拉一次。
@@ -67,17 +67,17 @@ export default function DebugWorkspaceFiles({
       aria-label="Workspace 文件"
       className={cn(PANEL_CLASS, 'flex h-full min-h-0 min-w-0 flex-col')}
     >
-      <div className="flex items-center justify-between border-b border-[var(--color-outline-variant)] px-4 py-3">
+      <div className="flex items-center justify-between border-b border-outline-variant px-4 py-3">
         <h2
-          className="flex items-center gap-2 text-body font-semibold text-[var(--color-on-surface)]"
+          className="flex items-center gap-2 text-body font-semibold text-on-surface"
           id="debug-workspace-title"
         >
           <FileText aria-hidden="true" size={16} />
           Workspace 文件
         </h2>
         {files ? (
-          <div className="flex items-center gap-3 text-label text-[var(--color-on-surface-variant)]">
-            <span className="flex items-center gap-1 text-[var(--color-secondary)]">
+          <div className="flex items-center gap-3 text-label text-on-surface-variant">
+            <span className="flex items-center gap-1 text-secondary">
               {filesQuery.isFetching ? (
                 <LoaderCircle aria-hidden="true" className="animate-spin" size={14} />
               ) : (
@@ -91,22 +91,20 @@ export default function DebugWorkspaceFiles({
       </div>
 
       {filesQuery.isPending ? (
-        <p className="px-4 py-5 text-body-sm text-[var(--color-on-surface-variant)]" role="status">
+        <p className="px-4 py-5 text-body-sm text-on-surface-variant" role="status">
           正在读取 Workspace…
         </p>
       ) : filesQuery.isError ? (
-        <p className="px-4 py-5 text-body-sm text-[var(--color-error)]" role="alert">
+        <p className="px-4 py-5 text-body-sm text-error" role="alert">
           {filesQuery.error instanceof Error ? filesQuery.error.message : '读取 Workspace 文件失败'}
         </p>
       ) : !files || files.length === 0 || !selectedFile ? (
-        <p className="px-4 py-5 text-body-sm text-[var(--color-on-surface-variant)]">
-          暂无工具写入文件
-        </p>
+        <p className="px-4 py-5 text-body-sm text-on-surface-variant">暂无工具写入文件</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[minmax(9rem,2fr)_minmax(0,3fr)]">
           <nav
             aria-label="Workspace 文件列表"
-            className="thin-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-outline-variant)] p-2 lg:block lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0"
+            className="thin-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-outline-variant p-2 lg:block lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0"
           >
             {files.map((file) => (
               <button
@@ -114,8 +112,8 @@ export default function DebugWorkspaceFiles({
                 className={cn(
                   'flex min-w-0 shrink-0 cursor-pointer items-center gap-2 rounded-sm px-3 py-2 text-left font-mono text-body-sm transition-colors duration-[var(--dur-s)] lg:mb-1 lg:w-full',
                   file.path === selectedFile.path
-                    ? 'bg-[var(--color-primary-container)] text-[var(--color-on-primary-container)]'
-                    : 'text-[var(--color-on-surface-variant)] hover:bg-[var(--color-state-hover)] hover:text-[var(--color-on-surface)]',
+                    ? 'bg-primary-container text-on-primary-container'
+                    : 'text-on-surface-variant hover:bg-state-hover hover:text-on-surface',
                 )}
                 key={file.path}
                 onClick={() => setSelectedPath(file.path)}
@@ -132,14 +130,14 @@ export default function DebugWorkspaceFiles({
             className="flex min-h-0 min-w-0 flex-1 flex-col"
           >
             <h3
-              className="shrink-0 border-b border-[var(--color-outline-variant)] px-4 py-3 font-mono text-body-sm font-semibold text-[var(--color-on-surface)]"
+              className="shrink-0 border-b border-outline-variant px-4 py-3 font-mono text-body-sm font-semibold text-on-surface"
               id="debug-selected-file-title"
               title={selectedFile.path}
             >
               {selectedFile.path}
             </h3>
             {contentQuery.isError ? (
-              <p className="px-4 py-5 text-body-sm text-[var(--color-error)]" role="alert">
+              <p className="px-4 py-5 text-body-sm text-error" role="alert">
                 {contentQuery.error instanceof Error
                   ? contentQuery.error.message
                   : '读取工作区文件失败'}
@@ -148,7 +146,7 @@ export default function DebugWorkspaceFiles({
               <pre
                 aria-busy={contentQuery.isPending}
                 aria-labelledby="debug-selected-file-title"
-                className="thin-scrollbar min-h-0 flex-1 overflow-auto bg-[var(--color-surface-container-low)] p-4 font-mono text-caption whitespace-pre-wrap text-[var(--color-on-surface)]"
+                className="thin-scrollbar min-h-0 flex-1 overflow-auto bg-surface-container-low p-4 font-mono text-caption whitespace-pre-wrap text-on-surface"
                 tabIndex={0}
               >
                 {contentQuery.data?.content ?? ''}

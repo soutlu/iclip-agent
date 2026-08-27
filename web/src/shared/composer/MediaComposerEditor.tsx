@@ -95,7 +95,7 @@ export default function MediaComposerEditor({
         attributes: {
           'aria-label': ariaLabel,
           'aria-multiline': 'true',
-          class: 'w-full bg-transparent text-[var(--color-on-background)]',
+          class: 'w-full bg-transparent text-on-background',
         },
       },
       enableContentCheck: true,

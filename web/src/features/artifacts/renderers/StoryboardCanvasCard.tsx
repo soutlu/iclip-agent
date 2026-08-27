@@ -57,7 +57,7 @@ export default function StoryboardCanvasCard({ storyboard }: StoryboardCanvasCar
 
   return (
     <article
-      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--color-canvas-card-bg)] text-[color:var(--color-canvas-card-text)]"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-canvas-card-bg text-canvas-card-text"
       data-storyboard-canvas-card="true"
     >
       <div className="canvas-card-accent-glow pointer-events-none absolute inset-x-0 top-0 h-28" />
@@ -65,21 +65,21 @@ export default function StoryboardCanvasCard({ storyboard }: StoryboardCanvasCar
       <div className="nodrag nopan nowheel thin-scrollbar relative flex min-h-0 w-full flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-6 py-6">
         <header className="flex items-start justify-between gap-5">
           <div className="min-w-0">
-            <p className="text-label font-medium tracking-[0] text-[color:var(--color-on-surface-variant)] uppercase">
+            <p className="text-label font-medium tracking-[0] text-on-surface-variant uppercase">
               Storyboard
             </p>
-            <h2 className="mt-1 text-canvas-title leading-tight font-medium text-[color:var(--color-canvas-card-text)]">
+            <h2 className="mt-1 text-canvas-title leading-tight font-medium text-canvas-card-text">
               动态分镜表
             </h2>
           </div>
 
-          <span className="shrink-0 rounded-full border border-[var(--color-outline-variant)] bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_72%,transparent)] px-3 py-1.5 text-body font-medium text-[color:var(--color-canvas-card-text)]">
+          <span className="shrink-0 rounded-full border border-outline-variant bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_72%,transparent)] px-3 py-1.5 text-body font-medium text-canvas-card-text">
             {shots.length.toString()} 镜头
           </span>
         </header>
 
         {summaryItems.length > 0 ? (
-          <div className="grid gap-3 border-t border-[var(--color-outline-variant)] pt-5 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 border-t border-outline-variant pt-5 md:grid-cols-2 xl:grid-cols-4">
             {summaryItems.map((item) => {
               const itemStyle = getSummaryItemStyle(item, palette)
 
@@ -107,7 +107,7 @@ export default function StoryboardCanvasCard({ storyboard }: StoryboardCanvasCar
           </div>
         ) : null}
 
-        <section className="overflow-hidden rounded-xl border border-[var(--color-outline-variant)] bg-[var(--color-canvas-card-bg)]">
+        <section className="overflow-hidden rounded-xl border border-outline-variant bg-canvas-card-bg">
           <div className="nodrag nopan nowheel cursor-auto overflow-x-auto" data-scrollable>
             <table
               className="w-full table-fixed border-separate border-spacing-0"

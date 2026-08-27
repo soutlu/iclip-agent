@@ -1,12 +1,14 @@
 /* ============================================================================
- * Producer token 层 · M3 严格对齐（浅色单主题）
+ * Producer token 层 · M3 严格对齐（浅色 :root + 深色 .dark）
  *
- * 结构：① primitives（6 族 × 13 tone，HCT 色板，官方 MCU v0.4.0 生成，组件不直接引用）
+ * 结构：① primitives（6 族 × 13 tone，HCT 色板，组件不直接引用）
  *       ② semantic roles（M3 标准角色，新代码只引用这一层）
  *       ③ 领域 token（现有变量名保持不变的别名层，组件零改动）
  *       ④ type 尺
- * 色板生成：.playwright-cli/mcu/gen.mjs → out.json
- * 唯一设计规范：docs/design-system.html（token 变更需同步维护）。
+ *
+ * 本文件是仓库根目录 design-system.html 的运行时镜像：那份规范里 :root 与 .dark
+ * 两块（除 --pg-* 页面装饰外）是唯一事实源，这里逐名逐值照抄。改 token 先改规范
+ * 再改这里，`pnpm lint:design` 会逐字对账，两边不一致就报错。
  * ========================================================================== */
 
 :root {
@@ -64,10 +66,15 @@
   --t99: #fffbff;
   --t100: #ffffff;
 
-  /* Neutral · 蓝灰（h240 c5；v14 补 92/94/96/98 surface 档，取真实 HCT tone） */
+  /* Neutral · 蓝灰（h240 c5；4/6/12/17/22 为深色 surface 档，92/94/96/98 为浅色 surface 梯度） */
   --n0: #000000;
+  --n4: #0b0f11;
+  --n6: #101417;
   --n10: #191c1f;
+  --n12: #1d2023;
+  --n17: #272a2d;
   --n20: #2e3134;
+  --n22: #323538;
   --n30: #44474a;
   --n40: #5c5f62;
   --n50: #74777b;
@@ -172,11 +179,15 @@
   --color-tertiary-fixed: var(--t90);
   --color-tertiary-fixed-dim: var(--t80);
 
-  /* State layer 透明度（M3 交互态叠加层） */
+  /* State layer 透明度与焦点环几何（M3 交互态叠加层；禁用与焦点都从这里派生） */
   --state-hover: 0.08;
   --state-focus: 0.12;
   --state-pressed: 0.12;
   --state-dragged: 0.16;
+  --state-disabled-content: 0.38;
+  --state-disabled-container: 0.12;
+  --state-focus-ring: 3px;
+  --state-focus-offset: 2px;
 
   /* State layer 颜色（由上方透明度派生；交互态叠加背景的唯一来源，组件不得散写 hover/pressed 底色） */
   --color-state-hover: color-mix(
@@ -217,11 +228,14 @@
   /* --color-on-surface-variant 直接复用 ② 层同名角色（次级文字） */
   --color-top-layer: var(--n100);
   --color-state-active: var(--color-primary-container); /* 选中态背景 */
-  --color-control-bg: rgba(255, 255, 255, 0.64); /* 按钮未选中（玻璃，保留） */
+  /* 玻璃面基色：所有半透明白面由它派生，深色换成 n17 */
+  --color-glass-base: var(--n100);
+  --color-glass-surface: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
+  --color-control-bg: color-mix(in srgb, var(--color-glass-base) 64%, transparent);
   --color-btn-hover: var(--color-state-hover);
-  --color-media-stack-bg: rgba(255, 255, 255, 0.92); /* 玻璃，保留 */
-  --color-media-stack-bg-hover: #ffffff;
-  --color-popup-bg: rgba(249, 252, 255, 0.98); /* 玻璃，保留 */
+  --color-media-stack-bg: color-mix(in srgb, var(--color-glass-base) 92%, transparent);
+  --color-media-stack-bg-hover: var(--color-glass-base);
+  --color-popup-bg: rgba(249, 252, 255, 0.98);
   --color-dot: color-mix(in srgb, var(--nv70) 28%, transparent);
   --color-dot-pattern: color-mix(in srgb, var(--nv70) 12%, transparent);
   --color-border: var(--color-outline-variant);
@@ -232,9 +246,9 @@
   --color-danger-border: var(--e80);
   --color-danger-text: var(--e30);
   --color-chip-border: var(--color-outline-variant);
-  --color-chip-bg: rgba(255, 255, 255, 0.62); /* 玻璃，保留 */
-  --color-chip-bg-glass: rgba(255, 255, 255, 0.52); /* 玻璃，保留 */
-  --color-input-bg: rgba(255, 255, 255, 0.76); /* 玻璃，保留 */
+  --color-chip-bg: color-mix(in srgb, var(--color-glass-base) 62%, transparent);
+  --color-chip-bg-glass: color-mix(in srgb, var(--color-glass-base) 52%, transparent);
+  --color-input-bg: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
   --color-input-border: var(--color-outline);
 
   /* 聊天面板与消息 */
@@ -306,12 +320,16 @@
     0 8px 18px rgba(67, 76, 88, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.62);
 
   /* 状态与杂项 */
-  --color-disabled-text: color-mix(in srgb, var(--color-on-surface) 38%, transparent);
+  --color-disabled-text: color-mix(
+    in srgb,
+    var(--color-on-surface) calc(var(--state-disabled-content) * 100%),
+    transparent
+  );
   --color-disabled-container: color-mix(
     in srgb,
-    var(--color-on-surface) 12%,
+    var(--color-on-surface) calc(var(--state-disabled-container) * 100%),
     transparent
-  ); /* v15：禁用容器/描边统一 12%（M3 disabled container） */
+  );
   --color-ring-highlight: color-mix(
     in srgb,
     var(--color-primary) 70%,
@@ -368,9 +386,6 @@
 
   /* Agent Log */
   --color-agent-log-bg: var(--n90);
-
-  /* 玻璃拟态 surface（白透面保留，侧边栏/输入框/弹层的 backdrop-blur 场景） */
-  --color-glass-surface: rgba(255, 255, 255, 0.76);
 
   /* 图表系列色（分类数据身份色，不承载状态语义；v14 Blend.harmonize 向主色） */
   --color-chart-1: #07a8c4;
@@ -513,6 +528,21 @@
   --ease-decel: cubic-bezier(0, 0, 0, 1); /* 进场：出现时减速落定 */
   --ease-accel: cubic-bezier(0.3, 0, 1, 1); /* 退场：消失时加速离开 */
 
+  /* 控件高度：组件只在这五档里取值，热区另有 48 下限 */
+  --control-height-xs: 24px; /* 小标签；可点尺寸下限 */
+  --control-height-sm: 34px; /* Chip 胶囊 */
+  --control-height-md: 36px; /* 菜单项、紧凑按钮 */
+  --control-height-lg: 40px; /* 按钮、图标按钮 */
+  --control-height-xl: 44px; /* 输入框 */
+  --control-hit-area: 48px; /* 可点热区 */
+
+  /* 图标尺寸五档（Icon 组件的 size prop 直接映射） */
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+
   /* 字号（M3 type scale，v15 七档）：唯一事实源在 globals.css @theme（同时生成 text-* 工具类
      与 --text-* / --text-*--line-height 变量）；此处仅保留旧 -line 命名别名供存量 CSS 引用。
      v15：body 基准 14px（M3 body-medium）、全站下限 11px（label-sm/label-xs 已并入 caption） */
@@ -557,6 +587,91 @@
     var(--layout-project-header-height) + var(--layout-project-stage-padding) +
       var(--layout-project-chat-panel-bottom-safe-area)
   );
+}
+
+/* 深色：只换 ② 层档位与 ③ 层里直接取色板/字面值的项；①④ 与主题中立项不变。
+   引用 ② 层的别名（如 --color-border）会自动跟随，不必也不该在这里重复登记。 */
+.dark {
+  --color-primary: var(--p80);
+  --color-primary-hover: var(--p70);
+  --color-on-primary: var(--p20);
+  --color-primary-container: var(--p30);
+  --color-on-primary-container: var(--p90);
+  --color-primary-container-solid: var(--p70);
+  --color-primary-container-soft: var(--p20);
+  --color-secondary: var(--s80);
+  --color-on-secondary: var(--s20);
+  --color-secondary-container: var(--s30);
+  --color-on-secondary-container: var(--s90);
+  --color-tertiary: var(--t80);
+  --color-on-tertiary: var(--t20);
+  --color-tertiary-container: var(--t30);
+  --color-on-tertiary-container: var(--t90);
+  --color-error: var(--e80);
+  --color-on-error: var(--e20);
+  --color-error-container: var(--e30);
+  --color-on-error-container: var(--e90);
+  --color-surface: var(--n6);
+  --color-on-surface: var(--n90);
+  --color-surface-variant: var(--nv30);
+  --color-on-surface-variant: var(--nv80);
+  --color-outline: var(--nv60);
+  --color-outline-variant: var(--nv30);
+  --color-surface-container-lowest: var(--n4);
+  --color-surface-container-low: var(--n10);
+  --color-surface-container: var(--n12);
+  --color-surface-container-high: var(--n17);
+  --color-surface-container-highest: var(--n22);
+  --color-inverse-surface: var(--n90);
+  --color-inverse-on-surface: var(--n20);
+  --color-inverse-primary: var(--p40);
+  --color-background-top: var(--n12);
+  --color-background-bottom: var(--n4);
+  --color-top-layer: var(--n17);
+  --color-glass-base: var(--n17);
+  --color-popup-bg: rgba(29, 32, 35, 0.98);
+  --color-danger-border: var(--e60);
+  --color-danger-text: var(--e80);
+  --color-thumb-fallback: var(--n30);
+  --color-header-btn-bg: var(--n22);
+  --color-agent-log-bg: var(--n22);
+  --color-chat-panel-bg-start: var(--n12);
+  --color-chat-panel-bg-end: var(--n6);
+  --color-chat-muted-text: var(--nv70);
+  --color-chat-assistant-highlight: rgba(255, 255, 255, 0.1);
+  --color-chat-agent-avatar-bg: #1b2a20;
+  --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.4);
+  --color-chat-agent-identity-bg: #16211a;
+  --color-chat-agent-identity-border: rgba(113, 136, 58, 0.36);
+  --color-chat-agent-identity-text: #cfe3c5;
+  --color-chat-agent-rail: #33c39a;
+  --color-chat-tool-bg: var(--n12);
+  --color-chat-code-block-bg: var(--n12);
+  --color-chat-error-border: var(--e60);
+  --color-chat-error-text: var(--e80);
+  --shadow-chat-panel: 0 20px 48px rgba(0, 0, 0, 0.5);
+  --shadow-chat-user: 0 12px 26px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(153, 211, 184, 0.16);
+  --shadow-chat-assistant:
+    0 16px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--color-chat-assistant-highlight);
+  --shadow-chat-agent-avatar: 0 8px 18px rgba(0, 0, 0, 0.4);
+  --shadow-chat-agent-identity: 0 8px 18px rgba(0, 0, 0, 0.4);
+  --color-canvas-label-text: var(--nv60);
+  --color-storyboard-canvas: #14181d;
+  --shadow-storyboard-media: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 22px -12px rgba(0, 0, 0, 0.6);
+  --shadow-storyboard-hero: 0 2px 4px rgba(0, 0, 0, 0.3), 0 18px 34px -14px rgba(0, 0, 0, 0.7);
+  --shadow-storyboard-sidebar-left: 12px 0 24px -18px rgba(0, 0, 0, 0.6);
+  --shadow-storyboard-sidebar-right: -12px 0 24px -18px rgba(0, 0, 0, 0.6);
+  --storyboard-node-shadow: 0 35px 96px rgba(0, 0, 0, 0.6);
+  --storyboard-node-surface: var(--n12);
+  --storyboard-node-selected-surface: var(--n17);
+  --storyboard-node-panel-divider: var(--nv20);
+  --storyboard-node-ink: #e9edf4;
+  --storyboard-node-muted: rgba(200, 215, 230, 0.45);
+  --storyboard-node-muted-strong: rgba(200, 215, 230, 0.6);
+  --storyboard-node-preview-tool-text: rgba(233, 237, 244, 0.75);
+  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.65);
 }
 
 html {
@@ -632,6 +747,6 @@ body {
 /* 键盘焦点全局兜底（M3 focus indicator）：仅 :focus-visible 触发，鼠标点击不显示。
    :where() 零特异性——组件可用任意自定义 ≥3:1 焦点样式覆盖；禁止无替代地 outline-none。 */
 :where(a, button, input, textarea, select, summary, [role='button'], [tabindex]):focus-visible {
-  outline: 3px solid var(--color-focus-ring); /* v15：M3 focus indicator 3px + 2px offset */
-  outline-offset: 2px;
+  outline: var(--state-focus-ring) solid var(--color-focus-ring);
+  outline-offset: var(--state-focus-offset);
 }

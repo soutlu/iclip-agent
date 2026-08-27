@@ -38,7 +38,7 @@ export default function LoginPage({ nextPath, ssoErrorCode }: LoginPageProps) {
   })
 
   return (
-    <main className="producer-auth-page relative isolate min-h-dvh overflow-x-hidden text-[var(--color-on-background)]">
+    <main className="producer-auth-page relative isolate min-h-dvh overflow-x-hidden text-on-background">
       <div className="absolute inset-0 -z-20 overflow-hidden" aria-hidden="true">
         <img
           src={LOGIN_BACKGROUND_SRC}

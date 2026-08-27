@@ -70,7 +70,7 @@ export default function ProjectSidebar({
     >
       <section
         className={cn(
-          'project-chat-panel-surface relative flex h-full min-h-0 flex-col overflow-hidden border border-[color:var(--color-chat-panel-border)] bg-[color:var(--color-chat-panel-bg)] shadow-[var(--shadow-chat-panel)]',
+          'project-chat-panel-surface relative flex h-full min-h-0 flex-col overflow-hidden border border-chat-panel-border bg-chat-panel-bg shadow-[var(--shadow-chat-panel)]',
           floating ? 'rounded-none rounded-tr-lg' : 'rounded-lg',
         )}
         data-project-chat-drop-zone="true"
@@ -83,17 +83,17 @@ export default function ProjectSidebar({
       >
         {dropZoneProps.isDragActive ? (
           <div
-            className="layer-local-3 pointer-events-none absolute inset-0 flex items-center justify-center border border-dashed border-[var(--color-on-background)] bg-[color-mix(in_srgb,var(--color-scrim)_18%,transparent)] p-4 backdrop-blur-[2px]"
+            className="layer-local-3 pointer-events-none absolute inset-0 flex items-center justify-center border border-dashed border-on-background bg-[color-mix(in_srgb,var(--color-scrim)_18%,transparent)] p-4 backdrop-blur-[2px]"
             aria-hidden="true"
           >
-            <span className="rounded-full border border-[var(--color-border)] bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_90%,transparent)] px-4 py-2 text-body font-medium text-[var(--color-on-background)] shadow-[var(--shadow-2)]">
+            <span className="rounded-full border border-border bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_90%,transparent)] px-4 py-2 text-body font-medium text-on-background shadow-[var(--shadow-2)]">
               拖拽图片、视频或音频到这里
             </span>
           </div>
         ) : null}
         <ProjectConversationPanel />
         {floating && (
-          <div className="project-chat-panel-surface shrink-0 border-t border-[color:var(--color-chat-panel-border)] bg-[color:var(--color-chat-panel-bg)]">
+          <div className="project-chat-panel-surface shrink-0 border-t border-chat-panel-border bg-chat-panel-bg">
             <ProjectChatComposer embedded />
           </div>
         )}

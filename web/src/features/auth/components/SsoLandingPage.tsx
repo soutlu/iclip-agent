@@ -68,7 +68,7 @@ export default function SsoLandingPage({ jwt }: SsoLandingPageProps) {
   }, [completeSsoLogin, jwt, navigate])
 
   return (
-    <main className="flex min-h-dvh items-center justify-center text-[var(--color-on-background)]">
+    <main className="flex min-h-dvh items-center justify-center text-on-background">
       <p className="text-body">正在完成企业 SSO 登录…</p>
     </main>
   )

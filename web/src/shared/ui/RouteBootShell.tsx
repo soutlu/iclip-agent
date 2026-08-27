@@ -2,7 +2,7 @@ interface RouteBootShellProps {
   variant: 'home' | 'project'
 }
 
-const SHIMMER_BLOCK = 'animate-pulse bg-[var(--color-hover)]'
+const SHIMMER_BLOCK = 'animate-pulse bg-hover'
 
 /**
  * 渲染路由挂载前的轻量骨架屏。
@@ -53,10 +53,10 @@ export default function RouteBootShell({ variant }: RouteBootShellProps) {
 
   return (
     <div
-      className="relative flex h-svh max-h-svh flex-col overflow-hidden bg-[var(--color-background)]"
+      className="relative flex h-svh max-h-svh flex-col overflow-hidden bg-background"
       aria-hidden="true"
     >
-      <div className="flex h-[var(--layout-project-header-height)] shrink-0 items-center justify-between border-b border-[var(--color-header-divider)] bg-[var(--color-top-layer)] px-[var(--layout-project-header-inline-start)] py-4 md:pr-[var(--layout-project-header-inline-end)]">
+      <div className="flex h-[var(--layout-project-header-height)] shrink-0 items-center justify-between border-b border-header-divider bg-top-layer px-[var(--layout-project-header-inline-start)] py-4 md:pr-[var(--layout-project-header-inline-end)]">
         <div className="flex items-center gap-3">
           <div className={`${SHIMMER_BLOCK} h-8 w-12 rounded-full`} />
           <div className={`${SHIMMER_BLOCK} h-4 w-40 rounded-full`} />
@@ -69,8 +69,8 @@ export default function RouteBootShell({ variant }: RouteBootShellProps) {
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div className="layer-sidebar absolute top-[calc(var(--layout-project-header-height)+var(--layout-project-stage-padding))] left-[var(--layout-project-stage-padding)]">
-          <div className="flex h-[65px] w-[65px] rounded-lg border border-[var(--color-border)] bg-[var(--color-glass-surface)] backdrop-blur-[40px]">
-            <div className="m-auto h-4 w-10 rounded-full bg-[var(--color-hover)]" />
+          <div className="flex h-[65px] w-[65px] rounded-lg border border-border bg-glass-surface backdrop-blur-[40px]">
+            <div className="m-auto h-4 w-10 rounded-full bg-hover" />
           </div>
         </div>
 
@@ -95,7 +95,7 @@ export default function RouteBootShell({ variant }: RouteBootShellProps) {
             <div className={`${SHIMMER_BLOCK} h-8 w-32 rounded-full`} />
             <div className={`${SHIMMER_BLOCK} h-8 w-24 rounded-full`} />
           </div>
-          <div className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-glass-surface)] p-4 backdrop-blur-[40px]">
+          <div className="w-full rounded-2xl border border-border bg-glass-surface p-4 backdrop-blur-[40px]">
             <div className={`${SHIMMER_BLOCK} mb-6 h-14 w-full rounded-lg`} />
             <div className="flex items-center gap-2">
               <div className={`${SHIMMER_BLOCK} h-7 w-7 rounded-full`} />

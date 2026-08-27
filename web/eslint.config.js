@@ -12,14 +12,10 @@ export default tseslint.config(
     ignores: [
       'dist',
       'coverage',
-      'playwright-report',
-      'test-results',
-      // Playwright CLI 浏览器工具缓存；包含不属于本项目 tsconfig 的第三方声明文件
-      '.playwright-cli',
       'public',
       'src/routeTree.gen.ts',
       'node_modules',
-      // docs/ 不入库（.gitignore），内含脱离本项目 tsconfig 的模板代码
+      // docs/ 里有脱离本项目 tsconfig 的示例代码，类型感知规则跑不动
       'docs',
     ],
   },
@@ -78,8 +74,7 @@ export default tseslint.config(
   //   testing(src/testing)         → 测试基建；业务代码（app/feature/shared）不得 import，
   //                                  只有测试文件可用（测试文件整体豁免 boundaries，见下方测试块）
   //
-  //   与 idesign_forent 的刻意分歧：Producer 允许跨 feature 依赖，但只准走对方的
-  //   index.ts 公开出口；深层 import 一律禁止。
+  //   跨 feature 依赖是允许的，但只准走对方的 index.ts 公开出口；深层 import 一律禁止。
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { boundaries },
@@ -155,14 +150,6 @@ export default tseslint.config(
       '@typescript-eslint/unbound-method': 'off',
       // 测试用 mock 组件通过模块级变量向断言回传状态，不适用组件纯度检查
       'react-hooks/globals': 'off',
-    },
-  },
-
-  // ── shadcn 组件按官方源码原样保留（导出 cva variants 触发 HMR 提示，可忽略） ──
-  {
-    files: ['src/shared/ui/**/*'],
-    rules: {
-      'react-refresh/only-export-components': 'off',
     },
   },
 

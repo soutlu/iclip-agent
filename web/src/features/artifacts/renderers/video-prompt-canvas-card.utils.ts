@@ -54,10 +54,10 @@ export interface VideoPromptReadingSegment {
 }
 
 export const ICON_ACTION_BUTTON_CLASS =
-  'nodrag nopan inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-control-bg)] p-0 text-[color:var(--color-on-surface-variant)] transition-all hover:border-[color:var(--color-border-hover)] hover:bg-[color:var(--color-hover)] hover:text-[color:var(--color-on-background)]'
+  'nodrag nopan inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-control-bg p-0 text-on-surface-variant transition-all hover:border-border-hover hover:bg-hover hover:text-on-background'
 
 export const PROMPT_EDIT_BUTTON_CLASS =
-  'nodrag nopan inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-control-bg)] px-3 text-title font-medium text-[color:var(--color-on-surface-variant)] transition-all hover:border-[color:var(--color-border-hover)] hover:bg-[color:var(--color-hover)] hover:text-[color:var(--color-on-background)]'
+  'nodrag nopan inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-border bg-control-bg px-3 text-title font-medium text-on-surface-variant transition-all hover:border-border-hover hover:bg-hover hover:text-on-background'
 
 export const VIDEO_PROMPT_PRIMARY_BUTTON_BASE_CLASS =
   'nodrag nopan inline-flex h-11 items-center justify-center rounded-lg px-5 text-canvas-label font-semibold transition-all'
@@ -66,13 +66,13 @@ export const VIDEO_PROMPT_SECONDARY_BUTTON_BASE_CLASS =
   'nodrag nopan inline-flex h-11 items-center justify-center rounded-lg px-4 text-title font-medium transition-all'
 
 export const VIDEO_PROMPT_PRIMARY_BUTTON_ENABLED_CLASS =
-  'bg-[color:var(--color-chat-agent-rail)] text-[color:var(--color-background)] shadow-[var(--shadow-2)] active:scale-[0.98]'
+  'bg-chat-agent-rail text-background shadow-[var(--shadow-2)] active:scale-[0.98]'
 
 export const VIDEO_PROMPT_SECONDARY_BUTTON_ENABLED_CLASS =
-  'border border-[color:var(--color-border)] bg-[color:var(--color-control-bg)] text-[color:var(--color-on-background)] hover:border-[color:var(--color-border-hover)] hover:bg-[color:var(--color-hover)] active:scale-[0.98]'
+  'border border-border bg-control-bg text-on-background hover:border-border-hover hover:bg-hover active:scale-[0.98]'
 
 export const VIDEO_PROMPT_DISABLED_BUTTON_CLASS =
-  'cursor-not-allowed bg-[color:var(--color-control-bg)] text-[color:var(--color-disabled-text)]'
+  'cursor-not-allowed bg-control-bg text-disabled-text'
 
 export const VIDEO_PROMPT_REFERENCE_TAG_PATTERN_SOURCE = '(@(?:Image|image)\\d+)'
 export const VIDEO_PROMPT_REFERENCE_TAG_PATTERN = new RegExp(

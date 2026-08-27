@@ -19,25 +19,25 @@ export const getProjectToolRunLogStatusMeta = (stage: ProjectToolLogEntry['stage
       return {
         icon: 'check',
         label: '已运行',
-        textClassName: 'text-[color:var(--color-chat-status-success)]',
+        textClassName: 'text-chat-status-success',
       }
     case 'failed':
       return {
         icon: 'error',
         label: '运行失败',
-        textClassName: 'text-[color:var(--color-chat-error-text)]',
+        textClassName: 'text-chat-error-text',
       }
     case 'started':
       return {
         icon: 'running',
         label: '运行中',
-        textClassName: 'text-[color:var(--color-chat-status-running)]',
+        textClassName: 'text-chat-status-running',
       }
     default:
       return {
         icon: 'check',
         label: '已运行',
-        textClassName: 'text-[color:var(--color-chat-status-success)]',
+        textClassName: 'text-chat-status-success',
       }
   }
 }
@@ -131,9 +131,9 @@ export const ProjectToolRunStatusIcon = ({ stage }: { stage: ProjectToolLogEntry
     return (
       <span
         aria-hidden="true"
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-[color:var(--color-chat-status-running)] bg-[color:var(--color-chat-inline-bg)]"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-chat-status-running bg-chat-inline-bg"
       >
-        <span className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--color-chat-status-running)]" />
+        <span className="h-2 w-2 animate-pulse rounded-full bg-chat-status-running" />
       </span>
     )
   }
@@ -142,7 +142,7 @@ export const ProjectToolRunStatusIcon = ({ stage }: { stage: ProjectToolLogEntry
     return (
       <span
         aria-hidden="true"
-        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-[color:var(--color-chat-error-border)] bg-[color:var(--color-chat-error-bg)] text-caption leading-none font-semibold text-[color:var(--color-chat-error-text)]"
+        className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-chat-error-border bg-chat-error-bg text-caption leading-none font-semibold text-chat-error-text"
       >
         !
       </span>
@@ -152,7 +152,7 @@ export const ProjectToolRunStatusIcon = ({ stage }: { stage: ProjectToolLogEntry
   return (
     <span
       aria-hidden="true"
-      className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-[color:var(--color-chat-status-success)] bg-[color:var(--color-chat-inline-bg)] text-caption leading-none font-semibold text-[color:var(--color-chat-status-success)]"
+      className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-chat-status-success bg-chat-inline-bg text-caption leading-none font-semibold text-chat-status-success"
     >
       ✓
     </span>
@@ -185,7 +185,7 @@ export const ProjectToolRunLogRow = ({
       <span className={cn('shrink-0 text-caption font-semibold', meta.textClassName)}>
         {meta.label}
       </span>
-      <span className="min-w-0 truncate text-[color:var(--color-chat-secondary-text)]">
+      <span className="min-w-0 truncate text-chat-secondary-text">
         {formatProjectToolRunLogText(log)}
       </span>
     </span>
@@ -218,15 +218,15 @@ export const ProjectTimelineToolRunLog = ({
   return (
     <details
       aria-label={`工具调用：${formatProjectToolRunLogText(currentLog)}`}
-      className="group max-w-[92%] min-w-0 overflow-hidden border-y border-[color:var(--color-chat-inline-border)] bg-transparent"
+      className="group max-w-[92%] min-w-0 overflow-hidden border-y border-chat-inline-border bg-transparent"
       data-project-tool-run-log="true"
     >
       <summary
-        className="flex cursor-pointer list-none items-center gap-2 py-2.5 transition-colors hover:bg-[color:var(--color-chat-inline-bg)] focus-visible:bg-[color:var(--color-chat-inline-bg)] [&::-webkit-details-marker]:hidden"
+        className="flex cursor-pointer list-none items-center gap-2 py-2.5 transition-colors hover:bg-chat-inline-bg focus-visible:bg-chat-inline-bg [&::-webkit-details-marker]:hidden"
         data-project-tool-run-log-summary="true"
       >
         <ProjectToolRunLogRow compact log={currentLog} />
-        <span className="ml-auto shrink-0 text-label text-[color:var(--color-chat-muted-text)] transition-transform duration-200 group-open:rotate-180">
+        <span className="ml-auto shrink-0 text-label text-chat-muted-text transition-transform ui-motion-m group-open:rotate-180">
           ⌄
         </span>
       </summary>
@@ -234,7 +234,7 @@ export const ProjectTimelineToolRunLog = ({
       <div className="pb-2 pl-7">
         <div
           className={cn(
-            'space-y-2 border-l border-[color:var(--color-chat-inline-border)] pr-1 pl-3',
+            'space-y-2 border-l border-chat-inline-border pr-1 pl-3',
             !renderToolDetails && 'thin-scrollbar max-h-40 overflow-y-auto',
           )}
           data-scrollable={renderToolDetails ? undefined : true}

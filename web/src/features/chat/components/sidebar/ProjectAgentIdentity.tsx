@@ -48,7 +48,7 @@ export type ProjectAgentDefinition = (typeof PROJECT_AGENT_DEFINITIONS)[ProjectA
  * @returns 固定尺寸的 Agent 头像元素。
  */
 export const ProjectAgentAvatar = ({ definition }: { definition: ProjectAgentDefinition }) => (
-  <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-[color:var(--color-chat-agent-avatar-border)] bg-[color:var(--color-chat-agent-avatar-bg)] shadow-[var(--shadow-chat-agent-avatar)]">
+  <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-chat-agent-avatar-border bg-chat-agent-avatar-bg shadow-[var(--shadow-chat-agent-avatar)]">
     <img
       alt={`${definition.label} Agent 头像`}
       className="h-full w-full rounded-full object-cover"
@@ -77,7 +77,7 @@ export const ProjectAgentIdentity = ({
   const activeActivity = activity ?? (responding ? 'answering' : undefined)
   const identityClassName = activeActivity
     ? 'inline-flex min-w-0 items-center gap-2'
-    : 'inline-flex h-8 max-w-full min-w-0 items-center gap-2 rounded-full bg-[color:var(--color-chat-agent-identity-bg)] py-0.5 pl-0.5 pr-3'
+    : 'inline-flex h-8 max-w-full min-w-0 items-center gap-2 rounded-full bg-chat-agent-identity-bg py-0.5 pl-0.5 pr-3'
 
   return (
     <div className={identityClassName} data-agent-kind={agent}>
@@ -85,7 +85,7 @@ export const ProjectAgentIdentity = ({
       {activeActivity ? (
         <ProjectAgentActivityIndicator activity={activeActivity} />
       ) : (
-        <span className="truncate text-body-sm leading-none font-semibold tracking-[0] text-[color:var(--color-chat-agent-identity-text)]">
+        <span className="truncate text-body-sm leading-none font-semibold tracking-[0] text-chat-agent-identity-text">
           {definition.label}
         </span>
       )}
@@ -106,16 +106,16 @@ export const ProjectAgentActivityIndicator = ({ activity }: { activity: ProjectA
   return (
     <span
       aria-label={label}
-      className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-[color:var(--color-chat-tool-bg)] px-2.5"
+      className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-chat-tool-bg px-2.5"
       role="status"
     >
-      <span className="text-caption leading-none font-medium tracking-[0] text-[color:var(--color-chat-muted-text)]">
+      <span className="text-caption leading-none font-medium tracking-[0] text-chat-muted-text">
         {label}
       </span>
       <span aria-hidden="true" className="inline-flex items-center gap-1">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--color-chat-status-running)] [animation-delay:0ms]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--color-chat-status-running)] [animation-delay:120ms]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[color:var(--color-chat-status-running)] [animation-delay:240ms]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-chat-status-running [animation-delay:0ms]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-chat-status-running [animation-delay:120ms]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-chat-status-running [animation-delay:240ms]" />
       </span>
     </span>
   )

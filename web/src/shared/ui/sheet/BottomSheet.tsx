@@ -126,7 +126,7 @@ export default function BottomSheet({
   return (
     <div
       className={cn(
-        'layer-panel fixed right-0 bottom-0 left-0 rounded-t-2xl border-t border-[var(--color-border)] bg-[var(--color-background)] shadow-[var(--shadow-3)] transition-all duration-[var(--dur-m)] ease-[var(--ease)]',
+        'layer-panel fixed right-0 bottom-0 left-0 rounded-t-2xl border-t border-border bg-background shadow-[var(--shadow-3)] transition-all duration-[var(--dur-m)] ease-[var(--ease)]',
         className,
       )}
       style={{ height: `${height}vh`, touchAction: isDragging ? 'none' : 'auto' }}
@@ -154,7 +154,7 @@ export default function BottomSheet({
       {/* 内容区 */}
       <div
         className={cn(
-          'overflow-hidden transition-opacity duration-300',
+          'overflow-hidden transition-opacity ui-motion-m',
           snap === 'minimized' ? 'opacity-0' : 'opacity-100',
         )}
         style={{ height: 'calc(100% - 48px)' }}

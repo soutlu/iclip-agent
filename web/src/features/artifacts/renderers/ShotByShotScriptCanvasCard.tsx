@@ -168,30 +168,30 @@ const flattenScriptGroups = (groups: ShotByShotScriptGroup[]): ShotByShotScriptE
 function ScriptTimelineCell({ entry }: { entry: ShotByShotScriptEntry }) {
   return (
     <div
-      className="relative min-h-[118px] border-r border-[color:var(--color-border)] px-7 py-5"
+      className="relative min-h-[118px] border-r border-border px-7 py-5"
       data-shot-by-shot-timeline-row="true"
     >
       <span
         aria-hidden="true"
-        className="absolute top-0 bottom-0 left-[34px] w-px bg-[color:var(--color-chat-agent-rail)] opacity-55"
+        className="absolute top-0 bottom-0 left-[34px] w-px bg-chat-agent-rail opacity-55"
       />
       {entry.startsGroup ? (
         <span
           aria-hidden="true"
-          className="absolute top-[31px] left-[29px] size-3 rounded-full bg-[color:var(--color-chat-agent-rail)]"
+          className="absolute top-[31px] left-[29px] size-3 rounded-full bg-chat-agent-rail"
         />
       ) : null}
       <div className="relative pl-7">
         {entry.startsGroup ? (
-          <div className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-control-bg)] px-3 py-3">
+          <div className="rounded-xl border border-border bg-control-bg px-3 py-3">
             <h3
-              className="text-canvas-body leading-[1.35] font-semibold tracking-[0] text-[color:var(--color-on-background)]"
+              className="text-canvas-body leading-[1.35] font-semibold tracking-[0] text-on-background"
               data-shot-by-shot-timeline-title="true"
             >
               {entry.groupTitle}
             </h3>
             {entry.groupRangeLabel ? (
-              <p className="mt-2 text-label leading-none font-medium text-[color:var(--color-on-surface-variant)]">
+              <p className="mt-2 text-label leading-none font-medium text-on-surface-variant">
                 {entry.groupRangeLabel}
               </p>
             ) : null}
@@ -213,29 +213,29 @@ function ScriptSegmentCell({ entry }: { entry: ShotByShotScriptEntry }) {
 
   return (
     <article
-      className="min-h-[112px] border-b border-[color:var(--color-border)] px-7 py-5"
+      className="min-h-[112px] border-b border-border px-7 py-5"
       data-shot-by-shot-script-row="true"
     >
       {entry.startsGroup ? (
-        <p className="mb-2 h-6 text-right text-body-sm leading-4 font-semibold text-[color:var(--color-chat-muted-text)] uppercase">
+        <p className="mb-2 h-6 text-right text-body-sm leading-4 font-semibold text-chat-muted-text uppercase">
           {entry.groupTitle}
         </p>
       ) : null}
       <div className="grid grid-cols-[176px_minmax(0,1fr)] gap-6">
         <div className="min-w-0">
-          <span className="inline-flex rounded-lg border border-[color:var(--color-chat-agent-rail)] bg-[color:var(--color-chat-inline-bg)] px-3 py-1.5 text-body leading-none font-semibold text-[color:var(--color-chat-agent-rail)]">
+          <span className="inline-flex rounded-lg border border-chat-agent-rail bg-chat-inline-bg px-3 py-1.5 text-body leading-none font-semibold text-chat-agent-rail">
             {segment.startTime}-{segment.endTime}
           </span>
         </div>
         <div className="min-w-0">
           <h4
-            className="text-canvas-body leading-[1.35] font-semibold tracking-[0] text-[color:var(--color-on-background)]"
+            className="text-canvas-body leading-[1.35] font-semibold tracking-[0] text-on-background"
             data-shot-by-shot-segment-title="true"
           >
             {segment.title}
           </h4>
           <p
-            className="mt-2 text-canvas-label leading-[1.68] font-medium tracking-[0] text-[color:var(--color-chat-secondary-text)]"
+            className="mt-2 text-canvas-label leading-[1.68] font-medium tracking-[0] text-chat-secondary-text"
             data-shot-by-shot-segment-description="true"
           >
             {segment.text}
@@ -264,17 +264,13 @@ function ScriptTimelineAndReading({ groups }: { groups: ShotByShotScriptGroup[] 
     >
       <div className="grid min-w-[870px] grid-cols-[300px_minmax(0,1fr)]">
         <div
-          className="layer-local-1 sticky top-0 border-r border-b border-[color:var(--color-border)] bg-[color:var(--color-background)] px-7 py-5"
+          className="layer-local-1 sticky top-0 border-r border-b border-border bg-background px-7 py-5"
           data-shot-by-shot-timeline="true"
         >
-          <p className="text-body-sm leading-none font-semibold text-[color:var(--color-on-background)]">
-            时间线
-          </p>
+          <p className="text-body-sm leading-none font-semibold text-on-background">时间线</p>
         </div>
-        <div className="layer-local-1 sticky top-0 border-b border-[color:var(--color-border)] bg-[color:var(--color-background)] px-7 py-5">
-          <p className="text-body-sm leading-none font-semibold text-[color:var(--color-on-background)]">
-            镜头脚本
-          </p>
+        <div className="layer-local-1 sticky top-0 border-b border-border bg-background px-7 py-5">
+          <p className="text-body-sm leading-none font-semibold text-on-background">镜头脚本</p>
         </div>
         {entries.map((entry) => (
           <Fragment key={`${entry.groupTitle}:${entry.segment.startTime}:${entry.segment.endTime}`}>
@@ -339,37 +335,32 @@ export default function ShotByShotScriptCanvasCard({
   return (
     <article
       className={cn(
-        'relative flex w-full flex-col overflow-hidden border border-[color:var(--color-border)] bg-[color:var(--color-background)] font-[var(--font-producer-ui)] text-[color:var(--color-on-background)] shadow-[var(--shadow-3)]',
+        'relative flex w-full flex-col overflow-hidden border border-border bg-background font-[var(--font-producer-ui)] text-on-background shadow-[var(--shadow-3)]',
         isFocused ? 'min-h-full rounded-l-xl rounded-r-none' : 'h-full min-h-0',
       )}
       data-shot-by-shot-script-card="true"
     >
-      <header className="flex shrink-0 items-center justify-between gap-6 border-b border-[color:var(--color-border)] px-8 py-6">
+      <header className="flex shrink-0 items-center justify-between gap-6 border-b border-border px-8 py-6">
         <div className="min-w-0">
           <h2 className="truncate text-canvas-title-lg leading-none font-semibold tracking-[0]">
             {script.title}
           </h2>
-          <p className="mt-3 truncate text-body leading-none font-medium text-[color:var(--color-on-surface-variant)]">
+          <p className="mt-3 truncate text-body leading-none font-medium text-on-surface-variant">
             {script.durationLabel} · {script.segmentCount.toString()} 个时间段 · Shot-by-Shot Script
           </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-3">
-          <span className="inline-flex h-9 items-center gap-2 rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-control-bg)] px-3 text-body-sm font-semibold text-[color:var(--color-chat-agent-rail)]">
-            <span
-              aria-hidden="true"
-              className="size-1.5 rounded-full bg-[color:var(--color-chat-agent-rail)]"
-            />
+          <span className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-control-bg px-3 text-body-sm font-semibold text-chat-agent-rail">
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-chat-agent-rail" />
             已解析
           </span>
           <div className="flex flex-col items-end gap-1">
             <button
               aria-label={isCopied ? '已复制逐镜拉片表' : '复制逐镜拉片表'}
               className={cn(
-                'nodrag nopan inline-flex h-9 items-center gap-2 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-control-bg)] px-3 text-body-sm font-semibold text-[color:var(--color-on-background)] transition-colors hover:bg-[color:var(--color-hover)]',
-                isCopyFailed
-                  ? 'border-[color:var(--color-danger-border)] text-[color:var(--color-danger-text)]'
-                  : '',
+                'nodrag nopan inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-control-bg px-3 text-body-sm font-semibold text-on-background transition-colors hover:bg-hover',
+                isCopyFailed ? 'border-danger-border text-danger-text' : '',
               )}
               onClick={(event) => {
                 void handleCopyMarkdown(event)
@@ -382,7 +373,7 @@ export default function ShotByShotScriptCanvasCard({
               <HippoIcon aria-hidden="true" name={isCopied ? 'complete' : 'copy'} size={15} />
             </button>
             {isCopyFailed ? (
-              <span className="text-label leading-none font-medium text-[color:var(--color-danger-text)]">
+              <span className="text-label leading-none font-medium text-danger-text">
                 无法访问剪贴板
               </span>
             ) : null}
@@ -394,8 +385,8 @@ export default function ShotByShotScriptCanvasCard({
         <ScriptTimelineAndReading groups={script.groups} />
       </section>
 
-      <footer className="flex shrink-0 items-center justify-between border-t border-[color:var(--color-border)] px-8 py-5">
-        <span className="rounded-lg bg-[color:var(--color-control-bg)] px-3 py-2 text-body-sm font-semibold text-[color:var(--color-on-surface-variant)]">
+      <footer className="flex shrink-0 items-center justify-between border-t border-border px-8 py-5">
+        <span className="rounded-lg bg-control-bg px-3 py-2 text-body-sm font-semibold text-on-surface-variant">
           脚本就绪 · {script.segmentCount.toString()} 段
         </span>
       </footer>

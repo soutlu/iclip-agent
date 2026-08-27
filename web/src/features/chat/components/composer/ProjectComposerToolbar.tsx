@@ -21,8 +21,8 @@ export default function ProjectComposerToolbar({
         className={cn(
           'hit-48 relative flex h-8 w-8 items-center justify-center rounded-full transition-all duration-[var(--dur-s)] ease-[var(--ease)]',
           !disabled
-            ? 'cursor-pointer bg-[var(--color-on-background)] text-[var(--color-background)] hover:scale-105 active:scale-95'
-            : 'cursor-not-allowed border-none bg-transparent text-[var(--color-disabled-text)]',
+            ? 'cursor-pointer bg-on-background text-background hover:scale-105 active:scale-95'
+            : 'cursor-not-allowed border-none bg-transparent text-disabled-text',
         )}
         aria-label={submitLabel}
         onClick={onSubmit}

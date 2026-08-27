@@ -26,7 +26,7 @@ export default function HomeTasksPanel() {
           <button
             aria-pressed={mode === tab.id}
             className={cn(
-              'home-filter-chip transition-all duration-200 hover:-translate-y-px active:translate-y-0',
+              'home-filter-chip transition-all ui-motion-m hover:-translate-y-px active:translate-y-0',
               mode === tab.id ? 'home-filter-chip--active' : '',
             )}
             key={tab.id}

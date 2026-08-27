@@ -71,7 +71,7 @@ const BOOKMARK_ICON_BY_KIND: Record<ProjectCanvasArtifactKind, HippoIconName> = 
 }
 
 const FOCUSED_MARKDOWN_SOURCE_VIDEO_CLASS =
-  'nodrag nopan group relative isolate block h-[198px] w-full overflow-hidden border-b border-[var(--color-border)] bg-black text-left'
+  'nodrag nopan group relative isolate block h-[198px] w-full overflow-hidden border-b border-border bg-black text-left'
 const FOCUSED_STORYBOARD_SURFACE_STYLE = {
   backgroundColor: 'var(--storyboard-node-surface)',
 } as const satisfies CSSProperties
@@ -268,15 +268,15 @@ function FocusedArtifactIcon({ kind }: { kind: ProjectCanvasArtifactKind }) {
   return (
     <span
       aria-hidden="true"
-      className="relative inline-flex size-8 items-center justify-center transition-transform duration-150"
+      className="relative inline-flex size-8 items-center justify-center transition-transform ui-motion-s"
     >
       <HippoIcon
-        className="absolute translate-x-[0.7px] translate-y-[0.8px] text-[var(--color-outline)] opacity-70"
+        className="absolute translate-x-[0.7px] translate-y-[0.8px] text-outline opacity-70"
         name={iconName}
         size={BOOKMARK_ICON_SIZE}
       />
       <HippoIcon
-        className="relative text-[var(--color-surface)]"
+        className="relative text-surface"
         data-project-canvas-bookmark-icon="true"
         name={iconName}
         size={BOOKMARK_ICON_SIZE}
@@ -294,7 +294,7 @@ function FocusedArtifactIcon({ kind }: { kind: ProjectCanvasArtifactKind }) {
  */
 function FocusedArtifactSurface({ children }: FocusedArtifactSurfaceProps) {
   return (
-    <div className="h-full min-h-0 overflow-hidden rounded-l-xl rounded-r-none border border-[var(--color-border)] bg-[var(--color-canvas-card-bg)] shadow-[var(--shadow-3)]">
+    <div className="h-full min-h-0 overflow-hidden rounded-l-xl rounded-r-none border border-border bg-canvas-card-bg shadow-[var(--shadow-3)]">
       {children}
     </div>
   )
@@ -327,7 +327,7 @@ function FocusedArtifactMarkdownView({ node }: FocusedArtifactMarkdownViewProps)
         />
       ) : (
         <div
-          className="min-h-full rounded-l-xl rounded-r-none border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-on-background)]"
+          className="min-h-full rounded-l-xl rounded-r-none border border-border bg-background text-on-background"
           data-project-canvas-markdown-preview="true"
         >
           {sourceVideo ? (
@@ -382,7 +382,7 @@ function FocusedMarkdownSourceVideoBanner({
       type="button"
     >
       <video
-        className="absolute inset-0 h-full w-full scale-[1.02] object-cover object-center transition-transform duration-200 group-hover:scale-[1.05]"
+        className="absolute inset-0 h-full w-full scale-[1.02] object-cover object-center transition-transform ui-motion-m group-hover:scale-[1.05]"
         muted
         playsInline
         poster={sourceVideo.thumbnailUrl}
@@ -402,7 +402,7 @@ function FocusedMarkdownSourceVideoBanner({
             {fileName}
           </span>
         </span>
-        <span className="grid size-9 shrink-0 place-items-center rounded-full border border-white/24 bg-white/16 text-white shadow-[var(--shadow-2)] backdrop-blur-md transition-transform duration-150 group-hover:scale-[1.04]">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full border border-white/24 bg-white/16 text-white shadow-[var(--shadow-2)] backdrop-blur-md transition-transform ui-motion-s group-hover:scale-[1.04]">
           <HippoIcon name="browse" size={16} />
         </span>
       </span>
@@ -471,7 +471,7 @@ function FocusedArtifactStoryboardWorkbenchView({
 
   return (
     <div
-      className="thin-scrollbar h-full min-h-0 overflow-x-hidden overflow-y-auto rounded-l-xl rounded-r-none border border-[var(--color-border)] shadow-[var(--shadow-3)]"
+      className="thin-scrollbar h-full min-h-0 overflow-x-hidden overflow-y-auto rounded-l-xl rounded-r-none border border-border shadow-[var(--shadow-3)]"
       data-project-canvas-focused-storyboard-viewport="true"
       ref={viewportRef}
       style={FOCUSED_STORYBOARD_SURFACE_STYLE}
@@ -626,7 +626,7 @@ export default function ProjectCanvasFocusedArtifact({
           <div className="flex min-w-0 flex-1 flex-col">
             <span
               aria-hidden="true"
-              className="ml-5 block h-[3px] w-[calc(100%-40px)] shrink-0 rounded-full transition-colors duration-300"
+              className="ml-5 block h-[3px] w-[calc(100%-40px)] shrink-0 rounded-full transition-colors ui-motion-m"
               data-project-canvas-artifact-accent-line="true"
               style={{
                 backgroundColor: activeNodeKind ? BOOKMARK_KIND_COLORS[activeNodeKind] : undefined,
@@ -650,7 +650,7 @@ export default function ProjectCanvasFocusedArtifact({
 
         <nav
           aria-label="产物书签"
-          className="thin-scrollbar pointer-events-auto flex max-h-full w-[82px] shrink-0 flex-col items-center gap-5 overflow-y-auto border-y border-l border-white/[0.24] bg-[var(--color-artifact-rail-bg)] px-[10px] py-6"
+          className="thin-scrollbar pointer-events-auto flex max-h-full w-[82px] shrink-0 flex-col items-center gap-5 overflow-y-auto border-y border-l border-white/[0.24] bg-artifact-rail-bg px-[10px] py-6"
           data-project-canvas-bookmark-rail="true"
         >
           {nodes.map((node) => {
@@ -665,7 +665,7 @@ export default function ProjectCanvasFocusedArtifact({
                 aria-label={`预览${nodeTitle}`}
                 aria-pressed={active}
                 className={cn(
-                  'relative flex w-[62px] shrink-0 flex-col items-center justify-center gap-0.5 border transition-all duration-200 ease-out active:scale-95',
+                  'relative flex w-[62px] shrink-0 flex-col items-center justify-center gap-0.5 border transition-all ui-motion-m active:scale-95',
                   active
                     ? 'h-[86px] rounded-l-xl rounded-r-none border-r-0 border-white/[0.12] text-white shadow-[var(--shadow-2)]'
                     : 'h-[82px] rounded-xl border-transparent bg-transparent text-white/84 hover:bg-white/[0.05] hover:text-white',
@@ -686,7 +686,7 @@ export default function ProjectCanvasFocusedArtifact({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    'absolute top-1/2 left-0 w-[3px] -translate-y-1/2 rounded-r-full transition-all duration-200',
+                    'absolute top-1/2 left-0 w-[3px] -translate-y-1/2 rounded-r-full transition-all ui-motion-m',
                     active ? 'h-[36px]' : 'h-[20px] opacity-60',
                   )}
                   style={{ backgroundColor: kindColor }}

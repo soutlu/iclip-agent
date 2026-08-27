@@ -64,7 +64,7 @@ export default function ProjectHeaderLeft() {
         <button
           ref={triggerRef}
           type="button"
-          className="flex h-8 w-12 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-header-btn-bg)] text-[var(--color-on-background)] backdrop-blur-md transition-all duration-[var(--dur-s)] select-none hover:bg-[var(--color-hover)] active:scale-95"
+          className="flex h-8 w-12 items-center justify-center rounded-full border border-border bg-header-btn-bg text-on-background backdrop-blur-md transition-all duration-[var(--dur-s)] select-none hover:bg-hover active:scale-95"
           onClick={() => {
             updateAnchorRect()
             setMenuOpen((current) => !current)
@@ -100,12 +100,7 @@ function HamburgerMenu({ items, onAction }: { items: HamburgerMenuItem[]; onActi
     <>
       {items.map((item, i) => {
         if (isHamburgerMenuDividerItem(item)) {
-          return (
-            <div
-              key={`divider-${i.toString()}`}
-              className="mx-3 my-1.5 h-px bg-[var(--color-border)]"
-            />
-          )
+          return <div key={`divider-${i.toString()}`} className="mx-3 my-1.5 h-px bg-border" />
         }
 
         const content = (
@@ -117,9 +112,7 @@ function HamburgerMenu({ items, onAction }: { items: HamburgerMenuItem[]; onActi
               {item.label}
             </span>
             {item.shortcut ? (
-              <span className="text-caption text-[var(--color-on-surface-variant)]">
-                {item.shortcut}
-              </span>
+              <span className="text-caption text-on-surface-variant">{item.shortcut}</span>
             ) : null}
           </>
         )
@@ -130,7 +123,7 @@ function HamburgerMenu({ items, onAction }: { items: HamburgerMenuItem[]; onActi
               to={item.href}
               key={item.label}
               role="menuitem"
-              className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-[var(--color-on-background)] transition-colors duration-150 hover:bg-[var(--color-hover)]"
+              className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-on-background transition-colors ui-motion-s hover:bg-hover"
               onClick={onAction}
             >
               {content}
@@ -144,7 +137,7 @@ function HamburgerMenu({ items, onAction }: { items: HamburgerMenuItem[]; onActi
             aria-disabled="true"
             key={item.label}
             role="menuitem"
-            className="flex w-full cursor-not-allowed items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-[var(--color-on-surface-variant)] opacity-72"
+            className="flex w-full cursor-not-allowed items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-on-surface-variant opacity-72"
             disabled
             title={`${item.label}（${MENU_PLACEHOLDER_TITLE}）`}
           >

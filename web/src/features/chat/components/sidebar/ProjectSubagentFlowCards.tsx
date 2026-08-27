@@ -53,35 +53,26 @@ export const subagentFlowEventStyle = (
     case 'completed':
       return {
         accentIcon: '✓',
-        iconClassName:
-          'border-[color:var(--color-chat-status-success)] bg-[color:var(--color-chat-tool-bg)] text-[color:var(--color-chat-status-success)]',
-        markerClassName:
-          'border-[color:var(--color-chat-status-success)] bg-[color:var(--color-chat-status-success)]',
-        statusBadgeClassName:
-          'bg-[color:var(--color-chat-status-success)] text-[color:var(--color-chat-card-bg)]',
-        statusTextClassName: 'text-[color:var(--color-chat-status-success)]',
+        iconClassName: 'border-chat-status-success bg-chat-tool-bg text-chat-status-success',
+        markerClassName: 'border-chat-status-success bg-chat-status-success',
+        statusBadgeClassName: 'bg-chat-status-success text-chat-card-bg',
+        statusTextClassName: 'text-chat-status-success',
       }
     case 'failed':
       return {
         accentIcon: '!',
-        iconClassName:
-          'border-[color:var(--color-chat-error-border)] bg-[color:var(--color-chat-error-bg)] text-[color:var(--color-chat-error-text)]',
-        markerClassName:
-          'border-[color:var(--color-chat-error-text)] bg-[color:var(--color-chat-error-text)]',
-        statusBadgeClassName:
-          'bg-[color:var(--color-chat-error-bg)] text-[color:var(--color-chat-error-text)]',
-        statusTextClassName: 'text-[color:var(--color-chat-error-text)]',
+        iconClassName: 'border-chat-error-border bg-chat-error-bg text-chat-error-text',
+        markerClassName: 'border-chat-error-text bg-chat-error-text',
+        statusBadgeClassName: 'bg-chat-error-bg text-chat-error-text',
+        statusTextClassName: 'text-chat-error-text',
       }
     default:
       return {
         accentIcon: '↗',
-        iconClassName:
-          'border-[color:var(--color-chat-status-running)] bg-[color:var(--color-chat-tool-bg)] text-[color:var(--color-chat-status-running)]',
-        markerClassName:
-          'border-[color:var(--color-chat-status-running)] bg-[color:var(--color-chat-status-running)]',
-        statusBadgeClassName:
-          'bg-[color:var(--color-chat-status-running)] text-[color:var(--color-chat-card-bg)]',
-        statusTextClassName: 'text-[color:var(--color-chat-status-running)]',
+        iconClassName: 'border-chat-status-running bg-chat-tool-bg text-chat-status-running',
+        markerClassName: 'border-chat-status-running bg-chat-status-running',
+        statusBadgeClassName: 'bg-chat-status-running text-chat-card-bg',
+        statusTextClassName: 'text-chat-status-running',
       }
   }
 }
@@ -145,13 +136,13 @@ export const ProjectSubagentFlowEventCard = ({
       <span
         aria-hidden="true"
         className={cn(
-          'layer-local-1 absolute top-2 left-0 grid h-5 w-5 place-items-center rounded-full border-4 border-[color:var(--color-chat-panel-bg)]',
+          'layer-local-1 absolute top-2 left-0 grid h-5 w-5 place-items-center rounded-full border-4 border-chat-panel-bg',
           style.markerClassName,
         )}
       >
-        <span className="h-2 w-2 rounded-full bg-[color:var(--color-chat-card-bg)] opacity-80" />
+        <span className="h-2 w-2 rounded-full bg-chat-card-bg opacity-80" />
       </span>
-      <div className="flex min-w-0 items-start gap-3 border-b border-[color:var(--color-chat-inline-border)] pb-3">
+      <div className="flex min-w-0 items-start gap-3 border-b border-chat-inline-border pb-3">
         <span
           aria-hidden="true"
           className={cn(
@@ -162,7 +153,7 @@ export const ProjectSubagentFlowEventCard = ({
           {style.accentIcon}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-body-sm leading-snug font-medium [overflow-wrap:anywhere] text-[color:var(--color-chat-message-text)]">
+          <div className="text-body-sm leading-snug font-medium [overflow-wrap:anywhere] text-chat-message-text">
             {event.label}
           </div>
           <div
@@ -203,7 +194,7 @@ export const ProjectMemberToolActivityLine = ({ part }: { part: ProjectMemberSeg
 
   return (
     <div
-      className="flex items-center gap-2 text-label leading-none text-[color:var(--color-chat-muted-text)]"
+      className="flex items-center gap-2 text-label leading-none text-chat-muted-text"
       data-project-member-tool-state={part.state ?? 'input-available'}
     >
       <span
@@ -211,10 +202,10 @@ export const ProjectMemberToolActivityLine = ({ part }: { part: ProjectMemberSeg
         className={cn(
           'grid h-4 w-4 shrink-0 place-items-center rounded-full text-caption leading-none font-semibold',
           failed
-            ? 'bg-[color:var(--color-chat-error-bg)] text-[color:var(--color-chat-error-text)]'
+            ? 'bg-chat-error-bg text-chat-error-text'
             : completed
-              ? 'bg-[color:var(--color-chat-tool-bg)] text-[color:var(--color-chat-status-success)]'
-              : 'bg-[color:var(--color-chat-tool-bg)] text-[color:var(--color-chat-status-running)]',
+              ? 'bg-chat-tool-bg text-chat-status-success'
+              : 'bg-chat-tool-bg text-chat-status-running',
         )}
       >
         {failed ? '!' : completed ? '✓' : '·'}
@@ -233,7 +224,7 @@ export const ProjectMemberToolActivityLine = ({ part }: { part: ProjectMemberSeg
  */
 export const ProjectMemberSegmentActivity = ({ segment }: { segment: ProjectMemberSegment }) => (
   <div
-    className="space-y-2 border-l-2 border-[color:var(--color-chat-agent-rail)] py-1 pl-3"
+    className="space-y-2 border-l-2 border-chat-agent-rail py-1 pl-3"
     data-project-member-activity={segment.memberRunId}
   >
     {segment.parts.map((part, index) => {
@@ -249,7 +240,7 @@ export const ProjectMemberSegmentActivity = ({ segment }: { segment: ProjectMemb
       if (part.type === 'reasoning') {
         return (
           <div
-            className="text-label leading-5 whitespace-pre-wrap text-[color:var(--color-chat-muted-text)]"
+            className="text-label leading-5 whitespace-pre-wrap text-chat-muted-text"
             key={`${segment.memberRunId}:reasoning:${index.toString(36)}`}
           >
             {part.text}
@@ -294,7 +285,7 @@ export const ProjectSubagentFlowTimelineCard = ({
           {item.events.length > 1 ? (
             <span
               aria-hidden="true"
-              className="absolute top-7 bottom-5 left-2.5 w-px bg-[color:var(--color-chat-inline-border)]"
+              className="absolute top-7 bottom-5 left-2.5 w-px bg-chat-inline-border"
             />
           ) : null}
           <div className="space-y-3">

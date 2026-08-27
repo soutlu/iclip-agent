@@ -15,7 +15,7 @@ export default function ZoomControls() {
 
   /* 按钮基础样式 */
   const btnBase =
-    'flex items-center justify-center backdrop-blur-md border border-[var(--color-border)] rounded-full transition-all duration-75 ease-out text-[var(--color-on-background)] bg-[var(--color-header-btn-bg)] hover:bg-[var(--color-hover)]'
+    'flex items-center justify-center backdrop-blur-md border border-border rounded-full transition-all ui-motion-s text-on-background bg-header-btn-bg hover:bg-hover'
 
   return (
     <div className="layer-content flex items-center gap-2">
@@ -28,7 +28,7 @@ export default function ZoomControls() {
               className={cn(btnBase, 'h-8 w-16 px-1.5 shadow-[var(--shadow-2)]')}
               aria-label="缩放级别"
             >
-              <span className="text-sm font-medium">{zoomLevel}%</span>
+              <span className="text-body font-medium">{zoomLevel}%</span>
             </button>
           </Popover.Trigger>
           {isZoomMenuOpen && <ZoomMenu onClose={() => setIsZoomMenuOpen(false)} />}

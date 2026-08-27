@@ -355,7 +355,7 @@ function MediaCard({
       >
         {item.kind === 'audio' ? (
           <span
-            className="absolute inset-0 flex items-center justify-center rounded-[inherit] bg-[var(--color-thumb-fallback)] text-white"
+            className="absolute inset-0 flex items-center justify-center rounded-[inherit] bg-thumb-fallback text-white"
             role="img"
             aria-label={item.name}
           >

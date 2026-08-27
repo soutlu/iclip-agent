@@ -363,7 +363,7 @@ export default function CanvasVideoComposer({
   return (
     <div className="relative w-full md:w-fit" data-canvas-video-composer="true">
       <ComposerShell
-        className="layer-local-1 relative flex w-full flex-col justify-end overflow-visible text-[var(--color-on-background)] md:w-[68vw] md:max-w-[920px] md:min-w-[720px]"
+        className="layer-local-1 relative flex w-full flex-col justify-end overflow-visible text-on-background md:w-[68vw] md:max-w-[920px] md:min-w-[720px]"
         dropHint="拖拽图片、视频或音频到这里"
         isDropActive={dropZoneProps.isDragActive}
         onDragEnter={dropZoneProps.onDragEnter}
@@ -372,7 +372,7 @@ export default function CanvasVideoComposer({
         onDrop={dropZoneProps.onDrop}
         onDropCapture={dropZoneProps.onDropCapture}
       >
-        <div className="relative flex flex-col px-5 pt-4 pb-4 text-sm leading-[1.6]">
+        <div className="relative flex flex-col px-5 pt-4 pb-4 text-body leading-[1.6]">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-3">
             <ComposerMediaStack
               disabled={isComposerLocked}
@@ -409,7 +409,7 @@ export default function CanvasVideoComposer({
 
           {pendingUploadCount > 0 ? (
             <div
-              className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-control-bg)] px-3 py-2 text-label text-[var(--color-on-background)]"
+              className="mt-3 rounded-lg border border-border bg-control-bg px-3 py-2 text-label text-on-background"
               role="status"
             >
               处理中，正在准备 {pendingUploadCount.toString()} 个媒体文件
@@ -418,7 +418,7 @@ export default function CanvasVideoComposer({
 
           {attachmentErrorMessage ? (
             <div
-              className="mt-3 rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] px-3 py-2 text-label leading-5 text-[var(--color-danger-text)]"
+              className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-label leading-5 text-danger-text"
               role="alert"
             >
               {attachmentErrorMessage}
@@ -427,7 +427,7 @@ export default function CanvasVideoComposer({
 
           {requestErrorMessage ? (
             <div
-              className="mt-3 rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] px-3 py-2 text-label leading-5 text-[var(--color-danger-text)]"
+              className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-label leading-5 text-danger-text"
               role="alert"
             >
               {requestErrorMessage}
@@ -456,8 +456,8 @@ export default function CanvasVideoComposer({
               className={cn(
                 'hit-48 relative flex h-8 w-8 items-center justify-center rounded-full transition-all duration-[var(--dur-s)] ease-[var(--ease)]',
                 submitDisabled
-                  ? 'cursor-not-allowed border-none bg-transparent text-[var(--color-disabled-text)]'
-                  : 'cursor-pointer bg-[var(--color-on-background)] text-[var(--color-background)] hover:scale-105 active:scale-95',
+                  ? 'cursor-not-allowed border-none bg-transparent text-disabled-text'
+                  : 'cursor-pointer bg-on-background text-background hover:scale-105 active:scale-95',
               )}
               aria-label={submitLabel}
               onClick={() => {

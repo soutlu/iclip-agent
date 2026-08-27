@@ -29,7 +29,7 @@ function SheetHandle({ title }: { title: string }) {
         style={{ backgroundColor: 'var(--color-on-surface-variant)', opacity: 0.6 }}
       />
       <div className="flex w-full items-center justify-start">
-        <h3 className="text-sm font-medium text-[var(--color-on-background)]">{title}</h3>
+        <h3 className="text-body font-medium text-on-background">{title}</h3>
       </div>
     </div>
   )

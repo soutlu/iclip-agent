@@ -496,7 +496,7 @@ export default function CreativeBriefCanvasCard({ brief }: CreativeBriefCanvasCa
 
   return (
     <article
-      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--color-canvas-card-bg)] text-[color:var(--color-canvas-card-text)]"
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-canvas-card-bg text-canvas-card-text"
       style={{
         fontFamily: BODY_FONT_FAMILY,
       }}
@@ -506,10 +506,10 @@ export default function CreativeBriefCanvasCard({ brief }: CreativeBriefCanvasCa
       <div className="nodrag nopan nowheel thin-scrollbar relative flex min-h-0 w-full flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-6 py-6">
         <header className="flex items-start justify-between gap-5">
           <div className="min-w-0">
-            <p className="text-caption font-medium tracking-[0.16em] text-[color:var(--color-on-surface-variant)] uppercase">
+            <p className="text-caption font-medium tracking-[0.16em] text-on-surface-variant uppercase">
               Creative Brief
             </p>
-            <h2 className="mt-1 text-canvas-title leading-tight font-medium text-[color:var(--color-canvas-card-text)]">
+            <h2 className="mt-1 text-canvas-title leading-tight font-medium text-canvas-card-text">
               创意策略简报
             </h2>
           </div>
@@ -517,7 +517,7 @@ export default function CreativeBriefCanvasCard({ brief }: CreativeBriefCanvasCa
 
         {hasStrategicSummary || hasFABTranslation ? (
           <section
-            className="border-t border-[var(--color-outline-variant)] pt-5"
+            className="border-t border-outline-variant pt-5"
             style={{
               borderColor: PALETTE.border,
             }}
@@ -567,7 +567,7 @@ export default function CreativeBriefCanvasCard({ brief }: CreativeBriefCanvasCa
 
         {hasFormulaAdaptation ? (
           <section
-            className="border-t border-[var(--color-outline-variant)] pt-5"
+            className="border-t border-outline-variant pt-5"
             style={{ borderColor: PALETTE.border }}
           >
             <SectionHeader eyebrow="Formula Adaptation" title="爆款基因移植策略" />
@@ -589,7 +589,7 @@ export default function CreativeBriefCanvasCard({ brief }: CreativeBriefCanvasCa
 
         {hasAdaptationSection ? (
           <section
-            className="border-t border-[var(--color-outline-variant)] pt-5"
+            className="border-t border-outline-variant pt-5"
             style={{ borderColor: PALETTE.border }}
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -622,7 +622,7 @@ export default function CreativeBriefCanvasCard({ brief }: CreativeBriefCanvasCa
 
         {hasAVGuardrails ? (
           <section
-            className="border-t border-[var(--color-outline-variant)] pt-5"
+            className="border-t border-outline-variant pt-5"
             style={{ borderColor: PALETTE.border }}
           >
             <SectionHeader eyebrow="A/V Guardrails" title="视听包装与网感护栏" />
@@ -657,7 +657,7 @@ export default function CreativeBriefCanvasCard({ brief }: CreativeBriefCanvasCa
 
         {mustHaves.length > 0 || donts.length > 0 ? (
           <section
-            className="border-t border-[var(--color-outline-variant)] pt-5"
+            className="border-t border-outline-variant pt-5"
             style={{ borderColor: PALETTE.border }}
           >
             <SectionHeader eyebrow="Execution Rules" title="执行铁律" />

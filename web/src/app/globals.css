@@ -10,6 +10,9 @@
 @import '../../node_modules/tailwindcss/preflight.css' layer(base);
 @tailwind utilities;
 
+/* 深色变体：主题由 <html> 上的 .dark 决定（见 src/app/theme.ts），dark: 前缀跟着它走。 */
+@custom-variant dark (&:is(.dark *));
+
 /* 唯一圆角标尺：同时驱动 CSS token 和 Tailwind rounded-* utilities。 */
 @theme {
   --radius-none: 0;
@@ -32,10 +35,11 @@
   --breakpoint-md: 840px;
 }
 
-/* 唯一字阶（M3 type scale，v15 七档）：同时驱动 --text-* CSS 变量和 Tailwind text-* 工具类。
-   TSX 一律使用 text-caption/label/body-sm/body/title/headline/display，
-   禁止 text-[Npx] 任意值；CSS 使用 var(--text-*)。旧 -line 别名见 base.css。 */
+/* 唯一 UI 字阶（M3 type scale，10 档）：同时驱动 --text-* CSS 变量和 Tailwind text-* 工具类。
+   先把 Tailwind 自带字号整族清空，让 text-sm / text-xl 这类档外写法编译不出任何 CSS；
+   TSX 只用下面这些名字，CSS 用 var(--text-*)。旧 -line 别名见 base.css。 */
 @theme {
+  --text-*: initial;
   --text-caption: 11px; /* 全站下限（v15：10 / 10.5 废除，刻度、角标、分区标签并入本档） */
   --text-caption--line-height: 16px;
   --text-label: 12px; /* 标签、日期 */
@@ -64,6 +68,268 @@
   --text-canvas-title-sm: 24px;
   --text-canvas-title: 26px;
   --text-canvas-title-lg: 28px;
+}
+
+/* 把 ②③ 层颜色与海拔登记成 Tailwind 工具类：bg-primary、text-chat-muted-text、shadow-2 …
+ *
+ * inline + reference 两个修饰缺一不可：inline 让工具类直接写 var(--color-x)，值随 .dark 切换；
+ * reference 让这一段只做名字登记、不往 :root 再吐一份变量（值的唯一来源是 base.css）。
+ * 名字与值同名是刻意的——组件写 bg-primary，编译出来就是 var(--color-primary)。
+ * 新增颜色 token 时这里补一行，否则 TSX 里那个类名编译不出 CSS 也不会报错。 */
+@theme inline reference {
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-on-primary: var(--color-on-primary);
+  --color-primary-container: var(--color-primary-container);
+  --color-on-primary-container: var(--color-on-primary-container);
+  --color-primary-container-solid: var(--color-primary-container-solid);
+  --color-primary-container-soft: var(--color-primary-container-soft);
+  --color-secondary: var(--color-secondary);
+  --color-on-secondary: var(--color-on-secondary);
+  --color-secondary-container: var(--color-secondary-container);
+  --color-on-secondary-container: var(--color-on-secondary-container);
+  --color-tertiary: var(--color-tertiary);
+  --color-on-tertiary: var(--color-on-tertiary);
+  --color-tertiary-container: var(--color-tertiary-container);
+  --color-on-tertiary-container: var(--color-on-tertiary-container);
+  --color-error: var(--color-error);
+  --color-on-error: var(--color-on-error);
+  --color-error-container: var(--color-error-container);
+  --color-on-error-container: var(--color-on-error-container);
+  --color-surface: var(--color-surface);
+  --color-on-surface: var(--color-on-surface);
+  --color-surface-variant: var(--color-surface-variant);
+  --color-on-surface-variant: var(--color-on-surface-variant);
+  --color-outline: var(--color-outline);
+  --color-outline-variant: var(--color-outline-variant);
+  --color-surface-container-lowest: var(--color-surface-container-lowest);
+  --color-surface-container-low: var(--color-surface-container-low);
+  --color-surface-container: var(--color-surface-container);
+  --color-surface-container-high: var(--color-surface-container-high);
+  --color-surface-container-highest: var(--color-surface-container-highest);
+  --color-inverse-surface: var(--color-inverse-surface);
+  --color-inverse-on-surface: var(--color-inverse-on-surface);
+  --color-inverse-primary: var(--color-inverse-primary);
+  --color-scrim: var(--color-scrim);
+  --color-shadow: var(--color-shadow);
+  --color-primary-fixed: var(--color-primary-fixed);
+  --color-primary-fixed-dim: var(--color-primary-fixed-dim);
+  --color-secondary-fixed: var(--color-secondary-fixed);
+  --color-secondary-fixed-dim: var(--color-secondary-fixed-dim);
+  --color-tertiary-fixed: var(--color-tertiary-fixed);
+  --color-tertiary-fixed-dim: var(--color-tertiary-fixed-dim);
+  --color-state-hover: var(--color-state-hover);
+  --color-state-focus: var(--color-state-focus);
+  --color-state-pressed: var(--color-state-pressed);
+  --color-state-dragged: var(--color-state-dragged);
+  --color-disabled-text: var(--color-disabled-text);
+  --color-disabled-container: var(--color-disabled-container);
+  --color-focus-ring: var(--color-focus-ring);
+  --color-ring-highlight: var(--color-ring-highlight);
+  --color-warning: var(--color-warning);
+  --color-on-warning: var(--color-on-warning);
+  --color-warning-container: var(--color-warning-container);
+  --color-on-warning-container: var(--color-on-warning-container);
+  --color-background: var(--color-background);
+  --color-background-top: var(--color-background-top);
+  --color-background-bottom: var(--color-background-bottom);
+  --color-on-background: var(--color-on-background);
+  --color-top-layer: var(--color-top-layer);
+  --color-state-active: var(--color-state-active);
+  --color-glass-base: var(--color-glass-base);
+  --color-glass-surface: var(--color-glass-surface);
+  --color-control-bg: var(--color-control-bg);
+  --color-btn-hover: var(--color-btn-hover);
+  --color-media-stack-bg: var(--color-media-stack-bg);
+  --color-media-stack-bg-hover: var(--color-media-stack-bg-hover);
+  --color-popup-bg: var(--color-popup-bg);
+  --color-chip-bg: var(--color-chip-bg);
+  --color-chip-bg-glass: var(--color-chip-bg-glass);
+  --color-input-bg: var(--color-input-bg);
+  --color-input-border: var(--color-input-border);
+  --color-dot: var(--color-dot);
+  --color-dot-pattern: var(--color-dot-pattern);
+  --color-border: var(--color-border);
+  --color-header-divider: var(--color-header-divider);
+  --color-border-hover: var(--color-border-hover);
+  --color-hover: var(--color-hover);
+  --color-danger-bg: var(--color-danger-bg);
+  --color-danger-border: var(--color-danger-border);
+  --color-danger-text: var(--color-danger-text);
+  --color-chip-border: var(--color-chip-border);
+  --color-thumb-fallback: var(--color-thumb-fallback);
+  --color-badge-border: var(--color-badge-border);
+  --color-header-btn-bg: var(--color-header-btn-bg);
+  --color-agent-log-bg: var(--color-agent-log-bg);
+  --color-suggestion-bg: var(--color-suggestion-bg);
+  --color-suggestion-border: var(--color-suggestion-border);
+  --color-suggestion-badge: var(--color-suggestion-badge);
+  --color-chat-panel-bg: var(--color-chat-panel-bg);
+  --color-chat-panel-bg-start: var(--color-chat-panel-bg-start);
+  --color-chat-panel-bg-end: var(--color-chat-panel-bg-end);
+  --color-chat-panel-border: var(--color-chat-panel-border);
+  --color-chat-card-bg: var(--color-chat-card-bg);
+  --color-chat-message-text: var(--color-chat-message-text);
+  --color-chat-secondary-text: var(--color-chat-secondary-text);
+  --color-chat-muted-text: var(--color-chat-muted-text);
+  --color-chat-user-bg: var(--color-chat-user-bg);
+  --color-chat-user-bg-hover: var(--color-chat-user-bg-hover);
+  --color-chat-user-bg-active: var(--color-chat-user-bg-active);
+  --color-chat-user-border: var(--color-chat-user-border);
+  --color-chat-user-border-active: var(--color-chat-user-border-active);
+  --color-chat-assistant-bg: var(--color-chat-assistant-bg);
+  --color-chat-assistant-border: var(--color-chat-assistant-border);
+  --color-chat-assistant-highlight: var(--color-chat-assistant-highlight);
+  --color-chat-agent-avatar-bg: var(--color-chat-agent-avatar-bg);
+  --color-chat-agent-avatar-border: var(--color-chat-agent-avatar-border);
+  --color-chat-agent-identity-bg: var(--color-chat-agent-identity-bg);
+  --color-chat-agent-identity-border: var(--color-chat-agent-identity-border);
+  --color-chat-agent-identity-text: var(--color-chat-agent-identity-text);
+  --color-chat-agent-rail: var(--color-chat-agent-rail);
+  --color-chat-inline-bg: var(--color-chat-inline-bg);
+  --color-chat-inline-border: var(--color-chat-inline-border);
+  --color-chat-tool-bg: var(--color-chat-tool-bg);
+  --color-chat-tool-border: var(--color-chat-tool-border);
+  --color-chat-chip-bg: var(--color-chat-chip-bg);
+  --color-chat-chip-border: var(--color-chat-chip-border);
+  --color-chat-code-bg: var(--color-chat-code-bg);
+  --color-chat-code-block-bg: var(--color-chat-code-block-bg);
+  --color-chat-code-border: var(--color-chat-code-border);
+  --color-chat-link-text: var(--color-chat-link-text);
+  --color-chat-link-border: var(--color-chat-link-border);
+  --color-chat-error-bg: var(--color-chat-error-bg);
+  --color-chat-error-border: var(--color-chat-error-border);
+  --color-chat-error-text: var(--color-chat-error-text);
+  --color-chat-status-success: var(--color-chat-status-success);
+  --color-chat-status-error: var(--color-chat-status-error);
+  --color-chat-status-running: var(--color-chat-status-running);
+  --color-chat-focus-ring: var(--color-chat-focus-ring);
+  --color-canvas-card-bg: var(--color-canvas-card-bg);
+  --color-canvas-card-text: var(--color-canvas-card-text);
+  --color-canvas-card-border: var(--color-canvas-card-border);
+  --color-canvas-label-text: var(--color-canvas-label-text);
+  --color-storyboard-canvas: var(--color-storyboard-canvas);
+  --color-storyboard-canvas-dot: var(--color-storyboard-canvas-dot);
+  --color-annotation-red: var(--color-annotation-red);
+  --color-annotation-orange: var(--color-annotation-orange);
+  --color-annotation-blue: var(--color-annotation-blue);
+  --color-annotation-green: var(--color-annotation-green);
+  --color-reference-image: var(--color-reference-image);
+  --color-reference-video: var(--color-reference-video);
+  --color-reference-audio: var(--color-reference-audio);
+  --color-reference-note: var(--color-reference-note);
+  --color-reference-arrow: var(--color-reference-arrow);
+  --color-reference-brush: var(--color-reference-brush);
+  --color-reference-frame: var(--color-reference-frame);
+  --color-on-reference: var(--color-on-reference);
+  --color-chart-1: var(--color-chart-1);
+  --color-chart-2: var(--color-chart-2);
+  --color-chart-3: var(--color-chart-3);
+  --color-chart-4: var(--color-chart-4);
+  --color-artifact-brief: var(--color-artifact-brief);
+  --color-artifact-image-analysis: var(--color-artifact-image-analysis);
+  --color-artifact-markdown: var(--color-artifact-markdown);
+  --color-artifact-storyboard: var(--color-artifact-storyboard);
+  --color-artifact-ui-card: var(--color-artifact-ui-card);
+  --color-artifact-video-prompt: var(--color-artifact-video-prompt);
+  --color-artifact-rail-bg: var(--color-artifact-rail-bg);
+  --color-brief-surface: var(--color-brief-surface);
+  --color-brief-surface-bright: var(--color-brief-surface-bright);
+  --color-brief-surface-muted: var(--color-brief-surface-muted);
+  --color-brief-border: var(--color-brief-border);
+  --color-brief-ink: var(--color-brief-ink);
+  --color-brief-ink-secondary: var(--color-brief-ink-secondary);
+  --color-brief-ink-soft: var(--color-brief-ink-soft);
+  --color-brief-amber: var(--color-brief-amber);
+  --color-brief-amber-soft: var(--color-brief-amber-soft);
+  --color-brief-sage: var(--color-brief-sage);
+  --color-brief-sage-soft: var(--color-brief-sage-soft);
+  --color-brief-danger: var(--color-brief-danger);
+  --color-brief-danger-soft: var(--color-brief-danger-soft);
+  --color-brief-board-1: var(--color-brief-board-1);
+  --color-brief-board-2: var(--color-brief-board-2);
+  --color-brief-board-3: var(--color-brief-board-3);
+  --color-brief-board-4: var(--color-brief-board-4);
+  --color-brief-board-5: var(--color-brief-board-5);
+  --color-brief-board-white: var(--color-brief-board-white);
+  --color-sb-table-accent: var(--color-sb-table-accent);
+  --color-sb-table-accent-soft: var(--color-sb-table-accent-soft);
+  --color-sb-table-background: var(--color-sb-table-background);
+  --color-sb-table-surface: var(--color-sb-table-surface);
+  --color-sb-table-prompt-surface: var(--color-sb-table-prompt-surface);
+  --color-sb-table-line: var(--color-sb-table-line);
+  --color-sb-table-badge-border: var(--color-sb-table-badge-border);
+  --color-sb-table-text: var(--color-sb-table-text);
+  --color-sb-table-text-secondary: var(--color-sb-table-text-secondary);
+  --color-sb-table-tertiary: var(--color-sb-table-tertiary);
+  --color-sb-table-tertiary-soft: var(--color-sb-table-tertiary-soft);
+  --color-sb-table-danger: var(--color-sb-table-danger);
+  --color-sb-table-danger-soft: var(--color-sb-table-danger-soft);
+  --color-sb-table-stage-hook-bg: var(--color-sb-table-stage-hook-bg);
+  --color-sb-table-stage-hook-text: var(--color-sb-table-stage-hook-text);
+  --color-sb-table-stage-proof-bg: var(--color-sb-table-stage-proof-bg);
+  --color-sb-table-stage-proof-text: var(--color-sb-table-stage-proof-text);
+  --color-sb-table-stage-demo-bg: var(--color-sb-table-stage-demo-bg);
+  --color-sb-table-stage-demo-text: var(--color-sb-table-stage-demo-text);
+  --color-sb-table-stage-closure-bg: var(--color-sb-table-stage-closure-bg);
+  --color-sb-table-stage-closure-text: var(--color-sb-table-stage-closure-text);
+  --color-sb-table-stage-neutral-bg: var(--color-sb-table-stage-neutral-bg);
+  --color-sb-table-stage-neutral-text: var(--color-sb-table-stage-neutral-text);
+  --color-on-scrim: var(--color-on-scrim);
+  --color-ai-gradient-start: var(--color-ai-gradient-start);
+  --color-ai-gradient-end: var(--color-ai-gradient-end);
+  --shadow-1: var(--shadow-1);
+  --shadow-2: var(--shadow-2);
+  --shadow-3: var(--shadow-3);
+}
+
+/* 交互态叠层：hover / pressed 用渐变铺一层半透明 on-surface，不覆盖组件自己的底色；
+   禁用态撤掉叠层，只压暗文字并给出 not-allowed。组件不再自写 hover / pressed / disabled 颜色。 */
+@utility ui-state {
+  transition-property: background-color, background-image, border-color, color, box-shadow;
+  transition-duration: var(--dur-s);
+  transition-timing-function: var(--ease);
+
+  &:hover:not(:disabled):not([aria-disabled='true']) {
+    background-image: linear-gradient(var(--color-state-hover), var(--color-state-hover));
+  }
+
+  &:active:not(:disabled):not([aria-disabled='true']) {
+    background-image: linear-gradient(var(--color-state-pressed), var(--color-state-pressed));
+  }
+
+  &:disabled,
+  &[aria-disabled='true'] {
+    background-image: none;
+    border-color: var(--color-disabled-container);
+    color: var(--color-disabled-text);
+    cursor: not-allowed;
+  }
+}
+
+/* 键盘焦点环：只在 :focus-visible 触发，鼠标点击不显示 */
+@utility ui-focus {
+  &:focus-visible {
+    outline: var(--state-focus-ring) solid var(--color-focus-ring);
+    outline-offset: var(--state-focus-offset);
+  }
+}
+
+/* 动效三档：时长与曲线一起给，替代 Tailwind 的 duration-* / ease-*。
+   过渡哪些属性仍由 transition / transition-colors 等自带类决定。 */
+@utility ui-motion-s {
+  transition-duration: var(--dur-s);
+  transition-timing-function: var(--ease);
+}
+
+@utility ui-motion-m {
+  transition-duration: var(--dur-m);
+  transition-timing-function: var(--ease);
+}
+
+@utility ui-motion-l {
+  transition-duration: var(--dur-l);
+  transition-timing-function: var(--ease);
 }
 
 @import './fonts.css';
