@@ -326,10 +326,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         global_reference: str,
         target_aspect: str,
     ) -> dict[str, Any]:
-        """按选中的候选帧生成镜头帧：一次调用出一张 2×2 网格图、切成 4 帧返回逐帧 URL。
+        """按逐帧 visual_prompt 生成镜头帧：一次调用出一张 2×2 网格图、切成 4 帧返回逐帧 URL。
 
-        - frames 每条给一个候选帧身份（预览板上标注的 S8-3 形状）与为它撰写的
-          visual_prompt。
+        - frames 每条给一个定格：`no` 是 S8-1 形状的帧号，镜头号即它所属的镜头，挑
+          中候选帧的直接用板上的帧号；prompt 是为它撰写的 visual_prompt。
         - 一批 1-4 条；不足 4 条时空格由中性面板补满并在切格后丢弃。
         - reference_images 的顺序即 global_reference 中 @Image1..N 的编号。
         - 需要多次调用时，在同一次回复中并行发起，不要串行等待。
@@ -339,7 +339,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
           址，都会被拒。
         - 每批成功后把逐帧 no/shot/prompt/url 与本批入参写进版记录
           ``frames/grids/<jobId>.json``。
-        - 该视频尚未抽帧、帧号格式错误、帧号不存在或重复时返回错误。
+        - 该视频尚未抽帧、帧号格式错误或同批重复时返回错误。
 
         Args:
             ctx: 框架给的运行上下文。
@@ -354,7 +354,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         document = await self._load_extraction(files, namespace, expected_key=None)
         if document is None:
             raise ModelRetry("取帧账本不存在或版本不兼容，先调用 plan_shot_frames。")
-        cell_ids, prompts = _resolve_requests(frames, document)
+        cell_ids, prompts = _resolve_requests(frames)
         references = tuple(reference_images)
         materials = run_materials(ctx.messages)
         for url in references:
@@ -940,14 +940,15 @@ def _check_in_range(rows: Sequence[Sequence[ShotSpan]], *, duration_ms: int) -> 
         )
 
 
-def _resolve_requests(
-    frames: Sequence[FrameRequest], document: dict[str, Any]
-) -> tuple[list[str], list[str]]:
-    """校验逐格请求并解出选中的帧号。"""
+def _resolve_requests(frames: Sequence[FrameRequest]) -> tuple[list[str], list[str]]:
+    """校验逐格请求并解出各格的帧号。
+
+    帧号只查形状与同批重复，不查它是不是账本里的候选帧：候选帧是写 prompt 时看的参
+    考，定格记的是属于哪一镜——新增的镜头、短于一秒的镜头没有候选帧，一样要出定格。
+    """
 
     if not 1 <= len(frames) <= GRID_CELLS:
         raise ModelRetry(f"frames 必须是 1-{GRID_CELLS} 条，当前 {len(frames)} 条。")
-    known = {cell["id"] for board in document["boards"] for cell in board["cells"]}
     cell_ids: list[str] = []
     prompts: list[str] = []
     for position, request in enumerate(frames, start=1):
@@ -956,10 +957,6 @@ def _resolve_requests(
             parse_cell_id(cell_id)
         except ShotParseError as exc:
             raise ModelRetry(str(exc)) from exc
-        if cell_id not in known:
-            raise ModelRetry(
-                f"帧号 {cell_id} 不在取帧账本中；可用帧号见预览板标注（本次共 {len(known)} 格）。"
-            )
         if cell_id in cell_ids:
             raise ModelRetry(f"帧号 {cell_id} 在同一次调用中重复。")
         prompt = request.prompt.strip()
