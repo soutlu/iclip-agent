@@ -5,6 +5,7 @@ import type {
   VideoTaskSnapshot,
 } from '@/features/tasks/video-task.types'
 import { Icon } from '@/shared/icons'
+import { Tag } from '@/shared/ui/tag'
 import { formatDateTime } from '@/shared/lib/datetime'
 import { MediaPreviewDialog, type MediaPreviewItem, useMediaPreview } from '@/shared/ui/media'
 import {
@@ -608,9 +609,7 @@ function TaskDetails({
                   ) : entry.tags ? (
                     <span className="home-task-detail-tags">
                       {entry.tags.map((tag) => (
-                        <span className="home-task-detail-tag" key={tag}>
-                          {tag}
-                        </span>
+                        <Tag key={tag}>{tag}</Tag>
                       ))}
                     </span>
                   ) : (

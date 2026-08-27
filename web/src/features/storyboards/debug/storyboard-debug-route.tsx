@@ -28,6 +28,8 @@ import { useAguiConnection } from '@/shared/agui/provider'
 import { STORYBOARD_AGENT } from '@/shared/config/agui-target'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
+import { Button } from '@/shared/ui/button'
+import { Input, Textarea } from '@/shared/ui/field'
 import {
   InlineMediaThumbnail,
   MediaPreviewDialog,
@@ -38,14 +40,8 @@ import DebugToolResultImages from './debug-tool-result-images'
 import DebugWorkspaceFiles from './debug-workspace-files'
 import GenerateShotFramesToolDetails from './generate-shot-frames-tool-details'
 
-const DEBUG_INPUT_CLASS =
-  'rounded-lg border border-outline bg-surface-container-lowest text-body text-on-surface transition-colors duration-[var(--dur-s)] hover:border-primary disabled:cursor-not-allowed disabled:bg-disabled-container disabled:text-disabled-text'
 const DEBUG_PANEL_CLASS =
   'overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest'
-const DEBUG_SECONDARY_BUTTON_CLASS =
-  'hit-48 relative inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-outline-variant bg-surface-container-lowest px-4 text-body font-semibold text-on-surface transition duration-[var(--dur-s)] ease-[var(--ease)] hover:border-outline hover:bg-state-hover active:scale-95 disabled:cursor-not-allowed disabled:bg-disabled-container disabled:text-disabled-text'
-const DEBUG_PRIMARY_BUTTON_CLASS =
-  'hit-48 relative inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-primary px-5 text-body font-semibold text-on-primary shadow-[var(--shadow-1)] transition duration-[var(--dur-s)] ease-[var(--ease)] hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-[var(--shadow-2)] active:translate-y-0 active:scale-95 disabled:cursor-not-allowed disabled:bg-disabled-container disabled:text-disabled-text disabled:shadow-none sm:h-10'
 
 type DebugRun = {
   conversationId: string
@@ -647,9 +643,9 @@ export default function StoryboardDebugRoute({
           </div>
 
           {run ? (
-            <button
-              className={DEBUG_SECONDARY_BUTTON_CLASS}
+            <Button
               disabled={runningConversationId === run.conversationId}
+              leadingIcon="refresh"
               onClick={() => {
                 setErrorMessage('')
                 setRunningConversationId(null)
@@ -665,11 +661,9 @@ export default function StoryboardDebugRoute({
                   ? '当前运行结束后可新建运行'
                   : '返回运行配置'
               }
-              type="button"
             >
-              <Icon decorative name="refresh" size="md" />
               新建运行
-            </button>
+            </Button>
           ) : null}
         </header>
 
@@ -728,14 +722,14 @@ export default function StoryboardDebugRoute({
                       来源 Task 加载失败
                     </h2>
                     <p className="mt-1 text-body-sm text-on-surface-variant">{taskQueryError}</p>
-                    <button
-                      className={cn(DEBUG_SECONDARY_BUTTON_CLASS, 'mt-4')}
+                    <Button
+                      className="mt-4"
+                      leadingIcon="refresh"
                       onClick={() => void taskLibraryQuery.refetch()}
-                      type="button"
+                      variant="outlined"
                     >
-                      <Icon decorative name="refresh" size="md" />
                       重新加载
-                    </button>
+                    </Button>
                   </section>
                 ) : taskMissing ? (
                   <section
@@ -790,10 +784,10 @@ export default function StoryboardDebugRoute({
                   <div className="flex flex-col gap-5 p-4 sm:p-5">
                     <label className="flex flex-col gap-2">
                       <span className="text-body-sm font-semibold">需求描述</span>
-                      <textarea
+                      <Textarea
                         aria-describedby={descriptionInvalid ? 'debug-form-error' : undefined}
                         aria-invalid={descriptionInvalid}
-                        className={cn(DEBUG_INPUT_CLASS, 'min-h-64 resize-y p-3')}
+                        className="min-h-64 resize-y"
                         disabled={submitting}
                         onChange={(event) => setRequirementDescription(event.target.value)}
                         placeholder="粘贴要测试的 Brief（含口播旁白等，整段透传给 Agent）"
@@ -803,8 +797,7 @@ export default function StoryboardDebugRoute({
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="flex flex-col gap-2">
                         <span className="text-body-sm font-semibold">目标画幅</span>
-                        <input
-                          className={cn(DEBUG_INPUT_CLASS, 'h-11 px-3')}
+                        <Input
                           disabled={submitting}
                           onChange={(event) => setRatio(event.target.value)}
                           value={ratio}
@@ -812,8 +805,7 @@ export default function StoryboardDebugRoute({
                       </label>
                       <label className="flex flex-col gap-2">
                         <span className="text-body-sm font-semibold">目标时长（秒）</span>
-                        <input
-                          className={cn(DEBUG_INPUT_CLASS, 'h-11 px-3')}
+                        <Input
                           disabled={submitting}
                           min="1"
                           onChange={(event) => setDurationSeconds(event.target.value)}
@@ -829,18 +821,15 @@ export default function StoryboardDebugRoute({
             </div>
 
             <div className="flex justify-end">
-              <button
+              <Button
                 aria-busy={submitting}
-                className={cn(DEBUG_PRIMARY_BUTTON_CLASS, 'sm:w-auto sm:min-w-64')}
-                disabled={submitting || (Boolean(taskId) && !selectedTask)}
+                className="w-full max-sm:h-12 sm:w-auto sm:min-w-64"
+                disabled={Boolean(taskId) && !selectedTask}
+                leadingIcon="play"
+                loading={submitting}
                 title="会调用真实模型"
                 type="submit"
               >
-                {submitting ? (
-                  <Icon className="animate-spin" decorative name="loading" size="md" />
-                ) : (
-                  <Icon decorative name="play" size="md" />
-                )}
                 {submitting
                   ? '正在开对话…'
                   : taskId && !selectedTask
@@ -848,7 +837,7 @@ export default function StoryboardDebugRoute({
                       ? 'Task 不可用'
                       : '正在加载任务…'
                     : '开始真实运行'}
-              </button>
+              </Button>
             </div>
           </form>
         )}

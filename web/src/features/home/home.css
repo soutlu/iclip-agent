@@ -88,11 +88,6 @@
   --home-mode-trigger-bg-hover: var(--color-state-hover);
   --home-filter-chip-bg: color-mix(in srgb, var(--color-on-surface) 4%, transparent);
   --home-filter-chip-bg-hover: color-mix(in srgb, var(--color-on-surface) 7%, transparent);
-  --home-filter-chip-bg-active: color-mix(
-    in srgb,
-    var(--color-primary-container-solid) 20%,
-    transparent
-  );
   --home-filter-chip-text: color-mix(in srgb, var(--color-on-surface) 70%, transparent);
   --home-filter-chip-text-active: var(--color-on-surface);
   --home-composer-upload-space: 68px;
@@ -350,38 +345,6 @@
 
 .home-composer-panel:hover .home-composer-send:not(:disabled) {
   background: var(--color-on-background);
-}
-
-.home-filter-chips {
-  gap: 8px;
-}
-
-.home-filter-chip {
-  display: inline-flex;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--home-filter-chip-bg);
-  color: var(--home-filter-chip-text);
-  font-family: var(--font-producer-ui);
-  font-size: var(--text-body);
-  font-weight: 500;
-  letter-spacing: 0;
-  line-height: 16px;
-  padding: 8px 24px;
-}
-
-.home-filter-chip:hover {
-  background: var(--home-filter-chip-bg-hover);
-  color: var(--home-filter-chip-text-active);
-}
-
-.home-filter-chip--active,
-.home-filter-chip--active:hover {
-  background: var(--home-filter-chip-bg-active);
-  color: var(--home-filter-chip-text-active);
 }
 
 .home-workspace-tab {
@@ -768,57 +731,6 @@
 
 .home-task-key-element-trigger[data-state='open'] svg {
   transform: rotate(180deg);
-}
-
-.home-task-key-element-menu {
-  display: flex;
-  width: max-content;
-  min-width: 152px;
-  max-width: 248px;
-  flex-direction: column;
-  padding: 6px 0;
-  overflow: hidden;
-}
-
-.home-task-key-element-option {
-  display: flex;
-  min-height: 40px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 14px;
-  border: 0;
-  background: transparent;
-  color: var(--color-on-surface);
-  cursor: pointer;
-  font-family: var(--font-producer-ui);
-  font-size: var(--text-body-sm);
-  font-weight: 500;
-  line-height: 20px;
-  text-align: left;
-  transition: background-color var(--dur-s) var(--ease);
-}
-
-.home-task-key-element-option:hover,
-.home-task-key-element-option[data-highlighted] {
-  background: var(--color-hover);
-}
-
-.home-task-key-element-option:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: -2px;
-  background: var(--color-hover);
-}
-
-.home-task-key-element-option[data-state='checked'] {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-  color: var(--color-primary);
-  font-weight: 650;
-}
-
-.home-task-key-element-option svg {
-  flex-shrink: 0;
-  color: var(--color-primary);
 }
 
 .home-task-media-sections {
@@ -1318,18 +1230,6 @@
   gap: 6px;
 }
 
-.home-task-detail-tag {
-  display: inline-flex;
-  height: 22px;
-  align-items: center;
-  padding: 0 9px;
-  border-radius: var(--radius-sm);
-  background: var(--home-filter-chip-bg);
-  color: var(--home-filter-chip-text);
-  font-size: var(--text-caption);
-  font-weight: 500;
-}
-
 .home-task-details-actions {
   display: flex;
   min-height: 34px;
@@ -1510,20 +1410,6 @@
   align-items: center;
   gap: 20px;
   grid-template-columns: 60px minmax(0, 1fr);
-}
-
-/* 「自定义」新增入口：在 filter chip 基础上叠加虚线边与主色 */
-.home-task-choice-chip--add {
-  gap: 5px;
-  padding: 8px 16px;
-  box-shadow: inset 0 0 0 1px var(--color-outline-variant);
-  background: transparent;
-  color: var(--color-primary);
-}
-
-.home-task-choice-chip--add:hover {
-  background: var(--home-filter-chip-bg);
-  color: var(--color-primary);
 }
 
 .home-task-composer input.home-task-choice-input {
@@ -1951,123 +1837,6 @@
 .home-task-material-preview-trigger:focus-visible {
   outline: 2px solid transparent;
   outline-offset: 2px;
-}
-
-.home-task-picker-overlay {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in srgb, var(--color-scrim) 46%, transparent);
-}
-
-.home-task-picker-dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  width: min(1080px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-  border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-container-lowest);
-  box-shadow: var(--shadow-3);
-  transform: translate(-50%, -50%);
-}
-
-.home-task-picker-header,
-.home-task-picker-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 20px;
-}
-
-.home-task-picker-header {
-  border-bottom: 1px solid var(--color-outline-variant);
-}
-
-.home-task-picker-header > div:first-child {
-  display: grid;
-  gap: 2px;
-}
-
-.home-task-picker-header h3,
-.home-task-picker-header p {
-  margin: 0;
-}
-
-.home-task-picker-header h3 {
-  color: var(--color-on-surface);
-  font-size: var(--text-title);
-  font-weight: 700;
-  line-height: var(--text-title-line);
-}
-
-.home-task-picker-header p,
-.home-task-picker-header-actions,
-.home-task-picker-footer > span {
-  color: var(--color-on-surface-variant);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption-line);
-}
-
-.home-task-picker-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.home-task-picker-header-actions button {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--color-on-surface-variant);
-  cursor: pointer;
-}
-
-.home-task-picker-header-actions button:hover {
-  background: var(--color-hover);
-}
-
-.home-task-picker-body {
-  display: grid;
-  min-height: 0;
-  gap: 24px;
-  padding: 20px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.home-task-picker-body .home-task-product-image-group h4 {
-  margin: 0;
-  color: var(--color-on-surface);
-  font-size: var(--text-body-sm);
-  font-weight: 700;
-  line-height: var(--text-body-sm-line);
-}
-
-.home-task-picker-footer {
-  border-top: 1px solid var(--color-outline-variant);
-}
-
-.home-task-picker-footer button {
-  min-height: 34px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  cursor: pointer;
-  font-family: var(--font-producer-ui);
-  font-size: var(--text-body-sm);
-  font-weight: 650;
 }
 
 .home-task-color-filter {
@@ -2567,94 +2336,6 @@
   font-weight: 650;
 }
 
-.home-task-web-preview-overlay {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in srgb, var(--color-scrim) 68%, transparent);
-  backdrop-filter: blur(3px);
-}
-
-.home-task-web-preview-dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  width: min(860px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-  border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-container-lowest);
-  box-shadow: var(--shadow-3);
-  transform: translate(-50%, -50%);
-}
-
-.home-task-web-preview-dialog[data-platform='tiktok'],
-.home-task-web-preview-dialog[data-platform='instagram'] {
-  width: min(460px, calc(100vw - 48px));
-}
-
-.home-task-web-preview-dialog > header,
-.home-task-web-preview-dialog > footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
-}
-
-.home-task-web-preview-dialog > header {
-  border-bottom: 1px solid var(--color-outline-variant);
-}
-
-.home-task-web-preview-dialog > header > div {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.home-task-web-preview-dialog > header span,
-.home-task-web-preview-dialog > header p,
-.home-task-web-preview-dialog > footer {
-  color: var(--color-on-surface-variant);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption-line);
-}
-
-.home-task-web-preview-dialog > header h2,
-.home-task-web-preview-dialog > header p {
-  overflow: hidden;
-  margin: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.home-task-web-preview-dialog > header h2 {
-  color: var(--color-on-surface);
-  font-size: var(--text-title);
-  font-weight: 700;
-  line-height: var(--text-title-line);
-}
-
-.home-task-web-preview-dialog > header button {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--color-on-surface-variant);
-  cursor: pointer;
-}
-
-.home-task-web-preview-dialog > header button:hover {
-  background: var(--color-hover);
-}
-
 .home-task-web-preview-stage {
   display: grid;
   width: 100%;
@@ -2665,8 +2346,8 @@
   background: var(--color-inverse-surface);
 }
 
-.home-task-web-preview-dialog[data-platform='tiktok'] .home-task-web-preview-stage,
-.home-task-web-preview-dialog[data-platform='instagram'] .home-task-web-preview-stage {
+[data-platform='tiktok'] .home-task-web-preview-stage,
+[data-platform='instagram'] .home-task-web-preview-stage {
   aspect-ratio: 9 / 16;
 }
 
@@ -2684,26 +2365,6 @@
   text-align: center;
 }
 
-.home-task-web-preview-dialog > footer {
-  border-top: 1px solid var(--color-outline-variant);
-}
-
-.home-task-web-preview-dialog > footer a {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  color: var(--color-primary);
-  font-weight: 650;
-  text-decoration: none;
-}
-
-.home-task-web-preview-dialog > footer a:focus-visible,
-.home-task-web-preview-dialog > header button:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
-}
-
 .home-task-recommended-info {
   display: grid;
   min-width: 0;
@@ -2716,11 +2377,6 @@
   gap: 8px;
   color: var(--color-on-surface);
   font-size: var(--text-body-sm);
-}
-
-.home-task-detail-tag--primary {
-  background: var(--color-primary-container-soft);
-  color: var(--color-primary);
 }
 
 .home-task-recommended-metrics,
@@ -3180,21 +2836,6 @@
     padding: 24px 0 0;
     border-top: 1px solid var(--color-outline-variant);
     border-left: 0;
-  }
-
-  .home-task-picker-dialog {
-    width: calc(100vw - 24px);
-    max-height: calc(100vh - 24px);
-  }
-
-  .home-task-picker-header,
-  .home-task-picker-footer {
-    padding: 14px 16px;
-  }
-
-  .home-task-picker-body {
-    gap: 20px;
-    padding: 16px;
   }
 
   .home-task-recommended-header,

@@ -1,10 +1,6 @@
-import { DropdownMenu } from 'radix-ui'
 import type { SettingsChoiceOption } from '@/shared/composer'
 import { Icon } from '@/shared/icons'
-
-/** 与 PopupContent 同一套弹层表面样式，保证迁移到 DropdownMenu 后视觉不变。 */
-const MENU_SURFACE_CLASS =
-  'layer-popup popup-menu-enter rounded-md border border-border bg-popup-bg shadow-[var(--shadow-2)] backdrop-blur-[40px] home-task-key-element-menu'
+import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 
 type TaskOptionDropdownProps<TValue extends string> = {
   align?: 'bottom-start' | 'top-start'
@@ -36,50 +32,39 @@ export default function TaskOptionDropdown<TValue extends string>({
 
   return (
     <span className="home-task-key-element-dropdown">
-      <DropdownMenu.Root modal={false}>
-        <DropdownMenu.Trigger
+      <MenuRoot modal={false}>
+        <MenuTrigger
           aria-label={`${label}，当前：${selectedLabel}`}
           className="home-task-key-element-trigger"
           name={name}
         >
           {selectedLabel}
           <Icon decorative name="expand" size="sm" />
-        </DropdownMenu.Trigger>
+        </MenuTrigger>
 
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            align="start"
-            aria-label={label}
-            className={MENU_SURFACE_CLASS}
-            side={align === 'top-start' ? 'top' : 'bottom'}
-            sideOffset={4}
+        <MenuSurface
+          align="start"
+          aria-label={label}
+          side={align === 'top-start' ? 'top' : 'bottom'}
+        >
+          <MenuRadioGroup
+            value={value}
+            onValueChange={(nextValue) => {
+              // Radix 回传的是裸 string，按选项表反查回窄类型，避免断言。
+              const nextOption = options.find((option) => option.value === nextValue)
+              if (nextOption) {
+                onValueChange(nextOption.value)
+              }
+            }}
           >
-            <DropdownMenu.RadioGroup
-              value={value}
-              onValueChange={(nextValue) => {
-                // Radix 回传的是裸 string，按选项表反查回窄类型，避免断言。
-                const nextOption = options.find((option) => option.value === nextValue)
-                if (nextOption) {
-                  onValueChange(nextOption.value)
-                }
-              }}
-            >
-              {options.map((option) => (
-                <DropdownMenu.RadioItem
-                  className="home-task-key-element-option"
-                  key={option.value}
-                  value={option.value}
-                >
-                  {option.label}
-                  <DropdownMenu.ItemIndicator asChild>
-                    <Icon decorative name="check" size="md" />
-                  </DropdownMenu.ItemIndicator>
-                </DropdownMenu.RadioItem>
-              ))}
-            </DropdownMenu.RadioGroup>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+            {options.map((option) => (
+              <MenuRadioItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuSurface>
+      </MenuRoot>
     </span>
   )
 }

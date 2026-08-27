@@ -1,6 +1,6 @@
-import { Popover } from 'radix-ui'
 import { useCallback, useEffect } from 'react'
 import { useProjectCanvasStore } from '@/features/project-canvas'
+import { MenuItem, MenuSurface } from '@/shared/ui/menu'
 
 interface ZoomMenuItem {
   label: string
@@ -11,7 +11,7 @@ interface ZoomMenuItem {
 /**
  * 渲染画布缩放操作菜单。
  *
- * 必须挂载在 ZoomControls 的 Popover.Root 内部，菜单出现在触发按钮上方并
+ * 必须挂载在 ZoomControls 的 MenuRoot 内部，菜单出现在触发按钮上方并
  * 右对齐；Escape 与外部点击关闭由 Radix 处理，快捷键监听保持原有实现。
  *
  * @param props - 缩放菜单属性。
@@ -74,44 +74,17 @@ export default function ZoomMenu({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleItemClick, zoomIn, zoomOut, zoomTo100, zoomToFit, zoomToSelection])
 
-  const btnClass =
-    'gap-2 backdrop-blur-[12px] ui-motion-s focus-visible:outline-2 focus-visible:outline-current focus-visible:-outline-offset-2 px-3 h-8 text-label text-on-background w-full whitespace-nowrap bg-popup-bg rounded-none flex justify-between items-center first:rounded-t-md last:rounded-b-md hover:bg-hover active:bg-btn-hover transition-colors'
-
   return (
-    <Popover.Portal>
-      <Popover.Content
-        align="end"
-        side="top"
-        sideOffset={4}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        className="overflow-hidden rounded-md border border-border shadow-[var(--shadow-2)] backdrop-blur-[12px]"
-        style={{ zIndex: 'var(--z-popup)' }}
-      >
-        {menuItems.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            className={btnClass}
-            tabIndex={0}
-            onClick={() => handleItemClick(item.action)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                handleItemClick(item.action)
-              }
-            }}
-          >
-            <span>{item.label}</span>
-            <div className="ml-4 flex items-center gap-1">
-              {item.shortcutKeys.map((key) => (
-                <span key={key} className="w-2 text-center text-label">
-                  {key}
-                </span>
-              ))}
-            </div>
-          </button>
-        ))}
-      </Popover.Content>
-    </Popover.Portal>
+    <MenuSurface align="end" aria-label="缩放操作" side="top">
+      {menuItems.map((item) => (
+        <MenuItem
+          key={item.label}
+          shortcut={item.shortcutKeys}
+          onSelect={() => handleItemClick(item.action)}
+        >
+          {item.label}
+        </MenuItem>
+      ))}
+    </MenuSurface>
   )
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { cn } from '@/shared/lib/utils'
+import { ChipGroup, FilterChip } from '@/shared/ui/chip'
 import TaskConfirmView from './task-confirm-view'
 import TaskDispatchView from './task-dispatch-view'
 
@@ -21,22 +21,24 @@ export default function HomeTasksPanel() {
 
   return (
     <div className="home-tasks-panel" data-testid="home-tasks-panel">
-      <div aria-label="任务视角" className="home-filter-chips mb-5 flex flex-wrap" role="group">
+      <ChipGroup
+        aria-label="任务视角"
+        className="mb-5"
+        type="single"
+        value={mode}
+        onValueChange={(nextMode) => {
+          const nextTab = MODE_TABS.find((tab) => tab.id === nextMode)
+          if (nextTab) {
+            setMode(nextTab.id)
+          }
+        }}
+      >
         {MODE_TABS.map((tab) => (
-          <button
-            aria-pressed={mode === tab.id}
-            className={cn(
-              'home-filter-chip transition-all ui-motion-m hover:-translate-y-px active:translate-y-0',
-              mode === tab.id ? 'home-filter-chip--active' : '',
-            )}
-            key={tab.id}
-            type="button"
-            onClick={() => setMode(tab.id)}
-          >
+          <FilterChip key={tab.id} value={tab.id}>
             {tab.label}
-          </button>
+          </FilterChip>
         ))}
-      </div>
+      </ChipGroup>
 
       {mode === 'dispatch' ? <TaskDispatchView /> : <TaskConfirmView />}
     </div>

@@ -1,7 +1,13 @@
-import { Dialog } from 'radix-ui'
 import type { ReactNode } from 'react'
-import { Icon } from '@/shared/icons'
-import { cn } from '@/shared/lib/utils'
+import { Button } from '@/shared/ui/button'
+import {
+  DialogBody,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogRoot,
+  DialogSurface,
+} from '@/shared/ui/dialog'
 
 /**
  * 素材选择弹层的通用多选切换：按 key 比对，已选则移除，未选则追加到末尾。
@@ -53,7 +59,7 @@ export default function TaskPickerDialog({
   title,
 }: TaskPickerDialogProps) {
   return (
-    <Dialog.Root
+    <DialogRoot
       open
       onOpenChange={(nextOpen) => {
         if (!nextOpen) {
@@ -61,41 +67,31 @@ export default function TaskPickerDialog({
         }
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="home-task-picker-overlay layer-popup" />
-        <Dialog.Content aria-label={title} className="home-task-picker-dialog layer-popup">
-          <header className="home-task-picker-header">
-            <div>
-              <Dialog.Title asChild>
-                <h3>{title}</h3>
-              </Dialog.Title>
-              <Dialog.Description asChild>
-                <p>{description}</p>
-              </Dialog.Description>
-            </div>
-            <div className="home-task-picker-header-actions">
-              <span>
-                {selectedCount} {countUnit}已选
-              </span>
-              <button aria-label={`关闭${title}`} type="button" onClick={onClose}>
-                <Icon decorative name="close" size="md" />
-              </button>
-            </div>
-          </header>
-
-          <div className={cn('home-task-picker-body', bodyClassName)}>{children}</div>
-
-          <footer className="home-task-picker-footer">
+      <DialogSurface aria-label={title}>
+        <DialogHeader
+          actions={
             <span>
-              已选择 {selectedCount} {countUnit}
-              {countNoun}
+              {selectedCount} {countUnit}已选
             </span>
-            <button type="button" onClick={onClose}>
-              完成
-            </button>
-          </footer>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+          }
+          closeLabel={`关闭${title}`}
+          title={title}
+        >
+          <DialogDescription className="mt-1 text-body-sm text-on-surface-variant">
+            {description}
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogBody className={bodyClassName}>{children}</DialogBody>
+
+        <DialogFooter>
+          <span>
+            已选择 {selectedCount} {countUnit}
+            {countNoun}
+          </span>
+          <Button onClick={onClose}>完成</Button>
+        </DialogFooter>
+      </DialogSurface>
+    </DialogRoot>
   )
 }

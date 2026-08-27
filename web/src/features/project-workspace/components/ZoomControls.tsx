@@ -1,7 +1,7 @@
-import { Popover } from 'radix-ui'
 import { useState } from 'react'
 import { useProjectCanvasStore } from '@/features/project-canvas'
 import { cn } from '@/shared/lib/utils'
+import { MenuRoot, MenuTrigger } from '@/shared/ui/menu'
 import ZoomMenu from './ZoomMenu'
 
 /**
@@ -21,8 +21,8 @@ export default function ZoomControls() {
     <div className="layer-content flex items-center gap-2">
       {/* 缩放百分比 — 点击弹出菜单 */}
       <div className="relative">
-        <Popover.Root modal={false} open={isZoomMenuOpen} onOpenChange={setIsZoomMenuOpen}>
-          <Popover.Trigger asChild>
+        <MenuRoot modal={false} open={isZoomMenuOpen} onOpenChange={setIsZoomMenuOpen}>
+          <MenuTrigger asChild>
             <button
               type="button"
               className={cn(btnBase, 'h-8 w-16 px-1.5 shadow-[var(--shadow-2)]')}
@@ -30,9 +30,9 @@ export default function ZoomControls() {
             >
               <span className="text-body font-medium">{zoomLevel}%</span>
             </button>
-          </Popover.Trigger>
+          </MenuTrigger>
           {isZoomMenuOpen && <ZoomMenu onClose={() => setIsZoomMenuOpen(false)} />}
-        </Popover.Root>
+        </MenuRoot>
       </div>
     </div>
   )
