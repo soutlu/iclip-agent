@@ -34,14 +34,12 @@ export function SettingsPopupContent({
   return (
     <PopupContent
       className={cn(
-        'w-[min(calc(100vw-24px),492px)] overflow-hidden rounded-md border-[var(--color-outline-variant)] bg-[var(--color-popup-bg)] p-4 shadow-[var(--shadow-3)]',
+        'w-[min(calc(100vw-24px),492px)] overflow-hidden rounded-md border-outline-variant bg-popup-bg p-4 shadow-[var(--shadow-3)]',
         className,
       )}
       {...popupProps}
     >
-      <div className="flex flex-col gap-[18px] text-left text-[var(--color-on-background)]">
-        {children}
-      </div>
+      <div className="flex flex-col gap-[18px] text-left text-on-background">{children}</div>
     </PopupContent>
   )
 }
@@ -78,10 +76,10 @@ export function SettingsChoiceGroup<TValue extends string>({
           <button
             aria-selected={selected}
             className={cn(
-              'flex min-h-14 min-w-0 items-center justify-center rounded-lg px-3 text-center text-body-sm font-semibold transition-all duration-150 ease-out',
+              'flex min-h-14 min-w-0 items-center justify-center rounded-lg px-3 text-center text-body-sm font-semibold transition-all ui-motion-s',
               selected
-                ? 'bg-[var(--color-top-layer)] text-[var(--color-on-background)] shadow-[var(--shadow-1)]'
-                : 'text-[var(--color-on-surface-variant)] hover:bg-[var(--color-hover)] active:scale-[0.98]',
+                ? 'bg-top-layer text-on-background shadow-[var(--shadow-1)]'
+                : 'text-on-surface-variant hover:bg-hover active:scale-[0.98]',
             )}
             key={option.value}
             role="option"

@@ -4,7 +4,7 @@ import type { SettingsChoiceOption } from '@/shared/composer'
 
 /** 与 PopupContent 同一套弹层表面样式，保证迁移到 DropdownMenu 后视觉不变。 */
 const MENU_SURFACE_CLASS =
-  'layer-popup popup-menu-enter rounded-md border border-[var(--color-border)] bg-[var(--color-popup-bg)] shadow-[var(--shadow-2)] backdrop-blur-[40px] home-task-key-element-menu'
+  'layer-popup popup-menu-enter rounded-md border border-border bg-popup-bg shadow-[var(--shadow-2)] backdrop-blur-[40px] home-task-key-element-menu'
 
 type TaskOptionDropdownProps<TValue extends string> = {
   align?: 'bottom-start' | 'top-start'

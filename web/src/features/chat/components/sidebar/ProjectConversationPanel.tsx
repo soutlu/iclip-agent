@@ -118,7 +118,7 @@ const ProjectAssistantTimelineBubble = ({ item }: { item: ProjectAssistantBubble
       >
         <ProjectAgentIdentity activity={identityActivity} agent={identityAgent} />
         {hasBubbleBody ? (
-          <div className="relative mt-2 min-w-32 border-l-2 border-[color:var(--color-chat-agent-rail)] py-1 pl-3">
+          <div className="relative mt-2 min-w-32 border-l-2 border-chat-agent-rail py-1 pl-3">
             <ProjectAssistantTimelineContent item={item} running={isResponseShell} />
           </div>
         ) : null}
@@ -296,7 +296,7 @@ const ProjectUserMessageTimelineBubble = ({
   return (
     <div className="flex justify-end">
       <div
-        className="max-w-[82%] min-w-0 cursor-text rounded-xl border border-[color:var(--color-chat-user-border)] bg-[color:var(--color-chat-user-bg)] px-4 py-3 text-left text-body-sm leading-[1.58] whitespace-pre-wrap text-[color:var(--color-chat-message-text)] shadow-[var(--shadow-chat-user)] select-text"
+        className="max-w-[82%] min-w-0 cursor-text rounded-xl border border-chat-user-border bg-chat-user-bg px-4 py-3 text-left text-body-sm leading-[1.58] whitespace-pre-wrap text-chat-message-text shadow-[var(--shadow-chat-user)] select-text"
         data-project-user-message="true"
       >
         {parts.map((part, partIndex) => {
@@ -331,14 +331,14 @@ const ProjectUserMessageTimelineBubble = ({
 const projectTimelineMarkerClassName = (item: ProjectChatTimelineItem) => {
   switch (item.kind) {
     case 'ask-user-question':
-      return 'border-[color:var(--color-chat-agent-rail)] bg-[color:var(--color-chat-agent-rail)]'
+      return 'border-chat-agent-rail bg-chat-agent-rail'
     case 'subagent-flow':
     case 'tool-log-segment':
-      return 'border-[color:var(--color-chat-status-success)] bg-[color:var(--color-chat-status-success)]'
+      return 'border-chat-status-success bg-chat-status-success'
     case 'user-message':
-      return 'border-[color:var(--color-chat-user-border)] bg-[color:var(--color-chat-user-bg)]'
+      return 'border-chat-user-border bg-chat-user-bg'
     default:
-      return 'border-[color:var(--color-chat-inline-border)] bg-[color:var(--color-chat-panel-bg)]'
+      return 'border-chat-inline-border bg-chat-panel-bg'
   }
 }
 
@@ -427,13 +427,9 @@ export function ProjectConversationTimeline({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b border-[color:var(--color-chat-inline-border)] px-5 pt-5 pb-3">
-        <h2 className="text-body leading-none font-semibold text-[color:var(--color-chat-message-text)]">
-          {title}
-        </h2>
-        <span className="text-label leading-none font-medium text-[color:var(--color-chat-muted-text)]">
-          全部
-        </span>
+      <div className="flex shrink-0 items-center justify-between border-b border-chat-inline-border px-5 pt-5 pb-3">
+        <h2 className="text-body leading-none font-semibold text-chat-message-text">{title}</h2>
+        <span className="text-label leading-none font-medium text-chat-muted-text">全部</span>
       </div>
       <div
         aria-label={`${title}内容`}
@@ -444,7 +440,7 @@ export function ProjectConversationTimeline({
         role="region"
         tabIndex={0}
       >
-        <div className="relative space-y-5 pl-8 before:absolute before:top-2 before:bottom-2 before:left-[10px] before:w-px before:bg-[color:var(--color-chat-inline-border)]">
+        <div className="relative space-y-5 pl-8 before:absolute before:top-2 before:bottom-2 before:left-[10px] before:w-px before:bg-chat-inline-border">
           {timelineItems.map((item) => {
             const timelineNode = renderProjectTimelineItem({
               activeInterrupt,

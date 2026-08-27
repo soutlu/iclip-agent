@@ -59,7 +59,7 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 ## 常用命令
 
 ```bash
-pnpm install         # 安装依赖（Node ≥ 22.12 + pnpm）
+pnpm install         # 安装依赖（Node ≥ 22.18 + pnpm）
 pnpm dev             # 开发服务器（默认 3013；API 连接真实后端）
 pnpm dev:mock        # 浏览器 MSW 原型环境（默认端口 3014，不连接真实后端）
 pnpm build           # tsc -b && vite build

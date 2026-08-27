@@ -103,7 +103,7 @@ export default function AdminUsersRoute() {
         <Link
           to="/"
           aria-label="返回 Producer 首页"
-          className="pointer-events-auto inline-flex h-9 items-center gap-2 rounded-full border border-[var(--home-border)] bg-[var(--home-surface)] px-3 text-body-sm font-semibold text-[var(--home-text)] no-underline backdrop-blur-xl transition hover:bg-[var(--home-surface-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-chat-focus-ring)]"
+          className="pointer-events-auto inline-flex h-9 items-center gap-2 rounded-full border border-[var(--home-border)] bg-[var(--home-surface)] px-3 text-body-sm font-semibold text-[var(--home-text)] no-underline backdrop-blur-xl transition hover:bg-[var(--home-surface-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-chat-focus-ring"
         >
           <HippoIcon name="back" size={15} />
           <span>首页</span>

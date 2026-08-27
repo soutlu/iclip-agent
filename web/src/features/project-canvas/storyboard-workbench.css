@@ -153,23 +153,25 @@
   place-items: center;
 }
 
+/* Header 下缘的淡出带：每一档都从卡片底色派生（浅色下与原先的白色逐像素相同），
+   这样深色主题不会在页顶留一条白纱。 */
 .project-header-gradient {
   height: 10rem;
   background: linear-gradient(
     var(--color-surface-container-lowest) 0%,
-    #fffffff0 6%,
-    #ffffffd9 12%,
-    #ffffffb8 18%,
-    #ffffff94 24%,
-    #ffffff73 30%,
-    #ffffff57 35%,
-    #ffffff3d 40%,
-    #ffffff29 45%,
-    #ffffff1a 50%,
-    #ffffff0f 55%,
-    #ffffff08 60%,
-    #ffffff03 65%,
-    #fff0 70% 100%
+    color-mix(in srgb, var(--color-surface-container-lowest) 94%, transparent) 6%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 85%, transparent) 12%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 72%, transparent) 18%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 58%, transparent) 24%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 45%, transparent) 30%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 34%, transparent) 35%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 24%, transparent) 40%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 16%, transparent) 45%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 10%, transparent) 50%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 6%, transparent) 55%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 3%, transparent) 60%,
+    color-mix(in srgb, var(--color-surface-container-lowest) 1%, transparent) 65%,
+    transparent 70% 100%
   );
 }
 

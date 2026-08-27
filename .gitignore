@@ -23,6 +23,9 @@ web/coverage/
 .DS_Store
 *.log
 
+# 视觉 QA 截图等一次性产物
+.artifacts/
+
 # make up 调用的本地启动脚本：依赖地址与跳板机每台机器不一样，各自维护
 scripts/dev-up.sh
 

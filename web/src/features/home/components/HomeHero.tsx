@@ -368,7 +368,7 @@ export default function HomeHero() {
         )}
       >
         <ComposerShell
-          className="home-composer-panel group layer-local-1 relative flex w-full flex-col justify-end overflow-visible transition-[box-shadow,border-color] duration-150 ease-out"
+          className="home-composer-panel group layer-local-1 relative flex w-full flex-col justify-end overflow-visible transition-[box-shadow,border-color] ui-motion-s"
           dropHint="拖拽图片、视频或音频到这里"
           isDropActive={dropZoneProps.isDragActive}
           onDragEnter={dropZoneProps.onDragEnter}
@@ -378,7 +378,7 @@ export default function HomeHero() {
           onDropCapture={dropZoneProps.onDropCapture}
           style={{ transform: 'rotate(-0.25deg)', transformOrigin: 'left center' }}
         >
-          <span className="relative flex flex-col px-5 pt-3 pb-3 text-sm leading-[1.6]">
+          <span className="relative flex flex-col px-5 pt-3 pb-3 text-body leading-[1.6]">
             <span className="relative flex min-h-[4rem]">
               <input
                 ref={uploadInputRef}
@@ -504,7 +504,7 @@ export default function HomeHero() {
               <button
                 type="button"
                 aria-label={submitLabel}
-                className="home-composer-send hit-48 relative flex h-8 w-8 items-center justify-center rounded-full shadow-sm transition-all duration-150 ease-out group-hover:scale-105 group-active:scale-95"
+                className="home-composer-send hit-48 relative flex h-8 w-8 items-center justify-center rounded-full shadow-1 transition-all ui-motion-s group-hover:scale-105 group-active:scale-95"
                 disabled={submitDisabled}
                 onClick={() => {
                   void handleLaunchWorkspace()
@@ -525,7 +525,7 @@ export default function HomeHero() {
 
             {pendingUploadCount > 0 ? (
               <span
-                className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-control-bg)] px-3 py-2 text-left text-label leading-5 text-[var(--color-on-background)]"
+                className="mt-3 rounded-lg border border-border bg-control-bg px-3 py-2 text-left text-label leading-5 text-on-background"
                 role="status"
               >
                 处理中，正在准备 {pendingUploadCount.toString()} 个媒体文件
@@ -534,7 +534,7 @@ export default function HomeHero() {
 
             {attachmentErrorMessage ? (
               <span
-                className="mt-3 rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] px-3 py-2 text-left text-label leading-5 text-[var(--color-danger-text)]"
+                className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-left text-label leading-5 text-danger-text"
                 role="alert"
               >
                 {attachmentErrorMessage}
@@ -543,7 +543,7 @@ export default function HomeHero() {
 
             {errorMessage ? (
               <span
-                className="mt-3 rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] px-3 py-2 text-left text-label leading-5 text-[var(--color-danger-text)]"
+                className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-left text-label leading-5 text-danger-text"
                 role="alert"
               >
                 {errorMessage}

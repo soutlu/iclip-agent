@@ -139,7 +139,7 @@ export function VideoGenerationSettingsSummary({
   return (
     <div
       className={cn(
-        'flex max-w-[min(620px,calc(100vw-180px))] min-w-0 items-center gap-3 overflow-hidden text-body-sm leading-none font-semibold text-[var(--color-on-background)] md:text-body',
+        'flex max-w-[min(620px,calc(100vw-180px))] min-w-0 items-center gap-3 overflow-hidden text-body-sm leading-none font-semibold text-on-background md:text-body',
         className,
       )}
       data-video-generation-settings-summary="true"
@@ -216,7 +216,7 @@ export default function VideoGenerationSettingsControl({
         aria-label="视频生成设置"
         className={cn(
           'surface-button hit-48 relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
-          open ? 'bg-[var(--color-state-active)]' : '',
+          open ? 'bg-state-active' : '',
           className,
         )}
         data-video-generation-settings-button="true"
@@ -236,15 +236,13 @@ export default function VideoGenerationSettingsControl({
         role="dialog"
       >
         <section className="flex flex-col gap-2.5">
-          <h2 className="text-body-sm font-semibold text-[var(--color-on-surface-variant)]">
-            Model and quality
-          </h2>
+          <h2 className="text-body-sm font-semibold text-on-surface-variant">Model and quality</h2>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               aria-label="视频生成模型 mmt-seedance-2-0"
               aria-pressed={settings.model === DEFAULT_VIDEO_GENERATION_MODEL}
-              className="flex h-10 min-w-0 items-center justify-between gap-3 rounded-lg border border-transparent bg-[var(--color-top-layer)] px-4 text-left text-body-sm font-semibold text-[var(--color-on-background)]"
+              className="flex h-10 min-w-0 items-center justify-between gap-3 rounded-lg border border-transparent bg-top-layer px-4 text-left text-body-sm font-semibold text-on-background"
               onClick={() =>
                 onSettingsChange({ ...settings, model: DEFAULT_VIDEO_GENERATION_MODEL })
               }
@@ -254,7 +252,7 @@ export default function VideoGenerationSettingsControl({
             <button
               type="button"
               aria-label="视频画质 720p"
-              className="flex h-10 min-w-0 cursor-not-allowed items-center justify-between gap-3 rounded-lg border border-transparent bg-[color-mix(in_srgb,var(--color-on-surface-variant)_11%,transparent)] px-4 text-left text-body-sm font-semibold text-[var(--color-on-background)] opacity-80"
+              className="flex h-10 min-w-0 cursor-not-allowed items-center justify-between gap-3 rounded-lg border border-transparent bg-[color-mix(in_srgb,var(--color-on-surface-variant)_11%,transparent)] px-4 text-left text-body-sm font-semibold text-on-background opacity-80"
               disabled
             >
               <span>{settings.quality}</span>
@@ -264,9 +262,7 @@ export default function VideoGenerationSettingsControl({
         </section>
 
         <section className="flex flex-col gap-2.5">
-          <h2 className="text-body-sm font-semibold text-[var(--color-on-surface-variant)]">
-            Aspect ratio
-          </h2>
+          <h2 className="text-body-sm font-semibold text-on-surface-variant">Aspect ratio</h2>
           <div className="grid grid-cols-4 gap-1.5 rounded-xl bg-[color-mix(in_srgb,var(--color-on-surface-variant)_11%,transparent)] p-1.5 sm:grid-cols-7">
             {ASPECT_RATIO_OPTIONS.map((option) => (
               <AspectRatioButton
@@ -281,9 +277,7 @@ export default function VideoGenerationSettingsControl({
         </section>
 
         <section className="flex flex-col gap-2.5">
-          <h2 className="text-body-sm font-semibold text-[var(--color-on-surface-variant)]">
-            Duration
-          </h2>
+          <h2 className="text-body-sm font-semibold text-on-surface-variant">Duration</h2>
           <DurationSlider onSettingsChange={onSettingsChange} settings={settings} />
         </section>
       </SettingsPopupContent>
@@ -318,10 +312,10 @@ function AspectRatioButton({
       aria-label={`选择画幅比例 ${option.label}`}
       aria-pressed={selected}
       className={cn(
-        'flex min-h-14 min-w-0 flex-col items-center justify-center gap-1.5 rounded-lg px-2 text-body-sm font-semibold transition-all duration-150 ease-out',
+        'flex min-h-14 min-w-0 flex-col items-center justify-center gap-1.5 rounded-lg px-2 text-body-sm font-semibold transition-all ui-motion-s',
         selected
-          ? 'bg-[var(--color-top-layer)] text-[var(--color-on-background)]'
-          : 'text-[var(--color-on-surface-variant)] hover:bg-[var(--color-hover)] active:scale-95',
+          ? 'bg-top-layer text-on-background'
+          : 'text-on-surface-variant hover:bg-hover active:scale-95',
       )}
       onClick={() => onSelect({ ...settings, aspectRatio: option.value })}
     >
@@ -353,7 +347,7 @@ function DurationSlider({
   return (
     <div className="rounded-xl bg-[color-mix(in_srgb,var(--color-on-surface-variant)_11%,transparent)] px-4 py-3">
       <div className="grid grid-cols-[28px_minmax(0,1fr)_32px_52px] items-center gap-3">
-        <span className="text-label font-semibold text-[var(--color-on-surface-variant)]">
+        <span className="text-label font-semibold text-on-surface-variant">
           {DURATION_MIN_SECONDS}s
         </span>
 
@@ -382,22 +376,22 @@ function DurationSlider({
           />
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-0 h-2 -translate-y-1/2 rounded-full bg-[var(--color-top-layer)]"
+            className="pointer-events-none absolute top-1/2 left-0 h-2 -translate-y-1/2 rounded-full bg-top-layer"
             style={{ width: `${progress}%` }}
           />
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 size-[22px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[color-mix(in_srgb,var(--color-on-surface-variant)_18%,transparent)] bg-[var(--color-top-layer)] shadow-[var(--shadow-2)] peer-focus-visible:ring-4 peer-focus-visible:ring-[var(--color-state-active)]"
+            className="pointer-events-none absolute top-1/2 size-[22px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[color-mix(in_srgb,var(--color-on-surface-variant)_18%,transparent)] bg-top-layer shadow-[var(--shadow-2)] peer-focus-visible:ring-4 peer-focus-visible:ring-state-active"
             style={{ left: `${progress}%` }}
           />
         </div>
 
-        <span className="text-right text-label font-semibold text-[var(--color-on-surface-variant)]">
+        <span className="text-right text-label font-semibold text-on-surface-variant">
           {DURATION_MAX_SECONDS}s
         </span>
         <output
           aria-live="polite"
-          className="rounded-lg bg-[var(--color-top-layer)] px-3 py-1.5 text-center text-body-sm font-semibold text-[var(--color-on-background)]"
+          className="rounded-lg bg-top-layer px-3 py-1.5 text-center text-body-sm font-semibold text-on-background"
           htmlFor="video-generation-duration-slider"
         >
           {seconds}s
@@ -476,7 +470,7 @@ function ChevronDownIcon() {
   return (
     <svg
       aria-hidden="true"
-      className="shrink-0 text-[var(--color-on-surface-variant)]"
+      className="shrink-0 text-on-surface-variant"
       fill="none"
       height="16"
       viewBox="0 0 16 16"

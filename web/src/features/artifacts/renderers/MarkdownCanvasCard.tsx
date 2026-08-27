@@ -17,9 +17,9 @@ interface MarkdownCanvasCardProps {
 const MARKDOWN_IDENTITY_INVALID_CHARACTERS_PATTERN = /[^a-z0-9]+/g
 const MARKDOWN_IDENTITY_EDGE_SEPARATOR_PATTERN = /^-+|-+$/g
 const MARKDOWN_CARD_BASE_CLASS_NAME =
-  'relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--color-canvas-card-bg)] text-[color:var(--color-canvas-card-text)]'
+  'relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-canvas-card-bg text-canvas-card-text'
 const MARKDOWN_SOURCE_VIDEO_BANNER_CLASS_NAME =
-  'nodrag nopan group relative isolate h-[240px] w-full shrink-0 overflow-hidden rounded-xl border border-[var(--color-outline-variant)] bg-[var(--color-artifact-rail-bg)] text-left'
+  'nodrag nopan group relative isolate h-[240px] w-full shrink-0 overflow-hidden rounded-xl border border-outline-variant bg-artifact-rail-bg text-left'
 
 /**
  * 将 React useId 输出转换为 DOM 与插件均可安全使用的 identity。
@@ -196,7 +196,7 @@ function MarkdownSourceVideoBanner({
     >
       <video
         autoPlay
-        className="absolute inset-0 h-full w-full scale-[1.04] object-cover object-center transition-transform duration-200 ease-out group-hover:scale-[1.08]"
+        className="absolute inset-0 h-full w-full scale-[1.04] object-cover object-center transition-transform ui-motion-m group-hover:scale-[1.08]"
         loop
         muted
         playsInline
@@ -287,10 +287,10 @@ export default function MarkdownCanvasCard({ markdown }: MarkdownCanvasCardProps
       <div className="relative flex min-h-0 flex-1 flex-col gap-5 px-6 py-6">
         <header className="flex shrink-0 items-start justify-between gap-5">
           <div className="min-w-0">
-            <p className="text-caption font-medium tracking-[0.16em] text-[color:var(--color-on-surface-variant)] uppercase">
+            <p className="text-caption font-medium tracking-[0.16em] text-on-surface-variant uppercase">
               Markdown
             </p>
-            <h2 className="mt-1 min-w-0 truncate text-canvas-title leading-tight font-medium text-[color:var(--color-canvas-card-text)]">
+            <h2 className="mt-1 min-w-0 truncate text-canvas-title leading-tight font-medium text-canvas-card-text">
               {displayTitle}
             </h2>
           </div>
@@ -307,7 +307,7 @@ export default function MarkdownCanvasCard({ markdown }: MarkdownCanvasCardProps
         </header>
 
         <div
-          className="markdown-canvas-body nodrag nopan nowheel thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-[var(--color-outline-variant)] pt-5"
+          className="markdown-canvas-body nodrag nopan nowheel thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-outline-variant pt-5"
           data-scrollable
         >
           {sourceVideo ? (

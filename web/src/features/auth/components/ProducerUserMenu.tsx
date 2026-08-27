@@ -14,7 +14,7 @@ type ProducerUserMenuProps = {
 }
 
 const USER_AVATAR_BUTTON_CLASS =
-  'inline-flex h-8 w-8 min-w-8 items-center justify-center overflow-hidden rounded-full text-body-sm font-semibold select-none transition-all duration-75 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-chat-focus-ring)] active:scale-95'
+  'inline-flex h-8 w-8 min-w-8 items-center justify-center overflow-hidden rounded-full text-body-sm font-semibold select-none transition-all ui-motion-s focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-chat-focus-ring active:scale-95'
 
 /**
  * 渲染当前用户头像、用户名菜单和退出登录操作。
@@ -78,10 +78,10 @@ export default function ProducerUserMenu({
         className={cn(
           USER_AVATAR_BUTTON_CLASS,
           avatarUrl
-            ? 'border border-[var(--color-border)] bg-[var(--color-top-layer)]'
+            ? 'border border-border bg-top-layer'
             : avatarInitial
-              ? 'bg-[var(--color-primary)] text-[var(--color-on-primary)] hover:brightness-110'
-              : 'border border-[var(--color-border)] bg-[var(--color-header-btn-bg)] text-[var(--color-on-background)] hover:border-[var(--color-border-hover)] hover:bg-[var(--color-hover)]',
+              ? 'bg-primary text-on-primary hover:brightness-110'
+              : 'border border-border bg-header-btn-bg text-on-background hover:border-border-hover hover:bg-hover',
           className,
         )}
         data-producer-user-avatar="true"
@@ -108,33 +108,31 @@ export default function ProducerUserMenu({
         aria-label="用户菜单"
         className="w-[280px] overflow-hidden py-1.5"
       >
-        <div className="border-b border-[var(--color-border)] px-4 py-3">
-          <p className="truncate text-body-sm font-semibold text-[var(--color-on-background)]">
-            {userLabel}
-          </p>
-          <p className="mt-0.5 text-caption text-[var(--color-on-surface-variant)]">当前账号</p>
+        <div className="border-b border-border px-4 py-3">
+          <p className="truncate text-body-sm font-semibold text-on-background">{userLabel}</p>
+          <p className="mt-0.5 text-caption text-on-surface-variant">当前账号</p>
           {hasProfileDetails ? (
-            <dl className="mt-3 grid grid-cols-[44px_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-t border-[var(--color-border)] pt-3 text-caption">
+            <dl className="mt-3 grid grid-cols-[44px_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-t border-border pt-3 text-caption">
               {user?.jobTitle ? (
                 <>
-                  <dt className="text-[var(--color-on-surface-variant)]">职位</dt>
-                  <dd className="truncate text-[var(--color-on-background)]" title={user.jobTitle}>
+                  <dt className="text-on-surface-variant">职位</dt>
+                  <dd className="truncate text-on-background" title={user.jobTitle}>
                     {user.jobTitle}
                   </dd>
                 </>
               ) : null}
               {user?.city ? (
                 <>
-                  <dt className="text-[var(--color-on-surface-variant)]">城市</dt>
-                  <dd className="truncate text-[var(--color-on-background)]" title={user.city}>
+                  <dt className="text-on-surface-variant">城市</dt>
+                  <dd className="truncate text-on-background" title={user.city}>
                     {user.city}
                   </dd>
                 </>
               ) : null}
               {departments.length ? (
                 <>
-                  <dt className="text-[var(--color-on-surface-variant)]">部门</dt>
-                  <dd className="min-w-0 space-y-1 text-[var(--color-on-background)]">
+                  <dt className="text-on-surface-variant">部门</dt>
+                  <dd className="min-w-0 space-y-1 text-on-background">
                     {departments.map((department) => (
                       <p
                         key={`${department.id}:${department.uid}`}
@@ -154,7 +152,7 @@ export default function ProducerUserMenu({
           <Link
             to="/analytics"
             role="menuitem"
-            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-[var(--color-on-background)] no-underline transition-colors duration-[var(--dur-s)] hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)]"
+            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-on-background no-underline transition-colors duration-[var(--dur-s)] hover:bg-hover focus-visible:bg-hover"
             onClick={closeMenu}
           >
             <span>生成统计</span>
@@ -165,7 +163,7 @@ export default function ProducerUserMenu({
           <Link
             to="/admin/users"
             role="menuitem"
-            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-[var(--color-on-background)] no-underline transition-colors duration-[var(--dur-s)] hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)]"
+            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-on-background no-underline transition-colors duration-[var(--dur-s)] hover:bg-hover focus-visible:bg-hover"
             onClick={closeMenu}
           >
             <span>用户管理</span>
@@ -176,7 +174,7 @@ export default function ProducerUserMenu({
           type="button"
           role="menuitem"
           disabled={isLoggingOut}
-          className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-[var(--color-on-background)] transition-colors duration-[var(--dur-s)] hover:bg-[var(--color-hover)] focus-visible:bg-[var(--color-hover)] disabled:cursor-wait disabled:text-[var(--color-disabled-text)]"
+          className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-on-background transition-colors duration-[var(--dur-s)] hover:bg-hover focus-visible:bg-hover disabled:cursor-wait disabled:text-disabled-text"
           onClick={handleLogout}
         >
           <span>{isLoggingOut ? '退出中' : '退出登录'}</span>

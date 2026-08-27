@@ -2,10 +2,13 @@
 /**
  * design-guard：设计系统机械门禁（棘轮模式）。
  *
- * 扫描 src/ 中违反 docs/design-system.html 的硬编码模式，与基线
+ * 扫描 src/ 中违反仓库根目录 design-system.html 的硬编码模式，与基线
  * scripts/design-guard.baseline.json 对比：任一模式计数超过基线即失败。
  * 修复存量后运行 `node scripts/design-guard.mjs --update` 收紧基线
  * （新计数低于基线时也提示收紧，保证只降不升）。
+ *
+ * 确实绕不开时在上一行写 `// design-allow -- 原因`（CSS 用 /* *\/ 注释）豁免；
+ * 不写原因的豁免不算数，会被当成违规报出来。
  */
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -22,15 +25,57 @@ const EXEMPT = new Set(['src/app/base.css', 'src/app/globals.css'])
 const RULES = [
   {
     id: 'bare-hex-color',
-    desc: '裸 hex 色值（应引用 --color-* token）',
+    desc: '裸 hex 色值（应引用 --color-* token；含 4 / 8 位带透明度写法）',
     ext: ['.css', '.ts', '.tsx'],
-    re: /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g,
+    re: /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b/g,
   },
   {
     id: 'bare-rgb-color',
-    desc: '裸 rgb()/rgba() 色值（应引用 token 或 color-mix(var(--…)))',
+    desc: '裸 rgb()/rgba()/hsl()/oklch() 色值（应引用 token 或 color-mix(var(--…)))',
     ext: ['.css', '.ts', '.tsx'],
-    re: /rgba?\(\s*\d/g,
+    re: /rgba?\(\s*\d|hsla?\(|oklch\(/g,
+  },
+  {
+    id: 'tailwind-palette-class',
+    desc: 'Tailwind 原色板类（本设计系统只有 6 族语义色，不用 slate/blue/… 调色板）',
+    ext: ['.ts', '.tsx'],
+    re: /(?:^|[\s'"`])(?:bg|text|border|fill|stroke|ring|outline|from|to|via)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d+/g,
+  },
+  {
+    id: 'tailwind-default-text-size',
+    desc: 'Tailwind 默认字号档（字阶已清空重建，应使用 text-caption/label/body*/title*/headline*/display*）',
+    ext: ['.ts', '.tsx'],
+    re: /(?:^|[\s'"`])text-(?:xs|sm|base|lg|xl|\dxl)\b/g,
+  },
+  {
+    id: 'tailwind-default-shadow',
+    desc: 'Tailwind 默认阴影档（海拔只有 shadow-1 / 2 / 3 三档）',
+    ext: ['.ts', '.tsx'],
+    re: /(?:^|[\s'"`])shadow-(?:xs|sm|md|lg|xl|2xl)\b/g,
+  },
+  {
+    id: 'tailwind-default-motion',
+    desc: 'Tailwind 默认动效档（时长与曲线成对取 ui-motion-s / -m / -l）',
+    ext: ['.ts', '.tsx'],
+    re: /(?:^|[\s'"`])(?:duration-\d+|ease-(?:in-out|in|out|linear))\b/g,
+  },
+  {
+    id: 'inline-style-color',
+    desc: '内联 style 里的字面色（应经 token，或用 CSS 变量传值）',
+    ext: ['.ts', '.tsx'],
+    re: /(?:color|backgroundColor|borderColor|fill|stroke):\s*['"`]\s*(?:#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\()/g,
+  },
+  {
+    id: 'svg-literal-fill',
+    desc: 'SVG 字面填充色（图标一律 currentColor）',
+    ext: ['.ts', '.tsx'],
+    re: /(?:fill|stroke)="(?:#[0-9a-fA-F]{3,8}|rgba?\()/g,
+  },
+  {
+    id: 'arbitrary-color-var',
+    desc: '任意值引用颜色 token（已登记为工具类，直接写 bg-primary / text-on-surface）',
+    ext: ['.ts', '.tsx'],
+    re: /(?:^|[\s'"`])(?:bg|text|border|ring|outline|divide|fill|stroke|from|to|via|decoration|caret|accent)(?:-[trblxyse])?-\[(?:color:)?var\(--color-/g,
   },
   {
     id: 'arbitrary-shadow',
@@ -86,7 +131,16 @@ const RULES = [
     ext: ['.ts', '.tsx'],
     re: /(?:^|[\s'"`])(?:focus:)?outline-none/g,
   },
+  {
+    id: 'invalid-design-allow',
+    desc: '豁免没写原因（写成 design-allow -- 为什么绕不开）',
+    ext: ['.css', '.ts', '.tsx'],
+    re: /design-allow(?!\s*--\s*\S)/g,
+  },
 ]
+
+/** 上一行写了带原因的豁免，本行免检 */
+const ALLOW_RE = /(?:\/\/|\/\*)\s*design-allow\s*--\s*\S/
 
 const walk = (dir, acc = []) => {
   for (const name of readdirSync(dir)) {
@@ -113,6 +167,7 @@ for (const rule of RULES) {
     const text = readFileSync(file, 'utf8')
     const lines = text.split('\n')
     lines.forEach((line, i) => {
+      if (rule.id !== 'invalid-design-allow' && i > 0 && ALLOW_RE.test(lines[i - 1])) return
       const m = line.match(rule.re)
       if (m) {
         counts[rule.id] += m.length
@@ -157,7 +212,7 @@ if (tightenable && !failed)
   console.log('存量减少：运行 node scripts/design-guard.mjs --update 收紧基线')
 if (failed) {
   console.error(
-    '\ndesign-guard 失败：请改用 token（规范见 docs/design-system.html），勿新增硬编码。',
+    '\ndesign-guard 失败：请改用 token（规范见仓库根目录 design-system.html），勿新增硬编码。',
   )
   process.exit(1)
 }

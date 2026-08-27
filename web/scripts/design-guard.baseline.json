@@ -1,6 +1,13 @@
 {
   "bare-hex-color": 0,
   "bare-rgb-color": 0,
+  "tailwind-palette-class": 0,
+  "tailwind-default-text-size": 0,
+  "tailwind-default-shadow": 0,
+  "tailwind-default-motion": 0,
+  "inline-style-color": 0,
+  "svg-literal-fill": 0,
+  "arbitrary-color-var": 0,
   "arbitrary-shadow": 0,
   "literal-box-shadow": 0,
   "arbitrary-radius": 0,
@@ -9,5 +16,6 @@
   "bare-font-size": 0,
   "bare-z-index-css": 0,
   "bare-z-index-tsx": 0,
-  "outline-none": 0
+  "outline-none": 0,
+  "invalid-design-allow": 0
 }

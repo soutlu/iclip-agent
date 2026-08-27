@@ -17,16 +17,15 @@ interface ImageAnalysisSummaryCanvasCardProps {
 }
 
 const CATEGORY_TONE_CLASSNAMES = {
-  default:
-    'bg-[var(--color-surface-container-low)] text-[color:var(--color-on-surface-variant)] ring-[var(--color-outline-variant)]',
+  default: 'bg-surface-container-low text-on-surface-variant ring-outline-variant',
   person:
-    'bg-[var(--color-error-container)] text-[color:var(--color-on-error-container)] ring-[color-mix(in_srgb,var(--color-error)_35%,transparent)]',
+    'bg-error-container text-on-error-container ring-[color-mix(in_srgb,var(--color-error)_35%,transparent)]',
   product:
-    'bg-[var(--color-primary-container)] text-[color:var(--color-on-primary-container)] ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)]',
+    'bg-primary-container text-on-primary-container ring-[color-mix(in_srgb,var(--color-primary)_35%,transparent)]',
   scene:
-    'bg-[var(--color-secondary-container)] text-[color:var(--color-on-secondary-container)] ring-[color-mix(in_srgb,var(--color-secondary)_35%,transparent)]',
+    'bg-secondary-container text-on-secondary-container ring-[color-mix(in_srgb,var(--color-secondary)_35%,transparent)]',
   storyboard:
-    'bg-[var(--color-warning-container)] text-[color:var(--color-on-warning-container)] ring-[color-mix(in_srgb,var(--color-warning)_35%,transparent)]',
+    'bg-warning-container text-on-warning-container ring-[color-mix(in_srgb,var(--color-warning)_35%,transparent)]',
 } as const
 const FOCUSED_IMAGE_ANALYSIS_GRID_COLUMN_COUNT = 3
 const FOCUSED_IMAGE_ANALYSIS_GRID_GAP = 12
@@ -140,26 +139,26 @@ function ImageAnalysisSummaryCard({
   const itemTitle = resolveImageAnalysisItemTitle(item)
   const isFocused = variant === 'focused'
   const articleClassName = cn(
-    'group relative overflow-hidden border border-[var(--color-outline-variant)] text-left',
+    'group relative overflow-hidden border border-outline-variant text-left',
     isFocused
-      ? 'block min-h-0 w-full self-start rounded-xl bg-[var(--color-artifact-rail-bg)]'
-      : 'flex min-h-[330px] flex-col rounded-xl bg-[var(--color-canvas-card-bg)]',
+      ? 'block min-h-0 w-full self-start rounded-xl bg-artifact-rail-bg'
+      : 'flex min-h-[330px] flex-col rounded-xl bg-canvas-card-bg',
   )
   const buttonClassName = cn(
-    'nodrag nopan w-full transition-[transform,border-color] duration-150 ease-out',
-    'hover:border-[var(--color-outline)] active:scale-[0.985]',
+    'nodrag nopan w-full transition-[transform,border-color] ui-motion-s',
+    'hover:border-outline active:scale-[0.985]',
     articleClassName,
   )
   const mediaClassName = isFocused
-    ? 'relative overflow-hidden bg-[var(--color-artifact-rail-bg)]'
-    : 'relative aspect-[4/3] overflow-hidden bg-[var(--color-surface-container)]'
+    ? 'relative overflow-hidden bg-artifact-rail-bg'
+    : 'relative aspect-[4/3] overflow-hidden bg-surface-container'
   const content = (
     <>
       <div className={mediaClassName} data-image-analysis-summary-card-media="true">
         {isFocused && item.url ? (
           <img
             alt=""
-            className="block h-auto w-full object-contain transition-transform duration-200 ease-out group-hover:scale-[1.015]"
+            className="block h-auto w-full object-contain transition-transform ui-motion-m group-hover:scale-[1.015]"
             data-image-analysis-summary-card-image="true"
             decoding="async"
             loading="lazy"
@@ -167,7 +166,7 @@ function ImageAnalysisSummaryCard({
           />
         ) : item.url ? (
           <MediaThumbnailSurface
-            className="absolute inset-0 h-full w-full transition-transform duration-200 ease-out group-hover:scale-[1.035]"
+            className="absolute inset-0 h-full w-full transition-transform ui-motion-m group-hover:scale-[1.035]"
             fileName={mediaLabel}
             mediaType="image"
             thumbnailUrl={item.thumbnailUrl}
@@ -177,8 +176,8 @@ function ImageAnalysisSummaryCard({
           <div
             className={
               isFocused
-                ? 'grid aspect-[4/3] w-full place-items-center bg-[var(--color-artifact-rail-bg)] text-body-sm font-medium text-white/62'
-                : 'grid h-full w-full place-items-center bg-[linear-gradient(135deg,#f8fafd_0%,#eef2f6_52%,#fff7ed_100%)] text-body-sm font-medium text-[color:var(--color-on-surface-variant)]'
+                ? 'grid aspect-[4/3] w-full place-items-center bg-artifact-rail-bg text-body-sm font-medium text-white/62'
+                : 'grid h-full w-full place-items-center bg-[linear-gradient(135deg,#f8fafd_0%,#eef2f6_52%,#fff7ed_100%)] text-body-sm font-medium text-on-surface-variant'
             }
           >
             {item.key}
@@ -235,7 +234,7 @@ function ImageAnalysisSummaryCard({
             className={
               isFocused
                 ? 'min-w-0 text-title font-semibold text-white'
-                : 'line-clamp-1 min-w-0 text-title font-medium text-[color:var(--color-canvas-card-text)]'
+                : 'line-clamp-1 min-w-0 text-title font-medium text-canvas-card-text'
             }
             data-image-analysis-summary-card-title="true"
           >
@@ -257,7 +256,7 @@ function ImageAnalysisSummaryCard({
           className={
             isFocused
               ? 'mt-2 text-title font-medium text-white/90'
-              : 'mt-2 line-clamp-4 text-canvas-body leading-8 font-medium text-[color:var(--color-on-surface-variant)]'
+              : 'mt-2 line-clamp-4 text-canvas-body leading-8 font-medium text-on-surface-variant'
           }
           data-image-analysis-summary-card-description="true"
         >
@@ -303,7 +302,7 @@ export default function ImageAnalysisSummaryCanvasCard({
   const isFocused = variant === 'focused'
   const gridClassName = isFocused
     ? 'grid items-start gap-3'
-    : 'grid grid-cols-2 gap-4 border-t border-[var(--color-outline-variant)] pt-5'
+    : 'grid grid-cols-2 gap-4 border-t border-outline-variant pt-5'
   const gridStyle = isFocused
     ? {
         gridTemplateColumns: FOCUSED_IMAGE_ANALYSIS_GRID_TEMPLATE_COLUMNS,
@@ -316,8 +315,8 @@ export default function ImageAnalysisSummaryCanvasCard({
     <article
       className={
         isFocused
-          ? 'relative flex flex-col overflow-visible text-[var(--color-on-background)]'
-          : 'relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--color-canvas-card-bg)] text-[color:var(--color-canvas-card-text)]'
+          ? 'relative flex flex-col overflow-visible text-on-background'
+          : 'relative flex h-full min-h-0 flex-col overflow-hidden bg-canvas-card-bg text-canvas-card-text'
       }
     >
       {isFocused ? null : (
@@ -327,7 +326,7 @@ export default function ImageAnalysisSummaryCanvasCard({
       <div
         className={
           isFocused
-            ? 'thin-scrollbar relative flex min-h-0 flex-col gap-3 overflow-hidden rounded-l-xl rounded-r-none bg-[var(--color-background)] px-4 py-4 shadow-[var(--shadow-3)]'
+            ? 'thin-scrollbar relative flex min-h-0 flex-col gap-3 overflow-hidden rounded-l-xl rounded-r-none bg-background px-4 py-4 shadow-[var(--shadow-3)]'
             : 'nowheel thin-scrollbar relative flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-6 py-6'
         }
         data-image-analysis-summary-surface="true"
@@ -338,19 +337,19 @@ export default function ImageAnalysisSummaryCanvasCard({
             data-image-analysis-summary-header="true"
           >
             <div className="min-w-0">
-              <p className="text-caption font-medium tracking-[0] text-[color:var(--color-on-surface-variant)] uppercase">
+              <p className="text-caption font-medium tracking-[0] text-on-surface-variant uppercase">
                 Input Images
               </p>
-              <h2 className="mt-1 text-canvas-title leading-tight font-medium text-[color:var(--color-canvas-card-text)]">
+              <h2 className="mt-1 text-canvas-title leading-tight font-medium text-canvas-card-text">
                 {IMAGE_ANALYSIS_SUMMARY_NODE_TITLE}
               </h2>
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              <span className="rounded-full border border-[var(--color-outline-variant)] bg-[color-mix(in_srgb,var(--color-canvas-card-bg)_72%,transparent)] px-3 py-1.5 text-label font-medium text-[color:var(--color-canvas-card-text)] shadow-[var(--shadow-2)]">
+              <span className="rounded-full border border-outline-variant bg-[color-mix(in_srgb,var(--color-canvas-card-bg)_72%,transparent)] px-3 py-1.5 text-label font-medium text-canvas-card-text shadow-[var(--shadow-2)]">
                 {totalLabel}
               </span>
-              <span className="rounded-full bg-[var(--color-artifact-rail-bg)] px-3 py-1.5 text-label font-medium text-white">
+              <span className="rounded-full bg-artifact-rail-bg px-3 py-1.5 text-label font-medium text-white">
                 {categoryLabel}
               </span>
             </div>

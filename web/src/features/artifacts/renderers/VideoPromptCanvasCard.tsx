@@ -430,7 +430,7 @@ export default function VideoPromptCanvasCard({
   ])
 
   return (
-    <article className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[color:var(--color-background)] font-[var(--font-producer-ui)] text-[color:var(--color-on-background)]">
+    <article className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background font-[var(--font-producer-ui)] text-on-background">
       <div
         className="nopan nowheel thin-scrollbar relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
         data-video-prompt-card-body="true"
@@ -438,9 +438,9 @@ export default function VideoPromptCanvasCard({
         <section className="grid min-h-0 flex-1 grid-cols-[190px_minmax(0,1fr)_330px]">
           <nav
             aria-label="视频提示词镜头"
-            className="thin-scrollbar min-h-0 overflow-y-auto border-r border-[color:var(--color-border)] px-5 py-6"
+            className="thin-scrollbar min-h-0 overflow-y-auto border-r border-border px-5 py-6"
           >
-            <p className="mb-5 text-canvas-label leading-none font-medium text-[color:var(--color-on-surface-variant)]">
+            <p className="mb-5 text-canvas-label leading-none font-medium text-on-surface-variant">
               镜头
             </p>
             <div className="grid gap-2">
@@ -457,8 +457,8 @@ export default function VideoPromptCanvasCard({
                     className={cn(
                       'nodrag nopan relative w-full rounded-md px-4 py-4 text-left transition-all',
                       selected
-                        ? 'bg-[color:var(--color-control-bg)] text-[color:var(--color-on-background)] shadow-[var(--shadow-rail-inset)]'
-                        : 'text-[color:var(--color-on-surface-variant)] hover:bg-[color:var(--color-hover)] hover:text-[color:var(--color-on-background)]',
+                        ? 'bg-control-bg text-on-background shadow-[var(--shadow-rail-inset)]'
+                        : 'text-on-surface-variant hover:bg-hover hover:text-on-background',
                     )}
                     onClick={(event) => {
                       event.stopPropagation()
@@ -475,7 +475,7 @@ export default function VideoPromptCanvasCard({
                       镜头 {batchIndex}
                     </span>
                     {batchSecond ? (
-                      <span className="mt-3 block text-canvas-body leading-none font-medium text-[color:var(--color-on-surface-variant)]">
+                      <span className="mt-3 block text-canvas-body leading-none font-medium text-on-surface-variant">
                         {batchSecond}
                       </span>
                     ) : null}
@@ -485,16 +485,16 @@ export default function VideoPromptCanvasCard({
             </div>
           </nav>
 
-          <main className="thin-scrollbar min-h-0 overflow-y-auto border-r border-[color:var(--color-border)] px-7 py-6">
+          <main className="thin-scrollbar min-h-0 overflow-y-auto border-r border-border px-7 py-6">
             <div className="flex items-start justify-between gap-5">
               <div className="min-w-0">
-                <p className="text-body leading-none font-medium tracking-[0] text-[color:var(--color-on-surface-variant)]">
+                <p className="text-body leading-none font-medium tracking-[0] text-on-surface-variant">
                   视频提示词
                 </p>
-                <h3 className="mt-2 text-canvas-title-sm leading-none font-semibold tracking-[0] text-[color:var(--color-on-background)]">
+                <h3 className="mt-2 text-canvas-title-sm leading-none font-semibold tracking-[0] text-on-background">
                   视频镜头 {selectedBatchLabel}
                 </h3>
-                <p className="mt-3 text-body leading-none font-medium tracking-[0] text-[color:var(--color-on-surface-variant)]">
+                <p className="mt-3 text-body leading-none font-medium tracking-[0] text-on-surface-variant">
                   {videoPrompt.batches.length} 个镜头 · {selectedBatchSecond ?? '时长未知'} ·{' '}
                   {videoPrompt.aspectRatio ?? '比例未知'}
                 </p>
@@ -502,7 +502,7 @@ export default function VideoPromptCanvasCard({
 
               <div className="flex shrink-0 items-center gap-2">
                 {selectedBatchSecond ? (
-                  <span className="inline-flex h-9 items-center rounded-lg bg-[color:var(--color-control-bg)] px-3 text-title font-medium text-[color:var(--color-on-surface-variant)]">
+                  <span className="inline-flex h-9 items-center rounded-lg bg-control-bg px-3 text-title font-medium text-on-surface-variant">
                     {selectedBatchSecond}
                   </span>
                 ) : null}
@@ -555,14 +555,12 @@ export default function VideoPromptCanvasCard({
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-2 text-body leading-none font-medium text-[color:var(--color-on-surface-variant)]">
-              <span className="rounded-lg bg-[color:var(--color-control-bg)] px-3 py-2">
-                最终提示词
-              </span>
-              <span className="rounded-lg bg-[color:var(--color-control-bg)] px-3 py-2">
+            <div className="mt-5 flex flex-wrap items-center gap-2 text-body leading-none font-medium text-on-surface-variant">
+              <span className="rounded-lg bg-control-bg px-3 py-2">最终提示词</span>
+              <span className="rounded-lg bg-control-bg px-3 py-2">
                 提示词就绪 · {selectedReferenceImageCount} 张参考图
               </span>
-              <span className="rounded-lg bg-[color:var(--color-control-bg)] px-3 py-2">
+              <span className="rounded-lg bg-control-bg px-3 py-2">
                 {getVideoGenerationStatusDisplayLabel(selectedGenerationStatus)}
               </span>
             </div>
@@ -571,7 +569,7 @@ export default function VideoPromptCanvasCard({
               {selectedBatch && isEditingSelectedBatch ? (
                 <textarea
                   aria-label={`编辑视频镜头 ${selectedBatchLabel} 提示词`}
-                  className="nodrag nopan nowheel thin-scrollbar min-h-[620px] w-full resize-none border-t border-[color:var(--color-border)] bg-transparent px-0 py-6 text-canvas-body-lg leading-[1.78] text-[color:var(--color-on-background)] placeholder:text-[color:var(--color-on-surface-variant)]"
+                  className="nodrag nopan nowheel thin-scrollbar min-h-[620px] w-full resize-none border-t border-border bg-transparent px-0 py-6 text-canvas-body-lg leading-[1.78] text-on-background placeholder:text-on-surface-variant"
                   onChange={(event) => {
                     if (selectedBatchKeyResolved) {
                       updatePromptDraft(selectedBatchKeyResolved, event.currentTarget.value)
@@ -584,15 +582,12 @@ export default function VideoPromptCanvasCard({
               ) : selectedBatch ? (
                 <VideoPromptReadingView prompt={selectedPromptReadingText} />
               ) : (
-                <p className="border-t border-[color:var(--color-border)] pt-6 text-canvas-body text-[color:var(--color-on-surface-variant)]">
+                <p className="border-t border-border pt-6 text-canvas-body text-on-surface-variant">
                   暂无可展示的视频提示词。
                 </p>
               )}
               {promptSaveErrorMessage ? (
-                <p
-                  className="mt-4 text-title font-medium text-[color:var(--color-danger-text)]"
-                  role="alert"
-                >
+                <p className="mt-4 text-title font-medium text-danger-text" role="alert">
                   {promptSaveErrorMessage}
                 </p>
               ) : null}
@@ -600,7 +595,7 @@ export default function VideoPromptCanvasCard({
           </main>
 
           <aside aria-label="参考图栏" className="flex min-h-0 flex-col overflow-hidden px-6 py-6">
-            <p className="text-canvas-label leading-none font-medium text-[color:var(--color-on-surface-variant)]">
+            <p className="text-canvas-label leading-none font-medium text-on-surface-variant">
               参考图
             </p>
             {selectedBatch?.previewImages && selectedBatch.previewImages.length > 0 ? (
@@ -612,7 +607,7 @@ export default function VideoPromptCanvasCard({
                   <button
                     aria-label={`双击查看 ${image.key} 图片预览`}
                     key={`${selectedBatchKeyResolved ?? selectedBatch.index}:${image.key}`}
-                    className="nodrag nopan group mb-4 block w-full min-w-0 appearance-none break-inside-avoid overflow-hidden rounded-md border-0 bg-[color:var(--color-glass-surface)] p-0 text-left ring-1 ring-[color:var(--color-border)] transition-[transform,ring-color] duration-150 hover:-translate-y-0.5 hover:ring-[color:var(--color-border-hover)]"
+                    className="nodrag nopan group mb-4 block w-full min-w-0 appearance-none break-inside-avoid overflow-hidden rounded-md border-0 bg-glass-surface p-0 text-left ring-1 ring-border transition-[transform,ring-color] ui-motion-s hover:-translate-y-0.5 hover:ring-border-hover"
                     data-reference-image-card="true"
                     onDoubleClick={(event) => {
                       event.stopPropagation()
@@ -637,7 +632,7 @@ export default function VideoPromptCanvasCard({
                     >
                       <img
                         alt=""
-                        className="block h-auto w-full object-contain transition-transform duration-200 group-hover:scale-[1.015]"
+                        className="block h-auto w-full object-contain transition-transform ui-motion-m group-hover:scale-[1.015]"
                         decoding="async"
                         draggable={false}
                         loading="lazy"
@@ -660,13 +655,13 @@ export default function VideoPromptCanvasCard({
             ) : (
               <div
                 aria-hidden="true"
-                className="mt-5 min-h-0 flex-1 border-y border-dashed border-[color:var(--color-border)] bg-[color:var(--color-glass-surface)]"
+                className="mt-5 min-h-0 flex-1 border-y border-dashed border-border bg-glass-surface"
               />
             )}
             <footer className="mt-4 flex shrink-0 flex-col gap-3">
               {generationFeedback ? (
                 <p
-                  className="text-body leading-snug font-medium text-[color:var(--color-on-surface-variant)]"
+                  className="text-body leading-snug font-medium text-on-surface-variant"
                   data-video-generation-feedback="true"
                 >
                   {generationFeedback}

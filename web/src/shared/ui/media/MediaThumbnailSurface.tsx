@@ -110,10 +110,7 @@ export default function MediaThumbnailSurface({
     return (
       <span
         aria-hidden="true"
-        className={cn(
-          className,
-          'pointer-events-none relative overflow-hidden bg-[var(--color-thumb-fallback)]',
-        )}
+        className={cn(className, 'pointer-events-none relative overflow-hidden bg-thumb-fallback')}
       >
         <AudioThumbnailSurface />
       </span>
@@ -123,10 +120,7 @@ export default function MediaThumbnailSurface({
   return (
     <span
       aria-hidden="true"
-      className={cn(
-        className,
-        'pointer-events-none relative overflow-hidden bg-[var(--color-thumb-fallback)]',
-      )}
+      className={cn(className, 'pointer-events-none relative overflow-hidden bg-thumb-fallback')}
     >
       <VideoThumbnailSurface fileName={fileName} thumbnailUrl={thumbnailUrl} url={url} />
     </span>

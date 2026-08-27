@@ -179,7 +179,7 @@ export const ProjectMarkdownBlock = ({
   return (
     <div
       className={cn(
-        'project-chat-markdown max-w-full overflow-x-auto text-body-sm leading-[1.62] [overflow-wrap:anywhere] text-[color:var(--color-chat-message-text)] [&_a]:text-[color:var(--color-chat-link-text)] [&_a]:underline [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-[color:var(--color-chat-link-border)] [&_blockquote]:pl-3 [&_code]:rounded-xs [&_code]:bg-[color:var(--color-chat-code-bg)] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-label [&_li]:my-1 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-3 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-[color:var(--color-chat-code-border)] [&_pre]:bg-[color:var(--color-chat-code-block-bg)] [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-[color:var(--color-chat-code-border)] [&_td]:p-2 [&_th]:border [&_th]:border-[color:var(--color-chat-code-border)] [&_th]:p-2 [&_ul]:my-2 [&_ul]:pl-5',
+        'project-chat-markdown max-w-full overflow-x-auto text-body-sm leading-[1.62] [overflow-wrap:anywhere] text-chat-message-text [&_a]:text-chat-link-text [&_a]:underline [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-chat-link-border [&_blockquote]:pl-3 [&_code]:rounded-xs [&_code]:bg-chat-code-bg [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-label [&_li]:my-1 [&_ol]:my-2 [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-3 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-chat-code-border [&_pre]:bg-chat-code-block-bg [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-chat-code-border [&_td]:p-2 [&_th]:border [&_th]:border-chat-code-border [&_th]:p-2 [&_ul]:my-2 [&_ul]:pl-5',
         className,
       )}
     >
@@ -220,7 +220,7 @@ export const ProjectMessageFileChips = ({
         return (
           <span
             key={`${file.url}:${file.mediaType}:${index.toString(36)}`}
-            className="max-w-[180px] truncate rounded-full border border-[color:var(--color-chat-chip-border)] bg-[color:var(--color-chat-chip-bg)] px-2.5 py-1 text-caption text-[color:var(--color-chat-muted-text)]"
+            className="max-w-[180px] truncate rounded-full border border-chat-chip-border bg-chat-chip-bg px-2.5 py-1 text-caption text-chat-muted-text"
             data-project-file-chip={displayName}
             title={displayName}
           >
@@ -248,13 +248,13 @@ export const ProjectReasoningBlock = ({
   running: boolean
 }) => (
   <details
-    className="rounded-md border border-[color:var(--color-chat-inline-border)] bg-[color:var(--color-chat-inline-bg)] px-3 py-2"
+    className="rounded-md border border-chat-inline-border bg-chat-inline-bg px-3 py-2"
     open={running}
   >
-    <summary className="cursor-pointer text-label text-[color:var(--color-chat-muted-text)] select-none">
+    <summary className="cursor-pointer text-label text-chat-muted-text select-none">
       推理过程
     </summary>
-    <div className="mt-2 text-label leading-5 whitespace-pre-wrap text-[color:var(--color-chat-secondary-text)]">
+    <div className="mt-2 text-label leading-5 whitespace-pre-wrap text-chat-secondary-text">
       {part.text}
     </div>
   </details>

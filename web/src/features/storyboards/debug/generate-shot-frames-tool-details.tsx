@@ -43,21 +43,19 @@ export default function GenerateShotFramesToolDetails({
   return (
     <section
       aria-label={`${toolCall.toolName} 调用详情`}
-      className="rounded-md bg-[var(--color-surface-container-low)] p-3"
+      className="rounded-md bg-surface-container-low p-3"
       role="region"
     >
-      <p className="font-mono text-caption font-semibold text-[var(--color-on-surface)]">
-        {toolCall.toolName}
-      </p>
+      <p className="font-mono text-caption font-semibold text-on-surface">{toolCall.toolName}</p>
 
       <details className="group mt-3">
-        <summary className="flex cursor-pointer list-none items-center justify-between border-b border-[var(--color-outline-variant)] pb-2 text-label text-[var(--color-on-surface-variant)] [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between border-b border-outline-variant pb-2 text-label text-on-surface-variant [&::-webkit-details-marker]:hidden">
           <span>输入</span>
-          <span className="transition-transform duration-200 group-open:rotate-180">⌄</span>
+          <span className="transition-transform ui-motion-m group-open:rotate-180">⌄</span>
         </summary>
         <pre
           aria-label={`${toolCall.toolName} 输入`}
-          className="thin-scrollbar overflow-x-auto pt-2 font-mono text-caption break-words whitespace-pre-wrap text-[var(--color-on-surface)]"
+          className="thin-scrollbar overflow-x-auto pt-2 font-mono text-caption break-words whitespace-pre-wrap text-on-surface"
           tabIndex={0}
         >
           {toolCall.argsText || JSON.stringify(toolCall.args, null, 2)}
@@ -66,26 +64,24 @@ export default function GenerateShotFramesToolDetails({
 
       <div className="pt-3">
         {toolCall.result === undefined ? (
-          <p className="text-body-sm text-[var(--color-on-surface-variant)]" role="status">
+          <p className="text-body-sm text-on-surface-variant" role="status">
             等待工具返回
           </p>
         ) : !result ? (
-          <p className="text-body-sm text-[var(--color-error)]" role="alert">
+          <p className="text-body-sm text-error" role="alert">
             generate_shot_frames 结果格式无效，无法预览图片。
           </p>
         ) : (
           <>
             <div className="mb-3 flex flex-wrap items-baseline gap-x-8 gap-y-1">
-              <p className="text-body-sm font-semibold text-[var(--color-on-surface)]">
+              <p className="text-body-sm font-semibold text-on-surface">
                 {frames.length} 张镜头帧 · {shotCount} 个镜头
               </p>
-              <p className="text-label text-[var(--color-on-surface-variant)]">
-                左右滑动浏览 · 双击查看大图
-              </p>
+              <p className="text-label text-on-surface-variant">左右滑动浏览 · 双击查看大图</p>
             </div>
 
             {unfinished ? (
-              <p className="mb-3 text-body-sm text-[var(--color-error)]" role="alert">
+              <p className="mb-3 text-body-sm text-error" role="alert">
                 {unfinished}
               </p>
             ) : null}
@@ -97,7 +93,7 @@ export default function GenerateShotFramesToolDetails({
                 images={framePreviews}
               />
             ) : unfinished ? null : (
-              <p className="text-body-sm text-[var(--color-on-surface-variant)]">暂无可预览图片</p>
+              <p className="text-body-sm text-on-surface-variant">暂无可预览图片</p>
             )}
           </>
         )}

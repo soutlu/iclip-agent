@@ -26,8 +26,8 @@ export default function ComposerShell({
     <div className={mergedClassName} {...props}>
       {children}
       {isDropActive ? (
-        <div className="layer-panel pointer-events-none absolute inset-0 flex items-center justify-center rounded-[inherit] border border-dashed border-[var(--color-on-background)] bg-[color:color-mix(in_srgb,var(--color-scrim)_8%,transparent)] p-4 backdrop-blur-[1px]">
-          <span className="rounded-full border border-[var(--color-border)] bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_86%,transparent)] px-4 py-2 text-body font-medium text-[var(--color-on-background)] shadow-[var(--shadow-2)]">
+        <div className="layer-panel pointer-events-none absolute inset-0 flex items-center justify-center rounded-[inherit] border border-dashed border-on-background bg-[color:color-mix(in_srgb,var(--color-scrim)_8%,transparent)] p-4 backdrop-blur-[1px]">
+          <span className="rounded-full border border-border bg-[color:color-mix(in_srgb,var(--color-surface-container-lowest)_86%,transparent)] px-4 py-2 text-body font-medium text-on-background shadow-[var(--shadow-2)]">
             {dropHint}
           </span>
         </div>

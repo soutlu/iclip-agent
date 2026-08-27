@@ -19,6 +19,14 @@
 | `make db-upgrade`| **数据库演进**：将 PostgreSQL 的表结构通过 Alembic 升级到最新（系统启动时不会自动建表）。 |
 | `make web-check` | **前端防线**：触发前端的 `ci:check`（包含代码格式、Lint、类型推断与设计规范的检查）。 |
 
+### 设计系统
+
+前端的视觉规范与组件契约有唯一事实源：仓库根目录的 [design-system.html](design-system.html)，浏览器打开即是全文。
+
+- 它的第一个 `<style>` 里 `:root`（浅色）与 `.dark`（深色）两块是契约本身；运行时只消费 `web/src/app/globals.css` 与 `base.css` 里的同名 token，程序不加载、不解析这个 HTML。
+- 规范变更两边一起改：先改 HTML，再镜像到运行时；`pnpm lint:design` 逐名逐值对账，对不上就红。
+- 视觉验收的截图写进 `.artifacts/design-qa/`（已忽略，不入库）。
+
 ## 2. 边界与禁止动作 (Anti-patterns)
 
 为了维护系统的确定性与安全性，以下行为在编写代码时被**严格禁止**（它们是被刻意设计掉的，绝不要以“临时方案”名义引入）：

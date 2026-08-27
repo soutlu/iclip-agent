@@ -30,7 +30,7 @@ function StoryboardCanvasNode({ id, data, selected }: NodeProps<StoryboardProjec
       selected={selected}
       title={data.title}
     >
-      <div className="relative h-full min-h-0 overflow-hidden bg-[var(--color-canvas-card-bg)]">
+      <div className="relative h-full min-h-0 overflow-hidden bg-canvas-card-bg">
         <div className="h-full min-h-0 w-full">
           <StoryboardCanvasCard storyboard={data.storyboard} />
         </div>

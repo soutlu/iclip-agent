@@ -29,12 +29,12 @@ export default function VideoBatchPromptList({
         return (
           <section
             key={batchKey}
-            className="rounded-xl border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-on-surface)_2%,transparent)] p-5 shadow-[var(--shadow-1)]"
+            className="rounded-xl border border-border bg-[color-mix(in_srgb,var(--color-on-surface)_2%,transparent)] p-5 shadow-[var(--shadow-1)]"
           >
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1.5">
-                  <p className="text-caption font-medium tracking-[0.16em] text-[var(--color-canvas-label-text)] uppercase">
+                  <p className="text-caption font-medium tracking-[0.16em] text-canvas-label-text uppercase">
                     镜头 {String(batch.index).padStart(2, '0')}
                   </p>
                   <h4 className="text-canvas-label leading-tight font-medium">
@@ -44,7 +44,7 @@ export default function VideoBatchPromptList({
 
                 <div className="flex shrink-0 items-center gap-2">
                   {second ? (
-                    <span className="rounded-full border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-on-surface)_6%,transparent)] px-3 py-1 text-label text-[var(--color-canvas-card-text)]/72">
+                    <span className="rounded-full border border-border bg-[color-mix(in_srgb,var(--color-on-surface)_6%,transparent)] px-3 py-1 text-label text-canvas-card-text/72">
                       时长 · {second}
                     </span>
                   ) : null}
@@ -54,7 +54,7 @@ export default function VideoBatchPromptList({
                 </div>
               </div>
 
-              <div className="rounded-lg border border-[color-mix(in_srgb,var(--color-on-surface)_10%,transparent)] bg-[var(--color-canvas-card-bg)] px-4 py-4 text-body leading-relaxed text-[var(--color-canvas-card-text)]/86">
+              <div className="rounded-lg border border-[color-mix(in_srgb,var(--color-on-surface)_10%,transparent)] bg-canvas-card-bg px-4 py-4 text-body leading-relaxed text-canvas-card-text/86">
                 {promptContent ?? <p className="break-words whitespace-pre-wrap">{batch.prompt}</p>}
               </div>
 
@@ -63,7 +63,7 @@ export default function VideoBatchPromptList({
                   {batch.referenceImages.map((imageKey) => (
                     <span
                       key={`${batchKey}:${imageKey}`}
-                      className="rounded-full border border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-on-surface)_6%,transparent)] px-3 py-1 text-label text-[var(--color-canvas-card-text)]/72"
+                      className="rounded-full border border-border bg-[color-mix(in_srgb,var(--color-on-surface)_6%,transparent)] px-3 py-1 text-label text-canvas-card-text/72"
                     >
                       参考图 · {imageKey}
                     </span>

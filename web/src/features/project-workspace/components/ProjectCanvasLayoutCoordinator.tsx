@@ -250,14 +250,14 @@ export default function ProjectCanvasLayoutCoordinator({
       {children}
       {isSaving || recoveryAction ? (
         <div
-          className="layer-popup fixed top-[calc(var(--layout-project-header-height)+var(--layout-project-stage-padding))] right-[var(--layout-project-stage-padding)] flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-popup-bg)] px-3 py-2 text-xs text-[var(--color-on-background)] shadow-[var(--shadow-3)] backdrop-blur-md"
+          className="layer-popup fixed top-[calc(var(--layout-project-header-height)+var(--layout-project-stage-padding))] right-[var(--layout-project-stage-padding)] flex items-center gap-2 rounded-md border border-border bg-popup-bg px-3 py-2 text-label text-on-background shadow-[var(--shadow-3)] backdrop-blur-md"
           role={recoveryAction ? 'alert' : 'status'}
         >
           {recoveryAction ? (
             <>
               <span>{recoveryMessage}</span>
               <button
-                className="rounded-md bg-[var(--color-control-bg)] px-2 py-1 font-semibold hover:bg-[var(--color-hover)]"
+                className="rounded-md bg-control-bg px-2 py-1 font-semibold hover:bg-hover"
                 type="button"
                 onClick={() => {
                   if (recoveryAction === 'load-latest') {

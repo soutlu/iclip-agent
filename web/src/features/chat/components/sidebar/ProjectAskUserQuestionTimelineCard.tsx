@@ -97,21 +97,19 @@ export const ProjectAskUserQuestionTimelineCard = ({
 
   return (
     <div className="flex justify-start pr-1" data-project-ask-timeline-item="history">
-      <div className="w-full max-w-[92%] min-w-0 border-l-2 border-[color:var(--color-chat-agent-rail)] py-1 pl-3">
-        <div className="flex items-center justify-between gap-3 border-b border-[color:var(--color-chat-inline-border)] pb-2">
+      <div className="w-full max-w-[92%] min-w-0 border-l-2 border-chat-agent-rail py-1 pl-3">
+        <div className="flex items-center justify-between gap-3 border-b border-chat-inline-border pb-2">
           <div className="min-w-0">
-            <div className="text-caption font-medium text-[color:var(--color-chat-muted-text)]">
-              工具确认
-            </div>
-            <div className="truncate text-body-sm font-semibold text-[color:var(--color-chat-message-text)]">
+            <div className="text-caption font-medium text-chat-muted-text">工具确认</div>
+            <div className="truncate text-body-sm font-semibold text-chat-message-text">
               {statusText}
             </div>
           </div>
-          <span className="shrink-0 rounded-full bg-[color:var(--color-chat-chip-bg)] px-2.5 py-1 text-caption text-[color:var(--color-chat-muted-text)]">
+          <span className="shrink-0 rounded-full bg-chat-chip-bg px-2.5 py-1 text-caption text-chat-muted-text">
             工具确认
           </span>
         </div>
-        <div className="mt-1 divide-y divide-[color:var(--color-chat-inline-border)]">
+        <div className="mt-1 divide-y divide-chat-inline-border">
           {questions.map((question) => {
             const questionKey = getAskUserQuestionKey(question)
             const values = askAnswerDisplayValues({
@@ -121,26 +119,24 @@ export const ProjectAskUserQuestionTimelineCard = ({
 
             return (
               <div className="py-2.5" key={questionKey}>
-                <div className="text-caption font-medium text-[color:var(--color-chat-muted-text)]">
+                <div className="text-caption font-medium text-chat-muted-text">
                   {question.header}
                 </div>
-                <div className="mt-1 text-label leading-[1.45] text-[color:var(--color-chat-message-text)]">
+                <div className="mt-1 text-label leading-[1.45] text-chat-message-text">
                   {question.question}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {values.length > 0 ? (
                     values.map((value) => (
                       <span
-                        className="rounded-full border border-[color:var(--color-chat-chip-border)] bg-[color:var(--color-chat-chip-bg)] px-2.5 py-1 text-caption text-[color:var(--color-chat-message-text)]"
+                        className="rounded-full border border-chat-chip-border bg-chat-chip-bg px-2.5 py-1 text-caption text-chat-message-text"
                         key={value}
                       >
                         {value}
                       </span>
                     ))
                   ) : (
-                    <span className="text-caption text-[color:var(--color-chat-muted-text)]">
-                      等待你的选择
-                    </span>
+                    <span className="text-caption text-chat-muted-text">等待你的选择</span>
                   )}
                 </div>
               </div>

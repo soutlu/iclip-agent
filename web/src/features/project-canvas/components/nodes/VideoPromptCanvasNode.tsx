@@ -28,7 +28,7 @@ function VideoPromptCanvasNode({ id, data, selected }: NodeProps<VideoPromptProj
       selected={selected}
       title={data.title}
     >
-      <div className="relative h-full min-h-0 overflow-hidden bg-[color:var(--color-background)]">
+      <div className="relative h-full min-h-0 overflow-hidden bg-background">
         <div className="h-full min-h-0 w-full">
           <VideoPromptCanvasCard
             generatedVideo={data.generatedVideo}

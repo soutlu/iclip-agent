@@ -51,13 +51,13 @@ import DebugWorkspaceFiles from './debug-workspace-files'
 import GenerateShotFramesToolDetails from './generate-shot-frames-tool-details'
 
 const DEBUG_INPUT_CLASS =
-  'rounded-lg border border-[var(--color-outline)] bg-[var(--color-surface-container-lowest)] text-body text-[var(--color-on-surface)] transition-colors duration-[var(--dur-s)] hover:border-[var(--color-primary)] disabled:cursor-not-allowed disabled:bg-[var(--color-disabled-container)] disabled:text-[var(--color-disabled-text)]'
+  'rounded-lg border border-outline bg-surface-container-lowest text-body text-on-surface transition-colors duration-[var(--dur-s)] hover:border-primary disabled:cursor-not-allowed disabled:bg-disabled-container disabled:text-disabled-text'
 const DEBUG_PANEL_CLASS =
-  'overflow-hidden rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)]'
+  'overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest'
 const DEBUG_SECONDARY_BUTTON_CLASS =
-  'hit-48 relative inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)] px-4 text-body font-semibold text-[var(--color-on-surface)] transition duration-[var(--dur-s)] ease-[var(--ease)] hover:border-[var(--color-outline)] hover:bg-[var(--color-state-hover)] active:scale-95 disabled:cursor-not-allowed disabled:bg-[var(--color-disabled-container)] disabled:text-[var(--color-disabled-text)]'
+  'hit-48 relative inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-outline-variant bg-surface-container-lowest px-4 text-body font-semibold text-on-surface transition duration-[var(--dur-s)] ease-[var(--ease)] hover:border-outline hover:bg-state-hover active:scale-95 disabled:cursor-not-allowed disabled:bg-disabled-container disabled:text-disabled-text'
 const DEBUG_PRIMARY_BUTTON_CLASS =
-  'hit-48 relative inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[var(--color-primary)] px-5 text-body font-semibold text-[var(--color-on-primary)] shadow-[var(--shadow-1)] transition duration-[var(--dur-s)] ease-[var(--ease)] hover:-translate-y-0.5 hover:bg-[var(--color-primary-hover)] hover:shadow-[var(--shadow-2)] active:translate-y-0 active:scale-95 disabled:cursor-not-allowed disabled:bg-[var(--color-disabled-container)] disabled:text-[var(--color-disabled-text)] disabled:shadow-none sm:h-10'
+  'hit-48 relative inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-primary px-5 text-body font-semibold text-on-primary shadow-[var(--shadow-1)] transition duration-[var(--dur-s)] ease-[var(--ease)] hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-[var(--shadow-2)] active:translate-y-0 active:scale-95 disabled:cursor-not-allowed disabled:bg-disabled-container disabled:text-disabled-text disabled:shadow-none sm:h-10'
 
 type DebugRun = {
   conversationId: string
@@ -78,27 +78,25 @@ function DebugToolCallDetails({ toolCall }: { toolCall: ToolCallMessagePart }) {
   return (
     <section
       aria-label={`${toolCall.toolName} 调用详情`}
-      className="space-y-3 rounded-md bg-[var(--color-surface-container-low)] p-3"
+      className="space-y-3 rounded-md bg-surface-container-low p-3"
       role="region"
     >
-      <p className="font-mono text-caption font-semibold text-[var(--color-on-surface)]">
-        {toolCall.toolName}
-      </p>
+      <p className="font-mono text-caption font-semibold text-on-surface">{toolCall.toolName}</p>
       <div className="min-w-0">
-        <p className="mb-1 text-label text-[var(--color-on-surface-variant)]">输入</p>
+        <p className="mb-1 text-label text-on-surface-variant">输入</p>
         <pre
           aria-label={`${toolCall.toolName} 输入`}
-          className="thin-scrollbar overflow-x-auto font-mono text-caption break-words whitespace-pre-wrap text-[var(--color-on-surface)]"
+          className="thin-scrollbar overflow-x-auto font-mono text-caption break-words whitespace-pre-wrap text-on-surface"
           tabIndex={0}
         >
           {toolCall.argsText || debugValueText(toolCall.args)}
         </pre>
       </div>
-      <div className="min-w-0 border-t border-[var(--color-outline-variant)] pt-3">
-        <p className="mb-1 text-label text-[var(--color-on-surface-variant)]">结果</p>
+      <div className="min-w-0 border-t border-outline-variant pt-3">
+        <p className="mb-1 text-label text-on-surface-variant">结果</p>
         <pre
           aria-label={`${toolCall.toolName} 结果`}
-          className="thin-scrollbar overflow-x-auto font-mono text-caption break-words whitespace-pre-wrap text-[var(--color-on-surface)]"
+          className="thin-scrollbar overflow-x-auto font-mono text-caption break-words whitespace-pre-wrap text-on-surface"
           tabIndex={0}
         >
           {hasResult ? debugValueText(toolCall.result) : '等待工具返回'}
@@ -152,25 +150,23 @@ function DebugTaskInput({
 
   return (
     <section aria-labelledby="debug-input-title" className={DEBUG_PANEL_CLASS}>
-      <div className="flex items-center gap-4 border-b border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] px-4 py-4 sm:px-5">
+      <div className="flex items-center gap-4 border-b border-outline-variant bg-surface-container-low px-4 py-4 sm:px-5">
         {task.style.previewImageUrl.trim() ? (
           <img
             alt={`${task.style.styleNo} 商品图`}
-            className="size-16 shrink-0 rounded-md border border-[var(--color-outline-variant)] bg-[var(--color-surface-container)] object-cover sm:size-20"
+            className="size-16 shrink-0 rounded-md border border-outline-variant bg-surface-container object-cover sm:size-20"
             src={task.style.previewImageUrl}
           />
         ) : null}
         <div className="min-w-0">
-          <p className="mb-1 text-label font-semibold tracking-widest text-[var(--color-primary)]">
-            来源 TASK
-          </p>
+          <p className="mb-1 text-label font-semibold tracking-widest text-primary">来源 TASK</p>
           <h2
-            className="truncate text-title-lg font-semibold text-[var(--color-on-surface)]"
+            className="truncate text-title-lg font-semibold text-on-surface"
             id="debug-input-title"
           >
             {task.title}
           </h2>
-          <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
+          <p className="mt-1 text-body-sm text-on-surface-variant">
             款号 {task.style.styleNo} · Brief 与参考素材将按正式页提交结构发送
           </p>
         </div>
@@ -178,21 +174,21 @@ function DebugTaskInput({
 
       <div className="flex flex-col gap-5 p-4 sm:p-5">
         <div aria-label="任务参数" className="flex flex-wrap gap-2">
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--color-surface-container)] px-3 text-body-sm font-medium text-[var(--color-on-surface)]">
-            <span aria-hidden="true" className="font-mono text-label text-[var(--color-primary)]">
+          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-surface-container px-3 text-body-sm font-medium text-on-surface">
+            <span aria-hidden="true" className="font-mono text-label text-primary">
               AR
             </span>
             {task.brief.ratio?.trim() || '未填写'}
           </span>
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--color-surface-container)] px-3 text-body-sm font-medium text-[var(--color-on-surface)]">
+          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-surface-container px-3 text-body-sm font-medium text-on-surface">
             <Clock3 aria-hidden="true" size={14} strokeWidth={1.8} />
             {task.brief.durationSeconds ? `${task.brief.durationSeconds} 秒` : '时长未填写'}
           </span>
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--color-surface-container)] px-3 text-body-sm font-medium text-[var(--color-on-surface)]">
+          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-surface-container px-3 text-body-sm font-medium text-on-surface">
             <ImageIcon aria-hidden="true" size={14} strokeWidth={1.8} />
             {task.brief.referenceImages.length} 张参考图
           </span>
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--color-surface-container)] px-3 text-body-sm font-medium text-[var(--color-on-surface)]">
+          <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-surface-container px-3 text-body-sm font-medium text-on-surface">
             <Video aria-hidden="true" size={14} strokeWidth={1.8} />
             {task.brief.referenceVideos.length} 个参考视频
           </span>
@@ -200,15 +196,12 @@ function DebugTaskInput({
 
         <section aria-labelledby="debug-requirement-title">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <h3
-              className="text-body-sm font-semibold text-[var(--color-on-surface)]"
-              id="debug-requirement-title"
-            >
+            <h3 className="text-body-sm font-semibold text-on-surface" id="debug-requirement-title">
               需求描述
             </h3>
-            <span className="text-label text-[var(--color-on-surface-variant)]">原样透传</span>
+            <span className="text-label text-on-surface-variant">原样透传</span>
           </div>
-          <p className="max-h-40 overflow-y-auto rounded-md border-l-4 border-[var(--color-primary)] bg-[var(--color-surface-container-low)] p-4 text-body leading-relaxed whitespace-pre-wrap text-[var(--color-on-surface)] sm:max-h-64">
+          <p className="max-h-40 overflow-y-auto rounded-md border-l-4 border-primary bg-surface-container-low p-4 text-body leading-relaxed whitespace-pre-wrap text-on-surface sm:max-h-64">
             {task.brief.requirementDescription?.trim() || '（需求描述未填写）'}
           </p>
         </section>
@@ -217,19 +210,19 @@ function DebugTaskInput({
           <section aria-labelledby="debug-references-title">
             <div className="mb-2 flex items-center justify-between gap-3">
               <h3
-                className="text-body-sm font-semibold text-[var(--color-on-surface)]"
+                className="text-body-sm font-semibold text-on-surface"
                 id="debug-references-title"
               >
                 随消息发送的素材
               </h3>
-              <span className="text-label text-[var(--color-on-surface-variant)]">
+              <span className="text-label text-on-surface-variant">
                 共 {referenceAssets.length} 项
               </span>
             </div>
             <ul className="flex gap-2 overflow-x-auto pb-1">
               {referenceAssets.map(({ asset, label }) => (
                 <li
-                  className="shrink-0 overflow-hidden rounded-sm border border-[var(--color-outline-variant)] bg-[var(--color-surface-container)]"
+                  className="shrink-0 overflow-hidden rounded-sm border border-outline-variant bg-surface-container"
                   key={asset.id}
                 >
                   <button
@@ -245,7 +238,7 @@ function DebugTaskInput({
                       mediaType={asset.assetType}
                       url={asset.url}
                     />
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-[color:color-mix(in_srgb,var(--color-inverse-surface)_78%,transparent)] px-1 py-0.5 text-center text-caption font-medium text-[var(--color-inverse-on-surface)] opacity-0 transition-opacity duration-[var(--dur-s)] group-hover:opacity-100">
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-[color:color-mix(in_srgb,var(--color-inverse-surface)_78%,transparent)] px-1 py-0.5 text-center text-caption font-medium text-inverse-on-surface opacity-0 transition-opacity duration-[var(--dur-s)] group-hover:opacity-100">
                       {asset.assetType === 'video' ? '播放' : '查看'}
                     </span>
                   </button>
@@ -371,12 +364,12 @@ function StoryboardDebugRun({
             className={cn(
               'grid size-10 shrink-0 place-items-center rounded-md',
               failureMessage
-                ? 'bg-[var(--color-error-container)] text-[var(--color-on-error-container)]'
+                ? 'bg-error-container text-on-error-container'
                 : runCancelled
-                  ? 'bg-[var(--color-surface-container)] text-[var(--color-on-surface-variant)]'
+                  ? 'bg-surface-container text-on-surface-variant'
                   : runFinished
-                    ? 'bg-[var(--color-secondary-container)] text-[var(--color-on-secondary-container)]'
-                    : 'bg-[var(--color-warning-container)] text-[var(--color-on-warning-container)]',
+                    ? 'bg-secondary-container text-on-secondary-container'
+                    : 'bg-warning-container text-on-warning-container',
             )}
           >
             <StatusIcon
@@ -387,19 +380,19 @@ function StoryboardDebugRun({
             />
           </span>
           <div className="min-w-0">
-            <p className="text-title font-semibold text-[var(--color-on-surface)]" role="status">
+            <p className="text-title font-semibold text-on-surface" role="status">
               {statusText}
             </p>
-            <p className="mt-0.5 text-body-sm text-[var(--color-on-surface-variant)]">
+            <p className="mt-0.5 text-body-sm text-on-surface-variant">
               {isRunning ? <span aria-hidden="true">已运行 {elapsedSeconds}s · </span> : null}
               事件与模型输出会在下方实时出现
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3 rounded-md bg-[var(--color-surface-container-low)] px-3 py-2 sm:max-w-72">
-          <span className="text-label text-[var(--color-on-surface-variant)]">对话</span>
+        <div className="flex items-center gap-3 rounded-md bg-surface-container-low px-3 py-2 sm:max-w-72">
+          <span className="text-label text-on-surface-variant">对话</span>
           <code
-            className="truncate font-mono text-body-sm font-semibold text-[var(--color-on-surface)]"
+            className="truncate font-mono text-body-sm font-semibold text-on-surface"
             title={conversationId}
           >
             {conversationId.slice(0, 12)}
@@ -409,7 +402,7 @@ function StoryboardDebugRun({
 
       {failureMessage ? (
         <div
-          className="flex items-start gap-3 rounded-md bg-[var(--color-error-container)] p-4 text-body-sm text-[var(--color-on-error-container)]"
+          className="flex items-start gap-3 rounded-md bg-error-container p-4 text-body-sm text-on-error-container"
           role="alert"
         >
           <TriangleAlert aria-hidden="true" className="mt-0.5 shrink-0" size={17} />
@@ -426,25 +419,21 @@ function StoryboardDebugRun({
           )}
         >
           {timelineItems.length === 0 ? (
-            <div className="grid min-h-0 flex-1 place-items-center border border-dashed border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] p-6 text-center">
+            <div className="grid min-h-0 flex-1 place-items-center border border-dashed border-outline-variant bg-surface-container-low p-6 text-center">
               <div className="flex max-w-sm flex-col items-center">
                 {failureMessage ? (
-                  <TriangleAlert
-                    aria-hidden="true"
-                    className="mb-3 text-[var(--color-error)]"
-                    size={24}
-                  />
+                  <TriangleAlert aria-hidden="true" className="mb-3 text-error" size={24} />
                 ) : (
                   <LoaderCircle
                     aria-hidden="true"
-                    className="mb-3 animate-spin text-[var(--color-primary)]"
+                    className="mb-3 animate-spin text-primary"
                     size={24}
                   />
                 )}
-                <p className="text-body font-semibold text-[var(--color-on-surface)]">
+                <p className="text-body font-semibold text-on-surface">
                   {failureMessage ? '本次运行没有可显示输出' : '等待第一条运行事件'}
                 </p>
-                <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
+                <p className="mt-1 text-body-sm text-on-surface-variant">
                   {failureMessage
                     ? '失败原因已在上方显示，可以返回运行配置后重试。'
                     : '历史加载完成后将自动提交 Brief，无需再次操作。'}
@@ -627,7 +616,7 @@ export default function StoryboardDebugRoute({
   return (
     <main
       className={cn(
-        'h-dvh bg-[var(--color-surface)] text-[var(--color-on-surface)]',
+        'h-dvh bg-surface text-on-surface',
         run ? 'overflow-hidden' : 'overflow-y-auto',
       )}
     >
@@ -639,33 +628,30 @@ export default function StoryboardDebugRoute({
             : 'min-h-full max-w-6xl gap-5 py-5 sm:py-7',
         )}
       >
-        <header className="flex shrink-0 flex-col gap-4 border-b border-[var(--color-outline-variant)] pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex shrink-0 flex-col gap-4 border-b border-outline-variant pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3 sm:items-center">
             <button
               aria-label="返回上一页"
-              className="hit-48 relative grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)] text-[var(--color-on-surface)] transition duration-[var(--dur-s)] ease-[var(--ease)] hover:-translate-x-0.5 hover:border-[var(--color-outline)] hover:bg-[var(--color-state-hover)] active:translate-x-0 active:scale-95"
+              className="hit-48 relative grid size-10 shrink-0 cursor-pointer place-items-center rounded-full border border-outline-variant bg-surface-container-lowest text-on-surface transition duration-[var(--dur-s)] ease-[var(--ease)] hover:-translate-x-0.5 hover:border-outline hover:bg-state-hover active:translate-x-0 active:scale-95"
               onClick={handleBack}
               title="返回上一页"
               type="button"
             >
               <ArrowLeft aria-hidden="true" size={18} strokeWidth={2} />
             </button>
-            <span className="hidden size-11 shrink-0 place-items-center rounded-lg bg-[var(--color-primary-container)] text-[var(--color-on-primary-container)] sm:grid">
+            <span className="hidden size-11 shrink-0 place-items-center rounded-lg bg-primary-container text-on-primary-container sm:grid">
               <FlaskConical aria-hidden="true" size={22} strokeWidth={1.9} />
             </span>
             <div className="min-w-0">
-              <p className="mb-1 flex items-center gap-2 text-label font-semibold tracking-widest text-[var(--color-primary)]">
+              <p className="mb-1 flex items-center gap-2 text-label font-semibold tracking-widest text-primary">
                 AGENT LAB
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-warning-container)] px-2 py-0.5 tracking-normal text-[var(--color-on-warning-container)]">
-                  <span
-                    aria-hidden="true"
-                    className="size-1.5 rounded-full bg-[var(--color-warning)]"
-                  />
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-container px-2 py-0.5 tracking-normal text-on-warning-container">
+                  <span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
                   真实环境
                 </span>
               </p>
               <h1 className="text-headline font-semibold tracking-tight">Storyboard Agent 调试</h1>
-              <p className="mt-1 max-w-2xl text-body-sm text-[var(--color-on-surface-variant)]">
+              <p className="mt-1 max-w-2xl text-body-sm text-on-surface-variant">
                 核对发送给 Agent 的 Brief 与参考素材，并观察单次运行的完整事件流。
               </p>
             </div>
@@ -700,7 +686,7 @@ export default function StoryboardDebugRoute({
 
         {errorMessage && !run ? (
           <div
-            className="flex items-start gap-3 rounded-md bg-[var(--color-error-container)] p-4 text-body-sm text-[var(--color-on-error-container)]"
+            className="flex items-start gap-3 rounded-md bg-error-container p-4 text-body-sm text-on-error-container"
             id="debug-form-error"
             role="alert"
           >
@@ -743,18 +729,16 @@ export default function StoryboardDebugRoute({
                     className={cn(DEBUG_PANEL_CLASS, 'p-5')}
                     role="alert"
                   >
-                    <span className="mb-4 grid size-10 place-items-center rounded-md bg-[var(--color-error-container)] text-[var(--color-on-error-container)]">
+                    <span className="mb-4 grid size-10 place-items-center rounded-md bg-error-container text-on-error-container">
                       <TriangleAlert aria-hidden="true" size={19} />
                     </span>
                     <h2
-                      className="text-title font-semibold text-[var(--color-on-surface)]"
+                      className="text-title font-semibold text-on-surface"
                       id="debug-task-error-title"
                     >
                       来源 Task 加载失败
                     </h2>
-                    <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
-                      {taskQueryError}
-                    </p>
+                    <p className="mt-1 text-body-sm text-on-surface-variant">{taskQueryError}</p>
                     <button
                       className={cn(DEBUG_SECONDARY_BUTTON_CLASS, 'mt-4')}
                       onClick={() => void taskLibraryQuery.refetch()}
@@ -770,18 +754,16 @@ export default function StoryboardDebugRoute({
                     className={cn(DEBUG_PANEL_CLASS, 'p-5')}
                     role="alert"
                   >
-                    <span className="mb-4 grid size-10 place-items-center rounded-md bg-[var(--color-error-container)] text-[var(--color-on-error-container)]">
+                    <span className="mb-4 grid size-10 place-items-center rounded-md bg-error-container text-on-error-container">
                       <TriangleAlert aria-hidden="true" size={19} />
                     </span>
                     <h2
-                      className="text-title font-semibold text-[var(--color-on-surface)]"
+                      className="text-title font-semibold text-on-surface"
                       id="debug-task-missing-title"
                     >
                       来源 Task 不存在
                     </h2>
-                    <p className="mt-1 text-body-sm break-all text-[var(--color-on-surface-variant)]">
-                      {taskId}
-                    </p>
+                    <p className="mt-1 text-body-sm break-all text-on-surface-variant">{taskId}</p>
                   </section>
                 ) : (
                   <section
@@ -792,11 +774,11 @@ export default function StoryboardDebugRoute({
                     <div className="flex flex-col items-center text-center">
                       <LoaderCircle
                         aria-hidden="true"
-                        className="mb-3 animate-spin text-[var(--color-primary)]"
+                        className="mb-3 animate-spin text-primary"
                         size={24}
                       />
                       <p className="text-body font-semibold">正在加载来源 Task</p>
-                      <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
+                      <p className="mt-1 text-body-sm text-on-surface-variant">
                         正在整理 Brief 与参考素材…
                       </p>
                     </div>
@@ -804,14 +786,14 @@ export default function StoryboardDebugRoute({
                 )
               ) : (
                 <section aria-labelledby="debug-manual-input-title" className={DEBUG_PANEL_CLASS}>
-                  <div className="border-b border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] px-4 py-4 sm:px-5">
-                    <p className="mb-1 text-label font-semibold tracking-widest text-[var(--color-primary)]">
+                  <div className="border-b border-outline-variant bg-surface-container-low px-4 py-4 sm:px-5">
+                    <p className="mb-1 text-label font-semibold tracking-widest text-primary">
                       手动输入
                     </p>
                     <h2 className="text-title-lg font-semibold" id="debug-manual-input-title">
                       运行 Brief
                     </h2>
-                    <p className="mt-1 text-body-sm text-[var(--color-on-surface-variant)]">
+                    <p className="mt-1 text-body-sm text-on-surface-variant">
                       直接访问调试页时，可在这里构造三字段 prompt。
                     </p>
                   </div>

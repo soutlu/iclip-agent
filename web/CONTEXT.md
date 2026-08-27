@@ -96,7 +96,7 @@ _不是_：按内容高度或视窗变化可随意改写的状态。
 - **布局本地兜底**：布局 GET/PUT 失败时改读写 localStorage、伪造已保存结果，或在 React Flow、Zustand 和 TanStack Query 之间复制多份节点坐标事实。
 - **静默覆盖布局冲突**：忽略 `expectedRevision`、把 409 当作成功、用 last-write-wins 或隐式节点合并覆盖其他客户端已保存的快照。
 - **身份白名单**：用前端用户名列表做权限门控。
-- **主题分支**：`data-theme`、主题 Provider、localStorage 主题状态、系统颜色偏好监听——只有单一浅色主题。
+- **组件里的主题分支**：`data-theme`、主题 Provider、组件自己判断明暗。浅深两套 token 同名换档，主题只由 `<html>` 上的 `.dark` 决定（`src/app/theme.ts` 是唯一开关），组件照常引用 token 即可。
 - **sanitize 模型内容**：给 `RichMarkdownRenderer` 加 DOMPurify / allowlist / 兜底分支。模型 HTML 是可信内容，隔离靠 Shadow DOM。
 - **平行运行时**：在 assistant-ui runtime 之外维护完整 message runtime、手写 subscriber、project 级 AG-UI multiplex / demux。
 - **推断 Storyboard 关系**：按 Project 的 `sessionIds` 顺序、target、Task 顺序或当前选中项猜测 Task 与 Session；缺失显式关系时必须报错。

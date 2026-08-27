@@ -167,7 +167,7 @@ function StoryboardFrameThumbnail({
   return (
     <button
       aria-label={`查看${image.alt}`}
-      className="nodrag nopan group relative block h-[264px] shrink-0 cursor-pointer overflow-hidden rounded-xl border p-0 text-left transition-transform duration-200 hover:scale-[1.01] focus-visible:ring-2"
+      className="nodrag nopan group relative block h-[264px] shrink-0 cursor-pointer overflow-hidden rounded-xl border p-0 text-left transition-transform ui-motion-m hover:scale-[1.01] focus-visible:ring-2"
       onDoubleClick={() => onPreviewOpen(image, shot)}
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') {
@@ -188,7 +188,7 @@ function StoryboardFrameThumbnail({
     >
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-contain bg-center bg-no-repeat transition-transform duration-300 group-hover:scale-[1.01]"
+        className="absolute inset-0 bg-contain bg-center bg-no-repeat transition-transform ui-motion-m group-hover:scale-[1.01]"
         style={{ backgroundImage: toCssBackgroundImage(image.url) }}
       />
       <span className="pointer-events-none absolute top-3 left-3 rounded-full border border-white/20 bg-black/28 px-2.5 py-1 text-caption font-semibold text-white/92 backdrop-blur-sm">
@@ -242,7 +242,7 @@ function StoryboardVideoThumbnail({ onPreviewOpen, palette, shot }: StoryboardVi
     <button
       ref={ref}
       aria-label={`播放${videoLabel}`}
-      className="nodrag nopan group relative block h-[264px] shrink-0 cursor-pointer overflow-hidden rounded-xl border p-0 text-left transition-transform duration-200 hover:scale-[1.01] focus-visible:ring-2"
+      className="nodrag nopan group relative block h-[264px] shrink-0 cursor-pointer overflow-hidden rounded-xl border p-0 text-left transition-transform ui-motion-m hover:scale-[1.01] focus-visible:ring-2"
       onDoubleClick={() => {
         activate()
         onPreviewOpen(shot)
@@ -269,7 +269,7 @@ function StoryboardVideoThumbnail({ onPreviewOpen, palette, shot }: StoryboardVi
     >
       <div
         aria-hidden="true"
-        className="absolute inset-0 transition-opacity duration-300"
+        className="absolute inset-0 transition-opacity ui-motion-m"
         style={{
           background: `linear-gradient(150deg, ${palette.surface} 0%, ${palette.background} 100%)`,
           opacity: videoReady ? 0 : 1,
@@ -280,7 +280,7 @@ function StoryboardVideoThumbnail({ onPreviewOpen, palette, shot }: StoryboardVi
         <>
           <video
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-300"
+            className="pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity ui-motion-m"
             muted
             onLoadedData={() => setVideoReady(true)}
             onLoadedMetadata={(event) => {
@@ -300,7 +300,7 @@ function StoryboardVideoThumbnail({ onPreviewOpen, palette, shot }: StoryboardVi
           </video>
           <div
             aria-hidden="true"
-            className="absolute inset-0 transition-opacity duration-300"
+            className="absolute inset-0 transition-opacity ui-motion-m"
             style={{
               background:
                 'linear-gradient(180deg, color-mix(in srgb, var(--color-sb-table-text) 8%, transparent) 0%, color-mix(in srgb, var(--color-sb-table-text) 14%, transparent) 52%, color-mix(in srgb, var(--color-sb-table-text) 46%, transparent) 100%)',
@@ -311,7 +311,7 @@ function StoryboardVideoThumbnail({ onPreviewOpen, palette, shot }: StoryboardVi
       ) : (
         <div
           aria-hidden="true"
-          className="absolute inset-0 transition-opacity duration-300"
+          className="absolute inset-0 transition-opacity ui-motion-m"
           style={{
             background:
               'linear-gradient(180deg, color-mix(in srgb, var(--color-sb-table-text) 2%, transparent) 0%, color-mix(in srgb, var(--color-sb-table-text) 8%, transparent) 56%, color-mix(in srgb, var(--color-sb-table-text) 22%, transparent) 100%)',
@@ -348,7 +348,7 @@ function StoryboardVideoCell({ onPreviewOpen, palette, shot }: StoryboardVideoCe
   if (shot.videoStatus === 'failed') {
     return (
       <div
-        className="canvas-fragment-enter rounded-xl border px-4 py-4 transition-all duration-300 ease-out"
+        className="canvas-fragment-enter rounded-xl border px-4 py-4 transition-all ui-motion-m"
         style={{
           backgroundColor: palette.dangerSoft,
           borderColor: 'color-mix(in srgb, var(--color-sb-table-danger) 18%, transparent)',
@@ -376,7 +376,7 @@ function StoryboardVideoCell({ onPreviewOpen, palette, shot }: StoryboardVideoCe
   if (shot.videoStatus === 'succeeded' && hasText(shot.videoUrl)) {
     return (
       <div
-        className="canvas-fragment-enter nodrag nopan nowheel cursor-auto overflow-x-auto pb-1 transition-all duration-300 ease-out"
+        className="canvas-fragment-enter nodrag nopan nowheel cursor-auto overflow-x-auto pb-1 transition-all ui-motion-m"
         data-scrollable
       >
         <StoryboardVideoThumbnail
@@ -396,7 +396,7 @@ function StoryboardStorylineCell({ palette, shot }: StoryboardRowBodyCellProps) 
   if (shot.shotStatus === 'failed') {
     return (
       <div
-        className="canvas-fragment-enter rounded-xl border px-4 py-4 transition-all duration-300 ease-out"
+        className="canvas-fragment-enter rounded-xl border px-4 py-4 transition-all ui-motion-m"
         style={{
           backgroundColor: palette.dangerSoft,
           borderColor: 'color-mix(in srgb, var(--color-sb-table-danger) 18%, transparent)',
@@ -431,7 +431,7 @@ function StoryboardVideoPromptCell({ palette, shot }: StoryboardVideoPromptCellP
   if (shot.videoPromptStatus === 'failed') {
     return (
       <div
-        className="canvas-fragment-enter rounded-xl border px-4 py-4 transition-all duration-300 ease-out"
+        className="canvas-fragment-enter rounded-xl border px-4 py-4 transition-all ui-motion-m"
         style={{
           backgroundColor: palette.dangerSoft,
           borderColor: 'color-mix(in srgb, var(--color-sb-table-danger) 18%, transparent)',
@@ -454,7 +454,7 @@ function StoryboardVideoPromptCell({ palette, shot }: StoryboardVideoPromptCellP
   if (shot.videoPromptStatus === 'succeeded' && hasText(shot.videoPrompt)) {
     return (
       <div
-        className="canvas-fragment-enter rounded-xl border px-4 py-4 transition-all duration-300 ease-out"
+        className="canvas-fragment-enter rounded-xl border px-4 py-4 transition-all ui-motion-m"
         style={{
           backgroundColor: palette.promptSurface,
           borderColor: palette.badgeBorder,

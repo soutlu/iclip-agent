@@ -275,13 +275,13 @@ function ProjectActiveSessionWorkspace({
         <ProjectMouseGlow />
 
         <header className="layer-header pointer-events-auto absolute inset-x-0 top-0">
-          <div className="relative flex h-[var(--layout-project-header-height)] w-full items-center justify-between text-[var(--color-on-background)]">
+          <div className="relative flex h-[var(--layout-project-header-height)] w-full items-center justify-between text-on-background">
             <div className="relative flex h-full w-full items-center justify-between gap-4 bg-transparent pt-4 pr-[var(--layout-project-header-inline-end)] pb-4 pl-[var(--layout-project-header-inline-start)]">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <ProjectHeaderLeft />
                 {isDesktop && sessions.length > 0 && (
                   <>
-                    <div className="h-4 w-px shrink-0 bg-[var(--color-border)] opacity-40" />
+                    <div className="h-4 w-px shrink-0 bg-border opacity-40" />
                     <div className="min-w-0 flex-1">
                       <ProjectSessionTabs
                         projectId={projectId}
@@ -732,9 +732,9 @@ export default function ProjectRoute({ projectId }: ProjectRouteProps) {
  */
 function ProjectErrorState({ message }: ProjectErrorStateProps) {
   return (
-    <main className="project-workspace flex min-h-svh items-center justify-center px-6 text-[var(--color-on-background)]">
+    <main className="project-workspace flex min-h-svh items-center justify-center px-6 text-on-background">
       <div
-        className="flex w-full max-w-sm flex-col items-center gap-4 rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] px-6 py-5 text-center text-[var(--color-danger-text)]"
+        className="flex w-full max-w-sm flex-col items-center gap-4 rounded-lg border border-danger-border bg-danger-bg px-6 py-5 text-center text-danger-text"
         role="alert"
       >
         <p className="text-body font-semibold">项目加载失败</p>

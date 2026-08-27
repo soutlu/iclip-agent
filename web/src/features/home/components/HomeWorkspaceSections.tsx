@@ -173,7 +173,7 @@ function InspirationPanel() {
             type="button"
             aria-pressed={activeCategory === category}
             className={cn(
-              'home-filter-chip transition-all duration-200 hover:-translate-y-px active:translate-y-0',
+              'home-filter-chip transition-all ui-motion-m hover:-translate-y-px active:translate-y-0',
               activeCategory === category ? 'home-filter-chip--active' : '',
             )}
             onClick={() => setActiveCategory(category)}
@@ -235,7 +235,7 @@ function WorkspaceProjectsPanel({
       {projectActionError ? (
         <div
           role="alert"
-          className="mb-5 rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] px-4 py-3 text-body-sm leading-[1.5] text-[var(--color-danger-text)]"
+          className="mb-5 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-body-sm leading-[1.5] text-danger-text"
         >
           {projectActionError}
         </div>

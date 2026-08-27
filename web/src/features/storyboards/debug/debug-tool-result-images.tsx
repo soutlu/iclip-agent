@@ -58,12 +58,12 @@ function DebugImagePreviewButton({
         src={image.url}
       />
       {loadFailed ? (
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--color-error-container)] px-3 text-center text-body-sm text-[var(--color-on-error-container)]">
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-error-container px-3 text-center text-body-sm text-on-error-container">
           图片加载失败
         </span>
       ) : null}
       {image.badge ? (
-        <span className="pointer-events-none absolute top-2 left-2 rounded-xs bg-[color:color-mix(in_srgb,var(--color-inverse-surface)_78%,transparent)] px-1.5 py-0.5 text-caption font-semibold text-[var(--color-inverse-on-surface)]">
+        <span className="pointer-events-none absolute top-2 left-2 rounded-xs bg-[color:color-mix(in_srgb,var(--color-inverse-surface)_78%,transparent)] px-1.5 py-0.5 text-caption font-semibold text-inverse-on-surface">
           {image.badge}
         </span>
       ) : null}
@@ -123,10 +123,8 @@ export default function DebugToolResultImages({ result, toolName }: DebugToolRes
   return (
     <section aria-label={`${toolName} 结果图片`} className="mt-3">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <p className="text-body-sm font-semibold text-[var(--color-on-surface)]">结果图片</p>
-        <p className="text-label text-[var(--color-on-surface-variant)]">
-          共 {images.length} 张 · 点击查看大图
-        </p>
+        <p className="text-body-sm font-semibold text-on-surface">结果图片</p>
+        <p className="text-label text-on-surface-variant">共 {images.length} 张 · 点击查看大图</p>
       </div>
       <DebugImagePreviewRail ariaLabel={`${toolName} 结果图片`} images={images} />
     </section>

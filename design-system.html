@@ -1,0 +1,2882 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Producer 设计系统：颜色、排版、尺度、组件契约、核心状态、图标与可复用结构的唯一事实源。"
+    />
+    <title>Producer Design System</title>
+    <!--
+      契约 = 下方第一个 <style> 内 :root（浅色）与 .dark（深色）两块中除 --pg-*（本页排版）外的全部变量。
+      运行时 web/src/app/globals.css + base.css 逐名逐值镜像（去空格后逐字相等），双向对账由 pnpm lint:design 执行。
+      运行时代码只消费 token 与 @/shared/icons，不加载、不解析本文件。
+    -->
+    <style>
+      :root {
+        color-scheme: light;
+
+        /* ===== 页面自身（本页排版用，非产品 token） ===== */
+        --pg-canvas: var(--n95);
+        --pg-sheet: var(--n98);
+        --pg-ink: var(--n10);
+        --pg-ink-secondary: var(--nv40);
+        --pg-ink-tertiary: var(--nv40);
+        --pg-line: var(--n90);
+        --pg-line-strong: var(--nv80);
+        --pg-focus: var(--p40);
+
+        /* ===== 字体 ===== */
+        --font-producer-ui: 'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+        --font-home-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+
+        /* ===== ① Primitives（6 族 HCT 色板，MCU v0.4.0 生成；组件禁止直接引用） ===== */
+        --p0:#000000; --p10:#001f25; --p20:#00363e; --p30:#004e5a; --p40:#006876; --p50:#008395;
+        --p60:#009fb4; --p70:#29bbd2; --p80:#53d7ef; --p90:#a1efff; --p95:#d4f7ff; --p99:#f7fdff; --p100:#ffffff;
+        --s0:#000000; --s10:#002115; --s20:#003827; --s30:#15503c; --s40:#316853; --s50:#4a826a;
+        --s60:#649c83; --s70:#7eb79d; --s80:#99d3b8; --s90:#b4efd3; --s95:#c2fee1; --s99:#f4fff7; --s100:#ffffff;
+        --t0:#000000; --t10:#261a00; --t20:#402d00; --t30:#5b4300; --t40:#795900; --t50:#987100;
+        --t60:#b58a21; --t70:#d2a53b; --t80:#f0c053; --t90:#ffdf9f; --t95:#ffefd4; --t99:#fffbff; --t100:#ffffff;
+        /* Neutral 含深色 surface 档 4/6/12/17/22 与浅色 surface 档 92/94/96/98 */
+        --n0:#000000; --n4:#0b0f11; --n6:#101417; --n10:#191c1f; --n12:#1d2023; --n17:#272a2d; --n20:#2e3134; --n22:#323538;
+        --n30:#44474a; --n40:#5c5f62; --n50:#74777b; --n60:#8e9194; --n70:#a9abaf; --n80:#c4c7ca; --n90:#e1e2e6;
+        --n92:#e6e8ec; --n94:#eceef2; --n95:#eff1f5; --n96:#f2f4f7; --n98:#f8f9fd; --n99:#fbfcff; --n100:#ffffff;
+        --nv0:#000000; --nv10:#161c21; --nv20:#2b3136; --nv30:#41484d; --nv40:#595f65; --nv50:#71787e;
+        --nv60:#8b9198; --nv70:#a6acb2; --nv80:#c1c7ce; --nv90:#dde3ea; --nv95:#ebf1f8; --nv99:#fbfcff; --nv100:#ffffff;
+        --e0:#000000; --e10:#410001; --e20:#690003; --e30:#910809; --e40:#b4271f; --e50:#d74034;
+        --e60:#fa5a4a; --e70:#ff8a7b; --e80:#ffb4aa; --e90:#ffdad5; --e95:#ffedea; --e99:#fffbff; --e100:#ffffff;
+
+        /* ===== ② Semantic roles · 浅色（深色见 .dark，同名换档） ===== */
+        --color-primary: var(--p40);
+        --color-primary-hover: var(--p50);
+        --color-on-primary: var(--p100);
+        --color-primary-container: var(--p90);
+        --color-on-primary-container: var(--p10);
+        --color-primary-container-solid: var(--p70);
+        --color-primary-container-soft: var(--p95);
+        --color-secondary: var(--s40);
+        --color-on-secondary: var(--s100);
+        --color-secondary-container: var(--s90);
+        --color-on-secondary-container: var(--s10);
+        --color-tertiary: var(--t40);
+        --color-on-tertiary: var(--t100);
+        --color-tertiary-container: var(--t90);
+        --color-on-tertiary-container: var(--t10);
+        --color-error: var(--e40);
+        --color-on-error: var(--e100);
+        --color-error-container: var(--e90);
+        --color-on-error-container: var(--e10);
+        --color-surface: var(--n98);
+        --color-on-surface: var(--n10);
+        --color-surface-variant: var(--nv90);
+        --color-on-surface-variant: var(--nv30);
+        --color-outline: var(--nv50);
+        --color-outline-variant: var(--nv80);
+        --color-surface-container-lowest: var(--n100);
+        --color-surface-container-low: var(--n96);
+        --color-surface-container: var(--n94);
+        --color-surface-container-high: var(--n92);
+        --color-surface-container-highest: var(--n90);
+        --color-inverse-surface: var(--n20);
+        --color-inverse-on-surface: var(--n95);
+        --color-inverse-primary: var(--p80);
+        --color-scrim: var(--n0);
+        --color-shadow: var(--n0);
+        --color-primary-fixed: var(--p90);
+        --color-primary-fixed-dim: var(--p80);
+        --color-secondary-fixed: var(--s90);
+        --color-secondary-fixed-dim: var(--s80);
+        --color-tertiary-fixed: var(--t90);
+        --color-tertiary-fixed-dim: var(--t80);
+        /* 状态层：透明度是契约，颜色由透明度派生（明暗自动跟随 on-surface） */
+        --state-hover: 0.08;
+        --state-focus: 0.12;
+        --state-pressed: 0.12;
+        --state-dragged: 0.16;
+        --state-disabled-content: 0.38;
+        --state-disabled-container: 0.12;
+        --state-focus-ring: 3px;
+        --state-focus-offset: 2px;
+        --color-state-hover: color-mix(in srgb, var(--color-on-surface) calc(var(--state-hover) * 100%), transparent);
+        --color-state-focus: color-mix(in srgb, var(--color-on-surface) calc(var(--state-focus) * 100%), transparent);
+        --color-state-pressed: color-mix(in srgb, var(--color-on-surface) calc(var(--state-pressed) * 100%), transparent);
+        --color-state-dragged: color-mix(in srgb, var(--color-on-surface) calc(var(--state-dragged) * 100%), transparent);
+        --color-disabled-text: color-mix(in srgb, var(--color-on-surface) calc(var(--state-disabled-content) * 100%), transparent);
+        --color-disabled-container: color-mix(in srgb, var(--color-on-surface) calc(var(--state-disabled-container) * 100%), transparent);
+        --color-focus-ring: var(--color-primary);
+        --color-ring-highlight: color-mix(in srgb, var(--color-primary) 70%, transparent);
+        /* Warning = tertiary 族别名 */
+        --color-warning: var(--color-tertiary);
+        --color-on-warning: var(--color-on-tertiary);
+        --color-warning-container: var(--color-tertiary-container);
+        --color-on-warning-container: var(--color-on-tertiary-container);
+
+        /* ===== ③ 领域别名 · 随主题（引用 ② 层的自动跟随；直接取色板/字面值的在 .dark 另给值） ===== */
+        --color-background: var(--color-surface);
+        --color-background-top: var(--n100);
+        --color-background-bottom: var(--n95);
+        --color-on-background: var(--color-on-surface);
+        --color-top-layer: var(--n100);
+        --color-state-active: var(--color-primary-container);
+        --color-glass-base: var(--n100); /* 玻璃面基色：所有半透明白面由它派生，深色换成 n17 */
+        --color-glass-surface: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
+        --color-control-bg: color-mix(in srgb, var(--color-glass-base) 64%, transparent);
+        --color-btn-hover: var(--color-state-hover);
+        --color-media-stack-bg: color-mix(in srgb, var(--color-glass-base) 92%, transparent);
+        --color-media-stack-bg-hover: var(--color-glass-base);
+        --color-popup-bg: rgba(249, 252, 255, 0.98);
+        --color-chip-bg: color-mix(in srgb, var(--color-glass-base) 62%, transparent);
+        --color-chip-bg-glass: color-mix(in srgb, var(--color-glass-base) 52%, transparent);
+        --color-input-bg: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
+        --color-input-border: var(--color-outline);
+        --color-dot: color-mix(in srgb, var(--nv70) 28%, transparent);
+        --color-dot-pattern: color-mix(in srgb, var(--nv70) 12%, transparent);
+        --color-border: var(--color-outline-variant);
+        --color-header-divider: var(--color-outline-variant);
+        --color-border-hover: var(--color-outline);
+        --color-hover: var(--color-state-hover);
+        --color-danger-bg: var(--color-error-container);
+        --color-danger-border: var(--e80);
+        --color-danger-text: var(--e30);
+        --color-chip-border: var(--color-outline-variant);
+        --color-thumb-fallback: var(--n80);
+        --color-badge-border: var(--color-outline-variant);
+        --color-header-btn-bg: var(--n90);
+        --color-agent-log-bg: var(--n90);
+        --color-suggestion-bg: color-mix(in srgb, var(--color-on-surface) 5%, transparent);
+        --color-suggestion-border: var(--color-outline-variant);
+        --color-suggestion-badge: color-mix(in srgb, var(--color-on-surface) 20%, transparent);
+        /* 聊天 */
+        --color-chat-panel-bg: var(--color-surface);
+        --color-chat-panel-bg-start: var(--n100);
+        --color-chat-panel-bg-end: var(--n95);
+        --color-chat-panel-border: var(--color-outline-variant);
+        --color-chat-card-bg: var(--color-surface-container-lowest);
+        --color-chat-message-text: var(--color-on-surface);
+        --color-chat-secondary-text: var(--color-on-surface-variant);
+        --color-chat-muted-text: var(--nv40);
+        --color-chat-user-bg: var(--color-secondary-container);
+        --color-chat-user-bg-hover: color-mix(in srgb, var(--color-secondary-container) 92%, var(--color-on-secondary-container));
+        --color-chat-user-bg-active: color-mix(in srgb, var(--color-secondary-container) 88%, var(--color-on-secondary-container));
+        --color-chat-user-border: color-mix(in srgb, var(--color-secondary) 35%, transparent);
+        --color-chat-user-border-active: var(--color-secondary);
+        --color-chat-assistant-bg: var(--color-surface-container-lowest);
+        --color-chat-assistant-border: var(--color-outline-variant);
+        --color-chat-assistant-highlight: rgba(255, 255, 255, 0.85);
+        --color-chat-agent-avatar-bg: #e7f5df;
+        --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.28);
+        --color-chat-agent-identity-bg: #f2f7ed;
+        --color-chat-agent-identity-border: rgba(113, 136, 58, 0.24);
+        --color-chat-agent-identity-text: #213219;
+        --color-chat-agent-rail: #009e77;
+        --color-chat-inline-bg: color-mix(in srgb, var(--nv70) 10%, transparent);
+        --color-chat-inline-border: var(--color-outline-variant);
+        --color-chat-tool-bg: var(--n95);
+        --color-chat-tool-border: var(--color-outline-variant);
+        --color-chat-chip-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
+        --color-chat-chip-border: var(--color-outline-variant);
+        --color-chat-code-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
+        --color-chat-code-block-bg: var(--n95);
+        --color-chat-code-border: var(--color-outline-variant);
+        --color-chat-link-text: var(--color-primary);
+        --color-chat-link-border: color-mix(in srgb, var(--color-primary) 34%, transparent);
+        --color-chat-error-bg: var(--color-error-container);
+        --color-chat-error-border: var(--e80);
+        --color-chat-error-text: var(--e30);
+        --color-chat-status-success: var(--color-secondary);
+        --color-chat-status-error: var(--color-error);
+        --color-chat-status-running: var(--color-warning);
+        --color-chat-focus-ring: color-mix(in srgb, var(--color-secondary) 70%, transparent);
+        --shadow-chat-panel: 0 20px 48px rgba(67, 76, 88, 0.18);
+        --shadow-chat-user: 0 12px 26px rgba(0, 94, 72, 0.12), 0 0 0 1px rgba(0, 174, 135, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+        --shadow-chat-assistant: 0 16px 34px rgba(67, 76, 88, 0.12), inset 0 1px 0 var(--color-chat-assistant-highlight);
+        --shadow-chat-agent-avatar: 0 8px 18px rgba(67, 76, 88, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+        --shadow-chat-agent-identity: 0 8px 18px rgba(67, 76, 88, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+        --shadow-rail-inset: inset 3px 0 0 var(--color-chat-agent-rail);
+        /* 画布与故事板工作台 */
+        --color-canvas-card-bg: var(--color-surface-container-lowest);
+        --color-canvas-card-text: var(--color-on-surface);
+        --color-canvas-card-border: var(--p60);
+        --color-canvas-label-text: var(--nv50);
+        --color-storyboard-canvas: #e9eef5;
+        --color-storyboard-canvas-dot: color-mix(in srgb, var(--nv50) 18%, transparent);
+        --shadow-storyboard-media: 0 1px 2px rgba(24, 28, 34, 0.07), 0 10px 22px -12px rgba(24, 28, 34, 0.2);
+        --shadow-storyboard-hero: 0 2px 4px rgba(24, 28, 34, 0.08), 0 18px 34px -14px rgba(24, 28, 34, 0.28);
+        --shadow-storyboard-sidebar-left: 12px 0 24px -18px color-mix(in srgb, var(--color-on-surface) 28%, transparent);
+        --shadow-storyboard-sidebar-right: -12px 0 24px -18px color-mix(in srgb, var(--color-on-surface) 28%, transparent);
+        --storyboard-node-shadow: 0 35px 96px rgba(16, 42, 67, 0.22);
+        --storyboard-node-surface: var(--n99);
+        --storyboard-node-selected-surface: var(--n95);
+        --storyboard-node-border: var(--storyboard-node-surface);
+        --storyboard-node-cover-bg: var(--storyboard-node-surface);
+        --storyboard-node-preview-bg: var(--storyboard-node-surface);
+        --storyboard-node-screen-empty: var(--storyboard-node-surface);
+        --storyboard-node-script-surface: var(--storyboard-node-surface);
+        --storyboard-node-tool-surface: var(--storyboard-node-surface);
+        --storyboard-node-panel-divider: #e5ebf2;
+        --storyboard-node-accent: #00cae0;
+        --storyboard-node-accent-line: var(--storyboard-node-accent);
+        --storyboard-node-ink: #090c14;
+        --storyboard-node-muted: rgba(24, 51, 78, 0.4);
+        --storyboard-node-muted-strong: rgba(21, 41, 60, 0.5);
+        --storyboard-node-preview-tool-text: rgba(9, 12, 20, 0.72);
+
+        /* ===== ③ 领域别名 · 主题中立（内容身份色、纸面材质、压在媒体上的遮罩；明暗不变） ===== */
+        --color-annotation-red: #e04f3f;
+        --color-annotation-orange: #e9a13b;
+        --color-annotation-blue: #3f9fd0;
+        --color-annotation-green: #46b06f;
+        --color-reference-image: #8a8a84;
+        --color-reference-video: #5b6bc0;
+        --color-reference-audio: var(--color-primary);
+        --color-reference-note: #d9a13b;
+        --color-reference-arrow: #c05b2b;
+        --color-reference-brush: #9368b7;
+        --color-reference-frame: #3e8e7e;
+        --color-on-reference: var(--color-on-primary);
+        --color-chart-1: #07a8c4;
+        --color-chart-2: #375971;
+        --color-chart-3: #e0a800;
+        --color-chart-4: #2fc6be;
+        --color-artifact-brief: #bda669;
+        --color-artifact-image-analysis: #638fa7;
+        --color-artifact-markdown: #9291b6;
+        --color-artifact-storyboard: #ab8f6e;
+        --color-artifact-ui-card: #9d86a0;
+        --color-artifact-video-prompt: #6fa2a6;
+        --color-artifact-rail-bg: #101318;
+        --color-brief-surface: #f7f1e8;
+        --color-brief-surface-bright: #fffdf8;
+        --color-brief-surface-muted: rgba(255, 255, 255, 0.66);
+        --color-brief-border: rgba(124, 112, 95, 0.18);
+        --color-brief-ink: #1f2522;
+        --color-brief-ink-secondary: #4c5550;
+        --color-brief-ink-soft: #5d655f;
+        --color-brief-amber: #6b4e16;
+        --color-brief-amber-soft: rgba(248, 224, 168, 0.28);
+        --color-brief-sage: #29543a;
+        --color-brief-sage-soft: rgba(74, 124, 89, 0.12);
+        --color-brief-danger: #8f2f2c;
+        --color-brief-danger-soft: rgba(184, 50, 48, 0.1);
+        --color-brief-board-1: #f3a8b8;
+        --color-brief-board-2: #eee8d2;
+        --color-brief-board-3: #92b88e;
+        --color-brief-board-4: #f8f0c4;
+        --color-brief-board-5: #ffcd00;
+        --color-brief-board-white: var(--n100);
+        --color-sb-table-accent: #4a7c59;
+        --color-sb-table-accent-soft: rgba(74, 124, 89, 0.12);
+        --color-sb-table-background: #faf6f0;
+        --color-sb-table-surface: #f5f1ea;
+        --color-sb-table-prompt-surface: rgba(255, 255, 255, 0.82);
+        --color-sb-table-line: rgba(116, 121, 110, 0.2);
+        --color-sb-table-badge-border: rgba(116, 121, 110, 0.16);
+        --color-sb-table-text: #121614;
+        --color-sb-table-text-secondary: #1f2522;
+        --color-sb-table-tertiary: #4a3818;
+        --color-sb-table-tertiary-soft: rgba(112, 92, 48, 0.12);
+        --color-sb-table-danger: #8f2f2c;
+        --color-sb-table-danger-soft: rgba(184, 50, 48, 0.12);
+        --color-sb-table-stage-hook-bg: rgba(112, 92, 48, 0.14);
+        --color-sb-table-stage-hook-text: #3d2c11;
+        --color-sb-table-stage-proof-bg: rgba(37, 82, 145, 0.12);
+        --color-sb-table-stage-proof-text: #183a64;
+        --color-sb-table-stage-demo-bg: rgba(74, 124, 89, 0.14);
+        --color-sb-table-stage-demo-text: #1f462b;
+        --color-sb-table-stage-closure-bg: rgba(31, 37, 34, 0.08);
+        --color-sb-table-stage-closure-text: #1f2522;
+        --color-sb-table-stage-neutral-bg: rgba(74, 124, 89, 0.1);
+        --color-sb-table-stage-neutral-text: #254332;
+        --storyboards-monitor-bg: rgba(21, 24, 29, 0.96);
+        --storyboards-monitor-border: rgba(216, 177, 106, 0.28);
+        --storyboards-monitor-gold: #d8b16a;
+        --storyboards-monitor-complete: #3ecf8e;
+        --storyboards-monitor-running: #2dd4bf;
+        --storyboards-monitor-line: #363c48;
+        --storyboards-monitor-muted: #9aa0ab;
+        --storyboards-monitor-text: #f0ede4;
+        --storyboard-node-timeline-badge: rgba(9, 12, 20, 0.68);
+        --storyboard-node-empty-preview-bg: var(--n0);
+        --color-on-scrim: var(--n100);
+        --media-scrim-cover: linear-gradient(180deg, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0.52) 100%);
+        --media-scrim-photo: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.72) 100%);
+        --media-scrim-photo-strong: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.24) 28%, rgba(0, 0, 0, 0.82) 100%);
+        --media-vignette: radial-gradient(circle at center, rgba(255, 255, 255, 0.18) 0%, rgba(0, 0, 0, 0.02) 36%, rgba(0, 0, 0, 0.26) 100%);
+        --media-gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(0, 0, 0, 0.16) 100%);
+        --color-ai-gradient-start: #a875ff;
+        --color-ai-gradient-end: #6d8cff;
+
+        /* ===== ④ 尺度 ===== */
+        /* 字阶（Tailwind @theme 同名；-line 为存量 CSS 别名） */
+        --text-caption: 11px; --text-caption--line-height: 16px;
+        --text-label: 12px; --text-label--line-height: 16px;
+        --text-body-sm: 13px; --text-body-sm--line-height: 18px;
+        --text-body: 14px; --text-body--line-height: 20px;
+        --text-title: 16px; --text-title--line-height: 24px;
+        --text-title-lg: 20px;
+        --text-headline: 28px; --text-headline--line-height: 36px;
+        --text-headline-lg: 32px;
+        --text-display-sm: 45px;
+        --text-display: 57px; --text-display--line-height: 64px;
+        --text-canvas-label: 18px; --text-canvas-body: 20px; --text-canvas-body-lg: 22px;
+        --text-canvas-title-sm: 24px; --text-canvas-title: 26px; --text-canvas-title-lg: 28px;
+        --text-display-line: var(--text-display--line-height, 64px);
+        --text-headline-line: var(--text-headline--line-height, 36px);
+        --text-title-line: var(--text-title--line-height, 24px);
+        --text-body-line: var(--text-body--line-height, 20px);
+        --text-body-sm-line: var(--text-body-sm--line-height, 18px);
+        --text-label-line: var(--text-label--line-height, 16px);
+        --text-caption-line: var(--text-caption--line-height, 16px);
+        /* 圆角 */
+        --radius-none:0; --radius-xs:4px; --radius-sm:8px; --radius-md:12px; --radius-lg:16px;
+        --radius-xl:20px; --radius-2xl:28px; --radius-3xl:32px; --radius-4xl:48px; --radius-full:9999px;
+        /* 断点（M3 窗口分级） */
+        --breakpoint-sm: 600px;
+        --breakpoint-md: 840px;
+        /* 海拔（深色见 .dark） */
+        --shadow-1: 0 2px 8px rgba(25, 28, 31, 0.08), 0 1px 3px rgba(25, 28, 31, 0.05);
+        --shadow-2: 0 6px 20px rgba(25, 28, 31, 0.11), 0 2px 6px rgba(25, 28, 31, 0.07);
+        --shadow-3: 0 20px 56px rgba(25, 28, 31, 0.22);
+        /* 动效 */
+        --dur-s: 150ms; --dur-m: 250ms; --dur-l: 400ms;
+        --ease: cubic-bezier(0.2, 0, 0, 1);
+        --ease-decel: cubic-bezier(0, 0, 0, 1);
+        --ease-accel: cubic-bezier(0.3, 0, 1, 1);
+        /* 控件尺寸与图标尺寸 */
+        --control-height-xs: 24px;  /* 小标签；可点尺寸下限 */
+        --control-height-sm: 34px;  /* Chip 胶囊 */
+        --control-height-md: 36px;  /* 菜单项、紧凑按钮 */
+        --control-height-lg: 40px;  /* 按钮、图标按钮 */
+        --control-height-xl: 44px;  /* 输入框 */
+        --control-hit-area: 48px;   /* 可点热区 */
+        --icon-xs: 12px; --icon-sm: 14px; --icon-md: 16px; --icon-lg: 20px; --icon-xl: 24px;
+        /* 层级 */
+        --z-base: 0; --z-canvas: 2; --z-content: 5; --z-panel: 10; --z-sidebar: 40;
+        --z-header: 50; --z-overlay: 90; --z-popup: 100;
+        --z-local-1: 1; --z-local-2: 2; --z-local-3: 3; --z-canvas-overlay: 40;
+        /* 布局 */
+        --layout-home-content-max: 100%;
+        --layout-home-hero-max: 1120px;
+        --layout-home-title-max: 980px;
+        --layout-project-header-height: 72px;
+        --layout-project-header-inline-start: 24px;
+        --layout-project-header-inline-end: 24px;
+        --layout-project-stage-padding: 20px;
+        --layout-project-composer-max: 582px;
+        --layout-project-composer-min: 0px;
+        --layout-project-composer-fluid: calc(100vw - 32px);
+        --layout-project-header-max-left: 375px;
+        --layout-project-agent-log-width: 280px;
+        --layout-project-agent-log-viewport-height: clamp(220px, 40vh, 320px);
+        --layout-project-composer-panel-reserve: 180px;
+        --layout-project-chat-panel-bottom-safe-area: calc(var(--layout-project-stage-padding) + var(--layout-project-composer-panel-reserve) + var(--layout-project-stage-padding));
+        --layout-project-chat-panel-height-offset: calc(var(--layout-project-header-height) + var(--layout-project-stage-padding) + var(--layout-project-chat-panel-bottom-safe-area));
+        font-family: var(--font-producer-ui);
+      }
+
+      .dark {
+        --color-primary: var(--p80);
+        --color-primary-hover: var(--p70);
+        --color-on-primary: var(--p20);
+        --color-primary-container: var(--p30);
+        --color-on-primary-container: var(--p90);
+        --color-primary-container-solid: var(--p70);
+        --color-primary-container-soft: var(--p20);
+        --color-secondary: var(--s80);
+        --color-on-secondary: var(--s20);
+        --color-secondary-container: var(--s30);
+        --color-on-secondary-container: var(--s90);
+        --color-tertiary: var(--t80);
+        --color-on-tertiary: var(--t20);
+        --color-tertiary-container: var(--t30);
+        --color-on-tertiary-container: var(--t90);
+        --color-error: var(--e80);
+        --color-on-error: var(--e20);
+        --color-error-container: var(--e30);
+        --color-on-error-container: var(--e90);
+        --color-surface: var(--n6);
+        --color-on-surface: var(--n90);
+        --color-surface-variant: var(--nv30);
+        --color-on-surface-variant: var(--nv80);
+        --color-outline: var(--nv60);
+        --color-outline-variant: var(--nv30);
+        --color-surface-container-lowest: var(--n4);
+        --color-surface-container-low: var(--n10);
+        --color-surface-container: var(--n12);
+        --color-surface-container-high: var(--n17);
+        --color-surface-container-highest: var(--n22);
+        --color-inverse-surface: var(--n90);
+        --color-inverse-on-surface: var(--n20);
+        --color-inverse-primary: var(--p40);
+        --color-background-top: var(--n12);
+        --color-background-bottom: var(--n4);
+        --color-top-layer: var(--n17);
+        --color-glass-base: var(--n17);
+        --color-popup-bg: rgba(29, 32, 35, 0.98);
+        --color-danger-border: var(--e60);
+        --color-danger-text: var(--e80);
+        --color-thumb-fallback: var(--n30);
+        --color-header-btn-bg: var(--n22);
+        --color-agent-log-bg: var(--n22);
+        --color-chat-panel-bg-start: var(--n12);
+        --color-chat-panel-bg-end: var(--n6);
+        --color-chat-muted-text: var(--nv70);
+        --color-chat-assistant-highlight: rgba(255, 255, 255, 0.1);
+        --color-chat-agent-avatar-bg: #1b2a20;
+        --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.4);
+        --color-chat-agent-identity-bg: #16211a;
+        --color-chat-agent-identity-border: rgba(113, 136, 58, 0.36);
+        --color-chat-agent-identity-text: #cfe3c5;
+        --color-chat-agent-rail: #33c39a;
+        --color-chat-tool-bg: var(--n12);
+        --color-chat-code-block-bg: var(--n12);
+        --color-chat-error-border: var(--e60);
+        --color-chat-error-text: var(--e80);
+        --shadow-chat-panel: 0 20px 48px rgba(0, 0, 0, 0.5);
+        --shadow-chat-user: 0 12px 26px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(153, 211, 184, 0.16);
+        --shadow-chat-assistant: 0 16px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--color-chat-assistant-highlight);
+        --shadow-chat-agent-avatar: 0 8px 18px rgba(0, 0, 0, 0.4);
+        --shadow-chat-agent-identity: 0 8px 18px rgba(0, 0, 0, 0.4);
+        --color-canvas-label-text: var(--nv60);
+        --color-storyboard-canvas: #14181d;
+        --shadow-storyboard-media: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 22px -12px rgba(0, 0, 0, 0.6);
+        --shadow-storyboard-hero: 0 2px 4px rgba(0, 0, 0, 0.3), 0 18px 34px -14px rgba(0, 0, 0, 0.7);
+        --shadow-storyboard-sidebar-left: 12px 0 24px -18px rgba(0, 0, 0, 0.6);
+        --shadow-storyboard-sidebar-right: -12px 0 24px -18px rgba(0, 0, 0, 0.6);
+        --storyboard-node-shadow: 0 35px 96px rgba(0, 0, 0, 0.6);
+        --storyboard-node-surface: var(--n12);
+        --storyboard-node-selected-surface: var(--n17);
+        --storyboard-node-panel-divider: var(--nv20);
+        --storyboard-node-ink: #e9edf4;
+        --storyboard-node-muted: rgba(200, 215, 230, 0.45);
+        --storyboard-node-muted-strong: rgba(200, 215, 230, 0.6);
+        --storyboard-node-preview-tool-text: rgba(233, 237, 244, 0.75);
+        --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+        --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+        --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.65);
+      }
+
+      /* ======================== 以下为本页排版（非契约） ======================== */
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        min-width: 320px;
+        margin: 0;
+        background: var(--pg-canvas);
+        color: var(--pg-ink);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .sheet {
+        width: min(1560px, calc(100% - 40px));
+        min-height: 100vh;
+        margin: 20px auto;
+        background: var(--pg-sheet);
+      }
+
+      .masthead {
+        padding: 72px 72px 50px;
+      }
+
+      .wordmark {
+        margin: 0 0 24px;
+        color: var(--n90);
+        font-size: clamp(30px, 4vw, 58px);
+        font-weight: 800;
+        letter-spacing: -0.055em;
+        line-height: 0.9;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(32px, 4.2vw, 62px);
+        font-weight: 500;
+        letter-spacing: -0.045em;
+        line-height: 1.04;
+      }
+
+      .lead {
+        max-width: 630px;
+        margin-top: 22px;
+        color: var(--pg-ink-secondary);
+        font-size: 13px;
+        line-height: 1.7;
+      }
+
+      .lead + .lead {
+        margin-top: 2px;
+      }
+
+      .token-map {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        margin-top: 38px;
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
+      }
+
+      .token-layer {
+        min-width: 0;
+        padding: 15px 16px 17px;
+      }
+
+      .token-layer + .token-layer {
+        border-left: 1px solid var(--pg-line);
+      }
+
+      .token-layer span,
+      .token-layer strong,
+      .token-layer code {
+        display: block;
+      }
+
+      .token-layer span {
+        color: var(--pg-ink-tertiary);
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .token-layer strong {
+        margin-top: 7px;
+        font-size: 11px;
+      }
+
+      .token-layer code {
+        margin-top: 3px;
+        overflow: hidden;
+        color: var(--pg-ink-secondary);
+        font-size: 10px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .section {
+        padding: 48px 72px 64px;
+        border-top: 1px solid var(--pg-line);
+      }
+
+      .section-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 28px;
+      }
+
+      .section-heading h2 {
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+      }
+
+      .section-heading p {
+        max-width: 480px;
+        color: var(--pg-ink-secondary);
+        font-size: 12px;
+        text-align: right;
+      }
+
+      .eyebrow {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--pg-ink-tertiary);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .color-layout {
+        display: grid;
+        gap: 46px;
+      }
+
+      .column-title {
+        display: flex;
+        min-height: 32px;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .column-title h3 {
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .column-title span {
+        color: var(--pg-ink-tertiary);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+      }
+
+      .palette-stack {
+        display: grid;
+        gap: 14px;
+      }
+
+      .palette-row {
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr);
+        align-items: stretch;
+        min-height: 31px;
+      }
+
+      .palette-name {
+        display: flex;
+        align-items: center;
+        padding-right: 10px;
+        color: var(--pg-ink-secondary);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .tone-strip {
+        display: grid;
+        grid-template-columns: repeat(13, minmax(0, 1fr));
+      }
+
+      .tone {
+        display: flex;
+        min-width: 0;
+        height: 31px;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        background: var(--tone);
+        color: var(--tone-label);
+        cursor: copy;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+        transition: transform var(--dur-s) var(--ease);
+      }
+
+      .tone:hover {
+        position: relative;
+        z-index: 1;
+        transform: scale(1.08);
+      }
+
+      .tone:focus-visible {
+        position: relative;
+        z-index: 2;
+        outline: 2px solid var(--pg-focus);
+        outline-offset: 2px;
+      }
+
+      .palette-column,
+      .semantic-panel {
+        min-width: 0;
+      }
+
+      .semantic-panel {
+        padding: 0 24px 6px;
+        border-top: 1px solid var(--color-outline-variant);
+        border-bottom: 1px solid var(--color-outline-variant);
+        background: var(--color-surface);
+        color: var(--color-on-surface);
+        transition:
+          background var(--dur-m) var(--ease),
+          color var(--dur-m) var(--ease);
+      }
+
+      .semantic-toolbar {
+        display: flex;
+        min-height: 76px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .semantic-toolbar h3 {
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+      }
+
+      .semantic-toolbar p {
+        margin-top: 3px;
+        color: var(--color-on-surface-variant);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+      }
+
+      .theme-switch {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(72px, 1fr));
+        border: 1px solid var(--color-outline);
+      }
+
+      .theme-switch button {
+        min-height: 34px;
+        padding: 0 14px;
+        border: 0;
+        background: transparent;
+        color: var(--color-on-surface-variant);
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 650;
+        transition:
+          background var(--dur-s) var(--ease),
+          color var(--dur-s) var(--ease);
+      }
+
+      .theme-switch button + button {
+        border-left: 1px solid var(--color-outline);
+      }
+
+      .theme-switch button[aria-selected="true"] {
+        background: var(--color-on-surface);
+        color: var(--color-surface);
+      }
+
+      .theme-switch button:focus-visible,
+      .token-cell:focus-visible {
+        position: relative;
+        z-index: 2;
+        outline: 3px solid var(--color-primary);
+        outline-offset: 2px;
+      }
+
+      .token-group {
+        padding: 22px 0 24px;
+        border-top: 1px solid var(--color-outline-variant);
+      }
+
+      .token-group__header,
+      .token-family {
+        display: grid;
+        grid-template-columns: 132px minmax(0, 1fr);
+        gap: 16px;
+      }
+
+      .token-group__header {
+        align-items: end;
+        margin-bottom: 8px;
+      }
+
+      .token-group__header h4 {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .token-group__header p {
+        margin-top: 3px;
+        color: var(--color-on-surface-variant);
+        font-size: 10px;
+        line-height: 1.4;
+      }
+
+      .token-columns,
+      .token-family__cells {
+        display: grid;
+        grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
+        gap: 1px;
+        min-width: 0;
+        background: var(--color-outline-variant);
+      }
+
+      .token-columns {
+        background: transparent;
+      }
+
+      .token-columns span {
+        color: var(--color-on-surface-variant);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 9px;
+        text-transform: uppercase;
+      }
+
+      .token-family {
+        align-items: stretch;
+      }
+
+      .token-family + .token-family {
+        margin-top: 1px;
+      }
+
+      .token-family h5 {
+        display: flex;
+        align-items: center;
+        color: var(--color-on-surface-variant);
+        font-size: 10px;
+        font-weight: 650;
+        line-height: 1.3;
+      }
+
+      .token-cell {
+        display: flex;
+        min-width: 0;
+        min-height: 76px;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 11px 12px 10px;
+        border: 0;
+        border-radius: 0;
+        background: var(--cell-bg);
+        color: var(--cell-fg);
+        cursor: copy;
+        text-align: left;
+        transition: filter var(--dur-s) var(--ease);
+      }
+
+      .token-cell:hover {
+        filter: brightness(1.05);
+      }
+
+      .token-cell strong {
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+
+      .token-cell code,
+      .token-cell .token-reference {
+        display: block;
+        max-width: 100%;
+        color: inherit;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        line-height: 1.25;
+      }
+
+      .token-cell code {
+        margin-top: auto;
+        padding-top: 11px;
+        overflow-wrap: anywhere;
+        font-size: 10px;
+        opacity: 0.84;
+      }
+
+      .token-cell .token-reference {
+        margin-top: 3px;
+        font-size: 9px;
+        font-weight: 700;
+        opacity: 0.7;
+      }
+
+      .guide-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.8fr);
+        gap: 72px;
+      }
+
+      .type-list {
+        border-top: 1px solid var(--pg-line-strong);
+      }
+
+      .type-family-row {
+        display: grid;
+        grid-template-columns: 128px minmax(0, 1fr);
+        min-height: 112px;
+        border-bottom: 1px solid var(--pg-line);
+      }
+
+      .type-family-name {
+        padding: 18px 18px 18px 0;
+      }
+
+      .type-family-name strong,
+      .type-family-name code {
+        display: block;
+      }
+
+      .type-family-name strong {
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .type-family-name code,
+      .type-style code,
+      .type-style span {
+        color: var(--pg-ink-secondary);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+      }
+
+      .type-family-name code {
+        margin-top: 5px;
+        overflow-wrap: anywhere;
+      }
+
+      .type-styles {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        border-left: 1px solid var(--pg-line);
+      }
+
+      .type-style {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 17px 18px;
+      }
+
+      .type-style + .type-style {
+        border-left: 1px solid var(--pg-line);
+      }
+
+      .type-style strong,
+      .type-style code,
+      .type-style span {
+        display: block;
+      }
+
+      .type-style strong {
+        overflow: hidden;
+        font-size: var(--sample-size);
+        font-weight: var(--sample-weight, 400);
+        letter-spacing: var(--sample-tracking, normal);
+        line-height: var(--sample-line);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .type-style span {
+        margin-top: 4px;
+        color: var(--pg-ink-tertiary);
+        font-size: 10px;
+      }
+
+      .type-source-note {
+        margin-top: 13px;
+        color: var(--pg-ink-tertiary);
+        font-size: 10px;
+      }
+
+      .scale-group {
+        border-top: 1px solid var(--pg-line-strong);
+      }
+
+      .scale-group + .scale-group {
+        margin-top: 36px;
+      }
+
+      .scale-group h3 {
+        padding: 14px 0;
+        border-bottom: 1px solid var(--pg-line);
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .space-row {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr) 38px;
+        align-items: center;
+        gap: 12px;
+        min-height: 33px;
+        border-bottom: 1px solid var(--pg-line);
+        color: var(--pg-ink-secondary);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+      }
+
+      .space-row code {
+        color: inherit;
+        font: inherit;
+      }
+
+      .space-line {
+        display: block;
+        width: var(--space);
+        height: 3px;
+        background: var(--p40);
+      }
+
+      .radius-table {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .radius-item {
+        display: grid;
+        min-height: 108px;
+        place-items: center;
+        border-right: 1px solid var(--pg-line);
+        border-bottom: 1px solid var(--pg-line);
+        color: var(--pg-ink-secondary);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+      }
+
+      .radius-item:nth-child(3n) {
+        border-right: 0;
+      }
+
+      .radius-shape {
+        display: block;
+        width: 52px;
+        height: 36px;
+        border: 1px solid var(--nv60);
+        background: var(--nv95);
+      }
+
+      .radius-item span {
+        display: block;
+        margin-top: 8px;
+        text-align: center;
+      }
+
+      .radius-item code {
+        display: block;
+        margin-top: 4px;
+        color: var(--pg-ink-tertiary);
+        font: inherit;
+        text-align: center;
+      }
+
+      .motion-list {
+        border-bottom: 1px solid var(--pg-line);
+      }
+
+      .motion-row {
+        display: grid;
+        grid-template-columns: 160px minmax(0, 1fr) 58px;
+        align-items: center;
+        gap: 12px;
+        min-height: 36px;
+        color: var(--pg-ink-secondary);
+        font:
+          10px/1.4 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+      }
+
+      .motion-row + .motion-row {
+        border-top: 1px solid var(--pg-line);
+      }
+
+      .motion-row code {
+        color: inherit;
+        font: inherit;
+      }
+
+      .motion-track {
+        position: relative;
+        height: 3px;
+        background: var(--pg-line);
+      }
+
+      .motion-track::after {
+        position: absolute;
+        width: var(--motion-width);
+        height: 3px;
+        background: var(--p40);
+        content: "";
+      }
+
+      .component-layout {
+        display: grid;
+        gap: 42px;
+      }
+
+      .component-layout > section {
+        min-width: 0;
+      }
+
+      .subsection-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 12px;
+      }
+
+      .subsection-heading h3 {
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .subsection-heading p {
+        max-width: 560px;
+        color: var(--pg-ink-secondary);
+        font-size: 12px;
+        text-align: right;
+      }
+
+      .contract-table-scroll,
+      .state-definition-table,
+      .state-matrix,
+      .icon-rule-table {
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
+      }
+
+      .contract-table-scroll,
+      .state-matrix {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+      }
+
+      .contract-table {
+        width: 100%;
+        min-width: 960px;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .contract-table th,
+      .contract-table td {
+        min-width: 0;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--pg-line);
+        border-left: 1px solid var(--pg-line);
+        vertical-align: top;
+        text-align: left;
+      }
+
+      .contract-table tr > :first-child {
+        border-left: 0;
+      }
+
+      .contract-table tbody tr:last-child > * {
+        border-bottom: 0;
+      }
+
+      .contract-table thead th {
+        padding-block: 11px;
+        color: var(--pg-ink-tertiary);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .contract-name strong,
+      .contract-name code,
+      .contract-cell code,
+      .contract-cell span {
+        display: block;
+      }
+
+      .contract-name strong {
+        font-size: 12px;
+      }
+
+      .contract-name code {
+        margin-top: 4px;
+        color: var(--pg-ink-tertiary);
+        font-size: 10px;
+        font-weight: 400;
+      }
+
+      .contract-cell {
+        color: var(--pg-ink-secondary);
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1.55;
+      }
+
+      .contract-cell code {
+        color: var(--pg-ink);
+        font-size: 11px;
+      }
+
+      .contract-cell code + span,
+      .contract-cell span + span {
+        margin-top: 4px;
+      }
+
+      .component-token-strip {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        border-top: 1px solid var(--pg-line);
+        border-bottom: 1px solid var(--pg-line);
+      }
+
+      .component-token {
+        min-width: 0;
+        padding: 13px 14px;
+      }
+
+      .component-token + .component-token {
+        border-left: 1px solid var(--pg-line);
+      }
+
+      .component-token code,
+      .component-token span {
+        display: block;
+      }
+
+      .component-token code {
+        overflow-wrap: anywhere;
+        color: var(--pg-ink);
+        font-size: 11px;
+      }
+
+      .component-token span {
+        margin-top: 4px;
+        color: var(--pg-ink-tertiary);
+        font-size: 11px;
+      }
+
+      .state-definition-row {
+        display: grid;
+        grid-template-columns: 122px 160px minmax(0, 1fr);
+        min-height: 48px;
+      }
+
+      .state-definition-row + .state-definition-row,
+      .icon-rule-row + .icon-rule-row {
+        border-top: 1px solid var(--pg-line);
+      }
+
+      .state-definition-row > *,
+      .icon-rule-row > * {
+        min-width: 0;
+        padding: 12px 14px;
+      }
+
+      .state-definition-row > * + *,
+      .icon-rule-row > * + * {
+        border-left: 1px solid var(--pg-line);
+      }
+
+      .state-definition-row strong {
+        font-size: 12px;
+      }
+
+      .state-definition-row code {
+        color: var(--pg-ink);
+        font-size: 11px;
+      }
+
+      .state-definition-row span {
+        color: var(--pg-ink-secondary);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .state-matrix table {
+        width: 100%;
+        min-width: 780px;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .state-matrix th,
+      .state-matrix td {
+        height: 46px;
+        padding: 10px 9px;
+        border-bottom: 1px solid var(--pg-line);
+        border-left: 1px solid var(--pg-line);
+        color: var(--pg-ink-secondary);
+        font-size: 11px;
+        font-weight: 400;
+        text-align: center;
+        vertical-align: middle;
+      }
+
+      .state-matrix tr > :first-child {
+        width: 142px;
+        border-left: 0;
+        color: var(--pg-ink);
+        font-weight: 650;
+        text-align: left;
+      }
+
+      .state-matrix tbody tr:last-child > * {
+        border-bottom: 0;
+      }
+
+      .state-matrix thead th {
+        height: 38px;
+        color: var(--pg-ink-tertiary);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .state-required {
+        color: var(--p40) !important;
+        font-weight: 700;
+      }
+
+      .state-optional {
+        color: var(--pg-ink-secondary);
+      }
+
+      .state-na {
+        color: var(--pg-ink-tertiary) !important;
+      }
+
+      .icon-layout {
+        width: 100%;
+      }
+
+      .icon-rule-row {
+        display: grid;
+        grid-template-columns: 160px minmax(0, 1fr);
+      }
+
+      .icon-rule-row strong {
+        font-size: 12px;
+      }
+
+      .icon-rule-row span,
+      .icon-rule-row code {
+        color: var(--pg-ink-secondary);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .template-table {
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
+      }
+
+      .template-row {
+        display: grid;
+        grid-template-columns:
+          150px minmax(240px, 1fr) minmax(220px, 0.8fr)
+          minmax(260px, 1fr);
+        min-height: 112px;
+      }
+
+      .template-row + .template-row {
+        border-top: 1px solid var(--pg-line);
+      }
+
+      .template-row > * {
+        min-width: 0;
+        padding: 18px 20px;
+      }
+
+      .template-row > * + * {
+        border-left: 1px solid var(--pg-line);
+      }
+
+      .template-name span,
+      .template-name strong,
+      .template-name code,
+      .template-values code,
+      .template-values span {
+        display: block;
+      }
+
+      .template-name span {
+        color: var(--pg-ink-tertiary);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+      }
+
+      .template-name strong {
+        margin-top: 8px;
+        font-size: 12px;
+      }
+
+      .template-name code {
+        margin-top: 4px;
+        color: var(--pg-ink-secondary);
+        font-size: 10px;
+      }
+
+      .template-flow {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .template-flow code {
+        padding: 5px 7px;
+        border: 1px solid var(--pg-line);
+        color: var(--pg-ink);
+        font-size: 11px;
+      }
+
+      .template-flow span {
+        color: var(--pg-ink-tertiary);
+        font-size: 11px;
+      }
+
+      .template-values code {
+        color: var(--pg-ink);
+        font-size: 11px;
+      }
+
+      .template-values span {
+        margin-top: 5px;
+        color: var(--pg-ink-secondary);
+        font-size: 11px;
+      }
+
+      .template-use {
+        color: var(--pg-ink-secondary);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .rule-line {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
+      }
+
+      .rule {
+        min-height: 96px;
+        padding: 18px 22px;
+      }
+
+      .rule + .rule {
+        border-left: 1px solid var(--pg-line);
+      }
+
+      .rule strong {
+        display: block;
+        font-size: 12px;
+      }
+
+      .rule p {
+        margin-top: 8px;
+        color: var(--pg-ink-secondary);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 30px 72px 36px;
+        border-top: 1px solid var(--pg-line);
+        color: var(--pg-ink-tertiary);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+      }
+
+      .toast {
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        z-index: 10;
+        padding: 9px 13px;
+        border-radius: var(--radius-full);
+        background: var(--n10);
+        color: var(--n95);
+        box-shadow: 0 8px 28px rgb(0 0 0 / 20%);
+        font-size: 10px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(8px);
+        transition:
+          opacity var(--dur-s) var(--ease),
+          transform var(--dur-s) var(--ease);
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @media (max-width: 1100px) {
+        .guide-grid {
+          grid-template-columns: 1fr;
+          gap: 48px;
+        }
+
+        .contract-table-scroll,
+        .state-matrix {
+          max-width: 100%;
+          overflow-x: auto;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .sheet {
+          width: 100%;
+          margin: 0;
+        }
+
+        .masthead {
+          padding: 50px 22px 38px;
+        }
+
+        .section {
+          padding: 38px 22px 48px;
+        }
+
+        .token-map {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .token-layer:nth-child(odd) {
+          border-left: 0;
+        }
+
+        .token-layer:nth-child(n + 3) {
+          border-top: 1px solid var(--pg-line);
+        }
+
+        .section-heading {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 7px;
+        }
+
+        .section-heading p {
+          text-align: left;
+        }
+
+        .semantic-panel {
+          padding-inline: 14px;
+        }
+
+        .semantic-toolbar {
+          min-height: 88px;
+        }
+
+        .token-group__header,
+        .token-family {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+
+        .token-columns {
+          display: none;
+        }
+
+        .token-family + .token-family {
+          margin-top: 14px;
+        }
+
+        .token-family h5 {
+          min-height: auto;
+        }
+
+        .token-family__cells {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .token-family__cells[data-count="3"] .token-cell:last-child,
+        .token-family__cells[data-count="5"] .token-cell:last-child {
+          grid-column: 1 / -1;
+        }
+
+        .type-family-row {
+          grid-template-columns: 1fr;
+        }
+
+        .type-family-name {
+          padding: 13px 0;
+        }
+
+        .type-styles {
+          border-top: 1px solid var(--pg-line);
+          border-left: 0;
+        }
+
+        .component-token-strip {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .component-token:nth-child(odd) {
+          border-left: 0;
+        }
+
+        .component-token:nth-child(n + 3) {
+          border-top: 1px solid var(--pg-line);
+        }
+
+        .state-definition-row {
+          grid-template-columns: 104px 140px minmax(0, 1fr);
+        }
+
+        .template-row {
+          grid-template-columns: 1fr;
+        }
+
+        .template-row > * + * {
+          border-top: 1px solid var(--pg-line);
+          border-left: 0;
+        }
+
+        .rule-line {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .rule:nth-child(3) {
+          border-left: 0;
+        }
+
+        .rule:nth-child(n + 3) {
+          border-top: 1px solid var(--pg-line);
+        }
+
+        .footer {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 26px 22px 30px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .token-map {
+          grid-template-columns: 1fr;
+        }
+
+        .token-layer + .token-layer {
+          border-top: 1px solid var(--pg-line);
+          border-left: 0;
+        }
+
+        .palette-row {
+          grid-template-columns: 62px minmax(0, 1fr);
+        }
+
+        .tone-strip {
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+        }
+
+        .semantic-toolbar {
+          align-items: flex-start;
+          flex-direction: column;
+          justify-content: center;
+          gap: 12px;
+        }
+
+        .theme-switch {
+          width: 100%;
+        }
+
+        .token-family__cells {
+          grid-template-columns: 1fr;
+        }
+
+        .token-family__cells[data-count="3"] .token-cell:last-child,
+        .token-family__cells[data-count="5"] .token-cell:last-child {
+          grid-column: auto;
+        }
+
+        .type-styles {
+          grid-template-columns: 1fr;
+        }
+
+        .type-style + .type-style {
+          border-top: 1px solid var(--pg-line);
+          border-left: 0;
+        }
+
+        .component-token-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .component-token + .component-token {
+          border-top: 1px solid var(--pg-line);
+          border-left: 0;
+        }
+
+        .state-definition-row {
+          grid-template-columns: 1fr;
+        }
+
+        .state-definition-row > * + * {
+          border-top: 1px solid var(--pg-line);
+          border-left: 0;
+        }
+
+        .subsection-heading {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 5px;
+        }
+
+        .subsection-heading p {
+          text-align: left;
+        }
+
+        .rule-line {
+          grid-template-columns: 1fr;
+        }
+
+        .rule + .rule {
+          border-top: 1px solid var(--pg-line);
+          border-left: 0;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      .semantic-panel.dark { color-scheme: dark; }
+      .type-styles[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .elevation-swatch { display: block; height: 22px; border-radius: var(--radius-sm); background: var(--pg-sheet); }
+      .elevation-swatch.flat { border: 1px solid var(--pg-line-strong); }
+      .scale-extra { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 40px; }
+      .scale-extra .scale-group + .scale-group { margin-top: 0; }
+      @media (max-width: 1080px) { .scale-extra { grid-template-columns: 1fr; } .scale-extra .scale-group + .scale-group { margin-top: 36px; } }
+    </style>
+  </head>
+  <body>
+    <main class="sheet">
+      <header class="masthead">
+        <p class="wordmark">PRODUCER</p>
+        <h1>Design System</h1>
+        <p class="lead">
+          规范范围：颜色、文字、尺度、组件契约、核心状态、图标与反复出现的结构模板。浅色 <code>:root</code>、深色 <code>.dark</code>；运行时 token 与本页逐值对账。
+        </p>
+        <div class="token-map" aria-label="规范范围">
+          <div class="token-layer">
+            <span>01 · Color</span>
+            <strong>颜色角色</strong>
+            <code>--color-primary</code>
+          </div>
+          <div class="token-layer">
+            <span>02 · Type</span>
+            <strong>文字层级</strong>
+            <code>--text-body · --text-canvas-*</code>
+          </div>
+          <div class="token-layer">
+            <span>03 · Scale</span>
+            <strong>尺度基准</strong>
+            <code>--radius-md · --dur-s · --z-popup</code>
+          </div>
+          <div class="token-layer">
+            <span>04 · Component</span>
+            <strong>组件契约</strong>
+            <code>--control-height-* · --icon-*</code>
+          </div>
+          <div class="token-layer">
+            <span>05 · Template</span>
+            <strong>结构契约</strong>
+            <code>Shell · Overlay · Card · Home</code>
+          </div>
+        </div>
+      </header>
+
+      <section class="section" aria-labelledby="color-title">
+        <header class="section-heading">
+          <div>
+            <span class="eyebrow">Color guidance</span>
+            <h2 id="color-title">颜色规范</h2>
+          </div>
+          <p>
+            点击原始色阶复制解析后的 HEX；点击语义单元复制可直接使用的 token。语义角色成套使用，组件不直接引用色阶。
+          </p>
+        </header>
+
+        <div class="color-layout">
+          <div class="palette-column">
+            <div class="column-title">
+              <h3>Tonal Palettes</h3>
+              <span>0 — 100 · Neutral 另含 4 / 6 / 12 / 17 / 22 与 92 / 94 / 96 / 98</span>
+            </div>
+            <div class="palette-stack" id="palette-stack"></div>
+          </div>
+
+          <section
+            class="semantic-panel theme-light"
+            id="semantic-panel"
+            aria-labelledby="semantic-title"
+          >
+            <header class="semantic-toolbar">
+              <div>
+                <h3 id="semantic-title">Semantic Tokens</h3>
+                <p>role → semantic token → reference token</p>
+              </div>
+              <div class="theme-switch" role="tablist" aria-label="主题模式">
+                <button
+                  id="theme-tab-light"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="semantic-groups"
+                  data-theme="light"
+                >
+                  Light
+                </button>
+                <button
+                  id="theme-tab-dark"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="semantic-groups"
+                  data-theme="dark"
+                >
+                  Dark
+                </button>
+              </div>
+            </header>
+            <div
+              id="semantic-groups"
+              role="tabpanel"
+              aria-labelledby="theme-tab-light"
+            ></div>
+          </section>
+        </div>
+
+        <section aria-labelledby="extended-title" style="margin-top: 22px">
+          <header class="subsection-heading">
+            <h3 id="extended-title">Extended colors</h3>
+            <p>
+              领域扩展色分两类：随主题——引用语义角色的自动跟随，直接取色阶或字面值的在 <code>.dark</code> 另给值；主题中立——内容身份色、纸面材质、媒体遮罩，明暗不变。新增扩展色先向 primary 做色相调和。
+            </p>
+          </header>
+          <div class="guide-grid">
+            <div class="scale-group">
+              <h3>随主题</h3>
+              <div class="state-definition-table">
+                <div class="state-definition-row">
+                  <strong>聊天</strong>
+                  <code>--color-chat-*</code>
+                  <span>气泡、面板、工具与代码块、Agent 身份、状态点；muted 文字 NV40 → NV70。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>玻璃面</strong>
+                  <code>--color-glass-base 派生</code>
+                  <span>glass-surface 76 · input-bg 76 · control-bg 64 · chip-bg 62 · chip-bg-glass 52 · media-stack-bg 92%；基色 N100 → N17。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>画布 · 工作台</strong>
+                  <code>--color-canvas-* · --storyboard-node-*</code>
+                  <span>画布选中 P60；节点面 N99 → N12；版本占位底另给深色值。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>基础别名</strong>
+                  <code>--color-background-* · --color-border-* · --color-danger-*</code>
+                  <span>引用语义角色；danger 描边 / 文字 E80 · E30 → E60 · E80。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>海拔</strong>
+                  <code>--shadow-1/2/3 · --shadow-chat-* · --shadow-storyboard-*</code>
+                  <span>深色改为纯黑基底、更高不透明度。</span>
+                </div>
+              </div>
+            </div>
+            <div class="scale-group">
+              <h3>主题中立</h3>
+              <div class="state-definition-table">
+                <div class="state-definition-row">
+                  <strong>编辑器引用身份</strong>
+                  <code>--color-reference-*</code>
+                  <span>image · video · audio(= primary) · note · arrow · brush · frame。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>标注笔触</strong>
+                  <code>--color-annotation-*</code>
+                  <span>red · orange · blue · green；仅标注笔触与图钉。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>图表 · 书签</strong>
+                  <code>--color-chart-1..4 · --color-artifact-*</code>
+                  <span>分类身份色，不承载状态。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>纸面色板</strong>
+                  <code>--color-brief-* · --color-sb-table-*</code>
+                  <span>Creative Brief 暖纸、分镜表纸面；色卡 fallback --color-brief-board-1..5。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>媒体中立层</strong>
+                  <code>--media-* · --color-on-scrim</code>
+                  <span>压在用户媒体上的遮罩、暗角、高光；文字 on-scrim。</span>
+                </div>
+                <div class="state-definition-row">
+                  <strong>监控浮条 · AI 徽标</strong>
+                  <code>--storyboards-monitor-* · --color-ai-gradient-*</code>
+                  <span>唯一获准的暗色浮层；品牌紫蓝渐变。</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="section" aria-labelledby="type-title">
+        <header class="section-heading">
+          <div>
+            <span class="eyebrow">Typography &amp; scale</span>
+            <h2 id="type-title">排版与尺度</h2>
+          </div>
+          <p>UI 字阶 10 档 + 画布字阶 6 档；间距 4px 基准；圆角、动效、海拔、层级各一把尺。</p>
+        </header>
+
+        <div class="guide-grid">
+          <div class="type-list">
+            <article class="type-family-row">
+              <header class="type-family-name">
+                <strong>Display</strong>
+                <code>--text-display-*</code>
+              </header>
+              <div class="type-styles" data-columns="2">
+                <div class="type-style" style="--sample-size: var(--text-display); --sample-line: var(--text-display--line-height); --sample-tracking: -0.04em; font-family: var(--font-home-display); font-style: italic;">
+                  <strong>创作</strong>
+                  <div><code>display · 57 / 64</code><span>首页 Hero（serif）</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-display-sm); --sample-line: 1.1; --sample-tracking: -0.035em; font-family: var(--font-home-display); font-style: italic;">
+                  <strong>创作</strong>
+                  <div><code>display-sm · 45</code><span>紧凑 Hero</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="type-family-row">
+              <header class="type-family-name">
+                <strong>Headline</strong>
+                <code>--text-headline-*</code>
+              </header>
+              <div class="type-styles" data-columns="2">
+                <div class="type-style" style="--sample-size: var(--text-headline-lg); --sample-line: 1.2; --sample-tracking: -0.025em;">
+                  <strong>页面标题</strong>
+                  <div><code>headline-lg · 32</code><span>品牌字标、紧凑页大标题</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-headline); --sample-line: var(--text-headline--line-height); --sample-tracking: -0.02em;">
+                  <strong>页面标题</strong>
+                  <div><code>headline · 28 / 36</code><span>页面内主区标题</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="type-family-row">
+              <header class="type-family-name">
+                <strong>Title</strong>
+                <code>--text-title-*</code>
+              </header>
+              <div class="type-styles" data-columns="2">
+                <div class="type-style" style="--sample-size: var(--text-title-lg); --sample-line: 1.3; --sample-weight: 650;">
+                  <strong>区域标题</strong>
+                  <div><code>title-lg · 20</code><span>对话框头、分区标题</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-title); --sample-line: var(--text-title--line-height); --sample-weight: 650;">
+                  <strong>区域标题</strong>
+                  <div><code>title · 16 / 24</code><span>卡片与面板标题</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="type-family-row">
+              <header class="type-family-name">
+                <strong>Body</strong>
+                <code>--text-body-*</code>
+              </header>
+              <div class="type-styles" data-columns="2">
+                <div class="type-style" style="--sample-size: var(--text-body); --sample-line: var(--text-body--line-height);">
+                  <strong>正文与说明内容</strong>
+                  <div><code>body · 14 / 20 · 基准</code><span>默认正文、按钮、Tab、导航、输入框</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-body-sm); --sample-line: var(--text-body-sm--line-height);">
+                  <strong>正文与说明内容</strong>
+                  <div><code>body-sm · 13 / 18</code><span>紧凑正文、气泡、次要段落</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="type-family-row">
+              <header class="type-family-name">
+                <strong>Label</strong>
+                <code>--text-label · --text-caption</code>
+              </header>
+              <div class="type-styles" data-columns="2">
+                <div class="type-style" style="--sample-size: var(--text-label); --sample-line: var(--text-label--line-height); --sample-weight: 650;">
+                  <strong>标签与元信息</strong>
+                  <div><code>label · 12 / 16</code><span>标签、日期、小标签文字</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-caption); --sample-line: var(--text-caption--line-height); --sample-weight: 650;">
+                  <strong>标签与元信息</strong>
+                  <div><code>caption · 11 / 16 · 下限</code><span>时间码、角标、分区标签</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="type-family-row">
+              <header class="type-family-name">
+                <strong>Canvas title</strong>
+                <code>--text-canvas-title-*</code>
+              </header>
+              <div class="type-styles">
+                <div class="type-style" style="--sample-size: var(--text-canvas-title-lg); --sample-line: 1.25; --sample-weight: 650;">
+                  <strong>画布标题</strong>
+                  <div><code>title-lg · 28</code><span>工作台节点大标题</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-canvas-title); --sample-line: 1.25; --sample-weight: 650;">
+                  <strong>画布标题</strong>
+                  <div><code>title · 26</code><span>画布卡标题</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-canvas-title-sm); --sample-line: 1.25; --sample-weight: 650;">
+                  <strong>画布标题</strong>
+                  <div><code>title-sm · 24</code><span>画布卡分区标题</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="type-family-row">
+              <header class="type-family-name">
+                <strong>Canvas body</strong>
+                <code>--text-canvas-body-* · --text-canvas-label</code>
+              </header>
+              <div class="type-styles">
+                <div class="type-style" style="--sample-size: var(--text-canvas-body-lg); --sample-line: 1.4;">
+                  <strong>画布正文</strong>
+                  <div><code>body-lg · 22</code><span>放大阅读面正文</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-canvas-body); --sample-line: 1.4;">
+                  <strong>画布正文</strong>
+                  <div><code>body · 20</code><span>画布卡正文</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-canvas-label); --sample-line: 1.4; --sample-weight: 650;">
+                  <strong>画布标签</strong>
+                  <div><code>label · 18</code><span>画布卡标签与元信息</span></div>
+                </div>
+              </div>
+            </article>
+            <p class="type-source-note">
+              <code>--font-producer-ui</code> CapCut Sans Text → SF Pro Text → PingFang SC　·　<code>--font-home-display</code> Source Serif 4 italic，仅 Display　·　html 16px　·　字重 400 / 500 / 650　·　画布字阶仅限缩放画布与放大阅读面
+            </p>
+          </div>
+
+          <div>
+            <div class="scale-group">
+              <h3>Spacing · 4px</h3>
+              <div class="space-row"><code>gap-1</code><i class="space-line" style="--space: 4px"></i><b>4px</b></div>
+              <div class="space-row"><code>gap-2</code><i class="space-line" style="--space: 8px"></i><b>8px</b></div>
+              <div class="space-row"><code>gap-3</code><i class="space-line" style="--space: 12px"></i><b>12px</b></div>
+              <div class="space-row"><code>gap-4</code><i class="space-line" style="--space: 16px"></i><b>16px</b></div>
+              <div class="space-row"><code>gap-5</code><i class="space-line" style="--space: 20px"></i><b>20px</b></div>
+              <div class="space-row"><code>gap-6</code><i class="space-line" style="--space: 24px"></i><b>24px</b></div>
+              <div class="space-row"><code>gap-8</code><i class="space-line" style="--space: 32px"></i><b>32px</b></div>
+              <div class="space-row"><code>gap-10</code><i class="space-line" style="--space: 40px"></i><b>40px</b></div>
+              <div class="space-row"><code>gap-12</code><i class="space-line" style="--space: 48px"></i><b>48px</b></div>
+              <p class="type-source-note">Tailwind 刻度（gap / p / m 同刻度），不设 <code>--space-*</code> token；<code>[Npx]</code> 仅限布局几何。</p>
+            </div>
+
+            <div class="scale-group">
+              <h3>Radius tokens</h3>
+              <div class="radius-table">
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-xs)"></i><span>4px</span><code>--radius-xs</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-sm)"></i><span>8px</span><code>--radius-sm</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-md)"></i><span>12px</span><code>--radius-md</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-lg)"></i><span>16px</span><code>--radius-lg</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-xl)"></i><span>20px</span><code>--radius-xl</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-2xl)"></i><span>28px</span><code>--radius-2xl</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-3xl)"></i><span>32px</span><code>--radius-3xl</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-4xl)"></i><span>48px</span><code>--radius-4xl</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-full)"></i><span>full</span><code>--radius-full</code></div></div>
+              </div>
+              <p class="type-source-note">xs 标签 · sm 菜单项 · md 按钮 / 菜单 · lg 输入框 / 卡片 · xl 气泡 · 2xl Dialog / Composer · 3xl 工作台 · 4xl 预览舞台 · full 图标按钮 / 胶囊</p>
+            </div>
+
+            <div class="scale-group">
+              <h3>Motion tokens</h3>
+              <div class="motion-list">
+                <div class="motion-row"><code>--dur-s · 微交互</code><i class="motion-track" style="--motion-width: 38%"></i><b>150ms</b></div>
+                <div class="motion-row"><code>--dur-m · 面板开合</code><i class="motion-track" style="--motion-width: 62%"></i><b>250ms</b></div>
+                <div class="motion-row"><code>--dur-l · 入场</code><i class="motion-track" style="--motion-width: 100%"></i><b>400ms</b></div>
+                <div class="motion-row"><code>--ease · 原地变化</code><span>cubic-bezier(0.2, 0, 0, 1)</span><b>standard</b></div>
+                <div class="motion-row"><code>--ease-decel · 进场</code><span>cubic-bezier(0, 0, 0, 1)</span><b>decel</b></div>
+                <div class="motion-row"><code>--ease-accel · 退场</code><span>cubic-bezier(0.3, 0, 1, 1)</span><b>accel</b></div>
+              </div>
+              <p class="type-source-note">退场时长取进场一半。</p>
+            </div>
+          </div>
+
+          <div class="scale-extra">
+            <div class="scale-group">
+              <h3>Elevation tokens</h3>
+              <div class="motion-list">
+                <div class="motion-row"><code>静态表面</code><i class="elevation-swatch flat"></i><b>0</b></div>
+                <div class="motion-row"><code>--shadow-1 · 悬浮小件</code><i class="elevation-swatch" style="box-shadow: var(--shadow-1)"></i><b>1</b></div>
+                <div class="motion-row"><code>--shadow-2 · 菜单 / 浮层</code><i class="elevation-swatch" style="box-shadow: var(--shadow-2)"></i><b>2</b></div>
+                <div class="motion-row"><code>--shadow-3 · 弹窗 / toast</code><i class="elevation-swatch" style="box-shadow: var(--shadow-3)"></i><b>3</b></div>
+              </div>
+              <p class="type-source-note">层次差异优先用 surface 梯度表达；深色阴影在 <code>.dark</code> 另给值。</p>
+            </div>
+
+            <div class="scale-group">
+              <h3>Layer tokens</h3>
+              <div class="motion-list">
+                <div class="motion-row"><code>--z-base</code><span>页面基面</span><b>0</b></div>
+                <div class="motion-row"><code>--z-canvas</code><span>画布</span><b>2</b></div>
+                <div class="motion-row"><code>--z-content</code><span>内容、composer</span><b>5</b></div>
+                <div class="motion-row"><code>--z-panel</code><span>聊天面板</span><b>10</b></div>
+                <div class="motion-row"><code>--z-sidebar</code><span>侧栏；--z-canvas-overlay 同层</span><b>40</b></div>
+                <div class="motion-row"><code>--z-header</code><span>顶栏</span><b>50</b></div>
+                <div class="motion-row"><code>--z-overlay</code><span>scrim</span><b>90</b></div>
+                <div class="motion-row"><code>--z-popup</code><span>菜单 / 弹窗 / toast</span><b>100</b></div>
+              </div>
+              <p class="type-source-note">工具类 <code>layer-*</code>；<code>--z-local-1..3</code> 仅用于 isolate 容器内的兄弟排序。</p>
+            </div>
+
+            <div class="scale-group">
+              <h3>Breakpoints</h3>
+              <div class="motion-list">
+                <div class="motion-row"><code>--breakpoint-sm</code><span>紧凑 → 中等</span><b>600px</b></div>
+                <div class="motion-row"><code>--breakpoint-md</code><span>中等 → 展开</span><b>840px</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="component-title">
+        <header class="section-heading">
+          <div>
+            <span class="eyebrow">Component contracts</span>
+            <h2 id="component-title">组件、状态与图标</h2>
+          </div>
+          <p>
+            基础组件（<code>web/src/shared/ui</code>）只拥有 anatomy、密度、语义 variant 与适用状态；业务文案、业务判断与页面专属样式留在业务层。
+          </p>
+        </header>
+
+        <div class="component-layout">
+          <section aria-labelledby="contract-title">
+            <header class="subsection-heading">
+              <h3 id="contract-title">可模板化组件契约</h3>
+              <p>
+                高度取 <code>--control-height-*</code>，图标取 <code>--icon-*</code>，状态用 <code>ui-state</code> / <code>ui-focus</code>，变体以 <code>cva</code> 声明。几何为 M3 密度 −3 档；固定偏离：按钮圆角 12、Chip 圆角 full、菜单圆角 12、弹窗宽 ≤ 582。表外尺寸档与变体不实现。
+              </p>
+            </header>
+
+            <div class="component-token-strip" aria-label="组件核心 token">
+              <div class="component-token">
+                <code>--control-height-xs — xl</code>
+                <span>24 / 34 / 36 / 40 / 44px</span>
+              </div>
+              <div class="component-token">
+                <code>--control-hit-area</code>
+                <span>48px</span>
+              </div>
+              <div class="component-token">
+                <code>--icon-xs — xl</code>
+                <span>12 / 14 / 16 / 20 / 24px</span>
+              </div>
+              <div class="component-token">
+                <code>--state-hover / focus / pressed / dragged</code>
+                <span>8 / 12 / 12 / 16%</span>
+              </div>
+              <div class="component-token">
+                <code>--state-disabled-content / container</code>
+                <span>38 / 12%</span>
+              </div>
+              <div class="component-token">
+                <code>--state-focus-ring / offset</code>
+                <span>3 / 2px</span>
+              </div>
+            </div>
+
+            <div class="contract-table-scroll">
+              <table class="contract-table">
+                <colgroup>
+                  <col style="width: 13%" />
+                  <col style="width: 22%" />
+                  <col style="width: 18%" />
+                  <col style="width: 23%" />
+                  <col style="width: 24%" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col">Component</th>
+                    <th scope="col">Anatomy</th>
+                    <th scope="col">Types / variants</th>
+                    <th scope="col">Size contract</th>
+                    <th scope="col">Core states</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Button</strong><code>Action control</code></th>
+                    <td class="contract-cell"><code>leading icon · label · trailing icon</code><span>原生 button。</span></td>
+                    <td class="contract-cell"><span>primary · tonal · outlined</span><span>inverted · danger · ghost</span></td>
+                    <td class="contract-cell"><code>lg 40（默认）· md 36</code><span>水平 padding 22 / 16；radius md；图标 icon-md；热区 48。</span></td>
+                    <td class="contract-cell"><span>hover · pressed · focus-visible</span><span>disabled；loading 按需</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>IconButton</strong><code>Icon-only control</code></th>
+                    <td class="contract-cell"><code>icon · optional badge</code><span>必须提供 aria-label；SVG 不承担命中区。</span></td>
+                    <td class="contract-cell"><span>standard · tonal · selected</span></td>
+                    <td class="contract-cell"><code>lg 40 / 48 · md 36 / 44</code><span>视觉 / 热区；radius full；图标 icon-lg / icon-md。</span></td>
+                    <td class="contract-cell"><span>hover · pressed · focus-visible</span><span>disabled；selected 按需</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Input family</strong><code>Input · Textarea</code></th>
+                    <td class="contract-cell"><code>leading icon · field · trailing action · helper</code><span>搜索是 leading-icon slot，不新建 variant。</span></td>
+                    <td class="contract-cell"><span>outlined（默认）· glass</span><span>普通 / 错误语义</span></td>
+                    <td class="contract-cell"><code>xl 44 · Textarea min 2 行</code><span>水平 15；radius lg；描边 outline，聚焦 primary；字 body。</span></td>
+                    <td class="contract-cell"><span>placeholder · hover · focus-visible</span><span>disabled · invalid；readonly 按需</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Chip</strong><code>Filter · Reference · Assist</code></th>
+                    <td class="contract-cell"><code>leading icon / avatar · label · optional remove</code><span>filter 表达同一组中的选择；reference 用 --color-reference-* 身份色。</span></td>
+                    <td class="contract-cell"><span>filter · reference · assist</span></td>
+                    <td class="contract-cell"><code>sm 34 · px 15 · gap 7</code><span>radius full；label body-sm；图标 icon-sm。</span></td>
+                    <td class="contract-cell"><span>hover · pressed · focus-visible</span><span>selected · disabled</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Tag · Badge</strong><code>Type · Status · Count</code></th>
+                    <td class="contract-cell"><code>label · optional count / status dot</code><span>静态信息，不承担选择。</span></td>
+                    <td class="contract-cell"><span>solid · soft</span><span>status：success · running · error</span></td>
+                    <td class="contract-cell"><code>xs 24 · px 9</code><span>radius xs；label 12；纯展示可低于 24，可点击不得低于。</span></td>
+                    <td class="contract-cell"><span>无交互状态；selected 按需</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Menu</strong><code>Dropdown · Context</code></th>
+                    <td class="contract-cell"><code>surface · item（icon · label · shortcut）· separator</code><span>radix DropdownMenu。</span></td>
+                    <td class="contract-cell"><span>dropdown · context</span><span>destructive 项用 error 字色</span></td>
+                    <td class="contract-cell"><code>item md 36 · surface radius md</code><span>item radius sm；shadow-2；layer popup。</span></td>
+                    <td class="contract-cell"><span>item：hover · pressed · focus-visible</span><span>disabled；selected 按需</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Popover · Tooltip</strong><code>Anchored surface</code></th>
+                    <td class="contract-cell"><code>trigger · surface · content</code><span>radix Popover / Tooltip。</span></td>
+                    <td class="contract-cell"><span>popover（可交互）· tooltip（只读、延迟）</span></td>
+                    <td class="contract-cell"><code>radius md · tooltip xs</code><span>shadow-2；layer popup；进场 dur-m decel，退场 dur-s accel。</span></td>
+                    <td class="contract-cell"><span>open · closed</span><span>popover 打开时焦点进入</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Dialog · BottomSheet</strong><code>Modal surface</code></th>
+                    <td class="contract-cell"><code>scrim · surface · header · body · footer</code><span>radix Dialog；&lt; 600 自动切换为 sheet。</span></td>
+                    <td class="contract-cell"><span>dialog（居中）· sheet（贴底）</span></td>
+                    <td class="contract-cell"><code>max 582 · radius 2xl</code><span>shadow-3；scrim = --color-scrim 32%；layer overlay / popup；dur-l。</span></td>
+                    <td class="contract-cell"><span>open · closed</span><span>焦点圈定 · Esc 关闭</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>ToggleGroup</strong><code>Segmented choice</code></th>
+                    <td class="contract-cell"><code>item（icon / label）× n</code><span>radix ToggleGroup。</span></td>
+                    <td class="contract-cell"><span>single · multiple</span></td>
+                    <td class="contract-cell"><code>lg 40 · md 36</code><span>组 radius md，项 radius sm；选中底 primary-container。</span></td>
+                    <td class="contract-cell"><span>item：hover · pressed · focus-visible</span><span>selected · disabled</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Slider</strong><code>Range control</code></th>
+                    <td class="contract-cell"><code>track · range · thumb</code><span>radix Slider。</span></td>
+                    <td class="contract-cell"><span>single · range</span></td>
+                    <td class="contract-cell"><code>track 4 · thumb 20 · 热区 44</code><span>track surface-container-highest；range primary。</span></td>
+                    <td class="contract-cell"><span>thumb：hover · focus-visible</span><span>dragged · disabled</span></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" class="contract-name"><strong>Toast</strong><code>Status feedback</code></th>
+                    <td class="contract-cell"><code>icon · message · optional action · close</code><span>容器不交互；action 继承 Button 状态。</span></td>
+                    <td class="contract-cell"><span>neutral（inverse-surface）· error</span></td>
+                    <td class="contract-cell"><code>radius md · icon-md</code><span>shadow-3；layer popup；停留 4s，有 action 8s。</span></td>
+                    <td class="contract-cell"><span>无交互状态</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section aria-labelledby="state-title">
+            <header class="subsection-heading">
+              <h3 id="state-title">核心状态契约</h3>
+              <p>
+                状态层 = on-surface 以 <code>--state-*</code> 透明度叠在底色上；组件不自写 hover / pressed / disabled 颜色。
+              </p>
+            </header>
+
+            <div class="state-definition-table">
+              <div class="state-definition-row">
+                <strong>Hover</strong>
+                <code>--state-hover · 8%</code>
+                <span>前景色状态层；按钮另加放大 1.05。工具类 <code>ui-state</code>。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Pressed</strong>
+                <code>--state-pressed · 12%</code>
+                <span>按压状态层；按钮另加缩小 0.95。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Focus visible</strong>
+                <code>--state-focus-ring · 3px / --state-focus-offset · 2px</code>
+                <span>描边 <code>--color-focus-ring</code>；只响应键盘。工具类 <code>ui-focus</code>。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Selected</strong>
+                <code>--color-state-active</code>
+                <span>底 primary-container、字 on-primary-container；以 aria-pressed / aria-selected 暴露。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Dragged</strong>
+                <code>--state-dragged · 16%</code>
+                <span>状态层 + shadow-2。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Disabled</strong>
+                <code>content 38% · container 12%</code>
+                <span><code>ui-state</code> 压暗文字与描边、撤销叠层、cursor not-allowed；实心容器另加 <code>disabled:bg-disabled-container</code>。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Loading</strong>
+                <code>spinner icon-md · aria-busy</code>
+                <span>保持原控件尺寸、阻止重复触发。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Invalid</strong>
+                <code>error ring + helper</code>
+                <span>描边与辅助文字 error，不改底色；aria-invalid 并关联错误说明。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Transition</strong>
+                <code>--dur-s · --ease</code>
+                <span>状态变化 150ms 标准曲线。工具类 <code>ui-motion-s</code>。</span>
+              </div>
+            </div>
+
+            <header class="subsection-heading" style="margin-top: 22px">
+              <h3>状态适用矩阵</h3>
+              <p>必备 = 组件必须实现；按需 = 只有对应行为存在时实现。</p>
+            </header>
+
+            <div class="state-matrix">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Component</th>
+                    <th scope="col">Hover</th>
+                    <th scope="col">Pressed</th>
+                    <th scope="col">Focus</th>
+                    <th scope="col">Disabled</th>
+                    <th scope="col">Selected</th>
+                    <th scope="col">Loading</th>
+                    <th scope="col">Invalid</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><th scope="row">Button</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-optional">按需</td><td class="state-na">不适用</td></tr>
+                  <tr><th scope="row">IconButton</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-optional">按需</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
+                  <tr><th scope="row">Input family</th><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-required">必备</td></tr>
+                  <tr><th scope="row">Chip</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
+                  <tr><th scope="row">Tag · Badge</th><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-optional">按需</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
+                  <tr><th scope="row">Menu item</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-optional">按需</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
+                  <tr><th scope="row">Popover · Dialog</th><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-required">焦点圈定</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
+                  <tr><th scope="row">ToggleGroup item</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
+                  <tr><th scope="row">Slider thumb</th><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
+                  <tr><th scope="row">Toast</th><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section aria-labelledby="icon-title">
+            <header class="subsection-heading">
+              <h3 id="icon-title">Iconography</h3>
+              <p>
+                通用 UI 图标由 <code>@/shared/icons</code> 的类型化注册表管理；本页只保留使用契约，不展示图形目录、不嵌入 SVG。
+              </p>
+            </header>
+
+            <div class="icon-layout">
+              <div class="icon-rule-table">
+                <div class="icon-rule-row">
+                  <strong>Source</strong>
+                  <span>Lucide 为唯一通用图标来源，每个语义名称绑定一个 Lucide 组件，不做运行时 fallback。键名按用途起（<code>search</code> <code>close</code> <code>run</code>），不按图形起。</span>
+                </div>
+                <div class="icon-rule-row">
+                  <strong>Scale</strong>
+                  <span><code>--icon-xs — xl · 12 / 14 / 16 / 20 / 24px</code>；描边 2。按钮内与菜单项 icon-md，图标按钮 icon-lg，Chip / Tag icon-sm，角标 icon-xs，空态 icon-xl。</span>
+                </div>
+                <div class="icon-rule-row">
+                  <strong>Color</strong>
+                  <span>使用 currentColor；默认、危险、选中和 disabled 颜色由父级语义控件统一接管。</span>
+                </div>
+                <div class="icon-rule-row">
+                  <strong>Hit area</strong>
+                  <span>Icon-only control 使用 IconButton 外壳（lg 40 / 48、md 36 / 44）并提供 aria-label；SVG 不承担命中区。</span>
+                </div>
+                <div class="icon-rule-row">
+                  <strong>Accessibility</strong>
+                  <span>装饰性图标 <code>aria-hidden</code>；单独承载含义的图标必须传 <code>label</code>，缺失时组件抛错，不静默降级。</span>
+                </div>
+                <div class="icon-rule-row">
+                  <strong>Runtime bridge</strong>
+                  <span><code>@/shared/icons</code> 只公开 <code>Icon</code> 与 <code>IconName</code>；组件使用语义名称，不直接导入 <code>lucide-react</code>（ESLint 拦截）。改名或删除一次迁完全部调用点，不留兼容别名。</span>
+                </div>
+                <div class="icon-rule-row">
+                  <strong>Scope</strong>
+                  <span>通用 UI 图标进入注册表；品牌图形与插画（如 HippoIcon）放 <code>shared/ui/icons</code>；标注、编辑器引用等业务专用图形由所属 feature 管理；图表与动态几何不进入图标系统。</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="template-title">
+        <header class="section-heading">
+          <div>
+            <span class="eyebrow">Template contracts</span>
+            <h2 id="template-title">结构模板</h2>
+          </div>
+          <p>
+            只记录重复出现的组合骨架、槽位与固定节奏；组件细节引用上方契约，槽位内容由业务层提供，feature 不改槽位规格。
+          </p>
+        </header>
+
+        <div class="template-table">
+          <article class="template-row">
+            <header class="template-name">
+              <span>01 · SHELL</span>
+              <strong>应用壳</strong>
+              <code>ProjectShell</code>
+            </header>
+            <div class="template-flow" aria-label="header 到 sidebar、canvas、chat-panel 与 composer">
+              <code>header</code><span>→</span><code>sidebar · canvas · chat-panel</code><span>→</span><code>composer</code><span>→</span><code>agent-log</code>
+            </div>
+            <div class="template-values">
+              <code>--layout-project-header-height · 72px</code>
+              <span>header · surface · layer-header · 左区 ≤ --layout-project-header-max-left 375</span>
+              <span>sidebar · glass-surface · layer-sidebar · 可折叠</span>
+              <span>canvas · surface · layer-canvas · 点阵 --color-dot-pattern · stage 内距 20</span>
+              <span>chat-panel · chat-panel-bg 渐变 · layer-panel · 底部避让 --layout-project-chat-panel-bottom-safe-area</span>
+              <span>composer · ≤ 582 · radius 2xl · glass · 预留高 180 · ≥ 840 最小 300</span>
+              <span>agent-log · 280 × clamp(220, 40vh, 320) · agent-log-bg</span>
+            </div>
+            <p class="template-use">
+              项目页统一滚动所有权、面板层级与 composer 避让；≥ 840 画布与聊天面板并排，600–840 副面板可折叠。
+            </p>
+          </article>
+
+          <article class="template-row">
+            <header class="template-name">
+              <span>02 · OVERLAY</span>
+              <strong>浮层</strong>
+              <code>Dialog · Menu · Popover</code>
+            </header>
+            <div class="template-flow" aria-label="scrim 到 surface、header、body 和 footer">
+              <code>scrim</code><span>→</span><code>surface</code><span>→</span><code>header</code><span>→</span><code>body</code><span>→</span><code>footer</code>
+            </div>
+            <div class="template-values">
+              <code>Dialog · max 582 · radius 2xl · shadow-3</code>
+              <span>scrim · --color-scrim 32% · layer-overlay（仅 Dialog）</span>
+              <span>surface · surface-container-lowest · layer-popup</span>
+              <span>header · title-lg · 关闭 IconButton 右上</span>
+              <span>body · padding 24 · 可滚动</span>
+              <span>footer · 右对齐 · 主按钮最右 · gap 8</span>
+              <span>Menu / Popover · radius md · shadow-2</span>
+            </div>
+            <p class="template-use">
+              所有浮层共用层级、进出动效（进场 dur-m decel、退场 dur-s accel）与焦点圈定。
+            </p>
+          </article>
+
+          <article class="template-row">
+            <header class="template-name">
+              <span>03 · CANVAS CARD</span>
+              <strong>画布卡</strong>
+              <code>ArtifactCanvasCard</code>
+            </header>
+            <div class="template-flow" aria-label="card 到 rail、header、body 和 media">
+              <code>card</code><span>→</span><code>rail</code><span>→</span><code>header</code><span>→</span><code>body</code><span>→</span><code>media</code>
+            </div>
+            <div class="template-values">
+              <code>card · canvas-card-bg · radius lg</code>
+              <span>选中描边 --color-canvas-card-border</span>
+              <span>rail · 左缘 3px --color-artifact-* · --shadow-rail-inset</span>
+              <span>header · text-canvas-title · label canvas-label-text</span>
+              <span>body · text-canvas-body · 纸面类用 brief / sb-table 色板（主题中立）</span>
+              <span>media · 缩略图 + --media-scrim-* · 文字 on-scrim</span>
+            </div>
+            <p class="template-use">
+              artifact 渲染器共享卡面、身份色栏与媒体遮罩；卡内文字一律取画布字阶。
+            </p>
+          </article>
+
+          <article class="template-row">
+            <header class="template-name">
+              <span>04 · HOME</span>
+              <strong>首页</strong>
+              <code>HomeViewport</code>
+            </header>
+            <div class="template-flow" aria-label="viewport 到 hero 和 content">
+              <code>viewport</code><span>→</span><code>hero</code><span>→</span><code>content</code>
+            </div>
+            <div class="template-values">
+              <code>--layout-home-hero-max · 1120px</code>
+              <span>标题 · --layout-home-title-max 980 · text-display serif</span>
+              <span>content · --layout-home-content-max 100%</span>
+              <span>紧凑 &lt; 600 · 应用壳单列 · sidebar 与 Dialog 变 BottomSheet · canvas / chat-panel 二选一</span>
+            </div>
+            <p class="template-use">
+              首页与紧凑断点的退化规则一并登记，不在页面上另写断点。
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="rule-title">
+        <header class="section-heading">
+          <div>
+            <span class="eyebrow">Usage</span>
+            <h2 id="rule-title">收敛原则</h2>
+          </div>
+          <p>判断一项内容是否应该进入设计系统的三条规则。</p>
+        </header>
+
+        <div class="rule-line">
+          <div class="rule">
+            <strong>Token 优先</strong>
+            <p>
+              颜色只引用语义角色与领域别名，排版和尺度只引用已命名 token；没有则先加入本页再镜像运行时，不在业务页面写第二套数值。
+            </p>
+          </div>
+          <div class="rule">
+            <strong>模板只管结构</strong>
+            <p>
+              模板拥有布局、槽位、响应式节奏和滚动关系；数据、权限、路由与交互逻辑由业务层提供。
+            </p>
+          </div>
+          <div class="rule">
+            <strong>两处复用再上收</strong>
+            <p>
+              只有在两个独立 feature 中重复出现的稳定组件或结构，才进入契约表与 <code>shared/ui</code>；单一业务样式保持局部。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>Producer Design System</span>
+        <span>Scope · Tokens + Components + Templates · 运行时镜像 web/src/app/globals.css · base.css · 对账 pnpm lint:design</span>
+      </footer>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">已复制</div>
+
+    <script>
+      // 色阶与语义映射都从本页第一个 <style> 的 :root / .dark 解析，本页不另存一份 manifest。
+      const displayedTones = ["0", "10", "20", "30", "40", "50", "60", "70", "80", "90", "95", "99", "100"];
+      const palettes = [
+        { name: "Primary", prefix: "P", cssPrefix: "p" },
+        { name: "Secondary", prefix: "S", cssPrefix: "s" },
+        { name: "Tertiary", prefix: "T", cssPrefix: "t" },
+        { name: "Error", prefix: "E", cssPrefix: "e" },
+        { name: "Neutral", prefix: "N", cssPrefix: "n" },
+        { name: "Neutral Variant", prefix: "NV", cssPrefix: "nv" },
+      ];
+
+      const tokenSource = document.querySelector("style").textContent;
+      const readBlock = (selector) => {
+        const start = tokenSource.indexOf(`${selector} {`);
+        const end = tokenSource.indexOf("\n      }", start);
+        const map = new Map();
+        for (const match of tokenSource.slice(start, end).matchAll(/--([\w-]+)\s*:\s*([^;]+);/g)) {
+          if (!map.has(match[1])) map.set(match[1], match[2].trim());
+        }
+        return map;
+      };
+      const lightTokens = readBlock(":root");
+      const darkTokens = readBlock(".dark");
+      const tokenValue = (name, theme) =>
+        (theme === "dark" && darkTokens.get(name)) || lightTokens.get(name);
+
+      // 把 var(--p80) 写成 P80、var(--color-tertiary) 写成 = tertiary，字面值原样返回
+      const referenceLabel = (name, theme) => {
+        const value = tokenValue(name, theme);
+        if (!value) return "—";
+        const tone = value.match(/^var\(--(p|s|t|e|nv|n)(\d+)\)$/);
+        if (tone) return `${tone[1].toUpperCase()}${tone[2]}`;
+        const alias = value.match(/^var\(--color-([\w-]+)\)$/);
+        if (alias) return `= ${alias[1]}`;
+        return value;
+      };
+
+      // label · role · foreground role
+      const family = (name, role) => ({
+        name,
+        items: [
+          [name, role, `on-${role}`],
+          [`On ${name}`, `on-${role}`, role],
+          [`${name} Container`, `${role}-container`, `on-${role}-container`],
+          [`On ${name} Container`, `on-${role}-container`, `${role}-container`],
+        ],
+      });
+
+      const semanticGroups = [
+        {
+          id: "core",
+          title: "Core color roles",
+          description: "品牌、状态与容器关系",
+          columns: ["Default", "On", "Container", "On container"],
+          families: [
+            family("Primary", "primary"),
+            family("Secondary", "secondary"),
+            family("Tertiary", "tertiary"),
+            family("Error", "error"),
+            family("Warning", "warning"),
+          ],
+        },
+        {
+          id: "primary-extended",
+          title: "Primary extensions",
+          description: "主色的悬停与容器分色",
+          columns: ["Hover", "Container solid", "Container soft"],
+          families: [
+            {
+              name: "Primary",
+              items: [
+                ["Primary Hover", "primary-hover", "on-primary"],
+                ["Container Solid", "primary-container-solid", "on-primary-container"],
+                ["Container Soft", "primary-container-soft", "on-primary-container"],
+              ],
+            },
+          ],
+        },
+        {
+          id: "fixed",
+          title: "Fixed roles",
+          description: "跨主题保持稳定的品牌容器",
+          columns: ["Fixed", "Fixed dim"],
+          families: ["primary", "secondary", "tertiary"].map((role) => ({
+            name: role[0].toUpperCase() + role.slice(1),
+            items: [
+              [`${role[0].toUpperCase() + role.slice(1)} Fixed`, `${role}-fixed`, `on-${role}-container`],
+              [`${role[0].toUpperCase() + role.slice(1)} Fixed Dim`, `${role}-fixed-dim`, `on-${role}-container`],
+            ],
+          })),
+        },
+        {
+          id: "surface",
+          title: "Surface hierarchy",
+          description: "背景层级、内容、描边与反色",
+          families: [
+            {
+              name: "Surface",
+              items: [
+                ["Surface", "surface", "on-surface"],
+                ["Surface Variant", "surface-variant", "on-surface-variant"],
+                ["Background", "background", "on-background"],
+              ],
+            },
+            {
+              name: "Container ramp",
+              items: [
+                ["Container Lowest", "surface-container-lowest", "on-surface"],
+                ["Container Low", "surface-container-low", "on-surface"],
+                ["Container", "surface-container", "on-surface"],
+                ["Container High", "surface-container-high", "on-surface"],
+                ["Container Highest", "surface-container-highest", "on-surface"],
+              ],
+            },
+            {
+              name: "Content & border",
+              items: [
+                ["On Surface", "on-surface", "surface"],
+                ["On Surface Variant", "on-surface-variant", "surface"],
+                ["Outline", "outline", "surface"],
+                ["Outline Variant", "outline-variant", "on-surface"],
+              ],
+            },
+            {
+              name: "Inverse & effects",
+              items: [
+                ["Inverse Surface", "inverse-surface", "inverse-on-surface"],
+                ["Inverse On Surface", "inverse-on-surface", "inverse-surface"],
+                ["Inverse Primary", "inverse-primary", "inverse-surface"],
+                ["Scrim", "scrim", "on-scrim"],
+                ["Shadow", "shadow", "on-scrim"],
+              ],
+            },
+            {
+              name: "State layers",
+              items: [
+                ["Hover", "state-hover", "on-surface"],
+                ["Focus", "state-focus", "on-surface"],
+                ["Pressed", "state-pressed", "on-surface"],
+                ["Dragged", "state-dragged", "on-surface"],
+                ["Disabled Container", "disabled-container", "disabled-text"],
+                ["Focus Ring", "focus-ring", "on-primary"],
+              ],
+            },
+          ],
+        },
+      ];
+
+      const paletteStack = document.querySelector("#palette-stack");
+      const semanticPanel = document.querySelector("#semantic-panel");
+      const semanticGroupsRoot = document.querySelector("#semantic-groups");
+      const themeButtons = [...document.querySelectorAll("[data-theme]")];
+      const toast = document.querySelector("#toast");
+      const rootStyles = getComputedStyle(document.documentElement);
+      let toastTimer;
+
+      const referenceVariable = (cssPrefix, tone) => `--${cssPrefix}${tone}`;
+      const resolveReference = (cssPrefix, tone) =>
+        rootStyles.getPropertyValue(referenceVariable(cssPrefix, tone)).trim().toUpperCase();
+
+      const readableText = (hex) => {
+        const value = hex.replace("#", "");
+        const toLinear = (channel) => {
+          const normalized = channel / 255;
+          return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+        };
+        const luminance =
+          0.2126 * toLinear(Number.parseInt(value.slice(0, 2), 16)) +
+          0.7152 * toLinear(Number.parseInt(value.slice(2, 4), 16)) +
+          0.0722 * toLinear(Number.parseInt(value.slice(4, 6), 16));
+        const blackContrast = (luminance + 0.05) / 0.05;
+        const whiteContrast = 1.05 / (luminance + 0.05);
+        return blackContrast >= whiteContrast ? "#000000" : "#FFFFFF";
+      };
+
+      const copyValue = async (value, message) => {
+        await navigator.clipboard.writeText(value);
+        toast.textContent = message;
+        toast.classList.add("show");
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => toast.classList.remove("show"), 1400);
+      };
+      const copyTokenValue = (token, value) => copyValue(value, `${token} · ${value} 已复制`);
+      const copySemanticToken = (role) => copyValue(`--color-${role}`, `--color-${role} 已复制`);
+
+      palettes.forEach((palette) => {
+        const row = document.createElement("div");
+        row.className = "palette-row";
+        const name = document.createElement("span");
+        name.className = "palette-name";
+        name.textContent = `${palette.name} · ${palette.prefix}`;
+        const strip = document.createElement("div");
+        strip.className = "tone-strip";
+        displayedTones.forEach((tone) => {
+          const token = `${palette.prefix}${tone}`;
+          const value = resolveReference(palette.cssPrefix, tone);
+          const swatch = document.createElement("button");
+          swatch.type = "button";
+          swatch.className = "tone";
+          swatch.textContent = tone;
+          swatch.title = `--${palette.cssPrefix}${tone} · ${value}`;
+          swatch.setAttribute("aria-label", `复制 token ${token} 的解析值 ${value}`);
+          swatch.style.setProperty("--tone", `var(${referenceVariable(palette.cssPrefix, tone)})`);
+          swatch.style.setProperty("--tone-label", readableText(value));
+          swatch.addEventListener("click", () => copyTokenValue(token, value));
+          strip.append(swatch);
+        });
+        row.append(name, strip);
+        paletteStack.append(row);
+      });
+
+      const makeTokenCell = ([label, role, foreground], theme) => {
+        const semanticToken = `--color-${role}`;
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = "token-cell";
+        cell.title = `复制 ${semanticToken}`;
+        cell.setAttribute(
+          "aria-label",
+          `复制语义 token ${semanticToken}，${theme === "light" ? "浅色" : "深色"}映射 ${referenceLabel(`color-${role}`, theme)}`,
+        );
+        cell.style.setProperty("--cell-bg", `var(${semanticToken})`);
+        cell.style.setProperty("--cell-fg", `var(--color-${foreground})`);
+        cell.innerHTML = `
+          <strong>${label}</strong>
+          <code>${semanticToken}</code>
+          <span class="token-reference">→ ${referenceLabel(`color-${role}`, theme)}</span>
+        `;
+        cell.addEventListener("click", () => copySemanticToken(role));
+        return cell;
+      };
+
+      const renderSemanticGroups = (theme) => {
+        const fragment = document.createDocumentFragment();
+        semanticGroups.forEach((group) => {
+          const section = document.createElement("section");
+          section.className = "token-group";
+          section.setAttribute("aria-labelledby", `${group.id}-title`);
+          const header = document.createElement("header");
+          header.className = "token-group__header";
+          const titleBlock = document.createElement("div");
+          titleBlock.innerHTML = `<h4 id="${group.id}-title">${group.title}</h4><p>${group.description}</p>`;
+          header.append(titleBlock);
+          if (group.columns) {
+            const columns = document.createElement("div");
+            columns.className = "token-columns";
+            columns.style.setProperty("--columns", group.columns.length);
+            group.columns.forEach((label) => {
+              const column = document.createElement("span");
+              column.textContent = label;
+              columns.append(column);
+            });
+            header.append(columns);
+          }
+          section.append(header);
+          group.families.forEach((fam) => {
+            const familyRow = document.createElement("article");
+            familyRow.className = "token-family";
+            const familyName = document.createElement("h5");
+            familyName.textContent = fam.name;
+            const cells = document.createElement("div");
+            cells.className = "token-family__cells";
+            cells.dataset.count = fam.items.length;
+            cells.style.setProperty("--columns", fam.items.length);
+            fam.items.forEach((item) => cells.append(makeTokenCell(item, theme)));
+            familyRow.append(familyName, cells);
+            section.append(familyRow);
+          });
+          fragment.append(section);
+        });
+        semanticGroupsRoot.replaceChildren(fragment);
+      };
+
+      // 深色即给面板加 .dark：语义 token 在页面里也只走同一套变量换档
+      const selectTheme = (theme) => {
+        semanticPanel.classList.remove("theme-light", "theme-dark", "dark");
+        semanticPanel.classList.add(`theme-${theme}`);
+        if (theme === "dark") semanticPanel.classList.add("dark");
+        semanticGroupsRoot.setAttribute("aria-labelledby", `theme-tab-${theme}`);
+        themeButtons.forEach((button) => {
+          const selected = button.dataset.theme === theme;
+          button.setAttribute("aria-selected", String(selected));
+          button.tabIndex = selected ? 0 : -1;
+        });
+        renderSemanticGroups(theme);
+      };
+
+      themeButtons.forEach((button, index) => {
+        button.addEventListener("click", () => selectTheme(button.dataset.theme));
+        button.addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+          event.preventDefault();
+          const direction = event.key === "ArrowRight" ? 1 : -1;
+          const nextIndex = (index + direction + themeButtons.length) % themeButtons.length;
+          themeButtons[nextIndex].focus();
+          selectTheme(themeButtons[nextIndex].dataset.theme);
+        });
+      });
+
+      selectTheme("light");
+    </script>
+  </body>
+</html>

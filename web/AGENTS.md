@@ -2,11 +2,11 @@
 
 > 面向在本仓库工作的 AI agent 与新成员的项目记忆：命令、边界、验证矩阵、禁止动作、人类门禁。
 > 本文只做控制面，不做说明书——细节一律指向事实源文档：
-> 领域术语与不变量 → [CONTEXT.md](CONTEXT.md) · 架构与结构 → [README.md](README.md) · 实现规范 → [docs/frontend-implementation.md](docs/frontend-implementation.md) · 视觉规范 → [docs/design-system.html](docs/design-system.html)（唯一设计规范文档） · 跨层契约 → [docs/state-management.md](docs/state-management.md) · 后端接口 → [docs/backend_api.md](docs/backend_api.md) · 决策 → [docs/adr/](docs/adr/)
+> 领域术语与不变量 → [CONTEXT.md](CONTEXT.md) · 架构与结构 → [README.md](README.md) · 实现规范 → [docs/frontend-implementation.md](docs/frontend-implementation.md) · 视觉规范 → [../design-system.html](../design-system.html)（唯一设计规范文档，在仓库根目录） · 跨层契约 → [docs/state-management.md](docs/state-management.md) · 后端接口 → [docs/backend_api.md](docs/backend_api.md) · 决策 → [docs/adr/](docs/adr/)
 
 ## 1. 项目速览
 
-AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路由 + TanStack Query 数据层，浏览器经同源 `/api` 访问后端。当前 `web/` 是 UI 参考稿，不约束本仓后端合同；前端对接范围与时点由用户决策。**无 BFF、前端不持有 token**（决策与硬约束见 [docs/adr/0001](docs/adr/0001-vite-spa-same-origin-no-bff.md)）。Node ≥ 22.12 + pnpm；TypeScript strict。
+AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路由 + TanStack Query 数据层，浏览器经同源 `/api` 访问后端。当前 `web/` 是 UI 参考稿，不约束本仓后端合同；前端对接范围与时点由用户决策。**无 BFF、前端不持有 token**（决策与硬约束见 [docs/adr/0001](docs/adr/0001-vite-spa-same-origin-no-bff.md)）。Node ≥ 22.18 + pnpm（`lint:design` 的自测直接 import `.ts`，靠 Node 自带的类型剥离，22.18 起才默认开着）；TypeScript strict。
 
 **前端当前无自动化测试**：迁入时的 Vitest 单测、Playwright e2e 与 test-guard 守卫已移除。现行机械门禁 = `pnpm ci:check`（format / lint / lint:design / typecheck）+ `pnpm build`。
 
@@ -14,19 +14,19 @@ AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + 
 
 所有常用命令统一走 `package.json` scripts；新增命令必须加进去，不散落在 README 或口头约定里。
 
-| 命令                                | 作用                                                                                   |
-| ----------------------------------- | -------------------------------------------------------------------------------------- |
-| `pnpm install`                      | 安装依赖（本地 git hooks 由根仓 `make hooks` 安装）                                    |
-| `pnpm dev`                          | 开发服务器（默认 0.0.0.0:3013；全部 `/api` 请求代理到真实后端）                        |
-| `pnpm dev:mock`                     | 浏览器 MSW 原型环境（默认 0.0.0.0:3014；不连接真实后端，未处理 `/api` 请求显式报错）   |
-| `pnpm lint` / `pnpm lint:fix`       | ESLint（flat config，boundaries 架构守卫）                                             |
-| `pnpm lint:design`                  | 设计系统门禁（design-guard 棘轮基线：裸色/任意值阴影圆角字号/裸 z-index/outline-none） |
-| `pnpm typecheck`                    | `tsc -b` 全量类型检查                                                                  |
-| `pnpm build`                        | `tsc -b && vite build`                                                                 |
-| `pnpm serve`                        | 本地验证生产构建（build + vite preview）                                               |
-| `pnpm format` / `pnpm format:check` | Prettier                                                                               |
-| `pnpm ci:check`                     | 提交前门禁：format:check → lint → lint:design → typecheck                              |
-| `pnpm verify`                       | 合入 / 发布前完整检查：ci:check 全项 + build                                           |
+| 命令                                | 作用                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| `pnpm install`                      | 安装依赖（本地 git hooks 由根仓 `make hooks` 安装）                                  |
+| `pnpm dev`                          | 开发服务器（默认 0.0.0.0:3013；全部 `/api` 请求代理到真实后端）                      |
+| `pnpm dev:mock`                     | 浏览器 MSW 原型环境（默认 0.0.0.0:3014；不连接真实后端，未处理 `/api` 请求显式报错） |
+| `pnpm lint` / `pnpm lint:fix`       | ESLint（flat config，boundaries 架构守卫）                                           |
+| `pnpm lint:design`                  | 设计系统门禁：规范 ↔ 运行时 token 对账（含自测）+ design-guard 硬编码扫描            |
+| `pnpm typecheck`                    | `tsc -b` 全量类型检查                                                                |
+| `pnpm build`                        | `tsc -b && vite build`                                                               |
+| `pnpm serve`                        | 本地验证生产构建（build + vite preview）                                             |
+| `pnpm format` / `pnpm format:check` | Prettier                                                                             |
+| `pnpm ci:check`                     | 提交前门禁：format:check → lint → lint:design → typecheck                            |
+| `pnpm verify`                       | 合入 / 发布前完整检查：ci:check 全项 + build                                         |
 
 ## 3. 边界（哪里能改什么）
 
@@ -66,7 +66,7 @@ AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + 
 - 权限门控引入前端用户名白名单——只判 `user.permissions` 后端权限字符串。
 - 绕过 `apiFetch(path, schema)` 写裸 fetch REST（§3 三类豁免之外）；绕过 `env.ts` 直接读 `import.meta.env`。
 - 手改 `src/routeTree.gen.ts`。
-- 新增 dark/light 主题分支、`data-theme`、主题 Provider 或 localStorage 主题状态（单一浅色主题）。
+- 组件自持主题状态——主题只有 `<html>` 上的 `.dark` 一个开关，由 `src/app/theme.ts` 统一切换，组件按 token 取色、不判断当前是明是暗。
 - 给 `RichMarkdownRenderer` 添加 sanitize、DOMPurify、allowlist 或兜底分支（模型 HTML 视为可信内容）。
 - 使用 `any`、`@ts-ignore`、非空断言 `!`、TypeScript enum；靠禁用 lint 规则让代码通过。
 - UI 泄露内部协议字段（raw tool name、`member_id`、skill name、reference path、JSON 参数）。
@@ -78,11 +78,11 @@ AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + 
 
 以下动作机器不得自动执行，需要人做决定或人交证据：
 
-| 动作                                                            | 门禁                                                                                                        |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| UI 视觉验收                                                     | 人工按 [design-system.html](docs/design-system.html) 规范：桌面 + 移动、无新增裸色/裸 z-index、中文表格列宽 |
-| 生产部署反代配置                                                | 人工确认 `^/api` rewrite 语义与后端目标和 `vite.config.ts` 代理一致                                         |
-| 运行时依赖升级（React / Vite / assistant-ui / AG-UI client 等） | 人工决策；升级后完整 `pnpm verify` 通过再合入                                                               |
+| 动作                                                            | 门禁                                                                                                      |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| UI 视觉验收                                                     | 人工按 [design-system.html](../design-system.html) 规范：桌面 + 移动、无新增裸色/裸 z-index、中文表格列宽 |
+| 生产部署反代配置                                                | 人工确认 `^/api` rewrite 语义与后端目标和 `vite.config.ts` 代理一致                                       |
+| 运行时依赖升级（React / Vite / assistant-ui / AG-UI client 等） | 人工决策；升级后完整 `pnpm verify` 通过再合入                                                             |
 
 ## 7. 机械 Guardrails 现状
 
@@ -102,16 +102,16 @@ AI 视频创作前端（画布 + AG-UI 聊天 + Session Workspace）。Vite 8 + 
 
 ## 8. 文档地图
 
-| 文档                                                               | 内容                                                                                                                                                             | 何时更新                     |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| [AGENTS.md](AGENTS.md)（本文）                                     | 控制面：命令、边界、验证矩阵、禁止动作、人类门禁                                                                                                                 | 命令入口 / 红线 / 门禁变化时 |
-| [CONTEXT.md](CONTEXT.md)                                           | 领域锚点：术语、上下文、不变量、禁止逻辑                                                                                                                         | 领域语言或不变量变化时       |
-| [README.md](README.md)                                             | 项目入口：技术栈、目录结构、分层约定、启动方式                                                                                                                   | 结构或启动方式变化时         |
-| [docs/frontend-implementation.md](docs/frontend-implementation.md) | 门禁之外仍需人判断的实现约定：组件、Hook、TS、测试                                                                                                               | 实现约定变化时               |
-| [docs/design-system.html](docs/design-system.html)                 | 唯一设计规范（可视化）：token 分层、色板、角色、字阶、圆角、海拔动效、组件规格、深色备案（值以 `base.css` 与 `globals.css` `@theme` 为准，token 变更需同步维护） | token 家族或使用规则变化时   |
-| [docs/state-management.md](docs/state-management.md)               | 跨层契约：登录态、AG-UI 运行态、画布、视频生成的接口级约定                                                                                                       | 跨层契约变化时               |
-| [docs/backend_api.md](docs/backend_api.md)                         | 前端实际消费的后端端点与 payload 约定                                                                                                                            | 端点或协议变化时             |
-| [docs/adr/](docs/adr/)                                             | 架构决策记录                                                                                                                                                     | 做出难逆决策时新增           |
-| [docs/archive/](docs/archive/)                                     | 已完成计划留档（不再是事实源）                                                                                                                                   | 计划完结归档时               |
+| 文档                                                               | 内容                                                                                                                                                                            | 何时更新                     |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| [AGENTS.md](AGENTS.md)（本文）                                     | 控制面：命令、边界、验证矩阵、禁止动作、人类门禁                                                                                                                                | 命令入口 / 红线 / 门禁变化时 |
+| [CONTEXT.md](CONTEXT.md)                                           | 领域锚点：术语、上下文、不变量、禁止逻辑                                                                                                                                        | 领域语言或不变量变化时       |
+| [README.md](README.md)                                             | 项目入口：技术栈、目录结构、分层约定、启动方式                                                                                                                                  | 结构或启动方式变化时         |
+| [docs/frontend-implementation.md](docs/frontend-implementation.md) | 门禁之外仍需人判断的实现约定：组件、Hook、TS、测试                                                                                                                              | 实现约定变化时               |
+| [../design-system.html](../design-system.html)                     | 契约文件（在仓库根目录）：颜色规范、排版与尺度、组件与状态与图标、结构模板、收敛原则；`:root` / `.dark` 两块是浅深两套 token 的唯一事实源，运行时镜像由 `pnpm lint:design` 对账 | token 家族或使用规则变化时   |
+| [docs/state-management.md](docs/state-management.md)               | 跨层契约：登录态、AG-UI 运行态、画布、视频生成的接口级约定                                                                                                                      | 跨层契约变化时               |
+| [docs/backend_api.md](docs/backend_api.md)                         | 前端实际消费的后端端点与 payload 约定                                                                                                                                           | 端点或协议变化时             |
+| [docs/adr/](docs/adr/)                                             | 架构决策记录                                                                                                                                                                    | 做出难逆决策时新增           |
+| [docs/archive/](docs/archive/)                                     | 已完成计划留档（不再是事实源）                                                                                                                                                  | 计划完结归档时               |
 
 计划文档生命周期：阶段性计划放 `docs/`，推进期间是对应工作的事实源；完成后把长期事实沉淀进 README / `docs/adr/`，原文标注状态移入 `docs/archive/`。新增可执行约定时更新对应专题文档；删除旧规范时同步更新本文件的路由表。

@@ -489,7 +489,7 @@ export default function CanvasVideoWorkspace({ projectId }: CanvasVideoWorkspace
           <ProjectMouseGlow />
 
           <header className="layer-header pointer-events-auto absolute inset-x-0 top-0">
-            <div className="relative flex h-[var(--layout-project-header-height)] w-full items-center justify-between text-[var(--color-on-background)]">
+            <div className="relative flex h-[var(--layout-project-header-height)] w-full items-center justify-between text-on-background">
               <div className="relative flex h-full w-full items-center justify-between gap-4 bg-transparent pt-4 pr-[var(--layout-project-header-inline-end)] pb-4 pl-[var(--layout-project-header-inline-start)]">
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <ProjectHeaderLeft />

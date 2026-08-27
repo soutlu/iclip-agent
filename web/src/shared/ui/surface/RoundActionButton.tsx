@@ -20,9 +20,7 @@ export default function RoundActionButton({
   shape = 'icon',
   ...props
 }: RoundActionButtonProps) {
-  const stateClass = isActive
-    ? 'bg-[var(--color-state-active)] text-[var(--color-on-background)]'
-    : 'surface-button'
+  const stateClass = isActive ? 'bg-state-active text-on-background' : 'surface-button'
 
   return (
     <button

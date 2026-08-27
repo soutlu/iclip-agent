@@ -244,17 +244,15 @@ export default function AskUserQuestionPanel({
       data-testid="inline-ask-user-question-panel"
       ref={panelRootRef}
     >
-      <div className="flex max-h-[min(72vh,680px)] min-h-0 flex-col overflow-hidden rounded-lg border border-[color:var(--color-chat-inline-border)] bg-[color:var(--color-chat-card-bg)] shadow-[var(--shadow-chat-assistant)]">
+      <div className="flex max-h-[min(72vh,680px)] min-h-0 flex-col overflow-hidden rounded-lg border border-chat-inline-border bg-chat-card-bg shadow-[var(--shadow-chat-assistant)]">
         <div className="flex items-start justify-between gap-3 px-4 pt-3.5 pb-2">
           <div className="min-w-0">
-            <div className="text-caption font-medium text-[color:var(--color-chat-muted-text)]">
-              等待你的确认
-            </div>
-            <div className="mt-1 truncate text-body leading-none font-semibold text-[color:var(--color-chat-message-text)]">
+            <div className="text-caption font-medium text-chat-muted-text">等待你的确认</div>
+            <div className="mt-1 truncate text-body leading-none font-semibold text-chat-message-text">
               继续生成前，需要你补充选择
             </div>
           </div>
-          <div className="shrink-0 rounded-full bg-[color:var(--color-chat-chip-bg)] px-2.5 py-1 text-caption font-medium text-[color:var(--color-chat-message-text)]">
+          <div className="shrink-0 rounded-full bg-chat-chip-bg px-2.5 py-1 text-caption font-medium text-chat-message-text">
             {sourceLabel}
           </div>
         </div>
@@ -274,10 +272,10 @@ export default function AskUserQuestionPanel({
                   className={cn(
                     'h-1 flex-1 rounded-full transition-colors',
                     isActive
-                      ? 'bg-[color:var(--color-chat-message-text)]'
+                      ? 'bg-chat-message-text'
                       : isCompleted
-                        ? 'bg-[color:var(--color-chat-muted-text)]'
-                        : 'bg-[color:var(--color-chat-chip-bg)]',
+                        ? 'bg-chat-muted-text'
+                        : 'bg-chat-chip-bg',
                   )}
                   onClick={() => setSelectedQuestionKey(questionKey)}
                 />
@@ -292,34 +290,30 @@ export default function AskUserQuestionPanel({
           ref={scrollBodyRef}
         >
           <section>
-            <div className="flex items-center justify-between gap-2 border-b border-[color:var(--color-chat-inline-border)] pb-2 text-caption text-[color:var(--color-chat-muted-text)]">
+            <div className="flex items-center justify-between gap-2 border-b border-chat-inline-border pb-2 text-caption text-chat-muted-text">
               <span className="min-w-0 truncate">{activeQuestion.header}</span>
               <span className="shrink-0">
                 {currentIndex + 1} / {questions.length}
               </span>
             </div>
-            <h3 className="mt-3 text-body leading-[1.45] font-semibold text-[color:var(--color-chat-message-text)]">
+            <h3 className="mt-3 text-body leading-[1.45] font-semibold text-chat-message-text">
               {activeQuestion.question}
             </h3>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-[color:var(--color-chat-chip-bg)] px-2.5 py-1 text-caption font-medium text-[color:var(--color-chat-message-text)]">
+              <span className="rounded-full bg-chat-chip-bg px-2.5 py-1 text-caption font-medium text-chat-message-text">
                 {selectionModeLabel}
               </span>
-              <span className="text-caption text-[color:var(--color-chat-muted-text)]">
-                {selectionModeHint}
-              </span>
+              <span className="text-caption text-chat-muted-text">{selectionModeHint}</span>
             </div>
 
             {activeAnnotation ? (
-              <div className="mt-3 border-l-2 border-[color:var(--color-chat-agent-rail)] pl-3 text-label leading-[1.5] text-[color:var(--color-chat-secondary-text)]">
-                <span className="mr-1 font-medium text-[color:var(--color-chat-message-text)]">
-                  智能体建议：
-                </span>
+              <div className="mt-3 border-l-2 border-chat-agent-rail pl-3 text-label leading-[1.5] text-chat-secondary-text">
+                <span className="mr-1 font-medium text-chat-message-text">智能体建议：</span>
                 {activeAnnotation}
               </div>
             ) : null}
 
-            <div className="mt-4 divide-y divide-[color:var(--color-chat-inline-border)]">
+            <div className="mt-4 divide-y divide-chat-inline-border">
               {activeQuestion.options.map((option) => {
                 const isSelected = activeDraft.values.includes(option.value)
 
@@ -331,8 +325,8 @@ export default function AskUserQuestionPanel({
                     className={cn(
                       'group relative flex w-full items-start gap-3 px-3 py-3 text-left transition-colors',
                       isSelected
-                        ? 'bg-[color:var(--color-chat-inline-bg)] before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-[color:var(--color-chat-agent-rail)]'
-                        : 'hover:bg-[color:var(--color-chat-inline-bg)]',
+                        ? 'bg-chat-inline-bg before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-chat-agent-rail'
+                        : 'hover:bg-chat-inline-bg',
                     )}
                     onClick={() => handleOptionClick(option.value)}
                   >
@@ -341,8 +335,8 @@ export default function AskUserQuestionPanel({
                         'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center border transition-colors',
                         activeQuestion.multiSelect ? 'rounded-xs' : 'rounded-full',
                         isSelected
-                          ? 'border-[color:var(--color-chat-agent-rail)] bg-[color:var(--color-chat-agent-rail)] text-[color:var(--color-chat-card-bg)]'
-                          : 'border-[color:var(--color-chat-muted-text)] text-transparent group-hover:border-[color:var(--color-chat-message-text)]',
+                          ? 'border-chat-agent-rail bg-chat-agent-rail text-chat-card-bg'
+                          : 'border-chat-muted-text text-transparent group-hover:border-chat-message-text',
                       )}
                       aria-hidden="true"
                     >
@@ -351,18 +345,18 @@ export default function AskUserQuestionPanel({
 
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-2">
-                        <span className="text-body-sm font-medium text-[color:var(--color-chat-message-text)]">
+                        <span className="text-body-sm font-medium text-chat-message-text">
                           {option.displayLabel}
                         </span>
                         {option.recommended ? (
-                          <span className="rounded-full bg-[color:var(--color-chat-chip-bg)] px-2 py-0.5 text-caption font-medium text-[color:var(--color-chat-message-text)]">
+                          <span className="rounded-full bg-chat-chip-bg px-2 py-0.5 text-caption font-medium text-chat-message-text">
                             推荐
                           </span>
                         ) : null}
                       </span>
 
                       {option.description ? (
-                        <span className="mt-1 block text-label leading-[1.5] text-[color:var(--color-chat-muted-text)]">
+                        <span className="mt-1 block text-label leading-[1.5] text-chat-muted-text">
                           {option.description}
                         </span>
                       ) : null}
@@ -377,13 +371,11 @@ export default function AskUserQuestionPanel({
             </div>
 
             {showOtherInput ? (
-              <div className="mt-3 border-t border-[color:var(--color-chat-inline-border)] pt-3">
-                <div className="block text-caption font-medium text-[color:var(--color-chat-muted-text)]">
-                  其他补充
-                </div>
+              <div className="mt-3 border-t border-chat-inline-border pt-3">
+                <div className="block text-caption font-medium text-chat-muted-text">其他补充</div>
                 <textarea
                   aria-label="其他补充"
-                  className="mt-2 min-h-[72px] w-full resize-none rounded-lg border border-[color:var(--color-chat-inline-border)] bg-[color:var(--color-chat-inline-bg)] px-3 py-2 text-body-sm leading-[1.5] text-[color:var(--color-chat-message-text)] placeholder:text-[color:var(--color-chat-muted-text)] focus:border-[color:var(--color-chat-focus-ring)]"
+                  className="mt-2 min-h-[72px] w-full resize-none rounded-lg border border-chat-inline-border bg-chat-inline-bg px-3 py-2 text-body-sm leading-[1.5] text-chat-message-text placeholder:text-chat-muted-text focus:border-chat-focus-ring"
                   placeholder="输入自定义说明，例如镜头节奏、画幅要求或额外创作偏好"
                   value={activeDraft.otherText ?? ''}
                   onChange={(event) => {
@@ -409,14 +401,14 @@ export default function AskUserQuestionPanel({
           </section>
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[color:var(--color-chat-inline-border)] bg-[color:var(--color-chat-card-bg)] px-4 pt-2.5 pb-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-chat-inline-border bg-chat-card-bg px-4 pt-2.5 pb-3">
           <button
             type="button"
             className={cn(
               'inline-flex h-9 items-center justify-center rounded-full px-3 text-label transition-colors',
               currentIndex === 0
-                ? 'pointer-events-none text-[color:var(--color-chat-muted-text)] opacity-40'
-                : 'text-[color:var(--color-chat-message-text)] hover:bg-[color:var(--color-chat-tool-bg)]',
+                ? 'pointer-events-none text-chat-muted-text opacity-40'
+                : 'text-chat-message-text hover:bg-chat-tool-bg',
             )}
             disabled={currentIndex === 0}
             onClick={() => moveToQuestion(currentIndex - 1)}
@@ -425,7 +417,7 @@ export default function AskUserQuestionPanel({
           </button>
 
           <div className="flex min-w-0 items-center gap-2">
-            <div className="hidden text-caption text-[color:var(--color-chat-muted-text)] sm:block">
+            <div className="hidden text-caption text-chat-muted-text sm:block">
               已完成 {completedCount} / {questions.length}
             </div>
 
@@ -435,8 +427,8 @@ export default function AskUserQuestionPanel({
                 className={cn(
                   'inline-flex h-9 items-center justify-center rounded-full px-4 text-body-sm font-medium transition-all',
                   allCompleted && !isSubmitting && !isInteractionLocked
-                    ? 'bg-[color:var(--color-chat-agent-rail)] text-[color:var(--color-chat-card-bg)] hover:scale-[1.03] active:scale-[0.97]'
-                    : 'bg-[color:var(--color-chat-tool-bg)] text-[color:var(--color-chat-muted-text)]',
+                    ? 'bg-chat-agent-rail text-chat-card-bg hover:scale-[1.03] active:scale-[0.97]'
+                    : 'bg-chat-tool-bg text-chat-muted-text',
                 )}
                 disabled={!allCompleted || isSubmitting || isInteractionLocked}
                 onClick={() => void handleSubmit()}
@@ -453,8 +445,8 @@ export default function AskUserQuestionPanel({
                 className={cn(
                   'inline-flex h-9 items-center justify-center rounded-full px-4 text-body-sm font-medium transition-all',
                   canGoNext
-                    ? 'bg-[color:var(--color-chat-agent-rail)] text-[color:var(--color-chat-card-bg)] hover:scale-[1.03] active:scale-[0.97]'
-                    : 'bg-[color:var(--color-chat-tool-bg)] text-[color:var(--color-chat-muted-text)]',
+                    ? 'bg-chat-agent-rail text-chat-card-bg hover:scale-[1.03] active:scale-[0.97]'
+                    : 'bg-chat-tool-bg text-chat-muted-text',
                 )}
                 disabled={!canGoNext}
                 onClick={() => moveToQuestion(currentIndex + 1)}
@@ -485,22 +477,20 @@ function PreviewTimeline({ preview }: { preview: string }) {
 
   if (segments.length === 0) {
     return (
-      <div className="mt-3 border-l border-[color:var(--color-chat-inline-border)] pl-3 text-caption leading-[1.5] text-[color:var(--color-chat-muted-text)]">
+      <div className="mt-3 border-l border-chat-inline-border pl-3 text-caption leading-[1.5] text-chat-muted-text">
         {preview}
       </div>
     )
   }
 
   return (
-    <div className="mt-3 border-l border-[color:var(--color-chat-inline-border)] pl-3">
-      <div className="mb-2 text-caption font-medium text-[color:var(--color-chat-muted-text)]">
-        结构预览
-      </div>
+    <div className="mt-3 border-l border-chat-inline-border pl-3">
+      <div className="mb-2 text-caption font-medium text-chat-muted-text">结构预览</div>
       <div className="flex flex-wrap gap-1.5">
         {segments.map((segment) => (
           <span
             key={segment}
-            className="rounded-full bg-[color:var(--color-chat-chip-bg)] px-2.5 py-1 text-caption text-[color:var(--color-chat-message-text)]"
+            className="rounded-full bg-chat-chip-bg px-2.5 py-1 text-caption text-chat-message-text"
           >
             {segment}
           </span>

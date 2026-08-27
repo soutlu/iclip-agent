@@ -16,7 +16,7 @@ const renderVideoPromptText = (text: string) =>
     if (VIDEO_PROMPT_REFERENCE_TAG_EXACT_PATTERN.test(part)) {
       return (
         <span
-          className="mx-0.5 inline-flex rounded-md bg-[color:var(--color-control-bg)] px-1.5 py-0.5 text-[0.88em] font-semibold text-[color:var(--color-chat-agent-rail)] ring-1 ring-[color:var(--color-border)]"
+          className="mx-0.5 inline-flex rounded-md bg-control-bg px-1.5 py-0.5 text-[0.88em] font-semibold text-chat-agent-rail ring-1 ring-border"
           key={`${part}:${index.toString()}`}
         >
           {part}
@@ -32,20 +32,17 @@ export function VideoPromptReadingView({ prompt }: { prompt: string }) {
 
   if (segments.length === 0) {
     return (
-      <p className="border-t border-[color:var(--color-border)] pt-6 text-canvas-body text-[color:var(--color-on-surface-variant)]">
+      <p className="border-t border-border pt-6 text-canvas-body text-on-surface-variant">
         暂无可展示的视频提示词。
       </p>
     )
   }
 
   return (
-    <article
-      className="space-y-4 border-t border-[color:var(--color-border)] pt-6"
-      data-video-prompt-reading="true"
-    >
+    <article className="space-y-4 border-t border-border pt-6" data-video-prompt-reading="true">
       {segments.map((segment, index) => (
         <section
-          className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-glass-surface)] px-5 py-4"
+          className="rounded-md border border-border bg-glass-surface px-5 py-4"
           data-video-prompt-segment="true"
           key={`${segment.label}:${index.toString()}`}
         >
@@ -54,14 +51,14 @@ export function VideoPromptReadingView({ prompt }: { prompt: string }) {
               className={cn(
                 'inline-flex h-7 shrink-0 items-center rounded-full px-3 text-body leading-none font-semibold tracking-[0]',
                 segment.variant === 'timed'
-                  ? 'bg-[color:var(--color-chat-agent-rail)] text-[color:var(--color-background)]'
-                  : 'bg-[color:var(--color-control-bg)] text-[color:var(--color-on-background)] ring-1 ring-[color:var(--color-border)]',
+                  ? 'bg-chat-agent-rail text-background'
+                  : 'bg-control-bg text-on-background ring-1 ring-border',
               )}
             >
               {segment.label}
             </span>
           </div>
-          <p className="text-canvas-body leading-[1.86] font-medium tracking-[0] text-[color:var(--color-on-background)]">
+          <p className="text-canvas-body leading-[1.86] font-medium tracking-[0] text-on-background">
             {renderVideoPromptText(segment.body)}
           </p>
         </section>

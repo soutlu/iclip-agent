@@ -75,7 +75,7 @@ export default function ZoomMenu({ onClose }: { onClose: () => void }) {
   }, [handleItemClick, zoomIn, zoomOut, zoomTo100, zoomToFit, zoomToSelection])
 
   const btnClass =
-    'gap-2 backdrop-blur-[12px] duration-75 ease-out focus-visible:outline-2 focus-visible:outline-current focus-visible:-outline-offset-2 px-3 h-8 text-xs text-[var(--color-on-background)] w-full whitespace-nowrap bg-[var(--color-popup-bg)] rounded-none flex justify-between items-center first:rounded-t-md last:rounded-b-md hover:bg-[var(--color-hover)] active:bg-[var(--color-btn-hover)] transition-colors'
+    'gap-2 backdrop-blur-[12px] ui-motion-s focus-visible:outline-2 focus-visible:outline-current focus-visible:-outline-offset-2 px-3 h-8 text-label text-on-background w-full whitespace-nowrap bg-popup-bg rounded-none flex justify-between items-center first:rounded-t-md last:rounded-b-md hover:bg-hover active:bg-btn-hover transition-colors'
 
   return (
     <Popover.Portal>
@@ -84,7 +84,7 @@ export default function ZoomMenu({ onClose }: { onClose: () => void }) {
         side="top"
         sideOffset={4}
         onOpenAutoFocus={(event) => event.preventDefault()}
-        className="overflow-hidden rounded-md border border-[var(--color-border)] shadow-[var(--shadow-2)] backdrop-blur-[12px]"
+        className="overflow-hidden rounded-md border border-border shadow-[var(--shadow-2)] backdrop-blur-[12px]"
         style={{ zIndex: 'var(--z-popup)' }}
       >
         {menuItems.map((item) => (
@@ -104,7 +104,7 @@ export default function ZoomMenu({ onClose }: { onClose: () => void }) {
             <span>{item.label}</span>
             <div className="ml-4 flex items-center gap-1">
               {item.shortcutKeys.map((key) => (
-                <span key={key} className="w-2 text-center text-xs">
+                <span key={key} className="w-2 text-center text-label">
                   {key}
                 </span>
               ))}

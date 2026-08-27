@@ -56,7 +56,7 @@ export default function ProjectSessionTabs({
   const tabDensityClassName = isDense ? 'gap-1 px-2 text-caption' : 'gap-1.5 px-3 text-body'
   const createButtonLabel = isDense ? '新建' : '新建会话'
   const createButtonClassName = cn(
-    'group flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-header-btn-bg)] px-3 text-body font-semibold text-[var(--color-on-background)] backdrop-blur-md transition-all duration-[var(--dur-s)] select-none hover:border-[var(--color-border-hover)] hover:bg-[var(--color-hover)] active:scale-95',
+    'group flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-border bg-header-btn-bg px-3 text-body font-semibold text-on-background backdrop-blur-md transition-all duration-[var(--dur-s)] select-none hover:border-border-hover hover:bg-hover active:scale-95',
     isDense ? 'w-[72px]' : 'w-[96px]',
   )
   const menuSession = sessions.find((session) => session.id === menuSessionId) ?? null
@@ -193,8 +193,8 @@ export default function ProjectSessionTabs({
               'group relative flex h-8 min-w-8 flex-[1_1_0] items-center rounded-full font-semibold backdrop-blur-md transition-all duration-[var(--dur-s)] select-none',
               tabDensityClassName,
               isActive
-                ? 'border border-[var(--color-border)] bg-[var(--color-header-btn-bg)] text-[var(--color-on-background)]'
-                : 'border border-transparent bg-transparent text-[var(--color-on-surface-variant)] opacity-70 hover:bg-[var(--color-hover)] hover:text-[var(--color-on-background)] hover:opacity-100',
+                ? 'border border-border bg-header-btn-bg text-on-background'
+                : 'border border-transparent bg-transparent text-on-surface-variant opacity-70 hover:bg-hover hover:text-on-background hover:opacity-100',
             )
 
             if (isEditing) {
@@ -214,13 +214,13 @@ export default function ProjectSessionTabs({
                         void handleRenameSubmit(session.id)
                       }
                     }}
-                    className="min-w-0 flex-1 border-none bg-transparent p-0 text-body font-semibold text-[var(--color-on-background)]"
+                    className="min-w-0 flex-1 border-none bg-transparent p-0 text-body font-semibold text-on-background"
                     onClick={(e) => e.stopPropagation()}
                   />
                   <button
                     type="button"
                     aria-label="保存会话名称"
-                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[var(--color-on-surface-variant)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-on-background)]"
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-hover hover:text-on-background"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => {
                       void handleRenameSubmit(session.id)
@@ -231,7 +231,7 @@ export default function ProjectSessionTabs({
                   <button
                     type="button"
                     aria-label="取消重命名"
-                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[var(--color-on-surface-variant)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-on-background)]"
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-hover hover:text-on-background"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={handleRenameCancel}
                   >
@@ -269,7 +269,7 @@ export default function ProjectSessionTabs({
                     aria-label={`打开 ${session.title} 的会话管理`}
                     aria-expanded={menuSessionId === session.id}
                     aria-haspopup="menu"
-                    className="layer-local-1 absolute top-1/2 right-1 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-[var(--color-on-surface-variant)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-on-background)] focus-visible:bg-[var(--color-hover)] focus-visible:text-[var(--color-on-background)]"
+                    className="layer-local-1 absolute top-1/2 right-1 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-hover hover:text-on-background focus-visible:bg-hover focus-visible:text-on-background"
                     data-session-active-menu-affordance="true"
                     onClick={(event) => handleMenuOpen(event, session.id)}
                   >
@@ -305,7 +305,7 @@ export default function ProjectSessionTabs({
                   aria-expanded={menuSessionId === session.id}
                   aria-haspopup="menu"
                   className={cn(
-                    'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[var(--color-on-surface-variant)] opacity-0 transition-all duration-[var(--dur-s)] group-hover:opacity-100 hover:bg-[var(--color-hover)] hover:text-[var(--color-on-background)] focus-visible:opacity-100',
+                    'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-on-surface-variant opacity-0 transition-all duration-[var(--dur-s)] group-hover:opacity-100 hover:bg-hover hover:text-on-background focus-visible:opacity-100',
                     menuSessionId === session.id ? 'opacity-100' : '',
                   )}
                   onClick={(event) => handleMenuOpen(event, session.id)}
@@ -336,14 +336,14 @@ export default function ProjectSessionTabs({
         align="bottom-end"
         anchorRect={menuAnchorRect}
         aria-label="会话操作菜单"
-        className="w-44 overflow-hidden border-[var(--color-outline-variant)] bg-[var(--color-popup-bg)] p-1 shadow-[var(--shadow-2)]"
+        className="w-44 overflow-hidden border-outline-variant bg-popup-bg p-1 shadow-[var(--shadow-2)]"
         onDismiss={handleMenuDismiss}
         open={menuSessionId !== null}
         role="menu"
       >
         <button
           type="button"
-          className="flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-body font-semibold text-[var(--color-on-background)] transition-colors hover:bg-[var(--color-hover)]"
+          className="flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-body font-semibold text-on-background transition-colors hover:bg-hover"
           onClick={handleMenuRename}
           role="menuitem"
         >
@@ -354,10 +354,10 @@ export default function ProjectSessionTabs({
           <button
             type="button"
             className={cn(
-              'mt-1 flex h-8 w-full items-center gap-2 rounded-sm border-t border-[var(--color-outline-variant)] px-2 text-left text-body font-semibold transition-colors',
+              'mt-1 flex h-8 w-full items-center gap-2 rounded-sm border-t border-outline-variant px-2 text-left text-body font-semibold transition-colors',
               deleteConfirmationSessionId === menuSessionId
-                ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger-text)] hover:bg-[var(--color-danger-bg)]'
-                : 'text-[var(--color-danger-text)] hover:bg-[var(--color-danger-bg)]',
+                ? 'bg-danger-bg text-danger-text hover:bg-danger-bg'
+                : 'text-danger-text hover:bg-danger-bg',
             )}
             onClick={() => {
               void handleMenuDelete()
@@ -368,7 +368,7 @@ export default function ProjectSessionTabs({
             <span>{deleteConfirmationSessionId === menuSessionId ? '再次点击删除' : '删除'}</span>
           </button>
         ) : (
-          <div className="mt-1 flex min-h-7 items-center gap-2 border-t border-[var(--color-outline-variant)] px-2 pt-1 text-caption leading-tight font-medium text-[var(--color-on-surface-variant)]">
+          <div className="mt-1 flex min-h-7 items-center gap-2 border-t border-outline-variant px-2 pt-1 text-caption leading-tight font-medium text-on-surface-variant">
             <HippoIcon name="prompt" size={11} />
             <span>有内容的 session 不能删除</span>
           </div>
@@ -390,7 +390,7 @@ function NewSessionIcon() {
       data-new-session-icon="true"
     >
       <HippoIcon name="comment" size={14} />
-      <span className="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-[var(--color-header-btn-bg)] bg-[var(--color-on-background)] text-[var(--color-background)] ring-1 ring-[var(--color-border)]">
+      <span className="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-header-btn-bg bg-on-background text-background ring-1 ring-border">
         <span className="absolute h-[1.5px] w-1.5 rounded-full bg-current" />
         <span className="absolute h-1.5 w-[1.5px] rounded-full bg-current" />
       </span>
@@ -410,12 +410,12 @@ function SessionStateIcon({ indicator }: { indicator: ProjectSessionTabIndicator
     return (
       <span
         aria-label="Agent 已完成，待查看"
-        className="relative inline-flex size-[13px] shrink-0 items-center justify-center text-[color:var(--color-primary-container-solid)]"
+        className="relative inline-flex size-[13px] shrink-0 items-center justify-center text-primary-container-solid"
         data-session-indicator="UNREAD"
         role="img"
       >
         <HippoIcon name="comment" size={13} />
-        <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-[var(--color-primary-container-solid)]" />
+        <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary-container-solid" />
       </span>
     )
   }
@@ -424,7 +424,7 @@ function SessionStateIcon({ indicator }: { indicator: ProjectSessionTabIndicator
     return (
       <span
         aria-label={indicator === 'PENDING' ? 'Agent 等待运行' : 'Agent 运行中'}
-        className="inline-flex size-[13px] shrink-0 items-center justify-center text-[color:var(--color-chat-status-running)]"
+        className="inline-flex size-[13px] shrink-0 items-center justify-center text-chat-status-running"
         data-session-indicator={indicator}
         role="img"
       >
@@ -437,7 +437,7 @@ function SessionStateIcon({ indicator }: { indicator: ProjectSessionTabIndicator
     return (
       <span
         aria-label="等待人工确认"
-        className="inline-flex size-[13px] shrink-0 items-center justify-center text-[color:var(--color-warning)]"
+        className="inline-flex size-[13px] shrink-0 items-center justify-center text-warning"
         data-session-indicator="PAUSED"
         role="img"
       >
@@ -450,7 +450,7 @@ function SessionStateIcon({ indicator }: { indicator: ProjectSessionTabIndicator
     return (
       <span
         aria-label={indicator === 'ERROR' ? 'Agent 运行失败' : 'Agent 已取消'}
-        className="inline-flex size-[13px] shrink-0 items-center justify-center text-[var(--color-danger-text)]"
+        className="inline-flex size-[13px] shrink-0 items-center justify-center text-danger-text"
         data-session-indicator={indicator}
         role="img"
       >

@@ -160,10 +160,10 @@ function StoryboardShotDivider({
           type="button"
         >
           <StoryboardDividerIcon
-            className="dividerIcon-hDkXXA layer-local-1 pointer-events-none absolute top-0 left-[37px] opacity-0 transition-opacity duration-150 group-focus-within/storyboard-shot-divider:opacity-100 group-hover/storyboard-shot-divider:opacity-100"
+            className="dividerIcon-hDkXXA layer-local-1 pointer-events-none absolute top-0 left-[37px] opacity-0 transition-opacity ui-motion-s group-focus-within/storyboard-shot-divider:opacity-100 group-hover/storyboard-shot-divider:opacity-100"
             size={53}
           />
-          <span className="dividerLine-sqMDkc pointer-events-none absolute top-[24px] right-[32px] left-[91px] h-[3px] bg-[var(--storyboard-node-accent-line)] opacity-0 transition-opacity duration-150 group-focus-within/storyboard-shot-divider:opacity-100 group-hover/storyboard-shot-divider:opacity-100" />
+          <span className="dividerLine-sqMDkc pointer-events-none absolute top-[24px] right-[32px] left-[91px] h-[3px] bg-[var(--storyboard-node-accent-line)] opacity-0 transition-opacity ui-motion-s group-focus-within/storyboard-shot-divider:opacity-100 group-hover/storyboard-shot-divider:opacity-100" />
         </button>
       </div>
     </div>
