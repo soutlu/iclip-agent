@@ -84,6 +84,8 @@ export function collectRuntimeTokens(css) {
   const text = stripComments(css)
   const light = new Map()
   const dark = new Map()
+  // @theme inline reference 里登记过的名字：漏登记的颜色在 TSX 里写成类名会静默编译不出 CSS
+  const registered = new Map()
 
   let cursor = 0
   while (cursor < text.length) {
@@ -96,15 +98,19 @@ export function collectRuntimeTokens(css) {
 
     if (prelude === '.dark') readDeclarations(body, dark)
     else if (prelude === ':root') readDeclarations(body, light)
-    else if (prelude.startsWith('@theme') && !prelude.includes('reference'))
-      readDeclarations(body, light)
+    else if (prelude.startsWith('@theme') && prelude.includes('reference'))
+      readDeclarations(body, registered)
+    else if (prelude.startsWith('@theme')) readDeclarations(body, light)
   }
 
   // @theme 里的 `--text-*: initial` 是清空 Tailwind 默认字号，不是 token 登记
   for (const [name, value] of light) if (normalize(value) === 'initial') light.delete(name)
 
-  return { light, dark }
+  return { light, dark, registered }
 }
+
+/** 必须暴露成 Tailwind 工具类的 token：颜色与海拔三档 */
+const NEEDS_UTILITY = /^--(?:color-[\w-]+|shadow-[123])$/
 
 /** 返回人类可读的差异行；空数组表示对账通过 */
 export function diffTokens(spec, runtime) {
@@ -123,6 +129,10 @@ export function diffTokens(spec, runtime) {
     for (const name of runtime[theme].keys()) {
       if (!spec[theme].has(name)) problems.push(`${where} 多余：${name}（运行时有，规范未登记）`)
     }
+  }
+  for (const name of spec.light.keys()) {
+    if (NEEDS_UTILITY.test(name) && !runtime.registered.has(name))
+      problems.push(`工具类未登记：${name}（globals.css 的 @theme inline reference 缺这一行）`)
   }
   return problems
 }

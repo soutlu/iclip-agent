@@ -41,6 +41,17 @@ test('深色映射被改动即报 .dark 值不同', () => {
   assert.match(problems[0], /\.dark 值不同：--color-surface/)
 })
 
+test('颜色 token 没登记成工具类即报「工具类未登记」', () => {
+  const drifted = runtimeCss.replace(
+    '  --color-canvas-card-border: var(--color-canvas-card-border);\n',
+    '',
+  )
+  assert.notEqual(drifted, runtimeCss, '注入漂移失败：目标登记行没找到')
+  const { problems } = check({ specHtml, runtimeCss: drifted })
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /工具类未登记：--color-canvas-card-border/)
+})
+
 // 类名写成变量再传：prettier 的 tailwind 插件会重排 cn(...) 字面量里的类名顺序，
 // 直接写进调用里的话，断言的先后关系会被格式化悄悄改掉。
 const merge = (classes) => cn(classes)
