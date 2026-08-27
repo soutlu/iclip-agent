@@ -69,20 +69,20 @@ prompt 依次是参考锁定、剪辑形式、逐镜时间线，末尾固定写 
 
 ### 示例镜头组（时长 22 秒，`image_urls` = 本镜头组 5 张镜头帧，室内口播，英文对白）
 
-参考视频是一条 31 秒的职场通勤鞋口播短片，切成两个镜头组（21.9 秒、9.1 秒），下面是第 1 个。新片替换人物（博主 → 金发女性）与产品（→ 玛丽珍鞋），第二位人物与三个场景沿用。逐镜正文照抄拆解文件第 4 节，只换了这两类词，`{ }` 台词随新产品改写；「无额外背景音乐」丢弃，人声收录改成记号。
+参考视频是一条 31 秒的职场通勤鞋口播短片，切成两个镜头组（21.9 秒、9.1 秒），下面是第 1 个。新片替换人物（穿黑裙长发年轻女性 → 金发女性）与产品（黑色粗跟工作鞋 → 玛丽珍鞋），第二位人物与三个场景沿用。逐镜正文照抄拆解文件第 4 节，只换了这两类词，`{ }` 台词随新产品改写；「环境无额外杂音，人声清晰」改成记号。
 
 > 产品「玛丽珍鞋」以镜头帧为唯一外观参考，所有镜头中外观保持一致。
 > 人物「金发女性」身份、脸部、发型与穿搭在所有镜头中保持一致。
 > 人物「红裙女性」身份、脸部、发型与穿搭在所有镜头中保持一致。
-> 场景「明亮简约卧室」「圣诞装饰居家客厅」「复古花纹地毯室内空间」空间结构与光线在所有镜头中各自保持一致。
+> 场景「浅色简约卧室」「圣诞氛围居家客厅」「铺花纹地毯的玄关」空间结构与光线在所有镜头中各自保持一致。
 >
 > 剪辑形式：
-> 以硬切为主，无其余特殊切换手法，所有镜头均为正常播放速度，无慢放或快放处理。手机手持+支架固定拍摄，以平视固定中近景为主，搭配低角度产品特写机位。
+> 以硬切为主要切换方式，全程无其他特殊转场效果，所有镜头均为正常播放速度，没有慢动作或快放处理。使用手机拍摄，以手持近距离固定机位为主，大多采用平视近景、特写角度拍摄产品细节。
 >
-> [0–5秒｜镜头1] 开场，中景，固定机位平视正对图中的金发女性，她双手托住黑色漆皮鞋面、一字搭扣带的玛丽珍鞋展示 @Image1，身体微微前倾，伸手指向镜头，英文女声说：{You need some cute and comfy shoes that you can wear to work. I got you ok. This is where you're gonna wanna start.}，背景为明亮卧室环境，<只有清晰的人声收录>。
-> [5–10.8秒｜镜头2] 硬切，特写，手持机位固定正对鞋内，手托住玛丽珍鞋翻转展示鞋垫上的黑色品牌字样 @Image2，拇指反复按压米色软垫展示回弹，英文女声旁白继续：{They actually literally have like these cushions inside the shoes, these are the Mary Janes.}，背景为圣诞装饰居家客厅，虚化暖圣诞树灯光作为前景。
-> [10.8–12.8秒｜镜头3] 硬切，低角度中景，手持机位低角度对准上脚的鞋，她抬起脚翻转展示鞋面与方形粗跟橡胶底 @Image3，英文女声旁白：{They have a little bit more of that block heel as well.}，背景依旧为亮灯圣诞树场景。
-> [12.8–21.9秒｜镜头4] 硬切，高角度俯视中景，固定机位从镜面对向人物下半身，图中的红裙女性一只脚穿鞋一只脚踩地，抬手展示鞋底、鞋跟 @Image4，随后抬起脚穿入鞋中，踩踏地面行走 @Image5，英文女声旁白：{So I feel like these are a little bit more casual rather than a pointed toe, but also more comfortable than a pointed toe shoe. The heel is like what one and a half two inches.}，背景为复古花纹地毯空间。
+> [0–5秒｜镜头1] 开场，中景，手机固定机位平视正面拍摄，图中的金发女性双手托住黑色漆皮鞋面、一字搭扣带的玛丽珍鞋先转身凑近镜头 @Image1，随后抬手指向镜头，美国口音女声口语化说：{You need some cute and comfy shoes that you can wear to work. I got you okay this is where you're gonna wanna start}，背景为浅色卧室墙面与置物架，<清晰的人声>。
+> [5–10.7秒｜镜头2] 硬切，特写，手持机位固定对准鞋内底，手部托住鞋子先左右转动展示鞋垫上完整的黑色品牌字样 @Image2，随后拇指按向米色软垫反复按压展示弹性，美国口音女声继续说：{They actually literally have like these cushions inside the shoes these are the Mary Janes}，背景为圣诞氛围客厅散景圣诞树暖光。
+> [10.7–12.7秒｜镜头3] 硬切，特写，机位第一视角平拍向前伸出的脚，她踩入鞋内先抬左脚再抬右脚转动展示鞋身侧面 @Image3，美国口音女声说：{They have a little bit more of that block heel as well}，背景为暖光木地板与圣诞树。
+> [12.7–21.9秒｜镜头4] 硬切，近景俯拍，机位固定在镜子上方垂直向下对准脚边，图中的红裙女性一只手举鞋展示鞋内底 @Image4，随后翻转向镜头展示橡胶鞋底，最后把脚抬起来对比鞋跟高度，说完脚穿鞋子踩在地毯上小步移动 @Image5，美国口音女声说：{so I feel like these are a little bit more casual rather than a pointed toe but also more comfortable than a pointed toe shoe. The heel is like what one and a half two inches}，背景为花纹地毯与木地板。
 > 不要生成字幕，不要生成背景音乐。
 
 ## 交付
