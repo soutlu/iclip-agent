@@ -48,9 +48,8 @@ shot_video:
   # 每秒看几帧，0.2-5。对方默认 1 帧，快剪片一秒切两三刀就看不见剪辑点、时间码全压在整秒上；
   # 5 帧下视频 token 约涨 4 倍，单次拆解耗时不变。
   understanding_fps: 5
-  # 出图的等待与重试。渠道从 dev 起，试满 dev_attempts 次还不成再升 pro。
-  # 只有「确定没计费」的失败才会重试（连不上、对方 5xx）；「送到了但结果不明」
-  # 一律停手报错——那次可能已经扣过钱了。
+  # 出图的等待与重试。渠道从 dev 起，试满 dev_attempts 次还不成再升 pro；任何失败
+  # 都往下试，出了图就停。
   poll_interval_seconds: 5 # 提交之后隔多久查一次结果
   dev_attempts: 2
   pro_attempts: 1

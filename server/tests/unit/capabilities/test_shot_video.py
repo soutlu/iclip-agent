@@ -633,23 +633,6 @@ async def test_generate_submits_a_full_grid_at_the_top_tier(
     assert request.prompt.count("visual_prompt:") == 4
 
 
-async def test_generate_retries_only_what_never_arrived(
-    tools: ShotVideoToolset[object],
-    ctx: RunContext[object],
-    files: FakeFileStore,
-    generations: FakeGenerations,
-) -> None:
-    """连不上是确定没计费的失败，重发一次是安全的。"""
-
-    generations.outcomes = [
-        Outcome(status="failed", output_url=None, error_code="PROVIDER_UNREACHABLE"),
-        Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED"),
-    ]
-    result = await submit_once(tools, ctx, files)
-    assert generations.channels() == ["dev", "dev"]
-    assert "PROVIDER_REJECTED" in result["error"]
-
-
 async def test_generate_escalates_to_pro_after_dev(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
@@ -668,28 +651,58 @@ async def test_generate_escalates_to_pro_after_dev(
 @pytest.mark.parametrize(
     "error_code",
     [
-        "PROVIDER_RESULT_UNKNOWN",
         "PROVIDER_REJECTED",
+        "PROVIDER_GENERATION_FAILED",
+        "PROVIDER_RESULT_UNKNOWN",
         "PROVIDER_MALFORMED",
+        "PROVIDER_OUTPUT_MISSING",
         "OUTPUT_STORE_FAILED",
         "OUTPUT_DOWNLOAD_FAILED",
         "SUBMIT_INTERRUPTED",
         "PROVIDER_TIMEOUT",
     ],
 )
-async def test_generate_stops_where_money_may_already_be_spent(
+async def test_generate_walks_every_channel_on_any_failure(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
     files: FakeFileStore,
     generations: FakeGenerations,
     error_code: str,
 ) -> None:
-    """这些失败都可能已经计费（或再发一次也是同样答复），一次都不许自动重发。"""
+    """任务是出图：不管 dev 因为什么失败，都沿 dev,dev,pro 往下试到有图或试完。"""
 
     generations.outcomes = [Outcome(status="failed", output_url=None, error_code=error_code)]
     result = await submit_once(tools, ctx, files)
-    assert generations.channels() == ["dev"]
+    assert generations.channels() == ["dev", "dev", "pro"]
     assert error_code in result["error"]
+
+
+async def test_generate_stays_on_dev_when_pro_is_off(
+    ctx: RunContext[object],
+    generations: FakeGenerations,
+    objects: FakeObjects,
+    files: FakeFileStore,
+) -> None:
+    """pro_attempts 为 0 即不升级：dev 试完就停，不会凭空多出一个渠道。"""
+
+    generations.outcomes = [
+        Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
+    ]
+    toolset = shot_video_capability(
+        space=FileSpace(store=files, namespace=workspace_namespace),
+        generations=generations,
+        objects=objects,
+        paths=MEDIA_PATHS,
+        understanding=FakeUnderstanding(),
+        client=None,  # type: ignore[arg-type]
+        policy=GenerationPolicy(
+            poll_interval_seconds=0.001, dev_attempts=2, pro_attempts=0, backoff_seconds=0.001
+        ),
+    ).get_toolset()
+    assert isinstance(toolset, ShotVideoToolset)
+    result = await submit_once(toolset, ctx, files)
+    assert generations.channels() == ["dev", "dev"]
+    assert "PROVIDER_REJECTED" in result["error"]
 
 
 async def test_generate_rejects_bad_parameters_before_paying(
@@ -714,7 +727,8 @@ async def test_generate_gives_up_waiting_but_names_the_record(
     objects: FakeObjects,
     files: FakeFileStore,
 ) -> None:
-    """等超时不等于这次生成没了：把记录 id 报回去，人还能自己去查。"""
+    """等超时不等于这次生成没了：把记录 id 报回去，人还能自己去查。时限已尽不再提交
+    下一个——提交了也等不到结果。"""
 
     generations.outcomes = [Outcome(status="submitted", output_url=None)]
     toolset = shot_video_capability(
@@ -727,13 +741,14 @@ async def test_generate_gives_up_waiting_but_names_the_record(
         policy=GenerationPolicy(
             poll_interval_seconds=0.001,
             dev_attempts=1,
-            pro_attempts=0,
+            pro_attempts=1,
             backoff_seconds=0.001,
             total_timeout_seconds=0.02,
         ),
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
     result = await submit_once(toolset, ctx, files)
+    assert generations.channels() == ["dev"]
     assert "TOOL_WAIT_TIMEOUT" in result["error"]
     assert str(generations.job_ids[0]) in result["error"]
 

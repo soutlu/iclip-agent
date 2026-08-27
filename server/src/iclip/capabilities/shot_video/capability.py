@@ -119,14 +119,6 @@ _IMAGE_REF = re.compile(r"@Image(\d+)")
 _UNSAFE_STEM = re.compile(r"[^A-Za-z0-9_-]+")
 _STEM_CHARS: Final = 40
 
-_RESENDABLE: Final = frozenset({"PROVIDER_UNREACHABLE", "PROVIDER_SERVER_ERROR"})
-"""哪些失败可以自动再发一次。
-
-**判据只有一条：这次失败有没有可能已经计费。** 连不上、对方 5xx 没产出——这两
-种确定没扣钱。其余一律停手报错：``PROVIDER_RESULT_UNKNOWN`` 可能已扣过钱，
-``OUTPUT_*`` 是图出了只是没转存成功，重发都等于为同一版付两次。
-"""
-
 _STATUS_DONE: Final = "done"
 _STATUS_FAILED: Final = "failed"
 
@@ -153,7 +145,8 @@ class VideoShotRequest(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class GenerationPolicy:
-    """出图的重试与升级节奏：先 dev 试满 ``dev_attempts`` 次，再升 pro。
+    """出图的重试与升级节奏：先 dev 试满 ``dev_attempts`` 次，再升 pro 试 ``pro_attempts`` 次；
+    任何失败都往下走。
 
     **升级只在失败时发生。** 「出了图但不够好」是一次新需求，不该在这里悄悄换个
     更贵的渠道重来。
@@ -629,9 +622,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         }
 
     async def _generate(self, principal: Principal, request: ImageRequest) -> ImageJob:
-        """提交出图，失败就按 dev→dev→pro 退避重试，返回最后那次的结局。"""
+        """提交出图，失败就沿 dev→dev→pro 往下试，返回成功那次或最后那次的结局。"""
 
-        deadline = asyncio.get_running_loop().time() + self._cap.policy.total_timeout_seconds
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._cap.policy.total_timeout_seconds
         channels = self._cap.policy.channels()
         job: ImageJob | None = None
         for index, channel in enumerate(channels):
@@ -644,7 +638,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 raise ModelRetry(str(exc)) from exc
             if job.status == "completed" and job.output_url:
                 return job
-            if index == len(channels) - 1 or job.error_code not in _RESENDABLE:
+            # 时限用尽就不再提交下一个——提交了也等不到结果。
+            if index == len(channels) - 1 or loop.time() >= deadline:
                 return job
             await asyncio.sleep(
                 self._cap.policy.backoff_seconds * self._cap.policy.backoff_factor**index
