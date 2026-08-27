@@ -20,3 +20,12 @@
     transform: scale(0.9);
   }
 }
+
+/* 浮层进退场按契约走：进场 dur-m 减速落定，退场 dur-s 加速离开。 */
+.popup-menu-enter {
+  animation: popIn var(--dur-m) var(--ease-decel) forwards;
+}
+
+.popup-menu-exit {
+  animation: popOut var(--dur-s) var(--ease-accel) forwards;
+}
