@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { probeSsoLoginEnabled } from '@/shared/auth'
-import LoginForm from './LoginForm'
+import { LoginForm } from './login-form'
 
 const LOGIN_BACKGROUND_SRC = '/images/auth/producer-login-studio-mist-4k.webp'
 
@@ -26,7 +26,7 @@ type LoginPageProps = {
  * @param props.ssoErrorCode - SSO 落地页回传的错误码。
  * @returns 登录页组件。
  */
-export default function LoginPage({ nextPath, ssoErrorCode }: LoginPageProps) {
+export function LoginPage({ nextPath, ssoErrorCode }: LoginPageProps) {
   const ssoErrorMessage = ssoErrorCode
     ? (SSO_ERROR_MESSAGES[ssoErrorCode] ?? 'SSO 登录失败，请重试')
     : undefined

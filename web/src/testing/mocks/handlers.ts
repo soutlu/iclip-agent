@@ -1,23 +1,28 @@
 import { http, HttpResponse } from 'msw'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MSW canonical REST 契约镜像
+// MSW REST 契约镜像
 //
-// 用法：
-//   - 单测（node 端）：`import { server } from '@/testing/mocks/server'`，在测试文件里
-//     `beforeAll(() => server.listen())` / `afterEach(() => server.resetHandlers())` /
-//     `afterAll(() => server.close())`。
+//   - 单测：src/testing/setup.ts 已全局 listen / reset / close，测试里只在需要改响应时
+//     `server.use(...)` 覆盖单个端点。
 //   - 浏览器原型：仅 `pnpm dev:mock` 经 browser.ts 注册本数组；普通 `pnpm dev` 不注册。
 //
-// 页面层重写期间这里只剩登录链路——加回一个页面就补它消费的那几个端点，
-// 端点形状以 docs/backend_api.md 为准，不在这里凭印象编。
+// 端点形状以 contract/openapi.json 为准（响应要过生成的 zod schema），不凭印象编。
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 默认已登录用户：持有 editor 全量权限，形状对齐 parseProducerAuthUser。 */
+/** 默认已登录用户：形状即合同 UserOut（缺一个必填字段就过不了 zUserEnvelope）。 */
 export const mockAuthUser = {
   avatarUrl: '',
+  city: '',
+  createdAt: null,
+  departments: [],
+  directPermissions: [],
   displayName: '测试用户',
-  id: 'user-1',
+  email: 'tester@example.com',
+  id: '0f7f4c1e-8a3b-4d0e-9c2a-6b1d2e3f4a5b',
+  isActive: true,
+  jobTitle: '',
+  lastLoginAt: null,
   permissions: ['projects:read', 'projects:write'],
   roles: ['editor'],
   username: 'tester',

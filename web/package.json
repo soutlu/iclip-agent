@@ -9,7 +9,7 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "build": "tsc -b && vite build",
-    "ci:check": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm contract:check && pnpm typecheck",
+    "ci:check": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm lint:dead && pnpm contract:check && pnpm typecheck && pnpm test",
     "contract:check": "node scripts/check-openapi-contract.mjs",
     "contract:generate": "openapi-ts -f openapi-ts.config.js",
     "dev": "bash scripts/start-dev.sh",
@@ -18,11 +18,13 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "lint:design": "node --test scripts/check-design-system.node-test.mjs && node scripts/check-design-system.mjs && node scripts/design-guard.mjs",
+    "lint:dead": "knip",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
     "serve": "bash scripts/start-prod.sh",
+    "test": "vitest run",
     "typecheck": "tsc -b",
-    "verify": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm typecheck && pnpm build"
+    "verify": "pnpm ci:check && pnpm build"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -49,11 +51,15 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint-react/eslint-plugin": "^5.18.6",
     "@eslint/js": "^10.0.1",
     "@hey-api/openapi-ts": "^0.99.0",
     "@tailwindcss/vite": "^4",
     "@tanstack/eslint-plugin-query": "^5.101.2",
     "@tanstack/router-plugin": "^1.168.35",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -62,11 +68,13 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-boundaries": "^7.0.2",
+    "eslint-plugin-check-file": "^3.3.2",
     "eslint-plugin-jsx-a11y-x": "^0.2.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
     "jsdom": "^29.0.2",
+    "knip": "^6.32.3",
     "lint-staged": "^17.0.8",
     "msw": "^2.15.0",
     "prettier": "^3.9.4",

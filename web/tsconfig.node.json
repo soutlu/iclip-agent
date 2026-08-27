@@ -19,5 +19,5 @@
 
     "strict": true
   },
-  "include": ["vite.config.ts", "vite"]
+  "include": ["vite.config.ts", "vitest.config.ts", "vite"]
 }

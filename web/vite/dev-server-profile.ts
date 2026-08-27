@@ -16,7 +16,8 @@ export const resolveDevServerProfile = (mode: string): DevServerProfile => {
     return { browserMocks: 'full', proxyBackend: false }
   }
 
-  if (['backend', 'production', 'test'].includes(mode)) {
+  // development 是 Vite 的默认 mode：裸跑 `vite` 或工具（knip 等）加载配置时会用它
+  if (['backend', 'development', 'production', 'test'].includes(mode)) {
     return { browserMocks: 'disabled', proxyBackend: true }
   }
 

@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router'
 import type { ChangeEvent, FormEvent } from 'react'
 import { useState } from 'react'
 import { sanitizeProducerAuthNextPath, startSsoLogin, useLogin } from '@/shared/auth'
+import { Icon } from '@/shared/icons'
 
 type LoginFormProps = {
   nextPath: string
@@ -20,7 +21,7 @@ type LoginFormProps = {
  * @param props.initialErrorMessage - 初始错误文案（如 SSO 回跳失败），提交后清除。
  * @returns 可发起飞书登录、可提交用户名和密码的登录表单。
  */
-export default function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFormProps) {
+export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFormProps) {
   const navigate = useNavigate()
   const loginMutation = useLogin()
   const [username, setUsername] = useState('')
@@ -143,7 +144,7 @@ export default function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }:
             }}
             className="producer-auth-feishu-button mt-2 h-12 w-full gap-2.5 text-body font-semibold disabled:cursor-not-allowed"
           >
-            <PaperPlaneIcon />
+            <Icon decorative name="send" size="lg" />
             {ssoSubmitting ? '正在跳转飞书…' : '使用飞书登录'}
           </button>
 
@@ -161,7 +162,7 @@ export default function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }:
             className="producer-auth-secondary-toggle mt-5 w-full text-body font-medium"
           >
             <span>使用账号密码登录</span>
-            <ChevronIcon expanded={passwordOpen} />
+            <Icon decorative name={passwordOpen ? 'collapse' : 'expand'} size="md" />
           </button>
         </>
       ) : null}
@@ -172,7 +173,7 @@ export default function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }:
             用户名
           </label>
           <div className="producer-auth-field group flex h-12 items-center px-4 transition-all">
-            <UserIcon />
+            <Icon decorative name="user" size="lg" />
             <input
               id="login-username"
               name="username"
@@ -191,7 +192,7 @@ export default function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }:
             密码
           </label>
           <div className="producer-auth-field group flex h-12 items-center px-4 transition-all">
-            <LockIcon />
+            <Icon decorative name="locked" size="lg" />
             <input
               id="login-password"
               name="password"
@@ -211,7 +212,7 @@ export default function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }:
               disabled={submitting}
               className="producer-auth-visibility-button hit-48 relative ml-3 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {passwordVisible ? <EyeOffIcon /> : <EyeIcon />}
+              <Icon decorative name={passwordVisible ? 'hidden' : 'preview'} size="lg" />
             </button>
           </div>
         </div>
@@ -225,148 +226,5 @@ export default function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }:
         </button>
       </div>
     </form>
-  )
-}
-
-/**
- * 渲染纸飞机图标（飞书登录按钮），与表单图标同一套 stroke 语言。
- *
- * @returns 纸飞机 SVG。
- */
-function PaperPlaneIcon() {
-  return (
-    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <title>飞书</title>
-      <path
-        d="m22 2-7 20-4-9-9-4Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-      <path
-        d="M22 2 11 13"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-    </svg>
-  )
-}
-
-/**
- * 渲染密码区展开指示图标。
- *
- * @param props - 图标属性。
- * @param props.expanded - 密码区当前是否展开。
- * @returns 向下箭头 SVG，展开时旋转 180 度。
- */
-function ChevronIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      className={expanded ? 'rotate-180' : ''}
-    >
-      <title>{expanded ? '收起' : '展开'}</title>
-      <path
-        d="m6 9 6 6 6-6"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  )
-}
-
-/**
- * 渲染用户名输入框图标。
- *
- * @returns 用户图标 SVG。
- */
-function UserIcon() {
-  return (
-    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <title>用户名</title>
-      <path
-        d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-    </svg>
-  )
-}
-
-/**
- * 渲染密码输入框图标。
- *
- * @returns 锁形图标 SVG。
- */
-function LockIcon() {
-  return (
-    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <title>密码</title>
-      <path
-        d="M7 10V8a5 5 0 0 1 10 0v2M6.5 10h11A1.5 1.5 0 0 1 19 11.5v7A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-7A1.5 1.5 0 0 1 6.5 10ZM12 14v2.5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-    </svg>
-  )
-}
-
-/**
- * 渲染密码可见性图标。
- *
- * @returns 眼睛图标 SVG。
- */
-function EyeIcon() {
-  return (
-    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <title>显示密码</title>
-      <path
-        d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-      <path
-        d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-    </svg>
-  )
-}
-
-/**
- * 渲染密码隐藏状态图标。
- *
- * @returns 带斜线的眼睛图标 SVG。
- */
-function EyeOffIcon() {
-  return (
-    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <title>隐藏密码</title>
-      <path
-        d="M3 3l18 18M10.6 10.6A2.98 2.98 0 0 0 12 15a2.98 2.98 0 0 0 1.4-.35M8.2 5.55A10.8 10.8 0 0 1 12 4.88c6.1 0 9.5 6 9.5 6a17.4 17.4 0 0 1-2.44 3.16M6.1 7.1A16.2 16.2 0 0 0 2.5 12s3.4 6 9.5 6c1.45 0 2.76-.34 3.92-.86"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-    </svg>
   )
 }

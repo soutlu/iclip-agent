@@ -1,10 +1,9 @@
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback } from 'react'
 import { useLogout, useUser } from '@/shared/auth'
+import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import HippoIcon from '@/shared/ui/icons/HippoIcon'
-import PopupContent from '@/shared/ui/popup/PopupContent'
-import { usePopupAnchor } from '@/shared/ui/popup/usePopupAnchor'
+import { PopupContent, usePopupAnchor } from '@/shared/ui/popup'
 
 type ProducerUserMenuAlign = 'bottom-end' | 'bottom-start' | 'top-end' | 'top-start'
 
@@ -24,10 +23,7 @@ const USER_AVATAR_BUTTON_CLASS =
  * @param props.className - 头像按钮额外样式类。
  * @returns 用户菜单组件。
  */
-export default function ProducerUserMenu({
-  align = 'bottom-end',
-  className = '',
-}: ProducerUserMenuProps) {
+export function ProducerUserMenu({ align = 'bottom-end', className = '' }: ProducerUserMenuProps) {
   const navigate = useNavigate()
   const { data: user } = useUser()
   const logoutMutation = useLogout()
@@ -154,7 +150,7 @@ export default function ProducerUserMenu({
           onClick={handleLogout}
         >
           <span>{isLoggingOut ? '退出中' : '退出登录'}</span>
-          <HippoIcon name="sign-out" size={16} />
+          <Icon decorative name="logout" size="md" />
         </button>
       </PopupContent>
     </>

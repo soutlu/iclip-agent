@@ -37,7 +37,7 @@ const ALIGN_PLACEMENT: Record<
  * @param props.open - 弹层是否打开。
  * @returns Portal 到 body 的弹层元素。
  */
-export default function PopupContent({
+export function PopupContent({
   anchorRect,
   align = 'bottom-start',
   children,

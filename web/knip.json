@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/testing/main.development.ts",
+    "scripts/*.mjs",
+    "src/shared/ui/*/index.ts",
+    "src/shared/icons/index.ts"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs", "vite/**/*.ts"],
+  "ignore": ["src/shared/api/generated/**"],
+  "ignoreDependencies": ["tw-animate-css", "tailwindcss", "lint-staged"],
+  "ignoreExportsUsedInFile": true
+}

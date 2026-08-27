@@ -6,7 +6,7 @@
  *
  * @returns 首页内容。
  */
-export default function HomeRoute() {
+export function HomeRoute() {
   return (
     <main className="flex min-h-0 flex-1 items-center justify-center p-6">
       <p className="text-body text-on-surface-variant">首页待重建</p>

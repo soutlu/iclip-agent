@@ -13,7 +13,7 @@
 - `src/shared/**`：领域无关的横切能力（ui 契约组件、icons 注册表、api client、auth、config、lib）。
 - `src/testing/**`：开发原型与测试基建（当前为 MSW mocks 与 dev:mock 启动入口），只被测试与开发启动入口引用，业务代码不得引用。
 - 只被单一路由使用的组件先留在该 feature 内；被第二处真实复用时再下沉。
-- 新增文件前先 `rg` 查同类命名和现有 helper，避免新建平行实现；文件名 kebab-case。
+- 新增文件前先 `rg` 查同类命名和现有 helper，避免新建平行实现。文件名 kebab-case、只用具名导出，由 ESLint 强制。
 
 ## 黄金路径
 
@@ -34,13 +34,10 @@
 
 ## 组件与 JSX
 
-- React 组件内部不要定义另一个 React 组件。
+key、嵌套组件定义、重复属性、无用 fragment、`target="_blank"`、button type 这些由 @eslint-react 把守，不在这里复述。
+
 - 组件 props 必须有显式类型；共享 props 类型遵守本文件的类型规则。
-- 列表 key 使用稳定业务标识，不使用数组 index。
-- 不把 `children` 当普通 props 传递；不同时使用 `children` 和 `dangerouslySetInnerHTML`。
-- 不使用危险 JSX props，不重复写同一个 JSX 属性。
-- 无 children 的组件不要写额外闭合标签；使用 `<>...</>`，不写 `<Fragment>...</Fragment>`。
-- 使用 `target="_blank"` 时必须同时设置 `rel="noopener"`。
+- 列表 key 用稳定业务标识（lint 只拦数组 index，拦不住「看着稳定其实会变」的字段）。
 - UI 颜色、字体、层级、间距、交互状态、圆角和阴影以 [设计系统](../../design-system.html) 为准。
 - className 拼接统一走 `cn()`（clsx + tailwind-merge），不手写模板拼接。
 - 新组件的多变体样式（`variant`/`size` 等档位 props）用 `cva`（class-variance-authority）声明；存量的零散条件类不做批量迁移。
@@ -56,17 +53,11 @@ export const ProjectCard = ({ title }: ProjectCardProps) => <article>{title}</ar
 
 ## 可访问性
 
-- `<button>` 必须包含 `type`。
-- SVG 必须包含 `title`。
-- `<html>` 必须包含 `lang`。
-- `<iframe>` 必须包含 `title`。
-- 需要 alt 的元素必须提供有意义文案，且不要包含 “image”、“picture” 或 “photo”。
-- 锚点必须有屏幕阅读器可访问内容。
-- `label` 必须有文本内容并关联对应 input。
-- `onClick` 必须配套键盘事件；`onMouseOver` / `onMouseOut` 必须配套 `onFocus` / `onBlur`。
+alt、label 关联、锚点内容、点击配键盘事件、`tabIndex`、`aria-hidden`、ARIA role 归属这些由 jsx-a11y 把守，不在这里复述。
+
+- 图标一律经 `@/shared/icons` 的 `Icon`：有含义的传 `label`，纯装饰的传 `decorative`，不手写 `<svg>`。
 - 优先使用语义化元素，不用 role 伪装语义。
-- 不使用 `accessKey`、正整数 `tabIndex`、可聚焦元素上的 `aria-hidden="true"`。
-- 不给非交互元素分配交互 ARIA role，也不给交互元素分配非交互 ARIA role。
+- alt 文案写内容本身，不写「图片」「照片」这类词。
 
 ## Hooks
 
@@ -96,22 +87,20 @@ export const ProjectCard = ({ title }: ProjectCardProps) => <article>{title}</ar
 
 ## 测试要求
 
-> 前端当前无自动化测试（见 [AGENTS.md](../AGENTS.md) §1），本节是测试重写时的编写规范；重写落地前，这些规则没有机械强制。
-
 ### 行为归层：每个行为只在一个层测，选最接近用户可观察边界的层
 
 前端的"用户可观察边界"= 渲染出的界面（角色 / 可访问名 / 文本）、交互后的界面变化、发出的 HTTP 请求形状、路由变化。写任何新测试前按顺序判定：
 
 1. **跨页面的核心用户旅程**（登录 → 进入业务页 → 完成一次提交）→ e2e（`e2e/`，Playwright）。
-2. **单个 feature 的行为**（含组件 + hook + store + api 协作）→ 组件测试：渲染**真实子树**，用统一的 `renderWithProviders` 测试工具（随测试重写在 `src/testing` 重建），网络经 MSW（`src/testing/mocks`），断言用户可见结果与发出的请求形状。
+2. **单个 feature 的行为**（含组件 + hook + store + api 协作）→ 组件测试：渲染**真实子树**，用 `renderWithProviders`（`src/testing/render.tsx`：新 QueryClient + 内存路由）挂载，网络经 MSW（`src/testing/mocks`，需要改响应时 `server.use(...)` 覆盖单个端点），断言用户可见结果与发出的请求形状。`login-form.test.tsx` 是这一层的样板。
 3. **纯函数**（事件投影、布局算法、解析器）→ 纯数据进出的单测，零 mock。
 4. **HTTP api 层**（端点 URL、请求体、zod 边界、错误映射）→ api 契约测试。
 
 同一行为禁止在多层重复覆盖：util 层测过的算法不在 store 层复测坐标，api 层测过的请求形状不在组件层再断一遍 fetch mock。
 
-### 禁止事项（随测试重写由 test-guard 恢复机械强制）
+### 禁止事项
 
-- **禁止 `vi.mock` 同仓模块**（`@/…` 与相对路径）。把协作方 mock 掉后断言"假组件收到的 props"对回归零防护、对重构全阻力。第三方不可 jsdom 运行的库与浏览器 API 用 `vi.stubGlobal` / MSW，不 mock 同仓代码。api 层与纯函数测试天然零 mock。
+- **禁止 `vi.mock` 同仓模块**（`@/…` 与相对路径，ESLint 拦）。把协作方 mock 掉后断言"假组件收到的 props"对回归零防护、对重构全阻力。第三方不可 jsdom 运行的库与浏览器 API 用 `vi.stubGlobal` / MSW，不 mock 同仓代码。api 层与纯函数测试天然零 mock。
 - **禁止断言 className / style / 哈希类名选择器**（`.foo-caj6Zi`、`h-[75px]` 等）。视觉正确性由 design-guard 棘轮 + AGENTS.md §6 人类视觉验收负责，不属于单测。测试定位元素用角色、可访问名或 `data-testid`，不用样式类。
 - **禁止手搓 `fetch` stub + `toHaveBeenCalled` 断请求**。网络一律 MSW handlers，断言"发出了什么请求 / 界面因响应变成什么样"。`toHaveBeenCalled*` 只用于真正的系统边界（`window.open`、剪贴板等）。
 - **禁止内部状态探针**：不写读取 Provider context / hook 内部状态再摊平成 DOM data-* 的探针组件；断言用户可见结果。

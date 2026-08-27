@@ -1,8 +1,10 @@
+import eslintReact from '@eslint-react/eslint-plugin'
 import js from '@eslint/js'
 import pluginQuery from '@tanstack/eslint-plugin-query'
 import configPrettier from 'eslint-config-prettier'
 import jsxA11y from 'eslint-plugin-jsx-a11y-x'
 import boundaries from 'eslint-plugin-boundaries'
+import checkFile from 'eslint-plugin-check-file'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import globals from 'globals'
@@ -20,6 +22,22 @@ const RADIX_LOCK = {
   importNames: ['Dialog', 'DropdownMenu', 'Popover', 'ToggleGroup'],
   message:
     '这些 primitive 已有契约组件：Dialog → @/shared/ui/dialog，DropdownMenu → @/shared/ui/menu，ToggleGroup → @/shared/ui/chip，Popover → @/shared/ui/popup',
+}
+
+// 语法级禁令（no-restricted-syntax 同名规则整块覆盖，所以各处按需拼这几条）
+const NO_DEFAULT_EXPORT = {
+  selector: 'ExportDefaultDeclaration',
+  message: '只用具名导出：default 导出让每个调用点各起各的名字，rg 找不全用例',
+}
+const NO_RAW_IMPORT_META_ENV = {
+  selector: 'MemberExpression[object.type="MetaProperty"][property.name="env"]',
+  message: '环境变量只经 src/shared/config/env.ts 的 zod schema 读取，新变量先在那里声明',
+}
+const NO_MOCK_LOCAL_MODULE = {
+  selector:
+    'CallExpression[callee.object.name="vi"][callee.property.name="mock"] > Literal[value=/^(@\\/|\\.)/]',
+  message:
+    '不 vi.mock 同仓模块：渲染真实子树，网络走 MSW（docs/frontend-implementation.md 测试要求）',
 }
 
 export default tseslint.config(
@@ -47,6 +65,7 @@ export default tseslint.config(
       ...tseslint.configs.recommendedTypeChecked,
       ...pluginQuery.configs['flat/recommended'],
       jsxA11y.configs.recommended,
+      eslintReact.configs['recommended-typescript'],
     ],
     languageOptions: {
       globals: globals.browser,
@@ -92,6 +111,26 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         { paths: [LUCIDE_LOCK, RADIX_LOCK], patterns: LUCIDE_DEEP },
+      ],
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, NO_RAW_IMPORT_META_ENV],
+    },
+  },
+  // 环境变量入口本体：可以读 import.meta.env（文件当前不存在，需要变量时按这个路径建）
+  {
+    files: ['src/shared/config/env.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
+    },
+  },
+  // ── 文件名 kebab-case（routes/ 按 TanStack 约定用 _ 前缀与 . 分段，不在此列） ──
+  {
+    files: ['src/{app,features,shared,testing}/**/*.{ts,tsx}'],
+    plugins: { 'check-file': checkFile },
+    rules: {
+      'check-file/filename-naming-convention': [
+        'error',
+        { '**/*.{ts,tsx}': 'KEBAB_CASE' },
+        { ignoreMiddleExtensions: true },
       ],
     },
   },
@@ -189,6 +228,12 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     rules: {
       'boundaries/dependencies': 'off',
+      'no-restricted-syntax': [
+        'error',
+        NO_DEFAULT_EXPORT,
+        NO_RAW_IMPORT_META_ENV,
+        NO_MOCK_LOCAL_MODULE,
+      ],
       // fetch/adapter mock 习惯写成 async () => value 以保持 Promise 返回类型
       '@typescript-eslint/require-await': 'off',
       // 对 vi.fn/mock 上的方法引用断言（toHaveBeenCalled 等）会误报 unbound-method

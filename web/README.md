@@ -12,8 +12,10 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 - 契约：后端导出 `contract/openapi.json`，`@hey-api/openapi-ts` 生成类型与 zod 到 `src/shared/api/generated`
 - 样式：Tailwind CSS v4 + tw-animate-css（进退场动画）
 - 组件：radix-ui primitive 收在 `shared/ui` 契约层；图标 lucide-react 收在 `shared/icons` 注册表；toast 用 sonner
-- 开发原型：MSW（仅 `pnpm dev:mock` 环境）
-- Lint/格式化：ESLint（flat config，boundaries 架构守卫）+ Prettier + design-guard（设计系统守卫）
+- 测试：Vitest（jsdom）+ Testing Library + MSW；`renderWithProviders` 渲染真实 Provider 树，网络一律 MSW
+- 开发原型：MSW（仅 `pnpm dev:mock` 环境，与单测共用 handlers）
+- 表单：TanStack Form——已定为表单库，首个新表单接入时安装（登录表单是重写前的手写状态，届时一起迁）
+- Lint/格式化：ESLint（flat config，boundaries 架构守卫）+ Prettier + design-guard（设计系统守卫）+ knip（死代码门禁）
 
 ## 项目结构
 
@@ -27,6 +29,8 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 │   ├── start-dev.sh            # 开发服务器（默认 0.0.0.0:3013）
 │   └── start-prod.sh           # 本地验证生产构建（build + vite preview）
 ├── vite/                       # 构建期助手（同源代理、dev profile），归 tsconfig.node.json
+├── knip.json                   # 死代码门禁配置（pnpm lint:dead）
+├── vitest.config.ts            # 单测配置（pnpm test）
 └── src/
     ├── main.tsx                # 入口
     ├── app/                    # 应用壳：providers、router 装配、全局样式与主题
@@ -41,7 +45,7 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
     │   ├── icons/              # 图标注册表（Icon / IconName，唯一图标入口）
     │   ├── lib/                # 通用工具
     │   └── ui/                 # 契约组件：button / chip / dialog / field / menu / popup / tag / toast
-    └── testing/                # 开发原型基建：MSW mocks 与 dev:mock 入口（业务代码不得引用）
+    └── testing/                # 测试基建：renderWithProviders、MSW handlers / server、dev:mock 入口（业务代码不得引用）
 ```
 
 ## 分层约定
@@ -49,6 +53,7 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 - `src/routes`：只做 `createFileRoute` 装配、守卫与 search params 校验，不写业务逻辑。
 - `src/features`：业务代码默认先进 feature；**跨 feature 一律禁止**（含对方 `index.ts`），共用的下沉 `shared/` 或在 routes / app 层组装。
 - `src/shared`：只放明确跨 feature 复用的通用能力；不能反向依赖 `features`。
+- 文件名 kebab-case、只用具名导出（`routes/` 按 TanStack 约定命名除外），ESLint 强制。
 - 环境变量只从 `@/shared/config/env` 读取（zod 校验）。
 - 后端 REST 请求一律经 `apiFetch(path, schema)` 在边界处过 zod（`@/shared/api/client`）；裸 fetch 仅限 OSS 直传 PUT、外链下载两类非 REST 场景。
 
@@ -64,12 +69,14 @@ pnpm build           # tsc -b && vite build
 pnpm serve           # 本地验证生产构建（build + vite preview）
 pnpm lint            # ESLint
 pnpm lint:design     # 设计系统守卫
+pnpm lint:dead       # knip 死代码门禁
+pnpm test            # Vitest 单测
 pnpm format          # Prettier 全量格式化
 pnpm contract:generate # 按 contract/openapi.json 生成类型与 zod
 pnpm contract:check  # 契约漂移门禁
 pnpm typecheck       # TypeScript 类型检查
-pnpm ci:check        # format:check + lint + lint:design + typecheck（提交前跑）
-pnpm verify          # ci:check 全项 + build（合入 / 发布前跑）
+pnpm ci:check        # format:check + lint + lint:design + lint:dead + contract:check + typecheck + test（提交前跑）
+pnpm verify          # ci:check + build（合入 / 发布前跑）
 ```
 
 ## 后端代理

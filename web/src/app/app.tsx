@@ -9,7 +9,7 @@ import { Toaster } from '@/shared/ui/toast'
  *
  * @returns 应用根组件。
  */
-export default function App() {
+export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />

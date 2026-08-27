@@ -36,7 +36,7 @@ const ssoErrorCodeFromError = (error: unknown) => {
  * @param props.jwt - SSO 服务回跳携带的 jwt_token。
  * @returns SSO 落地过渡页。
  */
-export default function SsoLandingPage({ jwt }: SsoLandingPageProps) {
+export function SsoLandingPage({ jwt }: SsoLandingPageProps) {
   const navigate = useNavigate()
   const completeSsoLogin = useCompleteSsoLogin()
   // StrictMode 下 effect 双跑，jwt 只允许换发一次会话。

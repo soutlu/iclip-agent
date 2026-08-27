@@ -17,7 +17,7 @@
 | `make check` | **提交前门禁**：一键执行 Lint、格式化、类型检查、架构依赖检查和常规测试。 |
 | `make test` | **执行测试**：执行单元与集成测试（自动使用 Testcontainers 启动临时 Postgres 与 Redis，跳过真实 LLM）。 |
 | `make db-upgrade`| **数据库演进**：将 PostgreSQL 的表结构通过 Alembic 升级到最新（系统启动时不会自动建表）。 |
-| `make web-check` | **前端防线**：触发前端的 `ci:check`（包含代码格式、Lint、类型推断、设计规范与契约漂移的检查）。 |
+| `make web-check` | **前端防线**：触发前端的 `ci:check`（代码格式、Lint、设计规范、死代码、契约漂移、类型检查与单测）。 |
 | `make contract` | **导出跨端合同**：把后端当前的 OpenAPI 写到 `contract/openapi.json`。改了任何对外端点就跑一次，再去 `web` 跑 `pnpm contract:generate` 更新生成的类型与 zod。 |
 
 ### 设计系统
@@ -51,7 +51,7 @@
 | **权限与鉴权逻辑** | `make test` (拦截鉴权) | 身份与权限测试集（`T-RBAC-01`, `T-KEY-*`, `T-AUTH-*`）全部绿灯。 |
 | **接入第三方 API (如 SSO/PMS)**| `make test` + 人工验收 | 打替身客户端的 SSO/PMS 用例（在 `integration_no_llm` 层，由 `make test` 执行）全绿；且需在本地环境完整走通一次真实的登录回调链路并输出正常日志。 |
 | **对外端点变更** | `make contract` + `pnpm contract:generate` | `contract/openapi.json` 已更新（`make check` 里的 contract-check 会拦住忘记导出的情况）；前端生成物同步更新，`pnpm contract:check` 通过。 |
-| **前端相关** | `make web-check` | 前端的格式、Lint、设计规范与类型检查全绿。它不含构建，CI 会另外跑一次 `pnpm build`，所以本地过了仍可能被 CI 的构建步骤拦下。 |
+| **前端相关** | `make web-check` | 前端的格式、Lint、设计规范、死代码、契约、类型检查与单测全绿。它不含构建，CI 会另外跑一次 `pnpm build`，所以本地过了仍可能被 CI 的构建步骤拦下。 |
 
 ## 4. 机械护栏 (Mechanical Guardrails)
 

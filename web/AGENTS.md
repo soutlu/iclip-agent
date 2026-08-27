@@ -10,27 +10,29 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 
 **前端处在重写起点。** 旧的页面层（画布、聊天、Storyboard、Task、产物渲染、管理端）已整体删除，只留登录、鉴权外壳和一个空首页。留下来的是重写要站的地基：`design-system.html` 的 token 与契约、`shared/icons` 图标注册表、`shared/ui` 九件契约组件、design-guard 与对账脚本。新页面从这套地基往外长，不再从 feature CSS 起步。
 
-**前端当前无自动化测试**：Vitest 单测、Playwright e2e 与 test-guard 守卫都已移除，跟着新页面一起重建。现行机械门禁 = `pnpm ci:check`（format / lint / lint:design / contract:check / typecheck）+ `pnpm build`。
+**测试从登录表单起步**：Vitest + Testing Library + MSW 已就位（`src/testing/`），现有用例只有 `login-form.test.tsx`；每加回一个页面，同一个 PR 补它的测试。现行机械门禁 = `pnpm ci:check`（format / lint / lint:design / lint:dead / contract:check / typecheck / test）+ `pnpm build`。
 
 ## 2. 统一命令入口（pnpm scripts）
 
 所有常用命令统一走 `package.json` scripts；新增命令必须加进去，不散落在 README 或口头约定里。
 
-| 命令                                | 作用                                                                                 |
-| ----------------------------------- | ------------------------------------------------------------------------------------ |
-| `pnpm install`                      | 安装依赖（本地 git hooks 由根仓 `make hooks` 安装）                                  |
-| `pnpm dev`                          | 开发服务器（默认 0.0.0.0:3013；全部 `/api` 请求代理到真实后端）                      |
-| `pnpm dev:mock`                     | 浏览器 MSW 原型环境（默认 0.0.0.0:3014；不连接真实后端，未处理 `/api` 请求显式报错） |
-| `pnpm lint` / `pnpm lint:fix`       | ESLint（flat config，boundaries 架构守卫）                                           |
-| `pnpm lint:design`                  | 设计系统门禁：规范 ↔ 运行时 token 对账（含自测）+ design-guard 硬编码扫描            |
-| `pnpm contract:generate`            | 按 `contract/openapi.json` 重新生成 `src/shared/api/generated`（类型 + zod）         |
-| `pnpm contract:check`               | 契约漂移门禁：入库生成物必须与合同逐字节一致                                         |
-| `pnpm typecheck`                    | `tsc -b` 全量类型检查                                                                |
-| `pnpm build`                        | `tsc -b && vite build`                                                               |
-| `pnpm serve`                        | 本地验证生产构建（build + vite preview）                                             |
-| `pnpm format` / `pnpm format:check` | Prettier                                                                             |
-| `pnpm ci:check`                     | 提交前门禁：format:check → lint → lint:design → contract:check → typecheck           |
-| `pnpm verify`                       | 合入 / 发布前完整检查：ci:check 全项 + build                                         |
+| 命令                                | 作用                                                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------------------- |
+| `pnpm install`                      | 安装依赖（本地 git hooks 由根仓 `make hooks` 安装）                                           |
+| `pnpm dev`                          | 开发服务器（默认 0.0.0.0:3013；全部 `/api` 请求代理到真实后端）                               |
+| `pnpm dev:mock`                     | 浏览器 MSW 原型环境（默认 0.0.0.0:3014；不连接真实后端，未处理 `/api` 请求显式报错）          |
+| `pnpm lint` / `pnpm lint:fix`       | ESLint（flat config，boundaries 架构守卫）                                                    |
+| `pnpm lint:design`                  | 设计系统门禁：规范 ↔ 运行时 token 对账（含自测）+ design-guard 硬编码扫描                     |
+| `pnpm lint:dead`                    | knip：没人引用的文件、导出、依赖即红                                                          |
+| `pnpm test`                         | Vitest 单测（jsdom + Testing Library + MSW）                                                  |
+| `pnpm contract:generate`            | 按 `contract/openapi.json` 重新生成 `src/shared/api/generated`（类型 + zod）                  |
+| `pnpm contract:check`               | 契约漂移门禁：入库生成物必须与合同逐字节一致                                                  |
+| `pnpm typecheck`                    | `tsc -b` 全量类型检查                                                                         |
+| `pnpm build`                        | `tsc -b && vite build`                                                                        |
+| `pnpm serve`                        | 本地验证生产构建（build + vite preview）                                                      |
+| `pnpm format` / `pnpm format:check` | Prettier                                                                                      |
+| `pnpm ci:check`                     | 提交前门禁：format:check → lint → lint:design → lint:dead → contract:check → typecheck → test |
+| `pnpm verify`                       | 合入 / 发布前完整检查：ci:check 全项 + build                                                  |
 
 ## 3. 边界（哪里能改什么）
 
@@ -45,19 +47,21 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 - 后端 REST 请求一律经 `apiFetch(path, schema)`（`@/shared/api/client`，响应在边界处过 zod）；裸 fetch 仅限两类非 REST 场景：OSS 预签名直传 PUT、外链素材下载。
 - 构建期代码（vite 代理、dev profile）放 `vite/`，归 `tsconfig.node.json`；`src/` 不带 Node 类型，浏览器代码写 `process.env` 会直接编译失败。
 - **schema 来自生成契约**：`src/shared/api/generated/zod.gen.ts` 由 `contract/openapi.json` 生成，端点形状不手写。业务约束（非空、互斥之类合同表达不了的）用 `.refine()` 叠在生成 schema 上。
-- 测试约定（重写测试时沿用）：单测与被测源码同目录（`*.test.ts[x]`）；e2e 在 `e2e/`。
+- 文件名 kebab-case、只用具名导出（`routes/` 按 TanStack 约定命名，不在此列），ESLint 强制。
+- 测试：单测与被测源码同目录（`*.test.ts[x]`），用 `renderWithProviders`（`src/testing/render.tsx`）渲染真实 Provider 树，网络经 MSW（`src/testing/mocks`）；e2e 在 `e2e/`（尚未建）。
 
 ## 4. Verification Matrix
 
-每个 surface 绑定验证命令与证据。**改了哪个面，就交哪份证据**；「证据」指可展示的输出（命令输出 / HTTP payload / 截图 / 构建产物），不是「我觉得没问题」。自动化测试缺位期间，行为类 surface 由人工验收兜底；测试重写时，每个「人工验收」行都必须恢复为可执行的测试绑定。
+每个 surface 绑定验证命令与证据。**改了哪个面，就交哪份证据**；「证据」指可展示的输出（命令输出 / HTTP payload / 截图 / 构建产物），不是「我觉得没问题」。还没有测试覆盖的行为类 surface 先由人工验收兜底；补上测试就把那一行改成可执行的命令。
 
-| Surface                                       | 现行验证                   | 证据                                                                        |
-| --------------------------------------------- | -------------------------- | --------------------------------------------------------------------------- |
-| 全仓（合入 / 发布前底线）                     | `pnpm verify`              | Prettier / ESLint / design-guard 零输出；tsc 零错误；构建成功               |
-| 架构分层（新增文件 / 移动模块 / 调整 import） | `pnpm lint`                | boundaries 无「依赖方向违规」报错                                           |
-| 生产构建（改依赖 / vite 配置 / 路由树）       | `pnpm build`               | `dist/` 产物生成，构建零错误                                                |
-| 登录态与路由守卫                              | `pnpm ci:check` + 人工验收 | `/users/me` 是登录态唯一事实源；守卫与权限门控只按后端权限字符串放行 / 拦截 |
-| UI 视觉（token / 布局 / 深浅两套主题）        | 人工验收（见 §6）          | 桌面 + 移动截图；无新增裸色 / 裸 z-index                                    |
+| Surface                                       | 现行验证          | 证据                                                                                   |
+| --------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
+| 全仓（合入 / 发布前底线）                     | `pnpm verify`     | Prettier / ESLint / design-guard 零输出；tsc 零错误；构建成功                          |
+| 架构分层（新增文件 / 移动模块 / 调整 import） | `pnpm lint`       | boundaries 无「依赖方向违规」报错                                                      |
+| 生产构建（改依赖 / vite 配置 / 路由树）       | `pnpm build`      | `dist/` 产物生成，构建零错误                                                           |
+| 登录表单                                      | `pnpm test`       | `login-form.test.tsx`：SSO 开关下密码区的显隐、表单登录后跳 nextPath、失败展示后端文案 |
+| 登录态与路由守卫                              | 人工验收          | `/users/me` 是登录态唯一事实源；守卫与权限门控只按后端权限字符串放行 / 拦截            |
+| UI 视觉（token / 布局 / 深浅两套主题）        | 人工验收（见 §6） | 桌面 + 移动截图；无新增裸色 / 裸 z-index                                               |
 
 重写期间每加回一个页面，就在这张表里补一行，并且**同一个 PR 里把对应的测试一起写**——旧前端就是靠「先补页面、测试以后再说」把 8 行拖成了人工验收。
 
@@ -76,7 +80,8 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 - 手写已有轮子：toast 用 `@/shared/ui/toast`（sonner），进退场动画用 `animate-in / animate-out`（tw-animate-css）配 `duration-(--dur-*)` 与 `ease-(--ease-*)`，不自己写 keyframes。
 - 组件直接 import `lucide-react`——图标只经 `@/shared/icons` 的 `Icon` 按语义名称使用，新图形先加进 `src/shared/icons/icon.tsx` 注册表；尺寸只取 `xs / sm / md / lg / xl` 五档。
 - 业务层直连 `radix-ui` 的 `Dialog` / `DropdownMenu` / `Popover` / `ToggleGroup`——这四个已有契约组件（`@/shared/ui` 下的 dialog / menu / popup / chip）；按钮、输入、标签、提示条同样先看 `shared/ui` 有没有，不在 feature CSS 里另起一套。
-- 测试里（重写时同样适用）`vi.mock` 同仓模块、断言 className/style/哈希类名、手搓 `fetch` stub（网络一律 MSW）、写内部状态探针组件——行为归层与全部规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md) 测试要求。
+- 测试里 `vi.mock` 同仓模块（ESLint 拦）、断言 className/style/哈希类名、手搓 `fetch` stub（网络一律 MSW）、写内部状态探针组件——行为归层与全部规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md) 测试要求。
+- 为「以后可能用」加依赖或留导出——knip 见到没人引用的就红；要用的时候再加。
 
 ## 6. 人类门禁
 
@@ -90,24 +95,25 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 
 ## 7. 机械 Guardrails 现状
 
-| Guardrail    | 状态                                                                                                                                                                                                                      | 位置 / 说明                                                                                                        |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| lint         | ✅ ESLint flat config，`--max-warnings 0`（warning 也红）；禁非空断言 `!`、switch 必须穷尽                                                                                                                                | `eslint.config.js`；typescript-eslint + react-hooks（含 React Compiler 诊断）+ react-refresh + TanStack Query 插件 |
-| typecheck    | ✅ tsc strict + `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` / `noPropertyAccessFromIndexSignature` / `erasableSyntaxOnly`（enum、namespace 编译期拒绝）/ `verbatimModuleSyntax`（`import type` 编译期强制） | `tsconfig.app.json`；`pnpm typecheck`                                                                              |
-| 架构约束     | ✅ eslint-plugin-boundaries 依赖图（app / feature / shared / testing 四类元素；**跨 feature 一律禁止**）                                                                                                                  | `eslint.config.js`                                                                                                 |
-| 边界校验     | ✅ zod：env schema + `apiFetch` 响应校验                                                                                                                                                                                  | `src/shared/config/env.ts`、`src/shared/api/client`                                                                |
-| 设计系统守卫 | ✅ design-guard 棘轮基线（裸色、任意值阴影/圆角/字号、裸 z-index、outline-none 只降不升）                                                                                                                                 | `scripts/design-guard.mjs` + `scripts/design-guard.baseline.json`；`pnpm lint:design`                              |
-| 图标入口     | ✅ `no-restricted-imports` 禁止 `lucide-react` 直连，只放行注册表本体                                                                                                                                                     | `eslint.config.js`；注册表在 `src/shared/icons/`                                                                   |
-| 契约漂移     | ✅ 生成物必须与 `contract/openapi.json` 逐字节一致；合同本身与后端的一致性由根仓 `make check` 的 contract-check 保证                                                                                                      | `scripts/check-openapi-contract.mjs`；`pnpm contract:check`                                                        |
-| 组件入口     | ✅ `no-restricted-imports` 禁止业务层直连四个已封装的 radix primitive，只放行 `src/shared/ui/**`                                                                                                                          | `eslint.config.js`；契约组件在 `src/shared/ui/`                                                                    |
-| 可访问性     | ✅ eslint-plugin-jsx-a11y-x recommended                                                                                                                                                                                   | `eslint.config.js`                                                                                                 |
-| 自动化测试   | ❌ 无（含 test-guard 测试规范守卫）；规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md)                                                                                                            | 每加回一个页面同一个 PR 补测试，不再攒                                                                             |
-| pre-commit   | ✅ 由根仓 pre-commit 框架跑 web lint-staged（eslint --fix + prettier）                                                                                                                                                    | 根仓 `.pre-commit-config.yaml`；lint-staged 配置在 `package.json`                                                  |
-| Node 版本    | ✅ `.npmrc` `engine-strict=true`：低于 `engines.node` 的 Node 上 `pnpm install` 直接失败                                                                                                                                  | `.npmrc` + `package.json` engines                                                                                  |
-| pre-push     | ⚠️ 根仓 pre-push 只跑 server pyright，web 无 pre-push 检查（防线在 CI + 人类合并门禁）                                                                                                                                    | 根仓 `.pre-commit-config.yaml`                                                                                     |
-| CI           | ✅ monorepo 根级 GitHub Actions web job：`pnpm ci:check` + build                                                                                                                                                          | 根仓 `.github/workflows/ci.yml`（push main / PR）                                                                  |
-| 格式         | ✅ Prettier（含 tailwindcss class 排序插件）                                                                                                                                                                              | `prettier.config.js`；`docs/` 保持忽略，文档格式手工维护                                                           |
-| naming guard | ⚠️ 文件名 kebab-case 为约定，未机械强制                                                                                                                                                                                   | 靠 code review；新增文件前先 `rg` 查同类命名                                                                       |
+| Guardrail    | 状态                                                                                                                                                                                                                      | 位置 / 说明                                                                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| lint         | ✅ ESLint flat config，`--max-warnings 0`（warning 也红）；禁非空断言 `!`、switch 必须穷尽；只用具名导出；`import.meta.env` 只许在 `src/shared/config/env.ts`                                                             | `eslint.config.js`；typescript-eslint + react-hooks（含 React Compiler 诊断）+ @eslint-react（key、嵌套组件定义、无用 fragment、button type、target=_blank）+ react-refresh + TanStack Query 插件 |
+| typecheck    | ✅ tsc strict + `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` / `noPropertyAccessFromIndexSignature` / `erasableSyntaxOnly`（enum、namespace 编译期拒绝）/ `verbatimModuleSyntax`（`import type` 编译期强制） | `tsconfig.app.json`；`pnpm typecheck`                                                                                                                                                             |
+| 架构约束     | ✅ eslint-plugin-boundaries 依赖图（app / feature / shared / testing 四类元素；**跨 feature 一律禁止**）                                                                                                                  | `eslint.config.js`                                                                                                                                                                                |
+| 边界校验     | ✅ zod：`apiFetch` 响应过生成契约；环境变量入口 `src/shared/config/env.ts`（当前没有任何 `VITE_*` 变量，文件不存在，需要时按此路径建）                                                                                    | `src/shared/api/client`；lint 把 `import.meta.env` 锁在 env.ts                                                                                                                                    |
+| 死代码       | ✅ knip：没人引用的文件、导出、依赖即红。`shared/ui/*/index.ts` 与 `shared/icons/index.ts` 是库入口——契约组件按设计系统的表备着，不按页面用量删                                                                           | `knip.json`；`pnpm lint:dead`                                                                                                                                                                     |
+| 设计系统守卫 | ✅ design-guard 棘轮基线（裸色、任意值阴影/圆角/字号、裸 z-index、outline-none 只降不升）                                                                                                                                 | `scripts/design-guard.mjs` + `scripts/design-guard.baseline.json`；`pnpm lint:design`                                                                                                             |
+| 图标入口     | ✅ `no-restricted-imports` 禁止 `lucide-react` 直连，只放行注册表本体                                                                                                                                                     | `eslint.config.js`；注册表在 `src/shared/icons/`                                                                                                                                                  |
+| 契约漂移     | ✅ 生成物必须与 `contract/openapi.json` 逐字节一致；合同本身与后端的一致性由根仓 `make check` 的 contract-check 保证                                                                                                      | `scripts/check-openapi-contract.mjs`；`pnpm contract:check`                                                                                                                                       |
+| 组件入口     | ✅ `no-restricted-imports` 禁止业务层直连四个已封装的 radix primitive，只放行 `src/shared/ui/**`                                                                                                                          | `eslint.config.js`；契约组件在 `src/shared/ui/`                                                                                                                                                   |
+| 可访问性     | ✅ eslint-plugin-jsx-a11y-x recommended                                                                                                                                                                                   | `eslint.config.js`                                                                                                                                                                                |
+| 自动化测试   | ✅ Vitest（jsdom）+ Testing Library + MSW，在 `ci:check` 内；`vi.mock` 同仓模块由 ESLint 拦，其余测试规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md)                                            | `vitest.config.ts`、`src/testing/`；用例与源码同目录，每加回一个页面同一个 PR 补测试                                                                                                              |
+| pre-commit   | ✅ 由根仓 pre-commit 框架跑 web lint-staged（eslint --fix + prettier）                                                                                                                                                    | 根仓 `.pre-commit-config.yaml`；lint-staged 配置在 `package.json`                                                                                                                                 |
+| Node 版本    | ✅ `.npmrc` `engine-strict=true`：低于 `engines.node` 的 Node 上 `pnpm install` 直接失败                                                                                                                                  | `.npmrc` + `package.json` engines                                                                                                                                                                 |
+| pre-push     | ⚠️ 根仓 pre-push 只跑 server pyright，web 无 pre-push 检查（防线在 CI + 人类合并门禁）                                                                                                                                    | 根仓 `.pre-commit-config.yaml`                                                                                                                                                                    |
+| CI           | ✅ monorepo 根级 GitHub Actions web job：`pnpm ci:check` + build                                                                                                                                                          | 根仓 `.github/workflows/ci.yml`（push main / PR）                                                                                                                                                 |
+| 格式         | ✅ Prettier（含 tailwindcss class 排序插件）                                                                                                                                                                              | `prettier.config.js`；`docs/` 保持忽略，文档格式手工维护                                                                                                                                          |
+| 命名与导出   | ✅ eslint-plugin-check-file：`src/{app,features,shared,testing}` 下文件名 kebab-case（`routes/` 例外）；`no-restricted-syntax` 禁 default 导出                                                                            | `eslint.config.js`                                                                                                                                                                                |
 
 ## 8. 文档地图
 
