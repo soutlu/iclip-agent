@@ -74,6 +74,7 @@ import { useStoryboardReferenceImages } from '@/features/storyboards/components/
 import emptyShotFilmFrameUrl from '@/features/storyboards/assets/generated/empty-shot-film-frame.svg?url&no-inline'
 import { createComposerAttachmentReferenceId } from '@/shared/composer'
 import { removeEditorReferencesFromDocument } from '@/shared/editor'
+import { Toast } from '@/shared/ui/toast'
 
 const TIMELINE_PIXELS_PER_SECOND = 60
 const TIMELINE_FRAME_GAP = 4
@@ -1939,13 +1940,11 @@ function StoryboardWorkspaceContent({
       </footer>
 
       {notice ? (
-        <div className="storyboards-toast" role="status">
-          <i aria-hidden="true" />
-          <span>{notice}</span>
-          <button type="button" aria-label="关闭提示" onClick={() => setNotice('')}>
-            <StoryboardIcon name="close" size={13} title="关闭提示" />
-          </button>
-        </div>
+        <Toast
+          className="storyboards-toast-anchor"
+          message={notice}
+          onDismiss={() => setNotice('')}
+        />
       ) : null}
     </main>
   )

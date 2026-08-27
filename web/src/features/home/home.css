@@ -1230,18 +1230,6 @@
   gap: 6px;
 }
 
-.home-task-detail-tag {
-  display: inline-flex;
-  height: 22px;
-  align-items: center;
-  padding: 0 9px;
-  border-radius: var(--radius-sm);
-  background: var(--home-filter-chip-bg);
-  color: var(--home-filter-chip-text);
-  font-size: var(--text-caption);
-  font-weight: 500;
-}
-
 .home-task-details-actions {
   display: flex;
   min-height: 34px;
@@ -2389,11 +2377,6 @@
   gap: 8px;
   color: var(--color-on-surface);
   font-size: var(--text-body-sm);
-}
-
-.home-task-detail-tag--primary {
-  background: var(--color-primary-container-soft);
-  color: var(--color-primary);
 }
 
 .home-task-recommended-metrics,

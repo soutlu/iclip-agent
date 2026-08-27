@@ -15,6 +15,7 @@ import {
 import { listStyleWmsCodes } from '@/features/tasks/api/video-task.api'
 import type { SettingsChoiceOption } from '@/shared/composer'
 import { Icon } from '@/shared/icons'
+import { Tag } from '@/shared/ui/tag'
 import TaskOptionDropdown from './task-option-dropdown'
 import TaskPickerDialog, { togglePicked } from './task-picker-dialog'
 import TaskWebVideoPreviewDialog from './task-web-video-preview-dialog'
@@ -504,9 +505,7 @@ export default function TaskInspirationVideoPickerDialog({
                       <span className="home-task-recommended-info">
                         <span className="home-task-recommended-title">
                           <strong>{item.styleWms}</strong>
-                          {selectable ? null : (
-                            <span className="home-task-detail-tag">无可用视频</span>
-                          )}
+                          {selectable ? null : <Tag>无可用视频</Tag>}
                         </span>
                         <span className="home-task-recommended-metrics">
                           曝光 {metricFormatter.format(item.metrics.impressions)} · 播放{' '}
@@ -640,9 +639,7 @@ export default function TaskInspirationVideoPickerDialog({
                               <span className="home-task-recommended-info">
                                 <span className="home-task-recommended-title">
                                   <strong>{platformLabel}</strong>
-                                  <span className="home-task-detail-tag home-task-detail-tag--primary">
-                                    #{item.responsePosition}
-                                  </span>
+                                  <Tag variant="solid">#{item.responsePosition}</Tag>
                                 </span>
                                 <span className="home-task-recommended-metrics">
                                   {item.title?.trim() ||

@@ -29,6 +29,7 @@ import { STORYBOARD_AGENT } from '@/shared/config/agui-target'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
+import { Input, Textarea } from '@/shared/ui/field'
 import {
   InlineMediaThumbnail,
   MediaPreviewDialog,
@@ -39,8 +40,6 @@ import DebugToolResultImages from './debug-tool-result-images'
 import DebugWorkspaceFiles from './debug-workspace-files'
 import GenerateShotFramesToolDetails from './generate-shot-frames-tool-details'
 
-const DEBUG_INPUT_CLASS =
-  'rounded-lg border border-outline bg-surface-container-lowest text-body text-on-surface transition-colors duration-[var(--dur-s)] hover:border-primary disabled:cursor-not-allowed disabled:bg-disabled-container disabled:text-disabled-text'
 const DEBUG_PANEL_CLASS =
   'overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest'
 
@@ -785,10 +784,10 @@ export default function StoryboardDebugRoute({
                   <div className="flex flex-col gap-5 p-4 sm:p-5">
                     <label className="flex flex-col gap-2">
                       <span className="text-body-sm font-semibold">需求描述</span>
-                      <textarea
+                      <Textarea
                         aria-describedby={descriptionInvalid ? 'debug-form-error' : undefined}
                         aria-invalid={descriptionInvalid}
-                        className={cn(DEBUG_INPUT_CLASS, 'min-h-64 resize-y p-3')}
+                        className="min-h-64 resize-y"
                         disabled={submitting}
                         onChange={(event) => setRequirementDescription(event.target.value)}
                         placeholder="粘贴要测试的 Brief（含口播旁白等，整段透传给 Agent）"
@@ -798,8 +797,7 @@ export default function StoryboardDebugRoute({
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="flex flex-col gap-2">
                         <span className="text-body-sm font-semibold">目标画幅</span>
-                        <input
-                          className={cn(DEBUG_INPUT_CLASS, 'h-11 px-3')}
+                        <Input
                           disabled={submitting}
                           onChange={(event) => setRatio(event.target.value)}
                           value={ratio}
@@ -807,8 +805,7 @@ export default function StoryboardDebugRoute({
                       </label>
                       <label className="flex flex-col gap-2">
                         <span className="text-body-sm font-semibold">目标时长（秒）</span>
-                        <input
-                          className={cn(DEBUG_INPUT_CLASS, 'h-11 px-3')}
+                        <Input
                           disabled={submitting}
                           min="1"
                           onChange={(event) => setDurationSeconds(event.target.value)}

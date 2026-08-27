@@ -2817,46 +2817,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-.storyboards-toast {
+.storyboards-toast-anchor {
   position: fixed;
   bottom: calc(var(--storyboards-timeline-height) + 24px);
   left: 50%;
-  z-index: var(--z-popup);
-  display: flex;
-  max-width: 70vw;
-  align-items: center;
-  gap: 9px;
-  border-radius: var(--radius-lg);
-  background: var(--color-inverse-surface);
-  box-shadow: var(--shadow-3);
-  color: var(--color-inverse-on-surface);
-  padding: 9px 10px 9px 17px;
   transform: translateX(-50%);
-  font-size: var(--text-label);
-}
-
-.storyboards-toast > i {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: var(--radius-full);
-  background: var(--color-inverse-primary);
-}
-
-.storyboards-toast button {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.storyboards-toast button:hover {
-  background: color-mix(in srgb, var(--color-inverse-on-surface) 12%, transparent);
 }
 
 /* ============ Agent 运行监控浮条（悬浮于时间轴上方） ============ */
