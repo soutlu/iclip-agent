@@ -184,7 +184,7 @@ agent:                                 # 键名即 agent id
 - **容量上限在存储层强制，且每次变更先拿命名空间的 advisory 锁。** 命名空间总量是跨行聚合，单条语句的原子性保护不了它。拿到锁之后判断放在 Python 里，「容量满」和「版本冲突」因此是两种可分辨的错误——塞进 `ON CONFLICT ... WHERE` 的守卫只能返回 0 行，而这两件事给模型的提示完全相反。
 - 只放文本；二进制走已有的内容寻址媒体（`media` 表 + `media+sha256://`）。
 
-**镜头素材（`capabilities: [shot_video]`）** 给 agent 四件围着一条产线的工具：`video_parser_md`（拆参考片，文档写进工作区）→ `plan_shot_frames`（整片按秒抽帧，按结构层级拼成带帧号的预览板）→ `generate_shot_frames`（按选中的帧号出一张 2×2 网格图并切成 4 帧）→ `ReadMediaFile`（把一张图附进上下文给模型看）。它建立在媒体生成之上——出图走 generation 域的服务，帧与切格产物落生成用的那个公开对象存储——所以两项要么一起开、要么一起关，开关是 `VIDEO_UNDERSTANDING_URL`。几个决定与它们的理由：
+**镜头素材（`capabilities: [shot_video]`）** 给 agent 四件围着一条产线的工具：`video_parser_md`（拆参考片，文档写进工作区）→ `plan_shot_frames`（整片按秒抽帧，按结构层级拼成带帧号的预览板）→ `generate_shot_frames`（按逐帧 visual_prompt 出一张 2×2 网格图并切成 4 帧）→ `ReadMediaFile`（把一张图附进上下文给模型看）。它建立在媒体生成之上——出图走 generation 域的服务，帧与切格产物落生成用的那个公开对象存储——所以两项要么一起开、要么一起关，开关是 `VIDEO_UNDERSTANDING_URL`。几个决定与它们的理由：
 
 - **接力靠工作区里的两份文件，而能力包不认识工作区能力。** 拆解文档（`video/<名>.md`）与取帧账本（`frames/extraction.json`）都要让模型用 `read_file` / `edit_file` 看得见、改得动——时间码写坏了它自己就能改完重来，这也是取帧那条错误提示能给出可执行修法的前提。做法是两件能力都在构造器里收同一个 `FileSpace`——平台层把「存储 + 从本次运行算命名空间的规则」这两样焊成一件，组合根（`capability_table.py`）造一个递给两边，所以配错在结构上不可能，两边写读的必然是同一批文件。命名空间的规范化（挡住 `..` 与空段，隔离根不能是纸做的）也收在 `FileSpace.resolve()` 里，调用方走的是同一条路而不是各自记得做。`shot_video` 不 import `workspace/` 里的任何东西，也不在工具里去 `ctx.capabilities` 认领兄弟能力——那会把兄弟的内部形状写进自己的协议里。少挂一个的失效是静默的（文档照写照读，只是模型看不见），所以 `REQUIRES` 让「挂了 `shot_video` 没挂 `workspace`」在装配期就报错，错误消息指向 `agents.yaml`。
 - **能力包不注入指令**（`get_instructions()` 返回 `None`）。四件工具怎么接力是流程知识，归 skill；工具 docstring 只回答「这个工具是什么」。这条界线见 [tool-design.md](tool-design.md) §0。

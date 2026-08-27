@@ -555,11 +555,10 @@ async def test_generate_needs_the_extraction_ledger(
         ([], "1-4"),
         ([FrameRequest(no=f"S1-{index}", prompt="猫") for index in range(1, 6)], "1-4"),
         ([FrameRequest(no="8-3", prompt="猫")], "形状"),
-        ([FrameRequest(no="S9-9", prompt="猫")], "不在取帧账本"),
         ([FrameRequest(no="S1-1", prompt="猫"), FrameRequest(no="S1-1", prompt="狗")], "重复"),
         ([FrameRequest(no="S1-1", prompt="  ")], "为空"),
     ],
-    ids=["empty", "too-many", "bad-shape", "unknown", "duplicate", "blank-prompt"],
+    ids=["empty", "too-many", "bad-shape", "duplicate", "blank-prompt"],
 )
 async def test_generate_checks_every_cell_before_paying(
     tools: ShotVideoToolset[object],
@@ -573,6 +572,25 @@ async def test_generate_checks_every_cell_before_paying(
     with pytest.raises(ModelRetry, match=expected):
         await tools.generate_shot_frames(ctx, frames, [], "全局", "9:16")
     assert generations.submitted == []
+
+
+async def test_generate_accepts_a_frame_the_ledger_never_sampled(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeFileStore,
+    generations: FakeGenerations,
+) -> None:
+    """定格只记属于哪一镜，不必是账本里的候选帧：新增的镜头、短于一秒的镜头没有候选帧，
+    一样要出定格。"""
+
+    generations.outcomes = [
+        Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
+    ]
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
+    await tools.generate_shot_frames(
+        ctx, [FrameRequest(no="S9-2", prompt="猫")], [], "全局", "9:16"
+    )
+    assert generations.submitted
 
 
 async def test_generate_reference_urls_must_be_http(
