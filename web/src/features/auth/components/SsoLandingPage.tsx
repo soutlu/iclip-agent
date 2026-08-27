@@ -8,7 +8,7 @@ import {
 } from '@/shared/auth'
 
 type SsoLandingPageProps = {
-  jwt?: string
+  jwt?: string | undefined
 }
 
 /**

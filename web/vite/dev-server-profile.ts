@@ -1,4 +1,4 @@
-export type BrowserMockProfile = 'disabled' | 'full'
+type BrowserMockProfile = 'disabled' | 'full'
 
 export type DevServerProfile = {
   browserMocks: BrowserMockProfile

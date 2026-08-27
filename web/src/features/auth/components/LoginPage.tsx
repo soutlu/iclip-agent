@@ -15,7 +15,7 @@ const SSO_ERROR_MESSAGES: Record<string, string> = {
 
 type LoginPageProps = {
   nextPath: string
-  ssoErrorCode?: string
+  ssoErrorCode?: string | undefined
 }
 
 /**

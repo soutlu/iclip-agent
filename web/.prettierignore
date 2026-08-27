@@ -1,10 +1,5 @@
 dist/
 coverage/
-playwright-report/
-test-results/
 pnpm-lock.yaml
 src/routeTree.gen.ts
 docs/
-
-# AG-UI 契约 fixtures：iclip_agent 事实源的逐字节副本，不做本地重排
-src/features/chat/agui/__fixtures__/agui_contract/*.json

@@ -1,6 +1,6 @@
 # 前端实现规范
 
-> 覆盖目录边界、黄金路径、组件、Hook、TypeScript、质量和测试。视觉规则见 [设计系统](../../design-system.html)，跨层状态见 [状态与跨层契约](./archive/state-management.md)。
+> 覆盖目录边界、黄金路径、组件、Hook、TypeScript、质量和测试。视觉规则见 [设计系统](../../design-system.html)。
 > 其中可机械化的规则（分层依赖、TS 严格性、部分代码风格）已由 ESLint flat config（boundaries 架构守卫）+ tsc strict 强制，以 `eslint.config.js` / `tsconfig.app.json` 为准；本文记录门禁之外仍需人判断的约定。
 
 ## 目录边界
@@ -10,7 +10,7 @@
 - `src/main.tsx → src/app/**`：应用壳（providers、router 装配、`globals.css`）。
 - `src/routes/**`：TanStack Router 文件式路由 = 薄胶水层，只做守卫（`beforeLoad`）+ search params + 组装 feature 页面；路由树自动生成到 `src/routeTree.gen.ts`（不手改、lint/format 排除）。
 - `src/features/<domain>/**`：业务竖切，互相**完全**隔离；`index.ts` 是给 routes / app 用的出口，不是给别的 feature 用的——跨 feature import 一律报错。共用的下沉 `shared/`，或在 routes / app 层组装。
-- `src/shared/**`：领域无关的横切能力（ui 契约组件、icons 注册表、api client、auth、config、lib、hooks）。
+- `src/shared/**`：领域无关的横切能力（ui 契约组件、icons 注册表、api client、auth、config、lib）。
 - `src/testing/**`：开发原型与测试基建（当前为 MSW mocks 与 dev:mock 启动入口），只被测试与开发启动入口引用，业务代码不得引用。
 - 只被单一路由使用的组件先留在该 feature 内；被第二处真实复用时再下沉。
 - 新增文件前先 `rg` 查同类命名和现有 helper，避免新建平行实现；文件名 kebab-case。
@@ -23,7 +23,7 @@
 2. `src/routes/_authed/<path>.tsx` 写 `createFileRoute` 装配，只做守卫与 search params 校验；页头不用管，`_authed.tsx` 已经给了。
 3. 页面从 `@/shared/ui` 取组件（button / chip / dialog / field / menu / popup / tag / toast），图标从 `@/shared/icons` 按语义名取。布局按 `design-system.html` §结构模板。
 4. 需要新样式时先问：是不是 token 能表达？不能表达再问：是不是该进 `shared/ui` 契约层？两个都不是才写 feature CSS。
-5. 接口走 `apiFetch(path, schema)`，schema 按 `docs/backend_api.md` 写；新端点先补进那份文档。
+5. 接口走 `apiFetch(path, schema)`，schema 从 `@/shared/api/generated/zod.gen` 取，不手写；后端改了端点，先 `make contract` 再 `pnpm contract:generate`。合同表达不了的业务约束用 `.refine()` 叠在生成 schema 上。
 6. 需要别的 feature 的东西时不要 import——把它下沉 `shared/`，或者在 route 层把两个 feature 组装起来。
 7. 同一个 PR 里补测试，并在 `AGENTS.md` §4 验证矩阵加一行。
 8. `pnpm verify` 通过再提。
@@ -47,19 +47,11 @@
 
 ```tsx
 type ProjectCardProps = {
-  projectId: string;
-  title: string;
-};
+  projectId: string
+  title: string
+}
 
-/**
- * 展示项目入口卡片。
- *
- * @param props - 项目卡片属性。
- * @returns 项目卡片元素。
- */
-export const ProjectCard = (props: ProjectCardProps) => {
-  return <article>{props.title}</article>;
-};
+export const ProjectCard = ({ title }: ProjectCardProps) => <article>{title}</article>
 ```
 
 ## 可访问性
@@ -82,30 +74,25 @@ export const ProjectCard = (props: ProjectCardProps) => {
 - Hook 依赖数组必须完整、正确；不要靠禁用 lint 保持旧闭包。
 - 自定义 Hook 使用 `use*` 命名，返回值保持稳定结构。
 - feature 私有 Hook 放在该 feature 内；跨 feature 复用后再下沉 `shared/`。
-- 数据获取优先走现有 api helper（`src/shared/api/` 与各 feature 的 `api/`），并传递 `AbortSignal` 处理卸载、项目切换和新 run 中止。
+- 数据获取优先走现有 api helper（`src/shared/api/` 与各 feature 的 `api/`），并传递 `AbortSignal` 处理卸载与切页。
 
 ## TypeScript
 
 - 类型定义靠近使用处；跨模块复用时再提升到共享类型文件。
-- 类型导入使用 `import type`，类型导出使用 `export type`。
 - 初始化为字面量表达式的变量不要额外添加类型注解。
 - 默认数组类型写 `T[]`，同一模块内保持一致。
-- 不使用 `any`、TypeScript enum、namespace、非空断言后缀 `!`。
-- enum 需求使用 `as const` 对象和索引访问类型表达。
+- 枚举语义用 `as const` 对象加索引访问类型表达（enum / namespace 已被编译器拒绝）。
 - 通过判别字段、类型谓词或结构化校验完成类型收窄；先处理 `null` / `undefined` 分支。
 - 接口边界过 zod：环境变量只从 `src/shared/config/env.ts` 读取，新变量先在 schema 声明。
 
 ## 质量规则
 
-- 每个函数和类必须添加 Google 风格中文 docstring/JSDoc，说明职责、参数、返回值、错误或副作用。
+`any`、`@ts-ignore`、非空断言、enum、`import type`、未使用变量、悬空 Promise、switch 穷尽这些已由 tsc / ESLint 把守，不在这里复述。以下是门禁管不到、要人判断的：
+
+- 注释说清「为什么」，默认一行；多行只留违反了会静默出错的约束。不为每个函数写模板化 docstring。
 - UI 文案中文；代码标识符英文。
-- 不使用 `var`、全局 `eval()`、`@ts-ignore`、硬编码密钥、未使用变量/导入/私有成员。
-- 不写不必要的 fragment、catch、constructor、label、常量条件、嵌套三元、参数重赋值、变量遮蔽、import cycle、循环内 `await`。
-- 只赋值一次的变量使用 `const`；使用箭头函数，不使用 function expression。
-- 使用 `for...of`，不使用 `Array.forEach`；使用 `.flatMap()`，不使用 `.map().flat()`。
-- 使用 optional chaining、模板字符串、`===` / `!==`；`Date.now()` 获取 Unix Epoch 毫秒。
-- Promise-like 语句必须 `await`、`return` 或显式捕获错误。
-- `switch` 必须穷尽处理并包含 `default`。
+- 不写不必要的 fragment、catch、嵌套三元、参数重赋值、变量遮蔽、循环内 `await`。
+- 箭头函数、`for...of`、`.flatMap()`、optional chaining、模板字符串；不用 function expression、`forEach`、`.map().flat()`。
 
 ## 测试要求
 
@@ -115,7 +102,7 @@ export const ProjectCard = (props: ProjectCardProps) => {
 
 前端的"用户可观察边界"= 渲染出的界面（角色 / 可访问名 / 文本）、交互后的界面变化、发出的 HTTP 请求形状、路由变化。写任何新测试前按顺序判定：
 
-1. **跨页面的核心用户旅程**（登录 → 项目 → 聊天 → 生成）→ e2e（`e2e/`，Playwright）。
+1. **跨页面的核心用户旅程**（登录 → 进入业务页 → 完成一次提交）→ e2e（`e2e/`，Playwright）。
 2. **单个 feature 的行为**（含组件 + hook + store + api 协作）→ 组件测试：渲染**真实子树**，用统一的 `renderWithProviders` 测试工具（随测试重写在 `src/testing` 重建），网络经 MSW（`src/testing/mocks`），断言用户可见结果与发出的请求形状。
 3. **纯函数**（事件投影、布局算法、解析器）→ 纯数据进出的单测，零 mock。
 4. **HTTP api 层**（端点 URL、请求体、zod 边界、错误映射）→ api 契约测试。
@@ -124,7 +111,7 @@ export const ProjectCard = (props: ProjectCardProps) => {
 
 ### 禁止事项（随测试重写由 test-guard 恢复机械强制）
 
-- **禁止 `vi.mock` 同仓模块**（`@/…` 与相对路径）。把协作方 mock 掉后断言"假组件收到的 props"对回归零防护、对重构全阻力。第三方不可 jsdom 运行的库（如 `@xyflow/react`）与浏览器 API 用 `vi.stubGlobal` / MSW，不 mock 同仓代码。api 层与纯函数测试天然零 mock。
+- **禁止 `vi.mock` 同仓模块**（`@/…` 与相对路径）。把协作方 mock 掉后断言"假组件收到的 props"对回归零防护、对重构全阻力。第三方不可 jsdom 运行的库与浏览器 API 用 `vi.stubGlobal` / MSW，不 mock 同仓代码。api 层与纯函数测试天然零 mock。
 - **禁止断言 className / style / 哈希类名选择器**（`.foo-caj6Zi`、`h-[75px]` 等）。视觉正确性由 design-guard 棘轮 + AGENTS.md §6 人类视觉验收负责，不属于单测。测试定位元素用角色、可访问名或 `data-testid`，不用样式类。
 - **禁止手搓 `fetch` stub + `toHaveBeenCalled` 断请求**。网络一律 MSW handlers，断言"发出了什么请求 / 界面因响应变成什么样"。`toHaveBeenCalled*` 只用于真正的系统边界（`window.open`、剪贴板等）。
 - **禁止内部状态探针**：不写读取 Provider context / hook 内部状态再摊平成 DOM data-* 的探针组件；断言用户可见结果。

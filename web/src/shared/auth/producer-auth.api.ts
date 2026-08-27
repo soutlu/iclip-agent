@@ -53,7 +53,7 @@ const readStringArray = (record: Record<string, unknown>, field: string): string
 
 /** 从 `/users/me` 读取完整部门数组。 */
 const readDepartments = (record: Record<string, unknown>) => {
-  const parsed = z.array(producerDepartmentSchema).safeParse(record.departments)
+  const parsed = z.array(producerDepartmentSchema).safeParse(record['departments'])
   return parsed.success ? parsed.data : []
 }
 
@@ -87,13 +87,13 @@ export const parseProducerAuthUser = (payload: unknown): ProducerAuthUser => {
     username: readNonEmptyString(payload, 'username'),
   }
 
-  if (typeof payload.city === 'string') {
+  if (typeof payload['city'] === 'string') {
     user.city = readNonEmptyString(payload, 'city') ?? ''
   }
-  if (typeof payload.jobTitle === 'string') {
+  if (typeof payload['jobTitle'] === 'string') {
     user.jobTitle = readNonEmptyString(payload, 'jobTitle') ?? ''
   }
-  if (Array.isArray(payload.departments)) {
+  if (Array.isArray(payload['departments'])) {
     user.departments = readDepartments(payload)
   }
 

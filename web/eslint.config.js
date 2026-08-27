@@ -15,8 +15,6 @@ const LUCIDE_LOCK = {
 }
 const LUCIDE_DEEP = ['lucide-react/*']
 
-/** Slider / AspectRatio 不在名单里：workbench 的时间轴与播放器是分段轨道加播放头，
-    契约 Slider（track 4 / thumb 20）表达不了，这两处继续用原语。 */
 const RADIX_LOCK = {
   name: 'radix-ui',
   importNames: ['Dialog', 'DropdownMenu', 'Popover', 'ToggleGroup'],
@@ -63,16 +61,13 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // React Compiler 尚未启用，以下编译器诊断命中的是存量 ref 镜像/effect 同步模式，
-      // 属行为敏感重构，随 React Compiler 接入另行治理（见工具链迁移报告）。
-      'react-hooks/set-state-in-effect': 'off',
-      'react-hooks/refs': 'off',
-      'react-hooks/preserve-manual-memoization': 'off',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': 'error',
       // disallowTypeAnnotations:false 允许 vi.importActual<typeof import('...')> 的 vitest 官方写法
       '@typescript-eslint/consistent-type-imports': [
         'error',
@@ -149,7 +144,7 @@ export default tseslint.config(
         {
           default: 'disallow',
           message:
-            '依赖方向违规：请遵守 CLAUDE.md 的架构规则（feature 对外只经 index.ts、跨 feature 仅可用对方公开出口、shared 不依赖业务层）',
+            '依赖方向违规：app 只能用 shared 与 feature 的 index.ts；feature 只能用本 feature 与 shared（跨 feature 一律禁止）；shared 只能用 shared',
           policies: [
             {
               from: { element: { type: 'app' } },
@@ -220,9 +215,9 @@ export default tseslint.config(
     },
   },
 
-  // ── Node 环境文件（构建配置与 Playwright e2e） ──────────────────────────
+  // ── Node 环境文件（构建配置与 vite/ 下的配置助手） ─────────────────────
   {
-    files: ['e2e/**/*.ts', '*.config.{js,ts}'],
+    files: ['vite/**/*.ts', '*.config.{js,ts}'],
     languageOptions: { globals: globals.node },
   },
 

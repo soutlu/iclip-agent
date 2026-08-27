@@ -6,7 +6,7 @@ import { sanitizeProducerAuthNextPath, startSsoLogin, useLogin } from '@/shared/
 type LoginFormProps = {
   nextPath: string
   ssoEnabled: boolean
-  initialErrorMessage?: string
+  initialErrorMessage?: string | undefined
 }
 
 /**

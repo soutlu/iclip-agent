@@ -22,9 +22,11 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 ├── public/                     # 静态资源（字体等）
 ├── scripts/
 │   ├── check-design-system.mjs # 规范 ↔ 运行时 token 双向对账
+│   ├── check-openapi-contract.mjs # 契约漂移门禁（pnpm contract:check）
 │   ├── design-guard.mjs        # 设计系统守卫（pnpm lint:design）
 │   ├── start-dev.sh            # 开发服务器（默认 0.0.0.0:3013）
 │   └── start-prod.sh           # 本地验证生产构建（build + vite preview）
+├── vite/                       # 构建期助手（同源代理、dev profile），归 tsconfig.node.json
 └── src/
     ├── main.tsx                # 入口
     ├── app/                    # 应用壳：providers、router 装配、全局样式与主题
@@ -36,7 +38,6 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
     │   ├── api/                # apiFetch、query-client
     │   ├── auth/               # 会话、权限判定、路由守卫
     │   ├── config/             # env.ts 环境变量唯一入口
-    │   ├── hooks/              # 通用 hooks
     │   ├── icons/              # 图标注册表（Icon / IconName，唯一图标入口）
     │   ├── lib/                # 通用工具
     │   └── ui/                 # 契约组件：button / chip / dialog / field / menu / popup / tag / toast
@@ -49,7 +50,7 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 - `src/features`：业务代码默认先进 feature；**跨 feature 一律禁止**（含对方 `index.ts`），共用的下沉 `shared/` 或在 routes / app 层组装。
 - `src/shared`：只放明确跨 feature 复用的通用能力；不能反向依赖 `features`。
 - 环境变量只从 `@/shared/config/env` 读取（zod 校验）。
-- 后端 REST 请求一律经 `apiFetch(path, schema)` 在边界处过 zod（`@/shared/api/client`）；裸 fetch 仅限 AG-UI SSE run、OSS 直传 PUT、外链下载三类非 REST 场景。
+- 后端 REST 请求一律经 `apiFetch(path, schema)` 在边界处过 zod（`@/shared/api/client`）；裸 fetch 仅限 OSS 直传 PUT、外链下载两类非 REST 场景。
 
 完整边界规则、验证矩阵与禁止动作见 [AGENTS.md](AGENTS.md)。
 
