@@ -84,3 +84,8 @@ jobs:
         run: pnpm ci:check
       - name: Build
         run: pnpm build
+      # e2e 不进 ci:check：要装浏览器、要起 dev 服务器，本地按需跑，CI 每次都跑
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: e2e (browser MSW as backend)
+        run: pnpm test:e2e

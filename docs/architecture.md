@@ -94,8 +94,8 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词）+ `skills/`（skill 库，一个子目录一个 skill） |
 | `server/migrations/` | Alembic（0001 identity baseline；0002 agent_runtime 官方 harness 表；0003 工作区文件表；0004 媒体生成任务表；0005 procrastinate 的排期表；0006 去掉 0004 里的排期列；0007 对话表；0008 创作需求单表；0009 素材账本） |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key） |
-| `web/` | UI 参考稿（只读） |
-| `contract/` | 跨端合同契约存放处 |
+| `web/` | 产品前端（React SPA，经同源 `/api` 消费合同）；自己的控制面在 [../web/AGENTS.md](../web/AGENTS.md) |
+| `contract/` | 跨端合同：`openapi.json` 由 `make contract` 从后端导出，前端据此生成类型与 zod；`conventions.md` 写合同表达不了的约定 |
 
 ## 4. 装配流程
 

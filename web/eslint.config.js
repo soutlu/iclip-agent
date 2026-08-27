@@ -260,9 +260,9 @@ export default tseslint.config(
     },
   },
 
-  // ── Node 环境文件（构建配置与 vite/ 下的配置助手） ─────────────────────
+  // ── Node 环境文件（构建配置、vite/ 下的配置助手、Playwright e2e） ────────
   {
-    files: ['vite/**/*.ts', '*.config.{js,ts}'],
+    files: ['vite/**/*.ts', 'e2e/**/*.ts', '*.config.{js,ts}'],
     languageOptions: { globals: globals.node },
   },
 

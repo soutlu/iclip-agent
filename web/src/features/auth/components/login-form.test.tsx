@@ -28,13 +28,13 @@ describe('LoginForm', () => {
 
   it('提交用户名密码后以表单登录并跳到 nextPath', async () => {
     const user = userEvent.setup()
-    const loginBodies: string[] = []
-    server.use(
-      http.post('*/api/auth/login', async ({ request }) => {
-        loginBodies.push(await request.text())
-        return new HttpResponse(null, { status: 204 })
-      }),
-    )
+    // 只旁听请求、不替换 handler：登录成功后 mock 的会话状态要真的翻成已登录
+    const loginBodies: Promise<string>[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'POST' && request.url.endsWith('/api/auth/login')) {
+        loginBodies.push(request.clone().text())
+      }
+    })
     const { router } = await renderWithProviders(
       <LoginForm nextPath="/projects" ssoEnabled={false} />,
     )
@@ -46,7 +46,7 @@ describe('LoginForm', () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/projects')
     })
-    const form = new URLSearchParams(loginBodies[0])
+    const form = new URLSearchParams(await loginBodies[0])
     expect(form.get('username')).toBe('tester')
     expect(form.get('password')).toBe('secret')
   })

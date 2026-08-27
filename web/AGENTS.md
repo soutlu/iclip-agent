@@ -2,7 +2,7 @@
 
 > 面向在本仓库工作的 AI agent 与新成员的项目记忆：命令、边界、验证矩阵、禁止动作、人类门禁。
 > 本文只做控制面，不做说明书——细节一律指向事实源文档：
-> 领域术语与不变量 → [CONTEXT.md](CONTEXT.md) · 架构与结构 → [README.md](README.md) · 实现规范 → [docs/frontend-implementation.md](docs/frontend-implementation.md) · 视觉规范 → [../design-system.html](../design-system.html)（唯一设计规范文档，在仓库根目录） · 后端接口 → [../contract/openapi.json](../contract/openapi.json)（端点、字段、状态码）与 [../contract/conventions.md](../contract/conventions.md)（合同表达不了的约定） · 决策 → [docs/adr/](docs/adr/)
+> 领域术语与不变量（两端共用）→ [../docs/CONTEXT.md](../docs/CONTEXT.md) · 全仓命令、两端分工与合同流程 → [../AGENTS.md](../AGENTS.md) · 架构与结构 → [README.md](README.md) · 实现规范 → [docs/frontend-implementation.md](docs/frontend-implementation.md) · 视觉规范 → [../design-system.html](../design-system.html)（唯一设计规范文档，在仓库根目录） · 后端接口 → [../contract/openapi.json](../contract/openapi.json)（端点、字段、状态码）与 [../contract/conventions.md](../contract/conventions.md)（合同表达不了的约定） · 决策 → [docs/adr/](docs/adr/)
 
 ## 1. 项目速览
 
@@ -25,6 +25,7 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 | `pnpm lint:design`                  | 设计系统门禁：规范 ↔ 运行时 token 对账（含自测）+ design-guard 硬编码扫描                     |
 | `pnpm lint:dead`                    | knip：没人引用的文件、导出、依赖即红                                                          |
 | `pnpm test`                         | Vitest 单测（jsdom + Testing Library + MSW）                                                  |
+| `pnpm test:e2e`                     | Playwright 端到端：起 `dev:mock`，浏览器 MSW 扮演后端；不进 ci:check，CI 单独一步跑           |
 | `pnpm contract:generate`            | 按 `contract/openapi.json` 重新生成 `src/shared/api/generated`（类型 + zod）                  |
 | `pnpm contract:check`               | 契约漂移门禁：入库生成物必须与合同逐字节一致                                                  |
 | `pnpm typecheck`                    | `tsc -b` 全量类型检查                                                                         |
@@ -46,22 +47,25 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 - 环境变量只经 `src/shared/config/env.ts` 的 zod schema 读取（`VITE_*`）；新变量先在 schema 声明。
 - 后端 REST 请求一律经 `apiFetch(path, schema)`（`@/shared/api/client`，响应在边界处过 zod）；裸 fetch 仅限两类非 REST 场景：OSS 预签名直传 PUT、外链素材下载。
 - 构建期代码（vite 代理、dev profile）放 `vite/`，归 `tsconfig.node.json`；`src/` 不带 Node 类型，浏览器代码写 `process.env` 会直接编译失败。
+- 任意接口 401 / 403 都先强刷 `/users/me` 再重算路由守卫（`src/app/router.tsx`）；跳登录与保留 `redirect` 由 `_authed` 守卫负责，接口自身的错误文案由调用方就地展示。
+- 后端缺的字段保留 `null` / `undefined`，不在前端补默认值冒充事实。
 - **schema 来自生成契约**：`src/shared/api/generated/zod.gen.ts` 由 `contract/openapi.json` 生成，端点形状不手写。业务约束（非空、互斥之类合同表达不了的）用 `.refine()` 叠在生成 schema 上。
 - 文件名 kebab-case、只用具名导出（`routes/` 按 TanStack 约定命名，不在此列），ESLint 强制。
-- 测试：单测与被测源码同目录（`*.test.ts[x]`），用 `renderWithProviders`（`src/testing/render.tsx`）渲染真实 Provider 树，网络经 MSW（`src/testing/mocks`）；e2e 在 `e2e/`（尚未建）。
+- 测试：单测与被测源码同目录（`*.test.ts[x]`），用 `renderWithProviders`（`src/testing/render.tsx`）渲染真实 Provider 树，网络经 MSW（`src/testing/mocks`）；e2e 在 `e2e/`（Playwright，跑在 `pnpm dev:mock` 上，同一份 handlers）。mock 的登录态是有状态的：登录前 `/users/me` 是 401，登录后才有用户。
 
 ## 4. Verification Matrix
 
 每个 surface 绑定验证命令与证据。**改了哪个面，就交哪份证据**；「证据」指可展示的输出（命令输出 / HTTP payload / 截图 / 构建产物），不是「我觉得没问题」。还没有测试覆盖的行为类 surface 先由人工验收兜底；补上测试就把那一行改成可执行的命令。
 
-| Surface                                       | 现行验证          | 证据                                                                                   |
-| --------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
-| 全仓（合入 / 发布前底线）                     | `pnpm verify`     | Prettier / ESLint / design-guard 零输出；tsc 零错误；构建成功                          |
-| 架构分层（新增文件 / 移动模块 / 调整 import） | `pnpm lint`       | boundaries 无「依赖方向违规」报错                                                      |
-| 生产构建（改依赖 / vite 配置 / 路由树）       | `pnpm build`      | `dist/` 产物生成，构建零错误                                                           |
-| 登录表单                                      | `pnpm test`       | `login-form.test.tsx`：SSO 开关下密码区的显隐、表单登录后跳 nextPath、失败展示后端文案 |
-| 登录态与路由守卫                              | 人工验收          | `/users/me` 是登录态唯一事实源；守卫与权限门控只按后端权限字符串放行 / 拦截            |
-| UI 视觉（token / 布局 / 深浅两套主题）        | 人工验收（见 §6） | 桌面 + 移动截图；无新增裸色 / 裸 z-index                                               |
+| Surface                                                | 现行验证          | 证据                                                                                   |
+| ------------------------------------------------------ | ----------------- | -------------------------------------------------------------------------------------- |
+| 全仓（合入 / 发布前底线）                              | `pnpm verify`     | Prettier / ESLint / design-guard 零输出；tsc 零错误；构建成功                          |
+| 架构分层（新增文件 / 移动模块 / 调整 import）          | `pnpm lint`       | boundaries 无「依赖方向违规」报错                                                      |
+| 生产构建（改依赖 / vite 配置 / 路由树）                | `pnpm build`      | `dist/` 产物生成，构建零错误                                                           |
+| 登录表单                                               | `pnpm test`       | `login-form.test.tsx`：SSO 开关下密码区的显隐、表单登录后跳 nextPath、失败展示后端文案 |
+| 登录旅程（登录 → 首页 → 用户菜单；未登录被送回登录页） | `pnpm test:e2e`   | `e2e/login.spec.ts` 两条，浏览器 MSW 扮演后端                                          |
+| 登录态与路由守卫                                       | 人工验收          | `/users/me` 是登录态唯一事实源；守卫与权限门控只按后端权限字符串放行 / 拦截            |
+| UI 视觉（token / 布局 / 深浅两套主题）                 | 人工验收（见 §6） | 桌面 + 移动截图；无新增裸色 / 裸 z-index                                               |
 
 重写期间每加回一个页面，就在这张表里补一行，并且**同一个 PR 里把对应的测试一起写**——旧前端就是靠「先补页面、测试以后再说」把 8 行拖成了人工验收。
 
@@ -108,6 +112,7 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 | 组件入口     | ✅ `no-restricted-imports` 禁止业务层直连四个已封装的 radix primitive，只放行 `src/shared/ui/**`                                                                                                                          | `eslint.config.js`；契约组件在 `src/shared/ui/`                                                                                                                                                   |
 | 可访问性     | ✅ eslint-plugin-jsx-a11y-x recommended                                                                                                                                                                                   | `eslint.config.js`                                                                                                                                                                                |
 | 自动化测试   | ✅ Vitest（jsdom）+ Testing Library + MSW，在 `ci:check` 内；`vi.mock` 同仓模块由 ESLint 拦，其余测试规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md)                                            | `vitest.config.ts`、`src/testing/`；用例与源码同目录，每加回一个页面同一个 PR 补测试                                                                                                              |
+| e2e          | ✅ Playwright（chromium）跑在 `dev:mock` 上，与单测共用 MSW handlers；CI 在 build 之后单独跑，不进 ci:check                                                                                                               | `playwright.config.ts`、`e2e/`；`pnpm test:e2e`（本地首次先 `pnpm exec playwright install chromium`）                                                                                             |
 | pre-commit   | ✅ 由根仓 pre-commit 框架跑 web lint-staged（eslint --fix + prettier）                                                                                                                                                    | 根仓 `.pre-commit-config.yaml`；lint-staged 配置在 `package.json`                                                                                                                                 |
 | Node 版本    | ✅ `.npmrc` `engine-strict=true`：低于 `engines.node` 的 Node 上 `pnpm install` 直接失败                                                                                                                                  | `.npmrc` + `package.json` engines                                                                                                                                                                 |
 | pre-push     | ⚠️ 根仓 pre-push 只跑 server pyright，web 无 pre-push 检查（防线在 CI + 人类合并门禁）                                                                                                                                    | 根仓 `.pre-commit-config.yaml`                                                                                                                                                                    |
@@ -120,7 +125,7 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 | 文档                                                               | 内容                                                                                                                                                                            | 何时更新                     |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
 | [AGENTS.md](AGENTS.md)（本文）                                     | 控制面：命令、边界、验证矩阵、禁止动作、人类门禁                                                                                                                                | 命令入口 / 红线 / 门禁变化时 |
-| [CONTEXT.md](CONTEXT.md)                                           | 领域锚点：术语、上下文、不变量、禁止逻辑                                                                                                                                        | 领域语言或不变量变化时       |
+| [../docs/CONTEXT.md](../docs/CONTEXT.md)                           | 领域锚点（两端共用，在仓库根 `docs/`）：术语、不变量、禁止逻辑                                                                                                                  | 领域语言或不变量变化时       |
 | [README.md](README.md)                                             | 项目入口：技术栈、目录结构、分层约定、启动方式                                                                                                                                  | 结构或启动方式变化时         |
 | [docs/frontend-implementation.md](docs/frontend-implementation.md) | 门禁之外仍需人判断的实现约定：组件、Hook、TS、测试                                                                                                                              | 实现约定变化时               |
 | [../design-system.html](../design-system.html)                     | 契约文件（在仓库根目录）：颜色规范、排版与尺度、组件与状态与图标、结构模板、收敛原则；`:root` / `.dark` 两块是浅深两套 token 的唯一事实源，运行时镜像由 `pnpm lint:design` 对账 | token 家族或使用规则变化时   |
