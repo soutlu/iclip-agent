@@ -15,6 +15,7 @@ import {
 } from '@/features/home/utils/create-home.constants'
 import { HomeTasksPanel } from '@/features/tasks'
 import { cn } from '@/shared/lib/utils'
+import { ChipGroup, FilterChip } from '@/shared/ui/chip'
 import HippoIcon, { type HippoIconName } from '@/shared/ui/icons/HippoIcon'
 import PopupContent from '@/shared/ui/popup/PopupContent'
 
@@ -166,22 +167,24 @@ function InspirationPanel() {
 
   return (
     <div className="min-h-24">
-      <div className="home-filter-chips mb-5 flex flex-wrap">
+      <ChipGroup
+        aria-label="灵感分类"
+        className="mb-5"
+        type="single"
+        value={activeCategory}
+        onValueChange={(nextCategory) => {
+          const next = INSPIRATION_CATEGORIES.find((category) => category === nextCategory)
+          if (next) {
+            setActiveCategory(next)
+          }
+        }}
+      >
         {INSPIRATION_CATEGORIES.map((category) => (
-          <button
-            key={category}
-            type="button"
-            aria-pressed={activeCategory === category}
-            className={cn(
-              'home-filter-chip transition-all ui-motion-m hover:-translate-y-px active:translate-y-0',
-              activeCategory === category ? 'home-filter-chip--active' : '',
-            )}
-            onClick={() => setActiveCategory(category)}
-          >
+          <FilterChip key={category} value={category}>
             {category}
-          </button>
+          </FilterChip>
         ))}
-      </div>
+      </ChipGroup>
     </div>
   )
 }

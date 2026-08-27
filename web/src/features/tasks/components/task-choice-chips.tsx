@@ -1,7 +1,5 @@
-import { ToggleGroup } from 'radix-ui'
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { Icon } from '@/shared/icons'
-import { cn } from '@/shared/lib/utils'
+import { AssistChip, ChipGroup, FilterChip } from '@/shared/ui/chip'
 
 type TaskChoiceChipsBaseProps = {
   label: string
@@ -26,8 +24,6 @@ type TaskChoiceChipsProps = TaskChoiceChipsBaseProps &
       }
   )
 
-const CHIP_GROUP_CLASS = 'home-filter-chips flex flex-wrap items-center'
-
 /**
  * 支持随时增加自定义选项的 chip 组，视觉复用 Inspiration 子类别的 filter chip 设计。
  * 选中语义与键盘遍历交给 Radix ToggleGroup（单选 radiogroup / 多选 toolbar +
@@ -50,8 +46,6 @@ export default function TaskChoiceChips(props: TaskChoiceChipsProps) {
       addButtonRef.current?.focus()
     }
   }, [adding])
-
-  const selectedValues = props.multiple ? props.values : [props.value]
 
   const commitDraft = () => {
     const option = draft.trim()
@@ -90,16 +84,9 @@ export default function TaskChoiceChips(props: TaskChoiceChipsProps) {
   }
 
   const chips = options.map((option) => (
-    <ToggleGroup.Item
-      className={cn(
-        'home-filter-chip transition-all ui-motion-m hover:-translate-y-px active:translate-y-0',
-        selectedValues.includes(option) ? 'home-filter-chip--active' : '',
-      )}
-      key={option}
-      value={option}
-    >
+    <FilterChip key={option} value={option}>
       {option}
-    </ToggleGroup.Item>
+    </FilterChip>
   ))
 
   const addControl = adding ? (
@@ -115,33 +102,29 @@ export default function TaskChoiceChips(props: TaskChoiceChipsProps) {
       onKeyDown={handleDraftKeyDown}
     />
   ) : (
-    <button
+    <AssistChip
       aria-label={`增加${label}选项`}
-      className="home-filter-chip home-task-choice-chip--add transition-all ui-motion-m hover:-translate-y-px active:translate-y-0"
+      leadingIcon="add"
       ref={addButtonRef}
-      type="button"
       onClick={() => setAdding(true)}
     >
-      <Icon decorative name="add" size="sm" />
-      <span>自定义</span>
-    </button>
+      自定义
+    </AssistChip>
   )
 
   return props.multiple ? (
-    <ToggleGroup.Root
+    <ChipGroup
       aria-label={label}
-      className={CHIP_GROUP_CLASS}
       type="multiple"
       value={props.values}
       onValueChange={props.onValuesChange}
     >
       {chips}
       {addControl}
-    </ToggleGroup.Root>
+    </ChipGroup>
   ) : (
-    <ToggleGroup.Root
+    <ChipGroup
       aria-label={label}
-      className={CHIP_GROUP_CLASS}
       type="single"
       value={props.value}
       onValueChange={(nextValue) => {
@@ -153,6 +136,6 @@ export default function TaskChoiceChips(props: TaskChoiceChipsProps) {
     >
       {chips}
       {addControl}
-    </ToggleGroup.Root>
+    </ChipGroup>
   )
 }

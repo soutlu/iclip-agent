@@ -7,6 +7,22 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
+const LUCIDE_LOCK = {
+  name: 'lucide-react',
+  message:
+    '图标只经 @/shared/icons 的 Icon 使用语义名称；新图形先加进 src/shared/icons/icon.tsx 的注册表',
+}
+const LUCIDE_DEEP = ['lucide-react/*']
+
+/** Slider / AspectRatio 不在名单里：workbench 的时间轴与播放器是分段轨道加播放头，
+    契约 Slider（track 4 / thumb 20）表达不了，这两处继续用原语。 */
+const RADIX_LOCK = {
+  name: 'radix-ui',
+  importNames: ['Dialog', 'DropdownMenu', 'Popover', 'ToggleGroup'],
+  message:
+    '这些 primitive 已有契约组件：Dialog → @/shared/ui/dialog，DropdownMenu → @/shared/ui/menu，ToggleGroup → @/shared/ui/chip，Popover → @/shared/ui/popup',
+}
+
 export default tseslint.config(
   {
     ignores: [
@@ -66,24 +82,30 @@ export default tseslint.config(
     },
   },
 
-  // ── 图标唯一入口（注册表之外不得直连 lucide） ───────────────────────────
+  // ── 设计系统唯一入口（图标与已封装的 radix primitive 不得在业务层直连） ──
+  //    flat config 里同名规则后者整块覆盖前者，所以两条禁令写在一起，
+  //    下面两块只各自放行自己那一半。
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/shared/icons/icon.tsx'],
     rules: {
       'no-restricted-imports': [
         'error',
-        {
-          paths: [
-            {
-              name: 'lucide-react',
-              message:
-                '图标只经 @/shared/icons 的 Icon 使用语义名称；新图形先加进 src/shared/icons/icon.tsx 的注册表',
-            },
-          ],
-          patterns: ['lucide-react/*'],
-        },
+        { paths: [LUCIDE_LOCK, RADIX_LOCK], patterns: LUCIDE_DEEP },
       ],
+    },
+  },
+  // 图标注册表本体：可以直连 lucide
+  {
+    files: ['src/shared/icons/icon.tsx'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: [RADIX_LOCK] }],
+    },
+  },
+  // 契约组件本体：可以直连 radix
+  {
+    files: ['src/shared/ui/**'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: [LUCIDE_LOCK], patterns: LUCIDE_DEEP }],
     },
   },
 

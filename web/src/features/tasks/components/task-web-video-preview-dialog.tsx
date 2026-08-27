@@ -1,9 +1,15 @@
-import { Dialog } from 'radix-ui'
 import type {
   WebInspirationCandidate,
   WebInspirationPlatform,
 } from '@/features/tasks/api/inspiration.api'
 import { Icon } from '@/shared/icons'
+import {
+  DialogBody,
+  DialogFooter,
+  DialogHeader,
+  DialogRoot,
+  DialogSurface,
+} from '@/shared/ui/dialog'
 import {
   resolveWebInspirationEmbedUrl,
   webInspirationPlatformLabel,
@@ -34,7 +40,7 @@ export default function TaskWebVideoPreviewDialog({
   )
 
   return (
-    <Dialog.Root
+    <DialogRoot
       open
       onOpenChange={(open) => {
         if (!open) {
@@ -42,25 +48,19 @@ export default function TaskWebVideoPreviewDialog({
         }
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="home-task-web-preview-overlay layer-popup" />
-        <Dialog.Content
-          aria-label={`${previewTitle} 预览`}
-          className="home-task-web-preview-dialog layer-popup"
-          data-platform={candidate.platform}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-        >
-          <header>
-            <div>
-              <span>{platformLabel}</span>
-              <Dialog.Title>{previewTitle}</Dialog.Title>
-              {candidate.creatorHandle ? <p>{candidate.creatorHandle}</p> : null}
-            </div>
-            <Dialog.Close aria-label="关闭联网视频预览" type="button">
-              <Icon decorative name="close" size="md" />
-            </Dialog.Close>
-          </header>
+      <DialogSurface
+        aria-label={`${previewTitle} 预览`}
+        data-platform={candidate.platform}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <DialogHeader closeLabel="关闭联网视频预览" title={previewTitle}>
+          <p className="mt-1 text-body-sm text-on-surface-variant">
+            {platformLabel}
+            {candidate.creatorHandle ? ` · ${candidate.creatorHandle}` : ''}
+          </p>
+        </DialogHeader>
 
+        <DialogBody className="p-0">
           <div className="home-task-web-preview-stage">
             {embedUrl ? (
               <iframe
@@ -74,19 +74,24 @@ export default function TaskWebVideoPreviewDialog({
               <p>该平台暂不支持站内预览，请打开原帖查看。</p>
             )}
           </div>
+        </DialogBody>
 
-          <footer>
-            <span>
-              原始返回第 {candidate.responsePosition} 位
-              {candidate.durationSeconds ? ` · ${Math.round(candidate.durationSeconds)} 秒` : ''}
-            </span>
-            <a href={candidate.postUrl} rel="noopener noreferrer" target="_blank">
-              打开原帖
-              <Icon decorative name="external" size="sm" />
-            </a>
-          </footer>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        <DialogFooter>
+          <span>
+            原始返回第 {candidate.responsePosition} 位
+            {candidate.durationSeconds ? ` · ${Math.round(candidate.durationSeconds)} 秒` : ''}
+          </span>
+          <a
+            className="inline-flex items-center gap-1.5 font-medium text-primary ui-focus"
+            href={candidate.postUrl}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            打开原帖
+            <Icon decorative name="external" size="sm" />
+          </a>
+        </DialogFooter>
+      </DialogSurface>
+    </DialogRoot>
   )
 }
