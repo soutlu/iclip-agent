@@ -1744,6 +1744,12 @@
       }
 
       .semantic-panel.dark { color-scheme: dark; }
+      .type-styles[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .elevation-swatch { display: block; height: 22px; border-radius: var(--radius-sm); background: var(--pg-sheet); }
+      .elevation-swatch.flat { border: 1px solid var(--pg-line-strong); }
+      .scale-extra { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 40px; }
+      .scale-extra .scale-group + .scale-group { margin-top: 0; }
+      @media (max-width: 1080px) { .scale-extra { grid-template-columns: 1fr; } .scale-extra .scale-group + .scale-group { margin-top: 36px; } }
     </style>
   </head>
   <body>
@@ -1937,7 +1943,7 @@
                 <strong>Display</strong>
                 <code>--text-display-*</code>
               </header>
-              <div class="type-styles">
+              <div class="type-styles" data-columns="2">
                 <div class="type-style" style="--sample-size: var(--text-display); --sample-line: var(--text-display--line-height); --sample-tracking: -0.04em; font-family: var(--font-home-display); font-style: italic;">
                   <strong>创作</strong>
                   <div><code>display · 57 / 64</code><span>首页 Hero（serif）</span></div>
@@ -1954,7 +1960,7 @@
                 <strong>Headline</strong>
                 <code>--text-headline-*</code>
               </header>
-              <div class="type-styles">
+              <div class="type-styles" data-columns="2">
                 <div class="type-style" style="--sample-size: var(--text-headline-lg); --sample-line: 1.2; --sample-tracking: -0.025em;">
                   <strong>页面标题</strong>
                   <div><code>headline-lg · 32</code><span>品牌字标、紧凑页大标题</span></div>
@@ -1971,7 +1977,7 @@
                 <strong>Title</strong>
                 <code>--text-title-*</code>
               </header>
-              <div class="type-styles">
+              <div class="type-styles" data-columns="2">
                 <div class="type-style" style="--sample-size: var(--text-title-lg); --sample-line: 1.3; --sample-weight: 650;">
                   <strong>区域标题</strong>
                   <div><code>title-lg · 20</code><span>对话框头、分区标题</span></div>
@@ -1988,7 +1994,7 @@
                 <strong>Body</strong>
                 <code>--text-body-*</code>
               </header>
-              <div class="type-styles">
+              <div class="type-styles" data-columns="2">
                 <div class="type-style" style="--sample-size: var(--text-body); --sample-line: var(--text-body--line-height);">
                   <strong>正文与说明内容</strong>
                   <div><code>body · 14 / 20 · 基准</code><span>默认正文、按钮、Tab、导航、输入框</span></div>
@@ -2005,7 +2011,7 @@
                 <strong>Label</strong>
                 <code>--text-label · --text-caption</code>
               </header>
-              <div class="type-styles">
+              <div class="type-styles" data-columns="2">
                 <div class="type-style" style="--sample-size: var(--text-label); --sample-line: var(--text-label--line-height); --sample-weight: 650;">
                   <strong>标签与元信息</strong>
                   <div><code>label · 12 / 16</code><span>标签、日期、小标签文字</span></div>
@@ -2019,91 +2025,128 @@
 
             <article class="type-family-row">
               <header class="type-family-name">
-                <strong>Canvas</strong>
-                <code>--text-canvas-*</code>
+                <strong>Canvas title</strong>
+                <code>--text-canvas-title-*</code>
               </header>
               <div class="type-styles">
                 <div class="type-style" style="--sample-size: var(--text-canvas-title-lg); --sample-line: 1.25; --sample-weight: 650;">
                   <strong>画布标题</strong>
-                  <div><code>title-lg 28 · title 26 · title-sm 24</code><span>缩放画布卡与工作台节点标题</span></div>
+                  <div><code>title-lg · 28</code><span>工作台节点大标题</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-canvas-title); --sample-line: 1.25; --sample-weight: 650;">
+                  <strong>画布标题</strong>
+                  <div><code>title · 26</code><span>画布卡标题</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-canvas-title-sm); --sample-line: 1.25; --sample-weight: 650;">
+                  <strong>画布标题</strong>
+                  <div><code>title-sm · 24</code><span>画布卡分区标题</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="type-family-row">
+              <header class="type-family-name">
+                <strong>Canvas body</strong>
+                <code>--text-canvas-body-* · --text-canvas-label</code>
+              </header>
+              <div class="type-styles">
+                <div class="type-style" style="--sample-size: var(--text-canvas-body-lg); --sample-line: 1.4;">
+                  <strong>画布正文</strong>
+                  <div><code>body-lg · 22</code><span>放大阅读面正文</span></div>
                 </div>
                 <div class="type-style" style="--sample-size: var(--text-canvas-body); --sample-line: 1.4;">
                   <strong>画布正文</strong>
-                  <div><code>body-lg 22 · body 20 · label 18</code><span>仅限缩放画布与放大阅读面</span></div>
+                  <div><code>body · 20</code><span>画布卡正文</span></div>
+                </div>
+                <div class="type-style" style="--sample-size: var(--text-canvas-label); --sample-line: 1.4; --sample-weight: 650;">
+                  <strong>画布标签</strong>
+                  <div><code>label · 18</code><span>画布卡标签与元信息</span></div>
                 </div>
               </div>
             </article>
             <p class="type-source-note">
-              <code>--font-producer-ui</code> CapCut Sans Text → SF Pro Text → PingFang SC　·　<code>--font-home-display</code> Source Serif 4 italic，仅首页 Hero　·　html 16px · 字重 400 / 500 / 650　·　Tailwind 默认字号档已清除，<code>text-sm</code>、<code>text-[Npx]</code> 不可用
+              <code>--font-producer-ui</code> CapCut Sans Text → SF Pro Text → PingFang SC　·　<code>--font-home-display</code> Source Serif 4 italic，仅 Display　·　html 16px　·　字重 400 / 500 / 650　·　画布字阶仅限缩放画布与放大阅读面
             </p>
           </div>
 
           <div>
             <div class="scale-group">
-              <h3>Spacing · 4px · Tailwind 刻度</h3>
-              <div class="space-row"><code>1</code><i class="space-line" style="--space: 4px"></i><b>4px</b></div>
-              <div class="space-row"><code>2</code><i class="space-line" style="--space: 8px"></i><b>8px</b></div>
-              <div class="space-row"><code>3</code><i class="space-line" style="--space: 12px"></i><b>12px</b></div>
-              <div class="space-row"><code>4</code><i class="space-line" style="--space: 16px"></i><b>16px</b></div>
-              <div class="space-row"><code>5</code><i class="space-line" style="--space: 20px"></i><b>20px</b></div>
-              <div class="space-row"><code>6</code><i class="space-line" style="--space: 24px"></i><b>24px</b></div>
-              <div class="space-row"><code>8</code><i class="space-line" style="--space: 32px"></i><b>32px</b></div>
-              <div class="space-row"><code>10</code><i class="space-line" style="--space: 40px"></i><b>40px</b></div>
-              <div class="space-row"><code>12</code><i class="space-line" style="--space: 48px"></i><b>48px</b></div>
-              <p class="type-source-note">不设 <code>--space-*</code> token。任意值 <code>[Npx]</code> 仅限布局几何（固定宽高、定位偏移、栅格列宽），不用于 padding / gap / margin。同一容器内同类间距只用一档；页面级留白只用 24 / 32 / 40 / 48。</p>
+              <h3>Spacing · 4px</h3>
+              <div class="space-row"><code>gap-1</code><i class="space-line" style="--space: 4px"></i><b>4px</b></div>
+              <div class="space-row"><code>gap-2</code><i class="space-line" style="--space: 8px"></i><b>8px</b></div>
+              <div class="space-row"><code>gap-3</code><i class="space-line" style="--space: 12px"></i><b>12px</b></div>
+              <div class="space-row"><code>gap-4</code><i class="space-line" style="--space: 16px"></i><b>16px</b></div>
+              <div class="space-row"><code>gap-5</code><i class="space-line" style="--space: 20px"></i><b>20px</b></div>
+              <div class="space-row"><code>gap-6</code><i class="space-line" style="--space: 24px"></i><b>24px</b></div>
+              <div class="space-row"><code>gap-8</code><i class="space-line" style="--space: 32px"></i><b>32px</b></div>
+              <div class="space-row"><code>gap-10</code><i class="space-line" style="--space: 40px"></i><b>40px</b></div>
+              <div class="space-row"><code>gap-12</code><i class="space-line" style="--space: 48px"></i><b>48px</b></div>
+              <p class="type-source-note">Tailwind 刻度（gap / p / m 同刻度），不设 <code>--space-*</code> token；<code>[Npx]</code> 仅限布局几何。</p>
             </div>
 
             <div class="scale-group">
               <h3>Radius tokens</h3>
               <div class="radius-table">
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-xs)"></i><span>4px</span><code>--radius-xs · 标签</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-sm)"></i><span>8px</span><code>--radius-sm · 菜单项</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-md)"></i><span>12px</span><code>--radius-md · 按钮 / 菜单</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-lg)"></i><span>16px</span><code>--radius-lg · 输入框 / 卡片</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-xl)"></i><span>20px</span><code>--radius-xl · 气泡</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-2xl)"></i><span>28px</span><code>--radius-2xl · Dialog / Composer</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-3xl)"></i><span>32px</span><code>--radius-3xl · 工作台</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-4xl)"></i><span>48px</span><code>--radius-4xl · 预览舞台</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-full)"></i><span>full</span><code>--radius-full · 图标按钮 / 胶囊</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-xs)"></i><span>4px</span><code>--radius-xs</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-sm)"></i><span>8px</span><code>--radius-sm</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-md)"></i><span>12px</span><code>--radius-md</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-lg)"></i><span>16px</span><code>--radius-lg</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-xl)"></i><span>20px</span><code>--radius-xl</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-2xl)"></i><span>28px</span><code>--radius-2xl</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-3xl)"></i><span>32px</span><code>--radius-3xl</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-4xl)"></i><span>48px</span><code>--radius-4xl</code></div></div>
+                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-full)"></i><span>full</span><code>--radius-full</code></div></div>
               </div>
-              <p class="type-source-note"><code>rounded-*</code> 由同名 token 生成；<code>rounded-[Npx]</code> 禁止，几何补偿 <code>calc(var(--radius-*) - Npx)</code> 除外。</p>
+              <p class="type-source-note">xs 标签 · sm 菜单项 · md 按钮 / 菜单 · lg 输入框 / 卡片 · xl 气泡 · 2xl Dialog / Composer · 3xl 工作台 · 4xl 预览舞台 · full 图标按钮 / 胶囊</p>
             </div>
 
             <div class="scale-group">
               <h3>Motion tokens</h3>
               <div class="motion-list">
-                <div class="motion-row"><code>--dur-s</code><i class="motion-track" style="--motion-width: 38%"></i><b>150ms · 微交互</b></div>
-                <div class="motion-row"><code>--dur-m</code><i class="motion-track" style="--motion-width: 62%"></i><b>250ms · 面板开合</b></div>
-                <div class="motion-row"><code>--dur-l</code><i class="motion-track" style="--motion-width: 100%"></i><b>400ms · 入场 / 大面积</b></div>
-                <div class="motion-row"><code>--ease</code><span>cubic-bezier(0.2, 0, 0, 1)</span><b>原地变化</b></div>
-                <div class="motion-row"><code>--ease-decel</code><span>cubic-bezier(0, 0, 0, 1)</span><b>进场</b></div>
-                <div class="motion-row"><code>--ease-accel</code><span>cubic-bezier(0.3, 0, 1, 1)</span><b>退场 · 时长取进场一半</b></div>
+                <div class="motion-row"><code>--dur-s · 微交互</code><i class="motion-track" style="--motion-width: 38%"></i><b>150ms</b></div>
+                <div class="motion-row"><code>--dur-m · 面板开合</code><i class="motion-track" style="--motion-width: 62%"></i><b>250ms</b></div>
+                <div class="motion-row"><code>--dur-l · 入场</code><i class="motion-track" style="--motion-width: 100%"></i><b>400ms</b></div>
+                <div class="motion-row"><code>--ease · 原地变化</code><span>cubic-bezier(0.2, 0, 0, 1)</span><b>standard</b></div>
+                <div class="motion-row"><code>--ease-decel · 进场</code><span>cubic-bezier(0, 0, 0, 1)</span><b>decel</b></div>
+                <div class="motion-row"><code>--ease-accel · 退场</code><span>cubic-bezier(0.3, 0, 1, 1)</span><b>accel</b></div>
               </div>
-              <p class="type-source-note">运行时工具类 <code>ui-motion-s / m / l</code>；Tailwind 默认 <code>duration-*</code>、<code>ease-*</code> 禁止。</p>
+              <p class="type-source-note">退场时长取进场一半。</p>
             </div>
+          </div>
 
+          <div class="scale-extra">
             <div class="scale-group">
               <h3>Elevation tokens</h3>
-              <div class="radius-table">
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-md); border-color: var(--color-outline-variant)"></i><span>0</span><code>静态表面 · 零投影</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-md); border-color: transparent; box-shadow: var(--shadow-1)"></i><span>1</span><code>--shadow-1 · 悬浮小件</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-md); border-color: transparent; box-shadow: var(--shadow-2)"></i><span>2</span><code>--shadow-2 · 菜单 / 浮层</code></div></div>
-                <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-md); border-color: transparent; box-shadow: var(--shadow-3)"></i><span>3</span><code>--shadow-3 · 弹窗 / toast</code></div></div>
+              <div class="motion-list">
+                <div class="motion-row"><code>静态表面</code><i class="elevation-swatch flat"></i><b>0</b></div>
+                <div class="motion-row"><code>--shadow-1 · 悬浮小件</code><i class="elevation-swatch" style="box-shadow: var(--shadow-1)"></i><b>1</b></div>
+                <div class="motion-row"><code>--shadow-2 · 菜单 / 浮层</code><i class="elevation-swatch" style="box-shadow: var(--shadow-2)"></i><b>2</b></div>
+                <div class="motion-row"><code>--shadow-3 · 弹窗 / toast</code><i class="elevation-swatch" style="box-shadow: var(--shadow-3)"></i><b>3</b></div>
               </div>
               <p class="type-source-note">层次差异优先用 surface 梯度表达；深色阴影在 <code>.dark</code> 另给值。</p>
             </div>
 
             <div class="scale-group">
-              <h3>Layer tokens · z-index</h3>
-              <div class="space-row"><code>--z-base</code><i class="space-line" style="--space: 4px"></i><b>0</b></div>
-              <div class="space-row"><code>--z-canvas</code><i class="space-line" style="--space: 8px"></i><b>2</b></div>
-              <div class="space-row"><code>--z-content</code><i class="space-line" style="--space: 14px"></i><b>5</b></div>
-              <div class="space-row"><code>--z-panel</code><i class="space-line" style="--space: 20px"></i><b>10</b></div>
-              <div class="space-row"><code>--z-sidebar · --z-canvas-overlay</code><i class="space-line" style="--space: 40px"></i><b>40</b></div>
-              <div class="space-row"><code>--z-header</code><i class="space-line" style="--space: 50px"></i><b>50</b></div>
-              <div class="space-row"><code>--z-overlay</code><i class="space-line" style="--space: 90px"></i><b>90 · scrim</b></div>
-              <div class="space-row"><code>--z-popup</code><i class="space-line" style="--space: 100px"></i><b>100 · 菜单 / 弹窗 / toast</b></div>
-              <p class="type-source-note">工具类 <code>layer-*</code>，禁止数字 z；<code>--z-local-1..3</code> 仅用于 <code>isolate</code> 容器内的兄弟排序。断点 <code>--breakpoint-sm</code> 600 / <code>--breakpoint-md</code> 840（紧凑 / 中等 / 展开）。</p>
+              <h3>Layer tokens</h3>
+              <div class="motion-list">
+                <div class="motion-row"><code>--z-base</code><span>页面基面</span><b>0</b></div>
+                <div class="motion-row"><code>--z-canvas</code><span>画布</span><b>2</b></div>
+                <div class="motion-row"><code>--z-content</code><span>内容、composer</span><b>5</b></div>
+                <div class="motion-row"><code>--z-panel</code><span>聊天面板</span><b>10</b></div>
+                <div class="motion-row"><code>--z-sidebar</code><span>侧栏；--z-canvas-overlay 同层</span><b>40</b></div>
+                <div class="motion-row"><code>--z-header</code><span>顶栏</span><b>50</b></div>
+                <div class="motion-row"><code>--z-overlay</code><span>scrim</span><b>90</b></div>
+                <div class="motion-row"><code>--z-popup</code><span>菜单 / 弹窗 / toast</span><b>100</b></div>
+              </div>
+              <p class="type-source-note">工具类 <code>layer-*</code>；<code>--z-local-1..3</code> 仅用于 isolate 容器内的兄弟排序。</p>
+            </div>
+
+            <div class="scale-group">
+              <h3>Breakpoints</h3>
+              <div class="motion-list">
+                <div class="motion-row"><code>--breakpoint-sm</code><span>紧凑 → 中等</span><b>600px</b></div>
+                <div class="motion-row"><code>--breakpoint-md</code><span>中等 → 展开</span><b>840px</b></div>
+              </div>
             </div>
           </div>
         </div>
