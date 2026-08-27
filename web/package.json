@@ -8,20 +8,22 @@
   },
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "ci:check": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm typecheck",
+    "build": "tsc -b && vite build",
+    "ci:check": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm contract:check && pnpm typecheck",
+    "contract:check": "node scripts/check-openapi-contract.mjs",
+    "contract:generate": "openapi-ts -f openapi-ts.config.js",
     "dev": "bash scripts/start-dev.sh",
     "dev:mock": "VITE_MODE=mock PORT=3014 bash scripts/start-dev.sh",
-    "serve": "bash scripts/start-prod.sh",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:design": "node --test scripts/check-design-system.node-test.mjs && node scripts/check-design-system.mjs && node scripts/design-guard.mjs",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "prepare": "husky",
+    "preview": "vite preview",
+    "serve": "bash scripts/start-prod.sh",
     "typecheck": "tsc -b",
-    "verify": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm typecheck && pnpm build",
-    "prepare": "husky"
+    "verify": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm typecheck && pnpm build"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -50,6 +52,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@hey-api/openapi-ts": "^0.99.0",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4",
     "@tanstack/eslint-plugin-query": "^5.101.2",

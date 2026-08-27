@@ -9,6 +9,7 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 - 构建：Vite 8 + TypeScript（strict）
 - 路由：TanStack Router（文件式，`src/routes/`，路由树自动生成到 `src/routeTree.gen.ts`）
 - 数据：TanStack Query v5 + react-query-auth（HttpOnly cookie 会话，`GET /users/me` 为登录态唯一事实源）
+- 契约：后端导出 `contract/openapi.json`，`@hey-api/openapi-ts` 生成类型与 zod 到 `src/shared/api/generated`
 - 样式：Tailwind CSS v4 + tw-animate-css（进退场动画）
 - 组件：radix-ui primitive 收在 `shared/ui` 契约层；图标 lucide-react 收在 `shared/icons` 注册表；toast 用 sonner
 - 开发原型：MSW（仅 `pnpm dev:mock` 环境）
@@ -63,6 +64,8 @@ pnpm serve           # 本地验证生产构建（build + vite preview）
 pnpm lint            # ESLint
 pnpm lint:design     # 设计系统守卫
 pnpm format          # Prettier 全量格式化
+pnpm contract:generate # 按 contract/openapi.json 生成类型与 zod
+pnpm contract:check  # 契约漂移门禁
 pnpm typecheck       # TypeScript 类型检查
 pnpm ci:check        # format:check + lint + lint:design + typecheck（提交前跑）
 pnpm verify          # ci:check 全项 + build（合入 / 发布前跑）

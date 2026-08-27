@@ -31,6 +31,10 @@ export default tseslint.config(
       'coverage',
       'public',
       'src/routeTree.gen.ts',
+      // 生成物：改不了的代码不该卡门禁，形状由 pnpm contract:check 保证
+      'src/shared/api/generated/**',
+      // contract:check 的临时输出目录（崩溃残留也不该卡门禁）
+      '.openapi-check-*',
       'node_modules',
       // docs/ 里有脱离本项目 tsconfig 的示例代码，类型感知规则跑不动
       'docs',

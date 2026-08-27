@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
+import { zSsoAuthorizeOut } from '@/shared/api/generated/zod.gen'
 import { isRecord } from '@/shared/lib/guards'
 import type { ProducerAuthUser, ProducerLoginRequest } from './producer-auth.types'
 
@@ -107,14 +108,10 @@ const producerMeResponseSchema = z
 /** 忽略响应体的端点（登录/登出/SSO callback 只关心状态码与 cookie 副作用）。 */
 const ignoredResponseSchema = z.unknown()
 
-/** 后端 `/auth/sso/authorize` 响应。 */
-const ssoAuthorizeResponseSchema = z.object(
-  {
-    authorization_url: z
-      .string({ error: 'SSO authorize 响应缺少 authorization_url' })
-      .refine((value) => value.trim().length > 0, 'SSO authorize 响应缺少 authorization_url'),
-  },
-  { error: 'SSO authorize 响应格式无效' },
+/** 后端 `/auth/sso/authorize` 响应：形状取自生成契约，只补一条「非空」的业务约束。 */
+const ssoAuthorizeResponseSchema = zSsoAuthorizeOut.refine(
+  (payload) => payload.authorization_url.trim().length > 0,
+  'SSO authorize 响应缺少 authorization_url',
 )
 
 /**
