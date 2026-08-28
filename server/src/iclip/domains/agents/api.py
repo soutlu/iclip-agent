@@ -14,7 +14,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Annotated, Protocol
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from iclip.domains.agents.public import AgentRunDeps
@@ -146,10 +146,17 @@ def create_agents_router(runs: AgentRuns, conversations: Conversations) -> APIRo
     @router.get("/{agent_id}/chat/{conversation_id}/{run_id}")
     async def resume(
         agent_id: str,
-        conversation_id: str,
-        run_id: str,
-        request: Request,
+        conversation_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9._-]{1,128}$")],
+        run_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9._-]{1,128}$")],
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        last_event_id: Annotated[
+            str | None,
+            Header(alias="Last-Event-ID", description="上次收到的事件位置，从它之后接着发"),
+        ] = None,
+        from_: Annotated[
+            str | None,
+            Query(alias="from", description="同 Last-Event-ID，供不能带请求头的客户端使用"),
+        ] = None,
     ) -> Response:
         """接着读一次已经发起过的运行。
 
@@ -169,7 +176,7 @@ def create_agents_router(runs: AgentRuns, conversations: Conversations) -> APIRo
             agent_id=agent_id,
             run_id=run_id,
         )
-        after = request.headers.get("last-event-id") or request.query_params.get("from")
+        after = last_event_id or from_
         return _stream(await runs.feed(run_key, after=after or None))
 
     return router

@@ -774,10 +774,18 @@ export const zChatAgentsAgentIdChatPostPath = z.object({
   agent_id: z.string(),
 })
 
+export const zResumeAgentsAgentIdChatConversationIdRunIdGetHeaders = z.object({
+  'Last-Event-ID': z.string().nullish(),
+})
+
 export const zResumeAgentsAgentIdChatConversationIdRunIdGetPath = z.object({
   agent_id: z.string(),
-  conversation_id: z.string(),
-  run_id: z.string(),
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  run_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+})
+
+export const zResumeAgentsAgentIdChatConversationIdRunIdGetQuery = z.object({
+  from: z.string().nullish(),
 })
 
 /**

@@ -2742,6 +2742,7 @@
             "name": "conversation_id",
             "required": true,
             "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
               "title": "Conversation Id",
               "type": "string"
             }
@@ -2751,8 +2752,45 @@
             "name": "run_id",
             "required": true,
             "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
               "title": "Run Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "同 Last-Event-ID，供不能带请求头的客户端使用",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "同 Last-Event-ID，供不能带请求头的客户端使用",
+              "title": "From"
+            }
+          },
+          {
+            "description": "上次收到的事件位置，从它之后接着发",
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "上次收到的事件位置，从它之后接着发",
+              "title": "Last-Event-Id"
             }
           }
         ],
@@ -4753,6 +4791,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "不能修改自己的授权，也不能停用自己"
           },
           "422": {
             "content": {
