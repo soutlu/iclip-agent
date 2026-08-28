@@ -20,38 +20,38 @@
 
   /* ==================== ① Primitives ==================== */
 
-  /* Primary · 青（key #22B8CF, h213 c48） */
+  /* Primary · 绿 */
   --p0: #000000;
-  --p10: #001f25;
-  --p20: #00363e;
-  --p30: #004e5a;
-  --p40: #006876;
-  --p50: #008395;
-  --p60: #009fb4;
-  --p70: #29bbd2;
-  --p80: #53d7ef;
-  --p90: #a1efff;
-  --p95: #d4f7ff;
-  --p99: #f7fdff;
+  --p10: #002111;
+  --p20: #003920;
+  --p30: #085231;
+  --p40: #006d42;
+  --p50: #008954;
+  --p60: #00a667;
+  --p70: #42ba79;
+  --p80: #92d5ab;
+  --p90: #aef2c6;
+  --p95: #c1ffd5;
+  --p99: #f5fff4;
   --p100: #ffffff;
 
-  /* Secondary · 薄荷（h168 c30） */
+  /* Secondary · 灰绿 */
   --s0: #000000;
-  --s10: #002115;
-  --s20: #003827;
-  --s30: #15503c;
-  --s40: #316853;
-  --s50: #4a826a;
-  --s60: #649c83;
-  --s70: #7eb79d;
-  --s80: #99d3b8;
-  --s90: #b4efd3;
-  --s95: #c2fee1;
-  --s99: #f4fff7;
+  --s10: #022111;
+  --s20: #213528;
+  --s30: #374b3e;
+  --s40: #466551;
+  --s50: #5f7e69;
+  --s60: #789882;
+  --s70: #92b39c;
+  --s80: #b5ccba;
+  --s90: #d1e8d6;
+  --s95: #e0f7e1;
+  --s99: #f5fff4;
   --s100: #ffffff;
 
-  /* Tertiary · 琥珀（key #A98015 = Blend.harmonize(#B7791F → #22B8CF)，h86 c44，v14）
-     职责：运行/进行中、成就高亮；warning 为本族别名；链接与 info 已迁 primary */
+  /* Tertiary · 琥珀（换主色时不跟着换：warning 是本族别名，绿主色下才分得开运行中与警告）
+     职责：运行/进行中、成就高亮；链接与 info 走 primary */
   --t0: #000000;
   --t10: #261a00;
   --t20: #402d00;
@@ -66,56 +66,56 @@
   --t99: #fffbff;
   --t100: #ffffff;
 
-  /* Neutral · 蓝灰（h240 c5；4/6/12/17/22 为深色 surface 档，92/94/96/98 为浅色 surface 梯度） */
+  /* Neutral · 绿灰（4/6/12/17/22 为深色 surface 档，92/94/96/98 为浅色 surface 梯度） */
   --n0: #000000;
-  --n4: #0b0f11;
-  --n6: #101417;
-  --n10: #191c1f;
-  --n12: #1d2023;
-  --n17: #272a2d;
-  --n20: #2e3134;
-  --n22: #323538;
-  --n30: #44474a;
-  --n40: #5c5f62;
-  --n50: #74777b;
-  --n60: #8e9194;
-  --n70: #a9abaf;
-  --n80: #c4c7ca;
-  --n90: #e1e2e6;
-  --n92: #e6e8ec;
-  --n94: #eceef2;
-  --n95: #eff1f5;
-  --n96: #f2f4f7;
-  --n98: #f8f9fd;
-  --n99: #fbfcff;
+  --n4: #0a0f0c;
+  --n6: #0f1511;
+  --n10: #171d19;
+  --n12: #1b211d;
+  --n17: #262b27;
+  --n20: #2c322d;
+  --n22: #313632;
+  --n30: #444744;
+  --n40: #5c5f5c;
+  --n50: #757874;
+  --n60: #8f918d;
+  --n70: #a9aca8;
+  --n80: #c5c7c3;
+  --n90: #dfe4dd;
+  --n92: #e4eae3;
+  --n94: #eaefe8;
+  --n95: #f0f1ed;
+  --n96: #f0f5ee;
+  --n98: #f6fbf4;
+  --n99: #fbfdf8;
   --n100: #ffffff;
 
-  /* Neutral-Variant · 蓝灰变体（h240 c8） */
+  /* Neutral-Variant · 绿灰变体 */
   --nv0: #000000;
-  --nv10: #161c21;
-  --nv20: #2b3136;
-  --nv30: #41484d;
-  --nv40: #595f65;
-  --nv50: #71787e;
-  --nv60: #8b9198;
-  --nv70: #a6acb2;
-  --nv80: #c1c7ce;
-  --nv90: #dde3ea;
-  --nv95: #ebf1f8;
-  --nv99: #fbfcff;
+  --nv10: #161d18;
+  --nv20: #2a322c;
+  --nv30: #404942;
+  --nv40: #586059;
+  --nv50: #717972;
+  --nv60: #8a938b;
+  --nv70: #a5ada5;
+  --nv80: #c0c9c0;
+  --nv90: #dce5dc;
+  --nv95: #eaf3ea;
+  --nv99: #f6fff5;
   --nv100: #ffffff;
 
-  /* Error · 红（key #B3261E, h26 c76） */
+  /* Error · 红 */
   --e0: #000000;
-  --e10: #410001;
-  --e20: #690003;
-  --e30: #910809;
-  --e40: #b4271f;
-  --e50: #d74034;
-  --e60: #fa5a4a;
-  --e70: #ff8a7b;
-  --e80: #ffb4aa;
-  --e90: #ffdad5;
+  --e10: #410002;
+  --e20: #690005;
+  --e30: #93000a;
+  --e40: #ba1a1a;
+  --e50: #de3730;
+  --e60: #ff5449;
+  --e70: #ff897d;
+  --e80: #ffb4ab;
+  --e90: #ffdad6;
   --e95: #ffedea;
   --e99: #fffbff;
   --e100: #ffffff;
@@ -123,19 +123,21 @@
   /* ==================== ② Semantic roles ==================== */
 
   /* Primary：品牌主色。主按钮、焦点指示、选中底、画布选中 */
-  --color-primary: var(--p40); /* #006876 白字 6.48:1 */
-  --color-primary-hover: var(--p50); /* #008395 主色 hover 加深（v12） */
+  --color-primary: var(--p40); /* #006D42 白字 6.43:1 */
+  --color-primary-hover: var(--p50); /* #008954 主色 hover 加深 */
   --color-on-primary: var(--p100);
-  --color-primary-container: var(--p90); /* #A1EFFF 选中底 13.34:1 */
+  --color-primary-container: var(--p90); /* #AEF2C6 选中底（配 P10 字 13.31:1） */
   --color-on-primary-container: var(--p10);
   /* container 分色（v12 故事板工作台）：小件实色 / 大面浅底，四件套仍成对使用 */
-  --color-primary-container-solid: var(--p70); /* #29BBD2 小件实色（M01 标签/@chip/徽标，≈6.6:1） */
-  --color-primary-container-soft: var(--p95); /* #D4F7FF 大面浅底（配 1.5px P70 描边，≈12:1） */
+  --color-primary-container-solid: var(--p70); /* #42BA79 小件实色（配 P10 字 6.96:1） */
+  --color-primary-container-soft: var(
+    --p95
+  ); /* #C1FFD5 大面浅底（配 1.5px P70 描边，P10 字 15.12:1） */
 
   /* Secondary：辅助色。用户气泡、成功状态 */
-  --color-secondary: var(--s40); /* #316853 白字 6.49:1 */
+  --color-secondary: var(--s40); /* #466551 白字 6.48:1 */
   --color-on-secondary: var(--s100);
-  --color-secondary-container: var(--s90); /* #B4EFD3 用户气泡 13.21:1 */
+  --color-secondary-container: var(--s90); /* #D1E8D6 用户气泡 13.21:1 */
   --color-on-secondary-container: var(--s10);
 
   /* Tertiary · 琥珀：暖强调。运行/进行中、成就高亮（v14；链接与 info 归 primary） */
@@ -145,18 +147,18 @@
   --color-on-tertiary-container: var(--t10);
 
   /* Error：错误与危险操作 */
-  --color-error: var(--e40); /* #B4271F 白字 6.46:1 */
+  --color-error: var(--e40); /* #BA1A1A 白字 6.46:1 */
   --color-on-error: var(--e100);
-  --color-error-container: var(--e90); /* #FFDAD5 13.26:1 */
+  --color-error-container: var(--e90); /* #FFDAD6 13.26:1 */
   --color-on-error-container: var(--e10);
 
   /* Surface 系：背景、文字、边框 */
-  --color-surface: var(--n98); /* #F8F9FD 页面背景（v14 对齐 M3-2023 surface=N98） */
-  --color-on-surface: var(--n10); /* #191C1F 主文字 16.26:1 */
-  --color-surface-variant: var(--nv90); /* #DDE3EA 弱底 */
-  --color-on-surface-variant: var(--nv30); /* #41484D 次级文字 8.84:1 */
-  --color-outline: var(--nv50); /* #71787E 强边框/输入框 */
-  --color-outline-variant: var(--nv80); /* #C1C7CE 默认边框 */
+  --color-surface: var(--n98); /* #F6FBF4 页面背景（M3-2023 surface=N98） */
+  --color-on-surface: var(--n10); /* #171D19 主文字 16.33:1 */
+  --color-surface-variant: var(--nv90); /* #DCE5DC 弱底 */
+  --color-on-surface-variant: var(--nv30); /* #404942 次级文字 8.90:1 */
+  --color-outline: var(--nv50); /* #717972 强边框/输入框 */
+  --color-outline-variant: var(--nv80); /* #C0C9C0 默认边框 */
   --color-surface-container-lowest: var(--n100); /* #FFFFFF 卡片 */
   /* v14：梯度改用真实 HCT tone（M3-2023 档位 96/94/92/90），替代 v13 的 color-mix 插值 */
   --color-surface-container-low: var(--n96);
@@ -165,7 +167,7 @@
   --color-surface-container-highest: var(--n90);
 
   /* 反色与辅助 */
-  --color-inverse-surface: var(--n20); /* #2E3134 深色按钮/toast */
+  --color-inverse-surface: var(--n20); /* #2C322D 深色按钮/toast */
   --color-inverse-on-surface: var(--n95);
   --color-inverse-primary: var(--p80);
   --color-scrim: var(--n0);
@@ -235,7 +237,7 @@
   --color-btn-hover: var(--color-state-hover);
   --color-media-stack-bg: color-mix(in srgb, var(--color-glass-base) 92%, transparent);
   --color-media-stack-bg-hover: var(--color-glass-base);
-  --color-popup-bg: rgba(249, 252, 255, 0.98);
+  --color-popup-bg: rgba(251, 253, 248, 0.98);
   --color-dot: color-mix(in srgb, var(--nv70) 28%, transparent);
   --color-dot-pattern: color-mix(in srgb, var(--nv70) 12%, transparent);
   --color-border: var(--color-outline-variant);
@@ -308,16 +310,16 @@
     var(--color-secondary) 70%,
     transparent
   ); /* v13：26%（1.48:1）→ 70%（≥3:1，焦点指示达标） */
-  --shadow-chat-panel: 0 20px 48px rgba(67, 76, 88, 0.18);
+  --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);
   --shadow-chat-user:
     0 12px 26px rgba(0, 94, 72, 0.12), 0 0 0 1px rgba(0, 174, 135, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.78);
   --shadow-chat-assistant:
-    0 16px 34px rgba(67, 76, 88, 0.12), inset 0 1px 0 var(--color-chat-assistant-highlight);
+    0 16px 34px rgba(64, 73, 66, 0.12), inset 0 1px 0 var(--color-chat-assistant-highlight);
   --shadow-chat-agent-avatar:
-    0 8px 18px rgba(67, 76, 88, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+    0 8px 18px rgba(64, 73, 66, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62);
   --shadow-chat-agent-identity:
-    0 8px 18px rgba(67, 76, 88, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+    0 8px 18px rgba(64, 73, 66, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.62);
 
   /* 状态与杂项 */
   --color-disabled-text: color-mix(
@@ -346,21 +348,21 @@
   --color-canvas-label-text: var(--nv50);
 
   /* 故事板工作台（v12 设计规格） */
-  --color-storyboard-canvas: #e9eef5; /* 版本占位底 */
+  --color-storyboard-canvas: #eaefe8; /* 版本占位底 */
   --color-storyboard-canvas-dot: color-mix(
     in srgb,
     var(--nv50) 18%,
     transparent
   ); /* 版本占位点阵，22px 网格 */
   --shadow-storyboard-media:
-    0 1px 2px rgba(24, 28, 34, 0.07), 0 10px 22px -12px rgba(24, 28, 34, 0.2); /* 参考媒体缩略图浮起 */
+    0 1px 2px rgba(23, 29, 25, 0.07), 0 10px 22px -12px rgba(23, 29, 25, 0.2); /* 参考媒体缩略图浮起 */
   --shadow-storyboard-hero:
-    0 2px 4px rgba(24, 28, 34, 0.08), 0 18px 34px -14px rgba(24, 28, 34, 0.28); /* 创作 Brief 视频封面 */
+    0 2px 4px rgba(23, 29, 25, 0.08), 0 18px 34px -14px rgba(23, 29, 25, 0.28); /* 创作 Brief 视频封面 */
   --shadow-storyboard-sidebar-left: 12px 0 24px -18px
     color-mix(in srgb, var(--color-on-surface) 28%, transparent); /* 左侧栏向工作区的柔和过渡 */
   --shadow-storyboard-sidebar-right: -12px 0 24px -18px
     color-mix(in srgb, var(--color-on-surface) 28%, transparent); /* 右侧栏向工作区的柔和过渡 */
-  --storyboard-node-shadow: 0 35px 96px rgba(16, 42, 67, 0.22); /* 工作台节点浮起（v13 从 JS 常量上收） */
+  --storyboard-node-shadow: 0 35px 96px rgba(38, 43, 39, 0.22); /* 工作台节点浮起（v13 从 JS 常量上收） */
   --color-annotation-red: #e04f3f; /* 标注功能色板：仅标注笔触与图钉，不进入界面配色 */
   --color-annotation-orange: #e9a13b;
   --color-annotation-blue: #3f9fd0;
@@ -388,7 +390,7 @@
   --color-agent-log-bg: var(--n90);
 
   /* 图表系列色（分类数据身份色，不承载状态语义；v14 Blend.harmonize 向主色） */
-  --color-chart-1: #07a8c4;
+  --color-chart-1: #00a667;
   --color-chart-2: #375971;
   --color-chart-3: #e0a800;
   --color-chart-4: #2fc6be;
@@ -461,14 +463,14 @@
   --storyboard-node-screen-empty: var(--storyboard-node-surface);
   --storyboard-node-script-surface: var(--storyboard-node-surface);
   --storyboard-node-tool-surface: var(--storyboard-node-surface);
-  --storyboard-node-panel-divider: #e5ebf2;
-  --storyboard-node-accent: #00cae0;
+  --storyboard-node-panel-divider: #e4eae3;
+  --storyboard-node-accent: #00a667;
   --storyboard-node-accent-line: var(--storyboard-node-accent);
-  --storyboard-node-ink: #090c14;
-  --storyboard-node-muted: rgba(24, 51, 78, 0.4);
-  --storyboard-node-muted-strong: rgba(21, 41, 60, 0.5);
-  --storyboard-node-preview-tool-text: rgba(9, 12, 20, 0.72);
-  --storyboard-node-timeline-badge: rgba(9, 12, 20, 0.68);
+  --storyboard-node-ink: #0a0f0c;
+  --storyboard-node-muted: rgba(42, 50, 44, 0.4);
+  --storyboard-node-muted-strong: rgba(42, 50, 44, 0.5);
+  --storyboard-node-preview-tool-text: rgba(10, 15, 12, 0.72);
+  --storyboard-node-timeline-badge: rgba(10, 15, 12, 0.68);
   --storyboard-node-empty-preview-bg: var(--n0);
 
   /* ==================== ③b 媒体中立层与局部堆叠（v15.1 收口） ==================== */
@@ -515,10 +517,10 @@
   /* ==================== ④ Type 尺 ==================== */
 
   /* 阴影（M3 tonal elevation，v15 四档：静态表面零投影 → shadow-1 悬浮小件 → shadow-2 菜单/浮层 → shadow-3 弹窗） */
-  --shadow-1: 0 2px 8px rgba(25, 28, 31, 0.08), 0 1px 3px rgba(25, 28, 31, 0.05); /* 悬浮小件轻影 */
+  --shadow-1: 0 2px 8px rgba(23, 29, 25, 0.08), 0 1px 3px rgba(23, 29, 25, 0.05); /* 悬浮小件轻影 */
   --shadow-2:
-    0 6px 20px rgba(25, 28, 31, 0.11), 0 2px 6px rgba(25, 28, 31, 0.07); /* 菜单/@列表/进度 pill */
-  --shadow-3: 0 20px 56px rgba(25, 28, 31, 0.22); /* 弹窗/toast */
+    0 6px 20px rgba(23, 29, 25, 0.11), 0 2px 6px rgba(23, 29, 25, 0.07); /* 菜单/@列表/进度 pill */
+  --shadow-3: 0 20px 56px rgba(23, 29, 25, 0.22); /* 弹窗/toast */
 
   /* 动效（v15 对齐 M3 标准时值；进出不对称：退场用时约为进场一半） */
   --dur-s: 150ms; /* 微交互：hover/按压/工具切换 */
@@ -550,7 +552,7 @@
   --text-headline-line: var(--text-headline--line-height, 36px);
   --text-title-line: var(--text-title--line-height, 24px);
   --text-body-line: var(--text-body--line-height, 20px);
-  --text-body-sm-line: var(--text-body-sm--line-height, 18px);
+  --text-body-sm-line: var(--text-body-sm--line-height, 16px);
   --text-label-line: var(--text-label--line-height, 16px);
   --text-caption-line: var(--text-caption--line-height, 16px);
 
@@ -628,7 +630,7 @@
   --color-background-bottom: var(--n4);
   --color-top-layer: var(--n17);
   --color-glass-base: var(--n17);
-  --color-popup-bg: rgba(29, 32, 35, 0.98);
+  --color-popup-bg: rgba(27, 33, 29, 0.98);
   --color-danger-border: var(--e60);
   --color-danger-text: var(--e80);
   --color-thumb-fallback: var(--n30);
@@ -655,7 +657,7 @@
   --shadow-chat-agent-avatar: 0 8px 18px rgba(0, 0, 0, 0.4);
   --shadow-chat-agent-identity: 0 8px 18px rgba(0, 0, 0, 0.4);
   --color-canvas-label-text: var(--nv60);
-  --color-storyboard-canvas: #14181d;
+  --color-storyboard-canvas: #0f1511;
   --shadow-storyboard-media: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 22px -12px rgba(0, 0, 0, 0.6);
   --shadow-storyboard-hero: 0 2px 4px rgba(0, 0, 0, 0.3), 0 18px 34px -14px rgba(0, 0, 0, 0.7);
   --shadow-storyboard-sidebar-left: 12px 0 24px -18px rgba(0, 0, 0, 0.6);
@@ -664,10 +666,10 @@
   --storyboard-node-surface: var(--n12);
   --storyboard-node-selected-surface: var(--n17);
   --storyboard-node-panel-divider: var(--nv20);
-  --storyboard-node-ink: #e9edf4;
-  --storyboard-node-muted: rgba(200, 215, 230, 0.45);
-  --storyboard-node-muted-strong: rgba(200, 215, 230, 0.6);
-  --storyboard-node-preview-tool-text: rgba(233, 237, 244, 0.75);
+  --storyboard-node-ink: #eaefe8;
+  --storyboard-node-muted: rgba(197, 199, 195, 0.45);
+  --storyboard-node-muted-strong: rgba(197, 199, 195, 0.6);
+  --storyboard-node-preview-tool-text: rgba(234, 239, 232, 0.75);
   --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
   --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.65);
@@ -697,8 +699,8 @@ body {
   padding: 0;
   background-color: var(--color-background);
   background-image:
-    radial-gradient(circle at 28% 0%, rgba(190, 229, 255, 0.62) 0%, transparent 38%),
-    radial-gradient(circle at 74% 8%, rgba(209, 245, 230, 0.56) 0%, transparent 36%),
+    radial-gradient(circle at 28% 0%, rgba(174, 242, 198, 0.62) 0%, transparent 38%),
+    radial-gradient(circle at 74% 8%, rgba(209, 232, 214, 0.56) 0%, transparent 36%),
     linear-gradient(
       180deg,
       var(--color-background-top) 0%,
