@@ -61,7 +61,7 @@
 
 ### 4.2 日常开发：任务分支 → develop
 
-开发一律在 worktree 里进行；主目录常驻 main，不切分支。
+开发一律在 worktree 里进行；主目录常驻 develop，只读不改、不切分支。
 
 1. 开 worktree（Claude Code 会话可用 `EnterWorktree`，落点起点相同）：
    ```
@@ -72,9 +72,9 @@
 2. commit 后 `git push -u origin HEAD`。
 3. `make check`（动了前端再加 `make web-check`）无误后 `gh pr create --base develop`。目标误指 main 的日常 PR：`gh pr edit <n> --base develop`，不要合。
 4. 挂上自动合并，CI 全绿即合，不必请示：`gh pr merge <n> --auto --squash`
-5. 清理：`gh pr view <n> --json state` 为 `MERGED`，`git worktree list` 确认是自己的，再
+5. 清理：`gh pr view <n> --json state` 为 `MERGED`，`git worktree list` 确认是自己的，再回主目录
    ```
-   git fetch origin
+   git pull
    git worktree remove .claude/worktrees/<任务名>
    git branch -D <分支名>
    ```
