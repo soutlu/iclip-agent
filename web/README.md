@@ -31,11 +31,11 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 └── src/
     ├── main.tsx                # 入口
     ├── app/                    # 应用壳：providers、router 装配、全局样式与主题
-    ├── routes/                 # 文件式路由 = 薄胶水层；_authed.tsx 提供登录页共用页头
-    ├── features/               # 业务竖切
+    ├── routes/                 # 文件式路由，只做装配；_authed.tsx 提供登录页共用页头
+    ├── features/               # 业务模块
     │   ├── auth/               # 登录、SSO、用户菜单
     │   └── home/               # 首页
-    ├── shared/                 # 横切能力
+    ├── shared/                 # 共用层
     │   ├── api/                # apiFetch、query-client
     │   ├── auth/               # 会话、权限判定、路由守卫
     │   ├── icons/              # 图标注册表（Icon / IconName，唯一图标入口）
