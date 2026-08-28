@@ -108,7 +108,11 @@ def create_users_router(service: IdentityService) -> APIRouter:
             page_size=page_size,
         )
 
-    @router.patch("/users/{user_id}", response_model=UserEnvelope)
+    @router.patch(
+        "/users/{user_id}",
+        response_model=UserEnvelope,
+        responses={400: {"description": "不能修改自己的授权，也不能停用自己"}},
+    )
     async def patch_user(
         user_id: uuid.UUID,
         patch: UserPatchIn,

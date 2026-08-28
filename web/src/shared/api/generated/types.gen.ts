@@ -1511,6 +1511,14 @@ export type ChatAgentsAgentIdChatPostResponses = {
 
 export type ResumeAgentsAgentIdChatConversationIdRunIdGetData = {
   body?: never
+  headers?: {
+    /**
+     * Last-Event-Id
+     *
+     * 上次收到的事件位置，从它之后接着发
+     */
+    'Last-Event-ID'?: string | null
+  }
   path: {
     /**
      * Agent Id
@@ -1525,7 +1533,14 @@ export type ResumeAgentsAgentIdChatConversationIdRunIdGetData = {
      */
     run_id: string
   }
-  query?: never
+  query?: {
+    /**
+     * From
+     *
+     * 同 Last-Event-ID，供不能带请求头的客户端使用
+     */
+    from?: string | null
+  }
   url: '/agents/{agent_id}/chat/{conversation_id}/{run_id}'
 }
 
@@ -2919,6 +2934,10 @@ export type PatchUserUsersUserIdPatchData = {
 }
 
 export type PatchUserUsersUserIdPatchErrors = {
+  /**
+   * 不能修改自己的授权，也不能停用自己
+   */
+  400: unknown
   /**
    * Validation Error
    */
