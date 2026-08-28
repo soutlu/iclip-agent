@@ -65,17 +65,18 @@
 
 ## 5. 开发、合并与清理规范
 
-本仓库的主干 (main) 受到分支保护，严禁直接 Push。未通过全绿 CI 检查的代码无法合入，合并后远端特征分支会自动删除。
+仓库有两条长期分支：**`main` 是已交付的版本，锁为只读**（GitHub 分支保护里的 Lock branch），任何人任何 PR 都合不进去；**`develop` 是当前开发线**，所有日常 PR 都打到它。两条分支都受保护：严禁直接 Push，CI 不全绿不能合，合并后远端特征分支自动删除。
 
 **开发一律在 worktree 里进行，不在主目录切分支。** 主目录常驻 main，谁都不去动它；每个任务在 `.claude/worktrees/<任务名>` 下开一个独立工作副本，自带分支。这样多个任务（以及多个并行的 Agent 会话）各改各的文件，互不覆盖，也不会因为谁切了一下分支而让别人的工作区突然变样。
 
-1. **开 worktree**：`git worktree add .claude/worktrees/<任务名> -b <分支名> origin/main`（Claude Code 会话用 `EnterWorktree` 工具，落点相同）。从 `origin/main` 起，不从当前 HEAD 起——除非这次改动确实依赖某条还没合的分支，那种情况要在 PR 里写明它叠在谁上面。
+1. **开 worktree**：`git worktree add .claude/worktrees/<任务名> -b <分支名> origin/develop`（Claude Code 会话用 `EnterWorktree` 工具，落点相同）。从 `origin/develop` 起，不从当前 HEAD 起——除非这次改动确实依赖某条还没合的分支，那种情况要在 PR 里写明它叠在谁上面。
 2. **在 worktree 里开发**：完成本地 Commit 后 `git push -u origin HEAD`。
-3. **本地检查与发 PR**：确保在该 worktree 里执行 `make check` 无误后，使用 `gh pr create` 发起合并请求。
+3. **本地检查与发 PR**：确保在该 worktree 里执行 `make check` 无误后，用 `gh pr create --base develop` 发起合并请求。仓库默认分支仍是 main，漏掉 `--base develop` 会打到锁死的 main 上。
 4. **合并与清理 (必须有人类授权)**：
    - 自动运行的 Agent **在获得人类开发者的明确许可后**，可以且应当代为执行合并指令：`gh pr merge --auto --squash`。
-   - PR 成功合入后，Agent 应负责清理：回到主目录执行 `git pull` 更新 main，再 `git worktree remove .claude/worktrees/<任务名>` 与 `git branch -D <分支名>`。清理前先 `git worktree list` 确认没删到别人正在用的那个。
+   - PR 成功合入后，Agent 应负责清理：回到主目录执行 `git fetch origin` 刷新 `origin/develop`，再 `git worktree remove .claude/worktrees/<任务名>` 与 `git branch -D <分支名>`。清理前先 `git worktree list` 确认没删到别人正在用的那个。
    - 🚨 **安全底线**：严禁 AI Agent 在未获得用户明确同意的情况下，自作主张合入 PR。
+5. **发版到 main（只由人类发起）**：由开发者决定把 develop 交付时，先在 GitHub 上解锁 main（Settings → Branches → main → 取消 Lock branch），开 `develop → main` 的 PR，CI 全绿合入，再把 main 锁回去。Agent 不得自行解锁 main，也不得开或合 develop → main 的 PR。
 
 ## 附：文档地图 (Documentation Map)
 
