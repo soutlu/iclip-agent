@@ -63,17 +63,17 @@
 | **测试门禁** | ✅ Pytest Marker + 架构单测 | 测试用例按所在目录自动归到 `unit` / `integration_no_llm` 等层；文件放错位置由 `T-COLL-01` 这条单测报错点出来（不是在收集阶段被拒收）。 |
 | **CI 拦截** | ✅ GitHub Actions | PR 和主干推送时，服务端与前端的 CI 流水线必须双端全绿，否则强制阻断代码合并。 |
 
-## 5. 分支、开发与合并规范
+## 5. 分支、版本与合并规范
 
 ### 5.1 分支拓扑
 
 | 分支 | 角色 | 什么能合进来 | 合并方式 |
 |------|------|--------------|----------|
-| `main` | 已交付的版本 | 只有 `develop → main` 的发版 PR，且要开发者确认 | merge commit |
-| `develop` | 当前开发线 | 任务分支的 PR，CI 全绿即合 | squash |
+| `main` | 已交付的版本，每个提交都对应一个版本 tag | 发版 PR（`develop → main`）和热修 PR，都要开发者确认 | merge commit |
+| `develop` | 当前开发线 | 任务分支的 PR，CI 全绿即合；热修后 `main → develop` 的回流 PR | squash；回流用 merge commit |
 | 任务分支 | 一个任务的改动，活在 worktree 里 | 直接 commit / push | — |
 
-`main` 与 `develop` 受同样的分支保护：不能直接 push，必需检查 `server` + `web` 全绿，禁 force push、禁删除；合并后任务分支在远端自动删除。仓库默认分支是 `develop`：`gh pr create` 不写目标就打到它，`EnterWorktree` 自建的 worktree 也从它起；只有发版 PR 要显式写 `--base main`。
+`main` 与 `develop` 受同样的分支保护：不能直接 push，必需检查 `server` + `web` 全绿，禁 force push、禁删除；合并后任务分支在远端自动删除。仓库默认分支是 `develop`：`gh pr create` 不写目标就打到它，`EnterWorktree` 自建的 worktree 也从它起；目标为 main 的 PR 要显式写 `--base main`。
 
 ### 5.2 日常开发：任务分支 → develop
 
@@ -113,8 +113,41 @@
    ```
    gh pr merge <n> --merge
    ```
+4. 打版本 tag 并生成更新说明（版本号由开发者在确认发版时给出，规则见 5.4）：
+   ```
+   gh release create vX.Y.Z --target main --title vX.Y.Z --generate-notes
+   git fetch --tags
+   ```
 
-🚨 **Agent 禁区**：不自行开、不自行合 `develop → main` 的 PR；不直接 push `main` 或 `develop`。除此之外的合并动作不需要再向人请示。
+### 5.4 版本号
+
+格式 `vX.Y.Z`，每次合进 main 都必须打一个，号由开发者定。
+
+| 改哪一段 | 什么时候 | 例 |
+|----------|----------|----|
+| X（主版本） | 重构、老用法不再兼容 | `v1.4.2 → v2.0.0` |
+| Y（次版本） | 加功能，老用法都还能用 | `v1.4.2 → v1.5.0` |
+| Z（补丁） | 只修 bug，不加功能 | `v1.4.2 → v1.4.3` |
+
+前面一段加一，后面的段归零。`v0.Y.Z` 表示尚未正式交付、随时可能大改，这阶段大改只加 Y。当前 main 是 `v0.1.0`（前端重写前的最后一版）。
+
+### 5.5 热修：修已交付版本的 bug
+
+develop 上已经堆着下一个版本，不能整条合进 main，所以修复从 main 起、先进 main、再回流 develop。
+
+1. **从 main 开 worktree**（不是 develop）：
+   ```
+   git worktree add .claude/worktrees/hotfix-<名> -b hotfix-<名> origin/main
+   ```
+2. **发 PR 到 main**：`make check` 无误后 `gh pr create --base main`。CI 全绿 + 开发者确认后 `gh pr merge <n> --merge`，再按 5.3 第 4 步打 `Z+1` 的 tag。
+3. **回流 develop**：让开发线也带上这个修复，否则下个版本会把 bug 带回来。
+   ```
+   gh pr create --base develop --head main --title "回流 vX.Y.Z 热修"
+   gh pr merge <n> --auto --merge
+   ```
+   回流用 merge commit，不用 squash，理由同 5.3 第 3 步。
+
+🚨 **Agent 禁区**：目标为 `main` 的 PR（发版、热修）一律要开发者确认后才开、才合；不直接 push `main` 或 `develop`。除此之外的合并动作不需要再向人请示。
 
 ## 附：文档地图 (Documentation Map)
 
