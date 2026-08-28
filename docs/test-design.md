@@ -1,72 +1,50 @@
 # iclip-agent 测试设计
 
-> 测试策略与测试点登记的事实源。命令入口见 [../AGENTS.md](../AGENTS.md)。
+> 命令入口见 [../AGENTS.md](../AGENTS.md)。
 
-## §0 测试哲学（唯一编写规范）
-
-测试的目的不是凑代码覆盖率，而是验证用户和系统的可见边界。
+## §0 编写规则
 
 ### 0.1 行为归层
 
-每个行为只在**一个**层测试，选**最靠近用户可观察边界**的层：HTTP 状态码 + camelCase payload、事件序列、Postgres 行、文件产物。unit 层只收两类：纯函数逻辑，或 integration 层无法经济触达的分支。同一断言出现在两层即删除靠内的那份。
+每个行为只在一个层测试，选最靠近用户可观察边界的层：HTTP 状态码 + camelCase payload、事件序列、Postgres 行、文件产物。unit 层只收两类：纯函数逻辑，或 integration 层无法经济触达的分支。同一断言出现在两层即删除靠内的那份。
 
-### 0.2 测试禁区 (Anti-patterns)
+### 0.2 禁区
 
-为了保持测试的生命力和可重构性，严禁以下行为：
-- ⛔️ **禁止 import / monkeypatch 下划线私有符号**（棘轮基线登记，只降不升，当前为**空**）。
-- ⛔️ **禁止调用录像断言**（断言结果，不断言过程；「某函数被以某参数调用过」不是行为）。
-- ⛔️ **禁止框架 kwargs 快照**。**单点例外**：当调用形状本身就是契约时（引擎运行入口的调用形状），允许且仅允许一个单点契约测试承担。
-- ⛔️ **禁止 prompt / 自然语言文本快照**（只断言结构，不断言措辞）。
-- ⛔️ **禁止在 fake 里写生产逻辑**；fake 只做最小状态机。
-- 边界用例必须映射到已登记的风险点，不做覆盖率驱动的凑数测试；发现测试违反本节规则时先删测试再补对层。
+- 不 import / monkeypatch 下划线私有符号。豁免清单 `PRIVATE_IMPORT_BASELINE` 在架构测试中登记，当前为空，只减不增。
+- 不做调用录像断言：断言结果，不断言「某函数被以某参数调用过」。
+- 不做框架 kwargs 快照。唯一例外：调用形状本身就是契约时（引擎运行入口），允许且仅允许一个单点契约测试。
+- 不做 prompt / 自然语言文本快照：只断言结构，不断言措辞。
+- 不在 fake 里写生产逻辑；fake 只做最小状态机。
+- 发现测试违反本节规则时先删测试再补对层。
 
-### 0.3 棘轮
-
-棘轮基线是历史违规的豁免清单，只许减少、不许新增：`PRIVATE_IMPORT_BASELINE` 在架构测试中登记，初始为空，条目消失后必须同步从基线删除（防陈旧豁免）。
-
-### 0.4 执行节奏
-
-开发内环只跑被改 surface 的定向测试（按 §1 测试树目录与 §3 登记表定位对应用例）；提交前 `make check`；合入前 CI 全链。不在迭代中反复跑全量。
-
-## §1 四层测试树结构
-
-我们将测试从快到慢、从纯逻辑到依赖外部，分为以下四层：
+## §1 四层测试树
 
 ```text
 server/tests/
 ├── unit/                  # 纯逻辑 + 架构契约；无 I/O、无网络、无真实数据库
-├── integration_no_llm/    # 默认集成门禁：使用真实 Postgres，但无真实 LLM / OSS / provider
-├── integration_llm/       # 外部集成门禁：连通真实大模型进行对话或生成测试（当前无用例）
-├── e2e_full/              # 外部门禁：全链路 Smoke Test（当前无用例）
+├── integration_no_llm/    # 默认集成层：真实 Postgres，无真实 LLM / OSS / provider
+├── integration_llm/       # 连通真实大模型
+├── e2e_full/              # 全链路
 └── helpers/               # 测试基建；不得命名为 test_*.py
 ```
 
-- **Marker 自动注入**：`tests/conftest.py` 会根据上述目录结构自动为测试用例注入 pytest marker（例如 `unit` 或 `integration_no_llm`）。
-- **Collection Contract**：如果 `tests/` 根目录或未定义的层级下出现了 `test_*.py`，`T-COLL-01` 这条单测会报错点名该文件。注意它是收集完成之后的断言失败，不是在收集阶段被拒收——这类文件同时也拿不到层级 marker，跑默认门禁时会被直接跳过。如果需要新增子目录，请先修改契约。
-- **门禁定义**：
-  - **默认门禁**：通过 `pytest -m "unit or integration_no_llm"` 运行。
-  - **外部门禁**：通过 `make test-external` 运行（若缺少真实外部凭证则自动 skip，但**不得产生 fail**）。
+`tests/conftest.py` 按目录自动注入 pytest marker；放错位置的 `test_*.py` 由架构单测报错点名。新增子目录先改契约。默认测试集为 `unit or integration_no_llm`（`make test`）；外部层由 `make test-external` 运行，缺凭证时 skip，不得 fail。
 
-## §2 Postgres / Redis 测试环境规则 (针对 integration_no_llm)
+## §2 Postgres / Redis 测试环境
 
-针对需要数据库的集成测试 (`integration_no_llm`)，数据库连接解析顺序如下：
+`integration_no_llm` 的数据库连接解析顺序：
 
-1. 如果环境变量 `TEST_DATABASE_URL` 被显式设置，则直连该库（适用于本地已有库或 CI 容器）。
-2. 若未设置环境变量，但本地 Docker 可用，则通过 Testcontainers 自动拉起一个一次性的 Postgres（Session 级别复用）。
-3. 如果两者皆不可用，则直接 Skip。**注意：CI 必须提供 service container，因此 CI 上永远不允许出现静默 Skip**。
+1. 环境变量 `TEST_DATABASE_URL` 已设置 → 直连该库。
+2. 未设置但本地 Docker 可用 → Testcontainers 拉起一次性 Postgres（Session 级复用）。
+3. 两者皆不可用 → skip。CI 必须提供 service container，不允许 skip。
 
-Redis 走同一套顺序（`TEST_REDIS_URL` > testcontainers > skip），但**只有声明了 agent 的测试才会去要它**，别的测试不会因此多起一个容器。
+Redis 同一顺序（`TEST_REDIS_URL` > Testcontainers > skip），只有声明了 agent 的测试会请求它。
 
-**注意：** 测试代码只准使用临时环境（scratch schema 或一次性容器），严禁执行诸如 `DROP` 之类的操作影响或破坏配置在运行中的业务库结构。
+测试代码只使用临时环境（scratch schema 或一次性容器），不对运行中的业务库执行 `DROP` 等破坏性操作。
 
-## §3 测试点登记表 (Verification Map)
+## §3 不进自动化的项目
 
-随着系统演进，测试点登记表会持续增长。所有的具体测试点、验证行为与风险映射，均已抽离并统一登记在独立的文档中：
-👉 **[test-registry.md](test-registry.md)**
-
-## §4 已知不可测 / 人工清单
-
-- SSO / PMS 真实环境联通性：人工验收（见 [../AGENTS.md](../AGENTS.md) §3 验证矩阵），自动化测试只打替身协议客户端。
-- LLM 输出语义质量：不进自动化门禁，自动测试只断言协议与结构。
-- cookie `Secure` / 反代 WS upgrade 等部署属性：部署检查表，人工。
-- 「客户端断开」这类行为测不了替身传输：httpx 的 ASGITransport 会把整个响应缓冲完才交出来，用它写出来的「读一半就断」其实是读完之后才松手。要验真断开必须起真服务器（见 `test_run_detached.py`）。
+- SSO / PMS 真实环境联通性：人工验收（见 [../AGENTS.md](../AGENTS.md) §3），自动化只打替身协议客户端。
+- LLM 输出语义质量：自动测试只断言协议与结构。
+- cookie `Secure`、反代 WS upgrade 等部署属性：部署检查表。
+- 「客户端断开」：httpx 的 ASGITransport 会缓冲完整响应再交出，测不出读一半就断；要验真断开须起真服务器（见 `test_run_detached.py`）。

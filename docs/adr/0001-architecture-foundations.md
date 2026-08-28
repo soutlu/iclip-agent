@@ -28,8 +28,6 @@ Agent 在代码/配置里初始化，**运行事实全部落 Postgres**：运行
 
 API key：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希与展示前缀，明文仅创建响应一次；全部事实行记录 `user_id + api_key_id?` 供审计。权限模型见 [ADR-0002](0002-unified-permission-model.md)（权限集合是唯一授权货币）。
 
-服务账号：已考虑、暂缓——当前形态为「专用 user 行持 key」，需要独立生命周期时再升格。
-
 ### 5. 技术栈选型
 
 | 选型 | 理由 |
@@ -40,17 +38,13 @@ API key：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希与展示前缀�
 | SQLAlchemy 2 async + Alembic + asyncpg | 标准组合；表结构只经人工 `alembic upgrade head` 演进，启动期不建表 |
 | pyright strict + ruff + tach | 静态门禁自第一行代码闭合 |
 | structlog | 结构化日志，级别来自配置 |
-| **不引入 Redis / 独立队列服务** | 决定性理由是**事务性入队**：任务行与业务事实在同一个 Postgres 事务提交，是「唯一事实源」不变量的直接延伸；Redis broker 需要 outbox 才能等价——即手搓一个 Postgres 队列还多养一个有状态服务。全部跨 worker 正确性由 Postgres 承载 |
+| **不引入 Redis / 独立队列服务** | 决定性理由是**事务性入队**：任务行与业务事实在同一个 Postgres 事务提交，是「唯一事实源」不变量的直接延伸；Redis broker 需要 outbox 才能等价——即手搓一个 Postgres 队列还多养一个有状态服务。全部跨 worker 正确性由 Postgres 承载。**此项已被 [ADR-0003](0003-detached-runs-and-replayable-streams.md)（Redis 承载运行事件流）与 [ADR-0004](0004-generation-queue-in-postgres.md)（procrastinate 承载生成队列）取代** |
 
 ### 6. 引擎升级纪律
 
-pydantic-ai 以 lockfile 精确 pin，生产绝不使用宽松版本区间；每个上游 release 走一个升级 PR，门禁全绿才可合，目标滞后上游 ≤1–2 个版本。`pydantic-ai-harness`（0.x，官方明示 minor 可破 API）pin 到精确版本，且只准 `harness/` import、经再导出使用，把生态 API 抖动关在一个模块里。
+pydantic-ai 以 lockfile 精确 pin，不使用宽松版本区间。`pydantic-ai-harness`（0.x，官方明示 minor 可破 API）pin 到精确版本，且只准 `harness/` import、经再导出使用，把生态 API 抖动关在一个模块里。
 
-### 7. 数据
-
-全新数据库、不做任何数据迁移。直接后果（已接受）：全部用户重新注册 / 重新 SSO，首个 root 重新引导。
-
-### 8. 刻意保留的自研组件
+### 7. 刻意保留的自研组件
 
 “不要重复造轮子”的另一面约定——以下**不是轮子**，不得以该指令为由将其替换为第三方库：
 
@@ -62,4 +56,3 @@ pydantic-ai 以 lockfile 精确 pin，生产绝不使用宽松版本区间；每
 
 - 扩展路径被分层钉死：新业务能力 = 领域模块 + 能力包 + 配置声明，内核零改动。
 - 运行正确性由数据库持有，不由进程持有：多 worker 是配置问题，不是重写问题。
-- 无 Redis、无独立队列服务的运维面。
