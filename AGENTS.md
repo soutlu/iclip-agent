@@ -50,7 +50,6 @@
 | **权限与鉴权逻辑** | `make test` (拦截鉴权) | 身份与权限测试集（`T-RBAC-01`, `T-KEY-*`, `T-AUTH-*`）全部绿灯。 |
 | **接入第三方 API (如 SSO/PMS)**| `make test` + 人工验收 | 打替身客户端的 SSO/PMS 用例（在 `integration_no_llm` 层，由 `make test` 执行）全绿；且需在本地环境完整走通一次真实的登录回调链路并输出正常日志。 |
 | **前端相关** | `make web-check` | 前端的格式、Lint、设计规范与类型检查全绿。它不含构建，CI 会另外跑一次 `pnpm build`，所以本地过了仍可能被 CI 的构建步骤拦下。 |
-| **发版 / 热修到 main** | CI + 按改动补人工项 | 发版 PR 的 CI 全绿（agent 逻辑已由替身模型测试覆盖，不再人工重跑）。自上次发版以来改到了本表哪一行带「人工验收」的面，就补做那一项，没改就不补；做了的写进 PR 描述。 |
 
 ## 4. 机械护栏 (Mechanical Guardrails)
 
@@ -63,60 +62,48 @@
 | **架构隔离** | ✅ Tach (`tach check`) | 保护三环架构不被击穿：`harness/` 不许依赖业务模块，业务模块不许依赖 Agent 引擎，只有组合根 `app/` 能引用一切。外部存储的客户端逐文件登记于框架围栏（名单见 `docs/architecture.md` 落点表）；新增落点须同步登记，未登记即拒。 |
 | **测试门禁** | ✅ Pytest Marker + 架构单测 | 测试用例按所在目录自动归到 `unit` / `integration_no_llm` 等层；文件放错位置由 `T-COLL-01` 这条单测报错点出来（不是在收集阶段被拒收）。 |
 | **CI 拦截** | ✅ GitHub Actions | PR 以及推到 main / develop 时，服务端与前端的 CI 流水线必须双端全绿，否则强制阻断代码合并。 |
-| **合并方式与版本 tag** | ✅ GitHub 规则集 | main 只接受 merge commit，develop 只接受 squash 或 merge commit，选错在合并按钮上就被禁掉；`v*` 的 tag 禁删禁改。仓库管理员可绕过，是唯一的逃生口。 |
+| **合并方式与版本 tag** | ✅ GitHub 规则集 | main 只接受 merge commit，develop 只接受 squash / merge commit；`v*` tag 禁删禁改。 |
 
 ## 5. 分支、版本与合并规范
 
-### 5.1 分支拓扑
+### 5.1 分支
 
 | 分支 | 角色 | 什么能合进来 | 合并方式 |
 |------|------|--------------|----------|
-| `main` | 已交付的版本，每次合并都对应一个版本 tag | 发版 PR（`develop → main`）和热修 PR，都要开发者确认 | merge commit |
-| `develop` | 当前开发线 | 任务分支的 PR，CI 全绿即合；热修后 `main → develop` 的回流 PR | squash；回流用 merge commit |
-| 任务分支 | 一个任务的改动，活在 worktree 里 | 直接 commit / push | — |
+| `main` | 已交付的版本，每次合并打一个版本 tag | 发版 PR（`develop → main`）、热修 PR；都要开发者确认 | merge commit |
+| `develop` | 当前开发线，仓库默认分支 | 任务分支的 PR，CI 全绿即合；热修回流 PR（`main → develop`） | squash；回流用 merge commit |
+| 任务分支 | 一个任务，活在 worktree 里 | 直接 commit / push | — |
 
-`main` 与 `develop` 受同样的分支保护：不能直接 push，必需检查 `server` + `web` 全绿，禁 force push、禁删除；表里的合并方式由规则集强制（见 §4）；合并后任务分支在远端自动删除。保护不要求 PR 先跟上最新的 develop 才能合——那会让并行的 PR 每次都要手动更新再等一轮 CI；代价是两个各自全绿的 PR 合到一起可能坏，靠推到 develop 时再跑一次 CI 兜住，红了下一个 PR 修。仓库默认分支是 `develop`：`gh pr create` 不写目标就打到它，`EnterWorktree` 自建的 worktree 也从它起；目标为 main 的 PR 要显式写 `--base main`。
+`main` 与 `develop` 不能直接 push，必需检查 `server` + `web`，禁 force push、禁删除；合并后任务分支自动删除。
 
 ### 5.2 日常开发：任务分支 → develop
 
-开发一律在 worktree 里进行，不在主目录切分支。主目录常驻 main，谁都不去动它；每个任务在 `.claude/worktrees/<任务名>` 下开一个独立工作副本，自带分支，多个任务和多个并行的 Agent 会话各改各的文件，互不覆盖。
+开发一律在 worktree 里进行；主目录常驻 main，不切分支。
 
-1. **开 worktree**
+1. 开 worktree（Claude Code 会话可用 `EnterWorktree`，落点起点相同）：
    ```
    git fetch origin
    git worktree add .claude/worktrees/<任务名> -b <分支名> origin/develop
    ```
-   先 fetch 是因为 `origin/develop` 只是本地对远端的记忆，不刷新就会从旧位置起。Claude Code 会话用 `EnterWorktree` 工具，落点相同、起点相同（默认分支 develop）。
-   起点固定是 `origin/develop`，不是当前 HEAD。唯一例外：这个任务要用到另一个还没合进 develop 的 PR 里的代码，那就从那个 PR 的分支起，并在 PR 描述里写「依赖 #N，等它先合」——因为这个 PR 会连带显示 #N 的改动，看的人要知道哪些不是本任务的，以及合并顺序。
-2. **开发并推送**：在 worktree 里 commit，`git push -u origin HEAD`。
-3. **本地检查、发 PR**：`make check` 无误后
-   ```
-   gh pr create --base develop
-   ```
-   日常 PR 如果建错了、合并目标指向了 main，不要合它，用 `gh pr edit <n> --base develop` 把目标改回 develop（改动本身不受影响）。
-4. **合并**：发完 PR 就挂上自动合并，CI 全绿会自动合入，不必再问
-   ```
-   gh pr merge <n> --auto --squash
-   ```
-5. **清理**：先确认 PR 已合并（`gh pr view <n> --json state` 显示 `MERGED`——squash 之后 git 认不出分支已合，下面用的是强删），再 `git worktree list` 确认要删的是自己那个，然后回主目录
+   起点固定 `origin/develop`。唯一例外：依赖某个未合 PR 的代码时从该 PR 的分支起，PR 描述写「依赖 #N，等它先合」。
+2. commit 后 `git push -u origin HEAD`。
+3. `make check` 无误后 `gh pr create --base develop`。目标误指 main 的日常 PR：`gh pr edit <n> --base develop`，不要合。
+4. 挂上自动合并，CI 全绿即合，不必请示：`gh pr merge <n> --auto --squash`
+5. 清理：`gh pr view <n> --json state` 为 `MERGED`，`git worktree list` 确认是自己的，再
    ```
    git fetch origin
    git worktree remove .claude/worktrees/<任务名>
    git branch -D <分支名>
    ```
 
-### 5.3 发版：develop → main（开发者确认后）
+### 5.3 发版：develop → main
 
-1. 开发者说要交付，才开这个 PR（不给标题会进入交互问答，Agent 会卡住）：
+1. 开发者确认发版并给出版本号后开 PR：
    ```
-   gh pr create --base main --head develop --title "发版 vX.Y.Z" --body "<验收结果>"
+   gh pr create --base main --head develop --title "发版 vX.Y.Z" --body "<内容摘要>"
    ```
-2. 合入前按 §3「发版 / 热修到 main」那行验收，结果写进 PR 描述。验收针对的是 develop 当时的提交：发版 PR 开着期间 develop 不合新 PR，动了就重验。
-3. 用 merge commit 合入，不用 squash——squash 会让 main 上出现一个 develop 没有的提交，下一次发版时凡是发版后又改过的文件都会冲突（规则集已把 main 上的 squash 禁掉）：
-   ```
-   gh pr merge <n> --merge
-   ```
-4. 打版本 tag 并生成更新说明（版本号由开发者在确认发版时给出，规则见 5.4）：
+2. CI 全绿、开发者确认后：`gh pr merge <n> --merge`
+3. 打 tag 并生成更新说明：
    ```
    gh release create vX.Y.Z --target main --title vX.Y.Z --generate-notes
    git fetch --tags
@@ -124,33 +111,23 @@
 
 ### 5.4 版本号
 
-格式 `vX.Y.Z`，每次合进 main 都必须打一个，号由开发者定。
-
-| 改哪一段 | 什么时候 | 例 |
-|----------|----------|----|
-| X（主版本） | 重构、老用法不再兼容 | `v1.4.2 → v2.0.0` |
-| Y（次版本） | 加功能，老用法都还能用 | `v1.4.2 → v1.5.0` |
-| Z（补丁） | 只修 bug，不加功能 | `v1.4.2 → v1.4.3` |
-
-前面一段加一，后面的段归零。`v0.Y.Z` 表示尚未正式交付、随时可能大改，这阶段大改只加 Y。当前 main 是 `v0.1.0`（前端重写前的最后一版）。
+`vX.Y.Z`，每次合进 main 必打，号由开发者定。X：重构或老用法不再兼容；Y：加功能，老用法可用；Z：只修 bug。前段加一，后段归零。`v0.Y.Z` 为未正式交付阶段，大改只加 Y。
 
 ### 5.5 热修：修已交付版本的 bug
 
-develop 上已经堆着下一个版本，不能整条合进 main，所以修复从 main 起、先进 main、再回流 develop。
-
-1. **从 main 开 worktree**（不是 develop）：
+1. 从 main 开 worktree：
    ```
+   git fetch origin
    git worktree add .claude/worktrees/hotfix-<名> -b hotfix-<名> origin/main
    ```
-2. **发 PR 到 main**：`make check` 无误后 `gh pr create --base main`。按 §3「发版 / 热修到 main」那行验收，CI 全绿 + 开发者确认后 `gh pr merge <n> --merge`，再按 5.3 第 4 步打 `Z+1` 的 tag。
-3. **回流 develop**：让开发线也带上这个修复，否则下个版本会把 bug 带回来。
+2. `make check` 无误后 `gh pr create --base main`；CI 全绿、开发者确认后 `gh pr merge <n> --merge`，按 5.3 第 3 步打 `Z+1`。
+3. 回流 develop：
    ```
    gh pr create --base develop --head main --title "回流 vX.Y.Z 热修"
    gh pr merge <n> --auto --merge
    ```
-   回流用 merge commit，不用 squash，理由同 5.3 第 3 步。
 
-🚨 **Agent 禁区**：目标为 `main` 的 PR（发版、热修）一律要开发者确认后才开、才合；不直接 push `main` 或 `develop`。除此之外的合并动作不需要再向人请示。
+🚨 **Agent 禁区**：目标为 `main` 的 PR 一律要开发者确认后才开、才合；不直接 push `main` 或 `develop`。其余合并不请示。
 
 ## 附：文档地图 (Documentation Map)
 
