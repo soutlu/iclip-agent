@@ -84,13 +84,13 @@
    git worktree add .claude/worktrees/<任务名> -b <分支名> origin/develop
    ```
    Claude Code 会话用 `EnterWorktree` 工具，落点相同、起点相同（默认分支 develop）。
-   起点固定是 `origin/develop`，不是当前 HEAD。唯一例外：改动确实依赖某条还没合的分支，那就从那条分支起，并在 PR 描述里写明「叠在 #N 上面」。
+   起点固定是 `origin/develop`，不是当前 HEAD。唯一例外：这个任务要用到另一个还没合进 develop 的 PR 里的代码，那就从那个 PR 的分支起，并在 PR 描述里写「依赖 #N，等它先合」——因为这个 PR 会连带显示 #N 的改动，看的人要知道哪些不是本任务的，以及合并顺序。
 2. **开发并推送**：在 worktree 里 commit，`git push -u origin HEAD`。
 3. **本地检查、发 PR**：`make check` 无误后
    ```
    gh pr create --base develop
    ```
-   发现某个 PR 的目标是 main 而不是发版 PR，用 `gh pr edit <n> --base develop` 改过来，不要合。
+   日常 PR 如果建错了、合并目标指向了 main，不要合它，用 `gh pr edit <n> --base develop` 把目标改回 develop（改动本身不受影响）。
 4. **合并**：CI 全绿后 Agent 直接执行，不必再问
    ```
    gh pr merge <n> --auto --squash
