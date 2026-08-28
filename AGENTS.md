@@ -73,21 +73,73 @@
 | **测试门禁** | ✅ Pytest Marker + 架构单测 | 测试用例按所在目录自动归到 `unit` / `integration_no_llm` 等层；文件放错位置由 `T-COLL-01` 这条单测报错点出来（不是在收集阶段被拒收）。 |
 | **跨端合同** | ✅ contract-check（后端）+ contract:check（前端） | 合同与后端当前路由一致；前端生成物与合同逐字节一致。任一方向漂移即红。 |
 | **前端护栏** | ✅ 见 [web/AGENTS.md](web/AGENTS.md) §7 | boundaries 分层、design-guard、knip 死代码、命名与导出锁、tsc 严格开关、Vitest 单测、Playwright e2e（CI 单独一步）。 |
-| **CI 拦截** | ✅ GitHub Actions | PR 和主干推送时，服务端与前端的 CI 流水线必须双端全绿，否则强制阻断代码合并。 |
+| **CI 拦截** | ✅ GitHub Actions | PR 以及推到 main / develop 时，服务端与前端的 CI 流水线必须双端全绿，否则强制阻断代码合并。 |
+| **合并方式与版本 tag** | ✅ GitHub 规则集 | main 只接受 merge commit，develop 只接受 squash / merge commit；`v*` tag 禁删禁改。 |
 
-## 5. 开发、合并与清理规范
+## 5. 分支、版本与合并规范
 
-本仓库的主干 (main) 受到分支保护，严禁直接 Push。未通过全绿 CI 检查的代码无法合入，合并后远端特征分支会自动删除。
+### 5.1 分支
 
-**开发一律在 worktree 里进行，不在主目录切分支。** 主目录常驻 main，谁都不去动它；每个任务在 `.claude/worktrees/<任务名>` 下开一个独立工作副本，自带分支。这样多个任务（以及多个并行的 Agent 会话）各改各的文件，互不覆盖，也不会因为谁切了一下分支而让别人的工作区突然变样。
+| 分支 | 角色 | 什么能合进来 | 合并方式 |
+|------|------|--------------|----------|
+| `main` | 已交付的版本，每次合并打一个版本 tag | 发版 PR（`develop → main`）、热修 PR；都要开发者确认 | merge commit |
+| `develop` | 当前开发线，仓库默认分支 | 任务分支的 PR，CI 全绿即合；热修回流 PR（`main → develop`） | squash；回流用 merge commit |
+| 任务分支 | 一个任务，活在 worktree 里 | 直接 commit / push | — |
 
-1. **开 worktree**：`git worktree add .claude/worktrees/<任务名> -b <分支名> origin/main`（Claude Code 会话用 `EnterWorktree` 工具，落点相同）。从 `origin/main` 起，不从当前 HEAD 起——除非这次改动确实依赖某条还没合的分支，那种情况要在 PR 里写明它叠在谁上面。
-2. **在 worktree 里开发**：完成本地 Commit 后 `git push -u origin HEAD`。
-3. **本地检查与发 PR**：确保在该 worktree 里执行 `make check`（动了前端再加 `make web-check`）无误后，使用 `gh pr create` 发起合并请求。
-4. **合并与清理 (必须有人类授权)**：
-   - 自动运行的 Agent **在获得人类开发者的明确许可后**，可以且应当代为执行合并指令：`gh pr merge --auto --squash`。
-   - PR 成功合入后，Agent 应负责清理：回到主目录执行 `git pull` 更新 main，再 `git worktree remove .claude/worktrees/<任务名>` 与 `git branch -D <分支名>`。清理前先 `git worktree list` 确认没删到别人正在用的那个。
-   - 🚨 **安全底线**：严禁 AI Agent 在未获得用户明确同意的情况下，自作主张合入 PR。
+`main` 与 `develop` 不能直接 push，必需检查 `server` + `web`，禁 force push、禁删除；合并后任务分支自动删除。
+
+### 5.2 日常开发：任务分支 → develop
+
+开发一律在 worktree 里进行；主目录常驻 main，不切分支。
+
+1. 开 worktree（Claude Code 会话可用 `EnterWorktree`，落点起点相同）：
+   ```
+   git fetch origin
+   git worktree add .claude/worktrees/<任务名> -b <分支名> origin/develop
+   ```
+   起点固定 `origin/develop`。唯一例外：依赖某个未合 PR 的代码时从该 PR 的分支起，PR 描述写「依赖 #N，等它先合」。
+2. commit 后 `git push -u origin HEAD`。
+3. `make check`（动了前端再加 `make web-check`）无误后 `gh pr create --base develop`。目标误指 main 的日常 PR：`gh pr edit <n> --base develop`，不要合。
+4. 挂上自动合并，CI 全绿即合，不必请示：`gh pr merge <n> --auto --squash`
+5. 清理：`gh pr view <n> --json state` 为 `MERGED`，`git worktree list` 确认是自己的，再
+   ```
+   git fetch origin
+   git worktree remove .claude/worktrees/<任务名>
+   git branch -D <分支名>
+   ```
+
+### 5.3 发版：develop → main
+
+1. 开发者确认发版并给出版本号后开 PR：
+   ```
+   gh pr create --base main --head develop --title "发版 vX.Y.Z" --body "<内容摘要>"
+   ```
+2. CI 全绿、开发者确认后：`gh pr merge <n> --merge`
+3. 打 tag 并生成更新说明：
+   ```
+   gh release create vX.Y.Z --target main --title vX.Y.Z --generate-notes
+   git fetch --tags
+   ```
+
+### 5.4 版本号
+
+`vX.Y.Z`，每次合进 main 必打，号由开发者定。X：重构或老用法不再兼容；Y：加功能，老用法可用；Z：只修 bug。前段加一，后段归零。`v0.Y.Z` 为未正式交付阶段，大改只加 Y。
+
+### 5.5 热修：修已交付版本的 bug
+
+1. 从 main 开 worktree：
+   ```
+   git fetch origin
+   git worktree add .claude/worktrees/hotfix-<名> -b hotfix-<名> origin/main
+   ```
+2. `make check` 无误后 `gh pr create --base main`；CI 全绿、开发者确认后 `gh pr merge <n> --merge`，按 5.3 第 3 步打 `Z+1`。
+3. 回流 develop：
+   ```
+   gh pr create --base develop --head main --title "回流 vX.Y.Z 热修"
+   gh pr merge <n> --auto --merge
+   ```
+
+🚨 **Agent 禁区**：目标为 `main` 的 PR 一律要开发者确认后才开、才合；不直接 push `main` 或 `develop`。其余合并不请示。
 
 ## 附：文档地图 (Documentation Map)
 
