@@ -3,34 +3,8 @@
   background: linear-gradient(135deg, var(--color-background-top) 0%, var(--color-background) 100%);
 }
 
-.producer-auth-bg-image {
-  opacity: 0.94;
-  transform: scale(1.018);
-  transform-origin: 33% 50%;
-  object-position: 33% 50%;
-  filter: saturate(0.98) contrast(1.02) brightness(1.03);
-  animation: producer-auth-bg-drift 30s ease-in-out infinite alternate;
-}
-
-.producer-auth-bg-fade {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--color-surface) 2%, transparent) 0%,
-      color-mix(in srgb, var(--color-surface) 16%, transparent) 43%,
-      color-mix(in srgb, var(--color-surface) 78%, transparent) 67%,
-      color-mix(in srgb, var(--color-surface) 96%, transparent) 100%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-surface-container-lowest) 34%, transparent) 0%,
-      color-mix(in srgb, var(--color-surface) 6%, transparent) 46%,
-      color-mix(in srgb, var(--color-surface) 26%, transparent) 100%
-    );
-}
-
 .producer-auth-bg-ambient {
-  /* 环境光斑沿用 M3 两族：青 = primary-fixed-dim，薄荷 = secondary-fixed-dim */
+  /* 环境光斑取 M3 两族的 fixed-dim：主色一道、次色一道，跨主题不换档 */
   background:
     linear-gradient(
       112deg,
@@ -50,6 +24,12 @@
   animation: producer-auth-ambient-drift 22s ease-in-out infinite alternate;
 }
 
+/* 插画侧：与右侧表单卡等高居中，随页面淡入 */
+.producer-auth-hero {
+  max-width: 100%;
+  animation: producer-auth-hero-in var(--dur-l) var(--ease-decel) both;
+}
+
 .producer-auth-bg-grid {
   background-image:
     linear-gradient(
@@ -65,22 +45,6 @@
   mask-image: linear-gradient(90deg, transparent 0%, black 16%, black 78%, transparent 100%);
   opacity: 0.18;
   animation: producer-auth-grid-drift 36s linear infinite;
-}
-
-.producer-auth-bg-grain {
-  background-image:
-    repeating-linear-gradient(
-      0deg,
-      color-mix(in srgb, var(--color-on-surface) 1.2%, transparent) 0 1px,
-      transparent 1px 3px
-    ),
-    repeating-linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--color-on-surface) 1%, transparent) 0 1px,
-      transparent 1px 4px
-    );
-  mix-blend-mode: multiply;
-  opacity: 0.16;
 }
 
 /* 品牌字标：无边框 serif 字标，沿用首页标题的 display 字体 */
@@ -322,13 +286,15 @@
   opacity: 0.78;
 }
 
-@keyframes producer-auth-bg-drift {
+@keyframes producer-auth-hero-in {
   from {
-    transform: scale(1.012) translate3d(0, 0, 0);
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
   }
 
   to {
-    transform: scale(1.028) translate3d(-14px, 8px, 0);
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -359,25 +325,6 @@
 }
 
 @media (max-width: 599px) {
-  .producer-auth-bg-image {
-    object-position: 28% 50%;
-  }
-
-  .producer-auth-bg-fade {
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--color-surface) 26%, transparent) 0%,
-        color-mix(in srgb, var(--color-surface) 74%, transparent) 45%,
-        color-mix(in srgb, var(--color-surface) 96%, transparent) 100%
-      ),
-      linear-gradient(
-        90deg,
-        color-mix(in srgb, var(--color-surface) 10%, transparent),
-        color-mix(in srgb, var(--color-surface) 44%, transparent)
-      );
-  }
-
   .producer-auth-panel-shell {
     border-radius: var(--radius-2xl);
   }
@@ -390,7 +337,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .producer-auth-bg-image,
+  .producer-auth-hero,
   .producer-auth-bg-ambient,
   .producer-auth-bg-grid {
     animation: none;

@@ -1,0 +1,166 @@
+/* hero 插画的深色配色。
+ *
+ * 浅色不出规则：原图就是浅色版。
+ *
+ * lottie 的 SVG renderer 把 fill 写成呈现属性，呈现属性在层叠里排在作者 CSS 之下，
+ * 所以这里能盖住烤进 JSON 的颜色，深浅两套共用一份产物。
+ *
+ * 每一种原色单独定位，不按色族给同一个值——那会把背景墙的五层面板和人物身上的十几档
+ * 阴影压成一个色，层次全塌。位置由原图明度按反相曲线换算，再整体压暗，让绿上衣成为
+ * 画面最亮的一档：结构与上衣在深色下只剩明度差可用，不拉开就糊在一起。
+ *
+ * 绿与肤色不出现在下面：翻了就不是绿和肤色了，深色沿用原色。
+ *
+ * 一色一条规则，是因为下面那行豁免注释只管紧邻的一行。选择器里的 rgb 必须是 lottie
+ * 写进 DOM 的值——它取整用 floor，跟 JSON 里的 hex 对不上，换插画要重新采一遍。
+ */
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(255,255,255)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 2%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(241,246,248)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 5%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(236,243,247)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 5%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(227,236,243)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 7%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(220,231,238)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 8%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(210,224,235)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 9%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(144,180,206)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 18%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(144,179,206)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 19%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(8,64,103)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 43%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(9,64,103)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 43%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(7,52,82)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 46%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(7,49,80)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 46%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,47,77)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 47%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(7,48,78)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 47%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,45,73)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 47%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,46,75)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 47%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,42,68)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 48%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,44,70)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 48%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,44,71)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 48%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,40,64)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 49%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,41,66)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 49%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,37,61)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 49%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,35,57)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 50%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(6,36,59)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 50%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(5,32,54)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 50%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(5,34,56)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 50%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(5,31,52)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 51%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(19,17,17)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 54%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(19,17,18)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 54%, var(--color-surface));
+}
+
+/* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
+.dark .producer-hero path[fill='rgb(18,16,17)'] {
+  fill: color-mix(in srgb, var(--color-on-surface) 55%, var(--color-surface));
+}

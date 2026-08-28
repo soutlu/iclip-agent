@@ -1,9 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { probeSsoLoginEnabled } from '@/shared/auth'
+import { HeroAnimation } from '@/shared/ui/hero'
 import { LoginForm } from './login-form'
-
-const LOGIN_BACKGROUND_SRC = '/images/auth/producer-login-studio-mist-4k.webp'
 
 // SSO 落地路由通过 ?ssoError= 传回的错误码 → 用户可读文案（SSO 通道即飞书登录）。
 const SSO_ERROR_MESSAGES: Record<string, string> = {
@@ -39,19 +38,8 @@ export function LoginPage({ nextPath, ssoErrorCode }: LoginPageProps) {
 
   return (
     <main className="producer-auth-page relative isolate min-h-dvh overflow-x-hidden text-on-background">
-      <div className="absolute inset-0 -z-20 overflow-hidden" aria-hidden="true">
-        <img
-          src={LOGIN_BACKGROUND_SRC}
-          alt=""
-          fetchPriority="high"
-          className="producer-auth-bg-image absolute inset-0 h-full w-full object-cover object-center"
-        />
-      </div>
-
-      <div className="producer-auth-bg-fade absolute inset-0 -z-10" aria-hidden="true" />
       <div className="producer-auth-bg-ambient absolute inset-[-18%] -z-10" aria-hidden="true" />
       <div className="producer-auth-bg-grid absolute inset-0 -z-10" aria-hidden="true" />
-      <div className="producer-auth-bg-grain absolute inset-0 -z-10" aria-hidden="true" />
 
       <div className="flex min-h-dvh flex-col px-5 py-5 sm:px-8 md:px-12 md:py-7">
         <header className="layer-header flex h-12 shrink-0 items-start">
@@ -61,7 +49,10 @@ export function LoginPage({ nextPath, ssoErrorCode }: LoginPageProps) {
         </header>
 
         <section className="grid min-h-0 flex-1 grid-cols-1 items-center gap-8 py-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_minmax(420px,560px)] lg:gap-16 lg:px-6 lg:pt-0 lg:pb-16">
-          <div className="hidden lg:block" aria-hidden="true" />
+          {/* 插画只在展开断点出现：窄屏留给表单，冷启动也不必为装饰下载 370KB */}
+          <div className="hidden lg:flex lg:justify-center">
+            <HeroAnimation className="producer-auth-hero w-[min(620px,46vw)]" />
+          </div>
 
           <div className="producer-auth-panel-shell mx-auto w-full max-w-[560px] lg:mr-[1vw]">
             <div className="producer-auth-panel-card">

@@ -1,5 +1,5 @@
+import { HeroAnimation } from '@/shared/ui/hero'
 import { HomeComposer } from './home-composer'
-import { HomeHeroAnimation } from './home-hero-animation'
 
 /**
  * 首页内容区：侧栏由 /_authed 布局提供，这里只放页面自己的东西。
@@ -16,7 +16,7 @@ export function HomeRoute() {
       <div className="mx-auto flex w-full max-w-(--layout-home-read-max) flex-1 flex-col px-6">
         <div className="flex flex-[2] flex-col items-center justify-end pb-6 text-center">
           <h1 className="sr-only">Producer</h1>
-          <HomeHeroAnimation />
+          <HeroAnimation className="w-[min(520px,90vw)] animate-in duration-(--dur-l) fade-in" />
           <p className="pt-3 text-body text-on-surface-variant">还没有对话 —— 在下方输入开始创作</p>
         </div>
         <div className="flex flex-[3] flex-col">
