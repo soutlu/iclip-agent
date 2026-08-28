@@ -50,7 +50,7 @@
 | **权限与鉴权逻辑** | `make test` (拦截鉴权) | 身份与权限测试集（`T-RBAC-01`, `T-KEY-*`, `T-AUTH-*`）全部绿灯。 |
 | **接入第三方 API (如 SSO/PMS)**| `make test` + 人工验收 | 打替身客户端的 SSO/PMS 用例（在 `integration_no_llm` 层，由 `make test` 执行）全绿；且需在本地环境完整走通一次真实的登录回调链路并输出正常日志。 |
 | **前端相关** | `make web-check` | 前端的格式、Lint、设计规范与类型检查全绿。它不含构建，CI 会另外跑一次 `pnpm build`，所以本地过了仍可能被 CI 的构建步骤拦下。 |
-| **发版 / 热修到 main** | CI + `make up` + 人工验收 | 发版 PR 的 CI 全绿；`make up` 把整套（库、隧道、后端、前端）拉起来，在页面上把一次完整的 agent 运行走通；真实登录回调链路走通。三项结果写进 PR 描述。热修只做与改动相关的那部分。 |
+| **发版 / 热修到 main** | CI + 按改动补人工项 | 发版 PR 的 CI 全绿（agent 逻辑已由替身模型测试覆盖，不再人工重跑）。自上次发版以来改到了本表哪一行带「人工验收」的面，就补做那一项，没改就不补；做了的写进 PR 描述。 |
 
 ## 4. 机械护栏 (Mechanical Guardrails)
 
@@ -142,7 +142,7 @@ develop 上已经堆着下一个版本，不能整条合进 main，所以修复�
    ```
    git worktree add .claude/worktrees/hotfix-<名> -b hotfix-<名> origin/main
    ```
-2. **发 PR 到 main**：`make check` 无误后 `gh pr create --base main`。按 §3「发版 / 热修到 main」那行做与改动相关的验收，CI 全绿 + 开发者确认后 `gh pr merge <n> --merge`，再按 5.3 第 4 步打 `Z+1` 的 tag。
+2. **发 PR 到 main**：`make check` 无误后 `gh pr create --base main`。按 §3「发版 / 热修到 main」那行验收，CI 全绿 + 开发者确认后 `gh pr merge <n> --merge`，再按 5.3 第 4 步打 `Z+1` 的 tag。
 3. **回流 develop**：让开发线也带上这个修复，否则下个版本会把 bug 带回来。
    ```
    gh pr create --base develop --head main --title "回流 vX.Y.Z 热修"
