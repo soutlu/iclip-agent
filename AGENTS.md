@@ -72,11 +72,11 @@
 1. **开 worktree**：`git worktree add .claude/worktrees/<任务名> -b <分支名> origin/develop`，Claude Code 会话随后用 `EnterWorktree` 的 `path` 参数进入这个目录。不要让 `EnterWorktree` 自己新建：它从仓库默认分支（main）起，会落在旧版本上。从 `origin/develop` 起，不从当前 HEAD 起——除非这次改动确实依赖某条还没合的分支，那种情况要在 PR 里写明它叠在谁上面。
 2. **在 worktree 里开发**：完成本地 Commit 后 `git push -u origin HEAD`。
 3. **本地检查与发 PR**：确保在该 worktree 里执行 `make check` 无误后，用 `gh pr create --base develop` 发起合并请求。仓库默认分支仍是 main，漏掉 `--base develop` 会打到 main 上，发现了改 base，不要合。
-4. **合并与清理 (必须有人类授权)**：
-   - 自动运行的 Agent **在获得人类开发者的明确许可后**，可以且应当代为执行合并指令：`gh pr merge --auto --squash`。
+4. **合并与清理**：
+   - 打到 develop 的 PR，`make check` 通过、CI 全绿后 Agent 可直接 `gh pr merge --auto --squash` 合入，不必再问。
    - PR 成功合入后，Agent 应负责清理：回到主目录执行 `git fetch origin` 刷新 `origin/develop`，再 `git worktree remove .claude/worktrees/<任务名>` 与 `git branch -D <分支名>`。清理前先 `git worktree list` 确认没删到别人正在用的那个。
-   - 🚨 **安全底线**：严禁 AI Agent 在未获得用户明确同意的情况下，自作主张合入 PR。
-5. **发版到 main（只由人类发起）**：开发者决定交付时，开 `develop → main` 的 PR。合入前除 CI 全绿外，还要走完 §3 里标了「人工验收」的项目（`make up` 整套跑通、真实登录回调链路），结果写进 PR。用 merge commit 合入（`gh pr merge --merge`，不要 squash，否则下一次发版会把已合过的内容再算一遍冲突）。Agent 不得开或合 develop → main 的 PR。
+   - 🚨 **安全底线**：main 只在开发者确认后才合。严禁 AI Agent 自行开或合 `develop → main` 的 PR。
+5. **发版到 main（开发者确认后）**：开发者决定交付时，开 `develop → main` 的 PR。合入前除 CI 全绿外，还要走完 §3 里标了「人工验收」的项目（`make up` 整套跑通、真实登录回调链路），结果写进 PR。用 merge commit 合入（`gh pr merge --merge`，不要 squash，否则下一次发版会把已合过的内容再算一遍冲突）。
 
 ## 附：文档地图 (Documentation Map)
 
