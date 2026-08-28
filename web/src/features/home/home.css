@@ -1,0 +1,8 @@
+/* home feature 的局部样式：只收全局规则无法表达的特例。 */
+
+/* 输入卡 textarea 不显示全局焦点环——焦点指示由卡片 focus-within 边框加深承担
+  （border-hover = outline nv50，白卡上 ≈4.6:1，满足 ≥3:1 自定义焦点样式）。
+   全局兜底在匿名层（base.css），utilities 层的 outline-none 赢不了它，只能在这里收。 */
+.home-composer-textarea:focus-visible {
+  outline: none;
+}
