@@ -4,7 +4,7 @@
 
 ## 1. 定位与运行拓扑
 
-iclip-agent 是 Productor 视频创作产品的后端与合同主体：模块化单体，单个代码库（`server/` + `web/`）。**PostgreSQL 数据库是本系统全局唯一的事实源**。
+iclip-agent 是 Productor 视频创作产品的后端，也是跨端合同的定义方：模块化单体，单个代码库（`server/` + `web/`）。**PostgreSQL 数据库是本系统全局唯一的事实源**。
 
 双主体身份体系：Cookie 会话用户 + Bearer API key 机器用户，浏览器经同源 `/api`（反代 rewrite）进来，两者都由 `server/` FastAPI（每 worker 一份）的 PrincipalResolver 解析成唯一信任点。Agent 引擎是 PydanticAI，隔离在 `harness` 围栏内；agent 的运行历史（run 血缘、逐步事件、可续跑快照、工具副作用）落 Postgres 的 `agent_runtime` schema。模型经 `config.yaml` 的命名表装配，agent 在 `agents.yaml` 里引用名字。
 
@@ -50,7 +50,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（`agent.yaml` 官方 spec + `instructions.md` 提示词）+ `skills/`（skill 库，一个子目录一个 skill） |
 | `server/migrations/versions/` | Alembic 迁移，一个 revision 一个文件 |
 | `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key），直连 DB 绕过 API，用于非 SSO 场景的 root 引导（SSO 场景用 `ROOT_EMAIL`） |
-| `web/` | 产品前端（React SPA，经同源 `/api` 消费合同）；自己的控制面在 [../web/AGENTS.md](../web/AGENTS.md) |
+| `web/` | 产品前端（React SPA，经同源 `/api` 消费合同）；命令与边界见 [../web/AGENTS.md](../web/AGENTS.md) |
 | `contract/` | 跨端合同：`openapi.json` 由 `make contract` 从后端导出，前端据此生成类型与 zod；`conventions.md` 写合同表达不了的约定 |
 
 ## 4. 装配流程
@@ -128,7 +128,7 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 
 ## 9. 运维
 
-日志：structlog（结构化，级别来自 `ops.log_level`）。管理 CLI 见 §3 的 `server/scripts/admin.py`。测试门禁与命令：见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
+日志：structlog（结构化，级别来自 `ops.log_level`）。管理 CLI 见 §3 的 `server/scripts/admin.py`。测试与命令见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
 
 ## 10. 运行事件流
 
