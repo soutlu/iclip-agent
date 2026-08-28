@@ -57,6 +57,10 @@ jobs:
         run: uv run tach check
       - name: Default test gate (real Postgres)
         run: uv run pytest -m "unit or integration_no_llm"
+      - name: Contract check (openapi.json 与后端一致)
+        run: uv run python scripts/dump_openapi.py --check
+      - name: Docs check (链接与 make 目标存在)
+        run: python3 ../scripts/check-docs.py
       - name: Alembic to head against service Postgres
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
