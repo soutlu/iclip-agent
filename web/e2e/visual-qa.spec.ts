@@ -10,8 +10,8 @@ test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page).toHaveURL('/')
   await expect(page.getByRole('heading', { name: 'Producer' })).toBeAttached()
-  // doodle 有 fade-in 进场动画，等它落定再截
-  await page.waitForTimeout(600)
+  // hero 是 Lottie，要等 JSON 拉完 + fade-in 进场落定再截
+  await page.waitForTimeout(1200)
 
   await page.screenshot({ path: `${SHOT_DIR}/home-light.png`, fullPage: true })
 

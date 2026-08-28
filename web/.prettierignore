@@ -3,3 +3,4 @@ coverage/
 pnpm-lock.yaml
 src/routeTree.gen.ts
 docs/
+public/lottie/
