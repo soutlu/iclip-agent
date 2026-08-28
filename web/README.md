@@ -21,12 +21,12 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
 ├── public/                     # 静态资源（字体等）
 ├── scripts/
 │   ├── check-design-system.mjs # 规范 ↔ 运行时 token 双向对账
-│   ├── check-openapi-contract.mjs # 契约漂移门禁（pnpm contract:check）
+│   ├── check-openapi-contract.mjs # 契约对账（pnpm contract:check）
 │   ├── design-guard.mjs        # 设计系统守卫（pnpm lint:design）
 │   ├── start-dev.sh            # 开发服务器（默认 0.0.0.0:3013）
 │   └── start-prod.sh           # 本地验证生产构建（build + vite preview）
 ├── vite/                       # 构建期助手（同源代理、dev profile），归 tsconfig.node.json
-├── knip.json                   # 死代码门禁配置（pnpm lint:dead）
+├── knip.json                   # 死代码检查配置（pnpm lint:dead）
 ├── vitest.config.ts            # 单测配置（pnpm test）
 └── src/
     ├── main.tsx                # 入口
