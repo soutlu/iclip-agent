@@ -22,8 +22,8 @@ function AuthedLayout() {
   return (
     <div className="flex min-h-dvh">
       <AppSidebar />
-      {/* 主区压平为单色底（kimi 式），不露出 body 的渐变光斑 */}
-      <div className="flex min-w-0 flex-1 flex-col bg-background-top">
+      {/* 主区不自带底色：透出 body 的纵向渐变与两处主色光斑（见 base.css html,body） */}
+      <div className="flex min-w-0 flex-1 flex-col">
         <Outlet />
       </div>
     </div>
