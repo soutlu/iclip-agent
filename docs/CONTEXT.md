@@ -8,7 +8,7 @@
 
 - **产品**：Productor 是 AI 视频创作产品。用户在项目中与 AI agent 对话推进创作：从参考素材拆解，到镜头 prompt 表，再到镜头帧与媒体生成。
 - **系统**：`web/`（React SPA，同源 `/api` 直连后端）+ `server/`（FastAPI 模块化单体）+ Postgres（唯一事实源）+ Redis（只放在途与近期的运行事件流）。外部依赖：wangoon SSO 与 PMS（企业身份与部门资料）、LLM 引擎（PydanticAI）。
-- **`web/` 的角色**：**历史前端代码，只读留存**——既不是需求来源，也不是合同事实源，方案与实现都不参考它；产品行为与对外合同一律由后端定义（见 [../contract/](../contract/) 目录）。
+- **`web/` 的角色**：产品前端，正从只剩登录与空首页的起点重写。它只消费合同，不定义产品行为：端点形状从 [../contract/openapi.json](../contract/openapi.json) 生成，合同表达不了的约定在 [../contract/conventions.md](../contract/conventions.md)。前端自己的命令、边界与门禁见 [../web/AGENTS.md](../web/AGENTS.md)；本文的术语与不变量两端共用。
 
 ## 术语
 

@@ -1,31 +1,10 @@
+import type { z } from 'zod'
+import type { zUserOut } from '@/shared/api/generated/zod.gen'
+
 export type ProducerLoginRequest = {
   username: string
   password: string
 }
 
-export type ProducerDepartment = {
-  id: number
-  uid: string
-  name: string
-  parentId: null | number
-  parentUid: string
-  leaderUserId: null | number
-  leaderUserUid: string
-  source: string
-  type: string
-  order: null | number
-}
-
-export type ProducerAuthUser = {
-  id: string
-  // SSO 首登自动建号的用户没有 username，展示时回退到 displayName。
-  username: null | string
-  displayName: string
-  avatarUrl: string
-  // 后端 RBAC 是唯一事实源；前端只按 /users/me 下发的 roles 与 permissions 做 UI 展示。
-  roles: readonly string[]
-  permissions: readonly string[]
-  city?: string
-  jobTitle?: string
-  departments?: readonly ProducerDepartment[]
-}
+/** 当前用户：形状就是合同里的 UserOut，后端改字段由 contract:check 拦。 */
+export type ProducerAuthUser = z.output<typeof zUserOut>

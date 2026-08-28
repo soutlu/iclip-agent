@@ -332,20 +332,10 @@
   transition-timing-function: var(--ease);
 }
 
+/* 进退场动画用 tw-animate-css 的 animate-in / animate-out；它读 --tw-duration 与
+   --tw-ease，所以时长曲线仍由 duration-(--dur-*) / ease-(--ease-*) 给，不另写 keyframes。 */
+@import 'tw-animate-css';
 @import './fonts.css';
 @import './base.css';
-@import '../features/home/home.css';
-@import '../features/storyboards/storyboards.css';
-@import '../features/analytics/analytics.css';
-@import '../features/admin-users/admin-users.css';
-@import '../features/auth/auth.css';
-@import '../features/project-canvas/canvas-video-generation.css';
-@import '../shared/composer/composer.css';
-@import './popup-animations.css';
-@import '../features/project-canvas/canvas-highlight.css';
-@import '../features/project-canvas/storyboard-workbench.css';
-@import './banner-animations.css';
-@import '../shared/editor/tiptap.css';
-@import '../features/chat/chat-scrollbar.css';
-@import '../shared/markdown/markdown.css';
 @import './utility-classes.css';
+@import '../features/auth/auth.css';

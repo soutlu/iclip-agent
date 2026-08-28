@@ -5,8 +5,8 @@
  * 会话 HttpOnly cookie 由浏览器自动携带。所有响应在边界处经 zod schema
  * 校验后才交给业务代码。
  *
- * 后端 REST 接口一律走 apiFetch；仅三类请求允许裸 fetch：AG-UI 流式 run
- * （SSE 响应体）、OSS 预签名直传 PUT、外链素材下载（均不是后端 JSON REST）。
+ * 后端 REST 接口一律走 apiFetch；仅两类请求允许裸 fetch：OSS 预签名直传 PUT、
+ * 外链素材下载（均不是后端 JSON REST）。
  */
 
 import type { z } from 'zod'
@@ -45,16 +45,6 @@ let onForbidden: (() => void) | null = null
  */
 export const setOnForbidden = (handler: (() => void) | null) => {
   onForbidden = handler
-}
-
-/**
- * 通知全局 403 处理器。
- *
- * 供不经 apiFetch 的后端 fetch 调用方在收到 403 时对齐权限状态；
- * 仅限后端接口的响应，外部服务（如 OSS 直传）的 403 与会话权限无关，不要上报。
- */
-export const notifyForbidden = () => {
-  onForbidden?.()
 }
 
 type ApiFetchOptions = Omit<RequestInit, 'body'> & {

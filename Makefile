@@ -1,6 +1,6 @@
 # 根级唯一命令入口；新增命令必须加进来，不散落在文档或口头约定里。
 
-.PHONY: setup dev up lint format format-check typecheck tach test check db-upgrade test-external web-check hooks
+.PHONY: setup dev up lint format format-check typecheck tach test check contract contract-check db-upgrade test-external web-check hooks
 
 setup:
 	cd server && uv sync
@@ -30,7 +30,15 @@ tach:
 test:
 	cd server && uv run pytest -m "unit or integration_no_llm"
 
-check: lint format-check typecheck tach test
+check: lint format-check typecheck tach test contract-check
+
+# 跨端合同：后端是唯一定义方，导出到 contract/openapi.json；前端据此生成类型与 zod。
+# 改了任何对外端点就跑一次 make contract，再去 web 跑 pnpm contract:generate。
+contract:
+	cd server && uv run python scripts/dump_openapi.py
+
+contract-check:
+	cd server && uv run python scripts/dump_openapi.py --check
 
 db-upgrade:
 	cd server && uv run --env-file ../.env alembic upgrade head

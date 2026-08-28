@@ -1,3 +1,3 @@
-export { default as LoginPage } from './components/LoginPage'
-export { default as ProducerUserMenu } from './components/ProducerUserMenu'
-export { default as SsoLandingPage } from './components/SsoLandingPage'
+export { LoginPage } from './components/login-page'
+export { ProducerUserMenu } from './components/producer-user-menu'
+export { SsoLandingPage } from './components/sso-landing-page'

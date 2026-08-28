@@ -17,17 +17,17 @@
 │   ├── configs/        # 服务配置文件
 │   ├── agents/         # Agent 装配声明、各 agent 的 spec/提示词，以及 skills/ 技能库
 │   └── pyproject.toml  # 后端依赖配置 (uv)
-├── web/                # 前端服务代码 (Node.js/React/pnpm)
-├── docs/               # 架构设计、测试指南、业务概念等系统文档
-├── contract/           # 前后端及外部系统交互契约定义
+├── web/                # 前端 (Vite + React 19 + pnpm)；自己的控制面在 web/AGENTS.md
+├── docs/               # 领域锚点（两端共用）、后端架构、测试与工具规范、ADR
+├── contract/           # 跨端合同：openapi.json 由后端导出，前端据此生成类型与 zod
 ├── design-system.html  # 前端视觉规范与组件契约的唯一事实源（浏览器打开即看）
 ├── Makefile            # 【全局命令收口】所有的环境装配与启动命令
-└── AGENTS.md           # 后端控制面、开发契约约束及验证矩阵
+└── AGENTS.md           # 全仓控制面：命令入口、两端分工、验证矩阵、开发流程
 ```
 
 ## 启动指南
 
-本地开发环境需要预先安装 [Python 3.13](https://www.python.org/)、[uv](https://docs.astral.sh/uv/)、[Node.js ≥ 22.12](https://nodejs.org/)、PostgreSQL 数据库，以及 Redis（承载 agent 运行的事件流，断线重连要靠它）。
+本地开发环境需要预先安装 [Python 3.13](https://www.python.org/)、[uv](https://docs.astral.sh/uv/)、[Node.js ≥ 22.18](https://nodejs.org/)（前端 `.npmrc` 开了 `engine-strict`，版本不够 `pnpm install` 直接失败）、PostgreSQL 数据库，以及 Redis（承载 agent 运行的事件流，断线重连要靠它）。
 
 所有的常规操作均统一在 `Makefile` 中管理。
 
@@ -86,14 +86,18 @@ cd web && pnpm dev
 
 - **`make check`**：后端门禁。一键执行代码规范 (Ruff)、类型检查 (Pyright Strict)、架构隔离检查 (Tach) 与常规测试。
 - **`make test`**：跑单元与集成测试（会启用临时的 Testcontainers 数据库，跳过真实 LLM）。
-- **`make web-check`**：前端门禁。执行前端代码的格式、Lint、类型校验与设计规范检查（不含构建，CI 会另外跑一次构建）。
+- **`make web-check`**：前端门禁。格式、Lint、设计规范、死代码、契约漂移、类型检查与单测（不含构建与 e2e，CI 会另外跑 `pnpm build` 与 `pnpm test:e2e`）。
+- **`make contract`**：后端改了对外端点之后导出合同到 `contract/openapi.json`，再到 `web/` 跑 `pnpm contract:generate`；两边的门禁各拦一个方向的漂移。
 
 ## 核心文档导航 (必读)
 
 为了对齐概念、遵循架构边界规范，新加入项目的开发者必须阅读以下核心控制面文件，不要凭借历史经验“猜”逻辑：
 
-- **[AGENTS.md](AGENTS.md)**: **项目控制面与开发契约**。定义了整个系统的架构边界、禁止动作 (Anti-patterns)、代码修改与测试的验证矩阵。所有自动化 Agent 与人类开发者在编写代码时都必须遵守此契约。
-- **[docs/CONTEXT.md](docs/CONTEXT.md)**: **系统上下文与领域锚点**。收录了本项目所有核心名词的定义、系统生命周期以及**绝对不能违背的底层逻辑与不变量**（例如数据库读写原则、权限隔离逻辑等）。
+- **[AGENTS.md](AGENTS.md)**: **全仓控制面与开发契约**。命令入口、两端分工与合同流程、后端边界与禁止动作、验证矩阵、worktree 开发流程。所有自动化 Agent 与人类开发者在编写代码时都必须遵守此契约。
+- **[web/AGENTS.md](web/AGENTS.md)**: **前端控制面**。前端的命令、分层边界、门禁与禁止动作；前端起步与目录结构见 [web/README.md](web/README.md)。
+- **[docs/CONTEXT.md](docs/CONTEXT.md)**: **领域锚点（两端共用）**。产品核心名词的定义、系统生命周期以及**绝对不能违背的底层逻辑与不变量**（例如数据库读写原则、权限隔离逻辑等）。
+- **[contract/](contract/)**: **跨端合同**。`openapi.json` 由后端导出，是端点、字段、状态码的唯一事实源；`conventions.md` 写合同表达不了的约定（路由代理、双主体认证、命名、错误信封）。
+- **[design-system.html](design-system.html)**: **前端视觉规范与组件契约**，浏览器打开即看；运行时 token 与它逐名逐值对账。
 - **[docs/architecture.md](docs/architecture.md)**: **架构设计地图**。展示了后端的三环分层（组合根 `app/` 之下，通用内核 `harness/`、业务能力包 `capabilities/`、业务模块 `domains/` 三者互不越界，共同建立在 `platform/` 与 `common/` 之上）与模块装配逻辑。
 - **[docs/adr/](docs/adr/)**: **架构决策记录 (Architecture Decision Records)**。记录了系统演进过程中的重要技术选择、架构方案定型及其背后的上下文与权衡考虑（如 ADR-0001 的三环分层与引擎地基、ADR-0002 的统一权限抽象模型）。
 - **[docs/tool-design.md](docs/tool-design.md)**: **工具编写规范**。约定 agent 工具面向模型的文本的写法与禁区。

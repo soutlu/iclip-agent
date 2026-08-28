@@ -29,7 +29,8 @@ export function MenuSurface({
     <DropdownMenu.Portal>
       <DropdownMenu.Content
         className={cn(
-          'layer-popup popup-menu-enter min-w-[180px] rounded-md border border-border bg-popup-bg p-1 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+          'layer-popup min-w-[180px] rounded-md border border-border bg-popup-bg p-1 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+          'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:duration-(--dur-m) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
           className,
         )}
         sideOffset={sideOffset}
