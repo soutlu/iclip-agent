@@ -180,6 +180,14 @@
   --color-secondary-fixed-dim: var(--s80);
   --color-tertiary-fixed: var(--t90);
   --color-tertiary-fixed-dim: var(--t80);
+  /* fixed 容器不随主题换档，配它的文字色也必须不换档：深色下若沿用 on-*-container，
+     两边会落到同一档色，字直接看不见 */
+  --color-on-primary-fixed: var(--p10);
+  --color-on-primary-fixed-variant: var(--p30);
+  --color-on-secondary-fixed: var(--s10);
+  --color-on-secondary-fixed-variant: var(--s30);
+  --color-on-tertiary-fixed: var(--t10);
+  --color-on-tertiary-fixed-variant: var(--t30);
 
   /* State layer 透明度与焦点环几何（M3 交互态叠加层；禁用与焦点都从这里派生） */
   --state-hover: 0.08;
@@ -593,23 +601,25 @@
 /* 深色：只换 ② 层档位与 ③ 层里直接取色板/字面值的项；①④ 与主题中立项不变。
    引用 ② 层的别名（如 --color-border）会自动跟随，不必也不该在这里重复登记。 */
 .dark {
-  --color-primary: var(--p80);
+  /* 深色主色取 60 档而非 M3 默认的 80：80 档是给深底上前景文字定的浅色，
+     铺成按钮与色块就是一片粉调薄荷，发廉价。60 档当文字仍有 5.86:1。 */
+  --color-primary: var(--p60);
   --color-primary-hover: var(--p70);
-  --color-on-primary: var(--p20);
+  --color-on-primary: var(--p10);
   --color-primary-container: var(--p30);
   --color-on-primary-container: var(--p90);
   --color-primary-container-solid: var(--p70);
   --color-primary-container-soft: var(--p20);
-  --color-secondary: var(--s80);
-  --color-on-secondary: var(--s20);
+  --color-secondary: var(--s60);
+  --color-on-secondary: var(--s10);
   --color-secondary-container: var(--s30);
   --color-on-secondary-container: var(--s90);
-  --color-tertiary: var(--t80);
-  --color-on-tertiary: var(--t20);
+  --color-tertiary: var(--t60);
+  --color-on-tertiary: var(--t10);
   --color-tertiary-container: var(--t30);
   --color-on-tertiary-container: var(--t90);
-  --color-error: var(--e80);
-  --color-on-error: var(--e20);
+  --color-error: var(--e60);
+  --color-on-error: var(--e10);
   --color-error-container: var(--e30);
   --color-on-error-container: var(--e90);
   --color-surface: var(--n6);

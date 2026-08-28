@@ -121,6 +121,12 @@
   --color-secondary-fixed-dim: var(--color-secondary-fixed-dim);
   --color-tertiary-fixed: var(--color-tertiary-fixed);
   --color-tertiary-fixed-dim: var(--color-tertiary-fixed-dim);
+  --color-on-primary-fixed: var(--color-on-primary-fixed);
+  --color-on-primary-fixed-variant: var(--color-on-primary-fixed-variant);
+  --color-on-secondary-fixed: var(--color-on-secondary-fixed);
+  --color-on-secondary-fixed-variant: var(--color-on-secondary-fixed-variant);
+  --color-on-tertiary-fixed: var(--color-on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--color-on-tertiary-fixed-variant);
   --color-state-hover: var(--color-state-hover);
   --color-state-focus: var(--color-state-focus);
   --color-state-pressed: var(--color-state-pressed);
