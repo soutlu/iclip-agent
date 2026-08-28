@@ -18,17 +18,14 @@
         color-scheme: light;
 
         /* ===== 页面自身（本页排版用，非产品 token） ===== */
-        /* 画布与主色洗（本页装饰，不入契约） */
-        --pg-canvas: var(--n96);
-        --pg-sheet: var(--n100);
+        --pg-canvas: var(--n95);
+        --pg-sheet: var(--n98);
         --pg-ink: var(--n10);
-        --pg-ink-secondary: var(--nv30);
+        --pg-ink-secondary: var(--nv40);
         --pg-ink-tertiary: var(--nv40);
-        --pg-line: var(--n80);
+        --pg-line: var(--n90);
         --pg-line-strong: var(--nv80);
         --pg-focus: var(--p40);
-        --pg-wash-1: rgb(0 137 84 / 10%);
-        --pg-wash-2: rgb(66 186 121 / 14%);
 
         /* ===== 字体 ===== */
         --font-producer-ui: 'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
@@ -461,25 +458,12 @@
 
       /* ======================== 以下为本页排版（非契约） ======================== */
 
-      /* 本页装饰用字体：与运行时同一份自托管文件；文件不在时回退 Georgia，不影响契约 */
-      @font-face {
-        font-family: 'Source Serif 4';
-        src: url('web/public/fonts/SourceSerif4-Italic-SemiBold-Latin.woff2') format('woff2');
-        font-weight: 600;
-        font-style: italic;
-        font-display: swap;
-        unicode-range:
-          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-          U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-      }
-
       * {
         box-sizing: border-box;
       }
 
       html {
         scroll-behavior: smooth;
-        scroll-padding-top: 92px;
       }
 
       body {
@@ -490,29 +474,6 @@
         font-size: var(--text-body-sm);
         line-height: 1.5;
         -webkit-font-smoothing: antialiased;
-      }
-
-      /* 氛围层：品牌色渐变洗 + 顶部点阵（呼应画布 --color-dot-pattern） */
-      body::before,
-      body::after {
-        position: fixed;
-        inset: 0;
-        z-index: -1;
-        content: "";
-        pointer-events: none;
-      }
-
-      body::before {
-        background:
-          radial-gradient(1100px 540px at 88% -10%, var(--pg-wash-1), transparent 62%),
-          radial-gradient(920px 500px at -12% 2%, var(--pg-wash-2), transparent 58%);
-      }
-
-      body::after {
-        background-image: radial-gradient(color-mix(in srgb, var(--nv50) 14%, transparent) 1px, transparent 1.6px);
-        background-size: 22px 22px;
-        -webkit-mask-image: linear-gradient(180deg, rgb(0 0 0 / 60%), transparent 480px);
-        mask-image: linear-gradient(180deg, rgb(0 0 0 / 60%), transparent 480px);
       }
 
       ::selection {
@@ -529,69 +490,23 @@
       }
 
       .sheet {
-        position: relative;
-        width: min(1440px, calc(100% - 48px));
+        width: min(1560px, calc(100% - 40px));
         min-height: 100vh;
-        margin: 24px auto 72px;
-        overflow: clip;
-        border: 1px solid color-mix(in srgb, var(--n100) 60%, var(--n90));
-        border-radius: var(--radius-3xl);
+        margin: 20px auto;
         background: var(--pg-sheet);
-        box-shadow: var(--shadow-3);
       }
 
       .masthead {
-        position: relative;
-        padding: 104px 80px 56px;
-        overflow: clip;
+        padding: 72px 72px 50px;
       }
 
-      /* 幽灵字标：描边大字做背景纹理 */
       .wordmark {
-        position: absolute;
-        top: -0.18em;
-        right: -0.04em;
-        margin: 0;
-        color: transparent;
-        -webkit-text-stroke: 1.5px color-mix(in srgb, var(--n80) 62%, transparent);
-        font-size: clamp(140px, 21vw, 300px);
+        margin: 0 0 24px;
+        color: var(--n90);
+        font-size: clamp(30px, 4vw, 58px);
         font-weight: 800;
-        letter-spacing: -0.04em;
-        line-height: 0.78;
-        pointer-events: none;
-        user-select: none;
-      }
-
-      @supports not (-webkit-text-stroke: 1px black) {
-        .wordmark {
-          color: color-mix(in srgb, var(--n90) 45%, transparent);
-        }
-      }
-
-      .masthead-body {
-        position: relative;
-      }
-
-      .masthead-eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 13px;
-        border: 1px solid color-mix(in srgb, var(--p40) 26%, transparent);
-        border-radius: var(--radius-full);
-        background: color-mix(in srgb, var(--p95) 58%, transparent);
-        color: var(--p30);
-        font-size: var(--text-caption);
-        font-weight: 650;
-        letter-spacing: 0.05em;
-      }
-
-      .masthead-eyebrow::before {
-        width: 6px;
-        height: 6px;
-        border-radius: var(--radius-full);
-        background: var(--p40);
-        content: "";
+        letter-spacing: -0.055em;
+        line-height: 0.9;
       }
 
       h1,
@@ -602,31 +517,18 @@
       }
 
       h1 {
-        max-width: 11em;
-        margin-top: 28px;
-        font-size: clamp(46px, 5.8vw, 86px);
-        font-weight: 650;
-        letter-spacing: -0.052em;
-        line-height: 0.98;
-      }
-
-      h1 em {
-        background: linear-gradient(102deg, var(--p40) 8%, var(--s40) 92%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        font-family: var(--font-home-display);
-        font-style: italic;
-        font-weight: 600;
-        letter-spacing: -0.02em;
+        font-size: clamp(32px, 4.2vw, 62px);
+        font-weight: 500;
+        letter-spacing: -0.045em;
+        line-height: 1.04;
       }
 
       .lead {
-        max-width: 600px;
-        margin-top: 26px;
+        max-width: 630px;
+        margin-top: 22px;
         color: var(--pg-ink-secondary);
-        font-size: var(--text-body);
-        line-height: 1.75;
+        font-size: var(--text-body-sm);
+        line-height: 1.7;
       }
 
       .lead code {
@@ -642,48 +544,21 @@
       }
 
       .token-map {
-        position: relative;
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 12px;
-        margin-top: 60px;
+        margin-top: 38px;
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
       }
 
       .token-layer {
         position: relative;
         min-width: 0;
-        padding: 18px 18px 20px;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-lg);
-        background: var(--n100);
-        transition:
-          border-color var(--dur-s) var(--ease),
-          box-shadow var(--dur-s) var(--ease),
-          transform var(--dur-s) var(--ease);
+        padding: 15px 16px 17px;
       }
 
-      /* 顶部短刻线：hover 时点出品牌色 */
-      .token-layer::before {
-        position: absolute;
-        top: -1px;
-        left: 18px;
-        width: 26px;
-        height: 2px;
-        border-radius: 2px;
-        background: var(--p40);
-        content: "";
-        opacity: 0;
-        transition: opacity var(--dur-s) var(--ease);
-      }
-
-      .token-layer:hover {
-        border-color: color-mix(in srgb, var(--p40) 34%, var(--pg-line));
-        box-shadow: var(--shadow-1);
-        transform: translateY(-3px);
-      }
-
-      .token-layer:hover::before {
-        opacity: 1;
+      .token-layer + .token-layer {
+        border-left: 1px solid var(--pg-line);
       }
 
       .token-layer span,
@@ -702,79 +577,22 @@
       }
 
       .token-layer strong {
-        margin-top: 12px;
+        margin-top: 7px;
         font-size: var(--text-body-sm);
         font-weight: 650;
         letter-spacing: 0.01em;
       }
 
       .token-layer code {
-        margin-top: 5px;
+        margin-top: 3px;
         color: var(--pg-ink-tertiary);
         font-size: var(--text-caption);
         line-height: 1.4;
         overflow-wrap: anywhere;
       }
 
-      /* 吸顶目录 */
-      .page-nav {
-        position: sticky;
-        top: 14px;
-        z-index: var(--z-header);
-        display: flex;
-        width: fit-content;
-        max-width: calc(100% - 40px);
-        align-items: center;
-        gap: 2px;
-        margin: 0 auto;
-        padding: 4px;
-        border: 1px solid color-mix(in srgb, var(--n100) 55%, var(--n90));
-        border-radius: var(--radius-full);
-        background: color-mix(in srgb, var(--n100) 80%, transparent);
-        box-shadow: var(--shadow-1);
-        backdrop-filter: blur(14px) saturate(1.4);
-        -webkit-backdrop-filter: blur(14px) saturate(1.4);
-      }
-
-      .page-nav a {
-        flex: none;
-        padding: 7px 15px;
-        border-radius: var(--radius-full);
-        color: var(--pg-ink-secondary);
-        font-size: var(--text-label);
-        font-weight: 600;
-        text-decoration: none;
-        transition:
-          background var(--dur-s) var(--ease),
-          color var(--dur-s) var(--ease);
-        white-space: nowrap;
-      }
-
-      .page-nav a:hover {
-        background: var(--n90);
-        color: var(--pg-ink);
-      }
-
-      .page-nav a:focus-visible {
-        outline: 2px solid var(--pg-focus);
-        outline-offset: 2px;
-      }
-
-      .page-nav-meta {
-        flex: none;
-        padding: 0 14px 0 8px;
-        color: var(--pg-ink-tertiary);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: var(--text-caption);
-        white-space: nowrap;
-      }
-
       .section {
-        padding: 88px 80px 96px;
-        scroll-margin-top: 88px;
-      }
-
-      .section + .section {
+        padding: 48px 72px 64px;
         border-top: 1px solid var(--pg-line);
       }
 
@@ -782,8 +600,8 @@
         display: flex;
         align-items: flex-end;
         justify-content: space-between;
-        gap: 32px;
-        margin-bottom: 44px;
+        gap: 24px;
+        margin-bottom: 28px;
       }
 
       .section-heading h2 {
@@ -821,14 +639,6 @@
         text-transform: uppercase;
       }
 
-      .eyebrow::before {
-        width: 16px;
-        height: 2px;
-        border-radius: 2px;
-        background: var(--p40);
-        content: "";
-      }
-
       .color-layout {
         display: grid;
         gap: 56px;
@@ -858,14 +668,14 @@
 
       .palette-stack {
         display: grid;
-        gap: 10px;
+        gap: 14px;
       }
 
       .palette-row {
         display: grid;
         grid-template-columns: 132px minmax(0, 1fr);
-        align-items: center;
-        min-height: 40px;
+        align-items: stretch;
+        min-height: 31px;
       }
 
       .palette-name {
@@ -882,37 +692,28 @@
       .tone-strip {
         display: grid;
         grid-template-columns: repeat(13, minmax(0, 1fr));
-        gap: 3px;
       }
 
       .tone {
         display: flex;
         min-width: 0;
-        height: 40px;
+        height: 31px;
         align-items: center;
         justify-content: center;
         padding: 0;
         border: 0;
-        border-radius: var(--radius-xs);
         background: var(--tone);
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--n0) 6%, transparent);
         color: var(--tone-label);
         cursor: copy;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: var(--text-caption);
-        font-weight: 600;
-        transition:
-          border-radius var(--dur-s) var(--ease),
-          box-shadow var(--dur-s) var(--ease),
-          transform var(--dur-s) var(--ease);
+        transition: transform var(--dur-s) var(--ease);
       }
 
       .tone:hover {
         position: relative;
         z-index: var(--z-local-1);
-        border-radius: var(--radius-sm);
-        box-shadow: var(--shadow-2);
-        transform: scale(1.14);
+        transform: scale(1.08);
       }
 
       .tone:focus-visible {
@@ -928,21 +729,19 @@
       }
 
       .semantic-panel {
-        padding: 6px 28px 24px;
-        border: 1px solid var(--color-outline-variant);
-        border-radius: var(--radius-2xl);
+        padding: 0 24px 6px;
+        border-top: 1px solid var(--color-outline-variant);
+        border-bottom: 1px solid var(--color-outline-variant);
         background: var(--color-surface);
-        box-shadow: var(--shadow-1);
         color: var(--color-on-surface);
         transition:
           background var(--dur-m) var(--ease),
-          border-color var(--dur-m) var(--ease),
           color var(--dur-m) var(--ease);
       }
 
       .semantic-toolbar {
         display: flex;
-        min-height: 88px;
+        min-height: 76px;
         align-items: center;
         justify-content: space-between;
         gap: 24px;
@@ -964,19 +763,14 @@
       .theme-switch {
         display: grid;
         flex: none;
-        grid-template-columns: repeat(2, minmax(68px, 1fr));
-        gap: 2px;
-        padding: 3px;
-        border: 1px solid var(--color-outline-variant);
-        border-radius: var(--radius-full);
-        background: var(--color-surface-container);
+        grid-template-columns: repeat(2, minmax(72px, 1fr));
+        border: 1px solid var(--color-outline);
       }
 
       .theme-switch button {
-        min-height: 32px;
-        padding: 0 16px;
+        min-height: 34px;
+        padding: 0 14px;
         border: 0;
-        border-radius: var(--radius-full);
         background: transparent;
         color: var(--color-on-surface-variant);
         cursor: pointer;
@@ -984,13 +778,15 @@
         font-weight: 650;
         transition:
           background var(--dur-s) var(--ease),
-          box-shadow var(--dur-s) var(--ease),
           color var(--dur-s) var(--ease);
+      }
+
+      .theme-switch button + button {
+        border-left: 1px solid var(--color-outline);
       }
 
       .theme-switch button[aria-selected="true"] {
         background: var(--color-on-surface);
-        box-shadow: var(--shadow-1);
         color: var(--color-surface);
       }
 
@@ -1003,7 +799,7 @@
       }
 
       .token-group {
-        padding: 24px 0 26px;
+        padding: 22px 0 24px;
         border-top: 1px solid var(--color-outline-variant);
       }
 
@@ -1011,12 +807,12 @@
       .token-family {
         display: grid;
         grid-template-columns: 136px minmax(0, 1fr);
-        gap: 20px;
+        gap: 16px;
       }
 
       .token-group__header {
         align-items: end;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
       }
 
       .token-group__header h4 {
@@ -1036,8 +832,13 @@
       .token-family__cells {
         display: grid;
         grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
-        gap: 6px;
+        gap: 1px;
         min-width: 0;
+        background: var(--color-outline-variant);
+      }
+
+      .token-columns {
+        background: transparent;
       }
 
       .token-columns span {
@@ -1052,7 +853,7 @@
       }
 
       .token-family + .token-family {
-        margin-top: 8px;
+        margin-top: 1px;
       }
 
       .token-family h5 {
@@ -1067,27 +868,21 @@
       .token-cell {
         display: flex;
         min-width: 0;
-        min-height: 88px;
+        min-height: 76px;
         flex-direction: column;
         align-items: flex-start;
-        padding: 12px 13px 11px;
+        padding: 11px 12px 10px;
         border: 0;
-        border-radius: var(--radius-md);
+        border-radius: 0;
         background: var(--cell-bg);
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-on-surface) 9%, transparent);
         color: var(--cell-fg);
         cursor: copy;
         text-align: left;
-        transition:
-          box-shadow var(--dur-s) var(--ease),
-          transform var(--dur-s) var(--ease);
+        transition: filter var(--dur-s) var(--ease);
       }
 
       .token-cell:hover {
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--color-on-surface) 14%, transparent),
-          var(--shadow-1);
-        transform: translateY(-2px);
+        filter: brightness(1.05);
       }
 
       .token-cell strong {
@@ -1126,17 +921,15 @@
       }
 
       .ext-table {
-        overflow: clip;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-lg);
-        background: var(--n100);
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
       }
 
       .ext-row {
         display: grid;
         grid-template-columns: 240px minmax(0, 1fr);
         gap: 24px;
-        padding: 16px 20px;
+        padding: 15px 0;
       }
 
       .ext-row + .ext-row {
@@ -1182,26 +975,21 @@
         display: inline-flex;
         align-items: center;
         gap: 7px;
-        padding: 5px 11px 5px 6px;
+        padding: 4px 10px 4px 5px;
         border: 1px solid var(--pg-line);
-        border-radius: var(--radius-full);
         background: var(--pg-sheet);
         color: var(--pg-ink-secondary);
         cursor: copy;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: var(--text-caption);
-        transition:
-          border-color var(--dur-s) var(--ease),
-          color var(--dur-s) var(--ease);
+        transition: color var(--dur-s) var(--ease);
       }
 
       .ext-swatch i {
-        width: 16px;
-        height: 16px;
+        width: 14px;
+        height: 14px;
         flex: none;
-        border-radius: var(--radius-full);
         background: var(--sw);
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--n0) 8%, transparent);
       }
 
       .ext-swatch i.ext-shadow {
@@ -1210,7 +998,6 @@
       }
 
       .ext-swatch:hover {
-        border-color: color-mix(in srgb, var(--p40) 35%, var(--pg-line));
         color: var(--pg-ink);
       }
 
@@ -1368,28 +1155,20 @@
       .radius-table {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
-        padding-top: 16px;
+        margin-top: 16px;
+        border-top: 1px solid var(--pg-line);
+        border-left: 1px solid var(--pg-line);
       }
 
       .radius-item {
         display: grid;
-        min-height: 116px;
+        min-height: 108px;
         place-items: center;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-lg);
-        background: var(--n99);
+        border-right: 1px solid var(--pg-line);
+        border-bottom: 1px solid var(--pg-line);
         color: var(--pg-ink-secondary);
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: var(--text-caption);
-        transition:
-          border-color var(--dur-s) var(--ease),
-          transform var(--dur-s) var(--ease);
-      }
-
-      .radius-item:hover {
-        border-color: color-mix(in srgb, var(--p40) 35%, var(--pg-line));
-        transform: translateY(-2px);
       }
 
       .radius-shape {
@@ -1502,9 +1281,8 @@
         width: 100%;
         max-width: 100%;
         overflow-x: auto;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-lg);
-        background: var(--n100);
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
       }
 
       .contract-table {
@@ -1589,16 +1367,18 @@
       .component-token-strip {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
         margin-bottom: 14px;
+        border-top: 1px solid var(--pg-line);
+        border-bottom: 1px solid var(--pg-line);
       }
 
       .component-token {
         min-width: 0;
-        padding: 14px 16px;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-md);
-        background: var(--n99);
+        padding: 13px 14px;
+      }
+
+      .component-token + .component-token {
+        border-left: 1px solid var(--pg-line);
       }
 
       .component-token code,
@@ -1620,10 +1400,8 @@
 
       .state-definition-table,
       .icon-rule-table {
-        overflow: clip;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-lg);
-        background: var(--n100);
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
       }
 
       .state-definition-row {
@@ -1749,8 +1527,8 @@
       }
 
       .template-table {
-        display: grid;
-        gap: 14px;
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
       }
 
       .template-row {
@@ -1759,23 +1537,15 @@
           168px minmax(240px, 1fr) minmax(220px, 0.8fr)
           minmax(260px, 1fr);
         min-height: 112px;
-        overflow: clip;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-xl);
-        background: var(--n100);
-        transition:
-          border-color var(--dur-s) var(--ease),
-          box-shadow var(--dur-s) var(--ease);
       }
 
-      .template-row:hover {
-        border-color: color-mix(in srgb, var(--p40) 26%, var(--pg-line));
-        box-shadow: var(--shadow-1);
+      .template-row + .template-row {
+        border-top: 1px solid var(--pg-line);
       }
 
       .template-row > * {
         min-width: 0;
-        padding: 20px 22px;
+        padding: 18px 20px 18px 0;
       }
 
       .template-row > * + * {
@@ -1854,26 +1624,18 @@
       .rule-line {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 14px;
+        border-top: 1px solid var(--pg-line-strong);
+        border-bottom: 1px solid var(--pg-line-strong);
         counter-reset: rule;
       }
 
       .rule {
-        min-height: 128px;
-        padding: 22px 24px;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-lg);
-        background: var(--n100);
-        transition:
-          border-color var(--dur-s) var(--ease),
-          box-shadow var(--dur-s) var(--ease),
-          transform var(--dur-s) var(--ease);
+        min-height: 96px;
+        padding: 18px 22px;
       }
 
-      .rule:hover {
-        border-color: color-mix(in srgb, var(--p40) 30%, var(--pg-line));
-        box-shadow: var(--shadow-1);
-        transform: translateY(-2px);
+      .rule + .rule {
+        border-left: 1px solid var(--pg-line);
       }
 
       .rule::before {
@@ -1937,28 +1699,6 @@
         transform: translateY(0);
       }
 
-      /* 入场：JS 先加 .reveal，进入视口再补 .is-visible */
-      .reveal {
-        opacity: 0;
-        transform: translateY(18px);
-        transition:
-          opacity var(--dur-l) var(--ease-decel),
-          transform var(--dur-l) var(--ease-decel);
-      }
-
-      .reveal.is-visible {
-        opacity: 1;
-        transform: none;
-      }
-
-      /* 打印 / 整页导出没有滚动交集，直接显示，避免空白 */
-      @media print {
-        .reveal {
-          opacity: 1 !important;
-          transform: none !important;
-        }
-      }
-
       @media (max-width: 1100px) {
         .scale-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1971,47 +1711,18 @@
         }
       }
 
-      @media (max-width: 960px) {
-        .page-nav-meta {
-          display: none;
-        }
-      }
-
       @media (max-width: 760px) {
-        html {
-          scroll-padding-top: 76px;
-        }
-
         .sheet {
           width: 100%;
           margin: 0;
-          border-right: 0;
-          border-left: 0;
-          border-radius: 0;
         }
 
         .masthead {
-          padding: 64px 24px 40px;
-        }
-
-        .wordmark {
-          font-size: clamp(120px, 34vw, 200px);
-        }
-
-        .page-nav {
-          top: 8px;
-          max-width: calc(100% - 24px);
-          overflow-x: auto;
-          scrollbar-width: none;
-        }
-
-        .page-nav::-webkit-scrollbar {
-          display: none;
+          padding: 50px 22px 38px;
         }
 
         .section {
-          padding: 48px 24px 60px;
-          scroll-margin-top: 72px;
+          padding: 38px 22px 48px;
         }
 
         .scale-grid {
@@ -2020,6 +1731,14 @@
 
         .token-map {
           grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .token-layer:nth-child(odd) {
+          border-left: 0;
+        }
+
+        .token-layer:nth-child(n + 3) {
+          border-top: 1px solid var(--pg-line);
         }
 
         .section-heading {
@@ -2123,6 +1842,11 @@
           grid-template-columns: 1fr;
         }
 
+        .token-layer + .token-layer {
+          border-top: 1px solid var(--pg-line);
+          border-left: 0;
+        }
+
         .palette-row {
           grid-template-columns: 1fr;
           gap: 6px;
@@ -2214,7 +1938,7 @@
         --color-focus-ring: var(--color-primary);
       }
       .type-styles[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .elevation-swatch { display: block; height: 22px; border-radius: var(--radius-sm); background: var(--pg-sheet); }
+      .elevation-swatch { display: block; height: 22px; background: var(--pg-sheet); }
       .elevation-swatch.flat { border: 1px solid var(--pg-line-strong); }
     </style>
   </head>
@@ -2222,9 +1946,8 @@
     <main class="sheet">
       <header class="masthead">
         <p class="wordmark" aria-hidden="true">PRODUCER</p>
-        <div class="masthead-body">
-          <span class="masthead-eyebrow">Producer · 设计契约唯一事实源</span>
-          <h1>Design <em>System</em></h1>
+        <div>
+          <h1>Design System</h1>
           <p class="lead">
             规范范围：颜色、文字、尺度、组件契约、核心状态、图标与反复出现的结构模板。浅色 <code>:root</code>、深色 <code>.dark</code>；运行时 token 与本页逐值对账。
           </p>
@@ -2258,14 +1981,6 @@
         </div>
       </header>
 
-      <nav class="page-nav" aria-label="本页目录">
-        <a href="#color">颜色</a>
-        <a href="#type">排版与尺度</a>
-        <a href="#component">组件·状态·图标</a>
-        <a href="#template">结构模板</a>
-        <a href="#rule">收敛原则</a>
-        <span class="page-nav-meta">浅色 :root · 深色 .dark · 对账 pnpm lint:design</span>
-      </nav>
 
       <section class="section" id="color" aria-labelledby="color-title">
         <header class="section-heading">
@@ -3469,21 +3184,6 @@
 
       selectTheme("light");
 
-      // 入场动效：区块先标记 .reveal，进入视口再补 .is-visible；JS 不运行时不加类，内容不受影响
-      const revealObserver = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (!entry.isIntersecting) return;
-            entry.target.classList.add("is-visible");
-            revealObserver.unobserve(entry.target);
-          });
-        },
-        { rootMargin: "0px 0px -6% 0px" },
-      );
-      document.querySelectorAll(".section, .token-map").forEach((el) => {
-        el.classList.add("reveal");
-        revealObserver.observe(el);
-      });
     </script>
   </body>
 </html>
