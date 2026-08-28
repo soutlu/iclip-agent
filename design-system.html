@@ -356,9 +356,8 @@
         --z-header: 50; --z-overlay: 90; --z-popup: 100;
         --z-local-1: 1; --z-local-2: 2; --z-local-3: 3; --z-canvas-overlay: 40;
         /* 布局 */
-        --layout-home-content-max: 100%;
-        --layout-home-hero-max: 1120px;
-        --layout-home-title-max: 980px;
+        --layout-app-sidebar-width: 264px;
+        --layout-home-read-max: 760px;
         --layout-project-header-height: 72px;
         --layout-project-header-inline-start: 24px;
         --layout-project-header-inline-end: 24px;
@@ -2521,17 +2520,20 @@
               <strong>首页</strong>
               <code>HomeViewport</code>
             </header>
-            <div class="template-flow" aria-label="viewport 到 hero 和 content">
-              <code>viewport</code><span>→</span><code>hero</code><span>→</span><code>content</code>
+            <div class="template-flow" aria-label="sidebar 到阅读列、hero、composer 与 project-bar">
+              <code>sidebar</code><span>→</span><code>阅读列</code><span>→</span><code>hero</code><span>→</span><code>composer</code><span>→</span><code>project-bar</code>
             </div>
             <div class="template-values">
-              <code>--layout-home-hero-max · 1120px</code>
-              <span>标题 · --layout-home-title-max 980 · text-display serif</span>
-              <span>content · --layout-home-content-max 100%</span>
-              <span>紧凑 &lt; 600 · 应用壳单列 · sidebar 与 Dialog 变 BottomSheet · canvas / chat-panel 二选一</span>
+              <code>--layout-app-sidebar-width · 264px</code>
+              <span>sidebar · surface · 可折叠 · 折叠后主区左上浮出展开钮 · 底部账户区</span>
+              <span>阅读列 · ≤ --layout-home-read-max 760 · 垂直居中偏上</span>
+              <span>hero · text-display serif 标题 + text-body 副标题 on-surface-variant</span>
+              <span>composer · surface-container-lowest · radius 3xl · shadow-1 · focus-within border-hover</span>
+              <span>project-bar · 贴 composer 下沿 · 只圆下两角 · surface-container</span>
+              <span>紧凑 &lt; 600 · sidebar 隐藏 · 主区左上浮出展开钮</span>
             </div>
             <p class="template-use">
-              首页与紧凑断点的退化规则一并登记，不在页面上另写断点。
+              登录后应用壳与首页空态共用一套骨架；紧凑断点的退化规则一并登记，不在页面上另写断点。
             </p>
           </article>
         </div>

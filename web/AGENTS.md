@@ -32,7 +32,7 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 - 依赖单向向下：`main.tsx → app/`（壳与 router 装配）`→ routes/`（路由装配层）`→ features/<name>`（业务模块）`→ shared/`（共用层）。
 - `src/routes/**` 只做 `createFileRoute` 装配、`beforeLoad` 守卫与 search params 校验，不写业务逻辑；`src/routeTree.gen.ts` 自动生成，不手改。
 - **跨 feature 一律禁止**，包括对方的 `index.ts`。两个 feature 要共用东西只有两条路：下沉 `shared/`，或者在 routes / app 层组装。
-- 每个登录页都要有的外壳（页头、用户菜单）放 `src/routes/_authed.tsx`，不塞进任何 feature。
+- 每个登录页都要有的外壳（侧栏、用户菜单）放 `src/routes/_authed.tsx`（侧栏实现拆在同目录 `-app-sidebar.tsx`，`-` 前缀不进路由树），不塞进任何 feature。
 - `src/shared/**` 只放领域无关的共用能力，不得反向依赖 `features`；`src/testing/**` 是测试基建，业务代码不得引用。
 - 后端 REST 请求一律经 `apiFetch(path, schema)`（`@/shared/api/client`，响应在边界处过 zod）；裸 fetch 仅限两类非 REST 场景：OSS 预签名直传 PUT、外链素材下载。
 - 构建期代码（vite 代理、dev profile）放 `vite/`，归 `tsconfig.node.json`；`src/` 不带 Node 类型。

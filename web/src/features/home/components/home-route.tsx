@@ -1,15 +1,28 @@
+import { HomeComposer } from './home-composer'
+
 /**
- * 首页内容区：页头由 /_authed 布局提供，这里只放页面自己的东西。
+ * 首页内容区：侧栏由 /_authed 布局提供，这里只放页面自己的东西。
  *
- * 前端重写从这里往外长——新页面按 design-system.html 的结构模板搭，
- * 组件从 @/shared/ui 取，不在 feature 里另起一套 CSS。
+ * 结构对齐 Kimi Code Web 的首页空态（design-system.html 04 · HOME 模板）：
+ * 760 阅读列垂直居中偏上，serif display 标题 + 副标题 + 输入卡 + 卡下沿项目条。
+ * 输入卡只做外观，发送与项目选择都还没接后端。
  *
  * @returns 首页内容。
  */
 export function HomeRoute() {
   return (
-    <main className="flex min-h-0 flex-1 items-center justify-center p-6">
-      <p className="text-body text-on-surface-variant">首页待重建</p>
+    <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-(--layout-home-read-max) flex-1 flex-col px-6">
+        <div className="flex flex-[2] flex-col items-center justify-end pb-6 text-center">
+          <h1 className="text-display font-(--font-home-display) tracking-tight text-on-background italic">
+            Producer
+          </h1>
+          <p className="pt-3 text-body text-on-surface-variant">还没有对话 —— 在下方输入开始创作</p>
+        </div>
+        <div className="flex flex-[3] flex-col">
+          <HomeComposer />
+        </div>
+      </div>
     </main>
   )
 }

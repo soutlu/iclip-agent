@@ -565,9 +565,8 @@
   --z-popup: 100;
 
   /* Layout tokens */
-  --layout-home-content-max: 100%;
-  --layout-home-hero-max: 1120px;
-  --layout-home-title-max: 980px;
+  --layout-app-sidebar-width: 264px;
+  --layout-home-read-max: 760px;
   --layout-project-header-height: 72px;
   --layout-project-header-inline-start: 24px;
   --layout-project-header-inline-end: 24px;
