@@ -17,6 +17,7 @@
 | `make db-upgrade` | Alembic 升级到最新（启动时不自动建表） |
 | `make web-check` | 前端 `ci:check` |
 | `make contract` | 导出后端 OpenAPI 到 `contract/openapi.json` |
+| `make docs-check` | 核对 Markdown 里的相对链接与 make 目标是否存在（含在 `make check` 里） |
 
 ### 设计系统
 
@@ -110,3 +111,9 @@
    ```
 
 **Agent 禁区**：目标为 `main` 的 PR 一律要开发者确认后才开、才合；不直接 push `main` 或 `develop`。其余合并不请示。
+
+## 5. 文档规则
+
+- 只写现在为真的事实与规则；不写理由、取舍、进度、日期。
+- 已被工具强制的规则不复述；同一事实只写一处，其余指过去。
+- 提到的命令、路径、链接必须真实存在；`make docs-check` 核对链接与 make 目标。
