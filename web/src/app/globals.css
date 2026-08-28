@@ -44,17 +44,20 @@
   --text-caption--line-height: 16px;
   --text-label: 12px; /* 标签、日期 */
   --text-label--line-height: 16px;
-  --text-body-sm: 13px; /* 紧凑正文（时间戳、辅助说明） */
-  --text-body-sm--line-height: 18px;
+  --text-body-sm: 12px; /* M3 body-small：紧凑正文（时间戳、辅助说明）；与 label 同值不同角色 */
+  --text-body-sm--line-height: 16px;
   --text-body: 14px; /* 正文基准（M3 body-medium，v15 起为 body 元素默认）；按钮、Tab、导航、chip、输入框 */
   --text-body--line-height: 20px;
   --text-title: 16px;
   --text-title--line-height: 24px;
-  --text-title-lg: 20px; /* 大标题（对话框头、分区 h2；介于 title/headline，自研档） */
+  --text-title-lg: 22px; /* M3 title-large；对话框头、分区 h2 */
+  --text-title-lg--line-height: 28px;
   --text-headline: 28px;
   --text-headline--line-height: 36px;
   --text-headline-lg: 32px; /* M3 headline-large；品牌字标、紧凑页大标题、画布大字 */
+  --text-headline-lg--line-height: 40px;
   --text-display-sm: 45px; /* M3 display-medium；紧凑 hero 标题 */
+  --text-display-sm--line-height: 52px;
   --text-display: 57px;
   --text-display--line-height: 64px;
 }
