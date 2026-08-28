@@ -1,8 +1,14 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { renderWithProviders } from '@/testing/render'
 import { HomeRoute } from './home-route'
+
+// lottie-web 在模块加载时就探测 canvas 2d context，jsdom 里拿不到会直接抛。
+// hero 动画是 aria-hidden 的装饰件，这些用例断言的是标题、副标题与输入卡。
+vi.mock('lottie-web/build/player/lottie_light', () => ({
+  default: { loadAnimation: () => ({ destroy: () => undefined }) },
+}))
 
 describe('HomeRoute', () => {
   it('渲染标题、副标题与输入卡', async () => {
