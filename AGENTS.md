@@ -73,7 +73,7 @@
 | `develop` | 当前开发线 | 任务分支的 PR，CI 全绿即合 | squash |
 | 任务分支 | 一个任务的改动，活在 worktree 里 | 直接 commit / push | — |
 
-`main` 与 `develop` 受同样的分支保护：不能直接 push，必需检查 `server` + `web` 全绿，禁 force push、禁删除；合并后任务分支在远端自动删除。仓库默认分支是 `main`，所以凡是没写目标分支的命令都会指向 main，下面每条命令里的 `develop` 都不能省。
+`main` 与 `develop` 受同样的分支保护：不能直接 push，必需检查 `server` + `web` 全绿，禁 force push、禁删除；合并后任务分支在远端自动删除。仓库默认分支是 `develop`：`gh pr create` 不写目标就打到它，`EnterWorktree` 自建的 worktree 也从它起；只有发版 PR 要显式写 `--base main`。
 
 ### 5.2 日常开发：任务分支 → develop
 
@@ -83,7 +83,7 @@
    ```
    git worktree add .claude/worktrees/<任务名> -b <分支名> origin/develop
    ```
-   Claude Code 会话随后用 `EnterWorktree` 的 `path` 参数进入这个目录。不要让 `EnterWorktree` 自己新建——它从默认分支 main 起，会落在旧版本上。
+   Claude Code 会话用 `EnterWorktree` 工具，落点相同、起点相同（默认分支 develop）。
    起点固定是 `origin/develop`，不是当前 HEAD。唯一例外：改动确实依赖某条还没合的分支，那就从那条分支起，并在 PR 描述里写明「叠在 #N 上面」。
 2. **开发并推送**：在 worktree 里 commit，`git push -u origin HEAD`。
 3. **本地检查、发 PR**：`make check` 无误后
