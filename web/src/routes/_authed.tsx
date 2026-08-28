@@ -22,7 +22,10 @@ function AuthedLayout() {
   return (
     <div className="flex min-h-dvh">
       <AppSidebar />
-      <Outlet />
+      {/* 主区压平为单色底（kimi 式），不露出 body 的渐变光斑 */}
+      <div className="flex min-w-0 flex-1 flex-col bg-background-top">
+        <Outlet />
+      </div>
     </div>
   )
 }

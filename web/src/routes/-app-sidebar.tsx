@@ -31,7 +31,7 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col bg-surface',
+        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r border-border bg-surface',
         'max-sm:fixed max-sm:top-0 max-sm:left-0 max-sm:shadow-[var(--shadow-2)] sm:sticky sm:top-0',
       )}
     >
@@ -39,7 +39,7 @@ export function AppSidebar() {
         <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-on-primary">
           <Icon decorative name="clip" size="sm" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-body font-semibold text-on-surface">
+        <span className="min-w-0 flex-1 truncate text-body font-medium text-on-surface">
           Producer
         </span>
         <IconButton
@@ -56,16 +56,21 @@ export function AppSidebar() {
       </nav>
 
       <div className="flex min-h-0 flex-1 flex-col px-2 pt-4">
-        <h2 className="px-2 pb-1 text-label font-semibold tracking-wide text-on-surface-variant">
-          会话
-        </h2>
+        <div className="flex items-center justify-between px-2 pb-1">
+          <h2 className="text-label font-semibold tracking-wide text-on-surface-variant">会话</h2>
+          <div className="flex items-center">
+            <IconButton label="新建工作区" name="folder-plus" size="md" />
+            <IconButton label="切换分组视图" name="view-group" size="md" />
+          </div>
+        </div>
         <p className="px-2 pt-1 text-body-sm text-on-surface-variant">
           还没有会话 · 点击 新建对话 开始
         </p>
       </div>
 
-      <div className="border-t border-border p-2">
+      <div className="flex items-center justify-between border-t border-border p-2">
         <ProducerUserMenu align="top-start" />
+        <IconButton label="设置" name="settings" size="md" />
       </div>
     </aside>
   )
@@ -88,12 +93,12 @@ function SidebarAction({ icon, kbd, label }: SidebarActionProps) {
     <button
       aria-label={label}
       className={cn(
-        'group flex w-full ui-state cursor-pointer items-center gap-2 rounded-md px-2 py-2 ui-focus',
+        'group flex w-full ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-2 ui-focus',
         'text-body text-on-surface',
       )}
       type="button"
     >
-      <Icon className="text-on-surface-variant" decorative name={icon} size="md" />
+      <Icon className="text-on-surface" decorative name={icon} size="md" />
       <span aria-hidden className="min-w-0 flex-1 truncate text-left">
         {label}
       </span>

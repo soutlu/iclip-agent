@@ -4,8 +4,8 @@ import { HomeComposer } from './home-composer'
  * 首页内容区：侧栏由 /_authed 布局提供，这里只放页面自己的东西。
  *
  * 结构对齐 Kimi Code Web 的首页空态（design-system.html 04 · HOME 模板）：
- * 760 阅读列垂直居中偏上，serif display 标题 + 副标题 + 输入卡 + 卡下沿项目条。
- * 输入卡只做外观，发送与项目选择都还没接后端。
+ * 760 阅读列垂直居中偏上，浅灰大字（kimi 的 doodle 静态近似）+ 副标题 + 输入卡
+ * + 卡下沿项目条。输入卡只做外观，发送与项目选择都还没接后端。
  *
  * @returns 首页内容。
  */
@@ -14,7 +14,10 @@ export function HomeRoute() {
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mx-auto flex w-full max-w-(--layout-home-read-max) flex-1 flex-col px-6">
         <div className="flex flex-[2] flex-col items-center justify-end pb-6 text-center">
-          <h1 className="text-display font-(--font-home-display) tracking-tight text-on-background italic">
+          <h1
+            className="text-display font-semibold tracking-tight text-surface-container-high select-none"
+            aria-label="Producer"
+          >
             Producer
           </h1>
           <p className="pt-3 text-body text-on-surface-variant">还没有对话 —— 在下方输入开始创作</p>
