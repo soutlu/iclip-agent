@@ -25,5 +25,4 @@ API key 有效权限 = key 显式授权集
 ## 后果
 
 - 下游零改动：`require_permission` 与一切授权检查只消费 `Principal.permissions`，本来就与角色无关。
-- wire 契约：`/users/me`、`GET /users`、`PATCH /users/{id}` 暴露 `roles` + `directPermissions`（不再有单值 `role`）。
-- 直接改 0001 baseline 迁移（`users.roles` + `users.direct_permissions`），无数据迁移。
+- wire 契约：`/users/me`、`GET /users`、`PATCH /users/{id}` 暴露 `roles` + `directPermissions`，没有单值 `role`。
