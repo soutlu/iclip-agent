@@ -78,7 +78,7 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
               </Button>
             </div>
           </div>
-          <ProjectHero className="h-52 w-auto shrink-0 max-md:hidden" />
+          <ProjectHero className="h-62 w-auto shrink-0 max-md:hidden" />
         </header>
 
         {/* 两个分区之间比页头到分区拉得更开，让「我的项目」和「全部项目」各成一段 */}
@@ -87,13 +87,14 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
             <div className="flex items-center justify-between gap-4">
               <h2 className="shrink-0 text-title-lg font-semibold text-on-surface">我的项目</h2>
               <div className="w-56 shrink-0">
+                {/* 框高直接取分区标题的行高，两者等高排在一行；标题换档也不会错位 */}
                 <Input
                   aria-label="搜索项目"
                   leadingIcon="search"
                   onChange={(e) => setKeyword(e.target.value)}
                   placeholder="搜索项目"
                   value={keyword}
-                  wrapperClassName="h-(--control-height-sm) rounded-sm border-outline-variant"
+                  wrapperClassName="h-(--text-title-lg--line-height) rounded-sm border-outline-variant"
                 />
               </div>
             </div>
