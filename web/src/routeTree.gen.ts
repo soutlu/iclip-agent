@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
+import { Route as ShellTasksRouteImport } from './routes/_shell/tasks'
 import { Route as AuthSsoLandingRouteImport } from './routes/auth.sso.landing'
 
 const ShellRoute = ShellRouteImport.update({
@@ -22,6 +23,11 @@ const ShellIndexRoute = ShellIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellTasksRoute = ShellTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => ShellRoute,
+} as any)
 const AuthSsoLandingRoute = AuthSsoLandingRouteImport.update({
   id: '/auth/sso/landing',
   path: '/auth/sso/landing',
@@ -30,24 +36,28 @@ const AuthSsoLandingRoute = AuthSsoLandingRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
+  '/tasks': typeof ShellTasksRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesByTo {
+  '/tasks': typeof ShellTasksRoute
   '/': typeof ShellIndexRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
+  '/_shell/tasks': typeof ShellTasksRoute
   '/_shell/': typeof ShellIndexRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth/sso/landing'
+  fullPaths: '/' | '/tasks' | '/auth/sso/landing'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth/sso/landing'
-  id: '__root__' | '/_shell' | '/_shell/' | '/auth/sso/landing'
+  to: '/tasks' | '/' | '/auth/sso/landing'
+  id:
+    '__root__' | '/_shell' | '/_shell/tasks' | '/_shell/' | '/auth/sso/landing'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -71,6 +81,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellIndexRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/tasks': {
+      id: '/_shell/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof ShellTasksRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/auth/sso/landing': {
       id: '/auth/sso/landing'
       path: '/auth/sso/landing'
@@ -82,10 +99,12 @@ declare module '@tanstack/react-router' {
 }
 
 interface ShellRouteChildren {
+  ShellTasksRoute: typeof ShellTasksRoute
   ShellIndexRoute: typeof ShellIndexRoute
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
+  ShellTasksRoute: ShellTasksRoute,
   ShellIndexRoute: ShellIndexRoute,
 }
 

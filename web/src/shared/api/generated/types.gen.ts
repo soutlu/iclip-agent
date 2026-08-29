@@ -974,6 +974,10 @@ export type TaskIn = {
  * TaskOut
  */
 export type TaskOut = {
+  /**
+   * Assigneeuserids
+   */
+  assigneeUserIds?: Array<string>
   brief: TaskBrief
   /**
    * Createdat
@@ -2540,6 +2544,10 @@ export type ListTasksTasksGetData = {
      * Limit
      */
     limit?: number
+    /**
+     * Claimedby
+     */
+    claimedBy?: string | null
   }
   url: '/tasks'
 }

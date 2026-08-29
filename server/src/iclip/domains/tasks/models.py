@@ -2,7 +2,8 @@
 
 一张需求单是一份被记录在案的视频创作要求：谁提的、要什么、什么时候要、走到哪一步。
 它是**全公司都看得见的工作队列**，不是私人物品——所以这里没有「属主」，只有「创建
-者」。
+者」。认领人另记：谁接了这张单是一组事实行（``task_assignees``），不是单上的一个槽
+位——一张单可以被多个人认领。
 
 创作输入本身在 [schemas.py](schemas.py)：那一套定义同时是 wire 形状与入库形状，不在
 这里再写一遍。
@@ -11,7 +12,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Final, Literal
 
@@ -24,7 +25,7 @@ STATUS_DRAFT: Final = "draft"
 STATUS_PUBLISHED: Final = "published"
 """已下发。创作输入从这一刻起冻结（见 ``schemas.PLANNER_FIELDS``）。"""
 STATUS_CONFIRMED: Final = "confirmed"
-"""策划师已接单。可以据此开工。"""
+"""已被认领。可以据此开工；认领人记在 ``task_assignees``，谁接的一目了然。"""
 STATUS_WITHDRAWN: Final = "withdrawn"
 """已撤回。终态，改不动也删不掉——它是发生过的事实。"""
 
@@ -50,6 +51,8 @@ class Task:
     brief: TaskBrief
     created_at: datetime
     updated_at: datetime
+    assignee_user_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
+    """谁认领了这张单。事实存在 ``task_assignees`` 表里，读出来挂在这；可多个人。"""
 
 
 __all__ = [

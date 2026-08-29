@@ -7,7 +7,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from iclip.common.errors import NotFound, ValidationFailed
-from iclip.domains.tasks.models import STATUS_DRAFT, Task, TaskStatus
+from iclip.domains.tasks.models import (
+    STATUS_CONFIRMED,
+    STATUS_DRAFT,
+    STATUS_PUBLISHED,
+    Task,
+    TaskStatus,
+)
 from iclip.domains.tasks.schemas import TaskBrief, TaskStyle
 
 STYLE_NO = "SBPU24001W"
@@ -62,6 +68,7 @@ def make_task(
     deadline: datetime | None = None,
     title: str = "秋冬新品短视频",
     priority: int = 0,
+    assignee_user_ids: tuple[uuid.UUID, ...] = (),
 ) -> Task:
     now = datetime.now(UTC)
     return Task(
@@ -77,6 +84,7 @@ def make_task(
         brief=brief or make_brief(),
         created_at=now,
         updated_at=now,
+        assignee_user_ids=assignee_user_ids,
     )
 
 
@@ -115,11 +123,17 @@ class InMemoryTaskRepository:
         return found
 
     async def list_recent(
-        self, *, status: TaskStatus | None = None, limit: int
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        limit: int,
     ) -> tuple[Task, ...]:
         rows = sorted(self.tasks.values(), key=lambda task: task.updated_at, reverse=True)
         if status is not None:
             rows = [task for task in rows if task.status == status]
+        if assignee_user_id is not None:
+            rows = [task for task in rows if assignee_user_id in task.assignee_user_ids]
         return tuple(rows[:limit])
 
     async def save(
@@ -143,6 +157,25 @@ class InMemoryTaskRepository:
         if found.deadline is None or found.deadline <= datetime.now(UTC):
             return None
         return self._replace(task_id, STATUS_DRAFT, status="published")
+
+    async def confirm(self, task_id: uuid.UUID, *, user_id: uuid.UUID) -> Task | None:
+        from dataclasses import replace
+
+        found = self.tasks.get(task_id)
+        if found is None or found.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+            return None
+        assignees = found.assignee_user_ids
+        if user_id not in assignees:
+            assignees = (*assignees, user_id)
+        status: TaskStatus = STATUS_CONFIRMED
+        updated = replace(
+            found,
+            status=status,
+            assignee_user_ids=assignees,
+            updated_at=datetime.now(UTC),
+        )
+        self.tasks[task_id] = updated
+        return updated
 
     async def set_status(
         self, task_id: uuid.UUID, *, expect: TaskStatus, status: TaskStatus

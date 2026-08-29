@@ -23,7 +23,7 @@ export const mockAuthUser = {
   isActive: true,
   jobTitle: '',
   lastLoginAt: null,
-  permissions: ['projects:read', 'projects:write'],
+  permissions: ['projects:read', 'projects:write', 'tasks:read', 'tasks:write'],
   roles: ['editor'],
   username: 'tester',
 }
@@ -34,6 +34,28 @@ let sessionActive = false
 
 export const resetMockSession = () => {
   sessionActive = false
+}
+
+// 需求单的内存存储：形状即合同 TaskOut（zTaskOut 会校验，缺字段过不了边界）。
+// 测试经 server.use 覆盖单端点，或直接改这个数组后 invalidate 查询。
+type MockTask = {
+  assigneeUserIds: string[]
+  brief: Record<string, unknown>
+  createdAt: string
+  creatorUserId: string
+  deadline: string | null
+  id: string
+  priority: number
+  status: string
+  style: { brand: string; category: string; previewImageUrl: string; styleNo: string }
+  title: string
+  updatedAt: string
+}
+
+export const mockTasks: MockTask[] = []
+
+export const resetMockTasks = () => {
+  mockTasks.length = 0
 }
 
 export const handlers = [
@@ -59,4 +81,112 @@ export const handlers = [
 
   // GET /auth/sso/authorize：mock 环境不开 SSO，后端关着时这条路由不挂载（404），登录页据此只显示账号密码。
   http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
+
+  // ── tasks（src/features/tasks/tasks.api.ts）──────────────────────────────
+  // 内存版需求单：支持列表（含 claimedBy=me）、详情、创建、整体覆盖、发布/认领/撤回。
+  http.get('*/api/tasks', ({ request }) => {
+    const url = new URL(request.url)
+    let items = [...mockTasks]
+    if (url.searchParams.get('claimedBy') === 'me') {
+      items = items.filter((task) => task.assigneeUserIds.includes(mockAuthUser.id))
+    }
+    const status = url.searchParams.get('status')
+    if (status) items = items.filter((task) => task.status === status)
+    return HttpResponse.json({ items })
+  }),
+
+  http.post('*/api/tasks', async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>
+    const now = new Date().toISOString()
+    const brief = (body['brief'] ?? {}) as Record<string, unknown>
+    const styleNo = typeof body['styleNo'] === 'string' ? body['styleNo'] : ''
+    const task = {
+      assigneeUserIds: [],
+      brief: {
+        audience: '',
+        color: '',
+        contentType: '',
+        department: '',
+        durationSeconds: null,
+        language: '',
+        platform: '',
+        purpose: '',
+        referenceImages: [],
+        referenceVideos: [],
+        requester: '',
+        requirementDescription: '',
+        scene: '',
+        selling: '',
+        styleNos: [styleNo],
+        theme: '',
+        videoType: '',
+        ...brief,
+      },
+      createdAt: now,
+      creatorUserId: mockAuthUser.id,
+      deadline: (body['deadline'] as string | null | undefined) ?? null,
+      id: crypto.randomUUID(),
+      priority: (body['priority'] as number | undefined) ?? 0,
+      status: 'draft',
+      style: { brand: '', category: '', previewImageUrl: '', styleNo },
+      title: typeof body['title'] === 'string' ? body['title'] : '',
+      updatedAt: now,
+    }
+    mockTasks.unshift(task)
+    return HttpResponse.json({ task }, { status: 201 })
+  }),
+
+  http.get('*/api/tasks/:taskId', ({ params }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    return task
+      ? HttpResponse.json({ task })
+      : HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+  }),
+
+  http.put('*/api/tasks/:taskId', async ({ params, request }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+    const body = (await request.json()) as Record<string, unknown>
+    Object.assign(task, {
+      brief: { ...task.brief, ...(body['brief'] as object) },
+      deadline: body['deadline'] as string | null,
+      priority: body['priority'] as number,
+      title: body['title'] as string,
+      updatedAt: new Date().toISOString(),
+    })
+    return HttpResponse.json({ task })
+  }),
+
+  http.post('*/api/tasks/:taskId/publish', ({ params }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+    if (task.status !== 'draft') {
+      return HttpResponse.json({ detail: '只有草稿能发布' }, { status: 409 })
+    }
+    Object.assign(task, { status: 'published', updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ task })
+  }),
+
+  http.post('*/api/tasks/:taskId/confirm', ({ params }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+    if (task.status !== 'published' && task.status !== 'confirmed') {
+      return HttpResponse.json({ detail: '这张单认领不了' }, { status: 409 })
+    }
+    if (!task.assigneeUserIds.includes(mockAuthUser.id)) {
+      task.assigneeUserIds.push(mockAuthUser.id)
+    }
+    Object.assign(task, { status: 'confirmed', updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ task })
+  }),
+
+  http.post('*/api/tasks/:taskId/withdraw', ({ params }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+    if (task.status !== 'published' && task.status !== 'confirmed') {
+      return HttpResponse.json({ detail: '这张单撤不了' }, { status: 409 })
+    }
+    Object.assign(task, { status: 'withdrawn', updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ task })
+  }),
 ]

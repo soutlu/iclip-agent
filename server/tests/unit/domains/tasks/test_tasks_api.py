@@ -345,7 +345,8 @@ async def test_published_task_must_keep_a_deadline() -> None:
         (STATUS_DRAFT, "confirm", 409),
         (STATUS_DRAFT, "withdraw", 409),
         (STATUS_PUBLISHED, "publish", 409),
-        (STATUS_CONFIRMED, "confirm", 409),
+        # 多人认领：已确认的单还能再认领，追加一个认领人。
+        (STATUS_CONFIRMED, "confirm", 200),
         (STATUS_CONFIRMED, "publish", 409),
         (STATUS_WITHDRAWN, "confirm", 409),
         (STATUS_WITHDRAWN, "withdraw", 409),
@@ -395,3 +396,55 @@ async def test_list_filters_by_status_and_rejects_out_of_range_limit() -> None:
         assert (await http.get("/tasks?status=nonsense")).status_code == 422
         assert (await http.get("/tasks?limit=0")).status_code == 422
         assert (await http.get("/tasks?limit=1000")).status_code == 422
+
+
+async def test_confirm_records_who_claimed() -> None:
+    """认领要记名：认领人落进 assigneeUserIds，客户端靠它判断「我认领过没有」。"""
+
+    task = make_task(status=STATUS_PUBLISHED, deadline=future())
+    repo = InMemoryTaskRepository([task])
+    caller = editor()
+    async with client(build_test_app(repo, granted=caller)) as http:
+        confirmed = await http.post(f"/tasks/{task.id}/confirm")
+
+        assert confirmed.status_code == 200
+        assert confirmed.json()["task"]["assigneeUserIds"] == [str(caller.user_id)]
+
+
+async def test_multiple_people_can_claim_the_same_task() -> None:
+    """多人认领：已确认的单再认领不报错，认领人追加而不是覆盖。"""
+
+    first = editor()
+    task = make_task(status=STATUS_CONFIRMED, deadline=future(), assignee_user_ids=(first.user_id,))
+    repo = InMemoryTaskRepository([task])
+    second = editor()
+    async with client(build_test_app(repo, granted=second)) as http:
+        confirmed = await http.post(f"/tasks/{task.id}/confirm")
+
+        assert confirmed.status_code == 200
+        assert confirmed.json()["task"]["assigneeUserIds"] == [
+            str(first.user_id),
+            str(second.user_id),
+        ]
+
+    # 同一个人再认领一次是幂等的，不会冒出第二行。
+    async with client(build_test_app(repo, granted=second)) as http:
+        again = await http.post(f"/tasks/{task.id}/confirm")
+        assert again.json()["task"]["assigneeUserIds"] == [
+            str(first.user_id),
+            str(second.user_id),
+        ]
+
+
+async def test_claimed_by_me_lists_only_my_claims() -> None:
+    """「我的项目」：claimedBy=me 只看自己认领的单，认领人取服务端身份而不是参数。"""
+
+    me = editor()
+    mine = make_task(status=STATUS_CONFIRMED, deadline=future(), assignee_user_ids=(me.user_id,))
+    other = make_task(status=STATUS_CONFIRMED, deadline=future(), assignee_user_ids=(uuid.uuid4(),))
+    nobody = make_task(status=STATUS_PUBLISHED, deadline=future())
+    repo = InMemoryTaskRepository([mine, other, nobody])
+    async with client(build_test_app(repo, granted=me)) as http:
+        items = (await http.get("/tasks?claimedBy=me")).json()["items"]
+        assert [item["id"] for item in items] == [str(mine.id)]
+        assert (await http.get("/tasks?claimedBy=someone-else")).status_code == 422

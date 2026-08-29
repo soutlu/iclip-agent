@@ -1770,6 +1770,15 @@
       "TaskOut": {
         "additionalProperties": false,
         "properties": {
+          "assigneeUserIds": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Assigneeuserids",
+            "type": "array"
+          },
           "brief": {
             "$ref": "#/components/schemas/TaskBrief"
           },
@@ -4222,6 +4231,23 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "claimedBy",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^me$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Claimedby"
             }
           }
         ],

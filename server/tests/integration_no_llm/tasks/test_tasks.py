@@ -72,14 +72,15 @@ async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
 
 
 async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) -> None:
-    """建 → 发 → 确认 → 撤回，走完整条 HTTP 路径。"""
+    """建 → 发 → 确认 → 撤回，走完整条 HTTP（谁认领的也一并记下）。"""
 
-    await login_as_editor(client, pg_url)
+    user_id = await login_as_editor(client, pg_url)
 
     created = await create(client)
     assert created.status_code == 201, created.text
     task = created.json()["task"]
     assert task["status"] == "draft"
+    assert task["assigneeUserIds"] == []
 
     published = await client.post(f"{URL}/{task['id']}/publish")
     assert published.status_code == 200, published.text
@@ -87,9 +88,12 @@ async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) 
 
     confirmed = await client.post(f"{URL}/{task['id']}/confirm")
     assert confirmed.json()["task"]["status"] == "confirmed"
+    assert confirmed.json()["task"]["assigneeUserIds"] == [user_id]
 
+    # 撤回留痕：状态翻成 withdrawn，认领记录不抹掉。
     withdrawn = await client.post(f"{URL}/{task['id']}/withdraw")
     assert withdrawn.json()["task"]["status"] == "withdrawn"
+    assert withdrawn.json()["task"]["assigneeUserIds"] == [user_id]
 
     # 撤回是终态：再撤一次、或想改回去，都是 409。
     assert (await client.post(f"{URL}/{task['id']}/withdraw")).status_code == 409
