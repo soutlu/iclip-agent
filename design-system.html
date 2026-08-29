@@ -363,6 +363,7 @@
         --z-local-1: 1; --z-local-2: 2; --z-local-3: 3; --z-canvas-overlay: 40;
         /* 布局 */
         --layout-app-sidebar-width: 264px;
+        --layout-app-right-panel-width: 460px;
         --layout-home-read-max: 760px;
         --layout-project-header-height: 72px;
         --layout-project-header-inline-start: 24px;
@@ -2825,8 +2826,8 @@
               <strong>首页</strong>
               <code>HomeViewport</code>
             </header>
-            <div class="template-flow" aria-label="sidebar 到阅读列、hero、composer 与 project-bar">
-              <code>sidebar</code><span>→</span><code>阅读列</code><span>→</span><code>hero</code><span>→</span><code>composer</code><span>→</span><code>project-bar</code>
+            <div class="template-flow" aria-label="sidebar 到阅读列、hero、composer、project-bar 与右面板">
+              <code>sidebar</code><span>→</span><code>阅读列</code><span>→</span><code>hero</code><span>→</span><code>composer</code><span>→</span><code>project-bar</code><span>→</span><code>右面板</code>
             </div>
             <div class="template-values">
               <code>--layout-app-sidebar-width · 264px</code>
@@ -2835,7 +2836,9 @@
               <span>hero · Lottie public/lottie/hero.json 一份 · 深色配色由 CSS 覆盖 fill 呈现属性 · 减弱动效停首帧 + text-body 副标题 on-surface-variant</span>
               <span>composer · top-layer · radius 3xl · shadow-1 · focus-within border-hover · 发送钮反色圆形用向上箭头</span>
               <span>project-bar · 贴 composer 下沿 · 只圆下两角 · surface-container-low</span>
-              <span>紧凑 &lt; 600 · sidebar 隐藏 · 主区左上浮出展开钮</span>
+              <code>--layout-app-right-panel-width · 460px</code>
+              <span>右面板 · surface · hairline 左边线 · 可折叠 · 折叠后主区右上浮出展开钮 · 空态占位</span>
+              <span>紧凑 &lt; 600 · sidebar 与右面板隐藏 · 主区左上、右上各浮出展开钮</span>
             </div>
             <p class="template-use">
               登录后应用壳与首页空态共用一套骨架；紧凑断点的退化规则一并登记，不在页面上另写断点。

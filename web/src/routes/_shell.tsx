@@ -2,6 +2,7 @@ import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router'
 import { useCallback, useState } from 'react'
 import { z } from 'zod'
 import { LoginDialog } from '@/features/auth'
+import { AppRightPanel } from './-app-right-panel'
 import { AppSidebar } from './-app-sidebar'
 import { LoginPromptProvider } from './-login-prompt'
 
@@ -17,12 +18,12 @@ export const Route = createFileRoute('/_shell')({
 })
 
 /**
- * 渲染应用壳：侧栏、内容出口与登录弹窗。
+ * 渲染应用壳：侧栏、内容出口、右面板与登录弹窗。
  *
  * 侧栏放这里而不是放进某个 feature——它每页都要有，塞进 feature 就会逼出跨 feature
- * 依赖，而跨 feature 是禁止的。登录弹窗同理：页面只通过 useLoginPrompt 请求登录。
+ * 依赖，而跨 feature 是禁止的。右面板与登录弹窗同理：页面只通过 useLoginPrompt 请求登录。
  *
- * @returns 带侧栏与登录弹窗的路由出口。
+ * @returns 带侧栏、右面板与登录弹窗的路由出口。
  */
 function AppShell() {
   const navigate = useNavigate()
@@ -54,6 +55,7 @@ function AppShell() {
         <div className="flex min-w-0 flex-1 flex-col">
           <Outlet />
         </div>
+        <AppRightPanel />
       </div>
 
       <LoginDialog open={loginOpen} onOpenChange={handleLoginOpenChange} ssoErrorCode={ssoError} />
