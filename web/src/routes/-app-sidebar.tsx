@@ -6,18 +6,44 @@ import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { useLoginPrompt } from './-login-prompt'
 
+type SessionTab = 'running' | 'done' | 'workspace'
+
+// 侧栏里三种行（操作行、会话行、未登录的登录行）共用的外观：幽灵行，
+// hover / pressed 由 ui-state 铺，焦点走 ui-focus。宽度与内距由调用处按需覆盖。
+const SIDEBAR_ROW_CLASS =
+  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-2 ui-focus text-body text-on-surface'
+
+// 会话列表还没接后端，这里用演示数据呈现行尾状态标识
+// （进行中 primary 转圈 / 待回答 warning 徽章 / 已完成 status-success 对勾 / 失败 status-error 红叉）
+const DEMO_SESSIONS: Record<
+  Exclude<SessionTab, 'workspace'>,
+  { title: string; status: 'running' | 'waiting' | 'done' | 'failed' }[]
+> = {
+  running: [
+    { title: '产品宣传片 · 分镜生成中', status: 'running' },
+    { title: '当前项目用于复刻 kimi code 的 web 端', status: 'waiting' },
+  ],
+  done: [
+    { title: '夏季亚麻系列广告', status: 'done' },
+    { title: '通勤背包短视频', status: 'done' },
+    { title: '夜景延时素材生成', status: 'failed' },
+  ],
+}
+
 /**
- * 应用侧栏：每页共享的外壳（品牌区、新建对话 / 搜索入口、会话分区、账户区）。
+ * 应用侧栏：每页共享的外壳（品牌区、新建对话 / 搜索入口、会话分段与列表、账户区）。
  *
  * 结构对齐 Kimi Code Web 的侧栏：264 宽、可折叠为 0（折叠后主区左上浮出展开钮）、
- * kbd 快捷键提示只在 hover 行时淡入。当前只做外观——新建 / 搜索 / 会话列表都还没接后端。
- * 未登录时会话区与账户区退成登录入口，点任何操作都弹登录框。
+ * kbd 快捷键提示只在 hover 行时淡入；会话区用分段 tab（进行中 / 已完成 / 工作空间），
+ * 进行中的 tab 带 primary 圆点，会话行尾带状态标识。当前只做外观——新建 / 搜索 /
+ * 会话列表都还没接后端。未登录时会话区与账户区退成登录入口，点任何操作都弹登录框。
  *
  * @returns 侧栏与折叠态下的浮出展开按钮。
  */
 export function AppSidebar() {
   // 紧凑屏（< --breakpoint-sm 600）默认收起，展开后成浮层；桌面默认展开、收入布局流
   const [collapsed, setCollapsed] = useState(() => !window.matchMedia('(min-width: 600px)').matches)
+  const [tab, setTab] = useState<SessionTab>('running')
   const { data: user } = useUser()
   const requireLogin = useLoginPrompt()
 
@@ -41,10 +67,13 @@ export function AppSidebar() {
       )}
     >
       <div className="flex items-center gap-2 px-3 pt-3 pb-1">
-        <span className="grid size-(--control-height-md) shrink-0 place-items-center rounded-md bg-primary text-on-primary">
-          <Icon decorative name="clip" size="lg" />
+        <span
+          aria-hidden
+          className="grid size-(--control-height-md) shrink-0 place-items-center rounded-md bg-primary font-home-display text-title font-semibold text-on-primary italic"
+        >
+          C
         </span>
-        <span className="min-w-0 flex-1 truncate text-title font-semibold text-on-surface">
+        <span className="min-w-0 flex-1 truncate font-home-display text-title-lg font-semibold tracking-[-0.02em] text-on-surface italic">
           Cue
         </span>
         <IconButton
@@ -70,27 +99,36 @@ export function AppSidebar() {
         />
       </nav>
 
-      <div className="flex min-h-0 flex-1 flex-col px-2 pt-4">
-        <div className="flex items-center justify-between px-2 pb-1">
-          <h2 className="text-label font-semibold tracking-wide text-on-surface-variant">会话</h2>
-          <div className="flex items-center">
-            <IconButton
-              label="新建工作区"
-              name="folder-plus"
-              onClick={user ? undefined : requireLogin}
-              size="md"
-            />
-            <IconButton
-              label="切换分组视图"
-              name="view-group"
-              onClick={user ? undefined : requireLogin}
-              size="md"
-            />
-          </div>
+      <div className="flex min-h-0 flex-1 flex-col px-2 pt-3">
+        <div
+          aria-label="会话筛选"
+          className="flex rounded-full bg-surface-container p-0.5"
+          role="tablist"
+        >
+          <SidebarTab active={tab === 'running'} dot onClick={() => setTab('running')}>
+            进行中
+          </SidebarTab>
+          <SidebarTab active={tab === 'done'} onClick={() => setTab('done')}>
+            已完成
+          </SidebarTab>
+          <SidebarTab active={tab === 'workspace'} onClick={() => setTab('workspace')}>
+            工作空间
+          </SidebarTab>
         </div>
-        <p className="px-2 pt-1 text-body-sm text-on-surface-variant">
-          {user ? '还没有会话 · 点击 新建对话 开始' : '登录后查看会话'}
-        </p>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pt-1">
+          {!user && (
+            <p className="px-2 pt-1 text-body-sm text-on-surface-variant">登录后查看会话</p>
+          )}
+          {user && tab === 'workspace' && (
+            <p className="px-2 pt-1 text-body-sm text-on-surface-variant">还没有工作区</p>
+          )}
+          {user &&
+            tab !== 'workspace' &&
+            DEMO_SESSIONS[tab].map((session) => (
+              <SessionRow key={session.title} status={session.status} title={session.title} />
+            ))}
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-border p-2">
@@ -99,10 +137,7 @@ export function AppSidebar() {
         ) : (
           <button
             aria-label="登录"
-            className={cn(
-              'group flex min-w-0 flex-1 ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 ui-focus',
-              'text-body text-on-surface',
-            )}
+            className={cn(SIDEBAR_ROW_CLASS, 'group min-w-0 flex-1 py-1.5')}
             onClick={requireLogin}
             type="button"
           >
@@ -117,6 +152,76 @@ export function AppSidebar() {
         <IconButton label="设置" name="settings" size="md" />
       </div>
     </aside>
+  )
+}
+
+type SidebarTabProps = {
+  active: boolean
+  children: string
+  /** 进行中的 tab 带一颗 primary 圆点，提示有活着的任务 */
+  dot?: boolean
+  onClick: () => void
+}
+
+/**
+ * 会话分段 tab：灰胶囊容器里的等宽项，选中项抬成 top-layer 白丸并带轻影。
+ *
+ * @param props - 选中态、文案、圆点与点击回调。
+ * @returns 单个分段 tab。
+ */
+function SidebarTab({ active, children, dot, onClick }: SidebarTabProps) {
+  return (
+    <button
+      aria-selected={active}
+      className={cn(
+        'flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full py-1.5 ui-focus ui-motion-s',
+        'text-body-sm transition-[background-color,color,box-shadow]',
+        active
+          ? 'bg-top-layer font-medium text-on-surface shadow-[var(--shadow-1)]'
+          : 'text-on-surface-variant hover:text-on-surface',
+      )}
+      onClick={onClick}
+      role="tab"
+      type="button"
+    >
+      {dot ? <span aria-hidden className="size-1.5 rounded-full bg-primary" /> : null}
+      {children}
+    </button>
+  )
+}
+
+type SessionRowProps = {
+  status: 'running' | 'waiting' | 'done' | 'failed'
+  title: string
+}
+
+/**
+ * 会话行：截断标题在左，状态标识在右，取设计系统状态色——进行中 primary 转圈、
+ * 待回答 warning（琥珀）描边徽章、已完成 chat-status-success 对勾、
+ * 失败 chat-status-error 红叉（对齐 kimi 的行尾状态位）。
+ *
+ * @param props - 会话状态与标题。
+ * @returns 单个会话行按钮。
+ */
+function SessionRow({ status, title }: SessionRowProps) {
+  return (
+    <button className={cn(SIDEBAR_ROW_CLASS, 'w-full')} type="button">
+      <span className="min-w-0 flex-1 truncate text-left">{title}</span>
+      {status === 'running' && (
+        <Icon className="shrink-0 animate-spin text-primary" decorative name="loading" size="sm" />
+      )}
+      {status === 'waiting' && (
+        <span className="shrink-0 rounded-full border border-warning px-1.5 py-0.5 text-caption text-warning">
+          待回答
+        </span>
+      )}
+      {status === 'done' && (
+        <Icon className="shrink-0 text-chat-status-success" decorative name="success" size="sm" />
+      )}
+      {status === 'failed' && (
+        <Icon className="shrink-0 text-chat-status-error" decorative name="failed" size="sm" />
+      )}
+    </button>
   )
 }
 
@@ -137,10 +242,7 @@ function SidebarAction({ icon, kbd, label, onClick }: SidebarActionProps) {
   return (
     <button
       aria-label={label}
-      className={cn(
-        'group flex w-full ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-2 ui-focus',
-        'text-body text-on-surface',
-      )}
+      className={cn(SIDEBAR_ROW_CLASS, 'group w-full')}
       onClick={onClick}
       type="button"
     >

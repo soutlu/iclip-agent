@@ -120,8 +120,6 @@
 
         /* ===== ③ 领域别名 · 随主题（引用 ② 层的自动跟随；直接取色板/字面值的在 .dark 另给值） ===== */
         --color-background: var(--n100);
-        --color-background-top: var(--n100);
-        --color-background-bottom: var(--n95);
         --color-on-background: var(--color-on-surface);
         --color-top-layer: var(--n100);
         --color-state-active: var(--color-primary-container);
@@ -418,8 +416,6 @@
         --color-inverse-on-surface: var(--n20);
         --color-inverse-primary: var(--p40);
         --color-background: var(--color-surface);
-        --color-background-top: var(--n12);
-        --color-background-bottom: var(--n4);
         --color-top-layer: var(--n17);
         --color-glass-base: var(--n17);
         --color-popup-bg: rgba(27, 33, 29, 0.98);
@@ -2115,8 +2111,6 @@
                     <p>引用语义角色；danger 描边 / 文字 E80 · E30 → E60 · E80。</p>
                   </div>
                   <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-background-top" title="复制 --color-background-top"><i style="--sw: var(--color-background-top)"></i>background-top</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-background-bottom" title="复制 --color-background-bottom"><i style="--sw: var(--color-background-bottom)"></i>background-bottom</button>
                     <button class="ext-swatch" type="button" data-copy-token="--color-border" title="复制 --color-border"><i style="--sw: var(--color-border)"></i>border</button>
                     <button class="ext-swatch" type="button" data-copy-token="--color-danger-bg" title="复制 --color-danger-bg"><i style="--sw: var(--color-danger-bg)"></i>danger-bg</button>
                     <button class="ext-swatch" type="button" data-copy-token="--color-danger-border" title="复制 --color-danger-border"><i style="--sw: var(--color-danger-border)"></i>danger-border</button>
@@ -2832,11 +2826,11 @@
             </div>
             <div class="template-values">
               <code>--layout-app-sidebar-width · 264px</code>
-              <span>sidebar · background · hairline 右边线 · 可折叠 · 折叠后主区左上浮出展开钮 · 底部账户区</span>
+              <span>sidebar · background · hairline 右边线 · 可折叠 · 折叠后主区左上浮出展开钮 · 品牌区 serif 字标 · 会话分段 tab（进行中带 primary 圆点）· 会话行尾状态标识（primary 转圈 / warning 待回答徽章 / 对勾 / status-error 红叉）· 底部账户区</span>
               <span>阅读列 · ≤ --layout-home-read-max 760 · 垂直居中偏上</span>
               <span>hero · Lottie public/lottie/hero.json 一份 · ≤440 宽 · viewBox 裁到内容框（换插画重采）· 深色配色由 CSS 覆盖 fill 呈现属性 · 减弱动效停首帧</span>
               <span>品牌字标 · Cue · --font-home-display italic semibold · --text-display（紧凑 --text-display-sm）· 字距 -0.04em（紧凑 -0.035em）· on-surface</span>
-              <span>composer · top-layer · radius 3xl · shadow-1 · focus-within border-hover · 发送钮反色圆形用向上箭头</span>
+              <span>composer · top-layer · radius 3xl · shadow-1 · hover 边框渐深 · focus-within border-hover + shadow-2 · 发送钮反色圆形用向上箭头、hover 微放大</span>
               <span>project-bar · 贴 composer 下沿 · 只圆下两角 · surface-container-low</span>
               <code>--layout-app-right-panel-width · 460px</code>
               <span>右面板 · background · hairline 左边线 · 默认折叠 · 展开后可再折叠 · 折叠后主区右上浮出展开钮 · 空态占位</span>

@@ -234,8 +234,6 @@
   --color-background: var(
     --n100
   ); /* #FFFFFF 页面底；侧栏、右面板与主区同为页面底色，靠 hairline 分隔 */
-  --color-background-top: var(--n100);
-  --color-background-bottom: var(--n95);
   --color-on-background: var(--color-on-surface); /* 主文字、选中图标、标题 */
   /* --color-on-surface-variant 直接复用 ② 层同名角色（次级文字） */
   --color-top-layer: var(--n100);
@@ -640,8 +638,6 @@
   --color-inverse-on-surface: var(--n20);
   --color-inverse-primary: var(--p40);
   --color-background: var(--color-surface);
-  --color-background-top: var(--n12);
-  --color-background-bottom: var(--n4);
   --color-top-layer: var(--n17);
   --color-glass-base: var(--n17);
   --color-popup-bg: rgba(27, 33, 29, 0.98);
