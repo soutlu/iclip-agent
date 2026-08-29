@@ -4,6 +4,8 @@ import { useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 import { listAllTasks, listMyTasks, tasksQueryKeys, type Task } from '../tasks.api'
+import { ProjectHero } from './project-hero'
+import { RenameTaskDialog } from './rename-task-dialog'
 import { TaskCard } from './task-card'
 import { TaskDialog } from './task-dialog'
 
@@ -23,6 +25,7 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
   const { data: user } = useUser()
   const [keyword, setKeyword] = useState('')
   const [dialog, setDialog] = useState<{ open: boolean; taskId?: string }>({ open: false })
+  const [rename, setRename] = useState<{ open: boolean; task?: Task }>({ open: false })
 
   const myTasks = useQuery({
     enabled: Boolean(user),
@@ -52,54 +55,63 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
     setDialog({ open: true })
   }
 
+  // 重命名走 PUT（整体覆盖），撤回是终态改不动；没有写权限就不给入口
+  const canWrite = Boolean(user?.permissions.includes('tasks:write'))
+  const renameProps = (task: Task) =>
+    canWrite && task.status !== 'withdrawn'
+      ? { onRename: () => setRename({ open: true, task }) }
+      : {}
+
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-(--layout-home-read-max) flex-col gap-8 px-6 py-10">
-        <header className="flex flex-col gap-4">
-          <div>
-            <h1 className="text-display-sm font-semibold text-on-surface">项目</h1>
-            <p className="mt-1 text-body text-on-surface-variant">多人协同，打造超级团队</p>
+      {/* 侧栏收起后展开钮浮在 top-3 left-3（36px 见方），pt-14 让页头从它下面起排 */}
+      <div className="flex w-full flex-col gap-15 px-6 pt-14 pb-10">
+        <header className="flex items-center justify-between gap-6">
+          <div className="flex flex-col gap-9">
+            <div>
+              <h1 className="text-headline font-semibold text-on-surface">项目</h1>
+              <p className="mt-3 text-body text-on-surface-variant">多人协同，打造超级团队</p>
+            </div>
+            <div>
+              <Button leadingIcon="add" onClick={openCreate} variant="inverted">
+                新建项目
+              </Button>
+            </div>
           </div>
-          <div>
-            <Button leadingIcon="add" onClick={openCreate} variant="inverted">
-              新建项目
-            </Button>
-          </div>
+          <ProjectHero className="h-44 w-auto shrink-0 max-md:hidden" />
         </header>
 
-        <section aria-label="我的项目" className="flex flex-col gap-3">
+        <section aria-label="我的项目" className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-title-lg font-semibold text-on-surface">我的项目</h2>
-            <Input
-              aria-label="搜索项目"
-              className="max-w-64"
-              leadingIcon="search"
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索项目"
-              value={keyword}
-            />
+            <h2 className="shrink-0 text-title font-bold text-on-surface">我的项目</h2>
+            <div className="w-60 shrink-0">
+              <Input
+                aria-label="搜索项目"
+                leadingIcon="search"
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="搜索项目"
+                value={keyword}
+              />
+            </div>
           </div>
-          {mine.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2">
+          {mine.length > 0 && (
+            <div className="grid-task-cards">
               {mine.map((task) => (
                 <TaskCard
                   key={task.id}
                   onClick={() => setDialog({ open: true, taskId: task.id })}
                   task={task}
+                  {...renameProps(task)}
                 />
               ))}
             </div>
-          ) : (
-            <p className="rounded-xl border border-border bg-surface-container-lowest p-4 text-body-sm text-on-surface-variant">
-              {user ? '还没有认领过项目，去下面挑一个' : '登录后查看你认领的项目'}
-            </p>
           )}
         </section>
 
-        <section aria-label="全部项目" className="flex flex-col gap-3">
-          <h2 className="text-title-lg font-semibold text-on-surface">全部项目</h2>
-          {all.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <section aria-label="全部项目" className="flex flex-col gap-4">
+          <h2 className="text-title font-bold text-on-surface">全部项目</h2>
+          {all.length > 0 && (
+            <div className="grid-task-cards">
               {all.map((task) => (
                 <TaskCard
                   key={task.id}
@@ -108,10 +120,6 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
                 />
               ))}
             </div>
-          ) : (
-            <p className="rounded-xl border border-border bg-surface-container-lowest p-4 text-body-sm text-on-surface-variant">
-              {allTasks.isLoading ? '加载中…' : '还没有项目'}
-            </p>
           )}
         </section>
       </div>
@@ -120,6 +128,11 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
         onOpenChange={(open) => setDialog((prev) => ({ ...prev, open }))}
         open={dialog.open}
         taskId={dialog.taskId}
+      />
+      <RenameTaskDialog
+        onOpenChange={(open) => setRename((prev) => ({ ...prev, open }))}
+        open={rename.open}
+        task={rename.task}
       />
     </main>
   )
