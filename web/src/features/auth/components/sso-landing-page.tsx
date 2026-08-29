@@ -12,10 +12,10 @@ type SsoLandingPageProps = {
 }
 
 /**
- * 把 SSO 换会话失败映射为登录页可读的错误码。
+ * 把 SSO 换会话失败映射为登录弹窗可读的错误码。
  *
  * @param error - completeSsoLogin 抛出的未知错误。
- * @returns 登录页 ?ssoError= 错误码。
+ * @returns 应用壳 ?ssoError= 错误码。
  */
 const ssoErrorCodeFromError = (error: unknown) => {
   if (error instanceof ApiError && error.status === 401) {
@@ -49,8 +49,9 @@ export function SsoLandingPage({ jwt }: SsoLandingPageProps) {
 
     startedRef.current = true
 
+    // 失败一律回首页并带上错误码，应用壳读到就把登录弹窗打开
     if (!jwt) {
-      void navigate({ replace: true, search: { ssoError: 'missing' }, to: '/login' })
+      void navigate({ replace: true, search: { ssoError: 'missing' }, to: '/' })
       return
     }
 
@@ -62,7 +63,7 @@ export function SsoLandingPage({ jwt }: SsoLandingPageProps) {
         void navigate({
           replace: true,
           search: { ssoError: ssoErrorCodeFromError(error) },
-          to: '/login',
+          to: '/',
         })
       })
   }, [completeSsoLogin, jwt, navigate])

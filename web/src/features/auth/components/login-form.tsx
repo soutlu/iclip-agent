@@ -1,4 +1,3 @@
-import { useNavigate } from '@tanstack/react-router'
 import type { ChangeEvent, FormEvent } from 'react'
 import { useState } from 'react'
 import { sanitizeProducerAuthNextPath, startSsoLogin, useLogin } from '@/shared/auth'
@@ -7,9 +6,9 @@ import { Button, IconButton } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 
 type LoginFormProps = {
-  nextPath: string
   ssoEnabled: boolean
   initialErrorMessage?: string | undefined
+  onSuccess: () => void
 }
 
 /**
@@ -18,13 +17,12 @@ type LoginFormProps = {
  * 飞书登录（公司 SSO）是主通道；账号密码是辅助通道，折叠在次级区域里。
  *
  * @param props - 登录表单属性。
- * @param props.nextPath - 登录成功后的安全站内跳转路径。
  * @param props.ssoEnabled - 后端是否开启企业 SSO 登录，决定飞书入口是否展示。
  * @param props.initialErrorMessage - 初始错误文案（如 SSO 回跳失败），提交后清除。
+ * @param props.onSuccess - 账号密码登录成功后的回调（飞书是整页跳转，不走这里）。
  * @returns 可发起飞书登录、可提交用户名和密码的登录表单。
  */
-export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFormProps) {
-  const navigate = useNavigate()
+export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginFormProps) {
   const loginMutation = useLogin()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -34,7 +32,6 @@ export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFo
   // 密码区展开状态：未手动操作过就跟随 ssoEnabled（飞书可用时默认收起）。
   const [passwordOpenOverride, setPasswordOpenOverride] = useState<boolean | null>(null)
   const passwordOpen = passwordOpenOverride ?? !ssoEnabled
-  const safeNextPath = sanitizeProducerAuthNextPath(nextPath)
   const submitting = loginMutation.isPending || ssoSubmitting
   const passwordInputType = passwordVisible ? 'text' : 'password'
   const passwordToggleLabel = passwordVisible ? '隐藏密码' : '显示密码'
@@ -98,8 +95,7 @@ export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFo
         password,
         username: trimmedUsername,
       })
-      // 守卫重算已封装进 useLogin，这里只负责跳转。
-      void navigate({ replace: true, to: safeNextPath })
+      onSuccess()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '登录失败，请稍后重试')
     }
@@ -113,7 +109,8 @@ export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFo
     setErrorMessage('')
 
     try {
-      await startSsoLogin(safeNextPath)
+      // 飞书要整页跳转，回来后落在发起登录的那一页
+      await startSsoLogin(sanitizeProducerAuthNextPath(window.location.pathname))
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '飞书登录暂不可用，请稍后重试')
       setSsoSubmitting(false)
@@ -128,18 +125,17 @@ export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFo
         void handleSubmit(event)
       }}
     >
-      <div className="min-h-6">
-        {errorMessage ? (
-          <p id="login-error" role="alert" className="producer-auth-error text-body leading-6">
-            {errorMessage}
-          </p>
-        ) : null}
-      </div>
+      {/* 错误位不预留空高：弹窗里那点空白比登录后错位更显眼，弹窗本来就随内容长高 */}
+      {errorMessage ? (
+        <p id="login-error" role="alert" className="producer-auth-error mb-3 text-body leading-6">
+          {errorMessage}
+        </p>
+      ) : null}
 
       {ssoEnabled ? (
         <>
           <Button
-            className="mt-2 w-full"
+            className="w-full"
             disabled={submitting}
             leadingIcon="send"
             onClick={() => {
@@ -169,8 +165,12 @@ export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFo
         </>
       ) : null}
 
-      <div id="producer-auth-password-panel" hidden={ssoEnabled && !passwordOpen}>
-        <div className="mt-4 grid gap-3">
+      <div
+        id="producer-auth-password-panel"
+        className={ssoEnabled ? 'mt-4' : undefined}
+        hidden={ssoEnabled && !passwordOpen}
+      >
+        <div className="grid gap-3">
           <label className="sr-only" htmlFor="login-username">
             用户名
           </label>

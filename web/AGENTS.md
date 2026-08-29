@@ -32,11 +32,11 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 - 依赖单向向下：`main.tsx → app/`（壳与 router 装配）`→ routes/`（路由装配层）`→ features/<name>`（业务模块）`→ shared/`（共用层）。
 - `src/routes/**` 只做 `createFileRoute` 装配、`beforeLoad` 守卫与 search params 校验，不写业务逻辑；`src/routeTree.gen.ts` 自动生成，不手改。
 - **跨 feature 一律禁止**，包括对方的 `index.ts`。两个 feature 要共用东西只有两条路：下沉 `shared/`，或者在 routes / app 层组装。
-- 每个登录页都要有的外壳（侧栏、用户菜单）放 `src/routes/_authed.tsx`（侧栏实现拆在同目录 `-app-sidebar.tsx`，`-` 前缀不进路由树），不塞进任何 feature。
+- 每页都要有的外壳（侧栏、用户菜单、登录弹窗）放 `src/routes/_shell.tsx`（侧栏与登录信号拆在同目录 `-app-sidebar.tsx`、`-login-prompt.tsx`，`-` 前缀不进路由树），不塞进任何 feature。
 - `src/shared/**` 只放领域无关的共用能力，不得反向依赖 `features`；`src/testing/**` 是测试基建，业务代码不得引用。
 - 后端 REST 请求一律经 `apiFetch(path, schema)`（`@/shared/api/client`，响应在边界处过 zod）；裸 fetch 仅限两类非 REST 场景：OSS 预签名直传 PUT、外链素材下载。
 - 构建期代码（vite 代理、dev profile）放 `vite/`，归 `tsconfig.node.json`；`src/` 不带 Node 类型。
-- 任意接口 401 / 403 都先强刷 `/users/me` 再重算路由守卫（`src/app/router.tsx`）；跳登录与保留 `redirect` 由 `_authed` 守卫负责，接口自身的错误文案由调用方就地展示。
+- 没有登录页也没有路由守卫：未登录能进首页，需要登录的动作调 `useLoginPrompt()` 弹登录框（[ADR-0002](docs/adr/0002-login-dialog-no-login-page.md)）。任意接口 401 / 403 都先强刷 `/users/me` 再重算路由（`src/app/router.tsx`），页面就地退回未登录形态，接口自身的错误文案由调用方就地展示。
 - 后端缺的字段保留 `null` / `undefined`，不在前端补默认值。
 - **schema 来自生成契约**：`src/shared/api/generated/zod.gen.ts` 由 `contract/openapi.json` 生成，端点形状不手写。业务约束（非空、互斥之类合同表达不了的）用 `.refine()` 叠在生成 schema 上。
 - 文件名 kebab-case、只用具名导出（`routes/` 按 TanStack 约定命名，不在此列）。
@@ -46,15 +46,15 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 
 ## 4. 改哪里、验哪里
 
-| Surface                                                | 现行验证          |
-| ------------------------------------------------------ | ----------------- |
-| 全仓（合入 / 发布前底线）                              | `pnpm verify`     |
-| 架构分层（新增文件 / 移动模块 / 调整 import）          | `pnpm lint`       |
-| 生产构建（改依赖 / vite 配置 / 路由树）                | `pnpm build`      |
-| 登录表单                                               | `pnpm test`       |
-| 登录旅程（登录 → 首页 → 用户菜单；未登录被送回登录页） | `pnpm test:e2e`   |
-| 登录态与路由守卫                                       | 人工验收          |
-| UI 视觉（token / 布局 / 深浅两套主题）                 | 人工验收（见 §6） |
+| Surface                                       | 现行验证          |
+| --------------------------------------------- | ----------------- |
+| 全仓（合入 / 发布前底线）                     | `pnpm verify`     |
+| 架构分层（新增文件 / 移动模块 / 调整 import） | `pnpm lint`       |
+| 生产构建（改依赖 / vite 配置 / 路由树）       | `pnpm build`      |
+| 登录表单                                      | `pnpm test`       |
+| 登录旅程（游客态首页 → 弹窗登录 → 用户菜单）  | `pnpm test:e2e`   |
+| 登录态与游客态外壳                            | 人工验收          |
+| UI 视觉（token / 布局 / 深浅两套主题）        | 人工验收（见 §6） |
 
 ## 5. 禁止动作
 

@@ -120,14 +120,6 @@ export const useLogout = (options?: LogoutOptions) => {
 }
 
 /**
- * 路由守卫用：取当前用户（缓存新鲜则零请求；login/logout hooks 会同步写缓存）。
- *
- * @returns 当前登录用户；未登录时返回 null。
- */
-export const ensureSessionUser = (): Promise<null | ProducerAuthUser> =>
-  queryClient.ensureQueryData({ queryFn: fetchCurrentUser, queryKey: USER_QUERY_KEY })
-
-/**
  * 强制重新拉取 /users/me 并写入缓存（接口 401/403 说明本地身份投影可能已过期）。
  *
  * @returns 刷新后的当前用户；未登录时返回 null。

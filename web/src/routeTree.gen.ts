@@ -9,24 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AuthedRouteImport } from './routes/_authed'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
+import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as AuthSsoLandingRouteImport } from './routes/auth.sso.landing'
 
-const AuthedRoute = AuthedRouteImport.update({
-  id: '/_authed',
+const ShellRoute = ShellRouteImport.update({
+  id: '/_shell',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthedIndexRoute = AuthedIndexRouteImport.update({
+const ShellIndexRoute = ShellIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AuthedRoute,
+  getParentRoute: () => ShellRoute,
 } as any)
 const AuthSsoLandingRoute = AuthSsoLandingRouteImport.update({
   id: '/auth/sso/landing',
@@ -35,58 +29,47 @@ const AuthSsoLandingRoute = AuthSsoLandingRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof AuthedIndexRoute
-  '/login': typeof LoginRoute
+  '/': typeof ShellIndexRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesByTo {
-  '/login': typeof LoginRoute
-  '/': typeof AuthedIndexRoute
+  '/': typeof ShellIndexRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/_authed': typeof AuthedRouteWithChildren
-  '/login': typeof LoginRoute
-  '/_authed/': typeof AuthedIndexRoute
+  '/_shell': typeof ShellRouteWithChildren
+  '/_shell/': typeof ShellIndexRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/auth/sso/landing'
+  fullPaths: '/' | '/auth/sso/landing'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/' | '/auth/sso/landing'
-  id: '__root__' | '/_authed' | '/login' | '/_authed/' | '/auth/sso/landing'
+  to: '/' | '/auth/sso/landing'
+  id: '__root__' | '/_shell' | '/_shell/' | '/auth/sso/landing'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  AuthedRoute: typeof AuthedRouteWithChildren
-  LoginRoute: typeof LoginRoute
+  ShellRoute: typeof ShellRouteWithChildren
   AuthSsoLandingRoute: typeof AuthSsoLandingRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/_authed': {
-      id: '/_authed'
+    '/_shell': {
+      id: '/_shell'
       path: ''
       fullPath: '/'
-      preLoaderRoute: typeof AuthedRouteImport
+      preLoaderRoute: typeof ShellRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authed/': {
-      id: '/_authed/'
+    '/_shell/': {
+      id: '/_shell/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof AuthedIndexRouteImport
-      parentRoute: typeof AuthedRoute
+      preLoaderRoute: typeof ShellIndexRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/auth/sso/landing': {
       id: '/auth/sso/landing'
@@ -98,20 +81,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface AuthedRouteChildren {
-  AuthedIndexRoute: typeof AuthedIndexRoute
+interface ShellRouteChildren {
+  ShellIndexRoute: typeof ShellIndexRoute
 }
 
-const AuthedRouteChildren: AuthedRouteChildren = {
-  AuthedIndexRoute: AuthedIndexRoute,
+const ShellRouteChildren: ShellRouteChildren = {
+  ShellIndexRoute: ShellIndexRoute,
 }
 
-const AuthedRouteWithChildren =
-  AuthedRoute._addFileChildren(AuthedRouteChildren)
+const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  AuthedRoute: AuthedRouteWithChildren,
-  LoginRoute: LoginRoute,
+  ShellRoute: ShellRouteWithChildren,
   AuthSsoLandingRoute: AuthSsoLandingRoute,
 }
 export const routeTree = rootRouteImport

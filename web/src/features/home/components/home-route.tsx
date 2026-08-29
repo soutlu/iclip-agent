@@ -1,16 +1,23 @@
 import { HeroAnimation } from '@/shared/ui/hero'
 import { HomeComposer } from './home-composer'
 
+type HomeRouteProps = {
+  /** 点发送时做什么；未登录时路由层把它接到登录弹窗上 */
+  onSend?: (() => void) | undefined
+}
+
 /**
- * 首页内容区：侧栏由 /_authed 布局提供，这里只放页面自己的东西。
+ * 首页内容区：侧栏由应用壳提供，这里只放页面自己的东西。
  *
  * 结构对齐 Kimi Code Web 的首页空态（design-system.html 04 · HOME 模板）：
  * 760 阅读列垂直居中偏上，hero 动画 + 副标题 + 输入卡 + 卡下沿项目条。
- * 输入卡只做外观，发送与项目选择都还没接后端。
+ * 输入卡只做外观，项目选择还没接后端。
  *
+ * @param props - 首页属性。
+ * @param props.onSend - 发送动作。
  * @returns 首页内容。
  */
-export function HomeRoute() {
+export function HomeRoute({ onSend }: HomeRouteProps) {
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {/* pb-[8vh] 把整块从正中往上抬一点：模板要求阅读列垂直居中偏上 */}
@@ -22,7 +29,7 @@ export function HomeRoute() {
             还没有对话 —— 在下方输入开始创作
           </p>
         </div>
-        <HomeComposer />
+        <HomeComposer onSend={onSend} />
       </div>
     </main>
   )
