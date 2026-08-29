@@ -238,6 +238,7 @@ function SessionRow({ status, title }: SessionRowProps) {
 type SidebarActionProps = {
   active?: boolean
   icon: IconName
+  /** 右侧快捷键提示，缺省不渲染 */
   kbd?: string
   label: string
   onClick?: (() => void) | undefined
