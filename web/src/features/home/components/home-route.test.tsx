@@ -7,7 +7,13 @@ import { HomeRoute } from './home-route'
 // lottie-web 在模块加载时就探测 canvas 2d context，jsdom 里拿不到会直接抛。
 // hero 动画是 aria-hidden 的装饰件，这些用例断言的是标题与输入卡。
 vi.mock('lottie-web/build/player/lottie_light', () => ({
-  default: { loadAnimation: () => ({ destroy: () => undefined }) },
+  default: {
+    loadAnimation: () => ({
+      addEventListener: () => undefined,
+      destroy: () => undefined,
+      removeEventListener: () => undefined,
+    }),
+  },
 }))
 
 describe('HomeRoute', () => {
