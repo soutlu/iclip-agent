@@ -1,11 +1,14 @@
-# 登录改成首页弹窗，去掉登录页与路由守卫
+# 登录改成首页弹窗，去掉登录页
 
 未登录可以进首页，看到完整外壳（侧栏、输入卡）与占位内容；点需要登录的动作时弹出登录弹窗，
-登录成功就地关闭，不离开当前页面。`/login` 路由与 `_authed` 守卫删除。
+登录成功就地关闭，不离开当前页面。`/login` 路由与 `_authed` 分组删除，守卫按页挂在需要的那条路由上。
 
 ## 硬约束（违反即回归）
 
-- 不重建登录页路由，也不重建「未登录 → redirect 到某个页面」的路由守卫。
+- 不重建登录页路由。
+- 首页（`/_shell/`）不做登录判断：未登录进得去，只是动不了。
+- 只有整页都要求登录的页面才加 `beforeLoad` 守卫，未登录 redirect 回首页，不带任何 next 参数、
+  也不顺手打开登录弹窗。当前只有任务页（`/_shell/tasks`）是这种页面。
 - 需要登录的动作调 `useLoginPrompt()`（`src/routes/-login-prompt.tsx`）请求登录；弹窗状态只归应用壳
   `src/routes/_shell.tsx` 持有，feature 不自己开登录弹窗，也不互相认领。
 - 登录通道仍只有飞书 SSO 与账号密码两条，不加手机号验证码、不加协议勾选。
@@ -16,6 +19,7 @@
 ## 后果
 
 - 首页从 `/_authed/` 移到 `/_shell/`，`_shell` 不做登录判断。
-- `LoginForm` 不再自己跳转，登录成功走 `onSuccess`；`shared/auth` 的 `requireSession`、`ensureSessionUser` 随之删除。
-- 退出登录不跳转，当前页就地退回游客态。
+- `LoginForm` 不再自己跳转，登录成功走 `onSuccess`；`shared/auth` 的 `requireSession` 随之删除，
+  `ensureSessionUser` 留给整页守卫用（守卫在组件外，拿不到 `useUser`）。
+- 退出登录不跳转，当前页就地退回游客态；只有停在带守卫的页面上时才会被守卫送回首页。
 - 取代 [ADR-0001](0001-vite-spa-same-origin-no-bff.md)「后果」里关于路由守卫跳转的两条。

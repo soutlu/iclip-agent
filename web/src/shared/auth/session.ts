@@ -65,6 +65,16 @@ const auth = configureAuth<null | CueAuthUser, ApiError, CueLoginRequest, CueLog
 /** 当前用户：纯读、无副作用，直接透传 react-query-auth 原始 hook。 */
 export const useUser = auth.useUser
 
+/**
+ * 在路由守卫里取当前用户：命中缓存就直接返回，否则先把 /users/me 拉回来再放行。
+ *
+ * 给 beforeLoad 用——守卫不在组件里，拿不到 useUser。
+ *
+ * @returns 当前登录用户；未登录时返回 null。
+ */
+export const ensureSessionUser = () =>
+  queryClient.ensureQueryData({ queryFn: fetchCurrentUser, queryKey: [...USER_QUERY_KEY] })
+
 // 登录态变更后，路由 beforeLoad 的结果还是旧的——必须 invalidate 让所有匹配路由基于
 // 新的 /users/me 缓存重算守卫。焊进每个会改登录态的 hook，调用方就「忘不掉」。
 const useSessionInvalidation = () => {
