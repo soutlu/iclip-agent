@@ -3,7 +3,7 @@ import { ProducerUserMenu } from '@/features/auth'
 import { useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import { Button, IconButton } from '@/shared/ui/button'
+import { IconButton } from '@/shared/ui/button'
 import { useLoginPrompt } from './-login-prompt'
 
 /**
@@ -36,7 +36,7 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r border-border bg-background',
+        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r border-border bg-surface-container-low',
         'max-sm:fixed max-sm:top-0 max-sm:left-0 max-sm:shadow-[var(--shadow-2)] sm:sticky sm:top-0',
       )}
     >
@@ -97,9 +97,22 @@ export function AppSidebar() {
         {user ? (
           <ProducerUserMenu align="top-start" />
         ) : (
-          <Button className="flex-1" onClick={requireLogin} size="md">
-            登录
-          </Button>
+          <button
+            aria-label="登录"
+            className={cn(
+              'group flex min-w-0 flex-1 ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 ui-focus',
+              'text-body text-on-surface',
+            )}
+            onClick={requireLogin}
+            type="button"
+          >
+            <span className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-surface-container-lowest text-on-surface-variant">
+              <Icon decorative name="user" size="md" />
+            </span>
+            <span aria-hidden className="min-w-0 flex-1 truncate text-left">
+              登录
+            </span>
+          </button>
         )}
         <IconButton label="设置" name="settings" size="md" />
       </div>
