@@ -30,7 +30,9 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('complementary')).toBeVisible()
     expect(screen.getByRole('button', { name: '新建对话' })).toBeVisible()
     expect(screen.getByRole('button', { name: '搜索' })).toBeVisible()
-    expect(screen.getByRole('heading', { name: '会话' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: '进行中' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: '已完成' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: '工作空间' })).toBeVisible()
   })
 
   it('展开后可再折叠回浮出按钮', async () => {
