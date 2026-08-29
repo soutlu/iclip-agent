@@ -36,10 +36,10 @@ export function AppSidebar() {
       )}
     >
       <div className="flex items-center gap-2 px-3 pt-3 pb-1">
-        <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary text-on-primary">
-          <Icon decorative name="clip" size="sm" />
+        <span className="grid size-(--control-height-md) shrink-0 place-items-center rounded-md bg-primary text-on-primary">
+          <Icon decorative name="clip" size="lg" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-body font-medium text-on-surface">
+        <span className="min-w-0 flex-1 truncate text-title font-semibold text-on-surface">
           Producer
         </span>
         <IconButton

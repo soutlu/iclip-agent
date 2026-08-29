@@ -109,12 +109,12 @@
 .producer-auth-autofill:-webkit-autofill:hover,
 .producer-auth-autofill:-webkit-autofill:focus,
 .producer-auth-autofill:-webkit-autofill:active {
-  /* !important 不可省：Browser autofill injects UA colors above author styles. */
-  -webkit-box-shadow: 0 0 0 1000px var(--color-input-bg) inset !important;
+  /* 自动填充时浏览器会给 input 自己刷一层底色，在半透明字段里会显出一块白方块。
+     把这层底裁到字形上就只剩文字，不必再拿一块不透明色去盖。
+     !important 不可省：Browser autofill injects UA colors above author styles. */
+  -webkit-background-clip: text !important;
   -webkit-text-fill-color: var(--color-on-surface) !important;
-  background-color: var(--color-input-bg) !important;
-  background-image: none;
-  box-shadow: 0 0 0 1000px var(--color-input-bg) inset !important;
+  background-clip: text !important;
   caret-color: var(--color-on-surface);
   transition:
     background-color 999999s ease-out,

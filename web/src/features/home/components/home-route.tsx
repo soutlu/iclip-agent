@@ -13,15 +13,16 @@ import { HomeComposer } from './home-composer'
 export function HomeRoute() {
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-(--layout-home-read-max) flex-1 flex-col px-6">
-        <div className="flex flex-[2] flex-col items-center justify-end pb-6 text-center">
+      {/* pb-[8vh] 把整块从正中往上抬一点：模板要求阅读列垂直居中偏上 */}
+      <div className="mx-auto flex w-full max-w-(--layout-home-read-max) flex-1 flex-col justify-center px-6 pb-[8vh]">
+        <div className="flex flex-col items-center pb-8 text-center">
           <h1 className="sr-only">Producer</h1>
-          <HeroAnimation className="w-[min(520px,90vw)] animate-in duration-(--dur-l) fade-in" />
-          <p className="pt-3 text-body text-on-surface-variant">还没有对话 —— 在下方输入开始创作</p>
+          <HeroAnimation className="w-[min(660px,92vw)] animate-in duration-(--dur-l) fade-in" />
+          <p className="pt-4 text-title text-on-surface-variant">
+            还没有对话 —— 在下方输入开始创作
+          </p>
         </div>
-        <div className="flex flex-[3] flex-col">
-          <HomeComposer />
-        </div>
+        <HomeComposer />
       </div>
     </main>
   )
