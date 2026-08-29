@@ -1,13 +1,27 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { renderWithProviders } from '@/testing/render'
 import { AppSidebar } from './-app-sidebar'
+import { LoginPromptProvider } from './-login-prompt'
+
+/**
+ * 把侧栏挂在应用壳的登录信号下渲染。
+ *
+ * @param requireLogin - 侧栏请求登录时调用的回调。
+ * @returns 渲染结果。
+ */
+const renderSidebar = (requireLogin = vi.fn()) =>
+  renderWithProviders(
+    <LoginPromptProvider value={requireLogin}>
+      <AppSidebar />
+    </LoginPromptProvider>,
+  )
 
 describe('AppSidebar', () => {
   it('jsdom 视为紧凑屏：默认折叠为浮出展开钮，点开展开侧栏', async () => {
     const user = userEvent.setup()
-    await renderWithProviders(<AppSidebar />)
+    await renderSidebar()
 
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
 
@@ -17,18 +31,32 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('button', { name: '新建对话' })).toBeVisible()
     expect(screen.getByRole('button', { name: '搜索' })).toBeVisible()
     expect(screen.getByRole('heading', { name: '会话' })).toBeVisible()
-    expect(screen.getByText('还没有会话 · 点击 新建对话 开始')).toBeVisible()
-    expect(screen.getByRole('button', { name: '用户菜单' })).toBeVisible()
   })
 
   it('展开后可再折叠回浮出按钮', async () => {
     const user = userEvent.setup()
-    await renderWithProviders(<AppSidebar />)
+    await renderSidebar()
 
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
     await user.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeVisible()
+  })
+
+  it('未登录时会话区与账户区退成登录入口，点操作即请求登录', async () => {
+    const user = userEvent.setup()
+    const requireLogin = vi.fn()
+    await renderSidebar(requireLogin)
+
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+
+    expect(screen.getByText('登录后查看会话')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '用户菜单' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '新建对话' }))
+    await user.click(screen.getByRole('button', { name: '登录' }))
+
+    expect(requireLogin).toHaveBeenCalledTimes(2)
   })
 })

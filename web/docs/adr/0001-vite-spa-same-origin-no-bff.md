@@ -19,8 +19,8 @@ TanStack Router 文件式路由 + TanStack Query 数据层，浏览器经同源 
 
 ## 后果
 
-- 路由守卫从 Next proxy/middleware 改为 TanStack Router `beforeLoad`（async，`src/shared/auth/guards.ts`）。
+- 路由守卫从 Next proxy/middleware 改为 TanStack Router `beforeLoad`（async）；守卫已由 [ADR-0002](0002-login-dialog-no-login-page.md) 取消。
 - 所有接口调用从 BFF 路径改为同源直连；接口以 `contract/openapi.json` 为准。
 - 环境变量从 `NEXT_PUBLIC_*` 改为 `VITE_*`。
 - 后端 SSO 回跳地址（`SSO_REDIRECT_URL`）指向前端路由 `/auth/sso/landing`，由页面用 jwt 调 `GET /api/auth/sso/callback` 换会话 cookie。
-- 普通接口 401 只触发一次不使用缓存的 `/users/me` 复核；确认未登录后由路由守卫跳转，不能把一次 endpoint 401 直接固化为本地未登录态。
+- 普通接口 401 只触发一次不使用缓存的 `/users/me` 复核，不能把一次 endpoint 401 直接固化为本地未登录态；复核之后怎么处理见 [ADR-0002](0002-login-dialog-no-login-page.md)。

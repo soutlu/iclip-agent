@@ -1,4 +1,3 @@
-import { useNavigate } from '@tanstack/react-router'
 import { useCallback } from 'react'
 import { useLogout, useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
@@ -24,7 +23,6 @@ const USER_AVATAR_BUTTON_CLASS =
  * @returns 用户菜单组件。
  */
 export function ProducerUserMenu({ align = 'bottom-end', className = '' }: ProducerUserMenuProps) {
-  const navigate = useNavigate()
   const { data: user } = useUser()
   const logoutMutation = useLogout()
   const {
@@ -45,12 +43,9 @@ export function ProducerUserMenu({ align = 'bottom-end', className = '' }: Produ
       return
     }
 
-    logoutMutation.mutate(undefined, {
-      onSuccess: () => {
-        void navigate({ replace: true, to: '/login' })
-      },
-    })
-  }, [logoutMutation, navigate])
+    // 退出后不跳转：会话事实源翻成 null，当前页就地退回未登录形态
+    logoutMutation.mutate()
+  }, [logoutMutation])
 
   // SSO 自动建号的用户没有 username，优先展示 SSO 同步来的 displayName。
   const userLabel = user?.displayName || user?.username || '用户'

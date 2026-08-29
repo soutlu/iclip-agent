@@ -3,6 +3,11 @@ import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 
+type HomeComposerProps = {
+  /** 点发送时做什么；未给就是还没接上（按钮照常禁用/可点，但不产生动作） */
+  onSend?: (() => void) | undefined
+}
+
 /**
  * 首页输入卡：对齐 Kimi Code Web 的 composer——32 大圆角白卡，focus-within 边框加深
  * （无焦点环，焦点指示由卡边框承担）；上输入行、下工具行，卡下沿挂项目条。
@@ -12,7 +17,7 @@ import { IconButton } from '@/shared/ui/button'
  *
  * @returns 首页输入卡与项目条。
  */
-export function HomeComposer() {
+export function HomeComposer({ onSend }: HomeComposerProps) {
   const [value, setValue] = useState('')
   const canSend = value.trim().length > 0
 
@@ -58,6 +63,7 @@ export function HomeComposer() {
                   : 'bg-surface-container-high',
               )}
               disabled={!canSend}
+              onClick={onSend}
               type="button"
             >
               <Icon decorative name="send-up" size="md" />

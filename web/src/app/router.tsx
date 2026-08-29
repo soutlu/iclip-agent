@@ -29,12 +29,12 @@ const refreshSessionThenInvalidateRoutes = () => {
     })
 }
 
-// 任意普通接口 401 都先强刷唯一事实源 /users/me；确认结果为 null 后，重新执行的
-// _authed 守卫才负责跳登录并保留 redirect。/users/me 自身已豁免全局处理，不会递归。
+// 任意普通接口 401 都先强刷唯一事实源 /users/me；确认结果为 null 后页面就地退回未登录
+// 形态，用户下次点需要登录的动作时才弹登录框。/users/me 自身已豁免全局处理，不会递归。
 setOnUnauthorized(refreshSessionThenInvalidateRoutes)
 
 // 权限不足：任意接口 403 → 本地权限可能已过期（如角色被调整），强刷 /users/me 后重算
-// 路由守卫；失去当前页面权限的用户由守卫送回首页，接口错误文案仍由调用方就地展示。
+// 路由；接口错误文案仍由调用方就地展示。
 setOnForbidden(refreshSessionThenInvalidateRoutes)
 
 declare module '@tanstack/react-router' {
