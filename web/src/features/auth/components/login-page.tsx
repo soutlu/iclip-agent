@@ -55,11 +55,8 @@ export function LoginPage({ nextPath, ssoErrorCode }: LoginPageProps) {
           </div>
 
           <div className="producer-auth-panel mx-auto w-full max-w-[480px] p-6 sm:p-8">
-            <p className="producer-auth-kicker mb-2 text-caption font-bold tracking-[0.28em] uppercase">
-              Agent Producer
-            </p>
-            <h1 className="producer-auth-title mb-2 text-headline-lg font-bold">欢迎回来</h1>
-            <p className="producer-auth-subtitle mb-2 text-body">登录以继续你的 AI 视频创作</p>
+            <h1 className="producer-auth-title mb-2 text-display-sm font-bold">欢迎回来</h1>
+            <p className="producer-auth-subtitle mb-2 text-title">登录以继续你的 AI 视频创作</p>
 
             <LoginForm
               nextPath={nextPath}
