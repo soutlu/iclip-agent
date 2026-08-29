@@ -3,6 +3,8 @@ import type { ChangeEvent, FormEvent } from 'react'
 import { useState } from 'react'
 import { sanitizeProducerAuthNextPath, startSsoLogin, useLogin } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
+import { Button, IconButton } from '@/shared/ui/button'
+import { Input } from '@/shared/ui/field'
 
 type LoginFormProps = {
   nextPath: string
@@ -136,17 +138,17 @@ export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFo
 
       {ssoEnabled ? (
         <>
-          <button
-            type="button"
+          <Button
+            className="mt-2 w-full"
             disabled={submitting}
+            leadingIcon="send"
             onClick={() => {
               void handleFeishuLogin()
             }}
-            className="producer-auth-feishu-button mt-2 h-12 w-full gap-2.5 text-body font-semibold disabled:cursor-not-allowed"
+            variant="inverted"
           >
-            <Icon decorative name="send" size="lg" />
             {ssoSubmitting ? '正在跳转飞书…' : '使用飞书登录'}
-          </button>
+          </Button>
 
           <div className="mt-6 flex items-center gap-4" aria-hidden="true">
             <span className="producer-auth-divider" />
@@ -159,7 +161,7 @@ export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFo
             aria-expanded={passwordOpen}
             aria-controls="producer-auth-password-panel"
             onClick={handlePasswordSectionToggle}
-            className="producer-auth-secondary-toggle mt-5 w-full text-body font-medium"
+            className="producer-auth-secondary-toggle mt-4 w-full text-body font-medium"
           >
             <span>使用账号密码登录</span>
             <Icon decorative name={passwordOpen ? 'collapse' : 'expand'} size="md" />
@@ -172,58 +174,55 @@ export function LoginForm({ nextPath, ssoEnabled, initialErrorMessage }: LoginFo
           <label className="sr-only" htmlFor="login-username">
             用户名
           </label>
-          <div className="producer-auth-field group flex h-12 items-center px-4 transition-all">
-            <Icon decorative name="user" size="lg" />
-            <input
-              id="login-username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              placeholder="请输入用户名"
-              value={username}
-              onChange={handleUsernameChange}
-              aria-describedby={errorMessage ? 'login-error' : undefined}
-              disabled={submitting}
-              className="producer-auth-input ml-3 h-full min-w-0 flex-1 bg-transparent text-body disabled:cursor-not-allowed disabled:opacity-70"
-            />
-          </div>
+          <Input
+            id="login-username"
+            name="username"
+            type="text"
+            autoComplete="username"
+            placeholder="请输入用户名"
+            leadingIcon="user"
+            value={username}
+            onChange={handleUsernameChange}
+            aria-describedby={errorMessage ? 'login-error' : undefined}
+            disabled={submitting}
+            className="producer-auth-autofill"
+          />
 
           <label className="sr-only" htmlFor="login-password">
             密码
           </label>
-          <div className="producer-auth-field group flex h-12 items-center px-4 transition-all">
-            <Icon decorative name="locked" size="lg" />
-            <input
-              id="login-password"
-              name="password"
-              type={passwordInputType}
-              autoComplete="current-password"
-              placeholder="请输入密码"
-              value={password}
-              onChange={handlePasswordChange}
-              aria-describedby={errorMessage ? 'login-error' : undefined}
-              disabled={submitting}
-              className="producer-auth-input ml-3 h-full min-w-0 flex-1 bg-transparent text-body disabled:cursor-not-allowed disabled:opacity-70"
-            />
-            <button
-              type="button"
-              aria-label={passwordToggleLabel}
-              onClick={handlePasswordVisibilityToggle}
-              disabled={submitting}
-              className="producer-auth-visibility-button hit-48 relative ml-3 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Icon decorative name={passwordVisible ? 'hidden' : 'preview'} size="lg" />
-            </button>
-          </div>
+          <Input
+            id="login-password"
+            name="password"
+            type={passwordInputType}
+            autoComplete="current-password"
+            placeholder="请输入密码"
+            leadingIcon="locked"
+            value={password}
+            onChange={handlePasswordChange}
+            aria-describedby={errorMessage ? 'login-error' : undefined}
+            disabled={submitting}
+            className="producer-auth-autofill"
+            trailingAction={
+              <IconButton
+                className="-mr-2 shrink-0"
+                disabled={submitting}
+                label={passwordToggleLabel}
+                name={passwordVisible ? 'hidden' : 'preview'}
+                onClick={handlePasswordVisibilityToggle}
+              />
+            }
+          />
         </div>
 
-        <button
-          type="submit"
+        <Button
+          className="mt-4 w-full"
           disabled={submitting}
-          className="producer-auth-submit-button mt-4 h-12 w-full text-body font-semibold"
+          loading={loginMutation.isPending}
+          type="submit"
         >
-          {loginMutation.isPending ? '登录中' : '登录'}
-        </button>
+          登录
+        </Button>
       </div>
     </form>
   )

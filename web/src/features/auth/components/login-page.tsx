@@ -48,28 +48,24 @@ export function LoginPage({ nextPath, ssoErrorCode }: LoginPageProps) {
           </Link>
         </header>
 
-        <section className="grid min-h-0 flex-1 grid-cols-1 items-center gap-8 py-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_minmax(420px,560px)] lg:gap-16 lg:px-6 lg:pt-0 lg:pb-16">
+        <section className="grid min-h-0 flex-1 grid-cols-1 items-center gap-8 py-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_minmax(400px,480px)] lg:gap-16 lg:px-6 lg:pt-0 lg:pb-16">
           {/* 插画只在展开断点出现：窄屏留给表单，冷启动也不必为装饰下载 370KB */}
           <div className="hidden lg:flex lg:justify-center">
             <HeroAnimation className="producer-auth-hero w-[min(620px,46vw)]" />
           </div>
 
-          <div className="producer-auth-panel-shell mx-auto w-full max-w-[560px] lg:mr-[1vw]">
-            <div className="producer-auth-panel-card">
-              <p className="producer-auth-kicker mb-5 text-body-sm font-bold tracking-[0.28em] uppercase">
-                Agent Producer
-              </p>
-              <h1 className="producer-auth-title mb-3 text-display-sm leading-none font-bold sm:text-display">
-                欢迎回来
-              </h1>
-              <p className="producer-auth-subtitle mb-9 text-body">登录以继续你的 AI 视频创作</p>
+          <div className="producer-auth-panel mx-auto w-full max-w-[480px] p-6 sm:p-8">
+            <p className="producer-auth-kicker mb-2 text-caption font-bold tracking-[0.28em] uppercase">
+              Agent Producer
+            </p>
+            <h1 className="producer-auth-title mb-2 text-headline-lg font-bold">欢迎回来</h1>
+            <p className="producer-auth-subtitle mb-2 text-body">登录以继续你的 AI 视频创作</p>
 
-              <LoginForm
-                nextPath={nextPath}
-                ssoEnabled={ssoEnabled}
-                initialErrorMessage={ssoErrorMessage}
-              />
-            </div>
+            <LoginForm
+              nextPath={nextPath}
+              ssoEnabled={ssoEnabled}
+              initialErrorMessage={ssoErrorMessage}
+            />
           </div>
         </section>
       </div>

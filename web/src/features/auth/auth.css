@@ -92,128 +92,34 @@
   color: var(--color-on-surface-variant);
 }
 
-.producer-auth-field {
-  border: 1px solid var(--color-input-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-input-bg);
-  color: var(--color-on-surface-variant);
-  box-shadow: inset 0 1px color-mix(in srgb, var(--color-surface-container-lowest) 86%, transparent);
-}
-
-.producer-auth-field:focus-within {
-  border-color: var(--color-ring-highlight);
-  background: var(--color-top-layer);
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--color-primary-container) 55%, transparent),
-    inset 0 1px color-mix(in srgb, var(--color-surface-container-lowest) 94%, transparent);
-}
-
-.producer-auth-field > svg {
-  flex-shrink: 0;
-  color: var(--color-on-surface-variant);
-  transition: color 180ms ease;
-}
-
-.producer-auth-field:focus-within > svg {
-  color: var(--color-on-background);
-}
-
-.producer-auth-input {
-  color: var(--color-on-background);
-  caret-color: var(--color-on-background);
-  outline: none; /* 焦点指示由外壳 .producer-auth-field:focus-within 承担（M3 text field 容器模式） */
-}
-
-.producer-auth-input::placeholder {
-  color: var(--color-on-surface-variant);
-  opacity: 0.72;
-}
-
-.producer-auth-visibility-button {
-  color: var(--color-on-surface-variant);
-}
-
-.producer-auth-visibility-button:hover,
-.producer-auth-visibility-button:focus-visible {
-  background: var(--color-btn-hover);
-  color: var(--color-on-background);
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
-}
-
 .producer-auth-error {
   color: var(--color-danger-text);
 }
 
-/* 无边框卡片（v13：静态表面零投影，改由细边框与玻璃高光区分边缘） */
-.producer-auth-panel-shell {
+/* 登录卡：静态表面零投影，边缘由 outline-variant 细边给出；底色只取玻璃表面角色，
+   品牌绿留给聚焦描边与主按钮，不铺在卡面上。 */
+.producer-auth-panel {
   border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius-3xl);
-}
-
-.producer-auth-panel-card {
-  min-height: 480px;
-  padding: 46px 46px 38px;
-  border-radius: var(--radius-3xl);
-  /* 卡面是玻璃白底 + 两族 container 的淡染：青染左上、薄荷染右下，保持以白为主 */
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--color-primary-container) 38%, transparent),
-      transparent 52%,
-      color-mix(in srgb, var(--color-secondary-container) 44%, transparent)
-    ),
-    var(--color-glass-surface);
-  box-shadow: inset 0 1px color-mix(in srgb, var(--color-surface-container-lowest) 92%, transparent);
+  border-radius: var(--radius-2xl);
+  background: var(--color-glass-surface);
   backdrop-filter: blur(26px) saturate(1.08);
 }
 
-.producer-auth-input:-webkit-autofill,
-.producer-auth-input:-webkit-autofill:hover,
-.producer-auth-input:-webkit-autofill:focus,
-.producer-auth-input:-webkit-autofill:active {
+.producer-auth-autofill:-webkit-autofill,
+.producer-auth-autofill:-webkit-autofill:hover,
+.producer-auth-autofill:-webkit-autofill:focus,
+.producer-auth-autofill:-webkit-autofill:active {
   /* !important 不可省：Browser autofill injects UA colors above author styles. */
-  -webkit-box-shadow: 0 0 0 1000px var(--color-top-layer) inset !important;
-  -webkit-text-fill-color: var(--color-on-background) !important;
-  background-color: var(--color-top-layer) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--color-input-bg) inset !important;
+  -webkit-text-fill-color: var(--color-on-surface) !important;
+  background-color: var(--color-input-bg) !important;
   background-image: none;
-  box-shadow: 0 0 0 1000px var(--color-top-layer) inset !important;
-  caret-color: var(--color-on-background);
+  box-shadow: 0 0 0 1000px var(--color-input-bg) inset !important;
+  caret-color: var(--color-on-surface);
   transition:
     background-color 999999s ease-out,
     color 999999s ease-out,
     -webkit-text-fill-color 999999s ease-out;
-}
-
-/* 飞书主按钮：登录页唯一的高强调操作，沿用全局 on-background 深色款。 */
-.producer-auth-feishu-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  background: var(--color-on-background);
-  color: var(--color-top-layer);
-  outline: none;
-  transition:
-    filter 180ms ease,
-    transform 160ms ease;
-}
-
-.producer-auth-feishu-button:hover,
-.producer-auth-feishu-button:focus-visible {
-  filter: brightness(1.18);
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
-}
-
-.producer-auth-feishu-button:active {
-  filter: brightness(0.94);
-  transform: scale(0.99);
-}
-
-.producer-auth-feishu-button:disabled {
-  opacity: 0.72;
 }
 
 /* 账号密码辅助通道的折叠触发器。 */
@@ -236,38 +142,6 @@
 
 .producer-auth-secondary-toggle > svg {
   transition: transform 200ms ease;
-}
-
-/* 密码登录提交按钮：次级通道用次级强调（surface 款）。 */
-.producer-auth-submit-button {
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--color-input-border);
-  border-radius: var(--radius-md);
-  background: var(--color-control-bg);
-  color: var(--color-on-background);
-  outline: none;
-  transition:
-    background-color 180ms ease,
-    border-color 180ms ease,
-    transform 160ms ease;
-}
-
-.producer-auth-submit-button:hover,
-.producer-auth-submit-button:focus-visible {
-  border-color: var(--color-border-hover);
-  background: var(--color-top-layer);
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
-}
-
-.producer-auth-submit-button:active {
-  transform: scale(0.99);
-}
-
-.producer-auth-submit-button:disabled {
-  cursor: wait;
-  opacity: 0.64;
 }
 
 .producer-auth-divider {
@@ -321,18 +195,6 @@
     background-position:
       28px 28px,
       28px 28px;
-  }
-}
-
-@media (max-width: 599px) {
-  .producer-auth-panel-shell {
-    border-radius: var(--radius-2xl);
-  }
-
-  .producer-auth-panel-card {
-    min-height: auto;
-    padding: 32px 22px 28px;
-    border-radius: var(--radius-2xl);
   }
 }
 
