@@ -292,6 +292,12 @@
   --shadow-3: var(--shadow-3);
 }
 
+/* 首页品牌字标字体：值的唯一来源是 base.css 的 --font-home-display，这里只登记工具类名
+   font-home-display（机制同上方颜色登记段）。 */
+@theme inline reference {
+  --font-home-display: var(--font-home-display);
+}
+
 /* 交互态叠层：hover / pressed 用渐变铺一层半透明 on-surface，不覆盖组件自己的底色；
    禁用态撤掉叠层，只压暗文字并给出 not-allowed。组件不再自写 hover / pressed / disabled 颜色。 */
 @utility ui-state {
