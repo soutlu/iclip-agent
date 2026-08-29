@@ -167,13 +167,11 @@ class InMemoryTaskRepository:
         assignees = found.assignee_user_ids
         if user_id not in assignees:
             assignees = (*assignees, user_id)
-        status: TaskStatus = STATUS_CONFIRMED
-        updated = replace(
-            found,
-            status=status,
-            assignee_user_ids=assignees,
-            updated_at=datetime.now(UTC),
-        )
+        updated = replace(found, status=STATUS_CONFIRMED, assignee_user_ids=assignees)
+        # 需求单那一行只在 published→confirmed 这一次真被改到，updated_at 也只在这时动。
+        # 已确认的单再被人认领只多一条认领记录，SQL 那边的 UPDATE 落空、时间不刷。
+        if found.status == STATUS_PUBLISHED:
+            updated = replace(updated, updated_at=datetime.now(UTC))
         self.tasks[task_id] = updated
         return updated
 

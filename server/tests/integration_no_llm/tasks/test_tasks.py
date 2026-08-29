@@ -277,3 +277,35 @@ async def test_viewer_reads_everyones_tasks_but_writes_none(
     assert [item["id"] for item in listed.json()["items"]] == [task["id"]]
     assert blocked.status_code == 403
     assert forbidden.status_code == 403
+
+
+async def test_second_claim_adds_a_person_without_touching_the_task_row(
+    app: object, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """一张已确认的单再被人认领：认领表多一行，需求单那一行不动。
+
+    这两条分支（联合主键挡重复认领、单已 confirmed 时 UPDATE 落空）只有真库能验。
+    """
+
+    first_id = await login_as_editor(client, pg_url, username="luke")
+    task = (await create(client)).json()["task"]
+    await client.post(f"{URL}/{task['id']}/publish")
+    confirmed = (await client.post(f"{URL}/{task['id']}/confirm")).json()["task"]
+    assert confirmed["assigneeUserIds"] == [first_id]
+
+    # 同一个人认领两遍：联合主键让第二行根本落不下去。
+    again = (await client.post(f"{URL}/{task['id']}/confirm")).json()["task"]
+    assert again["assigneeUserIds"] == [first_id]
+
+    from fastapi import FastAPI
+
+    assert isinstance(app, FastAPI)
+    async with make_client(app) as other:
+        second_id = await register_and_login(other, username="mia", email="mia@example.com")
+        await set_roles_in_db(pg_url, "mia@example.com", ["editor"])
+        joined = (await other.post(f"{URL}/{task['id']}/confirm")).json()["task"]
+
+    assert joined["assigneeUserIds"] == [first_id, second_id]
+    # 单早就是 confirmed 了，第二个人加入不改需求单本身，所以 updatedAt 不动——
+    # 「最近改动倒序」的列表不该因为多一个人认领就把它顶上去。
+    assert joined["updatedAt"] == confirmed["updatedAt"]

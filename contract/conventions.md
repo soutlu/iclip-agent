@@ -137,6 +137,15 @@
 - **`withdrawn` 是终态**：改不动、删不掉、也回不到 `published`。
 - **走不通的流转一律 `409`**，不是 `422`。
 - **只有 `draft` 能删**，下发之后 `DELETE` 返回 `409`。
+- **`confirm` 在 `published` 与 `confirmed` 上都返 `200`**：前者把状态推到 `confirmed`，后者只多一个认领人；`draft` 与 `withdrawn` 上返 `409`。
+
+### 认领
+
+- `POST /tasks/{id}/confirm` 记下调用者认领了这张单。**一张单可以被多个人认领**，同一个人重复认领不多记一次。
+- **认领人取自登录身份**，请求体与查询参数都不接收 user id。
+- `assigneeUserIds` 按认领先后排序；`withdraw` 不清空它。
+- 已是 `confirmed` 的单再被认领，`updatedAt` 不变，`GET /tasks` 的排序位置不动。
+- `GET /tasks?claimedBy=me` 只回调用者认领过的单；`claimedBy` 只接受 `me`，其他值 `422`。
 
 ### 修改权限
 

@@ -173,7 +173,9 @@ class TaskService:
         一个人加入。谁认领的、什么时候认领的都落在那张关联表上，撤回也不抹掉。
         """
 
-        await self._repo.get(task_id)
+        task = await self._repo.get(task_id)
+        if task.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+            raise Conflict(f"只有已下发或已确认的需求单能认领，这张是 {task.status}")
         confirmed = await self._repo.confirm(task_id, user_id=principal.user_id)
         if confirmed is None:
             raise Conflict(_CONFLICT_RACED)
