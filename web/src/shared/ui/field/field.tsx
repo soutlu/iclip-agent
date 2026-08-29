@@ -37,6 +37,7 @@ export function Input({ className, leadingIcon, trailingAction, ...props }: Inpu
         className="shrink-0 text-on-surface-variant"
         decorative
         name={leadingIcon ?? 'search'}
+        size="lg"
       />
       {field}
       {trailingAction}
