@@ -15,9 +15,17 @@ type InputProps = ComponentPropsWithRef<'input'> & {
   /** 字段左侧的语义图标；搜索框就是它带 name="search"，不另开变体 */
   leadingIcon?: IconName
   trailingAction?: ReactNode
+  /** 带图标时那一圈框在外壳 span 上，className 只到得了里面的 input；要改框走这个 */
+  wrapperClassName?: string
 }
 
-export function Input({ className, leadingIcon, trailingAction, ...props }: InputProps) {
+export function Input({
+  className,
+  leadingIcon,
+  trailingAction,
+  wrapperClassName,
+  ...props
+}: InputProps) {
   const wrapped = Boolean(leadingIcon || trailingAction)
   const field = (
     <input
@@ -37,6 +45,7 @@ export function Input({ className, leadingIcon, trailingAction, ...props }: Inpu
       className={cn(
         FIELD_SURFACE,
         'inline-flex h-(--control-height-xl) items-center gap-2 has-[[aria-invalid=true]]:border-error',
+        wrapperClassName,
       )}
     >
       <Icon

@@ -73,55 +73,59 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
               <p className="mt-3 text-body text-on-surface-variant">多人协同，打造超级团队</p>
             </div>
             <div>
-              <Button leadingIcon="add" onClick={openCreate} variant="inverted">
+              <Button leadingIcon="add" onClick={openCreate} size="md" variant="inverted">
                 新建项目
               </Button>
             </div>
           </div>
-          <ProjectHero className="h-44 w-auto shrink-0 max-md:hidden" />
+          <ProjectHero className="h-52 w-auto shrink-0 max-md:hidden" />
         </header>
 
-        <section aria-label="我的项目" className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="shrink-0 text-title font-bold text-on-surface">我的项目</h2>
-            <div className="w-60 shrink-0">
-              <Input
-                aria-label="搜索项目"
-                leadingIcon="search"
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder="搜索项目"
-                value={keyword}
-              />
-            </div>
-          </div>
-          {mine.length > 0 && (
-            <div className="grid-task-cards">
-              {mine.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  onClick={() => setDialog({ open: true, taskId: task.id })}
-                  task={task}
-                  {...renameProps(task)}
+        {/* 两个分区之间比页头到分区拉得更开，让「我的项目」和「全部项目」各成一段 */}
+        <div className="flex flex-col gap-20">
+          <section aria-label="我的项目" className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="shrink-0 text-title-lg font-semibold text-on-surface">我的项目</h2>
+              <div className="w-56 shrink-0">
+                <Input
+                  aria-label="搜索项目"
+                  leadingIcon="search"
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="搜索项目"
+                  value={keyword}
+                  wrapperClassName="h-(--control-height-sm) rounded-sm border-outline-variant"
                 />
-              ))}
+              </div>
             </div>
-          )}
-        </section>
+            {mine.length > 0 && (
+              <div className="grid-task-cards">
+                {mine.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    onClick={() => setDialog({ open: true, taskId: task.id })}
+                    task={task}
+                    {...renameProps(task)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
 
-        <section aria-label="全部项目" className="flex flex-col gap-4">
-          <h2 className="text-title font-bold text-on-surface">全部项目</h2>
-          {all.length > 0 && (
-            <div className="grid-task-cards">
-              {all.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  onClick={() => setDialog({ open: true, taskId: task.id })}
-                  task={task}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+          <section aria-label="全部项目" className="flex flex-col gap-4">
+            <h2 className="text-title-lg font-semibold text-on-surface">全部项目</h2>
+            {all.length > 0 && (
+              <div className="grid-task-cards">
+                {all.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    onClick={() => setDialog({ open: true, taskId: task.id })}
+                    task={task}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
 
       <TaskDialog

@@ -35,7 +35,7 @@ export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
-            <span className="min-w-0 truncate text-body font-semibold text-on-surface">
+            <span className="min-w-0 truncate text-title font-semibold text-on-surface">
               {task.title}
             </span>
             <span className="shrink-0">

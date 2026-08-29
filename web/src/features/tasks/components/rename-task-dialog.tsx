@@ -34,7 +34,7 @@ export function RenameTaskDialog({ onOpenChange, open, task }: RenameTaskDialogP
         <DialogHeader
           className="h-(--layout-dialog-header-height) items-center border-b-0 px-6 py-0"
           closeLabel="关闭"
-          title={<span className="text-title font-bold">重命名项目</span>}
+          title="重命名项目"
         />
         {open && task ? <RenameForm key={task.id} onOpenChange={onOpenChange} task={task} /> : null}
       </DialogSurface>

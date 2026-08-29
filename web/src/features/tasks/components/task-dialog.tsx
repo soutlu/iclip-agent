@@ -109,11 +109,7 @@ export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
           actions={task ? <TaskStatusTag status={task.status} /> : undefined}
           className="h-(--layout-dialog-header-height) items-center border-b-0 px-6 py-0"
           closeLabel="关闭"
-          title={
-            <span className="text-title font-bold">
-              {isCreate ? '新建项目' : (task?.title ?? '项目详情')}
-            </span>
-          }
+          title={isCreate ? '新建项目' : (task?.title ?? '项目详情')}
         />
         {open &&
           (isCreate || task ? (
