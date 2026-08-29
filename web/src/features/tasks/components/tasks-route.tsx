@@ -9,19 +9,16 @@ import { RenameTaskDialog } from './rename-task-dialog'
 import { TaskCard } from './task-card'
 import { TaskDialog } from './task-dialog'
 
-type TasksRouteProps = {
-  /** 未登录时点「新建项目」做什么（路由层把它接到登录弹窗上） */
-  onRequireLogin?: (() => void) | undefined
-}
-
 /**
  * 任务页：头部「新建项目」，「我的项目」（我认领的）+「全部项目」两个分区。
+ *
+ * 路由已用 beforeLoad 守卫挡下未登录，页面里不再判登录态。
  *
  * 数据全部来自 /tasks：我的 = claimedBy=me（认领人在服务端按会话身份过滤），
  * 全部 = 整列。搜索框在前端按标题过滤两个分区。卡片点开与「新建项目」共用
  * 同一个弹窗——创建人与认领人都能在里面补充内容。
  */
-export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
+export function TasksRoute() {
   const { data: user } = useUser()
   const [keyword, setKeyword] = useState('')
   const [dialog, setDialog] = useState<{ open: boolean; taskId?: string }>({ open: false })
@@ -47,14 +44,6 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
   const mine = filter(myTasks.data)
   const all = filter(allTasks.data)
 
-  const openCreate = () => {
-    if (!user) {
-      onRequireLogin?.()
-      return
-    }
-    setDialog({ open: true })
-  }
-
   // 重命名走 PUT（整体覆盖），撤回是终态改不动；没有写权限就不给入口
   const canWrite = Boolean(user?.permissions.includes('tasks:write'))
   const renameProps = (task: Task) =>
@@ -73,7 +62,12 @@ export function TasksRoute({ onRequireLogin }: TasksRouteProps) {
               <p className="mt-3 text-body text-on-surface-variant">多人协同，打造超级团队</p>
             </div>
             <div>
-              <Button leadingIcon="add" onClick={openCreate} size="md" variant="inverted">
+              <Button
+                leadingIcon="add"
+                onClick={() => setDialog({ open: true })}
+                size="md"
+                variant="inverted"
+              >
                 新建项目
               </Button>
             </div>
