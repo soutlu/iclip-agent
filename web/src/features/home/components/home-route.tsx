@@ -10,7 +10,7 @@ type HomeRouteProps = {
  * 首页内容区：侧栏由应用壳提供，这里只放页面自己的东西。
  *
  * 结构对齐 Kimi Code Web 的首页空态（design-system.html 04 · HOME 模板）：
- * 760 阅读列垂直居中偏上，hero 动画 + 副标题 + 输入卡 + 卡下沿项目条。
+ * 760 阅读列垂直居中偏上，hero 动画 + 输入卡 + 卡下沿项目条。
  * 输入卡只做外观，项目选择还没接后端。
  *
  * @param props - 首页属性。
@@ -25,9 +25,6 @@ export function HomeRoute({ onSend }: HomeRouteProps) {
         <div className="flex flex-col items-center pb-8 text-center">
           <h1 className="sr-only">Producer</h1>
           <HeroAnimation className="w-[min(660px,92vw)] animate-in duration-(--dur-l) fade-in" />
-          <p className="pt-4 text-title text-on-surface-variant">
-            还没有对话 —— 在下方输入开始创作
-          </p>
         </div>
         <HomeComposer onSend={onSend} />
       </div>
