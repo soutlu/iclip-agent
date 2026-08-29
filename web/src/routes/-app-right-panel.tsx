@@ -28,7 +28,7 @@ export function AppRightPanel() {
   return (
     <aside
       aria-label="右侧面板"
-      className="layer-sidebar flex h-dvh w-(--layout-app-right-panel-width) shrink-0 flex-col border-l border-border bg-surface max-sm:fixed max-sm:top-0 max-sm:right-0 max-sm:shadow-[var(--shadow-2)] sm:sticky sm:top-0"
+      className="layer-sidebar flex h-dvh w-(--layout-app-right-panel-width) shrink-0 flex-col border-l border-border bg-background max-sm:fixed max-sm:top-0 max-sm:right-0 max-sm:shadow-[var(--shadow-2)] sm:sticky sm:top-0"
     >
       <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-1">
         <h2 className="px-1 text-label font-semibold tracking-wide text-on-surface-variant">
