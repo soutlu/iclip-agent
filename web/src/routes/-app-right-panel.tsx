@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { IconButton } from '@/shared/ui/button'
 
 /**
- * 应用右面板：每个登录页共享的外壳（面板头、内容区）。
+ * 应用右面板：每页共享的外壳（面板头、内容区）。
  *
  * 结构对齐 Kimi Code Web 的右面板：460 宽、所有断点默认折叠（折叠后主区右上浮出展开钮，
  * 紧凑屏展开后成浮层）。面板内容（tab、文件 / 进度等）还没定，当前只有空态占位——
