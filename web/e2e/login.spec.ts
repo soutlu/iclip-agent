@@ -9,7 +9,7 @@ test('未登录进首页看到游客态外壳，点登录弹窗登录后就地�
 
   await page.getByRole('button', { name: '登录', exact: true }).click()
 
-  const dialog = page.getByRole('dialog', { name: '登录 Producer' })
+  const dialog = page.getByRole('dialog', { name: '登录 Cue' })
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('用户名', { exact: true }).fill('tester')
   await dialog.getByLabel('密码', { exact: true }).fill('secret')
@@ -28,5 +28,5 @@ test('未登录点发送弹出登录框', async ({ page }) => {
   await page.getByLabel('输入消息').fill('做一个产品宣传片')
   await page.getByRole('button', { name: '发送' }).click()
 
-  await expect(page.getByRole('dialog', { name: '登录 Producer' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '登录 Cue' })).toBeVisible()
 })

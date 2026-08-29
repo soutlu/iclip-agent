@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ProducerUserMenu } from '@/features/auth'
+import { CueUserMenu } from '@/features/auth'
 import { useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
@@ -45,7 +45,7 @@ export function AppSidebar() {
           <Icon decorative name="clip" size="lg" />
         </span>
         <span className="min-w-0 flex-1 truncate text-title font-semibold text-on-surface">
-          Producer
+          Cue
         </span>
         <IconButton
           label="折叠侧边栏"
@@ -95,7 +95,7 @@ export function AppSidebar() {
 
       <div className="flex items-center justify-between gap-2 border-t border-border p-2">
         {user ? (
-          <ProducerUserMenu align="top-start" />
+          <CueUserMenu align="top-start" />
         ) : (
           <button
             aria-label="登录"

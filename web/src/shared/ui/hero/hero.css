@@ -16,151 +16,151 @@
  */
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(255,255,255)'] {
+.dark .cue-hero path[fill='rgb(255,255,255)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 2%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(241,246,248)'] {
+.dark .cue-hero path[fill='rgb(241,246,248)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 5%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(236,243,247)'] {
+.dark .cue-hero path[fill='rgb(236,243,247)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 5%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(227,236,243)'] {
+.dark .cue-hero path[fill='rgb(227,236,243)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 7%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(220,231,238)'] {
+.dark .cue-hero path[fill='rgb(220,231,238)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 8%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(210,224,235)'] {
+.dark .cue-hero path[fill='rgb(210,224,235)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 9%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(144,180,206)'] {
+.dark .cue-hero path[fill='rgb(144,180,206)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 18%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(144,179,206)'] {
+.dark .cue-hero path[fill='rgb(144,179,206)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 19%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(8,64,103)'] {
+.dark .cue-hero path[fill='rgb(8,64,103)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 43%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(9,64,103)'] {
+.dark .cue-hero path[fill='rgb(9,64,103)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 43%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(7,52,82)'] {
+.dark .cue-hero path[fill='rgb(7,52,82)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 46%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(7,49,80)'] {
+.dark .cue-hero path[fill='rgb(7,49,80)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 46%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,47,77)'] {
+.dark .cue-hero path[fill='rgb(6,47,77)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 47%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(7,48,78)'] {
+.dark .cue-hero path[fill='rgb(7,48,78)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 47%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,45,73)'] {
+.dark .cue-hero path[fill='rgb(6,45,73)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 47%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,46,75)'] {
+.dark .cue-hero path[fill='rgb(6,46,75)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 47%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,42,68)'] {
+.dark .cue-hero path[fill='rgb(6,42,68)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 48%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,44,70)'] {
+.dark .cue-hero path[fill='rgb(6,44,70)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 48%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,44,71)'] {
+.dark .cue-hero path[fill='rgb(6,44,71)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 48%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,40,64)'] {
+.dark .cue-hero path[fill='rgb(6,40,64)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 49%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,41,66)'] {
+.dark .cue-hero path[fill='rgb(6,41,66)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 49%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,37,61)'] {
+.dark .cue-hero path[fill='rgb(6,37,61)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 49%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,35,57)'] {
+.dark .cue-hero path[fill='rgb(6,35,57)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 50%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(6,36,59)'] {
+.dark .cue-hero path[fill='rgb(6,36,59)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 50%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(5,32,54)'] {
+.dark .cue-hero path[fill='rgb(5,32,54)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 50%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(5,34,56)'] {
+.dark .cue-hero path[fill='rgb(5,34,56)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 50%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(5,31,52)'] {
+.dark .cue-hero path[fill='rgb(5,31,52)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 51%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(19,17,17)'] {
+.dark .cue-hero path[fill='rgb(19,17,17)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 54%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(19,17,18)'] {
+.dark .cue-hero path[fill='rgb(19,17,18)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 54%, var(--color-surface));
 }
 
 /* design-allow -- 选择器匹配的是插画烤进去的原色，不是可 token 化的设计色值 */
-.dark .producer-hero path[fill='rgb(18,16,17)'] {
+.dark .cue-hero path[fill='rgb(18,16,17)'] {
   fill: color-mix(in srgb, var(--color-on-surface) 55%, var(--color-surface));
 }

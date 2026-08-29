@@ -1,4 +1,4 @@
-# Producer
+# Cue
 
 AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路由 + TanStack Query 数据层，经同源代理访问后端。
 

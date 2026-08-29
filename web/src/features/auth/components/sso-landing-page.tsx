@@ -1,11 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { ApiError } from '@/shared/api/client'
-import {
-  consumeSsoNextPath,
-  sanitizeProducerAuthNextPath,
-  useCompleteSsoLogin,
-} from '@/shared/auth'
+import { consumeSsoNextPath, sanitizeCueAuthNextPath, useCompleteSsoLogin } from '@/shared/auth'
 
 type SsoLandingPageProps = {
   jwt?: string | undefined
@@ -57,7 +53,7 @@ export function SsoLandingPage({ jwt }: SsoLandingPageProps) {
 
     completeSsoLogin(jwt)
       .then(() => {
-        void navigate({ replace: true, to: sanitizeProducerAuthNextPath(consumeSsoNextPath()) })
+        void navigate({ replace: true, to: sanitizeCueAuthNextPath(consumeSsoNextPath()) })
       })
       .catch((error: unknown) => {
         void navigate({

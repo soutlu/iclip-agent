@@ -14,7 +14,7 @@ describe('HomeRoute', () => {
   it('渲染标题与输入卡', async () => {
     await renderWithProviders(<HomeRoute />)
 
-    expect(screen.getByRole('heading', { name: 'Producer' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Cue' })).toBeVisible()
     expect(screen.getByLabelText('输入消息')).toBeVisible()
     expect(screen.getByRole('button', { name: '添加' })).toBeVisible()
     expect(screen.getByText('未关联项目')).toBeVisible()

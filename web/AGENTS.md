@@ -1,4 +1,4 @@
-# AGENTS.md — Producer 前端
+# AGENTS.md — Cue 前端
 
 > 领域术语与不变量（两端共用）→ [../docs/CONTEXT.md](../docs/CONTEXT.md) · 全仓命令、两端分工与合同流程 → [../AGENTS.md](../AGENTS.md) · 架构与结构 → [README.md](README.md) · 实现规范 → [docs/frontend-implementation.md](docs/frontend-implementation.md) · 视觉规范 → [../design-system.html](../design-system.html)（唯一设计规范文档，在仓库根目录） · 后端接口 → [../contract/openapi.json](../contract/openapi.json)（端点、字段、状态码）与 [../contract/conventions.md](../contract/conventions.md)（合同表达不了的约定） · 决策 → [docs/adr/](docs/adr/)
 
@@ -58,7 +58,7 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 
 ## 5. 禁止动作
 
-- 前端 JavaScript 持有、存储或转发任何 token；恢复任何形态的 BFF、cookie 换发或 `producer_access_token`（[ADR-0001](docs/adr/0001-vite-spa-same-origin-no-bff.md)）。
+- 前端 JavaScript 持有、存储或转发任何 token；恢复任何形态的 BFF、cookie 换发或 `CUE_TOKEN_KEEP`（[ADR-0001](docs/adr/0001-vite-spa-same-origin-no-bff.md)）。
 - 跨 feature import——包括对方 `index.ts`。共用的东西下沉 `shared/`，或在 routes / app 层组装。
 - 权限门控引入前端用户名白名单——只判 `user.permissions` 后端权限字符串。
 - 绕过 `apiFetch(path, schema)` 写裸 fetch REST（§3 两类豁免之外）。

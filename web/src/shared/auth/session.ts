@@ -6,27 +6,27 @@ import { queryClient } from '@/shared/api/query-client'
 import {
   completeSsoCallback,
   fetchSsoAuthorizationUrl,
-  getCurrentProducerUser,
-  loginProducerUser,
-  logoutProducerUser,
-} from './producer-auth.api'
-import type { ProducerAuthUser, ProducerLoginRequest } from './producer-auth.types'
+  getCurrentCueUser,
+  loginCueUser,
+  logoutCueUser,
+} from './cue-auth.api'
+import type { CueAuthUser, CueLoginRequest } from './cue-auth.types'
 
 // 会话唯一事实源：GET /users/me 的 TanStack Query 缓存。
 export const USER_QUERY_KEY = ['auth', 'current-user'] as const
 
-// SSO 整页跳转期间暂存站内回跳路径（替代旧 BFF 的 producer_sso_next 短时 cookie）。
-const SSO_NEXT_STORAGE_KEY = 'producer_sso_next'
+// SSO 整页跳转期间暂存站内回跳路径（替代旧 BFF 的 cue_sso_next 短时 cookie）。
+const SSO_NEXT_STORAGE_KEY = 'cue_sso_next'
 
 /**
  * 读取当前用户；未登录（401）返回 null。
  *
  * @returns 当前登录用户；未登录时返回 null。
  */
-const fetchCurrentUser = async (): Promise<null | ProducerAuthUser> => {
+const fetchCurrentUser = async (): Promise<null | CueAuthUser> => {
   try {
     // 401 是未登录正常态，已在 API 层豁免全局跳登录（否则登录页守卫探测会死循环）。
-    return await getCurrentProducerUser()
+    return await getCurrentCueUser()
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       return null
@@ -42,8 +42,8 @@ const fetchCurrentUser = async (): Promise<null | ProducerAuthUser> => {
  * @param request - 登录表单内容。
  * @returns 登录成功后的当前用户。
  */
-const loginWithPassword = async (request: ProducerLoginRequest): Promise<ProducerAuthUser> => {
-  await loginProducerUser(request)
+const loginWithPassword = async (request: CueLoginRequest): Promise<CueAuthUser> => {
+  await loginCueUser(request)
 
   const user = await fetchCurrentUser()
 
@@ -54,15 +54,10 @@ const loginWithPassword = async (request: ProducerLoginRequest): Promise<Produce
   return user
 }
 
-const auth = configureAuth<
-  null | ProducerAuthUser,
-  ApiError,
-  ProducerLoginRequest,
-  ProducerLoginRequest
->({
+const auth = configureAuth<null | CueAuthUser, ApiError, CueLoginRequest, CueLoginRequest>({
   loginFn: loginWithPassword,
-  logoutFn: logoutProducerUser,
-  registerFn: () => Promise.reject(new Error('Producer 不提供自助注册')),
+  logoutFn: logoutCueUser,
+  registerFn: () => Promise.reject(new Error('Cue 不提供自助注册')),
   userFn: fetchCurrentUser,
   userKey: [...USER_QUERY_KEY],
 })
@@ -124,7 +119,7 @@ export const useLogout = (options?: LogoutOptions) => {
  *
  * @returns 刷新后的当前用户；未登录时返回 null。
  */
-export const refreshSessionUser = (): Promise<null | ProducerAuthUser> =>
+export const refreshSessionUser = (): Promise<null | CueAuthUser> =>
   queryClient.fetchQuery({
     queryFn: fetchCurrentUser,
     queryKey: USER_QUERY_KEY,
@@ -188,7 +183,7 @@ export const consumeSsoNextPath = (): null | string => {
  * @param jwt - SSO 回跳携带的 jwt_token。
  * @returns 登录成功后的当前用户。
  */
-const completeSsoLogin = async (jwt: string): Promise<ProducerAuthUser> => {
+const completeSsoLogin = async (jwt: string): Promise<CueAuthUser> => {
   await completeSsoCallback(jwt)
 
   const user = await fetchCurrentUser()
@@ -207,7 +202,7 @@ const completeSsoLogin = async (jwt: string): Promise<ProducerAuthUser> => {
  *
  * @returns 稳定的提交函数，接收 jwt 并返回登录后的用户。
  */
-export const useCompleteSsoLogin = (): ((jwt: string) => Promise<ProducerAuthUser>) => {
+export const useCompleteSsoLogin = (): ((jwt: string) => Promise<CueAuthUser>) => {
   const invalidateSession = useSessionInvalidation()
 
   return useCallback(
