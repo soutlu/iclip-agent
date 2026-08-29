@@ -78,9 +78,9 @@ describe('TasksRoute', () => {
 
     await user.click(await screen.findByRole('button', { name: '新建项目' }))
     const dialog = await screen.findByRole('dialog')
-    await user.type(within(dialog).getByLabelText('标题'), '新品测评视频')
+    await user.type(within(dialog).getByLabelText('项目名称'), '新品测评视频')
     await user.type(within(dialog).getByLabelText('主款号'), 'SBPU24001W')
-    await user.click(within(dialog).getByRole('button', { name: '创建' }))
+    await user.click(within(dialog).getByRole('button', { name: '确定' }))
 
     expect(await screen.findByText('新品测评视频')).toBeVisible()
   })
@@ -118,5 +118,34 @@ describe('TasksRoute', () => {
     await waitFor(() =>
       expect(mockTasks[0]?.brief['requirementDescription']).toBe('补充：要 15 秒版本'),
     )
+  })
+
+  it('我的项目卡片菜单里重命名项目', async () => {
+    const task = makeTask({
+      assigneeUserIds: [mockAuthUser.id],
+      status: 'confirmed',
+      title: '进行中的项目',
+    })
+    mockTasks.push(task)
+    const user = userEvent.setup()
+    await renderLoggedIn()
+
+    // 重命名入口只在「我的项目」的卡片上
+    const all = screen.getByRole('region', { name: '全部项目' })
+    await within(all).findByText('进行中的项目')
+    expect(within(all).queryByRole('button', { name: '更多操作' })).toBeNull()
+
+    const mine = screen.getByRole('region', { name: '我的项目' })
+    await user.click(await within(mine).findByRole('button', { name: '更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '重命名' }))
+
+    const dialog = await screen.findByRole('dialog', { name: '重命名项目' })
+    const input = within(dialog).getByLabelText('新的项目名称')
+    await user.clear(input)
+    await user.type(input, '改名后的项目')
+    await user.click(within(dialog).getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(task.title).toBe('改名后的项目'))
+    expect(await within(mine).findByText('改名后的项目')).toBeVisible()
   })
 })

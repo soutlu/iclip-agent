@@ -51,13 +51,25 @@ type DialogHeaderProps = {
   /** 标题右侧、关闭键左侧的附加内容（计数、状态等） */
   actions?: ReactNode
   children?: ReactNode
+  className?: string
   closeLabel: string
   title: ReactNode
 }
 
-export function DialogHeader({ actions, children, closeLabel, title }: DialogHeaderProps) {
+export function DialogHeader({
+  actions,
+  children,
+  className,
+  closeLabel,
+  title,
+}: DialogHeaderProps) {
   return (
-    <header className="flex shrink-0 items-start justify-between gap-4 border-b border-outline-variant px-6 py-4">
+    <header
+      className={cn(
+        'flex shrink-0 items-start justify-between gap-4 border-b border-outline-variant px-6 py-4',
+        className,
+      )}
+    >
       <div className="min-w-0">
         <DialogPrimitive.Title className="truncate text-title-lg font-semibold">
           {title}

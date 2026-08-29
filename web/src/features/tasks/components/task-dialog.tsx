@@ -4,6 +4,7 @@ import type { z } from 'zod'
 import { useUser } from '@/shared/auth'
 import { ApiError } from '@/shared/api/client'
 import type { zTaskBrief } from '@/shared/api/generated/zod.gen'
+import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import {
   DialogBody,
@@ -38,6 +39,13 @@ const PLANNER_EDITABLE = new Set([
 ])
 
 const RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
+
+/** 复刻 WorkBuddy 弹窗的紧凑字段外观（34px 高、8px 圆角、发丝边框）；全局字段契约不动，只收在这个弹窗里。 */
+const COMPACT_FIELD = 'h-(--control-height-sm) rounded-sm border-outline-variant'
+
+/** 行内控件：剥掉共享字段自己的框（行本身就是框），文字右对齐、聚焦时显出主色描边。 */
+const ROW_CONTROL =
+  'h-8 w-full min-w-0 flex-1 rounded-none border-transparent bg-transparent px-0 text-right disabled:cursor-not-allowed disabled:text-disabled-text'
 
 type TaskDialogProps = {
   onOpenChange: (open: boolean) => void
@@ -99,6 +107,7 @@ export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
       <DialogSurface aria-label={isCreate ? '新建项目' : '项目详情'}>
         <DialogHeader
           actions={task ? <TaskStatusTag status={task.status} /> : undefined}
+          className="h-(--layout-dialog-header-height) items-center border-b-0 px-6 py-0"
           closeLabel="关闭"
           title={isCreate ? '新建项目' : (task?.title ?? '项目详情')}
         />
@@ -226,56 +235,76 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
 
   return (
     <>
-      <DialogBody>
-        <div className="flex flex-col gap-4">
-          <Field label="标题" required>
+      <DialogBody className="px-6 pt-2.5 pb-6">
+        <div className="flex flex-col gap-3.5">
+          <Field label="项目名称" required>
             <Input
-              aria-label="标题"
+              aria-label="项目名称"
+              className={COMPACT_FIELD}
               disabled={!editable('title')}
+              maxLength={200}
               onChange={(e) => patch({ title: e.target.value })}
+              placeholder="请输入项目名称"
               value={form.title}
             />
+            <span
+              className={cn(
+                'self-end text-caption',
+                form.title.length >= 200 ? 'text-error' : 'text-on-surface-variant',
+              )}
+            >
+              {form.title.length}/200
+            </span>
           </Field>
-          {isCreate && (
-            <Field label="主款号" required>
-              <Input
-                aria-label="主款号"
-                onChange={(e) => patch({ styleNo: e.target.value })}
-                placeholder="例如 SBPU24001W"
-                value={form.styleNo}
-              />
-            </Field>
-          )}
           <Field label="需求描述">
             <Textarea
               aria-label="需求描述"
+              className="resize-none rounded-sm"
               disabled={!editable('requirementDescription')}
               onChange={(e) => patch({ requirementDescription: e.target.value })}
-              rows={4}
+              placeholder="提供当前项目的背景信息和创作要求，让输出更精准、更符合要求。比如：项目目标、风格偏好、目标受众、输出约束等"
+              rows={5}
               value={form.requirementDescription}
             />
           </Field>
-          <Field label="主题">
-            <Input
-              aria-label="主题"
-              disabled={!editable('theme')}
-              onChange={(e) => patch({ theme: e.target.value })}
-              value={form.theme}
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="时长（秒，3–50）">
+          {/* 次要字段学 WorkBuddy 的 ConfigRow：标签在框内左侧、控件无边框靠右，不再每个字段一个外标签+框 */}
+          <div className="flex flex-col gap-3.5">
+            {isCreate && (
+              <RowField label="主款号" required>
+                <Input
+                  aria-label="主款号"
+                  className={ROW_CONTROL}
+                  onChange={(e) => patch({ styleNo: e.target.value })}
+                  placeholder="例如 SBPU24001W"
+                  value={form.styleNo}
+                />
+              </RowField>
+            )}
+            <RowField label="主题">
+              <Input
+                aria-label="主题"
+                className={ROW_CONTROL}
+                disabled={!editable('theme')}
+                onChange={(e) => patch({ theme: e.target.value })}
+                placeholder="选填"
+                value={form.theme}
+              />
+            </RowField>
+            <RowField label="时长（秒，3–50）">
               <Input
                 aria-label="时长"
+                className={ROW_CONTROL}
                 disabled={!editable('durationSeconds')}
                 inputMode="numeric"
                 onChange={(e) => patch({ durationSeconds: e.target.value })}
+                placeholder="选填"
                 value={form.durationSeconds}
               />
-            </Field>
-            <Field label="画幅">
+            </RowField>
+            <RowField label="画幅">
               <Select
                 aria-label="画幅"
+                className={cn(ROW_CONTROL, 'w-auto flex-none')}
                 disabled={!editable('ratio')}
                 onChange={(e) => patch({ ratio: e.target.value })}
                 value={form.ratio}
@@ -287,17 +316,18 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
                   </option>
                 ))}
               </Select>
-            </Field>
+            </RowField>
+            <RowField label="截止时间">
+              <Input
+                aria-label="截止时间"
+                className={ROW_CONTROL}
+                disabled={!editable('deadline')}
+                onChange={(e) => patch({ deadline: e.target.value })}
+                type="datetime-local"
+                value={form.deadline}
+              />
+            </RowField>
           </div>
-          <Field label="截止时间">
-            <Input
-              aria-label="截止时间"
-              disabled={!editable('deadline')}
-              onChange={(e) => patch({ deadline: e.target.value })}
-              type="datetime-local"
-              value={form.deadline}
-            />
-          </Field>
         </div>
       </DialogBody>
       {(isCreate || (task && canWrite)) && (
@@ -331,13 +361,19 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
               </Button>
             )}
           </div>
-          <Button
-            disabled={!isCreate && !canWrite}
-            loading={createMutation.isPending || saveMutation.isPending}
-            onClick={isCreate ? handleCreate : handleSave}
-          >
-            {isCreate ? '创建' : '保存'}
-          </Button>
+          <div className="flex gap-2">
+            <Button className="min-w-[74px]" onClick={() => onOpenChange(false)} variant="outlined">
+              取消
+            </Button>
+            <Button
+              className="min-w-[74px]"
+              disabled={!isCreate && !canWrite}
+              loading={createMutation.isPending || saveMutation.isPending}
+              onClick={isCreate ? handleCreate : handleSave}
+            >
+              {isCreate ? '确定' : '保存'}
+            </Button>
+          </div>
         </DialogFooter>
       )}
     </>
@@ -354,8 +390,29 @@ function Field({
   required?: boolean
 }) {
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-body-sm text-on-surface-variant">
+    <label className="flex flex-col gap-2">
+      <span className="text-body font-semibold text-on-surface">
+        {label}
+        {required && <span className="text-error"> *</span>}
+      </span>
+      {children}
+    </label>
+  )
+}
+
+/** WorkBuddy ConfigRow 风格的细行：标签在框内左侧，无边框控件靠右；整行是 label，点行即聚焦控件。 */
+function RowField({
+  children,
+  label,
+  required = false,
+}: {
+  children: React.ReactNode
+  label: string
+  required?: boolean
+}) {
+  return (
+    <label className="flex min-h-[38px] cursor-text items-center justify-between gap-3 rounded-sm border border-outline-variant px-3">
+      <span className="shrink-0 text-body font-semibold text-on-surface">
         {label}
         {required && <span className="text-error"> *</span>}
       </span>
