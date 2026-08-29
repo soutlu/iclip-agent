@@ -233,7 +233,7 @@
   /* 基础色 */
   --color-background: var(
     --n100
-  ); /* #FFFFFF 页面底；侧栏与右面板用 surface-container-low（浅 N96 / 深 N10）与它分层 */
+  ); /* #FFFFFF 页面底；侧栏、右面板与主区同为页面底色，靠 hairline 分隔 */
   --color-background-top: var(--n100);
   --color-background-bottom: var(--n95);
   --color-on-background: var(--color-on-surface); /* 主文字、选中图标、标题 */
