@@ -28,8 +28,10 @@ describe('AppSidebar', () => {
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
 
     expect(screen.getByRole('complementary')).toBeVisible()
-    expect(screen.getByRole('button', { name: '新建对话' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '新建任务' })).toBeVisible()
     expect(screen.getByRole('button', { name: '搜索' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '任务' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '资料库' })).toBeVisible()
     expect(screen.getByRole('tab', { name: '进行中' })).toBeVisible()
     expect(screen.getByRole('tab', { name: '已完成' })).toBeVisible()
     expect(screen.getByRole('tab', { name: '工作空间' })).toBeVisible()
@@ -56,7 +58,7 @@ describe('AppSidebar', () => {
     expect(screen.getByText('登录后查看会话')).toBeVisible()
     expect(screen.queryByRole('button', { name: '用户菜单' })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '新建对话' }))
+    await user.click(screen.getByRole('button', { name: '新建任务' }))
     await user.click(screen.getByRole('button', { name: '登录' }))
 
     expect(requireLogin).toHaveBeenCalledTimes(2)
