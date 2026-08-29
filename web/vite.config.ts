@@ -26,7 +26,7 @@ const MOCK_SERVICE_WORKER_PATH = path.resolve(
  */
 const developmentApplicationEntryPlugin = (): Plugin => ({
   apply: 'serve',
-  name: 'producer-development-application-entry',
+  name: 'cue-development-application-entry',
   transformIndexHtml(html) {
     return html.replace(APPLICATION_ENTRY, DEVELOPMENT_APPLICATION_ENTRY)
   },
@@ -52,7 +52,7 @@ const mockServiceWorkerPlugin = (): Plugin => ({
       response.end(workerSource)
     })
   },
-  name: 'producer-mock-service-worker',
+  name: 'cue-mock-service-worker',
 })
 
 export default defineConfig(({ mode }) => {

@@ -17,7 +17,7 @@ const login = async (page: Page) => {
   }
 
   await loginTrigger.click()
-  const dialog = page.getByRole('dialog', { name: '登录 Producer' })
+  const dialog = page.getByRole('dialog', { name: '登录 Cue' })
   await dialog.getByLabel('用户名', { exact: true }).fill('tester')
   await dialog.getByLabel('密码', { exact: true }).fill('secret')
   await dialog.getByRole('button', { name: '登录', exact: true }).click()
@@ -27,7 +27,7 @@ const login = async (page: Page) => {
 test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   await page.goto('/')
   await login(page)
-  await expect(page.getByRole('heading', { name: 'Producer' })).toBeAttached()
+  await expect(page.getByRole('heading', { name: 'Cue' })).toBeAttached()
   // hero 是 Lottie，要等 JSON 拉完 + fade-in 进场落定再截
   await page.waitForTimeout(1200)
 
@@ -55,6 +55,6 @@ test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   // mock 会话态随刷新归零，需要重新登录
   await page.reload()
   await login(page)
-  await expect(page.getByRole('heading', { name: 'Producer' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Cue' })).toBeVisible()
   await page.screenshot({ path: `${SHOT_DIR}/home-mobile.png`, fullPage: true })
 })

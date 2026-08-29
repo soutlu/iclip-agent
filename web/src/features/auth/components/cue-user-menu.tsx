@@ -4,10 +4,10 @@ import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { PopupContent, usePopupAnchor } from '@/shared/ui/popup'
 
-type ProducerUserMenuAlign = 'bottom-end' | 'bottom-start' | 'top-end' | 'top-start'
+type CueUserMenuAlign = 'bottom-end' | 'bottom-start' | 'top-end' | 'top-start'
 
-type ProducerUserMenuProps = {
-  align?: ProducerUserMenuAlign
+type CueUserMenuProps = {
+  align?: CueUserMenuAlign
   className?: string
 }
 
@@ -22,7 +22,7 @@ const USER_AVATAR_BUTTON_CLASS =
  * @param props.className - 头像按钮额外样式类。
  * @returns 用户菜单组件。
  */
-export function ProducerUserMenu({ align = 'bottom-end', className = '' }: ProducerUserMenuProps) {
+export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMenuProps) {
   const { data: user } = useUser()
   const logoutMutation = useLogout()
   const {
@@ -73,7 +73,7 @@ export function ProducerUserMenu({ align = 'bottom-end', className = '' }: Produ
               : 'border border-border bg-header-btn-bg text-on-background hover:border-border-hover hover:bg-hover',
           className,
         )}
-        data-producer-user-avatar="true"
+        data-cue-user-avatar="true"
         onClick={() => {
           updateAnchorRect()
           setMenuOpen((current) => !current)
@@ -84,7 +84,7 @@ export function ProducerUserMenu({ align = 'bottom-end', className = '' }: Produ
         ) : avatarInitial ? (
           <span aria-hidden="true">{avatarInitial}</span>
         ) : (
-          <ProducerUserAvatarIcon />
+          <CueUserAvatarIcon />
         )}
       </button>
 
@@ -157,12 +157,12 @@ export function ProducerUserMenu({ align = 'bottom-end', className = '' }: Produ
  *
  * @returns 极简用户轮廓 SVG。
  */
-function ProducerUserAvatarIcon() {
+function CueUserAvatarIcon() {
   return (
     <svg
       aria-hidden="true"
       className="shrink-0"
-      data-producer-user-avatar-icon="true"
+      data-cue-user-avatar-icon="true"
       fill="none"
       height="18"
       viewBox="0 0 24 24"

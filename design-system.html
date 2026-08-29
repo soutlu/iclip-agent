@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Producer 设计系统：颜色、排版、尺度、组件契约、核心状态、图标与可复用结构的唯一事实源。"
+      content="Cue 设计系统：颜色、排版、尺度、组件契约、核心状态、图标与可复用结构的唯一事实源。"
     />
-    <title>Producer Design System</title>
+    <title>Cue Design System</title>
     <!--
       契约 = 下方第一个 <style> 内 :root（浅色）与 .dark（深色）两块中除 --pg-*（本页排版）外的全部变量。
       运行时 web/src/app/globals.css + base.css 逐名逐值镜像（去空格后逐字相等），双向对账由 pnpm lint:design 执行。
@@ -28,7 +28,7 @@
         --pg-focus: var(--p40);
 
         /* ===== 字体 ===== */
-        --font-producer-ui: 'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+        --font-cue-ui: 'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
         --font-home-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
 
         /* ===== ① Primitives（6 族色板；组件禁止直接引用） ===== */
@@ -378,7 +378,7 @@
         --layout-project-composer-panel-reserve: 180px;
         --layout-project-chat-panel-bottom-safe-area: calc(var(--layout-project-stage-padding) + var(--layout-project-composer-panel-reserve) + var(--layout-project-stage-padding));
         --layout-project-chat-panel-height-offset: calc(var(--layout-project-header-height) + var(--layout-project-stage-padding) + var(--layout-project-chat-panel-bottom-safe-area));
-        font-family: var(--font-producer-ui);
+        font-family: var(--font-cue-ui);
       }
 
       .dark {
@@ -1955,7 +1955,7 @@
   <body>
     <main class="sheet">
       <header class="masthead">
-        <p class="wordmark" aria-hidden="true">PRODUCER</p>
+        <p class="wordmark" aria-hidden="true">CUE</p>
         <div>
           <h1>Design System</h1>
           <p class="lead">
@@ -2375,7 +2375,7 @@
               </div>
             </article>
             <p class="type-source-note">
-              <code>--font-producer-ui</code> CapCut Sans Text → SF Pro Text → PingFang SC　·　<code>--font-home-display</code> Source Serif 4 italic，仅 Display　·　html 16px　·　字重 400 / 500 / 650　·　画布字阶仅限缩放画布与放大阅读面
+              <code>--font-cue-ui</code> CapCut Sans Text → SF Pro Text → PingFang SC　·　<code>--font-home-display</code> Source Serif 4 italic，仅 Display　·　html 16px　·　字重 400 / 500 / 650　·　画布字阶仅限缩放画布与放大阅读面
             </p>
           </div>
 
@@ -2835,7 +2835,7 @@
               <span>sidebar · background · hairline 右边线 · 可折叠 · 折叠后主区左上浮出展开钮 · 底部账户区</span>
               <span>阅读列 · ≤ --layout-home-read-max 760 · 垂直居中偏上</span>
               <span>hero · Lottie public/lottie/hero.json 一份 · ≤440 宽 · 深色配色由 CSS 覆盖 fill 呈现属性 · 减弱动效停首帧</span>
-              <span>品牌字标 · Producer · --font-home-display italic semibold · --text-display（紧凑 --text-display-sm）· on-surface</span>
+              <span>品牌字标 · Cue · --font-home-display italic semibold · --text-display（紧凑 --text-display-sm）· on-surface</span>
               <span>composer · top-layer · radius 3xl · shadow-1 · focus-within border-hover · 发送钮反色圆形用向上箭头</span>
               <span>project-bar · 贴 composer 下沿 · 只圆下两角 · surface-container-low</span>
               <code>--layout-app-right-panel-width · 460px</code>
@@ -2881,7 +2881,7 @@
       </section>
 
       <footer class="footer">
-        <span>Producer Design System</span>
+        <span>Cue Design System</span>
         <span>Scope · Tokens + Components + Templates · 运行时镜像 web/src/app/globals.css · base.css · 对账 pnpm lint:design</span>
       </footer>
     </main>

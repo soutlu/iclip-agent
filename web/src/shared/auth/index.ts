@@ -1,4 +1,4 @@
-export { sanitizeProducerAuthNextPath } from './producer-auth-navigation'
+export { sanitizeCueAuthNextPath } from './cue-auth-navigation'
 export {
   consumeSsoNextPath,
   probeSsoLoginEnabled,

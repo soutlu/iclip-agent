@@ -1,12 +1,12 @@
 /* ===== 登录表单（弹窗内） ===== */
-.producer-auth-error {
+.cue-auth-error {
   color: var(--color-danger-text);
 }
 
-.producer-auth-autofill:-webkit-autofill,
-.producer-auth-autofill:-webkit-autofill:hover,
-.producer-auth-autofill:-webkit-autofill:focus,
-.producer-auth-autofill:-webkit-autofill:active {
+.cue-auth-autofill:-webkit-autofill,
+.cue-auth-autofill:-webkit-autofill:hover,
+.cue-auth-autofill:-webkit-autofill:focus,
+.cue-auth-autofill:-webkit-autofill:active {
   /* 自动填充时浏览器会给 input 自己刷一层底色，在半透明字段里会显出一块白方块。
      把这层底裁到字形上就只剩文字，不必再拿一块不透明色去盖。
      !important 不可省：Browser autofill injects UA colors above author styles. */
@@ -21,7 +21,7 @@
 }
 
 /* 账号密码辅助通道的折叠触发器。 */
-.producer-auth-secondary-toggle {
+.cue-auth-secondary-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -31,18 +31,18 @@
   transition: color 160ms ease;
 }
 
-.producer-auth-secondary-toggle:hover,
-.producer-auth-secondary-toggle:focus-visible {
+.cue-auth-secondary-toggle:hover,
+.cue-auth-secondary-toggle:focus-visible {
   color: var(--color-on-background);
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
-.producer-auth-secondary-toggle > svg {
+.cue-auth-secondary-toggle > svg {
   transition: transform 200ms ease;
 }
 
-.producer-auth-divider {
+.cue-auth-divider {
   flex: 1;
   height: 1px;
   background: linear-gradient(
@@ -53,7 +53,7 @@
   );
 }
 
-.producer-auth-divider-label {
+.cue-auth-divider-label {
   color: var(--color-on-surface-variant);
   opacity: 0.78;
 }

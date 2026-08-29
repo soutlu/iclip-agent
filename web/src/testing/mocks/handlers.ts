@@ -37,7 +37,7 @@ export const resetMockSession = () => {
 }
 
 export const handlers = [
-  // ── auth（src/shared/auth/producer-auth.api.ts）─────────────────────────────
+  // ── auth（src/shared/auth/cue-auth.api.ts）─────────────────────────────
   // GET /users/me：会话唯一事实源，响应为 { user } 包装；未登录时后端返回 401。
   http.get('*/api/users/me', () =>
     sessionActive

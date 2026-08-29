@@ -5,7 +5,7 @@
  * 用户没选过就跟随系统偏好，选过就以 localStorage 里的选择为准；写入选择的入口随主题切换
  * 控件一起加回来。
  */
-const STORAGE_KEY = 'producer-theme'
+const STORAGE_KEY = 'cue-theme'
 
 type ThemePreference = 'light' | 'dark' | 'system'
 

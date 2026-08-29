@@ -57,7 +57,7 @@ export function HeroAnimation({ className }: HeroAnimationProps) {
     }
   }, [])
 
-  // producer-hero 是 hero.css 的作用域；插画自身宽高比 3:2，先占位再填充，
+  // cue-hero 是 hero.css 的作用域；插画自身宽高比 3:2，先占位再填充，
   // 加载完不会把下面的内容顶一下
-  return <div ref={hostRef} aria-hidden className={cn('producer-hero aspect-3/2', className)} />
+  return <div ref={hostRef} aria-hidden className={cn('cue-hero aspect-3/2', className)} />
 }

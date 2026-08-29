@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
 import { zSsoAuthorizeOut, zUserEnvelope } from '@/shared/api/generated/zod.gen'
-import type { ProducerAuthUser, ProducerLoginRequest } from './producer-auth.types'
+import type { CueAuthUser, CueLoginRequest } from './cue-auth.types'
 
 /** 后端 `/users/me` 响应是 `{ user }` 包装，形状取自生成契约。 */
-const producerMeResponseSchema = zUserEnvelope.transform((payload) => payload.user)
+const cueMeResponseSchema = zUserEnvelope.transform((payload) => payload.user)
 
 /** 忽略响应体的端点（登录/登出/SSO callback 只关心状态码与 cookie 副作用）。 */
 const ignoredResponseSchema = z.unknown()
@@ -16,13 +16,13 @@ const ssoAuthorizeResponseSchema = zSsoAuthorizeOut.refine(
 )
 
 /**
- * 使用用户名和密码登录 Producer。
+ * 使用用户名和密码登录 Cue。
  *
  * 后端 fastapi-users 接收 OAuth2 表单，成功返回 204 并种下 HttpOnly 会话 cookie。
  *
- * @param request - Producer 登录表单提交内容。
+ * @param request - Cue 登录表单提交内容。
  */
-export const loginProducerUser = async (request: ProducerLoginRequest): Promise<void> => {
+export const loginCueUser = async (request: CueLoginRequest): Promise<void> => {
   await apiFetch('/auth/login', ignoredResponseSchema, {
     body: new URLSearchParams({
       password: request.password,
@@ -35,13 +35,13 @@ export const loginProducerUser = async (request: ProducerLoginRequest): Promise<
 }
 
 /**
- * 读取当前 Producer 登录用户。
+ * 读取当前 Cue 登录用户。
  *
  * @returns 当前会话 cookie 对应的用户信息。
  * @throws 未登录（401）或响应结构非法时抛出错误。
  */
-export const getCurrentProducerUser = async (): Promise<ProducerAuthUser> =>
-  apiFetch('/users/me', producerMeResponseSchema, {
+export const getCurrentCueUser = async (): Promise<CueAuthUser> =>
+  apiFetch('/users/me', cueMeResponseSchema, {
     cache: 'no-store',
     fallbackErrorMessage: '读取用户失败',
     method: 'GET',
@@ -49,9 +49,9 @@ export const getCurrentProducerUser = async (): Promise<ProducerAuthUser> =>
   })
 
 /**
- * 退出当前 Producer 登录态（后端注销会话并清 cookie）。
+ * 退出当前 Cue 登录态（后端注销会话并清 cookie）。
  */
-export const logoutProducerUser = async (): Promise<void> => {
+export const logoutCueUser = async (): Promise<void> => {
   try {
     await apiFetch('/auth/logout', ignoredResponseSchema, {
       fallbackErrorMessage: '退出登录失败',

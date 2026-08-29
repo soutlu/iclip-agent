@@ -1,5 +1,5 @@
 /* ============================================================================
- * Producer token 层 · M3 严格对齐（浅色 :root + 深色 .dark）
+ * Cue token 层 · M3 严格对齐（浅色 :root + 深色 .dark）
  *
  * 结构：① primitives（6 族 × 13 tone，HCT 色板，组件不直接引用）
  *       ② semantic roles（M3 标准角色，新代码只引用这一层）
@@ -13,7 +13,7 @@
 
 :root {
   /* Typography（品牌字体链，不属于 M3 色板） */
-  --font-producer-ui:
+  --font-cue-ui:
     'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial,
     sans-serif;
   --font-home-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
@@ -713,7 +713,7 @@ body {
   padding: 0;
   background-color: var(--color-background);
   color: var(--color-on-background);
-  font-family: var(--font-producer-ui);
+  font-family: var(--font-cue-ui);
   line-height: 1.35;
 }
 

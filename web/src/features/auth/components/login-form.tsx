@@ -1,6 +1,6 @@
 import type { ChangeEvent, FormEvent } from 'react'
 import { useState } from 'react'
-import { sanitizeProducerAuthNextPath, startSsoLogin, useLogin } from '@/shared/auth'
+import { sanitizeCueAuthNextPath, startSsoLogin, useLogin } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { Button, IconButton } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
@@ -12,7 +12,7 @@ type LoginFormProps = {
 }
 
 /**
- * 渲染并驱动 Producer 登录表单。
+ * 渲染并驱动 Cue 登录表单。
  *
  * 飞书登录（公司 SSO）是主通道；账号密码是辅助通道，折叠在次级区域里。
  *
@@ -69,7 +69,7 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
   }
 
   /**
-   * 提交 Producer 登录表单。
+   * 提交 Cue 登录表单。
    *
    * @param event - 表单提交事件。
    */
@@ -110,7 +110,7 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
 
     try {
       // 飞书要整页跳转，回来后落在发起登录的那一页
-      await startSsoLogin(sanitizeProducerAuthNextPath(window.location.pathname))
+      await startSsoLogin(sanitizeCueAuthNextPath(window.location.pathname))
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '飞书登录暂不可用，请稍后重试')
       setSsoSubmitting(false)
@@ -120,14 +120,14 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
   return (
     <form
       className="w-full"
-      aria-label="Producer 登录表单"
+      aria-label="Cue 登录表单"
       onSubmit={(event) => {
         void handleSubmit(event)
       }}
     >
       {/* 错误位不预留空高：弹窗里那点空白比登录后错位更显眼，弹窗本来就随内容长高 */}
       {errorMessage ? (
-        <p id="login-error" role="alert" className="producer-auth-error mb-3 text-body leading-6">
+        <p id="login-error" role="alert" className="cue-auth-error mb-3 text-body leading-6">
           {errorMessage}
         </p>
       ) : null}
@@ -147,17 +147,17 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
           </Button>
 
           <div className="mt-6 flex items-center gap-4" aria-hidden="true">
-            <span className="producer-auth-divider" />
-            <span className="producer-auth-divider-label text-body-sm">其他登录方式</span>
-            <span className="producer-auth-divider" />
+            <span className="cue-auth-divider" />
+            <span className="cue-auth-divider-label text-body-sm">其他登录方式</span>
+            <span className="cue-auth-divider" />
           </div>
 
           <button
             type="button"
             aria-expanded={passwordOpen}
-            aria-controls="producer-auth-password-panel"
+            aria-controls="cue-auth-password-panel"
             onClick={handlePasswordSectionToggle}
-            className="producer-auth-secondary-toggle mt-4 w-full text-body font-medium"
+            className="cue-auth-secondary-toggle mt-4 w-full text-body font-medium"
           >
             <span>使用账号密码登录</span>
             <Icon decorative name={passwordOpen ? 'collapse' : 'expand'} size="md" />
@@ -166,7 +166,7 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
       ) : null}
 
       <div
-        id="producer-auth-password-panel"
+        id="cue-auth-password-panel"
         className={ssoEnabled ? 'mt-4' : undefined}
         hidden={ssoEnabled && !passwordOpen}
       >
@@ -185,7 +185,7 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
             onChange={handleUsernameChange}
             aria-describedby={errorMessage ? 'login-error' : undefined}
             disabled={submitting}
-            className="producer-auth-autofill"
+            className="cue-auth-autofill"
           />
 
           <label className="sr-only" htmlFor="login-password">
@@ -202,7 +202,7 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
             onChange={handlePasswordChange}
             aria-describedby={errorMessage ? 'login-error' : undefined}
             disabled={submitting}
-            className="producer-auth-autofill"
+            className="cue-auth-autofill"
             trailingAction={
               <IconButton
                 className="-mr-2 shrink-0"

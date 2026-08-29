@@ -25,7 +25,7 @@ export function HomeRoute({ onSend }: HomeRouteProps) {
         <div className="flex flex-col items-center pb-10 text-center">
           <HeroAnimation className="w-[min(440px,84vw)] animate-in duration-(--dur-l) fade-in" />
           <h1 className="pt-2 font-home-display text-display-sm font-semibold tracking-[-0.035em] text-on-surface italic sm:text-display sm:tracking-[-0.04em]">
-            Producer
+            Cue
           </h1>
         </div>
         <HomeComposer onSend={onSend} />

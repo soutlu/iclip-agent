@@ -40,8 +40,8 @@ export function LoginDialog({ open, onOpenChange, ssoErrorCode }: LoginDialogPro
 
   return (
     <DialogRoot open={open} onOpenChange={onOpenChange}>
-      <DialogSurface aria-label="登录 Producer" className="max-w-[420px]">
-        <DialogHeader closeLabel="关闭登录" title="欢迎登录 Producer" />
+      <DialogSurface aria-label="登录 Cue" className="max-w-[420px]">
+        <DialogHeader closeLabel="关闭登录" title="欢迎登录 Cue" />
         <DialogBody>
           <LoginForm
             ssoEnabled={ssoEnabled}
