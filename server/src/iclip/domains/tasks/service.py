@@ -101,11 +101,17 @@ class TaskService:
         return await self._repo.get(task_id)
 
     async def list_recent(
-        self, *, status: TaskStatus | None = None, limit: int = 20
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        limit: int = 20,
     ) -> tuple[Task, ...]:
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
-        return await self._repo.list_recent(status=status, limit=limit)
+        return await self._repo.list_recent(
+            status=status, assignee_user_id=assignee_user_id, limit=limit
+        )
 
     async def update(self, principal: Principal, task_id: uuid.UUID, body: TaskIn) -> Task:
         """整体覆盖一张需求单。
@@ -159,18 +165,18 @@ class TaskService:
             raise Conflict(f"发布失败：期限必须晚于当前时间，或{_CONFLICT_RACED}")
         return published
 
-    async def confirm(self, task_id: uuid.UUID) -> Task:
-        """``published`` → ``confirmed``：策划师接下这张需求单。
+    async def confirm(self, principal: Principal, task_id: uuid.UUID) -> Task:
+        """认领这张需求单：``published`` → ``confirmed``，并记下是谁认领的。
 
-        接单不挑人：任何有 ``tasks:write`` 的人都能接。谁接的这件事由 agent 运行与生成
-        记录各自留痕，不在这张表上再记一份会和它们对不上的。
+        认领不挑人：任何有 ``tasks:write`` 的人都能认领，也不限量——一张单可以被多
+        个人认领（追加进 ``task_assignees``），已经 ``confirmed`` 的单再认领只是多
+        一个人加入。谁认领的、什么时候认领的都落在那张关联表上，撤回也不抹掉。
         """
 
         task = await self._repo.get(task_id)
-        _require_status(task, STATUS_PUBLISHED, action="确认")
-        confirmed = await self._repo.set_status(
-            task_id, expect=STATUS_PUBLISHED, status=STATUS_CONFIRMED
-        )
+        if task.status not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+            raise Conflict(f"只有已下发或已确认的需求单能认领，这张是 {task.status}")
+        confirmed = await self._repo.confirm(task_id, user_id=principal.user_id)
         if confirmed is None:
             raise Conflict(_CONFLICT_RACED)
         return confirmed

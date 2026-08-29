@@ -180,7 +180,7 @@ iclip.generation_jobs ◀────────────────┤    
 
 ## 14. 创作需求单
 
-定义见 CONTEXT.md「创作需求单」：**没有属主**，不用 `platform/db` 的行级归属原语，看得见但不让改是 403。状态机四档 `draft` →(publish)→ `published` →(confirm)→ `confirmed`，`published` 与 `confirmed` 都可 withdraw 到终态 `withdrawn`（改不动、删不掉）；delete 只在 `draft`，仅创建者或治理者；走不通的流转一律 409。
+定义见 CONTEXT.md「创作需求单」：**没有属主**，不用 `platform/db` 的行级归属原语，看得见但不让改是 403。状态机四档 `draft` →(publish)→ `published` →(confirm)→ `confirmed`，`published` 与 `confirmed` 都可 withdraw 到终态 `withdrawn`（改不动、删不掉）；delete 只在 `draft`，仅创建者或治理者；走不通的流转一律 409。**confirm 在 `published` 与 `confirmed` 上都走得通**：认领人追加进 `task_assignees`（`task_id` + `user_id` 联合主键挡重复认领，指向 users 的外键用 restrict），需求单那一行只在 `published` 那一次被 UPDATE 到，`confirmed` 上再认领不动 `updated_at`。`claimedBy=me` 用 `IN (子查询)` 过滤，认领人按 `created_at` 批量取回再按单分组。
 
 `style`（款号、品牌、品类、封面）由服务端经 `ports.py` 的 `StyleSnapshots` 协议抄自产品资料库，创建时冻结，真身在 `app/task_styles.py`。`published` 之后能改的只剩管理信息（标题、优先级、期限）与 `schemas.PLANNER_FIELDS` 那五项；PUT 整体覆盖，服务层拿提交的 brief 和库里的逐字段比，冻结的有一项不同就拒。「发布时期限必须还没到」写在 `UPDATE` 的 `WHERE` 里，用 `now()`。每个写方法都带状态守卫（`expect=`），对不上就一行也改不到，服务层翻译成 409。brief 与款号快照只有一套定义（`schemas.TaskBrief` / `schemas.TaskStyle`，同 §11 的生成请求）。
 

@@ -555,6 +555,7 @@ export const zTaskStyle = z.object({
  * TaskOut
  */
 export const zTaskOut = z.object({
+  assigneeUserIds: z.array(z.uuid()).optional().default([]),
   brief: zTaskBrief,
   createdAt: z.iso.datetime(),
   creatorUserId: z.uuid(),
@@ -1061,6 +1062,7 @@ export const zRenameProjectProjectsProjectIdPatchResponse = zProjectEnvelope
 export const zListTasksTasksGetQuery = z.object({
   status: z.enum(['draft', 'published', 'confirmed', 'withdrawn']).nullish(),
   limit: z.int().gte(1).lte(100).optional().default(20),
+  claimedBy: z.string().regex(/^me$/).nullish(),
 })
 
 /**

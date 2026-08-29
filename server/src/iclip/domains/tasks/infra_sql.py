@@ -32,12 +32,14 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine.row import RowMapping
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.tasks.models import (
+    STATUS_CONFIRMED,
     STATUS_DRAFT,
     STATUS_PUBLISHED,
     TASK_STATUSES,
@@ -121,8 +123,34 @@ task_projects_table = Table(
 # 得自己一个索引。
 Index("ix_task_projects_project", task_projects_table.c.project_id)
 
+# 谁认领了哪张单。结构与 task_projects 同构：两列外键加联合主键，「认领两遍」在表
+# 结构上就放不下。撤回不清这里的行——撤回是单的终态，认领记录是各自发生过的事实。
+task_assignees_table = Table(
+    "task_assignees",
+    metadata_obj,
+    Column(
+        "task_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.tasks.id", ondelete="cascade"),
+        nullable=False,
+    ),
+    # restrict 同 creator_user_id：认领记录不该跟着账号一起消失。
+    Column(
+        "user_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="restrict"),
+        nullable=False,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    PrimaryKeyConstraint("task_id", "user_id"),
+)
 
-def _row(mapping: RowMapping) -> Task:
+# 主键首列是 task_id，「这张单谁认领了」够用了；反过来问「这个人认领了哪些单」
+# （「我的项目」那一栏）得自己一个索引。
+Index("ix_task_assignees_user", task_assignees_table.c.user_id)
+
+
+def _row(mapping: RowMapping, assignee_user_ids: tuple[uuid.UUID, ...] = ()) -> Task:
     return Task(
         id=mapping["id"],
         title=mapping["title"],
@@ -134,6 +162,7 @@ def _row(mapping: RowMapping) -> Task:
         brief=brief_from_payload(mapping["brief"]),
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
+        assignee_user_ids=assignee_user_ids,
     )
 
 
@@ -168,19 +197,52 @@ class SqlTaskRepository:
         statement = select(tasks_table).where(_ROWS.id == task_id)
         async with self._engine.connect() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
-        if row is None:
-            raise NotFound("没有这张需求单")
-        return _row(row)
+            if row is None:
+                raise NotFound("没有这张需求单")
+            assignees = await self._assignees_of(conn, [task_id])
+        return _row(row, assignees.get(task_id, ()))
 
     async def list_recent(
-        self, *, status: TaskStatus | None = None, limit: int
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        limit: int,
     ) -> tuple[Task, ...]:
         statement = select(tasks_table).order_by(_ROWS.updated_at.desc(), _ROWS.id.desc())
         if status is not None:
             statement = statement.where(_ROWS.status == status)
+        if assignee_user_id is not None:
+            statement = statement.where(
+                _ROWS.id.in_(
+                    select(task_assignees_table.c.task_id).where(
+                        task_assignees_table.c.user_id == assignee_user_id
+                    )
+                )
+            )
         async with self._engine.connect() as conn:
             rows = (await conn.execute(statement.limit(limit))).mappings().all()
-        return tuple(_row(row) for row in rows)
+            assignees = await self._assignees_of(conn, [row["id"] for row in rows])
+        return tuple(_row(row, assignees.get(row["id"], ())) for row in rows)
+
+    @staticmethod
+    async def _assignees_of(
+        conn: AsyncConnection, task_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[uuid.UUID, ...]]:
+        """批量取这几张单的认领人。一次查询拿回来再按单分组，避免逐单点射。"""
+
+        if not task_ids:
+            return {}
+        statement = (
+            select(task_assignees_table.c.task_id, task_assignees_table.c.user_id)
+            .where(task_assignees_table.c.task_id.in_(task_ids))
+            .order_by(task_assignees_table.c.created_at)
+        )
+        rows = (await conn.execute(statement)).all()
+        grouped: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for row in rows:
+            grouped.setdefault(row.task_id, []).append(row.user_id)
+        return {task_id: tuple(ids) for task_id, ids in grouped.items()}
 
     async def save(
         self,
@@ -206,7 +268,10 @@ class SqlTaskRepository:
         )
         async with self._engine.begin() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
-        return None if row is None else _row(row)
+            if row is None:
+                return None
+            assignees = await self._assignees_of(conn, [task_id])
+        return _row(row, assignees.get(task_id, ()))
 
     async def publish(self, task_id: uuid.UUID) -> Task | None:
         # 期限的比较写在 WHERE 里，用的是数据库自己的 now()——见模块顶部。
@@ -223,7 +288,46 @@ class SqlTaskRepository:
         )
         async with self._engine.begin() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
-        return None if row is None else _row(row)
+            if row is None:
+                return None
+            assignees = await self._assignees_of(conn, [task_id])
+        return _row(row, assignees.get(task_id, ()))
+
+    async def confirm(self, task_id: uuid.UUID, *, user_id: uuid.UUID) -> Task | None:
+        async with self._engine.begin() as conn:
+            current = (
+                await conn.execute(
+                    select(_ROWS.status).where(_ROWS.id == task_id).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if current not in (STATUS_PUBLISHED, STATUS_CONFIRMED):
+                return None
+            await conn.execute(
+                pg_insert(task_assignees_table)
+                .values(task_id=task_id, user_id=user_id, created_at=func.now())
+                .on_conflict_do_nothing()
+            )
+            row = (
+                (
+                    await conn.execute(
+                        update(tasks_table)
+                        .where(_ROWS.id == task_id, _ROWS.status == STATUS_PUBLISHED)
+                        .values(status=STATUS_CONFIRMED, updated_at=func.now())
+                        .returning(*tasks_table.c)
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                # 已经在 confirmed：追加认领人即可，行本身没变，重新读一次。
+                row = (
+                    (await conn.execute(select(tasks_table).where(_ROWS.id == task_id)))
+                    .mappings()
+                    .one()
+                )
+            assignees = await self._assignees_of(conn, [task_id])
+        return _row(row, assignees.get(task_id, ()))
 
     async def set_status(
         self, task_id: uuid.UUID, *, expect: TaskStatus, status: TaskStatus
@@ -236,7 +340,10 @@ class SqlTaskRepository:
         )
         async with self._engine.begin() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
-        return None if row is None else _row(row)
+            if row is None:
+                return None
+            assignees = await self._assignees_of(conn, [task_id])
+        return _row(row, assignees.get(task_id, ()))
 
     async def delete(self, task_id: uuid.UUID, *, expect: TaskStatus) -> bool:
         statement = (
@@ -285,6 +392,7 @@ __all__ = [
     "DB_SCHEMA",
     "SqlTaskRepository",
     "metadata_obj",
+    "task_assignees_table",
     "task_projects_table",
     "tasks_table",
 ]

@@ -31,9 +31,17 @@ class TaskRepository(Protocol):
         ...
 
     async def list_recent(
-        self, *, status: TaskStatus | None = None, limit: int
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        limit: int,
     ) -> tuple[Task, ...]:
-        """按最近改动倒序列出需求单；``status`` 给了就只看那一档。"""
+        """按最近改动倒序列出需求单。
+
+        ``status`` 给了就只看那一档；``assignee_user_id`` 给了就只看这个人认领过的
+        （「我的项目」那一栏）。
+        """
         ...
 
     async def save(
@@ -58,6 +66,15 @@ class TaskRepository(Protocol):
         期限的比较必须发生在数据库里：这是本仓「所有时刻一律取数据库的钟」的一处落
         点。应用进程的钟快了几秒，同一张需求单在这台机器上发得出去、在另一台上发不
         出去。
+        """
+        ...
+
+    async def confirm(self, task_id: uuid.UUID, *, user_id: uuid.UUID) -> Task | None:
+        """认领：记下 ``user_id`` 这个人，并把 ``published`` 的单转成 ``confirmed``。
+
+        一个事务里做两件事：认领记录先落（主键天然幂等，重复认领不是错误），再对还
+        停在 ``published`` 的单做状态翻转（已经 ``confirmed`` 的追加认领人即可）。单
+        的当前状态不是这两种之一（比如刚好被人撤回）就什么都不做并返回 ``None``。
         """
         ...
 

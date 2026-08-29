@@ -201,6 +201,8 @@ class TaskOut(CamelModel):
     客户端也要靠它判断当前这个人能不能改草稿。"""
     style: TaskStyle
     brief: TaskBrief
+    assignee_user_ids: list[uuid.UUID] = []
+    """谁认领了这张单（``task_assignees`` 的 user_id 集合）。多人认领，按认领先后排。"""
     created_at: datetime
     updated_at: datetime
 
@@ -238,6 +240,7 @@ def task_out(task: Task) -> TaskOut:
         creator_user_id=task.creator_user_id,
         style=task.style,
         brief=task.brief,
+        assignee_user_ids=list(task.assignee_user_ids),
         created_at=task.created_at,
         updated_at=task.updated_at,
     )

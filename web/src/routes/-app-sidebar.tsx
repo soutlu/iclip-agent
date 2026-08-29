@@ -1,7 +1,8 @@
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useState } from 'react'
 import { CueUserMenu } from '@/features/auth'
 import { useUser } from '@/shared/auth'
-import { Icon } from '@/shared/icons'
+import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { useLoginPrompt } from './-login-prompt'
@@ -43,6 +44,8 @@ const DEMO_SESSIONS: Record<
 export function AppSidebar() {
   // 紧凑屏（< --breakpoint-sm 600）默认收起，展开后成浮层；桌面默认展开、收入布局流
   const [collapsed, setCollapsed] = useState(() => !window.matchMedia('(min-width: 600px)').matches)
+  const navigate = useNavigate()
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
   const [tab, setTab] = useState<SessionTab>('running')
   const { data: user } = useUser()
   const requireLogin = useLoginPrompt()
@@ -96,6 +99,12 @@ export function AppSidebar() {
           kbd="⌘K"
           label="搜索"
           onClick={user ? undefined : requireLogin}
+        />
+        <SidebarAction
+          active={pathname === '/tasks'}
+          icon="task"
+          label="任务"
+          onClick={user ? () => navigate({ to: '/tasks' }) : requireLogin}
         />
       </nav>
 
@@ -226,23 +235,30 @@ function SessionRow({ status, title }: SessionRowProps) {
 }
 
 type SidebarActionProps = {
-  icon: 'chat-new' | 'search'
-  kbd: string
+  active?: boolean
+  icon: IconName
+  kbd?: string
   label: string
   onClick?: (() => void) | undefined
 }
 
 /**
- * 侧栏操作行：全宽幽灵按钮，右侧 kbd 提示默认隐藏、hover 行才淡入。
+ * 侧栏操作行：全宽幽灵按钮，右侧 kbd 提示默认隐藏、hover 行才淡入；
+ * 当前页面对应的入口带高亮（active）。
  *
- * @param props - 图标、快捷键提示、文案与点击回调。
+ * @param props - 图标、快捷键提示、文案、高亮态与点击回调。
  * @returns 单个侧栏操作按钮。
  */
-function SidebarAction({ icon, kbd, label, onClick }: SidebarActionProps) {
+function SidebarAction({ active = false, icon, kbd, label, onClick }: SidebarActionProps) {
   return (
     <button
+      aria-current={active ? 'page' : undefined}
       aria-label={label}
-      className={cn(SIDEBAR_ROW_CLASS, 'group w-full')}
+      className={cn(
+        SIDEBAR_ROW_CLASS,
+        'group w-full',
+        active && 'bg-surface-container font-medium',
+      )}
       onClick={onClick}
       type="button"
     >
@@ -250,15 +266,17 @@ function SidebarAction({ icon, kbd, label, onClick }: SidebarActionProps) {
       <span aria-hidden className="min-w-0 flex-1 truncate text-left">
         {label}
       </span>
-      <kbd
-        aria-hidden
-        className={cn(
-          'rounded-xs border border-outline-variant px-1 py-0.5 text-caption text-on-surface-variant',
-          'opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100',
-        )}
-      >
-        {kbd}
-      </kbd>
+      {kbd && (
+        <kbd
+          aria-hidden
+          className={cn(
+            'rounded-xs border border-outline-variant px-1 py-0.5 text-caption text-on-surface-variant',
+            'opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100',
+          )}
+        >
+          {kbd}
+        </kbd>
+      )}
     </button>
   )
 }

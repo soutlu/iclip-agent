@@ -44,11 +44,14 @@ def create_tasks_router(service: TaskService) -> APIRouter:
 
     @router.get("", response_model=TasksPageOut)
     async def list_tasks(
-        _: Annotated[Principal, Depends(require_permission("tasks:read"))],
+        principal: Annotated[Principal, Depends(require_permission("tasks:read"))],
         status: TaskStatus | None = None,
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
+        claimed_by: Annotated[str | None, Query(alias="claimedBy", pattern="^me$")] = None,
     ) -> TasksPageOut:
-        found = await service.list_recent(status=status, limit=limit)
+        # 「我认领的」只认 me：认领人必须从服务端身份来，不能是调用方报上来的 id。
+        assignee = principal.user_id if claimed_by == "me" else None
+        found = await service.list_recent(status=status, assignee_user_id=assignee, limit=limit)
         return TasksPageOut(items=[task_out(task) for task in found])
 
     @router.get("/{task_id}", response_model=TaskEnvelope)
@@ -78,9 +81,9 @@ def create_tasks_router(service: TaskService) -> APIRouter:
     @router.post("/{task_id}/confirm", response_model=TaskEnvelope)
     async def confirm_task(
         task_id: uuid.UUID,
-        _: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
     ) -> TaskEnvelope:
-        return TaskEnvelope(task=task_out(await service.confirm(task_id)))
+        return TaskEnvelope(task=task_out(await service.confirm(principal, task_id)))
 
     @router.post("/{task_id}/withdraw", response_model=TaskEnvelope)
     async def withdraw_task(
