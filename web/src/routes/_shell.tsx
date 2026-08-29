@@ -51,7 +51,7 @@ function AppShell() {
     <LoginPromptProvider value={requireLogin}>
       <div className="flex min-h-dvh">
         <AppSidebar />
-        {/* 主区不自带底色：透出 body 的纵向渐变与两处主色光斑（见 base.css html,body） */}
+        {/* 主区不自带底色：透出 body 的页面底色（见 base.css html,body） */}
         <div className="flex min-w-0 flex-1 flex-col">
           <Outlet />
         </div>

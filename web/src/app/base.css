@@ -709,30 +709,9 @@ body {
   margin: 0;
   padding: 0;
   background-color: var(--color-background);
-  background-image:
-    radial-gradient(circle at 28% 0%, rgba(174, 242, 198, 0.62) 0%, transparent 38%),
-    radial-gradient(circle at 74% 8%, rgba(209, 232, 214, 0.56) 0%, transparent 36%),
-    linear-gradient(
-      180deg,
-      var(--color-background-top) 0%,
-      var(--color-background) 48%,
-      var(--color-background-bottom) 100%
-    );
-  background-attachment: fixed;
   color: var(--color-on-background);
   font-family: var(--font-producer-ui);
   line-height: 1.35;
-}
-
-/* 深色下去掉两层浅色光斑，只留随主题换档的纵向渐变 */
-html.dark,
-html.dark body {
-  background-image: linear-gradient(
-    180deg,
-    var(--color-background-top) 0%,
-    var(--color-background) 48%,
-    var(--color-background-bottom) 100%
-  );
 }
 
 /* Completely hide scrollbar everywhere */
