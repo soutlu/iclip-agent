@@ -5,7 +5,7 @@ import { renderWithProviders } from '@/testing/render'
 import { AppRightPanel } from './-app-right-panel'
 
 describe('AppRightPanel', () => {
-  it('jsdom 视为紧凑屏：默认折叠为浮出展开钮，点开展开右面板', async () => {
+  it('默认折叠为浮出展开钮，点开展开右面板', async () => {
     const user = userEvent.setup()
     await renderWithProviders(<AppRightPanel />)
 
