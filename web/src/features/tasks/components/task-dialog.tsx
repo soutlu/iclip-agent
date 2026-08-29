@@ -12,7 +12,7 @@ import {
   DialogRoot,
   DialogSurface,
 } from '@/shared/ui/dialog'
-import { Input, Textarea } from '@/shared/ui/field'
+import { Input, Select, Textarea } from '@/shared/ui/field'
 import { toast } from '@/shared/ui/toast'
 import {
   claimTask,
@@ -274,9 +274,8 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
               />
             </Field>
             <Field label="画幅">
-              <select
+              <Select
                 aria-label="画幅"
-                className="h-(--control-height-xl) w-full ui-state rounded-lg border border-input-border bg-input-bg px-[15px] text-body text-on-surface ui-focus"
                 disabled={!editable('ratio')}
                 onChange={(e) => patch({ ratio: e.target.value })}
                 value={form.ratio}
@@ -287,7 +286,7 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
                     {ratio}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           </div>
           <Field label="截止时间">

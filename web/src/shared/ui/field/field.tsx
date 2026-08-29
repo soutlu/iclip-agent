@@ -60,3 +60,12 @@ export function Textarea({ className, rows = 2, ...props }: ComponentPropsWithRe
     />
   )
 }
+
+export function Select({ className, ...props }: ComponentPropsWithRef<'select'>) {
+  return (
+    <select
+      className={cn(FIELD_SURFACE, FIELD_TEXT, 'h-(--control-height-xl) ui-focus', className)}
+      {...props}
+    />
+  )
+}
