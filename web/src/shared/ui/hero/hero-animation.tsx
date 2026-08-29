@@ -8,7 +8,7 @@ type HeroAnimationProps = {
 }
 
 /**
- * 剪辑现场插画，5 秒循环。首页与登录页共用。
+ * 剪辑现场插画，5 秒循环，当前只用于首页空态。
  *
  * 只有一份产物：深色配色由 hero.css 用 CSS 盖掉烤进 JSON 的颜色（lottie 把 fill 写成
  * 呈现属性，作者 CSS 压得住它），不再靠第二份深色 JSON，也不必跟着色板重跑生成脚本。
@@ -34,8 +34,20 @@ export function HeroAnimation({ className }: HeroAnimationProps) {
       return
     }
 
-    let animation: { destroy: () => void } | undefined
+    let animation:
+      | {
+          addEventListener: (name: 'DOMLoaded', callback: () => void) => void
+          removeEventListener: (name: 'DOMLoaded', callback: () => void) => void
+          destroy: () => void
+        }
+      | undefined
     let cancelled = false
+
+    // 原图画布 9261×6174，内容四周留白约 15%：裁到内容框，否则插画与上下元素之间
+    // 总隔着一截空画布。数值按内容包围盒实测（换插画要重采，同 hero.css 的采色约定）。
+    const cropViewBox = () => {
+      host.querySelector('svg')?.setAttribute('viewBox', '600 850 7832 4666')
+    }
 
     void import('lottie-web/build/player/lottie_light').then(({ default: lottie }) => {
       if (cancelled) {
@@ -49,15 +61,17 @@ export function HeroAnimation({ className }: HeroAnimationProps) {
         path: ANIMATION_PATH,
         renderer: 'svg',
       })
+      animation.addEventListener('DOMLoaded', cropViewBox)
     })
 
     return () => {
       cancelled = true
+      animation?.removeEventListener('DOMLoaded', cropViewBox)
       animation?.destroy()
     }
   }, [])
 
-  // cue-hero 是 hero.css 的作用域；插画自身宽高比 3:2，先占位再填充，
+  // cue-hero 是 hero.css 的作用域；占位宽高比与上面裁切后的 viewBox 一致，先占位再填充，
   // 加载完不会把下面的内容顶一下
-  return <div ref={hostRef} aria-hidden className={cn('cue-hero aspect-3/2', className)} />
+  return <div ref={hostRef} aria-hidden className={cn('cue-hero aspect-[7832/4666]', className)} />
 }
