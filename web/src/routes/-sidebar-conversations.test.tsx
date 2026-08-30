@@ -101,7 +101,8 @@ describe('SidebarConversations', () => {
     const user = await render()
     await screen.findByText('第0段')
 
-    await user.click(screen.getByRole('button', { name: '第0段 的归属' }))
+    await user.click(screen.getByRole('button', { name: '第0段 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '归属' }))
     const dialog = await screen.findByRole('dialog', { name: '对话归属' })
     await user.selectOptions(within(dialog).getByLabelText('合集'), collection.id)
     await user.click(within(dialog).getByRole('button', { name: '保存' }))

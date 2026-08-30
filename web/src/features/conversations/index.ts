@@ -1,6 +1,8 @@
 export {
   conversationsQueryKeys,
+  useDeleteConversation,
   useMoreConversations,
+  useRenameConversation,
   useSetConversationMembership,
   useSidebarTopology,
 } from './conversations.api'

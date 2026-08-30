@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { z } from 'zod'
+import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import {
   zConversationEnvelope,
@@ -116,6 +116,39 @@ export const useSetConversationMembership = (onSaved: () => void) => {
         })
       }
     },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
+      onSaved()
+    },
+  })
+}
+
+/** 重命名对话。 */
+export const useRenameConversation = (onSaved: () => void) => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ conversationId, title }: { conversationId: string; title: string }) =>
+      apiFetch(`/conversations/${conversationId}`, conversationEnvelopeSchema, {
+        body: { title },
+        fallbackErrorMessage: '重命名失败',
+        method: 'PATCH',
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
+      onSaved()
+    },
+  })
+}
+
+/** 删除对话，返回 204 没有正文可校验。 */
+export const useDeleteConversation = (onSaved: () => void) => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      apiFetch(`/conversations/${conversationId}`, z.unknown(), {
+        fallbackErrorMessage: '删除失败',
+        method: 'DELETE',
+      }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
       onSaved()

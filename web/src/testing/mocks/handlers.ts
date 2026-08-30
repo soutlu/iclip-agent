@@ -272,6 +272,22 @@ export const handlers = [
     return HttpResponse.json({ conversation })
   }),
 
+  // PATCH /conversations/:id：重命名；DELETE /conversations/:id：删除。
+  http.patch('*/api/conversations/:conversationId', async ({ params, request }) => {
+    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    const body = (await request.json()) as { title: string }
+    Object.assign(conversation, { title: body.title, updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ conversation })
+  }),
+
+  http.delete('*/api/conversations/:conversationId', ({ params }) => {
+    const index = mockConversations.findIndex((item) => item.id === params['conversationId'])
+    if (index < 0) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    mockConversations.splice(index, 1)
+    return new HttpResponse(null, { status: 204 })
+  }),
+
   // ── collections（src/features/collections/collections.api.ts）────────────
   // 内存版合集：只列自己的，最近改动倒序；新建 / 改名 / 删除。删掉时把对话上那一列置空。
   http.get('*/api/collections', () =>
