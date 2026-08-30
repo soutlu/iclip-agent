@@ -11,12 +11,12 @@ type HomeComposerProps = {
 /**
  * 首页输入卡：对齐 Kimi Code Web 的 composer——32 大圆角白卡，hover 边框加深，
  * focus-within 边框再加深并抬升到 shadow-2（无焦点环，焦点指示由卡边框与阴影承担）；
- * 上输入行、下工具行，卡下沿挂项目条。textarea 随内容增高，Enter 发送、Shift+Enter 换行。
+ * 上输入行、下工具行，卡下沿挂合集条。textarea 随内容增高，Enter 发送、Shift+Enter 换行。
  *
  * 深色下卡面用 top-layer（比主区亮一档，与 kimi 一致；浅色都是白）。
- * 当前只做外观：输入框本地受控，添加 / 权限 / agent 选择 / 项目选择都不接后端。
+ * 当前只做外观：输入框本地受控，添加 / 权限 / agent 选择 / 合集选择都不接后端。
  *
- * @returns 首页输入卡与项目条。
+ * @returns 首页输入卡与合集条。
  */
 export function HomeComposer({ onSend }: HomeComposerProps) {
   const [value, setValue] = useState('')
@@ -96,7 +96,7 @@ export function HomeComposer({ onSend }: HomeComposerProps) {
       </div>
       <div className="mx-3 -mt-3 flex items-center gap-1.5 rounded-b-xl bg-surface-container-low px-3 pt-4 pb-2 text-body-sm text-on-surface-variant">
         <Icon decorative name="folder" size="sm" />
-        未关联项目
+        未关联合集
         <Icon decorative name="expand" size="sm" />
       </div>
     </div>

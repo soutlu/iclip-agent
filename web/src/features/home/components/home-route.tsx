@@ -10,8 +10,8 @@ type HomeRouteProps = {
  * 首页内容区：侧栏由应用壳提供，这里只放页面自己的东西。
  *
  * 结构对齐 Kimi Code Web 的首页空态（design-system.html 04 · HOME 模板）：
- * 760 阅读列垂直居中偏上，hero 动画 + 品牌字标 + 输入卡 + 卡下沿项目条。
- * 输入卡只做外观，项目选择还没接后端。
+ * 760 阅读列垂直居中偏上，hero 动画 + 品牌字标 + 输入卡 + 卡下沿合集条。
+ * 输入卡只做外观，合集选择还没接后端。
  *
  * @param props - 首页属性。
  * @param props.onSend - 发送动作。

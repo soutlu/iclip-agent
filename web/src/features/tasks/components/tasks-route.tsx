@@ -4,18 +4,18 @@ import { useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 import { listAllTasks, listMyTasks, tasksQueryKeys, type Task } from '../tasks.api'
-import { ProjectHero } from './project-hero'
 import { RenameTaskDialog } from './rename-task-dialog'
 import { TaskCard } from './task-card'
 import { TaskDialog } from './task-dialog'
+import { TaskHero } from './task-hero'
 
 /**
- * 任务页：头部「新建项目」，「我的项目」（我认领的）+「全部项目」两个分区。
+ * 需求单页：头部「新建需求单」，「我的需求单」（我认领的）+「全部需求单」两个分区。
  *
  * 路由已用 beforeLoad 守卫挡下未登录，页面里不再判登录态。
  *
  * 数据全部来自 /tasks：我的 = claimedBy=me（认领人在服务端按会话身份过滤），
- * 全部 = 整列。搜索框在前端按标题过滤两个分区。卡片点开与「新建项目」共用
+ * 全部 = 整列。搜索框在前端按标题过滤两个分区。卡片点开与「新建需求单」共用
  * 同一个弹窗——创建人与认领人都能在里面补充内容。
  */
 export function TasksRoute() {
@@ -58,7 +58,7 @@ export function TasksRoute() {
         <header className="flex items-center justify-between gap-6">
           <div className="flex flex-col gap-9">
             <div>
-              <h1 className="text-headline font-semibold text-on-surface">项目</h1>
+              <h1 className="text-headline font-semibold text-on-surface">需求单</h1>
               <p className="mt-3 text-body text-on-surface-variant">多人协同，打造超级团队</p>
             </div>
             <div>
@@ -68,25 +68,25 @@ export function TasksRoute() {
                 size="md"
                 variant="inverted"
               >
-                新建项目
+                新建需求单
               </Button>
             </div>
           </div>
-          <ProjectHero className="h-62 w-auto shrink-0 max-md:hidden" />
+          <TaskHero className="h-62 w-auto shrink-0 max-md:hidden" />
         </header>
 
-        {/* 两个分区之间比页头到分区拉得更开，让「我的项目」和「全部项目」各成一段 */}
+        {/* 两个分区之间比页头到分区拉得更开，让「我的需求单」和「全部需求单」各成一段 */}
         <div className="flex flex-col gap-20">
-          <section aria-label="我的项目" className="flex flex-col gap-4">
+          <section aria-label="我的需求单" className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-4">
-              <h2 className="shrink-0 text-title-lg font-semibold text-on-surface">我的项目</h2>
+              <h2 className="shrink-0 text-title-lg font-semibold text-on-surface">我的需求单</h2>
               <div className="w-56 shrink-0">
                 {/* 框高直接取分区标题的行高，两者等高排在一行；标题换档也不会错位 */}
                 <Input
-                  aria-label="搜索项目"
+                  aria-label="搜索需求单"
                   leadingIcon="search"
                   onChange={(e) => setKeyword(e.target.value)}
-                  placeholder="搜索项目"
+                  placeholder="搜索需求单"
                   value={keyword}
                   wrapperClassName="h-(--text-title-lg--line-height) rounded-sm border-outline-variant"
                 />
@@ -106,8 +106,8 @@ export function TasksRoute() {
             )}
           </section>
 
-          <section aria-label="全部项目" className="flex flex-col gap-4">
-            <h2 className="text-title-lg font-semibold text-on-surface">全部项目</h2>
+          <section aria-label="全部需求单" className="flex flex-col gap-4">
+            <h2 className="text-title-lg font-semibold text-on-surface">全部需求单</h2>
             {all.length > 0 && (
               <div className="grid-task-cards">
                 {all.map((task) => (

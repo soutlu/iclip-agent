@@ -1,11 +1,11 @@
 import { cn } from '@/shared/lib/utils'
 
-type ProjectHeroProps = {
+type TaskHeroProps = {
   className?: string
 }
 
 /**
- * 项目页页头线稿插画，纯装饰。
+ * 需求单页页头线稿插画，纯装饰。
  *
  * 只有一份产物：ph-* 是配色钩子，浅深两套颜色都在 tasks.css 里，深色由 <html> 上的 .dark
  * 命中，换主题不重建元素。之所以是内联组件而不是 <img src="…svg">，是因为 <img> 里的 SVG
@@ -15,11 +15,11 @@ type ProjectHeroProps = {
  * @param props.className - 追加到 <svg> 上的类名，尺寸由调用方决定。
  * @returns 装饰性插画（aria-hidden，含义由页面标题承担）。
  */
-export function ProjectHero({ className }: ProjectHeroProps) {
+export function TaskHero({ className }: TaskHeroProps) {
   return (
     <svg
       aria-hidden
-      className={cn('project-hero', className)}
+      className={cn('task-hero', className)}
       preserveAspectRatio="xMidYMid meet"
       viewBox="0 0 1890 832"
       xmlns="http://www.w3.org/2000/svg"

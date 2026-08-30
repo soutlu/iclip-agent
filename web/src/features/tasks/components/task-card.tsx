@@ -13,7 +13,7 @@ type TaskCardProps = {
   task: Task
 }
 
-/** 项目卡片：图标底块 + 标题 + 状态与时间，点击开详情弹窗。 */
+/** 需求单卡片：图标底块 + 标题 + 状态与时间，点击开详情弹窗。 */
 export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
 

@@ -1,4 +1,4 @@
-/* 项目卡片网格：一行最多 4 张、最少 2 张，之间按容器宽度自动增减。
+/* 需求单卡片网格：一行最多 4 张、最少 2 张，之间按容器宽度自动增减。
  *
  * 列宽写成公式而不是断点分列，是因为侧栏能收起——同一个窗口宽度下主区宽度有两种，
  * 按断点分列会在收起时留下一列的空位。288px 是卡片不挤标题的下限，两个 calc 分别是
@@ -13,66 +13,66 @@
   );
 }
 
-/* 页头插画 ProjectHero 的浅深两套配色。
+/* 页头插画 TaskHero 的浅深两套配色。
  *
  * 图里只留 ph-* 钩子不留颜色，两套配色都落在这里，深色靠 <html> 上的 .dark 命中——
  * 一份产物走两套主题，不再靠第二份深色 SVG（同 hero.css 对 Lottie 的做法）。
  * 落在品牌色板上的档直接引色板变量；其余四档是插画自己的原色，色板里没有对应位。 */
-.project-hero .ph-ink {
+.task-hero .ph-ink {
   fill: var(--n0);
 }
-.project-hero .ph-ink-deep {
+.task-hero .ph-ink-deep {
   fill: var(--n0);
 }
-.project-hero .ph-ink-line {
+.task-hero .ph-ink-line {
   stroke: var(--n0);
 }
-.project-hero .ph-green {
+.task-hero .ph-green {
   fill: var(--p40);
 }
-.project-hero .ph-green-shadow {
+.task-hero .ph-green-shadow {
   fill: var(--p40);
 }
-.project-hero .ph-green-bright {
+.task-hero .ph-green-bright {
   fill: var(--p60);
 }
-.project-hero .ph-mint {
+.task-hero .ph-mint {
   fill: var(--p90);
 }
-.project-hero .ph-amber {
+.task-hero .ph-amber {
   /* design-allow -- 插画原色，品牌色板里没有对应档 */
   fill: #f9ab00;
 }
-.project-hero .ph-amber-line {
+.task-hero .ph-amber-line {
   /* design-allow -- 插画原色，品牌色板里没有对应档 */
   stroke: #f9ab00;
 }
 
-.dark .project-hero .ph-green,
-.dark .project-hero .ph-green-bright {
+.dark .task-hero .ph-green,
+.dark .task-hero .ph-green-bright {
   fill: var(--p80);
 }
-.dark .project-hero .ph-green-shadow,
-.dark .project-hero .ph-mint {
+.dark .task-hero .ph-green-shadow,
+.dark .task-hero .ph-mint {
   fill: var(--p30);
 }
-.dark .project-hero .ph-ink {
+.dark .task-hero .ph-ink {
   /* design-allow -- 插画原色，品牌色板里没有对应档 */
   fill: #b4b4b4;
 }
-.dark .project-hero .ph-ink-deep {
+.dark .task-hero .ph-ink-deep {
   /* design-allow -- 插画原色，品牌色板里没有对应档；比线条更深，压住深底上的实心块 */
   fill: #141414;
 }
-.dark .project-hero .ph-ink-line {
+.dark .task-hero .ph-ink-line {
   /* design-allow -- 插画原色，品牌色板里没有对应档 */
   stroke: #b4b4b4;
 }
-.dark .project-hero .ph-amber {
+.dark .task-hero .ph-amber {
   /* design-allow -- 插画原色，品牌色板里没有对应档 */
   fill: #fcc934;
 }
-.dark .project-hero .ph-amber-line {
+.dark .task-hero .ph-amber-line {
   /* design-allow -- 插画原色，品牌色板里没有对应档 */
   stroke: #fcc934;
 }

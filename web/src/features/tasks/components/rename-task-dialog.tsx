@@ -17,7 +17,7 @@ import { getTask, saveTask, tasksQueryKeys, type Task } from '../tasks.api'
 type RenameTaskDialogProps = {
   onOpenChange: (open: boolean) => void
   open: boolean
-  /** 要重命名的项目；关闭后保留上一次的值，避免退场动画期间内容闪空 */
+  /** 要重命名的需求单；关闭后保留上一次的值，避免退场动画期间内容闪空 */
   task?: Task | undefined
 }
 
@@ -30,11 +30,11 @@ type RenameTaskDialogProps = {
 export function RenameTaskDialog({ onOpenChange, open, task }: RenameTaskDialogProps) {
   return (
     <DialogRoot open={open} onOpenChange={onOpenChange}>
-      <DialogSurface aria-label="重命名项目">
+      <DialogSurface aria-label="重命名需求单">
         <DialogHeader
           className="h-(--layout-dialog-header-height) items-center border-b-0 px-6 py-0"
           closeLabel="关闭"
-          title="重命名项目"
+          title="重命名需求单"
         />
         {open && task ? <RenameForm key={task.id} onOpenChange={onOpenChange} task={task} /> : null}
       </DialogSurface>
@@ -82,14 +82,14 @@ function RenameForm({ onOpenChange, task }: { onOpenChange: (open: boolean) => v
         </p>
         <div className="flex flex-col gap-1">
           <Input
-            aria-label="新的项目名称"
+            aria-label="新的需求单名称"
             className="h-(--control-height-sm) rounded-sm border-outline-variant"
             maxLength={200}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit()
             }}
-            placeholder="输入新的项目名称"
+            placeholder="输入新的需求单名称"
             value={name}
           />
           <span
