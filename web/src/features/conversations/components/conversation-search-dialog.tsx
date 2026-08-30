@@ -58,19 +58,23 @@ function SearchPanel({ inputRef }: { inputRef: RefObject<HTMLInputElement | null
   })
 
   return (
-    <DialogBody className="flex flex-col gap-3 pt-0">
-      <Input
-        aria-label="搜索对话"
-        leadingIcon="search"
-        onChange={(event) => setKeyword(event.target.value)}
-        placeholder="搜索对话标题"
-        ref={inputRef}
-        value={keyword}
-      />
-      <div className="flex min-h-30 flex-col gap-0.5">
-        <SearchResults keyword={submitted} query={results} />
+    <>
+      {/* 输入框钉在滚动区外面：命中翻到下面时还能就地改关键词 */}
+      <div className="shrink-0 px-6 pb-3">
+        <Input
+          aria-label="搜索对话"
+          leadingIcon="search"
+          onChange={(event) => setKeyword(event.target.value)}
+          placeholder="搜索对话标题"
+          ref={inputRef}
+          value={keyword}
+        />
       </div>
-    </DialogBody>
+      {/* min-h-30：结果为空时弹窗不塌成一条 */}
+      <DialogBody className="flex min-h-30 flex-col gap-0.5 pt-0">
+        <SearchResults keyword={submitted} query={results} />
+      </DialogBody>
+    </>
   )
 }
 
