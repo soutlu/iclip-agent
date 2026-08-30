@@ -1,6 +1,9 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
+import { mockAuthUser } from '@/testing/mocks/handlers'
+import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { AppSidebar } from './-app-sidebar'
 import { LoginPromptProvider } from './-login-prompt'
@@ -9,13 +12,15 @@ import { LoginPromptProvider } from './-login-prompt'
  * 把侧栏挂在应用壳的登录信号下渲染。
  *
  * @param requireLogin - 侧栏请求登录时调用的回调。
+ * @param initialPath - 起始地址，用来断言侧栏发起的跳转。
  * @returns 渲染结果。
  */
-const renderSidebar = (requireLogin = vi.fn()) =>
+const renderSidebar = (requireLogin = vi.fn(), initialPath = '/') =>
   renderWithProviders(
     <LoginPromptProvider value={requireLogin}>
       <AppSidebar />
     </LoginPromptProvider>,
+    { initialPath },
   )
 
 describe('AppSidebar', () => {
@@ -62,5 +67,18 @@ describe('AppSidebar', () => {
     await user.click(screen.getByRole('button', { name: '登录' }))
 
     expect(requireLogin).toHaveBeenCalledTimes(2)
+  })
+
+  it('已登录时点新建任务回首页', async () => {
+    server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+    const user = userEvent.setup()
+    const { router } = await renderSidebar(vi.fn(), '/tasks')
+
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+    // 等 /users/me 落地：拿到用户前新建任务还挂在登录弹窗上，点了不会跳
+    await screen.findByRole('button', { name: '用户菜单' })
+    await user.click(screen.getByRole('button', { name: '新建任务' }))
+
+    expect(router.state.location.pathname).toBe('/')
   })
 })
