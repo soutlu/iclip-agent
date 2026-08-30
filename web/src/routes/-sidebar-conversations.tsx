@@ -16,6 +16,7 @@ import {
 } from '@/features/conversations'
 import { useTaskOptions } from '@/features/tasks'
 import { Icon, type IconName } from '@/shared/icons'
+import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
@@ -24,7 +25,7 @@ import { toast } from '@/shared/ui/toast'
 
 // 侧栏各种行共用的外观：幽灵行，hover / pressed 由 ui-state 铺，焦点走 ui-focus。
 const ROW_CLASS =
-  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-2 ui-focus text-body text-on-surface'
+  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 ui-focus text-body text-on-surface'
 
 // 合集列表一次露几个。合集是自己建的，后端一次就把（上限 100 个）全给了，
 // 「展开显示」在前端切片，不为这点量再开一个翻页端点。
@@ -38,6 +39,7 @@ type SidebarConversation = {
   id: string
   taskId: string | null
   title: string
+  updatedAt: string
 }
 
 type SidebarCollection = {
@@ -226,30 +228,30 @@ function UngroupedSection({
   const items = [...page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
   const hasMore = more.data ? more.hasNextPage : Boolean(page.nextCursor)
 
+  // 整个分区（标题行也算）都是「拖出合集」的落点：拖到「任务」标题上等于拖回任务区
   return (
-    <SidebarSection count={count} title="任务">
-      <div
-        className={cn('flex flex-col gap-0.5 rounded-sm', isOver && 'bg-surface-container')}
-        ref={setNodeRef}
-      >
-        {items.map((conversation) => (
-          <ConversationRow
-            key={conversation.id}
-            conversation={conversation}
-            dragging={dragging === conversation.id}
-            onOpenMembership={() => onOpenMembership(conversation)}
-          />
-        ))}
-        {items.length === 0 && <EmptyHint>还没有对话</EmptyHint>}
-        {hasMore && (
-          <ExpandRow
-            label="展开显示更多对话"
-            loading={more.isFetching}
-            onExpand={() => void more.fetchNextPage()}
-          />
-        )}
-      </div>
-    </SidebarSection>
+    <div className={cn('rounded-sm', isOver && 'bg-surface-container')} ref={setNodeRef}>
+      <SidebarSection count={count} title="任务">
+        <div className="flex flex-col gap-0.5">
+          {items.map((conversation) => (
+            <ConversationRow
+              key={conversation.id}
+              conversation={conversation}
+              dragging={dragging === conversation.id}
+              onOpenMembership={() => onOpenMembership(conversation)}
+            />
+          ))}
+          {items.length === 0 && <EmptyHint>还没有对话</EmptyHint>}
+          {hasMore && (
+            <ExpandRow
+              label="展开显示更多对话"
+              loading={more.isFetching}
+              onExpand={() => void more.fetchNextPage()}
+            />
+          )}
+        </div>
+      </SidebarSection>
+    </div>
   )
 }
 
@@ -271,10 +273,10 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
   const [open, setOpen] = useState(true)
   return (
     <section className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-1 pr-1">
+      <div className="group sticky top-0 flex items-center gap-1 rounded-sm bg-background pr-1">
         <button
           aria-expanded={open}
-          className={cn(ROW_CLASS, 'min-w-0 flex-1 py-1 text-body-sm')}
+          className={cn(ROW_CLASS, 'min-w-0 flex-1 text-body-sm font-medium')}
           onClick={() => setOpen((prev) => !prev)}
           type="button"
         >
@@ -282,14 +284,23 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
             {title} ({count})
           </span>
           <Icon
-            className="shrink-0 text-on-surface-variant"
+            className={cn(
+              'shrink-0 text-on-surface-variant transition-transform duration-(--dur-s)',
+              !open && '-rotate-90',
+            )}
             decorative
-            name={open ? 'collapse' : 'expand'}
+            name="expand"
             size="sm"
           />
         </button>
         {action && (
-          <IconButton label={action.label} name={action.icon} onClick={action.onClick} size="md" />
+          <IconButton
+            className="opacity-0 transition-opacity duration-(--dur-s) group-focus-within:opacity-100 group-hover:opacity-100"
+            label={action.label}
+            name={action.icon}
+            onClick={action.onClick}
+            size="md"
+          />
         )}
       </div>
       {open && <div className="flex flex-col gap-0.5">{children}</div>}
@@ -371,7 +382,7 @@ function CollectionGroup({
           // 行内还有一个「操作」钮，名字里带上条数才好把两者分开念、也分得开
           aria-expanded={open}
           aria-label={`${collection.name} (${collection.conversationCount})`}
-          className={cn(ROW_CLASS, 'min-w-0 flex-1 py-1.5')}
+          className={cn(ROW_CLASS, 'min-w-0 flex-1')}
           onClick={() => setOpen((prev) => !prev)}
           type="button"
         >
@@ -379,6 +390,15 @@ function CollectionGroup({
           <span aria-hidden className="min-w-0 flex-1 truncate text-left">
             {collection.name}
           </span>
+          <Icon
+            className={cn(
+              'shrink-0 text-on-surface-variant transition-transform duration-(--dur-s)',
+              !open && '-rotate-90',
+            )}
+            decorative
+            name="expand"
+            size="sm"
+          />
           <span aria-hidden className="shrink-0 text-caption text-on-surface-variant">
             {collection.conversationCount}
           </span>
@@ -401,7 +421,7 @@ function CollectionGroup({
         </MenuRoot>
       </div>
       {open && (
-        <div className="flex flex-col gap-0.5 pl-4">
+        <div className="flex flex-col gap-0.5 pl-9">
           {items.map((conversation) => (
             <ConversationRow
               key={conversation.id}
@@ -425,7 +445,7 @@ function CollectionGroup({
 }
 
 /**
- * 对话行：截断标题在左，hover 才露出的归属钮在右；整行可拖。
+ * 对话行：截断标题在左，右侧是相对时间；hover / 键盘聚焦时时间让位给归属钮。整行可拖。
  *
  * @param props - 对话、是否正被拖着与打开归属弹窗的回调。
  * @returns 单个对话行。
@@ -447,7 +467,7 @@ function ConversationRow({
   return (
     <div className="group flex items-center gap-1 pr-1">
       <button
-        className={cn(ROW_CLASS, 'min-w-0 flex-1 py-1.5', dragging && 'opacity-50')}
+        className={cn(ROW_CLASS, 'min-w-0 flex-1', dragging && 'opacity-50')}
         ref={setNodeRef}
         style={
           transform
@@ -459,9 +479,16 @@ function ConversationRow({
         {...attributes}
       >
         <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
+        {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
+        <span
+          aria-hidden
+          className="shrink-0 text-caption text-on-surface-variant group-focus-within:hidden group-hover:hidden"
+        >
+          {formatRelativeTime(conversation.updatedAt)}
+        </span>
       </button>
       <IconButton
-        className="opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100"
+        className="opacity-0 transition-opacity duration-(--dur-s) group-focus-within:opacity-100 group-hover:opacity-100"
         label={`${conversation.title} 的归属`}
         name="folder"
         onClick={onOpenMembership}
