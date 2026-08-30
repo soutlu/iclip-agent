@@ -40,7 +40,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from iclip.harness.transcript.from_messages import turns_from_messages
+from iclip.harness.transcript.from_messages import TurnState, turns_from_messages
 from iclip.harness.transcript.ops import MAIN_AGENT_ID, TranscriptTurn
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.store import TranscriptStore
@@ -99,6 +99,14 @@ def _messages(*messages: ModelMessage) -> list[ModelMessage]:
     return list(messages)
 
 
+def _derive(
+    messages: list[ModelMessage], *, state: TurnState = "completed"
+) -> tuple[TranscriptTurn, ...]:
+    """历史那侧。终态由运行侧从官方的 run 结束事件记下来给进去，推导器自己不猜。"""
+
+    return turns_from_messages(messages, turn_states={1: state})
+
+
 @pytest.mark.anyio
 async def test_text_only_turn_matches_the_derived_one() -> None:
     live = await _project(
@@ -109,7 +117,7 @@ async def test_text_only_turn_matches_the_derived_one() -> None:
             PartEndEvent(index=0, part=TextPart(content="好的，我来看看")),
         ]
     )
-    derived = turns_from_messages(
+    derived = _derive(
         _messages(
             ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
             ModelResponse(parts=[TextPart(content="好的，我来看看")], run_id=RUN, timestamp=_at(1)),
@@ -142,7 +150,7 @@ async def test_thinking_then_text_then_tool_matches() -> None:
             PartEndEvent(index=0, part=TextPart(content="读完了")),
         ]
     )
-    derived = turns_from_messages(
+    derived = _derive(
         _messages(
             ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
             ModelResponse(
@@ -199,11 +207,9 @@ async def test_a_cancelled_turn_needs_its_state_handed_to_the_deriver() -> None:
     )
 
     assert live[0].state == "cancelled"
+    # 没给终态就是「没记下一次干净的收尾」，不能默认当成跑完了。
     assert turns_from_messages(messages)[0].state == "failed"
-    assert turns_from_messages(messages, run_states={RUN: "cancelled"})[0].state == "cancelled"
-    assert _skeleton(live) == _skeleton(
-        turns_from_messages(messages, run_states={RUN: "cancelled"})
-    )
+    assert _skeleton(live) == _skeleton(_derive(messages, state="cancelled"))
 
 
 @pytest.mark.anyio
@@ -224,7 +230,7 @@ async def test_two_steps_match() -> None:
             PartEndEvent(index=0, part=TextPart(content="读完了")),
         ]
     )
-    derived = turns_from_messages(
+    derived = _derive(
         _messages(
             ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
             ModelResponse(
@@ -274,7 +280,7 @@ async def test_a_steer_between_two_steps_lands_in_the_same_place() -> None:
             PartEndEvent(index=0, part=TextPart(content="好")),
         ]
     )
-    derived = turns_from_messages(
+    derived = _derive(
         _messages(
             ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
             ModelResponse(
@@ -319,7 +325,7 @@ async def test_two_adjacent_text_parts_stay_two_frames_on_both_paths() -> None:
             PartEndEvent(index=1, part=TextPart(content="第二段")),
         ]
     )
-    derived = turns_from_messages(
+    derived = _derive(
         _messages(
             ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
             ModelResponse(
@@ -346,7 +352,7 @@ async def test_emoji_text_survives_the_utf16_offsets() -> None:
             PartEndEvent(index=0, part=TextPart(content="好的👍继续")),
         ]
     )
-    derived = turns_from_messages(
+    derived = _derive(
         _messages(
             ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
             ModelResponse(parts=[TextPart(content="好的👍继续")], run_id=RUN, timestamp=_at(1)),

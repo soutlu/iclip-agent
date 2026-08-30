@@ -21,8 +21,9 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.usage import RequestUsage
+from pydantic_ai_harness.step_persistence import StepEvent
 
-from iclip.harness.transcript.from_messages import turns_from_messages
+from iclip.harness.transcript.from_messages import run_state_from_events, turns_from_messages
 from iclip.harness.transcript.ops import TextFrame, ThinkingFrame, ToolFrame
 
 RUN = "axRdrOK"
@@ -80,7 +81,6 @@ def test_one_run_becomes_one_turn_with_steps_per_response() -> None:
     assert turn.turn_id == "t1"
     assert turn.ordinal == 1
     assert turn.prompt == "帮我把 README 翻译成英文"
-    assert turn.state == "completed"
     assert [step.step_id for step in turn.steps] == ["t1.1", "t1.2"]
 
 
@@ -274,21 +274,33 @@ def test_turn_usage_sums_the_steps() -> None:
     assert usage.output_tokens == 50 * 2
 
 
-def test_a_run_that_never_answered_its_tools_is_not_completed() -> None:
-    """停在一次工具调用上的 run 没跑完。分不清是被停掉还是报错——那要调用方查表覆盖。"""
+def test_terminal_state_comes_from_the_caller_not_from_the_message_shape() -> None:
+    """终态不猜。
 
-    turns = turns_from_messages(
-        [_ask("走"), _reply(ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"))]
-    )
+    库里有一段对话的消息停在一条没有工具调用的响应上、看着像正常收尾，官方记的却是被取消。
+    按消息形状猜会把「被取消」说成「已完成」，方向正好反了。没给终态时给 ``failed``——那是
+    「没记下一次干净的收尾」，不是默认跑完了。
+    """
 
-    assert turns[0].state == "failed"
-    assert (
-        turns_from_messages(
-            [_ask("走"), _reply(ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"))],
-            run_states={RUN: "cancelled"},
-        )[0].state
-        == "cancelled"
-    )
+    messages = [_ask("走"), _reply(TextPart(content="好"))]
+
+    assert turns_from_messages(messages)[0].state == "failed"
+    assert turns_from_messages(messages, turn_states={1: "completed"})[0].state == "completed"
+    assert turns_from_messages(messages, turn_states={1: "cancelled"})[0].state == "cancelled"
+
+
+def test_run_state_is_read_off_the_official_run_end_event() -> None:
+    """取消与报错都写成 ``run_failed``，区别在 ``error`` 那一列的异常名。"""
+
+    def event(kind: str, error: str | None = None) -> StepEvent:
+        return StepEvent(run_id="r1", kind=kind, step_index=0, error=error)  # pyright: ignore[reportArgumentType]
+
+    assert run_state_from_events([event("run_started"), event("run_completed")]) == "completed"
+    assert run_state_from_events([event("run_failed", "CancelledError()")]) == "cancelled"
+    assert run_state_from_events([event("run_failed", "RunCancelled('用户停止')")]) == "cancelled"
+    assert run_state_from_events([event("run_failed", "RemoteProtocolError('...')")]) == "failed"
+    # 一条结束事件都没有：进程没活到写它。那也不是跑完了。
+    assert run_state_from_events([event("run_started")]) == "failed"
 
 
 def test_mid_run_user_message_becomes_a_user_frame_on_the_open_step() -> None:

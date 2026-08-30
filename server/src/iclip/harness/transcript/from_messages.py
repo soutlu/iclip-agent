@@ -7,9 +7,17 @@
 分轮不查表：消息自己带着 ``run_id``。一次 run 就是一轮（审批由
 ``HandleDeferredToolCalls`` 在同一次 run 里等掉，不会把一轮劈成两次）。
 
-推不出来的只有轮的终态：消息里看不出「被用户停掉」和「报错了」的区别。所以默认按消息形状
-判（最后一条是没有待答工具调用的响应 = 跑完了），拿不准的交给调用方用 ``run_states``
-覆盖——它那一侧读得到 ``events`` 表。
+**轮的终态不在这里猜。** 消息里看不出一次 run 是跑完的、被停的还是报错的：真实数据里有一段
+对话的消息停在一条没有工具调用的响应上（看着像正常收尾），官方记的却是被取消。
+
+官方一直在记这件事——``StepPersistence`` 每次 run 结束会写一条 ``run_completed`` 或
+``run_failed``（后者把 ``repr(error)`` 存进 ``error`` 列，取消因此认得出来）。分类规则见
+``run_state_from_events``。
+
+那张表的 ``run_id`` 与消息里的 ``run_id`` 是**两套 id**（前者是 ``{agent 名}-{短 uuid}``，
+后者是引擎自己发的），互相 join 不上，所以终态由运行侧按**我们自己的轮序号**记下来，经
+``turn_states`` 传进来。没传的轮子给 ``failed``——「没记下一次干净的收尾」就是这个意思，
+不能默认当成跑完了。
 """
 
 from __future__ import annotations
@@ -30,6 +38,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.usage import RequestUsage
+from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.transcript.ops import (
     TOOL_STATE_BY_OUTCOME,
@@ -51,14 +60,34 @@ TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
 def turns_from_messages(
     messages: Sequence[ModelMessage],
     *,
-    run_states: Mapping[str, TurnState] | None = None,
+    turn_states: Mapping[int, TurnState] | None = None,
 ) -> tuple[TranscriptTurn, ...]:
-    """把一段对话的消息历史推成一串轮子，按发生先后排。"""
+    """把一段对话的消息历史推成一串轮子，按发生先后排。
+
+    ``turn_states`` 按轮序号给终态，来自官方记的那条 run 结束事件（见模块开头）。
+    """
 
     turns: list[TranscriptTurn] = []
     for ordinal, group in enumerate(_group_by_run(messages), start=1):
-        turns.append(_turn(group, ordinal=ordinal, run_states=run_states or {}))
+        turns.append(_turn(group, ordinal=ordinal, turn_states=turn_states or {}))
     return tuple(turns)
+
+
+def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
+    """一次 run 的结束事件 → 轮的终态。
+
+    取消与报错都写成 ``run_failed``，区别在 ``error`` 那一列的异常名：第一方取消是
+    ``RunCancelled``，外部取消（任务被 cancel）是 ``CancelledError``。一条结束事件都没有说明
+    进程没活到写它——那也不是跑完了。
+    """
+
+    for event in reversed(events):
+        if event.kind == "run_completed":
+            return "completed"
+        if event.kind == "run_failed":
+            error = event.error or ""
+            return "cancelled" if error.startswith(("RunCancelled", "CancelledError")) else "failed"
+    return "failed"
 
 
 def _group_by_run(messages: Sequence[ModelMessage]) -> list[list[ModelMessage]]:
@@ -100,7 +129,7 @@ def _iso(moment: datetime | None) -> str | None:
 
 
 def _turn(
-    group: Sequence[ModelMessage], *, ordinal: int, run_states: Mapping[str, TurnState]
+    group: Sequence[ModelMessage], *, ordinal: int, turn_states: Mapping[int, TurnState]
 ) -> TranscriptTurn:
     turn_id = f"t{ordinal}"
     steps: list[TranscriptStep] = []
@@ -152,7 +181,7 @@ def _turn(
     return TranscriptTurn(
         turn_id=turn_id,
         ordinal=ordinal,
-        state=run_states.get(group[0].run_id or "") or _turn_state(group),
+        state=turn_states.get(ordinal, "failed"),
         origin=TurnOrigin(kind="user"),
         prompt=prompt,
         started_at=_iso(_started_at(group)),
@@ -306,19 +335,4 @@ def _turn_usage(steps: Sequence[TranscriptStep]) -> TurnUsage | None:
     )
 
 
-def _turn_state(group: Sequence[ModelMessage]) -> TurnState:
-    """按消息形状判终态。
-
-    正常收尾的一次 run 停在一条不再调工具的响应上。停不在那儿说明它没跑完，但消息里看不出
-    是被停掉的还是报错的——两者都给 ``failed``，要分清得由调用方查 ``events`` 表覆盖。
-    """
-
-    last = group[-1]
-    if isinstance(last, ModelResponse) and not any(
-        isinstance(part, ToolCallPart) for part in last.parts
-    ):
-        return "completed"
-    return "failed"
-
-
-__all__ = ["TurnState", "turns_from_messages"]
+__all__ = ["TurnState", "run_state_from_events", "turns_from_messages"]
