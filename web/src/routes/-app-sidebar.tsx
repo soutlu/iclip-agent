@@ -1,6 +1,7 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useState } from 'react'
 import { CueUserMenu } from '@/features/auth'
+import { ConversationSearchDialog } from '@/features/conversations'
 import { useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
@@ -37,7 +38,8 @@ const DEMO_SESSIONS: Record<
  * 结构对齐 Kimi Code Web 的侧栏：264 宽、可折叠为 0（折叠后主区左上浮出展开钮）、
  * kbd 快捷键提示只在 hover 行时淡入；会话区用分段 tab（进行中 / 已完成 / 工作空间），
  * 进行中的 tab 带 primary 圆点，会话行尾带状态标识。新建任务回首页起新一轮对话，
- * 搜索与会话列表还没接后端。未登录时会话区与账户区退成登录入口，点任何操作都弹登录框。
+ * 搜索打开搜对话弹窗，会话列表还没接后端。未登录时会话区与账户区退成登录入口，
+ * 点任何操作都弹登录框。
  *
  * @returns 侧栏与折叠态下的浮出展开按钮。
  */
@@ -47,6 +49,7 @@ export function AppSidebar() {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const [tab, setTab] = useState<SessionTab>('running')
+  const [searchOpen, setSearchOpen] = useState(false)
   const { data: user } = useUser()
   const requireLogin = useLoginPrompt()
 
@@ -98,7 +101,7 @@ export function AppSidebar() {
           icon="search"
           kbd="⌘K"
           label="搜索"
-          onClick={user ? undefined : requireLogin}
+          onClick={user ? () => setSearchOpen(true) : requireLogin}
         />
         <SidebarAction
           active={pathname === '/tasks'}
@@ -161,6 +164,8 @@ export function AppSidebar() {
         )}
         <IconButton label="设置" name="settings" size="md" />
       </div>
+
+      <ConversationSearchDialog onOpenChange={setSearchOpen} open={searchOpen} />
     </aside>
   )
 }

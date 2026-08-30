@@ -86,6 +86,31 @@ async def test_list_is_most_recent_first(client: httpx.AsyncClient, pg_url: str)
     assert [item["title"] for item in listed.json()["items"]] == ["又动过的", "晚的"]
 
 
+async def test_list_can_be_searched_by_title(client: httpx.AsyncClient, pg_url: str) -> None:
+    await login_as_editor(client, pg_url)
+    await create(client, title="夏季亚麻系列广告")
+    await create(client, title="通勤背包短视频")
+    await create(client, title="亚麻衬衫二剪")
+
+    hit = await client.get(URL, params={"q": "亚麻"})
+    # 命中仍按最近活动倒序
+    assert [item["title"] for item in hit.json()["items"]] == ["亚麻衬衫二剪", "夏季亚麻系列广告"]
+    # % 是普通字符不是通配符；只给空白等于没筛
+    assert (await client.get(URL, params={"q": "%"})).json()["items"] == []
+    assert len((await client.get(URL, params={"q": "  "})).json()["items"]) == 3
+
+
+async def test_search_only_covers_my_own_conversations(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    await login_as_editor(client, pg_url, username="luke")
+    await create(client, title="亚麻衬衫二剪")
+
+    async with make_client(app) as other:
+        await login_as_editor(other, pg_url, username="mia")
+        assert (await other.get(URL, params={"q": "亚麻"})).json()["items"] == []
+
+
 async def test_another_users_conversation_is_invisible(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:

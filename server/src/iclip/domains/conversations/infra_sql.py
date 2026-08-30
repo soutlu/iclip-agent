@@ -158,10 +158,16 @@ class SqlConversationRepository:
             raise NotFound("没有这段对话")
         return _row(row)
 
-    async def list_for_owner(self, *, owner: uuid.UUID, limit: int) -> tuple[Conversation, ...]:
+    async def list_for_owner(
+        self, *, owner: uuid.UUID, limit: int, title_contains: str | None = None
+    ) -> tuple[Conversation, ...]:
+        conditions = [_ROWS.owner_user_id == owner]
+        if title_contains is not None:
+            # autoescape：标题里出现 % 或 _ 时当普通字符，不当通配符
+            conditions.append(_ROWS.title.icontains(title_contains, autoescape=True))
         statement = (
             select(conversations_table)
-            .where(_ROWS.owner_user_id == owner)
+            .where(*conditions)
             .order_by(_ROWS.updated_at.desc())
             .limit(limit)
         )

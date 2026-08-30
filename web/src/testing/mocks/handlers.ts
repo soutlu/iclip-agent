@@ -36,6 +36,46 @@ export const resetMockSession = () => {
   sessionActive = false
 }
 
+// 对话的内存存储：形状即合同 ConversationOut。搜索按标题过滤，跟后端一样不分大小写。
+type MockConversation = {
+  agentId: string
+  createdAt: string
+  id: string
+  lastRunId: string | null
+  projectId: string | null
+  taskId: string | null
+  title: string
+  updatedAt: string
+}
+
+export const mockConversations: MockConversation[] = []
+
+/**
+ * 往内存存储里塞一段对话，字段补全到合同形状。
+ *
+ * @param title - 对话标题。
+ * @param updatedAt - 最近活动时刻，列表与搜索都按它倒序。
+ * @returns 落库形状的对话。
+ */
+export const addMockConversation = (title: string, updatedAt = new Date().toISOString()) => {
+  const conversation: MockConversation = {
+    agentId: 'storyboard',
+    createdAt: updatedAt,
+    id: crypto.randomUUID(),
+    lastRunId: null,
+    projectId: null,
+    taskId: null,
+    title,
+    updatedAt,
+  }
+  mockConversations.push(conversation)
+  return conversation
+}
+
+export const resetMockConversations = () => {
+  mockConversations.length = 0
+}
+
 // 需求单的内存存储：形状即合同 TaskOut（zTaskOut 会校验，缺字段过不了边界）。
 // 测试经 server.use 覆盖单端点，或直接改这个数组后 invalidate 查询。
 type MockTask = {
@@ -81,6 +121,16 @@ export const handlers = [
 
   // GET /auth/sso/authorize：mock 环境不开 SSO，后端关着时这条路由不挂载（404），登录页据此只显示账号密码。
   http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
+
+  // ── conversations（src/features/conversations/conversations.api.ts）──────
+  // GET /conversations：我的对话，最近活动倒序；带 q 就按标题筛（后端是 ILIKE，这里同样不分大小写）。
+  http.get('*/api/conversations', ({ request }) => {
+    const keyword = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase()
+    const items = [...mockConversations]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .filter((item) => !keyword || item.title.toLowerCase().includes(keyword))
+    return HttpResponse.json({ items })
+  }),
 
   // ── tasks（src/features/tasks/tasks.api.ts）──────────────────────────────
   // 内存版需求单：支持列表（含 claimedBy=me）、详情、创建、整体覆盖、发布/认领/撤回。
