@@ -116,6 +116,23 @@ const SIDEBAR_UNGROUPED = 20
 const byRecent = (a: MockConversation, b: MockConversation) =>
   b.updatedAt.localeCompare(a.updatedAt)
 
+/** 一页对话：取满一页就给下一页的位置（口径同后端）。 */
+const pageOf = (rows: MockConversation[], limit: number) => {
+  const items = rows.slice(0, limit)
+  const last = items[items.length - 1]
+  return {
+    items,
+    nextCursor: items.length === limit && last ? `${last.updatedAt}|${last.id}` : null,
+  }
+}
+
+/** 按翻页位置切掉上一页给过的那些。 */
+const after = (rows: MockConversation[], cursor: string | null) => {
+  if (!cursor) return rows
+  const index = rows.findIndex((item) => `${item.updatedAt}|${item.id}` === cursor)
+  return index < 0 ? rows : rows.slice(index + 1)
+}
+
 // 需求单的内存存储：形状即合同 TaskOut（zTaskOut 会校验，缺字段过不了边界）。
 // 测试经 server.use 覆盖单端点，或直接改这个数组后 invalidate 查询。
 type MockTask = {
@@ -197,9 +214,11 @@ export const handlers = [
     return HttpResponse.json({ items })
   }),
 
-  // GET /conversations：侧栏拓扑——我的合集（各带条数与最近几段）+ 没归类的对话。
+  // GET /conversations：侧栏拓扑——我的合集（各带总数与第一页）+ 没归类的第一页。
+  // 翻页位置照后端来：`updatedAt|id`，前端只当不透明字符串回传。
   http.get('*/api/conversations', () => {
     const sorted = [...mockConversations].sort(byRecent)
+    const ungrouped = sorted.filter((item) => item.collectionId === null)
     return HttpResponse.json({
       collections: [...mockCollections]
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -207,14 +226,30 @@ export const handlers = [
           const inside = sorted.filter((item) => item.collectionId === collection.id)
           return {
             conversationCount: inside.length,
-            conversations: inside.slice(0, SIDEBAR_PER_COLLECTION),
             id: collection.id,
             name: collection.name,
+            page: pageOf(inside, SIDEBAR_PER_COLLECTION),
             updatedAt: collection.updatedAt,
           }
         }),
-      ungrouped: sorted.filter((item) => item.collectionId === null).slice(0, SIDEBAR_UNGROUPED),
+      ungrouped: pageOf(ungrouped, SIDEBAR_UNGROUPED),
+      ungroupedCount: ungrouped.length,
     })
+  }),
+
+  // GET /conversations/ungrouped、/by-collection/:id：往下滑加载更多。
+  http.get('*/api/conversations/ungrouped', ({ request }) => {
+    const cursor = new URL(request.url).searchParams.get('cursor')
+    const rows = [...mockConversations].sort(byRecent).filter((item) => item.collectionId === null)
+    return HttpResponse.json(pageOf(after(rows, cursor), SIDEBAR_UNGROUPED))
+  }),
+
+  http.get('*/api/conversations/by-collection/:collectionId', ({ params, request }) => {
+    const cursor = new URL(request.url).searchParams.get('cursor')
+    const rows = [...mockConversations]
+      .sort(byRecent)
+      .filter((item) => item.collectionId === params['collectionId'])
+    return HttpResponse.json(pageOf(after(rows, cursor), SIDEBAR_PER_COLLECTION))
   }),
 
   // PUT /conversations/:id/collection、PUT /conversations/:id/task：两处归属各一个端点。

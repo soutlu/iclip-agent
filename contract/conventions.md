@@ -61,9 +61,12 @@
 
 一段对话的 id 即 AG-UI 的 `threadId`。**id 一律由服务端发放**，客户端自己编一个发去 `POST /agents/{agentId}/chat` 会得到 `404`。
 
-**权限**：`POST /conversations`、`PATCH /conversations/{id}`、`PUT /conversations/{id}/collection`、`PUT /conversations/{id}/task`、`DELETE /conversations/{id}` 需要 `agent:run`；`GET /conversations`、`GET /conversations/search`、`GET /conversations/audit`、`GET /conversations/by-task/{taskId}`、`GET /conversations/{id}/messages`、`GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file` 需要 `agent:read`。
+**权限**：`POST /conversations`、`PATCH /conversations/{id}`、`PUT /conversations/{id}/collection`、`PUT /conversations/{id}/task`、`DELETE /conversations/{id}` 需要 `agent:run`；`GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}`、`GET /conversations/search`、`GET /conversations/audit`、`GET /conversations/by-task/{taskId}`、`GET /conversations/{id}/messages`、`GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file` 需要 `agent:read`。
 
-- `GET /conversations` 返回**侧栏拓扑**：`{ collections: [{ id, name, updatedAt, conversationCount, conversations }], ungrouped }`。合集与「没归类」两区都只有自己的，各按最近活动倒序；每个合集内嵌最近 10 段，`ungrouped` 给最近 20 条，空合集也在列表里（`conversationCount` 为 0）。
+- `GET /conversations` 返回**侧栏拓扑**：`{ collections: [{ id, name, updatedAt, conversationCount, page }], ungroupedCount, ungrouped }`。`page` 与 `ungrouped` 都是一页 `{ items, nextCursor }`；合集与「没归类」两区都只有自己的，各按最近活动倒序；每个合集第一页 10 段，`ungrouped` 第一页 20 条，空合集也在列表里。
+- **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
+- 往下滑加载更多：`GET /conversations/ungrouped?cursor=` 与 `GET /conversations/by-collection/{collectionId}?cursor=`，都返回 `{ items, nextCursor }`。`cursor` 原样回传上一页的 `nextCursor`（把它当不透明字符串），为 `null` 表示没有更多了；形状不对是 `422`。
+- **`by-collection` 不区分「合集不存在」「合集是别人的」「合集是空的」**，三种都给一页空的——合集只对属主可见，区分了就等于告诉调用方它存在。
 - `GET /conversations/search?q=` 按标题搜自己的对话，返回扁平列表，最近活动的排在前面；`GET /conversations/by-task/{taskId}` 按开始时间正序。
 - `lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`），刷新页面后拿它去续读那条流。
 - **可见性**：只看得到自己的对话，别人的一律 `404`，不返 `403`。按需求单列尝试同一口径：只列自己的。

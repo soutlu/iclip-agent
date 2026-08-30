@@ -139,15 +139,15 @@ export function AppSidebar() {
         {!user && <p className="px-2 pt-1 text-body-sm text-on-surface-variant">登录后查看对话</p>}
         {user && (
           <>
-            <SidebarSection count={topology.data?.ungrouped.length ?? 0} title="任务">
-              {topology.data?.ungrouped.map((conversation) => (
+            <SidebarSection count={topology.data?.ungroupedCount ?? 0} title="任务">
+              {topology.data?.ungrouped.items.map((conversation) => (
                 <ConversationRow
                   key={conversation.id}
                   conversation={conversation}
                   onOpenMembership={() => setMembership({ conversation, open: true })}
                 />
               ))}
-              {topology.data?.ungrouped.length === 0 && <EmptyHint>还没有对话</EmptyHint>}
+              {topology.data?.ungrouped.items.length === 0 && <EmptyHint>还没有对话</EmptyHint>}
             </SidebarSection>
 
             <SidebarSection
@@ -284,9 +284,9 @@ function EmptyHint({ children }: { children: string }) {
 type CollectionGroupProps = {
   collection: {
     conversationCount: number
-    conversations: SidebarConversation[]
     id: string
     name: string
+    page: { items: SidebarConversation[] }
   }
   onDelete: () => void
   onOpenMembership: (conversation: SidebarConversation) => void
@@ -346,14 +346,14 @@ function CollectionGroup({
       </div>
       {open && (
         <div className="flex flex-col gap-0.5 pl-4">
-          {collection.conversations.map((conversation) => (
+          {collection.page.items.map((conversation) => (
             <ConversationRow
               key={conversation.id}
               conversation={conversation}
               onOpenMembership={() => onOpenMembership(conversation)}
             />
           ))}
-          {collection.conversations.length === 0 && <EmptyHint>这个合集还是空的</EmptyHint>}
+          {collection.page.items.length === 0 && <EmptyHint>这个合集还是空的</EmptyHint>}
         </div>
       )}
     </div>

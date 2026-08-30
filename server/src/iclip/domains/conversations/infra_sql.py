@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.conversations.models import Conversation
-from iclip.domains.conversations.repository import AuditCursor, CollectionConversations
+from iclip.domains.conversations.repository import CollectionConversations, PageCursor
 
 DB_SCHEMA: Final = "iclip"
 
@@ -111,6 +111,22 @@ def _row(mapping: RowMapping) -> Conversation:
     )
 
 
+def _after(cursor: PageCursor | None) -> list[ColumnElement[bool]]:
+    """翻页条件：严格小于上一页最后一行的排序键。
+
+    带上 id 一起比，同一时刻的几行才不会被跳过。侧栏往下滑与审计列表共用这一条。
+    """
+
+    if cursor is None:
+        return []
+    return [
+        or_(
+            _ROWS.updated_at < cursor.updated_at,
+            and_(_ROWS.updated_at == cursor.updated_at, _ROWS.id < cursor.conversation_id),
+        )
+    ]
+
+
 def _reject_missing_reference(error: IntegrityError) -> ValidationFailed:
     """外键挡下来的引用错误翻成领域错误。
 
@@ -182,11 +198,49 @@ class SqlConversationRepository:
             rows = (await conn.execute(statement)).mappings().all()
         return tuple(_row(row) for row in rows)
 
-    async def list_ungrouped(self, *, owner: uuid.UUID, limit: int) -> tuple[Conversation, ...]:
+    async def list_ungrouped(
+        self, *, owner: uuid.UUID, limit: int, after: PageCursor | None = None
+    ) -> tuple[Conversation, ...]:
+        return await self._page(
+            _ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None), limit=limit, after=after
+        )
+
+    async def count_ungrouped(self, *, owner: uuid.UUID) -> int:
+        statement = (
+            select(func.count())
+            .select_from(conversations_table)
+            .where(_ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None))
+        )
+        async with self._engine.connect() as conn:
+            return int((await conn.execute(statement)).scalar_one())
+
+    async def list_in_collection(
+        self,
+        *,
+        owner: uuid.UUID,
+        collection_id: uuid.UUID,
+        limit: int,
+        after: PageCursor | None = None,
+    ) -> tuple[Conversation, ...]:
+        return await self._page(
+            _ROWS.owner_user_id == owner,
+            _ROWS.collection_id == collection_id,
+            limit=limit,
+            after=after,
+        )
+
+    async def _page(
+        self,
+        *conditions: ColumnElement[bool],
+        limit: int,
+        after: PageCursor | None,
+    ) -> tuple[Conversation, ...]:
+        """按最近活动倒序取一页。侧栏两个区的翻页只差 WHERE 那一条。"""
+
         statement = (
             select(conversations_table)
-            .where(_ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None))
-            .order_by(_ROWS.updated_at.desc())
+            .where(*conditions, *_after(after))
+            .order_by(_ROWS.updated_at.desc(), _ROWS.id.desc())
             .limit(limit)
         )
         async with self._engine.connect() as conn:
@@ -254,7 +308,7 @@ class SqlConversationRepository:
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int,
-        after: AuditCursor | None = None,
+        after: PageCursor | None = None,
     ) -> tuple[Conversation, ...]:
         conditions: list[ColumnElement[bool]] = []
         if owner is not None:
@@ -265,17 +319,7 @@ class SqlConversationRepository:
             conditions.append(_ROWS.updated_at >= since)
         if until is not None:
             conditions.append(_ROWS.updated_at <= until)
-        if after is not None:
-            # 严格小于上一页最后一行的排序键。带上 id 一起比，同一时刻的几行才不会被跳过。
-            conditions.append(
-                or_(
-                    _ROWS.updated_at < after.updated_at,
-                    and_(
-                        _ROWS.updated_at == after.updated_at,
-                        _ROWS.id < after.conversation_id,
-                    ),
-                )
-            )
+        conditions.extend(_after(after))
         statement = (
             select(conversations_table)
             .where(*conditions)

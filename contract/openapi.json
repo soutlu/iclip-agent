@@ -916,6 +916,36 @@
         "title": "ConversationOut",
         "type": "object"
       },
+      "ConversationPageOut": {
+        "additionalProperties": false,
+        "description": "一页对话。``nextCursor`` 为空即没有更多了；往下滑加载更多时原样回传它。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "title": "ConversationPageOut",
+        "type": "object"
+      },
       "ConversationRename": {
         "additionalProperties": false,
         "properties": {
@@ -1537,18 +1567,11 @@
       },
       "SidebarCollectionOut": {
         "additionalProperties": false,
-        "description": "侧栏里的一个合集：元信息加最近几段对话。\n\n``conversationCount`` 是这个合集里的全部条数，``conversations`` 只有最近几段——\n展开看更多是另一次查询的事。",
+        "description": "侧栏里的一个合集：元信息、里面一共几段，加第一页对话。\n\n``conversationCount`` 是全部条数，``page`` 只有第一页——往下滑要更多是另一次查询。",
         "properties": {
           "conversationCount": {
             "title": "Conversationcount",
             "type": "integer"
-          },
-          "conversations": {
-            "items": {
-              "$ref": "#/components/schemas/ConversationOut"
-            },
-            "title": "Conversations",
-            "type": "array"
           },
           "id": {
             "format": "uuid",
@@ -1558,6 +1581,9 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "page": {
+            "$ref": "#/components/schemas/ConversationPageOut"
           },
           "updatedAt": {
             "format": "date-time",
@@ -1570,14 +1596,14 @@
           "name",
           "updatedAt",
           "conversationCount",
-          "conversations"
+          "page"
         ],
         "title": "SidebarCollectionOut",
         "type": "object"
       },
       "SidebarOut": {
         "additionalProperties": false,
-        "description": "侧栏拓扑：合集分组 + 没归类的对话。一次查询拿全，前端不再自己拼。",
+        "description": "侧栏拓扑：合集分组 + 没归类的对话。首屏一次拿全，前端不再自己拼。\n\n两个数字都是真总数（不是这一页几条）：``ungroupedCount`` 与每个合集的\n``conversationCount``。",
         "properties": {
           "collections": {
             "items": {
@@ -1587,15 +1613,16 @@
             "type": "array"
           },
           "ungrouped": {
-            "items": {
-              "$ref": "#/components/schemas/ConversationOut"
-            },
-            "title": "Ungrouped",
-            "type": "array"
+            "$ref": "#/components/schemas/ConversationPageOut"
+          },
+          "ungroupedCount": {
+            "title": "Ungroupedcount",
+            "type": "integer"
           }
         },
         "required": [
           "collections",
+          "ungroupedCount",
           "ungrouped"
         ],
         "title": "SidebarOut",
@@ -3850,6 +3877,66 @@
         ]
       }
     },
+    "/conversations/by-collection/{collection_id}": {
+      "get": {
+        "description": "某个合集里的对话，翻页口径同上。\n\n不存在的合集、别人的合集，都给一页空的——与「这个合集是空的」同一个结果。",
+        "operationId": "list_collection_conversations_conversations_by_collection__collection_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Collection Conversations",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
     "/conversations/by-task/{task_id}": {
       "get": {
         "description": "列出自己在这张需求单下的尝试，按开始时间正序。\n\n路径写成 ``/conversations/by-task/{id}`` 而不是 ``/tasks/{id}/conversations``：\n这是对话这一侧的查询，只看得到自己的那几段——挂在需求单下面会让人以为看到的是\n全部。查别人的走 ``/conversations/audit?taskId=``。",
@@ -3952,6 +4039,56 @@
           }
         },
         "summary": "Search Conversations",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/conversations/ungrouped": {
+      "get": {
+        "description": "侧栏「任务」区往下滑：接着上一页给。``cursor`` 原样回传响应里的 ``nextCursor``。",
+        "operationId": "list_ungrouped_conversations_ungrouped_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Ungrouped",
         "tags": [
           "conversations"
         ]

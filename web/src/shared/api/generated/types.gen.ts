@@ -506,6 +506,22 @@ export type ConversationOut = {
 }
 
 /**
+ * ConversationPageOut
+ *
+ * 一页对话。``nextCursor`` 为空即没有更多了；往下滑加载更多时原样回传它。
+ */
+export type ConversationPageOut = {
+  /**
+   * Items
+   */
+  items: Array<ConversationOut>
+  /**
+   * Nextcursor
+   */
+  nextCursor: string | null
+}
+
+/**
  * ConversationRename
  */
 export type ConversationRename = {
@@ -853,20 +869,15 @@ export type ProductOut = {
 /**
  * SidebarCollectionOut
  *
- * 侧栏里的一个合集：元信息加最近几段对话。
+ * 侧栏里的一个合集：元信息、里面一共几段，加第一页对话。
  *
- * ``conversationCount`` 是这个合集里的全部条数，``conversations`` 只有最近几段——
- * 展开看更多是另一次查询的事。
+ * ``conversationCount`` 是全部条数，``page`` 只有第一页——往下滑要更多是另一次查询。
  */
 export type SidebarCollectionOut = {
   /**
    * Conversationcount
    */
   conversationCount: number
-  /**
-   * Conversations
-   */
-  conversations: Array<ConversationOut>
   /**
    * Id
    */
@@ -875,6 +886,7 @@ export type SidebarCollectionOut = {
    * Name
    */
   name: string
+  page: ConversationPageOut
   /**
    * Updatedat
    */
@@ -884,17 +896,21 @@ export type SidebarCollectionOut = {
 /**
  * SidebarOut
  *
- * 侧栏拓扑：合集分组 + 没归类的对话。一次查询拿全，前端不再自己拼。
+ * 侧栏拓扑：合集分组 + 没归类的对话。首屏一次拿全，前端不再自己拼。
+ *
+ * 两个数字都是真总数（不是这一页几条）：``ungroupedCount`` 与每个合集的
+ * ``conversationCount``。
  */
 export type SidebarOut = {
   /**
    * Collections
    */
   collections: Array<SidebarCollectionOut>
+  ungrouped: ConversationPageOut
   /**
-   * Ungrouped
+   * Ungroupedcount
    */
-  ungrouped: Array<ConversationOut>
+  ungroupedCount: number
 }
 
 /**
@@ -2224,6 +2240,43 @@ export type AuditConversationsConversationsAuditGetResponses = {
 export type AuditConversationsConversationsAuditGetResponse =
   AuditConversationsConversationsAuditGetResponses[keyof AuditConversationsConversationsAuditGetResponses]
 
+export type ListCollectionConversationsConversationsByCollectionCollectionIdGetData = {
+  body?: never
+  path: {
+    /**
+     * Collection Id
+     */
+    collection_id: string
+  }
+  query?: {
+    /**
+     * Cursor
+     */
+    cursor?: string | null
+  }
+  url: '/conversations/by-collection/{collection_id}'
+}
+
+export type ListCollectionConversationsConversationsByCollectionCollectionIdGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ListCollectionConversationsConversationsByCollectionCollectionIdGetError =
+  ListCollectionConversationsConversationsByCollectionCollectionIdGetErrors[keyof ListCollectionConversationsConversationsByCollectionCollectionIdGetErrors]
+
+export type ListCollectionConversationsConversationsByCollectionCollectionIdGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: ConversationPageOut
+}
+
+export type ListCollectionConversationsConversationsByCollectionCollectionIdGetResponse =
+  ListCollectionConversationsConversationsByCollectionCollectionIdGetResponses[keyof ListCollectionConversationsConversationsByCollectionCollectionIdGetResponses]
+
 export type ListTaskAttemptsConversationsByTaskTaskIdGetData = {
   body?: never
   path: {
@@ -2291,6 +2344,38 @@ export type SearchConversationsConversationsSearchGetResponses = {
 
 export type SearchConversationsConversationsSearchGetResponse =
   SearchConversationsConversationsSearchGetResponses[keyof SearchConversationsConversationsSearchGetResponses]
+
+export type ListUngroupedConversationsUngroupedGetData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Cursor
+     */
+    cursor?: string | null
+  }
+  url: '/conversations/ungrouped'
+}
+
+export type ListUngroupedConversationsUngroupedGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ListUngroupedConversationsUngroupedGetError =
+  ListUngroupedConversationsUngroupedGetErrors[keyof ListUngroupedConversationsUngroupedGetErrors]
+
+export type ListUngroupedConversationsUngroupedGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: ConversationPageOut
+}
+
+export type ListUngroupedConversationsUngroupedGetResponse =
+  ListUngroupedConversationsUngroupedGetResponses[keyof ListUngroupedConversationsUngroupedGetResponses]
 
 export type DeleteConversationConversationsConversationIdDeleteData = {
   body?: never

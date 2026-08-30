@@ -25,11 +25,11 @@ class CollectionConversations:
 
 
 @dataclass(frozen=True, slots=True)
-class AuditCursor:
-    """审计列表的翻页位置：上一页最后一行的排序键。
+class PageCursor:
+    """翻页位置：上一页最后一行的排序键。
 
-    用排序键而不是 offset：全平台的对话量往后翻会越翻越慢，而且翻页期间有新对话进来
-    会让某些行被跳过。
+    用排序键而不是 offset：往后翻会越翻越慢，而且翻页期间有新对话进来会让某些行被跳过。
+    侧栏往下滑与治理者的审计列表用的是同一种位置。
     """
 
     updated_at: datetime
@@ -53,8 +53,29 @@ class ConversationRepository(Protocol):
         """按最近活动倒序列出这个人的对话；给了 ``title_contains`` 就只留标题含它的（不分大小写）。"""
         ...
 
-    async def list_ungrouped(self, *, owner: uuid.UUID, limit: int) -> tuple[Conversation, ...]:
-        """按最近活动倒序列出这个人没进合集的对话。"""
+    async def list_ungrouped(
+        self, *, owner: uuid.UUID, limit: int, after: PageCursor | None = None
+    ) -> tuple[Conversation, ...]:
+        """按最近活动倒序列出这个人没进合集的对话，从 ``after`` 之后接着给。"""
+        ...
+
+    async def count_ungrouped(self, *, owner: uuid.UUID) -> int:
+        """这个人一共有多少段没进合集的对话。侧栏标题上那个数字要的是总数，不是这一页几条。"""
+        ...
+
+    async def list_in_collection(
+        self,
+        *,
+        owner: uuid.UUID,
+        collection_id: uuid.UUID,
+        limit: int,
+        after: PageCursor | None = None,
+    ) -> tuple[Conversation, ...]:
+        """按最近活动倒序列出某个合集里的对话，从 ``after`` 之后接着给。
+
+        不校验这个合集在不在、是不是他的——这一层不认识合集表。别人的合集查出来是空的，
+        和空合集同一个结果，这是有意的（见 contract/conventions.md §6）。
+        """
         ...
 
     async def list_by_collections(
@@ -83,7 +104,7 @@ class ConversationRepository(Protocol):
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int,
-        after: AuditCursor | None = None,
+        after: PageCursor | None = None,
     ) -> tuple[Conversation, ...]:
         """跨属主列出对话，按最近活动倒序。四个筛选条件都可以不给，可以任意组合。"""
         ...
@@ -125,4 +146,4 @@ class ConversationRepository(Protocol):
         ...
 
 
-__all__ = ["AuditCursor", "CollectionConversations", "ConversationRepository"]
+__all__ = ["CollectionConversations", "ConversationRepository", "PageCursor"]
