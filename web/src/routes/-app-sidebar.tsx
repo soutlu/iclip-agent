@@ -1,37 +1,18 @@
-import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useState } from 'react'
 import { CueUserMenu } from '@/features/auth'
-import {
-  CollectionDeleteDialog,
-  CollectionFormDialog,
-  useCollections,
-} from '@/features/collections'
-import {
-  ConversationMembershipDialog,
-  ConversationSearchDialog,
-  conversationsQueryKeys,
-  useSidebarTopology,
-} from '@/features/conversations'
-import { useTaskOptions } from '@/features/tasks'
+import { ConversationSearchDialog } from '@/features/conversations'
 import { useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
-import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { useLoginPrompt } from './-login-prompt'
+import { SidebarConversations } from './-sidebar-conversations'
 
 // 侧栏里几种行（操作行、对话行、合集行、未登录的登录行）共用的外观：幽灵行，
 // hover / pressed 由 ui-state 铺，焦点走 ui-focus。宽度与内距由调用处按需覆盖。
 const SIDEBAR_ROW_CLASS =
   'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-2 ui-focus text-body text-on-surface'
-
-type SidebarConversation = {
-  collectionId: string | null
-  id: string
-  taskId: string | null
-  title: string
-}
 
 /**
  * 应用侧栏：每页共享的外壳（品牌区、新建任务 / 搜索 / 需求单 / 资料库入口、对话区、账户区）。
@@ -51,31 +32,6 @@ export function AppSidebar() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { data: user } = useUser()
   const requireLogin = useLoginPrompt()
-  const queryClient = useQueryClient()
-  const topology = useSidebarTopology(Boolean(user))
-
-  // 三个弹窗共用一套开关：同一时刻只会开一个
-  const [collectionForm, setCollectionForm] = useState<{
-    collection?: { id: string; name: string }
-    open: boolean
-  }>({ open: false })
-  const [collectionDelete, setCollectionDelete] = useState<{
-    collection?: { id: string; name: string }
-    open: boolean
-  }>({ open: false })
-  const [membership, setMembership] = useState<{
-    conversation?: SidebarConversation
-    open: boolean
-  }>({ open: false })
-
-  // 两处归属的候选项只在归属弹窗打开时才拉
-  const collections = useCollections(membership.open)
-  const tasks = useTaskOptions(membership.open)
-
-  const refreshSidebar = () => {
-    void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-  }
-
   if (collapsed) {
     return (
       <IconButton
@@ -135,54 +91,11 @@ export function AppSidebar() {
         <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />
       </nav>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pt-3">
-        {!user && <p className="px-2 pt-1 text-body-sm text-on-surface-variant">登录后查看对话</p>}
-        {user && (
-          <>
-            <SidebarSection count={topology.data?.ungroupedCount ?? 0} title="任务">
-              {topology.data?.ungrouped.items.map((conversation) => (
-                <ConversationRow
-                  key={conversation.id}
-                  conversation={conversation}
-                  onOpenMembership={() => setMembership({ conversation, open: true })}
-                />
-              ))}
-              {topology.data?.ungrouped.items.length === 0 && <EmptyHint>还没有对话</EmptyHint>}
-            </SidebarSection>
-
-            <SidebarSection
-              action={{
-                icon: 'add',
-                label: '新建合集',
-                onClick: () => setCollectionForm({ open: true }),
-              }}
-              count={topology.data?.collections.length ?? 0}
-              title="合集"
-            >
-              {topology.data?.collections.map((collection) => (
-                <CollectionGroup
-                  key={collection.id}
-                  collection={collection}
-                  onDelete={() =>
-                    setCollectionDelete({
-                      collection: { id: collection.id, name: collection.name },
-                      open: true,
-                    })
-                  }
-                  onOpenMembership={(conversation) => setMembership({ conversation, open: true })}
-                  onRename={() =>
-                    setCollectionForm({
-                      collection: { id: collection.id, name: collection.name },
-                      open: true,
-                    })
-                  }
-                />
-              ))}
-              {topology.data?.collections.length === 0 && <EmptyHint>还没有合集</EmptyHint>}
-            </SidebarSection>
-          </>
-        )}
-      </div>
+      {user ? (
+        <SidebarConversations />
+      ) : (
+        <p className="px-4 pt-4 text-body-sm text-on-surface-variant">登录后查看对话</p>
+      )}
 
       <div className="flex items-center justify-between gap-2 border-t border-border p-2">
         {user ? (
@@ -206,186 +119,7 @@ export function AppSidebar() {
       </div>
 
       <ConversationSearchDialog onOpenChange={setSearchOpen} open={searchOpen} />
-      <CollectionFormDialog
-        collection={collectionForm.collection}
-        onOpenChange={(open) => setCollectionForm((prev) => ({ ...prev, open }))}
-        onSaved={refreshSidebar}
-        open={collectionForm.open}
-      />
-      <CollectionDeleteDialog
-        collection={collectionDelete.collection}
-        onDeleted={refreshSidebar}
-        onOpenChange={(open) => setCollectionDelete((prev) => ({ ...prev, open }))}
-        open={collectionDelete.open}
-      />
-      <ConversationMembershipDialog
-        collectionOptions={(collections.data ?? []).map((item) => ({
-          id: item.id,
-          label: item.name,
-        }))}
-        conversation={membership.conversation}
-        onOpenChange={(open) => setMembership((prev) => ({ ...prev, open }))}
-        onSaved={refreshSidebar}
-        open={membership.open}
-        taskOptions={tasks.data ?? []}
-      />
     </aside>
-  )
-}
-
-type SidebarSectionProps = {
-  /** 分区标题右侧的操作钮，缺省不渲染 */
-  action?: { icon: IconName; label: string; onClick: () => void }
-  children: React.ReactNode
-  count: number
-  title: string
-}
-
-/**
- * 侧栏分区：标题行（可折叠、带条数与可选操作钮）加下面的行。
- *
- * @param props - 标题、条数、操作钮与分区内容。
- * @returns 一个可折叠分区。
- */
-function SidebarSection({ action, children, count, title }: SidebarSectionProps) {
-  const [open, setOpen] = useState(true)
-  return (
-    <section className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-1 pr-1">
-        <button
-          aria-expanded={open}
-          className={cn(SIDEBAR_ROW_CLASS, 'min-w-0 flex-1 py-1 text-body-sm')}
-          onClick={() => setOpen((prev) => !prev)}
-          type="button"
-        >
-          <span className="min-w-0 flex-1 truncate text-left text-on-surface-variant">
-            {title} ({count})
-          </span>
-          <Icon
-            className="shrink-0 text-on-surface-variant"
-            decorative
-            name={open ? 'collapse' : 'expand'}
-            size="sm"
-          />
-        </button>
-        {action && (
-          <IconButton label={action.label} name={action.icon} onClick={action.onClick} size="md" />
-        )}
-      </div>
-      {open && <div className="flex flex-col gap-0.5">{children}</div>}
-    </section>
-  )
-}
-
-function EmptyHint({ children }: { children: string }) {
-  return <p className="px-2 py-1 text-body-sm text-on-surface-variant">{children}</p>
-}
-
-type CollectionGroupProps = {
-  collection: {
-    conversationCount: number
-    id: string
-    name: string
-    page: { items: SidebarConversation[] }
-  }
-  onDelete: () => void
-  onOpenMembership: (conversation: SidebarConversation) => void
-  onRename: () => void
-}
-
-/**
- * 合集行：文件夹图标 + 名字 + 条数，展开后是它内嵌的那几段对话；行尾菜单管改名与删除。
- *
- * 内嵌的对话只有最近几段（服务端截断），条数是全部——所以两者对不上是正常的。
- *
- * @param props - 合集、改名/删除入口与打开归属弹窗的回调。
- * @returns 一个合集分组。
- */
-function CollectionGroup({
-  collection,
-  onDelete,
-  onOpenMembership,
-  onRename,
-}: CollectionGroupProps) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="flex flex-col gap-0.5">
-      <div className="group flex items-center gap-1 pr-1">
-        <button
-          // 行内还有一个「操作」钮，名字里带上条数才好把两者分开念、也分得开
-          aria-expanded={open}
-          aria-label={`${collection.name} (${collection.conversationCount})`}
-          className={cn(SIDEBAR_ROW_CLASS, 'min-w-0 flex-1 py-1.5')}
-          onClick={() => setOpen((prev) => !prev)}
-          type="button"
-        >
-          <Icon className="shrink-0 text-on-surface-variant" decorative name="folder" size="sm" />
-          <span aria-hidden className="min-w-0 flex-1 truncate text-left">
-            {collection.name}
-          </span>
-          <span aria-hidden className="shrink-0 text-caption text-on-surface-variant">
-            {collection.conversationCount}
-          </span>
-        </button>
-        <MenuRoot>
-          <MenuTrigger asChild>
-            <IconButton
-              className="opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100 data-[state=open]:opacity-100"
-              label={`${collection.name} 的操作`}
-              name="more"
-              size="md"
-            />
-          </MenuTrigger>
-          <MenuSurface align="start">
-            <MenuItem onSelect={onRename}>重命名</MenuItem>
-            <MenuItem destructive onSelect={onDelete}>
-              删除
-            </MenuItem>
-          </MenuSurface>
-        </MenuRoot>
-      </div>
-      {open && (
-        <div className="flex flex-col gap-0.5 pl-4">
-          {collection.page.items.map((conversation) => (
-            <ConversationRow
-              key={conversation.id}
-              conversation={conversation}
-              onOpenMembership={() => onOpenMembership(conversation)}
-            />
-          ))}
-          {collection.page.items.length === 0 && <EmptyHint>这个合集还是空的</EmptyHint>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * 对话行：截断标题在左，hover 才露出的归属钮在右。
- *
- * @param props - 对话与打开归属弹窗的回调。
- * @returns 单个对话行。
- */
-function ConversationRow({
-  conversation,
-  onOpenMembership,
-}: {
-  conversation: SidebarConversation
-  onOpenMembership: () => void
-}) {
-  return (
-    <div className="group flex items-center gap-1 pr-1">
-      <button className={cn(SIDEBAR_ROW_CLASS, 'min-w-0 flex-1 py-1.5')} type="button">
-        <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
-      </button>
-      <IconButton
-        className="opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100"
-        label={`${conversation.title} 的归属`}
-        name="folder"
-        onClick={onOpenMembership}
-        size="md"
-      />
-    </div>
   )
 }
 
