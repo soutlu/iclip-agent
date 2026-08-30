@@ -870,6 +870,7 @@ export const zCallbackAuthSsoCallbackGetQuery = z.object({
 
 export const zListConversationsConversationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
+  q: z.string().max(200).nullish(),
 })
 
 /**

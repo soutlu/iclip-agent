@@ -23,8 +23,10 @@ class ConversationRepository(Protocol):
         """按 id 读一行；不是这个人的一律抛 ``NotFound``（不泄露它存不存在）。"""
         ...
 
-    async def list_for_owner(self, *, owner: uuid.UUID, limit: int) -> tuple[Conversation, ...]:
-        """按最近活动倒序列出这个人的对话。"""
+    async def list_for_owner(
+        self, *, owner: uuid.UUID, limit: int, title_contains: str | None = None
+    ) -> tuple[Conversation, ...]:
+        """按最近活动倒序列出这个人的对话；给了 ``title_contains`` 就只留标题含它的（不分大小写）。"""
         ...
 
     async def list_for_task(

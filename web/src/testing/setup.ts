@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
-import { resetMockSession, resetMockTasks } from './mocks/handlers'
+import { resetMockConversations, resetMockSession, resetMockTasks } from './mocks/handlers'
 import { server } from './mocks/server'
 
 // jsdom 没有 matchMedia：组件按断点取初始态（如侧栏在紧凑屏默认折叠）时需要最小实现。
@@ -27,6 +27,7 @@ beforeAll(() => {
 afterEach(() => {
   server.resetHandlers()
   server.events.removeAllListeners()
+  resetMockConversations()
   resetMockSession()
   resetMockTasks()
   cleanup()

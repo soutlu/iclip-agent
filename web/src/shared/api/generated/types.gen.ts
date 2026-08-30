@@ -1918,6 +1918,10 @@ export type ListConversationsConversationsGetData = {
      * Limit
      */
     limit?: number
+    /**
+     * Q
+     */
+    q?: string | null
   }
   url: '/conversations'
 }

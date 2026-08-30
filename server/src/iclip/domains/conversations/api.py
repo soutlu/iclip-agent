@@ -52,8 +52,9 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
     async def list_conversations(
         principal: Annotated[Principal, Depends(require_permission("agent:read"))],
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        q: Annotated[str | None, Query(max_length=200)] = None,
     ) -> ConversationsPageOut:
-        found = await service.list_recent(principal, limit=limit)
+        found = await service.list_recent(principal, limit=limit, title_query=q)
         return ConversationsPageOut(items=[conversation_out(item) for item in found])
 
     @router.get("/{conversation_id}/messages", response_model=ConversationMessagesOut)

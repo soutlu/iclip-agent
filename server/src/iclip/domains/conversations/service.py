@@ -154,13 +154,20 @@ class ConversationService:
         return await self._repo.list_for_task(task_id=task_id, owner=principal.user_id)
 
     async def list_recent(
-        self, principal: Principal, *, limit: int = 20
+        self, principal: Principal, *, limit: int = 20, title_query: str | None = None
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序列出自己的对话。"""
+        """按最近活动倒序列出自己的对话；给了 ``title_query`` 就按标题筛，仍是倒序。
+
+        搜索走库而不是让前端拉回来自己筛：``limit`` 卡的是返回条数，前端拿不到更旧的，
+        自己筛就只能筛到最近这几十段。
+        """
 
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
-        return await self._repo.list_for_owner(owner=principal.user_id, limit=limit)
+        keyword = (title_query or "").strip()
+        return await self._repo.list_for_owner(
+            owner=principal.user_id, limit=limit, title_contains=keyword or None
+        )
 
     async def rename(
         self, principal: Principal, conversation_id: uuid.UUID, *, title: str

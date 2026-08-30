@@ -69,6 +69,18 @@ describe('AppSidebar', () => {
     expect(requireLogin).toHaveBeenCalledTimes(2)
   })
 
+  it('已登录时点搜索打开搜对话弹窗', async () => {
+    server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+    const user = userEvent.setup()
+    await renderSidebar()
+
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+    await screen.findByRole('button', { name: '用户菜单' })
+    await user.click(screen.getByRole('button', { name: '搜索' }))
+
+    expect(await screen.findByRole('dialog', { name: '搜索对话' })).toBeVisible()
+  })
+
   it('已登录时点新建任务回首页', async () => {
     server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
     const user = userEvent.setup()
