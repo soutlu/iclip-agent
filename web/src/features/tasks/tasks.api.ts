@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import type { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import type { zTaskCreateIn, zTaskIn } from '@/shared/api/generated/zod.gen'
@@ -28,6 +29,22 @@ export const listMyTasks = async (): Promise<Task[]> =>
   apiFetch('/tasks?claimedBy=me&limit=100', tasksPageSchema, {
     cache: 'no-store',
     fallbackErrorMessage: '读取我的需求单失败',
+  })
+
+/**
+ * 需求单的下拉候选：只要 id 与标题。
+ *
+ * 与需求单页共用一个查询键，翻到侧栏再打开归属弹窗时不会再发一次请求。
+ *
+ * @param enabled - 用不到时不发请求（弹窗没打开、或者没登录）。
+ * @returns TanStack query，数据是 `{ id, label }` 列表。
+ */
+export const useTaskOptions = (enabled: boolean) =>
+  useQuery({
+    enabled,
+    queryFn: listAllTasks,
+    queryKey: tasksQueryKeys.list('all'),
+    select: (tasks) => tasks.map((task) => ({ id: task.id, label: task.title })),
   })
 
 export const getTask = async (taskId: string): Promise<Task> =>
