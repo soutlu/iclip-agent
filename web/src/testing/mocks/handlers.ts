@@ -76,7 +76,45 @@ export const addMockConversation = (title: string, updatedAt = new Date().toISOS
 
 export const resetMockConversations = () => {
   mockConversations.length = 0
+  mockCollections.length = 0
 }
+
+// 合集的内存存储：形状即合同 CollectionOut。
+type MockCollection = {
+  createdAt: string
+  id: string
+  name: string
+  ownerUserId: string
+  updatedAt: string
+}
+
+export const mockCollections: MockCollection[] = []
+
+/**
+ * 往内存存储里塞一个合集。
+ *
+ * @param name - 合集名字。
+ * @returns 落库形状的合集。
+ */
+export const addMockCollection = (name: string) => {
+  const now = new Date().toISOString()
+  const collection: MockCollection = {
+    createdAt: now,
+    id: crypto.randomUUID(),
+    name,
+    ownerUserId: mockAuthUser.id,
+    updatedAt: now,
+  }
+  mockCollections.push(collection)
+  return collection
+}
+
+// 侧栏拓扑的截断口径照后端来：每个合集内嵌最近 10 段，没归类的给最近 20 条。
+const SIDEBAR_PER_COLLECTION = 10
+const SIDEBAR_UNGROUPED = 20
+
+const byRecent = (a: MockConversation, b: MockConversation) =>
+  b.updatedAt.localeCompare(a.updatedAt)
 
 // 需求单的内存存储：形状即合同 TaskOut（zTaskOut 会校验，缺字段过不了边界）。
 // 测试经 server.use 覆盖单端点，或直接改这个数组后 invalidate 查询。
@@ -95,6 +133,31 @@ type MockTask = {
 }
 
 export const mockTasks: MockTask[] = []
+
+/**
+ * 往内存存储里塞一张需求单，字段补全到合同形状。
+ *
+ * @param title - 需求单标题。
+ * @returns 落库形状的需求单。
+ */
+export const addMockTask = (title: string) => {
+  const now = new Date().toISOString()
+  const task: MockTask = {
+    assigneeUserIds: [],
+    brief: { referenceImages: [], referenceVideos: [], styleNos: ['SBPU24001W'] },
+    createdAt: now,
+    creatorUserId: mockAuthUser.id,
+    deadline: null,
+    id: crypto.randomUUID(),
+    priority: 0,
+    status: 'draft',
+    style: { brand: '', category: '', previewImageUrl: '', styleNo: 'SBPU24001W' },
+    title,
+    updatedAt: now,
+  }
+  mockTasks.push(task)
+  return task
+}
 
 export const resetMockTasks = () => {
   mockTasks.length = 0
@@ -132,6 +195,77 @@ export const handlers = [
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .filter((item) => !keyword || item.title.toLowerCase().includes(keyword))
     return HttpResponse.json({ items })
+  }),
+
+  // GET /conversations：侧栏拓扑——我的合集（各带条数与最近几段）+ 没归类的对话。
+  http.get('*/api/conversations', () => {
+    const sorted = [...mockConversations].sort(byRecent)
+    return HttpResponse.json({
+      collections: [...mockCollections]
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map((collection) => {
+          const inside = sorted.filter((item) => item.collectionId === collection.id)
+          return {
+            conversationCount: inside.length,
+            conversations: inside.slice(0, SIDEBAR_PER_COLLECTION),
+            id: collection.id,
+            name: collection.name,
+            updatedAt: collection.updatedAt,
+          }
+        }),
+      ungrouped: sorted.filter((item) => item.collectionId === null).slice(0, SIDEBAR_UNGROUPED),
+    })
+  }),
+
+  // PUT /conversations/:id/collection、PUT /conversations/:id/task：两处归属各一个端点。
+  http.put('*/api/conversations/:conversationId/collection', async ({ params, request }) => {
+    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    const body = (await request.json()) as { collectionId: string | null }
+    Object.assign(conversation, {
+      collectionId: body.collectionId,
+      updatedAt: new Date().toISOString(),
+    })
+    return HttpResponse.json({ conversation })
+  }),
+
+  http.put('*/api/conversations/:conversationId/task', async ({ params, request }) => {
+    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    const body = (await request.json()) as { taskId: string | null }
+    Object.assign(conversation, { taskId: body.taskId, updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ conversation })
+  }),
+
+  // ── collections（src/features/collections/collections.api.ts）────────────
+  // 内存版合集：只列自己的，最近改动倒序；新建 / 改名 / 删除。删掉时把对话上那一列置空。
+  http.get('*/api/collections', () =>
+    HttpResponse.json({
+      items: [...mockCollections].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    }),
+  ),
+
+  http.post('*/api/collections', async ({ request }) => {
+    const body = (await request.json()) as { name: string }
+    return HttpResponse.json({ collection: addMockCollection(body.name) }, { status: 201 })
+  }),
+
+  http.patch('*/api/collections/:collectionId', async ({ params, request }) => {
+    const collection = mockCollections.find((item) => item.id === params['collectionId'])
+    if (!collection) return HttpResponse.json({ detail: '没有这个合集' }, { status: 404 })
+    const body = (await request.json()) as { name: string }
+    Object.assign(collection, { name: body.name, updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ collection })
+  }),
+
+  http.delete('*/api/collections/:collectionId', ({ params }) => {
+    const index = mockCollections.findIndex((item) => item.id === params['collectionId'])
+    if (index < 0) return HttpResponse.json({ detail: '没有这个合集' }, { status: 404 })
+    const [removed] = mockCollections.splice(index, 1)
+    mockConversations.forEach((item) => {
+      if (item.collectionId === removed?.id) item.collectionId = null
+    })
+    return new HttpResponse(null, { status: 204 })
   }),
 
   // ── tasks（src/features/tasks/tasks.api.ts）──────────────────────────────
