@@ -19,9 +19,9 @@ const seeded = DEMO_CONVERSATIONS.map((title, index) =>
   ),
 )
 
-// 一个装了两段对话的合集 + 一个空合集：侧栏两种形态都看得到
+// 一个装了两段对话的合集。没进合集的对话待在「任务」区，不给它们造一个「待归档」
+// 之类的口袋——那会让原型看起来像是「所有对话都得挂进某个合集」。
 const linen = addMockCollection('夏季亚麻系列')
-addMockCollection('待归档')
 seeded.slice(1, 3).forEach((conversation) => {
   conversation.collectionId = linen.id
 })
