@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Literal
@@ -105,6 +106,25 @@ def _iso(moment: datetime | None) -> str | None:
     return None if moment is None else moment.isoformat()
 
 
+_F_ORDINAL = re.compile(r"\.f(\d+)$")
+
+
+def _next_frame_ordinal(frames: Mapping[str, TranscriptFrame]) -> int:
+    """这一步里下一个正文块/思考块该用的号。
+
+    不能拿块的个数当号：工具块不占 f 号（它的 id 是 ``<步 id>.<toolCallId>``），一步里只要
+    调过工具，个数就比号大，插进来的用户消息会被编到一个跳过去的号上。实时那条路是另算的，
+    两边编不一样就等于同一个块有两个 id。
+    """
+
+    highest = 0
+    for frame_id in frames:
+        found = _F_ORDINAL.search(frame_id)
+        if found is not None:
+            highest = max(highest, int(found.group(1)))
+    return highest + 1
+
+
 def _turn(
     group: Sequence[ModelMessage], *, ordinal: int, run_states: Mapping[str, TurnState]
 ) -> TranscriptTurn:
@@ -115,6 +135,7 @@ def _turn(
     frames_by_step: list[dict[str, TranscriptFrame]] = []
     prompt: str | None = None
     pending_request: ModelRequest | None = None
+    pending_steers: list[str] = []
 
     for message in group:
         if isinstance(message, ModelRequest):
@@ -125,10 +146,10 @@ def _turn(
             elif prompt_text is not None and steps:
                 # 中途插进来的用户消息（插话）挂在当时开着的那一步末尾，与实时那条路一致。
                 index = len(steps) - 1
-                frame_id = f"{turn_id}.{index + 1}.f{len(frames_by_step[index]) + 1}"
-                frames_by_step[index][frame_id] = TextFrame(
-                    frame_id=frame_id, role="user", text=prompt_text
-                )
+                _user_frame(frames_by_step[index], f"{turn_id}.{index + 1}", prompt_text)
+            elif prompt_text is not None:
+                # 还没有步可挂（第一次模型请求就带着插话进来），攒着，等第一步开出来放在最前。
+                pending_steers.append(prompt_text)
             _settle_tools(message, tool_frames, frames_by_step)
             pending_request = message
             continue
@@ -137,6 +158,9 @@ def _turn(
         step_id = f"{turn_id}.{step_ordinal}"
         frames: dict[str, TranscriptFrame] = {}
         frames_by_step.append(frames)
+        for text in pending_steers:
+            _user_frame(frames, step_id, text)
+        pending_steers.clear()
         _open_frames(message, step_id=step_id, frames=frames, tool_frames=tool_frames)
         steps.append(
             TranscriptStep(
@@ -165,6 +189,13 @@ def _turn(
             for index, step in enumerate(steps)
         ),
     )
+
+
+def _user_frame(frames: dict[str, TranscriptFrame], step_id: str, text: str) -> None:
+    """把一条用户消息放进这一步，编号走 ``_next_frame_ordinal``。"""
+
+    frame_id = f"{step_id}.f{_next_frame_ordinal(frames)}"
+    frames[frame_id] = TextFrame(frame_id=frame_id, role="user", text=text)
 
 
 def _user_text(message: ModelRequest) -> str | None:
@@ -198,15 +229,12 @@ def _open_frames(
     ``<步 id>.<toolCallId>``（协议里工具块 id 就是这么定的，反解不出序号）。
     """
 
-    ordinal = 0
     for part in message.parts:
         if isinstance(part, ThinkingPart):
-            ordinal += 1
-            frame_id = f"{step_id}.f{ordinal}"
+            frame_id = f"{step_id}.f{_next_frame_ordinal(frames)}"
             frames[frame_id] = ThinkingFrame(frame_id=frame_id, text=part.content)
         elif isinstance(part, TextPart):
-            ordinal += 1
-            frame_id = f"{step_id}.f{ordinal}"
+            frame_id = f"{step_id}.f{_next_frame_ordinal(frames)}"
             frames[frame_id] = TextFrame(frame_id=frame_id, role="assistant", text=part.content)
         elif isinstance(part, ToolCallPart):
             frame_id = f"{step_id}.{part.tool_call_id}"

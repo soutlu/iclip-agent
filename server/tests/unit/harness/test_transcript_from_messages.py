@@ -292,24 +292,52 @@ def test_a_run_that_never_answered_its_tools_is_not_completed() -> None:
 
 
 def test_mid_run_user_message_becomes_a_user_frame_on_the_open_step() -> None:
-    """插话：跑到一半进来的用户消息挂在当时开着的那一步末尾，与实时那条路一致。"""
+    """插话：跑到一半进来的用户消息挂在当时开着的那一步末尾，与实时那条路一致。
+
+    这一步里有工具块，而工具块不占 f 号——按块的个数编号会编成 f3，两条路就对不上了。
+    """
 
     turns = turns_from_messages(
         [
             _ask("走"),
-            _reply(TextPart(content="在做了")),
-            _returns(UserPromptPart(content="等一下，改成英文"), minute=2),
+            _reply(
+                TextPart(content="在做了"),
+                ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"),
+            ),
+            _returns(
+                ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1"),
+                UserPromptPart(content="等一下，改成英文"),
+                minute=2,
+            ),
             _reply(TextPart(content="好"), minute=3),
         ]
     )
 
     frames = turns[0].steps[0].frames
-    assert [type(frame).__name__ for frame in frames] == ["TextFrame", "TextFrame"]
-    steered = frames[1]
+    assert [frame.frame_id for frame in frames] == ["t1.1.f1", "t1.1.c1", "t1.1.f2"]
+    steered = frames[2]
     assert isinstance(steered, TextFrame)
     assert steered.role == "user"
     assert steered.text == "等一下，改成英文"
-    assert steered.frame_id == "t1.1.f2"
+
+
+def test_a_steer_arriving_before_any_step_leads_the_first_one() -> None:
+    """插话赶在第一次模型响应之前进来时没有步可挂。丢掉的话它在界面上就凭空消失了。"""
+
+    turns = turns_from_messages(
+        [
+            _ask("走"),
+            _returns(UserPromptPart(content="补充一句"), minute=1),
+            _reply(TextPart(content="好"), minute=2),
+        ]
+    )
+
+    frames = turns[0].steps[0].frames
+    assert [frame.frame_id for frame in frames] == ["t1.1.f1", "t1.1.f2"]
+    leading = frames[0]
+    assert isinstance(leading, TextFrame)
+    assert leading.role == "user"
+    assert leading.text == "补充一句"
 
 
 def test_thinking_frames_carry_their_text() -> None:
