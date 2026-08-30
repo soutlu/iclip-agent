@@ -36,8 +36,8 @@ const DEMO_SESSIONS: Record<
  *
  * 结构对齐 Kimi Code Web 的侧栏：264 宽、可折叠为 0（折叠后主区左上浮出展开钮）、
  * kbd 快捷键提示只在 hover 行时淡入；会话区用分段 tab（进行中 / 已完成 / 工作空间），
- * 进行中的 tab 带 primary 圆点，会话行尾带状态标识。当前只做外观——新建 / 搜索 /
- * 会话列表都还没接后端。未登录时会话区与账户区退成登录入口，点任何操作都弹登录框。
+ * 进行中的 tab 带 primary 圆点，会话行尾带状态标识。新建任务回首页起新一轮对话，
+ * 搜索与会话列表还没接后端。未登录时会话区与账户区退成登录入口，点任何操作都弹登录框。
  *
  * @returns 侧栏与折叠态下的浮出展开按钮。
  */
@@ -92,7 +92,7 @@ export function AppSidebar() {
           icon="chat-new"
           kbd="⌘N"
           label="新建任务"
-          onClick={user ? undefined : requireLogin}
+          onClick={user ? () => navigate({ to: '/' }) : requireLogin}
         />
         <SidebarAction
           icon="search"
