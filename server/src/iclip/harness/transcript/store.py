@@ -24,6 +24,7 @@ from iclip.harness.transcript.ops import (
     AppendOp,
     Attachment,
     AttachmentUpsertOp,
+    EmittableOperation,
     FrameUpsertOp,
     Interaction,
     InteractionUpsertOp,
@@ -38,7 +39,6 @@ from iclip.harness.transcript.ops import (
     ToolFrame,
     TranscriptFrame,
     TranscriptMeta,
-    TranscriptOperation,
     TranscriptSnapshot,
     TranscriptStep,
     TranscriptTurn,
@@ -59,7 +59,7 @@ class OpBatch:
     """一批操作加它的批次号。协议要求批次号每 agent 连续递增。"""
 
     seq: int
-    ops: tuple[TranscriptOperation, ...]
+    ops: tuple[EmittableOperation, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +123,7 @@ class TranscriptStore:
     # --- 写 -----------------------------------------------------------------
 
     def append(
-        self, conversation_id: str, agent_id: str, ops: tuple[TranscriptOperation, ...]
+        self, conversation_id: str, agent_id: str, ops: tuple[EmittableOperation, ...]
     ) -> OpBatch:
         """发一个批次号、把这批操作落到实时状态、进补批日志。三件事一起生效。"""
 
@@ -159,7 +159,13 @@ class TranscriptStore:
     def subscribe_view(
         self, conversation_id: str, agent_id: str, *, since: int | None = None
     ) -> SubscribeView:
-        """订阅这一刻要的全部东西，一次读出来。"""
+        """订阅这一刻要的全部东西，一次读出来。
+
+        **调用方必须先用 ``watermark`` 发一帧 ``transcript.reset``，再发 ``batches``。**
+        批次号只在本进程本次常驻期间有意义：对话被淘汰后重新装上、或者进程重启，号都会从
+        1 重来。客户端拿着上一代的号来要补批，这里给出的是新一代的批次——只有那帧 reset
+        把它的本地水位重新锚过，后面这些批才落在对的位置上。
+        """
 
         agent = self._agent(conversation_id, agent_id)
         watermark = agent.next_seq - 1
@@ -236,7 +242,7 @@ class TranscriptStore:
         return wanted, oldest <= since + 1
 
 
-def _apply(agent: _AgentTranscript, op: TranscriptOperation) -> None:
+def _apply(agent: _AgentTranscript, op: EmittableOperation) -> None:
     """把一个操作落到实时状态上。只认我们自己会发的那些。"""
 
     match op:

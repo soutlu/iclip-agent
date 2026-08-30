@@ -227,9 +227,33 @@ def test_pinned_conversations_survive_eviction() -> None:
 
 
 def test_unpinned_conversations_are_evicted() -> None:
+    """淘汰之后重新装上，批次号从 1 重来——所以订阅路径上那帧 reset 是必需的，见下一条。"""
+
     store = TranscriptStore(resident=2)
     store.append(CONVERSATION, AGENT, ())
     for index in range(5):
         store.append(f"other-{index}", AGENT, ())
 
     assert store.subscribe_view(CONVERSATION, AGENT).watermark == 0
+
+
+def test_catch_up_after_eviction_is_only_safe_behind_a_reset() -> None:
+    """钉住调用方契约：``batches`` 要接在按 ``watermark`` 发的那帧 reset 后面。
+
+    这段对话被淘汰过，号重新从 1 起。客户端手里还揣着上一代的 3。这里照样会给出新一代的
+    批次，而且 ``complete`` 是真——单看这个返回值分不出代际。让它落在对位置上的是那帧
+    reset：客户端收到就把本地水位无条件覆写成 ``watermark``。少发那一帧，客户端会拿新一代
+    的 4、5 去接上一代的第 3 批。
+    """
+
+    store = TranscriptStore(resident=2)
+    store.append(CONVERSATION, AGENT, ())  # 上一代
+    for index in range(5):
+        store.append(f"other-{index}", AGENT, ())  # 挤掉它
+    for _ in range(5):
+        store.append(CONVERSATION, AGENT, ())  # 新一代，号从 1 起
+
+    view = store.subscribe_view(CONVERSATION, AGENT, since=3)
+    assert view.watermark == 5
+    assert [batch.seq for batch in view.batches] == [4, 5]
+    assert view.complete is True

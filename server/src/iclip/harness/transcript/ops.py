@@ -295,9 +295,8 @@ class ItemsRemoveOp(_Wire):
     ids: tuple[str, ...]
 
 
-TranscriptOperation = Annotated[
-    ResetOp
-    | TurnUpsertOp
+EmittableOperation = Annotated[
+    TurnUpsertOp
     | StepUpsertOp
     | FrameUpsertOp
     | AppendOp
@@ -308,6 +307,17 @@ TranscriptOperation = Annotated[
     | ItemsRemoveOp,
     Field(discriminator="op"),
 ]
+"""投影器能产出的那些。
+
+``reset`` 不在里面：它是「把状态整个换掉」，只有实时状态那一侧在拼给订阅者时才发得出。
+让投影器在类型上就构造不出它，比在运行时拦一道可靠。
+"""
+
+TranscriptOperation = Annotated[
+    ResetOp | EmittableOperation,
+    Field(discriminator="op"),
+]
+"""线上会出现的全部操作，含 ``reset``。客户端那侧按这个解。"""
 
 
 __all__ = [
@@ -316,6 +326,7 @@ __all__ = [
     "Attachment",
     "AttachmentSource",
     "AttachmentUpsertOp",
+    "EmittableOperation",
     "FrameTarget",
     "FrameUpsertOp",
     "Interaction",
