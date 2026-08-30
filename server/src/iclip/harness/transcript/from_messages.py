@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Literal
@@ -42,6 +41,7 @@ from iclip.harness.transcript.ops import (
     TranscriptTurn,
     TurnOrigin,
     TurnUsage,
+    next_frame_ordinal,
 )
 
 TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
@@ -104,25 +104,6 @@ def _at(message: ModelMessage) -> datetime | None:
 
 def _iso(moment: datetime | None) -> str | None:
     return None if moment is None else moment.isoformat()
-
-
-_F_ORDINAL = re.compile(r"\.f(\d+)$")
-
-
-def _next_frame_ordinal(frames: Mapping[str, TranscriptFrame]) -> int:
-    """这一步里下一个正文块/思考块该用的号。
-
-    不能拿块的个数当号：工具块不占 f 号（它的 id 是 ``<步 id>.<toolCallId>``），一步里只要
-    调过工具，个数就比号大，插进来的用户消息会被编到一个跳过去的号上。实时那条路是另算的，
-    两边编不一样就等于同一个块有两个 id。
-    """
-
-    highest = 0
-    for frame_id in frames:
-        found = _F_ORDINAL.search(frame_id)
-        if found is not None:
-            highest = max(highest, int(found.group(1)))
-    return highest + 1
 
 
 def _turn(
@@ -194,7 +175,7 @@ def _turn(
 def _user_frame(frames: dict[str, TranscriptFrame], step_id: str, text: str) -> None:
     """把一条用户消息放进这一步，编号走 ``_next_frame_ordinal``。"""
 
-    frame_id = f"{step_id}.f{_next_frame_ordinal(frames)}"
+    frame_id = f"{step_id}.f{next_frame_ordinal(frames)}"
     frames[frame_id] = TextFrame(frame_id=frame_id, role="user", text=text)
 
 
@@ -231,10 +212,10 @@ def _open_frames(
 
     for part in message.parts:
         if isinstance(part, ThinkingPart):
-            frame_id = f"{step_id}.f{_next_frame_ordinal(frames)}"
+            frame_id = f"{step_id}.f{next_frame_ordinal(frames)}"
             frames[frame_id] = ThinkingFrame(frame_id=frame_id, text=part.content)
         elif isinstance(part, TextPart):
-            frame_id = f"{step_id}.f{_next_frame_ordinal(frames)}"
+            frame_id = f"{step_id}.f{next_frame_ordinal(frames)}"
             frames[frame_id] = TextFrame(frame_id=frame_id, role="assistant", text=part.content)
         elif isinstance(part, ToolCallPart):
             frame_id = f"{step_id}.{part.tool_call_id}"

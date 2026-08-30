@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,6 +46,27 @@ def utf16_len(text: str) -> int:
     """
 
     return len(text.encode("utf-16-le")) // 2
+
+
+_F_ORDINAL = re.compile(r"\.f(\d+)$")
+
+
+def next_frame_ordinal(frame_ids: Iterable[str]) -> int:
+    """这一步里下一个正文块/思考块该用的号。
+
+    实时那条路与历史那条路共用这一个函数：两边编号只要有一处不一样，同一个块就有了两个 id，
+    刷新前后界面会变形。
+
+    不能拿块的个数当号：工具块不占 f 号（它的 id 是 ``<步 id>.<toolCallId>``），一步里只要
+    调过工具，个数就比号大。
+    """
+
+    highest = 0
+    for frame_id in frame_ids:
+        found = _F_ORDINAL.search(frame_id)
+        if found is not None:
+            highest = max(highest, int(found.group(1)))
+    return highest + 1
 
 
 class _Wire(BaseModel):
@@ -353,5 +376,6 @@ __all__ = [
     "TurnOrigin",
     "TurnUpsertOp",
     "TurnUsage",
+    "next_frame_ordinal",
     "utf16_len",
 ]
