@@ -1,0 +1,472 @@
+import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor } from '@dnd-kit/core'
+import type { DragEndEvent } from '@dnd-kit/core'
+import { useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import {
+  CollectionDeleteDialog,
+  CollectionFormDialog,
+  useCollections,
+} from '@/features/collections'
+import {
+  ConversationMembershipDialog,
+  conversationsQueryKeys,
+  useMoreConversations,
+  useSetConversationMembership,
+  useSidebarTopology,
+} from '@/features/conversations'
+import { useTaskOptions } from '@/features/tasks'
+import { Icon, type IconName } from '@/shared/icons'
+import { cn } from '@/shared/lib/utils'
+import { IconButton } from '@/shared/ui/button'
+import { ChipGroup, FilterChip } from '@/shared/ui/chip'
+import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
+import { toast } from '@/shared/ui/toast'
+
+// 侧栏各种行共用的外观：幽灵行，hover / pressed 由 ui-state 铺，焦点走 ui-focus。
+const ROW_CLASS =
+  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-2 ui-focus text-body text-on-surface'
+
+// 合集列表一次露几个。合集是自己建的，后端一次就把（上限 100 个）全给了，
+// 「展开显示」在前端切片，不为这点量再开一个翻页端点。
+const COLLECTIONS_PER_STEP = 10
+
+// 「任务」区的落点 id；合集的落点 id 是它自己的 uuid。
+const UNGROUPED = 'ungrouped'
+
+type SidebarConversation = {
+  collectionId: string | null
+  id: string
+  taskId: string | null
+  title: string
+}
+
+type SidebarCollection = {
+  conversationCount: number
+  id: string
+  name: string
+  page: { items: SidebarConversation[]; nextCursor: string | null }
+}
+
+/**
+ * 侧栏的对话区：顶部筛选 chip，「任务」（没进合集的）与「合集」两段。
+ *
+ * 三处列表都靠底部一行「展开显示」往下取：任务区与合集内走服务端翻页，合集列表本身
+ * 在前端切片。对话可以拖进合集、拖回任务区、在合集之间互拖——落地后整块重拉，不做
+ * 乐观更新（分页缓存里搬家不值那个复杂度）；键盘用户走行尾的归属弹窗，同一件事。
+ *
+ * @returns 对话区。
+ */
+export function SidebarConversations() {
+  const queryClient = useQueryClient()
+  const topology = useSidebarTopology(true)
+  const [shownCollections, setShownCollections] = useState(COLLECTIONS_PER_STEP)
+  const [dragging, setDragging] = useState<string | null>(null)
+
+  const [collectionForm, setCollectionForm] = useState<{
+    collection?: { id: string; name: string }
+    open: boolean
+  }>({ open: false })
+  const [collectionDelete, setCollectionDelete] = useState<{
+    collection?: { id: string; name: string }
+    open: boolean
+  }>({ open: false })
+  const [membership, setMembership] = useState<{
+    conversation?: SidebarConversation
+    open: boolean
+  }>({ open: false })
+
+  // 两处归属的候选项只在归属弹窗打开时才拉
+  const collections = useCollections(membership.open)
+  const tasks = useTaskOptions(membership.open)
+
+  const refreshSidebar = () => {
+    // 「展开显示」取回来的那些页整个丢掉：列表收回第一页，拓扑重拉一次即可，
+    // 不必把每一页都重新请求一遍。
+    queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
+    void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+  }
+
+  const moveMutation = useSetConversationMembership(refreshSidebar)
+  // 距离阈值让「点一下」还是点击，不会被当成拖拽起手
+  const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    setDragging(null)
+    if (!over) return
+    const from = (active.data.current as { collectionId: string | null } | undefined)?.collectionId
+    const to = over.id === UNGROUPED ? null : String(over.id)
+    if (from === to) return
+    moveMutation.mutate(
+      { collectionId: to, conversationId: String(active.id) },
+      { onError: () => toast.error('移动失败，请重试') },
+    )
+  }
+
+  const allCollections = (topology.data?.collections ?? []) as SidebarCollection[]
+  const visibleCollections = allCollections.slice(0, shownCollections)
+
+  return (
+    <DndContext
+      onDragEnd={onDragEnd}
+      onDragStart={({ active }) => setDragging(String(active.id))}
+      sensors={[pointer]}
+    >
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pt-3">
+        <ChipGroup
+          aria-label="对话筛选"
+          className="px-1"
+          onValueChange={() => undefined}
+          type="single"
+          value="all"
+        >
+          <FilterChip value="all">全部</FilterChip>
+          {/* 后端还没有「这段对话跑到哪一步」这个字段，两个占位先摆着点不动 */}
+          <FilterChip disabled value="running">
+            进行中
+          </FilterChip>
+          <FilterChip disabled value="done">
+            已完成
+          </FilterChip>
+        </ChipGroup>
+
+        <UngroupedSection
+          count={topology.data?.ungroupedCount ?? 0}
+          dragging={dragging}
+          onOpenMembership={(conversation) => setMembership({ conversation, open: true })}
+          page={topology.data?.ungrouped ?? { items: [], nextCursor: null }}
+        />
+
+        <SidebarSection
+          action={{
+            icon: 'add',
+            label: '新建合集',
+            onClick: () => setCollectionForm({ open: true }),
+          }}
+          count={allCollections.length}
+          title="合集"
+        >
+          {visibleCollections.map((collection) => (
+            <CollectionGroup
+              key={collection.id}
+              collection={collection}
+              dragging={dragging}
+              onDelete={() =>
+                setCollectionDelete({
+                  collection: { id: collection.id, name: collection.name },
+                  open: true,
+                })
+              }
+              onOpenMembership={(conversation) => setMembership({ conversation, open: true })}
+              onRename={() =>
+                setCollectionForm({
+                  collection: { id: collection.id, name: collection.name },
+                  open: true,
+                })
+              }
+            />
+          ))}
+          {allCollections.length === 0 && <EmptyHint>还没有合集</EmptyHint>}
+          {allCollections.length > visibleCollections.length && (
+            <ExpandRow
+              label="展开显示更多合集"
+              onExpand={() => setShownCollections((shown) => shown + COLLECTIONS_PER_STEP)}
+            />
+          )}
+        </SidebarSection>
+      </div>
+
+      <CollectionFormDialog
+        collection={collectionForm.collection}
+        onOpenChange={(open) => setCollectionForm((prev) => ({ ...prev, open }))}
+        onSaved={refreshSidebar}
+        open={collectionForm.open}
+      />
+      <CollectionDeleteDialog
+        collection={collectionDelete.collection}
+        onDeleted={refreshSidebar}
+        onOpenChange={(open) => setCollectionDelete((prev) => ({ ...prev, open }))}
+        open={collectionDelete.open}
+      />
+      <ConversationMembershipDialog
+        collectionOptions={(collections.data ?? []).map((item) => ({
+          id: item.id,
+          label: item.name,
+        }))}
+        conversation={membership.conversation}
+        onOpenChange={(open) => setMembership((prev) => ({ ...prev, open }))}
+        onSaved={refreshSidebar}
+        open={membership.open}
+        taskOptions={tasks.data ?? []}
+      />
+    </DndContext>
+  )
+}
+
+type Page = { items: SidebarConversation[]; nextCursor: string | null }
+
+/**
+ * 「任务」区：没进任何合集的对话，也是「把对话拖出合集」的落点。
+ *
+ * @param props - 总条数、第一页、拖拽中的对话 id 与打开归属弹窗的回调。
+ * @returns 任务分区。
+ */
+function UngroupedSection({
+  count,
+  dragging,
+  onOpenMembership,
+  page,
+}: {
+  count: number
+  dragging: string | null
+  onOpenMembership: (conversation: SidebarConversation) => void
+  page: Page
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED })
+  const more = useMoreConversations({}, page.nextCursor)
+  const items = [...page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
+  const hasMore = more.data ? more.hasNextPage : Boolean(page.nextCursor)
+
+  return (
+    <SidebarSection count={count} title="任务">
+      <div
+        className={cn('flex flex-col gap-0.5 rounded-sm', isOver && 'bg-surface-container')}
+        ref={setNodeRef}
+      >
+        {items.map((conversation) => (
+          <ConversationRow
+            key={conversation.id}
+            conversation={conversation}
+            dragging={dragging === conversation.id}
+            onOpenMembership={() => onOpenMembership(conversation)}
+          />
+        ))}
+        {items.length === 0 && <EmptyHint>还没有对话</EmptyHint>}
+        {hasMore && (
+          <ExpandRow
+            label="展开显示更多对话"
+            loading={more.isFetching}
+            onExpand={() => void more.fetchNextPage()}
+          />
+        )}
+      </div>
+    </SidebarSection>
+  )
+}
+
+type SidebarSectionProps = {
+  /** 分区标题右侧的操作钮，缺省不渲染 */
+  action?: { icon: IconName; label: string; onClick: () => void }
+  children: React.ReactNode
+  count: number
+  title: string
+}
+
+/**
+ * 侧栏分区：标题行（可折叠、带条数与可选操作钮）加下面的行。
+ *
+ * @param props - 标题、条数、操作钮与分区内容。
+ * @returns 一个可折叠分区。
+ */
+function SidebarSection({ action, children, count, title }: SidebarSectionProps) {
+  const [open, setOpen] = useState(true)
+  return (
+    <section className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1 pr-1">
+        <button
+          aria-expanded={open}
+          className={cn(ROW_CLASS, 'min-w-0 flex-1 py-1 text-body-sm')}
+          onClick={() => setOpen((prev) => !prev)}
+          type="button"
+        >
+          <span className="min-w-0 flex-1 truncate text-left text-on-surface-variant">
+            {title} ({count})
+          </span>
+          <Icon
+            className="shrink-0 text-on-surface-variant"
+            decorative
+            name={open ? 'collapse' : 'expand'}
+            size="sm"
+          />
+        </button>
+        {action && (
+          <IconButton label={action.label} name={action.icon} onClick={action.onClick} size="md" />
+        )}
+      </div>
+      {open && <div className="flex flex-col gap-0.5">{children}</div>}
+    </section>
+  )
+}
+
+function EmptyHint({ children }: { children: string }) {
+  return <p className="px-2 py-1 text-body-sm text-on-surface-variant">{children}</p>
+}
+
+/**
+ * 列表底部那一行「展开显示」。它自己就是加载态：取的时候变「加载中…」并禁用，
+ * 失败了变回来（错误文案由调用链上的 toast 出），不会消失——消失了就没得重试。
+ *
+ * @param props - 无障碍文案、加载态与点击回调。
+ * @returns 展开行。
+ */
+function ExpandRow({
+  label,
+  loading = false,
+  onExpand,
+}: {
+  label: string
+  loading?: boolean
+  onExpand: () => void
+}) {
+  return (
+    <button
+      aria-label={label}
+      className={cn(ROW_CLASS, 'w-full justify-start py-1.5 text-body-sm text-on-surface-variant')}
+      disabled={loading}
+      onClick={onExpand}
+      type="button"
+    >
+      {loading ? '加载中…' : '展开显示'}
+    </button>
+  )
+}
+
+type CollectionGroupProps = {
+  collection: SidebarCollection
+  dragging: string | null
+  onDelete: () => void
+  onOpenMembership: (conversation: SidebarConversation) => void
+  onRename: () => void
+}
+
+/**
+ * 合集行：文件夹图标 + 名字 + 总条数，展开后是它里面的对话；行尾菜单管改名与删除。
+ * 整行也是拖拽落点——把对话拖上来就进这个合集。
+ *
+ * @param props - 合集、拖拽中的对话 id、改名/删除入口与打开归属弹窗的回调。
+ * @returns 一个合集分组。
+ */
+function CollectionGroup({
+  collection,
+  dragging,
+  onDelete,
+  onOpenMembership,
+  onRename,
+}: CollectionGroupProps) {
+  const [open, setOpen] = useState(false)
+  const { isOver, setNodeRef } = useDroppable({ id: collection.id })
+  const more = useMoreConversations({ collectionId: collection.id }, collection.page.nextCursor)
+  const items = [...collection.page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
+  const hasMore = more.data ? more.hasNextPage : Boolean(collection.page.nextCursor)
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div
+        className={cn(
+          'group flex items-center gap-1 rounded-sm pr-1',
+          isOver && 'bg-primary-container',
+        )}
+        ref={setNodeRef}
+      >
+        <button
+          // 行内还有一个「操作」钮，名字里带上条数才好把两者分开念、也分得开
+          aria-expanded={open}
+          aria-label={`${collection.name} (${collection.conversationCount})`}
+          className={cn(ROW_CLASS, 'min-w-0 flex-1 py-1.5')}
+          onClick={() => setOpen((prev) => !prev)}
+          type="button"
+        >
+          <Icon className="shrink-0 text-on-surface-variant" decorative name="folder" size="sm" />
+          <span aria-hidden className="min-w-0 flex-1 truncate text-left">
+            {collection.name}
+          </span>
+          <span aria-hidden className="shrink-0 text-caption text-on-surface-variant">
+            {collection.conversationCount}
+          </span>
+        </button>
+        <MenuRoot>
+          <MenuTrigger asChild>
+            <IconButton
+              className="opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100 data-[state=open]:opacity-100"
+              label={`${collection.name} 的操作`}
+              name="more"
+              size="md"
+            />
+          </MenuTrigger>
+          <MenuSurface align="start">
+            <MenuItem onSelect={onRename}>重命名</MenuItem>
+            <MenuItem destructive onSelect={onDelete}>
+              删除
+            </MenuItem>
+          </MenuSurface>
+        </MenuRoot>
+      </div>
+      {open && (
+        <div className="flex flex-col gap-0.5 pl-4">
+          {items.map((conversation) => (
+            <ConversationRow
+              key={conversation.id}
+              conversation={conversation}
+              dragging={dragging === conversation.id}
+              onOpenMembership={() => onOpenMembership(conversation)}
+            />
+          ))}
+          {items.length === 0 && <EmptyHint>这个合集还是空的</EmptyHint>}
+          {hasMore && (
+            <ExpandRow
+              label={`展开显示 ${collection.name} 里更多对话`}
+              loading={more.isFetching}
+              onExpand={() => void more.fetchNextPage()}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 对话行：截断标题在左，hover 才露出的归属钮在右；整行可拖。
+ *
+ * @param props - 对话、是否正被拖着与打开归属弹窗的回调。
+ * @returns 单个对话行。
+ */
+function ConversationRow({
+  conversation,
+  dragging,
+  onOpenMembership,
+}: {
+  conversation: SidebarConversation
+  dragging: boolean
+  onOpenMembership: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+    data: { collectionId: conversation.collectionId },
+    id: conversation.id,
+  })
+
+  return (
+    <div className="group flex items-center gap-1 pr-1">
+      <button
+        className={cn(ROW_CLASS, 'min-w-0 flex-1 py-1.5', dragging && 'opacity-50')}
+        ref={setNodeRef}
+        style={
+          transform
+            ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+            : undefined
+        }
+        type="button"
+        {...listeners}
+        {...attributes}
+      >
+        <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
+      </button>
+      <IconButton
+        className="opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100"
+        label={`${conversation.title} 的归属`}
+        name="folder"
+        onClick={onOpenMembership}
+        size="md"
+      />
+    </div>
+  )
+}

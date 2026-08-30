@@ -1,8 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import {
   zConversationEnvelope,
+  zConversationPageOut,
   zConversationsPageOut,
   zSidebarOut,
 } from '@/shared/api/generated/zod.gen'
@@ -19,6 +20,7 @@ const SEARCH_LIMIT = 50
 
 export const conversationsQueryKeys = {
   all: ['conversations'] as const,
+  more: (bucket: string, cursor: string) => ['conversations', 'more', bucket, cursor] as const,
   search: (keyword: string) => ['conversations', 'search', keyword] as const,
   sidebar: () => ['conversations', 'sidebar'] as const,
 }
@@ -50,6 +52,37 @@ export const useSidebarTopology = (enabled: boolean) =>
       }),
     queryKey: conversationsQueryKeys.sidebar(),
   })
+
+/**
+ * 「展开显示」再取的那些页。首屏那一页来自拓扑，这里只管它之后的。
+ *
+ * 不把拓扑那一页塞进来当第一页：TanStack 的分页查询在缓存失效时会把已加载的每一页挨个
+ * 重新请求，展开三页就是三个请求。这里 `enabled: false`，只有点「展开显示」才动；侧栏
+ * 一失效，调用方把这些页整个丢掉，列表收回第一页。
+ *
+ * @param bucket - 哪一段列表：不给 collectionId 就是「任务」区。
+ * @param cursor - 拓扑给的 `nextCursor`；为空表示本来就没有更多。
+ * @returns TanStack 分页查询。
+ */
+export const useMoreConversations = (
+  { collectionId }: { collectionId?: string | undefined },
+  cursor: string | null,
+) => {
+  return useInfiniteQuery({
+    queryKey: conversationsQueryKeys.more(collectionId ?? 'ungrouped', cursor ?? ''),
+    queryFn: ({ pageParam }) =>
+      apiFetch(
+        `${
+          collectionId ? `/conversations/by-collection/${collectionId}` : '/conversations/ungrouped'
+        }?cursor=${encodeURIComponent(pageParam)}`,
+        zConversationPageOut,
+        { cache: 'no-store', fallbackErrorMessage: '加载更多对话失败' },
+      ),
+    initialPageParam: cursor ?? '',
+    getNextPageParam: (last: z.output<typeof zConversationPageOut>) => last.nextCursor,
+    enabled: false,
+  })
+}
 
 type Membership = {
   /** 没给就是不动这一处归属；给 null 是摘掉 */
