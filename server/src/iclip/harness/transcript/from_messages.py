@@ -1,0 +1,322 @@
+"""从消息历史推出 transcript：已经跑完的那些轮子。
+
+实时那条路（投影器）从事件流产出操作，这条路从 ``StepPersistence`` 存下来的消息现推。
+两条路必须给出**逐字相同**的结构，否则同一段对话刷新前后会变形——所以编号一律取自消息
+里确定的事实，不取到达次序（规则见 ``ops`` 模块开头）。
+
+分轮不查表：消息自己带着 ``run_id``。一次 run 就是一轮（审批由
+``HandleDeferredToolCalls`` 在同一次 run 里等掉，不会把一轮劈成两次）。
+
+推不出来的只有轮的终态：消息里看不出「被用户停掉」和「报错了」的区别。所以默认按消息形状
+判（最后一条是没有待答工具调用的响应 = 跑完了），拿不准的交给调用方用 ``run_states``
+覆盖——它那一侧读得到 ``events`` 表。
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Literal
+
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.usage import RequestUsage
+
+from iclip.harness.transcript.ops import (
+    StepUsage,
+    TextFrame,
+    ThinkingFrame,
+    ToolFrame,
+    TranscriptFrame,
+    TranscriptStep,
+    TranscriptTurn,
+    TurnOrigin,
+    TurnUsage,
+)
+
+TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
+
+_TOOL_STATE: Mapping[str, Literal["done", "error"]] = {
+    "success": "done",
+    "failed": "error",
+    "denied": "error",
+    "interrupted": "error",
+}
+"""工具返回的结局 → 卡片状态。协议只有三态，没成功的一律 error。"""
+
+
+def turns_from_messages(
+    messages: Sequence[ModelMessage],
+    *,
+    run_states: Mapping[str, TurnState] | None = None,
+) -> tuple[TranscriptTurn, ...]:
+    """把一段对话的消息历史推成一串轮子，按发生先后排。"""
+
+    turns: list[TranscriptTurn] = []
+    for ordinal, group in enumerate(_group_by_run(messages), start=1):
+        turns.append(_turn(group, ordinal=ordinal, run_states=run_states or {}))
+    return tuple(turns)
+
+
+def _group_by_run(messages: Sequence[ModelMessage]) -> list[list[ModelMessage]]:
+    """按 ``run_id`` 分组，组间按组内第一条消息的时刻排。
+
+    不按 ``runs`` 表的 ``started_at`` 排：那会把这一层重新拴回一张表上，而消息里本来就带着
+    分组和时刻两样东西。
+    """
+
+    grouped: dict[str, list[ModelMessage]] = {}
+    current = ""
+    for message in messages:
+        # 没有 run_id 的挂到前一条那次 run 上。收尾的重试提示就是这样的（引擎没给它盖号），
+        # 单独成组的话会多出一个空轮子，而且它的时刻也是空的，排序会把它甩到最前面。
+        current = message.run_id or current
+        grouped.setdefault(current, []).append(message)
+    return sorted(grouped.values(), key=_started_at)
+
+
+_EPOCH = datetime.min.replace(tzinfo=UTC)
+
+
+def _started_at(group: Sequence[ModelMessage]) -> datetime:
+    """这一组最早的时刻。请求的 ``timestamp`` 允许为空，所以取第一个有值的。"""
+
+    return next((at for message in group if (at := _at(message)) is not None), _EPOCH)
+
+
+def _ended_at(group: Sequence[ModelMessage]) -> datetime | None:
+    return next((at for message in reversed(group) if (at := _at(message)) is not None), None)
+
+
+def _at(message: ModelMessage) -> datetime | None:
+    return message.timestamp
+
+
+def _iso(moment: datetime | None) -> str | None:
+    return None if moment is None else moment.isoformat()
+
+
+def _turn(
+    group: Sequence[ModelMessage], *, ordinal: int, run_states: Mapping[str, TurnState]
+) -> TranscriptTurn:
+    turn_id = f"t{ordinal}"
+    steps: list[TranscriptStep] = []
+    # 工具卡建在发起它的那一步里，而它的结局在下一条请求里才到，所以按 toolCallId 记着位置。
+    tool_frames: dict[str, str] = {}
+    frames_by_step: list[dict[str, TranscriptFrame]] = []
+    prompt: str | None = None
+    pending_request: ModelRequest | None = None
+
+    for message in group:
+        if isinstance(message, ModelRequest):
+            prompt_text = _user_text(message)
+            if prompt is None and prompt_text is not None:
+                # 一轮的第一句用户输入是这一轮的由来，不单独成块。
+                prompt = prompt_text
+            elif prompt_text is not None and steps:
+                # 中途插进来的用户消息（插话）挂在当时开着的那一步末尾，与实时那条路一致。
+                index = len(steps) - 1
+                frame_id = f"{turn_id}.{index + 1}.f{len(frames_by_step[index]) + 1}"
+                frames_by_step[index][frame_id] = TextFrame(
+                    frame_id=frame_id, role="user", text=prompt_text
+                )
+            _settle_tools(message, tool_frames, frames_by_step)
+            pending_request = message
+            continue
+
+        step_ordinal = len(steps) + 1
+        step_id = f"{turn_id}.{step_ordinal}"
+        frames: dict[str, TranscriptFrame] = {}
+        frames_by_step.append(frames)
+        _open_frames(message, step_id=step_id, frames=frames, tool_frames=tool_frames)
+        steps.append(
+            TranscriptStep(
+                step_id=step_id,
+                turn_id=turn_id,
+                ordinal=step_ordinal,
+                state="completed",
+                started_at=_iso(None if pending_request is None else pending_request.timestamp),
+                ended_at=_iso(message.timestamp),
+                usage=_step_usage(message.usage),
+                finish_reason=message.finish_reason,
+            )
+        )
+
+    return TranscriptTurn(
+        turn_id=turn_id,
+        ordinal=ordinal,
+        state=run_states.get(group[0].run_id or "") or _turn_state(group),
+        origin=TurnOrigin(kind="user"),
+        prompt=prompt,
+        started_at=_iso(_started_at(group)),
+        ended_at=_iso(_ended_at(group)),
+        usage=_turn_usage(steps),
+        steps=tuple(
+            step.model_copy(update={"frames": tuple(frames_by_step[index].values())})
+            for index, step in enumerate(steps)
+        ),
+    )
+
+
+def _user_text(message: ModelRequest) -> str | None:
+    """这条请求里用户说的话；没有就是 ``None``（多数请求装的是工具返回）。
+
+    ``content`` 可以是一串多模态元素（文字与图片地址混排），这里只取文字。图片要变成协议里
+    的附件实体，那件事归媒体那一层，不在这里做。
+    """
+
+    texts: list[str] = []
+    for part in message.parts:
+        if not isinstance(part, UserPromptPart):
+            continue
+        if isinstance(part.content, str):
+            texts.append(part.content)
+        else:
+            texts.extend(item for item in part.content if isinstance(item, str))
+    return "\n".join(texts) if texts else None
+
+
+def _open_frames(
+    message: ModelResponse,
+    *,
+    step_id: str,
+    frames: dict[str, TranscriptFrame],
+    tool_frames: dict[str, str],
+) -> None:
+    """一次模型响应里的各个 part → 这一步的块。
+
+    正文块与思考块共用一个从 1 起的序号；工具块不占这个号，它的 id 是
+    ``<步 id>.<toolCallId>``（协议里工具块 id 就是这么定的，反解不出序号）。
+    """
+
+    ordinal = 0
+    for part in message.parts:
+        if isinstance(part, ThinkingPart):
+            ordinal += 1
+            frame_id = f"{step_id}.f{ordinal}"
+            frames[frame_id] = ThinkingFrame(frame_id=frame_id, text=part.content)
+        elif isinstance(part, TextPart):
+            ordinal += 1
+            frame_id = f"{step_id}.f{ordinal}"
+            frames[frame_id] = TextFrame(frame_id=frame_id, role="assistant", text=part.content)
+        elif isinstance(part, ToolCallPart):
+            frame_id = f"{step_id}.{part.tool_call_id}"
+            frames[frame_id] = ToolFrame(
+                frame_id=frame_id,
+                tool_call_id=part.tool_call_id,
+                name=part.tool_name,
+                state="running",
+                input=part.args,
+            )
+            tool_frames[part.tool_call_id] = frame_id
+
+
+def _settle_tools(
+    message: ModelRequest,
+    tool_frames: dict[str, str],
+    frames_by_step: list[dict[str, TranscriptFrame]],
+) -> None:
+    """把工具的结局回填到它那张卡上。
+
+    ``RetryPromptPart`` 也走这里：工具的参数没通过校验时，它顶替了那次调用的返回，卡片就该
+    是错的那一档——漏了它，界面上会留下一张永远转圈的卡。
+    """
+
+    for part in message.parts:
+        if isinstance(part, ToolReturnPart):
+            state = _TOOL_STATE.get(part.outcome, "error")
+            _replace_tool(
+                part.tool_call_id,
+                tool_frames,
+                frames_by_step,
+                state=state,
+                output=part.content,
+                error=None if state == "done" else str(part.content),
+            )
+        elif isinstance(part, RetryPromptPart):
+            _replace_tool(
+                part.tool_call_id,
+                tool_frames,
+                frames_by_step,
+                state="error",
+                output=None,
+                error=str(part.content),
+            )
+
+
+def _replace_tool(
+    tool_call_id: str,
+    tool_frames: dict[str, str],
+    frames_by_step: list[dict[str, TranscriptFrame]],
+    *,
+    state: Literal["done", "error"],
+    output: object,
+    error: str | None,
+) -> None:
+    frame_id = tool_frames.get(tool_call_id)
+    if frame_id is None:
+        return
+    for step_frames in frames_by_step:
+        existing = step_frames.get(frame_id)
+        if isinstance(existing, ToolFrame):
+            step_frames[frame_id] = existing.model_copy(
+                update={"state": state, "output": output, "error": error}
+            )
+            return
+
+
+def _step_usage(usage: RequestUsage | None) -> StepUsage | None:
+    """引擎的用量 → 协议的用量。
+
+    ``input_tokens`` 是总数，缓存读写都算在里面（官方 docstring 明说 included in），所以
+    「其余」要把两块缓存都减掉，不然三项加起来会超过总数。
+    """
+
+    if usage is None:
+        return None
+    return StepUsage(
+        input_other=usage.input_tokens - usage.cache_read_tokens - usage.cache_write_tokens,
+        output=usage.output_tokens,
+        input_cache_read=usage.cache_read_tokens,
+        input_cache_creation=usage.cache_write_tokens,
+    )
+
+
+def _turn_usage(steps: Sequence[TranscriptStep]) -> TurnUsage | None:
+    """一轮的用量是各步之和，口径照协议：写缓存算进 input，读缓存单列。"""
+
+    counted = [step.usage for step in steps if step.usage is not None]
+    if not counted:
+        return None
+    return TurnUsage(
+        input_tokens=sum(item.input_other + item.input_cache_creation for item in counted),
+        cached_tokens=sum(item.input_cache_read for item in counted),
+        output_tokens=sum(item.output for item in counted),
+    )
+
+
+def _turn_state(group: Sequence[ModelMessage]) -> TurnState:
+    """按消息形状判终态。
+
+    正常收尾的一次 run 停在一条不再调工具的响应上。停不在那儿说明它没跑完，但消息里看不出
+    是被停掉的还是报错的——两者都给 ``failed``，要分清得由调用方查 ``events`` 表覆盖。
+    """
+
+    last = group[-1]
+    if isinstance(last, ModelResponse) and not any(
+        isinstance(part, ToolCallPart) for part in last.parts
+    ):
+        return "completed"
+    return "failed"
+
+
+__all__ = ["TurnState", "turns_from_messages"]
