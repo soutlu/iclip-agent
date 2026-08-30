@@ -274,6 +274,16 @@ export const zConversationEnvelope = z.object({
 })
 
 /**
+ * ConversationPageOut
+ *
+ * 一页对话。``nextCursor`` 为空即没有更多了；往下滑加载更多时原样回传它。
+ */
+export const zConversationPageOut = z.object({
+  items: z.array(zConversationOut),
+  nextCursor: z.string().nullable(),
+})
+
+/**
  * ConversationRename
  */
 export const zConversationRename = z.object({
@@ -440,27 +450,30 @@ export const zProductEnvelope = z.object({
 /**
  * SidebarCollectionOut
  *
- * 侧栏里的一个合集：元信息加最近几段对话。
+ * 侧栏里的一个合集：元信息、里面一共几段，加第一页对话。
  *
- * ``conversationCount`` 是这个合集里的全部条数，``conversations`` 只有最近几段——
- * 展开看更多是另一次查询的事。
+ * ``conversationCount`` 是全部条数，``page`` 只有第一页——往下滑要更多是另一次查询。
  */
 export const zSidebarCollectionOut = z.object({
   conversationCount: z.int(),
-  conversations: z.array(zConversationOut),
   id: z.uuid(),
   name: z.string(),
+  page: zConversationPageOut,
   updatedAt: z.iso.datetime(),
 })
 
 /**
  * SidebarOut
  *
- * 侧栏拓扑：合集分组 + 没归类的对话。一次查询拿全，前端不再自己拼。
+ * 侧栏拓扑：合集分组 + 没归类的对话。首屏一次拿全，前端不再自己拼。
+ *
+ * 两个数字都是真总数（不是这一页几条）：``ungroupedCount`` 与每个合集的
+ * ``conversationCount``。
  */
 export const zSidebarOut = z.object({
   collections: z.array(zSidebarCollectionOut),
-  ungrouped: z.array(zConversationOut),
+  ungrouped: zConversationPageOut,
+  ungroupedCount: z.int(),
 })
 
 /**
@@ -969,6 +982,20 @@ export const zAuditConversationsConversationsAuditGetQuery = z.object({
  */
 export const zAuditConversationsConversationsAuditGetResponse = zConversationsAuditOut
 
+export const zListCollectionConversationsConversationsByCollectionCollectionIdGetPath = z.object({
+  collection_id: z.uuid(),
+})
+
+export const zListCollectionConversationsConversationsByCollectionCollectionIdGetQuery = z.object({
+  cursor: z.string().nullish(),
+})
+
+/**
+ * Successful Response
+ */
+export const zListCollectionConversationsConversationsByCollectionCollectionIdGetResponse =
+  zConversationPageOut
+
 export const zListTaskAttemptsConversationsByTaskTaskIdGetPath = z.object({
   task_id: z.uuid(),
 })
@@ -987,6 +1014,15 @@ export const zSearchConversationsConversationsSearchGetQuery = z.object({
  * Successful Response
  */
 export const zSearchConversationsConversationsSearchGetResponse = zConversationsPageOut
+
+export const zListUngroupedConversationsUngroupedGetQuery = z.object({
+  cursor: z.string().nullish(),
+})
+
+/**
+ * Successful Response
+ */
+export const zListUngroupedConversationsUngroupedGetResponse = zConversationPageOut
 
 export const zDeleteConversationConversationsConversationIdDeletePath = z.object({
   conversation_id: z.uuid(),

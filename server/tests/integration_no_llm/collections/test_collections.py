@@ -247,15 +247,18 @@ async def test_sidebar_groups_by_collection(client: httpx.AsyncClient, pg_url: s
     assert set(groups) == {collection_id, empty_id}
     assert groups[collection_id]["conversationCount"] == 2
     # 组内也按最近活动倒序
-    assert [item["id"] for item in groups[collection_id]["conversations"]] == [
+    assert [item["id"] for item in groups[collection_id]["page"]["items"]] == [
         second["id"],
         first["id"],
     ]
+    # 一页装得下就没有下一页
+    assert groups[collection_id]["page"]["nextCursor"] is None
     # 空合集留在拓扑里：刚建的口袋要看得见，不然没法往里放东西。
     assert groups[empty_id]["conversationCount"] == 0
-    assert groups[empty_id]["conversations"] == []
+    assert groups[empty_id]["page"]["items"] == []
     # 进了合集的不再出现在「没归类」那一区
-    assert [item["id"] for item in sidebar["ungrouped"]] == [loose["id"]]
+    assert sidebar["ungroupedCount"] == 1
+    assert [item["id"] for item in sidebar["ungrouped"]["items"]] == [loose["id"]]
 
 
 async def test_sidebar_only_shows_my_own(
@@ -269,7 +272,69 @@ async def test_sidebar_only_shows_my_own(
         await login_as_editor(other, pg_url, username="mia")
         sidebar = (await other.get(CONVERSATIONS)).json()
 
-    assert sidebar == {"collections": [], "ungrouped": []}
+    assert sidebar == {
+        "collections": [],
+        "ungroupedCount": 0,
+        "ungrouped": {"items": [], "nextCursor": None},
+    }
+
+
+async def test_sidebar_pages_by_cursor(client: httpx.AsyncClient, pg_url: str) -> None:
+    """两个区都能往下滑：首屏给第一页与真总数，`nextCursor` 接着往下取。"""
+
+    await login_as_editor(client, pg_url)
+    collection_id = await open_collection(client)
+    # 每个合集内嵌 10 段、任务区一页 20 条（服务端的口径），各多开一段以越过一页
+    for index in range(11):
+        await open_conversation(client, title=f"合集里第{index}段", collectionId=collection_id)
+    for index in range(21):
+        await open_conversation(client, title=f"没归类第{index}段")
+
+    sidebar = (await client.get(CONVERSATIONS)).json()
+    group = sidebar["collections"][0]
+
+    # 数字是真总数，不是这一页几条
+    assert (group["conversationCount"], len(group["page"]["items"])) == (11, 10)
+    assert (sidebar["ungroupedCount"], len(sidebar["ungrouped"]["items"])) == (21, 20)
+
+    more_in_collection = await client.get(
+        f"{CONVERSATIONS}/by-collection/{collection_id}",
+        params={"cursor": group["page"]["nextCursor"]},
+    )
+    assert len(more_in_collection.json()["items"]) == 1
+    assert more_in_collection.json()["nextCursor"] is None
+
+    more_ungrouped = await client.get(
+        f"{CONVERSATIONS}/ungrouped", params={"cursor": sidebar["ungrouped"]["nextCursor"]}
+    )
+    assert len(more_ungrouped.json()["items"]) == 1
+
+    # 两页加起来不重不漏
+    seen = [
+        item["id"] for item in [*sidebar["ungrouped"]["items"], *more_ungrouped.json()["items"]]
+    ]
+    assert len(set(seen)) == 21
+    assert (
+        await client.get(f"{CONVERSATIONS}/ungrouped", params={"cursor": "坏的"})
+    ).status_code == 422
+
+
+async def test_other_peoples_collection_pages_empty(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """别人的合集与空合集给同一个结果：一页空的，不告诉你它到底存不存在。"""
+
+    await login_as_editor(client, pg_url)
+    collection_id = await open_collection(client)
+    await open_conversation(client, collectionId=collection_id)
+
+    async with make_client(app) as other:
+        await login_as_editor(other, pg_url, username="mia")
+        theirs = await other.get(f"{CONVERSATIONS}/by-collection/{collection_id}")
+        missing = await other.get(f"{CONVERSATIONS}/by-collection/{MISSING_ID}")
+
+    assert theirs.status_code == 200
+    assert theirs.json() == missing.json() == {"items": [], "nextCursor": None}
 
 
 async def test_audit_is_governor_only_and_filters(
@@ -364,7 +429,7 @@ async def test_deleting_collection_only_clears_the_column(
 
     assert await column_of(pg_url, conversation_id, "collection_id") is None
     sidebar = (await client.get(CONVERSATIONS)).json()
-    assert [item["id"] for item in sidebar["ungrouped"]] == [conversation_id]
+    assert [item["id"] for item in sidebar["ungrouped"]["items"]] == [conversation_id]
 
 
 async def test_deleting_draft_task_only_clears_the_column(

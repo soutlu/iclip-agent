@@ -15,9 +15,8 @@ from typing import Any
 from iclip.common.errors import NotFound, PermissionDenied, ValidationFailed
 from iclip.domains.conversations.models import Conversation
 from iclip.domains.conversations.repository import (
-    AuditCursor,
-    CollectionConversations,
     ConversationRepository,
+    PageCursor,
 )
 from iclip.domains.conversations.schemas import DEFAULT_TITLE
 from iclip.domains.identity.public import Principal
@@ -109,20 +108,40 @@ def _as_utc(moment: datetime | None) -> datetime | None:
     return moment.replace(tzinfo=UTC)
 
 
+@dataclass(frozen=True, slots=True)
+class ConversationPage:
+    """一页对话。``next_cursor`` 为空即没有更多了。"""
+
+    items: tuple[Conversation, ...]
+    next_cursor: str | None
+
+
+def _page(items: tuple[Conversation, ...], *, limit: int) -> ConversationPage:
+    """取满一页就给下一页的位置。
+
+    多给一次「翻过去发现是空的」，好过为了精确再查一次——多的那次请求只在正好整除时
+    发生，而多查一次是每页都要付的。
+    """
+
+    return ConversationPage(
+        items=items, next_cursor=_encode_cursor(items[-1]) if len(items) == limit else None
+    )
+
+
 def _encode_cursor(conversation: Conversation) -> str:
     """翻页位置就是这一行的排序键，原样写进查询串。"""
 
     return f"{conversation.updated_at.isoformat()}|{conversation.id}"
 
 
-def _decode_cursor(cursor: str | None) -> AuditCursor | None:
+def _decode_cursor(cursor: str | None) -> PageCursor | None:
     """解翻页位置。形状不对就 422，不假装是「从头开始」。"""
 
     if cursor is None:
         return None
     stamp, _, raw_id = cursor.partition("|")
     try:
-        return AuditCursor(
+        return PageCursor(
             updated_at=datetime.fromisoformat(stamp), conversation_id=uuid.UUID(raw_id)
         )
     except ValueError as exc:
@@ -241,10 +260,10 @@ class ConversationService:
 
     async def sidebar(
         self, principal: Principal
-    ) -> tuple[tuple[CollectionInfo, CollectionConversations | None], ...]:
-        """侧栏左边那一列的合集分组：每个合集的元信息、总条数与最近几段对话。
+    ) -> tuple[tuple[CollectionInfo, int, ConversationPage], ...]:
+        """侧栏合集区：每个合集的元信息、里面一共几段，加第一页对话。
 
-        空合集也留在结果里（配 ``None``）——刚建的口袋要看得见，不然没法往里放东西。
+        空合集也留在结果里（配一页空的）——刚建的口袋要看得见，不然没法往里放东西。
         """
 
         collections = await self._list_collections(principal.user_id)
@@ -254,12 +273,51 @@ class ConversationService:
             per_collection=SIDEBAR_PER_COLLECTION,
         )
         by_id = {group.collection_id: group for group in found}
-        return tuple((item, by_id.get(item.id)) for item in collections)
+        return tuple(
+            (
+                item,
+                by_id[item.id].total if item.id in by_id else 0,
+                _page(
+                    by_id[item.id].conversations if item.id in by_id else (),
+                    limit=SIDEBAR_PER_COLLECTION,
+                ),
+            )
+            for item in collections
+        )
 
-    async def ungrouped(self, principal: Principal) -> tuple[Conversation, ...]:
-        """侧栏「任务」区：自己没进任何合集的对话，最近活动的排前面。"""
+    async def ungrouped_count(self, principal: Principal) -> int:
+        """侧栏「任务」区标题上那个数字：一共多少段没进合集的对话，不是这一页几条。"""
 
-        return await self._repo.list_ungrouped(owner=principal.user_id, limit=SIDEBAR_UNGROUPED)
+        return await self._repo.count_ungrouped(owner=principal.user_id)
+
+    async def ungrouped(
+        self, principal: Principal, *, cursor: str | None = None
+    ) -> ConversationPage:
+        """侧栏「任务」区：自己没进任何合集的对话，最近活动的排前面。
+
+        ``cursor`` 是上一页的 ``nextCursor``，往下滑加载更多时原样回传。
+        """
+
+        items = await self._repo.list_ungrouped(
+            owner=principal.user_id, limit=SIDEBAR_UNGROUPED, after=_decode_cursor(cursor)
+        )
+        return _page(items, limit=SIDEBAR_UNGROUPED)
+
+    async def in_collection(
+        self, principal: Principal, collection_id: uuid.UUID, *, cursor: str | None = None
+    ) -> ConversationPage:
+        """某个合集里的对话，翻页口径同上。
+
+        不校验合集在不在：别人的合集与空合集都是空的一页（见 contract/conventions.md §6）。
+        """
+
+        items = await self._repo.list_in_collection(
+            owner=principal.user_id,
+            collection_id=collection_id,
+            limit=SIDEBAR_PER_COLLECTION,
+            after=_decode_cursor(cursor),
+        )
+        return _page(items, limit=SIDEBAR_PER_COLLECTION)
 
     async def audit(
         self,
@@ -290,9 +348,8 @@ class ConversationService:
             limit=limit,
             after=_decode_cursor(cursor),
         )
-        # 取满一页就给下一页的位置。多给一次「翻过去发现是空的」，好过为了精确再查一次。
-        next_cursor = _encode_cursor(found[-1]) if len(found) == limit else None
-        return found, next_cursor
+        page = _page(found, limit=limit)
+        return page.items, page.next_cursor
 
     async def rename(
         self, principal: Principal, conversation_id: uuid.UUID, *, title: str

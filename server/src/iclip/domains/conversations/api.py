@@ -1,7 +1,7 @@
 """对话的 HTTP 面。
 
-十二个端点：开一段、侧栏拓扑、搜自己的、治理者查全部、列出某张单下我的尝试、读历史、
-列工作区文件、读工作区文件、改名、换合集、挂需求单、删掉。读用 ``agent:read``，会改动
+十四个端点：开一段、侧栏拓扑、任务区翻页、合集内翻页、搜自己的、治理者查全部、列出某
+张单下我的尝试、读历史、列工作区文件、读工作区文件、改名、换合集、挂需求单、删掉。读用 ``agent:read``，会改动
 的用 ``agent:run``——能不能看和能不能跑本来就是两件事。
 
 别人的对话一律 404，不返 403：那会泄露「这个 id 确实存在」。治理者例外，读得到全部
@@ -25,6 +25,7 @@ from iclip.domains.conversations.schemas import (
     ConversationFilesOut,
     ConversationIn,
     ConversationMessagesOut,
+    ConversationPageOut,
     ConversationRename,
     ConversationsAuditOut,
     ConversationsPageOut,
@@ -33,8 +34,16 @@ from iclip.domains.conversations.schemas import (
     SidebarOut,
     conversation_out,
 )
-from iclip.domains.conversations.service import ConversationService
+from iclip.domains.conversations.service import ConversationPage, ConversationService
 from iclip.domains.identity.public import Principal, require_permission
+
+
+def _page_out(page: ConversationPage) -> ConversationPageOut:
+    """一页对话 → wire 形状。"""
+
+    return ConversationPageOut(
+        items=[conversation_out(item) for item in page.items], next_cursor=page.next_cursor
+    )
 
 
 def create_conversations_router(service: ConversationService) -> APIRouter:
@@ -65,22 +74,42 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         """
 
         groups = await service.sidebar(principal)
-        ungrouped = await service.ungrouped(principal)
         return SidebarOut(
             collections=[
                 SidebarCollectionOut(
                     id=info.id,
                     name=info.name,
                     updated_at=info.updated_at,
-                    conversation_count=group.total if group else 0,
-                    conversations=[
-                        conversation_out(item) for item in (group.conversations if group else ())
-                    ],
+                    conversation_count=total,
+                    page=_page_out(page),
                 )
-                for info, group in groups
+                for info, total, page in groups
             ],
-            ungrouped=[conversation_out(item) for item in ungrouped],
+            ungrouped_count=await service.ungrouped_count(principal),
+            ungrouped=_page_out(await service.ungrouped(principal)),
         )
+
+    @router.get("/ungrouped", response_model=ConversationPageOut)
+    async def list_ungrouped(
+        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        cursor: str | None = None,
+    ) -> ConversationPageOut:
+        """侧栏「任务」区往下滑：接着上一页给。``cursor`` 原样回传响应里的 ``nextCursor``。"""
+
+        return _page_out(await service.ungrouped(principal, cursor=cursor))
+
+    @router.get("/by-collection/{collection_id}", response_model=ConversationPageOut)
+    async def list_collection_conversations(
+        collection_id: uuid.UUID,
+        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        cursor: str | None = None,
+    ) -> ConversationPageOut:
+        """某个合集里的对话，翻页口径同上。
+
+        不存在的合集、别人的合集，都给一页空的——与「这个合集是空的」同一个结果。
+        """
+
+        return _page_out(await service.in_collection(principal, collection_id, cursor=cursor))
 
     @router.get("/search", response_model=ConversationsPageOut)
     async def search_conversations(

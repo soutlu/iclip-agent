@@ -79,25 +79,36 @@ class ConversationsPageOut(CamelModel):
     items: list[ConversationOut]
 
 
-class SidebarCollectionOut(CamelModel):
-    """侧栏里的一个合集：元信息加最近几段对话。
+class ConversationPageOut(CamelModel):
+    """一页对话。``nextCursor`` 为空即没有更多了；往下滑加载更多时原样回传它。"""
 
-    ``conversationCount`` 是这个合集里的全部条数，``conversations`` 只有最近几段——
-    展开看更多是另一次查询的事。
+    items: list[ConversationOut]
+    next_cursor: str | None
+
+
+class SidebarCollectionOut(CamelModel):
+    """侧栏里的一个合集：元信息、里面一共几段，加第一页对话。
+
+    ``conversationCount`` 是全部条数，``page`` 只有第一页——往下滑要更多是另一次查询。
     """
 
     id: uuid.UUID
     name: str
     updated_at: datetime
     conversation_count: int
-    conversations: list[ConversationOut]
+    page: ConversationPageOut
 
 
 class SidebarOut(CamelModel):
-    """侧栏拓扑：合集分组 + 没归类的对话。一次查询拿全，前端不再自己拼。"""
+    """侧栏拓扑：合集分组 + 没归类的对话。首屏一次拿全，前端不再自己拼。
+
+    两个数字都是真总数（不是这一页几条）：``ungroupedCount`` 与每个合集的
+    ``conversationCount``。
+    """
 
     collections: list[SidebarCollectionOut]
-    ungrouped: list[ConversationOut]
+    ungrouped_count: int
+    ungrouped: ConversationPageOut
 
 
 class ConversationsAuditOut(CamelModel):
@@ -169,6 +180,7 @@ __all__ = [
     "ConversationIn",
     "ConversationMessagesOut",
     "ConversationOut",
+    "ConversationPageOut",
     "ConversationRename",
     "ConversationTaskIn",
     "ConversationsAuditOut",
