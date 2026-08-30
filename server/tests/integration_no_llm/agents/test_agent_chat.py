@@ -206,7 +206,7 @@ async def test_run_is_recorded_on_the_conversation(client: httpx.AsyncClient, pg
         async for _ in response.aiter_text():
             pass
 
-    listed = await client.get("/conversations")
+    listed = await client.get("/conversations/search")
     assert [item["lastRunId"] for item in listed.json()["items"]] == ["run-latest"]
 
     # 客户端铸造的那个 id 也被盖进了消息里：库里那条运行记录的主键跟它不是一个东西，

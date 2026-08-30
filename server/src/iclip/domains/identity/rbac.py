@@ -12,8 +12,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 PERMISSIONS: tuple[str, ...] = (
-    "projects:read",
-    "projects:write",
+    "collections:read",
+    "collections:write",
     "tasks:read",
     "tasks:write",
     "assets:read",
@@ -29,7 +29,7 @@ PERMISSIONS: tuple[str, ...] = (
 
 _VIEWER = frozenset(
     {
-        "projects:read",
+        "collections:read",
         "tasks:read",
         "assets:read",
         "generation:read",

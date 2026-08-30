@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Final
 
 from sqlalchemy import (
     Column,
+    ColumnElement,
     DateTime,
     ForeignKey,
     Index,
@@ -18,8 +20,10 @@ from sqlalchemy import (
     Table,
     Text,
     Uuid,
+    and_,
     delete,
     func,
+    or_,
     select,
     update,
 )
@@ -29,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.conversations.models import Conversation
+from iclip.domains.conversations.repository import AuditCursor, CollectionConversations
 
 DB_SCHEMA: Final = "iclip"
 
@@ -56,11 +61,11 @@ conversations_table = Table(
         ForeignKey(f"{DB_SCHEMA}.tasks.id", ondelete="set null"),
         nullable=True,
     ),
-    # 放在哪个项目里，最多一个，随时可以换。空着就是没归类。
+    # 放在哪个合集里，最多一个，随时可以换。空着就是没归类。
     Column(
-        "project_id",
+        "collection_id",
         Uuid,
-        ForeignKey(f"{DB_SCHEMA}.projects.id", ondelete="set null"),
+        ForeignKey(f"{DB_SCHEMA}.collections.id", ondelete="set null"),
         nullable=True,
     ),
     Column("created_at", DateTime(timezone=True), nullable=False),
@@ -69,11 +74,14 @@ conversations_table = Table(
 
 _ROWS = conversations_table.c
 
-# 列表页就这一个查询：我的对话，最近活动的排前面。首列是属主，所以不用再单独给
+# 侧栏与搜索都走这一条：我的对话，最近活动的排前面。首列是属主，所以不用再单独给
 # owner_user_id 建索引。
 Index("ix_conversations_owner_recent", _ROWS.owner_user_id, _ROWS.updated_at.desc())
 
-# 这两条都带 WHERE：没挂单、没进项目的对话是多数，不该占索引。
+# 治理者的审计列表：跨属主按最近活动倒序翻页，带上 id 是因为翻页位置是这两列。
+Index("ix_conversations_updated", _ROWS.updated_at.desc(), _ROWS.id.desc())
+
+# 这两条都带 WHERE：没挂单、没进合集的对话是多数，不该占索引。
 # 单那条按 created_at 升序——「这张单的第几次尝试」就是按它排出来的。
 Index(
     "ix_conversations_task",
@@ -82,10 +90,10 @@ Index(
     postgresql_where=_ROWS.task_id.isnot(None),
 )
 Index(
-    "ix_conversations_project",
-    _ROWS.project_id,
+    "ix_conversations_collection",
+    _ROWS.collection_id,
     _ROWS.updated_at.desc(),
-    postgresql_where=_ROWS.project_id.isnot(None),
+    postgresql_where=_ROWS.collection_id.isnot(None),
 )
 
 
@@ -97,7 +105,7 @@ def _row(mapping: RowMapping) -> Conversation:
         title=mapping["title"],
         last_run_id=mapping["last_run_id"],
         task_id=mapping["task_id"],
-        project_id=mapping["project_id"],
+        collection_id=mapping["collection_id"],
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
     )
@@ -106,7 +114,7 @@ def _row(mapping: RowMapping) -> Conversation:
 def _reject_missing_reference(error: IntegrityError) -> ValidationFailed:
     """外键挡下来的引用错误翻成领域错误。
 
-    这一层不认识需求单表和项目表（架构上就不许认识），所以「那张单/那个项目在不在」
+    这一层不认识需求单表和合集表（架构上就不许认识），所以「那张单/那个合集在不在」
     只能由外键回答。区分是哪一个靠约束名——拿不到名字时就都报，比报错但说不清好。
     """
 
@@ -114,9 +122,9 @@ def _reject_missing_reference(error: IntegrityError) -> ValidationFailed:
     name = getattr(constraint, "constraint_name", None) or ""
     if "task" in name:
         return ValidationFailed("没有这张需求单")
-    if "project" in name:
-        return ValidationFailed("没有这个项目")
-    return ValidationFailed("指定的需求单或项目不存在")
+    if "collection" in name:
+        return ValidationFailed("没有这个合集")
+    return ValidationFailed("指定的需求单或合集不存在")
 
 
 class SqlConversationRepository:
@@ -135,7 +143,7 @@ class SqlConversationRepository:
                 title=conversation.title,
                 last_run_id=None,
                 task_id=conversation.task_id,
-                project_id=conversation.project_id,
+                collection_id=conversation.collection_id,
                 created_at=func.now(),
                 updated_at=func.now(),
             )
@@ -148,10 +156,9 @@ class SqlConversationRepository:
             raise _reject_missing_reference(exc) from exc
         return _row(row)
 
-    async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> Conversation:
-        statement = select(conversations_table).where(
-            _ROWS.id == conversation_id, _ROWS.owner_user_id == owner
-        )
+    async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:
+        scope = [] if owner is None else [_ROWS.owner_user_id == owner]
+        statement = select(conversations_table).where(_ROWS.id == conversation_id, *scope)
         async with self._engine.connect() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
         if row is None:
@@ -175,6 +182,58 @@ class SqlConversationRepository:
             rows = (await conn.execute(statement)).mappings().all()
         return tuple(_row(row) for row in rows)
 
+    async def list_ungrouped(self, *, owner: uuid.UUID, limit: int) -> tuple[Conversation, ...]:
+        statement = (
+            select(conversations_table)
+            .where(_ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None))
+            .order_by(_ROWS.updated_at.desc())
+            .limit(limit)
+        )
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(statement)).mappings().all()
+        return tuple(_row(row) for row in rows)
+
+    async def list_by_collections(
+        self, *, owner: uuid.UUID, collection_ids: tuple[uuid.UUID, ...], per_collection: int
+    ) -> tuple[CollectionConversations, ...]:
+        if not collection_ids:
+            return ()
+        total = func.count().over(partition_by=_ROWS.collection_id).label("total")
+        rank = (
+            func.row_number()
+            .over(partition_by=_ROWS.collection_id, order_by=_ROWS.updated_at.desc())
+            .label("rank")
+        )
+        ranked = (
+            select(conversations_table, total, rank)
+            .where(
+                _ROWS.owner_user_id == owner,
+                _ROWS.collection_id.in_(collection_ids),
+            )
+            .subquery()
+        )
+        statement = (
+            select(ranked)
+            .where(ranked.c.rank <= per_collection)
+            .order_by(ranked.c.collection_id, ranked.c.rank)
+        )
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(statement)).mappings().all()
+
+        grouped: dict[uuid.UUID, list[RowMapping]] = {}
+        for row in rows:
+            grouped.setdefault(row["collection_id"], []).append(row)
+        # 顺序按调用方给的合集顺序还原：库里那次排序是为了分组，不是给人看的。
+        return tuple(
+            CollectionConversations(
+                collection_id=collection_id,
+                total=int(grouped[collection_id][0]["total"]),
+                conversations=tuple(_row(row) for row in grouped[collection_id]),
+            )
+            for collection_id in collection_ids
+            if collection_id in grouped
+        )
+
     async def list_for_task(
         self, *, task_id: uuid.UUID, owner: uuid.UUID
     ) -> tuple[Conversation, ...]:
@@ -187,13 +246,67 @@ class SqlConversationRepository:
             rows = (await conn.execute(statement)).mappings().all()
         return tuple(_row(row) for row in rows)
 
-    async def set_project(
-        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, project_id: uuid.UUID | None
+    async def list_audit(
+        self,
+        *,
+        owner: uuid.UUID | None = None,
+        task_id: uuid.UUID | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int,
+        after: AuditCursor | None = None,
+    ) -> tuple[Conversation, ...]:
+        conditions: list[ColumnElement[bool]] = []
+        if owner is not None:
+            conditions.append(_ROWS.owner_user_id == owner)
+        if task_id is not None:
+            conditions.append(_ROWS.task_id == task_id)
+        if since is not None:
+            conditions.append(_ROWS.updated_at >= since)
+        if until is not None:
+            conditions.append(_ROWS.updated_at <= until)
+        if after is not None:
+            # 严格小于上一页最后一行的排序键。带上 id 一起比，同一时刻的几行才不会被跳过。
+            conditions.append(
+                or_(
+                    _ROWS.updated_at < after.updated_at,
+                    and_(
+                        _ROWS.updated_at == after.updated_at,
+                        _ROWS.id < after.conversation_id,
+                    ),
+                )
+            )
+        statement = (
+            select(conversations_table)
+            .where(*conditions)
+            .order_by(_ROWS.updated_at.desc(), _ROWS.id.desc())
+            .limit(limit)
+        )
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(statement)).mappings().all()
+        return tuple(_row(row) for row in rows)
+
+    async def set_collection(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, collection_id: uuid.UUID | None
     ) -> Conversation:
+        return await self._set_membership(
+            conversation_id, owner=owner, values={"collection_id": collection_id}
+        )
+
+    async def set_task(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, task_id: uuid.UUID | None
+    ) -> Conversation:
+        return await self._set_membership(conversation_id, owner=owner, values={"task_id": task_id})
+
+    async def _set_membership(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, values: dict[str, uuid.UUID | None]
+    ) -> Conversation:
+        """改一处归属。两处归属的写法一模一样，差别只在改哪一列。"""
+
         statement = (
             update(conversations_table)
             .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner)
-            .values(project_id=project_id, updated_at=func.now())
+            .values(**values, updated_at=func.now())
             .returning(*conversations_table.c)
         )
         try:

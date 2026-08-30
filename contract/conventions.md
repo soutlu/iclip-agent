@@ -61,23 +61,32 @@
 
 一段对话的 id 即 AG-UI 的 `threadId`。**id 一律由服务端发放**，客户端自己编一个发去 `POST /agents/{agentId}/chat` 会得到 `404`。
 
-**权限**：`POST /conversations`、`PATCH /conversations/{id}`、`PUT /conversations/{id}/project`、`DELETE /conversations/{id}` 需要 `agent:run`；`GET /conversations`、`GET /conversations/by-task/{taskId}`、`GET /conversations/{id}/messages`、`GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file` 需要 `agent:read`。
+**权限**：`POST /conversations`、`PATCH /conversations/{id}`、`PUT /conversations/{id}/collection`、`PUT /conversations/{id}/task`、`DELETE /conversations/{id}` 需要 `agent:run`；`GET /conversations`、`GET /conversations/search`、`GET /conversations/audit`、`GET /conversations/by-task/{taskId}`、`GET /conversations/{id}/messages`、`GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file` 需要 `agent:read`。
 
-- `GET /conversations` 最近活动的排在前面；`GET /conversations/by-task/{taskId}` 按开始时间正序。
+- `GET /conversations` 返回**侧栏拓扑**：`{ collections: [{ id, name, updatedAt, conversationCount, conversations }], ungrouped }`。合集与「没归类」两区都只有自己的，各按最近活动倒序；每个合集内嵌最近 10 段，`ungrouped` 给最近 20 条，空合集也在列表里（`conversationCount` 为 0）。
+- `GET /conversations/search?q=` 按标题搜自己的对话，返回扁平列表，最近活动的排在前面；`GET /conversations/by-task/{taskId}` 按开始时间正序。
 - `lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`），刷新页面后拿它去续读那条流。
-- **可见性**：只看得到自己的对话，别人的一律 `404`，不返 `403`。治理者也没有看别人对话的口子。按需求单列尝试同一口径：只列自己的。
+- **可见性**：只看得到自己的对话，别人的一律 `404`，不返 `403`。按需求单列尝试同一口径：只列自己的。
 - 删除对话时，**agent 在这段对话里写下的工作区文件一并删除**；`agent_runtime` 里的运行记录留着。
 - 工作区文件只读，没有推送：`version` 变了内容才变，客户端按它决定要不要重读正文。什么时候重拉列表由客户端定，事件流里每有一个工具调用出结果就拉一次。
 
 ### 两处归属
 
-`taskId` 说的是这段对话为哪张需求单而开，`projectId` 说的是它放在哪个项目里。两个都可以不给。
+`taskId` 说的是这段对话记在哪张需求单下，`collectionId` 说的是它放在哪个合集里。两个都可以不给，都可以随时改。
 
-- **一张单下面可以有好几段对话**，每段就是一次尝试；第几次按 `createdAt` 排。
-- `taskId` 只在开对话时给，之后不改。`projectId` 随时能换（`PUT .../project`），**一段对话最多待在一个项目里**。
+- **一张单下面可以有好几段对话**，每段就是一次尝试；第几次按 `createdAt` 排——事后补挂的老对话会按它自己的开始时刻插到前面去。
+- `taskId` 用 `PUT .../task` 改，`collectionId` 用 `PUT .../collection` 改，给 `null` 就是摘掉；**一段对话最多挂一张单、最多待在一个合集里**。
 - 两处都给不存在的 id 是 `422`。
-- `projectId` **不要求是那张单挂过的项目**。
-- **删项目、删需求单都不带走对话**，只把对话上那一列置空。
+- 两处归属互不要求：对话在哪个合集里，与它记在哪张单下无关。
+- **删合集、删需求单都不带走对话**，只把对话上那一列置空。
+
+### 治理者复盘
+
+内部平台要按单、按人复盘创作质量，所以持 `users:manage` 的治理者读得到别人的对话——**只读**，改名、换归属、删除、发消息一律仍限属主（别人的对话对写入路径就是不存在）。
+
+- `GET /conversations/audit` 列全平台的对话，按最近活动倒序。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `updatedAt` 上），可任意组合；没有 `users:manage` 是 `403`。
+- 翻页给 `limit` 与 `cursor`：`cursor` 原样回传响应里的 `nextCursor`，为 `null` 表示没有更多了。自己编一个形状不对的是 `422`。
+- `GET /conversations/{id}/messages`、`.../workspace/files`、`.../workspace/file` 对治理者同样放行；`GET /conversations` 与 `GET /conversations/search` 不放行——那是工作台，不是审计台。
 
 ### 读历史
 
@@ -102,23 +111,24 @@
 - **`styleWms` 不是 `styleNo` 的别名。** 它是同一个款在 WMS 那边的编号，两套编码不通用；要按款去别的系统查东西时用它。
 - 款号不存在、或已被上游标记删除，一律 `404`。
 
-## 8. 项目 (Projects)
+## 8. 合集 (Collections)
 
-**权限**：`GET /projects`、`GET /projects/{id}` 需要 `projects:read`；`POST /projects`、`PATCH /projects/{id}`、`DELETE /projects/{id}` 需要 `projects:write`。
+**权限**：`GET /collections`、`GET /collections/{id}` 需要 `collections:read`；`POST /collections`、`PATCH /collections/{id}`、`DELETE /collections/{id}` 需要 `collections:write`。
 
-- **可见性**：项目没有属主，谁有 `projects:read` 谁就看得见全部；`404` 只意味着这个项目不存在。
-- `GET /projects` 最近改动的排在前面。
-- **创建者取自登录身份**，请求体里带 `creatorUserId` 一律 `422`。
-- **修改权限**：改名任何持 `projects:write` 的人都能做；删除只有开它的人或治理者能做，其他人 `403`。
-- **删项目不带走任何东西**：需求单那边的关联消失，对话那边只是 `projectId` 变 `null`。
+- **可见性**：合集有属主，只看得见自己的，别人的一律 `404`（读、改名、删除都是）。
+- `GET /collections` 默认只列自己的，最近改动的排在前面；`?scope=all` 是治理者的全量视图，需要 `users:manage`，否则 `403`。翻页用 `limit` 与 `offset`。
+- **合集只装对话，不挂需求单。** 需求单与对话之间是直接的那一条关系（见 §6）。
+- **属主取自登录身份**，请求体里带 `ownerUserId` 一类字段一律 `422`。
+- **删合集不带走对话**：对话那边只是 `collectionId` 变 `null`。
 
 ## 9. 创作需求单 (Tasks)
 
-**权限**：`GET /tasks`、`GET /tasks/{id}`、`GET /tasks/{id}/projects` 需要 `tasks:read`；`POST /tasks`、`PUT /tasks/{id}`、`POST /tasks/{id}/publish`、`POST /tasks/{id}/confirm`、`POST /tasks/{id}/withdraw`、`PUT /tasks/{id}/projects`、`DELETE /tasks/{id}` 需要 `tasks:write`。
+**权限**：`GET /tasks`、`GET /tasks/{id}` 需要 `tasks:read`；`POST /tasks`、`PUT /tasks/{id}`、`POST /tasks/{id}/publish`、`POST /tasks/{id}/confirm`、`POST /tasks/{id}/withdraw`、`DELETE /tasks/{id}` 需要 `tasks:write`。
 
 - **可见性**：需求单没有属主，谁有 `tasks:read` 谁就看得见全部；看得见但不让改返回 `403`，`404` 只意味着这张单子不存在。
 - `GET /tasks` 最近改动的排在前面。
-- `PUT /tasks/{id}` 与 `PUT /tasks/{id}/projects` 都是**整体覆盖**（不是局部合并）；`PUT /tasks/{id}/projects` 给 `{ projectIds: [] }` 就是全部取消，重复的 id 落库时去重，给不存在的项目 `422`。
+- `PUT /tasks/{id}` 是**整体覆盖**，不是局部合并。
+- **需求单不挂合集。** 单与对话之间是直接的那一条关系（见 §6）：一张单下面有几段对话，就是有人为它开过几段。
 - **创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`。
 
 ### 款号

@@ -31,7 +31,7 @@ async def test_issue_bearer_call_and_revoke(
 ) -> None:
     async with _root_client(app, client, migrated_pg) as root:
         created = await root.post(
-            "/api-keys", json={"name": "ci", "permissions": ["projects:read", "agent:read"]}
+            "/api-keys", json={"name": "ci", "permissions": ["collections:read", "agent:read"]}
         )
         assert created.status_code == 201, created.text
         payload = created.json()["apiKey"]
@@ -51,7 +51,7 @@ async def test_issue_bearer_call_and_revoke(
         async with make_client(app) as machine:
             me = await machine.get("/users/me", headers={"Authorization": f"Bearer {token}"})
             assert me.status_code == 200
-            assert set(me.json()["user"]["permissions"]) == {"projects:read", "agent:read"}
+            assert set(me.json()["user"]["permissions"]) == {"collections:read", "agent:read"}
 
             revoked = await root.delete(f"/api-keys/{payload['id']}")
             assert revoked.status_code == 204
@@ -62,7 +62,7 @@ async def test_issue_bearer_call_and_revoke(
 
 async def test_non_root_cannot_issue_keys(client: httpx.AsyncClient) -> None:
     await register_and_login(client)  # 密码注册默认 viewer，无 api_keys:issue
-    denied = await client.post("/api-keys", json={"name": "k", "permissions": ["projects:read"]})
+    denied = await client.post("/api-keys", json={"name": "k", "permissions": ["collections:read"]})
     assert denied.status_code == 403
 
 

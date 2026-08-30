@@ -23,7 +23,7 @@ export const mockAuthUser = {
   isActive: true,
   jobTitle: '',
   lastLoginAt: null,
-  permissions: ['projects:read', 'projects:write', 'tasks:read', 'tasks:write'],
+  permissions: ['collections:read', 'collections:write', 'tasks:read', 'tasks:write'],
   roles: ['editor'],
   username: 'tester',
 }
@@ -39,10 +39,11 @@ export const resetMockSession = () => {
 // 对话的内存存储：形状即合同 ConversationOut。搜索按标题过滤，跟后端一样不分大小写。
 type MockConversation = {
   agentId: string
+  collectionId: string | null
   createdAt: string
   id: string
   lastRunId: string | null
-  projectId: string | null
+  ownerUserId: string
   taskId: string | null
   title: string
   updatedAt: string
@@ -60,10 +61,11 @@ export const mockConversations: MockConversation[] = []
 export const addMockConversation = (title: string, updatedAt = new Date().toISOString()) => {
   const conversation: MockConversation = {
     agentId: 'storyboard',
+    collectionId: null,
     createdAt: updatedAt,
     id: crypto.randomUUID(),
     lastRunId: null,
-    projectId: null,
+    ownerUserId: mockAuthUser.id,
     taskId: null,
     title,
     updatedAt,
@@ -123,8 +125,8 @@ export const handlers = [
   http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
 
   // ── conversations（src/features/conversations/conversations.api.ts）──────
-  // GET /conversations：我的对话，最近活动倒序；带 q 就按标题筛（后端是 ILIKE，这里同样不分大小写）。
-  http.get('*/api/conversations', ({ request }) => {
+  // GET /conversations/search：按标题搜我的对话，最近活动倒序（后端是 ILIKE，这里同样不分大小写）。
+  http.get('*/api/conversations/search', ({ request }) => {
     const keyword = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase()
     const items = [...mockConversations]
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))

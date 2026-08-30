@@ -36,7 +36,7 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 - `src/shared/**` 只放领域无关的共用能力，不得反向依赖 `features`；`src/testing/**` 是测试基建，业务代码不得引用。
 - 后端 REST 请求一律经 `apiFetch(path, schema)`（`@/shared/api/client`，响应在边界处过 zod）；裸 fetch 仅限两类非 REST 场景：OSS 预签名直传 PUT、外链素材下载。
 - 构建期代码（vite 代理、dev profile）放 `vite/`，归 `tsconfig.node.json`；`src/` 不带 Node 类型。
-- 没有登录页：未登录能进首页，需要登录的动作调 `useLoginPrompt()` 弹登录框；整页都要求登录的页面（当前只有任务页）用 `beforeLoad` + `ensureSessionUser()` 守卫，未登录 redirect 回 `/`（[ADR-0002](docs/adr/0002-login-dialog-no-login-page.md)）。任意接口 401 / 403 都先强刷 `/users/me` 再重算路由（`src/app/router.tsx`），页面就地退回未登录形态，接口自身的错误文案由调用方就地展示。
+- 没有登录页：未登录能进首页，需要登录的动作调 `useLoginPrompt()` 弹登录框；整页都要求登录的页面（当前只有需求单页）用 `beforeLoad` + `ensureSessionUser()` 守卫，未登录 redirect 回 `/`（[ADR-0002](docs/adr/0002-login-dialog-no-login-page.md)）。任意接口 401 / 403 都先强刷 `/users/me` 再重算路由（`src/app/router.tsx`），页面就地退回未登录形态，接口自身的错误文案由调用方就地展示。
 - 后端缺的字段保留 `null` / `undefined`，不在前端补默认值。
 - **schema 来自生成契约**：`src/shared/api/generated/zod.gen.ts` 由 `contract/openapi.json` 生成，端点形状不手写。业务约束（非空、互斥之类合同表达不了的）用 `.refine()` 叠在生成 schema 上。
 - 文件名 kebab-case、只用具名导出（`routes/` 按 TanStack 约定命名，不在此列）。

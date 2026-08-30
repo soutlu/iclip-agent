@@ -43,7 +43,7 @@ describe('ConversationSearchDialog', () => {
 
   it('接口出错时把后端的错误文案就地显示出来', async () => {
     server.use(
-      http.get('*/api/conversations', () =>
+      http.get('*/api/conversations/search', () =>
         HttpResponse.json({ detail: '搜索服务不可用' }, { status: 503 }),
       ),
     )

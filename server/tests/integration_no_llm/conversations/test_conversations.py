@@ -17,6 +17,7 @@ from tests.integration_no_llm.conftest import (
 )
 
 URL = "/conversations"
+SEARCH = f"{URL}/search"
 AGENT_ID = "storyboard"
 
 
@@ -40,7 +41,7 @@ async def test_viewer_cannot_open_a_conversation(client: httpx.AsyncClient) -> N
 
     await register_and_login(client)
     opened = await create(client)
-    listed = await client.get(URL)
+    listed = await client.get(SEARCH)
 
     assert opened.status_code == 403
     assert (listed.status_code, listed.json()) == (200, {"items": []})
@@ -61,12 +62,12 @@ async def test_open_list_rename_delete(client: httpx.AsyncClient, pg_url: str) -
     assert renamed.status_code == 200
     assert renamed.json()["conversation"]["title"] == "开场那段"
 
-    listed = await client.get(URL)
+    listed = await client.get(SEARCH)
     assert [item["title"] for item in listed.json()["items"]] == ["开场那段"]
 
     removed = await client.delete(f"{URL}/{conversation['id']}")
     assert removed.status_code == 204
-    assert (await client.get(URL)).json()["items"] == []
+    assert (await client.get(SEARCH)).json()["items"] == []
 
 
 async def test_title_can_be_given_at_creation(client: httpx.AsyncClient, pg_url: str) -> None:
@@ -82,7 +83,7 @@ async def test_list_is_most_recent_first(client: httpx.AsyncClient, pg_url: str)
     # 改名也算一次活动：它把「早的」顶回最前面。
     await client.patch(f"{URL}/{first['id']}", json={"title": "又动过的"})
 
-    listed = await client.get(URL)
+    listed = await client.get(SEARCH)
     assert [item["title"] for item in listed.json()["items"]] == ["又动过的", "晚的"]
 
 
@@ -92,12 +93,12 @@ async def test_list_can_be_searched_by_title(client: httpx.AsyncClient, pg_url: 
     await create(client, title="通勤背包短视频")
     await create(client, title="亚麻衬衫二剪")
 
-    hit = await client.get(URL, params={"q": "亚麻"})
+    hit = await client.get(SEARCH, params={"q": "亚麻"})
     # 命中仍按最近活动倒序
     assert [item["title"] for item in hit.json()["items"]] == ["亚麻衬衫二剪", "夏季亚麻系列广告"]
     # % 是普通字符不是通配符；只给空白等于没筛
-    assert (await client.get(URL, params={"q": "%"})).json()["items"] == []
-    assert len((await client.get(URL, params={"q": "  "})).json()["items"]) == 3
+    assert (await client.get(SEARCH, params={"q": "%"})).json()["items"] == []
+    assert len((await client.get(SEARCH, params={"q": "  "})).json()["items"]) == 3
 
 
 async def test_search_only_covers_my_own_conversations(
@@ -108,7 +109,7 @@ async def test_search_only_covers_my_own_conversations(
 
     async with make_client(app) as other:
         await login_as_editor(other, pg_url, username="mia")
-        assert (await other.get(URL, params={"q": "亚麻"})).json()["items"] == []
+        assert (await other.get(SEARCH, params={"q": "亚麻"})).json()["items"] == []
 
 
 async def test_another_users_conversation_is_invisible(
@@ -121,7 +122,7 @@ async def test_another_users_conversation_is_invisible(
 
     async with make_client(app) as other:
         await login_as_editor(other, pg_url, username="mallory")
-        listed = await other.get(URL)
+        listed = await other.get(SEARCH)
         renamed = await other.patch(f"{URL}/{mine}", json={"title": "归我了"})
         removed = await other.delete(f"{URL}/{mine}")
 

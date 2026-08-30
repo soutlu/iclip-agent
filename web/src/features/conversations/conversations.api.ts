@@ -17,7 +17,7 @@ export const conversationsQueryKeys = {
 /** 按标题搜自己的对话，最近活动的排前面。筛选在服务端做，搜得到全部历史而不只是最近几十段。 */
 export const searchConversations = async (keyword: string): Promise<Conversation[]> =>
   apiFetch(
-    `/conversations?q=${encodeURIComponent(keyword)}&limit=${SEARCH_LIMIT}`,
+    `/conversations/search?q=${encodeURIComponent(keyword)}&limit=${SEARCH_LIMIT}`,
     conversationsPageSchema,
     { cache: 'no-store', fallbackErrorMessage: '搜索对话失败' },
   )
