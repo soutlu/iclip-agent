@@ -33,7 +33,7 @@ const DEMO_SESSIONS: Record<
 }
 
 /**
- * 应用侧栏：每页共享的外壳（品牌区、新建任务 / 搜索 / 任务 / 资料库入口、会话分段与列表、账户区）。
+ * 应用侧栏：每页共享的外壳（品牌区、新建任务 / 搜索 / 需求单 / 资料库入口、会话分段与列表、账户区）。
  *
  * 结构对齐 Kimi Code Web 的侧栏：264 宽、可折叠为 0（折叠后主区左上浮出展开钮）、
  * kbd 快捷键提示只在 hover 行时淡入；会话区用分段 tab（进行中 / 已完成 / 工作空间），
@@ -106,7 +106,7 @@ export function AppSidebar() {
         <SidebarAction
           active={pathname === '/tasks'}
           icon="task"
-          label="任务"
+          label="需求单"
           onClick={user ? () => navigate({ to: '/tasks' }) : requireLogin}
         />
         <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />

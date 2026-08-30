@@ -89,7 +89,7 @@ const formOf = (task: Task): FormState => ({
 })
 
 /**
- * 项目弹窗：新建与详情/补充共用。
+ * 需求单弹窗：新建与详情/补充共用。
  *
  * 详情模式先拉全量再整体 PUT 回去（后端 PUT 是整体覆盖，不带上的字段会被清空）；
  * 可编辑范围随状态收窄：草稿全可改，下发后只剩管理信息与 PLANNER 字段，撤回只读。
@@ -104,12 +104,12 @@ export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
 
   return (
     <DialogRoot open={open} onOpenChange={onOpenChange}>
-      <DialogSurface aria-label={isCreate ? '新建项目' : '项目详情'}>
+      <DialogSurface aria-label={isCreate ? '新建需求单' : '需求单详情'}>
         <DialogHeader
           actions={task ? <TaskStatusTag status={task.status} /> : undefined}
           className="h-(--layout-dialog-header-height) items-center border-b-0 px-6 py-0"
           closeLabel="关闭"
-          title={isCreate ? '新建项目' : (task?.title ?? '项目详情')}
+          title={isCreate ? '新建需求单' : (task?.title ?? '需求单详情')}
         />
         {open &&
           (isCreate || task ? (
@@ -147,7 +147,7 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
     mutationFn: createTask,
     onError: showError,
     onSuccess: () => {
-      toast.success('项目已创建')
+      toast.success('需求单已创建')
       void invalidateTasks()
       onOpenChange(false)
     },
@@ -237,14 +237,14 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
     <>
       <DialogBody className="px-6 pt-2.5 pb-6">
         <div className="flex flex-col gap-3.5">
-          <Field label="项目名称" required>
+          <Field label="需求单名称" required>
             <Input
-              aria-label="项目名称"
+              aria-label="需求单名称"
               className={COMPACT_FIELD}
               disabled={!editable('title')}
               maxLength={200}
               onChange={(e) => patch({ title: e.target.value })}
-              placeholder="请输入项目名称"
+              placeholder="请输入需求单名称"
               value={form.title}
             />
             <span
@@ -262,7 +262,7 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
               className="resize-none rounded-sm"
               disabled={!editable('requirementDescription')}
               onChange={(e) => patch({ requirementDescription: e.target.value })}
-              placeholder="提供当前项目的背景信息和创作要求，让输出更精准、更符合要求。比如：项目目标、风格偏好、目标受众、输出约束等"
+              placeholder="提供这次创作的背景信息和要求，让输出更精准、更符合要求。比如：创作目标、风格偏好、目标受众、输出约束等"
               rows={5}
               value={form.requirementDescription}
             />

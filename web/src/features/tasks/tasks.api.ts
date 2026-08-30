@@ -20,26 +20,26 @@ export const tasksQueryKeys = {
 export const listAllTasks = async (): Promise<Task[]> =>
   apiFetch('/tasks?limit=100', tasksPageSchema, {
     cache: 'no-store',
-    fallbackErrorMessage: '读取项目列表失败',
+    fallbackErrorMessage: '读取需求单列表失败',
   })
 
-/** 「我的项目」：我认领过的需求单。认领人由服务端从会话身份取，前端不传 id。 */
+/** 「我的需求单」：我认领过的那些。认领人由服务端从会话身份取，前端不传 id。 */
 export const listMyTasks = async (): Promise<Task[]> =>
   apiFetch('/tasks?claimedBy=me&limit=100', tasksPageSchema, {
     cache: 'no-store',
-    fallbackErrorMessage: '读取我的项目失败',
+    fallbackErrorMessage: '读取我的需求单失败',
   })
 
 export const getTask = async (taskId: string): Promise<Task> =>
   apiFetch(`/tasks/${taskId}`, taskEnvelopeSchema, {
     cache: 'no-store',
-    fallbackErrorMessage: '读取项目失败',
+    fallbackErrorMessage: '读取需求单失败',
   })
 
 export const createTask = async (body: TaskCreateIn): Promise<Task> =>
   apiFetch('/tasks', taskEnvelopeSchema, {
     body,
-    fallbackErrorMessage: '新建项目失败',
+    fallbackErrorMessage: '新建需求单失败',
     method: 'POST',
   })
 
@@ -47,7 +47,7 @@ export const createTask = async (body: TaskCreateIn): Promise<Task> =>
 export const saveTask = async (taskId: string, body: TaskIn): Promise<Task> =>
   apiFetch(`/tasks/${taskId}`, taskEnvelopeSchema, {
     body,
-    fallbackErrorMessage: '保存项目失败',
+    fallbackErrorMessage: '保存需求单失败',
     method: 'PUT',
   })
 

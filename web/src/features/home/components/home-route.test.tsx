@@ -23,7 +23,7 @@ describe('HomeRoute', () => {
     expect(screen.getByRole('heading', { name: 'Cue' })).toBeVisible()
     expect(screen.getByLabelText('输入消息')).toBeVisible()
     expect(screen.getByRole('button', { name: '添加' })).toBeVisible()
-    expect(screen.getByText('未关联项目')).toBeVisible()
+    expect(screen.getByText('未关联合集')).toBeVisible()
   })
 
   it('空输入时发送钮禁用，输入后放开', async () => {

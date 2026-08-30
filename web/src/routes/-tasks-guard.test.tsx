@@ -48,7 +48,7 @@ afterEach(() => {
   queryClient.clear()
 })
 
-describe('任务页登录守卫', () => {
+describe('需求单页登录守卫', () => {
   it('未登录直接访问 /tasks 时挡回首页', async () => {
     const router = await renderAt('/tasks')
 
@@ -56,12 +56,12 @@ describe('任务页登录守卫', () => {
     expect(await screen.findByLabelText('输入消息')).toBeVisible()
   })
 
-  it('已登录时正常进入任务页', async () => {
+  it('已登录时正常进入需求单页', async () => {
     server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
 
     const router = await renderAt('/tasks')
 
     expect(router.state.location.pathname).toBe('/tasks')
-    expect(await screen.findByRole('heading', { name: '项目' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '需求单' })).toBeVisible()
   })
 })
