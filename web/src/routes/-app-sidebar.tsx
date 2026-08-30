@@ -91,10 +91,13 @@ export function AppSidebar() {
         <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />
       </nav>
 
+      {/* 未登录也要把中间撑满，否则底部账户区会顶到导航底下 */}
       {user ? (
         <SidebarConversations />
       ) : (
-        <p className="px-4 pt-4 text-body-sm text-on-surface-variant">登录后查看对话</p>
+        <div className="min-h-0 flex-1 px-4 pt-4">
+          <p className="text-body-sm text-on-surface-variant">登录后查看对话</p>
+        </div>
       )}
 
       <div className="flex items-center justify-between gap-2 border-t border-border p-2">
