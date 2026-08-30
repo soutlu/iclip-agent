@@ -1,15 +1,39 @@
 """对话的持久化端口。
 
-只按属主读写，没有「治理者看全部」的口子：对话不是审计对象，而且「能看别人的对话」
-很容易滑成「能在别人的对话里跑 agent」——那会把工作区也一并交出去。
+每个方法都收一个 ``owner``：对话只对属主可见。读取那几个允许给 ``None`` 表示不按属主
+过滤，那是治理者的审计视图专用——调用方必须先验过权限，这一层只照办。写入没有这个
+口子：改名、换归属、删除、记运行一律按属主。
 """
 
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from iclip.domains.conversations.models import Conversation
+
+
+@dataclass(frozen=True, slots=True)
+class CollectionConversations:
+    """一个合集里的对话：总条数，加最近的那几段。"""
+
+    collection_id: uuid.UUID
+    total: int
+    conversations: tuple[Conversation, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AuditCursor:
+    """审计列表的翻页位置：上一页最后一行的排序键。
+
+    用排序键而不是 offset：全平台的对话量往后翻会越翻越慢，而且翻页期间有新对话进来
+    会让某些行被跳过。
+    """
+
+    updated_at: datetime
+    conversation_id: uuid.UUID
 
 
 class ConversationRepository(Protocol):
@@ -19,7 +43,7 @@ class ConversationRepository(Protocol):
         """插入一行新对话，返回落库后的整行。"""
         ...
 
-    async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> Conversation:
+    async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:
         """按 id 读一行；不是这个人的一律抛 ``NotFound``（不泄露它存不存在）。"""
         ...
 
@@ -27,6 +51,19 @@ class ConversationRepository(Protocol):
         self, *, owner: uuid.UUID, limit: int, title_contains: str | None = None
     ) -> tuple[Conversation, ...]:
         """按最近活动倒序列出这个人的对话；给了 ``title_contains`` 就只留标题含它的（不分大小写）。"""
+        ...
+
+    async def list_ungrouped(self, *, owner: uuid.UUID, limit: int) -> tuple[Conversation, ...]:
+        """按最近活动倒序列出这个人没进合集的对话。"""
+        ...
+
+    async def list_by_collections(
+        self, *, owner: uuid.UUID, collection_ids: tuple[uuid.UUID, ...], per_collection: int
+    ) -> tuple[CollectionConversations, ...]:
+        """一次取回这几个合集各自的条数与最近几段对话。
+
+        一条语句办完：条数与「最近几段」都由窗口函数在库里算，不按合集逐个查。
+        """
         ...
 
     async def list_for_task(
@@ -38,19 +75,38 @@ class ConversationRepository(Protocol):
         """
         ...
 
+    async def list_audit(
+        self,
+        *,
+        owner: uuid.UUID | None = None,
+        task_id: uuid.UUID | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int,
+        after: AuditCursor | None = None,
+    ) -> tuple[Conversation, ...]:
+        """跨属主列出对话，按最近活动倒序。四个筛选条件都可以不给，可以任意组合。"""
+        ...
+
     async def rename(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, title: str
     ) -> Conversation:
         """改名，返回改完的整行。"""
         ...
 
-    async def set_project(
-        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, project_id: uuid.UUID | None
+    async def set_collection(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, collection_id: uuid.UUID | None
     ) -> Conversation:
-        """换个项目，或者给 ``None`` 把它拿出来。返回改完的整行。
+        """换个合集，或者给 ``None`` 把它拿出来。返回改完的整行。
 
-        项目不存在时抛 ``ValidationFailed``——那是外键挡下来的，这一层不认识项目表。
+        合集不存在时抛 ``ValidationFailed``——那是外键挡下来的，这一层不认识合集表。
         """
+        ...
+
+    async def set_task(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, task_id: uuid.UUID | None
+    ) -> Conversation:
+        """记在某张需求单下，或者给 ``None`` 摘掉。返回改完的整行。"""
         ...
 
     async def delete(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> None:
@@ -69,4 +125,4 @@ class ConversationRepository(Protocol):
         ...
 
 
-__all__ = ["ConversationRepository"]
+__all__ = ["AuditCursor", "CollectionConversations", "ConversationRepository"]

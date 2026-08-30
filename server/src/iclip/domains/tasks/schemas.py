@@ -34,8 +34,6 @@ MIN_DURATION_SECONDS: Final = 3
 MAX_DURATION_SECONDS: Final = 50
 DEFAULT_LIST_LIMIT: Final = 20
 MAX_LIST_LIMIT: Final = 100
-# 一张单能算在几个项目里。给个上限只为挡住「一次贴几千个」这种请求。
-MAX_TASK_PROJECTS: Final = 20
 
 TaskRatio = Literal["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"]
 """需求方期望的画幅。这是需求单上的一句要求，不是某家生成接口的参数——所以它在这里
@@ -215,19 +213,6 @@ class TasksPageOut(CamelModel):
     items: list[TaskOut]
 
 
-class TaskProjectsIn(CamelModel):
-    """这张单算在哪几个项目里。**整体覆盖**，给空数组就是全部取消。
-
-    重复的 id 不算错——「挂两遍」和「挂一遍」是同一件事，落库时去重。
-    """
-
-    project_ids: Annotated[list[uuid.UUID], Field(max_length=MAX_TASK_PROJECTS)]
-
-
-class TaskProjectsOut(CamelModel):
-    project_ids: list[uuid.UUID]
-
-
 def task_out(task: Task) -> TaskOut:
     """领域行 → wire 形状。"""
 
@@ -256,7 +241,6 @@ __all__ = [
     "MAX_SHORT_TEXT_CHARS",
     "MAX_STYLE_NOS",
     "MAX_STYLE_NO_CHARS",
-    "MAX_TASK_PROJECTS",
     "MAX_TITLE_CHARS",
     "MIN_DURATION_SECONDS",
     "PLANNER_FIELDS",
@@ -265,8 +249,6 @@ __all__ = [
     "TaskEnvelope",
     "TaskIn",
     "TaskOut",
-    "TaskProjectsIn",
-    "TaskProjectsOut",
     "TaskRatio",
     "TaskStyle",
     "TasksPageOut",

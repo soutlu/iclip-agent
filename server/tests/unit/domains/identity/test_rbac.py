@@ -31,7 +31,7 @@ def test_editor_lacks_exactly_root_only_permissions() -> None:
 
 def test_viewer_is_read_only_plus_agent_read() -> None:
     assert ROLE_PERMISSIONS["viewer"] == {
-        "projects:read",
+        "collections:read",
         "tasks:read",
         "assets:read",
         "generation:read",

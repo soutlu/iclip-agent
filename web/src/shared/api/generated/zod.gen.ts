@@ -126,6 +126,40 @@ export const zCategoryOut = z.object({
 })
 
 /**
+ * CollectionIn
+ *
+ * 新建或改名。名字必填——没名字的口袋没法认。
+ */
+export const zCollectionIn = z.object({
+  name: z.string().min(1).max(200),
+})
+
+/**
+ * CollectionOut
+ */
+export const zCollectionOut = z.object({
+  createdAt: z.iso.datetime(),
+  id: z.uuid(),
+  name: z.string(),
+  ownerUserId: z.uuid(),
+  updatedAt: z.iso.datetime(),
+})
+
+/**
+ * CollectionEnvelope
+ */
+export const zCollectionEnvelope = z.object({
+  collection: zCollectionOut,
+})
+
+/**
+ * CollectionsPageOut
+ */
+export const zCollectionsPageOut = z.object({
+  items: z.array(zCollectionOut),
+})
+
+/**
  * ColorGroupOut
  */
 export const zColorGroupOut = z.object({
@@ -141,6 +175,18 @@ export const zColorOut = z.object({
   group: zColorGroupOut.nullable(),
   name: z.string(),
   rgb: z.string().nullable(),
+})
+
+/**
+ * ConversationCollectionIn
+ *
+ * 把这段对话放进某个合集，或者拿出来（给 ``null``）。
+ *
+ * 单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON
+ * 里长得一样，分不出来。
+ */
+export const zConversationCollectionIn = z.object({
+  collectionId: z.uuid().nullable(),
 })
 
 /**
@@ -183,12 +229,12 @@ export const zConversationFilesOut = z.object({
  *
  * 新建一段对话。不给名字就用默认名。
  *
- * ``taskId`` 只在这里给：它说的是这段对话的由来，开完就定了。``projectId`` 之后还能
- * 换（见 ``ConversationProjectIn``）。两个都不给就是「直接开始创作」。
+ * 两处归属都可以先不给，之后再挂（见 ``ConversationTaskIn`` 与
+ * ``ConversationCollectionIn``）。
  */
 export const zConversationIn = z.object({
   agentId: z.string().min(1).max(128),
-  projectId: z.uuid().nullish(),
+  collectionId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
   title: z.string().min(1).max(200).nullish(),
 })
@@ -210,10 +256,11 @@ export const zConversationMessagesOut = z.object({
  */
 export const zConversationOut = z.object({
   agentId: z.string(),
+  collectionId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   id: z.uuid(),
   lastRunId: z.string().nullable(),
-  projectId: z.uuid().nullable(),
+  ownerUserId: z.uuid(),
   taskId: z.uuid().nullable(),
   title: z.string(),
   updatedAt: z.iso.datetime(),
@@ -227,22 +274,29 @@ export const zConversationEnvelope = z.object({
 })
 
 /**
- * ConversationProjectIn
- *
- * 把这段对话放进某个项目，或者拿出来（给 ``null``）。
- *
- * 单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON
- * 里长得一样，分不出来。
- */
-export const zConversationProjectIn = z.object({
-  projectId: z.uuid().nullable(),
-})
-
-/**
  * ConversationRename
  */
 export const zConversationRename = z.object({
   title: z.string().min(1).max(200),
+})
+
+/**
+ * ConversationTaskIn
+ *
+ * 把这段对话记在某张需求单下，或者摘掉（给 ``null``）。理由同上，单独一个端点。
+ */
+export const zConversationTaskIn = z.object({
+  taskId: z.uuid().nullable(),
+})
+
+/**
+ * ConversationsAuditOut
+ *
+ * 审计列表。``nextCursor`` 为空表示没有更多了。
+ */
+export const zConversationsAuditOut = z.object({
+  items: z.array(zConversationOut),
+  nextCursor: z.string().nullable(),
 })
 
 /**
@@ -384,37 +438,29 @@ export const zProductEnvelope = z.object({
 })
 
 /**
- * ProjectIn
+ * SidebarCollectionOut
  *
- * 新建或改名。名字必填——没名字的口袋没法认。
+ * 侧栏里的一个合集：元信息加最近几段对话。
+ *
+ * ``conversationCount`` 是这个合集里的全部条数，``conversations`` 只有最近几段——
+ * 展开看更多是另一次查询的事。
  */
-export const zProjectIn = z.object({
-  name: z.string().min(1).max(200),
-})
-
-/**
- * ProjectOut
- */
-export const zProjectOut = z.object({
-  createdAt: z.iso.datetime(),
-  creatorUserId: z.uuid(),
+export const zSidebarCollectionOut = z.object({
+  conversationCount: z.int(),
+  conversations: z.array(zConversationOut),
   id: z.uuid(),
   name: z.string(),
   updatedAt: z.iso.datetime(),
 })
 
 /**
- * ProjectEnvelope
+ * SidebarOut
+ *
+ * 侧栏拓扑：合集分组 + 没归类的对话。一次查询拿全，前端不再自己拼。
  */
-export const zProjectEnvelope = z.object({
-  project: zProjectOut,
-})
-
-/**
- * ProjectsPageOut
- */
-export const zProjectsPageOut = z.object({
-  items: z.array(zProjectOut),
+export const zSidebarOut = z.object({
+  collections: z.array(zSidebarCollectionOut),
+  ungrouped: z.array(zConversationOut),
 })
 
 /**
@@ -516,24 +562,6 @@ export const zTaskIn = z.object({
   deadline: z.iso.datetime().nullish(),
   priority: z.int().gte(0).lte(100).optional().default(0),
   title: z.string().min(1).max(200),
-})
-
-/**
- * TaskProjectsIn
- *
- * 这张单算在哪几个项目里。**整体覆盖**，给空数组就是全部取消。
- *
- * 重复的 id 不算错——「挂两遍」和「挂一遍」是同一件事，落库时去重。
- */
-export const zTaskProjectsIn = z.object({
-  projectIds: z.array(z.uuid()).max(20),
-})
-
-/**
- * TaskProjectsOut
- */
-export const zTaskProjectsOut = z.object({
-  projectIds: z.array(z.uuid()),
 })
 
 /**
@@ -868,15 +896,57 @@ export const zCallbackAuthSsoCallbackGetQuery = z.object({
   jwt: z.string(),
 })
 
-export const zListConversationsConversationsGetQuery = z.object({
+export const zListCollectionsCollectionsGetQuery = z.object({
+  scope: z.enum(['me', 'all']).optional().default('me'),
   limit: z.int().gte(1).lte(100).optional().default(20),
-  q: z.string().max(200).nullish(),
+  offset: z.int().gte(0).optional().default(0),
 })
 
 /**
  * Successful Response
  */
-export const zListConversationsConversationsGetResponse = zConversationsPageOut
+export const zListCollectionsCollectionsGetResponse = zCollectionsPageOut
+
+export const zCreateCollectionCollectionsPostBody = zCollectionIn
+
+/**
+ * Successful Response
+ */
+export const zCreateCollectionCollectionsPostResponse = zCollectionEnvelope
+
+export const zDeleteCollectionCollectionsCollectionIdDeletePath = z.object({
+  collection_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zDeleteCollectionCollectionsCollectionIdDeleteResponse = z.void()
+
+export const zReadCollectionCollectionsCollectionIdGetPath = z.object({
+  collection_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zReadCollectionCollectionsCollectionIdGetResponse = zCollectionEnvelope
+
+export const zRenameCollectionCollectionsCollectionIdPatchBody = zCollectionIn
+
+export const zRenameCollectionCollectionsCollectionIdPatchPath = z.object({
+  collection_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zRenameCollectionCollectionsCollectionIdPatchResponse = zCollectionEnvelope
+
+/**
+ * Successful Response
+ */
+export const zReadSidebarConversationsGetResponse = zSidebarOut
 
 export const zCreateConversationConversationsPostBody = zConversationIn
 
@@ -884,6 +954,20 @@ export const zCreateConversationConversationsPostBody = zConversationIn
  * Successful Response
  */
 export const zCreateConversationConversationsPostResponse = zConversationEnvelope
+
+export const zAuditConversationsConversationsAuditGetQuery = z.object({
+  ownerUserId: z.uuid().nullish(),
+  taskId: z.uuid().nullish(),
+  since: z.iso.datetime().nullish(),
+  until: z.iso.datetime().nullish(),
+  limit: z.int().gte(1).lte(100).optional().default(20),
+  cursor: z.string().nullish(),
+})
+
+/**
+ * Successful Response
+ */
+export const zAuditConversationsConversationsAuditGetResponse = zConversationsAuditOut
 
 export const zListTaskAttemptsConversationsByTaskTaskIdGetPath = z.object({
   task_id: z.uuid(),
@@ -893,6 +977,16 @@ export const zListTaskAttemptsConversationsByTaskTaskIdGetPath = z.object({
  * Successful Response
  */
 export const zListTaskAttemptsConversationsByTaskTaskIdGetResponse = zConversationsPageOut
+
+export const zSearchConversationsConversationsSearchGetQuery = z.object({
+  limit: z.int().gte(1).lte(100).optional().default(20),
+  q: z.string().max(200).nullish(),
+})
+
+/**
+ * Successful Response
+ */
+export const zSearchConversationsConversationsSearchGetResponse = zConversationsPageOut
 
 export const zDeleteConversationConversationsConversationIdDeletePath = z.object({
   conversation_id: z.uuid(),
@@ -914,6 +1008,19 @@ export const zRenameConversationConversationsConversationIdPatchPath = z.object(
  */
 export const zRenameConversationConversationsConversationIdPatchResponse = zConversationEnvelope
 
+export const zSetConversationCollectionConversationsConversationIdCollectionPutBody =
+  zConversationCollectionIn
+
+export const zSetConversationCollectionConversationsConversationIdCollectionPutPath = z.object({
+  conversation_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zSetConversationCollectionConversationsConversationIdCollectionPutResponse =
+  zConversationEnvelope
+
 export const zReadConversationMessagesConversationsConversationIdMessagesGetPath = z.object({
   conversation_id: z.uuid(),
 })
@@ -924,18 +1031,16 @@ export const zReadConversationMessagesConversationsConversationIdMessagesGetPath
 export const zReadConversationMessagesConversationsConversationIdMessagesGetResponse =
   zConversationMessagesOut
 
-export const zSetConversationProjectConversationsConversationIdProjectPutBody =
-  zConversationProjectIn
+export const zSetConversationTaskConversationsConversationIdTaskPutBody = zConversationTaskIn
 
-export const zSetConversationProjectConversationsConversationIdProjectPutPath = z.object({
+export const zSetConversationTaskConversationsConversationIdTaskPutPath = z.object({
   conversation_id: z.uuid(),
 })
 
 /**
  * Successful Response
  */
-export const zSetConversationProjectConversationsConversationIdProjectPutResponse =
-  zConversationEnvelope
+export const zSetConversationTaskConversationsConversationIdTaskPutResponse = zConversationEnvelope
 
 export const zReadConversationFileConversationsConversationIdWorkspaceFileGetPath = z.object({
   conversation_id: z.uuid(),
@@ -1015,51 +1120,6 @@ export const zGetProductProductsStyleNoGetPath = z.object({
  */
 export const zGetProductProductsStyleNoGetResponse = zProductEnvelope
 
-export const zListProjectsProjectsGetQuery = z.object({
-  limit: z.int().gte(1).lte(100).optional().default(20),
-})
-
-/**
- * Successful Response
- */
-export const zListProjectsProjectsGetResponse = zProjectsPageOut
-
-export const zCreateProjectProjectsPostBody = zProjectIn
-
-/**
- * Successful Response
- */
-export const zCreateProjectProjectsPostResponse = zProjectEnvelope
-
-export const zDeleteProjectProjectsProjectIdDeletePath = z.object({
-  project_id: z.uuid(),
-})
-
-/**
- * Successful Response
- */
-export const zDeleteProjectProjectsProjectIdDeleteResponse = z.void()
-
-export const zReadProjectProjectsProjectIdGetPath = z.object({
-  project_id: z.uuid(),
-})
-
-/**
- * Successful Response
- */
-export const zReadProjectProjectsProjectIdGetResponse = zProjectEnvelope
-
-export const zRenameProjectProjectsProjectIdPatchBody = zProjectIn
-
-export const zRenameProjectProjectsProjectIdPatchPath = z.object({
-  project_id: z.uuid(),
-})
-
-/**
- * Successful Response
- */
-export const zRenameProjectProjectsProjectIdPatchResponse = zProjectEnvelope
-
 export const zListTasksTasksGetQuery = z.object({
   status: z.enum(['draft', 'published', 'confirmed', 'withdrawn']).nullish(),
   limit: z.int().gte(1).lte(100).optional().default(20),
@@ -1115,26 +1175,6 @@ export const zConfirmTaskTasksTaskIdConfirmPostPath = z.object({
  * Successful Response
  */
 export const zConfirmTaskTasksTaskIdConfirmPostResponse = zTaskEnvelope
-
-export const zReadTaskProjectsTasksTaskIdProjectsGetPath = z.object({
-  task_id: z.uuid(),
-})
-
-/**
- * Successful Response
- */
-export const zReadTaskProjectsTasksTaskIdProjectsGetResponse = zTaskProjectsOut
-
-export const zSetTaskProjectsTasksTaskIdProjectsPutBody = zTaskProjectsIn
-
-export const zSetTaskProjectsTasksTaskIdProjectsPutPath = z.object({
-  task_id: z.uuid(),
-})
-
-/**
- * Successful Response
- */
-export const zSetTaskProjectsTasksTaskIdProjectsPutResponse = zTaskProjectsOut
 
 export const zPublishTaskTasksTaskIdPublishPostPath = z.object({
   task_id: z.uuid(),

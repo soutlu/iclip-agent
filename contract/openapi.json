@@ -488,6 +488,91 @@
         "title": "CategoryOut",
         "type": "object"
       },
+      "CollectionEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "$ref": "#/components/schemas/CollectionOut"
+          }
+        },
+        "required": [
+          "collection"
+        ],
+        "title": "CollectionEnvelope",
+        "type": "object"
+      },
+      "CollectionIn": {
+        "additionalProperties": false,
+        "description": "新建或改名。名字必填——没名字的口袋没法认。",
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CollectionIn",
+        "type": "object"
+      },
+      "CollectionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ownerUserId": {
+            "format": "uuid",
+            "title": "Owneruserid",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ownerUserId",
+          "name",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "CollectionOut",
+        "type": "object"
+      },
+      "CollectionsPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CollectionsPageOut",
+        "type": "object"
+      },
       "ColorGroupOut": {
         "additionalProperties": false,
         "properties": {
@@ -554,6 +639,29 @@
           "rgb"
         ],
         "title": "ColorOut",
+        "type": "object"
+      },
+      "ConversationCollectionIn": {
+        "additionalProperties": false,
+        "description": "把这段对话放进某个合集，或者拿出来（给 ``null``）。\n\n单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON\n里长得一样，分不出来。",
+        "properties": {
+          "collectionId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collectionid"
+          }
+        },
+        "required": [
+          "collectionId"
+        ],
+        "title": "ConversationCollectionIn",
         "type": "object"
       },
       "ConversationEnvelope": {
@@ -656,7 +764,7 @@
       },
       "ConversationIn": {
         "additionalProperties": false,
-        "description": "新建一段对话。不给名字就用默认名。\n\n``taskId`` 只在这里给：它说的是这段对话的由来，开完就定了。``projectId`` 之后还能\n换（见 ``ConversationProjectIn``）。两个都不给就是「直接开始创作」。",
+        "description": "新建一段对话。不给名字就用默认名。\n\n两处归属都可以先不给，之后再挂（见 ``ConversationTaskIn`` 与\n``ConversationCollectionIn``）。",
         "properties": {
           "agentId": {
             "maxLength": 128,
@@ -664,7 +772,7 @@
             "title": "Agentid",
             "type": "string"
           },
-          "projectId": {
+          "collectionId": {
             "anyOf": [
               {
                 "format": "uuid",
@@ -674,7 +782,7 @@
                 "type": "null"
               }
             ],
-            "title": "Projectid"
+            "title": "Collectionid"
           },
           "taskId": {
             "anyOf": [
@@ -734,6 +842,18 @@
             "title": "Agentid",
             "type": "string"
           },
+          "collectionId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collectionid"
+          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
@@ -755,17 +875,10 @@
             ],
             "title": "Lastrunid"
           },
-          "projectId": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Projectid"
+          "ownerUserId": {
+            "format": "uuid",
+            "title": "Owneruserid",
+            "type": "string"
           },
           "taskId": {
             "anyOf": [
@@ -791,38 +904,16 @@
         },
         "required": [
           "id",
+          "ownerUserId",
           "agentId",
           "title",
           "lastRunId",
           "taskId",
-          "projectId",
+          "collectionId",
           "createdAt",
           "updatedAt"
         ],
         "title": "ConversationOut",
-        "type": "object"
-      },
-      "ConversationProjectIn": {
-        "additionalProperties": false,
-        "description": "把这段对话放进某个项目，或者拿出来（给 ``null``）。\n\n单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON\n里长得一样，分不出来。",
-        "properties": {
-          "projectId": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Projectid"
-          }
-        },
-        "required": [
-          "projectId"
-        ],
-        "title": "ConversationProjectIn",
         "type": "object"
       },
       "ConversationRename": {
@@ -839,6 +930,59 @@
           "title"
         ],
         "title": "ConversationRename",
+        "type": "object"
+      },
+      "ConversationTaskIn": {
+        "additionalProperties": false,
+        "description": "把这段对话记在某张需求单下，或者摘掉（给 ``null``）。理由同上，单独一个端点。",
+        "properties": {
+          "taskId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taskid"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "title": "ConversationTaskIn",
+        "type": "object"
+      },
+      "ConversationsAuditOut": {
+        "additionalProperties": false,
+        "description": "审计列表。``nextCursor`` 为空表示没有更多了。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "title": "ConversationsAuditOut",
         "type": "object"
       },
       "ConversationsPageOut": {
@@ -1391,48 +1535,20 @@
         "title": "ProductOut",
         "type": "object"
       },
-      "ProjectEnvelope": {
+      "SidebarCollectionOut": {
         "additionalProperties": false,
+        "description": "侧栏里的一个合集：元信息加最近几段对话。\n\n``conversationCount`` 是这个合集里的全部条数，``conversations`` 只有最近几段——\n展开看更多是另一次查询的事。",
         "properties": {
-          "project": {
-            "$ref": "#/components/schemas/ProjectOut"
-          }
-        },
-        "required": [
-          "project"
-        ],
-        "title": "ProjectEnvelope",
-        "type": "object"
-      },
-      "ProjectIn": {
-        "additionalProperties": false,
-        "description": "新建或改名。名字必填——没名字的口袋没法认。",
-        "properties": {
-          "name": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "ProjectIn",
-        "type": "object"
-      },
-      "ProjectOut": {
-        "additionalProperties": false,
-        "properties": {
-          "createdAt": {
-            "format": "date-time",
-            "title": "Createdat",
-            "type": "string"
+          "conversationCount": {
+            "title": "Conversationcount",
+            "type": "integer"
           },
-          "creatorUserId": {
-            "format": "uuid",
-            "title": "Creatoruserid",
-            "type": "string"
+          "conversations": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationOut"
+            },
+            "title": "Conversations",
+            "type": "array"
           },
           "id": {
             "format": "uuid",
@@ -1451,29 +1567,38 @@
         },
         "required": [
           "id",
-          "creatorUserId",
           "name",
-          "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "conversationCount",
+          "conversations"
         ],
-        "title": "ProjectOut",
+        "title": "SidebarCollectionOut",
         "type": "object"
       },
-      "ProjectsPageOut": {
+      "SidebarOut": {
         "additionalProperties": false,
+        "description": "侧栏拓扑：合集分组 + 没归类的对话。一次查询拿全，前端不再自己拼。",
         "properties": {
-          "items": {
+          "collections": {
             "items": {
-              "$ref": "#/components/schemas/ProjectOut"
+              "$ref": "#/components/schemas/SidebarCollectionOut"
             },
-            "title": "Items",
+            "title": "Collections",
+            "type": "array"
+          },
+          "ungrouped": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationOut"
+            },
+            "title": "Ungrouped",
             "type": "array"
           }
         },
         "required": [
-          "items"
+          "collections",
+          "ungrouped"
         ],
-        "title": "ProjectsPageOut",
+        "title": "SidebarOut",
         "type": "object"
       },
       "SsoAuthorizeOut": {
@@ -1843,44 +1968,6 @@
           "updatedAt"
         ],
         "title": "TaskOut",
-        "type": "object"
-      },
-      "TaskProjectsIn": {
-        "additionalProperties": false,
-        "description": "这张单算在哪几个项目里。**整体覆盖**，给空数组就是全部取消。\n\n重复的 id 不算错——「挂两遍」和「挂一遍」是同一件事，落库时去重。",
-        "properties": {
-          "projectIds": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "maxItems": 20,
-            "title": "Projectids",
-            "type": "array"
-          }
-        },
-        "required": [
-          "projectIds"
-        ],
-        "title": "TaskProjectsIn",
-        "type": "object"
-      },
-      "TaskProjectsOut": {
-        "additionalProperties": false,
-        "properties": {
-          "projectIds": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Projectids",
-            "type": "array"
-          }
-        },
-        "required": [
-          "projectIds"
-        ],
-        "title": "TaskProjectsOut",
         "type": "object"
       },
       "TaskStyle": {
@@ -3335,9 +3422,482 @@
         "summary": "Callback"
       }
     },
+    "/collections": {
+      "get": {
+        "operationId": "list_collections_collections_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "me",
+              "enum": [
+                "me",
+                "all"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionsPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Collections",
+        "tags": [
+          "collections"
+        ]
+      },
+      "post": {
+        "operationId": "create_collection_collections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Collection",
+        "tags": [
+          "collections"
+        ]
+      }
+    },
+    "/collections/{collection_id}": {
+      "delete": {
+        "operationId": "delete_collection_collections__collection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Collection",
+        "tags": [
+          "collections"
+        ]
+      },
+      "get": {
+        "operationId": "read_collection_collections__collection_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Collection",
+        "tags": [
+          "collections"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_collection_collections__collection_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Collection",
+        "tags": [
+          "collections"
+        ]
+      }
+    },
     "/conversations": {
       "get": {
-        "operationId": "list_conversations_conversations_get",
+        "description": "侧栏拓扑：我的合集（各带最近几段对话）加上没归类的对话。\n\n一次返回而不是「先列合集再按合集列对话」：侧栏是一屏里的一个整体，分两次查\n会让两半在不同时刻的库状态上拼出来。",
+        "operationId": "read_sidebar_conversations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidebarOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Sidebar",
+        "tags": [
+          "conversations"
+        ]
+      },
+      "post": {
+        "operationId": "create_conversation_conversations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Conversation",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/conversations/audit": {
+      "get": {
+        "description": "治理者查全平台的对话：按人、按单、按时间段筛，最近活动的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上。",
+        "operationId": "audit_conversations_conversations_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ownerUserId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owneruserid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "taskId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Taskid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationsAuditOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Audit Conversations",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/conversations/by-task/{task_id}": {
+      "get": {
+        "description": "列出自己在这张需求单下的尝试，按开始时间正序。\n\n路径写成 ``/conversations/by-task/{id}`` 而不是 ``/tasks/{id}/conversations``：\n这是对话这一侧的查询，只看得到自己的那几段——挂在需求单下面会让人以为看到的是\n全部。查别人的走 ``/conversations/audit?taskId=``。",
+        "operationId": "list_task_attempts_conversations_by_task__task_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationsPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Task Attempts",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/conversations/search": {
+      "get": {
+        "description": "按标题搜自己的对话，最近活动的排前面。筛选在库里做，搜得到全部历史。",
+        "operationId": "search_conversations_conversations_search_get",
         "parameters": [
           {
             "in": "query",
@@ -3391,90 +3951,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Conversations",
-        "tags": [
-          "conversations"
-        ]
-      },
-      "post": {
-        "operationId": "create_conversation_conversations_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConversationIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Conversation",
-        "tags": [
-          "conversations"
-        ]
-      }
-    },
-    "/conversations/by-task/{task_id}": {
-      "get": {
-        "description": "列出自己在这张需求单下的尝试，按开始时间正序。\n\n路径写成 ``/conversations/by-task/{id}`` 而不是 ``/tasks/{id}/conversations``：\n这是对话这一侧的查询，只看得到自己的那几段——挂在需求单下面会让人以为看到的是\n全部。",
-        "operationId": "list_task_attempts_conversations_by_task__task_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "task_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Task Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationsPageOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Task Attempts",
+        "summary": "Search Conversations",
         "tags": [
           "conversations"
         ]
@@ -3567,6 +4044,59 @@
         ]
       }
     },
+    "/conversations/{conversation_id}/collection": {
+      "put": {
+        "operationId": "set_conversation_collection_conversations__conversation_id__collection_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationCollectionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Conversation Collection",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
     "/conversations/{conversation_id}/messages": {
       "get": {
         "operationId": "read_conversation_messages_conversations__conversation_id__messages_get",
@@ -3610,9 +4140,9 @@
         ]
       }
     },
-    "/conversations/{conversation_id}/project": {
+    "/conversations/{conversation_id}/task": {
       "put": {
-        "operationId": "set_conversation_project_conversations__conversation_id__project_put",
+        "operationId": "set_conversation_task_conversations__conversation_id__task_put",
         "parameters": [
           {
             "in": "path",
@@ -3629,7 +4159,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConversationProjectIn"
+                "$ref": "#/components/schemas/ConversationTaskIn"
               }
             }
           },
@@ -3657,7 +4187,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Set Conversation Project",
+        "summary": "Set Conversation Task",
         "tags": [
           "conversations"
         ]
@@ -4000,218 +4530,6 @@
         ]
       }
     },
-    "/projects": {
-      "get": {
-        "operationId": "list_projects_projects_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectsPageOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Projects",
-        "tags": [
-          "projects"
-        ]
-      },
-      "post": {
-        "operationId": "create_project_projects_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Project",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/projects/{project_id}": {
-      "delete": {
-        "operationId": "delete_project_projects__project_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Project",
-        "tags": [
-          "projects"
-        ]
-      },
-      "get": {
-        "operationId": "read_project_projects__project_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Read Project",
-        "tags": [
-          "projects"
-        ]
-      },
-      "patch": {
-        "operationId": "rename_project_projects__project_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Rename Project",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
     "/tasks": {
       "get": {
         "operationId": "list_tasks_tasks_get",
@@ -4501,101 +4819,6 @@
           }
         },
         "summary": "Confirm Task",
-        "tags": [
-          "tasks"
-        ]
-      }
-    },
-    "/tasks/{task_id}/projects": {
-      "get": {
-        "operationId": "read_task_projects_tasks__task_id__projects_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "task_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Task Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskProjectsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Read Task Projects",
-        "tags": [
-          "tasks"
-        ]
-      },
-      "put": {
-        "description": "整体覆盖这张单挂的项目。PUT 而不是 POST：给什么就是最终的那一组。",
-        "operationId": "set_task_projects_tasks__task_id__projects_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "task_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Task Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TaskProjectsIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskProjectsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Task Projects",
         "tags": [
           "tasks"
         ]

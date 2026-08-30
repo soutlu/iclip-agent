@@ -42,9 +42,16 @@ from iclip.config import (
 from iclip.domains.agents.api import create_agents_router
 from iclip.domains.assets.infra_sql import SqlAssetRepository
 from iclip.domains.assets.module import build_assets_module
+from iclip.domains.collections.infra_sql import SqlCollectionRepository
+from iclip.domains.collections.module import build_collections_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.module import build_conversations_module
-from iclip.domains.conversations.service import DerivedFile, DerivedFileContent
+from iclip.domains.conversations.service import (
+    SIDEBAR_COLLECTIONS,
+    CollectionInfo,
+    DerivedFile,
+    DerivedFileContent,
+)
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.module import GenerationModule, build_generation_module
 from iclip.domains.generation.multiflow import MultiflowSettings
@@ -60,8 +67,6 @@ from iclip.domains.inspirations.catalog_pg import PgInspirationCatalog
 from iclip.domains.inspirations.module import build_inspirations_module
 from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.products.module import build_products_module
-from iclip.domains.projects.infra_sql import SqlProjectRepository
-from iclip.domains.projects.module import build_projects_module
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
 from iclip.domains.tasks.ports import StyleSnapshots
@@ -458,14 +463,29 @@ def build_app(
 
         return await history.read(str(conversation_id))
 
+    collection_repo = SqlCollectionRepository(active_engine)
+    collections = build_collections_module(collection_repo)
+
+    async def list_owner_collections(owner: uuid.UUID) -> tuple[CollectionInfo, ...]:
+        """侧栏拓扑里那些合集的名字。
+
+        这条线只能接在组合根：分组、条数、每组最近几段都在对话表上算，只有「口袋叫
+        什么」在合集那一侧，而两个域互相不认识。
+        """
+
+        found = await collection_repo.list_recent(owner=owner, limit=SIDEBAR_COLLECTIONS)
+        return tuple(
+            CollectionInfo(id=item.id, name=item.name, updated_at=item.updated_at) for item in found
+        )
+
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
         purge_derived=purge_conversation_workspace,
         read_history=read_conversation_history,
+        list_collections=list_owner_collections,
         list_derived_files=list_conversation_files,
         read_derived_file=read_conversation_file,
     )
-    projects = build_projects_module(SqlProjectRepository(active_engine))
     # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
     # 或对象存储缺一个，就借不到——那时装个只会响亮拒绝的替代品，而不是让它悄悄记空。
     tasks = build_tasks_module(
@@ -577,7 +597,7 @@ def build_app(
         app.include_router(router)
     for router in conversations.routers:
         app.include_router(router)
-    for router in projects.routers:
+    for router in collections.routers:
         app.include_router(router)
     for router in tasks.routers:
         app.include_router(router)
@@ -602,7 +622,7 @@ def build_app(
     app.state.generation = generation
     app.state.products = products
     app.state.inspirations = inspirations
-    app.state.projects = projects
+    app.state.collections = collections
     app.state.tasks = tasks
     return app
 

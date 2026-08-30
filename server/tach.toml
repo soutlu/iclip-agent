@@ -42,15 +42,14 @@ depends_on = ["iclip.domains.identity"]
 path = "iclip.domains.conversations"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 项目：自有的表。归拢用的口袋，全公司可见（口径同需求单）。它不认识往它里面放东西
-# 的那些模块——需求单与对话各自持有指向它的那一列，方向朝它来，它不朝外看。
+# 合集：自有的表。归拢对话用的口袋，只对属主可见。它不认识往它里面放东西的那些模块
+# ——对话持有指向它的那一列，方向朝它来，它不朝外看。
 [[modules]]
-path = "iclip.domains.projects"
+path = "iclip.domains.collections"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 创作需求单：自有的表（含「这张单挂了哪些项目」那张关联表）。全公司可见的工作队列，
-# 不认识任何别的业务模块——款号快照要的产品资料与对象存储由组合根按 ports.py 的窄协议
-# 接进来；指向项目的外键写成字符串，所以这里也不依赖 projects。
+# 创作需求单：自有的表。全公司可见的工作队列，不认识任何别的业务模块——款号快照要的
+# 产品资料与对象存储由组合根按 ports.py 的窄协议接进来。
 [[modules]]
 path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.domains.identity"]
@@ -117,7 +116,7 @@ depends_on = [
     "iclip.domains.generation",
     "iclip.domains.inspirations",
     "iclip.domains.products",
-    "iclip.domains.projects",
+    "iclip.domains.collections",
     "iclip.domains.tasks",
     "iclip.harness",
     "iclip.capabilities",

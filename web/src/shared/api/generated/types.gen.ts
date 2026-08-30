@@ -251,6 +251,61 @@ export type CategoryOut = {
 }
 
 /**
+ * CollectionEnvelope
+ */
+export type CollectionEnvelope = {
+  collection: CollectionOut
+}
+
+/**
+ * CollectionIn
+ *
+ * 新建或改名。名字必填——没名字的口袋没法认。
+ */
+export type CollectionIn = {
+  /**
+   * Name
+   */
+  name: string
+}
+
+/**
+ * CollectionOut
+ */
+export type CollectionOut = {
+  /**
+   * Createdat
+   */
+  createdAt: string
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Name
+   */
+  name: string
+  /**
+   * Owneruserid
+   */
+  ownerUserId: string
+  /**
+   * Updatedat
+   */
+  updatedAt: string
+}
+
+/**
+ * CollectionsPageOut
+ */
+export type CollectionsPageOut = {
+  /**
+   * Items
+   */
+  items: Array<CollectionOut>
+}
+
+/**
  * ColorGroupOut
  */
 export type ColorGroupOut = {
@@ -281,6 +336,21 @@ export type ColorOut = {
    * Rgb
    */
   rgb: string | null
+}
+
+/**
+ * ConversationCollectionIn
+ *
+ * 把这段对话放进某个合集，或者拿出来（给 ``null``）。
+ *
+ * 单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON
+ * 里长得一样，分不出来。
+ */
+export type ConversationCollectionIn = {
+  /**
+   * Collectionid
+   */
+  collectionId: string | null
 }
 
 /**
@@ -354,8 +424,8 @@ export type ConversationFilesOut = {
  *
  * 新建一段对话。不给名字就用默认名。
  *
- * ``taskId`` 只在这里给：它说的是这段对话的由来，开完就定了。``projectId`` 之后还能
- * 换（见 ``ConversationProjectIn``）。两个都不给就是「直接开始创作」。
+ * 两处归属都可以先不给，之后再挂（见 ``ConversationTaskIn`` 与
+ * ``ConversationCollectionIn``）。
  */
 export type ConversationIn = {
   /**
@@ -363,9 +433,9 @@ export type ConversationIn = {
    */
   agentId: string
   /**
-   * Projectid
+   * Collectionid
    */
-  projectId?: string | null
+  collectionId?: string | null
   /**
    * Taskid
    */
@@ -402,6 +472,10 @@ export type ConversationOut = {
    */
   agentId: string
   /**
+   * Collectionid
+   */
+  collectionId: string | null
+  /**
    * Createdat
    */
   createdAt: string
@@ -414,9 +488,9 @@ export type ConversationOut = {
    */
   lastRunId: string | null
   /**
-   * Projectid
+   * Owneruserid
    */
-  projectId: string | null
+  ownerUserId: string
   /**
    * Taskid
    */
@@ -432,21 +506,6 @@ export type ConversationOut = {
 }
 
 /**
- * ConversationProjectIn
- *
- * 把这段对话放进某个项目，或者拿出来（给 ``null``）。
- *
- * 单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON
- * 里长得一样，分不出来。
- */
-export type ConversationProjectIn = {
-  /**
-   * Projectid
-   */
-  projectId: string | null
-}
-
-/**
  * ConversationRename
  */
 export type ConversationRename = {
@@ -454,6 +513,34 @@ export type ConversationRename = {
    * Title
    */
   title: string
+}
+
+/**
+ * ConversationTaskIn
+ *
+ * 把这段对话记在某张需求单下，或者摘掉（给 ``null``）。理由同上，单独一个端点。
+ */
+export type ConversationTaskIn = {
+  /**
+   * Taskid
+   */
+  taskId: string | null
+}
+
+/**
+ * ConversationsAuditOut
+ *
+ * 审计列表。``nextCursor`` 为空表示没有更多了。
+ */
+export type ConversationsAuditOut = {
+  /**
+   * Items
+   */
+  items: Array<ConversationOut>
+  /**
+   * Nextcursor
+   */
+  nextCursor: string | null
 }
 
 /**
@@ -764,36 +851,22 @@ export type ProductOut = {
 }
 
 /**
- * ProjectEnvelope
- */
-export type ProjectEnvelope = {
-  project: ProjectOut
-}
-
-/**
- * ProjectIn
+ * SidebarCollectionOut
  *
- * 新建或改名。名字必填——没名字的口袋没法认。
+ * 侧栏里的一个合集：元信息加最近几段对话。
+ *
+ * ``conversationCount`` 是这个合集里的全部条数，``conversations`` 只有最近几段——
+ * 展开看更多是另一次查询的事。
  */
-export type ProjectIn = {
+export type SidebarCollectionOut = {
   /**
-   * Name
+   * Conversationcount
    */
-  name: string
-}
-
-/**
- * ProjectOut
- */
-export type ProjectOut = {
+  conversationCount: number
   /**
-   * Createdat
+   * Conversations
    */
-  createdAt: string
-  /**
-   * Creatoruserid
-   */
-  creatorUserId: string
+  conversations: Array<ConversationOut>
   /**
    * Id
    */
@@ -809,13 +882,19 @@ export type ProjectOut = {
 }
 
 /**
- * ProjectsPageOut
+ * SidebarOut
+ *
+ * 侧栏拓扑：合集分组 + 没归类的对话。一次查询拿全，前端不再自己拼。
  */
-export type ProjectsPageOut = {
+export type SidebarOut = {
   /**
-   * Items
+   * Collections
    */
-  items: Array<ProjectOut>
+  collections: Array<SidebarCollectionOut>
+  /**
+   * Ungrouped
+   */
+  ungrouped: Array<ConversationOut>
 }
 
 /**
@@ -1012,30 +1091,6 @@ export type TaskOut = {
    * Updatedat
    */
   updatedAt: string
-}
-
-/**
- * TaskProjectsIn
- *
- * 这张单算在哪几个项目里。**整体覆盖**，给空数组就是全部取消。
- *
- * 重复的 id 不算错——「挂两遍」和「挂一遍」是同一件事，落库时去重。
- */
-export type TaskProjectsIn = {
-  /**
-   * Projectids
-   */
-  projectIds: Array<string>
-}
-
-/**
- * TaskProjectsOut
- */
-export type TaskProjectsOut = {
-  /**
-   * Projectids
-   */
-  projectIds: Array<string>
 }
 
 /**
@@ -1910,41 +1965,185 @@ export type CallbackAuthSsoCallbackGetResponses = {
   200: unknown
 }
 
-export type ListConversationsConversationsGetData = {
+export type ListCollectionsCollectionsGetData = {
   body?: never
   path?: never
   query?: {
+    /**
+     * Scope
+     */
+    scope?: 'me' | 'all'
     /**
      * Limit
      */
     limit?: number
     /**
-     * Q
+     * Offset
      */
-    q?: string | null
+    offset?: number
   }
-  url: '/conversations'
+  url: '/collections'
 }
 
-export type ListConversationsConversationsGetErrors = {
+export type ListCollectionsCollectionsGetErrors = {
   /**
    * Validation Error
    */
   422: HttpValidationError
 }
 
-export type ListConversationsConversationsGetError =
-  ListConversationsConversationsGetErrors[keyof ListConversationsConversationsGetErrors]
+export type ListCollectionsCollectionsGetError =
+  ListCollectionsCollectionsGetErrors[keyof ListCollectionsCollectionsGetErrors]
 
-export type ListConversationsConversationsGetResponses = {
+export type ListCollectionsCollectionsGetResponses = {
   /**
    * Successful Response
    */
-  200: ConversationsPageOut
+  200: CollectionsPageOut
 }
 
-export type ListConversationsConversationsGetResponse =
-  ListConversationsConversationsGetResponses[keyof ListConversationsConversationsGetResponses]
+export type ListCollectionsCollectionsGetResponse =
+  ListCollectionsCollectionsGetResponses[keyof ListCollectionsCollectionsGetResponses]
+
+export type CreateCollectionCollectionsPostData = {
+  body: CollectionIn
+  path?: never
+  query?: never
+  url: '/collections'
+}
+
+export type CreateCollectionCollectionsPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type CreateCollectionCollectionsPostError =
+  CreateCollectionCollectionsPostErrors[keyof CreateCollectionCollectionsPostErrors]
+
+export type CreateCollectionCollectionsPostResponses = {
+  /**
+   * Successful Response
+   */
+  201: CollectionEnvelope
+}
+
+export type CreateCollectionCollectionsPostResponse =
+  CreateCollectionCollectionsPostResponses[keyof CreateCollectionCollectionsPostResponses]
+
+export type DeleteCollectionCollectionsCollectionIdDeleteData = {
+  body?: never
+  path: {
+    /**
+     * Collection Id
+     */
+    collection_id: string
+  }
+  query?: never
+  url: '/collections/{collection_id}'
+}
+
+export type DeleteCollectionCollectionsCollectionIdDeleteErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type DeleteCollectionCollectionsCollectionIdDeleteError =
+  DeleteCollectionCollectionsCollectionIdDeleteErrors[keyof DeleteCollectionCollectionsCollectionIdDeleteErrors]
+
+export type DeleteCollectionCollectionsCollectionIdDeleteResponses = {
+  /**
+   * Successful Response
+   */
+  204: void
+}
+
+export type DeleteCollectionCollectionsCollectionIdDeleteResponse =
+  DeleteCollectionCollectionsCollectionIdDeleteResponses[keyof DeleteCollectionCollectionsCollectionIdDeleteResponses]
+
+export type ReadCollectionCollectionsCollectionIdGetData = {
+  body?: never
+  path: {
+    /**
+     * Collection Id
+     */
+    collection_id: string
+  }
+  query?: never
+  url: '/collections/{collection_id}'
+}
+
+export type ReadCollectionCollectionsCollectionIdGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ReadCollectionCollectionsCollectionIdGetError =
+  ReadCollectionCollectionsCollectionIdGetErrors[keyof ReadCollectionCollectionsCollectionIdGetErrors]
+
+export type ReadCollectionCollectionsCollectionIdGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: CollectionEnvelope
+}
+
+export type ReadCollectionCollectionsCollectionIdGetResponse =
+  ReadCollectionCollectionsCollectionIdGetResponses[keyof ReadCollectionCollectionsCollectionIdGetResponses]
+
+export type RenameCollectionCollectionsCollectionIdPatchData = {
+  body: CollectionIn
+  path: {
+    /**
+     * Collection Id
+     */
+    collection_id: string
+  }
+  query?: never
+  url: '/collections/{collection_id}'
+}
+
+export type RenameCollectionCollectionsCollectionIdPatchErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type RenameCollectionCollectionsCollectionIdPatchError =
+  RenameCollectionCollectionsCollectionIdPatchErrors[keyof RenameCollectionCollectionsCollectionIdPatchErrors]
+
+export type RenameCollectionCollectionsCollectionIdPatchResponses = {
+  /**
+   * Successful Response
+   */
+  200: CollectionEnvelope
+}
+
+export type RenameCollectionCollectionsCollectionIdPatchResponse =
+  RenameCollectionCollectionsCollectionIdPatchResponses[keyof RenameCollectionCollectionsCollectionIdPatchResponses]
+
+export type ReadSidebarConversationsGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/conversations'
+}
+
+export type ReadSidebarConversationsGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: SidebarOut
+}
+
+export type ReadSidebarConversationsGetResponse =
+  ReadSidebarConversationsGetResponses[keyof ReadSidebarConversationsGetResponses]
 
 export type CreateConversationConversationsPostData = {
   body: ConversationIn
@@ -1972,6 +2171,58 @@ export type CreateConversationConversationsPostResponses = {
 
 export type CreateConversationConversationsPostResponse =
   CreateConversationConversationsPostResponses[keyof CreateConversationConversationsPostResponses]
+
+export type AuditConversationsConversationsAuditGetData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Owneruserid
+     */
+    ownerUserId?: string | null
+    /**
+     * Taskid
+     */
+    taskId?: string | null
+    /**
+     * Since
+     */
+    since?: string | null
+    /**
+     * Until
+     */
+    until?: string | null
+    /**
+     * Limit
+     */
+    limit?: number
+    /**
+     * Cursor
+     */
+    cursor?: string | null
+  }
+  url: '/conversations/audit'
+}
+
+export type AuditConversationsConversationsAuditGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type AuditConversationsConversationsAuditGetError =
+  AuditConversationsConversationsAuditGetErrors[keyof AuditConversationsConversationsAuditGetErrors]
+
+export type AuditConversationsConversationsAuditGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: ConversationsAuditOut
+}
+
+export type AuditConversationsConversationsAuditGetResponse =
+  AuditConversationsConversationsAuditGetResponses[keyof AuditConversationsConversationsAuditGetResponses]
 
 export type ListTaskAttemptsConversationsByTaskTaskIdGetData = {
   body?: never
@@ -2004,6 +2255,42 @@ export type ListTaskAttemptsConversationsByTaskTaskIdGetResponses = {
 
 export type ListTaskAttemptsConversationsByTaskTaskIdGetResponse =
   ListTaskAttemptsConversationsByTaskTaskIdGetResponses[keyof ListTaskAttemptsConversationsByTaskTaskIdGetResponses]
+
+export type SearchConversationsConversationsSearchGetData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Limit
+     */
+    limit?: number
+    /**
+     * Q
+     */
+    q?: string | null
+  }
+  url: '/conversations/search'
+}
+
+export type SearchConversationsConversationsSearchGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SearchConversationsConversationsSearchGetError =
+  SearchConversationsConversationsSearchGetErrors[keyof SearchConversationsConversationsSearchGetErrors]
+
+export type SearchConversationsConversationsSearchGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: ConversationsPageOut
+}
+
+export type SearchConversationsConversationsSearchGetResponse =
+  SearchConversationsConversationsSearchGetResponses[keyof SearchConversationsConversationsSearchGetResponses]
 
 export type DeleteConversationConversationsConversationIdDeleteData = {
   body?: never
@@ -2069,6 +2356,38 @@ export type RenameConversationConversationsConversationIdPatchResponses = {
 export type RenameConversationConversationsConversationIdPatchResponse =
   RenameConversationConversationsConversationIdPatchResponses[keyof RenameConversationConversationsConversationIdPatchResponses]
 
+export type SetConversationCollectionConversationsConversationIdCollectionPutData = {
+  body: ConversationCollectionIn
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/collection'
+}
+
+export type SetConversationCollectionConversationsConversationIdCollectionPutErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SetConversationCollectionConversationsConversationIdCollectionPutError =
+  SetConversationCollectionConversationsConversationIdCollectionPutErrors[keyof SetConversationCollectionConversationsConversationIdCollectionPutErrors]
+
+export type SetConversationCollectionConversationsConversationIdCollectionPutResponses = {
+  /**
+   * Successful Response
+   */
+  200: ConversationEnvelope
+}
+
+export type SetConversationCollectionConversationsConversationIdCollectionPutResponse =
+  SetConversationCollectionConversationsConversationIdCollectionPutResponses[keyof SetConversationCollectionConversationsConversationIdCollectionPutResponses]
+
 export type ReadConversationMessagesConversationsConversationIdMessagesGetData = {
   body?: never
   path: {
@@ -2101,8 +2420,8 @@ export type ReadConversationMessagesConversationsConversationIdMessagesGetRespon
 export type ReadConversationMessagesConversationsConversationIdMessagesGetResponse =
   ReadConversationMessagesConversationsConversationIdMessagesGetResponses[keyof ReadConversationMessagesConversationsConversationIdMessagesGetResponses]
 
-export type SetConversationProjectConversationsConversationIdProjectPutData = {
-  body: ConversationProjectIn
+export type SetConversationTaskConversationsConversationIdTaskPutData = {
+  body: ConversationTaskIn
   path: {
     /**
      * Conversation Id
@@ -2110,28 +2429,28 @@ export type SetConversationProjectConversationsConversationIdProjectPutData = {
     conversation_id: string
   }
   query?: never
-  url: '/conversations/{conversation_id}/project'
+  url: '/conversations/{conversation_id}/task'
 }
 
-export type SetConversationProjectConversationsConversationIdProjectPutErrors = {
+export type SetConversationTaskConversationsConversationIdTaskPutErrors = {
   /**
    * Validation Error
    */
   422: HttpValidationError
 }
 
-export type SetConversationProjectConversationsConversationIdProjectPutError =
-  SetConversationProjectConversationsConversationIdProjectPutErrors[keyof SetConversationProjectConversationsConversationIdProjectPutErrors]
+export type SetConversationTaskConversationsConversationIdTaskPutError =
+  SetConversationTaskConversationsConversationIdTaskPutErrors[keyof SetConversationTaskConversationsConversationIdTaskPutErrors]
 
-export type SetConversationProjectConversationsConversationIdProjectPutResponses = {
+export type SetConversationTaskConversationsConversationIdTaskPutResponses = {
   /**
    * Successful Response
    */
   200: ConversationEnvelope
 }
 
-export type SetConversationProjectConversationsConversationIdProjectPutResponse =
-  SetConversationProjectConversationsConversationIdProjectPutResponses[keyof SetConversationProjectConversationsConversationIdProjectPutResponses]
+export type SetConversationTaskConversationsConversationIdTaskPutResponse =
+  SetConversationTaskConversationsConversationIdTaskPutResponses[keyof SetConversationTaskConversationsConversationIdTaskPutResponses]
 
 export type ReadConversationFileConversationsConversationIdWorkspaceFileGetData = {
   body?: never
@@ -2381,161 +2700,6 @@ export type GetProductProductsStyleNoGetResponses = {
 export type GetProductProductsStyleNoGetResponse =
   GetProductProductsStyleNoGetResponses[keyof GetProductProductsStyleNoGetResponses]
 
-export type ListProjectsProjectsGetData = {
-  body?: never
-  path?: never
-  query?: {
-    /**
-     * Limit
-     */
-    limit?: number
-  }
-  url: '/projects'
-}
-
-export type ListProjectsProjectsGetErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type ListProjectsProjectsGetError =
-  ListProjectsProjectsGetErrors[keyof ListProjectsProjectsGetErrors]
-
-export type ListProjectsProjectsGetResponses = {
-  /**
-   * Successful Response
-   */
-  200: ProjectsPageOut
-}
-
-export type ListProjectsProjectsGetResponse =
-  ListProjectsProjectsGetResponses[keyof ListProjectsProjectsGetResponses]
-
-export type CreateProjectProjectsPostData = {
-  body: ProjectIn
-  path?: never
-  query?: never
-  url: '/projects'
-}
-
-export type CreateProjectProjectsPostErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type CreateProjectProjectsPostError =
-  CreateProjectProjectsPostErrors[keyof CreateProjectProjectsPostErrors]
-
-export type CreateProjectProjectsPostResponses = {
-  /**
-   * Successful Response
-   */
-  201: ProjectEnvelope
-}
-
-export type CreateProjectProjectsPostResponse =
-  CreateProjectProjectsPostResponses[keyof CreateProjectProjectsPostResponses]
-
-export type DeleteProjectProjectsProjectIdDeleteData = {
-  body?: never
-  path: {
-    /**
-     * Project Id
-     */
-    project_id: string
-  }
-  query?: never
-  url: '/projects/{project_id}'
-}
-
-export type DeleteProjectProjectsProjectIdDeleteErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type DeleteProjectProjectsProjectIdDeleteError =
-  DeleteProjectProjectsProjectIdDeleteErrors[keyof DeleteProjectProjectsProjectIdDeleteErrors]
-
-export type DeleteProjectProjectsProjectIdDeleteResponses = {
-  /**
-   * Successful Response
-   */
-  204: void
-}
-
-export type DeleteProjectProjectsProjectIdDeleteResponse =
-  DeleteProjectProjectsProjectIdDeleteResponses[keyof DeleteProjectProjectsProjectIdDeleteResponses]
-
-export type ReadProjectProjectsProjectIdGetData = {
-  body?: never
-  path: {
-    /**
-     * Project Id
-     */
-    project_id: string
-  }
-  query?: never
-  url: '/projects/{project_id}'
-}
-
-export type ReadProjectProjectsProjectIdGetErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type ReadProjectProjectsProjectIdGetError =
-  ReadProjectProjectsProjectIdGetErrors[keyof ReadProjectProjectsProjectIdGetErrors]
-
-export type ReadProjectProjectsProjectIdGetResponses = {
-  /**
-   * Successful Response
-   */
-  200: ProjectEnvelope
-}
-
-export type ReadProjectProjectsProjectIdGetResponse =
-  ReadProjectProjectsProjectIdGetResponses[keyof ReadProjectProjectsProjectIdGetResponses]
-
-export type RenameProjectProjectsProjectIdPatchData = {
-  body: ProjectIn
-  path: {
-    /**
-     * Project Id
-     */
-    project_id: string
-  }
-  query?: never
-  url: '/projects/{project_id}'
-}
-
-export type RenameProjectProjectsProjectIdPatchErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type RenameProjectProjectsProjectIdPatchError =
-  RenameProjectProjectsProjectIdPatchErrors[keyof RenameProjectProjectsProjectIdPatchErrors]
-
-export type RenameProjectProjectsProjectIdPatchResponses = {
-  /**
-   * Successful Response
-   */
-  200: ProjectEnvelope
-}
-
-export type RenameProjectProjectsProjectIdPatchResponse =
-  RenameProjectProjectsProjectIdPatchResponses[keyof RenameProjectProjectsProjectIdPatchResponses]
-
 export type ListTasksTasksGetData = {
   body?: never
   path?: never
@@ -2727,70 +2891,6 @@ export type ConfirmTaskTasksTaskIdConfirmPostResponses = {
 
 export type ConfirmTaskTasksTaskIdConfirmPostResponse =
   ConfirmTaskTasksTaskIdConfirmPostResponses[keyof ConfirmTaskTasksTaskIdConfirmPostResponses]
-
-export type ReadTaskProjectsTasksTaskIdProjectsGetData = {
-  body?: never
-  path: {
-    /**
-     * Task Id
-     */
-    task_id: string
-  }
-  query?: never
-  url: '/tasks/{task_id}/projects'
-}
-
-export type ReadTaskProjectsTasksTaskIdProjectsGetErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type ReadTaskProjectsTasksTaskIdProjectsGetError =
-  ReadTaskProjectsTasksTaskIdProjectsGetErrors[keyof ReadTaskProjectsTasksTaskIdProjectsGetErrors]
-
-export type ReadTaskProjectsTasksTaskIdProjectsGetResponses = {
-  /**
-   * Successful Response
-   */
-  200: TaskProjectsOut
-}
-
-export type ReadTaskProjectsTasksTaskIdProjectsGetResponse =
-  ReadTaskProjectsTasksTaskIdProjectsGetResponses[keyof ReadTaskProjectsTasksTaskIdProjectsGetResponses]
-
-export type SetTaskProjectsTasksTaskIdProjectsPutData = {
-  body: TaskProjectsIn
-  path: {
-    /**
-     * Task Id
-     */
-    task_id: string
-  }
-  query?: never
-  url: '/tasks/{task_id}/projects'
-}
-
-export type SetTaskProjectsTasksTaskIdProjectsPutErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type SetTaskProjectsTasksTaskIdProjectsPutError =
-  SetTaskProjectsTasksTaskIdProjectsPutErrors[keyof SetTaskProjectsTasksTaskIdProjectsPutErrors]
-
-export type SetTaskProjectsTasksTaskIdProjectsPutResponses = {
-  /**
-   * Successful Response
-   */
-  200: TaskProjectsOut
-}
-
-export type SetTaskProjectsTasksTaskIdProjectsPutResponse =
-  SetTaskProjectsTasksTaskIdProjectsPutResponses[keyof SetTaskProjectsTasksTaskIdProjectsPutResponses]
 
 export type PublishTaskTasksTaskIdPublishPostData = {
   body?: never
