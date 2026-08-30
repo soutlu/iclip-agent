@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
-import { formatRelativeTime } from '../relative-time'
+import { formatRelativeTime } from '@/shared/lib/relative-time'
 import type { Task } from '../tasks.api'
 import { TaskStatusTag } from './task-status-tag'
 
