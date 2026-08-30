@@ -12,7 +12,7 @@ import { SidebarConversations } from './-sidebar-conversations'
 // 侧栏里几种行（操作行、对话行、合集行、未登录的登录行）共用的外观：幽灵行，
 // hover / pressed 由 ui-state 铺，焦点走 ui-focus。宽度与内距由调用处按需覆盖。
 const SIDEBAR_ROW_CLASS =
-  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-2 ui-focus text-body text-on-surface'
+  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-3 py-2 ui-focus text-body text-on-surface'
 
 /**
  * 应用侧栏：每页共享的外壳（品牌区、新建任务 / 搜索 / 需求单 / 资料库入口、对话区、账户区）。
@@ -69,7 +69,7 @@ export function AppSidebar() {
         />
       </div>
 
-      <nav aria-label="会话操作" className="flex flex-col gap-0.5 px-2 pt-2">
+      <nav aria-label="会话操作" className="flex flex-col gap-0.5 px-3 pt-2">
         <SidebarAction
           icon="chat-new"
           kbd="⌘N"
@@ -95,12 +95,12 @@ export function AppSidebar() {
       {user ? (
         <SidebarConversations />
       ) : (
-        <div className="min-h-0 flex-1 px-4 pt-4">
-          <p className="text-body-sm text-on-surface-variant">登录后查看对话</p>
+        <div className="min-h-0 flex-1 px-3 pt-4">
+          <p className="text-body-sm text-on-surface-muted">登录后查看对话</p>
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 border-t border-border p-2">
+      <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
         {user ? (
           <CueUserMenu align="top-start" />
         ) : (

@@ -103,6 +103,7 @@
   --color-on-surface: var(--color-on-surface);
   --color-surface-variant: var(--color-surface-variant);
   --color-on-surface-variant: var(--color-on-surface-variant);
+  --color-on-surface-muted: var(--color-on-surface-muted);
   --color-outline: var(--color-outline);
   --color-outline-variant: var(--color-outline-variant);
   --color-surface-container-lowest: var(--color-surface-container-lowest);
@@ -318,6 +319,24 @@
     color: var(--color-disabled-text);
     cursor: not-allowed;
   }
+}
+
+/* 密排列表（侧栏会话行）把 hover 状态层降到 --state-hover-subtle。挂在列表容器上，
+   容器内的 ui-state 全部跟着变浅；--color-state-hover 在 :root 已把 8% 算死，所以这里
+   重新算一遍，而不是只改 --state-hover。 */
+@utility ui-state-subtle {
+  --color-state-hover: color-mix(
+    in srgb,
+    var(--color-on-surface) calc(var(--state-hover-subtle) * 100%),
+    transparent
+  );
+}
+
+/* 行内编辑框（列表行原地改名）的焦点指示：把全局焦点环收到 1px 并压进框内。
+   base.css 那条 :focus-visible 兜底直接读这两个变量，所以改元素上的值就够，不用另写 outline。 */
+@utility ui-focus-inline {
+  --state-focus-ring: 1px;
+  --state-focus-offset: -1px;
 }
 
 /* 键盘焦点环：只在 :focus-visible 触发，鼠标点击不显示 */

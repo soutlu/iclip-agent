@@ -157,6 +157,7 @@
   --color-on-surface: var(--n10); /* #171D19 主文字 16.33:1 */
   --color-surface-variant: var(--nv90); /* #DCE5DC 弱底 */
   --color-on-surface-variant: var(--nv30); /* #404942 次级文字 8.90:1 */
+  --color-on-surface-muted: var(--nv40); /* #586059 第三档文字 6.14:1（nv50 白底 4.36:1 不达标） */
   --color-outline: var(--nv50); /* #717972 强边框/输入框 */
   --color-outline-variant: var(--nv80); /* #C0C9C0 默认边框 */
   --color-surface-container-lowest: var(--n100); /* #FFFFFF 卡片 */
@@ -191,6 +192,8 @@
 
   /* State layer 透明度与焦点环几何（M3 交互态叠加层；禁用与焦点都从这里派生） */
   --state-hover: 0.08;
+  /* 密排列表行专用档：行高 32、底色已是 surface-container，8% 会把整列糊成一片 */
+  --state-hover-subtle: 0.04;
   --state-focus: 0.12;
   --state-pressed: 0.12;
   --state-dragged: 0.16;
@@ -269,7 +272,7 @@
   --color-chat-card-bg: var(--color-surface-container-lowest);
   --color-chat-message-text: var(--color-on-surface);
   --color-chat-secondary-text: var(--color-on-surface-variant);
-  --color-chat-muted-text: var(--nv40); /* v13：nv50 白底 4.36:1 不达标 → nv40 6.14:1 */
+  --color-chat-muted-text: var(--color-on-surface-muted);
   --color-chat-user-bg: var(--color-secondary-container);
   --color-chat-user-bg-hover: color-mix(
     in srgb,
@@ -628,6 +631,7 @@
   --color-on-surface: var(--n90);
   --color-surface-variant: var(--nv30);
   --color-on-surface-variant: var(--nv80);
+  --color-on-surface-muted: var(--nv70);
   --color-outline: var(--nv60);
   --color-outline-variant: var(--nv30);
   --color-surface-container-lowest: var(--n4);
@@ -649,7 +653,7 @@
   --color-agent-log-bg: var(--n22);
   --color-chat-panel-bg-start: var(--n12);
   --color-chat-panel-bg-end: var(--n6);
-  --color-chat-muted-text: var(--nv70);
+  --color-chat-muted-text: var(--color-on-surface-muted);
   --color-chat-assistant-highlight: rgba(255, 255, 255, 0.1);
   --color-chat-agent-avatar-bg: #1b2a20;
   --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.4);

@@ -71,6 +71,7 @@
         --color-on-surface: var(--n10);
         --color-surface-variant: var(--nv90);
         --color-on-surface-variant: var(--nv30);
+        --color-on-surface-muted: var(--nv40);
         --color-outline: var(--nv50);
         --color-outline-variant: var(--nv80);
         --color-surface-container-lowest: var(--n100);
@@ -97,6 +98,7 @@
         --color-on-tertiary-fixed-variant: var(--t30);
         /* 状态层：透明度是契约，颜色由透明度派生（明暗自动跟随 on-surface） */
         --state-hover: 0.08;
+        --state-hover-subtle: 0.04;
         --state-focus: 0.12;
         --state-pressed: 0.12;
         --state-dragged: 0.16;
@@ -159,7 +161,7 @@
         --color-chat-card-bg: var(--color-surface-container-lowest);
         --color-chat-message-text: var(--color-on-surface);
         --color-chat-secondary-text: var(--color-on-surface-variant);
-        --color-chat-muted-text: var(--nv40);
+        --color-chat-muted-text: var(--color-on-surface-muted);
         --color-chat-user-bg: var(--color-secondary-container);
         --color-chat-user-bg-hover: color-mix(in srgb, var(--color-secondary-container) 92%, var(--color-on-secondary-container));
         --color-chat-user-bg-active: color-mix(in srgb, var(--color-secondary-container) 88%, var(--color-on-secondary-container));
@@ -406,6 +408,7 @@
         --color-on-surface: var(--n90);
         --color-surface-variant: var(--nv30);
         --color-on-surface-variant: var(--nv80);
+        --color-on-surface-muted: var(--nv70);
         --color-outline: var(--nv60);
         --color-outline-variant: var(--nv30);
         --color-surface-container-lowest: var(--n4);
@@ -427,7 +430,7 @@
         --color-agent-log-bg: var(--n22);
         --color-chat-panel-bg-start: var(--n12);
         --color-chat-panel-bg-end: var(--n6);
-        --color-chat-muted-text: var(--nv70);
+        --color-chat-muted-text: var(--color-on-surface-muted);
         --color-chat-assistant-highlight: rgba(255, 255, 255, 0.1);
         --color-chat-agent-avatar-bg: #1b2a20;
         --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.4);
@@ -2065,7 +2068,7 @@
                   <div class="ext-name">
                     <strong>聊天</strong>
                     <code>--color-chat-*</code>
-                    <p>气泡、面板、工具与代码块、Agent 身份、状态点；muted 文字 NV40 → NV70。</p>
+                    <p>气泡、面板、工具与代码块、Agent 身份、状态点；muted 文字取 on-surface-muted。</p>
                   </div>
                   <div class="ext-swatches">
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-panel-bg" title="复制 --color-chat-panel-bg"><i style="--sw: var(--color-chat-panel-bg)"></i>chat-panel-bg</button>
@@ -2530,7 +2533,7 @@
                     <th scope="row" class="contract-name"><strong>IconButton</strong><code>Icon-only control</code></th>
                     <td class="contract-cell"><code>icon · optional badge</code><span>必须提供 aria-label；SVG 不承担命中区。</span></td>
                     <td class="contract-cell"><span>standard · tonal · selected</span></td>
-                    <td class="contract-cell"><code>lg 40 / 48 · md 36 / 44</code><span>视觉 / 热区；radius full；图标 icon-lg / icon-md。</span></td>
+                    <td class="contract-cell"><code>lg 40 / 48 · md 36 / 44 · xs 24 / 24</code><span>视觉 / 热区；radius full；图标 icon-lg / icon-md / icon-sm。xs 是行内尾随钮专用，热区不外扩（相邻钮会互相盖住），只在整行本身可点时使用。</span></td>
                     <td class="contract-cell"><span>hover · pressed · focus-visible</span><span>disabled；selected 按需</span></td>
                   </tr>
                   <tr>
@@ -2614,6 +2617,11 @@
                 <strong>Hover</strong>
                 <code>--state-hover · 8%</code>
                 <span>前景色状态层；按钮另加放大 1.05。工具类 <code>ui-state</code>。</span>
+              </div>
+              <div class="state-definition-row">
+                <strong>Hover · subtle</strong>
+                <code>--state-hover-subtle · 4%</code>
+                <span>密排列表行专用档，工具类 <code>ui-state-subtle</code> 挂在列表容器上、行仍写 <code>ui-state</code>；只用于行高 ≤ 32 且底色为 surface-container 的列表，其余一律 8%。</span>
               </div>
               <div class="state-definition-row">
                 <strong>Pressed</strong>
@@ -2828,6 +2836,10 @@
             <div class="template-values">
               <code>--layout-app-sidebar-width · 264px</code>
               <span>sidebar · background · hairline 右边线 · 可折叠 · 折叠后主区左上浮出展开钮 · 品牌区 serif 字标 · 会话分段 tab（进行中带 primary 圆点）· 会话行尾状态标识（primary 转圈 / warning 待回答徽章 / 对勾 / status-error 红叉）· 底部账户区</span>
+              <span>sidebar 列表行 · 容器与行各 12 水平内距（文字距侧栏 24）· 行间距 2 · radius sm · 分组子行再缩进 24 · 状态层挂整行（含尾随钮）· 容器 ui-state-subtle</span>
+              <span>sidebar 行尾槽 · 静息放时间 text-caption on-surface-muted · hover / focus-within / 菜单展开换成 IconButton xs，两者不同时占位 · 每行只留一个「更多」入口，重复动作收进菜单</span>
+              <span>sidebar 行内改名 · 标题原地换 input · 底 surface-container-lowest · radius xs · 焦点环收到 1px 内嵌（工具类 ui-focus-inline），不用行外那道 3px 环</span>
+              <span>sidebar 分区标题 · text-body-sm 600 on-surface-muted · 折叠箭头 icon-sm · sticky 顶部铺 surface-container · 操作钮 hover 才出</span>
               <span>阅读列 · ≤ --layout-home-read-max 760 · 垂直居中偏上</span>
               <span>hero · Lottie public/lottie/hero.json 一份 · ≤440 宽 · viewBox 裁到内容框（换插画重采）· 深色配色由 CSS 覆盖 fill 呈现属性 · 减弱动效停首帧</span>
               <span>品牌字标 · Cue · --font-home-display italic semibold · --text-display（紧凑 --text-display-sm）· 字距 -0.04em（紧凑 -0.035em）· on-surface</span>
@@ -3008,6 +3020,7 @@
               items: [
                 ["On Surface", "on-surface", "surface"],
                 ["On Surface Variant", "on-surface-variant", "surface"],
+                ["On Surface Muted", "on-surface-muted", "surface"],
                 ["Outline", "outline", "surface"],
                 ["Outline Variant", "outline-variant", "on-surface"],
               ],
