@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
 // 拖拽只能在真浏览器里验：jsdom 量不出元素位置，dnd-kit 的碰撞检测就无从谈起。
-// 跑在 dev:mock 上，浏览器里那份 MSW 预置了「夏季亚麻系列」（2 段）与「待归档」（空）。
+// 跑在 dev:mock 上，浏览器里那份 MSW 预置了一个「夏季亚麻系列」（2 段），其余对话在任务区。
 
 const login = async (page: Page) => {
   const expandSidebar = page.getByRole('button', { name: '展开侧边栏' })
@@ -38,20 +38,19 @@ test('把对话拖进合集，再拖回任务区', async ({ page }) => {
   await page.goto('/')
   await login(page)
 
-  const emptyCollection = page.getByRole('button', { name: '待归档 (0)' })
-  await expect(emptyCollection).toBeVisible()
+  await expect(page.getByRole('button', { name: '夏季亚麻系列 (2)' })).toBeVisible()
   const ungroupedBefore = await page.getByRole('button', { name: /^任务 \(\d+\)$/ }).innerText()
 
-  await dragOnto(page, '夜景延时素材生成', '待归档 (0)')
+  await dragOnto(page, '夜景延时素材生成', '夏季亚麻系列 (2)')
 
   // 落地后整块重拉：合集条数 +1，任务区 -1
-  await expect(page.getByRole('button', { name: '待归档 (1)' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '夏季亚麻系列 (3)' })).toBeVisible()
   await expect(page.getByRole('button', { name: /^任务 \(\d+\)$/ })).not.toHaveText(ungroupedBefore)
 
   // 拖回任务区：展开合集拿到那一行，拖到「任务」标题上
-  await page.getByRole('button', { name: '待归档 (1)' }).click()
+  await page.getByRole('button', { name: '夏季亚麻系列 (3)' }).click()
   await dragOnto(page, '夜景延时素材生成', /^任务 \(\d+\)$/)
 
-  await expect(page.getByRole('button', { name: '待归档 (0)' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '夏季亚麻系列 (2)' })).toBeVisible()
   await expect(page.getByRole('button', { name: /^任务 \(\d+\)$/ })).toHaveText(ungroupedBefore)
 })
