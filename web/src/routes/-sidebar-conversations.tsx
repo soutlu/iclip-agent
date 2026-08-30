@@ -25,13 +25,19 @@ import { ChipGroup, FilterChip } from '@/shared/ui/chip'
 import { MenuItem, MenuRoot, MenuSeparator, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 
-// 侧栏各种行共用的外观：幽灵行，hover / pressed 由 ui-state 铺，焦点走 ui-focus。
+// 侧栏各种行共用的外观。状态层铺在整行上（含行尾的钮），所以这个类挂在最外层容器，
+// 里面的标题按钮只负责焦点环。
 const ROW_CLASS =
-  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 ui-focus text-body text-on-surface'
+  'group flex ui-state cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-body text-on-surface'
 
-// 行尾操作钮（重命名、更多）：20×20 小方块，图标用次级文字色
-const ROW_ACTION_CLASS =
-  'grid size-5 shrink-0 ui-state cursor-pointer place-items-center rounded-xs ui-focus text-on-surface-variant'
+// 行里那个占满剩余宽度的标题按钮：不自带底色，hover 由外层行铺
+const ROW_TITLE_CLASS = 'flex min-w-0 flex-1 items-center gap-2 rounded-xs ui-focus'
+
+// 行尾槽：静息放时间、hover / 键盘聚焦 / 菜单展开时换成操作钮，两者不同时占位。
+const ROW_TRAILING_HIDDEN =
+  'group-hover:hidden group-focus-within:hidden group-has-data-[state=open]:hidden'
+const ROW_TRAILING_SHOWN =
+  'hidden group-hover:flex group-focus-within:flex group-has-data-[state=open]:flex'
 
 // 合集列表一次露几个。合集是自己建的，后端一次就把（上限 100 个）全给了，
 // 「展开显示」在前端切片，不为这点量再开一个翻页端点。
@@ -119,14 +125,8 @@ export function SidebarConversations() {
       onDragStart={({ active }) => setDragging(String(active.id))}
       sensors={[pointer]}
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pt-3">
-        <ChipGroup
-          aria-label="对话筛选"
-          className="px-1"
-          onValueChange={() => undefined}
-          type="single"
-          value="all"
-        >
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 pt-3 ui-state-subtle">
+        <ChipGroup aria-label="对话筛选" onValueChange={() => undefined} type="single" value="all">
           <FilterChip value="all">全部</FilterChip>
           {/* 后端还没有「这段对话跑到哪一步」这个字段，两个占位先摆着点不动 */}
           <FilterChip disabled value="running">
@@ -284,19 +284,19 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
   const [open, setOpen] = useState(true)
   return (
     <section className="flex flex-col gap-0.5">
-      <div className="group sticky top-0 flex items-center gap-1 rounded-sm bg-surface-container pr-1">
+      <div className={cn(ROW_CLASS, 'sticky top-0 gap-1 bg-surface-container')}>
         <button
           aria-expanded={open}
-          className={cn(ROW_CLASS, 'min-w-0 flex-1 gap-1 text-body-sm font-semibold')}
+          className={cn(ROW_TITLE_CLASS, 'gap-1 text-body-sm font-semibold text-on-surface-muted')}
           onClick={() => setOpen((prev) => !prev)}
           type="button"
         >
-          <span className="min-w-0 truncate text-left text-on-surface-variant">
+          <span className="min-w-0 truncate text-left">
             {title} ({count})
           </span>
           <Icon
             className={cn(
-              'shrink-0 text-on-surface-variant transition-transform duration-(--dur-s)',
+              'shrink-0 transition-transform duration-(--dur-s)',
               !open && '-rotate-90',
             )}
             decorative
@@ -305,13 +305,14 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
           />
         </button>
         {action && (
-          <IconButton
-            className="opacity-0 transition-opacity duration-(--dur-s) group-focus-within:opacity-100 group-hover:opacity-100"
-            label={action.label}
-            name={action.icon}
-            onClick={action.onClick}
-            size="md"
-          />
+          <div className={cn(ROW_TRAILING_SHOWN, 'ml-auto shrink-0 items-center')}>
+            <IconButton
+              label={action.label}
+              name={action.icon}
+              onClick={action.onClick}
+              size="xs"
+            />
+          </div>
         )}
       </div>
       {open && <div className="flex flex-col gap-0.5">{children}</div>}
@@ -320,7 +321,7 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
 }
 
 function EmptyHint({ children }: { children: string }) {
-  return <p className="px-2 py-1 text-body-sm text-on-surface-variant">{children}</p>
+  return <p className="px-3 py-1 text-body-sm text-on-surface-muted">{children}</p>
 }
 
 /**
@@ -342,7 +343,7 @@ function ExpandRow({
   return (
     <button
       aria-label={label}
-      className={cn(ROW_CLASS, 'w-full justify-start py-1.5 text-body-sm text-on-surface-variant')}
+      className={cn(ROW_CLASS, 'w-full justify-start text-body-sm text-on-surface-muted ui-focus')}
       disabled={loading}
       onClick={onExpand}
       type="button"
@@ -384,23 +385,18 @@ function CollectionGroup({
 
   return (
     <div className="flex flex-col gap-0.5">
-      <div
-        className={cn(
-          'group flex items-center gap-1 rounded-sm pr-1',
-          isOver && 'bg-primary-container',
-        )}
-        ref={setNodeRef}
-      >
+      <div className={cn(ROW_CLASS, isOver && 'bg-primary-container')} ref={setNodeRef}>
         <button
           // 行内还有一个「操作」钮，名字里带上条数才好把两者分开念、也分得开
           aria-expanded={open}
           aria-label={`${collection.name} (${collection.conversationCount})`}
-          className={cn(ROW_CLASS, 'min-w-0 flex-1')}
+          className={ROW_TITLE_CLASS}
           onClick={() => setOpen((prev) => !prev)}
           type="button"
         >
           <Icon className="shrink-0 text-on-surface-variant" decorative name="folder" size="sm" />
-          <span aria-hidden className="min-w-0 flex-1 truncate text-left">
+          {/* 不加 flex-1：标题按内容占宽，折叠箭头才贴着名字走 */}
+          <span aria-hidden className="min-w-0 truncate text-left">
             {collection.name}
           </span>
           <Icon
@@ -412,29 +408,23 @@ function CollectionGroup({
             name="expand"
             size="sm"
           />
-          <span aria-hidden className="shrink-0 text-caption text-on-surface-variant">
-            {collection.conversationCount}
-          </span>
         </button>
-        <MenuRoot>
-          <MenuTrigger asChild>
-            <IconButton
-              className="opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100 data-[state=open]:opacity-100"
-              label={`${collection.name} 的操作`}
-              name="more"
-              size="md"
-            />
-          </MenuTrigger>
-          <MenuSurface align="start">
-            <MenuItem onSelect={onRename}>重命名</MenuItem>
-            <MenuItem destructive onSelect={onDelete}>
-              删除
-            </MenuItem>
-          </MenuSurface>
-        </MenuRoot>
+        <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
+          <MenuRoot>
+            <MenuTrigger asChild>
+              <IconButton label={`${collection.name} 的操作`} name="more" size="xs" />
+            </MenuTrigger>
+            <MenuSurface align="start">
+              <MenuItem onSelect={onRename}>重命名</MenuItem>
+              <MenuItem destructive onSelect={onDelete}>
+                删除
+              </MenuItem>
+            </MenuSurface>
+          </MenuRoot>
+        </div>
       </div>
       {open && (
-        <div className="flex flex-col gap-0.5 pl-9">
+        <div className="flex flex-col gap-0.5 pl-6">
           {items.map((conversation) => (
             <ConversationRow
               key={conversation.id}
@@ -459,8 +449,8 @@ function CollectionGroup({
 }
 
 /**
- * 对话行：截断标题在左，右侧是相对时间；hover / 键盘聚焦时时间让位给操作钮
- * （重命名 + 更多菜单）。整行可拖。重命名是行内编辑：点铅笔后标题换成输入框，
+ * 对话行：截断标题在左，右侧是相对时间；hover / 键盘聚焦时时间让位给更多菜单。
+ * 整行可拖。重命名是行内编辑：菜单里选「重命名」后标题换成输入框，
  * Enter / 失焦提交，Esc 取消。
  *
  * @param props - 对话、是否正被拖着、行内容变更后的刷新回调与打开归属弹窗的回调。
@@ -498,11 +488,11 @@ function ConversationRow({
   }
 
   return (
-    <div className="group flex items-center gap-1 pr-1">
+    <div className={cn(ROW_CLASS, dragging && 'opacity-50')}>
       {editing ? (
         <input
           aria-label={`重命名 ${conversation.title}`}
-          className={cn(ROW_CLASS, 'min-w-0 flex-1 bg-surface-container-lowest')}
+          className="min-w-0 flex-1 rounded-xs bg-surface-container-lowest px-1 text-body text-on-surface ui-focus-inline"
           defaultValue={conversation.title}
           onBlur={(event) => commitRename(event.currentTarget.value)}
           onKeyDown={(event) => {
@@ -516,7 +506,7 @@ function ConversationRow({
         />
       ) : (
         <button
-          className={cn(ROW_CLASS, 'min-w-0 flex-1', dragging && 'opacity-50')}
+          className={ROW_TITLE_CLASS}
           ref={setNodeRef}
           style={
             transform
@@ -528,35 +518,23 @@ function ConversationRow({
           {...attributes}
         >
           <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
-          {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
-          <span
-            aria-hidden
-            className="shrink-0 text-caption text-on-surface-variant group-focus-within:hidden group-hover:hidden"
-          >
-            {formatRelativeTime(conversation.updatedAt)}
-          </span>
         </button>
+      )}
+      {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
+      {!editing && (
+        <span
+          aria-hidden
+          className={cn('shrink-0 text-caption text-on-surface-muted', ROW_TRAILING_HIDDEN)}
+        >
+          {formatRelativeTime(conversation.updatedAt)}
+        </span>
       )}
       {/* 行内编辑时不露操作钮 */}
       {!editing && (
-        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-(--dur-s) group-focus-within:opacity-100 group-hover:opacity-100 has-data-[state=open]:opacity-100">
-          <button
-            aria-label={`重命名 ${conversation.title}`}
-            className={ROW_ACTION_CLASS}
-            onClick={() => setEditing(true)}
-            type="button"
-          >
-            <Icon decorative name="edit" size="sm" />
-          </button>
+        <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
           <MenuRoot>
             <MenuTrigger asChild>
-              <button
-                aria-label={`${conversation.title} 的更多操作`}
-                className={ROW_ACTION_CLASS}
-                type="button"
-              >
-                <Icon decorative name="more" size="sm" />
-              </button>
+              <IconButton label={`${conversation.title} 的更多操作`} name="more" size="xs" />
             </MenuTrigger>
             <MenuSurface align="start">
               <MenuItem icon="edit" onSelect={() => setEditing(true)}>
