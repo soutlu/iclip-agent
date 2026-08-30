@@ -10,7 +10,9 @@ import {
 import {
   ConversationMembershipDialog,
   conversationsQueryKeys,
+  useDeleteConversation,
   useMoreConversations,
+  useRenameConversation,
   useSetConversationMembership,
   useSidebarTopology,
 } from '@/features/conversations'
@@ -20,12 +22,16 @@ import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
-import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
+import { MenuItem, MenuRoot, MenuSeparator, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 
 // 侧栏各种行共用的外观：幽灵行，hover / pressed 由 ui-state 铺，焦点走 ui-focus。
 const ROW_CLASS =
   'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 ui-focus text-body text-on-surface'
+
+// 行尾操作钮（重命名、更多）：20×20 小方块，图标用次级文字色
+const ROW_ACTION_CLASS =
+  'grid size-5 shrink-0 ui-state cursor-pointer place-items-center rounded-xs ui-focus text-on-surface-variant'
 
 // 合集列表一次露几个。合集是自己建的，后端一次就把（上限 100 个）全给了，
 // 「展开显示」在前端切片，不为这点量再开一个翻页端点。
@@ -134,6 +140,7 @@ export function SidebarConversations() {
         <UngroupedSection
           count={topology.data?.ungroupedCount ?? 0}
           dragging={dragging}
+          onChanged={refreshSidebar}
           onOpenMembership={(conversation) => setMembership({ conversation, open: true })}
           page={topology.data?.ungrouped ?? { items: [], nextCursor: null }}
         />
@@ -152,6 +159,7 @@ export function SidebarConversations() {
               key={collection.id}
               collection={collection}
               dragging={dragging}
+              onChanged={refreshSidebar}
               onDelete={() =>
                 setCollectionDelete({
                   collection: { id: collection.id, name: collection.name },
@@ -209,17 +217,19 @@ type Page = { items: SidebarConversation[]; nextCursor: string | null }
 /**
  * 「任务」区：没进任何合集的对话，也是「把对话拖出合集」的落点。
  *
- * @param props - 总条数、第一页、拖拽中的对话 id 与打开归属弹窗的回调。
+ * @param props - 总条数、第一页、拖拽中的对话 id、行内容变更后的刷新回调与打开归属弹窗的回调。
  * @returns 任务分区。
  */
 function UngroupedSection({
   count,
   dragging,
+  onChanged,
   onOpenMembership,
   page,
 }: {
   count: number
   dragging: string | null
+  onChanged: () => void
   onOpenMembership: (conversation: SidebarConversation) => void
   page: Page
 }) {
@@ -230,7 +240,7 @@ function UngroupedSection({
 
   // 整个分区（标题行也算）都是「拖出合集」的落点：拖到「任务」标题上等于拖回任务区
   return (
-    <div className={cn('rounded-sm', isOver && 'bg-surface-container')} ref={setNodeRef}>
+    <div className={cn('rounded-sm', isOver && 'bg-surface-container-high')} ref={setNodeRef}>
       <SidebarSection count={count} title="任务">
         <div className="flex flex-col gap-0.5">
           {items.map((conversation) => (
@@ -238,6 +248,7 @@ function UngroupedSection({
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
+              onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
             />
           ))}
@@ -273,14 +284,14 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
   const [open, setOpen] = useState(true)
   return (
     <section className="flex flex-col gap-0.5">
-      <div className="group sticky top-0 flex items-center gap-1 rounded-sm bg-background pr-1">
+      <div className="group sticky top-0 flex items-center gap-1 rounded-sm bg-surface-container pr-1">
         <button
           aria-expanded={open}
-          className={cn(ROW_CLASS, 'min-w-0 flex-1 text-body-sm font-medium')}
+          className={cn(ROW_CLASS, 'min-w-0 flex-1 gap-1 text-body-sm font-semibold')}
           onClick={() => setOpen((prev) => !prev)}
           type="button"
         >
-          <span className="min-w-0 flex-1 truncate text-left text-on-surface-variant">
+          <span className="min-w-0 truncate text-left text-on-surface-variant">
             {title} ({count})
           </span>
           <Icon
@@ -344,6 +355,7 @@ function ExpandRow({
 type CollectionGroupProps = {
   collection: SidebarCollection
   dragging: string | null
+  onChanged: () => void
   onDelete: () => void
   onOpenMembership: (conversation: SidebarConversation) => void
   onRename: () => void
@@ -359,6 +371,7 @@ type CollectionGroupProps = {
 function CollectionGroup({
   collection,
   dragging,
+  onChanged,
   onDelete,
   onOpenMembership,
   onRename,
@@ -427,6 +440,7 @@ function CollectionGroup({
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
+              onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
             />
           ))}
@@ -445,55 +459,128 @@ function CollectionGroup({
 }
 
 /**
- * 对话行：截断标题在左，右侧是相对时间；hover / 键盘聚焦时时间让位给归属钮。整行可拖。
+ * 对话行：截断标题在左，右侧是相对时间；hover / 键盘聚焦时时间让位给操作钮
+ * （重命名 + 更多菜单）。整行可拖。重命名是行内编辑：点铅笔后标题换成输入框，
+ * Enter / 失焦提交，Esc 取消。
  *
- * @param props - 对话、是否正被拖着与打开归属弹窗的回调。
+ * @param props - 对话、是否正被拖着、行内容变更后的刷新回调与打开归属弹窗的回调。
  * @returns 单个对话行。
  */
 function ConversationRow({
   conversation,
   dragging,
+  onChanged,
   onOpenMembership,
 }: {
   conversation: SidebarConversation
   dragging: boolean
+  onChanged: () => void
   onOpenMembership: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     data: { collectionId: conversation.collectionId },
     id: conversation.id,
   })
+  const [editing, setEditing] = useState(false)
+  const rename = useRenameConversation(onChanged)
+  const remove = useDeleteConversation(onChanged)
+
+  // 空标题或没变化都不发请求，静默退回原标题
+  const commitRename = (value: string) => {
+    setEditing(false)
+    const title = value.trim()
+    if (title && title !== conversation.title) {
+      rename.mutate(
+        { conversationId: conversation.id, title },
+        { onError: (error) => toast.error(error.message) },
+      )
+    }
+  }
 
   return (
     <div className="group flex items-center gap-1 pr-1">
-      <button
-        className={cn(ROW_CLASS, 'min-w-0 flex-1', dragging && 'opacity-50')}
-        ref={setNodeRef}
-        style={
-          transform
-            ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-            : undefined
-        }
-        type="button"
-        {...listeners}
-        {...attributes}
-      >
-        <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
-        {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
-        <span
-          aria-hidden
-          className="shrink-0 text-caption text-on-surface-variant group-focus-within:hidden group-hover:hidden"
+      {editing ? (
+        <input
+          aria-label={`重命名 ${conversation.title}`}
+          className={cn(ROW_CLASS, 'min-w-0 flex-1 bg-surface-container-lowest')}
+          defaultValue={conversation.title}
+          onBlur={(event) => commitRename(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+            if (event.key === 'Escape') {
+              event.currentTarget.value = conversation.title
+              event.currentTarget.blur()
+            }
+          }}
+          ref={(element) => element?.focus()}
+        />
+      ) : (
+        <button
+          className={cn(ROW_CLASS, 'min-w-0 flex-1', dragging && 'opacity-50')}
+          ref={setNodeRef}
+          style={
+            transform
+              ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+              : undefined
+          }
+          type="button"
+          {...listeners}
+          {...attributes}
         >
-          {formatRelativeTime(conversation.updatedAt)}
-        </span>
-      </button>
-      <IconButton
-        className="opacity-0 transition-opacity duration-(--dur-s) group-focus-within:opacity-100 group-hover:opacity-100"
-        label={`${conversation.title} 的归属`}
-        name="folder"
-        onClick={onOpenMembership}
-        size="md"
-      />
+          <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
+          {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
+          <span
+            aria-hidden
+            className="shrink-0 text-caption text-on-surface-variant group-focus-within:hidden group-hover:hidden"
+          >
+            {formatRelativeTime(conversation.updatedAt)}
+          </span>
+        </button>
+      )}
+      {/* 行内编辑时不露操作钮 */}
+      {!editing && (
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-(--dur-s) group-focus-within:opacity-100 group-hover:opacity-100 has-data-[state=open]:opacity-100">
+          <button
+            aria-label={`重命名 ${conversation.title}`}
+            className={ROW_ACTION_CLASS}
+            onClick={() => setEditing(true)}
+            type="button"
+          >
+            <Icon decorative name="edit" size="sm" />
+          </button>
+          <MenuRoot>
+            <MenuTrigger asChild>
+              <button
+                aria-label={`${conversation.title} 的更多操作`}
+                className={ROW_ACTION_CLASS}
+                type="button"
+              >
+                <Icon decorative name="more" size="sm" />
+              </button>
+            </MenuTrigger>
+            <MenuSurface align="start">
+              <MenuItem icon="edit" onSelect={() => setEditing(true)}>
+                重命名
+              </MenuItem>
+              <MenuItem icon="folder" onSelect={onOpenMembership}>
+                归属
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem
+                destructive
+                icon="delete"
+                onSelect={() =>
+                  remove.mutate(conversation.id, {
+                    onError: (error) => toast.error(error.message),
+                  })
+                }
+              >
+                删除
+              </MenuItem>
+            </MenuSurface>
+          </MenuRoot>
+        </div>
+      )}
     </div>
   )
 }

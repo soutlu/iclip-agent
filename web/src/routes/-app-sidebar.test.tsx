@@ -175,7 +175,8 @@ describe('AppSidebar 对话区', () => {
     const user = await openSidebar()
     await screen.findByText('待归类')
 
-    await user.click(screen.getByRole('button', { name: '待归类 的归属' }))
+    await user.click(screen.getByRole('button', { name: '待归类 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '归属' }))
     const dialog = await screen.findByRole('dialog', { name: '对话归属' })
     await user.selectOptions(within(dialog).getByLabelText('合集'), collection.id)
     await user.click(within(dialog).getByRole('button', { name: '保存' }))
@@ -190,7 +191,8 @@ describe('AppSidebar 对话区', () => {
     const user = await openSidebar()
     await screen.findByText('跑完才想起要挂单')
 
-    await user.click(screen.getByRole('button', { name: '跑完才想起要挂单 的归属' }))
+    await user.click(screen.getByRole('button', { name: '跑完才想起要挂单 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '归属' }))
     const dialog = await screen.findByRole('dialog', { name: '对话归属' })
     await user.selectOptions(await within(dialog).findByLabelText('需求单'), task.id)
     await user.click(within(dialog).getByRole('button', { name: '保存' }))
