@@ -32,6 +32,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 
 from iclip.harness.transcript.ops import (
+    TOOL_STATE_BY_OUTCOME,
     StepUsage,
     TextFrame,
     ThinkingFrame,
@@ -45,14 +46,6 @@ from iclip.harness.transcript.ops import (
 )
 
 TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
-
-_TOOL_STATE: Mapping[str, Literal["done", "error"]] = {
-    "success": "done",
-    "failed": "error",
-    "denied": "error",
-    "interrupted": "error",
-}
-"""工具返回的结局 → 卡片状态。协议只有三态，没成功的一律 error。"""
 
 
 def turns_from_messages(
@@ -242,7 +235,7 @@ def _settle_tools(
 
     for part in message.parts:
         if isinstance(part, ToolReturnPart):
-            state = _TOOL_STATE.get(part.outcome, "error")
+            state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
             _replace_tool(
                 part.tool_call_id,
                 tool_frames,

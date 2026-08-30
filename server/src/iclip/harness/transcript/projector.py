@@ -39,6 +39,7 @@ from pydantic_ai.usage import RequestUsage
 
 from iclip.harness.transcript.ops import (
     MAIN_AGENT_ID,
+    TOOL_STATE_BY_OUTCOME,
     AppendOp,
     EmittableOperation,
     FrameTarget,
@@ -64,8 +65,6 @@ from iclip.harness.transcript.ops import (
 
 OpsBatch = tuple[EmittableOperation, ...]
 """一次产出。一批就是一个批次号，所以钩子里要一次 yield 完，不要拆成几次。"""
-
-_TOOL_STATE = {"success": "done", "failed": "error", "denied": "error", "interrupted": "error"}
 
 
 def _now() -> str:
@@ -226,7 +225,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         if isinstance(part, RetryPromptPart):
             state, output, error = "error", None, str(part.content)
         else:
-            state = _TOOL_STATE.get(part.outcome, "error")
+            state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
             output = part.content
             error = None if state == "done" else str(part.content)
         frame_id = f"{self._step_id}.{part.tool_call_id}"
@@ -426,7 +425,11 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         )
 
     def record_usage(self, usage: RequestUsage | None) -> None:
-        """记下这一步的用量，供轮的合计使用。口径见 ``from_messages``。"""
+        """记下这一步的用量，供轮的合计使用。口径见 ``from_messages``。
+
+        TODO(运行侧接线)：目前没有调用方——事件流里没有哪个钩子拿得到 ``ModelResponse``
+        本身，用量得由驱动这次 run 的那一层在每步结束时喂进来。在那之前实时那侧的轮头部
+        不带用量，而消息推出来的那侧带；对齐测试比的是结构，看不出这个缺口。"""
 
         if usage is None:
             return

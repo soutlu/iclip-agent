@@ -6,8 +6,11 @@
 同一段对话，客户端在跑的时候看到的是前者、刷新之后看到的是后者。两边只要有一个 id 或一段
 文字不一样，界面就会在刷新的瞬间变形，而且没有任何报错。所以这条测试比单看哪一侧都重要。
 
-时刻与用量不参与比较：前者按事件到达的真实时刻走，后者按消息上记的时刻走，本来就不同；
-用量的接线在运行侧，不在这两个模块里。
+时刻不参与比较：前者按事件到达的真实时刻走，后者按消息上记的时刻走，本来就不同。
+
+**用量也不比，而这是一个已知缺口不是无关项**：实时那侧的用量要由驱动 run 的那一层喂进来
+（``TranscriptEventStream.record_usage``，目前还没有调用方），消息那侧自己就能算出来。接线
+补上之前，同一轮的用量在刷新前后会从「没有」变成「有」。
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from typing import Any
 import pytest
 from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
+    EnqueuedMessagesEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelMessage,
@@ -240,6 +244,93 @@ async def test_two_steps_match() -> None:
         )
     )
 
+    assert _skeleton(live) == _skeleton(derived)
+
+
+@pytest.mark.anyio
+async def test_a_steer_between_two_steps_lands_in_the_same_place() -> None:
+    """插话进来时块在哪一步、排第几，两边必须一致。
+
+    ``EnqueuedMessagesEvent`` 是在下一次模型请求前排空的，那时上一步的块已经收尾、步号还指着
+    上一步——所以它落在上一步的末尾。推导那侧也是把它接在上一步已有块的后面。这条不靠推理，
+    靠这里比对。
+    """
+
+    live = await _project(
+        [
+            PartStartEvent(index=0, part=TextPart(content="")),
+            PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="在做了")),
+            PartEndEvent(index=0, part=TextPart(content="在做了")),
+            FunctionToolCallEvent(part=ToolCallPart(tool_name="Read", args={}, tool_call_id="c1")),
+            EnqueuedMessagesEvent(
+                enqueue_id="e1",
+                messages=(ModelRequest(parts=[UserPromptPart(content="改成英文")]),),
+            ),
+            FunctionToolResultEvent(
+                part=ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1")
+            ),
+            PartStartEvent(index=0, part=TextPart(content="")),
+            PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="好")),
+            PartEndEvent(index=0, part=TextPart(content="好")),
+        ]
+    )
+    derived = turns_from_messages(
+        _messages(
+            ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
+            ModelResponse(
+                parts=[
+                    TextPart(content="在做了"),
+                    ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"),
+                ],
+                run_id=RUN,
+                timestamp=_at(1),
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1"),
+                    UserPromptPart(content="改成英文"),
+                ],
+                run_id=RUN,
+                timestamp=_at(2),
+            ),
+            ModelResponse(parts=[TextPart(content="好")], run_id=RUN, timestamp=_at(3)),
+        )
+    )
+
+    assert _skeleton(live) == _skeleton(derived)
+
+
+@pytest.mark.anyio
+async def test_two_adjacent_text_parts_stay_two_frames_on_both_paths() -> None:
+    """一次响应里连着两个正文 part。
+
+    基类会给第二个打上 ``follows_text``。我们两条路都按「一个 part 一个块」编号，所以这里的
+    契约是**不合并**——kimi 自己是合并的，但决定我们界面会不会在刷新时变形的是我们这两条路一
+    致，不是与 kimi 一致。
+    """
+
+    live = await _project(
+        [
+            PartStartEvent(index=0, part=TextPart(content="")),
+            PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="第一段")),
+            PartEndEvent(index=0, part=TextPart(content="第一段")),
+            PartStartEvent(index=1, part=TextPart(content="")),
+            PartDeltaEvent(index=1, delta=TextPartDelta(content_delta="第二段")),
+            PartEndEvent(index=1, part=TextPart(content="第二段")),
+        ]
+    )
+    derived = turns_from_messages(
+        _messages(
+            ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
+            ModelResponse(
+                parts=[TextPart(content="第一段"), TextPart(content="第二段")],
+                run_id=RUN,
+                timestamp=_at(1),
+            ),
+        )
+    )
+
+    assert [frame.frame_id for frame in live[0].steps[0].frames] == ["t1.1.f1", "t1.1.f2"]
     assert _skeleton(live) == _skeleton(derived)
 
 

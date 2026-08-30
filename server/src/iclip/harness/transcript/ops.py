@@ -30,6 +30,17 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+TOOL_STATE_BY_OUTCOME: dict[str, Literal["done", "error"]] = {
+    "success": "done",
+    "failed": "error",
+    "denied": "error",
+    "interrupted": "error",
+}
+"""工具返回的结局 → 卡片状态。协议只有三态，没成功的一律 error。
+
+放在这里而不是各自一份：实时那条路与历史那条路都要用它，各留一份迟早会漂。
+"""
+
 MAIN_AGENT_ID = "main"
 """主 agent 的 id。协议按 agent 分 transcript，我们当前只产出这一个。"""
 
@@ -345,6 +356,7 @@ TranscriptOperation = Annotated[
 
 __all__ = [
     "MAIN_AGENT_ID",
+    "TOOL_STATE_BY_OUTCOME",
     "AppendOp",
     "Attachment",
     "AttachmentSource",
