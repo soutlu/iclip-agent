@@ -18,7 +18,6 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
 )
-from iclip.harness.media import MediaCodec
 from iclip.harness.models import ModelSpec, build_models
 
 SERVER_DIR = Path(__file__).resolve().parents[3]
@@ -66,7 +65,6 @@ def shipped_registry() -> AgentRegistry:
                 for model in settings.models
             )
         ),
-        media=MediaCodec(),
     )
 
 

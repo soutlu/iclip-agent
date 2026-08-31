@@ -33,7 +33,6 @@ PLACEHOLDER_ENV = {
     "OSS_PUBLIC_URL_BASE": "https://placeholder.invalid/public",
     "PRODUCT_CATALOG_DATABASE_URL": "postgresql+asyncpg://placeholder:placeholder@127.0.0.1:5432/placeholder",
     "PRODUCT_IMAGE_BASE_URL": "https://placeholder.invalid/products",
-    "REDIS_URL": "redis://127.0.0.1:6379/0",
     "SSO_BASE_URL": "https://placeholder.invalid/sso",
     "SSO_REDIRECT_URL": "https://placeholder.invalid/auth/sso/callback",
     "VIDEO_API_KEY": "openapi-dump-placeholder",

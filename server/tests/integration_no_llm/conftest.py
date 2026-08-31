@@ -24,7 +24,6 @@ from iclip.config import (
     AppSection,
     DbSection,
     OpsSection,
-    RedisSection,
     ResolvedAgent,
     RuntimeConfig,
     SecuritySection,
@@ -64,34 +63,6 @@ def pg_url() -> Generator[str]:
 
 
 @pytest.fixture(scope="session")
-def redis_url() -> Generator[str]:
-    """真实 Redis，解析顺序同 Postgres：显式 env > 一次性容器 > 不可用即 skip。
-
-    只有声明了 agent 的测试才会用到它（见 ``stream_url``），别的测试不会因此
-    多起一个容器。
-    """
-
-    explicit = os.environ.get("TEST_REDIS_URL", "").strip()
-    if explicit:
-        yield explicit
-        return
-    try:
-        from testcontainers.community.redis import RedisContainer
-    except ImportError:
-        pytest.skip("无 TEST_REDIS_URL 且未安装 testcontainers 的 redis 模块")
-    try:
-        container = RedisContainer("redis:7")
-        container.start()
-    except Exception as exc:
-        pytest.skip(f"本地无可用 Docker/Redis: {exc}")
-    try:
-        host = container.get_container_host_ip()
-        yield f"redis://{host}:{container.get_exposed_port(6379)}/0"
-    finally:
-        container.stop()
-
-
-@pytest.fixture(scope="session")
 def migrated_pg(pg_url: str) -> str:
     """对测试库执行 alembic upgrade head（每会话一次）。"""
 
@@ -102,7 +73,7 @@ def migrated_pg(pg_url: str) -> str:
     return pg_url
 
 
-def make_runtime_config(*, with_redis: bool = False) -> RuntimeConfig:
+def make_runtime_config() -> RuntimeConfig:
     """测试用的 YAML 形状。地址与凭证不在这里——它们由 env 提供（见 ``base_env``）。"""
 
     return RuntimeConfig(
@@ -110,7 +81,6 @@ def make_runtime_config(*, with_redis: bool = False) -> RuntimeConfig:
         db=DbSection(schema="iclip"),
         security=SecuritySection(),
         sso=SsoSection(app_name="iclip"),
-        redis=RedisSection() if with_redis else None,
         ops=OpsSection(log_level="WARNING"),
     )
 
@@ -158,31 +128,17 @@ def models() -> dict[str, TestModel]:
 
 
 @pytest.fixture
-def stream_url(
-    request: pytest.FixtureRequest, agent_declarations: tuple[ResolvedAgent, ...]
-) -> str | None:
-    """声明了 agent 才去要 Redis：没有 agent 的测试不该为此起容器。"""
-
-    if not agent_declarations:
-        return None
-    return str(request.getfixturevalue("redis_url"))
-
-
-@pytest.fixture
 async def app(
     monkeypatch: pytest.MonkeyPatch,
     base_env: None,
     migrated_pg: str,
     agent_declarations: tuple[ResolvedAgent, ...],
     models: dict[str, TestModel],
-    stream_url: str | None,
 ) -> AsyncGenerator[FastAPI]:
-    if stream_url is not None:
-        monkeypatch.setenv("REDIS_URL", stream_url)
     engine = await _fresh_engine(migrated_pg)
     try:
         yield build_app(
-            make_runtime_config(with_redis=stream_url is not None),
+            make_runtime_config(),
             agents=agent_declarations,
             engine=engine,
             models=models,
@@ -192,6 +148,46 @@ async def app(
         )
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+def ws_agent_app(
+    base_env: None,
+    migrated_pg: str,
+    agent_declarations: tuple[ResolvedAgent, ...],
+    models: dict[str, TestModel],
+) -> Generator[FastAPI]:
+    """带 agent 的 WS 场景：app 全程活在 TestClient 的事件循环里。
+
+    与 ``ws_app`` 同一个道理（NullPool，见下），区别只是装上了声明的 agent——订阅要看得到
+    真跑出来的操作。
+    """
+
+    import asyncio
+
+    from sqlalchemy.pool import NullPool
+
+    async def _truncate() -> None:
+        engine = create_async_engine(migrated_pg, poolclass=NullPool)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
+                )
+                await conn.execute(text("TRUNCATE agent_runtime.prompts"))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_truncate())
+    engine = create_async_engine(migrated_pg, poolclass=NullPool)
+    yield build_app(
+        make_runtime_config(),
+        agents=agent_declarations,
+        engine=engine,
+        models=models,
+        style_snapshots=StubStyleSnapshots(),
+    )
+    asyncio.run(engine.dispose())
 
 
 @pytest.fixture

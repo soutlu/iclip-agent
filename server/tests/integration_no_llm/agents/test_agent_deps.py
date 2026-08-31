@@ -21,7 +21,7 @@ from pydantic_ai.capabilities import AgentCapability, Capability
 
 from iclip.config import ResolvedAgent
 from iclip.domains.agents.public import AgentRunDeps
-from tests.helpers.agui import run_input, sse_events
+from tests.integration_no_llm.agents.waiting import settled
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
     make_client,
@@ -31,7 +31,6 @@ from tests.integration_no_llm.conftest import (
 )
 
 AGENT_ID = "storyboard"
-URL = f"/agents/{AGENT_ID}/chat"
 
 
 def identity_capability() -> tuple[AgentCapability[AgentRunDeps], ...]:
@@ -90,22 +89,30 @@ def registered_capability(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def tools_said(
-    client: httpx.AsyncClient, run_id: str, *, conversation_id: str | None = None
+    client: httpx.AsyncClient, prompt_id: str, *, conversation_id: str | None = None
 ) -> list[str]:
     """跑一次，取出工具实际返回的那几个字。
 
-    官方 ``test`` 模型会把每个可见工具都调一遍，所以工具的返回值以
-    ``TOOL_CALL_RESULT`` 事件出现在流里。断言落在这个值上而不是「整条流里有没
-    有这个子串」——后者能被任何别处出现的同名字符串蒙对（用户名互不为子串纯属
-    取名的运气）。
+    官方 ``test`` 模型会把每个可见工具都调一遍，所以每件工具的返回值都落在 transcript 的
+    工具卡上。断言落在这个值上而不是「整页里有没有这个子串」——后者能被任何别处出现的同名
+    字符串蒙对（用户名互不为子串纯属取名的运气）。
     """
 
     conversation_id = conversation_id or await new_conversation(client, AGENT_ID)
-    body = run_input(thread_id=conversation_id, run_id=run_id)
-    async with client.stream("POST", URL, json=body) as response:
-        assert response.status_code == 200
-        raw = "".join([chunk async for chunk in response.aiter_text()])
-    return [event["content"] for event in sse_events(raw) if event["type"] == "TOOL_CALL_RESULT"]
+    sent = await client.post(
+        f"/conversations/{conversation_id}/prompts",
+        json={"prompt_id": prompt_id, "content": [{"type": "text", "text": "你是谁"}]},
+    )
+    assert sent.status_code == 200, sent.text
+    await settled(client, conversation_id)
+    page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()
+    return [
+        str(frame["output"])
+        for turn in page["items"]
+        for step in turn["steps"]
+        for frame in step["frames"]
+        if frame["kind"] == "tool" and frame.get("output") is not None
+    ]
 
 
 def said_by(reported: list[str], *, among: set[str]) -> list[str]:
@@ -121,7 +128,7 @@ async def test_tool_receives_the_caller_principal(client: httpx.AsyncClient, pg_
     conversation_id = await new_conversation(client, AGENT_ID)
 
     # audit_label 是 username（没有 username 才退到 email）。
-    reported = await tools_said(client, "run-whoami", conversation_id=conversation_id)
+    reported = await tools_said(client, "prm-whoami", conversation_id=conversation_id)
     assert "caller-alpha" in reported
     # 对话 id 也一路到了工具手上——工作区就是按它分文件夹的。
     assert conversation_id in reported
@@ -135,12 +142,12 @@ async def test_each_run_carries_its_own_principal(
     await register_and_login(client, username="caller-alpha", email="alpha@example.com")
     await set_roles_in_db(pg_url, "alpha@example.com", ["editor"])
     names = {"caller-alpha", "caller-beta"}
-    mine = await tools_said(client, "run-mine")
+    mine = await tools_said(client, "prm-mine")
 
     async with make_client(app) as other:
         await register_and_login(other, username="caller-beta", email="beta@example.com")
         await set_roles_in_db(pg_url, "beta@example.com", ["editor"])
-        theirs = await tools_said(other, "run-theirs")
+        theirs = await tools_said(other, "prm-theirs")
 
     assert said_by(mine, among=names) == ["caller-alpha"]
     assert said_by(theirs, among=names) == ["caller-beta"]

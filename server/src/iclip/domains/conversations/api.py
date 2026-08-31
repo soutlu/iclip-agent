@@ -24,7 +24,6 @@ from iclip.domains.conversations.schemas import (
     ConversationFileOut,
     ConversationFilesOut,
     ConversationIn,
-    ConversationMessagesOut,
     ConversationPageOut,
     ConversationRename,
     ConversationsAuditOut,
@@ -164,14 +163,6 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
 
         found = await service.list_for_task(principal, task_id)
         return ConversationsPageOut(items=[conversation_out(item) for item in found])
-
-    @router.get("/{conversation_id}/messages", response_model=ConversationMessagesOut)
-    async def read_conversation_messages(
-        conversation_id: uuid.UUID,
-        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
-    ) -> ConversationMessagesOut:
-        messages = await service.history(principal, conversation_id)
-        return ConversationMessagesOut(messages=list(messages))
 
     @router.get("/{conversation_id}/workspace/files", response_model=ConversationFilesOut)
     async def list_conversation_files(

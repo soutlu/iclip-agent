@@ -26,19 +26,9 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
+      # CI 上不许静默 skip：给了地址，跑不起来就是红的。
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
-      # CI 上不许静默 skip：这两个都给了，跑不起来就是红的。
-      TEST_REDIS_URL: redis://localhost:6379/0
     defaults:
       run:
         working-directory: server

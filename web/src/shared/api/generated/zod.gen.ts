@@ -57,6 +57,13 @@ export const zApiKeysEnvelope = z.object({
 })
 
 /**
+ * ApprovalRequest
+ */
+export const zApprovalRequest = z.object({
+  approved: z.boolean(),
+})
+
+/**
  * AssetImportIn
  *
  * 要转存哪个外部地址。
@@ -90,6 +97,35 @@ export const zAssetEnvelope = z.object({
  */
 export const zAssetsPageOut = z.object({
   items: z.array(zAssetOut),
+})
+
+/**
+ * AttachmentSource
+ */
+export const zAttachmentSource = z.object({
+  fileId: z.string().nullish(),
+  kind: z.enum(['url', 'file', 'session_media']),
+  url: z.string().nullish(),
+})
+
+/**
+ * Attachment
+ */
+export const zAttachment = z.object({
+  attachmentId: z.string(),
+  mediaType: z.string(),
+  name: z.string().nullish(),
+  placeholder: z.string().nullish(),
+  size: z.int().nullish(),
+  source: zAttachmentSource.nullish(),
+})
+
+/**
+ * AttachmentUpsertOp
+ */
+export const zAttachmentUpsertOp = z.object({
+  attachment: zAttachment,
+  op: z.literal('attachment.upsert').optional().default('attachment.upsert'),
 })
 
 /**
@@ -240,18 +276,6 @@ export const zConversationIn = z.object({
 })
 
 /**
- * ConversationMessagesOut
- *
- * 一段对话已经发生过的消息。
- *
- * ``messages`` 里是 AG-UI 官方形状的消息，字段名沿用 AG-UI 的拼写，不套这一层的
- * camelCase 改写——它们要原样喂回 ``POST /agents/{agentId}/chat`` 的请求体。
- */
-export const zConversationMessagesOut = z.object({
-  messages: z.array(z.record(z.string(), z.unknown())),
-})
-
-/**
  * ConversationOut
  */
 export const zConversationOut = z.object({
@@ -340,6 +364,28 @@ export const zErrorModel = z.object({
 })
 
 /**
+ * FrameTarget
+ */
+export const zFrameTarget = z.object({
+  frameId: z.string(),
+  stepId: z.string(),
+  turnId: z.string(),
+  type: z.literal('frame').optional().default('frame'),
+})
+
+/**
+ * AppendOp
+ *
+ * 往某个块的尾巴追加文字。``offset`` 的单位是 UTF-16，见 ``utf16_len``。
+ */
+export const zAppendOp = z.object({
+  offset: z.int().gte(0),
+  op: z.literal('append').optional().default('append'),
+  target: zFrameTarget,
+  text: z.string(),
+})
+
+/**
  * GenerationOut
  *
  * 一次生成对外的样子。
@@ -378,6 +424,14 @@ export const zGenerationsPageOut = z.object({
 })
 
 /**
+ * ImageContent
+ */
+export const zImageContent = z.object({
+  source: zAttachmentSource,
+  type: z.literal('image').optional().default('image'),
+})
+
+/**
  * ImageGenerationIn
  *
  * 一次图像生成的输入。参考图为空即文生图，否则走图像编辑。
@@ -402,6 +456,36 @@ export const zImageOut = z.object({
 })
 
 /**
+ * Interaction
+ *
+ * 待人回应的审批或提问。``request`` / ``response`` 的形状由发起方决定。
+ */
+export const zInteraction = z.object({
+  interactionId: z.string(),
+  interactionKind: z.enum(['approval', 'question']),
+  request: z.unknown().nullish(),
+  response: z.unknown().nullish(),
+  state: z.enum(['pending', 'approved', 'rejected', 'cancelled', 'answered', 'dismissed']),
+  toolCallId: z.string().nullish(),
+})
+
+/**
+ * InteractionUpsertOp
+ */
+export const zInteractionUpsertOp = z.object({
+  interaction: zInteraction,
+  op: z.literal('interaction.upsert').optional().default('interaction.upsert'),
+})
+
+/**
+ * ItemsRemoveOp
+ */
+export const zItemsRemoveOp = z.object({
+  ids: z.array(z.string()),
+  op: z.literal('items.remove').optional().default('items.remove'),
+})
+
+/**
  * MetricsOut
  */
 export const zMetricsOut = z.object({
@@ -410,6 +494,18 @@ export const zMetricsOut = z.object({
   orders: z.int(),
   revenue: z.string().regex(/^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$/),
   views: z.int(),
+})
+
+/**
+ * NoticeFrame
+ */
+export const zNoticeFrame = z.object({
+  detail: z.unknown().nullish(),
+  frameId: z.string(),
+  kind: z.literal('notice').optional().default('notice'),
+  level: z.enum(['error', 'warning', 'info']),
+  message: z.string(),
+  source: z.string().nullish(),
 })
 
 /**
@@ -481,6 +577,49 @@ export const zSidebarOut = z.object({
  */
 export const zSsoAuthorizeOut = z.object({
   authorization_url: z.string(),
+})
+
+/**
+ * SteerRequest
+ */
+export const zSteerRequest = z.object({
+  prompt_ids: z.array(z.string()).min(1),
+})
+
+/**
+ * StepUsage
+ */
+export const zStepUsage = z.object({
+  inputCacheCreation: z.int(),
+  inputCacheRead: z.int(),
+  inputOther: z.int(),
+  output: z.int(),
+})
+
+/**
+ * StepHeader
+ */
+export const zStepHeader = z.object({
+  endMessage: z.string().nullish(),
+  endReason: z.string().nullish(),
+  endedAt: z.string().nullish(),
+  finishReason: z.string().nullish(),
+  kind: z.literal('step').optional().default('step'),
+  ordinal: z.int(),
+  startedAt: z.string().nullish(),
+  state: z.enum(['running', 'completed', 'interrupted', 'failed']),
+  stepId: z.string(),
+  turnId: z.string(),
+  usage: zStepUsage.nullish(),
+})
+
+/**
+ * StepUpsertOp
+ */
+export const zStepUpsertOp = z.object({
+  op: z.literal('step.upsert').optional().default('step.upsert'),
+  step: zStepHeader,
+  turnId: z.string(),
 })
 
 /**
@@ -624,6 +763,165 @@ export const zTasksPageOut = z.object({
 })
 
 /**
+ * TextContent
+ */
+export const zTextContent = z.object({
+  text: z.string(),
+  type: z.literal('text').optional().default('text'),
+})
+
+/**
+ * TextFrame
+ */
+export const zTextFrame = z.object({
+  attachmentIds: z.array(z.string()).nullish(),
+  frameId: z.string(),
+  kind: z.literal('text').optional().default('text'),
+  promptIds: z.array(z.string()).nullish(),
+  role: z.enum(['assistant', 'user']),
+  text: z.string(),
+})
+
+/**
+ * ThinkingFrame
+ */
+export const zThinkingFrame = z.object({
+  frameId: z.string(),
+  kind: z.literal('thinking').optional().default('thinking'),
+  text: z.string(),
+})
+
+/**
+ * ToolFrame
+ */
+export const zToolFrame = z.object({
+  approvalId: z.string().nullish(),
+  display: z.unknown().nullish(),
+  error: z.string().nullish(),
+  frameId: z.string(),
+  input: z.unknown().nullish(),
+  kind: z.literal('tool').optional().default('tool'),
+  name: z.string(),
+  output: z.unknown().nullish(),
+  state: z.enum(['running', 'done', 'error']),
+  toolCallId: z.string(),
+})
+
+/**
+ * FrameUpsertOp
+ */
+export const zFrameUpsertOp = z.object({
+  frame: z.discriminatedUnion('kind', [zTextFrame, zThinkingFrame, zToolFrame, zNoticeFrame]),
+  op: z.literal('frame.upsert').optional().default('frame.upsert'),
+  stepId: z.string(),
+  turnId: z.string(),
+})
+
+/**
+ * TranscriptMeta
+ */
+export const zTranscriptMeta = z.object({
+  activity: z.enum(['idle', 'turn', 'disposing', 'unknown']).nullish(),
+})
+
+/**
+ * MetaMergeOp
+ */
+export const zMetaMergeOp = z.object({
+  meta: zTranscriptMeta,
+  op: z.literal('meta.merge').optional().default('meta.merge'),
+})
+
+/**
+ * TranscriptStep
+ *
+ * 带上块的完整一步。``GET /transcript`` 的分页与快照里用这一份，操作里用光头部那份。
+ */
+export const zTranscriptStep = z.object({
+  endMessage: z.string().nullish(),
+  endReason: z.string().nullish(),
+  endedAt: z.string().nullish(),
+  finishReason: z.string().nullish(),
+  frames: z
+    .array(z.union([zTextFrame, zThinkingFrame, zToolFrame, zNoticeFrame]))
+    .optional()
+    .default([]),
+  kind: z.literal('step').optional().default('step'),
+  ordinal: z.int(),
+  startedAt: z.string().nullish(),
+  state: z.enum(['running', 'completed', 'interrupted', 'failed']),
+  stepId: z.string(),
+  turnId: z.string(),
+  usage: zStepUsage.nullish(),
+})
+
+/**
+ * TurnOrigin
+ */
+export const zTurnOrigin = z.object({
+  kind: z.enum(['user', 'cron', 'task', 'hook', 'compaction', 'side', 'other']),
+})
+
+/**
+ * TurnUsage
+ */
+export const zTurnUsage = z.object({
+  cachedTokens: z.int().nullish(),
+  cost: z.number().nullish(),
+  inputTokens: z.int().nullish(),
+  outputTokens: z.int().nullish(),
+})
+
+/**
+ * TranscriptTurn
+ *
+ * 带上步的完整一轮。
+ */
+export const zTranscriptTurn = z.object({
+  attachmentIds: z.array(z.string()).nullish(),
+  durationMs: z.int().nullish(),
+  endedAt: z.string().nullish(),
+  error: z.string().nullish(),
+  kind: z.literal('turn').optional().default('turn'),
+  ordinal: z.int(),
+  origin: zTurnOrigin,
+  prompt: z.string().nullish(),
+  startedAt: z.string().nullish(),
+  state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
+  steps: z.array(zTranscriptStep).optional().default([]),
+  turnId: z.string(),
+  usage: zTurnUsage.nullish(),
+})
+
+/**
+ * TurnHeader
+ *
+ * 一轮的头部。``steps`` 不在这里——步是单独的操作发的。
+ */
+export const zTurnHeader = z.object({
+  attachmentIds: z.array(z.string()).nullish(),
+  durationMs: z.int().nullish(),
+  endedAt: z.string().nullish(),
+  error: z.string().nullish(),
+  kind: z.literal('turn').optional().default('turn'),
+  ordinal: z.int(),
+  origin: zTurnOrigin,
+  prompt: z.string().nullish(),
+  startedAt: z.string().nullish(),
+  state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
+  turnId: z.string(),
+  usage: zTurnUsage.nullish(),
+})
+
+/**
+ * TurnUpsertOp
+ */
+export const zTurnUpsertOp = z.object({
+  op: z.literal('turn.upsert').optional().default('turn.upsert'),
+  turn: zTurnHeader,
+})
+
+/**
  * UploadInstruction
  *
  * 浏览器照着它直传：往 ``url`` 发一个 PUT，headers 原样带上。
@@ -752,6 +1050,121 @@ export const zHttpValidationError = z.object({
 })
 
 /**
+ * VideoContent
+ */
+export const zVideoContent = z.object({
+  source: zAttachmentSource,
+  type: z.literal('video').optional().default('video'),
+})
+
+/**
+ * Prompt
+ *
+ * 用户消息的服务端记录。客户端的乐观气泡第一层认领就是按 ``promptId`` 查这张表。
+ */
+export const zPrompt = z.object({
+  content: z.array(z.union([zTextContent, zImageContent, zVideoContent])).nullish(),
+  createdAt: z.string(),
+  finishedAt: z.string().nullish(),
+  promptId: z.string(),
+  status: z.enum(['running', 'queued', 'blocked', 'completed', 'failed', 'aborted']),
+  steeredAt: z.string().nullish(),
+  userMessageId: z.string().nullish(),
+})
+
+/**
+ * PromptQueueOut
+ *
+ * ``GET /prompts``：在跑的那条加排着的那些。
+ */
+export const zPromptQueueOut = z.object({
+  active: zPrompt.nullable(),
+  queued: z.array(zPrompt),
+})
+
+/**
+ * PromptSubmission
+ *
+ * ``POST /prompts`` 的请求体。
+ *
+ * ``prompt_id`` 由客户端铸：它得在服务端答复回来之前就用这个 id 把自己的乐观气泡挂上，
+ * 而且重发同一个 id 不会多起一次运行。
+ */
+export const zPromptSubmission = z.object({
+  content: z.array(z.union([zTextContent, zImageContent, zVideoContent])).min(1),
+  prompt_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9._-]+$/),
+})
+
+/**
+ * PromptUpsertOp
+ */
+export const zPromptUpsertOp = z.object({
+  op: z.literal('prompt.upsert').optional().default('prompt.upsert'),
+  prompt: zPrompt,
+})
+
+/**
+ * OpsBatchOut
+ */
+export const zOpsBatchOut = z.object({
+  ops: z.array(
+    z.union([
+      zTurnUpsertOp,
+      zStepUpsertOp,
+      zFrameUpsertOp,
+      zAppendOp,
+      zInteractionUpsertOp,
+      zAttachmentUpsertOp,
+      zPromptUpsertOp,
+      zMetaMergeOp,
+      zItemsRemoveOp,
+    ]),
+  ),
+  seq: z.int(),
+})
+
+/**
+ * OpsCatchup
+ *
+ * ``GET /transcript/ops`` 的补批响应。
+ *
+ * ``complete`` 为假表示要的批次已经出了日志窗口，客户端得整页重拉。
+ */
+export const zOpsCatchup = z.object({
+  agent_id: z.string(),
+  batches: z.array(zOpsBatchOut),
+  complete: z.boolean(),
+  latest_seq: z.int(),
+})
+
+/**
+ * TranscriptPage
+ *
+ * ``GET /transcript`` 的一页。
+ *
+ * ``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、
+ * 后者从待回应的交互里取。
+ */
+export const zTranscriptPage = z.object({
+  agent_id: z.string(),
+  agents: z.array(z.record(z.string(), z.unknown())).optional().default([]),
+  attachments: z.array(zAttachment).optional().default([]),
+  has_more: z.boolean(),
+  interactions: z.array(zInteraction).optional().default([]),
+  items: z.array(zTranscriptTurn),
+  meta: zTranscriptMeta.optional().default({}),
+  pending_interactions: z.array(z.string()).optional().default([]),
+  prompts: z.array(zPrompt).optional().default([]),
+  seq: z.int(),
+  tasks: z.array(z.unknown()).optional().default([]),
+  todos: z.array(z.unknown()).optional().default([]),
+})
+
+/**
  * VideoGenerationIn
  *
  * 一次视频生成的输入。
@@ -806,28 +1219,6 @@ export const zVideoSearchIn = z.object({
  */
 export const zVideoSearchOut = z.object({
   items: z.array(zVideoOut),
-})
-
-export const zPreflightAgentsAgentIdChatOptionsPath = z.object({
-  agent_id: z.string(),
-})
-
-export const zChatAgentsAgentIdChatPostPath = z.object({
-  agent_id: z.string(),
-})
-
-export const zResumeAgentsAgentIdChatConversationIdRunIdGetHeaders = z.object({
-  'Last-Event-ID': z.string().nullish(),
-})
-
-export const zResumeAgentsAgentIdChatConversationIdRunIdGetPath = z.object({
-  agent_id: z.string(),
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
-  run_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
-})
-
-export const zResumeAgentsAgentIdChatConversationIdRunIdGetQuery = z.object({
-  from: z.string().nullish(),
 })
 
 /**
@@ -1057,15 +1448,58 @@ export const zSetConversationCollectionConversationsConversationIdCollectionPutP
 export const zSetConversationCollectionConversationsConversationIdCollectionPutResponse =
   zConversationEnvelope
 
-export const zReadConversationMessagesConversationsConversationIdMessagesGetPath = z.object({
-  conversation_id: z.uuid(),
+export const zApproveConversationsConversationIdInteractionsInteractionIdPostBody = zApprovalRequest
+
+export const zApproveConversationsConversationIdInteractionsInteractionIdPostPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  interaction_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
 })
 
 /**
  * Successful Response
  */
-export const zReadConversationMessagesConversationsConversationIdMessagesGetResponse =
-  zConversationMessagesOut
+export const zApproveConversationsConversationIdInteractionsInteractionIdPostResponse = z.void()
+
+export const zQueueViewConversationsConversationIdPromptsGetPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+})
+
+/**
+ * Successful Response
+ */
+export const zQueueViewConversationsConversationIdPromptsGetResponse = zPromptQueueOut
+
+export const zSubmitConversationsConversationIdPromptsPostBody = zPromptSubmission
+
+export const zSubmitConversationsConversationIdPromptsPostPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+})
+
+/**
+ * Successful Response
+ */
+export const zSubmitConversationsConversationIdPromptsPostResponse = zPrompt
+
+export const zAbortConversationsConversationIdPromptsPromptIdAbortPostPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  prompt_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+})
+
+/**
+ * Successful Response
+ */
+export const zAbortConversationsConversationIdPromptsPromptIdAbortPostResponse = z.void()
+
+export const zSteerConversationsConversationIdPromptsSteerPostBody = zSteerRequest
+
+export const zSteerConversationsConversationIdPromptsSteerPostPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+})
+
+/**
+ * Successful Response
+ */
+export const zSteerConversationsConversationIdPromptsSteerPostResponse = z.void()
 
 export const zSetConversationTaskConversationsConversationIdTaskPutBody = zConversationTaskIn
 
@@ -1077,6 +1511,34 @@ export const zSetConversationTaskConversationsConversationIdTaskPutPath = z.obje
  * Successful Response
  */
 export const zSetConversationTaskConversationsConversationIdTaskPutResponse = zConversationEnvelope
+
+export const zPageConversationsConversationIdTranscriptGetPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+})
+
+export const zPageConversationsConversationIdTranscriptGetQuery = z.object({
+  before_turn: z.string().nullish(),
+  after_turn: z.string().nullish(),
+  page_size: z.int().gte(1).lte(100).optional().default(20),
+})
+
+/**
+ * Successful Response
+ */
+export const zPageConversationsConversationIdTranscriptGetResponse = zTranscriptPage
+
+export const zCatchupConversationsConversationIdTranscriptOpsGetPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+})
+
+export const zCatchupConversationsConversationIdTranscriptOpsGetQuery = z.object({
+  since_seq: z.int().gte(0),
+})
+
+/**
+ * Successful Response
+ */
+export const zCatchupConversationsConversationIdTranscriptOpsGetResponse = zOpsCatchup
 
 export const zReadConversationFileConversationsConversationIdWorkspaceFileGetPath = z.object({
   conversation_id: z.uuid(),

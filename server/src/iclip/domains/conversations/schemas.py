@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Final
+from typing import Annotated, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -118,16 +118,6 @@ class ConversationsAuditOut(CamelModel):
     next_cursor: str | None
 
 
-class ConversationMessagesOut(CamelModel):
-    """一段对话已经发生过的消息。
-
-    ``messages`` 里是 AG-UI 官方形状的消息，字段名沿用 AG-UI 的拼写，不套这一层的
-    camelCase 改写——它们要原样喂回 ``POST /agents/{agentId}/chat`` 的请求体。
-    """
-
-    messages: list[dict[str, Any]]
-
-
 class ConversationFileOut(CamelModel):
     """agent 在这段对话里写下的一个文件的元信息。``version`` 变了内容才变，前端据此决定要不要重读。"""
 
@@ -178,7 +168,6 @@ __all__ = [
     "ConversationFileOut",
     "ConversationFilesOut",
     "ConversationIn",
-    "ConversationMessagesOut",
     "ConversationOut",
     "ConversationPageOut",
     "ConversationRename",

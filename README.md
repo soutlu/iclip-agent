@@ -23,7 +23,7 @@
 
 ## 启动指南
 
-需要 [Python 3.13](https://www.python.org/)、[uv](https://docs.astral.sh/uv/)、[Node.js ≥ 22.18](https://nodejs.org/)（前端 `.npmrc` 开了 `engine-strict`）、PostgreSQL 与 Redis。
+需要 [Python 3.13](https://www.python.org/)、[uv](https://docs.astral.sh/uv/)、[Node.js ≥ 22.18](https://nodejs.org/)（前端 `.npmrc` 开了 `engine-strict`）、与 PostgreSQL。
 
 ### 1. 安装依赖
 

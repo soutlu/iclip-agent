@@ -24,6 +24,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "app/",
         "domains/identity/api.py",
         "domains/agents/api.py",
+        "domains/agents/transcript_api.py",
         "domains/conversations/api.py",
         "domains/generation/api.py",
         "domains/products/api.py",
@@ -43,6 +44,9 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         # 协议后端跟着「说这门协议的那一环」走：这是官方 StepPersistence 的 PG
         # 后端，而 harness/agents.py 正是按 StepStore 协议标类型的那一方。
         "harness/step_store_pg.py",
+        # prompt 队列的表。它归运行驱动所有（那一层才知道「同时只跑一条」是什么意思），
+        # 和上面那张表同属 agent_runtime schema，所以落在同一处。
+        "harness/prompts.py",
         # 外部只读源：这些表是别人的（PDM 的同步副本），不是本模块自有的表，所以
         # 不叫 infra_sql.py——那个名字在落点表里的口径是「该模块自有的表」。
         "domains/products/catalog_pg.py",

@@ -34,7 +34,7 @@ depends_on = ["iclip.common", "iclip.platform.db", "iclip.platform.http"]
 # agent 运行的 HTTP 面：只认识注入进来的事件流工厂，不认识 harness。
 [[modules]]
 path = "iclip.domains.agents"
-depends_on = ["iclip.domains.identity"]
+depends_on = ["iclip.common", "iclip.domains.identity", "iclip.platform.transcript"]
 
 # 对话：自有的表。不认识 agent 引擎，也不认识工作区——删对话要连带清掉的那些东西
 # 由组合根接线进来（见 domains/conversations/service.py 的 PurgeDerived）。
@@ -83,10 +83,16 @@ depends_on = ["iclip.common", "iclip.domains.identity"]
 path = "iclip.domains.inspirations"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
+# transcript 协议的形状。照抄来的外部合同，谁都不拥有它：产出它的是 harness，
+# 序列化它的是 HTTP/WS 那一层，两边隔着围栏。它自己什么都不认识。
+[[modules]]
+path = "iclip.platform.transcript"
+depends_on = []
+
 # 通用 agent 内核，不认识业务。
 [[modules]]
 path = "iclip.harness"
-depends_on = ["iclip.common"]
+depends_on = ["iclip.common", "iclip.platform.transcript"]
 
 # capability 实现，唯一同时认识 harness 与 domains 的适配环。
 [[modules]]
@@ -108,6 +114,7 @@ depends_on = [
     "iclip.platform.http",
     "iclip.platform.object_store",
     "iclip.platform.file_store",
+    "iclip.platform.transcript",
     "iclip.config",
     "iclip.domains.identity",
     "iclip.domains.agents",

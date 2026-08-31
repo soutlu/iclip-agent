@@ -54,6 +54,8 @@ export default tseslint.config(
       'node_modules',
       // docs/ 里有脱离本项目 tsconfig 的示例代码，类型感知规则跑不动
       'docs',
+      // 照抄来的外部合同：逐字节保留，改动只允许出现在这个目录外面（见其 README）
+      'src/shared/transcript/vendor/**',
     ],
   },
 

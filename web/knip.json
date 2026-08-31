@@ -7,7 +7,7 @@
     "src/shared/icons/index.ts"
   ],
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs", "vite/**/*.ts"],
-  "ignore": ["src/shared/api/generated/**"],
+  "ignore": ["src/shared/api/generated/**", "src/shared/transcript/vendor/**"],
   "ignoreDependencies": ["tw-animate-css", "tailwindcss", "lint-staged"],
   "ignoreExportsUsedInFile": true
 }
