@@ -19,10 +19,11 @@ test('点开一段对话：历史铺开，回复逐字长出来', async ({ page 
   await expect(page.getByText('读文件')).toBeVisible()
   await expect(page.getByText('shots/storyboard.md')).toBeVisible()
 
-  // 逐字来的那一轮：三段追加接在同一块上，最终是一整句
-  await expect(page.getByText('好的，我先看一下这段素材，再把镜头表补齐。')).toBeVisible({
-    timeout: 15_000,
-  })
+  // 逐字来的那一轮：三段追加接在同一块上，markdown 渲染成列表与粗体
+  await expect(page.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('listitem').filter({ hasText: '拆出 3 个镜头' })).toBeVisible()
+  // 行内代码渲染成 code：历史那条工具行也写着同一个路径，所以按标签选
+  await expect(page.locator('code', { hasText: 'shots/storyboard.md' })).toBeVisible()
 })
 
 test('在会话页发一条：气泡先出来，回复跟着长出来', async ({ page }) => {
@@ -40,9 +41,7 @@ test('在会话页发一条：气泡先出来，回复跟着长出来', async ({
 
   // 服务端认下这条之后本地气泡撤掉，同一句只剩时间线上那一条
   await expect(page.getByText('再补两个镜头')).toHaveCount(1)
-  await expect(page.getByText('好的，我先看一下这段素材，再把镜头表补齐。').last()).toBeVisible({
-    timeout: 15_000,
-  })
+  await expect(page.getByText('镜头表已经更新。').last()).toBeVisible({ timeout: 15_000 })
 })
 
 test('首页发一条：新建对话并跳进会话页', async ({ page }) => {

@@ -51,7 +51,7 @@ export function ConversationComposer({ busy = false, onSend, onStop }: Conversat
       onStop={onStop}
       onSubmit={() => void send()}
       onValueChange={setValue}
-      placeholder={busy ? '在跑着，发出去会排在后面…' : '接着说…'}
+      placeholder="接着说…"
       sending={sending}
       value={value}
     />

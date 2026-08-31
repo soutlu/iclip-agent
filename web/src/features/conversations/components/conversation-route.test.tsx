@@ -287,4 +287,68 @@ describe('ConversationRoute', () => {
     expect(details).toHaveAttribute('open')
     expect(screen.getByText(/shots\/s01\.md/)).toBeInTheDocument()
   })
+
+  it('助手正文按 markdown 渲染：列表、粗体、行内代码', async () => {
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    socket.deliver(
+      opsFrame(
+        [
+          {
+            op: 'frame.upsert',
+            frame: {
+              frameId: 't2.1.f8',
+              kind: 'text',
+              role: 'assistant',
+              text: '要点：\n\n- 拆出 **3 个**镜头\n- 写进 `shots/s09.md`\n',
+            },
+            stepId: 't2.1',
+            turnId: 't2',
+          },
+        ],
+        11,
+      ),
+    )
+
+    const items = await screen.findAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(screen.getByText('3 个').tagName).toBe('STRONG')
+    expect(screen.getByText('shots/s09.md').tagName).toBe('CODE')
+  })
+
+  it('正文里夹的 HTML 会渲染，脚本与事件属性被摘掉', async () => {
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    socket.deliver(
+      opsFrame(
+        [
+          {
+            op: 'frame.upsert',
+            frame: {
+              frameId: 't2.1.f7',
+              kind: 'text',
+              role: 'assistant',
+              text: [
+                '<details><summary>展开看设定</summary>',
+                '<p id="html-body">这段是 <b>HTML</b></p></details>',
+                '<script>window.__pwned = true</script>',
+                '<p onclick="window.__pwned = true" id="html-click">点我</p>',
+              ].join('\n'),
+            },
+            stepId: 't2.1',
+            turnId: 't2',
+          },
+        ],
+        11,
+      ),
+    )
+
+    expect(await screen.findByText('展开看设定')).toBeInTheDocument()
+    expect(screen.getByText('HTML').tagName).toBe('B')
+    // 脚本整段不见，事件属性被摘掉：正文是模型写的，这两样放行就是一条 XSS 通道
+    expect(document.querySelector('script')).toBeNull()
+    expect(screen.getByText('点我')).not.toHaveAttribute('onclick')
+  })
 })
