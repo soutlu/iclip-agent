@@ -5,6 +5,7 @@ import {
   zConversationEnvelope,
   zConversationPageOut,
   zConversationsPageOut,
+  zPrompt,
   zSidebarOut,
 } from '@/shared/api/generated/zod.gen'
 
@@ -81,6 +82,51 @@ export const useMoreConversations = (
     initialPageParam: cursor ?? '',
     getNextPageParam: (last: z.output<typeof zConversationPageOut>) => last.nextCursor,
     enabled: false,
+  })
+}
+
+/**
+ * 新建一段对话，再把第一条消息发进去。
+ *
+ * `promptId` 由客户端铸，重发同一个不会多起一次运行——所以「发出去了但没收到回执」时，
+ * 界面重试是安全的。
+ *
+ * @param onCreated - 拿到对话 id 之后调用（路由层用它跳过去）。
+ * @returns TanStack mutation。
+ */
+export const useStartConversation = (onCreated: (conversationId: string) => void) => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ agentId, text }: { agentId: string; text: string }) => {
+      const conversation = await apiFetch('/conversations', conversationEnvelopeSchema, {
+        body: { agentId },
+        fallbackErrorMessage: '新建对话失败',
+        method: 'POST',
+      })
+      // 先跳过去再发：会话页那一侧订阅与拉基线都不依赖这条消息的回执，早跳一步用户就早看到
+      // 自己那条话。
+      onCreated(conversation.id)
+      await submitPrompt(conversation.id, { promptId: mintPromptId(), text })
+      return conversation
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
+    },
+  })
+}
+
+/** 铸一个 prompt id。界面拿它挂乐观气泡，服务端拿它去重。 */
+export const mintPromptId = (): string => crypto.randomUUID()
+
+/** 往一段对话里发一条消息。同一个 `promptId` 重发不会多起一次运行。 */
+export const submitPrompt = async (
+  conversationId: string,
+  { promptId, text }: { promptId: string; text: string },
+): Promise<void> => {
+  await apiFetch(`/conversations/${conversationId}/prompts`, zPrompt, {
+    body: { content: [{ text, type: 'text' }], prompt_id: promptId },
+    fallbackErrorMessage: '发送失败',
+    method: 'POST',
   })
 }
 

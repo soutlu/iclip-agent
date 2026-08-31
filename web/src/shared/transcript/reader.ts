@@ -16,7 +16,7 @@ import {
   fetchTranscriptCatchup,
   type TranscriptBatch,
 } from './transcript.api'
-import { AgentTranscript, type TranscriptItem } from './vendor'
+import { AgentTranscript, type TranscriptItem, type TranscriptPrompt } from './vendor'
 
 /** 我们只有主 agent。 */
 const MAIN_AGENT = 'main'
@@ -30,6 +30,8 @@ const reloadDelayMs = (attempt: number) => Math.min(attempt * 2000, 15_000)
 export interface TranscriptView {
   /** 时间线：一串轮子，各自带步与块。 */
   items: readonly TranscriptItem[]
+  /** 服务端记下的用户消息。排队中的那几条只在这里，时间线上还没有它们。 */
+  prompts: readonly TranscriptPrompt[]
   /** `loading` 是基线还没到；`error` 是拉不到或者对不齐，界面给重试入口。 */
   status: 'loading' | 'ready' | 'error'
   /** 上面还有更早的轮子（往上翻页在 PR 之后做）。 */
@@ -37,7 +39,12 @@ export interface TranscriptView {
   error?: string
 }
 
-const EMPTY_VIEW: TranscriptView = { hasMoreOlder: false, items: [], status: 'loading' }
+const EMPTY_VIEW: TranscriptView = {
+  hasMoreOlder: false,
+  items: [],
+  prompts: [],
+  status: 'loading',
+}
 
 /** 一批操作的落地结果。 */
 type Absorbed = 'applied' | 'duplicate' | 'gap' | 'broken'
@@ -186,6 +193,7 @@ export class TranscriptReader {
         this.snapshot = {
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
+          prompts: [...this.transcript.getPrompts().values()],
           status: 'ready',
         }
         this.emit()
@@ -240,7 +248,11 @@ export class TranscriptReader {
   // --- 出快照 ---------------------------------------------------------------
 
   private publish(): void {
-    this.snapshot = { ...this.snapshot, items: this.transcript.getItems() }
+    this.snapshot = {
+      ...this.snapshot,
+      items: this.transcript.getItems(),
+      prompts: [...this.transcript.getPrompts().values()],
+    }
     this.emit()
   }
 

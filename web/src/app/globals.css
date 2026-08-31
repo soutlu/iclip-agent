@@ -361,8 +361,8 @@
 @import './fonts.css';
 @import './base.css';
 @import './utility-classes.css';
+@import '../shared/ui/composer/composer.css';
 @import '../shared/ui/field/field.css';
 @import '../shared/ui/hero/hero.css';
 @import '../features/auth/auth.css';
-@import '../features/home/home.css';
 @import '../features/tasks/tasks.css';

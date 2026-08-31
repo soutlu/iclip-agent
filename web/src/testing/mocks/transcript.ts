@@ -1,8 +1,9 @@
 /**
- * transcript 的 mock：一页历史（REST）加一条会说话的订阅连接（WebSocket）。
+ * transcript 的 mock：一页历史（REST）、一条会说话的订阅连接（WebSocket），加收下消息之后
+ * 照着演一轮回复。
  *
- * 单测要确定的内容，各自 `server.use(...)` 覆盖这几条；`pnpm dev:mock` 与 e2e 用这一份，连上
- * 就会演一轮流式回复，好让页面在没有后端时也能看出效果。
+ * 单测要确定的内容，各自 `server.use(...)` 覆盖这几条；`pnpm dev:mock` 与 e2e 用这一份——发一句
+ * 出去，气泡会被认领、回复会一段段长出来，不需要真后端。
  */
 
 import { http, HttpResponse, ws } from 'msw'
@@ -10,17 +11,31 @@ import { http, HttpResponse, ws } from 'msw'
 /** 历史里有几轮。 */
 const HISTORY_TURNS = 2
 
-/** 历史那几轮对应的水位。演的那一轮从它之后接着编号。 */
+/** 历史那几轮对应的水位。之后每一批从它往上编号。 */
 const HISTORY_SEQ = 10
 
-/** 演出来的那一轮，正文按这几段挤出来。 */
+/** 演出来的回复，正文按这几段挤出来。 */
 const DEMO_CHUNKS = ['好的，', '我先看一下这段素材，', '再把镜头表补齐。']
 
-/** 演出来那一轮的思考正文。 */
+/** 演出来的那一轮里的思考正文。 */
 const DEMO_THINKING = '先看看目录里已经有哪些镜头，再决定补哪几条。'
 
-/** 一句正文的块 id 前缀：轮 3 的第 1 步。 */
-const DEMO_STEP = 't3.1'
+/** 每批操作之间隔多久：够看出是流式的，又不至于等。 */
+const BEAT_MS = 500
+
+type Batch = unknown[]
+
+type Connection = {
+  conversationId: string
+  send: (payload: { agent_id: string; ops: Batch; seq: number }) => void
+}
+
+/** 连着的那几条连接。收下消息之后照它们广播。 */
+const connections = new Set<Connection>()
+
+/** 全局批次号与轮号。历史占了前两轮。 */
+let seq = HISTORY_SEQ
+let turns = HISTORY_TURNS
 
 /**
  * 造一页历史。
@@ -33,7 +48,7 @@ export const mockTranscriptPage = () => ({
   attachments: [],
   has_more: false,
   interactions: [],
-  items: Array.from({ length: HISTORY_TURNS }, (_, index) => turnOf(index + 1)),
+  items: Array.from({ length: HISTORY_TURNS }, (_, index) => historyTurn(index + 1)),
   meta: { activity: 'idle' },
   pending_interactions: [],
   prompts: [],
@@ -43,12 +58,12 @@ export const mockTranscriptPage = () => ({
 })
 
 /**
- * 历史里的一轮：用户一句、模型一句，第二轮里多一张工具卡。
+ * 历史里的一轮：用户一句、模型一句，第二轮里多一次工具调用。
  *
  * @param ordinal - 第几轮。
  * @returns 一轮的完整形状。
  */
-const turnOf = (ordinal: number) => ({
+const historyTurn = (ordinal: number) => ({
   durationMs: 4200,
   endedAt: '2026-08-31T02:00:0'.concat(String(ordinal), 'Z'),
   kind: 'turn',
@@ -60,12 +75,7 @@ const turnOf = (ordinal: number) => ({
   steps: [
     {
       frames: [
-        {
-          frameId: `t${ordinal}.1.f1`,
-          kind: 'text',
-          role: 'user',
-          text: `第 ${ordinal} 个问题`,
-        },
+        { frameId: `t${ordinal}.1.f1`, kind: 'text', role: 'user', text: `第 ${ordinal} 个问题` },
         ...(ordinal === HISTORY_TURNS
           ? [
               {
@@ -97,15 +107,27 @@ const turnOf = (ordinal: number) => ({
 
 const socket = ws.link('*/api/ws')
 
-/** REST 两条加订阅连接一条。 */
+/** REST 三条加订阅连接一条。 */
 export const transcriptHandlers = [
   http.get('*/api/conversations/:conversationId/transcript', () =>
     HttpResponse.json(mockTranscriptPage()),
   ),
 
   http.get('*/api/conversations/:conversationId/transcript/ops', () =>
-    HttpResponse.json({ agent_id: 'main', batches: [], complete: true, latest_seq: HISTORY_SEQ }),
+    HttpResponse.json({ agent_id: 'main', batches: [], complete: true, latest_seq: seq }),
   ),
+
+  // POST /prompts：收下就当跑起来了，随后照着演一轮回复。
+  http.post('*/api/conversations/:conversationId/prompts', async ({ params, request }) => {
+    const body = (await request.json()) as { content: { text?: string }[]; prompt_id: string }
+    const text = body.content.map((part) => part.text ?? '').join('')
+    playTurn(String(params['conversationId']), { promptId: body.prompt_id, text })
+    return HttpResponse.json({
+      createdAt: new Date().toISOString(),
+      promptId: body.prompt_id,
+      status: 'running',
+    })
+  }),
 
   socket.addEventListener('connection', ({ client }) => {
     client.send(
@@ -120,7 +142,7 @@ export const transcriptHandlers = [
       }),
     )
 
-    let played = false
+    let joined: Connection | null = null
     client.addEventListener('message', (event) => {
       if (typeof event.data !== 'string') return
       const frame = JSON.parse(event.data) as {
@@ -131,18 +153,14 @@ export const transcriptHandlers = [
       if (frame.type !== 'subscribe_v2') return
       const conversationId = frame.payload?.session_id ?? ''
       client.send(
-        JSON.stringify({
-          id: frame.id,
-          payload: { accepted: [conversationId] },
-          type: 'ack',
-        }),
+        JSON.stringify({ id: frame.id, payload: { accepted: [conversationId] }, type: 'ack' }),
       )
       client.send(
         JSON.stringify({
           payload: {
             agent_id: 'main',
             has_more_older: true,
-            seq: HISTORY_SEQ,
+            seq,
             snapshot: {
               attachments: [],
               interactions: [],
@@ -158,120 +176,127 @@ export const transcriptHandlers = [
           type: 'transcript.reset',
         }),
       )
-      // 一条连接只演一次：重连或者切档位再订阅时不该又冒出一轮。
-      if (played) return
-      played = true
-      playDemoTurn((payload) =>
-        client.send(
-          JSON.stringify({ payload, seq: payload.seq, session_id: conversationId, ...OPS_FRAME }),
-        ),
-      )
+      if (joined !== null) return
+      joined = {
+        conversationId,
+        send: (payload) =>
+          client.send(
+            JSON.stringify({
+              payload,
+              seq: payload.seq,
+              session_id: conversationId,
+              type: 'transcript.ops',
+            }),
+          ),
+      }
+      connections.add(joined)
+      // 一订上就先演一轮：不发消息也看得见流式长什么样。
+      playTurn(conversationId, { promptId: 'demo', text: '把这段素材拆一下' })
+    })
+
+    client.addEventListener('close', () => {
+      if (joined !== null) connections.delete(joined)
     })
   }),
 ]
 
-const OPS_FRAME = { type: 'transcript.ops' } as const
-
-type OpsPayload = { agent_id: string; ops: unknown[]; seq: number }
-
 /**
- * 演一轮流式回复：开轮、开步、开块，正文一段段追加，最后收尾。
+ * 演一轮：先认下这条消息，再开轮、开步、开块，正文一段段追加，最后收尾。
  *
- * @param send - 把一批操作发出去。
+ * @param conversationId - 哪一段对话。
+ * @param prompt - 用户这一条。
  */
-const playDemoTurn = (send: (payload: OpsPayload) => void) => {
-  const batches: unknown[][] = [
+const playTurn = (conversationId: string, prompt: { promptId: string; text: string }) => {
+  turns += 1
+  const turnId = `t${turns}`
+  const stepId = `${turnId}.1`
+  const now = new Date().toISOString()
+  const tool = (state: 'running' | 'done') => ({
+    op: 'frame.upsert',
+    frame: {
+      display: { kind: 'file_io', operation: 'grep', path: 'shots/' },
+      frameId: `${stepId}.call`,
+      kind: 'tool',
+      name: 'search_files',
+      state,
+      toolCallId: `${turnId}-call`,
+    },
+    stepId,
+    turnId,
+  })
+  const turnHeader = (state: 'running' | 'completed') => ({
+    op: 'turn.upsert',
+    turn: {
+      kind: 'turn',
+      ordinal: turns,
+      origin: { kind: 'user' },
+      prompt: prompt.text,
+      startedAt: now,
+      state,
+      turnId,
+      ...(state === 'completed' ? { endedAt: new Date().toISOString() } : {}),
+    },
+  })
+
+  const batches: Batch[] = [
     [
       {
-        op: 'turn.upsert',
-        turn: {
-          kind: 'turn',
-          ordinal: 3,
-          origin: { kind: 'user' },
-          prompt: '把这段素材拆一下',
-          startedAt: new Date().toISOString(),
-          state: 'running',
-          turnId: 't3',
-        },
+        op: 'prompt.upsert',
+        prompt: { createdAt: now, promptId: prompt.promptId, status: 'running' },
       },
+      turnHeader('running'),
       {
         op: 'frame.upsert',
-        frame: { frameId: `${DEMO_STEP}.f1`, kind: 'text', role: 'user', text: '把这段素材拆一下' },
-        stepId: DEMO_STEP,
-        turnId: 't3',
+        frame: { frameId: `${stepId}.f1`, kind: 'text', role: 'user', text: prompt.text },
+        stepId,
+        turnId,
       },
     ],
     [
       {
         op: 'step.upsert',
-        step: { kind: 'step', ordinal: 1, state: 'running', stepId: DEMO_STEP, turnId: 't3' },
-        turnId: 't3',
+        step: { kind: 'step', ordinal: 1, state: 'running', stepId, turnId },
+        turnId,
       },
       {
         op: 'frame.upsert',
-        frame: { frameId: `${DEMO_STEP}.f2`, kind: 'thinking', text: DEMO_THINKING },
-        stepId: DEMO_STEP,
-        turnId: 't3',
+        frame: { frameId: `${stepId}.f2`, kind: 'thinking', text: DEMO_THINKING },
+        stepId,
+        turnId,
       },
-      {
-        op: 'frame.upsert',
-        frame: {
-          display: { kind: 'file_io', operation: 'grep', path: 'shots/' },
-          frameId: `${DEMO_STEP}.call_demo`,
-          kind: 'tool',
-          name: 'search_files',
-          state: 'running',
-          toolCallId: 'call_demo',
-        },
-        stepId: DEMO_STEP,
-        turnId: 't3',
-      },
+      tool('running'),
     ],
     [
+      tool('done'),
       {
         op: 'frame.upsert',
-        frame: {
-          display: { kind: 'file_io', operation: 'grep', path: 'shots/' },
-          frameId: `${DEMO_STEP}.call_demo`,
-          kind: 'tool',
-          name: 'search_files',
-          state: 'done',
-          toolCallId: 'call_demo',
-        },
-        stepId: DEMO_STEP,
-        turnId: 't3',
-      },
-      {
-        op: 'frame.upsert',
-        frame: { frameId: `${DEMO_STEP}.f3`, kind: 'text', role: 'assistant', text: '' },
-        stepId: DEMO_STEP,
-        turnId: 't3',
+        frame: { frameId: `${stepId}.f3`, kind: 'text', role: 'assistant', text: '' },
+        stepId,
+        turnId,
       },
     ],
     ...DEMO_CHUNKS.map((text, index) => [
       {
-        op: 'append',
         offset: DEMO_CHUNKS.slice(0, index).join('').length,
-        target: { frameId: `${DEMO_STEP}.f3`, stepId: DEMO_STEP, turnId: 't3', type: 'frame' },
+        op: 'append',
+        target: { frameId: `${stepId}.f3`, stepId, turnId, type: 'frame' },
         text,
       },
     ]),
     [
       {
         op: 'step.upsert',
-        step: { kind: 'step', ordinal: 1, state: 'completed', stepId: DEMO_STEP, turnId: 't3' },
-        turnId: 't3',
+        step: { kind: 'step', ordinal: 1, state: 'completed', stepId, turnId },
+        turnId,
       },
+      turnHeader('completed'),
       {
-        op: 'turn.upsert',
-        turn: {
-          endedAt: new Date().toISOString(),
-          kind: 'turn',
-          ordinal: 3,
-          origin: { kind: 'user' },
-          prompt: '把这段素材拆一下',
-          state: 'completed',
-          turnId: 't3',
+        op: 'prompt.upsert',
+        prompt: {
+          createdAt: now,
+          finishedAt: new Date().toISOString(),
+          promptId: prompt.promptId,
+          status: 'completed',
         },
       },
     ],
@@ -279,8 +304,14 @@ const playDemoTurn = (send: (payload: OpsPayload) => void) => {
 
   batches.forEach((ops, index) => {
     setTimeout(
-      () => send({ agent_id: 'main', ops, seq: HISTORY_SEQ + index + 1 }),
-      600 * (index + 1),
+      () => {
+        seq += 1
+        const payload = { agent_id: 'main', ops, seq }
+        for (const connection of connections) {
+          if (connection.conversationId === conversationId) connection.send(payload)
+        }
+      },
+      BEAT_MS * (index + 1),
     )
   })
 }

@@ -1,5 +1,6 @@
 export {
   conversationsQueryKeys,
+  useStartConversation,
   useDeleteConversation,
   useMoreConversations,
   useRenameConversation,
