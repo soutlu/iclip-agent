@@ -83,14 +83,20 @@ transcript 面是唯一不按 §3 用 camelCase 的地方，因为客户端的 r
 
 ### 订阅
 
-`WS /conversations/{id}/ws`。**帧的 schema 不在 openapi 里**——它归照抄来的
-`packages/transcript` zod schema，前端 vendor 那一份，不另写也不手写。
+`WS /ws`，**一条连接管多段对话**——地址里没有对话 id，订哪几段由帧说。**帧的 schema 不在
+openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 vendor 那一份，不另写也
+不手写。
 
-- 握手：服务端先发 `server_hello`，客户端回 `client_hello`，然后发 `subscribe_v2`
-  （带 `transcript_since` 就是补批）。
+- 握手：服务端先发 `server_hello`（客户端只取 `heartbeat_ms`），客户端**每段对话各发一帧**
+  `subscribe_v2`，体里 `session_id` 是对话 id，`transcript` 恒 `{main: "delta"}`，带
+  `transcript_since` 就是补批。协议里的 `client_hello` 我们不收。
+- 退订一段发 `unsubscribe_v2`（体里 `session_id`）；关连接就是全退。
+- **订阅逐段核权**：看不见的对话与不存在的对话一个待遇——回执 `ack` 的 `payload.not_found` 里
+  带上它，整条连接不动（其余对话照旧）。建连时只核登录与 `agent:run`。
+- 服务端发来的每一帧带 `session_id`，**客户端按它分流**；水位也按对话各记一份。
 - 服务端每 10 秒发一帧 `ping`；连着两个周期没有收到**任何**入站帧就断开（`1001`）。
-- 第一次订阅收到一帧 `transcript.reset`，其后是 `transcript.ops`。**reset 里的 `seq` 会
-  无条件覆写客户端本地水位**（不是取较大值）——进程重启后批次号从 1 重来，靠的就是这条。
+- 每段对话第一次订阅收到一帧 `transcript.reset`，其后是 `transcript.ops`。**reset 里的 `seq`
+  会无条件覆写客户端本地水位**（不是取较大值）——进程重启后批次号从 1 重来，靠的就是这条。
 - 跨域的升级请求直接关（`1008`）：WS 不受 CORS 约束，浏览器照常带 cookie。
 - 服务端积压超过上限会关连接（`1013`），重连补批即可。
 

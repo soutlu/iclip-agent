@@ -63,15 +63,16 @@ def _open_conversation(tc: TestClient) -> str:
     return str(created.json()["conversation"]["id"])
 
 
-def _subscribe(ws: Any, conversation_id: str, *, since: int | None = None) -> None:
-    ws.send_json({"type": "client_hello", "id": "h1", "payload": {"client_id": conversation_id}})
+def _subscribe(
+    ws: Any, conversation_id: str, *, since: int | None = None, frame_id: str = "s1"
+) -> None:
     payload: dict[str, Any] = {
         "session_id": conversation_id,
         "transcript": {"main": "delta"},
     }
     if since is not None:
         payload["transcript_since"] = {"main": since}
-    ws.send_json({"type": "subscribe_v2", "id": "s1", "payload": payload})
+    ws.send_json({"type": "subscribe_v2", "id": frame_id, "payload": payload})
 
 
 def _until(ws: Any, kind: str, *, tries: int = 40) -> dict[str, Any]:
@@ -91,14 +92,14 @@ def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
         _sign_in(tc, pg_url)
         conversation_id = _open_conversation(tc)
 
-        with tc.websocket_connect(f"/conversations/{conversation_id}/ws") as ws:
+        with tc.websocket_connect("/ws") as ws:
             hello = ws.receive_json()
             assert hello["type"] == "server_hello"
             assert hello["payload"]["heartbeat_ms"] > 0
 
             _subscribe(ws, conversation_id)
             reset = _until(ws, "transcript.reset")
-            # 客户端就是按这两个字段取内容的，少一个整帧被丢。
+            # 一条连接管多段对话，客户端按 session_id 分流；少了它这一帧不知道该给谁。
             assert reset["session_id"] == conversation_id
             assert reset["payload"]["agent_id"] == "main"
             # seq 在协议里标成可选，我们必须带：客户端拿它无条件覆写本地水位。
@@ -140,10 +141,58 @@ def test_resubscribing_with_a_stale_watermark_gets_a_reset(
         _sign_in(tc, pg_url)
         conversation_id = _open_conversation(tc)
 
-        with tc.websocket_connect(f"/conversations/{conversation_id}/ws") as ws:
+        with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
             _subscribe(ws, conversation_id, since=99999)
             assert _until(ws, "transcript.reset")["payload"]["seq"] == 0
+
+
+def test_one_connection_serves_two_conversations(ws_agent_app: FastAPI, pg_url: str) -> None:
+    """一条连接订两段对话：各自收到自己那一帧 reset，互不串台。
+
+    侧栏要同时盯着好几段，这是这条连接存在的理由。
+    """
+
+    with TestClient(ws_agent_app) as tc:
+        _sign_in(tc, pg_url)
+        first = _open_conversation(tc)
+        second = _open_conversation(tc)
+
+        with tc.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "server_hello"
+            _subscribe(ws, first, frame_id="s1")
+            _subscribe(ws, second, frame_id="s2")
+
+            landed = {
+                _until(ws, "transcript.reset")["session_id"],
+                _until(ws, "transcript.reset")["session_id"],
+            }
+            assert landed == {first, second}
+
+
+def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
+    ws_agent_app: FastAPI, pg_url: str
+) -> None:
+    """订别人的（或不存在的）对话：那一帧被拒，整条连接不动。
+
+    「看不见」与「不存在」一个待遇（REST 那侧也是 404）：区分了就等于告诉调用方它存在。
+    """
+
+    with TestClient(ws_agent_app) as tc:
+        _sign_in(tc, pg_url)
+
+        with tc.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "server_hello"
+            _subscribe(ws, "c-not-mine")
+
+            ack = _until(ws, "ack")
+            assert ack["payload"]["not_found"] == ["c-not-mine"]
+            assert ack["payload"]["accepted"] == []
+
+            # 连接还在：自己的对话照样订得上。
+            mine = _open_conversation(tc)
+            _subscribe(ws, mine, frame_id="s2")
+            assert _until(ws, "transcript.reset")["session_id"] == mine
 
 
 def test_cross_origin_upgrade_is_refused(ws_agent_app: FastAPI, pg_url: str) -> None:
@@ -153,14 +202,10 @@ def test_cross_origin_upgrade_is_refused(ws_agent_app: FastAPI, pg_url: str) -> 
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
-        conversation_id = _open_conversation(tc)
 
         with (
             pytest.raises(WebSocketDisconnect) as refused,
-            tc.websocket_connect(
-                f"/conversations/{conversation_id}/ws",
-                headers={"origin": "https://evil.example"},
-            ),
+            tc.websocket_connect("/ws", headers={"origin": "https://evil.example"}),
         ):
             pass  # 连接根本不该成立
 

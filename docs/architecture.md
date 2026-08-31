@@ -150,6 +150,8 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 - **进程重启后号从 1 重来，而这是安全的**：客户端收到 `transcript.reset` 会把本地水位**无条件覆写**成帧里的 `seq`（不是取较大值）。什么时候必须先发 reset 收在 `subscription.subscribe_frames` 一处——判错了服务端一切正常，客户端安静地停止更新。
 - **实时状态的方法全是同步的，中途一个 `await` 都不能有**：发号、落地、进日志、递给在听的人四件事必须一起生效。asyncio 只在 await 处切换任务，所以没有 await 的方法天然是一个临界区。
 
+**一条 WebSocket 管多段对话**（`WS /ws`，不带对话 id）：订哪几段由客户端逐帧 `subscribe_v2` 说，每段各挂一个监听器、各 pin 一次、各记一份水位，发出去的每一帧带 `session_id` 供客户端分流。建连时只核登录与 `agent:run`，**每次订阅再核这段对话看不看得见**（看不见与不存在同一个待遇，回执里 `not_found`，整条连接不动）。
+
 **运行驱动**（`harness/transcript/runner.py`）是唯一知道「这段对话此刻有没有在跑」的地方，停止、插话、审批三条人机往返都归它：停止走官方 `CancellationToken`（不是 `task.cancel()`——外部取消是 `BaseException`，官方的收尾分支接不住，终态操作发不出去），插话走一个 capability 里的 `ctx.enqueue`，审批走 `HandleDeferredToolCalls` 在同一次 run 内 await。
 
 **prompt 队列**（`agent_runtime.prompts`）是持久事实，不是投影：排队中的消息在别处推不出来。「一段对话同时只跑一条」由部分唯一索引挡住，不靠先查后写。进程启动时收拾上一条命留下的行（在跑的判失败、排队的判撤销），不收拾的话那段对话会永远「正在跑」。

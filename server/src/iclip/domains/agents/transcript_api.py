@@ -1,4 +1,7 @@
-"""transcript 的对外面：六个 REST 端点加一条 WebSocket。
+"""transcript 的对外面：一组 REST 端点，加一条管所有对话的 WebSocket。
+
+``/ws`` 不挂在某段对话下面：一条连接订阅哪几段由客户端逐条 ``subscribe_v2`` 说，服务端逐段
+核这个人看不看得见。侧栏同时盯着好几段对话时，浏览器只开一条连接。
 
 本文件只认识 starlette/fastapi、协议形状，与一个注入进来的入口。引擎侧类型在围栏另一侧，从
 这里结构上就 import 不到——HTTP 与 agent 引擎的分离是机械的，不靠自觉。
@@ -14,6 +17,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated, Any, Protocol
 
@@ -32,7 +36,6 @@ from iclip.platform.transcript.wire import (
     Ack,
     ApprovalRequest,
     ClientFrame,
-    ClientHello,
     OpsCatchup,
     OpsPayload,
     Ping,
@@ -140,10 +143,11 @@ def create_transcript_router(
 ) -> APIRouter:
     """挂 transcript 的读写端点与订阅连接。"""
 
-    # 两层前缀：里面这层是「挂在一段对话下面」的那些端点，外面这层多一条挂在对话本身上的
-    # ``/conversations/{id}:abort``——前缀之后的路径一律以 ``/`` 开头，而 ``:abort`` 紧跟着 id。
-    outer = APIRouter(prefix="/conversations", tags=["transcript"])
-    router = APIRouter(prefix="/{conversation_id}", tags=["transcript"])
+    # 两层：里面这层是「挂在一段对话下面」的那些端点；外面这层不带前缀，挂两条不在某段对话
+    # 下面的——停整段对话的 ``:abort``（``:abort`` 紧跟着 id，拼不进带 ``/`` 的前缀），与那条
+    # 管所有对话的 ``/ws``。
+    outer = APIRouter(tags=["transcript"])
+    router = APIRouter(prefix="/conversations/{conversation_id}", tags=["transcript"])
 
     async def _writable(principal: Principal, conversation_id: str) -> str:
         return await conversations.agent_of(principal, conversation_id, writing=True)
@@ -187,7 +191,7 @@ def create_transcript_router(
         await _writable(principal, conversation_id)
         await transcripts.abort(conversation_id, prompt_id)
 
-    @outer.post("/{conversation_id}:abort", status_code=204)
+    @outer.post("/conversations/{conversation_id}:abort", status_code=204)
     async def abort_conversation(
         conversation_id: ConversationId,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
@@ -253,8 +257,10 @@ def create_transcript_router(
         await _readable(principal, conversation_id)
         return transcripts.catchup(conversation_id, since=since_seq)
 
-    @router.websocket("/ws")
-    async def subscribe(websocket: WebSocket, conversation_id: str) -> None:
+    @outer.websocket("/ws")
+    async def subscribe(websocket: WebSocket) -> None:
+        """一条连接管这个人的所有对话。哪几段由 ``subscribe_v2`` 说，逐段核权。"""
+
         if not websocket_origin_allowed(websocket, allowed_origins):
             # 1008 = policy violation。在 accept 之前拒，连接根本不成立。
             await websocket.close(code=1008)
@@ -263,31 +269,36 @@ def create_transcript_router(
         if principal is None or not principal.has("agent:run"):
             await websocket.close(code=1008)
             return
-        try:
-            await conversations.agent_of(principal, conversation_id, writing=False)
-        except DomainError:
-            await websocket.close(code=1008)
-            return
-        await _serve(websocket, transcripts, conversation_id)
+        await _serve(websocket, transcripts, conversations, principal)
 
     outer.include_router(router)
     return outer
 
 
 class _Connection:
-    """一条连接的一生：握手、订阅、边推边心跳。
+    """一条连接的一生：握手、按对话订阅、边推边心跳。
+
+    **一条连接管这个人的多段对话**：订阅哪几段由客户端逐条 ``subscribe_v2`` 说，每段各挂一个
+    监听器、各 pin 一次；发出去的每一帧带 ``session_id``，客户端按它分流。
 
     推送走一条有界队列，不在 store 的回调里直接发——回调是同步的（``append`` 的原子性靠它），
     而且一个读得慢的客户端不能把整个运行拖住。队列积满就断开，让它重连补批。
     """
 
-    def __init__(self, websocket: WebSocket, transcripts: Transcripts, conversation_id: str):
+    def __init__(
+        self,
+        websocket: WebSocket,
+        transcripts: Transcripts,
+        conversations: Conversations,
+        principal: Principal,
+    ):
         self._ws = websocket
         self._transcripts = transcripts
-        self._conversation_id = conversation_id
+        self._conversations = conversations
+        self._principal = principal
         self._outbound: asyncio.Queue[Any] = asyncio.Queue(maxsize=MAX_EVENT_BUFFER)
         self._overflowed = False
-        self._listening = False
+        self._listeners: dict[str, Callable[[Any], None]] = {}
         self._last_inbound = datetime.now(UTC)
         self._frame_seq = 0
 
@@ -303,7 +314,6 @@ class _Connection:
                 ),
             )
         )
-        self._transcripts.pin(self._conversation_id)
         # 发与心跳各自一个任务，收在这一层。不用 TaskGroup：它在被外层取消时会把取消再抛一遍，
         # 而这条连接的正常收场本来就是「客户端走了」，不该沿着异常往上冒。
         helpers = (asyncio.create_task(self._pump()), asyncio.create_task(self._heartbeat()))
@@ -311,13 +321,13 @@ class _Connection:
             await self._read()
         except (WebSocketDisconnect, ConnectionError):
             # 客户端走了。这是正常收场，不是故障：它随时可能关页面或者断网。
-            _logger.debug("订阅连接断开：conversation=%s", self._conversation_id)
+            _logger.debug("订阅连接断开：还订着 %d 段对话", len(self._listeners))
         finally:
             for helper in helpers:
                 helper.cancel()
             await asyncio.gather(*helpers, return_exceptions=True)
-            self._unlisten()
-            self._transcripts.unpin(self._conversation_id)
+            for conversation_id in tuple(self._listeners):
+                self._unlisten(conversation_id)
 
     # --- 收 -----------------------------------------------------------------
 
@@ -333,36 +343,56 @@ class _Connection:
             await self._handle(frame)
 
     async def _handle(self, frame: Any) -> None:
-        if isinstance(frame, ClientHello):
-            await self._outbound.put(Ack(id=frame.id))
-        elif isinstance(frame, Subscribe):
+        if isinstance(frame, Subscribe):
             await self._subscribe(frame)
         elif isinstance(frame, Unsubscribe):
-            self._unlisten()
+            self._unlisten(frame.payload.session_id)
             await self._outbound.put(Ack(id=frame.id))
 
     async def _subscribe(self, frame: Subscribe) -> None:
+        conversation_id = frame.payload.session_id
+        try:
+            await self._conversations.agent_of(self._principal, conversation_id, writing=False)
+        except DomainError:
+            # 看不见的对话与不存在的对话一个待遇（REST 那侧也是 404）：区分了就等于告诉调用方
+            # 它存在。整条连接不动——这个人别的对话订得好好的。
+            await self._outbound.put(
+                Ack(id=frame.id, payload=SubscribeAckPayload(not_found=(conversation_id,)))
+            )
+            return
         since = frame.payload.transcript_since.get(MAIN_AGENT_ID)
         # 先挂监听再取这一刻的帧：反过来的话，两步之间产生的批次谁也不发，客户端缺一段而且
         # 自己不知道。反向重复是安全的——同一个批次收两遍只是重放，收不到才是坏的。
-        if not self._listening:
-            self._transcripts.listen(self._conversation_id, self._on_batch, agent_id=MAIN_AGENT_ID)
-            self._listening = True
-        for item in self._transcripts.subscribe(self._conversation_id, since=since):
-            await self._outbound.put(self._wrap(item))
+        if conversation_id not in self._listeners:
+            listener = self._listener_for(conversation_id)
+            self._listeners[conversation_id] = listener
+            self._transcripts.pin(conversation_id)
+            self._transcripts.listen(conversation_id, listener, agent_id=MAIN_AGENT_ID)
+        for item in self._transcripts.subscribe(conversation_id, since=since):
+            await self._outbound.put(self._wrap(conversation_id, item))
         await self._outbound.put(
-            Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(self._conversation_id,)))
+            Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(conversation_id,)))
         )
 
-    def _on_batch(self, batch: Any) -> None:
-        try:
-            self._outbound.put_nowait(
-                self._wrap(OpsPayload(agent_id=MAIN_AGENT_ID, ops=batch.ops, seq=batch.seq))
-            )
-        except asyncio.QueueFull:
-            self._overflowed = True
+    def _listener_for(self, conversation_id: str) -> Callable[[Any], None]:
+        """这段对话的批次回调。每段各一个：回调本身就带着「这一批是谁的」。"""
 
-    def _wrap(self, payload: ResetPayload | OpsPayload) -> TranscriptReset | TranscriptOps:
+        def on_batch(batch: Any) -> None:
+            try:
+                self._outbound.put_nowait(
+                    self._wrap(
+                        conversation_id,
+                        OpsPayload(agent_id=MAIN_AGENT_ID, ops=batch.ops, seq=batch.seq),
+                    )
+                )
+            except asyncio.QueueFull:
+                self._overflowed = True
+
+        return on_batch
+
+    def _wrap(
+        self, conversation_id: str, payload: ResetPayload | OpsPayload
+    ) -> TranscriptReset | TranscriptOps:
         """给这份内容套上事件信封。
 
         信封上的 ``seq`` 是这条连接的第几帧，与 ``payload.seq``（transcript 的批次号）不是一
@@ -374,23 +404,25 @@ class _Connection:
         if isinstance(payload, ResetPayload):
             return TranscriptReset(
                 seq=self._frame_seq,
-                session_id=self._conversation_id,
+                session_id=conversation_id,
                 timestamp=stamped,
                 payload=payload,
             )
         return TranscriptOps(
             seq=self._frame_seq,
-            session_id=self._conversation_id,
+            session_id=conversation_id,
             timestamp=stamped,
             payload=payload,
         )
 
-    def _unlisten(self) -> None:
-        if self._listening:
-            self._transcripts.unlisten(
-                self._conversation_id, self._on_batch, agent_id=MAIN_AGENT_ID
-            )
-            self._listening = False
+    def _unlisten(self, conversation_id: str) -> None:
+        """退订一段对话。没订过的照样成功：退订是声明式的。"""
+
+        listener = self._listeners.pop(conversation_id, None)
+        if listener is None:
+            return
+        self._transcripts.unlisten(conversation_id, listener, agent_id=MAIN_AGENT_ID)
+        self._transcripts.unpin(conversation_id)
 
     # --- 发 -----------------------------------------------------------------
 
@@ -435,8 +467,13 @@ class _Connection:
             raise WebSocketDisconnect(code=1006) from exc
 
 
-async def _serve(websocket: WebSocket, transcripts: Transcripts, conversation_id: str) -> None:
-    await _Connection(websocket, transcripts, conversation_id).serve()
+async def _serve(
+    websocket: WebSocket,
+    transcripts: Transcripts,
+    conversations: Conversations,
+    principal: Principal,
+) -> None:
+    await _Connection(websocket, transcripts, conversations, principal).serve()
 
 
 __all__ = [

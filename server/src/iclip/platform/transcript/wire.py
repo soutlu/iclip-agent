@@ -80,7 +80,7 @@ class OpsPayload(_Envelope):
 class _Event(_Envelope):
     """事件信封。
 
-    ``session_id`` 与 ``payload`` 都是必需的：客户端就是按这两个字段取内容的，少一个整帧被丢。
+    ``session_id`` 说这一帧是哪段对话的：一条连接管多段，客户端按它分流，少了就不知道该给谁。
     信封上还有一个 ``seq``，它与 ``payload.seq`` **不是一回事**——那个是 transcript 的批次号
     （有意义、要记账），这个只是这条连接上的第几帧，进程重启即归零，客户端不拿它做任何事。
     """
@@ -138,20 +138,13 @@ ServerFrame = Annotated[
 # --- WS：客户端发给服务端 -----------------------------------------------------
 
 
-class ClientHelloPayload(_Envelope):
-    client_id: str
-
-
-class ClientHello(_Envelope):
-    type: Literal["client_hello"] = "client_hello"
-    id: str = ""
-    payload: ClientHelloPayload
-
-
 class SubscribePayload(_Envelope):
-    """``transcript`` 是每个 agent 要哪一档，我们只产出 ``delta``。
+    """订阅一段对话。``transcript`` 是每个 agent 要哪一档，我们只产出 ``delta``。
 
     ``transcript_since`` 是客户端手上的水位，按 agent 给；给了就补那之后的批次。
+
+    协议里还有一帧 ``client_hello``，用来一次报上全部订阅与各自的 cursor。我们不收它：一条
+    连接管几段对话就发几帧 ``subscribe_v2``，各带自己的水位，重连时照样。
     """
 
     session_id: str
@@ -182,7 +175,7 @@ class Pong(_Envelope):
 
 
 ClientFrame = Annotated[
-    ClientHello | Subscribe | Unsubscribe | Pong,
+    Subscribe | Unsubscribe | Pong,
     Field(discriminator="type"),
 ]
 
@@ -264,8 +257,6 @@ __all__ = [
     "Ack",
     "ApprovalRequest",
     "ClientFrame",
-    "ClientHello",
-    "ClientHelloPayload",
     "OpsBatchOut",
     "OpsCatchup",
     "OpsPayload",
