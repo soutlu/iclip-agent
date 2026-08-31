@@ -238,6 +238,14 @@ export const handlers = [
     })
   }),
 
+  // POST /conversations：新建一段对话，落进内存存储，侧栏随后重拉就能看到。
+  http.post('*/api/conversations', async ({ request }) => {
+    const body = (await request.json()) as { agentId: string; title?: string | null }
+    const conversation = addMockConversation(body.title ?? '新对话')
+    conversation.agentId = body.agentId
+    return HttpResponse.json({ conversation }, { status: 201 })
+  }),
+
   // GET /conversations/ungrouped、/by-collection/:id：往下滑加载更多。
   http.get('*/api/conversations/ungrouped', ({ request }) => {
     const cursor = new URL(request.url).searchParams.get('cursor')

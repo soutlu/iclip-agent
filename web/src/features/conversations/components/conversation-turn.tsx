@@ -174,11 +174,13 @@ const toolStatus = {
 /**
  * 用户说的那一条。整页只有它带填充。
  *
+ * 页面那一层也用它画乐观气泡（还没被服务端记下的那条），两处必须是同一个形状。
+ *
  * @param props - 组件属性。
  * @param props.text - 内容。
  * @returns 用户气泡。
  */
-function UserBubble({ text }: { text: string }) {
+export function UserBubble({ text }: { text: string }) {
   return (
     <div className="max-w-[78%] self-end rounded-md bg-chat-user-bg px-3 py-2.5 text-body whitespace-pre-wrap text-chat-message-text">
       {text}

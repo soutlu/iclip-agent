@@ -36,4 +36,18 @@ describe('HomeRoute', () => {
 
     expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
   })
+
+  it('发送把话与选中的 agent 一起交出去，并清空输入框', async () => {
+    const user = userEvent.setup()
+    const sent: { agentId: string; text: string }[] = []
+    await renderWithProviders(<HomeRoute onSend={(input) => sent.push(input)} />)
+
+    await user.click(screen.getByRole('button', { name: /分镜 Agent/ }))
+    await user.click(await screen.findByRole('menuitem', { name: '通用助手' }))
+    await user.type(screen.getByLabelText('输入消息'), '做一个产品宣传片')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(sent).toEqual([{ agentId: 'assistant', text: '做一个产品宣传片' }])
+    expect(screen.getByLabelText('输入消息')).toHaveValue('')
+  })
 })

@@ -2,8 +2,11 @@
  * 会话页：历史铺得出来，逐字来的内容跟着长。
  */
 
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
+import { server } from '@/testing/mocks/server'
 import { TranscriptProvider } from '@/shared/transcript/transcript-provider'
 import { renderWithProviders } from '@/testing/render'
 import { ConversationRoute } from './conversation-route'
@@ -78,5 +81,98 @@ describe('ConversationRoute', () => {
     })
 
     expect(await screen.findByText(`${TAIL_TEXT}再补一句。`)).toBeInTheDocument()
+  })
+
+  it('发出去先挂气泡，服务端记下它之后交给时间线', async () => {
+    const user = userEvent.setup()
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    let submitted = ''
+    server.use(
+      http.post('*/api/conversations/c1/prompts', async ({ request }) => {
+        const body = (await request.json()) as { content: { text: string }[]; prompt_id: string }
+        submitted = body.prompt_id
+        return HttpResponse.json({
+          createdAt: '2026-08-31T03:00:00Z',
+          promptId: body.prompt_id,
+          status: 'running',
+        })
+      }),
+    )
+
+    await user.type(screen.getByLabelText('输入消息'), '再拆一段')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+
+    // 服务端还没记下，本地这条先顶着；输入框已经清空
+    await waitFor(() => {
+      expect(screen.getAllByText('再拆一段')).toHaveLength(1)
+    })
+    expect(screen.getByLabelText('输入消息')).toHaveValue('')
+    expect(submitted).not.toBe('')
+
+    // 服务端带着同一个 promptId 回来：本地那条撤掉，时间线上那一条接手
+    socket.deliver({
+      payload: {
+        agent_id: 'main',
+        ops: [
+          {
+            op: 'prompt.upsert',
+            prompt: { createdAt: '2026-08-31T03:00:00Z', promptId: submitted, status: 'running' },
+          },
+          {
+            op: 'turn.upsert',
+            turn: {
+              kind: 'turn',
+              ordinal: 3,
+              origin: { kind: 'user' },
+              prompt: '再拆一段',
+              state: 'running',
+              turnId: 't3',
+            },
+          },
+          {
+            op: 'frame.upsert',
+            frame: { frameId: 't3.1.f1', kind: 'text', role: 'user', text: '再拆一段' },
+            stepId: 't3.1',
+            turnId: 't3',
+          },
+          {
+            op: 'frame.upsert',
+            frame: { frameId: 't3.1.f2', kind: 'thinking', text: '先看看已经有哪些镜头。' },
+            stepId: 't3.1',
+            turnId: 't3',
+          },
+        ],
+        seq: 11,
+      },
+      session_id: 'c1',
+      type: 'transcript.ops',
+    })
+
+    // 这一批落地了（思考块出来了），而那句话还是只有一条——认领漏了就会并排出现两次
+    expect(await screen.findByText('思考过程')).toBeInTheDocument()
+    expect(screen.getAllByText('再拆一段')).toHaveLength(1)
+  })
+
+  it('发送失败把字还回输入框', async () => {
+    const user = userEvent.setup()
+    await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    server.use(
+      http.post('*/api/conversations/c1/prompts', () =>
+        HttpResponse.json({ detail: '这段对话不是你的' }, { status: 403 }),
+      ),
+    )
+
+    await user.type(screen.getByLabelText('输入消息'), '再拆一段')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(await screen.findByLabelText('输入消息')).toHaveValue('再拆一段')
+    // 气泡撤掉了：留下的只有输入框里那份文字
+    expect(
+      screen.queryAllByText('再拆一段').filter((node) => node.tagName !== 'TEXTAREA'),
+    ).toHaveLength(0)
   })
 })
