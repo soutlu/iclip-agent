@@ -205,6 +205,19 @@ class ConversationRunner:
         if active is not None and active.prompt_id == prompt_id:
             active.token.cancel()
 
+    async def abort_conversation(self, conversation_id: str) -> None:
+        """停掉整段对话：排着的全撤，在跑的那条发第一方取消。
+
+        顺序不能反：先取消在跑的那条，它收尾时会把队首顶上来接着跑——用户按了停止，反而看到下
+        一条开跑。先把队列撤空，收尾时就没有可接的了。
+        """
+
+        for row in await self._queue.abort_queued(conversation_id, now=_now()):
+            self._publish(row)
+        active = self._active.get(conversation_id)
+        if active is not None:
+            active.token.cancel()
+
     async def steer(self, conversation_id: str, prompt_ids: tuple[str, ...]) -> None:
         """把排队中的几条插进正在跑的那一轮。"""
 

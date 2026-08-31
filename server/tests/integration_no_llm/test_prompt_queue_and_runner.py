@@ -64,6 +64,19 @@ def _says(*replies: str) -> FunctionModel:
     return FunctionModel(stream_function=stream)
 
 
+def _waits(entered: asyncio.Event, gate: asyncio.Event) -> FunctionModel:
+    """卡住不出话，直到放行。用来把「这一条正在跑」钉住，不靠等一个时长。"""
+
+    async def stream(
+        _messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        entered.set()
+        await gate.wait()
+        yield "跑完了"
+
+    return FunctionModel(stream_function=stream)
+
+
 def _runner(
     engine: AsyncEngine, model: FunctionModel, *, store: TranscriptStore
 ) -> tuple[ConversationRunner, PgStepStore, PromptQueue]:
@@ -316,6 +329,40 @@ async def test_the_same_prompt_id_in_another_conversation_is_rejected(
             content=(TextContent(text="你的"),),
             now=now,
         )
+
+
+async def test_aborting_the_conversation_leaves_nothing_queued_to_pick_up(
+    engine: AsyncEngine,
+) -> None:
+    """停整段对话：排着的全撤掉，而且没有一条被顶上来接着跑。
+
+    先取消在跑的那条、再逐条撤队列的话，取消触发的收尾会把队首顶上来——用户按了停止，屏幕上
+    反而开始跑下一条。
+    """
+
+    entered, gate = asyncio.Event(), asyncio.Event()
+    store = TranscriptStore()
+    runner, _step_store, queue = _runner(engine, _waits(entered, gate), store=store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    await _submit(runner, queue, conversation_id, "先做这个")
+    second = await _submit(runner, queue, conversation_id, "再做那个")
+    third = await _submit(runner, queue, conversation_id, "还有这个")
+    await entered.wait()  # 第一条真的跑起来了
+
+    await runner.abort_conversation(conversation_id)
+    gate.set()  # 放模型走完这一步，让取消有机会被收下
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    for prompt_id in (second, third):
+        row = await queue.get(prompt_id)
+        assert row is not None
+        assert row.status == "aborted"
+        assert row.run_id is None  # 没起过 run，不是跑了一半被停的
+
+    # 客户端屏幕上只有被停的那一轮：多出第二轮就说明队首被顶上来跑过。
+    assert [turn.prompt for turn in _replay(store, conversation_id)] == ["先做这个"]
 
 
 async def test_aborting_a_prompt_from_another_conversation_is_not_found(

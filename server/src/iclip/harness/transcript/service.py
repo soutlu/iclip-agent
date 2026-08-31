@@ -67,6 +67,9 @@ class TranscriptService:
     async def abort(self, conversation_id: str, prompt_id: str) -> None:
         await self.runner.abort(conversation_id, prompt_id)
 
+    async def abort_conversation(self, conversation_id: str) -> None:
+        await self.runner.abort_conversation(conversation_id)
+
     async def steer(self, conversation_id: str, prompt_ids: tuple[str, ...]) -> None:
         await self.runner.steer(conversation_id, prompt_ids)
 

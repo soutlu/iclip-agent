@@ -73,6 +73,9 @@ transcript 面是唯一不按 §3 用 camelCase 的地方，因为客户端的 r
 
 - `POST /conversations/{id}/prompts/{promptId}:abort`：排队的直接撤，在跑的发取消让它自己
   收尾。已经结束的是 `409`。
+- `POST /conversations/{id}:abort`：停整段对话——排着的**全部**撤掉，在跑的那条发取消。什么
+  都没在跑照样是 `204`。**别拿上一条逐条撤**：撤到一半在跑的那条结束了，还没撤到的队首会被
+  顶上来接着跑。
 - `POST /conversations/{id}/prompts:steer`，体 `{prompt_ids}`：把排队中的几条插进正在跑的
   那一轮，不必等它跑完。没有在跑的运行是 `409`。
 - `POST /conversations/{id}/interactions/{interactionId}`，体 `{approved}`：对审批卡点头或拒绝。
