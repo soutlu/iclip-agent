@@ -129,7 +129,7 @@ type ToolRowProps = {
 }
 
 /**
- * 一次工具调用：一行——图标、做了什么、对象、行尾一个状态点。
+ * 一次工具调用：一行——图标、做了什么、对象、行尾一个状态点；结果是纯文本时可以展开看。
  *
  * 轮子结束了还停在 `running` 的强制收尾：不这样的话，用户按停止之后会留下永远转圈的行。
  *
@@ -142,22 +142,45 @@ function ToolRow({ frame, settled }: ToolRowProps) {
   const card = toolCard(frame.display)
   const state = frame.state === 'running' && settled ? 'done' : frame.state
   const status = toolStatus[state]
+  // 只展开纯文本的结果（读文件、搜内容这些）。对象结果不塞进界面——那是内部形状，不是给人看的。
+  const output = typeof frame.output === 'string' && frame.output !== '' ? frame.output : undefined
+
+  const head = (
+    <>
+      <Icon className="shrink-0 text-chat-muted-text" decorative name={card.icon} size="sm" />
+      <span className="shrink-0 text-chat-secondary-text">{card.label}</span>
+      {card.detail === undefined ? null : (
+        <span className="min-w-0 truncate text-chat-message-text">{card.detail}</span>
+      )}
+      <Icon
+        className={cn('ml-auto shrink-0', status.color, state === 'running' && 'animate-spin')}
+        label={status.label}
+        name={status.name}
+        size="sm"
+      />
+    </>
+  )
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5 py-1 text-body-sm">
-        <Icon className="shrink-0 text-chat-muted-text" decorative name={card.icon} size="sm" />
-        <span className="shrink-0 text-chat-secondary-text">{card.label}</span>
-        {card.detail === undefined ? null : (
-          <span className="min-w-0 truncate text-chat-message-text">{card.detail}</span>
-        )}
-        <Icon
-          className={cn('ml-auto shrink-0', status.color, state === 'running' && 'animate-spin')}
-          label={status.label}
-          name={status.name}
-          size="sm"
-        />
-      </div>
+      {output === undefined ? (
+        <div className="flex items-center gap-1.5 py-1 text-body-sm">{head}</div>
+      ) : (
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 py-1 text-body-sm">
+            {head}
+            <Icon
+              className="shrink-0 text-chat-muted-text transition-transform duration-(--dur-s) group-open:rotate-180"
+              decorative
+              name="expand"
+              size="sm"
+            />
+          </summary>
+          <pre className="mt-1 max-h-64 overflow-auto rounded-sm bg-chat-code-block-bg px-3 py-2 font-mono text-body-sm whitespace-pre-wrap text-chat-secondary-text">
+            {output}
+          </pre>
+        </details>
+      )}
       {frame.error === undefined ? null : (
         <p className="text-body-sm text-chat-error-text">{frame.error}</p>
       )}

@@ -10,6 +10,9 @@ import { toast } from '@/shared/ui/toast'
 type ConversationComposerProps = {
   /** 发一条。抛异常表示没送到，这里会把字还回输入框。 */
   onSend: (text: string) => Promise<void>
+  /** 这段对话正在跑：发送钮换成停止钮。 */
+  busy?: boolean
+  onStop?: (() => void) | undefined
 }
 
 /**
@@ -17,9 +20,11 @@ type ConversationComposerProps = {
  *
  * @param props - 组件属性。
  * @param props.onSend - 发送一条消息。
+ * @param props.busy - 这段对话是否正在跑。
+ * @param props.onStop - 点停止。
  * @returns 输入框。
  */
-export function ConversationComposer({ onSend }: ConversationComposerProps) {
+export function ConversationComposer({ busy = false, onSend, onStop }: ConversationComposerProps) {
   const [value, setValue] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -41,10 +46,12 @@ export function ConversationComposer({ onSend }: ConversationComposerProps) {
 
   return (
     <Composer
+      busy={busy}
       leading={<IconButton label="添加" name="add" size="md" />}
+      onStop={onStop}
       onSubmit={() => void send()}
       onValueChange={setValue}
-      placeholder="接着说…"
+      placeholder={busy ? '在跑着，发出去会排在后面…' : '接着说…'}
       sending={sending}
       value={value}
     />
