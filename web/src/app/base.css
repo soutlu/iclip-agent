@@ -17,6 +17,9 @@
     'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial,
     sans-serif;
   --font-home-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-mono:
+    'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
 
   /* ==================== ① Primitives ==================== */
 
@@ -304,6 +307,9 @@
     var(--color-secondary) 70%,
     transparent
   ); /* v13：26%（1.48:1）→ 70%（≥3:1，焦点指示达标） */
+  /* 发丝边框与滚动条（照 kimi：边框用墨色透明档而非实色灰，深浅随 on-surface 自动换向） */
+  --color-chat-hairline: color-mix(in srgb, var(--color-on-surface) 13%, transparent);
+  --color-chat-scrollbar-thumb: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
   --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);
   --shadow-chat-agent-avatar:
     0 8px 18px rgba(64, 73, 66, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62);
@@ -510,6 +516,10 @@
   --shadow-2:
     0 6px 20px rgba(23, 29, 25, 0.11), 0 2px 6px rgba(23, 29, 25, 0.07); /* 菜单/@列表/进度 pill */
   --shadow-3: 0 20px 56px rgba(23, 29, 25, 0.22); /* 弹窗/toast */
+  --shadow-input: 0 5px 16px -4px rgba(23, 29, 25, 0.07); /* 输入卡常驻浮影（照 kimi composer，focus 不抬升） */
+  --shadow-xs: 0 1px 2px rgba(23, 29, 25, 0.04); /* 代码块等嵌套小件 */
+  --shadow-send:
+    0 7px 16px -13px rgba(23, 29, 25, 0.38), 0 1px 2px rgba(23, 29, 25, 0.07); /* 发送钮浮起 */
 
   /* 动效（v15 对齐 M3 标准时值；进出不对称：退场用时约为进场一半） */
   --dur-s: 150ms; /* 微交互：hover/按压/工具切换 */
@@ -662,6 +672,9 @@
   --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
   --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.65);
+  --shadow-input: 0 5px 16px -4px rgba(0, 0, 0, 0.4);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-send: 0 7px 16px -13px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 html {

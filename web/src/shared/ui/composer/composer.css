@@ -6,3 +6,11 @@
 .composer-textarea:focus-visible {
   outline: none;
 }
+
+/* 超椭圆连续曲率（照 kimi composer）：支持的浏览器把 32px 圆角渲染成 superellipse，
+   不支持的回落普通圆角。 */
+@supports (corner-shape: superellipse(1.5)) {
+  .composer-card {
+    corner-shape: superellipse(1.5);
+  }
+}

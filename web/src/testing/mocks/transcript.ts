@@ -18,6 +18,7 @@ const HISTORY_SEQ = 10
 const DEMO_CHUNKS = [
   '好的，我先看一下这段素材：\n\n',
   '- 拆出 3 个镜头\n- 写进 `shots/storyboard.md`\n\n',
+  '生成参数也定好了：\n\n```json\n{\n  "shots": 3,\n  "fps": 5,\n  "ratio": "9:16"\n}\n```\n\n',
   '**镜头表已经更新。**\n\n<details><summary>看设定</summary>\n\n| 镜头 | 时长 |\n| --- | --- |\n| S01 | 2.4s |\n\n</details>',
 ]
 

@@ -172,9 +172,34 @@ describe('ConversationRoute', () => {
       type: 'transcript.ops',
     })
 
-    // 这一批落地了（思考块出来了），而那句话还是只有一条——认领漏了就会并排出现两次
-    expect(await screen.findByText('思考过程')).toBeInTheDocument()
+    // 这一批落地了（思考块出来了），而那句话还是只有一条——认领漏了就会并排出现两次。
+    // 轮子还在跑，思考标题是进行态；等轮子收尾后落定成「思考过程」，计时冻结
+    expect(await screen.findByText('思考中…')).toBeInTheDocument()
     expect(screen.getAllByText('再拆一段')).toHaveLength(1)
+
+    socket.deliver({
+      payload: {
+        agent_id: 'main',
+        ops: [
+          {
+            op: 'turn.upsert',
+            turn: {
+              endedAt: '2026-08-31T03:00:05Z',
+              kind: 'turn',
+              ordinal: 3,
+              origin: { kind: 'user' },
+              state: 'completed',
+              turnId: 't3',
+            },
+          },
+        ],
+        seq: 12,
+      },
+      session_id: 'c1',
+      type: 'transcript.ops',
+    })
+
+    expect(await screen.findByText('思考过程')).toBeInTheDocument()
   })
 
   it('发送失败把字还回输入框', async () => {
@@ -223,7 +248,7 @@ describe('ConversationRoute', () => {
     })
   })
 
-  it('排队那条由服务端那份渲染，点「追加」把它插进当前这一轮', async () => {
+  it('排队那条由服务端那份渲染，点「立即发送」把它插进当前这一轮', async () => {
     const user = userEvent.setup()
     const { socket } = await renderConversation()
     await screen.findByText(TAIL_TEXT)
@@ -240,9 +265,9 @@ describe('ConversationRoute', () => {
     socket.deliver(opsFrame([runningPrompt('p-run'), queuedPrompt('p-queued', '顺便配个音')], 11))
 
     expect(await screen.findByText('顺便配个音')).toBeInTheDocument()
-    expect(screen.getByText('排队中')).toBeInTheDocument()
+    expect(screen.getByText('1 个任务等待发送')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: '追加到这一轮' }))
+    await user.click(screen.getByRole('button', { name: '立即发送到当前回合' }))
 
     await waitFor(() => {
       expect(steered).toEqual(['p-queued'])
@@ -254,8 +279,8 @@ describe('ConversationRoute', () => {
     const { socket } = await renderConversation()
     await screen.findByText(TAIL_TEXT)
 
-    // 历史那次读文件没带结果：不该出现能点开又什么都没有的箭头
-    expect(screen.getByText('读文件').closest('details')).toBeNull()
+    // 历史那次读文件没带结果：整行不可点，不该出现能点开又什么都没有的箭头
+    expect(screen.queryByRole('button', { name: /读文件/ })).toBeNull()
 
     socket.deliver(
       opsFrame(
@@ -279,12 +304,12 @@ describe('ConversationRoute', () => {
       ),
     )
 
-    const details = (await screen.findByText('搜内容')).closest('details')
-    expect(details).not.toHaveAttribute('open')
+    const row = await screen.findByRole('button', { name: /搜内容/ })
+    expect(row).toHaveAttribute('aria-expanded', 'false')
 
-    await user.click(screen.getByText('搜内容'))
+    await user.click(row)
 
-    expect(details).toHaveAttribute('open')
+    expect(row).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText(/shots\/s01\.md/)).toBeInTheDocument()
   })
 

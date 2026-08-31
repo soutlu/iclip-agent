@@ -1,9 +1,10 @@
 /**
  * 输入卡：32 大圆角卡，上输入行、下工具行。
  *
- * 形状对齐 kimi Code Web 的 composer：hover 边框加深，focus-within 边框再加深并抬升到
- * shadow-2（无焦点环，焦点指示由卡边框与阴影承担）；textarea 随内容增高，Enter 发送、
- * Shift+Enter 换行。深色下卡面用 top-layer（比主区亮一档；浅色都是白）。
+ * 形状对齐 kimi Code Web 的 composer：0.5px 发丝边框（chat-hairline），常驻 shadow-input；
+ * focus-within 只把边框加深到 border-hover（≥3:1 的自定义焦点指示），不抬升阴影；支持的浏览器
+ * 用 superellipse 连续曲率（composer.css）。textarea 随内容增高，Enter 发送、Shift+Enter 换行。
+ * 深色下卡面用 top-layer（比主区亮一档；浅色都是白）。
  *
  * 工具行里放什么由调用方给：首页要 agent 选择与合集条，会话页只要发送。
  */
@@ -24,6 +25,8 @@ type ComposerProps = {
   trailing?: ReactNode
   /** 正在提交这一条：发送钮转圈并禁用。 */
   sending?: boolean
+  /** 紧凑形态：单行起步随内容长高（会话页）；缺省三行起步（首页 hero）。 */
+  dense?: boolean
   /**
    * 这段对话正在跑：发送钮换成停止钮。
    *
@@ -53,6 +56,7 @@ type ComposerProps = {
 export function Composer({
   busy = false,
   className,
+  dense = false,
   leading,
   onStop,
   onSubmit,
@@ -67,16 +71,17 @@ export function Composer({
   return (
     <div
       className={cn(
-        'relative rounded-3xl border border-border bg-top-layer shadow-[var(--shadow-1)]',
-        'transition-[border-color,box-shadow] ui-motion-s',
-        'focus-within:border-border-hover focus-within:shadow-[var(--shadow-2)] hover:border-border-hover/60',
+        'composer-card relative rounded-3xl border-[0.5px] border-chat-hairline bg-top-layer shadow-[var(--shadow-input)]',
+        'transition-[border-color,box-shadow] ui-motion-m',
+        'focus-within:border-border-hover',
         className,
       )}
     >
       <textarea
         aria-label="输入消息"
         className={cn(
-          'composer-textarea field-sizing-content max-h-48 min-h-[76px] w-full resize-none bg-transparent px-4 pt-4',
+          'composer-textarea field-sizing-content max-h-[25vh] w-full resize-none bg-transparent px-4 pt-3.5',
+          dense ? 'min-h-9' : 'min-h-[76px]',
           'text-body text-on-surface caret-primary placeholder:text-on-surface-variant',
         )}
         onChange={(event) => onValueChange(event.target.value)}
@@ -88,10 +93,10 @@ export function Composer({
           }
         }}
         placeholder={placeholder}
-        rows={3}
+        rows={dense ? 1 : 3}
         value={value}
       />
-      <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-3">
+      <div className="flex items-center justify-between gap-2 px-2 pt-1 pb-2">
         <div className="flex items-center gap-1">{leading}</div>
         <div className="flex items-center gap-2">
           {trailing}
@@ -100,7 +105,7 @@ export function Composer({
               aria-label="停止"
               className={cn(
                 'grid size-(--control-height-md) ui-state cursor-pointer place-items-center rounded-full ui-focus',
-                'bg-surface-container-high text-error hover:bg-error hover:text-on-error active:scale-95',
+                'bg-surface-container-high text-error shadow-[var(--shadow-xs)] hover:bg-error hover:text-on-error active:scale-95',
               )}
               onClick={onStop}
               type="button"
@@ -114,7 +119,7 @@ export function Composer({
                 'grid size-(--control-height-md) ui-state cursor-pointer place-items-center rounded-full ui-focus',
                 // 禁用时 ui-state 把图标压成 disabled-text，灰底灰箭头对齐 kimi 的禁用发送钮
                 canSend
-                  ? 'bg-inverse-surface text-inverse-on-surface hover:scale-105 active:scale-95'
+                  ? 'bg-inverse-surface text-inverse-on-surface shadow-[var(--shadow-send)] active:scale-95'
                   : 'bg-surface-container-high',
               )}
               disabled={!canSend}
