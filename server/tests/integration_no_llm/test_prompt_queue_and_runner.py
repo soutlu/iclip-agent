@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCalls, FunctionModel
 from pydantic_ai_harness.step_persistence import StepPersistence
 from sqlalchemy import text
@@ -75,6 +75,40 @@ def _waits(entered: asyncio.Event, gate: asyncio.Event) -> FunctionModel:
         yield "跑完了"
 
     return FunctionModel(stream_function=stream)
+
+
+def _records(
+    seen: list[list[ModelMessage]], entered: asyncio.Event, gate: asyncio.Event
+) -> FunctionModel:
+    """记下每次被问时收到的整份消息，第一次卡住等放行。
+
+    第一次之后不再卡：追加要是赶上了，这个模型会被问第二次，而「问了第二次」正是那道 redirect
+    生效的证据。
+    """
+
+    async def stream(
+        messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        seen.append(list(messages))
+        if len(seen) == 1:
+            entered.set()
+            await gate.wait()
+            yield "第一句"
+        else:
+            yield "补充收到了"
+
+    return FunctionModel(stream_function=stream)
+
+
+def _texts(messages: list[ModelMessage]) -> list[str]:
+    """这份消息里用户说过的话。"""
+
+    return [
+        part.content
+        for message in messages
+        for part in getattr(message, "parts", ())
+        if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+    ]
 
 
 def _runner(
@@ -363,6 +397,166 @@ async def test_aborting_the_conversation_leaves_nothing_queued_to_pick_up(
 
     # 客户端屏幕上只有被停的那一轮：多出第二轮就说明队首被顶上来跑过。
     assert [turn.prompt for turn in _replay(store, conversation_id)] == ["先做这个"]
+
+
+async def test_an_append_landing_after_the_last_model_request_still_reaches_the_model(
+    engine: AsyncEngine,
+) -> None:
+    """追加赶在这一轮最后一次模型请求之后到，仍然进得去。
+
+    官方在 run 本来要结束时会把晚到的 asap 捞出来做一次 redirect。追加要是先攒在我们自己手上、
+    等下一次模型请求前才递给官方，这一轮就没有下一次请求了，那道 redirect 捞不到它——模型从没
+    见过这句话，而库里那行却记着它已经交付。
+    """
+
+    seen: list[list[ModelMessage]] = []
+    entered, gate = asyncio.Event(), asyncio.Event()
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(engine, _records(seen, entered, gate), store=store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    first = await _submit(runner, queue, conversation_id, "先做这个")
+    second = await _submit(runner, queue, conversation_id, "临时插一句")
+    await entered.wait()  # 第一条真的跑起来了，模型正卡在第一次请求里
+
+    await runner.steer(conversation_id, (second,))
+    gate.set()
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    # 模型被问了第二次，而且第二次收到了那句追加：这就是 redirect 生效。
+    assert len(seen) == 2
+    assert "临时插一句" in _texts(seen[1])
+
+    # 追加没有自成一轮，它是这一轮里的一个用户块。
+    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    assert [turn.prompt for turn in derived] == ["先做这个"]
+    assert "临时插一句" in [
+        getattr(frame, "text", None)
+        for turn in derived
+        for step in turn.steps
+        for frame in step.frames
+    ]
+
+    # 那行 prompt 记在这一轮的 run 名下，结局跟着它。
+    started = await queue.get(first)
+    appended = await queue.get(second)
+    assert started is not None
+    assert appended is not None
+    assert appended.run_id == started.run_id
+    assert appended.status == "completed"
+    assert appended.steered_at is not None
+
+
+async def test_an_append_is_cancelled_with_the_turn_instead_of_starting_a_new_one(
+    engine: AsyncEngine,
+) -> None:
+    """按了停止：已经递进去的那条追加跟着这一轮一起撤销，不退回队列。
+
+    退回队列等于紧接着把它当新的一轮开跑——用户刚说的是别跑了。
+    """
+
+    entered, gate = asyncio.Event(), asyncio.Event()
+    store = TranscriptStore()
+    runner, _step_store, queue = _runner(engine, _waits(entered, gate), store=store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    await _submit(runner, queue, conversation_id, "先做这个")
+    second = await _submit(runner, queue, conversation_id, "临时插一句")
+    await entered.wait()
+
+    await runner.steer(conversation_id, (second,))
+    await runner.abort_conversation(conversation_id)
+    gate.set()
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    appended = await queue.get(second)
+    assert appended is not None
+    assert appended.status == "aborted"
+
+    # 屏幕上只有被停的那一轮：多出一轮就说明那条追加被退回队列又开跑了。
+    assert [turn.prompt for turn in _replay(store, conversation_id)] == ["先做这个"]
+
+
+async def test_an_append_the_run_never_read_goes_back_to_the_queue(engine: AsyncEngine) -> None:
+    """一条追加要么进这次 run，要么退回 ``queued``。
+
+    只在收场清扫那一处走得到「递进去了但没被读到」，而它落在 run 收场前后那一瞬，测不成稳定的
+    竞态，所以这里钉的是它依赖的两步：记上 → 退回，以及退回之后那行干干净净。
+    """
+
+    queue = PromptQueue(engine)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    for prompt_id, said in (("prm_head", "先做这个"), ("prm_tail", "临时插一句")):
+        await queue.submit(
+            prompt_id=prompt_id,
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text=said),),
+            now=now,
+        )
+
+    (moved,) = await queue.mark_steered(("prm_tail",), run_id=f"{AGENT_ID}-dead", now=now)
+    assert moved.status == "steered"
+    assert moved.run_id == f"{AGENT_ID}-dead"
+    # 协议的状态联合里没有 steered，漏出去客户端整帧被 zod 拒掉且不报错。
+    assert moved.as_entity().status == "running"
+    # 它已经不算排队的了，队列视图里看不到。
+    assert (await queue.view(conversation_id)).queued == ()
+
+    (back,) = await queue.requeue_steered(("prm_tail",))
+    assert back.status == "queued"
+    assert back.run_id is None
+    assert back.steered_at is None
+    assert [row.prompt_id for row in (await queue.view(conversation_id)).queued] == ["prm_tail"]
+
+
+async def test_restart_sweep_settles_a_leftover_append(engine: AsyncEngine) -> None:
+    """重启后留下的 ``steered`` 行判成失败：它那次 run 随进程一起没了。"""
+
+    queue = PromptQueue(engine)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    await queue.submit(
+        prompt_id="prm_running",
+        conversation_id=conversation_id,
+        agent_id=AGENT_ID,
+        owner_user_id=OWNER,
+        content=(TextContent(text="先做这个"),),
+        now=now,
+    )
+    await queue.submit(
+        prompt_id="prm_appended",
+        conversation_id=conversation_id,
+        agent_id=AGENT_ID,
+        owner_user_id=OWNER,
+        content=(TextContent(text="临时插一句"),),
+        now=now,
+    )
+    await queue.mark_steered(("prm_appended",), run_id=f"{AGENT_ID}-dead", now=now)
+
+    assert await queue.discard_stale(now=now) == 2
+    appended = await queue.get("prm_appended")
+    assert appended is not None
+    assert appended.status == "failed"
+
+
+async def test_appending_when_nothing_is_running_is_a_conflict(engine: AsyncEngine) -> None:
+    """没有在跑的运行，追加无处可去。"""
+
+    store = TranscriptStore()
+    runner, _step_store, queue = _runner(engine, _says("好"), store=store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await _submit(runner, queue, conversation_id, "先做这个")
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    with pytest.raises(Conflict):
+        await runner.steer(conversation_id, (prompt_id,))
 
 
 async def test_aborting_a_prompt_from_another_conversation_is_not_found(

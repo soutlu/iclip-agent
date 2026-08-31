@@ -6,8 +6,12 @@
 - 停止：``run_stream_events(cancellation_token=...)``。不能拿 ``task.cancel()`` 代替：外部
   取消是 ``BaseException``，进不了官方收尾用的 ``except Exception``，那一轮的终态操作一条都
   发不出去，界面会永远停在「正在跑」。
-- 插话：``RunContext.enqueue(priority='asap')``，只有在 run 里面（工具、capability 钩子）才
-  拿得到 ``ctx``，所以做成一个 capability（``_SteerInbox``）。
+- 插话：``RunContext.enqueue(priority='asap')``。``ctx`` 只在 run 里面拿得到，所以用一个
+  capability 在 ``before_run`` 把它接住（``_RunHandle``），插话到达时**当场**递进去。不能改成
+  「先攒着、下次模型请求前再递」：官方有两道 drain，第二道在 run 本来要结束时把晚到的 asap
+  捞出来做一次 redirect；攒着的话那条消息压根没进官方队列，第二道捞不到它，用户打的字静默
+  消失。
+  一条追加要么进这次 run，要么退回 ``queued``——收场时清扫一遍没被读到的（见 ``_settle``）。
 - 审批：``HandleDeferredToolCalls`` 的 handler 可以是 async，在**同一次 run 内**等人点头，
   所以一轮不会被劈成两次 run。
 
@@ -20,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -28,7 +32,6 @@ from typing import Any, Protocol
 from pydantic_ai import Agent, CancellationToken
 from pydantic_ai.capabilities import AbstractCapability, HandleDeferredToolCalls
 from pydantic_ai.messages import ModelMessage, UserContent
-from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, RunContext
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 
@@ -69,18 +72,35 @@ def _now() -> datetime:
 
 
 @dataclass
-class _SteerInbox(AbstractCapability[Any]):
-    """插话的收件箱：外面放进来，run 里面在下一次模型请求前递进去。"""
+class _RunHandle(AbstractCapability[Any]):
+    """把这次 run 的 ``ctx`` 接出来，好让外面直接往官方队列里递内容。
 
-    pending: list[list[UserContent]] = field(default_factory=list["list[UserContent]"])
-    """每条插话是一串（文字加附件），整条一起递进去——拆开会让图和它那句话分家。"""
+    ``ctx`` 每个图节点会重建，但 ``pending_messages`` 是 run 级的同一个 list（官方在
+    ``build_run_context`` 上标了不可 ``replace`` 的那几项），所以接住第一个就够用一整轮。
+    """
 
-    async def before_model_request(
-        self, ctx: RunContext[Any], request_context: ModelRequestContext
-    ) -> ModelRequestContext:
-        while self.pending:
-            ctx.enqueue(*self.pending.pop(0), priority="asap")
-        return request_context
+    ctx: RunContext[Any] | None = None
+
+    async def before_run(self, ctx: RunContext[Any]) -> None:
+        self.ctx = ctx
+
+    def deliver(self, content: list[UserContent]) -> str | None:
+        """把一条追加递进这次 run，返回官方给的入队 id；run 还没起来就返回 ``None``。
+
+        整条一起递——拆开会让图和它那句话分家。
+        """
+
+        if self.ctx is None:
+            return None
+        return self.ctx.enqueue(*content, priority="asap")
+
+    def undelivered(self, enqueue_ids: Iterable[str]) -> tuple[str, ...]:
+        """这些入队 id 里，哪些还躺在官方队列里没被读走。"""
+
+        if self.ctx is None or self.ctx.pending_messages is None:
+            return tuple(enqueue_ids)
+        waiting = {message.enqueue_id for message in self.ctx.pending_messages}
+        return tuple(item for item in enqueue_ids if item in waiting)
 
 
 @dataclass
@@ -127,8 +147,10 @@ class _Active:
     run_id: str
     turn_id: str
     token: CancellationToken
-    inbox: _SteerInbox
+    handle: _RunHandle
     desk: _ApprovalDesk
+    steered: dict[str, str] = field(default_factory=dict[str, str])
+    """递进这一轮的追加：官方给的入队 id → 那条 prompt 的 id。收场时按它清扫。"""
 
 
 class ConversationRunner:
@@ -219,16 +241,52 @@ class ConversationRunner:
             active.token.cancel()
 
     async def steer(self, conversation_id: str, prompt_ids: tuple[str, ...]) -> None:
-        """把排队中的几条插进正在跑的那一轮。"""
+        """把排队中的几条插进正在跑的那一轮。
+
+        顺序是这条方法的全部要点：挑出来 → 改状态 → 递内容。递内容那一步不 ``await``，所以「递进
+        去了但状态没记上」这个中间态不存在；反过来写的话那一轮要是刚好收场，收场清扫看到的还是
+        ``queued``，什么都不会退回，随后状态被钉成一个属于死运行的 ``steered``。
+
+        改完状态到递内容之间那一轮也可能已经收场（``_active`` 被摘掉）。这时把它退回队列并自己
+        叫一次下一条：收场那一侧的 ``start_next`` 已经跑过了，不叫的话这条会一直排着没人管。
+        """
 
         active = self._active.get(conversation_id)
         if active is None:
             raise Conflict("这段对话现在没有在跑的运行，插不进去")
-        for row in await self._queue.steer(conversation_id, prompt_ids, now=_now()):
-            active.inbox.pending.append(model_prompt(row.content))
-            settled = await self._queue.get(row.prompt_id)
-            if settled is not None:
-                self._publish(settled)
+        picked = await self._queue.pick_for_steer(conversation_id, prompt_ids)
+        moved = await self._queue.mark_steered(
+            tuple(row.prompt_id for row in picked), run_id=active.run_id, now=_now()
+        )
+        if self._active.get(conversation_id) is not active:
+            await self._revert(tuple(row.prompt_id for row in moved))
+            # 收场那一侧的 start_next 已经跑过了，这里不叫的话这几条会一直排着没人管。
+            if not self._closing:
+                following = await self._queue.start_next(conversation_id)
+                if following is not None:
+                    self._publish(following)
+                    self._spawn(following)
+            return
+        # ``_active`` 在进引擎之前就挂上了（停止和插话随时可能先到），所以这几微秒里 ``ctx`` 还
+        # 可能没接住。递不进去的原样退回队列——记成 ``steered`` 而没人递，它会跟着这一轮报成完成，
+        # 而模型从没见过这句话。
+        undeliverable: list[str] = []
+        for row in moved:
+            enqueue_id = active.handle.deliver(model_prompt(row.content))
+            if enqueue_id is None:
+                undeliverable.append(row.prompt_id)
+                continue
+            active.steered[enqueue_id] = row.prompt_id
+            self._publish(row)
+        await self._revert(tuple(undeliverable))
+
+    async def _revert(self, prompt_ids: tuple[str, ...]) -> None:
+        """把没被那一轮读到的追加退回队列。叫下一条是调用方的事。"""
+
+        if not prompt_ids:
+            return
+        for row in await self._queue.requeue_steered(prompt_ids):
+            self._publish(row)
 
     def approve(self, conversation_id: str, interaction_id: str, *, approved: bool) -> None:
         """人对一张审批卡点了「同意」或「拒绝」。
@@ -277,8 +335,9 @@ class ConversationRunner:
         except Exception:
             _logger.exception("这次运行没跑完：prompt=%s", row.prompt_id)
         finally:
-            self._active.pop(row.conversation_id, None)
+            active = self._active.pop(row.conversation_id, None)
             self._store.unpin(row.conversation_id)
+            await self._settle(active, status=status)
             await self._queue.finish(row.prompt_id, status=status, now=_now())
             settled = await self._queue.get(row.prompt_id)
             if settled is not None:
@@ -290,6 +349,27 @@ class ConversationRunner:
                 if following is not None:
                     self._publish(following)
                     self._spawn(following)
+
+    async def _settle(self, active: _Active | None, *, status: PromptStatus) -> None:
+        """给递进这一轮的那几条追加定结局。
+
+        没被读到的先退回队列、再给读到的定结局，顺序不能反：反了的话没读到的那几条会先跟着这一轮
+        记成完成，用户打的字就成了一条「跑过了」却从没进过模型的记录。官方在 run 本来要结束时会把
+        晚到的 asap 捞出来做一次 redirect，所以走到这里还留在官方队列里的，是连那一道都没赶上的。
+
+        **用户按了停止（``aborted``）时不退回**：退回等于紧接着把它当新的一轮开跑，而用户刚说的
+        是别跑了。这时没赶上的那几条跟着这一轮一起撤销。
+        """
+
+        if active is None:
+            return
+        if status != "aborted":
+            stranded = active.handle.undelivered(active.steered)
+            if stranded:
+                _logger.info("这几条追加没赶上这一轮，退回队列：%s", stranded)
+                await self._revert(tuple(active.steered[item] for item in stranded))
+        for child in await self._queue.settle_steered(active.run_id, status=status, now=_now()):
+            self._publish(child)
 
     async def _run_once(self, row: PromptRow) -> PromptStatus:
         agent = self._agents.get(row.agent_id)
@@ -309,7 +389,7 @@ class ConversationRunner:
             run_id=run_id,
             turn_id=turn_id,
             token=CancellationToken(),
-            inbox=_SteerInbox(),
+            handle=_RunHandle(),
             desk=_ApprovalDesk(),
         )
         # 先挂上再开跑：停止和插话随时可能在第一个事件之前就到。
@@ -338,7 +418,7 @@ class ConversationRunner:
             deps=deps,
             cancellation_token=active.token,
             capabilities=[
-                active.inbox,
+                active.handle,
                 HandleDeferredToolCalls(handler=active.desk.handle),
             ],
         ) as events:
