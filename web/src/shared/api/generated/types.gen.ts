@@ -3559,6 +3559,38 @@ export type ListConversationFilesConversationsConversationIdWorkspaceFilesGetRes
 export type ListConversationFilesConversationsConversationIdWorkspaceFilesGetResponse =
   ListConversationFilesConversationsConversationIdWorkspaceFilesGetResponses[keyof ListConversationFilesConversationsConversationIdWorkspaceFilesGetResponses]
 
+export type AbortConversationConversationsConversationIdAbortPostData = {
+  body?: never
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}:abort'
+}
+
+export type AbortConversationConversationsConversationIdAbortPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type AbortConversationConversationsConversationIdAbortPostError =
+  AbortConversationConversationsConversationIdAbortPostErrors[keyof AbortConversationConversationsConversationIdAbortPostErrors]
+
+export type AbortConversationConversationsConversationIdAbortPostResponses = {
+  /**
+   * Successful Response
+   */
+  204: void
+}
+
+export type AbortConversationConversationsConversationIdAbortPostResponse =
+  AbortConversationConversationsConversationIdAbortPostResponses[keyof AbortConversationConversationsConversationIdAbortPostResponses]
+
 export type ListGenerationsGenerationsGetData = {
   body?: never
   path?: never

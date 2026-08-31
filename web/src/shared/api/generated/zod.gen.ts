@@ -1564,6 +1564,15 @@ export const zListConversationFilesConversationsConversationIdWorkspaceFilesGetP
 export const zListConversationFilesConversationsConversationIdWorkspaceFilesGetResponse =
   zConversationFilesOut
 
+export const zAbortConversationConversationsConversationIdAbortPostPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+})
+
+/**
+ * Successful Response
+ */
+export const zAbortConversationConversationsConversationIdAbortPostResponse = z.void()
+
 export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
 })

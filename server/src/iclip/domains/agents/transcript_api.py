@@ -83,6 +83,8 @@ class Transcripts(Protocol):
 
     async def abort(self, conversation_id: str, prompt_id: str) -> None: ...
 
+    async def abort_conversation(self, conversation_id: str) -> None: ...
+
     async def steer(self, conversation_id: str, prompt_ids: tuple[str, ...]) -> None: ...
 
     def approve(self, conversation_id: str, interaction_id: str, *, approved: bool) -> None: ...
@@ -138,7 +140,10 @@ def create_transcript_router(
 ) -> APIRouter:
     """挂 transcript 的读写端点与订阅连接。"""
 
-    router = APIRouter(prefix="/conversations/{conversation_id}", tags=["transcript"])
+    # 两层前缀：里面这层是「挂在一段对话下面」的那些端点，外面这层多一条挂在对话本身上的
+    # ``/conversations/{id}:abort``——前缀之后的路径一律以 ``/`` 开头，而 ``:abort`` 紧跟着 id。
+    outer = APIRouter(prefix="/conversations", tags=["transcript"])
+    router = APIRouter(prefix="/{conversation_id}", tags=["transcript"])
 
     async def _writable(principal: Principal, conversation_id: str) -> str:
         return await conversations.agent_of(principal, conversation_id, writing=True)
@@ -181,6 +186,20 @@ def create_transcript_router(
 
         await _writable(principal, conversation_id)
         await transcripts.abort(conversation_id, prompt_id)
+
+    @outer.post("/{conversation_id}:abort", status_code=204)
+    async def abort_conversation(
+        conversation_id: ConversationId,
+        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+    ) -> None:
+        """停掉整段对话：排着的全撤，在跑的发第一方取消。
+
+        没有在跑的、也没有排着的照样是 204：「停止」是用户按一次的动作，不该因为刚好停在
+        什么都没有的那一刻而报错。
+        """
+
+        await _writable(principal, conversation_id)
+        await transcripts.abort_conversation(conversation_id)
 
     @router.post("/prompts:steer", status_code=204)
     async def steer(
@@ -251,7 +270,8 @@ def create_transcript_router(
             return
         await _serve(websocket, transcripts, conversation_id)
 
-    return router
+    outer.include_router(router)
+    return outer
 
 
 class _Connection:

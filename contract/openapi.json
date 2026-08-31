@@ -5816,6 +5816,7 @@
         },
         "summary": "Approve",
         "tags": [
+          "transcript",
           "transcript"
         ]
       }
@@ -5859,6 +5860,7 @@
         },
         "summary": "Queue View",
         "tags": [
+          "transcript",
           "transcript"
         ]
       },
@@ -5911,6 +5913,7 @@
         },
         "summary": "Submit",
         "tags": [
+          "transcript",
           "transcript"
         ]
       }
@@ -5958,6 +5961,7 @@
         },
         "summary": "Abort",
         "tags": [
+          "transcript",
           "transcript"
         ]
       }
@@ -6005,6 +6009,7 @@
         },
         "summary": "Steer",
         "tags": [
+          "transcript",
           "transcript"
         ]
       }
@@ -6146,6 +6151,7 @@
         },
         "summary": "Page",
         "tags": [
+          "transcript",
           "transcript"
         ]
       }
@@ -6200,6 +6206,7 @@
         },
         "summary": "Catchup",
         "tags": [
+          "transcript",
           "transcript"
         ]
       }
@@ -6298,6 +6305,43 @@
         "summary": "List Conversation Files",
         "tags": [
           "conversations"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}:abort": {
+      "post": {
+        "description": "停掉整段对话：排着的全撤，在跑的发第一方取消。\n\n没有在跑的、也没有排着的照样是 204：「停止」是用户按一次的动作，不该因为刚好停在\n什么都没有的那一刻而报错。",
+        "operationId": "abort_conversation_conversations__conversation_id__abort_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Abort Conversation",
+        "tags": [
+          "transcript"
         ]
       }
     },

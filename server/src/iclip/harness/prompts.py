@@ -276,6 +276,23 @@ class PromptQueue:
             await self.finish(prompt_id, status="aborted", now=now)
         return row
 
+    async def abort_queued(self, conversation_id: str, *, now: datetime) -> tuple[PromptRow, ...]:
+        """把这段对话排着的全撤掉，返回撤掉的那几条。在跑的那条不动。
+
+        一条 UPDATE 撤完，不逐条来：逐条之间的空档里，在跑的那条要是结束了，``start_next``
+        就把还没撤到的队首顶上来接着跑。
+        """
+
+        stmt = (
+            update(prompts_table)
+            .where(prompts_table.c.conversation_id == conversation_id)
+            .where(prompts_table.c.status == "queued")
+            .values(status="aborted", finished_at=now)
+            .returning(prompts_table)
+        )
+        async with self._engine.begin() as conn:
+            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
     async def steer(
         self, conversation_id: str, prompt_ids: tuple[str, ...], *, now: datetime
     ) -> tuple[PromptRow, ...]:
