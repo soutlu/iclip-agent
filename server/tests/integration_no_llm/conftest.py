@@ -151,6 +151,46 @@ async def app(
 
 
 @pytest.fixture
+def ws_agent_app(
+    base_env: None,
+    migrated_pg: str,
+    agent_declarations: tuple[ResolvedAgent, ...],
+    models: dict[str, TestModel],
+) -> Generator[FastAPI]:
+    """带 agent 的 WS 场景：app 全程活在 TestClient 的事件循环里。
+
+    与 ``ws_app`` 同一个道理（NullPool，见下），区别只是装上了声明的 agent——订阅要看得到
+    真跑出来的操作。
+    """
+
+    import asyncio
+
+    from sqlalchemy.pool import NullPool
+
+    async def _truncate() -> None:
+        engine = create_async_engine(migrated_pg, poolclass=NullPool)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
+                )
+                await conn.execute(text("TRUNCATE agent_runtime.prompts"))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_truncate())
+    engine = create_async_engine(migrated_pg, poolclass=NullPool)
+    yield build_app(
+        make_runtime_config(),
+        agents=agent_declarations,
+        engine=engine,
+        models=models,
+        style_snapshots=StubStyleSnapshots(),
+    )
+    asyncio.run(engine.dispose())
+
+
+@pytest.fixture
 def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
     """WS 场景专用：app 全程活在 TestClient 的事件循环里。
 

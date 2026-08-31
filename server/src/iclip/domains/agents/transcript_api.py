@@ -284,15 +284,18 @@ class _Connection:
             )
         )
         self._transcripts.pin(self._conversation_id)
+        # 发与心跳各自一个任务，收在这一层。不用 TaskGroup：它在被外层取消时会把取消再抛一遍，
+        # 而这条连接的正常收场本来就是「客户端走了」，不该沿着异常往上冒。
+        helpers = (asyncio.create_task(self._pump()), asyncio.create_task(self._heartbeat()))
         try:
-            async with asyncio.TaskGroup() as group:
-                group.create_task(self._pump())
-                group.create_task(self._heartbeat())
-                await self._read()
-        except* (WebSocketDisconnect, ConnectionError):
+            await self._read()
+        except (WebSocketDisconnect, ConnectionError):
             # 客户端走了。这是正常收场，不是故障：它随时可能关页面或者断网。
             _logger.debug("订阅连接断开：conversation=%s", self._conversation_id)
         finally:
+            for helper in helpers:
+                helper.cancel()
+            await asyncio.gather(*helpers, return_exceptions=True)
             self._unlisten()
             self._transcripts.unpin(self._conversation_id)
 
@@ -397,7 +400,19 @@ class _Connection:
                 self._outbound.put_nowait(Ping(payload=PingPayload(nonce=uuid.uuid4().hex[:8])))
 
     async def _send(self, frame: Any) -> None:
-        await self._ws.send_text(frame.model_dump_json(exclude_none=True))
+        """帧里嵌的实体与操作必须按别名出去（``turnId`` 而不是 ``turn_id``）。
+
+        少了 ``by_alias`` 客户端会整帧丢掉且不报错——它的 reducer 是照抄来的 zod，形状对不上
+        就是 safeParse 失败，界面永远停在空白。REST 那侧不会犯这个错：FastAPI 的
+        ``response_model`` 默认就按别名序列化，只有这里是手工发的。
+        """
+
+        try:
+            await self._ws.send_text(frame.model_dump_json(exclude_none=True, by_alias=True))
+        except RuntimeError as exc:
+            # 客户端刚走，starlette 对「关了之后再发」抛的是 RuntimeError。它和收那一侧的
+            # WebSocketDisconnect 是同一件事，翻译过来交给外面统一收尾。
+            raise WebSocketDisconnect(code=1006) from exc
 
 
 async def _serve(websocket: WebSocket, transcripts: Transcripts, conversation_id: str) -> None:
