@@ -1,16 +1,22 @@
 /**
- * transcript 的订阅连接：连上、订阅、记水位、断了自己接回来。
+ * transcript 的订阅连接：连上、按对话订阅、记水位、断了自己接回来。
+ *
+ * **一条连接管多段对话**：`/ws` 不带对话 id，订哪几段由 `subscribe(conversationId, handlers)`
+ * 说；服务端发来的每一帧带 `session_id`，按它分给对应的 handlers。侧栏同时盯着好几段对话时，
+ * 浏览器只开这一条。
  *
  * 帧的形状不在这里写，走 vendor 里那份照抄来的 zod（`contract/events.ts`）——服务端发的每一帧
  * 都按它校验，形状对不上整帧丢掉。
  *
  * **水位记账是这个文件的全部要点**，规则照 kimi 出厂客户端：
  *
- * 1. 收到 `transcript.reset` → 水位**无条件**覆写成帧里的 seq（不是取较大值）。服务端进程重启
- *    后批次号会从 1 重来，客户端不退回去的话，之后每一批都被当成旧的丢掉，界面就此不再更新。
+ * 1. 收到 `transcript.reset` → 这段对话的水位**无条件**覆写成帧里的 seq（不是取较大值）。服务端
+ *    进程重启后批次号会从 1 重来，客户端不退回去的话，之后每一批都被当成旧的丢掉，界面就此不再
+ *    更新。
  * 2. 收到 `transcript.ops` → 先交给上层应用；上层返回 `false`（没吃下）就**不推进水位**，下次
  *    补批还会把它带回来。
  * 3. 任何入站帧都刷新活跃时刻；`ping` 照着 nonce 回一帧 `pong`。
+ * 4. 重连之后逐段对话各发一帧 `subscribe_v2`，各带自己那段的水位。
  */
 
 import type { z } from 'zod'
@@ -47,13 +53,14 @@ export interface TranscriptHandlers {
    * 来了一批操作。返回 `false` 表示没吃下（例如发现缺口要重拉），那样水位不会推进。
    */
   onOps(agentId: string, ops: TranscriptOps): boolean | void
-  onConnectionState?(connected: boolean): void
+  /** 这段对话订不上：不存在，或者不是这个人的。 */
+  onNotFound?(): void
 }
 
 export interface TranscriptConnectionOptions {
   url: string
-  conversationId: string
-  handlers: TranscriptHandlers
+  /** 连上、断开各叫一次。整条连接一个状态，不分对话。 */
+  onConnectionState?: (connected: boolean) => void
   /** 测试用：换掉 WebSocket 实现与时钟。 */
   createSocket?: (url: string) => WebSocket
   now?: () => number
@@ -63,6 +70,12 @@ export interface ConnectionHealth {
   connected: boolean
   /** 太久没有任何入站帧了。界面据此提示「连接可能断了」。 */
   stale: boolean
+}
+
+interface Subscription {
+  handlers: TranscriptHandlers
+  /** 这段对话里每个 agent 收到的最后一个批次号。重连时报给服务端，它据此决定补批还是重来。 */
+  watermarks: Map<string, number>
 }
 
 export class TranscriptConnection {
@@ -75,11 +88,11 @@ export class TranscriptConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private nextId = 0
 
-  /**
-   * 每个 agent 收到的最后一个批次号。重连时报给服务端，它据此决定补批还是整页重来。
-   * 没有这个数就只能每次重连都整页重拉。
-   */
-  private watermarks = new Map<string, number>()
+  /** 订着的那几段对话。断线重连之后照这张表逐段重订。 */
+  private subscriptions = new Map<string, Subscription>()
+
+  /** 还没回执的 subscribe：ack 说「订不上」时得知道那一帧问的是哪段对话。 */
+  private pending = new Map<string, string>()
 
   private readonly options: TranscriptConnectionOptions
 
@@ -109,6 +122,29 @@ export class TranscriptConnection {
     this.connected = false
   }
 
+  /**
+   * 订一段对话。已经订着的换掉 handlers、水位留着——同一段对话换个界面接管，不该重拉一遍。
+   * 还没连上就先记下，连上之后一起订。
+   */
+  subscribe(conversationId: string, handlers: TranscriptHandlers): void {
+    const existing = this.subscriptions.get(conversationId)
+    this.subscriptions.set(conversationId, {
+      handlers,
+      watermarks: existing?.watermarks ?? new Map(),
+    })
+    if (this.connected) this.sendSubscribe(conversationId)
+  }
+
+  /** 退订一段对话。水位一起丢掉：再订回来时从头拉，不拿一个可能过时的号去补批。 */
+  unsubscribe(conversationId: string): void {
+    if (!this.subscriptions.delete(conversationId)) return
+    this.send({
+      type: 'unsubscribe_v2',
+      id: this.mintId(),
+      payload: { session_id: conversationId },
+    })
+  }
+
   health(): ConnectionHealth {
     const limit = Math.max(this.heartbeatMs * 2, STALE_FLOOR_MS)
     return {
@@ -117,22 +153,21 @@ export class TranscriptConnection {
     }
   }
 
-  /** 供测试与界面查看：这个 agent 手上的水位。 */
-  watermarkOf(agentId: string): number | undefined {
-    return this.watermarks.get(agentId)
+  /** 供测试与界面查看：这段对话里这个 agent 手上的水位。 */
+  watermarkOf(conversationId: string, agentId: string): number | undefined {
+    return this.subscriptions.get(conversationId)?.watermarks.get(agentId)
   }
 
   // --- 收 -------------------------------------------------------------------
 
   private receive(raw: unknown): void {
-    let frame: { type?: unknown; payload?: unknown }
+    let frame: { type?: unknown; id?: unknown; session_id?: unknown; payload?: unknown }
     try {
       frame = JSON.parse(String(raw)) as typeof frame
     } catch {
       return
     }
     if (typeof frame.type !== 'string') return
-    const wrapped = { type: frame.type, ...(frame.payload as object) }
 
     switch (frame.type) {
       case 'server_hello': {
@@ -146,25 +181,17 @@ export class TranscriptConnection {
         this.send({ type: 'pong', payload: { nonce } })
         return
       }
-      case 'transcript.reset': {
-        const parsed = transcriptResetEventSchema.safeParse(wrapped)
-        if (!parsed.success) return
-        const { agent_id, snapshot, has_more_older, seq } = parsed.data
-        this.options.handlers.onReset(agent_id, {
-          ...snapshot,
-          hasMoreOlder: has_more_older,
-        })
-        // 无条件覆写，不是取较大值：服务端重启后号从 1 重来，我们得跟着退回去。
-        if (seq !== undefined) this.watermarks.set(agent_id, seq)
+      case 'ack': {
+        this.settleAck(frame)
         return
       }
+      case 'transcript.reset':
       case 'transcript.ops': {
-        const parsed = transcriptOpsEventSchema.safeParse(wrapped)
-        if (!parsed.success) return
-        const { agent_id, ops, seq } = parsed.data
-        const accepted = this.options.handlers.onOps(agent_id, ops)
-        // 上层说没吃下就不推进：推了的话这一批再也补不回来。
-        if (accepted !== false && seq !== undefined) this.watermarks.set(agent_id, seq)
+        // 帧里的 session_id 是分流依据：一条连接管多段对话，不看它就不知道该给谁。
+        if (typeof frame.session_id !== 'string') return
+        const subscription = this.subscriptions.get(frame.session_id)
+        if (subscription === undefined) return
+        this.apply(frame.type, subscription, { type: frame.type, ...(frame.payload as object) })
         return
       }
       default:
@@ -172,25 +199,57 @@ export class TranscriptConnection {
     }
   }
 
+  private apply(type: string, subscription: Subscription, wrapped: object): void {
+    if (type === 'transcript.reset') {
+      const parsed = transcriptResetEventSchema.safeParse(wrapped)
+      if (!parsed.success) return
+      const { agent_id, snapshot, has_more_older, seq } = parsed.data
+      subscription.handlers.onReset(agent_id, { ...snapshot, hasMoreOlder: has_more_older })
+      // 无条件覆写，不是取较大值：服务端重启后号从 1 重来，我们得跟着退回去。
+      if (seq !== undefined) subscription.watermarks.set(agent_id, seq)
+      return
+    }
+    const parsed = transcriptOpsEventSchema.safeParse(wrapped)
+    if (!parsed.success) return
+    const { agent_id, ops, seq } = parsed.data
+    const accepted = subscription.handlers.onOps(agent_id, ops)
+    // 上层说没吃下就不推进：推了的话这一批再也补不回来。
+    if (accepted !== false && seq !== undefined) subscription.watermarks.set(agent_id, seq)
+  }
+
+  private settleAck(frame: { id?: unknown; payload?: unknown }): void {
+    if (typeof frame.id !== 'string') return
+    const asked = this.pending.get(frame.id)
+    this.pending.delete(frame.id)
+    if (asked === undefined) return
+    const refused = (frame.payload as { not_found?: unknown })?.not_found
+    if (!Array.isArray(refused) || !refused.includes(asked)) return
+    // 订不上的别再留着：重连时还会去订同一段，每次都被拒。
+    const subscription = this.subscriptions.get(asked)
+    this.subscriptions.delete(asked)
+    subscription?.handlers.onNotFound?.()
+  }
+
   // --- 发 -------------------------------------------------------------------
 
   private opened(): void {
     this.connected = true
     this.reconnectAttempts = 0
-    this.options.handlers.onConnectionState?.(true)
-    this.send({
-      type: 'client_hello',
-      id: this.mintId(),
-      payload: { client_id: this.options.conversationId },
-    })
-    const since = this.watermarks.get('main')
+    this.options.onConnectionState?.(true)
+    for (const conversationId of this.subscriptions.keys()) this.sendSubscribe(conversationId)
+  }
+
+  private sendSubscribe(conversationId: string): void {
+    const since = this.subscriptions.get(conversationId)?.watermarks.get('main')
+    const id = this.mintId()
+    this.pending.set(id, conversationId)
     this.send({
       type: 'subscribe_v2',
-      id: this.mintId(),
+      id,
       payload: {
-        session_id: this.options.conversationId,
+        session_id: conversationId,
         transcript: { main: 'delta' },
-        // 头一次连没有水位，不带这个字段——服务端据此判「第一次订阅」，回一帧 reset。
+        // 头一次订没有水位，不带这个字段——服务端据此判「第一次订阅」，回一帧 reset。
         ...(since === undefined ? {} : { transcript_since: { main: since } }),
       },
     })
@@ -215,9 +274,10 @@ export class TranscriptConnection {
       this.socket.onerror = null
       this.socket = null
     }
+    this.pending.clear()
     if (this.connected) {
       this.connected = false
-      this.options.handlers.onConnectionState?.(false)
+      this.options.onConnectionState?.(false)
     }
     this.scheduleReconnect()
   }
