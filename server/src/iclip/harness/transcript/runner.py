@@ -6,11 +6,17 @@
 - 停止：``run_stream_events(cancellation_token=...)``。不能拿 ``task.cancel()`` 代替：外部
   取消是 ``BaseException``，进不了官方收尾用的 ``except Exception``，那一轮的终态操作一条都
   发不出去，界面会永远停在「正在跑」。
-- 插话：``RunContext.enqueue(priority='asap')``。``ctx`` 只在 run 里面拿得到，所以用一个
-  capability 在 ``before_run`` 把它接住（``_RunHandle``），插话到达时**当场**递进去。不能改成
-  「先攒着、下次模型请求前再递」：官方有两道 drain，第二道在 run 本来要结束时把晚到的 asap
-  捞出来做一次 redirect；攒着的话那条消息压根没进官方队列，第二道捞不到它，用户打的字静默
-  消失。
+- 插话：``RunContext.enqueue(priority='asap')``，用一个 capability 在 ``before_run`` 把 ``ctx``
+  接住（``_RunHandle``），插话到达时**当场**递进去。官方只有两个 enqueue 入口：``RunContext``
+  那个（工具或 capability 钩子里拿得到）和 ``AgentRun.enqueue``（外面驱动 ``agent.iter()`` 时）。
+  我们用 ``run_stream_events``，它给的把手有 ``cancel`` 但没有 ``enqueue``；换 ``agent.iter()``
+  就得自己按节点驱动图、再把投影器要的那条合并事件流拼出来，而 ``run_stream_events`` 本来就是
+  官方给这件事的封装。所以走 capability 这个入口，不是绕路。
+  ``event_stream_handler`` 也拿得到 ``ctx``，但它一次运行会被叫好几回（两步的一轮实测四回），
+  驱动不了按整轮记状态的投影器。
+  不能改成「先攒着、下次模型请求前再递」：官方有两道 drain，第二道在 run 本来要结束时把晚到的
+  asap 捞出来做一次 redirect；攒着的话那条消息压根没进官方队列，第二道捞不到它，用户打的字
+  静默消失。
   一条追加要么进这次 run，要么退回 ``queued``——收场时清扫一遍没被读到的（见 ``_settle``）。
 - 审批：``HandleDeferredToolCalls`` 的 handler 可以是 async，在**同一次 run 内**等人点头，
   所以一轮不会被劈成两次 run。
