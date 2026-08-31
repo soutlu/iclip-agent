@@ -51,11 +51,13 @@ export interface TranscriptHandlers {
   /**
    * 整份状态换掉了。`snapshot.items` 恒为空——历史走 REST 分页，这一帧只带全局实体与水位。
    */
-  onReset(agentId: string, snapshot: TranscriptSnapshot): void
+  onReset(agentId: string, snapshot: TranscriptSnapshot, seq: number | undefined): void
   /**
    * 来了一批操作。返回 `false` 表示没吃下（例如发现缺口要重拉），那样水位不会推进。
+   *
+   * `seq` 是这一批的批次号：上层拿它判跳号，缺了哪几批要自己去补。
    */
-  onOps(agentId: string, ops: TranscriptOps): boolean | void
+  onOps(agentId: string, ops: TranscriptOps, seq: number | undefined): boolean | void
   /** 这段对话订不上：不存在，或者不是这个人的。 */
   onNotFound?(): void
 }
@@ -106,7 +108,10 @@ export class TranscriptConnection {
   }
 
   connect(): void {
-    if (this.socket !== null || this.closed) return
+    if (this.socket !== null) return
+    // `close()` 之后再 `connect()` 是「重新开着」的明确意思：不清掉这个标记，这条连接就再也
+    // 连不上了（React 严格模式下挂载效果会先跑一遍清理，正是这个次序）。
+    this.closed = false
     this.lastActivityAt = this.now()
     const socket = (this.options.createSocket ?? ((url) => new WebSocket(url)))(this.options.url)
     this.socket = socket
@@ -171,6 +176,16 @@ export class TranscriptConnection {
     return this.subscriptions.get(conversationId)?.watermarks.get(agentId)
   }
 
+  /**
+   * 上层报「我落地到这儿了」。
+   *
+   * REST 基线与补批不经过帧这条路，水位只能由上层报回来；不报的话重连时这条连接会说自己什么
+   * 都没有，服务端于是整份重发，客户端跟着整页重拉。
+   */
+  markApplied(conversationId: string, agentId: string, seq: number): void {
+    this.subscriptions.get(conversationId)?.watermarks.set(agentId, seq)
+  }
+
   // --- 收 -------------------------------------------------------------------
 
   private receive(raw: unknown): void {
@@ -217,7 +232,7 @@ export class TranscriptConnection {
       const parsed = transcriptResetEventSchema.safeParse(wrapped)
       if (!parsed.success) return
       const { agent_id, snapshot, has_more_older, seq } = parsed.data
-      subscription.handlers.onReset(agent_id, { ...snapshot, hasMoreOlder: has_more_older })
+      subscription.handlers.onReset(agent_id, { ...snapshot, hasMoreOlder: has_more_older }, seq)
       // 无条件覆写，不是取较大值：服务端重启后号从 1 重来，我们得跟着退回去。
       if (seq !== undefined) subscription.watermarks.set(agent_id, seq)
       return
@@ -225,7 +240,7 @@ export class TranscriptConnection {
     const parsed = transcriptOpsEventSchema.safeParse(wrapped)
     if (!parsed.success) return
     const { agent_id, ops, seq } = parsed.data
-    const accepted = subscription.handlers.onOps(agent_id, ops)
+    const accepted = subscription.handlers.onOps(agent_id, ops, seq)
     // 上层说没吃下就不推进：推了的话这一批再也补不回来。
     if (accepted !== false && seq !== undefined) subscription.watermarks.set(agent_id, seq)
   }

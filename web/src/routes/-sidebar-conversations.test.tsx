@@ -40,13 +40,11 @@ describe('SidebarConversations', () => {
 
     // 标题上的数字是总数，与这一页给了几条无关
     expect(await screen.findByRole('button', { name: '任务 (21)' })).toBeVisible()
-    expect(screen.getAllByRole('button', { name: /^第\d+段$/ })).toHaveLength(20)
+    expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(20)
 
     await user.click(screen.getByRole('button', { name: '展开显示更多对话' }))
 
-    await waitFor(() =>
-      expect(screen.getAllByRole('button', { name: /^第\d+段$/ })).toHaveLength(21),
-    )
+    await waitFor(() => expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(21))
     // 没有更多了，那一行就不再出现
     expect(screen.queryByRole('button', { name: '展开显示更多对话' })).not.toBeInTheDocument()
   })
@@ -57,13 +55,11 @@ describe('SidebarConversations', () => {
     const user = await render()
 
     await user.click(await screen.findByRole('button', { name: '夏季亚麻系列 (11)' }))
-    expect(screen.getAllByRole('button', { name: /^第\d+段$/ })).toHaveLength(10)
+    expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(10)
 
     await user.click(screen.getByRole('button', { name: /展开显示 夏季亚麻系列/ }))
 
-    await waitFor(() =>
-      expect(screen.getAllByRole('button', { name: /^第\d+段$/ })).toHaveLength(11),
-    )
+    await waitFor(() => expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(11))
   })
 
   it('合集列表本身也分段：先 10 个，展开再露一批', async () => {

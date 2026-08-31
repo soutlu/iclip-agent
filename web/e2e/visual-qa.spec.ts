@@ -1,28 +1,26 @@
-import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
+import { login } from './login'
 
 // 视觉验收截图专用：跑在 dev:mock 上，先登录再走首页。产物落仓库根 .artifacts/design-qa/（gitignore，不入库）。
 const SHOT_DIR = '../.artifacts/design-qa'
 
-// 登录改成首页弹窗：点侧栏登录入口 → 弹窗填账号密码 → 就地登录，不跳页。
-// 紧凑屏侧栏默认收起，登录入口要先把侧栏展开才点得到。
-const login = async (page: Page) => {
-  const expandSidebar = page.getByRole('button', { name: '展开侧边栏' })
-  const loginTrigger = page.getByRole('button', { name: '登录', exact: true })
-  // 先等外壳挂上，否则刷新后一瞬间两个按钮都还没有，isVisible 会误判成不必展开
-  await expect(expandSidebar.or(loginTrigger).first()).toBeVisible()
+test('会话页视觉验收：浅色 / 深色', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
 
-  if (await expandSidebar.isVisible()) {
-    await expandSidebar.click()
-  }
+  // 等演出来那一轮跑完（三段追加各 600ms），截到的就是完整一句
+  await expect(page.getByText('好的，我先看一下这段素材，再把镜头表补齐。')).toBeVisible({
+    timeout: 15_000,
+  })
 
-  await loginTrigger.click()
-  const dialog = page.getByRole('dialog', { name: '登录 Cue' })
-  await dialog.getByLabel('用户名', { exact: true }).fill('tester')
-  await dialog.getByLabel('密码', { exact: true }).fill('secret')
-  await dialog.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(dialog).toBeHidden()
-}
+  await page.screenshot({ path: `${SHOT_DIR}/conversation-light.png`, fullPage: true })
+
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: `${SHOT_DIR}/conversation-dark.png`, fullPage: true })
+  await page.emulateMedia({ colorScheme: 'light' })
+})
 
 test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   await page.goto('/')
