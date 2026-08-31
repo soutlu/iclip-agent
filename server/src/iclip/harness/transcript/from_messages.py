@@ -12,12 +12,8 @@
 
 官方一直在记这件事——``StepPersistence`` 每次 run 结束会写一条 ``run_completed`` 或
 ``run_failed``（后者把 ``repr(error)`` 存进 ``error`` 列，取消因此认得出来）。分类规则见
-``run_state_from_events``。
-
-那张表的 ``run_id`` 与消息里的 ``run_id`` 是**两套 id**（前者是 ``{agent 名}-{短 uuid}``，
-后者是引擎自己发的），互相 join 不上，所以终态由运行侧按**我们自己的轮序号**记下来，经
-``turn_states`` 传进来。没传的轮子给 ``failed``——「没记下一次干净的收尾」就是这个意思，
-不能默认当成跑完了。
+``run_state_from_events``；按 ``run_id`` 查那张表即可，``turn_states`` 收的就是这个键。没查
+到的轮子给 ``failed``——「没记下一次干净的收尾」就是这个意思，不能默认当成跑完了。
 """
 
 from __future__ import annotations
@@ -60,17 +56,24 @@ TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
 def turns_from_messages(
     messages: Sequence[ModelMessage],
     *,
-    turn_states: Mapping[int, TurnState] | None = None,
+    turn_states: Mapping[str, TurnState] | None = None,
 ) -> tuple[TranscriptTurn, ...]:
     """把一段对话的消息历史推成一串轮子，按发生先后排。
 
-    ``turn_states`` 按轮序号给终态，来自官方记的那条 run 结束事件（见模块开头）。
+    ``turn_states`` 按 ``run_id`` 给终态，来自官方记的那条 run 结束事件（见模块开头）。
     """
 
-    turns: list[TranscriptTurn] = []
-    for ordinal, group in enumerate(_group_by_run(messages), start=1):
-        turns.append(_turn(group, ordinal=ordinal, turn_states=turn_states or {}))
-    return tuple(turns)
+    states = turn_states or {}
+    return tuple(
+        _turn(group, ordinal=ordinal, state=states.get(run_id, "failed"))
+        for ordinal, (run_id, group) in enumerate(_group_by_run(messages), start=1)
+    )
+
+
+def run_ids_from_messages(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
+    """这段对话跑过哪几次 run，按发生先后排。拿去查每次 run 的结束事件。"""
+
+    return tuple(run_id for run_id, _ in _group_by_run(messages))
 
 
 def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
@@ -90,7 +93,7 @@ def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
     return "failed"
 
 
-def _group_by_run(messages: Sequence[ModelMessage]) -> list[list[ModelMessage]]:
+def _group_by_run(messages: Sequence[ModelMessage]) -> list[tuple[str, list[ModelMessage]]]:
     """按 ``run_id`` 分组，组间按组内第一条消息的时刻排。
 
     不按 ``runs`` 表的 ``started_at`` 排：那会把这一层重新拴回一张表上，而消息里本来就带着
@@ -104,7 +107,7 @@ def _group_by_run(messages: Sequence[ModelMessage]) -> list[list[ModelMessage]]:
         # 单独成组的话会多出一个空轮子，而且它的时刻也是空的，排序会把它甩到最前面。
         current = message.run_id or current
         grouped.setdefault(current, []).append(message)
-    return sorted(grouped.values(), key=_started_at)
+    return sorted(grouped.items(), key=lambda item: _started_at(item[1]))
 
 
 _EPOCH = datetime.min.replace(tzinfo=UTC)
@@ -128,9 +131,7 @@ def _iso(moment: datetime | None) -> str | None:
     return None if moment is None else moment.isoformat()
 
 
-def _turn(
-    group: Sequence[ModelMessage], *, ordinal: int, turn_states: Mapping[int, TurnState]
-) -> TranscriptTurn:
+def _turn(group: Sequence[ModelMessage], *, ordinal: int, state: TurnState) -> TranscriptTurn:
     turn_id = f"t{ordinal}"
     steps: list[TranscriptStep] = []
     # 工具卡建在发起它的那一步里，而它的结局在下一条请求里才到，所以按 toolCallId 记着位置。
@@ -173,7 +174,7 @@ def _turn(
                 state="completed",
                 started_at=_iso(None if pending_request is None else pending_request.timestamp),
                 ended_at=_iso(message.timestamp),
-                usage=_step_usage(message.usage),
+                usage=step_usage(message.usage),
                 finish_reason=message.finish_reason,
             )
         )
@@ -181,7 +182,7 @@ def _turn(
     return TranscriptTurn(
         turn_id=turn_id,
         ordinal=ordinal,
-        state=turn_states.get(ordinal, "failed"),
+        state=state,
         origin=TurnOrigin(kind="user"),
         prompt=prompt,
         started_at=_iso(_started_at(group)),
@@ -305,8 +306,8 @@ def _replace_tool(
             return
 
 
-def _step_usage(usage: RequestUsage | None) -> StepUsage | None:
-    """引擎的用量 → 协议的用量。
+def step_usage(usage: RequestUsage | None) -> StepUsage | None:
+    """引擎的用量 → 协议的用量。实时那条路补用量时用的是同一个函数，口径只有一份。
 
     ``input_tokens`` 是总数，缓存读写都算在里面（官方 docstring 明说 included in），所以
     「其余」要把两块缓存都减掉，不然三项加起来会超过总数。
@@ -335,4 +336,10 @@ def _turn_usage(steps: Sequence[TranscriptStep]) -> TurnUsage | None:
     )
 
 
-__all__ = ["TurnState", "run_state_from_events", "turns_from_messages"]
+__all__ = [
+    "TurnState",
+    "run_ids_from_messages",
+    "run_state_from_events",
+    "step_usage",
+    "turns_from_messages",
+]

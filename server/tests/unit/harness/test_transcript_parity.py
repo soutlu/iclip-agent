@@ -6,11 +6,8 @@
 同一段对话，客户端在跑的时候看到的是前者、刷新之后看到的是后者。两边只要有一个 id 或一段
 文字不一样，界面就会在刷新的瞬间变形，而且没有任何报错。所以这条测试比单看哪一侧都重要。
 
-时刻不参与比较：前者按事件到达的真实时刻走，后者按消息上记的时刻走，本来就不同。
-
-**用量也不比，而这是一个已知缺口不是无关项**：实时那侧的用量要由驱动 run 的那一层喂进来
-（``TranscriptEventStream.record_usage``，目前还没有调用方），消息那侧自己就能算出来。接线
-补上之前，同一轮的用量在刷新前后会从「没有」变成「有」。
+时刻不参与比较：前者按事件到达的真实时刻走，后者按消息上记的时刻走，本来就不同。用量也不比
+——它由 ``AgentRunResultEvent`` 在 run 跑完时一次补齐，而这些用例是手工喂事件的，不发那一条。
 """
 
 from __future__ import annotations
@@ -104,7 +101,7 @@ def _derive(
 ) -> tuple[TranscriptTurn, ...]:
     """历史那侧。终态由运行侧从官方的 run 结束事件记下来给进去，推导器自己不猜。"""
 
-    return turns_from_messages(messages, turn_states={1: state})
+    return turns_from_messages(messages, turn_states={RUN: state})
 
 
 @pytest.mark.anyio

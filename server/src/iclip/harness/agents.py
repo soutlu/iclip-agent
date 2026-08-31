@@ -89,11 +89,20 @@ def _load_agent(
     model: Model,
     step_store: StepStore,
     extra: Sequence[AgentCapability[Any]] = (),
+    persistence_agent_name: str | None = None,
 ) -> Agent[Any, Any]:
-    """装一个 agent；``name`` 同时是它在 run 记录里的 ``agent_name``。
+    """装一个 agent。
 
-    ``StepPersistence`` 不带 ``run_id``：官方按 ``{agent_name}-{短 uuid}`` 逐次
-    materialise，因此同一个 capability 实例被并发的多次运行共用是安全的。
+    ``persistence_agent_name`` 决定阶段账本里的 run 用哪套 id。给了名字，官方就按
+    ``{名字}-{短 uuid}`` 自己铸一个；留空则用 ``ctx.run_id``，也就是发起方在
+    ``run_stream_events(run_id=...)`` 里给的那个。
+
+    顶层 agent 一律留空。transcript 要按 run 分轮，而分轮的依据是**消息上**的
+    ``run_id``（即 ``ctx.run_id``）；官方自己铸的那个只出现在 runs/events 两张表里，与消息
+    上的对不上，轮的终态就查不出来。下属留着名字：它们不进 transcript，可读的 id 更有用。
+
+    两种情形下同一个 capability 实例被并发的多次运行共用都是安全的：``run_id`` 字段始终为空，
+    实际的 id 每次 run 在 ``for_run`` 里现算。
     """
 
     return Agent.from_spec(
@@ -101,7 +110,10 @@ def _load_agent(
         model=model,
         name=name,
         instructions=_read_instructions(instructions),
-        capabilities=[StepPersistence(store=step_store, agent_name=name), *extra],
+        capabilities=[
+            StepPersistence(store=step_store, agent_name=persistence_agent_name),
+            *extra,
+        ],
     )
 
 
@@ -120,6 +132,7 @@ def _build_subagents(
                     model=_pick_model(models, sub.model, declared_by=f"子 agent {sub.name}"),
                     step_store=step_store,
                     extra=sub.capabilities,
+                    persistence_agent_name=sub.name,
                 ),
                 timeout_seconds=sub.timeout_seconds,
                 max_calls=sub.max_calls,

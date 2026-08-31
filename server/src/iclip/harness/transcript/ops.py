@@ -225,13 +225,37 @@ class Attachment(_Wire):
     placeholder: str | None = None
 
 
+class TextContent(_Wire):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class ImageContent(_Wire):
+    type: Literal["image"] = "image"
+    source: AttachmentSource
+
+
+class VideoContent(_Wire):
+    type: Literal["video"] = "video"
+    source: AttachmentSource
+
+
+PromptContent = Annotated[TextContent | ImageContent | VideoContent, Field(discriminator="type")]
+"""一条用户消息的组成部分。
+
+协议的联合里还有工具调用、工具返回、思考三种，那些是**模型侧**消息的部分，不会出现在用户
+发上来的东西里；图片与视频的来源也只收 ``url`` 与 ``sessionMedia`` 两种（``base64`` 与本机
+``path`` 是桌面端的形态）。收窄的是入口，出去的形状没有变。
+"""
+
+
 class Prompt(_Wire):
     """用户消息的服务端记录。客户端的乐观气泡第一层认领就是按 ``promptId`` 查这张表。"""
 
     prompt_id: str
     status: Literal["running", "queued", "blocked", "completed", "failed", "aborted"]
     user_message_id: str | None = None
-    content: Any | None = None
+    content: tuple[PromptContent, ...] | None = None
     created_at: str
     finished_at: str | None = None
     steered_at: str | None = None
@@ -364,17 +388,20 @@ __all__ = [
     "EmittableOperation",
     "FrameTarget",
     "FrameUpsertOp",
+    "ImageContent",
     "Interaction",
     "InteractionUpsertOp",
     "ItemsRemoveOp",
     "MetaMergeOp",
     "NoticeFrame",
     "Prompt",
+    "PromptContent",
     "PromptUpsertOp",
     "ResetOp",
     "StepHeader",
     "StepUpsertOp",
     "StepUsage",
+    "TextContent",
     "TextFrame",
     "ThinkingFrame",
     "ToolFrame",
@@ -388,6 +415,7 @@ __all__ = [
     "TurnOrigin",
     "TurnUpsertOp",
     "TurnUsage",
+    "VideoContent",
     "next_frame_ordinal",
     "utf16_len",
 ]

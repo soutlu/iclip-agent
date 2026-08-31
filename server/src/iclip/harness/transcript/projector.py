@@ -27,6 +27,7 @@ from pydantic_ai.messages import (
     EnqueuedMessagesEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
+    ModelResponse,
     RetryPromptPart,
     TextPart,
     TextPartDelta,
@@ -34,9 +35,10 @@ from pydantic_ai.messages import (
     ThinkingPartDelta,
     UserPromptPart,
 )
+from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.ui import UIEventStream
-from pydantic_ai.usage import RequestUsage
 
+from iclip.harness.transcript.from_messages import step_usage
 from iclip.harness.transcript.ops import (
     MAIN_AGENT_ID,
     TOOL_STATE_BY_OUTCOME,
@@ -92,6 +94,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     _open_frame_id: str | None = field(default=None, init=False)
     _open_text: str = field(default="", init=False)
     _step_usage: list[StepUsage] = field(default_factory=list[StepUsage], init=False)
+    _step_headers: list[StepHeader] = field(default_factory=list[StepHeader], init=False)
+    """每一步收尾时发出去的那份头部。run 跑完补用量时照着它改，免得把时刻抹掉。"""
     _pending_steers: list[str] = field(default_factory=list[str], init=False)
     """还没有步可挂的插话，等下一步开出来放在最前面（与 ``from_messages`` 同一条规则）。"""
 
@@ -157,7 +161,40 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     async def after_response(self) -> AsyncIterator[OpsBatch]:
         if self._step_ordinal == 0:
             return
-        yield (StepUpsertOp(turn_id=self.turn_id, step=self._step(state="completed")),)
+        header = self._step(state="completed")
+        self._step_headers.append(header)
+        yield (StepUpsertOp(turn_id=self.turn_id, step=header),)
+
+    async def handle_run_result(self, event: AgentRunResultEvent[Any]) -> AsyncIterator[OpsBatch]:
+        """run 跑完了，把每一步的用量补上。
+
+        用量挂在 ``ModelResponse`` 上，而流里逐个发的是 part 级别的增量，收不到它。这个钩子
+        拿得到整个结果，于是在这里按步补一遍，换算走的是消息推导那侧同一个函数。轮头部的合计
+        随后由 ``after_stream`` 一起带出去。
+
+        报错与取消的轮子走的是异常那条路，压根不发这个事件，所以实时那侧的失败轮不带用量；
+        刷新之后从消息历史推出来的那份带。
+        """
+
+        responses = [
+            message for message in event.result.new_messages() if isinstance(message, ModelResponse)
+        ]
+        ops: list[EmittableOperation] = []
+        for header, response in zip(self._step_headers, responses, strict=False):
+            usage = step_usage(response.usage)
+            if usage is None:
+                continue
+            self._step_usage.append(usage)
+            ops.append(
+                StepUpsertOp(
+                    turn_id=self.turn_id,
+                    step=header.model_copy(
+                        update={"usage": usage, "finish_reason": response.finish_reason}
+                    ),
+                )
+            )
+        if ops:
+            yield tuple(ops)
 
     # --- 正文与思考 ---------------------------------------------------------
 
@@ -311,6 +348,12 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     _closed_with_error: bool = field(default=False, init=False)
 
     @property
+    def failed(self) -> bool:
+        """这一轮以报错收场。取消不算——那有官方的 ``cancelled`` 可问。"""
+
+        return self._closed_with_error
+
+    @property
     def _step_id(self) -> str:
         return f"{self.turn_id}.{max(self._step_ordinal, 1)}"
 
@@ -422,24 +465,6 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
                 step_id=self._step_id,
                 frame=frame(frame_id=frame_id, text=text, **extra),
             ),
-        )
-
-    def record_usage(self, usage: RequestUsage | None) -> None:
-        """记下这一步的用量，供轮的合计使用。口径见 ``from_messages``。
-
-        TODO(运行侧接线)：目前没有调用方——事件流里没有哪个钩子拿得到 ``ModelResponse``
-        本身，用量得由驱动这次 run 的那一层在每步结束时喂进来。在那之前实时那侧的轮头部
-        不带用量，而消息推出来的那侧带；对齐测试比的是结构，看不出这个缺口。"""
-
-        if usage is None:
-            return
-        self._step_usage.append(
-            StepUsage(
-                input_other=usage.input_tokens - usage.cache_read_tokens - usage.cache_write_tokens,
-                output=usage.output_tokens,
-                input_cache_read=usage.cache_read_tokens,
-                input_cache_creation=usage.cache_write_tokens,
-            )
         )
 
 

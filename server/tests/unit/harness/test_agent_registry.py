@@ -253,7 +253,10 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
         await frames(registry, "producer")
 
     runs = await step_store.list_runs()
-    assert [run.agent_name for run in runs] == ["producer", "shot-writer"]
+    # 顶层那次 run 用发起方给的 id 记账（``agent_name`` 因此留空），下属自己铸一个带名字的。
+    # 前者是 transcript 分轮的依据：消息上盖的就是这个 id，两边对不上就查不出轮的终态。
+    assert [run.run_id for run in runs] == ["run-1", runs[1].run_id]
+    assert [run.agent_name for run in runs] == [None, "shot-writer"]
     assert runs[0].conversation_id == "c1"  # 协议请求体的 threadId 即会话 id
     assert runs[1].parent_run_id == runs[0].run_id  # 派活谱系无需手工穿线
 

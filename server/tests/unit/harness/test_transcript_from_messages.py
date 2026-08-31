@@ -285,8 +285,8 @@ def test_terminal_state_comes_from_the_caller_not_from_the_message_shape() -> No
     messages = [_ask("走"), _reply(TextPart(content="好"))]
 
     assert turns_from_messages(messages)[0].state == "failed"
-    assert turns_from_messages(messages, turn_states={1: "completed"})[0].state == "completed"
-    assert turns_from_messages(messages, turn_states={1: "cancelled"})[0].state == "cancelled"
+    assert turns_from_messages(messages, turn_states={RUN: "completed"})[0].state == "completed"
+    assert turns_from_messages(messages, turn_states={RUN: "cancelled"})[0].state == "cancelled"
 
 
 def test_run_state_is_read_off_the_official_run_end_event() -> None:
