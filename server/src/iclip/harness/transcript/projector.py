@@ -50,7 +50,6 @@ from iclip.platform.transcript.ops import (
     Interaction,
     InteractionUpsertOp,
     MetaMergeOp,
-    NoticeFrame,
     StepHeader,
     StepUpsertOp,
     StepUsage,
@@ -138,15 +137,19 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         )
 
     async def on_error(self, error: Exception) -> AsyncIterator[OpsBatch]:
+        """报错收场。错误文字只挂在轮头部的 ``error`` 上，不另发一个 notice 块。
+
+        发块有两个毛病：消息历史那侧推不出它（它只知道这次 run 失败了，推不出当时开着哪一步），
+        两条路当场分叉；而报错发生在第一次模型响应之前时，那个块要挂的步压根还没开出来，落地时
+        实时状态直接抛 ``KeyError``——整批操作连带「失败」那一条一起丢掉，界面永远停在「正在跑」。
+
+        用 ``repr`` 不用 ``str``：官方那条 ``run_failed`` 事件记的就是 ``repr(error)``，而刷新之后
+        文字是从那里读回来的。用 ``str`` 的话同一次失败在刷新前后写法不一样（少了异常类名）。
+        """
+
         self._closed_with_error = True
-        frame_id = self._next_frame_id()
         yield (
-            FrameUpsertOp(
-                turn_id=self.turn_id,
-                step_id=self._step_id,
-                frame=NoticeFrame(frame_id=frame_id, level="error", message=str(error)),
-            ),
-            TurnUpsertOp(turn=self._turn_header(state="failed", error=str(error))),
+            TurnUpsertOp(turn=self._turn_header(state="failed", error=repr(error))),
             MetaMergeOp(meta=TranscriptMeta(activity="idle")),
         )
 
@@ -243,7 +246,15 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         """派活时才建卡：这时参数是完整的，与从消息推出来的那份一致。
 
         逐字到达的参数增量不建卡——那条路上参数还是半截的，两边会对不上。
+
+        **第一步还没开出来就到的调用不是这一轮的。** 上一轮留下没有结果的调用，是靠起 run 时给它
+        补一份结果收掉的（``runner._close_out``），补的那一份会在这一轮的第一次模型响应之前作为
+        事件走一遍。给它建卡的话，上一轮的调用会在这一轮里凭空长出一张工具卡，而消息历史那侧把
+        它算在上一轮——两条路当场分叉。真正属于这一轮的调用一定跟在某次模型响应后面。
         """
+
+        if self._step_ordinal == 0:
+            return
 
         card = ToolFrame(
             frame_id=f"{self._step_id}.{event.part.tool_call_id}",
@@ -261,19 +272,23 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     async def handle_function_tool_result(
         self, event: FunctionToolResultEvent
     ) -> AsyncIterator[OpsBatch]:
+        """把结局回填到这一轮派出去的那张卡上。
+
+        **这一轮没派过的调用一概不管。** 上一轮留下没有结果的调用，是靠起 run 时给它补一份结果
+        收掉的（``runner._close_out``），那份结果会作为事件在这一轮到达。给它建一张卡的话，上一
+        轮的调用会在这一轮里凭空长出一张工具卡——而消息历史那侧把它算在上一轮，两条路当场分叉。
+        """
+
         part = event.part
+        opened = self._tool_cards.get(part.tool_call_id)
+        if opened is None:
+            return
         if isinstance(part, RetryPromptPart):
             state, output, error = "error", None, str(part.content)
         else:
             state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
             output = part.content
             error = None if state == "done" else str(part.content)
-        opened = self._tool_cards.get(part.tool_call_id) or ToolFrame(
-            frame_id=f"{self._step_id}.{part.tool_call_id}",
-            tool_call_id=part.tool_call_id,
-            name=part.tool_name or "",
-            state="running",
-        )
         yield (
             FrameUpsertOp(
                 turn_id=self.turn_id,

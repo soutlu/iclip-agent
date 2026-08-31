@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic_ai.messages import (
     ModelMessage,
@@ -60,15 +60,23 @@ def turns_from_messages(
     messages: Sequence[ModelMessage],
     *,
     turn_states: Mapping[str, TurnState] | None = None,
+    turn_errors: Mapping[str, str | None] | None = None,
 ) -> tuple[TranscriptTurn, ...]:
     """把一段对话的消息历史推成一串轮子，按发生先后排。
 
-    ``turn_states`` 按 ``run_id`` 给终态，来自官方记的那条 run 结束事件（见模块开头）。
+    ``turn_states`` 与 ``turn_errors`` 都按 ``run_id`` 给，来自官方记的那条 run 结束事件（见模块
+    开头）。错误文字得跟着一起来：实时那侧把它挂在轮头部，这侧不给就两条路对不上。
     """
 
     states = turn_states or {}
+    errors = turn_errors or {}
     return tuple(
-        _turn(group, ordinal=ordinal, state=states.get(run_id, "failed"))
+        _turn(
+            group,
+            ordinal=ordinal,
+            state=states.get(run_id, "failed"),
+            error=errors.get(run_id),
+        )
         for ordinal, (run_id, group) in enumerate(_group_by_run(messages), start=1)
     )
 
@@ -94,6 +102,21 @@ def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
             error = event.error or ""
             return "cancelled" if error.startswith(("RunCancelled", "CancelledError")) else "failed"
     return "failed"
+
+
+def run_error_from_events(events: Sequence[StepEvent]) -> str | None:
+    """这次 run 失败时官方记下的错误文字。跑完的、或者没记下结束事件的都是 ``None``。
+
+    实时那侧把这段文字挂在轮头部的 ``error`` 上，这一侧得给出同一份，否则刷新之后失败的原因
+    就没了，两条路也对不上。
+    """
+
+    for event in reversed(events):
+        if event.kind == "run_completed":
+            return None
+        if event.kind == "run_failed":
+            return event.error
+    return None
 
 
 def _group_by_run(messages: Sequence[ModelMessage]) -> list[tuple[str, list[ModelMessage]]]:
@@ -134,7 +157,13 @@ def _iso(moment: datetime | None) -> str | None:
     return None if moment is None else moment.isoformat()
 
 
-def _turn(group: Sequence[ModelMessage], *, ordinal: int, state: TurnState) -> TranscriptTurn:
+def _turn(
+    group: Sequence[ModelMessage],
+    *,
+    ordinal: int,
+    state: TurnState,
+    error: str | None = None,
+) -> TranscriptTurn:
     turn_id = f"t{ordinal}"
     steps: list[TranscriptStep] = []
     # 工具卡建在发起它的那一步里，而它的结局在下一条请求里才到，所以按 toolCallId 记着位置。
@@ -184,6 +213,8 @@ def _turn(group: Sequence[ModelMessage], *, ordinal: int, state: TurnState) -> T
             )
         )
 
+    _close_orphan_tools(tool_frames, frames_by_step)
+
     return TranscriptTurn(
         turn_id=turn_id,
         ordinal=ordinal,
@@ -194,6 +225,7 @@ def _turn(group: Sequence[ModelMessage], *, ordinal: int, state: TurnState) -> T
         started_at=_iso(_started_at(group)),
         ended_at=_iso(_ended_at(group)),
         usage=_turn_usage(steps),
+        error=error,
         steps=tuple(
             step.model_copy(update={"frames": tuple(frames_by_step[index].values())})
             for index, step in enumerate(steps)
@@ -294,6 +326,66 @@ def _settle_tools(
             )
 
 
+def unanswered_tool_calls(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
+    """最后那次模型响应里还没有结果的工具调用。
+
+    只看最后一次响应：更早的悬空调用官方在每次请求前自己补齐（``_repair_dangling_tool_calls``），
+    而最后那次是「前沿」，官方留着等调用方用 ``deferred_tool_results`` 回答——不回答就拒绝新的
+    用户消息进来（``Cannot provide a new user prompt when the message history contains
+    unprocessed tool calls``）。
+
+    已经有结果的不能再给一份，官方会报「这次调用已经执行过了」。
+    """
+
+    last = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[index], ModelResponse)
+        ),
+        None,
+    )
+    if last is None:
+        return ()
+    response = cast("ModelResponse", messages[last])
+    called = [part.tool_call_id for part in response.parts if isinstance(part, ToolCallPart)]
+    answered = {
+        part.tool_call_id
+        for message in messages[last + 1 :]
+        for part in getattr(message, "parts", ())
+        if isinstance(part, ToolReturnPart | RetryPromptPart)
+    }
+    return tuple(item for item in called if item not in answered)
+
+
+ORPHAN_TOOL_ERROR = "运行中断，这次调用没有结果"
+"""没有工具返回的那次调用，卡片上写这句。
+
+一份中断的消息历史里，最后那次工具调用可能没有对应的返回（进程在工具跑到一半时没了）。不给它
+一个终态，界面上会留下一张永远转圈的卡——而这一轮明明已经结束了。
+"""
+
+
+def _close_orphan_tools(
+    tool_frames: dict[str, str], frames_by_step: list[dict[str, TranscriptFrame]]
+) -> None:
+    """把没等到返回的工具卡收成错的那一档。"""
+
+    for tool_call_id in tool_frames:
+        for step_frames in frames_by_step:
+            existing = step_frames.get(tool_frames[tool_call_id])
+            if isinstance(existing, ToolFrame) and existing.state == "running":
+                _replace_tool(
+                    tool_call_id,
+                    tool_frames,
+                    frames_by_step,
+                    state="error",
+                    output=None,
+                    error=ORPHAN_TOOL_ERROR,
+                )
+                break
+
+
 def _replace_tool(
     tool_call_id: str,
     tool_frames: dict[str, str],
@@ -346,9 +438,12 @@ def _turn_usage(steps: Sequence[TranscriptStep]) -> TurnUsage | None:
 
 
 __all__ = [
+    "ORPHAN_TOOL_ERROR",
     "TurnState",
+    "run_error_from_events",
     "run_ids_from_messages",
     "run_state_from_events",
     "step_usage",
     "turns_from_messages",
+    "unanswered_tool_calls",
 ]

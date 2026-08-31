@@ -428,21 +428,22 @@ class PgStepStore:
         return await self._snapshot_from_row(run_id, row)
 
     async def latest_conversation_snapshot(
-        self, *, conversation_id: str
+        self, *, conversation_id: str, include_interrupted: bool = False
     ) -> ContinuableSnapshot | None:
-        """这段对话最新的一份完整快照（非协议方法）。
+        """这段对话最新的一份快照（非协议方法）。
 
         快照按运行分片存，但 ``seq`` 是全表自增的，所以「最新的一份」一句 SQL 就能取
         到，不必先列运行再逐个问。派活出去的下属另有自己的会话 id，不会混进来。
+
+        默认只给完整的那些，与官方 ``latest_snapshot`` 同一个口径：中断的快照里有悬空的工具调
+        用，接着跑可能把那次调用再执行一遍，而副作用发生过没有只有工具账本说得清。
+        ``include_interrupted=True`` 是给**显示**用的——把一段中断的对话画出来不产生任何副作用。
         """
 
-        stmt = (
-            select(snapshots_table)
-            .where(snapshots_table.c.conversation_id == conversation_id)
-            .where(snapshots_table.c.state == "complete")
-            .order_by(snapshots_table.c.seq.desc())
-            .limit(1)
-        )
+        stmt = select(snapshots_table).where(snapshots_table.c.conversation_id == conversation_id)
+        if not include_interrupted:
+            stmt = stmt.where(snapshots_table.c.state == "complete")
+        stmt = stmt.order_by(snapshots_table.c.seq.desc()).limit(1)
         async with self._engine.connect() as conn:
             row = (await conn.execute(stmt)).one_or_none()
         if row is None:

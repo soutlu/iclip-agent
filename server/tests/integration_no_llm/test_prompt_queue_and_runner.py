@@ -8,14 +8,19 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, UserPromptPart
-from pydantic_ai.models.function import AgentInfo, DeltaToolCalls, FunctionModel
+from pydantic_ai.models.function import (
+    AgentInfo,
+    DeltaToolCall,
+    DeltaToolCalls,
+    FunctionModel,
+)
 from pydantic_ai_harness.step_persistence import StepPersistence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -111,13 +116,29 @@ def _texts(messages: list[ModelMessage]) -> list[str]:
     ]
 
 
+def _calls_tool(name: str) -> FunctionModel:
+    """第一次被问就要调这件工具，之后不该再被问到。"""
+
+    async def stream(
+        _messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        yield {0: DeltaToolCall(name=name, json_args="{}", tool_call_id="call_boom")}
+
+    return FunctionModel(stream_function=stream)
+
+
 def _runner(
-    engine: AsyncEngine, model: FunctionModel, *, store: TranscriptStore
+    engine: AsyncEngine,
+    model: FunctionModel,
+    *,
+    store: TranscriptStore,
+    tools: Sequence[Any] = (),
 ) -> tuple[ConversationRunner, PgStepStore, PromptQueue]:
     step_store = PgStepStore(engine)
     agent = Agent(
         model,
         name=AGENT_ID,
+        tools=list(tools),
         # 顶层不设 agent_name：run id 要用我们传进去的那个，见 harness.agents._load_agent。
         capabilities=[StepPersistence(store=step_store)],
     )
@@ -177,7 +198,11 @@ def _replay(store: TranscriptStore, conversation_id: str) -> tuple[TranscriptTur
 
 
 def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[Any]:
-    """比结构、比 id、比正文，不比时刻。"""
+    """比结构、比 id、比正文、比工具卡的状态与轮上的错误文字，不比时刻。
+
+    工具卡的状态和轮的 ``error`` 也得比：这两样对不上，界面会在刷新的瞬间从「中断」变成「还在
+    转」、或者失败的原因凭空消失，而只比结构的话这类分叉一条都看不出来。
+    """
 
     return [
         (
@@ -185,12 +210,18 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[Any]:
             turn.ordinal,
             turn.state,
             turn.prompt,
+            turn.error,
             [
                 (
                     step.step_id,
                     step.ordinal,
                     [
-                        (frame.frame_id, frame.kind, getattr(frame, "text", None))
+                        (
+                            frame.frame_id,
+                            frame.kind,
+                            getattr(frame, "text", None),
+                            getattr(frame, "state", None),
+                        )
                         for frame in step.frames
                     ],
                 )
@@ -557,6 +588,88 @@ async def test_appending_when_nothing_is_running_is_a_conflict(engine: AsyncEngi
 
     with pytest.raises(Conflict):
         await runner.steer(conversation_id, (prompt_id,))
+
+
+async def test_a_run_that_died_mid_tool_still_shows_up_after_a_refresh(
+    engine: AsyncEngine,
+) -> None:
+    """工具跑到一半炸掉的那一轮，刷新之后还看得见，而且两条路给出同一份结构。
+
+    这种运行只落得下一份 ``interrupted`` 快照（那次工具调用没有返回）。默认读取路径跳过中断的
+    快照——那个默认是给「接着跑」设的，显示不接着跑。不算上的话，用户明明看到它写到一半报了错，
+    刷新之后连自己打的那句话都没了。
+    """
+
+    def boom() -> str:
+        raise RuntimeError("工具炸了")
+
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(engine, _calls_tool("boom"), store=store, tools=[boom])
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await _submit(runner, queue, conversation_id, "把这三个镜头重新出图")
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    row = await queue.get(prompt_id)
+    assert row is not None
+    assert row.status == "failed"
+
+    # 库里只有中断的那一份：按完整的读什么都取不到。
+    assert (await step_store.latest_conversation_snapshot(conversation_id=conversation_id)) is None
+    interrupted = await step_store.latest_conversation_snapshot(
+        conversation_id=conversation_id, include_interrupted=True
+    )
+    assert interrupted is not None
+
+    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    assert [turn.prompt for turn in derived] == ["把这三个镜头重新出图"]
+    assert [turn.state for turn in derived] == ["failed"]
+
+    # 没等到返回的工具卡收成错的那一档，不是永远转圈。
+    tools = [
+        frame
+        for turn in derived
+        for step in turn.steps
+        for frame in step.frames
+        if frame.kind == "tool"
+    ]
+    assert [frame.state for frame in tools] == ["error"]
+
+    # 两条路逐字相同：刷新的瞬间界面不该变形。
+    assert _skeleton(derived) == _skeleton(_replay(store, conversation_id))
+
+
+async def test_the_next_turn_after_a_failed_one_does_not_reuse_its_ordinal(
+    engine: AsyncEngine,
+) -> None:
+    """失败那一轮占着 1 号，下一条是 2 号。
+
+    轮号按「历史那侧推得出几次运行」数。历史算上了中断的快照而这里没算的话，两轮会同号——屏幕上
+    两个 t1，而实时那份会把历史那份顶掉，失败那一轮在眼前闪一下就没了。
+    """
+
+    def boom() -> str:
+        raise RuntimeError("工具炸了")
+
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(engine, _calls_tool("boom"), store=store, tools=[boom])
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    await _submit(runner, queue, conversation_id, "先做这个")
+    await _drained(queue, conversation_id)
+
+    # 换一个不炸的模型跑第二条：同一个 runner，只是这次的 agent 会正常回话。
+    store2 = TranscriptStore()
+    runner2, _step_store2, queue2 = _runner(engine, _says("好"), store=store2)
+    await _submit(runner2, queue2, conversation_id, "再做那个")
+    await _drained(queue2, conversation_id)
+    await runner.shutdown()
+    await runner2.shutdown()
+
+    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    assert [(turn.turn_id, turn.ordinal) for turn in derived] == [("t1", 1), ("t2", 2)]
+    assert [turn.state for turn in derived] == ["failed", "completed"]
 
 
 async def test_aborting_a_prompt_from_another_conversation_is_not_found(
