@@ -31,6 +31,12 @@ from iclip.domains.identity.public import (
     websocket_origin_allowed,
     websocket_principal,
 )
+from iclip.platform.transcript.granularity import (
+    TranscriptGrade,
+    filter_ops_for_grade,
+    grade_for,
+    needs_reset_on_transition,
+)
 from iclip.platform.transcript.ops import MAIN_AGENT_ID, Prompt, PromptContent
 from iclip.platform.transcript.wire import (
     Ack,
@@ -65,8 +71,12 @@ HEARTBEAT_MISS_LIMIT = 2
 判据是「有没有入站帧」而不是「有没有收到 pong」：客户端发的任何一帧都证明它还在。
 """
 
-MAX_EVENT_BUFFER = 512
-"""一条连接最多积压几帧。积满说明这个客户端读不动了，断开让它重连补批，不能把服务端拖住。"""
+MAX_EVENT_BUFFER = 2048
+"""一条连接最多积压几帧。积满说明这个客户端读不动了，断开让它重连补批，不能把服务端拖住。
+
+比 kimi 的 1000 再翻一档：一条连接管多段对话，好几段同时在跑时都挤这一个缓冲。挤爆是自愈的
+（关连接 → 重连 → 各段按水位补批），这个数只决定多久炸一次。
+"""
 
 _CLIENT_FRAME = TypeAdapter[Any](ClientFrame)
 
@@ -299,6 +309,7 @@ class _Connection:
         self._outbound: asyncio.Queue[Any] = asyncio.Queue(maxsize=MAX_EVENT_BUFFER)
         self._overflowed = False
         self._listeners: dict[str, Callable[[Any], None]] = {}
+        self._grades: dict[str, TranscriptGrade] = {}
         self._last_inbound = datetime.now(UTC)
         self._frame_seq = 0
 
@@ -360,7 +371,14 @@ class _Connection:
                 Ack(id=frame.id, payload=SubscribeAckPayload(not_found=(conversation_id,)))
             )
             return
+        grade = grade_for(frame.payload.transcript, MAIN_AGENT_ID)
+        previous = self._grades.get(conversation_id)
+        self._grades[conversation_id] = grade
         since = frame.payload.transcript_since.get(MAIN_AGENT_ID)
+        if previous is not None and needs_reset_on_transition(previous, grade):
+            # 这条连接上刚把档位调高（比如这段对话从侧栏切到打开）。细的那些操作它从来没收到
+            # 过，补批也补不出来——那几批当时就被筛空丢了。所以不理它给的水位，整份换掉。
+            since = None
         # 先挂监听再取这一刻的帧：反过来的话，两步之间产生的批次谁也不发，客户端缺一段而且
         # 自己不知道。反向重复是安全的——同一个批次收两遍只是重放，收不到才是坏的。
         if conversation_id not in self._listeners:
@@ -368,8 +386,10 @@ class _Connection:
             self._listeners[conversation_id] = listener
             self._transcripts.pin(conversation_id)
             self._transcripts.listen(conversation_id, listener, agent_id=MAIN_AGENT_ID)
-        for item in self._transcripts.subscribe(conversation_id, since=since):
-            await self._outbound.put(self._wrap(conversation_id, item))
+        # ``off`` 是「这个 agent 的记录我不要」，不是退订：订阅还在，只是一帧都不发。
+        if grade != "off":
+            for item in self._transcripts.subscribe(conversation_id, since=since):
+                await self._outbound.put(self._wrap(conversation_id, self._graded(item, grade)))
         await self._outbound.put(
             Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(conversation_id,)))
         )
@@ -378,17 +398,36 @@ class _Connection:
         """这段对话的批次回调。每段各一个：回调本身就带着「这一批是谁的」。"""
 
         def on_batch(batch: Any) -> None:
+            grade = self._grades.get(conversation_id, "off")
+            ops = filter_ops_for_grade(grade, batch.ops)
+            if not ops:
+                # 这一档不要这批里的任何东西，整批不发。客户端水位就停在原处，重连时会把它再
+                # 收一遍——筛过的批次里只剩可重放的操作，收两遍是安全的（见 filter 的说明）。
+                return
             try:
                 self._outbound.put_nowait(
                     self._wrap(
                         conversation_id,
-                        OpsPayload(agent_id=MAIN_AGENT_ID, ops=batch.ops, seq=batch.seq),
+                        OpsPayload(agent_id=MAIN_AGENT_ID, ops=ops, seq=batch.seq),
                     )
                 )
             except asyncio.QueueFull:
                 self._overflowed = True
 
         return on_batch
+
+    @staticmethod
+    def _graded(
+        payload: ResetPayload | OpsPayload, grade: TranscriptGrade
+    ) -> ResetPayload | OpsPayload:
+        """补批那几批也要按档位筛。
+
+        ``reset`` 原样过：它带的 snapshot 里 ``items`` 恒空（历史走 REST 分页），没有可筛的。
+        """
+
+        if isinstance(payload, ResetPayload):
+            return payload
+        return payload.model_copy(update={"ops": filter_ops_for_grade(grade, payload.ops)})
 
     def _wrap(
         self, conversation_id: str, payload: ResetPayload | OpsPayload
@@ -418,6 +457,7 @@ class _Connection:
     def _unlisten(self, conversation_id: str) -> None:
         """退订一段对话。没订过的照样成功：退订是声明式的。"""
 
+        self._grades.pop(conversation_id, None)
         listener = self._listeners.pop(conversation_id, None)
         if listener is None:
             return

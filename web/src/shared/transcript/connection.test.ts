@@ -195,6 +195,23 @@ describe('TranscriptConnection', () => {
     expect(received).toHaveLength(0)
   })
 
+  it('档位随订阅上行，调高之后重订并把水位照旧带上', () => {
+    const connection = connect(['c1'])
+    const handlers = { onReset: () => received.push(['c1', []]), onOps: () => true }
+
+    connection.subscribe('c1', handlers, 'turn')
+    socket.deliver(ops(4, 'c1'))
+    connection.subscribe('c1', handlers, 'delta')
+
+    const grades = socket
+      .frames()
+      .filter((frame) => frame.type === 'subscribe_v2')
+      .map((frame) => (frame.payload?.['transcript'] as { main?: string } | undefined)?.main)
+    expect(grades).toEqual(['delta', 'turn', 'delta'])
+    // 水位不丢：升档那一帧照样报上去，由服务端决定补批还是整份换掉（它会选后者）。
+    expect(connection.watermarkOf('c1', 'main')).toBe(4)
+  })
+
   it('ping 照着 nonce 回 pong', () => {
     connect()
 

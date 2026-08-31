@@ -88,17 +88,38 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
 不手写。
 
 - 握手：服务端先发 `server_hello`（客户端只取 `heartbeat_ms`），客户端**每段对话各发一帧**
-  `subscribe_v2`，体里 `session_id` 是对话 id，`transcript` 恒 `{main: "delta"}`，带
+  `subscribe_v2`，体里 `session_id` 是对话 id，`transcript` 是按 agent 给的档位，带
   `transcript_since` 就是补批。协议里的 `client_hello` 我们不收。
 - 退订一段发 `unsubscribe_v2`（体里 `session_id`）；关连接就是全退。
 - **订阅逐段核权**：看不见的对话与不存在的对话一个待遇——回执 `ack` 的 `payload.not_found` 里
   带上它，整条连接不动（其余对话照旧）。建连时只核登录与 `agent:run`。
 - 服务端发来的每一帧带 `session_id`，**客户端按它分流**；水位也按对话各记一份。
 - 服务端每 10 秒发一帧 `ping`；连着两个周期没有收到**任何**入站帧就断开（`1001`）。
-- 每段对话第一次订阅收到一帧 `transcript.reset`，其后是 `transcript.ops`。**reset 里的 `seq`
-  会无条件覆写客户端本地水位**（不是取较大值）——进程重启后批次号从 1 重来，靠的就是这条。
+- 每段对话第一次订阅收到一帧 `transcript.reset`（档位是 `off` 时一帧都不发，见下），其后是
+  `transcript.ops`。**reset 里的 `seq` 会无条件覆写客户端本地水位**（不是取较大值）——进程重启
+  后批次号从 1 重来，靠的就是这条。
 - 跨域的升级请求直接关（`1008`）：WS 不受 CORS 约束，浏览器照常带 cookie。
-- 服务端积压超过上限会关连接（`1013`），重连补批即可。
+- 服务端积压超过上限会关连接（`1013`），重连补批即可。积压上限按连接算，不按对话。
+
+#### 档位
+
+`subscribe_v2` 的 `transcript` 是 `{agentId: 档位}`，四档 `off / turn / block / delta`。打开的
+那段用 `delta`，侧栏里盯着的用 `turn`。
+
+| 档位 | 收得到 | 收不到 |
+|---|---|---|
+| `off` | 什么都没有：连 `reset` 也不发，所以水位也不会初始化 | 全部 |
+| `turn` | `turn.upsert`、`prompt.upsert`、`interaction.upsert`、`attachment.upsert`、`meta.merge`、`items.remove` | 逐字与块级 |
+| `block` | 上面那些，加 `step.upsert`、`frame.upsert` | `append` |
+| `delta` | 全部 | — |
+
+- **不给档位就是 `off`**，不是「全都要」：查法是 `transcript[agentId] ?? transcript["*"] ?? "off"`。
+- 筛空了的批次**整批不发**，客户端水位就停在原处。这样安全的前提是：`append` 是唯一不可重放
+  的操作，而它只在 `delta` 档留得下来，而 `delta` 档不筛任何东西。
+- **档位调高必须重订，服务端会先发一帧 `reset`**（给了 `transcript_since` 也不理）：低档时被
+  筛空丢掉的那些批次补不回来。调低不用重来。
+- **`off` 不等于退订**：订阅还在，服务端那边照样占着这段对话的实时状态。不要用 `off` 省资源，
+  不看了就 `unsubscribe_v2`。
 
 ## 6. 对话 (Conversations)
 

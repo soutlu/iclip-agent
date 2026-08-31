@@ -22,6 +22,9 @@
 import type { z } from 'zod'
 
 import { transcriptOpsEventSchema, transcriptResetEventSchema } from './vendor/contract/events'
+import type { TranscriptGrade } from './vendor/granularity/grade'
+
+export type { TranscriptGrade }
 
 /**
  * 交给上层的形状取自 schema 本身，不取 vendor 里那几个 interface：校验出来的就是这一份，
@@ -74,6 +77,8 @@ export interface ConnectionHealth {
 
 interface Subscription {
   handlers: TranscriptHandlers
+  /** 要哪一档。打开那段用 `delta`，侧栏里盯着的用 `turn`（只有轮与审批，没有逐字）。 */
+  grade: TranscriptGrade
   /** 这段对话里每个 agent 收到的最后一个批次号。重连时报给服务端，它据此决定补批还是重来。 */
   watermarks: Map<string, number>
 }
@@ -123,13 +128,21 @@ export class TranscriptConnection {
   }
 
   /**
-   * 订一段对话。已经订着的换掉 handlers、水位留着——同一段对话换个界面接管，不该重拉一遍。
+   * 订一段对话，`grade` 说要多细：打开那段用 `delta`，侧栏里只盯着「跑没跑」的用 `turn`。
+   *
+   * 已经订着的换掉 handlers 与档位、水位留着——同一段对话换个界面接管，不该重拉一遍。档位调
+   * 高时服务端会先发一帧 reset（低档时它没发的那些补批补不出来），上层照常按 reset 重来。
    * 还没连上就先记下，连上之后一起订。
    */
-  subscribe(conversationId: string, handlers: TranscriptHandlers): void {
+  subscribe(
+    conversationId: string,
+    handlers: TranscriptHandlers,
+    grade: TranscriptGrade = 'delta',
+  ): void {
     const existing = this.subscriptions.get(conversationId)
     this.subscriptions.set(conversationId, {
       handlers,
+      grade,
       watermarks: existing?.watermarks ?? new Map(),
     })
     if (this.connected) this.sendSubscribe(conversationId)
@@ -240,7 +253,9 @@ export class TranscriptConnection {
   }
 
   private sendSubscribe(conversationId: string): void {
-    const since = this.subscriptions.get(conversationId)?.watermarks.get('main')
+    const subscription = this.subscriptions.get(conversationId)
+    if (subscription === undefined) return
+    const since = subscription.watermarks.get('main')
     const id = this.mintId()
     this.pending.set(id, conversationId)
     this.send({
@@ -248,7 +263,7 @@ export class TranscriptConnection {
       id,
       payload: {
         session_id: conversationId,
-        transcript: { main: 'delta' },
+        transcript: { main: subscription.grade },
         // 头一次订没有水位，不带这个字段——服务端据此判「第一次订阅」，回一帧 reset。
         ...(since === undefined ? {} : { transcript_since: { main: since } }),
       },
