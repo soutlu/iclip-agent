@@ -127,6 +127,18 @@ def parse_media_tag(text: str) -> MediaTag | None:
     )
 
 
+def is_media_tag_close(text: str) -> bool:
+    """这一项整体就是一条闭标签吗？
+
+    图片是「开标签 + 像素 + 闭标签」三项，闭标签自己成一项，``parse_media_tag`` 解不出它。
+    从消息里读回用户打的字时不跳过它，界面上就会多出一行 ``</image>``。
+
+    只认整体匹配：用户正文里提到 ``</image>`` 是他打的字，不能吃掉。
+    """
+
+    return _CLOSE_RE.fullmatch(text) is not None
+
+
 def iter_media_tags(text: str) -> Iterator[MediaTag]:
     """扫出一段文本里的全部 tag。
 
@@ -169,6 +181,7 @@ __all__ = [
     "IMAGE_CONTEXT_MAX_EDGE",
     "MediaKind",
     "MediaTag",
+    "is_media_tag_close",
     "iter_media_tags",
     "media_kind_label",
     "media_tag",

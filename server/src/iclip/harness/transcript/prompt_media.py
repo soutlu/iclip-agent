@@ -20,6 +20,7 @@ from pydantic_ai.messages import ImageUrl, UserContent
 from iclip.harness.media import (
     IMAGE_CONTEXT_MAX_EDGE,
     MediaKind,
+    is_media_tag_close,
     media_tag,
     media_tag_close,
     media_tag_open,
@@ -100,13 +101,16 @@ def model_prompt(content: Sequence[PromptContent]) -> list[UserContent]:
 def read_prompt_items(items: Sequence[Any]) -> tuple[list[str], list[Attachment]]:
     """消息里那一串 → （用户打的字，附上的东西）。
 
-    非文本项（喂给模型的那份像素）跳过：它是 tag 包着的内容，身份已经在开标签里了。
+    非文本项（喂给模型的那份像素）跳过：它是 tag 包着的内容，身份已经在开标签里了。闭标签
+    同样跳过：图片是「开标签 + 像素 + 闭标签」三项，漏掉它界面上就多一行 ``</image>``。
     """
 
     texts: list[str] = []
     attachments: list[Attachment] = []
     for item in items:
         if not isinstance(item, str):
+            continue
+        if is_media_tag_close(item):
             continue
         tag = parse_media_tag(item)
         if tag is None:
