@@ -47,6 +47,7 @@ export function ConversationComposer({ busy = false, onSend, onStop }: Conversat
   return (
     <Composer
       busy={busy}
+      dense
       leading={<IconButton label="添加" name="add" size="md" />}
       onStop={onStop}
       onSubmit={() => void send()}

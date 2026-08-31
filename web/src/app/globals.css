@@ -203,6 +203,8 @@
   --color-chat-status-error: var(--color-chat-status-error);
   --color-chat-status-running: var(--color-chat-status-running);
   --color-chat-focus-ring: var(--color-chat-focus-ring);
+  --color-chat-hairline: var(--color-chat-hairline);
+  --color-chat-scrollbar-thumb: var(--color-chat-scrollbar-thumb);
   --color-canvas-card-bg: var(--color-canvas-card-bg);
   --color-canvas-card-text: var(--color-canvas-card-text);
   --color-canvas-card-border: var(--color-canvas-card-border);
@@ -283,9 +285,11 @@
 }
 
 /* 首页品牌字标字体：值的唯一来源是 base.css 的 --font-home-display，这里只登记工具类名
-   font-home-display（机制同上方颜色登记段）。 */
+   font-home-display（机制同上方颜色登记段）。--font-mono 同理：登记后 font-mono 工具类
+   改走 JetBrains Mono 链，不再是 Tailwind 默认等宽栈。 */
 @theme inline reference {
   --font-home-display: var(--font-home-display);
+  --font-mono: var(--font-mono);
 }
 
 /* 交互态叠层：hover / pressed 用渐变铺一层半透明 on-surface，不覆盖组件自己的底色；
@@ -366,3 +370,4 @@
 @import '../shared/ui/hero/hero.css';
 @import '../features/auth/auth.css';
 @import '../features/tasks/tasks.css';
+@import '../features/conversations/conversations.css';

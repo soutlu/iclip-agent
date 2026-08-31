@@ -1,4 +1,5 @@
 import {
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
@@ -11,6 +12,7 @@ import {
   CircleStop,
   CircleX,
   Clock3,
+  Copy,
   Database,
   Ellipsis,
   ExternalLink,
@@ -23,7 +25,7 @@ import {
   Image,
   Lightbulb,
   ListChecks,
-  LoaderCircle,
+  Mail,
   LockKeyhole,
   LogOut,
   PanelLeft,
@@ -42,7 +44,34 @@ import {
   X,
   ZoomIn,
 } from 'lucide-react'
+import type { LucideProps } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
+
+/**
+ * 加载图形照 kimi 网页版的 ui-spinner 复刻：底色轨道环 + 墨色圆弧（dasharray 56 / offset 38，
+ * 可见弧约三分之一圈），调用处的 animate-spin 负责转。轨道色取发丝边框 token，深浅自动换向。
+ */
+const LoadingGlyph = ({ strokeWidth: _strokeWidth, ...props }: LucideProps) => (
+  <svg fill="none" viewBox="0 0 24 24" {...props}>
+    <circle
+      cx={12}
+      cy={12}
+      r={9}
+      strokeWidth={2.2}
+      style={{ stroke: 'var(--color-chat-hairline)' }}
+    />
+    <circle
+      cx={12}
+      cy={12}
+      r={9}
+      stroke="currentColor"
+      strokeDasharray="56 56"
+      strokeDashoffset={38}
+      strokeLinecap="round"
+      strokeWidth={2.2}
+    />
+  </svg>
+)
 
 // 键名按用途起，不按图形起：调用点写 name="close" 而不是 name="x"，
 // 换掉底层图形时只改这张表。
@@ -54,6 +83,7 @@ const ICONS = {
   close: X,
   collapse: ChevronUp,
   confirm: Hand,
+  copy: Copy,
   debug: Bug,
   delete: Trash2,
   duration: Clock3,
@@ -67,7 +97,8 @@ const ICONS = {
   hidden: EyeOff,
   image: Image,
   library: Database,
-  loading: LoaderCircle,
+  loading: LoadingGlyph,
+  mail: Mail,
   locked: LockKeyhole,
   logout: LogOut,
   more: Ellipsis,
@@ -85,6 +116,7 @@ const ICONS = {
   success: CircleCheck,
   task: ListChecks,
   thinking: Lightbulb,
+  'to-bottom': ArrowDown,
   user: User,
   video: Video,
   warning: TriangleAlert,

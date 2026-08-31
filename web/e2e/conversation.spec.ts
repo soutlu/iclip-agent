@@ -61,16 +61,17 @@ test('在跑的时候再发一条：排队、追加、停止', async ({ page }) 
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
   await expect(page.getByText('第 1 个问题')).toBeVisible()
 
-  // 一订上 mock 就自己演一轮，这时候发出去的会排在后面
+  // 等 mock 演的那一轮真的跑起来（停止钮出现 = 服务端忙）；busy 时发送钮换成停止钮，发送走 Enter
+  await page.getByRole('button', { name: '停止' }).waitFor()
   await page.getByLabel('输入消息').fill('顺便配个音')
-  await page.getByRole('button', { name: '发送' }).click()
+  await page.getByLabel('输入消息').press('Enter')
 
-  await expect(page.getByText('排队中')).toBeVisible()
+  await expect(page.getByText('1 个任务等待发送')).toBeVisible()
   await expect(page.getByRole('button', { name: '停止' })).toBeVisible()
 
-  // 追加：插进正在跑的那一轮，队列清空
-  await page.getByRole('button', { name: '追加到这一轮' }).click()
-  await expect(page.getByText('排队中')).toBeHidden()
+  // 立即发送：插进正在跑的那一轮，队列清空
+  await page.getByRole('button', { name: '立即发送到当前回合' }).click()
+  await expect(page.getByText('1 个任务等待发送')).toBeHidden()
   await expect(page.getByText('收到，一起做。')).toBeVisible({ timeout: 15_000 })
 })
 

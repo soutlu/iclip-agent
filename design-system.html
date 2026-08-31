@@ -30,6 +30,7 @@
         /* ===== 字体 ===== */
         --font-cue-ui: 'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
         --font-home-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+        --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
         /* ===== ① Primitives（6 族色板；组件禁止直接引用） ===== */
         --p0:#000000; --p10:#002111; --p20:#003920; --p30:#085231; --p40:#006d42; --p50:#008954;
@@ -185,6 +186,9 @@
         --color-chat-status-error: var(--color-error);
         --color-chat-status-running: var(--color-warning);
         --color-chat-focus-ring: color-mix(in srgb, var(--color-secondary) 70%, transparent);
+        /* 发丝边框与滚动条（照 kimi：边框用墨色透明档而非实色灰，深浅随 on-surface 自动换向） */
+        --color-chat-hairline: color-mix(in srgb, var(--color-on-surface) 13%, transparent);
+        --color-chat-scrollbar-thumb: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
         --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);
         --shadow-chat-agent-avatar: 0 8px 18px rgba(64, 73, 66, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62);
         --shadow-chat-agent-identity: 0 8px 18px rgba(64, 73, 66, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.62);
@@ -333,6 +337,9 @@
         --shadow-1: 0 2px 8px rgba(23, 29, 25, 0.08), 0 1px 3px rgba(23, 29, 25, 0.05);
         --shadow-2: 0 6px 20px rgba(23, 29, 25, 0.11), 0 2px 6px rgba(23, 29, 25, 0.07);
         --shadow-3: 0 20px 56px rgba(23, 29, 25, 0.22);
+        --shadow-input: 0 5px 16px -4px rgba(23, 29, 25, 0.07); /* 输入卡常驻浮影（照 kimi composer，focus 不抬升） */
+        --shadow-xs: 0 1px 2px rgba(23, 29, 25, 0.04); /* 代码块等嵌套小件 */
+        --shadow-send: 0 7px 16px -13px rgba(23, 29, 25, 0.38), 0 1px 2px rgba(23, 29, 25, 0.07); /* 发送钮浮起 */
         /* 动效 */
         --dur-s: 150ms; --dur-m: 250ms; --dur-l: 400ms;
         --ease: cubic-bezier(0.2, 0, 0, 1);
@@ -450,6 +457,9 @@
         --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
         --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
         --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.65);
+        --shadow-input: 0 5px 16px -4px rgba(0, 0, 0, 0.4);
+        --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+        --shadow-send: 0 7px 16px -13px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.35);
       }
 
       /* ======================== 以下为本页排版（非契约） ======================== */
@@ -2061,6 +2071,8 @@
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-user-bg" title="复制 --color-chat-user-bg"><i style="--sw: var(--color-chat-user-bg)"></i>chat-user-bg</button>
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-agent-rail" title="复制 --color-chat-agent-rail"><i style="--sw: var(--color-chat-agent-rail)"></i>chat-agent-rail</button>
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-error-bg" title="复制 --color-chat-error-bg"><i style="--sw: var(--color-chat-error-bg)"></i>chat-error-bg</button>
+                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-hairline" title="复制 --color-chat-hairline"><i style="--sw: var(--color-chat-hairline)"></i>chat-hairline</button>
+                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-scrollbar-thumb" title="复制 --color-chat-scrollbar-thumb"><i style="--sw: var(--color-chat-scrollbar-thumb)"></i>chat-scrollbar-thumb</button>
                   </div>
                 </div>
                 <div class="ext-row">
@@ -2108,13 +2120,16 @@
                 <div class="ext-row">
                   <div class="ext-name">
                     <strong>海拔</strong>
-                    <code>--shadow-1/2/3 · --shadow-chat-* · --shadow-storyboard-*</code>
+                    <code>--shadow-1/2/3 · --shadow-input/-xs/-send · --shadow-chat-* · --shadow-storyboard-*</code>
                     <p>深色改为纯黑基底、更高不透明度。</p>
                   </div>
                   <div class="ext-swatches">
                     <button class="ext-swatch" type="button" data-copy-token="--shadow-1" title="复制 --shadow-1"><i class="ext-shadow" style="--sw-shadow: var(--shadow-1)"></i>shadow-1</button>
                     <button class="ext-swatch" type="button" data-copy-token="--shadow-2" title="复制 --shadow-2"><i class="ext-shadow" style="--sw-shadow: var(--shadow-2)"></i>shadow-2</button>
                     <button class="ext-swatch" type="button" data-copy-token="--shadow-3" title="复制 --shadow-3"><i class="ext-shadow" style="--sw-shadow: var(--shadow-3)"></i>shadow-3</button>
+                    <button class="ext-swatch" type="button" data-copy-token="--shadow-input" title="复制 --shadow-input"><i class="ext-shadow" style="--sw-shadow: var(--shadow-input)"></i>shadow-input</button>
+                    <button class="ext-swatch" type="button" data-copy-token="--shadow-xs" title="复制 --shadow-xs"><i class="ext-shadow" style="--sw-shadow: var(--shadow-xs)"></i>shadow-xs</button>
+                    <button class="ext-swatch" type="button" data-copy-token="--shadow-send" title="复制 --shadow-send"><i class="ext-shadow" style="--sw-shadow: var(--shadow-send)"></i>shadow-send</button>
                   </div>
                 </div>
               </div>
@@ -2293,7 +2308,7 @@
                 </div>
                 <div class="type-style" style="--sample-size: var(--text-body-sm); --sample-line: var(--text-body-sm--line-height);">
                   <strong>正文与说明内容</strong>
-                  <div><code>body-sm · 12 / 16</code><span>紧凑正文、气泡、次要段落</span></div>
+                  <div><code>body-sm · 12 / 16</code><span>紧凑正文、次要段落</span></div>
                 </div>
               </div>
             </article>
@@ -2827,7 +2842,7 @@
               <span>阅读列 · ≤ --layout-home-read-max 760 · 垂直居中偏上</span>
               <span>hero · Lottie public/lottie/hero.json 一份 · ≤440 宽 · viewBox 裁到内容框（换插画重采）· 深色配色由 CSS 覆盖 fill 呈现属性 · 减弱动效停首帧</span>
               <span>品牌字标 · Cue · --font-home-display italic semibold · --text-display（紧凑 --text-display-sm）· 字距 -0.04em（紧凑 -0.035em）· on-surface</span>
-              <span>composer · top-layer · radius 3xl · shadow-1 · hover 边框渐深 · focus-within border-hover + shadow-2 · 发送钮反色圆形用向上箭头、hover 微放大</span>
+              <span>composer · top-layer · radius 3xl（支持 superellipse 时连续曲率）· 0.5px chat-hairline 发丝边框 · shadow-input 常驻 · focus-within 边框加深到 border-hover、不抬阴影 · 发送钮反色圆形向上箭头带 shadow-send、按压微缩 · 会话页用单行起步的紧凑形态</span>
               <span>project-bar · 贴 composer 下沿 · 只圆下两角 · surface-container-low</span>
               <code>--layout-app-right-panel-width · 460px</code>
               <span>右面板 · background · hairline 左边线 · 默认折叠 · 展开后可再折叠 · 折叠后主区右上浮出展开钮 · 空态占位</span>
@@ -2850,15 +2865,19 @@
             <div class="template-values">
               <code>--layout-home-read-max · 760px</code>
               <span>阅读列 · ≤ 760 · 居中 · 水平内距 20</span>
-              <span>header · --layout-project-header-height 72 · 标题 text-title-lg · 无底边线</span>
+              <span>header · 48 · 标题 text-body 500 · 0.5px chat-hairline 底边线</span>
               <span>轮间距 16 · 轮内块间距 10</span>
-              <span>用户气泡 · 右对齐 · ≤ 78% · chat-user-bg · radius md · 内距 10 / 12 · 无边框无阴影无状态层</span>
-              <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 500 · 行高 relaxed · chat-message-text · 按 markdown 渲染，夹在里面的 HTML 过白名单后渲染（script / iframe / on* / javascript: 一律摘掉）</span>
-              <span>正文 markdown · 段间距 8 · 标题最高 text-title（不与页头 h1 抢层级）· 行内代码 chat-code-bg + chat-code-border radius xs · 代码块 chat-code-block-bg radius sm 最高 384 可滚动 · 表格 chat-code-border 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text + chat-link-border 下划线</span>
-              <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-secondary-text · 路径 chat-message-text 截断 · 行尾状态点 chat-status-success / -error / -running（转圈）</span>
-              <span>工具结果 · 只有纯文本结果才给折叠箭头 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
-              <span>思考块 · 一行标题（灯泡 icon-sm + 「思考过程」+ 折叠箭头）chat-muted-text · 展开后正文 chat-secondary-text 行高 1.7 · 无填充无边框</span>
+              <span>用户气泡 · 右对齐 · ≤ min(88%, 100vw-52) · chat-user-bg · radius md · 内距 10 / 12 · text-body 行高 1.5 · 超 10 行折叠成底部渐隐，「展开」胶囊压在渐隐上 · 无边框无阴影无状态层</span>
+              <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 400 · 行高 relaxed · chat-message-text · 按 markdown 渲染，夹在里面的 HTML 过白名单后渲染（script / iframe / on* / javascript: 一律摘掉）</span>
+              <span>正文 markdown · 顶层块间距 14 · 标题最高 text-title、h1 底部发丝线 · 列表 28 缩进 + 5px 圆点（二级空心描边）· 引用 2px 圆角竖条 · 行内代码 chat-code-bg radius xs、chat-link-text 色 · 代码块带头部条（语言名 + 复制钮）chat-code-block-bg radius sm 最高 500 可滚动 · 表格 chat-hairline 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text，hover 才出下划线</span>
+              <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-muted-text · 路径 chat-message-text 截断（≤ 60%）· 行尾状态点 chat-status-success / -error / -running（转圈）</span>
+              <span>工具结果 · 只有纯文本结果才给折叠箭头 · 开合 grid-rows 0fr↔1fr 平滑过渡 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
+              <span>思考块 · 一行标题（灯泡 icon-sm + 「思考中…/思考过程」+ 走秒计时 + 折叠箭头）chat-muted-text · 产出中标题呼吸 · 展开后正文 chat-secondary-text 行高 1.7 · 无填充无边框 · 开合同工具结果</span>
               <span>轮级报错 · chat-error-bg · chat-error-border · chat-error-text · radius sm · 内距 8 / 12</span>
+              <span>排队队列 · 消息流末尾右对齐一叠 · 头部 mail icon + 队列 · N 个任务等待发送（body-sm chat-muted-text）· 队列行 chat-user-bg 压暗、正文 3 行渐隐折叠、hover 提亮并浮出 × 撤回 · 第一条左侧 primary 圆钮「立即发送到当前回合」+「下一条」胶囊</span>
+              <span>消息区滚动条 · 常态隐形 · 滚动中 / 悬停浮现 6px · chat-scrollbar-thumb</span>
+              <span>回到底部胶囊 · 离底即浮出 · radius full · 0.5px chat-hairline · top-layer · shadow-1</span>
+              <span>空状态 · 品牌字标 font-home-display italic + 引导文案 · 垂直居中</span>
               <span>composer · 同 04 · HOME · 贴底 · 上方 background 渐隐遮住滚动内容</span>
             </div>
             <p class="template-use">

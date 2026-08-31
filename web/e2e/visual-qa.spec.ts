@@ -9,10 +9,11 @@ test('会话页视觉验收：浅色 / 深色 / 运行中', async ({ page }) => 
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
 
-  // 那一轮还在跑：截停止钮与排队气泡
+  // 等那一轮真的跑起来（停止钮出现 = 服务端已在跑）；busy 时发送钮换成停止钮，发送走 Enter
+  await page.getByRole('button', { name: '停止' }).waitFor()
   await page.getByLabel('输入消息').fill('顺便把配音也排上')
-  await page.getByRole('button', { name: '发送' }).click()
-  await expect(page.getByText('排队中')).toBeVisible()
+  await page.getByLabel('输入消息').press('Enter')
+  await expect(page.getByText('1 个任务等待发送')).toBeVisible()
   // 指针挪开再截：停止钮的 hover 过渡要落定，不然截到的是变色中间那一帧
   await page.mouse.move(0, 0)
   await page.waitForTimeout(300)
