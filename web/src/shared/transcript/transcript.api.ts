@@ -15,7 +15,7 @@
 
 import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
-import { zOpsCatchup, zTranscriptPage } from '@/shared/api/generated/zod.gen'
+import { zTranscriptPage } from '@/shared/api/generated/zod.gen'
 import {
   agentTranscriptSnapshotSchema,
   type AgentTranscriptSnapshot,
@@ -47,6 +47,22 @@ export interface TranscriptCatchup {
 const PAGE_SIZE = 20
 
 const operationsSchema = z.array(transcriptOperationSchema)
+
+/**
+ * 补批响应的信封。
+ *
+ * 这一条不用生成的 `zOpsCatchup`：它里面 `frame.upsert` 的 `frame` 是个判别联合，而生成出来的
+ * 每一支 `kind` 都带默认值（`z.literal('text').optional().default('text')`），zod v4 建判别表时
+ * 四支的判别值都是 `undefined`，一撞车就直接抛 `Duplicate discriminator value`——**任何**一次
+ * 补批都过不去，客户端于是反复整页重拉。信封在这里写一份，操作本身仍由下面 vendor 那份
+ * schema 逐条校验。
+ */
+const catchupSchema = z.object({
+  agent_id: z.string(),
+  batches: z.array(z.object({ ops: z.array(z.unknown()), seq: z.int() })),
+  complete: z.boolean(),
+  latest_seq: z.int(),
+})
 
 /**
  * 递归摘掉所有值为 null 的字段。
@@ -94,7 +110,7 @@ export const fetchTranscriptCatchup = async (
 ): Promise<TranscriptCatchup> => {
   const catchup = await apiFetch(
     `/conversations/${conversationId}/transcript/ops?since_seq=${sinceSeq}`,
-    zOpsCatchup,
+    catchupSchema,
     { cache: 'no-store', fallbackErrorMessage: '补取对话内容失败' },
   )
   return {

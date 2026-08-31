@@ -55,3 +55,33 @@ test('首页发一条：新建对话并跳进会话页', async ({ page }) => {
   await expect(page).toHaveURL(/\/c\//)
   await expect(page.getByText('做一个亚麻衬衫的短片')).toBeVisible({ timeout: 15_000 })
 })
+
+test('在跑的时候再发一条：排队、追加、停止', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await expect(page.getByText('第 1 个问题')).toBeVisible()
+
+  // 一订上 mock 就自己演一轮，这时候发出去的会排在后面
+  await page.getByLabel('输入消息').fill('顺便配个音')
+  await page.getByRole('button', { name: '发送' }).click()
+
+  await expect(page.getByText('排队中')).toBeVisible()
+  await expect(page.getByRole('button', { name: '停止' })).toBeVisible()
+
+  // 追加：插进正在跑的那一轮，队列清空
+  await page.getByRole('button', { name: '追加到这一轮' }).click()
+  await expect(page.getByText('排队中')).toBeHidden()
+  await expect(page.getByText('收到，一起做。')).toBeVisible({ timeout: 15_000 })
+})
+
+test('点停止：这一轮收成取消，发送钮回来', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '亚麻衬衫二剪', exact: true }).click()
+
+  await page.getByRole('button', { name: '停止' }).click()
+
+  await expect(page.getByRole('button', { name: '发送' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '停止' })).toBeHidden()
+})

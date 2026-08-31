@@ -47,6 +47,28 @@ const renderConversation = async () => {
   return { ...view, socket }
 }
 
+/** 一批 ops 帧，直接灌给假 socket。 */
+const opsFrame = (ops: unknown[], seq: number) => ({
+  payload: { agent_id: 'main', ops, seq },
+  session_id: 'c1',
+  type: 'transcript.ops',
+})
+
+const runningPrompt = (promptId: string) => ({
+  op: 'prompt.upsert',
+  prompt: { createdAt: '2026-08-31T03:00:00Z', promptId, status: 'running' },
+})
+
+const queuedPrompt = (promptId: string, text: string) => ({
+  op: 'prompt.upsert',
+  prompt: {
+    content: [{ text, type: 'text' }],
+    createdAt: '2026-08-31T03:00:01Z',
+    promptId,
+    status: 'queued',
+  },
+})
+
 describe('ConversationRoute', () => {
   it('把历史那几轮铺开：用户那条、模型那条、工具卡', async () => {
     await renderConversation()
@@ -174,5 +196,95 @@ describe('ConversationRoute', () => {
     expect(
       screen.queryAllByText('再拆一段').filter((node) => node.tagName !== 'TEXTAREA'),
     ).toHaveLength(0)
+  })
+
+  it('在跑的时候发送钮换成停止钮，点它停掉在跑的那条', async () => {
+    const user = userEvent.setup()
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    let aborted = ''
+    server.use(
+      http.post('*/api/conversations/c1/prompts/:promptId', ({ params }) => {
+        aborted = String(params['promptId'])
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    socket.deliver(opsFrame([runningPrompt('p-run')], 11))
+
+    const stop = await screen.findByRole('button', { name: '停止' })
+    expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
+
+    await user.click(stop)
+
+    await waitFor(() => {
+      expect(aborted).toBe('p-run:abort')
+    })
+  })
+
+  it('排队那条由服务端那份渲染，点「追加」把它插进当前这一轮', async () => {
+    const user = userEvent.setup()
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    let steered: string[] = []
+    server.use(
+      http.post('*/api/conversations/c1/prompts:steer', async ({ request }) => {
+        const body = (await request.json()) as { prompt_ids: string[] }
+        steered = body.prompt_ids
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    socket.deliver(opsFrame([runningPrompt('p-run'), queuedPrompt('p-queued', '顺便配个音')], 11))
+
+    expect(await screen.findByText('顺便配个音')).toBeInTheDocument()
+    expect(screen.getByText('排队中')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '追加到这一轮' }))
+
+    await waitFor(() => {
+      expect(steered).toEqual(['p-queued'])
+    })
+  })
+
+  it('工具结果是纯文本时可以展开，没有结果就不给展开箭头', async () => {
+    const user = userEvent.setup()
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    // 历史那次读文件没带结果：不该出现能点开又什么都没有的箭头
+    expect(screen.getByText('读文件').closest('details')).toBeNull()
+
+    socket.deliver(
+      opsFrame(
+        [
+          {
+            op: 'frame.upsert',
+            frame: {
+              display: { kind: 'file_io', operation: 'grep', path: 'shots/' },
+              frameId: 't2.1.f4',
+              kind: 'tool',
+              name: 'search_files',
+              output: 'shots/s01.md\nshots/s02.md',
+              state: 'done',
+              toolCallId: 'call_grep',
+            },
+            stepId: 't2.1',
+            turnId: 't2',
+          },
+        ],
+        11,
+      ),
+    )
+
+    const details = (await screen.findByText('搜内容')).closest('details')
+    expect(details).not.toHaveAttribute('open')
+
+    await user.click(screen.getByText('搜内容'))
+
+    expect(details).toHaveAttribute('open')
+    expect(screen.getByText(/shots\/s01\.md/)).toBeInTheDocument()
   })
 })

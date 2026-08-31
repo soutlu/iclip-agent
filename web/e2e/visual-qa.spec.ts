@@ -4,10 +4,19 @@ import { login } from './login'
 // 视觉验收截图专用：跑在 dev:mock 上，先登录再走首页。产物落仓库根 .artifacts/design-qa/（gitignore，不入库）。
 const SHOT_DIR = '../.artifacts/design-qa'
 
-test('会话页视觉验收：浅色 / 深色', async ({ page }) => {
+test('会话页视觉验收：浅色 / 深色 / 运行中', async ({ page }) => {
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+
+  // 那一轮还在跑：截停止钮与排队气泡
+  await page.getByLabel('输入消息').fill('顺便把配音也排上')
+  await page.getByRole('button', { name: '发送' }).click()
+  await expect(page.getByText('排队中')).toBeVisible()
+  // 指针挪开再截：停止钮的 hover 过渡要落定，不然截到的是变色中间那一帧
+  await page.mouse.move(0, 0)
+  await page.waitForTimeout(300)
+  await page.screenshot({ path: `${SHOT_DIR}/conversation-busy.png`, fullPage: true })
 
   // 等演出来那一轮跑完（三段追加各 600ms），截到的就是完整一句
   await expect(page.getByText('好的，我先看一下这段素材，再把镜头表补齐。')).toBeVisible({

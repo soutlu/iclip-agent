@@ -8,9 +8,18 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranscript } from '@/shared/transcript/use-transcript'
 import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
-import { mintPromptId, submitPrompt, useSidebarTopology } from '../conversations.api'
+import { toast } from '@/shared/ui/toast'
+import {
+  abortPrompt,
+  mintPromptId,
+  promptText,
+  steerPrompt,
+  submitPrompt,
+  useSidebarTopology,
+} from '../conversations.api'
 import { ConversationComposer } from './conversation-composer'
 import { ConversationTurn, UserBubble } from './conversation-turn'
+import { QueuedPrompt } from './queued-prompt'
 
 /** 离底多少像素之内算「还贴着底」，越过就不再自动跟随。照 kimi。 */
 const STICK_THRESHOLD_PX = 80
@@ -47,12 +56,12 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
 
   const turns = view.items.filter((item) => item.kind === 'turn')
 
-  // 认领只看 `promptId`：服务端记下这条消息之后会带着同一个 id 回来。排着队的那条时间线上还
-  // 没有它那一轮，所以气泡留着；跑起来之后撤掉，交给时间线渲染。
-  const claimed = new Set(
-    view.prompts.filter((prompt) => prompt.status !== 'queued').map((prompt) => prompt.promptId),
-  )
+  // 服务端记下这条消息之后会带着同一个 id 回来，本地那条就撤掉：在跑的那条时间线上有它那一
+  // 轮，排着的那条由 prompts 表渲染（那份跟着刷新走，本地的不跟）。
+  const claimed = new Set(view.prompts.map((prompt) => prompt.promptId))
   const bubbles = pending.filter((item) => !claimed.has(item.promptId))
+  const queued = view.prompts.filter((prompt) => prompt.status === 'queued')
+  const running = view.prompts.find((prompt) => prompt.status === 'running')
 
   const send = async (text: string) => {
     const promptId = mintPromptId()
@@ -67,6 +76,13 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       setPending((list) => list.filter((item) => item.promptId !== promptId))
       throw error
     }
+  }
+
+  /** 出错就地报一声：这几个动作都不该把页面推走。 */
+  const act = (work: Promise<void>) => {
+    void work.catch((error: unknown) => {
+      toast.error(error instanceof Error ? error.message : '操作失败')
+    })
   }
 
   return (
@@ -96,6 +112,18 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
           {bubbles.map((item) => (
             <UserBubble key={item.promptId} text={item.text} />
           ))}
+          {queued.map((prompt) => (
+            <QueuedPrompt
+              key={prompt.promptId}
+              onDiscard={() => act(abortPrompt(conversationId, prompt.promptId))}
+              onSteer={
+                running === undefined
+                  ? undefined
+                  : () => act(steerPrompt(conversationId, prompt.promptId))
+              }
+              text={promptText(prompt.content)}
+            />
+          ))}
           {view.status === 'ready' && turns.length === 0 && bubbles.length === 0 ? (
             <p className="py-12 text-body-sm text-on-surface-variant">这段对话还没有内容</p>
           ) : null}
@@ -116,7 +144,15 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
           className="pointer-events-none absolute inset-x-0 -top-12 h-12 bg-gradient-to-b from-transparent to-background"
         />
         <div className="mx-auto w-full max-w-(--layout-home-read-max)">
-          <ConversationComposer onSend={send} />
+          <ConversationComposer
+            busy={running !== undefined}
+            onSend={send}
+            onStop={
+              running === undefined
+                ? undefined
+                : () => act(abortPrompt(conversationId, running.promptId))
+            }
+          />
         </div>
       </div>
     </main>

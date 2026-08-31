@@ -144,6 +144,49 @@ describe('TranscriptReader', () => {
     })
   })
 
+  it('补回来的批次里带着块，一样落得下去', async () => {
+    server.use(
+      http.get('*/api/conversations/c1/transcript', () => HttpResponse.json(mockTranscriptPage())),
+      http.get('*/api/conversations/c1/transcript/ops', () =>
+        HttpResponse.json({
+          agent_id: 'main',
+          batches: [
+            {
+              ops: [
+                {
+                  frame: {
+                    frameId: 't2.1.f9',
+                    kind: 'text',
+                    role: 'assistant',
+                    text: '补回来的一段',
+                  },
+                  op: 'frame.upsert',
+                  stepId: 't2.1',
+                  turnId: 't2',
+                },
+              ],
+              seq: 11,
+            },
+          ],
+          complete: true,
+          latest_seq: 11,
+        }),
+      ),
+    )
+
+    const { reader, socket } = startReader()
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+
+    // 12 跳了 11，去补批；补回来那一批里是个 frame.upsert
+    socket.deliver(opsFrame(12, append(TAIL_TEXT.length, '甲')))
+
+    await vi.waitFor(() => {
+      expect(textOf(reader)).toContain('补回来的一段')
+    })
+  })
+
   it('服务端说批次要不回来了，就整页重拉', async () => {
     let pages = 0
     server.use(

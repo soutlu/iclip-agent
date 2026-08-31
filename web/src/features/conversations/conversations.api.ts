@@ -1,12 +1,13 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
-import { apiFetch } from '@/shared/api/client'
+import { ApiError, apiFetch } from '@/shared/api/client'
 import {
   zConversationEnvelope,
   zConversationPageOut,
   zConversationsPageOut,
   zPrompt,
   zSidebarOut,
+  zTextContent,
 } from '@/shared/api/generated/zod.gen'
 
 export type Conversation = z.output<typeof zConversationsPageOut>['items'][number]
@@ -128,6 +129,48 @@ export const submitPrompt = async (
     fallbackErrorMessage: '发送失败',
     method: 'POST',
   })
+}
+
+/**
+ * 停掉一条消息：排着的直接撤，在跑的发第一方取消让它自己收尾。
+ *
+ * 「这条早就结束了」不算失败：停止是用户按一次的动作，正好按在收尾那一刻不该弹错误。
+ */
+export const abortPrompt = async (conversationId: string, promptId: string): Promise<void> => {
+  try {
+    await apiFetch(`/conversations/${conversationId}/prompts/${promptId}:abort`, z.unknown(), {
+      fallbackErrorMessage: '停止失败',
+      method: 'POST',
+    })
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 409)) return
+    throw error
+  }
+}
+
+/**
+ * 把一条排着的消息插进正在跑的那一轮，不必等它跑完。
+ *
+ * 「已经不在队列里了」同样不算失败——那说明它自己排到了，用户要的事情已经发生。
+ */
+export const steerPrompt = async (conversationId: string, promptId: string): Promise<void> => {
+  try {
+    await apiFetch(`/conversations/${conversationId}/prompts:steer`, z.unknown(), {
+      body: { prompt_ids: [promptId] },
+      fallbackErrorMessage: '追加失败',
+      method: 'POST',
+    })
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return
+    throw error
+  }
+}
+
+/** 一条 prompt 里用户打的字。附件那些形态这里不取。 */
+export const promptText = (content: unknown): string => {
+  const parsed = z.array(zTextContent).safeParse(content)
+  if (!parsed.success) return ''
+  return parsed.data.map((part) => part.text).join('')
 }
 
 type Membership = {

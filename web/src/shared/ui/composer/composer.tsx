@@ -22,8 +22,15 @@ type ComposerProps = {
   leading?: ReactNode
   /** 发送钮左边那几个控件。 */
   trailing?: ReactNode
-  /** 正在提交：发送钮转圈并禁用。 */
+  /** 正在提交这一条：发送钮转圈并禁用。 */
   sending?: boolean
+  /**
+   * 这段对话正在跑：发送钮换成停止钮。
+   *
+   * 换的是钮而不是禁用态——输入框空着时发送本来就是禁用的，那样就没法停了。
+   */
+  busy?: boolean
+  onStop?: (() => void) | undefined
   className?: string
 }
 
@@ -38,12 +45,16 @@ type ComposerProps = {
  * @param props.leading - 工具行左侧控件。
  * @param props.trailing - 发送钮左边的控件。
  * @param props.sending - 是否正在提交。
+ * @param props.busy - 这段对话是否正在跑。
+ * @param props.onStop - 点停止。
  * @param props.className - 外层附加类名。
  * @returns 输入卡。
  */
 export function Composer({
+  busy = false,
   className,
   leading,
+  onStop,
   onSubmit,
   onValueChange,
   placeholder = '输入消息，开始创作…',
@@ -84,26 +95,40 @@ export function Composer({
         <div className="flex items-center gap-1">{leading}</div>
         <div className="flex items-center gap-2">
           {trailing}
-          <button
-            aria-label="发送"
-            className={cn(
-              'grid size-(--control-height-md) ui-state cursor-pointer place-items-center rounded-full ui-focus',
-              // 禁用时 ui-state 把图标压成 disabled-text，灰底灰箭头对齐 kimi 的禁用发送钮
-              canSend
-                ? 'bg-inverse-surface text-inverse-on-surface hover:scale-105 active:scale-95'
-                : 'bg-surface-container-high',
-            )}
-            disabled={!canSend}
-            onClick={onSubmit}
-            type="button"
-          >
-            <Icon
-              className={cn(sending && 'animate-spin')}
-              decorative
-              name={sending ? 'loading' : 'send-up'}
-              size="md"
-            />
-          </button>
+          {busy && onStop !== undefined ? (
+            <button
+              aria-label="停止"
+              className={cn(
+                'grid size-(--control-height-md) ui-state cursor-pointer place-items-center rounded-full ui-focus',
+                'bg-surface-container-high text-error hover:bg-error hover:text-on-error active:scale-95',
+              )}
+              onClick={onStop}
+              type="button"
+            >
+              <Icon decorative name="stopped" size="md" />
+            </button>
+          ) : (
+            <button
+              aria-label="发送"
+              className={cn(
+                'grid size-(--control-height-md) ui-state cursor-pointer place-items-center rounded-full ui-focus',
+                // 禁用时 ui-state 把图标压成 disabled-text，灰底灰箭头对齐 kimi 的禁用发送钮
+                canSend
+                  ? 'bg-inverse-surface text-inverse-on-surface hover:scale-105 active:scale-95'
+                  : 'bg-surface-container-high',
+              )}
+              disabled={!canSend}
+              onClick={onSubmit}
+              type="button"
+            >
+              <Icon
+                className={cn(sending && 'animate-spin')}
+                decorative
+                name={sending ? 'loading' : 'send-up'}
+                size="md"
+              />
+            </button>
+          )}
         </div>
       </div>
     </div>
