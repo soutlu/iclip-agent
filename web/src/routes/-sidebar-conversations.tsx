@@ -1,6 +1,7 @@
 import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor } from '@dnd-kit/core'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
+import { Link, useParams } from '@tanstack/react-router'
 import { useState } from 'react'
 import {
   CollectionDeleteDialog,
@@ -104,8 +105,30 @@ export function SidebarConversations() {
   // 距离阈值让「点一下」还是点击，不会被当成拖拽起手
   const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
 
+  /**
+   * 拖完松手，浏览器照样会在被拖那一行的链接上派一次 click；不拦掉的话，把对话拖进合集会顺带
+   * 跳进会话页。
+   *
+   * 挡板挂在 document 上：落地之后侧栏会整块重拉，那一行连同挂在它上面的任何记号都已经换了
+   * 一个，只有 document 活得过这一下。只吃「指向刚拖走那段对话」的那一次点击——落在别处的
+   * 点击（比如紧接着去展开某个合集）必须照常放过去。
+   */
+  const swallowClickAfterDrag = (conversationId: string) => {
+    document.addEventListener(
+      'click',
+      (event) => {
+        const link = event.target instanceof Element ? event.target.closest('a') : null
+        if (link?.getAttribute('href')?.endsWith(conversationId) !== true) return
+        event.preventDefault()
+        event.stopPropagation()
+      },
+      { capture: true, once: true },
+    )
+  }
+
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     setDragging(null)
+    swallowClickAfterDrag(String(active.id))
     if (!over) return
     const from = (active.data.current as { collectionId: string | null } | undefined)?.collectionId
     const to = over.id === UNGROUPED ? null : String(over.id)
@@ -467,10 +490,12 @@ function ConversationRow({
   onChanged: () => void
   onOpenMembership: () => void
 }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+  const { listeners, setNodeRef, transform } = useDraggable({
     data: { collectionId: conversation.collectionId },
     id: conversation.id,
   })
+  const openedId = useParams({ select: (params) => params.conversationId, strict: false })
+  const active = openedId === conversation.id
   const [editing, setEditing] = useState(false)
   const rename = useRenameConversation(onChanged)
   const remove = useDeleteConversation(onChanged)
@@ -488,7 +513,20 @@ function ConversationRow({
   }
 
   return (
-    <div className={cn(ROW_CLASS, dragging && 'opacity-50')}>
+    // 拖拽挂在整行上而不是标题上：标题是链接，浏览器自带的链接拖拽会吞掉指针事件，
+    // dnd-kit 那套拖拽从此不成立。行内编辑时不挂——不然在输入框里划选文字就变成拖行。
+    <div
+      className={cn(
+        ROW_CLASS,
+        dragging && 'opacity-50',
+        active && 'bg-surface-container font-medium',
+      )}
+      ref={setNodeRef}
+      style={
+        transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined
+      }
+      {...(editing ? {} : listeners)}
+    >
       {editing ? (
         <input
           aria-label={`重命名 ${conversation.title}`}
@@ -505,20 +543,15 @@ function ConversationRow({
           ref={(element) => element?.focus()}
         />
       ) : (
-        <button
+        <Link
+          aria-current={active ? 'page' : undefined}
           className={ROW_TITLE_CLASS}
-          ref={setNodeRef}
-          style={
-            transform
-              ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-              : undefined
-          }
-          type="button"
-          {...listeners}
-          {...attributes}
+          draggable={false}
+          params={{ conversationId: conversation.id }}
+          to="/c/$conversationId"
         >
           <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
-        </button>
+        </Link>
       )}
       {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
       {!editing && (

@@ -53,6 +53,7 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 | 生产构建（改依赖 / vite 配置 / 路由树）       | `pnpm build`      |
 | 登录表单                                      | `pnpm test`       |
 | 登录旅程（游客态首页 → 弹窗登录 → 用户菜单）  | `pnpm test:e2e`   |
+| 会话页（历史一页 + 逐字推送 + 补漏）          | `pnpm test:e2e`   |
 | 登录态与游客态外壳                            | 人工验收          |
 | UI 视觉（token / 布局 / 深浅两套主题）        | 人工验收（见 §6） |
 

@@ -1,4 +1,5 @@
 import { http, HttpResponse } from 'msw'
+import { transcriptHandlers } from './transcript'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MSW REST 契约镜像
@@ -426,4 +427,7 @@ export const handlers = [
     Object.assign(task, { status: 'withdrawn', updatedAt: new Date().toISOString() })
     return HttpResponse.json({ task })
   }),
+
+  // ── transcript（src/shared/transcript）─────────────────────────────────
+  ...transcriptHandlers,
 ]
