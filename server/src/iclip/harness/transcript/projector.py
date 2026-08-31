@@ -39,7 +39,7 @@ from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.ui import UIEventStream
 
 from iclip.harness.transcript.from_messages import step_usage
-from iclip.harness.transcript.ops import (
+from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
     TOOL_STATE_BY_OUTCOME,
     AppendOp,
@@ -86,6 +86,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     turn_id: str = "t1"
     turn_ordinal: int = 1
     prompt: str | None = None
+    attachment_ids: tuple[str, ...] = ()
+    """这一轮用户附上的东西。实体本身由驱动那一层先落进实时状态，轮头部只带 id。"""
 
     _started_at: str = field(default_factory=_now, init=False)
     _step_ordinal: int = field(default=0, init=False)
@@ -364,6 +366,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             state=state,  # pyright: ignore[reportArgumentType]
             origin=TurnOrigin(kind="user"),
             prompt=self.prompt,
+            attachment_ids=self.attachment_ids or None,
             started_at=self._started_at,
             ended_at=None if state == "running" else _now(),
             usage=self._turn_usage(),

@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from iclip.harness.transcript.ops import (
+from iclip.harness.transcript.store import TranscriptStore
+from iclip.platform.transcript.ops import (
     AppendOp,
     FrameTarget,
     FrameUpsertOp,
@@ -23,7 +24,6 @@ from iclip.harness.transcript.ops import (
     TurnUpsertOp,
     utf16_len,
 )
-from iclip.harness.transcript.store import TranscriptStore
 
 CONVERSATION = "conv-1"
 AGENT = "main"

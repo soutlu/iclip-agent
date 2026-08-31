@@ -22,7 +22,7 @@ from iclip.harness.transcript.from_messages import (
     run_state_from_events,
     turns_from_messages,
 )
-from iclip.harness.transcript.ops import TranscriptTurn
+from iclip.platform.transcript.ops import TranscriptTurn
 
 
 class ConversationSnapshots(Protocol):

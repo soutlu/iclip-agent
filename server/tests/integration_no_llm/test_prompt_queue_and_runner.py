@@ -24,9 +24,9 @@ from iclip.harness.prompts import PromptQueue
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.transcript.from_messages import run_ids_from_messages
 from iclip.harness.transcript.history import TranscriptHistory
-from iclip.harness.transcript.ops import MAIN_AGENT_ID, TextContent, TranscriptTurn
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.platform.transcript.ops import MAIN_AGENT_ID, TextContent, TranscriptTurn
 
 AGENT_ID = "storyboard"
 OWNER = uuid.UUID("11111111-2222-3333-4444-555555555555")

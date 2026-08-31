@@ -17,10 +17,11 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Final
 
-from iclip.harness.transcript.ops import (
+from iclip.platform.transcript.ops import (
     AppendOp,
     Attachment,
     AttachmentUpsertOp,
@@ -60,6 +61,10 @@ class OpBatch:
 
     seq: int
     ops: tuple[EmittableOperation, ...]
+
+
+Listener = Callable[[OpBatch], None]
+"""在听的连接。同步的：新批次是在 ``append`` 的临界区里递出去的，不能在那里 await。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,13 +124,14 @@ class TranscriptStore:
         self._resident = resident
         # 插入序即最近使用序：命中时挪到末尾，淘汰从头取。
         self._conversations: dict[str, _Conversation] = {}
+        self._listeners: dict[tuple[str, str], set[Listener]] = {}
 
     # --- 写 -----------------------------------------------------------------
 
     def append(
         self, conversation_id: str, agent_id: str, ops: tuple[EmittableOperation, ...]
     ) -> OpBatch:
-        """发一个批次号、把这批操作落到实时状态、进补批日志。三件事一起生效。"""
+        """发一个批次号、把这批操作落到实时状态、进补批日志、递给在听的人。四件事一起生效。"""
 
         agent = self._agent(conversation_id, agent_id)
         batch = OpBatch(seq=agent.next_seq, ops=ops)
@@ -133,7 +139,23 @@ class TranscriptStore:
         for op in ops:
             _apply(agent, op)
         agent.journal.append(batch)
+        for listener in tuple(self._listeners.get((conversation_id, agent_id), ())):
+            listener(batch)
         return batch
+
+    def listen(self, conversation_id: str, agent_id: str, listener: Listener) -> None:
+        """让一个连接跟着收新批次。回调必须是同步的，见模块开头那条不许 await 的规矩。"""
+
+        self._listeners.setdefault((conversation_id, agent_id), set()).add(listener)
+
+    def unlisten(self, conversation_id: str, agent_id: str, listener: Listener) -> None:
+        key = (conversation_id, agent_id)
+        listeners = self._listeners.get(key)
+        if listeners is None:
+            return
+        listeners.discard(listener)
+        if not listeners:
+            del self._listeners[key]
 
     def mark_snapshot_persisted(self, conversation_id: str, agent_id: str, turn_id: str) -> None:
         """消息历史那一侧已经存下这一轮，本模块可以放手了。
@@ -161,10 +183,8 @@ class TranscriptStore:
     ) -> SubscribeView:
         """订阅这一刻要的全部东西，一次读出来。
 
-        **调用方必须先用 ``watermark`` 发一帧 ``transcript.reset``，再发 ``batches``。**
-        批次号只在本进程本次常驻期间有意义：对话被淘汰后重新装上、或者进程重启，号都会从
-        1 重来。客户端拿着上一代的号来要补批，这里给出的是新一代的批次——只有那帧 reset
-        把它的本地水位重新锚过，后面这些批才落在对的位置上。
+        怎么把这些拼成帧发出去别在调用处自己判，走 ``subscription.subscribe_frames``——
+        「什么时候必须先发 reset」是整个设计的支点，判错了不报错，只是界面从此不再更新。
         """
 
         agent = self._agent(conversation_id, agent_id)
@@ -333,6 +353,7 @@ def _assemble(turn: _LiveTurn) -> TranscriptTurn:
 __all__ = [
     "JOURNAL_CAPACITY",
     "RESIDENT_CONVERSATIONS",
+    "Listener",
     "OpBatch",
     "SubscribeView",
     "TranscriptStore",

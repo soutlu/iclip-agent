@@ -38,9 +38,9 @@ from pydantic_ai.messages import (
 )
 
 from iclip.harness.transcript.from_messages import TurnState, turns_from_messages
-from iclip.harness.transcript.ops import MAIN_AGENT_ID, TranscriptTurn
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.platform.transcript.ops import MAIN_AGENT_ID, TranscriptTurn
 
 CONVERSATION = "conv-1"
 PROMPT = "帮我把 README 翻译成英文"

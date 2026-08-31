@@ -36,8 +36,10 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
-from iclip.harness.transcript.ops import (
+from iclip.harness.transcript.prompt_media import read_prompt_items
+from iclip.platform.transcript.ops import (
     TOOL_STATE_BY_OUTCOME,
+    Attachment,
     StepUsage,
     TextFrame,
     ThinkingFrame,
@@ -140,10 +142,12 @@ def _turn(group: Sequence[ModelMessage], *, ordinal: int, state: TurnState) -> T
     prompt: str | None = None
     pending_request: ModelRequest | None = None
     pending_steers: list[str] = []
+    attached: dict[str, Attachment] = {}
 
     for message in group:
         if isinstance(message, ModelRequest):
-            prompt_text = _user_text(message)
+            prompt_text, attachments = _user_content(message)
+            attached.update({item.attachment_id: item for item in attachments})
             if prompt is None and prompt_text is not None:
                 # 一轮的第一句用户输入是这一轮的由来，不单独成块。
                 prompt = prompt_text
@@ -185,6 +189,7 @@ def _turn(group: Sequence[ModelMessage], *, ordinal: int, state: TurnState) -> T
         state=state,
         origin=TurnOrigin(kind="user"),
         prompt=prompt,
+        attachment_ids=tuple(attached) or None,
         started_at=_iso(_started_at(group)),
         ended_at=_iso(_ended_at(group)),
         usage=_turn_usage(steps),
@@ -202,22 +207,24 @@ def _user_frame(frames: dict[str, TranscriptFrame], step_id: str, text: str) -> 
     frames[frame_id] = TextFrame(frame_id=frame_id, role="user", text=text)
 
 
-def _user_text(message: ModelRequest) -> str | None:
-    """这条请求里用户说的话；没有就是 ``None``（多数请求装的是工具返回）。
+def _user_content(message: ModelRequest) -> tuple[str | None, list[Attachment]]:
+    """这条请求里用户说的话与附上的东西；没有用户输入就是 ``(None, [])``。
 
-    ``content`` 可以是一串多模态元素（文字与图片地址混排），这里只取文字。图片要变成协议里
-    的附件实体，那件事归媒体那一层，不在这里做。
+    ``content`` 可以是一串多模态元素。附件的身份写在正文里的媒体 tag 上（见
+    ``prompt_media``），这里把它解回协议的 ``attachment`` 实体——不解的话那条 tag 会当成用户
+    打的字显示出来，而附件在界面上根本不存在。
     """
 
     texts: list[str] = []
+    attachments: list[Attachment] = []
     for part in message.parts:
         if not isinstance(part, UserPromptPart):
             continue
-        if isinstance(part.content, str):
-            texts.append(part.content)
-        else:
-            texts.extend(item for item in part.content if isinstance(item, str))
-    return "\n".join(texts) if texts else None
+        items = [part.content] if isinstance(part.content, str) else list(part.content)
+        found_texts, found_attachments = read_prompt_items(items)
+        texts.extend(found_texts)
+        attachments.extend(found_attachments)
+    return ("\n".join(texts) if texts else None), attachments
 
 
 def _open_frames(

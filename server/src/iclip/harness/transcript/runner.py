@@ -27,7 +27,7 @@ from typing import Any, Protocol
 
 from pydantic_ai import Agent, CancellationToken
 from pydantic_ai.capabilities import AbstractCapability, HandleDeferredToolCalls
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, UserContent
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, RunContext
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot
@@ -35,14 +35,16 @@ from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.prompts import PromptQueue, PromptRow, PromptStatus
 from iclip.harness.transcript.from_messages import run_ids_from_messages
-from iclip.harness.transcript.ops import (
+from iclip.harness.transcript.projector import TranscriptEventStream
+from iclip.harness.transcript.prompt_media import attachments_of, model_prompt
+from iclip.harness.transcript.store import TranscriptStore
+from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
+    AttachmentUpsertOp,
     Interaction,
     InteractionUpsertOp,
     PromptUpsertOp,
 )
-from iclip.harness.transcript.projector import TranscriptEventStream
-from iclip.harness.transcript.store import TranscriptStore
 
 _logger = logging.getLogger(__name__)
 
@@ -70,13 +72,14 @@ def _now() -> datetime:
 class _SteerInbox(AbstractCapability[Any]):
     """插话的收件箱：外面放进来，run 里面在下一次模型请求前递进去。"""
 
-    pending: list[str] = field(default_factory=list[str])
+    pending: list[list[UserContent]] = field(default_factory=list["list[UserContent]"])
+    """每条插话是一串（文字加附件），整条一起递进去——拆开会让图和它那句话分家。"""
 
     async def before_model_request(
         self, ctx: RunContext[Any], request_context: ModelRequestContext
     ) -> ModelRequestContext:
         while self.pending:
-            ctx.enqueue(self.pending.pop(0), priority="asap")
+            ctx.enqueue(*self.pending.pop(0), priority="asap")
         return request_context
 
 
@@ -203,7 +206,7 @@ class ConversationRunner:
         if active is None:
             raise Conflict("这段对话现在没有在跑的运行，插不进去")
         for row in await self._queue.steer(conversation_id, prompt_ids, now=_now()):
-            active.inbox.pending.append(row.text)
+            active.inbox.pending.append(model_prompt(row.content))
             settled = await self._queue.get(row.prompt_id)
             if settled is not None:
                 self._publish(settled)
@@ -293,10 +296,23 @@ class ConversationRunner:
         # 先挂上再开跑：停止和插话随时可能在第一个事件之前就到。
         self._active[row.conversation_id] = active
 
-        projector = TranscriptEventStream(turn_id=turn_id, turn_ordinal=ordinal, prompt=row.text)
+        # 附件先落进实时状态：轮头部只带 id，实体本身在快照里，订阅者要能同时拿到两样。
+        attachments = attachments_of(row.content)
+        if attachments:
+            self._store.append(
+                row.conversation_id,
+                MAIN_AGENT_ID,
+                tuple(AttachmentUpsertOp(attachment=item) for item in attachments),
+            )
+        projector = TranscriptEventStream(
+            turn_id=turn_id,
+            turn_ordinal=ordinal,
+            prompt=row.text,
+            attachment_ids=tuple(item.attachment_id for item in attachments),
+        )
         deps = await self._deps_for(row)
         async with agent.run_stream_events(
-            row.text,
+            model_prompt(row.content),
             message_history=history,
             conversation_id=row.conversation_id,
             run_id=run_id,

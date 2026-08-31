@@ -24,7 +24,15 @@ from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.transcript.from_messages import run_state_from_events, turns_from_messages
-from iclip.harness.transcript.ops import TextFrame, ThinkingFrame, ToolFrame
+from iclip.harness.transcript.prompt_media import attachment_id, model_prompt
+from iclip.platform.transcript.ops import (
+    AttachmentSource,
+    ImageContent,
+    TextContent,
+    TextFrame,
+    ThinkingFrame,
+    ToolFrame,
+)
 
 RUN = "axRdrOK"
 
@@ -360,3 +368,21 @@ def test_thinking_frames_carry_their_text() -> None:
     thinking = turns[0].steps[0].frames[0]
     assert isinstance(thinking, ThinkingFrame)
     assert thinking.text == "先想想"
+
+
+def test_attached_image_survives_the_round_trip() -> None:
+    """附件不能在路上丢：进模型那一串里带着 tag，从消息推回来时还原成协议的附件实体。
+
+    漏了这条，用户附的图会被收下、落库、然后无声消失——tag 当成用户打的字显示出来，
+    而界面上根本没有那张图。
+    """
+
+    url = "https://example.invalid/shot.png"
+    items = model_prompt(
+        (ImageContent(source=AttachmentSource(kind="url", url=url)), TextContent(text="照这张做"))
+    )
+    turns = turns_from_messages([_ask(items), _reply(TextPart(content="好"))])
+
+    turn = turns[0]
+    assert turn.prompt == "照这张做"  # tag 不算用户打的字
+    assert turn.attachment_ids == (attachment_id(url),)
