@@ -14,8 +14,12 @@ const HISTORY_TURNS = 2
 /** 历史那几轮对应的水位。之后每一批从它往上编号。 */
 const HISTORY_SEQ = 10
 
-/** 演出来的回复，正文按这几段挤出来。 */
-const DEMO_CHUNKS = ['好的，', '我先看一下这段素材，', '再把镜头表补齐。']
+/** 演出来的回复，正文按这几段挤出来。带点 markdown，好看出渲染是不是接上了。 */
+const DEMO_CHUNKS = [
+  '好的，我先看一下这段素材：\n\n',
+  '- 拆出 3 个镜头\n- 写进 `shots/storyboard.md`\n\n',
+  '**镜头表已经更新。**\n\n<details><summary>看设定</summary>\n\n| 镜头 | 时长 |\n| --- | --- |\n| S01 | 2.4s |\n\n</details>',
+]
 
 /** 演出来的那一轮里的思考正文。 */
 const DEMO_THINKING = '先看看目录里已经有哪些镜头，再决定补哪几条。'

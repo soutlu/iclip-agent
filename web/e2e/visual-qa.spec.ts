@@ -18,10 +18,10 @@ test('会话页视觉验收：浅色 / 深色 / 运行中', async ({ page }) => 
   await page.waitForTimeout(300)
   await page.screenshot({ path: `${SHOT_DIR}/conversation-busy.png`, fullPage: true })
 
-  // 等演出来那一轮跑完（三段追加各 600ms），截到的就是完整一句
-  await expect(page.getByText('好的，我先看一下这段素材，再把镜头表补齐。')).toBeVisible({
-    timeout: 15_000,
-  })
+  // 等演出来那一轮跑完，截到的是渲染好的 markdown（列表、粗体、HTML 折叠块里的表格）
+  await expect(page.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
+  await page.getByText('看设定').click()
+  await expect(page.getByRole('table')).toBeVisible()
 
   await page.screenshot({ path: `${SHOT_DIR}/conversation-light.png`, fullPage: true })
 

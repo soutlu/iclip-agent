@@ -2853,7 +2853,8 @@
               <span>header · --layout-project-header-height 72 · 标题 text-title-lg · 无底边线</span>
               <span>轮间距 16 · 轮内块间距 10</span>
               <span>用户气泡 · 右对齐 · ≤ 78% · chat-user-bg · radius md · 内距 10 / 12 · 无边框无阴影无状态层</span>
-              <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 500 · 行高 1.6 · chat-message-text</span>
+              <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 500 · 行高 relaxed · chat-message-text · 按 markdown 渲染，夹在里面的 HTML 过白名单后渲染（script / iframe / on* / javascript: 一律摘掉）</span>
+              <span>正文 markdown · 段间距 8 · 标题最高 text-title（不与页头 h1 抢层级）· 行内代码 chat-code-bg + chat-code-border radius xs · 代码块 chat-code-block-bg radius sm 最高 384 可滚动 · 表格 chat-code-border 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text + chat-link-border 下划线</span>
               <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-secondary-text · 路径 chat-message-text 截断 · 行尾状态点 chat-status-success / -error / -running（转圈）</span>
               <span>工具结果 · 只有纯文本结果才给折叠箭头 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
               <span>思考块 · 一行标题（灯泡 icon-sm + 「思考过程」+ 折叠箭头）chat-muted-text · 展开后正文 chat-secondary-text 行高 1.7 · 无填充无边框</span>

@@ -12,6 +12,7 @@ import { memo } from 'react'
 import type { TranscriptFrame, TranscriptTurn } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
+import { AssistantMarkdown } from './assistant-markdown'
 import { toolCard } from './tool-display'
 
 type ConversationTurnProps = {
@@ -71,12 +72,11 @@ type TurnFrameProps = {
 function TurnFrame({ frame, settled }: TurnFrameProps) {
   switch (frame.kind) {
     case 'text':
+      // 用户那条按原样显示（他打的就是字），助手正文走 markdown
       return frame.role === 'user' ? (
         <UserBubble text={frame.text} />
       ) : (
-        <div className="text-body leading-relaxed font-medium whitespace-pre-wrap text-chat-message-text">
-          {frame.text}
-        </div>
+        <AssistantMarkdown text={frame.text} />
       )
     case 'thinking':
       return <ThinkingBlock text={frame.text} />
