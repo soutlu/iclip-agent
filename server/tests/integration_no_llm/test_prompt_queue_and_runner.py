@@ -14,7 +14,12 @@ from typing import Any
 
 import pytest
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessage, UserPromptPart
+from pydantic_ai.messages import (
+    INTERRUPTED_TOOL_RETURN_CONTENT,
+    ModelMessage,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import (
     AgentInfo,
     DeltaToolCall,
@@ -638,6 +643,46 @@ async def test_a_run_that_died_mid_tool_still_shows_up_after_a_refresh(
 
     # 两条路逐字相同：刷新的瞬间界面不该变形。
     assert _skeleton(derived) == _skeleton(_replay(store, conversation_id))
+
+
+async def test_the_close_out_result_tells_the_model_the_call_failed(
+    engine: AsyncEngine,
+) -> None:
+    """补给悬空调用的那份结果，落进消息里必须是失败，不能是成功。
+
+    裸字符串会被官方包成 ``ToolReturn``，``outcome`` 是 ``success``——等于告诉模型这次调用成功了、
+    返回值就是那句话，模型可能照着往下做。文字用官方那条常量，与官方自己补悬空调用时说的一致。
+    """
+
+    def boom() -> str:
+        raise RuntimeError("工具炸了")
+
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(engine, _calls_tool("boom"), store=store, tools=[boom])
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    await _submit(runner, queue, conversation_id, "先做这个")
+    await _drained(queue, conversation_id)
+
+    store2 = TranscriptStore()
+    runner2, _step_store2, queue2 = _runner(engine, _says("好"), store=store2)
+    await _submit(runner2, queue2, conversation_id, "再做那个")
+    await _drained(queue2, conversation_id)
+    await runner.shutdown()
+    await runner2.shutdown()
+
+    snapshot = await step_store.latest_conversation_snapshot(
+        conversation_id=conversation_id, include_interrupted=True
+    )
+    assert snapshot is not None
+    returns = [
+        part
+        for message in snapshot.messages
+        for part in getattr(message, "parts", ())
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert [part.outcome for part in returns] == ["failed"]
+    assert [part.content for part in returns] == [INTERRUPTED_TOOL_RETURN_CONTENT]
 
 
 async def test_the_next_turn_after_a_failed_one_does_not_reuse_its_ordinal(

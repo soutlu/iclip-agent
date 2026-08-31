@@ -35,16 +35,19 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from pydantic_ai import Agent, CancellationToken
+from pydantic_ai import Agent, CancellationToken, ToolFailed
 from pydantic_ai.capabilities import AbstractCapability, HandleDeferredToolCalls
-from pydantic_ai.messages import ModelMessage, UserContent
+from pydantic_ai.messages import (
+    INTERRUPTED_TOOL_RETURN_CONTENT,
+    ModelMessage,
+    UserContent,
+)
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, RunContext
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.prompts import PromptQueue, PromptRow, PromptStatus
 from iclip.harness.transcript.from_messages import (
-    ORPHAN_TOOL_ERROR,
     run_ids_from_messages,
     unanswered_tool_calls,
 )
@@ -82,20 +85,30 @@ def _now() -> datetime:
 
 
 def _close_out(history: Sequence[ModelMessage]) -> DeferredToolResults | None:
-    """上一轮留下的没有结果的工具调用，给它们补一份「没跑成」的结果。
+    """上一轮留下的没有结果的工具调用，给它们补一份失败的结果。
 
     不补的话官方拒绝这次运行：历史里带着未处理的工具调用时不许再发一句新的用户消息。这是官方
     留给调用方的口子——那几次调用是「前沿」，它等我们说清楚它们到底怎么了（更早的悬空调用官方
     自己会在每次请求前补齐）。
 
-    补的内容只是一句话，不是假装它成功了。副作用到底发生过没有由官方的工具账本记着
-    （``list_unresolved_tool_effects``），这里不假设。
+    **用 ``ToolFailed`` 而不是一句裸字符串。** 裸字符串会被包成 ``ToolReturn``，落进消息里是
+    ``outcome='success'``——等于告诉模型这次调用成功了，返回值就是那句话，模型可能照着往下做。
+    ``ToolFailed`` 落成 ``outcome='failed'``，而且按官方的说法「让模型看到失败并改道，而不是把同
+    一个调用再试一遍」，正是这里要的。
+
+    文字用官方那条常量：官方自己补悬空调用时用的就是它（``_repair_dangling_tool_calls``），同一件
+    事在两条路上对模型说同一句话。剩一处对不上——官方那条记的是 ``outcome='interrupted'`` 并盖一个
+    「这是补的」标记，而 ``deferred_tool_results`` 表达不了这两样。
+
+    副作用到底发生过没有这里不假设，那件事由官方的工具账本记着（``list_unresolved_tool_effects``）。
     """
 
     pending = unanswered_tool_calls(history)
     if not pending:
         return None
-    return DeferredToolResults(calls={item: ORPHAN_TOOL_ERROR for item in pending})
+    return DeferredToolResults(
+        calls={item: ToolFailed(INTERRUPTED_TOOL_RETURN_CONTENT) for item in pending}
+    )
 
 
 @dataclass
