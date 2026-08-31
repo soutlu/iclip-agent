@@ -378,7 +378,9 @@ def test_attached_image_survives_the_round_trip() -> None:
     而界面上根本没有那张图。
     """
 
-    url = "https://example.invalid/shot.png"
+    # 地址得是缩得动的那种：缩不动的图只留一条空标签，而图片真实的形状是「开标签 + 像素 +
+    # 闭标签」三项，闭标签落单——它正是最容易被漏掉的那一项。
+    url = "https://bkt.oss-cn-hangzhou.aliyuncs.com/u/shot.png"
     items = model_prompt(
         (ImageContent(source=AttachmentSource(kind="url", url=url)), TextContent(text="照这张做"))
     )
