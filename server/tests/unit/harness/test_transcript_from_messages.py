@@ -25,6 +25,7 @@ from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.transcript.from_messages import run_state_from_events, turns_from_messages
 from iclip.harness.transcript.prompt_media import attachment_id, model_prompt
+from iclip.platform.transcript.display import FileIoDisplay, GenericDisplay
 from iclip.platform.transcript.ops import (
     AttachmentSource,
     ImageContent,
@@ -386,3 +387,21 @@ def test_attached_image_survives_the_round_trip() -> None:
     turn = turns[0]
     assert turn.prompt == "照这张做"  # tag 不算用户打的字
     assert turn.attachment_ids == (attachment_id(url),)
+
+
+def test_tool_card_carries_how_to_draw_it() -> None:
+    """客户端不认工具名，只认 display 里的 kind。认不出的工具退回 generic，不画错。"""
+
+    turns = turns_from_messages(
+        [
+            _ask("看看"),
+            _reply(
+                ToolCallPart(tool_name="read_file", args={"path": "shots.md"}, tool_call_id="c1"),
+                ToolCallPart(tool_name="generate_shot_frames", args={}, tool_call_id="c2"),
+            ),
+        ]
+    )
+
+    cards = [f for f in turns[0].steps[0].frames if isinstance(f, ToolFrame)]
+    assert cards[0].display == FileIoDisplay(operation="read", path="shots.md")
+    assert cards[1].display == GenericDisplay(summary="出镜头帧")

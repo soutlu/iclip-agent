@@ -60,23 +60,46 @@ class ServerHello(_Envelope):
     capabilities: ServerHelloCapabilities = ServerHelloCapabilities()
 
 
-class TranscriptReset(_Envelope):
-    """订阅时的第一帧。``has_more_older`` 在 snapshot 外面，协议就是这么放的。"""
+class ResetPayload(_Envelope):
+    """``has_more_older`` 在 snapshot 外面，协议就是这么放的。"""
 
-    type: Literal["transcript.reset"] = "transcript.reset"
     agent_id: str
     snapshot: TranscriptSnapshot
     has_more_older: bool = True
     seq: int
 
 
-class TranscriptOps(_Envelope):
+class OpsPayload(_Envelope):
     """一批操作。``seq`` 是这一批的批次号，每 agent 连续。"""
 
-    type: Literal["transcript.ops"] = "transcript.ops"
     agent_id: str
     ops: tuple[EmittableOperation, ...]
     seq: int
+
+
+class _Event(_Envelope):
+    """事件信封。
+
+    ``session_id`` 与 ``payload`` 都是必需的：客户端就是按这两个字段取内容的，少一个整帧被丢。
+    信封上还有一个 ``seq``，它与 ``payload.seq`` **不是一回事**——那个是 transcript 的批次号
+    （有意义、要记账），这个只是这条连接上的第几帧，进程重启即归零，客户端不拿它做任何事。
+    """
+
+    seq: int
+    session_id: str
+    timestamp: str
+
+
+class TranscriptReset(_Event):
+    """订阅时的第一帧。"""
+
+    type: Literal["transcript.reset"] = "transcript.reset"
+    payload: ResetPayload
+
+
+class TranscriptOps(_Event):
+    type: Literal["transcript.ops"] = "transcript.ops"
+    payload: OpsPayload
 
 
 class Ack(_Envelope):
@@ -95,8 +118,15 @@ class SubscribeAckPayload(_Envelope):
     resync_required: tuple[str, ...] = ()
 
 
+class PingPayload(_Envelope):
+    nonce: str
+
+
 class Ping(_Envelope):
+    """心跳。客户端照着 ``nonce`` 原样回一帧 pong。"""
+
     type: Literal["ping"] = "ping"
+    payload: PingPayload
 
 
 ServerFrame = Annotated[
@@ -148,6 +178,7 @@ class Unsubscribe(_Envelope):
 
 class Pong(_Envelope):
     type: Literal["pong"] = "pong"
+    payload: PingPayload | None = None
 
 
 ClientFrame = Annotated[
@@ -237,10 +268,13 @@ __all__ = [
     "ClientHelloPayload",
     "OpsBatchOut",
     "OpsCatchup",
+    "OpsPayload",
     "Ping",
+    "PingPayload",
     "Pong",
     "PromptQueueOut",
     "PromptSubmission",
+    "ResetPayload",
     "ServerFrame",
     "ServerHello",
     "ServerHelloCapabilities",

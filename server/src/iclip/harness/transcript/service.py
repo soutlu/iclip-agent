@@ -21,10 +21,10 @@ from iclip.platform.transcript.ops import MAIN_AGENT_ID, Prompt, PromptContent, 
 from iclip.platform.transcript.wire import (
     OpsBatchOut,
     OpsCatchup,
+    OpsPayload,
     PromptQueueOut,
-    TranscriptOps,
+    ResetPayload,
     TranscriptPage,
-    TranscriptReset,
 )
 
 DEFAULT_PAGE_SIZE = 20
@@ -134,7 +134,7 @@ class TranscriptService:
 
     def subscribe(
         self, conversation_id: str, *, agent_id: str = MAIN_AGENT_ID, since: int | None
-    ) -> tuple[TranscriptReset | TranscriptOps, ...]:
+    ) -> tuple[ResetPayload | OpsPayload, ...]:
         view = self.store.subscribe_view(conversation_id, agent_id, since=since)
         return subscribe_frames(view, agent_id=agent_id, since=since)
 

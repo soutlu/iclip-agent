@@ -39,6 +39,7 @@ from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.ui import UIEventStream
 
 from iclip.harness.transcript.from_messages import step_usage
+from iclip.platform.transcript.display import tool_display
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
     TOOL_STATE_BY_OUTCOME,
@@ -96,6 +97,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     _open_frame_id: str | None = field(default=None, init=False)
     _open_text: str = field(default="", init=False)
     _step_usage: list[StepUsage] = field(default_factory=list[StepUsage], init=False)
+    _tool_cards: dict[str, ToolFrame] = field(default_factory=dict[str, ToolFrame], init=False)
+    """派出去的工具卡，按 toolCallId 记着。结局到达时照它改，不重新造一张。"""
     _step_headers: list[StepHeader] = field(default_factory=list[StepHeader], init=False)
     """每一步收尾时发出去的那份头部。run 跑完补用量时照着它改，免得把时刻抹掉。"""
     _pending_steers: list[str] = field(default_factory=list[str], init=False)
@@ -242,20 +245,18 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         逐字到达的参数增量不建卡——那条路上参数还是半截的，两边会对不上。
         """
 
-        frame_id = f"{self._step_id}.{event.part.tool_call_id}"
-        yield (
-            FrameUpsertOp(
-                turn_id=self.turn_id,
-                step_id=self._step_id,
-                frame=ToolFrame(
-                    frame_id=frame_id,
-                    tool_call_id=event.part.tool_call_id,
-                    name=event.part.tool_name,
-                    state="running",
-                    input=event.part.args,
-                ),
-            ),
+        card = ToolFrame(
+            frame_id=f"{self._step_id}.{event.part.tool_call_id}",
+            tool_call_id=event.part.tool_call_id,
+            name=event.part.tool_name,
+            state="running",
+            input=event.part.args,
+            display=tool_display(event.part.tool_name, event.part.args),
         )
+        # 记着这张卡：结局到达时是整张替换掉（协议的 frame.upsert 不是合并），参数与画法得
+        # 由这里带过去。消息推出来的那一侧是在原卡上改，不记着就两边不一样。
+        self._tool_cards[event.part.tool_call_id] = card
+        yield (FrameUpsertOp(turn_id=self.turn_id, step_id=self._step_id, frame=card),)
 
     async def handle_function_tool_result(
         self, event: FunctionToolResultEvent
@@ -267,19 +268,17 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
             output = part.content
             error = None if state == "done" else str(part.content)
-        frame_id = f"{self._step_id}.{part.tool_call_id}"
+        opened = self._tool_cards.get(part.tool_call_id) or ToolFrame(
+            frame_id=f"{self._step_id}.{part.tool_call_id}",
+            tool_call_id=part.tool_call_id,
+            name=part.tool_name or "",
+            state="running",
+        )
         yield (
             FrameUpsertOp(
                 turn_id=self.turn_id,
                 step_id=self._step_id,
-                frame=ToolFrame(
-                    frame_id=frame_id,
-                    tool_call_id=part.tool_call_id,
-                    name=part.tool_name or "",
-                    state=state,  # pyright: ignore[reportArgumentType]
-                    output=output,
-                    error=error,
-                ),
+                frame=opened.model_copy(update={"state": state, "output": output, "error": error}),
             ),
         )
 

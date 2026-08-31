@@ -34,9 +34,12 @@ from iclip.platform.transcript.wire import (
     ClientFrame,
     ClientHello,
     OpsCatchup,
+    OpsPayload,
     Ping,
+    PingPayload,
     PromptQueueOut,
     PromptSubmission,
+    ResetPayload,
     ServerHello,
     ServerHelloPayload,
     SteerRequest,
@@ -102,7 +105,7 @@ class Transcripts(Protocol):
 
     def subscribe(
         self, conversation_id: str, *, agent_id: str = MAIN_AGENT_ID, since: int | None
-    ) -> tuple[TranscriptReset | TranscriptOps, ...]: ...
+    ) -> tuple[ResetPayload | OpsPayload, ...]: ...
 
     def listen(self, conversation_id: str, listener: Any, *, agent_id: str) -> None: ...
 
@@ -266,6 +269,7 @@ class _Connection:
         self._overflowed = False
         self._listening = False
         self._last_inbound = datetime.now(UTC)
+        self._frame_seq = 0
 
     async def serve(self) -> None:
         await self._ws.accept()
@@ -322,7 +326,7 @@ class _Connection:
             self._transcripts.listen(self._conversation_id, self._on_batch, agent_id=MAIN_AGENT_ID)
             self._listening = True
         for item in self._transcripts.subscribe(self._conversation_id, since=since):
-            await self._outbound.put(item)
+            await self._outbound.put(self._wrap(item))
         await self._outbound.put(
             Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(self._conversation_id,)))
         )
@@ -330,10 +334,33 @@ class _Connection:
     def _on_batch(self, batch: Any) -> None:
         try:
             self._outbound.put_nowait(
-                TranscriptOps(agent_id=MAIN_AGENT_ID, ops=batch.ops, seq=batch.seq)
+                self._wrap(OpsPayload(agent_id=MAIN_AGENT_ID, ops=batch.ops, seq=batch.seq))
             )
         except asyncio.QueueFull:
             self._overflowed = True
+
+    def _wrap(self, payload: ResetPayload | OpsPayload) -> TranscriptReset | TranscriptOps:
+        """给这份内容套上事件信封。
+
+        信封上的 ``seq`` 是这条连接的第几帧，与 ``payload.seq``（transcript 的批次号）不是一
+        回事：那个客户端要记账，这个只是编号。
+        """
+
+        self._frame_seq += 1
+        stamped = datetime.now(UTC).isoformat()
+        if isinstance(payload, ResetPayload):
+            return TranscriptReset(
+                seq=self._frame_seq,
+                session_id=self._conversation_id,
+                timestamp=stamped,
+                payload=payload,
+            )
+        return TranscriptOps(
+            seq=self._frame_seq,
+            session_id=self._conversation_id,
+            timestamp=stamped,
+            payload=payload,
+        )
 
     def _unlisten(self) -> None:
         if self._listening:
@@ -367,7 +394,7 @@ class _Connection:
                 await self._ws.close(code=1001)
                 return
             with contextlib.suppress(asyncio.QueueFull):
-                self._outbound.put_nowait(Ping())
+                self._outbound.put_nowait(Ping(payload=PingPayload(nonce=uuid.uuid4().hex[:8])))
 
     async def _send(self, frame: Any) -> None:
         await self._ws.send_text(frame.model_dump_json(exclude_none=True))

@@ -4,3 +4,5 @@ pnpm-lock.yaml
 src/routeTree.gen.ts
 docs/
 public/lottie/
+# 照抄来的外部合同，逐字节保留（见该目录的 README）
+src/shared/transcript/vendor/

@@ -1,4 +1,4 @@
-"""订阅时该发哪些帧。
+"""订阅时该发哪些帧的内容。信封（session、帧号、时刻）由连接那一层套。
 
 这一条判断单独放在这里，不留给 WS 那一层自己拼：判错了服务端一切正常，客户端却会安静地停止
 更新——它是本仓「违反了会静默」的三条之一。
@@ -7,12 +7,12 @@
 from __future__ import annotations
 
 from iclip.harness.transcript.store import SubscribeView
-from iclip.platform.transcript.wire import TranscriptOps, TranscriptReset
+from iclip.platform.transcript.wire import OpsPayload, ResetPayload
 
 
 def subscribe_frames(
     view: SubscribeView, *, agent_id: str, since: int | None
-) -> tuple[TranscriptReset | TranscriptOps, ...]:
+) -> tuple[ResetPayload | OpsPayload, ...]:
     """按客户端手上的水位，给出这一刻该发出去的帧。
 
     三种情形：
@@ -30,9 +30,9 @@ def subscribe_frames(
 
     if since is not None and view.complete:
         return tuple(
-            TranscriptOps(agent_id=agent_id, ops=batch.ops, seq=batch.seq) for batch in view.batches
+            OpsPayload(agent_id=agent_id, ops=batch.ops, seq=batch.seq) for batch in view.batches
         )
-    return (TranscriptReset(agent_id=agent_id, snapshot=view.snapshot, seq=view.watermark),)
+    return (ResetPayload(agent_id=agent_id, snapshot=view.snapshot, seq=view.watermark),)
 
 
 __all__ = ["subscribe_frames"]

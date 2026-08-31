@@ -37,6 +37,7 @@ from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.transcript.prompt_media import read_prompt_items
+from iclip.platform.transcript.display import tool_display
 from iclip.platform.transcript.ops import (
     TOOL_STATE_BY_OUTCOME,
     Attachment,
@@ -255,6 +256,7 @@ def _open_frames(
                 name=part.tool_name,
                 state="running",
                 input=part.args,
+                display=tool_display(part.tool_name, part.args),
             )
             tool_frames[part.tool_call_id] = frame_id
 

@@ -63,6 +63,9 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
                             getattr(frame, "text", None),
                             getattr(frame, "role", None),
                             getattr(frame, "state", None),
+                            # 工具卡整张比：参数与画法在结局到达时最容易被漏掉，而漏了不报错。
+                            getattr(frame, "input", None),
+                            getattr(frame, "display", None),
                         )
                         for frame in step.frames
                     ],
