@@ -1,15 +1,19 @@
 """用户发上来的消息，与「一段对话同时只跑一次」这条规矩。
 
-一条 prompt 从收下到跑完要经过好几次进程往返（收下 → 排队 → 起 run → 跑完 → 排下一条），
-而它在别处推不出来：排队中的那条只存在于这张表里，丢了就是用户打的字凭空消失。所以它落库，
-不待在进程内存里。
-
 **「同时只跑一条」由库上的部分唯一索引挡住**，不靠调用方先查后写：两个请求同时进来时，先查
 后写的那种写法两边都会读到「没人在跑」。索引挡下来之后第二条改记成排队。
 
-进程重启时表里会留下两种没人管的行：``running`` 的那条，它的 run 已经随进程没了；``queued``
-的那些，没有任何东西会来叫醒它们。启动时一并收拾掉（见 ``discard_stale``）——留着不动的话，
-那段对话会永远「正在跑」，之后发的每一条都排在一个不存在的运行后面。
+这条挡板落在库上而不是进程内存里，因为它必须跨 worker：每个 worker 一份进程内存，谁也看不见谁
+在跑。幂等键同理——重发可能打到另一个 worker。``content`` 列只服务同一条命里的接续。
+
+进程重启时表里会留下三种没人管的行：``running`` 的那条与 ``steered`` 的那几条，它们的 run 已经
+随进程没了；``queued`` 的那些，没有任何东西会来叫醒它们。启动时一并收拾掉（见
+``discard_stale``）——留着不动的话，那段对话会永远「正在跑」，之后发的每一条都排在一个不存在
+的运行后面。
+
+``steered`` 是**内部状态**，表示这条消息已经递进了某次 run（``run_id`` 记的就是那次），结局跟着
+那一轮走。对外一律报 ``running``：协议的 prompt 状态联合里没有这个值，漏出去客户端整帧被
+zod 拒掉且不报错。
 """
 
 from __future__ import annotations
@@ -43,9 +47,13 @@ from iclip.platform.transcript.ops import Prompt, PromptContent
 
 DB_SCHEMA: Final = "agent_runtime"
 
-PromptStatus = Literal["running", "queued", "blocked", "completed", "failed", "aborted"]
+PromptStatus = Literal["running", "queued", "steered", "blocked", "completed", "failed", "aborted"]
 
 _LIVE: Final = ("running", "queued")
+"""还归队列管的那两种：在跑的那条与排着的那些。``steered`` 已经交给运行侧了，不在里面。"""
+
+_UNSETTLED: Final = ("running", "queued", "steered")
+"""还没有结局的全部状态。启动收拾看的是这一组。"""
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
 
@@ -95,11 +103,14 @@ class PromptRow:
         return "\n".join(part.text for part in self.content if part.type == "text")
 
     def as_entity(self) -> Prompt:
-        """协议里的 ``prompt`` 实体。``prompt.upsert`` 与订阅快照发的就是这一份。"""
+        """协议里的 ``prompt`` 实体。``prompt.upsert`` 与订阅快照发的就是这一份。
+
+        ``steered`` 报成 ``running``：它是这一轮的一部分，而协议的状态联合里没有这个值。
+        """
 
         return Prompt(
             prompt_id=self.prompt_id,
-            status=self.status,
+            status="running" if self.status == "steered" else self.status,
             content=self.content,
             created_at=self.created_at.isoformat(),
             finished_at=None if self.finished_at is None else self.finished_at.isoformat(),
@@ -270,6 +281,8 @@ class PromptQueue:
         row = await self.get(prompt_id)
         if row is None:
             raise NotFound(f"没有这条消息：{prompt_id}")
+        if row.status == "steered":
+            raise Conflict("这条消息已经递进当前这一轮了，要停就停整段对话")
         if row.status not in _LIVE:
             raise Conflict("这条消息已经结束了，停不了")
         if row.status == "queued":
@@ -293,13 +306,13 @@ class PromptQueue:
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
 
-    async def steer(
-        self, conversation_id: str, prompt_ids: tuple[str, ...], *, now: datetime
+    async def pick_for_steer(
+        self, conversation_id: str, prompt_ids: tuple[str, ...]
     ) -> tuple[PromptRow, ...]:
-        """把排队中的几条插进正在跑的那一轮。
+        """挑出要插进当前这一轮的那几条，还不改状态。
 
-        这里只负责把它们从队列里摘下来并标上时刻；把内容送进运行是运行侧的事。有一条不是
-        「这段对话里排着的」就整批不动——插一半进去、另一半留在队列里，用户看到的顺序就乱了。
+        有一条不是「这段对话里排着的」就整批不动——插一半进去、另一半留在队列里，用户看到的
+        顺序就乱了。
         """
 
         view = await self.view(conversation_id)
@@ -312,29 +325,74 @@ class PromptQueue:
             if row is None:
                 raise NotFound(f"这条消息不在这段对话的队列里：{prompt_id}")
             picked.append(row)
-        stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id.in_(prompt_ids))
-            .where(prompts_table.c.status == "queued")
-            .values(status="completed", steered_at=now, finished_at=now)
-        )
-        async with self._engine.begin() as conn:
-            await conn.execute(stmt)
         return tuple(picked)
 
-    async def discard_stale(self, *, now: datetime) -> int:
-        """启动时收拾上一条命留下的行，返回收拾了几条。
+    async def mark_steered(
+        self, prompt_ids: tuple[str, ...], *, run_id: str, now: datetime
+    ) -> tuple[PromptRow, ...]:
+        """记下这几条已经递进了哪次 run。结局不在这里定，跟着那一轮走。
 
-        在跑的那条判成失败：它的运行随进程一起没了，谁也不会再来给它收尾。排队的那些判成撤销
-        ——自动接着跑等于服务器重启后自己花钱去调模型，而且那一轮的上下文已经断了。用户看到的
-        是一条「撤销了」的记录，可以重发；不是凭空消失。
+        **先改状态再递内容**：反过来的话，递完到改完之间那一轮要是收场了，收场时的清扫看到的
+        还是 ``queued``，什么都不会退回，随后这次写入把它钉成一个属于死运行的 ``steered``。
         """
 
         stmt = (
             update(prompts_table)
-            .where(prompts_table.c.status.in_(_LIVE))
+            .where(prompts_table.c.prompt_id.in_(prompt_ids))
+            .where(prompts_table.c.status == "queued")
+            .values(status="steered", run_id=run_id, steered_at=now)
+            .returning(prompts_table)
+        )
+        async with self._engine.begin() as conn:
+            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
+    async def settle_steered(
+        self, run_id: str, *, status: PromptStatus, now: datetime
+    ) -> tuple[PromptRow, ...]:
+        """这次 run 收场了，递进去的那几条跟着它同一个结局。"""
+
+        stmt = (
+            update(prompts_table)
+            .where(prompts_table.c.run_id == run_id)
+            .where(prompts_table.c.status == "steered")
+            .values(status=status, finished_at=now)
+            .returning(prompts_table)
+        )
+        async with self._engine.begin() as conn:
+            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
+    async def requeue_steered(self, prompt_ids: tuple[str, ...]) -> tuple[PromptRow, ...]:
+        """递进去了但那一轮没读到它，退回队列排着。
+
+        一条追加要么进这次 run，要么退回 ``queued``；不留在一个已经收场的 run 名下。
+        """
+
+        stmt = (
+            update(prompts_table)
+            .where(prompts_table.c.prompt_id.in_(prompt_ids))
+            .where(prompts_table.c.status == "steered")
+            .values(status="queued", run_id=None, steered_at=None)
+            .returning(prompts_table)
+        )
+        async with self._engine.begin() as conn:
+            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
+    async def discard_stale(self, *, now: datetime) -> int:
+        """启动时收拾上一条命留下的行，返回收拾了几条。
+
+        在跑的那条与递进过某次 run 的那几条判成失败：那些 run 随进程一起没了，谁也不会再来给
+        它们收尾。排队的那些判成撤销——自动接着跑等于服务器重启后自己花钱去调模型，而且那一轮
+        的上下文已经断了。
+        """
+
+        stmt = (
+            update(prompts_table)
+            .where(prompts_table.c.status.in_(_UNSETTLED))
             .values(
-                status=case((prompts_table.c.status == "running", "failed"), else_="aborted"),
+                status=case(
+                    (prompts_table.c.status == "queued", "aborted"),
+                    else_="failed",
+                ),
                 finished_at=now,
             )
         )

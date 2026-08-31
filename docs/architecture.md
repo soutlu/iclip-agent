@@ -152,9 +152,13 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 
 **一条 WebSocket 管多段对话**（`WS /ws`，不带对话 id）：订哪几段由客户端逐帧 `subscribe_v2` 说，每段各挂一个监听器、各 pin 一次、各记一份水位，发出去的每一帧带 `session_id` 供客户端分流。建连时只核登录与 `agent:run`，**每次订阅再核这段对话看不看得见**（看不见与不存在同一个待遇，回执里 `not_found`，整条连接不动）。
 
-**运行驱动**（`harness/transcript/runner.py`）是唯一知道「这段对话此刻有没有在跑」的地方，停止、插话、审批三条人机往返都归它：停止走官方 `CancellationToken`（不是 `task.cancel()`——外部取消是 `BaseException`，官方的收尾分支接不住，终态操作发不出去），插话走一个 capability 里的 `ctx.enqueue`，审批走 `HandleDeferredToolCalls` 在同一次 run 内 await。
+**运行驱动**（`harness/transcript/runner.py`）是唯一知道「这段对话此刻有没有在跑」的地方，停止、插话、审批三条人机往返都归它：停止走官方 `CancellationToken`（不是 `task.cancel()`——外部取消是 `BaseException`，官方的收尾分支接不住，终态操作发不出去），审批走 `HandleDeferredToolCalls` 在同一次 run 内 await。
 
-**prompt 队列**（`agent_runtime.prompts`）是持久事实，不是投影：排队中的消息在别处推不出来。「一段对话同时只跑一条」由部分唯一索引挡住，不靠先查后写。进程启动时收拾上一条命留下的行（在跑的判失败、排队的判撤销），不收拾的话那段对话会永远「正在跑」。
+**插话**用一个 capability 在 `before_run` 接住这次 run 的 `ctx`，到达时当场 `ctx.enqueue(priority='asap')`。不先攒着等下一次模型请求：官方第二道 drain 在 run 本来要结束时把晚到的 asap 捞出来做一次 redirect，攒着的那条压根没进官方队列，捞不到。一条插话要么进这次 run、要么退回 `queued`——run 收场时清扫一遍官方队列里没被读走的；用户按了停止时不退回，跟着这一轮一起撤销。递进去的那几条按 `run_id` 挂在这一轮下面，结局与它相同。
+
+**prompt 队列**（`agent_runtime.prompts`）落库，不待在进程内存：「一段对话同时只跑一条」由部分唯一索引挡住，不靠先查后写，而实时状态是每 worker 一份、互相看不见。进程启动时收拾上一条命留下的行（在跑的与递进过 run 的判失败、排队的判撤销），不收拾的话那段对话会永远「正在跑」。`steered` 是内部状态，对外一律报 `running`——协议的状态联合里没有这个值。
+
+实时状态与「这段对话有没有在跑」都是每 worker 一份：订阅打到另一个 worker 时看不到那一轮，且不报错。
 
 ## 11. 媒体生成
 
