@@ -162,14 +162,7 @@
         --color-chat-message-text: var(--color-on-surface);
         --color-chat-secondary-text: var(--color-on-surface-variant);
         --color-chat-muted-text: var(--color-on-surface-muted);
-        --color-chat-user-bg: var(--color-secondary-container);
-        --color-chat-user-bg-hover: color-mix(in srgb, var(--color-secondary-container) 92%, var(--color-on-secondary-container));
-        --color-chat-user-bg-active: color-mix(in srgb, var(--color-secondary-container) 88%, var(--color-on-secondary-container));
-        --color-chat-user-border: color-mix(in srgb, var(--color-secondary) 35%, transparent);
-        --color-chat-user-border-active: var(--color-secondary);
-        --color-chat-assistant-bg: var(--color-surface-container-lowest);
-        --color-chat-assistant-border: var(--color-outline-variant);
-        --color-chat-assistant-highlight: rgba(255, 255, 255, 0.85);
+        --color-chat-user-bg: var(--color-surface-container-low);
         --color-chat-agent-avatar-bg: #e7f5df;
         --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.28);
         --color-chat-agent-identity-bg: #f2f7ed;
@@ -178,8 +171,6 @@
         --color-chat-agent-rail: #009e77;
         --color-chat-inline-bg: color-mix(in srgb, var(--nv70) 10%, transparent);
         --color-chat-inline-border: var(--color-outline-variant);
-        --color-chat-tool-bg: var(--n95);
-        --color-chat-tool-border: var(--color-outline-variant);
         --color-chat-chip-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
         --color-chat-chip-border: var(--color-outline-variant);
         --color-chat-code-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
@@ -195,8 +186,6 @@
         --color-chat-status-running: var(--color-warning);
         --color-chat-focus-ring: color-mix(in srgb, var(--color-secondary) 70%, transparent);
         --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);
-        --shadow-chat-user: 0 12px 26px rgba(0, 94, 72, 0.12), 0 0 0 1px rgba(0, 174, 135, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.78);
-        --shadow-chat-assistant: 0 16px 34px rgba(64, 73, 66, 0.12), inset 0 1px 0 var(--color-chat-assistant-highlight);
         --shadow-chat-agent-avatar: 0 8px 18px rgba(64, 73, 66, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62);
         --shadow-chat-agent-identity: 0 8px 18px rgba(64, 73, 66, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.62);
         --shadow-rail-inset: inset 3px 0 0 var(--color-chat-agent-rail);
@@ -431,20 +420,17 @@
         --color-chat-panel-bg-start: var(--n12);
         --color-chat-panel-bg-end: var(--n6);
         --color-chat-muted-text: var(--color-on-surface-muted);
-        --color-chat-assistant-highlight: rgba(255, 255, 255, 0.1);
+        --color-chat-user-bg: var(--color-surface-container-high);
         --color-chat-agent-avatar-bg: #1b2a20;
         --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.4);
         --color-chat-agent-identity-bg: #16211a;
         --color-chat-agent-identity-border: rgba(113, 136, 58, 0.36);
         --color-chat-agent-identity-text: #cfe3c5;
         --color-chat-agent-rail: #33c39a;
-        --color-chat-tool-bg: var(--n12);
         --color-chat-code-block-bg: var(--n12);
         --color-chat-error-border: var(--e60);
         --color-chat-error-text: var(--e80);
         --shadow-chat-panel: 0 20px 48px rgba(0, 0, 0, 0.5);
-        --shadow-chat-user: 0 12px 26px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(153, 211, 184, 0.16);
-        --shadow-chat-assistant: 0 16px 34px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--color-chat-assistant-highlight);
         --shadow-chat-agent-avatar: 0 8px 18px rgba(0, 0, 0, 0.4);
         --shadow-chat-agent-identity: 0 8px 18px rgba(0, 0, 0, 0.4);
         --color-canvas-label-text: var(--nv60);
@@ -2068,14 +2054,12 @@
                   <div class="ext-name">
                     <strong>聊天</strong>
                     <code>--color-chat-*</code>
-                    <p>气泡、面板、工具与代码块、Agent 身份、状态点；muted 文字取 on-surface-muted。</p>
+                    <p>气泡、面板、代码块、Agent 身份、状态点；muted 文字取 on-surface-muted。</p>
                   </div>
                   <div class="ext-swatches">
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-panel-bg" title="复制 --color-chat-panel-bg"><i style="--sw: var(--color-chat-panel-bg)"></i>chat-panel-bg</button>
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-user-bg" title="复制 --color-chat-user-bg"><i style="--sw: var(--color-chat-user-bg)"></i>chat-user-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-assistant-bg" title="复制 --color-chat-assistant-bg"><i style="--sw: var(--color-chat-assistant-bg)"></i>chat-assistant-bg</button>
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-agent-rail" title="复制 --color-chat-agent-rail"><i style="--sw: var(--color-chat-agent-rail)"></i>chat-agent-rail</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-tool-bg" title="复制 --color-chat-tool-bg"><i style="--sw: var(--color-chat-tool-bg)"></i>chat-tool-bg</button>
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-error-bg" title="复制 --color-chat-error-bg"><i style="--sw: var(--color-chat-error-bg)"></i>chat-error-bg</button>
                   </div>
                 </div>
@@ -2851,6 +2835,32 @@
             </div>
             <p class="template-use">
               登录后应用壳与首页空态共用一套骨架；紧凑断点的退化规则一并登记，不在页面上另写断点。
+            </p>
+          </article>
+
+          <article class="template-row">
+            <header class="template-name">
+              <span>05 · CHAT</span>
+              <strong>会话页</strong>
+              <code>ConversationViewport</code>
+            </header>
+            <div class="template-flow" aria-label="header 到消息流、用户气泡、助手正文块与 composer">
+              <code>header</code><span>→</span><code>消息流</code><span>→</span><code>用户气泡 · 助手正文块</code><span>→</span><code>composer</code>
+            </div>
+            <div class="template-values">
+              <code>--layout-home-read-max · 760px</code>
+              <span>阅读列 · ≤ 760 · 居中 · 水平内距 20</span>
+              <span>header · --layout-project-header-height 72 · 标题 text-title-lg · 无底边线</span>
+              <span>轮间距 16 · 轮内块间距 10</span>
+              <span>用户气泡 · 右对齐 · ≤ 78% · chat-user-bg · radius md · 内距 10 / 12 · 无边框无阴影无状态层</span>
+              <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 500 · 行高 1.6 · chat-message-text</span>
+              <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-secondary-text · 路径 chat-message-text 截断 · 行尾状态点 chat-status-success / -error / -running（转圈）</span>
+              <span>思考块 · 一行标题（灯泡 icon-sm + 「思考过程」+ 折叠箭头）chat-muted-text · 展开后正文 chat-secondary-text 行高 1.7 · 无填充无边框</span>
+              <span>轮级报错 · chat-error-bg · chat-error-border · chat-error-text · radius sm · 内距 8 / 12</span>
+              <span>composer · 同 04 · HOME · 贴底 · 上方 background 渐隐遮住滚动内容</span>
+            </div>
+            <p class="template-use">
+              会话页只有一处填充（用户气泡）；工具行、思考块、助手正文都不进卡片。
             </p>
           </article>
         </div>

@@ -16,6 +16,9 @@ const HISTORY_SEQ = 10
 /** 演出来的那一轮，正文按这几段挤出来。 */
 const DEMO_CHUNKS = ['好的，', '我先看一下这段素材，', '再把镜头表补齐。']
 
+/** 演出来那一轮的思考正文。 */
+const DEMO_THINKING = '先看看目录里已经有哪些镜头，再决定补哪几条。'
+
 /** 一句正文的块 id 前缀：轮 3 的第 1 步。 */
 const DEMO_STEP = 't3.1'
 
@@ -206,7 +209,41 @@ const playDemoTurn = (send: (payload: OpsPayload) => void) => {
       },
       {
         op: 'frame.upsert',
-        frame: { frameId: `${DEMO_STEP}.f2`, kind: 'text', role: 'assistant', text: '' },
+        frame: { frameId: `${DEMO_STEP}.f2`, kind: 'thinking', text: DEMO_THINKING },
+        stepId: DEMO_STEP,
+        turnId: 't3',
+      },
+      {
+        op: 'frame.upsert',
+        frame: {
+          display: { kind: 'file_io', operation: 'grep', path: 'shots/' },
+          frameId: `${DEMO_STEP}.call_demo`,
+          kind: 'tool',
+          name: 'search_files',
+          state: 'running',
+          toolCallId: 'call_demo',
+        },
+        stepId: DEMO_STEP,
+        turnId: 't3',
+      },
+    ],
+    [
+      {
+        op: 'frame.upsert',
+        frame: {
+          display: { kind: 'file_io', operation: 'grep', path: 'shots/' },
+          frameId: `${DEMO_STEP}.call_demo`,
+          kind: 'tool',
+          name: 'search_files',
+          state: 'done',
+          toolCallId: 'call_demo',
+        },
+        stepId: DEMO_STEP,
+        turnId: 't3',
+      },
+      {
+        op: 'frame.upsert',
+        frame: { frameId: `${DEMO_STEP}.f3`, kind: 'text', role: 'assistant', text: '' },
         stepId: DEMO_STEP,
         turnId: 't3',
       },
@@ -215,7 +252,7 @@ const playDemoTurn = (send: (payload: OpsPayload) => void) => {
       {
         op: 'append',
         offset: DEMO_CHUNKS.slice(0, index).join('').length,
-        target: { frameId: `${DEMO_STEP}.f2`, stepId: DEMO_STEP, turnId: 't3', type: 'frame' },
+        target: { frameId: `${DEMO_STEP}.f3`, stepId: DEMO_STEP, turnId: 't3', type: 'frame' },
         text,
       },
     ]),

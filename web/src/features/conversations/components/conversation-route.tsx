@@ -54,7 +54,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
         }}
         ref={scrollerRef}
       >
-        <div className="mx-auto flex w-full max-w-(--layout-home-read-max) flex-col gap-8 px-6 pt-2 pb-12">
+        <div className="mx-auto flex w-full max-w-(--layout-home-read-max) flex-col gap-4 px-5 pt-2 pb-12">
           {view.status === 'loading' ? (
             <p className="flex items-center gap-2 py-12 text-body-sm text-on-surface-variant">
               <Icon className="animate-spin" decorative name="loading" size="sm" />
