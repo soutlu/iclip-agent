@@ -64,11 +64,16 @@ def _open_conversation(tc: TestClient) -> str:
 
 
 def _subscribe(
-    ws: Any, conversation_id: str, *, since: int | None = None, frame_id: str = "s1"
+    ws: Any,
+    conversation_id: str,
+    *,
+    since: int | None = None,
+    frame_id: str = "s1",
+    grade: str = "delta",
 ) -> None:
     payload: dict[str, Any] = {
         "session_id": conversation_id,
-        "transcript": {"main": "delta"},
+        "transcript": {"main": grade},
     }
     if since is not None:
         payload["transcript_since"] = {"main": since}
@@ -83,6 +88,24 @@ def _until(ws: Any, kind: str, *, tries: int = 40) -> dict[str, Any]:
         if frame.get("type") == kind:
             return frame
     raise AssertionError(f"没收到 {kind}")
+
+
+def _drain_turn(ws: Any, *, tries: int = 40) -> list[dict[str, Any]]:
+    """收到这一轮结束为止，返回期间所有操作。
+
+    判「结束」看的是轮的状态，不是等一个时长：低档位下大部分批次整批不发，等固定帧数会卡住。
+    """
+
+    collected: list[dict[str, Any]] = []
+    for _ in range(tries):
+        frame = ws.receive_json()
+        if frame.get("type") != "transcript.ops":
+            continue
+        ops: list[dict[str, Any]] = frame["payload"]["ops"]
+        collected.extend(ops)
+        if any(op["op"] == "turn.upsert" and op["turn"]["state"] != "running" for op in ops):
+            return collected
+    raise AssertionError("这一轮没等到结束")
 
 
 def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
@@ -168,6 +191,59 @@ def test_one_connection_serves_two_conversations(ws_agent_app: FastAPI, pg_url: 
                 _until(ws, "transcript.reset")["session_id"],
             }
             assert landed == {first, second}
+
+
+def test_turn_grade_carries_the_turn_but_no_deltas(ws_agent_app: FastAPI, pg_url: str) -> None:
+    """侧栏那一档：拿得到「这段在跑、跑完了」，拿不到逐字。
+
+    几十段对话同时订着，逐字的那份只有打开的那一段需要。
+    """
+
+    with TestClient(ws_agent_app) as tc:
+        _sign_in(tc, pg_url)
+        conversation_id = _open_conversation(tc)
+
+        with tc.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "server_hello"
+            _subscribe(ws, conversation_id, grade="turn")
+            assert _until(ws, "transcript.reset")["session_id"] == conversation_id
+
+            sent = tc.post(
+                f"/conversations/{conversation_id}/prompts",
+                json={"prompt_id": "prm_turn", "content": [{"type": "text", "text": "走"}]},
+            )
+            assert sent.status_code == 200, sent.text
+
+            kinds = {op["op"] for op in _drain_turn(ws)}
+            assert "turn.upsert" in kinds
+            # 逐字与块级的那些这一档不发；筛空了的批次整批不发，所以它们一帧都不该出现。
+            assert kinds.isdisjoint({"append", "frame.upsert", "step.upsert"})
+
+
+def test_raising_the_grade_replaces_the_whole_thing(ws_agent_app: FastAPI, pg_url: str) -> None:
+    """从 turn 档升到 delta 档：给了水位也照样先收一帧 reset。
+
+    低档时被筛空丢掉的那些批次补不回来，拿着水位往下接会缺一段而客户端自己不知道。
+    """
+
+    with TestClient(ws_agent_app) as tc:
+        _sign_in(tc, pg_url)
+        conversation_id = _open_conversation(tc)
+
+        with tc.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "server_hello"
+            _subscribe(ws, conversation_id, grade="turn")
+            assert _until(ws, "transcript.reset")
+
+            sent = tc.post(
+                f"/conversations/{conversation_id}/prompts",
+                json={"prompt_id": "prm_grade", "content": [{"type": "text", "text": "走"}]},
+            )
+            assert sent.status_code == 200, sent.text
+            _drain_turn(ws)
+
+            _subscribe(ws, conversation_id, since=1, frame_id="s2", grade="delta")
+            assert _until(ws, "transcript.reset")["session_id"] == conversation_id
 
 
 def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
