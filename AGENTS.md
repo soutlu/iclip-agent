@@ -9,10 +9,10 @@
 | 命令 | 作用 |
 |------|------|
 | `make setup` | 安装后端 `uv` 依赖与前端 `pnpm` 依赖 |
-| `make dev` | 启动后端（需 `.env`，Postgres 与 Redis 可用） |
-| `make up` | 启动 Postgres、Redis 容器、外部只读库隧道、建表、后端、前端；可重复执行，不清库 |
+| `make dev` | 启动后端（需 `.env`，Postgres 可用） |
+| `make up` | 启动 Postgres 容器、外部只读库隧道、建表、后端、前端；可重复执行，不清库 |
 | `make check` | Lint、格式化、类型检查、架构依赖检查、合同对账、常规测试 |
-| `make test` | 单元与集成测试（Testcontainers 临时 Postgres 与 Redis，不打真实 LLM） |
+| `make test` | 单元与集成测试（Testcontainers 临时 Postgres，不打真实 LLM） |
 | `make test-external` | 需要真实外部凭证的测试，缺凭证时跳过 |
 | `make db-upgrade` | Alembic 升级到最新（启动时不自动建表） |
 | `make web-check` | 前端 `ci:check` |

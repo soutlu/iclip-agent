@@ -1,6 +1,6 @@
 # ADR-0003: agent 运行脱离 HTTP 请求，事件走可重放的流
 
-- 状态：已接受（2026-08-23）
+- 状态：**已被 [ADR-0005](0005-transcript-protocol.md) 取代（2026-08-31）**——协议换成 kimi code 的 transcript、传输换成 WebSocket，Redis 事件流整个退役。下文保留当时的判断，不再描述现状。
 - **[ADR-0001](0001-architecture-foundations.md) §3（DB-based 运行）**：运行事实落库、恢复靠读库，是本文的前提。
 
 ## 背景

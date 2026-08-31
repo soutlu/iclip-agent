@@ -32,36 +32,70 @@
 
 上表之外：`PATCH /users/{id}` 改自己的授权、或停用自己返回 `400`。
 
-## 5. Agent 运行流 (Agent Run Stream)
+## 5. Agent 对话 (Transcript)
 
-`POST /agents/{agentId}/chat` 是唯一的 agent 对话入口，走**官方 AG-UI 协议**。
+agent 对话走 **kimi code 的 transcript 协议**，端点都挂在一段对话下面。
 
-- **请求体**：官方 `RunAgentInput`，`threadId`、`runId`、`state`、`messages`、`tools`、`context`、`forwardedProps` 七个字段全部必填。
-  - `threadId` 即会话身份，同一会话的多次运行必须复用它。它**必须是 `POST /conversations` 发放的 id**。
-  - `runId` 由客户端生成，用来把协议事件对回本次请求、断线时找回同一条流。服务端会把它盖到这次运行的消息与快照上，但它**不是**运行记录的主键。
-- **响应**：`200` + `text/event-stream`。每帧形如 `id: <位置>\ndata: <AG-UI 事件 JSON>\n\n`，首帧为 `RUN_STARTED`，终帧为 `RUN_FINISHED` 或 `RUN_ERROR`。字段名沿用 AG-UI 官方拼写（`threadId` / `runId` / `type` 等），不套用本文 §3 的 camelCase 规则。本端点只发 SSE，不做 `Accept` 协商。
-- 断开连接只是结束订阅，运行会继续跑完。同一个 `runId` 再 POST 一次不会重跑，而是接着读同一条流。
-- **必须发 `Content-Type: application/json`**，否则 `415`。
-- **权限**：需要 `agent:run`。未注册的 `agentId` 返 `404`。
-- **`threadId` 必须是自己名下、且属于这个 agent 的会话**，否则 `404`：不存在、是别人的、或者当初是给另一个 agent 开的，三种情况一律当作不存在。这一步发生在开流之前，返回的是正常的错误响应而不是流中途的报错。
+### 字段名：这一面照协议原样，不套 §3
 
-### 断线重连
+transcript 面是唯一不按 §3 用 camelCase 的地方，因为客户端的 reducer 是照抄来的 zod schema，
+形状对不上整帧被拒。两种写法在同一个 JSON 里并存，是协议本来的样子：
 
-`GET /agents/{agentId}/chat/{conversationId}/{runId}` 接着读同一次运行的事件。
+- **信封 snake_case**：`agent_id`、`has_more_older`、`has_more`、`latest_seq`、`prompt_id`、
+  `since_seq`、`before_turn`、`page_size`。
+- **里面装的实体与操作 camelCase**：`turnId`、`stepId`、`frameId`、`toolCallId`、`hasMoreOlder`。
 
-- **位置**：把最后收到的那帧的 `id` 放进标准的 `Last-Event-ID` 请求头（浏览器原生 `EventSource` 会自动带上），也可以用 `?from=<位置>`；两个都不给就从头整段重放。
-- `404`：没有这次运行（也包括别人的运行——运行只对发起它的用户可见）。
-- `409`：这次运行的事件已经过了重放窗口，要重新发起运行。服务端不会跳到当前位置，收到 `200` 即中间没有缺口。
-- `422`：`runId` 或 `conversationId` 形状不合法（只允许字母、数字、`.`、`_`、`-`，不超过 128 字符），或位置的形状不合法（必须是原样回传的某帧 `id`）。
-- 位置已经在末尾：正常 `200`，然后直接收流，不补发任何事件。
-- **终帧可能是 `RUN_ERROR` 且 `code` 为 `RUN_INTERRUPTED`**：表示这次运行没跑完就断了（例如服务端进程重启），可以重新发起。它不代表模型或业务出错。
-- 权限同 POST：需要 `agent:run`。
+```json
+{"type": "transcript.reset", "agent_id": "main", "seq": 12,
+ "snapshot": {"items": [], "hasMoreOlder": true}}
+```
+
+### 发消息
+
+`POST /conversations/{id}/prompts`，体是 `{prompt_id, content}`。
+
+- `prompt_id` 由客户端铸（乐观气泡靠它认领服务端回来的那条）。同一段对话里重发同一个 id
+  返回已有那条，不会多起一次运行；换一段对话用同一个 id 是 `409`。
+- `content` 是一串 part：`{"type":"text","text":…}`、`{"type":"image","source":{"kind":"url","url":…}}`、
+  `{"type":"video", …}`。
+- 答复是这条消息的记录：这段对话空着就 `status: "running"`，正忙就 `"queued"`。
+- 权限 `agent:run`，且必须是自己名下的对话，否则 `404`。
+
+### 读
+
+- `GET /conversations/{id}/transcript` 一页轮子。不给位置就是最新那几轮；往上翻给
+  `before_turn`，`page_size` 1–100（默认 20）。`has_more` 说的是更旧的那一头。
+- `GET /conversations/{id}/transcript/ops?since_seq=` 补断线期间漏掉的批次。
+  `complete: false` 表示要的批次已经出了窗口，整页重拉。
+- `GET /conversations/{id}/prompts` 当前排程：`{active, queued}`。
+
+### 停止、插话、审批
+
+- `POST /conversations/{id}/prompts/{promptId}:abort`：排队的直接撤，在跑的发取消让它自己
+  收尾。已经结束的是 `409`。
+- `POST /conversations/{id}/prompts:steer`，体 `{prompt_ids}`：把排队中的几条插进正在跑的
+  那一轮，不必等它跑完。没有在跑的运行是 `409`。
+- `POST /conversations/{id}/interactions/{interactionId}`，体 `{approved}`：对审批卡点头或拒绝。
+  工具就在同一次运行里等这个回话。没有等着回应的那张卡是 `404`。
+
+### 订阅
+
+`WS /conversations/{id}/ws`。**帧的 schema 不在 openapi 里**——它归照抄来的
+`packages/transcript` zod schema，前端 vendor 那一份，不另写也不手写。
+
+- 握手：服务端先发 `server_hello`，客户端回 `client_hello`，然后发 `subscribe_v2`
+  （带 `transcript_since` 就是补批）。
+- 服务端每 10 秒发一帧 `ping`；连着两个周期没有收到**任何**入站帧就断开（`1001`）。
+- 第一次订阅收到一帧 `transcript.reset`，其后是 `transcript.ops`。**reset 里的 `seq` 会
+  无条件覆写客户端本地水位**（不是取较大值）——进程重启后批次号从 1 重来，靠的就是这条。
+- 跨域的升级请求直接关（`1008`）：WS 不受 CORS 约束，浏览器照常带 cookie。
+- 服务端积压超过上限会关连接（`1013`），重连补批即可。
 
 ## 6. 对话 (Conversations)
 
-一段对话的 id 即 AG-UI 的 `threadId`。**id 一律由服务端发放**，客户端自己编一个发去 `POST /agents/{agentId}/chat` 会得到 `404`。
+**id 一律由服务端发放**，客户端自己编一个拿去发消息会得到 `404`。
 
-**权限**：`POST /conversations`、`PATCH /conversations/{id}`、`PUT /conversations/{id}/collection`、`PUT /conversations/{id}/task`、`DELETE /conversations/{id}` 需要 `agent:run`；`GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}`、`GET /conversations/search`、`GET /conversations/audit`、`GET /conversations/by-task/{taskId}`、`GET /conversations/{id}/messages`、`GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file` 需要 `agent:read`。
+**权限**：`POST /conversations`、`PATCH /conversations/{id}`、`PUT /conversations/{id}/collection`、`PUT /conversations/{id}/task`、`DELETE /conversations/{id}` 需要 `agent:run`；`GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}`、`GET /conversations/search`、`GET /conversations/audit`、`GET /conversations/by-task/{taskId}`、`GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file` 需要 `agent:read`。
 
 - `GET /conversations` 返回**侧栏拓扑**：`{ collections: [{ id, name, updatedAt, conversationCount, page }], ungroupedCount, ungrouped }`。`page` 与 `ungrouped` 都是一页 `{ items, nextCursor }`；合集与「没归类」两区都只有自己的，各按最近活动倒序；每个合集第一页 10 段，`ungrouped` 第一页 20 条，空合集也在列表里。
 - **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
@@ -89,21 +123,11 @@
 
 - `GET /conversations/audit` 列全平台的对话，按最近活动倒序。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `updatedAt` 上），可任意组合；没有 `users:manage` 是 `403`。
 - 翻页给 `limit` 与 `cursor`：`cursor` 原样回传响应里的 `nextCursor`，为 `null` 表示没有更多了。自己编一个形状不对的是 `422`。
-- `GET /conversations/{id}/messages`、`.../workspace/files`、`.../workspace/file` 对治理者同样放行；`GET /conversations` 与 `GET /conversations/search` 不放行——那是工作台，不是审计台。
-
-### 读历史
-
-`GET /conversations/{id}/messages` 返回的是**官方 AG-UI 形状**的消息，字段名沿用 AG-UI 拼写（不套 §3 的 camelCase 规则）：它们要能原样放进 `POST /agents/{agentId}/chat` 请求体的 `messages` 再发一次。
-
-- 返回的是这段对话**服务端最新的那份存档**。一次运行都没跑过、或者第一次运行就崩在落档之前，返回 `{ "messages": [] }`，不是 404。
-- **服务端在 agent 跑出一步之后才落档**，所以最后一次运行如果崩在落档之前，用户刚发的那条消息不会出现在这里。
-- 用户消息里的附件是规范的媒体 part（`{ "type": "video", "source": { "type": "url", "value": "…" }, "metadata": { "filename": "…" } }`），跟当初发上来的一致。
-- `system` 消息不返回。其余原样：模型上下文里有什么，这里就有什么——工具读进来的图片也照常带着它的内容出现。
-- 别人的对话 `404`。
+- `GET /conversations/{id}/transcript`、`.../transcript/ops`、`.../prompts`、`.../workspace/files`、`.../workspace/file` 对治理者同样放行；`GET /conversations` 与 `GET /conversations/search` 不放行——那是工作台，不是审计台。
 
 ### 附件
 
-- 附件要先成为一个后端与模型都取得到的 **HTTP(S) 地址**，再作为媒体 part 放进消息；正常路径是先把文件传到对象存储拿到地址（`POST /uploads/sign` 直传，见 §11）。`POST /agents/{agentId}/chat` 也接受 `source.type` 为 `data` 的内嵌 base64（单个 16MB 以内，且仅限常见图/音/视频类型）。
+- 附件要先成为一个后端与模型都取得到的 **HTTP(S) 地址**，再作为 part 放进 `content`；正常路径是先把文件传到对象存储拿到地址（`POST /uploads/sign` 直传，见 §11）。只收 `kind: "url"` 的来源。
 - 走直传拿地址不要求登记进素材库；agent 能不能用一个地址，判据是「它在这段对话里出现过没有」。
 - 传不进来的附件不会让整条请求失败，而是在消息里原位变成一句 `[媒体不可用：…]`。
 

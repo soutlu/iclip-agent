@@ -8,7 +8,7 @@ iclip-agent 是 Productor 视频创作产品的后端，也是跨端合同的定
 
 双主体身份体系：Cookie 会话用户 + Bearer API key 机器用户，浏览器经同源 `/api`（反代 rewrite）进来，两者都由 `server/` FastAPI（每 worker 一份）的 PrincipalResolver 解析成唯一信任点。Agent 引擎是 PydanticAI，隔离在 `harness` 围栏内；agent 的运行历史（run 血缘、逐步事件、可续跑快照、工具副作用）落 Postgres 的 `agent_runtime` schema。模型经 `config.yaml` 的命名表装配，agent 在 `agents.yaml` 里引用名字。
 
-agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件写进 Redis 的一条可重放流，HTTP 只订阅（见 §10 与 [adr/0003](adr/0003-detached-runs-and-replayable-streams.md)）。**Redis 只承载在途与近期的事件流，不是事实源**；持久事实只在 Postgres。
+agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，产出落进进程内的实时状态，HTTP/WS 只订阅（见 §10 与 [adr/0005](adr/0005-transcript-protocol.md)）。**实时状态是投影，不是事实源**；持久事实只在 Postgres。
 
 ## 2. 分层依赖规则
 
@@ -30,9 +30,9 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
-围栏由 tach（`server/tach.toml`）与架构单测（`server/tests/unit/architecture/test_architecture.py` 的 `FRAMEWORK_FENCES`）强制，只走 `server/src/`，名单在代码里；新增一个碰 SQL/Redis 的文件要在 `FRAMEWORK_FENCES` 加一行。跨模块只准 import 对方 `public.py`。能力包之间互不 import：两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边。接口随首个实现定义，不提前写投机 ABC。
+围栏由 tach（`server/tach.toml`）与架构单测（`server/tests/unit/architecture/test_architecture.py` 的 `FRAMEWORK_FENCES`）强制，只走 `server/src/`，名单在代码里；新增一个碰 SQL 或框架的文件要在 `FRAMEWORK_FENCES` 加一行。跨模块只准 import 对方 `public.py`。能力包之间互不 import：两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边。接口随首个实现定义，不提前写投机 ABC。
 
-**外部存储落点**：实现官方协议的后端跟着「说这门协议的那一层」走（`harness/step_store_pg.py` 是官方 `StepStore`/`MediaStore` 协议的 PG 后端，`harness/run_stream_redis.py` 是运行事件流的 Redis 后端）；模块或能力包自有的表放自己模块里的 `infra_sql.py`；`platform/db/` 放跨模块复用的查询原语（`scope_to_owner`）；`platform/object_store/` 是公开对象存储的适配器，业务侧只认协议（`PublicObjectStore`、`SignedUploadStore`），桶里的完整布局在 `layout.py`，每一根 key 都由它发；`platform/file_store/` 是命名空间化文本文件存储的 PG 后端（表 `agent_runtime.workspace_files`），能力侧只认 `FileStore` 协议；`domains/products/catalog_pg.py` 与 `domains/inspirations/catalog_pg.py` 读外部只读源，不是本模块自有的表；engine 与 Redis 客户端只在 `app/` 建。
+**外部存储落点**：实现官方协议的后端跟着「说这门协议的那一层」走（`harness/step_store_pg.py` 是官方 `StepStore`/`MediaStore` 协议的 PG 后端，`harness/prompts.py` 是 prompt 队列的表——它归运行驱动所有）；模块或能力包自有的表放自己模块里的 `infra_sql.py`；`platform/db/` 放跨模块复用的查询原语（`scope_to_owner`）；`platform/object_store/` 是公开对象存储的适配器，业务侧只认协议（`PublicObjectStore`、`SignedUploadStore`），桶里的完整布局在 `layout.py`，每一根 key 都由它发；`platform/file_store/` 是命名空间化文本文件存储的 PG 后端（表 `agent_runtime.workspace_files`），能力侧只认 `FileStore` 协议；`domains/products/catalog_pg.py` 与 `domains/inspirations/catalog_pg.py` 读外部只读源，不是本模块自有的表；engine 只在 `app/` 建。
 
 ## 3. 目录布局
 
@@ -42,7 +42,8 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 | `server/src/iclip/app/` | **唯一组合根**：装配、entrypoints、lifespan + `capability_table.py`（capability 的名字表）+ `task_styles.py`（需求单款号快照的实现） |
 | `server/src/iclip/config/` | RuntimeConfig：YAML 源（形状）+ `*Env` 类（环境变量清单） |
 | `server/src/iclip/domains/<模块>/` | 业务模块，每个是 `models.py`/`schemas.py`/`repository.py`/`infra_sql.py`/`service.py`/`api.py`/`module.py`/`public.py` 的组合：`identity/`（另有 `middleware.py` PrincipalResolver、`rbac.py`、`sso.py`、`pms.py`、`accounts.py` fastapi-users 装配，见 §6）、`agents/`（agent 运行的 HTTP 面，`public.py` 的 `AgentRunDeps` = 一次运行的身份 + 所属对话；只认识注入进来的运行入口）、`conversations/`（§12）、`generation/`（§11；`queue.py` 三条队列 + 任务体 + 捡卡死任务，`multiflow.py` 视频 / `nano_banana.py` 图像 provider）、`products/`（§13；`catalog_pg.py` 外部只读源的唯一 SQL 出口、`tables.py` 码→名字的常量表，自己不建表）、`inspirations/`（§15；同样只有 `catalog_pg.py`，自己不建表）、`projects/`（需求单与对话各自持有指向它的那一列）、`tasks/`（§14；`ports.py` 按款号抄快照的协议，不依赖任何别的业务模块）、`assets/`（§16；`images.py` 量图片尺寸，`api.py` 挂 `/uploads/*` 与 `/assets/*`） |
-| `server/src/iclip/harness/` | 通用 agent 内核：`step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配 + 官方协议事件流）、`skills.py`（skill 库装配 + 读 references 的工具）、`runs.py`（后台运行与可重放流）、`run_stream_redis.py`（事件流的 Redis 后端）、`media.py`（媒体引用协议：前端形状 ↔ 模型形状）、`materials.py`（对话素材范围，定义见 CONTEXT.md） |
+| `server/src/iclip/harness/` | 通用 agent 内核：`step_store_pg.py`（官方 StepPersistence / MediaStore 协议的 PG 后端）、`models.py`（命名模型装配）、`agents.py`（agent 装配）、`skills.py`（skill 库装配 + 读 references 的工具）、`prompts.py`（prompt 队列的表）、`media.py`（媒体引用的文法）、`materials.py`（对话素材范围，定义见 CONTEXT.md）、`transcript/`（投影器、实时状态、从消息现推、运行驱动、对外那一口） |
+| `server/src/iclip/platform/transcript/` | transcript 协议的形状：`ops.py`（实体与操作，camelCase）、`wire.py`（WS 帧与 REST 信封，snake_case）。照抄来的外部合同，harness 与 HTTP 面都认它，谁都不拥有它 |
 | `server/src/iclip/capabilities/` | capability 实现（落地一件就在 `app/capability_table.py` 登记名字）：`workspace/`（`capability.py` 六件工具、`scope.py` 运行 → 命名空间的规则）、`shot_video/`（`capability.py` 四件工具、`shots.py` 镜头区间解析 + 等间隔采样、`board.py` 预览板拼版与帧号叠印、`grid.py` 切格几何、`prompt.py` 整版 prompt 拼接、`ffmpeg.py` 异步子进程 + 取素材、`parser.py` 视频拆解的 Responses 适配器 + 提示词、`ports.py` 对外要的三个窄协议） |
 | `server/src/iclip/platform/` | `db/`（ownership 行级归属原语）、`http.py`（领域错误→HTTP 单点映射）、`object_store/`（阿里云 OSS：`layout.py` + `oss.py`）、`file_store/`（`store.py` 路径语法 + `FileStore` 协议 + `FileSpace`「存储 × 命名空间规则」，`pg.py` PG 后端） |
 | `server/src/iclip/common/` | 领域错误分类（`errors.py`：DomainError 及其五个子类） |
@@ -56,7 +57,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 ## 4. 装配流程
 
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid），不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、找出同级 `instructions.md`、把同级 `skills/` 库解析成绝对路径；声明文件、spec 文件或目录缺失即报错。
-2. 组合根 `app/bootstrap`：`resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块，把它的「删对话时连带清掉派生物」「读历史」「列/读派生文件」口子分别接到工作区的清空与读取、引擎登记表的读取器上 → `OSS_BUCKET` 非空时建公开对象存储（素材、生成、镜头帧共用这一只桶）并装 assets 模块（没有桶整组路由不挂）→ `media_generation` 段 + `VIDEO_SUBMIT_URL` 非空时装 generation 模块（两家 provider 一起装，缺一个 env 即报错；对象存储没开也报错）→ `VIDEO_UNDERSTANDING_URL` 非空时建镜头素材能力取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe（此时媒体生成必须也开着）→ `PRODUCT_CATALOG_DATABASE_URL` / `INSPIRATION_DATABASE_URL` 非空时各建一个只读 engine（会话层设成只读）并装 products / inspirations 模块 → 装 tasks 模块，把「按款号抄快照」协议接到产品资料库与桶上（缺一个就接一个只会拒绝的替代品）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来）→ 声明了 agent 时建 Redis 客户端与运行 broker（`redis` 段缺席即报错；没有 agent 整组路由不挂）→ 新建唯一 FastAPI → 注册路由 → 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先开队列连接再起三个 worker；关停顺序：**先收 worker 与队列连接、再收后台运行，然后关镜头素材的 HTTP 客户端与 Redis，最后 dispose engine**。
+2. 组合根 `app/bootstrap`：`resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块，把它的「删对话时连带清掉派生物」「列/读派生文件」口子接到工作区的清空与读取上 → `OSS_BUCKET` 非空时建公开对象存储（素材、生成、镜头帧共用这一只桶）并装 assets 模块（没有桶整组路由不挂）→ `media_generation` 段 + `VIDEO_SUBMIT_URL` 非空时装 generation 模块（两家 provider 一起装，缺一个 env 即报错；对象存储没开也报错）→ `VIDEO_UNDERSTANDING_URL` 非空时建镜头素材能力取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe（此时媒体生成必须也开着）→ `PRODUCT_CATALOG_DATABASE_URL` / `INSPIRATION_DATABASE_URL` 非空时各建一个只读 engine（会话层设成只读）并装 products / inspirations 模块 → 装 tasks 模块，把「按款号抄快照」协议接到产品资料库与桶上（缺一个就接一个只会拒绝的替代品）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来）→ 建实时状态、prompt 队列与运行驱动，装上 transcript 的读写端点与订阅连接 → 新建唯一 FastAPI → 注册路由 → 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先收拾上一条命留下的 prompt 行，再开队列连接、起三个 worker；关停顺序：**先收 worker 与队列连接、再按第一方取消收掉在跑的运行（它们要落库），然后关镜头素材的 HTTP 客户端，最后 dispose engine**。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -89,7 +90,9 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，事件�
 
 ### 运行依赖（工具怎么拿到调用方身份）
 
-**一次运行的 deps 就是发起它的 `Principal`**，经官方的依赖注入机制传入：HTTP 端点把中间件建立的主体交给运行入口 → `AgentRuns.open(deps=…)` → `registry.start(…, deps)` → 官方 `run_stream(deps=…)`。业务工具按 `RunContext[Principal]` 写，子 agent 由官方自动转发（`deps=ctx.deps`）。harness 一侧这个参数的类型是 `object` 且全程不解包；唯一写具体类型的地方是 `domains/agents/api.py` 的 `AgentRuns` 协议。`owner` 保持独立参数：它只是流名字的归属段。
+**一次运行的 deps 就是发起它的 `Principal`**，经官方的依赖注入机制传入：运行驱动按 prompt 行上的属主把主体拼回来 → 官方 `run_stream_events(deps=…)`。业务工具按 `RunContext[Principal]` 写，子 agent 由官方自动转发（`deps=ctx.deps`）。harness 一侧这个参数的类型是 `object` 且全程不解包；组合根的 `deps_for_prompt` 是唯一写具体类型的地方。
+
+**身份在收下 prompt 的那一刻就定了**，不随请求走：一条消息可能排了很久才轮到，那时发起它的 HTTP 请求早就没了。行上记的是属主 id，开跑时按它重建主体——排队期间被停用的账号因此拿不到运行。
 
 **deps 只放身份，不放 I/O 句柄**：服务经 `app/capability_table.py` 的闭包在装配期注入。deps 里放的是 `AgentRunDeps`（可信主体 + 所属对话）；派活时官方转发 deps、不转发运行自己的 `conversation_id`。定义见 CONTEXT.md「运行依赖」。
 
@@ -124,22 +127,32 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 
 ## 8. 路由面
 
-端点、权限与状态码以 [`contract/openapi.json`](../contract/openapi.json) 为准（`make contract` 从后端导出）。合同表达不了的两条：`POST /agents/{agent_id}/chat` 强制 `Content-Type: application/json`，否则 415；`OPTIONS /agents/{agent_id}/chat` 返回 204 且**刻意不带任何 `Access-Control-Allow-*` 头**。
+端点、权限与状态码以 [`contract/openapi.json`](../contract/openapi.json) 为准（`make contract` 从后端导出）。合同表达不了的两条：transcript 面的字段名照协议原样（信封 snake_case、实体 camelCase），见 [conventions.md](../contract/conventions.md) §5；WS 帧的 schema **不在 openapi 里**，它归照抄来的 `packages/transcript` zod schema，前端 vendor 那一份。
 
 ## 9. 运维
 
 日志：structlog（结构化，级别来自 `ops.log_level`）。管理 CLI 见 §3 的 `server/scripts/admin.py`。测试与命令见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
 
-## 10. 运行事件流
+## 10. Transcript（对话记录与订阅）
 
-一次 agent 运行分成两半：**跑**和**读**。跑的那一半是个后台任务，不绑在任何一次 HTTP 请求上；读的那一半就是订阅。中间只有 Redis 里的一条流。`POST /agents/{id}/chat` 抢到生产权就起后台任务（AG-UI 事件 → 编码 → 写流，另有心跳任务定期续存活标记，StepPersistence 照旧落 Postgres），抢不到说明已经有人在跑，就只读；`GET /agents/{id}/chat/{会话 id}/{运行 id}` 从 `Last-Event-ID`（其次 `?from=`）给定的位置往后读，读到终帧为止，过了重放窗口 409。理由见 [adr/0003](adr/0003-detached-runs-and-replayable-streams.md)。
+一次 agent 运行分成两半：**跑**和**看**。跑的那一半是个后台任务，不绑在任何一次 HTTP 请求上；看的那一半是订阅。协议是 kimi code 的 transcript，理由见 [adr/0005](adr/0005-transcript-protocol.md)。
 
-Redis 键 `iclip:agent:run:{用户 id}:{会话 id}:{agent id}:{运行 id}` 是事件流本体，一帧一条，最后一帧带「结束了」的标记位；同名 + `:state` 记这条流处在哪个阶段：`live`（有人在写，心跳续期）/ `done`（写完了，与流同寿命）/ 键不存在。
+**transcript 是投影，不是事实源。** 持久事实只有官方 `StepPersistence` 存的那份消息历史：
 
-- **三个阶段各对应一种处置**：`done` 是读者读到了末尾（就此收流，不造事件）；键不存在是写的人没留下结局就消失了（写一帧可重试的中断收尾）。`done` 标记同时挡住第二个生产者。
-- **终帧靠流上的标记位判断**，不解析帧内容；读到第一个带标记的帧就停，后面的一律不看。**心跳是独立任务**，不搭在写帧上。
-- **活跃运行的流不裁剪**，只在运行结束时给整条流定重放窗口；收尾也要定重放窗口，不管收尾的是写的人还是读的人。
-- **读事件会挂在 Redis 上等**，期间占住一条连接：`max_connections` 是「同时能有多少人在看事件流」的天花板；客户端 socket 超时比这个等待窗口宽出一截；连接池用「满了排队」而不是「满了报错」。
+- 已经跑完的轮子由 `from_messages` 从消息现推，终态从官方记的 run 结束事件读。
+- 正在跑的那一轮由投影器（官方 `UIEventStream` 的子类）从引擎事件流产出操作，落在进程内存的实时状态里。
+- 一轮的快照落库之后，实时状态就把它交接掉（`mark_snapshot_persisted` → `drop_persisted_turns`）。**先确认落库再放手**：中间要是先丢了，两边都拿不出这一轮。
+
+两条路必须给出逐字相同的结构，否则界面会在刷新的瞬间变形且不报错，所以编号一律从确定的事实算出来（轮=消息上的 `run_id` 分组、步=第几次模型响应、块=正文与思考的次序），并有一组对齐测试钉住。
+
+**批次号与补批**：实时状态每落一批操作发一个号，每 agent 连续，同时进一个有界的补批日志（2000 批）。客户端断线后带着水位来要，要得回就补，要不回答 `complete: false` 让它整页重拉。
+
+- **进程重启后号从 1 重来，而这是安全的**：客户端收到 `transcript.reset` 会把本地水位**无条件覆写**成帧里的 `seq`（不是取较大值）。什么时候必须先发 reset 收在 `subscription.subscribe_frames` 一处——判错了服务端一切正常，客户端安静地停止更新。
+- **实时状态的方法全是同步的，中途一个 `await` 都不能有**：发号、落地、进日志、递给在听的人四件事必须一起生效。asyncio 只在 await 处切换任务，所以没有 await 的方法天然是一个临界区。
+
+**运行驱动**（`harness/transcript/runner.py`）是唯一知道「这段对话此刻有没有在跑」的地方，停止、插话、审批三条人机往返都归它：停止走官方 `CancellationToken`（不是 `task.cancel()`——外部取消是 `BaseException`，官方的收尾分支接不住，终态操作发不出去），插话走一个 capability 里的 `ctx.enqueue`，审批走 `HandleDeferredToolCalls` 在同一次 run 内 await。
+
+**prompt 队列**（`agent_runtime.prompts`）是持久事实，不是投影：排队中的消息在别处推不出来。「一段对话同时只跑一条」由部分唯一索引挡住，不靠先查后写。进程启动时收拾上一条命留下的行（在跑的判失败、排队的判撤销），不收拾的话那段对话会永远「正在跑」。
 
 ## 11. 媒体生成
 
@@ -166,7 +179,11 @@ iclip.generation_jobs ◀────────────────┤    
 
 ## 12. 对话（会话）
 
-对话与两种 id 的定义、铸造规则见 CONTEXT.md「对话」与不变量 8。会话 id（`threadId`）由服务端在 `POST /conversations` 发放，用来归档运行、划工作区地盘、算事件流的名字；运行 id（`runId`）由客户端铸造，同一个 id 再发一次是接着读而不是重跑；落库的 `run_id` 是官方 `StepPersistence` 的主键（`{agent 名}-{短 uuid}`），主 agent 与每个下属各一条，客户端给的 `runId` 经 `run_stream(run_id=…)` 盖到这次运行的消息与快照上。
+对话的定义与铸造规则见 CONTEXT.md「对话」与不变量 8。会话 id 由服务端在 `POST /conversations` 发放，用来归档运行、划工作区地盘、分实时状态。
+
+运行 id 由运行驱动铸（`{agent id}-{短 uuid}`）并交给引擎，于是它同时是消息上的 `run_id` 与阶段账本的主键——**顶层 agent 的 `StepPersistence` 因此不设 `agent_name`**：设了官方就自己铸一个，与消息上的对不上，轮的终态就查不出来。下属留着名字，它们不进 transcript。
+
+消息 id（`prompt_id`）由客户端铸，用来认领自己的乐观气泡；同一段对话里重发同一个不会多起一次运行。
 
 **运行记录（`agent_runtime.runs`）不加指向 `conversations` 的外键**，两边靠 `conversation_id` 字段对上，有索引。
 
