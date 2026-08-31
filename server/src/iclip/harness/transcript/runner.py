@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -37,7 +37,11 @@ from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.prompts import PromptQueue, PromptRow, PromptStatus
-from iclip.harness.transcript.from_messages import run_ids_from_messages
+from iclip.harness.transcript.from_messages import (
+    ORPHAN_TOOL_ERROR,
+    run_ids_from_messages,
+    unanswered_tool_calls,
+)
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.prompt_media import attachments_of, model_prompt
 from iclip.harness.transcript.store import TranscriptStore
@@ -63,12 +67,29 @@ class ConversationSnapshots(Protocol):
     """按对话取最新存档。只要这一口，不要整个 step store。"""
 
     async def latest_conversation_snapshot(
-        self, *, conversation_id: str
+        self, *, conversation_id: str, include_interrupted: bool = False
     ) -> ContinuableSnapshot | None: ...  # pragma: no cover
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _close_out(history: Sequence[ModelMessage]) -> DeferredToolResults | None:
+    """上一轮留下的没有结果的工具调用，给它们补一份「没跑成」的结果。
+
+    不补的话官方拒绝这次运行：历史里带着未处理的工具调用时不许再发一句新的用户消息。这是官方
+    留给调用方的口子——那几次调用是「前沿」，它等我们说清楚它们到底怎么了（更早的悬空调用官方
+    自己会在每次请求前补齐）。
+
+    补的内容只是一句话，不是假装它成功了。副作用到底发生过没有由官方的工具账本记着
+    （``list_unresolved_tool_effects``），这里不假设。
+    """
+
+    pending = unanswered_tool_calls(history)
+    if not pending:
+        return None
+    return DeferredToolResults(calls={item: ORPHAN_TOOL_ERROR for item in pending})
 
 
 @dataclass
@@ -413,6 +434,7 @@ class ConversationRunner:
         async with agent.run_stream_events(
             model_prompt(row.content),
             message_history=history,
+            deferred_tool_results=_close_out(history),
             conversation_id=row.conversation_id,
             run_id=run_id,
             deps=deps,
@@ -431,19 +453,43 @@ class ConversationRunner:
         return "failed" if projector.failed else "completed"
 
     async def _history(self, conversation_id: str) -> list[ModelMessage]:
+        """这段对话到目前为止的消息，中断的那一份也算。
+
+        只读完整的快照会让一次失败的运行从此消失：它只落得下中断的那一份，下一次运行拿不到它，
+        于是它也不进后面任何一份快照——轮号被重用，历史里那一轮再也找不回来。
+
+        代价是历史末尾可能留着没有结果的工具调用，起 run 时得把它们收掉（见
+        ``unanswered_tool_calls``）。
+        """
+
         snapshot = await self._snapshots.latest_conversation_snapshot(
-            conversation_id=conversation_id
+            conversation_id=conversation_id, include_interrupted=True
         )
         return [] if snapshot is None else list(snapshot.messages)
+
+    async def _derived_run_ids(self, conversation_id: str) -> tuple[str, ...]:
+        """历史那一侧推得出来的运行，中断的也算。
+
+        轮号与交接都按这一份，不按 ``_history``：两者选的快照不一样的话，一次失败的运行会让轮号
+        重用——历史那侧把它算进去了，这侧没有，于是新一轮和失败那一轮同号，界面上两个 t5。
+        """
+
+        snapshot = await self._snapshots.latest_conversation_snapshot(
+            conversation_id=conversation_id, include_interrupted=True
+        )
+        return () if snapshot is None else tuple(run_ids_from_messages(snapshot.messages))
 
     async def _hand_over(self, conversation_id: str, *, run_id: str, turn_id: str) -> None:
         """确认这一轮已经落进消息历史，再把它从实时状态里放掉。
 
         先确认再放手：终态操作发出去之后快照才在写，中间要是先丢了，两边都拿不出这一轮，
         客户端刷新会看到它凭空消失。落库失败就一直留着，占点内存换不丢。
+
+        按历史那一侧能推出什么来判，含中断的快照：一次失败的运行只落得下中断的那一份，按完整的
+        判就永远交接不掉，这一轮会一直占着实时状态。
         """
 
-        if run_id not in run_ids_from_messages(await self._history(conversation_id)):
+        if run_id not in await self._derived_run_ids(conversation_id):
             _logger.warning("这一轮还没落进消息历史，先留在实时状态里：run=%s", run_id)
             return
         self._store.mark_snapshot_persisted(conversation_id, MAIN_AGENT_ID, turn_id)
