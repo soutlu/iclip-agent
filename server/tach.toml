@@ -34,7 +34,7 @@ depends_on = ["iclip.common", "iclip.platform.db", "iclip.platform.http"]
 # agent 运行的 HTTP 面：只认识注入进来的事件流工厂，不认识 harness。
 [[modules]]
 path = "iclip.domains.agents"
-depends_on = ["iclip.domains.identity", "iclip.platform.transcript"]
+depends_on = ["iclip.common", "iclip.domains.identity", "iclip.platform.transcript"]
 
 # 对话：自有的表。不认识 agent 引擎，也不认识工作区——删对话要连带清掉的那些东西
 # 由组合根接线进来（见 domains/conversations/service.py 的 PurgeDerived）。

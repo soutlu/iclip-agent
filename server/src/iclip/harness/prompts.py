@@ -138,10 +138,15 @@ class PromptQueue:
 
         ``prompt_id`` 由调用方铸，重复提交同一个 id 返回已有那条（客户端重试不会多起一次
         运行，也不会多出一条排队）。
+
+        **认领只在同一段对话内算数。** id 是客户端铸的，两个人撞上同一个是完全可能的；不比
+        对话就返回已有那条的话，撞上的人会拿到别人的消息记录，而他自己那条从来没被收下。
         """
 
         existing = await self.get(prompt_id)
         if existing is not None:
+            if existing.conversation_id != conversation_id:
+                raise Conflict("这个消息 id 已经用过了，换一个")
             return existing
         busy = exists(
             select(prompts_table.c.prompt_id)

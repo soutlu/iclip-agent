@@ -101,12 +101,6 @@ class SsoEnv(EnvSettings):
     root_email: OptionalEnv = Field("", validation_alias="ROOT_EMAIL")
 
 
-class RedisEnv(EnvSettings):
-    """运行事件流的 Redis。声明了 ``redis`` 段就必需。"""
-
-    url: RequiredEnv = Field(validation_alias="REDIS_URL")
-
-
 class ObjectStoreEnv(EnvSettings):
     """公开对象存储（阿里云 OSS）的地址与凭证。
 
@@ -198,19 +192,6 @@ class SsoSection(ConfigSection):
     """SSO 里唯一不属于「地址与凭证」的东西：我们在对方那边注册的应用名。"""
 
     app_name: str
-
-
-class RedisSection(ConfigSection):
-    """运行事件流的调参。地址在 ``RedisEnv``。"""
-
-    replay_window_seconds: int = 3600
-    max_frames: int = 100_000
-    max_connections: int = 64
-    """连接池上限。
-
-    每个正在读流的客户端都会占住一条连接不放（它一直阻塞着等新事件），
-    所以这个数就是「同时能有多少人在看事件流」的天花板，不是普通的性能旋钮。
-    """
 
 
 class ModelSection(ConfigSection):
@@ -313,7 +294,6 @@ class RuntimeConfig(BaseSettings):
     db: DbSection
     security: SecuritySection
     sso: SsoSection
-    redis: RedisSection | None = None
     media_generation: MediaGenerationSection | None = None
     shot_video: ShotVideoSection | None = None
     models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
@@ -364,14 +344,6 @@ class ResolvedSso:
     redirect_url: str
     pms_base_url: str | None
     root_email: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedRedis:
-    url: str
-    replay_window_seconds: int
-    max_frames: int
-    max_connections: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -444,7 +416,6 @@ class ResolvedSettings:
     db_schema: str
     security: ResolvedSecurity
     sso: ResolvedSso | None
-    redis: ResolvedRedis | None
     object_store: ObjectStoreEnv | None
     media_generation: ResolvedMediaGeneration | None
     shot_video: ResolvedShotVideo | None
@@ -583,15 +554,6 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             root_email=env.root_email or None,
         )
 
-    redis: ResolvedRedis | None = None
-    if config.redis is not None:
-        redis = ResolvedRedis(
-            url=_from_env(RedisEnv).url,
-            replay_window_seconds=config.redis.replay_window_seconds,
-            max_frames=config.redis.max_frames,
-            max_connections=config.redis.max_connections,
-        )
-
     object_store = _resolve_object_store()
     media_generation = _resolve_media_generation(
         config.media_generation, object_store_on=object_store is not None
@@ -608,7 +570,6 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             cors_allow_origins=config.security.cors_allow_origins,
         ),
         sso=sso,
-        redis=redis,
         object_store=object_store,
         media_generation=media_generation,
         shot_video=_resolve_shot_video(

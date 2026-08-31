@@ -25,6 +25,7 @@ from iclip.platform.transcript.ops import (
     EmittableOperation,
     Interaction,
     Prompt,
+    PromptContent,
     TranscriptMeta,
     TranscriptSnapshot,
     TranscriptTurn,
@@ -203,8 +204,34 @@ class PromptQueueOut(_Envelope):
     queued: tuple[Prompt, ...]
 
 
+# --- REST 请求体 --------------------------------------------------------------
+#
+# 请求体的字段名同样照协议原样（snake_case）。整个 transcript 面只有一条规矩：逐字照抄，
+# 不按仓内的 camelCase 习惯翻译——一半照抄一半翻译，写客户端的人得记两套。
+
+
+class PromptSubmission(_Envelope):
+    """``POST /prompts`` 的请求体。
+
+    ``prompt_id`` 由客户端铸：它得在服务端答复回来之前就用这个 id 把自己的乐观气泡挂上，
+    而且重发同一个 id 不会多起一次运行。
+    """
+
+    prompt_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    content: tuple[PromptContent, ...] = Field(min_length=1)
+
+
+class SteerRequest(_Envelope):
+    prompt_ids: tuple[str, ...] = Field(min_length=1)
+
+
+class ApprovalRequest(_Envelope):
+    approved: bool
+
+
 __all__ = [
     "Ack",
+    "ApprovalRequest",
     "ClientFrame",
     "ClientHello",
     "ClientHelloPayload",
@@ -213,10 +240,12 @@ __all__ = [
     "Ping",
     "Pong",
     "PromptQueueOut",
+    "PromptSubmission",
     "ServerFrame",
     "ServerHello",
     "ServerHelloCapabilities",
     "ServerHelloPayload",
+    "SteerRequest",
     "Subscribe",
     "SubscribeAckPayload",
     "SubscribePayload",

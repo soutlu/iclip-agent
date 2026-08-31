@@ -17,7 +17,7 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from iclip.config import ResolvedAgent, SkillMount
-from tests.helpers.agui import run_input
+from tests.integration_no_llm.agents.waiting import settled
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
     new_conversation,
@@ -85,11 +85,13 @@ async def test_declared_skill_reaches_the_running_agent(
     await register_and_login(client)
     await set_roles_in_db(pg_url, "luke@example.com", ["editor"])
 
-    body = run_input(thread_id=await new_conversation(client, AGENT_ID))
-    async with client.stream("POST", f"/agents/{AGENT_ID}/chat", json=body) as response:
-        assert response.status_code == 200
-        async for _ in response.aiter_text():
-            pass
+    conversation_id = await new_conversation(client, AGENT_ID)
+    sent = await client.post(
+        f"/conversations/{conversation_id}/prompts",
+        json={"prompt_id": "prm_skill", "content": [{"type": "text", "text": "开始"}]},
+    )
+    assert sent.status_code == 200, sent.text
+    await settled(client, conversation_id)
 
     # 官方的按需加载入口（skill 正文靠它加载）与读 references 的工具，两个都得
     # 在——只有前者说明库挂上了但读不到分支规则。

@@ -20,6 +20,7 @@ from pydantic_ai_harness.step_persistence import StepPersistence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from iclip.common.errors import Conflict, NotFound
 from iclip.harness.prompts import PromptQueue
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.transcript.from_messages import run_ids_from_messages
@@ -286,3 +287,47 @@ async def test_resubmitting_the_same_prompt_id_does_not_start_a_second_run(
     view = await queue.view(conversation_id)
     assert view.active is not None
     assert view.queued == ()
+
+
+async def test_the_same_prompt_id_in_another_conversation_is_rejected(
+    engine: AsyncEngine,
+) -> None:
+    """消息 id 是客户端铸的，两个人撞号是可能的。
+
+    不比对话就返回已有那条的话，撞上的人会拿到别人的消息记录，而他自己那条从来没被收下。
+    """
+
+    queue = PromptQueue(engine)
+    now = datetime.now(UTC)
+    await queue.submit(
+        prompt_id="prm_shared",
+        conversation_id="c-mine",
+        agent_id=AGENT_ID,
+        owner_user_id=OWNER,
+        content=(TextContent(text="我的"),),
+        now=now,
+    )
+    with pytest.raises(Conflict):
+        await queue.submit(
+            prompt_id="prm_shared",
+            conversation_id="c-yours",
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text="你的"),),
+            now=now,
+        )
+
+
+async def test_aborting_a_prompt_from_another_conversation_is_not_found(
+    engine: AsyncEngine,
+) -> None:
+    """光凭一个消息 id 停不掉别人那段对话里的运行。"""
+
+    store = TranscriptStore()
+    runner, _step_store, queue = _runner(engine, _says("好"), store=store)
+    prompt_id = await _submit(runner, queue, "c-owner", "跑起来")
+
+    with pytest.raises(NotFound):
+        await runner.abort("c-someone-else", prompt_id)
+
+    await runner.shutdown()

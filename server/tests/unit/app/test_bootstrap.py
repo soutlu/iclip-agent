@@ -17,7 +17,6 @@ from iclip.config import (
     ImageGenerationSection,
     MediaGenerationSection,
     OpsSection,
-    RedisSection,
     ResolvedAgent,
     RuntimeConfig,
     SecuritySection,
@@ -25,12 +24,11 @@ from iclip.config import (
     VideoGenerationSection,
 )
 from tests.helpers.generation import MemoryObjectStore
-from tests.helpers.run_stream import MemoryRunStream
 
 AGENT_ID = "storyboard"
 
 
-def config_without_redis() -> RuntimeConfig:
+def minimal_config() -> RuntimeConfig:
     return RuntimeConfig(
         app=AppSection(name="t"),
         db=DbSection(schema="iclip"),
@@ -61,7 +59,6 @@ def base_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://iclip:iclip@localhost:5432/nowhere")
     monkeypatch.setenv("AUTH_SECRET", "s" * 32)
     monkeypatch.delenv("SSO_BASE_URL", raising=False)
-    monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.setenv("OSS_BUCKET", "iclip")
     monkeypatch.setenv("OSS_ENDPOINT", "https://oss.test")
     monkeypatch.setenv("OSS_ACCESS_KEY_ID", "ak")
@@ -78,26 +75,11 @@ def engine():
     return create_async_engine("postgresql+asyncpg://iclip:iclip@localhost:5432/nowhere")
 
 
-def test_declared_agents_without_redis_fail_at_startup(base_env: None, tmp_path: Path) -> None:
-    """事件流是 agent 运行的必需件，缺了就别启动——不许退化成「跑但断了就丢」。"""
-
-    with pytest.raises(RuntimeError, match="redis"):
-        build_app(
-            config_without_redis(),
-            agents=(declared_agent(tmp_path),),
-            engine=engine(),
-            models={"m": TestModel()},
-        )
-
-
-def test_declared_agents_with_redis_section_build(
-    base_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    config = config_without_redis().model_copy(update={"redis": RedisSection()})
+def test_declared_agents_build(base_env: None, tmp_path: Path) -> None:
+    """声明了 agent 就能装起来，不再需要任何外部队列。"""
 
     app = build_app(
-        config,
+        minimal_config(),
         agents=(declared_agent(tmp_path),),
         engine=engine(),
         models={"m": TestModel()},
@@ -106,29 +88,18 @@ def test_declared_agents_with_redis_section_build(
     assert app.title == "t"
 
 
-async def test_without_agents_the_run_endpoints_are_absent(base_env: None) -> None:
-    """没声明 agent 就不挂这组路由，也就不需要 Redis（同 SSO 关闭时的做法）。"""
+async def test_transcript_endpoints_are_always_mounted(base_env: None) -> None:
+    """transcript 那组路由不看有没有声明 agent：没登录就该是 401，不是 404。"""
 
-    app = build_app(config_without_redis(), engine=engine(), models={})
+    app = build_app(minimal_config(), engine=engine(), models={})
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(f"/agents/{AGENT_ID}/chat", json={})
+        response = await client.post(
+            "/conversations/00000000-0000-0000-0000-000000000000/prompts",
+            json={"prompt_id": "prm_1", "content": [{"type": "text", "text": "走"}]},
+        )
 
-    assert response.status_code == 404
-
-
-async def test_injected_stream_needs_no_redis_config(base_env: None, tmp_path: Path) -> None:
-    """测试可以自带事件流；那时不读 redis 段。"""
-
-    app = build_app(
-        config_without_redis(),
-        agents=(declared_agent(tmp_path),),
-        engine=engine(),
-        models={"m": TestModel()},
-        run_stream=MemoryRunStream(),
-    )
-
-    assert app.title == "t"
+    assert response.status_code == 401
 
 
 MEDIA_ENVS = {
@@ -141,7 +112,7 @@ MEDIA_ENVS = {
 
 
 def config_with_media() -> RuntimeConfig:
-    return config_without_redis().model_copy(
+    return minimal_config().model_copy(
         update={
             "media_generation": MediaGenerationSection(
                 video=VideoGenerationSection(model="seedance", user_name="iclip-agent"),
@@ -154,7 +125,7 @@ def config_with_media() -> RuntimeConfig:
 async def test_without_media_generation_the_routes_are_absent(base_env: None) -> None:
     """没开生成就不挂这组路由（同 SSO 关闭时的做法）。"""
 
-    app = build_app(config_without_redis(), engine=engine(), models={})
+    app = build_app(minimal_config(), engine=engine(), models={})
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         assert (await client.post("/generations", json={})).status_code == 404

@@ -122,6 +122,37 @@ export type ApiKeysEnvelope = {
 }
 
 /**
+ * AppendOp
+ *
+ * 往某个块的尾巴追加文字。``offset`` 的单位是 UTF-16，见 ``utf16_len``。
+ */
+export type AppendOp = {
+  /**
+   * Offset
+   */
+  offset: number
+  /**
+   * Op
+   */
+  op?: 'append'
+  target: FrameTarget
+  /**
+   * Text
+   */
+  text: string
+}
+
+/**
+ * ApprovalRequest
+ */
+export type ApprovalRequest = {
+  /**
+   * Approved
+   */
+  approved: boolean
+}
+
+/**
  * AssetEnvelope
  */
 export type AssetEnvelope = {
@@ -182,6 +213,62 @@ export type AssetsPageOut = {
    * Items
    */
   items: Array<AssetOut>
+}
+
+/**
+ * Attachment
+ */
+export type Attachment = {
+  /**
+   * Attachmentid
+   */
+  attachmentId: string
+  /**
+   * Mediatype
+   */
+  mediaType: string
+  /**
+   * Name
+   */
+  name?: string | null
+  /**
+   * Placeholder
+   */
+  placeholder?: string | null
+  /**
+   * Size
+   */
+  size?: number | null
+  source?: AttachmentSource | null
+}
+
+/**
+ * AttachmentSource
+ */
+export type AttachmentSource = {
+  /**
+   * Fileid
+   */
+  fileId?: string | null
+  /**
+   * Kind
+   */
+  kind: 'url' | 'file' | 'session_media'
+  /**
+   * Url
+   */
+  url?: string | null
+}
+
+/**
+ * AttachmentUpsertOp
+ */
+export type AttachmentUpsertOp = {
+  attachment: Attachment
+  /**
+   * Op
+   */
+  op?: 'attachment.upsert'
 }
 
 /**
@@ -447,23 +534,6 @@ export type ConversationIn = {
 }
 
 /**
- * ConversationMessagesOut
- *
- * 一段对话已经发生过的消息。
- *
- * ``messages`` 里是 AG-UI 官方形状的消息，字段名沿用 AG-UI 的拼写，不套这一层的
- * camelCase 改写——它们要原样喂回 ``POST /agents/{agentId}/chat`` 的请求体。
- */
-export type ConversationMessagesOut = {
-  /**
-   * Messages
-   */
-  messages: Array<{
-    [key: string]: unknown
-  }>
-}
-
-/**
  * ConversationOut
  */
 export type ConversationOut = {
@@ -630,6 +700,62 @@ export type ErrorModel = {
 }
 
 /**
+ * FrameTarget
+ */
+export type FrameTarget = {
+  /**
+   * Frameid
+   */
+  frameId: string
+  /**
+   * Stepid
+   */
+  stepId: string
+  /**
+   * Turnid
+   */
+  turnId: string
+  /**
+   * Type
+   */
+  type?: 'frame'
+}
+
+/**
+ * FrameUpsertOp
+ */
+export type FrameUpsertOp = {
+  /**
+   * Frame
+   */
+  frame:
+    | ({
+        kind: 'text'
+      } & TextFrame)
+    | ({
+        kind: 'thinking'
+      } & ThinkingFrame)
+    | ({
+        kind: 'tool'
+      } & ToolFrame)
+    | ({
+        kind: 'notice'
+      } & NoticeFrame)
+  /**
+   * Op
+   */
+  op?: 'frame.upsert'
+  /**
+   * Stepid
+   */
+  stepId: string
+  /**
+   * Turnid
+   */
+  turnId: string
+}
+
+/**
  * GenerationEnvelope
  */
 export type GenerationEnvelope = {
@@ -722,6 +848,17 @@ export type HttpValidationError = {
 }
 
 /**
+ * ImageContent
+ */
+export type ImageContent = {
+  source: AttachmentSource
+  /**
+   * Type
+   */
+  type?: 'image'
+}
+
+/**
  * ImageGenerationIn
  *
  * 一次图像生成的输入。参考图为空即文生图，否则走图像编辑。
@@ -776,6 +913,74 @@ export type ImageOut = {
 }
 
 /**
+ * Interaction
+ *
+ * 待人回应的审批或提问。``request`` / ``response`` 的形状由发起方决定。
+ */
+export type Interaction = {
+  /**
+   * Interactionid
+   */
+  interactionId: string
+  /**
+   * Interactionkind
+   */
+  interactionKind: 'approval' | 'question'
+  /**
+   * Request
+   */
+  request?: unknown | null
+  /**
+   * Response
+   */
+  response?: unknown | null
+  /**
+   * State
+   */
+  state: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'answered' | 'dismissed'
+  /**
+   * Toolcallid
+   */
+  toolCallId?: string | null
+}
+
+/**
+ * InteractionUpsertOp
+ */
+export type InteractionUpsertOp = {
+  interaction: Interaction
+  /**
+   * Op
+   */
+  op?: 'interaction.upsert'
+}
+
+/**
+ * ItemsRemoveOp
+ */
+export type ItemsRemoveOp = {
+  /**
+   * Ids
+   */
+  ids: Array<string>
+  /**
+   * Op
+   */
+  op?: 'items.remove'
+}
+
+/**
+ * MetaMergeOp
+ */
+export type MetaMergeOp = {
+  meta: TranscriptMeta
+  /**
+   * Op
+   */
+  op?: 'meta.merge'
+}
+
+/**
  * MetricsOut
  */
 export type MetricsOut = {
@@ -799,6 +1004,86 @@ export type MetricsOut = {
    * Views
    */
   views: number
+}
+
+/**
+ * NoticeFrame
+ */
+export type NoticeFrame = {
+  /**
+   * Detail
+   */
+  detail?: unknown | null
+  /**
+   * Frameid
+   */
+  frameId: string
+  /**
+   * Kind
+   */
+  kind?: 'notice'
+  /**
+   * Level
+   */
+  level: 'error' | 'warning' | 'info'
+  /**
+   * Message
+   */
+  message: string
+  /**
+   * Source
+   */
+  source?: string | null
+}
+
+/**
+ * OpsBatchOut
+ */
+export type OpsBatchOut = {
+  /**
+   * Ops
+   */
+  ops: Array<
+    | TurnUpsertOp
+    | StepUpsertOp
+    | FrameUpsertOp
+    | AppendOp
+    | InteractionUpsertOp
+    | AttachmentUpsertOp
+    | PromptUpsertOp
+    | MetaMergeOp
+    | ItemsRemoveOp
+  >
+  /**
+   * Seq
+   */
+  seq: number
+}
+
+/**
+ * OpsCatchup
+ *
+ * ``GET /transcript/ops`` 的补批响应。
+ *
+ * ``complete`` 为假表示要的批次已经出了日志窗口，客户端得整页重拉。
+ */
+export type OpsCatchup = {
+  /**
+   * Agent Id
+   */
+  agent_id: string
+  /**
+   * Batches
+   */
+  batches: Array<OpsBatchOut>
+  /**
+   * Complete
+   */
+  complete: boolean
+  /**
+   * Latest Seq
+   */
+  latest_seq: number
 }
 
 /**
@@ -867,6 +1152,85 @@ export type ProductOut = {
 }
 
 /**
+ * Prompt
+ *
+ * 用户消息的服务端记录。客户端的乐观气泡第一层认领就是按 ``promptId`` 查这张表。
+ */
+export type Prompt = {
+  /**
+   * Content
+   */
+  content?: Array<TextContent | ImageContent | VideoContent> | null
+  /**
+   * Createdat
+   */
+  createdAt: string
+  /**
+   * Finishedat
+   */
+  finishedAt?: string | null
+  /**
+   * Promptid
+   */
+  promptId: string
+  /**
+   * Status
+   */
+  status: 'running' | 'queued' | 'blocked' | 'completed' | 'failed' | 'aborted'
+  /**
+   * Steeredat
+   */
+  steeredAt?: string | null
+  /**
+   * Usermessageid
+   */
+  userMessageId?: string | null
+}
+
+/**
+ * PromptQueueOut
+ *
+ * ``GET /prompts``：在跑的那条加排着的那些。
+ */
+export type PromptQueueOut = {
+  active: Prompt | null
+  /**
+   * Queued
+   */
+  queued: Array<Prompt>
+}
+
+/**
+ * PromptSubmission
+ *
+ * ``POST /prompts`` 的请求体。
+ *
+ * ``prompt_id`` 由客户端铸：它得在服务端答复回来之前就用这个 id 把自己的乐观气泡挂上，
+ * 而且重发同一个 id 不会多起一次运行。
+ */
+export type PromptSubmission = {
+  /**
+   * Content
+   */
+  content: Array<TextContent | ImageContent | VideoContent>
+  /**
+   * Prompt Id
+   */
+  prompt_id: string
+}
+
+/**
+ * PromptUpsertOp
+ */
+export type PromptUpsertOp = {
+  /**
+   * Op
+   */
+  op?: 'prompt.upsert'
+  prompt: Prompt
+}
+
+/**
  * SidebarCollectionOut
  *
  * 侧栏里的一个合集：元信息、里面一共几段，加第一页对话。
@@ -921,6 +1285,100 @@ export type SsoAuthorizeOut = {
    * Authorization Url
    */
   authorization_url: string
+}
+
+/**
+ * SteerRequest
+ */
+export type SteerRequest = {
+  /**
+   * Prompt Ids
+   */
+  prompt_ids: Array<string>
+}
+
+/**
+ * StepHeader
+ */
+export type StepHeader = {
+  /**
+   * Endmessage
+   */
+  endMessage?: string | null
+  /**
+   * Endreason
+   */
+  endReason?: string | null
+  /**
+   * Endedat
+   */
+  endedAt?: string | null
+  /**
+   * Finishreason
+   */
+  finishReason?: string | null
+  /**
+   * Kind
+   */
+  kind?: 'step'
+  /**
+   * Ordinal
+   */
+  ordinal: number
+  /**
+   * Startedat
+   */
+  startedAt?: string | null
+  /**
+   * State
+   */
+  state: 'running' | 'completed' | 'interrupted' | 'failed'
+  /**
+   * Stepid
+   */
+  stepId: string
+  /**
+   * Turnid
+   */
+  turnId: string
+  usage?: StepUsage | null
+}
+
+/**
+ * StepUpsertOp
+ */
+export type StepUpsertOp = {
+  /**
+   * Op
+   */
+  op?: 'step.upsert'
+  step: StepHeader
+  /**
+   * Turnid
+   */
+  turnId: string
+}
+
+/**
+ * StepUsage
+ */
+export type StepUsage = {
+  /**
+   * Inputcachecreation
+   */
+  inputCacheCreation: number
+  /**
+   * Inputcacheread
+   */
+  inputCacheRead: number
+  /**
+   * Inputother
+   */
+  inputOther: number
+  /**
+   * Output
+   */
+  output: number
 }
 
 /**
@@ -1144,6 +1602,382 @@ export type TasksPageOut = {
    * Items
    */
   items: Array<TaskOut>
+}
+
+/**
+ * TextContent
+ */
+export type TextContent = {
+  /**
+   * Text
+   */
+  text: string
+  /**
+   * Type
+   */
+  type?: 'text'
+}
+
+/**
+ * TextFrame
+ */
+export type TextFrame = {
+  /**
+   * Attachmentids
+   */
+  attachmentIds?: Array<string> | null
+  /**
+   * Frameid
+   */
+  frameId: string
+  /**
+   * Kind
+   */
+  kind?: 'text'
+  /**
+   * Promptids
+   */
+  promptIds?: Array<string> | null
+  /**
+   * Role
+   */
+  role: 'assistant' | 'user'
+  /**
+   * Text
+   */
+  text: string
+}
+
+/**
+ * ThinkingFrame
+ */
+export type ThinkingFrame = {
+  /**
+   * Frameid
+   */
+  frameId: string
+  /**
+   * Kind
+   */
+  kind?: 'thinking'
+  /**
+   * Text
+   */
+  text: string
+}
+
+/**
+ * ToolFrame
+ */
+export type ToolFrame = {
+  /**
+   * Approvalid
+   */
+  approvalId?: string | null
+  /**
+   * Display
+   */
+  display?: unknown | null
+  /**
+   * Error
+   */
+  error?: string | null
+  /**
+   * Frameid
+   */
+  frameId: string
+  /**
+   * Input
+   */
+  input?: unknown | null
+  /**
+   * Kind
+   */
+  kind?: 'tool'
+  /**
+   * Name
+   */
+  name: string
+  /**
+   * Output
+   */
+  output?: unknown | null
+  /**
+   * State
+   */
+  state: 'running' | 'done' | 'error'
+  /**
+   * Toolcallid
+   */
+  toolCallId: string
+}
+
+/**
+ * TranscriptMeta
+ */
+export type TranscriptMeta = {
+  /**
+   * Activity
+   */
+  activity?: 'idle' | 'turn' | 'disposing' | 'unknown' | null
+}
+
+/**
+ * TranscriptPage
+ *
+ * ``GET /transcript`` 的一页。
+ *
+ * ``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、
+ * 后者从待回应的交互里取。
+ */
+export type TranscriptPage = {
+  /**
+   * Agent Id
+   */
+  agent_id: string
+  /**
+   * Agents
+   */
+  agents?: Array<{
+    [key: string]: unknown
+  }>
+  /**
+   * Attachments
+   */
+  attachments?: Array<Attachment>
+  /**
+   * Has More
+   */
+  has_more: boolean
+  /**
+   * Interactions
+   */
+  interactions?: Array<Interaction>
+  /**
+   * Items
+   */
+  items: Array<TranscriptTurn>
+  meta?: TranscriptMeta
+  /**
+   * Pending Interactions
+   */
+  pending_interactions?: Array<string>
+  /**
+   * Prompts
+   */
+  prompts?: Array<Prompt>
+  /**
+   * Seq
+   */
+  seq: number
+  /**
+   * Tasks
+   */
+  tasks?: Array<unknown>
+  /**
+   * Todos
+   */
+  todos?: Array<unknown>
+}
+
+/**
+ * TranscriptStep
+ *
+ * 带上块的完整一步。``GET /transcript`` 的分页与快照里用这一份，操作里用光头部那份。
+ */
+export type TranscriptStep = {
+  /**
+   * Endmessage
+   */
+  endMessage?: string | null
+  /**
+   * Endreason
+   */
+  endReason?: string | null
+  /**
+   * Endedat
+   */
+  endedAt?: string | null
+  /**
+   * Finishreason
+   */
+  finishReason?: string | null
+  /**
+   * Frames
+   */
+  frames?: Array<TextFrame | ThinkingFrame | ToolFrame | NoticeFrame>
+  /**
+   * Kind
+   */
+  kind?: 'step'
+  /**
+   * Ordinal
+   */
+  ordinal: number
+  /**
+   * Startedat
+   */
+  startedAt?: string | null
+  /**
+   * State
+   */
+  state: 'running' | 'completed' | 'interrupted' | 'failed'
+  /**
+   * Stepid
+   */
+  stepId: string
+  /**
+   * Turnid
+   */
+  turnId: string
+  usage?: StepUsage | null
+}
+
+/**
+ * TranscriptTurn
+ *
+ * 带上步的完整一轮。
+ */
+export type TranscriptTurn = {
+  /**
+   * Attachmentids
+   */
+  attachmentIds?: Array<string> | null
+  /**
+   * Durationms
+   */
+  durationMs?: number | null
+  /**
+   * Endedat
+   */
+  endedAt?: string | null
+  /**
+   * Error
+   */
+  error?: string | null
+  /**
+   * Kind
+   */
+  kind?: 'turn'
+  /**
+   * Ordinal
+   */
+  ordinal: number
+  origin: TurnOrigin
+  /**
+   * Prompt
+   */
+  prompt?: string | null
+  /**
+   * Startedat
+   */
+  startedAt?: string | null
+  /**
+   * State
+   */
+  state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  /**
+   * Steps
+   */
+  steps?: Array<TranscriptStep>
+  /**
+   * Turnid
+   */
+  turnId: string
+  usage?: TurnUsage | null
+}
+
+/**
+ * TurnHeader
+ *
+ * 一轮的头部。``steps`` 不在这里——步是单独的操作发的。
+ */
+export type TurnHeader = {
+  /**
+   * Attachmentids
+   */
+  attachmentIds?: Array<string> | null
+  /**
+   * Durationms
+   */
+  durationMs?: number | null
+  /**
+   * Endedat
+   */
+  endedAt?: string | null
+  /**
+   * Error
+   */
+  error?: string | null
+  /**
+   * Kind
+   */
+  kind?: 'turn'
+  /**
+   * Ordinal
+   */
+  ordinal: number
+  origin: TurnOrigin
+  /**
+   * Prompt
+   */
+  prompt?: string | null
+  /**
+   * Startedat
+   */
+  startedAt?: string | null
+  /**
+   * State
+   */
+  state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  /**
+   * Turnid
+   */
+  turnId: string
+  usage?: TurnUsage | null
+}
+
+/**
+ * TurnOrigin
+ */
+export type TurnOrigin = {
+  /**
+   * Kind
+   */
+  kind: 'user' | 'cron' | 'task' | 'hook' | 'compaction' | 'side' | 'other'
+}
+
+/**
+ * TurnUpsertOp
+ */
+export type TurnUpsertOp = {
+  /**
+   * Op
+   */
+  op?: 'turn.upsert'
+  turn: TurnHeader
+}
+
+/**
+ * TurnUsage
+ */
+export type TurnUsage = {
+  /**
+   * Cachedtokens
+   */
+  cachedTokens?: number | null
+  /**
+   * Cost
+   */
+  cost?: number | null
+  /**
+   * Inputtokens
+   */
+  inputTokens?: number | null
+  /**
+   * Outputtokens
+   */
+  outputTokens?: number | null
 }
 
 /**
@@ -1413,6 +2247,17 @@ export type ValidationError = {
 }
 
 /**
+ * VideoContent
+ */
+export type VideoContent = {
+  source: AttachmentSource
+  /**
+   * Type
+   */
+  type?: 'video'
+}
+
+/**
  * VideoGenerationIn
  *
  * 一次视频生成的输入。
@@ -1524,116 +2369,6 @@ export type VideoSearchOut = {
    * Items
    */
   items: Array<VideoOut>
-}
-
-export type PreflightAgentsAgentIdChatOptionsData = {
-  body?: never
-  path: {
-    /**
-     * Agent Id
-     */
-    agent_id: string
-  }
-  query?: never
-  url: '/agents/{agent_id}/chat'
-}
-
-export type PreflightAgentsAgentIdChatOptionsErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type PreflightAgentsAgentIdChatOptionsError =
-  PreflightAgentsAgentIdChatOptionsErrors[keyof PreflightAgentsAgentIdChatOptionsErrors]
-
-export type PreflightAgentsAgentIdChatOptionsResponses = {
-  /**
-   * Successful Response
-   */
-  200: unknown
-}
-
-export type ChatAgentsAgentIdChatPostData = {
-  body?: never
-  path: {
-    /**
-     * Agent Id
-     */
-    agent_id: string
-  }
-  query?: never
-  url: '/agents/{agent_id}/chat'
-}
-
-export type ChatAgentsAgentIdChatPostErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type ChatAgentsAgentIdChatPostError =
-  ChatAgentsAgentIdChatPostErrors[keyof ChatAgentsAgentIdChatPostErrors]
-
-export type ChatAgentsAgentIdChatPostResponses = {
-  /**
-   * Successful Response
-   */
-  200: unknown
-}
-
-export type ResumeAgentsAgentIdChatConversationIdRunIdGetData = {
-  body?: never
-  headers?: {
-    /**
-     * Last-Event-Id
-     *
-     * 上次收到的事件位置，从它之后接着发
-     */
-    'Last-Event-ID'?: string | null
-  }
-  path: {
-    /**
-     * Agent Id
-     */
-    agent_id: string
-    /**
-     * Conversation Id
-     */
-    conversation_id: string
-    /**
-     * Run Id
-     */
-    run_id: string
-  }
-  query?: {
-    /**
-     * From
-     *
-     * 同 Last-Event-ID，供不能带请求头的客户端使用
-     */
-    from?: string | null
-  }
-  url: '/agents/{agent_id}/chat/{conversation_id}/{run_id}'
-}
-
-export type ResumeAgentsAgentIdChatConversationIdRunIdGetErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type ResumeAgentsAgentIdChatConversationIdRunIdGetError =
-  ResumeAgentsAgentIdChatConversationIdRunIdGetErrors[keyof ResumeAgentsAgentIdChatConversationIdRunIdGetErrors]
-
-export type ResumeAgentsAgentIdChatConversationIdRunIdGetResponses = {
-  /**
-   * Successful Response
-   */
-  200: unknown
 }
 
 export type ListKeysApiKeysGetData = {
@@ -2473,7 +3208,43 @@ export type SetConversationCollectionConversationsConversationIdCollectionPutRes
 export type SetConversationCollectionConversationsConversationIdCollectionPutResponse =
   SetConversationCollectionConversationsConversationIdCollectionPutResponses[keyof SetConversationCollectionConversationsConversationIdCollectionPutResponses]
 
-export type ReadConversationMessagesConversationsConversationIdMessagesGetData = {
+export type ApproveConversationsConversationIdInteractionsInteractionIdPostData = {
+  body: ApprovalRequest
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+    /**
+     * Interaction Id
+     */
+    interaction_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/interactions/{interaction_id}'
+}
+
+export type ApproveConversationsConversationIdInteractionsInteractionIdPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ApproveConversationsConversationIdInteractionsInteractionIdPostError =
+  ApproveConversationsConversationIdInteractionsInteractionIdPostErrors[keyof ApproveConversationsConversationIdInteractionsInteractionIdPostErrors]
+
+export type ApproveConversationsConversationIdInteractionsInteractionIdPostResponses = {
+  /**
+   * Successful Response
+   */
+  204: void
+}
+
+export type ApproveConversationsConversationIdInteractionsInteractionIdPostResponse =
+  ApproveConversationsConversationIdInteractionsInteractionIdPostResponses[keyof ApproveConversationsConversationIdInteractionsInteractionIdPostResponses]
+
+export type QueueViewConversationsConversationIdPromptsGetData = {
   body?: never
   path: {
     /**
@@ -2482,28 +3253,128 @@ export type ReadConversationMessagesConversationsConversationIdMessagesGetData =
     conversation_id: string
   }
   query?: never
-  url: '/conversations/{conversation_id}/messages'
+  url: '/conversations/{conversation_id}/prompts'
 }
 
-export type ReadConversationMessagesConversationsConversationIdMessagesGetErrors = {
+export type QueueViewConversationsConversationIdPromptsGetErrors = {
   /**
    * Validation Error
    */
   422: HttpValidationError
 }
 
-export type ReadConversationMessagesConversationsConversationIdMessagesGetError =
-  ReadConversationMessagesConversationsConversationIdMessagesGetErrors[keyof ReadConversationMessagesConversationsConversationIdMessagesGetErrors]
+export type QueueViewConversationsConversationIdPromptsGetError =
+  QueueViewConversationsConversationIdPromptsGetErrors[keyof QueueViewConversationsConversationIdPromptsGetErrors]
 
-export type ReadConversationMessagesConversationsConversationIdMessagesGetResponses = {
+export type QueueViewConversationsConversationIdPromptsGetResponses = {
   /**
    * Successful Response
    */
-  200: ConversationMessagesOut
+  200: PromptQueueOut
 }
 
-export type ReadConversationMessagesConversationsConversationIdMessagesGetResponse =
-  ReadConversationMessagesConversationsConversationIdMessagesGetResponses[keyof ReadConversationMessagesConversationsConversationIdMessagesGetResponses]
+export type QueueViewConversationsConversationIdPromptsGetResponse =
+  QueueViewConversationsConversationIdPromptsGetResponses[keyof QueueViewConversationsConversationIdPromptsGetResponses]
+
+export type SubmitConversationsConversationIdPromptsPostData = {
+  body: PromptSubmission
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/prompts'
+}
+
+export type SubmitConversationsConversationIdPromptsPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SubmitConversationsConversationIdPromptsPostError =
+  SubmitConversationsConversationIdPromptsPostErrors[keyof SubmitConversationsConversationIdPromptsPostErrors]
+
+export type SubmitConversationsConversationIdPromptsPostResponses = {
+  /**
+   * Successful Response
+   */
+  200: Prompt
+}
+
+export type SubmitConversationsConversationIdPromptsPostResponse =
+  SubmitConversationsConversationIdPromptsPostResponses[keyof SubmitConversationsConversationIdPromptsPostResponses]
+
+export type AbortConversationsConversationIdPromptsPromptIdAbortPostData = {
+  body?: never
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+    /**
+     * Prompt Id
+     */
+    prompt_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/prompts/{prompt_id}:abort'
+}
+
+export type AbortConversationsConversationIdPromptsPromptIdAbortPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type AbortConversationsConversationIdPromptsPromptIdAbortPostError =
+  AbortConversationsConversationIdPromptsPromptIdAbortPostErrors[keyof AbortConversationsConversationIdPromptsPromptIdAbortPostErrors]
+
+export type AbortConversationsConversationIdPromptsPromptIdAbortPostResponses = {
+  /**
+   * Successful Response
+   */
+  204: void
+}
+
+export type AbortConversationsConversationIdPromptsPromptIdAbortPostResponse =
+  AbortConversationsConversationIdPromptsPromptIdAbortPostResponses[keyof AbortConversationsConversationIdPromptsPromptIdAbortPostResponses]
+
+export type SteerConversationsConversationIdPromptsSteerPostData = {
+  body: SteerRequest
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/prompts:steer'
+}
+
+export type SteerConversationsConversationIdPromptsSteerPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SteerConversationsConversationIdPromptsSteerPostError =
+  SteerConversationsConversationIdPromptsSteerPostErrors[keyof SteerConversationsConversationIdPromptsSteerPostErrors]
+
+export type SteerConversationsConversationIdPromptsSteerPostResponses = {
+  /**
+   * Successful Response
+   */
+  204: void
+}
+
+export type SteerConversationsConversationIdPromptsSteerPostResponse =
+  SteerConversationsConversationIdPromptsSteerPostResponses[keyof SteerConversationsConversationIdPromptsSteerPostResponses]
 
 export type SetConversationTaskConversationsConversationIdTaskPutData = {
   body: ConversationTaskIn
@@ -2536,6 +3407,88 @@ export type SetConversationTaskConversationsConversationIdTaskPutResponses = {
 
 export type SetConversationTaskConversationsConversationIdTaskPutResponse =
   SetConversationTaskConversationsConversationIdTaskPutResponses[keyof SetConversationTaskConversationsConversationIdTaskPutResponses]
+
+export type PageConversationsConversationIdTranscriptGetData = {
+  body?: never
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: {
+    /**
+     * Before Turn
+     */
+    before_turn?: string | null
+    /**
+     * After Turn
+     */
+    after_turn?: string | null
+    /**
+     * Page Size
+     */
+    page_size?: number
+  }
+  url: '/conversations/{conversation_id}/transcript'
+}
+
+export type PageConversationsConversationIdTranscriptGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type PageConversationsConversationIdTranscriptGetError =
+  PageConversationsConversationIdTranscriptGetErrors[keyof PageConversationsConversationIdTranscriptGetErrors]
+
+export type PageConversationsConversationIdTranscriptGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: TranscriptPage
+}
+
+export type PageConversationsConversationIdTranscriptGetResponse =
+  PageConversationsConversationIdTranscriptGetResponses[keyof PageConversationsConversationIdTranscriptGetResponses]
+
+export type CatchupConversationsConversationIdTranscriptOpsGetData = {
+  body?: never
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query: {
+    /**
+     * Since Seq
+     */
+    since_seq: number
+  }
+  url: '/conversations/{conversation_id}/transcript/ops'
+}
+
+export type CatchupConversationsConversationIdTranscriptOpsGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type CatchupConversationsConversationIdTranscriptOpsGetError =
+  CatchupConversationsConversationIdTranscriptOpsGetErrors[keyof CatchupConversationsConversationIdTranscriptOpsGetErrors]
+
+export type CatchupConversationsConversationIdTranscriptOpsGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: OpsCatchup
+}
+
+export type CatchupConversationsConversationIdTranscriptOpsGetResponse =
+  CatchupConversationsConversationIdTranscriptOpsGetResponses[keyof CatchupConversationsConversationIdTranscriptOpsGetResponses]
 
 export type ReadConversationFileConversationsConversationIdWorkspaceFileGetData = {
   body?: never

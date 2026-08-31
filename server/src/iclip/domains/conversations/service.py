@@ -10,7 +10,6 @@ import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
 
 from iclip.common.errors import NotFound, PermissionDenied, ValidationFailed
 from iclip.domains.conversations.models import Conversation
@@ -39,14 +38,6 @@ PurgeDerived = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 **这一层不知道那是什么。** 对话的生命周期归它管（删对话要连带删干净），但「附属物长
 什么样、存在哪张表、地盘怎么拼名字」是别人的知识。所以这里只留一个口子，接什么由组
 合根决定——本模块的代码里因此不会出现工作区的存储与命名空间。
-"""
-
-
-ReadHistory = Callable[[uuid.UUID], Awaitable[tuple[dict[str, Any], ...]]]
-"""读一段对话里已经发生过的消息，入参是对话 id。
-
-**这一层不知道消息长什么样。** 对话的归属归它管（能不能看是它的判断），但消息存在
-哪、什么形状是别人的知识，所以这里只留一个口子，接什么由组合根决定。
 """
 
 
@@ -108,6 +99,26 @@ def _as_utc(moment: datetime | None) -> datetime | None:
     return moment.replace(tzinfo=UTC)
 
 
+def _as_conversation_id(raw: str) -> uuid.UUID:
+    """客户端给的那串字符 → 对话 id。不是我们发出去的一律当作不存在。
+
+    不区分「形状不对」和「没有这一行」：区分了就等于告诉调用方 id 该长什么样。
+
+    **必须一个字节都不差。** 大写十六进制、去掉短横线、带花括号都能被解析成同一个 UUID，
+    于是这一关放行了；但下游用的是**原样的字符串**——工作区按它拼命名空间、实时状态按它
+    分段。于是同一段对话会长出第二个工作区、第二份实时状态，而删除时按规范写法拼出来的
+    命名空间又碰不到它们。所以解析完再比一次原文。
+    """
+
+    try:
+        parsed = uuid.UUID(raw)
+    except ValueError as exc:
+        raise NotFound("没有这段对话") from exc
+    if str(parsed) != raw:
+        raise NotFound("没有这段对话")
+    return parsed
+
+
 @dataclass(frozen=True, slots=True)
 class ConversationPage:
     """一页对话。``next_cursor`` 为空即没有更多了。"""
@@ -156,14 +167,12 @@ class ConversationService:
         repo: ConversationRepository,
         *,
         purge_derived: PurgeDerived,
-        read_history: ReadHistory,
         list_collections: ListCollections,
         list_derived_files: ListDerivedFiles,
         read_derived_file: ReadDerivedFile,
     ) -> None:
         self._repo = repo
         self._purge_derived = purge_derived
-        self._read_history = read_history
         self._list_collections = list_collections
         self._list_derived_files = list_derived_files
         self._read_derived_file = read_derived_file
@@ -172,14 +181,6 @@ class ConversationService:
         """读取按谁的名下算。治理者拿 ``None``：不按属主过滤，看得到全部。"""
 
         return None if principal.has(MANAGE_PERMISSION) else principal.user_id
-
-    async def history(
-        self, principal: Principal, conversation_id: uuid.UUID
-    ) -> tuple[dict[str, Any], ...]:
-        """读这段对话的历史。别人的一律 404，治理者除外。"""
-
-        await self._repo.get(conversation_id, owner=self._readable_by(principal))
-        return await self._read_history(conversation_id)
 
     async def files(
         self, principal: Principal, conversation_id: uuid.UUID
@@ -394,23 +395,27 @@ class ConversationService:
     ) -> None:
         """在这段对话里开始一次运行：核对它归谁、是不是这个 agent 的，并记下这次运行。
 
-        ``conversation_id`` 是客户端在请求体里给的字符串（AG-UI 的 ``threadId``）。不是
-        我们发出去的 id 一律当作不存在，不区分「形状不对」和「没有这一行」——区分了就
-        等于告诉调用方 id 该长什么样。
-
-        **必须一个字节都不差。** 大写十六进制、去掉短横线、带花括号都能被解析成同一个
-        UUID，于是这一关放行了；但下游用的是**原样的字符串**——工作区按它拼命名空间、
-        事件流按它拼名字。于是同一段对话会长出第二个工作区、第二条流，而删除时按规范
-        写法拼出来的命名空间又碰不到它们。所以解析完再比一次原文。
+        ``conversation_id`` 是客户端给的字符串，怎么核对见 ``_as_conversation_id``。
         """
 
-        try:
-            parsed = uuid.UUID(conversation_id)
-        except ValueError as exc:
-            raise NotFound("没有这段对话") from exc
-        if str(parsed) != conversation_id:
-            raise NotFound("没有这段对话")
-        await self._repo.touch_run(parsed, owner=owner, agent_id=agent_id, run_id=run_id)
+        await self._repo.touch_run(
+            _as_conversation_id(conversation_id), owner=owner, agent_id=agent_id, run_id=run_id
+        )
+
+    async def agent_of(self, principal: Principal, conversation_id: str, *, writing: bool) -> str:
+        """这段对话跑哪个 agent；看不到的一律抛 ``NotFound``。
+
+        transcript 那一侧每个端点都先过这一关：那些端点的路径里只有对话 id，agent 是从这里
+        查出来的，不由调用方给——由调用方给的话，拿自己的对话去指别人的 agent 就成了一条绕过
+        声明的路。
+
+        ``writing`` 分开两种口径。读按 ``_readable_by`` 走，治理者因此看得到别人的对话（复盘
+        创作质量要用）；写一概限属主——治理者读得到不等于能替别人发消息、停别人的运行。
+        """
+
+        owner = principal.user_id if writing else self._readable_by(principal)
+        conversation = await self._repo.get(_as_conversation_id(conversation_id), owner=owner)
+        return conversation.agent_id
 
 
 __all__ = [
@@ -427,5 +432,4 @@ __all__ = [
     "ListDerivedFiles",
     "PurgeDerived",
     "ReadDerivedFile",
-    "ReadHistory",
 ]

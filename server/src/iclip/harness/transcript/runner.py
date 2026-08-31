@@ -186,10 +186,16 @@ class ConversationRunner:
 
     # --- 人机往返 -----------------------------------------------------------
 
-    async def abort(self, prompt_id: str) -> None:
-        """停掉一条 prompt。排队的直接标掉，在跑的发第一方取消。"""
+    async def abort(self, conversation_id: str, prompt_id: str) -> None:
+        """停掉一条 prompt。排队的直接标掉，在跑的发第一方取消。
+
+        ``conversation_id`` 是调用方已经核过权的那一段。这条 prompt 不属于它就当作没有——
+        消息 id 是客户端铸的，光凭一个 id 就能停掉别人的运行。
+        """
 
         row = await self._queue.abort(prompt_id, now=_now())
+        if row.conversation_id != conversation_id:
+            raise NotFound(f"没有这条消息：{prompt_id}")
         if row.status == "queued":
             settled = await self._queue.get(prompt_id)
             if settled is not None:

@@ -25,7 +25,6 @@ MANIFEST = (
     "SSO_REDIRECT_URL",
     "PMS_BASE_URL",
     "ROOT_EMAIL",
-    "REDIS_URL",
     "VIDEO_SUBMIT_URL",
     "VIDEO_STATUS_BASE_URL",
     "VIDEO_API_KEY",
@@ -248,39 +247,6 @@ def test_unknown_api_value_rejected(tmp_path: Path) -> None:
     bad = VALID + MODELS.replace("api: responses", "api: grpc")
     with pytest.raises(ValidationError):
         load_runtime_config(write(tmp_path, bad))
-
-
-REDIS = """
-redis: {}
-"""
-
-
-def test_redis_env_required_when_section_present(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """配了 redis 段就必须有地址，缺了就在启动期报出是哪个变量。"""
-
-    config = load_runtime_config(write(tmp_path, VALID + REDIS))
-    _core(monkeypatch)
-    with pytest.raises(ValidationError, match="REDIS_URL"):
-        resolve_settings(config)
-
-
-def test_redis_defaults_are_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config = load_runtime_config(write(tmp_path, VALID + REDIS))
-    _core(monkeypatch)
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    redis = resolve_settings(config).redis
-
-    assert redis is not None
-    assert (redis.replay_window_seconds, redis.max_frames) == (3600, 100_000)
-
-
-def test_no_redis_section_means_no_stream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config = load_runtime_config(write(tmp_path, VALID))
-    _core(monkeypatch)
-
-    assert resolve_settings(config).redis is None
 
 
 MEDIA = """

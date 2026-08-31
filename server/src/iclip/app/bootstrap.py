@@ -5,15 +5,12 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import Any
 
 import httpx
 import procrastinate
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from redis.asyncio import BlockingConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from iclip.app.capability_table import (
@@ -33,13 +30,13 @@ from iclip.config import (
     ResolvedMediaGeneration,
     ResolvedModel,
     ResolvedProductCatalog,
-    ResolvedRedis,
     ResolvedShotVideo,
     RuntimeConfig,
     SkillMount,
     resolve_settings,
 )
-from iclip.domains.agents.api import create_agents_router
+from iclip.domains.agents.public import AgentRunDeps
+from iclip.domains.agents.transcript_api import create_transcript_router
 from iclip.domains.assets.infra_sql import SqlAssetRepository
 from iclip.domains.assets.module import build_assets_module
 from iclip.domains.collections.infra_sql import SqlCollectionRepository
@@ -76,17 +73,17 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
 )
-from iclip.harness.history import HistoryReader
-from iclip.harness.media import MediaCodec
 from iclip.harness.models import BuiltModels, ModelSpec, build_models
-from iclip.harness.run_stream_redis import RedisRunStream, RunStream
-from iclip.harness.runs import RunBroker, RunStreamSettings
+from iclip.harness.prompts import PromptQueue, PromptRow
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
+from iclip.harness.transcript.history import TranscriptHistory
+from iclip.harness.transcript.runner import ConversationRunner
+from iclip.harness.transcript.service import TranscriptService
+from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.file_store.pg import PgFileStore
 from iclip.platform.file_store.store import InvalidPath
 from iclip.platform.http import status_code_for
-from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import (
     OssObjectStore,
     OssSettings,
@@ -111,6 +108,26 @@ def _capabilities(
 
     mounted = build_skill_capabilities(skills.library, skills.names) if skills else ()
     return (*mounted, *resolve_capabilities(names, table=table, declared_by=declared_by))
+
+
+def _object_store(
+    settings: ObjectStoreEnv | None, injected: PublicBucket | None
+) -> PublicBucket | None:
+    """公开对象存储：素材上传、生成结果转存、镜头帧共用这一个（测试可注入替身）。"""
+
+    if injected is not None:
+        return injected
+    if settings is None:
+        return None
+    return OssObjectStore(
+        OssSettings(
+            bucket=settings.bucket,
+            endpoint=settings.endpoint,
+            access_key_id=settings.access_key_id,
+            access_key_secret=settings.access_key_secret,
+            public_url_base=validate_public_url_base(settings.public_url_base),
+        )
+    )
 
 
 def _agent_definitions(
@@ -188,57 +205,6 @@ def _shot_video_client(settings: ResolvedShotVideo | None) -> httpx.AsyncClient 
     if not ffmpeg_available():
         raise RuntimeError("配了 shot_video 但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
     return httpx.AsyncClient(follow_redirects=True)
-
-
-def _stream_settings(redis: ResolvedRedis | None) -> RunStreamSettings:
-    """配置段缺席时（测试注入了自己的事件流）用默认时长与容量。"""
-
-    if redis is None:
-        return RunStreamSettings()
-    return RunStreamSettings(
-        replay_window_seconds=redis.replay_window_seconds,
-        max_frames=redis.max_frames,
-    )
-
-
-def _object_store(
-    settings: ObjectStoreEnv | None, injected: PublicBucket | None
-) -> PublicBucket | None:
-    """公开对象存储：素材上传、生成结果转存、镜头帧共用这一个（测试可注入替身）。"""
-
-    if injected is not None:
-        return injected
-    if settings is None:
-        return None
-    return OssObjectStore(
-        OssSettings(
-            bucket=settings.bucket,
-            endpoint=settings.endpoint,
-            access_key_id=settings.access_key_id,
-            access_key_secret=settings.access_key_secret,
-            public_url_base=validate_public_url_base(settings.public_url_base),
-        )
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _InlineMediaLanding:
-    """聊天里内嵌上传的媒体落到公开桶的哪个位置。
-
-    这条线只能接在组合根：agent 内核那一环不认识 platform，所以它只说「同一份字节
-    要落回同一个地方」，落在哪个目录由这里按桶布局补上。
-    """
-
-    objects: PublicObjectStore
-
-    async def put_inline_media(
-        self, *, digest: str, ext: str, content: bytes, content_type: str
-    ) -> str:
-        return await self.objects.put_public_object(
-            object_key=MEDIA_PATHS.chat_media(digest=digest, ext=ext),
-            content=content,
-            content_type=content_type,
-        )
 
 
 def _product_catalog_engine(
@@ -326,7 +292,6 @@ def build_app(
     agents: Sequence[ResolvedAgent] = (),
     engine: AsyncEngine | None = None,
     models: BuiltModels | None = None,
-    run_stream: RunStream | None = None,
     sso_verifier: SsoVerifier | None = None,
     pms_client: PmsUserClient | None = None,
     object_store: PublicBucket | None = None,
@@ -449,20 +414,6 @@ def build_app(
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(active_engine)
-    media = MediaCodec(
-        inline_store=_InlineMediaLanding(public_objects) if public_objects is not None else None
-    )
-    history = HistoryReader(snapshots=step_store, media=media)
-
-    async def read_conversation_history(conversation_id: uuid.UUID) -> tuple[dict[str, Any], ...]:
-        """读一段对话里发生过的消息。
-
-        这条线同样只能接在组合根：消息落在 agent 引擎的账本里，而对话那一侧不认识
-        引擎，引擎那一侧也不认识「谁的对话」。
-        """
-
-        return await history.read(str(conversation_id))
-
     collection_repo = SqlCollectionRepository(active_engine)
     collections = build_collections_module(collection_repo)
 
@@ -481,7 +432,6 @@ def build_app(
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
         purge_derived=purge_conversation_workspace,
-        read_history=read_conversation_history,
         list_collections=list_owner_collections,
         list_derived_files=list_conversation_files,
         read_derived_file=read_conversation_file,
@@ -517,37 +467,42 @@ def build_app(
         ),
         step_store=step_store,
         models=build_models(_model_specs(settings.models)) if models is None else models,
-        media=media,
     )
-    # 事件流只在真有 agent 时才装（同 SSO：能力没配就不挂对应路由）。
-    redis_client: Redis | None = None
-    broker: RunBroker | None = None
-    if agents:
-        stream_settings = _stream_settings(settings.redis)
-        if run_stream is None:
-            if settings.redis is None:
-                raise RuntimeError(
-                    "声明了 agent 就必须配 redis 段：运行的事件写进 Redis 才能断线重放"
-                )
-            redis_client = Redis(
-                # 连接池满了要排队等，不能直接报错。读事件的人多是常态（每个人
-                # 占住一条连接不放），而报错砸中的可能是后台运行的心跳——心跳
-                # 一断，租约就过期，一个还在跑的运行会被判成中断。
-                connection_pool=BlockingConnectionPool.from_url(
-                    settings.redis.url,
-                    decode_responses=True,
-                    max_connections=settings.redis.max_connections,
-                    # 读事件时会挂在 Redis 上等新事件，一等就是 block_ms 那么久。
-                    # socket 超时必须比这个等待时间宽出一截，否则客户端会先把自己
-                    # 判成超时——那正是「模型算得久、没有新事件」的正常情况。
-                    socket_timeout=stream_settings.block_ms / 1000 + _SOCKET_TIMEOUT_MARGIN,
-                )
-            )
-            run_stream = RedisRunStream(redis_client)
-        broker = RunBroker(agent_registry, run_stream, stream_settings)
+    transcript_store = TranscriptStore()
+    prompt_queue = PromptQueue(active_engine)
+
+    async def deps_for_prompt(row: PromptRow) -> AgentRunDeps:
+        """给排到的那条 prompt 重建运行依赖。
+
+        身份不随请求走：一条 prompt 可能排了很久才轮到，那时发起它的那个 HTTP 请求早就没了。
+        行上记的是**属主 id**，到这里再按它把主体拼回来——排队期间被停用的账号因此拿不到运行，
+        而权限的变动也按开跑那一刻的现状算。
+        """
+
+        account = await identity.service.get_account(row.owner_user_id)
+        return AgentRunDeps(
+            principal=identity.service.principal_for_user(account),
+            conversation_id=row.conversation_id,
+        )
+
+    transcripts = TranscriptService(
+        store=transcript_store,
+        history=TranscriptHistory(step_store),
+        queue=prompt_queue,
+        runner=ConversationRunner(
+            agents=dict(agent_registry.agents),
+            store=transcript_store,
+            queue=prompt_queue,
+            snapshots=step_store,
+            deps_for=deps_for_prompt,
+        ),
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+        # 上一条命留下的 prompt 行先收拾掉：在跑的那条随进程没了、排队的没人会来叫醒。
+        # 不收拾的话那段对话会永远「正在跑」，之后发的每一条都排在一个不存在的运行后面。
+        await transcripts.runner.sweep()
         if generation is not None:
             # 队列的连接要先开：HTTP 面受理一次生成时就要往队列里排。
             await generation.queue.app.open_async()
@@ -559,16 +514,15 @@ def build_app(
             if generation is not None:
                 await generation.queue.stop()
                 await generation.queue.app.close_async()
-            if broker is not None:
-                await broker.shutdown()
+            # 在跑的那些走第一方取消，让它们各自把终态发出去再收；这一步必须在 engine
+            # 关掉之前，收尾要落库。
+            await transcripts.runner.shutdown()
             if shot_video_client is not None:
                 await shot_video_client.aclose()
             if owns_catalog_engine and catalog_engine is not None:
                 await catalog_engine.dispose()
             if owns_inspiration_engine and inspiration_engine is not None:
                 await inspiration_engine.dispose()
-            if redis_client is not None:
-                await redis_client.aclose()
             if owns_engine:
                 await active_engine.dispose()
 
@@ -601,8 +555,13 @@ def build_app(
         app.include_router(router)
     for router in tasks.routers:
         app.include_router(router)
-    if broker is not None:
-        app.include_router(create_agents_router(broker, conversations.service))
+    app.include_router(
+        create_transcript_router(
+            transcripts,
+            conversations.service,
+            allowed_origins=settings.security.cors_allow_origins,
+        )
+    )
 
     # 中间件顺序（先加的在内层）：Principal 解析在内，CORS 在外
     # （preflight 无凭证也必须被 CORS 应答）。

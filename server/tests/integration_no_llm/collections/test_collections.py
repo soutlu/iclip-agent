@@ -404,14 +404,20 @@ async def test_governor_reads_other_peoples_history(
     async with make_client(app) as governor:
         await login_as_root(governor, pg_url)
         assert (
-            await governor.get(f"{CONVERSATIONS}/{conversation_id}/messages")
+            await governor.get(f"{CONVERSATIONS}/{conversation_id}/transcript")
         ).status_code == 200
         assert (
             await governor.get(f"{CONVERSATIONS}/{conversation_id}/workspace/files")
         ).status_code == 200
-        # 只读：改别人的对话仍然当作不存在。
+        # 只读：改别人的对话、替别人发消息，都仍然当作不存在。
         assert (
             await governor.patch(f"{CONVERSATIONS}/{conversation_id}", json={"title": "我来改"})
+        ).status_code == 404
+        assert (
+            await governor.post(
+                f"{CONVERSATIONS}/{conversation_id}/prompts",
+                json={"prompt_id": "prm_gov", "content": [{"type": "text", "text": "替你发"}]},
+            )
         ).status_code == 404
 
 

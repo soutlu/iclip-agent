@@ -241,6 +241,51 @@
         "title": "ApiKeysEnvelope",
         "type": "object"
       },
+      "AppendOp": {
+        "additionalProperties": false,
+        "description": "往某个块的尾巴追加文字。``offset`` 的单位是 UTF-16，见 ``utf16_len``。",
+        "properties": {
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "op": {
+            "const": "append",
+            "default": "append",
+            "title": "Op",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/FrameTarget"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "offset",
+          "text"
+        ],
+        "title": "AppendOp",
+        "type": "object"
+      },
+      "ApprovalRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "title": "Approved",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "approved"
+        ],
+        "title": "ApprovalRequest",
+        "type": "object"
+      },
       "AssetEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -337,6 +382,128 @@
           "items"
         ],
         "title": "AssetsPageOut",
+        "type": "object"
+      },
+      "Attachment": {
+        "additionalProperties": false,
+        "properties": {
+          "attachmentId": {
+            "title": "Attachmentid",
+            "type": "string"
+          },
+          "mediaType": {
+            "title": "Mediatype",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "placeholder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placeholder"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttachmentSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "attachmentId",
+          "mediaType"
+        ],
+        "title": "Attachment",
+        "type": "object"
+      },
+      "AttachmentSource": {
+        "additionalProperties": false,
+        "properties": {
+          "fileId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fileid"
+          },
+          "kind": {
+            "enum": [
+              "url",
+              "file",
+              "session_media"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "AttachmentSource",
+        "type": "object"
+      },
+      "AttachmentUpsertOp": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment": {
+            "$ref": "#/components/schemas/Attachment"
+          },
+          "op": {
+            "const": "attachment.upsert",
+            "default": "attachment.upsert",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment"
+        ],
+        "title": "AttachmentUpsertOp",
         "type": "object"
       },
       "Body_auth_cookie_login_auth_login_post": {
@@ -816,25 +983,6 @@
         "title": "ConversationIn",
         "type": "object"
       },
-      "ConversationMessagesOut": {
-        "additionalProperties": false,
-        "description": "一段对话已经发生过的消息。\n\n``messages`` 里是 AG-UI 官方形状的消息，字段名沿用 AG-UI 的拼写，不套这一层的\ncamelCase 改写——它们要原样喂回 ``POST /agents/{agentId}/chat`` 的请求体。",
-        "properties": {
-          "messages": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Messages",
-            "type": "array"
-          }
-        },
-        "required": [
-          "messages"
-        ],
-        "title": "ConversationMessagesOut",
-        "type": "object"
-      },
       "ConversationOut": {
         "additionalProperties": false,
         "properties": {
@@ -1135,6 +1283,88 @@
         "title": "ErrorModel",
         "type": "object"
       },
+      "FrameTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "frameId": {
+            "title": "Frameid",
+            "type": "string"
+          },
+          "stepId": {
+            "title": "Stepid",
+            "type": "string"
+          },
+          "turnId": {
+            "title": "Turnid",
+            "type": "string"
+          },
+          "type": {
+            "const": "frame",
+            "default": "frame",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "turnId",
+          "stepId",
+          "frameId"
+        ],
+        "title": "FrameTarget",
+        "type": "object"
+      },
+      "FrameUpsertOp": {
+        "additionalProperties": false,
+        "properties": {
+          "frame": {
+            "discriminator": {
+              "mapping": {
+                "notice": "#/components/schemas/NoticeFrame",
+                "text": "#/components/schemas/TextFrame",
+                "thinking": "#/components/schemas/ThinkingFrame",
+                "tool": "#/components/schemas/ToolFrame"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TextFrame"
+              },
+              {
+                "$ref": "#/components/schemas/ThinkingFrame"
+              },
+              {
+                "$ref": "#/components/schemas/ToolFrame"
+              },
+              {
+                "$ref": "#/components/schemas/NoticeFrame"
+              }
+            ],
+            "title": "Frame"
+          },
+          "op": {
+            "const": "frame.upsert",
+            "default": "frame.upsert",
+            "title": "Op",
+            "type": "string"
+          },
+          "stepId": {
+            "title": "Stepid",
+            "type": "string"
+          },
+          "turnId": {
+            "title": "Turnid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "turnId",
+          "stepId",
+          "frame"
+        ],
+        "title": "FrameUpsertOp",
+        "type": "object"
+      },
       "GenerationEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -1301,6 +1531,25 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "ImageContent": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/AttachmentSource"
+          },
+          "type": {
+            "const": "image",
+            "default": "image",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "ImageContent",
+        "type": "object"
+      },
       "ImageGenerationIn": {
         "additionalProperties": false,
         "description": "一次图像生成的输入。参考图为空即文生图，否则走图像编辑。",
@@ -1412,6 +1661,133 @@
         "title": "ImageOut",
         "type": "object"
       },
+      "Interaction": {
+        "additionalProperties": false,
+        "description": "待人回应的审批或提问。``request`` / ``response`` 的形状由发起方决定。",
+        "properties": {
+          "interactionId": {
+            "title": "Interactionid",
+            "type": "string"
+          },
+          "interactionKind": {
+            "enum": [
+              "approval",
+              "question"
+            ],
+            "title": "Interactionkind",
+            "type": "string"
+          },
+          "request": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request"
+          },
+          "response": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "cancelled",
+              "answered",
+              "dismissed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "toolCallId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Toolcallid"
+          }
+        },
+        "required": [
+          "interactionId",
+          "interactionKind",
+          "state"
+        ],
+        "title": "Interaction",
+        "type": "object"
+      },
+      "InteractionUpsertOp": {
+        "additionalProperties": false,
+        "properties": {
+          "interaction": {
+            "$ref": "#/components/schemas/Interaction"
+          },
+          "op": {
+            "const": "interaction.upsert",
+            "default": "interaction.upsert",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "interaction"
+        ],
+        "title": "InteractionUpsertOp",
+        "type": "object"
+      },
+      "ItemsRemoveOp": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "op": {
+            "const": "items.remove",
+            "default": "items.remove",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "ItemsRemoveOp",
+        "type": "object"
+      },
+      "MetaMergeOp": {
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "$ref": "#/components/schemas/TranscriptMeta"
+          },
+          "op": {
+            "const": "meta.merge",
+            "default": "meta.merge",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "meta"
+        ],
+        "title": "MetaMergeOp",
+        "type": "object"
+      },
       "MetricsOut": {
         "additionalProperties": false,
         "properties": {
@@ -1445,6 +1821,158 @@
           "revenue"
         ],
         "title": "MetricsOut",
+        "type": "object"
+      },
+      "NoticeFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "frameId": {
+            "title": "Frameid",
+            "type": "string"
+          },
+          "kind": {
+            "const": "notice",
+            "default": "notice",
+            "title": "Kind",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "frameId",
+          "level",
+          "message"
+        ],
+        "title": "NoticeFrame",
+        "type": "object"
+      },
+      "OpsBatchOut": {
+        "additionalProperties": false,
+        "properties": {
+          "ops": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "append": "#/components/schemas/AppendOp",
+                  "attachment.upsert": "#/components/schemas/AttachmentUpsertOp",
+                  "frame.upsert": "#/components/schemas/FrameUpsertOp",
+                  "interaction.upsert": "#/components/schemas/InteractionUpsertOp",
+                  "items.remove": "#/components/schemas/ItemsRemoveOp",
+                  "meta.merge": "#/components/schemas/MetaMergeOp",
+                  "prompt.upsert": "#/components/schemas/PromptUpsertOp",
+                  "step.upsert": "#/components/schemas/StepUpsertOp",
+                  "turn.upsert": "#/components/schemas/TurnUpsertOp"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TurnUpsertOp"
+                },
+                {
+                  "$ref": "#/components/schemas/StepUpsertOp"
+                },
+                {
+                  "$ref": "#/components/schemas/FrameUpsertOp"
+                },
+                {
+                  "$ref": "#/components/schemas/AppendOp"
+                },
+                {
+                  "$ref": "#/components/schemas/InteractionUpsertOp"
+                },
+                {
+                  "$ref": "#/components/schemas/AttachmentUpsertOp"
+                },
+                {
+                  "$ref": "#/components/schemas/PromptUpsertOp"
+                },
+                {
+                  "$ref": "#/components/schemas/MetaMergeOp"
+                },
+                {
+                  "$ref": "#/components/schemas/ItemsRemoveOp"
+                }
+              ]
+            },
+            "title": "Ops",
+            "type": "array"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seq",
+          "ops"
+        ],
+        "title": "OpsBatchOut",
+        "type": "object"
+      },
+      "OpsCatchup": {
+        "additionalProperties": false,
+        "description": "``GET /transcript/ops`` 的补批响应。\n\n``complete`` 为假表示要的批次已经出了日志窗口，客户端得整页重拉。",
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "batches": {
+            "items": {
+              "$ref": "#/components/schemas/OpsBatchOut"
+            },
+            "title": "Batches",
+            "type": "array"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "latest_seq": {
+            "title": "Latest Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "batches",
+          "latest_seq",
+          "complete"
+        ],
+        "title": "OpsCatchup",
         "type": "object"
       },
       "PopularOut": {
@@ -1565,6 +2093,197 @@
         "title": "ProductOut",
         "type": "object"
       },
+      "Prompt": {
+        "additionalProperties": false,
+        "description": "用户消息的服务端记录。客户端的乐观气泡第一层认领就是按 ``promptId`` 查这张表。",
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/components/schemas/ImageContent",
+                      "text": "#/components/schemas/TextContent",
+                      "video": "#/components/schemas/VideoContent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TextContent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ImageContent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VideoContent"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "createdAt": {
+            "title": "Createdat",
+            "type": "string"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          },
+          "promptId": {
+            "title": "Promptid",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "queued",
+              "blocked",
+              "completed",
+              "failed",
+              "aborted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "steeredAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steeredat"
+          },
+          "userMessageId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usermessageid"
+          }
+        },
+        "required": [
+          "promptId",
+          "status",
+          "createdAt"
+        ],
+        "title": "Prompt",
+        "type": "object"
+      },
+      "PromptQueueOut": {
+        "additionalProperties": false,
+        "description": "``GET /prompts``：在跑的那条加排着的那些。",
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Prompt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "queued": {
+            "items": {
+              "$ref": "#/components/schemas/Prompt"
+            },
+            "title": "Queued",
+            "type": "array"
+          }
+        },
+        "required": [
+          "active",
+          "queued"
+        ],
+        "title": "PromptQueueOut",
+        "type": "object"
+      },
+      "PromptSubmission": {
+        "additionalProperties": false,
+        "description": "``POST /prompts`` 的请求体。\n\n``prompt_id`` 由客户端铸：它得在服务端答复回来之前就用这个 id 把自己的乐观气泡挂上，\n而且重发同一个 id 不会多起一次运行。",
+        "properties": {
+          "content": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "image": "#/components/schemas/ImageContent",
+                  "text": "#/components/schemas/TextContent",
+                  "video": "#/components/schemas/VideoContent"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextContent"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageContent"
+                },
+                {
+                  "$ref": "#/components/schemas/VideoContent"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "Content",
+            "type": "array"
+          },
+          "prompt_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "title": "Prompt Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt_id",
+          "content"
+        ],
+        "title": "PromptSubmission",
+        "type": "object"
+      },
+      "PromptUpsertOp": {
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "const": "prompt.upsert",
+            "default": "prompt.upsert",
+            "title": "Op",
+            "type": "string"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/Prompt"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "title": "PromptUpsertOp",
+        "type": "object"
+      },
       "SidebarCollectionOut": {
         "additionalProperties": false,
         "description": "侧栏里的一个合集：元信息、里面一共几段，加第一页对话。\n\n``conversationCount`` 是全部条数，``page`` 只有第一页——往下滑要更多是另一次查询。",
@@ -1639,6 +2358,183 @@
           "authorization_url"
         ],
         "title": "SsoAuthorizeOut",
+        "type": "object"
+      },
+      "SteerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "prompt_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Prompt Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "prompt_ids"
+        ],
+        "title": "SteerRequest",
+        "type": "object"
+      },
+      "StepHeader": {
+        "additionalProperties": false,
+        "properties": {
+          "endMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endmessage"
+          },
+          "endReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endreason"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "finishReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishreason"
+          },
+          "kind": {
+            "const": "step",
+            "default": "step",
+            "title": "Kind",
+            "type": "string"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "completed",
+              "interrupted",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stepId": {
+            "title": "Stepid",
+            "type": "string"
+          },
+          "turnId": {
+            "title": "Turnid",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "stepId",
+          "turnId",
+          "ordinal",
+          "state"
+        ],
+        "title": "StepHeader",
+        "type": "object"
+      },
+      "StepUpsertOp": {
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "const": "step.upsert",
+            "default": "step.upsert",
+            "title": "Op",
+            "type": "string"
+          },
+          "step": {
+            "$ref": "#/components/schemas/StepHeader"
+          },
+          "turnId": {
+            "title": "Turnid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "turnId",
+          "step"
+        ],
+        "title": "StepUpsertOp",
+        "type": "object"
+      },
+      "StepUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "inputCacheCreation": {
+            "title": "Inputcachecreation",
+            "type": "integer"
+          },
+          "inputCacheRead": {
+            "title": "Inputcacheread",
+            "type": "integer"
+          },
+          "inputOther": {
+            "title": "Inputother",
+            "type": "integer"
+          },
+          "output": {
+            "title": "Output",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inputOther",
+          "output",
+          "inputCacheRead",
+          "inputCacheCreation"
+        ],
+        "title": "StepUsage",
         "type": "object"
       },
       "TaskBrief": {
@@ -2046,6 +2942,796 @@
           "items"
         ],
         "title": "TasksPageOut",
+        "type": "object"
+      },
+      "TextContent": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "const": "text",
+            "default": "text",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "TextContent",
+        "type": "object"
+      },
+      "TextFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "attachmentIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachmentids"
+          },
+          "frameId": {
+            "title": "Frameid",
+            "type": "string"
+          },
+          "kind": {
+            "const": "text",
+            "default": "text",
+            "title": "Kind",
+            "type": "string"
+          },
+          "promptIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promptids"
+          },
+          "role": {
+            "enum": [
+              "assistant",
+              "user"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "frameId",
+          "role",
+          "text"
+        ],
+        "title": "TextFrame",
+        "type": "object"
+      },
+      "ThinkingFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "frameId": {
+            "title": "Frameid",
+            "type": "string"
+          },
+          "kind": {
+            "const": "thinking",
+            "default": "thinking",
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "frameId",
+          "text"
+        ],
+        "title": "ThinkingFrame",
+        "type": "object"
+      },
+      "ToolFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approvalid"
+          },
+          "display": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "frameId": {
+            "title": "Frameid",
+            "type": "string"
+          },
+          "input": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "kind": {
+            "const": "tool",
+            "default": "tool",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "done",
+              "error"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "toolCallId": {
+            "title": "Toolcallid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "frameId",
+          "toolCallId",
+          "name",
+          "state"
+        ],
+        "title": "ToolFrame",
+        "type": "object"
+      },
+      "TranscriptMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "activity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "idle",
+                  "turn",
+                  "disposing",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity"
+          }
+        },
+        "title": "TranscriptMeta",
+        "type": "object"
+      },
+      "TranscriptPage": {
+        "additionalProperties": false,
+        "description": "``GET /transcript`` 的一页。\n\n``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、\n后者从待回应的交互里取。",
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agents": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "attachments": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Attachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "interactions": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Interaction"
+            },
+            "title": "Interactions",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptTurn"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/TranscriptMeta",
+            "default": {}
+          },
+          "pending_interactions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Pending Interactions",
+            "type": "array"
+          },
+          "prompts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Prompt"
+            },
+            "title": "Prompts",
+            "type": "array"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "tasks": {
+            "default": [],
+            "items": {},
+            "title": "Tasks",
+            "type": "array"
+          },
+          "todos": {
+            "default": [],
+            "items": {},
+            "title": "Todos",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent_id",
+          "items",
+          "has_more",
+          "seq"
+        ],
+        "title": "TranscriptPage",
+        "type": "object"
+      },
+      "TranscriptStep": {
+        "additionalProperties": false,
+        "description": "带上块的完整一步。``GET /transcript`` 的分页与快照里用这一份，操作里用光头部那份。",
+        "properties": {
+          "endMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endmessage"
+          },
+          "endReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endreason"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "finishReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishreason"
+          },
+          "frames": {
+            "default": [],
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "notice": "#/components/schemas/NoticeFrame",
+                  "text": "#/components/schemas/TextFrame",
+                  "thinking": "#/components/schemas/ThinkingFrame",
+                  "tool": "#/components/schemas/ToolFrame"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextFrame"
+                },
+                {
+                  "$ref": "#/components/schemas/ThinkingFrame"
+                },
+                {
+                  "$ref": "#/components/schemas/ToolFrame"
+                },
+                {
+                  "$ref": "#/components/schemas/NoticeFrame"
+                }
+              ]
+            },
+            "title": "Frames",
+            "type": "array"
+          },
+          "kind": {
+            "const": "step",
+            "default": "step",
+            "title": "Kind",
+            "type": "string"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "completed",
+              "interrupted",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stepId": {
+            "title": "Stepid",
+            "type": "string"
+          },
+          "turnId": {
+            "title": "Turnid",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "stepId",
+          "turnId",
+          "ordinal",
+          "state"
+        ],
+        "title": "TranscriptStep",
+        "type": "object"
+      },
+      "TranscriptTurn": {
+        "additionalProperties": false,
+        "description": "带上步的完整一轮。",
+        "properties": {
+          "attachmentIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachmentids"
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "kind": {
+            "const": "turn",
+            "default": "turn",
+            "title": "Kind",
+            "type": "string"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/TurnOrigin"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TranscriptStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "turnId": {
+            "title": "Turnid",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TurnUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "turnId",
+          "ordinal",
+          "state",
+          "origin"
+        ],
+        "title": "TranscriptTurn",
+        "type": "object"
+      },
+      "TurnHeader": {
+        "additionalProperties": false,
+        "description": "一轮的头部。``steps`` 不在这里——步是单独的操作发的。",
+        "properties": {
+          "attachmentIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachmentids"
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "kind": {
+            "const": "turn",
+            "default": "turn",
+            "title": "Kind",
+            "type": "string"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/TurnOrigin"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "turnId": {
+            "title": "Turnid",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TurnUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "turnId",
+          "ordinal",
+          "state",
+          "origin"
+        ],
+        "title": "TurnHeader",
+        "type": "object"
+      },
+      "TurnOrigin": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "user",
+              "cron",
+              "task",
+              "hook",
+              "compaction",
+              "side",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "TurnOrigin",
+        "type": "object"
+      },
+      "TurnUpsertOp": {
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "const": "turn.upsert",
+            "default": "turn.upsert",
+            "title": "Op",
+            "type": "string"
+          },
+          "turn": {
+            "$ref": "#/components/schemas/TurnHeader"
+          }
+        },
+        "required": [
+          "turn"
+        ],
+        "title": "TurnUpsertOp",
+        "type": "object"
+      },
+      "TurnUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "cachedTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cachedtokens"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "inputTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inputtokens"
+          },
+          "outputTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outputtokens"
+          }
+        },
+        "title": "TurnUsage",
         "type": "object"
       },
       "UploadInstruction": {
@@ -2512,6 +4198,25 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VideoContent": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/AttachmentSource"
+          },
+          "type": {
+            "const": "video",
+            "default": "video",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "VideoContent",
+        "type": "object"
+      },
       "VideoGenerationIn": {
         "additionalProperties": false,
         "description": "一次视频生成的输入。",
@@ -2767,182 +4472,6 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/agents/{agent_id}/chat": {
-      "options": {
-        "description": "刻意不带任何 ``Access-Control-Allow-*`` 头，让跨域预检失败。\n\n它和 POST 上的 ``application/json`` 要求是一对 CSRF 防线：浏览器能\n跨域直接发的三种 content-type 都能塞 JSON 且不触发预检，所以要求一个\n非免检的 content-type 来强制预检，再由这里拒掉预检。任何时候都不要在\n这里加放行头——那会让用户随手打开的网页能用他的会话启动 agent 运行。",
-        "operationId": "preflight_agents__agent_id__chat_options",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Preflight",
-        "tags": [
-          "agents"
-        ]
-      },
-      "post": {
-        "operationId": "chat_agents__agent_id__chat_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Chat",
-        "tags": [
-          "agents"
-        ]
-      }
-    },
-    "/agents/{agent_id}/chat/{conversation_id}/{run_id}": {
-      "get": {
-        "description": "接着读一次已经发起过的运行。\n\n位置优先取标准 SSE 的 ``Last-Event-ID`` 头（浏览器原生 EventSource 断\n线重连时会自动带上），没有就看 ``?from=``，两个都没有就从头重放。\n\n会话 id 要跟着一起给：流的名字里有它这一段，少了就拼不出来。\n\n这里不需要 POST 那对 CSRF 防线：读事件没有副作用，而且跨域拿不到响应\n体——我们不发 CORS 放行头。别人的运行也读不到：流名字里带着归属，换个\n人来同一组 id 就是另一条不存在的流，返回 404。",
-        "operationId": "resume_agents__agent_id__chat__conversation_id___run_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
-              "title": "Conversation Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
-              "title": "Run Id",
-              "type": "string"
-            }
-          },
-          {
-            "description": "同 Last-Event-ID，供不能带请求头的客户端使用",
-            "in": "query",
-            "name": "from",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "同 Last-Event-ID，供不能带请求头的客户端使用",
-              "title": "From"
-            }
-          },
-          {
-            "description": "上次收到的事件位置，从它之后接着发",
-            "in": "header",
-            "name": "Last-Event-ID",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "上次收到的事件位置，从它之后接着发",
-              "title": "Last-Event-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Resume",
-        "tags": [
-          "agents"
-        ]
-      }
-    },
     "/api-keys": {
       "get": {
         "operationId": "list_keys_api_keys_get",
@@ -4234,16 +5763,73 @@
         ]
       }
     },
-    "/conversations/{conversation_id}/messages": {
-      "get": {
-        "operationId": "read_conversation_messages_conversations__conversation_id__messages_get",
+    "/conversations/{conversation_id}/interactions/{interaction_id}": {
+      "post": {
+        "description": "对一张审批卡点同意或拒绝。工具就在同一次运行里等着这个回话。",
+        "operationId": "approve_conversations__conversation_id__interactions__interaction_id__post",
         "parameters": [
           {
             "in": "path",
             "name": "conversation_id",
             "required": true,
             "schema": {
-              "format": "uuid",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "interaction_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Interaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve",
+        "tags": [
+          "transcript"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}/prompts": {
+      "get": {
+        "operationId": "queue_view_conversations__conversation_id__prompts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
               "title": "Conversation Id",
               "type": "string"
             }
@@ -4254,7 +5840,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConversationMessagesOut"
+                  "$ref": "#/components/schemas/PromptQueueOut"
                 }
               }
             },
@@ -4271,9 +5857,155 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Read Conversation Messages",
+        "summary": "Queue View",
         "tags": [
-          "conversations"
+          "transcript"
+        ]
+      },
+      "post": {
+        "description": "发一条消息。``prompt_id`` 由客户端铸，重发同一个不会多起一次运行。",
+        "operationId": "submit_conversations__conversation_id__prompts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prompt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit",
+        "tags": [
+          "transcript"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}/prompts/{prompt_id}:abort": {
+      "post": {
+        "description": "停掉一条消息。排队的直接撤，在跑的发第一方取消让它自己收尾。",
+        "operationId": "abort_conversations__conversation_id__prompts__prompt_id__abort_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "prompt_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Prompt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Abort",
+        "tags": [
+          "transcript"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}/prompts:steer": {
+      "post": {
+        "description": "把排队中的几条插进正在跑的那一轮，不必等它跑完。",
+        "operationId": "steer_conversations__conversation_id__prompts_steer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SteerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Steer",
+        "tags": [
+          "transcript"
         ]
       }
     },
@@ -4327,6 +6059,148 @@
         "summary": "Set Conversation Task",
         "tags": [
           "conversations"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}/transcript": {
+      "get": {
+        "description": "一页轮子。不给位置就是最新那几轮，往上翻给 ``before_turn``。",
+        "operationId": "page_conversations__conversation_id__transcript_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_turn",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Turn"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_turn",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Turn"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Page",
+        "tags": [
+          "transcript"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}/transcript/ops": {
+      "get": {
+        "description": "补上断线期间漏掉的批次。``complete`` 为假就整页重拉。",
+        "operationId": "catchup_conversations__conversation_id__transcript_ops_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since_seq",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "Since Seq",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsCatchup"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Catchup",
+        "tags": [
+          "transcript"
         ]
       }
     },
