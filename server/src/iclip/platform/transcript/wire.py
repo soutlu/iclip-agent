@@ -102,6 +102,22 @@ class TranscriptOps(_Event):
     payload: OpsPayload
 
 
+class SessionMetaPayload(_Envelope):
+    session_id: str
+    title: str
+
+
+class SessionMetaUpdated(_Envelope):
+    """某段对话的标题变了。
+
+    **这一帧不看订阅，发给每一条连着的连接**（协议里它属于全局事件那一类）。侧栏列着几十段
+    对话却一段都没订，按订阅发的话它永远收不到改名。
+    """
+
+    type: Literal["session.meta.updated"] = "session.meta.updated"
+    payload: SessionMetaPayload
+
+
 class Ack(_Envelope):
     """控制帧的回执。``code`` 为 0 即成功，与协议一致。"""
 
@@ -130,7 +146,7 @@ class Ping(_Envelope):
 
 
 ServerFrame = Annotated[
-    ServerHello | TranscriptReset | TranscriptOps | Ack | Ping,
+    ServerHello | TranscriptReset | TranscriptOps | SessionMetaUpdated | Ack | Ping,
     Field(discriminator="type"),
 ]
 
@@ -199,6 +215,10 @@ class TranscriptPage(_Envelope):
     todos: tuple[Any, ...] = ()
     prompts: tuple[Prompt, ...] = ()
     meta: TranscriptMeta = TranscriptMeta()
+    title: str = ""
+    """这段对话叫什么。放在信封顶层而不是 ``meta`` 里：``meta`` 的形状归协议管，客户端拿
+    照抄来的 zod 校验它，多一个字段会被静默丢掉。首屏靠它显示标题，之后的改名走
+    ``session.meta.updated``。"""
     agents: tuple[dict[str, Any], ...] = ()
     pending_interactions: tuple[str, ...] = ()
     seq: int
@@ -270,6 +290,8 @@ __all__ = [
     "ServerHello",
     "ServerHelloCapabilities",
     "ServerHelloPayload",
+    "SessionMetaPayload",
+    "SessionMetaUpdated",
     "SteerRequest",
     "Subscribe",
     "SubscribeAckPayload",

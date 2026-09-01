@@ -42,6 +42,8 @@ export interface TranscriptView {
    * 原地增补、引用不变——渲染层据此解析，memo 不受影响。
    */
   attachments: ReadonlyMap<string, TranscriptAttachment>
+  /** 这段对话叫什么。基线给的那个；之后被改名会由 `session.meta.updated` 盖过去。 */
+  title: string
   /** `loading` 是基线还没到；`error` 是拉不到或者对不齐，界面给重试入口。 */
   status: 'loading' | 'ready' | 'error'
   /** 上面还有更早的轮子（往上翻页在 PR 之后做）。 */
@@ -57,6 +59,7 @@ const EMPTY_VIEW: TranscriptView = {
   items: [],
   prompts: [],
   status: 'loading',
+  title: '',
 }
 
 /** 一批操作的落地结果。 */
@@ -209,6 +212,7 @@ export class TranscriptReader {
           items: this.transcript.getItems(),
           prompts: [...this.transcript.getPrompts().values()],
           status: 'ready',
+          title: baseline.title,
         }
         this.emit()
         this.flush()

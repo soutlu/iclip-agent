@@ -2,9 +2,13 @@
  * 会话页：一段对话的内容，底下贴着输入框。
  *
  * 内容来自 `useTranscript`——订阅、拉基线、补漏都在它里面，这里只管铺开、滚动与发送。
+ *
+ * 标题来自基线（首屏那一份），之后被自动起名或改名会由推送盖过去。不从侧栏那份拓扑里翻：
+ * 拓扑只有每段列表的第一页，从搜索里点开一段更早的对话就翻不到，标题会退成「对话」。
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { useConversationTitles } from '@/shared/transcript/use-conversation-titles'
 import { useTranscript } from '@/shared/transcript/use-transcript'
 import type { TranscriptAttachment } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
@@ -18,7 +22,6 @@ import {
   promptText,
   steerPrompt,
   submitPrompt,
-  useSidebarTopology,
 } from '../conversations.api'
 import { ConversationComposer } from './conversation-composer'
 import { ConversationTurn } from './conversation-turn'
@@ -68,7 +71,8 @@ const optimisticAttachments = (
  */
 export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
-  const title = useConversationTitle(conversationId)
+  const liveTitle = useConversationTitles()
+  const title = liveTitle(conversationId) ?? view.title
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
@@ -233,14 +237,4 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       </div>
     </main>
   )
-}
-
-/** 标题取侧栏那份拓扑里的（侧栏已经拉过，这里命中缓存）；里面没有就先不显示名字。 */
-const useConversationTitle = (conversationId: string): string => {
-  const topology = useSidebarTopology(true)
-  const rows = [
-    ...(topology.data?.ungrouped.items ?? []),
-    ...(topology.data?.collections.flatMap((collection) => collection.page.items) ?? []),
-  ]
-  return rows.find((row) => row.id === conversationId)?.title ?? '对话'
 }

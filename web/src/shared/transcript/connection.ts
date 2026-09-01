@@ -20,9 +20,12 @@
  *
  * 掉线分两条路回来：`onclose` 走退避（照 kimi：`min(30s, 1s × 2ⁿ) + 抖动`），标签页重新
  * 露面走 `reconnect()` 立刻回来、不等退避——谁来触发后一条在 `transcript-provider` 里。
+ *
+ * **`session.meta.updated` 不按订阅分流**：它是协议里的全局事件（照 kimi），发给每一条连接。
+ * 侧栏列着几十段对话却一段都没订，按订阅发的话它永远收不到改名，所以这一帧另走 `watchMeta`。
  */
 
-import type { z } from 'zod'
+import { z } from 'zod'
 
 import { transcriptOpsEventSchema, transcriptResetEventSchema } from './vendor/contract/events'
 import type { TranscriptGrade } from './vendor/granularity/grade'
@@ -74,6 +77,17 @@ export interface TranscriptConnectionOptions {
   now?: () => number
 }
 
+/**
+ * `session.meta.updated` 的 payload。
+ *
+ * 这一份写在这里而不是 `vendor/`：那个目录是照抄来的协议凭据，不改；而且 vendor 那些 zod 是
+ * `z.object()`，默认**静默丢掉**未知字段——把标题塞进 `TranscriptMeta` 的话，服务端发了、客户端
+ * 一声不响地扔掉。
+ */
+const sessionMetaSchema = z.object({ session_id: z.string(), title: z.string() })
+
+export type SessionMeta = z.output<typeof sessionMetaSchema>
+
 export interface ConnectionHealth {
   connected: boolean
   /** 太久没有任何入站帧了。界面据此提示「连接可能断了」。 */
@@ -103,6 +117,9 @@ export class TranscriptConnection {
 
   /** 还没回执的 subscribe：ack 说「订不上」时得知道那一帧问的是哪段对话。 */
   private pending = new Map<string, string>()
+
+  /** 盯着改名的那些人。全局帧，不按对话分。 */
+  private metaWatchers = new Set<(meta: SessionMeta) => void>()
 
   private readonly options: TranscriptConnectionOptions
 
@@ -182,6 +199,16 @@ export class TranscriptConnection {
     })
   }
 
+  /**
+   * 盯着「某段对话改名了」。返回退订函数。
+   *
+   * 不按对话订：这一帧是全局的，侧栏要的正是「任意一段改了名」。
+   */
+  watchMeta(watcher: (meta: SessionMeta) => void): () => void {
+    this.metaWatchers.add(watcher)
+    return () => void this.metaWatchers.delete(watcher)
+  }
+
   health(): ConnectionHealth {
     const limit = Math.max(this.heartbeatMs * 2, STALE_FLOOR_MS)
     return {
@@ -230,6 +257,12 @@ export class TranscriptConnection {
       }
       case 'ack': {
         this.settleAck(frame)
+        return
+      }
+      case 'session.meta.updated': {
+        const parsed = sessionMetaSchema.safeParse(frame.payload)
+        if (!parsed.success) return
+        for (const watcher of this.metaWatchers) watcher(parsed.data)
         return
       }
       case 'transcript.reset':

@@ -3238,6 +3238,11 @@
             "title": "Tasks",
             "type": "array"
           },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
           "todos": {
             "default": [],
             "items": {},
@@ -6069,7 +6074,7 @@
     },
     "/conversations/{conversation_id}/transcript": {
       "get": {
-        "description": "一页轮子。不给位置就是最新那几轮，往上翻给 ``before_turn``。",
+        "description": "一页轮子。不给位置就是最新那几轮，往上翻给 ``before_turn``。\n\n标题在这里贴上：引擎那一侧不认识对话表，而首屏得有个名字显示（之后的改名走\n``session.meta.updated`` 推送，不再问这里）。",
         "operationId": "page_conversations__conversation_id__transcript_get",
         "parameters": [
           {

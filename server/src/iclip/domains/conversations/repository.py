@@ -109,10 +109,18 @@ class ConversationRepository(Protocol):
         """跨属主列出对话，按最近活动倒序。四个筛选条件都可以不给，可以任意组合。"""
         ...
 
+    async def apply_generated_title(self, conversation_id: uuid.UUID, *, title: str) -> bool:
+        """还没起过名的才写进去，返回写没写成。
+
+        条件写在 SQL 的 WHERE 里，不先查后写：两次运行同时收尾时，先查后写的那种写法两边都会
+        读到「还没起过名」，后写的那个把先写的盖掉——用户会看见标题闪一下变成另一个。
+        """
+        ...
+
     async def rename(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, title: str
     ) -> Conversation:
-        """改名，返回改完的整行。"""
+        """改名，返回改完的整行。改完这一段的标题就算用户自己起的，自动生成不再碰它。"""
         ...
 
     async def set_collection(

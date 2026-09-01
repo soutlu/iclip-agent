@@ -51,6 +51,8 @@ from iclip.platform.transcript.wire import (
     ResetPayload,
     ServerHello,
     ServerHelloPayload,
+    SessionMetaPayload,
+    SessionMetaUpdated,
     SteerRequest,
     Subscribe,
     SubscribeAckPayload,
@@ -141,8 +143,46 @@ class Conversations(Protocol):
         """
         ...
 
+    async def title_of(self, principal: Principal, conversation_id: str) -> str:
+        """这段对话叫什么；看不到就抛 ``NotFound``。"""
+        ...
+
 
 ConversationId = Annotated[str, Path(pattern=r"^[A-Za-z0-9._-]{1,128}$")]
+
+
+class LiveConnections:
+    """此刻还连着的那些 WS 连接。
+
+    改名这一帧**不看订阅**：侧栏列着几十段对话却一段都没订，按订阅发的话它永远收不到。所以
+    单开这张表，按属主逐条塞进去。
+
+    **按属主筛，不是见者有份**：一条连接归谁由它握手时那个 principal 定，跟客户端说什么无关。
+    不筛的话，一个人给对话改名会把标题发给当时连着的每一个人。
+
+    这张表只活在这个进程里。多 worker 起服务时各有一份——推送这条路本来就是这个性质（实时
+    状态也在进程内存里），改名收不到的那一侧刷新即可对齐，库里那份才是事实。
+    """
+
+    def __init__(self) -> None:
+        self._connections: set[_Connection] = set()
+
+    def add(self, connection: _Connection) -> None:
+        self._connections.add(connection)
+
+    def discard(self, connection: _Connection) -> None:
+        self._connections.discard(connection)
+
+    def announce_title(self, owner: uuid.UUID, conversation_id: uuid.UUID, title: str) -> None:
+        """把新标题发给这个人还开着的每个标签页。"""
+
+        frame = SessionMetaUpdated(
+            payload=SessionMetaPayload(session_id=str(conversation_id), title=title)
+        )
+        # 遍历副本：offer 里断开的连接会把自己从这张表里摘掉。
+        for connection in tuple(self._connections):
+            if connection.belongs_to(owner):
+                connection.offer(frame)
 
 
 def create_transcript_router(
@@ -150,6 +190,7 @@ def create_transcript_router(
     conversations: Conversations,
     *,
     allowed_origins: tuple[str, ...],
+    live: LiveConnections,
 ) -> APIRouter:
     """挂 transcript 的读写端点与订阅连接。"""
 
@@ -246,14 +287,21 @@ def create_transcript_router(
         after_turn: Annotated[str | None, Query()] = None,
         page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     ) -> TranscriptPage:
-        """一页轮子。不给位置就是最新那几轮，往上翻给 ``before_turn``。"""
+        """一页轮子。不给位置就是最新那几轮，往上翻给 ``before_turn``。
+
+        标题在这里贴上：引擎那一侧不认识对话表，而首屏得有个名字显示（之后的改名走
+        ``session.meta.updated`` 推送，不再问这里）。
+        """
 
         await _readable(principal, conversation_id)
-        return await transcripts.page(
+        page = await transcripts.page(
             conversation_id,
             before_turn=before_turn,
             after_turn=after_turn,
             page_size=page_size,
+        )
+        return page.model_copy(
+            update={"title": await conversations.title_of(principal, conversation_id)}
         )
 
     @router.get("/transcript/ops", response_model=OpsCatchup)
@@ -279,7 +327,7 @@ def create_transcript_router(
         if principal is None or not principal.has("agent:run"):
             await websocket.close(code=1008)
             return
-        await _serve(websocket, transcripts, conversations, principal)
+        await _serve(websocket, transcripts, conversations, principal, live)
 
     outer.include_router(router)
     return outer
@@ -393,6 +441,19 @@ class _Connection:
         await self._outbound.put(
             Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(conversation_id,)))
         )
+
+    def belongs_to(self, owner: uuid.UUID) -> bool:
+        """这条连接是不是这个人的。全局帧按它决定发不发。"""
+
+        return self._principal.user_id == owner
+
+    def offer(self, frame: Any) -> None:
+        """塞一帧给这条连接。塞不下就记成溢出，跟批次推送同一个待遇。"""
+
+        try:
+            self._outbound.put_nowait(frame)
+        except asyncio.QueueFull:
+            self._overflowed = True
 
     def _listener_for(self, conversation_id: str) -> Callable[[Any], None]:
         """这段对话的批次回调。每段各一个：回调本身就带着「这一批是谁的」。"""
@@ -512,8 +573,14 @@ async def _serve(
     transcripts: Transcripts,
     conversations: Conversations,
     principal: Principal,
+    live: LiveConnections,
 ) -> None:
-    await _Connection(websocket, transcripts, conversations, principal).serve()
+    connection = _Connection(websocket, transcripts, conversations, principal)
+    live.add(connection)
+    try:
+        await connection.serve()
+    finally:
+        live.discard(connection)
 
 
 __all__ = [
@@ -521,6 +588,7 @@ __all__ = [
     "HEARTBEAT_SECONDS",
     "MAX_EVENT_BUFFER",
     "Conversations",
+    "LiveConnections",
     "Transcripts",
     "create_transcript_router",
 ]

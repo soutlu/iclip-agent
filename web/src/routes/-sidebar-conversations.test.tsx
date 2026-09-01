@@ -21,8 +21,8 @@ const seedConversations = (count: number, collectionId: string | null = null) =>
 const render = async () => {
   server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
   const user = userEvent.setup()
-  await renderWithProviders(<SidebarConversations />)
-  return user
+  const { socket } = await renderWithProviders(<SidebarConversations />)
+  return { socket, user }
 }
 
 describe('SidebarConversations', () => {
@@ -36,7 +36,7 @@ describe('SidebarConversations', () => {
 
   it('任务区：第一页 20 条，点「展开显示」把剩下的接上来', async () => {
     seedConversations(21)
-    const user = await render()
+    const { user } = await render()
 
     // 标题上的数字是总数，与这一页给了几条无关
     expect(await screen.findByRole('button', { name: '任务 (21)' })).toBeVisible()
@@ -52,7 +52,7 @@ describe('SidebarConversations', () => {
   it('合集内：第一页 10 段，展开后接上第 11 段', async () => {
     const collection = addMockCollection('夏季亚麻系列')
     seedConversations(11, collection.id)
-    const user = await render()
+    const { user } = await render()
 
     await user.click(await screen.findByRole('button', { name: '夏季亚麻系列 (11)' }))
     expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(10)
@@ -64,7 +64,7 @@ describe('SidebarConversations', () => {
 
   it('合集列表本身也分段：先 10 个，展开再露一批', async () => {
     Array.from({ length: 12 }, (_, index) => addMockCollection(`合集${index}`))
-    const user = await render()
+    const { user } = await render()
 
     expect(await screen.findByRole('button', { name: '合集 (12)' })).toBeVisible()
     expect(screen.getAllByRole('button', { name: /^合集\d+ \(0\)$/ })).toHaveLength(10)
@@ -82,7 +82,7 @@ describe('SidebarConversations', () => {
         HttpResponse.json({ detail: '后端炸了' }, { status: 500 }),
       ),
     )
-    const user = await render()
+    const { user } = await render()
     const expand = await screen.findByRole('button', { name: '展开显示更多对话' })
 
     await user.click(expand)
@@ -94,7 +94,7 @@ describe('SidebarConversations', () => {
   it('归属弹窗把对话移进合集后，侧栏跟着变', async () => {
     const collection = addMockCollection('夏季亚麻系列')
     const [conversation] = seedConversations(1)
-    const user = await render()
+    const { user } = await render()
     await screen.findByText('第0段')
 
     await user.click(screen.getByRole('button', { name: '第0段 的更多操作' }))
@@ -106,5 +106,20 @@ describe('SidebarConversations', () => {
     await waitFor(() => expect(conversation?.collectionId).toBe(collection.id))
     expect(await screen.findByRole('button', { name: '任务 (0)' })).toBeVisible()
     expect(await screen.findByRole('button', { name: '夏季亚麻系列 (1)' })).toBeVisible()
+  })
+
+  it('服务端给对话起了名，侧栏那一行当场跟着改', async () => {
+    const [conversation] = seedConversations(1)
+    const { socket } = await render()
+    await screen.findByText('第0段')
+
+    socket.deliver({
+      type: 'session.meta.updated',
+      payload: { session_id: conversation?.id ?? '', title: '夜景延时素材生成' },
+    })
+
+    // 不重拉列表：改名那一帧自己带着新名字，再发一次请求只是白等一个来回。
+    expect(await screen.findByText('夜景延时素材生成')).toBeVisible()
+    expect(screen.queryByText('第0段')).not.toBeInTheDocument()
   })
 })

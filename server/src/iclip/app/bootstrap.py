@@ -36,7 +36,7 @@ from iclip.config import (
     resolve_settings,
 )
 from iclip.domains.agents.public import AgentRunDeps
-from iclip.domains.agents.transcript_api import create_transcript_router
+from iclip.domains.agents.transcript_api import LiveConnections, create_transcript_router
 from iclip.domains.assets.infra_sql import SqlAssetRepository
 from iclip.domains.assets.module import build_assets_module
 from iclip.domains.collections.infra_sql import SqlCollectionRepository
@@ -48,6 +48,7 @@ from iclip.domains.conversations.service import (
     CollectionInfo,
     DerivedFile,
     DerivedFileContent,
+    GenerateTitle,
 )
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.module import GenerationModule, build_generation_module
@@ -77,6 +78,7 @@ from iclip.harness.models import BuiltModels, ModelSpec, build_models
 from iclip.harness.prompts import PromptQueue, PromptRow
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
+from iclip.harness.titles import title_generator
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
@@ -191,6 +193,12 @@ def _model_specs(declared: Sequence[ResolvedModel]) -> tuple[ModelSpec, ...]:
 
 _SOCKET_TIMEOUT_MARGIN = 5.0
 """socket 超时比阻塞等待多留的余量（秒）。"""
+
+
+async def _no_title(_user_text: str) -> str | None:
+    """没配起名模型时的替身：一个名字都不起，对话保持默认名。"""
+
+    return None
 
 
 def _shot_video_client(settings: ResolvedShotVideo | None) -> httpx.AsyncClient | None:
@@ -429,12 +437,26 @@ def build_app(
             CollectionInfo(id=item.id, name=item.name, updated_at=item.updated_at) for item in found
         )
 
+    live_connections = LiveConnections()
+
+    built_models = build_models(_model_specs(settings.models)) if models is None else models
+    title_model = settings.title_model
+    if title_model is None:
+        # 没配起名模型：对话一直叫默认名，别的照跑。
+        generate_title: GenerateTitle = _no_title
+    elif title_model not in built_models:
+        raise RuntimeError(f"conversations.title_model 指向 {title_model}，models 段里没有这个名字")
+    else:
+        generate_title = title_generator(built_models[title_model])
+
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
         purge_derived=purge_conversation_workspace,
         list_collections=list_owner_collections,
         list_derived_files=list_conversation_files,
         read_derived_file=read_conversation_file,
+        generate_title=generate_title,
+        announce_title=live_connections.announce_title,
     )
     # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
     # 或对象存储缺一个，就借不到——那时装个只会响亮拒绝的替代品，而不是让它悄悄记空。
@@ -466,10 +488,18 @@ def build_app(
             ),
         ),
         step_store=step_store,
-        models=build_models(_model_specs(settings.models)) if models is None else models,
+        models=built_models,
     )
     transcript_store = TranscriptStore()
     prompt_queue = PromptQueue(active_engine)
+
+    async def name_conversation(row: PromptRow) -> None:
+        """一轮跑完，给还没起过名的那段对话起个名。
+
+        接在组合根：起名字要用模型（引擎那一侧），条件写与广播在对话那一侧，两个域互相不认识。
+        """
+
+        await conversations.service.name_after_turn(uuid.UUID(row.conversation_id), row.text)
 
     async def deps_for_prompt(row: PromptRow) -> AgentRunDeps:
         """给排到的那条 prompt 重建运行依赖。
@@ -495,6 +525,7 @@ def build_app(
             queue=prompt_queue,
             snapshots=step_store,
             deps_for=deps_for_prompt,
+            on_turn_ended=name_conversation,
         ),
     )
 
@@ -560,6 +591,7 @@ def build_app(
             transcripts,
             conversations.service,
             allowed_origins=settings.security.cors_allow_origins,
+            live=live_connections,
         )
     )
 

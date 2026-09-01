@@ -23,6 +23,7 @@ import {
 import { useTaskOptions } from '@/features/tasks'
 import { Icon, type IconName } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
+import { useConversationTitles } from '@/shared/transcript/use-conversation-titles'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
@@ -243,6 +244,7 @@ function UngroupedSection({
   page: ConversationPage
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED })
+  const liveTitle = useConversationTitles()
   const more = useMoreConversations({}, page.nextCursor)
   const items = [...page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
   const hasMore = more.data ? more.hasNextPage : Boolean(page.nextCursor)
@@ -256,6 +258,7 @@ function UngroupedSection({
             <ConversationRow
               key={conversation.id}
               conversation={conversation}
+              displayTitle={liveTitle(conversation.id) ?? conversation.title}
               dragging={dragging === conversation.id}
               onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
@@ -388,6 +391,7 @@ function CollectionGroup({
 }: CollectionGroupProps) {
   const [open, setOpen] = useState(false)
   const { isOver, setNodeRef } = useDroppable({ id: collection.id })
+  const liveTitle = useConversationTitles()
   const more = useMoreConversations({ collectionId: collection.id }, collection.page.nextCursor)
   const items = [...collection.page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
   const hasMore = more.data ? more.hasNextPage : Boolean(collection.page.nextCursor)
@@ -438,6 +442,7 @@ function CollectionGroup({
             <ConversationRow
               key={conversation.id}
               conversation={conversation}
+              displayTitle={liveTitle(conversation.id) ?? conversation.title}
               dragging={dragging === conversation.id}
               onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
@@ -469,12 +474,15 @@ function ConversationRow({
   conversation,
   dragging,
   onChanged,
+  displayTitle,
   onOpenMembership,
 }: {
   conversation: Conversation
   dragging: boolean
   onChanged: () => void
   onOpenMembership: () => void
+  /** 这一行现在显示的名字：服务端起过名或者刚被改名，就是新的那个。 */
+  displayTitle: string
 }) {
   const { listeners, setNodeRef, transform } = useDraggable({
     data: { collectionId: conversation.collectionId },
@@ -490,7 +498,7 @@ function ConversationRow({
   const commitRename = (value: string) => {
     setEditing(false)
     const title = value.trim()
-    if (title && title !== conversation.title) {
+    if (title && title !== displayTitle) {
       rename.mutate(
         { conversationId: conversation.id, title },
         { onError: (error) => toast.error(error.message) },
@@ -515,14 +523,14 @@ function ConversationRow({
     >
       {editing ? (
         <input
-          aria-label={`重命名 ${conversation.title}`}
+          aria-label={`重命名 ${displayTitle}`}
           className="min-w-0 flex-1 rounded-xs bg-surface-container-lowest px-1 text-body text-on-surface ui-focus-inline"
-          defaultValue={conversation.title}
+          defaultValue={displayTitle}
           onBlur={(event) => commitRename(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
             if (event.key === 'Escape') {
-              event.currentTarget.value = conversation.title
+              event.currentTarget.value = displayTitle
               event.currentTarget.blur()
             }
           }}
@@ -536,7 +544,7 @@ function ConversationRow({
           params={{ conversationId: conversation.id }}
           to="/c/$conversationId"
         >
-          <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{displayTitle}</span>
         </Link>
       )}
       {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
@@ -553,7 +561,7 @@ function ConversationRow({
         <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
           <MenuRoot>
             <MenuTrigger asChild>
-              <IconButton label={`${conversation.title} 的更多操作`} name="more" size="xs" />
+              <IconButton label={`${displayTitle} 的更多操作`} name="more" size="xs" />
             </MenuTrigger>
             <MenuSurface align="start">
               <MenuItem icon="edit" onSelect={() => setEditing(true)}>

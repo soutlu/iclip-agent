@@ -283,6 +283,16 @@ class ShotVideoSection(ConfigSection):
     """一次出图工具调用总共等多久；超了就把记录 id 报回去，让人自己查。"""
 
 
+class ConversationsSection(ConfigSection):
+    """对话本身的设置。
+
+    ``title_model`` 是给对话起标题的那个小模型，取 ``models`` 段的键名。不配就不起标题，
+    对话一直叫默认名。
+    """
+
+    title_model: str | None = None
+
+
 class OpsSection(ConfigSection):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -297,6 +307,7 @@ class RuntimeConfig(BaseSettings):
     media_generation: MediaGenerationSection | None = None
     shot_video: ShotVideoSection | None = None
     models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
+    conversations: ConversationsSection = ConversationsSection()
     ops: OpsSection = OpsSection()
 
     @classmethod
@@ -422,6 +433,8 @@ class ResolvedSettings:
     product_catalog: ResolvedProductCatalog | None
     inspirations: ResolvedInspirations | None
     models: tuple[ResolvedModel, ...]
+    title_model: str | None
+    """给对话起标题的模型名，取 ``models`` 里的一个。为空即不起标题。"""
     log_level: str
 
 
@@ -589,6 +602,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             )
             for name, model in config.models.items()
         ),
+        title_model=config.conversations.title_model,
         log_level=config.ops.log_level,
     )
 

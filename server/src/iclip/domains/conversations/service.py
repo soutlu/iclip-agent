@@ -32,6 +32,22 @@ SIDEBAR_UNGROUPED = 20
 SIDEBAR_PER_COLLECTION = 10
 """每个合集里内嵌几段对话。再多要展开看，是另一次查询的事。"""
 
+GenerateTitle = Callable[[str], Awaitable[str | None]]
+"""一段用户输入 → 一个标题，起不出来给 ``None``。
+
+**这一层不知道标题是怎么来的。** 「起名字」是模型的活，模型属于 agent 引擎那一侧，本模块
+不认识它；这里只留一个口子，接什么由组合根决定。没配起名模型时接一个恒给 ``None`` 的。
+"""
+
+AnnounceTitle = Callable[[uuid.UUID, uuid.UUID, str], None]
+"""标题变了，告诉这个人还开着的每个标签页，入参是 ``(属主, 对话 id, 新标题)``。
+
+**带上属主是必须的。** 这一帧不看订阅（侧栏列着几十段对话却一段都没订），所以派发那一侧只能
+靠属主认人；不带的话，一次改名会把标题发给当时连着的每一个人。
+
+同步：广播只是往每条连接的出站队列里塞一帧，不落库也不等回执。
+"""
+
 PurgeDerived = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """删掉一段对话派生出来的东西，入参是 ``(属主, 对话 id)``。
 
@@ -170,9 +186,13 @@ class ConversationService:
         list_collections: ListCollections,
         list_derived_files: ListDerivedFiles,
         read_derived_file: ReadDerivedFile,
+        generate_title: GenerateTitle,
+        announce_title: AnnounceTitle,
     ) -> None:
         self._repo = repo
         self._purge_derived = purge_derived
+        self._generate_title = generate_title
+        self._announce_title = announce_title
         self._list_collections = list_collections
         self._list_derived_files = list_derived_files
         self._read_derived_file = read_derived_file
@@ -223,6 +243,8 @@ class ConversationService:
                 owner_user_id=principal.user_id,
                 agent_id=agent_id,
                 title=title or DEFAULT_TITLE,
+                # 调用方给了名字就是它自己起的，别再自动改掉。
+                title_kind="custom" if title else "default",
                 last_run_id=None,
                 task_id=task_id,
                 collection_id=collection_id,
@@ -355,7 +377,30 @@ class ConversationService:
     async def rename(
         self, principal: Principal, conversation_id: uuid.UUID, *, title: str
     ) -> Conversation:
-        return await self._repo.rename(conversation_id, owner=principal.user_id, title=title)
+        renamed = await self._repo.rename(conversation_id, owner=principal.user_id, title=title)
+        # 自己改的名字也要告诉别的标签页：同一个人常常开着好几个。
+        self._announce_title(renamed.owner_user_id, conversation_id, renamed.title)
+        return renamed
+
+    async def name_after_turn(self, conversation_id: uuid.UUID, user_text: str) -> None:
+        """一轮跑完，给还没起过名的对话起个名。
+
+        起不出来就不起——下一轮跑完还会再试一次，不记重试次数：能不能起名取决于当时模型答不答
+        得上来，攒一个计数器只会让一段本可以有名字的对话永远叫「新对话」。
+
+        :param conversation_id: 哪段对话。
+        :param user_text: 用户这一轮说的话。
+        """
+
+        conversation = await self._repo.get(conversation_id, owner=None)
+        if conversation.title_kind != "default":
+            return
+        title = await self._generate_title(user_text)
+        if title is None:
+            return
+        # 起名期间用户可能已经自己改了名，所以写入时再判一次——条件在 SQL 里。
+        if await self._repo.apply_generated_title(conversation_id, title=title):
+            self._announce_title(conversation.owner_user_id, conversation_id, title)
 
     async def set_collection(
         self, principal: Principal, conversation_id: uuid.UUID, *, collection_id: uuid.UUID | None
@@ -416,6 +461,17 @@ class ConversationService:
         owner = principal.user_id if writing else self._readable_by(principal)
         conversation = await self._repo.get(_as_conversation_id(conversation_id), owner=owner)
         return conversation.agent_id
+
+    async def title_of(self, principal: Principal, conversation_id: str) -> str:
+        """这段对话叫什么；看不到的一律抛 ``NotFound``。
+
+        会话页首屏要它。之后的改名走推送那条路（``session.meta.updated``），不再问这里。
+        """
+
+        conversation = await self._repo.get(
+            _as_conversation_id(conversation_id), owner=self._readable_by(principal)
+        )
+        return conversation.title
 
 
 __all__ = [
