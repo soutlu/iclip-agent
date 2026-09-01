@@ -10,8 +10,10 @@
  * 加一个图标，不进卡片。开合照 kimi 网页版用 grid-rows 0fr→1fr 平滑过渡，不再用 <details>。
  */
 
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import type { TranscriptTurn } from '@/shared/transcript/vendor'
+import { Icon } from '@/shared/icons'
+import { toast } from '@/shared/ui/toast'
 import { groupTurnEntries } from './activity-group'
 import { ActivityRun } from './activity-run'
 import { ErrorNotice, TurnFrame, type AttachmentMap } from './turn-frame'
@@ -25,6 +27,8 @@ type ConversationTurnProps = {
 
 /** 这一轮是不是已经结束了。结束了的轮子里不该再有转圈的东西。 */
 const isSettled = (turn: TranscriptTurn) => turn.state !== 'running' && turn.state !== 'queued'
+
+const COPY_FEEDBACK_MS = 1400
 
 /**
  * 渲染一轮。
@@ -41,8 +45,29 @@ export const ConversationTurn = memo(function ConversationTurn({
   attachments,
   turn,
 }: ConversationTurnProps) {
+  const [copied, setCopied] = useState(false)
   const settled = isSettled(turn)
   const entries = turn.steps.flatMap((step) => step.frames.map((frame) => ({ frame, step })))
+  const lastUserFrameIndex = entries.findLastIndex(
+    ({ frame }) => frame.kind === 'text' && frame.role === 'user',
+  )
+  const copyText = entries
+    .slice(lastUserFrameIndex + 1)
+    .flatMap(({ frame }) =>
+      frame.kind === 'text' && frame.role === 'assistant' && frame.text.trim().length > 0
+        ? [frame.text]
+        : [],
+    )
+    .join('\n\n')
+  const copyReply = async () => {
+    try {
+      await navigator.clipboard.writeText(copyText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), COPY_FEEDBACK_MS)
+    } catch {
+      toast.error('复制失败')
+    }
+  }
   // 开场输入始终在轮头部；user frame 只表示这一轮运行期间追加的插话，两者互不替代。
   const hasOpening = (turn.prompt?.length ?? 0) > 0 || (turn.attachmentIds?.length ?? 0) > 0
   // 「还在进行中」的块照 kimi 的判据：轮子没结束，且它是最后一步的最后一块
@@ -76,6 +101,17 @@ export const ConversationTurn = memo(function ConversationTurn({
           />
         ),
       )}
+      {settled && copyText !== '' ? (
+        <button
+          aria-label="复制"
+          className="inline-flex min-h-[22px] cursor-pointer items-center justify-center self-start rounded-sm px-[5px] py-0.5 text-chat-muted-text opacity-70 ui-focus transition-[opacity,color,background-color] ui-motion-s hover:bg-hover hover:text-primary hover:opacity-100"
+          onClick={() => void copyReply()}
+          title="复制"
+          type="button"
+        >
+          <Icon decorative name={copied ? 'check' : 'copy'} size="sm" />
+        </button>
+      ) : null}
       {turn.error === undefined ? null : <ErrorNotice message={turn.error} />}
       {turn.state === 'queued' ? (
         <p className="text-body-sm text-chat-muted-text">排队中，等前一条跑完</p>

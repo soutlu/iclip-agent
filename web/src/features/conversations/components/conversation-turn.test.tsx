@@ -19,6 +19,16 @@ const stubOverflowing = () => {
   }
 }
 
+/** jsdom 没有剪贴板，垫一个能断言的最小实现。 */
+const stubClipboard = () => {
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  })
+  return writeText
+}
+
 describe('UserBubble', () => {
   let restore: (() => void) | undefined
   afterEach(() => restore?.())
@@ -62,6 +72,8 @@ const turnWithFrames = (frames: TranscriptTurn['steps'][number]['frames']): Tran
 })
 
 describe('ConversationTurn', () => {
+  afterEach(() => vi.restoreAllMocks())
+
   it('已经有模型块时仍显示轮头部的开场输入', () => {
     render(
       <ConversationTurn
@@ -113,5 +125,43 @@ describe('ConversationTurn', () => {
     )
 
     expect(screen.getByRole('button', { name: '参考图.png' })).toBeInTheDocument()
+  })
+
+  it('回复结束后复制最后一次用户输入之后的助手原始 markdown', async () => {
+    const user = userEvent.setup()
+    const writeText = stubClipboard()
+    render(
+      <ConversationTurn
+        attachments={new Map()}
+        turn={turnWithFrames([
+          { frameId: 't1.1.f1', kind: 'text', role: 'assistant', text: '前一段回复' },
+          { frameId: 't1.1.f2', kind: 'text', role: 'user', text: '再补一个结尾' },
+          { frameId: 't1.1.f3', kind: 'thinking', text: '调整结构' },
+          { frameId: 't1.1.f4', kind: 'text', role: 'assistant', text: '## 最终回复' },
+          { frameId: 't1.1.f5', kind: 'text', role: 'assistant', text: '补充说明' },
+        ])}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: '复制' }))
+
+    expect(writeText).toHaveBeenCalledWith('## 最终回复\n\n补充说明')
+  })
+
+  it('回复仍在输出时不显示复制按钮', () => {
+    stubClipboard()
+    render(
+      <ConversationTurn
+        attachments={new Map()}
+        turn={{
+          ...turnWithFrames([
+            { frameId: 't1.1.f1', kind: 'text', role: 'assistant', text: '还在输出' },
+          ]),
+          state: 'running',
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: '复制' })).toBeNull()
   })
 })
