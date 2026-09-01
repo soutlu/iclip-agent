@@ -24,7 +24,14 @@ export const mockAuthUser = {
   isActive: true,
   jobTitle: '',
   lastLoginAt: null,
-  permissions: ['collections:read', 'collections:write', 'tasks:read', 'tasks:write'],
+  permissions: [
+    'assets:read',
+    'assets:write',
+    'collections:read',
+    'collections:write',
+    'tasks:read',
+    'tasks:write',
+  ],
   roles: ['editor'],
   username: 'tester',
 }
@@ -32,6 +39,9 @@ export const mockAuthUser = {
 // 登录态是有状态的：没登录过 /users/me 就是 401，登录后才有用户——否则登录页永远直接被
 // 守卫送回首页，登录旅程根本走不到。浏览器里这份状态随页面刷新归零，单测在 afterEach 归零。
 let sessionActive = false
+
+// 签名时记下的上传类型：登记回包按它给 assetType/contentType（assetId → contentType）。
+const mockUploads = new Map<string, string>()
 
 export const resetMockSession = () => {
   sessionActive = false
@@ -434,6 +444,44 @@ export const handlers = [
     }
     Object.assign(task, { status: 'withdrawn', updatedAt: new Date().toISOString() })
     return HttpResponse.json({ task })
+  }),
+
+  // ── assets 上传（src/shared/ui/composer/use-composer-attachments.ts）───────
+  // 三步镜像：签名拿 assetId 与直传地址 → PUT 字节到 mock OSS → 登记拿回公网地址。
+  // 登记响应的 assetType/contentType 照签名时记下的类型给（与后端从桶里读到的口径一致）。
+  http.post('*/api/uploads/sign', async ({ request }) => {
+    const body = (await request.json()) as { contentType: string }
+    const assetId = crypto.randomUUID()
+    mockUploads.set(assetId, body.contentType)
+    return HttpResponse.json({
+      assetId,
+      upload: {
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        headers: { 'Content-Type': body.contentType },
+        url: `http://localhost/mock-oss/${assetId}`,
+      },
+    })
+  }),
+
+  http.put('*/mock-oss/:assetId', () => new HttpResponse(null, { status: 200 })),
+
+  http.post('*/api/assets/:assetId', ({ params }) => {
+    const assetId = params['assetId'] as string
+    const contentType = mockUploads.get(assetId) ?? 'image/png'
+    return HttpResponse.json(
+      {
+        asset: {
+          assetType: contentType.startsWith('video/') ? 'video' : 'image',
+          contentType,
+          createdAt: new Date().toISOString(),
+          creatorUserId: mockAuthUser.id,
+          id: assetId,
+          sizeBytes: 1024,
+          url: `http://localhost/mock-oss/${assetId}`,
+        },
+      },
+      { status: 201 },
+    )
   }),
 
   // ── transcript（src/shared/transcript）─────────────────────────────────

@@ -8,6 +8,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { TranscriptProvider } from '@/shared/transcript/transcript-provider'
+import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
 import { ConversationRoute } from './conversation-route'
 
@@ -123,14 +124,14 @@ describe('ConversationRoute', () => {
       }),
     )
 
-    await user.type(screen.getByLabelText('输入消息'), '再拆一段')
+    pasteTextIntoComposer(screen.getByLabelText('输入消息'), '再拆一段')
     await user.click(screen.getByRole('button', { name: '发送' }))
 
     // 服务端还没记下，本地这条先顶着；输入框已经清空
     await waitFor(() => {
       expect(screen.getAllByText('再拆一段')).toHaveLength(1)
     })
-    expect(screen.getByLabelText('输入消息')).toHaveValue('')
+    expect(screen.getByLabelText('输入消息')).toHaveTextContent('')
     expect(submitted).not.toBe('')
 
     // 服务端带着同一个 promptId 回来：本地那条撤掉，时间线上那一条接手
@@ -213,14 +214,13 @@ describe('ConversationRoute', () => {
       ),
     )
 
-    await user.type(screen.getByLabelText('输入消息'), '再拆一段')
+    pasteTextIntoComposer(screen.getByLabelText('输入消息'), '再拆一段')
     await user.click(screen.getByRole('button', { name: '发送' }))
 
-    expect(await screen.findByLabelText('输入消息')).toHaveValue('再拆一段')
-    // 气泡撤掉了：留下的只有输入框里那份文字
-    expect(
-      screen.queryAllByText('再拆一段').filter((node) => node.tagName !== 'TEXTAREA'),
-    ).toHaveLength(0)
+    const editor = await screen.findByLabelText('输入消息')
+    await waitFor(() => expect(editor).toHaveTextContent('再拆一段'))
+    // 气泡撤掉了：那句话只剩输入框里这一份
+    expect(screen.queryAllByText('再拆一段')).toHaveLength(1)
   })
 
   it('在跑的时候发送钮换成停止钮，点它停掉在跑的那条', async () => {

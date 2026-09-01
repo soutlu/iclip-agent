@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
 import { HomeRoute } from './home-route'
 
@@ -17,22 +18,22 @@ vi.mock('lottie-web/build/player/lottie_light', () => ({
 }))
 
 describe('HomeRoute', () => {
-  it('渲染标题与输入卡', async () => {
+  it('渲染标题与输入卡；游客没有附件上传入口', async () => {
     await renderWithProviders(<HomeRoute />)
 
     expect(screen.getByRole('heading', { name: 'Cue' })).toBeVisible()
     expect(screen.getByLabelText('输入消息')).toBeVisible()
-    expect(screen.getByRole('button', { name: '添加' })).toBeVisible()
+    // 未登录没有 assets:write，附件入口不出现（kimi：上传不可用就不出这个入口）
+    expect(screen.queryByRole('button', { name: '添加附件' })).not.toBeInTheDocument()
     expect(screen.getByText('未关联合集')).toBeVisible()
   })
 
   it('空输入时发送钮禁用，输入后放开', async () => {
-    const user = userEvent.setup()
     await renderWithProviders(<HomeRoute />)
 
     expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
 
-    await user.type(screen.getByLabelText('输入消息'), '做一个产品宣传片')
+    pasteTextIntoComposer(screen.getByLabelText('输入消息'), '做一个产品宣传片')
 
     expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
   })
@@ -44,10 +45,10 @@ describe('HomeRoute', () => {
 
     await user.click(screen.getByRole('button', { name: /分镜 Agent/ }))
     await user.click(await screen.findByRole('menuitem', { name: '通用助手' }))
-    await user.type(screen.getByLabelText('输入消息'), '做一个产品宣传片')
+    pasteTextIntoComposer(screen.getByLabelText('输入消息'), '做一个产品宣传片')
     await user.click(screen.getByRole('button', { name: '发送' }))
 
-    expect(sent).toEqual([{ agentId: 'assistant', text: '做一个产品宣传片' }])
-    expect(screen.getByLabelText('输入消息')).toHaveValue('')
+    expect(sent).toEqual([{ agentId: 'assistant', media: [], text: '做一个产品宣传片' }])
+    expect(screen.getByLabelText('输入消息')).toHaveTextContent('')
   })
 })

@@ -35,9 +35,9 @@ test('在会话页发一条：气泡先出来，回复跟着长出来', async ({
   await page.getByLabel('输入消息').fill('再补两个镜头')
   await page.getByRole('button', { name: '发送' }).click()
 
-  // 气泡先挂出来（服务端还没记下），输入框清空
+  // 气泡先挂出来（服务端还没记下），输入框清空（PM 编辑区没有 value，看文本）
   await expect(page.getByText('再补两个镜头')).toBeVisible()
-  await expect(page.getByLabel('输入消息')).toHaveValue('')
+  await expect(page.getByLabel('输入消息')).toHaveText('')
 
   // 服务端认下这条之后本地气泡撤掉，同一句只剩时间线上那一条
   await expect(page.getByText('再补两个镜头')).toHaveCount(1)

@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
+import type { ComposerAttachment } from '@/shared/ui/composer'
 import {
   zConversationEnvelope,
   zConversationPageOut,
@@ -100,7 +101,15 @@ export const useMoreConversations = (
 export const useStartConversation = (onCreated: (conversationId: string) => void) => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ agentId, text }: { agentId: string; text: string }) => {
+    mutationFn: async ({
+      agentId,
+      text,
+      media = [],
+    }: {
+      agentId: string
+      text: string
+      media?: readonly ComposerAttachment[]
+    }) => {
       const conversation = await apiFetch('/conversations', conversationEnvelopeSchema, {
         body: { agentId },
         fallbackErrorMessage: '新建对话失败',
@@ -109,7 +118,7 @@ export const useStartConversation = (onCreated: (conversationId: string) => void
       // 先跳过去再发：会话页那一侧订阅与拉基线都不依赖这条消息的回执，早跳一步用户就早看到
       // 自己那条话。
       onCreated(conversation.id)
-      await submitPrompt(conversation.id, { promptId: mintPromptId(), text })
+      await submitPrompt(conversation.id, { media, promptId: mintPromptId(), text })
       return conversation
     },
     onSuccess: async () => {
@@ -121,13 +130,29 @@ export const useStartConversation = (onCreated: (conversationId: string) => void
 /** 铸一个 prompt id。界面拿它挂乐观气泡，服务端拿它去重。 */
 export const mintPromptId = (): string => crypto.randomUUID()
 
-/** 往一段对话里发一条消息。同一个 `promptId` 重发不会多起一次运行。 */
+/** 一条消息里的媒体附件 → 合同的 content 项（只有 url 来源的给得出地址，没地址的进不来）。 */
+const mediaContent = (media: readonly ComposerAttachment[]) =>
+  media.flatMap((item) =>
+    item.url !== undefined && (item.kind === 'image' || item.kind === 'video')
+      ? [{ source: { kind: 'url' as const, url: item.url }, type: item.kind }]
+      : [],
+  )
+
+/** 往一段对话里发一条消息（文字 + 附件）。同一个 `promptId` 重发不会多起一次运行。 */
 export const submitPrompt = async (
   conversationId: string,
-  { promptId, text }: { promptId: string; text: string },
+  {
+    promptId,
+    text,
+    media = [],
+  }: { promptId: string; text: string; media?: readonly ComposerAttachment[] },
 ): Promise<void> => {
+  const content = [
+    ...(text === '' ? [] : [{ text, type: 'text' as const }]),
+    ...mediaContent(media),
+  ]
   await apiFetch(`/conversations/${conversationId}/prompts`, zPrompt, {
-    body: { content: [{ text, type: 'text' }], prompt_id: promptId },
+    body: { content, prompt_id: promptId },
     fallbackErrorMessage: '发送失败',
     method: 'POST',
   })
