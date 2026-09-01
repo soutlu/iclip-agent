@@ -5,9 +5,11 @@ import {
   zConversationEnvelope,
   zConversationPageOut,
   zConversationsPageOut,
+  zImageContent,
   zPrompt,
   zSidebarOut,
   zTextContent,
+  zVideoContent,
 } from '@/shared/api/generated/zod.gen'
 
 export type Conversation = z.output<typeof zConversationsPageOut>['items'][number]
@@ -166,11 +168,31 @@ export const steerPrompt = async (conversationId: string, promptId: string): Pro
   }
 }
 
-/** 一条 prompt 里用户打的字。附件那些形态这里不取。 */
+/** 一条 prompt 里用户打的字。附件那些形态这里不取，但也不能让它们把整条解析带崩。 */
 export const promptText = (content: unknown): string => {
-  const parsed = z.array(zTextContent).safeParse(content)
+  const parsed = z.array(z.unknown()).safeParse(content)
   if (!parsed.success) return ''
-  return parsed.data.map((part) => part.text).join('')
+  return parsed.data
+    .flatMap((part) => {
+      const text = zTextContent.safeParse(part)
+      return text.success ? [text.data.text] : []
+    })
+    .join('')
+}
+
+/** 一条 prompt 里附着的图片与视频（队列行缩略图用）；只有 url 来源的给得出地址。 */
+export const promptMedia = (content: unknown): { kind: 'image' | 'video'; url: string }[] => {
+  const parsed = z.array(z.unknown()).safeParse(content)
+  if (!parsed.success) return []
+  const out: { kind: 'image' | 'video'; url: string }[] = []
+  for (const part of parsed.data) {
+    const image = zImageContent.safeParse(part)
+    const video = zVideoContent.safeParse(part)
+    const media = image.success ? image.data : video.success ? video.data : undefined
+    if (media === undefined || media.source.kind !== 'url' || !media.source.url) continue
+    out.push({ kind: image.success ? 'image' : 'video', url: media.source.url })
+  }
+  return out
 }
 
 type Membership = {

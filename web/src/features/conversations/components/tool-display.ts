@@ -56,3 +56,14 @@ export const toolCard = (display: unknown): ToolCard => {
     label: fileOperationLabels[parsed.data.operation],
   }
 }
+
+/**
+ * 文件操作的工具调用给出它的操作种类（活动组聚合用）；不是文件操作就给 undefined。
+ *
+ * @param display - 服务端给的卡片形状。
+ * @returns 操作种类。
+ */
+export const toolOperation = (display: unknown): keyof typeof fileOperationLabels | undefined => {
+  const parsed = displaySchema.safeParse(display)
+  return parsed.success && parsed.data.kind === 'file_io' ? parsed.data.operation : undefined
+}

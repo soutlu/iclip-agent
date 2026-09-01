@@ -16,7 +16,12 @@ import {
   fetchTranscriptCatchup,
   type TranscriptBatch,
 } from './transcript.api'
-import { AgentTranscript, type TranscriptItem, type TranscriptPrompt } from './vendor'
+import {
+  AgentTranscript,
+  type TranscriptAttachment,
+  type TranscriptItem,
+  type TranscriptPrompt,
+} from './vendor'
 
 /** 我们只有主 agent。 */
 const MAIN_AGENT = 'main'
@@ -32,6 +37,11 @@ export interface TranscriptView {
   items: readonly TranscriptItem[]
   /** 服务端记下的用户消息。排队中的那几条只在这里，时间线上还没有它们。 */
   prompts: readonly TranscriptPrompt[]
+  /**
+   * 附件实体表：frame / turn 只带 id 引用，实体由 `attachment.upsert` 落这张表。
+   * 原地增补、引用不变——渲染层据此解析，memo 不受影响。
+   */
+  attachments: ReadonlyMap<string, TranscriptAttachment>
   /** `loading` 是基线还没到；`error` 是拉不到或者对不齐，界面给重试入口。 */
   status: 'loading' | 'ready' | 'error'
   /** 上面还有更早的轮子（往上翻页在 PR 之后做）。 */
@@ -39,7 +49,10 @@ export interface TranscriptView {
   error?: string
 }
 
+const EMPTY_ATTACHMENTS: ReadonlyMap<string, TranscriptAttachment> = new Map()
+
 const EMPTY_VIEW: TranscriptView = {
+  attachments: EMPTY_ATTACHMENTS,
   hasMoreOlder: false,
   items: [],
   prompts: [],
@@ -191,6 +204,7 @@ export class TranscriptReader {
         this.connection.markApplied(this.conversationId, MAIN_AGENT, baseline.seq)
         this.reloads = 0
         this.snapshot = {
+          attachments: this.transcript.getAttachments(),
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
           prompts: [...this.transcript.getPrompts().values()],
@@ -250,6 +264,7 @@ export class TranscriptReader {
   private publish(): void {
     this.snapshot = {
       ...this.snapshot,
+      attachments: this.transcript.getAttachments(),
       items: this.transcript.getItems(),
       prompts: [...this.transcript.getPrompts().values()],
     }

@@ -2,7 +2,7 @@
  * 会话页：历史铺得出来，逐字来的内容跟着长。
  */
 
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -375,5 +375,115 @@ describe('ConversationRoute', () => {
     // 脚本整段不见，事件属性被摘掉：正文是模型写的，这两样放行就是一条 XSS 通道
     expect(document.querySelector('script')).toBeNull()
     expect(screen.getByText('点我')).not.toHaveAttribute('onclick')
+  })
+
+  it('连续的思考与工具收成一行活动组，点开铺开每一条', async () => {
+    const user = userEvent.setup()
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    socket.deliver(
+      opsFrame(
+        [
+          {
+            op: 'turn.upsert',
+            turn: {
+              endedAt: '2026-08-31T03:01:00Z',
+              kind: 'turn',
+              ordinal: 3,
+              origin: { kind: 'user' },
+              prompt: '拆',
+              startedAt: '2026-08-31T03:00:00Z',
+              state: 'completed',
+              turnId: 't3',
+            },
+          },
+          {
+            op: 'frame.upsert',
+            frame: { frameId: 't3.1.f1', kind: 'text', role: 'user', text: '拆' },
+            stepId: 't3.1',
+            turnId: 't3',
+          },
+          {
+            op: 'step.upsert',
+            step: {
+              endedAt: '2026-08-31T03:01:00Z',
+              kind: 'step',
+              ordinal: 1,
+              startedAt: '2026-08-31T03:00:00Z',
+              state: 'completed',
+              stepId: 't3.1',
+              turnId: 't3',
+            },
+            turnId: 't3',
+          },
+          {
+            op: 'frame.upsert',
+            frame: { frameId: 't3.1.f2', kind: 'thinking', text: '想' },
+            stepId: 't3.1',
+            turnId: 't3',
+          },
+          {
+            op: 'frame.upsert',
+            frame: {
+              display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
+              frameId: 't3.1.f3',
+              kind: 'tool',
+              name: 'read_file',
+              state: 'done',
+              toolCallId: 'c3a',
+            },
+            stepId: 't3.1',
+            turnId: 't3',
+          },
+          {
+            op: 'frame.upsert',
+            frame: {
+              display: { kind: 'file_io', operation: 'write', path: 'shots/storyboard.md' },
+              frameId: 't3.1.f4',
+              kind: 'tool',
+              name: 'write_file',
+              state: 'done',
+              toolCallId: 'c3b',
+            },
+            stepId: 't3.1',
+            turnId: 't3',
+          },
+          {
+            op: 'frame.upsert',
+            frame: { frameId: 't3.1.f5', kind: 'text', role: 'assistant', text: '拆好了。' },
+            stepId: 't3.1',
+            turnId: 't3',
+          },
+        ],
+        11,
+      ),
+    )
+
+    // 一叠聚成一行：读取 + 写入 + 步骤起止算出的时长；轮子已收尾所以是收起的
+    const head = await screen.findByRole('button', {
+      name: /完成：读取了 1 个文件 · 写入了 1 个文件/,
+    })
+    expect(head).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(head)
+
+    // 铺开之后每条就是普通的工具行
+    expect(head).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getAllByText('shots/storyboard.md').length).toBeGreaterThan(1)
+  })
+
+  it('历史消息里的附件画成芯片，点开进灯箱', async () => {
+    const user = userEvent.setup()
+    await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    await user.click(await screen.findByRole('button', { name: /参考图\.svg/ }))
+
+    const dialog = await screen.findByRole('dialog', { name: '参考图.svg' })
+    expect(within(dialog).getByRole('img', { name: '参考图.svg' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 })

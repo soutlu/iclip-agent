@@ -12,14 +12,16 @@ import { toast } from '@/shared/ui/toast'
 import {
   abortPrompt,
   mintPromptId,
+  promptMedia,
   promptText,
   steerPrompt,
   submitPrompt,
   useSidebarTopology,
 } from '../conversations.api'
 import { ConversationComposer } from './conversation-composer'
-import { ConversationTurn, UserBubble } from './conversation-turn'
+import { ConversationTurn } from './conversation-turn'
 import { PromptQueue } from './prompt-queue'
+import { UserBubble } from './user-bubble'
 
 /** 离底多少像素之内算「还贴着底」，越过就不再自动跟随。照 kimi。 */
 const STICK_THRESHOLD_PX = 80
@@ -138,7 +140,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               </p>
             ) : null}
             {turns.map((turn) => (
-              <ConversationTurn key={turn.turnId} turn={turn} />
+              <ConversationTurn attachments={view.attachments} key={turn.turnId} turn={turn} />
             ))}
             {bubbles.map((item) => (
               <UserBubble key={item.promptId} text={item.text} />
@@ -148,6 +150,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               onDiscard={(promptId) => act(abortPrompt(conversationId, promptId))}
               onSteer={(promptId) => act(steerPrompt(conversationId, promptId))}
               prompts={queued.map((prompt) => ({
+                media: promptMedia(prompt.content),
                 promptId: prompt.promptId,
                 text: promptText(prompt.content),
               }))}

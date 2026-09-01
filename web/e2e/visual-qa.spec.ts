@@ -14,6 +14,9 @@ test('会话页视觉验收：浅色 / 深色 / 运行中', async ({ page }) => 
   await page.getByLabel('输入消息').fill('顺便把配音也排上')
   await page.getByLabel('输入消息').press('Enter')
   await expect(page.getByText('1 个任务等待发送')).toBeVisible()
+  // 等连续思考/工具折成的活动组跑起来（自动展开、摘要正在走）再截：批次按节拍到达，不等地话
+  // 截到的就是气泡与队列之间一段空白
+  await expect(page.getByRole('button', { name: /进行中：/ })).toBeVisible()
   // 指针挪开再截：停止钮的 hover 过渡要落定，不然截到的是变色中间那一帧
   await page.mouse.move(0, 0)
   await page.waitForTimeout(300)

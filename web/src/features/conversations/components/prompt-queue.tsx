@@ -14,6 +14,8 @@ import { useClampable } from './use-clampable'
 type QueueItem = {
   promptId: string
   text: string
+  /** 这条消息附着的图片与视频（缩略图）。 */
+  media: readonly { kind: 'image' | 'video'; url: string }[]
 }
 
 type PromptQueueProps = {
@@ -92,15 +94,43 @@ function QueueRow({ canSteer, first, onDiscard, onSteer, prompt }: QueueRowProps
         </button>
       ) : null}
       <div className="group flex max-w-[min(88%,100vw-52px)] ui-state items-center gap-2 rounded-md bg-chat-user-bg py-1.5 pr-1.5 pl-2.5">
-        <span
-          ref={ref}
-          className={cn(
-            'min-w-0 text-body-sm whitespace-pre-wrap text-chat-message-text opacity-80 group-hover:opacity-100',
-            clampable && 'chat-q-clamp',
-          )}
-        >
-          {prompt.text}
-        </span>
+        {prompt.text === '' && prompt.media.length > 0 ? (
+          <span className="inline-flex items-center gap-1 text-body-sm text-chat-muted-text">
+            <Icon decorative name="file" size="sm" />
+            附件 ×{prompt.media.length}
+          </span>
+        ) : (
+          <span
+            ref={ref}
+            className={cn(
+              'min-w-0 text-body-sm whitespace-pre-wrap text-chat-message-text opacity-80 group-hover:opacity-100',
+              clampable && 'chat-q-clamp',
+            )}
+          >
+            {prompt.text}
+          </span>
+        )}
+        {prompt.media.length > 0 ? (
+          <span className="flex shrink-0 gap-1">
+            {prompt.media.map((media) =>
+              media.kind === 'image' ? (
+                <img
+                  alt=""
+                  className="size-7 rounded-xs border-[0.5px] border-chat-hairline object-cover"
+                  key={media.url}
+                  src={media.url}
+                />
+              ) : (
+                <span
+                  className="grid size-7 place-items-center rounded-xs border-[0.5px] border-chat-hairline text-chat-muted-text"
+                  key={media.url}
+                >
+                  <Icon decorative name="video" size="sm" />
+                </span>
+              ),
+            )}
+          </span>
+        ) : null}
         {first ? (
           <span className="shrink-0 rounded-full bg-primary-container px-1.5 py-0.5 text-caption text-on-primary-container">
             下一条
