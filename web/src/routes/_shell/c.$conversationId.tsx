@@ -19,5 +19,5 @@ export const Route = createFileRoute('/_shell/c/$conversationId')({
  */
 function ConversationIndexRoute() {
   const { conversationId } = Route.useParams()
-  return <ConversationRoute conversationId={conversationId} />
+  return <ConversationRoute key={conversationId} conversationId={conversationId} />
 }
