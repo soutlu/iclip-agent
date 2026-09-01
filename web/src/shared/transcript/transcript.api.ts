@@ -34,6 +34,8 @@ export interface TranscriptBaseline {
   snapshot: AgentTranscriptSnapshot
   seq: number
   hasMoreOlder: boolean
+  /** 这段对话叫什么。首屏的标题只有它给，之后的改名走 `session.meta.updated` 推送。 */
+  title: string
 }
 
 /** 补批的结果。`complete` 为假表示要的批次已经出了日志窗口，得整页重拉。 */
@@ -100,7 +102,7 @@ export const fetchTranscriptBaseline = async (
       todos: [],
     }),
   ) as AgentTranscriptSnapshot
-  return { hasMoreOlder: page.has_more, seq: page.seq, snapshot }
+  return { hasMoreOlder: page.has_more, seq: page.seq, snapshot, title: page.title }
 }
 
 /** 要断线期间漏掉的那几批。 */

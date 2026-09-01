@@ -65,6 +65,13 @@ from iclip.platform.transcript.ops import (
 _logger = logging.getLogger(__name__)
 
 DepsFor = Callable[[PromptRow], Awaitable[Any]]
+
+TurnEnded = Callable[[PromptRow], Awaitable[None]]
+"""一轮跑完之后做点别的（现在是给对话起名字），入参是刚跑完的那条 prompt。
+
+**这一层不知道那是什么。** 引擎不认识对话表，起名字是对话那一侧的事，所以只留一个口子，
+接什么由组合根决定。抛出来的异常在这里吞掉：附带动作不该把「这一轮跑完了」拖下水。
+"""
 """为一条 prompt 造这次运行的依赖。
 
 身份在**收下 prompt 的那一刻**就定了（行上的 ``ownerUserId``），排在队里等多久都不改。这一层
@@ -204,12 +211,14 @@ class ConversationRunner:
         queue: PromptQueue,
         snapshots: ConversationSnapshots,
         deps_for: DepsFor,
+        on_turn_ended: TurnEnded | None = None,
     ) -> None:
         self._agents = agents
         self._store = store
         self._queue = queue
         self._snapshots = snapshots
         self._deps_for = deps_for
+        self._on_turn_ended = on_turn_ended
         self._active: dict[str, _Active] = {}
         self._closing = False
         # 拿住任务的引用：asyncio 只弱引用运行中的任务，不存着的话跑一半可能被回收掉。
@@ -389,6 +398,18 @@ class ConversationRunner:
                 if following is not None:
                     self._publish(following)
                     self._spawn(following)
+            # 放在接下一条之后：起名字要等一次模型调用，排在前面的话队列里那条就得干等它。
+            await self._after_turn(row)
+
+    async def _after_turn(self, row: PromptRow) -> None:
+        """一轮的附带动作。出什么错都只记一笔：这一轮本身已经跑完并落了终态。"""
+
+        if self._on_turn_ended is None:
+            return
+        try:
+            await self._on_turn_ended(row)
+        except Exception:
+            _logger.exception("这一轮的收尾动作没做完：prompt=%s", row.prompt_id)
 
     async def _settle(self, active: _Active | None, *, status: PromptStatus) -> None:
         """给递进这一轮的那几条追加定结局。
@@ -520,4 +541,4 @@ class ConversationRunner:
         )
 
 
-__all__ = ["ConversationRunner", "ConversationSnapshots", "DepsFor"]
+__all__ = ["ConversationRunner", "ConversationSnapshots", "DepsFor", "TurnEnded"]

@@ -5,11 +5,15 @@
 
 from __future__ import annotations
 
+import uuid
+
 import httpx
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from iclip.domains.conversations.infra_sql import SqlConversationRepository
+from iclip.domains.conversations.schemas import DEFAULT_TITLE
 from tests.integration_no_llm.conftest import (
     make_client,
     register_and_login,
@@ -267,3 +271,79 @@ async def test_workspace_files_require_login(client: httpx.AsyncClient) -> None:
     assert (
         await client.get(f"{URL}/{some}/workspace/file", params={"path": "x"})
     ).status_code == 401
+
+
+async def _title_row(pg_url: str, conversation_id: str) -> tuple[str, str]:
+    """库里这一行现在的标题与它的来路。"""
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.begin() as conn:
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT title, title_kind FROM iclip.conversations WHERE id = :id"
+                    ).bindparams(id=uuid.UUID(conversation_id))
+                )
+            ).one()
+        return str(row.title), str(row.title_kind)
+    finally:
+        await engine.dispose()
+
+
+async def test_generated_title_is_written_once(client: httpx.AsyncClient, pg_url: str) -> None:
+    """自动起的标题只落一次。
+
+    第二次要是也能写进去，用户每跑一轮都会看到标题变来变去。
+    """
+
+    await login_as_editor(client, pg_url)
+    conversation_id = (await create(client)).json()["conversation"]["id"]
+    assert await _title_row(pg_url, conversation_id) == (DEFAULT_TITLE, "default")
+
+    engine = create_async_engine(pg_url)
+    try:
+        repo = SqlConversationRepository(engine)
+        assert (
+            await repo.apply_generated_title(uuid.UUID(conversation_id), title="夜景延时") is True
+        )
+        assert await _title_row(pg_url, conversation_id) == ("夜景延时", "generated")
+
+        assert (
+            await repo.apply_generated_title(uuid.UUID(conversation_id), title="别的名字") is False
+        )
+        assert await _title_row(pg_url, conversation_id) == ("夜景延时", "generated")
+    finally:
+        await engine.dispose()
+
+
+async def test_user_named_conversations_are_left_alone(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """用户自己起的名字不会被自动生成的盖掉。"""
+
+    await login_as_editor(client, pg_url)
+    conversation_id = (await create(client)).json()["conversation"]["id"]
+    await client.patch(f"{URL}/{conversation_id}", json={"title": "开场那段"})
+    assert await _title_row(pg_url, conversation_id) == ("开场那段", "custom")
+
+    engine = create_async_engine(pg_url)
+    try:
+        repo = SqlConversationRepository(engine)
+        assert (
+            await repo.apply_generated_title(uuid.UUID(conversation_id), title="夜景延时") is False
+        )
+    finally:
+        await engine.dispose()
+    assert await _title_row(pg_url, conversation_id) == ("开场那段", "custom")
+
+
+async def test_title_given_at_creation_counts_as_the_users(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """开对话时就给了名字的，同样不该被自动起的盖掉。"""
+
+    await login_as_editor(client, pg_url)
+    conversation_id = (await create(client, title="第三幕")).json()["conversation"]["id"]
+
+    assert await _title_row(pg_url, conversation_id) == ("第三幕", "custom")

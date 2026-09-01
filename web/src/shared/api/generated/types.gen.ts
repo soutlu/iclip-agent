@@ -1775,6 +1775,10 @@ export type TranscriptPage = {
    */
   tasks?: Array<unknown>
   /**
+   * Title
+   */
+  title?: string
+  /**
    * Todos
    */
   todos?: Array<unknown>

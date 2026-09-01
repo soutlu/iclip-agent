@@ -7,46 +7,15 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { server } from '@/testing/mocks/server'
-import { TranscriptProvider } from '@/shared/transcript/transcript-provider'
 import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
 import { ConversationRoute } from './conversation-route'
 
 const TAIL_TEXT = '这是第 2 轮的回复。'
 
-class FakeSocket {
-  readyState = 1
-  onmessage: ((event: { data: string }) => void) | null = null
-  onclose: (() => void) | null = null
-  onerror: (() => void) | null = null
-
-  send(): void {}
-
-  close(): void {
-    this.readyState = 3
-  }
-
-  deliver(frame: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(frame) })
-  }
-}
-
-const HELLO = {
-  payload: { heartbeat_ms: 10_000, protocol_version: 2, ws_connection_id: 'w1' },
-  type: 'server_hello',
-}
-
-/** 渲染会话页，连接用假 socket；返回那个 socket 以便往里灌帧。 */
-const renderConversation = async () => {
-  const socket = new FakeSocket()
-  const view = await renderWithProviders(
-    <TranscriptProvider createSocket={() => socket as unknown as WebSocket}>
-      <ConversationRoute conversationId="c1" />
-    </TranscriptProvider>,
-  )
-  socket.deliver(HELLO)
-  return { ...view, socket }
-}
+/** 渲染会话页。连接与握手由 renderWithProviders 备好，返回的 socket 可以继续灌帧。 */
+const renderConversation = async () =>
+  renderWithProviders(<ConversationRoute conversationId="c1" />)
 
 /** 一批 ops 帧，直接灌给假 socket。 */
 const opsFrame = (ops: unknown[], seq: number) => ({
@@ -485,5 +454,19 @@ describe('ConversationRoute', () => {
 
     await user.click(screen.getByRole('button', { name: '关闭' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('标题来自基线，服务端起了新名字就当场换掉', async () => {
+    const { socket } = await renderConversation()
+
+    // 首屏那个名字只有基线给得出：侧栏拓扑只有每段列表的第一页，翻不到更早的对话。
+    expect(await screen.findByRole('heading', { name: '夜景延时素材生成' })).toBeVisible()
+
+    socket.deliver({
+      type: 'session.meta.updated',
+      payload: { session_id: 'c1', title: '改过的名字' },
+    })
+
+    expect(await screen.findByRole('heading', { name: '改过的名字' })).toBeVisible()
   })
 })

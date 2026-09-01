@@ -7,31 +7,8 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { FakeSocket } from '@/testing/ws'
 import { TranscriptConnection, type TranscriptOps } from './connection'
-
-class FakeSocket {
-  readyState = 1
-  sent: string[] = []
-  onmessage: ((event: { data: string }) => void) | null = null
-  onclose: (() => void) | null = null
-  onerror: (() => void) | null = null
-
-  send(data: string): void {
-    this.sent.push(data)
-  }
-
-  close(): void {
-    this.readyState = 3
-  }
-
-  deliver(frame: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(frame) })
-  }
-
-  frames(): Array<{ type: string; id?: string; payload?: Record<string, unknown> }> {
-    return this.sent.map((raw) => JSON.parse(raw) as { type: string })
-  }
-}
 
 const SNAPSHOT = {
   items: [],
@@ -270,5 +247,30 @@ describe('TranscriptConnection', () => {
     const sent = sockets[1]?.frames() ?? []
     expect(sent[0]?.type).toBe('subscribe_v2')
     expect(sent[0]?.payload?.['transcript_since']).toEqual({ main: 7 })
+  })
+
+  it('改名那一帧不看订阅：一段都没订也收得到', () => {
+    const connection = connect([])
+    const seen: Array<{ session_id: string; title: string }> = []
+    connection.watchMeta((meta) => seen.push(meta))
+
+    socket.deliver({
+      type: 'session.meta.updated',
+      payload: { session_id: 'c9', title: '夜景延时素材生成' },
+    })
+
+    // 侧栏列着几十段对话却一段都没订，按订阅分流的话它永远收不到改名。
+    expect(seen).toEqual([{ session_id: 'c9', title: '夜景延时素材生成' }])
+  })
+
+  it('退订之后不再收改名', () => {
+    const connection = connect([])
+    const seen: string[] = []
+    const stop = connection.watchMeta((meta) => seen.push(meta.title))
+
+    stop()
+    socket.deliver({ type: 'session.meta.updated', payload: { session_id: 'c9', title: '新名字' } })
+
+    expect(seen).toEqual([])
   })
 })

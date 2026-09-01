@@ -86,6 +86,7 @@ export const mockTranscriptPage = () => ({
   prompts: [],
   seq: HISTORY_SEQ,
   tasks: [],
+  title: '夜景延时素材生成',
   todos: [],
 })
 

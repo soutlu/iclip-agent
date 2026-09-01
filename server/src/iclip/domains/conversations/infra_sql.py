@@ -52,6 +52,9 @@ conversations_table = Table(
     # agent 在配置文件里声明，库里没有对应的行，所以这里没有外键可挂。
     Column("agent_id", Text, nullable=False),
     Column("title", Text, nullable=False),
+    # 这个标题是谁起的：default 还没起过、generated 小模型起的、custom 用户自己起的。
+    # 自动生成只认 default 那一档，用户起过名的一律不覆盖。
+    Column("title_kind", Text, nullable=False, server_default="default"),
     Column("last_run_id", Text, nullable=True),
     # 这段对话是为哪张需求单开的。空着就是「直接开始创作」，不属于任何一张单。
     # set null 而不是 cascade：删掉一张单不该带走别人为它跑过的对话。
@@ -103,6 +106,7 @@ def _row(mapping: RowMapping) -> Conversation:
         owner_user_id=mapping["owner_user_id"],
         agent_id=mapping["agent_id"],
         title=mapping["title"],
+        title_kind=mapping["title_kind"],
         last_run_id=mapping["last_run_id"],
         task_id=mapping["task_id"],
         collection_id=mapping["collection_id"],
@@ -157,6 +161,7 @@ class SqlConversationRepository:
                 owner_user_id=conversation.owner_user_id,
                 agent_id=conversation.agent_id,
                 title=conversation.title,
+                title_kind=conversation.title_kind,
                 last_run_id=None,
                 task_id=conversation.task_id,
                 collection_id=conversation.collection_id,
@@ -362,13 +367,24 @@ class SqlConversationRepository:
             raise NotFound("没有这段对话")
         return _row(row)
 
+    async def apply_generated_title(self, conversation_id: uuid.UUID, *, title: str) -> bool:
+        statement = (
+            update(conversations_table)
+            .where(_ROWS.id == conversation_id, _ROWS.title_kind == "default")
+            .values(title=title, title_kind="generated")
+            .returning(_ROWS.id)
+        )
+        async with self._engine.begin() as conn:
+            written = (await conn.execute(statement)).one_or_none()
+        return written is not None
+
     async def rename(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, title: str
     ) -> Conversation:
         statement = (
             update(conversations_table)
             .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner)
-            .values(title=title, updated_at=func.now())
+            .values(title=title, title_kind="custom", updated_at=func.now())
             .returning(*conversations_table.c)
         )
         async with self._engine.begin() as conn:

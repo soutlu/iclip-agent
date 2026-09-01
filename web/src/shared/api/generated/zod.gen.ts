@@ -1161,6 +1161,7 @@ export const zTranscriptPage = z.object({
   prompts: z.array(zPrompt).optional().default([]),
   seq: z.int(),
   tasks: z.array(z.unknown()).optional().default([]),
+  title: z.string().optional().default(''),
   todos: z.array(z.unknown()).optional().default([]),
 })
 

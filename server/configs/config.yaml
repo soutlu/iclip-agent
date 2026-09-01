@@ -66,6 +66,14 @@ models:
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1 # 新加坡站换 dashscope-intl
     # 只有 low 实测思考是中文；medium 及以上、或走 responses，思考都会转成英文并带偏回复。
     thinking: low # 百炼默认是 xhigh
+  qwen-flash:
+    # 起标题用：一次几十个 token，不值得动主模型。不开思考——要的是一句话，不是推理。
+    provider: alibaba
+    api_key_env: MODEL_API_KEY
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+
+conversations:
+  title_model: qwen-flash # 给对话起标题的模型，取 models 段的键名；不配就不起标题
 
 ops:
   log_level: INFO
