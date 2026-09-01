@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSessionUpdates } from '@/shared/transcript/use-session-updates'
 import { useTranscript } from '@/shared/transcript/use-transcript'
-import type { TranscriptAttachment } from '@/shared/transcript/vendor'
+import type { TranscriptAttachment, TranscriptTurn } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
 import type { ComposerAttachment } from '@/shared/ui/composer'
@@ -27,12 +27,23 @@ import { ConversationComposer } from './conversation-composer'
 import { ConversationTurn } from './conversation-turn'
 import { PromptQueue } from './prompt-queue'
 import { UserBubble } from './user-bubble'
+import { WorkingIndicator } from './working-indicator'
 
 /** 离底多少像素之内算「还贴着底」，越过就不再自动跟随。照 kimi。 */
 const STICK_THRESHOLD_PX = 80
 
 /** 停止滚动多久之后把滚动条收回去（照 kimi：滚动条只在滚动中与悬停时浮现）。 */
 const SCROLL_IDLE_MS = 600
+
+/** Kimi 的 Requesting → Working 判据：非空助手正文/思考，或任一工具块。 */
+const hasAssistantOutput = (turn: TranscriptTurn | undefined): boolean =>
+  turn?.steps.some((step) =>
+    step.frames.some((frame) => {
+      if (frame.kind === 'tool') return true
+      if (frame.kind === 'thinking') return frame.text.trim().length > 0
+      return frame.kind === 'text' && frame.role === 'assistant' && frame.text.trim().length > 0
+    }),
+  ) ?? false
 
 type ConversationRouteProps = {
   conversationId: string
@@ -42,6 +53,7 @@ type PendingPrompt = {
   promptId: string
   text: string
   media: readonly ComposerAttachment[]
+  anchorTurnId: string | undefined
 }
 
 /** 乐观气泡的附件实体：id 用本地 attId（认领后整条撤掉，不会与服务端的实体撞车）。 */
@@ -74,6 +86,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { titleOf } = useSessionUpdates()
   const title = titleOf(conversationId) ?? view.title
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
+  const [inFlightPromptId, setInFlightPromptId] = useState<string | null>(null)
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const stickingRef = useRef(true)
@@ -96,24 +109,71 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
 
   const turns = view.items.filter((item) => item.kind === 'turn')
 
-  // 服务端记下这条消息之后会带着同一个 id 回来，本地那条就撤掉：在跑的那条时间线上有它那一
-  // 轮，排着的那条由 prompts 表渲染（那份跟着刷新走，本地的不跟）。
-  const claimed = new Set(view.prompts.map((prompt) => prompt.promptId))
-  const bubbles = pending.filter((item) => !claimed.has(item.promptId))
+  // 照 Kimi：running prompt 本身不认领乐观消息；必须等 anchor 之后的 turn.prompt 真正接手。
+  // queued 由队列行接手，终态则直接收掉，二者都不再保留气泡。
+  const promptById = new Map(view.prompts.map((prompt) => [prompt.promptId, prompt]))
+  const claimed = (item: PendingPrompt) => {
+    const prompt = promptById.get(item.promptId)
+    if (prompt?.status === 'queued') return true
+    if (prompt !== undefined && prompt.status !== 'running') return true
+
+    const anchorIndex =
+      item.anchorTurnId === undefined
+        ? -1
+        : turns.findIndex((turn) => turn.turnId === item.anchorTurnId)
+    if (item.anchorTurnId !== undefined && anchorIndex === -1) return false
+    return turns.slice(anchorIndex + 1).some((turn) => {
+      if (item.text !== '' && turn.prompt === item.text) return true
+      return item.text === '' && item.media.length > 0 && (turn.attachmentIds?.length ?? 0) > 0
+    })
+  }
+  const bubbles = pending.filter((item) => !claimed(item))
   const queued = view.prompts.filter((prompt) => prompt.status === 'queued')
   const running = view.prompts.find((prompt) => prompt.status === 'running')
+  // 照 Kimi：inFlight 是本地提交生命周期，turnActive 直接读 transcript meta。
+  // prompt 队列不参与 working 判据；这里只用终态 prompt 给本地 inFlight 收尾。
+  const latestTurn = turns.at(-1)
+  const turnActive = view.activity === 'turn'
+  const submittedPrompt =
+    inFlightPromptId === null
+      ? undefined
+      : view.prompts.find((prompt) => prompt.promptId === inFlightPromptId)
+  const hasLivePrompts = running !== undefined || queued.length > 0
+  const submittedSettled =
+    submittedPrompt !== undefined &&
+    submittedPrompt.status !== 'queued' &&
+    submittedPrompt.status !== 'running'
+  const inFlightSettled =
+    inFlightPromptId !== null && submittedSettled && !turnActive && !hasLivePrompts
+  if (inFlightSettled) setInFlightPromptId(null)
+  const inFlight = inFlightPromptId !== null && !inFlightSettled
+  const working = inFlight || turnActive
+  const retry = turnActive ? latestTurn?.steps.at(-1)?.retry : undefined
+  const currentAnchor = pending.at(-1)?.anchorTurnId
+  const currentTurn = inFlight && latestTurn?.turnId === currentAnchor ? undefined : latestTurn
+  const workingLabel =
+    retry === undefined
+      ? hasAssistantOutput(currentTurn)
+        ? '工作中…'
+        : '请求中…'
+      : `模型请求失败，正在重试（第 ${retry.nextAttempt}/${retry.maxAttempts} 次）…`
 
   const send = async (text: string, media: readonly ComposerAttachment[]) => {
     const promptId = mintPromptId()
+    const startsFlight = inFlightPromptId === null
+    if (startsFlight) setInFlightPromptId(promptId)
     setPending((list) => [
-      ...list.filter((item) => !claimed.has(item.promptId)),
-      { media, promptId, text },
+      ...list.filter((item) => !claimed(item)),
+      { anchorTurnId: latestTurn?.turnId, media, promptId, text },
     ])
     try {
       await submitPrompt(conversationId, { media, promptId, text })
     } catch (error) {
       // 没送到就把气泡撤掉——留着一条永远认领不到的更糟；输入框那边会把内容还回去。
       setPending((list) => list.filter((item) => item.promptId !== promptId))
+      if (startsFlight) {
+        setInFlightPromptId((current) => (current === promptId ? null : current))
+      }
       throw error
     }
   }
@@ -176,6 +236,11 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
                 text={item.text}
               />
             ))}
+            {working ? (
+              <div className="self-start py-2.5">
+                <WorkingIndicator label={workingLabel} />
+              </div>
+            ) : null}
             <PromptQueue
               canSteer={running !== undefined}
               onDiscard={(promptId) => act(abortPrompt(conversationId, promptId))}

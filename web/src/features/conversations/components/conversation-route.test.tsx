@@ -5,11 +5,23 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
 import { ConversationRoute } from './conversation-route'
+
+// lottie-web 在模块加载时会探测 canvas 2d context；jsdom 没有它。摄像机是 aria-hidden
+// 装饰件，这些用例只验证状态文案与对话行为。
+vi.mock('lottie-web/build/player/lottie_light', () => ({
+  default: {
+    loadAnimation: () => ({
+      addEventListener: () => undefined,
+      destroy: () => undefined,
+      removeEventListener: () => undefined,
+    }),
+  },
+}))
 
 const TAIL_TEXT = '这是第 2 轮的回复。'
 
@@ -100,18 +112,19 @@ describe('ConversationRoute', () => {
     await waitFor(() => {
       expect(screen.getAllByText('再拆一段')).toHaveLength(1)
     })
+    expect(screen.getByRole('status')).toHaveTextContent('请求中…')
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('')
     expect(submitted).not.toBe('')
 
-    // 服务端带着同一个 promptId 回来：本地那条撤掉，时间线上那一条接手
-    socket.deliver({
-      payload: {
-        agent_id: 'main',
-        ops: [
-          {
-            op: 'prompt.upsert',
-            prompt: { createdAt: '2026-08-31T03:00:00Z', promptId: submitted, status: 'running' },
-          },
+    // running prompt 不能提前撤掉气泡；要等 turn.prompt 真正接手。
+    socket.deliver(opsFrame([runningPrompt(submitted)], 11))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('请求中…')
+    expect(screen.getAllByText('再拆一段')).toHaveLength(1)
+
+    socket.deliver(
+      opsFrame(
+        [
           {
             op: 'turn.upsert',
             turn: {
@@ -123,6 +136,18 @@ describe('ConversationRoute', () => {
               turnId: 't3',
             },
           },
+          { meta: { activity: 'turn' }, op: 'meta.merge' },
+        ],
+        12,
+      ),
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent('请求中…')
+    expect(screen.getAllByText('再拆一段')).toHaveLength(1)
+
+    socket.deliver(
+      opsFrame(
+        [
           {
             op: 'frame.upsert',
             frame: { frameId: 't3.1.f2', kind: 'thinking', text: '先看看已经有哪些镜头。' },
@@ -130,21 +155,19 @@ describe('ConversationRoute', () => {
             turnId: 't3',
           },
         ],
-        seq: 11,
-      },
-      session_id: 'c1',
-      type: 'transcript.ops',
-    })
+        13,
+      ),
+    )
 
     // 这一批落地了（思考块出来了），而那句话还是只有一条——认领漏了就会并排出现两次。
     // 轮子还在跑，思考标题是进行态；等轮子收尾后落定成「思考过程」，计时冻结
     expect(await screen.findByText('思考中…')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('工作中…')
     expect(screen.getAllByText('再拆一段')).toHaveLength(1)
 
-    socket.deliver({
-      payload: {
-        agent_id: 'main',
-        ops: [
+    socket.deliver(
+      opsFrame(
+        [
           {
             op: 'turn.upsert',
             turn: {
@@ -156,14 +179,34 @@ describe('ConversationRoute', () => {
               turnId: 't3',
             },
           },
+          { meta: { activity: 'idle' }, op: 'meta.merge' },
         ],
-        seq: 12,
-      },
-      session_id: 'c1',
-      type: 'transcript.ops',
-    })
+        14,
+      ),
+    )
 
     expect(await screen.findByText('思考过程')).toBeInTheDocument()
+    // Kimi 的 inFlight 不会被 completed turn 抢先清掉，收尾窗口也不会反弹成「请求中」。
+    expect(screen.getByRole('status')).toHaveTextContent('工作中…')
+
+    socket.deliver(
+      opsFrame(
+        [
+          {
+            op: 'prompt.upsert',
+            prompt: {
+              createdAt: '2026-08-31T03:00:00Z',
+              finishedAt: '2026-08-31T03:00:05Z',
+              promptId: submitted,
+              status: 'completed',
+            },
+          },
+        ],
+        15,
+      ),
+    )
+
+    await waitFor(() => expect(screen.queryByText('工作中…')).toBeNull())
   })
 
   it('发送失败把字还回输入框', async () => {
