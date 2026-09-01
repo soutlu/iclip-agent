@@ -38,7 +38,13 @@ const PLANNER_EDITABLE = new Set([
   'ratio',
 ])
 
-const RATIO_OPTIONS = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9'] as const
+/** 画幅比例的取值由合同定死；这里写死一份是为了排下拉的顺序，多一个少一个都编译不过。 */
+type Ratio = NonNullable<Brief['ratio']>
+const RATIO_OPTIONS: readonly Ratio[] = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']
+
+/** <select> 交出来的是 string，进表单前先认一遍；不在名单里的（空选项）当作没填。 */
+const toRatio = (value: string): Ratio | '' =>
+  RATIO_OPTIONS.find((option) => option === value) ?? ''
 
 /** 复刻 WorkBuddy 弹窗的紧凑字段外观（34px 高、8px 圆角、发丝边框）；全局字段契约不动，只收在这个弹窗里。 */
 const COMPACT_FIELD = 'h-(--control-height-sm) rounded-sm border-outline-variant'
@@ -61,7 +67,7 @@ type FormState = {
   requirementDescription: string
   theme: string
   durationSeconds: string
-  ratio: string
+  ratio: Ratio | ''
 }
 
 const EMPTY_FORM: FormState = {
@@ -223,7 +229,7 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
       brief.durationSeconds = form.durationSeconds ? Number(form.durationSeconds) : null
     }
     if (editable('ratio')) {
-      brief.ratio = (form.ratio || null) as Brief['ratio']
+      brief.ratio = form.ratio || null
     }
     saveMutation.mutate({
       brief,
@@ -306,7 +312,7 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
                 aria-label="画幅"
                 className={cn(ROW_CONTROL, 'w-auto flex-none')}
                 disabled={!editable('ratio')}
-                onChange={(e) => patch({ ratio: e.target.value })}
+                onChange={(e) => patch({ ratio: toRatio(e.target.value) })}
                 value={form.ratio}
               >
                 <option value="">未指定</option>

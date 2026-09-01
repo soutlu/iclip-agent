@@ -1,3 +1,4 @@
+export type { Conversation, ConversationPage, SidebarCollection } from './conversations.api'
 export {
   conversationsQueryKeys,
   useStartConversation,

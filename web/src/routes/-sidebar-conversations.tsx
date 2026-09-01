@@ -16,6 +16,9 @@ import {
   useRenameConversation,
   useSetConversationMembership,
   useSidebarTopology,
+  type Conversation,
+  type ConversationPage,
+  type SidebarCollection,
 } from '@/features/conversations'
 import { useTaskOptions } from '@/features/tasks'
 import { Icon, type IconName } from '@/shared/icons'
@@ -47,21 +50,6 @@ const COLLECTIONS_PER_STEP = 10
 // 「任务」区的落点 id；合集的落点 id 是它自己的 uuid。
 const UNGROUPED = 'ungrouped'
 
-type SidebarConversation = {
-  collectionId: string | null
-  id: string
-  taskId: string | null
-  title: string
-  updatedAt: string
-}
-
-type SidebarCollection = {
-  conversationCount: number
-  id: string
-  name: string
-  page: { items: SidebarConversation[]; nextCursor: string | null }
-}
-
 /**
  * 侧栏的对话区：顶部筛选 chip，「任务」（没进合集的）与「合集」两段。
  *
@@ -86,7 +74,7 @@ export function SidebarConversations() {
     open: boolean
   }>({ open: false })
   const [membership, setMembership] = useState<{
-    conversation?: SidebarConversation
+    conversation?: Conversation
     open: boolean
   }>({ open: false })
 
@@ -139,7 +127,7 @@ export function SidebarConversations() {
     )
   }
 
-  const allCollections = (topology.data?.collections ?? []) as SidebarCollection[]
+  const allCollections: readonly SidebarCollection[] = topology.data?.collections ?? []
   const visibleCollections = allCollections.slice(0, shownCollections)
 
   return (
@@ -235,8 +223,6 @@ export function SidebarConversations() {
   )
 }
 
-type Page = { items: SidebarConversation[]; nextCursor: string | null }
-
 /**
  * 「任务」区：没进任何合集的对话，也是「把对话拖出合集」的落点。
  *
@@ -253,8 +239,8 @@ function UngroupedSection({
   count: number
   dragging: string | null
   onChanged: () => void
-  onOpenMembership: (conversation: SidebarConversation) => void
-  page: Page
+  onOpenMembership: (conversation: Conversation) => void
+  page: ConversationPage
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED })
   const more = useMoreConversations({}, page.nextCursor)
@@ -381,7 +367,7 @@ type CollectionGroupProps = {
   dragging: string | null
   onChanged: () => void
   onDelete: () => void
-  onOpenMembership: (conversation: SidebarConversation) => void
+  onOpenMembership: (conversation: Conversation) => void
   onRename: () => void
 }
 
@@ -485,7 +471,7 @@ function ConversationRow({
   onChanged,
   onOpenMembership,
 }: {
-  conversation: SidebarConversation
+  conversation: Conversation
   dragging: boolean
   onChanged: () => void
   onOpenMembership: () => void

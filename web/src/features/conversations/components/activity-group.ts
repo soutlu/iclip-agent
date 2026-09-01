@@ -6,7 +6,7 @@
  */
 
 import type { TranscriptFrame, TranscriptStep } from '@/shared/transcript/vendor'
-import { toolCard, toolOperation } from './tool-display'
+import { toolCard } from './tool-display'
 
 /** 时间线上的一块连同它所在的那步。 */
 export type TurnEntry = {
@@ -76,9 +76,8 @@ type ToolFrame = Extract<TranscriptFrame, { kind: 'tool' }>
 
 /** 工具的聚合桶：文件操作按操作分，其余按卡片文案分；认不出的落「其他」。 */
 const bucketKey = (frame: ToolFrame): string => {
-  const operation = toolOperation(frame.display)
+  const { label, operation } = toolCard(frame.display)
   if (operation !== undefined) return `op:${operation}`
-  const { label } = toolCard(frame.display)
   return label === '工具调用' ? 'other' : `summary:${label}`
 }
 
@@ -105,8 +104,7 @@ const OPERATION_LABELS = {
 const doingClause = (frame: TranscriptFrame): string => {
   if (frame.kind === 'thinking') return '思考中…'
   if (frame.kind !== 'tool') return ''
-  const operation = toolOperation(frame.display)
-  const { detail } = toolCard(frame.display)
+  const { detail, operation } = toolCard(frame.display)
   const subject = detail === undefined ? '' : ` ${detail}`
   if (operation === undefined) return '正在执行…'
   return `${DOING_VERB[operation]}${subject}`
