@@ -49,6 +49,7 @@ export const resetMockSession = () => {
 
 // 对话的内存存储：形状即合同 ConversationOut。搜索按标题过滤，跟后端一样不分大小写。
 type MockConversation = {
+  activity: { busy: boolean; pendingInteraction: 'none' | 'approval' | 'question' }
   agentId: string
   collectionId: string | null
   createdAt: string
@@ -71,6 +72,8 @@ export const mockConversations: MockConversation[] = []
  */
 export const addMockConversation = (title: string, updatedAt = new Date().toISOString()) => {
   const conversation: MockConversation = {
+    // 原型里没有真在跑的运行；要演转圈角标就把这一份改成 busy。
+    activity: { busy: false, pendingInteraction: 'none' },
     agentId: 'storyboard',
     collectionId: null,
     createdAt: updatedAt,

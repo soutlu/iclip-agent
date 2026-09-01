@@ -71,6 +71,7 @@ export type {
   ConfirmTaskTasksTaskIdConfirmPostErrors,
   ConfirmTaskTasksTaskIdConfirmPostResponse,
   ConfirmTaskTasksTaskIdConfirmPostResponses,
+  ConversationActivityOut,
   ConversationCollectionIn,
   ConversationEnvelope,
   ConversationFileContentOut,

@@ -8,6 +8,7 @@ from typing import Any
 from iclip.domains.conversations.api import create_conversations_router
 from iclip.domains.conversations.repository import ConversationRepository
 from iclip.domains.conversations.service import (
+    ActivitiesOf,
     AnnounceTitle,
     ConversationService,
     GenerateTitle,
@@ -35,13 +36,15 @@ def build_conversations_module(
     read_derived_file: ReadDerivedFile,
     generate_title: GenerateTitle,
     announce_title: AnnounceTitle,
+    activities_of: ActivitiesOf,
 ) -> ConversationsModule:
     """装配 conversations。
 
     每个口子都由组合根接线：``purge_derived``（删对话时连带删掉派生物）、
     ``list_collections``（侧栏要显示的合集名字）、``list_derived_files`` 与
     ``read_derived_file``（列出、读取 agent 在这段对话里写下的文件）、``generate_title``
-    （拿模型起个标题）、``announce_title``（标题变了推给还连着的标签页）。本模块不知道接
+    （拿模型起个标题）、``announce_title``（标题变了推给还连着的标签页）、``activities_of``
+    （这批对话此刻各在忙什么）。本模块不知道接
     上去的是什么，见 ``service.py``。
     """
 
@@ -53,6 +56,7 @@ def build_conversations_module(
         read_derived_file=read_derived_file,
         generate_title=generate_title,
         announce_title=announce_title,
+        activities_of=activities_of,
     )
     return ConversationsModule(
         routers=(create_conversations_router(service),),

@@ -21,8 +21,9 @@
  * 掉线分两条路回来：`onclose` 走退避（照 kimi：`min(30s, 1s × 2ⁿ) + 抖动`），标签页重新
  * 露面走 `reconnect()` 立刻回来、不等退避——谁来触发后一条在 `transcript-provider` 里。
  *
- * **`session.meta.updated` 不按订阅分流**：它是协议里的全局事件（照 kimi），发给每一条连接。
- * 侧栏列着几十段对话却一段都没订，按订阅发的话它永远收不到改名，所以这一帧另走 `watchMeta`。
+ * **`session.meta.updated` 与 `session.activity.updated` 不按订阅分流**：它们是协议里的全局事件
+ * （照 kimi），发给每一条连接。侧栏列着几十段对话却一段都没订，按订阅发的话它永远收不到改名与
+ * 角标，所以这两帧另走 `watchSessions`。
  */
 
 import { z } from 'zod'
@@ -78,15 +79,34 @@ export interface TranscriptConnectionOptions {
 }
 
 /**
- * `session.meta.updated` 的 payload。
+ * 两种全局帧的 payload。
  *
- * 这一份写在这里而不是 `vendor/`：那个目录是照抄来的协议凭据，不改；而且 vendor 那些 zod 是
- * `z.object()`，默认**静默丢掉**未知字段——把标题塞进 `TranscriptMeta` 的话，服务端发了、客户端
+ * 这两份写在这里而不是 `vendor/`：那个目录是照抄来的协议凭据，不改；而且 vendor 那些 zod 是
+ * `z.object()`，默认**静默丢掉**未知字段——把这些塞进 `TranscriptMeta` 的话，服务端发了、客户端
  * 一声不响地扔掉。
  */
-const sessionMetaSchema = z.object({ session_id: z.string(), title: z.string() })
+const titleSchema = z.object({ session_id: z.string(), title: z.string() })
 
-export type SessionMeta = z.output<typeof sessionMetaSchema>
+const activitySchema = z.object({
+  session_id: z.string(),
+  busy: z.boolean(),
+  pending_interaction: z.enum(['none', 'approval', 'question']),
+})
+
+/** 某段对话身上变了点什么。两种全局帧走同一条分发路径。
+ *
+ * `reconnected` 不是帧，是连接自己的事：全局帧是易失的，断线期间发生的改名与状态变化谁也补不
+ * 回来，所以重连之后要让列表重拉一次——行上本来就带着同一份事实。
+ */
+export type SessionUpdate =
+  | { kind: 'title'; conversationId: string; title: string }
+  | {
+      kind: 'activity'
+      conversationId: string
+      busy: boolean
+      pendingInteraction: 'none' | 'approval' | 'question'
+    }
+  | { kind: 'reconnected' }
 
 export interface ConnectionHealth {
   connected: boolean
@@ -111,6 +131,7 @@ export class TranscriptConnection {
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private nextId = 0
+  private everOpened = false
 
   /** 订着的那几段对话。断线重连之后照这张表逐段重订。 */
   private subscriptions = new Map<string, Subscription>()
@@ -118,8 +139,8 @@ export class TranscriptConnection {
   /** 还没回执的 subscribe：ack 说「订不上」时得知道那一帧问的是哪段对话。 */
   private pending = new Map<string, string>()
 
-  /** 盯着改名的那些人。全局帧，不按对话分。 */
-  private metaWatchers = new Set<(meta: SessionMeta) => void>()
+  /** 盯着全局帧的那些人。不按对话分——这些帧本来就不看订阅。 */
+  private sessionWatchers = new Set<(update: SessionUpdate) => void>()
 
   private readonly options: TranscriptConnectionOptions
 
@@ -200,13 +221,13 @@ export class TranscriptConnection {
   }
 
   /**
-   * 盯着「某段对话改名了」。返回退订函数。
+   * 盯着「某段对话改名了 / 在忙什么变了」。返回退订函数。
    *
-   * 不按对话订：这一帧是全局的，侧栏要的正是「任意一段改了名」。
+   * 不按对话订：这两种帧是全局的，侧栏要的正是「任意一段变了」。
    */
-  watchMeta(watcher: (meta: SessionMeta) => void): () => void {
-    this.metaWatchers.add(watcher)
-    return () => void this.metaWatchers.delete(watcher)
+  watchSessions(watcher: (update: SessionUpdate) => void): () => void {
+    this.sessionWatchers.add(watcher)
+    return () => void this.sessionWatchers.delete(watcher)
   }
 
   health(): ConnectionHealth {
@@ -260,9 +281,24 @@ export class TranscriptConnection {
         return
       }
       case 'session.meta.updated': {
-        const parsed = sessionMetaSchema.safeParse(frame.payload)
+        const parsed = titleSchema.safeParse(frame.payload)
         if (!parsed.success) return
-        for (const watcher of this.metaWatchers) watcher(parsed.data)
+        this.announce({
+          conversationId: parsed.data.session_id,
+          kind: 'title',
+          title: parsed.data.title,
+        })
+        return
+      }
+      case 'session.activity.updated': {
+        const parsed = activitySchema.safeParse(frame.payload)
+        if (!parsed.success) return
+        this.announce({
+          busy: parsed.data.busy,
+          conversationId: parsed.data.session_id,
+          kind: 'activity',
+          pendingInteraction: parsed.data.pending_interaction,
+        })
         return
       }
       case 'transcript.reset':
@@ -277,6 +313,10 @@ export class TranscriptConnection {
       default:
         return
     }
+  }
+
+  private announce(update: SessionUpdate): void {
+    for (const watcher of this.sessionWatchers) watcher(update)
   }
 
   private apply(type: string, subscription: Subscription, wrapped: object): void {
@@ -313,10 +353,14 @@ export class TranscriptConnection {
   // --- 发 -------------------------------------------------------------------
 
   private opened(): void {
+    const reopened = this.everOpened
+    this.everOpened = true
     this.connected = true
     this.reconnectAttempts = 0
     this.options.onConnectionState?.(true)
     for (const conversationId of this.subscriptions.keys()) this.sendSubscribe(conversationId)
+    // 第一次连上不算重连：那时列表刚拉过。
+    if (reopened) this.announce({ kind: 'reconnected' })
   }
 
   private sendSubscribe(conversationId: string): void {

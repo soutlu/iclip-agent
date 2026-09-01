@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FakeSocket } from '@/testing/ws'
-import { TranscriptConnection, type TranscriptOps } from './connection'
+import { TranscriptConnection, type SessionUpdate, type TranscriptOps } from './connection'
 
 const SNAPSHOT = {
   items: [],
@@ -249,24 +249,31 @@ describe('TranscriptConnection', () => {
     expect(sent[0]?.payload?.['transcript_since']).toEqual({ main: 7 })
   })
 
-  it('改名那一帧不看订阅：一段都没订也收得到', () => {
+  it('两种全局帧都不看订阅：一段都没订也收得到', () => {
     const connection = connect([])
-    const seen: Array<{ session_id: string; title: string }> = []
-    connection.watchMeta((meta) => seen.push(meta))
+    const seen: SessionUpdate[] = []
+    connection.watchSessions((update) => seen.push(update))
 
     socket.deliver({
       type: 'session.meta.updated',
       payload: { session_id: 'c9', title: '夜景延时素材生成' },
     })
+    socket.deliver({
+      type: 'session.activity.updated',
+      payload: { session_id: 'c9', busy: true, pending_interaction: 'approval' },
+    })
 
-    // 侧栏列着几十段对话却一段都没订，按订阅分流的话它永远收不到改名。
-    expect(seen).toEqual([{ session_id: 'c9', title: '夜景延时素材生成' }])
+    // 侧栏列着几十段对话却一段都没订，按订阅分流的话它永远收不到改名与角标。
+    expect(seen).toEqual([
+      { conversationId: 'c9', kind: 'title', title: '夜景延时素材生成' },
+      { busy: true, conversationId: 'c9', kind: 'activity', pendingInteraction: 'approval' },
+    ])
   })
 
-  it('退订之后不再收改名', () => {
+  it('退订之后不再收', () => {
     const connection = connect([])
-    const seen: string[] = []
-    const stop = connection.watchMeta((meta) => seen.push(meta.title))
+    const seen: SessionUpdate[] = []
+    const stop = connection.watchSessions((update) => seen.push(update))
 
     stop()
     socket.deliver({ type: 'session.meta.updated', payload: { session_id: 'c9', title: '新名字' } })

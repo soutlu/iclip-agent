@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
 
 import httpx
@@ -46,6 +47,7 @@ from iclip.domains.conversations.module import build_conversations_module
 from iclip.domains.conversations.service import (
     SIDEBAR_COLLECTIONS,
     CollectionInfo,
+    ConversationActivity,
     DerivedFile,
     DerivedFileContent,
     GenerateTitle,
@@ -79,6 +81,7 @@ from iclip.harness.prompts import PromptQueue, PromptRow
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.titles import title_generator
+from iclip.harness.transcript.activity import ActivityState
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
@@ -438,6 +441,40 @@ def build_app(
         )
 
     live_connections = LiveConnections()
+    # 活儿变了要推给属主，而 store 的回调必须是同步的（它跑在 append 的临界区里），查属主
+    # 要读库。所以这里起一个任务去查再发。拿住引用：asyncio 只弱引用运行中的任务。
+    announce_tasks: set[asyncio.Task[None]] = set()
+
+    def activities_of(
+        conversation_ids: Sequence[uuid.UUID],
+    ) -> Mapping[uuid.UUID, ConversationActivity]:
+        """这批对话此刻各在忙什么。引擎那侧的实时状态 → 对话那侧的形状。"""
+
+        return {
+            one: ConversationActivity(
+                busy=(state := transcript_store.activity(str(one))).busy,
+                pending_interaction=state.pending_interaction,
+            )
+            for one in conversation_ids
+        }
+
+    async def _push_activity(conversation_id: str, state: ActivityState) -> None:
+        conversation = await conversations.service.owner_of(uuid.UUID(conversation_id))
+        if conversation is None:
+            return
+        live_connections.announce_activity(
+            conversation,
+            uuid.UUID(conversation_id),
+            busy=state.busy,
+            pending_interaction=state.pending_interaction,
+        )
+
+    def on_activity(conversation_id: str, state: ActivityState) -> None:
+        """活儿变了。已经在 store 里去过抖，一轮对话只有两三次，所以这里按次查属主。"""
+
+        task = asyncio.create_task(_push_activity(conversation_id, state))
+        announce_tasks.add(task)
+        task.add_done_callback(announce_tasks.discard)
 
     built_models = build_models(_model_specs(settings.models)) if models is None else models
     title_model = settings.title_model
@@ -457,6 +494,7 @@ def build_app(
         read_derived_file=read_conversation_file,
         generate_title=generate_title,
         announce_title=live_connections.announce_title,
+        activities_of=activities_of,
     )
     # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
     # 或对象存储缺一个，就借不到——那时装个只会响亮拒绝的替代品，而不是让它悄悄记空。
@@ -490,7 +528,7 @@ def build_app(
         step_store=step_store,
         models=built_models,
     )
-    transcript_store = TranscriptStore()
+    transcript_store = TranscriptStore(on_activity=on_activity)
     prompt_queue = PromptQueue(active_engine)
 
     async def name_conversation(row: PromptRow) -> None:

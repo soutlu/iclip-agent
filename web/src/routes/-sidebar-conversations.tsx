@@ -2,7 +2,7 @@ import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor } from
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   CollectionDeleteDialog,
   CollectionFormDialog,
@@ -23,7 +23,7 @@ import {
 import { useTaskOptions } from '@/features/tasks'
 import { Icon, type IconName } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
-import { useConversationTitles } from '@/shared/transcript/use-conversation-titles'
+import { useSessionUpdates, type SessionUpdates } from '@/shared/transcript/use-session-updates'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
@@ -83,12 +83,17 @@ export function SidebarConversations() {
   const collections = useCollections(membership.open)
   const tasks = useTaskOptions(membership.open)
 
-  const refreshSidebar = () => {
+  // useCallback 不是为了省渲染：重连重拉那条订阅挂在这个引用上（见 useSessionUpdates）。
+  const refreshSidebar = useCallback(() => {
     // 「展开显示」取回来的那些页整个丢掉：列表收回第一页，拓扑重拉一次即可，
     // 不必把每一页都重新请求一遍。
     queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
     void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
-  }
+  }, [queryClient])
+
+  // 全局帧是易失的：断线期间的改名与状态变化谁也补不回来，所以重连之后重拉一次列表——
+  // 行上带着同一份事实，这一拉就把两边对齐了。
+  const live = useSessionUpdates(refreshSidebar)
 
   const moveMutation = useSetConversationMembership(refreshSidebar)
   // 距离阈值让「点一下」还是点击，不会被当成拖拽起手
@@ -152,6 +157,7 @@ export function SidebarConversations() {
         <UngroupedSection
           count={topology.data?.ungroupedCount ?? 0}
           dragging={dragging}
+          live={live}
           onChanged={refreshSidebar}
           onOpenMembership={(conversation) => setMembership({ conversation, open: true })}
           page={topology.data?.ungrouped ?? { items: [], nextCursor: null }}
@@ -171,6 +177,7 @@ export function SidebarConversations() {
               key={collection.id}
               collection={collection}
               dragging={dragging}
+              live={live}
               onChanged={refreshSidebar}
               onDelete={() =>
                 setCollectionDelete({
@@ -233,18 +240,19 @@ export function SidebarConversations() {
 function UngroupedSection({
   count,
   dragging,
+  live,
   onChanged,
   onOpenMembership,
   page,
 }: {
   count: number
   dragging: string | null
+  live: SessionUpdates
   onChanged: () => void
   onOpenMembership: (conversation: Conversation) => void
   page: ConversationPage
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED })
-  const liveTitle = useConversationTitles()
   const more = useMoreConversations({}, page.nextCursor)
   const items = [...page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
   const hasMore = more.data ? more.hasNextPage : Boolean(page.nextCursor)
@@ -257,8 +265,9 @@ function UngroupedSection({
           {items.map((conversation) => (
             <ConversationRow
               key={conversation.id}
+              busy={(live.activityOf(conversation.id) ?? conversation.activity).busy}
               conversation={conversation}
-              displayTitle={liveTitle(conversation.id) ?? conversation.title}
+              displayTitle={live.titleOf(conversation.id) ?? conversation.title}
               dragging={dragging === conversation.id}
               onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
@@ -368,6 +377,7 @@ function ExpandRow({
 type CollectionGroupProps = {
   collection: SidebarCollection
   dragging: string | null
+  live: SessionUpdates
   onChanged: () => void
   onDelete: () => void
   onOpenMembership: (conversation: Conversation) => void
@@ -384,6 +394,7 @@ type CollectionGroupProps = {
 function CollectionGroup({
   collection,
   dragging,
+  live,
   onChanged,
   onDelete,
   onOpenMembership,
@@ -391,7 +402,6 @@ function CollectionGroup({
 }: CollectionGroupProps) {
   const [open, setOpen] = useState(false)
   const { isOver, setNodeRef } = useDroppable({ id: collection.id })
-  const liveTitle = useConversationTitles()
   const more = useMoreConversations({ collectionId: collection.id }, collection.page.nextCursor)
   const items = [...collection.page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
   const hasMore = more.data ? more.hasNextPage : Boolean(collection.page.nextCursor)
@@ -441,8 +451,9 @@ function CollectionGroup({
           {items.map((conversation) => (
             <ConversationRow
               key={conversation.id}
+              busy={(live.activityOf(conversation.id) ?? conversation.activity).busy}
               conversation={conversation}
-              displayTitle={liveTitle(conversation.id) ?? conversation.title}
+              displayTitle={live.titleOf(conversation.id) ?? conversation.title}
               dragging={dragging === conversation.id}
               onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
@@ -474,6 +485,7 @@ function ConversationRow({
   conversation,
   dragging,
   onChanged,
+  busy,
   displayTitle,
   onOpenMembership,
 }: {
@@ -483,6 +495,8 @@ function ConversationRow({
   onOpenMembership: () => void
   /** 这一行现在显示的名字：服务端起过名或者刚被改名，就是新的那个。 */
   displayTitle: string
+  /** 这段对话有没有在跑。行尾据此转圈（design-system.html 结构模板里的侧栏那一条）。 */
+  busy: boolean
 }) {
   const { listeners, setNodeRef, transform } = useDraggable({
     data: { collectionId: conversation.collectionId },
@@ -546,6 +560,15 @@ function ConversationRow({
         >
           <span className="min-w-0 flex-1 truncate text-left">{displayTitle}</span>
         </Link>
+      )}
+      {/* 在跑就转圈。它一直露着（不像时间那样 hover 时让位）——正在跑是这一行此刻最要紧的事。 */}
+      {busy && (
+        <Icon
+          className="shrink-0 animate-spin text-primary"
+          label="进行中"
+          name="loading"
+          size="xs"
+        />
       )}
       {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
       {!editing && (

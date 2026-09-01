@@ -286,3 +286,43 @@ def test_cross_origin_upgrade_is_refused(ws_agent_app: FastAPI, pg_url: str) -> 
             pass  # 连接根本不该成立
 
     assert refused.value.code == 1008
+
+
+def test_activity_frames_reach_a_connection_that_subscribed_nothing(
+    ws_agent_app: FastAPI, pg_url: str
+) -> None:
+    """跑一轮，「在忙什么」推给一条一段都没订的连接。
+
+    侧栏就是这个样子：列着几十段对话，一段也没订。按订阅发的话它永远收不到角标。
+    """
+
+    with TestClient(ws_agent_app) as tc:
+        _sign_in(tc, pg_url)
+        conversation_id = _open_conversation(tc)
+
+        with tc.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "server_hello"
+            # 故意不发 subscribe_v2。
+
+            sent = tc.post(
+                f"/conversations/{conversation_id}/prompts",
+                json={"prompt_id": "prm_act", "content": [{"type": "text", "text": "走"}]},
+            )
+            assert sent.status_code == 200, sent.text
+
+            busy = _until(ws, "session.activity.updated")
+            assert busy["payload"] == {
+                "session_id": conversation_id,
+                "busy": True,
+                "pending_interaction": "none",
+            }
+
+            idle = _until(ws, "session.activity.updated")
+            assert idle["payload"]["busy"] is False
+
+            # 行上也带着同一份事实：帧是易失的，重拉列表才是对齐的办法。
+            listed = tc.get("/conversations").json()
+            row = next(
+                item for item in listed["ungrouped"]["items"] if item["id"] == conversation_id
+            )
+            assert row["activity"] == {"busy": False, "pendingInteraction": "none"}
