@@ -102,20 +102,13 @@ const historyTurn = (ordinal: number) => ({
   kind: 'turn',
   ordinal,
   origin: { kind: 'user' },
+  attachmentIds: ordinal === 1 ? [DEMO_ATTACHMENT.attachmentId] : undefined,
   prompt: `第 ${ordinal} 个问题`,
   startedAt: '2026-08-31T01:59:5'.concat(String(ordinal), 'Z'),
   state: 'completed',
   steps: [
     {
       frames: [
-        {
-          // 第一轮的用户消息带一张参考图：附件芯片与灯箱从这里走
-          attachmentIds: ordinal === 1 ? [DEMO_ATTACHMENT.attachmentId] : undefined,
-          frameId: `t${ordinal}.1.f1`,
-          kind: 'text',
-          role: 'user',
-          text: `第 ${ordinal} 个问题`,
-        },
         ...(ordinal === HISTORY_TURNS
           ? [
               {
@@ -487,20 +480,14 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
     },
   })
 
-  // 头一批当场发：真后端也是收下消息就广播 prompt.upsert，界面据它换出停止钮。订阅还没上来
-  // 时这一批会丢，但补批日志里有它，客户端一跳号就补回来。
+  // 头一批当场发：开场输入只在 turn.prompt，user frame 留给中途插话。订阅还没上来时这一批
+  // 会丢，但补批日志里有它，客户端一跳号就补回来。
   broadcast(conversationId, [
     {
       op: 'prompt.upsert',
       prompt: { createdAt: now, promptId: prompt.promptId, status: 'running' },
     },
     turnHeader('running'),
-    {
-      op: 'frame.upsert',
-      frame: { frameId: `${stepId}.f1`, kind: 'text', role: 'user', text: prompt.text },
-      stepId,
-      turnId,
-    },
   ])
 
   schedule(
