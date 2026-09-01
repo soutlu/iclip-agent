@@ -261,8 +261,25 @@ class Prompt(_Wire):
     steered_at: str | None = None
 
 
+class AgentStatusMeta(_Wire):
+    context_tokens: int | None = Field(default=None, ge=0)
+    max_context_tokens: int | None = Field(default=None, gt=0)
+    context_usage: float | None = Field(default=None, ge=0, le=1)
+
+
+def agent_context_status(context_tokens: int, max_context_tokens: int) -> AgentStatusMeta:
+    """Pydantic AI 的上下文读数 → Kimi agent meta。"""
+
+    return AgentStatusMeta(
+        context_tokens=context_tokens,
+        max_context_tokens=max_context_tokens,
+        context_usage=min(1, context_tokens / max_context_tokens),
+    )
+
+
 class TranscriptMeta(_Wire):
     activity: Literal["idle", "turn", "disposing", "unknown"] | None = None
+    agent: AgentStatusMeta | None = None
 
 
 # --- 快照 -------------------------------------------------------------------
@@ -381,6 +398,7 @@ TranscriptOperation = Annotated[
 __all__ = [
     "MAIN_AGENT_ID",
     "TOOL_STATE_BY_OUTCOME",
+    "AgentStatusMeta",
     "AppendOp",
     "Attachment",
     "AttachmentSource",
@@ -416,6 +434,7 @@ __all__ = [
     "TurnUpsertOp",
     "TurnUsage",
     "VideoContent",
+    "agent_context_status",
     "next_frame_ordinal",
     "utf16_len",
 ]

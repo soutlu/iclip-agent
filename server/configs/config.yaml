@@ -66,6 +66,7 @@ models:
     api_key_env: MODEL_API_KEY
     base_url: https://llm-dd2phm2wuagx7ezo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
     thinking: high
+    context_window: 1048576
 
 conversations:
   title_model: glm-5.3-flash # 给对话起标题的模型，取 models 段的键名；不配就不起标题

@@ -9,12 +9,15 @@ import { useUser } from '@/shared/auth'
 import type { ComposerHandle, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
+import { ContextUsageIndicator } from './context-usage-indicator'
 
 type ConversationComposerProps = {
   /** 发一条。抛异常表示没送到，这里会把内容还回输入框。 */
   onSend: (text: string, media: ComposerSubmission['media']) => Promise<void>
   /** 这段对话正在跑：发送钮换成停止钮。 */
   busy?: boolean
+  contextTokens: number | undefined
+  maxContextTokens: number | undefined
   onStop?: (() => void) | undefined
 }
 
@@ -27,7 +30,13 @@ type ConversationComposerProps = {
  * @param props.onStop - 点停止。
  * @returns 输入框。
  */
-export function ConversationComposer({ busy = false, onSend, onStop }: ConversationComposerProps) {
+export function ConversationComposer({
+  busy = false,
+  contextTokens,
+  maxContextTokens,
+  onSend,
+  onStop,
+}: ConversationComposerProps) {
   const composerRef = useRef<ComposerHandle>(null)
   const [sending, setSending] = useState(false)
   const { data: user } = useUser()
@@ -56,6 +65,11 @@ export function ConversationComposer({ busy = false, onSend, onStop }: Conversat
       placeholder="接着说…"
       ref={composerRef}
       sending={sending}
+      trailing={
+        contextTokens !== undefined && maxContextTokens !== undefined && maxContextTokens > 0 ? (
+          <ContextUsageIndicator max={maxContextTokens} used={contextTokens} />
+        ) : undefined
+      }
     />
   )
 }

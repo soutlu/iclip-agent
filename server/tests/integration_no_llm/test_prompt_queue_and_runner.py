@@ -36,10 +36,12 @@ from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.transcript.from_messages import run_ids_from_messages
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
+from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.ops import MAIN_AGENT_ID, TextContent, TranscriptTurn
 
 AGENT_ID = "storyboard"
+MAX_CONTEXT_TOKENS = 4096
 OWNER = uuid.UUID("11111111-2222-3333-4444-555555555555")
 
 
@@ -158,6 +160,7 @@ def _runner(
         queue=queue,
         snapshots=step_store,
         deps_for=deps_for,
+        context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
     )
     return runner, step_store, queue
 
@@ -247,7 +250,7 @@ async def test_one_prompt_runs_and_lands_in_both_paths(engine: AsyncEngine) -> N
     prompt_id = await _submit(runner, queue, conversation_id, "写三个镜头")
     await runner.shutdown()
 
-    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
     assert [turn.state for turn in derived] == ["completed"]
     assert derived[0].prompt == "写三个镜头"
     assert derived[0].steps[0].frames[0].text == "好的，我来写"  # pyright: ignore[reportAttributeAccessIssue]
@@ -271,7 +274,7 @@ async def test_live_projection_matches_the_derived_one(engine: AsyncEngine) -> N
     await _submit(runner, queue, conversation_id, "开始")
     await runner.shutdown()
 
-    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
     assert _skeleton(_replay(store, conversation_id)) == _skeleton(derived)
 
 
@@ -298,7 +301,7 @@ async def test_second_prompt_queues_then_runs_after_the_first(engine: AsyncEngin
     assert settled is not None
     assert settled.run_id is not None  # 它自己起过一次 run，不是被顺手标掉的
 
-    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
     assert [turn.prompt for turn in derived] == ["先做这个", "再做那个"]
     assert [turn.ordinal for turn in derived] == [1, 2]
 
@@ -307,7 +310,7 @@ async def test_usage_is_filled_in_when_the_run_finishes(engine: AsyncEngine) -> 
     """用量由 run 跑完那一条事件补齐，实时那侧不该是空的。"""
 
     store = TranscriptStore()
-    runner, _step_store, queue = _runner(engine, _says("好"), store=store)
+    runner, step_store, queue = _runner(engine, _says("好"), store=store)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
 
     await _submit(runner, queue, conversation_id, "来")
@@ -315,7 +318,24 @@ async def test_usage_is_filled_in_when_the_run_finishes(engine: AsyncEngine) -> 
 
     turn = _replay(store, conversation_id)[0]
     assert turn.usage is not None
-    assert turn.steps[0].usage is not None
+    usage = turn.steps[0].usage
+    assert usage is not None
+
+    live_status = store.subscribe_view(conversation_id, MAIN_AGENT_ID).snapshot.meta.agent
+    assert live_status is not None
+    assert live_status.context_tokens == (
+        usage.input_other + usage.output + usage.input_cache_read + usage.input_cache_creation
+    )
+    assert live_status.max_context_tokens == MAX_CONTEXT_TOKENS
+
+    restored = await TranscriptService(
+        store=TranscriptStore(),
+        history=TranscriptHistory(step_store),
+        queue=queue,
+        runner=runner,
+        context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
+    ).page(conversation_id, runtime_agent_id=AGENT_ID)
+    assert restored.meta.agent == live_status
 
 
 async def test_restart_sweep_settles_rows_nobody_will_come_back_for(engine: AsyncEngine) -> None:
@@ -465,7 +485,7 @@ async def test_an_append_landing_after_the_last_model_request_still_reaches_the_
     assert "临时插一句" in _texts(seen[1])
 
     # 追加没有自成一轮，它是这一轮里的一个用户块。
-    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
     assert [turn.prompt for turn in derived] == ["先做这个"]
     assert "临时插一句" in [
         getattr(frame, "text", None)
@@ -627,7 +647,7 @@ async def test_a_run_that_died_mid_tool_still_shows_up_after_a_refresh(
     )
     assert interrupted is not None
 
-    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
     assert [turn.prompt for turn in derived] == ["把这三个镜头重新出图"]
     assert [turn.state for turn in derived] == ["failed"]
 
@@ -712,7 +732,7 @@ async def test_the_next_turn_after_a_failed_one_does_not_reuse_its_ordinal(
     await runner.shutdown()
     await runner2.shutdown()
 
-    derived = await TranscriptHistory(step_store).turns(conversation_id)
+    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
     assert [(turn.turn_id, turn.ordinal) for turn in derived] == [("t1", 1), ("t2", 2)]
     assert [turn.state for turn in derived] == ["failed", "completed"]
 

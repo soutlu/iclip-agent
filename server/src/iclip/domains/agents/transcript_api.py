@@ -113,6 +113,7 @@ class Transcripts(Protocol):
         conversation_id: str,
         *,
         agent_id: str = MAIN_AGENT_ID,
+        runtime_agent_id: str,
         before_turn: str | None = None,
         after_turn: str | None = None,
         page_size: int = 20,
@@ -321,9 +322,10 @@ def create_transcript_router(
         ``session.meta.updated`` 推送，不再问这里）。
         """
 
-        await _readable(principal, conversation_id)
+        runtime_agent_id = await _readable(principal, conversation_id)
         page = await transcripts.page(
             conversation_id,
+            runtime_agent_id=runtime_agent_id,
             before_turn=before_turn,
             after_turn=after_turn,
             page_size=page_size,

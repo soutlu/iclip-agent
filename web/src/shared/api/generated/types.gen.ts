@@ -5,6 +5,24 @@ export type ClientOptions = {
 }
 
 /**
+ * AgentStatusMeta
+ */
+export type AgentStatusMeta = {
+  /**
+   * Contexttokens
+   */
+  contextTokens?: number | null
+  /**
+   * Contextusage
+   */
+  contextUsage?: number | null
+  /**
+   * Maxcontexttokens
+   */
+  maxContextTokens?: number | null
+}
+
+/**
  * ApiKeyCreateIn
  */
 export type ApiKeyCreateIn = {
@@ -1740,6 +1758,7 @@ export type TranscriptMeta = {
    * Activity
    */
   activity?: 'idle' | 'turn' | 'disposing' | 'unknown' | null
+  agent?: AgentStatusMeta | null
 }
 
 /**

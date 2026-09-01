@@ -208,6 +208,8 @@ class ModelSection(ConfigSection):
     model: str | None = None
     thinking: ThinkingEffort | None = None
     """思考强度档位；不写即不发该参数，用厂商默认档。"""
+    context_window: int | None = Field(default=None, gt=0)
+    """传给 Pydantic AI Harness 的模型上下文窗口。"""
 
 
 ThinkingEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
@@ -416,6 +418,7 @@ class ResolvedModel:
     api_key: str
     base_url: str | None
     thinking: ThinkingEffort | None
+    context_window: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,6 +602,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
                 api_key=_require_model_key(name, model.api_key_env),
                 base_url=model.base_url,
                 thinking=model.thinking,
+                context_window=model.context_window,
             )
             for name, model in config.models.items()
         ),

@@ -1,6 +1,50 @@
 {
   "components": {
     "schemas": {
+      "AgentStatusMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "contextTokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contexttokens"
+          },
+          "contextUsage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contextusage"
+          },
+          "maxContextTokens": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxcontexttokens"
+          }
+        },
+        "title": "AgentStatusMeta",
+        "type": "object"
+      },
       "ApiKeyCreateIn": {
         "additionalProperties": false,
         "properties": {
@@ -3188,6 +3232,16 @@
               }
             ],
             "title": "Activity"
+          },
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentStatusMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "TranscriptMeta",

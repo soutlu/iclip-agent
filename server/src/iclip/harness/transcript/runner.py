@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -43,6 +43,7 @@ from pydantic_ai.messages import (
     UserContent,
 )
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, RunContext
+from pydantic_ai_harness.compaction import ContextUsage, ReportContextUsage
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 
 from iclip.common.errors import Conflict, NotFound
@@ -59,7 +60,10 @@ from iclip.platform.transcript.ops import (
     AttachmentUpsertOp,
     Interaction,
     InteractionUpsertOp,
+    MetaMergeOp,
     PromptUpsertOp,
+    TranscriptMeta,
+    agent_context_status,
 )
 
 _logger = logging.getLogger(__name__)
@@ -211,6 +215,7 @@ class ConversationRunner:
         queue: PromptQueue,
         snapshots: ConversationSnapshots,
         deps_for: DepsFor,
+        context_limits: Mapping[str, int],
         on_turn_ended: TurnEnded | None = None,
     ) -> None:
         self._agents = agents
@@ -218,6 +223,7 @@ class ConversationRunner:
         self._queue = queue
         self._snapshots = snapshots
         self._deps_for = deps_for
+        self._context_limits = context_limits
         self._on_turn_ended = on_turn_ended
         self._active: dict[str, _Active] = {}
         self._closing = False
@@ -464,12 +470,29 @@ class ConversationRunner:
                 MAIN_AGENT_ID,
                 tuple(AttachmentUpsertOp(attachment=item) for item in attachments),
             )
+        context_window = self._context_limits.get(row.agent_id)
         projector = TranscriptEventStream(
             turn_id=turn_id,
             turn_ordinal=ordinal,
             prompt=row.text,
             attachment_ids=tuple(item.attachment_id for item in attachments),
+            max_context_tokens=context_window,
         )
+
+        def report_context(usage: ContextUsage) -> None:
+            projector.max_context_tokens = usage.window_tokens
+            self._store.append(
+                row.conversation_id,
+                MAIN_AGENT_ID,
+                (
+                    MetaMergeOp(
+                        meta=TranscriptMeta(
+                            agent=agent_context_status(usage.used_tokens, usage.window_tokens)
+                        )
+                    ),
+                ),
+            )
+
         deps = await self._deps_for(row)
         async with agent.run_stream_events(
             model_prompt(row.content),
@@ -482,6 +505,11 @@ class ConversationRunner:
             capabilities=[
                 active.handle,
                 HandleDeferredToolCalls(handler=active.desk.handle),
+                *(
+                    [ReportContextUsage(on_usage=report_context, context_window=context_window)]
+                    if context_window is not None
+                    else []
+                ),
             ],
         ) as events:
             async for batch in projector.transform_stream(events):
