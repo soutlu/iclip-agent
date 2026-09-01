@@ -26,6 +26,27 @@ test('点开一段对话：历史铺开，回复逐字长出来', async ({ page 
   await expect(page.locator('code', { hasText: 'shots/storyboard.md' })).toBeVisible()
 })
 
+test('长对话可以在中间消息区滚动', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await expect(page.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
+
+  const scroller = page.locator('.chat-scroller')
+  await scroller.hover()
+  await page.mouse.wheel(0, -10_000)
+  const firstTurn = page.getByRole('article', { name: '第 1 轮' })
+  await expect(firstTurn).toBeInViewport()
+  const before = await firstTurn.boundingBox()
+  if (!before) throw new Error('首轮消息没有可测量的位置')
+
+  await page.mouse.wheel(0, 320)
+  await expect
+    .poll(async () => (await firstTurn.boundingBox())?.y ?? before.y)
+    .toBeLessThan(before.y)
+  await expect(page.getByLabel('输入消息')).toBeInViewport()
+})
+
 test('在会话页发一条：气泡先出来，回复跟着长出来', async ({ page }) => {
   await page.goto('/')
   await login(page)
