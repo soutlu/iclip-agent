@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  FilePlus2,
   FileText,
   FlaskConical,
   Folder,
@@ -77,6 +78,7 @@ const LoadingGlyph = ({ strokeWidth: _strokeWidth, ...props }: LucideProps) => (
 // 换掉底层图形时只改这张表。
 const ICONS = {
   add: Plus,
+  'add-file': FilePlus2,
   back: ArrowLeft,
   'chat-new': CirclePlus,
   check: Check,

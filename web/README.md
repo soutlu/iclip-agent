@@ -44,7 +44,7 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
     │   ├── icons/              # 图标注册表（Icon / IconName，唯一图标入口）
     │   ├── lib/                # 通用工具
     │   ├── transcript/         # 对话内容：订阅连接、读取端；vendor/ 是照抄来的协议 reducer
-    │   └── ui/                 # 契约组件：button / chip / dialog / field / menu / popup / tag / toast
+    │   └── ui/                 # 契约组件：button / chip / composer / dialog / field / media-lightbox / menu / popup / tag / toast
     └── testing/                # 测试基建：renderWithProviders、MSW handlers / server、dev:mock 入口
 ```
 

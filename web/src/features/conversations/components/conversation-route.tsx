@@ -6,8 +6,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranscript } from '@/shared/transcript/use-transcript'
+import type { TranscriptAttachment } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
+import type { ComposerAttachment } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
 import {
   abortPrompt,
@@ -36,7 +38,26 @@ type ConversationRouteProps = {
 type PendingPrompt = {
   promptId: string
   text: string
+  media: readonly ComposerAttachment[]
 }
+
+/** 乐观气泡的附件实体：id 用本地 attId（认领后整条撤掉，不会与服务端的实体撞车）。 */
+const optimisticAttachments = (
+  media: readonly ComposerAttachment[],
+): readonly TranscriptAttachment[] =>
+  media.flatMap((item) =>
+    item.url !== undefined
+      ? [
+          {
+            attachmentId: item.attId,
+            mediaType: item.mediaType,
+            name: item.name,
+            size: item.size,
+            source: { kind: 'url' as const, url: item.url },
+          },
+        ]
+      : [],
+  )
 
 /**
  * 渲染会话页。
@@ -78,16 +99,16 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const queued = view.prompts.filter((prompt) => prompt.status === 'queued')
   const running = view.prompts.find((prompt) => prompt.status === 'running')
 
-  const send = async (text: string) => {
+  const send = async (text: string, media: readonly ComposerAttachment[]) => {
     const promptId = mintPromptId()
     setPending((list) => [
       ...list.filter((item) => !claimed.has(item.promptId)),
-      { promptId, text },
+      { media, promptId, text },
     ])
     try {
-      await submitPrompt(conversationId, { promptId, text })
+      await submitPrompt(conversationId, { media, promptId, text })
     } catch (error) {
-      // 没送到就把气泡撤掉——留着一条永远认领不到的更糟；输入框那边会把字还回去。
+      // 没送到就把气泡撤掉——留着一条永远认领不到的更糟；输入框那边会把内容还回去。
       setPending((list) => list.filter((item) => item.promptId !== promptId))
       throw error
     }
@@ -143,7 +164,13 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               <ConversationTurn attachments={view.attachments} key={turn.turnId} turn={turn} />
             ))}
             {bubbles.map((item) => (
-              <UserBubble key={item.promptId} text={item.text} />
+              <UserBubble
+                attachments={
+                  item.media.length === 0 ? undefined : optimisticAttachments(item.media)
+                }
+                key={item.promptId}
+                text={item.text}
+              />
             ))}
             <PromptQueue
               canSteer={running !== undefined}

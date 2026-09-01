@@ -1,15 +1,18 @@
 /**
- * 会话页的输入框。发送、清空、失败把字还回来，都在这里；气泡由页面那一层管。
+ * 会话页的输入框。发送、清空、失败把内容还回来，都在这里；气泡由页面那一层管。
+ *
+ * 附件入口只在有 assets:write 权限时给（kimi：上传不可用就不出这个入口）。
  */
 
-import { useState } from 'react'
-import { IconButton } from '@/shared/ui/button'
+import { useRef, useState } from 'react'
+import { useUser } from '@/shared/auth'
+import type { ComposerHandle, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
 
 type ConversationComposerProps = {
-  /** 发一条。抛异常表示没送到，这里会把字还回输入框。 */
-  onSend: (text: string) => Promise<void>
+  /** 发一条。抛异常表示没送到，这里会把内容还回输入框。 */
+  onSend: (text: string, media: ComposerSubmission['media']) => Promise<void>
   /** 这段对话正在跑：发送钮换成停止钮。 */
   busy?: boolean
   onStop?: (() => void) | undefined
@@ -25,19 +28,18 @@ type ConversationComposerProps = {
  * @returns 输入框。
  */
 export function ConversationComposer({ busy = false, onSend, onStop }: ConversationComposerProps) {
-  const [value, setValue] = useState('')
+  const composerRef = useRef<ComposerHandle>(null)
   const [sending, setSending] = useState(false)
+  const { data: user } = useUser()
 
-  const send = async () => {
-    const text = value.trim()
-    if (!text) return
-    setValue('')
+  const send = async (submission: ComposerSubmission) => {
+    composerRef.current?.clear()
     setSending(true)
     try {
-      await onSend(text)
+      await onSend(submission.text, submission.media)
     } catch (error) {
-      // 没送到就把字还给输入框，用户接着改或者再发一次。
-      setValue(text)
+      // 没送到就把内容还给输入框，用户接着改或者再发一次。
+      composerRef.current?.restore(submission)
       toast.error(error instanceof Error ? error.message : '发送失败')
     } finally {
       setSending(false)
@@ -46,15 +48,14 @@ export function ConversationComposer({ busy = false, onSend, onStop }: Conversat
 
   return (
     <Composer
+      attachmentsEnabled={user?.permissions.includes('assets:write') ?? false}
       busy={busy}
       dense
-      leading={<IconButton label="添加" name="add" size="md" />}
       onStop={onStop}
-      onSubmit={() => void send()}
-      onValueChange={setValue}
+      onSubmit={(submission) => void send(submission)}
       placeholder="接着说…"
+      ref={composerRef}
       sending={sending}
-      value={value}
     />
   )
 }

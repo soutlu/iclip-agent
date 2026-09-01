@@ -1,9 +1,12 @@
 import { HeroAnimation } from '@/shared/ui/hero'
+import type { ComposerSubmission } from '@/shared/ui/composer'
 import { HomeComposer } from './home-composer'
 
 type HomeRouteProps = {
   /** 发送时做什么；未登录时路由层把它接到登录弹窗上 */
-  onSend?: ((input: { agentId: string; text: string }) => void) | undefined
+  onSend?:
+    | ((input: { agentId: string; text: string; media: ComposerSubmission['media'] }) => void)
+    | undefined
   /** 正在新建对话 */
   sending?: boolean
 }

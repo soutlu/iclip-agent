@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import type { TranscriptAttachment } from '@/shared/transcript/vendor'
 import { Icon, type IconName } from '@/shared/icons'
-import { MediaLightbox } from './media-lightbox'
+import { MediaLightbox } from '@/shared/ui/media-lightbox'
 
 type AttachmentKind = 'image' | 'video' | 'file'
 

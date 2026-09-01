@@ -69,3 +69,30 @@ test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Cue' })).toBeVisible()
   await page.screenshot({ path: `${SHOT_DIR}/home-mobile.png`, fullPage: true })
 })
+
+test('首页 composer 附件视觉验收：内联 pill 与悬停卡', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await expect(page.getByRole('heading', { name: 'Cue' })).toBeAttached()
+
+  // 1×1 红 PNG，走 + 钮背后的文件选择框进去（与拖放/粘贴同一条上传管线）
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({ buffer: png, mimeType: 'image/png', name: '夜景参考图.png' })
+
+  const pill = page.getByText('夜景参考图.png')
+  await expect(pill).toBeVisible()
+  await expect(page.getByRole('button', { name: '发送' })).toBeEnabled()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: `${SHOT_DIR}/home-composer-attachment.png`, fullPage: true })
+
+  // hover 出悬停卡：预览 + meta + 状态行
+  await pill.hover()
+  await expect(page.getByText('已上传')).toBeVisible()
+  await page.waitForTimeout(200)
+  await page.screenshot({ path: `${SHOT_DIR}/home-composer-attachment-tip.png`, fullPage: true })
+})

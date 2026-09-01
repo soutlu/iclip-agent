@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import { IconButton } from '@/shared/ui/button'
+import type { ComposerHandle, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 
@@ -13,7 +14,9 @@ const AGENTS = [
 
 type HomeComposerProps = {
   /** 发送时做什么；未给就是还没接上（按钮照常按状态显示，但不产生动作）。 */
-  onSend?: ((input: { agentId: string; text: string }) => void) | undefined
+  onSend?:
+    | ((input: { agentId: string; text: string; media: ComposerSubmission['media'] }) => void)
+    | undefined
   /** 正在新建对话：发送钮转圈。 */
   sending?: boolean | undefined
 }
@@ -21,8 +24,8 @@ type HomeComposerProps = {
 /**
  * 首页输入卡：卡壳是 `shared/ui/composer`，这里只挂首页那几个控件与卡下沿的合集条。
  *
- * 添加与「逐条确认」暂不接后端：附件还没有上传面，逐条确认对应的 `permission_mode` 合同里
- * 还没有这个字段。
+ * 「逐条确认」暂不接后端：对应的 `permission_mode` 合同里还没有这个字段。
+ * 附件入口只在有 assets:write 权限时给（kimi：上传不可用就不出这个入口）。
  *
  * @param props - 组件属性。
  * @param props.onSend - 发送动作。
@@ -30,36 +33,34 @@ type HomeComposerProps = {
  * @returns 首页输入卡与合集条。
  */
 export function HomeComposer({ onSend, sending = false }: HomeComposerProps) {
-  const [value, setValue] = useState('')
+  const composerRef = useRef<ComposerHandle>(null)
   const [agent, setAgent] = useState<(typeof AGENTS)[number]>(AGENTS[0])
+  const { data: user } = useUser()
 
-  const send = () => {
-    const text = value.trim()
-    if (!text || onSend === undefined) return
-    setValue('')
-    onSend({ agentId: agent.id, text })
+  const send = (submission: ComposerSubmission) => {
+    if (onSend === undefined) return
+    composerRef.current?.clear()
+    onSend({ agentId: agent.id, media: submission.media, text: submission.text })
   }
 
   return (
     <div>
       <Composer
+        attachmentsEnabled={user?.permissions.includes('assets:write') ?? false}
         leading={
-          <>
-            <IconButton label="添加" name="add" size="md" />
-            <button
-              className={cn(
-                'inline-flex h-(--control-height-md) ui-state cursor-pointer items-center gap-1.5 rounded-full px-3 ui-focus',
-                'text-body-sm text-on-surface-variant',
-              )}
-              type="button"
-            >
-              <Icon decorative name="confirm" size="sm" />
-              逐条确认
-            </button>
-          </>
+          <button
+            className={cn(
+              'inline-flex h-(--control-height-md) ui-state cursor-pointer items-center gap-1.5 rounded-full px-3 ui-focus',
+              'text-body-sm text-on-surface-variant',
+            )}
+            type="button"
+          >
+            <Icon decorative name="confirm" size="sm" />
+            逐条确认
+          </button>
         }
         onSubmit={send}
-        onValueChange={setValue}
+        ref={composerRef}
         sending={sending}
         trailing={
           <MenuRoot>
@@ -81,7 +82,6 @@ export function HomeComposer({ onSend, sending = false }: HomeComposerProps) {
             </MenuSurface>
           </MenuRoot>
         }
-        value={value}
       />
       <div className="mx-3 -mt-3 flex items-center gap-1.5 rounded-b-xl bg-surface-container-low px-3 pt-4 pb-2 text-body-sm text-on-surface-variant">
         <Icon decorative name="folder" size="sm" />
