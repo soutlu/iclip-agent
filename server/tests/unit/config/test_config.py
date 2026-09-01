@@ -186,6 +186,7 @@ models:
     api: responses
     api_key_env: T_QWEN_KEY
     base_url: https://dashscope.test/v1
+    context_window: 131072
 """
 
 
@@ -217,6 +218,7 @@ def test_model_key_name_is_the_model_name(tmp_path: Path, monkeypatch: pytest.Mo
     assert (model.name, model.model) == ("qwen3.8-max", "qwen3.8-max")
     assert (model.provider, model.api) == ("alibaba", "responses")
     assert (model.api_key, model.base_url) == ("sk-test", "https://dashscope.test/v1")
+    assert model.context_window == 131072
 
 
 def test_explicit_model_overrides_key_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

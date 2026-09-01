@@ -3,6 +3,15 @@
 import * as z from 'zod'
 
 /**
+ * AgentStatusMeta
+ */
+export const zAgentStatusMeta = z.object({
+  contextTokens: z.int().gte(0).nullish(),
+  contextUsage: z.number().gte(0).lte(1).nullish(),
+  maxContextTokens: z.int().gt(0).nullish(),
+})
+
+/**
  * ApiKeyCreateIn
  */
 export const zApiKeyCreateIn = z.object({
@@ -836,6 +845,7 @@ export const zFrameUpsertOp = z.object({
  */
 export const zTranscriptMeta = z.object({
   activity: z.enum(['idle', 'turn', 'disposing', 'unknown']).nullish(),
+  agent: zAgentStatusMeta.nullish(),
 })
 
 /**

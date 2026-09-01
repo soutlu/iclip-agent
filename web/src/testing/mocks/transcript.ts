@@ -81,7 +81,10 @@ export const mockTranscriptPage = () => ({
   has_more: false,
   interactions: [],
   items: Array.from({ length: HISTORY_TURNS }, (_, index) => historyTurn(index + 1)),
-  meta: { activity: 'idle' },
+  meta: {
+    activity: 'idle',
+    agent: { contextTokens: 32768, contextUsage: 0.03125, maxContextTokens: 1048576 },
+  },
   pending_interactions: [],
   prompts: [],
   seq: HISTORY_SEQ,

@@ -89,6 +89,30 @@ const textOf = (reader: TranscriptReader): string =>
     .join('|')
 
 describe('TranscriptReader', () => {
+  it('基线与 meta.merge 都把后端的上下文 used/max 原样交给界面', async () => {
+    const { reader, socket } = startReader()
+    await vi.waitFor(() => {
+      expect(reader.view().contextTokens).toBe(32768)
+      expect(reader.view().maxContextTokens).toBe(1048576)
+    })
+
+    socket.deliver(
+      opsFrame(11, [
+        {
+          meta: {
+            agent: { contextTokens: 65536, contextUsage: 0.0625, maxContextTokens: 1048576 },
+          },
+          op: 'meta.merge',
+        },
+      ]),
+    )
+
+    await vi.waitFor(() => {
+      expect(reader.view().contextTokens).toBe(65536)
+      expect(reader.view().maxContextTokens).toBe(1048576)
+    })
+  })
+
   it('基线还没到就先攒着，落地之后按批次号叠上', async () => {
     let release = () => {}
     const gate = new Promise<void>((resolve) => {

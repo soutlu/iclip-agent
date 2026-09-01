@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -17,7 +18,13 @@ from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.store import Listener, TranscriptStore
 from iclip.harness.transcript.subscription import subscribe_frames
-from iclip.platform.transcript.ops import MAIN_AGENT_ID, Prompt, PromptContent, TranscriptTurn
+from iclip.platform.transcript.ops import (
+    MAIN_AGENT_ID,
+    Prompt,
+    PromptContent,
+    TranscriptTurn,
+    agent_context_status,
+)
 from iclip.platform.transcript.wire import (
     OpsBatchOut,
     OpsCatchup,
@@ -37,6 +44,7 @@ class TranscriptService:
     history: TranscriptHistory
     queue: PromptQueue
     runner: ConversationRunner
+    context_limits: Mapping[str, int]
 
     # --- 写 -----------------------------------------------------------------
 
@@ -90,6 +98,7 @@ class TranscriptService:
         conversation_id: str,
         *,
         agent_id: str = MAIN_AGENT_ID,
+        runtime_agent_id: str,
         before_turn: str | None = None,
         after_turn: str | None = None,
         page_size: int = DEFAULT_PAGE_SIZE,
@@ -104,9 +113,20 @@ class TranscriptService:
             raise ValidationFailed("before_turn 与 after_turn 只能给一个")
         size = max(1, min(page_size, MAX_PAGE_SIZE))
         view = self.store.subscribe_view(conversation_id, agent_id)
-        turns = _timeline(await self.history.turns(conversation_id), view.live_turns)
+        history = await self.history.read(conversation_id)
+        turns = _timeline(history.turns, view.live_turns)
         items, has_more = _slice(turns, before_turn=before_turn, after_turn=after_turn, size=size)
         pending = self.store.pending_interactions(conversation_id, agent_id)
+        meta = view.snapshot.meta
+        max_context_tokens = self.context_limits.get(runtime_agent_id)
+        if (
+            meta.agent is None
+            and history.context_tokens is not None
+            and max_context_tokens is not None
+        ):
+            meta = meta.model_copy(
+                update={"agent": agent_context_status(history.context_tokens, max_context_tokens)}
+            )
         return TranscriptPage(
             agent_id=agent_id,
             items=items,
@@ -114,7 +134,7 @@ class TranscriptService:
             interactions=view.snapshot.interactions,
             attachments=view.snapshot.attachments,
             prompts=view.snapshot.prompts,
-            meta=view.snapshot.meta,
+            meta=meta,
             agents=({"agentId": agent_id, "type": "main"},),
             pending_interactions=tuple(item.interaction_id for item in pending),
             seq=view.watermark,

@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from pydantic_ai_harness.compaction import estimate_context_tokens
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, StepEvent
 
 from iclip.harness.transcript.from_messages import (
@@ -43,26 +44,35 @@ class ConversationSnapshots(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class TranscriptHistoryView:
+    turns: tuple[TranscriptTurn, ...]
+    context_tokens: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class TranscriptHistory:
     """按对话 id 推出已经跑完的轮子。"""
 
     store: ConversationSnapshots
 
-    async def turns(self, conversation_id: str) -> tuple[TranscriptTurn, ...]:
-        """这段对话到目前为止的轮子，按发生先后排；一份存档都没有就是空的。"""
+    async def read(self, conversation_id: str) -> TranscriptHistoryView:
+        """读取可恢复的时间线与 Pydantic AI 上下文读数。"""
 
         snapshot = await self.store.latest_conversation_snapshot(
             conversation_id=conversation_id, include_interrupted=True
         )
         if snapshot is None:
-            return ()
+            return TranscriptHistoryView(turns=(), context_tokens=None)
         states: dict[str, TurnState] = {}
         errors: dict[str, str | None] = {}
         for run_id in run_ids_from_messages(snapshot.messages):
             events = await self.store.list_events(run_id=run_id)
             states[run_id] = run_state_from_events(events)
             errors[run_id] = run_error_from_events(events)
-        return turns_from_messages(snapshot.messages, turn_states=states, turn_errors=errors)
+        return TranscriptHistoryView(
+            turns=turns_from_messages(snapshot.messages, turn_states=states, turn_errors=errors),
+            context_tokens=estimate_context_tokens(snapshot.messages),
+        )
 
 
 __all__ = ["ConversationSnapshots", "TranscriptHistory"]

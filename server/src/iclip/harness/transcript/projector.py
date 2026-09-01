@@ -37,6 +37,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.ui import UIEventStream
+from pydantic_ai_harness.compaction import estimate_context_tokens
 
 from iclip.harness.transcript.from_messages import step_usage
 from iclip.platform.transcript.display import tool_display
@@ -61,6 +62,7 @@ from iclip.platform.transcript.ops import (
     TurnOrigin,
     TurnUpsertOp,
     TurnUsage,
+    agent_context_status,
     next_frame_ordinal,
     utf16_len,
 )
@@ -87,6 +89,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     turn_ordinal: int = 1
     prompt: str | None = None
     attachment_ids: tuple[str, ...] = ()
+    max_context_tokens: int | None = None
     """这一轮用户附上的东西。实体本身由驱动那一层先落进实时状态，轮头部只带 id。"""
 
     _started_at: str = field(default_factory=_now, init=False)
@@ -199,6 +202,17 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
                     step=header.model_copy(
                         update={"usage": usage, "finish_reason": response.finish_reason}
                     ),
+                )
+            )
+        if self.max_context_tokens is not None:
+            ops.append(
+                MetaMergeOp(
+                    meta=TranscriptMeta(
+                        agent=agent_context_status(
+                            estimate_context_tokens(event.result.all_messages()),
+                            self.max_context_tokens,
+                        )
+                    )
                 )
             )
         if ops:

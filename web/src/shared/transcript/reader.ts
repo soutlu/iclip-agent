@@ -36,6 +36,9 @@ const reloadDelayMs = (attempt: number) => Math.min(attempt * 2000, 15_000)
 export interface TranscriptView {
   /** 运行态直接来自 transcript meta；对话页据此判断当前是否仍在一轮里。 */
   activity: ActivityMeta
+  /** Kimi 的上下文状态：后端给原始 used/max，前端只负责展示。 */
+  contextTokens: number | undefined
+  maxContextTokens: number | undefined
   /** 时间线：一串轮子，各自带步与块。 */
   items: readonly TranscriptItem[]
   /** 服务端记下的用户消息。排队中的那几条只在这里，时间线上还没有它们。 */
@@ -59,8 +62,10 @@ const EMPTY_ATTACHMENTS: ReadonlyMap<string, TranscriptAttachment> = new Map()
 const EMPTY_VIEW: TranscriptView = {
   activity: 'unknown',
   attachments: EMPTY_ATTACHMENTS,
+  contextTokens: undefined,
   hasMoreOlder: false,
   items: [],
+  maxContextTokens: undefined,
   prompts: [],
   status: 'loading',
   title: '',
@@ -213,8 +218,10 @@ export class TranscriptReader {
         this.snapshot = {
           activity: this.transcript.getMeta().activity ?? 'unknown',
           attachments: this.transcript.getAttachments(),
+          contextTokens: this.transcript.getMeta().agent?.contextTokens,
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
+          maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,
           prompts: [...this.transcript.getPrompts().values()],
           status: 'ready',
           title: baseline.title,
@@ -275,7 +282,9 @@ export class TranscriptReader {
       ...this.snapshot,
       activity: this.transcript.getMeta().activity ?? 'unknown',
       attachments: this.transcript.getAttachments(),
+      contextTokens: this.transcript.getMeta().agent?.contextTokens,
       items: this.transcript.getItems(),
+      maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,
       prompts: [...this.transcript.getPrompts().values()],
     }
     this.emit()

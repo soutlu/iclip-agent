@@ -52,6 +52,14 @@ const queuedPrompt = (promptId: string, text: string) => ({
 })
 
 describe('ConversationRoute', () => {
+  it('在输入框底部显示后端给出的上下文占用环', async () => {
+    await renderConversation()
+
+    expect(
+      await screen.findByRole('button', { name: '使用 32k / 1M tokens (4%)' }),
+    ).toBeInTheDocument()
+  })
+
   it('把历史那几轮铺开：用户那条、模型那条、工具卡', async () => {
     await renderConversation()
 

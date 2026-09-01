@@ -358,9 +358,14 @@ def _apply(agent: _AgentTranscript, op: EmittableOperation) -> None:
         case PromptUpsertOp():
             agent.prompts[op.prompt.prompt_id] = op.prompt
         case MetaMergeOp():
-            agent.meta = agent.meta.model_copy(
-                update=op.meta.model_dump(exclude_none=True, by_alias=False)
-            )
+            update = op.meta.model_dump(exclude_none=True, by_alias=False)
+            if op.meta.agent is not None and agent.meta.agent is not None:
+                update["agent"] = agent.meta.agent.model_copy(
+                    update=op.meta.agent.model_dump(exclude_none=True, by_alias=False)
+                )
+            elif op.meta.agent is not None:
+                update["agent"] = op.meta.agent
+            agent.meta = agent.meta.model_copy(update=update)
         case ItemsRemoveOp():
             _remove_items(agent, op.ids)
         case _:

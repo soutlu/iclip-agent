@@ -11,6 +11,7 @@ export type {
   AbortConversationsConversationIdPromptsPromptIdAbortPostErrors,
   AbortConversationsConversationIdPromptsPromptIdAbortPostResponse,
   AbortConversationsConversationIdPromptsPromptIdAbortPostResponses,
+  AgentStatusMeta,
   ApiKeyCreatedEnvelope,
   ApiKeyCreatedOut,
   ApiKeyCreateIn,

@@ -298,6 +298,8 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
         <div className="mx-auto w-full max-w-(--layout-home-read-max)">
           <ConversationComposer
             busy={running !== undefined}
+            contextTokens={view.contextTokens}
+            maxContextTokens={view.maxContextTokens}
             onSend={send}
             onStop={
               running === undefined

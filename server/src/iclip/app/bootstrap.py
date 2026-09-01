@@ -194,6 +194,24 @@ def _model_specs(declared: Sequence[ResolvedModel]) -> tuple[ModelSpec, ...]:
     )
 
 
+def _agent_context_limits(
+    declared_agents: Sequence[ResolvedAgent],
+    declared_models: Sequence[ResolvedModel],
+) -> dict[str, int]:
+    """只给对话顶层 agent 配窗口；子 agent 不进入 transcript 统计。"""
+
+    limits_by_model = {
+        model.name: model.context_window
+        for model in declared_models
+        if model.context_window is not None
+    }
+    return {
+        agent.agent_id: limits_by_model[agent.model]
+        for agent in declared_agents
+        if agent.model in limits_by_model
+    }
+
+
 _SOCKET_TIMEOUT_MARGIN = 5.0
 """socket 超时比阻塞等待多留的余量（秒）。"""
 
@@ -530,6 +548,7 @@ def build_app(
     )
     transcript_store = TranscriptStore(on_activity=on_activity)
     prompt_queue = PromptQueue(active_engine)
+    context_limits = _agent_context_limits(agents, settings.models)
 
     async def name_conversation(row: PromptRow) -> None:
         """一轮跑完，给还没起过名的那段对话起个名。
@@ -557,12 +576,14 @@ def build_app(
         store=transcript_store,
         history=TranscriptHistory(step_store),
         queue=prompt_queue,
+        context_limits=context_limits,
         runner=ConversationRunner(
             agents=dict(agent_registry.agents),
             store=transcript_store,
             queue=prompt_queue,
             snapshots=step_store,
             deps_for=deps_for_prompt,
+            context_limits=context_limits,
             on_turn_ended=name_conversation,
         ),
     )
