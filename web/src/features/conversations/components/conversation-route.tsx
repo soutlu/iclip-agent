@@ -12,6 +12,7 @@ import { useSessionUpdates } from '@/shared/transcript/use-session-updates'
 import { useTranscript } from '@/shared/transcript/use-transcript'
 import type { TranscriptAttachment, TranscriptTurn } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
+import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import type { ComposerAttachment } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
@@ -157,6 +158,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
         ? '工作中…'
         : '请求中…'
       : `模型请求失败，正在重试（第 ${retry.nextAttempt}/${retry.maxAttempts} 次）…`
+  const showEmptyState = view.status === 'ready' && turns.length === 0 && bubbles.length === 0
 
   const send = async (text: string, media: readonly ComposerAttachment[]) => {
     const promptId = mintPromptId()
@@ -217,7 +219,12 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
           }}
           ref={scrollerRef}
         >
-          <div className="mx-auto flex min-h-full w-full max-w-(--layout-home-read-max) flex-col gap-4 px-5 pt-2 pb-4">
+          <div
+            className={cn(
+              'mx-auto flex min-h-full w-full max-w-(--layout-home-read-max) flex-col gap-4 px-5 pt-2',
+              showEmptyState ? 'pb-4' : 'pb-[81px]',
+            )}
+          >
             {view.status === 'loading' ? (
               <p className="flex items-center gap-2 py-12 text-body-sm text-on-surface-variant">
                 <Icon className="animate-spin" decorative name="loading" size="sm" />
@@ -251,7 +258,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
                 text: promptText(prompt.content),
               }))}
             />
-            {view.status === 'ready' && turns.length === 0 && bubbles.length === 0 ? (
+            {showEmptyState ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
                 <span className="font-home-display text-headline-lg font-semibold text-on-surface italic">
                   Cue
