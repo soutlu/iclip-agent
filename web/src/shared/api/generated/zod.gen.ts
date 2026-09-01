@@ -214,6 +214,19 @@ export const zColorOut = z.object({
 })
 
 /**
+ * ConversationActivityOut
+ *
+ * 这段对话此刻在忙什么。侧栏据此画角标。
+ *
+ * 嵌套一层而不是把字段平铺到行上：这一组事实还会长（kimi 那边还有主轮活跃与最近一轮的结局），
+ * 平铺的话每加一个都要在行上再开一个顶层字段。
+ */
+export const zConversationActivityOut = z.object({
+  busy: z.boolean(),
+  pendingInteraction: z.enum(['none', 'approval', 'question']),
+})
+
+/**
  * ConversationCollectionIn
  *
  * 把这段对话放进某个合集，或者拿出来（给 ``null``）。
@@ -279,6 +292,7 @@ export const zConversationIn = z.object({
  * ConversationOut
  */
 export const zConversationOut = z.object({
+  activity: zConversationActivityOut,
   agentId: z.string(),
   collectionId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),

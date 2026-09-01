@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { useConversationTitles } from '@/shared/transcript/use-conversation-titles'
+import { useSessionUpdates } from '@/shared/transcript/use-session-updates'
 import { useTranscript } from '@/shared/transcript/use-transcript'
 import type { TranscriptAttachment } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
@@ -71,8 +71,8 @@ const optimisticAttachments = (
  */
 export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
-  const liveTitle = useConversationTitles()
-  const title = liveTitle(conversationId) ?? view.title
+  const { titleOf } = useSessionUpdates()
+  const title = titleOf(conversationId) ?? view.title
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)

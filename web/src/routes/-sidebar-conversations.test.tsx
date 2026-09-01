@@ -122,4 +122,24 @@ describe('SidebarConversations', () => {
     expect(await screen.findByText('夜景延时素材生成')).toBeVisible()
     expect(screen.queryByText('第0段')).not.toBeInTheDocument()
   })
+
+  it('服务端说这段对话跑起来了，那一行就转圈；跑完了转圈收掉', async () => {
+    const [conversation] = seedConversations(1)
+    const { socket } = await render()
+    await screen.findByText('第0段')
+
+    // 首屏那一份来自列表行（mock 里是不忙），所以一开始没有转圈。
+    expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
+
+    const activity = (busy: boolean) => ({
+      type: 'session.activity.updated',
+      payload: { session_id: conversation?.id ?? '', busy, pending_interaction: 'none' },
+    })
+
+    socket.deliver(activity(true))
+    expect(await screen.findByLabelText('进行中')).toBeVisible()
+
+    socket.deliver(activity(false))
+    await waitFor(() => expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument())
+  })
 })

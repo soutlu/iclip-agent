@@ -426,6 +426,25 @@ export type ColorOut = {
 }
 
 /**
+ * ConversationActivityOut
+ *
+ * 这段对话此刻在忙什么。侧栏据此画角标。
+ *
+ * 嵌套一层而不是把字段平铺到行上：这一组事实还会长（kimi 那边还有主轮活跃与最近一轮的结局），
+ * 平铺的话每加一个都要在行上再开一个顶层字段。
+ */
+export type ConversationActivityOut = {
+  /**
+   * Busy
+   */
+  busy: boolean
+  /**
+   * Pendinginteraction
+   */
+  pendingInteraction: 'none' | 'approval' | 'question'
+}
+
+/**
  * ConversationCollectionIn
  *
  * 把这段对话放进某个合集，或者拿出来（给 ``null``）。
@@ -537,6 +556,7 @@ export type ConversationIn = {
  * ConversationOut
  */
 export type ConversationOut = {
+  activity: ConversationActivityOut
   /**
    * Agentid
    */

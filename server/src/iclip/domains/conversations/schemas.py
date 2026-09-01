@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from iclip.domains.conversations.models import Conversation
+from iclip.domains.conversations.models import Conversation, ConversationActivity
 
 MAX_TITLE_CHARS: Final = 200
 MAX_AGENT_ID_CHARS: Final = 128
@@ -58,6 +58,17 @@ class ConversationTaskIn(CamelModel):
     task_id: uuid.UUID | None
 
 
+class ConversationActivityOut(CamelModel):
+    """这段对话此刻在忙什么。侧栏据此画角标。
+
+    嵌套一层而不是把字段平铺到行上：这一组事实还会长（kimi 那边还有主轮活跃与最近一轮的结局），
+    平铺的话每加一个都要在行上再开一个顶层字段。
+    """
+
+    busy: bool
+    pending_interaction: Literal["none", "approval", "question"]
+
+
 class ConversationOut(CamelModel):
     id: uuid.UUID
     owner_user_id: uuid.UUID
@@ -69,6 +80,7 @@ class ConversationOut(CamelModel):
     collection_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+    activity: ConversationActivityOut
 
 
 class ConversationEnvelope(CamelModel):
@@ -141,8 +153,11 @@ class ConversationFileEnvelope(CamelModel):
     file: ConversationFileContentOut
 
 
-def conversation_out(conversation: Conversation) -> ConversationOut:
-    """领域行 → wire 形状。"""
+def conversation_out(conversation: Conversation, activity: ConversationActivity) -> ConversationOut:
+    """领域行 + 此刻的活儿 → wire 形状。
+
+    活儿由调用方带进来：它不在库的那一行上，是引擎那侧的实时状态，得另外问一次。
+    """
 
     return ConversationOut(
         id=conversation.id,
@@ -154,6 +169,9 @@ def conversation_out(conversation: Conversation) -> ConversationOut:
         collection_id=conversation.collection_id,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
+        activity=ConversationActivityOut(
+            busy=activity.busy, pending_interaction=activity.pending_interaction
+        ),
     )
 
 
@@ -161,6 +179,7 @@ __all__ = [
     "DEFAULT_TITLE",
     "MAX_AGENT_ID_CHARS",
     "MAX_TITLE_CHARS",
+    "ConversationActivityOut",
     "ConversationCollectionIn",
     "ConversationEnvelope",
     "ConversationFileContentOut",

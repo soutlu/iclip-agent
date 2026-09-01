@@ -45,4 +45,20 @@ class Conversation:
     updated_at: datetime
 
 
-__all__ = ["Conversation", "TitleKind"]
+@dataclass(frozen=True, slots=True)
+class ConversationActivity:
+    """一段对话此刻在忙什么。侧栏的角标看这一份。
+
+    两个字段互不蕴含：**等人点头的时候 ``busy`` 照样为真**——那一轮并没有结束。合成一个枚举
+    就分不清这两件事（agent 引擎那一侧的 ``activity.py`` 里有更长的说明）。
+    """
+
+    busy: bool = False
+    pending_interaction: Literal["none", "approval", "question"] = "none"
+
+
+IDLE_ACTIVITY = ConversationActivity()
+"""什么都没在发生。不认识的对话、以及重启后还没跑过的，都是这一份。"""
+
+
+__all__ = ["IDLE_ACTIVITY", "Conversation", "ConversationActivity", "TitleKind"]

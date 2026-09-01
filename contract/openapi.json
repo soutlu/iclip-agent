@@ -808,6 +808,31 @@
         "title": "ColorOut",
         "type": "object"
       },
+      "ConversationActivityOut": {
+        "additionalProperties": false,
+        "description": "这段对话此刻在忙什么。侧栏据此画角标。\n\n嵌套一层而不是把字段平铺到行上：这一组事实还会长（kimi 那边还有主轮活跃与最近一轮的结局），\n平铺的话每加一个都要在行上再开一个顶层字段。",
+        "properties": {
+          "busy": {
+            "title": "Busy",
+            "type": "boolean"
+          },
+          "pendingInteraction": {
+            "enum": [
+              "none",
+              "approval",
+              "question"
+            ],
+            "title": "Pendinginteraction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "busy",
+          "pendingInteraction"
+        ],
+        "title": "ConversationActivityOut",
+        "type": "object"
+      },
       "ConversationCollectionIn": {
         "additionalProperties": false,
         "description": "把这段对话放进某个合集，或者拿出来（给 ``null``）。\n\n单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON\n里长得一样，分不出来。",
@@ -986,6 +1011,9 @@
       "ConversationOut": {
         "additionalProperties": false,
         "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/ConversationActivityOut"
+          },
           "agentId": {
             "title": "Agentid",
             "type": "string"
@@ -1059,7 +1087,8 @@
           "taskId",
           "collectionId",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "activity"
         ],
         "title": "ConversationOut",
         "type": "object"

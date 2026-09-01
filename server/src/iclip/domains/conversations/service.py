@@ -7,12 +7,16 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from iclip.common.errors import NotFound, PermissionDenied, ValidationFailed
-from iclip.domains.conversations.models import Conversation
+from iclip.domains.conversations.models import (
+    IDLE_ACTIVITY,
+    Conversation,
+    ConversationActivity,
+)
 from iclip.domains.conversations.repository import (
     ConversationRepository,
     PageCursor,
@@ -31,6 +35,18 @@ SIDEBAR_UNGROUPED = 20
 """侧栏「任务」区（没进合集的对话）一次给几条。"""
 SIDEBAR_PER_COLLECTION = 10
 """每个合集里内嵌几段对话。再多要展开看，是另一次查询的事。"""
+
+
+ActivitiesOf = Callable[[Sequence[uuid.UUID]], Mapping[uuid.UUID, ConversationActivity]]
+"""这批对话此刻各在忙什么。
+
+**这一层不认识 agent 引擎。** 「在跑没跑、卡在等谁」是引擎那边的实时状态，本模块只把它贴到
+自己的行上；接什么由组合根决定。
+
+同步：读的是进程内存，不查库。名单里没给到的按 ``IDLE_ACTIVITY`` 算——**进程重启后引擎那份
+内存是空的，于是所有行都退回「没在忙」，这是对的**：启动时孤儿运行会被收拾掉，那些运行确实
+随进程没了。
+"""
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
 """一段用户输入 → 一个标题，起不出来给 ``None``。
@@ -188,14 +204,28 @@ class ConversationService:
         read_derived_file: ReadDerivedFile,
         generate_title: GenerateTitle,
         announce_title: AnnounceTitle,
+        activities_of: ActivitiesOf,
     ) -> None:
         self._repo = repo
+        self._activities_of = activities_of
         self._purge_derived = purge_derived
         self._generate_title = generate_title
         self._announce_title = announce_title
         self._list_collections = list_collections
         self._list_derived_files = list_derived_files
         self._read_derived_file = read_derived_file
+
+    def activities(
+        self, conversation_ids: Sequence[uuid.UUID]
+    ) -> Mapping[uuid.UUID, ConversationActivity]:
+        """这批对话此刻各在忙什么。**每个都给得出**，问到的 id 一定在返回里。
+
+        :param conversation_ids: 要问的那些对话。
+        :returns: 对话 id → 它此刻的活儿。
+        """
+
+        known = self._activities_of(conversation_ids)
+        return {one: known.get(one, IDLE_ACTIVITY) for one in conversation_ids}
 
     def _readable_by(self, principal: Principal) -> uuid.UUID | None:
         """读取按谁的名下算。治理者拿 ``None``：不按属主过滤，看得到全部。"""
@@ -462,6 +492,17 @@ class ConversationService:
         conversation = await self._repo.get(_as_conversation_id(conversation_id), owner=owner)
         return conversation.agent_id
 
+    async def owner_of(self, conversation_id: uuid.UUID) -> uuid.UUID | None:
+        """这段对话归谁。没有这一行就给 ``None``。
+
+        没有 principal 这个参数：调用方是服务端自己（推送要按属主分发），不是谁的请求。
+        """
+
+        try:
+            return (await self._repo.get(conversation_id, owner=None)).owner_user_id
+        except NotFound:
+            return None
+
     async def title_of(self, principal: Principal, conversation_id: str) -> str:
         """这段对话叫什么；看不到的一律抛 ``NotFound``。
 
@@ -475,11 +516,13 @@ class ConversationService:
 
 
 __all__ = [
+    "IDLE_ACTIVITY",
     "MANAGE_PERMISSION",
     "MAX_LIST_LIMIT",
     "SIDEBAR_COLLECTIONS",
     "SIDEBAR_PER_COLLECTION",
     "SIDEBAR_UNGROUPED",
+    "ActivitiesOf",
     "CollectionInfo",
     "ConversationService",
     "DerivedFile",

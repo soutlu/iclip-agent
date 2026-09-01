@@ -19,7 +19,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Path, Query, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
@@ -51,6 +51,8 @@ from iclip.platform.transcript.wire import (
     ResetPayload,
     ServerHello,
     ServerHelloPayload,
+    SessionActivityPayload,
+    SessionActivityUpdated,
     SessionMetaPayload,
     SessionMetaUpdated,
     SteerRequest,
@@ -176,9 +178,35 @@ class LiveConnections:
     def announce_title(self, owner: uuid.UUID, conversation_id: uuid.UUID, title: str) -> None:
         """把新标题发给这个人还开着的每个标签页。"""
 
-        frame = SessionMetaUpdated(
-            payload=SessionMetaPayload(session_id=str(conversation_id), title=title)
+        self._announce(
+            owner,
+            SessionMetaUpdated(
+                payload=SessionMetaPayload(session_id=str(conversation_id), title=title)
+            ),
         )
+
+    def announce_activity(
+        self,
+        owner: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        busy: bool,
+        pending_interaction: Literal["none", "approval", "question"],
+    ) -> None:
+        """把「在忙什么」发给这个人还开着的每个标签页。"""
+
+        self._announce(
+            owner,
+            SessionActivityUpdated(
+                payload=SessionActivityPayload(
+                    session_id=str(conversation_id),
+                    busy=busy,
+                    pending_interaction=pending_interaction,
+                )
+            ),
+        )
+
+    def _announce(self, owner: uuid.UUID, frame: Any) -> None:
         # 遍历副本：offer 里断开的连接会把自己从这张表里摘掉。
         for connection in tuple(self._connections):
             if connection.belongs_to(owner):
