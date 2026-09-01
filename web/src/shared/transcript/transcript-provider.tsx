@@ -37,7 +37,24 @@ export function TranscriptProvider({ children, createSocket }: TranscriptProvide
 
   useEffect(() => {
     connection.connect()
-    return () => connection.close()
+
+    // 标签页在后台待久了，那条连接多半已经僵着——浏览器不一定派 close，退避也可能还排在
+    // 几十秒之后。所以重新露面时先问一句「还活着吗」，僵了就立刻重连（照 kimi 网页版：
+    // visibilitychange / focus / online 三个事件绑同一个处理器）。
+    const reviveIfStale = () => {
+      if (document.visibilityState === 'hidden') return
+      if (connection.health().stale) connection.reconnect()
+    }
+    document.addEventListener('visibilitychange', reviveIfStale)
+    window.addEventListener('focus', reviveIfStale)
+    window.addEventListener('online', reviveIfStale)
+
+    return () => {
+      document.removeEventListener('visibilitychange', reviveIfStale)
+      window.removeEventListener('focus', reviveIfStale)
+      window.removeEventListener('online', reviveIfStale)
+      connection.close()
+    }
   }, [connection])
 
   return <TranscriptConnectionContext value={connection}>{children}</TranscriptConnectionContext>

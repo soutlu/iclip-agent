@@ -239,4 +239,36 @@ describe('TranscriptConnection', () => {
     clock += 31_000
     expect(connection.health().stale).toBe(true)
   })
+
+  it('reconnect() 立刻换一条新连接，带着水位重订，旧的那条不再排退避', () => {
+    const sockets: FakeSocket[] = []
+    let clock = 1_000
+    const connection = new TranscriptConnection({
+      url: 'ws://test/ws',
+      now: () => clock,
+      createSocket: () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    })
+    connection.connect()
+    connection.subscribe('c1', { onReset: () => undefined, onOps: () => true })
+    sockets[0]?.deliver(HELLO)
+    sockets[0]?.deliver(ops(7))
+    expect(connection.watermarkOf('c1', 'main')).toBe(7)
+
+    clock += 31_000
+    connection.reconnect()
+
+    expect(sockets).toHaveLength(2)
+    // 旧 socket 的回调已经摘掉：它这会儿才派 onclose，也不会再排一次退避重连
+    expect(sockets[0]?.onclose).toBeNull()
+
+    // 新连接带着水位重订，服务端据此补批，不整份重发
+    sockets[1]?.deliver(HELLO)
+    const sent = sockets[1]?.frames() ?? []
+    expect(sent[0]?.type).toBe('subscribe_v2')
+    expect(sent[0]?.payload?.['transcript_since']).toEqual({ main: 7 })
+  })
 })

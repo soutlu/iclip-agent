@@ -17,6 +17,9 @@
  *    补批还会把它带回来。
  * 3. 任何入站帧都刷新活跃时刻；`ping` 照着 nonce 回一帧 `pong`。
  * 4. 重连之后逐段对话各发一帧 `subscribe_v2`，各带自己那段的水位。
+ *
+ * 掉线分两条路回来：`onclose` 走退避（照 kimi：`min(30s, 1s × 2ⁿ) + 抖动`），标签页重新
+ * 露面走 `reconnect()` 立刻回来、不等退避——谁来触发后一条在 `transcript-provider` 里。
  */
 
 import type { z } from 'zod'
@@ -130,6 +133,22 @@ export class TranscriptConnection {
     this.socket?.close(1000)
     this.socket = null
     this.connected = false
+  }
+
+  /**
+   * 立刻重连，不排退避。标签页从后台回到前台、网络回来时用（照 kimi）：这时手上那条连接
+   * 多半已经僵了，等退避意味着最长再瞎等 30 秒。
+   *
+   * 关之前先摘掉旧 socket 的回调——留着的话它的 `onclose` 会把刚跳过的退避又排上。
+   */
+  reconnect(): void {
+    if (this.closed) return
+    this.clearTimer()
+    const stale = this.socket
+    this.detach()
+    stale?.close(1000)
+    this.reconnectAttempts = 0
+    this.connect()
   }
 
   /**
@@ -298,6 +317,12 @@ export class TranscriptConnection {
   // --- 断了 -----------------------------------------------------------------
 
   private dropped(): void {
+    this.detach()
+    this.scheduleReconnect()
+  }
+
+  /** 撤下手上这条 socket：摘回调、清掉还没回执的 subscribe，状态退回未连接。关不关由调用方定。 */
+  private detach(): void {
     if (this.socket !== null) {
       this.socket.onmessage = null
       this.socket.onclose = null
@@ -309,7 +334,6 @@ export class TranscriptConnection {
       this.connected = false
       this.options.onConnectionState?.(false)
     }
-    this.scheduleReconnect()
   }
 
   private scheduleReconnect(): void {
