@@ -125,12 +125,6 @@ describe('ConversationRoute', () => {
           },
           {
             op: 'frame.upsert',
-            frame: { frameId: 't3.1.f1', kind: 'text', role: 'user', text: '再拆一段' },
-            stepId: 't3.1',
-            turnId: 't3',
-          },
-          {
-            op: 'frame.upsert',
             frame: { frameId: 't3.1.f2', kind: 'thinking', text: '先看看已经有哪些镜头。' },
             stepId: 't3.1',
             turnId: 't3',
@@ -366,12 +360,6 @@ describe('ConversationRoute', () => {
               state: 'completed',
               turnId: 't3',
             },
-          },
-          {
-            op: 'frame.upsert',
-            frame: { frameId: 't3.1.f1', kind: 'text', role: 'user', text: '拆' },
-            stepId: 't3.1',
-            turnId: 't3',
           },
           {
             op: 'step.upsert',

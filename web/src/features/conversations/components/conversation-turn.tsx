@@ -43,15 +43,15 @@ export const ConversationTurn = memo(function ConversationTurn({
 }: ConversationTurnProps) {
   const settled = isSettled(turn)
   const entries = turn.steps.flatMap((step) => step.frames.map((frame) => ({ frame, step })))
-  // 第一次模型响应之前，用户说的那条只在轮头部；等第一步开出来它会变成一个 user 块。
-  const promptOnly = entries.length === 0 && turn.prompt !== undefined
+  // 开场输入始终在轮头部；user frame 只表示这一轮运行期间追加的插话，两者互不替代。
+  const hasOpening = (turn.prompt?.length ?? 0) > 0 || (turn.attachmentIds?.length ?? 0) > 0
   // 「还在进行中」的块照 kimi 的判据：轮子没结束，且它是最后一步的最后一块
   const liveFrameId = settled ? undefined : turn.steps.at(-1)?.frames.at(-1)?.frameId
   const nodes = groupTurnEntries(entries)
 
   return (
     <article className="flex flex-col gap-2.5" aria-label={`第 ${turn.ordinal} 轮`}>
-      {promptOnly ? (
+      {hasOpening ? (
         <UserBubble
           attachments={turn.attachmentIds?.flatMap((id) => attachments.get(id) ?? [])}
           text={turn.prompt ?? ''}
