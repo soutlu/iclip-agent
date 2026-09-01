@@ -15,6 +15,12 @@ import {
 
 export type Conversation = z.output<typeof zConversationsPageOut>['items'][number]
 
+/** 一页对话：这一页的条目加下一页的游标。 */
+export type ConversationPage = z.output<typeof zConversationPageOut>
+
+/** 侧栏拓扑里的一个合集：元信息、总条数，加第一页对话。 */
+export type SidebarCollection = z.output<typeof zSidebarOut>['collections'][number]
+
 const conversationsPageSchema = zConversationsPageOut.transform((payload) => payload.items)
 const conversationEnvelopeSchema = zConversationEnvelope.transform(
   (payload) => payload.conversation,

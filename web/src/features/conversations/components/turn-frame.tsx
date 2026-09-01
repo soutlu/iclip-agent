@@ -10,6 +10,7 @@ import type { TranscriptAttachment, TranscriptFrame } from '@/shared/transcript/
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { AssistantMarkdown } from './assistant-markdown'
+import { DisclosureBody, DisclosureChevron } from './disclosure'
 import { toolCard } from './tool-display'
 import { UserBubble } from './user-bubble'
 
@@ -52,13 +53,26 @@ export function TurnFrame({ attachments, frame, live, settled }: TurnFrameProps)
       return <ToolRow frame={frame} settled={settled} />
     case 'notice':
       return frame.level === 'error' ? (
-        <p className="rounded-sm border border-chat-error-border bg-chat-error-bg px-3 py-2 text-body-sm text-chat-error-text">
-          {frame.message}
-        </p>
+        <ErrorNotice message={frame.message} />
       ) : (
         <p className="text-body-sm text-chat-muted-text">{frame.message}</p>
       )
   }
+}
+
+/**
+ * 出错那一条：整轮失败与 error 级通知共用这一个样子。
+ *
+ * @param props - 组件属性。
+ * @param props.message - 错误文案。
+ * @returns 报错行。
+ */
+export function ErrorNotice({ message }: { message: string }) {
+  return (
+    <p className="rounded-sm border border-chat-error-border bg-chat-error-bg px-3 py-2 text-body-sm text-chat-error-text">
+      {message}
+    </p>
+  )
 }
 
 /**
@@ -109,25 +123,13 @@ function ThinkingBlock({ live, text }: { live: boolean; text: string }) {
           {live ? '思考中…' : '思考过程'}
         </span>
         {seconds === null ? null : <span>{seconds} 秒</span>}
-        <Icon
-          className={cn('transition-transform duration-(--dur-s)', open && 'rotate-180')}
-          decorative
-          name="expand"
-          size="sm"
-        />
+        <DisclosureChevron open={open} />
       </button>
-      <div
-        className={cn(
-          'grid transition-[grid-template-rows] duration-(--dur-s) ease-(--ease)',
-          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
-        )}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <p className="pt-1 pb-2 text-body-sm leading-relaxed whitespace-pre-wrap text-chat-secondary-text">
-            {text}
-          </p>
-        </div>
-      </div>
+      <DisclosureBody open={open}>
+        <p className="pt-1 pb-2 text-body-sm leading-relaxed whitespace-pre-wrap text-chat-secondary-text">
+          {text}
+        </p>
+      </DisclosureBody>
     </div>
   )
 }
@@ -185,28 +187,13 @@ function ToolRow({ frame, settled }: ToolRowProps) {
             type="button"
           >
             {head}
-            <Icon
-              className={cn(
-                'shrink-0 text-chat-muted-text transition-transform duration-(--dur-s)',
-                open && 'rotate-180',
-              )}
-              decorative
-              name="expand"
-              size="sm"
-            />
+            <DisclosureChevron className="shrink-0 text-chat-muted-text" open={open} />
           </button>
-          <div
-            className={cn(
-              'grid transition-[grid-template-rows] duration-(--dur-s) ease-(--ease)',
-              open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
-            )}
-          >
-            <div className="min-h-0 overflow-hidden">
-              <pre className="mt-1 max-h-64 overflow-auto rounded-sm bg-chat-code-block-bg px-3 py-2 font-mono text-body-sm whitespace-pre-wrap text-chat-secondary-text">
-                {output}
-              </pre>
-            </div>
-          </div>
+          <DisclosureBody open={open}>
+            <pre className="mt-1 max-h-64 overflow-auto rounded-sm bg-chat-code-block-bg px-3 py-2 font-mono text-body-sm whitespace-pre-wrap text-chat-secondary-text">
+              {output}
+            </pre>
+          </DisclosureBody>
         </>
       )}
       {frame.error === undefined ? null : (

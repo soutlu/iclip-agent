@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { runHistoryMs, summarizeDone, summarizeRunning, type TurnEntry } from './activity-group'
+import { DisclosureBody, DisclosureChevron } from './disclosure'
 import { toolCard } from './tool-display'
 import { TurnFrame, type AttachmentMap } from './turn-frame'
 
@@ -140,36 +141,21 @@ export function ActivityRun({ attachments, items, liveFrameId, settled }: Activi
             </span>
           ))}
         </span>
-        <Icon
-          className={cn(
-            'shrink-0 text-chat-muted-text transition-transform duration-(--dur-s)',
-            open && 'rotate-180',
-          )}
-          decorative
-          name="expand"
-          size="sm"
-        />
+        <DisclosureChevron className="shrink-0 text-chat-muted-text" open={open} />
       </button>
-      <div
-        className={cn(
-          'grid transition-[grid-template-rows] duration-(--dur-s) ease-(--ease)',
-          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
-        )}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <div className="flex flex-col gap-2 pt-1">
-            {items.map((entry) => (
-              <TurnFrame
-                attachments={attachments}
-                frame={entry.frame}
-                key={entry.frame.frameId}
-                live={entry.frame.frameId === liveFrameId}
-                settled={settled}
-              />
-            ))}
-          </div>
+      <DisclosureBody open={open}>
+        <div className="flex flex-col gap-2 pt-1">
+          {items.map((entry) => (
+            <TurnFrame
+              attachments={attachments}
+              frame={entry.frame}
+              key={entry.frame.frameId}
+              live={entry.frame.frameId === liveFrameId}
+              settled={settled}
+            />
+          ))}
         </div>
-      </div>
+      </DisclosureBody>
     </div>
   )
 }

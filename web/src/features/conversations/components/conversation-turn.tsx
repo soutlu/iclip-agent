@@ -14,7 +14,7 @@ import { memo } from 'react'
 import type { TranscriptTurn } from '@/shared/transcript/vendor'
 import { groupTurnEntries } from './activity-group'
 import { ActivityRun } from './activity-run'
-import { TurnFrame, type AttachmentMap } from './turn-frame'
+import { ErrorNotice, TurnFrame, type AttachmentMap } from './turn-frame'
 import { UserBubble } from './user-bubble'
 
 type ConversationTurnProps = {
@@ -76,11 +76,7 @@ export const ConversationTurn = memo(function ConversationTurn({
           />
         ),
       )}
-      {turn.error === undefined ? null : (
-        <p className="rounded-sm border border-chat-error-border bg-chat-error-bg px-3 py-2 text-body-sm text-chat-error-text">
-          {turn.error}
-        </p>
-      )}
+      {turn.error === undefined ? null : <ErrorNotice message={turn.error} />}
       {turn.state === 'queued' ? (
         <p className="text-body-sm text-chat-muted-text">排队中，等前一条跑完</p>
       ) : null}

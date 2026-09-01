@@ -45,36 +45,6 @@
   transition-timing-function: var(--ease);
 }
 
-.home-quick-start-enter {
-  animation: home-quick-start-enter var(--dur-l) var(--ease) both;
-}
-
-@keyframes home-quick-start-enter {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 画布卡片顶部装饰光晕（原 4 个 artifact 渲染器内联渐变的唯一来源；色相归 primary/warning 族，青+琥珀双色，v14） */
-.canvas-card-accent-glow {
-  background:
-    radial-gradient(
-      circle at 16% 12%,
-      color-mix(in srgb, var(--color-primary) 20%, transparent) 0%,
-      transparent 34%
-    ),
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--color-on-surface) 7%, transparent) 0%,
-      color-mix(in srgb, var(--color-warning) 10%, transparent) 100%
-    );
-}
-
 /* v15 触控热区（M3 48px target）：视觉尺寸不变，::after 把可点范围外扩到 ≥48×48。
    不设 position——调用处自行保证定位上下文（一般加 relative；本身 absolute 的按钮直接可用）；
    overflow-hidden 的元素会裁掉伪元素，不适用本类。 */
@@ -87,17 +57,6 @@
   top: 50%;
   transform: translate(-50%, -50%);
   width: max(100%, 48px);
-}
-
-/* 等高媒体保持原始宽高比：调用方只声明 --media-natural-ratio-height。
-   max-width: none 显式解除 Tailwind preflight 的图片宽度上限，避免父级自动宽度
-   与媒体宽度互相约束后重新产生裁切。 */
-.media-natural-ratio {
-  display: block;
-  width: auto;
-  height: var(--media-natural-ratio-height);
-  max-width: none;
-  object-fit: contain;
 }
 
 /* 无障碍：跟随系统减弱动效偏好，动画/过渡整体降级 */

@@ -48,7 +48,7 @@ afterEach(() => {
   queryClient.clear()
 })
 
-describe('需求单页登录守卫', () => {
+describe('整页要登录的那几页', () => {
   it('未登录直接访问 /tasks 时挡回首页', async () => {
     const router = await renderAt('/tasks')
 
@@ -63,5 +63,13 @@ describe('需求单页登录守卫', () => {
 
     expect(router.state.location.pathname).toBe('/tasks')
     expect(await screen.findByRole('heading', { name: '需求单' })).toBeVisible()
+  })
+
+  // 对话是私有的：拿到别人的链接也不该看见内容，更不该让页面自己去打一发注定 401 的请求。
+  it('未登录直接访问会话页时挡回首页', async () => {
+    const router = await renderAt('/c/11111111-1111-4111-8111-111111111111')
+
+    expect(router.state.location.pathname).toBe('/')
+    expect(await screen.findByLabelText('输入消息')).toBeVisible()
   })
 })
