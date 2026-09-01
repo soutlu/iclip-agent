@@ -25,6 +25,19 @@ const DEMO_CHUNKS = [
 /** 演出来的那一轮里的思考正文。 */
 const DEMO_THINKING = '先看看目录里已经有哪些镜头，再决定补哪几条。'
 
+/** 历史第一条消息带的参考图：本地 data URL，mock 环境离线也能渲染。 */
+const DEMO_IMAGE_URL =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23d1e8d6'/%3E%3Ccircle cx='160' cy='90' r='48' fill='%23006d42'/%3E%3C/svg%3E"
+
+/** 那张参考图的附件实体：挂在历史第一页，随基线落地。 */
+const DEMO_ATTACHMENT = {
+  attachmentId: 'att_demo_image',
+  mediaType: 'image/svg+xml',
+  name: '参考图.svg',
+  size: 438,
+  source: { kind: 'url', url: DEMO_IMAGE_URL },
+}
+
 /** 每批操作之间隔多久：够看出是流式的，又不至于等。 */
 const BEAT_MS = 500
 
@@ -64,7 +77,7 @@ const timers = new Map<string, ReturnType<typeof setTimeout>[]>()
 export const mockTranscriptPage = () => ({
   agent_id: 'main',
   agents: [{ agentId: 'main', type: 'main' }],
-  attachments: [],
+  attachments: [DEMO_ATTACHMENT],
   has_more: false,
   interactions: [],
   items: Array.from({ length: HISTORY_TURNS }, (_, index) => historyTurn(index + 1)),
@@ -94,7 +107,14 @@ const historyTurn = (ordinal: number) => ({
   steps: [
     {
       frames: [
-        { frameId: `t${ordinal}.1.f1`, kind: 'text', role: 'user', text: `第 ${ordinal} 个问题` },
+        {
+          // 第一轮的用户消息带一张参考图：附件芯片与灯箱从这里走
+          attachmentIds: ordinal === 1 ? [DEMO_ATTACHMENT.attachmentId] : undefined,
+          frameId: `t${ordinal}.1.f1`,
+          kind: 'text',
+          role: 'user',
+          text: `第 ${ordinal} 个问题`,
+        },
         ...(ordinal === HISTORY_TURNS
           ? [
               {
@@ -313,10 +333,15 @@ const broadcast = (conversationId: string, ops: Batch) => {
   }
 }
 
-/** 排一批：定时发出去，并记下定时器，好让停止能撤掉还没发的那些。 */
-const schedule = (conversationId: string, batches: Batch[], done?: () => void) => {
+type Scheduled = Batch | (() => Batch)
+
+/** 排一批：定时发出去，并记下定时器，好让停止能撤掉还没发的那些。函数批次在发的那一刻现取。 */
+const schedule = (conversationId: string, batches: Scheduled[], done?: () => void) => {
   const handles = batches.map((ops, index) =>
-    setTimeout(() => broadcast(conversationId, ops), BEAT_MS * (index + 1)),
+    setTimeout(
+      () => broadcast(conversationId, typeof ops === 'function' ? ops() : ops),
+      BEAT_MS * (index + 1),
+    ),
   )
   handles.push(setTimeout(() => done?.(), BEAT_MS * (batches.length + 1)))
   timers.set(conversationId, [...(timers.get(conversationId) ?? []), ...handles])
@@ -432,6 +457,21 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
     stepId,
     turnId,
   })
+  // 第二件工具（写文件）：连着第一件，让「连续工具调用折成活动组」有东西可折
+  const tool2 = (state: 'running' | 'done') => ({
+    op: 'frame.upsert',
+    frame: {
+      display: { kind: 'file_io', operation: 'write', path: 'shots/storyboard.md' },
+      frameId: `${stepId}.call2`,
+      kind: 'tool',
+      name: 'write_file',
+      output: state === 'done' ? '已写入 12 行' : undefined,
+      state,
+      toolCallId: `${turnId}-call2`,
+    },
+    stepId,
+    turnId,
+  })
   const turnHeader = (state: 'running' | 'completed') => ({
     op: 'turn.upsert',
     turn: {
@@ -468,7 +508,7 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
       [
         {
           op: 'step.upsert',
-          step: { kind: 'step', ordinal: 1, state: 'running', stepId, turnId },
+          step: { kind: 'step', ordinal: 1, startedAt: now, state: 'running', stepId, turnId },
           turnId,
         },
         {
@@ -479,8 +519,9 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
         },
         tool('running'),
       ],
+      [tool('done'), tool2('running')],
       [
-        tool('done'),
+        tool2('done'),
         {
           op: 'frame.upsert',
           frame: { frameId: `${stepId}.f3`, kind: 'text', role: 'assistant', text: '' },
@@ -496,10 +537,17 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
           text,
         },
       ]),
-      [
+      () => [
         {
           op: 'step.upsert',
-          step: { kind: 'step', ordinal: 1, state: 'completed', stepId, turnId },
+          step: {
+            endedAt: new Date().toISOString(),
+            kind: 'step',
+            ordinal: 1,
+            state: 'completed',
+            stepId,
+            turnId,
+          },
           turnId,
         },
         turnHeader('completed'),

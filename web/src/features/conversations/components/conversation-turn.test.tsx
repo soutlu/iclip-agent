@@ -1,11 +1,11 @@
 /**
- * 一轮对话的块级渲染：用户气泡的超长折叠。
+ * 用户气泡：超长折叠。
  */
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { UserBubble } from './conversation-turn'
+import { UserBubble } from './user-bubble'
 
 /** jsdom 里元素没有高度，把量高这件事垫成「内容比 10 行高」。 */
 const stubOverflowing = () => {

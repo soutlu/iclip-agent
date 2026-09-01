@@ -118,3 +118,16 @@
   max-height: 3lh;
   overflow: hidden;
 }
+
+/* ---- 媒体灯箱（照 kimi 的 media-lightbox）：遮罩 scrim 60%，媒体居中限 960px / 80vh ---- */
+
+.chat-lightbox {
+  background: color-mix(in srgb, var(--color-scrim) 60%, transparent);
+}
+.chat-lightbox-media {
+  background: var(--color-thumb-fallback);
+  border-radius: var(--radius-md);
+  max-height: 80vh;
+  max-width: min(960px, 90vw);
+  object-fit: contain;
+}
