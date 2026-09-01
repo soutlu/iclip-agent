@@ -18,6 +18,7 @@ import {
 } from './transcript.api'
 import {
   AgentTranscript,
+  type ActivityMeta,
   type TranscriptAttachment,
   type TranscriptItem,
   type TranscriptPrompt,
@@ -33,6 +34,8 @@ const MAX_RELOADS = 3
 const reloadDelayMs = (attempt: number) => Math.min(attempt * 2000, 15_000)
 
 export interface TranscriptView {
+  /** 运行态直接来自 transcript meta；对话页据此判断当前是否仍在一轮里。 */
+  activity: ActivityMeta
   /** 时间线：一串轮子，各自带步与块。 */
   items: readonly TranscriptItem[]
   /** 服务端记下的用户消息。排队中的那几条只在这里，时间线上还没有它们。 */
@@ -54,6 +57,7 @@ export interface TranscriptView {
 const EMPTY_ATTACHMENTS: ReadonlyMap<string, TranscriptAttachment> = new Map()
 
 const EMPTY_VIEW: TranscriptView = {
+  activity: 'unknown',
   attachments: EMPTY_ATTACHMENTS,
   hasMoreOlder: false,
   items: [],
@@ -207,6 +211,7 @@ export class TranscriptReader {
         this.connection.markApplied(this.conversationId, MAIN_AGENT, baseline.seq)
         this.reloads = 0
         this.snapshot = {
+          activity: this.transcript.getMeta().activity ?? 'unknown',
           attachments: this.transcript.getAttachments(),
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
@@ -268,6 +273,7 @@ export class TranscriptReader {
   private publish(): void {
     this.snapshot = {
       ...this.snapshot,
+      activity: this.transcript.getMeta().activity ?? 'unknown',
       attachments: this.transcript.getAttachments(),
       items: this.transcript.getItems(),
       prompts: [...this.transcript.getPrompts().values()],
