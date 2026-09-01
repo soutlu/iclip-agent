@@ -20,7 +20,7 @@
 # agent:
 #   storyboard:                          # 单 agent
 #     spec: storyboard/agent.yaml
-#     model: qwen3.8-max
+#     model: glm-5.3-flash
 #     skills:                            # 挑 skills/ 库里的哪几个
 #       - storyboard-workflow
 #     capabilities:                      # 挂哪几个 capability
@@ -28,11 +28,11 @@
 #
 #   producer:                            # 主 + 从
 #     spec: producer/agent.yaml
-#     model: qwen3.8-max
+#     model: glm-5.3-flash
 #     subagent:
 #       # 以下三个字段名与 harness SubAgent 一致，是本仓对 harness 的唯一泄漏面。
 #       - spec: shot-writer/agent.yaml
-#         model: qwen3.8-max
+#         model: glm-5.3-flash
 #         skills: [storyboard-workflow]  # 下属各挂各的
 #         timeout_seconds: 180           # 单次派活墙钟上限（秒）
 #         max_calls: 3                   # 单轮最多派几次
@@ -42,11 +42,11 @@
 agent:
   assistant:
     spec: assistant/agent.yaml
-    model: qwen3.8-max
+    model: glm-5.3-flash
 
   storyboard:
     spec: storyboard/agent.yaml
-    model: qwen3.8-max
+    model: glm-5.3-flash
     skills:
       - storyboard-workflow
     capabilities:
