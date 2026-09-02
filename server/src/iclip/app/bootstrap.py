@@ -76,8 +76,8 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
 )
+from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.models import BuiltModels, ModelSpec, build_models
-from iclip.harness.prompts import PromptQueue, PromptRow
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.titles import title_generator
@@ -472,7 +472,7 @@ def build_app(
         或者还等着人点头的对话会被报成空闲。
         """
 
-        statuses = await prompt_queue.active_statuses([str(one) for one in conversation_ids])
+        statuses = await job_queue.active_statuses([str(one) for one in conversation_ids])
         merged = {
             one: merged_with_prompt(transcript_store.activity(str(one)), statuses.get(str(one)))
             for one in conversation_ids
@@ -555,10 +555,10 @@ def build_app(
         models=built_models,
     )
     transcript_store = TranscriptStore(on_activity=on_activity)
-    prompt_queue = PromptQueue(active_engine)
+    job_queue = JobQueue(active_engine)
     context_limits = _agent_context_limits(agents, settings.models)
 
-    async def name_conversation(row: PromptRow) -> None:
+    async def name_conversation(row: JobRow) -> None:
         """一轮跑完，给还没起过名的那段对话起个名。
 
         接在组合根：起名字要用模型（引擎那一侧），条件写与广播在对话那一侧，两个域互相不认识。
@@ -566,7 +566,7 @@ def build_app(
 
         await conversations.service.name_after_turn(uuid.UUID(row.conversation_id), row.text)
 
-    async def deps_for_prompt(row: PromptRow) -> AgentRunDeps:
+    async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
         """给排到的那条 prompt 重建运行依赖。
 
         身份不随请求走：一条 prompt 可能排了很久才轮到，那时发起它的那个 HTTP 请求早就没了。
@@ -581,16 +581,16 @@ def build_app(
         )
 
     # 显示与续跑用同一份历史：续跑的投影器要按它推出的那一轮播种实时状态。
-    transcript_history = TranscriptHistory(step_store, prompt_queue)
+    transcript_history = TranscriptHistory(step_store, job_queue)
     transcripts = TranscriptService(
         store=transcript_store,
         history=transcript_history,
-        queue=prompt_queue,
+        queue=job_queue,
         context_limits=context_limits,
         runner=ConversationRunner(
             agents=dict(agent_registry.agents),
             store=transcript_store,
-            queue=prompt_queue,
+            queue=job_queue,
             snapshots=step_store,
             history=transcript_history,
             deps_for=deps_for_prompt,

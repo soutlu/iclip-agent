@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.common.errors import Conflict, NotFound
-from iclip.harness.prompts import PromptQueue, PromptRow
+from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.transcript.activity import IDLE, ActivityState, merged_with_prompt
 from iclip.harness.transcript.from_messages import run_ids_from_messages
@@ -71,8 +71,8 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
         await conn.execute(
             text(
                 "TRUNCATE agent_runtime.runs, agent_runtime.events, agent_runtime.snapshots, "
-                "agent_runtime.tool_effects, agent_runtime.media, agent_runtime.prompts, "
-                "agent_runtime.prompt_runs"
+                "agent_runtime.tool_effects, agent_runtime.media, agent_runtime.agent_jobs, "
+                "agent_runtime.agent_job_runs"
             )
         )
     try:
@@ -216,7 +216,7 @@ def _runner(
     tools: Sequence[Any] = (),
     locked_by: str = LOCKED_BY,
     max_attempts: int = 2,
-) -> tuple[ConversationRunner, PgStepStore, PromptQueue]:
+) -> tuple[ConversationRunner, PgStepStore, JobQueue]:
     step_store = PgStepStore(engine)
     agent = Agent(
         model,
@@ -228,7 +228,7 @@ def _runner(
         # 顶层不设 agent_name：run id 要用我们传进去的那个，见 harness.agents._load_agent。
         capabilities=[StepPersistence(store=step_store)],
     )
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
 
     async def deps_for(_row: Any) -> object:
         return None
@@ -251,7 +251,7 @@ def _runner(
 
 
 async def _submit(
-    runner: ConversationRunner, queue: PromptQueue, conversation_id: str, text_: str
+    runner: ConversationRunner, queue: JobQueue, conversation_id: str, text_: str
 ) -> str:
     prompt_id = f"prm_{uuid.uuid4().hex[:8]}"
     row = await queue.submit(
@@ -277,7 +277,7 @@ async def _expire_lease(engine: AsyncEngine, conversation_id: str, *, attempt: i
     async with engine.begin() as conn:
         await conn.execute(
             text(
-                "UPDATE agent_runtime.prompts "
+                "UPDATE agent_runtime.agent_jobs "
                 "SET heartbeat_at = now() - INTERVAL '1 hour', attempt = :attempt "
                 "WHERE conversation_id = :conversation_id AND status = 'running'"
             ),
@@ -312,14 +312,14 @@ def _first_run_messages(run_id: str) -> list[ModelMessage]:
 async def _plant_interrupted(
     engine: AsyncEngine,
     step_store: PgStepStore,
-    queue: PromptQueue,
+    queue: JobQueue,
     conversation_id: str,
     *,
     run_id: str,
     messages: list[ModelMessage] | None = None,
     attempt: int = 0,
 ) -> str:
-    """装出「上一条命跑到一半就没了」的库存：行还记着在跑、心跳过期，那次 run 记在 ``prompt_runs``。
+    """装出「上一条命跑到一半就没了」的库存：行还记着在跑、心跳过期，那次 run 记在 ``agent_job_runs``。
 
     给了 ``messages`` 就连快照与 ``run_started`` 一起落库、但不落结束事件——那次 run 因此在历史
     那一侧算没跑完。不给就只有票据，等于崩在第一个周期完成之前。
@@ -352,7 +352,7 @@ async def _plant_interrupted(
     return prompt_id
 
 
-async def _drained(queue: PromptQueue, conversation_id: str, *, tries: int = 200) -> None:
+async def _drained(queue: JobQueue, conversation_id: str, *, tries: int = 200) -> None:
     """等到这段对话既没有占着的也没有排队的。
 
     等审批的行也算占着，所以停在审批上的对话永远排不空——那种要用 ``_awaits``。
@@ -366,7 +366,7 @@ async def _drained(queue: PromptQueue, conversation_id: str, *, tries: int = 200
     raise AssertionError("队列没排空")
 
 
-async def _awaits(queue: PromptQueue, prompt_id: str, *, tries: int = 200) -> PromptRow:
+async def _awaits(queue: JobQueue, prompt_id: str, *, tries: int = 200) -> JobRow:
     """等到这条 prompt 停在审批上，返回那一行。"""
 
     for _ in range(tries):
@@ -943,7 +943,7 @@ async def test_a_queued_prompt_survives_a_restart_and_gets_picked_up(
 ) -> None:
     """排着的那条不随进程消失：新起的进程清扫时把它顶上来跑完。"""
 
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
     for prompt_id, said in (("prm_head", "先做这个"), ("prm_tail", "再做那个")):
@@ -986,7 +986,7 @@ async def test_a_run_whose_lease_was_taken_cancels_itself(engine: AsyncEngine) -
 
     async with engine.begin() as conn:
         await conn.execute(
-            text("UPDATE agent_runtime.prompts SET locked_by = 'w-other' WHERE prompt_id = :id"),
+            text("UPDATE agent_runtime.agent_jobs SET locked_by = 'w-other' WHERE prompt_id = :id"),
             {"id": prompt_id},
         )
     await runner.heartbeat_once()
@@ -1007,7 +1007,7 @@ async def test_a_run_whose_lease_was_taken_cancels_itself(engine: AsyncEngine) -
 async def test_only_the_running_row_carries_a_lease(engine: AsyncEngine) -> None:
     """判成在跑的那条当场铸租约，排着的两列留空；队首顶上来时也带租约。"""
 
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
     rows = [
@@ -1035,12 +1035,12 @@ async def test_only_the_running_row_carries_a_lease(engine: AsyncEngine) -> None
 
 
 async def test_attach_run_maps_every_run_to_its_prompt(engine: AsyncEngine) -> None:
-    """一条 prompt 起过的每次 run 都记进 ``prompt_runs``：transcript 靠它把它们合成一轮。
+    """一条 prompt 起过的每次 run 都记进 ``agent_job_runs``：transcript 靠它把它们合成一轮。
 
     映射按对话取：别的对话的 run 混进来的话，那段对话的轮会被合到一起去。
     """
 
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
     now = datetime.now(UTC)
     for prompt_id, conversation_id in (("prm_mine", "c-mine"), ("prm_yours", "c-yours")):
         await queue.submit(
@@ -1078,7 +1078,7 @@ async def test_attach_run_writes_nothing_when_the_lease_moved_on(engine: AsyncEn
     只挡住 ``prompts.run_id`` 却把映射写进去的话，一条不属于自己的 run 会被算进那一轮。
     """
 
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
     await queue.submit(
         prompt_id="prm_fenced",
         conversation_id="c-fenced",
@@ -1103,7 +1103,7 @@ async def test_resubmitting_the_same_prompt_id_does_not_start_a_second_run(
 ) -> None:
     """客户端重试同一个 prompt id 只算一条：不多起一次运行，也不多出一条排队。"""
 
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
     for _ in range(2):
@@ -1129,7 +1129,7 @@ async def test_the_same_prompt_id_in_another_conversation_is_rejected(
     不比对话就返回已有那条的话，撞上的人会拿到别人的消息记录，而他自己那条从来没被收下。
     """
 
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
     now = datetime.now(UTC)
     await queue.submit(
         prompt_id="prm_shared",
@@ -1295,7 +1295,7 @@ async def test_an_append_the_run_never_read_goes_back_to_the_queue(engine: Async
     竞态，所以这里钉的是它依赖的两步：记上 → 退回，以及退回之后那行干干净净。
     """
 
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
     for prompt_id, said in (("prm_head", "先做这个"), ("prm_tail", "临时插一句")):
@@ -1327,7 +1327,7 @@ async def test_an_append_the_run_never_read_goes_back_to_the_queue(engine: Async
 async def test_sweep_settles_an_append_that_rode_a_lost_run(engine: AsyncEngine) -> None:
     """判失败时，递进那次 run 的 ``steered`` 行跟着失败：那次 run 随进程一起没了，也不再续跑。"""
 
-    queue = PromptQueue(engine)
+    queue = JobQueue(engine)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
     for prompt_id, said in (("prm_running", "先做这个"), ("prm_appended", "临时插一句")):
@@ -1540,7 +1540,7 @@ async def test_aborting_a_prompt_from_another_conversation_is_not_found(
 
 def _approval_runner(
     engine: AsyncEngine, store: TranscriptStore, *, reply: str = "改完了", calls: int = 1
-) -> tuple[ConversationRunner, PgStepStore, PromptQueue]:
+) -> tuple[ConversationRunner, PgStepStore, JobQueue]:
     """一个挂着「要审批才能动」工具的 runner。第一次被问就调它，之后回一句话。"""
 
     return _runner(

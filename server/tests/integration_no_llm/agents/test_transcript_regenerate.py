@@ -181,7 +181,7 @@ async def test_regenerate_without_prompt_row_is_not_found(app: FastAPI, pg_url: 
         try:
             async with engine.begin() as conn:
                 await conn.execute(
-                    text("DELETE FROM agent_runtime.prompts WHERE conversation_id = :cid"),
+                    text("DELETE FROM agent_runtime.agent_jobs WHERE conversation_id = :cid"),
                     {"cid": conversation_id},
                 )
         finally:

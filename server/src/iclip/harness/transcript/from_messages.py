@@ -5,7 +5,7 @@
 里确定的事实，不取到达次序（规则见 ``ops`` 模块开头）。
 
 一轮 = 一条 prompt 起过的全部 run。消息自己带着 ``run_id``，哪几次 run 属于同一条 prompt 由
-``prompt_runs`` 那张表给（调用方查好递进来），没有映射的 run 各自成轮。轮间按组内最早那条消息
+``agent_job_runs`` 那张表给（调用方查好递进来），没有映射的 run 各自成轮。轮间按组内最早那条消息
 的时刻排。
 
 **轮的终态不在这里猜。** 消息里看不出一次 run 是跑完的、被停的还是报错的：真实数据里有一段
@@ -258,7 +258,7 @@ def _group_by_turn(
 ) -> list[list[tuple[str, list[ModelMessage]]]]:
     """把 run 分组再合成轮：相邻两组归同一条 prompt 就是同一轮。
 
-    只合相邻的——同一条 prompt 的几次 run 在时间上必然挨着。两组都没有映射时不合（``prompt_runs``
+    只合相邻的——同一条 prompt 的几次 run 在时间上必然挨着。两组都没有映射时不合（``agent_job_runs``
     建表之前的旧数据，各自成轮）。
     """
 
@@ -276,7 +276,7 @@ def _group_by_run(messages: Sequence[ModelMessage]) -> list[tuple[str, list[Mode
     """按 ``run_id`` 分组，组间按组内第一条消息的时刻排。
 
     排序取消息上的时刻，不取 ``runs`` 表的 ``started_at``：消息里本来就带着时刻。合成轮要的那份
-    映射另说，它来自 ``prompt_runs``（见 ``_group_by_turn``）。
+    映射另说，它来自 ``agent_job_runs``（见 ``_group_by_turn``）。
     """
 
     grouped: dict[str, list[ModelMessage]] = {}

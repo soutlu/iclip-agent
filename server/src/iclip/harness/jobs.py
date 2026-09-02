@@ -21,7 +21,7 @@
 **等审批的行照样占着这段对话**：它没有租约（心跳与清扫都不看它），但每处以 ``running`` 判「占着」
 的地方都把它算进去，包括库上那道部分唯一索引。
 
-**``prompts.run_id`` 只记最近一次，全部的记在 ``prompt_runs``。** 一条 prompt 可以由好几次 run
+**``agent_jobs.run_id`` 只记最近一次，全部的记在 ``agent_job_runs``。** 一条 prompt 可以由好几次 run
 跑完（中断后续跑、审批后续跑），transcript 靠那张映射表把它们合成一轮。
 """
 
@@ -63,7 +63,7 @@ from iclip.platform.transcript.ops import Prompt, PromptContent
 
 DB_SCHEMA: Final = "agent_runtime"
 
-PromptStatus = Literal[
+JobStatus = Literal[
     "running", "awaiting", "queued", "steered", "blocked", "completed", "failed", "aborted"
 ]
 
@@ -75,8 +75,8 @@ _LIVE: Final = ("running", "awaiting", "queued")
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
 
-prompts_table = Table(
-    "prompts",
+agent_jobs_table = Table(
+    "agent_jobs",
     metadata_obj,
     Column("prompt_id", Text, nullable=False),
     Column("conversation_id", Text, nullable=False),
@@ -96,32 +96,32 @@ prompts_table = Table(
     Column("decisions", Text),
     PrimaryKeyConstraint("prompt_id"),
     Index(
-        "uq_prompts_one_running_per_conversation",
+        "uq_agent_jobs_one_running_per_conversation",
         "conversation_id",
         unique=True,
         postgresql_where=Column("status").in_(_ACTIVE),
     ),
-    Index("idx_prompts_queue", "conversation_id", "created_at"),
+    Index("idx_agent_jobs_queue", "conversation_id", "created_at"),
     Index(
-        "idx_prompts_lease",
+        "idx_agent_jobs_lease",
         "heartbeat_at",
         postgresql_where=Column("status") == "running",
     ),
 )
 
-prompt_runs_table = Table(
-    "prompt_runs",
+agent_job_runs_table = Table(
+    "agent_job_runs",
     metadata_obj,
     Column("run_id", Text, nullable=False),
     Column("prompt_id", Text, nullable=False),
     Column("started_at", TIMESTAMP(timezone=True), nullable=False),
     PrimaryKeyConstraint("run_id"),
-    Index("idx_prompt_runs_prompt", "prompt_id"),
+    Index("idx_agent_job_runs_prompt", "prompt_id"),
 )
 
 
 @dataclass(frozen=True, slots=True)
-class PromptRow:
+class JobRow:
     """一条 prompt 的持久事实行。"""
 
     prompt_id: str
@@ -129,7 +129,7 @@ class PromptRow:
     agent_id: str
     owner_user_id: uuid.UUID
     content: tuple[PromptContent, ...]
-    status: PromptStatus
+    status: JobStatus
     run_id: str | None
     created_at: datetime
     finished_at: datetime | None
@@ -166,14 +166,14 @@ class PromptRow:
 
 
 @dataclass(frozen=True, slots=True)
-class PromptQueueView:
+class JobQueueView:
     """一段对话此刻的排程：占着的那条（在跑或者在等审批），加排着的那些。"""
 
-    active: PromptRow | None
-    queued: tuple[PromptRow, ...]
+    active: JobRow | None
+    queued: tuple[JobRow, ...]
 
 
-class PromptQueue:
+class JobQueue:
     """按对话排 prompt。DDL 由 Alembic 迁移拥有，这里不自建表。"""
 
     def __init__(self, engine: AsyncEngine) -> None:
@@ -189,7 +189,7 @@ class PromptQueue:
         content: tuple[PromptContent, ...],
         now: datetime,
         locked_by: str,
-    ) -> PromptRow:
+    ) -> JobRow:
         """收下一条 prompt：这段对话空着就记成在跑，否则记成排队。
 
         状态由一条 ``INSERT ... SELECT`` 自己判，不先查后写——两条同时进来时先查后写会双双
@@ -209,9 +209,9 @@ class PromptQueue:
                 raise Conflict("这个消息 id 已经用过了，换一个")
             return existing
         busy = exists(
-            select(prompts_table.c.prompt_id)
-            .where(prompts_table.c.conversation_id == conversation_id)
-            .where(prompts_table.c.status.in_(_ACTIVE))
+            select(agent_jobs_table.c.prompt_id)
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
+            .where(agent_jobs_table.c.status.in_(_ACTIVE))
         )
         values = {
             "prompt_id": prompt_id,
@@ -222,14 +222,14 @@ class PromptQueue:
             "created_at": now,
         }
         stmt = (
-            insert(prompts_table)
+            insert(agent_jobs_table)
             .values(
                 **values,
                 status=case((busy, "queued"), else_="running"),
                 locked_by=case((busy, null()), else_=locked_by),
                 heartbeat_at=case((busy, null()), else_=func.now()),
             )
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         try:
             async with self._engine.begin() as conn:
@@ -240,46 +240,49 @@ class PromptQueue:
             async with self._engine.begin() as conn:
                 row = (
                     await conn.execute(
-                        insert(prompts_table)
+                        insert(agent_jobs_table)
                         .values(**values, status="queued")
-                        .returning(prompts_table)
+                        .returning(agent_jobs_table)
                     )
                 ).one()
         return _row(row)
 
-    async def view(self, conversation_id: str) -> PromptQueueView:
+    async def view(self, conversation_id: str) -> JobQueueView:
         """这段对话此刻占着的和排着的。跑完的不在里面。"""
 
         stmt = (
-            select(prompts_table)
-            .where(prompts_table.c.conversation_id == conversation_id)
-            .where(prompts_table.c.status.in_(_LIVE))
-            .order_by(prompts_table.c.created_at.asc(), prompts_table.c.prompt_id.asc())
+            select(agent_jobs_table)
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
+            .where(agent_jobs_table.c.status.in_(_LIVE))
+            .order_by(agent_jobs_table.c.created_at.asc(), agent_jobs_table.c.prompt_id.asc())
         )
         async with self._engine.connect() as conn:
             rows = [_row(row) for row in (await conn.execute(stmt)).all()]
         active = next((row for row in rows if row.status in _ACTIVE), None)
-        return PromptQueueView(
+        return JobQueueView(
             active=active, queued=tuple(row for row in rows if row.status == "queued")
         )
 
-    async def get(self, prompt_id: str) -> PromptRow | None:
-        stmt = select(prompts_table).where(prompts_table.c.prompt_id == prompt_id)
+    async def get(self, prompt_id: str) -> JobRow | None:
+        stmt = select(agent_jobs_table).where(agent_jobs_table.c.prompt_id == prompt_id)
         async with self._engine.connect() as conn:
             row = (await conn.execute(stmt)).one_or_none()
         return None if row is None else _row(row)
 
-    async def get_by_run(self, run_id: str) -> PromptRow | None:
+    async def get_by_run(self, run_id: str) -> JobRow | None:
         """发起那次 run 的那条 prompt；没记过就是 ``None``。
 
-        按 ``prompt_runs`` 找，不按 ``prompts.run_id``：那一列记的是最近一次，而插话行也记着
+        按 ``agent_job_runs`` 找，不按 ``agent_jobs.run_id``：那一列记的是最近一次，而插话行也记着
         它被递进的那次 run（见 ``mark_steered``），照它查得挑一条。
         """
 
         stmt = (
-            select(prompts_table)
-            .join(prompt_runs_table, prompt_runs_table.c.prompt_id == prompts_table.c.prompt_id)
-            .where(prompt_runs_table.c.run_id == run_id)
+            select(agent_jobs_table)
+            .join(
+                agent_job_runs_table,
+                agent_job_runs_table.c.prompt_id == agent_jobs_table.c.prompt_id,
+            )
+            .where(agent_job_runs_table.c.run_id == run_id)
         )
         async with self._engine.connect() as conn:
             row = (await conn.execute(stmt)).one_or_none()
@@ -289,9 +292,11 @@ class PromptQueue:
         """这段对话里每次 run 归哪条 prompt。transcript 靠它把多次 run 合成一轮。"""
 
         stmt = (
-            select(prompt_runs_table.c.run_id, prompt_runs_table.c.prompt_id)
-            .join(prompts_table, prompts_table.c.prompt_id == prompt_runs_table.c.prompt_id)
-            .where(prompts_table.c.conversation_id == conversation_id)
+            select(agent_job_runs_table.c.run_id, agent_job_runs_table.c.prompt_id)
+            .join(
+                agent_jobs_table, agent_jobs_table.c.prompt_id == agent_job_runs_table.c.prompt_id
+            )
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
         )
         async with self._engine.connect() as conn:
             return {run_id: prompt_id for run_id, prompt_id in (await conn.execute(stmt)).all()}
@@ -305,14 +310,16 @@ class PromptQueue:
         """
 
         stmt = (
-            select(prompt_runs_table.c.run_id, prompts_table.c.status)
-            .join(prompts_table, prompts_table.c.prompt_id == prompt_runs_table.c.prompt_id)
-            .where(prompts_table.c.conversation_id == conversation_id)
+            select(agent_job_runs_table.c.run_id, agent_jobs_table.c.status)
+            .join(
+                agent_jobs_table, agent_jobs_table.c.prompt_id == agent_job_runs_table.c.prompt_id
+            )
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
         )
         async with self._engine.connect() as conn:
             return {run_id: status for run_id, status in (await conn.execute(stmt)).all()}
 
-    async def active_statuses(self, conversation_ids: Sequence[str]) -> dict[str, PromptStatus]:
+    async def active_statuses(self, conversation_ids: Sequence[str]) -> dict[str, JobStatus]:
         """这几段对话里占着的那条 prompt 各是什么状态（``running`` / ``awaiting``）。
 
         空闲的那些不在返回里。侧栏的角标靠这一份跨进程对齐：实时状态是每 worker 一份的内存，
@@ -322,17 +329,17 @@ class PromptQueue:
         if not conversation_ids:
             return {}
         stmt = (
-            select(prompts_table.c.conversation_id, prompts_table.c.status)
-            .where(prompts_table.c.conversation_id.in_(tuple(conversation_ids)))
-            .where(prompts_table.c.status.in_(_ACTIVE))
+            select(agent_jobs_table.c.conversation_id, agent_jobs_table.c.status)
+            .where(agent_jobs_table.c.conversation_id.in_(tuple(conversation_ids)))
+            .where(agent_jobs_table.c.status.in_(_ACTIVE))
         )
         async with self._engine.connect() as conn:
             return {
-                conversation_id: cast("PromptStatus", status)
+                conversation_id: cast("JobStatus", status)
                 for conversation_id, status in (await conn.execute(stmt)).all()
             }
 
-    async def start_next(self, conversation_id: str, *, locked_by: str) -> PromptRow | None:
+    async def start_next(self, conversation_id: str, *, locked_by: str) -> JobRow | None:
         """把排在最前的那条转成在跑并铸上租约，返回它；没有排队的、或者还有占着的，返回 ``None``。
 
         「还有占着的就不动」写在 SQL 的条件里而不是调用方那边：run 结束和新 prompt 进来是两
@@ -341,24 +348,24 @@ class PromptQueue:
         """
 
         head = (
-            select(prompts_table.c.prompt_id)
-            .where(prompts_table.c.conversation_id == conversation_id)
-            .where(prompts_table.c.status == "queued")
-            .order_by(prompts_table.c.created_at.asc(), prompts_table.c.prompt_id.asc())
+            select(agent_jobs_table.c.prompt_id)
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
+            .where(agent_jobs_table.c.status == "queued")
+            .order_by(agent_jobs_table.c.created_at.asc(), agent_jobs_table.c.prompt_id.asc())
             .limit(1)
             .scalar_subquery()
         )
         running = (
-            select(prompts_table.c.prompt_id)
-            .where(prompts_table.c.conversation_id == conversation_id)
-            .where(prompts_table.c.status.in_(_ACTIVE))
+            select(agent_jobs_table.c.prompt_id)
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
+            .where(agent_jobs_table.c.status.in_(_ACTIVE))
         )
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id == head)
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id == head)
             .where(~exists(running))
             .values(status="running", locked_by=locked_by, heartbeat_at=func.now())
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         try:
             async with self._engine.begin() as conn:
@@ -372,41 +379,41 @@ class PromptQueue:
 
         租约不在自己手上就一行都不动：那一轮已经被别人判过结局了。
 
-        两处写在同一个事务里：``prompts.run_id`` 记最近一次，``prompt_runs`` 记全部。只写成
+        两处写在同一个事务里：``agent_jobs.run_id`` 记最近一次，``agent_job_runs`` 记全部。只写成
         一半的话 transcript 会把同一条 prompt 的两次 run 画成两轮，而且不报错。
         """
 
         claim = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id == prompt_id)
-            .where(prompts_table.c.locked_by == locked_by)
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(agent_jobs_table.c.locked_by == locked_by)
             .values(run_id=run_id)
         )
         async with self._engine.begin() as conn:
             if (await conn.execute(claim)).rowcount != 1:
                 return
             await conn.execute(
-                insert(prompt_runs_table).values(
+                insert(agent_job_runs_table).values(
                     run_id=run_id, prompt_id=prompt_id, started_at=func.now()
                 )
             )
 
     async def finish(
-        self, prompt_id: str, *, status: PromptStatus, now: datetime, locked_by: str
+        self, prompt_id: str, *, status: JobStatus, now: datetime, locked_by: str
     ) -> None:
         """给自己手上那条 prompt 收尾。已经收过尾的、或者租约易手的都不再动。"""
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id == prompt_id)
-            .where(prompts_table.c.status.in_(_LIVE))
-            .where(prompts_table.c.locked_by == locked_by)
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(agent_jobs_table.c.status.in_(_LIVE))
+            .where(agent_jobs_table.c.locked_by == locked_by)
             .values(status=status, finished_at=now)
         )
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
-    async def abort(self, prompt_id: str, *, conversation_id: str, now: datetime) -> PromptRow:
+    async def abort(self, prompt_id: str, *, conversation_id: str, now: datetime) -> JobRow:
         """撤掉一条 prompt。
 
         排队中的与等审批的直接标掉；正在跑的只标一半——真正把运行停掉是运行侧的事，这里不知道
@@ -428,16 +435,16 @@ class PromptQueue:
         if row.status in ("queued", "awaiting"):
             # 这两种行都没有租约，走不了 ``finish`` 那道 fence。
             stmt = (
-                update(prompts_table)
-                .where(prompts_table.c.prompt_id == prompt_id)
-                .where(prompts_table.c.status == row.status)
+                update(agent_jobs_table)
+                .where(agent_jobs_table.c.prompt_id == prompt_id)
+                .where(agent_jobs_table.c.status == row.status)
                 .values(status="aborted", finished_at=now)
             )
             async with self._engine.begin() as conn:
                 await conn.execute(stmt)
         return row
 
-    async def abort_queued(self, conversation_id: str, *, now: datetime) -> tuple[PromptRow, ...]:
+    async def abort_queued(self, conversation_id: str, *, now: datetime) -> tuple[JobRow, ...]:
         """把这段对话排着的全撤掉，返回撤掉的那几条。在跑的那条不动。
 
         一条 UPDATE 撤完，不逐条来：逐条之间的空档里，在跑的那条要是结束了，``start_next``
@@ -445,18 +452,18 @@ class PromptQueue:
         """
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.conversation_id == conversation_id)
-            .where(prompts_table.c.status == "queued")
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
+            .where(agent_jobs_table.c.status == "queued")
             .values(status="aborted", finished_at=now)
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
 
     async def pick_for_steer(
         self, conversation_id: str, prompt_ids: tuple[str, ...]
-    ) -> tuple[PromptRow, ...]:
+    ) -> tuple[JobRow, ...]:
         """挑出要插进当前这一轮的那几条，还不改状态。
 
         有一条不是「这段对话里排着的」就整批不动——插一半进去、另一半留在队列里，用户看到的
@@ -477,7 +484,7 @@ class PromptQueue:
 
     async def mark_steered(
         self, prompt_ids: tuple[str, ...], *, run_id: str, now: datetime
-    ) -> tuple[PromptRow, ...]:
+    ) -> tuple[JobRow, ...]:
         """记下这几条已经递进了哪次 run。结局不在这里定，跟着那一轮走。
 
         **先改状态再递内容**：反过来的话，递完到改完之间那一轮要是收场了，收场时的清扫看到的
@@ -485,42 +492,42 @@ class PromptQueue:
         """
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id.in_(prompt_ids))
-            .where(prompts_table.c.status == "queued")
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id.in_(prompt_ids))
+            .where(agent_jobs_table.c.status == "queued")
             .values(status="steered", run_id=run_id, steered_at=now)
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
 
     async def settle_steered(
-        self, run_id: str, *, status: PromptStatus, now: datetime
-    ) -> tuple[PromptRow, ...]:
+        self, run_id: str, *, status: JobStatus, now: datetime
+    ) -> tuple[JobRow, ...]:
         """这次 run 收场了，递进去的那几条跟着它同一个结局。"""
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.run_id == run_id)
-            .where(prompts_table.c.status == "steered")
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.run_id == run_id)
+            .where(agent_jobs_table.c.status == "steered")
             .values(status=status, finished_at=now)
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
 
-    async def requeue_steered(self, prompt_ids: tuple[str, ...]) -> tuple[PromptRow, ...]:
+    async def requeue_steered(self, prompt_ids: tuple[str, ...]) -> tuple[JobRow, ...]:
         """递进去了但那一轮没读到它，退回队列排着。
 
         一条追加要么进这次 run，要么退回 ``queued``；不留在一个已经收场的 run 名下。
         """
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id.in_(prompt_ids))
-            .where(prompts_table.c.status == "steered")
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id.in_(prompt_ids))
+            .where(agent_jobs_table.c.status == "steered")
             .values(status="queued", run_id=None, steered_at=None)
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
@@ -532,11 +539,11 @@ class PromptQueue:
         """
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.locked_by == locked_by)
-            .where(prompts_table.c.status == "running")
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.locked_by == locked_by)
+            .where(agent_jobs_table.c.status == "running")
             .values(heartbeat_at=func.now())
-            .returning(prompts_table.c.prompt_id)
+            .returning(agent_jobs_table.c.prompt_id)
         )
         async with self._engine.begin() as conn:
             return tuple((await conn.execute(stmt)).scalars().all())
@@ -548,10 +555,10 @@ class PromptQueue:
         """
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id == prompt_id)
-            .where(prompts_table.c.status == "running")
-            .where(prompts_table.c.locked_by == locked_by)
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(agent_jobs_table.c.status == "running")
+            .where(agent_jobs_table.c.locked_by == locked_by)
             .values(locked_by=None, heartbeat_at=None, interrupt_reason=reason)
         )
         async with self._engine.begin() as conn:
@@ -559,7 +566,7 @@ class PromptQueue:
 
     async def claim_interrupted(
         self, *, locked_by: str, lease_seconds: int, max_attempts: int
-    ) -> tuple[PromptRow, ...]:
+    ) -> tuple[JobRow, ...]:
         """把中断的行认领下来续跑，返回认领到的那几条。
 
         第一次认领不计入 ``attempt``，所以拿 ``attempt + 1`` 与 ``max_attempts`` 比：配成 1 就是
@@ -572,36 +579,34 @@ class PromptQueue:
         """
 
         stmt = (
-            update(prompts_table)
+            update(agent_jobs_table)
             .where(_interrupted(lease_seconds))
-            .where(prompts_table.c.locked_by.is_distinct_from(locked_by))
-            .where(prompts_table.c.attempt + 1 < max_attempts)
+            .where(agent_jobs_table.c.locked_by.is_distinct_from(locked_by))
+            .where(agent_jobs_table.c.attempt + 1 < max_attempts)
             .values(
                 locked_by=locked_by,
                 heartbeat_at=func.now(),
-                attempt=prompts_table.c.attempt + 1,
+                attempt=agent_jobs_table.c.attempt + 1,
             )
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
 
-    async def fail_exhausted(
-        self, *, lease_seconds: int, max_attempts: int
-    ) -> tuple[PromptRow, ...]:
+    async def fail_exhausted(self, *, lease_seconds: int, max_attempts: int) -> tuple[JobRow, ...]:
         """认领次数已经用完的中断行判失败并放掉租约，返回它们。"""
 
         stmt = (
-            update(prompts_table)
+            update(agent_jobs_table)
             .where(_interrupted(lease_seconds))
-            .where(prompts_table.c.attempt + 1 >= max_attempts)
+            .where(agent_jobs_table.c.attempt + 1 >= max_attempts)
             .values(
                 status="failed",
                 finished_at=func.now(),
                 locked_by=None,
                 interrupt_reason=f"中断 {max_attempts} 次后放弃续跑",
             )
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
@@ -613,15 +618,15 @@ class PromptQueue:
         """
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.status == "steered")
-            .where(prompts_table.c.run_id == old_run_id)
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.status == "steered")
+            .where(agent_jobs_table.c.run_id == old_run_id)
             .values(run_id=new_run_id)
         )
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
-    async def await_approvals(self, prompt_id: str, *, locked_by: str) -> PromptRow | None:
+    async def await_approvals(self, prompt_id: str, *, locked_by: str) -> JobRow | None:
         """这次 run 停在审批上了：行改成 ``awaiting`` 并放掉租约，``run_id`` 留着。
 
         租约不在自己手上就一行都不动，同 ``finish`` 那道 fence。放掉租约是因为没有 run 在跑了，
@@ -629,20 +634,18 @@ class PromptQueue:
         """
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id == prompt_id)
-            .where(prompts_table.c.status == "running")
-            .where(prompts_table.c.locked_by == locked_by)
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(agent_jobs_table.c.status == "running")
+            .where(agent_jobs_table.c.locked_by == locked_by)
             .values(status="awaiting", locked_by=None, heartbeat_at=None)
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         async with self._engine.begin() as conn:
             row = (await conn.execute(stmt)).one_or_none()
         return None if row is None else _row(row)
 
-    async def record_decision(
-        self, prompt_id: str, tool_call_id: str, *, approved: bool
-    ) -> PromptRow:
+    async def record_decision(self, prompt_id: str, tool_call_id: str, *, approved: bool) -> JobRow:
         """记下人对一张审批卡点了什么，返回记完之后的那一行。
 
         同一张卡重复点同一个决定原样返回（客户端重试是常事），点相反的抛 ``Conflict``：工具那一侧
@@ -655,9 +658,9 @@ class PromptQueue:
         async with self._engine.begin() as conn:
             current = (
                 await conn.execute(
-                    select(prompts_table)
-                    .where(prompts_table.c.prompt_id == prompt_id)
-                    .where(prompts_table.c.status == "awaiting")
+                    select(agent_jobs_table)
+                    .where(agent_jobs_table.c.prompt_id == prompt_id)
+                    .where(agent_jobs_table.c.status == "awaiting")
                     .with_for_update()
                 )
             ).one_or_none()
@@ -672,15 +675,15 @@ class PromptQueue:
             decisions[tool_call_id] = approved
             updated = (
                 await conn.execute(
-                    update(prompts_table)
-                    .where(prompts_table.c.prompt_id == prompt_id)
+                    update(agent_jobs_table)
+                    .where(agent_jobs_table.c.prompt_id == prompt_id)
                     .values(decisions=json.dumps(decisions, ensure_ascii=False))
-                    .returning(prompts_table)
+                    .returning(agent_jobs_table)
                 )
             ).one()
         return _row(updated)
 
-    async def claim_for_continuation(self, prompt_id: str, *, locked_by: str) -> PromptRow | None:
+    async def claim_for_continuation(self, prompt_id: str, *, locked_by: str) -> JobRow | None:
         """审批凑齐了：CAS 回 ``running`` 并铸上租约，返回它；抢不到就是别人起了续跑，返回 ``None``。
 
         ``attempt`` 不加——那一列记的是「中断后重新认领过几次」，等人点头不是中断。``decisions``
@@ -688,11 +691,11 @@ class PromptQueue:
         """
 
         stmt = (
-            update(prompts_table)
-            .where(prompts_table.c.prompt_id == prompt_id)
-            .where(prompts_table.c.status == "awaiting")
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(agent_jobs_table.c.status == "awaiting")
             .values(status="running", locked_by=locked_by, heartbeat_at=func.now())
-            .returning(prompts_table)
+            .returning(agent_jobs_table)
         )
         async with self._engine.begin() as conn:
             row = (await conn.execute(stmt)).one_or_none()
@@ -701,11 +704,11 @@ class PromptQueue:
     async def conversations_waiting(self) -> tuple[str, ...]:
         """有排队的行、却一条占着的都没有的那些对话。它们等着人来叫。"""
 
-        queued = prompts_table.alias("queued")
+        queued = agent_jobs_table.alias("queued")
         running = (
-            select(prompts_table.c.prompt_id)
-            .where(prompts_table.c.conversation_id == queued.c.conversation_id)
-            .where(prompts_table.c.status.in_(_ACTIVE))
+            select(agent_jobs_table.c.prompt_id)
+            .where(agent_jobs_table.c.conversation_id == queued.c.conversation_id)
+            .where(agent_jobs_table.c.status.in_(_ACTIVE))
         )
         stmt = (
             select(queued.c.conversation_id)
@@ -727,10 +730,10 @@ def _interrupted(lease_seconds: int) -> ColumnElement[bool]:
     """
 
     return and_(
-        prompts_table.c.status == "running",
+        agent_jobs_table.c.status == "running",
         or_(
-            prompts_table.c.locked_by.is_(None),
-            prompts_table.c.heartbeat_at < func.now() - timedelta(seconds=lease_seconds),
+            agent_jobs_table.c.locked_by.is_(None),
+            agent_jobs_table.c.heartbeat_at < func.now() - timedelta(seconds=lease_seconds),
         ),
     )
 
@@ -746,7 +749,7 @@ def _dump(content: tuple[PromptContent, ...]) -> str:
     )
 
 
-class _PromptRow:
+class _JobRow:
     """prompt 行的结构声明（仅供类型检查，运行时是 SQLAlchemy Row）。"""
 
     prompt_id: str
@@ -766,15 +769,15 @@ class _PromptRow:
     decisions: str | None
 
 
-def _row(row: object) -> PromptRow:
-    r = cast("_PromptRow", row)
-    return PromptRow(
+def _row(row: object) -> JobRow:
+    r = cast("_JobRow", row)
+    return JobRow(
         prompt_id=r.prompt_id,
         conversation_id=r.conversation_id,
         agent_id=r.agent_id,
         owner_user_id=r.owner_user_id,
         content=_CONTENT.validate_json(r.content),
-        status=cast("PromptStatus", r.status),
+        status=cast("JobStatus", r.status),
         run_id=r.run_id,
         created_at=r.created_at,
         finished_at=r.finished_at,
@@ -789,11 +792,11 @@ def _row(row: object) -> PromptRow:
 
 __all__ = [
     "DB_SCHEMA",
-    "PromptQueue",
-    "PromptQueueView",
-    "PromptRow",
-    "PromptStatus",
+    "JobQueue",
+    "JobQueueView",
+    "JobRow",
+    "JobStatus",
+    "agent_job_runs_table",
+    "agent_jobs_table",
     "metadata_obj",
-    "prompt_runs_table",
-    "prompts_table",
 ]
