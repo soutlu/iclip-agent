@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from pydantic_ai import Agent
+import pytest
+from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
     ImageUrl,
     ModelMessage,
@@ -23,7 +24,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.tools import RunContext
 
-from iclip.harness.materials import run_materials
+from iclip.harness.materials import require_http, require_material, run_materials
 from iclip.harness.media import media_tag, media_tag_close, media_tag_open
 
 VIDEO = "https://cdn.test/ref.mp4"
@@ -198,6 +199,59 @@ async def test_a_running_tool_sees_the_conversation() -> None:
 
     assert "appears" in seen, "工具压根没被调到，这条用例什么也没验到"
     assert seen == {"appears": True, "kind": "video"}
+
+
+# ── 挂在工具登记处的那两条 ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("url", ["ref.mp4", "file:///etc/passwd", "ftp://host/a.mp4"])
+def test_require_http_refuses_anything_else(url: str) -> None:
+    with pytest.raises(ModelRetry, match="http"):
+        require_http(url, what="视频地址")
+
+
+def test_require_material_ends_with_the_callers_own_ledger() -> None:
+    """收尾动作由调用方给：本对话产出的地址记在哪，只有那件能力自己知道。
+
+    错误消息不回显被拒的地址——回显一次，模型重试时它就成了「上下文里出现过」的东西。
+    """
+
+    materials = run_materials([user(media_tag("video", VIDEO))])
+
+    with pytest.raises(ModelRetry, match="记在自己的账本里") as failure:
+        require_material(
+            materials,
+            "https://cdn.test/made-up.jpg",
+            kind="image",
+            what="图片地址",
+            recorded_at="记在自己的账本里。",
+        )
+
+    assert "made-up" not in str(failure.value)
+
+
+def test_require_material_lists_the_declared_ones_instead() -> None:
+    """这段对话真有同类素材时改列出来给它抄，收尾动作用不上。"""
+
+    materials = run_materials([user(media_tag("video", VIDEO))])
+
+    with pytest.raises(ModelRetry, match=VIDEO):
+        require_material(
+            materials,
+            "https://cdn.test/made-up.mp4",
+            kind="video",
+            what="视频地址",
+            recorded_at="用不上这句。",
+        )
+
+
+def test_require_material_refuses_a_kind_mismatch() -> None:
+    materials = run_materials([user(media_tag("video", VIDEO))])
+
+    with pytest.raises(ModelRetry, match="当不了图片地址"):
+        require_material(
+            materials, VIDEO, kind="image", what="图片地址", recorded_at="用不上这句。"
+        )
 
 
 def test_prefix_of_a_real_address_passes() -> None:

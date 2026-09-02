@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 import pytest
 from pydantic_ai import ModelRetry
-from pydantic_ai.messages import ImageUrl, ModelRequest, ToolReturn, UserPromptPart
+from pydantic_ai.messages import ModelRequest, ToolReturn, UserPromptPart
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
@@ -534,45 +534,6 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
     ]
     written = list(objects.written.values())
     assert written[0] != written[1]
-
-
-# ── 读图 ──────────────────────────────────────────────────────────────────────
-
-
-async def test_read_media_file_attaches_the_picture_by_url() -> None:
-    """附地址而不是字节：不下载、不转码，缩放交给对象存储的参数。
-
-    三段直接是返回值，所以图留在工具结果里；tag 里写的是原图地址——那是这张图的
-    身份，模型要拿它去调别的工具，抄成缩略档就出错了。
-    """
-
-    client = make_client({})
-    try:
-        result = await make_tools(client, FakeObjects(), FakeFileStore()).read_media_file(
-            make_context(), OSS_IMAGE_URL
-        )
-    finally:
-        await client.aclose()
-
-    assert result == [
-        f'<image url="{OSS_IMAGE_URL}">',
-        ImageUrl(url=f"{OSS_IMAGE_URL}?x-oss-process=image/resize,l_1024"),
-        "</image>",
-    ]
-
-
-async def test_an_address_that_cannot_be_read_is_refused() -> None:
-    """看不出是什么图、或者缩不了，就别附给模型：报错发生在厂商那侧更难查。"""
-
-    unreadable = "https://cdn.test/no-extension"
-    client = make_client({})
-    try:
-        with pytest.raises(ModelRetry, match="读不了"):
-            await make_tools(client, FakeObjects(), FakeFileStore()).read_media_file(
-                make_context(said=media_tag("image", unreadable)), unreadable
-            )
-    finally:
-        await client.aclose()
 
 
 def probe_size(data: bytes) -> tuple[int, int]:

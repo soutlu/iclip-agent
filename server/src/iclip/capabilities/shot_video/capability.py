@@ -1,6 +1,6 @@
-"""镜头素材能力：拆参考片、等间隔取帧分板、按批出帧、补拍设定图、读图、交付镜头组。
+"""镜头素材能力：拆参考片、等间隔取帧分板、按批出帧、补拍设定图、交付镜头组。
 
-六件工具靠工作区里的几份文件接力：拆解文档（`video/<名>.md`）、取帧账本
+五件工具靠工作区里的几份文件接力：拆解文档（`video/<名>.md`）、取帧账本
 （`frames/extraction.json`）、逐批版记录（`frames/grids/`、`anchors/`），终点是
 `video_shot.json`。落在哪由构造时给进来的 `FileSpace` 决定，和工作区能力收的是同
 一个——所以模型用 `read_file` / `edit_file` 看见的就是这几件工具写的那批文件，时
@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
 from pydantic_ai.capabilities import AbstractCapability
-from pydantic_ai.messages import ImageUrl, ToolReturn
+from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
@@ -76,15 +76,7 @@ from iclip.capabilities.shot_video.shots import (
 )
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
-from iclip.harness.materials import RunMaterials, run_materials
-from iclip.harness.media import (
-    IMAGE_CONTEXT_MAX_EDGE,
-    MediaKind,
-    media_kind_label,
-    media_tag_close,
-    media_tag_open,
-    resized_image_url,
-)
+from iclip.harness.materials import require_http, require_material, run_materials
 from iclip.platform.file_store.store import FileSpace, FileStore, QuotaExceeded
 from iclip.platform.transcript.display import (
     DisplayFn,
@@ -94,7 +86,6 @@ from iclip.platform.transcript.display import (
     MediaGridItems,
     ToolDisplay,
     ToolDisplayEntry,
-    UrlFetchDisplay,
 )
 
 CAPABILITY_ID: Final = "shot_video"
@@ -139,6 +130,11 @@ _EVEN_SPLIT_NOTICE: Final = (
     " 整图没找到清晰的网格线，按等分切的——单格可能带白边或错半格，用之前先看一眼。"
 )
 
+_RECORDED_AT: Final = (
+    f"本能力写下的地址也记在 {EXTRACTION_PATH} 与 {GRID_RECORDS_DIR}/ 下，用 read_file 读回来再用。"
+)
+"""素材错误消息的收尾动作：本能力产出的地址都能从工作区里翻回来。"""
+
 
 class FrameRequest(BaseModel):
     """一格的生成请求。"""
@@ -180,7 +176,7 @@ class GenerationPolicy:
 
 @dataclass
 class ShotVideo(AbstractCapability[AgentDepsT]):
-    """把六件工具挂到 agent 上。"""
+    """把五件工具挂到 agent 上。"""
 
     space: FileSpace
     """拆解文档、账本与镜头组产物落在哪。必须和工作区能力收的是同一个。
@@ -208,7 +204,7 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
         return None
 
     def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]:
-        """这六件工具的卡怎么画、结果用哪个渲染器画。组合根装配期取一次，合进那份注册表。"""
+        """这五件工具的卡怎么画、结果用哪个渲染器画。组合根装配期取一次，合进那份注册表。"""
 
         return {
             "video_parser_md": lambda _args: GenericDisplay(summary="拆解参考片"),
@@ -219,7 +215,6 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
             "generate_anchor_sheet": ToolDisplayEntry(
                 draw=lambda _args: GenericDisplay(summary="补拍设定图"), view=_MEDIA_GRID_VIEW
             ),
-            "ReadMediaFile": _media_display,
             "write_video_shots": lambda _args: FileIoDisplay(operation="write", path=SHOTS_PATH),
         }
 
@@ -230,13 +225,13 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
 
 
 class ShotVideoToolset(FunctionToolset[AgentDepsT]):
-    """六件工具。参数的范围规则挂在登记处的验证器上，工具体只做本职。
+    """五件工具。参数的范围规则挂在登记处的验证器上，工具体只做本职。
 
-    六件都经 ``Tool`` 登记，不走 ``add_function``：后者的参数表由 pyright 从函数推，收 ``ctx``
+    五件都经 ``Tool`` 登记，不走 ``add_function``：后者的参数表由 pyright 从函数推，收 ``ctx``
     的工具会把 ``ctx`` 也算进参数表，于是任何一个签名正确的验证器都被判不兼容。
     代价是工具集级别的默认值（``strict`` / ``sequential`` / ``requires_approval`` / ``timeout``
-    等）不再套到这六件上——这里只传 ``id``，所以现在没有差别；将来在 ``super().__init__``
-    上加一个默认值，它对这六件会静默失效。
+    等）不再套到这五件上——这里只传 ``id``，所以现在没有差别；将来在 ``super().__init__``
+    上加一个默认值，它对这五件会静默失效。
     """
 
     def __init__(self, capability: ShotVideo[AgentDepsT]) -> None:
@@ -264,9 +259,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             )
         )
         self.add_tool(Tool(self.generate_anchor_sheet, name="generate_anchor_sheet"))
-        self.add_tool(
-            Tool(self.read_media_file, name="ReadMediaFile", args_validator=_validate_image_url)
-        )
         self.add_tool(Tool(self.write_video_shots, name="write_video_shots"))
 
     async def video_parser_md(self, ctx: RunContext[AgentDepsT], video_url: str) -> dict[str, Any]:
@@ -491,37 +483,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 items_key="images",
             )
         return await self._collect_anchors(files, namespace, job, descriptions=descriptions)
-
-    async def read_media_file(self, ctx: RunContext[AgentDepsT], url: str) -> list[str | ImageUrl]:
-        """读取一张图片，原始内容以多模态形式附在工具结果中。
-
-        - 本工具通常是你会希望并行使用的工具：需要看多张图时在同一次回复中发起多
-          次调用，不要分多轮逐张读取。
-        - 已读取且仍在上下文中的图片不要重复读取。
-        - 本工具只读图片。视频信息读拆解文档，文本与产物文件用 `read_file`。
-        - 只接受这段对话里出现过的地址；自行构造的一律被拒。上下文里已经翻不到那
-          个地址时，用 `read_file` 读回记着它的那份账本或版记录。
-
-        Args:
-            ctx: 框架给的运行上下文。
-            url: 图片地址，逐字取自对话或本会话工具结果里的图片 URL，不要自行构造。
-        """
-
-        _ = _principal(ctx)
-        # 附地址而不是字节：厂商自己去取图，我们既不下载也不转码。缩放交给 OSS 的
-        # 参数（见 resized_image_url），附的是缩略档，tag 里写的仍是原图地址。
-        try:
-            view = ImageUrl(url=resized_image_url(url, max_edge=IMAGE_CONTEXT_MAX_EDGE))
-            _ = view.media_type
-        except ValueError as exc:
-            raise ModelRetry(f"这张图读不了（{exc}）") from exc
-        # 三段直接当返回值，于是它们留在这条工具结果里。换成 ToolReturn(content=...)
-        # 的话，官方会把多模态那份接成紧随其后的一条**用户**消息——模型会读到一条用户
-        # 没发过的消息，历史里也多出一条。
-        #
-        # 像素包在一对 tag 中间：地址与它显示的那张图是连着的一段，模型要把这张图交
-        # 给别的工具时，抄的是 tag 里的原图地址而不是缩略档。
-        return [media_tag_open("image", url), view, media_tag_close("image")]
 
     async def write_video_shots(
         self,
@@ -958,8 +919,14 @@ def _principal(ctx: RunContext[AgentDepsT]) -> Principal:
 def _validate_video_url(ctx: RunContext[Any], video_url: str) -> None:
     """拆片与取帧收的视频地址。签名与这两件工具（去掉 ``self``）逐字一致，官方按它调。"""
 
-    _require_http(video_url, what="视频地址")
-    _require_material(run_materials(ctx.messages), video_url, kind="video", what="视频地址")
+    require_http(video_url, what="视频地址")
+    require_material(
+        run_materials(ctx.messages),
+        video_url,
+        kind="video",
+        what="视频地址",
+        recorded_at=_RECORDED_AT,
+    )
 
 
 def _validate_frame_generation(
@@ -978,15 +945,8 @@ def _validate_frame_generation(
     _ = (frames, global_reference, target_aspect)
     materials = run_materials(ctx.messages)
     for url in reference_images:
-        _require_http(url, what="参考图地址")
-        _require_material(materials, url, kind="image", what="参考图地址")
-
-
-def _validate_image_url(ctx: RunContext[Any], url: str) -> None:
-    """读图收的地址。"""
-
-    _require_http(url, what="图片地址")
-    _require_material(run_materials(ctx.messages), url, kind="image", what="图片地址")
+        require_http(url, what="参考图地址")
+        require_material(materials, url, kind="image", what="参考图地址", recorded_at=_RECORDED_AT)
 
 
 def _media_grid(items: Iterable[tuple[str, str]]) -> MediaGridItems:
@@ -998,46 +958,6 @@ def _media_grid(items: Iterable[tuple[str, str]]) -> MediaGridItems:
 def _frames_display(args: Any) -> ToolDisplay:
     frames = args.get("frames") if isinstance(args, dict) else None
     return GenericDisplay(summary=f"出图 {len(frames)} 帧" if isinstance(frames, list) else "出图")
-
-
-def _media_display(args: Any) -> ToolDisplay | None:
-    url = args.get("url") if isinstance(args, dict) else None
-    return UrlFetchDisplay(url=url) if isinstance(url, str) and url else None
-
-
-def _require_http(url: str, *, what: str) -> None:
-    if not url.startswith(("http://", "https://")):
-        raise ModelRetry(f"{what}必须是 http:// 或 https:// 开头；收到的是 {url!r}。")
-
-
-def _require_material(materials: RunMaterials, url: str, *, kind: MediaKind, what: str) -> None:
-    """要求这个地址是本对话的素材：出现过；被声明过种类的，种类还得对得上。
-
-    种类只在「声明过」时查：那个信息只有用户发的附件带得来（tag 写在上面），本能
-    力自己产出的地址是裸的，对它们查种类等于把自己的产物拒在门外。
-
-    错误消息一律**不回显被拒的地址**。回显了，模型重试一次就把它洗成上下文里出现
-    过的东西了——下一次同样的调用就会放行。
-    """
-
-    if not materials.appears(url):
-        known = materials.declared(kind)
-        if known:
-            raise ModelRetry(
-                f"这个{what}不是这段对话里的素材。本对话的{media_kind_label(kind)}有："
-                f"{'、'.join(known)}。逐字抄其中一个。"
-            )
-        raise ModelRetry(
-            f"这个{what}不是这段对话里的素材。只能用对话里给你的地址、或工具结果里"
-            f"返回的地址，不要自己拼；本能力写下的地址也记在 {EXTRACTION_PATH} 与 "
-            f"{GRID_RECORDS_DIR}/ 下，用 read_file 读回来再用。"
-        )
-    declared = materials.kind_of(url)
-    if declared is not None and declared != kind:
-        raise ModelRetry(
-            f"这个地址在对话里是一份{media_kind_label(declared)}，当不了{what}。"
-            f"换一个{media_kind_label(kind)}的地址。"
-        )
 
 
 def _check_in_range(rows: Sequence[Sequence[ShotSpan]], *, duration_ms: int) -> None:

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import cast
+from collections.abc import Callable
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -12,6 +13,7 @@ from iclip.app.capability_table import (
     CapabilityTable,
     GenerationsAdapter,
     ObjectWriterAdapter,
+    OssMediaProbe,
     build_capability_table,
     build_display_registry,
     resolve_capabilities,
@@ -23,12 +25,21 @@ from iclip.capabilities.shot_video.ports import (
     ObjectWriteFailed,
 )
 from iclip.capabilities.workspace.capability import Workspace
+from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.config import ResolvedShotVideo
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
 from iclip.platform.object_store.oss import ObjectStoreUnavailable
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import FakeObjects
+
+IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
+
+
+def idle_client() -> httpx.AsyncClient:
+    """装配面用不到出网，给一个不会被调到的客户端。"""
+
+    return httpx.AsyncClient()
 
 
 @pytest.fixture
@@ -76,7 +87,7 @@ def test_nothing_declared_mounts_nothing(table: CapabilityTable) -> None:
 def test_workspace_is_registered_under_its_declaration_name() -> None:
     """``agents.yaml`` 里写 capabilities: [workspace] 得真能装出工作区来。"""
 
-    built = build_capability_table(workspace_store=FakeFileStore())
+    built = build_capability_table(workspace_store=FakeFileStore(), http_client=idle_client())
     resolved = resolve_capabilities(("workspace",), table=built, declared_by="agent storyboard")
     assert [type(capability) for capability in resolved] == [Workspace]
 
@@ -84,7 +95,7 @@ def test_workspace_is_registered_under_its_declaration_name() -> None:
 def test_shot_video_needs_its_whole_backing() -> None:
     """依赖不齐就不登记这个名字——引用它的 agent 会在装配期响亮地失败。"""
 
-    built = build_capability_table(workspace_store=FakeFileStore())
+    built = build_capability_table(workspace_store=FakeFileStore(), http_client=idle_client())
     assert "shot_video" not in built
     with pytest.raises(RuntimeError, match="引用了未登记的 capability 'shot_video'"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
@@ -95,7 +106,7 @@ def test_shot_video_is_registered_when_backed(shot_video_settings: ResolvedShotV
         workspace_store=FakeFileStore(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
-        http_client=cast("httpx.AsyncClient", object()),
+        http_client=idle_client(),
         shot_video=shot_video_settings,
     )
     resolved = resolve_capabilities(
@@ -113,7 +124,7 @@ def test_shot_video_without_workspace_fails_at_assembly(
         workspace_store=FakeFileStore(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
-        http_client=cast("httpx.AsyncClient", object()),
+        http_client=idle_client(),
         shot_video=shot_video_settings,
     )
     with pytest.raises(RuntimeError, match=r"没挂 'workspace'.*agents\.yaml"):
@@ -133,7 +144,7 @@ def test_the_display_registry_covers_every_mounted_tool(
         workspace_store=FakeFileStore(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
-        http_client=cast("httpx.AsyncClient", object()),
+        http_client=idle_client(),
         shot_video=shot_video_settings,
     )
 
@@ -180,6 +191,84 @@ class _StoreDown:
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
         _ = (object_key, content, content_type)
         raise ObjectStoreUnavailable("OSS 写入失败（试了 3 次）: Read timed out")
+
+
+def oss(handler: Callable[[httpx.Request], httpx.Response]) -> OssMediaProbe:
+    return OssMediaProbe(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+
+# OSS 的 image/info 真实形状：值一律是字串。
+INFO_BODY = {
+    "FileSize": {"value": "21839"},
+    "Format": {"value": "jpg"},
+    "ImageHeight": {"value": "267"},
+    "ImageWidth": {"value": "400"},
+}
+
+
+async def test_the_probe_reads_the_oss_image_info() -> None:
+    """问的是 image/info，不下载像素；值都是字串，格式要翻成 mime。"""
+
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(200, json=INFO_BODY)
+
+    info = await oss(handler).image_info(IMAGE_URL)
+
+    assert asked == [f"{IMAGE_URL}?x-oss-process=image/info"]
+    assert info == ImageInfo(media_type="image/jpeg", size_bytes=21839, width=400, height=267)
+
+
+async def test_an_unknown_format_keeps_its_own_name() -> None:
+    """映射表里没有的格式原样拼成 image/<格式>，不冒充成 jpeg。"""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**INFO_BODY, "Format": {"value": "bmp"}})
+
+    assert (await oss(handler).image_info(IMAGE_URL)).media_type == "image/bmp"
+
+
+async def test_a_non_success_status_is_a_probe_failure() -> None:
+    """非 2xx 就是问不出来。原因给的是固定中文，它会原样进模型面的错误消息。"""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="NoSuchKey")
+
+    with pytest.raises(MediaProbeFailed, match="对方返回 404"):
+        await oss(handler).image_info(IMAGE_URL)
+
+
+@pytest.mark.parametrize(
+    "body", [{"Format": {"value": "jpg"}}, {**INFO_BODY, "ImageWidth": {"value": "宽"}}]
+)
+async def test_missing_or_unreadable_fields_are_a_probe_failure(body: dict[str, Any]) -> None:
+    """字段缺了、或者值不是数，都当问不出来——半份信息算不出该怎么交付。"""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    with pytest.raises(MediaProbeFailed, match="不是图片信息"):
+        await oss(handler).image_info(IMAGE_URL)
+
+
+async def test_a_non_json_body_is_a_probe_failure() -> None:
+    """对方回的是图片本身（比如域名压根不支持处理参数）时也别硬解。"""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"\xff\xd8\xff\xe0")
+
+    with pytest.raises(MediaProbeFailed, match="不是图片信息"):
+        await oss(handler).image_info(IMAGE_URL)
+
+
+async def test_a_network_failure_is_a_probe_failure() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(MediaProbeFailed, match="地址访问不到"):
+        await oss(handler).image_info(IMAGE_URL)
 
 
 async def test_object_writer_adapter_translates_the_failure_and_passes_urls_through() -> None:

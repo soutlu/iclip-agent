@@ -30,6 +30,7 @@ from iclip.capabilities.shot_video.ports import (
     ObjectWriteFailed,
 )
 from iclip.capabilities.workspace.capability import workspace_capability
+from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.config import ResolvedShotVideo
 from iclip.domains.generation.models import GenerationJob
@@ -91,6 +92,45 @@ class GenerationsAdapter:
         return _job_view(await self._service.get(principal, job_id))
 
 
+_IMAGE_MEDIA_TYPES: Mapping[str, str] = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+    "gif": "image/gif",
+}
+
+
+class OssMediaProbe:
+    """问 OSS 的 ``image/info`` 取一张图的原始信息。
+
+    只取宽高、字节数与格式，不下载像素。失败的原因会原样进模型面的错误消息，所以
+    这里给的是几句固定的中文，不是 httpx 的英文异常（那还会把带参数的地址抄一遍）。
+    """
+
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        self._client = client
+
+    async def image_info(self, url: str) -> ImageInfo:
+        try:
+            response = await self._client.get(f"{url}?x-oss-process=image/info")
+        except httpx.HTTPError as exc:
+            raise MediaProbeFailed("地址访问不到") from exc
+        if response.status_code >= 400:
+            raise MediaProbeFailed(f"对方返回 {response.status_code}")
+        try:
+            info = response.json()
+            image_format = str(info["Format"]["value"]).lower()
+            return ImageInfo(
+                media_type=_IMAGE_MEDIA_TYPES.get(image_format, f"image/{image_format}"),
+                size_bytes=int(info["FileSize"]["value"]),
+                width=int(info["ImageWidth"]["value"]),
+                height=int(info["ImageHeight"]["value"]),
+            )
+        except (ValueError, TypeError, KeyError, IndexError) as exc:
+            raise MediaProbeFailed("对方给的不是图片信息") from exc
+
+
 class ObjectWriterAdapter:
     """把平台层的对象存储接到能力包的窄协议上，只翻译那一种失败。
 
@@ -138,9 +178,9 @@ def _first_problem(exc: ValidationError) -> str:
 def build_capability_table(
     *,
     workspace_store: FileStore,
+    http_client: httpx.AsyncClient,
     generation_service: GenerationService | None = None,
     object_store: PublicObjectStore | None = None,
-    http_client: httpx.AsyncClient | None = None,
     shot_video: ResolvedShotVideo | None = None,
 ) -> CapabilityTable:
     """建立名字表。落地一个能力就在这里登记一个名字。
@@ -155,14 +195,9 @@ def build_capability_table(
     # 只是模型的 read_file 看不见——失效是静默的。
     space = FileSpace(store=workspace_store, namespace=workspace_namespace)
     table: dict[str, AgentCapabilities] = {
-        "workspace": (workspace_capability(space=space),),
+        "workspace": (workspace_capability(space=space, probe=OssMediaProbe(http_client)),),
     }
-    if (
-        shot_video is not None
-        and generation_service is not None
-        and object_store is not None
-        and http_client is not None
-    ):
+    if shot_video is not None and generation_service is not None and object_store is not None:
         table["shot_video"] = (
             shot_video_capability(
                 space=space,
@@ -237,6 +272,7 @@ __all__ = [
     "CapabilityTable",
     "GenerationsAdapter",
     "ObjectWriterAdapter",
+    "OssMediaProbe",
     "build_capability_table",
     "build_display_registry",
     "resolve_capabilities",

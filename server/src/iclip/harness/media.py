@@ -161,16 +161,39 @@ def resized_image_url(url: str, *, max_edge: int) -> str:
 
     缩放不了就抛，不原样返回：一张 4K 原图整个进上下文没有任何信号，只有账单会涨。
     部署换成自定义公网域之后读图会立刻响亮地失败，那时来扩这里的判断。
+    """
 
-    带 query 的地址同理——再拼一个参数上去只会得到一个废地址。
+    _require_oss_processable(url, what=f"图片没法缩到长边 {max_edge}")
+    return f"{url}?x-oss-process=image/resize,l_{max_edge}"
+
+
+def cropped_image_url(
+    url: str, *, x: int, y: int, width: int, height: int, max_edge: int | None
+) -> str:
+    """给图片地址挂上 OSS 的裁切参数（原图像素坐标；越过右下边界的部分裁到边界为止）。
+
+    ``max_edge`` 给了就再级联一道缩放：OSS 的处理参数按 ``/`` 顺序执行，所以缩的是裁出
+    来的那一块，不是原图。
+    """
+
+    _require_oss_processable(url, what="图片没法按区域裁切")
+    process = f"image/crop,x_{x},y_{y},w_{width},h_{height}"
+    if max_edge is not None:
+        process += f"/resize,l_{max_edge}"
+    return f"{url}?x-oss-process={process}"
+
+
+def _require_oss_processable(url: str, *, what: str) -> None:
+    """图片处理参数只挂得上 OSS 自己的域名，而且地址上不能已经有 query。
+
+    带 query 的地址再拼一个参数上去只会得到一个废地址。
     """
 
     parsed = urlsplit(url)
     if not (parsed.hostname or "").endswith(".aliyuncs.com"):
-        raise ValueError(f"这个域名不支持缩放参数，图片没法缩到长边 {max_edge}: {url!r}")
+        raise ValueError(f"这个域名不支持缩放参数，{what}: {url!r}")
     if parsed.query:
         raise ValueError(f"地址已经带了 query，没法再挂缩放参数: {url!r}")
-    return f"{url}?x-oss-process=image/resize,l_{max_edge}"
 
 
 def _is_http_url(value: str) -> bool:
@@ -181,6 +204,7 @@ __all__ = [
     "IMAGE_CONTEXT_MAX_EDGE",
     "MediaKind",
     "MediaTag",
+    "cropped_image_url",
     "is_media_tag_close",
     "iter_media_tags",
     "media_kind_label",
