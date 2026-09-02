@@ -90,9 +90,10 @@ def _load_agent(
 ) -> Agent[Any, Any]:
     """装一个 agent。
 
-    ``persistence_agent_name`` 决定阶段账本里的 run 用哪套 id。给了名字，官方就按
-    ``{名字}-{短 uuid}`` 自己铸一个；留空则用 ``ctx.run_id``，也就是发起方在
-    ``run_stream_events(run_id=...)`` 里给的那个。
+    ``persistence_agent_name`` 决定阶段账本里的 run 用哪套 id。给了名字，官方把名字与
+    ``ctx.run_id`` 编成一个不透明的 ``sp-`` 串当 run id；留空则直接用 ``ctx.run_id``，也就是
+    发起方在 ``run_stream_events(run_id=...)`` 里给的那个。主 agent 必须留空：transcript 与续跑
+    都按消息里的 ``run_id`` 去账本里查事件和副作用，id 对不上就整段历史查成空。
 
     顶层 agent 一律留空。transcript 要按 run 分轮，而分轮的依据是**消息上**的
     ``run_id``（即 ``ctx.run_id``）；官方自己铸的那个只出现在 runs/events 两张表里，与消息

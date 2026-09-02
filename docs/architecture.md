@@ -121,7 +121,7 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 
 ## 7. 数据模型与迁移
 
-表结构以 ORM 元数据为准：`iclip` schema 的表在各模块的 `domains/*/infra_sql.py`；`agent_runtime` schema 的表在 `harness/step_store_pg.py`（`runs` / `events` / `snapshots` / `tool_effects` / `media`，结构严格镜像官方 pydantic_ai_harness StepPersistence 存储形状，只换数据库实现、不改表结构）与 `platform/file_store/pg.py`（`workspace_files`，本仓自有）。procrastinate 的排期表 `public.procrastinate_*` 落在 `public` schema，DDL 原文冻在迁移 0005 里；升级它的做法是把它新增的迁移脚本抄成一个新 revision。写入方 `harness/step_store_pg.py` 实现官方异步 `StepStore` / `MediaStore` 协议，挂到 `Agent(capabilities=[StepPersistence(...)])`；DDL 由 Alembic 拥有（`server/migrations/versions/`），store 不自建表。
+表结构以 ORM 元数据为准：`iclip` schema 的表在各模块的 `domains/*/infra_sql.py`；`agent_runtime` schema 的表在 `harness/step_store_pg.py`（`runs` / `events` / `snapshots` / `snapshot_idempotency_keys` / `tool_effects` / `media`，结构严格镜像官方 pydantic_ai_harness StepPersistence 存储形状，只换数据库实现、不改表结构）与 `platform/file_store/pg.py`（`workspace_files`，本仓自有）。procrastinate 的排期表 `public.procrastinate_*` 落在 `public` schema，DDL 原文冻在迁移 0005 里；升级它的做法是把它新增的迁移脚本抄成一个新 revision。写入方 `harness/step_store_pg.py` 实现官方异步 `StepStore` / `MediaStore` 协议，挂到 `Agent(capabilities=[StepPersistence(...)])`；DDL 由 Alembic 拥有（`server/migrations/versions/`），store 不自建表。
 
 唯一 provisioning 路径：人工 `make db-upgrade`（`alembic upgrade head`，所有环境一致）；迁移契约测试用 scratch 环境验证 head 与 ORM 元数据零漂移。该断言覆盖 `iclip` schema 下的**全部**表，每个在这个 schema 里有表的模块都要把自己的元数据加进测试的 `_MODULE_METADATA`；`agent_runtime` 那几张表不在断言范围内，往那个 schema 加表时迁移要人工 `make db-upgrade` 确认一次。
 

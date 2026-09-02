@@ -42,7 +42,7 @@ API key：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希与展示前缀�
 
 ### 6. 引擎升级纪律
 
-pydantic-ai 以 lockfile 精确 pin，不使用宽松版本区间。`pydantic-ai-harness`（0.x，官方明示 minor 可破 API）pin 到精确版本，且只准 `harness/` import、经再导出使用，把生态 API 抖动关在一个模块里。
+pydantic-ai 以 lockfile 精确 pin，不使用宽松版本区间。`pydantic-ai-harness`（0.x，官方明示 minor 可破 API）pin 到精确的发版号或官方仓库提交，且只准 `harness/` import、经再导出使用，把生态 API 抖动关在一个模块里。
 
 ### 7. 刻意保留的自研组件
 
