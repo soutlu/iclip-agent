@@ -3,6 +3,8 @@
 字段名一律 camelCase，``model_dump(by_alias=True, exclude_none=True)`` 出来的就是线上
 那一份，不再翻译一道。
 
+工具帧上的 ``view`` 是 kimi 帧已有的字段；``metadata`` 是本仓的扩展，kimi 帧没有它。
+
 本模块不认识 ``pydantic_ai``：WS 与 REST 那一侧也要用这些形状，而它们在围栏另一侧。
 
 协议共 14 种操作，这里只放我们会发的那 10 种（见 ``TranscriptOperation``）。少发不破坏
@@ -118,8 +120,13 @@ class ToolFrame(_Wire):
     state: Literal["running", "done", "error"]
     input: Any | None = None
     output: Any | None = None
+    """这次调用给模型的那份返回，逐字。给人看的那份在 ``metadata``。"""
     display: Any | None = None
     """这张卡怎么画由服务端说了算（协议里是一个封闭的 kind 联合）。客户端不认工具名。"""
+    view: str | None = None
+    """结果用哪个渲染器画，服务端给；不给就走 generic。客户端不认工具名。"""
+    metadata: Any | None = None
+    """给人看的那份结果，``ToolReturn.metadata`` 原样。模型看不到它。"""
     error: str | None = None
     approval_id: str | None = None
 

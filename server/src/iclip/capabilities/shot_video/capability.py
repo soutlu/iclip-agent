@@ -14,7 +14,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
 from pydantic_ai.capabilities import AbstractCapability
-from pydantic_ai.messages import ImageUrl
+from pydantic_ai.messages import ImageUrl, ToolReturn
 from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
@@ -90,7 +90,10 @@ from iclip.platform.transcript.display import (
     DisplayFn,
     FileIoDisplay,
     GenericDisplay,
+    MediaGridItem,
+    MediaGridItems,
     ToolDisplay,
+    ToolDisplayEntry,
     UrlFetchDisplay,
 )
 
@@ -128,6 +131,9 @@ _STEM_CHARS: Final = 40
 
 _STATUS_DONE: Final = "done"
 _STATUS_FAILED: Final = "failed"
+
+_MEDIA_GRID_VIEW: Final = "media_grid"
+"""三件出图 / 拼板工具的结果用这个渲染器画，形状是 ``MediaGridItems``。"""
 
 _EVEN_SPLIT_NOTICE: Final = (
     " 整图没找到清晰的网格线，按等分切的——单格可能带白边或错半格，用之前先看一眼。"
@@ -201,14 +207,18 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
         # 不注入指令：这几件工具怎么接力是流程知识，归 skill（architecture.md §5）。
         return None
 
-    def display_table(self) -> Mapping[str, DisplayFn]:
-        """这六件工具的卡怎么画。组合根装配期取一次，合进那份注册表。"""
+    def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]:
+        """这六件工具的卡怎么画、结果用哪个渲染器画。组合根装配期取一次，合进那份注册表。"""
 
         return {
             "video_parser_md": lambda _args: GenericDisplay(summary="拆解参考片"),
-            "plan_shot_frames": lambda _args: GenericDisplay(summary="按镜头取帧拼板"),
-            "generate_shot_frames": _frames_display,
-            "generate_anchor_sheet": lambda _args: GenericDisplay(summary="补拍设定图"),
+            "plan_shot_frames": ToolDisplayEntry(
+                draw=lambda _args: GenericDisplay(summary="按镜头取帧拼板"), view=_MEDIA_GRID_VIEW
+            ),
+            "generate_shot_frames": ToolDisplayEntry(draw=_frames_display, view=_MEDIA_GRID_VIEW),
+            "generate_anchor_sheet": ToolDisplayEntry(
+                draw=lambda _args: GenericDisplay(summary="补拍设定图"), view=_MEDIA_GRID_VIEW
+            ),
             "ReadMediaFile": _media_display,
             "write_video_shots": lambda _args: FileIoDisplay(operation="write", path=SHOTS_PATH),
         }
@@ -283,7 +293,9 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         await self._write(files, namespace, path, content)
         return {"message": f"视频解析完毕，拆解结果已保存到 {path}。", "path": path}
 
-    async def plan_shot_frames(self, ctx: RunContext[AgentDepsT], video_url: str) -> dict[str, Any]:
+    async def plan_shot_frames(
+        self, ctx: RunContext[AgentDepsT], video_url: str
+    ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
         """从参考视频等间隔抽帧，按结构层级分板返回候选帧预览板。
 
         - 镜头起止时间戳与结构层级分组取自该视频的拆解文档；每秒取一帧，帧按时间
@@ -352,13 +364,19 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         starved = document["shotsWithoutCells"]
         if starved:
             message += f" 短于一秒未取到候选帧的镜头：{', '.join(map(str, starved))}。"
-        return {
-            "message": message,
-            "boards": [
-                {"board": board["board"], "shots": board["shots"], "url": board["url"]}
+        return ToolReturn(
+            return_value={
+                "message": message,
+                "boards": [
+                    {"board": board["board"], "shots": board["shots"], "url": board["url"]}
+                    for board in boards
+                ],
+            },
+            metadata=_media_grid(
+                (board["url"], f"板 {board['board']} · {','.join(map(str, board['shots']))}")
                 for board in boards
-            ],
-        }
+            ),
+        )
 
     async def generate_shot_frames(
         self,
@@ -367,7 +385,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         reference_images: list[str],
         global_reference: str,
         target_aspect: str,
-    ) -> dict[str, Any]:
+    ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
         """按逐帧 visual_prompt 生成镜头帧：一次调用出一张 2×2 网格图、切成 4 帧返回逐帧 URL。
 
         - frames 每条给一个定格：`no` 是 S8-1 形状的帧号，镜头号即它所属的镜头，挑
@@ -435,7 +453,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
     async def generate_anchor_sheet(
         self, ctx: RunContext[AgentDepsT], cells: list[str]
-    ) -> dict[str, Any]:
+    ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
         """按文字补拍设定图：一次调用出一张 2×2 网格图、切成 4 格返回逐格 URL。
 
         - 一格一个实体，cells 每条是那一格画面的完整描述；返回的 `index` 就是它在
@@ -713,7 +731,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         references: Sequence[str],
         global_reference: str,
         target_aspect: str,
-    ) -> dict[str, Any]:
+    ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
         """取整图、切格、逐帧落公开地址、写版记录。补位的中性面板格在此丢弃。"""
 
         grid_url = job.output_url
@@ -761,13 +779,16 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         )
         if not detected:
             message += _EVEN_SPLIT_NOTICE
-        return {
-            "message": message,
-            "status": _STATUS_DONE,
-            "frames": frames_payload,
-            "record": record_path,
-            "error": None,
-        }
+        return ToolReturn(
+            return_value={
+                "message": message,
+                "status": _STATUS_DONE,
+                "frames": frames_payload,
+                "record": record_path,
+                "error": None,
+            },
+            metadata=_media_grid(zip(urls, cell_ids, strict=True)),
+        )
 
     async def _collect_anchors(
         self,
@@ -776,7 +797,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         job: ImageJob,
         *,
         descriptions: Sequence[str],
-    ) -> dict[str, Any]:
+    ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
         """取整图、切格、逐格落公开地址、写版记录。补位的中性面板格在此丢弃。
 
         切格后不按画幅收缩：补拍出来的是参考图，那一刀裁掉的会是实体本身。
@@ -820,13 +841,17 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         message = f"补拍完成 {len(images)} 格（{job.channel} 渠道），版记录见 {record_path}。"
         if not detected:
             message += _EVEN_SPLIT_NOTICE
-        return {
-            "message": message,
-            "status": _STATUS_DONE,
-            "images": images,
-            "record": record_path,
-            "error": None,
-        }
+        return ToolReturn(
+            return_value={
+                "message": message,
+                "status": _STATUS_DONE,
+                "images": images,
+                "record": record_path,
+                "error": None,
+            },
+            # 标题取那一格的描述：``images`` 里只有序号和地址，描述在入参上。
+            metadata=_media_grid(zip(urls, descriptions, strict=True)),
+        )
 
     async def _put_all(self, cells: Sequence[tuple[str, bytes]]) -> list[str]:
         """把切出来的格并行落公开地址，按原顺序返回地址。
@@ -962,6 +987,12 @@ def _validate_image_url(ctx: RunContext[Any], url: str) -> None:
 
     _require_http(url, what="图片地址")
     _require_material(run_materials(ctx.messages), url, kind="image", what="图片地址")
+
+
+def _media_grid(items: Iterable[tuple[str, str]]) -> MediaGridItems:
+    """把（地址，标题）拼成界面那份缩略图墙。三件工具共用，键名只写一遍。"""
+
+    return {"items": [MediaGridItem(url=url, caption=caption) for url, caption in items]}
 
 
 def _frames_display(args: Any) -> ToolDisplay:

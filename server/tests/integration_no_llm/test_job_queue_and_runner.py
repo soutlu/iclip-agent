@@ -20,6 +20,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     ToolCallPart,
+    ToolReturn,
     ToolReturnPart,
     UserPromptPart,
 )
@@ -48,7 +49,11 @@ from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
-from iclip.platform.transcript.display import FileIoDisplay, ToolDisplayRegistry
+from iclip.platform.transcript.display import (
+    FileIoDisplay,
+    ToolDisplayEntry,
+    ToolDisplayRegistry,
+)
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
     TextContent,
@@ -499,6 +504,52 @@ async def test_the_tool_card_display_matches_on_both_paths(engine: AsyncEngine) 
         FileIoDisplay(operation="write", path="video_shot.json")
     ]
     assert [card.display for card in _tool_cards(derived)] == [card.display for card in live]
+
+
+async def test_the_result_for_people_survives_the_database_on_both_paths(
+    engine: AsyncEngine,
+) -> None:
+    """``ToolReturn.metadata`` 与 ``view``：实时那侧读事件上的 part，历史那侧读落库再解回来的那份。
+
+    只在内存里比两条路不够：给人看的那份要随消息历史经 JSON 落库再读回来，字段丢了不报错。
+    """
+
+    grid = {"items": [{"url": "https://cdn.test/s1-1.jpg", "caption": "S1-1"}]}
+
+    def draft() -> ToolReturn:
+        return ToolReturn(return_value="出好了", metadata=grid)
+
+    displays = ToolDisplayRegistry.merged(
+        {
+            "draft": ToolDisplayEntry(
+                draw=lambda _args: FileIoDisplay(operation="write", path="video_shot.json"),
+                view="media_grid",
+            )
+        }
+    )
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(
+        engine,
+        _calls_then_says("draft", "出好了"),
+        store=store,
+        tools=[draft],
+        display=displays,
+    )
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    await _submit(runner, queue, conversation_id, "出三张")
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    derived = (await TranscriptHistory(step_store, queue, displays).read(conversation_id)).turns
+    live = _tool_cards(_replay(store, conversation_id))
+    # 钉住比的不是两边都空：漏了字段时下面那句照样成立。
+    assert [(card.view, card.metadata, card.output) for card in live] == [
+        ("media_grid", grid, "出好了")
+    ]
+    assert [(card.view, card.metadata, card.output) for card in _tool_cards(derived)] == [
+        (card.view, card.metadata, card.output) for card in live
+    ]
 
 
 async def test_second_prompt_queues_then_runs_after_the_first(engine: AsyncEngine) -> None:

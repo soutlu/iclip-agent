@@ -824,10 +824,12 @@ export const zToolFrame = z.object({
   frameId: z.string(),
   input: z.unknown().nullish(),
   kind: z.literal('tool').optional().default('tool'),
+  metadata: z.unknown().nullish(),
   name: z.string(),
   output: z.unknown().nullish(),
   state: z.enum(['running', 'done', 'error']),
   toolCallId: z.string(),
+  view: z.string().nullish(),
 })
 
 /**

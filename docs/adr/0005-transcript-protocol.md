@@ -1,6 +1,6 @@
 # ADR-0005: 对话协议换成 kimi code 的 transcript
 
-- 状态：已接受（2026-08-31）；§4「一次 run 就是一轮」与取舍里「接受运行活在起它的那个进程里」「排队中的行不跨重启」被 **[ADR-0006](0006-durable-runs.md)** 取代（2026-09-01）
+- 状态：已接受（2026-08-31）；§4「一次 run 就是一轮」与取舍里「接受运行活在起它的那个进程里」「排队中的行不跨重启」被 **[ADR-0006](0006-durable-runs.md)** 取代（2026-09-01）；工具帧的 `metadata` 字段是本仓对 kimi 帧的扩展，见 **[ADR-0007](0007-tool-declaration-surface.md)** 决策 6（2026-09-02）
 - 取代 **[ADR-0003](0003-detached-runs-and-replayable-streams.md)**：那一份用 AG-UI + Redis 事件流解决同一个问题。
 - **[ADR-0001](0001-architecture-foundations.md)**：Postgres 是唯一事实源，是本文的前提。
 

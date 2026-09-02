@@ -3177,6 +3177,15 @@
             "title": "Kind",
             "type": "string"
           },
+          "metadata": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -3202,6 +3211,17 @@
           "toolCallId": {
             "title": "Toolcallid",
             "type": "string"
+          },
+          "view": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "View"
           }
         },
         "required": [

@@ -58,6 +58,7 @@ from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.transcript.display import (
     FileIoDisplay,
     GenericDisplay,
+    ToolDisplayRegistry,
     UrlFetchDisplay,
 )
 from tests.helpers.file_store import FakeFileStore
@@ -270,7 +271,7 @@ def test_scope_rules_are_mounted_on_the_tool(
 def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
     """六件工具每件都登记了画法，kind 由客户端认。登记不到就画成朴素的那张卡。"""
 
-    drawn = capability.display_table()
+    drawn = ToolDisplayRegistry.merged(capability.display_table()).entries
     assert sorted(drawn) == [
         "ReadMediaFile",
         "generate_anchor_sheet",
@@ -279,17 +280,29 @@ def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
         "video_parser_md",
         "write_video_shots",
     ]
-    assert drawn["ReadMediaFile"]({"url": "https://cdn.test/a.jpg"}) == UrlFetchDisplay(
+    assert drawn["ReadMediaFile"].draw({"url": "https://cdn.test/a.jpg"}) == UrlFetchDisplay(
         url="https://cdn.test/a.jpg"
     )
     # 地址取不到就交给注册表退回 generic，不画一张指着空地址的卡。
-    assert drawn["ReadMediaFile"]({}) is None
-    assert drawn["generate_shot_frames"]({"frames": [1, 2]}) == GenericDisplay(summary="出图 2 帧")
-    assert drawn["generate_shot_frames"](None) == GenericDisplay(summary="出图")
-    assert drawn["write_video_shots"]({}) == FileIoDisplay(operation="write", path=SHOTS_PATH)
-    assert drawn["video_parser_md"]({}) == GenericDisplay(summary="拆解参考片")
-    assert drawn["plan_shot_frames"]({}) == GenericDisplay(summary="按镜头取帧拼板")
-    assert drawn["generate_anchor_sheet"]({}) == GenericDisplay(summary="补拍设定图")
+    assert drawn["ReadMediaFile"].draw({}) is None
+    assert drawn["generate_shot_frames"].draw({"frames": [1, 2]}) == GenericDisplay(
+        summary="出图 2 帧"
+    )
+    assert drawn["generate_shot_frames"].draw(None) == GenericDisplay(summary="出图")
+    assert drawn["write_video_shots"].draw({}) == FileIoDisplay(operation="write", path=SHOTS_PATH)
+    assert drawn["video_parser_md"].draw({}) == GenericDisplay(summary="拆解参考片")
+    assert drawn["plan_shot_frames"].draw({}) == GenericDisplay(summary="按镜头取帧拼板")
+    assert drawn["generate_anchor_sheet"].draw({}) == GenericDisplay(summary="补拍设定图")
+
+
+def test_only_the_three_media_tools_pick_a_renderer(capability: ShotVideo[object]) -> None:
+    """出图 / 拼板那三件的结果画成缩略图墙，其余不给、前端走 generic。"""
+
+    views = ToolDisplayRegistry.merged(capability.display_table())
+    for tool_name in ("plan_shot_frames", "generate_shot_frames", "generate_anchor_sheet"):
+        assert views.view_of(tool_name) == "media_grid"
+    for tool_name in ("video_parser_md", "ReadMediaFile", "write_video_shots"):
+        assert views.view_of(tool_name) is None
 
 
 async def test_an_out_of_scope_address_is_refused_on_the_agent_path(
@@ -734,9 +747,12 @@ async def submit_once(
     """走一次出图。收敛后的切格要 ffmpeg，所以这里用的都是失败结局。"""
 
     await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
-    return await tools.generate_shot_frames(
+    result = await tools.generate_shot_frames(
         ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局参考", "9:16"
     )
+    # 失败没有图可给人看：照旧是 dict，不裹 ToolReturn。
+    assert isinstance(result, dict)
+    return result
 
 
 async def test_generate_submits_a_full_grid_at_the_top_tier(
@@ -925,6 +941,7 @@ async def test_anchor_sheet_submits_a_full_square_grid_without_references(
     assert "全局参考设定" not in request.prompt
     assert request.prompt.startswith("1. Core Command")
     # 失败时给的是空的 images，不是空的 frames——调用方按这件工具的产物名去取。
+    assert isinstance(result, dict)
     assert result["images"] == []
 
 

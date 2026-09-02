@@ -38,6 +38,7 @@ from iclip.harness.transcript.prompt_media import attachment_id, model_prompt
 from iclip.platform.transcript.display import (
     FileIoDisplay,
     GenericDisplay,
+    ToolDisplayEntry,
     ToolDisplayRegistry,
 )
 from iclip.platform.transcript.ops import (
@@ -187,6 +188,8 @@ def test_retry_prompt_marks_the_card_as_failed() -> None:
     assert card.state == "error"
     assert card.error is not None
     assert "S4-1" in card.error
+    # 重试提示顶替了那次返回，没有给人看的那份可拿。
+    assert card.metadata is None
 
 
 def test_denied_and_interrupted_tools_are_errors() -> None:
@@ -777,6 +780,41 @@ def test_tool_card_carries_how_to_draw_it() -> None:
     cards = [f for f in turns[0].steps[0].frames if isinstance(f, ToolFrame)]
     assert cards[0].display == FileIoDisplay(operation="read", path="shots.md")
     assert cards[1].display == GenericDisplay(summary="generate_shot_frames")
+
+
+def test_tool_card_carries_the_renderer_and_the_result_for_people() -> None:
+    """``view`` 由注册表给，``metadata`` 是这次返回上给人看的那份，两样都不进模型。"""
+
+    displays = ToolDisplayRegistry.merged(
+        {
+            "generate_shot_frames": ToolDisplayEntry(
+                draw=lambda _args: GenericDisplay(summary="出图"), view="media_grid"
+            )
+        }
+    )
+    grid = {"items": [{"url": "https://cdn.test/s1-1.jpg", "caption": "S1-1"}]}
+    turns = turns_from_messages(
+        [
+            _ask("出图"),
+            _reply(ToolCallPart(tool_name="generate_shot_frames", args={}, tool_call_id="c1")),
+            _returns(
+                ToolReturnPart(
+                    tool_name="generate_shot_frames",
+                    content={"message": "生成完成 1 帧"},
+                    tool_call_id="c1",
+                    metadata=grid,
+                )
+            ),
+            _reply(TextPart(content="好了"), minute=3),
+        ],
+        display=displays,
+    )
+
+    card = turns[0].steps[0].frames[0]
+    assert isinstance(card, ToolFrame)
+    assert card.view == "media_grid"
+    assert card.metadata == grid
+    assert card.output == {"message": "生成完成 1 帧"}
 
 
 def test_drop_last_turn_on_empty_history_is_a_no_op() -> None:

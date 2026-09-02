@@ -80,7 +80,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，产出�
 
 **工作区（`capabilities: [workspace]`）**：六件工具（`read_file` / `write_file` / `edit_file` / `delete_file` / `list_files` / `search_files`），落在 Postgres，只放文本（二进制走内容寻址媒体：`media` 表 + `media+sha256://`）。一段对话一个工作区，主 agent 与它的下属共用（`scope.py`）：命名空间是 `{user_id}/{conversation_id}`，对话 id 取自 `deps`（`AgentRunDeps`），**不是**运行自己的 `ctx.conversation_id`；算不出命名空间就让这次运行失败，绝不退回公共命名空间。改一段用精确字符串匹配，不用行号；`edit_file` 内部带版本号写回，版本号不进工具参数。容量上限在存储层强制，每次变更先拿命名空间的 advisory 锁，「容量满」和「版本冲突」是两种可分辨的错误。
 
-**镜头素材（`capabilities: [shot_video]`）**：六件工具。主链四件：`video_parser_md`（拆参考片，文档写进工作区）→ `plan_shot_frames`（整片按秒抽帧，按结构层级拼成带帧号的预览板）→ `generate_shot_frames`（按逐帧 visual_prompt 出一张 2×2 网格图并切成 4 帧）→ `ReadMediaFile`（把一张图附进上下文给模型看）；另有 `generate_anchor_sheet`（补拍设定图）与 `write_video_shots`（写镜头表）。出图走 generation 域的服务，帧与切格产物按内容哈希落生成用的公开对象存储；开关是 `VIDEO_UNDERSTANDING_URL`。
+**镜头素材（`capabilities: [shot_video]`）**：六件工具。主链四件：`video_parser_md`（拆参考片，文档写进工作区）→ `plan_shot_frames`（整片按秒抽帧，按结构层级拼成带帧号的预览板）→ `generate_shot_frames`（按逐帧 visual_prompt 出一张 2×2 网格图并切成 4 帧）→ `ReadMediaFile`（把一张图附进上下文给模型看）；另有 `generate_anchor_sheet`（补拍设定图）与 `write_video_shots`（写镜头表）。出图走 generation 域的服务，帧与切格产物按内容哈希落生成用的公开对象存储；开关是 `VIDEO_UNDERSTANDING_URL`。拼板与两件出图工具的结果另经 `ToolReturn.metadata` 给界面一份缩略图墙，给模型的返回不变。
 
 - 接力靠工作区里的两份文件：拆解文档（`video/<名>.md`）与取帧登记表（`frames/extraction.json`）。两件能力在构造器里收同一个 `FileSpace`（组合根 `capability_table.py` 造一个递给两边）；命名空间的规范化（挡住 `..` 与空段）收在 `FileSpace.resolve()` 里。`shot_video` 不 import `workspace/`，也不在工具里 `ctx.capabilities` 认领兄弟能力。能力包不注入指令（`get_instructions()` 返回 `None`），工具怎么接力归 skill，见 [tool-design.md](tool-design.md) §0。
 - 地址只收这段对话里出现过的（`harness/materials.py`，`run_materials(ctx.messages)`）：定义与判据见 CONTEXT.md「对话素材」。这条规则由工具登记时挂上的验证器判定，在执行之前跑；工具体不判地址。报错不回显被拒的地址；种类只在声明过时查；判定用子串包含。
@@ -144,6 +144,8 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 - 一轮的快照落库之后，实时状态就把它交接掉（`mark_snapshot_persisted` → `drop_persisted_turns`）。**先确认落库再放手**：中间要是先丢了，两边都拿不出这一轮。
 
 两条路必须给出逐字相同的结构，否则界面会在刷新的瞬间变形且不报错，所以编号一律从确定的事实算出来（轮 = 一条 prompt 的全部 run，映射在 `agent_runtime.agent_job_runs`，由 `attach_run` 写入，没有映射的 run 各自成轮；步=这一轮里第几次模型响应、块=正文与思考的次序），并有一组对齐测试钉住。轮的终态取最后一次 run 的结束事件；更早那几次 run 没跑完的，其最后一步为 `interrupted`。
+
+工具卡上给人看的东西都由服务端给：`display`（卡怎么画）与 `view`（结果用哪个渲染器画）按工具名查那份注册表；`metadata` 是工具经官方 `ToolReturn(metadata=...)` 交出的那份结果，原样进帧、不进模型，实时那侧从事件上的 `ToolReturnPart` 读、历史那侧从落库的同一条 part 读。`view` 是 kimi 帧已有的字段，`metadata` 是本仓扩展。今天带 `view="media_grid"` 的是 `plan_shot_frames` / `generate_shot_frames` / `generate_anchor_sheet` 三件，形状 `{"items": [{"url", "caption"}]}`；`read_file` 标 `file_content`、`search_files` 标 `search_results`。
 
 **批次号与补批**：实时状态每落一批操作发一个号，每 agent 连续，同时进一个有界的补批日志（2000 批）。客户端断线后带着水位来要，要得回就补，要不回答 `complete: false` 让它整页重拉。
 

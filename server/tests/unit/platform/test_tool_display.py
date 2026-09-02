@@ -15,6 +15,7 @@ from iclip.platform.transcript.display import (
     GenericDisplay,
     SkillCallDisplay,
     ToolDisplay,
+    ToolDisplayEntry,
     ToolDisplayRegistry,
 )
 
@@ -68,6 +69,24 @@ def test_the_empty_registry_draws_everything_generic() -> None:
     assert ToolDisplayRegistry.EMPTY.tool_display("read_file", {"path": "a.md"}) == GenericDisplay(
         summary="read_file"
     )
+
+
+def test_a_bare_drawing_function_becomes_an_entry_without_a_renderer() -> None:
+    """多数工具只登记画法。合表时包成 entry，查渲染器就是「没有」。"""
+
+    assert REGISTRY.entries["read_file"] == ToolDisplayEntry(draw=_read, view=None)
+    assert REGISTRY.view_of("read_file") is None
+
+
+def test_the_registered_renderer_is_looked_up_by_tool_name() -> None:
+    """登记了渲染器就照它给；没登记的工具查出来是「没有」，前端走 generic。"""
+
+    registry = ToolDisplayRegistry.merged(
+        {"read_file": ToolDisplayEntry(draw=_read, view="file_content")}
+    )
+
+    assert registry.view_of("read_file") == "file_content"
+    assert registry.view_of("write_file") is None
 
 
 def test_display_fields_follow_the_kimi_contract() -> None:
