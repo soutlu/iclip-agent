@@ -44,7 +44,7 @@
 
 - 主 agent 的 `output_type` 为 `[str, DeferredToolRequests]`；要审批的工具只挂主 agent，子代理保持 `str`。不再用 `HandleDeferredToolCalls`。
 - run 以 `DeferredToolRequests` 结束时，runner 经官方 `StepStore` 协议的 `save_snapshot` 把 `all_messages()` 存成 `interrupted` 快照，prompt 置内部状态 `awaiting`、释放租约，实时状态交接并放手。
-- `awaiting` 对外报 `running`（与 `steered` 同一做法，协议的状态联合不变）；`prompts.py` 里每处以 `running` 判「占着」的地方都把 `awaiting` 算进去。
+- `awaiting` 对外报 `running`（与 `steered` 同一做法，协议的状态联合不变）；`harness/jobs.py` 里每处以 `running` 判「占着」的地方都把 `awaiting` 算进去。
 - 审批决定记在 prompt 行上；一条响应里全部审批调用都有决定后，CAS `awaiting → running` 并起续跑 run（`deferred_tool_results` 带决定）。两次点击或两个副本只有一个能起。
 - `awaiting` 期间插话回 409，新 prompt 排队，撤销把行标 `aborted`。
 - 历史侧判定一条调用是审批的规则：某次 run **干净收尾**（官方记下 `run_completed`）却在末尾那条响应上留着没有结果的调用——只有以 `DeferredToolRequests` 结束才是这个形状；崩在工具执行中途留下的形状一样，但那次 run 没有干净收尾。结局看同一 prompt 后一次 run 首条请求里的返回：`denied` 是拒了，其余是放行；补上的 `failed` / `interrupted` 不算——前者是新消息进来之前把前沿收掉，后者是崩溃续跑时官方自己补的。

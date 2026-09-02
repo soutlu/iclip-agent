@@ -38,7 +38,7 @@ API key：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希与展示前缀�
 | SQLAlchemy 2 async + Alembic + asyncpg | 标准组合；表结构只经人工 `alembic upgrade head` 演进，启动期不建表 |
 | pyright strict + ruff + tach | 静态门禁自第一行代码闭合 |
 | structlog | 结构化日志，级别来自配置 |
-| **不引入 Redis / 独立队列服务** | 决定性理由是**事务性入队**：任务行与业务事实在同一个 Postgres 事务提交，是「唯一事实源」不变量的直接延伸；Redis broker 需要 outbox 才能等价——即手搓一个 Postgres 队列还多养一个有状态服务。全部跨 worker 正确性由 Postgres 承载。**此项在 [ADR-0003](0003-detached-runs-and-replayable-streams.md) 一度被打开（Redis 承载运行事件流），又随 [ADR-0005](0005-transcript-protocol.md) 收回；生成队列由 [ADR-0004](0004-generation-queue-in-postgres.md) 的 procrastinate 承载，仍在 Postgres 里** |
+| **不引入 Redis / 独立队列服务** | 全部跨 worker 正确性由 Postgres 承载；Redis broker 要做到等价还得加一层 outbox。生成队列由 [ADR-0004](0004-generation-queue-in-postgres.md) 的 procrastinate 承载，表仍在 Postgres 里 |
 
 ### 6. 引擎升级纪律
 
