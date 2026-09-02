@@ -57,7 +57,7 @@ describe('ConversationRoute', () => {
     await renderConversation()
 
     expect(
-      await screen.findByRole('button', { name: '使用 32k / 1M tokens (4%)' }),
+      await screen.findByRole('button', { name: '3.1% · 32.8k / 1M 上下文已使用' }),
     ).toBeInTheDocument()
   })
 
