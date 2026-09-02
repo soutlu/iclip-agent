@@ -14,7 +14,7 @@
 3. 审批用 `HandleDeferredToolCalls` 在同一次 run 内等人点头，等待随进程一起消失。
 4. 启动时的全表清理在多 worker 下会把别的 worker 手上的行判失败。
 
-官方 pydantic-ai 对「跨进程」的答案是 durable_exec（Temporal / DBOS / Prefect）。它不适合本仓的交互式对话：`run_stream_events` 的事件按 step 缓冲后重放，逐 token 直播断掉；`CancellationToken` 在 durable 边界被拒；step 内 `ctx.enqueue` 被拒，插话对不上录制；`StepPersistence` 的钩子在 workflow 代码里跑，恢复重执行会撞 `runs` 主键。Temporal 在此之上还要外部集群。
+官方 pydantic-ai 对「跨进程」的答案是 durable_exec（Temporal / DBOS / Prefect）。它不适合本仓的交互式对话：`run_stream_events` 的事件按 step 缓冲后重放，逐 token 直播断掉；`CancellationToken` 在 durable 边界被拒；step 内 `ctx.enqueue` 被拒，插话对不上录制。Temporal 在此之上还要外部集群。
 
 已有的东西够用：官方 `StepPersistence` 在每个工具周期结束时落一份可续跑快照，出错时落 at-failure 快照，`tool_effects` 记着哪个工具在飞；`message_history` 续跑、`DeferredToolRequests` 结束 + `deferred_tool_results` 续跑、每次续跑一个新 `run_id` 用 `conversation_id` 关联，都是官方文档写明的用法。缺的是票据的租约、多次 run 合成一轮的投影，以及等审批那一刻的历史（官方文档写明由调用方持久化）。
 

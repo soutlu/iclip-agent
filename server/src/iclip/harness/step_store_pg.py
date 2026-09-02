@@ -46,6 +46,7 @@ from sqlalchemy import (
     Text,
     delete,
     select,
+    text,
     union,
 )
 from sqlalchemy.dialects.postgresql import TIMESTAMP
@@ -76,6 +77,7 @@ runs_table = Table(
     Column("agent_name", Text),
     Column("metadata", Text, nullable=False),
     Column("started_at", TIMESTAMP(timezone=True), nullable=False),
+    Column("registration_id", Text),
     Index("idx_runs_conv", "conversation_id"),
     Index("idx_runs_parent", "parent_run_id"),
     Index("idx_runs_started", "started_at"),
@@ -96,7 +98,15 @@ events_table = Table(
     Column("tool_name", Text),
     Column("error", Text),
     Column("metadata", Text, nullable=False),
+    Column("idempotency_key", Text),
     Index("idx_events_run", "run_id", "seq"),
+    Index(
+        "idx_events_idempotency",
+        "run_id",
+        "idempotency_key",
+        unique=True,
+        postgresql_where=text("idempotency_key IS NOT NULL"),
+    ),
 )
 
 snapshots_table = Table(
@@ -111,7 +121,17 @@ snapshots_table = Table(
     Column("timestamp", TIMESTAMP(timezone=True), nullable=False),
     Column("state", Text, nullable=False, server_default="complete"),
     Column("messages", Text, nullable=False),
+    Column("idempotency_key", Text),
     Index("idx_snapshots_run", "run_id", "seq"),
+)
+
+# 快照键单独一张表：修剪删掉的那些快照，键要留下来继续挡住重放里的同一次保存。
+snapshot_idempotency_keys_table = Table(
+    "snapshot_idempotency_keys",
+    metadata_obj,
+    Column("run_id", Text, nullable=False),
+    Column("idempotency_key", Text, nullable=False),
+    PrimaryKeyConstraint("run_id", "idempotency_key"),
 )
 
 tool_effects_table = Table(
@@ -247,6 +267,9 @@ class PgStepStore:
     ``list_runs`` 按 ``started_at`` 升序（协议约定）；快照默认只读
     ``complete``；``tool_effects`` 按 ``(run_id, tool_call_id)`` upsert；
     ``max_snapshots_per_run`` 的保留集 = 最新 keep 条 ∪ 最新一条 complete。
+
+    带幂等键的追加与保存只落一次：事件靠部分唯一索引挡，快照靠 ``snapshot_idempotency_keys``
+    抢键——键没抢到就整条不落地，也不修剪（官方是插进去再由触发器忽略、修剪照跑，落库结果一样）。
     """
 
     def __init__(
@@ -278,6 +301,7 @@ class PgStepStore:
             agent_name=record.agent_name,
             metadata=json.dumps(dict(record.metadata)),
             started_at=record.started_at,
+            registration_id=record.registration_id,
         )
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
@@ -296,6 +320,7 @@ class PgStepStore:
             agent_name=row.agent_name,
             metadata=_str_str_dict(json.loads(row.metadata)),
             started_at=row.started_at,
+            registration_id=row.registration_id,
         )
 
     async def list_runs(
@@ -319,6 +344,7 @@ class PgStepStore:
                 agent_name=row.agent_name,
                 metadata=_str_str_dict(json.loads(row.metadata)),
                 started_at=row.started_at,
+                registration_id=row.registration_id,
             )
             for row in rows
         ]
@@ -326,7 +352,7 @@ class PgStepStore:
     # -- events ---------------------------------------------------------------
 
     async def append_event(self, event: StepEvent) -> None:
-        stmt = events_table.insert().values(
+        stmt = pg_insert(events_table).values(
             run_id=event.run_id,
             kind=event.kind,
             step_index=event.step_index,
@@ -338,7 +364,14 @@ class PgStepStore:
             tool_name=event.tool_name,
             error=event.error,
             metadata=json.dumps(dict(event.metadata)),
+            idempotency_key=event.idempotency_key,
         )
+        if event.idempotency_key is not None:
+            # index_where 必须和部分唯一索引的条件一字不差，否则 PG 找不到仲裁索引直接报错。
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=["run_id", "idempotency_key"],
+                index_where=events_table.c.idempotency_key.isnot(None),
+            )
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
@@ -363,6 +396,7 @@ class PgStepStore:
                 tool_name=row.tool_name,
                 error=row.error,
                 metadata=_str_str_dict(json.loads(row.metadata)),
+                idempotency_key=row.idempotency_key,
             )
             for row in rows
         ]
@@ -388,8 +422,24 @@ class PgStepStore:
             timestamp=snapshot.timestamp,
             state=snapshot.state,
             messages=json.dumps(messages_json),
+            idempotency_key=snapshot.idempotency_key,
         )
         async with self._engine.begin() as conn:
+            if snapshot.idempotency_key is not None:
+                # 抢键和插快照必须同一个事务，否则中途崩掉会留下没有快照的键，那次保存就永久丢了。
+                claimed = (
+                    await conn.execute(
+                        pg_insert(snapshot_idempotency_keys_table)
+                        .values(
+                            run_id=snapshot.run_id,
+                            idempotency_key=snapshot.idempotency_key,
+                        )
+                        .on_conflict_do_nothing()
+                        .returning(snapshot_idempotency_keys_table.c.run_id)
+                    )
+                ).first()
+                if claimed is None:
+                    return
             await conn.execute(insert_stmt)
             if self._max_snapshots_per_run is not None:
                 newest_keep = (
@@ -485,6 +535,7 @@ class PgStepStore:
             agent_name=r.agent_name,
             timestamp=r.timestamp,
             state=_snapshot_state(r.state),
+            idempotency_key=r.idempotency_key,
         )
 
     # -- tool effects ---------------------------------------------------------
@@ -560,6 +611,7 @@ class _SnapshotRow:
     timestamp: datetime
     state: str
     messages: str
+    idempotency_key: str | None
 
 
 class _ToolEffectRow:

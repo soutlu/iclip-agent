@@ -28,6 +28,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai_harness.step_persistence import (
     ContinuableSnapshot,
     RunRecord,
+    StepEvent,
     StepPersistence,
     StepStore,
     ToolEffectRecord,
@@ -49,7 +50,8 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
         await conn.execute(
             text(
                 "TRUNCATE agent_runtime.runs, agent_runtime.events, "
-                "agent_runtime.snapshots, agent_runtime.tool_effects, agent_runtime.media"
+                "agent_runtime.snapshots, agent_runtime.snapshot_idempotency_keys, "
+                "agent_runtime.tool_effects, agent_runtime.media"
             )
         )
     try:
@@ -86,6 +88,7 @@ async def test_register_run_roundtrip_and_single_shot(store: PgStepStore) -> Non
         agent_name="probe",
         metadata={"k": "v"},
         started_at=T0,
+        registration_id="reg-1",
     )
     await store.register_run(record)
 
@@ -117,6 +120,68 @@ async def test_list_runs_order_and_filters(store: PgStepStore) -> None:
     assert [
         r.run_id for r in await store.list_runs(parent_run_id="root", conversation_id="conv-2")
     ] == ["c"]
+
+
+async def test_event_idempotency_key_suppresses_replay(store: PgStepStore) -> None:
+    """带键的追加重放不落第二行；不带键的两次仍是两行。"""
+    keyed = StepEvent(
+        run_id="r1",
+        kind="run_started",
+        step_index=0,
+        timestamp=T0,
+        idempotency_key="0:0:run_started:",
+    )
+    await store.append_event(keyed)
+    await store.append_event(keyed)
+
+    unkeyed = StepEvent(run_id="r1", kind="model_request_started", step_index=1, timestamp=T0)
+    await store.append_event(unkeyed)
+    await store.append_event(unkeyed)
+
+    events = await store.list_events(run_id="r1")
+    assert [e.kind for e in events] == [
+        "run_started",
+        "model_request_started",
+        "model_request_started",
+    ]
+    assert events[0].idempotency_key == "0:0:run_started:"
+    assert events[1].idempotency_key is None
+
+
+async def test_snapshot_idempotency_key_suppresses_replay(store: PgStepStore) -> None:
+    keyed = ContinuableSnapshot(
+        run_id="r1",
+        step_index=1,
+        messages=_messages("s1"),
+        state="complete",
+        idempotency_key="1:1:complete",
+    )
+    await store.save_snapshot(keyed)
+    await store.save_snapshot(keyed)
+
+    listed = await store.list_snapshots(run_id="r1")
+    assert [s.step_index for s in listed] == [1]
+    assert listed[0].idempotency_key == "1:1:complete"
+
+
+async def test_snapshot_idempotency_key_survives_prune(engine: AsyncEngine) -> None:
+    """键表不随修剪删：被修剪掉的那次保存，重放时仍要被认出来。"""
+    store = PgStepStore(engine, max_snapshots_per_run=1)
+    keyed = ContinuableSnapshot(
+        run_id="r1",
+        step_index=1,
+        messages=_messages("s1"),
+        state="complete",
+        idempotency_key="1:1:complete",
+    )
+    await store.save_snapshot(keyed)
+    await store.save_snapshot(
+        ContinuableSnapshot(run_id="r1", step_index=2, messages=_messages("s2"), state="complete")
+    )
+    assert [s.step_index for s in await store.list_snapshots(run_id="r1")] == [2]
+
+    await store.save_snapshot(keyed)
+    assert [s.step_index for s in await store.list_snapshots(run_id="r1")] == [2]
 
 
 async def test_snapshot_latest_gate_and_roundtrip(store: PgStepStore) -> None:
@@ -293,7 +358,9 @@ async def test_agent_run_end_to_end_with_official_capability(store: PgStepStore)
     assert len(runs) == 1
     run = runs[0]
     assert run.agent_name == "probe"
-    assert run.run_id.startswith("probe-")
+    # 官方把 agent_name 与 RunContext.run_id 编成不透明的 sp- 串，名字不再是可读前缀。
+    assert run.run_id.startswith("sp-")
+    assert run.registration_id is not None
 
     kinds = [e.kind for e in await store.list_events(run_id=run.run_id)]
     assert kinds[0] == "run_started"
