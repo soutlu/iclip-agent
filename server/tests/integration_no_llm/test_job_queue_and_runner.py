@@ -48,6 +48,7 @@ from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.platform.transcript.display import FileIoDisplay, ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
     TextContent,
@@ -216,6 +217,7 @@ def _runner(
     tools: Sequence[Any] = (),
     locked_by: str = LOCKED_BY,
     max_attempts: int = 2,
+    display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
 ) -> tuple[ConversationRunner, PgStepStore, JobQueue]:
     step_store = PgStepStore(engine)
     agent = Agent(
@@ -238,7 +240,7 @@ def _runner(
         store=store,
         queue=queue,
         snapshots=step_store,
-        history=TranscriptHistory(step_store, queue),
+        history=TranscriptHistory(step_store, queue, display),
         deps_for=deps_for,
         context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
         heartbeat_seconds=10,
@@ -246,6 +248,7 @@ def _runner(
         sweep_seconds=15,
         max_attempts=max_attempts,
         locked_by=locked_by,
+        display=display,
     )
     return runner, step_store, queue
 
@@ -461,6 +464,41 @@ async def test_live_projection_matches_the_derived_one(engine: AsyncEngine) -> N
 
     derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
     assert _skeleton(_replay(store, conversation_id)) == _skeleton(derived)
+
+
+async def test_the_tool_card_display_matches_on_both_paths(engine: AsyncEngine) -> None:
+    """工具卡的画法：两条路收同一份注册表，卡上画的必须逐字相同、而且不是兜底那张。
+
+    注册表的默认值是空的（测试 helper 用它），两条路都空时这条会平凡地通过——所以这里显式给
+    一份非空的，并钉住画出来的不是 generic。
+    """
+
+    def draft() -> str:
+        return "出好了"
+
+    displays = ToolDisplayRegistry.merged(
+        {"draft": lambda _args: FileIoDisplay(operation="write", path="video_shot.json")}
+    )
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(
+        engine,
+        _calls_then_says("draft", "出好了"),
+        store=store,
+        tools=[draft],
+        display=displays,
+    )
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    await _submit(runner, queue, conversation_id, "出三张")
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    derived = (await TranscriptHistory(step_store, queue, displays).read(conversation_id)).turns
+    live = _tool_cards(_replay(store, conversation_id))
+    assert [card.display for card in live] == [
+        FileIoDisplay(operation="write", path="video_shot.json")
+    ]
+    assert [card.display for card in _tool_cards(derived)] == [card.display for card in live]
 
 
 async def test_second_prompt_queues_then_runs_after_the_first(engine: AsyncEngine) -> None:

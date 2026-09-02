@@ -36,10 +36,12 @@ from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
-from iclip.harness.agents import AgentCapabilities
+from iclip.harness.agents import AgentCapabilities, delegate_display_table
+from iclip.harness.skills import skill_display_table
 from iclip.platform.file_store.store import FileSpace, FileStore
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
+from iclip.platform.transcript.display import ToolDisplayRegistry, ToolDisplaySource
 
 CapabilityTable = Mapping[str, AgentCapabilities]
 """名字 → 这个名字挂上去的那几件能力。
@@ -189,6 +191,24 @@ def build_capability_table(
     return table
 
 
+def build_display_registry(table: CapabilityTable) -> ToolDisplayRegistry:
+    """把各能力自带的 display 表合成一份，加上 skill 与派活那两件常驻工具的。
+
+    这份注册表要同时递给实时与历史两条路，同一实例。同名工具出现在两张表里即装配期报错。
+    """
+
+    return ToolDisplayRegistry.merged(
+        *(
+            capability.display_table()
+            for mounted in table.values()
+            for capability in mounted
+            if isinstance(capability, ToolDisplaySource)
+        ),
+        skill_display_table(),
+        delegate_display_table(),
+    )
+
+
 def resolve_capabilities(
     names: Sequence[str], *, table: CapabilityTable, declared_by: str
 ) -> AgentCapabilities:
@@ -218,5 +238,6 @@ __all__ = [
     "GenerationsAdapter",
     "ObjectWriterAdapter",
     "build_capability_table",
+    "build_display_registry",
     "resolve_capabilities",
 ]

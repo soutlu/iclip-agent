@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from iclip.app.capability_table import (
     CapabilityTable,
     build_capability_table,
+    build_display_registry,
     resolve_capabilities,
 )
 from iclip.app.logging import configure_logging
@@ -540,20 +541,20 @@ def build_app(
         if public_objects is not None
         else None
     )
+    capability_table = build_capability_table(
+        workspace_store=workspace_store,
+        generation_service=generation.service if generation is not None else None,
+        object_store=public_objects,
+        http_client=shot_video_client,
+        shot_video=settings.shot_video,
+    )
     agent_registry = build_agent_registry(
-        _agent_definitions(
-            agents,
-            table=build_capability_table(
-                workspace_store=workspace_store,
-                generation_service=generation.service if generation is not None else None,
-                object_store=public_objects,
-                http_client=shot_video_client,
-                shot_video=settings.shot_video,
-            ),
-        ),
+        _agent_definitions(agents, table=capability_table),
         step_store=step_store,
         models=built_models,
     )
+    # 一份注册表递给两条路：实时那侧与历史那侧给出的卡不一样的话，同一张卡在刷新前后换个长相。
+    tool_displays = build_display_registry(capability_table)
     transcript_store = TranscriptStore(on_activity=on_activity)
     job_queue = JobQueue(active_engine)
     context_limits = _agent_context_limits(agents, settings.models)
@@ -581,7 +582,7 @@ def build_app(
         )
 
     # 显示与续跑用同一份历史：续跑的投影器要按它推出的那一轮播种实时状态。
-    transcript_history = TranscriptHistory(step_store, job_queue)
+    transcript_history = TranscriptHistory(step_store, job_queue, tool_displays)
     transcripts = TranscriptService(
         store=transcript_store,
         history=transcript_history,
@@ -600,6 +601,7 @@ def build_app(
             sweep_seconds=settings.agent_runs.sweep_seconds,
             max_attempts=settings.agent_runs.max_attempts,
             on_turn_ended=name_conversation,
+            display=tool_displays,
         ),
     )
 

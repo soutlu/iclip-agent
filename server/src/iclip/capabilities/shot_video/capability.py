@@ -14,7 +14,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -27,7 +27,7 @@ from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ImageUrl
-from pydantic_ai.tools import AgentDepsT, RunContext
+from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
 from iclip.capabilities.shot_video import ffmpeg
@@ -86,6 +86,13 @@ from iclip.harness.media import (
     resized_image_url,
 )
 from iclip.platform.file_store.store import FileSpace, FileStore, QuotaExceeded
+from iclip.platform.transcript.display import (
+    DisplayFn,
+    FileIoDisplay,
+    GenericDisplay,
+    ToolDisplay,
+    UrlFetchDisplay,
+)
 
 CAPABILITY_ID: Final = "shot_video"
 
@@ -194,6 +201,18 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
         # 不注入指令：这几件工具怎么接力是流程知识，归 skill（architecture.md §5）。
         return None
 
+    def display_table(self) -> Mapping[str, DisplayFn]:
+        """这六件工具的卡怎么画。组合根装配期取一次，合进那份注册表。"""
+
+        return {
+            "video_parser_md": lambda _args: GenericDisplay(summary="拆解参考片"),
+            "plan_shot_frames": lambda _args: GenericDisplay(summary="按镜头取帧拼板"),
+            "generate_shot_frames": _frames_display,
+            "generate_anchor_sheet": lambda _args: GenericDisplay(summary="补拍设定图"),
+            "ReadMediaFile": _media_display,
+            "write_video_shots": lambda _args: FileIoDisplay(operation="write", path=SHOTS_PATH),
+        }
+
     @classmethod
     def get_serialization_name(cls) -> str | None:
         # 依赖都是运行期对象（服务、连接池），从 YAML spec 里造不出来。
@@ -201,17 +220,44 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
 
 
 class ShotVideoToolset(FunctionToolset[AgentDepsT]):
-    """六件工具。"""
+    """六件工具。参数的范围规则挂在登记处的验证器上，工具体只做本职。
+
+    六件都经 ``Tool`` 登记，不走 ``add_function``：后者的参数表由 pyright 从函数推，收 ``ctx``
+    的工具会把 ``ctx`` 也算进参数表，于是任何一个签名正确的验证器都被判不兼容。
+    代价是工具集级别的默认值（``strict`` / ``sequential`` / ``requires_approval`` / ``timeout``
+    等）不再套到这六件上——这里只传 ``id``，所以现在没有差别；将来在 ``super().__init__``
+    上加一个默认值，它对这六件会静默失效。
+    """
 
     def __init__(self, capability: ShotVideo[AgentDepsT]) -> None:
         super().__init__(id=CAPABILITY_ID)
         self._cap = capability
-        self.add_function(self.video_parser_md, name="video_parser_md")
-        self.add_function(self.plan_shot_frames, name="plan_shot_frames")
-        self.add_function(self.generate_shot_frames, name="generate_shot_frames")
-        self.add_function(self.generate_anchor_sheet, name="generate_anchor_sheet")
-        self.add_function(self.read_media_file, name="ReadMediaFile")
-        self.add_function(self.write_video_shots, name="write_video_shots")
+        self.add_tool(
+            Tool(
+                self.video_parser_md,
+                name="video_parser_md",
+                args_validator=_validate_video_url,
+            )
+        )
+        self.add_tool(
+            Tool(
+                self.plan_shot_frames,
+                name="plan_shot_frames",
+                args_validator=_validate_video_url,
+            )
+        )
+        self.add_tool(
+            Tool(
+                self.generate_shot_frames,
+                name="generate_shot_frames",
+                args_validator=_validate_frame_generation,
+            )
+        )
+        self.add_tool(Tool(self.generate_anchor_sheet, name="generate_anchor_sheet"))
+        self.add_tool(
+            Tool(self.read_media_file, name="ReadMediaFile", args_validator=_validate_image_url)
+        )
+        self.add_tool(Tool(self.write_video_shots, name="write_video_shots"))
 
     async def video_parser_md(self, ctx: RunContext[AgentDepsT], video_url: str) -> dict[str, Any]:
         """拆解一段参考视频，把拆解文档写进工作区，返回它的路径。
@@ -229,8 +275,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """
 
         files, namespace = self._workspace(ctx)
-        _require_http(video_url, what="视频地址")
-        _require_material(run_materials(ctx.messages), video_url, kind="video", what="视频地址")
         path = video_doc_path(video_url)
         try:
             content = await self._cap.understanding.parse(video_url)
@@ -260,8 +304,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """
 
         files, namespace = self._workspace(ctx)
-        _require_http(video_url, what="视频地址")
-        _require_material(run_materials(ctx.messages), video_url, kind="video", what="视频地址")
         doc_path = video_doc_path(video_url)
         rows = await self._shot_rows(files, namespace, doc_path)
         try:
@@ -356,10 +398,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             raise ModelRetry("取帧账本不存在或版本不兼容，先调用 plan_shot_frames。")
         cell_ids, prompts = _resolve_requests(frames)
         references = tuple(reference_images)
-        materials = run_materials(ctx.messages)
-        for url in references:
-            _require_http(url, what="参考图地址")
-            _require_material(materials, url, kind="image", what="参考图地址")
         try:
             prompt = assemble_grid_prompt(
                 global_reference=global_reference,
@@ -452,8 +490,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """
 
         _ = _principal(ctx)
-        _require_http(url, what="图片地址")
-        _require_material(run_materials(ctx.messages), url, kind="image", what="图片地址")
         # 附地址而不是字节：厂商自己去取图，我们既不下载也不转码。缩放交给 OSS 的
         # 参数（见 resized_image_url），附的是缩略档，tag 里写的仍是原图地址。
         try:
@@ -892,6 +928,50 @@ def _principal(ctx: RunContext[AgentDepsT]) -> Principal:
             f"这次运行的 deps 是 {type(deps).__name__}，不是 AgentRunDeps——运行身份没有注入进来。"
         )
     return deps.principal
+
+
+def _validate_video_url(ctx: RunContext[Any], video_url: str) -> None:
+    """拆片与取帧收的视频地址。签名与这两件工具（去掉 ``self``）逐字一致，官方按它调。"""
+
+    _require_http(video_url, what="视频地址")
+    _require_material(run_materials(ctx.messages), video_url, kind="video", what="视频地址")
+
+
+def _validate_frame_generation(
+    ctx: RunContext[Any],
+    frames: list[FrameRequest],
+    reference_images: list[str],
+    global_reference: str,
+    target_aspect: str,
+) -> None:
+    """出图收的参考图地址。
+
+    ``frames`` 与画幅的规则要先读工作区里的账本，不是纯参数规则，留在工具体里；这几个参数在
+    这里照收不看——签名必须与工具（去掉 ``self``）逐字一致。
+    """
+
+    _ = (frames, global_reference, target_aspect)
+    materials = run_materials(ctx.messages)
+    for url in reference_images:
+        _require_http(url, what="参考图地址")
+        _require_material(materials, url, kind="image", what="参考图地址")
+
+
+def _validate_image_url(ctx: RunContext[Any], url: str) -> None:
+    """读图收的地址。"""
+
+    _require_http(url, what="图片地址")
+    _require_material(run_materials(ctx.messages), url, kind="image", what="图片地址")
+
+
+def _frames_display(args: Any) -> ToolDisplay:
+    frames = args.get("frames") if isinstance(args, dict) else None
+    return GenericDisplay(summary=f"出图 {len(frames)} 帧" if isinstance(frames, list) else "出图")
+
+
+def _media_display(args: Any) -> ToolDisplay | None:
+    url = args.get("url") if isinstance(args, dict) else None
+    return UrlFetchDisplay(url=url) if isinstance(url, str) and url else None
 
 
 def _require_http(url: str, *, what: str) -> None:

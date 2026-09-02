@@ -34,6 +34,7 @@ from iclip.harness.transcript.from_messages import (
     turn_run_ids,
     turns_from_messages,
 )
+from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import Interaction, TranscriptTurn
 
 
@@ -75,6 +76,8 @@ class TranscriptHistory:
 
     store: ConversationSnapshots
     prompt_runs: PromptRunsSource
+    display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY
+    """工具卡的画法。实时那侧（``ConversationRunner``）要收到同一份实例。"""
 
     async def read(self, conversation_id: str) -> TranscriptHistoryView:
         """读取可恢复的时间线与 Pydantic AI 上下文读数。"""
@@ -99,6 +102,7 @@ class TranscriptHistory:
                 turn_errors=errors,
                 prompt_of_run=of_run,
                 prompt_status_of_run=status_of_run,
+                display=self.display,
             ),
             context_tokens=estimate_context_tokens(snapshot.messages),
             interactions=approvals_from_messages(

@@ -35,7 +35,11 @@ from iclip.harness.transcript.from_messages import (
     turns_from_messages,
 )
 from iclip.harness.transcript.prompt_media import attachment_id, model_prompt
-from iclip.platform.transcript.display import FileIoDisplay, GenericDisplay
+from iclip.platform.transcript.display import (
+    FileIoDisplay,
+    GenericDisplay,
+    ToolDisplayRegistry,
+)
 from iclip.platform.transcript.ops import (
     AttachmentSource,
     ImageContent,
@@ -754,8 +758,11 @@ def test_attached_image_survives_the_round_trip() -> None:
 
 
 def test_tool_card_carries_how_to_draw_it() -> None:
-    """客户端不认工具名，只认 display 里的 kind。认不出的工具退回 generic，不画错。"""
+    """客户端不认工具名，只认 display 里的 kind。注册表里没有的工具退回 generic，不画错。"""
 
+    displays = ToolDisplayRegistry.merged(
+        {"read_file": lambda args: FileIoDisplay(operation="read", path=args["path"])}
+    )
     turns = turns_from_messages(
         [
             _ask("看看"),
@@ -763,12 +770,13 @@ def test_tool_card_carries_how_to_draw_it() -> None:
                 ToolCallPart(tool_name="read_file", args={"path": "shots.md"}, tool_call_id="c1"),
                 ToolCallPart(tool_name="generate_shot_frames", args={}, tool_call_id="c2"),
             ),
-        ]
+        ],
+        display=displays,
     )
 
     cards = [f for f in turns[0].steps[0].frames if isinstance(f, ToolFrame)]
     assert cards[0].display == FileIoDisplay(operation="read", path="shots.md")
-    assert cards[1].display == GenericDisplay(summary="出镜头帧")
+    assert cards[1].display == GenericDisplay(summary="generate_shot_frames")
 
 
 def test_drop_last_turn_on_empty_history_is_a_no_op() -> None:

@@ -62,6 +62,7 @@ from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.prompt_media import attachments_of, model_prompt
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
     MAIN_AGENT_ID,
@@ -261,6 +262,7 @@ class ConversationRunner:
         max_attempts: int,
         locked_by: str | None = None,
         on_turn_ended: TurnEnded | None = None,
+        display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
     ) -> None:
         self._agents = agents
         self._store = store
@@ -275,6 +277,9 @@ class ConversationRunner:
         self._lease_seconds = lease_seconds
         self._sweep_seconds = sweep_seconds
         self._max_attempts = max_attempts
+        # 工具卡的画法。历史那一侧（``TranscriptHistory``）必须收到同一份实例：两边不一样的话，
+        # 同一张卡在刷新前后换个长相，而且不报错。
+        self._display = display
         # 这个进程的租约主人。收下 prompt 的那一侧也要拿它写行，所以公开。
         self.locked_by = locked_by or uuid.uuid4().hex
         self._on_turn_ended = on_turn_ended
@@ -763,6 +768,7 @@ class ConversationRunner:
             max_context_tokens=context_window,
             resume_from=resume_from,
             repaired_calls=repaired,
+            display=self._display,
         )
         if resume_from is not None:
             # 播种要在投影器发第一批之前落地：同号的轮以实时那份为准，只有新步的实时轮会把历史

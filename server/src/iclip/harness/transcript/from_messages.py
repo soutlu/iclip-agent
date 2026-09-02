@@ -42,7 +42,7 @@ from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.transcript.prompt_media import read_prompt_items
-from iclip.platform.transcript.display import tool_display
+from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
     TOOL_STATE_BY_OUTCOME,
@@ -88,6 +88,7 @@ def turns_from_messages(
     turn_errors: Mapping[str, str | None] | None = None,
     prompt_of_run: Mapping[str, str] | None = None,
     prompt_status_of_run: Mapping[str, str] | None = None,
+    display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
 ) -> tuple[TranscriptTurn, ...]:
     """把一段对话的消息历史推成一串轮子，按发生先后排。
 
@@ -97,6 +98,9 @@ def turns_from_messages(
     ``prompt_of_run`` 是 run → prompt 的映射，多次 run 合成一轮靠它。轮的终态取该轮**最后一次**
     run 的：更早那几次是中断后续跑掉的，它们的结局只定各自的步。``prompt_status_of_run`` 是
     run → 那条 prompt 此刻的状态，只在末尾还开着审批调用时用得上（见 ``_approval_calls``）。
+
+    ``display`` 是工具卡的画法，实时那侧要拿到同一份实例；不给就每张卡都退成 generic，而且不
+    报错。
     """
 
     states = turn_states or {}
@@ -121,6 +125,7 @@ def turns_from_messages(
                 run_states=states,
                 approvals=(*settled, *waiting),
                 waiting=waiting if prompt_status in _WAITING_PROMPT_STATUSES else (),
+                display=display,
             )
         )
     return tuple(turns)
@@ -319,6 +324,7 @@ def _turn(
     run_states: Mapping[str, TurnState],
     approvals: Sequence[str] = (),
     waiting: Sequence[str] = (),
+    display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
 ) -> TranscriptTurn:
     """一轮的那几次 run → 一轮。步号跨 run 接着数，工具卡在哪一段发起就留在那一段。
 
@@ -367,7 +373,13 @@ def _turn(
             for text in pending_steers:
                 _user_frame(frames, step_id, text)
             pending_steers.clear()
-            _open_frames(message, step_id=step_id, frames=frames, tool_frames=tool_frames)
+            _open_frames(
+                message,
+                step_id=step_id,
+                frames=frames,
+                tool_frames=tool_frames,
+                display=display,
+            )
             steps.append(
                 TranscriptStep(
                     step_id=step_id,
@@ -446,6 +458,7 @@ def _open_frames(
     step_id: str,
     frames: dict[str, TranscriptFrame],
     tool_frames: dict[str, str],
+    display: ToolDisplayRegistry,
 ) -> None:
     """一次模型响应里的各个 part → 这一步的块。
 
@@ -468,7 +481,7 @@ def _open_frames(
                 name=part.tool_name,
                 state="running",
                 input=part.args,
-                display=tool_display(part.tool_name, part.args),
+                display=display.tool_display(part.tool_name, part.args),
             )
             tool_frames[part.tool_call_id] = frame_id
 

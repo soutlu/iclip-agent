@@ -11,13 +11,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic_ai import ModelRetry
 from pydantic_ai.capabilities import AgentCapability, Capability
+from pydantic_ai.tools import RunContext, Tool
 from pydantic_ai_harness.skills import Skills
+
+from iclip.platform.transcript.display import DisplayFn, SkillCallDisplay, ToolDisplay
 
 REFERENCES_DIRNAME = "references"
 """skill 目录下存放分支规则的子目录名。"""
@@ -53,6 +56,21 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
     在内部自造 deferred capability，插不进去一个工具。
     """
 
+    def validate_reference(ctx: RunContext[Any], skill: str, name: str) -> None:
+        """这次调用的范围规则：只准读挂给本 agent 的 skill，只准读 ``.md``。
+
+        签名是工具的参数表前补一个 ``ctx``，一字不差，官方按它调。
+        """
+
+        _ = ctx
+        if skill not in granted:
+            # include/exclude 是「模型看得见哪些 skill」，不是访问边界（官方
+            # 文档明说了）。真正的边界只能落在这里：没挂给这个 agent 的 skill，
+            # 它的 references 也不该读得到。
+            raise ModelRetry(f"没有挂载 skill {skill!r}。可读的是: {', '.join(granted)}。")
+        if Path(name).suffix != ".md":
+            raise ModelRetry(f"reference 只能是 .md 文档，收到 {name!r}。")
+
     def get_skill_reference(skill: str, name: str) -> str:
         """读取某个 skill 的一份 reference 文档。
 
@@ -61,13 +79,6 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
             name: reference 文件名（如 ``storyboard-spec.md``），不带目录前缀。
         """
 
-        if skill not in granted:
-            # include/exclude 是「模型看得见哪些 skill」，不是访问边界（官方
-            # 文档明说了）。真正的边界只能落在这里：没挂给这个 agent 的 skill，
-            # 它的 references 也不该读得到。
-            raise ModelRetry(f"没有挂载 skill {skill!r}。可读的是: {', '.join(granted)}。")
-        if Path(name).suffix != ".md":
-            raise ModelRetry(f"reference 只能是 .md 文档，收到 {name!r}。")
         root = (library / skill / REFERENCES_DIRNAME).resolve()
         target = (root / name).resolve()
         if not target.is_relative_to(root) or not target.is_file():
@@ -94,7 +105,26 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
             return text[:MAX_REFERENCE_CHARS] + TRUNCATION_MARKER
         return text
 
-    return Capability[Any](id="skill-references", tools=[get_skill_reference])
+    return Capability[Any](
+        id="skill-references",
+        tools=[Tool(get_skill_reference, args_validator=validate_reference)],
+    )
+
+
+def skill_display_table() -> Mapping[str, DisplayFn]:
+    """读 references 那件工具的卡怎么画。跟着 skill 库一起挂，所以表也在这儿给。"""
+
+    return {"get_skill_reference": _reference_display}
+
+
+def _reference_display(args: Any) -> ToolDisplay | None:
+    if not isinstance(args, dict):
+        return None
+    skill = args.get("skill")
+    name = args.get("name")
+    if not isinstance(skill, str) or not skill:
+        return None
+    return SkillCallDisplay(skill_name=skill, args=name if isinstance(name, str) else None)
 
 
 __all__ = [
@@ -102,4 +132,5 @@ __all__ = [
     "REFERENCES_DIRNAME",
     "TRUNCATION_MARKER",
     "build_skill_capabilities",
+    "skill_display_table",
 ]
