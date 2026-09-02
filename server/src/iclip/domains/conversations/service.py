@@ -37,15 +37,14 @@ SIDEBAR_PER_COLLECTION = 10
 """每个合集里内嵌几段对话。再多要展开看，是另一次查询的事。"""
 
 
-ActivitiesOf = Callable[[Sequence[uuid.UUID]], Mapping[uuid.UUID, ConversationActivity]]
+ActivitiesOf = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, ConversationActivity]]]
 """这批对话此刻各在忙什么。
 
-**这一层不认识 agent 引擎。** 「在跑没跑、卡在等谁」是引擎那边的实时状态，本模块只把它贴到
-自己的行上；接什么由组合根决定。
+**这一层不认识 agent 引擎。** 「在跑没跑、卡在等谁」是引擎那边的事，本模块只把它贴到自己的行
+上；接什么由组合根决定。
 
-同步：读的是进程内存，不查库。名单里没给到的按 ``IDLE_ACTIVITY`` 算——**进程重启后引擎那份
-内存是空的，于是所有行都退回「没在忙」，这是对的**：启动时孤儿运行会被收拾掉，那些运行确实
-随进程没了。
+要 await：这件事跨得过重启，所以答案不只在进程内存里——库里那条占着的 prompt 才是事实（在跑，
+或者停在审批上等人点头）。名单里没给到的按 ``IDLE_ACTIVITY`` 算。
 """
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
@@ -215,7 +214,7 @@ class ConversationService:
         self._list_derived_files = list_derived_files
         self._read_derived_file = read_derived_file
 
-    def activities(
+    async def activities(
         self, conversation_ids: Sequence[uuid.UUID]
     ) -> Mapping[uuid.UUID, ConversationActivity]:
         """这批对话此刻各在忙什么。**每个都给得出**，问到的 id 一定在返回里。
@@ -224,7 +223,7 @@ class ConversationService:
         :returns: 对话 id → 它此刻的活儿。
         """
 
-        known = self._activities_of(conversation_ids)
+        known = await self._activities_of(conversation_ids)
         return {one: known.get(one, IDLE_ACTIVITY) for one in conversation_ids}
 
     def _readable_by(self, principal: Principal) -> uuid.UUID | None:

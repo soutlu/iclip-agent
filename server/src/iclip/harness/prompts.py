@@ -13,9 +13,13 @@
 （``conversations_waiting``）。``finish`` 与 ``attach_run`` 都带 ``locked_by`` 这道 fence——租约易手
 之后它们一行都改不动，结局由接手的那一方定。
 
-``steered`` 是**内部状态**，表示这条消息已经递进了某次 run（``run_id`` 记的就是那次），结局跟着
-那一轮走。对外一律报 ``running``：协议的 prompt 状态联合里没有这个值，漏出去客户端整帧被
-zod 拒掉且不报错。
+``steered`` 与 ``awaiting`` 都是**内部状态**，对外一律报 ``running``：协议的 prompt 状态联合里
+没有这两个值，漏出去客户端整帧被 zod 拒掉且不报错。``steered`` 表示这条消息已经递进了某次 run
+（``run_id`` 记的就是那次），结局跟着那一轮走；``awaiting`` 表示那次 run 停在审批上等人点头，
+决定记在 ``decisions`` 里，凑齐一次响应里的全部审批才 CAS 回 ``running`` 起续跑。
+
+**等审批的行照样占着这段对话**：它没有租约（心跳与清扫都不看它），但每处以 ``running`` 判「占着」
+的地方都把它算进去，包括库上那道部分唯一索引。
 
 **``prompts.run_id`` 只记最近一次，全部的记在 ``prompt_runs``。** 一条 prompt 可以由好几次 run
 跑完（中断后续跑、审批后续跑），transcript 靠那张映射表把它们合成一轮。
@@ -25,6 +29,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final, Literal, cast
@@ -58,10 +63,15 @@ from iclip.platform.transcript.ops import Prompt, PromptContent
 
 DB_SCHEMA: Final = "agent_runtime"
 
-PromptStatus = Literal["running", "queued", "steered", "blocked", "completed", "failed", "aborted"]
+PromptStatus = Literal[
+    "running", "awaiting", "queued", "steered", "blocked", "completed", "failed", "aborted"
+]
 
-_LIVE: Final = ("running", "queued")
-"""还归队列管的那两种：在跑的那条与排着的那些。``steered`` 已经交给运行侧了，不在里面。"""
+_ACTIVE: Final = ("running", "awaiting")
+"""占着这段对话的那两种。等审批的那一轮并没有结束，所以它也算占着。"""
+
+_LIVE: Final = ("running", "awaiting", "queued")
+"""还归队列管的那几种：占着的那条与排着的那些。``steered`` 已经交给运行侧了，不在里面。"""
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
 
@@ -83,12 +93,13 @@ prompts_table = Table(
     Column("interrupt_reason", Text),
     # 收下 prompt 的那条 INSERT 不写这一列，默认值由库给。
     Column("attempt", Integer, nullable=False, server_default="0"),
+    Column("decisions", Text),
     PrimaryKeyConstraint("prompt_id"),
     Index(
         "uq_prompts_one_running_per_conversation",
         "conversation_id",
         unique=True,
-        postgresql_where=Column("status") == "running",
+        postgresql_where=Column("status").in_(_ACTIVE),
     ),
     Index("idx_prompts_queue", "conversation_id", "created_at"),
     Index(
@@ -128,6 +139,8 @@ class PromptRow:
     interrupt_reason: str | None
     attempt: int
     """中断后被重新认领过几次。第一次认领不算在里面。"""
+    decisions: Mapping[str, bool]
+    """人对这一轮的审批点了什么：工具调用 id → 是否放行。没等过审批就是空的。"""
 
     @property
     def text(self) -> str:
@@ -138,12 +151,13 @@ class PromptRow:
     def as_entity(self) -> Prompt:
         """协议里的 ``prompt`` 实体。``prompt.upsert`` 与订阅快照发的就是这一份。
 
-        ``steered`` 报成 ``running``：它是这一轮的一部分，而协议的状态联合里没有这个值。
+        ``steered`` 与 ``awaiting`` 都报成 ``running``：两者都是这一轮的一部分，而协议的状态
+        联合里没有这两个值。
         """
 
         return Prompt(
             prompt_id=self.prompt_id,
-            status="running" if self.status == "steered" else self.status,
+            status="running" if self.status in ("steered", "awaiting") else self.status,
             content=self.content,
             created_at=self.created_at.isoformat(),
             finished_at=None if self.finished_at is None else self.finished_at.isoformat(),
@@ -153,7 +167,7 @@ class PromptRow:
 
 @dataclass(frozen=True, slots=True)
 class PromptQueueView:
-    """一段对话此刻的排程：在跑的那条，加排着的那些。"""
+    """一段对话此刻的排程：占着的那条（在跑或者在等审批），加排着的那些。"""
 
     active: PromptRow | None
     queued: tuple[PromptRow, ...]
@@ -197,7 +211,7 @@ class PromptQueue:
         busy = exists(
             select(prompts_table.c.prompt_id)
             .where(prompts_table.c.conversation_id == conversation_id)
-            .where(prompts_table.c.status == "running")
+            .where(prompts_table.c.status.in_(_ACTIVE))
         )
         values = {
             "prompt_id": prompt_id,
@@ -234,7 +248,7 @@ class PromptQueue:
         return _row(row)
 
     async def view(self, conversation_id: str) -> PromptQueueView:
-        """这段对话此刻在跑的和排着的。跑完的不在里面。"""
+        """这段对话此刻占着的和排着的。跑完的不在里面。"""
 
         stmt = (
             select(prompts_table)
@@ -244,7 +258,7 @@ class PromptQueue:
         )
         async with self._engine.connect() as conn:
             rows = [_row(row) for row in (await conn.execute(stmt)).all()]
-        active = next((row for row in rows if row.status == "running"), None)
+        active = next((row for row in rows if row.status in _ACTIVE), None)
         return PromptQueueView(
             active=active, queued=tuple(row for row in rows if row.status == "queued")
         )
@@ -282,10 +296,46 @@ class PromptQueue:
         async with self._engine.connect() as conn:
             return {run_id: prompt_id for run_id, prompt_id in (await conn.execute(stmt)).all()}
 
-    async def start_next(self, conversation_id: str, *, locked_by: str) -> PromptRow | None:
-        """把排在最前的那条转成在跑并铸上租约，返回它；没有排队的、或者还有在跑的，返回 ``None``。
+    async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, str]:
+        """这段对话里每次 run 归的那条 prompt 此刻是什么状态。
 
-        「还有在跑的就不动」写在 SQL 的条件里而不是调用方那边：run 结束和新 prompt 进来是两
+        transcript 的历史侧靠它给末尾那些开放的工具调用定性：等审批、撤销了还是失败了，消息本身
+        说不出这件事。与 ``prompt_of_runs`` 分成两口，是因为轮号、截断、交接那几处调用方只要映射，
+        返回一对值会让它们全都跟着解包。
+        """
+
+        stmt = (
+            select(prompt_runs_table.c.run_id, prompts_table.c.status)
+            .join(prompts_table, prompts_table.c.prompt_id == prompt_runs_table.c.prompt_id)
+            .where(prompts_table.c.conversation_id == conversation_id)
+        )
+        async with self._engine.connect() as conn:
+            return {run_id: status for run_id, status in (await conn.execute(stmt)).all()}
+
+    async def active_statuses(self, conversation_ids: Sequence[str]) -> dict[str, PromptStatus]:
+        """这几段对话里占着的那条 prompt 各是什么状态（``running`` / ``awaiting``）。
+
+        空闲的那些不在返回里。侧栏的角标靠这一份跨进程对齐：实时状态是每 worker 一份的内存，
+        重启之后是空的，而库里那条 prompt 还在跑、或者还等着人点头。
+        """
+
+        if not conversation_ids:
+            return {}
+        stmt = (
+            select(prompts_table.c.conversation_id, prompts_table.c.status)
+            .where(prompts_table.c.conversation_id.in_(tuple(conversation_ids)))
+            .where(prompts_table.c.status.in_(_ACTIVE))
+        )
+        async with self._engine.connect() as conn:
+            return {
+                conversation_id: cast("PromptStatus", status)
+                for conversation_id, status in (await conn.execute(stmt)).all()
+            }
+
+    async def start_next(self, conversation_id: str, *, locked_by: str) -> PromptRow | None:
+        """把排在最前的那条转成在跑并铸上租约，返回它；没有排队的、或者还有占着的，返回 ``None``。
+
+        「还有占着的就不动」写在 SQL 的条件里而不是调用方那边：run 结束和新 prompt 进来是两
         条各自独立的路，两边同时来叫它是正常的。多进程下两边同时叫会撞上那条部分唯一索引，撞
         了就是别人抢到了，返回 ``None``。
         """
@@ -301,7 +351,7 @@ class PromptQueue:
         running = (
             select(prompts_table.c.prompt_id)
             .where(prompts_table.c.conversation_id == conversation_id)
-            .where(prompts_table.c.status == "running")
+            .where(prompts_table.c.status.in_(_ACTIVE))
         )
         stmt = (
             update(prompts_table)
@@ -359,8 +409,8 @@ class PromptQueue:
     async def abort(self, prompt_id: str, *, now: datetime) -> PromptRow:
         """撤掉一条 prompt。
 
-        排队中的直接标掉，这里就完事了。正在跑的只标一半——真正把运行停掉是运行侧的事，这里
-        不知道那次 run 在谁手上，所以返回该行让调用方接着办。
+        排队中的与等审批的直接标掉；正在跑的只标一半——真正把运行停掉是运行侧的事，这里不知道
+        那次 run 在谁手上。三种都返回该行：等审批的那一轮还占着实时状态，也要运行侧接着收拾。
 
         已经跑完的抛 ``Conflict``：重复点停止是常事，但不能假装刚刚停掉了什么。
         """
@@ -372,12 +422,12 @@ class PromptQueue:
             raise Conflict("这条消息已经递进当前这一轮了，要停就停整段对话")
         if row.status not in _LIVE:
             raise Conflict("这条消息已经结束了，停不了")
-        if row.status == "queued":
-            # 排队的行没有租约，走不了 ``finish`` 那道 fence。
+        if row.status in ("queued", "awaiting"):
+            # 这两种行都没有租约，走不了 ``finish`` 那道 fence。
             stmt = (
                 update(prompts_table)
                 .where(prompts_table.c.prompt_id == prompt_id)
-                .where(prompts_table.c.status == "queued")
+                .where(prompts_table.c.status == row.status)
                 .values(status="aborted", finished_at=now)
             )
             async with self._engine.begin() as conn:
@@ -568,14 +618,91 @@ class PromptQueue:
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
+    async def await_approvals(self, prompt_id: str, *, locked_by: str) -> PromptRow | None:
+        """这次 run 停在审批上了：行改成 ``awaiting`` 并放掉租约，``run_id`` 留着。
+
+        租约不在自己手上就一行都不动，同 ``finish`` 那道 fence。放掉租约是因为没有 run 在跑了，
+        没人刷心跳——留着的话清扫会把它当成中断的行认领去续跑。
+        """
+
+        stmt = (
+            update(prompts_table)
+            .where(prompts_table.c.prompt_id == prompt_id)
+            .where(prompts_table.c.status == "running")
+            .where(prompts_table.c.locked_by == locked_by)
+            .values(status="awaiting", locked_by=None, heartbeat_at=None)
+            .returning(prompts_table)
+        )
+        async with self._engine.begin() as conn:
+            row = (await conn.execute(stmt)).one_or_none()
+        return None if row is None else _row(row)
+
+    async def record_decision(
+        self, prompt_id: str, tool_call_id: str, *, approved: bool
+    ) -> PromptRow:
+        """记下人对一张审批卡点了什么，返回记完之后的那一行。
+
+        同一张卡重复点同一个决定原样返回（客户端重试是常事），点相反的抛 ``Conflict``：工具那一侧
+        可能已经照第一次的决定走下去了，悄悄换掉等于让界面和事实分家。
+
+        读改写在同一个事务里加锁：两次点击落在两个连接上时，后写的那一次会把前一次的决定覆盖掉，
+        于是凑齐审批的判断永远差一个。
+        """
+
+        async with self._engine.begin() as conn:
+            current = (
+                await conn.execute(
+                    select(prompts_table)
+                    .where(prompts_table.c.prompt_id == prompt_id)
+                    .where(prompts_table.c.status == "awaiting")
+                    .with_for_update()
+                )
+            ).one_or_none()
+            if current is None:
+                raise NotFound(f"这条消息没在等审批：{prompt_id}")
+            decisions = dict(_row(current).decisions)
+            settled = decisions.get(tool_call_id)
+            if settled is not None:
+                if settled != approved:
+                    raise Conflict("这张审批卡已经回过了，改不了")
+                return _row(current)
+            decisions[tool_call_id] = approved
+            updated = (
+                await conn.execute(
+                    update(prompts_table)
+                    .where(prompts_table.c.prompt_id == prompt_id)
+                    .values(decisions=json.dumps(decisions, ensure_ascii=False))
+                    .returning(prompts_table)
+                )
+            ).one()
+        return _row(updated)
+
+    async def claim_for_continuation(self, prompt_id: str, *, locked_by: str) -> PromptRow | None:
+        """审批凑齐了：CAS 回 ``running`` 并铸上租约，返回它；抢不到就是别人起了续跑，返回 ``None``。
+
+        ``attempt`` 不加——那一列记的是「中断后重新认领过几次」，等人点头不是中断。``decisions``
+        留着：续跑那次 run 要按它给官方 ``deferred_tool_results``。
+        """
+
+        stmt = (
+            update(prompts_table)
+            .where(prompts_table.c.prompt_id == prompt_id)
+            .where(prompts_table.c.status == "awaiting")
+            .values(status="running", locked_by=locked_by, heartbeat_at=func.now())
+            .returning(prompts_table)
+        )
+        async with self._engine.begin() as conn:
+            row = (await conn.execute(stmt)).one_or_none()
+        return None if row is None else _row(row)
+
     async def conversations_waiting(self) -> tuple[str, ...]:
-        """有排队的行、却一条在跑的都没有的那些对话。它们等着人来叫。"""
+        """有排队的行、却一条占着的都没有的那些对话。它们等着人来叫。"""
 
         queued = prompts_table.alias("queued")
         running = (
             select(prompts_table.c.prompt_id)
             .where(prompts_table.c.conversation_id == queued.c.conversation_id)
-            .where(prompts_table.c.status == "running")
+            .where(prompts_table.c.status.in_(_ACTIVE))
         )
         stmt = (
             select(queued.c.conversation_id)
@@ -592,6 +719,8 @@ def _interrupted(lease_seconds: int) -> ColumnElement[bool]:
 
     ``release`` 过的行 ``heartbeat_at`` 是 NULL，比不出「落后一个租约」，所以两种情形都要写上。
     认领与判失败共用这一份，各写一遍迟早会漂成两套判据、行卡在中间没人管。
+
+    只看 ``running``：等审批的行没有租约也不刷心跳，它不是中断，是在等人。
     """
 
     return and_(
@@ -604,6 +733,7 @@ def _interrupted(lease_seconds: int) -> ColumnElement[bool]:
 
 
 _CONTENT = TypeAdapter(tuple[PromptContent, ...])
+_DECISIONS = TypeAdapter(dict[str, bool])
 
 
 def _dump(content: tuple[PromptContent, ...]) -> str:
@@ -630,6 +760,7 @@ class _PromptRow:
     heartbeat_at: datetime | None
     interrupt_reason: str | None
     attempt: int
+    decisions: str | None
 
 
 def _row(row: object) -> PromptRow:
@@ -649,6 +780,7 @@ def _row(row: object) -> PromptRow:
         heartbeat_at=r.heartbeat_at,
         interrupt_reason=r.interrupt_reason,
         attempt=r.attempt,
+        decisions={} if r.decisions is None else _DECISIONS.validate_json(r.decisions),
     )
 
 

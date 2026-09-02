@@ -7,7 +7,13 @@ from __future__ import annotations
 
 import pytest
 
-from iclip.harness.transcript.activity import IDLE, ActivityState, AgentWork, aggregate
+from iclip.harness.transcript.activity import (
+    IDLE,
+    ActivityState,
+    AgentWork,
+    aggregate,
+    merged_with_prompt,
+)
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.ops import (
     Interaction,
@@ -50,6 +56,26 @@ def test_审批比提问要紧() -> None:
     work = {MAIN: AgentWork(turn_active=True, pending_kinds=("question", "approval"))}
 
     assert aggregate(work).pending_interaction == "approval"
+
+
+def test_库里那条占着的prompt也算忙() -> None:
+    """实时状态是每 worker 一份的内存，重启后是空的。只看它的话侧栏会把还在忙的对话报成空闲。"""
+
+    assert merged_with_prompt(IDLE, "running") == ActivityState(busy=True)
+    assert merged_with_prompt(IDLE, "awaiting") == ActivityState(
+        busy=True, pending_interaction="approval"
+    )
+    assert merged_with_prompt(IDLE, None) == IDLE
+
+
+def test_合并取更忙的那一份() -> None:
+    """实时那侧知道的更细（提问也算待人处理），合并不能把它盖掉。"""
+
+    asking = ActivityState(busy=True, pending_interaction="question")
+
+    assert merged_with_prompt(asking, "running") == asking
+    assert merged_with_prompt(asking, "awaiting").pending_interaction == "approval"
+    assert merged_with_prompt(ActivityState(busy=True), None) == ActivityState(busy=True)
 
 
 def _turn(turn_id: str, state: str) -> TurnUpsertOp:

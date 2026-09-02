@@ -17,6 +17,7 @@ import yaml
 from pydantic_ai import Agent, AgentSpec
 from pydantic_ai.capabilities import AgentCapability
 from pydantic_ai.models import Model
+from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai_harness.step_persistence import StepPersistence, StepStore
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
@@ -83,6 +84,7 @@ def _load_agent(
     name: str,
     model: Model,
     step_store: StepStore,
+    accepts_deferred: bool,
     extra: Sequence[AgentCapability[Any]] = (),
     persistence_agent_name: str | None = None,
 ) -> Agent[Any, Any]:
@@ -96,6 +98,11 @@ def _load_agent(
     ``run_id``（即 ``ctx.run_id``）；官方自己铸的那个只出现在 runs/events 两张表里，与消息
     上的对不上，轮的终态就查不出来。下属留着名字：它们不进 transcript，可读的 id 更有用。
 
+    ``accepts_deferred`` 把 ``DeferredToolRequests`` 加进输出类型，于是要审批的工具会让这次 run
+    停下来结束、由运行侧记下等待并起续跑（不加官方直接报错）。**要审批的工具只挂顶层 agent**：
+    派活是另起一次运行，下属那次 run 的审批会在父 run 的一次工具调用里冒出来，形状对不上运行侧
+    等的那一份。
+
     两种情形下同一个 capability 实例被并发的多次运行共用都是安全的：``run_id`` 字段始终为空，
     实际的 id 每次 run 在 ``for_run`` 里现算。
     """
@@ -105,6 +112,7 @@ def _load_agent(
         model=model,
         name=name,
         instructions=_read_instructions(instructions),
+        output_type=[str, DeferredToolRequests] if accepts_deferred else str,
         capabilities=[
             StepPersistence(store=step_store, agent_name=persistence_agent_name),
             *extra,
@@ -126,6 +134,7 @@ def _build_subagents(
                     name=sub.name,
                     model=_pick_model(models, sub.model, declared_by=f"子 agent {sub.name}"),
                     step_store=step_store,
+                    accepts_deferred=False,
                     extra=sub.capabilities,
                     persistence_agent_name=sub.name,
                 ),
@@ -180,6 +189,7 @@ def build_agent_registry(
             name=definition.agent_id,
             model=_pick_model(models, definition.model, declared_by=f"agent {definition.agent_id}"),
             step_store=step_store,
+            accepts_deferred=True,
             extra=(
                 *definition.capabilities,
                 *(

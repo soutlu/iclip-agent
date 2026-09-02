@@ -48,6 +48,27 @@ class AgentWork:
     pending_kinds: tuple[Literal["approval", "question"], ...] = ()
 
 
+def merged_with_prompt(live: ActivityState, prompt_status: str | None) -> ActivityState:
+    """把实时那份活儿与库里那条占着的 prompt 合成一份，取更忙的那一边。
+
+    :param live: 实时状态算出来的那一份。
+    :param prompt_status: 这段对话里占着的那条 prompt 的状态（``running`` / ``awaiting``），
+        空闲就给 ``None``。
+    :returns: 这段对话此刻的活儿。
+
+    只看实时状态不行：它是每 worker 一份的进程内存，重启之后是空的，而库里那条 prompt 还在跑、
+    或者还等着人点头——侧栏会把一段还在忙的对话报成空闲。
+    """
+
+    pending = live.pending_interaction
+    return ActivityState(
+        busy=live.busy or prompt_status is not None,
+        pending_interaction=(
+            "approval" if prompt_status == "awaiting" or pending == "approval" else pending
+        ),
+    )
+
+
 def aggregate(work: Mapping[str, AgentWork]) -> ActivityState:
     """把各 agent 的活儿聚成一段对话的活儿。
 
@@ -64,4 +85,11 @@ def aggregate(work: Mapping[str, AgentWork]) -> ActivityState:
     return ActivityState(busy=busy, pending_interaction=pending)
 
 
-__all__ = ["IDLE", "ActivityState", "AgentWork", "PendingInteraction", "aggregate"]
+__all__ = [
+    "IDLE",
+    "ActivityState",
+    "AgentWork",
+    "PendingInteraction",
+    "aggregate",
+    "merged_with_prompt",
+]

@@ -21,6 +21,7 @@ from iclip.harness.transcript.store import Listener, TranscriptStore
 from iclip.harness.transcript.subscription import subscribe_frames
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
+    Interaction,
     Prompt,
     PromptContent,
     TranscriptTurn,
@@ -117,8 +118,8 @@ class TranscriptService:
     async def steer(self, conversation_id: str, prompt_ids: tuple[str, ...]) -> None:
         await self.runner.steer(conversation_id, prompt_ids)
 
-    def approve(self, conversation_id: str, interaction_id: str, *, approved: bool) -> None:
-        self.runner.approve(conversation_id, interaction_id, approved=approved)
+    async def approve(self, conversation_id: str, interaction_id: str, *, approved: bool) -> None:
+        await self.runner.approve(conversation_id, interaction_id, approved=approved)
 
     # --- 读 -----------------------------------------------------------------
 
@@ -152,7 +153,7 @@ class TranscriptService:
         history = await self.history.read(conversation_id)
         turns = _timeline(history.turns, view.live_turns)
         items, has_more = _slice(turns, before_turn=before_turn, after_turn=after_turn, size=size)
-        pending = self.store.pending_interactions(conversation_id, agent_id)
+        interactions = _interactions(history.interactions, view.snapshot.interactions)
         meta = view.snapshot.meta
         max_context_tokens = self.context_limits.get(runtime_agent_id)
         if (
@@ -163,16 +164,22 @@ class TranscriptService:
             meta = meta.model_copy(
                 update={"agent": agent_context_status(history.context_tokens, max_context_tokens)}
             )
+        if (await self.queue.view(conversation_id)).active is not None:
+            # 有条 prompt 占着（在跑或者在等审批）。库里那份才跨得过重启——实时状态是每 worker
+            # 一份的内存，只看它的话新起的进程会把一段还在忙的对话报成空闲。
+            meta = meta.model_copy(update={"activity": "turn"})
         return TranscriptPage(
             agent_id=agent_id,
             items=items,
             has_more=has_more,
-            interactions=view.snapshot.interactions,
+            interactions=interactions,
             attachments=view.snapshot.attachments,
             prompts=view.snapshot.prompts,
             meta=meta,
             agents=({"agentId": agent_id, "type": "main"},),
-            pending_interactions=tuple(item.interaction_id for item in pending),
+            pending_interactions=tuple(
+                item.interaction_id for item in interactions if item.state == "pending"
+            ),
             seq=view.watermark,
         )
 
@@ -218,6 +225,20 @@ def _timeline(
     merged = {turn.ordinal: turn for turn in derived}
     merged.update({turn.ordinal: turn for turn in live})
     return tuple(merged[ordinal] for ordinal in sorted(merged))
+
+
+def _interactions(
+    derived: tuple[Interaction, ...], live: tuple[Interaction, ...]
+) -> tuple[Interaction, ...]:
+    """审批也是两份接起来，同 id 以实时那份为准。
+
+    实时那份更新：人刚点的头当场就记在内存里，而历史要等续跑那次 run 的消息落库才推得出来。
+    重启之后实时那份是空的，还等着回应的那几张只能从历史读回来。
+    """
+
+    merged = {item.interaction_id: item for item in derived}
+    merged.update({item.interaction_id: item for item in live})
+    return tuple(merged.values())
 
 
 def _slice(

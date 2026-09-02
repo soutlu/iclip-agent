@@ -81,7 +81,7 @@ from iclip.harness.prompts import PromptQueue, PromptRow
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.titles import title_generator
-from iclip.harness.transcript.activity import ActivityState
+from iclip.harness.transcript.activity import ActivityState, merged_with_prompt
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
@@ -463,17 +463,25 @@ def build_app(
     # 要读库。所以这里起一个任务去查再发。拿住引用：asyncio 只弱引用运行中的任务。
     announce_tasks: set[asyncio.Task[None]] = set()
 
-    def activities_of(
+    async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
     ) -> Mapping[uuid.UUID, ConversationActivity]:
-        """这批对话此刻各在忙什么。引擎那侧的实时状态 → 对话那侧的形状。"""
+        """这批对话此刻各在忙什么。引擎那侧的两份事实 → 对话那侧的形状。
 
+        库里那条占着的 prompt 与进程内存里的实时状态合成一份：只看内存的话，重启后一段还在跑、
+        或者还等着人点头的对话会被报成空闲。
+        """
+
+        statuses = await prompt_queue.active_statuses([str(one) for one in conversation_ids])
+        merged = {
+            one: merged_with_prompt(transcript_store.activity(str(one)), statuses.get(str(one)))
+            for one in conversation_ids
+        }
         return {
             one: ConversationActivity(
-                busy=(state := transcript_store.activity(str(one))).busy,
-                pending_interaction=state.pending_interaction,
+                busy=state.busy, pending_interaction=state.pending_interaction
             )
-            for one in conversation_ids
+            for one, state in merged.items()
         }
 
     async def _push_activity(conversation_id: str, state: ActivityState) -> None:

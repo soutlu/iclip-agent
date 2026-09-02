@@ -26,6 +26,7 @@ from pydantic_ai_harness.step_persistence import ContinuableSnapshot, StepEvent
 
 from iclip.harness.transcript.from_messages import (
     TurnState,
+    approvals_from_messages,
     drop_last_turn,
     run_error_from_events,
     run_ids_from_messages,
@@ -33,7 +34,7 @@ from iclip.harness.transcript.from_messages import (
     turn_run_ids,
     turns_from_messages,
 )
-from iclip.platform.transcript.ops import TranscriptTurn
+from iclip.platform.transcript.ops import Interaction, TranscriptTurn
 
 
 class ConversationSnapshots(Protocol):
@@ -53,15 +54,19 @@ class ConversationSnapshots(Protocol):
 
 
 class PromptRunsSource(Protocol):
-    """按对话取 run → prompt 的映射。只要这一口，不要整个 prompt 队列。"""
+    """按对话取每次 run 归的那条 prompt：一份映射，一份状态。只要这两口，不要整个 prompt 队列。"""
 
     async def prompt_of_runs(self, conversation_id: str) -> dict[str, str]: ...
+
+    async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, str]: ...
 
 
 @dataclass(frozen=True, slots=True)
 class TranscriptHistoryView:
     turns: tuple[TranscriptTurn, ...]
     context_tokens: int | None
+    interactions: tuple[Interaction, ...] = ()
+    """已经落定与还等着人点头的审批。重启之后实时状态是空的，待回应的那几张只能从这里读回来。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,14 +90,23 @@ class TranscriptHistory:
             events = await self.store.list_events(run_id=run_id)
             states[run_id] = run_state_from_events(events)
             errors[run_id] = run_error_from_events(events)
+        of_run = await self.prompt_runs.prompt_of_runs(conversation_id)
+        status_of_run = await self.prompt_runs.prompt_status_of_runs(conversation_id)
         return TranscriptHistoryView(
             turns=turns_from_messages(
                 snapshot.messages,
                 turn_states=states,
                 turn_errors=errors,
-                prompt_of_run=await self.prompt_runs.prompt_of_runs(conversation_id),
+                prompt_of_run=of_run,
+                prompt_status_of_run=status_of_run,
             ),
             context_tokens=estimate_context_tokens(snapshot.messages),
+            interactions=approvals_from_messages(
+                snapshot.messages,
+                turn_states=states,
+                prompt_of_run=of_run,
+                prompt_status_of_run=status_of_run,
+            ),
         )
 
     async def turn_run_ids(self, conversation_id: str) -> tuple[tuple[str, ...], ...]:

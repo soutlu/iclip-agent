@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai import Agent, Tool
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
     ModelMessage,
@@ -29,6 +29,7 @@ from pydantic_ai.models.function import (
     DeltaToolCalls,
     FunctionModel,
 )
+from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai_harness.step_persistence import (
     ContinuableSnapshot,
     RunRecord,
@@ -39,14 +40,20 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.common.errors import Conflict, NotFound
-from iclip.harness.prompts import PromptQueue
+from iclip.harness.prompts import PromptQueue, PromptRow
 from iclip.harness.step_store_pg import PgStepStore
+from iclip.harness.transcript.activity import IDLE, ActivityState, merged_with_prompt
 from iclip.harness.transcript.from_messages import run_ids_from_messages
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import CONTINUATION_PROMPT, ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
-from iclip.platform.transcript.ops import MAIN_AGENT_ID, TextContent, TranscriptTurn
+from iclip.platform.transcript.ops import (
+    MAIN_AGENT_ID,
+    TextContent,
+    ToolFrame,
+    TranscriptTurn,
+)
 
 AGENT_ID = "storyboard"
 MAX_CONTEXT_TOKENS = 4096
@@ -171,6 +178,36 @@ def _calls_tool(name: str) -> FunctionModel:
     return FunctionModel(stream_function=stream)
 
 
+def _calls_then_says(name: str, reply: str, *, calls: int = 1) -> FunctionModel:
+    """第一次被问就要调这几件要审批的工具，之后每次回一句话。
+
+    第二次被问就是审批放行（或者被拒）之后的续跑那次 run 在问它——问到了就是那条路走通了。
+    """
+
+    asked = 0
+
+    async def stream(
+        _messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        nonlocal asked
+        asked += 1
+        if asked == 1:
+            yield {
+                index: DeltaToolCall(name=name, json_args="{}", tool_call_id=f"call_{index + 1}")
+                for index in range(calls)
+            }
+        else:
+            yield reply
+
+    return FunctionModel(stream_function=stream)
+
+
+def _wrote() -> str:
+    """一件要审批才能动的工具。审批本身不经过它，所以内容无所谓。"""
+
+    return "写好了"
+
+
 def _runner(
     engine: AsyncEngine,
     model: FunctionModel,
@@ -185,6 +222,9 @@ def _runner(
         model,
         name=AGENT_ID,
         tools=list(tools),
+        # 与装配那一侧一致：要审批的工具让 run 以 DeferredToolRequests 结束，不加这一项官方直接
+        # 报错（见 harness.agents._load_agent）。
+        output_type=[str, DeferredToolRequests],
         # 顶层不设 agent_name：run id 要用我们传进去的那个，见 harness.agents._load_agent。
         capabilities=[StepPersistence(store=step_store)],
     )
@@ -313,7 +353,10 @@ async def _plant_interrupted(
 
 
 async def _drained(queue: PromptQueue, conversation_id: str, *, tries: int = 200) -> None:
-    """等到这段对话既没有在跑的也没有排队的。"""
+    """等到这段对话既没有占着的也没有排队的。
+
+    等审批的行也算占着，所以停在审批上的对话永远排不空——那种要用 ``_awaits``。
+    """
 
     for _ in range(tries):
         view = await queue.view(conversation_id)
@@ -321,6 +364,17 @@ async def _drained(queue: PromptQueue, conversation_id: str, *, tries: int = 200
             return
         await asyncio.sleep(0.02)
     raise AssertionError("队列没排空")
+
+
+async def _awaits(queue: PromptQueue, prompt_id: str, *, tries: int = 200) -> PromptRow:
+    """等到这条 prompt 停在审批上，返回那一行。"""
+
+    for _ in range(tries):
+        row = await queue.get(prompt_id)
+        if row is not None and row.status == "awaiting":
+            return row
+        await asyncio.sleep(0.02)
+    raise AssertionError("这条 prompt 没停在审批上")
 
 
 def _replay(store: TranscriptStore, conversation_id: str) -> tuple[TranscriptTurn, ...]:
@@ -1330,3 +1384,268 @@ async def test_aborting_a_prompt_from_another_conversation_is_not_found(
         await runner.abort("c-someone-else", prompt_id)
 
     await runner.shutdown()
+
+
+def _approval_runner(
+    engine: AsyncEngine, store: TranscriptStore, *, reply: str = "改完了", calls: int = 1
+) -> tuple[ConversationRunner, PgStepStore, PromptQueue]:
+    """一个挂着「要审批才能动」工具的 runner。第一次被问就调它，之后回一句话。"""
+
+    return _runner(
+        engine,
+        _calls_then_says("write_file", reply, calls=calls),
+        store=store,
+        tools=[Tool(_wrote, name="write_file", requires_approval=True)],
+    )
+
+
+def _tool_cards(turns: tuple[TranscriptTurn, ...]) -> list[ToolFrame]:
+    return [
+        frame
+        for turn in turns
+        for step in turn.steps
+        for frame in step.frames
+        if isinstance(frame, ToolFrame)
+    ]
+
+
+async def test_a_tool_needing_approval_ends_the_run_and_parks_the_prompt(
+    engine: AsyncEngine,
+) -> None:
+    """要审批的工具让这次 run 就地结束：行进等审批（对外仍报在跑），前沿的历史落成中断快照。
+
+    在 run 内 await 人点头的话，这份等待随进程一起消失——而一次审批可能等几天。
+    """
+
+    store = TranscriptStore()
+    runner, step_store, queue = _approval_runner(engine, store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await _submit(runner, queue, conversation_id, "把这个文件改掉")
+    row = await _awaits(queue, prompt_id)
+
+    assert row.as_entity().status == "running"  # 协议的状态联合里没有 awaiting
+    assert (row.locked_by, row.heartbeat_at) == (None, None)  # 没有 run 在跑，也就没有租约
+    assert row.run_id is not None
+
+    # 官方这一刻不存快照（开放的工具调用过不了它那道门槛），这一份是运行侧存的。
+    assert (await step_store.latest_conversation_snapshot(conversation_id=conversation_id)) is None
+    parked = await step_store.latest_conversation_snapshot(
+        conversation_id=conversation_id, include_interrupted=True
+    )
+    assert parked is not None
+    assert run_ids_from_messages(parked.messages) == (row.run_id,)
+
+    # 客户端屏幕上：那一轮还在跑，工具卡还等着人点头。
+    live = _replay(store, conversation_id)
+    assert [turn.state for turn in live] == ["running"]
+    assert [step.state for step in live[0].steps] == ["completed"]
+    card = _tool_cards(live)[0]
+    assert (card.state, card.approval_id) == ("running", "apr_call_1")
+    assert [
+        item.interaction_id for item in store.pending_interactions(conversation_id, MAIN_AGENT_ID)
+    ] == ["apr_call_1"]
+
+    # 换一个空 store（模拟重启）：同一份结构、同一张待回应的卡，都从库里读回来。
+    page = await TranscriptService(
+        store=TranscriptStore(),
+        history=TranscriptHistory(step_store, queue),
+        queue=queue,
+        runner=runner,
+        context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
+    ).page(conversation_id, runtime_agent_id=AGENT_ID)
+    assert [turn.state for turn in page.items] == ["running"]
+    restored = _tool_cards(page.items)[0]
+    assert (restored.state, restored.approval_id) == ("running", "apr_call_1")
+    assert page.pending_interactions == ("apr_call_1",)
+    assert page.meta.activity == "turn"
+
+    # 侧栏的角标：实时那份与新进程那份都要说「在忙，等审批」。
+    statuses = await queue.active_statuses((conversation_id,))
+    assert statuses == {conversation_id: "awaiting"}
+    busy = ActivityState(busy=True, pending_interaction="approval")
+    assert merged_with_prompt(store.activity(conversation_id), statuses[conversation_id]) == busy
+    assert merged_with_prompt(IDLE, statuses[conversation_id]) == busy
+
+    await runner.shutdown()
+
+
+async def test_approving_resumes_the_same_turn(engine: AsyncEngine) -> None:
+    """点了同意：带着决定新起一次 run，画进原来那一轮，两条路给出同一份结构。
+
+    ``attempt`` 不加——那一列记的是「中断后重新认领过几次」，等人点头不是中断。
+    """
+
+    store = TranscriptStore()
+    runner, step_store, queue = _approval_runner(engine, store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await _submit(runner, queue, conversation_id, "把这个文件改掉")
+    await _awaits(queue, prompt_id)
+    await runner.approve(conversation_id, "apr_call_1", approved=True)
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    row = await queue.get(prompt_id)
+    assert row is not None
+    assert (row.status, row.attempt) == ("completed", 0)
+    assert row.decisions == {"call_1": True}
+    # 两次 run 都记在这条 prompt 名下：transcript 靠这份映射把它们合成一轮。
+    assert len(await queue.prompt_of_runs(conversation_id)) == 2
+
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
+    assert [(turn.turn_id, turn.state) for turn in derived] == [("t1", "completed")]
+    card = _tool_cards(derived)[0]
+    assert (card.state, card.approval_id) == ("done", "apr_call_1")
+    assert [item.state for item in derived[0].steps] == ["completed", "completed"]
+    assert [getattr(frame, "text", None) for frame in derived[0].steps[1].frames] == ["改完了"]
+    assert [
+        item.state
+        for item in (await TranscriptHistory(step_store, queue).read(conversation_id)).interactions
+    ] == ["approved"]
+
+    assert _skeleton(_replay(store, conversation_id)) == _skeleton(derived)
+
+
+async def test_rejecting_settles_the_card_as_an_error_and_the_model_moves_on(
+    engine: AsyncEngine,
+) -> None:
+    """点了拒绝：那次调用记成被拒（协议里就是错的那一档），模型收到拒绝之后接着说下一句。"""
+
+    store = TranscriptStore()
+    runner, step_store, queue = _approval_runner(engine, store, reply="那我不动它")
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await _submit(runner, queue, conversation_id, "把这个文件改掉")
+    await _awaits(queue, prompt_id)
+    await runner.approve(conversation_id, "apr_call_1", approved=False)
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    history = await TranscriptHistory(step_store, queue).read(conversation_id)
+    assert [turn.state for turn in history.turns] == ["completed"]
+    card = _tool_cards(history.turns)[0]
+    assert (card.state, card.approval_id) == ("error", "apr_call_1")
+    assert [item.state for item in history.interactions] == ["rejected"]
+    assert [getattr(frame, "text", None) for frame in history.turns[0].steps[1].frames] == [
+        "那我不动它"
+    ]
+    assert _skeleton(_replay(store, conversation_id)) == _skeleton(history.turns)
+
+
+async def test_the_run_resumes_only_once_every_approval_is_answered(
+    engine: AsyncEngine,
+) -> None:
+    """一次响应里两个审批：答一半还在等，凑齐才起续跑。
+
+    少一个就起的话官方直接拒绝这次运行——它要求给出的结果覆盖前沿全部可执行调用。
+    """
+
+    store = TranscriptStore()
+    runner, step_store, queue = _approval_runner(engine, store, calls=2)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await _submit(runner, queue, conversation_id, "把这两个文件改掉")
+    await _awaits(queue, prompt_id)
+
+    await runner.approve(conversation_id, "apr_call_1", approved=True)
+    half = await queue.get(prompt_id)
+    assert half is not None
+    assert (half.status, half.decisions) == ("awaiting", {"call_1": True})
+
+    # 同一张卡重复点同一个决定照样收下；改主意不行——工具那侧可能已经照第一次的决定走了。
+    await runner.approve(conversation_id, "apr_call_1", approved=True)
+    with pytest.raises(Conflict):
+        await runner.approve(conversation_id, "apr_call_1", approved=False)
+    # 那个 id 是从帧里抄来的，指着一次不存在的调用时不能假装记下了什么。
+    with pytest.raises(NotFound):
+        await runner.approve(conversation_id, "apr_nobody", approved=True)
+
+    await runner.approve(conversation_id, "apr_call_2", approved=True)
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    row = await queue.get(prompt_id)
+    assert row is not None
+    assert (row.status, row.decisions) == ("completed", {"call_1": True, "call_2": True})
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
+    assert [card.state for card in _tool_cards(derived)] == ["done", "done"]
+    assert _skeleton(_replay(store, conversation_id)) == _skeleton(derived)
+
+
+async def test_a_conversation_waiting_for_approval_takes_no_steering_and_queues_the_next(
+    engine: AsyncEngine,
+) -> None:
+    """等审批期间：插话 409，新消息排队；撤销之后那一轮收成取消，队首正常接着跑。
+
+    不撤那一轮的实时状态，界面上会留一张永远等回应的卡、一张一直转圈的工具卡。
+    """
+
+    store = TranscriptStore()
+    runner, step_store, queue = _approval_runner(engine, store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    first = await _submit(runner, queue, conversation_id, "把这个文件改掉")
+    await _awaits(queue, first)
+    second = await _submit(runner, queue, conversation_id, "再说点别的")
+
+    queued = await queue.get(second)
+    assert queued is not None
+    assert queued.status == "queued"  # 等审批的那条还占着这段对话
+    with pytest.raises(Conflict):
+        await runner.steer(conversation_id, (second,))
+
+    await runner.abort(conversation_id, first)
+    aborted = await queue.get(first)
+    assert aborted is not None
+    assert aborted.status == "aborted"
+
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    # 撤掉的那一轮：轮取消、卡不再转圈、审批卡不再等人。
+    replayed = _replay(store, conversation_id)
+    assert replayed[0].state == "cancelled"
+    assert [card.state for card in _tool_cards(replayed[:1])] == ["error"]
+    assert store.pending_interactions(conversation_id, MAIN_AGENT_ID) == ()
+
+    # 队首自己跑完了：撤销之后没人叫它的话，这段对话会一直排着。
+    following = await queue.get(second)
+    assert following is not None
+    assert following.status == "completed"
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
+    assert [(turn.turn_id, turn.state) for turn in derived] == [
+        ("t1", "cancelled"),
+        ("t2", "completed"),
+    ]
+
+
+async def test_stopping_the_conversation_also_drops_the_one_waiting_for_approval(
+    engine: AsyncEngine,
+) -> None:
+    """按「停止整段对话」时没有 run 在跑，但等审批那条行也归它管——留着的话这段对话永远占着。
+
+    递进那次 run 的插话跟着一起撤销：它本来等着续跑给结局，而续跑不会再来了，留着就永远报「在跑」。
+    """
+
+    store = TranscriptStore()
+    runner, _step_store, queue = _approval_runner(engine, store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await _submit(runner, queue, conversation_id, "把这个文件改掉")
+    parked = await _awaits(queue, prompt_id)
+    # 装出「这条追加已经递进那次 run」：等审批期间它留在 steered 等续跑认走。
+    appended = await _submit(runner, queue, conversation_id, "临时插一句")
+    assert parked.run_id is not None
+    await queue.mark_steered((appended,), run_id=parked.run_id, now=datetime.now(UTC))
+
+    await runner.abort_conversation(conversation_id)
+    await runner.shutdown()
+
+    row = await queue.get(prompt_id)
+    assert row is not None
+    assert row.status == "aborted"
+    child = await queue.get(appended)
+    assert child is not None
+    assert child.status == "aborted"
+    assert [turn.state for turn in _replay(store, conversation_id)] == ["cancelled"]

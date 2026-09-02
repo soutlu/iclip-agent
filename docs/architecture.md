@@ -152,11 +152,21 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 
 **一条 WebSocket 管多段对话**（`WS /ws`，不带对话 id）：订哪几段由客户端逐帧 `subscribe_v2` 说，每段各挂一个监听器、各 pin 一次、各记一份水位，发出去的每一帧带 `session_id` 供客户端分流。建连时只核登录与 `agent:run`，**每次订阅再核这段对话看不看得见**（看不见与不存在同一个待遇，回执里 `not_found`，整条连接不动）。
 
-**运行驱动**（`harness/transcript/runner.py`）是唯一知道「这段对话此刻有没有在跑」的地方，停止、插话、审批三条人机往返都归它：停止走官方 `CancellationToken`（不是 `task.cancel()`——外部取消是 `BaseException`，官方的收尾分支接不住，终态操作发不出去），审批走 `HandleDeferredToolCalls` 在同一次 run 内 await。
+**运行驱动**（`harness/transcript/runner.py`）是唯一知道「这段对话此刻有没有在跑」的地方，停止、插话、审批三条人机往返都归它：停止走官方 `CancellationToken`（不是 `task.cancel()`——外部取消是 `BaseException`，官方的收尾分支接不住，终态操作发不出去）。
 
 **插话**用一个 capability 在 `before_run` 接住这次 run 的 `ctx`，到达时当场 `ctx.enqueue(priority='asap')`。不先攒着等下一次模型请求：官方第二道 drain 在 run 本来要结束时把晚到的 asap 捞出来做一次 redirect，攒着的那条压根没进官方队列，捞不到。一条插话要么进这次 run、要么退回 `queued`——run 收场时清扫一遍官方队列里没被读走的；用户按了停止时不退回，跟着这一轮一起撤销。递进去的那几条按 `run_id` 挂在这一轮下面，结局与它相同。
 
-**prompt 队列**（`agent_runtime.prompts`）落库，不待在进程内存：「一段对话同时只跑一条」由部分唯一索引挡住，不靠先查后写，而实时状态是每 worker 一份、互相看不见。`steered` 是内部状态，对外一律报 `running`——协议的状态联合里没有这个值。
+**prompt 队列**（`agent_runtime.prompts`）落库，不待在进程内存：「一段对话同时只跑一条」由部分唯一索引挡住，不靠先查后写，而实时状态是每 worker 一份、互相看不见。`steered` 与 `awaiting` 是内部状态，对外一律报 `running`——协议的状态联合里没有这两个值。
+
+**审批是 run 的结束点，不是 run 内的等待**（[adr/0006](adr/0006-durable-runs.md) 决策 4）。要审批的工具只挂顶层 agent，它的 `output_type` 是 `[str, DeferredToolRequests]`，子代理保持 `str`。一次 run 以 `DeferredToolRequests` 结束时：
+
+- 运行驱动把此刻的 `all_messages()` 经官方 `StepStore` 协议的 `save_snapshot` 存成 `interrupted` 快照。官方 `StepPersistence` 这一刻不存（未闭合的工具调用过不了它那道门槛），文档写明由调用方持久化；写进同一张表，续跑那侧照旧用 `latest_conversation_snapshot(include_interrupted=True)` 读回来。
+- prompt 置内部状态 `awaiting` 并放掉租约；每处以 `running` 判「占着」的地方都把它算进去（含库上那道部分唯一索引），而心跳与清扫只看 `running`——等审批没有租约，不算中断。
+- 实时那一轮原样留着不交接：轮仍 `running`、审批卡仍待回应，「这段对话在忙什么」正是从这两样算出来的。
+- 人点的头记在 `prompts.decisions`（`{toolCallId: 是否放行}`）上，同值重复提交照原样收下、改主意是 409。一次响应里全部审批都有决定之后 CAS `awaiting → running` 并起续跑 run，带 `deferred_tool_results` 且**不**走 `_close_out`——官方要求这时给出的结果覆盖前沿全部可执行调用，已经执行过的那几次它按末尾那条请求里的返回自动标成跳过。续跑画进同一轮，`attempt` 不加。
+- 等待期间插话回 409，新 prompt 排队；撤销把行标 `aborted`，运行驱动把实时那一轮收成取消（审批卡取消、没等到返回的工具卡收成错）再交接放手，随后队首顶上来。悬空的那次调用由下一条 prompt 起 run 时的 `_close_out` 收掉。
+
+历史侧判定一条调用是审批的规则：某一段**干净收尾**（官方记下 `run_completed`）却在末尾那条响应上留着没有结果的调用——只有以 `DeferredToolRequests` 结束才是这个形状。它的结局看同一轮后一段第一条请求里的返回（`denied` 是拒了，其余是放行；收尾补的 `failed` / `interrupted` 不算，那是崩溃续跑把前沿收掉）；还开着的按那条 prompt 的状态定：等审批或已起续跑 → 卡留在 `running`、交互待回应、轮 `running`，撤销 → 轮 `cancelled`、卡收成错、交互已取消，失败 → 轮 `failed`。
 
 **在跑的那条行由租约认领。** 行上四列：`locked_by` 是进程启动时铸的 id，`heartbeat_at` 由持租的那个进程按周期刷新，`interrupt_reason` 写下失去租约的那句事实，`attempt` 记它被重新认领过几次；时间一律取数据库时钟。周期与次数上限由 `config.yaml` 的 `agent_runs` 段给出（`heartbeat_seconds` / `lease_seconds` / `sweep_seconds` / `max_attempts`，租约必须长于心跳，不然装配期报错）。`finish` 与 `attach_run` 都带 `locked_by` 这道 fence，改不动就是租约已经易手，结局由接手那一方定；持租的一方刷不到自己的心跳时，就地按第一方取消停掉那一轮。
 
@@ -204,6 +214,8 @@ iclip.generation_jobs ◀────────────────┤    
 运行 id 由运行驱动铸（`{agent id}-{短 uuid}`）并交给引擎，于是它同时是消息上的 `run_id` 与阶段账本的主键——**顶层 agent 的 `StepPersistence` 因此不设 `agent_name`**：设了官方就自己铸一个，与消息上的对不上，轮的终态就查不出来。下属留着名字，它们不进 transcript。
 
 消息 id（`prompt_id`）由客户端铸，用来认领自己的乐观气泡；同一段对话里重发同一个不会多起一次运行。
+
+**一段对话「在忙什么」由两份事实合成**（定义见 CONTEXT.md「对话」）：库里那条占着的 prompt（`running` 或 `awaiting` 都是忙，`awaiting` 另带一件待人处理的审批），与实时状态算出来的那一份（它更细，提问也算待人处理），取更忙的那一边。只看实时状态不行——它是每 worker 一份的进程内存，重启之后是空的。推送那一帧仍由实时状态变化触发，帧本来就是易失的，重连后按列表重拉对齐。
 
 **运行记录（`agent_runtime.runs`）不加指向 `conversations` 的外键**，两边靠 `conversation_id` 字段对上，有索引。`agent_runtime.prompt_runs` 同样不加外键，靠 `run_id` 与消息上盖的那个对上。
 

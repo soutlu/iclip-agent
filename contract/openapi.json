@@ -5853,7 +5853,7 @@
     },
     "/conversations/{conversation_id}/interactions/{interaction_id}": {
       "post": {
-        "description": "对一张审批卡点同意或拒绝。工具就在同一次运行里等着这个回话。",
+        "description": "对一张审批卡点同意或拒绝。\n\n决定记下就返回 204：那次运行已经以「等审批」结束了，凑齐这一批之后服务端自己起续跑。\n重复点同一个决定照样 204；改主意是 409；卡不在等回应的那几张里是 404。",
         "operationId": "approve_conversations__conversation_id__interactions__interaction_id__post",
         "parameters": [
           {
