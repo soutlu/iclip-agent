@@ -42,6 +42,7 @@ from iclip.platform.transcript.display import (
     GenericDisplay,
     SearchDisplay,
     ToolDisplay,
+    ToolDisplayEntry,
 )
 
 CAPABILITY_ID: Final = "workspace"
@@ -109,17 +110,19 @@ class Workspace(AbstractCapability[AgentDepsT]):
     def get_instructions(self) -> AgentInstructions[AgentDepsT] | None:
         return _GUIDANCE
 
-    def display_table(self) -> Mapping[str, DisplayFn]:
-        """这六件工具的卡怎么画。组合根装配期取一次，合进那份注册表。"""
+    def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]:
+        """这六件工具的卡怎么画、结果用哪个渲染器画。组合根装配期取一次，合进那份注册表。"""
 
         return {
-            "read_file": lambda args: _file_io("read", _text(args, "path")),
+            "read_file": ToolDisplayEntry(
+                draw=lambda args: _file_io("read", _text(args, "path")), view="file_content"
+            ),
             "write_file": lambda args: _file_io("write", _text(args, "path")),
             "edit_file": lambda args: _file_io("edit", _text(args, "path")),
             # 列目录按 glob 画；协议的 operation 联合里没有「删」，删文件走 generic。
             "list_files": lambda args: _file_io("glob", _text(args, "prefix") or "/"),
             "delete_file": _delete_display,
-            "search_files": _search_display,
+            "search_files": ToolDisplayEntry(draw=_search_display, view="search_results"),
         }
 
     @classmethod

@@ -43,6 +43,7 @@ from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.display import (
     FileIoDisplay,
     ToolDisplay,
+    ToolDisplayEntry,
     ToolDisplayRegistry,
 )
 from iclip.platform.transcript.ops import MAIN_AGENT_ID, TranscriptTurn
@@ -57,8 +58,13 @@ CONVERSATION = "conv-1"
 PROMPT = "帮我把 README 翻译成英文"
 RUN = "run-a"
 
-DISPLAYS = ToolDisplayRegistry.merged({"Read": _read_display})
-"""两条路都收这一份。都用默认的空注册表时，卡上的画法比对会平凡地通过。"""
+DISPLAYS = ToolDisplayRegistry.merged(
+    {"Read": ToolDisplayEntry(draw=_read_display, view="file_content")}
+)
+"""两条路都收这一份。都用默认的空注册表时，卡上的画法与渲染器比对会平凡地通过。"""
+
+MEDIA_GRID = {"items": [{"url": "https://cdn.test/s1-1.jpg", "caption": "S1-1"}]}
+"""给人看的那份结果。造成 dict 而不是模型对象：历史那侧从库里解出来的就是 dict。"""
 
 
 def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
@@ -77,9 +83,12 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
                             getattr(frame, "text", None),
                             getattr(frame, "role", None),
                             getattr(frame, "state", None),
-                            # 工具卡整张比：参数与画法在结局到达时最容易被漏掉，而漏了不报错。
+                            # 工具卡整张比：参数、画法、渲染器与给人看的那份在结局到达时最容易
+                            # 被漏掉，而漏了不报错。
                             getattr(frame, "input", None),
                             getattr(frame, "display", None),
+                            getattr(frame, "view", None),
+                            getattr(frame, "metadata", None),
                         )
                         for frame in step.frames
                     ],
@@ -190,6 +199,51 @@ async def test_thinking_then_text_then_tool_matches() -> None:
     )
     # 钉住画出来的不是兜底那张：两条路都退成 generic 时上面那句照样成立。
     assert getattr(live_card, "display", None) == FileIoDisplay(operation="read", path="/README.md")
+    assert _skeleton(live) == _skeleton(derived)
+
+
+@pytest.mark.anyio
+async def test_the_result_for_people_lands_on_the_same_card_on_both_paths() -> None:
+    """``ToolReturn.metadata`` 原样进帧：实时那侧从事件上的 part 读，历史那侧从落库的 part 读。"""
+
+    call = ToolCallPart(tool_name="Read", args={"path": "/a.md"}, tool_call_id="c1")
+    live = await _project(
+        [
+            # 只有工具调用的一次响应也先流出它那块 part：这一步就是在这里开出来的，没有它
+            # 投影器会把后面的派活当成上一轮遗留的调用丢掉。
+            PartStartEvent(index=0, part=call),
+            PartEndEvent(index=0, part=call),
+            FunctionToolCallEvent(part=call),
+            FunctionToolResultEvent(
+                part=ToolReturnPart(
+                    tool_name="Read", content="出好了", tool_call_id="c1", metadata=MEDIA_GRID
+                )
+            ),
+            PartStartEvent(index=0, part=TextPart(content="")),
+            PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="好了")),
+            PartEndEvent(index=0, part=TextPart(content="好了")),
+        ]
+    )
+    derived = _derive(
+        _messages(
+            ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
+            ModelResponse(parts=[call], run_id=RUN, timestamp=_at(1)),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="Read", content="出好了", tool_call_id="c1", metadata=MEDIA_GRID
+                    )
+                ],
+                run_id=RUN,
+                timestamp=_at(2),
+            ),
+            ModelResponse(parts=[TextPart(content="好了")], run_id=RUN, timestamp=_at(3)),
+        )
+    )
+
+    live_card = next(frame for frame in live[0].steps[0].frames if frame.kind == "tool")
+    # 钉住比的不是两边都空：漏了字段时上面那句照样成立。
+    assert (live_card.view, live_card.metadata) == ("file_content", MEDIA_GRID)
     assert _skeleton(live) == _skeleton(derived)
 
 

@@ -482,6 +482,7 @@ def _open_frames(
                 state="running",
                 input=part.args,
                 display=display.tool_display(part.tool_name, part.args),
+                view=display.view_of(part.tool_name),
             )
             tool_frames[part.tool_call_id] = frame_id
 
@@ -506,6 +507,7 @@ def _settle_tools(
                 frames_by_step,
                 state=state,
                 output=part.content,
+                metadata=part.metadata,
                 error=None if state == "done" else str(part.content),
             )
         elif isinstance(part, RetryPromptPart):
@@ -515,6 +517,7 @@ def _settle_tools(
                 frames_by_step,
                 state="error",
                 output=None,
+                metadata=None,
                 error=str(part.content),
             )
 
@@ -598,6 +601,7 @@ def _close_orphan_tools(
                     frames_by_step,
                     state="error",
                     output=None,
+                    metadata=None,
                     error=ORPHAN_TOOL_ERROR,
                 )
                 break
@@ -610,6 +614,7 @@ def _replace_tool(
     *,
     state: Literal["done", "error"],
     output: object,
+    metadata: object,
     error: str | None,
 ) -> None:
     frame_id = tool_frames.get(tool_call_id)
@@ -619,7 +624,7 @@ def _replace_tool(
         existing = step_frames.get(frame_id)
         if isinstance(existing, ToolFrame):
             step_frames[frame_id] = existing.model_copy(
-                update={"state": state, "output": output, "error": error}
+                update={"state": state, "output": output, "metadata": metadata, "error": error}
             )
             return
 

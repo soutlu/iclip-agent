@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, TypedDict, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
@@ -84,6 +84,24 @@ DisplayFn = Callable[[Any], ToolDisplay | None]
 ``None``，由注册表退回 ``generic``。"""
 
 
+class MediaGridItem(TypedDict):
+    """媒体墙上的一张：地址加一句标题。"""
+
+    url: str
+    caption: str
+
+
+class MediaGridItems(TypedDict):
+    """一件出图 / 拼板工具给人看的结果，配 ``view="media_grid"``。
+
+    是 TypedDict 而不是 pydantic 模型：这份东西要经 ``ToolReturn.metadata`` 落库再读回来，实时
+    那条路拿到的是工具刚造出来的对象、历史那条路拿到的是从库里解出来的。模型对象与 dict 比不
+    相等，两条路会当场分叉，而分叉不报错。
+    """
+
+    items: list[MediaGridItem]
+
+
 def _as_mapping(args: Any) -> Any:
     """参数在消息里可能是 JSON 字串（模型逐字发出来的那份）。解不出来按「没有参数」处理。"""
 
@@ -96,6 +114,14 @@ def _as_mapping(args: Any) -> Any:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolDisplayEntry:
+    """一件工具登记的两样东西：卡怎么画，结果用哪个渲染器画。"""
+
+    draw: DisplayFn
+    view: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ToolDisplayRegistry:
     """全部工具的画法。
 
@@ -103,7 +129,7 @@ class ToolDisplayRegistry:
     长相，而且不报错。
     """
 
-    entries: Mapping[str, DisplayFn]
+    entries: Mapping[str, ToolDisplayEntry]
 
     EMPTY: ClassVar[ToolDisplayRegistry]
     """一张都没登记。测试的 helper 用它，生产的两条路都要拿真的那一份。"""
@@ -111,23 +137,36 @@ class ToolDisplayRegistry:
     def tool_display(self, name: str, args: Any) -> ToolDisplay:
         """这件工具这一次调用该画成什么。查不到、或者算不出来都退回 ``generic``。"""
 
-        draw = self.entries.get(name)
-        if draw is not None:
-            display = draw(_as_mapping(args))
+        entry = self.entries.get(name)
+        if entry is not None:
+            display = entry.draw(_as_mapping(args))
             if display is not None:
                 return display
         return GenericDisplay(summary=name)
 
-    @staticmethod
-    def merged(*tables: Mapping[str, DisplayFn]) -> ToolDisplayRegistry:
-        """把各能力的表合成一份。同一件工具在两张表里出现即装配期报错。"""
+    def view_of(self, name: str) -> str | None:
+        """这件工具的结果用哪个渲染器画。没登记就不给，前端走 generic。"""
 
-        entries: dict[str, DisplayFn] = {}
+        entry = self.entries.get(name)
+        return None if entry is None else entry.view
+
+    @staticmethod
+    def merged(*tables: Mapping[str, DisplayFn | ToolDisplayEntry]) -> ToolDisplayRegistry:
+        """把各能力的表合成一份。同一件工具在两张表里出现即装配期报错。
+
+        只给画法不给渲染器的表照收：多数工具的结果没有专门的渲染器。
+        """
+
+        entries: dict[str, ToolDisplayEntry] = {}
         for table in tables:
-            for name, draw in table.items():
+            for name, registered in table.items():
                 if name in entries:
                     raise ValueError(f"工具 {name!r} 的画法登记了两遍；一件工具只归一个能力。")
-                entries[name] = draw
+                entries[name] = (
+                    registered
+                    if isinstance(registered, ToolDisplayEntry)
+                    else ToolDisplayEntry(draw=registered)
+                )
         return ToolDisplayRegistry(entries)
 
 
@@ -138,7 +177,7 @@ ToolDisplayRegistry.EMPTY = ToolDisplayRegistry({})
 class ToolDisplaySource(Protocol):
     """自带一张 display 表的能力。组合根按它挑出该合进注册表的那些。"""
 
-    def display_table(self) -> Mapping[str, DisplayFn]: ...
+    def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]: ...
 
 
 __all__ = [
@@ -146,9 +185,12 @@ __all__ = [
     "DisplayFn",
     "FileIoDisplay",
     "GenericDisplay",
+    "MediaGridItem",
+    "MediaGridItems",
     "SearchDisplay",
     "SkillCallDisplay",
     "ToolDisplay",
+    "ToolDisplayEntry",
     "ToolDisplayRegistry",
     "ToolDisplaySource",
     "UrlFetchDisplay",

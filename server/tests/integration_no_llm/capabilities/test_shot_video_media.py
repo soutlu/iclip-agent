@@ -15,11 +15,12 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import httpx
 import pytest
 from pydantic_ai import ModelRetry
-from pydantic_ai.messages import ImageUrl, ModelRequest, UserPromptPart
+from pydantic_ai.messages import ImageUrl, ModelRequest, ToolReturn, UserPromptPart
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
@@ -277,6 +278,14 @@ async def test_cut_scales_detection_back_to_full_resolution(media: dict[str, byt
 # ── 取帧：整片按秒抽、分板、落账本 ──────────────────────────────────────────
 
 
+def model_facing(result: ToolReturn[dict[str, Any]]) -> dict[str, Any]:
+    """成功那次给模型的那份返回。官方把 ``return_value`` 标成内容联合，不随泛型参数收窄。"""
+
+    payload = result.return_value
+    assert isinstance(payload, dict)
+    return payload
+
+
 async def test_plan_extracts_every_second_and_boards_them(media: dict[str, bytes]) -> None:
     """3 秒的片子按秒抽帧：两个镜头共 3 个栅格点，同一个结构层级拼成一张板。"""
 
@@ -291,7 +300,11 @@ async def test_plan_extracts_every_second_and_boards_them(media: dict[str, bytes
     finally:
         await client.aclose()
 
-    assert len(result["boards"]) == 1
+    assert isinstance(result, ToolReturn)
+    boards = model_facing(result)["boards"]
+    assert len(boards) == 1
+    # 给人看的那份：一板一张缩略图，标题带板号与镜头号；模型看不到它。
+    assert result.metadata == {"items": [{"url": boards[0]["url"], "caption": "板 1 · 1,2"}]}
     assert len(objects.written) == 1
     stored = await files.read(NAMESPACE, EXTRACTION_PATH)
     assert stored is not None
@@ -317,7 +330,8 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
     finally:
         await client.aclose()
 
-    assert "复用既有账本" in again["message"]
+    assert isinstance(again, ToolReturn)
+    assert "复用既有账本" in model_facing(again)["message"]
     assert len(objects.written) == 1
 
 
@@ -383,12 +397,18 @@ async def test_generate_cuts_the_grid_and_records_the_batch(media: dict[str, byt
     finally:
         await client.aclose()
 
-    assert result["status"] == "done"
-    assert [frame["no"] for frame in result["frames"]] == ["S1-1", "S2-1"]
-    assert [frame["shot"] for frame in result["frames"]] == [1, 2]
+    assert isinstance(result, ToolReturn)
+    payload = model_facing(result)
+    assert payload["status"] == "done"
+    assert [frame["no"] for frame in payload["frames"]] == ["S1-1", "S2-1"]
+    assert [frame["shot"] for frame in payload["frames"]] == [1, 2]
     assert len(objects.written) == boards_written + 2
+    # 给人看的那份：一帧一张缩略图，按帧号顺序，标题就是帧号。
+    assert result.metadata == {
+        "items": [{"url": frame["url"], "caption": frame["no"]} for frame in payload["frames"]]
+    }
 
-    stored = await files.read(NAMESPACE, result["record"])
+    stored = await files.read(NAMESPACE, payload["record"])
     assert stored is not None
     record = json.loads(stored.content)
     assert record["gridUrl"] == GRID_URL
@@ -413,6 +433,8 @@ async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked
     finally:
         await client.aclose()
 
+    # 失败没有图可给人看：照旧是 dict，不裹 ToolReturn。
+    assert isinstance(result, dict)
     assert result["status"] == "failed"
     assert result["frames"] == []
     assert "取不到素材" in result["error"]
@@ -439,6 +461,7 @@ async def test_generate_reports_unstored_frames_without_calling_the_generation_f
     finally:
         await client.aclose()
 
+    assert isinstance(result, dict)
     assert result["status"] == "failed"
     assert result["frames"] == []
     assert "生成失败" not in result["message"]
@@ -460,6 +483,7 @@ async def test_anchor_sheet_reports_unstored_cells_the_same_way(media: dict[str,
     finally:
         await client.aclose()
 
+    assert isinstance(result, dict)
     assert result["status"] == "failed"
     assert result["images"] == []
     assert "生成失败" not in result["message"]
@@ -487,11 +511,20 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
     finally:
         await client.aclose()
 
-    assert result["status"] == "done"
-    assert [image["index"] for image in result["images"]] == [1, 2]
+    assert isinstance(result, ToolReturn)
+    payload = model_facing(result)
+    assert payload["status"] == "done"
+    assert [image["index"] for image in payload["images"]] == [1, 2]
     assert len(objects.written) == 2
+    # 给人看的那份：一格一张缩略图，标题是那一格的描述（模型那份里只有序号与地址）。
+    assert result.metadata == {
+        "items": [
+            {"url": payload["images"][0]["url"], "caption": "全身正面平视的女性"},
+            {"url": payload["images"][1]["url"], "caption": "空景全景平视的门厅"},
+        ]
+    }
 
-    stored = await files.read(NAMESPACE, result["record"])
+    stored = await files.read(NAMESPACE, payload["record"])
     assert stored is not None
     record = json.loads(stored.content)
     assert record["gridUrl"] == GRID_URL

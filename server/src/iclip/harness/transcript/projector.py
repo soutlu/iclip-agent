@@ -354,6 +354,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             state="running",
             input=event.part.args,
             display=self.display.tool_display(event.part.tool_name, event.part.args),
+            view=self.display.view_of(event.part.tool_name),
             approval_id=None if opened is None else opened.approval_id,
         )
         # 记着这张卡：结局到达时是整张替换掉（协议的 frame.upsert 不是合并），参数与画法得
@@ -378,16 +379,24 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             return
         self._settled_calls.add(part.tool_call_id)
         if isinstance(part, RetryPromptPart):
-            state, output, error = "error", None, str(part.content)
+            state, output, metadata, error = "error", None, None, str(part.content)
         else:
             state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
             output = part.content
+            metadata = part.metadata
             error = None if state == "done" else str(part.content)
         yield (
             FrameUpsertOp(
                 turn_id=self.turn_id,
                 step_id=self._step_id,
-                frame=opened.model_copy(update={"state": state, "output": output, "error": error}),
+                frame=opened.model_copy(
+                    update={
+                        "state": state,
+                        "output": output,
+                        "metadata": metadata,
+                        "error": error,
+                    }
+                ),
             ),
         )
 

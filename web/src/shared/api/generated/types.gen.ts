@@ -1737,6 +1737,10 @@ export type ToolFrame = {
    */
   kind?: 'tool'
   /**
+   * Metadata
+   */
+  metadata?: unknown | null
+  /**
    * Name
    */
   name: string
@@ -1752,6 +1756,10 @@ export type ToolFrame = {
    * Toolcallid
    */
   toolCallId: string
+  /**
+   * View
+   */
+  view?: string | null
 }
 
 /**
