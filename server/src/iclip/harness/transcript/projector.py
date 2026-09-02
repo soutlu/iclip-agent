@@ -26,6 +26,7 @@ from typing import Any
 
 from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
+    INTERRUPTED_TOOL_RETURN_CONTENT,
     DeferredToolRequestsEvent,
     DeferredToolResultsEvent,
     EnqueuedMessagesEvent,
@@ -101,8 +102,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     """这一轮用户附上的东西。实体本身由驱动那一层先落进实时状态，轮头部只带 id。"""
     resume_from: TranscriptTurn | None = None
     """续跑时这一轮的现状，由历史那一侧推出来。给了它就按它播种，新步从末步之后接着开。"""
-    resume_prompt: str | None = None
-    """续跑的触发语。它进了模型上下文，所以也要显示出来。"""
+    repaired_calls: tuple[str, ...] = ()
+    """崩溃续跑时官方直接补上 ``interrupted`` 返回、不发事件的那几次调用（见 ``runner``）。"""
 
     _started_at: str = field(default_factory=_now, init=False)
     _step_ordinal: int = field(default=0, init=False)
@@ -144,9 +145,9 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             return
         last = turn.steps[-1]
         self._frame_ids = [frame.frame_id for frame in last.frames]
-        # 只认还没有真结局的那几张卡：崩溃续跑起手给它们补一份失败结果（见
-        # ``runner._close_out``），审批续跑则带着决定去执行它们。两种情形下结局都要改在原卡上，
-        # 不记着就会另建一张，两条路当场分叉。
+        # 只认还没有真结局的那几张卡：审批续跑带着决定去执行它们，崩溃续跑里官方要么把它们重新
+        # 执行、要么补上 ``interrupted`` 返回（见 ``repaired_calls``）。结局一律改在原卡上，不记着
+        # 就会另建一张，两条路当场分叉。
         self._tool_cards = {
             frame.tool_call_id: frame
             for frame in last.frames
@@ -170,20 +171,13 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     # --- 一轮的开合 ---------------------------------------------------------
 
     async def before_stream(self) -> AsyncIterator[OpsBatch]:
-        """开一轮。续跑的步与块已经由播种那一批写过，这里只发轮头部与触发语。"""
+        """开一轮。续跑的步与块已经由播种那一批写过，这里只发轮头部与官方补掉的那几张卡。"""
 
-        ops: list[EmittableOperation] = [
+        yield (
             TurnUpsertOp(turn=self._turn_header(state="running")),
             MetaMergeOp(meta=TranscriptMeta(activity="turn")),
-        ]
-        if self.resume_prompt is not None:
-            # 挂在末步末尾，与 ``from_messages`` 对「后一段开头那句用户消息」的规则一致。播种的那
-            # 一轮没有步时先攒着（发出去会挂在一个不存在的步上，整批操作直接丢掉）。
-            if self._step_ordinal == 0:
-                self._pending_steers.append(self.resume_prompt)
-            else:
-                ops.extend(self._user_frame(self.resume_prompt))
-        yield tuple(ops)
+            *self._repaired_card_ops(),
+        )
 
     async def after_stream(self) -> AsyncIterator[OpsBatch]:
         if self._cancelled is not None or self._closed_with_error:
@@ -336,10 +330,13 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
 
         逐字到达的参数增量不建卡——那条路上参数还是半截的，两边会对不上。
 
-        **第一步还没开出来就到的调用不是这一轮的。** 上一轮留下没有结果的调用，是靠起 run 时给它
-        补一份结果收掉的（``runner._close_out``），补的那一份会在这一轮的第一次模型响应之前作为
-        事件走一遍。给它建卡的话，上一轮的调用会在这一轮里凭空长出一张工具卡，而消息历史那侧把
-        它算在上一轮——两条路当场分叉。真正属于这一轮的调用一定跟在某次模型响应后面。
+        **第一步还没开出来就到的调用不是这一轮的。** 一条新消息撞上上一轮遗留的开放调用时，是靠
+        起 run 时给它补一份结果收掉的（``runner._close_out``），那份结果会在这一轮的第一次模型响应
+        之前作为事件走一遍。给它建卡的话，上一轮的调用会在这一轮里凭空长出一张工具卡，而消息历史
+        那侧把它算在上一轮——两条路当场分叉。真正属于这一轮的调用一定跟在某次模型响应后面。
+
+        续跑不落在这道守卫里：那种轮播种过，步号从末步起算，官方重新执行的那几次调用照旧改在原
+        卡上（``interrupted`` 返回那条形状压根不发事件，见 ``repaired_calls``）。
         """
 
         if self._step_ordinal == 0:
@@ -367,9 +364,10 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     ) -> AsyncIterator[OpsBatch]:
         """把结局回填到这一轮派出去的那张卡上。
 
-        **这一轮没派过的调用一概不管。** 上一轮留下没有结果的调用，是靠起 run 时给它补一份结果
-        收掉的（``runner._close_out``），那份结果会作为事件在这一轮到达。给它建一张卡的话，上一
-        轮的调用会在这一轮里凭空长出一张工具卡——而消息历史那侧把它算在上一轮，两条路当场分叉。
+        **这一轮没派过的调用一概不管。** 一条新消息撞上上一轮遗留的开放调用时，是靠起 run 时给它
+        补一份结果收掉的（``runner._close_out``），那份结果会作为事件在这一轮到达。给它建一张卡的
+        话，上一轮的调用会在这一轮里凭空长出一张工具卡——而消息历史那侧把它算在上一轮，两条路当场
+        分叉。续跑那几张卡是播种时接过来的，所以认得出，结局改在原卡上。
         """
 
         part = event.part
@@ -532,6 +530,36 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
                     turn_id=self.turn_id,
                     step_id=step_id,
                     frame=card.model_copy(update={"state": "error", "error": ORPHAN_TOOL_ERROR}),
+                )
+            )
+        return ops
+
+    def _repaired_card_ops(self) -> list[EmittableOperation]:
+        """官方在末尾那条中断的请求里补上返回的那几次调用：没有事件到达，开轮时就地把卡收掉。
+
+        不按卡上的状态挑：播种时它可能还是 ``running``，也可能已经被历史那侧收成「运行中断」的
+        错误，两种都要改成官方那份返回的形状（文字取官方常量），否则刷新前后卡上的字不一样。
+        """
+
+        ops: list[EmittableOperation] = []
+        for tool_call_id in self.repaired_calls:
+            card = self._tool_cards.get(tool_call_id)
+            if card is None:
+                continue
+            settled = card.model_copy(
+                update={
+                    "state": "error",
+                    "output": INTERRUPTED_TOOL_RETURN_CONTENT,
+                    "error": INTERRUPTED_TOOL_RETURN_CONTENT,
+                }
+            )
+            self._tool_cards[tool_call_id] = settled
+            self._settled_calls.add(tool_call_id)
+            ops.append(
+                FrameUpsertOp(
+                    turn_id=self.turn_id,
+                    step_id=card.frame_id[: -len(tool_call_id) - 1],
+                    frame=settled,
                 )
             )
         return ops

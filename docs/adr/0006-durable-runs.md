@@ -36,7 +36,7 @@
 
 ### 3. 续跑是从最新快照新起一次 run
 
-- 老 `run_id` 出现在最新快照里：新 `run_id`、同 `prompt_id`，`user_prompt` 是固定的续跑触发语，悬空的工具调用用 `deferred_tool_results` 给 `ToolFailed(INTERRUPTED)` 收掉（官方留给调用方的口子）。触发语进模型上下文，在 transcript 里显示为 `role: user` 的文字帧，与插话同形。
+- 老 `run_id` 出现在最新快照里：新 `run_id`、同 `prompt_id`，**不发新的用户消息**，`deferred_tool_results` 也不传，按官方续跑语义接着跑：历史末尾是完整的请求就原样重发；末尾是标着 `interrupted` 的请求，官方把没有返回的调用补成 `interrupted` 返回；末尾是带调用的响应，官方把那些调用重新执行。起跑前读一次 `list_unresolved_tool_effects` 记日志。transcript 里没有触发语帧；官方补的返回在实时那一侧由投影器开轮时按同一形状写到原卡上。
 - 老 `run_id` 不在快照里（崩在第一个周期完成前）：用原 content 重跑，同 `prompt_id`、新 `run_id`。
 - `run_id` 不复用：官方要求每次续跑一个新 id，`runs` 表主键也不允许。
 
@@ -47,11 +47,11 @@
 - `awaiting` 对外报 `running`（与 `steered` 同一做法，协议的状态联合不变）；`prompts.py` 里每处以 `running` 判「占着」的地方都把 `awaiting` 算进去。
 - 审批决定记在 prompt 行上；一条响应里全部审批调用都有决定后，CAS `awaiting → running` 并起续跑 run（`deferred_tool_results` 带决定）。两次点击或两个副本只有一个能起。
 - `awaiting` 期间插话回 409，新 prompt 排队，撤销把行标 `aborted`。
-- 历史侧判定一条调用是审批的规则：某次 run **干净收尾**（官方记下 `run_completed`）却在末尾那条响应上留着没有结果的调用——只有以 `DeferredToolRequests` 结束才是这个形状；崩在工具执行中途留下的形状一样，但那次 run 没有干净收尾。结局看同一 prompt 后一次 run 首条请求里的返回：`denied` 是拒了，其余是放行；收尾补的 `failed` / `interrupted` 不算，那是崩溃续跑把前沿收掉。
+- 历史侧判定一条调用是审批的规则：某次 run **干净收尾**（官方记下 `run_completed`）却在末尾那条响应上留着没有结果的调用——只有以 `DeferredToolRequests` 结束才是这个形状；崩在工具执行中途留下的形状一样，但那次 run 没有干净收尾。结局看同一 prompt 后一次 run 首条请求里的返回：`denied` 是拒了，其余是放行；补上的 `failed` / `interrupted` 不算——前者是新消息进来之前把前沿收掉，后者是崩溃续跑时官方自己补的。
 
 ## 取舍
 
-- **接受有副作用的工具 at-least-once。** 续跑后模型看到 `ToolFailed(INTERRUPTED)` 可能再叫一次出图。`tool_effects` 里停在 `started` 的记录是 unknown_after_crash 信号；生成域自己的 `submitting` 守卫只保护同一个 job。
+- **接受有副作用的工具 at-least-once。** 官方续跑会重新执行前沿的调用、或让模型看到 `interrupted` 返回后再叫一次；去重归工具与它所属的领域。`tool_effects` 里停在 `started` 的记录是 unknown_after_crash 信号；生成域自己的 `submitting` 守卫只保护同一个 job。
 - **接受中断后自动续跑一次会花钱。** `max_attempts` 默认 2；配置只有一份，开发时 `--reload` 下每次存文件都是一次优雅关停，若有运行在飞也会续跑一次。配成 1 等于只判失败。这推翻 ADR-0005 与原 `discard_stale` 里「重启后不自己花钱调模型」的判断。
 - **接受往官方 `snapshots` 表多写一份。** 官方 `StepPersistence` 在 run 以 `DeferredToolRequests` 结束时不存快照（未闭合的工具调用过不了它的门槛），文档写明由调用方持久化。写进同一张表是为了让官方的 `latest_snapshot(include_interrupted=True)` 原样读回，续跑代码不分叉。用的是协议里公开的方法。
 - **接受 transcript 的分组拴回一张表。** 消息里只有 `run_id`，没有轮的概念，多次 run 合成一轮只能靠 `prompt_runs`。原先「不按表排」的理由作废。

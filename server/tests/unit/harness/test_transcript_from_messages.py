@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from pydantic_ai.messages import (
+    INTERRUPTED_TOOL_RETURN_CONTENT,
     ImageUrl,
     ModelRequest,
     ModelResponse,
@@ -264,7 +265,7 @@ def test_two_runs_become_two_turns_in_time_order() -> None:
 def _resumed() -> list[ModelRequest | ModelResponse]:
     """一条 prompt 跨两次 run 的消息：``r1`` 断在一次工具调用上，``r2`` 从那里续跑。
 
-    续跑那次 run 的第一条请求里有两样东西：给悬空调用补的那份失败返回，和固定的续跑触发语。
+    续跑那次 run 的第一条请求里有两样东西：给悬空调用补的那份返回，和一条跑到一半进来的用户消息。
     """
 
     return [
@@ -366,8 +367,8 @@ def test_a_tool_call_is_settled_by_the_return_in_the_next_run() -> None:
     assert card.error == "运行中断"
 
 
-def test_the_resume_prompt_lands_on_the_previous_step() -> None:
-    """续跑触发语按「轮中间的用户消息」处理：挂在前一段末步的末尾，与插话同形。"""
+def test_a_mid_turn_user_message_lands_on_the_previous_step() -> None:
+    """赶在前一段收场那一刻递进去的插话：挂在前一段末步的末尾，与轮中间的插话同形。"""
 
     turns = turns_from_messages(
         _resumed(),
@@ -515,7 +516,7 @@ def test_a_decision_is_read_off_the_return_in_the_next_run() -> None:
 
 
 def test_a_close_out_return_is_not_a_decision() -> None:
-    """崩溃续跑给悬空调用补的那份返回不是人点的头。
+    """新消息进来之前给悬空调用补的那份返回不是人点的头。
 
     判成放行的话，界面会说这次调用被批准执行过，而它根本没跑；反过来，中断的那一段压根不是
     干净收尾，它末尾的开放调用也不该被当成审批。
@@ -553,6 +554,49 @@ def test_a_close_out_return_is_not_a_decision() -> None:
         approvals_from_messages(
             _resumed(),
             turn_states={"r1": "failed", "r2": "completed"},
+            prompt_of_run=_OF_ONE_PROMPT,
+            prompt_status_of_run=_SETTLED,
+        )
+        == ()
+    )
+
+
+def test_an_official_repair_return_is_not_a_decision() -> None:
+    """崩溃续跑时官方给没有返回的调用补上的那份 ``interrupted`` 返回，也不是人点的头。
+
+    形状与等审批一模一样，区别只在那一段有没有干净收尾。判成放行的话，界面会说这次调用被批准
+    执行过，而它根本没跑完。
+    """
+
+    repaired = [
+        *_awaiting(),
+        _returns(
+            ToolReturnPart(
+                tool_name="write_file",
+                content=INTERRUPTED_TOOL_RETURN_CONTENT,
+                tool_call_id="c1",
+                outcome="interrupted",
+            ),
+            run_id="r2",
+            minute=2,
+        ),
+        _reply(TextPart(content="那我重新写一遍"), run_id="r2", minute=3),
+    ]
+    crashed: dict[str, TurnState] = {"r1": "failed", "r2": "completed"}
+    turns = turns_from_messages(
+        repaired, turn_states=crashed, prompt_of_run=_OF_ONE_PROMPT, prompt_status_of_run=_SETTLED
+    )
+
+    card = _card(turns[0])
+    assert (card.state, card.error, card.approval_id) == (
+        "error",
+        INTERRUPTED_TOOL_RETURN_CONTENT,
+        None,
+    )
+    assert (
+        approvals_from_messages(
+            repaired,
+            turn_states=crashed,
             prompt_of_run=_OF_ONE_PROMPT,
             prompt_status_of_run=_SETTLED,
         )
