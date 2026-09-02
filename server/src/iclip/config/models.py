@@ -303,7 +303,7 @@ class ConversationsSection(ConfigSection):
 
 
 class AgentRunsSection(ConfigSection):
-    """agent 运行租约的节奏：在跑的行按心跳续租，失联超过租约即由清扫判失败。"""
+    """agent 运行租约的节奏：在跑的行按心跳续租，中断的由清扫重新认领续跑或判失败。"""
 
     heartbeat_seconds: int = Field(default=10, gt=0)
     """在跑的行每隔多久刷一次心跳。"""
@@ -313,6 +313,9 @@ class AgentRunsSection(ConfigSection):
 
     sweep_seconds: int = Field(default=15, gt=0)
     """每隔多久清扫一次失联的行、并叫醒没人管的队列。"""
+
+    max_attempts: int = Field(default=2, ge=1)
+    """一条 prompt 最多被认领几次。1 等于中断后只判失败，不续跑。"""
 
     @model_validator(mode="after")
     def _lease_outlasts_a_heartbeat(self) -> AgentRunsSection:
@@ -441,6 +444,7 @@ class ResolvedAgentRuns:
     heartbeat_seconds: int
     lease_seconds: int
     sweep_seconds: int
+    max_attempts: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -648,6 +652,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             heartbeat_seconds=config.agent_runs.heartbeat_seconds,
             lease_seconds=config.agent_runs.lease_seconds,
             sweep_seconds=config.agent_runs.sweep_seconds,
+            max_attempts=config.agent_runs.max_attempts,
         ),
         log_level=config.ops.log_level,
     )

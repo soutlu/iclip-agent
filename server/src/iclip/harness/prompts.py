@@ -7,10 +7,11 @@
 在跑。幂等键同理——重发可能打到另一个 worker。``content`` 列只服务同一条命里的接续。
 
 **在跑的那条由租约认领**：``locked_by`` 记的是哪个进程在跑它，``heartbeat_at`` 由那个进程按周期
-刷新，时间一律取数据库时钟。心跳停了超过一个租约，别的进程就把它判失败并写下
-``interrupt_reason``；排着的那些由清扫叫醒（见 ``expire_leases``、``conversations_waiting``）。
-``finish`` 与 ``attach_run`` 都带 ``locked_by`` 这道 fence——租约易手之后它们一行都改不动，结局由
-接手的那一方定。
+刷新，时间一律取数据库时钟。心跳停了超过一个租约、或者关停时被主动释放（``release``）的行，都算
+中断：清扫把它重新认领下来续跑（``claim_interrupted``），``attempt`` 记它被重新认领过几次，到
+``max_attempts`` 就判失败不再续跑（``fail_exhausted``）；排着的那些由清扫叫醒
+（``conversations_waiting``）。``finish`` 与 ``attach_run`` 都带 ``locked_by`` 这道 fence——租约易手
+之后它们一行都改不动，结局由接手的那一方定。
 
 ``steered`` 是**内部状态**，表示这条消息已经递进了某次 run（``run_id`` 记的就是那次），结局跟着
 那一轮走。对外一律报 ``running``：协议的 prompt 状态联合里没有这个值，漏出去客户端整帧被
@@ -31,16 +32,20 @@ from typing import Final, Literal, cast
 from pydantic import TypeAdapter
 from sqlalchemy import (
     Column,
+    ColumnElement,
     Index,
+    Integer,
     MetaData,
     PrimaryKeyConstraint,
     Table,
     Text,
+    and_,
     case,
     exists,
     func,
     insert,
     null,
+    or_,
     select,
     update,
 )
@@ -57,9 +62,6 @@ PromptStatus = Literal["running", "queued", "steered", "blocked", "completed", "
 
 _LIVE: Final = ("running", "queued")
 """还归队列管的那两种：在跑的那条与排着的那些。``steered`` 已经交给运行侧了，不在里面。"""
-
-_LEASE_EXPIRED: Final = "租约过期：运行所在进程已失联"
-"""租约到期时写进 ``interrupt_reason`` 的那句话。"""
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
 
@@ -79,6 +81,8 @@ prompts_table = Table(
     Column("locked_by", Text),
     Column("heartbeat_at", TIMESTAMP(timezone=True)),
     Column("interrupt_reason", Text),
+    # 收下 prompt 的那条 INSERT 不写这一列，默认值由库给。
+    Column("attempt", Integer, nullable=False, server_default="0"),
     PrimaryKeyConstraint("prompt_id"),
     Index(
         "uq_prompts_one_running_per_conversation",
@@ -122,6 +126,8 @@ class PromptRow:
     locked_by: str | None
     heartbeat_at: datetime | None
     interrupt_reason: str | None
+    attempt: int
+    """中断后被重新认领过几次。第一次认领不算在里面。"""
 
     @property
     def text(self) -> str:
@@ -482,23 +488,85 @@ class PromptQueue:
         async with self._engine.begin() as conn:
             return tuple((await conn.execute(stmt)).scalars().all())
 
-    async def expire_leases(self, *, lease_seconds: int) -> tuple[PromptRow, ...]:
-        """心跳停了超过一个租约的在跑行判失败并放掉租约，返回它们。"""
+    async def release(self, prompt_id: str, *, locked_by: str, reason: str) -> None:
+        """放掉自己手上那条的租约，行留在 ``running`` 等人接着跑。
+
+        租约不在自己手上就一行都不动：那一轮已经归接手的那一方了。
+        """
 
         stmt = (
             update(prompts_table)
+            .where(prompts_table.c.prompt_id == prompt_id)
             .where(prompts_table.c.status == "running")
-            .where(prompts_table.c.heartbeat_at < func.now() - timedelta(seconds=lease_seconds))
+            .where(prompts_table.c.locked_by == locked_by)
+            .values(locked_by=None, heartbeat_at=None, interrupt_reason=reason)
+        )
+        async with self._engine.begin() as conn:
+            await conn.execute(stmt)
+
+    async def claim_interrupted(
+        self, *, locked_by: str, lease_seconds: int, max_attempts: int
+    ) -> tuple[PromptRow, ...]:
+        """把中断的行认领下来续跑，返回认领到的那几条。
+
+        第一次认领不计入 ``attempt``，所以拿 ``attempt + 1`` 与 ``max_attempts`` 比：配成 1 就是
+        中断后只判失败、不续跑。
+
+        **自己名下的行不认领。** 事件循环卡过一个租约（长 GC、同步活儿）时，自己在跑的那行也是
+        「心跳落后」的样子；认领它等于同一段对话在同一个进程里起第二次运行，而先起的那一次心跳
+        照样刷得到，谁也不会停下来。``IS DISTINCT FROM`` 是 NULL 安全的，关停释放过的行（
+        ``locked_by`` 为空）照样认得到。
+        """
+
+        stmt = (
+            update(prompts_table)
+            .where(_interrupted(lease_seconds))
+            .where(prompts_table.c.locked_by.is_distinct_from(locked_by))
+            .where(prompts_table.c.attempt + 1 < max_attempts)
             .values(
-                status="failed",
-                finished_at=func.now(),
-                interrupt_reason=_LEASE_EXPIRED,
-                locked_by=None,
+                locked_by=locked_by,
+                heartbeat_at=func.now(),
+                attempt=prompts_table.c.attempt + 1,
             )
             .returning(prompts_table)
         )
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
+    async def fail_exhausted(
+        self, *, lease_seconds: int, max_attempts: int
+    ) -> tuple[PromptRow, ...]:
+        """认领次数已经用完的中断行判失败并放掉租约，返回它们。"""
+
+        stmt = (
+            update(prompts_table)
+            .where(_interrupted(lease_seconds))
+            .where(prompts_table.c.attempt + 1 >= max_attempts)
+            .values(
+                status="failed",
+                finished_at=func.now(),
+                locked_by=None,
+                interrupt_reason=f"中断 {max_attempts} 次后放弃续跑",
+            )
+            .returning(prompts_table)
+        )
+        async with self._engine.begin() as conn:
+            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
+    async def adopt_steered(self, old_run_id: str, new_run_id: str) -> None:
+        """递进老 run 的那几条插话改挂续跑这次 run。
+
+        不改挂的话它们等的是一个已经死掉的 run 定结局，永远停在「正在跑」。
+        """
+
+        stmt = (
+            update(prompts_table)
+            .where(prompts_table.c.status == "steered")
+            .where(prompts_table.c.run_id == old_run_id)
+            .values(run_id=new_run_id)
+        )
+        async with self._engine.begin() as conn:
+            await conn.execute(stmt)
 
     async def conversations_waiting(self) -> tuple[str, ...]:
         """有排队的行、却一条在跑的都没有的那些对话。它们等着人来叫。"""
@@ -517,6 +585,22 @@ class PromptQueue:
         )
         async with self._engine.connect() as conn:
             return tuple((await conn.execute(stmt)).scalars().all())
+
+
+def _interrupted(lease_seconds: int) -> ColumnElement[bool]:
+    """中断的判据：还记着在跑，但租约要么被主动放掉了、要么停了心跳。
+
+    ``release`` 过的行 ``heartbeat_at`` 是 NULL，比不出「落后一个租约」，所以两种情形都要写上。
+    认领与判失败共用这一份，各写一遍迟早会漂成两套判据、行卡在中间没人管。
+    """
+
+    return and_(
+        prompts_table.c.status == "running",
+        or_(
+            prompts_table.c.locked_by.is_(None),
+            prompts_table.c.heartbeat_at < func.now() - timedelta(seconds=lease_seconds),
+        ),
+    )
 
 
 _CONTENT = TypeAdapter(tuple[PromptContent, ...])
@@ -545,6 +629,7 @@ class _PromptRow:
     locked_by: str | None
     heartbeat_at: datetime | None
     interrupt_reason: str | None
+    attempt: int
 
 
 def _row(row: object) -> PromptRow:
@@ -563,6 +648,7 @@ def _row(row: object) -> PromptRow:
         locked_by=r.locked_by,
         heartbeat_at=r.heartbeat_at,
         interrupt_reason=r.interrupt_reason,
+        attempt=r.attempt,
     )
 
 

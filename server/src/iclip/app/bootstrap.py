@@ -572,9 +572,11 @@ def build_app(
             conversation_id=row.conversation_id,
         )
 
+    # 显示与续跑用同一份历史：续跑的投影器要按它推出的那一轮播种实时状态。
+    transcript_history = TranscriptHistory(step_store, prompt_queue)
     transcripts = TranscriptService(
         store=transcript_store,
-        history=TranscriptHistory(step_store, prompt_queue),
+        history=transcript_history,
         queue=prompt_queue,
         context_limits=context_limits,
         runner=ConversationRunner(
@@ -582,18 +584,20 @@ def build_app(
             store=transcript_store,
             queue=prompt_queue,
             snapshots=step_store,
+            history=transcript_history,
             deps_for=deps_for_prompt,
             context_limits=context_limits,
             heartbeat_seconds=settings.agent_runs.heartbeat_seconds,
             lease_seconds=settings.agent_runs.lease_seconds,
             sweep_seconds=settings.agent_runs.sweep_seconds,
+            max_attempts=settings.agent_runs.max_attempts,
             on_turn_ended=name_conversation,
         ),
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # 先清扫一次租约过期的 prompt 行，再起心跳与清扫两个循环。
+        # 先清扫一次中断的 prompt 行（判失败或认领续跑），再起心跳与清扫两个循环。
         await transcripts.runner.start()
         if generation is not None:
             # 队列的连接要先开：HTTP 面受理一次生成时就要往队列里排。

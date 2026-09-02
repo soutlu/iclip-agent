@@ -74,8 +74,9 @@ conversations:
 agent_runs:
   # agent 运行的租约节奏。lease_seconds 必须大于 heartbeat_seconds。
   heartbeat_seconds: 10 # 在跑的行每隔多久刷一次心跳
-  lease_seconds: 30 # 心跳停了多久就算运行所在进程失联，那行判失败
-  sweep_seconds: 15 # 每隔多久清扫一次失联的行、并叫醒没人管的队列
+  lease_seconds: 30 # 心跳停了多久就算中断，由清扫接管（续跑或判失败）
+  sweep_seconds: 15 # 每隔多久清扫一次中断的行、并叫醒没人管的队列
+  max_attempts: 2 # 一条 prompt 最多被认领几次；1 等于中断后只判失败不续跑
 
 ops:
   log_level: INFO

@@ -52,7 +52,7 @@
 ## 取舍
 
 - **接受有副作用的工具 at-least-once。** 续跑后模型看到 `ToolFailed(INTERRUPTED)` 可能再叫一次出图。`tool_effects` 里停在 `started` 的记录是 unknown_after_crash 信号；生成域自己的 `submitting` 守卫只保护同一个 job。
-- **接受中断后自动续跑一次会花钱。** `max_attempts` 生产默认 2，开发（`--reload` 下每次存文件都是一次优雅关停）配 1，等于只判失败。这推翻 ADR-0005 与原 `discard_stale` 里「重启后不自己花钱调模型」的判断。
+- **接受中断后自动续跑一次会花钱。** `max_attempts` 默认 2；配置只有一份，开发时 `--reload` 下每次存文件都是一次优雅关停，若有运行在飞也会续跑一次。配成 1 等于只判失败。这推翻 ADR-0005 与原 `discard_stale` 里「重启后不自己花钱调模型」的判断。
 - **接受往官方 `snapshots` 表多写一份。** 官方 `StepPersistence` 在 run 以 `DeferredToolRequests` 结束时不存快照（未闭合的工具调用过不了它的门槛），文档写明由调用方持久化。写进同一张表是为了让官方的 `latest_snapshot(include_interrupted=True)` 原样读回，续跑代码不分叉。用的是协议里公开的方法。
 - **接受 transcript 的分组拴回一张表。** 消息里只有 `run_id`，没有轮的概念，多次 run 合成一轮只能靠 `prompt_runs`。原先「不按表排」的理由作废。
 - **不复用 procrastinate。** 它关停时的打断是 task cancel，即 `BaseException`，进不了官方收尾分支，终态发不出去；「一段对话同时只跑一条」只有 prompt 行的部分唯一索引在管，它不认识这条约束。
