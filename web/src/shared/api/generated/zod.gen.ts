@@ -1555,6 +1555,16 @@ export const zCatchupConversationsConversationIdTranscriptOpsGetQuery = z.object
  */
 export const zCatchupConversationsConversationIdTranscriptOpsGetResponse = zOpsCatchup
 
+export const zRegenerateConversationsConversationIdTurnsTurnIdRegeneratePostPath = z.object({
+  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  turn_id: z.string(),
+})
+
+/**
+ * Successful Response
+ */
+export const zRegenerateConversationsConversationIdTurnsTurnIdRegeneratePostResponse = zPrompt
+
 export const zReadConversationFileConversationsConversationIdWorkspaceFileGetPath = z.object({
   conversation_id: z.uuid(),
 })

@@ -135,6 +135,7 @@ const historyTurn = (ordinal: number) => ({
       turnId: `t${ordinal}`,
     },
   ],
+  usage: { cachedTokens: 4910, inputTokens: 12340, outputTokens: 1214 },
   turnId: `t${ordinal}`,
 })
 
@@ -476,7 +477,12 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
       startedAt: now,
       state,
       turnId,
-      ...(state === 'completed' ? { endedAt: new Date().toISOString() } : {}),
+      ...(state === 'completed'
+        ? {
+            endedAt: new Date().toISOString(),
+            usage: { cachedTokens: 3080, inputTokens: 8230, outputTokens: 964 },
+          }
+        : {}),
     },
   })
 

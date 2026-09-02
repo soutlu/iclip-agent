@@ -6245,6 +6245,60 @@
         ]
       }
     },
+    "/conversations/{conversation_id}/turns/{turn_id}:regenerate": {
+      "post": {
+        "description": "重新生成最后一轮：把它从历史里抹掉，按那一轮的原内容重跑一次，答复是重跑那条的记录。\n\n``turn_id`` 是协议里的轮 id（``t{N}``），客户端从轮头部直接拿得到。",
+        "operationId": "regenerate_conversations__conversation_id__turns__turn_id__regenerate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "turn_id",
+            "required": true,
+            "schema": {
+              "title": "Turn Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prompt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Regenerate",
+        "tags": [
+          "transcript",
+          "transcript"
+        ]
+      }
+    },
     "/conversations/{conversation_id}/workspace/file": {
       "get": {
         "description": "路径放在查询串里而不是路径段里：文件路径自己就带 ``/``。",

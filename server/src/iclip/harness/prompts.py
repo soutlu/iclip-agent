@@ -215,6 +215,23 @@ class PromptQueue:
             row = (await conn.execute(stmt)).one_or_none()
         return None if row is None else _row(row)
 
+    async def get_by_run(self, run_id: str) -> PromptRow | None:
+        """发起那次 run 的那条 prompt；没记过就是 ``None``。
+
+        插话递进同一轮的那几条也记着同一个 ``run_id``（见 ``mark_steered``），所以按认领先后
+        取最早的一条——发起那次 run 的一定先于递进来的。
+        """
+
+        stmt = (
+            select(prompts_table)
+            .where(prompts_table.c.run_id == run_id)
+            .order_by(prompts_table.c.created_at.asc(), prompts_table.c.prompt_id.asc())
+            .limit(1)
+        )
+        async with self._engine.connect() as conn:
+            row = (await conn.execute(stmt)).one_or_none()
+        return None if row is None else _row(row)
+
     async def start_next(self, conversation_id: str) -> PromptRow | None:
         """把排在最前的那条转成在跑，返回它；没有排队的、或者还有在跑的，返回 ``None``。
 

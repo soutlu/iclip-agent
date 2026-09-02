@@ -69,7 +69,7 @@ transcript 面是唯一不按 §3 用 camelCase 的地方，因为客户端的 r
   `complete: false` 表示要的批次已经出了窗口，整页重拉。
 - `GET /conversations/{id}/prompts` 当前排程：`{active, queued}`。
 
-### 停止、插话、审批
+### 停止、插话、审批、重新生成
 
 - `POST /conversations/{id}/prompts/{promptId}:abort`：排队的直接撤，在跑的发取消让它自己
   收尾。已经结束的是 `409`。
@@ -78,6 +78,13 @@ transcript 面是唯一不按 §3 用 camelCase 的地方，因为客户端的 r
   顶上来接着跑。
 - `POST /conversations/{id}/prompts:steer`，体 `{prompt_ids}`：把排队中的几条插进正在跑的
   那一轮，不必等它跑完。没有在跑的运行是 `409`。
+- `POST /conversations/{id}/turns/{turnId}:regenerate`：把**最后一轮**抹掉重跑——按轮寻址，
+  `turnId` 是协议里的轮 id（`t{N}`，轮头部上就带着）。服务端找到发起那一轮的消息，取出原
+  内容，落库历史截回该轮之前，另铸一个 `prompt_id` 重新开跑，答复是重跑那条的记录（形状同
+  发消息）。只允许对最后一轮、且对话**空闲**时调用：在跑或排着、动的不是末轮（轮号超出现有
+  轮数也算）都是 `409`；轮 id 不是 `t{N}` 的形状是 `422`；那一轮在库里找不到对应的消息记录
+  是 `404`。旧那一轮的运行记录留库不清，界面上它被重跑出来的新一轮顶替（轮号复用同一个
+  `t{N}`）。
 - `POST /conversations/{id}/interactions/{interactionId}`，体 `{approved}`：对审批卡点头或拒绝。
   工具就在同一次运行里等这个回话。没有等着回应的那张卡是 `404`。
 

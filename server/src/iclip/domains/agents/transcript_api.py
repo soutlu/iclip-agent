@@ -100,6 +100,8 @@ class Transcripts(Protocol):
 
     async def abort(self, conversation_id: str, prompt_id: str) -> None: ...
 
+    async def regenerate(self, *, conversation_id: str, turn_id: str) -> Prompt: ...
+
     async def abort_conversation(self, conversation_id: str) -> None: ...
 
     async def steer(self, conversation_id: str, prompt_ids: tuple[str, ...]) -> None: ...
@@ -269,6 +271,20 @@ def create_transcript_router(
 
         await _writable(principal, conversation_id)
         await transcripts.abort(conversation_id, prompt_id)
+
+    @router.post("/turns/{turn_id}:regenerate", response_model=Prompt)
+    async def regenerate(
+        conversation_id: ConversationId,
+        turn_id: str,
+        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+    ) -> Prompt:
+        """重新生成最后一轮：把它从历史里抹掉，按那一轮的原内容重跑一次，答复是重跑那条的记录。
+
+        ``turn_id`` 是协议里的轮 id（``t{N}``），客户端从轮头部直接拿得到。
+        """
+
+        await _writable(principal, conversation_id)
+        return await transcripts.regenerate(conversation_id=conversation_id, turn_id=turn_id)
 
     @outer.post("/conversations/{conversation_id}:abort", status_code=204)
     async def abort_conversation(

@@ -3514,6 +3514,42 @@ export type CatchupConversationsConversationIdTranscriptOpsGetResponses = {
 export type CatchupConversationsConversationIdTranscriptOpsGetResponse =
   CatchupConversationsConversationIdTranscriptOpsGetResponses[keyof CatchupConversationsConversationIdTranscriptOpsGetResponses]
 
+export type RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostData = {
+  body?: never
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+    /**
+     * Turn Id
+     */
+    turn_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/turns/{turn_id}:regenerate'
+}
+
+export type RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostError =
+  RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostErrors[keyof RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostErrors]
+
+export type RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostResponses = {
+  /**
+   * Successful Response
+   */
+  200: Prompt
+}
+
+export type RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostResponse =
+  RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostResponses[keyof RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostResponses]
+
 export type ReadConversationFileConversationsConversationIdWorkspaceFileGetData = {
   body?: never
   path: {

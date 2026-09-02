@@ -87,6 +87,20 @@ def run_ids_from_messages(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
     return tuple(run_id for run_id, _ in _group_by_run(messages))
 
 
+def drop_last_run(messages: Sequence[ModelMessage]) -> tuple[list[ModelMessage], str | None]:
+    """把最后一次 run 的那组消息摘出去，返回（剩下的消息，被摘掉的 run id）。
+
+    重新生成靠它把历史截回末轮开始之前：剩下的消息重新分组后轮号不变，下一次 run 的轮号
+    （``len(run_ids) + 1``）自然复用被摘掉那一轮的号。消息是空的就没什么可摘。
+    """
+
+    groups = _group_by_run(messages)
+    if not groups:
+        return [], None
+    kept = [message for _, group in groups[:-1] for message in group]
+    return kept, groups[-1][0]
+
+
 def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
     """一次 run 的结束事件 → 轮的终态。
 
@@ -440,6 +454,7 @@ def _turn_usage(steps: Sequence[TranscriptStep]) -> TurnUsage | None:
 __all__ = [
     "ORPHAN_TOOL_ERROR",
     "TurnState",
+    "drop_last_run",
     "run_error_from_events",
     "run_ids_from_messages",
     "run_state_from_events",

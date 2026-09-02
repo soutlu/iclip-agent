@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -24,6 +25,7 @@ from pydantic_ai_harness.step_persistence import ContinuableSnapshot, StepEvent
 
 from iclip.harness.transcript.from_messages import (
     TurnState,
+    drop_last_run,
     run_error_from_events,
     run_ids_from_messages,
     run_state_from_events,
@@ -33,13 +35,19 @@ from iclip.platform.transcript.ops import TranscriptTurn
 
 
 class ConversationSnapshots(Protocol):
-    """按对话取最新存档、按 run 取阶段事件。只要这两口，不要整个 step store。"""
+    """按对话取最新存档、按 run 取阶段事件、写一份存档。只要这三口，不要整个 step store。
+
+    ``save_snapshot`` 是重新生成用的：把截回末轮之前的历史另存成一份新快照，按 ``seq`` 它自动
+    成为最新的一份，旧快照留在库里不动。
+    """
 
     async def latest_conversation_snapshot(
         self, *, conversation_id: str, include_interrupted: bool = False
     ) -> ContinuableSnapshot | None: ...
 
     async def list_events(self, *, run_id: str) -> list[StepEvent]: ...
+
+    async def save_snapshot(self, snapshot: ContinuableSnapshot) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +71,44 @@ class TranscriptHistory:
             states[run_id] = run_state_from_events(events)
             errors[run_id] = run_error_from_events(events)
         return turns_from_messages(snapshot.messages, turn_states=states, turn_errors=errors)
+
+    async def run_ids(self, conversation_id: str) -> tuple[str, ...]:
+        """这段对话到目前为止跑过的 run，按发生先后排；一份存档都没有就是空的。
+
+        与分轮同一个口径：中断的那些也算上（见模块开头）。重新生成拿它核对「要动的是不是
+        末轮」——轮号 ``t{N}`` 的 N 就是这份列表的长度。
+        """
+
+        snapshot = await self.store.latest_conversation_snapshot(
+            conversation_id=conversation_id, include_interrupted=True
+        )
+        if snapshot is None:
+            return ()
+        return run_ids_from_messages(snapshot.messages)
+
+    async def rewind_last_turn(self, conversation_id: str, *, run_id: str) -> bool:
+        """把落库历史截回 ``run_id`` 那一轮开始之前；它确实是末轮才动手，返回是否截了。
+
+        重新生成靠它把末轮从之后读到的历史里抹掉：历史不删行，截短后的消息另存成一份新
+        快照，按写入序它成为最新的一份；旧快照与旧 run 的 runs/events 行原样留在库里。
+        快照的 ``run_id`` 另铸一个，不进消息历史，不参与分轮。
+        """
+
+        snapshot = await self.store.latest_conversation_snapshot(
+            conversation_id=conversation_id, include_interrupted=True
+        )
+        kept, dropped = drop_last_run([] if snapshot is None else snapshot.messages)
+        if dropped is None or dropped != run_id:
+            return False
+        await self.store.save_snapshot(
+            ContinuableSnapshot(
+                run_id=f"regenerate-{uuid.uuid4().hex[:8]}",
+                step_index=0,
+                messages=kept,
+                conversation_id=conversation_id,
+            )
+        )
+        return True
 
 
 __all__ = ["ConversationSnapshots", "TranscriptHistory"]

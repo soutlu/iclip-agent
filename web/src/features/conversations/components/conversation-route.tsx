@@ -21,6 +21,7 @@ import {
   mintPromptId,
   promptMedia,
   promptText,
+  regeneratePrompt,
   steerPrompt,
   submitPrompt,
 } from '../conversations.api'
@@ -149,6 +150,8 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   if (inFlightSettled) setInFlightPromptId(null)
   const inFlight = inFlightPromptId !== null && !inFlightSettled
   const working = inFlight || turnActive
+  // 重新生成只对空闲对话的末轮开放：在跑、排着、本地还在发都算忙（与服务端 409 同一判据）。
+  const conversationBusy = working || hasLivePrompts
   const retry = turnActive ? latestTurn?.steps.at(-1)?.retry : undefined
   const currentAnchor = pending.at(-1)?.anchorTurnId
   const currentTurn = inFlight && latestTurn?.turnId === currentAnchor ? undefined : latestTurn
@@ -232,7 +235,17 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               </p>
             ) : null}
             {turns.map((turn) => (
-              <ConversationTurn attachments={view.attachments} key={turn.turnId} turn={turn} />
+              <ConversationTurn
+                attachments={view.attachments}
+                key={turn.turnId}
+                onRegenerate={
+                  turn.turnId === latestTurn?.turnId
+                    ? () => act(regeneratePrompt(conversationId, turn.turnId))
+                    : undefined
+                }
+                regenerateDisabled={conversationBusy}
+                turn={turn}
+              />
             ))}
             {bubbles.map((item) => (
               <UserBubble
