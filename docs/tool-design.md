@@ -1,6 +1,6 @@
 # iclip-agent 工具编写规范
 
-> agent 工具模型面文本的编写规范：工具 docstring 与给模型的错误消息（`ModelRetry`）。只写能改变模型行为的内容。工具怎么装配见 [architecture.md](architecture.md)；代码注释不归本文管。
+> agent 工具的编写规范：§0–§3 管模型面文本（工具 docstring 与给模型的错误消息），只写能改变模型行为的内容；§4–§5 管工具登记时的声明面（范围规则、输出、展示）。工具怎么装配见 [architecture.md](architecture.md)；代码注释不归本文管。
 
 ## §0 先分层：这句话该写在哪
 
@@ -71,3 +71,18 @@
 对照 §1：第 1 条（首行一句话）、第 2 条（说清什么不由本工具返回、该用哪件工具去看）、第 3 条（同一视频同一份文档重复调用会复用，不重抽）、第 4 条（多板在同一次回复里并行读）、第 8 条（三类失败提前声明）。整段没有设计理由。
 
 对照 §0：这里点了 `ReadMediaFile`，点的是**路由**，划的是本工具自己的边界。什么时候该拆片、拆完接着干什么、选出帧号之后怎么写 prompt，一个字都没有：那是接力顺序，归 skill。
+
+## §4 范围规则写在验证器里
+
+一件工具经 `add_function` 登记时一并给出它的声明面（[adr/0007](adr/0007-tool-declaration-surface.md)）。工具体只做本职。
+
+- **参数的范围规则一律是 `args_validator`**，不写在工具体里。共用的验证器放 `harness/`（如 `materials_only(kind)`、`skill_granted`），工具登记时挂上。
+- 验证器抛 `ModelRetry`：参数能改，错误消息以一个可执行动作收尾（§1 第 8 条）。抛 `ToolFailed`：这次不行、别重试。抛 `ApprovalRequired(metadata=...)`：要人点头，`metadata` 给审批卡显示原因。
+- 属主隔离不在验证器里：按 `deps` 里的身份做的数据隔离留在工具体与存储层。
+- 校验点：工具体里出现 `if` 判断「这个地址 / 这个名字能不能用」即违反本节。
+
+## §5 输出与展示
+
+- **给模型的返回不超过 50,000 字符。** 超出的写进工作区，返回路径与一句摘要；`video_parser_md` 是现成写法。
+- **给人看的结构化结果走 `ToolReturn(return_value=给模型的, metadata=给人看的)`。** `metadata` 不进模型上下文。媒体类固定 `{"items": [{"url", "caption"}]}`。
+- **每件工具在所属 capability 里登记 display**（工具名 → 参数 → display），`kind` 只取协议已有的：`file_io`、`search`、`url_fetch`、`skill_call`、`agent_call`、`generic`。登记不到就是 `generic`。
