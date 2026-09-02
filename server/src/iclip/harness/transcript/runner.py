@@ -885,8 +885,7 @@ class ConversationRunner:
         文档写明由调用方持久化。走它的协议方法写进同一张表，续跑那侧照旧用
         ``latest_conversation_snapshot(include_interrupted=True)`` 原样读回来。
 
-        实时那一轮不交接：轮还在 running、审批卡还等着回应，「这段对话在忙什么」正是从这两样
-        算出来的。
+        实时那一轮不交接：轮还在 running、审批卡还等着回应。
         """
 
         await self._save_history(row.conversation_id, run_id=run_id, history=history)

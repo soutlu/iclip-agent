@@ -141,6 +141,8 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
 - **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。
 - 它们的 schema 不在 vendor 那份里——vendor 是照抄来的、不改，而它的 zod 默认静默丢掉未知字段。
   所以这些字段不进 `TranscriptMeta`，另立帧，schema 写在 `connection.ts` 边上。
+- `event.session.work_changed` 的 `last_turn_reason` 只在 `busy: false` 的那几帧上有：帧一律
+  `exclude_none`，没有结局时那一项整个不出现（列表行上是 `null`，见 §6）。
 - **两帧都是易失的**：不进任何日志，掉了就是掉了。所以同一份事实也长在列表行上
   （`ConversationOut.title` 与 `ConversationOut.activity`）——**行是事实源，帧只负责「不必等下一次
   重拉」**。客户端重连之后要重拉一次列表：断线期间的变化谁也补不回来。
