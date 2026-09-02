@@ -1,8 +1,8 @@
 /**
  * 一轮回复尾部的终态栏：「复制 / 重新生成」图标钮、token 统计、完成时刻。
  *
- * 版式照 WorkBuddy 终态栏：24×24 透明图标钮（radius sm、icon-md、chat-muted-text，hover 铺
- * hover 状态底，150ms 过渡）常显；统计段由 credit 钻石图标领头，三项只留 k 缩略，精确值收进
+ * 版式照 WorkBuddy 终态栏：24×24 透明图标钮（IconButton size="xs" 外壳，字色压成
+ * chat-muted-text）常显；统计段由 credit 钻石图标领头，三项只留 k 缩略，精确值收进
  * 原生 title；完成时刻按「今天 HH:mm / 昨天 HH:mm / 更早 M月d日 HH:mm（跨自然年补年份）」缩写。
  * 统计与时刻默认透明、hover 该轮时一起浮现（WorkBuddy 同此：credit 与时刻都是 opacity 0 → hover 显现），
  * title 里各留精确值。统计只在这轮带 usage 时出现
@@ -12,13 +12,10 @@
 import { useState } from 'react'
 import type { TranscriptUsage } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
+import { IconButton } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
 
 const COPY_FEEDBACK_MS = 1400
-
-/** 终态栏图标钮：复制与重新生成共用。禁用时压住 hover 那道状态底，只留灰。 */
-const ACTION_BUTTON_CLASS =
-  'inline-flex size-6 cursor-pointer items-center justify-center rounded-sm p-0 text-chat-muted-text ui-focus transition-colors ui-motion-s not-disabled:hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40'
 
 /** ≥1000 缩成 x.xxk（两位小数去尾零），不足 1000 显整数。 */
 const compactTokens = (tokens: number): string => {
@@ -134,26 +131,26 @@ export function TurnActions({
   return (
     <div className="flex flex-wrap items-center gap-2 pt-3">
       <div className="flex items-center gap-2">
-        <button
-          aria-label="复制"
-          className={ACTION_BUTTON_CLASS}
+        <IconButton
+          className="text-chat-muted-text"
+          label="复制"
+          name={copied ? 'check' : 'copy'}
           onClick={() => void copyReply()}
+          size="xs"
           title={copied ? '已复制' : '复制'}
-          type="button"
-        >
-          <Icon decorative name={copied ? 'check' : 'copy'} size="md" />
-        </button>
+          variant="standard"
+        />
         {onRegenerate === undefined ? null : (
-          <button
-            aria-label="重新生成"
-            className={ACTION_BUTTON_CLASS}
+          <IconButton
+            className="text-chat-muted-text"
             disabled={regenerateDisabled}
+            label="重新生成"
+            name="refresh"
             onClick={onRegenerate}
+            size="xs"
             title="重新生成"
-            type="button"
-          >
-            <Icon decorative name="refresh" size="md" />
-          </button>
+            variant="standard"
+          />
         )}
       </div>
       {usage === undefined ? null : <UsageStats usage={usage} />}

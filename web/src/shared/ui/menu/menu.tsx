@@ -9,7 +9,7 @@ export const MenuRadioGroup = DropdownMenu.RadioGroup
 
 const ITEM_CLASS =
   // design-allow -- Radix 用 .focus() 移动高亮，浏览器默认框会和 ui-focus 的焦点环叠一起
-  'ui-state ui-focus flex h-(--control-height-md) cursor-pointer items-center gap-2 rounded-sm px-3 text-body outline-none select-none'
+  'ui-state ui-focus flex h-(--control-height-sm) cursor-pointer items-center gap-2 rounded-sm px-2 text-body outline-none select-none'
 
 export function MenuSeparator({
   className,
@@ -29,7 +29,7 @@ export function MenuSurface({
     <DropdownMenu.Portal>
       <DropdownMenu.Content
         className={cn(
-          'layer-popup flex min-w-36 flex-col gap-0.5 rounded-lg border-[0.5px] border-border bg-popup-bg p-2 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+          'layer-popup flex min-w-36 flex-col gap-0.5 rounded-md border-[0.5px] border-border bg-popup-bg p-1 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
           'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:duration-(--dur-m) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
           className,
         )}

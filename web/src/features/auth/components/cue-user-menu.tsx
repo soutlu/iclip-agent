@@ -12,7 +12,7 @@ type CueUserMenuProps = {
 }
 
 const USER_AVATAR_BUTTON_CLASS =
-  'inline-flex h-8 w-8 min-w-8 items-center justify-center overflow-hidden rounded-full text-body-sm font-semibold select-none transition-all ui-motion-s focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-chat-focus-ring active:scale-95'
+  'inline-flex h-8 w-8 min-w-8 items-center justify-center overflow-hidden rounded-full text-body-sm font-semibold ui-focus select-none transition-all ui-motion-s active:scale-95'
 
 /**
  * 渲染当前用户头像、用户名菜单和退出登录操作。
@@ -95,9 +95,9 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
         onDismiss={closeMenu}
         role="menu"
         aria-label="用户菜单"
-        className="w-[280px] overflow-hidden py-1.5"
+        className="w-[280px] overflow-hidden p-1"
       >
-        <div className="border-b border-border px-4 py-3">
+        <div className="border-b border-border px-3 py-2.5">
           <p className="truncate text-body-sm font-semibold text-on-background">{userLabel}</p>
           <p className="mt-0.5 text-caption text-on-surface-variant">当前账号</p>
           {hasProfileDetails ? (
@@ -141,11 +141,11 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
           type="button"
           role="menuitem"
           disabled={isLoggingOut}
-          className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-body-sm text-on-background transition-colors duration-[var(--dur-s)] hover:bg-hover focus-visible:bg-hover disabled:cursor-wait disabled:text-disabled-text"
+          className="flex h-(--control-height-sm) w-full ui-state cursor-pointer items-center gap-2 rounded-sm px-2 text-body text-on-surface ui-focus disabled:cursor-wait"
           onClick={handleLogout}
         >
-          <span>{isLoggingOut ? '退出中' : '退出登录'}</span>
-          <Icon decorative name="logout" size="md" />
+          <Icon decorative name="logout" size="sm" />
+          <span className="flex-1 text-left">{isLoggingOut ? '退出中' : '退出登录'}</span>
         </button>
       </PopupContent>
     </>
