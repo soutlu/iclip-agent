@@ -173,11 +173,14 @@ class JobQueueView:
     queued: tuple[JobRow, ...]
 
 
-ActivityChanged = Callable[[str, ActivityState], None]
-"""一段对话在忙什么变了，入参是 ``(对话 id, 新的活儿)``。
+ActivityChanged = Callable[[str, uuid.UUID, ActivityState], None]
+"""一段对话在忙什么变了，入参是 ``(对话 id, 属主, 新的活儿)``。
 
-同步：它只往连接的出站队列里塞一帧，不落库。**这一层不认识对话表**，也不知道这段对话归谁——
-接什么由组合根决定，属主在那边查。
+同步，也不落库：它只往这个人还开着的每条连接的出站队列里塞一帧。于是**到达次序就是写入次序**
+——一条跑完接着起下一条时，idle 那一帧一定在 busy 那一帧之前。
+
+属主从行上取（``agent_jobs.owner_user_id``），不由接的那一方回头查对话表：那要 await，一次
+await 就把「按写入次序发」这条丢掉了。
 """
 
 
@@ -188,15 +191,15 @@ class JobQueue:
         self._engine = engine
         self._on_activity = on_activity
 
-    def _changed(self, conversation_id: str, status: JobStatus) -> None:
-        """占着这段对话的那一行状态变了，告诉外面。
+    def _changed(self, row: JobRow, status: JobStatus) -> None:
+        """占着这段对话的那一行状态变了，告诉外面。对话 id 与属主都从行上取。
 
         只在写入的事务提交之后叫：在事务里叫的话，一次回滚就把一份从没成立的活儿发了出去。
         一条跑完接着起下一条会先发 idle 再发 busy，不去抖。
         """
 
         if self._on_activity is not None:
-            self._on_activity(conversation_id, activity_of(status))
+            self._on_activity(row.conversation_id, row.owner_user_id, activity_of(status))
 
     async def submit(
         self,
@@ -273,7 +276,7 @@ class JobQueue:
         if row is None:
             raise Conflict("这条消息没被收下")
         if row.status == "running":
-            self._changed(conversation_id, row.status)
+            self._changed(row, row.status)
         return row
 
     async def view(self, conversation_id: str) -> JobQueueView:
@@ -437,7 +440,7 @@ class JobQueue:
         except IntegrityError:
             return None
         if row is not None:
-            self._changed(conversation_id, row.status)
+            self._changed(row, row.status)
         return row
 
     async def attach_run(
@@ -479,7 +482,7 @@ class JobQueue:
         )
         row = await self._one(stmt)
         if row is not None:
-            self._changed(row.conversation_id, status)
+            self._changed(row, status)
 
     async def abort(self, prompt_id: str, *, conversation_id: str, now: datetime) -> JobRow:
         """撤掉一条 prompt，返回改完（或者没能改）的那一行。
@@ -507,7 +510,7 @@ class JobQueue:
         aborted = await self._one(stmt)
         if aborted is not None:
             if aborted.run_id is not None:
-                self._changed(conversation_id, "aborted")
+                self._changed(aborted, "aborted")
             return aborted
         row = await self.get(prompt_id)
         if row is None or row.conversation_id != conversation_id:
@@ -678,7 +681,7 @@ class JobQueue:
         )
         rows = await self._all(stmt)
         for row in rows:
-            self._changed(row.conversation_id, "failed")
+            self._changed(row, "failed")
         return rows
 
     async def adopt_steered(self, old_run_id: str, new_run_id: str) -> None:
@@ -713,7 +716,7 @@ class JobQueue:
         )
         row = await self._one(stmt)
         if row is not None:
-            self._changed(row.conversation_id, "awaiting")
+            self._changed(row, "awaiting")
         return row
 
     async def record_decision(self, prompt_id: str, tool_call_id: str, *, approved: bool) -> JobRow:
@@ -770,7 +773,7 @@ class JobQueue:
         )
         row = await self._one(stmt)
         if row is not None:
-            self._changed(row.conversation_id, "running")
+            self._changed(row, "running")
         return row
 
     async def conversations_waiting(self) -> tuple[str, ...]:

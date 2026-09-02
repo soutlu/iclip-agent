@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -461,9 +460,6 @@ def build_app(
         )
 
     live_connections = LiveConnections()
-    # 活儿变了要推给属主，而队列的回调是同步的（它紧接着一次写入），查属主要读库。所以这里起
-    # 一个任务去查再发。拿住引用：asyncio 只弱引用运行中的任务。
-    announce_tasks: set[asyncio.Task[None]] = set()
 
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
@@ -487,24 +483,20 @@ def build_app(
 
         return frozenset(uuid.UUID(one) for one in await job_queue.conversation_ids(owner, state))
 
-    async def _push_activity(conversation_id: str, state: ActivityState) -> None:
-        conversation = await conversations.service.owner_of(uuid.UUID(conversation_id))
-        if conversation is None:
-            return
+    def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
+        """活儿变了，就地发给这个人还开着的每条连接。
+
+        属主由队列从行上带出来，这里不回头查对话表：查一次就得 await，而 await 之后到达次序就
+        不再是写入次序——一条跑完接着起下一条时，busy 那一帧可能排在 idle 前面。
+        """
+
         live_connections.announce_activity(
-            conversation,
+            owner,
             uuid.UUID(conversation_id),
             busy=state.busy,
             pending_interaction=state.pending_interaction,
             last_turn_reason=state.last_turn_reason,
         )
-
-    def on_activity(conversation_id: str, state: ActivityState) -> None:
-        """活儿变了。一轮对话只有两三次，所以这里按次查属主。"""
-
-        task = asyncio.create_task(_push_activity(conversation_id, state))
-        announce_tasks.add(task)
-        task.add_done_callback(announce_tasks.discard)
 
     built_models = build_models(_model_specs(settings.models)) if models is None else models
     title_model = settings.title_model

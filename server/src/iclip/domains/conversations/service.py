@@ -536,17 +536,6 @@ class ConversationService:
         conversation = await self._repo.get(_as_conversation_id(conversation_id), owner=owner)
         return conversation.agent_id
 
-    async def owner_of(self, conversation_id: uuid.UUID) -> uuid.UUID | None:
-        """这段对话归谁。没有这一行就给 ``None``。
-
-        没有 principal 这个参数：调用方是服务端自己（推送要按属主分发），不是谁的请求。
-        """
-
-        try:
-            return (await self._repo.get(conversation_id, owner=None)).owner_user_id
-        except NotFound:
-            return None
-
     async def title_of(self, principal: Principal, conversation_id: str) -> str:
         """这段对话叫什么；看不到的一律抛 ``NotFound``。
 
