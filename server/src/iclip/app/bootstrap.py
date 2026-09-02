@@ -223,18 +223,15 @@ async def _no_title(_user_text: str) -> str | None:
     return None
 
 
-def _shot_video_client(settings: ResolvedShotVideo | None) -> httpx.AsyncClient | None:
-    """镜头素材能力取素材与调拆解接口用的连接池。
+def _require_ffmpeg(settings: ResolvedShotVideo | None) -> None:
+    """配了镜头素材就必须有 ffmpeg。
 
-    ffmpeg 在这里检查：抽帧与切格全靠它，PATH 上没有的话那两件工具每次调用都会
-    失败——那是部署环境的问题，该在启动时就说清楚，不该等模型撞上去。
+    抽帧与切格全靠它，PATH 上没有的话那两件工具每次调用都会失败——那是部署环境的
+    问题，该在启动时就说清楚，不该等模型撞上去。
     """
 
-    if settings is None:
-        return None
-    if not ffmpeg_available():
+    if settings is not None and not ffmpeg_available():
         raise RuntimeError("配了 shot_video 但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
-    return httpx.AsyncClient(follow_redirects=True)
 
 
 def _product_catalog_engine(
@@ -385,7 +382,10 @@ def build_app(
         if settings.media_generation is not None and public_objects is not None
         else None
     )
-    shot_video_client = _shot_video_client(settings.shot_video)
+    _require_ffmpeg(settings.shot_video)
+    # 出网取东西的连接池，一个就够：工作区读图要问 OSS 的 image/info（这项能力常
+    # 在），镜头素材取素材与调拆解接口也用它。
+    http_client = httpx.AsyncClient(follow_redirects=True)
     catalog_engine = _product_catalog_engine(settings.product_catalog, product_catalog_engine)
     products = (
         build_products_module(
@@ -539,9 +539,9 @@ def build_app(
     )
     capability_table = build_capability_table(
         workspace_store=workspace_store,
+        http_client=http_client,
         generation_service=generation.service if generation is not None else None,
         object_store=public_objects,
-        http_client=shot_video_client,
         shot_video=settings.shot_video,
     )
     agent_registry = build_agent_registry(
@@ -619,8 +619,7 @@ def build_app(
             # 在跑的那些走第一方取消，让它们各自把终态发出去再收；这一步必须在 engine
             # 关掉之前，收尾要落库。
             await transcripts.runner.shutdown()
-            if shot_video_client is not None:
-                await shot_video_client.aclose()
+            await http_client.aclose()
             if owns_catalog_engine and catalog_engine is not None:
                 await catalog_engine.dispose()
             if owns_inspiration_engine and inspiration_engine is not None:

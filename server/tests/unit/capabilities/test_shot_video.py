@@ -1,4 +1,4 @@
-"""镜头素材能力：工具面的语义、出图的重试与升级、装配面接得上。
+"""镜头素材能力：五件工具的语义、出图的重试与升级、装配面接得上。
 
 出图、对象存储、视频拆解、文件存储都用进程内替身，所以这一层测的是「工具怎么决
 策」。碰 ffmpeg 的那两件在这里只验它们动手之前就把前置条件拦下了——真跑一遍在集
@@ -59,7 +59,6 @@ from iclip.platform.transcript.display import (
     FileIoDisplay,
     GenericDisplay,
     ToolDisplayRegistry,
-    UrlFetchDisplay,
 )
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import (
@@ -232,7 +231,7 @@ def test_no_capability_instructions(capability: ShotVideo[object]) -> None:
 
 
 async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> None:
-    """挂到真 Agent 上：六件工具都出现在模型看得到的工具表里。"""
+    """挂到真 Agent 上：五件工具都出现在模型看得到的工具表里。"""
 
     seen: list[str] = []
 
@@ -244,7 +243,6 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
     agent = Agent(FunctionModel(script), capabilities=[capability])
     await agent.run("看看你有什么", deps=make_deps())
     assert seen == [
-        "ReadMediaFile",
         "generate_anchor_sheet",
         "generate_shot_frames",
         "plan_shot_frames",
@@ -254,7 +252,7 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
 
 
 @pytest.mark.parametrize(
-    "tool_name", ["video_parser_md", "plan_shot_frames", "generate_shot_frames", "ReadMediaFile"]
+    "tool_name", ["video_parser_md", "plan_shot_frames", "generate_shot_frames"]
 )
 def test_scope_rules_are_mounted_on_the_tool(
     tools: ShotVideoToolset[object], tool_name: str
@@ -269,22 +267,16 @@ def test_scope_rules_are_mounted_on_the_tool(
 
 
 def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
-    """六件工具每件都登记了画法，kind 由客户端认。登记不到就画成朴素的那张卡。"""
+    """五件工具每件都登记了画法，kind 由客户端认。登记不到就画成朴素的那张卡。"""
 
     drawn = ToolDisplayRegistry.merged(capability.display_table()).entries
     assert sorted(drawn) == [
-        "ReadMediaFile",
         "generate_anchor_sheet",
         "generate_shot_frames",
         "plan_shot_frames",
         "video_parser_md",
         "write_video_shots",
     ]
-    assert drawn["ReadMediaFile"].draw({"url": "https://cdn.test/a.jpg"}) == UrlFetchDisplay(
-        url="https://cdn.test/a.jpg"
-    )
-    # 地址取不到就交给注册表退回 generic，不画一张指着空地址的卡。
-    assert drawn["ReadMediaFile"].draw({}) is None
     assert drawn["generate_shot_frames"].draw({"frames": [1, 2]}) == GenericDisplay(
         summary="出图 2 帧"
     )
@@ -301,7 +293,7 @@ def test_only_the_three_media_tools_pick_a_renderer(capability: ShotVideo[object
     views = ToolDisplayRegistry.merged(capability.display_table())
     for tool_name in ("plan_shot_frames", "generate_shot_frames", "generate_anchor_sheet"):
         assert views.view_of(tool_name) == "media_grid"
-    for tool_name in ("video_parser_md", "ReadMediaFile", "write_video_shots"):
+    for tool_name in ("video_parser_md", "write_video_shots"):
         assert views.view_of(tool_name) is None
 
 
@@ -478,34 +470,38 @@ async def test_reference_images_refuse_a_video(
         )
 
 
-async def test_read_media_file_takes_an_address_from_a_tool_result(
+async def test_reference_images_take_an_address_from_a_tool_result(
     tools: ShotVideoToolset[object], ctx: RunContext[object]
 ) -> None:
-    """预览板地址只在工具结果的 JSON 里，没有 tag——照样是本对话的素材。"""
+    """镜头帧地址只在工具结果的 JSON 里，没有 tag——照样是本对话的素材。"""
 
-    board = "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/1.jpg"
+    frame = "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/S1-1.jpg"
     ctx.messages.append(
         ModelRequest(
             parts=[
                 ToolReturnPart(
-                    tool_name="plan_shot_frames",
-                    content={"boards": [{"board": 1, "url": board}]},
+                    tool_name="generate_shot_frames",
+                    content={"frames": [{"no": "S1-1", "url": frame}]},
                     tool_call_id="1",
                 )
             ]
         )
     )
 
-    check_args(tools, "ReadMediaFile", ctx, url=board)
-    assert await tools.read_media_file(ctx, board)
-
-    with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
+    def call(url: str) -> None:
         check_args(
             tools,
-            "ReadMediaFile",
+            "generate_shot_frames",
             ctx,
-            url="https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/9.jpg",
+            frames=[FrameRequest(no="S1-1", prompt="猫")],
+            reference_images=[url],
+            global_reference="全局",
+            target_aspect="9:16",
         )
+
+    call(frame)
+    with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
+        call("https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/S9-9.jpg")
 
 
 # ── 视频拆解接口的响应处理 ────────────────────────────────────────────────────

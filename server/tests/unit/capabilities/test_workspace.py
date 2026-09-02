@@ -1,7 +1,7 @@
-"""工作区能力：路径语法边界、六件工具的行为与错误翻译、命名空间隔离。
+"""工作区能力：路径语法边界、七件工具的行为与错误翻译、命名空间隔离。
 
-存储用进程内替身（走和 PG 实现同一条判定序列），所以这一层测的是「能力和工具
-面的语义」，不是 SQL。真库那一侧另有集成验收。
+存储与图片探针用进程内替身（存储走和 PG 实现同一条判定序列），所以这一层测的是
+「能力和工具面的语义」，不是 SQL、也不是 OSS。真库那一侧另有集成验收。
 """
 
 from __future__ import annotations
@@ -11,11 +11,16 @@ import uuid
 import pytest
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
+    ImageUrl,
     ModelMessage,
+    ModelRequest,
     ModelResponse,
     RetryPromptPart,
     TextPart,
     ToolCallPart,
+    ToolReturn,
+    ToolReturnPart,
+    UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
@@ -25,13 +30,17 @@ from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
 from iclip.capabilities.workspace.capability import (
     CAPABILITY_ID,
+    FULL_RESOLUTION_MAX_BYTES,
+    CropRegion,
     Workspace,
     WorkspaceToolset,
     workspace_capability,
 )
+from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
+from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import (
     FileSpace,
     InvalidPath,
@@ -45,6 +54,7 @@ from iclip.platform.transcript.display import (
     GenericDisplay,
     SearchDisplay,
     ToolDisplayRegistry,
+    UrlFetchDisplay,
 )
 from tests.helpers.file_store import FakeFileStore
 
@@ -53,6 +63,28 @@ OTHER_USER = uuid.UUID("22222222-2222-2222-2222-222222222222")
 THREAD = "thread-1"
 OTHER_THREAD = "thread-2"
 NS = f"{USER}/{THREAD}"
+
+OSS_IMAGE = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
+
+# 用户把图发进来之后，模型上下文里就是这么一行——素材校验认的就是它。
+_USER_SENT_IMAGE = f"{media_tag('image', OSS_IMAGE, name='style.jpg')} 看一下"
+
+
+A_BIG_JPEG = ImageInfo(media_type="image/jpeg", size_bytes=2048, width=3000, height=2000)
+
+
+class FakeProbe:
+    """固定回一份原图信息，或者一口拒绝。"""
+
+    def __init__(self, info: ImageInfo = A_BIG_JPEG, *, error: str | None = None) -> None:
+        self.info = info
+        self.error = error
+
+    async def image_info(self, url: str) -> ImageInfo:
+        _ = url
+        if self.error is not None:
+            raise MediaProbeFailed(self.error)
+        return self.info
 
 
 def make_principal(user_id: uuid.UUID = USER) -> Principal:
@@ -69,12 +101,33 @@ def make_deps(user_id: uuid.UUID = USER, conversation_id: str = THREAD) -> Agent
     return AgentRunDeps(principal=make_principal(user_id), conversation_id=conversation_id)
 
 
-def make_context(deps: object) -> RunContext[object]:
-    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage())
+def make_context(deps: object, *, said: str | None = None) -> RunContext[object]:
+    """造一次运行的上下文。给了 ``said`` 就当作用户已经在对话里发过那段话。"""
+
+    return RunContext[object](
+        deps=deps,
+        model=TestModel(),
+        usage=RunUsage(),
+        messages=[] if said is None else [ModelRequest(parts=[UserPromptPart(content=said)])],
+    )
 
 
-def make_workspace(store: FakeFileStore) -> Workspace[object]:
-    return workspace_capability(space=FileSpace(store=store, namespace=workspace_namespace))
+def make_workspace(store: FakeFileStore, probe: FakeProbe | None = None) -> Workspace[object]:
+    return workspace_capability(
+        space=FileSpace(store=store, namespace=workspace_namespace),
+        probe=probe if probe is not None else FakeProbe(),
+    )
+
+
+def model_facing(result: ToolReturn) -> list[object]:
+    """工具返回里给模型那几段。
+
+    ``return_value`` 的类型是官方那个内容联合，不随泛型参数收窄，所以读它得先 isinstance。
+    """
+
+    value = result.return_value
+    assert isinstance(value, list)
+    return list(value)
 
 
 @pytest.fixture
@@ -179,7 +232,8 @@ def test_scope_goes_through_normalization() -> None:
     """
 
     dirty = FileSpace(store=FakeFileStore(), namespace=lambda _ctx: f"{USER}//{THREAD}")
-    assert workspace_capability(space=dirty).resolve_scope(make_context(make_deps())) == NS
+    capability = workspace_capability(space=dirty, probe=FakeProbe())
+    assert capability.resolve_scope(make_context(make_deps())) == NS
 
 
 async def test_for_run_resolves_scope_before_any_tool_is_touched(
@@ -214,7 +268,7 @@ async def test_two_conversations_of_one_user_do_not_see_each_other(
 
 
 # --------------------------------------------------------------------------
-# 六件工具
+# 文件那六件
 # --------------------------------------------------------------------------
 
 
@@ -395,6 +449,230 @@ async def test_quota_and_conflict_are_distinguishable(store: FakeFileStore) -> N
 
 
 # --------------------------------------------------------------------------
+# 读图
+# --------------------------------------------------------------------------
+
+
+def read_tools(probe: FakeProbe) -> WorkspaceToolset[object]:
+    return WorkspaceToolset(make_workspace(FakeFileStore(), probe))
+
+
+def check_args(tools: WorkspaceToolset[object], ctx: RunContext[object], **args: object) -> None:
+    """走一遍读图登记时挂上的验证器（官方在 schema 校验之后、执行之前调它）。
+
+    从登记表上取，不直接调那个函数：漏传 ``args_validator=`` 时这条用例也要红。
+    """
+
+    validator = tools.tools["ReadMediaFile"].args_validator
+    assert validator is not None, "ReadMediaFile 登记时没挂验证器"
+    assert validator(ctx, **args) is None, "本包的验证器都是同步的"
+
+
+async def test_a_big_image_is_downsampled_and_says_so() -> None:
+    """默认交付缩略档：4K 原图整个进上下文没有多少信号，账单却会涨。
+
+    摘要里必须写清原图多大、这次给的是降采样档，否则模型会拿缩略档的像素当原图坐标。
+    """
+
+    result = await read_tools(FakeProbe()).read_media_file(make_context(make_deps()), OSS_IMAGE)
+
+    assert model_facing(result) == [
+        f'<image url="{OSS_IMAGE}">',
+        "原图 3000×2000 像素，image/jpeg，2.0 KB；已降采样到长边 1024。"
+        "要看清小字或细节，用 `region` 按原图像素坐标看一块。输出坐标一律按原图尺寸算。",
+        ImageUrl(url=f"{OSS_IMAGE}?x-oss-process=image/resize,l_1024", media_type="image/jpeg"),
+        "</image>",
+    ]
+    # 给人看的那份指向真正交付的那个地址，不是 tag 里的原图。
+    assert result.metadata == {
+        "items": [
+            {
+                "url": f"{OSS_IMAGE}?x-oss-process=image/resize,l_1024",
+                "caption": "已降采样到长边 1024",
+            }
+        ]
+    }
+
+
+async def test_a_small_image_goes_untouched() -> None:
+    """长边本来就不超过 1024 的图原样附上：OSS 不放大，挂个缩放参数只是白挂。"""
+
+    probe = FakeProbe(ImageInfo(media_type="image/png", size_bytes=1536, width=800, height=600))
+    result = await read_tools(probe).read_media_file(make_context(make_deps()), OSS_IMAGE)
+
+    assert model_facing(result) == [
+        f'<image url="{OSS_IMAGE}">',
+        "原图 800×600 像素，image/png，1.5 KB；未缩放。",
+        ImageUrl(url=OSS_IMAGE, media_type="image/png"),
+        "</image>",
+    ]
+
+
+async def test_a_region_crops_in_original_coordinates_and_flags_the_offset() -> None:
+    """裁切按原图像素坐标走，裁出来还超 1024 就再级联一道缩放（OSS 按 ``/`` 顺序执行）。
+
+    区域尺寸报的是收窄后的那个：给的 width/height 越过右下边界时 OSS 裁到边界为止，照
+    原样报会让模型以为自己看到了不存在的那几百像素。
+    """
+
+    result = await read_tools(FakeProbe()).read_media_file(
+        make_context(make_deps()),
+        OSS_IMAGE,
+        region=CropRegion(x=100, y=100, width=5000, height=5000),
+    )
+
+    delivered = f"{OSS_IMAGE}?x-oss-process=image/crop,x_100,y_100,w_5000,h_5000/resize,l_1024"
+    assert model_facing(result) == [
+        f'<image url="{OSS_IMAGE}">',
+        "原图 3000×2000 像素，image/jpeg，2.0 KB；当前显示区域 x=100, y=100, 2900×1900，"
+        "已降采样到长边 1024。输出原图坐标时加上区域偏移 (x, y)。",
+        ImageUrl(url=delivered, media_type="image/jpeg"),
+        "</image>",
+    ]
+
+
+async def test_a_small_region_is_not_downsampled_again() -> None:
+    """裁出来已经在 1024 以内就不再挂缩放：那道参数什么也不做，摘要却会多说一句假话。"""
+
+    result = await read_tools(FakeProbe()).read_media_file(
+        make_context(make_deps()), OSS_IMAGE, region=CropRegion(x=10, y=20, width=200, height=100)
+    )
+
+    assert model_facing(result)[2] == ImageUrl(
+        url=f"{OSS_IMAGE}?x-oss-process=image/crop,x_10,y_20,w_200,h_100",
+        media_type="image/jpeg",
+    )
+    assert "已降采样" not in str(model_facing(result)[1])
+
+
+async def test_a_region_starting_outside_the_image_reports_the_real_size() -> None:
+    """起点在图外时 OSS 会回一张空图；报出原图尺寸，模型才有得重算。"""
+
+    with pytest.raises(ModelRetry, match="3000×2000") as failure:
+        await read_tools(FakeProbe()).read_media_file(
+            make_context(make_deps()),
+            OSS_IMAGE,
+            region=CropRegion(x=3000, y=0, width=100, height=100),
+        )
+
+    assert "重算坐标" in str(failure.value)
+
+
+async def test_full_resolution_over_the_limit_points_at_region() -> None:
+    """整幅原分辨率有上限；报错要给一条出路，不然模型只会把同一次调用重试到底。"""
+
+    probe = FakeProbe(
+        ImageInfo(
+            media_type="image/png",
+            size_bytes=FULL_RESOLUTION_MAX_BYTES + 1,
+            width=8000,
+            height=6000,
+        )
+    )
+    with pytest.raises(ModelRetry, match="region") as failure:
+        await read_tools(probe).read_media_file(
+            make_context(make_deps()), OSS_IMAGE, full_resolution=True
+        )
+
+    assert "10.0 MB" in str(failure.value)
+
+
+async def test_full_resolution_under_the_limit_hands_over_the_bare_address() -> None:
+    result = await read_tools(FakeProbe()).read_media_file(
+        make_context(make_deps()), OSS_IMAGE, full_resolution=True
+    )
+
+    assert model_facing(result) == [
+        f'<image url="{OSS_IMAGE}">',
+        "原图 3000×2000 像素，image/jpeg，2.0 KB；原分辨率。",
+        ImageUrl(url=OSS_IMAGE, media_type="image/jpeg"),
+        "</image>",
+    ]
+
+
+async def test_region_and_full_resolution_are_mutually_exclusive() -> None:
+    """两个都给就没法判断该裁还是该给整幅；说清二选一，别自己挑一个。"""
+
+    with pytest.raises(ModelRetry, match="二选一"):
+        await read_tools(FakeProbe()).read_media_file(
+            make_context(make_deps()),
+            OSS_IMAGE,
+            region=CropRegion(x=0, y=0, width=10, height=10),
+            full_resolution=True,
+        )
+
+
+async def test_an_unreachable_image_is_refused_before_the_model_sees_it() -> None:
+    """问不出原图信息就别附给模型：报错发生在厂商那侧更难查。"""
+
+    with pytest.raises(ModelRetry, match="读不了") as failure:
+        await read_tools(FakeProbe(error="地址访问不到")).read_media_file(
+            make_context(make_deps()), OSS_IMAGE
+        )
+
+    assert "换一个对话里出现过的图片地址" in str(failure.value)
+
+
+async def test_an_address_that_cannot_carry_scaling_is_refused() -> None:
+    """缩放参数挂不上去就别附：一张原图整幅进上下文只会让账单涨。"""
+
+    with pytest.raises(ModelRetry, match="读不了"):
+        await read_tools(FakeProbe()).read_media_file(
+            make_context(make_deps()), "https://cdn.test/no-extension"
+        )
+
+
+async def test_read_media_file_takes_an_address_from_a_tool_result() -> None:
+    """预览板地址只在工具结果的 JSON 里，没有 tag——照样是本对话的素材。"""
+
+    board = "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/1.jpg"
+    tools = read_tools(FakeProbe())
+    ctx = make_context(make_deps())
+    ctx.messages.append(
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="plan_shot_frames",
+                    content={"boards": [{"board": 1, "url": board}]},
+                    tool_call_id="1",
+                )
+            ]
+        )
+    )
+
+    check_args(tools, ctx, url=board)
+    assert await tools.read_media_file(ctx, board)
+
+    with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
+        check_args(
+            tools,
+            ctx,
+            url="https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/9.jpg",
+        )
+
+
+async def test_an_out_of_scope_address_is_refused_before_the_probe_runs() -> None:
+    """模型编一个地址：官方在执行之前跑验证器，工具体一次都没跑。"""
+
+    probe = FakeProbe()
+    tools = read_tools(probe)
+    ctx = make_context(make_deps(), said=_USER_SENT_IMAGE)
+
+    check_args(tools, ctx, url=OSS_IMAGE)
+    with pytest.raises(ModelRetry, match=OSS_IMAGE) as failure:
+        check_args(tools, ctx, url="https://cdn.test/made-up.jpg")
+
+    # 不回显被拒的地址：回显一次，模型重试时它就成了「上下文里出现过」的东西。
+    assert "made-up" not in str(failure.value)
+
+
+@pytest.mark.parametrize("url", ["style.jpg", "file:///etc/passwd", "ftp://host/a.jpg"])
+async def test_read_media_file_only_takes_http_urls(url: str) -> None:
+    with pytest.raises(ModelRetry, match="http"):
+        check_args(read_tools(FakeProbe()), make_context(make_deps()), url=url)
+
+
+# --------------------------------------------------------------------------
 # 能力的装配面
 # --------------------------------------------------------------------------
 
@@ -417,7 +695,7 @@ def test_capability_guidance_says_only_what_no_docstring_can(
 ) -> None:
     """指引只说「这个工作区是什么、归谁」。
 
-    怎么用那六件工具已经写在各自的 docstring 与错误消息里；指引每轮都进上下文，
+    怎么用那七件工具已经写在各自的 docstring 与错误消息里；指引每轮都进上下文，
     在这儿重复一遍就是每轮都付一次钱。
     """
 
@@ -429,10 +707,11 @@ def test_capability_guidance_says_only_what_no_docstring_can(
 
 
 def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
-    """六件工具每件都登记了画法，kind 由客户端认。字段取不到就交给注册表退回 generic。"""
+    """七件工具每件都登记了画法，kind 由客户端认。字段取不到就交给注册表退回 generic。"""
 
     drawn = ToolDisplayRegistry.merged(capability.display_table()).entries
     assert sorted(drawn) == [
+        "ReadMediaFile",
         "delete_file",
         "edit_file",
         "list_files",
@@ -440,6 +719,9 @@ def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
         "search_files",
         "write_file",
     ]
+    assert drawn["ReadMediaFile"].draw({"url": OSS_IMAGE}) == UrlFetchDisplay(url=OSS_IMAGE)
+    # 地址取不到就交给注册表退回 generic，不画一张指着空地址的卡。
+    assert drawn["ReadMediaFile"].draw({}) is None
     assert drawn["read_file"].draw({"path": "分镜.md"}) == FileIoDisplay(
         operation="read", path="分镜.md"
     )
@@ -463,12 +745,13 @@ def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
         assert drawn[tool_name].draw({}) is None
 
 
-def test_only_the_two_readable_results_pick_a_renderer(capability: Workspace[object]) -> None:
-    """结果有专门渲染器的只有读文件与检索两件，其余不给、前端走 generic。"""
+def test_only_the_three_readable_results_pick_a_renderer(capability: Workspace[object]) -> None:
+    """结果有专门渲染器的只有读文件、检索与读图三件，其余不给、前端走 generic。"""
 
     views = ToolDisplayRegistry.merged(capability.display_table())
     assert views.view_of("read_file") == "file_content"
     assert views.view_of("search_files") == "search_results"
+    assert views.view_of("ReadMediaFile") == "media_grid"
     for tool_name in ("write_file", "edit_file", "delete_file", "list_files"):
         assert views.view_of(tool_name) is None
 
@@ -500,7 +783,7 @@ async def test_capability_attaches_to_a_real_agent(store: FakeFileStore) -> None
     result = await agent.run("起个稿", deps=make_deps())
 
     assert result.output == "写完了"
-    # 六件工具都到了模型面前。
+    # 七件工具都到了模型面前。
     assert set(seen[0]) == {
         "read_file",
         "write_file",
@@ -508,6 +791,7 @@ async def test_capability_attaches_to_a_real_agent(store: FakeFileStore) -> None
         "delete_file",
         "list_files",
         "search_files",
+        "ReadMediaFile",
     }
     # 文件真的落进了「这个用户的这段对话」名下。
     stored = await store.read(NS, "稿.md")

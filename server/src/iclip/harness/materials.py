@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
+from pydantic_ai import ModelRetry
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -34,7 +35,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from iclip.harness.media import MediaKind, iter_media_tags
+from iclip.harness.media import MediaKind, iter_media_tags, media_kind_label
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,4 +112,43 @@ def _part_text(part: ModelRequestPart) -> Iterator[str]:
         yield part.model_response_str()
 
 
-__all__ = ["RunMaterials", "run_materials"]
+def require_http(url: str, *, what: str) -> None:
+    """要求这个地址是 HTTP 地址。收地址的工具在登记时挂上它。"""
+
+    if not url.startswith(("http://", "https://")):
+        raise ModelRetry(f"{what}必须是 http:// 或 https:// 开头；收到的是 {url!r}。")
+
+
+def require_material(
+    materials: RunMaterials, url: str, *, kind: MediaKind, what: str, recorded_at: str
+) -> None:
+    """要求这个地址是本对话的素材：出现过；被声明过种类的，种类还得对得上。
+
+    种类只在「声明过」时查：那个信息只有用户发的附件带得来（tag 写在上面），工具自己
+    产出的地址是裸的，对它们查种类等于把自己的产物拒在门外。
+
+    错误消息一律**不回显被拒的地址**。回显了，模型重试一次就把它洗成上下文里出现
+    过的东西了——下一次同样的调用就会放行。``recorded_at`` 是调用方那句「本能力写下
+    的地址记在哪」，因为那是各能力自己的账本。
+    """
+
+    if not materials.appears(url):
+        known = materials.declared(kind)
+        if known:
+            raise ModelRetry(
+                f"这个{what}不是这段对话里的素材。本对话的{media_kind_label(kind)}有："
+                f"{'、'.join(known)}。逐字抄其中一个。"
+            )
+        raise ModelRetry(
+            f"这个{what}不是这段对话里的素材。只能用对话里给你的地址、或工具结果里"
+            f"返回的地址，不要自己拼；{recorded_at}"
+        )
+    declared = materials.kind_of(url)
+    if declared is not None and declared != kind:
+        raise ModelRetry(
+            f"这个地址在对话里是一份{media_kind_label(declared)}，当不了{what}。"
+            f"换一个{media_kind_label(kind)}的地址。"
+        )
+
+
+__all__ = ["RunMaterials", "require_http", "require_material", "run_materials"]
