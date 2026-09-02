@@ -3,8 +3,9 @@
  *
  * 版式照 WorkBuddy 终态栏：24×24 透明图标钮（radius sm、icon-md、chat-muted-text，hover 铺
  * hover 状态底，150ms 过渡）常显；统计段由 credit 钻石图标领头，三项只留 k 缩略，精确值收进
- * 原生 title；完成时刻按「今天 HH:mm / 昨天 HH:mm / 更早 M月d日 HH:mm（跨自然年补年份）」缩写，
- * 默认透明、hover 该轮时浮现，title 里留精确完整时刻。统计只在这轮带 usage 时出现
+ * 原生 title；完成时刻按「今天 HH:mm / 昨天 HH:mm / 更早 M月d日 HH:mm（跨自然年补年份）」缩写。
+ * 统计与时刻默认透明、hover 该轮时一起浮现（WorkBuddy 同此：credit 与时刻都是 opacity 0 → hover 显现），
+ * title 里各留精确值。统计只在这轮带 usage 时出现
  * （运行中、失败轮与旧数据没有它），时刻只在 endedAt 存在且能解析时出现。
  */
 
@@ -55,14 +56,14 @@ const fullTime = (iso: string): string => {
   return `${then.getFullYear()}/${pad2(then.getMonth() + 1)}/${pad2(then.getDate())} ${pad2(then.getHours())}:${pad2(then.getMinutes())}:${pad2(then.getSeconds())}`
 }
 
-/** 统计段：钻石图标领头，输入 / 缓存 / 输出三段中点分隔；精确口径在 title 里。 */
+/** 统计段：钻石图标领头，输入 / 缓存 / 输出三段中点分隔；默认透明、hover 该轮浮现；精确口径在 title 里。 */
 const UsageStats = ({ usage }: { usage: TranscriptUsage }) => {
   const input = usage.inputTokens ?? 0
   const cached = usage.cachedTokens ?? 0
   const output = usage.outputTokens ?? 0
   return (
     <p
-      className="flex items-center gap-1 text-caption text-chat-muted-text tabular-nums"
+      className="flex items-center gap-1 text-caption text-chat-muted-text tabular-nums opacity-0 transition-opacity ui-motion-s group-hover:opacity-100"
       title={`输入 ${exactTokens(input)} · 缓存 ${exactTokens(cached)} · 输出 ${exactTokens(output)}`}
     >
       <Icon decorative name="credit" size="xs" />
