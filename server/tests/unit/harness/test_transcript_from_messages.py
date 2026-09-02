@@ -23,7 +23,12 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
-from iclip.harness.transcript.from_messages import run_state_from_events, turns_from_messages
+from iclip.harness.transcript.from_messages import (
+    drop_last_run,
+    run_ids_from_messages,
+    run_state_from_events,
+    turns_from_messages,
+)
 from iclip.harness.transcript.prompt_media import attachment_id, model_prompt
 from iclip.platform.transcript.display import FileIoDisplay, GenericDisplay
 from iclip.platform.transcript.ops import (
@@ -407,3 +412,57 @@ def test_tool_card_carries_how_to_draw_it() -> None:
     cards = [f for f in turns[0].steps[0].frames if isinstance(f, ToolFrame)]
     assert cards[0].display == FileIoDisplay(operation="read", path="shots.md")
     assert cards[1].display == GenericDisplay(summary="出镜头帧")
+
+
+def test_drop_last_run_on_empty_history_is_a_no_op() -> None:
+    """一份消息都没有就没什么可截，调用方按「没有末轮」处理。"""
+
+    assert drop_last_run([]) == ([], None)
+
+
+def test_drop_last_run_removes_exactly_the_last_group() -> None:
+    """截断只摘走最后一次 run 的那组，前面的消息一条不动。"""
+
+    messages = [
+        _ask("第一问", run_id="r1", minute=0),
+        _reply(TextPart(content="第一答"), run_id="r1", minute=1),
+        _ask("第二问", run_id="r2", minute=2),
+        _reply(TextPart(content="第二答"), run_id="r2", minute=3),
+    ]
+
+    kept, dropped = drop_last_run(messages)
+
+    assert dropped == "r2"
+    assert kept == messages[:2]
+
+
+def test_drop_last_run_takes_trailing_unstamped_messages_with_it() -> None:
+    """末尾不带 run_id 的消息挂在前一次 run 上，截断时跟着那一轮一起走。"""
+
+    messages = [
+        _ask("第一问", run_id="r1", minute=0),
+        _reply(TextPart(content="第一答"), run_id="r1", minute=1),
+        _ask("第二问", run_id="r2", minute=2),
+        _returns(RetryPromptPart(content="参数不对", tool_call_id="c1"), run_id=None, minute=3),
+    ]
+
+    kept, dropped = drop_last_run(messages)
+
+    assert dropped == "r2"
+    assert kept == messages[:2]
+
+
+def test_truncation_reuses_the_dropped_ordinal() -> None:
+    """截掉末轮之后，下一次 run 的轮号（``len(run_ids) + 1``）正好复用被摘掉那一轮的号。"""
+
+    messages = [
+        _ask("第一问", run_id="r1", minute=0),
+        _reply(TextPart(content="第一答"), run_id="r1", minute=1),
+        _ask("第二问", run_id="r2", minute=2),
+        _reply(TextPart(content="第二答"), run_id="r2", minute=3),
+    ]
+    dropped_ordinal = len(run_ids_from_messages(messages))  # 被摘掉那一轮的轮号
+
+    kept, _ = drop_last_run(messages)
+
+    assert len(run_ids_from_messages(kept)) + 1 == dropped_ordinal

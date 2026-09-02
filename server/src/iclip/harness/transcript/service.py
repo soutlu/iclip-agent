@@ -7,12 +7,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from iclip.common.errors import ValidationFailed
+from iclip.common.errors import Conflict, NotFound, ValidationFailed
 from iclip.harness.prompts import PromptQueue
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
@@ -74,6 +75,39 @@ class TranscriptService:
 
     async def abort(self, conversation_id: str, prompt_id: str) -> None:
         await self.runner.abort(conversation_id, prompt_id)
+
+    async def regenerate(self, *, conversation_id: str, turn_id: str) -> Prompt:
+        """把末轮从历史里抹掉，按那一轮原来那条消息的内容重跑一次。
+
+        寻址用协议里的轮 id（``t{N}``，N 从 1 起）：消息历史按 run 分组，第 N 组就是第 N 轮。
+        只允许对**最后一轮**、且这段对话**空闲**时调用：正在跑或排着队是 ``Conflict``，动的
+        不是末轮（轮号超出现有轮数也算）也是 ``Conflict``；轮 id 形状不对是
+        ``ValidationFailed``。重跑走 ``submit`` 正常开跑，prompt id 由服务端另铸——原来那个
+        已被那条记录占用，复用它会被幂等认领直接退回旧记录。
+        """
+
+        match = re.fullmatch(r"t([1-9]\d*)", turn_id)
+        if match is None:
+            raise ValidationFailed(f"不是合法的轮 id：{turn_id}")
+        view = await self.queue.view(conversation_id)
+        if view.active is not None or view.queued:
+            raise Conflict("这段对话还在忙，等它收完尾再重新生成")
+        run_ids = await self.history.run_ids(conversation_id)
+        if int(match.group(1)) != len(run_ids):
+            raise Conflict("只能重新生成最后一轮")
+        row = await self.queue.get_by_run(run_ids[-1])
+        if row is None:
+            raise NotFound(f"找不到这一轮对应的消息：{turn_id}")
+        if not await self.history.rewind_last_turn(conversation_id, run_id=run_ids[-1]):
+            # 读轮数与动手之间的空隙里这段对话又跑了一轮：要截的已经不是它，拒掉。
+            raise Conflict("只能重新生成最后一轮")
+        return await self.submit(
+            prompt_id=f"prm_regen_{uuid.uuid4().hex[:16]}",
+            conversation_id=conversation_id,
+            agent_id=row.agent_id,
+            owner_user_id=row.owner_user_id,
+            content=row.content,
+        )
 
     async def abort_conversation(self, conversation_id: str) -> None:
         await self.runner.abort_conversation(conversation_id)

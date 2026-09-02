@@ -199,6 +199,19 @@ export const steerPrompt = async (conversationId: string, promptId: string): Pro
   }
 }
 
+/**
+ * 重新生成一轮：服务端把末轮从历史里抹掉，按那条消息的原内容重跑一次。
+ *
+ * 答复是新铸的 prompt 记录，但这里不留它——新的一轮走推送自然回流。409（对话在忙、动的
+ * 不是末轮）与 404（消息没了）都原样抛给调用方，让用户看到原因。
+ */
+export const regeneratePrompt = async (conversationId: string, turnId: string): Promise<void> => {
+  await apiFetch(`/conversations/${conversationId}/turns/${turnId}:regenerate`, zPrompt, {
+    fallbackErrorMessage: '重新生成失败',
+    method: 'POST',
+  })
+}
+
 /** 一条 prompt 里用户打的字。附件那些形态这里不取，但也不能让它们把整条解析带崩。 */
 export const promptText = (content: unknown): string => {
   const parsed = z.array(z.unknown()).safeParse(content)

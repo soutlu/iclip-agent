@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
+import { Toaster } from '@/shared/ui/toast'
 import { ConversationRoute } from './conversation-route'
 
 // lottie-web 在模块加载时会探测 canvas 2d context；jsdom 没有它。摄像机是 aria-hidden
@@ -286,6 +287,83 @@ describe('ConversationRoute', () => {
     await waitFor(() => {
       expect(steered).toEqual(['p-queued'])
     })
+  })
+
+  it('只有最后一轮带「重新生成」钮', async () => {
+    await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    expect(
+      within(screen.getByLabelText('第 2 轮')).getByRole('button', { name: '重新生成' }),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('第 1 轮')).queryByRole('button', { name: '重新生成' }),
+    ).toBeNull()
+  })
+
+  it('点「重新生成」打 :regenerate 端点，新一轮走推送回流', async () => {
+    const user = userEvent.setup()
+    await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    let regenerated = ''
+    server.use(
+      http.post('*/api/conversations/c1/turns/*', ({ request }) => {
+        regenerated = decodeURIComponent(new URL(request.url).pathname.split('/').pop() ?? '')
+        return HttpResponse.json({
+          createdAt: '2026-08-31T03:02:00Z',
+          promptId: 'prm_regen_1',
+          status: 'running',
+        })
+      }),
+    )
+
+    await user.click(
+      within(screen.getByLabelText('第 2 轮')).getByRole('button', { name: '重新生成' }),
+    )
+
+    await waitFor(() => {
+      expect(regenerated).toBe('t2:regenerate')
+    })
+  })
+
+  it('对话在忙时「重新生成」置灰', async () => {
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    const button = within(screen.getByLabelText('第 2 轮')).getByRole('button', {
+      name: '重新生成',
+    })
+    expect(button).toBeEnabled()
+
+    socket.deliver(opsFrame([runningPrompt('p-run')], 11))
+
+    await waitFor(() => expect(button).toBeDisabled())
+  })
+
+  it('重新生成被服务端拒了（409）时把它给的中文文案弹出来', async () => {
+    const user = userEvent.setup()
+    await renderWithProviders(
+      <>
+        <ConversationRoute conversationId="c1" />
+        <Toaster />
+      </>,
+    )
+    await screen.findByText(TAIL_TEXT)
+
+    server.use(
+      http.post('*/api/conversations/c1/turns/*', () =>
+        HttpResponse.json({ detail: '这段对话还在忙，等它收完尾再重新生成' }, { status: 409 }),
+      ),
+    )
+
+    await user.click(
+      within(screen.getByLabelText('第 2 轮')).getByRole('button', { name: '重新生成' }),
+    )
+
+    expect(
+      await screen.findByText('重新生成失败：这段对话还在忙，等它收完尾再重新生成'),
+    ).toBeInTheDocument()
   })
 
   it('工具结果是纯文本时可以展开，没有结果就不给展开箭头', async () => {

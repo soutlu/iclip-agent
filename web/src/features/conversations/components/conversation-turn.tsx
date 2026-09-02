@@ -10,25 +10,26 @@
  * 加一个图标，不进卡片。开合照 kimi 网页版用 grid-rows 0fr→1fr 平滑过渡，不再用 <details>。
  */
 
-import { memo, useState } from 'react'
+import { memo } from 'react'
 import type { TranscriptTurn } from '@/shared/transcript/vendor'
-import { Icon } from '@/shared/icons'
-import { toast } from '@/shared/ui/toast'
 import { groupTurnEntries } from './activity-group'
 import { ActivityRun } from './activity-run'
 import { ErrorNotice, TurnFrame, type AttachmentMap } from './turn-frame'
+import { TurnActions } from './turn-actions'
 import { UserBubble } from './user-bubble'
 
 type ConversationTurnProps = {
   turn: TranscriptTurn
   /** 附件实体表（frame / turn 只带 id 引用；同一引用原地增补，不破坏 memo）。 */
   attachments: AttachmentMap
+  /** 重新生成这一轮；只在调用方判定它能重生（最后一轮、对话空闲）时才传。 */
+  onRegenerate?: (() => void) | undefined
+  /** 重新生成暂不可用时置灰；onRegenerate 没传时无意义。 */
+  regenerateDisabled?: boolean | undefined
 }
 
 /** 这一轮是不是已经结束了。结束了的轮子里不该再有转圈的东西。 */
 const isSettled = (turn: TranscriptTurn) => turn.state !== 'running' && turn.state !== 'queued'
-
-const COPY_FEEDBACK_MS = 1400
 
 /**
  * 渲染一轮。
@@ -39,13 +40,16 @@ const COPY_FEEDBACK_MS = 1400
  * @param props - 组件属性。
  * @param props.turn - 这一轮。
  * @param props.attachments - 附件实体表。
+ * @param props.onRegenerate - 重新生成回调。
+ * @param props.regenerateDisabled - 重新生成暂不可用。
  * @returns 一轮的内容。
  */
 export const ConversationTurn = memo(function ConversationTurn({
   attachments,
+  onRegenerate,
+  regenerateDisabled,
   turn,
 }: ConversationTurnProps) {
-  const [copied, setCopied] = useState(false)
   const settled = isSettled(turn)
   const entries = turn.steps.flatMap((step) => step.frames.map((frame) => ({ frame, step })))
   const lastUserFrameIndex = entries.findLastIndex(
@@ -59,15 +63,6 @@ export const ConversationTurn = memo(function ConversationTurn({
         : [],
     )
     .join('\n\n')
-  const copyReply = async () => {
-    try {
-      await navigator.clipboard.writeText(copyText)
-      setCopied(true)
-      setTimeout(() => setCopied(false), COPY_FEEDBACK_MS)
-    } catch {
-      toast.error('复制失败')
-    }
-  }
   // 开场输入始终在轮头部；user frame 只表示这一轮运行期间追加的插话，两者互不替代。
   const hasOpening = (turn.prompt?.length ?? 0) > 0 || (turn.attachmentIds?.length ?? 0) > 0
   // 「还在进行中」的块照 kimi 的判据：轮子没结束，且它是最后一步的最后一块
@@ -102,15 +97,13 @@ export const ConversationTurn = memo(function ConversationTurn({
         ),
       )}
       {settled && copyText !== '' ? (
-        <button
-          aria-label="复制"
-          className="inline-flex min-h-[22px] cursor-pointer items-center justify-center self-start rounded-sm px-[5px] py-0.5 text-chat-muted-text opacity-70 ui-focus transition-[opacity,color,background-color] ui-motion-s hover:bg-hover hover:text-primary hover:opacity-100"
-          onClick={() => void copyReply()}
-          title="复制"
-          type="button"
-        >
-          <Icon decorative name={copied ? 'check' : 'copy'} size="sm" />
-        </button>
+        <TurnActions
+          copyText={copyText}
+          endedAt={turn.endedAt}
+          onRegenerate={onRegenerate}
+          regenerateDisabled={regenerateDisabled}
+          usage={turn.usage}
+        />
       ) : null}
       {turn.error === undefined ? null : <ErrorNotice message={turn.error} />}
       {turn.state === 'queued' ? (
