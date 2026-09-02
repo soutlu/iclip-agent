@@ -70,7 +70,7 @@ export const ConversationTurn = memo(function ConversationTurn({
   const nodes = groupTurnEntries(entries)
 
   return (
-    <article className="flex flex-col gap-2.5" aria-label={`第 ${turn.ordinal} 轮`}>
+    <article className="group flex flex-col gap-2.5" aria-label={`第 ${turn.ordinal} 轮`}>
       {hasOpening ? (
         <UserBubble
           attachments={turn.attachmentIds?.flatMap((id) => attachments.get(id) ?? [])}
