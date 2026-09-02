@@ -2870,7 +2870,7 @@
               <span>轮间距 16 · 轮内块间距 10</span>
               <span>用户气泡 · 右对齐 · ≤ min(88%, 100vw-52) · chat-user-bg · radius md · 内距 10 / 12 · text-body 行高 1.5 · 超 10 行折叠成底部渐隐，「展开」胶囊压在渐隐上 · 无边框无阴影无状态层</span>
               <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 400 · 行高 relaxed · chat-message-text · 按 markdown 渲染，夹在里面的 HTML 过白名单后渲染（script / iframe / on* / javascript: 一律摘掉）</span>
-              <span>助手回复操作 · 回复结束后左对齐常驻「复制」icon-sm 按钮 · 复制该回复的原始 markdown，不含思考、工具结果与用户插话 · muted 70%，hover 提亮并铺 hover 状态底 · 成功换 check 1.4s</span>
+              <span>助手回复操作 · 回复结束后左对齐常驻终态栏：「复制 / 重新生成」24×24 图标钮（radius sm · icon-md · chat-muted-text · hover 铺 hover 状态底 · 150ms 过渡）· 复制该回复的原始 markdown，不含思考、工具结果与用户插话 · 成功换 check 1.4s · 钮组后隔 8 接 credit 钻石图标领头的 token 统计（图标与文字距 4 · text-caption chat-muted-text · 精确值入 title）与完成时刻（今天 HH:mm · 昨天 HH:mm · 更早 M月d日 HH:mm 跨年补年份 · 默认透明 hover 该轮浮现 · 精确完整时刻入 title）</span>
               <span>正文 markdown · 顶层块间距 14 · 标题最高 text-title、h1 底部发丝线 · 列表 28 缩进 + 5px 圆点（二级空心描边）· 引用 2px 圆角竖条 · 行内代码 chat-code-bg radius xs、chat-link-text 色 · 代码块带头部条（语言名 + 复制钮）chat-code-block-bg radius sm 最高 500 可滚动 · 表格 chat-hairline 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text，hover 才出下划线</span>
               <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-muted-text · 路径 chat-message-text 截断（≤ 60%）· 行尾状态点 chat-status-success / -error / -running（转圈）</span>
               <span>工具结果 · 只有纯文本结果才给折叠箭头 · 开合 grid-rows 0fr↔1fr 平滑过渡 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
