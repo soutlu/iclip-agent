@@ -16,6 +16,8 @@ type ConversationComposerProps = {
   onSend: (text: string, media: ComposerSubmission['media']) => Promise<void>
   /** 这段对话正在跑：发送钮换成停止钮。 */
   busy?: boolean
+  /** 有一步等着审批：占位文案换成等审批，说清此刻在等谁。 */
+  awaitingApproval?: boolean
   contextTokens: number | undefined
   maxContextTokens: number | undefined
   onStop?: (() => void) | undefined
@@ -27,10 +29,12 @@ type ConversationComposerProps = {
  * @param props - 组件属性。
  * @param props.onSend - 发送一条消息。
  * @param props.busy - 这段对话是否正在跑。
+ * @param props.awaitingApproval - 是否有一步等着审批。
  * @param props.onStop - 点停止。
  * @returns 输入框。
  */
 export function ConversationComposer({
+  awaitingApproval = false,
   busy = false,
   contextTokens,
   maxContextTokens,
@@ -62,7 +66,7 @@ export function ConversationComposer({
       dense
       onStop={onStop}
       onSubmit={(submission) => void send(submission)}
-      placeholder="接着说…"
+      placeholder={awaitingApproval ? '等你审批后继续' : '接着说…'}
       ref={composerRef}
       sending={sending}
       trailing={

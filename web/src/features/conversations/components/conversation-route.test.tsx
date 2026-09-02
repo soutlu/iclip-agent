@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
+import { mockTranscriptPage } from '@/testing/mocks/transcript'
 import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
 import { Toaster } from '@/shared/ui/toast'
@@ -41,6 +42,63 @@ const runningPrompt = (promptId: string) => ({
   op: 'prompt.upsert',
   prompt: { createdAt: '2026-08-31T03:00:00Z', promptId, status: 'running' },
 })
+
+/** 等人点头的那次调用：审批卡按帧上的 `approvalId` 认领它。 */
+const APPROVAL_TURN = {
+  kind: 'turn',
+  ordinal: 3,
+  origin: { kind: 'user' },
+  prompt: '把两张镜头帧拼成封面',
+  startedAt: '2026-08-31T02:10:00Z',
+  state: 'running',
+  steps: [
+    {
+      frames: [
+        {
+          approvalId: 'appr_1',
+          display: { kind: 'file_io', operation: 'write', path: 'shots/cover.md' },
+          frameId: 'ta.1.f1',
+          input: { path: 'shots/cover.md' },
+          kind: 'tool',
+          name: 'write_file',
+          state: 'running',
+          toolCallId: 'call_cover',
+        },
+      ],
+      kind: 'step',
+      ordinal: 1,
+      startedAt: '2026-08-31T02:10:00Z',
+      state: 'running',
+      stepId: 'ta.1',
+      turnId: 'ta',
+    },
+  ],
+  turnId: 'ta',
+}
+
+/** 把基线换成「停在审批上」的那一页。要在渲染之前装。 */
+const serveApprovalPage = () => {
+  const page = mockTranscriptPage()
+  server.use(
+    http.get('*/api/conversations/c1/transcript', () =>
+      HttpResponse.json({
+        ...page,
+        interactions: [
+          {
+            interactionId: 'appr_1',
+            interactionKind: 'approval',
+            state: 'pending',
+            toolCallId: 'call_cover',
+          },
+        ],
+        items: [...page.items, APPROVAL_TURN],
+        meta: { ...page.meta, activity: 'turn' },
+        pending_interactions: ['appr_1'],
+        prompts: [{ createdAt: '2026-08-31T02:10:00Z', promptId: 'p-cover', status: 'running' }],
+      }),
+    ),
+  )
+}
 
 const queuedPrompt = (promptId: string, text: string) => ({
   op: 'prompt.upsert',
@@ -571,6 +629,91 @@ describe('ConversationRoute', () => {
 
     await user.click(screen.getByRole('button', { name: '关闭' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('等审批时贴出审批卡，点「同意」打 interactions 端点', async () => {
+    const user = userEvent.setup()
+    serveApprovalPage()
+    let decided: { body: unknown; path: string } | null = null
+    server.use(
+      http.post('*/api/conversations/c1/interactions/:interactionId', async ({ request }) => {
+        decided = { body: await request.json(), path: new URL(request.url).pathname }
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    await renderConversation()
+
+    // 卡面复用工具卡那份 display：这一步要写哪个文件写在标题旁边
+    const card = await screen.findByRole('region', { name: '等你审批' })
+    expect(within(card).getByText('写文件')).toBeInTheDocument()
+    expect(within(card).getByText('shots/cover.md')).toBeInTheDocument()
+
+    await user.click(within(card).getByRole('button', { name: /同意/ }))
+
+    await waitFor(() => {
+      expect(decided).toEqual({
+        body: { approved: true },
+        path: '/api/conversations/c1/interactions/appr_1',
+      })
+    })
+    // 撤掉这张卡的是服务端那份 pending 集合，本地只把两个钮换成结果
+    expect(await within(card).findByText('已同意')).toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: /拒绝/ })).toBeNull()
+  })
+
+  it('点「拒绝」发的是 approved: false', async () => {
+    const user = userEvent.setup()
+    serveApprovalPage()
+    let body: unknown = null
+    server.use(
+      http.post('*/api/conversations/c1/interactions/:interactionId', async ({ request }) => {
+        body = await request.json()
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    await renderConversation()
+
+    const card = await screen.findByRole('region', { name: '等你审批' })
+    await user.click(within(card).getByRole('button', { name: /拒绝/ }))
+
+    await waitFor(() => expect(body).toEqual({ approved: false }))
+    expect(await within(card).findByText('已拒绝')).toBeInTheDocument()
+  })
+
+  it('改主意（409）时说清已经做过决定', async () => {
+    const user = userEvent.setup()
+    serveApprovalPage()
+    server.use(
+      http.post('*/api/conversations/c1/interactions/:interactionId', () =>
+        HttpResponse.json({ detail: '这张卡已经做过决定了' }, { status: 409 }),
+      ),
+    )
+    await renderWithProviders(
+      <>
+        <ConversationRoute conversationId="c1" />
+        <Toaster />
+      </>,
+    )
+
+    const card = await screen.findByRole('region', { name: '等你审批' })
+    await user.click(within(card).getByRole('button', { name: /同意/ }))
+
+    expect(await screen.findByText('已经做过决定')).toBeInTheDocument()
+    // 决定没记下，两个钮还在
+    expect(within(card).getByRole('button', { name: /拒绝/ })).toBeInTheDocument()
+  })
+
+  it('等审批时不给追加入口，输入框改口说在等谁', async () => {
+    serveApprovalPage()
+    const { socket } = await renderConversation()
+    await screen.findByRole('region', { name: '等你审批' })
+
+    socket.deliver(opsFrame([queuedPrompt('p-queued', '顺便配个音')], 11))
+
+    expect(await screen.findByText('1 个任务等待发送')).toBeInTheDocument()
+    // 等人点头的时候没有在跑的那一轮可插：追加得等决定落下去
+    expect(screen.queryByRole('button', { name: '立即发送到当前回合' })).toBeNull()
+    expect(screen.getByText('等你审批后继续')).toBeInTheDocument()
   })
 
   it('标题来自基线，服务端起了新名字就当场换掉', async () => {

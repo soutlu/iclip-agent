@@ -165,3 +165,107 @@ describe('ConversationTurn', () => {
     expect(screen.queryByRole('button', { name: '复制' })).toBeNull()
   })
 })
+
+/** 一次出图调用：结果里给人看的那份是两张图。 */
+const mediaFrame = (metadata: unknown) => ({
+  display: { kind: 'generic' as const, summary: '出镜头帧' },
+  frameId: 't1.1.f1',
+  kind: 'tool' as const,
+  metadata,
+  name: 'generate_shot_frames',
+  output: '出好了 2 张',
+  state: 'done' as const,
+  toolCallId: 'call_1',
+  view: 'media_grid',
+})
+
+const TWO_ITEMS = {
+  items: [
+    { caption: 'S01 · 产品特写', url: 'https://example.com/a.png' },
+    { caption: 'S02 · 场景全景', url: 'https://example.com/b.png' },
+  ],
+}
+
+describe('工具结果按 view 选渲染器', () => {
+  it('media_grid 在工具行下面画出每一张图与它的标题', () => {
+    render(
+      <ConversationTurn attachments={new Map()} turn={turnWithFrames([mediaFrame(TWO_ITEMS)])} />,
+    )
+
+    expect(screen.getAllByRole('figure')).toHaveLength(2)
+    expect(screen.getByRole('img', { name: 'S01 · 产品特写' })).toBeInTheDocument()
+    expect(screen.getByText('S02 · 场景全景')).toBeInTheDocument()
+  })
+
+  it('点一张图开灯箱', async () => {
+    const user = userEvent.setup()
+    render(
+      <ConversationTurn attachments={new Map()} turn={turnWithFrames([mediaFrame(TWO_ITEMS)])} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'S01 · 产品特写' }))
+
+    expect(screen.getByRole('dialog', { name: 'S01 · 产品特写' })).toBeInTheDocument()
+  })
+
+  it('结果形状对不上就退回朴素行：没有图，纯文本结果照旧可以展开', async () => {
+    const user = userEvent.setup()
+    render(
+      <ConversationTurn
+        attachments={new Map()}
+        turn={turnWithFrames([mediaFrame({ items: 3 })])}
+      />,
+    )
+
+    expect(screen.queryByRole('figure')).toBeNull()
+    await user.click(screen.getByRole('button', { name: /出镜头帧/ }))
+    expect(screen.getByText('出好了 2 张')).toBeInTheDocument()
+  })
+
+  it('file_content 的纯文本结果可以展开', async () => {
+    const user = userEvent.setup()
+    render(
+      <ConversationTurn
+        attachments={new Map()}
+        turn={turnWithFrames([
+          {
+            display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
+            frameId: 't1.1.f1',
+            kind: 'tool',
+            name: 'read_file',
+            output: '# 分镜\n\nS01 产品特写',
+            state: 'done',
+            toolCallId: 'call_1',
+            view: 'file_content',
+          },
+        ])}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /读文件/ }))
+
+    expect(screen.getByText(/S01 产品特写/)).toBeInTheDocument()
+  })
+
+  it('画出图的那次调用不折进活动组：折起来图就跟着不见了', () => {
+    render(
+      <ConversationTurn
+        attachments={new Map()}
+        turn={turnWithFrames([
+          {
+            display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
+            frameId: 't1.1.f0',
+            kind: 'tool',
+            name: 'read_file',
+            state: 'done',
+            toolCallId: 'call_0',
+          },
+          mediaFrame(TWO_ITEMS),
+        ])}
+      />,
+    )
+
+    expect(screen.getAllByRole('figure')).toHaveLength(2)
+    expect(screen.queryByText(/读取了 1 个文件/)).toBeNull()
+  })
+})

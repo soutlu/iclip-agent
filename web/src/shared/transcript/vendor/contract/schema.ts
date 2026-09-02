@@ -101,6 +101,8 @@ export const toolCallFrameSchema = z.object({
   input: z.unknown().optional(),
   output: z.unknown().optional(),
   display: z.unknown().optional(),
+  // 本仓扩展：给人看的那份结果（见 README「做过的改写」）。
+  metadata: z.unknown().optional(),
   error: z.string().optional(),
   inputText: z.string().optional(),
   progress: toolFrameProgressSchema.optional(),

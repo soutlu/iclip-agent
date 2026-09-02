@@ -10,7 +10,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSessionTitles } from '@/shared/transcript/use-session-titles'
 import { useTranscript } from '@/shared/transcript/use-transcript'
-import type { TranscriptAttachment, TranscriptTurn } from '@/shared/transcript/vendor'
+import type {
+  ToolCallFrame,
+  TranscriptAttachment,
+  TranscriptTurn,
+} from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -25,6 +29,7 @@ import {
   steerPrompt,
   submitPrompt,
 } from '../conversations.api'
+import { ApprovalCard } from './approval-card'
 import { ConversationComposer } from './conversation-composer'
 import { ConversationTurn } from './conversation-turn'
 import { PromptQueue } from './prompt-queue'
@@ -36,6 +41,19 @@ const STICK_THRESHOLD_PX = 80
 
 /** 停止滚动多久之后把滚动条收回去（照 kimi：滚动条只在滚动中与悬停时浮现）。 */
 const SCROLL_IDLE_MS = 600
+
+/** 审批卡对着的那次调用：帧上的 `approvalId` 就是这张卡的 id。 */
+const frameAwaiting = (
+  turns: readonly TranscriptTurn[],
+  interactionId: string,
+): ToolCallFrame | undefined =>
+  turns
+    .flatMap((turn) => turn.steps)
+    .flatMap((step) => step.frames)
+    .find(
+      (frame): frame is ToolCallFrame =>
+        frame.kind === 'tool' && frame.approvalId === interactionId,
+    )
 
 /** Kimi 的 Requesting → Working 判据：非空助手正文/思考，或任一工具块。 */
 const hasAssistantOutput = (turn: TranscriptTurn | undefined): boolean =>
@@ -110,6 +128,10 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   )
 
   const turns = view.items.filter((item) => item.kind === 'turn')
+  // 一次只请一个决定（照 kimi）：等着的还有别的，等这张收掉再露出下一张。提问那一类不归审批卡。
+  const approval = view.pendingInteractions.find(
+    (interaction) => interaction.interactionKind === 'approval',
+  )
 
   // 照 Kimi：running prompt 本身不认领乐观消息；必须等 anchor 之后的 turn.prompt 真正接手。
   // queued 由队列行接手，终态则直接收掉，二者都不再保留气泡。
@@ -262,7 +284,8 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               </div>
             ) : null}
             <PromptQueue
-              canSteer={running !== undefined}
+              // 等审批的时候没有在跑的那一轮可插：追加得等决定落下去
+              canSteer={running !== undefined && approval === undefined}
               onDiscard={(promptId) => act(abortPrompt(conversationId, promptId))}
               onSteer={(promptId) => act(steerPrompt(conversationId, promptId))}
               prompts={queued.map((prompt) => ({
@@ -309,7 +332,17 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
           className="pointer-events-none absolute inset-x-0 -top-12 h-12 bg-gradient-to-b from-transparent to-background"
         />
         <div className="mx-auto w-full max-w-(--layout-home-read-max)">
+          {approval === undefined ? null : (
+            <ApprovalCard
+              conversationId={conversationId}
+              frame={frameAwaiting(turns, approval.interactionId)}
+              interactionId={approval.interactionId}
+              key={approval.interactionId}
+              onRefresh={refresh}
+            />
+          )}
           <ConversationComposer
+            awaitingApproval={approval !== undefined}
             busy={running !== undefined}
             contextTokens={view.contextTokens}
             maxContextTokens={view.maxContextTokens}

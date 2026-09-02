@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
 import type { ComposerAttachment } from '@/shared/ui/composer'
 import {
+  zApproveConversationsConversationIdInteractionsInteractionIdPostResponse,
   zConversationEnvelope,
   zConversationPageOut,
   zConversationsPageOut,
@@ -204,6 +205,24 @@ export const steerPrompt = async (conversationId: string, promptId: string): Pro
     if (error instanceof ApiError && error.status === 404) return
     throw error
   }
+}
+
+/**
+ * 对一张审批卡点同意或拒绝。
+ *
+ * 决定记下就是 204，续跑由服务端自己起。重复点同一个决定照样 204；改主意是 409，卡已经不在等
+ * 回应的那几张里是 404——两个都原样抛给调用方，让它就地说清楚。
+ */
+export const respondInteraction = async (
+  conversationId: string,
+  interactionId: string,
+  approved: boolean,
+): Promise<void> => {
+  await apiFetch(
+    `/conversations/${conversationId}/interactions/${interactionId}`,
+    zApproveConversationsConversationIdInteractionsInteractionIdPostResponse,
+    { body: { approved }, fallbackErrorMessage: '提交决定失败', method: 'POST' },
+  )
 }
 
 /**

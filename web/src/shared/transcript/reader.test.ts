@@ -260,6 +260,74 @@ describe('TranscriptReader', () => {
     expect(textOf(reader)).toContain(TAIL_TEXT)
   })
 
+  it('工具帧上给人看的那份结果（metadata）过了协议校验还在', async () => {
+    const { reader, socket } = startReader()
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+
+    const metadata = { items: [{ caption: 'S01 · 产品特写', url: 'https://example.com/a.png' }] }
+    socket.deliver(
+      opsFrame(11, [
+        {
+          frame: {
+            display: { kind: 'generic', summary: '出镜头帧' },
+            frameId: 't2.1.f9',
+            kind: 'tool',
+            metadata,
+            name: 'generate_shot_frames',
+            state: 'done',
+            toolCallId: 'call_frames',
+            view: 'media_grid',
+          },
+          op: 'frame.upsert',
+          stepId: 't2.1',
+          turnId: 't2',
+        },
+      ]),
+    )
+
+    // 这个字段是本仓对 kimi 帧的扩展：schema 里没有它的话，zod 会安静地把它剥掉，界面从此
+    // 只剩一行朴素的工具行。
+    await vi.waitFor(() => {
+      const frame = reader
+        .view()
+        .items.flatMap((item) => (item.kind === 'turn' ? item.steps : []))
+        .flatMap((step) => step.frames)
+        .find((entry) => entry.frameId === 't2.1.f9')
+      expect(frame?.kind === 'tool' ? frame.metadata : undefined).toEqual(metadata)
+    })
+  })
+
+  it('待回应的交互进 view，回应之后跟着撤掉', async () => {
+    const { reader, socket } = startReader()
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+
+    const interaction = {
+      interactionId: 'appr_1',
+      interactionKind: 'approval',
+      state: 'pending',
+      toolCallId: 'call_cover',
+    }
+    socket.deliver(opsFrame(11, [{ interaction, op: 'interaction.upsert' }]))
+
+    await vi.waitFor(() => {
+      expect(reader.view().pendingInteractions).toEqual([interaction])
+    })
+
+    socket.deliver(
+      opsFrame(12, [
+        { interaction: { ...interaction, state: 'approved' }, op: 'interaction.upsert' },
+      ]),
+    )
+
+    await vi.waitFor(() => {
+      expect(reader.view().pendingInteractions).toEqual([])
+    })
+  })
+
   it('对话不存在就停在错误态，不一直重试', async () => {
     let pages = 0
     server.use(

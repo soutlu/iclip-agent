@@ -2874,6 +2874,7 @@
               <span>正文 markdown · 顶层块间距 14 · 标题最高 text-title、h1 底部发丝线 · 列表 28 缩进 + 5px 圆点（二级空心描边）· 引用 2px 圆角竖条 · 行内代码 chat-code-bg radius xs、chat-link-text 色 · 代码块带头部条（语言名 + 复制钮）chat-code-block-bg radius sm 最高 500 可滚动 · 表格 chat-hairline 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text，hover 才出下划线</span>
               <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-muted-text · 路径 chat-message-text 截断（≤ 60%）· 行尾状态点 chat-status-success / -error / -running（转圈）</span>
               <span>工具结果 · 只有纯文本结果才给折叠箭头 · 开合 grid-rows 0fr↔1fr 平滑过渡 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
+              <span>媒体结果卡 · view=media_grid 且完成、且结果解析出条目时才画 · 工具行下方独立一排（横向 wrap · 卡间距 8）· 不进活动组、不再给文本折叠 · 每张 flex 纵向 · 内部间距 6 · 最宽 320 · 视口 &lt; 600 时宽 min(44vw, 160) · 图片是无填充无边框的钮 · radius md · 溢出裁切 · 图 block 满宽 · 标题 text-body-sm chat-muted-text 单行省略 · 点图进灯箱 · 解析不出或未完成不画卡</span>
               <span>思考块 · 一行标题（灯泡 icon-sm + 「思考中…/思考过程」+ 走秒计时 + 折叠箭头）chat-muted-text · 产出中标题呼吸 · 展开后正文 chat-secondary-text 行高 1.7 · 无填充无边框 · 开合同工具结果</span>
               <span>运行状态条 · 消息流末尾左对齐 · 40px 摄像机 mascot + text-body-sm chat-muted-text 呼吸文案 · 提交后先显示「请求中…」，首个非空助手正文/思考或任一工具块到达后切「工作中…」，本次提交结算即卸载 · 减弱动效停在静态整机</span>
               <span>活动组 · 连续 ≥2 的思考块与工具行收成一行摘要（状态图标 + 聚合子句「读取了 N 个文件 · 写入了 N 个文件」+ 失败计数 + 时长）· 运行中自动展开、收尾自动收起 · 展开后每条就是普通思考块/工具行 · 可访问名走 aria-label（染色 span 拼接会被裁空白）</span>
@@ -2883,7 +2884,8 @@
               <span>消息区滚动条 · 常态隐形 · 滚动中 / 悬停浮现 6px · chat-scrollbar-thumb</span>
               <span>回到底部胶囊 · 离底即浮出 · radius full · 0.5px chat-hairline · top-layer · shadow-1</span>
               <span>空状态 · 品牌字标 font-home-display italic + 引导文案 · 垂直居中</span>
-              <span>composer · 同 04 · HOME · 贴底 · 消息尾部到卡片上沿约 81px · 上方 background 渐隐遮住滚动内容</span>
+              <span>审批卡 · 有待审批的交互时贴在 composer 上方 · 阅读列宽 · 与输入卡距 8 · chat-card-bg · 0.5px chat-hairline · radius lg · shadow-2 · 进场 fade + 自下 8 位移 · 头（内距 12 / 16）标题 text-body 500 + 参数摘要 text-body-sm 等宽 chat-muted-text 单行省略 · 体（内距 12 / 16）只有一句说明，不放原始参数 · 底（上距 12 · 内距 12 / 16 · 0.5px chat-hairline 顶边线）两个整行左对齐选项钮 · 钮 radius md · hover 铺 hover 状态底 · 文案前一个数字键小方块（chat-chip-bg · radius xs · text-caption）· 只有「1 同意 / 2 拒绝」两项 · 数字键在输入区里不响应 · 请求在飞时两钮禁用 · 决定记下后两钮换成一行 check + 已同意 / 已拒绝，卡由服务端撤</span>
+              <span>composer · 同 04 · HOME · 贴底 · 消息尾部到卡片上沿约 81px · 上方 background 渐隐遮住滚动内容 · 有待审批的交互时占位文案换成「等你审批后继续」，队列的「立即发送到当前回合」不给</span>
             </div>
             <p class="template-use">
               会话页只有一处填充（用户气泡）；工具行、思考块、助手正文都不进卡片。

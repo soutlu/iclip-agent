@@ -29,6 +29,12 @@ const DEMO_THINKING = '先看看目录里已经有哪些镜头，再决定补哪
 const DEMO_IMAGE_URL =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23d1e8d6'/%3E%3Ccircle cx='160' cy='90' r='48' fill='%23006d42'/%3E%3C/svg%3E"
 
+/** 媒体墙那两张镜头帧。同样是 data URL，不走外网。 */
+const DEMO_FRAME_URLS = [
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23e8dfd1'/%3E%3Crect x='96' y='54' width='128' height='72' fill='%23a8742a'/%3E%3C/svg%3E",
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23d1dfe8'/%3E%3Cpolygon points='160,40 240,140 80,140' fill='%232a5f8a'/%3E%3C/svg%3E",
+]
+
 /** 那张参考图的附件实体：挂在历史第一页，随基线落地。 */
 const DEMO_ATTACHMENT = {
   attachmentId: 'att_demo_image',
@@ -69,29 +75,156 @@ const queues = new Map<string, Prompt[]>()
 /** 已经排上的定时器：停止的时候把没发的那几批撤掉。 */
 const timers = new Map<string, ReturnType<typeof setTimeout>[]>()
 
+/** 停在审批上的那几段对话：历史里多一轮等人点头的活儿，订上也不再演新的一轮。 */
+const awaitingApproval = new Set<string>()
+
+/** 记下的决定。重复点同一个照样 204，改主意是 409——与真后端同一条规矩。 */
+const decisions = new Map<string, boolean>()
+
+const APPROVAL_TURN_ID = 'ta'
+const APPROVAL_STEP_ID = `${APPROVAL_TURN_ID}.1`
+const APPROVAL_INTERACTION_ID = 'appr_1'
+const APPROVAL_TOOL_CALL_ID = 'call_cover'
+const APPROVAL_PROMPT_ID = 'p_cover'
+const APPROVAL_PROMPT_TEXT = '把这两张镜头帧拼成封面'
+
 /**
- * 造一页历史。
+ * 让一段对话停在审批上：那一轮仍在跑（等人不是停下），末尾一次调用挂着待回应的交互。
  *
+ * @param conversationId - 哪一段对话。
+ */
+export const markMockAwaitingApproval = (conversationId: string) => {
+  awaitingApproval.add(conversationId)
+  running.set(conversationId, {
+    ordinal: 3,
+    promptId: APPROVAL_PROMPT_ID,
+    text: APPROVAL_PROMPT_TEXT,
+    turnId: APPROVAL_TURN_ID,
+  })
+}
+
+/** 等人点头的那次调用。决定落下来之后原样改 state 再发一次。 */
+const approvalFrame = (state: 'running' | 'done' | 'error') => ({
+  approvalId: APPROVAL_INTERACTION_ID,
+  display: { kind: 'file_io', operation: 'write', path: 'shots/cover.md' },
+  frameId: `${APPROVAL_STEP_ID}.f4`,
+  input: { path: 'shots/cover.md', text: '# 封面\n\n两张镜头帧拼版，主图在左。' },
+  kind: 'tool',
+  name: 'write_file',
+  state,
+  toolCallId: APPROVAL_TOOL_CALL_ID,
+  ...(state === 'done' ? { output: '已写入 8 行' } : {}),
+  ...(state === 'error' ? { error: '你拒绝了这一步' } : {}),
+})
+
+/**
+ * 停在审批上的那一轮：一次读规范、一次出图（媒体墙），末尾一次等人点头的写文件。
+ *
+ * 三件新卡都在这一轮里：读规范与出图之间隔一句正文，免得连着的工具行折进活动组。
+ *
+ * @returns 一轮的完整形状。
+ */
+const approvalTurn = () => ({
+  kind: 'turn',
+  ordinal: 3,
+  origin: { kind: 'user' },
+  prompt: APPROVAL_PROMPT_TEXT,
+  startedAt: '2026-08-31T02:10:00Z',
+  state: 'running',
+  steps: [
+    {
+      frames: [
+        {
+          display: { kind: 'skill_call', skill_name: '分镜脚本', args: '镜头节奏.md' },
+          frameId: `${APPROVAL_STEP_ID}.f1`,
+          kind: 'tool',
+          name: 'get_skill_reference',
+          output: '一条镜头一个动作；封面取全片最亮的那一帧。',
+          state: 'done',
+          toolCallId: 'call_skill',
+        },
+        {
+          frameId: `${APPROVAL_STEP_ID}.f2`,
+          kind: 'text',
+          role: 'assistant',
+          text: '两张镜头帧出好了：',
+        },
+        {
+          display: { kind: 'generic', summary: '出镜头帧' },
+          frameId: `${APPROVAL_STEP_ID}.f3`,
+          kind: 'tool',
+          metadata: {
+            items: [
+              { caption: 'S01 · 产品特写', url: DEMO_FRAME_URLS[0] },
+              { caption: 'S02 · 场景全景', url: DEMO_FRAME_URLS[1] },
+            ],
+          },
+          name: 'generate_shot_frames',
+          output: '出好了 2 张',
+          state: 'done',
+          toolCallId: 'call_frames',
+          view: 'media_grid',
+        },
+        approvalFrame('running'),
+      ],
+      kind: 'step',
+      ordinal: 1,
+      startedAt: '2026-08-31T02:10:00Z',
+      state: 'running',
+      stepId: APPROVAL_STEP_ID,
+      turnId: APPROVAL_TURN_ID,
+    },
+  ],
+  turnId: APPROVAL_TURN_ID,
+})
+
+/** 待回应的那张卡。 */
+const pendingApproval = {
+  interactionId: APPROVAL_INTERACTION_ID,
+  interactionKind: 'approval',
+  state: 'pending',
+  toolCallId: APPROVAL_TOOL_CALL_ID,
+}
+
+/**
+ * 造一页历史。停在审批上的那几段对话多一轮等人点头的活儿。
+ *
+ * @param conversationId - 哪一段对话；不给就是普通的那份历史。
  * @returns `GET /transcript` 的响应体。
  */
-export const mockTranscriptPage = () => ({
-  agent_id: 'main',
-  agents: [{ agentId: 'main', type: 'main' }],
-  attachments: [DEMO_ATTACHMENT],
-  has_more: false,
-  interactions: [],
-  items: Array.from({ length: HISTORY_TURNS }, (_, index) => historyTurn(index + 1)),
-  meta: {
-    activity: 'idle',
-    agent: { contextTokens: 32768, contextUsage: 0.03125, maxContextTokens: 1048576 },
-  },
-  pending_interactions: [],
-  prompts: [],
-  seq: HISTORY_SEQ,
-  tasks: [],
-  title: '夜景延时素材生成',
-  todos: [],
-})
+export const mockTranscriptPage = (conversationId = '') => {
+  const awaiting = awaitingApproval.has(conversationId)
+  return {
+    agent_id: 'main',
+    agents: [{ agentId: 'main', type: 'main' }],
+    attachments: [DEMO_ATTACHMENT],
+    has_more: false,
+    interactions: awaiting ? [pendingApproval] : [],
+    items: [
+      ...Array.from({ length: HISTORY_TURNS }, (_, index) => historyTurn(index + 1)),
+      ...(awaiting ? [approvalTurn()] : []),
+    ],
+    meta: {
+      activity: awaiting ? 'turn' : 'idle',
+      agent: { contextTokens: 32768, contextUsage: 0.03125, maxContextTokens: 1048576 },
+    },
+    pending_interactions: awaiting ? [APPROVAL_INTERACTION_ID] : [],
+    prompts: awaiting
+      ? [
+          {
+            content: [{ text: APPROVAL_PROMPT_TEXT, type: 'text' }],
+            createdAt: '2026-08-31T02:10:00Z',
+            promptId: APPROVAL_PROMPT_ID,
+            status: 'running',
+          },
+        ]
+      : [],
+    seq: HISTORY_SEQ,
+    tasks: [],
+    title: '夜景延时素材生成',
+    todos: [],
+  }
+}
 
 /**
  * 历史里的一轮：用户一句、模型一句，第二轮里多一次工具调用。
@@ -146,8 +279,32 @@ const socket = ws.link('*/api/ws')
 
 /** REST 三条加订阅连接一条。 */
 export const transcriptHandlers = [
-  http.get('*/api/conversations/:conversationId/transcript', () =>
-    HttpResponse.json(mockTranscriptPage()),
+  http.get('*/api/conversations/:conversationId/transcript', ({ params }) =>
+    HttpResponse.json(mockTranscriptPage(String(params['conversationId']))),
+  ),
+
+  // POST /interactions/{id}：点同意或拒绝。记下决定就 204，随后照决定把那一轮演完。
+  http.post(
+    '*/api/conversations/:conversationId/interactions/:interactionId',
+    async ({ params, request }) => {
+      const body = (await request.json()) as { approved: boolean }
+      const conversationId = String(params['conversationId'])
+      const interactionId = String(params['interactionId'])
+      const key = `${conversationId}:${interactionId}`
+      const decided = decisions.get(key)
+      if (decided !== undefined) {
+        return decided === body.approved
+          ? new HttpResponse(null, { status: 204 })
+          : HttpResponse.json({ detail: '这张卡已经做过决定了' }, { status: 409 })
+      }
+      if (!awaitingApproval.has(conversationId) || interactionId !== APPROVAL_INTERACTION_ID) {
+        return HttpResponse.json({ detail: '这张卡不在等回应' }, { status: 404 })
+      }
+      decisions.set(key, body.approved)
+      awaitingApproval.delete(conversationId)
+      settleApproval(conversationId, body.approved)
+      return new HttpResponse(null, { status: 204 })
+    },
   ),
 
   // GET /transcript/ops：把 since 之后的批次原样给回去。基线永远是那两轮历史，演出来的那些
@@ -305,8 +462,10 @@ export const transcriptHandlers = [
           ),
       }
       connections.add(joined)
-      // 一订上就先演一轮：不发消息也看得见流式长什么样。
-      playTurn(conversationId, { promptId: 'demo', text: '把这段素材拆一下' })
+      // 一订上就先演一轮：不发消息也看得见流式长什么样。停在审批上的那几段不演——它在等人。
+      if (!awaitingApproval.has(conversationId)) {
+        playTurn(conversationId, { promptId: 'demo', text: '把这段素材拆一下' })
+      }
     })
 
     client.addEventListener('close', () => {
@@ -379,6 +538,75 @@ const stopTurn = (conversationId: string) => {
       },
     },
   ])
+  drain(conversationId)
+}
+
+/**
+ * 决定落下来之后把那一轮演完：交互改成终态，等着的那次调用照决定收场，轮子结束，接上队列。
+ *
+ * @param conversationId - 哪一段对话。
+ * @param approved - 同意还是拒绝。
+ */
+const settleApproval = (conversationId: string, approved: boolean) => {
+  const now = new Date().toISOString()
+  broadcast(conversationId, [
+    {
+      interaction: { ...pendingApproval, state: approved ? 'approved' : 'rejected' },
+      op: 'interaction.upsert',
+    },
+    {
+      frame: approvalFrame(approved ? 'done' : 'error'),
+      op: 'frame.upsert',
+      stepId: APPROVAL_STEP_ID,
+      turnId: APPROVAL_TURN_ID,
+    },
+    {
+      frame: {
+        frameId: `${APPROVAL_STEP_ID}.f5`,
+        kind: 'text',
+        role: 'assistant',
+        text: approved ? '封面写好了。' : '好，这一步跳过。',
+      },
+      op: 'frame.upsert',
+      stepId: APPROVAL_STEP_ID,
+      turnId: APPROVAL_TURN_ID,
+    },
+    {
+      op: 'step.upsert',
+      step: {
+        endedAt: now,
+        kind: 'step',
+        ordinal: 1,
+        state: 'completed',
+        stepId: APPROVAL_STEP_ID,
+        turnId: APPROVAL_TURN_ID,
+      },
+      turnId: APPROVAL_TURN_ID,
+    },
+    {
+      op: 'turn.upsert',
+      turn: {
+        endedAt: now,
+        kind: 'turn',
+        ordinal: 3,
+        origin: { kind: 'user' },
+        prompt: APPROVAL_PROMPT_TEXT,
+        state: 'completed',
+        turnId: APPROVAL_TURN_ID,
+      },
+    },
+    {
+      op: 'prompt.upsert',
+      prompt: {
+        createdAt: '2026-08-31T02:10:00Z',
+        finishedAt: now,
+        promptId: APPROVAL_PROMPT_ID,
+        status: 'completed',
+      },
+    },
+    { meta: { activity: 'idle' }, op: 'meta.merge' },
+  ])
+  running.delete(conversationId)
   drain(conversationId)
 }
 

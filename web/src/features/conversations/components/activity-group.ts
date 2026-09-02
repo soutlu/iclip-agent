@@ -6,7 +6,7 @@
  */
 
 import type { TranscriptFrame, TranscriptStep } from '@/shared/transcript/vendor'
-import { toolCard } from './tool-display'
+import { toolCard, toolMedia } from './tool-display'
 
 /** 时间线上的一块连同它所在的那步。 */
 export type TurnEntry = {
@@ -24,8 +24,13 @@ export type SummaryClause = {
   tone?: 'danger' | 'faint'
 }
 
-/** 思考块与工具调用可折叠；正文、通知、报错打断一叠。 */
-const foldable = (frame: TranscriptFrame) => frame.kind === 'thinking' || frame.kind === 'tool'
+/**
+ * 思考块与工具调用可折叠；正文、通知、报错打断一叠。
+ *
+ * 画出媒体的那次调用例外（照 kimi）：折进去之后一叠收起来，图就跟着不见了。
+ */
+const foldable = (frame: TranscriptFrame) =>
+  frame.kind === 'thinking' || (frame.kind === 'tool' && toolMedia(frame).length === 0)
 
 /**
  * 把一轮的块折成渲染节点。
