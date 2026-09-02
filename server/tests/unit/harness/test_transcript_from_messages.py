@@ -24,9 +24,11 @@ from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.transcript.from_messages import (
-    drop_last_run,
+    TurnState,
+    drop_last_turn,
     run_ids_from_messages,
     run_state_from_events,
+    turn_run_ids,
     turns_from_messages,
 )
 from iclip.harness.transcript.prompt_media import attachment_id, model_prompt
@@ -256,6 +258,137 @@ def test_two_runs_become_two_turns_in_time_order() -> None:
     ]
 
 
+def _resumed() -> list[ModelRequest | ModelResponse]:
+    """一条 prompt 跨两次 run 的消息：``r1`` 断在一次工具调用上，``r2`` 从那里续跑。
+
+    续跑那次 run 的第一条请求里有两样东西：给悬空调用补的那份失败返回，和固定的续跑触发语。
+    """
+
+    return [
+        _ask("出三张图", run_id="r1", minute=0),
+        _reply(
+            TextPart(content="在做了"),
+            ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"),
+            run_id="r1",
+            minute=1,
+        ),
+        _returns(
+            ToolReturnPart(
+                tool_name="Read", content="运行中断", tool_call_id="c1", outcome="interrupted"
+            ),
+            UserPromptPart(content="接着做"),
+            run_id="r2",
+            minute=2,
+        ),
+        _reply(TextPart(content="好了"), run_id="r2", minute=3),
+    ]
+
+
+_OF_ONE_PROMPT = {"r1": "p1", "r2": "p1"}
+
+
+def test_two_runs_of_one_prompt_become_one_turn() -> None:
+    """同一条 prompt 的两次 run 合成一轮：轮号 1，步号跨 run 接着数，时刻按整轮算。"""
+
+    turns = turns_from_messages(
+        _resumed(),
+        turn_states={"r1": "failed", "r2": "completed"},
+        prompt_of_run=_OF_ONE_PROMPT,
+    )
+
+    assert len(turns) == 1
+    turn = turns[0]
+    assert (turn.turn_id, turn.ordinal) == ("t1", 1)
+    assert turn.prompt == "出三张图"  # 轮头部仍是整轮第一句用户输入
+    assert [step.step_id for step in turn.steps] == ["t1.1", "t1.2"]
+    assert turn.started_at == _at(0).isoformat()
+    assert turn.ended_at == _at(3).isoformat()
+
+
+def test_the_turn_state_comes_from_the_last_run() -> None:
+    """轮的终态取最后一次 run 的；更早那次没跑完的，它最后一步是 ``interrupted``。
+
+    按第一次 run 判的话，一条续跑成功的 prompt 在界面上会显示成失败。
+    """
+
+    turns = turns_from_messages(
+        _resumed(),
+        turn_states={"r1": "failed", "r2": "completed"},
+        turn_errors={"r1": "RuntimeError('炸了')", "r2": None},
+        prompt_of_run=_OF_ONE_PROMPT,
+    )
+
+    assert turns[0].state == "completed"
+    assert turns[0].error is None
+    assert [step.state for step in turns[0].steps] == ["interrupted", "completed"]
+
+    # 「没跑完」的另外两种：被停的，和一条结束事件都没记下的。
+    broken_off: tuple[dict[str, TurnState], ...] = (
+        {"r1": "cancelled", "r2": "completed"},
+        {"r2": "completed"},
+    )
+    for states in broken_off:
+        broken = turns_from_messages(_resumed(), turn_states=states, prompt_of_run=_OF_ONE_PROMPT)
+        assert [step.state for step in broken[0].steps] == ["interrupted", "completed"]
+
+
+def test_an_earlier_run_that_finished_keeps_its_last_step_completed() -> None:
+    """更早那次 run 是干净收尾的（审批结束的那种），它最后一步照旧是 ``completed``。"""
+
+    turns = turns_from_messages(
+        _resumed(),
+        turn_states={"r1": "completed", "r2": "completed"},
+        prompt_of_run=_OF_ONE_PROMPT,
+    )
+
+    assert [step.state for step in turns[0].steps] == ["completed", "completed"]
+
+
+def test_a_tool_call_is_settled_by_the_return_in_the_next_run() -> None:
+    """前一段发起的工具调用，由后一段第一条请求里那份收尾返回结掉，卡还留在前一段那一步。
+
+    不跨段结的话那张卡会被当成没等到返回，写上「运行中断」那句兜底文字——而库里明明有它的结局。
+    """
+
+    turns = turns_from_messages(
+        _resumed(),
+        turn_states={"r1": "failed", "r2": "completed"},
+        prompt_of_run=_OF_ONE_PROMPT,
+    )
+
+    card = turns[0].steps[0].frames[1]
+    assert isinstance(card, ToolFrame)
+    assert card.frame_id == "t1.1.c1"
+    assert card.state == "error"
+    assert card.error == "运行中断"
+
+
+def test_the_resume_prompt_lands_on_the_previous_step() -> None:
+    """续跑触发语按「轮中间的用户消息」处理：挂在前一段末步的末尾，与插话同形。"""
+
+    turns = turns_from_messages(
+        _resumed(),
+        turn_states={"r1": "failed", "r2": "completed"},
+        prompt_of_run=_OF_ONE_PROMPT,
+    )
+
+    frames = turns[0].steps[0].frames
+    assert [frame.frame_id for frame in frames] == ["t1.1.f1", "t1.1.c1", "t1.1.f2"]
+    resumed = frames[2]
+    assert isinstance(resumed, TextFrame)
+    assert resumed.role == "user"
+    assert resumed.text == "接着做"
+
+
+def test_two_runs_without_a_mapping_stay_two_turns() -> None:
+    """没有映射就各自成轮：``prompt_runs`` 建表之前的旧数据照旧一次 run 一轮。"""
+
+    turns = turns_from_messages(_resumed(), turn_states={"r1": "failed", "r2": "completed"})
+
+    assert [(turn.turn_id, turn.prompt) for turn in turns] == [("t1", "出三张图"), ("t2", "接着做")]
+    assert [turn.state for turn in turns] == ["failed", "completed"]
+
+
 def test_step_usage_splits_cache_out_of_the_input_total() -> None:
     """``input_tokens`` 是总数、缓存读写都算在里面，所以「其余」要把两块都减掉。"""
 
@@ -414,14 +547,14 @@ def test_tool_card_carries_how_to_draw_it() -> None:
     assert cards[1].display == GenericDisplay(summary="出镜头帧")
 
 
-def test_drop_last_run_on_empty_history_is_a_no_op() -> None:
+def test_drop_last_turn_on_empty_history_is_a_no_op() -> None:
     """一份消息都没有就没什么可截，调用方按「没有末轮」处理。"""
 
-    assert drop_last_run([]) == ([], None)
+    assert drop_last_turn([], {}) == ([], ())
 
 
-def test_drop_last_run_removes_exactly_the_last_group() -> None:
-    """截断只摘走最后一次 run 的那组，前面的消息一条不动。"""
+def test_drop_last_turn_removes_exactly_the_last_group() -> None:
+    """截断只摘走最后一轮的那组，前面的消息一条不动。"""
 
     messages = [
         _ask("第一问", run_id="r1", minute=0),
@@ -430,13 +563,31 @@ def test_drop_last_run_removes_exactly_the_last_group() -> None:
         _reply(TextPart(content="第二答"), run_id="r2", minute=3),
     ]
 
-    kept, dropped = drop_last_run(messages)
+    kept, dropped = drop_last_turn(messages, {})
 
-    assert dropped == "r2"
+    assert dropped == ("r2",)
     assert kept == messages[:2]
 
 
-def test_drop_last_run_takes_trailing_unstamped_messages_with_it() -> None:
+def test_drop_last_turn_takes_every_run_of_that_turn() -> None:
+    """末轮跨了两次 run：一起摘走，留一段下来它会自成一轮。"""
+
+    messages = [
+        _ask("第一问", run_id="r1", minute=0),
+        _reply(TextPart(content="第一答"), run_id="r1", minute=1),
+        _ask("第二问", run_id="r2", minute=2),
+        _reply(TextPart(content="写到一半"), run_id="r2", minute=3),
+        _ask("接着做", run_id="r3", minute=4),
+        _reply(TextPart(content="第二答"), run_id="r3", minute=5),
+    ]
+
+    kept, dropped = drop_last_turn(messages, {"r1": "p1", "r2": "p2", "r3": "p2"})
+
+    assert dropped == ("r2", "r3")
+    assert kept == messages[:2]
+
+
+def test_drop_last_turn_takes_trailing_unstamped_messages_with_it() -> None:
     """末尾不带 run_id 的消息挂在前一次 run 上，截断时跟着那一轮一起走。"""
 
     messages = [
@@ -446,14 +597,14 @@ def test_drop_last_run_takes_trailing_unstamped_messages_with_it() -> None:
         _returns(RetryPromptPart(content="参数不对", tool_call_id="c1"), run_id=None, minute=3),
     ]
 
-    kept, dropped = drop_last_run(messages)
+    kept, dropped = drop_last_turn(messages, {})
 
-    assert dropped == "r2"
+    assert dropped == ("r2",)
     assert kept == messages[:2]
 
 
 def test_truncation_reuses_the_dropped_ordinal() -> None:
-    """截掉末轮之后，下一次 run 的轮号（``len(run_ids) + 1``）正好复用被摘掉那一轮的号。"""
+    """截掉末轮之后，下一轮的轮号（``len(turn_run_ids) + 1``）正好复用被摘掉那一轮的号。"""
 
     messages = [
         _ask("第一问", run_id="r1", minute=0),
@@ -461,8 +612,26 @@ def test_truncation_reuses_the_dropped_ordinal() -> None:
         _ask("第二问", run_id="r2", minute=2),
         _reply(TextPart(content="第二答"), run_id="r2", minute=3),
     ]
-    dropped_ordinal = len(run_ids_from_messages(messages))  # 被摘掉那一轮的轮号
+    dropped_ordinal = len(turn_run_ids(messages, {}))  # 被摘掉那一轮的轮号
 
-    kept, _ = drop_last_run(messages)
+    kept, _ = drop_last_turn(messages, {})
 
-    assert len(run_ids_from_messages(kept)) + 1 == dropped_ordinal
+    assert len(turn_run_ids(kept, {})) + 1 == dropped_ordinal
+
+
+def test_turn_run_ids_groups_the_runs_of_one_prompt() -> None:
+    """一条 prompt 的几次 run 归一轮；没有映射的各自成轮，两个「没有映射」不算同一条。"""
+
+    messages = [
+        _ask("第一问", run_id="r1", minute=0),
+        _reply(TextPart(content="第一答"), run_id="r1", minute=1),
+        _ask("第二问", run_id="r2", minute=2),
+        _reply(TextPart(content="写到一半"), run_id="r2", minute=3),
+        _ask("接着做", run_id="r3", minute=4),
+        _reply(TextPart(content="第二答"), run_id="r3", minute=5),
+    ]
+
+    assert turn_run_ids(messages, {"r1": "p1", "r2": "p2", "r3": "p2"}) == (("r1",), ("r2", "r3"))
+    assert turn_run_ids(messages, {}) == (("r1",), ("r2",), ("r3",))
+    # run_id 仍按 run 逐个给：事件按 run 查，交接也按 run 核对。
+    assert run_ids_from_messages(messages) == ("r1", "r2", "r3")

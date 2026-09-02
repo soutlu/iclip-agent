@@ -32,7 +32,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，产出�
 
 围栏由 tach（`server/tach.toml`）与架构单测（`server/tests/unit/architecture/test_architecture.py` 的 `FRAMEWORK_FENCES`）强制，只走 `server/src/`，名单在代码里；新增一个碰 SQL 或框架的文件要在 `FRAMEWORK_FENCES` 加一行。跨模块只准 import 对方 `public.py`。能力包之间互不 import：两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边。接口随首个实现定义，不提前写投机 ABC。
 
-**外部存储落点**：实现官方协议的后端跟着「说这门协议的那一层」走（`harness/step_store_pg.py` 是官方 `StepStore`/`MediaStore` 协议的 PG 后端，`harness/prompts.py` 是 prompt 队列的表——它归运行驱动所有）；模块或能力包自有的表放自己模块里的 `infra_sql.py`；`platform/db/` 放跨模块复用的查询原语（`scope_to_owner`）；`platform/object_store/` 是公开对象存储的适配器，业务侧只认协议（`PublicObjectStore`、`SignedUploadStore`），桶里的完整布局在 `layout.py`，每一根 key 都由它发；`platform/file_store/` 是命名空间化文本文件存储的 PG 后端（表 `agent_runtime.workspace_files`），能力侧只认 `FileStore` 协议；`domains/products/catalog_pg.py` 与 `domains/inspirations/catalog_pg.py` 读外部只读源，不是本模块自有的表；engine 只在 `app/` 建。
+**外部存储落点**：实现官方协议的后端跟着「说这门协议的那一层」走（`harness/step_store_pg.py` 是官方 `StepStore`/`MediaStore` 协议的 PG 后端，`harness/prompts.py` 是 prompt 队列的两张表 `prompts` 与 `prompt_runs`——它们归运行驱动所有）；模块或能力包自有的表放自己模块里的 `infra_sql.py`；`platform/db/` 放跨模块复用的查询原语（`scope_to_owner`）；`platform/object_store/` 是公开对象存储的适配器，业务侧只认协议（`PublicObjectStore`、`SignedUploadStore`），桶里的完整布局在 `layout.py`，每一根 key 都由它发；`platform/file_store/` 是命名空间化文本文件存储的 PG 后端（表 `agent_runtime.workspace_files`），能力侧只认 `FileStore` 协议；`domains/products/catalog_pg.py` 与 `domains/inspirations/catalog_pg.py` 读外部只读源，不是本模块自有的表；engine 只在 `app/` 建。
 
 ## 3. 目录布局
 
@@ -143,7 +143,7 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 - 正在跑的那一轮由投影器（官方 `UIEventStream` 的子类）从引擎事件流产出操作，落在进程内存的实时状态里。
 - 一轮的快照落库之后，实时状态就把它交接掉（`mark_snapshot_persisted` → `drop_persisted_turns`）。**先确认落库再放手**：中间要是先丢了，两边都拿不出这一轮。
 
-两条路必须给出逐字相同的结构，否则界面会在刷新的瞬间变形且不报错，所以编号一律从确定的事实算出来（轮=消息上的 `run_id` 分组、步=第几次模型响应、块=正文与思考的次序），并有一组对齐测试钉住。
+两条路必须给出逐字相同的结构，否则界面会在刷新的瞬间变形且不报错，所以编号一律从确定的事实算出来（轮 = 一条 prompt 的全部 run，映射在 `agent_runtime.prompt_runs`，由 `attach_run` 写入，没有映射的 run 各自成轮；步=这一轮里第几次模型响应、块=正文与思考的次序），并有一组对齐测试钉住。轮的终态取最后一次 run 的结束事件；更早那几次 run 没跑完的，其最后一步为 `interrupted`。
 
 **批次号与补批**：实时状态每落一批操作发一个号，每 agent 连续，同时进一个有界的补批日志（2000 批）。客户端断线后带着水位来要，要得回就补，要不回答 `complete: false` 让它整页重拉。
 
@@ -197,7 +197,7 @@ iclip.generation_jobs ◀────────────────┤    
 
 消息 id（`prompt_id`）由客户端铸，用来认领自己的乐观气泡；同一段对话里重发同一个不会多起一次运行。
 
-**运行记录（`agent_runtime.runs`）不加指向 `conversations` 的外键**，两边靠 `conversation_id` 字段对上，有索引。
+**运行记录（`agent_runtime.runs`）不加指向 `conversations` 的外键**，两边靠 `conversation_id` 字段对上，有索引。`agent_runtime.prompt_runs` 同样不加外键，靠 `run_id` 与消息上盖的那个对上。
 
 **删除对话连带删掉工作区文件，这条线接在组合根。** conversations 只声明「删掉这段对话派生出来的东西」的口子（`PurgeDerived`）；命名空间只在 `capabilities/workspace/scope.py` 一处拼。**先删派生的，再删对话行**。运行记录不删。
 

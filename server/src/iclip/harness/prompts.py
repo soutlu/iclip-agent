@@ -15,6 +15,9 @@
 ``steered`` 是**内部状态**，表示这条消息已经递进了某次 run（``run_id`` 记的就是那次），结局跟着
 那一轮走。对外一律报 ``running``：协议的 prompt 状态联合里没有这个值，漏出去客户端整帧被
 zod 拒掉且不报错。
+
+**``prompts.run_id`` 只记最近一次，全部的记在 ``prompt_runs``。** 一条 prompt 可以由好几次 run
+跑完（中断后续跑、审批后续跑），transcript 靠那张映射表把它们合成一轮。
 """
 
 from __future__ import annotations
@@ -89,6 +92,16 @@ prompts_table = Table(
         "heartbeat_at",
         postgresql_where=Column("status") == "running",
     ),
+)
+
+prompt_runs_table = Table(
+    "prompt_runs",
+    metadata_obj,
+    Column("run_id", Text, nullable=False),
+    Column("prompt_id", Text, nullable=False),
+    Column("started_at", TIMESTAMP(timezone=True), nullable=False),
+    PrimaryKeyConstraint("run_id"),
+    Index("idx_prompt_runs_prompt", "prompt_id"),
 )
 
 
@@ -239,19 +252,29 @@ class PromptQueue:
     async def get_by_run(self, run_id: str) -> PromptRow | None:
         """发起那次 run 的那条 prompt；没记过就是 ``None``。
 
-        插话递进同一轮的那几条也记着同一个 ``run_id``（见 ``mark_steered``），所以按认领先后
-        取最早的一条——发起那次 run 的一定先于递进来的。
+        按 ``prompt_runs`` 找，不按 ``prompts.run_id``：那一列记的是最近一次，而插话行也记着
+        它被递进的那次 run（见 ``mark_steered``），照它查得挑一条。
         """
 
         stmt = (
             select(prompts_table)
-            .where(prompts_table.c.run_id == run_id)
-            .order_by(prompts_table.c.created_at.asc(), prompts_table.c.prompt_id.asc())
-            .limit(1)
+            .join(prompt_runs_table, prompt_runs_table.c.prompt_id == prompts_table.c.prompt_id)
+            .where(prompt_runs_table.c.run_id == run_id)
         )
         async with self._engine.connect() as conn:
             row = (await conn.execute(stmt)).one_or_none()
         return None if row is None else _row(row)
+
+    async def prompt_of_runs(self, conversation_id: str) -> dict[str, str]:
+        """这段对话里每次 run 归哪条 prompt。transcript 靠它把多次 run 合成一轮。"""
+
+        stmt = (
+            select(prompt_runs_table.c.run_id, prompt_runs_table.c.prompt_id)
+            .join(prompts_table, prompts_table.c.prompt_id == prompt_runs_table.c.prompt_id)
+            .where(prompts_table.c.conversation_id == conversation_id)
+        )
+        async with self._engine.connect() as conn:
+            return {run_id: prompt_id for run_id, prompt_id in (await conn.execute(stmt)).all()}
 
     async def start_next(self, conversation_id: str, *, locked_by: str) -> PromptRow | None:
         """把排在最前的那条转成在跑并铸上租约，返回它；没有排队的、或者还有在跑的，返回 ``None``。
@@ -292,16 +315,25 @@ class PromptQueue:
         """记下这条 prompt 起的是哪次 run，好把它和 transcript 里那一轮对上。
 
         租约不在自己手上就一行都不动：那一轮已经被别人判过结局了。
+
+        两处写在同一个事务里：``prompts.run_id`` 记最近一次，``prompt_runs`` 记全部。只写成
+        一半的话 transcript 会把同一条 prompt 的两次 run 画成两轮，而且不报错。
         """
 
-        stmt = (
+        claim = (
             update(prompts_table)
             .where(prompts_table.c.prompt_id == prompt_id)
             .where(prompts_table.c.locked_by == locked_by)
             .values(run_id=run_id)
         )
         async with self._engine.begin() as conn:
-            await conn.execute(stmt)
+            if (await conn.execute(claim)).rowcount != 1:
+                return
+            await conn.execute(
+                insert(prompt_runs_table).values(
+                    run_id=run_id, prompt_id=prompt_id, started_at=func.now()
+                )
+            )
 
     async def finish(
         self, prompt_id: str, *, status: PromptStatus, now: datetime, locked_by: str
@@ -541,5 +573,6 @@ __all__ = [
     "PromptRow",
     "PromptStatus",
     "metadata_obj",
+    "prompt_runs_table",
     "prompts_table",
 ]

@@ -174,7 +174,9 @@ def ws_agent_app(
                 await conn.execute(
                     text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
                 )
-                await conn.execute(text("TRUNCATE agent_runtime.prompts"))
+                await conn.execute(
+                    text("TRUNCATE agent_runtime.prompts, agent_runtime.prompt_runs")
+                )
         finally:
             await engine.dispose()
 
