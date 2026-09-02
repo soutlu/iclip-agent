@@ -1,7 +1,7 @@
 """已经跑完的那些轮子：从落库的消息与官方事件读回来。
 
 一段对话的持久事实存在三处，这里各取所需：消息历史（``StepPersistence`` 的快照）给出轮、步、
-块的全部内容，run 结束事件给出每次 run 的终态，``prompt_runs`` 给出哪几次 run 合成一轮。三处
+块的全部内容，run 结束事件给出每次 run 的终态，``agent_job_runs`` 给出哪几次 run 合成一轮。三处
 按 ``run_id`` 对上——顶层 agent 的 ``StepPersistence`` 不设 ``agent_name``，于是账本里的 run id
 就是消息上的那一个（见 ``harness.agents._load_agent``）。
 

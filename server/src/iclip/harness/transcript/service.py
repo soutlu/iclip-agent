@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from iclip.common.errors import Conflict, NotFound, ValidationFailed
-from iclip.harness.prompts import PromptQueue
+from iclip.harness.jobs import JobQueue
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.store import Listener, TranscriptStore
@@ -44,7 +44,7 @@ MAX_PAGE_SIZE = 100
 class TranscriptService:
     store: TranscriptStore
     history: TranscriptHistory
-    queue: PromptQueue
+    queue: JobQueue
     runner: ConversationRunner
     context_limits: Mapping[str, int]
 

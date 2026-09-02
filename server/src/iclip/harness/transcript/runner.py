@@ -51,7 +51,7 @@ from pydantic_ai_harness.compaction import ContextUsage, ReportContextUsage
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, ToolEffectRecord
 
 from iclip.common.errors import Conflict, NotFound
-from iclip.harness.prompts import PromptQueue, PromptRow, PromptStatus
+from iclip.harness.jobs import JobQueue, JobRow, JobStatus
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
     run_ids_from_messages,
@@ -84,9 +84,9 @@ from iclip.platform.transcript.ops import (
 
 _logger = logging.getLogger(__name__)
 
-DepsFor = Callable[[PromptRow], Awaitable[Any]]
+DepsFor = Callable[[JobRow], Awaitable[Any]]
 
-TurnEnded = Callable[[PromptRow], Awaitable[None]]
+TurnEnded = Callable[[JobRow], Awaitable[None]]
 """一轮跑完之后做点别的（现在是给对话起名字），入参是刚跑完的那条 prompt。
 
 **这一层不知道那是什么。** 引擎不认识对话表，起名字是对话那一侧的事，所以只留一个口子，
@@ -149,7 +149,7 @@ def _close_out(history: Sequence[ModelMessage]) -> DeferredToolResults | None:
     )
 
 
-def _approvals_of(row: PromptRow, history: Sequence[ModelMessage]) -> DeferredToolResults:
+def _approvals_of(row: JobRow, history: Sequence[ModelMessage]) -> DeferredToolResults:
     """人点过的那些决定，摆成官方续跑要的形状。
 
     官方要求给出的结果覆盖前沿**全部**可执行调用，少一个直接拒绝这次运行。所以只在凑齐之后才
@@ -250,7 +250,7 @@ class ConversationRunner:
         *,
         agents: dict[str, Agent[Any, Any]],
         store: TranscriptStore,
-        queue: PromptQueue,
+        queue: JobQueue,
         snapshots: ConversationSnapshots,
         history: TranscriptHistory,
         deps_for: DepsFor,
@@ -287,7 +287,7 @@ class ConversationRunner:
 
     # --- 收下与排程 ---------------------------------------------------------
 
-    async def submit(self, row: PromptRow) -> PromptRow:
+    async def submit(self, row: JobRow) -> JobRow:
         """把队列已经收下的一条 prompt 广播出去；轮到它就地起 run。"""
 
         self._publish(row)
@@ -515,7 +515,7 @@ class ConversationRunner:
         # 「这次是审批续跑」。
         self._spawn(recorded)
 
-    async def _cancel_awaiting(self, row: PromptRow) -> None:
+    async def _cancel_awaiting(self, row: JobRow) -> None:
         """一条等审批的 prompt 被撤掉之后收尾：递进去的插话、实时状态里的审批卡与那一轮，然后放手。
 
         这一轮没有 run 在跑，没人替它发终态。不发的话界面上留着一张永远等回应的卡、一张一直转
@@ -576,12 +576,12 @@ class ConversationRunner:
 
     # --- 跑 -----------------------------------------------------------------
 
-    def _spawn(self, row: PromptRow) -> None:
+    def _spawn(self, row: JobRow) -> None:
         task = asyncio.create_task(self._drive(row))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _drive(self, row: PromptRow) -> None:
+    async def _drive(self, row: JobRow) -> None:
         """跑完这一条，然后接上队列里的下一条。
 
         跑出什么错都要走到接下一条那一步：漏掉的话这段对话会卡在一条已经结束的 prompt 后面，
@@ -589,7 +589,7 @@ class ConversationRunner:
         """
 
         self._store.pin(row.conversation_id)
-        status: PromptStatus = "failed"
+        status: JobStatus = "failed"
         try:
             status = await self._run_once(row)
         except Exception:
@@ -619,7 +619,7 @@ class ConversationRunner:
                 # 放在接下一条之后：起名字要等一次模型调用，排在前面的话队列里那条就得干等它。
                 await self._after_turn(row)
 
-    async def _release(self, row: PromptRow, active: _Active | None) -> None:
+    async def _release(self, row: JobRow, active: _Active | None) -> None:
         """关停时放掉这一轮：行留在 ``running``，由清扫重新认领、从最新快照续跑。
 
         不给结局也不撤销——进度已经由官方快照落库了，下一条命接着往下跑。没被这次 run 读到的
@@ -645,7 +645,7 @@ class ConversationRunner:
             _logger.info("这几条追加没赶上这一轮，退回队列：%s", stranded)
             await self._revert(tuple(active.steered[item] for item in stranded))
 
-    async def _after_turn(self, row: PromptRow) -> None:
+    async def _after_turn(self, row: JobRow) -> None:
         """一轮的附带动作。出什么错都只记一笔：这一轮本身已经跑完并落了终态。"""
 
         if self._on_turn_ended is None:
@@ -655,7 +655,7 @@ class ConversationRunner:
         except Exception:
             _logger.exception("这一轮的收尾动作没做完：prompt=%s", row.prompt_id)
 
-    async def _settle(self, active: _Active | None, *, status: PromptStatus) -> None:
+    async def _settle(self, active: _Active | None, *, status: JobStatus) -> None:
         """给递进这一轮的那几条追加定结局。
 
         没被读到的先退回队列、再给读到的定结局，顺序不能反：反了的话没读到的那几条会先跟着这一轮
@@ -676,7 +676,7 @@ class ConversationRunner:
         for child in await self._queue.settle_steered(active.run_id, status=status, now=_now()):
             self._publish(child)
 
-    async def _run_once(self, row: PromptRow) -> PromptStatus:
+    async def _run_once(self, row: JobRow) -> JobStatus:
         """跑一次 run，返回这一轮此刻的内部状态。
 
         三条起手。**首次跑**（含崩在第一个周期之前的原样重跑）：发用户那句原话，历史前沿还留着
@@ -862,8 +862,8 @@ class ConversationRunner:
         )
 
     async def _await_approvals(
-        self, row: PromptRow, *, run_id: str, history: Sequence[ModelMessage]
-    ) -> PromptStatus:
+        self, row: JobRow, *, run_id: str, history: Sequence[ModelMessage]
+    ) -> JobStatus:
         """这次 run 停在审批上：存下此刻的历史，行改成等审批，实时那一轮原样留着。
 
         快照由我们存：官方 ``StepPersistence`` 在这一刻不存（开放的工具调用过不了它那道门槛），
@@ -923,7 +923,7 @@ class ConversationRunner:
         self._store.mark_snapshot_persisted(conversation_id, MAIN_AGENT_ID, turn_id)
         self._store.drop_persisted_turns(conversation_id, MAIN_AGENT_ID)
 
-    def _publish(self, row: PromptRow) -> None:
+    def _publish(self, row: JobRow) -> None:
         self._store.append(
             row.conversation_id, MAIN_AGENT_ID, (PromptUpsertOp(prompt=row.as_entity()),)
         )

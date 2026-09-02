@@ -605,7 +605,7 @@ def test_an_official_repair_return_is_not_a_decision() -> None:
 
 
 def test_two_runs_without_a_mapping_stay_two_turns() -> None:
-    """没有映射就各自成轮：``prompt_runs`` 建表之前的旧数据照旧一次 run 一轮。"""
+    """没有映射就各自成轮：``agent_job_runs`` 建表之前的旧数据照旧一次 run 一轮。"""
 
     turns = turns_from_messages(_resumed(), turn_states={"r1": "failed", "r2": "completed"})
 

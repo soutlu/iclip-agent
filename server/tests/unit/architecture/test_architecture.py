@@ -43,7 +43,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "harness/step_store_pg.py",
         # prompt 队列的表。它归运行驱动所有（那一层才知道「同时只跑一条」是什么意思），
         # 和上面那张表同属 agent_runtime schema，所以落在同一处。
-        "harness/prompts.py",
+        "harness/jobs.py",
         # 外部只读源：这些表是别人的（PDM 的同步副本），不是本模块自有的表，所以
         # 不叫 infra_sql.py——那个名字在落点表里的口径是「该模块自有的表」。
         "domains/products/catalog_pg.py",

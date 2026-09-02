@@ -20,7 +20,7 @@
 
 ## 决策
 
-### 1. 票据带租约，事实在 `agent_runtime.prompts`
+### 1. 票据带租约，事实在 `agent_runtime.agent_jobs`
 
 - 一条 prompt 变成 `running` 时写上 `locked_by`（进程启动时铸的 id）与 `heartbeat_at`；运行期间每 `heartbeat_seconds` 刷一次心跳。
 - 清扫每 `sweep_seconds` 一次，启动时先跑一次：`heartbeat_at` 落后超过 `lease_seconds` 的 `running` 行判中断；有 `queued` 而没人占着的对话叫醒队首。等审批的行没有心跳，清扫跳过。
@@ -30,7 +30,7 @@
 
 ### 2. 一轮 = 一条 prompt，可跨多次 run
 
-- `prompt_runs(prompt_id, run_id)` 记一条 prompt 起过的全部 run。transcript 按 prompt 分组成轮，步号跨 run 接着数；前一次 run 的工具调用与后一次 run 里的返回落在同一轮。
+- `agent_job_runs(prompt_id, run_id)` 记一条 prompt 起过的全部 run。transcript 按 prompt 分组成轮，步号跨 run 接着数；前一次 run 的工具调用与后一次 run 里的返回落在同一轮。
 - 轮的状态取该 prompt **最后一次** run 的结束事件；若其末尾有开放的审批调用，按 prompt 状态定：等审批 → `running`，撤销 → `cancelled`，失败 → `failed`。更早的 run 只定各自 step 的状态，中断的 run 最后一步为 `interrupted`。
 - 续跑的投影器从最新快照与 prompt 行播种：步号偏移、开着的工具卡、轮头部的原始 prompt 与附件。同进程与重启后走同一段代码。
 
@@ -54,7 +54,7 @@
 - **接受有副作用的工具 at-least-once。** 官方续跑会重新执行前沿的调用、或让模型看到 `interrupted` 返回后再叫一次；去重归工具与它所属的领域。`tool_effects` 里停在 `started` 的记录是 unknown_after_crash 信号；生成域自己的 `submitting` 守卫只保护同一个 job。
 - **接受中断后自动续跑一次会花钱。** `max_attempts` 默认 2；配置只有一份，开发时 `--reload` 下每次存文件都是一次优雅关停，若有运行在飞也会续跑一次。配成 1 等于只判失败。这推翻 ADR-0005 与原 `discard_stale` 里「重启后不自己花钱调模型」的判断。
 - **接受往官方 `snapshots` 表多写一份。** 官方 `StepPersistence` 在 run 以 `DeferredToolRequests` 结束时不存快照（未闭合的工具调用过不了它的门槛），文档写明由调用方持久化。写进同一张表是为了让官方的 `latest_snapshot(include_interrupted=True)` 原样读回，续跑代码不分叉。用的是协议里公开的方法。
-- **接受 transcript 的分组拴回一张表。** 消息里只有 `run_id`，没有轮的概念，多次 run 合成一轮只能靠 `prompt_runs`。原先「不按表排」的理由作废。
+- **接受 transcript 的分组拴回一张表。** 消息里只有 `run_id`，没有轮的概念，多次 run 合成一轮只能靠 `agent_job_runs`。原先「不按表排」的理由作废。
 - **不复用 procrastinate。** 它关停时的打断是 task cancel，即 `BaseException`，进不了官方收尾分支，终态发不出去；「一段对话同时只跑一条」只有 prompt 行的部分唯一索引在管，它不认识这条约束。
 - **不做多进程下停止、插话的跨进程路由，也不做跨进程实时状态。** 租约与 CAS 已让「谁接管」跨进程安全；其余等真需要多进程再决策。
 - **清扫不往官方 `events` 表写 `run_failed`。** 中断原因只记在 prompt 行上；没有结束事件的 run 在 transcript 里本来就显示为失败。
