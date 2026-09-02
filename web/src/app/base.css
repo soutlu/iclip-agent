@@ -14,8 +14,8 @@
 :root {
   /* Typography（品牌字体链，不属于 M3 色板） */
   --font-cue-ui:
-    'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial,
-    sans-serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   --font-home-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
   --font-mono:
     'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas,
@@ -161,8 +161,13 @@
   --color-surface-variant: var(--nv90); /* #DCE5DC 弱底 */
   --color-on-surface-variant: var(--nv30); /* #404942 次级文字 8.90:1 */
   --color-on-surface-muted: var(--nv40); /* #586059 第三档文字 6.14:1（nv50 白底 4.36:1 不达标） */
+  /* 第四档文字（时间戳、占位符、分区标题）：62% 是三种浅底（白 / container-low / container）
+     上都还有 4.5:1 的最淡一档（4.82 / 4.64 / 4.55），再淡就不达标 */
+  --color-on-surface-faint: color-mix(in srgb, var(--color-on-surface) 62%, transparent);
   --color-outline: var(--nv50); /* #717972 强边框/输入框 */
   --color-outline-variant: var(--nv80); /* #C0C9C0 默认边框 */
+  /* 全站发丝线：墨色透明档，深浅随 on-surface 自动换向；所有 *-border 别名指这里 */
+  --color-hairline: color-mix(in srgb, var(--color-on-surface) 13%, transparent);
   --color-surface-container-lowest: var(--n100); /* #FFFFFF 卡片 */
   /* v14：梯度改用真实 HCT tone（M3-2023 档位 96/94/92/90），替代 v13 的 color-mix 插值 */
   --color-surface-container-low: var(--n96);
@@ -194,11 +199,11 @@
   --color-on-tertiary-fixed-variant: var(--t30);
 
   /* State layer 透明度与焦点环几何（M3 交互态叠加层；禁用与焦点都从这里派生） */
-  --state-hover: 0.08;
-  /* 密排列表行专用档：行高 32、底色已是 surface-container，8% 会把整列糊成一片 */
-  --state-hover-subtle: 0.04;
+  --state-hover: 0.05;
+  /* 密排列表行专用档：行高 32，5% 会把整列糊成一片 */
+  --state-hover-subtle: 0.03;
   --state-focus: 0.12;
-  --state-pressed: 0.12;
+  --state-pressed: 0.1;
   --state-dragged: 0.16;
   --state-disabled-content: 0.38;
   --state-disabled-container: 0.12;
@@ -243,7 +248,11 @@
   --color-on-background: var(--color-on-surface); /* 主文字、选中图标、标题 */
   /* --color-on-surface-variant 直接复用 ② 层同名角色（次级文字） */
   --color-top-layer: var(--n100);
-  --color-state-active: var(--color-primary-container); /* 选中态背景 */
+  --color-state-active: color-mix(
+    in srgb,
+    var(--color-on-surface) 6%,
+    transparent
+  ); /* 选中态背景 */
   /* 玻璃面基色：所有半透明白面由它派生，深色换成 n17 */
   --color-glass-base: var(--n100);
   --color-glass-surface: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
@@ -254,14 +263,16 @@
   --color-popup-bg: rgba(251, 253, 248, 0.98);
   --color-dot: color-mix(in srgb, var(--nv70) 28%, transparent);
   --color-dot-pattern: color-mix(in srgb, var(--nv70) 12%, transparent);
-  --color-border: var(--color-outline-variant);
-  --color-header-divider: var(--color-outline-variant);
-  --color-border-hover: var(--color-outline);
+  --color-border: var(--color-hairline);
+  --color-header-divider: var(--color-hairline);
+  /* 聚焦加深仍在发丝线同一族；48% 是白卡上还有 3:1 的最淡一档（3.12:1，深色 n17 卡上 3.77:1），
+     composer 关掉了全局焦点环、只靠这道边框指示焦点，再淡就不达标 */
+  --color-border-hover: color-mix(in srgb, var(--color-on-surface) 48%, transparent);
   --color-hover: var(--color-state-hover);
   --color-danger-bg: var(--color-error-container);
   --color-danger-border: var(--e80);
   --color-danger-text: var(--e30);
-  --color-chip-border: var(--color-outline-variant);
+  --color-chip-border: var(--color-hairline);
   --color-chip-bg: color-mix(in srgb, var(--color-glass-base) 62%, transparent);
   --color-chip-bg-glass: color-mix(in srgb, var(--color-glass-base) 52%, transparent);
   --color-input-bg: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
@@ -271,11 +282,11 @@
   --color-chat-panel-bg: var(--color-surface);
   --color-chat-panel-bg-start: var(--n100);
   --color-chat-panel-bg-end: var(--n95);
-  --color-chat-panel-border: var(--color-outline-variant);
+  --color-chat-panel-border: var(--color-hairline);
   --color-chat-card-bg: var(--color-surface-container-lowest);
   --color-chat-message-text: var(--color-on-surface);
   --color-chat-secondary-text: var(--color-on-surface-variant);
-  --color-chat-muted-text: var(--color-on-surface-muted);
+  --color-chat-muted-text: var(--color-on-surface-faint);
   --color-chat-user-bg: var(--color-surface-container-low);
 
   /* Agent 身份（领域专用扩展色，不在 6 族内；v14 Blend.harmonize 向主色） */
@@ -288,12 +299,12 @@
 
   /* 推理、工具、附件、Markdown */
   --color-chat-inline-bg: color-mix(in srgb, var(--nv70) 10%, transparent);
-  --color-chat-inline-border: var(--color-outline-variant);
+  --color-chat-inline-border: var(--color-hairline);
   --color-chat-chip-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
-  --color-chat-chip-border: var(--color-outline-variant);
+  --color-chat-chip-border: var(--color-hairline);
   --color-chat-code-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
   --color-chat-code-block-bg: var(--n95);
-  --color-chat-code-border: var(--color-outline-variant);
+  --color-chat-code-border: var(--color-hairline);
   --color-chat-link-text: var(--color-primary); /* v14：链接归 primary（原 tertiary 蓝已改琥珀） */
   --color-chat-link-border: color-mix(in srgb, var(--color-primary) 34%, transparent);
   --color-chat-error-bg: var(--color-error-container);
@@ -307,8 +318,8 @@
     var(--color-secondary) 70%,
     transparent
   ); /* v13：26%（1.48:1）→ 70%（≥3:1，焦点指示达标） */
-  /* 发丝边框与滚动条（照 kimi：边框用墨色透明档而非实色灰，深浅随 on-surface 自动换向） */
-  --color-chat-hairline: color-mix(in srgb, var(--color-on-surface) 13%, transparent);
+  /* 会话页的发丝写法沿用本名，值就是全站 hairline */
+  --color-chat-hairline: var(--color-hairline);
   --color-chat-scrollbar-thumb: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
   --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);
   --shadow-chat-agent-avatar:
@@ -334,7 +345,7 @@
   ); /* v13：32%（1.66:1）→ 70%（≥3:1） */
   --color-focus-ring: var(--color-primary); /* 键盘焦点全局指示（白底 6.48:1） */
   --color-thumb-fallback: var(--n80);
-  --color-badge-border: var(--color-outline-variant);
+  --color-badge-border: var(--color-hairline);
 
   /* 画布卡片 */
   --color-canvas-card-bg: var(--color-surface-container-lowest);
@@ -375,7 +386,7 @@
 
   /* Suggestion / picker surfaces */
   --color-suggestion-bg: color-mix(in srgb, var(--color-on-surface) 5%, transparent);
-  --color-suggestion-border: var(--color-outline-variant);
+  --color-suggestion-border: var(--color-hairline);
   --color-suggestion-badge: color-mix(in srgb, var(--color-on-surface) 20%, transparent);
 
   /* Header buttons */
@@ -512,10 +523,12 @@
   /* ==================== ④ Type 尺 ==================== */
 
   /* 阴影（M3 tonal elevation，v15 四档：静态表面零投影 → shadow-1 悬浮小件 → shadow-2 菜单/浮层 → shadow-3 弹窗） */
-  --shadow-1: 0 2px 8px rgba(23, 29, 25, 0.08), 0 1px 3px rgba(23, 29, 25, 0.05); /* 悬浮小件轻影 */
+  --shadow-1: 0 2px 8px rgba(23, 29, 25, 0.05), 0 1px 3px rgba(23, 29, 25, 0.05); /* 悬浮小件轻影 */
   --shadow-2:
-    0 6px 20px rgba(23, 29, 25, 0.11), 0 2px 6px rgba(23, 29, 25, 0.07); /* 菜单/@列表/进度 pill */
-  --shadow-3: 0 20px 56px rgba(23, 29, 25, 0.22); /* 弹窗/toast */
+    0 6px 18px rgba(23, 29, 25, 0.03), 0 3px 9px rgba(23, 29, 25, 0.04),
+    0 1px 1px rgba(23, 29, 25, 0.04); /* 菜单/@列表/进度 pill */
+  --shadow-3:
+    0 20px 56px rgba(23, 29, 25, 0.14), 0 6px 16px rgba(23, 29, 25, 0.08); /* 弹窗/toast */
   --shadow-input: 0 5px 16px -4px rgba(23, 29, 25, 0.07); /* 输入卡常驻浮影（照 kimi composer，focus 不抬升） */
   --shadow-xs: 0 1px 2px rgba(23, 29, 25, 0.04); /* 代码块等嵌套小件 */
   --shadow-send:
@@ -620,6 +633,8 @@
   --color-surface-variant: var(--nv30);
   --color-on-surface-variant: var(--nv80);
   --color-on-surface-muted: var(--nv70);
+  /* 深底上 54% 就够 4.5:1（页面底 4.89、surface-container 4.67），比浅色那档还能再淡 */
+  --color-on-surface-faint: color-mix(in srgb, var(--color-on-surface) 54%, transparent);
   --color-outline: var(--nv60);
   --color-outline-variant: var(--nv30);
   --color-surface-container-lowest: var(--n4);
@@ -641,7 +656,7 @@
   --color-agent-log-bg: var(--n22);
   --color-chat-panel-bg-start: var(--n12);
   --color-chat-panel-bg-end: var(--n6);
-  --color-chat-muted-text: var(--color-on-surface-muted);
+  --color-chat-muted-text: var(--color-on-surface-faint);
   --color-chat-user-bg: var(--color-surface-container-high);
   --color-chat-agent-avatar-bg: #1b2a20;
   --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.4);
@@ -669,9 +684,10 @@
   --storyboard-node-muted: rgba(197, 199, 195, 0.45);
   --storyboard-node-muted-strong: rgba(197, 199, 195, 0.6);
   --storyboard-node-preview-tool-text: rgba(234, 239, 232, 0.75);
-  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
-  --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.65);
+  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.22), 0 1px 3px rgba(0, 0, 0, 0.18);
+  --shadow-2:
+    0 6px 18px rgba(0, 0, 0, 0.2), 0 3px 9px rgba(0, 0, 0, 0.24), 0 1px 1px rgba(0, 0, 0, 0.24);
+  --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.42), 0 6px 16px rgba(0, 0, 0, 0.32);
   --shadow-input: 0 5px 16px -4px rgba(0, 0, 0, 0.4);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-send: 0 7px 16px -13px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -702,7 +718,7 @@ body {
   background-color: var(--color-background);
   color: var(--color-on-background);
   font-family: var(--font-cue-ui);
-  line-height: 1.35;
+  line-height: 1.5;
 }
 
 /* Completely hide scrollbar everywhere */

@@ -97,7 +97,7 @@ function CollectionForm({
         <div className="flex flex-col gap-1">
           <Input
             aria-label="合集名称"
-            className="h-(--control-height-sm) rounded-sm border-outline-variant"
+            className="h-(--control-height-sm) rounded-sm border-border"
             maxLength={MAX_NAME_CHARS}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {

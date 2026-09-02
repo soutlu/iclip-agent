@@ -47,7 +47,7 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r border-border bg-surface-container',
+        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r-[0.5px] border-border bg-background',
         'max-sm:fixed max-sm:top-0 max-sm:left-0 max-sm:shadow-[var(--shadow-2)] sm:sticky sm:top-0',
       )}
     >
@@ -96,11 +96,11 @@ export function AppSidebar() {
         <SidebarConversations />
       ) : (
         <div className="min-h-0 flex-1 px-3 pt-4">
-          <p className="text-body-sm text-on-surface-muted">登录后查看对话</p>
+          <p className="text-body-sm text-on-surface-faint">登录后查看对话</p>
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-t-[0.5px] border-border px-3 py-2">
         {user ? (
           <CueUserMenu align="top-start" />
         ) : (
@@ -147,11 +147,7 @@ function SidebarAction({ active = false, icon, kbd, label, onClick }: SidebarAct
     <button
       aria-current={active ? 'page' : undefined}
       aria-label={label}
-      className={cn(
-        SIDEBAR_ROW_CLASS,
-        'group w-full',
-        active && 'bg-surface-container font-medium',
-      )}
+      className={cn(SIDEBAR_ROW_CLASS, 'group w-full', active && 'bg-state-active font-medium')}
       onClick={onClick}
       type="button"
     >
@@ -163,7 +159,7 @@ function SidebarAction({ active = false, icon, kbd, label, onClick }: SidebarAct
         <kbd
           aria-hidden
           className={cn(
-            'rounded-xs border border-outline-variant px-1 py-0.5 text-caption text-on-surface-variant',
+            'rounded-xs border border-border px-1 py-0.5 text-caption text-on-surface-faint',
             'opacity-0 transition-opacity duration-(--dur-s) group-hover:opacity-100',
           )}
         >

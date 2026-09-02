@@ -104,8 +104,10 @@
   --color-surface-variant: var(--color-surface-variant);
   --color-on-surface-variant: var(--color-on-surface-variant);
   --color-on-surface-muted: var(--color-on-surface-muted);
+  --color-on-surface-faint: var(--color-on-surface-faint);
   --color-outline: var(--color-outline);
   --color-outline-variant: var(--color-outline-variant);
+  --color-hairline: var(--color-hairline);
   --color-surface-container-lowest: var(--color-surface-container-lowest);
   --color-surface-container-low: var(--color-surface-container-low);
   --color-surface-container: var(--color-surface-container);
@@ -317,8 +319,8 @@
 }
 
 /* 密排列表（侧栏会话行）把 hover 状态层降到 --state-hover-subtle。挂在列表容器上，
-   容器内的 ui-state 全部跟着变浅；--color-state-hover 在 :root 已把 8% 算死，所以这里
-   重新算一遍，而不是只改 --state-hover。 */
+   容器内的 ui-state 全部跟着变浅；--color-state-hover 在 :root 已把 --state-hover 算死，
+   所以这里重新算一遍，而不是只改 --state-hover。 */
 @utility ui-state-subtle {
   --color-state-hover: color-mix(
     in srgb,

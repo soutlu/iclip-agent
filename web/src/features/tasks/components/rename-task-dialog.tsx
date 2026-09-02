@@ -83,7 +83,7 @@ function RenameForm({ onOpenChange, task }: { onOpenChange: (open: boolean) => v
         <div className="flex flex-col gap-1">
           <Input
             aria-label="新的需求单名称"
-            className="h-(--control-height-sm) rounded-sm border-outline-variant"
+            className="h-(--control-height-sm) rounded-sm border-border"
             maxLength={200}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {

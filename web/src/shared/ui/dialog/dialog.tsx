@@ -66,7 +66,7 @@ export function DialogHeader({
   return (
     <header
       className={cn(
-        'flex shrink-0 items-start justify-between gap-4 border-b border-outline-variant px-6 py-4',
+        'flex shrink-0 items-start justify-between gap-4 border-b border-border px-6 py-4',
         className,
       )}
     >
@@ -92,7 +92,7 @@ export function DialogBody({ children, className }: { children: ReactNode; class
 
 export function DialogFooter({ children }: { children: ReactNode }) {
   return (
-    <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-outline-variant px-6 py-4 text-body-sm text-on-surface-variant">
+    <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-border px-6 py-4 text-body-sm text-on-surface-variant">
       {children}
     </footer>
   )

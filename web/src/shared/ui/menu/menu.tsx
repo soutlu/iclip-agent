@@ -29,7 +29,7 @@ export function MenuSurface({
     <DropdownMenu.Portal>
       <DropdownMenu.Content
         className={cn(
-          'layer-popup flex min-w-36 flex-col gap-0.5 rounded-lg border border-border bg-popup-bg p-2 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+          'layer-popup flex min-w-36 flex-col gap-0.5 rounded-lg border-[0.5px] border-border bg-popup-bg p-2 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
           'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:duration-(--dur-m) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
           className,
         )}
