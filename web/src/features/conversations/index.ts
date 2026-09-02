@@ -1,4 +1,10 @@
-export type { Conversation, ConversationPage, SidebarCollection } from './conversations.api'
+export type {
+  Conversation,
+  ConversationListState,
+  ConversationPage,
+  SidebarCollection,
+} from './conversations.api'
+export { useLiveConversations } from './conversations.live'
 export {
   conversationsQueryKeys,
   useStartConversation,

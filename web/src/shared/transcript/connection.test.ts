@@ -258,15 +258,35 @@ describe('TranscriptConnection', () => {
       type: 'session.meta.updated',
       payload: { session_id: 'c9', title: '夜景延时素材生成' },
     })
+    // 忙的那一帧不带 last_turn_reason（服务端 exclude_none），到上层归一成 null
     socket.deliver({
-      type: 'session.activity.updated',
-      payload: { session_id: 'c9', busy: true, pending_interaction: 'approval' },
+      type: 'event.session.work_changed',
+      session_id: 'c9',
+      payload: { busy: true, pending_interaction: 'approval' },
+    })
+    socket.deliver({
+      type: 'event.session.work_changed',
+      session_id: 'c9',
+      payload: { busy: false, pending_interaction: 'none', last_turn_reason: 'failed' },
     })
 
     // 侧栏列着几十段对话却一段都没订，按订阅分流的话它永远收不到改名与角标。
     expect(seen).toEqual([
       { conversationId: 'c9', kind: 'title', title: '夜景延时素材生成' },
-      { busy: true, conversationId: 'c9', kind: 'activity', pendingInteraction: 'approval' },
+      {
+        busy: true,
+        conversationId: 'c9',
+        kind: 'activity',
+        lastTurnReason: null,
+        pendingInteraction: 'approval',
+      },
+      {
+        busy: false,
+        conversationId: 'c9',
+        kind: 'activity',
+        lastTurnReason: 'failed',
+        pendingInteraction: 'none',
+      },
     ])
   })
 
