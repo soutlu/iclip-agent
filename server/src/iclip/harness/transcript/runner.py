@@ -42,12 +42,13 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
     ModelMessage,
+    ModelRequest,
     ModelResponse,
     UserContent,
 )
 from pydantic_ai.tools import DeferredToolResults, RunContext
 from pydantic_ai_harness.compaction import ContextUsage, ReportContextUsage
-from pydantic_ai_harness.step_persistence import ContinuableSnapshot
+from pydantic_ai_harness.step_persistence import ContinuableSnapshot, ToolEffectRecord
 
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.prompts import PromptQueue, PromptRow, PromptStatus
@@ -83,9 +84,6 @@ from iclip.platform.transcript.ops import (
 
 _logger = logging.getLogger(__name__)
 
-CONTINUATION_PROMPT = "系统提示：运行曾被中断，现从最近一次落库的进度继续。已完成的步骤不要重做；标记为中断的工具调用，先核对其产出是否已经存在再决定是否重试。"
-"""续跑那次 run 的触发语。进模型上下文，也在 transcript 里显示为 ``role: user`` 的文字帧。"""
-
 DepsFor = Callable[[PromptRow], Awaitable[Any]]
 
 TurnEnded = Callable[[PromptRow], Awaitable[None]]
@@ -102,7 +100,7 @@ TurnEnded = Callable[[PromptRow], Awaitable[None]]
 
 
 class ConversationSnapshots(Protocol):
-    """按对话取最新存档、写一份存档。只要这两口，不要整个 step store。
+    """按对话取最新存档、写一份存档、查工具副作用的账本。只要这三口，不要整个 step store。
 
     ``save_snapshot`` 只在 run 停到审批上那一刻用：官方那时不存，我们经它的协议方法写进同一张表，
     续跑那侧照旧用 ``latest_conversation_snapshot`` 原样读回来。
@@ -114,17 +112,22 @@ class ConversationSnapshots(Protocol):
 
     async def save_snapshot(self, snapshot: ContinuableSnapshot) -> None: ...  # pragma: no cover
 
+    async def list_unresolved_tool_effects(
+        self, *, run_id: str
+    ) -> list[ToolEffectRecord]: ...  # pragma: no cover
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
 def _close_out(history: Sequence[ModelMessage]) -> DeferredToolResults | None:
-    """上一轮留下的没有结果的工具调用，给它们补一份失败的结果。
+    """一条**新**消息进来，而历史前沿还留着上一轮没人回答的开放调用：给它们补一份失败的结果。
 
-    不补的话官方拒绝这次运行：历史里带着未处理的工具调用时不许再发一句新的用户消息。这是官方
-    留给调用方的口子——那几次调用是「前沿」，它等我们说清楚它们到底怎么了（更早的悬空调用官方
-    自己会在每次请求前补齐）。
+    只有发新消息那条路走它（首次跑与原样重跑都算，例如等审批时那一轮被撤销、随后用户又说了一句；
+    崩溃续跑压根不发新消息）。不补的话官方拒绝这次运行：
+    历史里带着未处理的工具调用时不许再发一句新的用户消息。这是官方留给调用方的口子——那几次调用
+    是「前沿」，它等我们说清楚它们到底怎么了（更早的悬空调用官方自己会在每次请求前补齐）。
 
     **用 ``ToolFailed`` 而不是一句裸字符串。** 裸字符串会被包成 ``ToolReturn``，落进消息里是
     ``outcome='success'``——等于告诉模型这次调用成功了，返回值就是那句话，模型可能照着往下做。
@@ -676,10 +679,12 @@ class ConversationRunner:
     async def _run_once(self, row: PromptRow) -> PromptStatus:
         """跑一次 run，返回这一轮此刻的内部状态。
 
-        四条起手：首次跑、中断续跑（老 run 的消息在历史里）、崩在第一个周期之前的原样重跑、
-        审批续跑（行上记着 ``awaiting``，带着人点的决定接着跑）。前三条都要把历史末尾悬空的工具
-        调用收掉；审批续跑**不收**——官方要求这时给出的结果覆盖前沿全部可执行调用，已经执行过的
-        那几次它自己按末尾那条请求里的返回标成跳过。
+        三条起手。**首次跑**（含崩在第一个周期之前的原样重跑）：发用户那句原话，历史前沿还留着
+        没人回答的开放调用时先收掉（见 ``_close_out``）。**崩溃续跑**（老 run 的消息在历史里）：
+        一句新的用户消息都不发、也不给结果，历史原样交给官方，它按末尾的形状接着跑——完整的请求
+        原样重发、标着中断的请求补上没有返回的那几次调用、带调用的响应把那些调用重新执行一遍。
+        **审批续跑**（行上记着 ``awaiting``）：带着人点的决定，官方要求这份结果覆盖前沿全部可执行
+        调用，已经执行过的那几次它自己按末尾那条请求里的返回标成跳过。
         """
 
         agent = self._agents.get(row.agent_id)
@@ -729,6 +734,26 @@ class ConversationRunner:
             if resumed is None
             else (await self._history.read(row.conversation_id)).turns[resumed]
         )
+        # 崩溃续跑要接着跑的那次老 run。审批续跑不算：那一轮是干净停在审批上的。
+        crashed_run = None if resumed is None or awaiting else row.run_id
+        if crashed_run is not None:
+            # 官方接着跑会重新执行前沿那几次调用，所以停在「开始了」的副作用先记一笔，事后查得到。
+            unresolved = await self._snapshots.list_unresolved_tool_effects(run_id=crashed_run)
+            if unresolved:
+                _logger.warning(
+                    "续跑前有没收尾的工具副作用：%s",
+                    [(r.tool_name, r.tool_call_id, r.idempotency_key) for r in unresolved],
+                )
+        # 只有「末尾是标着中断的请求」这一形状官方是补返回而不发事件，实时那侧得自己把卡收掉；
+        # 另两种形状要么没有开放调用，要么那些调用被重新执行，事件照常到达。
+        tail = history[-1] if history else None
+        repaired = (
+            unanswered_tool_calls(history)
+            if crashed_run is not None
+            and isinstance(tail, ModelRequest)
+            and tail.state == "interrupted"
+            else ()
+        )
         context_window = self._context_limits.get(row.agent_id)
         projector = TranscriptEventStream(
             turn_id=turn_id,
@@ -737,8 +762,7 @@ class ConversationRunner:
             attachment_ids=tuple(item.attachment_id for item in attachments),
             max_context_tokens=context_window,
             resume_from=resume_from,
-            # 审批续跑不发触发语：模型收到的是那几次调用的结果，不是「从落库的进度继续」。
-            resume_prompt=None if resume_from is None or awaiting else CONTINUATION_PROMPT,
+            repaired_calls=repaired,
         )
         if resume_from is not None:
             # 播种要在投影器发第一批之前落地：同号的轮以实时那份为准，只有新步的实时轮会把历史
@@ -764,19 +788,19 @@ class ConversationRunner:
             )
 
         deps = await self._deps_for(row)
-        # 审批续跑一句用户消息都不发：官方按前沿那些调用的结果直接接着跑。中断续跑不重发原话，
-        # 历史里已经有它了，只告诉模型从落库的进度接着做。
+        # 两条续跑都不发新的用户消息：审批续跑里模型收到的是那几次调用的结果，崩溃续跑里历史本身
+        # 就是要接着跑的东西——多说一句话会让模型把它当成用户新提的要求。
         user_prompt: list[UserContent] | None = None
-        if not awaiting:
-            user_prompt = (
-                model_prompt(row.content) if resume_from is None else [CONTINUATION_PROMPT]
-            )
+        deferred_results: DeferredToolResults | None = None
+        if awaiting:
+            deferred_results = _approvals_of(row, history)
+        elif crashed_run is None:
+            user_prompt = model_prompt(row.content)
+            deferred_results = _close_out(history)
         async with agent.run_stream_events(
             user_prompt,
             message_history=history,
-            deferred_tool_results=(
-                _approvals_of(row, history) if awaiting else _close_out(history)
-            ),
+            deferred_tool_results=deferred_results,
             conversation_id=row.conversation_id,
             run_id=run_id,
             deps=deps,

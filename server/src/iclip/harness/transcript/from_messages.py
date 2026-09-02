@@ -65,8 +65,8 @@ TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
 ApprovalState = Literal["pending", "approved", "rejected", "cancelled"]
 
 _CLOSED_OUT_OUTCOMES: Final = ("failed", "interrupted")
-"""收尾补给悬空调用的那两种返回结局。它们不是人点的头，是崩溃续跑起手把前沿收掉（见
-``runner._close_out``）。"""
+"""补给悬空调用的那两种返回结局，都不是人点的头：``failed`` 是新消息进来之前把前沿收掉（见
+``runner._close_out``），``interrupted`` 是崩溃续跑时官方自己补的。"""
 
 _WAITING_PROMPT_STATUSES: Final = ("awaiting", "running")
 """还会有人来读那几张审批卡的两种 prompt 状态：正等着点头，或者点齐了已经起了续跑。"""
@@ -169,7 +169,7 @@ def _approval_calls(
     判据只有这两条，别再加：**一段干净收尾**（官方记下了 ``run_completed``）却在末尾那条响应上
     留着没有结果的调用——只有以 ``DeferredToolRequests`` 结束才会是这个形状，崩在工具执行中途
     留下的形状一样，但那一段不是干净收尾；结局看同一轮后一段第一条请求里的返回，``denied`` 是
-    拒了，其余是放行了，而收尾补的 ``failed`` / ``interrupted`` 不算（那是崩溃续跑起手把前沿收掉）。
+    拒了，其余是放行了，而补上的 ``failed`` / ``interrupted`` 不算（见 ``_CLOSED_OUT_OUTCOMES``）。
     """
 
     settled: dict[str, ApprovalState] = {}
@@ -347,8 +347,8 @@ def _turn(
                     # 一轮的第一句用户输入是这一轮的由来，不单独成块。
                     prompt = prompt_text
                 elif prompt_text is not None and steps:
-                    # 中途插进来的用户消息挂在当时最后那一步末尾，与实时那条路一致。插话与
-                    # 续跑触发语都走这里——后者到达时最后那一步是前一段的末步。
+                    # 中途插进来的用户消息挂在当时最后那一步末尾，与实时那条路一致。赶在前一段
+                    # 收场那一刻递进去的那条，挂的是前一段的末步。
                     step_index = len(steps) - 1
                     _user_frame(
                         frames_by_step[step_index], f"{turn_id}.{step_index + 1}", prompt_text

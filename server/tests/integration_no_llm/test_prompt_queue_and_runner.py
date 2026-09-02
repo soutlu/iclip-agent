@@ -45,7 +45,7 @@ from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.transcript.activity import IDLE, ActivityState, merged_with_prompt
 from iclip.harness.transcript.from_messages import run_ids_from_messages
 from iclip.harness.transcript.history import TranscriptHistory
-from iclip.harness.transcript.runner import CONTINUATION_PROMPT, ConversationRunner
+from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.ops import (
@@ -606,8 +606,8 @@ async def test_an_interrupted_prompt_resumes_into_the_same_turn(engine: AsyncEng
     assert [(turn.turn_id, turn.state) for turn in derived] == [("t1", "completed")]
     steps = derived[0].steps
     assert [step.state for step in steps] == ["interrupted", "completed"]
-    # 触发语进了模型上下文，也显示为老 run 末步末尾的一个 user 块。
-    assert [getattr(frame, "text", None) for frame in steps[0].frames][-1] == CONTINUATION_PROMPT
+    # 续跑一句新的用户消息都不发：老 run 的末步末尾不再多出一个 user 块。
+    assert [frame for frame in steps[0].frames if getattr(frame, "role", None) == "user"] == []
     assert [getattr(frame, "text", None) for frame in steps[1].frames] == ["接着写完了"]
 
     # 交接之后，客户端收到的那一份与刷新之后现推的那一份逐字相同。
@@ -615,6 +615,153 @@ async def test_an_interrupted_prompt_resumes_into_the_same_turn(engine: AsyncEng
     assert _skeleton(replayed) == _skeleton(derived)
     # 步的状态也得一样：播种时不把老 run 的末步标成中断，界面会在刷新的瞬间从「完成」翻成「中断」。
     assert [step.state for step in replayed[0].steps] == ["interrupted", "completed"]
+
+
+def _mid_tool_cycle_messages(run_id: str) -> list[ModelMessage]:
+    """上一条命崩在工具执行中途留下的消息：一次响应调了两件工具，只有一件的返回落了库。
+
+    末尾那条请求标着 ``interrupted``，官方在工具执行被打断时就是这么记的；这也是「给没有返回的
+    调用补一份返回」那条路的判据。时刻写死在过去：续跑那次 run 的消息必须排在这几条后面。
+    """
+
+    started = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+    return [
+        ModelRequest(
+            parts=[UserPromptPart(content="把这三个镜头出图")], run_id=run_id, timestamp=started
+        ),
+        ModelResponse(
+            parts=[
+                ToolCallPart(tool_name="draft", args="{}", tool_call_id="call_1"),
+                ToolCallPart(tool_name="draft", args="{}", tool_call_id="call_2"),
+            ],
+            run_id=run_id,
+            timestamp=started,
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="draft", content="出好了", tool_call_id="call_1")],
+            run_id=run_id,
+            timestamp=started,
+            state="interrupted",
+        ),
+    ]
+
+
+async def test_a_run_interrupted_mid_tool_cycle_is_repaired_by_the_official_path(
+    engine: AsyncEngine,
+) -> None:
+    """崩在工具执行中途：官方给没有返回的那次调用补一份 ``interrupted`` 返回，接着往下跑。
+
+    续跑一句新的用户消息都不发。发了的话模型会把它当成用户新提的要求，而这一轮本来只是接着做。
+    """
+
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(engine, _says("剩下那张也出好了"), store=store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    first_run = f"{AGENT_ID}-dead"
+    await _plant_interrupted(
+        engine,
+        step_store,
+        queue,
+        conversation_id,
+        run_id=first_run,
+        messages=_mid_tool_cycle_messages(first_run),
+    )
+
+    await runner.sweep_once()
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    snapshot = await step_store.latest_conversation_snapshot(
+        conversation_id=conversation_id, include_interrupted=True
+    )
+    assert snapshot is not None
+    returns = {
+        part.tool_call_id: part
+        for message in snapshot.messages
+        for part in getattr(message, "parts", ())
+        if isinstance(part, ToolReturnPart)
+    }
+    repaired = returns["call_2"]
+    assert repaired.outcome == "interrupted"
+    assert repaired.content == INTERRUPTED_TOOL_RETURN_CONTENT
+    assert repaired.metadata  # 官方盖了「这份是补的」标记，键名在它的私有模块里
+    # 整份历史里只有用户原来那句话：续跑没有往上追加任何用户消息。
+    assert _texts(list(snapshot.messages)) == ["把这三个镜头出图"]
+
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
+    cards = {card.tool_call_id: card for card in _tool_cards(derived)}
+    assert cards["call_1"].state == "done"
+    assert (cards["call_2"].state, cards["call_2"].error) == (
+        "error",
+        INTERRUPTED_TOOL_RETURN_CONTENT,
+    )
+
+    # 官方补的那份返回不发事件，实时这侧得自己把卡收成同一个形状，否则刷新前后卡上的字不一样。
+    replayed = _replay(store, conversation_id)
+    live = {card.tool_call_id: card for card in _tool_cards(replayed)}
+    assert (live["call_2"].state, live["call_2"].error) == (
+        "error",
+        INTERRUPTED_TOOL_RETURN_CONTENT,
+    )
+    assert _skeleton(replayed) == _skeleton(derived)
+
+
+async def test_a_run_interrupted_before_any_tool_return_re_executes_the_frontier(
+    engine: AsyncEngine,
+) -> None:
+    """崩在拿到第一份返回之前（末尾是一条只有调用的响应）：官方把那次调用重新执行一遍。
+
+    结局改在原卡上：另建一张的话同一次调用在这一轮里出现两遍，而历史那侧只有一张。
+    """
+
+    ran = 0
+
+    def draft() -> str:
+        nonlocal ran
+        ran += 1
+        return "出好了"
+
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(engine, _says("三张都出好了"), store=store, tools=[draft])
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    first_run = f"{AGENT_ID}-dead"
+    started = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+    prompt_id = await _plant_interrupted(
+        engine,
+        step_store,
+        queue,
+        conversation_id,
+        run_id=first_run,
+        messages=[
+            ModelRequest(
+                parts=[UserPromptPart(content="把这三个镜头出图")],
+                run_id=first_run,
+                timestamp=started,
+            ),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="draft", args="{}", tool_call_id="call_1")],
+                run_id=first_run,
+                timestamp=started,
+            ),
+        ],
+    )
+
+    await runner.sweep_once()
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    row = await queue.get(prompt_id)
+    assert row is not None
+    assert (row.status, row.attempt) == ("completed", 1)
+    assert ran == 1
+
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
+    card = _tool_cards(derived)[0]
+    assert (card.state, card.output) == ("done", "出好了")
+    replayed = _replay(store, conversation_id)
+    live = _tool_cards(replayed)[0]
+    assert (live.state, live.output) == ("done", "出好了")
+    assert _skeleton(replayed) == _skeleton(derived)
 
 
 async def test_a_graceful_shutdown_releases_the_lease_for_a_later_resume(
@@ -741,7 +888,7 @@ async def test_a_prompt_interrupted_before_its_first_snapshot_runs_again(
 ) -> None:
     """崩在第一个周期完成之前：历史里没有那次 run 的消息，按原文重跑一次，还是第一轮。
 
-    照续跑那条路走的话，模型收到的是「从落库的进度继续」，而库里什么进度都没有。
+    照续跑那条路走的话，一句用户消息都不发，而历史里连用户那句原话都没有，官方拒绝起跑。
     """
 
     store = TranscriptStore()
