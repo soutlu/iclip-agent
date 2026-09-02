@@ -88,7 +88,7 @@ export function TasksRoute() {
                   onChange={(e) => setKeyword(e.target.value)}
                   placeholder="搜索需求单"
                   value={keyword}
-                  wrapperClassName="h-(--text-title-lg--line-height) rounded-sm border-outline-variant"
+                  wrapperClassName="h-(--text-title-lg--line-height) rounded-sm border-border"
                 />
               </div>
             </div>

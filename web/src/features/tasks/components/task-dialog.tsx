@@ -47,7 +47,7 @@ const toRatio = (value: string): Ratio | '' =>
   RATIO_OPTIONS.find((option) => option === value) ?? ''
 
 /** 复刻 WorkBuddy 弹窗的紧凑字段外观（34px 高、8px 圆角、发丝边框）；全局字段契约不动，只收在这个弹窗里。 */
-const COMPACT_FIELD = 'h-(--control-height-sm) rounded-sm border-outline-variant'
+const COMPACT_FIELD = 'h-(--control-height-sm) rounded-sm border-border'
 
 /** 行内控件：剥掉共享字段自己的框（行本身就是框），文字右对齐、聚焦时显出主色描边。 */
 const ROW_CONTROL =
@@ -417,7 +417,7 @@ function RowField({
   required?: boolean
 }) {
   return (
-    <label className="flex min-h-[38px] cursor-text items-center justify-between gap-3 rounded-sm border border-outline-variant px-3">
+    <label className="flex min-h-[38px] cursor-text items-center justify-between gap-3 rounded-sm border border-border px-3">
       <span className="shrink-0 text-body font-semibold text-on-surface">
         {label}
         {required && <span className="text-error"> *</span>}

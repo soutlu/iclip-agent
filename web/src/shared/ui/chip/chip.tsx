@@ -7,7 +7,7 @@ const CHIP_CLASS =
   'ui-state ui-focus hit-48 relative inline-flex h-(--control-height-sm) cursor-pointer items-center gap-[7px] rounded-full border border-chip-border bg-chip-bg px-[15px] text-body-sm font-medium text-on-surface-variant'
 
 const SELECTED_CLASS =
-  'data-[state=on]:border-primary-container-solid data-[state=on]:bg-primary-container data-[state=on]:text-on-primary-container'
+  'data-[state=on]:border-transparent data-[state=on]:bg-state-active data-[state=on]:text-on-surface'
 
 /** 一组 filter chip；单选传 type="single"，多选传 type="multiple"。 */
 export function ChipGroup({

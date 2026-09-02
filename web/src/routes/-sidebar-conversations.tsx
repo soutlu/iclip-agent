@@ -312,10 +312,10 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
   const [open, setOpen] = useState(true)
   return (
     <section className="flex flex-col gap-0.5">
-      <div className={cn(ROW_CLASS, 'sticky top-0 gap-1 bg-surface-container')}>
+      <div className={cn(ROW_CLASS, 'sticky top-0 gap-1 bg-background')}>
         <button
           aria-expanded={open}
-          className={cn(ROW_TITLE_CLASS, 'gap-1 text-body-sm font-semibold text-on-surface-muted')}
+          className={cn(ROW_TITLE_CLASS, 'gap-1 text-body-sm font-semibold text-on-surface-faint')}
           onClick={() => setOpen((prev) => !prev)}
           type="button"
         >
@@ -349,7 +349,7 @@ function SidebarSection({ action, children, count, title }: SidebarSectionProps)
 }
 
 function EmptyHint({ children }: { children: string }) {
-  return <p className="px-3 py-1 text-body-sm text-on-surface-muted">{children}</p>
+  return <p className="px-3 py-1 text-body-sm text-on-surface-faint">{children}</p>
 }
 
 /**
@@ -371,7 +371,7 @@ function ExpandRow({
   return (
     <button
       aria-label={label}
-      className={cn(ROW_CLASS, 'w-full justify-start text-body-sm text-on-surface-muted ui-focus')}
+      className={cn(ROW_CLASS, 'w-full justify-start text-body-sm text-on-surface-faint ui-focus')}
       disabled={loading}
       onClick={onExpand}
       type="button"
@@ -558,11 +558,7 @@ function ConversationRow({
     // 拖拽挂在整行上而不是标题上：标题是链接，浏览器自带的链接拖拽会吞掉指针事件，
     // dnd-kit 那套拖拽从此不成立。行内编辑时不挂——不然在输入框里划选文字就变成拖行。
     <div
-      className={cn(
-        ROW_CLASS,
-        dragging && 'opacity-50',
-        active && 'bg-surface-container font-medium',
-      )}
+      className={cn(ROW_CLASS, dragging && 'opacity-50', active && 'bg-state-active font-medium')}
       ref={setNodeRef}
       style={
         transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined
@@ -608,7 +604,7 @@ function ConversationRow({
       {!editing && (
         <span
           aria-hidden
-          className={cn('shrink-0 text-caption text-on-surface-muted', ROW_TRAILING_HIDDEN)}
+          className={cn('shrink-0 text-caption text-on-surface-faint', ROW_TRAILING_HIDDEN)}
         >
           {formatRelativeTime(conversation.updatedAt)}
         </span>

@@ -28,7 +28,7 @@
         --pg-focus: var(--p40);
 
         /* ===== 字体 ===== */
-        --font-cue-ui: 'CapCut Sans Text', 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+        --font-cue-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
         --font-home-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
         --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
@@ -73,8 +73,10 @@
         --color-surface-variant: var(--nv90);
         --color-on-surface-variant: var(--nv30);
         --color-on-surface-muted: var(--nv40);
+        --color-on-surface-faint: color-mix(in srgb, var(--color-on-surface) 62%, transparent);
         --color-outline: var(--nv50);
         --color-outline-variant: var(--nv80);
+        --color-hairline: color-mix(in srgb, var(--color-on-surface) 13%, transparent);
         --color-surface-container-lowest: var(--n100);
         --color-surface-container-low: var(--n96);
         --color-surface-container: var(--n94);
@@ -98,10 +100,10 @@
         --color-on-tertiary-fixed: var(--t10);
         --color-on-tertiary-fixed-variant: var(--t30);
         /* 状态层：透明度是契约，颜色由透明度派生（明暗自动跟随 on-surface） */
-        --state-hover: 0.08;
-        --state-hover-subtle: 0.04;
+        --state-hover: 0.05;
+        --state-hover-subtle: 0.03;
         --state-focus: 0.12;
-        --state-pressed: 0.12;
+        --state-pressed: 0.1;
         --state-dragged: 0.16;
         --state-disabled-content: 0.38;
         --state-disabled-container: 0.12;
@@ -125,7 +127,7 @@
         --color-background: var(--n100);
         --color-on-background: var(--color-on-surface);
         --color-top-layer: var(--n100);
-        --color-state-active: var(--color-primary-container);
+        --color-state-active: color-mix(in srgb, var(--color-on-surface) 6%, transparent);
         --color-glass-base: var(--n100); /* 玻璃面基色：所有半透明白面由它派生，深色换成 n17 */
         --color-glass-surface: color-mix(in srgb, var(--color-glass-base) 76%, transparent);
         --color-control-bg: color-mix(in srgb, var(--color-glass-base) 64%, transparent);
@@ -139,30 +141,30 @@
         --color-input-border: var(--color-outline);
         --color-dot: color-mix(in srgb, var(--nv70) 28%, transparent);
         --color-dot-pattern: color-mix(in srgb, var(--nv70) 12%, transparent);
-        --color-border: var(--color-outline-variant);
-        --color-header-divider: var(--color-outline-variant);
-        --color-border-hover: var(--color-outline);
+        --color-border: var(--color-hairline);
+        --color-header-divider: var(--color-hairline);
+        --color-border-hover: color-mix(in srgb, var(--color-on-surface) 48%, transparent);
         --color-hover: var(--color-state-hover);
         --color-danger-bg: var(--color-error-container);
         --color-danger-border: var(--e80);
         --color-danger-text: var(--e30);
-        --color-chip-border: var(--color-outline-variant);
+        --color-chip-border: var(--color-hairline);
         --color-thumb-fallback: var(--n80);
-        --color-badge-border: var(--color-outline-variant);
+        --color-badge-border: var(--color-hairline);
         --color-header-btn-bg: var(--n90);
         --color-agent-log-bg: var(--n90);
         --color-suggestion-bg: color-mix(in srgb, var(--color-on-surface) 5%, transparent);
-        --color-suggestion-border: var(--color-outline-variant);
+        --color-suggestion-border: var(--color-hairline);
         --color-suggestion-badge: color-mix(in srgb, var(--color-on-surface) 20%, transparent);
         /* 聊天 */
         --color-chat-panel-bg: var(--color-surface);
         --color-chat-panel-bg-start: var(--n100);
         --color-chat-panel-bg-end: var(--n95);
-        --color-chat-panel-border: var(--color-outline-variant);
+        --color-chat-panel-border: var(--color-hairline);
         --color-chat-card-bg: var(--color-surface-container-lowest);
         --color-chat-message-text: var(--color-on-surface);
         --color-chat-secondary-text: var(--color-on-surface-variant);
-        --color-chat-muted-text: var(--color-on-surface-muted);
+        --color-chat-muted-text: var(--color-on-surface-faint);
         --color-chat-user-bg: var(--color-surface-container-low);
         --color-chat-agent-avatar-bg: #e7f5df;
         --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.28);
@@ -171,12 +173,12 @@
         --color-chat-agent-identity-text: #213219;
         --color-chat-agent-rail: #009e77;
         --color-chat-inline-bg: color-mix(in srgb, var(--nv70) 10%, transparent);
-        --color-chat-inline-border: var(--color-outline-variant);
+        --color-chat-inline-border: var(--color-hairline);
         --color-chat-chip-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
-        --color-chat-chip-border: var(--color-outline-variant);
+        --color-chat-chip-border: var(--color-hairline);
         --color-chat-code-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
         --color-chat-code-block-bg: var(--n95);
-        --color-chat-code-border: var(--color-outline-variant);
+        --color-chat-code-border: var(--color-hairline);
         --color-chat-link-text: var(--color-primary);
         --color-chat-link-border: color-mix(in srgb, var(--color-primary) 34%, transparent);
         --color-chat-error-bg: var(--color-error-container);
@@ -187,7 +189,7 @@
         --color-chat-status-running: var(--color-warning);
         --color-chat-focus-ring: color-mix(in srgb, var(--color-secondary) 70%, transparent);
         /* 发丝边框与滚动条（照 kimi：边框用墨色透明档而非实色灰，深浅随 on-surface 自动换向） */
-        --color-chat-hairline: color-mix(in srgb, var(--color-on-surface) 13%, transparent);
+        --color-chat-hairline: var(--color-hairline);
         --color-chat-scrollbar-thumb: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
         --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);
         --shadow-chat-agent-avatar: 0 8px 18px rgba(64, 73, 66, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62);
@@ -334,9 +336,9 @@
         --breakpoint-sm: 600px;
         --breakpoint-md: 840px;
         /* 海拔（深色见 .dark） */
-        --shadow-1: 0 2px 8px rgba(23, 29, 25, 0.08), 0 1px 3px rgba(23, 29, 25, 0.05);
-        --shadow-2: 0 6px 20px rgba(23, 29, 25, 0.11), 0 2px 6px rgba(23, 29, 25, 0.07);
-        --shadow-3: 0 20px 56px rgba(23, 29, 25, 0.22);
+        --shadow-1: 0 2px 8px rgba(23, 29, 25, 0.05), 0 1px 3px rgba(23, 29, 25, 0.05);
+        --shadow-2: 0 6px 18px rgba(23, 29, 25, 0.03), 0 3px 9px rgba(23, 29, 25, 0.04), 0 1px 1px rgba(23, 29, 25, 0.04);
+        --shadow-3: 0 20px 56px rgba(23, 29, 25, 0.14), 0 6px 16px rgba(23, 29, 25, 0.08);
         --shadow-input: 0 5px 16px -4px rgba(23, 29, 25, 0.07); /* 输入卡常驻浮影（照 kimi composer，focus 不抬升） */
         --shadow-xs: 0 1px 2px rgba(23, 29, 25, 0.04); /* 代码块等嵌套小件 */
         --shadow-send: 0 7px 16px -13px rgba(23, 29, 25, 0.38), 0 1px 2px rgba(23, 29, 25, 0.07); /* 发送钮浮起 */
@@ -405,6 +407,7 @@
         --color-surface-variant: var(--nv30);
         --color-on-surface-variant: var(--nv80);
         --color-on-surface-muted: var(--nv70);
+        --color-on-surface-faint: color-mix(in srgb, var(--color-on-surface) 54%, transparent);
         --color-outline: var(--nv60);
         --color-outline-variant: var(--nv30);
         --color-surface-container-lowest: var(--n4);
@@ -426,7 +429,7 @@
         --color-agent-log-bg: var(--n22);
         --color-chat-panel-bg-start: var(--n12);
         --color-chat-panel-bg-end: var(--n6);
-        --color-chat-muted-text: var(--color-on-surface-muted);
+        --color-chat-muted-text: var(--color-on-surface-faint);
         --color-chat-user-bg: var(--color-surface-container-high);
         --color-chat-agent-avatar-bg: #1b2a20;
         --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.4);
@@ -454,9 +457,9 @@
         --storyboard-node-muted: rgba(197, 199, 195, 0.45);
         --storyboard-node-muted-strong: rgba(197, 199, 195, 0.6);
         --storyboard-node-preview-tool-text: rgba(234, 239, 232, 0.75);
-        --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
-        --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
-        --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.65);
+        --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.22), 0 1px 3px rgba(0, 0, 0, 0.18);
+        --shadow-2: 0 6px 18px rgba(0, 0, 0, 0.2), 0 3px 9px rgba(0, 0, 0, 0.24), 0 1px 1px rgba(0, 0, 0, 0.24);
+        --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.42), 0 6px 16px rgba(0, 0, 0, 0.32);
         --shadow-input: 0 5px 16px -4px rgba(0, 0, 0, 0.4);
         --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
         --shadow-send: 0 7px 16px -13px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -2064,7 +2067,7 @@
                   <div class="ext-name">
                     <strong>聊天</strong>
                     <code>--color-chat-*</code>
-                    <p>气泡、面板、代码块、Agent 身份、状态点；muted 文字取 on-surface-muted。</p>
+                    <p>气泡、面板、代码块、Agent 身份、状态点；muted 文字取 on-surface-faint，hairline 取 --color-hairline。</p>
                   </div>
                   <div class="ext-swatches">
                     <button class="ext-swatch" type="button" data-copy-token="--color-chat-panel-bg" title="复制 --color-chat-panel-bg"><i style="--sw: var(--color-chat-panel-bg)"></i>chat-panel-bg</button>
@@ -2372,7 +2375,7 @@
               </div>
             </article>
             <p class="type-source-note">
-              <code>--font-cue-ui</code> CapCut Sans Text → SF Pro Text → PingFang SC　·　<code>--font-home-display</code> Source Serif 4 italic，仅 Display　·　html 16px　·　字重 400 / 500 / 650　·　画布字阶仅限缩放画布与放大阅读面
+              <code>--font-cue-ui</code> 系统字体栈 -apple-system → BlinkMacSystemFont → Segoe UI → Roboto → Helvetica Neue → Arial → PingFang SC　·　<code>--font-home-display</code> Source Serif 4 italic，仅 Display　·　html 16px　·　字重 400 / 500 / 650　·　画布字阶仅限缩放画布与放大阅读面
             </p>
           </div>
 
@@ -2546,7 +2549,7 @@
                     <th scope="row" class="contract-name"><strong>Chip</strong><code>Filter · Reference · Assist</code></th>
                     <td class="contract-cell"><code>leading icon / avatar · label · optional remove</code><span>filter 表达同一组中的选择；reference 用 --color-reference-* 身份色。</span></td>
                     <td class="contract-cell"><span>filter · reference · assist</span></td>
-                    <td class="contract-cell"><code>sm 34 · px 15 · gap 7</code><span>radius full；label body-sm；图标 icon-sm。</span></td>
+                    <td class="contract-cell"><code>sm 34 · px 15 · gap 7</code><span>radius full；label body-sm；图标 icon-sm；selected 铺 state-active、字 on-surface、边框透明。</span></td>
                     <td class="contract-cell"><span>hover · pressed · focus-visible</span><span>selected · disabled</span></td>
                   </tr>
                   <tr>
@@ -2614,17 +2617,17 @@
             <div class="state-definition-table">
               <div class="state-definition-row">
                 <strong>Hover</strong>
-                <code>--state-hover · 8%</code>
+                <code>--state-hover · 5%</code>
                 <span>前景色状态层；按钮另加放大 1.05。工具类 <code>ui-state</code>。</span>
               </div>
               <div class="state-definition-row">
                 <strong>Hover · subtle</strong>
-                <code>--state-hover-subtle · 4%</code>
-                <span>密排列表行专用档，工具类 <code>ui-state-subtle</code> 挂在列表容器上、行仍写 <code>ui-state</code>；只用于行高 ≤ 32 且底色为 surface-container 的列表，其余一律 8%。</span>
+                <code>--state-hover-subtle · 3%</code>
+                <span>密排列表行专用档，工具类 <code>ui-state-subtle</code> 挂在列表容器上、行仍写 <code>ui-state</code>；只用于行高 ≤ 32 的列表，其余一律 5%。</span>
               </div>
               <div class="state-definition-row">
                 <strong>Pressed</strong>
-                <code>--state-pressed · 12%</code>
+                <code>--state-pressed · 10%</code>
                 <span>按压状态层；按钮另加缩小 0.95。</span>
               </div>
               <div class="state-definition-row">
@@ -2635,7 +2638,7 @@
               <div class="state-definition-row">
                 <strong>Selected</strong>
                 <code>--color-state-active</code>
-                <span>底 primary-container、字 on-primary-container；以 aria-pressed / aria-selected 暴露。</span>
+                <span>底 state-active（on-surface 6%）、字 on-surface、描边透明；以 aria-pressed / aria-selected 暴露。</span>
               </div>
               <div class="state-definition-row">
                 <strong>Dragged</strong>
@@ -2836,9 +2839,9 @@
               <code>--layout-app-sidebar-width · 264px</code>
               <span>sidebar · background · hairline 右边线 · 可折叠 · 折叠后主区左上浮出展开钮 · 品牌区 serif 字标 · 会话分段 tab（进行中带 primary 圆点）· 会话行尾状态标识（primary 转圈 / warning 待回答徽章 / 对勾 / status-error 红叉）· 底部账户区</span>
               <span>sidebar 列表行 · 容器与行各 12 水平内距（文字距侧栏 24）· 行间距 2 · radius sm · 分组子行再缩进 24 · 状态层挂整行（含尾随钮）· 容器 ui-state-subtle</span>
-              <span>sidebar 行尾槽 · 静息放时间 text-caption on-surface-muted · hover / focus-within / 菜单展开换成 IconButton xs，两者不同时占位 · 每行只留一个「更多」入口，重复动作收进菜单</span>
+              <span>sidebar 行尾槽 · 静息放时间 text-caption on-surface-faint · hover / focus-within / 菜单展开换成 IconButton xs，两者不同时占位 · 每行只留一个「更多」入口，重复动作收进菜单</span>
               <span>sidebar 行内改名 · 标题原地换 input · 底 surface-container-lowest · radius xs · 焦点环收到 1px 内嵌（工具类 ui-focus-inline），不用行外那道 3px 环</span>
-              <span>sidebar 分区标题 · text-body-sm 600 on-surface-muted · 折叠箭头 icon-sm · sticky 顶部铺 surface-container · 操作钮 hover 才出</span>
+              <span>sidebar 分区标题 · text-body-sm 600 on-surface-faint · 折叠箭头 icon-sm · sticky 顶部铺 background · 操作钮 hover 才出</span>
               <span>阅读列 · ≤ --layout-home-read-max 760 · 垂直居中偏上</span>
               <span>hero · Lottie public/lottie/hero.json 一份 · ≤440 宽 · viewBox 裁到内容框（换插画重采）· 深色配色由 CSS 覆盖 fill 呈现属性 · 减弱动效停首帧</span>
               <span>品牌字标 · Cue · --font-home-display italic semibold · --text-display（紧凑 --text-display-sm）· 字距 -0.04em（紧凑 -0.035em）· on-surface</span>
@@ -3059,8 +3062,10 @@
                 ["On Surface", "on-surface", "surface"],
                 ["On Surface Variant", "on-surface-variant", "surface"],
                 ["On Surface Muted", "on-surface-muted", "surface"],
+                ["On Surface Faint", "on-surface-faint", "surface"],
                 ["Outline", "outline", "surface"],
                 ["Outline Variant", "outline-variant", "on-surface"],
+                ["Hairline", "hairline", "on-surface"],
               ],
             },
             {

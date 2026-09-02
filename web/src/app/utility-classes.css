@@ -41,7 +41,7 @@
 /* ===== Global interactive transitions（v13：统一走 M3 动效 token） ===== */
 :where(header, button, input, textarea) {
   transition-property: background-color, border-color, color, transform, box-shadow;
-  transition-duration: var(--dur-m);
+  transition-duration: var(--dur-s);
   transition-timing-function: var(--ease);
 }
 
