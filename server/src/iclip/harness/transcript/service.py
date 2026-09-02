@@ -69,6 +69,7 @@ class TranscriptService:
             owner_user_id=owner_user_id,
             content=content,
             now=datetime.now(UTC),
+            locked_by=self.runner.locked_by,
         )
         await self.runner.submit(row)
         return row.as_entity()

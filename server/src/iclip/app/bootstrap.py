@@ -584,15 +584,17 @@ def build_app(
             snapshots=step_store,
             deps_for=deps_for_prompt,
             context_limits=context_limits,
+            heartbeat_seconds=settings.agent_runs.heartbeat_seconds,
+            lease_seconds=settings.agent_runs.lease_seconds,
+            sweep_seconds=settings.agent_runs.sweep_seconds,
             on_turn_ended=name_conversation,
         ),
     )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # 上一条命留下的 prompt 行先收拾掉：在跑的那条随进程没了、排队的没人会来叫醒。
-        # 不收拾的话那段对话会永远「正在跑」，之后发的每一条都排在一个不存在的运行后面。
-        await transcripts.runner.sweep()
+        # 先清扫一次租约过期的 prompt 行，再起心跳与清扫两个循环。
+        await transcripts.runner.start()
         if generation is not None:
             # 队列的连接要先开：HTTP 面受理一次生成时就要往队列里排。
             await generation.queue.app.open_async()

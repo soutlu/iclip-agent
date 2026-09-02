@@ -43,6 +43,10 @@ from iclip.platform.transcript.ops import MAIN_AGENT_ID, TextContent, Transcript
 AGENT_ID = "storyboard"
 MAX_CONTEXT_TOKENS = 4096
 OWNER = uuid.UUID("11111111-2222-3333-4444-555555555555")
+LOCKED_BY = "w-test"
+"""这一份里 runner 的租约主人。写死好让测试能直接改库里那一列，装出「别人接手了」。"""
+DEAD = "w-dead"
+"""上一条命的租约主人：它留下的行没人再刷心跳。"""
 
 
 @pytest.fixture
@@ -140,6 +144,7 @@ def _runner(
     *,
     store: TranscriptStore,
     tools: Sequence[Any] = (),
+    locked_by: str = LOCKED_BY,
 ) -> tuple[ConversationRunner, PgStepStore, PromptQueue]:
     step_store = PgStepStore(engine)
     agent = Agent(
@@ -161,6 +166,10 @@ def _runner(
         snapshots=step_store,
         deps_for=deps_for,
         context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
+        heartbeat_seconds=10,
+        lease_seconds=30,
+        sweep_seconds=15,
+        locked_by=locked_by,
     )
     return runner, step_store, queue
 
@@ -176,9 +185,23 @@ async def _submit(
         owner_user_id=OWNER,
         content=(TextContent(text=text_),),
         now=datetime.now(UTC),
+        locked_by=runner.locked_by,
     )
     await runner.submit(row)
     return prompt_id
+
+
+async def _expire_lease(engine: AsyncEngine, conversation_id: str) -> None:
+    """把这段对话里在跑那条的心跳拨到一小时前，让清扫认定它失联。不等一个真的租约。"""
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE agent_runtime.prompts SET heartbeat_at = now() - INTERVAL '1 hour' "
+                "WHERE conversation_id = :conversation_id AND status = 'running'"
+            ),
+            {"conversation_id": conversation_id},
+        )
 
 
 async def _drained(queue: PromptQueue, conversation_id: str, *, tries: int = 200) -> None:
@@ -338,13 +361,14 @@ async def test_usage_is_filled_in_when_the_run_finishes(engine: AsyncEngine) -> 
     assert restored.meta.agent == live_status
 
 
-async def test_restart_sweep_settles_rows_nobody_will_come_back_for(engine: AsyncEngine) -> None:
-    """重启后表里留下的行要收拾掉：在跑的判失败，排队的判撤销。
+async def test_sweep_settles_an_expired_lease_and_wakes_the_queue(engine: AsyncEngine) -> None:
+    """租约过期的行判失败并写下原因，排着的那条由清扫叫醒、跑完。
 
-    留着不动的话，那段对话会永远「正在跑」，之后发的每一条都排在一个不存在的运行后面。
+    不收拾的话那段对话会永远「正在跑」，之后发的每一条都排在一个不存在的运行后面。
     """
 
-    queue = PromptQueue(engine)
+    store = TranscriptStore()
+    runner, _step_store, queue = _runner(engine, _says("轮到我了"), store=store)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
     first = await queue.submit(
@@ -354,6 +378,7 @@ async def test_restart_sweep_settles_rows_nobody_will_come_back_for(engine: Asyn
         owner_user_id=OWNER,
         content=(TextContent(text="一"),),
         now=now,
+        locked_by=DEAD,
     )
     second = await queue.submit(
         prompt_id="prm_b",
@@ -362,12 +387,146 @@ async def test_restart_sweep_settles_rows_nobody_will_come_back_for(engine: Asyn
         owner_user_id=OWNER,
         content=(TextContent(text="二"),),
         now=now,
+        locked_by=DEAD,
     )
     assert (first.status, second.status) == ("running", "queued")
 
-    assert await queue.discard_stale(now=now) == 2
-    assert (await queue.get("prm_a")).status == "failed"  # pyright: ignore[reportOptionalMemberAccess]
-    assert (await queue.get("prm_b")).status == "aborted"  # pyright: ignore[reportOptionalMemberAccess]
+    await _expire_lease(engine, conversation_id)
+    await runner.sweep_once()
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    lost = await queue.get("prm_a")
+    assert lost is not None
+    assert lost.status == "failed"
+    assert lost.interrupt_reason  # 界面要说得出这一轮为什么没了
+    assert lost.locked_by is None
+
+    woken = await queue.get("prm_b")
+    assert woken is not None
+    assert woken.status == "completed"
+    assert woken.run_id is not None  # 它自己起过一次 run，不是被顺手标掉的
+    assert woken.locked_by == LOCKED_BY  # 租约归接手的这个进程
+
+
+async def test_a_live_lease_is_left_alone(engine: AsyncEngine) -> None:
+    """心跳还新鲜的在跑行清扫不动它——那是别的进程正经跑着的一轮。"""
+
+    runner, _step_store, queue = _runner(engine, _says("好"), store=TranscriptStore())
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    await queue.submit(
+        prompt_id="prm_live",
+        conversation_id=conversation_id,
+        agent_id=AGENT_ID,
+        owner_user_id=OWNER,
+        content=(TextContent(text="别人在跑"),),
+        now=datetime.now(UTC),
+        locked_by="w-other",
+    )
+
+    await runner.sweep_once()
+    await runner.shutdown()
+
+    row = await queue.get("prm_live")
+    assert row is not None
+    assert row.status == "running"
+    assert row.locked_by == "w-other"
+
+
+async def test_a_queued_prompt_survives_a_restart_and_gets_picked_up(
+    engine: AsyncEngine,
+) -> None:
+    """排着的那条不随进程消失：新起的进程清扫时把它顶上来跑完。"""
+
+    queue = PromptQueue(engine)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    for prompt_id, said in (("prm_head", "先做这个"), ("prm_tail", "再做那个")):
+        await queue.submit(
+            prompt_id=prompt_id,
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text=said),),
+            now=now,
+            locked_by=DEAD,
+        )
+    # 上一条命自己给在跑那条收了尾，然后就没了；排着的那条留在库里没人叫。
+    await queue.finish("prm_head", status="completed", now=now, locked_by=DEAD)
+
+    runner, _step_store, _queue = _runner(engine, _says("轮到我了"), store=TranscriptStore())
+    await runner.sweep_once()
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    tail = await queue.get("prm_tail")
+    assert tail is not None
+    assert tail.status == "completed"
+    assert tail.locked_by == LOCKED_BY
+
+
+async def test_a_run_whose_lease_was_taken_cancels_itself(engine: AsyncEngine) -> None:
+    """租约易手之后刷不到心跳，这一轮就地取消，而这个进程再改不动库里那一行。
+
+    不取消的话同一段对话会有两个进程在跑，而结局归接手的那一方。
+    """
+
+    entered, gate = asyncio.Event(), asyncio.Event()
+    store = TranscriptStore()
+    runner, _step_store, queue = _runner(engine, _waits(entered, gate), store=store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await _submit(runner, queue, conversation_id, "先做这个")
+    await entered.wait()  # 这一条真的跑起来了
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE agent_runtime.prompts SET locked_by = 'w-other' WHERE prompt_id = :id"),
+            {"id": prompt_id},
+        )
+    await runner.heartbeat_once()
+    gate.set()  # 放模型走完这一步，让取消有机会被收下
+    await runner.shutdown()
+
+    # 客户端看到这一轮被取消了。
+    assert [turn.state for turn in _replay(store, conversation_id)] == ["cancelled"]
+
+    # 那一行没被这次 runner 的 finish 动过：结局归接手的那一方。
+    row = await queue.get(prompt_id)
+    assert row is not None
+    assert row.status == "running"
+    assert row.locked_by == "w-other"
+    assert row.finished_at is None
+
+
+async def test_only_the_running_row_carries_a_lease(engine: AsyncEngine) -> None:
+    """判成在跑的那条当场铸租约，排着的两列留空；队首顶上来时也带租约。"""
+
+    queue = PromptQueue(engine)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    rows = [
+        await queue.submit(
+            prompt_id=prompt_id,
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text=said),),
+            now=now,
+            locked_by=LOCKED_BY,
+        )
+        for prompt_id, said in (("prm_head", "先做这个"), ("prm_tail", "再做那个"))
+    ]
+    head, tail = rows
+    assert head.locked_by == LOCKED_BY
+    assert head.heartbeat_at is not None
+    assert (tail.locked_by, tail.heartbeat_at) == (None, None)
+
+    await queue.finish("prm_head", status="completed", now=now, locked_by=LOCKED_BY)
+    started = await queue.start_next(conversation_id, locked_by="w-next")
+    assert started is not None
+    assert started.locked_by == "w-next"
+    assert started.heartbeat_at is not None
 
 
 async def test_resubmitting_the_same_prompt_id_does_not_start_a_second_run(
@@ -386,6 +545,7 @@ async def test_resubmitting_the_same_prompt_id_does_not_start_a_second_run(
             owner_user_id=OWNER,
             content=(TextContent(text="一"),),
             now=now,
+            locked_by=LOCKED_BY,
         )
     view = await queue.view(conversation_id)
     assert view.active is not None
@@ -409,6 +569,7 @@ async def test_the_same_prompt_id_in_another_conversation_is_rejected(
         owner_user_id=OWNER,
         content=(TextContent(text="我的"),),
         now=now,
+        locked_by=LOCKED_BY,
     )
     with pytest.raises(Conflict):
         await queue.submit(
@@ -418,6 +579,7 @@ async def test_the_same_prompt_id_in_another_conversation_is_rejected(
             owner_user_id=OWNER,
             content=(TextContent(text="你的"),),
             now=now,
+            locked_by=LOCKED_BY,
         )
 
 
@@ -453,6 +615,28 @@ async def test_aborting_the_conversation_leaves_nothing_queued_to_pick_up(
 
     # 客户端屏幕上只有被停的那一轮：多出第二轮就说明队首被顶上来跑过。
     assert [turn.prompt for turn in _replay(store, conversation_id)] == ["先做这个"]
+
+
+async def test_aborting_a_queued_prompt_marks_it_aborted(engine: AsyncEngine) -> None:
+    """停掉排着的那一条：它没有租约，走不了带 fence 的收尾，状态照样要落到「撤销了」。"""
+
+    entered, gate = asyncio.Event(), asyncio.Event()
+    store = TranscriptStore()
+    runner, _step_store, queue = _runner(engine, _waits(entered, gate), store=store)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    await _submit(runner, queue, conversation_id, "先做这个")
+    second = await _submit(runner, queue, conversation_id, "再做那个")
+    await entered.wait()  # 第一条真的跑起来了，第二条只能排着
+
+    await runner.abort(conversation_id, second)
+    row = await queue.get(second)
+    assert row is not None
+    assert row.status == "aborted"
+
+    gate.set()
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
 
 
 async def test_an_append_landing_after_the_last_model_request_still_reaches_the_model(
@@ -553,6 +737,7 @@ async def test_an_append_the_run_never_read_goes_back_to_the_queue(engine: Async
             owner_user_id=OWNER,
             content=(TextContent(text=said),),
             now=now,
+            locked_by=LOCKED_BY,
         )
 
     (moved,) = await queue.mark_steered(("prm_tail",), run_id=f"{AGENT_ID}-dead", now=now)
@@ -570,31 +755,31 @@ async def test_an_append_the_run_never_read_goes_back_to_the_queue(engine: Async
     assert [row.prompt_id for row in (await queue.view(conversation_id)).queued] == ["prm_tail"]
 
 
-async def test_restart_sweep_settles_a_leftover_append(engine: AsyncEngine) -> None:
-    """重启后留下的 ``steered`` 行判成失败：它那次 run 随进程一起没了。"""
+async def test_sweep_settles_an_append_that_rode_a_lost_run(engine: AsyncEngine) -> None:
+    """租约过期时，递进那次 run 的 ``steered`` 行跟着判失败：那次 run 随进程一起没了。"""
 
     queue = PromptQueue(engine)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
-    await queue.submit(
-        prompt_id="prm_running",
-        conversation_id=conversation_id,
-        agent_id=AGENT_ID,
-        owner_user_id=OWNER,
-        content=(TextContent(text="先做这个"),),
-        now=now,
-    )
-    await queue.submit(
-        prompt_id="prm_appended",
-        conversation_id=conversation_id,
-        agent_id=AGENT_ID,
-        owner_user_id=OWNER,
-        content=(TextContent(text="临时插一句"),),
-        now=now,
-    )
-    await queue.mark_steered(("prm_appended",), run_id=f"{AGENT_ID}-dead", now=now)
+    for prompt_id, said in (("prm_running", "先做这个"), ("prm_appended", "临时插一句")):
+        await queue.submit(
+            prompt_id=prompt_id,
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text=said),),
+            now=now,
+            locked_by=DEAD,
+        )
+    run_id = f"{AGENT_ID}-dead"
+    await queue.attach_run("prm_running", run_id, locked_by=DEAD)
+    await queue.mark_steered(("prm_appended",), run_id=run_id, now=now)
 
-    assert await queue.discard_stale(now=now) == 2
+    await _expire_lease(engine, conversation_id)
+    runner, _step_store, _queue = _runner(engine, _says("好"), store=TranscriptStore())
+    await runner.sweep_once()
+    await runner.shutdown()
+
     appended = await queue.get("prm_appended")
     assert appended is not None
     assert appended.status == "failed"

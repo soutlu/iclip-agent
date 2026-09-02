@@ -57,7 +57,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，产出�
 ## 4. 装配流程
 
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）→ `load_runtime_config()`：只做 YAML 加载与结构校验（extra=forbid），不读任何环境变量。同时读 `AGENTS_FILE`（缺省 `agents/agents.yaml`）→ `load_agent_declarations()`：结构校验 + 把 `spec` 解析成绝对路径、找出同级 `instructions.md`、把同级 `skills/` 库解析成绝对路径；声明文件、spec 文件或目录缺失即报错。
-2. 组合根 `app/bootstrap`：`resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块，把它的「删对话时连带清掉派生物」「列/读派生文件」口子接到工作区的清空与读取上 → `OSS_BUCKET` 非空时建公开对象存储（素材、生成、镜头帧共用这一只桶）并装 assets 模块（没有桶整组路由不挂）→ `media_generation` 段 + `VIDEO_SUBMIT_URL` 非空时装 generation 模块（两家 provider 一起装，缺一个 env 即报错；对象存储没开也报错）→ `VIDEO_UNDERSTANDING_URL` 非空时建镜头素材能力取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe（此时媒体生成必须也开着）→ `PRODUCT_CATALOG_DATABASE_URL` / `INSPIRATION_DATABASE_URL` 非空时各建一个只读 engine（会话层设成只读）并装 products / inspirations 模块 → 装 tasks 模块，把「按款号抄快照」协议接到产品资料库与桶上（缺一个就接一个只会拒绝的替代品）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来）→ 建实时状态、prompt 队列与运行驱动，装上 transcript 的读写端点与订阅连接 → 新建唯一 FastAPI → 注册路由 → 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先收拾上一条命留下的 prompt 行，再开队列连接、起三个 worker；关停顺序：**先收 worker 与队列连接、再按第一方取消收掉在跑的运行（它们要落库），然后关镜头素材的 HTTP 客户端，最后 dispose engine**。
+2. 组合根 `app/bootstrap`：`resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值（缺哪几个变量一次全报出来）→ 构造 async engine（asyncpg，每 worker 一个连接池）→ 装配 identity 模块（repository → service → api）→ 可选 SSO/PMS 协议客户端（`SSO_BASE_URL` 空即不装）→ 装 conversations 模块，把它的「删对话时连带清掉派生物」「列/读派生文件」口子接到工作区的清空与读取上 → `OSS_BUCKET` 非空时建公开对象存储（素材、生成、镜头帧共用这一只桶）并装 assets 模块（没有桶整组路由不挂）→ `media_generation` 段 + `VIDEO_SUBMIT_URL` 非空时装 generation 模块（两家 provider 一起装，缺一个 env 即报错；对象存储没开也报错）→ `VIDEO_UNDERSTANDING_URL` 非空时建镜头素材能力取素材用的 HTTP 客户端并检查 PATH 上有 ffmpeg/ffprobe（此时媒体生成必须也开着）→ `PRODUCT_CATALOG_DATABASE_URL` / `INSPIRATION_DATABASE_URL` 非空时各建一个只读 engine（会话层设成只读）并装 products / inspirations 模块 → 装 tasks 模块，把「按款号抄快照」协议接到产品资料库与桶上（缺一个就接一个只会拒绝的替代品）→ 把 agent 声明翻译成 harness 入参并 `build_agent_registry()`（模型/凭证/spec 缺失在此 fail fast；capability 名字表在这一步建起来）→ 建实时状态、prompt 队列与运行驱动，装上 transcript 的读写端点与订阅连接 → 新建唯一 FastAPI → 注册路由 → 安装 PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS → lifespan 启动时先清扫一次租约过期的 prompt 行、再起心跳与清扫两个循环，然后开队列连接、起三个 worker；关停顺序：**先收 worker 与队列连接、再按第一方取消收掉在跑的运行（它们要落库），然后关镜头素材的 HTTP 客户端，最后 dispose engine**。
 3. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
 
 ## 5. 配置系统
@@ -156,7 +156,9 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 
 **插话**用一个 capability 在 `before_run` 接住这次 run 的 `ctx`，到达时当场 `ctx.enqueue(priority='asap')`。不先攒着等下一次模型请求：官方第二道 drain 在 run 本来要结束时把晚到的 asap 捞出来做一次 redirect，攒着的那条压根没进官方队列，捞不到。一条插话要么进这次 run、要么退回 `queued`——run 收场时清扫一遍官方队列里没被读走的；用户按了停止时不退回，跟着这一轮一起撤销。递进去的那几条按 `run_id` 挂在这一轮下面，结局与它相同。
 
-**prompt 队列**（`agent_runtime.prompts`）落库，不待在进程内存：「一段对话同时只跑一条」由部分唯一索引挡住，不靠先查后写，而实时状态是每 worker 一份、互相看不见。进程启动时收拾上一条命留下的行（在跑的与递进过 run 的判失败、排队的判撤销），不收拾的话那段对话会永远「正在跑」。`steered` 是内部状态，对外一律报 `running`——协议的状态联合里没有这个值。
+**prompt 队列**（`agent_runtime.prompts`）落库，不待在进程内存：「一段对话同时只跑一条」由部分唯一索引挡住，不靠先查后写，而实时状态是每 worker 一份、互相看不见。`steered` 是内部状态，对外一律报 `running`——协议的状态联合里没有这个值。
+
+**在跑的那条行由租约认领。** 行上三列：`locked_by` 是进程启动时铸的 id，`heartbeat_at` 由持租的那个进程按周期刷新，`interrupt_reason` 写下失去租约的那句事实；时间一律取数据库时钟。心跳与清扫的周期由 `config.yaml` 的 `agent_runs` 段给出（`heartbeat_seconds` / `lease_seconds` / `sweep_seconds`，租约必须长于心跳，不然装配期报错）。清扫做两件事：心跳停了超过一个租约的 `running` 行判失败并放掉租约，连带把递进那次 run 的插话一并判失败；有排队却没有在跑的对话，把队首顶上来开跑。`finish` 与 `attach_run` 都带 `locked_by` 这道 fence，改不动就是租约已经易手，结局由接手那一方定；持租的一方刷不到自己的心跳时，就地按第一方取消停掉那一轮。
 
 **失败的那一轮也在历史里。** 一次运行抛异常时官方只落得下一份 `interrupted` 快照（末尾那次工具调用没有返回），显示与起 run 两侧都把它算上，否则那一轮不但看不见，还会因为下一次运行拿不到它而从此消失、轮号被重用。代价是历史末尾可能带着没有结果的工具调用，而官方不许带着这种历史再发一句新的用户消息；起 run 时用 `deferred_tool_results` 把它们收掉（`runner._close_out`），这是官方留给调用方的口子。收掉的那份结果只说明「没跑成」，副作用发生过没有由官方的工具账本记着。
 

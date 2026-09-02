@@ -107,6 +107,14 @@ def test_env_var_names_are_not_accepted_in_yaml(tmp_path: Path) -> None:
         )
 
 
+def test_lease_must_outlast_a_heartbeat(tmp_path: Path) -> None:
+    """租约不长于心跳的话，在跑的行会被自己那一侧的清扫判失联。"""
+
+    bad = VALID + "\nagent_runs: {heartbeat_seconds: 30, lease_seconds: 30}\n"
+    with pytest.raises(ValidationError, match="heartbeat_seconds"):
+        load_runtime_config(write(tmp_path, bad))
+
+
 def test_cors_wildcard_rejected(tmp_path: Path) -> None:
     bad = VALID.replace("security: {}", 'security: {cors_allow_origins: ["*"]}')
     with pytest.raises(ValidationError):
