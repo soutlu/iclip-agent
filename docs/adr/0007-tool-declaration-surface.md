@@ -31,8 +31,8 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 
 ### 4. 可见性靠声明，不靠运行期拒绝
 
-- skill 专属的工具（`get_skill_reference`）放进该 skill 的按需 capability：每个 skill 是一个 `Capability(id=skill 名, description, instructions=SKILL.md 正文, tools=[...], defer_loading=True)`，工具随 skill 加载才出现在模型的工具表里。`harness/skills.py` 自己按 SKILL.md 造它，不再经 harness `Skills`。
-- 子代理不该有的工具不挂，而不是挂上再回错。按运行期条件过滤工具表时用 `PrepareTools`。
+- 一个 agent 看得见哪些工具由 `agents.yaml` 的声明决定：子代理不该有的工具不挂，而不是挂上再回错。按运行期条件过滤工具表时用 `PrepareTools`。
+- skill 正文照旧经 harness `Skills` 按需加载。`get_skill_reference` 保持**一件**常驻工具：同名工具不能挂在多个 capability 上（官方装配期报名字冲突），而一个 agent 可能挂多个 skill。它的范围规则（只读挂给本 agent 的 skill 的 references）按决策 2 写成验证器。
 
 ### 5. 界面画法归工具所有者
 
@@ -65,7 +65,7 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 - **不抄 kimi 的 `accesses` 并行调度。** 本仓工具之间没有文件写冲突，`edit_file` 已带版本号。
 - **不抄 kimi 的敏感文件表与权限模式（manual / yolo / auto）。** 没有本地文件系统；权限模式属于用户设置层，等审批卡上线再看。
 - **不为一条不存在的规则建策略 capability。** 决策 3 只定落点。
-- **接受 skill 加载那一轮工具表变化会打断一次提示缓存前缀。** 走 OpenAI 兼容端点没有原生的工具增量披露通道；一段对话里 skill 只加载一次。
+- **不把 `get_skill_reference` 拆进各 skill 的按需 capability。** 同名工具在装配期冲突；按 skill 改名会改动 SKILL.md 里已调好的工具名。代价是这件工具从第一轮就可见。
 - **接受 `metadata` 让快照变大。** 它只装给人看的形状（地址与标题），不装字节。
 - **接受审批卡与工具卡共用一份 display。** 这是决策 5 的直接结果，不另设审批的展示合同。
 - **工具名、参数、给模型的返回、错误消息、SKILL.md 正文全程不变。** 它们是 skill 的契约。
