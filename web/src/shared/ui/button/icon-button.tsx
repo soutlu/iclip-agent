@@ -4,7 +4,7 @@ import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
 export const iconButtonVariants = cva(
-  'relative inline-grid ui-state cursor-pointer place-items-center rounded-full ui-focus',
+  'relative inline-grid ui-state cursor-pointer place-items-center rounded-sm ui-focus active:scale-[0.98]',
   {
     variants: {
       variant: {
@@ -15,8 +15,9 @@ export const iconButtonVariants = cva(
       size: {
         lg: 'hit-48 size-(--control-height-lg)',
         md: 'hit-48 size-(--control-height-md)',
-        // xs 不外扩热区：它只出现在行尾，两个并排时 48 的热区会互相盖住，
+        // sm 与 xs 不外扩热区：它们成排出现在行尾或栏内，48 的热区会互相盖住，
         // 点右边那个会命中左边那个。够不着的用户点整行。
+        sm: 'size-(--control-height-sm)',
         xs: 'size-(--control-height-xs)',
       },
     },
@@ -24,7 +25,7 @@ export const iconButtonVariants = cva(
   },
 )
 
-const ICON_SIZE = { lg: 'lg', md: 'md', xs: 'sm' } as const
+const ICON_SIZE = { lg: 'lg', md: 'md', sm: 'md', xs: 'sm' } as const
 
 type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> &
   VariantProps<typeof iconButtonVariants> & {

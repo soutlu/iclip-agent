@@ -544,8 +544,8 @@
 
   /* 控件高度：组件只在这五档里取值，热区另有 48 下限 */
   --control-height-xs: 24px; /* 小标签；可点尺寸下限 */
-  --control-height-sm: 34px; /* Chip 胶囊 */
-  --control-height-md: 36px; /* 菜单项、紧凑按钮 */
+  --control-height-sm: 34px; /* Chip 胶囊、菜单项、图标按钮 sm */
+  --control-height-md: 36px; /* 紧凑按钮、图标按钮 md */
   --control-height-lg: 40px; /* 按钮、图标按钮 */
   --control-height-xl: 44px; /* 输入框 */
   --control-hit-area: 48px; /* 可点热区 */

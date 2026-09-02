@@ -297,7 +297,7 @@
 /* 交互态叠层：hover / pressed 用渐变铺一层半透明 on-surface，不覆盖组件自己的底色；
    禁用态撤掉叠层，只压暗文字并给出 not-allowed。组件不再自写 hover / pressed / disabled 颜色。 */
 @utility ui-state {
-  transition-property: background-color, background-image, border-color, color, box-shadow;
+  transition-property: background-color, background-image, border-color, color, box-shadow, scale;
   transition-duration: var(--dur-s);
   transition-timing-function: var(--ease);
 

@@ -54,7 +54,7 @@ export function AppSidebar() {
       <div className="flex items-center gap-2 px-3 pt-3 pb-1">
         <span
           aria-hidden
-          className="grid size-(--control-height-md) shrink-0 place-items-center rounded-md bg-primary font-home-display text-title font-semibold text-on-primary italic"
+          className="grid size-(--control-height-md) shrink-0 place-items-center rounded-sm bg-primary font-home-display text-title font-semibold text-on-primary italic"
         >
           C
         </span>

@@ -349,8 +349,8 @@
         --ease-accel: cubic-bezier(0.3, 0, 1, 1);
         /* 控件尺寸与图标尺寸 */
         --control-height-xs: 24px;  /* 小标签；可点尺寸下限 */
-        --control-height-sm: 34px;  /* Chip 胶囊 */
-        --control-height-md: 36px;  /* 菜单项、紧凑按钮 */
+        --control-height-sm: 34px;  /* Chip 胶囊、菜单项、图标按钮 sm */
+        --control-height-md: 36px;  /* 紧凑按钮、图标按钮 md */
         --control-height-lg: 40px;  /* 按钮、图标按钮 */
         --control-height-xl: 44px;  /* 输入框 */
         --control-hit-area: 48px;   /* 可点热区 */
@@ -2407,7 +2407,7 @@
                 <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-4xl)"></i><span>48px</span><code>--radius-4xl</code></div></div>
                 <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-full)"></i><span>full</span><code>--radius-full</code></div></div>
               </div>
-              <p class="type-source-note">xs 标签 · sm 菜单项 · md 按钮 / 菜单 · lg 输入框 / 卡片 · xl 气泡 · 2xl Dialog / Composer · 3xl 工作台 · 4xl 预览舞台 · full 图标按钮 / 胶囊</p>
+              <p class="type-source-note">xs 标签 · sm 按钮 / 图标按钮 / 菜单项 · md 菜单 · lg 输入框 / 卡片 · xl 气泡 · 2xl Dialog / Composer · 3xl 工作台 · 4xl 预览舞台 · full 胶囊 / 头像</p>
             </div>
 
             <div class="scale-group">
@@ -2474,7 +2474,7 @@
             <header class="subsection-heading">
               <h3 id="contract-title">可模板化组件契约</h3>
               <p>
-                高度取 <code>--control-height-*</code>，图标取 <code>--icon-*</code>，状态用 <code>ui-state</code> / <code>ui-focus</code>，变体以 <code>cva</code> 声明。几何为 M3 密度 −3 档；固定偏离：按钮圆角 12、Chip 圆角 full、菜单圆角 12、弹窗宽 ≤ 582。表外尺寸档与变体不实现。
+                高度取 <code>--control-height-*</code>，图标取 <code>--icon-*</code>，状态用 <code>ui-state</code> / <code>ui-focus</code>，变体以 <code>cva</code> 声明。几何为 M3 密度 −3 档；固定偏离：按钮圆角 8、Chip 圆角 full、菜单圆角 12、弹窗宽 ≤ 582。表外尺寸档与变体不实现。
               </p>
             </header>
 
@@ -2528,15 +2528,15 @@
                     <th scope="row" class="contract-name"><strong>Button</strong><code>Action control</code></th>
                     <td class="contract-cell"><code>leading icon · label · trailing icon</code><span>原生 button。</span></td>
                     <td class="contract-cell"><span>primary · tonal · outlined</span><span>inverted · danger · ghost</span></td>
-                    <td class="contract-cell"><code>lg 40（默认）· md 36</code><span>水平 padding 22 / 16；radius md；图标 icon-md；热区 48。</span></td>
-                    <td class="contract-cell"><span>hover · pressed · focus-visible</span><span>disabled；loading 按需</span></td>
+                    <td class="contract-cell"><code>lg 40（默认）· md 36</code><span>水平 padding 22 / 16；radius sm；图标 icon-md；热区 48。</span></td>
+                    <td class="contract-cell"><span>hover · pressed（微缩 98%）· focus-visible</span><span>disabled；loading 按需</span></td>
                   </tr>
                   <tr>
                     <th scope="row" class="contract-name"><strong>IconButton</strong><code>Icon-only control</code></th>
                     <td class="contract-cell"><code>icon · optional badge</code><span>必须提供 aria-label；SVG 不承担命中区。</span></td>
                     <td class="contract-cell"><span>standard · tonal · selected</span></td>
-                    <td class="contract-cell"><code>lg 40 / 48 · md 36 / 44 · xs 24 / 24</code><span>视觉 / 热区；radius full；图标 icon-lg / icon-md / icon-sm。xs 是行内尾随钮专用，热区不外扩（相邻钮会互相盖住），只在整行本身可点时使用。</span></td>
-                    <td class="contract-cell"><span>hover · pressed · focus-visible</span><span>disabled；selected 按需</span></td>
+                    <td class="contract-cell"><code>lg 40 / 48 · md 36 / 44 · sm 34 / 34 · xs 24 / 24</code><span>视觉 / 热区；radius sm；图标 icon-lg / icon-md / icon-md / icon-sm。sm 与 xs 热区不外扩（相邻钮会互相盖住），只用在行尾与终态栏。</span></td>
+                    <td class="contract-cell"><span>hover · pressed（微缩 98%）· focus-visible</span><span>disabled；selected 按需</span></td>
                   </tr>
                   <tr>
                     <th scope="row" class="contract-name"><strong>Input family</strong><code>Input · Textarea · Select</code></th>
@@ -2563,7 +2563,7 @@
                     <th scope="row" class="contract-name"><strong>Menu</strong><code>Dropdown · Context</code></th>
                     <td class="contract-cell"><code>surface · item（icon · label · shortcut）· separator</code><span>radix DropdownMenu。</span></td>
                     <td class="contract-cell"><span>dropdown · context</span><span>destructive 项用 error 字色</span></td>
-                    <td class="contract-cell"><code>item md 36 · surface radius md</code><span>item radius sm；shadow-2；layer popup。</span></td>
+                    <td class="contract-cell"><code>item sm 34 · surface radius md · surface padding 4</code><span>item radius sm；shadow-2；layer popup。</span></td>
                     <td class="contract-cell"><span>item：hover · pressed · focus-visible</span><span>disabled；selected 按需</span></td>
                   </tr>
                   <tr>
@@ -2726,7 +2726,7 @@
                 </div>
                 <div class="icon-rule-row">
                   <strong>Hit area</strong>
-                  <span>Icon-only control 使用 IconButton 外壳（lg 40 / 48、md 36 / 44）并提供 aria-label；SVG 不承担命中区。</span>
+                  <span>Icon-only control 使用 IconButton 外壳（lg 40 / 48、md 36 / 44、sm 34 / 34）并提供 aria-label；SVG 不承担命中区。</span>
                 </div>
                 <div class="icon-rule-row">
                   <strong>Accessibility</strong>
@@ -2873,7 +2873,7 @@
               <span>轮间距 16 · 轮内块间距 10</span>
               <span>用户气泡 · 右对齐 · ≤ min(88%, 100vw-52) · chat-user-bg · radius md · 内距 10 / 12 · text-body 行高 1.5 · 超 10 行折叠成底部渐隐，「展开」胶囊压在渐隐上 · 无边框无阴影无状态层</span>
               <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 400 · 行高 relaxed · chat-message-text · 按 markdown 渲染，夹在里面的 HTML 过白名单后渲染（script / iframe / on* / javascript: 一律摘掉）</span>
-              <span>助手回复操作 · 回复结束后左对齐常驻终态栏：「复制 / 重新生成」24×24 图标钮（radius sm · icon-md · chat-muted-text · hover 铺 hover 状态底 · 150ms 过渡）· 复制该回复的原始 markdown，不含思考、工具结果与用户插话 · 成功换 check 1.4s · 钮组后隔 8 接 credit 钻石图标领头的 token 统计（图标与文字距 4 · text-caption chat-muted-text · 精确值入 title）与完成时刻（今天 HH:mm · 昨天 HH:mm · 更早 M月d日 HH:mm 跨年补年份 · 精确完整时刻入 title）· 统计与时刻默认透明 hover 该轮一起浮现</span>
+              <span>助手回复操作 · 回复结束后左对齐常驻终态栏：「复制 / 重新生成」24×24 图标钮（radius sm · icon-sm · chat-muted-text · hover 铺 hover 状态底 · 150ms 过渡）· 复制该回复的原始 markdown，不含思考、工具结果与用户插话 · 成功换 check 1.4s · 钮组后隔 8 接 credit 钻石图标领头的 token 统计（图标与文字距 4 · text-caption chat-muted-text · 精确值入 title）与完成时刻（今天 HH:mm · 昨天 HH:mm · 更早 M月d日 HH:mm 跨年补年份 · 精确完整时刻入 title）· 统计与时刻默认透明 hover 该轮一起浮现</span>
               <span>正文 markdown · 顶层块间距 14 · 标题最高 text-title、h1 底部发丝线 · 列表 28 缩进 + 5px 圆点（二级空心描边）· 引用 2px 圆角竖条 · 行内代码 chat-code-bg radius xs、chat-link-text 色 · 代码块带头部条（语言名 + 复制钮）chat-code-block-bg radius sm 最高 500 可滚动 · 表格 chat-hairline 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text，hover 才出下划线</span>
               <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-muted-text · 路径 chat-message-text 截断（≤ 60%）· 行尾状态点 chat-status-success / -error / -running（转圈）</span>
               <span>工具结果 · 只有纯文本结果才给折叠箭头 · 开合 grid-rows 0fr↔1fr 平滑过渡 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
