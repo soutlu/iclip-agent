@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.step_store_pg import PgStepStore
-from iclip.harness.transcript.activity import IDLE, ActivityState, merged_with_prompt
+from iclip.harness.transcript.activity import IDLE, ActivityState
 from iclip.harness.transcript.from_messages import run_ids_from_messages
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
@@ -338,7 +338,7 @@ async def _plant_interrupted(
         now=datetime.now(UTC),
         locked_by=DEAD,
     )
-    await queue.attach_run(prompt_id, run_id, locked_by=DEAD)
+    await queue.attach_run(prompt_id, run_id, locked_by=DEAD, attempt=0)
     if messages is not None:
         await step_store.register_run(RunRecord(run_id=run_id, conversation_id=conversation_id))
         await step_store.append_event(
@@ -995,7 +995,7 @@ async def test_a_queued_prompt_survives_a_restart_and_gets_picked_up(
             locked_by=DEAD,
         )
     # 上一条命自己给在跑那条收了尾，然后就没了；排着的那条留在库里没人叫。
-    await queue.finish("prm_head", status="completed", now=now, locked_by=DEAD)
+    await queue.finish("prm_head", status="completed", now=now, locked_by=DEAD, attempt=0)
 
     runner, _step_store, _queue = _runner(engine, _says("轮到我了"), store=TranscriptStore())
     await runner.sweep_once()
@@ -1065,7 +1065,7 @@ async def test_only_the_running_row_carries_a_lease(engine: AsyncEngine) -> None
     assert head.heartbeat_at is not None
     assert (tail.locked_by, tail.heartbeat_at) == (None, None)
 
-    await queue.finish("prm_head", status="completed", now=now, locked_by=LOCKED_BY)
+    await queue.finish("prm_head", status="completed", now=now, locked_by=LOCKED_BY, attempt=0)
     started = await queue.start_next(conversation_id, locked_by="w-next")
     assert started is not None
     assert started.locked_by == "w-next"
@@ -1091,9 +1091,9 @@ async def test_attach_run_maps_every_run_to_its_prompt(engine: AsyncEngine) -> N
             locked_by=LOCKED_BY,
         )
     # 同一条 prompt 起两次 run：第一次断了，第二次续跑。
-    await queue.attach_run("prm_mine", "r-first", locked_by=LOCKED_BY)
-    await queue.attach_run("prm_mine", "r-second", locked_by=LOCKED_BY)
-    await queue.attach_run("prm_yours", "r-other", locked_by=LOCKED_BY)
+    await queue.attach_run("prm_mine", "r-first", locked_by=LOCKED_BY, attempt=0)
+    await queue.attach_run("prm_mine", "r-second", locked_by=LOCKED_BY, attempt=0)
+    await queue.attach_run("prm_yours", "r-other", locked_by=LOCKED_BY, attempt=0)
 
     assert await queue.prompt_of_runs("c-mine") == {
         "r-first": "prm_mine",
@@ -1127,7 +1127,7 @@ async def test_attach_run_writes_nothing_when_the_lease_moved_on(engine: AsyncEn
         locked_by=LOCKED_BY,
     )
 
-    await queue.attach_run("prm_fenced", "r-stale", locked_by="w-other")
+    await queue.attach_run("prm_fenced", "r-stale", locked_by="w-other", attempt=0)
 
     row = await queue.get("prm_fenced")
     assert row is not None
@@ -1188,6 +1188,166 @@ async def test_the_same_prompt_id_in_another_conversation_is_rejected(
             now=now,
             locked_by=LOCKED_BY,
         )
+
+
+async def test_the_same_prompt_id_submitted_twice_at_once_lands_as_one_row(
+    engine: AsyncEngine,
+) -> None:
+    """双击发送：同一个 id 两次并发提交，两边拿到同一条，库里也只有一条。
+
+    重复提交那道预查在两次插入之间没有锁，所以两边都会走到真正的插入，一边撞主键。
+    """
+
+    queue = JobQueue(engine)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+
+    async def once() -> JobRow:
+        return await queue.submit(
+            prompt_id="prm_doubled",
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text="一"),),
+            now=now,
+            locked_by=LOCKED_BY,
+        )
+
+    first, second = await asyncio.gather(once(), once())
+
+    assert (first.prompt_id, second.prompt_id) == ("prm_doubled", "prm_doubled")
+    view = await queue.view(conversation_id)
+    assert view.active is not None
+    assert view.queued == ()
+
+
+async def test_a_write_from_an_older_attempt_changes_nothing(engine: AsyncEngine) -> None:
+    """失租之后又被认领回同一个进程：老 task 的收尾不能替新那一轮定结局。
+
+    只比租约主人是挡不掉它的——``locked_by`` 跟原来一样。挡它的是 ``attempt`` 这个代数。
+    """
+
+    queue = JobQueue(engine)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    await queue.submit(
+        prompt_id="prm_fenced_attempt",
+        conversation_id=conversation_id,
+        agent_id=AGENT_ID,
+        owner_user_id=OWNER,
+        content=(TextContent(text="走"),),
+        now=now,
+        locked_by=LOCKED_BY,
+    )
+    # 清扫把它重新认领了一次：租约主人没变，代数加一。
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE agent_runtime.agent_jobs SET attempt = 1 "
+                "WHERE prompt_id = 'prm_fenced_attempt'"
+            )
+        )
+
+    await queue.finish(
+        "prm_fenced_attempt", status="completed", now=now, locked_by=LOCKED_BY, attempt=0
+    )
+    stale = await queue.get("prm_fenced_attempt")
+    assert stale is not None
+    assert stale.status == "running"
+
+    await queue.finish(
+        "prm_fenced_attempt", status="completed", now=now, locked_by=LOCKED_BY, attempt=1
+    )
+    settled = await queue.get("prm_fenced_attempt")
+    assert settled is not None
+    assert settled.status == "completed"
+
+
+async def test_a_message_withdrawn_while_queued_is_not_the_last_turn_reason(
+    engine: AsyncEngine,
+) -> None:
+    """排着的时候就撤回的消息从来没跑过，不能成为这段对话「最近一轮的结局」。
+
+    它的 ``finished_at`` 比真跑完那一轮还晚，光按时间取会取到它。
+    """
+
+    queue = JobQueue(engine)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    for prompt_id, said in (("prm_ran", "先做这个"), ("prm_withdrawn", "再做那个")):
+        await queue.submit(
+            prompt_id=prompt_id,
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text=said),),
+            now=now,
+            locked_by=LOCKED_BY,
+        )
+    await queue.finish("prm_ran", status="completed", now=now, locked_by=LOCKED_BY, attempt=0)
+    # 撤回排着的那条，时刻比上面那次收尾更晚。
+    await queue.abort(
+        "prm_withdrawn", conversation_id=conversation_id, now=now + timedelta(minutes=1)
+    )
+
+    assert await queue.activities((conversation_id,)) == {
+        conversation_id: ActivityState(busy=False, last_turn_reason="completed")
+    }
+
+
+async def test_an_append_riding_the_turn_does_not_hide_the_approval(
+    engine: AsyncEngine,
+) -> None:
+    """等审批期间有插话递进这一轮：活儿仍是「在忙，等审批」，不被那条 ``steered`` 盖掉。"""
+
+    queue = JobQueue(engine)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    for prompt_id, said in (("prm_parked", "改这个文件"), ("prm_appended", "顺便还有")):
+        await queue.submit(
+            prompt_id=prompt_id,
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text=said),),
+            now=now,
+            locked_by=LOCKED_BY,
+        )
+    run_id = f"{AGENT_ID}-parked"
+    await queue.attach_run("prm_parked", run_id, locked_by=LOCKED_BY, attempt=0)
+    assert (await queue.await_approvals("prm_parked", locked_by=LOCKED_BY, attempt=0)) is not None
+    await queue.mark_steered(("prm_appended",), run_id=run_id, now=now)
+
+    assert await queue.activities((conversation_id,)) == {
+        conversation_id: ActivityState(busy=True, pending_interaction="approval")
+    }
+
+
+async def test_conversations_split_into_running_and_done(engine: AsyncEngine) -> None:
+    """列表的 ``state`` 筛选：在跑的一组、跑完过的一组，从没跑过的两边都不在。"""
+
+    queue = JobQueue(engine)
+    now = datetime.now(UTC)
+    running_id = f"c-{uuid.uuid4().hex[:8]}"
+    done_id = f"c-{uuid.uuid4().hex[:8]}"
+    untouched_id = f"c-{uuid.uuid4().hex[:8]}"
+    for prompt_id, conversation_id in (("prm_a", running_id), ("prm_b", done_id)):
+        await queue.submit(
+            prompt_id=prompt_id,
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text="走"),),
+            now=now,
+            locked_by=LOCKED_BY,
+        )
+    await queue.finish("prm_b", status="completed", now=now, locked_by=LOCKED_BY, attempt=0)
+
+    assert await queue.conversation_ids(OWNER, "running") == frozenset({running_id})
+    assert await queue.conversation_ids(OWNER, "done") == frozenset({done_id})
+    # 别人名下的一条都不算
+    assert await queue.conversation_ids(uuid.uuid4(), "running") == frozenset()
+    assert await queue.activities((untouched_id,)) == {untouched_id: IDLE}
 
 
 async def test_aborting_the_conversation_leaves_nothing_queued_to_pick_up(
@@ -1379,7 +1539,7 @@ async def test_sweep_settles_an_append_that_rode_a_lost_run(engine: AsyncEngine)
             locked_by=DEAD,
         )
     run_id = f"{AGENT_ID}-dead"
-    await queue.attach_run("prm_running", run_id, locked_by=DEAD)
+    await queue.attach_run("prm_running", run_id, locked_by=DEAD, attempt=0)
     await queue.mark_steered(("prm_appended",), run_id=run_id, now=now)
 
     await _expire_lease(engine, conversation_id, attempt=1)
@@ -1722,12 +1882,10 @@ async def test_a_tool_needing_approval_ends_the_run_and_parks_the_prompt(
     assert page.pending_interactions == ("apr_call_1",)
     assert page.meta.activity == "turn"
 
-    # 侧栏的角标：实时那份与新进程那份都要说「在忙，等审批」。
-    statuses = await queue.active_statuses((conversation_id,))
-    assert statuses == {conversation_id: "awaiting"}
-    busy = ActivityState(busy=True, pending_interaction="approval")
-    assert merged_with_prompt(store.activity(conversation_id), statuses[conversation_id]) == busy
-    assert merged_with_prompt(IDLE, statuses[conversation_id]) == busy
+    # 侧栏的角标从库里算，与哪个进程无关：在忙，等审批。
+    assert await queue.activities((conversation_id,)) == {
+        conversation_id: ActivityState(busy=True, pending_interaction="approval")
+    }
 
     await runner.shutdown()
 

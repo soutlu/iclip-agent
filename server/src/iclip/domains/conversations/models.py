@@ -49,16 +49,18 @@ class Conversation:
 class ConversationActivity:
     """一段对话此刻在忙什么。侧栏的角标看这一份。
 
-    两个字段互不蕴含：**等人点头的时候 ``busy`` 照样为真**——那一轮并没有结束。合成一个枚举
+    三个字段互不蕴含：**等人点头的时候 ``busy`` 照样为真**——那一轮并没有结束。合成一个枚举
     就分不清这两件事（agent 引擎那一侧的 ``activity.py`` 里有更长的说明）。
     """
 
     busy: bool = False
     pending_interaction: Literal["none", "approval", "question"] = "none"
+    last_turn_reason: Literal["completed", "failed", "aborted"] | None = None
+    """最近结束的那一轮的结局。从没跑完过一轮的对话是 ``None``。"""
 
 
 IDLE_ACTIVITY = ConversationActivity()
-"""什么都没在发生。不认识的对话、以及重启后还没跑过的，都是这一份。"""
+"""什么都没在发生，也没有跑过。不认识的对话就是这一份。"""
 
 
 __all__ = ["IDLE_ACTIVITY", "Conversation", "ConversationActivity", "TitleKind"]

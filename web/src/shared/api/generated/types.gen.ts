@@ -448,14 +448,18 @@ export type ColorOut = {
  *
  * 这段对话此刻在忙什么。侧栏据此画角标。
  *
- * 嵌套一层而不是把字段平铺到行上：这一组事实还会长（kimi 那边还有主轮活跃与最近一轮的结局），
- * 平铺的话每加一个都要在行上再开一个顶层字段。
+ * 嵌套一层而不是把字段平铺到行上：这一组事实还会长，平铺的话每加一个都要在行上再开一个
+ * 顶层字段。
  */
 export type ConversationActivityOut = {
   /**
    * Busy
    */
   busy: boolean
+  /**
+   * Lastturnreason
+   */
+  lastTurnReason?: 'completed' | 'failed' | 'aborted' | null
   /**
    * Pendinginteraction
    */
@@ -2925,9 +2929,24 @@ export type RenameCollectionCollectionsCollectionIdPatchResponse =
 export type ReadSidebarConversationsGetData = {
   body?: never
   path?: never
-  query?: never
+  query?: {
+    /**
+     * State
+     */
+    state?: 'all' | 'running' | 'done'
+  }
   url: '/conversations'
 }
+
+export type ReadSidebarConversationsGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ReadSidebarConversationsGetError =
+  ReadSidebarConversationsGetErrors[keyof ReadSidebarConversationsGetErrors]
 
 export type ReadSidebarConversationsGetResponses = {
   /**
@@ -3031,6 +3050,10 @@ export type ListCollectionConversationsConversationsByCollectionCollectionIdGetD
      * Cursor
      */
     cursor?: string | null
+    /**
+     * State
+     */
+    state?: 'all' | 'running' | 'done'
   }
   url: '/conversations/by-collection/{collection_id}'
 }
@@ -3131,6 +3154,10 @@ export type ListUngroupedConversationsUngroupedGetData = {
      * Cursor
      */
     cursor?: string | null
+    /**
+     * State
+     */
+    state?: 'all' | 'running' | 'done'
   }
   url: '/conversations/ungrouped'
 }

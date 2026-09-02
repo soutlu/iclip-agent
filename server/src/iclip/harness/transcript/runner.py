@@ -397,11 +397,11 @@ class ConversationRunner:
         """
 
         row = await self._queue.abort(prompt_id, conversation_id=conversation_id, now=_now())
-        if row.status in ("queued", "awaiting"):
-            settled = await self._queue.get(prompt_id)
-            if settled is not None:
-                self._publish(settled)
-            if row.status == "awaiting":
+        if row.status == "aborted":
+            self._publish(row)
+            # 撤掉的是那条等审批的（排着的从来没起过 run，``run_id`` 是空的）：那一轮没有 run
+            # 在跑，没人替它发终态，得在这里收拾。
+            if row.run_id is not None:
                 await self._cancel_awaiting(row)
             return
         active = self._active.get(row.conversation_id)
@@ -615,7 +615,11 @@ class ConversationRunner:
             else:
                 await self._settle(active, status=status)
                 await self._queue.finish(
-                    row.prompt_id, status=status, now=_now(), locked_by=self.locked_by
+                    row.prompt_id,
+                    status=status,
+                    now=_now(),
+                    locked_by=self.locked_by,
+                    attempt=row.attempt,
                 )
                 settled = await self._queue.get(row.prompt_id)
                 if settled is not None:
@@ -634,7 +638,10 @@ class ConversationRunner:
 
         await self._revert_stranded(active)
         await self._queue.release(
-            row.prompt_id, locked_by=self.locked_by, reason="服务关停，等待续跑"
+            row.prompt_id,
+            locked_by=self.locked_by,
+            reason="服务关停，等待续跑",
+            attempt=row.attempt,
         )
         released = await self._queue.get(row.prompt_id)
         if released is not None:
@@ -711,7 +718,9 @@ class ConversationRunner:
         ordinal = len(turns) + 1 if resumed is None else resumed + 1
         turn_id = f"t{ordinal}"
         run_id = f"{row.agent_id}-{uuid.uuid4().hex[:8]}"
-        await self._queue.attach_run(row.prompt_id, run_id, locked_by=self.locked_by)
+        await self._queue.attach_run(
+            row.prompt_id, run_id, locked_by=self.locked_by, attempt=row.attempt
+        )
         if row.run_id is not None:
             await self._queue.adopt_steered(row.run_id, run_id)
 
@@ -876,12 +885,13 @@ class ConversationRunner:
         文档写明由调用方持久化。走它的协议方法写进同一张表，续跑那侧照旧用
         ``latest_conversation_snapshot(include_interrupted=True)`` 原样读回来。
 
-        实时那一轮不交接：轮还在 running、审批卡还等着回应，「这段对话在忙什么」正是从这两样
-        算出来的。
+        实时那一轮不交接：轮还在 running、审批卡还等着回应。
         """
 
         await self._save_history(row.conversation_id, run_id=run_id, history=history)
-        waiting = await self._queue.await_approvals(row.prompt_id, locked_by=self.locked_by)
+        waiting = await self._queue.await_approvals(
+            row.prompt_id, locked_by=self.locked_by, attempt=row.attempt
+        )
         if waiting is not None:
             self._publish(waiting)
         return "awaiting"

@@ -227,11 +227,12 @@ export const zColorOut = z.object({
  *
  * 这段对话此刻在忙什么。侧栏据此画角标。
  *
- * 嵌套一层而不是把字段平铺到行上：这一组事实还会长（kimi 那边还有主轮活跃与最近一轮的结局），
- * 平铺的话每加一个都要在行上再开一个顶层字段。
+ * 嵌套一层而不是把字段平铺到行上：这一组事实还会长，平铺的话每加一个都要在行上再开一个
+ * 顶层字段。
  */
 export const zConversationActivityOut = z.object({
   busy: z.boolean(),
+  lastTurnReason: z.enum(['completed', 'failed', 'aborted']).nullish(),
   pendingInteraction: z.enum(['none', 'approval', 'question']),
 })
 
@@ -1372,6 +1373,10 @@ export const zRenameCollectionCollectionsCollectionIdPatchPath = z.object({
  */
 export const zRenameCollectionCollectionsCollectionIdPatchResponse = zCollectionEnvelope
 
+export const zReadSidebarConversationsGetQuery = z.object({
+  state: z.enum(['all', 'running', 'done']).optional().default('all'),
+})
+
 /**
  * Successful Response
  */
@@ -1404,6 +1409,7 @@ export const zListCollectionConversationsConversationsByCollectionCollectionIdGe
 
 export const zListCollectionConversationsConversationsByCollectionCollectionIdGetQuery = z.object({
   cursor: z.string().nullish(),
+  state: z.enum(['all', 'running', 'done']).optional().default('all'),
 })
 
 /**
@@ -1433,6 +1439,7 @@ export const zSearchConversationsConversationsSearchGetResponse = zConversations
 
 export const zListUngroupedConversationsUngroupedGetQuery = z.object({
   cursor: z.string().nullish(),
+  state: z.enum(['all', 'running', 'done']).optional().default('all'),
 })
 
 /**

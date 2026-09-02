@@ -72,6 +72,39 @@ async def open_task(client: httpx.AsyncClient) -> str:
     return str(created.json()["task"]["id"])
 
 
+async def plant_job(
+    pg_url: str, *, owner: str, conversation_id: str, status: str, prompt_id: str
+) -> None:
+    """往 jobs 表插一条 prompt 行。侧栏的 ``state`` 筛选算的就是这张表。
+
+    这一层没有 agent 跑得起来，所以直接摆事实：``running`` 是在跑，``completed`` 是跑完过。
+    """
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO agent_runtime.agent_jobs "
+                    "(prompt_id, conversation_id, agent_id, owner_user_id, content, status, "
+                    " run_id, created_at, finished_at) "
+                    "VALUES (:prompt_id, :conversation_id, :agent_id, :owner, '[]', :status, "
+                    " :run_id, now(), :finished_at)"
+                ),
+                {
+                    "prompt_id": prompt_id,
+                    "conversation_id": conversation_id,
+                    "agent_id": AGENT_ID,
+                    "owner": owner,
+                    "status": status,
+                    "run_id": f"{AGENT_ID}-{prompt_id}",
+                    "finished_at": None if status == "running" else datetime.now(UTC),
+                },
+            )
+    finally:
+        await engine.dispose()
+
+
 async def column_of(pg_url: str, conversation_id: str, column: str) -> str | None:
     """直接回库里读对话上那一列——外键的动作只有库自己说得准。"""
 
@@ -259,6 +292,62 @@ async def test_sidebar_groups_by_collection(client: httpx.AsyncClient, pg_url: s
     # 进了合集的不再出现在「没归类」那一区
     assert sidebar["ungroupedCount"] == 1
     assert [item["id"] for item in sidebar["ungrouped"]["items"]] == [loose["id"]]
+
+
+async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: str) -> None:
+    """``state`` 只要在跑的、或者只要跑完过的；从没跑过的两边都不在，只出现在 ``all`` 里。
+
+    两个数字跟着同一个筛选走，不然侧栏标题上的数字与它下面列出来的条数会对不上。
+    """
+
+    owner = await login_as_editor(client, pg_url)
+    collection_id = await open_collection(client, "在跑的那些")
+    running = await open_conversation(client, title="正在跑", collectionId=collection_id)
+    done = await open_conversation(client, title="跑完了")
+    await open_conversation(client, title="还没发过消息")
+    await plant_job(
+        pg_url,
+        owner=owner,
+        conversation_id=str(running["id"]),
+        status="running",
+        prompt_id="prm_state_running",
+    )
+    await plant_job(
+        pg_url,
+        owner=owner,
+        conversation_id=str(done["id"]),
+        status="completed",
+        prompt_id="prm_state_done",
+    )
+
+    everything = (await client.get(CONVERSATIONS)).json()
+    only_running = (await client.get(CONVERSATIONS, params={"state": "running"})).json()
+    only_done = (await client.get(CONVERSATIONS, params={"state": "done"})).json()
+
+    assert everything["ungroupedCount"] == 2
+    # 在跑的那段在合集里，「没归类」那一区因此空着，数字也是 0
+    assert only_running["collections"][0]["conversationCount"] == 1
+    assert [item["id"] for item in only_running["collections"][0]["page"]["items"]] == [
+        running["id"]
+    ]
+    assert (only_running["ungroupedCount"], only_running["ungrouped"]["items"]) == (0, [])
+    # 跑完那段没进合集
+    assert only_done["collections"][0]["conversationCount"] == 0
+    assert only_done["ungroupedCount"] == 1
+    assert [item["id"] for item in only_done["ungrouped"]["items"]] == [done["id"]]
+    assert only_done["ungrouped"]["items"][0]["activity"] == {
+        "busy": False,
+        "pendingInteraction": "none",
+        "lastTurnReason": "completed",
+    }
+
+    # 两个翻页端点同一个筛选
+    paged_done = await client.get(f"{CONVERSATIONS}/ungrouped", params={"state": "done"})
+    assert [item["id"] for item in paged_done.json()["items"]] == [done["id"]]
+    in_collection = await client.get(
+        f"{CONVERSATIONS}/by-collection/{collection_id}", params={"state": "done"}
+    )
+    assert in_collection.json()["items"] == []
 
 
 async def test_sidebar_only_shows_my_own(

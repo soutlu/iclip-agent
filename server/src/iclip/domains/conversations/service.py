@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 from iclip.common.errors import NotFound, PermissionDenied, ValidationFailed
 from iclip.domains.conversations.models import (
@@ -36,6 +37,9 @@ SIDEBAR_UNGROUPED = 20
 SIDEBAR_PER_COLLECTION = 10
 """每个合集里内嵌几段对话。再多要展开看，是另一次查询的事。"""
 
+ListState = Literal["all", "running", "done"]
+"""列表要哪一批：全部、正在跑的、已经跑完过的。从没跑过的对话只在 ``all`` 里。"""
+
 
 ActivitiesOf = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, ConversationActivity]]]
 """这批对话此刻各在忙什么。
@@ -43,8 +47,16 @@ ActivitiesOf = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, Conv
 **这一层不认识 agent 引擎。** 「在跑没跑、卡在等谁」是引擎那边的事，本模块只把它贴到自己的行
 上；接什么由组合根决定。
 
-要 await：这件事跨得过重启，所以答案不只在进程内存里——库里那条占着的 prompt 才是事实（在跑，
-或者停在审批上等人点头）。名单里没给到的按 ``IDLE_ACTIVITY`` 算。
+要 await：这件事的事实在引擎那侧的库表上。名单里没给到的按 ``IDLE_ACTIVITY`` 算。
+"""
+
+ConversationIdsByState = Callable[
+    [uuid.UUID, Literal["running", "done"]], Awaitable[frozenset[uuid.UUID]]
+]
+"""这个人名下在跑的、或者已经跑完过的对话有哪几段。列表的 ``state`` 筛选按它过滤。
+
+**这一层不认识 agent 引擎**，同 ``ActivitiesOf``。从没跑过的对话两边都不在返回里：它既不忙，
+也没有「最近一轮的结局」。
 """
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
@@ -204,9 +216,11 @@ class ConversationService:
         generate_title: GenerateTitle,
         announce_title: AnnounceTitle,
         activities_of: ActivitiesOf,
+        conversation_ids_by_state: ConversationIdsByState,
     ) -> None:
         self._repo = repo
         self._activities_of = activities_of
+        self._ids_by_state = conversation_ids_by_state
         self._purge_derived = purge_derived
         self._generate_title = generate_title
         self._announce_title = announce_title
@@ -310,19 +324,32 @@ class ConversationService:
             owner=principal.user_id, limit=limit, title_contains=keyword or None
         )
 
+    async def _only(self, principal: Principal, state: ListState) -> frozenset[uuid.UUID] | None:
+        """这次列表要限定在哪几段对话里；``all`` 不限定，给 ``None``。"""
+
+        if state == "all":
+            return None
+        return await self._ids_by_state(principal.user_id, state)
+
     async def sidebar(
-        self, principal: Principal
+        self, principal: Principal, *, state: ListState = "all"
     ) -> tuple[tuple[CollectionInfo, int, ConversationPage], ...]:
         """侧栏合集区：每个合集的元信息、里面一共几段，加第一页对话。
 
         空合集也留在结果里（配一页空的）——刚建的口袋要看得见，不然没法往里放东西。
+
+        ``state`` 筛在跑的 / 跑完过的，条数与第一页按同一个筛选算。
         """
 
         collections = await self._list_collections(principal.user_id)
+        only_ids = await self._only(principal, state)
+        if only_ids is not None and not only_ids:
+            return tuple((item, 0, _page((), limit=SIDEBAR_PER_COLLECTION)) for item in collections)
         found = await self._repo.list_by_collections(
             owner=principal.user_id,
             collection_ids=tuple(item.id for item in collections),
             per_collection=SIDEBAR_PER_COLLECTION,
+            only_ids=only_ids,
         )
         by_id = {group.collection_id: group for group in found}
         return tuple(
@@ -337,37 +364,55 @@ class ConversationService:
             for item in collections
         )
 
-    async def ungrouped_count(self, principal: Principal) -> int:
+    async def ungrouped_count(self, principal: Principal, *, state: ListState = "all") -> int:
         """侧栏「任务」区标题上那个数字：一共多少段没进合集的对话，不是这一页几条。"""
 
-        return await self._repo.count_ungrouped(owner=principal.user_id)
+        only_ids = await self._only(principal, state)
+        if only_ids is not None and not only_ids:
+            return 0
+        return await self._repo.count_ungrouped(owner=principal.user_id, only_ids=only_ids)
 
     async def ungrouped(
-        self, principal: Principal, *, cursor: str | None = None
+        self, principal: Principal, *, cursor: str | None = None, state: ListState = "all"
     ) -> ConversationPage:
         """侧栏「任务」区：自己没进任何合集的对话，最近活动的排前面。
 
         ``cursor`` 是上一页的 ``nextCursor``，往下滑加载更多时原样回传。
         """
 
+        only_ids = await self._only(principal, state)
+        if only_ids is not None and not only_ids:
+            return _page((), limit=SIDEBAR_UNGROUPED)
         items = await self._repo.list_ungrouped(
-            owner=principal.user_id, limit=SIDEBAR_UNGROUPED, after=_decode_cursor(cursor)
+            owner=principal.user_id,
+            limit=SIDEBAR_UNGROUPED,
+            after=_decode_cursor(cursor),
+            only_ids=only_ids,
         )
         return _page(items, limit=SIDEBAR_UNGROUPED)
 
     async def in_collection(
-        self, principal: Principal, collection_id: uuid.UUID, *, cursor: str | None = None
+        self,
+        principal: Principal,
+        collection_id: uuid.UUID,
+        *,
+        cursor: str | None = None,
+        state: ListState = "all",
     ) -> ConversationPage:
         """某个合集里的对话，翻页口径同上。
 
         不校验合集在不在：别人的合集与空合集都是空的一页（见 contract/conventions.md §6）。
         """
 
+        only_ids = await self._only(principal, state)
+        if only_ids is not None and not only_ids:
+            return _page((), limit=SIDEBAR_PER_COLLECTION)
         items = await self._repo.list_in_collection(
             owner=principal.user_id,
             collection_id=collection_id,
             limit=SIDEBAR_PER_COLLECTION,
             after=_decode_cursor(cursor),
+            only_ids=only_ids,
         )
         return _page(items, limit=SIDEBAR_PER_COLLECTION)
 
@@ -491,17 +536,6 @@ class ConversationService:
         conversation = await self._repo.get(_as_conversation_id(conversation_id), owner=owner)
         return conversation.agent_id
 
-    async def owner_of(self, conversation_id: uuid.UUID) -> uuid.UUID | None:
-        """这段对话归谁。没有这一行就给 ``None``。
-
-        没有 principal 这个参数：调用方是服务端自己（推送要按属主分发），不是谁的请求。
-        """
-
-        try:
-            return (await self._repo.get(conversation_id, owner=None)).owner_user_id
-        except NotFound:
-            return None
-
     async def title_of(self, principal: Principal, conversation_id: str) -> str:
         """这段对话叫什么；看不到的一律抛 ``NotFound``。
 
@@ -523,11 +557,13 @@ __all__ = [
     "SIDEBAR_UNGROUPED",
     "ActivitiesOf",
     "CollectionInfo",
+    "ConversationIdsByState",
     "ConversationService",
     "DerivedFile",
     "DerivedFileContent",
     "ListCollections",
     "ListDerivedFiles",
+    "ListState",
     "PurgeDerived",
     "ReadDerivedFile",
 ]

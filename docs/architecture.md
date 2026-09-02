@@ -162,7 +162,7 @@ Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与�
 
 - 运行驱动把此刻的 `all_messages()` 经官方 `StepStore` 协议的 `save_snapshot` 存成 `interrupted` 快照。官方 `StepPersistence` 这一刻不存（未闭合的工具调用过不了它那道门槛），文档写明由调用方持久化；写进同一张表，续跑那侧照旧用 `latest_conversation_snapshot(include_interrupted=True)` 读回来。
 - prompt 置内部状态 `awaiting` 并放掉租约；每处以 `running` 判「占着」的地方都把它算进去（含库上那道部分唯一索引），而心跳与清扫只看 `running`——等审批没有租约，不算中断。
-- 实时那一轮原样留着不交接：轮仍 `running`、审批卡仍待回应，「这段对话在忙什么」正是从这两样算出来的。
+- 实时那一轮原样留着不交接：轮仍 `running`、审批卡仍待回应。
 - 人点的头记在 `prompts.decisions`（`{toolCallId: 是否放行}`）上，同值重复提交照原样收下、改主意是 409。一次响应里全部审批都有决定之后 CAS `awaiting → running` 并起续跑 run，带 `deferred_tool_results` 且**不**走 `_close_out`——官方要求这时给出的结果覆盖前沿全部可执行调用，已经执行过的那几次它按末尾那条请求里的返回自动标成跳过。续跑画进同一轮，`attempt` 不加。
 - 等待期间插话回 409，新 prompt 排队；撤销把行标 `aborted`，运行驱动把实时那一轮收成取消（审批卡取消、没等到返回的工具卡收成错）再交接放手，随后队首顶上来。悬空的那次调用由下一条 prompt 起 run 时的 `_close_out` 收掉。
 
@@ -215,7 +215,7 @@ iclip.generation_jobs ◀────────────────┤    
 
 消息 id（`prompt_id`）由客户端铸，用来认领自己的乐观气泡；同一段对话里重发同一个不会多起一次运行。
 
-**一段对话「在忙什么」由两份事实合成**（定义见 CONTEXT.md「对话」）：库里那条占着的 prompt（`running` 或 `awaiting` 都是忙，`awaiting` 另带一件待人处理的审批），与实时状态算出来的那一份（它更细，提问也算待人处理），取更忙的那一边。只看实时状态不行——它是每 worker 一份的进程内存，重启之后是空的。推送那一帧仍由实时状态变化触发，帧本来就是易失的，重连后按列表重拉对齐。
+**一段对话「在忙什么」由 `agent_jobs` 表算**（定义见 CONTEXT.md「对话」）：占着的那条行给出 `busy` 与 `pending_interaction`，最近结束的那条行给出 `last_turn_reason`，哪一行算数的规则在 `JobQueue.activities`。帧在写入那一刻发。
 
 **运行记录（`agent_runtime.runs`）不加指向 `conversations` 的外键**，两边靠 `conversation_id` 字段对上，有索引。`agent_runtime.agent_job_runs` 同样不加外键，靠 `run_id` 与消息上盖的那个对上。
 

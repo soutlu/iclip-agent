@@ -257,6 +257,8 @@ export type {
   ReadConversationFileConversationsConversationIdWorkspaceFileGetResponse,
   ReadConversationFileConversationsConversationIdWorkspaceFileGetResponses,
   ReadSidebarConversationsGetData,
+  ReadSidebarConversationsGetError,
+  ReadSidebarConversationsGetErrors,
   ReadSidebarConversationsGetResponse,
   ReadSidebarConversationsGetResponses,
   RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostData,
