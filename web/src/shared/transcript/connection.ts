@@ -21,7 +21,7 @@
  * 掉线分两条路回来：`onclose` 走退避（照 kimi：`min(30s, 1s × 2ⁿ) + 抖动`），标签页重新
  * 露面走 `reconnect()` 立刻回来、不等退避——谁来触发后一条在 `transcript-provider` 里。
  *
- * **`session.meta.updated` 与 `session.activity.updated` 不按订阅分流**：它们是协议里的全局事件
+ * **`session.meta.updated` 与 `event.session.work_changed` 不按订阅分流**：它们是协议里的全局事件
  * （照 kimi），发给每一条连接。侧栏列着几十段对话却一段都没订，按订阅发的话它永远收不到改名与
  * 角标，所以这两帧另走 `watchSessions`。
  */
@@ -87,10 +87,12 @@ export interface TranscriptConnectionOptions {
  */
 const titleSchema = z.object({ session_id: z.string(), title: z.string() })
 
-const activitySchema = z.object({
-  session_id: z.string(),
+// `session_id` 不在这里：`event.session.work_changed` 把它放在信封上。
+// `last_turn_reason` 在忙的那几帧整个不出现（服务端 exclude_none），收场那帧才带。
+const workChangedSchema = z.object({
   busy: z.boolean(),
   pending_interaction: z.enum(['none', 'approval', 'question']),
+  last_turn_reason: z.enum(['completed', 'failed', 'aborted']).nullable().optional(),
 })
 
 /** 某段对话身上变了点什么。两种全局帧走同一条分发路径。
@@ -105,6 +107,8 @@ export type SessionUpdate =
       conversationId: string
       busy: boolean
       pendingInteraction: 'none' | 'approval' | 'question'
+      /** 最近一轮的结局；帧里没带（还在忙）就是 `null`。 */
+      lastTurnReason: 'completed' | 'failed' | 'aborted' | null
     }
   | { kind: 'reconnected' }
 
@@ -290,13 +294,15 @@ export class TranscriptConnection {
         })
         return
       }
-      case 'session.activity.updated': {
-        const parsed = activitySchema.safeParse(frame.payload)
+      case 'event.session.work_changed': {
+        if (typeof frame.session_id !== 'string') return
+        const parsed = workChangedSchema.safeParse(frame.payload)
         if (!parsed.success) return
         this.announce({
           busy: parsed.data.busy,
-          conversationId: parsed.data.session_id,
+          conversationId: frame.session_id,
           kind: 'activity',
+          lastTurnReason: parsed.data.last_turn_reason ?? null,
           pendingInteraction: parsed.data.pending_interaction,
         })
         return

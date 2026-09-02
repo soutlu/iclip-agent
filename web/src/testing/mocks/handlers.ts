@@ -49,7 +49,11 @@ export const resetMockSession = () => {
 
 // 对话的内存存储：形状即合同 ConversationOut。搜索按标题过滤，跟后端一样不分大小写。
 type MockConversation = {
-  activity: { busy: boolean; pendingInteraction: 'none' | 'approval' | 'question' }
+  activity: {
+    busy: boolean
+    lastTurnReason: 'completed' | 'failed' | 'aborted' | null
+    pendingInteraction: 'none' | 'approval' | 'question'
+  }
   agentId: string
   collectionId: string | null
   createdAt: string
@@ -72,8 +76,8 @@ export const mockConversations: MockConversation[] = []
  */
 export const addMockConversation = (title: string, updatedAt = new Date().toISOString()) => {
   const conversation: MockConversation = {
-    // 原型里没有真在跑的运行；要演转圈角标就把这一份改成 busy。
-    activity: { busy: false, pendingInteraction: 'none' },
+    // 原型里没有真在跑的运行；要演行尾状态就改这一份（busy 转圈、lastTurnReason 收场）。
+    activity: { busy: false, lastTurnReason: null, pendingInteraction: 'none' },
     agentId: 'storyboard',
     collectionId: null,
     createdAt: updatedAt,
@@ -138,6 +142,16 @@ const pageOf = (rows: MockConversation[], limit: number) => {
     items,
     nextCursor: items.length === limit && last ? `${last.updatedAt}|${last.id}` : null,
   }
+}
+
+/**
+ * 列表筛选，口径同后端：`running` 是有轮次在跑（含等审批），`done` 是没在跑而且跑完过至少
+ * 一轮；从没跑过的只在 `all` 里。两个数字按同一筛选算。
+ */
+const inState = (item: MockConversation, state: string | null) => {
+  if (state === 'running') return item.activity.busy
+  if (state === 'done') return !item.activity.busy && item.activity.lastTurnReason !== null
+  return true
 }
 
 /** 按翻页位置切掉上一页给过的那些。 */
@@ -230,8 +244,9 @@ export const handlers = [
 
   // GET /conversations：侧栏拓扑——我的合集（各带总数与第一页）+ 没归类的第一页。
   // 翻页位置照后端来：`updatedAt|id`，前端只当不透明字符串回传。
-  http.get('*/api/conversations', () => {
-    const sorted = [...mockConversations].sort(byRecent)
+  http.get('*/api/conversations', ({ request }) => {
+    const state = new URL(request.url).searchParams.get('state')
+    const sorted = [...mockConversations].sort(byRecent).filter((item) => inState(item, state))
     const ungrouped = sorted.filter((item) => item.collectionId === null)
     return HttpResponse.json({
       collections: [...mockCollections]
@@ -261,17 +276,21 @@ export const handlers = [
 
   // GET /conversations/ungrouped、/by-collection/:id：往下滑加载更多。
   http.get('*/api/conversations/ungrouped', ({ request }) => {
-    const cursor = new URL(request.url).searchParams.get('cursor')
-    const rows = [...mockConversations].sort(byRecent).filter((item) => item.collectionId === null)
-    return HttpResponse.json(pageOf(after(rows, cursor), SIDEBAR_UNGROUPED))
+    const query = new URL(request.url).searchParams
+    const rows = [...mockConversations]
+      .sort(byRecent)
+      .filter((item) => item.collectionId === null && inState(item, query.get('state')))
+    return HttpResponse.json(pageOf(after(rows, query.get('cursor')), SIDEBAR_UNGROUPED))
   }),
 
   http.get('*/api/conversations/by-collection/:collectionId', ({ params, request }) => {
-    const cursor = new URL(request.url).searchParams.get('cursor')
+    const query = new URL(request.url).searchParams
     const rows = [...mockConversations]
       .sort(byRecent)
-      .filter((item) => item.collectionId === params['collectionId'])
-    return HttpResponse.json(pageOf(after(rows, cursor), SIDEBAR_PER_COLLECTION))
+      .filter(
+        (item) => item.collectionId === params['collectionId'] && inState(item, query.get('state')),
+      )
+    return HttpResponse.json(pageOf(after(rows, query.get('cursor')), SIDEBAR_PER_COLLECTION))
   }),
 
   // PUT /conversations/:id/collection、PUT /conversations/:id/task：两处归属各一个端点。

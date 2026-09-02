@@ -29,11 +29,17 @@ const conversationEnvelopeSchema = zConversationEnvelope.transform(
 // 一屏放得下的命中数；再多就该换更准的词，而不是往下翻
 const SEARCH_LIMIT = 50
 
+/** 列表要哪一段：全部、有轮次在跑的、跑完过至少一轮的。从没发过消息的只在 `all` 里。 */
+export type ConversationListState = 'all' | 'running' | 'done'
+
 export const conversationsQueryKeys = {
   all: ['conversations'] as const,
-  more: (bucket: string, cursor: string) => ['conversations', 'more', bucket, cursor] as const,
+  more: (bucket: string, cursor: string, state: ConversationListState) =>
+    ['conversations', 'more', bucket, cursor, state] as const,
   search: (keyword: string) => ['conversations', 'search', keyword] as const,
-  sidebar: () => ['conversations', 'sidebar'] as const,
+  /** 不给 `state` 就是三段筛选的公共前缀：重拉列表的人不必知道当前筛的是哪一段。 */
+  sidebar: (state?: ConversationListState): readonly string[] =>
+    state === undefined ? ['conversations', 'sidebar'] : ['conversations', 'sidebar', state],
 }
 
 /** 按标题搜自己的对话，最近活动的排前面。筛选在服务端做，搜得到全部历史而不只是最近几十段。 */
@@ -51,17 +57,18 @@ export const searchConversations = async (keyword: string): Promise<Conversation
  * 库的两个时刻。
  *
  * @param enabled - 未登录时不发请求（侧栏那一区会退成登录入口）。
+ * @param state - 要哪一段；两个数字（`ungroupedCount` 与各合集的 `conversationCount`）按同一筛选算。
  * @returns TanStack query。
  */
-export const useSidebarTopology = (enabled: boolean) =>
+export const useSidebarTopology = (enabled: boolean, state: ConversationListState) =>
   useQuery({
     enabled,
     queryFn: () =>
-      apiFetch('/conversations', zSidebarOut, {
+      apiFetch(`/conversations?state=${state}`, zSidebarOut, {
         cache: 'no-store',
         fallbackErrorMessage: '读取对话列表失败',
       }),
-    queryKey: conversationsQueryKeys.sidebar(),
+    queryKey: conversationsQueryKeys.sidebar(state),
   })
 
 /**
@@ -71,21 +78,21 @@ export const useSidebarTopology = (enabled: boolean) =>
  * 重新请求，展开三页就是三个请求。这里 `enabled: false`，只有点「展开显示」才动；侧栏
  * 一失效，调用方把这些页整个丢掉，列表收回第一页。
  *
- * @param bucket - 哪一段列表：不给 collectionId 就是「任务」区。
+ * @param bucket - 哪一段列表：不给 collectionId 就是「任务」区；`state` 与拓扑那一页同一档筛选。
  * @param cursor - 拓扑给的 `nextCursor`；为空表示本来就没有更多。
  * @returns TanStack 分页查询。
  */
 export const useMoreConversations = (
-  { collectionId }: { collectionId?: string | undefined },
+  { collectionId, state }: { collectionId?: string | undefined; state: ConversationListState },
   cursor: string | null,
 ) => {
   return useInfiniteQuery({
-    queryKey: conversationsQueryKeys.more(collectionId ?? 'ungrouped', cursor ?? ''),
+    queryKey: conversationsQueryKeys.more(collectionId ?? 'ungrouped', cursor ?? '', state),
     queryFn: ({ pageParam }) =>
       apiFetch(
         `${
           collectionId ? `/conversations/by-collection/${collectionId}` : '/conversations/ungrouped'
-        }?cursor=${encodeURIComponent(pageParam)}`,
+        }?cursor=${encodeURIComponent(pageParam)}&state=${state}`,
         zConversationPageOut,
         { cache: 'no-store', fallbackErrorMessage: '加载更多对话失败' },
       ),

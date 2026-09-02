@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { useSessionUpdates } from '@/shared/transcript/use-session-updates'
+import { useSessionTitles } from '@/shared/transcript/use-session-titles'
 import { useTranscript } from '@/shared/transcript/use-transcript'
 import type { TranscriptAttachment, TranscriptTurn } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
@@ -85,7 +85,7 @@ const optimisticAttachments = (
  */
 export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
-  const { titleOf } = useSessionUpdates()
+  const { titleOf } = useSessionTitles()
   const title = titleOf(conversationId) ?? view.title
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
   const [inFlightPromptId, setInFlightPromptId] = useState<string | null>(null)

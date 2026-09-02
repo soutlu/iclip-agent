@@ -2,7 +2,7 @@ import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor } from
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import {
   CollectionDeleteDialog,
   CollectionFormDialog,
@@ -12,18 +12,19 @@ import {
   ConversationMembershipDialog,
   conversationsQueryKeys,
   useDeleteConversation,
+  useLiveConversations,
   useMoreConversations,
   useRenameConversation,
   useSetConversationMembership,
   useSidebarTopology,
   type Conversation,
+  type ConversationListState,
   type ConversationPage,
   type SidebarCollection,
 } from '@/features/conversations'
 import { useTaskOptions } from '@/features/tasks'
 import { Icon, type IconName } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
-import { useSessionUpdates, type SessionUpdates } from '@/shared/transcript/use-session-updates'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
@@ -62,7 +63,10 @@ const UNGROUPED = 'ungrouped'
  */
 export function SidebarConversations() {
   const queryClient = useQueryClient()
-  const topology = useSidebarTopology(true)
+  const [state, setState] = useState<ConversationListState>('all')
+  const topology = useSidebarTopology(true, state)
+  // 全局帧就地改缓存里那一行，行只读自己身上的字段
+  useLiveConversations()
   const [shownCollections, setShownCollections] = useState(COLLECTIONS_PER_STEP)
   const [dragging, setDragging] = useState<string | null>(null)
 
@@ -83,17 +87,12 @@ export function SidebarConversations() {
   const collections = useCollections(membership.open)
   const tasks = useTaskOptions(membership.open)
 
-  // useCallback 不是为了省渲染：重连重拉那条订阅挂在这个引用上（见 useSessionUpdates）。
-  const refreshSidebar = useCallback(() => {
+  const refreshSidebar = () => {
     // 「展开显示」取回来的那些页整个丢掉：列表收回第一页，拓扑重拉一次即可，
     // 不必把每一页都重新请求一遍。
     queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
     void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
-  }, [queryClient])
-
-  // 全局帧是易失的：断线期间的改名与状态变化谁也补不回来，所以重连之后重拉一次列表——
-  // 行上带着同一份事实，这一拉就把两边对齐了。
-  const live = useSessionUpdates(refreshSidebar)
+  }
 
   const moveMutation = useSetConversationMembership(refreshSidebar)
   // 距离阈值让「点一下」还是点击，不会被当成拖拽起手
@@ -136,6 +135,12 @@ export function SidebarConversations() {
   const allCollections: readonly SidebarCollection[] = topology.data?.collections ?? []
   const visibleCollections = allCollections.slice(0, shownCollections)
 
+  // 「进行中」那个 chip 上的圆点：这一段里有需要留意的会话就点亮（照 kimi）。只看拓扑这一份，
+  // 「展开显示」取回的那些页在各自的子组件里。
+  const anyBusy =
+    (topology.data?.ungrouped.items ?? []).some((one) => one.activity.busy) ||
+    allCollections.some((one) => one.page.items.some((row) => row.activity.busy))
+
   return (
     <DndContext
       onDragEnd={onDragEnd}
@@ -143,24 +148,28 @@ export function SidebarConversations() {
       sensors={[pointer]}
     >
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 pt-3 ui-state-subtle">
-        <ChipGroup aria-label="对话筛选" onValueChange={() => undefined} type="single" value="all">
+        <ChipGroup
+          aria-label="对话筛选"
+          // 再点一下当前那片，radix 会给空串——那是「取消选中」，这里没有这一档，忽略
+          onValueChange={(value) => value && setState(value as ConversationListState)}
+          type="single"
+          value={state}
+        >
           <FilterChip value="all">全部</FilterChip>
-          {/* 后端还没有「这段对话跑到哪一步」这个字段，两个占位先摆着点不动 */}
-          <FilterChip disabled value="running">
+          <FilterChip value="running">
             进行中
+            {anyBusy && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />}
           </FilterChip>
-          <FilterChip disabled value="done">
-            已完成
-          </FilterChip>
+          <FilterChip value="done">已完成</FilterChip>
         </ChipGroup>
 
         <UngroupedSection
           count={topology.data?.ungroupedCount ?? 0}
           dragging={dragging}
-          live={live}
           onChanged={refreshSidebar}
           onOpenMembership={(conversation) => setMembership({ conversation, open: true })}
           page={topology.data?.ungrouped ?? { items: [], nextCursor: null }}
+          state={state}
         />
 
         <SidebarSection
@@ -177,7 +186,6 @@ export function SidebarConversations() {
               key={collection.id}
               collection={collection}
               dragging={dragging}
-              live={live}
               onChanged={refreshSidebar}
               onDelete={() =>
                 setCollectionDelete({
@@ -192,6 +200,7 @@ export function SidebarConversations() {
                   open: true,
                 })
               }
+              state={state}
             />
           ))}
           {allCollections.length === 0 && <EmptyHint>还没有合集</EmptyHint>}
@@ -234,26 +243,26 @@ export function SidebarConversations() {
 /**
  * 「任务」区：没进任何合集的对话，也是「把对话拖出合集」的落点。
  *
- * @param props - 总条数、第一页、拖拽中的对话 id、行内容变更后的刷新回调与打开归属弹窗的回调。
+ * @param props - 总条数、第一页、当前筛选、拖拽中的对话 id、行内容变更后的刷新回调与打开归属弹窗的回调。
  * @returns 任务分区。
  */
 function UngroupedSection({
   count,
   dragging,
-  live,
   onChanged,
   onOpenMembership,
   page,
+  state,
 }: {
   count: number
   dragging: string | null
-  live: SessionUpdates
   onChanged: () => void
   onOpenMembership: (conversation: Conversation) => void
   page: ConversationPage
+  state: ConversationListState
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED })
-  const more = useMoreConversations({}, page.nextCursor)
+  const more = useMoreConversations({ state }, page.nextCursor)
   const items = [...page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
   const hasMore = more.data ? more.hasNextPage : Boolean(page.nextCursor)
 
@@ -265,9 +274,7 @@ function UngroupedSection({
           {items.map((conversation) => (
             <ConversationRow
               key={conversation.id}
-              busy={(live.activityOf(conversation.id) ?? conversation.activity).busy}
               conversation={conversation}
-              displayTitle={live.titleOf(conversation.id) ?? conversation.title}
               dragging={dragging === conversation.id}
               onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
@@ -377,32 +384,35 @@ function ExpandRow({
 type CollectionGroupProps = {
   collection: SidebarCollection
   dragging: string | null
-  live: SessionUpdates
   onChanged: () => void
   onDelete: () => void
   onOpenMembership: (conversation: Conversation) => void
   onRename: () => void
+  state: ConversationListState
 }
 
 /**
  * 合集行：文件夹图标 + 名字 + 总条数，展开后是它里面的对话；行尾菜单管改名与删除。
  * 整行也是拖拽落点——把对话拖上来就进这个合集。
  *
- * @param props - 合集、拖拽中的对话 id、改名/删除入口与打开归属弹窗的回调。
+ * @param props - 合集、当前筛选、拖拽中的对话 id、改名/删除入口与打开归属弹窗的回调。
  * @returns 一个合集分组。
  */
 function CollectionGroup({
   collection,
   dragging,
-  live,
   onChanged,
   onDelete,
   onOpenMembership,
   onRename,
+  state,
 }: CollectionGroupProps) {
   const [open, setOpen] = useState(false)
   const { isOver, setNodeRef } = useDroppable({ id: collection.id })
-  const more = useMoreConversations({ collectionId: collection.id }, collection.page.nextCursor)
+  const more = useMoreConversations(
+    { collectionId: collection.id, state },
+    collection.page.nextCursor,
+  )
   const items = [...collection.page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
   const hasMore = more.data ? more.hasNextPage : Boolean(collection.page.nextCursor)
 
@@ -451,9 +461,7 @@ function CollectionGroup({
           {items.map((conversation) => (
             <ConversationRow
               key={conversation.id}
-              busy={(live.activityOf(conversation.id) ?? conversation.activity).busy}
               conversation={conversation}
-              displayTitle={live.titleOf(conversation.id) ?? conversation.title}
               dragging={dragging === conversation.id}
               onChanged={onChanged}
               onOpenMembership={() => onOpenMembership(conversation)}
@@ -473,10 +481,40 @@ function CollectionGroup({
   )
 }
 
+type RowStatus = 'approval' | 'question' | 'running' | 'failed' | 'idle'
+
+/**
+ * 行尾画哪一种状态，只看这一行身上的活儿。优先级照 kimi 写死：
+ * 等审批 > 等回答 > 在跑 > 上次失败 > 空闲。
+ *
+ * @param activity - 列表行上的 `activity`，帧到了就地改过。
+ * @returns 该画哪一种。
+ */
+const rowStatus = (activity: Conversation['activity']): RowStatus => {
+  if (activity.pendingInteraction === 'approval') return 'approval'
+  if (activity.pendingInteraction === 'question') return 'question'
+  if (activity.busy) return 'running'
+  if (activity.lastTurnReason === 'failed') return 'failed'
+  return 'idle'
+}
+
+// 每种状态画成什么（design-system.html 结构模板里侧栏那一条）。`idle` 不在表里：什么都不画。
+const ROW_STATUS_MARK: Record<
+  Exclude<RowStatus, 'idle'>,
+  { className: string; label: string; name: IconName }
+> = {
+  approval: { className: 'text-warning', label: '等待审批', name: 'warning' },
+  failed: { className: 'text-chat-status-error', label: '上次失败', name: 'failed' },
+  question: { className: 'text-warning', label: '等待回答', name: 'warning' },
+  running: { className: 'animate-spin text-primary', label: '进行中', name: 'loading' },
+}
+
 /**
  * 对话行：截断标题在左，右侧是相对时间；hover / 键盘聚焦时时间让位给更多菜单。
  * 整行可拖。重命名是行内编辑：菜单里选「重命名」后标题换成输入框，
  * Enter / 失焦提交，Esc 取消。
+ *
+ * 名字与活儿都读这一行自己身上的字段——推送已经把缓存里那一行改过了。
  *
  * @param props - 对话、是否正被拖着、行内容变更后的刷新回调与打开归属弹窗的回调。
  * @returns 单个对话行。
@@ -485,18 +523,12 @@ function ConversationRow({
   conversation,
   dragging,
   onChanged,
-  busy,
-  displayTitle,
   onOpenMembership,
 }: {
   conversation: Conversation
   dragging: boolean
   onChanged: () => void
   onOpenMembership: () => void
-  /** 这一行现在显示的名字：服务端起过名或者刚被改名，就是新的那个。 */
-  displayTitle: string
-  /** 这段对话有没有在跑。行尾据此转圈（design-system.html 结构模板里的侧栏那一条）。 */
-  busy: boolean
 }) {
   const { listeners, setNodeRef, transform } = useDraggable({
     data: { collectionId: conversation.collectionId },
@@ -507,12 +539,14 @@ function ConversationRow({
   const [editing, setEditing] = useState(false)
   const rename = useRenameConversation(onChanged)
   const remove = useDeleteConversation(onChanged)
+  const status = rowStatus(conversation.activity)
+  const mark = status === 'idle' ? undefined : ROW_STATUS_MARK[status]
 
   // 空标题或没变化都不发请求，静默退回原标题
   const commitRename = (value: string) => {
     setEditing(false)
     const title = value.trim()
-    if (title && title !== displayTitle) {
+    if (title && title !== conversation.title) {
       rename.mutate(
         { conversationId: conversation.id, title },
         { onError: (error) => toast.error(error.message) },
@@ -537,14 +571,14 @@ function ConversationRow({
     >
       {editing ? (
         <input
-          aria-label={`重命名 ${displayTitle}`}
+          aria-label={`重命名 ${conversation.title}`}
           className="min-w-0 flex-1 rounded-xs bg-surface-container-lowest px-1 text-body text-on-surface ui-focus-inline"
-          defaultValue={displayTitle}
+          defaultValue={conversation.title}
           onBlur={(event) => commitRename(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
             if (event.key === 'Escape') {
-              event.currentTarget.value = displayTitle
+              event.currentTarget.value = conversation.title
               event.currentTarget.blur()
             }
           }}
@@ -558,15 +592,15 @@ function ConversationRow({
           params={{ conversationId: conversation.id }}
           to="/c/$conversationId"
         >
-          <span className="min-w-0 flex-1 truncate text-left">{displayTitle}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
         </Link>
       )}
-      {/* 在跑就转圈。它一直露着（不像时间那样 hover 时让位）——正在跑是这一行此刻最要紧的事。 */}
-      {busy && (
+      {/* 状态标识一直露着（不像时间那样 hover 时让位）——它是这一行此刻最要紧的事。 */}
+      {mark && (
         <Icon
-          className="shrink-0 animate-spin text-primary"
-          label="进行中"
-          name="loading"
+          className={cn('shrink-0', mark.className)}
+          label={mark.label}
+          name={mark.name}
           size="xs"
         />
       )}
@@ -584,7 +618,7 @@ function ConversationRow({
         <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
           <MenuRoot>
             <MenuTrigger asChild>
-              <IconButton label={`${displayTitle} 的更多操作`} name="more" size="xs" />
+              <IconButton label={`${conversation.title} 的更多操作`} name="more" size="xs" />
             </MenuTrigger>
             <MenuSurface align="start">
               <MenuItem icon="edit" onSelect={() => setEditing(true)}>

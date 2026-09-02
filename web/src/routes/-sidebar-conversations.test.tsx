@@ -18,6 +18,20 @@ const seedConversations = (count: number, collectionId: string | null = null) =>
     return conversation
   })
 
+/** 一帧 `event.session.work_changed`：`session_id` 在信封上，忙的那几帧不带 last_turn_reason。 */
+const workChanged = (
+  conversationId: string,
+  payload: {
+    busy: boolean
+    last_turn_reason?: 'completed' | 'failed' | 'aborted'
+    pending_interaction?: 'none' | 'approval' | 'question'
+  },
+) => ({
+  type: 'event.session.work_changed',
+  session_id: conversationId,
+  payload: { pending_interaction: 'none', ...payload },
+})
+
 const render = async () => {
   server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
   const user = userEvent.setup()
@@ -26,12 +40,35 @@ const render = async () => {
 }
 
 describe('SidebarConversations', () => {
-  it('筛选 chip：全部选中，另外两个后端还没有字段，先摆着点不动', async () => {
-    await render()
+  it('筛选片接线到服务端：进行中只剩在跑的，已完成只剩跑完的', async () => {
+    addMockConversation('还没跑过', new Date(Date.UTC(2026, 7, 29, 0, 0)).toISOString())
+    const running = addMockConversation('在跑', new Date(Date.UTC(2026, 7, 29, 0, 1)).toISOString())
+    const done = addMockConversation('跑完了', new Date(Date.UTC(2026, 7, 29, 0, 2)).toISOString())
+    running.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'none' }
+    done.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
+    // 只旁听请求：筛选是服务端做的，这里看它有没有把那一档带过去
+    const listed: string[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (request.url.includes('/api/conversations?')) listed.push(request.url)
+    })
+    const { user } = await render()
 
-    expect(await screen.findByRole('radio', { name: '全部' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '进行中' })).toBeDisabled()
-    expect(screen.getByRole('radio', { name: '已完成' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: '任务 (3)' })).toBeVisible()
+
+    await user.click(screen.getByRole('radio', { name: '进行中' }))
+
+    expect(await screen.findByRole('link', { name: '在跑' })).toBeVisible()
+    // 标题上那个数字是这一档筛选下的总数
+    expect(await screen.findByRole('button', { name: '任务 (1)' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '跑完了' })).not.toBeInTheDocument()
+    expect(listed.at(-1)).toContain('state=running')
+
+    await user.click(screen.getByRole('radio', { name: '已完成' }))
+
+    expect(await screen.findByRole('link', { name: '跑完了' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '在跑' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '还没跑过' })).not.toBeInTheDocument()
+    expect(listed.at(-1)).toContain('state=done')
   })
 
   it('任务区：第一页 20 条，点「展开显示」把剩下的接上来', async () => {
@@ -131,15 +168,59 @@ describe('SidebarConversations', () => {
     // 首屏那一份来自列表行（mock 里是不忙），所以一开始没有转圈。
     expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
 
-    const activity = (busy: boolean) => ({
-      type: 'session.activity.updated',
-      payload: { session_id: conversation?.id ?? '', busy, pending_interaction: 'none' },
-    })
-
-    socket.deliver(activity(true))
+    socket.deliver(workChanged(conversation?.id ?? '', { busy: true }))
     expect(await screen.findByLabelText('进行中')).toBeVisible()
 
-    socket.deliver(activity(false))
+    socket.deliver(workChanged(conversation?.id ?? '', { busy: false }))
     await waitFor(() => expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument())
+  })
+
+  it('行尾状态跟着帧上的活儿换：等审批、上次失败，跑完了什么都不画', async () => {
+    const [conversation] = seedConversations(1)
+    const id = conversation?.id ?? ''
+    const { socket } = await render()
+    await screen.findByText('第0段')
+
+    socket.deliver(workChanged(id, { busy: true, pending_interaction: 'approval' }))
+    expect(await screen.findByLabelText('等待审批')).toBeVisible()
+    // 等审批盖过在跑：那一轮并没有结束，但要紧的是等人点头
+    expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
+
+    socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'failed' }))
+    expect(await screen.findByLabelText('上次失败')).toBeVisible()
+
+    socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
+    await waitFor(() => expect(screen.queryByLabelText('上次失败')).not.toBeInTheDocument())
+    expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
+  })
+
+  it('「展开显示」接上来的那一行收到帧也跟着转圈', async () => {
+    const rows = seedConversations(21)
+    const { socket, user } = await render()
+
+    await user.click(await screen.findByRole('button', { name: '展开显示更多对话' }))
+    await waitFor(() => expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(21))
+
+    // 第0段最旧，落在展开取回来的那一页里
+    socket.deliver(workChanged(rows[0]?.id ?? '', { busy: true }))
+
+    expect(await screen.findByLabelText('进行中')).toBeVisible()
+  })
+
+  it('筛「进行中」时一段对话收场，重拉之后它不在这一档里了', async () => {
+    const conversation = addMockConversation('在跑')
+    conversation.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'none' }
+    const { socket, user } = await render()
+
+    await user.click(await screen.findByRole('radio', { name: '进行中' }))
+    expect(await screen.findByRole('link', { name: '在跑' })).toBeVisible()
+
+    // 帧只改这一行身上的字段，还进不进这一档筛选得问服务端
+    conversation.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
+    socket.deliver(workChanged(conversation.id, { busy: false, last_turn_reason: 'completed' }))
+
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: '在跑' })).not.toBeInTheDocument(),
+    )
   })
 })
