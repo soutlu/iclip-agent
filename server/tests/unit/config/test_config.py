@@ -115,6 +115,14 @@ def test_lease_must_outlast_a_heartbeat(tmp_path: Path) -> None:
         load_runtime_config(write(tmp_path, bad))
 
 
+def test_a_prompt_must_be_claimable_at_least_once(tmp_path: Path) -> None:
+    """``max_attempts`` 至少是 1：一次都不许认领的话，收下的消息没人会去跑。"""
+
+    bad = VALID + "\nagent_runs: {max_attempts: 0}\n"
+    with pytest.raises(ValidationError, match="max_attempts"):
+        load_runtime_config(write(tmp_path, bad))
+
+
 def test_cors_wildcard_rejected(tmp_path: Path) -> None:
     bad = VALID.replace("security: {}", 'security: {cors_allow_origins: ["*"]}')
     with pytest.raises(ValidationError):

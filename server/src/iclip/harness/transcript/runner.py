@@ -53,21 +53,32 @@ from iclip.harness.transcript.from_messages import (
     turn_run_ids,
     unanswered_tool_calls,
 )
+from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.prompt_media import attachments_of, model_prompt
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
     AttachmentUpsertOp,
+    EmittableOperation,
+    FrameUpsertOp,
     Interaction,
     InteractionUpsertOp,
     MetaMergeOp,
     PromptUpsertOp,
+    StepHeader,
+    StepUpsertOp,
     TranscriptMeta,
+    TranscriptTurn,
+    TurnHeader,
+    TurnUpsertOp,
     agent_context_status,
 )
 
 _logger = logging.getLogger(__name__)
+
+CONTINUATION_PROMPT = "系统提示：运行曾被中断，现从最近一次落库的进度继续。已完成的步骤不要重做；标记为中断的工具调用，先核对其产出是否已经存在再决定是否重试。"
+"""续跑那次 run 的触发语。进模型上下文，也在 transcript 里显示为 ``role: user`` 的文字帧。"""
 
 DepsFor = Callable[[PromptRow], Awaitable[Any]]
 
@@ -121,6 +132,34 @@ def _close_out(history: Sequence[ModelMessage]) -> DeferredToolResults | None:
     return DeferredToolResults(
         calls={item: ToolFailed(INTERRUPTED_TOOL_RETURN_CONTENT) for item in pending}
     )
+
+
+def _seed_ops(turn: TranscriptTurn) -> tuple[EmittableOperation, ...]:
+    """把历史推出来的这一轮原样写进实时状态：轮头部、每一步、每一块。
+
+    顺序不能改：实时状态落地时步要挂在已有的轮上、块要挂在已有的步上，反了直接抛 ``KeyError``，
+    整批操作连带轮头部一起丢掉。
+    """
+
+    ops: list[EmittableOperation] = [
+        TurnUpsertOp(
+            turn=TurnHeader.model_validate(
+                turn.model_dump(exclude={"steps"}) | {"state": "running"}
+            )
+        )
+    ]
+    for index, step in enumerate(turn.steps):
+        header = StepHeader.model_validate(step.model_dump(exclude={"frames"}))
+        if index == len(turn.steps) - 1:
+            # 老 run 停在这一步。历史那侧要等续跑的消息落库才看得出这件事（见 ``from_messages``
+            # 里的 ``broke_off``），这侧现在就知道，不标的话刷新时这一步会从「完成」翻成「中断」。
+            header = header.model_copy(update={"state": "interrupted"})
+        ops.append(StepUpsertOp(turn_id=turn.turn_id, step=header))
+        ops.extend(
+            FrameUpsertOp(turn_id=turn.turn_id, step_id=step.step_id, frame=frame)
+            for frame in step.frames
+        )
+    return tuple(ops)
 
 
 @dataclass
@@ -215,11 +254,13 @@ class ConversationRunner:
         store: TranscriptStore,
         queue: PromptQueue,
         snapshots: ConversationSnapshots,
+        history: TranscriptHistory,
         deps_for: DepsFor,
         context_limits: Mapping[str, int],
         heartbeat_seconds: int,
         lease_seconds: int,
         sweep_seconds: int,
+        max_attempts: int,
         locked_by: str | None = None,
         on_turn_ended: TurnEnded | None = None,
     ) -> None:
@@ -227,11 +268,15 @@ class ConversationRunner:
         self._store = store
         self._queue = queue
         self._snapshots = snapshots
+        # 收的是那个类而不是一个窄协议：只要 read 的协议照样得从 history 模块取回它的返回类型，
+        # 模块依赖躲不掉，而那个类本身已经是两口存储之上的一层薄壳，没有别的依赖可挡。
+        self._history = history
         self._deps_for = deps_for
         self._context_limits = context_limits
         self._heartbeat_seconds = heartbeat_seconds
         self._lease_seconds = lease_seconds
         self._sweep_seconds = sweep_seconds
+        self._max_attempts = max_attempts
         # 这个进程的租约主人。收下 prompt 的那一侧也要拿它写行，所以公开。
         self.locked_by = locked_by or uuid.uuid4().hex
         self._on_turn_ended = on_turn_ended
@@ -276,13 +321,15 @@ class ConversationRunner:
             active.token.cancel()
 
     async def sweep_once(self) -> None:
-        """收拾失联进程留下的行，再把没人管的队列叫醒。
+        """收拾中断的行：认领次数用完的判失败，还有机会的认领下来续跑，再把没人管的队列叫醒。
 
-        关停途中不叫醒队列：叫上来的那条只会立刻被取消，反而给用户留一条从没跑过、却记着
-        「撤销了」的消息。
+        关停途中只做判失败那一步：认领与叫醒都会起新运行，而它只会立刻被取消，反而给用户留一条
+        从没跑过、却记着「撤销了」的消息。
         """
 
-        for row in await self._queue.expire_leases(lease_seconds=self._lease_seconds):
+        for row in await self._queue.fail_exhausted(
+            lease_seconds=self._lease_seconds, max_attempts=self._max_attempts
+        ):
             self._publish(row)
             if row.run_id is None:
                 continue
@@ -290,6 +337,13 @@ class ConversationRunner:
                 self._publish(child)
         if self._closing:
             return
+        for row in await self._queue.claim_interrupted(
+            locked_by=self.locked_by,
+            lease_seconds=self._lease_seconds,
+            max_attempts=self._max_attempts,
+        ):
+            self._publish(row)
+            self._spawn(row)
         for conversation_id in await self._queue.conversations_waiting():
             row = await self._queue.start_next(conversation_id, locked_by=self.locked_by)
             if row is not None:
@@ -299,7 +353,8 @@ class ConversationRunner:
     async def _loop(self, seconds: int, once: Callable[[], Awaitable[None]]) -> None:
         """每隔 ``seconds`` 秒做一次那件事，出错只记一笔接着转。
 
-        循环停了就等于自己的租约停了续，手上在跑的那些会被别人判失败。
+        循环停了就等于自己的租约停了续，手上在跑的那些会被别人接管：认领次数还有剩的被别人续跑，
+        用完的判失败。
         """
 
         while True:
@@ -460,24 +515,49 @@ class ConversationRunner:
         finally:
             active = self._active.pop(row.conversation_id, None)
             self._store.unpin(row.conversation_id)
-            await self._settle(active, status=status)
-            await self._queue.finish(
-                row.prompt_id, status=status, now=_now(), locked_by=self.locked_by
-            )
-            settled = await self._queue.get(row.prompt_id)
-            if settled is not None:
-                self._publish(settled)
-            # 关停途中不再往下接：接了也只会立刻被取消，反而给用户留一条从没跑过、却记着
-            # 「撤销了」的消息。排着的那些原样留在库里，由清扫叫醒。
-            if not self._closing:
-                following = await self._queue.start_next(
-                    row.conversation_id, locked_by=self.locked_by
+            # 关停时被取消收场的那一轮不给结局，放掉租约等人接着跑。用户按的停止走的也是取消，
+            # 与关停撞在一起时这条会跟着被续跑一次。
+            if self._closing and status == "aborted":
+                await self._release(row, active)
+            else:
+                await self._settle(active, status=status)
+                await self._queue.finish(
+                    row.prompt_id, status=status, now=_now(), locked_by=self.locked_by
                 )
-                if following is not None:
-                    self._publish(following)
-                    self._spawn(following)
-            # 放在接下一条之后：起名字要等一次模型调用，排在前面的话队列里那条就得干等它。
-            await self._after_turn(row)
+                settled = await self._queue.get(row.prompt_id)
+                if settled is not None:
+                    self._publish(settled)
+                # 关停途中不再往下接：接了也只会立刻被取消，反而给用户留一条从没跑过、却记着
+                # 「撤销了」的消息。排着的那些原样留在库里，由清扫叫醒。
+                if not self._closing:
+                    following = await self._queue.start_next(
+                        row.conversation_id, locked_by=self.locked_by
+                    )
+                    if following is not None:
+                        self._publish(following)
+                        self._spawn(following)
+                # 放在接下一条之后：起名字要等一次模型调用，排在前面的话队列里那条就得干等它。
+                await self._after_turn(row)
+
+    async def _release(self, row: PromptRow, active: _Active | None) -> None:
+        """关停时放掉这一轮：行留在 ``running``，由清扫重新认领、从最新快照续跑。
+
+        不给结局也不撤销——进度已经由官方快照落库了，下一条命接着往下跑。没被这次 run 读到的
+        追加退回队列，读到的留在 ``steered``：续跑那次 run 会认走它们（``adopt_steered``），结局
+        跟着续跑那一次。
+        """
+
+        if active is not None:
+            stranded = active.handle.undelivered(active.steered)
+            if stranded:
+                _logger.info("这几条追加没赶上这一轮，退回队列：%s", stranded)
+                await self._revert(tuple(active.steered[item] for item in stranded))
+        await self._queue.release(
+            row.prompt_id, locked_by=self.locked_by, reason="服务关停，等待续跑"
+        )
+        released = await self._queue.get(row.prompt_id)
+        if released is not None:
+            self._publish(released)
 
     async def _after_turn(self, row: PromptRow) -> None:
         """一轮的附带动作。出什么错都只记一笔：这一轮本身已经跑完并落了终态。"""
@@ -515,13 +595,23 @@ class ConversationRunner:
         if agent is None:
             raise NotFound(f"未注册的 agent: {row.agent_id}")
 
-        history = await self._history(row.conversation_id)
+        history = await self._messages(row.conversation_id)
         # 轮号接着历史往下数。两条路必须给出同一个号，而历史那侧数的是合成轮之后的组数。
         prompt_of_run = await self._queue.prompt_of_runs(row.conversation_id)
-        ordinal = len(turn_run_ids(history, prompt_of_run)) + 1
+        turns = turn_run_ids(history, prompt_of_run)
+        # 上一次 run 的消息已经落库：这次是续跑，画进它原来那一轮，不占新号。落不下消息就崩了的
+        # （历史里找不着它），按原样重跑一次，轮号照常数。
+        resumed = (
+            None
+            if row.run_id is None
+            else next((index for index, group in enumerate(turns) if row.run_id in group), None)
+        )
+        ordinal = len(turns) + 1 if resumed is None else resumed + 1
         turn_id = f"t{ordinal}"
         run_id = f"{row.agent_id}-{uuid.uuid4().hex[:8]}"
         await self._queue.attach_run(row.prompt_id, run_id, locked_by=self.locked_by)
+        if row.run_id is not None:
+            await self._queue.adopt_steered(row.run_id, run_id)
 
         active = _Active(
             prompt_id=row.prompt_id,
@@ -543,6 +633,11 @@ class ConversationRunner:
                 MAIN_AGENT_ID,
                 tuple(AttachmentUpsertOp(attachment=item) for item in attachments),
             )
+        resume_from = (
+            None
+            if resumed is None
+            else (await self._history.read(row.conversation_id)).turns[resumed]
+        )
         context_window = self._context_limits.get(row.agent_id)
         projector = TranscriptEventStream(
             turn_id=turn_id,
@@ -550,7 +645,13 @@ class ConversationRunner:
             prompt=row.text,
             attachment_ids=tuple(item.attachment_id for item in attachments),
             max_context_tokens=context_window,
+            resume_from=resume_from,
+            resume_prompt=None if resume_from is None else CONTINUATION_PROMPT,
         )
+        if resume_from is not None:
+            # 播种要在投影器发第一批之前落地：同号的轮以实时那份为准，只有新步的实时轮会把历史
+            # 里已经跑过的那几步整个盖掉。
+            self._store.append(row.conversation_id, MAIN_AGENT_ID, _seed_ops(resume_from))
 
         def report_context(usage: ContextUsage) -> None:
             projector.max_context_tokens = usage.window_tokens
@@ -567,8 +668,12 @@ class ConversationRunner:
             )
 
         deps = await self._deps_for(row)
+        # 续跑不重发原话：历史里已经有它了，这次只告诉模型从落库的进度接着做。
+        user_prompt: list[UserContent] = (
+            model_prompt(row.content) if resume_from is None else [CONTINUATION_PROMPT]
+        )
         async with agent.run_stream_events(
-            model_prompt(row.content),
+            user_prompt,
             message_history=history,
             deferred_tool_results=_close_out(history),
             conversation_id=row.conversation_id,
@@ -593,7 +698,7 @@ class ConversationRunner:
             return "aborted"
         return "failed" if projector.failed else "completed"
 
-    async def _history(self, conversation_id: str) -> list[ModelMessage]:
+    async def _messages(self, conversation_id: str) -> list[ModelMessage]:
         """这段对话到目前为止的消息，中断的那一份也算。
 
         只读完整的快照会让一次失败的运行从此消失：它只落得下中断的那一份，下一次运行拿不到它，

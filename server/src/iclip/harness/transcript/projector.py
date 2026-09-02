@@ -8,8 +8,8 @@
 一个 id 不一样，同一段对话在刷新前后就会变形。所以编号一律走共享的规则（``ops`` 模块开头
 那几条 + ``next_frame_ordinal``），不按到达次序。
 
-一次 run 就是一轮：审批由 ``HandleDeferredToolCalls`` 在同一次 run 里等掉，不会把一轮劈成
-两次，所以这里不需要「认领上一次留下的半截状态」那套。
+一轮可以跨多次 run：中断之后从最新快照续跑，画的还是原来那一轮。续跑的投影器由 ``resume_from``
+播种——整轮的现状由历史那一侧推出来，步号、块号、用量与还开着的工具卡都接着它数。
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.ui import UIEventStream
 from pydantic_ai_harness.compaction import estimate_context_tokens
 
-from iclip.harness.transcript.from_messages import step_usage
+from iclip.harness.transcript.from_messages import ORPHAN_TOOL_ERROR, step_usage
 from iclip.platform.transcript.display import tool_display
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
@@ -58,6 +58,7 @@ from iclip.platform.transcript.ops import (
     ThinkingFrame,
     ToolFrame,
     TranscriptMeta,
+    TranscriptTurn,
     TurnHeader,
     TurnOrigin,
     TurnUpsertOp,
@@ -91,6 +92,10 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     attachment_ids: tuple[str, ...] = ()
     max_context_tokens: int | None = None
     """这一轮用户附上的东西。实体本身由驱动那一层先落进实时状态，轮头部只带 id。"""
+    resume_from: TranscriptTurn | None = None
+    """续跑时这一轮的现状，由历史那一侧推出来。给了它就按它播种，新步从末步之后接着开。"""
+    resume_prompt: str | None = None
+    """续跑的触发语。它进了模型上下文，所以也要显示出来。"""
 
     _started_at: str = field(default_factory=_now, init=False)
     _step_ordinal: int = field(default=0, init=False)
@@ -106,6 +111,35 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     _pending_steers: list[str] = field(default_factory=list[str], init=False)
     """还没有步可挂的插话，等下一步开出来放在最前面（与 ``from_messages`` 同一条规则）。"""
 
+    def __post_init__(self) -> None:
+        """续跑：把这一轮已经有的东西接过来。
+
+        ``_step_headers`` 不播种：补用量那一步照 ``new_messages()`` 走，老步压根不在里面。
+        """
+
+        turn = self.resume_from
+        if turn is None:
+            return
+        self.prompt = turn.prompt
+        self.attachment_ids = turn.attachment_ids or ()
+        if turn.started_at is not None:
+            self._started_at = turn.started_at
+        self._step_ordinal = len(turn.steps)
+        self._step_usage = [step.usage for step in turn.steps if step.usage is not None]
+        if not turn.steps:
+            return
+        last = turn.steps[-1]
+        self._frame_ids = [frame.frame_id for frame in last.frames]
+        # 只认没等到返回的那几张卡：它们的结局正是这次 run 起手补的那份（见 ``runner._close_out``），
+        # 结局到达时要改在原卡上，不记着就会另建一张，两条路当场分叉。
+        self._tool_cards = {
+            frame.tool_call_id: frame
+            for frame in last.frames
+            if isinstance(frame, ToolFrame)
+            and frame.state == "error"
+            and frame.error == ORPHAN_TOOL_ERROR
+        }
+
     # --- 编码 ---------------------------------------------------------------
 
     def encode_event(self, event: OpsBatch) -> str:
@@ -119,10 +153,20 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     # --- 一轮的开合 ---------------------------------------------------------
 
     async def before_stream(self) -> AsyncIterator[OpsBatch]:
-        yield (
+        """开一轮。续跑的步与块已经由播种那一批写过，这里只发轮头部与触发语。"""
+
+        ops: list[EmittableOperation] = [
             TurnUpsertOp(turn=self._turn_header(state="running")),
             MetaMergeOp(meta=TranscriptMeta(activity="turn")),
-        )
+        ]
+        if self.resume_prompt is not None:
+            # 挂在末步末尾，与 ``from_messages`` 对「后一段开头那句用户消息」的规则一致。播种的那
+            # 一轮没有步时先攒着（发出去会挂在一个不存在的步上，整批操作直接丢掉）。
+            if self._step_ordinal == 0:
+                self._pending_steers.append(self.resume_prompt)
+            else:
+                ops.extend(self._user_frame(self.resume_prompt))
+        yield tuple(ops)
 
     async def after_stream(self) -> AsyncIterator[OpsBatch]:
         if self._cancelled is not None or self._closed_with_error:
