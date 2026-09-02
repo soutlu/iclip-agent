@@ -388,9 +388,7 @@ class ConversationRunner:
         消息 id 是客户端铸的，光凭一个 id 就能停掉别人的运行。
         """
 
-        row = await self._queue.abort(prompt_id, now=_now())
-        if row.conversation_id != conversation_id:
-            raise NotFound(f"没有这条消息：{prompt_id}")
+        row = await self._queue.abort(prompt_id, conversation_id=conversation_id, now=_now())
         if row.status in ("queued", "awaiting"):
             settled = await self._queue.get(prompt_id)
             if settled is not None:
@@ -597,10 +595,11 @@ class ConversationRunner:
             active = self._active.pop(row.conversation_id, None)
             self._store.unpin(row.conversation_id)
             if status == "awaiting":
-                # 停在审批上：这一轮没结束，不给结局、不交接实时状态、也不接下一条。读走的插话
-                # 留在 ``steered``，由续跑那次 run 认走（``adopt_steered``）；没被读到的退回队列，
-                # 留着的话它会跟着续跑那次 run 报成完成，而模型从没见过那句话。
-                await self._revert_stranded(active)
+                # 停在审批上：这一轮没结束，不给结局、不交接实时状态、也不接下一条。递进去的
+                # 插话全都留在 ``steered``，由续跑那次 run 认走（``adopt_steered``）——这里没有
+                # 「没被读到」的：官方在 run 收场前一定先把 asap 消息捞成一次新请求（见模块开头
+                # 「第二道 drain」），所以能停在审批上的 run 手里不会有没读的插话。
+                pass
             # 关停时被取消收场的那一轮不给结局，放掉租约等人接着跑。用户按的停止走的也是取消，
             # 与关停撞在一起时这条会跟着被续跑一次。
             elif self._closing and status == "aborted":
@@ -795,13 +794,48 @@ class ConversationRunner:
                 self._store.append(row.conversation_id, MAIN_AGENT_ID, batch)
 
         if projector.deferred is not None:
-            return await self._await_approvals(
-                row, run_id=run_id, history=projector.deferred_history
-            )
+            return await self._await_approvals(row, run_id=run_id, history=projector.final_history)
+        await self._persist_if_unsaved(
+            row.conversation_id, run_id=run_id, history=projector.final_history
+        )
         await self._hand_over(row.conversation_id, run_id=run_id, turn_id=turn_id)
         if projector.cancelled is not None:
             return "aborted"
         return "failed" if projector.failed else "completed"
+
+    async def _persist_if_unsaved(
+        self, conversation_id: str, *, run_id: str, history: Sequence[ModelMessage]
+    ) -> None:
+        """run 正常收场而官方没存下它的快照时，由这里兜底存一份，这一轮不会从历史里消失。
+
+        官方 ``StepPersistence`` 只存「每个工具调用都有返回」的历史。一次 run 收场时末尾留着悬空
+        调用（模型发起了要审批的调用，插话却在同一刻递进来，官方把插话捞成新请求、审批被跳过），
+        它一份都不存；下一次运行拿不到这一轮，轮号被重用，这一轮从此看不见。
+        """
+
+        if not history or run_id in await self._derived_run_ids(conversation_id):
+            return
+        _logger.warning("官方没存下这一轮的快照，运行驱动兜底存一份：run=%s", run_id)
+        await self._save_history(conversation_id, run_id=run_id, history=history)
+
+    async def _save_history(
+        self, conversation_id: str, *, run_id: str, history: Sequence[ModelMessage]
+    ) -> None:
+        """经官方 ``StepStore`` 协议存一份 ``interrupted`` 快照，续跑那侧照旧读得回。"""
+
+        await self._snapshots.save_snapshot(
+            ContinuableSnapshot(
+                run_id=run_id,
+                step_index=sum(
+                    1
+                    for message in history
+                    if isinstance(message, ModelResponse) and message.run_id == run_id
+                ),
+                messages=list(history),
+                conversation_id=conversation_id,
+                state="interrupted",
+            )
+        )
 
     async def _await_approvals(
         self, row: PromptRow, *, run_id: str, history: Sequence[ModelMessage]
@@ -816,19 +850,7 @@ class ConversationRunner:
         算出来的。
         """
 
-        await self._snapshots.save_snapshot(
-            ContinuableSnapshot(
-                run_id=run_id,
-                step_index=sum(
-                    1
-                    for message in history
-                    if isinstance(message, ModelResponse) and message.run_id == run_id
-                ),
-                messages=list(history),
-                conversation_id=row.conversation_id,
-                state="interrupted",
-            )
-        )
+        await self._save_history(row.conversation_id, run_id=run_id, history=history)
         waiting = await self._queue.await_approvals(row.prompt_id, locked_by=self.locked_by)
         if waiting is not None:
             self._publish(waiting)

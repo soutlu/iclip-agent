@@ -1374,14 +1374,19 @@ async def test_shutdown_puts_an_append_the_run_never_read_back_in_the_queue(
 async def test_aborting_a_prompt_from_another_conversation_is_not_found(
     engine: AsyncEngine,
 ) -> None:
-    """光凭一个消息 id 停不掉别人那段对话里的运行。"""
+    """光凭一个消息 id 停不掉别人那段对话里的运行，库里那行也一个字都不动。"""
 
     store = TranscriptStore()
     runner, _step_store, queue = _runner(engine, _says("好"), store=store)
     prompt_id = await _submit(runner, queue, "c-owner", "跑起来")
+    second = await _submit(runner, queue, "c-owner", "排着")
 
-    with pytest.raises(NotFound):
-        await runner.abort("c-someone-else", prompt_id)
+    for target in (prompt_id, second):
+        with pytest.raises(NotFound):
+            await runner.abort("c-someone-else", target)
+    queued = await queue.get(second)
+    assert queued is not None
+    assert queued.status == "queued"  # 核对在改行之前：排着的那条没有被顺手撤掉
 
     await runner.shutdown()
 
@@ -1407,6 +1412,78 @@ def _tool_cards(turns: tuple[TranscriptTurn, ...]) -> list[ToolFrame]:
         for frame in step.frames
         if isinstance(frame, ToolFrame)
     ]
+
+
+def _waits_then_calls(name: str, entered: asyncio.Event, gate: asyncio.Event) -> FunctionModel:
+    """第一次被问先卡住等放行，放行后调一件要审批的工具；之后每次回一句话。
+
+    卡住那一会儿是留给插话的：它要在模型出话之前递进这次 run，run 才会带着它去收场。
+    """
+
+    asked = 0
+
+    async def stream(
+        _messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        nonlocal asked
+        asked += 1
+        if asked == 1:
+            entered.set()
+            await gate.wait()
+            yield {0: DeltaToolCall(name=name, json_args="{}", tool_call_id="call_1")}
+        else:
+            yield "改完了"
+
+    return FunctionModel(stream_function=stream)
+
+
+async def test_an_append_arriving_as_the_run_would_park_on_approval_is_not_lost(
+    engine: AsyncEngine,
+) -> None:
+    """插话在最后一次模型响应期间递进去、而这次 run 本来要停在审批上：官方把插话捞成一次新请求，
+    审批被跳过，run 正常收场。这一轮不能因此从历史里消失。
+
+    官方 ``StepPersistence`` 只存「每个调用都有返回」的历史，而这一轮末尾留着那次没人问过的审批
+    调用，它一份都不存——没有兜底的话下一次运行拿不到这一轮，轮号被重用。
+    """
+
+    entered, gate = asyncio.Event(), asyncio.Event()
+    store = TranscriptStore()
+    runner, step_store, queue = _runner(
+        engine,
+        _waits_then_calls("write_file", entered, gate),
+        store=store,
+        tools=[Tool(_wrote, name="write_file", requires_approval=True)],
+    )
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    first = await _submit(runner, queue, conversation_id, "把这个文件改掉")
+    second = await _submit(runner, queue, conversation_id, "临时插一句")
+    await entered.wait()  # 模型正卡在第一次请求里，插话递得进这次 run
+    await runner.steer(conversation_id, (second,))
+    gate.set()
+    await _drained(queue, conversation_id)
+    await runner.shutdown()
+
+    settled = await queue.get(first)
+    appended = await queue.get(second)
+    assert settled is not None
+    assert appended is not None
+    assert settled.status == "completed"  # 官方捞插话成新请求，run 没停在审批上
+    assert (appended.status, appended.run_id) == ("completed", settled.run_id)
+
+    # 这一轮在历史里：兜底存下的快照带着那句插话，而被跳过的审批调用收成一张错的卡。
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
+    assert [(turn.turn_id, turn.state, turn.prompt) for turn in derived] == [
+        ("t1", "completed", "把这个文件改掉")
+    ]
+    snapshot = await step_store.latest_conversation_snapshot(
+        conversation_id=conversation_id, include_interrupted=True
+    )
+    assert snapshot is not None
+    assert "临时插一句" in _texts(list(snapshot.messages))
+    assert [card.state for card in _tool_cards(derived)] == ["error"]
+    assert _skeleton(_replay(store, conversation_id)) == _skeleton(derived)
 
 
 async def test_a_tool_needing_approval_ends_the_run_and_parks_the_prompt(

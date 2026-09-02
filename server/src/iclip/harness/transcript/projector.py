@@ -13,7 +13,7 @@
 都接着它数。
 
 **run 以 ``DeferredToolRequests`` 结束时不发终态**：那一轮没有结束，人还没点头。这一刻由
-``deferred`` 与 ``deferred_history`` 交给运行侧，它去存快照、把 prompt 记成等审批。
+``deferred`` 与 ``final_history`` 交给运行侧，它去存快照、把 prompt 记成等审批。
 """
 
 from __future__ import annotations
@@ -117,11 +117,13 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     """每一步收尾时发出去的那份头部。run 跑完补用量时照着它改，免得把时刻抹掉。"""
     _pending_steers: list[str] = field(default_factory=list[str], init=False)
     """还没有步可挂的插话，等下一步开出来放在最前面（与 ``from_messages`` 同一条规则）。"""
+    _settled_calls: set[str] = field(default_factory=set[str], init=False)
+    """已经等到结局的工具调用。收场时没在里面的卡收成错的那一档（见 ``_orphan_card_ops``）。"""
 
     deferred: DeferredToolRequests | None = field(default=None, init=False)
     """这次 run 停在哪一批审批上。为空即它是正常收场的。"""
-    deferred_history: tuple[ModelMessage, ...] = field(default=(), init=False)
-    """停在审批那一刻的整份消息历史。官方这时不存快照，由运行侧存（见 ADR-0006 决策 4）。"""
+    final_history: tuple[ModelMessage, ...] = field(default=(), init=False)
+    """run 收场那一刻的整份消息历史。官方在末尾留着悬空调用时不存快照，由运行侧兜底存一份。"""
 
     def __post_init__(self) -> None:
         """续跑：把这一轮已经有的东西接过来。
@@ -193,12 +195,14 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             yield (TurnUpsertOp(turn=self._turn_header(state="running")),)
             return
         yield (
+            *self._orphan_card_ops(),
             TurnUpsertOp(turn=self._turn_header(state="completed")),
             MetaMergeOp(meta=TranscriptMeta(activity="idle")),
         )
 
     async def on_cancelled(self, cancelled: RunCancelled) -> AsyncIterator[OpsBatch]:
         yield (
+            *self._orphan_card_ops(),
             TurnUpsertOp(turn=self._turn_header(state="cancelled")),
             MetaMergeOp(meta=TranscriptMeta(activity="idle")),
         )
@@ -216,6 +220,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
 
         self._closed_with_error = True
         yield (
+            *self._orphan_card_ops(),
             TurnUpsertOp(turn=self._turn_header(state="failed", error=repr(error))),
             MetaMergeOp(meta=TranscriptMeta(activity="idle")),
         )
@@ -254,9 +259,9 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         交给运行侧——官方 ``StepPersistence`` 此时不存快照（开放的工具调用过不了它那道门槛）。
         """
 
+        self.final_history = tuple(event.result.all_messages())
         if isinstance(event.result.output, DeferredToolRequests):
             self.deferred = event.result.output
-            self.deferred_history = tuple(event.result.all_messages())
         responses = [
             message for message in event.result.new_messages() if isinstance(message, ModelResponse)
         ]
@@ -371,6 +376,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         opened = self._tool_cards.get(part.tool_call_id)
         if opened is None:
             return
+        self._settled_calls.add(part.tool_call_id)
         if isinstance(part, RetryPromptPart):
             state, output, error = "error", None, str(part.content)
         else:
@@ -508,6 +514,27 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             cached_tokens=sum(u.input_cache_read for u in self._step_usage),
             output_tokens=sum(u.output for u in self._step_usage),
         )
+
+    def _orphan_card_ops(self) -> list[EmittableOperation]:
+        """收场时把这一轮没等到返回的工具卡收成错的那一档，与 ``from_messages`` 同一条规则。
+
+        不收的话界面上留一张永远转圈的卡，而刷新之后历史那侧给的是错的那一档，两条路当场分叉。
+        停在审批上的 run 不走这里：那几张卡本来就该等着。
+        """
+
+        ops: list[EmittableOperation] = []
+        for tool_call_id, card in self._tool_cards.items():
+            if tool_call_id in self._settled_calls or card.state != "running":
+                continue
+            step_id = card.frame_id[: -len(tool_call_id) - 1]
+            ops.append(
+                FrameUpsertOp(
+                    turn_id=self.turn_id,
+                    step_id=step_id,
+                    frame=card.model_copy(update={"state": "error", "error": ORPHAN_TOOL_ERROR}),
+                )
+            )
+        return ops
 
     def _next_frame_id(self) -> str:
         frame_id = f"{self._step_id}.f{next_frame_ordinal(self._frame_ids)}"
