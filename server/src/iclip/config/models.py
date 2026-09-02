@@ -21,7 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -295,6 +302,25 @@ class ConversationsSection(ConfigSection):
     title_model: str | None = None
 
 
+class AgentRunsSection(ConfigSection):
+    """agent 运行租约的节奏：在跑的行按心跳续租，失联超过租约即由清扫判失败。"""
+
+    heartbeat_seconds: int = Field(default=10, gt=0)
+    """在跑的行每隔多久刷一次心跳。"""
+
+    lease_seconds: int = Field(default=30, gt=0)
+    """心跳停了多久就算失联。"""
+
+    sweep_seconds: int = Field(default=15, gt=0)
+    """每隔多久清扫一次失联的行、并叫醒没人管的队列。"""
+
+    @model_validator(mode="after")
+    def _lease_outlasts_a_heartbeat(self) -> AgentRunsSection:
+        if self.lease_seconds <= self.heartbeat_seconds:
+            raise ValueError("lease_seconds 必须大于 heartbeat_seconds")
+        return self
+
+
 class OpsSection(ConfigSection):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -310,6 +336,7 @@ class RuntimeConfig(BaseSettings):
     shot_video: ShotVideoSection | None = None
     models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
     conversations: ConversationsSection = ConversationsSection()
+    agent_runs: AgentRunsSection = AgentRunsSection()
     ops: OpsSection = OpsSection()
 
     @classmethod
@@ -408,6 +435,15 @@ class ResolvedInspirations:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedAgentRuns:
+    """agent 运行租约的节奏。"""
+
+    heartbeat_seconds: int
+    lease_seconds: int
+    sweep_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedModel:
     """一个命名模型解析后的装配事实。``name`` 是 agent 引用的名字。"""
 
@@ -438,6 +474,7 @@ class ResolvedSettings:
     models: tuple[ResolvedModel, ...]
     title_model: str | None
     """给对话起标题的模型名，取 ``models`` 里的一个。为空即不起标题。"""
+    agent_runs: ResolvedAgentRuns
     log_level: str
 
 
@@ -607,6 +644,11 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             for name, model in config.models.items()
         ),
         title_model=config.conversations.title_model,
+        agent_runs=ResolvedAgentRuns(
+            heartbeat_seconds=config.agent_runs.heartbeat_seconds,
+            lease_seconds=config.agent_runs.lease_seconds,
+            sweep_seconds=config.agent_runs.sweep_seconds,
+        ),
         log_level=config.ops.log_level,
     )
 

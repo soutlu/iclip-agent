@@ -9,6 +9,7 @@ from iclip.config.agents import (
     load_agent_declarations,
 )
 from iclip.config.models import (
+    AgentRunsSection,
     AppSection,
     DbSection,
     ImageGenerationSection,
@@ -16,6 +17,7 @@ from iclip.config.models import (
     ModelSection,
     ObjectStoreEnv,
     OpsSection,
+    ResolvedAgentRuns,
     ResolvedInspirations,
     ResolvedMediaGeneration,
     ResolvedModel,
@@ -34,6 +36,7 @@ from iclip.config.models import (
 )
 
 __all__ = [
+    "AgentRunsSection",
     "AgentSection",
     "AgentsDeclaration",
     "AppSection",
@@ -45,6 +48,7 @@ __all__ = [
     "ObjectStoreEnv",
     "OpsSection",
     "ResolvedAgent",
+    "ResolvedAgentRuns",
     "ResolvedInspirations",
     "ResolvedMediaGeneration",
     "ResolvedModel",

@@ -216,6 +216,10 @@ class ConversationRunner:
         snapshots: ConversationSnapshots,
         deps_for: DepsFor,
         context_limits: Mapping[str, int],
+        heartbeat_seconds: int,
+        lease_seconds: int,
+        sweep_seconds: int,
+        locked_by: str | None = None,
         on_turn_ended: TurnEnded | None = None,
     ) -> None:
         self._agents = agents
@@ -224,11 +228,18 @@ class ConversationRunner:
         self._snapshots = snapshots
         self._deps_for = deps_for
         self._context_limits = context_limits
+        self._heartbeat_seconds = heartbeat_seconds
+        self._lease_seconds = lease_seconds
+        self._sweep_seconds = sweep_seconds
+        # 这个进程的租约主人。收下 prompt 的那一侧也要拿它写行，所以公开。
+        self.locked_by = locked_by or uuid.uuid4().hex
         self._on_turn_ended = on_turn_ended
         self._active: dict[str, _Active] = {}
         self._closing = False
         # 拿住任务的引用：asyncio 只弱引用运行中的任务，不存着的话跑一半可能被回收掉。
         self._tasks: set[asyncio.Task[None]] = set()
+        # 两个后台循环单独存：关停时先停它们，而 ``_tasks`` 装的是在跑的那些轮子。
+        self._loops: tuple[asyncio.Task[None], ...] = ()
 
     # --- 收下与排程 ---------------------------------------------------------
 
@@ -240,22 +251,78 @@ class ConversationRunner:
             self._spawn(row)
         return row
 
-    async def sweep(self) -> int:
-        """启动时收拾上一条命留下的行，返回收拾了几条。"""
+    async def start(self) -> None:
+        """先清扫一次，再起心跳与清扫两个循环。"""
 
-        return await self._queue.discard_stale(now=_now())
+        await self.sweep_once()
+        self._loops = (
+            asyncio.create_task(self._loop(self._heartbeat_seconds, self.heartbeat_once)),
+            asyncio.create_task(self._loop(self._sweep_seconds, self.sweep_once)),
+        )
+
+    async def heartbeat_once(self) -> None:
+        """给手上在跑的那些行刷一次心跳；刷不到的那一轮就地按第一方取消停掉。
+
+        刷不到只有一种意思：那行已经不归自己了（租约被判过期、或者已经被别人接手）。留着跑下去
+        的话，同一段对话会有两个进程在跑，而落库的结局归接手那一方。
+        """
+
+        alive = set(await self._queue.heartbeat(locked_by=self.locked_by))
+        for active in tuple(self._active.values()):
+            if active.prompt_id in alive:
+                continue
+            _logger.warning("这一轮的租约已经不在手上，取消它：prompt=%s", active.prompt_id)
+            active.token.cancel()
+
+    async def sweep_once(self) -> None:
+        """收拾失联进程留下的行，再把没人管的队列叫醒。
+
+        关停途中不叫醒队列：叫上来的那条只会立刻被取消，反而给用户留一条从没跑过、却记着
+        「撤销了」的消息。
+        """
+
+        for row in await self._queue.expire_leases(lease_seconds=self._lease_seconds):
+            self._publish(row)
+            if row.run_id is None:
+                continue
+            for child in await self._queue.settle_steered(row.run_id, status="failed", now=_now()):
+                self._publish(child)
+        if self._closing:
+            return
+        for conversation_id in await self._queue.conversations_waiting():
+            row = await self._queue.start_next(conversation_id, locked_by=self.locked_by)
+            if row is not None:
+                self._publish(row)
+                self._spawn(row)
+
+    async def _loop(self, seconds: int, once: Callable[[], Awaitable[None]]) -> None:
+        """每隔 ``seconds`` 秒做一次那件事，出错只记一笔接着转。
+
+        循环停了就等于自己的租约停了续，手上在跑的那些会被别人判失败。
+        """
+
+        while True:
+            await asyncio.sleep(seconds)
+            try:
+                await once()
+            except Exception:
+                _logger.exception("后台循环这一轮没做完")
 
     async def shutdown(self) -> None:
-        """关停：把在跑的都按第一方取消停掉，等它们各自收完尾。
+        """关停：先停两个后台循环，再把在跑的都按第一方取消停掉，等它们各自收完尾。
 
-        不用 ``task.cancel()``——那是外部取消，官方的收尾分支接不住，终态操作发不出去。
+        不用 ``task.cancel()`` 收运行——那是外部取消，官方的收尾分支接不住，终态操作发不出去。
 
         先立牌子再取消：立了之后收尾的那一步不再去队列里接下一条，于是排着的那些原样留在库里，
-        下次启动时由 ``sweep`` 统一处置。不立的话，关停途中会起一次新运行，然后立刻把它取消掉
-        ——用户会看到一条自己从没跑过、却记着「撤销了」的消息。
+        由别的进程清扫时叫醒。不立的话，关停途中会起一次新运行，然后立刻把它取消掉——用户会看到
+        一条自己从没跑过、却记着「撤销了」的消息。
         """
 
         self._closing = True
+        for loop in self._loops:
+            loop.cancel()
+        await asyncio.gather(*self._loops, return_exceptions=True)
+        self._loops = ()
         while self._tasks:
             for active in tuple(self._active.values()):
                 active.token.cancel()
@@ -317,7 +384,7 @@ class ConversationRunner:
             await self._revert(tuple(row.prompt_id for row in moved))
             # 收场那一侧的 start_next 已经跑过了，这里不叫的话这几条会一直排着没人管。
             if not self._closing:
-                following = await self._queue.start_next(conversation_id)
+                following = await self._queue.start_next(conversation_id, locked_by=self.locked_by)
                 if following is not None:
                     self._publish(following)
                     self._spawn(following)
@@ -393,14 +460,18 @@ class ConversationRunner:
             active = self._active.pop(row.conversation_id, None)
             self._store.unpin(row.conversation_id)
             await self._settle(active, status=status)
-            await self._queue.finish(row.prompt_id, status=status, now=_now())
+            await self._queue.finish(
+                row.prompt_id, status=status, now=_now(), locked_by=self.locked_by
+            )
             settled = await self._queue.get(row.prompt_id)
             if settled is not None:
                 self._publish(settled)
             # 关停途中不再往下接：接了也只会立刻被取消，反而给用户留一条从没跑过、却记着
-            # 「撤销了」的消息。排着的那些原样留在库里，下次启动由 sweep 处置。
+            # 「撤销了」的消息。排着的那些原样留在库里，由清扫叫醒。
             if not self._closing:
-                following = await self._queue.start_next(row.conversation_id)
+                following = await self._queue.start_next(
+                    row.conversation_id, locked_by=self.locked_by
+                )
                 if following is not None:
                     self._publish(following)
                     self._spawn(following)
@@ -448,7 +519,7 @@ class ConversationRunner:
         ordinal = len(run_ids_from_messages(history)) + 1
         turn_id = f"t{ordinal}"
         run_id = f"{row.agent_id}-{uuid.uuid4().hex[:8]}"
-        await self._queue.attach_run(row.prompt_id, run_id)
+        await self._queue.attach_run(row.prompt_id, run_id, locked_by=self.locked_by)
 
         active = _Active(
             prompt_id=row.prompt_id,

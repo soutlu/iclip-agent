@@ -6,10 +6,11 @@
 这条挡板落在库上而不是进程内存里，因为它必须跨 worker：每个 worker 一份进程内存，谁也看不见谁
 在跑。幂等键同理——重发可能打到另一个 worker。``content`` 列只服务同一条命里的接续。
 
-进程重启时表里会留下三种没人管的行：``running`` 的那条与 ``steered`` 的那几条，它们的 run 已经
-随进程没了；``queued`` 的那些，没有任何东西会来叫醒它们。启动时一并收拾掉（见
-``discard_stale``）——留着不动的话，那段对话会永远「正在跑」，之后发的每一条都排在一个不存在
-的运行后面。
+**在跑的那条由租约认领**：``locked_by`` 记的是哪个进程在跑它，``heartbeat_at`` 由那个进程按周期
+刷新，时间一律取数据库时钟。心跳停了超过一个租约，别的进程就把它判失败并写下
+``interrupt_reason``；排着的那些由清扫叫醒（见 ``expire_leases``、``conversations_waiting``）。
+``finish`` 与 ``attach_run`` 都带 ``locked_by`` 这道 fence——租约易手之后它们一行都改不动，结局由
+接手的那一方定。
 
 ``steered`` 是**内部状态**，表示这条消息已经递进了某次 run（``run_id`` 记的就是那次），结局跟着
 那一轮走。对外一律报 ``running``：协议的 prompt 状态联合里没有这个值，漏出去客户端整帧被
@@ -21,7 +22,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final, Literal, cast
 
 from pydantic import TypeAdapter
@@ -34,7 +35,9 @@ from sqlalchemy import (
     Text,
     case,
     exists,
+    func,
     insert,
+    null,
     select,
     update,
 )
@@ -52,8 +55,8 @@ PromptStatus = Literal["running", "queued", "steered", "blocked", "completed", "
 _LIVE: Final = ("running", "queued")
 """还归队列管的那两种：在跑的那条与排着的那些。``steered`` 已经交给运行侧了，不在里面。"""
 
-_UNSETTLED: Final = ("running", "queued", "steered")
-"""还没有结局的全部状态。启动收拾看的是这一组。"""
+_LEASE_EXPIRED: Final = "租约过期：运行所在进程已失联"
+"""租约到期时写进 ``interrupt_reason`` 的那句话。"""
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
 
@@ -70,6 +73,9 @@ prompts_table = Table(
     Column("created_at", TIMESTAMP(timezone=True), nullable=False),
     Column("finished_at", TIMESTAMP(timezone=True)),
     Column("steered_at", TIMESTAMP(timezone=True)),
+    Column("locked_by", Text),
+    Column("heartbeat_at", TIMESTAMP(timezone=True)),
+    Column("interrupt_reason", Text),
     PrimaryKeyConstraint("prompt_id"),
     Index(
         "uq_prompts_one_running_per_conversation",
@@ -78,6 +84,11 @@ prompts_table = Table(
         postgresql_where=Column("status") == "running",
     ),
     Index("idx_prompts_queue", "conversation_id", "created_at"),
+    Index(
+        "idx_prompts_lease",
+        "heartbeat_at",
+        postgresql_where=Column("status") == "running",
+    ),
 )
 
 
@@ -95,6 +106,9 @@ class PromptRow:
     created_at: datetime
     finished_at: datetime | None
     steered_at: datetime | None
+    locked_by: str | None
+    heartbeat_at: datetime | None
+    interrupt_reason: str | None
 
     @property
     def text(self) -> str:
@@ -141,11 +155,13 @@ class PromptQueue:
         owner_user_id: uuid.UUID,
         content: tuple[PromptContent, ...],
         now: datetime,
+        locked_by: str,
     ) -> PromptRow:
         """收下一条 prompt：这段对话空着就记成在跑，否则记成排队。
 
         状态由一条 ``INSERT ... SELECT`` 自己判，不先查后写——两条同时进来时先查后写会双双
-        读到「空着」，然后一起去起 run。
+        读到「空着」，然后一起去起 run。判成在跑的那一刻同时铸租约（``locked_by`` 记调用方这个
+        进程，``heartbeat_at`` 取数据库时钟），排队的两列留空。
 
         ``prompt_id`` 由调用方铸，重复提交同一个 id 返回已有那条（客户端重试不会多起一次
         运行，也不会多出一条排队）。
@@ -174,7 +190,12 @@ class PromptQueue:
         }
         stmt = (
             insert(prompts_table)
-            .values(**values, status=case((busy, "queued"), else_="running"))
+            .values(
+                **values,
+                status=case((busy, "queued"), else_="running"),
+                locked_by=case((busy, null()), else_=locked_by),
+                heartbeat_at=case((busy, null()), else_=func.now()),
+            )
             .returning(prompts_table)
         )
         try:
@@ -232,11 +253,12 @@ class PromptQueue:
             row = (await conn.execute(stmt)).one_or_none()
         return None if row is None else _row(row)
 
-    async def start_next(self, conversation_id: str) -> PromptRow | None:
-        """把排在最前的那条转成在跑，返回它；没有排队的、或者还有在跑的，返回 ``None``。
+    async def start_next(self, conversation_id: str, *, locked_by: str) -> PromptRow | None:
+        """把排在最前的那条转成在跑并铸上租约，返回它；没有排队的、或者还有在跑的，返回 ``None``。
 
         「还有在跑的就不动」写在 SQL 的条件里而不是调用方那边：run 结束和新 prompt 进来是两
-        条各自独立的路，两边同时来叫它是正常的。
+        条各自独立的路，两边同时来叫它是正常的。多进程下两边同时叫会撞上那条部分唯一索引，撞
+        了就是别人抢到了，返回 ``None``。
         """
 
         head = (
@@ -256,31 +278,41 @@ class PromptQueue:
             update(prompts_table)
             .where(prompts_table.c.prompt_id == head)
             .where(~exists(running))
-            .values(status="running")
+            .values(status="running", locked_by=locked_by, heartbeat_at=func.now())
             .returning(prompts_table)
         )
-        async with self._engine.begin() as conn:
-            row = (await conn.execute(stmt)).one_or_none()
+        try:
+            async with self._engine.begin() as conn:
+                row = (await conn.execute(stmt)).one_or_none()
+        except IntegrityError:
+            return None
         return None if row is None else _row(row)
 
-    async def attach_run(self, prompt_id: str, run_id: str) -> None:
-        """记下这条 prompt 起的是哪次 run，好把它和 transcript 里那一轮对上。"""
+    async def attach_run(self, prompt_id: str, run_id: str, *, locked_by: str) -> None:
+        """记下这条 prompt 起的是哪次 run，好把它和 transcript 里那一轮对上。
+
+        租约不在自己手上就一行都不动：那一轮已经被别人判过结局了。
+        """
 
         stmt = (
             update(prompts_table)
             .where(prompts_table.c.prompt_id == prompt_id)
+            .where(prompts_table.c.locked_by == locked_by)
             .values(run_id=run_id)
         )
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
-    async def finish(self, prompt_id: str, *, status: PromptStatus, now: datetime) -> None:
-        """给一条 prompt 收尾。已经收过尾的不再动——第一次的结局才是真的。"""
+    async def finish(
+        self, prompt_id: str, *, status: PromptStatus, now: datetime, locked_by: str
+    ) -> None:
+        """给自己手上那条 prompt 收尾。已经收过尾的、或者租约易手的都不再动。"""
 
         stmt = (
             update(prompts_table)
             .where(prompts_table.c.prompt_id == prompt_id)
             .where(prompts_table.c.status.in_(_LIVE))
+            .where(prompts_table.c.locked_by == locked_by)
             .values(status=status, finished_at=now)
         )
         async with self._engine.begin() as conn:
@@ -303,7 +335,15 @@ class PromptQueue:
         if row.status not in _LIVE:
             raise Conflict("这条消息已经结束了，停不了")
         if row.status == "queued":
-            await self.finish(prompt_id, status="aborted", now=now)
+            # 排队的行没有租约，走不了 ``finish`` 那道 fence。
+            stmt = (
+                update(prompts_table)
+                .where(prompts_table.c.prompt_id == prompt_id)
+                .where(prompts_table.c.status == "queued")
+                .values(status="aborted", finished_at=now)
+            )
+            async with self._engine.begin() as conn:
+                await conn.execute(stmt)
         return row
 
     async def abort_queued(self, conversation_id: str, *, now: datetime) -> tuple[PromptRow, ...]:
@@ -394,27 +434,57 @@ class PromptQueue:
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
 
-    async def discard_stale(self, *, now: datetime) -> int:
-        """启动时收拾上一条命留下的行，返回收拾了几条。
+    async def heartbeat(self, *, locked_by: str) -> tuple[str, ...]:
+        """给这个进程手上还在跑的那些行刷一次心跳，返回刷到的 prompt id。
 
-        在跑的那条与递进过某次 run 的那几条判成失败：那些 run 随进程一起没了，谁也不会再来给
-        它们收尾。排队的那些判成撤销——自动接着跑等于服务器重启后自己花钱去调模型，而且那一轮
-        的上下文已经断了。
+        调用方拿返回的这一组与自己内存里在跑的那些比对：不在里面的，租约已经不在自己手上。
         """
 
         stmt = (
             update(prompts_table)
-            .where(prompts_table.c.status.in_(_UNSETTLED))
-            .values(
-                status=case(
-                    (prompts_table.c.status == "queued", "aborted"),
-                    else_="failed",
-                ),
-                finished_at=now,
-            )
+            .where(prompts_table.c.locked_by == locked_by)
+            .where(prompts_table.c.status == "running")
+            .values(heartbeat_at=func.now())
+            .returning(prompts_table.c.prompt_id)
         )
         async with self._engine.begin() as conn:
-            return (await conn.execute(stmt)).rowcount
+            return tuple((await conn.execute(stmt)).scalars().all())
+
+    async def expire_leases(self, *, lease_seconds: int) -> tuple[PromptRow, ...]:
+        """心跳停了超过一个租约的在跑行判失败并放掉租约，返回它们。"""
+
+        stmt = (
+            update(prompts_table)
+            .where(prompts_table.c.status == "running")
+            .where(prompts_table.c.heartbeat_at < func.now() - timedelta(seconds=lease_seconds))
+            .values(
+                status="failed",
+                finished_at=func.now(),
+                interrupt_reason=_LEASE_EXPIRED,
+                locked_by=None,
+            )
+            .returning(prompts_table)
+        )
+        async with self._engine.begin() as conn:
+            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
+    async def conversations_waiting(self) -> tuple[str, ...]:
+        """有排队的行、却一条在跑的都没有的那些对话。它们等着人来叫。"""
+
+        queued = prompts_table.alias("queued")
+        running = (
+            select(prompts_table.c.prompt_id)
+            .where(prompts_table.c.conversation_id == queued.c.conversation_id)
+            .where(prompts_table.c.status == "running")
+        )
+        stmt = (
+            select(queued.c.conversation_id)
+            .where(queued.c.status == "queued")
+            .where(~exists(running))
+            .distinct()
+        )
+        async with self._engine.connect() as conn:
+            return tuple((await conn.execute(stmt)).scalars().all())
 
 
 _CONTENT = TypeAdapter(tuple[PromptContent, ...])
@@ -440,6 +510,9 @@ class _PromptRow:
     created_at: datetime
     finished_at: datetime | None
     steered_at: datetime | None
+    locked_by: str | None
+    heartbeat_at: datetime | None
+    interrupt_reason: str | None
 
 
 def _row(row: object) -> PromptRow:
@@ -455,6 +528,9 @@ def _row(row: object) -> PromptRow:
         created_at=r.created_at,
         finished_at=r.finished_at,
         steered_at=r.steered_at,
+        locked_by=r.locked_by,
+        heartbeat_at=r.heartbeat_at,
+        interrupt_reason=r.interrupt_reason,
     )
 
 
