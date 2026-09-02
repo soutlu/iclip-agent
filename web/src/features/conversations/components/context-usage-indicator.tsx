@@ -1,9 +1,10 @@
 import { Tooltip } from 'radix-ui'
 
 const RING_PATH = 100
-const KILO = 1024
+const KILO = 1000
 const MEGA = KILO * KILO
 
+/** WorkBuddy formatTokenCount：千进位、一位小数去尾零。 */
 const compact = (value: number): string => {
   const fixed = value.toFixed(1)
   return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed
@@ -20,10 +21,14 @@ type ContextUsageIndicatorProps = {
   used: number
 }
 
-/** Kimi 式上下文环：只展示后端给的 used/max，不在浏览器估算 token。 */
+/**
+ * 上下文用量环，版式照 WorkBuddy：32×32 圆形容器（与同行按钮几何对齐，hover 铺状态底），
+ * 环本体 16px、stroke 2、中性灰进度，tooltip 报「百分比 · used / total 上下文已使用」。
+ * 只展示后端给的 used/max，不在浏览器估算 token。
+ */
 export function ContextUsageIndicator({ max, used }: ContextUsageIndicatorProps) {
-  const percentage = Math.min(100, Math.max(0, Math.ceil((used / max) * 100)))
-  const label = `使用 ${formatTokens(used)} / ${formatTokens(max)} tokens (${percentage}%)`
+  const percentValue = Math.min(100, Math.max(0, (used / max) * 100))
+  const label = `${percentValue.toFixed(1)}% · ${formatTokens(used)} / ${formatTokens(max)} 上下文已使用`
 
   return (
     <Tooltip.Provider delayDuration={300}>
@@ -31,7 +36,7 @@ export function ContextUsageIndicator({ max, used }: ContextUsageIndicatorProps)
         <Tooltip.Trigger asChild>
           <button
             aria-label={label}
-            className="flex shrink-0 cursor-default items-center rounded-xs py-0.5 ui-focus"
+            className="flex size-8 shrink-0 cursor-default items-center justify-center rounded-full text-chat-muted-text ui-focus transition-colors ui-motion-s select-none hover:bg-hover"
             type="button"
           >
             <svg aria-hidden className="size-4" viewBox="0 0 20 20">
@@ -40,22 +45,22 @@ export function ContextUsageIndicator({ max, used }: ContextUsageIndicatorProps)
                 cx="10"
                 cy="10"
                 fill="none"
-                r="7"
+                r="7.5"
                 stroke="currentColor"
-                strokeWidth="2.5"
+                strokeWidth="2"
               />
               <circle
-                className="text-primary transition-[stroke-dashoffset] ui-motion-m"
+                className="transition-[stroke-dashoffset] ui-motion-m"
                 cx="10"
                 cy="10"
                 fill="none"
                 pathLength={RING_PATH}
-                r="7"
+                r="7.5"
                 stroke="currentColor"
                 strokeDasharray={RING_PATH}
-                strokeDashoffset={RING_PATH - percentage}
+                strokeDashoffset={RING_PATH - percentValue}
                 strokeLinecap="round"
-                strokeWidth="2.5"
+                strokeWidth="2"
                 transform="rotate(-90 10 10)"
               />
             </svg>
