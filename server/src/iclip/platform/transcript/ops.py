@@ -44,6 +44,12 @@ TOOL_STATE_BY_OUTCOME: dict[str, Literal["done", "error"]] = {
 MAIN_AGENT_ID = "main"
 """主 agent 的 id。协议按 agent 分 transcript，我们当前只产出这一个。"""
 
+APPROVAL_ID_PREFIX = "apr_"
+"""审批交互 id 的前缀，它与工具调用一对一（``apr_<toolCallId>``）。
+
+放在这里而不是各自一份：实时那条路、历史那条路与收下点头的那一侧都要拼它，各写一遍迟早会漂。
+"""
+
 
 def utf16_len(text: str) -> int:
     """按 UTF-16 code unit 数长度。
@@ -396,6 +402,7 @@ TranscriptOperation = Annotated[
 
 
 __all__ = [
+    "APPROVAL_ID_PREFIX",
     "MAIN_AGENT_ID",
     "TOOL_STATE_BY_OUTCOME",
     "AgentStatusMeta",

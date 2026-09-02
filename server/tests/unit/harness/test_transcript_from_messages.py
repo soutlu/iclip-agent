@@ -24,7 +24,9 @@ from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
 from iclip.harness.transcript.from_messages import (
+    ORPHAN_TOOL_ERROR,
     TurnState,
+    approvals_from_messages,
     drop_last_turn,
     run_ids_from_messages,
     run_state_from_events,
@@ -40,6 +42,7 @@ from iclip.platform.transcript.ops import (
     TextFrame,
     ThinkingFrame,
     ToolFrame,
+    TranscriptTurn,
 )
 
 RUN = "axRdrOK"
@@ -378,6 +381,183 @@ def test_the_resume_prompt_lands_on_the_previous_step() -> None:
     assert isinstance(resumed, TextFrame)
     assert resumed.role == "user"
     assert resumed.text == "接着做"
+
+
+def _awaiting() -> list[ModelRequest | ModelResponse]:
+    """一次 run 以待审批结束留下的消息：末尾那条响应里有一次要审批的调用，没有返回。
+
+    这一段是**干净收尾**的（官方记下 ``run_completed``），崩在工具执行中途留下的形状一样但
+    那一段不是——审批的判据就在这个区别上。
+    """
+
+    return [
+        _ask("把这个文件改掉", run_id="r1", minute=0),
+        _reply(
+            TextPart(content="要动文件了"),
+            ToolCallPart(tool_name="write_file", args={}, tool_call_id="c1"),
+            run_id="r1",
+            minute=1,
+        ),
+    ]
+
+
+def _decided(outcome: str) -> list[ModelRequest | ModelResponse]:
+    """人点过头之后续跑那次 run 的消息：那次调用的返回落在后一段的第一条请求里。"""
+
+    return [
+        *_awaiting(),
+        _returns(
+            ToolReturnPart(
+                tool_name="write_file",
+                content="写好了" if outcome == "success" else "用户拒绝",
+                tool_call_id="c1",
+                outcome=outcome,  # pyright: ignore[reportArgumentType]
+            ),
+            run_id="r2",
+            minute=2,
+        ),
+        _reply(TextPart(content="好了"), run_id="r2", minute=3),
+    ]
+
+
+_BOTH_COMPLETED: dict[str, TurnState] = {"r1": "completed", "r2": "completed"}
+_SETTLED = {"r1": "completed", "r2": "completed"}
+"""两次 run 都跑完、那条 prompt 也收了尾时的 prompt 状态。"""
+
+
+def _card(turn: TranscriptTurn) -> ToolFrame:
+    card = turn.steps[0].frames[1]
+    assert isinstance(card, ToolFrame)
+    return card
+
+
+def test_a_frontier_approval_waits_with_its_card_still_running() -> None:
+    """等审批：卡留在 running 并带上审批 id，轮仍是 running，那一步是干净结束的。
+
+    按结束事件算的话这一轮会显示成「跑完了」，而人还没点头；把卡收成 orphan 错误则等于告诉
+    用户这次调用已经没戏了。
+    """
+
+    messages = _awaiting()
+    states: dict[str, TurnState] = {"r1": "completed"}
+    turns = turns_from_messages(
+        messages,
+        turn_states=states,
+        prompt_of_run={"r1": "p1"},
+        prompt_status_of_run={"r1": "awaiting"},
+    )
+
+    assert turns[0].state == "running"
+    assert [step.state for step in turns[0].steps] == ["completed"]
+    assert (_card(turns[0]).state, _card(turns[0]).approval_id) == ("running", "apr_c1")
+    assert [
+        (item.interaction_id, item.tool_call_id, item.state)
+        for item in approvals_from_messages(
+            messages,
+            turn_states=states,
+            prompt_of_run={"r1": "p1"},
+            prompt_status_of_run={"r1": "awaiting"},
+        )
+    ] == [("apr_c1", "c1", "pending")]
+
+
+def test_a_frontier_approval_is_settled_by_the_prompt_that_stopped_waiting() -> None:
+    """没人会再来点头的两种收场：撤销 → 轮 cancelled、卡收成错、交互已取消；失败 → 轮失败。"""
+
+    messages = _awaiting()
+    states: dict[str, TurnState] = {"r1": "completed"}
+    for status, turn_state in (("aborted", "cancelled"), ("failed", "failed")):
+        turns = turns_from_messages(
+            messages,
+            turn_states=states,
+            prompt_of_run={"r1": "p1"},
+            prompt_status_of_run={"r1": status},
+        )
+        assert turns[0].state == turn_state
+        assert (_card(turns[0]).state, _card(turns[0]).error) == ("error", ORPHAN_TOOL_ERROR)
+        assert [
+            item.state
+            for item in approvals_from_messages(
+                messages,
+                turn_states=states,
+                prompt_of_run={"r1": "p1"},
+                prompt_status_of_run={"r1": status},
+            )
+        ] == ["cancelled"]
+
+
+def test_a_decision_is_read_off_the_return_in_the_next_run() -> None:
+    """跨段判定：放行的卡成功、被拒的卡报错，两种都带审批 id，交互记下点的是什么。"""
+
+    for outcome, card_state, decision in (
+        ("success", "done", "approved"),
+        ("denied", "error", "rejected"),
+    ):
+        messages = _decided(outcome)
+        turns = turns_from_messages(
+            messages,
+            turn_states=_BOTH_COMPLETED,
+            prompt_of_run=_OF_ONE_PROMPT,
+            prompt_status_of_run=_SETTLED,
+        )
+
+        assert turns[0].state == "completed"
+        assert (_card(turns[0]).state, _card(turns[0]).approval_id) == (card_state, "apr_c1")
+        assert [
+            item.state
+            for item in approvals_from_messages(
+                messages,
+                turn_states=_BOTH_COMPLETED,
+                prompt_of_run=_OF_ONE_PROMPT,
+                prompt_status_of_run=_SETTLED,
+            )
+        ] == [decision]
+
+
+def test_a_close_out_return_is_not_a_decision() -> None:
+    """崩溃续跑给悬空调用补的那份返回不是人点的头。
+
+    判成放行的话，界面会说这次调用被批准执行过，而它根本没跑；反过来，中断的那一段压根不是
+    干净收尾，它末尾的开放调用也不该被当成审批。
+    """
+
+    closed_out = [
+        *_awaiting(),
+        _returns(
+            ToolReturnPart(
+                tool_name="write_file", content="运行中断", tool_call_id="c1", outcome="failed"
+            ),
+            run_id="r2",
+            minute=2,
+        ),
+        _reply(TextPart(content="换个做法"), run_id="r2", minute=3),
+    ]
+    turns = turns_from_messages(
+        closed_out,
+        turn_states=_BOTH_COMPLETED,
+        prompt_of_run=_OF_ONE_PROMPT,
+        prompt_status_of_run=_SETTLED,
+    )
+    assert (_card(turns[0]).state, _card(turns[0]).approval_id) == ("error", None)
+    assert (
+        approvals_from_messages(
+            closed_out,
+            turn_states=_BOTH_COMPLETED,
+            prompt_of_run=_OF_ONE_PROMPT,
+            prompt_status_of_run=_SETTLED,
+        )
+        == ()
+    )
+    # 中断续跑那条路（``r1`` 没有干净收尾）一个审批都不该冒出来。
+    assert (
+        approvals_from_messages(
+            _resumed(),
+            turn_states={"r1": "failed", "r2": "completed"},
+            prompt_of_run=_OF_ONE_PROMPT,
+            prompt_status_of_run=_SETTLED,
+        )
+        == ()
+    )
 
 
 def test_two_runs_without_a_mapping_stay_two_turns() -> None:

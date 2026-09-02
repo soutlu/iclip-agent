@@ -43,19 +43,18 @@ from iclip.domains.identity.public import Principal, require_permission
 def create_conversations_router(service: ConversationService) -> APIRouter:
     router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-    # 每行都要带上「此刻在忙什么」，而那不在库的行上。这两个助手把「批量问一次活儿」收在一处，
-    # 免得每个端点各写一遍、漏一个就有一批行谎报自己空闲。
-    def _out(conversation: Conversation) -> ConversationOut:
-        return conversation_out(
-            conversation, service.activities([conversation.id])[conversation.id]
-        )
+    # 每行都要带上「此刻在忙什么」，而那不在对话这张表的行上。这两个助手把「批量问一次活儿」
+    # 收在一处，免得每个端点各写一遍、漏一个就有一批行谎报自己空闲。
+    async def _out(conversation: Conversation) -> ConversationOut:
+        activities = await service.activities([conversation.id])
+        return conversation_out(conversation, activities[conversation.id])
 
-    def _outs(items: Sequence[Conversation]) -> list[ConversationOut]:
-        activities = service.activities([item.id for item in items])
+    async def _outs(items: Sequence[Conversation]) -> list[ConversationOut]:
+        activities = await service.activities([item.id for item in items])
         return [conversation_out(item, activities[item.id]) for item in items]
 
-    def _page_out(page: ConversationPage) -> ConversationPageOut:
-        return ConversationPageOut(items=_outs(page.items), next_cursor=page.next_cursor)
+    async def _page_out(page: ConversationPage) -> ConversationPageOut:
+        return ConversationPageOut(items=await _outs(page.items), next_cursor=page.next_cursor)
 
     @router.post("", response_model=ConversationEnvelope, status_code=201)
     async def create_conversation(
@@ -69,7 +68,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
             task_id=body.task_id,
             collection_id=body.collection_id,
         )
-        return ConversationEnvelope(conversation=_out(conversation))
+        return ConversationEnvelope(conversation=await _out(conversation))
 
     @router.get("", response_model=SidebarOut)
     async def read_sidebar(
@@ -89,12 +88,12 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
                     name=info.name,
                     updated_at=info.updated_at,
                     conversation_count=total,
-                    page=_page_out(page),
+                    page=await _page_out(page),
                 )
                 for info, total, page in groups
             ],
             ungrouped_count=await service.ungrouped_count(principal),
-            ungrouped=_page_out(await service.ungrouped(principal)),
+            ungrouped=await _page_out(await service.ungrouped(principal)),
         )
 
     @router.get("/ungrouped", response_model=ConversationPageOut)
@@ -104,7 +103,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
     ) -> ConversationPageOut:
         """侧栏「任务」区往下滑：接着上一页给。``cursor`` 原样回传响应里的 ``nextCursor``。"""
 
-        return _page_out(await service.ungrouped(principal, cursor=cursor))
+        return await _page_out(await service.ungrouped(principal, cursor=cursor))
 
     @router.get("/by-collection/{collection_id}", response_model=ConversationPageOut)
     async def list_collection_conversations(
@@ -117,7 +116,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         不存在的合集、别人的合集，都给一页空的——与「这个合集是空的」同一个结果。
         """
 
-        return _page_out(await service.in_collection(principal, collection_id, cursor=cursor))
+        return await _page_out(await service.in_collection(principal, collection_id, cursor=cursor))
 
     @router.get("/search", response_model=ConversationsPageOut)
     async def search_conversations(
@@ -128,7 +127,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         """按标题搜自己的对话，最近活动的排前面。筛选在库里做，搜得到全部历史。"""
 
         found = await service.search(principal, limit=limit, title_query=q)
-        return ConversationsPageOut(items=_outs(found))
+        return ConversationsPageOut(items=await _outs(found))
 
     @router.get("/audit", response_model=ConversationsAuditOut)
     async def audit_conversations(
@@ -154,7 +153,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
             limit=limit,
             cursor=cursor,
         )
-        return ConversationsAuditOut(items=_outs(found), next_cursor=next_cursor)
+        return ConversationsAuditOut(items=await _outs(found), next_cursor=next_cursor)
 
     @router.get("/by-task/{task_id}", response_model=ConversationsPageOut)
     async def list_task_attempts(
@@ -169,7 +168,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         """
 
         found = await service.list_for_task(principal, task_id)
-        return ConversationsPageOut(items=_outs(found))
+        return ConversationsPageOut(items=await _outs(found))
 
     @router.get("/{conversation_id}/workspace/files", response_model=ConversationFilesOut)
     async def list_conversation_files(
@@ -211,7 +210,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> ConversationEnvelope:
         conversation = await service.rename(principal, conversation_id, title=body.title)
-        return ConversationEnvelope(conversation=_out(conversation))
+        return ConversationEnvelope(conversation=await _out(conversation))
 
     @router.put("/{conversation_id}/collection", response_model=ConversationEnvelope)
     async def set_conversation_collection(
@@ -222,7 +221,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         conversation = await service.set_collection(
             principal, conversation_id, collection_id=body.collection_id
         )
-        return ConversationEnvelope(conversation=_out(conversation))
+        return ConversationEnvelope(conversation=await _out(conversation))
 
     @router.put("/{conversation_id}/task", response_model=ConversationEnvelope)
     async def set_conversation_task(
@@ -231,7 +230,7 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> ConversationEnvelope:
         conversation = await service.set_task(principal, conversation_id, task_id=body.task_id)
-        return ConversationEnvelope(conversation=_out(conversation))
+        return ConversationEnvelope(conversation=await _out(conversation))
 
     @router.delete("/{conversation_id}", status_code=204)
     async def delete_conversation(

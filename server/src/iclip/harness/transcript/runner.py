@@ -18,8 +18,10 @@
   asap 捞出来做一次 redirect；攒着的话那条消息压根没进官方队列，第二道捞不到它，用户打的字
   静默消失。
   一条追加要么进这次 run，要么退回 ``queued``——收场时清扫一遍没被读到的（见 ``_settle``）。
-- 审批：``HandleDeferredToolCalls`` 的 handler 可以是 async，在**同一次 run 内**等人点头，
-  所以一轮不会被劈成两次 run。
+- 审批：这次 run 以 ``DeferredToolRequests`` 结束，等待记在 prompt 行上（``awaiting``），人点齐
+  之后带着决定新起一次 run 接着跑，画进同一轮。不在 run 内 await 人点头——那种等待随进程一起
+  消失，而一次审批可能等几天。这一刻的历史由本模块存快照：官方 ``StepPersistence`` 此时不存
+  （开放的工具调用过不了它那道门槛），文档写明由调用方持久化。
 
 运行不绑在发起它的那个请求上：请求收下 prompt 就返回，运行在后台任务里跑，产出落进实时状态
 供订阅者取。客户端断开只是没人看着。
@@ -36,19 +38,21 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from pydantic_ai import Agent, CancellationToken, ToolFailed
-from pydantic_ai.capabilities import AbstractCapability, HandleDeferredToolCalls
+from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
     ModelMessage,
+    ModelResponse,
     UserContent,
 )
-from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, RunContext
+from pydantic_ai.tools import DeferredToolResults, RunContext
 from pydantic_ai_harness.compaction import ContextUsage, ReportContextUsage
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.prompts import PromptQueue, PromptRow, PromptStatus
 from iclip.harness.transcript.from_messages import (
+    ORPHAN_TOOL_ERROR,
     run_ids_from_messages,
     turn_run_ids,
     unanswered_tool_calls,
@@ -58,6 +62,7 @@ from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.prompt_media import attachments_of, model_prompt
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.ops import (
+    APPROVAL_ID_PREFIX,
     MAIN_AGENT_ID,
     AttachmentUpsertOp,
     EmittableOperation,
@@ -68,6 +73,7 @@ from iclip.platform.transcript.ops import (
     PromptUpsertOp,
     StepHeader,
     StepUpsertOp,
+    ToolFrame,
     TranscriptMeta,
     TranscriptTurn,
     TurnHeader,
@@ -96,11 +102,17 @@ TurnEnded = Callable[[PromptRow], Awaitable[None]]
 
 
 class ConversationSnapshots(Protocol):
-    """按对话取最新存档。只要这一口，不要整个 step store。"""
+    """按对话取最新存档、写一份存档。只要这两口，不要整个 step store。
+
+    ``save_snapshot`` 只在 run 停到审批上那一刻用：官方那时不存，我们经它的协议方法写进同一张表，
+    续跑那侧照旧用 ``latest_conversation_snapshot`` 原样读回来。
+    """
 
     async def latest_conversation_snapshot(
         self, *, conversation_id: str, include_interrupted: bool = False
     ) -> ContinuableSnapshot | None: ...  # pragma: no cover
+
+    async def save_snapshot(self, snapshot: ContinuableSnapshot) -> None: ...  # pragma: no cover
 
 
 def _now() -> datetime:
@@ -134,11 +146,30 @@ def _close_out(history: Sequence[ModelMessage]) -> DeferredToolResults | None:
     )
 
 
-def _seed_ops(turn: TranscriptTurn) -> tuple[EmittableOperation, ...]:
+def _approvals_of(row: PromptRow, history: Sequence[ModelMessage]) -> DeferredToolResults:
+    """人点过的那些决定，摆成官方续跑要的形状。
+
+    官方要求给出的结果覆盖前沿**全部**可执行调用，少一个直接拒绝这次运行。所以只在凑齐之后才
+    起续跑（见 ``approve``），走到这里还缺就是程序错，当场抛出来而不是拿一个空决定去糊过去。
+    """
+
+    pending = unanswered_tool_calls(history)
+    missing = [item for item in pending if item not in row.decisions]
+    if missing:
+        raise RuntimeError(f"这几次调用还没有审批结果，续跑起不来：{missing}")
+    return DeferredToolResults(approvals={item: row.decisions[item] for item in pending})
+
+
+def _seed_ops(
+    turn: TranscriptTurn, *, last_step_interrupted: bool
+) -> tuple[EmittableOperation, ...]:
     """把历史推出来的这一轮原样写进实时状态：轮头部、每一步、每一块。
 
     顺序不能改：实时状态落地时步要挂在已有的轮上、块要挂在已有的步上，反了直接抛 ``KeyError``，
     整批操作连带轮头部一起丢掉。
+
+    ``last_step_interrupted`` 是「老 run 断在末步」：中断续跑是这样，审批续跑不是——那一步是干净
+    结束的，标成中断的话刷新时它会从「完成」翻成「中断」。
     """
 
     ops: list[EmittableOperation] = [
@@ -150,7 +181,7 @@ def _seed_ops(turn: TranscriptTurn) -> tuple[EmittableOperation, ...]:
     ]
     for index, step in enumerate(turn.steps):
         header = StepHeader.model_validate(step.model_dump(exclude={"frames"}))
-        if index == len(turn.steps) - 1:
+        if last_step_interrupted and index == len(turn.steps) - 1:
             # 老 run 停在这一步。历史那侧要等续跑的消息落库才看得出这件事（见 ``from_messages``
             # 里的 ``broke_off``），这侧现在就知道，不标的话刷新时这一步会从「完成」翻成「中断」。
             header = header.model_copy(update={"state": "interrupted"})
@@ -194,41 +225,6 @@ class _RunHandle(AbstractCapability[Any]):
         return tuple(item for item in enqueue_ids if item in waiting)
 
 
-@dataclass
-class _ApprovalDesk:
-    """等人点头。每个待批的工具调用一个位子，人回话了就把它填上。"""
-
-    decisions: dict[str, asyncio.Future[bool]] = field(
-        default_factory=dict[str, "asyncio.Future[bool]"]
-    )
-
-    async def handle(
-        self, _ctx: RunContext[Any], requests: DeferredToolRequests
-    ) -> DeferredToolResults:
-        """等齐这一批的全部回话，再把结果交回引擎。
-
-        这里**不能吞 ``CancelledError``**：停止就是靠取消送达的，吞掉的话这次 run 会一直挂在
-        等人回话上，谁也停不了它。
-        """
-
-        loop = asyncio.get_running_loop()
-        for part in requests.approvals:
-            self.decisions.setdefault(part.tool_call_id, loop.create_future())
-        results = DeferredToolResults()
-        for part in requests.approvals:
-            results.approvals[part.tool_call_id] = await self.decisions[part.tool_call_id]
-        return results
-
-    def settle(self, tool_call_id: str, *, approved: bool) -> bool:
-        """人点了。这个位子还没人填过才算数，返回是否真的填上了。"""
-
-        waiting = self.decisions.get(tool_call_id)
-        if waiting is None or waiting.done():
-            return False
-        waiting.set_result(approved)
-        return True
-
-
 @dataclass(slots=True)
 class _Active:
     """正在跑的那一轮，加上够得着它的那几个把手。"""
@@ -239,7 +235,6 @@ class _Active:
     turn_id: str
     token: CancellationToken
     handle: _RunHandle
-    desk: _ApprovalDesk
     steered: dict[str, str] = field(default_factory=dict[str, str])
     """递进这一轮的追加：官方给的入队 id → 那条 prompt 的 id。收场时按它清扫。"""
 
@@ -396,17 +391,19 @@ class ConversationRunner:
         row = await self._queue.abort(prompt_id, now=_now())
         if row.conversation_id != conversation_id:
             raise NotFound(f"没有这条消息：{prompt_id}")
-        if row.status == "queued":
+        if row.status in ("queued", "awaiting"):
             settled = await self._queue.get(prompt_id)
             if settled is not None:
                 self._publish(settled)
+            if row.status == "awaiting":
+                await self._cancel_awaiting(row)
             return
         active = self._active.get(row.conversation_id)
         if active is not None and active.prompt_id == prompt_id:
             active.token.cancel()
 
     async def abort_conversation(self, conversation_id: str) -> None:
-        """停掉整段对话：排着的全撤，在跑的那条发第一方取消。
+        """停掉整段对话：排着的全撤，在跑的那条发第一方取消，等审批的那条当场撤掉。
 
         顺序不能反：先取消在跑的那条，它收尾时会把队首顶上来接着跑——用户按了停止，反而看到下
         一条开跑。先把队列撤空，收尾时就没有可接的了。
@@ -417,6 +414,11 @@ class ConversationRunner:
         active = self._active.get(conversation_id)
         if active is not None:
             active.token.cancel()
+            return
+        # 没有 run 在跑，但这段对话可能正停在审批上——那条行也归「停掉整段对话」管。
+        waiting = (await self._queue.view(conversation_id)).active
+        if waiting is not None and waiting.status == "awaiting":
+            await self.abort(conversation_id, waiting.prompt_id)
 
     async def steer(self, conversation_id: str, prompt_ids: tuple[str, ...]) -> None:
         """把排队中的几条插进正在跑的那一轮。
@@ -431,6 +433,11 @@ class ConversationRunner:
 
         active = self._active.get(conversation_id)
         if active is None:
+            # 只在没有 run 在跑时才去问库：等审批与真的空闲对用户是两回事，而这一问在正常路径
+            # 上是多余的往返。
+            waiting = (await self._queue.view(conversation_id)).active
+            if waiting is not None and waiting.status == "awaiting":
+                raise Conflict("这段对话在等审批，插不进去")
             raise Conflict("这段对话现在没有在跑的运行，插不进去")
         picked = await self._queue.pick_for_steer(conversation_id, prompt_ids)
         moved = await self._queue.mark_steered(
@@ -439,11 +446,7 @@ class ConversationRunner:
         if self._active.get(conversation_id) is not active:
             await self._revert(tuple(row.prompt_id for row in moved))
             # 收场那一侧的 start_next 已经跑过了，这里不叫的话这几条会一直排着没人管。
-            if not self._closing:
-                following = await self._queue.start_next(conversation_id, locked_by=self.locked_by)
-                if following is not None:
-                    self._publish(following)
-                    self._spawn(following)
+            await self._start_next(conversation_id)
             return
         # ``_active`` 在进引擎之前就挂上了（停止和插话随时可能先到），所以这几微秒里 ``ctx`` 还
         # 可能没接住。递不进去的原样退回队列——记成 ``steered`` 而没人递，它会跟着这一轮报成完成，
@@ -466,17 +469,25 @@ class ConversationRunner:
         for row in await self._queue.requeue_steered(prompt_ids):
             self._publish(row)
 
-    def approve(self, conversation_id: str, interaction_id: str, *, approved: bool) -> None:
-        """人对一张审批卡点了「同意」或「拒绝」。
+    async def approve(self, conversation_id: str, interaction_id: str, *, approved: bool) -> None:
+        """人对一张审批卡点了「同意」或「拒绝」。决定记在 prompt 行上，凑齐了才起续跑。
 
-        没有这张卡、或者它已经落定过，抛 ``NotFound``：重复提交同一个决定不该悄悄换掉第一次
-        的结果，而工具那一侧早就照第一次的决定走下去了。
+        这段对话没在等审批、或者那张卡不在前沿的开放调用里，抛 ``NotFound``——那个 id 是从帧里
+        抄来的，指着一次早就有结果的调用时不能假装刚刚记下了什么。同值重复提交照原样收下，改主意
+        抛 ``Conflict``（``record_decision`` 那道判断）。
+
+        起续跑的 CAS 只有一个人能成：两次点击、或者两个 worker 同时凑齐时，抢不到的那一方什么都
+        不做。
         """
 
-        active = self._active.get(conversation_id)
-        tool_call_id = interaction_id.removeprefix("apr_")
-        if active is None or not active.desk.settle(tool_call_id, approved=approved):
+        row = (await self._queue.view(conversation_id)).active
+        if row is None or row.status != "awaiting":
             raise NotFound(f"没有等着回应的审批：{interaction_id}")
+        tool_call_id = interaction_id.removeprefix(APPROVAL_ID_PREFIX)
+        pending = unanswered_tool_calls(await self._messages(conversation_id))
+        if tool_call_id not in pending:
+            raise NotFound(f"没有等着回应的审批：{interaction_id}")
+        recorded = await self._queue.record_decision(row.prompt_id, tool_call_id, approved=approved)
         self._store.append(
             conversation_id,
             MAIN_AGENT_ID,
@@ -491,6 +502,76 @@ class ConversationRunner:
                 ),
             ),
         )
+        if any(item not in recorded.decisions for item in pending):
+            return
+        claimed = await self._queue.claim_for_continuation(
+            recorded.prompt_id, locked_by=self.locked_by
+        )
+        if claimed is None:
+            return
+        self._publish(claimed)
+        # 递 ``awaiting`` 那一份：库里那行已经改成在跑，而 ``_run_once`` 要靠行上的状态认出
+        # 「这次是审批续跑」。
+        self._spawn(recorded)
+
+    async def _cancel_awaiting(self, row: PromptRow) -> None:
+        """一条等审批的 prompt 被撤掉之后收尾：递进去的插话、实时状态里的审批卡与那一轮，然后放手。
+
+        这一轮没有 run 在跑，没人替它发终态。不发的话界面上留着一张永远等回应的卡、一张一直转
+        圈的工具卡，侧栏也一直显示这段对话在忙；而递进那次 run 的插话本来等着续跑给结局，续跑
+        不会再来了，它们得跟着这一轮一起撤销。
+        """
+
+        if row.run_id is not None:
+            for child in await self._queue.settle_steered(row.run_id, status="aborted", now=_now()):
+                self._publish(child)
+        view = self._store.subscribe_view(row.conversation_id, MAIN_AGENT_ID)
+        turn = next((item for item in view.live_turns if item.state == "running"), None)
+        waiting = self._store.pending_interactions(row.conversation_id, MAIN_AGENT_ID)
+        ops: list[EmittableOperation] = [
+            InteractionUpsertOp(interaction=item.model_copy(update={"state": "cancelled"}))
+            for item in waiting
+        ]
+        if turn is not None:
+            answered = {item.tool_call_id for item in waiting}
+            ops.extend(
+                FrameUpsertOp(
+                    turn_id=turn.turn_id,
+                    step_id=step.step_id,
+                    frame=frame.model_copy(update={"state": "error", "error": ORPHAN_TOOL_ERROR}),
+                )
+                for step in turn.steps
+                for frame in step.frames
+                if isinstance(frame, ToolFrame) and frame.tool_call_id in answered
+            )
+            ops.append(
+                TurnUpsertOp(
+                    turn=TurnHeader.model_validate(
+                        turn.model_dump(exclude={"steps"})
+                        | {"state": "cancelled", "ended_at": _now().isoformat()}
+                    )
+                )
+            )
+        ops.append(MetaMergeOp(meta=TranscriptMeta(activity="idle")))
+        self._store.append(row.conversation_id, MAIN_AGENT_ID, tuple(ops))
+        if turn is not None and row.run_id is not None:
+            await self._hand_over(row.conversation_id, run_id=row.run_id, turn_id=turn.turn_id)
+        # 这一轮没有 run 在跑，没人替它去接队首——不叫的话排着的那些会一直等到下一次清扫。
+        await self._start_next(row.conversation_id)
+
+    async def _start_next(self, conversation_id: str) -> None:
+        """把这段对话排在最前的那条顶上来开跑。
+
+        关停途中不接：接了也只会立刻被取消，反而给用户留一条从没跑过、却记着「撤销了」的消息。
+        排着的那些原样留在库里，由清扫叫醒。
+        """
+
+        if self._closing:
+            return
+        following = await self._queue.start_next(conversation_id, locked_by=self.locked_by)
+        if following is not None:
+            self._publish(following)
+            self._spawn(following)
 
     # --- 跑 -----------------------------------------------------------------
 
@@ -515,9 +596,14 @@ class ConversationRunner:
         finally:
             active = self._active.pop(row.conversation_id, None)
             self._store.unpin(row.conversation_id)
+            if status == "awaiting":
+                # 停在审批上：这一轮没结束，不给结局、不交接实时状态、也不接下一条。读走的插话
+                # 留在 ``steered``，由续跑那次 run 认走（``adopt_steered``）；没被读到的退回队列，
+                # 留着的话它会跟着续跑那次 run 报成完成，而模型从没见过那句话。
+                await self._revert_stranded(active)
             # 关停时被取消收场的那一轮不给结局，放掉租约等人接着跑。用户按的停止走的也是取消，
             # 与关停撞在一起时这条会跟着被续跑一次。
-            if self._closing and status == "aborted":
+            elif self._closing and status == "aborted":
                 await self._release(row, active)
             else:
                 await self._settle(active, status=status)
@@ -527,15 +613,7 @@ class ConversationRunner:
                 settled = await self._queue.get(row.prompt_id)
                 if settled is not None:
                     self._publish(settled)
-                # 关停途中不再往下接：接了也只会立刻被取消，反而给用户留一条从没跑过、却记着
-                # 「撤销了」的消息。排着的那些原样留在库里，由清扫叫醒。
-                if not self._closing:
-                    following = await self._queue.start_next(
-                        row.conversation_id, locked_by=self.locked_by
-                    )
-                    if following is not None:
-                        self._publish(following)
-                        self._spawn(following)
+                await self._start_next(row.conversation_id)
                 # 放在接下一条之后：起名字要等一次模型调用，排在前面的话队列里那条就得干等它。
                 await self._after_turn(row)
 
@@ -547,17 +625,23 @@ class ConversationRunner:
         跟着续跑那一次。
         """
 
-        if active is not None:
-            stranded = active.handle.undelivered(active.steered)
-            if stranded:
-                _logger.info("这几条追加没赶上这一轮，退回队列：%s", stranded)
-                await self._revert(tuple(active.steered[item] for item in stranded))
+        await self._revert_stranded(active)
         await self._queue.release(
             row.prompt_id, locked_by=self.locked_by, reason="服务关停，等待续跑"
         )
         released = await self._queue.get(row.prompt_id)
         if released is not None:
             self._publish(released)
+
+    async def _revert_stranded(self, active: _Active | None) -> None:
+        """把这次 run 没读到的追加退回队列。读走的留在 ``steered``，由续跑那次 run 认走。"""
+
+        if active is None:
+            return
+        stranded = active.handle.undelivered(active.steered)
+        if stranded:
+            _logger.info("这几条追加没赶上这一轮，退回队列：%s", stranded)
+            await self._revert(tuple(active.steered[item] for item in stranded))
 
     async def _after_turn(self, row: PromptRow) -> None:
         """一轮的附带动作。出什么错都只记一笔：这一轮本身已经跑完并落了终态。"""
@@ -591,10 +675,19 @@ class ConversationRunner:
             self._publish(child)
 
     async def _run_once(self, row: PromptRow) -> PromptStatus:
+        """跑一次 run，返回这一轮此刻的内部状态。
+
+        四条起手：首次跑、中断续跑（老 run 的消息在历史里）、崩在第一个周期之前的原样重跑、
+        审批续跑（行上记着 ``awaiting``，带着人点的决定接着跑）。前三条都要把历史末尾悬空的工具
+        调用收掉；审批续跑**不收**——官方要求这时给出的结果覆盖前沿全部可执行调用，已经执行过的
+        那几次它自己按末尾那条请求里的返回标成跳过。
+        """
+
         agent = self._agents.get(row.agent_id)
         if agent is None:
             raise NotFound(f"未注册的 agent: {row.agent_id}")
 
+        awaiting = row.status == "awaiting"
         history = await self._messages(row.conversation_id)
         # 轮号接着历史往下数。两条路必须给出同一个号，而历史那侧数的是合成轮之后的组数。
         prompt_of_run = await self._queue.prompt_of_runs(row.conversation_id)
@@ -620,7 +713,6 @@ class ConversationRunner:
             turn_id=turn_id,
             token=CancellationToken(),
             handle=_RunHandle(),
-            desk=_ApprovalDesk(),
         )
         # 先挂上再开跑：停止和插话随时可能在第一个事件之前就到。
         self._active[row.conversation_id] = active
@@ -646,12 +738,17 @@ class ConversationRunner:
             attachment_ids=tuple(item.attachment_id for item in attachments),
             max_context_tokens=context_window,
             resume_from=resume_from,
-            resume_prompt=None if resume_from is None else CONTINUATION_PROMPT,
+            # 审批续跑不发触发语：模型收到的是那几次调用的结果，不是「从落库的进度继续」。
+            resume_prompt=None if resume_from is None or awaiting else CONTINUATION_PROMPT,
         )
         if resume_from is not None:
             # 播种要在投影器发第一批之前落地：同号的轮以实时那份为准，只有新步的实时轮会把历史
             # 里已经跑过的那几步整个盖掉。
-            self._store.append(row.conversation_id, MAIN_AGENT_ID, _seed_ops(resume_from))
+            self._store.append(
+                row.conversation_id,
+                MAIN_AGENT_ID,
+                _seed_ops(resume_from, last_step_interrupted=not awaiting),
+            )
 
         def report_context(usage: ContextUsage) -> None:
             projector.max_context_tokens = usage.window_tokens
@@ -668,21 +765,25 @@ class ConversationRunner:
             )
 
         deps = await self._deps_for(row)
-        # 续跑不重发原话：历史里已经有它了，这次只告诉模型从落库的进度接着做。
-        user_prompt: list[UserContent] = (
-            model_prompt(row.content) if resume_from is None else [CONTINUATION_PROMPT]
-        )
+        # 审批续跑一句用户消息都不发：官方按前沿那些调用的结果直接接着跑。中断续跑不重发原话，
+        # 历史里已经有它了，只告诉模型从落库的进度接着做。
+        user_prompt: list[UserContent] | None = None
+        if not awaiting:
+            user_prompt = (
+                model_prompt(row.content) if resume_from is None else [CONTINUATION_PROMPT]
+            )
         async with agent.run_stream_events(
             user_prompt,
             message_history=history,
-            deferred_tool_results=_close_out(history),
+            deferred_tool_results=(
+                _approvals_of(row, history) if awaiting else _close_out(history)
+            ),
             conversation_id=row.conversation_id,
             run_id=run_id,
             deps=deps,
             cancellation_token=active.token,
             capabilities=[
                 active.handle,
-                HandleDeferredToolCalls(handler=active.desk.handle),
                 *(
                     [ReportContextUsage(on_usage=report_context, context_window=context_window)]
                     if context_window is not None
@@ -693,10 +794,45 @@ class ConversationRunner:
             async for batch in projector.transform_stream(events):
                 self._store.append(row.conversation_id, MAIN_AGENT_ID, batch)
 
+        if projector.deferred is not None:
+            return await self._await_approvals(
+                row, run_id=run_id, history=projector.deferred_history
+            )
         await self._hand_over(row.conversation_id, run_id=run_id, turn_id=turn_id)
         if projector.cancelled is not None:
             return "aborted"
         return "failed" if projector.failed else "completed"
+
+    async def _await_approvals(
+        self, row: PromptRow, *, run_id: str, history: Sequence[ModelMessage]
+    ) -> PromptStatus:
+        """这次 run 停在审批上：存下此刻的历史，行改成等审批，实时那一轮原样留着。
+
+        快照由我们存：官方 ``StepPersistence`` 在这一刻不存（开放的工具调用过不了它那道门槛），
+        文档写明由调用方持久化。走它的协议方法写进同一张表，续跑那侧照旧用
+        ``latest_conversation_snapshot(include_interrupted=True)`` 原样读回来。
+
+        实时那一轮不交接：轮还在 running、审批卡还等着回应，「这段对话在忙什么」正是从这两样
+        算出来的。
+        """
+
+        await self._snapshots.save_snapshot(
+            ContinuableSnapshot(
+                run_id=run_id,
+                step_index=sum(
+                    1
+                    for message in history
+                    if isinstance(message, ModelResponse) and message.run_id == run_id
+                ),
+                messages=list(history),
+                conversation_id=row.conversation_id,
+                state="interrupted",
+            )
+        )
+        waiting = await self._queue.await_approvals(row.prompt_id, locked_by=self.locked_by)
+        if waiting is not None:
+            self._publish(waiting)
+        return "awaiting"
 
     async def _messages(self, conversation_id: str) -> list[ModelMessage]:
         """这段对话到目前为止的消息，中断的那一份也算。

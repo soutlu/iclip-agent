@@ -15,13 +15,17 @@
 ``run_failed``（后者把 ``repr(error)`` 存进 ``error`` 列，取消因此认得出来）。分类规则见
 ``run_state_from_events``；按 ``run_id`` 查那张表即可，``turn_states`` 收的就是这个键。没查
 到的轮子给 ``failed``——「没记下一次干净的收尾」就是这个意思，不能默认当成跑完了。
+
+**等审批的那一轮也不在这里猜。** 一次 run 干净收尾、末尾那条响应上却还开着工具调用，只有
+「以 ``DeferredToolRequests`` 结束」这一种可能；那几次调用是不是还等着人点头，要看那条 prompt
+此刻是什么状态（``prompt_status_of_run``）。判据与各自的结局见 ``_approval_calls``。
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Final, Literal, cast
 
 from pydantic_ai.messages import (
     ModelMessage,
@@ -40,8 +44,10 @@ from pydantic_ai_harness.step_persistence import StepEvent
 from iclip.harness.transcript.prompt_media import read_prompt_items
 from iclip.platform.transcript.display import tool_display
 from iclip.platform.transcript.ops import (
+    APPROVAL_ID_PREFIX,
     TOOL_STATE_BY_OUTCOME,
     Attachment,
+    Interaction,
     StepUsage,
     TextFrame,
     ThinkingFrame,
@@ -56,6 +62,24 @@ from iclip.platform.transcript.ops import (
 
 TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
 
+ApprovalState = Literal["pending", "approved", "rejected", "cancelled"]
+
+_CLOSED_OUT_OUTCOMES: Final = ("failed", "interrupted")
+"""收尾补给悬空调用的那两种返回结局。它们不是人点的头，是崩溃续跑起手把前沿收掉（见
+``runner._close_out``）。"""
+
+_WAITING_PROMPT_STATUSES: Final = ("awaiting", "running")
+"""还会有人来读那几张审批卡的两种 prompt 状态：正等着点头，或者点齐了已经起了续跑。"""
+
+_TURN_STATE_BY_PROMPT: Final[dict[str, TurnState]] = {
+    "awaiting": "running",
+    "running": "running",
+    "aborted": "cancelled",
+    "failed": "failed",
+}
+"""末尾还开着审批调用时，轮的终态按那条 prompt 的状态定，不按结束事件——那次 run 是干净收尾的，
+按它算这一轮会显示成「跑完了」，而人还没点头。"""
+
 
 def turns_from_messages(
     messages: Sequence[ModelMessage],
@@ -63,6 +87,7 @@ def turns_from_messages(
     turn_states: Mapping[str, TurnState] | None = None,
     turn_errors: Mapping[str, str | None] | None = None,
     prompt_of_run: Mapping[str, str] | None = None,
+    prompt_status_of_run: Mapping[str, str] | None = None,
 ) -> tuple[TranscriptTurn, ...]:
     """把一段对话的消息历史推成一串轮子，按发生先后排。
 
@@ -70,21 +95,96 @@ def turns_from_messages(
     开头）。错误文字得跟着一起来：实时那侧把它挂在轮头部，这侧不给就两条路对不上。
 
     ``prompt_of_run`` 是 run → prompt 的映射，多次 run 合成一轮靠它。轮的终态取该轮**最后一次**
-    run 的：更早那几次是中断后续跑掉的，它们的结局只定各自的步。
+    run 的：更早那几次是中断后续跑掉的，它们的结局只定各自的步。``prompt_status_of_run`` 是
+    run → 那条 prompt 此刻的状态，只在末尾还开着审批调用时用得上（见 ``_approval_calls``）。
     """
 
     states = turn_states or {}
     errors = turn_errors or {}
-    return tuple(
-        _turn(
-            segments,
-            ordinal=ordinal,
-            state=states.get(segments[-1][0], "failed"),
-            error=errors.get(segments[-1][0]),
-            run_states=states,
+    statuses = prompt_status_of_run or {}
+    turns: list[TranscriptTurn] = []
+    for ordinal, segments in enumerate(_group_by_turn(messages, prompt_of_run or {}), start=1):
+        last_run = segments[-1][0]
+        settled, waiting = _approval_calls(segments, states)
+        prompt_status = statuses.get(last_run)
+        from_events = states.get(last_run, "failed")
+        turns.append(
+            _turn(
+                segments,
+                ordinal=ordinal,
+                state=(
+                    _TURN_STATE_BY_PROMPT.get(prompt_status or "", from_events)
+                    if waiting
+                    else from_events
+                ),
+                error=errors.get(last_run),
+                run_states=states,
+                approvals=(*settled, *waiting),
+                waiting=waiting if prompt_status in _WAITING_PROMPT_STATUSES else (),
+            )
         )
-        for ordinal, segments in enumerate(_group_by_turn(messages, prompt_of_run or {}), start=1)
+    return tuple(turns)
+
+
+def approvals_from_messages(
+    messages: Sequence[ModelMessage],
+    *,
+    turn_states: Mapping[str, TurnState] | None = None,
+    prompt_of_run: Mapping[str, str] | None = None,
+    prompt_status_of_run: Mapping[str, str] | None = None,
+) -> tuple[Interaction, ...]:
+    """这段对话里的审批交互：已经落定的那些，加末尾还等着人点头的那几张。
+
+    判据与工具卡上那个审批 id 同一份（``_approval_calls``）。还开着的那几张按 prompt 状态定：
+    等审批或者已经起了续跑 → ``pending``，撤销与失败 → ``cancelled``，因为再没有 run 会来读它，
+    而界面上一张永远等回应的卡比一条已取消的记录难看得多。
+    """
+
+    states = turn_states or {}
+    statuses = prompt_status_of_run or {}
+    items: list[Interaction] = []
+    for segments in _group_by_turn(messages, prompt_of_run or {}):
+        settled, waiting = _approval_calls(segments, states)
+        items.extend(_approval(item, state) for item, state in settled.items())
+        pending = statuses.get(segments[-1][0]) in _WAITING_PROMPT_STATUSES
+        items.extend(_approval(item, "pending" if pending else "cancelled") for item in waiting)
+    return tuple(items)
+
+
+def _approval(tool_call_id: str, state: ApprovalState) -> Interaction:
+    return Interaction(
+        interaction_id=f"{APPROVAL_ID_PREFIX}{tool_call_id}",
+        interaction_kind="approval",
+        tool_call_id=tool_call_id,
+        state=state,
     )
+
+
+def _approval_calls(
+    segments: Sequence[tuple[str, Sequence[ModelMessage]]],
+    run_states: Mapping[str, TurnState],
+) -> tuple[dict[str, ApprovalState], tuple[str, ...]]:
+    """这一轮里哪几次工具调用是审批：已经落定的各自什么结局，末尾那几个还开着。
+
+    判据只有这两条，别再加：**一段干净收尾**（官方记下了 ``run_completed``）却在末尾那条响应上
+    留着没有结果的调用——只有以 ``DeferredToolRequests`` 结束才会是这个形状，崩在工具执行中途
+    留下的形状一样，但那一段不是干净收尾；结局看同一轮后一段第一条请求里的返回，``denied`` 是
+    拒了，其余是放行了，而收尾补的 ``failed`` / ``interrupted`` 不算（那是崩溃续跑起手把前沿收掉）。
+    """
+
+    settled: dict[str, ApprovalState] = {}
+    open_calls: tuple[str, ...] = ()
+    for index, (run_id, group) in enumerate(segments):
+        first = group[0] if group else None
+        if index > 0 and open_calls and isinstance(first, ModelRequest):
+            for part in first.parts:
+                if not isinstance(part, ToolReturnPart) or part.tool_call_id not in open_calls:
+                    continue
+                if part.outcome in _CLOSED_OUT_OUTCOMES:
+                    continue
+                settled[part.tool_call_id] = "rejected" if part.outcome == "denied" else "approved"
+        open_calls = unanswered_tool_calls(group) if run_states.get(run_id) == "completed" else ()
+    return settled, open_calls
 
 
 def run_ids_from_messages(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
@@ -217,8 +317,14 @@ def _turn(
     state: TurnState,
     error: str | None = None,
     run_states: Mapping[str, TurnState],
+    approvals: Sequence[str] = (),
+    waiting: Sequence[str] = (),
 ) -> TranscriptTurn:
-    """一轮的那几次 run → 一轮。步号跨 run 接着数，工具卡在哪一段发起就留在那一段。"""
+    """一轮的那几次 run → 一轮。步号跨 run 接着数，工具卡在哪一段发起就留在那一段。
+
+    ``approvals`` 是这一轮里要盖审批 id 的那几次调用，``waiting`` 是其中还等着人点头的——后者
+    的卡留在 ``running``，别的没等到返回的照旧收成错的那一档。
+    """
 
     turn_id = f"t{ordinal}"
     steps: list[TranscriptStep] = []
@@ -284,7 +390,9 @@ def _turn(
         if broke_off:
             steps[-1] = steps[-1].model_copy(update={"state": "interrupted"})
 
-    _close_orphan_tools(tool_frames, frames_by_step)
+    for tool_call_id in approvals:
+        _stamp_approval(tool_call_id, tool_frames, frames_by_step)
+    _close_orphan_tools(tool_frames, frames_by_step, keep_open=waiting)
 
     messages = [message for _, group in segments for message in group]
     return TranscriptTurn(
@@ -438,12 +546,36 @@ ORPHAN_TOOL_ERROR = "运行中断，这次调用没有结果"
 """
 
 
-def _close_orphan_tools(
-    tool_frames: dict[str, str], frames_by_step: list[dict[str, TranscriptFrame]]
+def _stamp_approval(
+    tool_call_id: str,
+    tool_frames: dict[str, str],
+    frames_by_step: list[dict[str, TranscriptFrame]],
 ) -> None:
-    """把没等到返回的工具卡收成错的那一档。"""
+    """给这张卡盖上审批 id。客户端靠它把「同意 / 拒绝」挂在这张卡上。"""
+
+    frame_id = tool_frames.get(tool_call_id)
+    if frame_id is None:
+        return
+    for step_frames in frames_by_step:
+        existing = step_frames.get(frame_id)
+        if isinstance(existing, ToolFrame):
+            step_frames[frame_id] = existing.model_copy(
+                update={"approval_id": f"{APPROVAL_ID_PREFIX}{tool_call_id}"}
+            )
+            return
+
+
+def _close_orphan_tools(
+    tool_frames: dict[str, str],
+    frames_by_step: list[dict[str, TranscriptFrame]],
+    *,
+    keep_open: Sequence[str] = (),
+) -> None:
+    """把没等到返回的工具卡收成错的那一档。等审批的那几张不收：人正对着它点头。"""
 
     for tool_call_id in tool_frames:
+        if tool_call_id in keep_open:
+            continue
         for step_frames in frames_by_step:
             existing = step_frames.get(tool_frames[tool_call_id])
             if isinstance(existing, ToolFrame) and existing.state == "running":
@@ -511,7 +643,9 @@ def _turn_usage(steps: Sequence[TranscriptStep]) -> TurnUsage | None:
 
 __all__ = [
     "ORPHAN_TOOL_ERROR",
+    "ApprovalState",
     "TurnState",
+    "approvals_from_messages",
     "drop_last_turn",
     "run_error_from_events",
     "run_ids_from_messages",

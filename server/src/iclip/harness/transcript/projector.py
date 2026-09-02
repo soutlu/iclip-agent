@@ -8,8 +8,12 @@
 一个 id 不一样，同一段对话在刷新前后就会变形。所以编号一律走共享的规则（``ops`` 模块开头
 那几条 + ``next_frame_ordinal``），不按到达次序。
 
-一轮可以跨多次 run：中断之后从最新快照续跑，画的还是原来那一轮。续跑的投影器由 ``resume_from``
-播种——整轮的现状由历史那一侧推出来，步号、块号、用量与还开着的工具卡都接着它数。
+一轮可以跨多次 run：中断之后从最新快照续跑、等审批之后带着决定续跑，画的还是原来那一轮。续跑的
+投影器由 ``resume_from`` 播种——整轮的现状由历史那一侧推出来，步号、块号、用量与还开着的工具卡
+都接着它数。
+
+**run 以 ``DeferredToolRequests`` 结束时不发终态**：那一轮没有结束，人还没点头。这一刻由
+``deferred`` 与 ``deferred_history`` 交给运行侧，它去存快照、把 prompt 记成等审批。
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from pydantic_ai.messages import (
     EnqueuedMessagesEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
+    ModelMessage,
     ModelResponse,
     RetryPromptPart,
     TextPart,
@@ -36,12 +41,14 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.run import AgentRunResultEvent
+from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.ui import UIEventStream
 from pydantic_ai_harness.compaction import estimate_context_tokens
 
 from iclip.harness.transcript.from_messages import ORPHAN_TOOL_ERROR, step_usage
 from iclip.platform.transcript.display import tool_display
 from iclip.platform.transcript.ops import (
+    APPROVAL_ID_PREFIX,
     MAIN_AGENT_ID,
     TOOL_STATE_BY_OUTCOME,
     AppendOp,
@@ -111,6 +118,11 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     _pending_steers: list[str] = field(default_factory=list[str], init=False)
     """还没有步可挂的插话，等下一步开出来放在最前面（与 ``from_messages`` 同一条规则）。"""
 
+    deferred: DeferredToolRequests | None = field(default=None, init=False)
+    """这次 run 停在哪一批审批上。为空即它是正常收场的。"""
+    deferred_history: tuple[ModelMessage, ...] = field(default=(), init=False)
+    """停在审批那一刻的整份消息历史。官方这时不存快照，由运行侧存（见 ADR-0006 决策 4）。"""
+
     def __post_init__(self) -> None:
         """续跑：把这一轮已经有的东西接过来。
 
@@ -130,14 +142,17 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             return
         last = turn.steps[-1]
         self._frame_ids = [frame.frame_id for frame in last.frames]
-        # 只认没等到返回的那几张卡：它们的结局正是这次 run 起手补的那份（见 ``runner._close_out``），
-        # 结局到达时要改在原卡上，不记着就会另建一张，两条路当场分叉。
+        # 只认还没有真结局的那几张卡：崩溃续跑起手给它们补一份失败结果（见
+        # ``runner._close_out``），审批续跑则带着决定去执行它们。两种情形下结局都要改在原卡上，
+        # 不记着就会另建一张，两条路当场分叉。
         self._tool_cards = {
             frame.tool_call_id: frame
             for frame in last.frames
             if isinstance(frame, ToolFrame)
-            and frame.state == "error"
-            and frame.error == ORPHAN_TOOL_ERROR
+            and (
+                frame.state == "running"
+                or (frame.state == "error" and frame.error == ORPHAN_TOOL_ERROR)
+            )
         }
 
     # --- 编码 ---------------------------------------------------------------
@@ -171,6 +186,11 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     async def after_stream(self) -> AsyncIterator[OpsBatch]:
         if self._cancelled is not None or self._closed_with_error:
             # 终态已经由 on_cancelled / on_error 发过了，别再盖一个「跑完了」上去。
+            return
+        if self.deferred is not None:
+            # 停在审批上：这一轮还在跑，只是这次 run 结束了。发「跑完了」的话界面上那一轮当场
+            # 收摊，而人正对着一张审批卡；只把刚补齐的用量带出去，状态仍是 running。
+            yield (TurnUpsertOp(turn=self._turn_header(state="running")),)
             return
         yield (
             TurnUpsertOp(turn=self._turn_header(state="completed")),
@@ -229,8 +249,14 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
 
         报错与取消的轮子走的是异常那条路，压根不发这个事件，所以实时那侧的失败轮不带用量；
         刷新之后从消息历史推出来的那份带。
+
+        以 ``DeferredToolRequests`` 结束的 run 也走这里：用量照补，但这一刻的历史与那批请求要
+        交给运行侧——官方 ``StepPersistence`` 此时不存快照（开放的工具调用过不了它那道门槛）。
         """
 
+        if isinstance(event.result.output, DeferredToolRequests):
+            self.deferred = event.result.output
+            self.deferred_history = tuple(event.result.all_messages())
         responses = [
             message for message in event.result.new_messages() if isinstance(message, ModelResponse)
         ]
@@ -314,6 +340,9 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         if self._step_ordinal == 0:
             return
 
+        # 审批放行之后续跑，官方会把这次调用再走一遍派活事件。卡上的审批 id 得原样带过来，
+        # 丢了的话历史那侧说这张卡有审批、实时这侧说没有。
+        opened = self._tool_cards.get(event.part.tool_call_id)
         card = ToolFrame(
             frame_id=f"{self._step_id}.{event.part.tool_call_id}",
             tool_call_id=event.part.tool_call_id,
@@ -321,6 +350,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             state="running",
             input=event.part.args,
             display=tool_display(event.part.tool_name, event.part.args),
+            approval_id=None if opened is None else opened.approval_id,
         )
         # 记着这张卡：结局到达时是整张替换掉（协议的 frame.upsert 不是合并），参数与画法得
         # 由这里带过去。消息推出来的那一侧是在原卡上改，不记着就两边不一样。
@@ -360,31 +390,47 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     async def handle_deferred_tool_requests(
         self, event: DeferredToolRequestsEvent
     ) -> AsyncIterator[OpsBatch]:
-        """这些工具在等人点头。这一轮仍是 running——等人不是停下。"""
+        """这些工具在等人点头。这一轮仍是 running——等人不是停下。
 
-        ops = [
-            InteractionUpsertOp(
-                interaction=Interaction(
-                    interaction_id=f"apr_{part.tool_call_id}",
-                    interaction_kind="approval",
-                    tool_call_id=part.tool_call_id,
-                    state="pending",
+        除了那几张待回应的交互，还要把审批 id 盖回工具卡上：客户端靠卡上这个 id 把「同意 /
+        拒绝」挂在这张卡上。改过的那一份记回 ``_tool_cards``，不然结局到达时又发一张没有 id 的。
+        """
+
+        ops: list[EmittableOperation] = []
+        for part in event.requests.approvals:
+            interaction_id = f"{APPROVAL_ID_PREFIX}{part.tool_call_id}"
+            ops.append(
+                InteractionUpsertOp(
+                    interaction=Interaction(
+                        interaction_id=interaction_id,
+                        interaction_kind="approval",
+                        tool_call_id=part.tool_call_id,
+                        state="pending",
+                    )
                 )
             )
-            for part in event.requests.approvals
-        ]
+            card = self._tool_cards.get(part.tool_call_id)
+            if card is None:
+                continue
+            stamped = card.model_copy(update={"approval_id": interaction_id})
+            self._tool_cards[part.tool_call_id] = stamped
+            ops.append(FrameUpsertOp(turn_id=self.turn_id, step_id=self._step_id, frame=stamped))
         if ops:
             yield tuple(ops)
 
     async def handle_deferred_tool_results(
         self, event: DeferredToolResultsEvent
     ) -> AsyncIterator[OpsBatch]:
-        """人点过了。被放行的工具接着走常规管线，卡片的结局由工具结果那条路回填。"""
+        """一个 capability 在这次 run 内就把审批答掉了。卡片的结局由工具结果那条路回填。
+
+        我们不挂这种 handler：审批走的是「run 结束 → 记下等待 → 带着决定起新 run」，而官方在
+        那条路上不发这个事件（``deferred_tool_results`` 只是入参）。留着它是因为口子仍在。
+        """
 
         ops = [
             InteractionUpsertOp(
                 interaction=Interaction(
-                    interaction_id=f"apr_{tool_call_id}",
+                    interaction_id=f"{APPROVAL_ID_PREFIX}{tool_call_id}",
                     interaction_kind="approval",
                     tool_call_id=tool_call_id,
                     state="approved" if approved else "rejected",

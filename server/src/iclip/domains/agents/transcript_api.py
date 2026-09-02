@@ -106,7 +106,9 @@ class Transcripts(Protocol):
 
     async def steer(self, conversation_id: str, prompt_ids: tuple[str, ...]) -> None: ...
 
-    def approve(self, conversation_id: str, interaction_id: str, *, approved: bool) -> None: ...
+    async def approve(
+        self, conversation_id: str, interaction_id: str, *, approved: bool
+    ) -> None: ...
 
     async def queue_view(self, conversation_id: str) -> PromptQueueOut: ...
 
@@ -319,10 +321,14 @@ def create_transcript_router(
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
         body: ApprovalRequest,
     ) -> None:
-        """对一张审批卡点同意或拒绝。工具就在同一次运行里等着这个回话。"""
+        """对一张审批卡点同意或拒绝。
+
+        决定记下就返回 204：那次运行已经以「等审批」结束了，凑齐这一批之后服务端自己起续跑。
+        重复点同一个决定照样 204；改主意是 409；卡不在等回应的那几张里是 404。
+        """
 
         await _writable(principal, conversation_id)
-        transcripts.approve(conversation_id, interaction_id, approved=body.approved)
+        await transcripts.approve(conversation_id, interaction_id, approved=body.approved)
 
     @router.get("/transcript", response_model=TranscriptPage)
     async def page(
