@@ -36,7 +36,11 @@ from iclip.domains.conversations.schemas import (
     SidebarOut,
     conversation_out,
 )
-from iclip.domains.conversations.service import ConversationPage, ConversationService
+from iclip.domains.conversations.service import (
+    ConversationPage,
+    ConversationService,
+    ListState,
+)
 from iclip.domains.identity.public import Principal, require_permission
 
 
@@ -73,14 +77,18 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
     @router.get("", response_model=SidebarOut)
     async def read_sidebar(
         principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+        state: ListState = "all",
     ) -> SidebarOut:
         """侧栏拓扑：我的合集（各带最近几段对话）加上没归类的对话。
 
         一次返回而不是「先列合集再按合集列对话」：侧栏是一屏里的一个整体，分两次查
         会让两半在不同时刻的库状态上拼出来。
+
+        ``state`` 只要在跑的（``running``）或者只要跑完过的（``done``），两个数字按同一个
+        筛选算。
         """
 
-        groups = await service.sidebar(principal)
+        groups = await service.sidebar(principal, state=state)
         return SidebarOut(
             collections=[
                 SidebarCollectionOut(
@@ -92,31 +100,35 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
                 )
                 for info, total, page in groups
             ],
-            ungrouped_count=await service.ungrouped_count(principal),
-            ungrouped=await _page_out(await service.ungrouped(principal)),
+            ungrouped_count=await service.ungrouped_count(principal, state=state),
+            ungrouped=await _page_out(await service.ungrouped(principal, state=state)),
         )
 
     @router.get("/ungrouped", response_model=ConversationPageOut)
     async def list_ungrouped(
         principal: Annotated[Principal, Depends(require_permission("agent:read"))],
         cursor: str | None = None,
+        state: ListState = "all",
     ) -> ConversationPageOut:
         """侧栏「任务」区往下滑：接着上一页给。``cursor`` 原样回传响应里的 ``nextCursor``。"""
 
-        return await _page_out(await service.ungrouped(principal, cursor=cursor))
+        return await _page_out(await service.ungrouped(principal, cursor=cursor, state=state))
 
     @router.get("/by-collection/{collection_id}", response_model=ConversationPageOut)
     async def list_collection_conversations(
         collection_id: uuid.UUID,
         principal: Annotated[Principal, Depends(require_permission("agent:read"))],
         cursor: str | None = None,
+        state: ListState = "all",
     ) -> ConversationPageOut:
         """某个合集里的对话，翻页口径同上。
 
         不存在的合集、别人的合集，都给一页空的——与「这个合集是空的」同一个结果。
         """
 
-        return await _page_out(await service.in_collection(principal, collection_id, cursor=cursor))
+        return await _page_out(
+            await service.in_collection(principal, collection_id, cursor=cursor, state=state)
+        )
 
     @router.get("/search", response_model=ConversationsPageOut)
     async def search_conversations(

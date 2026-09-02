@@ -131,6 +131,12 @@ def _after(cursor: PageCursor | None) -> list[ColumnElement[bool]]:
     ]
 
 
+def _only(only_ids: frozenset[uuid.UUID] | None) -> list[ColumnElement[bool]]:
+    """把结果限定在这几段对话里（列表的 ``state`` 筛选），``None`` 即不限定。"""
+
+    return [] if only_ids is None else [_ROWS.id.in_(only_ids)]
+
+
 def _reject_missing_reference(error: IntegrityError) -> ValidationFailed:
     """外键挡下来的引用错误翻成领域错误。
 
@@ -204,17 +210,28 @@ class SqlConversationRepository:
         return tuple(_row(row) for row in rows)
 
     async def list_ungrouped(
-        self, *, owner: uuid.UUID, limit: int, after: PageCursor | None = None
+        self,
+        *,
+        owner: uuid.UUID,
+        limit: int,
+        after: PageCursor | None = None,
+        only_ids: frozenset[uuid.UUID] | None = None,
     ) -> tuple[Conversation, ...]:
         return await self._page(
-            _ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None), limit=limit, after=after
+            _ROWS.owner_user_id == owner,
+            _ROWS.collection_id.is_(None),
+            *_only(only_ids),
+            limit=limit,
+            after=after,
         )
 
-    async def count_ungrouped(self, *, owner: uuid.UUID) -> int:
+    async def count_ungrouped(
+        self, *, owner: uuid.UUID, only_ids: frozenset[uuid.UUID] | None = None
+    ) -> int:
         statement = (
             select(func.count())
             .select_from(conversations_table)
-            .where(_ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None))
+            .where(_ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None), *_only(only_ids))
         )
         async with self._engine.connect() as conn:
             return int((await conn.execute(statement)).scalar_one())
@@ -226,10 +243,12 @@ class SqlConversationRepository:
         collection_id: uuid.UUID,
         limit: int,
         after: PageCursor | None = None,
+        only_ids: frozenset[uuid.UUID] | None = None,
     ) -> tuple[Conversation, ...]:
         return await self._page(
             _ROWS.owner_user_id == owner,
             _ROWS.collection_id == collection_id,
+            *_only(only_ids),
             limit=limit,
             after=after,
         )
@@ -253,7 +272,12 @@ class SqlConversationRepository:
         return tuple(_row(row) for row in rows)
 
     async def list_by_collections(
-        self, *, owner: uuid.UUID, collection_ids: tuple[uuid.UUID, ...], per_collection: int
+        self,
+        *,
+        owner: uuid.UUID,
+        collection_ids: tuple[uuid.UUID, ...],
+        per_collection: int,
+        only_ids: frozenset[uuid.UUID] | None = None,
     ) -> tuple[CollectionConversations, ...]:
         if not collection_ids:
             return ()
@@ -268,6 +292,8 @@ class SqlConversationRepository:
             .where(
                 _ROWS.owner_user_id == owner,
                 _ROWS.collection_id.in_(collection_ids),
+                # 筛在这一层而不是外面：条数是窗口函数在这里算的，外面再筛就还是全部的条数。
+                *_only(only_ids),
             )
             .subquery()
         )

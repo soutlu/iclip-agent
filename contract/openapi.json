@@ -5321,8 +5321,25 @@
     },
     "/conversations": {
       "get": {
-        "description": "侧栏拓扑：我的合集（各带最近几段对话）加上没归类的对话。\n\n一次返回而不是「先列合集再按合集列对话」：侧栏是一屏里的一个整体，分两次查\n会让两半在不同时刻的库状态上拼出来。",
+        "description": "侧栏拓扑：我的合集（各带最近几段对话）加上没归类的对话。\n\n一次返回而不是「先列合集再按合集列对话」：侧栏是一屏里的一个整体，分两次查\n会让两半在不同时刻的库状态上拼出来。\n\n``state`` 只要在跑的（``running``）或者只要跑完过的（``done``），两个数字按同一个\n筛选算。",
         "operationId": "read_sidebar_conversations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "running",
+                "done"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5333,6 +5350,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Read Sidebar",
@@ -5540,6 +5567,21 @@
               ],
               "title": "Cursor"
             }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "running",
+                "done"
+              ],
+              "title": "State",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5696,6 +5738,21 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "running",
+                "done"
+              ],
+              "title": "State",
+              "type": "string"
             }
           }
         ],

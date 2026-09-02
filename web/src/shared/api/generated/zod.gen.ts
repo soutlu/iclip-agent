@@ -1373,6 +1373,10 @@ export const zRenameCollectionCollectionsCollectionIdPatchPath = z.object({
  */
 export const zRenameCollectionCollectionsCollectionIdPatchResponse = zCollectionEnvelope
 
+export const zReadSidebarConversationsGetQuery = z.object({
+  state: z.enum(['all', 'running', 'done']).optional().default('all'),
+})
+
 /**
  * Successful Response
  */
@@ -1405,6 +1409,7 @@ export const zListCollectionConversationsConversationsByCollectionCollectionIdGe
 
 export const zListCollectionConversationsConversationsByCollectionCollectionIdGetQuery = z.object({
   cursor: z.string().nullish(),
+  state: z.enum(['all', 'running', 'done']).optional().default('all'),
 })
 
 /**
@@ -1434,6 +1439,7 @@ export const zSearchConversationsConversationsSearchGetResponse = zConversations
 
 export const zListUngroupedConversationsUngroupedGetQuery = z.object({
   cursor: z.string().nullish(),
+  state: z.enum(['all', 'running', 'done']).optional().default('all'),
 })
 
 /**

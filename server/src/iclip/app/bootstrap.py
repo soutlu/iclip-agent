@@ -6,6 +6,7 @@ import asyncio
 import uuid
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import httpx
 import procrastinate
@@ -479,6 +480,13 @@ def build_app(
             for one, state in ((one, states[str(one)]) for one in conversation_ids)
         }
 
+    async def conversation_ids_by_state(
+        owner: uuid.UUID, state: Literal["running", "done"]
+    ) -> frozenset[uuid.UUID]:
+        """这个人名下在跑的、或者跑完过的那几段对话。列表的 ``state`` 筛选按它过滤。"""
+
+        return frozenset(uuid.UUID(one) for one in await job_queue.conversation_ids(owner, state))
+
     async def _push_activity(conversation_id: str, state: ActivityState) -> None:
         conversation = await conversations.service.owner_of(uuid.UUID(conversation_id))
         if conversation is None:
@@ -517,6 +525,7 @@ def build_app(
         generate_title=generate_title,
         announce_title=live_connections.announce_title,
         activities_of=activities_of,
+        conversation_ids_by_state=conversation_ids_by_state,
     )
     # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
     # 或对象存储缺一个，就借不到——那时装个只会响亮拒绝的替代品，而不是让它悄悄记空。

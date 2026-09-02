@@ -2929,9 +2929,24 @@ export type RenameCollectionCollectionsCollectionIdPatchResponse =
 export type ReadSidebarConversationsGetData = {
   body?: never
   path?: never
-  query?: never
+  query?: {
+    /**
+     * State
+     */
+    state?: 'all' | 'running' | 'done'
+  }
   url: '/conversations'
 }
+
+export type ReadSidebarConversationsGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ReadSidebarConversationsGetError =
+  ReadSidebarConversationsGetErrors[keyof ReadSidebarConversationsGetErrors]
 
 export type ReadSidebarConversationsGetResponses = {
   /**
@@ -3035,6 +3050,10 @@ export type ListCollectionConversationsConversationsByCollectionCollectionIdGetD
      * Cursor
      */
     cursor?: string | null
+    /**
+     * State
+     */
+    state?: 'all' | 'running' | 'done'
   }
   url: '/conversations/by-collection/{collection_id}'
 }
@@ -3135,6 +3154,10 @@ export type ListUngroupedConversationsUngroupedGetData = {
      * Cursor
      */
     cursor?: string | null
+    /**
+     * State
+     */
+    state?: 'all' | 'running' | 'done'
   }
   url: '/conversations/ungrouped'
 }

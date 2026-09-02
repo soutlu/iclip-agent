@@ -54,12 +54,22 @@ class ConversationRepository(Protocol):
         ...
 
     async def list_ungrouped(
-        self, *, owner: uuid.UUID, limit: int, after: PageCursor | None = None
+        self,
+        *,
+        owner: uuid.UUID,
+        limit: int,
+        after: PageCursor | None = None,
+        only_ids: frozenset[uuid.UUID] | None = None,
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序列出这个人没进合集的对话，从 ``after`` 之后接着给。"""
+        """按最近活动倒序列出这个人没进合集的对话，从 ``after`` 之后接着给。
+
+        ``only_ids`` 把结果限定在这几段对话里（列表的 ``state`` 筛选），``None`` 即不限定。
+        """
         ...
 
-    async def count_ungrouped(self, *, owner: uuid.UUID) -> int:
+    async def count_ungrouped(
+        self, *, owner: uuid.UUID, only_ids: frozenset[uuid.UUID] | None = None
+    ) -> int:
         """这个人一共有多少段没进合集的对话。侧栏标题上那个数字要的是总数，不是这一页几条。"""
         ...
 
@@ -70,6 +80,7 @@ class ConversationRepository(Protocol):
         collection_id: uuid.UUID,
         limit: int,
         after: PageCursor | None = None,
+        only_ids: frozenset[uuid.UUID] | None = None,
     ) -> tuple[Conversation, ...]:
         """按最近活动倒序列出某个合集里的对话，从 ``after`` 之后接着给。
 
@@ -79,7 +90,12 @@ class ConversationRepository(Protocol):
         ...
 
     async def list_by_collections(
-        self, *, owner: uuid.UUID, collection_ids: tuple[uuid.UUID, ...], per_collection: int
+        self,
+        *,
+        owner: uuid.UUID,
+        collection_ids: tuple[uuid.UUID, ...],
+        per_collection: int,
+        only_ids: frozenset[uuid.UUID] | None = None,
     ) -> tuple[CollectionConversations, ...]:
         """一次取回这几个合集各自的条数与最近几段对话。
 
