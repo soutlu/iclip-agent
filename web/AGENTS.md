@@ -1,6 +1,6 @@
 # AGENTS.md — Cue 前端
 
-> 领域术语与不变量（两端共用）→ [../docs/CONTEXT.md](../docs/CONTEXT.md) · 全仓命令、两端分工与合同流程 → [../AGENTS.md](../AGENTS.md) · 架构与结构 → [README.md](README.md) · 实现规范 → [docs/frontend-implementation.md](docs/frontend-implementation.md) · 视觉规范 → [../design-system.html](../design-system.html)（唯一设计规范文档，在仓库根目录） · 后端接口 → [../contract/openapi.json](../contract/openapi.json)（端点、字段、状态码）与 [../contract/conventions.md](../contract/conventions.md)（合同表达不了的约定） · 决策 → [docs/adr/](docs/adr/)
+> 领域术语与不变量（两端共用）→ [../docs/CONTEXT.md](../docs/CONTEXT.md) · 全仓命令与合同流程 → [../AGENTS.md](../AGENTS.md) · 视觉规范 → [../design-system.html](../design-system.html)（在仓库根目录）。其余文档见 §7。
 
 ## 1. 项目速览
 
@@ -29,51 +29,32 @@ AI 视频创作前端。Vite 8 + React 19 纯 SPA：TanStack Router 文件式路
 
 ## 3. 边界（哪里能改什么）
 
-- 依赖单向向下：`main.tsx → app/`（壳与 router 装配）`→ routes/`（路由装配层）`→ features/<name>`（业务模块）`→ shared/`（共用层）。
+分层方向、跨 feature 禁令、图标与 radix 的唯一入口、文件名与具名导出、死代码与硬编码色值，这些边界由 eslint（boundaries、no-restricted-imports / -syntax、check-file）、knip、design-guard 与 tsc 强制。以下是机器判不出来的部分：
+
+- 依赖单向向下：`main.tsx → app/`（壳与 router 装配）`→ routes/`（路由装配层）`→ features/<name>`（业务模块）`→ shared/`（共用层）。两个 feature 要共用东西只有两条路：下沉 `shared/`，或者在 routes / app 层组装。
 - `src/routes/**` 只做 `createFileRoute` 装配、`beforeLoad` 守卫与 search params 校验，不写业务逻辑；`src/routeTree.gen.ts` 自动生成，不手改。
-- **跨 feature 一律禁止**，包括对方的 `index.ts`。两个 feature 要共用东西只有两条路：下沉 `shared/`，或者在 routes / app 层组装。
 - 每页都要有的外壳（侧栏、用户菜单、登录弹窗）放 `src/routes/_shell.tsx`（侧栏与登录信号拆在同目录 `-app-sidebar.tsx`、`-login-prompt.tsx`，`-` 前缀不进路由树），不塞进任何 feature。
-- `src/shared/**` 只放领域无关的共用能力，不得反向依赖 `features`；`src/testing/**` 是测试基建，业务代码不得引用。
 - 后端 REST 请求一律经 `apiFetch(path, schema)`（`@/shared/api/client`，响应在边界处过 zod）；裸 fetch 仅限两类非 REST 场景：OSS 预签名直传 PUT、外链素材下载。
 - 构建期代码（vite 代理、dev profile）放 `vite/`，归 `tsconfig.node.json`；`src/` 不带 Node 类型。
 - 没有登录页：未登录能进首页，需要登录的动作调 `useLoginPrompt()` 弹登录框；整页都要求登录的页面（需求单页、会话页）用 `beforeLoad` + `ensureSessionUser()` 守卫，未登录 redirect 回 `/`（[ADR-0002](docs/adr/0002-login-dialog-no-login-page.md)）。任意接口 401 / 403 都先强刷 `/users/me` 再重算路由（`src/app/router.tsx`），页面就地退回未登录形态，接口自身的错误文案由调用方就地展示。
 - 后端缺的字段保留 `null` / `undefined`，不在前端补默认值。
-- **schema 来自生成契约**：`src/shared/api/generated/zod.gen.ts` 由 `contract/openapi.json` 生成，端点形状不手写。业务约束（非空、互斥之类合同表达不了的）用 `.refine()` 叠在生成 schema 上。
-- 文件名 kebab-case、只用具名导出（`routes/` 按 TanStack 约定命名，不在此列）。
+- **schema 来自生成契约**：端点形状从 `src/shared/api/generated/zod.gen.ts` 取，不手写；业务约束（非空、互斥之类合同表达不了的）用 `.refine()` 叠在生成 schema 上。
 - 测试：单测与被测源码同目录（`*.test.ts[x]`），用 `renderWithProviders`（`src/testing/render.tsx`）渲染真实 Provider 树，网络经 MSW（`src/testing/mocks`）；e2e 在 `e2e/`（Playwright，跑在 `pnpm dev:mock` 上，同一份 handlers）。
-
-以上边界由 eslint / knip / design-guard / tsc / CI 强制。
 
 ## 4. 改哪里、验哪里
 
-| Surface                                       | 现行验证          |
-| --------------------------------------------- | ----------------- |
-| 全仓（合入 / 发布前底线）                     | `pnpm verify`     |
-| 架构分层（新增文件 / 移动模块 / 调整 import） | `pnpm lint`       |
-| 生产构建（改依赖 / vite 配置 / 路由树）       | `pnpm build`      |
-| 登录表单                                      | `pnpm test`       |
-| 登录旅程（游客态首页 → 弹窗登录 → 用户菜单）  | `pnpm test:e2e`   |
-| 会话页（历史一页 + 逐字推送 + 补漏）          | `pnpm test:e2e`   |
-| 登录态与游客态外壳                            | 人工验收          |
-| UI 视觉（token / 布局 / 深浅两套主题）        | 人工验收（见 §6） |
+改了代码跑 `pnpm ci:check`；动了依赖、vite 配置或路由树再加 `pnpm build`（合入前底线是 `pnpm verify`）。每加一个页面在同一个 PR 里补上它的单测或 e2e。外壳与 UI 视觉靠人工验收（见 §6）。
 
 ## 5. 禁止动作
 
 - 前端 JavaScript 持有、存储或转发任何 token；恢复任何形态的 BFF、cookie 换发或 `producer_access_token`（[ADR-0001](docs/adr/0001-vite-spa-same-origin-no-bff.md)）。
-- 跨 feature import——包括对方 `index.ts`。共用的东西下沉 `shared/`，或在 routes / app 层组装。
 - 权限门控引入前端用户名白名单——只判 `user.permissions` 后端权限字符串。
-- 绕过 `apiFetch(path, schema)` 写裸 fetch REST（§3 两类豁免之外）。
-- 手改 `src/routeTree.gen.ts`。
+- UI 泄露内部协议字段（raw tool name、`member_id`、skill name、reference path、JSON 参数）。
 - 组件自持主题状态——主题只有 `<html>` 上的 `.dark` 一个开关，由 `src/app/theme.ts` 统一切换，组件按 token 取色。
 - 靠禁用 lint 规则、放宽 tsconfig 或改 design-guard 基线让代码通过。
-- UI 泄露内部协议字段（raw tool name、`member_id`、skill name、reference path、JSON 参数）。
-- 组件里新增与既有 token 等价的裸色值、裸 z-index 或一次性阴影——先补 `globals.css` token。
-- 手写后端端点的请求 / 响应 schema——形状从 `@/shared/api/generated/zod.gen` 取，后端改了跑 `make contract` + `pnpm contract:generate`。
 - 自己写 toast 或 keyframes——toast 用 `@/shared/ui/toast`（sonner），进退场动画用 `animate-in / animate-out`（tw-animate-css）配 `duration-(--dur-*)` 与 `ease-(--ease-*)`。
-- 组件直接 import `lucide-react`——图标只经 `@/shared/icons` 的 `Icon` 按语义名称使用，新图形先加进 `src/shared/icons/icon.tsx` 注册表；尺寸只取 `xs / sm / md / lg / xl` 五档。
-- 业务层直连 `radix-ui` 的 `Dialog` / `DropdownMenu` / `Popover` / `ToggleGroup`——用 `@/shared/ui` 下的 dialog / menu / popup / chip。
-- 测试里 `vi.mock` 同仓模块、断言 className/style/哈希类名、手搓 `fetch` stub（网络一律 MSW）、写内部状态探针组件——行为归层与全部规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md) 测试要求。
-- 为「以后可能用」加依赖或留导出。
+- 新图形不进 `src/shared/icons/icon.tsx` 注册表就用；图标尺寸只取 `xs / sm / md / lg / xl` 五档。
+- 测试里断言 className / style / 哈希类名、手搓 `fetch` stub（网络一律 MSW）、写内部状态探针组件——全部规则见 [docs/frontend-implementation.md](docs/frontend-implementation.md) 测试要求。
 
 ## 6. 需要人做的事
 

@@ -76,4 +76,3 @@ cd web && pnpm dev
 - [docs/adr/](docs/adr/)：架构决策记录。
 - [docs/tool-design.md](docs/tool-design.md)：agent 工具模型面文本的写法与禁区。
 - [docs/test-design.md](docs/test-design.md)：测试分层、编写规则与数据库测试环境。
-- [docs/research/](docs/research/)：外部资料调研笔记，一事一份，文件名带调研日期。
