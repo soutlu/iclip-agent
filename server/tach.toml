@@ -95,11 +95,13 @@ path = "iclip.harness"
 depends_on = ["iclip.common", "iclip.platform.transcript"]
 
 # capability 实现，唯一同时认识 harness 与 domains 的适配环。
+# 认识 platform.transcript：每件工具的 display 与工具同文件登记，用的是那里的类型。
 [[modules]]
 path = "iclip.capabilities"
 depends_on = [
     "iclip.common",
     "iclip.platform.file_store",
+    "iclip.platform.transcript",
     "iclip.harness",
     "iclip.domains.identity",
     "iclip.domains.agents",

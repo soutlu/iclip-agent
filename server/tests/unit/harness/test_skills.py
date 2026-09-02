@@ -25,13 +25,16 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.tools import Tool
 from pydantic_ai_harness.skills import Skills
 
 from iclip.harness.skills import (
     MAX_REFERENCE_CHARS,
     TRUNCATION_MARKER,
     build_skill_capabilities,
+    skill_display_table,
 )
+from iclip.platform.transcript.display import SkillCallDisplay
 
 SKILL = "拆解素材"
 OTHER = "镜头表"
@@ -137,6 +140,34 @@ def test_library_and_reference_key_are_mounted_together(tmp_path: Path) -> None:
 
     assert isinstance(skills, Skills)
     assert isinstance(key, Capability)
+
+
+def test_the_access_boundary_is_mounted_as_a_validator(tmp_path: Path) -> None:
+    """访问边界挂在登记处的验证器上。
+
+    漏传 ``args_validator=`` 不会报错：没挂给这个 agent 的 skill 的 references 从此读得到。
+    """
+
+    make_skill(tmp_path, SKILL)
+    _, key = build_skill_capabilities(tmp_path, (SKILL,))
+    assert isinstance(key, Capability)
+
+    tool = next(iter(key.tools))
+    assert isinstance(tool, Tool)
+    assert tool.name == TOOL
+    assert tool.args_validator is not None
+
+
+def test_the_reference_tool_has_a_display(tmp_path: Path) -> None:
+    """卡上画的是「读了哪个 skill 的哪一份」；skill 名取不到就退回 generic。"""
+
+    drawn = skill_display_table()[TOOL]
+
+    assert drawn({"skill": SKILL, "name": "规范.md"}) == SkillCallDisplay(
+        skill_name=SKILL, args="规范.md"
+    )
+    assert drawn({"skill": SKILL}) == SkillCallDisplay(skill_name=SKILL, args=None)
+    assert drawn({}) is None
 
 
 async def test_granted_skill_reference_is_readable(tmp_path: Path) -> None:

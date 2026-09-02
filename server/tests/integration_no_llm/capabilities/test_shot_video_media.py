@@ -180,8 +180,8 @@ _USER_SENT = (
 def make_context(*, said: str = _USER_SENT) -> RunContext[object]:
     """造一次运行的上下文，默认当作素材都已经发进来了。
 
-    工具只收这段对话里出现过的地址（见 `harness/materials.py`），消息里没有它们的
-    话，每件工具都会先被素材校验拦下——那不是这些用例想测的东西。
+    工具只收这段对话里出现过的地址（见 `harness/materials.py`）。这一条跑在登记处的验证器
+    里，这些用例直接调工具体，绕过它——地址规则本身在单测那一层验。
     """
 
     deps = AgentRunDeps(

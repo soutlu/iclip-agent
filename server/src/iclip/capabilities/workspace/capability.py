@@ -17,9 +17,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
@@ -35,6 +35,13 @@ from iclip.platform.file_store.store import (
     QuotaExceeded,
     VersionConflict,
     normalize_path,
+)
+from iclip.platform.transcript.display import (
+    DisplayFn,
+    FileIoDisplay,
+    GenericDisplay,
+    SearchDisplay,
+    ToolDisplay,
 )
 
 CAPABILITY_ID: Final = "workspace"
@@ -102,9 +109,48 @@ class Workspace(AbstractCapability[AgentDepsT]):
     def get_instructions(self) -> AgentInstructions[AgentDepsT] | None:
         return _GUIDANCE
 
+    def display_table(self) -> Mapping[str, DisplayFn]:
+        """这六件工具的卡怎么画。组合根装配期取一次，合进那份注册表。"""
+
+        return {
+            "read_file": lambda args: _file_io("read", _text(args, "path")),
+            "write_file": lambda args: _file_io("write", _text(args, "path")),
+            "edit_file": lambda args: _file_io("edit", _text(args, "path")),
+            # 列目录按 glob 画；协议的 operation 联合里没有「删」，删文件走 generic。
+            "list_files": lambda args: _file_io("glob", _text(args, "prefix") or "/"),
+            "delete_file": _delete_display,
+            "search_files": _search_display,
+        }
+
     @classmethod
     def get_serialization_name(cls) -> str | None:
         return None
+
+
+def _text(args: Any, field_name: str) -> str | None:
+    """从这次调用的参数里取一个非空字符串。"""
+
+    if isinstance(args, dict):
+        value = args.get(field_name)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _file_io(
+    operation: Literal["read", "write", "edit", "glob", "grep"], path: str | None
+) -> ToolDisplay | None:
+    return None if path is None else FileIoDisplay(operation=operation, path=path)
+
+
+def _delete_display(args: Any) -> ToolDisplay | None:
+    path = _text(args, "path")
+    return None if path is None else GenericDisplay(summary=f"删除文件 {path}")
+
+
+def _search_display(args: Any) -> ToolDisplay | None:
+    query = _text(args, "query")
+    return None if query is None else SearchDisplay(query=query)
 
 
 def _checked(path: str) -> str:

@@ -40,6 +40,11 @@ from iclip.platform.file_store.store import (
     VersionConflict,
     normalize_path,
 )
+from iclip.platform.transcript.display import (
+    FileIoDisplay,
+    GenericDisplay,
+    SearchDisplay,
+)
 from tests.helpers.file_store import FakeFileStore
 
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -420,6 +425,37 @@ def test_capability_guidance_says_only_what_no_docstring_can(
     assert "工作目录" in instructions
     for tool_name in ("read_file", "write_file", "edit_file", "delete_file", "list_files"):
         assert tool_name not in instructions
+
+
+def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
+    """六件工具每件都登记了画法，kind 由客户端认。字段取不到就交给注册表退回 generic。"""
+
+    drawn = capability.display_table()
+    assert sorted(drawn) == [
+        "delete_file",
+        "edit_file",
+        "list_files",
+        "read_file",
+        "search_files",
+        "write_file",
+    ]
+    assert drawn["read_file"]({"path": "分镜.md"}) == FileIoDisplay(
+        operation="read", path="分镜.md"
+    )
+    assert drawn["write_file"]({"path": "分镜.md"}) == FileIoDisplay(
+        operation="write", path="分镜.md"
+    )
+    assert drawn["edit_file"]({"path": "分镜.md"}) == FileIoDisplay(
+        operation="edit", path="分镜.md"
+    )
+    # 协议的 operation 联合里没有「删」，删文件只能画成朴素的那张卡。
+    assert drawn["delete_file"]({"path": "分镜.md"}) == GenericDisplay(summary="删除文件 分镜.md")
+    assert drawn["search_files"]({"query": "门厅"}) == SearchDisplay(query="门厅")
+    # 列目录没给前缀就是整个工作区。
+    assert drawn["list_files"]({}) == FileIoDisplay(operation="glob", path="/")
+    assert drawn["list_files"]({"prefix": "分镜"}) == FileIoDisplay(operation="glob", path="分镜")
+    for tool_name in ("read_file", "write_file", "edit_file", "delete_file", "search_files"):
+        assert drawn[tool_name]({}) is None
 
 
 async def test_capability_attaches_to_a_real_agent(store: FakeFileStore) -> None:

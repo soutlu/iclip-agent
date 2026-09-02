@@ -40,11 +40,25 @@ from pydantic_ai.messages import (
 from iclip.harness.transcript.from_messages import TurnState, turns_from_messages
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.platform.transcript.display import (
+    FileIoDisplay,
+    ToolDisplay,
+    ToolDisplayRegistry,
+)
 from iclip.platform.transcript.ops import MAIN_AGENT_ID, TranscriptTurn
+
+
+def _read_display(args: Any) -> ToolDisplay | None:
+    path = args.get("path") if isinstance(args, dict) else None
+    return FileIoDisplay(operation="read", path=path) if isinstance(path, str) and path else None
+
 
 CONVERSATION = "conv-1"
 PROMPT = "帮我把 README 翻译成英文"
 RUN = "run-a"
+
+DISPLAYS = ToolDisplayRegistry.merged({"Read": _read_display})
+"""两条路都收这一份。都用默认的空注册表时，卡上的画法比对会平凡地通过。"""
 
 
 def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
@@ -84,7 +98,7 @@ async def _project(events: list[Any], *, prompt: str | None = PROMPT) -> tuple[T
         for event in events:
             yield event
 
-    projector = TranscriptEventStream(turn_id="t1", turn_ordinal=1, prompt=prompt)
+    projector = TranscriptEventStream(turn_id="t1", turn_ordinal=1, prompt=prompt, display=DISPLAYS)
     store = TranscriptStore()
     async for batch in projector.transform_stream(stream()):
         store.append(CONVERSATION, MAIN_AGENT_ID, batch)
@@ -104,7 +118,7 @@ def _derive(
 ) -> tuple[TranscriptTurn, ...]:
     """历史那侧。终态由运行侧从官方的 run 结束事件记下来给进去，推导器自己不猜。"""
 
-    return turns_from_messages(messages, turn_states={RUN: state})
+    return turns_from_messages(messages, turn_states={RUN: state}, display=DISPLAYS)
 
 
 @pytest.mark.anyio
@@ -171,6 +185,11 @@ async def test_thinking_then_text_then_tool_matches() -> None:
         )
     )
 
+    live_card = next(
+        frame for frame in live[0].steps[0].frames if getattr(frame, "kind", None) == "tool"
+    )
+    # 钉住画出来的不是兜底那张：两条路都退成 generic 时上面那句照样成立。
+    assert getattr(live_card, "display", None) == FileIoDisplay(operation="read", path="/README.md")
     assert _skeleton(live) == _skeleton(derived)
 
 
@@ -194,7 +213,7 @@ async def test_a_cancelled_turn_needs_its_state_handed_to_the_deriver() -> None:
             yield event
         raise RunCancelled("用户停止")
 
-    projector = TranscriptEventStream(turn_id="t1", turn_ordinal=1, prompt=PROMPT)
+    projector = TranscriptEventStream(turn_id="t1", turn_ordinal=1, prompt=PROMPT, display=DISPLAYS)
     store = TranscriptStore()
     async for batch in projector.transform_stream(stream()):
         store.append(CONVERSATION, MAIN_AGENT_ID, batch)

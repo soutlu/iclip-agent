@@ -19,7 +19,9 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
+    ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
 )
@@ -53,6 +55,11 @@ from iclip.domains.identity.models import Principal
 from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import FileSpace
 from iclip.platform.object_store.layout import MEDIA_PATHS
+from iclip.platform.transcript.display import (
+    FileIoDisplay,
+    GenericDisplay,
+    UrlFetchDisplay,
+)
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.shot_video import (
     FakeGenerations,
@@ -101,8 +108,8 @@ def make_deps() -> AgentRunDeps:
 def make_context(deps: object, *, said: str = _USER_SENT_VIDEO) -> RunContext[object]:
     """造一次运行的上下文，默认当作用户已经把参考片发进来了。
 
-    素材校验要在消息里逐字找得到地址（见 `harness/materials.py`），所以不给消息的
-    话，每件工具都会先被素材校验拦下——那不是这些用例想测的东西。
+    素材规则要在消息里逐字找得到地址（见 `harness/materials.py`），它跑在验证器里，所以
+    消息里没有那个地址时 `check_args` 会拦下来。
     """
 
     return RunContext[object](
@@ -186,6 +193,19 @@ def ctx() -> RunContext[object]:
     return make_context(make_deps())
 
 
+def check_args(
+    tools: ShotVideoToolset[object], name: str, ctx: RunContext[object], **args: Any
+) -> None:
+    """走一遍这件工具登记时挂上的验证器（官方在 schema 校验之后、执行之前调它）。
+
+    从登记表上取，不直接调那个函数：漏传 ``args_validator=`` 时这些用例也要红。
+    """
+
+    validator = tools.tools[name].args_validator
+    assert validator is not None, f"{name} 登记时没挂验证器"
+    assert validator(ctx, **args) is None, "本包的验证器都是同步的"
+
+
 # ── 装配面 ────────────────────────────────────────────────────────────────────
 
 
@@ -230,6 +250,82 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
         "video_parser_md",
         "write_video_shots",
     ]
+
+
+@pytest.mark.parametrize(
+    "tool_name", ["video_parser_md", "plan_shot_frames", "generate_shot_frames", "ReadMediaFile"]
+)
+def test_scope_rules_are_mounted_on_the_tool(
+    tools: ShotVideoToolset[object], tool_name: str
+) -> None:
+    """收地址的工具必须真的挂上验证器。
+
+    漏了一个 ``args_validator=`` 不会报错：那件工具的地址规则整条消失，而直接调验证器的用例
+    照样绿。
+    """
+
+    assert tools.tools[tool_name].args_validator is not None
+
+
+def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
+    """六件工具每件都登记了画法，kind 由客户端认。登记不到就画成朴素的那张卡。"""
+
+    drawn = capability.display_table()
+    assert sorted(drawn) == [
+        "ReadMediaFile",
+        "generate_anchor_sheet",
+        "generate_shot_frames",
+        "plan_shot_frames",
+        "video_parser_md",
+        "write_video_shots",
+    ]
+    assert drawn["ReadMediaFile"]({"url": "https://cdn.test/a.jpg"}) == UrlFetchDisplay(
+        url="https://cdn.test/a.jpg"
+    )
+    # 地址取不到就交给注册表退回 generic，不画一张指着空地址的卡。
+    assert drawn["ReadMediaFile"]({}) is None
+    assert drawn["generate_shot_frames"]({"frames": [1, 2]}) == GenericDisplay(summary="出图 2 帧")
+    assert drawn["generate_shot_frames"](None) == GenericDisplay(summary="出图")
+    assert drawn["write_video_shots"]({}) == FileIoDisplay(operation="write", path=SHOTS_PATH)
+    assert drawn["video_parser_md"]({}) == GenericDisplay(summary="拆解参考片")
+    assert drawn["plan_shot_frames"]({}) == GenericDisplay(summary="按镜头取帧拼板")
+    assert drawn["generate_anchor_sheet"]({}) == GenericDisplay(summary="补拍设定图")
+
+
+async def test_an_out_of_scope_address_is_refused_on_the_agent_path(
+    capability: ShotVideo[object], understanding: FakeUnderstanding
+) -> None:
+    """模型编一个地址：官方在执行之前跑验证器，模型收到的是一条重试提示。
+
+    直接调验证器的用例证明规则本身对，这一条证明它真的接在官方那条路上——工具体一次都没跑
+    （拆解服务没被叫过）。
+    """
+
+    def call_once(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        if len(messages) == 1:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "video_parser_md",
+                        {"video_url": "https://cdn.test/made-up.mp4"},
+                        tool_call_id="c1",
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart("好")])
+
+    agent = Agent(FunctionModel(call_once), capabilities=[capability])
+    result = await agent.run(_USER_SENT_VIDEO, deps=make_deps())
+
+    refusals = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, RetryPromptPart)
+    ]
+    assert len(refusals) == 1
+    assert "不是这段对话里的素材" in refusals[0].model_response()
+    assert understanding.calls == []
 
 
 async def test_missing_run_identity_is_a_bug_not_a_retry(tools: ShotVideoToolset[object]) -> None:
@@ -318,7 +414,7 @@ async def test_tools_only_take_http_urls(
     tools: ShotVideoToolset[object], ctx: RunContext[object], url: str
 ) -> None:
     with pytest.raises(ModelRetry, match="http"):
-        await tools.video_parser_md(ctx, url)
+        check_args(tools, "video_parser_md", ctx, video_url=url)
 
 
 # ── 素材范围 ──────────────────────────────────────────────────────────────────
@@ -334,9 +430,8 @@ async def test_video_tools_refuse_an_address_the_conversation_never_had(
     段对话真有的视频列回去，模型才有得抄。
     """
 
-    call = getattr(tools, tool_name)
     with pytest.raises(ModelRetry, match=VIDEO) as failure:
-        await call(ctx, "https://cdn.test/made-up.mp4")
+        check_args(tools, tool_name, ctx, video_url="https://cdn.test/made-up.mp4")
 
     # 不回显被拒的地址：回显一次，模型重试时它就成了「上下文里出现过」的东西。
     assert "made-up" not in str(failure.value)
@@ -350,18 +445,23 @@ async def test_video_tools_refuse_an_image_the_user_sent(
     image = "https://cdn.test/poster.jpg"
     ctx = make_context(make_deps(), said=media_tag("image", image, name="poster.jpg"))
     with pytest.raises(ModelRetry, match="图片"):
-        await tools.plan_shot_frames(ctx, image)
+        check_args(tools, "plan_shot_frames", ctx, video_url=image)
 
 
 async def test_reference_images_refuse_a_video(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+    tools: ShotVideoToolset[object], ctx: RunContext[object]
 ) -> None:
     """反过来也拦：参考片的地址当不了参考图。"""
 
-    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
     with pytest.raises(ModelRetry, match="视频"):
-        await tools.generate_shot_frames(
-            ctx, [FrameRequest(no="S1-1", prompt="猫")], [VIDEO], "全局", "9:16"
+        check_args(
+            tools,
+            "generate_shot_frames",
+            ctx,
+            frames=[FrameRequest(no="S1-1", prompt="猫")],
+            reference_images=[VIDEO],
+            global_reference="全局",
+            target_aspect="9:16",
         )
 
 
@@ -383,11 +483,15 @@ async def test_read_media_file_takes_an_address_from_a_tool_result(
         )
     )
 
+    check_args(tools, "ReadMediaFile", ctx, url=board)
     assert await tools.read_media_file(ctx, board)
 
     with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
-        await tools.read_media_file(
-            ctx, "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/9.jpg"
+        check_args(
+            tools,
+            "ReadMediaFile",
+            ctx,
+            url="https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/9.jpg",
         )
 
 
@@ -596,13 +700,17 @@ async def test_generate_accepts_a_frame_the_ledger_never_sampled(
 async def test_generate_reference_urls_must_be_http(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    files: FakeFileStore,
     generations: FakeGenerations,
 ) -> None:
-    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
     with pytest.raises(ModelRetry, match="参考图"):
-        await tools.generate_shot_frames(
-            ctx, [FrameRequest(no="S1-1", prompt="猫")], ["grid.png"], "全局", "9:16"
+        check_args(
+            tools,
+            "generate_shot_frames",
+            ctx,
+            frames=[FrameRequest(no="S1-1", prompt="猫")],
+            reference_images=["grid.png"],
+            global_reference="全局",
+            target_aspect="9:16",
         )
     assert generations.submitted == []
 

@@ -13,6 +13,7 @@ from iclip.app.capability_table import (
     GenerationsAdapter,
     ObjectWriterAdapter,
     build_capability_table,
+    build_display_registry,
     resolve_capabilities,
 )
 from iclip.capabilities.shot_video.capability import ShotVideo
@@ -117,6 +118,51 @@ def test_shot_video_without_workspace_fails_at_assembly(
     )
     with pytest.raises(RuntimeError, match=r"没挂 'workspace'.*agents\.yaml"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
+
+
+def test_the_display_registry_covers_every_mounted_tool(
+    shot_video_settings: ResolvedShotVideo,
+) -> None:
+    """十四件工具每件都在注册表里：登记不到的画成朴素的那张卡，而且不报错。
+
+    skill 与派活那两件不在名字表里（一件跟着 skill 库挂，一件跟着子代理声明挂），所以合表时
+    单独加上。
+    """
+
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        generation_service=cast("GenerationService", object()),
+        object_store=FakeObjects(),
+        http_client=cast("httpx.AsyncClient", object()),
+        shot_video=shot_video_settings,
+    )
+
+    registry = build_display_registry(built)
+
+    assert sorted(registry.entries) == [
+        "ReadMediaFile",
+        "delegate_task",
+        "delete_file",
+        "edit_file",
+        "generate_anchor_sheet",
+        "generate_shot_frames",
+        "get_skill_reference",
+        "list_files",
+        "plan_shot_frames",
+        "read_file",
+        "search_files",
+        "video_parser_md",
+        "write_file",
+        "write_video_shots",
+    ]
+
+
+def test_a_capability_without_a_table_is_skipped(table: CapabilityTable) -> None:
+    """能力包没有 display 表也照样挂得上，它的工具画成朴素的那张卡。"""
+
+    registry = build_display_registry(table)
+
+    assert "read_file" not in registry.entries
 
 
 async def test_generations_adapter_translates_and_reports_bad_parameters() -> None:

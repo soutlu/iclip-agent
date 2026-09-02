@@ -22,9 +22,13 @@ from pydantic_ai_harness.step_persistence import StepPersistence, StepStore
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
 from iclip.harness.models import BuiltModels
+from iclip.platform.transcript.display import AgentCallDisplay, DisplayFn, ToolDisplay
 
 AgentCapabilities = tuple[AgentCapability[Any], ...]
 """一组待挂载的能力；具体来自 skill 还是名字表由组合根决定。"""
+
+DELEGATE_TOOL = "delegate_task"
+"""派活那件工具的名字。显式给 ``SubAgents``，好让登记 display 的那张表对得上它。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +149,7 @@ def _build_subagents(
             )
             for sub in definitions
         ],
+        tool_name=DELEGATE_TOOL,
         # 必须显式关掉磁盘扫描。默认值 'agents' 会扫 <cwd>/.agents|.claude/agents/
         # 以及 ~ 下的同名目录——开发者个人的 agent 定义会静默变成生产下属，
         # 同一份代码在不同机器上行为不同且不报错。子 agent 一律走显式声明。
@@ -161,6 +166,22 @@ def _build_subagents(
         # 的工具一律经 capability 挂载，所以它对我们没有作用面；反过来说，别把
         # 工具直接注册到 agent 上，那会把这条路打开。
     )
+
+
+def delegate_display_table() -> Mapping[str, DisplayFn]:
+    """派活那件工具的卡怎么画。下属名与任务正文都在它的参数里（官方 ``delegate_task``）。"""
+
+    return {DELEGATE_TOOL: _delegate_display}
+
+
+def _delegate_display(args: Any) -> ToolDisplay | None:
+    if not isinstance(args, dict):
+        return None
+    name = args.get("agent_name")
+    task = args.get("task")
+    if not isinstance(name, str) or not name or not isinstance(task, str):
+        return None
+    return AgentCallDisplay(agent_name=name, prompt=task)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,9 +225,11 @@ def build_agent_registry(
 
 
 __all__ = [
+    "DELEGATE_TOOL",
     "AgentCapabilities",
     "AgentDefinition",
     "AgentRegistry",
     "SubAgentDefinition",
     "build_agent_registry",
+    "delegate_display_table",
 ]

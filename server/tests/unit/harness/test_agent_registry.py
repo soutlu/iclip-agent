@@ -22,11 +22,14 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
 from iclip.harness.agents import (
+    DELEGATE_TOOL,
     AgentDefinition,
     AgentRegistry,
     SubAgentDefinition,
     build_agent_registry,
+    delegate_display_table,
 )
+from iclip.platform.transcript.display import AgentCallDisplay
 
 SPEC = "model: test\n"
 
@@ -177,7 +180,22 @@ async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
     with registry.agents["producer"].override(model=FunctionModel(stream_function=note_tools)):
         await drive(registry, "producer")
 
-    assert "delegate_task" in seen
+    assert DELEGATE_TOOL in seen
+
+
+def test_the_delegate_tool_has_a_display() -> None:
+    """派活的卡上画的是「谁在干什么」。
+
+    表里的名字必须就是挂上去的那一件（``DELEGATE_TOOL``），对不上的话派活的卡会退成朴素的
+    那张，而且不报错。
+    """
+
+    drawn = delegate_display_table()[DELEGATE_TOOL]
+
+    assert drawn({"agent_name": "shot-writer", "task": "写第 3 组"}) == AgentCallDisplay(
+        agent_name="shot-writer", prompt="写第 3 组"
+    )
+    assert drawn({"task": "写第 3 组"}) is None
 
 
 async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:

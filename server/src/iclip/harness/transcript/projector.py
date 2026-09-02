@@ -47,7 +47,7 @@ from pydantic_ai.ui import UIEventStream
 from pydantic_ai_harness.compaction import estimate_context_tokens
 
 from iclip.harness.transcript.from_messages import ORPHAN_TOOL_ERROR, step_usage
-from iclip.platform.transcript.display import tool_display
+from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
     MAIN_AGENT_ID,
@@ -104,6 +104,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     """续跑时这一轮的现状，由历史那一侧推出来。给了它就按它播种，新步从末步之后接着开。"""
     repaired_calls: tuple[str, ...] = ()
     """崩溃续跑时官方直接补上 ``interrupted`` 返回、不发事件的那几次调用（见 ``runner``）。"""
+    display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY
+    """工具卡的画法。历史那侧要拿到同一份实例；不给就每张卡都退成 generic，而且不报错。"""
 
     _started_at: str = field(default_factory=_now, init=False)
     _step_ordinal: int = field(default=0, init=False)
@@ -351,7 +353,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             name=event.part.tool_name,
             state="running",
             input=event.part.args,
-            display=tool_display(event.part.tool_name, event.part.args),
+            display=self.display.tool_display(event.part.tool_name, event.part.args),
             approval_id=None if opened is None else opened.approval_id,
         )
         # 记着这张卡：结局到达时是整张替换掉（协议的 frame.upsert 不是合并），参数与画法得
