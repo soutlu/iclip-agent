@@ -4,8 +4,9 @@
 两条路必须给出**逐字相同**的结构，否则同一段对话刷新前后会变形——所以编号一律取自消息
 里确定的事实，不取到达次序（规则见 ``ops`` 模块开头）。
 
-分轮不查表：消息自己带着 ``run_id``。一次 run 就是一轮（审批由
-``HandleDeferredToolCalls`` 在同一次 run 里等掉，不会把一轮劈成两次）。
+一轮 = 一条 prompt 起过的全部 run。消息自己带着 ``run_id``，哪几次 run 属于同一条 prompt 由
+``prompt_runs`` 那张表给（调用方查好递进来），没有映射的 run 各自成轮。轮间按组内最早那条消息
+的时刻排。
 
 **轮的终态不在这里猜。** 消息里看不出一次 run 是跑完的、被停的还是报错的：真实数据里有一段
 对话的消息停在一条没有工具调用的响应上（看着像正常收尾），官方记的却是被取消。
@@ -61,23 +62,28 @@ def turns_from_messages(
     *,
     turn_states: Mapping[str, TurnState] | None = None,
     turn_errors: Mapping[str, str | None] | None = None,
+    prompt_of_run: Mapping[str, str] | None = None,
 ) -> tuple[TranscriptTurn, ...]:
     """把一段对话的消息历史推成一串轮子，按发生先后排。
 
     ``turn_states`` 与 ``turn_errors`` 都按 ``run_id`` 给，来自官方记的那条 run 结束事件（见模块
     开头）。错误文字得跟着一起来：实时那侧把它挂在轮头部，这侧不给就两条路对不上。
+
+    ``prompt_of_run`` 是 run → prompt 的映射，多次 run 合成一轮靠它。轮的终态取该轮**最后一次**
+    run 的：更早那几次是中断后续跑掉的，它们的结局只定各自的步。
     """
 
     states = turn_states or {}
     errors = turn_errors or {}
     return tuple(
         _turn(
-            group,
+            segments,
             ordinal=ordinal,
-            state=states.get(run_id, "failed"),
-            error=errors.get(run_id),
+            state=states.get(segments[-1][0], "failed"),
+            error=errors.get(segments[-1][0]),
+            run_states=states,
         )
-        for ordinal, (run_id, group) in enumerate(_group_by_run(messages), start=1)
+        for ordinal, segments in enumerate(_group_by_turn(messages, prompt_of_run or {}), start=1)
     )
 
 
@@ -87,18 +93,32 @@ def run_ids_from_messages(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
     return tuple(run_id for run_id, _ in _group_by_run(messages))
 
 
-def drop_last_run(messages: Sequence[ModelMessage]) -> tuple[list[ModelMessage], str | None]:
-    """把最后一次 run 的那组消息摘出去，返回（剩下的消息，被摘掉的 run id）。
+def turn_run_ids(
+    messages: Sequence[ModelMessage], prompt_of_run: Mapping[str, str]
+) -> tuple[tuple[str, ...], ...]:
+    """每一轮各含哪几次 run，按轮序排。轮号 ``t{N}`` 的 N 就是这份列表的长度。"""
 
-    重新生成靠它把历史截回末轮开始之前：剩下的消息重新分组后轮号不变，下一次 run 的轮号
-    （``len(run_ids) + 1``）自然复用被摘掉那一轮的号。消息是空的就没什么可摘。
+    return tuple(
+        tuple(run_id for run_id, _ in segments)
+        for segments in _group_by_turn(messages, prompt_of_run)
+    )
+
+
+def drop_last_turn(
+    messages: Sequence[ModelMessage], prompt_of_run: Mapping[str, str]
+) -> tuple[list[ModelMessage], tuple[str, ...]]:
+    """把最后一轮的消息摘出去，返回（剩下的消息，被摘掉那一轮的 run id）。
+
+    末轮跨了几次 run 就一起摘：留一段下来的话它会与续跑的那条 prompt 断开映射，自成一轮。
+    剩下的消息重新分轮后轮号不变，下一轮的轮号（``len(turn_run_ids) + 1``）自然复用被摘掉
+    那一轮的号。消息是空的就没什么可摘。
     """
 
-    groups = _group_by_run(messages)
-    if not groups:
-        return [], None
-    kept = [message for _, group in groups[:-1] for message in group]
-    return kept, groups[-1][0]
+    turns = _group_by_turn(messages, prompt_of_run)
+    if not turns:
+        return [], ()
+    kept = [message for segments in turns[:-1] for _, group in segments for message in group]
+    return kept, tuple(run_id for run_id, _ in turns[-1])
 
 
 def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
@@ -133,11 +153,30 @@ def run_error_from_events(events: Sequence[StepEvent]) -> str | None:
     return None
 
 
+def _group_by_turn(
+    messages: Sequence[ModelMessage], prompt_of_run: Mapping[str, str]
+) -> list[list[tuple[str, list[ModelMessage]]]]:
+    """把 run 分组再合成轮：相邻两组归同一条 prompt 就是同一轮。
+
+    只合相邻的——同一条 prompt 的几次 run 在时间上必然挨着。两组都没有映射时不合（``prompt_runs``
+    建表之前的旧数据，各自成轮）。
+    """
+
+    turns: list[list[tuple[str, list[ModelMessage]]]] = []
+    for run_id, group in _group_by_run(messages):
+        prompt_id = prompt_of_run.get(run_id)
+        if turns and prompt_id is not None and prompt_of_run.get(turns[-1][-1][0]) == prompt_id:
+            turns[-1].append((run_id, group))
+        else:
+            turns.append([(run_id, group)])
+    return turns
+
+
 def _group_by_run(messages: Sequence[ModelMessage]) -> list[tuple[str, list[ModelMessage]]]:
     """按 ``run_id`` 分组，组间按组内第一条消息的时刻排。
 
-    不按 ``runs`` 表的 ``started_at`` 排：那会把这一层重新拴回一张表上，而消息里本来就带着
-    分组和时刻两样东西。
+    排序取消息上的时刻，不取 ``runs`` 表的 ``started_at``：消息里本来就带着时刻。合成轮要的那份
+    映射另说，它来自 ``prompt_runs``（见 ``_group_by_turn``）。
     """
 
     grouped: dict[str, list[ModelMessage]] = {}
@@ -172,15 +211,19 @@ def _iso(moment: datetime | None) -> str | None:
 
 
 def _turn(
-    group: Sequence[ModelMessage],
+    segments: Sequence[tuple[str, Sequence[ModelMessage]]],
     *,
     ordinal: int,
     state: TurnState,
     error: str | None = None,
+    run_states: Mapping[str, TurnState],
 ) -> TranscriptTurn:
+    """一轮的那几次 run → 一轮。步号跨 run 接着数，工具卡在哪一段发起就留在那一段。"""
+
     turn_id = f"t{ordinal}"
     steps: list[TranscriptStep] = []
     # 工具卡建在发起它的那一步里，而它的结局在下一条请求里才到，所以按 toolCallId 记着位置。
+    # 结局可能落在后一次 run 的第一条请求里（续跑时给悬空调用补的那份），所以这些账跨段留着。
     tool_frames: dict[str, str] = {}
     frames_by_step: list[dict[str, TranscriptFrame]] = []
     prompt: str | None = None
@@ -188,47 +231,62 @@ def _turn(
     pending_steers: list[str] = []
     attached: dict[str, Attachment] = {}
 
-    for message in group:
-        if isinstance(message, ModelRequest):
-            prompt_text, attachments = _user_content(message)
-            attached.update({item.attachment_id: item for item in attachments})
-            if prompt is None and prompt_text is not None:
-                # 一轮的第一句用户输入是这一轮的由来，不单独成块。
-                prompt = prompt_text
-            elif prompt_text is not None and steps:
-                # 中途插进来的用户消息（插话）挂在当时开着的那一步末尾，与实时那条路一致。
-                index = len(steps) - 1
-                _user_frame(frames_by_step[index], f"{turn_id}.{index + 1}", prompt_text)
-            elif prompt_text is not None:
-                # 还没有步可挂（第一次模型请求就带着插话进来），攒着，等第一步开出来放在最前。
-                pending_steers.append(prompt_text)
-            _settle_tools(message, tool_frames, frames_by_step)
-            pending_request = message
-            continue
+    for index, (run_id, group) in enumerate(segments):
+        opened = len(steps)
+        for message in group:
+            if isinstance(message, ModelRequest):
+                prompt_text, attachments = _user_content(message)
+                attached.update({item.attachment_id: item for item in attachments})
+                if prompt is None and prompt_text is not None:
+                    # 一轮的第一句用户输入是这一轮的由来，不单独成块。
+                    prompt = prompt_text
+                elif prompt_text is not None and steps:
+                    # 中途插进来的用户消息挂在当时最后那一步末尾，与实时那条路一致。插话与
+                    # 续跑触发语都走这里——后者到达时最后那一步是前一段的末步。
+                    step_index = len(steps) - 1
+                    _user_frame(
+                        frames_by_step[step_index], f"{turn_id}.{step_index + 1}", prompt_text
+                    )
+                elif prompt_text is not None:
+                    # 还没有步可挂（第一次模型请求就带着插话进来），攒着，等第一步开出来放在最前。
+                    pending_steers.append(prompt_text)
+                _settle_tools(message, tool_frames, frames_by_step)
+                pending_request = message
+                continue
 
-        step_ordinal = len(steps) + 1
-        step_id = f"{turn_id}.{step_ordinal}"
-        frames: dict[str, TranscriptFrame] = {}
-        frames_by_step.append(frames)
-        for text in pending_steers:
-            _user_frame(frames, step_id, text)
-        pending_steers.clear()
-        _open_frames(message, step_id=step_id, frames=frames, tool_frames=tool_frames)
-        steps.append(
-            TranscriptStep(
-                step_id=step_id,
-                turn_id=turn_id,
-                ordinal=step_ordinal,
-                state="completed",
-                started_at=_iso(None if pending_request is None else pending_request.timestamp),
-                ended_at=_iso(message.timestamp),
-                usage=step_usage(message.usage),
-                finish_reason=message.finish_reason,
+            step_ordinal = len(steps) + 1
+            step_id = f"{turn_id}.{step_ordinal}"
+            frames: dict[str, TranscriptFrame] = {}
+            frames_by_step.append(frames)
+            for text in pending_steers:
+                _user_frame(frames, step_id, text)
+            pending_steers.clear()
+            _open_frames(message, step_id=step_id, frames=frames, tool_frames=tool_frames)
+            steps.append(
+                TranscriptStep(
+                    step_id=step_id,
+                    turn_id=turn_id,
+                    ordinal=step_ordinal,
+                    state="completed",
+                    started_at=_iso(None if pending_request is None else pending_request.timestamp),
+                    ended_at=_iso(message.timestamp),
+                    usage=step_usage(message.usage),
+                    finish_reason=message.finish_reason,
+                )
             )
+
+        # 这一段后面还有续跑，而它自己没跑完：那一段停在哪一步，那一步就是断掉的。
+        broke_off = (
+            index < len(segments) - 1
+            and len(steps) > opened
+            and run_states.get(run_id, "failed") != "completed"
         )
+        if broke_off:
+            steps[-1] = steps[-1].model_copy(update={"state": "interrupted"})
 
     _close_orphan_tools(tool_frames, frames_by_step)
 
+    messages = [message for _, group in segments for message in group]
     return TranscriptTurn(
         turn_id=turn_id,
         ordinal=ordinal,
@@ -236,8 +294,8 @@ def _turn(
         origin=TurnOrigin(kind="user"),
         prompt=prompt,
         attachment_ids=tuple(attached) or None,
-        started_at=_iso(_started_at(group)),
-        ended_at=_iso(_ended_at(group)),
+        started_at=_iso(_started_at(messages)),
+        ended_at=_iso(_ended_at(messages)),
         usage=_turn_usage(steps),
         error=error,
         steps=tuple(
@@ -454,11 +512,12 @@ def _turn_usage(steps: Sequence[TranscriptStep]) -> TurnUsage | None:
 __all__ = [
     "ORPHAN_TOOL_ERROR",
     "TurnState",
-    "drop_last_run",
+    "drop_last_turn",
     "run_error_from_events",
     "run_ids_from_messages",
     "run_state_from_events",
     "step_usage",
+    "turn_run_ids",
     "turns_from_messages",
     "unanswered_tool_calls",
 ]

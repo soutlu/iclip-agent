@@ -50,6 +50,7 @@ from iclip.common.errors import Conflict, NotFound
 from iclip.harness.prompts import PromptQueue, PromptRow, PromptStatus
 from iclip.harness.transcript.from_messages import (
     run_ids_from_messages,
+    turn_run_ids,
     unanswered_tool_calls,
 )
 from iclip.harness.transcript.projector import TranscriptEventStream
@@ -515,8 +516,9 @@ class ConversationRunner:
             raise NotFound(f"未注册的 agent: {row.agent_id}")
 
         history = await self._history(row.conversation_id)
-        # 轮号接着历史往下数。两条路必须给出同一个号，而历史那侧数的就是消息里的 run 分组。
-        ordinal = len(run_ids_from_messages(history)) + 1
+        # 轮号接着历史往下数。两条路必须给出同一个号，而历史那侧数的是合成轮之后的组数。
+        prompt_of_run = await self._queue.prompt_of_runs(row.conversation_id)
+        ordinal = len(turn_run_ids(history, prompt_of_run)) + 1
         turn_id = f"t{ordinal}"
         run_id = f"{row.agent_id}-{uuid.uuid4().hex[:8]}"
         await self._queue.attach_run(row.prompt_id, run_id, locked_by=self.locked_by)

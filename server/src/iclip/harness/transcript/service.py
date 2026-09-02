@@ -80,7 +80,7 @@ class TranscriptService:
     async def regenerate(self, *, conversation_id: str, turn_id: str) -> Prompt:
         """把末轮从历史里抹掉，按那一轮原来那条消息的内容重跑一次。
 
-        寻址用协议里的轮 id（``t{N}``，N 从 1 起）：消息历史按 run 分组，第 N 组就是第 N 轮。
+        寻址用协议里的轮 id（``t{N}``，N 从 1 起）：消息历史按轮分组，第 N 组就是第 N 轮。
         只允许对**最后一轮**、且这段对话**空闲**时调用：正在跑或排着队是 ``Conflict``，动的
         不是末轮（轮号超出现有轮数也算）也是 ``Conflict``；轮 id 形状不对是
         ``ValidationFailed``。重跑走 ``submit`` 正常开跑，prompt id 由服务端另铸——原来那个
@@ -93,13 +93,14 @@ class TranscriptService:
         view = await self.queue.view(conversation_id)
         if view.active is not None or view.queued:
             raise Conflict("这段对话还在忙，等它收完尾再重新生成")
-        run_ids = await self.history.run_ids(conversation_id)
-        if int(match.group(1)) != len(run_ids):
+        turns = await self.history.turn_run_ids(conversation_id)
+        if int(match.group(1)) != len(turns):
             raise Conflict("只能重新生成最后一轮")
-        row = await self.queue.get_by_run(run_ids[-1])
+        # 末轮跨了几次 run 都归同一条 prompt，按它第一次 run 找得到那条。
+        row = await self.queue.get_by_run(turns[-1][0])
         if row is None:
             raise NotFound(f"找不到这一轮对应的消息：{turn_id}")
-        if not await self.history.rewind_last_turn(conversation_id, run_id=run_ids[-1]):
+        if not await self.history.rewind_last_turn(conversation_id, run_ids=turns[-1]):
             # 读轮数与动手之间的空隙里这段对话又跑了一轮：要截的已经不是它，拒掉。
             raise Conflict("只能重新生成最后一轮")
         return await self.submit(

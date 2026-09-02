@@ -56,7 +56,8 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
         await conn.execute(
             text(
                 "TRUNCATE agent_runtime.runs, agent_runtime.events, agent_runtime.snapshots, "
-                "agent_runtime.tool_effects, agent_runtime.media, agent_runtime.prompts"
+                "agent_runtime.tool_effects, agent_runtime.media, agent_runtime.prompts, "
+                "agent_runtime.prompt_runs"
             )
         )
     try:
@@ -273,7 +274,7 @@ async def test_one_prompt_runs_and_lands_in_both_paths(engine: AsyncEngine) -> N
     prompt_id = await _submit(runner, queue, conversation_id, "写三个镜头")
     await runner.shutdown()
 
-    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
     assert [turn.state for turn in derived] == ["completed"]
     assert derived[0].prompt == "写三个镜头"
     assert derived[0].steps[0].frames[0].text == "好的，我来写"  # pyright: ignore[reportAttributeAccessIssue]
@@ -297,7 +298,7 @@ async def test_live_projection_matches_the_derived_one(engine: AsyncEngine) -> N
     await _submit(runner, queue, conversation_id, "开始")
     await runner.shutdown()
 
-    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
     assert _skeleton(_replay(store, conversation_id)) == _skeleton(derived)
 
 
@@ -324,7 +325,7 @@ async def test_second_prompt_queues_then_runs_after_the_first(engine: AsyncEngin
     assert settled is not None
     assert settled.run_id is not None  # 它自己起过一次 run，不是被顺手标掉的
 
-    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
     assert [turn.prompt for turn in derived] == ["先做这个", "再做那个"]
     assert [turn.ordinal for turn in derived] == [1, 2]
 
@@ -353,7 +354,7 @@ async def test_usage_is_filled_in_when_the_run_finishes(engine: AsyncEngine) -> 
 
     restored = await TranscriptService(
         store=TranscriptStore(),
-        history=TranscriptHistory(step_store),
+        history=TranscriptHistory(step_store, queue),
         queue=queue,
         runner=runner,
         context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
@@ -529,6 +530,70 @@ async def test_only_the_running_row_carries_a_lease(engine: AsyncEngine) -> None
     assert started.heartbeat_at is not None
 
 
+async def test_attach_run_maps_every_run_to_its_prompt(engine: AsyncEngine) -> None:
+    """一条 prompt 起过的每次 run 都记进 ``prompt_runs``：transcript 靠它把它们合成一轮。
+
+    映射按对话取：别的对话的 run 混进来的话，那段对话的轮会被合到一起去。
+    """
+
+    queue = PromptQueue(engine)
+    now = datetime.now(UTC)
+    for prompt_id, conversation_id in (("prm_mine", "c-mine"), ("prm_yours", "c-yours")):
+        await queue.submit(
+            prompt_id=prompt_id,
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            content=(TextContent(text="走"),),
+            now=now,
+            locked_by=LOCKED_BY,
+        )
+    # 同一条 prompt 起两次 run：第一次断了，第二次续跑。
+    await queue.attach_run("prm_mine", "r-first", locked_by=LOCKED_BY)
+    await queue.attach_run("prm_mine", "r-second", locked_by=LOCKED_BY)
+    await queue.attach_run("prm_yours", "r-other", locked_by=LOCKED_BY)
+
+    assert await queue.prompt_of_runs("c-mine") == {
+        "r-first": "prm_mine",
+        "r-second": "prm_mine",
+    }
+    assert await queue.prompt_of_runs("c-yours") == {"r-other": "prm_yours"}
+
+    # 按任一次 run 都找回同一条 prompt；``prompts.run_id`` 记的是最近那次。
+    first = await queue.get_by_run("r-first")
+    second = await queue.get_by_run("r-second")
+    assert first is not None
+    assert second is not None
+    assert (first.prompt_id, second.prompt_id) == ("prm_mine", "prm_mine")
+    assert second.run_id == "r-second"
+
+
+async def test_attach_run_writes_nothing_when_the_lease_moved_on(engine: AsyncEngine) -> None:
+    """租约易手之后 ``attach_run`` 两处都不写：那一轮的结局归接手的那一方。
+
+    只挡住 ``prompts.run_id`` 却把映射写进去的话，一条不属于自己的 run 会被算进那一轮。
+    """
+
+    queue = PromptQueue(engine)
+    await queue.submit(
+        prompt_id="prm_fenced",
+        conversation_id="c-fenced",
+        agent_id=AGENT_ID,
+        owner_user_id=OWNER,
+        content=(TextContent(text="走"),),
+        now=datetime.now(UTC),
+        locked_by=LOCKED_BY,
+    )
+
+    await queue.attach_run("prm_fenced", "r-stale", locked_by="w-other")
+
+    row = await queue.get("prm_fenced")
+    assert row is not None
+    assert row.run_id is None
+    assert await queue.prompt_of_runs("c-fenced") == {}
+    assert (await queue.get_by_run("r-stale")) is None
+
+
 async def test_resubmitting_the_same_prompt_id_does_not_start_a_second_run(
     engine: AsyncEngine,
 ) -> None:
@@ -669,7 +734,7 @@ async def test_an_append_landing_after_the_last_model_request_still_reaches_the_
     assert "临时插一句" in _texts(seen[1])
 
     # 追加没有自成一轮，它是这一轮里的一个用户块。
-    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
     assert [turn.prompt for turn in derived] == ["先做这个"]
     assert "临时插一句" in [
         getattr(frame, "text", None)
@@ -832,7 +897,7 @@ async def test_a_run_that_died_mid_tool_still_shows_up_after_a_refresh(
     )
     assert interrupted is not None
 
-    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
     assert [turn.prompt for turn in derived] == ["把这三个镜头重新出图"]
     assert [turn.state for turn in derived] == ["failed"]
 
@@ -917,7 +982,7 @@ async def test_the_next_turn_after_a_failed_one_does_not_reuse_its_ordinal(
     await runner.shutdown()
     await runner2.shutdown()
 
-    derived = (await TranscriptHistory(step_store).read(conversation_id)).turns
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
     assert [(turn.turn_id, turn.ordinal) for turn in derived] == [("t1", 1), ("t2", 2)]
     assert [turn.state for turn in derived] == ["failed", "completed"]
 

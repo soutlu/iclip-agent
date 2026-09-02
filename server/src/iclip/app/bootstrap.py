@@ -574,7 +574,7 @@ def build_app(
 
     transcripts = TranscriptService(
         store=transcript_store,
-        history=TranscriptHistory(step_store),
+        history=TranscriptHistory(step_store, prompt_queue),
         queue=prompt_queue,
         context_limits=context_limits,
         runner=ConversationRunner(
