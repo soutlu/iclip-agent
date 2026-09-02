@@ -406,17 +406,20 @@ class PromptQueue:
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
-    async def abort(self, prompt_id: str, *, now: datetime) -> PromptRow:
+    async def abort(self, prompt_id: str, *, conversation_id: str, now: datetime) -> PromptRow:
         """撤掉一条 prompt。
 
         排队中的与等审批的直接标掉；正在跑的只标一半——真正把运行停掉是运行侧的事，这里不知道
         那次 run 在谁手上。三种都返回该行：等审批的那一轮还占着实时状态，也要运行侧接着收拾。
 
+        ``conversation_id`` 是调用方已经核过权的那一段，不属于它的当作没有：消息 id 是客户端铸的，
+        这道核对要在改行之前，不然光凭一个猜到的 id 就能撤掉别人的消息。
+
         已经跑完的抛 ``Conflict``：重复点停止是常事，但不能假装刚刚停掉了什么。
         """
 
         row = await self.get(prompt_id)
-        if row is None:
+        if row is None or row.conversation_id != conversation_id:
             raise NotFound(f"没有这条消息：{prompt_id}")
         if row.status == "steered":
             raise Conflict("这条消息已经递进当前这一轮了，要停就停整段对话")
