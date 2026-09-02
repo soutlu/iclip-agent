@@ -48,6 +48,8 @@ export interface ToolCallFrame {
   readonly input?: unknown;
   readonly output?: unknown;
   readonly display?: unknown;
+  /** 本仓扩展：给人看的那份结果（见 README「做过的改写」）。 */
+  readonly metadata?: unknown;
   readonly error?: string;
   readonly inputText?: string;
   readonly progress?: ToolFrameProgress;

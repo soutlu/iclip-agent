@@ -9,9 +9,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { TranscriptAttachment, TranscriptFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
+import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { AssistantMarkdown } from './assistant-markdown'
 import { DisclosureBody, DisclosureChevron } from './disclosure'
-import { toolCard } from './tool-display'
+import { toolCard, toolMedia, type MediaGridItem } from './tool-display'
 import { UserBubble } from './user-bubble'
 
 export type AttachmentMap = ReadonlyMap<string, TranscriptAttachment>
@@ -140,8 +141,11 @@ type ToolRowProps = {
 }
 
 /**
- * 一次工具调用：一行——图标、做了什么、对象、行尾一个状态点；结果是纯文本时可以展开看，
+ * 一次工具调用：一行——图标、做了什么、对象、行尾一个状态点；结果怎么画由帧上的 `view` 选，
  * 开合是 grid-rows 平滑过渡（照 kimi）。
+ *
+ * 结果渲染器认 `view` 不认工具名：媒体墙在行下面独立画一排图（正文让给图），`file_content`
+ * 与 `search_results` 以及没给 `view` 的都走纯文本折叠。
  *
  * 轮子结束了还停在 `running` 的强制收尾：不这样的话，用户按停止之后会留下永远转圈的行。
  *
@@ -155,8 +159,11 @@ function ToolRow({ frame, settled }: ToolRowProps) {
   const state = frame.state === 'running' && settled ? 'done' : frame.state
   const status = toolStatus[state]
   const [open, setOpen] = useState(false)
+  const [preview, setPreview] = useState<TranscriptAttachment | null>(null)
+  const media = toolMedia(frame)
   // 只展开纯文本的结果（读文件、搜内容这些）。对象结果不塞进界面——那是内部形状，不是给人看的。
-  const output = typeof frame.output === 'string' && frame.output !== '' ? frame.output : undefined
+  const text = typeof frame.output === 'string' && frame.output !== '' ? frame.output : undefined
+  const output = media.length > 0 ? undefined : text
 
   const head = (
     <>
@@ -196,9 +203,57 @@ function ToolRow({ frame, settled }: ToolRowProps) {
           </DisclosureBody>
         </>
       )}
+      {media.length === 0 ? null : <MediaWall items={media} onOpen={setPreview} />}
+      <MediaLightbox attachment={preview} onClose={() => setPreview(null)} />
       {frame.error === undefined ? null : (
         <p className="text-body-sm text-chat-error-text">{frame.error}</p>
       )}
+    </div>
+  )
+}
+
+/** 媒体墙那几张不是附件实体，灯箱只认附件的形状：地址当 id，标题当名字。 */
+const asAttachment = (item: MediaGridItem): TranscriptAttachment => ({
+  attachmentId: item.url,
+  mediaType: 'image/*',
+  name: item.caption,
+  source: { kind: 'url', url: item.url },
+})
+
+/**
+ * 工具画出来的那排图（照 kimi 的 media-tool）：横向铺开，每张一图一标题，点图进灯箱。
+ *
+ * @param props - 组件属性。
+ * @param props.items - 这一排图。
+ * @param props.onOpen - 点开一张。
+ * @returns 媒体墙。
+ */
+function MediaWall({
+  items,
+  onOpen,
+}: {
+  items: readonly MediaGridItem[]
+  onOpen: (attachment: TranscriptAttachment) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 pt-1">
+      {items.map((item) => (
+        <figure
+          className="flex max-w-[320px] min-w-0 flex-col gap-1.5 max-sm:w-[min(44vw,160px)]"
+          key={item.url}
+        >
+          <button
+            className="cursor-zoom-in overflow-hidden rounded-md ui-focus"
+            onClick={() => onOpen(asAttachment(item))}
+            type="button"
+          >
+            <img alt={item.caption} className="block w-full rounded-md" src={item.url} />
+          </button>
+          <figcaption className="truncate text-body-sm text-chat-muted-text">
+            {item.caption}
+          </figcaption>
+        </figure>
+      ))}
     </div>
   )
 }

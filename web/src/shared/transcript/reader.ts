@@ -20,6 +20,7 @@ import {
   AgentTranscript,
   type ActivityMeta,
   type TranscriptAttachment,
+  type TranscriptInteraction,
   type TranscriptItem,
   type TranscriptPrompt,
 } from './vendor'
@@ -43,6 +44,8 @@ export interface TranscriptView {
   items: readonly TranscriptItem[]
   /** 服务端记下的用户消息。排队中的那几条只在这里，时间线上还没有它们。 */
   prompts: readonly TranscriptPrompt[]
+  /** 还在等人回应的交互。审批卡按它出现，回应落库后由推送把它撤掉。 */
+  pendingInteractions: readonly TranscriptInteraction[]
   /**
    * 附件实体表：frame / turn 只带 id 引用，实体由 `attachment.upsert` 落这张表。
    * 原地增补、引用不变——渲染层据此解析，memo 不受影响。
@@ -66,6 +69,7 @@ const EMPTY_VIEW: TranscriptView = {
   hasMoreOlder: false,
   items: [],
   maxContextTokens: undefined,
+  pendingInteractions: [],
   prompts: [],
   status: 'loading',
   title: '',
@@ -222,6 +226,7 @@ export class TranscriptReader {
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
           maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,
+          pendingInteractions: this.pendingInteractions(),
           prompts: [...this.transcript.getPrompts().values()],
           status: 'ready',
           title: baseline.title,
@@ -285,9 +290,17 @@ export class TranscriptReader {
       contextTokens: this.transcript.getMeta().agent?.contextTokens,
       items: this.transcript.getItems(),
       maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,
+      pendingInteractions: this.pendingInteractions(),
       prompts: [...this.transcript.getPrompts().values()],
     }
     this.emit()
+  }
+
+  /** 待回应的交互实体：store 只记 id，界面要的是实体。 */
+  private pendingInteractions(): readonly TranscriptInteraction[] {
+    return this.transcript
+      .listPendingInteractions()
+      .flatMap((id) => this.transcript.getInteraction(id) ?? [])
   }
 
   private fail(message: string): void {
