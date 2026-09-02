@@ -61,12 +61,13 @@ class ConversationTaskIn(CamelModel):
 class ConversationActivityOut(CamelModel):
     """这段对话此刻在忙什么。侧栏据此画角标。
 
-    嵌套一层而不是把字段平铺到行上：这一组事实还会长（kimi 那边还有主轮活跃与最近一轮的结局），
-    平铺的话每加一个都要在行上再开一个顶层字段。
+    嵌套一层而不是把字段平铺到行上：这一组事实还会长，平铺的话每加一个都要在行上再开一个
+    顶层字段。
     """
 
     busy: bool
     pending_interaction: Literal["none", "approval", "question"]
+    last_turn_reason: Literal["completed", "failed", "aborted"] | None = None
 
 
 class ConversationOut(CamelModel):
@@ -170,7 +171,9 @@ def conversation_out(conversation: Conversation, activity: ConversationActivity)
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
         activity=ConversationActivityOut(
-            busy=activity.busy, pending_interaction=activity.pending_interaction
+            busy=activity.busy,
+            pending_interaction=activity.pending_interaction,
+            last_turn_reason=activity.last_turn_reason,
         ),
     )
 

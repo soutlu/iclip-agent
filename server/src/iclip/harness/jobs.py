@@ -10,8 +10,8 @@
 刷新，时间一律取数据库时钟。心跳停了超过一个租约、或者关停时被主动释放（``release``）的行，都算
 中断：清扫把它重新认领下来续跑（``claim_interrupted``），``attempt`` 记它被重新认领过几次，到
 ``max_attempts`` 就判失败不再续跑（``fail_exhausted``）；排着的那些由清扫叫醒
-（``conversations_waiting``）。``finish`` 与 ``attach_run`` 都带 ``locked_by`` 这道 fence——租约易手
-之后它们一行都改不动，结局由接手的那一方定。
+（``conversations_waiting``）。持租那一方的写入都带 ``_owned`` 这道 fence——租约易手之后它们一行
+都改不动，结局由接手的那一方定。
 
 ``steered`` 与 ``awaiting`` 都是**内部状态**，对外一律报 ``running``：协议的 prompt 状态联合里
 没有这两个值，漏出去客户端整帧被 zod 拒掉且不报错。``steered`` 表示这条消息已经递进了某次 run
@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final, Literal, cast
@@ -38,6 +38,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import (
     Column,
     ColumnElement,
+    Executable,
     Index,
     Integer,
     MetaData,
@@ -59,13 +60,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.common.errors import Conflict, NotFound
+from iclip.harness.transcript.activity import ActivityState, activity_of
 from iclip.platform.transcript.ops import Prompt, PromptContent
 
 DB_SCHEMA: Final = "agent_runtime"
 
-JobStatus = Literal[
-    "running", "awaiting", "queued", "steered", "blocked", "completed", "failed", "aborted"
-]
+JobStatus = Literal["running", "awaiting", "queued", "steered", "completed", "failed", "aborted"]
 
 _ACTIVE: Final = ("running", "awaiting")
 """占着这段对话的那两种。等审批的那一轮并没有结束，所以它也算占着。"""
@@ -173,11 +173,30 @@ class JobQueueView:
     queued: tuple[JobRow, ...]
 
 
+ActivityChanged = Callable[[str, ActivityState], None]
+"""一段对话在忙什么变了，入参是 ``(对话 id, 新的活儿)``。
+
+同步：它只往连接的出站队列里塞一帧，不落库。**这一层不认识对话表**，也不知道这段对话归谁——
+接什么由组合根决定，属主在那边查。
+"""
+
+
 class JobQueue:
     """按对话排 prompt。DDL 由 Alembic 迁移拥有，这里不自建表。"""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: AsyncEngine, *, on_activity: ActivityChanged | None = None) -> None:
         self._engine = engine
+        self._on_activity = on_activity
+
+    def _changed(self, conversation_id: str, status: JobStatus) -> None:
+        """占着这段对话的那一行状态变了，告诉外面。
+
+        只在写入的事务提交之后叫：在事务里叫的话，一次回滚就把一份从没成立的活儿发了出去。
+        一条跑完接着起下一条会先发 idle 再发 busy，不去抖。
+        """
+
+        if self._on_activity is not None:
+            self._on_activity(conversation_id, activity_of(status))
 
     async def submit(
         self,
@@ -201,6 +220,9 @@ class JobQueue:
 
         **认领只在同一段对话内算数。** id 是客户端铸的，两个人撞上同一个是完全可能的；不比
         对话就返回已有那条的话，撞上的人会拿到别人的消息记录，而他自己那条从来没被收下。
+
+        两种撞车都由 ``IntegrityError`` 报到这里，各走一条路：撞「一段对话只跑一条」那道部分
+        唯一索引的，改记成排队；撞主键的是同一个 id 并发提交两次（双击），读回已有那条。
         """
 
         existing = await self.get(prompt_id)
@@ -232,20 +254,27 @@ class JobQueue:
             .returning(agent_jobs_table)
         )
         try:
-            async with self._engine.begin() as conn:
-                row = (await conn.execute(stmt)).one()
+            row = await self._one(stmt)
         except IntegrityError:
             # 唯一索引拦下来了：另一条 prompt 在这几微秒里抢先占住了「在跑」那个位置。
             # 那条 CASE 判断和这次写入之间没有锁，所以这条路一定会有人走到。
-            async with self._engine.begin() as conn:
-                row = (
-                    await conn.execute(
-                        insert(agent_jobs_table)
-                        .values(**values, status="queued")
-                        .returning(agent_jobs_table)
-                    )
-                ).one()
-        return _row(row)
+            try:
+                row = await self._one(
+                    insert(agent_jobs_table)
+                    .values(**values, status="queued")
+                    .returning(agent_jobs_table)
+                )
+            except IntegrityError:
+                # 这次撞的是主键：同一个 id 并发提交了两次，另一次已经收下了。
+                existing = await self.get(prompt_id)
+                if existing is None:
+                    raise
+                return existing
+        if row is None:
+            raise Conflict("这条消息没被收下")
+        if row.status == "running":
+            self._changed(conversation_id, row.status)
+        return row
 
     async def view(self, conversation_id: str) -> JobQueueView:
         """这段对话此刻占着的和排着的。跑完的不在里面。"""
@@ -256,18 +285,17 @@ class JobQueue:
             .where(agent_jobs_table.c.status.in_(_LIVE))
             .order_by(agent_jobs_table.c.created_at.asc(), agent_jobs_table.c.prompt_id.asc())
         )
-        async with self._engine.connect() as conn:
-            rows = [_row(row) for row in (await conn.execute(stmt)).all()]
+        rows = await self._rows(stmt)
         active = next((row for row in rows if row.status in _ACTIVE), None)
         return JobQueueView(
             active=active, queued=tuple(row for row in rows if row.status == "queued")
         )
 
     async def get(self, prompt_id: str) -> JobRow | None:
-        stmt = select(agent_jobs_table).where(agent_jobs_table.c.prompt_id == prompt_id)
-        async with self._engine.connect() as conn:
-            row = (await conn.execute(stmt)).one_or_none()
-        return None if row is None else _row(row)
+        found = await self._rows(
+            select(agent_jobs_table).where(agent_jobs_table.c.prompt_id == prompt_id)
+        )
+        return found[0] if found else None
 
     async def get_by_run(self, run_id: str) -> JobRow | None:
         """发起那次 run 的那条 prompt；没记过就是 ``None``。
@@ -284,9 +312,8 @@ class JobQueue:
             )
             .where(agent_job_runs_table.c.run_id == run_id)
         )
-        async with self._engine.connect() as conn:
-            row = (await conn.execute(stmt)).one_or_none()
-        return None if row is None else _row(row)
+        found = await self._rows(stmt)
+        return found[0] if found else None
 
     async def prompt_of_runs(self, conversation_id: str) -> dict[str, str]:
         """这段对话里每次 run 归哪条 prompt。transcript 靠它把多次 run 合成一轮。"""
@@ -319,19 +346,57 @@ class JobQueue:
         async with self._engine.connect() as conn:
             return {run_id: status for run_id, status in (await conn.execute(stmt)).all()}
 
-    async def active_statuses(self, conversation_ids: Sequence[str]) -> dict[str, JobStatus]:
-        """这几段对话里占着的那条 prompt 各是什么状态（``running`` / ``awaiting``）。
+    async def activities(self, conversation_ids: Sequence[str]) -> dict[str, ActivityState]:
+        """这几段对话此刻各在忙什么。问到的每一段都给得出，查不到行的是 ``IDLE``。
 
-        空闲的那些不在返回里。侧栏的角标靠这一份跨进程对齐：实时状态是每 worker 一份的内存，
-        重启之后是空的，而库里那条 prompt 还在跑、或者还等着人点头。
+        侧栏的角标只看这一份：它跨得过重启，而进程内存是每 worker 一份、互相看不见。
         """
 
         if not conversation_ids:
             return {}
+        decisive = await self._decisive(
+            agent_jobs_table.c.conversation_id.in_(tuple(conversation_ids))
+        )
+        return {one: activity_of(decisive.get(one)) for one in conversation_ids}
+
+    async def conversation_ids(
+        self, owner_user_id: uuid.UUID, state: Literal["running", "done"]
+    ) -> frozenset[str]:
+        """这个人名下在跑的、或者已经跑完过的对话。列表的 ``state`` 筛选按它过滤。
+
+        从没跑过的对话两边都不在里面：它既不忙，也没有「最近一轮的结局」。
+        """
+
+        decisive = await self._decisive(agent_jobs_table.c.owner_user_id == owner_user_id)
+        return frozenset(
+            conversation_id
+            for conversation_id, status in decisive.items()
+            if activity_of(status).busy == (state == "running")
+        )
+
+    async def _decisive(self, scope: ColumnElement[bool]) -> dict[str, JobStatus]:
+        """每段对话里决定活儿的那一行的状态：占着的那条，否则最近结束的那条。
+
+        两条排除各有理由。``steered`` 有一条就必有一条 running/awaiting 陪着它（插话是递进
+        那一轮的），取到它会把 approval 盖掉；``queued`` 同理只是排着，还没轮到。
+        ``run_id`` 为空的 ``aborted`` 是「排着的时候就被撤回」的那条消息——它从来没跑过，不能
+        当成这段对话最近一轮的结局。
+        """
+
         stmt = (
             select(agent_jobs_table.c.conversation_id, agent_jobs_table.c.status)
-            .where(agent_jobs_table.c.conversation_id.in_(tuple(conversation_ids)))
-            .where(agent_jobs_table.c.status.in_(_ACTIVE))
+            .where(scope)
+            .where(agent_jobs_table.c.status.not_in(("queued", "steered")))
+            .where(
+                ~and_(agent_jobs_table.c.status == "aborted", agent_jobs_table.c.run_id.is_(None))
+            )
+            .distinct(agent_jobs_table.c.conversation_id)
+            .order_by(
+                agent_jobs_table.c.conversation_id,
+                agent_jobs_table.c.status.in_(_ACTIVE).desc(),
+                agent_jobs_table.c.finished_at.desc().nulls_last(),
+                agent_jobs_table.c.created_at.desc(),
+            )
         )
         async with self._engine.connect() as conn:
             return {
@@ -368,13 +433,16 @@ class JobQueue:
             .returning(agent_jobs_table)
         )
         try:
-            async with self._engine.begin() as conn:
-                row = (await conn.execute(stmt)).one_or_none()
+            row = await self._one(stmt)
         except IntegrityError:
             return None
-        return None if row is None else _row(row)
+        if row is not None:
+            self._changed(conversation_id, row.status)
+        return row
 
-    async def attach_run(self, prompt_id: str, run_id: str, *, locked_by: str) -> None:
+    async def attach_run(
+        self, prompt_id: str, run_id: str, *, locked_by: str, attempt: int
+    ) -> None:
         """记下这条 prompt 起的是哪次 run，好把它和 transcript 里那一轮对上。
 
         租约不在自己手上就一行都不动：那一轮已经被别人判过结局了。
@@ -385,8 +453,7 @@ class JobQueue:
 
         claim = (
             update(agent_jobs_table)
-            .where(agent_jobs_table.c.prompt_id == prompt_id)
-            .where(agent_jobs_table.c.locked_by == locked_by)
+            .where(_owned(prompt_id, locked_by, attempt))
             .values(run_id=run_id)
         )
         async with self._engine.begin() as conn:
@@ -399,49 +466,56 @@ class JobQueue:
             )
 
     async def finish(
-        self, prompt_id: str, *, status: JobStatus, now: datetime, locked_by: str
+        self, prompt_id: str, *, status: JobStatus, now: datetime, locked_by: str, attempt: int
     ) -> None:
         """给自己手上那条 prompt 收尾。已经收过尾的、或者租约易手的都不再动。"""
 
         stmt = (
             update(agent_jobs_table)
-            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(_owned(prompt_id, locked_by, attempt))
             .where(agent_jobs_table.c.status.in_(_LIVE))
-            .where(agent_jobs_table.c.locked_by == locked_by)
             .values(status=status, finished_at=now)
+            .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            await conn.execute(stmt)
+        row = await self._one(stmt)
+        if row is not None:
+            self._changed(row.conversation_id, status)
 
     async def abort(self, prompt_id: str, *, conversation_id: str, now: datetime) -> JobRow:
-        """撤掉一条 prompt。
+        """撤掉一条 prompt，返回改完（或者没能改）的那一行。
 
-        排队中的与等审批的直接标掉；正在跑的只标一半——真正把运行停掉是运行侧的事，这里不知道
-        那次 run 在谁手上。三种都返回该行：等审批的那一轮还占着实时状态，也要运行侧接着收拾。
+        排队中的与等审批的一条 CAS 直接标掉——这两种行都没有租约，走不了 ``finish`` 那道 fence，
+        所以状态自己就是 CAS 的条件。正在跑的只标一半：真正把运行停掉是运行侧的事，这里不知道
+        那次 run 在谁手上，所以原样返回该行不改状态。
 
         ``conversation_id`` 是调用方已经核过权的那一段，不属于它的当作没有：消息 id 是客户端铸的，
-        这道核对要在改行之前，不然光凭一个猜到的 id 就能撤掉别人的消息。
+        这道核对写进 CAS 的条件里，不然光凭一个猜到的 id 就能撤掉别人的消息。
 
         已经跑完的抛 ``Conflict``：重复点停止是常事，但不能假装刚刚停掉了什么。
+
+        撤掉的行是不是原来那条等审批的，看 ``run_id``：排着的那些从来没起过 run，那一列是空的。
         """
 
+        stmt = (
+            update(agent_jobs_table)
+            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
+            .where(agent_jobs_table.c.status.in_(("queued", "awaiting")))
+            .values(status="aborted", finished_at=now)
+            .returning(agent_jobs_table)
+        )
+        aborted = await self._one(stmt)
+        if aborted is not None:
+            if aborted.run_id is not None:
+                self._changed(conversation_id, "aborted")
+            return aborted
         row = await self.get(prompt_id)
         if row is None or row.conversation_id != conversation_id:
             raise NotFound(f"没有这条消息：{prompt_id}")
         if row.status == "steered":
             raise Conflict("这条消息已经递进当前这一轮了，要停就停整段对话")
-        if row.status not in _LIVE:
+        if row.status != "running":
             raise Conflict("这条消息已经结束了，停不了")
-        if row.status in ("queued", "awaiting"):
-            # 这两种行都没有租约，走不了 ``finish`` 那道 fence。
-            stmt = (
-                update(agent_jobs_table)
-                .where(agent_jobs_table.c.prompt_id == prompt_id)
-                .where(agent_jobs_table.c.status == row.status)
-                .values(status="aborted", finished_at=now)
-            )
-            async with self._engine.begin() as conn:
-                await conn.execute(stmt)
         return row
 
     async def abort_queued(self, conversation_id: str, *, now: datetime) -> tuple[JobRow, ...]:
@@ -458,8 +532,7 @@ class JobQueue:
             .values(status="aborted", finished_at=now)
             .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+        return await self._all(stmt)
 
     async def pick_for_steer(
         self, conversation_id: str, prompt_ids: tuple[str, ...]
@@ -498,8 +571,7 @@ class JobQueue:
             .values(status="steered", run_id=run_id, steered_at=now)
             .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+        return await self._all(stmt)
 
     async def settle_steered(
         self, run_id: str, *, status: JobStatus, now: datetime
@@ -513,8 +585,7 @@ class JobQueue:
             .values(status=status, finished_at=now)
             .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+        return await self._all(stmt)
 
     async def requeue_steered(self, prompt_ids: tuple[str, ...]) -> tuple[JobRow, ...]:
         """递进去了但那一轮没读到它，退回队列排着。
@@ -529,8 +600,7 @@ class JobQueue:
             .values(status="queued", run_id=None, steered_at=None)
             .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+        return await self._all(stmt)
 
     async def heartbeat(self, *, locked_by: str) -> tuple[str, ...]:
         """给这个进程手上还在跑的那些行刷一次心跳，返回刷到的 prompt id。
@@ -548,21 +618,20 @@ class JobQueue:
         async with self._engine.begin() as conn:
             return tuple((await conn.execute(stmt)).scalars().all())
 
-    async def release(self, prompt_id: str, *, locked_by: str, reason: str) -> None:
+    async def release(self, prompt_id: str, *, locked_by: str, reason: str, attempt: int) -> None:
         """放掉自己手上那条的租约，行留在 ``running`` 等人接着跑。
 
-        租约不在自己手上就一行都不动：那一轮已经归接手的那一方了。
+        租约不在自己手上就一行都不动：那一轮已经归接手的那一方了。行还占着这段对话，活儿没变，
+        所以不发帧。
         """
 
         stmt = (
             update(agent_jobs_table)
-            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(_owned(prompt_id, locked_by, attempt))
             .where(agent_jobs_table.c.status == "running")
-            .where(agent_jobs_table.c.locked_by == locked_by)
             .values(locked_by=None, heartbeat_at=None, interrupt_reason=reason)
         )
-        async with self._engine.begin() as conn:
-            await conn.execute(stmt)
+        await self._one(stmt.returning(agent_jobs_table))
 
     async def claim_interrupted(
         self, *, locked_by: str, lease_seconds: int, max_attempts: int
@@ -590,8 +659,7 @@ class JobQueue:
             )
             .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+        return await self._all(stmt)
 
     async def fail_exhausted(self, *, lease_seconds: int, max_attempts: int) -> tuple[JobRow, ...]:
         """认领次数已经用完的中断行判失败并放掉租约，返回它们。"""
@@ -608,8 +676,10 @@ class JobQueue:
             )
             .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+        rows = await self._all(stmt)
+        for row in rows:
+            self._changed(row.conversation_id, "failed")
+        return rows
 
     async def adopt_steered(self, old_run_id: str, new_run_id: str) -> None:
         """递进老 run 的那几条插话改挂续跑这次 run。
@@ -623,10 +693,11 @@ class JobQueue:
             .where(agent_jobs_table.c.run_id == old_run_id)
             .values(run_id=new_run_id)
         )
-        async with self._engine.begin() as conn:
-            await conn.execute(stmt)
+        await self._all(stmt.returning(agent_jobs_table))
 
-    async def await_approvals(self, prompt_id: str, *, locked_by: str) -> JobRow | None:
+    async def await_approvals(
+        self, prompt_id: str, *, locked_by: str, attempt: int
+    ) -> JobRow | None:
         """这次 run 停在审批上了：行改成 ``awaiting`` 并放掉租约，``run_id`` 留着。
 
         租约不在自己手上就一行都不动，同 ``finish`` 那道 fence。放掉租约是因为没有 run 在跑了，
@@ -635,15 +706,15 @@ class JobQueue:
 
         stmt = (
             update(agent_jobs_table)
-            .where(agent_jobs_table.c.prompt_id == prompt_id)
+            .where(_owned(prompt_id, locked_by, attempt))
             .where(agent_jobs_table.c.status == "running")
-            .where(agent_jobs_table.c.locked_by == locked_by)
             .values(status="awaiting", locked_by=None, heartbeat_at=None)
             .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            row = (await conn.execute(stmt)).one_or_none()
-        return None if row is None else _row(row)
+        row = await self._one(stmt)
+        if row is not None:
+            self._changed(row.conversation_id, "awaiting")
+        return row
 
     async def record_decision(self, prompt_id: str, tool_call_id: str, *, approved: bool) -> JobRow:
         """记下人对一张审批卡点了什么，返回记完之后的那一行。
@@ -697,9 +768,10 @@ class JobQueue:
             .values(status="running", locked_by=locked_by, heartbeat_at=func.now())
             .returning(agent_jobs_table)
         )
-        async with self._engine.begin() as conn:
-            row = (await conn.execute(stmt)).one_or_none()
-        return None if row is None else _row(row)
+        row = await self._one(stmt)
+        if row is not None:
+            self._changed(row.conversation_id, "running")
+        return row
 
     async def conversations_waiting(self) -> tuple[str, ...]:
         """有排队的行、却一条占着的都没有的那些对话。它们等着人来叫。"""
@@ -718,6 +790,41 @@ class JobQueue:
         )
         async with self._engine.connect() as conn:
             return tuple((await conn.execute(stmt)).scalars().all())
+
+    # --- 执行 ---------------------------------------------------------------
+
+    async def _one(self, stmt: Executable) -> JobRow | None:
+        """跑一句写入，取它 ``RETURNING`` 的那一行；一行都没改到就是 ``None``。"""
+
+        async with self._engine.begin() as conn:
+            row = (await conn.execute(stmt)).one_or_none()
+        return None if row is None else _row(row)
+
+    async def _all(self, stmt: Executable) -> tuple[JobRow, ...]:
+        """跑一句写入，取它 ``RETURNING`` 的全部行。"""
+
+        async with self._engine.begin() as conn:
+            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
+    async def _rows(self, stmt: Executable) -> tuple[JobRow, ...]:
+        """跑一句只读查询。不开事务。"""
+
+        async with self._engine.connect() as conn:
+            return tuple(_row(row) for row in (await conn.execute(stmt)).all())
+
+
+def _owned(prompt_id: str, locked_by: str, attempt: int) -> ColumnElement[bool]:
+    """持租那一方写入自己那条行的条件：id、租约主人、代数三者都对得上。
+
+    ``attempt`` 是代数：一条行失租之后又被清扫认领回同一个进程时，``locked_by`` 会跟原来一样，
+    老 task 的晚到写入光比租约主人是挡不掉的——它会替一个已经不是自己的轮子定结局。
+    """
+
+    return and_(
+        agent_jobs_table.c.prompt_id == prompt_id,
+        agent_jobs_table.c.locked_by == locked_by,
+        agent_jobs_table.c.attempt == attempt,
+    )
 
 
 def _interrupted(lease_seconds: int) -> ColumnElement[bool]:
@@ -792,6 +899,7 @@ def _row(row: object) -> JobRow:
 
 __all__ = [
     "DB_SCHEMA",
+    "ActivityChanged",
     "JobQueue",
     "JobQueueView",
     "JobRow",

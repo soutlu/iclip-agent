@@ -310,19 +310,27 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
             )
             assert sent.status_code == 200, sent.text
 
-            busy = _until(ws, "session.activity.updated")
-            assert busy["payload"] == {
-                "session_id": conversation_id,
-                "busy": True,
-                "pending_interaction": "none",
-            }
+            busy = _until(ws, "event.session.work_changed")
+            # session_id 在信封上，不在 payload 里。
+            assert busy["session_id"] == conversation_id
+            # 还没跑完过一轮，没有结局；帧一律 exclude_none，所以那一项整个不出现。
+            assert busy["payload"] == {"busy": True, "pending_interaction": "none"}
 
-            idle = _until(ws, "session.activity.updated")
-            assert idle["payload"]["busy"] is False
+            idle = _until(ws, "event.session.work_changed")
+            assert idle["session_id"] == conversation_id
+            assert idle["payload"] == {
+                "busy": False,
+                "pending_interaction": "none",
+                "last_turn_reason": "completed",
+            }
 
             # 行上也带着同一份事实：帧是易失的，重拉列表才是对齐的办法。
             listed = tc.get("/conversations").json()
             row = next(
                 item for item in listed["ungrouped"]["items"] if item["id"] == conversation_id
             )
-            assert row["activity"] == {"busy": False, "pendingInteraction": "none"}
+            assert row["activity"] == {
+                "busy": False,
+                "pendingInteraction": "none",
+                "lastTurnReason": "completed",
+            }

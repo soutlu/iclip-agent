@@ -21,7 +21,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Final
 
-from iclip.harness.transcript.activity import IDLE, ActivityState, AgentWork, aggregate
 from iclip.platform.transcript.ops import (
     AppendOp,
     Attachment,
@@ -66,13 +65,6 @@ class OpBatch:
 
 Listener = Callable[[OpBatch], None]
 """在听的连接。同步的：新批次是在 ``append`` 的临界区里递出去的，不能在那里 await。"""
-
-ActivityChanged = Callable[[str, ActivityState], None]
-"""一段对话在忙什么变了，入参是 ``(对话 id, 新的活儿)``。
-
-同步，与 ``Listener`` 同一个道理。**这一层不认识对话表**，也不知道这段对话归谁——接什么由组合根
-决定，属主在那边查。
-"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,19 +120,11 @@ class _Conversation:
 class TranscriptStore:
     """按对话存实时 transcript。进程内，单进程部署下就是全部。"""
 
-    def __init__(
-        self,
-        *,
-        resident: int = RESIDENT_CONVERSATIONS,
-        on_activity: ActivityChanged | None = None,
-    ) -> None:
+    def __init__(self, *, resident: int = RESIDENT_CONVERSATIONS) -> None:
         self._resident = resident
         # 插入序即最近使用序：命中时挪到末尾，淘汰从头取。
         self._conversations: dict[str, _Conversation] = {}
         self._listeners: dict[tuple[str, str], set[Listener]] = {}
-        self._on_activity = on_activity
-        # 上一次算出来的活儿，用来判「变没变」。没有这段对话即 IDLE。
-        self._activity: dict[str, ActivityState] = {}
 
     # --- 写 -----------------------------------------------------------------
 
@@ -157,7 +141,6 @@ class TranscriptStore:
         agent.journal.append(batch)
         for listener in tuple(self._listeners.get((conversation_id, agent_id), ())):
             listener(batch)
-        self._settle_activity(conversation_id)
         return batch
 
     def listen(self, conversation_id: str, agent_id: str, listener: Listener) -> None:
@@ -220,41 +203,6 @@ class TranscriptStore:
             complete=complete,
         )
 
-    def activity(self, conversation_id: str) -> ActivityState:
-        """这段对话此刻在忙什么。内存里没有它就是 IDLE——那说明它没在跑。"""
-
-        return self._activity.get(conversation_id, IDLE)
-
-    def _settle_activity(self, conversation_id: str) -> None:
-        """重算这段对话的活儿；**变了才告诉外面**（见 activity.py 第 3 条）。"""
-
-        conversation = self._conversations.get(conversation_id)
-        if conversation is None:
-            return
-        state = aggregate(
-            {
-                agent_id: AgentWork(
-                    turn_active=any(
-                        live.header.state == "running" for live in agent.turns.values()
-                    ),
-                    pending_kinds=tuple(
-                        item.interaction_kind
-                        for item in agent.interactions.values()
-                        if item.state == "pending"
-                    ),
-                )
-                for agent_id, agent in conversation.agents.items()
-            }
-        )
-        if self._activity.get(conversation_id, IDLE) == state:
-            return
-        if state == IDLE:
-            self._activity.pop(conversation_id, None)
-        else:
-            self._activity[conversation_id] = state
-        if self._on_activity is not None:
-            self._on_activity(conversation_id, state)
-
     def pending_interactions(self, conversation_id: str, agent_id: str) -> tuple[Interaction, ...]:
         """还没落定的审批与提问。
 
@@ -298,9 +246,6 @@ class TranscriptStore:
                 return
             if conversation.pins == 0:
                 del self._conversations[conversation_id]
-                # 活儿跟着丢：留着的话侧栏会一直显示一段已经不在内存里的对话在跑。
-                # 能被淘汰的都没被钉住，也就没在跑，所以这里不必再通知外面。
-                self._activity.pop(conversation_id, None)
 
     @staticmethod
     def _since(agent: _AgentTranscript, since: int | None) -> tuple[tuple[OpBatch, ...], bool]:
@@ -413,7 +358,6 @@ def _assemble(turn: _LiveTurn) -> TranscriptTurn:
 __all__ = [
     "JOURNAL_CAPACITY",
     "RESIDENT_CONVERSATIONS",
-    "ActivityChanged",
     "Listener",
     "OpBatch",
     "SubscribeView",

@@ -51,10 +51,10 @@ from iclip.platform.transcript.wire import (
     ResetPayload,
     ServerHello,
     ServerHelloPayload,
-    SessionActivityPayload,
-    SessionActivityUpdated,
     SessionMetaPayload,
     SessionMetaUpdated,
+    SessionWorkChanged,
+    SessionWorkPayload,
     SteerRequest,
     Subscribe,
     SubscribeAckPayload,
@@ -197,17 +197,22 @@ class LiveConnections:
         *,
         busy: bool,
         pending_interaction: Literal["none", "approval", "question"],
+        last_turn_reason: Literal["completed", "failed", "aborted"] | None,
     ) -> None:
-        """把「在忙什么」发给这个人还开着的每个标签页。"""
+        """把「在忙什么」发给这个人还开着的每个标签页。
+
+        三个字段而不是引擎那侧的 ``ActivityState``：这一层结构上 import 不到引擎（见模块开头）。
+        """
 
         self._announce(
             owner,
-            SessionActivityUpdated(
-                payload=SessionActivityPayload(
-                    session_id=str(conversation_id),
+            SessionWorkChanged(
+                session_id=str(conversation_id),
+                payload=SessionWorkPayload(
                     busy=busy,
                     pending_interaction=pending_interaction,
-                )
+                    last_turn_reason=last_turn_reason,
+                ),
             ),
         )
 

@@ -854,11 +854,27 @@
       },
       "ConversationActivityOut": {
         "additionalProperties": false,
-        "description": "这段对话此刻在忙什么。侧栏据此画角标。\n\n嵌套一层而不是把字段平铺到行上：这一组事实还会长（kimi 那边还有主轮活跃与最近一轮的结局），\n平铺的话每加一个都要在行上再开一个顶层字段。",
+        "description": "这段对话此刻在忙什么。侧栏据此画角标。\n\n嵌套一层而不是把字段平铺到行上：这一组事实还会长，平铺的话每加一个都要在行上再开一个\n顶层字段。",
         "properties": {
           "busy": {
             "title": "Busy",
             "type": "boolean"
+          },
+          "lastTurnReason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "failed",
+                  "aborted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastturnreason"
           },
           "pendingInteraction": {
             "enum": [

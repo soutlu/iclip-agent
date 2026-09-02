@@ -135,7 +135,7 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
 | 帧 | 体 | 什么时候发 |
 |---|---|---|
 | `session.meta.updated` | `{session_id, title}` | 标题变了（自动起名或用户改名） |
-| `session.activity.updated` | `{session_id, busy, pending_interaction}` | 在忙什么变了（起跑、收尾、等人点头、点完头） |
+| `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | jobs 表里占着的那条行状态变了：起跑、进 awaiting、审批点齐、收场、撤回等审批的、清扫判失败 |
 
 - 侧栏列着几十段对话却一段都没订，所以它只能走这条路；客户端拿它就地改那一行，不重拉列表。
 - **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。
@@ -144,7 +144,7 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
 - **两帧都是易失的**：不进任何日志，掉了就是掉了。所以同一份事实也长在列表行上
   （`ConversationOut.title` 与 `ConversationOut.activity`）——**行是事实源，帧只负责「不必等下一次
   重拉」**。客户端重连之后要重拉一次列表：断线期间的变化谁也补不回来。
-- 只发变化：算出来与上一次一样就不发帧。
+- 一条跑完接着起下一条会先发 idle 再发 busy。
 
 ## 6. 对话 (Conversations)
 
@@ -158,9 +158,10 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
 - **`by-collection` 不区分「合集不存在」「合集是别人的」「合集是空的」**，三种都给一页空的——合集只对属主可见，区分了就等于告诉调用方它存在。
 - `GET /conversations/search?q=` 按标题搜自己的对话，返回扁平列表，最近活动的排在前面；`GET /conversations/by-task/{taskId}` 按开始时间正序。
 - `lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`），刷新页面后拿它去续读那条流。
-- `activity` 是这段对话此刻在忙什么：`{busy, pendingInteraction}`。两个字段**互不蕴含**——等审批
-  时 `busy` 照样为真，那一轮并没有结束。变化走 `session.activity.updated`（见 §5 全局帧）。
-  服务重启后引擎那份内存是空的，于是所有行都退回 `busy: false`：那些运行确实随进程没了。
+- `activity` 是这段对话此刻在忙什么：`{busy, pendingInteraction, lastTurnReason}`。前两个字段**互不
+  蕴含**——等审批时 `busy` 照样为真，那一轮并没有结束。`lastTurnReason` 是最近一轮的结局
+  （`completed` / `failed` / `aborted`），从没跑过的对话为 `null`。变化走
+  `event.session.work_changed`（见 §5 全局帧）。
 - **标题服务端自动起，只起一次**：第一轮跑完拿小模型按用户那句话起个名，写进去之后再不改；
   用户自己改过名（`PATCH`，或者开对话时就给了 `title`）的一律不碰。起不出来就还叫默认名，下一
   轮跑完再试，不报错。改名与自动起名都会发一帧 `session.meta.updated`（见 §5 全局帧）。

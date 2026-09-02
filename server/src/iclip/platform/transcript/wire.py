@@ -118,24 +118,27 @@ class SessionMetaUpdated(_Envelope):
     payload: SessionMetaPayload
 
 
-class SessionActivityPayload(_Envelope):
-    session_id: str
+class SessionWorkPayload(_Envelope):
     busy: bool
     pending_interaction: Literal["none", "approval", "question"]
+    last_turn_reason: Literal["completed", "failed", "aborted"] | None = None
 
 
-class SessionActivityUpdated(_Envelope):
+class SessionWorkChanged(_Envelope):
     """某段对话「在忙什么」变了。
 
     与 ``session.meta.updated`` 同一类：**不看订阅，发给这个人连着的每一条连接**。侧栏列着几十段
     对话却一段都没订，按订阅发的话它永远收不到角标。
 
+    ``session_id`` 在信封上而不在 payload 里，与协议其余 ``event.*`` 一致。
+
     **易失**：这一帧不进任何日志，掉了就是掉了。所以列表行上也带着同一份事实（见
     ``ConversationOut.activity``），断线重连后重拉列表即可对齐——帧只负责「不必等下一次重拉」。
     """
 
-    type: Literal["session.activity.updated"] = "session.activity.updated"
-    payload: SessionActivityPayload
+    type: Literal["event.session.work_changed"] = "event.session.work_changed"
+    session_id: str
+    payload: SessionWorkPayload
 
 
 class Ack(_Envelope):
@@ -170,7 +173,7 @@ ServerFrame = Annotated[
     | TranscriptReset
     | TranscriptOps
     | SessionMetaUpdated
-    | SessionActivityUpdated
+    | SessionWorkChanged
     | Ack
     | Ping,
     Field(discriminator="type"),
@@ -316,10 +319,10 @@ __all__ = [
     "ServerHello",
     "ServerHelloCapabilities",
     "ServerHelloPayload",
-    "SessionActivityPayload",
-    "SessionActivityUpdated",
     "SessionMetaPayload",
     "SessionMetaUpdated",
+    "SessionWorkChanged",
+    "SessionWorkPayload",
     "SteerRequest",
     "Subscribe",
     "SubscribeAckPayload",

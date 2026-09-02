@@ -82,7 +82,7 @@ from iclip.harness.models import BuiltModels, ModelSpec, build_models
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.titles import title_generator
-from iclip.harness.transcript.activity import ActivityState, merged_with_prompt
+from iclip.harness.transcript.activity import ActivityState
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
@@ -460,29 +460,23 @@ def build_app(
         )
 
     live_connections = LiveConnections()
-    # 活儿变了要推给属主，而 store 的回调必须是同步的（它跑在 append 的临界区里），查属主
-    # 要读库。所以这里起一个任务去查再发。拿住引用：asyncio 只弱引用运行中的任务。
+    # 活儿变了要推给属主，而队列的回调是同步的（它紧接着一次写入），查属主要读库。所以这里起
+    # 一个任务去查再发。拿住引用：asyncio 只弱引用运行中的任务。
     announce_tasks: set[asyncio.Task[None]] = set()
 
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
     ) -> Mapping[uuid.UUID, ConversationActivity]:
-        """这批对话此刻各在忙什么。引擎那侧的两份事实 → 对话那侧的形状。
+        """这批对话此刻各在忙什么。引擎那侧的形状 → 对话那侧的形状。"""
 
-        库里那条占着的 prompt 与进程内存里的实时状态合成一份：只看内存的话，重启后一段还在跑、
-        或者还等着人点头的对话会被报成空闲。
-        """
-
-        statuses = await job_queue.active_statuses([str(one) for one in conversation_ids])
-        merged = {
-            one: merged_with_prompt(transcript_store.activity(str(one)), statuses.get(str(one)))
-            for one in conversation_ids
-        }
+        states = await job_queue.activities([str(one) for one in conversation_ids])
         return {
             one: ConversationActivity(
-                busy=state.busy, pending_interaction=state.pending_interaction
+                busy=state.busy,
+                pending_interaction=state.pending_interaction,
+                last_turn_reason=state.last_turn_reason,
             )
-            for one, state in merged.items()
+            for one, state in ((one, states[str(one)]) for one in conversation_ids)
         }
 
     async def _push_activity(conversation_id: str, state: ActivityState) -> None:
@@ -494,10 +488,11 @@ def build_app(
             uuid.UUID(conversation_id),
             busy=state.busy,
             pending_interaction=state.pending_interaction,
+            last_turn_reason=state.last_turn_reason,
         )
 
     def on_activity(conversation_id: str, state: ActivityState) -> None:
-        """活儿变了。已经在 store 里去过抖，一轮对话只有两三次，所以这里按次查属主。"""
+        """活儿变了。一轮对话只有两三次，所以这里按次查属主。"""
 
         task = asyncio.create_task(_push_activity(conversation_id, state))
         announce_tasks.add(task)
@@ -555,8 +550,8 @@ def build_app(
     )
     # 一份注册表递给两条路：实时那侧与历史那侧给出的卡不一样的话，同一张卡在刷新前后换个长相。
     tool_displays = build_display_registry(capability_table)
-    transcript_store = TranscriptStore(on_activity=on_activity)
-    job_queue = JobQueue(active_engine)
+    transcript_store = TranscriptStore()
+    job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = _agent_context_limits(agents, settings.models)
 
     async def name_conversation(row: JobRow) -> None:
