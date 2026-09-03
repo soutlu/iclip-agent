@@ -17,6 +17,8 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.testclient import TestClient
 
 from iclip.config import ResolvedAgent
@@ -286,6 +288,61 @@ def test_cross_origin_upgrade_is_refused(ws_agent_app: FastAPI, pg_url: str) -> 
             pass  # 连接根本不该成立
 
     assert refused.value.code == 1008
+
+
+async def _seed_file(pg_url: str, namespace: str, path: str, content: str) -> None:
+    """直接往工作区表里放一份稿子，装作这段对话里已经写过。"""
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO agent_runtime.workspace_files "
+                    "(namespace, path, content, version, created_at, updated_at) "
+                    "VALUES (:ns, :path, :content, 1, now(), now())"
+                ),
+                {"ns": namespace, "path": path, "content": content},
+            )
+    finally:
+        await engine.dispose()
+
+
+def test_workspace_write_announces_the_file_to_open_tabs(
+    ws_agent_app: FastAPI, pg_url: str
+) -> None:
+    """面板整份写回一份文件，同一个人还开着的每个标签页都收到一帧。
+
+    与「在忙什么」同一类：不看订阅。agent 与用户会写同一份文件，所以 ``source`` 得带上——
+    界面靠它分辨这一版是不是自己刚写的。
+    """
+
+    with TestClient(ws_agent_app) as tc:
+        _sign_in(tc, pg_url)
+        conversation_id = _open_conversation(tc)
+        owner = tc.get("/users/me").json()["user"]["id"]
+        # PUT 只覆盖不新建（不存在时任何版本都对不上），所以先直接往表里放一份。
+        asyncio.run(_seed_file(pg_url, f"{owner}/{conversation_id}", "提纲.md", "三幕"))
+
+        with tc.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "server_hello"
+            # 故意不发 subscribe_v2：这一帧不看订阅。
+
+            written = tc.put(
+                f"/conversations/{conversation_id}/workspace/file",
+                json={"path": "提纲.md", "content": "四幕", "expectedVersion": 1},
+            )
+            assert written.status_code == 200, written.text
+
+            changed = _until(ws, "event.workspace.file_changed")
+
+    assert changed["session_id"] == conversation_id
+    assert changed["payload"] == {
+        "session_id": conversation_id,
+        "path": "提纲.md",
+        "version": 2,
+        "source": "user",
+    }
 
 
 def test_activity_frames_reach_a_connection_that_subscribed_nothing(

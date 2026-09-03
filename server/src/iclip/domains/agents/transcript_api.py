@@ -62,6 +62,8 @@ from iclip.platform.transcript.wire import (
     TranscriptPage,
     TranscriptReset,
     Unsubscribe,
+    WorkspaceFileChanged,
+    WorkspaceFilePayload,
 )
 
 _logger = logging.getLogger(__name__)
@@ -212,6 +214,33 @@ class LiveConnections:
                     busy=busy,
                     pending_interaction=pending_interaction,
                     last_turn_reason=last_turn_reason,
+                ),
+            ),
+        )
+
+    def announce_file_changed(
+        self,
+        owner: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        path: str,
+        version: int,
+        source: str,
+    ) -> None:
+        """把「这份工作区文件刚被写过」发给这个人还开着的每个标签页。
+
+        agent 与用户会写同一份文件，所以带上 ``source``：界面据此分辨这一版是不是自己写的。
+        """
+
+        self._announce(
+            owner,
+            WorkspaceFileChanged(
+                session_id=str(conversation_id),
+                payload=WorkspaceFilePayload(
+                    session_id=str(conversation_id),
+                    path=path,
+                    version=version,
+                    source=source,
                 ),
             ),
         )

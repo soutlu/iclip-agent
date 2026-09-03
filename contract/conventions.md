@@ -130,12 +130,16 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
 
 #### 全局帧
 
-两帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
+三帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
 
 | 帧 | 体 | 什么时候发 |
 |---|---|---|
 | `session.meta.updated` | `{session_id, title}` | 标题变了（自动起名或用户改名） |
 | `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | jobs 表里占着的那条行状态变了：起跑、进 awaiting、审批点齐、收场、撤回等审批的、清扫判失败 |
+| `event.workspace.file_changed` | `session_id` 在信封上，payload `{session_id, path, version, source}` | 这段对话的工作区文件被写了一次（工具写或面板 `PUT` 写） |
+
+- `event.workspace.file_changed` 的 `source` 是写入者：面板写的是 `user`，工具写的是 `agent`（分不到具体哪件工具）。界面靠它分辨这一版是不是自己刚写的。
+- 它与另外两帧一样**易失**：文件列表接口才是事实源，帧只负责「不必等下一次重拉」。
 
 - 侧栏列着几十段对话却一段都没订，所以它只能走这条路；客户端拿它就地改那一行，不重拉列表。
 - **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。

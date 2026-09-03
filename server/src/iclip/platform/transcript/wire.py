@@ -141,6 +141,31 @@ class SessionWorkChanged(_Envelope):
     payload: SessionWorkPayload
 
 
+class WorkspaceFilePayload(_Envelope):
+    session_id: str
+    path: str
+    version: int
+    source: str
+    """谁写的：工具写的是那件工具的名字（认不出来就是 ``agent``），面板写的是 ``user``。
+
+    界面靠它分辨「这一版是不是我自己刚写的」——不是自己写的才标「agent 刚改过」。
+    """
+
+
+class WorkspaceFileChanged(_Envelope):
+    """某段对话的工作区文件被写了一次。
+
+    与另外两帧同一类：**不看订阅，发给这个人连着的每一条连接**。同一段对话常开着好几个
+    标签页，而 agent 与用户会写同一份文件。
+
+    **易失**：掉了就是掉了。文件列表接口才是事实源，这一帧只负责「不必等下一次重拉」。
+    """
+
+    type: Literal["event.workspace.file_changed"] = "event.workspace.file_changed"
+    session_id: str
+    payload: WorkspaceFilePayload
+
+
 class Ack(_Envelope):
     """控制帧的回执。``code`` 为 0 即成功，与协议一致。"""
 
@@ -174,6 +199,7 @@ ServerFrame = Annotated[
     | TranscriptOps
     | SessionMetaUpdated
     | SessionWorkChanged
+    | WorkspaceFileChanged
     | Ack
     | Ping,
     Field(discriminator="type"),
@@ -332,4 +358,6 @@ __all__ = [
     "TranscriptReset",
     "Unsubscribe",
     "UnsubscribePayload",
+    "WorkspaceFileChanged",
+    "WorkspaceFilePayload",
 ]
