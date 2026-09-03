@@ -1,6 +1,7 @@
 import { setupWorker } from 'msw/browser'
 import { addMockCollection, addMockConversation, handlers } from './handlers'
 import { markMockAwaitingApproval } from './transcript'
+import { seedMockWorkspace } from './workspace'
 
 // 原型里没有新建对话的入口，不预置几段就永远搜不出东西、侧栏也是空的。只种在浏览器
 // 这一侧：单测每个用例后会清空这份存储，种进 handlers 会让那边的断言凭空多出几行。
@@ -26,6 +27,13 @@ const awaiting = seeded.at(-1)
 if (awaiting !== undefined) {
   awaiting.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'approval' }
   markMockAwaitingApproval(awaiting.id)
+}
+
+// 第一段对话里有 agent 交付的 video_shot.json：点开它右面板就是分镜工作台。只种在浏览器
+// 这一侧，理由同上。
+const withShots = seeded[0]
+if (withShots !== undefined) {
+  seedMockWorkspace(withShots.id)
 }
 
 // 一个装了两段对话的合集。没进合集的对话待在「任务」区，不给它们造一个「待归档」

@@ -2855,9 +2855,9 @@
               <code>--layout-app-right-panel-width · 460px</code>
               <code>--layout-app-workbench-width · 820px</code>
               <code>--layout-app-chat-min-width · 400px</code>
-              <span>右面板 · background · hairline 左边线 · 是槽位：只有当前路由声明了面板内容才展开，没有声明保持默认折叠 · 展开后可再折叠 · 折叠后主区右上浮出展开钮 · 空态占位</span>
-              <span>右面板有内容 · 宽 --layout-app-workbench-width · 主区（聊天）最小 --layout-app-chat-min-width · 面板头右侧给折叠钮与放大钮，放大后面板铺满主区、聊天列不显示</span>
-              <span>视口 &lt; --breakpoint-lg · 聊天与面板不并排 · 主区只显示其一 · 由面板头上的切换钮切，面板一侧的钮写「回到聊天」</span>
+              <span>右面板 · background · hairline 左边线 · 是槽位：当前路由声明了面板内容、且真有内容可画才展开，其余保持默认折叠 · 展开后可再折叠 · 折叠后主区右上浮出展开钮 · 空态占位</span>
+              <span>右面板有内容 · 宽 --layout-app-workbench-width · 主区（聊天）最小 --layout-app-chat-min-width · 面板头左侧给内容标题，同时有多份内容时换成下拉切换器 · 右侧给折叠钮与放大钮，放大后面板铺满主区、聊天列不显示</span>
+              <span>视口 &lt; --breakpoint-lg · 聊天与面板不并排 · 主区只显示其一 · 由面板头上的切换钮切，面板一侧只给这一个钮，写「回到聊天」</span>
               <span>紧凑 &lt; 600 · sidebar 与右面板默认折叠 · 主区左上、右上各浮出展开钮</span>
             </div>
             <p class="template-use">

@@ -51,13 +51,16 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const navigate = useNavigate()
   const search: { artifact?: string } = useSearch({ strict: false })
   const files = useWorkspaceFiles(conversationId)
-  const [collapsed, setCollapsed] = useState(false)
+  // 用户点过折叠 / 展开就听他的；没点过按「有没有产物」定：一件都没有的对话不该白占掉 820。
+  const [collapsedByUser, setCollapsedByUser] = useState<boolean | null>(null)
   const [maximized, setMaximized] = useState(false)
   const sideBySide = useMediaQuery(SIDE_BY_SIDE_QUERY)
 
   const artifacts = composeArtifacts(registry, files.data?.files ?? [], NO_FRAMES)
   const selected = pickArtifact(registry, artifacts, search.artifact)
   const entry = selected === undefined ? undefined : registry.resolve(selected.type)
+  const collapsed = collapsedByUser ?? artifacts.length === 0
+  const setCollapsed = setCollapsedByUser
 
   if (collapsed) {
     return (
