@@ -150,6 +150,18 @@ class ConversationFileContentOut(CamelModel):
     version: int
 
 
+class ConversationFileWriteIn(CamelModel):
+    """整份覆盖工作区里的一个文件。
+
+    ``expectedVersion`` 是读到那一份的版本号：agent 与用户会同时写同一份文件，对不上
+    就是 409，让调用方重读再决定，而不是把别人刚写的盖掉。
+    """
+
+    path: Annotated[str, Field(min_length=1)]
+    content: str
+    expected_version: int
+
+
 class ConversationFileEnvelope(CamelModel):
     file: ConversationFileContentOut
 
@@ -188,6 +200,7 @@ __all__ = [
     "ConversationFileContentOut",
     "ConversationFileEnvelope",
     "ConversationFileOut",
+    "ConversationFileWriteIn",
     "ConversationFilesOut",
     "ConversationIn",
     "ConversationOut",

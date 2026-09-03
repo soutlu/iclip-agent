@@ -14,6 +14,7 @@ import hashlib
 import json
 import re
 import time
+import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
@@ -22,7 +23,7 @@ from tempfile import TemporaryDirectory
 from typing import Any, Final
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
 from pydantic_ai.capabilities import AbstractCapability
@@ -425,6 +426,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 resolution=GRID_RESOLUTION,
                 channel="dev",
                 reference_image_urls=references,
+                conversation_id=_conversation_id(ctx),
             ),
         )
         if job.status != "completed" or not job.output_url:
@@ -474,6 +476,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 aspect_ratio=ANCHOR_ASPECT,
                 resolution=GRID_RESOLUTION,
                 channel="dev",
+                conversation_id=_conversation_id(ctx),
             ),
         )
         if job.status != "completed" or not job.output_url:
@@ -514,7 +517,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             parse_aspect(aspect_ratio)
         except GridError as exc:
             raise ModelRetry(str(exc)) from exc
-        rows = _resolve_shots(shots, known=await self._known_frame_urls(files, namespace))
+        rows = _resolve_shots(shots, known=await _known_frame_urls(files, namespace))
         await self._write(
             files,
             namespace,
@@ -528,34 +531,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             ),
             "path": SHOTS_PATH,
         }
-
-    async def _known_frame_urls(self, files: FileStore, namespace: str) -> set[str]:
-        """本次对话已经生成过的镜头帧地址，从逐批版记录里收。
-
-        以版记录为准而不是取帧账本：账本里的是参考视频的候选帧，不是生成出来的镜
-        头帧，交付的必须是后者。
-        """
-
-        urls: set[str] = set()
-        for entry in await files.entries(namespace, prefix=GRID_RECORDS_DIR):
-            stored = await files.read(namespace, entry.path)
-            if stored is None:
-                continue
-            try:
-                record = json.loads(stored.content)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(record, dict):
-                continue
-            frames = record.get("frames")
-            if not isinstance(frames, list):
-                continue
-            for frame in frames:
-                if isinstance(frame, dict):
-                    url = frame.get("url")
-                    if isinstance(url, str):
-                        urls.add(url)
-        return urls
 
     async def _shot_rows(
         self, files: FileStore, namespace: str, doc_path: str
@@ -901,6 +876,23 @@ def video_doc_path(video_url: str) -> str:
     return f"{_DOC_DIR}/{(stem[:_STEM_CHARS] or 'video')}-{digest}.md"
 
 
+def _conversation_id(ctx: RunContext[AgentDepsT]) -> str | None:
+    """这次运行跑在哪段对话里，出图记录按它归档。
+
+    值是客户端给的（见 ``AgentRunDeps``），所以形状不对就当作没有——归档少一条好过让
+    一次已经算得出图的调用死在一个 id 上。
+    """
+
+    deps = ctx.deps
+    if not isinstance(deps, AgentRunDeps):
+        return None
+    try:
+        uuid.UUID(deps.conversation_id)
+    except ValueError:
+        return None
+    return deps.conversation_id
+
+
 def _principal(ctx: RunContext[AgentDepsT]) -> Principal:
     """取这次运行的可信主体。
 
@@ -1057,6 +1049,84 @@ def _resolve_shots(
     return rows
 
 
+async def _known_frame_urls(files: FileStore, namespace: str) -> set[str]:
+    """本次对话已经生成过的镜头帧地址，从逐批版记录里收。
+
+    以版记录为准而不是取帧账本：账本里的是参考视频的候选帧，不是生成出来的镜
+    头帧，交付的必须是后者。
+    """
+
+    urls: set[str] = set()
+    for entry in await files.entries(namespace, prefix=GRID_RECORDS_DIR):
+        stored = await files.read(namespace, entry.path)
+        if stored is None:
+            continue
+        try:
+            record = json.loads(stored.content)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        frames = record.get("frames")
+        if not isinstance(frames, list):
+            continue
+        for frame in frames:
+            if isinstance(frame, dict):
+                url = frame.get("url")
+                if isinstance(url, str):
+                    urls.add(url)
+    return urls
+
+
+async def validate_video_shots_document(files: FileStore, namespace: str, content: str) -> None:
+    """判一份写回来的 ``video_shot.json``，不合规抛 ``ValueError``（消息给人看）。
+
+    用户在界面上改完这份文件是整份写回工作区的，走不到 ``write_video_shots``。两条路
+    交付的是同一份东西，所以判定必须是同一套——这里复用那件工具的几个判定，不另写一份
+    规矩出来。
+    """
+
+    try:
+        document = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{SHOTS_PATH} 不是合法的 JSON：{exc}") from exc
+    if not isinstance(document, dict):
+        raise ValueError(f"{SHOTS_PATH} 的根必须是一个对象。")
+    aspect_ratio = document.get("aspectRatio")
+    if not isinstance(aspect_ratio, str):
+        raise ValueError("aspectRatio 要写成 9:16 这样的字符串。")
+    raw_shots = document.get("shots")
+    if not isinstance(raw_shots, list):
+        raise ValueError("shots 要写成一个数组。")
+    try:
+        parse_aspect(aspect_ratio)
+    except GridError as exc:
+        raise ValueError(str(exc)) from exc
+    shots: list[VideoShotRequest] = []
+    for position, row in enumerate(raw_shots, start=1):
+        if not isinstance(row, dict):
+            raise ValueError(f"第 {position} 个镜头组不是一个对象。")
+        try:
+            shots.append(
+                VideoShotRequest.model_validate(
+                    {
+                        "index": row.get("index"),
+                        "prompt": row.get("prompt"),
+                        "seconds": row.get("seconds"),
+                        "image_urls": row.get("imageUrls"),
+                    }
+                )
+            )
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            where = ".".join(str(part) for part in first["loc"]) or "字段"
+            raise ValueError(f"第 {position} 个镜头组的 {where}：{first['msg']}") from exc
+    try:
+        _resolve_shots(shots, known=await _known_frame_urls(files, namespace))
+    except ModelRetry as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def _failed_payload(error: str, *, items_key: str = "frames") -> dict[str, Any]:
     """生成未收敛时的返回值。``items_key`` 是这件工具本来该给出的那批东西。"""
 
@@ -1132,5 +1202,6 @@ __all__ = [
     "ShotVideoToolset",
     "VideoShotRequest",
     "shot_video_capability",
+    "validate_video_shots_document",
     "video_doc_path",
 ]

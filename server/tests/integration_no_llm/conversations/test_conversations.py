@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import httpx
@@ -263,6 +264,146 @@ async def test_workspace_files_can_be_listed_and_read(
             f"{URL}/{mine}/workspace/file", params={"path": "提纲.md"}
         )
     assert (listed_by_stranger.status_code, read_by_stranger.status_code) == (404, 404)
+
+
+def shots_document(*, image_url: str) -> str:
+    """一份合规的镜头组 prompt 表，形状与 ``write_video_shots`` 交付出来的一致。"""
+
+    return json.dumps(
+        {
+            "aspectRatio": "9:16",
+            "shots": [
+                {
+                    "index": 1,
+                    "prompt": "0-8s 全景 平视 固定，她走进门厅 @Image1。",
+                    "seconds": 8,
+                    "imageUrls": [image_url],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+async def test_workspace_file_can_be_written_back_with_the_version_it_was_read_at(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """面板改完整份写回：带着读到的版本号，写完版本加一。
+
+    版本对不上是 409（agent 与用户会同时写同一份文件，不能静默覆盖）；文件不存在时任何
+    版本都对不上，同样 409——不替调用方凭空新建一份。
+    """
+
+    user_id = await login_as_editor(client, pg_url)
+    mine = (await create(client, title="这段")).json()["conversation"]["id"]
+    await seed_workspace_files(pg_url, f"{user_id}/{mine}", {"提纲.md": "三幕"})
+
+    written = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={"path": "提纲.md", "content": "四幕", "expectedVersion": 1},
+    )
+    assert written.status_code == 200, written.text
+    assert written.json() == {"file": {"path": "提纲.md", "content": "四幕", "version": 2}}
+
+    read = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "提纲.md"})
+    assert read.json()["file"]["content"] == "四幕"
+
+    stale = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={"path": "提纲.md", "content": "五幕", "expectedVersion": 1},
+    )
+    assert stale.status_code == 409, stale.text
+
+    absent = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={"path": "还没有.md", "content": "x", "expectedVersion": 1},
+    )
+    assert absent.status_code == 409
+
+
+async def test_workspace_file_write_checks_the_document_on_its_path(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """``video_shot.json`` 走交付工具那一关：帧地址必须是这段对话生成过的。
+
+    不规范的路径写法一律拒：``/video_shot.json`` 与 ``video_shot.json`` 落同一个文件，
+    放行前者就等于放出一条绕开校验的路。
+    """
+
+    user_id = await login_as_editor(client, pg_url)
+    mine = (await create(client, title="这段")).json()["conversation"]["id"]
+    frame_url = "https://cdn.test/frames/s1-1.jpg"
+    await seed_workspace_files(
+        pg_url,
+        f"{user_id}/{mine}",
+        {
+            "frames/grids/job-1.json": json.dumps(
+                {
+                    "gridRecordVersion": 1,
+                    "jobId": "job-1",
+                    "frames": [{"no": "S1-1", "url": frame_url}],
+                }
+            ),
+            "video_shot.json": shots_document(image_url=frame_url),
+        },
+    )
+
+    good = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={
+            "path": "video_shot.json",
+            "content": shots_document(image_url=frame_url),
+            "expectedVersion": 1,
+        },
+    )
+    assert good.status_code == 200, good.text
+
+    made_up = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={
+            "path": "video_shot.json",
+            "content": shots_document(image_url="https://cdn.test/编的.jpg"),
+            "expectedVersion": 2,
+        },
+    )
+    assert made_up.status_code == 422
+    assert "generate_shot_frames" in made_up.json()["detail"], "校验器的原话要给到用户"
+
+    sneaky = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={
+            "path": "/video_shot.json",
+            "content": shots_document(image_url="https://cdn.test/编的.jpg"),
+            "expectedVersion": 2,
+        },
+    )
+    assert sneaky.status_code == 422
+
+
+async def test_workspace_file_write_is_owner_only(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """别人的对话写不进去：看不见的一律 404，治理者看得见但只读，是 403。"""
+
+    user_id = await login_as_editor(client, pg_url)
+    mine = (await create(client, title="这段")).json()["conversation"]["id"]
+    await seed_workspace_files(pg_url, f"{user_id}/{mine}", {"提纲.md": "三幕"})
+    body = {"path": "提纲.md", "content": "我来改", "expectedVersion": 1}
+
+    async with make_client(app) as stranger:
+        await login_as_editor(stranger, pg_url, username="mallory")
+        assert (await stranger.put(f"{URL}/{mine}/workspace/file", json=body)).status_code == 404
+
+    async with make_client(app) as governor:
+        await register_and_login(governor, username="gov", email="gov@example.com")
+        await set_roles_in_db(pg_url, "gov@example.com", ["root"])
+        assert (
+            await governor.get(f"{URL}/{mine}/workspace/file", params={"path": "提纲.md"})
+        ).status_code == 200, "治理者读得到"
+        assert (await governor.put(f"{URL}/{mine}/workspace/file", json=body)).status_code == 403
+
+    unchanged = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "提纲.md"})
+    assert unchanged.json()["file"] == {"path": "提纲.md", "content": "三幕", "version": 1}
 
 
 async def test_workspace_files_require_login(client: httpx.AsyncClient) -> None:

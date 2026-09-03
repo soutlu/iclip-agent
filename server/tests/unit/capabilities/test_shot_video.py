@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -42,6 +43,7 @@ from iclip.capabilities.shot_video.capability import (
     ShotVideoToolset,
     VideoShotRequest,
     shot_video_capability,
+    validate_video_shots_document,
     video_doc_path,
 )
 from iclip.capabilities.shot_video.parser import (
@@ -706,6 +708,44 @@ async def test_generate_accepts_a_frame_the_ledger_never_sampled(
     assert generations.submitted
 
 
+async def test_generate_tags_the_job_with_the_conversation(
+    tools: ShotVideoToolset[object],
+    files: FakeFileStore,
+    generations: FakeGenerations,
+) -> None:
+    """工具发起的出图也归到对话下面，界面才列得出这段对话生成过什么。"""
+
+    conversation_id = str(uuid.uuid4())
+    ctx = make_context(replace(make_deps(), conversation_id=conversation_id))
+    # 只看提交上去的是什么，所以让生成收在失败上——出了图就要接着切格，那是另一条路。
+    generations.outcomes = [Outcome(status="failed", output_url=None, error_code="REJECTED")]
+    # 工作区地盘按对话分段，换了对话 id 就是换了一处地盘。
+    await files.write(f"{USER}/{conversation_id}", EXTRACTION_PATH, ledger("S1-1"))
+    await tools.generate_shot_frames(
+        ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+    )
+    await tools.generate_anchor_sheet(ctx, ["一只猫"])
+
+    assert {request.conversation_id for request in generations.submitted} == {conversation_id}
+
+
+async def test_generate_leaves_the_conversation_empty_when_it_is_not_an_id(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeFileStore,
+    generations: FakeGenerations,
+) -> None:
+    """对话 id 是客户端给的，形状不对就当没有——不能让一次算得出图的调用死在归档上。"""
+
+    generations.outcomes = [Outcome(status="failed", output_url=None, error_code="REJECTED")]
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
+    await tools.generate_shot_frames(
+        ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+    )
+
+    assert generations.submitted[0].conversation_id is None
+
+
 async def test_generate_reference_urls_must_be_http(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
@@ -1050,3 +1090,62 @@ async def test_delivery_without_any_generated_frame_points_at_the_records(
 
     with pytest.raises(ModelRetry, match="frames/grids/"):
         await tools.write_video_shots(ctx, "9:16", [one_shot()])
+
+
+# ── 用户改完写回来的那份 video_shot.json ────────────────────────────────────
+
+
+def shots_document(**overrides: Any) -> str:
+    """一份合规的镜头组 prompt 表，形状与工具交付出来的逐字一致。"""
+
+    row: dict[str, Any] = {
+        "index": 1,
+        "prompt": "0-8s 全景 平视 固定，她走进门厅 @Image1。不要字幕，不要背景音乐。",
+        "seconds": 8,
+        "imageUrls": [FRAME_URL],
+    }
+    document: dict[str, Any] = {"aspectRatio": "9:16", "shots": [row]}
+    return json.dumps({**document, **overrides}, ensure_ascii=False)
+
+
+async def test_written_back_table_passes_the_same_check_as_delivery(
+    files: FakeFileStore,
+) -> None:
+    """面板整份写回的那条路，判定和 `write_video_shots` 是同一套。"""
+
+    await files.write(NAMESPACE, "frames/grids/job-1.json", grid_record(FRAME_URL))
+    await validate_video_shots_document(files, NAMESPACE, shots_document())
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("{不是 json", "不是合法的 JSON"),
+        ("[]", "根必须是一个对象"),
+        (json.dumps({"aspectRatio": "9:16"}), "shots 要写成一个数组"),
+        (shots_document(aspectRatio="竖版"), "画幅"),
+        (json.dumps({"aspectRatio": "9:16", "shots": [{"index": 1}]}), "第 1 个镜头组"),
+        (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"index": 2}]),
+            "连续编号",
+        ),
+        (
+            shots_document(
+                shots=[
+                    json.loads(shots_document())["shots"][0]
+                    | {"imageUrls": ["https://cdn.test/编的.jpg"]}
+                ]
+            ),
+            "不是 generate_shot_frames",
+        ),
+    ],
+    ids=["bad-json", "not-object", "no-shots", "bad-aspect", "bad-row", "index-gap", "unknown-url"],
+)
+async def test_written_back_table_is_rejected_with_the_reason(
+    files: FakeFileStore, content: str, message: str
+) -> None:
+    """不合规抛 ``ValueError``，消息原样往上给——用户要照着它改。"""
+
+    await files.write(NAMESPACE, "frames/grids/job-1.json", grid_record(FRAME_URL))
+    with pytest.raises(ValueError, match=message):
+        await validate_video_shots_document(files, NAMESPACE, content)

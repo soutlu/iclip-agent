@@ -22,9 +22,10 @@ from iclip.app.capability_table import (
 )
 from iclip.app.logging import configure_logging
 from iclip.app.task_styles import ProductStyleSnapshots, UnavailableStyleSnapshots
+from iclip.capabilities.shot_video.capability import SHOTS_PATH, validate_video_shots_document
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.workspace.scope import namespace_for
-from iclip.common.errors import DomainError, ValidationFailed
+from iclip.common.errors import Conflict, DomainError, ValidationFailed
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -88,7 +89,13 @@ from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.file_store.pg import PgFileStore
-from iclip.platform.file_store.store import InvalidPath
+from iclip.platform.file_store.store import (
+    InvalidContent,
+    InvalidPath,
+    QuotaExceeded,
+    VersionConflict,
+    normalize_path,
+)
 from iclip.platform.http import status_code_for
 from iclip.platform.object_store.oss import (
     OssObjectStore,
@@ -442,6 +449,46 @@ def build_app(
             return None
         return DerivedFileContent(path=stored.path, content=stored.content, version=stored.version)
 
+    async def write_conversation_file(
+        owner: uuid.UUID, conversation_id: uuid.UUID, path: str, content: str, expected_version: int
+    ) -> DerivedFileContent:
+        """整份写下其中一个文件，版本对不上就 409。
+
+        **只收已经是规范形式的路径。** ``/video_shot.json`` 与 ``video_shot.json`` 会被
+        存储层规范成同一个文件，而按路径挂的那张校验表是按字面量查的——放行不规范的写法
+        就等于放出一条绕过校验的路。
+        """
+
+        try:
+            if normalize_path(path) != path:
+                raise ValidationFailed(f"路径 {path!r} 不是规范形式，按工作区文件列表里的写法给")
+            entry = await workspace_store.write(
+                namespace_for(owner, str(conversation_id)),
+                path,
+                content,
+                expected_version=expected_version,
+            )
+        except VersionConflict as exc:
+            raise Conflict(str(exc)) from exc
+        except (InvalidPath, InvalidContent, QuotaExceeded) as exc:
+            raise ValidationFailed(str(exc)) from exc
+        return DerivedFileContent(path=entry.path, content=content, version=entry.version)
+
+    async def validate_video_shots(
+        owner: uuid.UUID, conversation_id: uuid.UUID, content: str
+    ) -> None:
+        """用户写回来的镜头组 prompt 表要过交付工具那一关。
+
+        这条线只能接在组合根：判定归镜头素材能力，而对话那一侧不认识它。
+        """
+
+        try:
+            await validate_video_shots_document(
+                workspace_store, namespace_for(owner, str(conversation_id)), content
+            )
+        except ValueError as exc:
+            raise ValidationFailed(str(exc)) from exc
+
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(active_engine)
     collection_repo = SqlCollectionRepository(active_engine)
@@ -514,6 +561,8 @@ def build_app(
         list_collections=list_owner_collections,
         list_derived_files=list_conversation_files,
         read_derived_file=read_conversation_file,
+        write_derived_file=write_conversation_file,
+        document_validators={SHOTS_PATH: validate_video_shots},
         generate_title=generate_title,
         announce_title=live_connections.announce_title,
         activities_of=activities_of,

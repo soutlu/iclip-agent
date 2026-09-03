@@ -1,7 +1,7 @@
 """对话的 HTTP 面。
 
-十四个端点：开一段、侧栏拓扑、任务区翻页、合集内翻页、搜自己的、治理者查全部、列出某
-张单下我的尝试、读历史、列工作区文件、读工作区文件、改名、换合集、挂需求单、删掉。读用 ``agent:read``，会改动
+十五个端点：开一段、侧栏拓扑、任务区翻页、合集内翻页、搜自己的、治理者查全部、列出某
+张单下我的尝试、读历史、列工作区文件、读工作区文件、写工作区文件、改名、换合集、挂需求单、删掉。读用 ``agent:read``，会改动
 的用 ``agent:run``——能不能看和能不能跑本来就是两件事。
 
 别人的对话一律 404，不返 403：那会泄露「这个 id 确实存在」。治理者例外，读得到全部
@@ -25,6 +25,7 @@ from iclip.domains.conversations.schemas import (
     ConversationFileEnvelope,
     ConversationFileOut,
     ConversationFilesOut,
+    ConversationFileWriteIn,
     ConversationIn,
     ConversationOut,
     ConversationPageOut,
@@ -212,6 +213,30 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
         return ConversationFileEnvelope(
             file=ConversationFileContentOut(
                 path=found.path, content=found.content, version=found.version
+            )
+        )
+
+    @router.put("/{conversation_id}/workspace/file", response_model=ConversationFileEnvelope)
+    async def write_conversation_file(
+        conversation_id: uuid.UUID,
+        body: ConversationFileWriteIn,
+        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+    ) -> ConversationFileEnvelope:
+        """整份覆盖一个工作区文件。路径在体里，与读那一侧的查询串是同一个字符串。
+
+        版本对不上 409，文件本身不合它那条路径的规矩 422（消息原样给出来）。
+        """
+
+        written = await service.write_file(
+            principal,
+            conversation_id,
+            path=body.path,
+            content=body.content,
+            expected_version=body.expected_version,
+        )
+        return ConversationFileEnvelope(
+            file=ConversationFileContentOut(
+                path=written.path, content=written.content, version=written.version
             )
         )
 
