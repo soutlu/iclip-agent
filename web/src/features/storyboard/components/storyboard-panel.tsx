@@ -309,7 +309,7 @@ function ConflictDialog({ resolve, state }: ConflictDialogProps) {
   return (
     <DialogRoot onOpenChange={(next) => !next && resolve('theirs')} open={open}>
       <DialogSurface aria-label="这一组有别的改动">
-        <DialogHeader closeLabel="用最新的" title="这一组有别的改动">
+        <DialogHeader closeLabel="关闭（用最新的）" title="这一组有别的改动">
           你改的时候，第 {indexes.join('、')} 组也被别人改过了。
         </DialogHeader>
         <DialogBody>
