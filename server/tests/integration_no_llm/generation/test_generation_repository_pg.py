@@ -205,6 +205,31 @@ async def test_reads_are_scoped_to_the_owner(engine: AsyncEngine) -> None:
     assert len(await repo.list_for_owner(owner=None, limit=10)) == 1
 
 
+async def test_origin_round_trips_and_filters_by_conversation(engine: AsyncEngine) -> None:
+    """来源那两列读写一趟，并且真的能按对话筛出来（分镜工作台的生成记录靠它）。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    conversation_id = uuid.uuid4()
+    tagged = await repo.create(
+        make_job(
+            video_request(),
+            owner_user_id=owner,
+            conversation_id=conversation_id,
+            shot_index=3,
+        )
+    )
+    await insert_job(repo, owner)
+
+    assert (tagged.conversation_id, tagged.shot_index) == (conversation_id, 3)
+    read_back = await repo.get(tagged.id, owner=owner)
+    assert (read_back.conversation_id, read_back.shot_index) == (conversation_id, 3)
+
+    listed = await repo.list_for_owner(owner=owner, limit=10, conversation_id=conversation_id)
+    assert [job.id for job in listed] == [tagged.id]
+    assert len(await repo.list_for_owner(owner=owner, limit=10)) == 2, "不给就是不筛"
+
+
 async def test_deleting_the_owner_takes_their_generations_with_it(
     engine: AsyncEngine,
 ) -> None:

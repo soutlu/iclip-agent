@@ -68,6 +68,9 @@ class GenerationService:
             id=uuid.uuid4(),
             owner_user_id=principal.user_id,
             api_key_id=principal.api_key_id,
+            # 来源落表上的列，不进 request 那份 JSON（见 schemas.GenerationOrigin）。
+            conversation_id=request.conversation_id,
+            shot_index=request.shot_index,
             kind=kind,
             provider=self._provider_names[kind],
             request=request,
@@ -104,13 +107,23 @@ class GenerationService:
         return await self._repo.get(job_id, owner=_owner_scope(principal))
 
     async def list_recent(
-        self, principal: Principal, *, limit: int = 20
+        self,
+        principal: Principal,
+        *,
+        limit: int = 20,
+        conversation_id: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
-        """按时间倒序列出可见的生成记录。"""
+        """按时间倒序列出可见的生成记录；给了 ``conversation_id`` 就只列那段对话的。
+
+        按对话筛不放宽可见性：仍然只列自己的（治理者除外），别人在那段对话里生成过什么
+        照旧看不到。
+        """
 
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
-        return await self._repo.list_for_owner(owner=_owner_scope(principal), limit=limit)
+        return await self._repo.list_for_owner(
+            owner=_owner_scope(principal), limit=limit, conversation_id=conversation_id
+        )
 
 
 def _owner_scope(principal: Principal) -> uuid.UUID | None:

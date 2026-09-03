@@ -56,6 +56,13 @@ class GenerationJob:
     updated_at: datetime
     submitted_at: datetime | None
     finished_at: datetime | None
+    conversation_id: uuid.UUID | None = None
+    """这次生成是在哪段对话里发起的。分镜工作台按它把生成记录归到对话下面。
+
+    没有外键：对话删了这条记录还得说得清曾经发生过什么，同 ``api_key_id``。命令行直接
+    调接口发起的生成没有对话，所以可空。"""
+    shot_index: int | None = None
+    """给哪个镜头组生成的（``video_shot.json`` 里的 ``index``）。不为某一组而发起的没有。"""
 
 
 __all__ = [

@@ -47,6 +47,21 @@ class CamelModel(BaseModel):
 
 Prompt = Annotated[str, Field(min_length=1, max_length=MAX_PROMPT_CHARS)]
 
+
+class GenerationOrigin(CamelModel):
+    """这次生成是从哪儿发起的：哪段对话的哪个镜头组。
+
+    **两个字段都落到表上自己的列，不进 ``request`` 那份 JSON。** 它们不是发给 provider
+    的参数，而是「这一行属于谁」——按对话查生成记录要走索引，藏在 JSON 里就只能全表扫。
+    """
+
+    conversation_id: uuid.UUID | None = None
+    shot_index: int | None = None
+
+
+ORIGIN_FIELDS: Final = frozenset(GenerationOrigin.model_fields)
+"""落列不落 JSON 的那几个字段名，``request_to_payload`` 按它排除。"""
+
 MediaUrls = Annotated[list[str], Field(max_length=MAX_REFERENCE_URLS)]
 """一串媒体 URL。只收 http(s)：这些地址会被 provider 拿去下载，放行 ``file://``
 之类的 scheme 等于把服务端变成任意文件的读取入口。"""
@@ -59,7 +74,7 @@ def _http_only(urls: list[str]) -> list[str]:
     return urls
 
 
-class VideoGenerationIn(CamelModel):
+class VideoGenerationIn(GenerationOrigin):
     """一次视频生成的输入。"""
 
     kind: Literal["video"] = KIND_VIDEO
@@ -81,7 +96,7 @@ class VideoGenerationIn(CamelModel):
     )
 
 
-class ImageGenerationIn(CamelModel):
+class ImageGenerationIn(GenerationOrigin):
     """一次图像生成的输入。参考图为空即文生图，否则走图像编辑。"""
 
     kind: Literal["image"] = KIND_IMAGE
@@ -114,9 +129,13 @@ _ADAPTERS: Final = {
 
 
 def request_to_payload(request: GenerationRequest) -> dict[str, Any]:
-    """转成入库的 JSON 形状（camelCase，与对外一致）。"""
+    """转成入库的 JSON 形状（camelCase，与对外一致）。
 
-    return request.model_dump(by_alias=True, exclude={"kind"})
+    来源那几个字段不进这份 JSON：它们在表上有自己的列（见 ``GenerationOrigin``），
+    两处都存的话总有一天会对不上。
+    """
+
+    return request.model_dump(by_alias=True, exclude={"kind", *ORIGIN_FIELDS})
 
 
 def request_from_payload(kind: str, payload: dict[str, Any]) -> GenerationRequest:
@@ -147,6 +166,9 @@ class GenerationOut(CamelModel):
     provider: str
     status: str
     request: dict[str, Any]
+    conversation_id: uuid.UUID | None
+    """这次生成属于哪段对话，从表上的列来（不在 ``request`` 里，见 ``GenerationOrigin``）。"""
+    shot_index: int | None
     output_url: str | None
     provider_status: str | None
     error_code: str | None
@@ -164,6 +186,8 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         provider=job.provider,
         status=job.status,
         request=request_to_payload(job.request),
+        conversation_id=job.conversation_id,
+        shot_index=job.shot_index,
         output_url=job.output_url,
         provider_status=job.provider_status,
         error_code=job.error_code,
@@ -190,9 +214,11 @@ __all__ = [
     "MAX_MODEL_CHARS",
     "MAX_PROMPT_CHARS",
     "MAX_REFERENCE_URLS",
+    "ORIGIN_FIELDS",
     "VIDEO_MAX_SECONDS",
     "GenerationEnvelope",
     "GenerationIn",
+    "GenerationOrigin",
     "GenerationOut",
     "GenerationRequest",
     "GenerationsPageOut",

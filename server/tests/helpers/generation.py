@@ -56,6 +56,8 @@ def make_job(
     submitted_at: datetime | None = None,
     created_at: datetime | None = None,
     owner_user_id: uuid.UUID | None = None,
+    conversation_id: uuid.UUID | None = None,
+    shot_index: int | None = None,
 ) -> GenerationJob:
     now = datetime.now(UTC)
     payload = request or video_request()
@@ -63,6 +65,8 @@ def make_job(
         id=uuid.uuid4(),
         owner_user_id=owner_user_id or uuid.uuid4(),
         api_key_id=None,
+        conversation_id=conversation_id,
+        shot_index=shot_index,
         kind=payload.kind,
         provider="fake",
         request=payload,
@@ -102,9 +106,14 @@ class InMemoryGenerationRepository:
         return job
 
     async def list_for_owner(
-        self, *, owner: uuid.UUID | None, limit: int
+        self, *, owner: uuid.UUID | None, limit: int, conversation_id: uuid.UUID | None = None
     ) -> tuple[GenerationJob, ...]:
-        rows = [job for job in self.jobs.values() if owner is None or job.owner_user_id == owner]
+        rows = [
+            job
+            for job in self.jobs.values()
+            if (owner is None or job.owner_user_id == owner)
+            and (conversation_id is None or job.conversation_id == conversation_id)
+        ]
         rows.sort(key=lambda job: job.created_at, reverse=True)
         return tuple(rows[:limit])
 

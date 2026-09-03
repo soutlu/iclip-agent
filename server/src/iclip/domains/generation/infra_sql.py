@@ -18,6 +18,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     MetaData,
     Table,
     Text,
@@ -59,6 +60,9 @@ generation_jobs_table = Table(
     # 故意不建到 api_keys 的外键：key 行随属主级联删除，而「哪把 key 干的」这条
     # 审计事实必须比那把 key 活得更久。
     Column("api_key_id", Uuid, nullable=True),
+    # 来源：哪段对话的哪个镜头组。同样不建外键——对话删了，这次生成花过的钱还得说得清。
+    Column("conversation_id", Uuid, nullable=True),
+    Column("shot_index", Integer, nullable=True),
     Column("kind", Text, nullable=False),
     Column("provider", Text, nullable=False),
     Column("request", JSONB, nullable=False),
@@ -75,6 +79,8 @@ generation_jobs_table = Table(
     Column("finished_at", DateTime(timezone=True), nullable=True),
     # 列表页：某个人的，按时间倒序。
     Index("ix_generation_jobs_owner_created", "owner_user_id", "created_at"),
+    # 分镜工作台：一段对话下面的，按时间倒序。
+    Index("ix_generation_jobs_conversation_created", "conversation_id", "created_at"),
 )
 
 _JOBS = generation_jobs_table.c
@@ -96,6 +102,8 @@ class SqlGenerationRepository:
                             id=job.id,
                             owner_user_id=job.owner_user_id,
                             api_key_id=job.api_key_id,
+                            conversation_id=job.conversation_id,
+                            shot_index=job.shot_index,
                             kind=job.kind,
                             provider=job.provider,
                             request=request_to_payload(job.request),
@@ -132,11 +140,12 @@ class SqlGenerationRepository:
         return _job_from_row(row)
 
     async def list_for_owner(
-        self, *, owner: uuid.UUID | None, limit: int
+        self, *, owner: uuid.UUID | None, limit: int, conversation_id: uuid.UUID | None = None
     ) -> tuple[GenerationJob, ...]:
-        stmt = scope_to_owner(select(generation_jobs_table), _JOBS.owner_user_id, owner).order_by(
-            _JOBS.created_at.desc(), _JOBS.id.desc()
-        )
+        stmt = scope_to_owner(select(generation_jobs_table), _JOBS.owner_user_id, owner)
+        if conversation_id is not None:
+            stmt = stmt.where(_JOBS.conversation_id == conversation_id)
+        stmt = stmt.order_by(_JOBS.created_at.desc(), _JOBS.id.desc())
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt.limit(limit))).mappings().all()
         return tuple(_job_from_row(row) for row in rows)
@@ -275,6 +284,8 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         id=row["id"],
         owner_user_id=row["owner_user_id"],
         api_key_id=row["api_key_id"],
+        conversation_id=row["conversation_id"],
+        shot_index=row["shot_index"],
         kind=kind,
         provider=row["provider"],
         request=request_from_payload(kind, row["request"]),
