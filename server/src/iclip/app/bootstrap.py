@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
-from typing import Final, Literal
+from typing import Literal
 
 import httpx
 import procrastinate
@@ -227,17 +227,6 @@ def _agent_context_limits(
 _SOCKET_TIMEOUT_MARGIN = 5.0
 """socket 超时比阻塞等待多留的余量（秒）。"""
 
-WORKSPACE_SOURCE_AGENT: Final = "agent"
-"""工具写工作区文件时这一帧记的来源。
-
-**记不到是哪件工具。** 能力包写文件只经 ``FileStore`` 这个协议，协议里没有「谁在写」
-这回事；为了一帧推送去改它，等于让每个能力包都认识连接表。界面要分的是「我自己刚写的」
-和「别人写的」，这个粒度够了。
-"""
-
-WORKSPACE_SOURCE_USER: Final = "user"
-"""面板整份写回时这一帧记的来源。"""
-
 
 def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
     """把工作区命名空间拆回「属主 + 对话」，拆不出来给 ``None``。
@@ -254,19 +243,19 @@ def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
 
 
 class AnnouncingFileStore:
-    """工作区文件存储，外加「写完就告诉还开着的标签页」。
+    """工作区文件存储，外加「变了就告诉订着这个路径的连接」（kimi 的 ``event.fs.changed``）。
 
     包在组合根：存储层只认识命名空间，不认识对话也不认识连接；而能力包写文件只经
-    ``FileStore`` 协议。包在这一层，两边都不必为了一帧推送改自己的接口。
+    ``FileStore`` 协议。所有工作区写入——五件工具、下属 agent、面板写回——都从这一个入口
+    过，所以不用维护「哪些工具会产文件」的表。
 
     命名空间拆不出对话 id 时就不发（那说明地盘不是按对话分的）——推送掉一帧只是界面
     晚一点对齐，不该让一次写入失败。
     """
 
-    def __init__(self, inner: FileStore, live: LiveConnections, *, source: str) -> None:
+    def __init__(self, inner: FileStore, live: LiveConnections) -> None:
         self._inner = inner
         self._live = live
-        self._source = source
 
     async def read(self, namespace: str, path: str) -> StoredFile | None:
         return await self._inner.read(namespace, path)
@@ -275,20 +264,22 @@ class AnnouncingFileStore:
         self, namespace: str, path: str, content: str, *, expected_version: int | None = None
     ) -> FileEntry:
         entry = await self._inner.write(namespace, path, content, expected_version=expected_version)
-        addressed = _namespace_owner(namespace)
-        if addressed is not None:
-            owner, conversation_id = addressed
-            self._live.announce_file_changed(
-                owner,
-                conversation_id,
-                path=entry.path,
-                version=entry.version,
-                source=self._source,
-            )
+        self._announce(namespace, entry.path, "created" if entry.version == 1 else "modified")
         return entry
 
     async def delete(self, namespace: str, path: str) -> bool:
-        return await self._inner.delete(namespace, path)
+        deleted = await self._inner.delete(namespace, path)
+        if deleted:
+            self._announce(namespace, path, "deleted")
+        return deleted
+
+    def _announce(
+        self, namespace: str, path: str, change: Literal["created", "modified", "deleted"]
+    ) -> None:
+        addressed = _namespace_owner(namespace)
+        if addressed is not None:
+            owner, conversation_id = addressed
+            self._live.announce_fs_changed(owner, conversation_id, path=path, change=change)
 
     async def entries(self, namespace: str, *, prefix: str = "") -> Sequence[FileEntry]:
         return await self._inner.entries(namespace, prefix=prefix)
@@ -483,12 +474,9 @@ def build_app(
     )
     owns_inspiration_engine = inspiration_engine is not None and inspirations_engine is None
     workspace_store = PgFileStore(active_engine)
-    # 推送那张表要先有：工作区每写一次都往它上面发一帧，工具那条路也一样。
+    # 推送那张表要先有：工作区每写一次都往它上面发一帧，工具那条路与面板写回同一个入口。
     live_connections = LiveConnections()
-    # 递给能力包的是包了一层的那只：工具写完文件，界面不必等下一次重拉。
-    announcing_workspace_store = AnnouncingFileStore(
-        workspace_store, live_connections, source=WORKSPACE_SOURCE_AGENT
-    )
+    announcing_workspace_store = AnnouncingFileStore(workspace_store, live_connections)
 
     async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
         """删掉一段对话时，连带清空它在工作区里的地盘。
@@ -541,7 +529,7 @@ def build_app(
         try:
             if normalize_path(path) != path:
                 raise ValidationFailed(f"路径 {path!r} 不是规范形式，按工作区文件列表里的写法给")
-            entry = await workspace_store.write(
+            entry = await announcing_workspace_store.write(
                 namespace_for(owner, str(conversation_id)),
                 path,
                 content,
@@ -551,13 +539,6 @@ def build_app(
             raise Conflict(str(exc)) from exc
         except (InvalidPath, InvalidContent, QuotaExceeded) as exc:
             raise ValidationFailed(str(exc)) from exc
-        live_connections.announce_file_changed(
-            owner,
-            conversation_id,
-            path=entry.path,
-            version=entry.version,
-            source=WORKSPACE_SOURCE_USER,
-        )
         return DerivedFileContent(path=entry.path, content=content, version=entry.version)
 
     async def validate_video_shots(

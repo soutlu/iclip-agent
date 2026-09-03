@@ -130,16 +130,12 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
 
 #### 全局帧
 
-三帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
+两帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
 
 | 帧 | 体 | 什么时候发 |
 |---|---|---|
 | `session.meta.updated` | `{session_id, title}` | 标题变了（自动起名或用户改名） |
 | `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | jobs 表里占着的那条行状态变了：起跑、进 awaiting、审批点齐、收场、撤回等审批的、清扫判失败 |
-| `event.workspace.file_changed` | `session_id` 在信封上，payload `{session_id, path, version, source}` | 这段对话的工作区文件被写了一次（工具写或面板 `PUT` 写） |
-
-- `event.workspace.file_changed` 的 `source` 是写入者：面板写的是 `user`，工具写的是 `agent`（分不到具体哪件工具）。界面靠它分辨这一版是不是自己刚写的。
-- 它与另外两帧一样**易失**：文件列表接口才是事实源，帧只负责「不必等下一次重拉」。
 
 - 侧栏列着几十段对话却一段都没订，所以它只能走这条路；客户端拿它就地改那一行，不重拉列表。
 - **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。
@@ -151,6 +147,20 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
   （`ConversationOut.title` 与 `ConversationOut.activity`）——**行是事实源，帧只负责「不必等下一次
   重拉」**。客户端重连之后要重拉一次列表：断线期间的变化谁也补不回来。
 - 一条跑完接着起下一条会先发 idle 再发 busy。
+
+#### 文件订阅
+
+照 kimi 的 `watch_fs_add` / `watch_fs_remove` / `event.fs.changed`：文件变动是**会话事件，按订阅投递**，与 transcript 订阅各管各的。
+
+| 帧 | 方向 | 体 |
+|---|---|---|
+| `watch_fs_add` / `watch_fs_remove` | 客户端 → 服务端 | `{ id, payload: { session_id, paths, recursive? } }`；回执 `ack`，payload `{ watched_paths, current_count }`；订看不见的对话 `code` 为 `40401` |
+| `event.fs.changed` | 服务端 → 客户端 | `session_id` 在信封上，payload `{ changes: [{ path, change, kind }], coalesced_window_ms }`；`change` 为 `created` / `modified` / `deleted`，`kind` 恒为 `file`，`coalesced_window_ms` 恒为 `0` |
+
+- 订的是文件就要路径一样；订的是目录，`recursive` 为假只看直接子项，为真看整棵。
+- 帧上不带版本与写入者：收到就重读那个文件，`version` 在文件上；是不是自己刚写的由客户端记自己写回拿到的版本号来判。
+- 发帧点是工作区文件存储的写入口，工具写与面板 `PUT` 写都从那里过。**易失**，重连后重拉一次文件列表对齐。
+- 它的 schema 也写在 `connection.ts` 边上，不进 vendor。
 
 ## 6. 对话 (Conversations)
 
@@ -176,7 +186,7 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
   加字段会被客户端静默丢掉）。之后的变化只走推送，不用轮询。
 - **可见性**：只看得到自己的对话，别人的一律 `404`，不返 `403`。按需求单列尝试同一口径：只列自己的。
 - 删除对话时，**agent 在这段对话里写下的工作区文件一并删除**；`agent_runtime` 里的运行记录留着。
-- 工作区文件每写一次发一帧 `event.workspace.file_changed`（见「全局帧」），客户端收到只重读那一个文件；`version` 变了内容才变。帧易失，重连后重拉一次文件列表对齐。
+- 工作区文件变了发会话事件 `event.fs.changed`，只到用 `watch_fs_add` 订了该路径的连接（见「文件订阅」）；客户端收到只重读那一个文件，`version` 在文件上。帧易失，重连后重拉一次文件列表对齐。
 - `PUT /conversations/{id}/workspace/file` 整份覆盖一个文件，体是 `{ path, content, expectedVersion }`，答复形状同 `GET .../workspace/file`。
   - **只有属主能写**：看不见的对话仍是 `404`，治理者看得见但写入是 `403`。
   - `expectedVersion` 是读到那一份的版本号，对不上是 `409`（文件不存在时任何版本都对不上，同样 `409`——不替调用方新建）。写成功后版本加一。

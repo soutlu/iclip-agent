@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Literal
 
 import httpx
 import pytest
@@ -11,7 +12,7 @@ from pydantic import ValidationError
 from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from iclip.app.bootstrap import WORKSPACE_SOURCE_AGENT, AnnouncingFileStore, build_app
+from iclip.app.bootstrap import AnnouncingFileStore, build_app
 from iclip.config import (
     AppSection,
     DbSection,
@@ -175,36 +176,37 @@ class _RecordingConnections(LiveConnections):
 
     def __init__(self) -> None:
         super().__init__()
-        self.announced: list[tuple[uuid.UUID, uuid.UUID, str, int, str]] = []
+        self.announced: list[tuple[uuid.UUID, uuid.UUID, str, str]] = []
 
-    def announce_file_changed(
+    def announce_fs_changed(
         self,
         owner: uuid.UUID,
         conversation_id: uuid.UUID,
         *,
         path: str,
-        version: int,
-        source: str,
+        change: Literal["created", "modified", "deleted"] = "modified",
     ) -> None:
-        self.announced.append((owner, conversation_id, path, version, source))
+        self.announced.append((owner, conversation_id, path, change))
 
 
-async def test_tool_writes_announce_the_file_as_agent() -> None:
-    """工具写完文件也发帧，来源记 ``agent``——界面靠它标「agent 刚改过」。
+async def test_tool_writes_announce_created_then_modified_then_deleted() -> None:
+    """工具那条路写文件也发帧：第一版是 created，之后是 modified，删了是 deleted。
 
-    能力包写文件只经 ``FileStore`` 协议，那里没有「谁在写」这回事，所以分不到具体哪件工具。
+    能力包写文件只经 ``FileStore`` 协议，包在组合根这一层两边都不用改接口。
     """
 
     live = _RecordingConnections()
     owner, conversation_id = uuid.uuid4(), uuid.uuid4()
-    store = AnnouncingFileStore(FakeFileStore(), live, source=WORKSPACE_SOURCE_AGENT)
+    store = AnnouncingFileStore(FakeFileStore(), live)
 
     await store.write(f"{owner}/{conversation_id}", "video_shot.json", "{}")
     await store.write(f"{owner}/{conversation_id}", "video_shot.json", "{ }")
+    await store.delete(f"{owner}/{conversation_id}", "video_shot.json")
 
     assert live.announced == [
-        (owner, conversation_id, "video_shot.json", 1, "agent"),
-        (owner, conversation_id, "video_shot.json", 2, "agent"),
+        (owner, conversation_id, "video_shot.json", "created"),
+        (owner, conversation_id, "video_shot.json", "modified"),
+        (owner, conversation_id, "video_shot.json", "deleted"),
     ]
 
 
@@ -212,7 +214,7 @@ async def test_a_namespace_without_a_conversation_id_announces_nothing() -> None
     """地盘不是按对话分的就没法按对话推送。少一帧只是界面晚点对齐，不该让写入失败。"""
 
     live = _RecordingConnections()
-    store = AnnouncingFileStore(FakeFileStore(), live, source=WORKSPACE_SOURCE_AGENT)
+    store = AnnouncingFileStore(FakeFileStore(), live)
 
     written = await store.write("luke/thread-1", "提纲.md", "三幕")
 

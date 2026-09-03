@@ -149,7 +149,7 @@ PrincipalResolver 每 hop 只解析一次，写入 `request.state.principal`；�
 
 **一段对话「在忙什么」由 `agent_jobs` 表算**，规则在 `JobQueue.activities`，帧在写入那一刻发（[adr/0008](adr/0008-activity-from-agent-jobs.md)）。
 
-**删除对话连带删掉工作区文件，这条线接在组合根**：conversations 只声明口子（`PurgeDerived`、`ReadHistory`、`ListDerivedFiles` / `ReadDerivedFile` / `WriteDerivedFile`、`WorkspaceDocumentValidator`）并做归属判断，命名空间只在 `capabilities/workspace/scope.py` 一处拼，路径语法归存储那一侧定；**先删派生的、再删对话行**，运行记录不删。工作区文件属主可写（整份覆盖，带版本号），写入前按路径过校验器；每写一次发一帧 `event.workspace.file_changed`，界面按 `version` 判断正文变没变。
+**删除对话连带删掉工作区文件，这条线接在组合根**：conversations 只声明口子（`PurgeDerived`、`ReadHistory`、`ListDerivedFiles` / `ReadDerivedFile` / `WriteDerivedFile`、`WorkspaceDocumentValidator`）并做归属判断，命名空间只在 `capabilities/workspace/scope.py` 一处拼，路径语法归存储那一侧定；**先删派生的、再删对话行**，运行记录不删。工作区文件属主可写（整份覆盖，带版本号），写入前按路径过校验器；每写一次向订了该路径的连接发一帧 `event.fs.changed`（kimi 的 `watch_fs_add` 订阅模型），界面按 `version` 判断正文变没变。
 
 ## 13. 产品资料查询
 

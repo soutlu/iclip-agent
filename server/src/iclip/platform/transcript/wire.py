@@ -141,29 +141,30 @@ class SessionWorkChanged(_Envelope):
     payload: SessionWorkPayload
 
 
-class WorkspaceFilePayload(_Envelope):
-    session_id: str
+class FsChangeEntry(_Envelope):
     path: str
-    version: int
-    source: str
-    """谁写的：工具写的是 ``agent``（文件存储端口不带调用者身份，分不到具体哪件工具），面板写的是 ``user``。
-
-    界面靠它分辨「这一版是不是我自己刚写的」——不是自己写的才标「agent 刚改过」。
-    """
+    change: Literal["created", "modified", "deleted"]
+    kind: Literal["file", "directory"] = "file"
 
 
-class WorkspaceFileChanged(_Envelope):
-    """某段对话的工作区文件被写了一次。
+class FsChangePayload(_Envelope):
+    changes: tuple[FsChangeEntry, ...]
+    coalesced_window_ms: int = 0
+    """kimi 那侧是文件系统 watcher，一个时间窗合并成一帧；我们在写入口直接发，窗口是零。"""
 
-    与另外两帧同一类：**不看订阅，发给这个人连着的每一条连接**。同一段对话常开着好几个
-    标签页，而 agent 与用户会写同一份文件。
+
+class FsChanged(_Event):
+    """某段对话的工作区文件变了，照 kimi 的 ``event.fs.changed``。
+
+    **只发给用 ``watch_fs_add`` 订了这段对话这个路径的连接**，不是全局帧：文件变动只有正看着
+    它的那一页关心。帧上不带版本与写入者——收到就重读那个文件，版本在文件上；是不是自己刚写
+    的由客户端记自己写回时拿到的版本号来判。
 
     **易失**：掉了就是掉了。文件列表接口才是事实源，这一帧只负责「不必等下一次重拉」。
     """
 
-    type: Literal["event.workspace.file_changed"] = "event.workspace.file_changed"
-    session_id: str
-    payload: WorkspaceFilePayload
+    type: Literal["event.fs.changed"] = "event.fs.changed"
+    payload: FsChangePayload
 
 
 class Ack(_Envelope):
@@ -199,7 +200,7 @@ ServerFrame = Annotated[
     | TranscriptOps
     | SessionMetaUpdated
     | SessionWorkChanged
-    | WorkspaceFileChanged
+    | FsChanged
     | Ack
     | Ping,
     Field(discriminator="type"),
@@ -240,13 +241,38 @@ class Unsubscribe(_Envelope):
     payload: UnsubscribePayload
 
 
+class WatchFsPayload(_Envelope):
+    """订一段对话里的几个路径。路径是目录时 ``recursive`` 决定只看直接子项还是整棵。"""
+
+    session_id: str
+    paths: tuple[str, ...]
+    recursive: bool = False
+
+
+class WatchFsAdd(_Envelope):
+    type: Literal["watch_fs_add"] = "watch_fs_add"
+    id: str
+    payload: WatchFsPayload
+
+
+class WatchFsRemove(_Envelope):
+    type: Literal["watch_fs_remove"] = "watch_fs_remove"
+    id: str
+    payload: WatchFsPayload
+
+
+class WatchFsAckPayload(_Envelope):
+    watched_paths: tuple[str, ...] = ()
+    current_count: int = 0
+
+
 class Pong(_Envelope):
     type: Literal["pong"] = "pong"
     payload: PingPayload | None = None
 
 
 ClientFrame = Annotated[
-    Subscribe | Unsubscribe | Pong,
+    Subscribe | Unsubscribe | WatchFsAdd | WatchFsRemove | Pong,
     Field(discriminator="type"),
 ]
 
@@ -332,6 +358,9 @@ __all__ = [
     "Ack",
     "ApprovalRequest",
     "ClientFrame",
+    "FsChangeEntry",
+    "FsChangePayload",
+    "FsChanged",
     "OpsBatchOut",
     "OpsCatchup",
     "OpsPayload",
@@ -358,6 +387,8 @@ __all__ = [
     "TranscriptReset",
     "Unsubscribe",
     "UnsubscribePayload",
-    "WorkspaceFileChanged",
-    "WorkspaceFilePayload",
+    "WatchFsAckPayload",
+    "WatchFsAdd",
+    "WatchFsPayload",
+    "WatchFsRemove",
 ]

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -308,41 +309,74 @@ async def _seed_file(pg_url: str, namespace: str, path: str, content: str) -> No
         await engine.dispose()
 
 
-def test_workspace_write_announces_the_file_to_open_tabs(
+def _watch(ws: Any, conversation_id: str, *paths: str) -> dict[str, Any]:
+    ws.send_json(
+        {
+            "type": "watch_fs_add",
+            "id": f"watch-{'-'.join(paths)}",
+            "payload": {"session_id": conversation_id, "paths": list(paths)},
+        }
+    )
+    return _until(ws, "ack")
+
+
+def test_fs_changed_reaches_only_the_connections_watching_that_path(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
-    """面板整份写回一份文件，同一个人还开着的每个标签页都收到一帧。
+    """面板写回一份文件，只有用 ``watch_fs_add`` 订了这个路径的连接收到 ``event.fs.changed``。
 
-    与「在忙什么」同一类：不看订阅。agent 与用户会写同一份文件，所以 ``source`` 得带上——
-    界面靠它分辨这一版是不是自己刚写的。
+    照 kimi：文件变动是会话事件，按订阅投递，不是全局广播。两条连接各订一个文件，两次写回
+    各到各家——B 收到的第一帧就是它订的那个，说明 A 那份没漏到它这里。
     """
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
         conversation_id = _open_conversation(tc)
         owner = tc.get("/users/me").json()["user"]["id"]
-        # PUT 只覆盖不新建（不存在时任何版本都对不上），所以先直接往表里放一份。
+        # PUT 只覆盖不新建（不存在时任何版本都对不上），所以先直接往表里放两份。
         asyncio.run(_seed_file(pg_url, f"{owner}/{conversation_id}", "提纲.md", "三幕"))
+        asyncio.run(_seed_file(pg_url, f"{owner}/{conversation_id}", "其他.md", "甲"))
 
+        with tc.websocket_connect("/ws") as a, tc.websocket_connect("/ws") as b:
+            assert a.receive_json()["type"] == "server_hello"
+            assert b.receive_json()["type"] == "server_hello"
+            ack = _watch(a, conversation_id, "提纲.md")
+            assert ack["code"] == 0
+            assert ack["payload"] == {"watched_paths": ["提纲.md"], "current_count": 1}
+            _watch(b, conversation_id, "其他.md")
+
+            for path, body, version in (("提纲.md", "四幕", 1), ("其他.md", "乙", 1)):
+                written = tc.put(
+                    f"/conversations/{conversation_id}/workspace/file",
+                    json={"path": path, "content": body, "expectedVersion": version},
+                )
+                assert written.status_code == 200, written.text
+
+            to_a = _until(a, "event.fs.changed")
+            to_b = _until(b, "event.fs.changed")
+
+    assert to_a["session_id"] == conversation_id
+    assert to_a["payload"] == {
+        "changes": [{"path": "提纲.md", "change": "modified", "kind": "file"}],
+        "coalesced_window_ms": 0,
+    }
+    assert to_b["payload"]["changes"] == [{"path": "其他.md", "change": "modified", "kind": "file"}]
+
+
+def test_watching_an_unknown_conversation_is_refused_without_dropping_the_connection(
+    ws_agent_app: FastAPI, pg_url: str
+) -> None:
+    """订一段看不见的对话：回 404 一档的 ack，连接照常。"""
+
+    with TestClient(ws_agent_app) as tc:
+        _sign_in(tc, pg_url)
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
-            # 故意不发 subscribe_v2：这一帧不看订阅。
-
-            written = tc.put(
-                f"/conversations/{conversation_id}/workspace/file",
-                json={"path": "提纲.md", "content": "四幕", "expectedVersion": 1},
-            )
-            assert written.status_code == 200, written.text
-
-            changed = _until(ws, "event.workspace.file_changed")
-
-    assert changed["session_id"] == conversation_id
-    assert changed["payload"] == {
-        "session_id": conversation_id,
-        "path": "提纲.md",
-        "version": 2,
-        "source": "user",
-    }
+            ack = _watch(ws, str(uuid.uuid4()), "提纲.md")
+            assert ack["code"] == 40401
+            # 连接没断：再发一帧仍有回执。
+            conversation_id = _open_conversation(tc)
+            assert _watch(ws, conversation_id, "提纲.md")["code"] == 0
 
 
 def test_activity_frames_reach_a_connection_that_subscribed_nothing(
