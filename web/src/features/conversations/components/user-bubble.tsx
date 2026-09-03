@@ -110,7 +110,7 @@ function MediaChip({ onOpen, part }: { part: MediaPart; onOpen: (media: Lightbox
     <>
       <button
         aria-label={name}
-        className="mx-0.5 inline-flex h-[1lh] cursor-pointer items-center gap-1 overflow-hidden rounded-xs bg-surface-container-high pr-1 align-bottom text-on-surface-variant ui-focus ui-motion-s hover:bg-surface-container-highest hover:text-chat-message-text"
+        className="mx-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-xs align-text-bottom text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text"
         onClick={open}
         onMouseEnter={tip.onEnter}
         onMouseLeave={tip.onLeave}
@@ -118,12 +118,14 @@ function MediaChip({ onOpen, part }: { part: MediaPart; onOpen: (media: Lightbox
         type="button"
       >
         {thumbnail === undefined ? (
-          <span className="flex aspect-square h-full items-center justify-center">
-            <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="sm" />
-          </span>
+          <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="sm" />
         ) : (
           <>
-            <img alt="" className="aspect-square h-full object-cover" src={thumbnail} />
+            <img
+              alt=""
+              className="size-4 rounded-xs object-cover ring-[0.5px] ring-chat-hairline"
+              src={thumbnail}
+            />
             <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="xs" />
           </>
         )}
