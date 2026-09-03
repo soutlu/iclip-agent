@@ -20,7 +20,14 @@ function itemLabel(item: TranscriptItem): string {
 
 const turn1: TurnUpsertOp = {
   op: 'turn.upsert',
-  turn: { kind: 'turn', turnId: 't1', ordinal: 1, state: 'running', origin: { kind: 'user' }, prompt: 'hi' },
+  turn: {
+    kind: 'turn',
+    turnId: 't1',
+    ordinal: 1,
+    state: 'running',
+    origin: { kind: 'user' },
+    content: [{ type: 'text', text: 'hi' }],
+  },
 };
 
 const doneThinking: FrameUpsertOp = {

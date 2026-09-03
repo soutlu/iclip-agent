@@ -428,68 +428,6 @@
         "title": "AssetsPageOut",
         "type": "object"
       },
-      "Attachment": {
-        "additionalProperties": false,
-        "properties": {
-          "attachmentId": {
-            "title": "Attachmentid",
-            "type": "string"
-          },
-          "mediaType": {
-            "title": "Mediatype",
-            "type": "string"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "placeholder": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Placeholder"
-          },
-          "size": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Size"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AttachmentSource"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "attachmentId",
-          "mediaType"
-        ],
-        "title": "Attachment",
-        "type": "object"
-      },
       "AttachmentSource": {
         "additionalProperties": false,
         "properties": {
@@ -529,25 +467,6 @@
           "kind"
         ],
         "title": "AttachmentSource",
-        "type": "object"
-      },
-      "AttachmentUpsertOp": {
-        "additionalProperties": false,
-        "properties": {
-          "attachment": {
-            "$ref": "#/components/schemas/Attachment"
-          },
-          "op": {
-            "const": "attachment.upsert",
-            "default": "attachment.upsert",
-            "title": "Op",
-            "type": "string"
-          }
-        },
-        "required": [
-          "attachment"
-        ],
-        "title": "AttachmentUpsertOp",
         "type": "object"
       },
       "Body_auth_cookie_login_auth_login_post": {
@@ -2049,7 +1968,6 @@
               "discriminator": {
                 "mapping": {
                   "append": "#/components/schemas/AppendOp",
-                  "attachment.upsert": "#/components/schemas/AttachmentUpsertOp",
                   "frame.upsert": "#/components/schemas/FrameUpsertOp",
                   "interaction.upsert": "#/components/schemas/InteractionUpsertOp",
                   "items.remove": "#/components/schemas/ItemsRemoveOp",
@@ -2075,9 +1993,6 @@
                 },
                 {
                   "$ref": "#/components/schemas/InteractionUpsertOp"
-                },
-                {
-                  "$ref": "#/components/schemas/AttachmentUpsertOp"
                 },
                 {
                   "$ref": "#/components/schemas/PromptUpsertOp"
@@ -3130,11 +3045,29 @@
       "TextFrame": {
         "additionalProperties": false,
         "properties": {
-          "attachmentIds": {
+          "content": {
             "anyOf": [
               {
                 "items": {
-                  "type": "string"
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/components/schemas/ImageContent",
+                      "text": "#/components/schemas/TextContent",
+                      "video": "#/components/schemas/VideoContent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TextContent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ImageContent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VideoContent"
+                    }
+                  ]
                 },
                 "type": "array"
               },
@@ -3142,7 +3075,7 @@
                 "type": "null"
               }
             ],
-            "title": "Attachmentids"
+            "title": "Content"
           },
           "frameId": {
             "title": "Frameid",
@@ -3374,14 +3307,6 @@
             "title": "Agents",
             "type": "array"
           },
-          "attachments": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/Attachment"
-            },
-            "title": "Attachments",
-            "type": "array"
-          },
           "has_more": {
             "title": "Has More",
             "type": "boolean"
@@ -3593,19 +3518,30 @@
         "additionalProperties": false,
         "description": "带上步的完整一轮。",
         "properties": {
-          "attachmentIds": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
+          "content": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "image": "#/components/schemas/ImageContent",
+                  "text": "#/components/schemas/TextContent",
+                  "video": "#/components/schemas/VideoContent"
                 },
-                "type": "array"
+                "propertyName": "type"
               },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Attachmentids"
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextContent"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageContent"
+                },
+                {
+                  "$ref": "#/components/schemas/VideoContent"
+                }
+              ]
+            },
+            "title": "Content",
+            "type": "array"
           },
           "durationMs": {
             "anyOf": [
@@ -3652,17 +3588,6 @@
           },
           "origin": {
             "$ref": "#/components/schemas/TurnOrigin"
-          },
-          "prompt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Prompt"
           },
           "startedAt": {
             "anyOf": [
@@ -3713,7 +3638,8 @@
           "turnId",
           "ordinal",
           "state",
-          "origin"
+          "origin",
+          "content"
         ],
         "title": "TranscriptTurn",
         "type": "object"
@@ -3722,19 +3648,30 @@
         "additionalProperties": false,
         "description": "一轮的头部。``steps`` 不在这里——步是单独的操作发的。",
         "properties": {
-          "attachmentIds": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
+          "content": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "image": "#/components/schemas/ImageContent",
+                  "text": "#/components/schemas/TextContent",
+                  "video": "#/components/schemas/VideoContent"
                 },
-                "type": "array"
+                "propertyName": "type"
               },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Attachmentids"
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextContent"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageContent"
+                },
+                {
+                  "$ref": "#/components/schemas/VideoContent"
+                }
+              ]
+            },
+            "title": "Content",
+            "type": "array"
           },
           "durationMs": {
             "anyOf": [
@@ -3782,17 +3719,6 @@
           "origin": {
             "$ref": "#/components/schemas/TurnOrigin"
           },
-          "prompt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Prompt"
-          },
           "startedAt": {
             "anyOf": [
               {
@@ -3834,7 +3760,8 @@
           "turnId",
           "ordinal",
           "state",
-          "origin"
+          "origin",
+          "content"
         ],
         "title": "TurnHeader",
         "type": "object"

@@ -21,7 +21,6 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from iclip.platform.transcript.ops import (
-    Attachment,
     EmittableOperation,
     Interaction,
     Prompt,
@@ -292,7 +291,6 @@ class TranscriptPage(_Envelope):
     has_more: bool
     tasks: tuple[Any, ...] = ()
     interactions: tuple[Interaction, ...] = ()
-    attachments: tuple[Attachment, ...] = ()
     todos: tuple[Any, ...] = ()
     prompts: tuple[Prompt, ...] = ()
     meta: TranscriptMeta = TranscriptMeta()

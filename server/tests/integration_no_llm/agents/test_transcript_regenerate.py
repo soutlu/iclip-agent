@@ -115,7 +115,10 @@ async def test_regenerate_replays_the_last_turn(app: FastAPI, pg_url: str) -> No
 
     # 重跑顶替了旧末轮：还是两轮、轮号复用 t2，内容是新跑出来的那句。
     assert [turn["turnId"] for turn in page["items"]] == ["t1", "t2"]
-    assert [turn["prompt"] for turn in page["items"]] == ["第一问", "第二问"]
+    assert [turn["content"] for turn in page["items"]] == [
+        [{"type": "text", "text": "第一问"}],
+        [{"type": "text", "text": "第二问"}],
+    ]
     assert page["items"][1]["steps"][0]["frames"][0]["text"] == "答：第二问"
 
     engine = create_async_engine(pg_url)

@@ -17,8 +17,6 @@ export * from './granularity/grade';
 export * from './granularity/filterOps';
 export * from './view/registry';
 export * from './pagination/paginate';
-export * from './history/groupTurns';
-export * from './history/foldFacts';
 export * from './contract/schema';
 export * from './contract/events';
 export * from './contract/mediaRef';

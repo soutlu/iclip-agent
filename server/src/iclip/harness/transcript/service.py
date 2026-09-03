@@ -173,7 +173,6 @@ class TranscriptService:
             items=items,
             has_more=has_more,
             interactions=interactions,
-            attachments=view.snapshot.attachments,
             prompts=view.snapshot.prompts,
             meta=meta,
             agents=({"agentId": agent_id, "type": "main"},),

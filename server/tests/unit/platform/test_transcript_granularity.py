@@ -16,8 +16,6 @@ from iclip.platform.transcript.granularity import (
 )
 from iclip.platform.transcript.ops import (
     AppendOp,
-    Attachment,
-    AttachmentUpsertOp,
     EmittableOperation,
     FrameTarget,
     FrameUpsertOp,
@@ -25,6 +23,7 @@ from iclip.platform.transcript.ops import (
     InteractionUpsertOp,
     StepHeader,
     StepUpsertOp,
+    TextContent,
     TextFrame,
     TurnHeader,
     TurnOrigin,
@@ -38,7 +37,7 @@ BATCH: tuple[EmittableOperation, ...] = (
             ordinal=1,
             state="running",
             origin=TurnOrigin(kind="user"),
-            prompt="走",
+            content=(TextContent(text="走"),),
         )
     ),
     StepUpsertOp(
@@ -58,7 +57,6 @@ BATCH: tuple[EmittableOperation, ...] = (
             interaction_id="apr_1", interaction_kind="approval", state="pending"
         )
     ),
-    AttachmentUpsertOp(attachment=Attachment(attachment_id="att_1", media_type="image/png")),
 )
 
 
@@ -73,7 +71,7 @@ def test_off_takes_nothing() -> None:
 def test_turn_keeps_the_turn_and_the_approval_card() -> None:
     """侧栏要的就这两样：跑没跑（轮）、有没有卡在等人点头（审批）。"""
 
-    assert _kinds("turn") == ["turn.upsert", "interaction.upsert", "attachment.upsert"]
+    assert _kinds("turn") == ["turn.upsert", "interaction.upsert"]
 
 
 def test_block_adds_steps_and_frames_but_not_deltas() -> None:
@@ -82,7 +80,6 @@ def test_block_adds_steps_and_frames_but_not_deltas() -> None:
         "step.upsert",
         "frame.upsert",
         "interaction.upsert",
-        "attachment.upsert",
     ]
 
 

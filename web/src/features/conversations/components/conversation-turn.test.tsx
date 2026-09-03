@@ -1,11 +1,11 @@
 /**
- * 用户气泡：超长折叠。
+ * 用户气泡：按 part 原顺序画、超长折叠。
  */
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TranscriptTurn } from '@/shared/transcript/vendor'
+import type { PromptContentPart, TranscriptTurn } from '@/shared/transcript/vendor'
 import { ConversationTurn } from './conversation-turn'
 import { UserBubble } from './user-bubble'
 
@@ -29,20 +29,24 @@ const stubClipboard = () => {
   return writeText
 }
 
+const text = (value: string): PromptContentPart => ({ text: value, type: 'text' })
+const image = (url: string): PromptContentPart => ({ source: { kind: 'url', url }, type: 'image' })
+const video = (url: string): PromptContentPart => ({ source: { kind: 'url', url }, type: 'video' })
+
 describe('UserBubble', () => {
   let restore: (() => void) | undefined
   afterEach(() => restore?.())
 
   it('短消息不折叠，没有展开胶囊', () => {
     // jsdom 里元素高度是 0：量不出超高，自然不给入口
-    render(<UserBubble text="就一句" />)
+    render(<UserBubble content={[text('就一句')]} />)
     expect(screen.queryByRole('button', { name: '展开' })).toBeNull()
   })
 
   it('超长消息折叠成渐隐，点「展开」放开全文', async () => {
     restore = stubOverflowing()
     const user = userEvent.setup()
-    render(<UserBubble text={'一行长长的素材说明\n'.repeat(20)} />)
+    render(<UserBubble content={[text('一行长长的素材说明\n'.repeat(20))]} />)
 
     // scrollHeight 500 > 240：量出超高才给入口
     const toggle = await screen.findByRole('button', { name: '展开' })
@@ -50,13 +54,53 @@ describe('UserBubble', () => {
 
     expect(screen.getByRole('button', { name: '收起' })).toBeInTheDocument()
   })
+
+  it('图夹在两句话中间：芯片就画在那两句话中间，头部是这张图的缩略图', () => {
+    const url = 'https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'
+    const { container } = render(
+      <UserBubble content={[text('先看这张图：'), image(url), text('\n说明它写了什么')]} />,
+    )
+
+    const chip = screen.getByRole('button', { name: 'S6-1.jpg' })
+    const body = container.textContent ?? ''
+    expect(body.indexOf('先看这张图：')).toBeLessThan(body.indexOf('S6-1.jpg'))
+    expect(body.indexOf('S6-1.jpg')).toBeLessThan(body.indexOf('说明它写了什么'))
+    expect(chip.querySelector('img')?.getAttribute('src')).toBe(
+      `${url}?x-oss-process=image/resize,l_64`,
+    )
+  })
+
+  it('视频芯片：OSS 地址给首帧缩略图，其他来源画视频图标', () => {
+    render(
+      <UserBubble
+        content={[
+          video('https://bkt.oss-cn-hangzhou.aliyuncs.com/u/demo.mp4'),
+          video('https://example.com/clip.mp4'),
+        ]}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'demo.mp4' }).querySelector('img')?.getAttribute('src'),
+    ).toContain('x-oss-process=video/snapshot')
+    expect(screen.getByRole('button', { name: 'clip.mp4' }).querySelector('img')).toBeNull()
+  })
+
+  it('点图片芯片开灯箱', async () => {
+    const user = userEvent.setup()
+    render(<UserBubble content={[image('https://example.com/reference.png')]} />)
+
+    await user.click(screen.getByRole('button', { name: 'reference.png' }))
+
+    expect(screen.getByRole('dialog', { name: 'reference.png' })).toBeInTheDocument()
+  })
 })
 
 const turnWithFrames = (frames: TranscriptTurn['steps'][number]['frames']): TranscriptTurn => ({
+  content: [text('先做开场镜头')],
   kind: 'turn',
   ordinal: 1,
   origin: { kind: 'user' },
-  prompt: '先做开场镜头',
   state: 'completed',
   steps: [
     {
@@ -77,7 +121,6 @@ describe('ConversationTurn', () => {
   it('已经有模型块时仍显示轮头部的开场输入', () => {
     render(
       <ConversationTurn
-        attachments={new Map()}
         turn={turnWithFrames([
           { frameId: 't1.1.f1', kind: 'thinking', text: '先分析素材' },
           { frameId: 't1.1.f2', kind: 'text', role: 'assistant', text: '已经完成。' },
@@ -92,9 +135,14 @@ describe('ConversationTurn', () => {
   it('开场输入与中途插话各自显示一次', () => {
     render(
       <ConversationTurn
-        attachments={new Map()}
         turn={turnWithFrames([
-          { frameId: 't1.1.f1', kind: 'text', role: 'user', text: '再补一个特写' },
+          {
+            content: [text('再补一个特写')],
+            frameId: 't1.1.f1',
+            kind: 'text',
+            role: 'user',
+            text: '再补一个特写',
+          },
           { frameId: 't1.1.f2', kind: 'text', role: 'assistant', text: '收到。' },
         ])}
       />,
@@ -104,27 +152,14 @@ describe('ConversationTurn', () => {
     expect(screen.getAllByText('再补一个特写')).toHaveLength(1)
   })
 
-  it('只有附件的开场输入也显示用户气泡', () => {
+  it('只有一张图的开场输入也显示用户气泡', () => {
     render(
       <ConversationTurn
-        attachments={
-          new Map([
-            [
-              'att-1',
-              {
-                attachmentId: 'att-1',
-                mediaType: 'image/png',
-                name: '参考图.png',
-                source: { kind: 'url', url: 'https://example.com/reference.png' },
-              },
-            ],
-          ])
-        }
-        turn={{ ...turnWithFrames([]), attachmentIds: ['att-1'], prompt: '' }}
+        turn={{ ...turnWithFrames([]), content: [image('https://example.com/reference.png')] }}
       />,
     )
 
-    expect(screen.getByRole('button', { name: '参考图.png' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'reference.png' })).toBeInTheDocument()
   })
 
   it('回复结束后复制最后一次用户输入之后的助手原始 markdown', async () => {
@@ -132,10 +167,15 @@ describe('ConversationTurn', () => {
     const writeText = stubClipboard()
     render(
       <ConversationTurn
-        attachments={new Map()}
         turn={turnWithFrames([
           { frameId: 't1.1.f1', kind: 'text', role: 'assistant', text: '前一段回复' },
-          { frameId: 't1.1.f2', kind: 'text', role: 'user', text: '再补一个结尾' },
+          {
+            content: [text('再补一个结尾')],
+            frameId: 't1.1.f2',
+            kind: 'text',
+            role: 'user',
+            text: '再补一个结尾',
+          },
           { frameId: 't1.1.f3', kind: 'thinking', text: '调整结构' },
           { frameId: 't1.1.f4', kind: 'text', role: 'assistant', text: '## 最终回复' },
           { frameId: 't1.1.f5', kind: 'text', role: 'assistant', text: '补充说明' },
@@ -152,7 +192,6 @@ describe('ConversationTurn', () => {
     stubClipboard()
     render(
       <ConversationTurn
-        attachments={new Map()}
         turn={{
           ...turnWithFrames([
             { frameId: 't1.1.f1', kind: 'text', role: 'assistant', text: '还在输出' },
@@ -188,9 +227,7 @@ const TWO_ITEMS = {
 
 describe('工具结果按 view 选渲染器', () => {
   it('media_grid 在工具行下面画出每一张图与它的标题', () => {
-    render(
-      <ConversationTurn attachments={new Map()} turn={turnWithFrames([mediaFrame(TWO_ITEMS)])} />,
-    )
+    render(<ConversationTurn turn={turnWithFrames([mediaFrame(TWO_ITEMS)])} />)
 
     expect(screen.getAllByRole('figure')).toHaveLength(2)
     expect(screen.getByRole('img', { name: 'S01 · 产品特写' })).toBeInTheDocument()
@@ -199,9 +236,7 @@ describe('工具结果按 view 选渲染器', () => {
 
   it('点一张图开灯箱', async () => {
     const user = userEvent.setup()
-    render(
-      <ConversationTurn attachments={new Map()} turn={turnWithFrames([mediaFrame(TWO_ITEMS)])} />,
-    )
+    render(<ConversationTurn turn={turnWithFrames([mediaFrame(TWO_ITEMS)])} />)
 
     await user.click(screen.getByRole('button', { name: 'S01 · 产品特写' }))
 
@@ -210,12 +245,7 @@ describe('工具结果按 view 选渲染器', () => {
 
   it('结果形状对不上就退回朴素行：没有图，纯文本结果照旧可以展开', async () => {
     const user = userEvent.setup()
-    render(
-      <ConversationTurn
-        attachments={new Map()}
-        turn={turnWithFrames([mediaFrame({ items: 3 })])}
-      />,
-    )
+    render(<ConversationTurn turn={turnWithFrames([mediaFrame({ items: 3 })])} />)
 
     expect(screen.queryByRole('figure')).toBeNull()
     await user.click(screen.getByRole('button', { name: /出镜头帧/ }))
@@ -226,7 +256,6 @@ describe('工具结果按 view 选渲染器', () => {
     const user = userEvent.setup()
     render(
       <ConversationTurn
-        attachments={new Map()}
         turn={turnWithFrames([
           {
             display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
@@ -250,7 +279,6 @@ describe('工具结果按 view 选渲染器', () => {
   it('画出图的那次调用不折进活动组：折起来图就跟着不见了', () => {
     render(
       <ConversationTurn
-        attachments={new Map()}
         turn={turnWithFrames([
           {
             display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },

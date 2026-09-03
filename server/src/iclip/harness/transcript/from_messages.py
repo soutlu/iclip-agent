@@ -41,13 +41,13 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
-from iclip.harness.transcript.prompt_media import read_prompt_items
+from iclip.harness.transcript.prompt_media import plain_text, prompt_content
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
     TOOL_STATE_BY_OUTCOME,
-    Attachment,
     Interaction,
+    PromptContent,
     StepUsage,
     TextFrame,
     ThinkingFrame,
@@ -338,30 +338,26 @@ def _turn(
     # 结局可能落在后一次 run 的第一条请求里（续跑时给悬空调用补的那份），所以这些账跨段留着。
     tool_frames: dict[str, str] = {}
     frames_by_step: list[dict[str, TranscriptFrame]] = []
-    prompt: str | None = None
+    content: tuple[PromptContent, ...] | None = None
     pending_request: ModelRequest | None = None
-    pending_steers: list[str] = []
-    attached: dict[str, Attachment] = {}
+    pending_steers: list[tuple[PromptContent, ...]] = []
 
     for index, (run_id, group) in enumerate(segments):
         opened = len(steps)
         for message in group:
             if isinstance(message, ModelRequest):
-                prompt_text, attachments = _user_content(message)
-                attached.update({item.attachment_id: item for item in attachments})
-                if prompt is None and prompt_text is not None:
+                said = _user_content(message)
+                if content is None and said:
                     # 一轮的第一句用户输入是这一轮的由来，不单独成块。
-                    prompt = prompt_text
-                elif prompt_text is not None and steps:
+                    content = said
+                elif said and steps:
                     # 中途插进来的用户消息挂在当时最后那一步末尾，与实时那条路一致。赶在前一段
                     # 收场那一刻递进去的那条，挂的是前一段的末步。
                     step_index = len(steps) - 1
-                    _user_frame(
-                        frames_by_step[step_index], f"{turn_id}.{step_index + 1}", prompt_text
-                    )
-                elif prompt_text is not None:
+                    _user_frame(frames_by_step[step_index], f"{turn_id}.{step_index + 1}", said)
+                elif said:
                     # 还没有步可挂（第一次模型请求就带着插话进来），攒着，等第一步开出来放在最前。
-                    pending_steers.append(prompt_text)
+                    pending_steers.append(said)
                 _settle_tools(message, tool_frames, frames_by_step)
                 pending_request = message
                 continue
@@ -370,8 +366,8 @@ def _turn(
             step_id = f"{turn_id}.{step_ordinal}"
             frames: dict[str, TranscriptFrame] = {}
             frames_by_step.append(frames)
-            for text in pending_steers:
-                _user_frame(frames, step_id, text)
+            for said in pending_steers:
+                _user_frame(frames, step_id, said)
             pending_steers.clear()
             _open_frames(
                 message,
@@ -412,8 +408,7 @@ def _turn(
         ordinal=ordinal,
         state=state,
         origin=TurnOrigin(kind="user"),
-        prompt=prompt,
-        attachment_ids=tuple(attached) or None,
+        content=content or (),
         started_at=_iso(_started_at(messages)),
         ended_at=_iso(_ended_at(messages)),
         usage=_turn_usage(steps),
@@ -425,31 +420,32 @@ def _turn(
     )
 
 
-def _user_frame(frames: dict[str, TranscriptFrame], step_id: str, text: str) -> None:
+def _user_frame(
+    frames: dict[str, TranscriptFrame], step_id: str, content: tuple[PromptContent, ...]
+) -> None:
     """把一条用户消息放进这一步，编号走 ``_next_frame_ordinal``。"""
 
     frame_id = f"{step_id}.f{next_frame_ordinal(frames)}"
-    frames[frame_id] = TextFrame(frame_id=frame_id, role="user", text=text)
+    frames[frame_id] = TextFrame(
+        frame_id=frame_id, role="user", text=plain_text(content), content=content
+    )
 
 
-def _user_content(message: ModelRequest) -> tuple[str | None, list[Attachment]]:
-    """这条请求里用户说的话与附上的东西；没有用户输入就是 ``(None, [])``。
+def _user_content(message: ModelRequest) -> tuple[PromptContent, ...]:
+    """这条请求里用户发上来的 part 列表；没有用户输入就是空的。
 
-    ``content`` 可以是一串多模态元素。附件的身份写在正文里的媒体 tag 上（见
-    ``prompt_media``），这里把它解回协议的 ``attachment`` 实体——不解的话那条 tag 会当成用户
-    打的字显示出来，而附件在界面上根本不存在。
+    ``content`` 可以是一串多模态元素。图和视频的身份写在正文里的媒体 tag 上（见
+    ``prompt_media``），这里把它解回 part——不解的话那条 tag 会当成用户打的字显示出来，
+    而图在界面上根本不存在。
     """
 
-    texts: list[str] = []
-    attachments: list[Attachment] = []
+    parts: list[PromptContent] = []
     for part in message.parts:
         if not isinstance(part, UserPromptPart):
             continue
         items = [part.content] if isinstance(part.content, str) else list(part.content)
-        found_texts, found_attachments = read_prompt_items(items)
-        texts.extend(found_texts)
-        attachments.extend(found_attachments)
-    return ("\n".join(texts) if texts else None), attachments
+        parts.extend(prompt_content(items))
+    return tuple(parts)
 
 
 def _open_frames(

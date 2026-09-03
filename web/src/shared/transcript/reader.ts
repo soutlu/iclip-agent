@@ -19,7 +19,6 @@ import {
 import {
   AgentTranscript,
   type ActivityMeta,
-  type TranscriptAttachment,
   type TranscriptInteraction,
   type TranscriptItem,
   type TranscriptPrompt,
@@ -46,11 +45,6 @@ export interface TranscriptView {
   prompts: readonly TranscriptPrompt[]
   /** 还在等人回应的交互。审批卡按它出现，回应落库后由推送把它撤掉。 */
   pendingInteractions: readonly TranscriptInteraction[]
-  /**
-   * 附件实体表：frame / turn 只带 id 引用，实体由 `attachment.upsert` 落这张表。
-   * 原地增补、引用不变——渲染层据此解析，memo 不受影响。
-   */
-  attachments: ReadonlyMap<string, TranscriptAttachment>
   /** 这段对话叫什么。基线给的那个；之后被改名会由 `session.meta.updated` 盖过去。 */
   title: string
   /** `loading` 是基线还没到；`error` 是拉不到或者对不齐，界面给重试入口。 */
@@ -60,11 +54,8 @@ export interface TranscriptView {
   error?: string
 }
 
-const EMPTY_ATTACHMENTS: ReadonlyMap<string, TranscriptAttachment> = new Map()
-
 const EMPTY_VIEW: TranscriptView = {
   activity: 'unknown',
-  attachments: EMPTY_ATTACHMENTS,
   contextTokens: undefined,
   hasMoreOlder: false,
   items: [],
@@ -221,7 +212,6 @@ export class TranscriptReader {
         this.reloads = 0
         this.snapshot = {
           activity: this.transcript.getMeta().activity ?? 'unknown',
-          attachments: this.transcript.getAttachments(),
           contextTokens: this.transcript.getMeta().agent?.contextTokens,
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
@@ -286,7 +276,6 @@ export class TranscriptReader {
     this.snapshot = {
       ...this.snapshot,
       activity: this.transcript.getMeta().activity ?? 'unknown',
-      attachments: this.transcript.getAttachments(),
       contextTokens: this.transcript.getMeta().agent?.contextTokens,
       items: this.transcript.getItems(),
       maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,

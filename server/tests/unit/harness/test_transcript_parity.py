@@ -39,6 +39,7 @@ from pydantic_ai.messages import (
 
 from iclip.harness.transcript.from_messages import TurnState, turns_from_messages
 from iclip.harness.transcript.projector import TranscriptEventStream
+from iclip.harness.transcript.prompt_media import model_prompt
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.display import (
     FileIoDisplay,
@@ -46,7 +47,15 @@ from iclip.platform.transcript.display import (
     ToolDisplayEntry,
     ToolDisplayRegistry,
 )
-from iclip.platform.transcript.ops import MAIN_AGENT_ID, TranscriptTurn
+from iclip.platform.transcript.ops import (
+    MAIN_AGENT_ID,
+    AttachmentSource,
+    ImageContent,
+    PromptContent,
+    TextContent,
+    TranscriptTurn,
+    VideoContent,
+)
 
 
 def _read_display(args: Any) -> ToolDisplay | None:
@@ -56,6 +65,7 @@ def _read_display(args: Any) -> ToolDisplay | None:
 
 CONVERSATION = "conv-1"
 PROMPT = "帮我把 README 翻译成英文"
+CONTENT: tuple[PromptContent, ...] = (TextContent(text=PROMPT),)
 RUN = "run-a"
 
 DISPLAYS = ToolDisplayRegistry.merged(
@@ -72,7 +82,7 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
 
     return [
         {
-            "turn": (turn.turn_id, turn.ordinal, turn.state, turn.prompt),
+            "turn": (turn.turn_id, turn.ordinal, turn.state, turn.content),
             "steps": [
                 {
                     "step": (step.step_id, step.ordinal, step.state),
@@ -82,6 +92,7 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
                             frame.kind,
                             getattr(frame, "text", None),
                             getattr(frame, "role", None),
+                            getattr(frame, "content", None),
                             getattr(frame, "state", None),
                             # 工具卡整张比：参数、画法、渲染器与给人看的那份在结局到达时最容易
                             # 被漏掉，而漏了不报错。
@@ -100,14 +111,18 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
     ]
 
 
-async def _project(events: list[Any], *, prompt: str | None = PROMPT) -> tuple[TranscriptTurn, ...]:
+async def _project(
+    events: list[Any], *, content: tuple[PromptContent, ...] = CONTENT
+) -> tuple[TranscriptTurn, ...]:
     """把事件流喂给投影器，把产出的操作落到实时状态，取回它拼出来的轮子。"""
 
     async def stream() -> AsyncIterator[Any]:
         for event in events:
             yield event
 
-    projector = TranscriptEventStream(turn_id="t1", turn_ordinal=1, prompt=prompt, display=DISPLAYS)
+    projector = TranscriptEventStream(
+        turn_id="t1", turn_ordinal=1, content=content, display=DISPLAYS
+    )
     store = TranscriptStore()
     async for batch in projector.transform_stream(stream()):
         store.append(CONVERSATION, MAIN_AGENT_ID, batch)
@@ -267,7 +282,9 @@ async def test_a_cancelled_turn_needs_its_state_handed_to_the_deriver() -> None:
             yield event
         raise RunCancelled("用户停止")
 
-    projector = TranscriptEventStream(turn_id="t1", turn_ordinal=1, prompt=PROMPT, display=DISPLAYS)
+    projector = TranscriptEventStream(
+        turn_id="t1", turn_ordinal=1, content=CONTENT, display=DISPLAYS
+    )
     store = TranscriptStore()
     async for batch in projector.transform_stream(stream()):
         store.append(CONVERSATION, MAIN_AGENT_ID, batch)
@@ -433,3 +450,50 @@ async def test_emoji_text_survives_the_utf16_offsets() -> None:
     )
 
     assert _skeleton(live) == _skeleton(derived)
+
+
+_OSS = "https://bkt.oss-cn-hangzhou.aliyuncs.com/u"
+MIXED: tuple[PromptContent, ...] = (
+    TextContent(text="参考这张图："),
+    ImageContent(source=AttachmentSource(kind="url", url=f"{_OSS}/a.png")),
+    TextContent(text="再连着两张："),
+    ImageContent(source=AttachmentSource(kind="url", url=f"{_OSS}/b.png")),
+    ImageContent(source=AttachmentSource(kind="url", url="https://cdn.test/c.png")),
+    VideoContent(source=AttachmentSource(kind="url", url=f"{_OSS}/clip.mp4")),
+    TextContent(text="做个 30 秒的"),
+)
+"""图夹在两句话中间、两张图连着、还有一条视频。
+
+第三张的地址缩不动（不是 OSS 的），进模型那一串里它只留一条空标签——与前两张的「开标签 +
+像素 + 闭标签」不是一个形状，两种都得还原得回来。
+"""
+
+
+@pytest.mark.anyio
+async def test_mixed_content_is_the_same_on_both_paths() -> None:
+    """图文混排那串 part 两条路给出同一份，次序不动。
+
+    界面按这份列表画，图落在哪句话旁边全看它：两条路只要有一处不一样，刷新的瞬间图就换了位置。
+    """
+
+    live = await _project(
+        [
+            PartStartEvent(index=0, part=TextPart(content="")),
+            PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="好")),
+            PartEndEvent(index=0, part=TextPart(content="好")),
+        ],
+        content=MIXED,
+    )
+    derived = _derive(
+        _messages(
+            ModelRequest(
+                parts=[UserPromptPart(content=model_prompt(MIXED))],
+                run_id=RUN,
+                timestamp=_at(0),
+            ),
+            ModelResponse(parts=[TextPart(content="好")], run_id=RUN, timestamp=_at(1)),
+        )
+    )
+
+    assert live[0].content == MIXED
+    assert derived[0].content == MIXED

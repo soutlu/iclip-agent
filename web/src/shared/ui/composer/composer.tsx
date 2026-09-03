@@ -319,7 +319,6 @@ export function Composer({
       {pillHosts.map((host) =>
         createPortal(
           <ComposerAttachmentPill
-            attId={host.attId}
             entry={attachments.entries.get(host.attId)}
             hostEl={host.el}
             kind={host.kind}

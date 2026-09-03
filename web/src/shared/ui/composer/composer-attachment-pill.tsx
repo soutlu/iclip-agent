@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon, type IconName } from '@/shared/icons'
+import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { ComposerAttachmentTip } from './composer-attachment-tip'
 import type { ComposerAttachment, ComposerAttachmentKind } from './use-composer-attachments'
@@ -35,7 +36,6 @@ let lastTipClosedAt = 0
 type ComposerAttachmentPillProps = {
   /** NodeView 外层 span（portal 目标，也是悬停卡锚点）。 */
   hostEl: HTMLElement
-  attId: string
   kind: ComposerAttachmentKind
   name: string
   /** entry 表里的实时状态；还没登记上（首帧）时 undefined。 */
@@ -48,13 +48,7 @@ type ComposerAttachmentPillProps = {
  * @param props - 组件属性。
  * @returns pill 内容（portal 进 NodeView 的 dom）。
  */
-export function ComposerAttachmentPill({
-  attId,
-  entry,
-  hostEl,
-  kind,
-  name,
-}: ComposerAttachmentPillProps) {
+export function ComposerAttachmentPill({ entry, hostEl, kind, name }: ComposerAttachmentPillProps) {
   const [tipOpen, setTipOpen] = useState(false)
   const [viewing, setViewing] = useState(false)
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -96,11 +90,22 @@ export function ComposerAttachmentPill({
 
   // 灯箱开着的时候悬停卡不再出现
   const tipEntry = tipOpen && !viewing && entry !== undefined ? entry : null
+  // 图片一选进来就有本地预览；视频要等传完拿到公网地址才截得出首帧
+  const thumbnail =
+    kind === 'image'
+      ? entry?.previewUrl
+      : kind === 'video' && entry?.url !== undefined
+        ? videoSnapshotUrl(entry.url)
+        : undefined
 
   return (
     <>
       <span className="attachment-pill-icon">
-        <Icon decorative name={KIND_ICON[kind]} size="sm" />
+        {thumbnail === undefined ? (
+          <Icon decorative name={KIND_ICON[kind]} size="sm" />
+        ) : (
+          <img alt="" className="size-full rounded-xs object-cover" src={thumbnail} />
+        )}
       </span>
       <span className="attachment-pill-name">{ellipsizeAttachmentName(name)}</span>
       {tipEntry === null ? null : (
@@ -131,13 +136,7 @@ export function ComposerAttachmentPill({
         ? // 灯箱提到 body 下渲染，避开 contenteditable 里的继承样式
           createPortal(
             <MediaLightbox
-              attachment={{
-                attachmentId: attId,
-                mediaType: entry.mediaType,
-                name,
-                size: entry.size,
-                source: { kind: 'url', url: entry.previewUrl },
-              }}
+              media={{ name, url: entry.previewUrl }}
               onClose={() => setViewing(false)}
             />,
             document.body,

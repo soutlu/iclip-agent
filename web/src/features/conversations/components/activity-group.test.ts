@@ -56,12 +56,10 @@ const tool = (
   toolCallId: id,
 })
 
-const text = (id: string, role: 'assistant' | 'user' = 'assistant'): TranscriptFrame => ({
-  frameId: id,
-  kind: 'text',
-  role,
-  text: '字',
-})
+const text = (id: string, role: 'assistant' | 'user' = 'assistant'): TranscriptFrame =>
+  role === 'user'
+    ? { content: [{ text: '字', type: 'text' }], frameId: id, kind: 'text', role, text: '字' }
+    : { frameId: id, kind: 'text', role, text: '字' }
 
 describe('groupTurnEntries', () => {
   it('连续的思考与工具折成一叠；正文打断一叠', () => {

@@ -9,10 +9,9 @@
 
 import { useId, useRef, useState } from 'react'
 import { cn } from '@/shared/lib/utils'
-import type { TranscriptAttachment } from '@/shared/transcript/vendor'
 import { Button, IconButton } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
-import { MediaLightbox } from '@/shared/ui/media-lightbox'
+import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import { tagVariants } from '@/shared/ui/tag'
 import {
@@ -80,7 +79,7 @@ export function ShotPage({
   onUploadFrame,
   shot,
 }: ShotPageProps) {
-  const [zoomed, setZoomed] = useState<TranscriptAttachment | null>(null)
+  const [zoomed, setZoomed] = useState<LightboxMedia | null>(null)
   const [picker, setPicker] = useState<FramePickerMode | null>(null)
   const uploadRef = useRef<HTMLInputElement | null>(null)
   const secondsId = useId()
@@ -183,10 +182,8 @@ export function ShotPage({
                   name="zoom"
                   onClick={() =>
                     setZoomed({
-                      attachmentId: `frame-${shot.index}-${frameNumber}`,
-                      mediaType: 'image/*',
                       name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`,
-                      source: { kind: 'url', url: currentUrl },
+                      url: currentUrl,
                     })
                   }
                   size="sm"
@@ -418,7 +415,7 @@ export function ShotPage({
         onPick={replaceOrInsert}
         onUpload={upload}
       />
-      <MediaLightbox attachment={zoomed} onClose={() => setZoomed(null)} />
+      <MediaLightbox media={zoomed} onClose={() => setZoomed(null)} />
     </section>
   )
 }

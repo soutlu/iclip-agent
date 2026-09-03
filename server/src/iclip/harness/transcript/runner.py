@@ -60,13 +60,12 @@ from iclip.harness.transcript.from_messages import (
 )
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.projector import TranscriptEventStream
-from iclip.harness.transcript.prompt_media import attachments_of, model_prompt
+from iclip.harness.transcript.prompt_media import model_prompt
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
     MAIN_AGENT_ID,
-    AttachmentUpsertOp,
     EmittableOperation,
     FrameUpsertOp,
     Interaction,
@@ -735,14 +734,6 @@ class ConversationRunner:
         # 先挂上再开跑：停止和插话随时可能在第一个事件之前就到。
         self._active[row.conversation_id] = active
 
-        # 附件先落进实时状态：轮头部只带 id，实体本身在快照里，订阅者要能同时拿到两样。
-        attachments = attachments_of(row.content)
-        if attachments:
-            self._store.append(
-                row.conversation_id,
-                MAIN_AGENT_ID,
-                tuple(AttachmentUpsertOp(attachment=item) for item in attachments),
-            )
         resume_from = (
             None
             if resumed is None
@@ -772,8 +763,7 @@ class ConversationRunner:
         projector = TranscriptEventStream(
             turn_id=turn_id,
             turn_ordinal=ordinal,
-            prompt=row.text,
-            attachment_ids=tuple(item.attachment_id for item in attachments),
+            content=row.content,
             max_context_tokens=context_window,
             resume_from=resume_from,
             repaired_calls=repaired,

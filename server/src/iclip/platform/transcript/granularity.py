@@ -37,7 +37,7 @@ def grade_for(spec: Mapping[str, TranscriptGrade], agent_id: str) -> TranscriptG
 def admits(grade: TranscriptGrade, operation: EmittableOperation) -> bool:
     """这一档收不收这个操作。
 
-    默认放行（轮、prompt、附件、审批、meta、删除）：档位管的是「细到什么程度」，不是「哪些
+    默认放行（轮、prompt、审批、meta、删除）：档位管的是「细到什么程度」，不是「哪些
     实体」。所以 ``turn`` 档也拿得到审批卡——侧栏据此显示「这段卡在等人点头」。
     """
 

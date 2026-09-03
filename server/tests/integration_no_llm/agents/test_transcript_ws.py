@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -274,12 +275,20 @@ def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
             assert _until(ws, "transcript.reset")["session_id"] == mine
 
 
-def test_cross_origin_upgrade_is_refused(ws_agent_app: FastAPI, pg_url: str) -> None:
-    """WS 升级不受 CORS 约束、浏览器照常带 cookie，所以 Origin 得自己校验。"""
+def test_cross_origin_upgrade_is_refused(
+    ws_agent_app: FastAPI, pg_url: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """WS 升级不受 CORS 约束、浏览器照常带 cookie，所以 Origin 得自己校验。
+
+    拒绝要留一行日志：客户端那边只看到连接没了，服务端不写下来就查不出是哪一道拦的。
+    """
 
     from starlette.websockets import WebSocketDisconnect
 
-    with TestClient(ws_agent_app) as tc:
+    with (
+        caplog.at_level(logging.INFO, logger="iclip.domains.agents.transcript_api"),
+        TestClient(ws_agent_app) as tc,
+    ):
         _sign_in(tc, pg_url)
 
         with (
@@ -289,6 +298,11 @@ def test_cross_origin_upgrade_is_refused(ws_agent_app: FastAPI, pg_url: str) -> 
             pass  # 连接根本不该成立
 
     assert refused.value.code == 1008
+    assert any(
+        record.name == "iclip.domains.agents.transcript_api"
+        and "https://evil.example" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 async def _seed_file(pg_url: str, namespace: str, path: str, content: str) -> None:
