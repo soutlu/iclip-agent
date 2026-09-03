@@ -266,15 +266,18 @@ async def test_workspace_files_can_be_listed_and_read(
     assert (listed_by_stranger.status_code, read_by_stranger.status_code) == (404, 404)
 
 
-def shots_document(*, image_url: str) -> str:
-    """一份合规的镜头组 prompt 表，形状与 ``write_video_shots`` 交付出来的一致。"""
+def shots_document(*, image_url: str, index: int = 1) -> str:
+    """一份镜头组 prompt 表，形状与 ``write_video_shots`` 交付出来的一致。
+
+    ``index`` 给 1 以外的值就是一份编号不连续的（校验该拒的那种）。
+    """
 
     return json.dumps(
         {
             "aspectRatio": "9:16",
             "shots": [
                 {
-                    "index": 1,
+                    "index": index,
                     "prompt": "0-8s 全景 平视 固定，她走进门厅 @Image1。",
                     "seconds": 8,
                     "imageUrls": [image_url],
@@ -324,7 +327,7 @@ async def test_workspace_file_can_be_written_back_with_the_version_it_was_read_a
 async def test_workspace_file_write_checks_the_document_on_its_path(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """``video_shot.json`` 走交付工具那一关：帧地址必须是这段对话生成过的。
+    """``video_shot.json`` 走交付工具那套形状判定；换帧不问地址是哪来的。
 
     不规范的路径写法一律拒：``/video_shot.json`` 与 ``video_shot.json`` 落同一个文件，
     放行前者就等于放出一条绕开校验的路。
@@ -334,46 +337,35 @@ async def test_workspace_file_write_checks_the_document_on_its_path(
     mine = (await create(client, title="这段")).json()["conversation"]["id"]
     frame_url = "https://cdn.test/frames/s1-1.jpg"
     await seed_workspace_files(
-        pg_url,
-        f"{user_id}/{mine}",
-        {
-            "frames/grids/job-1.json": json.dumps(
-                {
-                    "gridRecordVersion": 1,
-                    "jobId": "job-1",
-                    "frames": [{"no": "S1-1", "url": frame_url}],
-                }
-            ),
-            "video_shot.json": shots_document(image_url=frame_url),
-        },
+        pg_url, f"{user_id}/{mine}", {"video_shot.json": shots_document(image_url=frame_url)}
     )
 
-    good = await client.put(
+    swapped = await client.put(
         f"{URL}/{mine}/workspace/file",
         json={
             "path": "video_shot.json",
-            "content": shots_document(image_url=frame_url),
+            "content": shots_document(image_url="https://cdn.test/另一张.jpg"),
             "expectedVersion": 1,
         },
     )
-    assert good.status_code == 200, good.text
+    assert swapped.status_code == 200, "用户换帧是从自己的记录里挑的，不再问一遍地址哪来的"
 
-    made_up = await client.put(
+    broken = await client.put(
         f"{URL}/{mine}/workspace/file",
         json={
             "path": "video_shot.json",
-            "content": shots_document(image_url="https://cdn.test/编的.jpg"),
+            "content": shots_document(image_url=frame_url, index=2),
             "expectedVersion": 2,
         },
     )
-    assert made_up.status_code == 422
-    assert "generate_shot_frames" in made_up.json()["detail"], "校验器的原话要给到用户"
+    assert broken.status_code == 422
+    assert "连续编号" in broken.json()["detail"], "校验器的原话要给到用户"
 
     sneaky = await client.put(
         f"{URL}/{mine}/workspace/file",
         json={
             "path": "/video_shot.json",
-            "content": shots_document(image_url="https://cdn.test/编的.jpg"),
+            "content": shots_document(image_url=frame_url),
             "expectedVersion": 2,
         },
     )

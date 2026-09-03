@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Final, Literal
 
 import httpx
 import procrastinate
@@ -90,9 +90,13 @@ from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.file_store.pg import PgFileStore
 from iclip.platform.file_store.store import (
+    FileEntry,
+    FileStore,
     InvalidContent,
     InvalidPath,
     QuotaExceeded,
+    SearchResult,
+    StoredFile,
     VersionConflict,
     normalize_path,
 )
@@ -222,6 +226,75 @@ def _agent_context_limits(
 
 _SOCKET_TIMEOUT_MARGIN = 5.0
 """socket 超时比阻塞等待多留的余量（秒）。"""
+
+WORKSPACE_SOURCE_AGENT: Final = "agent"
+"""工具写工作区文件时这一帧记的来源。
+
+**记不到是哪件工具。** 能力包写文件只经 ``FileStore`` 这个协议，协议里没有「谁在写」
+这回事；为了一帧推送去改它，等于让每个能力包都认识连接表。界面要分的是「我自己刚写的」
+和「别人写的」，这个粒度够了。
+"""
+
+WORKSPACE_SOURCE_USER: Final = "user"
+"""面板整份写回时这一帧记的来源。"""
+
+
+def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
+    """把工作区命名空间拆回「属主 + 对话」，拆不出来给 ``None``。
+
+    拼法在 ``capabilities/workspace/scope.py``。对话 id 是客户端给的字符串，未必是我们
+    发出去的那种；拆不出来就是没法按对话推送，不是错误。
+    """
+
+    owner, _, conversation_id = namespace.partition("/")
+    try:
+        return uuid.UUID(owner), uuid.UUID(conversation_id)
+    except ValueError:
+        return None
+
+
+class _AnnouncingFileStore:
+    """工作区文件存储，外加「写完就告诉还开着的标签页」。
+
+    包在组合根：存储层只认识命名空间，不认识对话也不认识连接；而能力包写文件只经
+    ``FileStore`` 协议。包在这一层，两边都不必为了一帧推送改自己的接口。
+
+    命名空间拆不出对话 id 时就不发（那说明地盘不是按对话分的）——推送掉一帧只是界面
+    晚一点对齐，不该让一次写入失败。
+    """
+
+    def __init__(self, inner: FileStore, live: LiveConnections, *, source: str) -> None:
+        self._inner = inner
+        self._live = live
+        self._source = source
+
+    async def read(self, namespace: str, path: str) -> StoredFile | None:
+        return await self._inner.read(namespace, path)
+
+    async def write(
+        self, namespace: str, path: str, content: str, *, expected_version: int | None = None
+    ) -> FileEntry:
+        entry = await self._inner.write(namespace, path, content, expected_version=expected_version)
+        addressed = _namespace_owner(namespace)
+        if addressed is not None:
+            owner, conversation_id = addressed
+            self._live.announce_file_changed(
+                owner,
+                conversation_id,
+                path=entry.path,
+                version=entry.version,
+                source=self._source,
+            )
+        return entry
+
+    async def delete(self, namespace: str, path: str) -> bool:
+        return await self._inner.delete(namespace, path)
+
+    async def entries(self, namespace: str, *, prefix: str = "") -> Sequence[FileEntry]:
+        return await self._inner.entries(namespace, prefix=prefix)
+
+    async def search(self, namespace: str, query: str, *, limit: int) -> SearchResult:
+        return await self._inner.search(namespace, query, limit=limit)
 
 
 async def _no_title(_user_text: str) -> str | None:
@@ -410,6 +483,12 @@ def build_app(
     )
     owns_inspiration_engine = inspiration_engine is not None and inspirations_engine is None
     workspace_store = PgFileStore(active_engine)
+    # 推送那张表要先有：工作区每写一次都往它上面发一帧，工具那条路也一样。
+    live_connections = LiveConnections()
+    # 递给能力包的是包了一层的那只：工具写完文件，界面不必等下一次重拉。
+    announcing_workspace_store = _AnnouncingFileStore(
+        workspace_store, live_connections, source=WORKSPACE_SOURCE_AGENT
+    )
 
     async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
         """删掉一段对话时，连带清空它在工作区里的地盘。
@@ -472,20 +551,27 @@ def build_app(
             raise Conflict(str(exc)) from exc
         except (InvalidPath, InvalidContent, QuotaExceeded) as exc:
             raise ValidationFailed(str(exc)) from exc
+        live_connections.announce_file_changed(
+            owner,
+            conversation_id,
+            path=entry.path,
+            version=entry.version,
+            source=WORKSPACE_SOURCE_USER,
+        )
         return DerivedFileContent(path=entry.path, content=content, version=entry.version)
 
     async def validate_video_shots(
         owner: uuid.UUID, conversation_id: uuid.UUID, content: str
     ) -> None:
-        """用户写回来的镜头组 prompt 表要过交付工具那一关。
+        """用户写回来的镜头组 prompt 表要过交付工具那套形状判定。
 
-        这条线只能接在组合根：判定归镜头素材能力，而对话那一侧不认识它。
+        这条线只能接在组合根：判定归镜头素材能力，而对话那一侧不认识它。判定不看 owner
+        与对话——形状是形状，与这份文件属于谁无关。
         """
 
+        _ = (owner, conversation_id)
         try:
-            await validate_video_shots_document(
-                workspace_store, namespace_for(owner, str(conversation_id)), content
-            )
+            validate_video_shots_document(content)
         except ValueError as exc:
             raise ValidationFailed(str(exc)) from exc
 
@@ -505,8 +591,6 @@ def build_app(
         return tuple(
             CollectionInfo(id=item.id, name=item.name, updated_at=item.updated_at) for item in found
         )
-
-    live_connections = LiveConnections()
 
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
@@ -587,7 +671,7 @@ def build_app(
         else None
     )
     capability_table = build_capability_table(
-        workspace_store=workspace_store,
+        workspace_store=announcing_workspace_store,
         http_client=http_client,
         generation_service=generation.service if generation is not None else None,
         object_store=public_objects,

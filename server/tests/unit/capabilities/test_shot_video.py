@@ -254,7 +254,8 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
 
 
 @pytest.mark.parametrize(
-    "tool_name", ["video_parser_md", "plan_shot_frames", "generate_shot_frames"]
+    "tool_name",
+    ["video_parser_md", "plan_shot_frames", "generate_shot_frames", "write_video_shots"],
 )
 def test_scope_rules_are_mounted_on_the_tool(
     tools: ShotVideoToolset[object], tool_name: str
@@ -987,18 +988,6 @@ FRAME_URL = "https://cdn.test/frames/s1-1.jpg"
 OTHER_FRAME_URL = "https://cdn.test/frames/s2-1.jpg"
 
 
-def grid_record(*urls: str) -> str:
-    """一份出帧版记录，只放交付校验用得到的那部分。"""
-
-    return json.dumps(
-        {
-            "gridRecordVersion": 1,
-            "jobId": "job-1",
-            "frames": [{"no": f"S{index}-1", "url": url} for index, url in enumerate(urls, 1)],
-        }
-    )
-
-
 def one_shot(**overrides: Any) -> VideoShotRequest:
     fields: dict[str, Any] = {
         "index": 1,
@@ -1017,9 +1006,9 @@ async def deliver(
     *,
     aspect_ratio: str = "9:16",
 ) -> dict[str, Any]:
-    """把一份已生成的帧记录铺好，再走一次交付。"""
+    """走一次交付。地址规则挂在验证器上（见下面几条），这里只走工具体。"""
 
-    await files.write(NAMESPACE, "frames/grids/job-1.json", grid_record(FRAME_URL, OTHER_FRAME_URL))
+    _ = files
     return await tools.write_video_shots(ctx, aspect_ratio, shots)
 
 
@@ -1054,7 +1043,6 @@ async def test_delivered_table_lands_in_the_workspace(
         ([one_shot(seconds=3)], "4-30"),
         ([one_shot(seconds=31)], "4-30"),
         ([one_shot(image_urls=[])], "image_urls 为空"),
-        ([one_shot(image_urls=["https://cdn.test/编的.jpg"])], "不是 generate_shot_frames"),
         (
             [one_shot(prompt="0-8s 她走进门厅 @Image2。")],
             "@Image2",
@@ -1083,13 +1071,42 @@ async def test_delivery_rejects_a_bad_aspect_ratio(
     assert await files.read(NAMESPACE, SHOTS_PATH) is None
 
 
-async def test_delivery_without_any_generated_frame_points_at_the_records(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+def test_delivery_accepts_a_frame_url_the_conversation_has_seen(
+    tools: ShotVideoToolset[object],
 ) -> None:
-    """一帧都还没生成时，报的是「去哪儿找地址」而不是「地址不对」。"""
+    """出帧写下的地址在同一轮的工具结果里逐字出现过，所以按素材算得到。"""
 
-    with pytest.raises(ModelRetry, match="frames/grids/"):
-        await tools.write_video_shots(ctx, "9:16", [one_shot()])
+    seen = make_context(make_deps(), said=f"{_USER_SENT_VIDEO} {FRAME_URL}")
+    check_args(tools, "write_video_shots", seen, aspect_ratio="9:16", shots=[one_shot()])
+
+
+def test_delivery_rejects_a_made_up_frame_url(
+    tools: ShotVideoToolset[object], ctx: RunContext[object]
+) -> None:
+    """自己拼的地址进不来，报的是「去哪儿找地址」而不是把它回显一遍。"""
+
+    with pytest.raises(ModelRetry, match="frames/grids/") as rejected:
+        check_args(
+            tools,
+            "write_video_shots",
+            ctx,
+            aspect_ratio="9:16",
+            shots=[one_shot(image_urls=["https://cdn.test/编的.jpg"])],
+        )
+    assert "编的" not in str(rejected.value), "被拒的地址不回显，否则重试一次就洗成素材了"
+
+
+def test_delivery_rejects_a_frame_url_that_is_not_http(
+    tools: ShotVideoToolset[object], ctx: RunContext[object]
+) -> None:
+    with pytest.raises(ModelRetry, match="http"):
+        check_args(
+            tools,
+            "write_video_shots",
+            ctx,
+            aspect_ratio="9:16",
+            shots=[one_shot(image_urls=["frames/s1-1.jpg"])],
+        )
 
 
 # ── 用户改完写回来的那份 video_shot.json ────────────────────────────────────
@@ -1108,13 +1125,23 @@ def shots_document(**overrides: Any) -> str:
     return json.dumps({**document, **overrides}, ensure_ascii=False)
 
 
-async def test_written_back_table_passes_the_same_check_as_delivery(
-    files: FakeFileStore,
-) -> None:
-    """面板整份写回的那条路，判定和 `write_video_shots` 是同一套。"""
+def test_written_back_table_passes_the_same_shape_check_as_delivery() -> None:
+    """面板整份写回的那条路，形状判定和 `write_video_shots` 是同一套。"""
 
-    await files.write(NAMESPACE, "frames/grids/job-1.json", grid_record(FRAME_URL))
-    await validate_video_shots_document(files, NAMESPACE, shots_document())
+    validate_video_shots_document(shots_document())
+
+
+def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
+    """来源规则只对模型（防它凭空编）；用户换帧是从自己的记录里挑的，不再问一遍。"""
+
+    validate_video_shots_document(
+        shots_document(
+            shots=[
+                json.loads(shots_document())["shots"][0]
+                | {"imageUrls": ["https://别处.test/x.jpg"]}
+            ]
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -1130,22 +1157,44 @@ async def test_written_back_table_passes_the_same_check_as_delivery(
             "连续编号",
         ),
         (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"seconds": 31}]),
+            "4-30",
+        ),
+        (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"imageUrls": []}]),
+            "image_urls 为空",
+        ),
+        (
+            shots_document(
+                shots=[json.loads(shots_document())["shots"][0] | {"imageUrls": ["  "]}]
+            ),
+            "空地址",
+        ),
+        (
             shots_document(
                 shots=[
                     json.loads(shots_document())["shots"][0]
-                    | {"imageUrls": ["https://cdn.test/编的.jpg"]}
+                    | {"prompt": "0-8s 她走进门厅 @Image2。"}
                 ]
             ),
-            "不是 generate_shot_frames",
+            "@Image2",
         ),
     ],
-    ids=["bad-json", "not-object", "no-shots", "bad-aspect", "bad-row", "index-gap", "unknown-url"],
+    ids=[
+        "bad-json",
+        "not-object",
+        "no-shots",
+        "bad-aspect",
+        "bad-row",
+        "index-gap",
+        "seconds",
+        "no-urls",
+        "blank-url",
+        "image-ref",
+    ],
 )
-async def test_written_back_table_is_rejected_with_the_reason(
-    files: FakeFileStore, content: str, message: str
-) -> None:
+def test_written_back_table_is_rejected_with_the_reason(content: str, message: str) -> None:
     """不合规抛 ``ValueError``，消息原样往上给——用户要照着它改。"""
 
-    await files.write(NAMESPACE, "frames/grids/job-1.json", grid_record(FRAME_URL))
     with pytest.raises(ValueError, match=message):
-        await validate_video_shots_document(files, NAMESPACE, content)
+        validate_video_shots_document(content)
