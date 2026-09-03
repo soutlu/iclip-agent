@@ -47,8 +47,6 @@ const nodeType = (name: 'doc' | 'frame' | 'paragraph') => {
   return type
 }
 
-export const frameNodeType = () => nodeType('frame')
-
 /**
  * 行 → 文档。空行是一个空 paragraph；一行都没有也给一个空 paragraph（schema 要求至少一段）。
  *

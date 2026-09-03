@@ -1,11 +1,12 @@
 /**
- * 分镜工作台（只读）：一屏一个镜头组，上下翻页换组。
+ * 分镜工作台：一屏一个镜头组，上下翻页换组，改了就存。
  *
  * 翻组是一个纵向 scroll-snap 容器：滚轮 / 触控板上下滑、↑↓ 键、右侧页码点，三条路都只改地址里的
  * `shot`，再由一个效果滚到那一页——这样「地址即当前页」，刷新与分享链接都落在同一组上。
  *
  * 内容来自两处——工作区里的 `video_shot.json`（组、prompt、帧地址）与这段对话的生成任务
- * （每组的出片记录）。文件变了由 `event.fs.changed` 通知，只重读那一份。
+ * （每组的出片记录）。文件变了由 `event.fs.changed` 通知，只重读那一份。用户的改动经
+ * `useShotsDraft` 落草稿、停手即存、撞版本再比对（见那里）。
  */
 
 import { useQueryClient } from '@tanstack/react-query'
@@ -15,21 +16,22 @@ import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { Button } from '@/shared/ui/button'
+import {
+  DialogBody,
+  DialogFooter,
+  DialogHeader,
+  DialogRoot,
+  DialogSurface,
+} from '@/shared/ui/dialog'
 import { Tag } from '@/shared/ui/tag'
 import {
   useWorkspaceFile,
   workspaceQueryKeys,
   type ArtifactRendererProps,
 } from '@/shared/workbench'
-import {
-  latestShotVideos,
-  parseShotsDocument,
-  runningShots,
-  shotStatus,
-  SHOTS_PATH,
-  type ShotStatus,
-} from '../shots'
-import { useShotGenerations } from '../storyboard.api'
+import { latestShotVideos, runningShots, shotStatus, SHOTS_PATH, type ShotStatus } from '../shots'
+import { uploadFrameImage, useFrameCandidates, useShotGenerations } from '../storyboard.api'
+import { useShotsDraft } from '../use-shots-draft'
 import { GenerationRecords } from './generation-records'
 import { ShotPage } from './shot-page'
 
@@ -61,6 +63,8 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const path = artifact.source.kind === 'file' ? artifact.source.path : SHOTS_PATH
   const file = useWorkspaceFile(conversationId, path)
   const generations = useShotGenerations(conversationId)
+  const candidates = useFrameCandidates(conversationId)
+  const draft = useShotsDraft({ conversationId, file: file.data?.file, path })
   const queryClient = useQueryClient()
   const connection = use(TranscriptConnectionContext)
   const navigate = useNavigate()
@@ -81,20 +85,20 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     })
   }, [connection, conversationId, path, queryClient])
 
-  // 「agent 刚改过」：重读回来的版本号与上一次拿到的不同就标上，翻页即清。
+  // 「agent 刚改过」：重读回来的版本号变了、又不是自己写出去的，就标上，翻页即清。
   // 逐组 diff 这一期不做，所以标在页头那一行上。
   const version = file.data?.file.version
   const seenVersionRef = useRef<number | undefined>(undefined)
   const [changedByAgent, setChangedByAgent] = useState(false)
+  const { wroteVersion } = draft
   useEffect(() => {
     if (version === undefined) return
-    if (seenVersionRef.current !== undefined && seenVersionRef.current !== version) {
-      setChangedByAgent(true)
-    }
+    const seen = seenVersionRef.current
     seenVersionRef.current = version
-  }, [version])
+    if (seen !== undefined && seen !== version && !wroteVersion(version)) setChangedByAgent(true)
+  }, [version, wroteVersion])
 
-  const shotsDocument = file.data === undefined ? null : parseShotsDocument(file.data.file.content)
+  const shotsDocument = draft.document
   const shots = shotsDocument?.shots ?? []
   const position = search.shot !== undefined && search.shot <= shots.length ? search.shot : 1
 
@@ -177,6 +181,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           {shots.length} 组 · 合计 {totalSeconds} 秒 · 第 {position} 组
         </p>
         {changedByAgent ? <Tag variant="running">agent 刚改过</Tag> : null}
+        <SaveStatus state={draft.state} />
         <span className="flex-1" />
         {/* 圆点单独一颗没人看得懂，配上一句状态文字 */}
         <span className="flex items-center gap-1.5 text-body-sm text-on-surface-faint">
@@ -202,9 +207,12 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           {shots.map((item, offset) => (
             <ShotPage
               aspectRatio={shotsDocument.aspectRatio}
+              candidates={candidates.data ?? []}
               frameNumber={offset + 1 === position ? frameNumber : 1}
               key={item.index}
+              onChangeShot={draft.updateShot}
               onPickFrame={(frame) => go({ frame })}
+              onUploadFrame={uploadFrameImage}
               shot={item}
             />
           ))}
@@ -244,7 +252,84 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           </aside>
         ) : null}
       </div>
+
+      <ConflictDialog resolve={draft.resolveConflict} state={draft.state} />
     </div>
+  )
+}
+
+type SaveStatusProps = { state: ReturnType<typeof useShotsDraft>['state'] }
+
+/**
+ * 保存状态那一小段字：存着、存好了、存不下去。冲突另有对话框。
+ *
+ * @param props - 组件属性。
+ * @param props.state - 保存状态。
+ * @returns 一段小字，没什么可说时是 null。
+ */
+function SaveStatus({ state }: SaveStatusProps) {
+  switch (state.kind) {
+    case 'saving':
+      return <span className="text-body-sm text-on-surface-faint">保存中…</span>
+    case 'saved':
+      return (
+        <span className="flex items-center gap-1 text-body-sm text-on-surface-faint">
+          <Icon decorative name="check" size="xs" />
+          已保存
+        </span>
+      )
+    case 'error':
+      return (
+        <span className="text-body-sm text-error" role="alert">
+          没存下：{state.message}
+        </span>
+      )
+    case 'idle':
+    case 'conflict':
+      return null
+  }
+}
+
+type ConflictDialogProps = {
+  state: ReturnType<typeof useShotsDraft>['state']
+  resolve: (choice: 'mine' | 'theirs') => void
+}
+
+/**
+ * 两边改了同一组时让用户选：留我的，还是用最新的。不静默覆盖任何一方。
+ *
+ * @param props - 组件属性。
+ * @param props.state - 保存状态。
+ * @param props.resolve - 用户的选择。
+ * @returns 对话框。
+ */
+function ConflictDialog({ resolve, state }: ConflictDialogProps) {
+  const open = state.kind === 'conflict'
+  const indexes = state.kind === 'conflict' ? state.shots.map((item) => item.index) : []
+  return (
+    <DialogRoot onOpenChange={(next) => !next && resolve('theirs')} open={open}>
+      <DialogSurface aria-label="这一组有别的改动">
+        <DialogHeader closeLabel="用最新的" title="这一组有别的改动">
+          你改的时候，第 {indexes.join('、')} 组也被别人改过了。
+        </DialogHeader>
+        <DialogBody>
+          <p className="text-body text-on-surface">
+            留我的会把你这几组的改动覆盖到最新版上；用最新的会丢掉你对这几组的改动，其余组不受影响。
+          </p>
+        </DialogBody>
+        <DialogFooter>
+          <span />
+          <span className="flex gap-2">
+            <Button onClick={() => resolve('theirs')} size="md" variant="ghost">
+              用最新的
+            </Button>
+            <Button onClick={() => resolve('mine')} size="md">
+              留我的
+            </Button>
+          </span>
+        </DialogFooter>
+      </DialogSurface>
+    </DialogRoot>
   )
 }
 
