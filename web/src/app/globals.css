@@ -28,11 +28,13 @@
 }
 
 /* v15 窗口分级（M3 window size classes）：compact <600 / medium 600–840 / expanded ≥840。
-   覆写 Tailwind sm/md：sm: = medium 起点 600，md: = expanded 起点 840；lg 及以上保持默认。
-   手写媒体查询与 useBreakpoint 同用这两档，内容特调阈值（1100/1180 等）不在此列。 */
+   覆写 Tailwind sm/md/lg：sm: = medium 起点 600，md: = expanded 起点 840，
+   lg: = 聊天与右面板并排的起点 1280；xl 及以上保持默认。
+   手写媒体查询与这三档同用，内容特调阈值（1100/1180 等）不在此列。 */
 @theme {
   --breakpoint-sm: 600px;
   --breakpoint-md: 840px;
+  --breakpoint-lg: 1280px;
 }
 
 /* 唯一 UI 字阶（M3 type scale，10 档）：同时驱动 --text-* CSS 变量和 Tailwind text-* 工具类。

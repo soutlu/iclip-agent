@@ -581,6 +581,8 @@
   /* Layout tokens */
   --layout-app-sidebar-width: 264px;
   --layout-app-right-panel-width: 460px;
+  --layout-app-workbench-width: 820px;
+  --layout-app-chat-min-width: 400px;
   --layout-home-read-max: 760px;
   --layout-dialog-header-height: 52px;
   --layout-project-header-height: 72px;
