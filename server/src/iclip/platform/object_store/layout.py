@@ -6,6 +6,7 @@
     └── iclip/agent/
         ├── chat-media/{sha256}.{ext}                     聊天里内嵌上传的媒体
         ├── generated-images/{jobId}.{ext}                图片生成结果转存
+        ├── generated-videos/{jobId}.{ext}                视频生成结果转存
         ├── shot-frames/{extractionKey}/board/{n}.jpg     参考片的取帧预览板
         ├── shot-frames/{jobId}/out/{cellId}.jpg          出图整图切出来的镜头帧
         ├── anchor-sheets/{jobId}/{n}.jpg                 补拍设定图切格
@@ -46,6 +47,11 @@ class MediaPaths:
         """图片生成结果转存后的落点。"""
 
         return f"{OSS_ROOT}/generated-images/{job_id}.{ext}"
+
+    def generated_video(self, *, job_id: uuid.UUID, ext: str) -> str:
+        """视频生成结果转存后的落点。"""
+
+        return f"{OSS_ROOT}/generated-videos/{job_id}.{ext}"
 
     def shot_board(self, *, extraction_key: str, index: int) -> str:
         """取帧预览板。按取帧键分目录——同一段视频同一套镜头行只取一次帧。"""

@@ -16,6 +16,7 @@ from iclip.domains.generation.nano_banana import (
 )
 from iclip.domains.generation.provider import ProviderError
 from iclip.platform.object_store.layout import MEDIA_PATHS
+from iclip.platform.object_store.oss import ObjectStoreUnavailable
 from tests.helpers.generation import MemoryObjectStore, image_request, make_job, video_request
 
 VIDEO_SETTINGS = MultiflowSettings(
@@ -34,10 +35,13 @@ IMAGE_SETTINGS = NanoBananaSettings(
 )
 
 
-def video_provider(handler: object) -> MultiflowVideoProvider:
+def video_provider(
+    handler: object, *, store: MemoryObjectStore | None = None
+) -> MultiflowVideoProvider:
     assert callable(handler)
     return MultiflowVideoProvider(
         VIDEO_SETTINGS,
+        object_store=store if store is not None else MemoryObjectStore(),
         transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
     )
 
@@ -70,7 +74,9 @@ async def test_video_submit_sends_protocol_payload_and_key() -> None:
 
 
 async def test_video_poll_maps_terminal_and_running_states() -> None:
-    def succeeded(_: httpx.Request) -> httpx.Response:
+    def succeeded(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "cdn.test":
+            return httpx.Response(200, content=b"MP4", headers={"content-type": "video/mp4"})
         return httpx.Response(
             200,
             json={"status": "succeeded", "result": {"output_url": "https://cdn.test/v.mp4"}},
@@ -85,10 +91,78 @@ async def test_video_poll_maps_terminal_and_running_states() -> None:
         )
 
     job = make_job(provider_task_id="t-1")
-    assert (await video_provider(succeeded).poll(job)).output_url == "https://cdn.test/v.mp4"
+    store = MemoryObjectStore()
+    done = await video_provider(succeeded, store=store).poll(job)
+    assert (
+        done.output_url == f"{store.base}/{MEDIA_PATHS.generated_video(job_id=job.id, ext='mp4')}"
+    )
     assert (await video_provider(running).poll(job)).outcome == "running"
     rejected = await video_provider(failed).poll(job)
     assert (rejected.outcome, rejected.error_code) == ("failed", "NSFW")
+
+
+async def test_video_result_is_rehosted_and_provider_url_is_not_kept() -> None:
+    """成片转存到我们自己的对象存储：provider 那个地址会过期，不能留在库里。"""
+
+    store = MemoryObjectStore()
+    fetched: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        fetched.append(str(request.url))
+        if request.url.host == "cdn.test":
+            return httpx.Response(200, content=b"MP4BYTES", headers={"content-type": "video/mp4"})
+        return httpx.Response(
+            200,
+            json={"status": "succeeded", "result": {"output_url": "https://cdn.test/v.mp4?sig=1"}},
+        )
+
+    job = make_job(provider_task_id="t-1")
+    progress = await video_provider(handler, store=store).poll(job)
+
+    key = MEDIA_PATHS.generated_video(job_id=job.id, ext="mp4")
+    assert progress.output_url == f"{store.base}/{key}"
+    assert store.objects[key] == (b"MP4BYTES", "video/mp4")
+    assert "https://cdn.test/v.mp4?sig=1" in fetched, "provider 的地址只用来下载，不入库"
+
+
+async def test_video_rehost_failure_fails_the_job_without_retrying() -> None:
+    """片子已经出了、也已经付了钱，转存失败不能说成可重试——重试会重新生成一次。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "cdn.test":
+            return httpx.Response(200, content=b"MP4", headers={"content-type": "video/mp4"})
+        return httpx.Response(
+            200,
+            json={"status": "succeeded", "result": {"output_url": "https://cdn.test/v.mp4"}},
+        )
+
+    class BrokenStore(MemoryObjectStore):
+        async def put_public_object(
+            self, *, object_key: str, content: bytes, content_type: str
+        ) -> str:
+            raise ObjectStoreUnavailable("桶写不进去")
+
+    with pytest.raises(ProviderError) as error:
+        await video_provider(handler, store=BrokenStore()).poll(make_job(provider_task_id="t-1"))
+    assert error.value.code == "OUTPUT_STORE_FAILED"
+    assert error.value.retryable is False
+
+
+async def test_video_download_failure_is_not_swallowed() -> None:
+    """成片下载不回来就不算成功：不能留一个指向 provider 的地址假装完成了。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "cdn.test":
+            return httpx.Response(404)
+        return httpx.Response(
+            200,
+            json={"status": "succeeded", "result": {"output_url": "https://cdn.test/v.mp4"}},
+        )
+
+    with pytest.raises(ProviderError) as error:
+        await video_provider(handler).poll(make_job(provider_task_id="t-1"))
+    assert error.value.code == "OUTPUT_DOWNLOAD_FAILED"
+    assert error.value.retryable is False
 
 
 async def test_video_poll_rejects_unknown_status() -> None:
