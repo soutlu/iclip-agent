@@ -79,6 +79,7 @@ export type {
   ConversationFileEnvelope,
   ConversationFileOut,
   ConversationFilesOut,
+  ConversationFileWriteIn,
   ConversationIn,
   ConversationOut,
   ConversationPageOut,
@@ -382,4 +383,9 @@ export type {
   WithdrawTaskTasksTaskIdWithdrawPostErrors,
   WithdrawTaskTasksTaskIdWithdrawPostResponse,
   WithdrawTaskTasksTaskIdWithdrawPostResponses,
+  WriteConversationFileConversationsConversationIdWorkspaceFilePutData,
+  WriteConversationFileConversationsConversationIdWorkspaceFilePutError,
+  WriteConversationFileConversationsConversationIdWorkspaceFilePutErrors,
+  WriteConversationFileConversationsConversationIdWorkspaceFilePutResponse,
+  WriteConversationFileConversationsConversationIdWorkspaceFilePutResponses,
 } from './types.gen'

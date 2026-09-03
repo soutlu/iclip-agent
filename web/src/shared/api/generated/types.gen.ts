@@ -538,6 +538,29 @@ export type ConversationFileOut = {
 }
 
 /**
+ * ConversationFileWriteIn
+ *
+ * 整份覆盖工作区里的一个文件。
+ *
+ * ``expectedVersion`` 是读到那一份的版本号：agent 与用户会同时写同一份文件，对不上
+ * 就是 409，让调用方重读再决定，而不是把别人刚写的盖掉。
+ */
+export type ConversationFileWriteIn = {
+  /**
+   * Content
+   */
+  content: string
+  /**
+   * Expectedversion
+   */
+  expectedVersion: number
+  /**
+   * Path
+   */
+  path: string
+}
+
+/**
  * ConversationFilesOut
  */
 export type ConversationFilesOut = {
@@ -814,6 +837,10 @@ export type GenerationEnvelope = {
  */
 export type GenerationOut = {
   /**
+   * Conversationid
+   */
+  conversationId: string | null
+  /**
    * Createdat
    */
   createdAt: string
@@ -855,6 +882,10 @@ export type GenerationOut = {
   request: {
     [key: string]: unknown
   }
+  /**
+   * Shotindex
+   */
+  shotIndex: number | null
   /**
    * Status
    */
@@ -915,6 +946,10 @@ export type ImageGenerationIn = {
    */
   channel?: 'dev' | 'pro'
   /**
+   * Conversationid
+   */
+  conversationId?: string | null
+  /**
    * Kind
    */
   kind?: 'image'
@@ -930,6 +965,10 @@ export type ImageGenerationIn = {
    * Resolution
    */
   resolution?: '1k' | '2k' | '4k'
+  /**
+   * Shotindex
+   */
+  shotIndex?: number | null
 }
 
 /**
@@ -2323,6 +2362,10 @@ export type VideoGenerationIn = {
    */
   aspectRatio: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | '21:9'
   /**
+   * Conversationid
+   */
+  conversationId?: string | null
+  /**
    * Durationseconds
    */
   durationSeconds: number
@@ -2350,6 +2393,10 @@ export type VideoGenerationIn = {
    * Referencevideourls
    */
   referenceVideoUrls?: Array<string>
+  /**
+   * Shotindex
+   */
+  shotIndex?: number | null
 }
 
 /**
@@ -3641,6 +3688,38 @@ export type ReadConversationFileConversationsConversationIdWorkspaceFileGetRespo
 export type ReadConversationFileConversationsConversationIdWorkspaceFileGetResponse =
   ReadConversationFileConversationsConversationIdWorkspaceFileGetResponses[keyof ReadConversationFileConversationsConversationIdWorkspaceFileGetResponses]
 
+export type WriteConversationFileConversationsConversationIdWorkspaceFilePutData = {
+  body: ConversationFileWriteIn
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/workspace/file'
+}
+
+export type WriteConversationFileConversationsConversationIdWorkspaceFilePutErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type WriteConversationFileConversationsConversationIdWorkspaceFilePutError =
+  WriteConversationFileConversationsConversationIdWorkspaceFilePutErrors[keyof WriteConversationFileConversationsConversationIdWorkspaceFilePutErrors]
+
+export type WriteConversationFileConversationsConversationIdWorkspaceFilePutResponses = {
+  /**
+   * Successful Response
+   */
+  200: ConversationFileEnvelope
+}
+
+export type WriteConversationFileConversationsConversationIdWorkspaceFilePutResponse =
+  WriteConversationFileConversationsConversationIdWorkspaceFilePutResponses[keyof WriteConversationFileConversationsConversationIdWorkspaceFilePutResponses]
+
 export type ListConversationFilesConversationsConversationIdWorkspaceFilesGetData = {
   body?: never
   path: {
@@ -3713,6 +3792,10 @@ export type ListGenerationsGenerationsGetData = {
      * Limit
      */
     limit?: number
+    /**
+     * Conversationid
+     */
+    conversationId?: string | null
   }
   url: '/generations'
 }

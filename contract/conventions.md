@@ -152,7 +152,7 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
 
 **id 一律由服务端发放**，客户端自己编一个拿去发消息会得到 `404`。
 
-**权限**：`POST /conversations`、`PATCH /conversations/{id}`、`PUT /conversations/{id}/collection`、`PUT /conversations/{id}/task`、`DELETE /conversations/{id}` 需要 `agent:run`；`GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}`、`GET /conversations/search`、`GET /conversations/audit`、`GET /conversations/by-task/{taskId}`、`GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file` 需要 `agent:read`。
+**权限**：`POST /conversations`、`PATCH /conversations/{id}`、`PUT /conversations/{id}/collection`、`PUT /conversations/{id}/task`、`PUT /conversations/{id}/workspace/file`、`DELETE /conversations/{id}` 需要 `agent:run`；`GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}`、`GET /conversations/search`、`GET /conversations/audit`、`GET /conversations/by-task/{taskId}`、`GET /conversations/{id}/workspace/files`、`GET /conversations/{id}/workspace/file` 需要 `agent:read`。
 
 - `GET /conversations` 返回**侧栏拓扑**：`{ collections: [{ id, name, updatedAt, conversationCount, page }], ungroupedCount, ungrouped }`。`page` 与 `ungrouped` 都是一页 `{ items, nextCursor }`；合集与「没归类」两区都只有自己的，各按最近活动倒序；每个合集第一页 10 段，`ungrouped` 第一页 20 条，空合集也在列表里。
 - **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
@@ -172,7 +172,12 @@ openapi 里**：它归照抄来的 `packages/transcript` zod schema，前端 ven
   加字段会被客户端静默丢掉）。之后的变化只走推送，不用轮询。
 - **可见性**：只看得到自己的对话，别人的一律 `404`，不返 `403`。按需求单列尝试同一口径：只列自己的。
 - 删除对话时，**agent 在这段对话里写下的工作区文件一并删除**；`agent_runtime` 里的运行记录留着。
-- 工作区文件只读，没有推送：`version` 变了内容才变，客户端按它决定要不要重读正文。什么时候重拉列表由客户端定，事件流里每有一个工具调用出结果就拉一次。
+- 工作区文件没有推送：`version` 变了内容才变，客户端按它决定要不要重读正文。什么时候重拉列表由客户端定，事件流里每有一个工具调用出结果就拉一次。
+- `PUT /conversations/{id}/workspace/file` 整份覆盖一个文件，体是 `{ path, content, expectedVersion }`，答复形状同 `GET .../workspace/file`。
+  - **只有属主能写**：看不见的对话仍是 `404`，治理者看得见但写入是 `403`。
+  - `expectedVersion` 是读到那一份的版本号，对不上是 `409`（文件不存在时任何版本都对不上，同样 `409`——不替调用方新建）。写成功后版本加一。
+  - `path` 必须是文件列表里那个写法（规范形式），`/video_shot.json` 这种是 `422`。
+  - **有几条路径带校验**：`video_shot.json` 按镜头组 prompt 表那套规矩判（`index` 从 1 连续、`seconds` 4–30、`imageUrls` 只收本对话 `generate_shot_frames` 生成过的帧地址、`@ImageN` 不超过张数），不合规是 `422`，`detail` 是校验器原话。
 
 ### 两处归属
 
