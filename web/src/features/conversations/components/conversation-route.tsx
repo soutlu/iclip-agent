@@ -19,6 +19,7 @@ import { toast } from '@/shared/ui/toast'
 import {
   abortPrompt,
   mintPromptId,
+  composerParts,
   partsContent,
   promptMedia,
   promptText,
@@ -73,6 +74,13 @@ type PendingPrompt = {
   anchorTurnId: string | undefined
 }
 
+/** 正在修改的那一轮：轮 id、轮号与原内容。内容留着是为了核「末轮还是不是它」——轮号会复用。 */
+type EditingTurn = {
+  turnId: string
+  ordinal: number
+  content: readonly PromptContentPart[]
+}
+
 /** 两份 part 列表是不是同一条消息：逐项比类型与正文 / 地址。 */
 const sameContent = (a: readonly PromptContentPart[], b: readonly PromptContentPart[]) =>
   a.length === b.length &&
@@ -97,6 +105,8 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const title = titleOf(conversationId) ?? view.title
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
   const [inFlightPromptId, setInFlightPromptId] = useState<string | null>(null)
+  // 正在修改的那一轮：点了末轮气泡的「修改」进来，发出去或点取消出去
+  const [editingTurn, setEditingTurn] = useState<EditingTurn | null>(null)
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const stickingRef = useRef(true)
@@ -161,6 +171,13 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const working = inFlight || turnActive
   // 重新生成只对空闲对话的末轮开放：在跑、排着、本地还在发都算忙（与服务端 409 同一判据）。
   const conversationBusy = working || hasLivePrompts
+  // 末轮换了（别人发了一条、重跑出来的新轮顶上）就不再是在改它。轮号会复用，所以连内容一起核。
+  const editing =
+    editingTurn !== null &&
+    latestTurn?.turnId === editingTurn.turnId &&
+    sameContent(latestTurn.content, editingTurn.content)
+      ? editingTurn
+      : null
   const retry = turnActive ? latestTurn?.steps.at(-1)?.retry : undefined
   const currentAnchor = pending.at(-1)?.anchorTurnId
   const currentTurn = inFlight && latestTurn?.turnId === currentAnchor ? undefined : latestTurn
@@ -172,19 +189,30 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       : `模型请求失败，正在重试（第 ${retry.nextAttempt}/${retry.maxAttempts} 次）…`
   const showEmptyState = view.status === 'ready' && turns.length === 0 && bubbles.length === 0
 
-  const send = async (parts: readonly ComposerPart[]) => {
+  /**
+   * 挂上乐观气泡、记下本地在飞，再把请求发出去。没送到就把气泡撤掉——留着一条永远认领
+   * 不到的更糟；输入框那边会把内容还回去。
+   *
+   * @param parts - 输入框里的段。
+   * @param anchorTurnId - 气泡挂在哪一轮之后，认领时只看它后面的轮。
+   * @param request - 真正的请求；发消息与修改重发在这一步分道。
+   */
+  const dispatch = async (
+    parts: readonly ComposerPart[],
+    anchorTurnId: string | undefined,
+    request: (promptId: string, content: readonly PromptContentPart[]) => Promise<void>,
+  ) => {
     const promptId = mintPromptId()
     const content = partsContent(parts)
     const startsFlight = inFlightPromptId === null
     if (startsFlight) setInFlightPromptId(promptId)
     setPending((list) => [
       ...list.filter((item) => !claimed(item)),
-      { anchorTurnId: latestTurn?.turnId, content, promptId },
+      { anchorTurnId, content, promptId },
     ])
     try {
-      await submitPrompt(conversationId, { content, promptId })
+      await request(promptId, content)
     } catch (error) {
-      // 没送到就把气泡撤掉——留着一条永远认领不到的更糟；输入框那边会把内容还回去。
       setPending((list) => list.filter((item) => item.promptId !== promptId))
       if (startsFlight) {
         setInFlightPromptId((current) => (current === promptId ? null : current))
@@ -192,6 +220,17 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       throw error
     }
   }
+
+  const send = (parts: readonly ComposerPart[]) =>
+    editing === null
+      ? dispatch(parts, latestTurn?.turnId, (promptId, content) =>
+          submitPrompt(conversationId, { content, promptId }),
+        )
+      : // 改末轮：旧轮会被服务端抹掉，气泡挂在它前一轮之后，等重跑出来的新轮接手
+        dispatch(parts, turns.at(-2)?.turnId, async (promptId, content) => {
+          await regeneratePrompt(conversationId, editing.turnId, { content, promptId })
+          setEditingTurn(null)
+        })
 
   /** 出错就地报一声：这几个动作都不该把页面推走。 */
   const act = (work: Promise<void>) => {
@@ -246,7 +285,18 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
             ) : null}
             {turns.map((turn) => (
               <ConversationTurn
+                editDisabled={conversationBusy}
                 key={turn.turnId}
+                onEdit={
+                  turn.turnId === latestTurn?.turnId
+                    ? () =>
+                        setEditingTurn({
+                          content: turn.content,
+                          ordinal: turn.ordinal,
+                          turnId: turn.turnId,
+                        })
+                    : undefined
+                }
                 onRegenerate={
                   turn.turnId === latestTurn?.turnId
                     ? () => act(regeneratePrompt(conversationId, turn.turnId))
@@ -326,7 +376,13 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
             awaitingApproval={approval !== undefined}
             busy={running !== undefined}
             contextTokens={view.contextTokens}
+            editing={
+              editing === null
+                ? undefined
+                : { ordinal: editing.ordinal, parts: composerParts(editing.content) }
+            }
             maxContextTokens={view.maxContextTokens}
+            onCancelEdit={() => setEditingTurn(null)}
             onSend={send}
             onStop={
               running === undefined

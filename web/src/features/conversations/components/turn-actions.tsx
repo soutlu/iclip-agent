@@ -13,9 +13,7 @@ import { useState } from 'react'
 import type { TranscriptUsage } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { IconButton } from '@/shared/ui/button'
-import { toast } from '@/shared/ui/toast'
-
-const COPY_FEEDBACK_MS = 1400
+import { CopyButton } from './copy-button'
 
 /** ≥1000 缩成 x.xxk（两位小数去尾零），不足 1000 显整数。 */
 const compactTokens = (tokens: number): string => {
@@ -116,30 +114,10 @@ export function TurnActions({
   regenerateDisabled = false,
   usage,
 }: TurnActionsProps) {
-  const [copied, setCopied] = useState(false)
-
-  const copyReply = async () => {
-    try {
-      await navigator.clipboard.writeText(copyText)
-      setCopied(true)
-      setTimeout(() => setCopied(false), COPY_FEEDBACK_MS)
-    } catch {
-      toast.error('复制失败')
-    }
-  }
-
   return (
     <div className="flex flex-wrap items-center gap-2 pt-3">
       <div className="flex items-center gap-2">
-        <IconButton
-          className="text-chat-muted-text"
-          label="复制"
-          name={copied ? 'check' : 'copy'}
-          onClick={() => void copyReply()}
-          size="xs"
-          title={copied ? '已复制' : '复制'}
-          variant="standard"
-        />
+        <CopyButton text={copyText} />
         {onRegenerate === undefined ? null : (
           <IconButton
             className="text-chat-muted-text"

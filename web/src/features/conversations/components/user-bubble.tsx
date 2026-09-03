@@ -12,6 +12,7 @@ import type { PromptContentPart } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { fileNameOfUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
+import { IconButton } from '@/shared/ui/button'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
 import {
   MEDIA_KIND_ICON,
@@ -21,6 +22,7 @@ import {
   mediaThumbnailUrl,
   useHoverPreview,
 } from '@/shared/ui/media-preview'
+import { CopyButton } from './copy-button'
 import { useClampable } from './use-clampable'
 
 type UserBubbleProps = {
@@ -28,7 +30,15 @@ type UserBubbleProps = {
   content: readonly PromptContentPart[]
   /** 外层附加类名（排队气泡用它压暗）。 */
   className?: string
+  /** 修改这条消息；只有最后一轮的开场输入才传，其余气泡没有这颗钮。 */
+  onEdit?: (() => void) | undefined
+  /** 对话在忙时修改钮置灰；onEdit 没传时无意义。 */
+  editDisabled?: boolean | undefined
 }
+
+/** 复制用的正文：文字 part 原样接起来，媒体不进剪贴板。 */
+const plainText = (content: readonly PromptContentPart[]): string =>
+  content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
 
 type MediaPart = Extract<PromptContentPart, { type: 'image' | 'video' }>
 
@@ -38,9 +48,11 @@ type MediaPart = Extract<PromptContentPart, { type: 'image' | 'video' }>
  * @param props - 组件属性。
  * @param props.content - 这条消息的 part 列表。
  * @param props.className - 外层附加类名。
+ * @param props.onEdit - 修改这条消息。
+ * @param props.editDisabled - 修改钮置灰。
  * @returns 用户气泡。
  */
-export function UserBubble({ className, content }: UserBubbleProps) {
+export function UserBubble({ className, content, editDisabled = false, onEdit }: UserBubbleProps) {
   const [expanded, setExpanded] = useState(false)
   const [viewing, setViewing] = useState<LightboxMedia | null>(null)
   const { clampable, ref } = useClampable(10, content)
@@ -56,7 +68,9 @@ export function UserBubble({ className, content }: UserBubbleProps) {
   )
 
   return (
-    <div className={cn('flex max-w-[min(88%,100vw-52px)] flex-col self-end', className)}>
+    <div
+      className={cn('group/bubble flex max-w-[min(88%,100vw-52px)] flex-col self-end', className)}
+    >
       <div className="rounded-md bg-chat-user-bg px-3 py-2.5 text-body leading-normal whitespace-pre-wrap text-chat-message-text">
         <div className="relative flex flex-col">
           <div ref={ref} className={cn(clampable && !expanded && 'chat-clamp')}>
@@ -78,6 +92,22 @@ export function UserBubble({ className, content }: UserBubbleProps) {
         </div>
       </div>
       {clampable && expanded ? <div className="mt-1 self-center">{toggle}</div> : null}
+      {/* 动作行贴气泡右下，悬停这颗气泡（或键盘焦点落进来）才浮现 */}
+      <div className="flex justify-end gap-2 pt-1 opacity-0 transition-opacity ui-motion-s group-hover/bubble:opacity-100 focus-within:opacity-100">
+        <CopyButton label="复制消息" text={plainText(content)} />
+        {onEdit === undefined ? null : (
+          <IconButton
+            className="text-chat-muted-text"
+            disabled={editDisabled}
+            label="修改"
+            name="edit"
+            onClick={onEdit}
+            size="xs"
+            title="修改"
+            variant="standard"
+          />
+        )}
+      </div>
       <MediaLightbox media={viewing} onClose={() => setViewing(null)} />
     </div>
   )

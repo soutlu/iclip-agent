@@ -18,7 +18,8 @@ export type ComposerAttachment = {
   readonly attId: string
   readonly kind: ComposerAttachmentKind
   readonly name: string
-  readonly size: number
+  /** 字节数；从公网地址装回来的媒体不知道大小。 */
+  readonly size: number | undefined
   readonly mediaType: string
   readonly status: 'error' | 'ready' | 'uploading'
   /** 上传进度 0..1，只在直传进行中有值（照 kimi：百分比变化才写，非 100% 时节流）。 */
@@ -36,6 +37,33 @@ const PROGRESS_WRITE_MS = 120
 
 /** 附件 id：8 位 base36 随机串（照 kimi 的 `Pu()`）。 */
 const mintAttachmentId = (): string => Math.random().toString(36).slice(2, 10)
+
+/**
+ * 把一份已经在公网上的媒体（比如要改的那条消息里的图）当成就绪附件：不用传，地址就是原地址。
+ *
+ * @param media - 种类、名字与地址。
+ * @returns 可以直接进文档的就绪 entry。
+ */
+export const readyAttachment = ({
+  kind,
+  name,
+  url,
+}: {
+  kind: ComposerAttachmentKind
+  name: string
+  url: string
+}): ComposerAttachment => ({
+  attId: mintAttachmentId(),
+  error: undefined,
+  kind,
+  mediaType: `${kind}/*`,
+  name,
+  previewUrl: url,
+  progress: undefined,
+  size: undefined,
+  status: 'ready',
+  url,
+})
 
 /** 按 MIME 前缀分类（照 kimi 的 tZ）：image/ → image，video/ → video，其余 → file。 */
 const kindOf = (mediaType: string): ComposerAttachmentKind =>

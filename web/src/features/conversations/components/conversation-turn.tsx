@@ -24,6 +24,10 @@ type ConversationTurnProps = {
   onRegenerate?: (() => void) | undefined
   /** 重新生成暂不可用时置灰；onRegenerate 没传时无意义。 */
   regenerateDisabled?: boolean | undefined
+  /** 修改这一轮的开场输入；只在调用方判定它是最后一轮时才传。 */
+  onEdit?: (() => void) | undefined
+  /** 对话在忙时修改钮置灰；onEdit 没传时无意义。 */
+  editDisabled?: boolean | undefined
 }
 
 /** 这一轮是不是已经结束了。结束了的轮子里不该再有转圈的东西。 */
@@ -39,9 +43,13 @@ const isSettled = (turn: TranscriptTurn) => turn.state !== 'running' && turn.sta
  * @param props.turn - 这一轮。
  * @param props.onRegenerate - 重新生成回调。
  * @param props.regenerateDisabled - 重新生成暂不可用。
+ * @param props.onEdit - 修改开场输入。
+ * @param props.editDisabled - 修改暂不可用。
  * @returns 一轮的内容。
  */
 export const ConversationTurn = memo(function ConversationTurn({
+  editDisabled,
+  onEdit,
   onRegenerate,
   regenerateDisabled,
   turn,
@@ -66,7 +74,9 @@ export const ConversationTurn = memo(function ConversationTurn({
 
   return (
     <article className="group flex flex-col gap-2.5" aria-label={`第 ${turn.ordinal} 轮`}>
-      {turn.content.length > 0 ? <UserBubble content={turn.content} /> : null}
+      {turn.content.length > 0 ? (
+        <UserBubble content={turn.content} editDisabled={editDisabled} onEdit={onEdit} />
+      ) : null}
       {nodes.map((node) =>
         node.kind === 'run' ? (
           <ActivityRun

@@ -260,6 +260,7 @@ export type {
   ReadSidebarConversationsGetErrors,
   ReadSidebarConversationsGetResponse,
   ReadSidebarConversationsGetResponses,
+  RegenerateBody,
   RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostData,
   RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostError,
   RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostErrors,

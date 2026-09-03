@@ -2,7 +2,9 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
 import type { PromptContentPart } from '@/shared/transcript/vendor'
-import type { ComposerPart } from '@/shared/ui/composer'
+import { fileNameOfUrl } from '@/shared/lib/media-url'
+import { type ComposerPart, readyAttachment } from '@/shared/ui/composer'
+import { mediaDisplayName } from '@/shared/ui/media-preview'
 import {
   zApproveConversationsConversationIdInteractionsInteractionIdPostResponse,
   zConversationEnvelope,
@@ -219,13 +221,37 @@ export const respondInteraction = async (
 }
 
 /**
- * 重新生成一轮：服务端把末轮从历史里抹掉，按那条消息的原内容重跑一次。
+ * 消息的 part 列表 → 输入框里的段：改一条已发消息时把它装回去用。图和视频成就绪附件，
+ * 地址就是原地址，名字从地址上取。与 `partsContent` 互逆。
+ */
+export const composerParts = (content: readonly PromptContentPart[]): ComposerPart[] =>
+  content.map((part) =>
+    part.type === 'text'
+      ? { kind: 'text', text: part.text }
+      : {
+          kind: 'media',
+          media: readyAttachment({
+            kind: part.type,
+            name: mediaDisplayName({ kind: part.type, name: fileNameOfUrl(part.source.url) }),
+            url: part.source.url,
+          }),
+        },
+  )
+
+/**
+ * 重新生成一轮：服务端把末轮从历史里抹掉重跑一次。不带 `edit` 照原内容重跑；带了就换成
+ * 改过的内容，`promptId` 让界面能先挂乐观气泡、服务端拿它去重。
  *
- * 答复是新铸的 prompt 记录，但这里不留它——新的一轮走推送自然回流。409（对话在忙、动的
+ * 答复是 prompt 记录，但这里不留它——新的一轮走推送自然回流。409（对话在忙、动的
  * 不是末轮）与 404（消息没了）都原样抛给调用方，让用户看到原因。
  */
-export const regeneratePrompt = async (conversationId: string, turnId: string): Promise<void> => {
+export const regeneratePrompt = async (
+  conversationId: string,
+  turnId: string,
+  edit?: { promptId: string; content: readonly PromptContentPart[] },
+): Promise<void> => {
   await apiFetch(`/conversations/${conversationId}/turns/${turnId}:regenerate`, zPrompt, {
+    ...(edit === undefined ? {} : { body: { content: edit.content, prompt_id: edit.promptId } }),
     fallbackErrorMessage: '重新生成失败',
     method: 'POST',
   })

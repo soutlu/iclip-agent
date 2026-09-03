@@ -1039,6 +1039,27 @@ export const zPromptUpsertOp = z.object({
 })
 
 /**
+ * RegenerateBody
+ *
+ * ``POST /turns/{turn_id}:regenerate`` 的请求体。两个字段都可省，整个体也可以不带。
+ *
+ * ``content`` 给了就是「改了内容再重跑」，不给照原样重跑。``prompt_id`` 给了就与发消息同一套
+ * 幂等：重发同一个 id 退回已有那条，不会再截一轮。
+ */
+export const zRegenerateBody = z.object({
+  content: z
+    .array(z.union([zTextContent, zImageContent, zVideoContent]))
+    .min(1)
+    .nullish(),
+  prompt_id: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9._-]+$/)
+    .nullish(),
+})
+
+/**
  * TextFrame
  */
 export const zTextFrame = z.object({
@@ -1569,6 +1590,12 @@ export const zCatchupConversationsConversationIdTranscriptOpsGetQuery = z.object
  * Successful Response
  */
 export const zCatchupConversationsConversationIdTranscriptOpsGetResponse = zOpsCatchup
+
+/**
+ * Body
+ */
+export const zRegenerateConversationsConversationIdTurnsTurnIdRegeneratePostBody =
+  zRegenerateBody.nullable()
 
 export const zRegenerateConversationsConversationIdTurnsTurnIdRegeneratePostPath = z.object({
   conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),

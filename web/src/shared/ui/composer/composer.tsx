@@ -33,7 +33,7 @@ import { useComposerAttachments } from './use-composer-attachments'
 export type ComposerHandle = {
   /** 清空整篇（文字 + 附件 pill）。 */
   clear: () => void
-  /** 发送失败把内容还回来：附件排在文字前。 */
+  /** 把一份内容整篇装进来（替换现有的），文字与附件按它们在 parts 里的先后排。发送失败还回去、修改已发消息都用它。 */
   restore: (submission: ComposerSubmission) => void
   focus: () => void
 }
