@@ -11,6 +11,7 @@ import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
+import { isRunningStatus } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
 
 const TABS = {
@@ -19,8 +20,6 @@ const TABS = {
 } as const
 
 type TabKey = keyof typeof TABS
-
-const IN_FLIGHT = new Set(['pending', 'submitting', 'submitted'])
 
 type JobPhase = 'running' | 'done' | 'failed'
 
@@ -37,7 +36,7 @@ const PHASE: Record<JobPhase, { icon: IconName; text: string; className: string;
 
 const phaseOf = (job: GenerationJob): JobPhase => {
   if (job.status === 'completed') return 'done'
-  return IN_FLIGHT.has(job.status) ? 'running' : 'failed'
+  return isRunningStatus(job.status) ? 'running' : 'failed'
 }
 
 /** 任务发出去时那句 prompt。`request` 是一份不透明 JSON，只在确实是字符串时才画。 */

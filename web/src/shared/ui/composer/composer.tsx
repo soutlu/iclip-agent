@@ -21,6 +21,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
+import { Tag } from '@/shared/ui/tag'
 import { ComposerAttachmentPill } from './composer-attachment-pill'
 import { readComposerText } from './editor-schema'
 import type { ComposerPillHost } from './use-composer-editor'
@@ -58,6 +59,12 @@ type ComposerProps = {
   onStop?: (() => void) | undefined
   /** 附件上传入口（+ 钮 / 拖放 / 粘贴）。调用方按登录态与 assets:write 权限给。 */
   attachmentsEnabled?: boolean
+  /**
+   * 编辑区上方那排引用芯片（工作台里选中的组 / 帧）。
+   *
+   * 不塞进 PM 文档：它不是用户打的字，删掉一条也不该进撤销栈；发送时怎么变成文字由调用方定。
+   */
+  references?: readonly { id: string; label: string; onRemove: () => void }[]
   /** 命令式句柄 ref。 */
   ref?: Ref<ComposerHandle>
   className?: string
@@ -79,6 +86,7 @@ export function Composer({
   onSubmit,
   placeholder = '输入消息，开始创作…',
   ref,
+  references = [],
   sending = false,
   trailing,
 }: ComposerProps) {
@@ -203,6 +211,22 @@ export function Composer({
         className,
       )}
     >
+      {references.length > 0 ? (
+        <div aria-label="引用" className="flex flex-wrap items-center gap-1.5 px-3 pt-3">
+          {references.map((reference) => (
+            <Tag key={reference.id}>
+              {reference.label}
+              <IconButton
+                className="-mr-1.5"
+                label={`不再引用 ${reference.label}`}
+                name="close"
+                onClick={reference.onRemove}
+                size="xs"
+              />
+            </Tag>
+          ))}
+        </div>
+      ) : null}
       <div className="relative">
         <div ref={mountEditor} />
         {editor.empty ? (

@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod'
+import type { WorkbenchRef } from '@/shared/workbench'
 
 export const SHOTS_PATH = 'video_shot.json'
 
@@ -220,6 +221,22 @@ export const shotName = (shot: Shot): string => {
 /** 这个镜头的第一张帧编号；一张都没写就是 undefined，界面画「无帧」。 */
 export const firstFrameOfScene = (scene: ShotScene): number | undefined => scene.frameNumbers[0]
 
+/**
+ * 选中一组（或组里的某一帧）时给聊天的那条引用。
+ *
+ * @param index - 第几组。
+ * @param frame - 第几帧（`@ImageN` 的 N）；不传就是整组。
+ * @returns 一条引用。
+ */
+export const shotSelectionRef = (index: number, frame?: number): WorkbenchRef =>
+  frame === undefined
+    ? { id: `shot:${index}`, label: `镜头组 ${index}`, prefix: `针对镜头组 ${index}：` }
+    : {
+        id: `shot:${index}:frame:${frame}`,
+        label: `镜头组 ${index} · 帧 @${frame}`,
+        prefix: `针对镜头组 ${index} 的帧 @${frame}：`,
+      }
+
 /** 一次生成任务里这个界面用得上的那几列。 */
 export interface ShotGeneration {
   createdAt: string
@@ -231,6 +248,9 @@ export interface ShotGeneration {
 
 /** 还在飞的那几档：排着、正在提交、已提交给 provider。 */
 const IN_FLIGHT = new Set(['pending', 'submitting', 'submitted'])
+
+/** 这条任务还在飞吗。轮询开关、状态圆点、记录卡都按这一把尺子。 */
+export const isRunningStatus = (status: string): boolean => IN_FLIGHT.has(status)
 
 /**
  * 每组当前显示哪条视频：按 `shotIndex` 分组，取最新一条完成的。
@@ -255,7 +275,7 @@ export const latestShotVideos = (jobs: readonly ShotGeneration[]): Map<number, s
 export const runningShots = (jobs: readonly ShotGeneration[]): Set<number> =>
   new Set(
     jobs.flatMap((job) =>
-      job.kind === 'video' && job.shotIndex !== null && IN_FLIGHT.has(job.status)
+      job.kind === 'video' && job.shotIndex !== null && isRunningStatus(job.status)
         ? [job.shotIndex]
         : [],
     ),

@@ -105,6 +105,81 @@ test('在工作台里改时长、换帧、打字：停手即存，页头出「�
   await expect(panel.getByText('已保存')).toBeVisible({ timeout: 5_000 })
 })
 
+test('点「生成视频」：状态走到出片完成，生成记录里多一条', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  await expect(panel.getByText('3 组 · 合计 21 秒 · 第 1 组')).toBeVisible()
+
+  // 第 1 组是三组里唯一没有任何出片任务的那组（mock 给第 2 组留了在飞的、第 3 组留了成片）
+  const shot1 = panel.getByRole('region', { name: '镜头组 1' })
+  await shot1.getByRole('button', { name: '生成视频' }).click()
+  await expect(shot1.getByRole('button', { name: '正在出片…' })).toBeDisabled()
+  await expect(panel.getByText('正在出片', { exact: true })).toBeVisible()
+
+  await panel.getByRole('button', { name: '生成记录' }).click()
+  const records = panel.getByRole('complementary', { name: '生成记录' })
+  await expect(records.getByText('生成中…')).toBeVisible()
+
+  // mock 几秒后把任务改成完成，靠轮询看见
+  await expect(records.getByText('生成完成')).toBeVisible({ timeout: 15_000 })
+  await expect(panel.getByText('已出片')).toBeVisible()
+})
+
+test('「全部分镜」全选之后批量出片：确认框写清条数', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  await expect(panel.getByText('3 组 · 合计 21 秒 · 第 1 组')).toBeVisible()
+
+  await panel.getByRole('button', { name: '全部分镜' }).click()
+  const sheet = panel.getByRole('complementary', { name: '全部分镜' })
+  await sheet.getByRole('button', { name: '全选' }).click()
+  await expect(sheet.getByText('已选 3 个')).toBeVisible()
+
+  await sheet.getByRole('button', { name: '生成选中的 3 组' }).click()
+  const confirm = page.getByRole('dialog', { name: '确认批量出片' })
+  await expect(confirm.getByText(/3 组/)).toBeVisible()
+  await confirm.getByRole('button', { name: '发出去' }).click()
+
+  // 第 1 组出片走完（第 3 组本来就有成片）；已经在飞的第 2 组跳过，仍是「正在出片」
+  await expect(sheet.getByRole('img', { name: '已出片' })).toHaveCount(2, { timeout: 20_000 })
+  await expect(sheet.getByRole('img', { name: '正在出片' })).toHaveCount(1)
+})
+
+test('选中即上下文：输入框上出现芯片，× 掉不再回来，发出去的正文带前缀', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  await expect(panel.getByText('3 组 · 合计 21 秒 · 第 1 组')).toBeVisible()
+
+  await panel.getByRole('button', { name: '第 2 组' }).click()
+  const chip = page.getByText('镜头组 2', { exact: true })
+  await expect(chip).toBeVisible()
+
+  // × 掉之后同一份选中不再自动补回
+  await page.getByRole('button', { name: '不再引用 镜头组 2' }).click()
+  await expect(chip).toBeHidden()
+
+  // 换一组再换回来：选中变过了，引用才重新出现
+  await panel.getByRole('button', { name: '第 1 组' }).click()
+  await panel.getByRole('button', { name: '第 2 组' }).click()
+  await expect(chip).toBeVisible()
+
+  const composer = page.getByLabel('输入消息')
+  await composer.click()
+  await page.keyboard.type('把这一组的节奏放慢')
+  await page.getByRole('button', { name: '发送' }).click()
+
+  await expect(page.getByText('针对镜头组 2：').first()).toBeVisible()
+})
+
 test('没有工作区文件的对话仍是折叠空态', async ({ page }) => {
   await page.goto('/')
   await login(page)

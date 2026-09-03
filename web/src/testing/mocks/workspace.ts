@@ -97,7 +97,13 @@ const job = (spec: MockJob) => ({
 const workspaces = new Map<string, Map<string, MockFile>>()
 
 /** 每段对话的生成任务。 */
-const generations = new Map<string, unknown[]>()
+const generations = new Map<string, ReturnType<typeof job>[]>()
+
+/** 面板发起的出片多久「出好」。给轮询留出看得见状态走完的时间。 */
+const VIDEO_DONE_MS = 3000
+
+/** 那几个把任务改成完成的定时器：重置 mock 时要拆掉，不然会写进下一个用例。 */
+const timers = new Set<ReturnType<typeof setTimeout>>()
 
 /**
  * 给一段对话种上一份三组的 `video_shot.json`，外加第 3 组一条出好的视频。
@@ -237,6 +243,8 @@ const validateShotsContent = (content: string): string | undefined => {
 }
 
 export const resetMockWorkspace = () => {
+  for (const timer of timers) clearTimeout(timer)
+  timers.clear()
   workspaces.clear()
   generations.clear()
 }
@@ -298,5 +306,33 @@ export const workspaceHandlers = [
     const conversationId = new URL(request.url).searchParams.get('conversationId')
     const items = conversationId === null ? [] : (generations.get(conversationId) ?? [])
     return HttpResponse.json({ items })
+  }),
+
+  // 面板发起的出片：排上队回 202，几秒后自己变成完成，好让轮询看见状态走完
+  http.post('*/api/generations', async ({ request }) => {
+    const body = (await request.json()) as {
+      conversationId: string
+      durationSeconds: number
+      prompt: string
+      shotIndex: number
+    }
+    const created = job({
+      createdAt: new Date().toISOString(),
+      id: crypto.randomUUID(),
+      prompt: body.prompt,
+      shotIndex: body.shotIndex,
+      status: 'submitted',
+    })
+    created.conversationId = body.conversationId
+    generations.set(body.conversationId, [...(generations.get(body.conversationId) ?? []), created])
+    const timer = setTimeout(() => {
+      created.finishedAt = new Date().toISOString()
+      created.outputUrl = VIDEO_URL
+      created.providerStatus = 'completed'
+      created.status = 'completed'
+      timers.delete(timer)
+    }, VIDEO_DONE_MS)
+    timers.add(timer)
+    return HttpResponse.json({ generation: created }, { status: 202 })
   }),
 ]

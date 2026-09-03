@@ -2,13 +2,17 @@
  * 会话页的输入框。发送、清空、失败把内容还回来，都在这里；气泡由页面那一层管。
  *
  * 附件入口只在有 assets:write 权限时给（kimi：上传不可用就不出这个入口）。
+ *
+ * 工作台里选中的组 / 帧经 `useWorkbenchSelection` 到这里：画成编辑区上方的引用芯片，发送时把每条
+ * 的 `prefix` 一行一条拼在正文前面（ADR-0009 决策 6，不设结构化消息类型）。
  */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@/shared/auth'
 import type { ComposerHandle, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
+import { useWorkbenchSelection } from '@/shared/workbench'
 import { ContextUsageIndicator } from './context-usage-indicator'
 
 type ConversationComposerProps = {
@@ -44,12 +48,22 @@ export function ConversationComposer({
   const composerRef = useRef<ComposerHandle>(null)
   const [sending, setSending] = useState(false)
   const { data: user } = useUser()
+  const selection = useWorkbenchSelection()
+
+  // 用户在工作台点了「在聊天里说」：光标落到输入框，接着说就行。
+  const { focusToken } = selection
+  useEffect(() => {
+    if (focusToken > 0) composerRef.current?.focus()
+  }, [focusToken])
 
   const send = async (submission: ComposerSubmission) => {
     composerRef.current?.clear()
     setSending(true)
+    const prefix = selection.refs.map((reference) => reference.prefix).join('\n')
+    const text = prefix === '' ? submission.text : `${prefix}\n${submission.text}`.trimEnd()
     try {
-      await onSend(submission.text, submission.media)
+      await onSend(text, submission.media)
+      selection.clear()
     } catch (error) {
       // 没送到就把内容还给输入框，用户接着改或者再发一次。
       composerRef.current?.restore(submission)
@@ -68,6 +82,11 @@ export function ConversationComposer({
       onSubmit={(submission) => void send(submission)}
       placeholder={awaitingApproval ? '等你审批后继续' : '接着说…'}
       ref={composerRef}
+      references={selection.refs.map((reference) => ({
+        id: reference.id,
+        label: reference.label,
+        onRemove: () => selection.remove(reference.id),
+      }))}
       sending={sending}
       trailing={
         contextTokens !== undefined && maxContextTokens !== undefined && maxContextTokens > 0 ? (

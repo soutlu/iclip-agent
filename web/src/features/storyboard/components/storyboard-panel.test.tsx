@@ -7,7 +7,7 @@
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import type { ArtifactRendererProps } from '@/shared/workbench'
 import { server } from '@/testing/mocks/server'
@@ -230,6 +230,152 @@ describe('StoryboardPanel', () => {
     expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent(
       '没存下',
     )
+  })
+
+  it('点「生成视频」发一条出片任务：带这一组的描述、帧、时长与画幅，发完重拉任务列表', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    let posted: Record<string, unknown> = {}
+    let reads = 0
+    server.events.on('request:start', ({ request }) => {
+      if (!request.url.includes('/api/generations')) return
+      if (request.method === 'GET') reads += 1
+      if (request.method === 'POST') {
+        void request
+          .clone()
+          .json()
+          .then((body: Record<string, unknown>) => {
+            posted = body
+          })
+      }
+    })
+    await renderPanel('/?shot=1')
+    await screen.findByText('3 组 · 合计 21 秒 · 第 1 组')
+    const page = screen.getByRole('region', { name: '镜头组 1' })
+    const readsBefore = reads
+
+    await userEvent.click(within(page).getByRole('button', { name: '生成视频' }))
+
+    await waitFor(() =>
+      expect(posted).toMatchObject({
+        aspectRatio: '9:16',
+        conversationId: CONVERSATION_ID,
+        durationSeconds: 6,
+        kind: 'video',
+        shotIndex: 1,
+      }),
+    )
+    expect(posted['prompt']).toContain('模特提着帆布包走出门厅')
+    expect(posted['imageUrls']).toHaveLength(1)
+    // 排上队之后列表重拉，这一组随即变成「正在出片」
+    await waitFor(() => expect(reads).toBeGreaterThan(readsBefore))
+    expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
+  })
+
+  it('这一组名下已经有在飞的任务：按钮就是「正在出片…」，点不动', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    await renderPanel('/?shot=2')
+
+    const page = await screen.findByRole('region', { name: '镜头组 2' })
+    expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
+  })
+
+  it('描述还在保存的时候不许出片：别把没落盘的描述发出去', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    server.use(
+      http.put('*/api/conversations/:id/workspace/file', async () => {
+        await delay('infinite')
+        return HttpResponse.json({})
+      }),
+    )
+    await renderPanel('/?shot=1')
+    await screen.findByText('3 组 · 合计 21 秒 · 第 1 组')
+    const page = screen.getByRole('region', { name: '镜头组 1' })
+    fireEvent.change(within(page).getByRole('spinbutton', { name: '镜头组 1 的时长（秒）' }), {
+      target: { value: '9' },
+    })
+
+    expect(await screen.findByText('保存中…', undefined, { timeout: 3000 })).toBeVisible()
+    expect(within(page).getByRole('button', { name: '生成视频' })).toBeDisabled()
+    expect(within(page).getByText('描述还在保存，存好了再出片')).toBeVisible()
+  })
+
+  it('描述没存下的时候不许出片，并说清原因', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    server.use(
+      http.put('*/api/conversations/:id/workspace/file', () =>
+        HttpResponse.json({ detail: '镜头组 1 的 seconds 要是 4-30 的整数' }, { status: 422 }),
+      ),
+    )
+    await renderPanel('/?shot=1')
+    await screen.findByText('3 组 · 合计 21 秒 · 第 1 组')
+    const page = screen.getByRole('region', { name: '镜头组 1' })
+    fireEvent.change(within(page).getByRole('spinbutton', { name: '镜头组 1 的时长（秒）' }), {
+      target: { value: '9' },
+    })
+
+    await screen.findByRole('alert', undefined, { timeout: 3000 })
+    expect(within(page).getByRole('button', { name: '生成视频' })).toBeDisabled()
+    expect(within(page).getByText('描述没存下，先把它存下来再出片')).toBeVisible()
+  })
+
+  it('画幅不在出片支持的档位里：按钮点不动并说明原因', async () => {
+    server.use(
+      http.get('*/api/conversations/:conversationId/workspace/file', () =>
+        HttpResponse.json({
+          file: {
+            content: JSON.stringify({
+              aspectRatio: '5:4',
+              shots: [{ imageUrls: ['a.png'], index: 1, prompt: '一段描述 @Image1。', seconds: 6 }],
+            }),
+            path: SHOTS_MOCK_PATH,
+            version: 1,
+          },
+        }),
+      ),
+    )
+    await renderPanel('/?shot=1')
+
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    expect(within(page).getByRole('button', { name: '生成视频' })).toBeDisabled()
+    expect(within(page).getByText(/画幅 5:4 不在出片支持的档位里/)).toBeVisible()
+  })
+
+  it('「全部分镜」开浮层、写进地址，点一张卡翻到那一组', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    const { router } = await renderPanel('/?shot=1')
+    await screen.findByText('3 组 · 合计 21 秒 · 第 1 组')
+
+    await userEvent.click(screen.getByRole('button', { name: '全部分镜' }))
+    await waitFor(() => expect(router.state.location.search).toEqual({ sheet: 'all', shot: 1 }))
+
+    const sheet = screen.getByRole('complementary', { name: '全部分镜' })
+    await userEvent.click(within(sheet).getByText(/低角度拍鞋面/))
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ shot: 3 }))
+  })
+
+  it('批量出片：确认之后逐组发，已经在飞的那一组跳过', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    const posted: number[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (request.method !== 'POST' || !request.url.includes('/api/generations')) return
+      void request
+        .clone()
+        .json()
+        .then((body: { shotIndex: number }) => {
+          posted.push(body.shotIndex)
+        })
+    })
+    await renderPanel('/?shot=1&sheet=all')
+
+    const sheet = await screen.findByRole('complementary', { name: '全部分镜' })
+    await userEvent.click(within(sheet).getByRole('button', { name: '全选' }))
+    await userEvent.click(within(sheet).getByRole('button', { name: '生成选中的 3 组' }))
+    const dialog = await screen.findByRole('dialog', { name: '确认批量出片' })
+    await userEvent.click(within(dialog).getByRole('button', { name: '发出去' }))
+
+    // 第 2 组名下那条还在飞，不重复发
+    await waitFor(() => expect(posted).toEqual([1, 3]))
   })
 
   it('翻页就把「agent 刚改过」清掉', async () => {

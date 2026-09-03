@@ -8,13 +8,15 @@ import {
 import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { TranscriptProvider } from '@/shared/transcript/transcript-provider'
+import { WorkbenchSelectionProvider } from '@/shared/workbench'
 import { FakeSocket, SERVER_HELLO } from './ws'
 
 /**
  * 在真实 Provider 树里渲染被测组件：新建的 QueryClient（不重试，失败立刻可断言）
  * 加一个只有根路由的内存路由，Link / useNavigate 都能工作，跳转结果看 router.state。
  *
- * 订阅连接也在树里，与应用壳（`app.tsx`）一致——侧栏与会话页都会问它要东西，缺了就抛。
+ * 订阅连接与工作台选中态也在树里，与应用壳（`app.tsx`）一致——侧栏、会话页、输入框都会问它们
+ * 要东西，缺了就抛。
  * 连接用假 socket，握手帧已经灌好；返回的 `socket` 可以继续往里灌帧。
  */
 export const renderWithProviders = async (ui: ReactNode, { initialPath = '/' } = {}) => {
@@ -33,7 +35,9 @@ export const renderWithProviders = async (ui: ReactNode, { initialPath = '/' } =
   const result = render(
     <QueryClientProvider client={queryClient}>
       <TranscriptProvider createSocket={() => socket as unknown as WebSocket}>
-        <RouterProvider router={router} />
+        <WorkbenchSelectionProvider>
+          <RouterProvider router={router} />
+        </WorkbenchSelectionProvider>
       </TranscriptProvider>
     </QueryClientProvider>,
   )
