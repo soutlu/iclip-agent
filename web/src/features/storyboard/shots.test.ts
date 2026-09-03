@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  firstFrameOfScene,
   latestShotVideos,
   parseShotsDocument,
   runningShots,
+  sceneOfFrame,
   shotName,
   shotStatus,
   splitPrompt,
+  splitShotTimeline,
+  type Shot,
   type ShotGeneration,
 } from './shots'
 
@@ -66,6 +70,19 @@ describe('shotName', () => {
     expect(shotName({ imageUrls: [], index: 3, prompt: '\n  \n收尾镜头', seconds: 4 })).toBe(
       '收尾镜头',
     )
+  })
+
+  it('有时间线时取第一镜正文，不拿前言当组名', () => {
+    expect(
+      shotName({
+        imageUrls: [],
+        index: 2,
+        prompt: ['参考锁定：服装跟住 @Image1。', '[0–4秒｜镜头1]', '她从长椅间走向镜头。'].join(
+          '\n',
+        ),
+        seconds: 11,
+      }),
+    ).toBe('她从长椅间走向镜头。')
   })
 
   it('整段没有正文就用序号起名', () => {
@@ -136,5 +153,87 @@ describe('shotStatus', () => {
   it('既有成片又在重出时仍算成功档', () => {
     const jobs = [job({}), job({ createdAt: '2026-09-01T13:00:00Z', status: 'pending' })]
     expect(shotStatus(1, latestShotVideos(jobs), runningShots(jobs))).toBe('ready')
+  })
+})
+
+const withPrompt = (prompt: string): Shot => ({ imageUrls: [], index: 1, prompt, seconds: 10 })
+
+describe('splitShotTimeline', () => {
+  const timeline = splitShotTimeline(
+    withPrompt(
+      [
+        '参考锁定：模特 @Image1 的服装。',
+        '剪辑形式：硬切。',
+        '',
+        '[0–3.5秒｜镜头1]',
+        '开场，她提着帆布包走出门厅 @Image1。',
+        '',
+        '[3.5-9秒｜镜头2]',
+        '她走向镜头 @Image2，停下微笑 @Image3。',
+        '再看一眼 @Image2。',
+      ].join('\n'),
+    ),
+  )
+
+  it('时间线之前的行归前言，不算镜头', () => {
+    expect(timeline.preamble).toBe('参考锁定：模特 @Image1 的服装。\n剪辑形式：硬切。')
+    expect(timeline.scenes).toHaveLength(2)
+  })
+
+  it('秒数保留小数，全角与半角破折号都认', () => {
+    expect(timeline.scenes.map((scene) => [scene.startSeconds, scene.endSeconds])).toEqual([
+      [0, 3.5],
+      [3.5, 9],
+    ])
+    expect(timeline.scenes.map((scene) => scene.scene)).toEqual([1, 2])
+  })
+
+  it('每镜的帧按出现次序去重', () => {
+    expect(timeline.scenes[0]?.frameNumbers).toEqual([1])
+    expect(timeline.scenes[1]?.frameNumbers).toEqual([2, 3])
+  })
+
+  it('正文仍切成正文段与帧芯片，头部那一行不进正文', () => {
+    const kinds = timeline.scenes[0]?.segments.map((segment) => segment.kind)
+    expect(kinds).toEqual(['text', 'frame', 'text'])
+    expect(timeline.scenes[0]?.segments[0]).toMatchObject({ text: '开场，她提着帆布包走出门厅 ' })
+  })
+
+  it('一行头都没有时整段算前言、一个镜头都没有', () => {
+    const flat = splitShotTimeline(withPrompt('就是一段话 @Image1，没有时间线。'))
+    expect(flat.scenes).toEqual([])
+    expect(flat.preamble).toBe('就是一段话 @Image1，没有时间线。')
+  })
+
+  it('镜头号重复时两镜各有各的 key', () => {
+    const repeated = splitShotTimeline(
+      withPrompt(['[0–2秒｜镜头1]', 'A', '[2–4秒｜镜头1]', 'B'].join('\n')),
+    )
+    const ids = repeated.scenes.map((scene) => scene.id)
+    expect(new Set(ids).size).toBe(2)
+  })
+
+  it.each([
+    ['行首有空白', '  [0–2秒｜镜头1]'],
+    ['不写「秒」', '[0–2｜镜头1]'],
+    ['用全角方括号与竖线', '【0–2秒|镜头1】'],
+  ])('%s 也认得出来', (_case, header) => {
+    expect(splitShotTimeline(withPrompt(`${header}\n正文`)).scenes).toHaveLength(1)
+  })
+
+  it('行尾还有别的字就不算时间线头', () => {
+    expect(splitShotTimeline(withPrompt('[0–2秒｜镜头1] 开场')).scenes).toEqual([])
+  })
+
+  it('没写帧的镜头查不出第一帧', () => {
+    const bare = splitShotTimeline(withPrompt('[0–2秒｜镜头1]\n只有旁白，没有画面记号。'))
+    const scene = bare.scenes[0]
+    expect(scene && firstFrameOfScene(scene)).toBeUndefined()
+  })
+
+  it('帧反查镜头：第一个写到它的镜头算数', () => {
+    expect(sceneOfFrame(timeline, 3)?.scene).toBe(2)
+    expect(sceneOfFrame(timeline, 1)?.scene).toBe(1)
+    expect(sceneOfFrame(timeline, 9)).toBeUndefined()
   })
 })

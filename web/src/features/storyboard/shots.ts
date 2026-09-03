@@ -51,22 +51,6 @@ const FRAME_REF = /@Image(\d+)/g
 /** 组名截到几个字。再长胶片条那一行就换行了。 */
 const NAME_CHARS = 12
 
-/**
- * 组名：prompt 时间线第一段的前 12 字，取不出就叫「镜头组 N」。
- *
- * @param shot - 一个镜头组。
- * @returns 组名。
- */
-export const shotName = (shot: Shot): string => {
-  const firstLine = shot.prompt
-    .split('\n')
-    .map((line) => line.replace(FRAME_REF, '').trim())
-    .find((line) => line.length > 0)
-  return firstLine === undefined || firstLine.length === 0
-    ? `镜头组 ${shot.index}`
-    : firstLine.slice(0, NAME_CHARS)
-}
-
 /** `id` 是这一段在原文里的起始位置，渲染时当 key 用——正文可能逐字重复，位置不会。 */
 export type PromptSegment =
   { id: string; kind: 'text'; text: string } | { id: string; kind: 'frame'; number: number }
@@ -93,6 +77,120 @@ export const splitPrompt = (prompt: string): PromptSegment[] => {
   }
   return segments
 }
+
+/**
+ * 时间线行的头：`[0–3秒｜镜头1]`。
+ *
+ * 半角 `-` 与全角破折号 `–` 都收——两种写法在模型产出里都出现过，只认一种会把整组时间线读成
+ * 一大段。秒数保留小数：切分是 0.5 秒一档的事。
+ */
+const SCENE_HEADER =
+  /^[ \t]*[[【][ \t]*(\d+(?:\.\d+)?)[ \t]*[–-][ \t]*(\d+(?:\.\d+)?)[ \t]*秒?[ \t]*[|｜][ \t]*镜头[ \t]*(\d+)[ \t]*[\]】][ \t]*$/
+
+export interface ShotScene {
+  /** 渲染时当 key 用：镜头号可能重复（模型写错），行号不会。 */
+  id: string
+  scene: number
+  startSeconds: number
+  endSeconds: number
+  /** 本镜正文（不含头部那一行）切好的段。 */
+  segments: PromptSegment[]
+  /** 本镜正文里出现过的帧编号，按出现次序、去重。 */
+  frameNumbers: number[]
+}
+
+export interface ShotTimeline {
+  /** 时间线开始之前的那几行（参考锁定、剪辑形式之类），界面里折叠在顶部。 */
+  preamble: string
+  scenes: ShotScene[]
+}
+
+/**
+ * 把一组的 prompt 按时间线行拆成镜头。
+ *
+ * 一行头 `[起–止秒｜镜头N]` 起一个镜头，到下一行头为止都是它的正文。一行头都没有时整段算
+ * 前言、一个镜头都没有——界面据此退回「整段当描述」的画法。
+ *
+ * @param shot - 一个镜头组。
+ * @returns 前言与拆好的镜头。
+ */
+export const splitShotTimeline = (shot: Shot): ShotTimeline => {
+  const preamble: string[] = []
+  const scenes: ShotScene[] = []
+  let body: string[] = []
+
+  const flush = () => {
+    const current = scenes.at(-1)
+    if (current === undefined) return
+    current.segments = splitPrompt(body.join('\n').trim())
+    current.frameNumbers = [
+      ...new Set(
+        current.segments.flatMap((segment) => (segment.kind === 'frame' ? [segment.number] : [])),
+      ),
+    ]
+  }
+
+  for (const [line, text] of shot.prompt.split('\n').entries()) {
+    const header = SCENE_HEADER.exec(text)
+    if (header === null) {
+      if (scenes.length === 0) preamble.push(text)
+      else body.push(text)
+      continue
+    }
+    flush()
+    body = []
+    scenes.push({
+      endSeconds: Number(header[2]),
+      frameNumbers: [],
+      id: `s${line}`,
+      scene: Number(header[3]),
+      segments: [],
+      startSeconds: Number(header[1]),
+    })
+  }
+  flush()
+
+  return { preamble: preamble.join('\n').trim(), scenes }
+}
+
+/**
+ * 这一帧属于哪个镜头：第一个正文里写到它的镜头算数。
+ *
+ * @param timeline - 拆好的时间线。
+ * @param frameNumber - 帧编号（`@ImageN` 的 N）。
+ * @returns 那个镜头；没有镜头写到它就是 undefined。
+ */
+export const sceneOfFrame = (timeline: ShotTimeline, frameNumber: number): ShotScene | undefined =>
+  timeline.scenes.find((scene) => scene.frameNumbers.includes(frameNumber))
+
+/**
+ * 组名：第一个镜头正文的前 12 字，取不出就叫「镜头组 N」。
+ *
+ * 优先取时间线里第一镜的正文，而不是 prompt 的第一行——第一行往往是「参考锁定：…」这类前言，
+ * 拿它当组名每一组看起来都一样。
+ *
+ * @param shot - 一个镜头组。
+ * @returns 组名。
+ */
+export const shotName = (shot: Shot): string => {
+  const timeline = splitShotTimeline(shot)
+  const source =
+    timeline.scenes[0] === undefined
+      ? timeline.preamble
+      : timeline.scenes[0].segments
+          .flatMap((segment) => (segment.kind === 'text' ? [segment.text] : []))
+          .join('')
+  const firstLine = source
+    .split('\n')
+    .map((line) => line.replace(FRAME_REF, '').trim())
+    .find((line) => line.length > 0)
+  return firstLine === undefined || firstLine.length === 0
+    ? `镜头组 ${shot.index}`
+    : firstLine.slice(0, NAME_CHARS)
+}
+
+/** 这个镜头的第一张帧编号；一张都没写就是 undefined，界面画「无帧」。 */
+export const firstFrameOfScene = (scene: ShotScene): number | undefined => scene.frameNumbers[0]
 
 /** 一次生成任务里这个界面用得上的那几列。 */
 export interface ShotGeneration {

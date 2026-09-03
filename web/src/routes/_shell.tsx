@@ -65,8 +65,10 @@ function AppShell() {
     return () => window.removeEventListener('resize', sync)
   }, [])
 
-  // 拖动期间的基准宽：拖柄只报位移，起点得由这边记。
+  // 拖动期间的基准宽与最新宽：拖柄只报位移，起点得由这边记；落盘那一刻不能读 state——
+  // 拖柄手上那份 onResizeEnd 是按下那一刻的闭包，读到的是拖之前的宽度。
   const dragOriginRef = useRef(0)
+  const dragValueRef = useRef(0)
 
   const sidebarWidth = clamp(sidebar.width, SIDEBAR_MIN, SIDEBAR_MAX)
   const occupiedBySidebar = sidebarCollapsed ? 0 : sidebarWidth
@@ -116,11 +118,15 @@ function AppShell() {
               sidebar.setWidth(SIDEBAR_DEFAULT)
               sidebar.persist(SIDEBAR_DEFAULT)
             }}
-            onResize={(delta) =>
-              sidebar.setWidth(clamp(dragOriginRef.current + delta, SIDEBAR_MIN, SIDEBAR_MAX))
-            }
-            onResizeEnd={() => sidebar.persist(sidebar.width)}
-            onResizeStart={() => (dragOriginRef.current = sidebarWidth)}
+            onResize={(delta) => {
+              dragValueRef.current = clamp(dragOriginRef.current + delta, SIDEBAR_MIN, SIDEBAR_MAX)
+              sidebar.setWidth(dragValueRef.current)
+            }}
+            onResizeEnd={() => sidebar.persist(dragValueRef.current)}
+            onResizeStart={() => {
+              dragOriginRef.current = sidebarWidth
+              dragValueRef.current = sidebarWidth
+            }}
             value={sidebarWidth}
           />
         )}
@@ -147,9 +153,19 @@ function AppShell() {
                 workbench.persist(WORKBENCH_DEFAULT)
               }}
               // 拖柄在面板左边：往右拖是把面板压窄，所以位移取反。
-              onResize={(delta) => workbench.setWidth(dragOriginRef.current - delta)}
-              onResizeEnd={() => workbench.persist(workbenchWidth)}
-              onResizeStart={() => (dragOriginRef.current = workbenchWidth)}
+              onResize={(delta) => {
+                dragValueRef.current = clamp(
+                  dragOriginRef.current - delta,
+                  WORKBENCH_MIN,
+                  Math.max(WORKBENCH_MIN, viewport - occupiedBySidebar - CHAT_MIN),
+                )
+                workbench.setWidth(dragValueRef.current)
+              }}
+              onResizeEnd={() => workbench.persist(dragValueRef.current)}
+              onResizeStart={() => {
+                dragOriginRef.current = workbenchWidth
+                dragValueRef.current = workbenchWidth
+              }}
               value={workbenchWidth}
             />
           ) : null}
