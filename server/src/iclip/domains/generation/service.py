@@ -7,9 +7,10 @@
 
 from __future__ import annotations
 
-import logging
 import uuid
 from datetime import UTC, datetime
+
+import structlog
 
 from iclip.common.errors import ValidationFailed
 from iclip.domains.generation.models import STATUS_PENDING, GenerationJob
@@ -22,7 +23,7 @@ from iclip.domains.generation.schemas import (
 )
 from iclip.domains.identity.public import Principal
 
-_logger = logging.getLogger(__name__)
+_logger = structlog.stdlib.get_logger(__name__)
 
 MAX_LIST_LIMIT = 100
 
@@ -97,7 +98,7 @@ class GenerationService:
                 error_code="QUEUE_DEFER_FAILED",
                 error_message=f"受理了但没能排进队列，请重新发起：{exc}",
             )
-            _logger.exception("生成任务 %s 排队失败", created.id)
+            _logger.exception("生成任务排队失败", job_id=created.id)
             raise
         return created
 

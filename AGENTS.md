@@ -40,10 +40,11 @@
 5. 测试只用一次性 Testcontainers 容器或临时 schema；不对运行中的业务库执行 `DROP` 等破坏性操作。
 6. 后端改了对外端点必须导出合同；前端不照文档或印象手写端点 schema。
 
-## 3. 机器管不到的两条
+## 3. 机器管不到的几条
 
 - 改了 SSO / PMS 接入：在本地完整走通一次真实登录回调。
 - 新建表：把该模块的元数据加进迁移比对测试的 `_MODULE_METADATA` 名单；`agent_runtime` schema 下的表没有自动比对，迁移自行核对。
+- 打日志：`_logger = structlog.stdlib.get_logger(__name__)`；事件是固定短句，变量一律关键字参数——`_logger.warning("生成任务提交失败", job_id=job.id, code=exc.code)`，不拼 f-string、不用 `%s`。请求级上下文（`request_id`、`principal`）中间件已绑好，业务里只绑本层新增的键。第三方 logger 的常态噪音加进 `app/logging.py` 的 `QUIET_LOGGERS`，不改它们的日志。
 
 其余边界——分层依赖、类型、格式、测试目录归层、合同漂移、CI、合并方式与 tag——由 tach、pyright、ruff、架构单测、contract-check、GitHub Actions 与仓库规则集强制。
 

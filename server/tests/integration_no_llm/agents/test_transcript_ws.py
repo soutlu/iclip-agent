@@ -298,9 +298,11 @@ def test_cross_origin_upgrade_is_refused(
             pass  # 连接根本不该成立
 
     assert refused.value.code == 1008
+    # structlog 经标准库出去时 record.msg 是事件字典，字段可以直接取
     assert any(
         record.name == "iclip.domains.agents.transcript_api"
-        and "https://evil.example" in record.getMessage()
+        and isinstance(record.msg, dict)
+        and record.msg.get("origin") == "https://evil.example"
         for record in caplog.records
     )
 

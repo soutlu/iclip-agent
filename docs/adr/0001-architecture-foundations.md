@@ -37,7 +37,7 @@ API key：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希与展示前缀�
 | pydantic-settings（YAML 源） | 配置声明集中一处；`*_env` 间接引用与交叉引用校验为薄校验层，密钥只在环境变量 |
 | SQLAlchemy 2 async + Alembic + asyncpg | 标准组合；表结构只经人工 `alembic upgrade head` 演进，启动期不建表 |
 | pyright strict + ruff + tach | 静态门禁自第一行代码闭合 |
-| structlog | 结构化日志，级别来自配置 |
+| structlog | 结构化日志：事件 + 字段；标准库来源经 ProcessorFormatter 走同一条链；级别与格式来自配置 |
 | **不引入 Redis / 独立队列服务** | 全部跨 worker 正确性由 Postgres 承载；Redis broker 要做到等价还得加一层 outbox。生成队列由 [ADR-0004](0004-generation-queue-in-postgres.md) 的 procrastinate 承载，表仍在 Postgres 里 |
 
 ### 6. 引擎升级纪律

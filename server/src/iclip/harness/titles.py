@@ -9,14 +9,14 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Awaitable, Callable
 
+import structlog
 from pydantic_ai import direct
 from pydantic_ai.messages import ModelRequest, TextPart
 from pydantic_ai.models import Model
 
-_logger = logging.getLogger(__name__)
+_logger = structlog.stdlib.get_logger(__name__)
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
 """一段用户输入 → 一个标题。起不出来给 None。"""

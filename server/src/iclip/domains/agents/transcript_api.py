@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Protocol
 
+import structlog
 from fastapi import APIRouter, Depends, Path, Query, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
@@ -70,7 +70,7 @@ from iclip.platform.transcript.wire import (
     WatchFsRemove,
 )
 
-_logger = logging.getLogger(__name__)
+_logger = structlog.stdlib.get_logger(__name__)
 
 HEARTBEAT_SECONDS = 10.0
 """多久发一次 ping。照 kimi 的 ``DEFAULT_HEARTBEAT_INTERVAL_MS``。"""
@@ -403,9 +403,9 @@ def create_transcript_router(
         if not websocket_origin_allowed(websocket, allowed_origins):
             # 1008 = policy violation。在 accept 之前拒，连接根本不成立。
             _logger.info(
-                "订阅连接被拒：Origin 不同源，Origin=%s Host=%s",
-                websocket.headers.get("origin"),
-                websocket.headers.get("host"),
+                "订阅连接被拒：Origin 不同源",
+                origin=websocket.headers.get("origin"),
+                host=websocket.headers.get("host"),
             )
             await websocket.close(code=1008)
             return
@@ -413,14 +413,14 @@ def create_transcript_router(
         if principal is None:
             # 只记有没有带凭证，不记它的值：这样分得开「压根没带 cookie」与「带了但解析不出用户」。
             _logger.info(
-                "订阅连接被拒：没有身份，cookie=%s authorization=%s",
-                "cookie" in websocket.headers,
-                "authorization" in websocket.headers,
+                "订阅连接被拒：没有身份",
+                has_cookie="cookie" in websocket.headers,
+                has_authorization="authorization" in websocket.headers,
             )
             await websocket.close(code=1008)
             return
         if not principal.has("agent:run"):
-            _logger.info("订阅连接被拒：用户 %s 没有 agent:run", principal.user_id)
+            _logger.info("订阅连接被拒：没有 agent:run", user_id=principal.user_id)
             await websocket.close(code=1008)
             return
         await _serve(websocket, transcripts, conversations, principal, live)
@@ -478,7 +478,7 @@ class _Connection:
             await self._read()
         except (WebSocketDisconnect, ConnectionError):
             # 客户端走了。这是正常收场，不是故障：它随时可能关页面或者断网。
-            _logger.debug("订阅连接断开：还订着 %d 段对话", len(self._listeners))
+            _logger.debug("订阅连接断开", conversations=len(self._listeners))
         finally:
             for helper in helpers:
                 helper.cancel()

@@ -125,7 +125,7 @@ PrincipalResolver 每 hop 只解析一次，写入 `request.state.principal`；�
 
 ## 9. 运维
 
-日志走 structlog，级别来自 `ops.log_level`。管理 CLI 见 §3。测试与命令见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
+日志走 structlog 一条线（`app/logging.py`）：root 一个 handler，ProcessorFormatter 把标准库来源（uvicorn 以 `log_config=None` 启动、procrastinate、httpx）和我们的 structlog logger 用同一条链渲染；`ops.log_level` 定级别，`ops.log_format` 选 console / json。`PrincipalMiddleware` 给每条请求与 WS 连接绑 `request_id`、`principal`，随 contextvars 进每一行。`QUIET_LOGGERS` 里的第三方 logger 常态只留 WARNING。业务代码用 `structlog.stdlib.get_logger(__name__)`，`logging.getLogger` 由 ruff（TID251）挡。管理 CLI 见 §3。测试与命令见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
 
 ## 10. Transcript（对话记录与订阅）
 

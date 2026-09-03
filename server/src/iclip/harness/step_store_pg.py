@@ -11,10 +11,10 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime
 from typing import Final, Literal, cast, get_args
 
+import structlog
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 from pydantic_ai_harness.media import (
     MediaContext,
@@ -53,7 +53,7 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-_logger = logging.getLogger(__name__)
+_logger = structlog.stdlib.get_logger(__name__)
 
 DB_SCHEMA: Final = "agent_runtime"
 
@@ -515,9 +515,7 @@ class PgStepStore:
             try:
                 snapshots.append(await self._snapshot_from_row(run_id, row))
             except Exception:
-                _logger.warning(
-                    "Skipping unparsable snapshot row for run %s", run_id, exc_info=True
-                )
+                _logger.warning("跳过解析不了的快照行", run_id=run_id, exc_info=True)
         return snapshots
 
     async def _snapshot_from_row(self, run_id: str, row: object) -> ContinuableSnapshot:
