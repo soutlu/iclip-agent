@@ -7,6 +7,10 @@
  * 内容来自两处——工作区里的 `video_shot.json`（组、prompt、帧地址）与这段对话的生成任务
  * （每组的出片记录）。文件变了由 `event.fs.changed` 通知，只重读那一份。用户的改动经
  * `useShotsDraft` 落草稿、停手即存、撞版本再比对（见那里）。
+ *
+ * 一组一颗「生成视频」、「全部分镜」里的批量出片，走的是同一个提交（`useVideoGeneration`）；任务列表
+ * 在有任务在飞时自己轮询，状态圆点与生成记录跟着变。当前组 / 帧同时报进 `useWorkbenchSelection`，
+ * 聊天输入框据此画引用芯片。
  */
 
 import { useQueryClient } from '@tanstack/react-query'
@@ -25,13 +29,23 @@ import {
 } from '@/shared/ui/dialog'
 import { Tag } from '@/shared/ui/tag'
 import {
+  useWorkbenchSelection,
   useWorkspaceFile,
   workspaceQueryKeys,
   type ArtifactRendererProps,
 } from '@/shared/workbench'
-import { latestShotVideos, runningShots, shotStatus, SHOTS_PATH, type ShotStatus } from '../shots'
+import {
+  latestShotVideos,
+  runningShots,
+  shotSelectionRef,
+  shotStatus,
+  SHOTS_PATH,
+  type ShotStatus,
+} from '../shots'
 import { uploadFrameImage, useFrameCandidates, useShotGenerations } from '../storyboard.api'
 import { useShotsDraft } from '../use-shots-draft'
+import { useVideoGeneration } from '../use-video-generation'
+import { AllShotsSheet } from './all-shots-sheet'
 import { GenerationRecords } from './generation-records'
 import { ShotPage } from './shot-page'
 
@@ -101,6 +115,23 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const shotsDocument = draft.document
   const shots = shotsDocument?.shots ?? []
   const position = search.shot !== undefined && search.shot <= shots.length ? search.shot : 1
+  const generation = useVideoGeneration({
+    aspectRatio: shotsDocument?.aspectRatio ?? '',
+    conversationId,
+  })
+
+  // 选中即上下文：当前组（带上当前帧）就是聊天里的那条引用，面板走了就撤掉。
+  const { clear: clearSelection, set: setSelection } = useWorkbenchSelection()
+  const frameCount = shots[position - 1]?.imageUrls.length ?? 0
+  const selectedFrame =
+    search.frame !== undefined && search.frame >= 1 && search.frame <= frameCount
+      ? search.frame
+      : undefined
+  useEffect(() => {
+    if (shots.length === 0) return
+    setSelection([shotSelectionRef(position, selectedFrame)])
+  }, [position, selectedFrame, setSelection, shots.length])
+  useEffect(() => () => clearSelection(), [clearSelection])
 
   // 地址变了滚到那一页。反向（滚动改地址）在 onScroll 里，两边各自比对当前页，不会来回打架。
   useEffect(() => {
@@ -136,11 +167,33 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
       : 1
 
   const jobs = generations.data?.items ?? []
-  const status = shotStatus(shot.index, latestShotVideos(jobs), runningShots(jobs))
+  const videos = latestShotVideos(jobs)
+  const running = runningShots(jobs)
+  const status = shotStatus(shot.index, videos, running)
+
+  // 出片按钮点不动的三种情形：这一组已经在飞、描述没落盘、画幅不在合同的档位里。
+  const generateNote = !generation.aspectRatioSupported
+    ? `画幅 ${shotsDocument.aspectRatio} 不在出片支持的档位里，先改文件里的画幅`
+    : draft.state.kind === 'saving'
+      ? '描述还在保存，存好了再出片'
+      : draft.state.kind === 'error'
+        ? '描述没存下，先把它存下来再出片'
+        : undefined
+  const generatingShot = (index: number) =>
+    running.has(index) || generation.submitting.includes(index)
+
+  /** 批量出片：一组一条任务，逐条发；已经在飞的跳过。 */
+  const generateMany = async (indexes: readonly number[]) => {
+    for (const index of indexes) {
+      const target = shots.find((item) => item.index === index)
+      if (target === undefined || generatingShot(index)) continue
+      await generation.submit(target)
+    }
+  }
 
   const go = (next: {
     frame?: number | undefined
-    sheet?: 'records' | undefined
+    sheet?: 'all' | 'records' | undefined
     shot?: number
   }) => {
     // 换组就把帧号丢掉：第 1 组的第 5 帧放到第 2 组上没有意义。
@@ -189,6 +242,14 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           {DOT_LABEL[status]}
         </span>
         <Button
+          leadingIcon="grid"
+          onClick={() => go({ sheet: search.sheet === 'all' ? undefined : 'all' })}
+          size="md"
+          variant="ghost"
+        >
+          全部分镜
+        </Button>
+        <Button
           leadingIcon="history"
           onClick={() => go({ sheet: search.sheet === 'records' ? undefined : 'records' })}
           size="md"
@@ -209,8 +270,12 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               aspectRatio={shotsDocument.aspectRatio}
               candidates={candidates.data ?? []}
               frameNumber={offset + 1 === position ? frameNumber : 1}
+              generateDisabled={generateNote !== undefined || generatingShot(item.index)}
+              generateNote={generateNote}
+              generating={generatingShot(item.index)}
               key={item.index}
               onChangeShot={draft.updateShot}
+              onGenerateVideo={() => void generation.submit(item)}
               onPickFrame={(frame) => go({ frame })}
               onUploadFrame={uploadFrameImage}
               shot={item}
@@ -238,6 +303,30 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
             />
           ))}
         </nav>
+
+        {search.sheet === 'all' ? (
+          <aside
+            aria-label="全部分镜"
+            className="absolute inset-0 flex min-w-0 animate-in flex-col bg-background shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-right"
+          >
+            <AllShotsSheet
+              aspectRatio={shotsDocument.aspectRatio}
+              onClose={() => go({ sheet: undefined })}
+              onGenerate={(indexes) => void generateMany(indexes)}
+              onOpenShot={(index) => go({ sheet: undefined, shot: index })}
+              onTalk={(indexes) => {
+                setSelection(
+                  indexes.map((index) => shotSelectionRef(index)),
+                  { focus: true },
+                )
+                go({ sheet: undefined })
+              }}
+              running={running}
+              shots={shots}
+              videos={videos}
+            />
+          </aside>
+        ) : null}
 
         {search.sheet === 'records' ? (
           <aside

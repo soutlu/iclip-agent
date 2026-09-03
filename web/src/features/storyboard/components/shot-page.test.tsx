@@ -19,19 +19,27 @@ const shot: Shot = {
   seconds: 11,
 }
 
-const renderPage = (frameNumber = 1, onPickFrame = vi.fn(), onChangeShot = vi.fn()) => {
+const renderPage = (
+  frameNumber = 1,
+  onPickFrame = vi.fn(),
+  onChangeShot = vi.fn(),
+  onGenerateVideo = vi.fn(),
+) => {
   render(
     <ShotPage
       aspectRatio="9:16"
       candidates={[{ label: 'S9-1', url: 'z.png' }]}
       frameNumber={frameNumber}
+      generateDisabled={false}
+      generating={false}
       onChangeShot={onChangeShot}
+      onGenerateVideo={onGenerateVideo}
       onPickFrame={onPickFrame}
       onUploadFrame={() => Promise.resolve('uploaded.png')}
       shot={shot}
     />,
   )
-  return { onChangeShot, onPickFrame }
+  return { onChangeShot, onGenerateVideo, onPickFrame }
 }
 
 describe('ShotPage', () => {
@@ -142,7 +150,10 @@ describe('ShotPage', () => {
         aspectRatio="9:16"
         candidates={[]}
         frameNumber={1}
+        generateDisabled={false}
+        generating={false}
         onChangeShot={vi.fn()}
+        onGenerateVideo={vi.fn()}
         onPickFrame={vi.fn()}
         onUploadFrame={() => Promise.resolve('')}
         shot={{
@@ -164,7 +175,10 @@ describe('ShotPage', () => {
         aspectRatio="9:16"
         candidates={[]}
         frameNumber={1}
+        generateDisabled={false}
+        generating={false}
         onChangeShot={vi.fn()}
+        onGenerateVideo={vi.fn()}
         onPickFrame={vi.fn()}
         onUploadFrame={() => Promise.resolve('')}
         shot={{ imageUrls: ['a.png'], index: 1, prompt: '就是一段话 @Image1。', seconds: 4 }}

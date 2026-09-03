@@ -1,7 +1,8 @@
 /**
  * 一个镜头组一页：一张大卡（左画面 / 右描述），卡外两侧圆形箭头切帧，卡下一行是本组每个镜头的
  * 第一张帧。描述可以改、秒数可以改、帧可以换 / 删 / 挪 / 加，改动全部经 `onChangeShot` 交出去，
- * 本组件不持有草稿。
+ * 本组件不持有草稿。出片按钮点不点得动同样由外面算好递进来——要看这一组名下有没有在飞的任务、
+ * 描述存下了没有。
  *
  * 组之间是上下翻页，不在这里管——本组件只认「当前是哪一帧」，翻组由外面的 scroll-snap 容器做。
  */
@@ -9,7 +10,7 @@
 import { useId, useRef, useState } from 'react'
 import { cn } from '@/shared/lib/utils'
 import type { TranscriptAttachment } from '@/shared/transcript/vendor'
-import { IconButton } from '@/shared/ui/button'
+import { Button, IconButton } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
@@ -38,6 +39,13 @@ type ShotPageProps = {
   candidates: readonly FrameCandidate[]
   /** 上传一张图，回它的地址。 */
   onUploadFrame: (file: File) => Promise<string>
+  /** 给这一组发一次出片。 */
+  onGenerateVideo: () => void
+  generateDisabled: boolean
+  /** 这一组正在出片：按钮换文案。 */
+  generating: boolean
+  /** 按钮点不了时说一句为什么（画幅不合规、描述没存下）。 */
+  generateNote?: string | undefined
 }
 
 /** 一段描述在页面上的样子：时间线头解析出的镜头信息，加它引用的帧。 */
@@ -63,7 +71,11 @@ export function ShotPage({
   aspectRatio,
   candidates,
   frameNumber,
+  generateDisabled,
+  generateNote,
+  generating,
   onChangeShot,
+  onGenerateVideo,
   onPickFrame,
   onUploadFrame,
   shot,
@@ -325,6 +337,22 @@ export function ShotPage({
                   </div>
                 )
               })}
+            </div>
+
+            {/* 这一页唯一的主按钮：描述改完就在这里出片 */}
+            <div className="flex shrink-0 flex-col gap-1">
+              <Button
+                className="w-full"
+                disabled={generateDisabled}
+                leadingIcon="video"
+                onClick={onGenerateVideo}
+                size="lg"
+              >
+                {generating ? '正在出片…' : '生成视频'}
+              </Button>
+              {generateNote === undefined ? null : (
+                <p className="text-body-sm text-on-surface-faint">{generateNote}</p>
+              )}
             </div>
           </div>
         </article>
