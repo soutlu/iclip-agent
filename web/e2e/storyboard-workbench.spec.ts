@@ -75,6 +75,36 @@ test('agent 改了文件：重读之后描述更新并标出改动', async ({ pa
   await expect(panel.getByText('agent 刚改过')).toBeVisible()
 })
 
+test('在工作台里改时长、换帧、打字：停手即存，页头出「已保存」', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  await expect(panel.getByText('3 组 · 合计 21 秒 · 第 1 组')).toBeVisible()
+  await panel.getByRole('button', { name: '第 2 组' }).click()
+  const shot2 = panel.getByRole('region', { name: '镜头组 2' })
+
+  // 改时长：合计跟着变，存下之后页头出「已保存」
+  await shot2.getByRole('spinbutton', { name: '镜头组 2 的时长（秒）' }).fill('12')
+  await expect(panel.getByText('3 组 · 合计 22 秒 · 第 2 组')).toBeVisible()
+  await expect(panel.getByText('已保存')).toBeVisible({ timeout: 5_000 })
+
+  // 换帧：候选来自 agent 出帧的版记录，选第三张（还没被用过）
+  await shot2.getByRole('button', { name: '替换这一帧' }).click()
+  const picker = page.getByRole('dialog', { name: '替换这一帧' })
+  await picker.getByRole('button', { name: '选 S3-1' }).click()
+  await expect(picker).toBeHidden()
+
+  // 在描述里打字：编辑器是真 contenteditable，键入后同样落盘
+  const editor = shot2.getByRole('textbox', { name: '镜头 1 的描述' })
+  await editor.click()
+  await page.keyboard.press('End')
+  await page.keyboard.type('镜头缓慢推进。')
+  await expect(editor).toContainText('镜头缓慢推进。')
+  await expect(panel.getByText('已保存')).toBeVisible({ timeout: 5_000 })
+})
+
 test('没有工作区文件的对话仍是折叠空态', async ({ page }) => {
   await page.goto('/')
   await login(page)

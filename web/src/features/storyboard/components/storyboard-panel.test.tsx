@@ -5,7 +5,7 @@
  * shot」这条设计：用页码点与键盘断言翻组，滚轮那一条在 e2e 里验。
  */
 
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -140,6 +140,96 @@ describe('StoryboardPanel', () => {
 
     expect(await screen.findByText(/台词并成一句/)).toBeVisible()
     expect(screen.getByText('agent 刚改过')).toBeVisible()
+  })
+
+  it('改了时长停手即存：写回带版本号，页头出「已保存」，自己写的版本不算 agent 改过', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    let written: { expectedVersion?: number; content?: string } = {}
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'PUT' && request.url.includes('/workspace/file')) {
+        void request
+          .clone()
+          .json()
+          .then((body: { expectedVersion: number; content: string }) => {
+            written = body
+          })
+      }
+    })
+    await renderPanel('/?shot=2')
+    await screen.findByText(/再低头看一眼包/)
+
+    const input = within(screen.getByRole('region', { name: '镜头组 2' })).getByRole('spinbutton', {
+      name: '镜头组 2 的时长（秒）',
+    })
+    fireEvent.change(input, { target: { value: '12' } })
+
+    expect(await screen.findByText('已保存', undefined, { timeout: 3000 })).toBeVisible()
+    expect(written.expectedVersion).toBe(1)
+    expect(JSON.parse(written.content ?? '{}')).toMatchObject({
+      shots: [{ index: 1 }, { index: 2, seconds: 12 }, { index: 3 }],
+    })
+    expect(screen.queryByText('agent 刚改过')).not.toBeInTheDocument()
+  })
+
+  it('版本撞车但改的不是同一组：重放我的改动到最新版上再存', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    await renderPanel('/?shot=1')
+    await screen.findByText('3 组 · 合计 21 秒 · 第 1 组')
+
+    // agent 悄悄改了第 2 组，版本到 2；我改第 1 组，手上还是版本 1
+    touchMockShots(CONVERSATION_ID)
+    const input = within(screen.getByRole('region', { name: '镜头组 1' })).getByRole('spinbutton', {
+      name: '镜头组 1 的时长（秒）',
+    })
+    fireEvent.change(input, { target: { value: '8' } })
+
+    expect(await screen.findByText('已保存', undefined, { timeout: 3000 })).toBeVisible()
+    // 第 2 组是 agent 的新版本，第 1 组是我的
+    await userEvent.click(screen.getByRole('button', { name: '第 2 组' }))
+    expect(await screen.findByText(/台词并成一句/)).toBeVisible()
+  })
+
+  it('两边改了同一组：弹出选择，选「用最新的」就丢掉我的', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    await renderPanel('/?shot=2')
+    await screen.findByText(/再低头看一眼包/)
+
+    touchMockShots(CONVERSATION_ID)
+    const input = within(screen.getByRole('region', { name: '镜头组 2' })).getByRole('spinbutton', {
+      name: '镜头组 2 的时长（秒）',
+    })
+    fireEvent.change(input, { target: { value: '13' } })
+
+    const dialog = await screen.findByRole(
+      'dialog',
+      { name: '这一组有别的改动' },
+      { timeout: 3000 },
+    )
+    expect(dialog).toBeVisible()
+    await userEvent.click(within(dialog).getByRole('button', { name: '用最新的' }))
+
+    expect(await screen.findByText(/台词并成一句/)).toBeVisible()
+    expect(input).toHaveValue(11)
+  })
+
+  it('形状不合规存不下去：原文照实显示', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    server.use(
+      http.put('*/api/conversations/:id/workspace/file', () =>
+        HttpResponse.json({ detail: '镜头组 2 的 seconds 要是 4-30 的整数' }, { status: 422 }),
+      ),
+    )
+    await renderPanel('/?shot=2')
+    await screen.findByText(/再低头看一眼包/)
+
+    const input = within(screen.getByRole('region', { name: '镜头组 2' })).getByRole('spinbutton', {
+      name: '镜头组 2 的时长（秒）',
+    })
+    fireEvent.change(input, { target: { value: '12' } })
+
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent(
+      '没存下',
+    )
   })
 
   it('翻页就把「agent 刚改过」清掉', async () => {

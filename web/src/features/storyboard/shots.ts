@@ -87,6 +87,27 @@ export const splitPrompt = (prompt: string): PromptSegment[] => {
 const SCENE_HEADER =
   /^[ \t]*[[【][ \t]*(\d+(?:\.\d+)?)[ \t]*[–-][ \t]*(\d+(?:\.\d+)?)[ \t]*秒?[ \t]*[|｜][ \t]*镜头[ \t]*(\d+)[ \t]*[\]】][ \t]*$/
 
+/** 这一行是不是时间线的头。编辑模型与只读拆分共用同一条判据，两边才不会各认一套。 */
+export const isSceneHeader = (line: string): boolean => SCENE_HEADER.test(line)
+
+/**
+ * 读出时间线头里的三个数。
+ *
+ * @param line - 一行原文。
+ * @returns 起止秒与镜头号；不是头就是 undefined。
+ */
+export const parseSceneHeader = (
+  line: string,
+): { startSeconds: number; endSeconds: number; scene: number } | undefined => {
+  const header = SCENE_HEADER.exec(line)
+  if (header === null) return undefined
+  return {
+    endSeconds: Number(header[2]),
+    scene: Number(header[3]),
+    startSeconds: Number(header[1]),
+  }
+}
+
 export interface ShotScene {
   /** 渲染时当 key 用：镜头号可能重复（模型写错），行号不会。 */
   id: string

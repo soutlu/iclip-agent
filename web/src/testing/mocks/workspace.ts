@@ -13,6 +13,10 @@ const FRAME_A =
 const FRAME_B =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='320'%3E%3Crect width='180' height='320' fill='%23d3dee4'/%3E%3Cpolygon points='90,70 150,250 30,250' fill='%232a5f8a'/%3E%3C/svg%3E"
 
+/** 第三张候选帧：只在挑帧框里出现，还没被任何一组用上。 */
+const FRAME_C =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='320'%3E%3Crect width='180' height='320' fill='%23e8d9d1'/%3E%3Crect x='40' y='90' width='100' height='140' rx='12' fill='%238a4a2a'/%3E%3C/svg%3E"
+
 /** 出片占位：只有 ftyp 盒的 mp4，够 `<video>` 收下这个地址而不去打外网。 */
 const VIDEO_URL = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE='
 
@@ -113,6 +117,27 @@ export const seedMockWorkspace = (conversationId: string) => {
           version: 1,
         },
       ],
+      // 出帧工具留下的版记录：挑帧框的候选从这里来
+      [
+        'frames/grids/8e5263a4-3e52-4063-b0cd-5b6c7d8e9fa0.json',
+        {
+          content: JSON.stringify(
+            {
+              frames: [
+                { no: 'S1-1', shot: 1, url: FRAME_A },
+                { no: 'S2-1', shot: 2, url: FRAME_B },
+                { no: 'S3-1', shot: 3, url: FRAME_C },
+              ],
+              gridRecordVersion: 1,
+              jobId: '8e5263a4-3e52-4063-b0cd-5b6c7d8e9fa0',
+            },
+            null,
+            2,
+          ),
+          updatedAt: now,
+          version: 1,
+        },
+      ],
     ]),
   )
   generations.set(conversationId, [
@@ -184,6 +209,33 @@ export const touchMockShots = (conversationId: string): boolean => {
   return true
 }
 
+/** 后端那套形状校验的缩影：序号连续、秒数 4–30、`@ImageN` 不超过张数。 */
+const validateShotsContent = (content: string): string | undefined => {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    return '不是合法的 JSON'
+  }
+  const shots = (parsed as { shots?: unknown }).shots
+  if (!Array.isArray(shots)) return '缺 shots'
+  for (const [offset, shot] of (shots as Record<string, unknown>[]).entries()) {
+    if (shot['index'] !== offset + 1) return `index 要从 1 连续编号，第 ${offset + 1} 条不是`
+    const seconds = shot['seconds']
+    if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 4 || seconds > 30) {
+      return `镜头组 ${offset + 1} 的 seconds 要是 4-30 的整数`
+    }
+    const urls = shot['imageUrls']
+    const count = Array.isArray(urls) ? urls.length : 0
+    const prompt = typeof shot['prompt'] === 'string' ? shot['prompt'] : ''
+    for (const match of prompt.matchAll(/@Image(\d+)/g)) {
+      if (Number(match[1]) > count)
+        return `镜头组 ${offset + 1} 写到了 @Image${match[1]}，但只有 ${count} 张帧`
+    }
+  }
+  return undefined
+}
+
 export const resetMockWorkspace = () => {
   workspaces.clear()
   generations.clear()
@@ -207,6 +259,39 @@ export const workspaceHandlers = [
     const file = workspaces.get(String(params['conversationId']))?.get(path)
     if (file === undefined) return HttpResponse.json({ detail: '文件不存在' }, { status: 404 })
     return HttpResponse.json({ file: { content: file.content, path, version: file.version } })
+  }),
+
+  // 整份写回：版本对不上 409，镜头组 prompt 表形状不合规 422（与后端校验同一口径，只判形状不判地址）
+  http.put('*/api/conversations/:conversationId/workspace/file', async ({ params, request }) => {
+    const body = (await request.json()) as {
+      content: string
+      expectedVersion: number
+      path: string
+    }
+    const files = workspaces.get(String(params['conversationId']))
+    const file = files?.get(body.path)
+    if (files === undefined || file === undefined) {
+      return HttpResponse.json({ detail: '文件不存在，任何版本都对不上' }, { status: 409 })
+    }
+    if (file.version !== body.expectedVersion) {
+      return HttpResponse.json(
+        { detail: `版本对不上：现在是第 ${file.version} 版` },
+        { status: 409 },
+      )
+    }
+    if (body.path === SHOTS_MOCK_PATH) {
+      const problem = validateShotsContent(body.content)
+      if (problem !== undefined) return HttpResponse.json({ detail: problem }, { status: 422 })
+    }
+    const written: MockFile = {
+      content: body.content,
+      updatedAt: new Date().toISOString(),
+      version: file.version + 1,
+    }
+    files.set(body.path, written)
+    return HttpResponse.json({
+      file: { content: written.content, path: body.path, version: written.version },
+    })
   }),
 
   http.get('*/api/generations', ({ request }) => {

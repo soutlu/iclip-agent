@@ -27,14 +27,34 @@ export const useWorkspaceFiles = (conversationId: string) =>
     queryKey: workspaceQueryKeys.files(conversationId),
   })
 
+/**
+ * 整份写回一个工作区文件。带上读到那一份的版本号：对不上服务端回 409，调用方据此重拉再决定。
+ *
+ * @param conversationId - 哪一段对话。
+ * @param body - 路径、新正文、读到的版本。
+ * @returns 写下之后那一份（版本已加一）。
+ */
+export const writeWorkspaceFile = (
+  conversationId: string,
+  body: { path: string; content: string; expectedVersion: number },
+) =>
+  apiFetch(`/conversations/${conversationId}/workspace/file`, zConversationFileEnvelope, {
+    body,
+    fallbackErrorMessage: '保存失败',
+    method: 'PUT',
+  })
+
+/** 读一份工作区文件的正文与版本号。 */
+export const readWorkspaceFile = (conversationId: string, path: string, signal?: AbortSignal) =>
+  apiFetch(
+    `/conversations/${conversationId}/workspace/file?path=${encodeURIComponent(path)}`,
+    zConversationFileEnvelope,
+    { fallbackErrorMessage: '读取工作区文件失败', ...(signal === undefined ? {} : { signal }) },
+  )
+
 /** 一份工作区文件的正文与版本号。 */
 export const useWorkspaceFile = (conversationId: string, path: string) =>
   useQuery({
-    queryFn: ({ signal }) =>
-      apiFetch(
-        `/conversations/${conversationId}/workspace/file?path=${encodeURIComponent(path)}`,
-        zConversationFileEnvelope,
-        { fallbackErrorMessage: '读取工作区文件失败', signal },
-      ),
+    queryFn: ({ signal }) => readWorkspaceFile(conversationId, path, signal),
     queryKey: workspaceQueryKeys.file(conversationId, path),
   })
