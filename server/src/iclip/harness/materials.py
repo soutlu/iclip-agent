@@ -119,6 +119,23 @@ def require_http(url: str, *, what: str) -> None:
         raise ModelRetry(f"{what}必须是 http:// 或 https:// 开头；收到的是 {url!r}。")
 
 
+def require_recorded(materials: RunMaterials, url: str, *, what: str, recorded_at: str) -> None:
+    """要求这个地址在本对话里出现过，不问种类。
+
+    工具自己产出的地址是 JSON 字段里的裸串，没人给它们声明过种类（见模块开头）。收这类
+    地址的工具只问得了「是不是本对话产出的」，问种类等于把自己的产物拒在门外。
+
+    同 ``require_material``，错误消息不回显被拒的地址：回显了，模型重试一次就把它洗成
+    上下文里出现过的东西了。
+    """
+
+    if not materials.appears(url):
+        raise ModelRetry(
+            f"这个{what}不是这段对话里的素材。只能用对话里给你的地址、或工具结果里"
+            f"返回的地址，不要自己拼；{recorded_at}"
+        )
+
+
 def require_material(
     materials: RunMaterials, url: str, *, kind: MediaKind, what: str, recorded_at: str
 ) -> None:
@@ -151,4 +168,10 @@ def require_material(
         )
 
 
-__all__ = ["RunMaterials", "require_http", "require_material", "run_materials"]
+__all__ = [
+    "RunMaterials",
+    "require_http",
+    "require_material",
+    "require_recorded",
+    "run_materials",
+]

@@ -36,8 +36,11 @@ def create_generations_router(service: GenerationService) -> APIRouter:
     async def list_generations(
         principal: Annotated[Principal, Depends(require_permission("generation:read"))],
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
+        conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
     ) -> GenerationsPageOut:
-        jobs = await service.list_recent(principal, limit=limit)
+        """给了 ``conversationId`` 就只列那段对话下面的生成记录，可见性口径不变。"""
+
+        jobs = await service.list_recent(principal, limit=limit, conversation_id=conversation_id)
         return GenerationsPageOut(items=[generation_out(job) for job in jobs])
 
     @router.get("/{job_id}", response_model=GenerationEnvelope)

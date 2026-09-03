@@ -7,13 +7,16 @@
 状态字符串原样存进 job 行，这里只把它归成三类去处（还在跑 / 成了 / 废了）。
 **没见过的状态一律报错**，不当成「还在跑」——那等于对方新加了一个终态而我们一直
 轮询下去，一个已经结束的任务永远不会收尾。
+
+对方给的是会过期的地址，所以出结果之后下载下来转存成我们自己的公开对象，库里存那个不会
+烂的地址（同图片那条路）。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -24,6 +27,8 @@ from iclip.domains.generation.provider import (
     ProviderSubmission,
 )
 from iclip.domains.generation.schemas import VideoGenerationIn
+from iclip.platform.object_store.layout import MEDIA_PATHS
+from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
 
 PROVIDER_NAME: Final = "multiflow"
 
@@ -33,6 +38,16 @@ _FAILED_STATUSES: Final = frozenset({"failed", "cancelled", "canceled", "error",
 
 _SUBMIT_TIMEOUT_SECONDS: Final = 30.0
 _POLL_TIMEOUT_SECONDS: Final = 20.0
+
+_DOWNLOAD_TIMEOUT_SECONDS: Final = 600.0
+"""下载成片的超时。一条几十兆的片子在内网也要走上几分钟，默认那 5 秒必定拿不完。"""
+
+_MAX_VIDEO_BYTES: Final = 512 * 1024 * 1024
+"""成片的字节上限，与素材登记那一侧的视频上限同一个尺子。"""
+
+_MIME_BY_SUFFIX: Final = {"mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
+_SUFFIX_BY_MIME: Final = {"video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm"}
+_DEFAULT_MIME: Final = "video/mp4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,11 +70,13 @@ class MultiflowVideoProvider:
         self,
         settings: MultiflowSettings,
         *,
+        object_store: PublicObjectStore,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         """``transport`` 只给测试注入替身用（同 identity 的 SSO/PMS 客户端）。"""
 
         self._settings = settings
+        self._object_store = object_store
         self._transport = transport
 
     @property
@@ -121,7 +138,78 @@ class MultiflowVideoProvider:
             params={"user_name": self._settings.user_name},
             timeout=_POLL_TIMEOUT_SECONDS,
         )
-        return _progress_from_body(body)
+        progress = _progress_from_body(body)
+        if progress.outcome != "succeeded" or progress.output_url is None:
+            return progress
+        return replace(progress, output_url=await self._rehost(job, progress.output_url))
+
+    async def _rehost(self, job: GenerationJob, source_url: str) -> str:
+        """把成片搬进我们自己的公开对象，返回那个地址。
+
+        对方给的地址会过期，存进库里迟早烂掉。搬不动时**不留下 provider 的地址**：那样
+        这一行看着是成功的，过几天点开却是坏的。
+        """
+
+        content, mime = await self._download(source_url)
+        try:
+            return await self._object_store.put_public_object(
+                object_key=MEDIA_PATHS.generated_video(job_id=job.id, ext=_SUFFIX_BY_MIME[mime]),
+                content=content,
+                content_type=mime,
+            )
+        except ObjectStoreUnavailable as exc:
+            # 片子已经出了、也已经付了钱。说成可重试是错的：那会重新走一遍生成，再付一次。
+            raise ProviderError(
+                f"视频已生成但转存失败: {exc}",
+                code="OUTPUT_STORE_FAILED",
+                retryable=False,
+            ) from exc
+
+    async def _download(self, url: str) -> tuple[bytes, str]:
+        """把成片下载下来，返回字节与归一化后的 MIME。
+
+        流式读并且带上限：一条片子几十兆是常态，整份读进内存之前得先有个天花板。
+        """
+
+        try:
+            async with (
+                httpx.AsyncClient(
+                    timeout=_DOWNLOAD_TIMEOUT_SECONDS, transport=self._transport
+                ) as client,
+                client.stream("GET", url) as response,
+            ):
+                if response.status_code >= 400:
+                    raise ProviderError(
+                        f"成片下载失败（{response.status_code}）",
+                        code="OUTPUT_DOWNLOAD_FAILED",
+                        retryable=False,
+                    )
+                mime = _normalize_mime(response.headers.get("content-type", ""), url)
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > _MAX_VIDEO_BYTES:
+                        raise ProviderError(
+                            f"成片超过 {_MAX_VIDEO_BYTES} 字节上限",
+                            code="OUTPUT_TOO_LARGE",
+                            retryable=False,
+                        )
+                    chunks.append(chunk)
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"成片下载失败: {exc}",
+                code="OUTPUT_DOWNLOAD_FAILED",
+                retryable=False,
+            ) from exc
+        content = b"".join(chunks)
+        if not content:
+            raise ProviderError(
+                "成片下载为空",
+                code="OUTPUT_DOWNLOAD_EMPTY",
+                retryable=False,
+            )
+        return content, mime
 
     async def _request(
         self,
@@ -227,6 +315,23 @@ def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
         code="PROVIDER_STATUS_UNKNOWN",
         retryable=False,
     )
+
+
+def _normalize_mime(content_type: str, url: str) -> str:
+    """按响应头定 MIME，其次看 URL 后缀，都认不出就当 mp4。
+
+    这个值会写进对象的 Content-Type，浏览器按它决定播还是下载，所以只允许落在我们支持
+    的那几种上，不把对方给的任意字符串原样传下去。
+    """
+
+    mime = content_type.split(";", maxsplit=1)[0].strip().lower()
+    if mime in _SUFFIX_BY_MIME:
+        return mime
+    path = urlsplit(url).path.lower()
+    for suffix, known in _MIME_BY_SUFFIX.items():
+        if path.endswith(f".{suffix}"):
+            return known
+    return _DEFAULT_MIME
 
 
 def _error_fields(error: Any) -> tuple[str | None, str | None]:

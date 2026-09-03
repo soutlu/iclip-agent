@@ -171,6 +171,45 @@ async def test_owner_reads_own_generation_and_manager_reads_everyones() -> None:
         assert (await http.get(f"/generations/{job.id}")).status_code == 200
 
 
+async def test_origin_lands_on_columns_not_in_the_stored_request() -> None:
+    """来源是「这一行属于谁」，不是发给 provider 的参数：进表上的列，不进 request 那份 JSON。"""
+
+    conversation_id = uuid.uuid4()
+    repo = InMemoryGenerationRepository()
+    caller = principal("generation:submit")
+    async with client(build_test_app(repo, granted=caller)) as http:
+        response = await http.post(
+            "/generations",
+            json={**VIDEO_BODY, "conversationId": str(conversation_id), "shotIndex": 3},
+        )
+
+    assert response.status_code == 202, response.text
+    body = response.json()["generation"]
+    assert (body["conversationId"], body["shotIndex"]) == (str(conversation_id), 3)
+    assert {"conversationId", "shotIndex"}.isdisjoint(body["request"])
+    stored = next(iter(repo.jobs.values()))
+    assert (stored.conversation_id, stored.shot_index) == (conversation_id, 3)
+
+
+async def test_list_can_be_filtered_by_conversation() -> None:
+    """分镜工作台只要这段对话下面的生成记录；筛选不放宽可见性。"""
+
+    owner_id = uuid.uuid4()
+    conversation_id = uuid.uuid4()
+    mine = make_job(video_request(), owner_user_id=owner_id, conversation_id=conversation_id)
+    elsewhere = make_job(video_request(), owner_user_id=owner_id)
+    theirs = make_job(video_request(), conversation_id=conversation_id)
+    repo = InMemoryGenerationRepository([mine, elsewhere, theirs])
+
+    owner = principal("generation:read", user_id=owner_id)
+    async with client(build_test_app(repo, granted=owner)) as http:
+        filtered = await http.get(f"/generations?conversationId={conversation_id}")
+        everything = await http.get("/generations")
+
+    assert [item["id"] for item in filtered.json()["items"]] == [str(mine.id)]
+    assert len(everything.json()["items"]) == 2
+
+
 async def test_list_rejects_out_of_range_limit() -> None:
     app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:read"))
     async with client(app) as http:

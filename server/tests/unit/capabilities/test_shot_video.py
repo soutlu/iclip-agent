@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -42,6 +43,7 @@ from iclip.capabilities.shot_video.capability import (
     ShotVideoToolset,
     VideoShotRequest,
     shot_video_capability,
+    validate_video_shots_document,
     video_doc_path,
 )
 from iclip.capabilities.shot_video.parser import (
@@ -252,7 +254,8 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
 
 
 @pytest.mark.parametrize(
-    "tool_name", ["video_parser_md", "plan_shot_frames", "generate_shot_frames"]
+    "tool_name",
+    ["video_parser_md", "plan_shot_frames", "generate_shot_frames", "write_video_shots"],
 )
 def test_scope_rules_are_mounted_on_the_tool(
     tools: ShotVideoToolset[object], tool_name: str
@@ -706,6 +709,44 @@ async def test_generate_accepts_a_frame_the_ledger_never_sampled(
     assert generations.submitted
 
 
+async def test_generate_tags_the_job_with_the_conversation(
+    tools: ShotVideoToolset[object],
+    files: FakeFileStore,
+    generations: FakeGenerations,
+) -> None:
+    """工具发起的出图也归到对话下面，界面才列得出这段对话生成过什么。"""
+
+    conversation_id = str(uuid.uuid4())
+    ctx = make_context(replace(make_deps(), conversation_id=conversation_id))
+    # 只看提交上去的是什么，所以让生成收在失败上——出了图就要接着切格，那是另一条路。
+    generations.outcomes = [Outcome(status="failed", output_url=None, error_code="REJECTED")]
+    # 工作区地盘按对话分段，换了对话 id 就是换了一处地盘。
+    await files.write(f"{USER}/{conversation_id}", EXTRACTION_PATH, ledger("S1-1"))
+    await tools.generate_shot_frames(
+        ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+    )
+    await tools.generate_anchor_sheet(ctx, ["一只猫"])
+
+    assert {request.conversation_id for request in generations.submitted} == {conversation_id}
+
+
+async def test_generate_leaves_the_conversation_empty_when_it_is_not_an_id(
+    tools: ShotVideoToolset[object],
+    ctx: RunContext[object],
+    files: FakeFileStore,
+    generations: FakeGenerations,
+) -> None:
+    """对话 id 是客户端给的，形状不对就当没有——不能让一次算得出图的调用死在归档上。"""
+
+    generations.outcomes = [Outcome(status="failed", output_url=None, error_code="REJECTED")]
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
+    await tools.generate_shot_frames(
+        ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+    )
+
+    assert generations.submitted[0].conversation_id is None
+
+
 async def test_generate_reference_urls_must_be_http(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
@@ -947,18 +988,6 @@ FRAME_URL = "https://cdn.test/frames/s1-1.jpg"
 OTHER_FRAME_URL = "https://cdn.test/frames/s2-1.jpg"
 
 
-def grid_record(*urls: str) -> str:
-    """一份出帧版记录，只放交付校验用得到的那部分。"""
-
-    return json.dumps(
-        {
-            "gridRecordVersion": 1,
-            "jobId": "job-1",
-            "frames": [{"no": f"S{index}-1", "url": url} for index, url in enumerate(urls, 1)],
-        }
-    )
-
-
 def one_shot(**overrides: Any) -> VideoShotRequest:
     fields: dict[str, Any] = {
         "index": 1,
@@ -977,9 +1006,9 @@ async def deliver(
     *,
     aspect_ratio: str = "9:16",
 ) -> dict[str, Any]:
-    """把一份已生成的帧记录铺好，再走一次交付。"""
+    """走一次交付。地址规则挂在验证器上（见下面几条），这里只走工具体。"""
 
-    await files.write(NAMESPACE, "frames/grids/job-1.json", grid_record(FRAME_URL, OTHER_FRAME_URL))
+    _ = files
     return await tools.write_video_shots(ctx, aspect_ratio, shots)
 
 
@@ -1014,7 +1043,6 @@ async def test_delivered_table_lands_in_the_workspace(
         ([one_shot(seconds=3)], "4-30"),
         ([one_shot(seconds=31)], "4-30"),
         ([one_shot(image_urls=[])], "image_urls 为空"),
-        ([one_shot(image_urls=["https://cdn.test/编的.jpg"])], "不是 generate_shot_frames"),
         (
             [one_shot(prompt="0-8s 她走进门厅 @Image2。")],
             "@Image2",
@@ -1043,10 +1071,130 @@ async def test_delivery_rejects_a_bad_aspect_ratio(
     assert await files.read(NAMESPACE, SHOTS_PATH) is None
 
 
-async def test_delivery_without_any_generated_frame_points_at_the_records(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+def test_delivery_accepts_a_frame_url_the_conversation_has_seen(
+    tools: ShotVideoToolset[object],
 ) -> None:
-    """一帧都还没生成时，报的是「去哪儿找地址」而不是「地址不对」。"""
+    """出帧写下的地址在同一轮的工具结果里逐字出现过，所以按素材算得到。"""
 
-    with pytest.raises(ModelRetry, match="frames/grids/"):
-        await tools.write_video_shots(ctx, "9:16", [one_shot()])
+    seen = make_context(make_deps(), said=f"{_USER_SENT_VIDEO} {FRAME_URL}")
+    check_args(tools, "write_video_shots", seen, aspect_ratio="9:16", shots=[one_shot()])
+
+
+def test_delivery_rejects_a_made_up_frame_url(
+    tools: ShotVideoToolset[object], ctx: RunContext[object]
+) -> None:
+    """自己拼的地址进不来，报的是「去哪儿找地址」而不是把它回显一遍。"""
+
+    with pytest.raises(ModelRetry, match="frames/grids/") as rejected:
+        check_args(
+            tools,
+            "write_video_shots",
+            ctx,
+            aspect_ratio="9:16",
+            shots=[one_shot(image_urls=["https://cdn.test/编的.jpg"])],
+        )
+    assert "编的" not in str(rejected.value), "被拒的地址不回显，否则重试一次就洗成素材了"
+
+
+def test_delivery_rejects_a_frame_url_that_is_not_http(
+    tools: ShotVideoToolset[object], ctx: RunContext[object]
+) -> None:
+    with pytest.raises(ModelRetry, match="http"):
+        check_args(
+            tools,
+            "write_video_shots",
+            ctx,
+            aspect_ratio="9:16",
+            shots=[one_shot(image_urls=["frames/s1-1.jpg"])],
+        )
+
+
+# ── 用户改完写回来的那份 video_shot.json ────────────────────────────────────
+
+
+def shots_document(**overrides: Any) -> str:
+    """一份合规的镜头组 prompt 表，形状与工具交付出来的逐字一致。"""
+
+    row: dict[str, Any] = {
+        "index": 1,
+        "prompt": "0-8s 全景 平视 固定，她走进门厅 @Image1。不要字幕，不要背景音乐。",
+        "seconds": 8,
+        "imageUrls": [FRAME_URL],
+    }
+    document: dict[str, Any] = {"aspectRatio": "9:16", "shots": [row]}
+    return json.dumps({**document, **overrides}, ensure_ascii=False)
+
+
+def test_written_back_table_passes_the_same_shape_check_as_delivery() -> None:
+    """面板整份写回的那条路，形状判定和 `write_video_shots` 是同一套。"""
+
+    validate_video_shots_document(shots_document())
+
+
+def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
+    """来源规则只对模型（防它凭空编）；用户换帧是从自己的记录里挑的，不再问一遍。"""
+
+    validate_video_shots_document(
+        shots_document(
+            shots=[
+                json.loads(shots_document())["shots"][0]
+                | {"imageUrls": ["https://别处.test/x.jpg"]}
+            ]
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("{不是 json", "不是合法的 JSON"),
+        ("[]", "根必须是一个对象"),
+        (json.dumps({"aspectRatio": "9:16"}), "shots 要写成一个数组"),
+        (shots_document(aspectRatio="竖版"), "画幅"),
+        (json.dumps({"aspectRatio": "9:16", "shots": [{"index": 1}]}), "第 1 个镜头组"),
+        (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"index": 2}]),
+            "连续编号",
+        ),
+        (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"seconds": 31}]),
+            "4-30",
+        ),
+        (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"imageUrls": []}]),
+            "image_urls 为空",
+        ),
+        (
+            shots_document(
+                shots=[json.loads(shots_document())["shots"][0] | {"imageUrls": ["  "]}]
+            ),
+            "空地址",
+        ),
+        (
+            shots_document(
+                shots=[
+                    json.loads(shots_document())["shots"][0]
+                    | {"prompt": "0-8s 她走进门厅 @Image2。"}
+                ]
+            ),
+            "@Image2",
+        ),
+    ],
+    ids=[
+        "bad-json",
+        "not-object",
+        "no-shots",
+        "bad-aspect",
+        "bad-row",
+        "index-gap",
+        "seconds",
+        "no-urls",
+        "blank-url",
+        "image-ref",
+    ],
+)
+def test_written_back_table_is_rejected_with_the_reason(content: str, message: str) -> None:
+    """不合规抛 ``ValueError``，消息原样往上给——用户要照着它改。"""
+
+    with pytest.raises(ValueError, match=message):
+        validate_video_shots_document(content)

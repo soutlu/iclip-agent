@@ -42,6 +42,9 @@ from iclip.platform.transcript.wire import (
     Ack,
     ApprovalRequest,
     ClientFrame,
+    FsChanged,
+    FsChangeEntry,
+    FsChangePayload,
     OpsCatchup,
     OpsPayload,
     Ping,
@@ -62,6 +65,9 @@ from iclip.platform.transcript.wire import (
     TranscriptPage,
     TranscriptReset,
     Unsubscribe,
+    WatchFsAckPayload,
+    WatchFsAdd,
+    WatchFsRemove,
 )
 
 _logger = logging.getLogger(__name__)
@@ -215,6 +221,24 @@ class LiveConnections:
                 ),
             ),
         )
+
+    def announce_fs_changed(
+        self,
+        owner: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        path: str,
+        change: Literal["created", "modified", "deleted"] = "modified",
+    ) -> None:
+        """把「这段对话的这个文件变了」交给这个人的连接，各自按订阅决定发不发。
+
+        与改名、活儿那两帧不同：这一帧**只到用 ``watch_fs_add`` 订了该路径的连接**（照 kimi），
+        没订的标签页收不到——它们也不需要。
+        """
+
+        for connection in tuple(self._connections):
+            if connection.belongs_to(owner):
+                connection.offer_fs_change(str(conversation_id), path, change)
 
     def _announce(self, owner: uuid.UUID, frame: Any) -> None:
         # 遍历副本：offer 里断开的连接会把自己从这张表里摘掉。
@@ -415,6 +439,8 @@ class _Connection:
         self._overflowed = False
         self._listeners: dict[str, Callable[[Any], None]] = {}
         self._grades: dict[str, TranscriptGrade] = {}
+        # 文件订阅：对话 id → {路径: 是否递归}。与 transcript 订阅各管各的，照 kimi 分成两套控制帧。
+        self._watches: dict[str, dict[str, bool]] = {}
         self._last_inbound = datetime.now(UTC)
         self._frame_seq = 0
 
@@ -464,6 +490,66 @@ class _Connection:
         elif isinstance(frame, Unsubscribe):
             self._unlisten(frame.payload.session_id)
             await self._outbound.put(Ack(id=frame.id))
+        elif isinstance(frame, WatchFsAdd):
+            await self._watch_fs(frame)
+        elif isinstance(frame, WatchFsRemove):
+            watched = self._watches.get(frame.payload.session_id, {})
+            for path in frame.payload.paths:
+                watched.pop(path, None)
+            if not watched:
+                self._watches.pop(frame.payload.session_id, None)
+            await self._outbound.put(
+                Ack(id=frame.id, payload=self._watch_ack(frame.payload.session_id))
+            )
+
+    async def _watch_fs(self, frame: WatchFsAdd) -> None:
+        conversation_id = frame.payload.session_id
+        try:
+            await self._conversations.agent_of(self._principal, conversation_id, writing=False)
+        except DomainError:
+            # 与 subscribe 同一个待遇：看不见的与不存在的都当不存在，连接不动。
+            await self._outbound.put(Ack(id=frame.id, code=40401, msg="会话不存在"))
+            return
+        watched = self._watches.setdefault(conversation_id, {})
+        for path in frame.payload.paths:
+            watched[path] = frame.payload.recursive
+        await self._outbound.put(Ack(id=frame.id, payload=self._watch_ack(conversation_id)))
+
+    def _watch_ack(self, conversation_id: str) -> WatchFsAckPayload:
+        watched = self._watches.get(conversation_id, {})
+        return WatchFsAckPayload(
+            watched_paths=tuple(sorted(watched)),
+            current_count=sum(len(paths) for paths in self._watches.values()),
+        )
+
+    def _watching(self, conversation_id: str, path: str) -> bool:
+        """这条连接订了这个路径没有：订的是文件就要一样，订的是目录看在不在它下面。"""
+
+        for watched, recursive in self._watches.get(conversation_id, {}).items():
+            if watched == path:
+                return True
+            if not path.startswith(watched + "/"):
+                continue
+            if recursive or "/" not in path[len(watched) + 1 :]:
+                return True
+        return False
+
+    def offer_fs_change(
+        self, conversation_id: str, path: str, change: Literal["created", "modified", "deleted"]
+    ) -> None:
+        """这段对话的一个文件变了；订了才发。"""
+
+        if not self._watching(conversation_id, path):
+            return
+        self._frame_seq += 1
+        self.offer(
+            FsChanged(
+                seq=self._frame_seq,
+                session_id=conversation_id,
+                timestamp=datetime.now(UTC).isoformat(),
+                payload=FsChangePayload(changes=(FsChangeEntry(path=path, change=change),)),
+            )
+        )
 
     async def _subscribe(self, frame: Subscribe) -> None:
         conversation_id = frame.payload.session_id

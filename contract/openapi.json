@@ -997,6 +997,32 @@
         "title": "ConversationFileOut",
         "type": "object"
       },
+      "ConversationFileWriteIn": {
+        "additionalProperties": false,
+        "description": "整份覆盖工作区里的一个文件。\n\n``expectedVersion`` 是读到那一份的版本号：agent 与用户会同时写同一份文件，对不上\n就是 409，让调用方重读再决定，而不是把别人刚写的盖掉。",
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "expectedVersion": {
+            "title": "Expectedversion",
+            "type": "integer"
+          },
+          "path": {
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content",
+          "expectedVersion"
+        ],
+        "title": "ConversationFileWriteIn",
+        "type": "object"
+      },
       "ConversationFilesOut": {
         "additionalProperties": false,
         "properties": {
@@ -1471,6 +1497,18 @@
         "additionalProperties": false,
         "description": "一次生成对外的样子。\n\n刻意不含 provider 的原始快照、租约与尝试次数：那些是排队与排障的内部机制，\n对调用方没有意义，而快照里还带着 provider 的签名 URL。",
         "properties": {
+          "conversationId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversationid"
+          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
@@ -1550,6 +1588,17 @@
             "title": "Request",
             "type": "object"
           },
+          "shotIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shotindex"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -1578,6 +1627,8 @@
           "provider",
           "status",
           "request",
+          "conversationId",
+          "shotIndex",
           "outputUrl",
           "providerStatus",
           "errorCode",
@@ -1668,6 +1719,18 @@
             "title": "Channel",
             "type": "string"
           },
+          "conversationId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversationid"
+          },
           "kind": {
             "const": "image",
             "default": "image",
@@ -1698,6 +1761,17 @@
             ],
             "title": "Resolution",
             "type": "string"
+          },
+          "shotIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shotindex"
           }
         },
         "required": [
@@ -4357,6 +4431,18 @@
             "title": "Aspectratio",
             "type": "string"
           },
+          "conversationId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversationid"
+          },
           "durationSeconds": {
             "maximum": 60.0,
             "minimum": 1.0,
@@ -4414,6 +4500,17 @@
             "maxItems": 16,
             "title": "Referencevideourls",
             "type": "array"
+          },
+          "shotIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shotindex"
           }
         },
         "required": [
@@ -6498,6 +6595,58 @@
         "tags": [
           "conversations"
         ]
+      },
+      "put": {
+        "description": "整份覆盖一个工作区文件。路径在体里，与读那一侧的查询串是同一个字符串。\n\n版本对不上 409，文件本身不合它那条路径的规矩 422（消息原样给出来）。",
+        "operationId": "write_conversation_file_conversations__conversation_id__workspace_file_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationFileWriteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationFileEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Write Conversation File",
+        "tags": [
+          "conversations"
+        ]
       }
     },
     "/conversations/{conversation_id}/workspace/files": {
@@ -6582,6 +6731,7 @@
     },
     "/generations": {
       "get": {
+        "description": "给了 ``conversationId`` 就只列那段对话下面的生成记录，可见性口径不变。",
         "operationId": "list_generations_generations_get",
         "parameters": [
           {
@@ -6594,6 +6744,23 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "conversationId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Conversationid"
             }
           }
         ],

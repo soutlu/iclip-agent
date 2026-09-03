@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -27,10 +28,13 @@ from iclip.capabilities.shot_video.ports import (
 from iclip.capabilities.workspace.capability import Workspace
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.config import ResolvedShotVideo
+from iclip.domains.generation.models import GenerationJob
+from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
 from iclip.platform.object_store.oss import ObjectStoreUnavailable
 from tests.helpers.file_store import FakeFileStore
+from tests.helpers.generation import make_job
 from tests.helpers.shot_video import FakeObjects
 
 IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
@@ -185,6 +189,32 @@ async def test_generations_adapter_translates_and_reports_bad_parameters() -> No
             cast("Principal", object()),
             ImageRequest(prompt="猫", aspect_ratio="17:9", resolution="1k", channel="dev"),
         )
+
+
+async def test_generations_adapter_carries_the_conversation_onto_the_job() -> None:
+    """工具发起的出图也要归到对话下面，界面才列得出这段对话生成过什么。"""
+
+    seen: list[ImageGenerationIn] = []
+
+    class _Recording:
+        async def submit(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
+            _ = principal
+            seen.append(request)
+            return make_job(request)
+
+    conversation_id = uuid.uuid4()
+    adapter = GenerationsAdapter(cast("GenerationService", _Recording()))
+    await adapter.submit(
+        cast("Principal", object()),
+        ImageRequest(
+            prompt="猫",
+            aspect_ratio="1:1",
+            resolution="1k",
+            channel="dev",
+            conversation_id=str(conversation_id),
+        ),
+    )
+    assert seen[0].conversation_id == conversation_id
 
 
 class _StoreDown:

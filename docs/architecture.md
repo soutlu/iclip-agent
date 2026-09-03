@@ -60,7 +60,7 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，产出�
 1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）与 `AGENTS_FILE`（缺省 `agents/agents.yaml`）：只做 YAML 加载与结构校验（extra=forbid），不读任何环境变量；agent 声明另把 `spec` 与同级 `skills/` 库解析成绝对路径、找出同级 `instructions.md`，声明文件、spec 文件或目录缺失即报错。
 2. 组合根 `app/bootstrap` 按序装配，`resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值，缺哪几个变量一次全报出来：
    - engine（asyncpg，每 worker 一个连接池）→ identity → `SSO_BASE_URL` 非空时装 SSO / PMS 协议客户端。
-   - conversations，把它的「删对话时连带清掉派生物」「列 / 读派生文件」口子接到工作区上。
+   - conversations，把它的「删对话时连带清掉派生物」「列 / 读 / 写派生文件」口子接到工作区上，并按路径挂上写入前的校验器。
    - `OSS_BUCKET` 非空时建公开对象存储（素材、生成、镜头帧共用这一只桶）并装 assets 模块，没有桶整组路由不挂。
    - `media_generation` 段 + `VIDEO_SUBMIT_URL` 非空时装 generation 模块：两家 provider 一起装，缺一个 env 即报错，对象存储没开也报错。
    - `VIDEO_UNDERSTANDING_URL` 非空时建镜头素材取素材用的 HTTP 客户端，并检查 PATH 上有 ffmpeg / ffprobe；此时媒体生成必须也开着。
@@ -149,7 +149,7 @@ PrincipalResolver 每 hop 只解析一次，写入 `request.state.principal`；�
 
 **一段对话「在忙什么」由 `agent_jobs` 表算**，规则在 `JobQueue.activities`，帧在写入那一刻发（[adr/0008](adr/0008-activity-from-agent-jobs.md)）。
 
-**删除对话连带删掉工作区文件，这条线接在组合根**：conversations 只声明口子（`PurgeDerived`、`ReadHistory`、`ListDerivedFiles` / `ReadDerivedFile`）并做归属判断，命名空间只在 `capabilities/workspace/scope.py` 一处拼，路径语法归存储那一侧定；**先删派生的、再删对话行**，运行记录不删。工作区文件对外**只读、无推送**，界面按 `version` 判断正文变没变。
+**删除对话连带删掉工作区文件，这条线接在组合根**：conversations 只声明口子（`PurgeDerived`、`ReadHistory`、`ListDerivedFiles` / `ReadDerivedFile` / `WriteDerivedFile`、`WorkspaceDocumentValidator`）并做归属判断，命名空间只在 `capabilities/workspace/scope.py` 一处拼，路径语法归存储那一侧定；**先删派生的、再删对话行**，运行记录不删。工作区文件属主可写（整份覆盖，带版本号），写入前按路径过校验器；每写一次向订了该路径的连接发一帧 `event.fs.changed`（kimi 的 `watch_fs_add` 订阅模型），界面按 `version` 判断正文变没变。
 
 ## 13. 产品资料查询
 

@@ -35,6 +35,10 @@ class ImageRequest:
     resolution: str
     channel: ImageChannel
     reference_image_urls: tuple[str, ...] = ()
+    conversation_id: str | None = None
+    """这次出图属于哪段对话，落在生成记录上（界面按它把出图归到对话下面）。
+
+    本包不认识对话那张表，所以只当一个字符串带过去，认不认得出由生成域判。"""
 
 
 @dataclass(frozen=True, slots=True)

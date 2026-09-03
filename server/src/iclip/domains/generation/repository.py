@@ -31,9 +31,9 @@ class GenerationRepository(Protocol):
         ...
 
     async def list_for_owner(
-        self, *, owner: uuid.UUID | None, limit: int
+        self, *, owner: uuid.UUID | None, limit: int, conversation_id: uuid.UUID | None = None
     ) -> tuple[GenerationJob, ...]:
-        """按创建时间倒序列出。"""
+        """按创建时间倒序列出；``conversation_id`` 给了就只要那段对话下面的。"""
         ...
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:

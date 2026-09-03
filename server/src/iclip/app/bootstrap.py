@@ -22,9 +22,10 @@ from iclip.app.capability_table import (
 )
 from iclip.app.logging import configure_logging
 from iclip.app.task_styles import ProductStyleSnapshots, UnavailableStyleSnapshots
+from iclip.capabilities.shot_video.capability import SHOTS_PATH, validate_video_shots_document
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.workspace.scope import namespace_for
-from iclip.common.errors import DomainError, ValidationFailed
+from iclip.common.errors import Conflict, DomainError, ValidationFailed
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -88,7 +89,17 @@ from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.file_store.pg import PgFileStore
-from iclip.platform.file_store.store import InvalidPath
+from iclip.platform.file_store.store import (
+    FileEntry,
+    FileStore,
+    InvalidContent,
+    InvalidPath,
+    QuotaExceeded,
+    SearchResult,
+    StoredFile,
+    VersionConflict,
+    normalize_path,
+)
 from iclip.platform.http import status_code_for
 from iclip.platform.object_store.oss import (
     OssObjectStore,
@@ -215,6 +226,66 @@ def _agent_context_limits(
 
 _SOCKET_TIMEOUT_MARGIN = 5.0
 """socket 超时比阻塞等待多留的余量（秒）。"""
+
+
+def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
+    """把工作区命名空间拆回「属主 + 对话」，拆不出来给 ``None``。
+
+    拼法在 ``capabilities/workspace/scope.py``。对话 id 是客户端给的字符串，未必是我们
+    发出去的那种；拆不出来就是没法按对话推送，不是错误。
+    """
+
+    owner, _, conversation_id = namespace.partition("/")
+    try:
+        return uuid.UUID(owner), uuid.UUID(conversation_id)
+    except ValueError:
+        return None
+
+
+class AnnouncingFileStore:
+    """工作区文件存储，外加「变了就告诉订着这个路径的连接」（kimi 的 ``event.fs.changed``）。
+
+    包在组合根：存储层只认识命名空间，不认识对话也不认识连接；而能力包写文件只经
+    ``FileStore`` 协议。所有工作区写入——五件工具、下属 agent、面板写回——都从这一个入口
+    过，所以不用维护「哪些工具会产文件」的表。
+
+    命名空间拆不出对话 id 时就不发（那说明地盘不是按对话分的）——推送掉一帧只是界面
+    晚一点对齐，不该让一次写入失败。
+    """
+
+    def __init__(self, inner: FileStore, live: LiveConnections) -> None:
+        self._inner = inner
+        self._live = live
+
+    async def read(self, namespace: str, path: str) -> StoredFile | None:
+        return await self._inner.read(namespace, path)
+
+    async def write(
+        self, namespace: str, path: str, content: str, *, expected_version: int | None = None
+    ) -> FileEntry:
+        entry = await self._inner.write(namespace, path, content, expected_version=expected_version)
+        self._announce(namespace, entry.path, "created" if entry.version == 1 else "modified")
+        return entry
+
+    async def delete(self, namespace: str, path: str) -> bool:
+        deleted = await self._inner.delete(namespace, path)
+        if deleted:
+            self._announce(namespace, path, "deleted")
+        return deleted
+
+    def _announce(
+        self, namespace: str, path: str, change: Literal["created", "modified", "deleted"]
+    ) -> None:
+        addressed = _namespace_owner(namespace)
+        if addressed is not None:
+            owner, conversation_id = addressed
+            self._live.announce_fs_changed(owner, conversation_id, path=path, change=change)
+
+    async def entries(self, namespace: str, *, prefix: str = "") -> Sequence[FileEntry]:
+        return await self._inner.entries(namespace, prefix=prefix)
+
+    async def search(self, namespace: str, query: str, *, limit: int) -> SearchResult:
+        return await self._inner.search(namespace, query, limit=limit)
 
 
 async def _no_title(_user_text: str) -> str | None:
@@ -403,6 +474,9 @@ def build_app(
     )
     owns_inspiration_engine = inspiration_engine is not None and inspirations_engine is None
     workspace_store = PgFileStore(active_engine)
+    # 推送那张表要先有：工作区每写一次都往它上面发一帧，工具那条路与面板写回同一个入口。
+    live_connections = LiveConnections()
+    announcing_workspace_store = AnnouncingFileStore(workspace_store, live_connections)
 
     async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
         """删掉一段对话时，连带清空它在工作区里的地盘。
@@ -442,6 +516,46 @@ def build_app(
             return None
         return DerivedFileContent(path=stored.path, content=stored.content, version=stored.version)
 
+    async def write_conversation_file(
+        owner: uuid.UUID, conversation_id: uuid.UUID, path: str, content: str, expected_version: int
+    ) -> DerivedFileContent:
+        """整份写下其中一个文件，版本对不上就 409。
+
+        **只收已经是规范形式的路径。** ``/video_shot.json`` 与 ``video_shot.json`` 会被
+        存储层规范成同一个文件，而按路径挂的那张校验表是按字面量查的——放行不规范的写法
+        就等于放出一条绕过校验的路。
+        """
+
+        try:
+            if normalize_path(path) != path:
+                raise ValidationFailed(f"路径 {path!r} 不是规范形式，按工作区文件列表里的写法给")
+            entry = await announcing_workspace_store.write(
+                namespace_for(owner, str(conversation_id)),
+                path,
+                content,
+                expected_version=expected_version,
+            )
+        except VersionConflict as exc:
+            raise Conflict(str(exc)) from exc
+        except (InvalidPath, InvalidContent, QuotaExceeded) as exc:
+            raise ValidationFailed(str(exc)) from exc
+        return DerivedFileContent(path=entry.path, content=content, version=entry.version)
+
+    async def validate_video_shots(
+        owner: uuid.UUID, conversation_id: uuid.UUID, content: str
+    ) -> None:
+        """用户写回来的镜头组 prompt 表要过交付工具那套形状判定。
+
+        这条线只能接在组合根：判定归镜头素材能力，而对话那一侧不认识它。判定不看 owner
+        与对话——形状是形状，与这份文件属于谁无关。
+        """
+
+        _ = (owner, conversation_id)
+        try:
+            validate_video_shots_document(content)
+        except ValueError as exc:
+            raise ValidationFailed(str(exc)) from exc
+
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(active_engine)
     collection_repo = SqlCollectionRepository(active_engine)
@@ -458,8 +572,6 @@ def build_app(
         return tuple(
             CollectionInfo(id=item.id, name=item.name, updated_at=item.updated_at) for item in found
         )
-
-    live_connections = LiveConnections()
 
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
@@ -514,6 +626,8 @@ def build_app(
         list_collections=list_owner_collections,
         list_derived_files=list_conversation_files,
         read_derived_file=read_conversation_file,
+        write_derived_file=write_conversation_file,
+        document_validators={SHOTS_PATH: validate_video_shots},
         generate_title=generate_title,
         announce_title=live_connections.announce_title,
         activities_of=activities_of,
@@ -538,7 +652,7 @@ def build_app(
         else None
     )
     capability_table = build_capability_table(
-        workspace_store=workspace_store,
+        workspace_store=announcing_workspace_store,
         http_client=http_client,
         generation_service=generation.service if generation is not None else None,
         object_store=public_objects,

@@ -277,6 +277,20 @@ export const zConversationFileOut = z.object({
 })
 
 /**
+ * ConversationFileWriteIn
+ *
+ * 整份覆盖工作区里的一个文件。
+ *
+ * ``expectedVersion`` 是读到那一份的版本号：agent 与用户会同时写同一份文件，对不上
+ * 就是 409，让调用方重读再决定，而不是把别人刚写的盖掉。
+ */
+export const zConversationFileWriteIn = z.object({
+  content: z.string(),
+  expectedVersion: z.int(),
+  path: z.string().min(1),
+})
+
+/**
  * ConversationFilesOut
  */
 export const zConversationFilesOut = z.object({
@@ -418,6 +432,7 @@ export const zAppendOp = z.object({
  * 对调用方没有意义，而快照里还带着 provider 的签名 URL。
  */
 export const zGenerationOut = z.object({
+  conversationId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   errorCode: z.string().nullable(),
   errorMessage: z.string().nullable(),
@@ -428,6 +443,7 @@ export const zGenerationOut = z.object({
   provider: z.string(),
   providerStatus: z.string().nullable(),
   request: z.record(z.string(), z.unknown()),
+  shotIndex: z.int().nullable(),
   status: z.string(),
   submittedAt: z.iso.datetime().nullable(),
   updatedAt: z.iso.datetime(),
@@ -463,10 +479,12 @@ export const zImageContent = z.object({
 export const zImageGenerationIn = z.object({
   aspectRatio: z.enum(['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']),
   channel: z.enum(['dev', 'pro']).optional().default('dev'),
+  conversationId: z.uuid().nullish(),
   kind: z.literal('image').optional().default('image'),
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
   resolution: z.enum(['1k', '2k', '4k']).optional().default('1k'),
+  shotIndex: z.int().nullish(),
 })
 
 /**
@@ -1199,6 +1217,7 @@ export const zTranscriptPage = z.object({
  */
 export const zVideoGenerationIn = z.object({
   aspectRatio: z.enum(['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']),
+  conversationId: z.uuid().nullish(),
   durationSeconds: z.int().gte(1).lte(60),
   imageUrls: z.array(z.string()).max(16).optional().default([]),
   kind: z.literal('video').optional().default('video'),
@@ -1206,6 +1225,7 @@ export const zVideoGenerationIn = z.object({
   prompt: z.string().min(1).max(4000),
   referenceAudioUrls: z.array(z.string()).max(16).optional().default([]),
   referenceVideoUrls: z.array(z.string()).max(16).optional().default([]),
+  shotIndex: z.int().nullish(),
 })
 
 /**
@@ -1598,6 +1618,19 @@ export const zReadConversationFileConversationsConversationIdWorkspaceFileGetQue
 export const zReadConversationFileConversationsConversationIdWorkspaceFileGetResponse =
   zConversationFileEnvelope
 
+export const zWriteConversationFileConversationsConversationIdWorkspaceFilePutBody =
+  zConversationFileWriteIn
+
+export const zWriteConversationFileConversationsConversationIdWorkspaceFilePutPath = z.object({
+  conversation_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zWriteConversationFileConversationsConversationIdWorkspaceFilePutResponse =
+  zConversationFileEnvelope
+
 export const zListConversationFilesConversationsConversationIdWorkspaceFilesGetPath = z.object({
   conversation_id: z.uuid(),
 })
@@ -1619,6 +1652,7 @@ export const zAbortConversationConversationsConversationIdAbortPostResponse = z.
 
 export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
+  conversationId: z.uuid().nullish(),
 })
 
 /**

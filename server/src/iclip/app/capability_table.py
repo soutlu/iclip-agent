@@ -82,6 +82,7 @@ class GenerationsAdapter:
                     "aspect_ratio": request.aspect_ratio,
                     "resolution": request.resolution,
                     "reference_image_urls": list(request.reference_image_urls),
+                    "conversation_id": request.conversation_id,
                 }
             )
         except ValidationError as exc:

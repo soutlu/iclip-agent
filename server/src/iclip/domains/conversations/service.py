@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, Protocol
 
 from iclip.common.errors import NotFound, PermissionDenied, ValidationFailed
 from iclip.domains.conversations.models import (
@@ -129,6 +129,29 @@ ReadDerivedFile = Callable[[uuid.UUID, uuid.UUID, str], Awaitable[DerivedFileCon
 归存储那一侧定，这里不重复一份。
 """
 
+WriteDerivedFile = Callable[[uuid.UUID, uuid.UUID, str, str, int], Awaitable[DerivedFileContent]]
+"""整份写下一段对话里的某个文件，入参是 ``(属主, 对话 id, 路径, 正文, 期望版本)``。
+
+期望版本对不上时由接线方抛 ``Conflict``；路径与容量的问题同 ``ReadDerivedFile``，归存储
+那一侧定。
+"""
+
+
+class WorkspaceDocumentValidator(Protocol):
+    """某一条路径上的文件写进去之前得先过的那一关。
+
+    **这一层不知道校验的是什么。** 工作区里有几份文件是别处的工具按自己的规矩产出的
+    （镜头组 prompt 表就是一份），用户改完写回来时得按同一套规矩再判一次，而那套规矩
+    属于那件工具，对话这一侧看不见它。所以这里只留一个口子，接什么、按路径挂在哪，都
+    由组合根决定。
+
+    不合规抛 ``ValidationFailed``，消息原样给到调用方——用户要照着它改。
+    """
+
+    async def __call__(
+        self, owner: uuid.UUID, conversation_id: uuid.UUID, content: str
+    ) -> None: ...
+
 
 def _as_utc(moment: datetime | None) -> datetime | None:
     """不带时区的时刻按 UTC 读。
@@ -213,6 +236,8 @@ class ConversationService:
         list_collections: ListCollections,
         list_derived_files: ListDerivedFiles,
         read_derived_file: ReadDerivedFile,
+        write_derived_file: WriteDerivedFile,
+        document_validators: Mapping[str, WorkspaceDocumentValidator],
         generate_title: GenerateTitle,
         announce_title: AnnounceTitle,
         activities_of: ActivitiesOf,
@@ -227,6 +252,8 @@ class ConversationService:
         self._list_collections = list_collections
         self._list_derived_files = list_derived_files
         self._read_derived_file = read_derived_file
+        self._write_derived_file = write_derived_file
+        self._document_validators = document_validators
 
     async def activities(
         self, conversation_ids: Sequence[uuid.UUID]
@@ -263,6 +290,31 @@ class ConversationService:
         if found is None:
             raise NotFound("这段对话里没有这个文件")
         return found
+
+    async def write_file(
+        self,
+        principal: Principal,
+        conversation_id: uuid.UUID,
+        *,
+        path: str,
+        content: str,
+        expected_version: int,
+    ) -> DerivedFileContent:
+        """整份写下这段对话里的一个文件。
+
+        治理者读得到别人的对话，但写入一概限属主——所以这里先按读的口径找到那一行（找
+        不到就是 404，不泄露存在性），再判属主（看得见而不许写才是 403）。
+        """
+
+        conversation = await self._repo.get(conversation_id, owner=self._readable_by(principal))
+        if conversation.owner_user_id != principal.user_id:
+            raise PermissionDenied("只有属主能改这段对话的工作区文件")
+        validate = self._document_validators.get(path)
+        if validate is not None:
+            await validate(conversation.owner_user_id, conversation.id, content)
+        return await self._write_derived_file(
+            conversation.owner_user_id, conversation.id, path, content, expected_version
+        )
 
     async def create(
         self,
@@ -566,4 +618,6 @@ __all__ = [
     "ListState",
     "PurgeDerived",
     "ReadDerivedFile",
+    "WorkspaceDocumentValidator",
+    "WriteDerivedFile",
 ]

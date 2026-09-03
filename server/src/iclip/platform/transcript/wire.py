@@ -141,6 +141,32 @@ class SessionWorkChanged(_Envelope):
     payload: SessionWorkPayload
 
 
+class FsChangeEntry(_Envelope):
+    path: str
+    change: Literal["created", "modified", "deleted"]
+    kind: Literal["file", "directory"] = "file"
+
+
+class FsChangePayload(_Envelope):
+    changes: tuple[FsChangeEntry, ...]
+    coalesced_window_ms: int = 0
+    """kimi 那侧是文件系统 watcher，一个时间窗合并成一帧；我们在写入口直接发，窗口是零。"""
+
+
+class FsChanged(_Event):
+    """某段对话的工作区文件变了，照 kimi 的 ``event.fs.changed``。
+
+    **只发给用 ``watch_fs_add`` 订了这段对话这个路径的连接**，不是全局帧：文件变动只有正看着
+    它的那一页关心。帧上不带版本与写入者——收到就重读那个文件，版本在文件上；是不是自己刚写
+    的由客户端记自己写回时拿到的版本号来判。
+
+    **易失**：掉了就是掉了。文件列表接口才是事实源，这一帧只负责「不必等下一次重拉」。
+    """
+
+    type: Literal["event.fs.changed"] = "event.fs.changed"
+    payload: FsChangePayload
+
+
 class Ack(_Envelope):
     """控制帧的回执。``code`` 为 0 即成功，与协议一致。"""
 
@@ -174,6 +200,7 @@ ServerFrame = Annotated[
     | TranscriptOps
     | SessionMetaUpdated
     | SessionWorkChanged
+    | FsChanged
     | Ack
     | Ping,
     Field(discriminator="type"),
@@ -214,13 +241,38 @@ class Unsubscribe(_Envelope):
     payload: UnsubscribePayload
 
 
+class WatchFsPayload(_Envelope):
+    """订一段对话里的几个路径。路径是目录时 ``recursive`` 决定只看直接子项还是整棵。"""
+
+    session_id: str
+    paths: tuple[str, ...]
+    recursive: bool = False
+
+
+class WatchFsAdd(_Envelope):
+    type: Literal["watch_fs_add"] = "watch_fs_add"
+    id: str
+    payload: WatchFsPayload
+
+
+class WatchFsRemove(_Envelope):
+    type: Literal["watch_fs_remove"] = "watch_fs_remove"
+    id: str
+    payload: WatchFsPayload
+
+
+class WatchFsAckPayload(_Envelope):
+    watched_paths: tuple[str, ...] = ()
+    current_count: int = 0
+
+
 class Pong(_Envelope):
     type: Literal["pong"] = "pong"
     payload: PingPayload | None = None
 
 
 ClientFrame = Annotated[
-    Subscribe | Unsubscribe | Pong,
+    Subscribe | Unsubscribe | WatchFsAdd | WatchFsRemove | Pong,
     Field(discriminator="type"),
 ]
 
@@ -306,6 +358,9 @@ __all__ = [
     "Ack",
     "ApprovalRequest",
     "ClientFrame",
+    "FsChangeEntry",
+    "FsChangePayload",
+    "FsChanged",
     "OpsBatchOut",
     "OpsCatchup",
     "OpsPayload",
@@ -332,4 +387,8 @@ __all__ = [
     "TranscriptReset",
     "Unsubscribe",
     "UnsubscribePayload",
+    "WatchFsAckPayload",
+    "WatchFsAdd",
+    "WatchFsPayload",
+    "WatchFsRemove",
 ]
