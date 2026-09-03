@@ -2846,26 +2846,26 @@
               <code>--layout-app-sidebar-width · 264px（默认宽）</code>
               <code>--layout-app-sidebar-min-width · 200px</code>
               <code>--layout-app-sidebar-max-width · 400px</code>
-              <span>sidebar · background · hairline 右边线 · 可折叠 · 折叠后主区左上浮出展开钮 · 品牌区 serif 字标 · 会话分段 tab（进行中带 primary 圆点）· 会话行尾状态标识（primary 转圈 / warning 待回答徽章 / 对勾 / status-error 红叉）· 底部账户区</span>
-              <span>sidebar 列表行 · 容器与行各 12 水平内距（文字距侧栏 24）· 行间距 2 · radius sm · 分组子行再缩进 24 · 状态层挂整行（含尾随钮）· 容器 ui-state-subtle</span>
-              <span>sidebar 行尾槽 · 静息放时间 text-caption on-surface-faint · hover / focus-within / 菜单展开换成 IconButton xs，两者不同时占位 · 每行只留一个「更多」入口，重复动作收进菜单</span>
-              <span>sidebar 行内改名 · 标题原地换 input · 底 surface-container-lowest · radius xs · 焦点环收到 1px 内嵌（工具类 ui-focus-inline），不用行外那道 3px 环</span>
-              <span>sidebar 分区标题 · text-body-sm 600 on-surface-faint · 折叠箭头 icon-sm · sticky 顶部铺 background · 操作钮 hover 才出</span>
+              <span>sidebar · background · hairline 右边线 · 品牌区 serif 字标 · 会话行尾状态色：primary 转圈 / warning 徽章 / 对勾 / status-error 红叉</span>
+              <span>sidebar 列表行 · 容器与行各 12 水平内距（文字距侧栏 24）· 行间距 2 · radius sm · 分组子行再缩进 24 · 状态层挂整行 · 容器 ui-state-subtle</span>
+              <span>sidebar 行尾槽 · text-caption on-surface-faint · IconButton xs</span>
+              <span>sidebar 行内改名 input · 底 surface-container-lowest · radius xs · 焦点环 1px 内嵌（ui-focus-inline）</span>
+              <span>sidebar 分区标题 · text-body-sm 600 on-surface-faint · 折叠箭头 icon-sm · sticky 顶部铺 background</span>
               <span>阅读列 · ≤ --layout-home-read-max 760 · 垂直居中偏上</span>
-              <span>hero · Lottie public/lottie/hero.json 一份 · ≤440 宽 · viewBox 裁到内容框（换插画重采）· 深色配色由 CSS 覆盖 fill 呈现属性 · 减弱动效停首帧</span>
+              <span>hero · Lottie public/lottie/hero.json 一份 · ≤440 宽 · 深色配色由 CSS 覆盖 fill</span>
               <span>品牌字标 · Cue · --font-home-display italic semibold · --text-display（紧凑 --text-display-sm）· 字距 -0.04em（紧凑 -0.035em）· on-surface</span>
-              <span>composer · top-layer · radius 3xl（支持 superellipse 时连续曲率）· 0.5px chat-hairline 发丝边框 · shadow-input 常驻 · focus-within 边框加深到 border-hover、不抬阴影 · 发送钮反色圆形向上箭头带 shadow-send、按压微缩 · 会话页用单行起步的紧凑形态 · 会话页右下在发送钮前显示上下文占用环：32×32 圆形容器 hover 铺状态底（与同行按钮几何对齐），环本体 16px · stroke 2 · 轨道 chat-hairline · 进度 chat-muted-text 中性灰，原始 used / max 来自 transcript meta，hover / focus 提示「百分比 · used / total 上下文已使用」</span>
-              <span>composer 附件 · + 钮开文件选择框 / 拖文件入窗（卡片换 primary-container-soft 底 + 全屏 72% background 遮罩叠 0.5px dashed primary 虚线卡「松开鼠标添加附件」）/ 粘贴剪贴板文件 · 落成文字流内联 pill（14px 类型图标 + 文件名，chat-muted-text 字、hover 提亮，无背景无边框；超 32 字符保扩展名中间省略；点选给 primary 20% 底色；退格整颗删）· 上传中/失败挡发送（失败整颗 error 色）· hover 出反色悬停卡（inverse-surface 底 + inverse-on-surface 字 + 12×6 小三角）：图给 ≤300×220 预览（棋盘格兜底）/ 视频画占位图标走新页，meta 行图标+名+大小（KB 取整、MB 一位小数），状态行上传中 N% 进度环 / 已上传 / 上传失败+服务端原文，图片带「全屏查看」进灯箱 · 入口只在有 assets:write 时给</span>
+              <span>composer · top-layer · radius 3xl（支持 superellipse 时连续曲率）· 0.5px chat-hairline 发丝边框 · shadow-input · focus-within 边框 border-hover、不抬阴影 · 发送钮反色圆形向上箭头 shadow-send · 会话页单行起步 · 上下文占用环 32×32 容器、环 16px · stroke 2 · 轨道 chat-hairline · 进度 chat-muted-text</span>
+              <span>composer 附件 pill · 文字流内联 · 14px 缩略图（图片、视频）或类型图标（文件）+ 文件名 · chat-muted-text · 无背景无边框 · 点选 primary 20% 底色 · 上传失败 error 色 · 拖入遮罩 72% background + 0.5px dashed primary 虚线卡</span>
+              <span>附件悬停卡 · inverse-surface 底 · inverse-on-surface 字 · 12×6 小三角 · 预览 ≤300×220（棋盘格兜底）· meta 行 icon-sm + 名 + 大小</span>
               <span>project-bar · 贴 composer 下沿 · 只圆下两角 · surface-container-low</span>
               <code>--layout-app-right-panel-width · 460px</code>
               <code>--layout-app-workbench-width · 820px（默认宽）</code>
               <code>--layout-app-workbench-min-width · 560px</code>
               <code>--layout-app-chat-min-width · 400px</code>
-              <span>右面板 · background · hairline 左边线 · 是槽位：当前路由声明了面板内容、且真有内容可画才展开，其余保持默认折叠 · 展开后可再折叠 · 折叠后主区右上浮出展开钮 · 空态占位</span>
-              <span>右面板有内容 · 宽 --layout-app-workbench-width · 主区（聊天）最小 --layout-app-chat-min-width · 面板头左侧给内容标题，同时有多份内容时换成下拉切换器 · 右侧给折叠钮与放大钮，放大后面板铺满主区、聊天列不显示</span>
-              <span>拖柄 · 侧栏｜主区 一道、聊天｜右面板 一道 · 4px 命中区 · cursor col-resize · hover / 拖动中显示 border-hover 色竖线，静息不画 · 拖动改宽并夹在各自的 min / max 之间 · 双击恢复默认宽 · 宽度写 localStorage，刷新保留 · 侧栏折叠时不画侧栏那道，不并排时不画面板那道</span>
-              <span>并排条件 · 视口 ≥ 侧栏当前宽 + --layout-app-chat-min-width + --layout-app-workbench-min-width · 放不下时聊天与面板不并排，主区只显示其一，由面板头上的切换钮切，面板一侧只给这一个钮，写「回到聊天」</span>
-              <span>紧凑 &lt; 600 · sidebar 与右面板默认折叠 · 主区左上、右上各浮出展开钮</span>
+              <span>右面板 · background · hairline 左边线 · 空态占位 · 有内容时宽 --layout-app-workbench-width，主区（聊天）最小 --layout-app-chat-min-width · 面板头左标题、右折叠钮与放大钮</span>
+              <span>拖柄 · 侧栏｜主区 一道、聊天｜右面板 一道 · 4px 命中区 · cursor col-resize · hover / 拖动中 border-hover 色竖线，静息不画</span>
+              <span>并排条件 · 视口 ≥ 侧栏当前宽 + --layout-app-chat-min-width + --layout-app-workbench-min-width · 放不下时主区只显示聊天与面板之一</span>
+              <span>紧凑 &lt; 600 · sidebar 与右面板默认折叠</span>
             </div>
             <p class="template-use">
               登录后应用壳与首页空态共用一套骨架；紧凑断点的退化规则一并登记，不在页面上另写断点。
@@ -2886,25 +2886,26 @@
               <span>阅读列 · ≤ 760 · 居中 · 水平内距 20</span>
               <span>header · 48 · 标题 text-body 500 · 0.5px chat-hairline 底边线</span>
               <span>轮间距 16 · 轮内块间距 10</span>
-              <span>用户气泡 · 右对齐 · ≤ min(88%, 100vw-52) · chat-user-bg · radius md · 内距 10 / 12 · text-body 行高 1.5 · 超 10 行折叠成底部渐隐，「展开」胶囊压在渐隐上 · 无边框无阴影无状态层</span>
-              <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 400 · 行高 relaxed · chat-message-text · 按 markdown 渲染，夹在里面的 HTML 过白名单后渲染（script / iframe / on* / javascript: 一律摘掉）</span>
-              <span>助手回复操作 · 回复结束后左对齐常驻终态栏：「复制 / 重新生成」24×24 图标钮（radius sm · icon-sm · chat-muted-text · hover 铺 hover 状态底 · 150ms 过渡）· 复制该回复的原始 markdown，不含思考、工具结果与用户插话 · 成功换 check 1.4s · 钮组后隔 8 接 credit 钻石图标领头的 token 统计（图标与文字距 4 · text-caption chat-muted-text · 精确值入 title）与完成时刻（今天 HH:mm · 昨天 HH:mm · 更早 M月d日 HH:mm 跨年补年份 · 精确完整时刻入 title）· 统计与时刻默认透明 hover 该轮一起浮现</span>
-              <span>正文 markdown · 顶层块间距 14 · 标题最高 text-title、h1 底部发丝线 · 列表 28 缩进 + 5px 圆点（二级空心描边）· 引用 2px 圆角竖条 · 行内代码 chat-code-bg radius xs、chat-link-text 色 · 代码块带头部条（语言名 + 复制钮）chat-code-block-bg radius sm 最高 500 可滚动 · 表格 chat-hairline 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text，hover 才出下划线</span>
-              <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-muted-text · 路径 chat-message-text 截断（≤ 60%）· 行尾状态点 chat-status-success / -error / -running（转圈）</span>
-              <span>工具结果 · 只有纯文本结果才给折叠箭头 · 开合 grid-rows 0fr↔1fr 平滑过渡 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
-              <span>媒体结果卡 · view=media_grid 且完成、且结果解析出条目时才画 · 工具行下方独立一排（横向 wrap · 卡间距 8）· 不进活动组、不再给文本折叠 · 每张 flex 纵向 · 内部间距 6 · 最宽 320 · 视口 &lt; 600 时宽 min(44vw, 160) · 图片是无填充无边框的钮 · radius md · 溢出裁切 · 图 block 满宽 · 标题 text-body-sm chat-muted-text 单行省略 · 点图进灯箱 · 解析不出或未完成不画卡</span>
-              <span>思考块 · 一行标题（灯泡 icon-sm + 「思考中…/思考过程」+ 走秒计时 + 折叠箭头）chat-muted-text · 产出中标题呼吸 · 展开后正文 chat-secondary-text 行高 1.7 · 无填充无边框 · 开合同工具结果</span>
-              <span>运行状态条 · 消息流末尾左对齐 · 40px 摄像机 mascot + text-body-sm chat-muted-text 呼吸文案 · 提交后先显示「请求中…」，首个非空助手正文/思考或任一工具块到达后切「工作中…」，本次提交结算即卸载 · 减弱动效停在静态整机</span>
-              <span>活动组 · 连续 ≥2 的思考块与工具行收成一行摘要（状态图标 + 聚合子句「读取了 N 个文件 · 写入了 N 个文件」+ 失败计数 + 时长）· 运行中自动展开、收尾自动收起 · 展开后每条就是普通思考块/工具行 · 可访问名走 aria-label（染色 span 拼接会被裁空白）</span>
-              <span>消息附件 · 气泡文字上方一排芯片（image/video/file icon + 名称，无地址画删除线弱化）· 图片点进灯箱（scrim 60% + 居中限 960/80vh + ESC/遮罩/按钮关闭），视频与文件开新页 · 队列行带 28px 缩略图，纯附件消息写「附件 ×N」</span>
+              <span>用户气泡 · 右对齐 · ≤ min(88%, 100vw-52) · chat-user-bg · radius md · 内距 10 / 12 · text-body 行高 1.5 · 无边框无阴影无状态层 · 折叠态底部渐隐，「展开」胶囊 radius full · 0.5px chat-hairline · top-layer · shadow-1</span>
+              <span>消息附件芯片 · 文字流内联 · 14px 缩略图（图片、视频）+ 文件名 · text-body-sm chat-muted-text · 队列行 28px 缩略图 radius xs 0.5px chat-hairline</span>
+              <span>灯箱 · scrim 60% · 居中 · 限 960 / 80vh · 关闭钮右上 on-scrim</span>
+              <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 400 · 行高 relaxed · chat-message-text · 按 markdown 渲染</span>
+              <span>助手回复操作 · 左对齐 · 24×24 图标钮 radius sm · icon-sm chat-muted-text · hover 铺 hover 状态底 · 钮组后隔 8 接 token 统计与完成时刻（credit 图标与文字距 4 · text-caption chat-muted-text）· 默认透明，hover 该轮浮现</span>
+              <span>正文 markdown · 顶层块间距 14 · 标题最高 text-title、h1 底部发丝线 · 列表 28 缩进 + 5px 圆点（二级空心描边）· 引用 2px 圆角竖条 · 行内代码 chat-code-bg radius xs、chat-link-text 色 · 代码块带头部条 chat-code-block-bg radius sm 最高 500 可滚动 · 表格 chat-hairline 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text，hover 下划线</span>
+              <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-muted-text · 路径 chat-message-text 截断（≤ 60%）· 行尾状态点 chat-status-success / -error / -running</span>
+              <span>工具结果 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
+              <span>媒体结果卡 · 工具行下方独立一排（横向 wrap · 卡间距 8）· 每张 flex 纵向 · 内部间距 6 · 最宽 320 · 视口 &lt; 600 时宽 min(44vw, 160) · 图无填充无边框 · radius md · 溢出裁切 · 图 block 满宽 · 标题 text-body-sm chat-muted-text 单行省略</span>
+              <span>思考块 · 一行标题 灯泡 icon-sm + 折叠箭头 · chat-muted-text · 正文 chat-secondary-text 行高 1.7 · 无填充无边框</span>
+              <span>运行状态条 · 消息流末尾左对齐 · 40px 摄像机 mascot + text-body-sm chat-muted-text</span>
+              <span>活动组 · 一行摘要 · 状态图标 icon-sm + text-body-sm chat-muted-text · 折叠箭头</span>
               <span>轮级报错 · chat-error-bg · chat-error-border · chat-error-text · radius sm · 内距 8 / 12</span>
-              <span>排队队列 · 消息流末尾右对齐一叠 · 头部 mail icon + 队列 · N 个任务等待发送（body-sm chat-muted-text）· 队列行 chat-user-bg 压暗、正文 3 行渐隐折叠、hover 提亮并浮出 × 撤回 · 第一条左侧 primary 圆钮「立即发送到当前回合」+「下一条」胶囊</span>
-              <span>消息区滚动条 · 常态隐形 · 滚动中 / 悬停浮现 6px · chat-scrollbar-thumb</span>
-              <span>回到底部胶囊 · 离底即浮出 · radius full · 0.5px chat-hairline · top-layer · shadow-1</span>
+              <span>排队队列 · 消息流末尾右对齐一叠 · 头部 mail icon + body-sm chat-muted-text · 行 chat-user-bg 压暗 · 正文渐隐 · 第一条左侧 primary 圆钮</span>
+              <span>消息区滚动条 · 常态隐形 · 滚动中 / 悬停 6px · chat-scrollbar-thumb</span>
+              <span>回到底部胶囊 · radius full · 0.5px chat-hairline · top-layer · shadow-1</span>
               <span>空状态 · 品牌字标 font-home-display italic + 引导文案 · 垂直居中</span>
-              <span>审批卡 · 有待审批的交互时贴在 composer 上方 · 阅读列宽 · 与输入卡距 8 · chat-card-bg · 0.5px chat-hairline · radius lg · shadow-2 · 进场 fade + 自下 8 位移 · 头（内距 12 / 16）标题 text-body 500 + 参数摘要 text-body-sm 等宽 chat-muted-text 单行省略 · 体（内距 12 / 16）只有一句说明，不放原始参数 · 底（上距 12 · 内距 12 / 16 · 0.5px chat-hairline 顶边线）两个整行左对齐选项钮 · 钮 radius md · hover 铺 hover 状态底 · 文案前一个数字键小方块（chat-chip-bg · radius xs · text-caption）· 只有「1 同意 / 2 拒绝」两项 · 数字键在输入区里不响应 · 请求在飞时两钮禁用 · 决定记下后两钮换成一行 check + 已同意 / 已拒绝，卡由服务端撤</span>
+              <span>审批卡 · composer 上方 · 阅读列宽 · 与输入卡距 8 · chat-card-bg · 0.5px chat-hairline · radius lg · shadow-2 · 头（内距 12 / 16）标题 text-body 500 + 摘要 text-body-sm 等宽 chat-muted-text 单行省略 · 体（内距 12 / 16）· 底（上距 12 · 内距 12 / 16 · 0.5px chat-hairline 顶边线）整行左对齐选项钮 radius md · 数字键小方块 chat-chip-bg · radius xs · text-caption</span>
               <span>右面板内容 · 会话页声明分镜工作台为右面板内容，几何按 04 · HOME 的槽位规则</span>
-              <span>composer · 同 04 · HOME · 贴底 · 消息尾部到卡片上沿约 81px · 上方 background 渐隐遮住滚动内容 · 有待审批的交互时占位文案换成「等你审批后继续」，队列的「立即发送到当前回合」不给</span>
+              <span>composer · 同 04 · HOME · 贴底 · 消息尾部到卡片上沿约 81px · 上方 background 渐隐遮住滚动内容</span>
             </div>
             <p class="template-use">
               会话页只有一处填充（用户气泡）；工具行、思考块、助手正文都不进卡片。
