@@ -67,6 +67,47 @@ export const collectAttachmentIds = (doc: PMNode): string[] => {
   return ids
 }
 
+/** 文档按出现次序切成的段：一段文字，或一颗附件 pill。 */
+export type ComposerSegment =
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'attachment'; readonly attId: string }
+
+/**
+ * 按文档顺序切段：文字与 pill 交替，pill 落在它在文字里的位置。
+ *
+ * 发消息用它而不是 `readComposerText`：模型接口收的是有序的 part 列表，「这张图」指的是
+ * 紧挨着的那张，把图都挪到末尾就丢了这层意思。段落之间用 `\n` 连；首尾空白去掉。
+ *
+ * @param doc - 编辑器文档。
+ * @returns 按顺序的段；空文档是空数组。
+ */
+export const readComposerSegments = (doc: PMNode): ComposerSegment[] => {
+  const segments: ComposerSegment[] = []
+  let buffer = ''
+  const flush = () => {
+    if (buffer.length > 0) segments.push({ kind: 'text', text: buffer })
+    buffer = ''
+  }
+  doc.forEach((paragraph, _offset, index) => {
+    if (index > 0) buffer += '\n'
+    paragraph.forEach((child) => {
+      if (child.type === composerSchema.nodes['attachment']) {
+        flush()
+        segments.push({ attId: child.attrs['attId'] as string, kind: 'attachment' })
+        return
+      }
+      buffer += child.text ?? ''
+    })
+  })
+  flush()
+  const first = segments[0]
+  if (first?.kind === 'text') segments[0] = { kind: 'text', text: first.text.trimStart() }
+  const last = segments.at(-1)
+  if (last?.kind === 'text')
+    segments[segments.length - 1] = { kind: 'text', text: last.text.trimEnd() }
+  return segments.filter((segment) => segment.kind !== 'text' || segment.text.length > 0)
+}
+
 /**
  * 取出文档里用户打的字：附件节点不算正文，段落之间用 `\n` 连接。
  *

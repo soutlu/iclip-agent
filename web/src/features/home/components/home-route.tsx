@@ -5,7 +5,12 @@ import { HomeComposer } from './home-composer'
 type HomeRouteProps = {
   /** 发送时做什么；未登录时路由层把它接到登录弹窗上 */
   onSend?:
-    | ((input: { agentId: string; text: string; media: ComposerSubmission['media'] }) => void)
+    | ((input: {
+        agentId: string
+        text: string
+        media: ComposerSubmission['media']
+        parts: ComposerSubmission['parts']
+      }) => void)
     | undefined
   /** 正在新建对话 */
   sending?: boolean

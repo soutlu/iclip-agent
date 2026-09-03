@@ -30,7 +30,11 @@ describe('Composer', () => {
     expect(sendButton()).toBeEnabled()
 
     fireEvent.keyDown(editor(), { key: 'Enter' })
-    expect(onSubmit).toHaveBeenCalledWith({ media: [], text: '做一个产品宣传片' })
+    expect(onSubmit).toHaveBeenCalledWith({
+      media: [],
+      parts: [{ kind: 'text', text: '做一个产品宣传片' }],
+      text: '做一个产品宣传片',
+    })
   })
 
   it('IME 组字期间的 Enter 是选字，不触发提交', async () => {

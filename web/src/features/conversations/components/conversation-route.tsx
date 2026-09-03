@@ -18,7 +18,7 @@ import type {
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
-import type { ComposerAttachment } from '@/shared/ui/composer'
+import type { ComposerAttachment, ComposerPart } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
 import {
   abortPrompt,
@@ -185,7 +185,11 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       : `模型请求失败，正在重试（第 ${retry.nextAttempt}/${retry.maxAttempts} 次）…`
   const showEmptyState = view.status === 'ready' && turns.length === 0 && bubbles.length === 0
 
-  const send = async (text: string, media: readonly ComposerAttachment[]) => {
+  const send = async (
+    text: string,
+    media: readonly ComposerAttachment[],
+    parts: readonly ComposerPart[],
+  ) => {
     const promptId = mintPromptId()
     const startsFlight = inFlightPromptId === null
     if (startsFlight) setInFlightPromptId(promptId)
@@ -194,7 +198,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       { anchorTurnId: latestTurn?.turnId, media, promptId, text },
     ])
     try {
-      await submitPrompt(conversationId, { media, promptId, text })
+      await submitPrompt(conversationId, { media, parts, promptId, text })
     } catch (error) {
       // 没送到就把气泡撤掉——留着一条永远认领不到的更糟；输入框那边会把内容还回去。
       setPending((list) => list.filter((item) => item.promptId !== promptId))

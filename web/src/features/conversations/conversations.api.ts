@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
-import type { ComposerAttachment } from '@/shared/ui/composer'
+import type { ComposerAttachment, ComposerPart } from '@/shared/ui/composer'
 import {
   zApproveConversationsConversationIdInteractionsInteractionIdPostResponse,
   zConversationEnvelope,
@@ -119,10 +119,12 @@ export const useStartConversation = (onCreated: (conversationId: string) => void
       agentId,
       text,
       media = [],
+      parts,
     }: {
       agentId: string
       text: string
       media?: readonly ComposerAttachment[]
+      parts?: readonly ComposerPart[] | undefined
     }) => {
       const conversation = await apiFetch('/conversations', conversationEnvelopeSchema, {
         body: { agentId },
@@ -132,7 +134,7 @@ export const useStartConversation = (onCreated: (conversationId: string) => void
       // 先跳过去再发：会话页那一侧订阅与拉基线都不依赖这条消息的回执，早跳一步用户就早看到
       // 自己那条话。
       onCreated(conversation.id)
-      await submitPrompt(conversation.id, { media, promptId: mintPromptId(), text })
+      await submitPrompt(conversation.id, { media, parts, promptId: mintPromptId(), text })
       return conversation
     },
     onSuccess: async () => {
@@ -144,27 +146,54 @@ export const useStartConversation = (onCreated: (conversationId: string) => void
 /** 铸一个 prompt id。界面拿它挂乐观气泡，服务端拿它去重。 */
 export const mintPromptId = (): string => crypto.randomUUID()
 
+/** 合同里一条消息的内容项：一段文字，或一个 url 来源的图 / 视频。 */
+type PromptContentItem =
+  { type: 'text'; text: string } | { type: 'image' | 'video'; source: { kind: 'url'; url: string } }
+
 /** 一条消息里的媒体附件 → 合同的 content 项（只有 url 来源的给得出地址，没地址的进不来）。 */
-const mediaContent = (media: readonly ComposerAttachment[]) =>
-  media.flatMap((item) =>
+const mediaContent = (media: readonly ComposerAttachment[]): PromptContentItem[] =>
+  media.flatMap((item): PromptContentItem[] =>
     item.url !== undefined && (item.kind === 'image' || item.kind === 'video')
-      ? [{ source: { kind: 'url' as const, url: item.url }, type: item.kind }]
+      ? [{ source: { kind: 'url', url: item.url }, type: item.kind }]
       : [],
   )
 
-/** 往一段对话里发一条消息（文字 + 附件）。同一个 `promptId` 重发不会多起一次运行。 */
+/**
+ * 把输入框里的段拼成消息内容：文字与图按原来的先后交替，「这张图」指的还是紧挨着的那张。
+ * 文件类附件没有对应的内容块，略过（与之前一致）。
+ */
+const partsContent = (parts: readonly ComposerPart[]): PromptContentItem[] =>
+  parts.flatMap((part): PromptContentItem[] =>
+    part.kind === 'text'
+      ? part.text === ''
+        ? []
+        : [{ text: part.text, type: 'text' }]
+      : mediaContent([part.media]),
+  )
+
+/**
+ * 往一段对话里发一条消息。同一个 `promptId` 重发不会多起一次运行。
+ *
+ * 给了 `parts` 就按输入框里的顺序发（文字、图交替）；没给才退回「全部文字 + 全部附件」的旧拼法。
+ */
 export const submitPrompt = async (
   conversationId: string,
   {
     promptId,
     text,
     media = [],
-  }: { promptId: string; text: string; media?: readonly ComposerAttachment[] },
+    parts,
+  }: {
+    promptId: string
+    text: string
+    media?: readonly ComposerAttachment[]
+    parts?: readonly ComposerPart[] | undefined
+  },
 ): Promise<void> => {
-  const content = [
-    ...(text === '' ? [] : [{ text, type: 'text' as const }]),
-    ...mediaContent(media),
-  ]
+  const content: PromptContentItem[] =
+    parts !== undefined
+      ? partsContent(parts)
+      : [...(text === '' ? [] : [{ text, type: 'text' as const }]), ...mediaContent(media)]
   await apiFetch(`/conversations/${conversationId}/prompts`, zPrompt, {
     body: { content, prompt_id: promptId },
     fallbackErrorMessage: '发送失败',

@@ -256,8 +256,19 @@ export const useComposerAttachments = () => {
 
 export type ComposerAttachments = ReturnType<typeof useComposerAttachments>
 
-/** 一次提交的内容：用户打的字 + 可发送的附件（按文档顺序）。 */
+/** 提交内容里的一段：一段文字，或一个就绪的附件，按它在输入框里的位置排。 */
+export type ComposerPart =
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'media'; readonly media: ComposerAttachment }
+
+/**
+ * 一次提交的内容。
+ *
+ * `parts` 是发消息该用的那份：文字与附件按输入框里的先后交替，图落在它被提到的那句话旁边。
+ * `text` / `media` 是压平的旧视图，给气泡占位与「发送失败还回去」用。
+ */
 export type ComposerSubmission = {
   readonly text: string
   readonly media: readonly ComposerAttachment[]
+  readonly parts: readonly ComposerPart[]
 }

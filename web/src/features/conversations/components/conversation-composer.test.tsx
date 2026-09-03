@@ -83,7 +83,11 @@ describe('ConversationComposer 上的引用芯片', () => {
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() =>
-      expect(onSend).toHaveBeenCalledWith('针对镜头组 2 的帧 @3：\n这一帧的光再暖一点', []),
+      expect(onSend).toHaveBeenCalledWith(
+        '针对镜头组 2 的帧 @3：\n这一帧的光再暖一点',
+        [],
+        [{ kind: 'text', text: '针对镜头组 2 的帧 @3：\n这一帧的光再暖一点' }],
+      ),
     )
     await waitFor(() => expect(screen.queryByText('镜头组 2 · 帧 @3')).not.toBeInTheDocument())
   })

@@ -4,5 +4,6 @@ export type {
   ComposerAttachment,
   ComposerAttachmentKind,
   ComposerAttachments,
+  ComposerPart,
   ComposerSubmission,
 } from './use-composer-attachments'

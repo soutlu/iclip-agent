@@ -160,12 +160,20 @@ export const useComposerEditor = ({
     const view = viewRef.current
     if (view === null) return
     attachmentsRef.current.restoreEntries(submission.media)
-    const content = [
-      ...submission.media.map((media) =>
-        nodeType('attachment').create({ attId: media.attId, kind: media.kind, name: media.name }),
-      ),
-      ...(submission.text === '' ? [] : [composerSchema.text(submission.text)]),
-    ]
+    // 按发出去时的先后还回来：图仍在它原来那句话旁边
+    const content = submission.parts.flatMap((part) =>
+      part.kind === 'text'
+        ? part.text === ''
+          ? []
+          : [composerSchema.text(part.text)]
+        : [
+            nodeType('attachment').create({
+              attId: part.media.attId,
+              kind: part.media.kind,
+              name: part.media.name,
+            }),
+          ],
+    )
     view.dispatch(
       view.state.tr.replaceWith(
         0,
