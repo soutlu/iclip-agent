@@ -110,25 +110,20 @@ function MediaChip({ onOpen, part }: { part: MediaPart; onOpen: (media: Lightbox
     <>
       <button
         aria-label={name}
-        className="mx-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-xs align-middle text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text"
+        className="mx-0.5 inline-flex h-4 cursor-pointer items-center overflow-hidden rounded-xs border-[0.5px] border-chat-hairline align-middle text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text"
         onClick={open}
         onMouseEnter={tip.onEnter}
         onMouseLeave={tip.onLeave}
         ref={setAnchorEl}
         type="button"
       >
-        {thumbnail === undefined ? (
-          <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="sm" />
-        ) : (
-          <>
-            <img
-              alt=""
-              className="size-4 rounded-xs object-cover ring-[0.5px] ring-chat-hairline"
-              src={thumbnail}
-            />
-            <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="xs" />
-          </>
+        {/* 图贴左边满高，角标带 3px 内距；两者在同一圈描边里，中间不留空 */}
+        {thumbnail === undefined ? null : (
+          <img alt="" className="aspect-square h-full object-cover" src={thumbnail} />
         )}
+        <span className="flex h-full items-center px-[3px]">
+          <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="xs" />
+        </span>
       </button>
       {tip.open && anchorEl !== null ? (
         <MediaPreviewCard
