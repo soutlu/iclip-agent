@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import {
   addMockCollection,
@@ -18,6 +19,17 @@ const loginAsUser = () =>
   server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
 
 /**
+ * 折叠态住在壳里（宽度与并排判定都要看它），单测里用这个最小的壳替身持有它。
+ *
+ * @returns 带折叠态的侧栏。
+ */
+function SidebarHarness() {
+  // 与壳同一条规矩：jsdom 的 matchMedia 恒为不匹配，等于紧凑屏，默认收起。
+  const [collapsed, setCollapsed] = useState(() => !window.matchMedia('(min-width: 600px)').matches)
+  return <AppSidebar collapsed={collapsed} onCollapsedChange={setCollapsed} />
+}
+
+/**
  * 把侧栏挂在应用壳的登录信号下渲染。
  *
  * @param requireLogin - 侧栏请求登录时调用的回调。
@@ -27,7 +39,7 @@ const loginAsUser = () =>
 const renderSidebar = (requireLogin = vi.fn(), initialPath = '/') =>
   renderWithProviders(
     <LoginPromptProvider value={requireLogin}>
-      <AppSidebar />
+      <SidebarHarness />
     </LoginPromptProvider>,
     { initialPath },
   )

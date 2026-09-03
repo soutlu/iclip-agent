@@ -1,4 +1,5 @@
 import { createRouter } from '@tanstack/react-router'
+import type { ComponentType } from 'react'
 import { routeTree } from '@/routeTree.gen'
 import { setOnForbidden, setOnUnauthorized } from '@/shared/api/client'
 import { refreshSessionUser } from '@/shared/auth'
@@ -40,5 +41,10 @@ setOnForbidden(refreshSessionThenInvalidateRoutes)
 declare module '@tanstack/react-router' {
   interface Register {
     router: typeof router
+  }
+
+  // 壳里的右面板是个槽位：路由声明了内容才展开，由 routes/-app-right-panel.tsx 按当前匹配渲染。
+  interface StaticDataRouteOption {
+    rightPanel?: ComponentType
   }
 }

@@ -1,18 +1,26 @@
+import { useMatches } from '@tanstack/react-router'
 import { useState } from 'react'
 import { IconButton } from '@/shared/ui/button'
 
 /**
- * 应用右面板：每页共享的外壳（面板头、内容区）。
+ * 应用右面板：每页共享的外壳槽位。
  *
- * 结构对齐 Kimi Code Web 的右面板：460 宽、所有断点默认折叠（折叠后主区右上浮出展开钮，
- * 紧凑屏展开后成浮层）。面板内容（tab、文件 / 进度等）还没定，当前只有空态占位——
+ * 槽位由当前路由的 `staticData.rightPanel` 填——取最深那一个匹配，声明了就整块交给它（几何也归
+ * 它管）。没有声明的页面保持折叠空态：460 宽、默认折叠、折叠后主区右上浮出展开钮。
  * 见 design-system.html 04 · HOME。
  *
- * @returns 右面板与折叠态下的浮出展开按钮。
+ * @returns 路由声明的面板内容，或折叠空态与它的展开按钮。
  */
 export function AppRightPanel() {
+  const matches = useMatches()
+  // 深的盖浅的：父路由声明了通用面板时，子路由能就地换掉它。
+  const Panel = [...matches].reverse().find((match) => match.staticData.rightPanel !== undefined)
+    ?.staticData.rightPanel
+
   // 右面板默认折叠：面板尚无内容，展开由用户显式触发
   const [collapsed, setCollapsed] = useState(true)
+
+  if (Panel !== undefined) return <Panel />
 
   if (collapsed) {
     return (

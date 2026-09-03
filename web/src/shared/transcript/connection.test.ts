@@ -300,4 +300,83 @@ describe('TranscriptConnection', () => {
 
     expect(seen).toEqual([])
   })
+
+  it('订文件：发 watch_fs_add，变动按对话与路径分给它的 handler', () => {
+    const connection = connect(['c1'])
+    const seen: string[] = []
+    connection.watchFs('c1', ['video_shot.json'], (changes) => {
+      for (const change of changes) seen.push(change.path)
+    })
+
+    const asked = socket.frames().find((frame) => frame.type === 'watch_fs_add')
+    expect(asked?.payload).toEqual({ paths: ['video_shot.json'], session_id: 'c1' })
+
+    socket.deliver({
+      type: 'event.fs.changed',
+      session_id: 'c1',
+      payload: {
+        changes: [
+          { path: 'video_shot.json', change: 'modified', kind: 'file' },
+          { path: 'frames/extraction.json', change: 'created', kind: 'file' },
+        ],
+        coalesced_window_ms: 0,
+      },
+    })
+
+    // 只把订了的那条路径给它：订一份文件的人不该被别的文件叫醒。
+    expect(seen).toEqual(['video_shot.json'])
+  })
+
+  it('别段对话的文件变动不串门', () => {
+    const connection = connect(['c1'])
+    const seen: string[] = []
+    connection.watchFs('c1', ['video_shot.json'], () => seen.push('called'))
+
+    socket.deliver({
+      type: 'event.fs.changed',
+      session_id: 'c2',
+      payload: {
+        changes: [{ path: 'video_shot.json', change: 'modified', kind: 'file' }],
+        coalesced_window_ms: 0,
+      },
+    })
+
+    expect(seen).toEqual([])
+  })
+
+  it('退订之后发 watch_fs_remove，也不再收变动', () => {
+    const connection = connect(['c1'])
+    const seen: string[] = []
+    const stop = connection.watchFs('c1', ['video_shot.json'], () => seen.push('called'))
+
+    stop()
+    expect(socket.frames().some((frame) => frame.type === 'watch_fs_remove')).toBe(true)
+
+    socket.deliver({
+      type: 'event.fs.changed',
+      session_id: 'c1',
+      payload: {
+        changes: [{ path: 'video_shot.json', change: 'modified', kind: 'file' }],
+        coalesced_window_ms: 0,
+      },
+    })
+
+    expect(seen).toEqual([])
+  })
+
+  it('断线重连之后把还在的文件订阅原样重发', () => {
+    vi.useFakeTimers()
+    const connection = connect(['c1'])
+    connection.watchFs('c1', ['video_shot.json'], () => {})
+    const before = socket
+
+    before.onclose?.()
+    vi.advanceTimersByTime(2_000)
+    socket.deliver(HELLO)
+
+    // 新连接那一头什么都不记得：不重发的话文件变了再也没人通知。
+    const watches = before.frames().filter((frame) => frame.type === 'watch_fs_add')
+    expect(watches).toHaveLength(2)
+    vi.useRealTimers()
+  })
 })

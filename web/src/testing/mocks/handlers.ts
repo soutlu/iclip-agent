@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import { transcriptHandlers } from './transcript'
+import { workspaceHandlers } from './workspace'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MSW REST 契约镜像
@@ -505,6 +506,9 @@ export const handlers = [
       { status: 201 },
     )
   }),
+
+  // ── 工作区文件与生成任务（src/shared/workbench、src/features/storyboard）───
+  ...workspaceHandlers,
 
   // ── transcript（src/shared/transcript）─────────────────────────────────
   ...transcriptHandlers,

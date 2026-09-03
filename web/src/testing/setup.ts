@@ -3,6 +3,7 @@ import { cleanup } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
 import { resetMockConversations, resetMockSession, resetMockTasks } from './mocks/handlers'
 import { server } from './mocks/server'
+import { resetMockWorkspace } from './mocks/workspace'
 
 // jsdom 没有 matchMedia：组件按断点取初始态（如侧栏在紧凑屏默认折叠）时需要最小实现。
 // matches 恒为 false——测试里一律视为紧凑屏。
@@ -30,6 +31,7 @@ afterEach(() => {
   resetMockConversations()
   resetMockSession()
   resetMockTasks()
+  resetMockWorkspace()
   cleanup()
 })
 

@@ -37,6 +37,7 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
     │   ├── collections/        # 合集
     │   ├── conversations/      # 对话：侧栏用的接口、归属与搜索弹窗、会话页
     │   ├── home/               # 首页
+    │   ├── storyboard/         # 分镜工作台：产物面板里的镜头组渲染器
     │   └── tasks/              # 需求单
     ├── shared/                 # 共用层
     │   ├── api/                # apiFetch、query-client
@@ -44,7 +45,8 @@ AI 视频创作前端。Vite + React 19 纯 SPA，TanStack Router 文件式路�
     │   ├── icons/              # 图标注册表（Icon / IconName，唯一图标入口）
     │   ├── lib/                # 通用工具
     │   ├── transcript/         # 对话内容：订阅连接、读取端；vendor/ 是照抄来的协议 reducer
-    │   └── ui/                 # 契约组件：button / chip / composer / dialog / field / media-lightbox / menu / popup / tag / toast
+    │   ├── ui/                 # 契约组件：button / chip / composer / dialog / field / media-lightbox / menu / popup / tag / toast
+    │   └── workbench/          # 产物面板宿主与类型注册表（渲染器在 features/，登记在 app/）
     └── testing/                # 测试基建：renderWithProviders、MSW handlers / server、dev:mock 入口
 ```
 

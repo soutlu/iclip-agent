@@ -7,6 +7,7 @@
  */
 
 import { http, HttpResponse, ws } from 'msw'
+import { SHOTS_MOCK_PATH, touchMockShots } from './workspace'
 
 /** 历史里有几轮。 */
 const HISTORY_TURNS = 2
@@ -46,6 +47,9 @@ const DEMO_ATTACHMENT = {
 
 /** 每批操作之间隔多久：够看出是流式的，又不至于等。 */
 const BEAT_MS = 500
+
+/** 订上文件多久之后演 agent 改一次：留出打开面板、翻两组的时间。 */
+const FS_CHANGE_DELAY_MS = 5000
 
 type Batch = unknown[]
 
@@ -415,13 +419,45 @@ export const transcriptHandlers = [
     )
 
     let joined: Connection | null = null
+    // 这条连接已经排过改文件的那几段对话。React 严格模式挂载两遍，不去重就会推两帧、版本跳两级。
+    const fsScheduled = new Set<string>()
     client.addEventListener('message', (event) => {
       if (typeof event.data !== 'string') return
       const frame = JSON.parse(event.data) as {
         id?: string
-        payload?: { session_id?: string }
+        payload?: { paths?: string[]; session_id?: string }
         type?: string
       }
+
+      if (frame.type === 'watch_fs_add' || frame.type === 'watch_fs_remove') {
+        const watched = frame.payload?.paths ?? []
+        client.send(
+          JSON.stringify({
+            id: frame.id,
+            payload: { current_count: watched.length, watched_paths: watched },
+            type: 'ack',
+          }),
+        )
+        const conversationId = frame.payload?.session_id ?? ''
+        if (frame.type !== 'watch_fs_add' || fsScheduled.has(conversationId)) return
+        fsScheduled.add(conversationId)
+        // 订上一会儿之后演一次 agent 改文件：面板重读文件、标出「agent 刚改过」。
+        setTimeout(() => {
+          if (!touchMockShots(conversationId)) return
+          client.send(
+            JSON.stringify({
+              payload: {
+                changes: [{ change: 'modified', kind: 'file', path: SHOTS_MOCK_PATH }],
+                coalesced_window_ms: 0,
+              },
+              session_id: conversationId,
+              type: 'event.fs.changed',
+            }),
+          )
+        }, FS_CHANGE_DELAY_MS)
+        return
+      }
+
       if (frame.type !== 'subscribe_v2') return
       const conversationId = frame.payload?.session_id ?? ''
       client.send(
