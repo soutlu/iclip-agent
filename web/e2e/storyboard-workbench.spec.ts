@@ -35,7 +35,7 @@ test('没有工作区文件的对话仍是折叠空态', async ({ page }) => {
   await page.goto('/')
   await login(page)
 
-  await page.getByRole('link', { name: '通勤背包短视频', exact: true }).click()
+  await page.getByRole('link', { name: '亚麻衬衫二剪', exact: true }).click()
   await expect(page).toHaveURL(/\/c\//)
 
   await expect(page.getByRole('button', { name: '展开右侧面板' })).toBeVisible()

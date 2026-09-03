@@ -5,8 +5,10 @@
  * 并排断点时聊天与面板只显示其一，面板一侧给「回到聊天」。
  */
 
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { use, useEffect, useState } from 'react'
+import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { IconButton } from '@/shared/ui/button'
 import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { cn } from '@/shared/lib/utils'
@@ -17,6 +19,9 @@ import { useWorkspaceFiles } from './workspace.api'
 
 /** 并排的起点，与 `--breakpoint-lg` 同值。媒体查询要的是常量，取不到 CSS 变量。 */
 const SIDE_BY_SIDE_QUERY = '(min-width: 1280px)'
+
+/** 紧凑屏的上界，与 `--breakpoint-sm` 同值：这一档右面板默认折叠（04 · HOME）。 */
+const COMPACT_QUERY = '(min-width: 600px)'
 
 /**
  * 工具帧来源这一期不接线：面板与会话页会各建一个 transcript reader，而 `subscribe` 是覆盖式的，
@@ -49,17 +54,31 @@ type WorkbenchHostProps = {
 export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const registry = useWorkbenchRegistry()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const connection = use(TranscriptConnectionContext)
   const search: { artifact?: string } = useSearch({ strict: false })
   const files = useWorkspaceFiles(conversationId)
   // 用户点过折叠 / 展开就听他的；没点过按「有没有产物」定：一件都没有的对话不该白占掉 820。
   const [collapsedByUser, setCollapsedByUser] = useState<boolean | null>(null)
   const [maximized, setMaximized] = useState(false)
   const sideBySide = useMediaQuery(SIDE_BY_SIDE_QUERY)
+  const compact = !useMediaQuery(COMPACT_QUERY)
+
+  // 断线期间文件变了没人通知：重连之后整份重拉一次对齐（contract/conventions.md §5 文件订阅）。
+  useEffect(() => {
+    if (connection === null) return undefined
+    return connection.watchSessions((update) => {
+      if (update.kind !== 'reconnected') return
+      void queryClient.invalidateQueries({
+        queryKey: ['conversations', conversationId, 'workspace'],
+      })
+    })
+  }, [connection, conversationId, queryClient])
 
   const artifacts = composeArtifacts(registry, files.data?.files ?? [], NO_FRAMES)
   const selected = pickArtifact(registry, artifacts, search.artifact)
   const entry = selected === undefined ? undefined : registry.resolve(selected.type)
-  const collapsed = collapsedByUser ?? artifacts.length === 0
+  const collapsed = collapsedByUser ?? (artifacts.length === 0 || compact)
   const setCollapsed = setCollapsedByUser
 
   if (collapsed) {

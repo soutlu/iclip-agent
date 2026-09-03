@@ -131,7 +131,8 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           size="lg"
         />
 
-        <article className="grid min-h-0 flex-1 grid-cols-[300px_1fr] overflow-hidden rounded-lg border-[0.5px] border-chat-hairline bg-chat-card-bg">
+        {/* max-h-full：画面按画幅撑高，撑不下时让位给胶片条，不叠上去 */}
+        <article className="grid max-h-full min-h-0 flex-1 grid-cols-[300px_1fr] overflow-hidden rounded-lg border-[0.5px] border-chat-hairline bg-chat-card-bg">
           <div className="flex min-h-0 flex-col bg-surface-container">
             <div
               className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
