@@ -142,7 +142,7 @@ export function MediaPreviewCard({
             ) : media.kind === 'image' ? (
               <img
                 alt={name}
-                className="block max-h-[220px] max-w-[300px] rounded-xs object-contain"
+                className="block max-h-[220px] max-w-[300px] rounded-sm object-contain"
                 onLoad={() => measure(tipElRef.current)}
                 src={previewUrl}
               />
@@ -150,7 +150,7 @@ export function MediaPreviewCard({
               // 只当首帧看：静音、不给控件，也就不需要字幕轨（用户自己传的素材本来没有）
               <video
                 aria-label={name}
-                className="block max-h-[220px] max-w-[300px] rounded-xs object-contain"
+                className="block max-h-[220px] max-w-[300px] rounded-sm object-contain"
                 muted
                 onLoadedMetadata={() => measure(tipElRef.current)}
                 playsInline
@@ -211,8 +211,13 @@ export function MediaPreviewCard({
               {upload.status === 'error' ? '上传失败' : null}
             </span>
           )}
+          {/* 动作靠右（kimi 的 mention-tip-media-actions）：没有状态行时也不贴在名字底下 */}
           {canOpenFullscreen ? (
-            <button className="media-tip-open" onClick={onOpenFullscreen} type="button">
+            <button
+              className="media-tip-open ml-auto flex-none"
+              onClick={onOpenFullscreen}
+              type="button"
+            >
               <Icon decorative name="zoom" size="sm" />
               全屏查看
             </button>

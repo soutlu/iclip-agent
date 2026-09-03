@@ -1,5 +1,5 @@
-export { MediaChipContent } from './media-chip-content'
+export { MediaChipContent, mediaThumbnailUrl } from './media-chip-content'
 export { MediaPreviewCard } from './media-preview-card'
 export { useHoverPreview } from './use-hover-preview'
-export { mediaDisplayName } from './media-descriptor'
+export { MEDIA_KIND_ICON, mediaDisplayName } from './media-descriptor'
 export type { MediaDescriptor, MediaKind, MediaUploadState } from './media-descriptor'

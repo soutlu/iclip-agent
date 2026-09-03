@@ -57,14 +57,14 @@ describe('UserBubble', () => {
 
   it('图夹在两句话中间：芯片就画在那两句话中间，头部是这张图的缩略图', () => {
     const url = 'https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'
-    const { container } = render(
-      <UserBubble content={[text('先看这张图：'), image(url), text('\n说明它写了什么')]} />,
-    )
+    render(<UserBubble content={[text('先看这张图：'), image(url), text('\n说明它写了什么')]} />)
 
+    // 芯片不再带文件名，位置看 DOM 次序
     const chip = screen.getByRole('button', { name: 'S6-1.jpg' })
-    const body = container.textContent ?? ''
-    expect(body.indexOf('先看这张图：')).toBeLessThan(body.indexOf('S6-1.jpg'))
-    expect(body.indexOf('S6-1.jpg')).toBeLessThan(body.indexOf('说明它写了什么'))
+    const before = screen.getByText('先看这张图：')
+    const after = screen.getByText(/说明它写了什么/)
+    expect(before.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(chip.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(chip.querySelector('img')?.getAttribute('src')).toBe(
       `${url}?x-oss-process=image/resize,l_64`,
     )

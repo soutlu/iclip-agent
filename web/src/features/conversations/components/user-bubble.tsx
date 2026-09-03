@@ -9,14 +9,16 @@
 
 import { useState } from 'react'
 import type { PromptContentPart } from '@/shared/transcript/vendor'
+import { Icon } from '@/shared/icons'
 import { fileNameOfUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
 import {
-  MediaChipContent,
+  MEDIA_KIND_ICON,
   type MediaDescriptor,
   mediaDisplayName,
   MediaPreviewCard,
+  mediaThumbnailUrl,
   useHoverPreview,
 } from '@/shared/ui/media-preview'
 import { useClampable } from './use-clampable'
@@ -82,8 +84,9 @@ export function UserBubble({ className, content }: UserBubbleProps) {
 }
 
 /**
- * 一颗内联媒体芯片：14px 缩略图加文件名，与输入框 pill 是同一套芯片与悬停预览卡。
- * 悬停出卡、点开进灯箱（图与视频都进）。视频的缩略图是 OSS 截的首帧，别处的地址截不出来。
+ * 一颗内联媒体芯片：一行高的缩略图接一枚种类角标，不带文件名（名字在悬停卡里）。
+ * 与输入框 pill 共用悬停预览卡；悬停出卡、点开进灯箱（图与视频都进）。
+ * 视频的缩略图是 OSS 截的首帧，别处的地址截不出来，那时只画一枚种类图标。
  *
  * @param props - 组件属性。
  * @param props.part - 图片或视频 part。
@@ -96,22 +99,34 @@ function MediaChip({ onOpen, part }: { part: MediaPart; onOpen: (media: Lightbox
   const tip = useHoverPreview()
   const url = part.source.url
   const media: MediaDescriptor = { kind: part.type, name: fileNameOfUrl(url), previewUrl: url }
+  const name = mediaDisplayName(media)
+  const thumbnail = mediaThumbnailUrl(media)
   const open = () => {
     tip.close()
-    onOpen({ kind: part.type, name: mediaDisplayName(media), url })
+    onOpen({ kind: part.type, name, url })
   }
 
   return (
     <>
       <button
-        className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-xs align-bottom text-body-sm text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text hover:underline hover:underline-offset-2"
+        aria-label={name}
+        className="mx-0.5 inline-flex h-[1lh] cursor-pointer items-center gap-1 overflow-hidden rounded-xs bg-surface-container-high pr-1 align-bottom text-on-surface-variant ui-focus ui-motion-s hover:bg-surface-container-highest hover:text-chat-message-text"
         onClick={open}
         onMouseEnter={tip.onEnter}
         onMouseLeave={tip.onLeave}
         ref={setAnchorEl}
         type="button"
       >
-        <MediaChipContent media={media} />
+        {thumbnail === undefined ? (
+          <span className="flex aspect-square h-full items-center justify-center">
+            <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="sm" />
+          </span>
+        ) : (
+          <>
+            <img alt="" className="aspect-square h-full object-cover" src={thumbnail} />
+            <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="xs" />
+          </>
+        )}
       </button>
       {tip.open && anchorEl !== null ? (
         <MediaPreviewCard
