@@ -108,21 +108,24 @@ function MediaChip({ onOpen, part }: { part: MediaPart; onOpen: (media: Lightbox
 
   return (
     <>
+      {/* 外壳占满一行高、顶对齐，芯片在壳里居中：这样它和字一样落在行框正中，不受字体基线度量影响 */}
       <button
         aria-label={name}
-        className="mx-0.5 inline-flex h-4 cursor-pointer items-center overflow-hidden rounded-xs border-[0.5px] border-chat-hairline align-middle text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text"
+        className="mx-0.5 inline-flex h-[1lh] cursor-pointer items-center align-top text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text"
         onClick={open}
         onMouseEnter={tip.onEnter}
         onMouseLeave={tip.onLeave}
         ref={setAnchorEl}
         type="button"
       >
-        {/* 图贴左边满高，角标带 3px 内距；两者在同一圈描边里，中间不留空 */}
-        {thumbnail === undefined ? null : (
-          <img alt="" className="aspect-square h-full object-cover" src={thumbnail} />
-        )}
-        <span className="flex h-full items-center px-[3px]">
-          <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="xs" />
+        <span className="flex h-4 items-center overflow-hidden rounded-xs border-[0.5px] border-chat-hairline">
+          {/* 图贴左边满高，角标带 3px 内距；两者在同一圈描边里，中间不留空 */}
+          {thumbnail === undefined ? null : (
+            <img alt="" className="aspect-square h-full object-cover" src={thumbnail} />
+          )}
+          <span className="flex h-full items-center px-[3px]">
+            <Icon decorative name={MEDIA_KIND_ICON[media.kind]} size="xs" />
+          </span>
         </span>
       </button>
       {tip.open && anchorEl !== null ? (
