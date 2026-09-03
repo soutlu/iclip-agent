@@ -386,6 +386,66 @@ describe('ConversationRoute', () => {
     })
   })
 
+  it('只有末轮的开场气泡有「修改」；点了把原内容装回输入框，发送打 :regenerate 带新内容', async () => {
+    const user = userEvent.setup()
+    await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    let path = ''
+    let body: { content: { text?: string }[]; prompt_id: string } | null = null
+    server.use(
+      http.post('*/api/conversations/c1/turns/*', async ({ request }) => {
+        path = decodeURIComponent(new URL(request.url).pathname.split('/').pop() ?? '')
+        body = (await request.json()) as { content: { text?: string }[]; prompt_id: string }
+        return HttpResponse.json({
+          createdAt: '2026-08-31T03:02:00Z',
+          promptId: body.prompt_id,
+          status: 'running',
+        })
+      }),
+    )
+
+    expect(
+      within(screen.getByLabelText('第 1 轮')).queryByRole('button', { name: '修改' }),
+    ).toBeNull()
+    await user.click(within(screen.getByLabelText('第 2 轮')).getByRole('button', { name: '修改' }))
+
+    // 修改态：提示条出现，输入框里是原来那句
+    expect(screen.getByText('正在修改第 2 轮')).toBeInTheDocument()
+    expect(screen.getByLabelText('输入消息')).toHaveTextContent('第 2 个问题')
+
+    pasteTextIntoComposer(screen.getByLabelText('输入消息'), '，再具体些')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+
+    await waitFor(() => {
+      expect(path).toBe('t2:regenerate')
+    })
+    const sent = body as { content: { text?: string }[]; prompt_id: string } | null
+    expect(sent).not.toBeNull()
+    const text = sent?.content.map((part) => part.text ?? '').join('') ?? ''
+    expect(text).toContain('第 2 个问题')
+    expect(text).toContain('再具体些')
+    expect(sent?.prompt_id).not.toBe('')
+    // 发出去就退出修改态
+    await waitFor(() => {
+      expect(screen.queryByText('正在修改第 2 轮')).toBeNull()
+    })
+  })
+
+  it('修改态点「取消」：提示条收起，输入框清空', async () => {
+    const user = userEvent.setup()
+    await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    await user.click(within(screen.getByLabelText('第 2 轮')).getByRole('button', { name: '修改' }))
+    expect(screen.getByLabelText('输入消息')).toHaveTextContent('第 2 个问题')
+
+    await user.click(screen.getByRole('button', { name: '取消' }))
+
+    expect(screen.queryByText('正在修改第 2 轮')).toBeNull()
+    expect(screen.getByLabelText('输入消息')).toHaveTextContent('')
+  })
+
   it('对话在忙时「重新生成」置灰', async () => {
     const { socket } = await renderConversation()
     await screen.findByText(TAIL_TEXT)

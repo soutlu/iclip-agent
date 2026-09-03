@@ -55,6 +55,38 @@ describe('UserBubble', () => {
     expect(screen.getByRole('button', { name: '收起' })).toBeInTheDocument()
   })
 
+  it('气泡下有复制钮：复制的是文字 part 原样接起来的正文；没给 onEdit 就没有修改钮', async () => {
+    // user-event 自己会垫一份剪贴板，垫子要在它之后放才生效
+    const user = userEvent.setup()
+    const writeText = stubClipboard()
+    render(
+      <UserBubble
+        content={[
+          text('先看这张图：'),
+          image('https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'),
+          text('\n说明它写了什么'),
+        ]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: '复制消息' }))
+
+    expect(writeText).toHaveBeenCalledWith('先看这张图：\n说明它写了什么')
+    expect(screen.queryByRole('button', { name: '修改' })).toBeNull()
+  })
+
+  it('给了 onEdit 才有修改钮，editDisabled 时置灰', async () => {
+    const onEdit = vi.fn()
+    const user = userEvent.setup()
+    const { rerender } = render(<UserBubble content={[text('问')]} onEdit={onEdit} />)
+
+    await user.click(screen.getByRole('button', { name: '修改' }))
+    expect(onEdit).toHaveBeenCalledOnce()
+
+    rerender(<UserBubble content={[text('问')]} editDisabled onEdit={onEdit} />)
+    expect(screen.getByRole('button', { name: '修改' })).toBeDisabled()
+  })
+
   it('图夹在两句话中间：芯片就画在那两句话中间，头部是这张图的缩略图', () => {
     const url = 'https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'
     render(<UserBubble content={[text('先看这张图：'), image(url), text('\n说明它写了什么')]} />)

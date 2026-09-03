@@ -9,11 +9,17 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@/shared/auth'
-import type { ComposerHandle, ComposerSubmission } from '@/shared/ui/composer'
+import type { ComposerHandle, ComposerPart, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
 import { useWorkbenchSelection } from '@/shared/workbench'
 import { ContextUsageIndicator } from './context-usage-indicator'
+
+/** 正在修改的那条已发消息：第几轮、原内容按输入框的段。 */
+type ComposerEditing = {
+  ordinal: number
+  parts: readonly ComposerPart[]
+}
 
 type ConversationComposerProps = {
   /** 发一条：文字与附件按输入框顺序交替的那份。抛异常表示没送到，这里会把内容还回输入框。 */
@@ -25,7 +31,17 @@ type ConversationComposerProps = {
   contextTokens: number | undefined
   maxContextTokens: number | undefined
   onStop?: (() => void) | undefined
+  /** 处于修改态：内容装进输入框，上方出一条提示；退出（取消或发出去）由调用方把它设回 undefined。 */
+  editing?: ComposerEditing | undefined
+  onCancelEdit?: (() => void) | undefined
 }
+
+/** 装回输入框要的那份快照：段照原顺序，另两个压平视图由段推出来。 */
+const submissionOf = (parts: readonly ComposerPart[]): ComposerSubmission => ({
+  media: parts.flatMap((part) => (part.kind === 'media' ? [part.media] : [])),
+  parts,
+  text: parts.flatMap((part) => (part.kind === 'text' ? [part.text] : [])).join(''),
+})
 
 /**
  * 渲染会话页输入框。
@@ -35,13 +51,17 @@ type ConversationComposerProps = {
  * @param props.busy - 这段对话是否正在跑。
  * @param props.awaitingApproval - 是否有一步等着审批。
  * @param props.onStop - 点停止。
+ * @param props.editing - 正在修改的那条消息。
+ * @param props.onCancelEdit - 点了「取消」。
  * @returns 输入框。
  */
 export function ConversationComposer({
   awaitingApproval = false,
   busy = false,
   contextTokens,
+  editing,
   maxContextTokens,
+  onCancelEdit,
   onSend,
   onStop,
 }: ConversationComposerProps) {
@@ -55,6 +75,18 @@ export function ConversationComposer({
   useEffect(() => {
     if (focusToken > 0) composerRef.current?.focus()
   }, [focusToken])
+
+  // 进修改态把那条消息整篇装进来（盖掉正在打的草稿）；退出时清空
+  useEffect(() => {
+    const handle = composerRef.current
+    if (handle === null) return
+    if (editing === undefined) {
+      handle.clear()
+      return
+    }
+    handle.restore(submissionOf(editing.parts))
+    handle.focus()
+  }, [editing])
 
   const send = async (submission: ComposerSubmission) => {
     composerRef.current?.clear()
@@ -81,25 +113,39 @@ export function ConversationComposer({
   }
 
   return (
-    <Composer
-      attachmentsEnabled={user?.permissions.includes('assets:write') ?? false}
-      busy={busy}
-      dense
-      onStop={onStop}
-      onSubmit={(submission) => void send(submission)}
-      placeholder={awaitingApproval ? '等你审批后继续' : '接着说…'}
-      ref={composerRef}
-      references={selection.refs.map((reference) => ({
-        id: reference.id,
-        label: reference.label,
-        onRemove: () => selection.remove(reference.id),
-      }))}
-      sending={sending}
-      trailing={
-        contextTokens !== undefined && maxContextTokens !== undefined && maxContextTokens > 0 ? (
-          <ContextUsageIndicator max={maxContextTokens} used={contextTokens} />
-        ) : undefined
-      }
-    />
+    <>
+      {editing === undefined ? null : (
+        <div className="mb-2 flex items-center justify-between rounded-sm border-[0.5px] border-chat-hairline bg-top-layer px-3 py-1.5 text-body-sm text-chat-secondary-text">
+          <span>正在修改第 {editing.ordinal} 轮</span>
+          <button
+            className="cursor-pointer ui-focus ui-motion-s hover:text-chat-message-text"
+            onClick={onCancelEdit}
+            type="button"
+          >
+            取消
+          </button>
+        </div>
+      )}
+      <Composer
+        attachmentsEnabled={user?.permissions.includes('assets:write') ?? false}
+        busy={busy}
+        dense
+        onStop={onStop}
+        onSubmit={(submission) => void send(submission)}
+        placeholder={awaitingApproval ? '等你审批后继续' : '接着说…'}
+        ref={composerRef}
+        references={selection.refs.map((reference) => ({
+          id: reference.id,
+          label: reference.label,
+          onRemove: () => selection.remove(reference.id),
+        }))}
+        sending={sending}
+        trailing={
+          contextTokens !== undefined && maxContextTokens !== undefined && maxContextTokens > 0 ? (
+            <ContextUsageIndicator max={maxContextTokens} used={contextTokens} />
+          ) : undefined
+        }
+      />
+    </>
   )
 }
