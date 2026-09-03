@@ -900,7 +900,7 @@ requires-dist = [
     { name = "procrastinate", specifier = "==3.9.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.9" },
-    { name = "pydantic-ai-harness", git = "https://github.com/pydantic/pydantic-ai-harness?rev=875b9a4efe45b260d89572b0ed653c8636bc01e5" },
+    { name = "pydantic-ai-harness", specifier = ">=0.28.1" },
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.37" },
     { name = "pydantic-settings", specifier = ">=2.15" },
     { name = "pyyaml", specifier = ">=6" },
@@ -1440,12 +1440,16 @@ wheels = [
 
 [[package]]
 name = "pydantic-ai-harness"
-version = "0.28.1.dev6+875b9a4"
-source = { git = "https://github.com/pydantic/pydantic-ai-harness?rev=875b9a4efe45b260d89572b0ed653c8636bc01e5#875b9a4efe45b260d89572b0ed653c8636bc01e5" }
+version = "0.28.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
     { name = "httpx" },
     { name = "pydantic-ai-slim" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e0/1b/4b9f1a89095f454ccf7b7a26a8b60ccd71fcd56a72598e95681fbf1ec0e3/pydantic_ai_harness-0.28.1.tar.gz", hash = "sha256:7eb51244c5bf15d34f2db1b0ea0fcf057b53d5dbd8ad3728b0f2bc986d3c6fa3", size = 2441746, upload-time = "2026-09-03T06:08:54.205Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/42/b782bb8573f6add5269859f2fe0dac3d4a8a2bbf0dc9d3852e83eee8ae98/pydantic_ai_harness-0.28.1-py3-none-any.whl", hash = "sha256:5ef9d9dd7980ee25f410228d22be3f51b50995dc2398d6d3ffcda01b34082323", size = 762287, upload-time = "2026-09-03T06:08:52.661Z" },
 ]
 
 [[package]]
