@@ -52,9 +52,9 @@ export function ShotPage({ aspectRatio, frameNumber, onPickFrame, shot }: ShotPa
       aria-label={`镜头组 ${shot.index}`}
       className="flex h-full w-full shrink-0 snap-start flex-col gap-3 p-4"
     >
-      <div className="flex min-h-0 flex-1 items-center gap-2">
+      <div className="flex min-h-0 flex-1 items-stretch gap-2">
         <IconButton
-          className="shrink-0 rounded-full border-[0.5px] border-chat-hairline bg-chat-card-bg"
+          className="shrink-0 self-center rounded-full border-[0.5px] border-chat-hairline bg-chat-card-bg"
           disabled={frameNumber <= 1}
           label="上一帧"
           name="back"
@@ -62,7 +62,8 @@ export function ShotPage({ aspectRatio, frameNumber, onPickFrame, shot }: ShotPa
           size="lg"
         />
 
-        <article className="grid max-h-full min-h-0 flex-1 grid-cols-[3fr_2fr] overflow-hidden rounded-lg border-[0.5px] border-chat-hairline bg-chat-card-bg">
+        {/* 卡撑满可用高度：画面按高度缩放，描述列跟着一起长，不留上下大片空白 */}
+        <article className="grid min-h-0 flex-1 grid-cols-[3fr_2fr] overflow-hidden rounded-lg border-[0.5px] border-chat-hairline bg-chat-card-bg">
           <div className="relative flex min-h-0 flex-col items-center justify-center gap-2 bg-surface-container p-3">
             {currentUrl === undefined ? (
               <p className="text-body-sm text-on-surface-faint">这一组没有帧</p>
@@ -97,9 +98,11 @@ export function ShotPage({ aspectRatio, frameNumber, onPickFrame, shot }: ShotPa
           </div>
 
           <div className="flex min-h-0 flex-col gap-3 p-5">
-            <h3 className="flex items-center gap-2.5 text-title font-semibold text-on-surface">
+            <h3 className="flex min-w-0 items-center gap-2.5 text-title font-semibold text-on-surface">
               <ShotBadge index={shot.index} />
-              {shotName(shot)}
+              <span className="min-w-0 truncate" title={shotName(shot)}>
+                {shotName(shot)}
+              </span>
             </h3>
             <p className="text-label text-on-surface-faint">分镜描述</p>
 
@@ -129,8 +132,9 @@ export function ShotPage({ aspectRatio, frameNumber, onPickFrame, shot }: ShotPa
                   <div
                     className={cn(
                       'shrink-0 rounded-md p-3 ui-motion-s',
+                      // 选中态走中性的 state-active（与侧栏行、筛选 chip 同一口径），不用主色铺底
                       scene.id === currentScene?.id
-                        ? 'bg-primary-container-soft'
+                        ? 'bg-state-active'
                         : 'bg-surface-container-low',
                     )}
                     key={scene.id}
@@ -153,7 +157,7 @@ export function ShotPage({ aspectRatio, frameNumber, onPickFrame, shot }: ShotPa
         </article>
 
         <IconButton
-          className="shrink-0 rounded-full border-[0.5px] border-chat-hairline bg-chat-card-bg"
+          className="shrink-0 self-center rounded-full border-[0.5px] border-chat-hairline bg-chat-card-bg"
           disabled={frameNumber >= frames.length}
           label="下一帧"
           name="next"
@@ -233,7 +237,7 @@ function PromptText({ highlighted, onPickFrame, segments }: PromptTextProps) {
         className={cn(
           tagVariants({ variant: 'soft' }),
           'mx-0.5 cursor-pointer align-middle ui-focus',
-          segment.number === highlighted && 'bg-primary-container text-on-primary-container',
+          segment.number === highlighted && 'bg-on-surface text-surface',
         )}
         key={segment.id}
         onClick={() => onPickFrame(segment.number)}

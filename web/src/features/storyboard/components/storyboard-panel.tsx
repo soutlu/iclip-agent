@@ -178,11 +178,11 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         </p>
         {changedByAgent ? <Tag variant="running">agent 刚改过</Tag> : null}
         <span className="flex-1" />
-        <span
-          aria-label={DOT_LABEL[status]}
-          className={cn('size-2 shrink-0 rounded-full', DOT_CLASS[status])}
-          role="img"
-        />
+        {/* 圆点单独一颗没人看得懂，配上一句状态文字 */}
+        <span className="flex items-center gap-1.5 text-body-sm text-on-surface-faint">
+          <span aria-hidden className={cn('size-2 shrink-0 rounded-full', DOT_CLASS[status])} />
+          {DOT_LABEL[status]}
+        </span>
         <Button
           leadingIcon="history"
           onClick={() => go({ sheet: search.sheet === 'records' ? undefined : 'records' })}

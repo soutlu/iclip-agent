@@ -55,15 +55,15 @@ describe('parseShotsDocument', () => {
 })
 
 describe('shotName', () => {
-  it('取第一段前 12 字，帧记号不算字', () => {
+  it('取第一段的第一句，帧记号不算字', () => {
     expect(
       shotName({
         imageUrls: [],
         index: 2,
-        prompt: '硬切，她从长椅间走向镜头 @Image2，走到近处停下微笑。\n第二段',
+        prompt: '硬切，她从长椅间走向镜头 @Image2，走到近处停下微笑。第二句。\n第二段',
         seconds: 11,
       }),
-    ).toBe('硬切，她从长椅间走向镜头')
+    ).toBe('硬切，她从长椅间走向镜头，走到近处停下微笑')
   })
 
   it('第一段是空行时往下找', () => {
@@ -82,7 +82,7 @@ describe('shotName', () => {
         ),
         seconds: 11,
       }),
-    ).toBe('她从长椅间走向镜头。')
+    ).toBe('她从长椅间走向镜头')
   })
 
   it('整段没有正文就用序号起名', () => {

@@ -48,8 +48,8 @@ export const aspectRatioStyle = (aspectRatio: string) => aspectRatio.replace(':'
 
 const FRAME_REF = /@Image(\d+)/g
 
-/** 组名截到几个字。再长胶片条那一行就换行了。 */
-const NAME_CHARS = 12
+/** 组名只取到第一个句末标点：一句话就是名字，放不下由界面按省略号截，不在这里硬砍字数。 */
+const SENTENCE_END = /[。；！？!?;]/
 
 /** `id` 是这一段在原文里的起始位置，渲染时当 key 用——正文可能逐字重复，位置不会。 */
 export type PromptSegment =
@@ -182,11 +182,18 @@ export const shotName = (shot: Shot): string => {
           .join('')
   const firstLine = source
     .split('\n')
-    .map((line) => line.replace(FRAME_REF, '').trim())
+    // 抠掉帧记号后会留下「镜头 ，走到」这样的空格，一并收掉
+    .map((line) =>
+      line
+        .replace(FRAME_REF, '')
+        .replace(/\s+([，。；！？、,.;!?])/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim(),
+    )
     .find((line) => line.length > 0)
-  return firstLine === undefined || firstLine.length === 0
-    ? `镜头组 ${shot.index}`
-    : firstLine.slice(0, NAME_CHARS)
+  if (firstLine === undefined || firstLine.length === 0) return `镜头组 ${shot.index}`
+  const sentence = firstLine.split(SENTENCE_END)[0]?.trim() ?? ''
+  return sentence.length === 0 ? firstLine : sentence
 }
 
 /** 这个镜头的第一张帧编号；一张都没写就是 undefined，界面画「无帧」。 */
