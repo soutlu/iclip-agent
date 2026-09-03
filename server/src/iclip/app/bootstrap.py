@@ -253,7 +253,7 @@ def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
         return None
 
 
-class _AnnouncingFileStore:
+class AnnouncingFileStore:
     """工作区文件存储，外加「写完就告诉还开着的标签页」。
 
     包在组合根：存储层只认识命名空间，不认识对话也不认识连接；而能力包写文件只经
@@ -486,7 +486,7 @@ def build_app(
     # 推送那张表要先有：工作区每写一次都往它上面发一帧，工具那条路也一样。
     live_connections = LiveConnections()
     # 递给能力包的是包了一层的那只：工具写完文件，界面不必等下一次重拉。
-    announcing_workspace_store = _AnnouncingFileStore(
+    announcing_workspace_store = AnnouncingFileStore(
         workspace_store, live_connections, source=WORKSPACE_SOURCE_AGENT
     )
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 import httpx
@@ -10,7 +11,7 @@ from pydantic import ValidationError
 from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from iclip.app.bootstrap import build_app
+from iclip.app.bootstrap import WORKSPACE_SOURCE_AGENT, AnnouncingFileStore, build_app
 from iclip.config import (
     AppSection,
     DbSection,
@@ -23,6 +24,8 @@ from iclip.config import (
     SsoSection,
     VideoGenerationSection,
 )
+from iclip.domains.agents.transcript_api import LiveConnections
+from tests.helpers.file_store import FakeFileStore
 from tests.helpers.generation import MemoryObjectStore
 
 AGENT_ID = "storyboard"
@@ -165,3 +168,53 @@ def test_media_generation_half_configured_fails_at_startup(
     # pydantic 会把缺的那几个一次全报出来，报的是变量名本身。
     with pytest.raises(ValidationError, match="IMAGE_EDIT_URL"):
         build_app(config_with_media(), engine=engine(), models={})
+
+
+class _RecordingConnections(LiveConnections):
+    """只记下发过哪些「文件变了」的帧，不真的连 WS。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.announced: list[tuple[uuid.UUID, uuid.UUID, str, int, str]] = []
+
+    def announce_file_changed(
+        self,
+        owner: uuid.UUID,
+        conversation_id: uuid.UUID,
+        *,
+        path: str,
+        version: int,
+        source: str,
+    ) -> None:
+        self.announced.append((owner, conversation_id, path, version, source))
+
+
+async def test_tool_writes_announce_the_file_as_agent() -> None:
+    """工具写完文件也发帧，来源记 ``agent``——界面靠它标「agent 刚改过」。
+
+    能力包写文件只经 ``FileStore`` 协议，那里没有「谁在写」这回事，所以分不到具体哪件工具。
+    """
+
+    live = _RecordingConnections()
+    owner, conversation_id = uuid.uuid4(), uuid.uuid4()
+    store = AnnouncingFileStore(FakeFileStore(), live, source=WORKSPACE_SOURCE_AGENT)
+
+    await store.write(f"{owner}/{conversation_id}", "video_shot.json", "{}")
+    await store.write(f"{owner}/{conversation_id}", "video_shot.json", "{ }")
+
+    assert live.announced == [
+        (owner, conversation_id, "video_shot.json", 1, "agent"),
+        (owner, conversation_id, "video_shot.json", 2, "agent"),
+    ]
+
+
+async def test_a_namespace_without_a_conversation_id_announces_nothing() -> None:
+    """地盘不是按对话分的就没法按对话推送。少一帧只是界面晚点对齐，不该让写入失败。"""
+
+    live = _RecordingConnections()
+    store = AnnouncingFileStore(FakeFileStore(), live, source=WORKSPACE_SOURCE_AGENT)
+
+    written = await store.write("luke/thread-1", "提纲.md", "三幕")
+
+    assert written.version == 1, "文件照样写下去了"
+    assert live.announced == []
