@@ -109,22 +109,23 @@ class TranscriptService:
         view = await self.queue.view(conversation_id)
         if view.active is not None or view.queued:
             raise Conflict("这段对话还在忙，等它收完尾再重新生成")
-        run_ids = await self.history.rewind_turn(conversation_id, ordinal=int(match.group(1)))
-        if run_ids is None:
+        rewind = await self.history.plan_rewind(conversation_id, ordinal=int(match.group(1)))
+        if rewind is None:
             raise Conflict("只能重新生成最后一轮")
-        # 末轮跨了几次 run 都归同一条 prompt，按它第一次 run 找得到那条。
-        row = await self.queue.get_by_run(run_ids[0])
+        # 末轮跨了几次 run 都归同一条 prompt，按它第一次 run 找得到那条。先找再截：找不到就一行不改。
+        row = await self.queue.get_by_run(rewind.run_ids[0])
         if row is None:
             raise NotFound(f"找不到这一轮对应的消息：{turn_id}")
+        await rewind.commit()
         # 客户端手里那份基线还带着旧 tN 的步与块，而它对已有的轮只换头部、保留原有内容；
         # 新回复少一步或少一块时旧的会原地留着，所以先明确说一声「这轮没了」。
         self.store.append(conversation_id, MAIN_AGENT_ID, (ItemsRemoveOp(ids=(turn_id,)),))
         return await self.submit(
-            prompt_id=prompt_id or f"prm_regen_{uuid.uuid4().hex[:16]}",
+            prompt_id=f"prm_regen_{uuid.uuid4().hex[:16]}" if prompt_id is None else prompt_id,
             conversation_id=conversation_id,
             agent_id=row.agent_id,
             owner_user_id=row.owner_user_id,
-            content=content or row.content,
+            content=row.content if content is None else content,
         )
 
     async def abort_conversation(self, conversation_id: str) -> None:

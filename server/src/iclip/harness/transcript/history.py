@@ -21,6 +21,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
+from pydantic_ai.messages import ModelMessage
 from pydantic_ai_harness.compaction import estimate_context_tokens
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, StepEvent
 
@@ -113,15 +114,15 @@ class TranscriptHistory:
             ),
         )
 
-    async def rewind_turn(self, conversation_id: str, *, ordinal: int) -> tuple[str, ...] | None:
-        """把落库历史截回第 ``ordinal`` 轮开始之前，返回被摘掉那一轮的 run id。
+    async def plan_rewind(self, conversation_id: str, *, ordinal: int) -> TurnRewind | None:
+        """算出「把落库历史截回第 ``ordinal`` 轮开始之前」要做的事，还没动库。
 
-        只截末轮：``ordinal`` 不等于现有轮数就一步不做、返回 ``None``（调用方据此拒掉）。核轮数
-        与动手读的是同一份快照，中间没有空隙让另一轮挤进来。分轮与显示同一个口径：中断的那些
-        也算上（见模块开头）。
+        只截末轮：``ordinal`` 不等于现有轮数就返回 ``None``（调用方据此拒掉）。核轮数与截取读的
+        是同一份快照，中间没有空隙让另一轮挤进来。分轮与显示同一个口径：中断的那些也算上
+        （见模块开头）。
 
-        历史不删行——截短后的消息另存成一份新快照，按写入序它成为最新的一份；旧快照与旧 run 的
-        runs/events 行原样留在库里。快照的 ``run_id`` 另铸一个，不进消息历史，不参与分轮。
+        分成「算」与「落」两步，是让调用方能先拿被摘掉那一轮的 run id 去查别的东西，查不到就
+        什么都不改；一步到位的话查失败时历史已经短了一轮。
         """
 
         snapshot = await self.store.latest_conversation_snapshot(
@@ -132,15 +133,35 @@ class TranscriptHistory:
         if ordinal != len(turn_run_ids(messages, of_run)):
             return None
         kept, dropped = drop_last_turn(messages, of_run)
+        return TurnRewind(
+            store=self.store, conversation_id=conversation_id, kept=kept, run_ids=dropped
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TurnRewind:
+    """一次算好、还没落库的截取。``run_ids`` 是要被摘掉那一轮的 run。"""
+
+    store: ConversationSnapshots
+    conversation_id: str
+    kept: list[ModelMessage]
+    run_ids: tuple[str, ...]
+
+    async def commit(self) -> None:
+        """把截短后的历史存成一份新快照，按写入序它成为最新的一份。
+
+        历史不删行：旧快照与旧 run 的 runs/events 行原样留在库里。快照的 ``run_id`` 另铸一个，
+        不进消息历史，不参与分轮。
+        """
+
         await self.store.save_snapshot(
             ContinuableSnapshot(
                 run_id=f"regenerate-{uuid.uuid4().hex[:8]}",
                 step_index=0,
-                messages=kept,
-                conversation_id=conversation_id,
+                messages=self.kept,
+                conversation_id=self.conversation_id,
             )
         )
-        return dropped
 
 
-__all__ = ["ConversationSnapshots", "PromptRunsSource", "TranscriptHistory"]
+__all__ = ["ConversationSnapshots", "PromptRunsSource", "TranscriptHistory", "TurnRewind"]

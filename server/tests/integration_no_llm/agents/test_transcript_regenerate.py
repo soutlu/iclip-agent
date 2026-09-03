@@ -260,7 +260,7 @@ async def test_regenerate_an_older_turn_is_conflict(app: FastAPI, pg_url: str) -
 
 
 async def test_regenerate_without_prompt_row_is_not_found(app: FastAPI, pg_url: str) -> None:
-    """末轮在库里找不到对应的消息记录（行没了），404。"""
+    """末轮在库里找不到对应的消息记录（行没了），404，而且历史一行不动。"""
 
     async with make_client(app) as client:
         await _sign_in(client, pg_url)
@@ -279,8 +279,11 @@ async def test_regenerate_without_prompt_row_is_not_found(app: FastAPI, pg_url: 
             await engine.dispose()
 
         missing = await client.post(f"/conversations/{conversation_id}/turns/t1:regenerate")
+        page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()
 
     assert missing.status_code == 404
+    # 找不到就不该截：截了再报 404，这段对话就白少一轮
+    assert [turn["content"] for turn in page["items"]] == [[{"type": "text", "text": "问"}]]
 
 
 async def test_regenerate_in_someone_elses_conversation_is_not_found(
