@@ -39,7 +39,7 @@
   align-self: center;
   min-height: 64px;
   border: 1px solid color-mix(in srgb, var(--color-inverse-on-surface) 14%, transparent);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   background-color: color-mix(in srgb, var(--color-inverse-on-surface) 8%, transparent);
   background-image:
     linear-gradient(
