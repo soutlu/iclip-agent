@@ -2,9 +2,9 @@
  * 用户气泡：按 part 原顺序画、超长折叠。
  */
 
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PromptContentPart, TranscriptTurn } from '@/shared/transcript/vendor'
 import { ConversationTurn } from './conversation-turn'
 import { UserBubble } from './user-bubble'
@@ -86,13 +86,70 @@ describe('UserBubble', () => {
     expect(screen.getByRole('button', { name: 'clip.mp4' }).querySelector('img')).toBeNull()
   })
 
-  it('点图片芯片开灯箱', async () => {
+  it('点图片芯片开灯箱，灯箱里是图', async () => {
     const user = userEvent.setup()
     render(<UserBubble content={[image('https://example.com/reference.png')]} />)
 
     await user.click(screen.getByRole('button', { name: 'reference.png' }))
 
     expect(screen.getByRole('dialog', { name: 'reference.png' })).toBeInTheDocument()
+    // 芯片上那颗缩略图是装饰性的（alt 空），带名字的这张只能是灯箱里的
+    expect(screen.getByRole('img', { name: 'reference.png' })).toBeInTheDocument()
+  })
+
+  it('点视频芯片开灯箱，灯箱里是能播的视频', async () => {
+    const user = userEvent.setup()
+    render(<UserBubble content={[video('https://example.com/clip.mp4')]} />)
+
+    await user.click(screen.getByRole('button', { name: 'clip.mp4' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'clip.mp4' })
+    expect(dialog.querySelector('video')).not.toBeNull()
+  })
+})
+
+describe('UserBubble 媒体芯片的悬停卡', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  /** 走过 N 毫秒：卡的开合都是定时器落地的，要包在 act 里才算一次渲染。 */
+  const advance = (ms: number) => {
+    act(() => {
+      vi.advanceTimersByTime(ms)
+    })
+  }
+
+  /** 画一颗图片芯片。「刚关过一张就免延迟」是跨芯片的全局窗口，先走过它再开始量时序。 */
+  const renderChip = () => {
+    render(<UserBubble content={[image('https://example.com/reference.png')]} />)
+    advance(500)
+    return screen.getByRole('button', { name: 'reference.png' })
+  }
+
+  it('悬停 150ms 后出卡，离开 120ms 后收起', () => {
+    const chip = renderChip()
+
+    fireEvent.mouseEnter(chip)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    advance(150)
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+
+    fireEvent.mouseLeave(chip)
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+    advance(120)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('光标从芯片移进卡里，卡不收起', () => {
+    const chip = renderChip()
+
+    fireEvent.mouseEnter(chip)
+    advance(150)
+    fireEvent.mouseLeave(chip)
+    fireEvent.mouseEnter(screen.getByRole('tooltip'))
+    advance(500)
+
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
   })
 })
 

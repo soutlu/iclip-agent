@@ -228,7 +228,7 @@ function MediaWall({
         >
           <button
             className="cursor-zoom-in overflow-hidden rounded-md ui-focus"
-            onClick={() => onOpen({ name: item.caption, url: item.url })}
+            onClick={() => onOpen({ kind: 'image', name: item.caption, url: item.url })}
             type="button"
           >
             <img alt={item.caption} className="block w-full rounded-md" src={item.url} />

@@ -9,10 +9,16 @@
 
 import { useState } from 'react'
 import type { PromptContentPart } from '@/shared/transcript/vendor'
-import { Icon } from '@/shared/icons'
-import { fileNameOfUrl, imageThumbnailUrl, videoSnapshotUrl } from '@/shared/lib/media-url'
+import { fileNameOfUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
+import {
+  MediaChipContent,
+  type MediaDescriptor,
+  mediaDisplayName,
+  MediaPreviewCard,
+  useHoverPreview,
+} from '@/shared/ui/media-preview'
 import { useClampable } from './use-clampable'
 
 type UserBubbleProps = {
@@ -76,35 +82,46 @@ export function UserBubble({ className, content }: UserBubbleProps) {
 }
 
 /**
- * 一颗内联媒体芯片：14px 缩略图加文件名。图片点开进灯箱；视频开新页（灯箱只收图片，见
- * media-lightbox 的说明）。视频缩略图是 OSS 截的首帧，不是 OSS 地址就画视频图标。
+ * 一颗内联媒体芯片：14px 缩略图加文件名，与输入框 pill 是同一套芯片与悬停预览卡。
+ * 悬停出卡、点开进灯箱（图与视频都进）。视频的缩略图是 OSS 截的首帧，别处的地址截不出来。
  *
  * @param props - 组件属性。
  * @param props.part - 图片或视频 part。
- * @param props.onOpen - 图片点开时给灯箱。
+ * @param props.onOpen - 点开时给灯箱。
  * @returns 芯片。
  */
 function MediaChip({ onOpen, part }: { part: MediaPart; onOpen: (media: LightboxMedia) => void }) {
+  // 卡的锚点要的是元素本身，用状态接 ref 而不是读 ref.current（渲染期读 ref 不算数）
+  const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
+  const tip = useHoverPreview()
   const url = part.source.url
-  const name = fileNameOfUrl(url) || (part.type === 'image' ? '图片' : '视频')
-  const thumbnail = part.type === 'image' ? imageThumbnailUrl(url) : videoSnapshotUrl(url)
+  const media: MediaDescriptor = { kind: part.type, name: fileNameOfUrl(url), previewUrl: url }
   const open = () => {
-    if (part.type === 'image') onOpen({ name, url })
-    else window.open(url, '_blank', 'noreferrer')
+    tip.close()
+    onOpen({ kind: part.type, name: mediaDisplayName(media), url })
   }
 
   return (
-    <button
-      className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-xs align-bottom text-body-sm text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text hover:underline hover:underline-offset-2"
-      onClick={open}
-      type="button"
-    >
-      {thumbnail === undefined ? (
-        <Icon decorative name="video" size="sm" />
-      ) : (
-        <img alt="" className="size-3.5 shrink-0 rounded-xs object-cover" src={thumbnail} />
-      )}
-      <span className="max-w-40 truncate">{name}</span>
-    </button>
+    <>
+      <button
+        className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-xs align-bottom text-body-sm text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text hover:underline hover:underline-offset-2"
+        onClick={open}
+        onMouseEnter={tip.onEnter}
+        onMouseLeave={tip.onLeave}
+        ref={setAnchorEl}
+        type="button"
+      >
+        <MediaChipContent media={media} />
+      </button>
+      {tip.open && anchorEl !== null ? (
+        <MediaPreviewCard
+          anchorEl={anchorEl}
+          media={media}
+          onEnter={tip.onEnter}
+          onLeave={tip.onLeave}
+          onOpenFullscreen={open}
+        />
+      ) : null}
+    </>
   )
 }
