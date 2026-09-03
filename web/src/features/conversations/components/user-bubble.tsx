@@ -110,7 +110,7 @@ function MediaChip({ onOpen, part }: { part: MediaPart; onOpen: (media: Lightbox
     <>
       <button
         aria-label={name}
-        className="mx-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-xs align-text-bottom text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text"
+        className="mx-0.5 inline-flex cursor-pointer items-center gap-0.5 rounded-xs align-middle text-chat-muted-text ui-focus ui-motion-s hover:text-chat-message-text"
         onClick={open}
         onMouseEnter={tip.onEnter}
         onMouseLeave={tip.onLeave}
