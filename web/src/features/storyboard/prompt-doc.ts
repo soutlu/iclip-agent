@@ -61,6 +61,10 @@ export const parsePromptDoc = (prompt: string): PromptDoc => {
 const serializeLine = (line: PromptLine): string =>
   line.map((inline) => (inline.kind === 'text' ? inline.text : `@Image${inline.n}`)).join('')
 
+/** 几行拼成文本，行间 `\n`。编辑器比对「文档变没变」用它。 */
+export const serializeLines = (lines: readonly PromptLine[]): string =>
+  lines.map(serializeLine).join('\n')
+
 /**
  * 把文档模型拼回 prompt 原文。
  *
