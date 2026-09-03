@@ -260,6 +260,36 @@ describe('TranscriptReader', () => {
     expect(textOf(reader)).toContain(TAIL_TEXT)
   })
 
+  it('挂载、卸载、再挂载只拉一次基线（严格模式的效果次序）', async () => {
+    let pages = 0
+    server.use(
+      http.get('*/api/conversations/c1/transcript', () => {
+        pages += 1
+        return HttpResponse.json(mockTranscriptPage())
+      }),
+    )
+
+    const socket = new FakeSocket()
+    const connection = new TranscriptConnection({
+      createSocket: () => socket as unknown as WebSocket,
+      url: 'ws://test/api/ws',
+    })
+    connection.connect()
+    const reader = new TranscriptReader('c1', connection)
+    // React 严格模式在同一次提交里同步跑：挂载 → 清理 → 再挂载
+    reader.start()
+    reader.stop()
+    reader.start()
+    socket.deliver(HELLO)
+
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+    // 第二次要是排上了，会紧跟着第一次之后发；等一拍确认它没来
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(pages).toBe(1)
+  })
+
   it('工具帧上给人看的那份结果（metadata）过了协议校验还在', async () => {
     const { reader, socket } = startReader()
     await vi.waitFor(() => {

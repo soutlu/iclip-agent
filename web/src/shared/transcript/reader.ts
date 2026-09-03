@@ -83,6 +83,8 @@ export class TranscriptReader {
   private queue: Promise<void> = Promise.resolve()
 
   private reloads = 0
+  /** 队里已经排着一次还没开跑的拉基线。排着就不再排：严格模式的两次挂载、连点两次刷新，都只该发一次请求。 */
+  private reloadQueued = false
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = false
   private snapshot: TranscriptView = EMPTY_VIEW
@@ -201,7 +203,10 @@ export class TranscriptReader {
 
   /** 拉一页当基线。REST 读排在同一条队里，按调用次序执行。 */
   private reload(): Promise<void> {
+    if (this.reloadQueued) return this.queue
+    this.reloadQueued = true
     this.queue = this.queue.then(async () => {
+      this.reloadQueued = false
       if (this.stopped) return
       try {
         const baseline = await fetchTranscriptBaseline(this.conversationId)
