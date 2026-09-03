@@ -333,6 +333,12 @@ class PromptQueueOut(_Envelope):
 # 不按仓内的 camelCase 习惯翻译——一半照抄一半翻译，写客户端的人得记两套。
 
 
+PromptId = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")]
+"""客户端铸的消息 id。发消息与重新生成两处同一套约束。"""
+
+PromptParts = Annotated[tuple[PromptContent, ...], Field(min_length=1)]
+
+
 class PromptSubmission(_Envelope):
     """``POST /prompts`` 的请求体。
 
@@ -340,8 +346,19 @@ class PromptSubmission(_Envelope):
     而且重发同一个 id 不会多起一次运行。
     """
 
-    prompt_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
-    content: tuple[PromptContent, ...] = Field(min_length=1)
+    prompt_id: PromptId
+    content: PromptParts
+
+
+class RegenerateBody(_Envelope):
+    """``POST /turns/{turn_id}:regenerate`` 的请求体。两个字段都可省，整个体也可以不带。
+
+    ``content`` 给了就是「改了内容再重跑」，不给照原样重跑。``prompt_id`` 给了就与发消息同一套
+    幂等：重发同一个 id 退回已有那条，不会再截一轮。
+    """
+
+    prompt_id: PromptId | None = None
+    content: PromptParts | None = None
 
 
 class SteerRequest(_Envelope):
@@ -365,8 +382,11 @@ __all__ = [
     "Ping",
     "PingPayload",
     "Pong",
+    "PromptId",
+    "PromptParts",
     "PromptQueueOut",
     "PromptSubmission",
+    "RegenerateBody",
     "ResetPayload",
     "ServerFrame",
     "ServerHello",

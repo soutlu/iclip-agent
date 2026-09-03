@@ -33,6 +33,7 @@ from iclip.harness.transcript.from_messages import (
     run_ids_from_messages,
     run_state_from_events,
     turn_run_ids,
+    turn_usage,
     turns_from_messages,
 )
 from iclip.harness.transcript.prompt_media import model_prompt
@@ -45,6 +46,7 @@ from iclip.platform.transcript.display import (
 from iclip.platform.transcript.ops import (
     AttachmentSource,
     ImageContent,
+    StepUsage,
     TextContent,
     TextFrame,
     ThinkingFrame,
@@ -652,6 +654,26 @@ def test_step_usage_splits_cache_out_of_the_input_total() -> None:
     assert usage.input_cache_read == 600
     assert usage.input_cache_creation == 100
     assert usage.output == 50
+
+
+def test_turn_usage_adds_up_the_step_readings() -> None:
+    """求和口径：写缓存算进 input，读缓存单列；一步都没有用量就没有这一项。
+
+    实时那侧攒着各步用量调同一个函数，所以这条钉住的是两条路共用的那把尺子。
+    """
+
+    assert turn_usage([]) is None
+
+    summed = turn_usage(
+        [
+            StepUsage(input_other=300, output=50, input_cache_read=600, input_cache_creation=100),
+            StepUsage(input_other=200, output=20, input_cache_read=10, input_cache_creation=5),
+        ]
+    )
+    assert summed is not None
+    assert summed.input_tokens == 300 + 100 + 200 + 5
+    assert summed.cached_tokens == 600 + 10
+    assert summed.output_tokens == 50 + 20
 
 
 def test_turn_usage_sums_the_steps() -> None:

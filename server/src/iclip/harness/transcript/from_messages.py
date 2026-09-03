@@ -411,7 +411,7 @@ def _turn(
         content=content or (),
         started_at=_iso(_started_at(messages)),
         ended_at=_iso(_ended_at(messages)),
-        usage=_turn_usage(steps),
+        usage=turn_usage([step.usage for step in steps if step.usage is not None]),
         error=error,
         steps=tuple(
             step.model_copy(update={"frames": tuple(frames_by_step[index].values())})
@@ -642,16 +642,18 @@ def step_usage(usage: RequestUsage | None) -> StepUsage | None:
     )
 
 
-def _turn_usage(steps: Sequence[TranscriptStep]) -> TurnUsage | None:
-    """一轮的用量是各步之和，口径照协议：写缓存算进 input，读缓存单列。"""
+def turn_usage(steps: Sequence[StepUsage]) -> TurnUsage | None:
+    """一轮的用量是各步之和，口径照协议：写缓存算进 input，读缓存单列。
 
-    counted = [step.usage for step in steps if step.usage is not None]
-    if not counted:
+    实时那条路（``projector``）攒着各步用量、每次改轮头部都要重算一遍，用的是同一个函数。
+    """
+
+    if not steps:
         return None
     return TurnUsage(
-        input_tokens=sum(item.input_other + item.input_cache_creation for item in counted),
-        cached_tokens=sum(item.input_cache_read for item in counted),
-        output_tokens=sum(item.output for item in counted),
+        input_tokens=sum(item.input_other + item.input_cache_creation for item in steps),
+        cached_tokens=sum(item.input_cache_read for item in steps),
+        output_tokens=sum(item.output for item in steps),
     )
 
 
@@ -666,6 +668,7 @@ __all__ = [
     "run_state_from_events",
     "step_usage",
     "turn_run_ids",
+    "turn_usage",
     "turns_from_messages",
     "unanswered_tool_calls",
 ]

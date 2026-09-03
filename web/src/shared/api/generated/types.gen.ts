@@ -1273,6 +1273,25 @@ export type PromptUpsertOp = {
 }
 
 /**
+ * RegenerateBody
+ *
+ * ``POST /turns/{turn_id}:regenerate`` 的请求体。两个字段都可省，整个体也可以不带。
+ *
+ * ``content`` 给了就是「改了内容再重跑」，不给照原样重跑。``prompt_id`` 给了就与发消息同一套
+ * 幂等：重发同一个 id 退回已有那条，不会再截一轮。
+ */
+export type RegenerateBody = {
+  /**
+   * Content
+   */
+  content?: Array<TextContent | ImageContent | VideoContent> | null
+  /**
+   * Prompt Id
+   */
+  prompt_id?: string | null
+}
+
+/**
  * SidebarCollectionOut
  *
  * 侧栏里的一个合集：元信息、里面一共几段，加第一页对话。
@@ -3565,7 +3584,10 @@ export type CatchupConversationsConversationIdTranscriptOpsGetResponse =
   CatchupConversationsConversationIdTranscriptOpsGetResponses[keyof CatchupConversationsConversationIdTranscriptOpsGetResponses]
 
 export type RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostData = {
-  body?: never
+  /**
+   * Body
+   */
+  body?: RegenerateBody | null
   path: {
     /**
      * Conversation Id
