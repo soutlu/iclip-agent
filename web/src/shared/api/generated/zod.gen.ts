@@ -118,26 +118,6 @@ export const zAttachmentSource = z.object({
 })
 
 /**
- * Attachment
- */
-export const zAttachment = z.object({
-  attachmentId: z.string(),
-  mediaType: z.string(),
-  name: z.string().nullish(),
-  placeholder: z.string().nullish(),
-  size: z.int().nullish(),
-  source: zAttachmentSource.nullish(),
-})
-
-/**
- * AttachmentUpsertOp
- */
-export const zAttachmentUpsertOp = z.object({
-  attachment: zAttachment,
-  op: z.literal('attachment.upsert').optional().default('attachment.upsert'),
-})
-
-/**
  * Body_auth_cookie_login_auth_login_post
  */
 export const zBodyAuthCookieLoginAuthLoginPost = z.object({
@@ -813,18 +793,6 @@ export const zTextContent = z.object({
 })
 
 /**
- * TextFrame
- */
-export const zTextFrame = z.object({
-  attachmentIds: z.array(z.string()).nullish(),
-  frameId: z.string(),
-  kind: z.literal('text').optional().default('text'),
-  promptIds: z.array(z.string()).nullish(),
-  role: z.enum(['assistant', 'user']),
-  text: z.string(),
-})
-
-/**
  * ThinkingFrame
  */
 export const zThinkingFrame = z.object({
@@ -852,16 +820,6 @@ export const zToolFrame = z.object({
 })
 
 /**
- * FrameUpsertOp
- */
-export const zFrameUpsertOp = z.object({
-  frame: z.discriminatedUnion('kind', [zTextFrame, zThinkingFrame, zToolFrame, zNoticeFrame]),
-  op: z.literal('frame.upsert').optional().default('frame.upsert'),
-  stepId: z.string(),
-  turnId: z.string(),
-})
-
-/**
  * TranscriptMeta
  */
 export const zTranscriptMeta = z.object({
@@ -875,29 +833,6 @@ export const zTranscriptMeta = z.object({
 export const zMetaMergeOp = z.object({
   meta: zTranscriptMeta,
   op: z.literal('meta.merge').optional().default('meta.merge'),
-})
-
-/**
- * TranscriptStep
- *
- * 带上块的完整一步。``GET /transcript`` 的分页与快照里用这一份，操作里用光头部那份。
- */
-export const zTranscriptStep = z.object({
-  endMessage: z.string().nullish(),
-  endReason: z.string().nullish(),
-  endedAt: z.string().nullish(),
-  finishReason: z.string().nullish(),
-  frames: z
-    .array(z.union([zTextFrame, zThinkingFrame, zToolFrame, zNoticeFrame]))
-    .optional()
-    .default([]),
-  kind: z.literal('step').optional().default('step'),
-  ordinal: z.int(),
-  startedAt: z.string().nullish(),
-  state: z.enum(['running', 'completed', 'interrupted', 'failed']),
-  stepId: z.string(),
-  turnId: z.string(),
-  usage: zStepUsage.nullish(),
 })
 
 /**
@@ -915,55 +850,6 @@ export const zTurnUsage = z.object({
   cost: z.number().nullish(),
   inputTokens: z.int().nullish(),
   outputTokens: z.int().nullish(),
-})
-
-/**
- * TranscriptTurn
- *
- * 带上步的完整一轮。
- */
-export const zTranscriptTurn = z.object({
-  attachmentIds: z.array(z.string()).nullish(),
-  durationMs: z.int().nullish(),
-  endedAt: z.string().nullish(),
-  error: z.string().nullish(),
-  kind: z.literal('turn').optional().default('turn'),
-  ordinal: z.int(),
-  origin: zTurnOrigin,
-  prompt: z.string().nullish(),
-  startedAt: z.string().nullish(),
-  state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
-  steps: z.array(zTranscriptStep).optional().default([]),
-  turnId: z.string(),
-  usage: zTurnUsage.nullish(),
-})
-
-/**
- * TurnHeader
- *
- * 一轮的头部。``steps`` 不在这里——步是单独的操作发的。
- */
-export const zTurnHeader = z.object({
-  attachmentIds: z.array(z.string()).nullish(),
-  durationMs: z.int().nullish(),
-  endedAt: z.string().nullish(),
-  error: z.string().nullish(),
-  kind: z.literal('turn').optional().default('turn'),
-  ordinal: z.int(),
-  origin: zTurnOrigin,
-  prompt: z.string().nullish(),
-  startedAt: z.string().nullish(),
-  state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
-  turnId: z.string(),
-  usage: zTurnUsage.nullish(),
-})
-
-/**
- * TurnUpsertOp
- */
-export const zTurnUpsertOp = z.object({
-  op: z.literal('turn.upsert').optional().default('turn.upsert'),
-  turn: zTurnHeader,
 })
 
 /**
@@ -1153,6 +1039,121 @@ export const zPromptUpsertOp = z.object({
 })
 
 /**
+ * TextFrame
+ */
+export const zTextFrame = z.object({
+  content: z.array(z.union([zTextContent, zImageContent, zVideoContent])).nullish(),
+  frameId: z.string(),
+  kind: z.literal('text').optional().default('text'),
+  promptIds: z.array(z.string()).nullish(),
+  role: z.enum(['assistant', 'user']),
+  text: z.string(),
+})
+
+/**
+ * FrameUpsertOp
+ */
+export const zFrameUpsertOp = z.object({
+  frame: z.discriminatedUnion('kind', [zTextFrame, zThinkingFrame, zToolFrame, zNoticeFrame]),
+  op: z.literal('frame.upsert').optional().default('frame.upsert'),
+  stepId: z.string(),
+  turnId: z.string(),
+})
+
+/**
+ * TranscriptStep
+ *
+ * 带上块的完整一步。``GET /transcript`` 的分页与快照里用这一份，操作里用光头部那份。
+ */
+export const zTranscriptStep = z.object({
+  endMessage: z.string().nullish(),
+  endReason: z.string().nullish(),
+  endedAt: z.string().nullish(),
+  finishReason: z.string().nullish(),
+  frames: z
+    .array(z.union([zTextFrame, zThinkingFrame, zToolFrame, zNoticeFrame]))
+    .optional()
+    .default([]),
+  kind: z.literal('step').optional().default('step'),
+  ordinal: z.int(),
+  startedAt: z.string().nullish(),
+  state: z.enum(['running', 'completed', 'interrupted', 'failed']),
+  stepId: z.string(),
+  turnId: z.string(),
+  usage: zStepUsage.nullish(),
+})
+
+/**
+ * TranscriptTurn
+ *
+ * 带上步的完整一轮。
+ */
+export const zTranscriptTurn = z.object({
+  content: z.array(z.union([zTextContent, zImageContent, zVideoContent])),
+  durationMs: z.int().nullish(),
+  endedAt: z.string().nullish(),
+  error: z.string().nullish(),
+  kind: z.literal('turn').optional().default('turn'),
+  ordinal: z.int(),
+  origin: zTurnOrigin,
+  startedAt: z.string().nullish(),
+  state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
+  steps: z.array(zTranscriptStep).optional().default([]),
+  turnId: z.string(),
+  usage: zTurnUsage.nullish(),
+})
+
+/**
+ * TranscriptPage
+ *
+ * ``GET /transcript`` 的一页。
+ *
+ * ``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、
+ * 后者从待回应的交互里取。
+ */
+export const zTranscriptPage = z.object({
+  agent_id: z.string(),
+  agents: z.array(z.record(z.string(), z.unknown())).optional().default([]),
+  has_more: z.boolean(),
+  interactions: z.array(zInteraction).optional().default([]),
+  items: z.array(zTranscriptTurn),
+  meta: zTranscriptMeta.optional().default({}),
+  pending_interactions: z.array(z.string()).optional().default([]),
+  prompts: z.array(zPrompt).optional().default([]),
+  seq: z.int(),
+  tasks: z.array(z.unknown()).optional().default([]),
+  title: z.string().optional().default(''),
+  todos: z.array(z.unknown()).optional().default([]),
+})
+
+/**
+ * TurnHeader
+ *
+ * 一轮的头部。``steps`` 不在这里——步是单独的操作发的。
+ */
+export const zTurnHeader = z.object({
+  content: z.array(z.union([zTextContent, zImageContent, zVideoContent])),
+  durationMs: z.int().nullish(),
+  endedAt: z.string().nullish(),
+  error: z.string().nullish(),
+  kind: z.literal('turn').optional().default('turn'),
+  ordinal: z.int(),
+  origin: zTurnOrigin,
+  startedAt: z.string().nullish(),
+  state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
+  turnId: z.string(),
+  usage: zTurnUsage.nullish(),
+})
+
+/**
+ * TurnUpsertOp
+ */
+export const zTurnUpsertOp = z.object({
+  op: z.literal('turn.upsert').optional().default('turn.upsert'),
+  turn: zTurnHeader,
+})
+
+/**
  * OpsBatchOut
  */
 export const zOpsBatchOut = z.object({
@@ -1163,7 +1164,6 @@ export const zOpsBatchOut = z.object({
       zFrameUpsertOp,
       zAppendOp,
       zInteractionUpsertOp,
-      zAttachmentUpsertOp,
       zPromptUpsertOp,
       zMetaMergeOp,
       zItemsRemoveOp,
@@ -1184,30 +1184,6 @@ export const zOpsCatchup = z.object({
   batches: z.array(zOpsBatchOut),
   complete: z.boolean(),
   latest_seq: z.int(),
-})
-
-/**
- * TranscriptPage
- *
- * ``GET /transcript`` 的一页。
- *
- * ``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、
- * 后者从待回应的交互里取。
- */
-export const zTranscriptPage = z.object({
-  agent_id: z.string(),
-  agents: z.array(z.record(z.string(), z.unknown())).optional().default([]),
-  attachments: z.array(zAttachment).optional().default([]),
-  has_more: z.boolean(),
-  interactions: z.array(zInteraction).optional().default([]),
-  items: z.array(zTranscriptTurn),
-  meta: zTranscriptMeta.optional().default({}),
-  pending_interactions: z.array(z.string()).optional().default([]),
-  prompts: z.array(zPrompt).optional().default([]),
-  seq: z.int(),
-  tasks: z.array(z.unknown()).optional().default([]),
-  title: z.string().optional().default(''),
-  todos: z.array(z.unknown()).optional().default([]),
 })
 
 /**

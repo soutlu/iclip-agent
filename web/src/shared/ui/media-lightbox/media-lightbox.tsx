@@ -7,12 +7,14 @@
  */
 
 import { useEffect } from 'react'
-import type { TranscriptAttachment } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 
+/** 灯箱里看的那张：地址加给读屏与标题用的名字。 */
+export type LightboxMedia = { url: string; name: string }
+
 type MediaLightboxProps = {
-  /** 正在看的附件；null 即关闭。 */
-  attachment: TranscriptAttachment | null
+  /** 正在看的那张；null 即关闭。 */
+  media: LightboxMedia | null
   onClose: () => void
 }
 
@@ -20,27 +22,25 @@ type MediaLightboxProps = {
  * 渲染灯箱。
  *
  * @param props - 组件属性。
- * @param props.attachment - 要看的附件。
+ * @param props.media - 要看的那张。
  * @param props.onClose - 关闭。
  * @returns 灯箱；关着就不渲染。
  */
-export function MediaLightbox({ attachment, onClose }: MediaLightboxProps) {
+export function MediaLightbox({ media, onClose }: MediaLightboxProps) {
   useEffect(() => {
-    if (attachment === null) return
+    if (media === null) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [attachment, onClose])
+  }, [media, onClose])
 
-  if (attachment === null) return null
-  const url = attachment.source?.kind === 'url' ? attachment.source.url : ''
-  const name = attachment.name ?? '附件预览'
+  if (media === null) return null
 
   return (
     <div
-      aria-label={name}
+      aria-label={media.name}
       aria-modal="true"
       className="chat-lightbox layer-overlay fixed inset-0 grid animate-in place-items-center p-6 duration-(--dur-m) fade-in"
       role="dialog"
@@ -52,9 +52,9 @@ export function MediaLightbox({ attachment, onClose }: MediaLightboxProps) {
         type="button"
       />
       <img
-        alt={name}
+        alt={media.name}
         className="chat-lightbox-media relative animate-in duration-(--dur-m) zoom-in-95"
-        src={url}
+        src={media.url}
       />
       <button
         aria-label="关闭"

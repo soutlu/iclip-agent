@@ -10,19 +10,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSessionTitles } from '@/shared/transcript/use-session-titles'
 import { useTranscript } from '@/shared/transcript/use-transcript'
-import type {
-  ToolCallFrame,
-  TranscriptAttachment,
-  TranscriptTurn,
-} from '@/shared/transcript/vendor'
+import type { PromptContentPart, ToolCallFrame, TranscriptTurn } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
-import type { ComposerAttachment, ComposerPart } from '@/shared/ui/composer'
+import type { ComposerPart } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
 import {
   abortPrompt,
   mintPromptId,
+  partsContent,
   promptMedia,
   promptText,
   regeneratePrompt,
@@ -71,28 +68,21 @@ type ConversationRouteProps = {
 
 type PendingPrompt = {
   promptId: string
-  text: string
-  media: readonly ComposerAttachment[]
+  /** 发出去的那份 part 列表；服务端回来的轮头部带的是同一份。 */
+  content: readonly PromptContentPart[]
   anchorTurnId: string | undefined
 }
 
-/** 乐观气泡的附件实体：id 用本地 attId（认领后整条撤掉，不会与服务端的实体撞车）。 */
-const optimisticAttachments = (
-  media: readonly ComposerAttachment[],
-): readonly TranscriptAttachment[] =>
-  media.flatMap((item) =>
-    item.url !== undefined
-      ? [
-          {
-            attachmentId: item.attId,
-            mediaType: item.mediaType,
-            name: item.name,
-            size: item.size,
-            source: { kind: 'url' as const, url: item.url },
-          },
-        ]
-      : [],
-  )
+/** 两份 part 列表是不是同一条消息：逐项比类型与正文 / 地址。 */
+const sameContent = (a: readonly PromptContentPart[], b: readonly PromptContentPart[]) =>
+  a.length === b.length &&
+  a.every((part, index) => {
+    const other = b[index]
+    if (other === undefined || other.type !== part.type) return false
+    return part.type === 'text'
+      ? other.type === 'text' && other.text === part.text
+      : other.type !== 'text' && other.source.url === part.source.url
+  })
 
 /**
  * 渲染会话页。
@@ -133,7 +123,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
     (interaction) => interaction.interactionKind === 'approval',
   )
 
-  // 照 Kimi：running prompt 本身不认领乐观消息；必须等 anchor 之后的 turn.prompt 真正接手。
+  // 照 Kimi：running prompt 本身不认领乐观消息；必须等 anchor 之后的轮头部带着同一份 content 真正接手。
   // queued 由队列行接手，终态则直接收掉，二者都不再保留气泡。
   const promptById = new Map(view.prompts.map((prompt) => [prompt.promptId, prompt]))
   const claimed = (item: PendingPrompt) => {
@@ -146,10 +136,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
         ? -1
         : turns.findIndex((turn) => turn.turnId === item.anchorTurnId)
     if (item.anchorTurnId !== undefined && anchorIndex === -1) return false
-    return turns.slice(anchorIndex + 1).some((turn) => {
-      if (item.text !== '' && turn.prompt === item.text) return true
-      return item.text === '' && item.media.length > 0 && (turn.attachmentIds?.length ?? 0) > 0
-    })
+    return turns.slice(anchorIndex + 1).some((turn) => sameContent(turn.content, item.content))
   }
   const bubbles = pending.filter((item) => !claimed(item))
   const queued = view.prompts.filter((prompt) => prompt.status === 'queued')
@@ -185,20 +172,17 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       : `模型请求失败，正在重试（第 ${retry.nextAttempt}/${retry.maxAttempts} 次）…`
   const showEmptyState = view.status === 'ready' && turns.length === 0 && bubbles.length === 0
 
-  const send = async (
-    text: string,
-    media: readonly ComposerAttachment[],
-    parts: readonly ComposerPart[],
-  ) => {
+  const send = async (parts: readonly ComposerPart[]) => {
     const promptId = mintPromptId()
+    const content = partsContent(parts)
     const startsFlight = inFlightPromptId === null
     if (startsFlight) setInFlightPromptId(promptId)
     setPending((list) => [
       ...list.filter((item) => !claimed(item)),
-      { anchorTurnId: latestTurn?.turnId, media, promptId, text },
+      { anchorTurnId: latestTurn?.turnId, content, promptId },
     ])
     try {
-      await submitPrompt(conversationId, { media, parts, promptId, text })
+      await submitPrompt(conversationId, { content, promptId })
     } catch (error) {
       // 没送到就把气泡撤掉——留着一条永远认领不到的更糟；输入框那边会把内容还回去。
       setPending((list) => list.filter((item) => item.promptId !== promptId))
@@ -262,7 +246,6 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
             ) : null}
             {turns.map((turn) => (
               <ConversationTurn
-                attachments={view.attachments}
                 key={turn.turnId}
                 onRegenerate={
                   turn.turnId === latestTurn?.turnId
@@ -274,13 +257,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               />
             ))}
             {bubbles.map((item) => (
-              <UserBubble
-                attachments={
-                  item.media.length === 0 ? undefined : optimisticAttachments(item.media)
-                }
-                key={item.promptId}
-                text={item.text}
-              />
+              <UserBubble content={item.content} key={item.promptId} />
             ))}
             {working ? (
               <div className="self-start py-2.5">

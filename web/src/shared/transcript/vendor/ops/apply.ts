@@ -115,6 +115,7 @@ function skeletonTurn(turnId: TurnId): TranscriptTurn {
     ordinal: turnOrdinal(turnId),
     state: 'running',
     origin: { kind: 'other' },
+    content: [],
     steps: [],
   };
 }
@@ -177,8 +178,7 @@ function turnEquals(turn: TranscriptTurn, header: TurnHeader): boolean {
   return (
     turn.ordinal === header.ordinal &&
     turn.state === header.state &&
-    turn.prompt === header.prompt &&
-    turn.attachmentIds === header.attachmentIds &&
+    turn.content === header.content &&
     turn.startedAt === header.startedAt &&
     turn.endedAt === header.endedAt &&
     turn.origin.kind === header.origin.kind &&
@@ -269,7 +269,7 @@ function frameEquals(a: TranscriptFrame, b: TranscriptFrame): boolean {
     return (
       a.text === b.text &&
       a.role === b.role &&
-      a.attachmentIds === b.attachmentIds &&
+      (a.role === 'user' ? b.role === 'user' && a.content === b.content : true) &&
       a.taskId === b.taskId
     );
   }

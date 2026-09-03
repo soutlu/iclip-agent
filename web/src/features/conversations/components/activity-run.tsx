@@ -10,11 +10,10 @@ import { cn } from '@/shared/lib/utils'
 import { runHistoryMs, summarizeDone, summarizeRunning, type TurnEntry } from './activity-group'
 import { DisclosureBody, DisclosureChevron } from './disclosure'
 import { toolCard } from './tool-display'
-import { TurnFrame, type AttachmentMap } from './turn-frame'
+import { TurnFrame } from './turn-frame'
 
 type ActivityRunProps = {
   items: readonly TurnEntry[]
-  attachments: AttachmentMap
   /** 整轮正在产出的那一块。 */
   liveFrameId: string | undefined
   /** 所在轮子是否已结束。 */
@@ -72,12 +71,11 @@ const CLAUSE_TONE_CLASS = {
  *
  * @param props - 组件属性。
  * @param props.items - 这一叠的块（连同步，给历史时长用）。
- * @param props.attachments - 附件实体表（透传给成员块）。
  * @param props.liveFrameId - 正在产出的那一块。
  * @param props.settled - 所在轮子是否已结束。
  * @returns 活动组。
  */
-export function ActivityRun({ attachments, items, liveFrameId, settled }: ActivityRunProps) {
+export function ActivityRun({ items, liveFrameId, settled }: ActivityRunProps) {
   const running =
     !settled &&
     items.some(
@@ -147,7 +145,6 @@ export function ActivityRun({ attachments, items, liveFrameId, settled }: Activi
         <div className="flex flex-col gap-2 pt-1">
           {items.map((entry) => (
             <TurnFrame
-              attachments={attachments}
               frame={entry.frame}
               key={entry.frame.frameId}
               live={entry.frame.frameId === liveFrameId}

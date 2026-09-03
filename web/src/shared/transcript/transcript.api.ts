@@ -92,7 +92,6 @@ export const fetchTranscriptBaseline = async (
   )
   const snapshot = agentTranscriptSnapshotSchema.parse(
     dropNulls({
-      attachments: page.attachments,
       interactions: page.interactions,
       items: page.items,
       meta: page.meta,

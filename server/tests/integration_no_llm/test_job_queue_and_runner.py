@@ -385,6 +385,12 @@ async def _awaits(queue: JobQueue, prompt_id: str, *, tries: int = 200) -> JobRo
     raise AssertionError("这条 prompt 没停在审批上")
 
 
+def _said(turn: TranscriptTurn) -> str:
+    """这一轮用户打的字。断言看字符串比看 part 列表清楚。"""
+
+    return "".join(part.text for part in turn.content if part.type == "text")
+
+
 def _replay(store: TranscriptStore, conversation_id: str) -> tuple[TranscriptTurn, ...]:
     """把订阅者收到的那些操作重放一遍，得到他屏幕上的那一份。
 
@@ -410,7 +416,7 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[Any]:
             turn.turn_id,
             turn.ordinal,
             turn.state,
-            turn.prompt,
+            turn.content,
             turn.error,
             [
                 (
@@ -445,7 +451,7 @@ async def test_one_prompt_runs_and_lands_in_both_paths(engine: AsyncEngine) -> N
 
     derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
     assert [turn.state for turn in derived] == ["completed"]
-    assert derived[0].prompt == "写三个镜头"
+    assert _said(derived[0]) == "写三个镜头"
     assert derived[0].steps[0].frames[0].text == "好的，我来写"  # pyright: ignore[reportAttributeAccessIssue]
 
     row = await queue.get(prompt_id)
@@ -576,7 +582,7 @@ async def test_second_prompt_queues_then_runs_after_the_first(engine: AsyncEngin
     assert settled.run_id is not None  # 它自己起过一次 run，不是被顺手标掉的
 
     derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
-    assert [turn.prompt for turn in derived] == ["先做这个", "再做那个"]
+    assert [_said(turn) for turn in derived] == ["先做这个", "再做那个"]
     assert [turn.ordinal for turn in derived] == [1, 2]
 
 
@@ -932,7 +938,7 @@ async def test_sweep_does_not_claim_a_row_this_process_is_still_running(
     await runner.shutdown()
 
     # 只跑了一轮：多一轮就说明清扫给同一条 prompt 起了第二次运行。
-    assert [turn.prompt for turn in _replay(store, conversation_id)] == ["先做这个"]
+    assert [_said(turn) for turn in _replay(store, conversation_id)] == ["先做这个"]
 
 
 async def test_a_prompt_that_used_up_its_attempts_is_failed(engine: AsyncEngine) -> None:
@@ -997,7 +1003,7 @@ async def test_a_prompt_interrupted_before_its_first_snapshot_runs_again(
     assert row.attempt == 1
 
     derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
-    assert [(turn.turn_id, turn.ordinal, turn.prompt) for turn in derived] == [
+    assert [(turn.turn_id, turn.ordinal, _said(turn)) for turn in derived] == [
         ("t1", 1, "把这三个镜头出图")
     ]
     assert _skeleton(_replay(store, conversation_id)) == _skeleton(derived)
@@ -1432,7 +1438,7 @@ async def test_aborting_the_conversation_leaves_nothing_queued_to_pick_up(
         assert row.run_id is None  # 没起过 run，不是跑了一半被停的
 
     # 客户端屏幕上只有被停的那一轮：多出第二轮就说明队首被顶上来跑过。
-    assert [turn.prompt for turn in _replay(store, conversation_id)] == ["先做这个"]
+    assert [_said(turn) for turn in _replay(store, conversation_id)] == ["先做这个"]
 
 
 async def test_aborting_a_queued_prompt_marks_it_aborted(engine: AsyncEngine) -> None:
@@ -1488,7 +1494,7 @@ async def test_an_append_landing_after_the_last_model_request_still_reaches_the_
 
     # 追加没有自成一轮，它是这一轮里的一个用户块。
     derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
-    assert [turn.prompt for turn in derived] == ["先做这个"]
+    assert [_said(turn) for turn in derived] == ["先做这个"]
     assert "临时插一句" in [
         getattr(frame, "text", None)
         for turn in derived
@@ -1534,7 +1540,7 @@ async def test_an_append_is_cancelled_with_the_turn_instead_of_starting_a_new_on
     assert appended.status == "aborted"
 
     # 屏幕上只有被停的那一轮：多出一轮就说明那条追加被退回队列又开跑了。
-    assert [turn.prompt for turn in _replay(store, conversation_id)] == ["先做这个"]
+    assert [_said(turn) for turn in _replay(store, conversation_id)] == ["先做这个"]
 
 
 async def test_an_append_the_run_never_read_goes_back_to_the_queue(engine: AsyncEngine) -> None:
@@ -1651,7 +1657,7 @@ async def test_a_run_that_died_mid_tool_still_shows_up_after_a_refresh(
     assert interrupted is not None
 
     derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
-    assert [turn.prompt for turn in derived] == ["把这三个镜头重新出图"]
+    assert [_said(turn) for turn in derived] == ["把这三个镜头重新出图"]
     assert [turn.state for turn in derived] == ["failed"]
 
     # 没等到返回的工具卡收成错的那一档，不是永远转圈。
@@ -1870,7 +1876,7 @@ async def test_an_append_arriving_as_the_run_would_park_on_approval_is_not_lost(
 
     # 这一轮在历史里：兜底存下的快照带着那句插话，而被跳过的审批调用收成一张错的卡。
     derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
-    assert [(turn.turn_id, turn.state, turn.prompt) for turn in derived] == [
+    assert [(turn.turn_id, turn.state, _said(turn)) for turn in derived] == [
         ("t1", "completed", "把这个文件改掉")
     ]
     snapshot = await step_store.latest_conversation_snapshot(

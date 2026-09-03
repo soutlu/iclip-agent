@@ -47,6 +47,7 @@ from pydantic_ai.ui import UIEventStream
 from pydantic_ai_harness.compaction import estimate_context_tokens
 
 from iclip.harness.transcript.from_messages import ORPHAN_TOOL_ERROR, step_usage
+from iclip.harness.transcript.prompt_media import plain_text, prompt_content
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
@@ -59,6 +60,7 @@ from iclip.platform.transcript.ops import (
     Interaction,
     InteractionUpsertOp,
     MetaMergeOp,
+    PromptContent,
     StepHeader,
     StepUpsertOp,
     StepUsage,
@@ -96,10 +98,9 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     agent_id: str = MAIN_AGENT_ID
     turn_id: str = "t1"
     turn_ordinal: int = 1
-    prompt: str | None = None
-    attachment_ids: tuple[str, ...] = ()
+    content: tuple[PromptContent, ...] = ()
+    """发起这一轮那条消息的 part 列表，原样带上轮头部。"""
     max_context_tokens: int | None = None
-    """这一轮用户附上的东西。实体本身由驱动那一层先落进实时状态，轮头部只带 id。"""
     resume_from: TranscriptTurn | None = None
     """续跑时这一轮的现状，由历史那一侧推出来。给了它就按它播种，新步从末步之后接着开。"""
     repaired_calls: tuple[str, ...] = ()
@@ -118,7 +119,9 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     """派出去的工具卡，按 toolCallId 记着。结局到达时照它改，不重新造一张。"""
     _step_headers: list[StepHeader] = field(default_factory=list[StepHeader], init=False)
     """每一步收尾时发出去的那份头部。run 跑完补用量时照着它改，免得把时刻抹掉。"""
-    _pending_steers: list[str] = field(default_factory=list[str], init=False)
+    _pending_steers: list[tuple[PromptContent, ...]] = field(
+        default_factory=list[tuple[PromptContent, ...]], init=False
+    )
     """还没有步可挂的插话，等下一步开出来放在最前面（与 ``from_messages`` 同一条规则）。"""
     _settled_calls: set[str] = field(default_factory=set[str], init=False)
     """已经等到结局的工具调用。收场时没在里面的卡收成错的那一档（见 ``_orphan_card_ops``）。"""
@@ -137,8 +140,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         turn = self.resume_from
         if turn is None:
             return
-        self.prompt = turn.prompt
-        self.attachment_ids = turn.attachment_ids or ()
+        self.content = turn.content
         if turn.started_at is not None:
             self._started_at = turn.started_at
         self._step_ordinal = len(turn.steps)
@@ -229,8 +231,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         ops: list[EmittableOperation] = [
             StepUpsertOp(turn_id=self.turn_id, step=self._step(state="running"))
         ]
-        for text in self._pending_steers:
-            ops.extend(self._user_frame(text))
+        for said in self._pending_steers:
+            ops.extend(self._user_frame(said))
         self._pending_steers.clear()
         yield tuple(ops)
 
@@ -461,21 +463,21 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     ) -> AsyncIterator[OpsBatch]:
         """插话真的送进去了。挂在当时开着的那一步末尾，与从消息推出来的那份一致。"""
 
-        texts = [
-            item
+        said = [
+            content
             for message in event.messages
             for part in getattr(message, "parts", ())
             if isinstance(part, UserPromptPart)
-            for item in _prompt_texts(part)
+            if (content := _prompt_content(part))
         ]
-        if not texts:
+        if not said:
             return
         if self._step_ordinal == 0:
-            self._pending_steers.extend(texts)
+            self._pending_steers.extend(said)
             return
         ops: list[EmittableOperation] = []
-        for text in texts:
-            ops.extend(self._user_frame(text))
+        for content in said:
+            ops.extend(self._user_frame(content))
         yield tuple(ops)
 
     # --- 内部 ---------------------------------------------------------------
@@ -498,8 +500,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             ordinal=self.turn_ordinal,
             state=state,  # pyright: ignore[reportArgumentType]
             origin=TurnOrigin(kind="user"),
-            prompt=self.prompt,
-            attachment_ids=self.attachment_ids or None,
+            content=self.content,
             started_at=self._started_at,
             ended_at=None if state == "running" else _now(),
             usage=self._turn_usage(),
@@ -580,13 +581,18 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         self._frame_ids.append(frame_id)
         return frame_id
 
-    def _user_frame(self, text: str) -> list[EmittableOperation]:
+    def _user_frame(self, content: tuple[PromptContent, ...]) -> list[EmittableOperation]:
         frame_id = self._next_frame_id()
         return [
             FrameUpsertOp(
                 turn_id=self.turn_id,
                 step_id=self._step_id,
-                frame=TextFrame(frame_id=frame_id, role="user", text=text),
+                frame=TextFrame(
+                    frame_id=frame_id,
+                    role="user",
+                    text=plain_text(content),
+                    content=content,
+                ),
             )
         ]
 
@@ -655,10 +661,11 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         )
 
 
-def _prompt_texts(part: UserPromptPart) -> list[str]:
-    if isinstance(part.content, str):
-        return [part.content]
-    return [item for item in part.content if isinstance(item, str)]
+def _prompt_content(part: UserPromptPart) -> tuple[PromptContent, ...]:
+    """插话那条消息里用户发上来的 part 列表。还原走的是历史那侧同一个函数。"""
+
+    items = [part.content] if isinstance(part.content, str) else list(part.content)
+    return prompt_content(items)
 
 
 def _approvals(results: Any) -> list[tuple[str, bool]]:

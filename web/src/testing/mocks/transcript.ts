@@ -36,15 +36,6 @@ const DEMO_FRAME_URLS = [
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23d1dfe8'/%3E%3Cpolygon points='160,40 240,140 80,140' fill='%232a5f8a'/%3E%3C/svg%3E",
 ]
 
-/** 那张参考图的附件实体：挂在历史第一页，随基线落地。 */
-const DEMO_ATTACHMENT = {
-  attachmentId: 'att_demo_image',
-  mediaType: 'image/svg+xml',
-  name: '参考图.svg',
-  size: 438,
-  source: { kind: 'url', url: DEMO_IMAGE_URL },
-}
-
 /** 每批操作之间隔多久：够看出是流式的，又不至于等。 */
 const BEAT_MS = 500
 
@@ -68,7 +59,11 @@ let turns = HISTORY_TURNS
 const seqOf = new Map<string, number>()
 const logOf = new Map<string, { ops: Batch; seq: number }[]>()
 
-type Prompt = { promptId: string; text: string }
+/** 一条消息的 part：与发消息接口的 content 同形。 */
+type PromptContent =
+  { type: 'text'; text: string } | { type: 'image' | 'video'; source: { kind: 'url'; url: string } }
+
+type Prompt = { promptId: string; text: string; content: PromptContent[] }
 
 type Active = Prompt & { ordinal: number; turnId: string }
 
@@ -100,6 +95,7 @@ const APPROVAL_PROMPT_TEXT = '把这两张镜头帧拼成封面'
 export const markMockAwaitingApproval = (conversationId: string) => {
   awaitingApproval.add(conversationId)
   running.set(conversationId, {
+    content: [{ text: APPROVAL_PROMPT_TEXT, type: 'text' }],
     ordinal: 3,
     promptId: APPROVAL_PROMPT_ID,
     text: APPROVAL_PROMPT_TEXT,
@@ -132,7 +128,7 @@ const approvalTurn = () => ({
   kind: 'turn',
   ordinal: 3,
   origin: { kind: 'user' },
-  prompt: APPROVAL_PROMPT_TEXT,
+  content: [{ text: APPROVAL_PROMPT_TEXT, type: 'text' }],
   startedAt: '2026-08-31T02:10:00Z',
   state: 'running',
   steps: [
@@ -201,7 +197,6 @@ export const mockTranscriptPage = (conversationId = '') => {
   return {
     agent_id: 'main',
     agents: [{ agentId: 'main', type: 'main' }],
-    attachments: [DEMO_ATTACHMENT],
     has_more: false,
     interactions: awaiting ? [pendingApproval] : [],
     items: [
@@ -242,8 +237,15 @@ const historyTurn = (ordinal: number) => ({
   kind: 'turn',
   ordinal,
   origin: { kind: 'user' },
-  attachmentIds: ordinal === 1 ? [DEMO_ATTACHMENT.attachmentId] : undefined,
-  prompt: `第 ${ordinal} 个问题`,
+  // 第一轮带一张参考图，夹在两句话中间：气泡按原顺序画 part 就靠它看出来
+  content:
+    ordinal === 1
+      ? [
+          { text: '参考这张图：', type: 'text' },
+          { source: { kind: 'url', url: DEMO_IMAGE_URL }, type: 'image' },
+          { text: '\n第 1 个问题', type: 'text' },
+        ]
+      : [{ text: `第 ${ordinal} 个问题`, type: 'text' }],
   startedAt: '2026-08-31T01:59:5'.concat(String(ordinal), 'Z'),
   state: 'completed',
   steps: [
@@ -327,11 +329,12 @@ export const transcriptHandlers = [
 
   // POST /prompts：空着就地开跑，忙着就排队——与真后端同一条规矩。
   http.post('*/api/conversations/:conversationId/prompts', async ({ params, request }) => {
-    const body = (await request.json()) as { content: { text?: string }[]; prompt_id: string }
+    const body = (await request.json()) as { content: PromptContent[]; prompt_id: string }
     const conversationId = String(params['conversationId'])
     const prompt = {
+      content: body.content,
       promptId: body.prompt_id,
-      text: body.content.map((p) => p.text ?? '').join(''),
+      text: body.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
     }
     const busy = running.has(conversationId)
     if (busy) {
@@ -340,7 +343,7 @@ export const transcriptHandlers = [
         {
           op: 'prompt.upsert',
           prompt: {
-            content: [{ text: prompt.text, type: 'text' }],
+            content: prompt.content,
             createdAt: new Date().toISOString(),
             promptId: prompt.promptId,
             status: 'queued',
@@ -500,7 +503,11 @@ export const transcriptHandlers = [
       connections.add(joined)
       // 一订上就先演一轮：不发消息也看得见流式长什么样。停在审批上的那几段不演——它在等人。
       if (!awaitingApproval.has(conversationId)) {
-        playTurn(conversationId, { promptId: 'demo', text: '把这段素材拆一下' })
+        playTurn(conversationId, {
+          content: [{ text: '把这段素材拆一下', type: 'text' }],
+          promptId: 'demo',
+          text: '把这段素材拆一下',
+        })
       }
     })
 
@@ -559,7 +566,7 @@ const stopTurn = (conversationId: string) => {
         kind: 'turn',
         ordinal: active.ordinal,
         origin: { kind: 'user' },
-        prompt: active.text,
+        content: active.content,
         state: 'cancelled',
         turnId: active.turnId,
       },
@@ -626,7 +633,7 @@ const settleApproval = (conversationId: string, approved: boolean) => {
         kind: 'turn',
         ordinal: 3,
         origin: { kind: 'user' },
-        prompt: APPROVAL_PROMPT_TEXT,
+        content: [{ text: APPROVAL_PROMPT_TEXT, type: 'text' }],
         state: 'completed',
         turnId: APPROVAL_TURN_ID,
       },
@@ -674,7 +681,13 @@ const steerInto = (conversationId: string, prompt: Prompt) => {
     },
     {
       op: 'frame.upsert',
-      frame: { frameId: `${stepId}.steer`, kind: 'text', role: 'user', text: prompt.text },
+      frame: {
+        content: prompt.content,
+        frameId: `${stepId}.steer`,
+        kind: 'text',
+        role: 'user',
+        text: prompt.text,
+      },
       stepId,
       turnId: active.turnId,
     },
@@ -740,7 +753,7 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
       kind: 'turn',
       ordinal,
       origin: { kind: 'user' },
-      prompt: prompt.text,
+      content: prompt.content,
       startedAt: now,
       state,
       turnId,
@@ -753,7 +766,7 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
     },
   })
 
-  // 头一批当场发：开场输入只在 turn.prompt，user frame 留给中途插话。订阅还没上来时这一批
+  // 头一批当场发：开场输入只在轮头部的 content，user frame 留给中途插话。订阅还没上来时这一批
   // 会丢，但补批日志里有它，客户端一跳号就补回来。
   broadcast(conversationId, [
     {

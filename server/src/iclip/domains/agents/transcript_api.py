@@ -402,10 +402,25 @@ def create_transcript_router(
 
         if not websocket_origin_allowed(websocket, allowed_origins):
             # 1008 = policy violation。在 accept 之前拒，连接根本不成立。
+            _logger.info(
+                "订阅连接被拒：Origin 不同源，Origin=%s Host=%s",
+                websocket.headers.get("origin"),
+                websocket.headers.get("host"),
+            )
             await websocket.close(code=1008)
             return
         principal = websocket_principal(websocket)
-        if principal is None or not principal.has("agent:run"):
+        if principal is None:
+            # 只记有没有带凭证，不记它的值：这样分得开「压根没带 cookie」与「带了但解析不出用户」。
+            _logger.info(
+                "订阅连接被拒：没有身份，cookie=%s authorization=%s",
+                "cookie" in websocket.headers,
+                "authorization" in websocket.headers,
+            )
+            await websocket.close(code=1008)
+            return
+        if not principal.has("agent:run"):
+            _logger.info("订阅连接被拒：用户 %s 没有 agent:run", principal.user_id)
             await websocket.close(code=1008)
             return
         await _serve(websocket, transcripts, conversations, principal, live)

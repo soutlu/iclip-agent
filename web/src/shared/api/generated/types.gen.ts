@@ -234,33 +234,6 @@ export type AssetsPageOut = {
 }
 
 /**
- * Attachment
- */
-export type Attachment = {
-  /**
-   * Attachmentid
-   */
-  attachmentId: string
-  /**
-   * Mediatype
-   */
-  mediaType: string
-  /**
-   * Name
-   */
-  name?: string | null
-  /**
-   * Placeholder
-   */
-  placeholder?: string | null
-  /**
-   * Size
-   */
-  size?: number | null
-  source?: AttachmentSource | null
-}
-
-/**
  * AttachmentSource
  */
 export type AttachmentSource = {
@@ -276,17 +249,6 @@ export type AttachmentSource = {
    * Url
    */
   url?: string | null
-}
-
-/**
- * AttachmentUpsertOp
- */
-export type AttachmentUpsertOp = {
-  attachment: Attachment
-  /**
-   * Op
-   */
-  op?: 'attachment.upsert'
 }
 
 /**
@@ -1130,7 +1092,6 @@ export type OpsBatchOut = {
     | FrameUpsertOp
     | AppendOp
     | InteractionUpsertOp
-    | AttachmentUpsertOp
     | PromptUpsertOp
     | MetaMergeOp
     | ItemsRemoveOp
@@ -1704,9 +1665,9 @@ export type TextContent = {
  */
 export type TextFrame = {
   /**
-   * Attachmentids
+   * Content
    */
-  attachmentIds?: Array<string> | null
+  content?: Array<TextContent | ImageContent | VideoContent> | null
   /**
    * Frameid
    */
@@ -1832,10 +1793,6 @@ export type TranscriptPage = {
     [key: string]: unknown
   }>
   /**
-   * Attachments
-   */
-  attachments?: Array<Attachment>
-  /**
    * Has More
    */
   has_more: boolean
@@ -1934,9 +1891,9 @@ export type TranscriptStep = {
  */
 export type TranscriptTurn = {
   /**
-   * Attachmentids
+   * Content
    */
-  attachmentIds?: Array<string> | null
+  content: Array<TextContent | ImageContent | VideoContent>
   /**
    * Durationms
    */
@@ -1958,10 +1915,6 @@ export type TranscriptTurn = {
    */
   ordinal: number
   origin: TurnOrigin
-  /**
-   * Prompt
-   */
-  prompt?: string | null
   /**
    * Startedat
    */
@@ -1988,9 +1941,9 @@ export type TranscriptTurn = {
  */
 export type TurnHeader = {
   /**
-   * Attachmentids
+   * Content
    */
-  attachmentIds?: Array<string> | null
+  content: Array<TextContent | ImageContent | VideoContent>
   /**
    * Durationms
    */
@@ -2012,10 +1965,6 @@ export type TurnHeader = {
    */
   ordinal: number
   origin: TurnOrigin
-  /**
-   * Prompt
-   */
-  prompt?: string | null
   /**
    * Startedat
    */

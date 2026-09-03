@@ -94,7 +94,7 @@ async def test_send_then_read_it_back(app: FastAPI, pg_url: str) -> None:
     assert page["agent_id"] == "main"  # 信封是 snake_case，实体是 camelCase
     assert page["has_more"] is False
     assert [turn["turnId"] for turn in page["items"]] == ["t1"]
-    assert page["items"][0]["prompt"] == "写三个镜头"
+    assert page["items"][0]["content"] == [{"type": "text", "text": "写三个镜头"}]
     assert page["items"][0]["state"] == "completed"
     assert page["items"][0]["steps"][0]["frames"][0]["kind"] == "text"
 

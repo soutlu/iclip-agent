@@ -7,7 +7,7 @@
 
 本模块不认识 ``pydantic_ai``：WS 与 REST 那一侧也要用这些形状，而它们在围栏另一侧。
 
-协议共 14 种操作，这里只放我们会发的那 10 种（见 ``TranscriptOperation``）。少发不破坏
+协议共 14 种操作，这里只放我们会发的那 9 种（见 ``TranscriptOperation``）。少发不破坏
 兼容——客户端的 reducer 认全部 14 种，我们哪天有了后台任务与待办再补上就行。
 
 **id 必须能被推导出来，不能由到达次序决定。**
@@ -29,7 +29,7 @@ import re
 from collections.abc import Iterable
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 TOOL_STATE_BY_OUTCOME: dict[str, Literal["done", "error"]] = {
@@ -102,8 +102,17 @@ class TextFrame(_Wire):
     frame_id: str
     role: Literal["assistant", "user"]
     text: str
-    attachment_ids: tuple[str, ...] | None = None
+    content: tuple[PromptContent, ...] | None = None
+    """用户发上来的那串 part，原样。模型说的话没有它。"""
     prompt_ids: tuple[str, ...] | None = None
+
+    @model_validator(mode="after")
+    def _user_block_carries_content(self) -> TextFrame:
+        """用户块必须带 part 列表：界面按次序画图文，只给 ``text`` 的话图就没了。"""
+
+        if self.role == "user" and self.content is None:
+            raise ValueError(f"用户块 {self.frame_id} 没带 content")
+        return self
 
 
 class ThinkingFrame(_Wire):
@@ -174,8 +183,8 @@ class TurnHeader(_Wire):
     ordinal: int
     state: Literal["queued", "running", "completed", "failed", "cancelled"]
     origin: TurnOrigin
-    prompt: str | None = None
-    attachment_ids: tuple[str, ...] | None = None
+    content: tuple[PromptContent, ...]
+    """发起这一轮那条消息的 part 列表，与发消息接口收下的那份逐字相同。"""
     started_at: str | None = None
     ended_at: str | None = None
     usage: TurnUsage | None = None
@@ -227,15 +236,6 @@ class AttachmentSource(_Wire):
     kind: Literal["url", "file", "session_media"]
     url: str | None = None
     file_id: str | None = None
-
-
-class Attachment(_Wire):
-    attachment_id: str
-    media_type: str
-    name: str | None = None
-    size: int | None = None
-    source: AttachmentSource | None = None
-    placeholder: str | None = None
 
 
 class TextContent(_Wire):
@@ -308,7 +308,6 @@ class TranscriptSnapshot(_Wire):
     items: tuple[Any, ...] = ()
     tasks: tuple[Any, ...] = ()
     interactions: tuple[Interaction, ...] = ()
-    attachments: tuple[Attachment, ...] = ()
     todos: tuple[Any, ...] = ()
     prompts: tuple[Prompt, ...] = ()
     meta: TranscriptMeta = TranscriptMeta()
@@ -363,11 +362,6 @@ class InteractionUpsertOp(_Wire):
     interaction: Interaction
 
 
-class AttachmentUpsertOp(_Wire):
-    op: Literal["attachment.upsert"] = "attachment.upsert"
-    attachment: Attachment
-
-
 class PromptUpsertOp(_Wire):
     op: Literal["prompt.upsert"] = "prompt.upsert"
     prompt: Prompt
@@ -389,7 +383,6 @@ EmittableOperation = Annotated[
     | FrameUpsertOp
     | AppendOp
     | InteractionUpsertOp
-    | AttachmentUpsertOp
     | PromptUpsertOp
     | MetaMergeOp
     | ItemsRemoveOp,
@@ -414,9 +407,7 @@ __all__ = [
     "TOOL_STATE_BY_OUTCOME",
     "AgentStatusMeta",
     "AppendOp",
-    "Attachment",
     "AttachmentSource",
-    "AttachmentUpsertOp",
     "EmittableOperation",
     "FrameTarget",
     "FrameUpsertOp",

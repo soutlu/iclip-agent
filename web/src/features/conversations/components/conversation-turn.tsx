@@ -14,14 +14,12 @@ import { memo } from 'react'
 import type { TranscriptTurn } from '@/shared/transcript/vendor'
 import { groupTurnEntries } from './activity-group'
 import { ActivityRun } from './activity-run'
-import { ErrorNotice, TurnFrame, type AttachmentMap } from './turn-frame'
+import { ErrorNotice, TurnFrame } from './turn-frame'
 import { TurnActions } from './turn-actions'
 import { UserBubble } from './user-bubble'
 
 type ConversationTurnProps = {
   turn: TranscriptTurn
-  /** 附件实体表（frame / turn 只带 id 引用；同一引用原地增补，不破坏 memo）。 */
-  attachments: AttachmentMap
   /** 重新生成这一轮；只在调用方判定它能重生（最后一轮、对话空闲）时才传。 */
   onRegenerate?: (() => void) | undefined
   /** 重新生成暂不可用时置灰；onRegenerate 没传时无意义。 */
@@ -35,17 +33,15 @@ const isSettled = (turn: TranscriptTurn) => turn.state !== 'running' && turn.sta
  * 渲染一轮。
  *
  * 轮子按 `turnId` memo：流式期间每来一批操作都会换掉时间线数组，不这样分的话，前面几十轮
- * 每个字都跟着重渲一遍。attachments 是同一份原地增补的表，引用不变、不破坏 memo。
+ * 每个字都跟着重渲一遍。
  *
  * @param props - 组件属性。
  * @param props.turn - 这一轮。
- * @param props.attachments - 附件实体表。
  * @param props.onRegenerate - 重新生成回调。
  * @param props.regenerateDisabled - 重新生成暂不可用。
  * @returns 一轮的内容。
  */
 export const ConversationTurn = memo(function ConversationTurn({
-  attachments,
   onRegenerate,
   regenerateDisabled,
   turn,
@@ -64,23 +60,16 @@ export const ConversationTurn = memo(function ConversationTurn({
     )
     .join('\n\n')
   // 开场输入始终在轮头部；user frame 只表示这一轮运行期间追加的插话，两者互不替代。
-  const hasOpening = (turn.prompt?.length ?? 0) > 0 || (turn.attachmentIds?.length ?? 0) > 0
   // 「还在进行中」的块照 kimi 的判据：轮子没结束，且它是最后一步的最后一块
   const liveFrameId = settled ? undefined : turn.steps.at(-1)?.frames.at(-1)?.frameId
   const nodes = groupTurnEntries(entries)
 
   return (
     <article className="group flex flex-col gap-2.5" aria-label={`第 ${turn.ordinal} 轮`}>
-      {hasOpening ? (
-        <UserBubble
-          attachments={turn.attachmentIds?.flatMap((id) => attachments.get(id) ?? [])}
-          text={turn.prompt ?? ''}
-        />
-      ) : null}
+      {turn.content.length > 0 ? <UserBubble content={turn.content} /> : null}
       {nodes.map((node) =>
         node.kind === 'run' ? (
           <ActivityRun
-            attachments={attachments}
             items={node.items}
             key={node.runId}
             liveFrameId={liveFrameId}
@@ -88,7 +77,6 @@ export const ConversationTurn = memo(function ConversationTurn({
           />
         ) : (
           <TurnFrame
-            attachments={attachments}
             frame={node.entry.frame}
             key={node.entry.frame.frameId}
             live={node.entry.frame.frameId === liveFrameId}

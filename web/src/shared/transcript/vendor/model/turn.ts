@@ -1,5 +1,5 @@
-import type { TranscriptFrame } from './frame';
-import type { AttachmentId, StepId, TaskId, TurnId } from './ids';
+import type { PromptContentPart, TranscriptFrame } from './frame';
+import type { StepId, TaskId, TurnId } from './ids';
 
 export type TurnOrigin =
   | { kind: 'user'; payload?: unknown }
@@ -53,8 +53,8 @@ export interface TranscriptTurn {
   readonly ordinal: number;
   readonly state: TurnState;
   readonly origin: TurnOrigin;
-  readonly prompt?: string;
-  readonly attachmentIds?: readonly AttachmentId[];
+  /** 本仓扩展：开场那条用户消息的原样 part 列表。 */
+  readonly content: readonly PromptContentPart[];
   readonly steps: TranscriptStep[];
   readonly startedAt?: string;
   readonly endedAt?: string;

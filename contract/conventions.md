@@ -68,6 +68,8 @@ transcript 面是唯一不按 §3 用 camelCase 的地方，因为客户端的 r
 - `GET /conversations/{id}/transcript/ops?since_seq=` 补断线期间漏掉的批次。
   `complete: false` 表示要的批次已经出了窗口，整页重拉。
 - `GET /conversations/{id}/prompts` 当前排程：`{active, queued}`。
+- 轮头部与用户文本块都带 `content`，就是发消息那串 part 原样、次序不动。
+- 图和视频只在 `content` 里，不另发附件实体，快照与分页里也没有 `attachments`。
 
 ### 停止、插话、审批、重新生成
 

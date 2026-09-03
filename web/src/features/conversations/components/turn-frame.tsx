@@ -6,21 +6,17 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import type { TranscriptAttachment, TranscriptFrame } from '@/shared/transcript/vendor'
+import type { TranscriptFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import { MediaLightbox } from '@/shared/ui/media-lightbox'
+import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
 import { AssistantMarkdown } from './assistant-markdown'
 import { DisclosureBody, DisclosureChevron } from './disclosure'
 import { toolCard, toolMedia, type MediaGridItem } from './tool-display'
 import { UserBubble } from './user-bubble'
 
-export type AttachmentMap = ReadonlyMap<string, TranscriptAttachment>
-
 type TurnFrameProps = {
   frame: TranscriptFrame
-  /** 附件实体表（frame 只带 id 引用）。 */
-  attachments: AttachmentMap
   /** 这一块是整轮最新的一块且轮子还在跑（思考块据此计时与呼吸）。 */
   live: boolean
   settled: boolean
@@ -31,20 +27,16 @@ type TurnFrameProps = {
  *
  * @param props - 组件属性。
  * @param props.frame - 这一块。
- * @param props.attachments - 附件实体表。
  * @param props.live - 这一块是否还在产出。
  * @param props.settled - 所在的轮子是否已结束。
  * @returns 一块的内容。
  */
-export function TurnFrame({ attachments, frame, live, settled }: TurnFrameProps) {
+export function TurnFrame({ frame, live, settled }: TurnFrameProps) {
   switch (frame.kind) {
     case 'text':
-      // 用户那条按原样显示（他打的就是字），助手正文走 markdown
+      // 用户那条（运行中插进来的消息）按 part 原样画，助手正文走 markdown
       return frame.role === 'user' ? (
-        <UserBubble
-          attachments={frame.attachmentIds?.flatMap((id) => attachments.get(id) ?? [])}
-          text={frame.text}
-        />
+        <UserBubble content={frame.content} />
       ) : (
         <AssistantMarkdown text={frame.text} />
       )
@@ -159,7 +151,7 @@ function ToolRow({ frame, settled }: ToolRowProps) {
   const state = frame.state === 'running' && settled ? 'done' : frame.state
   const status = toolStatus[state]
   const [open, setOpen] = useState(false)
-  const [preview, setPreview] = useState<TranscriptAttachment | null>(null)
+  const [preview, setPreview] = useState<LightboxMedia | null>(null)
   const media = toolMedia(frame)
   // 只展开纯文本的结果（读文件、搜内容这些）。对象结果不塞进界面——那是内部形状，不是给人看的。
   const text = typeof frame.output === 'string' && frame.output !== '' ? frame.output : undefined
@@ -204,21 +196,13 @@ function ToolRow({ frame, settled }: ToolRowProps) {
         </>
       )}
       {media.length === 0 ? null : <MediaWall items={media} onOpen={setPreview} />}
-      <MediaLightbox attachment={preview} onClose={() => setPreview(null)} />
+      <MediaLightbox media={preview} onClose={() => setPreview(null)} />
       {frame.error === undefined ? null : (
         <p className="text-body-sm text-chat-error-text">{frame.error}</p>
       )}
     </div>
   )
 }
-
-/** 媒体墙那几张不是附件实体，灯箱只认附件的形状：地址当 id，标题当名字。 */
-const asAttachment = (item: MediaGridItem): TranscriptAttachment => ({
-  attachmentId: item.url,
-  mediaType: 'image/*',
-  name: item.caption,
-  source: { kind: 'url', url: item.url },
-})
 
 /**
  * 工具画出来的那排图（照 kimi 的 media-tool）：横向铺开，每张一图一标题，点图进灯箱。
@@ -233,7 +217,7 @@ function MediaWall({
   onOpen,
 }: {
   items: readonly MediaGridItem[]
-  onOpen: (attachment: TranscriptAttachment) => void
+  onOpen: (media: LightboxMedia) => void
 }) {
   return (
     <div className="flex flex-wrap gap-2 pt-1">
@@ -244,7 +228,7 @@ function MediaWall({
         >
           <button
             className="cursor-zoom-in overflow-hidden rounded-md ui-focus"
-            onClick={() => onOpen(asAttachment(item))}
+            onClick={() => onOpen({ name: item.caption, url: item.url })}
             type="button"
           >
             <img alt={item.caption} className="block w-full rounded-md" src={item.url} />

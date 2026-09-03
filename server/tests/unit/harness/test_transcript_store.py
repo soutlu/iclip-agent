@@ -17,6 +17,7 @@ from iclip.platform.transcript.ops import (
     ItemsRemoveOp,
     StepHeader,
     StepUpsertOp,
+    TextContent,
     TextFrame,
     ToolFrame,
     TurnHeader,
@@ -38,7 +39,11 @@ def _open_turn(store: TranscriptStore, *, turn: str = "t1", step: str = "t1.1") 
         (
             TurnUpsertOp(
                 turn=TurnHeader(
-                    turn_id=turn, ordinal=1, state="running", origin=TurnOrigin(kind="user")
+                    turn_id=turn,
+                    ordinal=1,
+                    state="running",
+                    origin=TurnOrigin(kind="user"),
+                    content=(TextContent(text="走"),),
                 )
             ),
             StepUpsertOp(
@@ -200,7 +205,11 @@ def test_a_turn_is_held_until_the_message_history_has_it() -> None:
         (
             TurnUpsertOp(
                 turn=TurnHeader(
-                    turn_id="t1", ordinal=1, state="completed", origin=TurnOrigin(kind="user")
+                    turn_id="t1",
+                    ordinal=1,
+                    state="completed",
+                    origin=TurnOrigin(kind="user"),
+                    content=(TextContent(text="走"),),
                 )
             ),
         ),

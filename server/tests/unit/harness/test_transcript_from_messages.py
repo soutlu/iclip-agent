@@ -24,6 +24,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
+from iclip.harness.media import media_tag_close, media_tag_open
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
     TurnState,
@@ -34,7 +35,7 @@ from iclip.harness.transcript.from_messages import (
     turn_run_ids,
     turns_from_messages,
 )
-from iclip.harness.transcript.prompt_media import attachment_id, model_prompt
+from iclip.harness.transcript.prompt_media import model_prompt
 from iclip.platform.transcript.display import (
     FileIoDisplay,
     GenericDisplay,
@@ -105,7 +106,7 @@ def test_one_run_becomes_one_turn_with_steps_per_response() -> None:
     turn = turns[0]
     assert turn.turn_id == "t1"
     assert turn.ordinal == 1
-    assert turn.prompt == "帮我把 README 翻译成英文"
+    assert turn.content == (TextContent(text="帮我把 README 翻译成英文"),)
     assert [step.step_id for step in turn.steps] == ["t1.1", "t1.2"]
 
 
@@ -218,17 +219,33 @@ def test_denied_and_interrupted_tools_are_errors() -> None:
     assert states == ["error", "error"]
 
 
-def test_multimodal_prompt_keeps_the_text() -> None:
-    """用户输入是文字与图片地址混排的一串，只取文字；图片归媒体那一层。"""
+def test_multimodal_prompt_keeps_the_part_order() -> None:
+    """用户输入是文字与图混排的一串，还原出来的 part 保持原次序。
 
+    次序丢了图就换了位置：界面按这份列表画，图挪到哪句话旁边全看它。
+    """
+
+    url = "https://example.invalid/a.png"
     turns = turns_from_messages(
         [
-            _ask(["参考这两张图：", ImageUrl(url="https://example.invalid/a.png"), "做个 30 秒的"]),
+            _ask(
+                [
+                    "参考这张图：",
+                    media_tag_open("image", url),
+                    ImageUrl(url=f"{url}?x-oss-process=image/resize,l_1024"),
+                    media_tag_close("image"),
+                    "做个 30 秒的",
+                ]
+            ),
             _reply(TextPart(content="好")),
         ]
     )
 
-    assert turns[0].prompt == "参考这两张图：\n做个 30 秒的"
+    assert turns[0].content == (
+        TextContent(text="参考这张图："),
+        ImageContent(source=AttachmentSource(kind="url", url=url)),
+        TextContent(text="做个 30 秒的"),
+    )
 
 
 def test_trailing_message_without_a_run_id_stays_in_the_same_turn() -> None:
@@ -263,9 +280,9 @@ def test_two_runs_become_two_turns_in_time_order() -> None:
         ]
     )
 
-    assert [(turn.turn_id, turn.prompt) for turn in turns] == [
-        ("t1", "第一次"),
-        ("t2", "第二次"),
+    assert [(turn.turn_id, turn.content) for turn in turns] == [
+        ("t1", (TextContent(text="第一次"),)),
+        ("t2", (TextContent(text="第二次"),)),
     ]
 
 
@@ -310,7 +327,8 @@ def test_two_runs_of_one_prompt_become_one_turn() -> None:
     assert len(turns) == 1
     turn = turns[0]
     assert (turn.turn_id, turn.ordinal) == ("t1", 1)
-    assert turn.prompt == "出三张图"  # 轮头部仍是整轮第一句用户输入
+    # 轮头部仍是整轮第一句用户输入
+    assert turn.content == (TextContent(text="出三张图"),)
     assert [step.step_id for step in turn.steps] == ["t1.1", "t1.2"]
     assert turn.started_at == _at(0).isoformat()
     assert turn.ended_at == _at(3).isoformat()
@@ -616,7 +634,10 @@ def test_two_runs_without_a_mapping_stay_two_turns() -> None:
 
     turns = turns_from_messages(_resumed(), turn_states={"r1": "failed", "r2": "completed"})
 
-    assert [(turn.turn_id, turn.prompt) for turn in turns] == [("t1", "出三张图"), ("t2", "接着做")]
+    assert [(turn.turn_id, turn.content) for turn in turns] == [
+        ("t1", (TextContent(text="出三张图"),)),
+        ("t2", (TextContent(text="接着做"),)),
+    ]
     assert [turn.state for turn in turns] == ["failed", "completed"]
 
 
@@ -741,7 +762,7 @@ def test_thinking_frames_carry_their_text() -> None:
 
 
 def test_attached_image_survives_the_round_trip() -> None:
-    """附件不能在路上丢：进模型那一串里带着 tag，从消息推回来时还原成协议的附件实体。
+    """图不能在路上丢：进模型那一串里带着 tag，从消息推回来时还原成原图地址那一项。
 
     漏了这条，用户附的图会被收下、落库、然后无声消失——tag 当成用户打的字显示出来，
     而界面上根本没有那张图。
@@ -755,9 +776,11 @@ def test_attached_image_survives_the_round_trip() -> None:
     )
     turns = turns_from_messages([_ask(items), _reply(TextPart(content="好"))])
 
-    turn = turns[0]
-    assert turn.prompt == "照这张做"  # tag 不算用户打的字
-    assert turn.attachment_ids == (attachment_id(url),)
+    # 地址是 tag 里那个原图地址，不是喂模型那份带缩放参数的。
+    assert turns[0].content == (
+        ImageContent(source=AttachmentSource(kind="url", url=url)),
+        TextContent(text="照这张做"),
+    )
 
 
 def test_tool_card_carries_how_to_draw_it() -> None:

@@ -16,12 +16,8 @@ import { useWorkbenchSelection } from '@/shared/workbench'
 import { ContextUsageIndicator } from './context-usage-indicator'
 
 type ConversationComposerProps = {
-  /** 发一条。`parts` 是文字与附件按输入框顺序交替的那份；抛异常表示没送到，这里会把内容还回输入框。 */
-  onSend: (
-    text: string,
-    media: ComposerSubmission['media'],
-    parts: ComposerSubmission['parts'],
-  ) => Promise<void>
+  /** 发一条：文字与附件按输入框顺序交替的那份。抛异常表示没送到，这里会把内容还回输入框。 */
+  onSend: (parts: ComposerSubmission['parts']) => Promise<void>
   /** 这段对话正在跑：发送钮换成停止钮。 */
   busy?: boolean
   /** 有一步等着审批：占位文案换成等审批，说清此刻在等谁。 */
@@ -64,7 +60,6 @@ export function ConversationComposer({
     composerRef.current?.clear()
     setSending(true)
     const prefix = selection.refs.map((reference) => reference.prefix).join('\n')
-    const text = prefix === '' ? submission.text : `${prefix}\n${submission.text}`.trimEnd()
     // 引用那几行拼在第一段文字前面；第一段就是图的话，单独成一段文字放最前
     const [first, ...rest] = submission.parts
     const parts: ComposerSubmission['parts'] =
@@ -74,7 +69,7 @@ export function ConversationComposer({
           ? [{ kind: 'text', text: `${prefix}\n${first.text}` }, ...rest]
           : [{ kind: 'text', text: prefix }, ...submission.parts]
     try {
-      await onSend(text, submission.media, parts)
+      await onSend(parts)
       selection.clear()
     } catch (error) {
       // 没送到就把内容还给输入框，用户接着改或者再发一次。

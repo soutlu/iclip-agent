@@ -1,4 +1,4 @@
-import type { AgentId, AttachmentId, FrameId, InteractionId, TaskId, TodoId } from './ids';
+import type { AgentId, FrameId, InteractionId, TaskId, TodoId } from './ids';
 
 export type { InteractionKind, InteractionState } from './interaction';
 
@@ -7,15 +7,31 @@ export type FrameRef = {
   readonly frameId: FrameId;
 };
 
-export interface TextFrame {
+/** 本仓扩展：用户消息的原样 part 列表，与发消息接口的 content 同形。 */
+export type PromptContentPart =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'image'; readonly source: { readonly kind: 'url'; readonly url: string } }
+  | { readonly type: 'video'; readonly source: { readonly kind: 'url'; readonly url: string } };
+
+interface TextFrameBase {
   readonly kind: 'text';
   readonly frameId: FrameId;
-  readonly role: 'assistant' | 'user';
   readonly text: string;
-  readonly attachmentIds?: readonly AttachmentId[];
   readonly taskId?: TaskId;
   readonly promptIds?: readonly string[];
 }
+
+export interface AssistantTextFrame extends TextFrameBase {
+  readonly role: 'assistant';
+}
+
+/** 用户块（运行中插进来的那条消息）必带 part 列表；`text` 是其中文字 part 相接的那份。 */
+export interface UserTextFrame extends TextFrameBase {
+  readonly role: 'user';
+  readonly content: readonly PromptContentPart[];
+}
+
+export type TextFrame = AssistantTextFrame | UserTextFrame;
 
 export interface ThinkingFrame {
   readonly kind: 'thinking';

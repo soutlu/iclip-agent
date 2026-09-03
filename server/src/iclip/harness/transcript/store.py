@@ -23,8 +23,6 @@ from typing import Final
 
 from iclip.platform.transcript.ops import (
     AppendOp,
-    Attachment,
-    AttachmentUpsertOp,
     EmittableOperation,
     FrameUpsertOp,
     Interaction,
@@ -105,7 +103,6 @@ class _AgentTranscript:
     journal: deque[OpBatch] = field(default_factory=lambda: deque(maxlen=JOURNAL_CAPACITY))
     turns: dict[str, _LiveTurn] = field(default_factory=dict)
     interactions: dict[str, Interaction] = field(default_factory=dict)
-    attachments: dict[str, Attachment] = field(default_factory=dict)
     prompts: dict[str, Prompt] = field(default_factory=dict)
     meta: TranscriptMeta = field(default_factory=TranscriptMeta)
 
@@ -194,7 +191,6 @@ class TranscriptStore:
             watermark=watermark,
             snapshot=TranscriptSnapshot(
                 interactions=tuple(agent.interactions.values()),
-                attachments=tuple(agent.attachments.values()),
                 prompts=tuple(agent.prompts.values()),
                 meta=agent.meta,
             ),
@@ -298,8 +294,6 @@ def _apply(agent: _AgentTranscript, op: EmittableOperation) -> None:
             )
         case InteractionUpsertOp():
             agent.interactions[op.interaction.interaction_id] = op.interaction
-        case AttachmentUpsertOp():
-            agent.attachments[op.attachment.attachment_id] = op.attachment
         case PromptUpsertOp():
             agent.prompts[op.prompt.prompt_id] = op.prompt
         case MetaMergeOp():

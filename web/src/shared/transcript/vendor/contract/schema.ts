@@ -62,12 +62,25 @@ export const stepRetrySchema = z.object({
 export const turnStateSchema = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']);
 export const stepStateSchema = z.enum(['running', 'completed', 'interrupted', 'failed']);
 
+// 本仓扩展：用户消息的原样 part 列表，与发消息接口的 content 同形。
+export const promptContentPartSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), text: z.string() }),
+  z.object({
+    type: z.literal('image'),
+    source: z.object({ kind: z.literal('url'), url: z.string() }),
+  }),
+  z.object({
+    type: z.literal('video'),
+    source: z.object({ kind: z.literal('url'), url: z.string() }),
+  }),
+]);
+
 export const textFrameSchema = z.object({
   kind: z.literal('text'),
   frameId: frameIdSchema,
   role: z.enum(['assistant', 'user']),
   text: z.string(),
-  attachmentIds: z.array(z.string()).optional(),
+  content: z.array(promptContentPartSchema).optional(),
   taskId: taskIdSchema.optional(),
   promptIds: z.array(z.string()).optional(),
 });
@@ -160,8 +173,7 @@ export const transcriptTurnSchema = z.object({
   ordinal: z.number().int(),
   state: turnStateSchema,
   origin: turnOriginSchema,
-  prompt: z.string().optional(),
-  attachmentIds: z.array(z.string()).optional(),
+  content: z.array(promptContentPartSchema),
   steps: z.array(transcriptStepSchema),
   startedAt: z.string().optional(),
   endedAt: z.string().optional(),

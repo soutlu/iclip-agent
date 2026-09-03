@@ -48,7 +48,7 @@ const APPROVAL_TURN = {
   kind: 'turn',
   ordinal: 3,
   origin: { kind: 'user' },
-  prompt: '把两张镜头帧拼成封面',
+  content: [{ text: '把两张镜头帧拼成封面', type: 'text' }],
   startedAt: '2026-08-31T02:10:00Z',
   state: 'running',
   steps: [
@@ -198,7 +198,7 @@ describe('ConversationRoute', () => {
               kind: 'turn',
               ordinal: 3,
               origin: { kind: 'user' },
-              prompt: '再拆一段',
+              content: [{ text: '再拆一段', type: 'text' }],
               state: 'running',
               turnId: 't3',
             },
@@ -242,6 +242,7 @@ describe('ConversationRoute', () => {
               kind: 'turn',
               ordinal: 3,
               origin: { kind: 'user' },
+              content: [{ text: '再拆一段', type: 'text' }],
               state: 'completed',
               turnId: 't3',
             },
@@ -542,7 +543,7 @@ describe('ConversationRoute', () => {
               kind: 'turn',
               ordinal: 3,
               origin: { kind: 'user' },
-              prompt: '拆',
+              content: [{ text: '拆', type: 'text' }],
               startedAt: '2026-08-31T03:00:00Z',
               state: 'completed',
               turnId: 't3',
@@ -622,10 +623,11 @@ describe('ConversationRoute', () => {
     await renderConversation()
     await screen.findByText(TAIL_TEXT)
 
-    await user.click(await screen.findByRole('button', { name: /参考图\.svg/ }))
+    // mock 里那张图是 data URL，没有文件名，芯片就叫「图片」
+    await user.click(await screen.findByRole('button', { name: '图片' }))
 
-    const dialog = await screen.findByRole('dialog', { name: '参考图.svg' })
-    expect(within(dialog).getByRole('img', { name: '参考图.svg' })).toBeInTheDocument()
+    const dialog = await screen.findByRole('dialog', { name: '图片' })
+    expect(within(dialog).getByRole('img', { name: '图片' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '关闭' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())

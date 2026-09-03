@@ -19,3 +19,12 @@
 
 工具帧上多一个 `metadata`（`contract/schema.ts` 与 `model/frame.ts` 各一处）：kimi 的帧没有它，
 这是本仓的扩展——工具返回里给人看的那份结果原样落在这个字段上，不写进 schema 会被 zod 丢掉。
+
+轮头部与用户文本块带 `content`（`contract/schema.ts`、`model/turn.ts`、`model/frame.ts`）：用户消息的
+原样 part 列表，与发消息接口的 `content` 同形。kimi 的轮头部是 `prompt` 字符串加附件 id 列表，本仓
+不用那两个字段，附件实体表（`attachment.upsert`）也不再发；`ops/apply.ts` 里比对轮头部与用户块
+的那两处随之改看 `content`。
+
+上游的 `history/`（从 kimi 的消息记录冷推 transcript）没有带过来：那条路的输入是 kimi 自己的消息
+形状，本仓的历史由服务端从 pydantic-ai 的消息推出来。`__tests__/layers.test.ts` 里对应的那些用例
+一并去掉。
