@@ -1,0 +1,5 @@
+export type { ArtifactRendererProps } from './artifact'
+export { ArtifactRegistry } from './registry'
+export { WorkbenchHost } from './workbench-host'
+export { WorkbenchRegistryProvider } from './workbench-registry-provider'
+export { useWorkspaceFile, workspaceQueryKeys } from './workspace.api'

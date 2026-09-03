@@ -51,11 +51,14 @@ function AppShell() {
     <LoginPromptProvider value={requireLogin}>
       <div className="flex h-dvh">
         <AppSidebar />
-        {/* 主区不自带底色：透出 body 的页面底色（见 base.css html,body） */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Outlet />
+        {/* 侧栏之外这一块是「主区」：右面板放大或窄屏二选一时会整块盖住它，所以要有定位上下文 */}
+        <div className="relative flex min-w-0 flex-1">
+          {/* 主区不自带底色：透出 body 的页面底色（见 base.css html,body） */}
+          <div className="flex min-w-0 flex-1 flex-col lg:min-w-(--layout-app-chat-min-width)">
+            <Outlet />
+          </div>
+          <AppRightPanel />
         </div>
-        <AppRightPanel />
       </div>
 
       <LoginDialog open={loginOpen} onOpenChange={handleLoginOpenChange} ssoErrorCode={ssoError} />

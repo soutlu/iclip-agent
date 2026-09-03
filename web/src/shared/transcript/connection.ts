@@ -95,6 +95,21 @@ const workChangedSchema = z.object({
   last_turn_reason: z.enum(['completed', 'failed', 'aborted']).nullable().optional(),
 })
 
+// `session_id` 也在信封上。帧里不带版本与写入者：收到就重读那个文件，版本在文件上。
+const fsChangedSchema = z.object({
+  changes: z.array(
+    z.object({
+      path: z.string(),
+      change: z.enum(['created', 'modified', 'deleted']),
+      kind: z.string(),
+    }),
+  ),
+  coalesced_window_ms: z.number(),
+})
+
+/** 一次文件变动通知。 */
+export type FsChange = z.infer<typeof fsChangedSchema>['changes'][number]
+
 /** 某段对话身上变了点什么。两种全局帧走同一条分发路径。
  *
  * `reconnected` 不是帧，是连接自己的事：全局帧是易失的，断线期间发生的改名与状态变化谁也补不
@@ -116,6 +131,12 @@ export interface ConnectionHealth {
   connected: boolean
   /** 太久没有任何入站帧了。界面据此提示「连接可能断了」。 */
   stale: boolean
+}
+
+/** 一份文件订阅：订了哪几条路径，变了叫谁。 */
+interface FsWatch {
+  paths: readonly string[]
+  handler: (changes: readonly FsChange[]) => void
 }
 
 interface Subscription {
@@ -142,6 +163,9 @@ export class TranscriptConnection {
 
   /** 还没回执的 subscribe：ack 说「订不上」时得知道那一帧问的是哪段对话。 */
   private pending = new Map<string, string>()
+
+  /** 盯着文件变动的那些人，按对话分。重连之后照这张表重发 `watch_fs_add`。 */
+  private fsWatches = new Map<string, Set<FsWatch>>()
 
   /** 盯着全局帧的那些人。不按对话分——这些帧本来就不看订阅。 */
   private sessionWatchers = new Set<(update: SessionUpdate) => void>()
@@ -222,6 +246,35 @@ export class TranscriptConnection {
       id: this.mintId(),
       payload: { session_id: conversationId },
     })
+  }
+
+  /**
+   * 订一段对话里那几条路径的变动，返回退订函数。
+   *
+   * 与 transcript 订阅各管各的：这里订的是文件，收到 `event.fs.changed` 就重读那份文件。帧是易失
+   * 的，重连之后连接会把还在的订阅原样重发一遍，断线期间漏掉的那些由调用方重拉对齐。
+   *
+   * @param conversationId - 哪一段对话。
+   * @param paths - 订哪几条路径。
+   * @param handler - 变动到达时叫谁。
+   * @returns 退订函数。
+   */
+  watchFs(
+    conversationId: string,
+    paths: readonly string[],
+    handler: (changes: readonly FsChange[]) => void,
+  ): () => void {
+    const watch: FsWatch = { handler, paths }
+    const watches = this.fsWatches.get(conversationId) ?? new Set<FsWatch>()
+    watches.add(watch)
+    this.fsWatches.set(conversationId, watches)
+    if (this.connected) this.sendFsWatch('watch_fs_add', conversationId, paths)
+    return () => {
+      const current = this.fsWatches.get(conversationId)
+      if (current === undefined || !current.delete(watch)) return
+      if (current.size === 0) this.fsWatches.delete(conversationId)
+      this.sendFsWatch('watch_fs_remove', conversationId, paths)
+    }
   }
 
   /**
@@ -307,6 +360,19 @@ export class TranscriptConnection {
         })
         return
       }
+      case 'event.fs.changed': {
+        // 按信封上的 session_id 分流：一条连接可能订着好几段对话的文件。
+        if (typeof frame.session_id !== 'string') return
+        const parsed = fsChangedSchema.safeParse(frame.payload)
+        if (!parsed.success) return
+        const watches = this.fsWatches.get(frame.session_id)
+        if (watches === undefined) return
+        for (const watch of watches) {
+          const mine = parsed.data.changes.filter((change) => watch.paths.includes(change.path))
+          if (mine.length > 0) watch.handler(mine)
+        }
+        return
+      }
       case 'transcript.reset':
       case 'transcript.ops': {
         // 帧里的 session_id 是分流依据：一条连接管多段对话，不看它就不知道该给谁。
@@ -365,8 +431,28 @@ export class TranscriptConnection {
     this.reconnectAttempts = 0
     this.options.onConnectionState?.(true)
     for (const conversationId of this.subscriptions.keys()) this.sendSubscribe(conversationId)
+    // 文件订阅同理：新连接那一头什么都不记得，还在的订阅得原样再报一遍。
+    for (const [conversationId, watches] of this.fsWatches) {
+      for (const watch of watches) this.sendFsWatch('watch_fs_add', conversationId, watch.paths)
+    }
     // 第一次连上不算重连：那时列表刚拉过。
     if (reopened) this.announce({ kind: 'reconnected' })
+  }
+
+  /**
+   * 发一帧文件订阅。回执不记账：`ack` 那条路是给 subscribe 用的，混进来会让「订不上」把整段
+   * 对话的 transcript 订阅也撤掉。
+   */
+  private sendFsWatch(
+    type: 'watch_fs_add' | 'watch_fs_remove',
+    conversationId: string,
+    paths: readonly string[],
+  ): void {
+    this.send({
+      type,
+      id: this.mintId(),
+      payload: { session_id: conversationId, paths: [...paths] },
+    })
   }
 
   private sendSubscribe(conversationId: string): void {
