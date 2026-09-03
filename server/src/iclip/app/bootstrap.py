@@ -407,7 +407,7 @@ def build_app(
     settings = resolve_settings(config)
     if settings.db_schema != DB_SCHEMA:
         raise RuntimeError(f"db.schema 当前固定为 {DB_SCHEMA}（declarative 元数据定义期绑定）")
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
 
     owns_engine = engine is None
     active_engine = (

@@ -57,7 +57,6 @@ POST /generations ──▶ 插一行 pending ──▶ defer 提交任务
 from __future__ import annotations
 
 import asyncio
-import logging
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -65,6 +64,7 @@ from datetime import UTC, datetime
 from typing import Final
 
 import procrastinate
+import structlog
 from procrastinate import RetryDecision
 from procrastinate.jobs import Job as QueuedJob
 
@@ -79,7 +79,7 @@ from iclip.domains.generation.provider import GenerationProvider, ProviderError
 from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import KIND_IMAGE, KIND_VIDEO
 
-_logger = logging.getLogger(__name__)
+_logger = structlog.stdlib.get_logger(__name__)
 
 QUEUE_SUBMIT_IMAGE: Final = "generation-submit-image"
 QUEUE_SUBMIT_VIDEO: Final = "generation-submit-video"
@@ -255,7 +255,7 @@ class GenerationQueue:
             return
         if job.status != STATUS_PENDING:
             # 已经有结论了（重跑、或者重复排进来一次）。什么都不做。
-            _logger.info("生成任务 %s 已是 %s，不再提交", job.id, job.status)
+            _logger.info("生成任务已有结论，不再提交", job_id=job.id, status=job.status)
             return
 
         # 先落库再发请求。反过来的话，崩在响应回来之前这行还是 pending，重跑时会
@@ -267,7 +267,7 @@ class GenerationQueue:
             # 提交阶段一律不重试，连「可重试」的网络错误也不：请求可能已经落到对方
             # 那边了，我们分不出来。
             await self._repo.mark_failed(job.id, error_code=exc.code, error_message=str(exc))
-            _logger.warning("生成任务 %s 提交失败（%s）: %s", job.id, exc.code, exc)
+            _logger.warning("生成任务提交失败", job_id=job.id, code=exc.code, error=str(exc))
             return
 
         if submission.output_url is not None:
@@ -298,7 +298,7 @@ class GenerationQueue:
 
         job = await self._repo.get(uuid.UUID(job_id), owner=None)
         if job.status != STATUS_SUBMITTED:
-            _logger.info("生成任务 %s 已是 %s，不再轮询", job.id, job.status)
+            _logger.info("生成任务已有结论，不再轮询", job_id=job.id, status=job.status)
             return
         if self._timed_out(job):
             await self._repo.mark_failed(
@@ -368,7 +368,7 @@ class GenerationQueue:
             await self._app.job_manager.retry_job_by_id_async(job_id=queued.id, retry_at=now)
             healed += 1
         if healed:
-            _logger.warning("捡回 %d 个中断的生成任务（原 worker 已失联）", healed)
+            _logger.warning("捡回中断的生成任务（原 worker 已失联）", count=healed)
         return healed
 
     async def _heal_periodic(self, context: procrastinate.JobContext, timestamp: int) -> None:
@@ -432,7 +432,9 @@ class GenerationQueue:
             workers, timeout=self._settings.shutdown_grace_seconds + _STOP_MARGIN_SECONDS
         )
         for worker in pending:
-            _logger.warning("生成 worker %s 没在关停宽限期内收干净，不再等它", worker.get_name())
+            _logger.warning(
+                "生成 worker 没在关停宽限期内收干净，不再等它", worker=worker.get_name()
+            )
 
     async def _fail_stranded(self, job: GenerationJob) -> None:
         """处置卡在 ``submitting`` 上的行：判失败，说清为什么不重投。
@@ -451,9 +453,9 @@ class GenerationQueue:
             only_if_status=STATUS_SUBMITTING,
         )
         if failed is None:
-            _logger.info("生成任务 %s 在收尾之前已有结论，不改它", job.id)
+            _logger.info("生成任务在收尾之前已有结论，不改它", job_id=job.id)
             return
-        _logger.warning("生成任务 %s 提交中断，已判失败", job.id)
+        _logger.warning("生成任务提交中断，已判失败", job_id=job.id)
 
     def _timed_out(self, job: GenerationJob) -> bool:
         started = job.submitted_at or job.created_at

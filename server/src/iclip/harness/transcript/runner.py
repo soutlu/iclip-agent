@@ -30,13 +30,13 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+import structlog
 from pydantic_ai import Agent, CancellationToken, ToolFailed
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import (
@@ -82,7 +82,7 @@ from iclip.platform.transcript.ops import (
     agent_context_status,
 )
 
-_logger = logging.getLogger(__name__)
+_logger = structlog.stdlib.get_logger(__name__)
 
 DepsFor = Callable[[JobRow], Awaitable[Any]]
 
@@ -319,7 +319,7 @@ class ConversationRunner:
         for active in tuple(self._active.values()):
             if active.prompt_id in alive:
                 continue
-            _logger.warning("这一轮的租约已经不在手上，取消它：prompt=%s", active.prompt_id)
+            _logger.warning("这一轮的租约已经不在手上，取消它", prompt_id=active.prompt_id)
             active.token.cancel()
 
     async def sweep_once(self) -> None:
@@ -597,7 +597,7 @@ class ConversationRunner:
         try:
             status = await self._run_once(row)
         except Exception:
-            _logger.exception("这次运行没跑完：prompt=%s", row.prompt_id)
+            _logger.exception("这次运行没跑完", prompt_id=row.prompt_id)
         finally:
             active = self._active.pop(row.conversation_id, None)
             self._store.unpin(row.conversation_id)
@@ -653,7 +653,7 @@ class ConversationRunner:
             return
         stranded = active.handle.undelivered(active.steered)
         if stranded:
-            _logger.info("这几条追加没赶上这一轮，退回队列：%s", stranded)
+            _logger.info("这几条追加没赶上这一轮，退回队列", steers=stranded)
             await self._revert(tuple(active.steered[item] for item in stranded))
 
     async def _after_turn(self, row: JobRow) -> None:
@@ -664,7 +664,7 @@ class ConversationRunner:
         try:
             await self._on_turn_ended(row)
         except Exception:
-            _logger.exception("这一轮的收尾动作没做完：prompt=%s", row.prompt_id)
+            _logger.exception("这一轮的收尾动作没做完", prompt_id=row.prompt_id)
 
     async def _settle(self, active: _Active | None, *, status: JobStatus) -> None:
         """给递进这一轮的那几条追加定结局。
@@ -682,7 +682,7 @@ class ConversationRunner:
         if status != "aborted":
             stranded = active.handle.undelivered(active.steered)
             if stranded:
-                _logger.info("这几条追加没赶上这一轮，退回队列：%s", stranded)
+                _logger.info("这几条追加没赶上这一轮，退回队列", steers=stranded)
                 await self._revert(tuple(active.steered[item] for item in stranded))
         for child in await self._queue.settle_steered(active.run_id, status=status, now=_now()):
             self._publish(child)
@@ -746,8 +746,8 @@ class ConversationRunner:
             unresolved = await self._snapshots.list_unresolved_tool_effects(run_id=crashed_run)
             if unresolved:
                 _logger.warning(
-                    "续跑前有没收尾的工具副作用：%s",
-                    [(r.tool_name, r.tool_call_id, r.idempotency_key) for r in unresolved],
+                    "续跑前有没收尾的工具副作用",
+                    effects=[(r.tool_name, r.tool_call_id, r.idempotency_key) for r in unresolved],
                 )
         # 只有「末尾是标着中断的请求」这一形状官方是补返回而不发事件，实时那侧得自己把卡收掉；
         # 另两种形状要么没有开放调用，要么那些调用被重新执行，事件照常到达。
@@ -844,7 +844,7 @@ class ConversationRunner:
 
         if not history or run_id in await self._derived_run_ids(conversation_id):
             return
-        _logger.warning("官方没存下这一轮的快照，运行驱动兜底存一份：run=%s", run_id)
+        _logger.warning("官方没存下这一轮的快照，运行驱动兜底存一份", run_id=run_id)
         await self._save_history(conversation_id, run_id=run_id, history=history)
 
     async def _save_history(
@@ -924,7 +924,7 @@ class ConversationRunner:
         """
 
         if run_id not in await self._derived_run_ids(conversation_id):
-            _logger.warning("这一轮还没落进消息历史，先留在实时状态里：run=%s", run_id)
+            _logger.warning("这一轮还没落进消息历史，先留在实时状态里", run_id=run_id)
             return
         self._store.mark_snapshot_persisted(conversation_id, MAIN_AGENT_ID, turn_id)
         self._store.drop_persisted_turns(conversation_id, MAIN_AGENT_ID)

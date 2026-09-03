@@ -326,6 +326,8 @@ class AgentRunsSection(ConfigSection):
 
 class OpsSection(ConfigSection):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_format: Literal["console", "json"] = "console"
+    """console 给人看；json 一行一个对象，给日志平台按字段检索。"""
 
 
 class RuntimeConfig(BaseSettings):
@@ -480,6 +482,7 @@ class ResolvedSettings:
     """给对话起标题的模型名，取 ``models`` 里的一个。为空即不起标题。"""
     agent_runs: ResolvedAgentRuns
     log_level: str
+    log_format: Literal["console", "json"]
 
 
 def _from_env[EnvT: EnvSettings](cls: type[EnvT]) -> EnvT:
@@ -655,6 +658,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             max_attempts=config.agent_runs.max_attempts,
         ),
         log_level=config.ops.log_level,
+        log_format=config.ops.log_format,
     )
 
 
