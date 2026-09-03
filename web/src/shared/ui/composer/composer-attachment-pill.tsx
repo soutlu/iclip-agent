@@ -1,37 +1,24 @@
 /**
- * 编辑器里的附件 pill 与它的悬停卡（照 kimi 的 attachment-pill + mention-tip 控制器）。
+ * 编辑器里的附件 pill：芯片内容与它的悬停预览卡（照 kimi 的 attachment-pill + mention-tip）。
  *
  * pill 的外层 span 是 PM NodeView 的 dom（落位与选中态由编辑器管），本组件经 portal 往里
- * 渲染图标与名字；上传失败给外层 span 加 `attachment-error`（kimi 的同名 class）。删除不走
+ * 渲染芯片内容；上传失败给外层 span 加 `attachment-error`（kimi 的同名 class）。删除不走
  * 按钮：pill 是 atom 节点，点选后按退格整颗删掉（kimi 的内联 pill 本来就没有 ×）。
  *
- * 悬停卡时序照 kimi：冷启动 150ms 出现、离开 120ms 后关闭；刚关过一张就移动到下颗 pill
- * 立即出现（400ms 内算「还在看」）；光标移进卡里不关。
+ * 上传条目在这里翻译成「一份媒体的描述」——芯片与卡是与气泡共用的，不认 composer 的类型。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Icon, type IconName } from '@/shared/icons'
-import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
-import { ComposerAttachmentTip } from './composer-attachment-tip'
+import {
+  MediaChipContent,
+  type MediaDescriptor,
+  MediaPreviewCard,
+  type MediaUploadState,
+  useHoverPreview,
+} from '@/shared/ui/media-preview'
 import type { ComposerAttachment, ComposerAttachmentKind } from './use-composer-attachments'
-import { ellipsizeAttachmentName } from './attachment-format'
-
-const KIND_ICON: Record<ComposerAttachmentKind, IconName> = {
-  file: 'file',
-  image: 'image',
-  video: 'video',
-}
-
-/** 悬停卡出现时序（kimi --duration-tooltip / --duration-fast）。 */
-const TIP_OPEN_DELAY_MS = 150
-const TIP_CLOSE_DELAY_MS = 120
-/** 两张卡之间移动免延迟的窗口。 */
-const TIP_WARM_REOPEN_MS = 400
-
-/** 全局只有一张悬停卡：最近一张关闭的时刻，用来判 pill 间游走要不要免延迟。 */
-let lastTipClosedAt = 0
 
 type ComposerAttachmentPillProps = {
   /** NodeView 外层 span（portal 目标，也是悬停卡锚点）。 */
@@ -42,6 +29,12 @@ type ComposerAttachmentPillProps = {
   entry: ComposerAttachment | undefined
 }
 
+const uploadStateOf = (entry: ComposerAttachment): MediaUploadState => {
+  if (entry.status === 'uploading') return { progress: entry.progress, status: 'uploading' }
+  if (entry.status === 'ready') return { status: 'ready' }
+  return { message: entry.error ?? '上传失败——删除该附件，或重新拖入文件重试', status: 'error' }
+}
+
 /**
  * 渲染一颗附件 pill 的内容与悬停卡。
  *
@@ -49,10 +42,9 @@ type ComposerAttachmentPillProps = {
  * @returns pill 内容（portal 进 NodeView 的 dom）。
  */
 export function ComposerAttachmentPill({ entry, hostEl, kind, name }: ComposerAttachmentPillProps) {
-  const [tipOpen, setTipOpen] = useState(false)
   const [viewing, setViewing] = useState(false)
-  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tip = useHoverPreview()
+  const { onEnter, onLeave } = tip
 
   // 上传失败：外层 span 变色（kimi 的 .attachment-pill.attachment-error）
   useEffect(() => {
@@ -60,83 +52,49 @@ export function ComposerAttachmentPill({ entry, hostEl, kind, name }: ComposerAt
     return () => hostEl.classList.remove('attachment-error')
   }, [hostEl, entry?.status])
 
+  // 锚点是编辑器的 span，挂原生监听器；进卡不关由卡片那边接力同一对回调
   useEffect(() => {
-    const clearTimers = () => {
-      if (openTimerRef.current !== null) clearTimeout(openTimerRef.current)
-      if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current)
-      openTimerRef.current = null
-      closeTimerRef.current = null
-    }
-    const open = () => {
-      clearTimers()
-      const cold = Date.now() - lastTipClosedAt >= TIP_WARM_REOPEN_MS
-      openTimerRef.current = setTimeout(() => setTipOpen(true), cold ? TIP_OPEN_DELAY_MS : 0)
-    }
-    const scheduleClose = () => {
-      clearTimers()
-      closeTimerRef.current = setTimeout(() => {
-        lastTipClosedAt = Date.now()
-        setTipOpen(false)
-      }, TIP_CLOSE_DELAY_MS)
-    }
-    hostEl.addEventListener('mouseenter', open)
-    hostEl.addEventListener('mouseleave', scheduleClose)
+    hostEl.addEventListener('mouseenter', onEnter)
+    hostEl.addEventListener('mouseleave', onLeave)
     return () => {
-      clearTimers()
-      hostEl.removeEventListener('mouseenter', open)
-      hostEl.removeEventListener('mouseleave', scheduleClose)
+      hostEl.removeEventListener('mouseenter', onEnter)
+      hostEl.removeEventListener('mouseleave', onLeave)
     }
-  }, [hostEl])
+  }, [hostEl, onEnter, onLeave])
 
-  // 灯箱开着的时候悬停卡不再出现
-  const tipEntry = tipOpen && !viewing && entry !== undefined ? entry : null
-  // 图片一选进来就有本地预览；视频要等传完拿到公网地址才截得出首帧
-  const thumbnail =
-    kind === 'image'
-      ? entry?.previewUrl
-      : kind === 'video' && entry?.url !== undefined
-        ? videoSnapshotUrl(entry.url)
-        : undefined
+  const media: MediaDescriptor = {
+    kind,
+    name,
+    previewUrl: entry?.previewUrl,
+    size: entry?.size,
+    upload: entry === undefined ? undefined : uploadStateOf(entry),
+  }
 
   return (
     <>
-      <span className="attachment-pill-icon">
-        {thumbnail === undefined ? (
-          <Icon decorative name={KIND_ICON[kind]} size="sm" />
-        ) : (
-          <img alt="" className="size-full rounded-xs object-cover" src={thumbnail} />
-        )}
-      </span>
-      <span className="attachment-pill-name">{ellipsizeAttachmentName(name)}</span>
-      {tipEntry === null ? null : (
-        <ComposerAttachmentTip
+      <MediaChipContent media={media} />
+      {/* 灯箱开着的时候卡不再出现；entry 还没登记上时也没什么可看的 */}
+      {tip.open && !viewing && entry !== undefined ? (
+        <MediaPreviewCard
           anchorEl={hostEl}
-          entry={tipEntry}
-          onHoverEnd={() => {
-            if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current)
-            closeTimerRef.current = setTimeout(() => {
-              lastTipClosedAt = Date.now()
-              setTipOpen(false)
-            }, TIP_CLOSE_DELAY_MS)
-          }}
-          onHoverStart={() => {
-            if (openTimerRef.current !== null) clearTimeout(openTimerRef.current)
-            if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current)
-            openTimerRef.current = null
-            closeTimerRef.current = null
-          }}
+          media={media}
+          onEnter={onEnter}
+          onLeave={onLeave}
           onOpenFullscreen={() => {
-            lastTipClosedAt = Date.now()
-            setTipOpen(false)
+            tip.close()
             setViewing(true)
           }}
         />
-      )}
-      {viewing && entry?.previewUrl !== undefined
+      ) : null}
+      {viewing && media.previewUrl !== undefined
         ? // 灯箱提到 body 下渲染，避开 contenteditable 里的继承样式
           createPortal(
             <MediaLightbox
-              media={{ name, url: entry.previewUrl }}
+              media={{
+                kind: kind === 'video' ? 'video' : 'image',
+                name,
+                url: media.previewUrl,
+              }}
               onClose={() => setViewing(false)}
             />,
             document.body,

@@ -18,8 +18,11 @@ export const fileNameOfUrl = (url: string): string => {
 export const imageThumbnailUrl = (url: string): string =>
   OSS_PLAIN_URL.test(url) ? `${url}?x-oss-process=image/resize,l_64` : url
 
-/** 视频首帧的小截图（宽 128，高按比例）；不是 OSS 地址就没有。 */
-export const videoSnapshotUrl = (url: string): string | undefined =>
+/**
+ * 视频首帧截图（高按比例）；不是 OSS 地址就没有。宽度默认 128 够画芯片上那颗小图，
+ * 当 <video> 的 poster 时要按预览区的尺寸要一张，否则放大后是糊的。
+ */
+export const videoSnapshotUrl = (url: string, width = 128): string | undefined =>
   OSS_PLAIN_URL.test(url)
-    ? `${url}?x-oss-process=video/snapshot,t_0,f_jpg,w_128,h_0,m_fast`
+    ? `${url}?x-oss-process=video/snapshot,t_0,f_jpg,w_${width},h_0,m_fast`
     : undefined

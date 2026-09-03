@@ -2,7 +2,7 @@
  * 输入卡：PM 编辑区的键盘与发送门槛、附件 pill 的粘贴/拖入/删除、拖放遮罩。
  */
 
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
@@ -18,6 +18,14 @@ import { Composer } from './composer'
 const editor = () => screen.getByLabelText('输入消息')
 const sendButton = () => screen.getByRole('button', { name: '发送' })
 const imageFile = (name = '截图.png') => new File(['fake-png-bytes'], name, { type: 'image/png' })
+const videoFile = (name = '样片.mp4') => new File(['fake-mp4-bytes'], name, { type: 'video/mp4' })
+
+/** pill 的悬停锚点是编辑器给的那个 span，芯片名字就画在它里面。 */
+const pillHost = (name: string): HTMLElement => {
+  const host = screen.getByText(name).parentElement
+  if (host === null) throw new Error(`没找到 ${name} 的 pill`)
+  return host
+}
 
 describe('Composer', () => {
   it('空输入时发送禁用，粘入文字后放开，Enter 触发提交', async () => {
@@ -100,6 +108,11 @@ describe('Composer', () => {
     await waitFor(() => expect(sendButton()).toBeDisabled())
     fireEvent.keyDown(editor(), { key: 'Enter' })
     expect(onSubmit).not.toHaveBeenCalled()
+
+    // 失败原因只在悬停卡里说，而且是接口原文
+    fireEvent.mouseEnter(pillHost('截图.png'))
+    const tip = await screen.findByRole('tooltip')
+    expect(within(tip).getByText(/不收 image\/png 这个类型/)).toBeInTheDocument()
   })
 
   it('退格删掉 pill 之后发送重新禁用（entry 随文档回收）', async () => {
@@ -162,5 +175,32 @@ describe('Composer', () => {
 
     fireEvent.keyDown(editor(), { key: 'Enter' })
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('悬停 pill 出预览卡，卡里报着这颗附件的上传状态', async () => {
+    await renderWithProviders(<Composer attachmentsEnabled onSubmit={vi.fn()} />)
+
+    pasteFilesIntoComposer(editor(), [imageFile()])
+    await waitFor(() => expect(sendButton()).toBeEnabled())
+
+    fireEvent.mouseEnter(pillHost('截图.png'))
+
+    const tip = await screen.findByRole('tooltip')
+    expect(within(tip).getByText('已上传')).toBeInTheDocument()
+  })
+
+  it('视频 pill 传完后，卡上的「全屏查看」进灯箱', async () => {
+    const user = userEvent.setup()
+    await renderWithProviders(<Composer attachmentsEnabled onSubmit={vi.fn()} />)
+
+    pasteFilesIntoComposer(editor(), [videoFile()])
+    await waitFor(() => expect(sendButton()).toBeEnabled())
+
+    fireEvent.mouseEnter(pillHost('样片.mp4'))
+    const tip = await screen.findByRole('tooltip')
+    await user.click(within(tip).getByRole('button', { name: '全屏查看' }))
+
+    const dialog = screen.getByRole('dialog', { name: '样片.mp4' })
+    expect(dialog.querySelector('video')).not.toBeNull()
   })
 })

@@ -182,6 +182,7 @@ export function ShotPage({
                   name="zoom"
                   onClick={() =>
                     setZoomed({
+                      kind: 'image',
                       name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`,
                       url: currentUrl,
                     })

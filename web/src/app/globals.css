@@ -370,6 +370,7 @@
 @import './base.css';
 @import './utility-classes.css';
 @import '../shared/ui/composer/composer.css';
+@import '../shared/ui/media-preview/media-preview.css';
 @import '../shared/ui/field/field.css';
 @import '../shared/ui/hero/hero.css';
 @import '../features/auth/auth.css';

@@ -76,24 +76,12 @@
 .attachment-pill.attachment-video {
   cursor: default;
 }
-.attachment-pill-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-  align-self: center;
-  flex-shrink: 0;
+/* 芯片内容本身的样式在 media-preview.css（气泡也用同一套），这里只调它在 pill 里的墨色 */
+.attachment-pill .media-chip-icon {
   color: var(--color-on-surface-variant);
 }
-.attachment-pill:hover .attachment-pill-icon {
+.attachment-pill:hover .media-chip-icon {
   color: inherit;
-}
-.attachment-pill-name {
-  max-width: 24em;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 /* 点选（PM NodeSelection）底色：kimi 的 --p-selection（accent 20%） */
 .attachment-pill.ProseMirror-selectednode {
@@ -105,8 +93,8 @@
 .attachment-pill.attachment-error:hover {
   color: var(--color-error);
 }
-.attachment-pill.attachment-error .attachment-pill-icon,
-.attachment-pill.attachment-error:hover .attachment-pill-icon {
+.attachment-pill.attachment-error .media-chip-icon,
+.attachment-pill.attachment-error:hover .media-chip-icon {
   color: inherit;
 }
 
@@ -133,120 +121,4 @@
   font-size: var(--text-title);
   font-weight: 500;
   box-shadow: var(--shadow-2);
-}
-
-/* ── 附件悬停卡（kimi 的 .mention-tip）：反色小卡，只随定位显隐 ── */
-
-.composer-tip {
-  padding: 4px 8px;
-  overflow-wrap: anywhere;
-  transition: opacity var(--dur-s) var(--ease);
-}
-.composer-tip-media-card {
-  padding: 6px;
-}
-/* 预览区：半透明描边 + 棋盘格兜底透明图（kimi --p-mention-tip-media-check-bg 的 token 化） */
-.composer-tip-preview {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  align-self: center;
-  min-height: 64px;
-  border: 1px solid color-mix(in srgb, var(--color-inverse-on-surface) 14%, transparent);
-  border-radius: var(--radius-xs);
-  background-color: color-mix(in srgb, var(--color-inverse-on-surface) 8%, transparent);
-  background-image:
-    linear-gradient(
-      45deg,
-      color-mix(in srgb, var(--color-inverse-on-surface) 7%, transparent) 25%,
-      transparent 25%
-    ),
-    linear-gradient(
-      -45deg,
-      color-mix(in srgb, var(--color-inverse-on-surface) 7%, transparent) 25%,
-      transparent 25%
-    ),
-    linear-gradient(
-      45deg,
-      transparent 75%,
-      color-mix(in srgb, var(--color-inverse-on-surface) 7%, transparent) 75%
-    ),
-    linear-gradient(
-      -45deg,
-      transparent 75%,
-      color-mix(in srgb, var(--color-inverse-on-surface) 7%, transparent) 75%
-    );
-  background-size: 12px 12px;
-  background-position:
-    0 0,
-    0 6px,
-    6px -6px,
-    -6px 0;
-  overflow: hidden;
-}
-.composer-tip-hint {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 12px;
-  color: color-mix(in srgb, currentColor 45%, transparent);
-  text-align: center;
-}
-.composer-tip-error {
-  padding: 4px 6px;
-  border-radius: var(--radius-xs);
-  background: color-mix(in srgb, var(--color-inverse-on-surface) 8%, transparent);
-  color: color-mix(in srgb, var(--color-error) 70%, currentColor);
-}
-/* 卡内次级文字（图标、大小、状态行）：65% 墨色（kimi 的 currentColor 65% mix） */
-.composer-tip-ink {
-  color: color-mix(in srgb, var(--color-inverse-on-surface) 65%, transparent);
-}
-.composer-tip-danger {
-  color: color-mix(in srgb, var(--color-error) 70%, var(--color-inverse-on-surface));
-}
-/* 「全屏查看 / 新页打开」按钮（kimi 的 .mention-tip-media-open） */
-.composer-tip-open {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border: none;
-  border-radius: var(--radius-xs);
-  background: color-mix(in srgb, var(--color-inverse-on-surface) 10%, transparent);
-  color: color-mix(in srgb, currentColor 65%, transparent);
-  font: inherit;
-  cursor: pointer;
-  transition:
-    color var(--dur-s) var(--ease),
-    background-color var(--dur-s) var(--ease);
-}
-.composer-tip-open:hover {
-  background: color-mix(in srgb, var(--color-inverse-on-surface) 18%, transparent);
-  color: var(--color-inverse-on-surface);
-}
-.composer-tip-open .lucide {
-  color: color-mix(in srgb, currentColor 45%, transparent);
-}
-.composer-tip-open:hover .lucide {
-  color: var(--color-inverse-on-surface);
-}
-/* 小三角（kimi .mention-tip-caret）：12×6，上下两向 */
-.composer-tip-caret {
-  position: absolute;
-  width: 12px;
-  height: 6px;
-  background: var(--color-inverse-surface);
-  transform: translateX(-50%);
-}
-.composer-tip-caret-down {
-  top: 100%;
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
-}
-.composer-tip-caret-up {
-  bottom: 100%;
-  clip-path: polygon(50% 0, 0 100%, 100% 100%);
 }
