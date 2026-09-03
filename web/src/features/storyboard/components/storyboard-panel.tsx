@@ -68,6 +68,9 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     strict: false,
   })
   const pagesRef = useRef<HTMLDivElement | null>(null)
+  // 正在往哪一页跳。跳的过程中（浏览器的吸附动画也算）会一路发 scroll，中途那些位置属于
+  // 「路过」，认真读的话会被当成翻到别的组、把地址连同 frame 一起改掉。
+  const scrollTargetRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (connection === null) return undefined
@@ -101,7 +104,17 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     if (element === null) return
     const showing = pageOfScroll(element)
     if (showing === undefined || showing === position) return
-    element.scrollTo({ behavior: 'smooth', top: (position - 1) * element.clientHeight })
+    scrollTargetRef.current = position
+    const top = (position - 1) * element.clientHeight
+    // 瞬时跳而不是 smooth：平滑动画途中每一帧都在发 scroll，那些中途位置会被 onScroll 当成
+    // 「翻到别的组了」写回地址，把 frame 一起清掉。
+    element.scrollTo({ behavior: 'instant', top })
+    // 跳完还要在下一帧确认一次：这一跳会在同一帧里被吸附容器随后那次布局拉回原处（实测如此），
+    // 补这一下之后落点才留得住。
+    const frame = requestAnimationFrame(() => {
+      if (element.scrollTop !== top) element.scrollTo({ behavior: 'instant', top })
+    })
+    return () => cancelAnimationFrame(frame)
   }, [position])
 
   if (file.isPending) return <PanelNotice text="正在读取分镜…" />
@@ -136,7 +149,13 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     const element = pagesRef.current
     if (element === null) return
     const showing = pageOfScroll(element)
-    if (showing === undefined || showing === position) return
+    if (showing === undefined) return
+    if (scrollTargetRef.current !== null) {
+      // 还在往目标页去的路上：到了才把这道闸放开，没到就当这一帧没发生过。
+      if (showing !== scrollTargetRef.current) return
+      scrollTargetRef.current = null
+    }
+    if (showing === position) return
     go({ shot: Math.min(Math.max(showing, 1), shots.length) })
   }
 
@@ -176,7 +195,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
 
       <div className="relative flex min-h-0 flex-1">
         <div
-          className="flex min-h-0 flex-1 snap-y snap-mandatory flex-col overflow-y-auto"
+          className="flex min-h-0 flex-1 snap-y snap-mandatory flex-col overflow-y-auto [overflow-anchor:none]"
           onScroll={onScroll}
           ref={pagesRef}
         >

@@ -38,6 +38,31 @@ test('点开有分镜的对话：滚轮翻到第 2 组，看生成记录，点�
   await expect(page2.getByText('@2 · 镜头 2')).toBeVisible()
 })
 
+// 直接刷 ?shot=2 进来在这套 mock 里验不了：整页加载会把 MSW 那份登录态清零，守卫会把人送回首页。
+// 能验的是同一件机制——程序化跳页时地址会不会被途中的滚动事件改回去。
+test('点页码点跳组：地址落在那一组不回弹，帧号照样点得动', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  await expect(panel.getByText('3 组 · 合计 21 秒 · 第 1 组')).toBeVisible()
+
+  await panel.getByRole('button', { name: '第 3 组' }).click()
+  await expect(panel.getByRole('region', { name: '镜头组 3' })).toBeInViewport()
+  await expect(page).toHaveURL(/shot=3/)
+
+  // 跳页若用平滑滚动，中途每一帧的位置都会被当成翻组写回地址，这里会退回第 1 组
+  await expect(panel.getByText('3 组 · 合计 21 秒 · 第 3 组')).toBeVisible()
+
+  await panel.getByRole('button', { name: '第 2 组' }).click()
+  await expect(panel.getByRole('region', { name: '镜头组 2' })).toBeInViewport()
+  const shot2 = panel.getByRole('region', { name: '镜头组 2' })
+  await shot2.getByRole('button', { name: '看第 3 帧' }).click()
+  await expect(page).toHaveURL(/frame=3/)
+  await expect(shot2.getByText('@3 · 镜头 2')).toBeVisible()
+})
+
 test('agent 改了文件：重读之后描述更新并标出改动', async ({ page }) => {
   await page.goto('/')
   await login(page)

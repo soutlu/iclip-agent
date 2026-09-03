@@ -109,7 +109,8 @@ function AppShell() {
       <div className="flex h-dvh" style={shellVars}>
         <AppSidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
 
-        {sidebarCollapsed ? null : (
+        {/* 紧凑屏的侧栏是浮层（不占布局位），拖柄跟着它一起不画 */}
+        {sidebarCollapsed || compact ? null : (
           <AppResizeHandle
             label="调整侧栏宽度"
             max={SIDEBAR_MAX}

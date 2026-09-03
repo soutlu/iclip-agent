@@ -70,6 +70,8 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const occupiesLayout = !collapsed && !covering
   useEffect(() => {
     onPanelVisible?.(occupiesLayout)
+    // 壳活得比面板久（换路由时它不重挂）：不报一声「我走了」，那道拖柄会留在首页上。
+    return () => onPanelVisible?.(false)
   }, [occupiesLayout, onPanelVisible])
 
   if (collapsed) {
