@@ -14,6 +14,11 @@ import { SidebarConversations } from './-sidebar-conversations'
 const SIDEBAR_ROW_CLASS =
   'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-3 py-2 ui-focus text-body text-on-surface'
 
+type AppSidebarProps = {
+  collapsed: boolean
+  onCollapsedChange: (collapsed: boolean) => void
+}
+
 /**
  * 应用侧栏：每页共享的外壳（品牌区、新建任务 / 搜索 / 需求单 / 资料库入口、对话区、账户区）。
  *
@@ -22,11 +27,14 @@ const SIDEBAR_ROW_CLASS =
  * （在哪个合集、记在哪张需求单下）走同一个归属弹窗。未登录时对话区与账户区退成登录
  * 入口，点任何操作都弹登录框。
  *
+ * 折叠态由壳持有：拖柄宽度与「聊天和面板放不放得下并排」都要看侧栏此刻占多宽。
+ *
+ * @param props - 组件属性。
+ * @param props.collapsed - 侧栏此刻收着没有。
+ * @param props.onCollapsedChange - 请壳换一个折叠态。
  * @returns 侧栏与折叠态下的浮出展开按钮。
  */
-export function AppSidebar() {
-  // 紧凑屏（< --breakpoint-sm 600）默认收起，展开后成浮层；桌面默认展开、收入布局流
-  const [collapsed, setCollapsed] = useState(() => !window.matchMedia('(min-width: 600px)').matches)
+export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const [searchOpen, setSearchOpen] = useState(false)
@@ -38,7 +46,7 @@ export function AppSidebar() {
         className="layer-sidebar fixed top-3 left-3 bg-surface-container-lowest shadow-[var(--shadow-1)]"
         label="展开侧边栏"
         name="panel-left"
-        onClick={() => setCollapsed(false)}
+        onClick={() => onCollapsedChange(false)}
         size="md"
       />
     )
@@ -64,7 +72,7 @@ export function AppSidebar() {
         <IconButton
           label="折叠侧边栏"
           name="panel-left"
-          onClick={() => setCollapsed(true)}
+          onClick={() => onCollapsedChange(true)}
           size="md"
         />
       </div>

@@ -362,8 +362,11 @@
         --z-local-1: 1; --z-local-2: 2; --z-local-3: 3; --z-canvas-overlay: 40;
         /* 布局 */
         --layout-app-sidebar-width: 264px;
+        --layout-app-sidebar-min-width: 200px;
+        --layout-app-sidebar-max-width: 400px;
         --layout-app-right-panel-width: 460px;
         --layout-app-workbench-width: 820px;
+        --layout-app-workbench-min-width: 560px;
         --layout-app-chat-min-width: 400px;
         --layout-home-read-max: 760px;
         --layout-dialog-header-height: 52px;
@@ -2840,7 +2843,9 @@
               <code>sidebar</code><span>→</span><code>阅读列</code><span>→</span><code>hero</code><span>→</span><code>composer</code><span>→</span><code>project-bar</code><span>→</span><code>右面板</code>
             </div>
             <div class="template-values">
-              <code>--layout-app-sidebar-width · 264px</code>
+              <code>--layout-app-sidebar-width · 264px（默认宽）</code>
+              <code>--layout-app-sidebar-min-width · 200px</code>
+              <code>--layout-app-sidebar-max-width · 400px</code>
               <span>sidebar · background · hairline 右边线 · 可折叠 · 折叠后主区左上浮出展开钮 · 品牌区 serif 字标 · 会话分段 tab（进行中带 primary 圆点）· 会话行尾状态标识（primary 转圈 / warning 待回答徽章 / 对勾 / status-error 红叉）· 底部账户区</span>
               <span>sidebar 列表行 · 容器与行各 12 水平内距（文字距侧栏 24）· 行间距 2 · radius sm · 分组子行再缩进 24 · 状态层挂整行（含尾随钮）· 容器 ui-state-subtle</span>
               <span>sidebar 行尾槽 · 静息放时间 text-caption on-surface-faint · hover / focus-within / 菜单展开换成 IconButton xs，两者不同时占位 · 每行只留一个「更多」入口，重复动作收进菜单</span>
@@ -2853,11 +2858,13 @@
               <span>composer 附件 · + 钮开文件选择框 / 拖文件入窗（卡片换 primary-container-soft 底 + 全屏 72% background 遮罩叠 0.5px dashed primary 虚线卡「松开鼠标添加附件」）/ 粘贴剪贴板文件 · 落成文字流内联 pill（14px 类型图标 + 文件名，chat-muted-text 字、hover 提亮，无背景无边框；超 32 字符保扩展名中间省略；点选给 primary 20% 底色；退格整颗删）· 上传中/失败挡发送（失败整颗 error 色）· hover 出反色悬停卡（inverse-surface 底 + inverse-on-surface 字 + 12×6 小三角）：图给 ≤300×220 预览（棋盘格兜底）/ 视频画占位图标走新页，meta 行图标+名+大小（KB 取整、MB 一位小数），状态行上传中 N% 进度环 / 已上传 / 上传失败+服务端原文，图片带「全屏查看」进灯箱 · 入口只在有 assets:write 时给</span>
               <span>project-bar · 贴 composer 下沿 · 只圆下两角 · surface-container-low</span>
               <code>--layout-app-right-panel-width · 460px</code>
-              <code>--layout-app-workbench-width · 820px</code>
+              <code>--layout-app-workbench-width · 820px（默认宽）</code>
+              <code>--layout-app-workbench-min-width · 560px</code>
               <code>--layout-app-chat-min-width · 400px</code>
               <span>右面板 · background · hairline 左边线 · 是槽位：当前路由声明了面板内容、且真有内容可画才展开，其余保持默认折叠 · 展开后可再折叠 · 折叠后主区右上浮出展开钮 · 空态占位</span>
               <span>右面板有内容 · 宽 --layout-app-workbench-width · 主区（聊天）最小 --layout-app-chat-min-width · 面板头左侧给内容标题，同时有多份内容时换成下拉切换器 · 右侧给折叠钮与放大钮，放大后面板铺满主区、聊天列不显示</span>
-              <span>视口 &lt; --breakpoint-lg · 聊天与面板不并排 · 主区只显示其一 · 由面板头上的切换钮切，面板一侧只给这一个钮，写「回到聊天」</span>
+              <span>拖柄 · 侧栏｜主区 一道、聊天｜右面板 一道 · 4px 命中区 · cursor col-resize · hover / 拖动中显示 border-hover 色竖线，静息不画 · 拖动改宽并夹在各自的 min / max 之间 · 双击恢复默认宽 · 宽度写 localStorage，刷新保留 · 侧栏折叠时不画侧栏那道，不并排时不画面板那道</span>
+              <span>并排条件 · 视口 ≥ 侧栏当前宽 + --layout-app-chat-min-width + --layout-app-workbench-min-width · 放不下时聊天与面板不并排，主区只显示其一，由面板头上的切换钮切，面板一侧只给这一个钮，写「回到聊天」</span>
               <span>紧凑 &lt; 600 · sidebar 与右面板默认折叠 · 主区左上、右上各浮出展开钮</span>
             </div>
             <p class="template-use">

@@ -1,8 +1,8 @@
 /**
  * 产物面板宿主：只管几何、两个来源的合成、选中态与分派，不认识任何具体产物类型。
  *
- * 几何三态——并排（≥ --breakpoint-lg）、放大（铺满主区）、折叠（主区右上浮出展开钮）。窄于
- * 并排断点时聊天与面板只显示其一，面板一侧给「回到聊天」。
+ * 几何三态——并排、放大（铺满主区）、折叠（主区右上浮出展开钮）。放不放得下并排由壳算好递进来
+ * （侧栏宽度可拖，不是一个断点能定的）；放不下时聊天与面板只显示其一，面板一侧给「回到聊天」。
  */
 
 import { useQueryClient } from '@tanstack/react-query'
@@ -15,30 +15,14 @@ import { cn } from '@/shared/lib/utils'
 import type { WorkbenchFrame } from './artifact'
 import { composeArtifacts, pickArtifact } from './registry'
 import { useWorkbenchRegistry } from './use-workbench-registry'
+import { DEFAULT_WORKBENCH_LAYOUT, WorkbenchLayoutContext } from './workbench-layout-context'
 import { useWorkspaceFiles } from './workspace.api'
-
-/** 并排的起点，与 `--breakpoint-lg` 同值。媒体查询要的是常量，取不到 CSS 变量。 */
-const SIDE_BY_SIDE_QUERY = '(min-width: 1280px)'
-
-/** 紧凑屏的上界，与 `--breakpoint-sm` 同值：这一档右面板默认折叠（04 · HOME）。 */
-const COMPACT_QUERY = '(min-width: 600px)'
 
 /**
  * 工具帧来源这一期不接线：面板与会话页会各建一个 transcript reader，而 `subscribe` 是覆盖式的，
  * 后挂上的那个会把聊天的推送顶掉。合成逻辑本身按两个来源写全（见 `registry.test.ts`）。
  */
 const NO_FRAMES: readonly WorkbenchFrame[] = []
-
-const useMediaQuery = (query: string): boolean => {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const list = window.matchMedia(query)
-    const sync = () => setMatches(list.matches)
-    list.addEventListener('change', sync)
-    return () => list.removeEventListener('change', sync)
-  }, [query])
-  return matches
-}
 
 type WorkbenchHostProps = {
   conversationId: string
@@ -61,8 +45,8 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   // 用户点过折叠 / 展开就听他的；没点过按「有没有产物」定：一件都没有的对话不该白占掉 820。
   const [collapsedByUser, setCollapsedByUser] = useState<boolean | null>(null)
   const [maximized, setMaximized] = useState(false)
-  const sideBySide = useMediaQuery(SIDE_BY_SIDE_QUERY)
-  const compact = !useMediaQuery(COMPACT_QUERY)
+  const { compact, onPanelVisible, sideBySide } =
+    use(WorkbenchLayoutContext) ?? DEFAULT_WORKBENCH_LAYOUT
 
   // 断线期间文件变了没人通知：重连之后整份重拉一次对齐（contract/conventions.md §5 文件订阅）。
   useEffect(() => {
@@ -80,6 +64,13 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const entry = selected === undefined ? undefined : registry.resolve(selected.type)
   const collapsed = collapsedByUser ?? (artifacts.length === 0 || compact)
   const setCollapsed = setCollapsedByUser
+  // 并排放不下、或者用户点了放大：面板盖住主区，聊天列这一刻不显示。
+  const covering = maximized || !sideBySide
+  // 只有真正占着布局位的时候，壳才该在聊天与面板之间画那道拖柄。
+  const occupiesLayout = !collapsed && !covering
+  useEffect(() => {
+    onPanelVisible?.(occupiesLayout)
+  }, [occupiesLayout, onPanelVisible])
 
   if (collapsed) {
     return (
@@ -93,8 +84,6 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
     )
   }
 
-  // 并排放不下、或者用户点了放大：面板盖住主区，聊天列这一刻不显示。
-  const covering = maximized || !sideBySide
   const Renderer = entry?.component
 
   return (

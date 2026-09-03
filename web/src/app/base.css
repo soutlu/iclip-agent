@@ -580,8 +580,11 @@
 
   /* Layout tokens */
   --layout-app-sidebar-width: 264px;
+  --layout-app-sidebar-min-width: 200px;
+  --layout-app-sidebar-max-width: 400px;
   --layout-app-right-panel-width: 460px;
   --layout-app-workbench-width: 820px;
+  --layout-app-workbench-min-width: 560px;
   --layout-app-chat-min-width: 400px;
   --layout-home-read-max: 760px;
   --layout-dialog-header-height: 52px;
