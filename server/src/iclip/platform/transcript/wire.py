@@ -146,7 +146,7 @@ class WorkspaceFilePayload(_Envelope):
     path: str
     version: int
     source: str
-    """谁写的：工具写的是那件工具的名字（认不出来就是 ``agent``），面板写的是 ``user``。
+    """谁写的：工具写的是 ``agent``（文件存储端口不带调用者身份，分不到具体哪件工具），面板写的是 ``user``。
 
     界面靠它分辨「这一版是不是我自己刚写的」——不是自己写的才标「agent 刚改过」。
     """
