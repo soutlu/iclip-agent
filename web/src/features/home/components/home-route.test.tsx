@@ -48,7 +48,14 @@ describe('HomeRoute', () => {
     pasteTextIntoComposer(screen.getByLabelText('输入消息'), '做一个产品宣传片')
     await user.click(screen.getByRole('button', { name: '发送' }))
 
-    expect(sent).toEqual([{ agentId: 'assistant', media: [], text: '做一个产品宣传片' }])
+    expect(sent).toEqual([
+      {
+        agentId: 'assistant',
+        media: [],
+        parts: [{ kind: 'text', text: '做一个产品宣传片' }],
+        text: '做一个产品宣传片',
+      },
+    ])
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('')
   })
 })

@@ -23,10 +23,10 @@ import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { Tag } from '@/shared/ui/tag'
 import { ComposerAttachmentPill } from './composer-attachment-pill'
-import { readComposerText } from './editor-schema'
+import { readComposerSegments, readComposerText } from './editor-schema'
 import type { ComposerPillHost } from './use-composer-editor'
 import { useComposerEditor } from './use-composer-editor'
-import type { ComposerSubmission } from './use-composer-attachments'
+import type { ComposerPart, ComposerSubmission } from './use-composer-attachments'
 import { useComposerAttachments } from './use-composer-attachments'
 
 /** 输入卡的命令式句柄：发送成败之后调用方用它们收放内容。 */
@@ -116,7 +116,23 @@ export function Composer({
     const view = editor.viewRef.current
     if (view === null || !canSendNow()) return
     const text = readComposerText(view.state.doc).trim()
-    onSubmit({ media: attachments.takeReady(editor.attIds), text })
+    const media = attachments.takeReady(editor.attIds)
+    // 按文档顺序切段：没就绪的 pill 到不了这里（canSendNow 已挡），找不到的只当它不存在
+    const parts: ComposerPart[] = []
+    for (const segment of readComposerSegments(view.state.doc)) {
+      if (segment.kind === 'attachment') {
+        const entry = media.find((item) => item.attId === segment.attId)
+        if (entry !== undefined) parts.push({ kind: 'media', media: entry })
+        continue
+      }
+      const previous = parts.at(-1)
+      if (previous?.kind === 'text') {
+        parts[parts.length - 1] = { kind: 'text', text: previous.text + segment.text }
+      } else {
+        parts.push(segment)
+      }
+    }
+    onSubmit({ media, parts, text })
   }
 
   const editor = useComposerEditor({

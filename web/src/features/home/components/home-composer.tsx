@@ -15,7 +15,12 @@ const AGENTS = [
 type HomeComposerProps = {
   /** 发送时做什么；未给就是还没接上（按钮照常按状态显示，但不产生动作）。 */
   onSend?:
-    | ((input: { agentId: string; text: string; media: ComposerSubmission['media'] }) => void)
+    | ((input: {
+        agentId: string
+        text: string
+        media: ComposerSubmission['media']
+        parts: ComposerSubmission['parts']
+      }) => void)
     | undefined
   /** 正在新建对话：发送钮转圈。 */
   sending?: boolean | undefined
@@ -40,7 +45,12 @@ export function HomeComposer({ onSend, sending = false }: HomeComposerProps) {
   const send = (submission: ComposerSubmission) => {
     if (onSend === undefined) return
     composerRef.current?.clear()
-    onSend({ agentId: agent.id, media: submission.media, text: submission.text })
+    onSend({
+      agentId: agent.id,
+      media: submission.media,
+      parts: submission.parts,
+      text: submission.text,
+    })
   }
 
   return (
