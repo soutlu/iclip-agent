@@ -113,39 +113,25 @@ class TranscriptHistory:
             ),
         )
 
-    async def turn_run_ids(self, conversation_id: str) -> tuple[tuple[str, ...], ...]:
-        """这段对话每一轮各含哪几次 run，按发生先后排；一份存档都没有就是空的。
+    async def rewind_turn(self, conversation_id: str, *, ordinal: int) -> tuple[str, ...] | None:
+        """把落库历史截回第 ``ordinal`` 轮开始之前，返回被摘掉那一轮的 run id。
 
-        与分轮同一个口径：中断的那些也算上（见模块开头）。重新生成拿它核对「要动的是不是
-        末轮」——轮号 ``t{N}`` 的 N 就是这份列表的长度。
+        只截末轮：``ordinal`` 不等于现有轮数就一步不做、返回 ``None``（调用方据此拒掉）。核轮数
+        与动手读的是同一份快照，中间没有空隙让另一轮挤进来。分轮与显示同一个口径：中断的那些
+        也算上（见模块开头）。
+
+        历史不删行——截短后的消息另存成一份新快照，按写入序它成为最新的一份；旧快照与旧 run 的
+        runs/events 行原样留在库里。快照的 ``run_id`` 另铸一个，不进消息历史，不参与分轮。
         """
 
         snapshot = await self.store.latest_conversation_snapshot(
             conversation_id=conversation_id, include_interrupted=True
         )
-        if snapshot is None:
-            return ()
-        return turn_run_ids(
-            snapshot.messages, await self.prompt_runs.prompt_of_runs(conversation_id)
-        )
-
-    async def rewind_last_turn(self, conversation_id: str, *, run_ids: tuple[str, ...]) -> bool:
-        """把落库历史截回末轮开始之前；末轮正是 ``run_ids`` 这几次 run 才动手，返回是否截了。
-
-        重新生成靠它把末轮从之后读到的历史里抹掉：历史不删行，截短后的消息另存成一份新
-        快照，按写入序它成为最新的一份；旧快照与旧 run 的 runs/events 行原样留在库里。
-        快照的 ``run_id`` 另铸一个，不进消息历史，不参与分轮。
-        """
-
-        snapshot = await self.store.latest_conversation_snapshot(
-            conversation_id=conversation_id, include_interrupted=True
-        )
-        kept, dropped = drop_last_turn(
-            [] if snapshot is None else snapshot.messages,
-            await self.prompt_runs.prompt_of_runs(conversation_id),
-        )
-        if dropped != run_ids:
-            return False
+        messages = [] if snapshot is None else snapshot.messages
+        of_run = await self.prompt_runs.prompt_of_runs(conversation_id)
+        if ordinal != len(turn_run_ids(messages, of_run)):
+            return None
+        kept, dropped = drop_last_turn(messages, of_run)
         await self.store.save_snapshot(
             ContinuableSnapshot(
                 run_id=f"regenerate-{uuid.uuid4().hex[:8]}",
@@ -154,7 +140,7 @@ class TranscriptHistory:
                 conversation_id=conversation_id,
             )
         )
-        return True
+        return dropped
 
 
 __all__ = ["ConversationSnapshots", "PromptRunsSource", "TranscriptHistory"]

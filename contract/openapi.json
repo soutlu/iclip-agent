@@ -2362,6 +2362,61 @@
         "title": "PromptUpsertOp",
         "type": "object"
       },
+      "RegenerateBody": {
+        "additionalProperties": false,
+        "description": "``POST /turns/{turn_id}:regenerate`` 的请求体。两个字段都可省，整个体也可以不带。\n\n``content`` 给了就是「改了内容再重跑」，不给照原样重跑。``prompt_id`` 给了就与发消息同一套\n幂等：重发同一个 id 退回已有那条，不会再截一轮。",
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/components/schemas/ImageContent",
+                      "text": "#/components/schemas/TextContent",
+                      "video": "#/components/schemas/VideoContent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TextContent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ImageContent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/VideoContent"
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "prompt_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Id"
+          }
+        },
+        "title": "RegenerateBody",
+        "type": "object"
+      },
       "SidebarCollectionOut": {
         "additionalProperties": false,
         "description": "侧栏里的一个合集：元信息、里面一共几段，加第一页对话。\n\n``conversationCount`` 是全部条数，``page`` 只有第一页——往下滑要更多是另一次查询。",
@@ -6418,7 +6473,7 @@
     },
     "/conversations/{conversation_id}/turns/{turn_id}:regenerate": {
       "post": {
-        "description": "重新生成最后一轮：把它从历史里抹掉，按那一轮的原内容重跑一次，答复是重跑那条的记录。\n\n``turn_id`` 是协议里的轮 id（``t{N}``），客户端从轮头部直接拿得到。",
+        "description": "重新生成最后一轮：把它从历史里抹掉重跑一次，答复是重跑那条的记录。\n\n``turn_id`` 是协议里的轮 id（``t{N}``），客户端从轮头部直接拿得到。请求体可以不带：\n带 ``content`` 就换成新内容重跑，带 ``prompt_id`` 就与发消息同一套幂等。",
         "operationId": "regenerate_conversations__conversation_id__turns__turn_id__regenerate_post",
         "parameters": [
           {
@@ -6441,6 +6496,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RegenerateBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {

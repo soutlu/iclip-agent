@@ -51,6 +51,7 @@ from iclip.platform.transcript.wire import (
     PingPayload,
     PromptQueueOut,
     PromptSubmission,
+    RegenerateBody,
     ResetPayload,
     ServerHello,
     ServerHelloPayload,
@@ -106,7 +107,14 @@ class Transcripts(Protocol):
 
     async def abort(self, conversation_id: str, prompt_id: str) -> None: ...
 
-    async def regenerate(self, *, conversation_id: str, turn_id: str) -> Prompt: ...
+    async def regenerate(
+        self,
+        *,
+        conversation_id: str,
+        turn_id: str,
+        prompt_id: str | None = None,
+        content: tuple[PromptContent, ...] | None = None,
+    ) -> Prompt: ...
 
     async def abort_conversation(self, conversation_id: str) -> None: ...
 
@@ -309,14 +317,21 @@ def create_transcript_router(
         conversation_id: ConversationId,
         turn_id: str,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        body: RegenerateBody | None = None,
     ) -> Prompt:
-        """重新生成最后一轮：把它从历史里抹掉，按那一轮的原内容重跑一次，答复是重跑那条的记录。
+        """重新生成最后一轮：把它从历史里抹掉重跑一次，答复是重跑那条的记录。
 
-        ``turn_id`` 是协议里的轮 id（``t{N}``），客户端从轮头部直接拿得到。
+        ``turn_id`` 是协议里的轮 id（``t{N}``），客户端从轮头部直接拿得到。请求体可以不带：
+        带 ``content`` 就换成新内容重跑，带 ``prompt_id`` 就与发消息同一套幂等。
         """
 
         await _writable(principal, conversation_id)
-        return await transcripts.regenerate(conversation_id=conversation_id, turn_id=turn_id)
+        return await transcripts.regenerate(
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            prompt_id=None if body is None else body.prompt_id,
+            content=None if body is None else body.content,
+        )
 
     @outer.post("/conversations/{conversation_id}:abort", status_code=204)
     async def abort_conversation(

@@ -46,7 +46,7 @@ from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.ui import UIEventStream
 from pydantic_ai_harness.compaction import estimate_context_tokens
 
-from iclip.harness.transcript.from_messages import ORPHAN_TOOL_ERROR, step_usage
+from iclip.harness.transcript.from_messages import ORPHAN_TOOL_ERROR, step_usage, turn_usage
 from iclip.harness.transcript.prompt_media import plain_text, prompt_content
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
@@ -72,7 +72,6 @@ from iclip.platform.transcript.ops import (
     TurnHeader,
     TurnOrigin,
     TurnUpsertOp,
-    TurnUsage,
     agent_context_status,
     next_frame_ordinal,
     utf16_len,
@@ -503,7 +502,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             content=self.content,
             started_at=self._started_at,
             ended_at=None if state == "running" else _now(),
-            usage=self._turn_usage(),
+            usage=turn_usage(self._step_usage),
             error=error,
         )
 
@@ -514,15 +513,6 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             ordinal=max(self._step_ordinal, 1),
             state=state,  # pyright: ignore[reportArgumentType]
             ended_at=None if state == "running" else _now(),
-        )
-
-    def _turn_usage(self) -> TurnUsage | None:
-        if not self._step_usage:
-            return None
-        return TurnUsage(
-            input_tokens=sum(u.input_other + u.input_cache_creation for u in self._step_usage),
-            cached_tokens=sum(u.input_cache_read for u in self._step_usage),
-            output_tokens=sum(u.output for u in self._step_usage),
         )
 
     def _orphan_card_ops(self) -> list[EmittableOperation]:

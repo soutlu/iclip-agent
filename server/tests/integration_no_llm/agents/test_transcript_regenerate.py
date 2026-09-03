@@ -94,6 +94,22 @@ async def _send(
     assert sent.status_code == 200, sent.text
 
 
+async def _run_count(pg_url: str, conversation_id: str) -> int:
+    """这段对话在库里留了几次 run。旧那一轮的行不清，所以重跑会让它加一。"""
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.connect() as conn:
+            return (
+                await conn.execute(
+                    text("SELECT count(*) FROM agent_runtime.runs WHERE conversation_id = :cid"),
+                    {"cid": conversation_id},
+                )
+            ).scalar_one()
+    finally:
+        await engine.dispose()
+
+
 async def test_regenerate_replays_the_last_turn(app: FastAPI, pg_url: str) -> None:
     """对末轮重新生成：历史截回那一轮之前，原内容重跑，轮号复用，旧 run 的行留在库里。"""
 
@@ -121,18 +137,90 @@ async def test_regenerate_replays_the_last_turn(app: FastAPI, pg_url: str) -> No
     ]
     assert page["items"][1]["steps"][0]["frames"][0]["text"] == "答：第二问"
 
-    engine = create_async_engine(pg_url)
-    try:
-        async with engine.connect() as conn:
-            runs = (
-                await conn.execute(
-                    text("SELECT count(*) FROM agent_runtime.runs WHERE conversation_id = :cid"),
-                    {"cid": conversation_id},
-                )
-            ).scalar_one()
-    finally:
-        await engine.dispose()
-    assert runs == 3  # 原来两轮的 run 留在库里，重跑是第三次
+    assert await _run_count(pg_url, conversation_id) == 3  # 原来两轮的行留着，重跑是第三次
+
+
+async def test_regenerate_with_new_content_replays_the_edited_message(
+    app: FastAPI, pg_url: str
+) -> None:
+    """带 ``content`` 重新生成：换成新内容重跑，轮号照样复用，旧 run 的行留在库里。"""
+
+    async with make_client(app) as client:
+        await _sign_in(client, pg_url)
+        conversation_id = await new_conversation(client, AGENT_ID)
+        await _send(client, conversation_id, "prm_e1", "第一问")
+        await settled(client, conversation_id)
+        await _send(client, conversation_id, "prm_e2", "第二问")
+        await settled(client, conversation_id)
+
+        edited = await client.post(
+            f"/conversations/{conversation_id}/turns/t2:regenerate",
+            json={"content": [{"type": "text", "text": "改口再问"}]},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["content"] == [{"type": "text", "text": "改口再问"}]
+        await settled(client, conversation_id)
+        page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()
+
+    assert [turn["turnId"] for turn in page["items"]] == ["t1", "t2"]
+    assert [turn["content"] for turn in page["items"]] == [
+        [{"type": "text", "text": "第一问"}],
+        [{"type": "text", "text": "改口再问"}],
+    ]
+    assert page["items"][1]["steps"][0]["frames"][0]["text"] == "答：改口再问"
+    assert await _run_count(pg_url, conversation_id) == 3
+
+
+async def test_regenerating_twice_with_the_same_prompt_id_returns_the_first(
+    app: FastAPI, pg_url: str
+) -> None:
+    """客户端带同一个 ``prompt_id`` 重发：退回已有那条，不再截一轮。
+
+    第二次打进来时第一次还在跑（替身模型睡着）。认领要发生在核「对话正忙」之前，否则重试
+    要么被当成冲突拒掉，要么把刚重跑出来的那一轮又截掉。
+    """
+
+    async with make_client(app) as client:
+        await _sign_in(client, pg_url)
+        conversation_id = await new_conversation(client, AGENT_ID)
+        await _send(client, conversation_id, "prm_t1", "第一问")
+        await settled(client, conversation_id)
+        await _send(client, conversation_id, "prm_t2", "第二问")
+        await settled(client, conversation_id)
+
+        first = await client.post(
+            f"/conversations/{conversation_id}/turns/t2:regenerate",
+            json={"prompt_id": "prm_retry"},
+        )
+        again = await client.post(
+            f"/conversations/{conversation_id}/turns/t2:regenerate",
+            json={"prompt_id": "prm_retry"},
+        )
+        assert first.status_code == 200, first.text
+        assert again.status_code == 200, again.text
+        assert first.json()["promptId"] == "prm_retry"
+        assert again.json()["promptId"] == "prm_retry"
+        await settled(client, conversation_id)
+        page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()
+
+    assert [turn["turnId"] for turn in page["items"]] == ["t1", "t2"]
+    assert await _run_count(pg_url, conversation_id) == 3  # 重发没多起一次运行
+
+
+async def test_regenerate_with_empty_content_is_unprocessable(app: FastAPI, pg_url: str) -> None:
+    """给了 ``content`` 就得有内容：空数组 422。"""
+
+    async with make_client(app) as client:
+        await _sign_in(client, pg_url)
+        conversation_id = await new_conversation(client, AGENT_ID)
+        await _send(client, conversation_id, "prm_empty", "问")
+        await settled(client, conversation_id)
+
+        empty = await client.post(
+            f"/conversations/{conversation_id}/turns/t1:regenerate", json={"content": []}
+        )
+
+    assert empty.status_code == 422
 
 
 async def test_regenerate_while_busy_is_conflict(app: FastAPI, pg_url: str) -> None:

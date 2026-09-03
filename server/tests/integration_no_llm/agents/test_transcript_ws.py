@@ -159,6 +159,63 @@ def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
                 time.sleep(0.02)
 
 
+def _settled(tc: TestClient, conversation_id: str, *, tries: int = 200) -> None:
+    for _ in range(tries):
+        queue = tc.get(f"/conversations/{conversation_id}/prompts").json()
+        if queue["active"] is None and not queue["queued"]:
+            return
+        time.sleep(0.02)
+    raise AssertionError("这段对话没跑完")
+
+
+def test_regenerate_removes_the_old_turn_before_the_new_one_appears(
+    ws_agent_app: FastAPI, pg_url: str
+) -> None:
+    """重新生成先推一帧 ``items.remove``，再推重跑那一轮。
+
+    客户端手里那份基线来自 REST 分页，对已有的轮只换头部、保留原有的步与块。新回复比旧的少
+    一步或少一块时，光靠 ``turn.upsert`` 覆不掉旧内容——这一帧就是那句「这轮没了」，而它必须
+    赶在新的 ``t1`` 出现之前。
+    """
+
+    with TestClient(ws_agent_app) as tc:
+        _sign_in(tc, pg_url)
+        conversation_id = _open_conversation(tc)
+
+        sent = tc.post(
+            f"/conversations/{conversation_id}/prompts",
+            json={"prompt_id": "prm_regen_ws", "content": [{"type": "text", "text": "走"}]},
+        )
+        assert sent.status_code == 200, sent.text
+        _settled(tc, conversation_id)
+
+        with tc.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "server_hello"
+            _subscribe(ws, conversation_id)
+            assert _until(ws, "transcript.reset")["session_id"] == conversation_id
+
+            replayed = tc.post(f"/conversations/{conversation_id}/turns/t1:regenerate")
+            assert replayed.status_code == 200, replayed.text
+
+            seen: list[dict[str, Any]] = []
+            for _ in range(40):
+                frame = ws.receive_json()
+                if frame.get("type") != "transcript.ops":
+                    continue
+                ops: list[dict[str, Any]] = frame["payload"]["ops"]
+                removals = [op for op in ops if op["op"] == "items.remove"]
+                if removals:
+                    assert removals[0]["ids"] == ["t1"]
+                    break
+                seen.extend(ops)
+            else:
+                raise AssertionError("没等到 items.remove")
+
+            # 删除之前一条重跑的轮头部都没出去：客户端不会先看到新的 t1 再看到它被删。
+            assert not [op for op in seen if op["op"] == "turn.upsert"]
+            _settled(tc, conversation_id)
+
+
 def test_resubscribing_with_a_stale_watermark_gets_a_reset(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
