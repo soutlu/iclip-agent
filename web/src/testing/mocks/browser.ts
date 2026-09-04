@@ -29,12 +29,13 @@ if (awaiting !== undefined) {
   markMockAwaitingApproval(awaiting.id)
 }
 
-// 「亚麻衬衫二剪」在页面开着的时候跑完：连上两秒后补一帧收场，侧栏那一行就冒出未读点，
-// 点开它清掉（刷新会再演一次）。行上的 activity 一并写成跑完，「已完成」那一档才收得到它。
+// 「亚麻衬衫二剪」每次连上两秒后都算又跑完了一次：点开过它再刷新页面，侧栏那一行就冒出未读点，
+// 再点开清掉。第一次进原型没有点——这台浏览器上还没打开过它，不知道人看没看过。
+// 行上的 activity 写成跑完，「已完成」那一档才收得到它。
 const unseen = seeded[3]
 if (unseen !== undefined) {
   unseen.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
-  markMockJustFinished(unseen.id)
+  markMockJustFinished(unseen)
 }
 
 // 第一段对话里有 agent 交付的 video_shot.json：点开它右面板就是分镜工作台。只种在浏览器

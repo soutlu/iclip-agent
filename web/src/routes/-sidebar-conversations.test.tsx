@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -32,11 +32,12 @@ const workChanged = (
   payload: { pending_interaction: 'none', ...payload },
 })
 
-const render = async () => {
+/** 渲染侧栏；`initialPath` 给成 `/c/<id>` 就是打开着那段对话。 */
+const render = async (initialPath = '/') => {
   server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
   const user = userEvent.setup()
-  const { socket } = await renderWithProviders(<SidebarConversations />)
-  return { socket, user }
+  const { router, socket } = await renderWithProviders(<SidebarConversations />, { initialPath })
+  return { router, socket, user }
 }
 
 describe('SidebarConversations', () => {
@@ -175,7 +176,7 @@ describe('SidebarConversations', () => {
     await waitFor(() => expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument())
   })
 
-  it('行尾状态跟着帧上的活儿换：等审批、上次失败、跑完了没看', async () => {
+  it('行尾状态跟着帧上的活儿换：等审批、上次失败，跑完了什么都不画', async () => {
     const [conversation] = seedConversations(1)
     const id = conversation?.id ?? ''
     const { socket } = await render()
@@ -189,22 +190,81 @@ describe('SidebarConversations', () => {
     socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'failed' }))
     expect(await screen.findByLabelText('上次失败')).toBeVisible()
 
+    // 跑完那一帧会让列表重拉，行上得带着同一份事实（真后端本来就是这样）
+    if (conversation !== undefined) {
+      conversation.activity = {
+        busy: false,
+        lastTurnReason: 'completed',
+        pendingInteraction: 'none',
+      }
+    }
     socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
-    expect(await screen.findByLabelText('未读')).toBeVisible()
     await waitFor(() => expect(screen.queryByLabelText('上次失败')).not.toBeInTheDocument())
     expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
+    // 这段对话在这台浏览器上从没打开过：跑完了也不算「没看」
+    expect(screen.queryByLabelText('未读')).not.toBeInTheDocument()
   })
 
-  it('未读只由收场那一帧记下来，列表行上带的 completed 不算', async () => {
+  it('从没打开过的对话不画未读点：行上带的 completed 与收场帧都不算', async () => {
     const done = addMockConversation('跑完了')
+    done.lastRunId = 'run-1'
     done.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
     const { socket } = await render()
     await screen.findByText('跑完了')
 
-    // 行上那个 completed 是历史，它不知道人看没看过——照它画点的话，每次重拉都会冒出一片。
     expect(screen.queryByLabelText('未读')).not.toBeInTheDocument()
 
     socket.deliver(workChanged(done.id, { busy: false, last_turn_reason: 'completed' }))
+    await waitFor(() => expect(screen.queryByLabelText('未读')).not.toBeInTheDocument())
+  })
+
+  it('看着它闲下来之后走开，它又跑完一次：那一行画点，打开就灭', async () => {
+    const [conversation] = seedConversations(1)
+    const id = conversation?.id ?? ''
+    const { router, socket } = await render(`/c/${id}`)
+    await screen.findByText('第0段')
+    // 打开着的那一行记下了它此刻的 lastRunId，自己从不画点
+    expect(screen.queryByLabelText('未读')).not.toBeInTheDocument()
+
+    await act(() => router.navigate({ to: '/' }))
+    // 走开之后它跑了一次并结束：运行开始时写的 lastRunId 变了，收场那一帧让列表重拉
+    if (conversation !== undefined) {
+      conversation.lastRunId = 'run-2'
+      conversation.activity = {
+        busy: false,
+        lastTurnReason: 'completed',
+        pendingInteraction: 'none',
+      }
+    }
+    socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
+    expect(await screen.findByLabelText('未读')).toBeVisible()
+
+    await act(() => router.navigate({ params: { conversationId: id }, to: '/c/$conversationId' }))
+    await waitFor(() => expect(screen.queryByLabelText('未读')).not.toBeInTheDocument())
+  })
+
+  it('打开着的对话在折叠的合集里、那一行没渲染出来，照样记得住：展开之后点在', async () => {
+    const collection = addMockCollection('夏季亚麻系列')
+    const [conversation] = seedConversations(1, collection.id)
+    const id = conversation?.id ?? ''
+    const { router, socket, user } = await render(`/c/${id}`)
+    await screen.findByRole('button', { name: '夏季亚麻系列 (1)' })
+    // 合集默认折叠，这一行此刻不在页面上
+    expect(screen.queryByText('第0段')).not.toBeInTheDocument()
+
+    await act(() => router.navigate({ to: '/' }))
+    if (conversation !== undefined) {
+      conversation.lastRunId = 'run-2'
+      conversation.activity = {
+        busy: false,
+        lastTurnReason: 'completed',
+        pendingInteraction: 'none',
+      }
+    }
+    socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
+
+    await user.click(screen.getByRole('button', { name: '夏季亚麻系列 (1)' }))
+    expect(await screen.findByText('第0段')).toBeVisible()
     expect(await screen.findByLabelText('未读')).toBeVisible()
   })
 
