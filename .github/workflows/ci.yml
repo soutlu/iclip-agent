@@ -34,7 +34,8 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      # 钉到具体版本：上游从 v8 起不再维护浮动的大版本标签，@v10 解析不出来。
+      - uses: astral-sh/setup-uv@v10.0.1
       - name: Sync dependencies (lockfile 精确 pin)
         run: uv sync --locked
       - name: Lint
