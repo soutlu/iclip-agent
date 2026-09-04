@@ -34,7 +34,7 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10
       - name: Sync dependencies (lockfile 精确 pin)
         run: uv sync --locked
       - name: Lint
