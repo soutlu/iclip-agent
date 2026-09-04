@@ -57,7 +57,7 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
     """
 
     ledger: MaterialLedger
-    """这段对话能用哪些地址。五件工具落下的地址往它上面记，收地址的三个验证器查它。"""
+    """这段对话能用哪些地址。出板与出图落下的地址往它上面记，收地址的三个验证器查它。"""
 
     extractor: FrameExtractor
     """拆片与取帧那一段。"""

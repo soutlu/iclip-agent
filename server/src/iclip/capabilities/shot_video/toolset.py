@@ -404,7 +404,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             cut.record_path,
             json.dumps(cut.record, ensure_ascii=False, indent=2),
         )
-        # 整图也记：版记录里写着它的地址，模型 read_file 读到就可能拿去看，不记会被拒。
         await self._record_images(namespace, [*cut.urls, cut.grid_url])
         return ToolReturn(
             return_value=cut.payload,

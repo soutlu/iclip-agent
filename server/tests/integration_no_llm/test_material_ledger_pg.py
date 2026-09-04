@@ -66,6 +66,18 @@ async def test_recording_the_same_url_twice_keeps_the_first_row(
     assert [row[0] for row in rows] == ["video"]
 
 
+async def test_the_same_url_twice_in_one_batch_is_fine(
+    ledger: PgMaterialLedger, namespace: str
+) -> None:
+    """同一张图在一条消息里发两次就是这个形状；一条语句里出现两次不能把整条打回。"""
+
+    await ledger.record(
+        namespace, [Material(url=IMAGE, kind="image"), Material(url=IMAGE, kind="image")]
+    )
+
+    assert await ledger.lookup(namespace, IMAGE) == Material(url=IMAGE, kind="image")
+
+
 async def test_lookup_matches_the_whole_url(ledger: PgMaterialLedger, namespace: str) -> None:
     """逐字比对：合法地址的前缀不算命中。"""
 
