@@ -133,6 +133,8 @@ PrincipalResolver 每 hop 只解析一次，写入 `request.state.principal`；�
 
 **两条路必须给出逐字相同的结构**，所以编号一律从确定的事实算出来（轮 = 一条 prompt 的全部 run，映射在 `agent_runtime.agent_job_runs`；步 = 这一轮里第几次模型响应；块 = 正文与思考的次序），并有一组对齐测试钉住。
 
+**上下文压缩是历史里的一条 `CompactionPart` 边界**（[adr/0011](adr/0011-context-compaction.md)）：全量历史一条不删，快照照旧是全量，发给模型的窗口由 `harness/context_compaction.py` 在发送时从最后一条边界往后现算；界面上它是那之后第一步里的一块提示，不是一轮。
+
 **prompt 队列落在 `agent_runtime.agent_jobs`**，不待在进程内存：「一段对话同时只跑一条」由部分唯一索引挡住，在跑的那条行由租约认领，中断的行由清扫续跑（[adr/0006](adr/0006-durable-runs.md) 决策 1）。`steered` 与 `awaiting` 是内部状态，对外一律报 `running`。
 
 **审批是 run 的结束点，不是 run 内的等待**（[adr/0006](adr/0006-durable-runs.md) 决策 4）：要审批的工具只挂顶层 agent，它的 `output_type` 是 `[str, DeferredToolRequests]`，子代理保持 `str`；决定记在票据行上，凑齐一次响应里的全部审批才起续跑 run，画进同一轮。
