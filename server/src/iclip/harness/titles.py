@@ -15,8 +15,16 @@ import structlog
 from pydantic_ai import direct
 from pydantic_ai.messages import ModelRequest, TextPart
 from pydantic_ai.models import Model
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 
 _logger = structlog.stdlib.get_logger(__name__)
+
+TITLE_SETTINGS = OpenAIChatModelSettings(openai_reasoning_effort="low")
+"""起标题用最低思考档。
+
+官方把模型级 settings 合进每次请求，不覆盖的话标题请求会带着主模型的 high 档跑一遍思考。
+GLM-5.3-Flash 关不掉思考，``low`` 是它最低的一档。
+"""
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
 """一段用户输入 → 一个标题。起不出来给 None。"""
@@ -51,6 +59,7 @@ def title_generator(model: Model) -> GenerateTitle:
             response = await direct.model_request(
                 model,
                 [ModelRequest.user_text_prompt(excerpt, instructions=INSTRUCTIONS)],
+                model_settings=TITLE_SETTINGS,
             )
         except Exception:
             _logger.warning("起标题失败，这段对话先用默认名", exc_info=True)

@@ -38,6 +38,20 @@ async def test_模型答什么就是标题() -> None:
     assert await generate("帮我做一条夜景延时的短片") == "夜景延时素材生成"
 
 
+async def test_起标题只用最低思考档() -> None:
+    seen: list[AgentInfo] = []
+
+    def script(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(info)
+        return ModelResponse(parts=[TextPart("夜景延时素材生成")])
+
+    await title_generator(FunctionModel(script))("帮我做一条夜景延时的短片")
+
+    # 主模型配的是 high；不覆盖的话一个标题也要跑一遍高档思考。
+    assert seen[0].model_settings is not None
+    assert seen[0].model_settings.get("openai_reasoning_effort") == "low"
+
+
 async def test_用户没打字就不叫模型() -> None:
     generate = title_generator(_exploding())
 
