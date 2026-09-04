@@ -70,6 +70,10 @@ models:
 
 conversations:
   title_model: glm-5.3-flash # 给对话起标题的模型，取 models 段的键名；不配就不起标题
+  compaction:
+    # 历史压成摘要：触发线是模型 context_window 乘以下面这个比例，没配窗口的 agent 不压。
+    max_fraction: 0.85 # 历史估算占到窗口的这个比例就压一次
+    keep_messages: 20 # 压完之后摘要后面留几条原始消息
 
 agent_runs:
   # agent 运行的租约节奏。lease_seconds 必须大于 heartbeat_seconds。
@@ -77,6 +81,7 @@ agent_runs:
   lease_seconds: 30 # 心跳停了多久就算中断，由清扫接管（续跑或判失败）
   sweep_seconds: 15 # 每隔多久清扫一次中断的行、并叫醒没人管的队列
   max_attempts: 2 # 一条 prompt 最多被认领几次；1 等于中断后只判失败不续跑
+  max_snapshots_per_run: 3 # 一次 run 在库里留几份快照；每份都是全量历史
 
 ops:
   log_level: INFO

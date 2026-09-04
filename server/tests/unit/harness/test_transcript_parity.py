@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
+    CompactionPart,
     EnqueuedMessagesEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -100,6 +101,10 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
                             getattr(frame, "display", None),
                             getattr(frame, "view", None),
                             getattr(frame, "metadata", None),
+                            # 提示块的正文与详情：不比的话压缩那一块只对上 id 和种类，
+                            # 两边写着不同的话也算通过。
+                            getattr(frame, "message", None),
+                            getattr(frame, "detail", None),
                         )
                         for frame in step.frames
                     ],
@@ -497,3 +502,66 @@ async def test_mixed_content_is_the_same_on_both_paths() -> None:
 
     assert live[0].content == MIXED
     assert derived[0].content == MIXED
+
+
+@pytest.mark.anyio
+async def test_a_compaction_notice_lands_on_the_same_step_on_both_paths() -> None:
+    """压缩在界面上是一块提示，挂在它之后第一步的最前面。
+
+    实时那侧在压缩发生的当下收到摘要、等下一步开出来才发；历史那侧只有一条插在切点上的边界，
+    得按它的时刻找那一步。两边差一步的话，同一段对话刷新前后那块提示会跳到别的步上去。
+    """
+
+    summary = "Summary of previous conversation:\n\n## Intent\n翻 README"
+
+    async def stream() -> AsyncIterator[Any]:
+        yield PartStartEvent(index=0, part=TextPart(content=""))
+        yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="先读"))
+        yield PartEndEvent(index=0, part=TextPart(content="先读"))
+        yield FunctionToolCallEvent(part=ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"))
+        yield FunctionToolResultEvent(
+            part=ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1")
+        )
+        # 第二步的模型请求之前压了一次：这一刻能力把摘要交给投影器。
+        projector.note_compaction(summary)
+        yield PartStartEvent(index=0, part=TextPart(content=""))
+        yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="读完了"))
+        yield PartEndEvent(index=0, part=TextPart(content="读完了"))
+
+    projector = TranscriptEventStream(
+        turn_id="t1", turn_ordinal=1, content=CONTENT, display=DISPLAYS
+    )
+    store = TranscriptStore()
+    async for batch in projector.transform_stream(stream()):
+        store.append(CONVERSATION, MAIN_AGENT_ID, batch)
+    live = store.subscribe_view(CONVERSATION, MAIN_AGENT_ID).live_turns
+
+    derived = _derive(
+        _messages(
+            ModelRequest(parts=[UserPromptPart(content=PROMPT)], run_id=RUN, timestamp=_at(0)),
+            ModelResponse(
+                parts=[
+                    TextPart(content="先读"),
+                    ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"),
+                ],
+                run_id=RUN,
+                timestamp=_at(1),
+            ),
+            ModelRequest(
+                parts=[ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1")],
+                run_id=RUN,
+                timestamp=_at(2),
+            ),
+            # 边界的时刻落在第一步的响应之后、第二步的响应之前。
+            ModelResponse(
+                parts=[CompactionPart(content=summary, provider_name="function")],
+                run_id=RUN,
+                timestamp=_at(3),
+            ),
+            ModelResponse(parts=[TextPart(content="读完了")], run_id=RUN, timestamp=_at(4)),
+        )
+    )
+
+    # 钉住比的不是两边都没有这一块：漏发时上面那句照样成立。
+    assert [frame.frame_id for frame in live[0].steps[1].frames] == ["t1.2.compaction", "t1.2.f1"]
+    assert _skeleton(live) == _skeleton(derived)

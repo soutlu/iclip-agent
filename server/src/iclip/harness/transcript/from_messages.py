@@ -41,12 +41,15 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.step_persistence import StepEvent
 
+from iclip.harness.context_compaction import compaction_boundary, compaction_only
 from iclip.harness.transcript.prompt_media import plain_text, prompt_content
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
+    COMPACTION_NOTICE,
     TOOL_STATE_BY_OUTCOME,
     Interaction,
+    NoticeFrame,
     PromptContent,
     StepUsage,
     TextFrame,
@@ -298,9 +301,21 @@ _EPOCH = datetime.min.replace(tzinfo=UTC)
 
 
 def _started_at(group: Sequence[ModelMessage]) -> datetime:
-    """这一组最早的时刻。请求的 ``timestamp`` 允许为空，所以取第一个有值的。"""
+    """这一组最早的时刻。请求的 ``timestamp`` 允许为空，所以取第一个有值的。
 
-    return next((at for message in group if (at := _at(message)) is not None), _EPOCH)
+    压缩边界不算：切点落在一轮的头一条消息上时它排在组首，而它盖的是压缩发生那一刻，拿它当
+    开始时刻的话这一轮会晚出十几分钟，轮序也可能跟着错位。
+    """
+
+    return next(
+        (
+            at
+            for message in group
+            if not compaction_only(message)
+            if (at := _at(message)) is not None
+        ),
+        _EPOCH,
+    )
 
 
 def _ended_at(group: Sequence[ModelMessage]) -> datetime | None:
@@ -341,10 +356,23 @@ def _turn(
     content: tuple[PromptContent, ...] | None = None
     pending_request: ModelRequest | None = None
     pending_steers: list[tuple[PromptContent, ...]] = []
+    pending_summaries: list[tuple[datetime, str]] = []
 
     for index, (run_id, group) in enumerate(segments):
         opened = len(steps)
         for message in group:
+            if (
+                isinstance(message, ModelResponse)
+                and (boundary := compaction_boundary(message)) is not None
+            ):
+                # 提示块挂在时刻**晚于**边界的第一步上，不挂在列表位置的后一步——边界插在切点，
+                # 在列表里比它创建时正在跑的那一步早十几条。严格晚于是为了跨轮也认同一步：边界
+                # 并进后面那条响应之后，合并出来的那条盖的正是边界的时刻。
+                pending_summaries.append((message.timestamp, boundary.content or ""))
+                if compaction_only(message):
+                    # 整条只有边界：模型没答过它，不算一步。并进别的响应之后就不是这样了，那条
+                    # 消息里有模型真说过的话，照旧走下面开一步。
+                    continue
             if isinstance(message, ModelRequest):
                 said = _user_content(message)
                 if content is None and said:
@@ -366,6 +394,13 @@ def _turn(
             step_id = f"{turn_id}.{step_ordinal}"
             frames: dict[str, TranscriptFrame] = {}
             frames_by_step.append(frames)
+            later: list[tuple[datetime, str]] = []
+            for at, summary in pending_summaries:
+                if at < message.timestamp:
+                    _compaction_frame(frames, step_id, summary)
+                else:
+                    later.append((at, summary))
+            pending_summaries = later
             for said in pending_steers:
                 _user_frame(frames, step_id, said)
             pending_steers.clear()
@@ -417,6 +452,15 @@ def _turn(
             step.model_copy(update={"frames": tuple(frames_by_step[index].values())})
             for index, step in enumerate(steps)
         ),
+    )
+
+
+def _compaction_frame(frames: dict[str, TranscriptFrame], step_id: str, summary: str) -> None:
+    """压缩提示块。id 不占 f 号——``next_frame_ordinal`` 只认 ``.f<n>`` 结尾的那些。"""
+
+    frame_id = f"{step_id}.compaction"
+    frames[frame_id] = NoticeFrame(
+        frame_id=frame_id, level="info", message=COMPACTION_NOTICE, detail=summary
     )
 
 

@@ -292,6 +292,16 @@ class ShotVideoSection(ConfigSection):
     """一次出图工具调用总共等多久；超了就把记录 id 报回去，让人自己查。"""
 
 
+class CompactionSection(ConfigSection):
+    """历史压成摘要的触发线与尾巴长度。"""
+
+    max_fraction: float = Field(default=0.85, gt=0, lt=1)
+    """历史估算占到模型窗口的这个比例就压一次。"""
+
+    keep_messages: int = Field(default=20, ge=1)
+    """压完之后留几条原始消息在摘要后面。"""
+
+
 class ConversationsSection(ConfigSection):
     """对话本身的设置。
 
@@ -300,6 +310,7 @@ class ConversationsSection(ConfigSection):
     """
 
     title_model: str | None = None
+    compaction: CompactionSection = CompactionSection()
 
 
 class AgentRunsSection(ConfigSection):
@@ -316,6 +327,9 @@ class AgentRunsSection(ConfigSection):
 
     max_attempts: int = Field(default=2, ge=1)
     """一条 prompt 最多被认领几次。1 等于中断后只判失败，不续跑。"""
+
+    max_snapshots_per_run: int = Field(default=3, ge=1)
+    """一次 run 在库里留几份快照。每份都是全量历史，留多了对话级体积按份数翻倍。"""
 
     @model_validator(mode="after")
     def _lease_outlasts_a_heartbeat(self) -> AgentRunsSection:
@@ -447,6 +461,15 @@ class ResolvedAgentRuns:
     lease_seconds: int
     sweep_seconds: int
     max_attempts: int
+    max_snapshots_per_run: int
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCompaction:
+    """历史压成摘要的触发线与尾巴长度。"""
+
+    max_fraction: float
+    keep_messages: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,6 +503,7 @@ class ResolvedSettings:
     models: tuple[ResolvedModel, ...]
     title_model: str | None
     """给对话起标题的模型名，取 ``models`` 里的一个。为空即不起标题。"""
+    compaction: ResolvedCompaction
     agent_runs: ResolvedAgentRuns
     log_level: str
     log_format: Literal["console", "json"]
@@ -651,11 +675,16 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             for name, model in config.models.items()
         ),
         title_model=config.conversations.title_model,
+        compaction=ResolvedCompaction(
+            max_fraction=config.conversations.compaction.max_fraction,
+            keep_messages=config.conversations.compaction.keep_messages,
+        ),
         agent_runs=ResolvedAgentRuns(
             heartbeat_seconds=config.agent_runs.heartbeat_seconds,
             lease_seconds=config.agent_runs.lease_seconds,
             sweep_seconds=config.agent_runs.sweep_seconds,
             max_attempts=config.agent_runs.max_attempts,
+            max_snapshots_per_run=config.agent_runs.max_snapshots_per_run,
         ),
         log_level=config.ops.log_level,
         log_format=config.ops.log_format,
