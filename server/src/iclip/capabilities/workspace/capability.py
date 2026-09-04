@@ -30,7 +30,7 @@ from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbe, MediaProbeFailed
-from iclip.harness.materials import require_http, require_material, run_materials
+from iclip.harness.materials import require_http, require_material
 from iclip.harness.media import (
     IMAGE_CONTEXT_MAX_EDGE,
     cropped_image_url,
@@ -47,6 +47,7 @@ from iclip.platform.file_store.store import (
     VersionConflict,
     normalize_path,
 )
+from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.transcript.display import (
     DisplayFn,
     FileIoDisplay,
@@ -100,6 +101,9 @@ class Workspace(AbstractCapability[AgentDepsT]):
 
     probe: MediaProbe
     """读图之前问原图信息用的那一口（宽高、字节数、格式）。"""
+
+    ledger: MaterialLedger
+    """这段对话能用哪些地址。读图收的地址在这里查得到才放行。"""
 
     # 显式 kw_only：父类的 ``id`` 本来就是关键字字段，重新声明时得保持这一点，
     # 否则字段顺序会变成「有默认值的位置参数在前、没默认值的在后」而报错。
@@ -187,25 +191,6 @@ def _media_display(args: Any) -> ToolDisplay | None:
     return None if url is None else UrlFetchDisplay(url=url)
 
 
-def _validate_image_url(
-    ctx: RunContext[Any],
-    url: str,
-    region: CropRegion | None = None,
-    full_resolution: bool = False,
-) -> None:
-    """读图收的地址。签名与工具（去掉 ``self``）逐字一致，官方按它调；另两个参数照收不看。"""
-
-    _ = (region, full_resolution)
-    require_http(url, what="图片地址")
-    require_material(
-        run_materials(ctx.messages),
-        url,
-        kind="image",
-        what="图片地址",
-        recorded_at=_RECORDED_AT,
-    )
-
-
 def _bytes_label(size_bytes: int) -> str:
     """字节数写成 KB / MB 两档。"""
 
@@ -255,7 +240,31 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         self.add_function(self.list_files, name="list_files")
         self.add_function(self.search_files, name="search_files")
         self.add_tool(
-            Tool(self.read_media_file, name="ReadMediaFile", args_validator=_validate_image_url)
+            Tool(
+                self.read_media_file,
+                name="ReadMediaFile",
+                args_validator=self._validate_image_url,
+            )
+        )
+
+    async def _validate_image_url(
+        self,
+        ctx: RunContext[Any],
+        url: str,
+        region: CropRegion | None = None,
+        full_resolution: bool = False,
+    ) -> None:
+        """读图收的地址。参数表与工具（去掉 ``self``）逐字一致，官方按它调；另两个参数照收不看。"""
+
+        _ = (region, full_resolution)
+        require_http(url, what="图片地址")
+        await require_material(
+            self._capability.ledger,
+            self._capability.resolve_scope(ctx),
+            url,
+            kind="image",
+            what="图片地址",
+            recorded_at=_RECORDED_AT,
         )
 
     async def read_file(
@@ -537,10 +546,12 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
             raise ModelRetry(str(exc)) from exc
 
 
-def workspace_capability(*, space: FileSpace, probe: MediaProbe) -> Workspace[Any]:
+def workspace_capability(
+    *, space: FileSpace, probe: MediaProbe, ledger: MaterialLedger
+) -> Workspace[Any]:
     """造一个工作区能力。组合根用这个，不直接碰 dataclass 的字段顺序。"""
 
-    return Workspace[Any](space=space, probe=probe)
+    return Workspace[Any](space=space, probe=probe, ledger=ledger)
 
 
 __all__ = [

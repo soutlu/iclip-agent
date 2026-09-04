@@ -94,6 +94,7 @@ from iclip.platform.file_store.store import (
     StoredFile,
 )
 from iclip.platform.http import status_code_for
+from iclip.platform.material_ledger.pg import PgMaterialLedger
 from iclip.platform.object_store.oss import (
     OssObjectStore,
     OssSettings,
@@ -471,7 +472,11 @@ def build_app(
     live_connections = LiveConnections()
     announcing_workspace_store = AnnouncingFileStore(workspace_store, live_connections)
 
-    conversation_workspace = ConversationWorkspace(workspace_store, announcing_workspace_store)
+    # 一个台账实例递给两处能力与收件那一口：各接各的话，记在一处、查在另一处。
+    material_ledger = PgMaterialLedger(active_engine)
+    conversation_workspace = ConversationWorkspace(
+        workspace_store, announcing_workspace_store, material_ledger
+    )
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(active_engine)
@@ -570,6 +575,7 @@ def build_app(
     )
     capability_table = build_capability_table(
         workspace_store=announcing_workspace_store,
+        material_ledger=material_ledger,
         http_client=http_client,
         generation_service=generation.service if generation is not None else None,
         object_store=public_objects,
@@ -615,6 +621,7 @@ def build_app(
         history=transcript_history,
         queue=job_queue,
         context_limits=context_limits,
+        record_materials=conversation_workspace.record_materials,
         runner=ConversationRunner(
             agents=dict(agent_registry.agents),
             store=transcript_store,

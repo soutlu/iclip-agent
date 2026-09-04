@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import ModelRetry
@@ -33,8 +34,9 @@ from iclip.capabilities.shot_video.prompt import assemble_anchor_prompt, assembl
 from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
-from iclip.harness.materials import require_http, require_material, require_recorded, run_materials
+from iclip.harness.materials import require_http, require_material
 from iclip.platform.file_store.store import FileStore, QuotaExceeded
+from iclip.platform.material_ledger.store import Material
 from iclip.platform.transcript.display import media_grid
 
 if TYPE_CHECKING:
@@ -148,6 +150,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             )
 
         boards = document["boards"]
+        await self._record_images(namespace, [board["url"] for board in boards])
         cells_total = sum(len(board["cells"]) for board in boards)
         flat = sum(len(row) for row in rows)
         message = (
@@ -326,19 +329,20 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             "path": SHOTS_PATH,
         }
 
-    def _validate_video_url(self, ctx: RunContext[Any], video_url: str) -> None:
+    async def _validate_video_url(self, ctx: RunContext[Any], video_url: str) -> None:
         """拆片与取帧收的视频地址。参数表与这两件工具逐字一致，官方按它调。"""
 
         require_http(video_url, what="视频地址")
-        require_material(
-            run_materials(ctx.messages),
+        await require_material(
+            self._cap.ledger,
+            self._cap.space.resolve(ctx),
             video_url,
             kind="video",
             what="视频地址",
             recorded_at=_RECORDED_AT,
         )
 
-    def _validate_frame_generation(
+    async def _validate_frame_generation(
         self,
         ctx: RunContext[Any],
         frames: list[FrameRequest],
@@ -353,29 +357,39 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """
 
         _ = (frames, global_reference, target_aspect)
-        materials = run_materials(ctx.messages)
+        namespace = self._cap.space.resolve(ctx)
         for url in reference_images:
             require_http(url, what="参考图地址")
-            require_material(
-                materials, url, kind="image", what="参考图地址", recorded_at=_RECORDED_AT
+            await require_material(
+                self._cap.ledger,
+                namespace,
+                url,
+                kind="image",
+                what="参考图地址",
+                recorded_at=_RECORDED_AT,
             )
 
-    def _validate_shot_delivery(
+    async def _validate_shot_delivery(
         self, ctx: RunContext[Any], aspect_ratio: str, shots: list[VideoShotRequest]
     ) -> None:
         """交付收的镜头帧地址。参数表与工具逐字一致，官方按它调。
 
         只判地址来源；形状（编号、秒数、``@ImageN``）要先看整份表才判得了，留在工具体里。
-        出帧写下的地址在同一轮的工具结果里逐字出现过，所以按素材算得到——但它们是 JSON 里
-        的裸串，没人给它们声明过种类，因此只问「出现过没有」。
         """
 
         _ = aspect_ratio
-        materials = run_materials(ctx.messages)
+        namespace = self._cap.space.resolve(ctx)
         for shot in shots:
             for url in shot.image_urls:
                 require_http(url, what="镜头帧地址")
-                require_recorded(materials, url, what="镜头帧地址", recorded_at=_RECORDED_AT)
+                await require_material(
+                    self._cap.ledger,
+                    namespace,
+                    url,
+                    kind="image",
+                    what="镜头帧地址",
+                    recorded_at=_RECORDED_AT,
+                )
 
     async def _deliver(
         self, files: FileStore, namespace: str, cut: GridCut | dict[str, Any]
@@ -390,10 +404,16 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             cut.record_path,
             json.dumps(cut.record, ensure_ascii=False, indent=2),
         )
+        await self._record_images(namespace, [*cut.urls, cut.grid_url])
         return ToolReturn(
             return_value=cut.payload,
             metadata=media_grid(zip(cut.urls, cut.captions, strict=True)),
         )
+
+    async def _record_images(self, namespace: str, urls: Sequence[str]) -> None:
+        """把本能力落下的图片地址记进台账，模型下一步才交得回来。"""
+
+        await self._cap.ledger.record(namespace, [Material(url=url, kind="image") for url in urls])
 
     async def _write(self, files: FileStore, namespace: str, path: str, content: str) -> None:
         try:

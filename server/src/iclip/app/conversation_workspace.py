@@ -1,8 +1,9 @@
-"""对话那一侧要借工作区做的几件事：清地盘、列 / 读 / 写派生文件，外加交付表写回时的形状判定。"""
+"""对话那一侧要借工作区做的几件事：清地盘、记素材、列 / 读 / 写派生文件，外加交付表写回时的形状判定。"""
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from iclip.capabilities.shot_video.delivery import validate_video_shots_document
 from iclip.capabilities.workspace.scope import namespace_for
@@ -17,6 +18,8 @@ from iclip.platform.file_store.store import (
     VersionConflict,
     normalize_path,
 )
+from iclip.platform.material_ledger.store import Material, MaterialLedger
+from iclip.platform.transcript.ops import ImageContent, PromptContent, VideoContent
 
 
 class ConversationWorkspace:
@@ -26,14 +29,32 @@ class ConversationWorkspace:
     认识两者的地方，它把「属主 + 对话 id」翻成命名空间。
     """
 
-    def __init__(self, store: PgFileStore, announcing: FileStore) -> None:
+    def __init__(self, store: PgFileStore, announcing: FileStore, ledger: MaterialLedger) -> None:
         self._store = store
         self._announcing = announcing
+        self._ledger = ledger
 
     async def purge(self, owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
-        """删掉一段对话时，连带清空它在工作区里的地盘。"""
+        """删掉一段对话时，连带清空它在工作区里的地盘与素材台账。"""
 
-        await self._store.purge_namespace(namespace_for(owner, str(conversation_id)))
+        namespace = namespace_for(owner, str(conversation_id))
+        await self._store.purge_namespace(namespace)
+        await self._ledger.purge_namespace(namespace)
+
+    async def record_materials(
+        self, owner: uuid.UUID, conversation_id: str, content: Sequence[PromptContent]
+    ) -> None:
+        """把一条消息带的附件登进素材台账，工具随后才收得下这些地址。"""
+
+        materials = [
+            Material(
+                url=part.source.url,
+                kind="image" if isinstance(part, ImageContent) else "video",
+            )
+            for part in content
+            if isinstance(part, ImageContent | VideoContent) and part.source.url is not None
+        ]
+        await self._ledger.record(namespace_for(owner, conversation_id), materials)
 
     async def list_files(
         self, owner: uuid.UUID, conversation_id: uuid.UUID

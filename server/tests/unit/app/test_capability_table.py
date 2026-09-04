@@ -35,6 +35,7 @@ from iclip.domains.identity.public import Principal
 from iclip.platform.object_store.oss import ObjectStoreUnavailable
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.generation import make_job
+from tests.helpers.material_ledger import FakeMaterialLedger
 from tests.helpers.shot_video import FakeObjects
 
 IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
@@ -91,7 +92,11 @@ def test_nothing_declared_mounts_nothing(table: CapabilityTable) -> None:
 def test_workspace_is_registered_under_its_declaration_name() -> None:
     """``agents.yaml`` 里写 capabilities: [workspace] 得真能装出工作区来。"""
 
-    built = build_capability_table(workspace_store=FakeFileStore(), http_client=idle_client())
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
+        http_client=idle_client(),
+    )
     resolved = resolve_capabilities(("workspace",), table=built, declared_by="agent storyboard")
     assert [type(capability) for capability in resolved] == [Workspace]
 
@@ -99,7 +104,11 @@ def test_workspace_is_registered_under_its_declaration_name() -> None:
 def test_shot_video_needs_its_whole_backing() -> None:
     """依赖不齐就不登记这个名字——引用它的 agent 会在装配期响亮地失败。"""
 
-    built = build_capability_table(workspace_store=FakeFileStore(), http_client=idle_client())
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
+        http_client=idle_client(),
+    )
     assert "shot_video" not in built
     with pytest.raises(RuntimeError, match="引用了未登记的 capability 'shot_video'"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
@@ -108,6 +117,7 @@ def test_shot_video_needs_its_whole_backing() -> None:
 def test_shot_video_is_registered_when_backed(shot_video_settings: ResolvedShotVideo) -> None:
     built = build_capability_table(
         workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
         http_client=idle_client(),
@@ -126,6 +136,7 @@ def test_shot_video_without_workspace_fails_at_assembly(
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
         http_client=idle_client(),
@@ -146,6 +157,7 @@ def test_the_display_registry_covers_every_mounted_tool(
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
         http_client=idle_client(),

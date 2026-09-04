@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import inspect
 import uuid
 
 import pytest
@@ -13,14 +14,11 @@ from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
     ImageUrl,
     ModelMessage,
-    ModelRequest,
     ModelResponse,
     RetryPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturn,
-    ToolReturnPart,
-    UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
@@ -40,7 +38,6 @@ from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
-from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import (
     FileSpace,
     InvalidPath,
@@ -49,6 +46,7 @@ from iclip.platform.file_store.store import (
     VersionConflict,
     normalize_path,
 )
+from iclip.platform.material_ledger.store import Material
 from iclip.platform.transcript.display import (
     FileIoDisplay,
     GenericDisplay,
@@ -57,6 +55,7 @@ from iclip.platform.transcript.display import (
     UrlFetchDisplay,
 )
 from tests.helpers.file_store import FakeFileStore
+from tests.helpers.material_ledger import FakeMaterialLedger
 
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
 OTHER_USER = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -65,9 +64,6 @@ OTHER_THREAD = "thread-2"
 NS = f"{USER}/{THREAD}"
 
 OSS_IMAGE = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
-
-# 用户把图发进来之后，模型上下文里就是这么一行——素材校验认的就是它。
-_USER_SENT_IMAGE = f"{media_tag('image', OSS_IMAGE, name='style.jpg')} 看一下"
 
 
 A_BIG_JPEG = ImageInfo(media_type="image/jpeg", size_bytes=2048, width=3000, height=2000)
@@ -101,21 +97,30 @@ def make_deps(user_id: uuid.UUID = USER, conversation_id: str = THREAD) -> Agent
     return AgentRunDeps(principal=make_principal(user_id), conversation_id=conversation_id)
 
 
-def make_context(deps: object, *, said: str | None = None) -> RunContext[object]:
-    """造一次运行的上下文。给了 ``said`` 就当作用户已经在对话里发过那段话。"""
+def make_context(deps: object) -> RunContext[object]:
+    """造一次运行的上下文。"""
 
-    return RunContext[object](
-        deps=deps,
-        model=TestModel(),
-        usage=RunUsage(),
-        messages=[] if said is None else [ModelRequest(parts=[UserPromptPart(content=said)])],
-    )
+    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage(), messages=[])
 
 
-def make_workspace(store: FakeFileStore, probe: FakeProbe | None = None) -> Workspace[object]:
+def image_ledger(*urls: str) -> FakeMaterialLedger:
+    """一份记着这几个图片地址的台账，当作收件那一步已经记过了。"""
+
+    fake = FakeMaterialLedger()
+    for url in urls:
+        fake.rows[(NS, url)] = Material(url=url, kind="image")
+    return fake
+
+
+def make_workspace(
+    store: FakeFileStore,
+    probe: FakeProbe | None = None,
+    ledger: FakeMaterialLedger | None = None,
+) -> Workspace[object]:
     return workspace_capability(
         space=FileSpace(store=store, namespace=workspace_namespace),
         probe=probe if probe is not None else FakeProbe(),
+        ledger=ledger if ledger is not None else FakeMaterialLedger(),
     )
 
 
@@ -232,7 +237,7 @@ def test_scope_goes_through_normalization() -> None:
     """
 
     dirty = FileSpace(store=FakeFileStore(), namespace=lambda _ctx: f"{USER}//{THREAD}")
-    capability = workspace_capability(space=dirty, probe=FakeProbe())
+    capability = workspace_capability(space=dirty, probe=FakeProbe(), ledger=FakeMaterialLedger())
     assert capability.resolve_scope(make_context(make_deps())) == NS
 
 
@@ -453,11 +458,15 @@ async def test_quota_and_conflict_are_distinguishable(store: FakeFileStore) -> N
 # --------------------------------------------------------------------------
 
 
-def read_tools(probe: FakeProbe) -> WorkspaceToolset[object]:
-    return WorkspaceToolset(make_workspace(FakeFileStore(), probe))
+def read_tools(
+    probe: FakeProbe, ledger: FakeMaterialLedger | None = None
+) -> WorkspaceToolset[object]:
+    return WorkspaceToolset(make_workspace(FakeFileStore(), probe, ledger))
 
 
-def check_args(tools: WorkspaceToolset[object], ctx: RunContext[object], **args: object) -> None:
+async def check_args(
+    tools: WorkspaceToolset[object], ctx: RunContext[object], **args: object
+) -> None:
     """走一遍读图登记时挂上的验证器（官方在 schema 校验之后、执行之前调它）。
 
     从登记表上取，不直接调那个函数：漏传 ``args_validator=`` 时这条用例也要红。
@@ -465,7 +474,9 @@ def check_args(tools: WorkspaceToolset[object], ctx: RunContext[object], **args:
 
     validator = tools.tools["ReadMediaFile"].args_validator
     assert validator is not None, "ReadMediaFile 登记时没挂验证器"
-    assert validator(ctx, **args) is None, "本包的验证器都是同步的"
+    outcome = validator(ctx, **args)
+    assert inspect.isawaitable(outcome), "本包的验证器都是 async 的"
+    await outcome
 
 
 async def test_a_big_image_is_downsampled_and_says_so() -> None:
@@ -622,29 +633,18 @@ async def test_an_address_that_cannot_carry_scaling_is_refused() -> None:
         )
 
 
-async def test_read_media_file_takes_an_address_from_a_tool_result() -> None:
-    """预览板地址只在工具结果的 JSON 里，没有 tag——照样是本对话的素材。"""
+async def test_read_media_file_takes_an_address_a_tool_wrote_down() -> None:
+    """预览板地址由出板的那件工具记进台账，读图这一侧照样收得下。"""
 
     board = "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/1.jpg"
-    tools = read_tools(FakeProbe())
+    tools = read_tools(FakeProbe(), image_ledger(board))
     ctx = make_context(make_deps())
-    ctx.messages.append(
-        ModelRequest(
-            parts=[
-                ToolReturnPart(
-                    tool_name="plan_shot_frames",
-                    content={"boards": [{"board": 1, "url": board}]},
-                    tool_call_id="1",
-                )
-            ]
-        )
-    )
 
-    check_args(tools, ctx, url=board)
+    await check_args(tools, ctx, url=board)
     assert await tools.read_media_file(ctx, board)
 
     with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
-        check_args(
+        await check_args(
             tools,
             ctx,
             url="https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/9.jpg",
@@ -655,21 +655,31 @@ async def test_an_out_of_scope_address_is_refused_before_the_probe_runs() -> Non
     """模型编一个地址：官方在执行之前跑验证器，工具体一次都没跑。"""
 
     probe = FakeProbe()
-    tools = read_tools(probe)
-    ctx = make_context(make_deps(), said=_USER_SENT_IMAGE)
+    tools = read_tools(probe, image_ledger(OSS_IMAGE))
+    ctx = make_context(make_deps())
 
-    check_args(tools, ctx, url=OSS_IMAGE)
-    with pytest.raises(ModelRetry, match=OSS_IMAGE) as failure:
-        check_args(tools, ctx, url="https://cdn.test/made-up.jpg")
+    await check_args(tools, ctx, url=OSS_IMAGE)
+    with pytest.raises(ModelRetry, match="不是这段对话里的素材") as failure:
+        await check_args(tools, ctx, url="https://cdn.test/made-up.jpg")
 
-    # 不回显被拒的地址：回显一次，模型重试时它就成了「上下文里出现过」的东西。
+    # 不回显被拒的地址：回显一次，模型重试时它就成了「台账里有过」的东西。
     assert "made-up" not in str(failure.value)
+
+
+async def test_a_video_address_cannot_be_read_as_an_image() -> None:
+    """用户发的是视频，拿去读图——台账每行都带种类，认得出来。"""
+
+    video = "https://cdn.test/ref.mp4"
+    ledger = FakeMaterialLedger()
+    ledger.rows[(NS, video)] = Material(url=video, kind="video")
+    with pytest.raises(ModelRetry, match="视频"):
+        await check_args(read_tools(FakeProbe(), ledger), make_context(make_deps()), url=video)
 
 
 @pytest.mark.parametrize("url", ["style.jpg", "file:///etc/passwd", "ftp://host/a.jpg"])
 async def test_read_media_file_only_takes_http_urls(url: str) -> None:
     with pytest.raises(ModelRetry, match="http"):
-        check_args(read_tools(FakeProbe()), make_context(make_deps()), url=url)
+        await check_args(read_tools(FakeProbe()), make_context(make_deps()), url=url)
 
 
 # --------------------------------------------------------------------------

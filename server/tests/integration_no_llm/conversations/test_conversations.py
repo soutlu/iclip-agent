@@ -136,10 +136,10 @@ async def test_another_users_conversation_is_invisible(
 
 
 async def test_delete_takes_the_workspace_with_it(client: httpx.AsyncClient, pg_url: str) -> None:
-    """删对话时，agent 在这段对话里写下的稿子一起删掉。
+    """删对话时，agent 在这段对话里写下的稿子与它的素材台账一起删掉。
 
-    工作区靠一个拼出来的命名空间认领地盘，两张表之间没有外键，所以这条连带关系
-    只能由代码保证——它断了不会有任何报错，只会留下一堆再也没人看得见的文件。
+    两者都靠一个拼出来的命名空间认领地盘，和对话表之间没有外键，所以这条连带关系
+    只能由代码保证——它断了不会有任何报错，只会留下一堆再也没人看得见的行。
     """
 
     user_id = await login_as_editor(client, pg_url)
@@ -155,6 +155,13 @@ async def test_delete_takes_the_workspace_with_it(client: httpx.AsyncClient, pg_
                         "INSERT INTO agent_runtime.workspace_files "
                         "(namespace, path, content, version, created_at, updated_at) "
                         "VALUES (:ns, '分镜.md', '稿子', 1, now(), now())"
+                    ),
+                    {"ns": f"{user_id}/{conversation_id}"},
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO agent_runtime.materials (namespace, url, kind) "
+                        "VALUES (:ns, 'https://cdn.test/style.jpg', 'image')"
                     ),
                     {"ns": f"{user_id}/{conversation_id}"},
                 )
@@ -175,11 +182,25 @@ async def test_delete_takes_the_workspace_with_it(client: httpx.AsyncClient, pg_
                 .scalars()
                 .all()
             )
+            materials = (
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT namespace FROM agent_runtime.materials "
+                            "WHERE namespace LIKE :prefix"
+                        ),
+                        {"prefix": f"{user_id}/%"},
+                    )
+                )
+                .scalars()
+                .all()
+            )
     finally:
         await engine.dispose()
 
-    # 只剩留着那段对话的稿子：删除既没漏掉、也没多删。
+    # 只剩留着那段对话的稿子与素材：删除既没漏掉、也没多删。
     assert left == [f"{user_id}/{kept}"]
+    assert materials == [f"{user_id}/{kept}"]
 
 
 async def test_unknown_conversation_is_404(client: httpx.AsyncClient, pg_url: str) -> None:

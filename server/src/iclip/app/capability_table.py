@@ -40,6 +40,7 @@ from iclip.domains.identity.public import Principal
 from iclip.harness.agents import AgentCapabilities, delegate_display_table
 from iclip.harness.skills import skill_display_table
 from iclip.platform.file_store.store import FileSpace, FileStore
+from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
 from iclip.platform.transcript.display import ToolDisplayRegistry, ToolDisplaySource
@@ -179,6 +180,7 @@ def _first_problem(exc: ValidationError) -> str:
 def build_capability_table(
     *,
     workspace_store: FileStore,
+    material_ledger: MaterialLedger,
     http_client: httpx.AsyncClient,
     generation_service: GenerationService | None = None,
     object_store: PublicObjectStore | None = None,
@@ -196,12 +198,17 @@ def build_capability_table(
     # 只是模型的 read_file 看不见——失效是静默的。
     space = FileSpace(store=workspace_store, namespace=workspace_namespace)
     table: dict[str, AgentCapabilities] = {
-        "workspace": (workspace_capability(space=space, probe=OssMediaProbe(http_client)),),
+        "workspace": (
+            workspace_capability(
+                space=space, probe=OssMediaProbe(http_client), ledger=material_ledger
+            ),
+        ),
     }
     if shot_video is not None and generation_service is not None and object_store is not None:
         table["shot_video"] = (
             shot_video_capability(
                 space=space,
+                ledger=material_ledger,
                 generations=GenerationsAdapter(generation_service),
                 objects=ObjectWriterAdapter(object_store),
                 paths=MEDIA_PATHS,
