@@ -151,6 +151,8 @@ PrincipalResolver 每 hop 只解析一次，写入 `request.state.principal`；�
 
 **删除对话连带删掉工作区文件，这条线接在组合根**：conversations 只声明口子（`PurgeDerived`、`ReadHistory`、`ListDerivedFiles` / `ReadDerivedFile` / `WriteDerivedFile`、`WorkspaceDocumentValidator`）并做归属判断，命名空间只在 `capabilities/workspace/scope.py` 一处拼，路径语法归存储那一侧定；**先删派生的、再删对话行**，运行记录不删。工作区文件属主可写（整份覆盖，带版本号），写入前按路径过校验器；每写一次向订了该路径的连接发一帧 `event.fs.changed`（kimi 的 `watch_fs_add` 订阅模型），界面按 `version` 判断正文变没变。
 
+**这段对话能用哪些素材记在 `agent_runtime.materials`**（命名空间同工作区）：收下 prompt 时记附件地址，`shot_video` 往公开桶落地址时记，收地址的工具在登记处的验证器里按 `(命名空间, url)` 逐字查它（[adr/0010](adr/0010-materials-ledger.md)）。
+
 ## 13. 产品资料查询
 
 `GET /products/{styleNo}`：一个款号进去，拿到这个款的品牌、品类、颜色和产品图。**只读、零副作用、不建表**——数据在外部一个 Postgres 里（PDM 经 CDC 同步的副本），唯一 SQL 出口是 `catalog_pg.py`，一条 CTE 一次往返，连接在会话层设成只读。码→名字的对照表冻在 `tables.py` 里，图片地址 = `PRODUCT_IMAGE_BASE_URL` + object key。开关是 `PRODUCT_CATALOG_DATABASE_URL`。定义见 CONTEXT.md「产品资料」。
