@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
+    CompactionPart,
     ImageUrl,
     ModelRequest,
     ModelResponse,
@@ -44,8 +45,10 @@ from iclip.platform.transcript.display import (
     ToolDisplayRegistry,
 )
 from iclip.platform.transcript.ops import (
+    COMPACTION_NOTICE,
     AttachmentSource,
     ImageContent,
+    NoticeFrame,
     StepUsage,
     TextContent,
     TextFrame,
@@ -950,3 +953,133 @@ def test_turn_run_ids_groups_the_runs_of_one_prompt() -> None:
     assert turn_run_ids(messages, {}) == (("r1",), ("r2",), ("r3",))
     # run_id 仍按 run 逐个给：事件按 run 查，交接也按 run 核对。
     assert run_ids_from_messages(messages) == ("r1", "r2", "r3")
+
+
+def _compaction(summary: str, *, run_id: str = RUN, minute: int) -> ModelResponse:
+    """一条压缩边界。它插在切点上，在列表里比它创建时正在跑的那一步早十几条。"""
+
+    return ModelResponse(
+        parts=[CompactionPart(content=summary, provider_name="function")],
+        run_id=run_id,
+        timestamp=_at(minute),
+    )
+
+
+def test_a_compaction_boundary_is_not_a_step() -> None:
+    """边界是个标记，模型没答过它。算成一步的话步号整体错位，两条路当场分叉。"""
+
+    turns = turns_from_messages(
+        [
+            _ask("走", minute=0),
+            _compaction("旧账", minute=1),
+            _reply(TextPart(content="好"), minute=2),
+            _returns(minute=3),
+            _reply(TextPart(content="完了"), minute=4),
+        ]
+    )
+
+    assert [step.step_id for step in turns[0].steps] == ["t1.1", "t1.2"]
+
+
+def test_the_compaction_notice_hangs_on_the_first_step_after_it() -> None:
+    """按时刻挂，不按列表位置：边界排在更早那几轮的消息中间，按位置会挂到早跑完的那一步上。"""
+
+    turns = turns_from_messages(
+        [
+            _ask("走", minute=0),
+            _reply(TextPart(content="第一步"), minute=1),
+            _returns(minute=2),
+            _compaction("旧账", minute=3),
+            _reply(TextPart(content="第二步"), minute=4),
+        ]
+    )
+
+    first, second = turns[0].steps
+    assert [frame.frame_id for frame in first.frames] == ["t1.1.f1"]
+    notice = second.frames[0]
+    assert isinstance(notice, NoticeFrame)
+    # 提示块不占 f 号，正文块照旧从 f1 起。
+    assert [frame.frame_id for frame in second.frames] == ["t1.2.compaction", "t1.2.f1"]
+    assert (notice.level, notice.message, notice.detail) == ("info", COMPACTION_NOTICE, "旧账")
+
+
+def test_a_boundary_with_no_step_after_it_shows_nothing() -> None:
+    """压完那次请求就失败了：没有步可挂，实时那侧也发不出这一块。"""
+
+    turns = turns_from_messages(
+        [
+            _ask("走", minute=0),
+            _reply(TextPart(content="好"), minute=1),
+            _compaction("旧账", minute=2),
+        ]
+    )
+
+    assert [frame.frame_id for frame in turns[0].steps[0].frames] == ["t1.1.f1"]
+
+
+def test_a_boundary_does_not_become_the_turns_start_time() -> None:
+    """边界盖的是压缩发生那一刻，在列表里却排在这次 run 自己的消息之前。
+
+    拿它当开始时刻的话这一轮会晚出十几分钟，轮序也可能跟着错位。
+    """
+
+    turns = turns_from_messages(
+        [
+            _ask("第一问", run_id="r1", minute=0),
+            _reply(TextPart(content="第一答"), run_id="r1", minute=1),
+            _compaction("旧账", run_id="r2", minute=8),
+            _ask("第二问", run_id="r2", minute=2),
+            _reply(TextPart(content="第二答"), run_id="r2", minute=3),
+        ]
+    )
+
+    assert [turn.started_at for turn in turns] == [_at(0).isoformat(), _at(2).isoformat()]
+
+
+def test_drop_last_turn_takes_the_boundary_of_that_run_with_it() -> None:
+    """边界盖的是切点那条消息的号；切点落在末轮里时，它跟着末轮一起被摘掉。"""
+
+    messages = [
+        _ask("第一问", run_id="r1", minute=0),
+        _reply(TextPart(content="第一答"), run_id="r1", minute=1),
+        _ask("第二问", run_id="r2", minute=2),
+        _compaction("旧账", run_id="r2", minute=8),
+        _reply(TextPart(content="第二答"), run_id="r2", minute=3),
+    ]
+
+    kept, dropped = drop_last_turn(messages, {})
+
+    assert dropped == ("r2",)
+    assert kept == messages[:2]
+
+
+def test_a_boundary_merged_into_a_response_still_shows_its_notice() -> None:
+    """这份历史再交回引擎时，框架会把边界并进它后面那条响应。
+
+    按整条认边界的话，界面上那块提示从下一轮起就没了；而那条消息里有模型真说过的话，它照旧
+    是一步，漏算的话步号整体错位。
+    """
+
+    merged = ModelResponse(
+        parts=[
+            CompactionPart(content="旧账", provider_name="function"),
+            TextPart(content="第一答"),
+        ],
+        run_id=RUN,
+        # 合并保留前一条的时刻，也就是边界那一刻。
+        timestamp=_at(8),
+    )
+    turns = turns_from_messages(
+        [
+            _ask("走", minute=0),
+            merged,
+            _returns(minute=9),
+            _reply(TextPart(content="第二答"), minute=10),
+        ]
+    )
+
+    # 带着边界的那条响应照旧算一步，模型说的话还在。
+    assert [step.step_id for step in turns[0].steps] == ["t1.1", "t1.2"]
+    assert [frame.frame_id for frame in turns[0].steps[0].frames] == ["t1.1.f1"]
+    # 提示块挂在时刻严格晚于边界的那一步，与边界还独立成条时挂的是同一步。
+    assert [frame.frame_id for frame in turns[0].steps[1].frames] == ["t1.2.compaction", "t1.2.f1"]

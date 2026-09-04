@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import KW_ONLY, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -46,11 +46,13 @@ from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.ui import UIEventStream
 from pydantic_ai_harness.compaction import estimate_context_tokens
 
+from iclip.harness.context_compaction import compaction_only
 from iclip.harness.transcript.from_messages import ORPHAN_TOOL_ERROR, step_usage, turn_usage
 from iclip.harness.transcript.prompt_media import plain_text, prompt_content
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
+    COMPACTION_NOTICE,
     MAIN_AGENT_ID,
     TOOL_STATE_BY_OUTCOME,
     AppendOp,
@@ -60,6 +62,7 @@ from iclip.platform.transcript.ops import (
     Interaction,
     InteractionUpsertOp,
     MetaMergeOp,
+    NoticeFrame,
     PromptContent,
     StepHeader,
     StepUpsertOp,
@@ -97,6 +100,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     agent_id: str = MAIN_AGENT_ID
     turn_id: str = "t1"
     turn_ordinal: int = 1
+    run_id: str | None = None
+    """这次 run 的 id。补用量时按它认出哪些响应是这一轮自己产出的（见 ``step_responses``）。"""
     content: tuple[PromptContent, ...] = ()
     """发起这一轮那条消息的 part 列表，原样带上轮头部。"""
     max_context_tokens: int | None = None
@@ -124,6 +129,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     """还没有步可挂的插话，等下一步开出来放在最前面（与 ``from_messages`` 同一条规则）。"""
     _settled_calls: set[str] = field(default_factory=set[str], init=False)
     """已经等到结局的工具调用。收场时没在里面的卡收成错的那一档（见 ``_orphan_card_ops``）。"""
+    _pending_summary: str | None = field(default=None, init=False)
+    """刚压出来、还没有步可挂的那份摘要。下一步开出来时放在最前面。"""
 
     deferred: DeferredToolRequests | None = field(default=None, init=False)
     """这次 run 停在哪一批审批上。为空即它是正常收场的。"""
@@ -224,12 +231,23 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
 
     # --- 一步的开合 ---------------------------------------------------------
 
+    def note_compaction(self, summary: str) -> None:
+        """历史刚被压成摘要。提示块挂在这之后开出来的第一步，所以先记着。
+
+        压完这次请求就失败的话没有下一步，这份摘要跟着这一轮一起丢掉，界面上没有提示块。
+        """
+
+        self._pending_summary = summary
+
     async def before_response(self) -> AsyncIterator[OpsBatch]:
         self._step_ordinal += 1
         self._frame_ids = []
         ops: list[EmittableOperation] = [
             StepUpsertOp(turn_id=self.turn_id, step=self._step(state="running"))
         ]
+        if self._pending_summary is not None:
+            ops.append(self._compaction_frame(self._pending_summary))
+            self._pending_summary = None
         for said in self._pending_steers:
             ops.extend(self._user_frame(said))
         self._pending_steers.clear()
@@ -259,9 +277,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         self.final_history = tuple(event.result.all_messages())
         if isinstance(event.result.output, DeferredToolRequests):
             self.deferred = event.result.output
-        responses = [
-            message for message in event.result.new_messages() if isinstance(message, ModelResponse)
-        ]
+        responses = step_responses(event.result.new_messages(), self.run_id)
         ops: list[EmittableOperation] = []
         for header, response in zip(self._step_headers, responses, strict=False):
             usage = step_usage(response.usage)
@@ -571,6 +587,20 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         self._frame_ids.append(frame_id)
         return frame_id
 
+    def _compaction_frame(self, summary: str) -> EmittableOperation:
+        """压缩提示块。id 不占 f 号——``next_frame_ordinal`` 只认 ``.f<n>`` 结尾的那些。"""
+
+        return FrameUpsertOp(
+            turn_id=self.turn_id,
+            step_id=self._step_id,
+            frame=NoticeFrame(
+                frame_id=f"{self._step_id}.compaction",
+                level="info",
+                message=COMPACTION_NOTICE,
+                detail=summary,
+            ),
+        )
+
     def _user_frame(self, content: tuple[PromptContent, ...]) -> list[EmittableOperation]:
         frame_id = self._next_frame_id()
         return [
@@ -651,6 +681,28 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         )
 
 
+def step_responses(messages: Sequence[ModelMessage], run_id: str | None) -> list[ModelResponse]:
+    """这几条消息里，这次 run 自己产出的响应，一条一步。
+
+    不能直接拿 ``new_messages()`` 里的全部响应：那一刀是从「第一条带本次 run_id 的消息」切的，
+    而切点落在本轮消息里时边界也盖着本次 run_id，切点因此被拽到更早的位置，上几轮的响应会漏进
+    来，用量就挂到了别人的步上。边界自己也不是一步——模型没答过它。
+
+    只摘「整条都是边界」的那种：这一刻的历史里边界还自成一条消息，并进别的响应是下一轮把它当
+    ``message_history`` 交回引擎之后的事，而那条消息里有模型真说过的话，它照样是一步。
+
+    ``run_id`` 为空时不按它筛，只把边界摘掉。
+    """
+
+    return [
+        message
+        for message in messages
+        if isinstance(message, ModelResponse)
+        and not compaction_only(message)
+        and (run_id is None or message.run_id == run_id)
+    ]
+
+
 def _prompt_content(part: UserPromptPart) -> tuple[PromptContent, ...]:
     """插话那条消息里用户发上来的 part 列表。还原走的是历史那侧同一个函数。"""
 
@@ -668,4 +720,4 @@ def _approvals(results: Any) -> list[tuple[str, bool]]:
     return settled
 
 
-__all__ = ["OpsBatch", "TranscriptEventStream"]
+__all__ = ["OpsBatch", "TranscriptEventStream", "step_responses"]

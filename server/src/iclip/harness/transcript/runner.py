@@ -47,10 +47,15 @@ from pydantic_ai.messages import (
     UserContent,
 )
 from pydantic_ai.tools import DeferredToolResults, RunContext
-from pydantic_ai_harness.compaction import ContextUsage, ReportContextUsage
+from pydantic_ai_harness.compaction import (
+    ContextUsage,
+    ReportContextUsage,
+    SummarizingCompaction,
+)
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, ToolEffectRecord
 
 from iclip.common.errors import Conflict, NotFound
+from iclip.harness.context_compaction import ContextCompaction
 from iclip.harness.jobs import JobQueue, JobRow, JobStatus
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
@@ -767,6 +772,7 @@ class ConversationRunner:
         projector = TranscriptEventStream(
             turn_id=turn_id,
             turn_ordinal=ordinal,
+            run_id=run_id,
             content=row.content,
             max_context_tokens=context_window,
             resume_from=resume_from,
@@ -816,8 +822,22 @@ class ConversationRunner:
             cancellation_token=active.token,
             capabilities=[
                 active.handle,
+                # 压缩排在仪表之前：仪表报的是这次请求之后的用量，压完再报才是模型眼里的现状。
+                # 没配窗口的 agent 两件都不挂——触发线是窗口乘出来的，没有窗口就无从谈起。
                 *(
-                    [ReportContextUsage(on_usage=report_context, context_window=context_window)]
+                    [
+                        ContextCompaction(
+                            strategy=SummarizingCompaction(
+                                # 只是让构造校验过关，它自己的触发我们不挂。
+                                max_messages=1,
+                                keep_messages=self._compaction_keep_messages,
+                                preserve_first_user_message=False,
+                            ),
+                            max_tokens=int(context_window * self._compaction_max_fraction),
+                            on_compaction=projector.note_compaction,
+                        ),
+                        ReportContextUsage(on_usage=report_context, context_window=context_window),
+                    ]
                     if context_window is not None
                     else []
                 ),
