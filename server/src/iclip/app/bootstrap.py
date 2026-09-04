@@ -20,12 +20,12 @@ from iclip.app.capability_table import (
     build_display_registry,
     resolve_capabilities,
 )
+from iclip.app.conversation_workspace import ConversationWorkspace, validate_video_shots
 from iclip.app.logging import configure_logging
 from iclip.app.task_styles import ProductStyleSnapshots, UnavailableStyleSnapshots
-from iclip.capabilities.shot_video.capability import SHOTS_PATH, validate_video_shots_document
+from iclip.capabilities.shot_video.delivery import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.capabilities.workspace.scope import namespace_for
-from iclip.common.errors import Conflict, DomainError, ValidationFailed
+from iclip.common.errors import DomainError
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -50,8 +50,6 @@ from iclip.domains.conversations.service import (
     SIDEBAR_COLLECTIONS,
     CollectionInfo,
     ConversationActivity,
-    DerivedFile,
-    DerivedFileContent,
     GenerateTitle,
 )
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
@@ -92,13 +90,8 @@ from iclip.platform.file_store.pg import PgFileStore
 from iclip.platform.file_store.store import (
     FileEntry,
     FileStore,
-    InvalidContent,
-    InvalidPath,
-    QuotaExceeded,
     SearchResult,
     StoredFile,
-    VersionConflict,
-    normalize_path,
 )
 from iclip.platform.http import status_code_for
 from iclip.platform.object_store.oss import (
@@ -478,83 +471,7 @@ def build_app(
     live_connections = LiveConnections()
     announcing_workspace_store = AnnouncingFileStore(workspace_store, live_connections)
 
-    async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
-        """删掉一段对话时，连带清空它在工作区里的地盘。
-
-        这条线只能接在组合根：对话那一侧不该知道工作区的存在，工作区那一侧也不该
-        知道有「对话」这种东西。这里是唯一同时认识两者的地方。
-        """
-
-        await workspace_store.purge_namespace(namespace_for(owner, str(conversation_id)))
-
-    async def list_conversation_files(
-        owner: uuid.UUID, conversation_id: uuid.UUID
-    ) -> tuple[DerivedFile, ...]:
-        """列出 agent 在一段对话里写下的文件，给界面上的工作区面板看。"""
-
-        entries = await workspace_store.entries(namespace_for(owner, str(conversation_id)))
-        return tuple(
-            DerivedFile(
-                path=entry.path,
-                size_bytes=entry.size_bytes,
-                version=entry.version,
-                updated_at=entry.updated_at,
-            )
-            for entry in entries
-        )
-
-    async def read_conversation_file(
-        owner: uuid.UUID, conversation_id: uuid.UUID, path: str
-    ) -> DerivedFileContent | None:
-        """读其中一个文件。路径是用户给的，不合语法就是 422，不能漏成 500。"""
-
-        try:
-            stored = await workspace_store.read(namespace_for(owner, str(conversation_id)), path)
-        except InvalidPath as exc:
-            raise ValidationFailed(str(exc)) from exc
-        if stored is None:
-            return None
-        return DerivedFileContent(path=stored.path, content=stored.content, version=stored.version)
-
-    async def write_conversation_file(
-        owner: uuid.UUID, conversation_id: uuid.UUID, path: str, content: str, expected_version: int
-    ) -> DerivedFileContent:
-        """整份写下其中一个文件，版本对不上就 409。
-
-        **只收已经是规范形式的路径。** ``/video_shot.json`` 与 ``video_shot.json`` 会被
-        存储层规范成同一个文件，而按路径挂的那张校验表是按字面量查的——放行不规范的写法
-        就等于放出一条绕过校验的路。
-        """
-
-        try:
-            if normalize_path(path) != path:
-                raise ValidationFailed(f"路径 {path!r} 不是规范形式，按工作区文件列表里的写法给")
-            entry = await announcing_workspace_store.write(
-                namespace_for(owner, str(conversation_id)),
-                path,
-                content,
-                expected_version=expected_version,
-            )
-        except VersionConflict as exc:
-            raise Conflict(str(exc)) from exc
-        except (InvalidPath, InvalidContent, QuotaExceeded) as exc:
-            raise ValidationFailed(str(exc)) from exc
-        return DerivedFileContent(path=entry.path, content=content, version=entry.version)
-
-    async def validate_video_shots(
-        owner: uuid.UUID, conversation_id: uuid.UUID, content: str
-    ) -> None:
-        """用户写回来的镜头组 prompt 表要过交付工具那套形状判定。
-
-        这条线只能接在组合根：判定归镜头素材能力，而对话那一侧不认识它。判定不看 owner
-        与对话——形状是形状，与这份文件属于谁无关。
-        """
-
-        _ = (owner, conversation_id)
-        try:
-            validate_video_shots_document(content)
-        except ValueError as exc:
-            raise ValidationFailed(str(exc)) from exc
+    conversation_workspace = ConversationWorkspace(workspace_store, announcing_workspace_store)
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
     step_store = PgStepStore(active_engine)
@@ -622,11 +539,11 @@ def build_app(
 
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
-        purge_derived=purge_conversation_workspace,
+        purge_derived=conversation_workspace.purge,
         list_collections=list_owner_collections,
-        list_derived_files=list_conversation_files,
-        read_derived_file=read_conversation_file,
-        write_derived_file=write_conversation_file,
+        list_derived_files=conversation_workspace.list_files,
+        read_derived_file=conversation_workspace.read_file,
+        write_derived_file=conversation_workspace.write_file,
         document_validators={SHOTS_PATH: validate_video_shots},
         generate_title=generate_title,
         announce_title=live_connections.announce_title,

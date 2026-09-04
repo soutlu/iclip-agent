@@ -32,25 +32,25 @@ from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
 
 from iclip.capabilities.shot_video.capability import (
-    ANCHOR_ASPECT,
     CAPABILITY_ID,
-    EXTRACTION_PATH,
-    GRID_RESOLUTION,
-    SHOTS_PATH,
-    FrameRequest,
     GenerationPolicy,
     ShotVideo,
-    ShotVideoToolset,
-    VideoShotRequest,
     shot_video_capability,
-    validate_video_shots_document,
-    video_doc_path,
 )
+from iclip.capabilities.shot_video.delivery import (
+    SHOTS_PATH,
+    FrameRequest,
+    VideoShotRequest,
+    validate_video_shots_document,
+)
+from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_path
+from iclip.capabilities.shot_video.generation import ANCHOR_ASPECT, GRID_RESOLUTION
 from iclip.capabilities.shot_video.parser import (
     SYSTEM_PROMPT,
     ArkVideoUnderstanding,
     VideoUnderstandingError,
 )
+from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal

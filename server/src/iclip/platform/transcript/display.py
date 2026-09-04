@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, Protocol, TypedDict, runtime_checkable
 
@@ -100,6 +100,12 @@ class MediaGridItems(TypedDict):
     """
 
     items: list[MediaGridItem]
+
+
+def media_grid(items: Iterable[tuple[str, str]]) -> MediaGridItems:
+    """把（地址，标题）拼成界面那份缩略图墙。各能力共用，键名只写一遍。"""
+
+    return {"items": [MediaGridItem(url=url, caption=caption) for url, caption in items]}
 
 
 def _as_mapping(args: Any) -> Any:
@@ -194,4 +200,5 @@ __all__ = [
     "ToolDisplayRegistry",
     "ToolDisplaySource",
     "UrlFetchDisplay",
+    "media_grid",
 ]
