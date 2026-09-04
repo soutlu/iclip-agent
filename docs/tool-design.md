@@ -49,7 +49,7 @@
 
 ## §3 示例
 
-取自 [capabilities/shot_video/capability.py](../server/src/iclip/capabilities/shot_video/capability.py) 的 `plan_shot_frames`：
+取自 [capabilities/shot_video/toolset.py](../server/src/iclip/capabilities/shot_video/toolset.py) 的 `plan_shot_frames`：
 
     """从参考视频等间隔抽帧，按结构层级分板返回候选帧预览板。
 

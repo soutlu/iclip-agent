@@ -21,9 +21,8 @@ from pydantic_ai.toolsets import AgentToolset
 
 from iclip.capabilities.shot_video.delivery import SHOTS_PATH
 from iclip.capabilities.shot_video.extraction import FrameExtractor
-from iclip.capabilities.shot_video.generation import FrameGenerator
+from iclip.capabilities.shot_video.generation import FrameGenerator, GenerationPolicy
 from iclip.capabilities.shot_video.ports import (
-    ImageChannel,
     ImageGenerations,
     PublicObjectWriter,
     ShotVideoPaths,
@@ -45,28 +44,6 @@ _MEDIA_GRID_VIEW: Final = "media_grid"
 """三件出图 / 拼板工具的结果用这个渲染器画，形状是 ``MediaGridItems``。"""
 
 
-@dataclass(frozen=True, slots=True)
-class GenerationPolicy:
-    """出图的重试与升级节奏：先 dev 试满 ``dev_attempts`` 次，再升 pro 试 ``pro_attempts`` 次；
-    任何失败都往下走。
-
-    **升级只在失败时发生。** 「出了图但不够好」是一次新需求，不该在这里悄悄换个
-    更贵的渠道重来。
-    """
-
-    poll_interval_seconds: float = 5.0
-    dev_attempts: int = 2
-    pro_attempts: int = 1
-    backoff_seconds: float = 5.0
-    backoff_factor: float = 3.0
-    total_timeout_seconds: float = 1800.0
-
-    def channels(self) -> tuple[ImageChannel, ...]:
-        dev: tuple[ImageChannel, ...] = ("dev",) * self.dev_attempts
-        pro: tuple[ImageChannel, ...] = ("pro",) * self.pro_attempts
-        return (*dev, *pro)
-
-
 @dataclass
 class ShotVideo(AbstractCapability[AgentDepsT]):
     """把五件工具挂到 agent 上。"""
@@ -78,37 +55,13 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
     是各接各的，文档照写照读，只是模型的 ``read_file`` 看不见它——失效是静默的。
     """
 
-    generations: ImageGenerations
-    objects: PublicObjectWriter
-    paths: ShotVideoPaths
-    understanding: VideoUnderstanding
-    client: httpx.AsyncClient
-    """取素材用的 HTTP 客户端，由组合根持有（连接池不该每次调用重建）。"""
-
-    policy: GenerationPolicy = field(default_factory=GenerationPolicy)
-
-    id: str | None = field(default=CAPABILITY_ID, kw_only=True)
-
-    extractor: FrameExtractor = field(init=False)
+    extractor: FrameExtractor
     """拆片与取帧那一段。"""
 
-    generator: FrameGenerator = field(init=False)
+    generator: FrameGenerator
     """出图与切格那一段。"""
 
-    def __post_init__(self) -> None:
-        self.extractor = FrameExtractor(
-            understanding=self.understanding,
-            client=self.client,
-            paths=self.paths,
-            objects=self.objects,
-        )
-        self.generator = FrameGenerator(
-            generations=self.generations,
-            objects=self.objects,
-            paths=self.paths,
-            client=self.client,
-            policy=self.policy,
-        )
+    id: str | None = field(default=CAPABILITY_ID, kw_only=True)
 
     def get_toolset(self) -> AgentToolset[AgentDepsT] | None:
         return ShotVideoToolset(self)
@@ -153,16 +106,20 @@ def shot_video_capability(
     client: httpx.AsyncClient,
     policy: GenerationPolicy | None = None,
 ) -> ShotVideo[Any]:
-    """造一个镜头素材能力。组合根用这个，不直接碰 dataclass 的字段顺序。"""
+    """造一个镜头素材能力：这里是把这堆服务装成两段流水的唯一一处。"""
 
     return ShotVideo[Any](
         space=space,
-        generations=generations,
-        objects=objects,
-        paths=paths,
-        understanding=understanding,
-        client=client,
-        policy=policy if policy is not None else GenerationPolicy(),
+        extractor=FrameExtractor(
+            understanding=understanding, client=client, paths=paths, objects=objects
+        ),
+        generator=FrameGenerator(
+            generations=generations,
+            objects=objects,
+            paths=paths,
+            client=client,
+            policy=policy if policy is not None else GenerationPolicy(),
+        ),
     )
 
 

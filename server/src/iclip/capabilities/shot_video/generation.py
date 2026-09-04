@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
 import httpx
 from pydantic_ai import ModelRetry
@@ -20,6 +20,7 @@ from iclip.capabilities.shot_video.grid import (
     scale_box,
 )
 from iclip.capabilities.shot_video.ports import (
+    ImageChannel,
     ImageGenerations,
     ImageJob,
     ImageRequest,
@@ -31,9 +32,6 @@ from iclip.capabilities.shot_video.ports import (
 from iclip.capabilities.shot_video.prompt import GRID_CELLS, GRID_COLS, GRID_ROWS
 from iclip.capabilities.shot_video.shots import parse_cell_id
 from iclip.domains.identity.public import Principal
-
-if TYPE_CHECKING:
-    from iclip.capabilities.shot_video.capability import GenerationPolicy
 
 GRID_RECORDS_DIR: Final = "frames/grids"
 GRID_RECORD_VERSION: Final = 1
@@ -61,26 +59,25 @@ _EVEN_SPLIT_NOTICE: Final = (
 
 
 @dataclass(frozen=True, slots=True)
-class GridPlan:
-    """镜头帧与设定图两条路的分叉点。切格流水本身共用一条。"""
+class GenerationPolicy:
+    """出图的重试与升级节奏：先 dev 试满 ``dev_attempts`` 次，再升 pro 试 ``pro_attempts`` 次；
+    任何失败都往下走。
 
-    aspect: str | None
-    """切完每格再居中收到这个画幅；``None`` 是切出来就用。"""
+    **升级只在失败时发生。** 「出了图但不够好」是一次新需求，不该在这里悄悄换个
+    更贵的渠道重来。
+    """
 
-    object_keys: Sequence[str]
-    """逐格的 object key，条数即这一批要留下的格数——补位的中性面板格不在内，就此丢弃。"""
+    poll_interval_seconds: float = 5.0
+    dev_attempts: int = 2
+    pro_attempts: int = 1
+    backoff_seconds: float = 5.0
+    backoff_factor: float = 3.0
+    total_timeout_seconds: float = 1800.0
 
-    captions: Sequence[str]
-    """界面缩略图墙上逐格的标题。"""
-
-    items_key: str
-    """返回里那批东西的键名。"""
-
-    record_path: str
-    message: str
-
-    build: Callable[[str, Sequence[str]], tuple[list[dict[str, Any]], dict[str, Any]]]
-    """收整图地址与逐格地址，给出返回里的 items 与要落盘的版记录。"""
+    def channels(self) -> tuple[ImageChannel, ...]:
+        dev: tuple[ImageChannel, ...] = ("dev",) * self.dev_attempts
+        pro: tuple[ImageChannel, ...] = ("pro",) * self.pro_attempts
+        return (*dev, *pro)
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,16 +144,37 @@ class FrameGenerator:
     ) -> GridCut | dict[str, Any]:
         """镜头帧那一批：切格后按画幅收缩，逐帧记 no/shot/prompt/url。"""
 
-        record_path = f"{GRID_RECORDS_DIR}/{job.job_id}.json"
+        stored = await self._slice_and_store(
+            job,
+            aspect=target_aspect,
+            object_keys=[
+                self._paths.shot_cell(job_id=job.job_id, cell_id=cell_id) for cell_id in cell_ids
+            ],
+            items_key="frames",
+        )
+        if isinstance(stored, dict):
+            return stored
+        grid_url, urls, detected = stored
 
-        def build(
-            grid_url: str, urls: Sequence[str]
-        ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-            items = [
-                {"no": cell_id, "shot": parse_cell_id(cell_id)[0], "url": url}
-                for cell_id, url in zip(cell_ids, urls, strict=True)
-            ]
-            record = {
+        frames_payload = [
+            {"no": cell_id, "shot": parse_cell_id(cell_id)[0], "url": url}
+            for cell_id, url in zip(cell_ids, urls, strict=True)
+        ]
+        record_path = f"{GRID_RECORDS_DIR}/{job.job_id}.json"
+        message = (
+            f"生成完成 {len(frames_payload)} 帧（{job.channel} 渠道），版记录见 {record_path}。"
+        )
+        if not detected:
+            message += _EVEN_SPLIT_NOTICE
+        return GridCut(
+            payload={
+                "message": message,
+                "status": _STATUS_DONE,
+                "frames": frames_payload,
+                "record": record_path,
+                "error": None,
+            },
+            record={
                 "gridRecordVersion": GRID_RECORD_VERSION,
                 "jobId": str(job.job_id),
                 "gridUrl": grid_url,
@@ -164,107 +182,88 @@ class FrameGenerator:
                 "globalReference": global_reference,
                 "referenceImages": list(references),
                 "frames": [
-                    {**item, "prompt": prompt} for item, prompt in zip(items, prompts, strict=True)
+                    {**frame, "prompt": prompt}
+                    for frame, prompt in zip(frames_payload, prompts, strict=True)
                 ],
                 "createdAt": int(time.time()),
-            }
-            return items, record
-
-        return await self._collect(
-            job,
-            GridPlan(
-                aspect=target_aspect,
-                object_keys=[
-                    self._paths.shot_cell(job_id=job.job_id, cell_id=cell_id)
-                    for cell_id in cell_ids
-                ],
-                captions=list(cell_ids),
-                items_key="frames",
-                record_path=record_path,
-                message=(
-                    f"生成完成 {len(cell_ids)} 帧（{job.channel} 渠道），版记录见 {record_path}。"
-                ),
-                build=build,
-            ),
+            },
+            record_path=record_path,
+            urls=urls,
+            captions=list(cell_ids),
         )
 
     async def collect_anchors(
         self, job: ImageJob, *, descriptions: Sequence[str]
     ) -> GridCut | dict[str, Any]:
-        """设定图那一批：切格后不收画幅（那一刀裁掉的会是实体本身），逐格记 index/description/url。
+        """设定图那一批：切格后不收画幅（那一刀裁掉的会是实体本身），逐格记 index/description/url。"""
 
-        缩略图墙的标题取那一格的描述：``images`` 里只有序号和地址，描述在入参上。
-        """
+        stored = await self._slice_and_store(
+            job,
+            aspect=None,
+            object_keys=[
+                self._paths.anchor_sheet(job_id=job.job_id, index=index)
+                for index in range(1, len(descriptions) + 1)
+            ],
+            items_key="images",
+        )
+        if isinstance(stored, dict):
+            return stored
+        grid_url, urls, detected = stored
 
+        images = [{"index": index, "url": url} for index, url in enumerate(urls, start=1)]
         record_path = f"{ANCHOR_RECORDS_DIR}/{job.job_id}.json"
-
-        def build(
-            grid_url: str, urls: Sequence[str]
-        ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-            items = [{"index": index, "url": url} for index, url in enumerate(urls, start=1)]
-            record = {
+        message = f"补拍完成 {len(images)} 格（{job.channel} 渠道），版记录见 {record_path}。"
+        if not detected:
+            message += _EVEN_SPLIT_NOTICE
+        return GridCut(
+            payload={
+                "message": message,
+                "status": _STATUS_DONE,
+                "images": images,
+                "record": record_path,
+                "error": None,
+            },
+            record={
                 "anchorRecordVersion": ANCHOR_RECORD_VERSION,
                 "jobId": str(job.job_id),
                 "gridUrl": grid_url,
                 "sheetAspect": ANCHOR_ASPECT,
                 "cells": [
-                    {**item, "description": description}
-                    for item, description in zip(items, descriptions, strict=True)
+                    {**image, "description": description}
+                    for image, description in zip(images, descriptions, strict=True)
                 ],
                 "createdAt": int(time.time()),
-            }
-            return items, record
-
-        return await self._collect(
-            job,
-            GridPlan(
-                aspect=None,
-                object_keys=[
-                    self._paths.anchor_sheet(job_id=job.job_id, index=index)
-                    for index in range(1, len(descriptions) + 1)
-                ],
-                captions=list(descriptions),
-                items_key="images",
-                record_path=record_path,
-                message=(
-                    f"补拍完成 {len(descriptions)} 格（{job.channel} 渠道），版记录见 {record_path}。"
-                ),
-                build=build,
-            ),
+            },
+            record_path=record_path,
+            urls=urls,
+            # 标题取那一格的描述：``images`` 里只有序号和地址，描述在入参上。
+            captions=list(descriptions),
         )
 
-    async def _collect(self, job: ImageJob, plan: GridPlan) -> GridCut | dict[str, Any]:
-        """取整图、切格、逐格落公开地址、拼出版记录与返回。"""
+    async def _slice_and_store(
+        self, job: ImageJob, *, aspect: str | None, object_keys: Sequence[str], items_key: str
+    ) -> tuple[str, list[str], bool] | dict[str, Any]:
+        """取整图、切格、逐格落公开地址。
+
+        给出（整图地址、逐格地址、两个轴都量到了真实网格线）；哪一步没成就直接给出该返回给
+        模型的那份失败结果。补位的中性面板格不在 ``object_keys`` 里，在此丢弃。
+        """
 
         grid_url = job.output_url
         if not grid_url:
-            return _failed_payload("生成记录未携带结果 URL", items_key=plan.items_key)
+            return _failed_payload("生成记录未携带结果 URL", items_key=items_key)
         try:
-            cells, detected = await self._slice_grid(grid_url, aspect=plan.aspect)
+            cells, detected = await self._slice_grid(grid_url, aspect=aspect)
         except (ffmpeg.MediaError, GridError) as exc:
-            return _failed_payload(str(exc), items_key=plan.items_key)
+            return _failed_payload(str(exc), items_key=items_key)
         if len(cells) != GRID_CELLS:
-            return _failed_payload("整图切格数量异常", items_key=plan.items_key)
+            return _failed_payload("整图切格数量异常", items_key=items_key)
 
         try:
-            urls = await self._put_all(list(zip(plan.object_keys, cells, strict=False)))
+            urls = await self._put_all(list(zip(object_keys, cells, strict=False)))
         except ObjectWriteFailed as exc:
-            return _unstored_payload(exc, job, items_key=plan.items_key)
-        items, record = plan.build(grid_url, urls)
-        message = plan.message if detected else plan.message + _EVEN_SPLIT_NOTICE
-        return GridCut(
-            payload={
-                "message": message,
-                "status": _STATUS_DONE,
-                plan.items_key: items,
-                "record": plan.record_path,
-                "error": None,
-            },
-            record=record,
-            record_path=plan.record_path,
-            urls=urls,
-            captions=plan.captions,
-        )
+            return _unstored_payload(exc, job, items_key=items_key)
+        return grid_url, urls, detected
 
     async def _run_one(
         self, principal: Principal, request: ImageRequest, *, deadline: float
@@ -376,7 +375,7 @@ __all__ = [
     "GRID_RECORD_VERSION",
     "GRID_RESOLUTION",
     "FrameGenerator",
+    "GenerationPolicy",
     "GridCut",
-    "GridPlan",
     "job_failure",
 ]

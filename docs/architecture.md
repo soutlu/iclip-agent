@@ -88,9 +88,9 @@ agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，产出�
 
 - **skill** 是模型面文本资产，放 `server/agents/skills/<skill 名>/`（`SKILL.md` + 可选 `references/`）；挂了 skill 库就一定同时挂 `get_skill_reference`，它只读得到挂给本 agent 的 skill 的 `.md`。
 - **capability** 是一组类型化工具，实现在 `capabilities/`，名字登记在 `app/capability_table.py`。名字没登记、或表里 `REQUIRES` 要求同挂的另一件（`shot_video` 要求 `workspace`）没声明，都是装配期报错。本仓的工具一律经 capability 挂载，`shared_capabilities` 保持空着。
-- 每个能力自带一张「工具名 → 参数 → display」的表（`display_table()`，与工具同文件），组合根合成一份注册表，同一实例递给实时与历史两条路；同一件工具登记两遍即装配期报错。
+- 每个能力自带一张「工具名 → 参数 → display」的表（`display_table()`，在能力的 `capability.py` 里），组合根合成一份注册表，同一实例递给实时与历史两条路；同一件工具登记两遍即装配期报错。
 - 单工具的范围规则一律挂在登记时的验证器上（`args_validator`），在执行之前跑，工具体不判范围；地址类参数只收这段对话里出现过、且声明过匹配种类的（`harness/materials.py`，定义见 CONTEXT.md「对话素材」）。完整规则见 [adr/0007](adr/0007-tool-declaration-surface.md)。
-- **已落地的能力：`workspace`、`shot_video`**，各自的工具与行为见其 `capability.py`。工具怎么接力归 skill，见 [tool-design.md](tool-design.md) §0。
+- **已落地的能力：`workspace`、`shot_video`**，工具与行为见 `workspace/capability.py` 与 `shot_video/toolset.py`。工具怎么接力归 skill，见 [tool-design.md](tool-design.md) §0。
 
 ### 运行依赖（工具怎么拿到调用方身份）
 
