@@ -9,7 +9,8 @@
 - ``wrap_model_request`` 算窗口。它只影响交给 handler 的那一次请求，不写回历史，快照因此仍是全量。
 
 摘要本身借 harness 的 ``SummarizingCompaction`` 当黑盒用：它有调好的 prompt、增量更新与不拆工具
-对的切点。它自己的触发不挂。
+对的切点。它自己的触发不挂。摘要在窗口里的位置由这里定：紧跟 instructions 的一条 user 消息，
+与核心库原生压缩、Claude Code 同一个位置。
 """
 
 from __future__ import annotations
@@ -26,8 +27,10 @@ from pydantic_ai.messages import (
     CompactionPart,
     ModelMessage,
     ModelRequest,
+    ModelRequestPart,
     ModelResponse,
     SystemPromptPart,
+    UserPromptPart,
     post_compaction_window,
 )
 from pydantic_ai.models import ModelRequestContext
@@ -71,30 +74,48 @@ def compaction_only(message: ModelMessage) -> bool:
 
 
 def model_window(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
-    """这份历史此刻该发给模型的那一段：最后一条边界之后的全部消息，前面顶一条摘要请求。
+    """这份历史此刻该发给模型的那一段：最后一条边界之后的全部消息，前面顶一条摘要。
+
+    摘要是一条 user 消息，不是 system part：chat 适配器把开头连续的 system 消息排在 instructions
+    之前，摘要做成 system part 就会顶到 system prompt 前面去。做成 user 消息，instructions 仍是
+    第一条，摘要紧跟其后、在对话之内，与核心库原生压缩和 Claude Code 同一个位置。
+    """
+
+    return _window(
+        messages,
+        lambda summary: UserPromptPart(content=f"{summary}\n\n{SUMMARY_FRAMING}"),
+    )
+
+
+def summarizer_input(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
+    """喂给摘要器的那份：与窗口同一段消息，只是摘要作 system part。
+
+    摘要器认上一份摘要靠的是「以它自己前缀开头的 system part」，换成别的形状它就认不出来，
+    增量更新退化成对摘要再摘要。这份只进摘要器，不发给模型。
+    """
+
+    return _window(messages, lambda summary: SystemPromptPart(content=summary))
+
+
+def _window(
+    messages: Sequence[ModelMessage], head_part: Callable[[str], ModelRequestPart]
+) -> list[ModelMessage]:
+    """最后一条边界之后的全部消息，前面顶一条只装摘要的请求；没有边界就是原样。
 
     切点由核心库的 ``post_compaction_window`` 给，它认的是 part 级的位置而不是整条消息：
     框架在发送前会把相邻的同角色消息并成一条，边界因此常常和旁边那次响应挤在一条里，按整条
     认就再也找不着它，窗口悄悄退回整份历史。同一条消息里排在边界后面的 part 仍属于窗口。
-
-    摘要与那句提醒分成两个 part，不拼成一段：摘要器认上一份摘要靠的是「以固定前缀开头的
-    system part」，拼上别的字它就认不出来，增量更新退化成对摘要再摘要。
     """
 
     window = post_compaction_window(messages)
-    head = window[0] if window else None
-    part = head.parts[0] if isinstance(head, ModelResponse) and head.parts else None
-    if not isinstance(part, CompactionPart):
+    if not window or not isinstance(head := window[0], ModelResponse) or not head.parts:
         return window
-    kept = list(head.parts[1:]) if isinstance(head, ModelResponse) else []
+    if not isinstance(part := head.parts[0], CompactionPart):
+        return window
+    rest = dataclasses.replace(head, parts=list(head.parts[1:]))
     return [
-        ModelRequest(
-            parts=[
-                SystemPromptPart(content=part.content or ""),
-                SystemPromptPart(content=SUMMARY_FRAMING),
-            ]
-        ),
-        *([dataclasses.replace(head, parts=kept)] if kept and head is not None else []),
+        ModelRequest(parts=[head_part(part.content or "")]),
+        *([rest] if rest.parts else []),
         *window[1:],
     ]
 
@@ -130,7 +151,7 @@ class ContextCompaction(AbstractCapability[Any]):
         ):
             return request_context
 
-        window = model_window(messages)
+        window = summarizer_input(messages)
         result = await self.strategy.compact(window, ctx)
         if result is window:
             # 切不动：消息少到留够尾巴就没剩下可摘要的了。
@@ -189,7 +210,7 @@ def _cut_index(messages: Sequence[ModelMessage], preserved: Sequence[ModelMessag
     """切点在原列表里的位置：留下来那几条中，头一条在原列表里的下标。
 
     按对象身份找，不按相等找：消息之间字段相等是常事（两条一样的空请求），``list.index`` 会指到
-    别处去。逐条找而不是只找 ``preserved[0]``：窗口首条可能是 ``model_window`` 现造的那半条
+    别处去。逐条找而不是只找 ``preserved[0]``：首条可能是 ``summarizer_input`` 现造的那半条
     （边界与模型的话挤在同一条时，排在边界后面的 part 被拆出来），它压根不在原列表里。
     """
 
@@ -205,4 +226,5 @@ __all__ = [
     "compaction_boundary",
     "compaction_only",
     "model_window",
+    "summarizer_input",
 ]

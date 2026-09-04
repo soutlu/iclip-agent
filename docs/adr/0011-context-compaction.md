@@ -22,7 +22,7 @@ harness 的 `SummarizingCompaction` / `TieredCompaction` 一派**改写历史**�
 
 ### 2. 缺的两段由我们补，都落在公开 hook 上
 
-`harness/context_compaction.py` 一件能力：`before_model_request` 产生边界（这个 hook 的改动按框架设计写回 run 历史），`wrap_model_request` 把窗口交给 handler（这个 hook 只影响这一次请求，不写回历史）。窗口 = 摘要作 system part 的一条请求 + 边界之后的全部消息。不子类化适配器，不引用私有符号。将来 chat 适配器补上原生裁剪，这一层直接删。
+`harness/context_compaction.py` 一件能力：`before_model_request` 产生边界（这个 hook 的改动按框架设计写回 run 历史），`wrap_model_request` 把窗口交给 handler（这个 hook 只影响这一次请求，不写回历史）。窗口 = 紧跟 instructions 的一条 user 消息（摘要加一句「以上是二手信息」）+ 边界之后的全部消息。摘要不做 system part：chat 适配器把开头连续的 system 消息排在 instructions 之前，做成 system part 摘要会顶到 system prompt 前面；核心库原生压缩与 Claude Code 都把摘要放在 system 之后、对话开头。喂给摘要器的那份仍以 system part 装摘要，它认上一份摘要靠这个。不子类化适配器，不引用私有符号。将来 chat 适配器补上原生裁剪，这一层直接删。
 
 ### 3. 摘要复用 harness 的摘要器，只当黑盒用
 
