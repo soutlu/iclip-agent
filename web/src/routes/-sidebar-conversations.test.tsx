@@ -175,7 +175,7 @@ describe('SidebarConversations', () => {
     await waitFor(() => expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument())
   })
 
-  it('行尾状态跟着帧上的活儿换：等审批、上次失败，跑完了什么都不画', async () => {
+  it('行尾状态跟着帧上的活儿换：等审批、上次失败、跑完了没看', async () => {
     const [conversation] = seedConversations(1)
     const id = conversation?.id ?? ''
     const { socket } = await render()
@@ -190,8 +190,22 @@ describe('SidebarConversations', () => {
     expect(await screen.findByLabelText('上次失败')).toBeVisible()
 
     socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
+    expect(await screen.findByLabelText('未读')).toBeVisible()
     await waitFor(() => expect(screen.queryByLabelText('上次失败')).not.toBeInTheDocument())
     expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
+  })
+
+  it('未读只由收场那一帧记下来，列表行上带的 completed 不算', async () => {
+    const done = addMockConversation('跑完了')
+    done.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
+    const { socket } = await render()
+    await screen.findByText('跑完了')
+
+    // 行上那个 completed 是历史，它不知道人看没看过——照它画点的话，每次重拉都会冒出一片。
+    expect(screen.queryByLabelText('未读')).not.toBeInTheDocument()
+
+    socket.deliver(workChanged(done.id, { busy: false, last_turn_reason: 'completed' }))
+    expect(await screen.findByLabelText('未读')).toBeVisible()
   })
 
   it('「展开显示」接上来的那一行收到帧也跟着转圈', async () => {

@@ -1,6 +1,6 @@
 import { setupWorker } from 'msw/browser'
 import { addMockCollection, addMockConversation, handlers } from './handlers'
-import { markMockAwaitingApproval } from './transcript'
+import { markMockAwaitingApproval, markMockJustFinished } from './transcript'
 import { seedMockWorkspace } from './workspace'
 
 // 原型里没有新建对话的入口，不预置几段就永远搜不出东西、侧栏也是空的。只种在浏览器
@@ -27,6 +27,14 @@ const awaiting = seeded.at(-1)
 if (awaiting !== undefined) {
   awaiting.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'approval' }
   markMockAwaitingApproval(awaiting.id)
+}
+
+// 「亚麻衬衫二剪」在页面开着的时候跑完：连上两秒后补一帧收场，侧栏那一行就冒出未读点，
+// 点开它清掉（刷新会再演一次）。行上的 activity 一并写成跑完，「已完成」那一档才收得到它。
+const unseen = seeded[3]
+if (unseen !== undefined) {
+  unseen.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
+  markMockJustFinished(unseen.id)
 }
 
 // 第一段对话里有 agent 交付的 video_shot.json：点开它右面板就是分镜工作台。只种在浏览器

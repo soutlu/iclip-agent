@@ -17,6 +17,7 @@ import {
   useRenameConversation,
   useSetConversationMembership,
   useSidebarTopology,
+  useUnread,
   type Conversation,
   type ConversationListState,
   type ConversationPage,
@@ -481,26 +482,27 @@ function CollectionGroup({
   )
 }
 
-type RowStatus = 'approval' | 'question' | 'running' | 'failed' | 'idle'
+type RowStatus = 'approval' | 'question' | 'running' | 'failed' | 'unread' | 'idle'
 
 /**
- * 行尾画哪一种状态，只看这一行身上的活儿。优先级照 kimi 写死：
- * 等审批 > 等回答 > 在跑 > 上次失败 > 空闲。
+ * 行尾画哪一种状态。优先级照 kimi 写死：
+ * 等审批 > 等回答 > 在跑 > 上次失败 > 跑完了还没看 > 空闲。
  *
  * @param activity - 列表行上的 `activity`，帧到了就地改过。
+ * @param unread - 这段对话跑完那一下人不在场，之后也还没打开过。
  * @returns 该画哪一种。
  */
-const rowStatus = (activity: Conversation['activity']): RowStatus => {
+const rowStatus = (activity: Conversation['activity'], unread: boolean): RowStatus => {
   if (activity.pendingInteraction === 'approval') return 'approval'
   if (activity.pendingInteraction === 'question') return 'question'
   if (activity.busy) return 'running'
   if (activity.lastTurnReason === 'failed') return 'failed'
-  return 'idle'
+  return unread ? 'unread' : 'idle'
 }
 
-// 每种状态画成什么（design-system.html 结构模板里侧栏那一条）。`idle` 不在表里：什么都不画。
+// 每种状态画成什么图标。`unread` 与 `idle` 不在表里：前者画一个点，后者什么都不画。
 const ROW_STATUS_MARK: Record<
-  Exclude<RowStatus, 'idle'>,
+  Exclude<RowStatus, 'idle' | 'unread'>,
   { className: string; label: string; name: IconName }
 > = {
   approval: { className: 'text-warning', label: '等待审批', name: 'warning' },
@@ -539,8 +541,9 @@ function ConversationRow({
   const [editing, setEditing] = useState(false)
   const rename = useRenameConversation(onChanged)
   const remove = useDeleteConversation(onChanged)
-  const status = rowStatus(conversation.activity)
-  const mark = status === 'idle' ? undefined : ROW_STATUS_MARK[status]
+  const unread = useUnread(conversation.id)
+  const status = rowStatus(conversation.activity, unread)
+  const mark = status === 'idle' || status === 'unread' ? undefined : ROW_STATUS_MARK[status]
 
   // 空标题或没变化都不发请求，静默退回原标题
   const commitRename = (value: string) => {
@@ -599,6 +602,9 @@ function ConversationRow({
           name={mark.name}
           size="xs"
         />
+      )}
+      {status === 'unread' && (
+        <span aria-label="未读" className="size-1.5 shrink-0 rounded-full bg-primary" role="img" />
       )}
       {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
       {!editing && (

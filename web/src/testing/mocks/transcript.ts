@@ -42,6 +42,9 @@ const BEAT_MS = 500
 /** 订上文件多久之后演 agent 改一次：留出打开面板、翻两组的时间。 */
 const FS_CHANGE_DELAY_MS = 5000
 
+/** 连上多久之后补那一帧收场：晾一下才看得出这个点是「刚跑完」冒出来的。 */
+const WORK_DONE_DELAY_MS = 2000
+
 type Batch = unknown[]
 
 type Connection = {
@@ -76,6 +79,18 @@ const timers = new Map<string, ReturnType<typeof setTimeout>[]>()
 
 /** 停在审批上的那几段对话：历史里多一轮等人点头的活儿，订上也不再演新的一轮。 */
 const awaitingApproval = new Set<string>()
+
+/** 原型里「刚跑完」的那几段对话：连上之后各补一帧收场。 */
+const justFinished = new Set<string>()
+
+/**
+ * 让一段对话在连上之后收场一次：侧栏那一行画出未读点（人当时不在它上面的话）。
+ *
+ * @param conversationId - 哪一段对话。
+ */
+export const markMockJustFinished = (conversationId: string) => {
+  justFinished.add(conversationId)
+}
 
 /** 记下的决定。重复点同一个照样 204，改主意是 409——与真后端同一条规矩。 */
 const decisions = new Map<string, boolean>()
@@ -420,6 +435,19 @@ export const transcriptHandlers = [
         type: 'server_hello',
       }),
     )
+
+    // 收场那一帧不看订阅（真后端也是发给这个人每条连接）：侧栏据此画未读点。
+    setTimeout(() => {
+      for (const conversationId of justFinished) {
+        client.send(
+          JSON.stringify({
+            payload: { busy: false, last_turn_reason: 'completed', pending_interaction: 'none' },
+            session_id: conversationId,
+            type: 'event.session.work_changed',
+          }),
+        )
+      }
+    }, WORK_DONE_DELAY_MS)
 
     let joined: Connection | null = null
     // 这条连接已经排过改文件的那几段对话。React 严格模式挂载两遍，不去重就会推两帧、版本跳两级。
