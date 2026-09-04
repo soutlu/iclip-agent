@@ -259,6 +259,8 @@ class ConversationRunner:
         lease_seconds: int,
         sweep_seconds: int,
         max_attempts: int,
+        compaction_max_fraction: float = 0.85,
+        compaction_keep_messages: int = 20,
         locked_by: str | None = None,
         on_turn_ended: TurnEnded | None = None,
         display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
@@ -276,6 +278,8 @@ class ConversationRunner:
         self._lease_seconds = lease_seconds
         self._sweep_seconds = sweep_seconds
         self._max_attempts = max_attempts
+        self._compaction_max_fraction = compaction_max_fraction
+        self._compaction_keep_messages = compaction_keep_messages
         # 工具卡的画法。历史那一侧（``TranscriptHistory``）必须收到同一份实例：两边不一样的话，
         # 同一张卡在刷新前后换个长相，而且不报错。
         self._display = display

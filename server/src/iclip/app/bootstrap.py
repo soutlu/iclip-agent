@@ -479,7 +479,9 @@ def build_app(
     )
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
-    step_store = PgStepStore(active_engine)
+    step_store = PgStepStore(
+        active_engine, max_snapshots_per_run=settings.agent_runs.max_snapshots_per_run
+    )
     collection_repo = SqlCollectionRepository(active_engine)
     collections = build_collections_module(collection_repo)
 
@@ -634,6 +636,8 @@ def build_app(
             lease_seconds=settings.agent_runs.lease_seconds,
             sweep_seconds=settings.agent_runs.sweep_seconds,
             max_attempts=settings.agent_runs.max_attempts,
+            compaction_max_fraction=settings.compaction.max_fraction,
+            compaction_keep_messages=settings.compaction.keep_messages,
             on_turn_ended=name_conversation,
             display=tool_displays,
         ),
