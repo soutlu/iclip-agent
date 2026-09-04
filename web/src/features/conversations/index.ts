@@ -3,9 +3,10 @@ export type {
   ConversationListState,
   ConversationPage,
   SidebarCollection,
+  SidebarTopology,
 } from './conversations.api'
 export { useLiveConversations } from './conversations.live'
-export { useUnread } from './conversations.unread'
+export { recordSeenRun, useSeenRun } from './conversations.unread'
 export {
   conversationsQueryKeys,
   useStartConversation,

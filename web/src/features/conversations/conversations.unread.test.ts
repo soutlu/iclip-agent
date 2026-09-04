@@ -1,12 +1,14 @@
 /**
- * 「跑完了还没看」这份本地记录。
+ * 「看着它闲下来时跑到了哪一次」这份本地记录。
  *
  * 这套 jsdom 没有可用的 localStorage，所以用例自己装一份内存实现（同 `-use-stored-width.test.ts`）。
  */
 
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearUnread, markUnread, useUnread } from './conversations.unread'
+import { recordSeenRun, useSeenRun } from './conversations.unread'
+
+const STORAGE_KEY = 'cue.conversations.seen-run'
 
 const memoryStorage = () => {
   const entries = new Map<string, string>()
@@ -20,27 +22,41 @@ beforeEach(() => {
   Object.defineProperty(window, 'localStorage', { configurable: true, value: memoryStorage() })
 })
 
-describe('未读', () => {
-  it('记一笔，看过了清掉，列着的行跟着换', () => {
-    const { result } = renderHook(() => useUnread('c-mark'))
-    expect(result.current).toBe(false)
+describe('看过的运行', () => {
+  it('没记过是 undefined；记了就读得到，null 也是一个值', () => {
+    const { result } = renderHook(() => useSeenRun('c-record'))
+    expect(result.current).toBeUndefined()
 
-    act(() => markUnread('c-mark'))
-    expect(result.current).toBe(true)
+    act(() => recordSeenRun('c-record', null))
+    expect(result.current).toBeNull()
 
-    act(() => clearUnread('c-mark'))
-    expect(result.current).toBe(false)
+    act(() => recordSeenRun('c-record', 'run-1'))
+    expect(result.current).toBe('run-1')
   })
 
-  it('落盘：刷新之后那个点还在', async () => {
-    markUnread('c-persist')
+  it('落盘：刷新之后记录还在', async () => {
+    recordSeenRun('c-persist', 'run-7')
 
     // 换一份新的模块实例，等于刷新页面之后重新读一遍
     vi.resetModules()
     const reloaded = await import('./conversations.unread')
 
-    expect(renderHook(() => reloaded.useUnread('c-persist')).result.current).toBe(true)
-    expect(renderHook(() => reloaded.useUnread('c-mark')).result.current).toBe(false)
+    expect(renderHook(() => reloaded.useSeenRun('c-persist')).result.current).toBe('run-7')
+    expect(renderHook(() => reloaded.useSeenRun('c-other')).result.current).toBeUndefined()
+  })
+
+  it('另一个标签页写了记录，这里跟着换', async () => {
+    vi.resetModules()
+    const fresh = await import('./conversations.unread')
+    const { result } = renderHook(() => fresh.useSeenRun('c-tab'))
+    expect(result.current).toBeUndefined()
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ 'c-tab': 'run-3' }))
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }))
+    })
+
+    expect(result.current).toBe('run-3')
   })
 
   it('站点存储被禁掉时照常记得住，写入也不抛', () => {
@@ -56,8 +72,8 @@ describe('未读', () => {
       },
     })
 
-    const { result } = renderHook(() => useUnread('c-nostore'))
-    expect(() => act(() => markUnread('c-nostore'))).not.toThrow()
-    expect(result.current).toBe(true)
+    const { result } = renderHook(() => useSeenRun('c-nostore'))
+    expect(() => act(() => recordSeenRun('c-nostore', 'run-1'))).not.toThrow()
+    expect(result.current).toBe('run-1')
   })
 })

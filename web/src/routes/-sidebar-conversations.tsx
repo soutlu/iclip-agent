@@ -2,7 +2,7 @@ import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor } from
 import type { DragEndEvent } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CollectionDeleteDialog,
   CollectionFormDialog,
@@ -15,13 +15,15 @@ import {
   useLiveConversations,
   useMoreConversations,
   useRenameConversation,
+  recordSeenRun,
+  useSeenRun,
   useSetConversationMembership,
   useSidebarTopology,
-  useUnread,
   type Conversation,
   type ConversationListState,
   type ConversationPage,
   type SidebarCollection,
+  type SidebarTopology,
 } from '@/features/conversations'
 import { useTaskOptions } from '@/features/tasks'
 import { Icon, type IconName } from '@/shared/icons'
@@ -68,6 +70,7 @@ export function SidebarConversations() {
   const topology = useSidebarTopology(true, state)
   // 全局帧就地改缓存里那一行，行只读自己身上的字段
   useLiveConversations()
+  useRecordOpened(topology.data)
   const [shownCollections, setShownCollections] = useState(COLLECTIONS_PER_STEP)
   const [dragging, setDragging] = useState<string | null>(null)
 
@@ -489,7 +492,7 @@ type RowStatus = 'approval' | 'question' | 'running' | 'failed' | 'unread' | 'id
  * 等审批 > 等回答 > 在跑 > 上次失败 > 跑完了还没看 > 空闲。
  *
  * @param activity - 列表行上的 `activity`，帧到了就地改过。
- * @param unread - 这段对话跑完那一下人不在场，之后也还没打开过。
+ * @param unread - 最近一次运行结束时我没看着。只有正常跑完的才画点。
  * @returns 该画哪一种。
  */
 const rowStatus = (activity: Conversation['activity'], unread: boolean): RowStatus => {
@@ -497,7 +500,45 @@ const rowStatus = (activity: Conversation['activity'], unread: boolean): RowStat
   if (activity.pendingInteraction === 'question') return 'question'
   if (activity.busy) return 'running'
   if (activity.lastTurnReason === 'failed') return 'failed'
-  return unread ? 'unread' : 'idle'
+  return unread && activity.lastTurnReason === 'completed' ? 'unread' : 'idle'
+}
+
+/**
+ * 打开着的那段对话，记下「我正看着它，它此刻跑到了哪一次」：闲着就记行上的 `lastRunId`；还在跑
+ * 就记 `null`——当前这一次还没看着它结束，中途走开、跑完了回来看到的 id 就对不上，点照样亮。
+ *
+ * 在拓扑这一层记而不在行里：合集默认折叠、任务区也能收起，打开着的那段对话常常并没有渲染成一行。
+ * 拓扑里没有它（在「展开显示」才取回的那些页里、或被当前筛选滤掉）就不记。
+ *
+ * @param topology - 侧栏拓扑那一份数据。
+ */
+const useRecordOpened = (topology: SidebarTopology | undefined): void => {
+  const openedId = useParams({ select: (params) => params.conversationId, strict: false })
+  const opened =
+    openedId === undefined || topology === undefined ? undefined : findRow(topology, openedId)
+  const seenRun = opened === undefined ? undefined : opened.activity.busy ? null : opened.lastRunId
+  useEffect(() => {
+    if (openedId !== undefined && seenRun !== undefined) recordSeenRun(openedId, seenRun)
+  }, [openedId, seenRun])
+}
+
+/** 拓扑里 `conversationId` 那一行：任务区第一页与每个合集的第一页都找。 */
+const findRow = (topology: SidebarTopology, conversationId: string): Conversation | undefined =>
+  [topology.ungrouped, ...topology.collections.map((one) => one.page)]
+    .flatMap((page) => page.items)
+    .find((row) => row.id === conversationId)
+
+/**
+ * 「跑完了还没看」从这一行自己身上算：我最后一次看着它时记下的 `lastRunId` 与行上现在的不一样。
+ * 从没在这台浏览器上打开过的对话（没有记录）不画点：它跑完的那些轮不知道人看没看过。
+ *
+ * @param conversation - 列表行。
+ * @param active - 这一行就是打开着的那段对话，永远不画。
+ * @returns 要不要画那个点。
+ */
+const useUnread = (conversation: Conversation, active: boolean): boolean => {
+  const seenRun = useSeenRun(conversation.id)
+  return !active && seenRun !== undefined && seenRun !== conversation.lastRunId
 }
 
 // 每种状态画成什么图标。`unread` 与 `idle` 不在表里：前者画一个点，后者什么都不画。
@@ -541,7 +582,7 @@ function ConversationRow({
   const [editing, setEditing] = useState(false)
   const rename = useRenameConversation(onChanged)
   const remove = useDeleteConversation(onChanged)
-  const unread = useUnread(conversation.id)
+  const unread = useUnread(conversation, active)
   const status = rowStatus(conversation.activity, unread)
   const mark = status === 'idle' || status === 'unread' ? undefined : ROW_STATUS_MARK[status]
 

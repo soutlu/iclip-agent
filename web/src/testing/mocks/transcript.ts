@@ -80,16 +80,17 @@ const timers = new Map<string, ReturnType<typeof setTimeout>[]>()
 /** 停在审批上的那几段对话：历史里多一轮等人点头的活儿，订上也不再演新的一轮。 */
 const awaitingApproval = new Set<string>()
 
-/** 原型里「刚跑完」的那几段对话：连上之后各补一帧收场。 */
-const justFinished = new Set<string>()
+/** 原型里「刚跑完」的那几段对话：连上之后各算一次新的运行结束，补一帧收场。 */
+const justFinished = new Set<{ id: string; lastRunId: string | null }>()
 
 /**
- * 让一段对话在连上之后收场一次：侧栏那一行画出未读点（人当时不在它上面的话）。
+ * 让一段对话在连上之后跑完一次：行上的 `lastRunId` 换成新的，再补一帧收场。在这台浏览器上打开过
+ * 它的人，侧栏那一行就冒出未读点。
  *
- * @param conversationId - 哪一段对话。
+ * @param conversation - 列表里的那一行，`lastRunId` 直接改在它身上。
  */
-export const markMockJustFinished = (conversationId: string) => {
-  justFinished.add(conversationId)
+export const markMockJustFinished = (conversation: { id: string; lastRunId: string | null }) => {
+  justFinished.add(conversation)
 }
 
 /** 记下的决定。重复点同一个照样 204，改主意是 409——与真后端同一条规矩。 */
@@ -436,13 +437,14 @@ export const transcriptHandlers = [
       }),
     )
 
-    // 收场那一帧不看订阅（真后端也是发给这个人每条连接）：侧栏据此画未读点。
+    // 收场那一帧不看订阅（真后端也是发给这个人每条连接）：侧栏收到它重拉列表，拿到新的 lastRunId。
     setTimeout(() => {
-      for (const conversationId of justFinished) {
+      for (const conversation of justFinished) {
+        conversation.lastRunId = crypto.randomUUID()
         client.send(
           JSON.stringify({
             payload: { busy: false, last_turn_reason: 'completed', pending_interaction: 'none' },
-            session_id: conversationId,
+            session_id: conversation.id,
             type: 'event.session.work_changed',
           }),
         )

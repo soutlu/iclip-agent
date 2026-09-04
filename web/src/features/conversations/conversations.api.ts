@@ -25,6 +25,9 @@ export type ConversationPage = z.output<typeof zConversationPageOut>
 /** 侧栏拓扑里的一个合集：元信息、总条数，加第一页对话。 */
 export type SidebarCollection = z.output<typeof zSidebarOut>['collections'][number]
 
+/** 侧栏拓扑：任务区第一页加每个合集（各带自己的第一页）。 */
+export type SidebarTopology = z.output<typeof zSidebarOut>
+
 const conversationsPageSchema = zConversationsPageOut.transform((payload) => payload.items)
 const conversationEnvelopeSchema = zConversationEnvelope.transform(
   (payload) => payload.conversation,
