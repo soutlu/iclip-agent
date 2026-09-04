@@ -23,6 +23,12 @@ depends_on = []
 path = "iclip.platform.file_store"
 depends_on = []
 
+# 对话素材台账：系统收下或产出的地址记在这里，工具收到地址时查它。只认识 SQL 与
+# stdlib，命名空间按什么分由调用方决定。
+[[modules]]
+path = "iclip.platform.material_ledger"
+depends_on = []
+
 [[modules]]
 path = "iclip.config"
 depends_on = ["iclip.common"]
@@ -92,7 +98,7 @@ depends_on = []
 # 通用 agent 内核，不认识业务。
 [[modules]]
 path = "iclip.harness"
-depends_on = ["iclip.common", "iclip.platform.transcript"]
+depends_on = ["iclip.common", "iclip.platform.material_ledger", "iclip.platform.transcript"]
 
 # capability 实现，唯一同时认识 harness 与 domains 的适配环。
 # 认识 platform.transcript：每件工具的 display 与工具同文件登记，用的是那里的类型。
@@ -101,6 +107,7 @@ path = "iclip.capabilities"
 depends_on = [
     "iclip.common",
     "iclip.platform.file_store",
+    "iclip.platform.material_ledger",
     "iclip.platform.transcript",
     "iclip.harness",
     "iclip.domains.identity",
@@ -116,6 +123,7 @@ depends_on = [
     "iclip.platform.http",
     "iclip.platform.object_store",
     "iclip.platform.file_store",
+    "iclip.platform.material_ledger",
     "iclip.platform.transcript",
     "iclip.config",
     "iclip.domains.identity",
