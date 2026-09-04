@@ -27,6 +27,7 @@ import {
   steerPrompt,
   submitPrompt,
 } from '../conversations.api'
+import { useClearUnread } from '../conversations.unread'
 import { ApprovalCard } from './approval-card'
 import { ConversationComposer } from './conversation-composer'
 import { ConversationTurn } from './conversation-turn'
@@ -101,6 +102,8 @@ const sameContent = (a: readonly PromptContentPart[], b: readonly PromptContentP
  */
 export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
+  // 打开就算看过了：侧栏那一行的未读点在这里清掉
+  useClearUnread(conversationId)
   const { titleOf } = useSessionTitles()
   const title = titleOf(conversationId) ?? view.title
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])

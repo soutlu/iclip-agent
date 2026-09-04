@@ -5,6 +5,7 @@ export type {
   SidebarCollection,
 } from './conversations.api'
 export { useLiveConversations } from './conversations.live'
+export { useUnread } from './conversations.unread'
 export {
   conversationsQueryKeys,
   useStartConversation,

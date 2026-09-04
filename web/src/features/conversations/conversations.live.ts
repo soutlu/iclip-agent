@@ -7,20 +7,23 @@
  */
 
 import { useQueryClient } from '@tanstack/react-query'
+import { useRouter } from '@tanstack/react-router'
 import { use, useEffect } from 'react'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { conversationsQueryKeys, type Conversation } from './conversations.api'
+import { markUnread } from './conversations.unread'
 
 /** 打在一行上的补丁：改名那一帧只带名字，活儿那一帧只带活儿。 */
 type RowPatch = { title: string } | { activity: Conversation['activity'] }
 
 /**
- * 订上全局帧，把改名与活儿写进查询缓存。在侧栏顶层调一次。
+ * 订上全局帧，把改名与活儿写进查询缓存，跑完而人不在场的记一笔未读。在侧栏顶层调一次。
  */
 export const useLiveConversations = (): void => {
   const connection = use(TranscriptConnectionContext)
   if (connection === null) throw new Error('useLiveConversations 要在 TranscriptProvider 里用')
   const queryClient = useQueryClient()
+  const router = useRouter()
 
   useEffect(
     () =>
@@ -47,14 +50,26 @@ export const useLiveConversations = (): void => {
           patchConversation(data, update.conversationId, patch),
         )
 
-        // 活儿变了，这一行可能该从当前筛选里进来或出去，算得准的只有服务端。筛「全部」时不必。
         if (update.kind !== 'activity') return
+
+        // 一轮跑完而人不在这段对话上，记一笔未读。这一帧只在活儿真的转了状态时才到（连上、
+        // 重拉都不发），所以「刚才是不是在跑」不必另外记一份；开着哪一段在帧到达时从路由现读，
+        // 而不是订阅时记下来——慢一步读到的是上一个页面，正好错在人刚离开那一段的时候。
+        if (!update.busy && update.lastTurnReason === 'completed') {
+          const here = router.matchRoute({
+            params: { conversationId: update.conversationId },
+            to: '/c/$conversationId',
+          })
+          if (here === false) markUnread(update.conversationId)
+        }
+
+        // 活儿变了，这一行可能该从当前筛选里进来或出去，算得准的只有服务端。筛「全部」时不必。
         queryClient.removeQueries({ predicate: (query) => filtered(query.queryKey, 'more') })
         void queryClient.invalidateQueries({
           predicate: (query) => filtered(query.queryKey, 'sidebar'),
         })
       }),
-    [connection, queryClient],
+    [connection, queryClient, router],
   )
 }
 

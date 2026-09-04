@@ -2,7 +2,7 @@
  * 会话页：历史铺得出来，逐字来的内容跟着长。
  */
 
-import { screen, waitFor, within } from '@testing-library/react'
+import { renderHook, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
@@ -11,6 +11,7 @@ import { mockTranscriptPage } from '@/testing/mocks/transcript'
 import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
 import { Toaster } from '@/shared/ui/toast'
+import { markUnread, useUnread } from '../conversations.unread'
 import { ConversationRoute } from './conversation-route'
 
 // lottie-web 在模块加载时会探测 canvas 2d context；jsdom 没有它。摄像机是 aria-hidden
@@ -111,6 +112,14 @@ const queuedPrompt = (promptId: string, text: string) => ({
 })
 
 describe('ConversationRoute', () => {
+  it('打开就算看过了：侧栏那一行的未读点清掉', async () => {
+    markUnread('c1')
+
+    await renderConversation()
+
+    expect(renderHook(() => useUnread('c1')).result.current).toBe(false)
+  })
+
   it('在输入框底部显示后端给出的上下文占用环', async () => {
     await renderConversation()
 
