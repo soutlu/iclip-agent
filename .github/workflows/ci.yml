@@ -66,10 +66,16 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          # monorepo 根目录无 package.json，需显式指到 web/ 读 packageManager
-          package_json_file: web/package.json
+      - name: Install pnpm
+        # 直接取发布页的可执行文件。pnpm/action-setup 会先用 npm 装一个引导版，npm 源一慢
+        # 就是几分钟，而它每次先删安装目录，缓存也接不住。版本取自 packageManager，不另写一处。
+        run: |
+          version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
+          mkdir -p "$HOME/.pnpm-bin"
+          # 整包解开：根目录那个 pnpm 只是启动器，要同目录的 dist/ 才跑得起来。
+          curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
+          chmod +x "$HOME/.pnpm-bin/pnpm"
+          echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
       - uses: actions/setup-node@v7
         with:
           node-version: 22
