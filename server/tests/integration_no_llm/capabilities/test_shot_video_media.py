@@ -26,19 +26,14 @@ from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
 
 from iclip.capabilities.shot_video import ffmpeg
-from iclip.capabilities.shot_video.capability import (
-    ANCHOR_RECORDS_DIR,
-    EXTRACTION_PATH,
-    GRID_RECORDS_DIR,
-    FrameRequest,
-    GenerationPolicy,
-    ShotVideoToolset,
-    shot_video_capability,
-    video_doc_path,
-)
+from iclip.capabilities.shot_video.capability import GenerationPolicy, shot_video_capability
+from iclip.capabilities.shot_video.delivery import FrameRequest
+from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_path
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
+from iclip.capabilities.shot_video.generation import ANCHOR_RECORDS_DIR, GRID_RECORDS_DIR
 from iclip.capabilities.shot_video.grid import grid_cell_boxes, scale_box
 from iclip.capabilities.shot_video.ports import ObjectWriteFailed
+from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal

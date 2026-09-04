@@ -51,12 +51,11 @@ from iclip.platform.transcript.display import (
     DisplayFn,
     FileIoDisplay,
     GenericDisplay,
-    MediaGridItem,
-    MediaGridItems,
     SearchDisplay,
     ToolDisplay,
     ToolDisplayEntry,
     UrlFetchDisplay,
+    media_grid,
 )
 
 CAPABILITY_ID: Final = "workspace"
@@ -186,12 +185,6 @@ def _search_display(args: Any) -> ToolDisplay | None:
 def _media_display(args: Any) -> ToolDisplay | None:
     url = _text(args, "url")
     return None if url is None else UrlFetchDisplay(url=url)
-
-
-def _media_grid(*, url: str, caption: str) -> MediaGridItems:
-    """界面那份缩略图墙。读图一次只有一张。"""
-
-    return {"items": [MediaGridItem(url=url, caption=caption)]}
 
 
 def _validate_image_url(
@@ -472,7 +465,8 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
                 ImageUrl(url=delivered, media_type=info.media_type),
                 media_tag_close("image"),
             ],
-            metadata=_media_grid(url=delivered, caption=clause),
+            # 读图一次只有一张。
+            metadata=media_grid([(delivered, clause)]),
         )
 
     def _deliver(
