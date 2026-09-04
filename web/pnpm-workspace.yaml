@@ -1,0 +1,20 @@
+# pnpm 的设置从 package.json 的 "pnpm" 字段搬到这里（pnpm 10 起不再读那个字段）。
+# 前端只有一个包，但这个文件一旦存在，pnpm 就要求 packages 写明范围，缺了它连 pnpm run 都不跑。
+
+packages:
+  - .
+
+allowBuilds:
+  # 安装期把 service worker 文件放进 public/，浏览器 MSW 环境靠它拦请求。
+  msw: true
+  # 安装期编原生解析器，eslint 解析 TypeScript 的 import 路径靠它。
+  unrs-resolver: true
+
+# pnpm 默认不装刚发布不久的版本（供应链防护）。这三个是 vitest 5 首发，我们主动放行。
+minimumReleaseAgeExclude:
+  - '@vitest/mocker@5.0.0'
+  - '@vitest/spy@5.0.0'
+  - vitest@5.0.0
+
+overrides:
+  postcss: ^8.5.10
