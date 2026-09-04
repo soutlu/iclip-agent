@@ -46,7 +46,7 @@ TOOL_STATE_BY_OUTCOME: dict[str, Literal["done", "error"]] = {
 MAIN_AGENT_ID = "main"
 """主 agent 的 id。协议按 agent 分 transcript，我们当前只产出这一个。"""
 
-COMPACTION_NOTICE = "此前的对话已压缩成摘要，模型从这里起只看摘要与最近几步"
+COMPACTION_NOTICE = "对话已压缩"
 """压缩提示块上写这句。
 
 放在这里而不是各自一份：实时那条路与历史那条路都要发这一块，两边逐字相同才不会在刷新时变形。

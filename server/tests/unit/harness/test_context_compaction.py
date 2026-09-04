@@ -28,6 +28,7 @@ from iclip.harness.context_compaction import (
     ContextCompaction,
     compaction_boundary,
     model_window,
+    summarizer_input,
 )
 from iclip.harness.transcript.from_messages import turns_from_messages
 from iclip.harness.transcript.projector import step_responses
@@ -42,6 +43,9 @@ ANCHORED = f"Summary of previous conversation:\n\n{SUMMARY}"
 它就是摘要器下次认出「上一份摘要」的标记，去掉的话增量更新退化成对摘要再摘要。
 """
 
+WINDOW_HEAD = f"{SUMMARY}\n\n{SUMMARY_FRAMING}"
+"""发给模型的窗口首条 user 消息：摘要正文加那句提醒。"""
+
 
 def _at(minute: int) -> datetime:
     return datetime(2026, 9, 3, 10, minute, tzinfo=UTC)
@@ -53,6 +57,15 @@ def _ask(text: str, *, run_id: str = "run-a", minute: int = 0) -> ModelRequest:
 
 def _reply(text: str, *, run_id: str = "run-a", minute: int = 1) -> ModelResponse:
     return ModelResponse(parts=[TextPart(content=text)], run_id=run_id, timestamp=_at(minute))
+
+
+def _only_part(message: ModelMessage) -> tuple[type[object], object]:
+    """窗口首条那唯一一个 part 的种类与正文。part 自带创建时刻，整条按相等比永远对不上。"""
+
+    assert isinstance(message, ModelRequest)
+    assert len(message.parts) == 1
+    part = message.parts[0]
+    return type(part), getattr(part, "content", None)
 
 
 def _boundary(summary: str = SUMMARY, *, run_id: str = "run-a", minute: int = 9) -> ModelResponse:
@@ -76,9 +89,8 @@ def test_有边界时窗口是摘要加边界之后那几条() -> None:
     tail = _ask("三")
     window = model_window([_ask("一"), _reply("二"), _boundary(), tail])
 
-    head = window[0]
-    assert isinstance(head, ModelRequest)
-    assert [getattr(part, "content", None) for part in head.parts] == [SUMMARY, SUMMARY_FRAMING]
+    # 摘要是一条 user 消息：做成 system part 会被 chat 适配器排到 instructions 前面去。
+    assert _only_part(window[0]) == (UserPromptPart, WINDOW_HEAD)
     # 边界自己不进窗口：它是个标记，不是模型说过的话。
     assert window[1:] == [tail]
 
@@ -91,18 +103,19 @@ def test_两条边界只认最后一条() -> None:
 
     head = window[0]
     assert isinstance(head, ModelRequest)
-    assert isinstance(head.parts[0], SystemPromptPart)
-    assert head.parts[0].content == "新摘要"
+    assert isinstance(head.parts[0], UserPromptPart)
+    assert head.parts[0].content == f"新摘要\n\n{SUMMARY_FRAMING}"
     assert window[1:] == [tail]
 
 
-def test_摘要与提醒分成两个part() -> None:
-    """拼成一段的话，摘要器认不出上一份摘要，增量更新退化成对摘要再摘要。"""
+def test_喂给摘要器的那份摘要作system_part() -> None:
+    """摘要器认上一份摘要靠的是 system part；给它 user 消息，增量更新退化成对摘要再摘要。"""
 
-    head = model_window([_reply("二"), _boundary(), _ask("三")])[0]
+    tail = _ask("三")
+    fed = summarizer_input([_reply("二"), _boundary(), tail])
 
-    assert isinstance(head, ModelRequest)
-    assert len(head.parts) == 2
+    assert _only_part(fed[0]) == (SystemPromptPart, SUMMARY)
+    assert fed[1:] == [tail]
 
 
 def test_边界和旁边那次响应并成一条时照样认得出() -> None:
@@ -120,9 +133,7 @@ def test_边界和旁边那次响应并成一条时照样认得出() -> None:
     )
     window = model_window([_ask("一"), _reply("二"), merged, tail])
 
-    head = window[0]
-    assert isinstance(head, ModelRequest)
-    assert [getattr(part, "content", None) for part in head.parts] == [SUMMARY, SUMMARY_FRAMING]
+    assert _only_part(window[0]) == (UserPromptPart, WINDOW_HEAD)
     kept = window[1]
     assert isinstance(kept, ModelResponse)
     assert kept.parts == [TextPart(content="答三")]
@@ -271,9 +282,7 @@ async def test_模型只收到窗口那几条() -> None:
     _, seen, history, _ = await _run(max_tokens=1, keep_messages=2, history=_history(4))
 
     sent = seen[-1]
-    head = sent[0]
-    assert isinstance(head, ModelRequest)
-    assert [getattr(part, "content", None) for part in head.parts] == [ANCHORED, SUMMARY_FRAMING]
+    assert _only_part(sent[0]) == (UserPromptPart, f"{ANCHORED}\n\n{SUMMARY_FRAMING}")
     boundary = _boundaries(history)[0]
     # 摘要一条 + 边界之后那几条。边界之后到发出去那一刻为止是尾巴加这次的新请求。
     assert len(sent) == 1 + (len(history) - history.index(boundary) - 1 - 1)
@@ -293,6 +302,24 @@ async def test_快照存的是全量历史不是窗口() -> None:
     # 边界之前那几条一条不少：wrap 那一层没把窗口写回历史。
     assert prior[0] in snapshot.messages
     assert len(_boundaries(list(snapshot.messages))) == 1
+
+
+async def test_第二次压缩带着上一份摘要做增量() -> None:
+    """喂给摘要器的那份要让它认出上一份摘要，否则第二次是对摘要再摘要，细节一轮轮磨掉。"""
+
+    _, _, first, _ = await _run(max_tokens=1, keep_messages=2, history=_history(4))
+    _, seen, _, _ = await _run(max_tokens=1, keep_messages=2, history=list(first))
+
+    summary_calls = [messages for messages in seen if _is_summary_call(messages)]
+    assert len(summary_calls) == 1
+    prompt = "\n".join(
+        str(part.content)
+        for message in summary_calls[0]
+        for part in getattr(message, "parts", ())
+        if isinstance(part, UserPromptPart)
+    )
+    assert "<previous-summary>" in prompt
+    assert SUMMARY in prompt
 
 
 async def test_切不动就不压也不回调() -> None:
