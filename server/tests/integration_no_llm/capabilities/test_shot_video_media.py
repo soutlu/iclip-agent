@@ -41,6 +41,7 @@ from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import FileSpace
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from tests.helpers.file_store import FakeFileStore
+from tests.helpers.material_ledger import FakeMaterialLedger
 from tests.helpers.shot_video import FakeGenerations, FakeObjects, FakeUnderstanding, Outcome
 
 pytestmark = pytest.mark.skipif(not ffmpeg_available(), reason="本机 PATH 上没有 ffmpeg/ffprobe")
@@ -204,9 +205,11 @@ def make_tools(
     files: FakeFileStore,
     *,
     generations: FakeGenerations | None = None,
+    ledger: FakeMaterialLedger | None = None,
 ) -> ShotVideoToolset[object]:
     toolset = shot_video_capability(
         space=FileSpace(store=files, namespace=workspace_namespace),
+        ledger=ledger or FakeMaterialLedger(),
         generations=generations or FakeGenerations(),
         objects=objects,
         paths=MEDIA_PATHS,
@@ -286,10 +289,11 @@ async def test_plan_extracts_every_second_and_boards_them(media: dict[str, bytes
 
     objects = FakeObjects()
     files = FakeFileStore()
+    materials = FakeMaterialLedger()
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
     client = make_client(media)
     try:
-        result = await make_tools(client, objects, files).plan_shot_frames(
+        result = await make_tools(client, objects, files, ledger=materials).plan_shot_frames(
             make_context(), VIDEO_URL
         )
     finally:
@@ -298,6 +302,8 @@ async def test_plan_extracts_every_second_and_boards_them(media: dict[str, bytes
     assert isinstance(result, ToolReturn)
     boards = model_facing(result)["boards"]
     assert len(boards) == 1
+    # 板的地址进台账，模型下一步才拿得动它去读图。
+    assert materials.urls(NAMESPACE) == {boards[0]["url"]}
     # 给人看的那份：一板一张缩略图，标题带板号与镜头号；模型看不到它。
     assert result.metadata == {"items": [{"url": boards[0]["url"], "caption": "板 1 · 1,2"}]}
     assert len(objects.written) == 1
@@ -316,10 +322,11 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
 
     objects = FakeObjects()
     files = FakeFileStore()
+    materials = FakeMaterialLedger()
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
     client = make_client(media)
     try:
-        tools = make_tools(client, objects, files)
+        tools = make_tools(client, objects, files, ledger=materials)
         await tools.plan_shot_frames(make_context(), VIDEO_URL)
         again = await tools.plan_shot_frames(make_context(), VIDEO_URL)
     finally:
@@ -328,6 +335,8 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
     assert isinstance(again, ToolReturn)
     assert "复用既有账本" in model_facing(again)["message"]
     assert len(objects.written) == 1
+    # 复用那条路也记：不记的话第二次调用之后板的地址就交不回来了。
+    assert materials.urls(NAMESPACE) == {model_facing(again)["boards"][0]["url"]}
 
 
 async def test_plan_refuses_timecodes_beyond_the_clip(media: dict[str, bytes]) -> None:
@@ -372,11 +381,12 @@ async def test_generate_cuts_the_grid_and_records_the_batch(media: dict[str, byt
 
     objects = FakeObjects()
     files = FakeFileStore()
+    materials = FakeMaterialLedger()
     await files.write(NAMESPACE, video_doc_path(VIDEO_URL), DOCUMENT)
     generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
     client = make_client(media)
     try:
-        tools = make_tools(client, objects, files, generations=generations)
+        tools = make_tools(client, objects, files, generations=generations, ledger=materials)
         await tools.plan_shot_frames(make_context(), VIDEO_URL)
         boards_written = len(objects.written)
         result = await tools.generate_shot_frames(
@@ -408,6 +418,8 @@ async def test_generate_cuts_the_grid_and_records_the_batch(media: dict[str, byt
     record = json.loads(stored.content)
     assert record["gridUrl"] == GRID_URL
     assert [frame["prompt"] for frame in record["frames"]] == ["雨中中景", "鞋底特写"]
+    # 逐帧与整图都进台账：版记录里写着整图地址，模型 read_file 读到就可能拿去看。
+    assert {frame["url"] for frame in payload["frames"]} | {GRID_URL} <= materials.urls(NAMESPACE)
 
 
 async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked(
@@ -496,10 +508,11 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
 
     objects = FakeObjects()
     files = FakeFileStore()
+    materials = FakeMaterialLedger()
     generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
     client = make_client(media)
     try:
-        tools = make_tools(client, objects, files, generations=generations)
+        tools = make_tools(client, objects, files, generations=generations, ledger=materials)
         result = await tools.generate_anchor_sheet(
             make_context(), ["全身正面平视的女性", "空景全景平视的门厅"]
         )
@@ -529,6 +542,7 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
     ]
     written = list(objects.written.values())
     assert written[0] != written[1]
+    assert {image["url"] for image in payload["images"]} | {GRID_URL} <= materials.urls(NAMESPACE)
 
 
 def probe_size(data: bytes) -> tuple[int, int]:

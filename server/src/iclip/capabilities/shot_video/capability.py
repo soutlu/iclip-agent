@@ -30,6 +30,7 @@ from iclip.capabilities.shot_video.ports import (
 )
 from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.platform.file_store.store import FileSpace
+from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.transcript.display import (
     DisplayFn,
     FileIoDisplay,
@@ -54,6 +55,9 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
     「同一个」由组合根保证：这里只认平台层这一件东西，不认识工作区能力。两边要
     是各接各的，文档照写照读，只是模型的 ``read_file`` 看不见它——失效是静默的。
     """
+
+    ledger: MaterialLedger
+    """这段对话能用哪些地址。五件工具落下的地址往它上面记，收地址的三个验证器查它。"""
 
     extractor: FrameExtractor
     """拆片与取帧那一段。"""
@@ -99,6 +103,7 @@ def _frames_display(args: Any) -> ToolDisplay:
 def shot_video_capability(
     *,
     space: FileSpace,
+    ledger: MaterialLedger,
     generations: ImageGenerations,
     objects: PublicObjectWriter,
     paths: ShotVideoPaths,
@@ -110,6 +115,7 @@ def shot_video_capability(
 
     return ShotVideo[Any](
         space=space,
+        ledger=ledger,
         extractor=FrameExtractor(
             understanding=understanding, client=client, paths=paths, objects=objects
         ),

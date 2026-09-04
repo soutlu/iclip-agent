@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from collections.abc import Callable
@@ -18,13 +19,10 @@ import pytest
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
     ModelMessage,
-    ModelRequest,
     ModelResponse,
     RetryPromptPart,
     TextPart,
     ToolCallPart,
-    ToolReturnPart,
-    UserPromptPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
@@ -54,8 +52,8 @@ from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
-from iclip.harness.media import media_tag
 from iclip.platform.file_store.store import FileSpace
+from iclip.platform.material_ledger.store import Material
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.transcript.display import (
     FileIoDisplay,
@@ -63,6 +61,7 @@ from iclip.platform.transcript.display import (
     ToolDisplayRegistry,
 )
 from tests.helpers.file_store import FakeFileStore
+from tests.helpers.material_ledger import FakeMaterialLedger
 from tests.helpers.shot_video import (
     FakeGenerations,
     FakeObjects,
@@ -73,9 +72,6 @@ from tests.helpers.shot_video import (
 USER = uuid.UUID("11111111-1111-1111-1111-111111111111")
 VIDEO = "https://cdn.test/ref.mp4"
 NAMESPACE = f"{USER}/thread-1"
-
-# 用户把参考片发进来之后，模型上下文里就是这么一行——素材校验认的就是它。
-_USER_SENT_VIDEO = f"{media_tag('video', VIDEO, name='ref.mp4')} 帮我拆一下"
 
 # 一份最小的拆解文档：一个结构层级一行，行内两个镜头。
 DOCUMENT = (
@@ -107,19 +103,10 @@ def make_deps() -> AgentRunDeps:
     )
 
 
-def make_context(deps: object, *, said: str = _USER_SENT_VIDEO) -> RunContext[object]:
-    """造一次运行的上下文，默认当作用户已经把参考片发进来了。
+def make_context(deps: object) -> RunContext[object]:
+    """造一次运行的上下文。"""
 
-    素材规则要在消息里逐字找得到地址（见 `harness/materials.py`），它跑在验证器里，所以
-    消息里没有那个地址时 `check_args` 会拦下来。
-    """
-
-    return RunContext[object](
-        deps=deps,
-        model=TestModel(),
-        usage=RunUsage(),
-        messages=[ModelRequest(parts=[UserPromptPart(content=said)])],
-    )
+    return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage(), messages=[])
 
 
 def ledger(*cell_ids: str) -> str:
@@ -166,14 +153,25 @@ def files() -> FakeFileStore:
 
 
 @pytest.fixture
+def materials() -> FakeMaterialLedger:
+    """默认当作用户已经把参考片发进来了——收件那一步已经替它记了一条。"""
+
+    fake = FakeMaterialLedger()
+    fake.rows[(NAMESPACE, VIDEO)] = Material(url=VIDEO, kind="video")
+    return fake
+
+
+@pytest.fixture
 def capability(
     files: FakeFileStore,
+    materials: FakeMaterialLedger,
     generations: FakeGenerations,
     objects: FakeObjects,
     understanding: FakeUnderstanding,
 ) -> ShotVideo[object]:
     return shot_video_capability(
         space=FileSpace(store=files, namespace=workspace_namespace),
+        ledger=materials,
         generations=generations,
         objects=objects,
         paths=MEDIA_PATHS,
@@ -195,7 +193,7 @@ def ctx() -> RunContext[object]:
     return make_context(make_deps())
 
 
-def check_args(
+async def check_args(
     tools: ShotVideoToolset[object], name: str, ctx: RunContext[object], **args: Any
 ) -> None:
     """走一遍这件工具登记时挂上的验证器（官方在 schema 校验之后、执行之前调它）。
@@ -205,7 +203,9 @@ def check_args(
 
     validator = tools.tools[name].args_validator
     assert validator is not None, f"{name} 登记时没挂验证器"
-    assert validator(ctx, **args) is None, "本包的验证器都是同步的"
+    outcome = validator(ctx, **args)
+    assert inspect.isawaitable(outcome), "本包的验证器都是 async 的"
+    await outcome
 
 
 # ── 装配面 ────────────────────────────────────────────────────────────────────
@@ -323,7 +323,7 @@ async def test_an_out_of_scope_address_is_refused_on_the_agent_path(
         return ModelResponse(parts=[TextPart("好")])
 
     agent = Agent(FunctionModel(call_once), capabilities=[capability])
-    result = await agent.run(_USER_SENT_VIDEO, deps=make_deps())
+    result = await agent.run("帮我拆一下", deps=make_deps())
 
     refusals = [
         part
@@ -354,6 +354,7 @@ async def test_files_land_in_the_normalized_namespace(
 
     toolset = shot_video_capability(
         space=FileSpace(store=files, namespace=lambda _ctx: f"{USER}//thread-1"),
+        ledger=FakeMaterialLedger(),
         generations=FakeGenerations(),
         objects=objects,
         paths=MEDIA_PATHS,
@@ -422,7 +423,7 @@ async def test_tools_only_take_http_urls(
     tools: ShotVideoToolset[object], ctx: RunContext[object], url: str
 ) -> None:
     with pytest.raises(ModelRetry, match="http"):
-        check_args(tools, "video_parser_md", ctx, video_url=url)
+        await check_args(tools, "video_parser_md", ctx, video_url=url)
 
 
 # ── 素材范围 ──────────────────────────────────────────────────────────────────
@@ -434,26 +435,25 @@ async def test_video_tools_refuse_an_address_the_conversation_never_had(
 ) -> None:
     """模型编一个地址，就别让服务器去下载它。
 
-    这两件都要把整片拉下来，是三件工具里最贵的一对，所以拦在动手之前。报错里把这
-    段对话真有的视频列回去，模型才有得抄。
+    这两件都要把整片拉下来，是三件工具里最贵的一对，所以拦在动手之前。
     """
 
-    with pytest.raises(ModelRetry, match=VIDEO) as failure:
-        check_args(tools, tool_name, ctx, video_url="https://cdn.test/made-up.mp4")
+    with pytest.raises(ModelRetry, match="不是这段对话里的素材") as failure:
+        await check_args(tools, tool_name, ctx, video_url="https://cdn.test/made-up.mp4")
 
-    # 不回显被拒的地址：回显一次，模型重试时它就成了「上下文里出现过」的东西。
+    # 不回显被拒的地址：回显一次，模型重试时它就成了「台账里有过」的东西。
     assert "made-up" not in str(failure.value)
 
 
 async def test_video_tools_refuse_an_image_the_user_sent(
-    tools: ShotVideoToolset[object],
+    tools: ShotVideoToolset[object], ctx: RunContext[object], materials: FakeMaterialLedger
 ) -> None:
-    """用户发的是图，拿去当参考片——种类是 tag 明写的，认得出来。"""
+    """用户发的是图，拿去当参考片——台账每行都带种类，认得出来。"""
 
     image = "https://cdn.test/poster.jpg"
-    ctx = make_context(make_deps(), said=media_tag("image", image, name="poster.jpg"))
+    materials.rows[(NAMESPACE, image)] = Material(url=image, kind="image")
     with pytest.raises(ModelRetry, match="图片"):
-        check_args(tools, "plan_shot_frames", ctx, video_url=image)
+        await check_args(tools, "plan_shot_frames", ctx, video_url=image)
 
 
 async def test_reference_images_refuse_a_video(
@@ -462,7 +462,7 @@ async def test_reference_images_refuse_a_video(
     """反过来也拦：参考片的地址当不了参考图。"""
 
     with pytest.raises(ModelRetry, match="视频"):
-        check_args(
+        await check_args(
             tools,
             "generate_shot_frames",
             ctx,
@@ -473,26 +473,16 @@ async def test_reference_images_refuse_a_video(
         )
 
 
-async def test_reference_images_take_an_address_from_a_tool_result(
-    tools: ShotVideoToolset[object], ctx: RunContext[object]
+async def test_reference_images_take_an_address_the_tools_wrote_down(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], materials: FakeMaterialLedger
 ) -> None:
-    """镜头帧地址只在工具结果的 JSON 里，没有 tag——照样是本对话的素材。"""
+    """出帧落下的地址由工具自己记进台账，下一次调用就交得回来。"""
 
     frame = "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/S1-1.jpg"
-    ctx.messages.append(
-        ModelRequest(
-            parts=[
-                ToolReturnPart(
-                    tool_name="generate_shot_frames",
-                    content={"frames": [{"no": "S1-1", "url": frame}]},
-                    tool_call_id="1",
-                )
-            ]
-        )
-    )
+    materials.rows[(NAMESPACE, frame)] = Material(url=frame, kind="image")
 
-    def call(url: str) -> None:
-        check_args(
+    async def call(url: str) -> None:
+        await check_args(
             tools,
             "generate_shot_frames",
             ctx,
@@ -502,9 +492,9 @@ async def test_reference_images_take_an_address_from_a_tool_result(
             target_aspect="9:16",
         )
 
-    call(frame)
+    await call(frame)
     with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
-        call("https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/S9-9.jpg")
+        await call("https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/S9-9.jpg")
 
 
 # ── 视频拆解接口的响应处理 ────────────────────────────────────────────────────
@@ -753,7 +743,7 @@ async def test_generate_reference_urls_must_be_http(
     generations: FakeGenerations,
 ) -> None:
     with pytest.raises(ModelRetry, match="参考图"):
-        check_args(
+        await check_args(
             tools,
             "generate_shot_frames",
             ctx,
@@ -869,6 +859,7 @@ async def test_generate_stays_on_dev_when_pro_is_off(
     ]
     toolset = shot_video_capability(
         space=FileSpace(store=files, namespace=workspace_namespace),
+        ledger=FakeMaterialLedger(),
         generations=generations,
         objects=objects,
         paths=MEDIA_PATHS,
@@ -912,6 +903,7 @@ async def test_generate_gives_up_waiting_but_names_the_record(
     generations.outcomes = [Outcome(status="submitted", output_url=None)]
     toolset = shot_video_capability(
         space=FileSpace(store=files, namespace=workspace_namespace),
+        ledger=FakeMaterialLedger(),
         generations=generations,
         objects=objects,
         paths=MEDIA_PATHS,
@@ -1071,22 +1063,22 @@ async def test_delivery_rejects_a_bad_aspect_ratio(
     assert await files.read(NAMESPACE, SHOTS_PATH) is None
 
 
-def test_delivery_accepts_a_frame_url_the_conversation_has_seen(
-    tools: ShotVideoToolset[object],
+async def test_delivery_accepts_a_frame_url_the_tools_wrote_down(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], materials: FakeMaterialLedger
 ) -> None:
-    """出帧写下的地址在同一轮的工具结果里逐字出现过，所以按素材算得到。"""
+    """出帧落下的地址在台账里，交付时照样交得回来。"""
 
-    seen = make_context(make_deps(), said=f"{_USER_SENT_VIDEO} {FRAME_URL}")
-    check_args(tools, "write_video_shots", seen, aspect_ratio="9:16", shots=[one_shot()])
+    materials.rows[(NAMESPACE, FRAME_URL)] = Material(url=FRAME_URL, kind="image")
+    await check_args(tools, "write_video_shots", ctx, aspect_ratio="9:16", shots=[one_shot()])
 
 
-def test_delivery_rejects_a_made_up_frame_url(
+async def test_delivery_rejects_a_made_up_frame_url(
     tools: ShotVideoToolset[object], ctx: RunContext[object]
 ) -> None:
     """自己拼的地址进不来，报的是「去哪儿找地址」而不是把它回显一遍。"""
 
     with pytest.raises(ModelRetry, match="frames/grids/") as rejected:
-        check_args(
+        await check_args(
             tools,
             "write_video_shots",
             ctx,
@@ -1096,11 +1088,11 @@ def test_delivery_rejects_a_made_up_frame_url(
     assert "编的" not in str(rejected.value), "被拒的地址不回显，否则重试一次就洗成素材了"
 
 
-def test_delivery_rejects_a_frame_url_that_is_not_http(
+async def test_delivery_rejects_a_frame_url_that_is_not_http(
     tools: ShotVideoToolset[object], ctx: RunContext[object]
 ) -> None:
     with pytest.raises(ModelRetry, match="http"):
-        check_args(
+        await check_args(
             tools,
             "write_video_shots",
             ctx,

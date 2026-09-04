@@ -90,6 +90,9 @@ class GridCut:
     urls: Sequence[str]
     captions: Sequence[str]
 
+    grid_url: str
+    """整张网格图的地址。版记录里写着它，模型 read_file 读到就可能拿去看，所以也要登记。"""
+
 
 class FrameGenerator:
     """出图与切格。工作区不归它写：版记录随 ``GridCut`` 交回去。"""
@@ -190,6 +193,7 @@ class FrameGenerator:
             record_path=record_path,
             urls=urls,
             captions=list(cell_ids),
+            grid_url=grid_url,
         )
 
     async def collect_anchors(
@@ -238,6 +242,7 @@ class FrameGenerator:
             urls=urls,
             # 标题取那一格的描述：``images`` 里只有序号和地址，描述在入参上。
             captions=list(descriptions),
+            grid_url=grid_url,
         )
 
     async def _slice_and_store(

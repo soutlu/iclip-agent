@@ -1,265 +1,70 @@
-"""素材范围：哪些地址算这段对话的，哪些不算。
-
-这一层全是纯函数，不需要 agent 真跑起来——直接手搭消息列表，看 ``run_materials``
-怎么判。要钉死的是**边界**：模型自己写的不算、错误消息回显的不算、工具产出的算但
-没有种类。
-"""
+"""素材校验：查台账，查不到或种类不对就让模型改。"""
 
 from __future__ import annotations
 
 import pytest
-from pydantic_ai import Agent, ModelRetry
-from pydantic_ai.messages import (
-    ImageUrl,
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    RetryPromptPart,
-    SystemPromptPart,
-    TextPart,
-    ToolCallPart,
-    ToolReturnPart,
-    UserPromptPart,
-)
-from pydantic_ai.models.function import AgentInfo, FunctionModel
-from pydantic_ai.tools import RunContext
+from pydantic_ai import ModelRetry
 
-from iclip.harness.materials import require_http, require_material, run_materials
-from iclip.harness.media import media_tag, media_tag_close, media_tag_open
+from iclip.harness.materials import require_http, require_material
+from iclip.platform.material_ledger.store import Material, MaterialKind
+from tests.helpers.material_ledger import FakeMaterialLedger
 
+NAMESPACE = "owner/thread-1"
+IMAGE = "https://cdn.test/poster.jpg"
 VIDEO = "https://cdn.test/ref.mp4"
-IMAGE = "https://cdn.test/shot.jpg"
-BOARD = "https://oss.test/shot-frames/k/board/1.jpg"
+RECORDED_AT = "版记录记在 frames/grids/ 下，用 read_file 读回来再用。"
 
 
-def user(*chunks: str) -> ModelRequest:
-    return ModelRequest(parts=[UserPromptPart(content=list(chunks))])
+@pytest.fixture
+def ledger() -> FakeMaterialLedger:
+    fake = FakeMaterialLedger()
+    fake.rows[(NAMESPACE, IMAGE)] = Material(url=IMAGE, kind="image")
+    fake.rows[(NAMESPACE, VIDEO)] = Material(url=VIDEO, kind="video")
+    return fake
 
 
-def tool(content: object) -> ModelRequest:
-    return ModelRequest(parts=[ToolReturnPart(tool_name="t", content=content, tool_call_id="1")])
-
-
-# ── 用户带进来的素材 ──────────────────────────────────────────────────────────
-
-
-def test_user_attachment_declares_kind() -> None:
-    """用户发的附件是 tag，种类明写在上面。"""
-
-    materials = run_materials([user(media_tag("video", VIDEO, name="ref.mp4"), "拆一下")])
-
-    assert materials.appears(VIDEO)
-    assert materials.kind_of(VIDEO) == "video"
-    assert materials.declared("video") == (VIDEO,)
-    assert materials.declared("image") == ()
-
-
-def test_image_attachment_keeps_original_url_not_the_resized_one() -> None:
-    """图片在上下文里是「tag + 像素」两段，身份地址取 tag 里那个原图。
-
-    喂给厂商的那份带缩放参数，模型读不到它——所以像素 part 一律不收，收了等于把模
-    型没看过的地址当成它抄得到的。
-    """
-
-    resized = f"{IMAGE}?x-oss-process=image/resize,l_1024"
-    materials = run_materials(
-        [
-            ModelRequest(
-                parts=[
-                    UserPromptPart(
-                        content=[
-                            media_tag_open("image", IMAGE),
-                            ImageUrl(url=resized),
-                            media_tag_close("image"),
-                        ]
-                    )
-                ]
-            )
-        ]
+async def check(ledger: FakeMaterialLedger, url: str, *, kind: MaterialKind = "image") -> None:
+    await require_material(
+        ledger, NAMESPACE, url, kind=kind, what="图片地址", recorded_at=RECORDED_AT
     )
 
-    assert materials.kind_of(IMAGE) == "image"
-    assert not materials.appears(resized)
+
+async def test_recorded_material_passes(ledger: FakeMaterialLedger) -> None:
+    await check(ledger, IMAGE)
 
 
-def test_instructions_count_as_context() -> None:
-    """指令是我们自己写的请求侧文本，在里面挂一个固定素材算数。"""
+async def test_unrecorded_material_is_refused(ledger: FakeMaterialLedger) -> None:
+    made_up = "https://cdn.test/made-up.jpg"
+    with pytest.raises(ModelRetry) as failure:
+        await check(ledger, made_up)
 
-    materials = run_materials(
-        [ModelRequest(parts=[], instructions=f"底图一律用 {media_tag('image', IMAGE)}")]
+    # 不回显被拒的地址：回显一次，模型重试时它就成了「上下文里出现过」的东西。
+    assert made_up not in str(failure.value)
+
+
+async def test_another_conversation_material_is_refused(ledger: FakeMaterialLedger) -> None:
+    """台账按命名空间分，别的对话记下的地址在这里查不到。"""
+
+    ledger.rows[("owner/thread-2", "https://cdn.test/别人的.jpg")] = Material(
+        url="https://cdn.test/别人的.jpg", kind="image"
     )
-
-    assert materials.kind_of(IMAGE) == "image"
-
-
-def test_system_prompt_counts_as_context() -> None:
-    materials = run_materials([ModelRequest(parts=[SystemPromptPart(content=f"参考 {VIDEO}")])])
-
-    assert materials.appears(VIDEO)
+    with pytest.raises(ModelRetry):
+        await check(ledger, "https://cdn.test/别人的.jpg")
 
 
-# ── 工具产出的素材 ────────────────────────────────────────────────────────────
+async def test_a_prefix_of_a_recorded_url_is_refused(ledger: FakeMaterialLedger) -> None:
+    """逐字比对：记着 ``…/ref.mp4`` 不等于 ``…/ref`` 也能用。"""
+
+    with pytest.raises(ModelRetry):
+        await check(ledger, "https://cdn.test/ref", kind="video")
 
 
-def test_structured_tool_return_gives_address_without_kind() -> None:
-    """dict 返回会被整体序列化成 JSON：地址逐字还在，tag 却因转义扫不出来。
-
-    这条不是缺陷是取舍——工具产出的地址本来就确凿来自本对话，用不着声明种类。钉
-    死它免得将来有人把它当 bug 修。
-    """
-
-    materials = run_materials([tool({"boards": [{"board": 1, "url": BOARD}]})])
-
-    assert materials.appears(BOARD)
-    assert materials.kind_of(BOARD) is None
-
-
-def test_tag_inside_structured_return_is_escaped_away() -> None:
-    """同一轮里 ReadMediaFile 返回的 tag（list 形状）同样只剩地址，没有种类。"""
-
-    materials = run_materials([tool([media_tag_open("image", IMAGE), media_tag_close("image")])])
-
-    assert materials.appears(IMAGE)
-    assert materials.kind_of(IMAGE) is None
-
-
-def test_string_tool_return_keeps_tags_readable() -> None:
-    """``read_file`` 返回纯字符串，原样进上下文——账本里的 tag 因此扫得出种类。"""
-
-    materials = run_materials([tool(f"账本正文\n{media_tag('video', VIDEO)}\n")])
-
-    assert materials.kind_of(VIDEO) == "video"
-
-
-# ── 不算素材的那一侧 ──────────────────────────────────────────────────────────
-
-
-def test_model_output_never_counts() -> None:
-    """模型自己写的不算：算了的话它写一句话就等于自己给自己发通行证。"""
-
-    materials = run_materials(
-        [
-            ModelResponse(
-                parts=[
-                    TextPart(content=media_tag("video", VIDEO)),
-                    ToolCallPart(tool_name="t", args={"url": BOARD}, tool_call_id="1"),
-                ]
-            )
-        ]
-    )
-
-    assert not materials.appears(VIDEO)
-    assert not materials.appears(BOARD)
-    assert materials.kind_of(VIDEO) is None
-
-
-def test_retry_prompt_never_counts() -> None:
-    """错误消息不算：回显一次被拒的地址，模型重试一次就把它洗成素材了。"""
-
-    materials = run_materials(
-        [ModelRequest(parts=[RetryPromptPart(content=f"{VIDEO} 不是这段对话里的素材")])]
-    )
-
-    assert not materials.appears(VIDEO)
-
-
-def test_absent_address_is_not_a_material() -> None:
-    materials = run_materials([user(media_tag("video", VIDEO))])
-
-    assert not materials.appears("https://cdn.test/other.mp4")
-    assert not materials.appears("")
-
-
-async def test_a_running_tool_sees_the_conversation() -> None:
-    """承重墙：真跑一次 agent 时，工具里的 ``ctx.messages`` 确实有用户那条消息。
-
-    上面那些用例都手搭消息列表，验的是判定逻辑；这条验的是判定的**输入从哪来**。
-    官方哪天不再把消息喂进 ``RunContext``，素材校验就会把一切都拒掉——那时该由这
-    条用例先红，而不是等线上每件工具一起失灵。
-    """
-
-    seen: dict[str, object] = {}
-
-    def call_probe_once(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        _ = info
-        if len(messages) == 1:
-            return ModelResponse(parts=[ToolCallPart(tool_name="probe", args={}, tool_call_id="1")])
-        return ModelResponse(parts=[TextPart(content="done")])
-
-    agent = Agent(FunctionModel(call_probe_once))
-
-    @agent.tool
-    def probe(ctx: RunContext[object]) -> str:
-        materials = run_materials(ctx.messages)
-        seen["appears"] = materials.appears(VIDEO)
-        seen["kind"] = materials.kind_of(VIDEO)
-        return "ok"
-
-    await agent.run(f"{media_tag('video', VIDEO, name='ref.mp4')} 帮我拆一下")
-
-    assert "appears" in seen, "工具压根没被调到，这条用例什么也没验到"
-    assert seen == {"appears": True, "kind": "video"}
-
-
-# ── 挂在工具登记处的那两条 ────────────────────────────────────────────────────
+async def test_wrong_kind_is_refused(ledger: FakeMaterialLedger) -> None:
+    with pytest.raises(ModelRetry, match="视频"):
+        await check(ledger, VIDEO)
 
 
 @pytest.mark.parametrize("url", ["ref.mp4", "file:///etc/passwd", "ftp://host/a.mp4"])
-def test_require_http_refuses_anything_else(url: str) -> None:
+def test_require_http_refuses_other_schemes(url: str) -> None:
     with pytest.raises(ModelRetry, match="http"):
         require_http(url, what="视频地址")
-
-
-def test_require_material_ends_with_the_callers_own_ledger() -> None:
-    """收尾动作由调用方给：本对话产出的地址记在哪，只有那件能力自己知道。
-
-    错误消息不回显被拒的地址——回显一次，模型重试时它就成了「上下文里出现过」的东西。
-    """
-
-    materials = run_materials([user(media_tag("video", VIDEO))])
-
-    with pytest.raises(ModelRetry, match="记在自己的账本里") as failure:
-        require_material(
-            materials,
-            "https://cdn.test/made-up.jpg",
-            kind="image",
-            what="图片地址",
-            recorded_at="记在自己的账本里。",
-        )
-
-    assert "made-up" not in str(failure.value)
-
-
-def test_require_material_lists_the_declared_ones_instead() -> None:
-    """这段对话真有同类素材时改列出来给它抄，收尾动作用不上。"""
-
-    materials = run_materials([user(media_tag("video", VIDEO))])
-
-    with pytest.raises(ModelRetry, match=VIDEO):
-        require_material(
-            materials,
-            "https://cdn.test/made-up.mp4",
-            kind="video",
-            what="视频地址",
-            recorded_at="用不上这句。",
-        )
-
-
-def test_require_material_refuses_a_kind_mismatch() -> None:
-    materials = run_materials([user(media_tag("video", VIDEO))])
-
-    with pytest.raises(ModelRetry, match="当不了图片地址"):
-        require_material(
-            materials, VIDEO, kind="image", what="图片地址", recorded_at="用不上这句。"
-        )
-
-
-def test_prefix_of_a_real_address_passes() -> None:
-    """已知取舍：判定是子串包含，所以合法地址的前缀也算出现过。
-
-    截短了只能落在同一个域名下，够不到别处；换来的是不必解析各种形状的工具返回。
-    """
-
-    materials = run_materials([user(media_tag("video", VIDEO))])
-
-    assert materials.appears("https://cdn.test/ref")
