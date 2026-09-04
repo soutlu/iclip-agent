@@ -10,6 +10,8 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.config import ResolvedAgent
 from tests.integration_no_llm.agents.waiting import settled
@@ -43,11 +45,32 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
     )
 
 
-async def _sign_in(client: httpx.AsyncClient, pg_url: str) -> None:
-    """注册并拿到能跑 agent 的角色。"""
+async def _sign_in(client: httpx.AsyncClient, pg_url: str) -> str:
+    """注册并拿到能跑 agent 的角色，返回用户 id。"""
 
-    await register_and_login(client)
+    user_id = await register_and_login(client)
     await set_roles_in_db(pg_url, "luke@example.com", ["editor"])
+    return user_id
+
+
+async def _materials(pg_url: str, namespace: str) -> list[tuple[str, str]]:
+    """台账里这段对话记下的地址与种类。"""
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        "SELECT url, kind FROM agent_runtime.materials "
+                        "WHERE namespace = :ns ORDER BY url"
+                    ),
+                    {"ns": namespace},
+                )
+            ).all()
+    finally:
+        await engine.dispose()
+    return [(row[0], row[1]) for row in rows]
 
 
 async def test_anonymous_cannot_send(app: FastAPI) -> None:
@@ -116,6 +139,70 @@ async def test_second_prompt_queues_while_the_first_runs(app: FastAPI, pg_url: s
         assert first.json()["status"] == "running"
         assert second.json()["status"] == "queued"
         await settled(client, conversation_id)
+
+
+async def test_attachments_land_in_the_material_ledger(app: FastAPI, pg_url: str) -> None:
+    """带图带视频的消息，收下的那一刻各记一条，种类跟着 part 类型走。
+
+    不记的话，模型拿这个地址去调工具会被自己的校验拦下——用户明明刚发过。
+    """
+
+    image = "https://cdn.test/style.jpg"
+    video = "https://cdn.test/ref.mp4"
+    async with make_client(app) as client:
+        user_id = await _sign_in(client, pg_url)
+        conversation_id = await new_conversation(client, AGENT_ID)
+        sent = await client.post(
+            f"/conversations/{conversation_id}/prompts",
+            json={
+                "prompt_id": "prm_media",
+                "content": [
+                    {"type": "text", "text": "看这两个"},
+                    {"type": "image", "source": {"kind": "url", "url": image}},
+                    {"type": "video", "source": {"kind": "url", "url": video}},
+                ],
+            },
+        )
+        assert sent.status_code == 200, sent.text
+        await settled(client, conversation_id)
+
+    assert await _materials(pg_url, f"{user_id}/{conversation_id}") == [
+        (video, "video"),
+        (image, "image"),
+    ]
+
+
+async def test_a_text_only_prompt_records_nothing(app: FastAPI, pg_url: str) -> None:
+    async with make_client(app) as client:
+        user_id = await _sign_in(client, pg_url)
+        conversation_id = await new_conversation(client, AGENT_ID)
+        await client.post(
+            f"/conversations/{conversation_id}/prompts",
+            json={"prompt_id": "prm_plain", "content": [{"type": "text", "text": "走"}]},
+        )
+        await settled(client, conversation_id)
+
+    assert await _materials(pg_url, f"{user_id}/{conversation_id}") == []
+
+
+async def test_an_attachment_that_is_not_http_is_refused(app: FastAPI, pg_url: str) -> None:
+    """台账存的就是这个字符串，工具照它出网；不是 http(s) 就不该进来。"""
+
+    async with make_client(app) as client:
+        user_id = await _sign_in(client, pg_url)
+        conversation_id = await new_conversation(client, AGENT_ID)
+        sent = await client.post(
+            f"/conversations/{conversation_id}/prompts",
+            json={
+                "prompt_id": "prm_bad",
+                "content": [
+                    {"type": "image", "source": {"kind": "url", "url": "file:///etc/passwd"}}
+                ],
+            },
+        )
+
+    assert sent.status_code == 422
+    assert await _materials(pg_url, f"{user_id}/{conversation_id}") == []
 
 
 async def test_catchup_reports_whether_it_got_everything(app: FastAPI, pg_url: str) -> None:

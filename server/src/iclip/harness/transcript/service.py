@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -21,11 +21,13 @@ from iclip.harness.transcript.store import Listener, TranscriptStore
 from iclip.harness.transcript.subscription import subscribe_frames
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
+    ImageContent,
     Interaction,
     ItemsRemoveOp,
     Prompt,
     PromptContent,
     TranscriptTurn,
+    VideoContent,
     agent_context_status,
 )
 from iclip.platform.transcript.wire import (
@@ -49,6 +51,9 @@ class TranscriptService:
     runner: ConversationRunner
     context_limits: Mapping[str, int]
 
+    record_materials: Callable[[uuid.UUID, str, Sequence[PromptContent]], Awaitable[None]]
+    """把这条消息带的附件登进素材台账。命名空间怎么拼这一层不知道，组合根接进来。"""
+
     # --- 写 -----------------------------------------------------------------
 
     async def submit(
@@ -64,6 +69,13 @@ class TranscriptService:
 
         if not content:
             raise ValidationFailed("消息是空的")
+        for part in content:
+            if not isinstance(part, ImageContent | VideoContent):
+                continue
+            if part.source.url is None or not part.source.url.startswith(("http://", "https://")):
+                raise ValidationFailed("附件地址必须是 http(s) 地址")
+        # 登记在入队之前：排着队的这段时间里，用户就可能让它去读这张图。
+        await self.record_materials(owner_user_id, conversation_id, content)
         row = await self.queue.submit(
             prompt_id=prompt_id,
             conversation_id=conversation_id,

@@ -56,6 +56,7 @@ from iclip.platform.transcript.display import (
 )
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
+    PromptContent,
     TextContent,
     ToolFrame,
     TranscriptTurn,
@@ -68,6 +69,14 @@ LOCKED_BY = "w-test"
 """这一份里 runner 的租约主人。写死好让测试能直接改库里那一列，装出「别人接手了」。"""
 DEAD = "w-dead"
 """上一条命的租约主人：它留下的行没人再刷心跳。"""
+
+
+async def _records_nothing(
+    owner: uuid.UUID, conversation_id: str, content: Sequence[PromptContent]
+) -> None:
+    """这一份只走读那一侧，收件时的素材登记接一个空实现。"""
+
+    _ = (owner, conversation_id, content)
 
 
 @pytest.fixture
@@ -614,6 +623,7 @@ async def test_usage_is_filled_in_when_the_run_finishes(engine: AsyncEngine) -> 
         queue=queue,
         runner=runner,
         context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
+        record_materials=_records_nothing,
     ).page(conversation_id, runtime_agent_id=AGENT_ID)
     assert restored.meta.agent == live_status
 
@@ -1932,6 +1942,7 @@ async def test_a_tool_needing_approval_ends_the_run_and_parks_the_prompt(
         queue=queue,
         runner=runner,
         context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
+        record_materials=_records_nothing,
     ).page(conversation_id, runtime_agent_id=AGENT_ID)
     assert [turn.state for turn in page.items] == ["running"]
     restored = _tool_cards(page.items)[0]
