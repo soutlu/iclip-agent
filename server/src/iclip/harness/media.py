@@ -11,9 +11,9 @@ tag 自包含（地址与文件名都写在里面），所以从消息里把附�
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final, Literal, cast
+from typing import Final, Literal
 from urllib.parse import urlsplit
 
 MediaKind = Literal["image", "video", "audio", "file"]
@@ -139,23 +139,6 @@ def is_media_tag_close(text: str) -> bool:
     return _CLOSE_RE.fullmatch(text) is not None
 
 
-def iter_media_tags(text: str) -> Iterator[MediaTag]:
-    """扫出一段文本里的全部 tag。
-
-    只扫开标签：空标签的开头也是它，两种形状都扫得到，同一条也不会数两遍。
-    """
-
-    for match in _OPEN_RE.finditer(text):
-        kind = cast("MediaKind", match.group(1))
-        url, name = match.group(2), match.group(3)
-        yield MediaTag(
-            kind=kind,
-            url=_unescape_attr(url),
-            name=_unescape_attr(name) if name else None,
-            wraps=not text.startswith(media_tag_close(kind), match.end()),
-        )
-
-
 def resized_image_url(url: str, *, max_edge: int) -> str:
     """给图片地址挂上 OSS 的缩放参数（长边 ``max_edge``，OSS 不放大小图）。
 
@@ -206,7 +189,6 @@ __all__ = [
     "MediaTag",
     "cropped_image_url",
     "is_media_tag_close",
-    "iter_media_tags",
     "media_kind_label",
     "media_tag",
     "media_tag_close",
