@@ -561,15 +561,16 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         return ops
 
     def _orphan_task_ops(self, state: TaskState) -> list[EmittableOperation]:
-        """轮次收尾时给仍在跑的子代理任务一个终态，否则界面永远停在 running。"""
+        """轮次收尾时给仍在跑的子代理任务一个终态，否则界面永远停在 running。
+
+        不写 stateReason：历史只能从子运行事件推出终态，写了两条路就对不上。
+        """
 
         ops: list[EmittableOperation] = []
         for tool_call_id, task in self._subagent_tasks.items():
             if task.state != "running":
                 continue
-            settled = task.model_copy(
-                update={"state": state, "ended_at": _now(), "state_reason": "父轮次结束"}
-            )
+            settled = task.model_copy(update={"state": state, "ended_at": _now()})
             self._subagent_tasks[tool_call_id] = settled
             ops.append(TaskUpsertOp(task=settled))
         return ops

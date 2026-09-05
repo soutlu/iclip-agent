@@ -208,7 +208,9 @@ async def test_a_task_whose_call_never_came_back_is_settled_by_the_turn() -> Non
 
     task = await _task_after(None)
 
-    assert (task.state, task.state_reason) == ("failed", "父轮次结束")
+    # 不带 stateReason：历史只能从子运行事件推终态，两条路要对得上。
+    assert (task.state, task.state_reason) == ("failed", None)
+    assert task.ended_at is not None
 
 
 async def _task_after(error: BaseException | None) -> TranscriptTask:

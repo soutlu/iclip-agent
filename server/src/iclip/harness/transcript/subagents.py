@@ -103,10 +103,20 @@ class SubAgentBridge(AbstractCapability[Any]):
         )
         token = current_delegation.set(delegation)
         try:
-            return await handler(args)
-        finally:
+            result = await handler(args)
+        except BaseException:
             current_delegation.reset(token)
-            await self._settle(ctx, call=call, tool_def=tool_def, delegation=delegation)
+            # 子运行失败或被停时，账本与交接的存储错误不能盖掉原来的异常。
+            try:
+                await self._settle(ctx, call=call, tool_def=tool_def, delegation=delegation)
+            except Exception:
+                _logger.warning(
+                    "子代理收尾失败，原异常照旧抛出", tool_call_id=call.tool_call_id, exc_info=True
+                )
+            raise
+        current_delegation.reset(token)
+        await self._settle(ctx, call=call, tool_def=tool_def, delegation=delegation)
+        return result
 
     def _spawned(self, tool_call_id: str, child_run_id: str, agent_name: str) -> None:
         """子运行开跑：父流上的那张卡认领它，并开一条 subagent 任务。"""
