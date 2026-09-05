@@ -11,10 +11,17 @@ from typing import Any
 
 from pydantic_ai import ModelRetry
 from pydantic_ai.capabilities import AgentCapability, Capability
+from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import RunContext, Tool
 from pydantic_ai_harness.skills import Skills
 
-from iclip.platform.transcript.display import DisplayFn, SkillCallDisplay, ToolDisplay
+from iclip.platform.transcript.display import (
+    DisplayFn,
+    GenericDisplay,
+    SkillCallDisplay,
+    ToolDisplay,
+    tool_note,
+)
 
 REFERENCES_DIRNAME = "references"
 """skill 目录下存放分支规则的子目录名。"""
@@ -49,7 +56,7 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
         if Path(name).suffix != ".md":
             raise ModelRetry(f"reference 只能是 .md 文档，收到 {name!r}。")
 
-    def get_skill_reference(skill: str, name: str) -> str:
+    def get_skill_reference(skill: str, name: str) -> ToolReturn[str]:
         """读取某个 skill 的一份 reference 文档。
 
         Args:
@@ -74,8 +81,9 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
         # 编码错误属于资产故障，直接抛出，避免模型无效重试。
         text = target.read_text(encoding="utf-8")
         if len(text) > MAX_REFERENCE_CHARS:
-            return text[:MAX_REFERENCE_CHARS] + TRUNCATION_MARKER
-        return text
+            text = text[:MAX_REFERENCE_CHARS] + TRUNCATION_MARKER
+        # 整篇规范是给模型看的，界面上不给展开。
+        return ToolReturn(return_value=text, metadata=tool_note(body="none"))
 
     return Capability[Any](
         id="skill-references",
@@ -84,9 +92,16 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
 
 
 def skill_display_table() -> Mapping[str, DisplayFn]:
-    """与 skill 工具同时注册的 reference 卡片格式。"""
+    """reference 工具与官方按需加载工具的卡片格式；后者由 pydantic-ai 自带，名字固定。"""
 
-    return {"get_skill_reference": _reference_display}
+    return {"get_skill_reference": _reference_display, "load_capability": _load_display}
+
+
+def _load_display(args: Any) -> ToolDisplay | None:
+    """按需加载一个 skill 正文；参数只有它的 id。"""
+
+    loaded = args.get("id") if isinstance(args, dict) else None
+    return GenericDisplay(summary="启用技能", detail=loaded if isinstance(loaded, str) else None)
 
 
 def _reference_display(args: Any) -> ToolDisplay | None:

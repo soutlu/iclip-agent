@@ -5,6 +5,7 @@ FileSpace 包含运行对象，无法由 YAML spec 构造，因此禁用序列�
 
 from __future__ import annotations
 
+import difflib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal
@@ -37,14 +38,21 @@ from iclip.platform.file_store.store import (
 )
 from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.transcript.display import (
+    FILE_CONTENT_VIEW,
+    MEDIA_GRID_VIEW,
+    SEARCH_RESULTS_VIEW,
     DisplayFn,
     FileIoDisplay,
     GenericDisplay,
     SearchDisplay,
     ToolDisplay,
     ToolDisplayEntry,
-    UrlFetchDisplay,
+    diff_note,
+    file_content,
     media_grid,
+    search_results,
+    tool_note,
+    url_filename,
 )
 
 CAPABILITY_ID: Final = "workspace"
@@ -55,9 +63,6 @@ MAX_SEARCH_RESULTS: Final = 50
 
 FULL_RESOLUTION_MAX_BYTES: Final = 10 * 1024 * 1024
 """原分辨率单图大小上限，超限时要求使用 region 分块读取。"""
-
-_MEDIA_GRID_VIEW: Final = "media_grid"
-"""读图结果的 MediaGridItems 渲染器。"""
 
 _RECORDED_AT: Final = "工具结果里返回的地址记在它写下的账本或版记录里，用 read_file 读回来再用。"
 """素材来源错误的恢复指引。"""
@@ -111,15 +116,23 @@ class Workspace(AbstractCapability[AgentDepsT]):
 
         return {
             "read_file": ToolDisplayEntry(
-                draw=lambda args: _file_io("read", _text(args, "path")), view="file_content"
+                draw=lambda args: _file_io("read", _text(args, "path")), view=FILE_CONTENT_VIEW
             ),
-            "write_file": lambda args: _file_io("write", _text(args, "path")),
-            "edit_file": lambda args: _file_io("edit", _text(args, "path")),
+            # 写入与编辑把内容带上，审批卡才能预览要写的东西和 diff。
+            "write_file": lambda args: _file_io(
+                "write", _text(args, "path"), content=_text(args, "content")
+            ),
+            "edit_file": lambda args: _file_io(
+                "edit",
+                _text(args, "path"),
+                before=_text(args, "old_text"),
+                after=_text(args, "new_text"),
+            ),
             # 列目录按 glob 画；协议的 operation 联合里没有「删」，删文件走 generic。
             "list_files": lambda args: _file_io("glob", _text(args, "prefix") or "/"),
             "delete_file": _delete_display,
-            "search_files": ToolDisplayEntry(draw=_search_display, view="search_results"),
-            "ReadMediaFile": ToolDisplayEntry(draw=_media_display, view=_MEDIA_GRID_VIEW),
+            "search_files": ToolDisplayEntry(draw=_search_display, view=SEARCH_RESULTS_VIEW),
+            "ReadMediaFile": ToolDisplayEntry(draw=_media_display, view=MEDIA_GRID_VIEW),
         }
 
     @classmethod
@@ -137,14 +150,23 @@ def _text(args: Any, field_name: str) -> str | None:
 
 
 def _file_io(
-    operation: Literal["read", "write", "edit", "glob", "grep"], path: str | None
+    operation: Literal["read", "write", "edit", "glob", "grep"],
+    path: str | None,
+    *,
+    content: str | None = None,
+    before: str | None = None,
+    after: str | None = None,
 ) -> ToolDisplay | None:
-    return None if path is None else FileIoDisplay(operation=operation, path=path)
+    if path is None:
+        return None
+    return FileIoDisplay(
+        operation=operation, path=path, content=content, before=before, after=after
+    )
 
 
 def _delete_display(args: Any) -> ToolDisplay | None:
     path = _text(args, "path")
-    return None if path is None else GenericDisplay(summary=f"删除文件 {path}")
+    return None if path is None else GenericDisplay(summary="删除文件", detail=path)
 
 
 def _search_display(args: Any) -> ToolDisplay | None:
@@ -154,7 +176,27 @@ def _search_display(args: Any) -> ToolDisplay | None:
 
 def _media_display(args: Any) -> ToolDisplay | None:
     url = _text(args, "url")
-    return None if url is None else UrlFetchDisplay(url=url)
+    return None if url is None else GenericDisplay(summary="读取图片", detail=url_filename(url))
+
+
+def _size_chip(size_bytes: int) -> str:
+    """卡尾角标用的文件大小；给模型的摘要另有 ``_bytes_label``，不要合并。"""
+
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    return _bytes_label(size_bytes)
+
+
+def _diff_counts(old_text: str, new_text: str) -> tuple[int, int]:
+    """一次替换增删了多少行，只看行级 diff。"""
+
+    added = removed = 0
+    for line in difflib.unified_diff(old_text.splitlines(), new_text.splitlines(), n=0):
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return added, removed
 
 
 def _bytes_label(size_bytes: int) -> str:
@@ -163,6 +205,12 @@ def _bytes_label(size_bytes: int) -> str:
     if size_bytes >= mib:
         return f"{size_bytes / mib:.1f} MB"
     return f"{size_bytes / 1024:.1f} KB"
+
+
+def _delivery_chip(delivered: str, original: str) -> str:
+    """交付地址带了缩放或裁切参数就是加工过的图，否则是原图。"""
+
+    return "原图" if delivered == original else "已处理"
 
 
 def _checked(path: str) -> str:
@@ -227,7 +275,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
 
     async def read_file(
         self, ctx: RunContext[AgentDepsT], path: str, offset: int = 1, limit: int = MAX_READ_LINES
-    ) -> str:
+    ) -> ToolReturn[str]:
         """读一个工作区文件，返回带行号的内容。
 
         Args:
@@ -253,9 +301,14 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         remaining = len(lines) - (offset - 1 + len(window))
         if remaining > 0:
             numbered += f"\n[还有 {remaining} 行没读，接着从第 {offset + len(window)} 行读]"
-        return numbered
+        return ToolReturn(
+            return_value=numbered,
+            metadata=file_content(key, lines=len(window), truncated=remaining > 0),
+        )
 
-    async def write_file(self, ctx: RunContext[AgentDepsT], path: str, content: str) -> str:
+    async def write_file(
+        self, ctx: RunContext[AgentDepsT], path: str, content: str
+    ) -> ToolReturn[str]:
         """写一个工作区文件，已存在就整份覆盖。
 
         覆盖就是覆盖：别人（或你自己上一轮）改过的内容会一起没掉。只改其中一
@@ -271,11 +324,14 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         key = _checked(path)
         scope = self._capability.resolve_scope(ctx)
         entry = await self._write(scope, key, content)
-        return f"已写入 {entry.path}（{entry.size_bytes} 字节）"
+        return ToolReturn(
+            return_value=f"已写入 {entry.path}（{entry.size_bytes} 字节）",
+            metadata=tool_note(chip=_size_chip(entry.size_bytes)),
+        )
 
     async def edit_file(
         self, ctx: RunContext[AgentDepsT], path: str, old_text: str, new_text: str
-    ) -> str:
+    ) -> ToolReturn[str]:
         """把文件里的一段文本替换掉，``old_text`` 必须恰好出现一次。
 
         改一处就用它，别把整份稿子重写一遍。``old_text`` 要连标点和空白一起照
@@ -309,7 +365,10 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         entry = await self._write(
             scope, key, stored.content.replace(old_text, new_text), expected_version=stored.version
         )
-        return f"已改 {entry.path}（现在 {entry.size_bytes} 字节）"
+        return ToolReturn(
+            return_value=f"已改 {entry.path}（现在 {entry.size_bytes} 字节）",
+            metadata=diff_note(*_diff_counts(old_text, new_text)),
+        )
 
     async def delete_file(self, ctx: RunContext[AgentDepsT], path: str) -> str:
         """删掉一个不再需要的工作区文件。
@@ -325,7 +384,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
             raise ModelRetry(f"工作区里没有 {key!r}，无从删除。")
         return f"已删除 {key}"
 
-    async def list_files(self, ctx: RunContext[AgentDepsT], prefix: str = "") -> str:
+    async def list_files(self, ctx: RunContext[AgentDepsT], prefix: str = "") -> ToolReturn[str]:
         """列出工作区里的文件。
 
         接手一段对话先用它看看已经攒了什么，别从零重来。
@@ -339,10 +398,17 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         entries = await self._entries(scope, prefix)
         if not entries:
             where = "工作区" if not prefix else f"{prefix!r} 下"
-            return f"{where}还没有任何文件。"
-        return "\n".join(f"{entry.path}\t{entry.size_bytes} 字节" for entry in entries)
+            return ToolReturn(
+                return_value=f"{where}还没有任何文件。", metadata=tool_note(chip="0 个文件")
+            )
+        return ToolReturn(
+            return_value="\n".join(f"{entry.path}\t{entry.size_bytes} 字节" for entry in entries),
+            metadata=tool_note(chip=f"{len(entries)} 个文件"),
+        )
 
-    async def search_files(self, ctx: RunContext[AgentDepsT], query: str, limit: int = 20) -> str:
+    async def search_files(
+        self, ctx: RunContext[AgentDepsT], query: str, limit: int = 20
+    ) -> ToolReturn[str]:
         """在工作区的文件内容里检索一个字符串，返回命中的行。
 
         大小写不敏感，按字面量匹配（不是正则）。同一个文件最多报前几处命中。
@@ -359,12 +425,17 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         result = await self._capability.space.store.search(
             scope, query, limit=min(limit, MAX_SEARCH_RESULTS)
         )
+        hits = search_results(
+            query,
+            ((match.path, match.line, match.snippet) for match in result.matches),
+            truncated=result.truncated,
+        )
         if not result.matches:
-            return f"工作区里没有包含 {query!r} 的内容。"
+            return ToolReturn(return_value=f"工作区里没有包含 {query!r} 的内容。", metadata=hits)
         lines = [f"{match.path}:{match.line}\t{match.snippet}" for match in result.matches]
         if result.truncated:
             lines.append("[命中较多，只报了一部分；把检索词写得更具体一些]")
-        return "\n".join(lines)
+        return ToolReturn(return_value="\n".join(lines), metadata=hits)
 
     async def read_media_file(
         self,
@@ -426,7 +497,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
                 ImageUrl(url=delivered, media_type=info.media_type),
                 media_tag_close("image"),
             ],
-            metadata=media_grid([(delivered, clause)]),
+            metadata=media_grid([(delivered, clause)], note=_delivery_chip(delivered, url)),
         )
 
     def _deliver(

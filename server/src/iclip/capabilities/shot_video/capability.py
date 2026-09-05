@@ -26,17 +26,15 @@ from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.platform.file_store.store import FileSpace
 from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.transcript.display import (
+    MEDIA_GRID_VIEW,
     DisplayFn,
-    FileIoDisplay,
     GenericDisplay,
     ToolDisplay,
     ToolDisplayEntry,
+    url_filename,
 )
 
 CAPABILITY_ID: Final = "shot_video"
-
-_MEDIA_GRID_VIEW: Final = "media_grid"
-"""媒体生成与预览工具共用的 MediaGridItems 渲染器。"""
 
 
 @dataclass
@@ -65,16 +63,22 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
     def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]:
         """供组合根合并的工具卡与结果渲染声明。"""
 
+        # 标题写法见 docs/tool-design.md §4：书面动宾短语，数字进 metadata 角标。
         return {
-            "video_parser_md": lambda _args: GenericDisplay(summary="拆解参考片"),
+            "video_parser_md": lambda args: GenericDisplay(
+                summary="拆解视频", detail=_video_name(args)
+            ),
             "plan_shot_frames": ToolDisplayEntry(
-                draw=lambda _args: GenericDisplay(summary="按镜头取帧拼板"), view=_MEDIA_GRID_VIEW
+                draw=lambda args: GenericDisplay(summary="提取候选帧", detail=_video_name(args)),
+                view=MEDIA_GRID_VIEW,
             ),
-            "generate_shot_frames": ToolDisplayEntry(draw=_frames_display, view=_MEDIA_GRID_VIEW),
+            "generate_shot_frames": ToolDisplayEntry(draw=_frames_display, view=MEDIA_GRID_VIEW),
             "generate_anchor_sheet": ToolDisplayEntry(
-                draw=lambda _args: GenericDisplay(summary="补拍设定图"), view=_MEDIA_GRID_VIEW
+                draw=lambda _args: GenericDisplay(summary="生成设定图"), view=MEDIA_GRID_VIEW
             ),
-            "write_video_shots": lambda _args: FileIoDisplay(operation="write", path=SHOTS_PATH),
+            "write_video_shots": lambda _args: GenericDisplay(
+                summary="保存分镜", detail=SHOTS_PATH
+            ),
         }
 
     @classmethod
@@ -83,9 +87,23 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
         return None
 
 
+def _video_name(args: Any) -> str | None:
+    url = args.get("video_url") if isinstance(args, dict) else None
+    return url_filename(url) if isinstance(url, str) else None
+
+
 def _frames_display(args: Any) -> ToolDisplay:
+    """主语是这批帧所属的镜头号；帧号形如 S8-1，镜头号取 S 后面的数字。"""
+
     frames = args.get("frames") if isinstance(args, dict) else None
-    return GenericDisplay(summary=f"出图 {len(frames)} 帧" if isinstance(frames, list) else "出图")
+    shots: list[int] = []
+    for frame in frames if isinstance(frames, list) else []:
+        no = frame.get("no") if isinstance(frame, dict) else None
+        head = no.split("-", 1)[0].lstrip("S") if isinstance(no, str) else ""
+        if head.isdigit() and int(head) not in shots:
+            shots.append(int(head))
+    detail = f"镜头 {'、'.join(map(str, sorted(shots)))}" if shots else None
+    return GenericDisplay(summary="生成画面", detail=detail)
 
 
 def shot_video_capability(

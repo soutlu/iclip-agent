@@ -84,6 +84,9 @@ class GridCut:
     grid_url: str
     """整图地址也会经版记录进入模型上下文，须登记到素材台账。"""
 
+    note: str | None = None
+    """工具卡角标原文：几张、哪个渠道。"""
+
 
 class FrameGenerator:
     """生成与裁剪服务，工作区记录由调用方持久化。"""
@@ -184,6 +187,7 @@ class FrameGenerator:
             urls=urls,
             captions=list(cell_ids),
             grid_url=grid_url,
+            note=f"{len(frames_payload)} 张 · {job.channel} 渠道",
         )
 
     async def collect_anchors(
@@ -232,6 +236,7 @@ class FrameGenerator:
             urls=urls,
             captions=list(descriptions),
             grid_url=grid_url,
+            note=f"{len(images)} 格 · {job.channel} 渠道",
         )
 
     async def _slice_and_store(

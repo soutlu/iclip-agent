@@ -37,7 +37,7 @@ from iclip.domains.identity.public import Principal
 from iclip.harness.materials import require_http, require_material
 from iclip.platform.file_store.store import FileStore, QuotaExceeded
 from iclip.platform.material_ledger.store import Material
-from iclip.platform.transcript.display import media_grid
+from iclip.platform.transcript.display import media_grid, tool_note
 
 if TYPE_CHECKING:
     from iclip.capabilities.shot_video.capability import ShotVideo
@@ -171,8 +171,11 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 ],
             },
             metadata=media_grid(
-                (board["url"], f"板 {board['board']} · {','.join(map(str, board['shots']))}")
-                for board in boards
+                (
+                    (board["url"], f"板 {board['board']} · {','.join(map(str, board['shots']))}")
+                    for board in boards
+                ),
+                note=f"{len(boards)} 板 · {cells_total} 格",
             ),
         )
 
@@ -290,7 +293,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         ctx: RunContext[AgentDepsT],
         aspect_ratio: str,
         shots: list[VideoShotRequest],
-    ) -> dict[str, Any]:
+    ) -> ToolReturn[dict[str, Any]]:
         """交付镜头组 prompt 表：校验后写成工作区里的 ``video_shot.json``。
 
         - 镜头组 prompt 表只经本工具交付。不要用 `write_file` 写 ``video_shot.json``
@@ -322,12 +325,16 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             json.dumps({"aspectRatio": aspect_ratio, "shots": rows}, ensure_ascii=False, indent=2),
         )
         seconds = sum(shot.seconds for shot in shots)
-        return {
-            "message": (
-                f"镜头组 prompt 表已交付到 {SHOTS_PATH}：{len(rows)} 个镜头组，合计 {seconds} 秒。"
-            ),
-            "path": SHOTS_PATH,
-        }
+        return ToolReturn(
+            return_value={
+                "message": (
+                    f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
+                    f"{len(rows)} 个镜头组，合计 {seconds} 秒。"
+                ),
+                "path": SHOTS_PATH,
+            },
+            metadata=tool_note(chip=f"{len(rows)} 镜 · {seconds} 秒"),
+        )
 
     async def _validate_video_url(self, ctx: RunContext[Any], video_url: str) -> None:
         """拆片与取帧收的视频地址。参数表与这两件工具逐字一致，官方按它调。"""
@@ -407,7 +414,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         await self._record_images(namespace, [*cut.urls, cut.grid_url])
         return ToolReturn(
             return_value=cut.payload,
-            metadata=media_grid(zip(cut.urls, cut.captions, strict=True)),
+            metadata=media_grid(zip(cut.urls, cut.captions, strict=True), note=cut.note),
         )
 
     async def _record_images(self, namespace: str, urls: Sequence[str]) -> None:

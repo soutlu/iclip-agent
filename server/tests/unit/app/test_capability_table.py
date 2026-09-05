@@ -168,6 +168,7 @@ def test_the_display_registry_covers_every_mounted_tool(
         "generate_shot_frames",
         "get_skill_reference",
         "list_files",
+        "load_capability",
         "plan_shot_frames",
         "read_file",
         "search_files",

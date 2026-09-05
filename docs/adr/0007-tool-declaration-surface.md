@@ -1,6 +1,6 @@
 # ADR-0007: 工具的声明面
 
-- 状态：已接受（2026-09-02）
+- 状态：已接受（2026-09-02；2026-09-05 修订决策 5、6）
 - **[ADR-0005](0005-transcript-protocol.md)**：transcript 协议照抄 kimi，工具帧上的 `display` 与 `view` 字段由它定义；本文定这两个字段由谁产出、取值范围。
 - **[ADR-0006](0006-durable-runs.md)** 决策 4：审批是 run 的结束点，`awaiting` 机制不变；本文定「哪次调用要审批」怎么声明。
 - **[ADR-0001](0001-architecture-foundations.md)**：引擎依赖遵守分层边界；本文使用 PydanticAI 与 Harness 的公开接口。
@@ -38,13 +38,15 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 ### 5. 界面画法归工具所有者
 
 - 每个 capability 自带「工具名 → 参数 → display」的表，由工具所有者维护。`platform/transcript/display.py` 只留 display 的类型与合表协议；组合根把各能力的表合成一份，同一实例递给实时（`projector.py`）与历史（`from_messages.py`）两条路。
-- display 的 `kind` 只取 kimi `packages/protocol/src/display.ts` 里已有的：`file_io`、`search`、`url_fetch`、`skill_call`、`agent_call`、`generic`。不自造 kind。
+- display 的 `kind` 只取 kimi `packages/protocol/src/display.ts` 里已有的：`file_io`、`search`、`url_fetch`、`skill_call`、`agent_call`、`generic`。不自造 kind；kimi 合同里的可选字段（`file_io` 的 `content` / `before` / `after`、`generic` 的 `detail`）能填就填。
+- `generic.summary` 是标题、`detail` 是主语，写法与词表见 `docs/tool-design.md` §4；数字不进标题。
 - 帧上的 `view`（协议已有）由服务端给出，前端按它选渲染器，不认工具名；给不出就不给，前端走 generic。
 
 ### 6. 给人看的结果走 `ToolReturn.metadata`
 
 - 需要给人看结构化结果的工具返回 `ToolReturn(return_value=给模型的原样, metadata=给人看的形状)`。`metadata` 不进模型上下文，随 `ToolReturnPart` 落库，实时与历史两条路读同一个字段，原样放进工具帧。
-- 媒体类结果的形状固定为 `{"items": [{"url": ..., "caption": ...}]}`，`view="media_grid"`。
+- `metadata` 的形状由 `view` 决定：`file_content`、`search_results`、`media_grid` 各一种；没有 `view` 的工具只带角标（`ToolNote`）。形状与构造函数列在 `docs/tool-design.md` §4，新形状先加 view 再加形状。
+- 角标文字由工具写好放进 metadata（`media_grid.note`、`ToolNote.chip`），前端不从 output 或参数里拼。
 
 ### 7. 模型面输出的上限
 
