@@ -84,7 +84,8 @@ test('首页 composer 附件视觉验收：内联 pill 与悬停卡', async ({ p
   await page.screenshot({ path: `${SHOT_DIR}/home-composer-attachment.png`, fullPage: true })
 
   await pill.hover()
-  await expect(page.getByText('已上传')).toBeVisible()
+  // 传完后卡上第二行报大小；mock 的公网地址加载不出图，所以没有像素尺寸。
+  await expect(page.getByText('70 B')).toBeVisible()
   await page.waitForTimeout(200)
   await page.screenshot({ path: `${SHOT_DIR}/home-composer-attachment-tip.png`, fullPage: true })
 })

@@ -9,6 +9,19 @@ export const formatAttachmentSize = (bytes: number): string => {
   return `${(bytes / MB).toFixed(1)} MB`
 }
 
+/** 像素尺寸用乘号连接，数字本身不加单位。 */
+export const formatDimensions = (width: number, height: number): string => `${width} × ${height}`
+
+/** 时长四舍五入到秒；不足一小时写 m:ss，满一小时写 h:mm:ss。 */
+export const formatDuration = (seconds: number): string => {
+  const total = Math.round(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m)
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(s).padStart(2, '0')}`
+}
+
 const NAME_MAX_GRAPHEMES = 32
 /** 扩展名前额外保留的字符数。 */
 const TAIL_EXTRA = 4

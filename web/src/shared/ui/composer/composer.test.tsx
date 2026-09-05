@@ -168,7 +168,7 @@ describe('Composer', () => {
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
-  it('悬停 pill 出预览卡，卡里报着这颗附件的上传状态', async () => {
+  it('悬停 pill 出预览卡，传完后卡上报文件大小而不是上传状态', async () => {
     await renderWithProviders(<Composer attachmentsEnabled onSubmit={vi.fn()} />)
 
     pasteFilesIntoComposer(editor(), [imageFile()])
@@ -177,7 +177,9 @@ describe('Composer', () => {
     fireEvent.mouseEnter(pillHost('截图.png'))
 
     const tip = await screen.findByRole('tooltip')
-    expect(within(tip).getByText('已上传')).toBeInTheDocument()
+    // 'fake-png-bytes' 共 14 字节；jsdom 不加载图片，所以没有像素尺寸。
+    expect(within(tip).getByText('14 B')).toBeInTheDocument()
+    expect(within(tip).queryByText('已上传')).not.toBeInTheDocument()
   })
 
   it('视频 pill 传完后，卡上的「全屏查看」进灯箱', async () => {
