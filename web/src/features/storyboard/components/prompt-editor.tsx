@@ -19,8 +19,10 @@ type ChipContext = {
 }
 
 const CHIP_CLASS =
-  'frame-chip mx-0.5 inline-flex cursor-pointer items-center gap-1 rounded-xs bg-surface-container-high px-1 py-px align-middle text-caption text-on-surface-variant select-none ui-motion-s'
+  'frame-chip mx-0.5 inline-flex cursor-pointer items-center gap-1 rounded-xs bg-surface-container-high px-1 py-px align-middle text-caption text-on-surface-variant select-none ui-focus ui-motion-s'
 const CHIP_ACTIVE_CLASS = 'bg-on-surface text-surface'
+
+const isActivationKey = (key: string) => key === 'Enter' || key === ' '
 
 class FrameChipView implements NodeView {
   readonly dom: HTMLSpanElement
@@ -38,6 +40,7 @@ class FrameChipView implements NodeView {
     this.dom.setAttribute('role', 'button')
     this.dom.setAttribute('aria-label', `看第 ${this.n} 帧`)
     this.dom.contentEditable = 'false'
+    this.dom.tabIndex = 0
     this.img = document.createElement('img')
     this.img.alt = ''
     this.img.className = 'size-4 rounded-xs object-cover'
@@ -45,6 +48,11 @@ class FrameChipView implements NodeView {
     label.textContent = `@${this.n}`
     this.dom.append(this.img, label)
     this.dom.addEventListener('click', (event) => {
+      event.preventDefault()
+      this.ctx.onPick(this.n)
+    })
+    this.dom.addEventListener('keydown', (event) => {
+      if (!isActivationKey(event.key)) return
       event.preventDefault()
       this.ctx.onPick(this.n)
     })
@@ -61,7 +69,11 @@ class FrameChipView implements NodeView {
   }
 
   stopEvent(event: Event) {
-    return event.type === 'click' || event.type === 'mousedown'
+    return (
+      event.type === 'click' ||
+      event.type === 'mousedown' ||
+      (event.type === 'keydown' && event instanceof KeyboardEvent && isActivationKey(event.key))
+    )
   }
 
   ignoreMutation() {

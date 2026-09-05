@@ -1,4 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { renderWithProviders } from '@/testing/render'
 import { parsePromptDoc, serializeLines } from '../prompt-doc'
@@ -55,6 +56,29 @@ describe('PromptEditor', () => {
     expect(screen.getByRole('textbox', { name: '只读' })).toHaveAttribute(
       'contenteditable',
       'false',
+    )
+  })
+
+  it.each(['{Enter}', ' '])('帧芯片能通过键盘 %s 激活', async (key) => {
+    let selectedFrame: number | undefined
+    await renderWithProviders(
+      <PromptEditor
+        aria-label="镜头 1 的描述"
+        frames={frames}
+        lines={lines}
+        onPickFrame={(number) => {
+          selectedFrame = number
+        }}
+      />,
+    )
+    const chip = screen.getByRole('button', { name: '看第 2 帧' })
+    expect(chip).toHaveAttribute('tabindex', '0')
+    chip.focus()
+    await userEvent.keyboard(key)
+
+    expect(selectedFrame).toBe(2)
+    expect(screen.getByRole('textbox', { name: '镜头 1 的描述' })).toHaveTextContent(
+      '她走向镜头 @1，停下 @2。',
     )
   })
 })

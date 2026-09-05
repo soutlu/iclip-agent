@@ -19,11 +19,9 @@ const PREAMBLE = ['参考锁定：模特的服装与发型跟住 @Image1。', '�
 const SHOT_TWO_PROMPT = [
   PREAMBLE,
   '',
-  '[0–4秒｜镜头1]',
-  '她从长椅间走向镜头 @Image1，脚步放慢。',
+  '[0–4秒｜镜头1] 她从长椅间走向镜头 @Image1，脚步放慢。',
   '',
-  '[4–11秒｜镜头2]',
-  '走到近处停下微笑 @Image2，再低头看一眼包 @Image3。',
+  '[4–11秒｜镜头2] 走到近处停下微笑 @Image2，再低头看一眼包 @Image3。',
 ].join('\n')
 
 const SHOT_TWO_PROMPT_AFTER = SHOT_TWO_PROMPT.replace(

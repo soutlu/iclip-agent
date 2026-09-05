@@ -12,6 +12,10 @@ import type { Shot } from './shots'
 /** 保留 shot-spec.md 示例及模型可能生成的边界格式。 */
 const FIXTURES: Record<string, string> = {
   CRLF: '[0–1秒｜镜头1] 开场 @Image1。\r\n[1–2秒｜镜头2] 硬切 @Image2。',
+  独立头CRLF: '[0–1秒｜镜头1]\r\n开场 @Image1。\r\n[1–2秒｜镜头2]\r\n收尾 @Image2。',
+  同行正文紧接头: '[0–2秒｜镜头1]开场 @Image1。\n[2–6秒｜镜头2]收尾 @Image2。',
+  同行正文空白: '  [0–2秒｜镜头1]\t  开场 @Image1。  \n\n[2–6秒｜镜头2]\t收尾 @Image2。\n',
+  同行与独立行混排: '[0–2秒｜镜头1] 开场 @Image1。\n继续动作。\n[2–6秒｜镜头2]\n收尾 @Image2。',
   spec示例: [
     '产品「X」以镜头帧为唯一外观参考，所有镜头中外观保持一致。',
     '人物「X」身份、脸部、发型与穿搭在所有镜头中保持一致。',
@@ -54,6 +58,37 @@ describe('parsePromptDoc / serializePromptDoc', () => {
   it('前导零的 @Image01 当文字，不当帧', () => {
     expect(frameMentions(parsePromptDoc(FIXTURES['前导零不算记号'] ?? ''))).toEqual([1])
   })
+
+  it('真实同行时间线分出镜头，头后的正文和帧进入可编辑段落', () => {
+    const doc = parsePromptDoc(
+      '参考锁定 @Image1。\n[0–2秒｜镜头1]开场 @Image2。\n[2–6秒｜镜头2] 收尾 @Image3。',
+    )
+
+    expect(doc.sections).toHaveLength(3)
+    expect(doc.sections[1]).toEqual({
+      header: '[0–2秒｜镜头1]',
+      inlineBody: true,
+      lines: [
+        [
+          { kind: 'text', text: '开场 ' },
+          { kind: 'frame', n: 2 },
+          { kind: 'text', text: '。' },
+        ],
+      ],
+    })
+    expect(doc.sections[2]?.header).toBe('[2–6秒｜镜头2] ')
+    expect(frameMentions(doc)).toEqual([1, 2, 3])
+  })
+
+  it.each(['正文引用 [0–2秒｜镜头1] 开场', '[0–2秒｜镜头] 开场', '[0–2秒｜画面1] 开场'])(
+    '普通正文留在前言，不误识别为镜头：%s',
+    (prompt) => {
+      const doc = parsePromptDoc(prompt)
+      expect(doc.sections).toHaveLength(1)
+      expect(doc.sections[0]?.header).toBeNull()
+      expect(serializePromptDoc(doc)).toBe(prompt)
+    },
+  )
 })
 
 describe('renumberFrames', () => {
@@ -61,6 +96,14 @@ describe('renumberFrames', () => {
     const doc = parsePromptDoc('走向镜头 @Image1，停下 @Image2。')
     const next = renumberFrames(doc, (n) => (n === 1 ? null : n - 1))
     expect(serializePromptDoc(next)).toBe('走向镜头，停下 @Image1。')
+  })
+
+  it('修改同行正文的帧引用后保留头与正文的空白和换行', () => {
+    const doc = parsePromptDoc('  [0–2秒｜镜头1]\t 开场 @Image1。\n[2–6秒｜镜头2]收尾 @Image2。\n')
+    const next = renumberFrames(doc, (n) => (n === 1 ? 2 : 1))
+    expect(serializePromptDoc(next)).toBe(
+      '  [0–2秒｜镜头1]\t 开场 @Image2。\n[2–6秒｜镜头2]收尾 @Image1。\n',
+    )
   })
 })
 

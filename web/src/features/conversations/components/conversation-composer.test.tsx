@@ -33,7 +33,7 @@ const renderChatWithWorkbench = async (initialPath = '/?shot=2') => {
     </>,
     { initialPath },
   )
-  await screen.findByText('3 组 · 合计 21 秒 · 第 2 组')
+  await screen.findByRole('region', { name: '镜头组 2' })
   return { ...rendered, onSend }
 }
 
@@ -87,7 +87,11 @@ describe('ConversationComposer 上的引用芯片', () => {
   it('「全部分镜」里的「在聊天里说」把选中的几组一起变成引用', async () => {
     await renderChatWithWorkbench()
 
-    await userEvent.click(screen.getByRole('button', { name: '全部分镜' }))
+    await userEvent.click(
+      within(screen.getByRole('region', { name: '镜头组 2' })).getByRole('button', {
+        name: '全部分镜',
+      }),
+    )
     const sheet = await screen.findByRole('complementary', { name: '全部分镜' })
     await userEvent.click(within(sheet).getByRole('button', { name: '全选' }))
     await userEvent.click(within(sheet).getByRole('button', { name: '在聊天里说' }))

@@ -1,6 +1,6 @@
 /** 保证 serialize(parse(text)) === text：保留空白、空行、标点与时间线头，仅帧操作可重排编号。 */
 
-import { isSceneHeader, type Shot } from './shots'
+import { parseSceneHeader, type Shot } from './shots'
 
 /** 只识别无前导零的正整数帧编号；@Image01 保持普通文本。 */
 const FRAME_REF = /@Image([1-9]\d*)/g
@@ -13,6 +13,8 @@ export type PromptLine = PromptInline[]
 /** 前言的 header 为 null，其余段落包含时间线头和正文。 */
 export interface PromptSection {
   header: string | null
+  /** 首行正文是否紧接时间线头，序列化时保留原始换行位置。 */
+  inlineBody: boolean
   lines: PromptLine[]
 }
 
@@ -34,10 +36,15 @@ const parseLine = (line: string): PromptLine => {
 
 /** 首段始终是前言，允许为空。 */
 export const parsePromptDoc = (prompt: string): PromptDoc => {
-  const sections: PromptSection[] = [{ header: null, lines: [] }]
+  const sections: PromptSection[] = [{ header: null, inlineBody: false, lines: [] }]
   for (const line of prompt.split('\n')) {
-    if (isSceneHeader(line)) {
-      sections.push({ header: line, lines: [] })
+    const header = parseSceneHeader(line)
+    if (header !== undefined) {
+      sections.push({
+        header: header.text,
+        inlineBody: header.body.length > 0,
+        lines: header.body.length === 0 ? [] : [parseLine(header.body)],
+      })
       continue
     }
     sections.at(-1)?.lines.push(parseLine(line))
@@ -54,8 +61,12 @@ export const serializeLines = (lines: readonly PromptLine[]): string =>
 export const serializePromptDoc = (doc: PromptDoc): string => {
   const lines: string[] = []
   for (const section of doc.sections) {
-    if (section.header !== null) lines.push(section.header)
-    for (const line of section.lines) lines.push(serializeLine(line))
+    if (section.header !== null) {
+      lines.push(section.header + (section.inlineBody ? serializeLine(section.lines[0] ?? []) : ''))
+    }
+    for (const line of section.inlineBody ? section.lines.slice(1) : section.lines) {
+      lines.push(serializeLine(line))
+    }
   }
   return lines.join('\n')
 }
@@ -71,7 +82,7 @@ export const frameMentions = (doc: PromptDoc): number[] =>
 /** 重排编号；映射为 null 时删除记号及其前方紧邻的一个空格，返回新文档。 */
 export const renumberFrames = (doc: PromptDoc, remap: (n: number) => number | null): PromptDoc => ({
   sections: doc.sections.map((section) => ({
-    header: section.header,
+    ...section,
     lines: section.lines.map((line) => {
       const next: PromptLine = []
       for (const inline of line) {

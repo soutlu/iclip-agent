@@ -221,8 +221,41 @@ describe('splitShotTimeline', () => {
     expect(splitShotTimeline(withPrompt(`${header}\n正文`)).scenes).toHaveLength(1)
   })
 
-  it('行尾还有别的字就不算时间线头', () => {
-    expect(splitShotTimeline(withPrompt('[0–2秒｜镜头1] 开场')).scenes).toEqual([])
+  it('时间线头后的同行正文归入该镜头，首帧按引用顺序选择', () => {
+    const inline = splitShotTimeline(
+      withPrompt(
+        '参考锁定 @Image1。\n[0–2秒｜镜头1]开场 @Image2。\n[2–6秒｜镜头2] 收尾 @Image3，再看 @Image1。',
+      ),
+    )
+
+    expect(inline.preamble).toBe('参考锁定 @Image1。')
+    expect(inline.scenes).toHaveLength(2)
+    expect(inline.scenes.map((scene) => [scene.startSeconds, scene.endSeconds])).toEqual([
+      [0, 2],
+      [2, 6],
+    ])
+    expect(inline.scenes.map((scene) => scene.frameNumbers)).toEqual([[2], [3, 1]])
+    expect(inline.scenes.map(firstFrameOfScene)).toEqual([2, 3])
+    expect(inline.scenes[0]?.segments[0]).toMatchObject({ text: '开场 ' })
+    expect(shotName(withPrompt('[0–2秒｜镜头1] 开场 @Image2。'))).toBe('开场')
+  })
+
+  it.each(['正文引用 [0–2秒｜镜头1] 开场', '[0–2秒｜镜头] 开场', '[0–2秒｜画面1] 开场'])(
+    '普通正文不误识别为镜头：%s',
+    (prompt) => {
+      const plain = splitShotTimeline(withPrompt(prompt))
+      expect(plain.scenes).toEqual([])
+      expect(plain.preamble).toBe(prompt)
+    },
+  )
+
+  it('同行正文和后续独立行属于同一镜头', () => {
+    const mixed = splitShotTimeline(
+      withPrompt(
+        '[0–2秒｜镜头1] 开场 @Image1。\n继续动作 @Image2。\n[2–6秒｜镜头2]\n收尾 @Image3。',
+      ),
+    )
+    expect(mixed.scenes.map((scene) => scene.frameNumbers)).toEqual([[1, 2], [3]])
   })
 
   it('没写帧的镜头查不出第一帧', () => {

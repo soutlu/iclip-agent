@@ -61,21 +61,23 @@ export const splitPrompt = (prompt: string): PromptSegment[] => {
   return segments
 }
 
-/** 时间线头接受 - 和 – 两种分隔符，并保留小数秒。 */
+/** 时间线头从行首识别，接受同行正文、- 与 – 分隔符，并保留小数秒。 */
 const SCENE_HEADER =
-  /^[ \t]*[[【][ \t]*(\d+(?:\.\d+)?)[ \t]*[–-][ \t]*(\d+(?:\.\d+)?)[ \t]*秒?[ \t]*[|｜][ \t]*镜头[ \t]*(\d+)[ \t]*[\]】][ \t]*$/
-
-export const isSceneHeader = (line: string): boolean => SCENE_HEADER.test(line)
+  /^[ \t]*[[【][ \t]*(\d+(?:\.\d+)?)[ \t]*[–-][ \t]*(\d+(?:\.\d+)?)[ \t]*秒?[ \t]*[|｜][ \t]*镜头[ \t]*(\d+)[ \t]*[\]】][ \t]*/
 
 export const parseSceneHeader = (
   line: string,
-): { startSeconds: number; endSeconds: number; scene: number } | undefined => {
+):
+  | { startSeconds: number; endSeconds: number; scene: number; text: string; body: string }
+  | undefined => {
   const header = SCENE_HEADER.exec(line)
   if (header === null) return undefined
   return {
+    body: line.slice(header[0].length),
     endSeconds: Number(header[2]),
     scene: Number(header[3]),
     startSeconds: Number(header[1]),
+    text: header[0],
   }
 }
 
@@ -113,21 +115,21 @@ export const splitShotTimeline = (shot: Shot): ShotTimeline => {
   }
 
   for (const [line, text] of shot.prompt.split('\n').entries()) {
-    const header = SCENE_HEADER.exec(text)
-    if (header === null) {
+    const header = parseSceneHeader(text)
+    if (header === undefined) {
       if (scenes.length === 0) preamble.push(text)
       else body.push(text)
       continue
     }
     flush()
-    body = []
+    body = header.body.length === 0 ? [] : [header.body]
     scenes.push({
-      endSeconds: Number(header[2]),
+      endSeconds: header.endSeconds,
       frameNumbers: [],
       id: `s${line}`,
-      scene: Number(header[3]),
+      scene: header.scene,
       segments: [],
-      startSeconds: Number(header[1]),
+      startSeconds: header.startSeconds,
     })
   }
   flush()

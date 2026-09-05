@@ -21,32 +21,13 @@ import {
   workspaceQueryKeys,
   type ArtifactRendererProps,
 } from '@/shared/workbench'
-import {
-  latestShotVideos,
-  runningShots,
-  shotSelectionRef,
-  shotStatus,
-  SHOTS_PATH,
-  type ShotStatus,
-} from '../shots'
+import { latestShotVideos, runningShots, shotSelectionRef, SHOTS_PATH } from '../shots'
 import { uploadFrameImage, useFrameCandidates, useShotGenerations } from '../storyboard.api'
 import { useShotsDraft } from '../use-shots-draft'
 import { useVideoGeneration } from '../use-video-generation'
 import { AllShotsSheet } from './all-shots-sheet'
 import { GenerationRecords } from './generation-records'
 import { ShotPage } from './shot-page'
-
-const DOT_CLASS: Record<ShotStatus, string> = {
-  idle: 'bg-outline-variant',
-  ready: 'bg-chat-status-success',
-  running: 'bg-chat-status-running',
-}
-
-const DOT_LABEL: Record<ShotStatus, string> = {
-  idle: '还没出片',
-  ready: '已出片',
-  running: '正在出片',
-}
 
 const pageOfScroll = (element: HTMLElement): number | undefined =>
   element.clientHeight > 0 ? Math.round(element.scrollTop / element.clientHeight) + 1 : undefined
@@ -143,7 +124,6 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const jobs = generations.data?.items ?? []
   const videos = latestShotVideos(jobs)
   const running = runningShots(jobs)
-  const status = shotStatus(shot.index, videos, running)
 
   const generateNote = !generation.aspectRatioSupported
     ? `画幅 ${shotsDocument.aspectRatio} 不在出片支持的档位里，先改文件里的画幅`
@@ -197,42 +177,26 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     go({ shot: next })
   }
 
-  const totalSeconds = shots.reduce((sum, item) => sum + item.seconds, 0)
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-4 pt-2 pb-1">
-        <p className="text-body-sm text-on-surface-faint">
-          {shots.length} 组 · 合计 {totalSeconds} 秒 · 第 {position} 组
-        </p>
-        {changedByAgent ? <Tag variant="running">agent 刚改过</Tag> : null}
-        <SaveStatus state={draft.state} />
-        <span className="flex-1" />
-        <span className="flex items-center gap-1.5 text-body-sm text-on-surface-faint">
-          <span aria-hidden className={cn('size-2 shrink-0 rounded-full', DOT_CLASS[status])} />
-          {DOT_LABEL[status]}
-        </span>
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 shrink-0 items-center gap-2 px-4 pt-2 pb-1">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 wrap-anywhere">
+          {changedByAgent ? <Tag variant="running">agent 刚改过</Tag> : null}
+          <SaveStatus state={draft.state} />
+        </div>
         <Button
-          leadingIcon="grid"
-          onClick={() => go({ sheet: search.sheet === 'all' ? undefined : 'all' })}
-          size="md"
-          variant="ghost"
-        >
-          全部分镜
-        </Button>
-        <Button
-          leadingIcon="history"
+          className="shrink-0"
           onClick={() => go({ sheet: search.sheet === 'records' ? undefined : 'records' })}
           size="md"
-          variant="ghost"
+          variant="primary"
         >
           生成记录
         </Button>
       </div>
 
-      <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 w-full min-w-0 flex-1 overflow-hidden">
         <div
-          className="flex min-h-0 flex-1 snap-y snap-mandatory flex-col overflow-y-auto [overflow-anchor:none]"
+          className="flex min-h-0 min-w-0 flex-1 snap-y snap-mandatory flex-col overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
           onScroll={onScroll}
           ref={pagesRef}
         >
@@ -244,10 +208,11 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               generateDisabled={generateNote !== undefined || generatingShot(item.index)}
               generateNote={generateNote}
               generating={generatingShot(item.index)}
-              key={item.index}
+              key={`${item.index}-${offset + 1 === position ? 'active' : 'inactive'}`}
               onChangeShot={draft.updateShot}
               onGenerateVideo={() => void generation.submit(item)}
-              onPickFrame={(frame) => go({ frame })}
+              onOpenAllShots={() => go({ sheet: 'all', shot: offset + 1 })}
+              onPickFrame={(frame) => go({ frame, shot: offset + 1 })}
               onUploadFrame={uploadFrameImage}
               shot={item}
             />
@@ -302,7 +267,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         {search.sheet === 'records' ? (
           <aside
             aria-label="生成记录"
-            className="absolute inset-y-0 right-0 flex w-2/5 min-w-0 animate-in flex-col border-l-[0.5px] border-chat-hairline bg-background shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-right"
+            className="absolute inset-y-0 right-0 flex w-full max-w-100 min-w-0 animate-in flex-col border-l-[0.5px] border-chat-hairline bg-background shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-right"
           >
             <GenerationRecords
               jobs={jobs}
