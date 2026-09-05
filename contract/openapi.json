@@ -1,6 +1,109 @@
 {
   "components": {
     "schemas": {
+      "AgentDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "agentId": {
+            "title": "Agentid",
+            "type": "string"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "disposedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposedat"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "parentAgentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parentagentid"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "main",
+                  "sub",
+                  "independent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "required": [
+          "agentId"
+        ],
+        "title": "AgentDescriptor",
+        "type": "object"
+      },
+      "AgentRef": {
+        "additionalProperties": false,
+        "properties": {
+          "agentId": {
+            "title": "Agentid",
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "child",
+                  "member"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "required": [
+          "agentId"
+        ],
+        "title": "AgentRef",
+        "type": "object"
+      },
       "AgentStatusMeta": {
         "additionalProperties": false,
         "properties": {
@@ -1974,6 +2077,7 @@
                   "meta.merge": "#/components/schemas/MetaMergeOp",
                   "prompt.upsert": "#/components/schemas/PromptUpsertOp",
                   "step.upsert": "#/components/schemas/StepUpsertOp",
+                  "task.upsert": "#/components/schemas/TaskUpsertOp",
                   "turn.upsert": "#/components/schemas/TurnUpsertOp"
                 },
                 "propertyName": "op"
@@ -1990,6 +2094,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/AppendOp"
+                },
+                {
+                  "$ref": "#/components/schemas/TaskUpsertOp"
                 },
                 {
                   "$ref": "#/components/schemas/InteractionUpsertOp"
@@ -3060,6 +3167,25 @@
         "title": "TaskStyle",
         "type": "object"
       },
+      "TaskUpsertOp": {
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "const": "task.upsert",
+            "default": "task.upsert",
+            "title": "Op",
+            "type": "string"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TranscriptTask"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "title": "TaskUpsertOp",
+        "type": "object"
+      },
       "TasksPageOut": {
         "additionalProperties": false,
         "properties": {
@@ -3205,6 +3331,20 @@
       "ToolFrame": {
         "additionalProperties": false,
         "properties": {
+          "agentRefs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AgentRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agentrefs"
+          },
           "approvalId": {
             "anyOf": [
               {
@@ -3347,7 +3487,7 @@
       },
       "TranscriptPage": {
         "additionalProperties": false,
-        "description": "``GET /transcript`` 的一页。\n\n``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、\n后者从待回应的交互里取。",
+        "description": "``GET /transcript`` 的一页。\n\n``agents`` 与 ``pending_interactions`` 是协议要求的字段：前者是主 agent 加各子代理，后者从\n待回应的交互里取。",
         "properties": {
           "agent_id": {
             "title": "Agent Id",
@@ -3356,8 +3496,7 @@
           "agents": {
             "default": [],
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/AgentDescriptor"
             },
             "title": "Agents",
             "type": "array"
@@ -3407,7 +3546,9 @@
           },
           "tasks": {
             "default": [],
-            "items": {},
+            "items": {
+              "$ref": "#/components/schemas/TranscriptTask"
+            },
             "title": "Tasks",
             "type": "array"
           },
@@ -3567,6 +3708,164 @@
           "state"
         ],
         "title": "TranscriptStep",
+        "type": "object"
+      },
+      "TranscriptTask": {
+        "additionalProperties": false,
+        "description": "一件后台活儿。本系统只产出 ``subagent``：一次 delegate_task 一条。",
+        "properties": {
+          "agentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agentid"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "detached": {
+            "title": "Detached",
+            "type": "boolean"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "kind": {
+            "enum": [
+              "shell",
+              "subagent",
+              "tool",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "outputTail": {
+            "default": "",
+            "title": "Outputtail",
+            "type": "string"
+          },
+          "resultSummary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resultsummary"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "completed",
+              "failed",
+              "timed_out",
+              "killed",
+              "lost"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stateReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statereason"
+          },
+          "taskId": {
+            "title": "Taskid",
+            "type": "string"
+          },
+          "thinkingEffort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinkingeffort"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "taskId",
+          "kind",
+          "state",
+          "detached"
+        ],
+        "title": "TranscriptTask",
         "type": "object"
       },
       "TranscriptTurn": {

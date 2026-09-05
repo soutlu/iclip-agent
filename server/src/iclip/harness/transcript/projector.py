@@ -43,6 +43,7 @@ from iclip.platform.transcript.ops import (
     COMPACTION_NOTICE,
     MAIN_AGENT_ID,
     TOOL_STATE_BY_OUTCOME,
+    AgentRef,
     AppendOp,
     EmittableOperation,
     FrameTarget,
@@ -55,10 +56,12 @@ from iclip.platform.transcript.ops import (
     StepHeader,
     StepUpsertOp,
     StepUsage,
+    TaskUpsertOp,
     TextFrame,
     ThinkingFrame,
     ToolFrame,
     TranscriptMeta,
+    TranscriptTask,
     TranscriptTurn,
     TurnHeader,
     TurnOrigin,
@@ -74,6 +77,12 @@ OpsBatch = tuple[EmittableOperation, ...]
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _step_of(card: ToolFrame) -> str:
+    """工具卡所在的步；卡的 id 是 <stepId>.<toolCallId>，据此回推，不依赖当前步号。"""
+
+    return card.frame_id[: -len(card.tool_call_id) - 1]
 
 
 @dataclass
@@ -106,6 +115,10 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     _step_usage: list[StepUsage] = field(default_factory=list[StepUsage], init=False)
     _tool_cards: dict[str, ToolFrame] = field(default_factory=dict[str, ToolFrame], init=False)
     """按 toolCallId 保存原工具卡，供结果到达时更新。"""
+    _subagent_tasks: dict[str, TranscriptTask] = field(
+        default_factory=dict[str, TranscriptTask], init=False
+    )
+    """按 toolCallId 保存本轮派出的子代理任务，供结果与轮次终态收尾。"""
     _step_headers: list[StepHeader] = field(default_factory=list[StepHeader], init=False)
     """保留步骤头部，补充用量时不覆盖时间。"""
     _pending_steers: list[tuple[PromptContent, ...]] = field(
@@ -179,6 +192,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             return
         yield (
             *self._orphan_card_ops(),
+            *self._orphan_task_ops("failed"),
             TurnUpsertOp(turn=self._turn_header(state="completed")),
             MetaMergeOp(meta=TranscriptMeta(activity="idle")),
         )
@@ -186,6 +200,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     async def on_cancelled(self, cancelled: RunCancelled) -> AsyncIterator[OpsBatch]:
         yield (
             *self._orphan_card_ops(),
+            *self._orphan_task_ops("killed"),
             TurnUpsertOp(turn=self._turn_header(state="cancelled")),
             MetaMergeOp(meta=TranscriptMeta(activity="idle")),
         )
@@ -199,6 +214,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         self._closed_with_error = True
         yield (
             *self._orphan_card_ops(),
+            *self._orphan_task_ops("failed"),
             TurnUpsertOp(turn=self._turn_header(state="failed", error=repr(error))),
             MetaMergeOp(meta=TranscriptMeta(activity="idle")),
         )
@@ -333,6 +349,37 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         self._tool_cards[event.part.tool_call_id] = card
         yield (FrameUpsertOp(turn_id=self.turn_id, step_id=self._step_id, frame=card),)
 
+    def note_subagent(self, tool_call_id: str, child_run_id: str, agent_name: str) -> OpsBatch:
+        """把 delegate_task 派出的子运行记到父卡上，并开一条 subagent 任务。
+
+        卡必定已在：FunctionToolCallEvent 先于工具执行到达；不在就是投影漏了事件，直接报错。
+        """
+
+        card = self._tool_cards[tool_call_id]
+        stamped = card.model_copy(
+            update={
+                "agent_refs": (
+                    *(card.agent_refs or ()),
+                    AgentRef(agent_id=child_run_id, role="child"),
+                )
+            }
+        )
+        self._tool_cards[tool_call_id] = stamped
+        task = TranscriptTask(
+            task_id=child_run_id,
+            kind="subagent",
+            state="running",
+            detached=False,
+            description=agent_name,
+            agent_id=child_run_id,
+            started_at=_now(),
+        )
+        self._subagent_tasks[tool_call_id] = task
+        return (
+            FrameUpsertOp(turn_id=self.turn_id, step_id=_step_of(stamped), frame=stamped),
+            TaskUpsertOp(task=task),
+        )
+
     async def handle_function_tool_result(
         self, event: FunctionToolResultEvent
     ) -> AsyncIterator[OpsBatch]:
@@ -350,7 +397,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             output = part.content
             metadata = part.metadata
             error = None if state == "done" else str(part.content)
-        yield (
+        ops: list[EmittableOperation] = [
             FrameUpsertOp(
                 turn_id=self.turn_id,
                 step_id=self._step_id,
@@ -362,8 +409,21 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
                         "error": error,
                     }
                 ),
-            ),
-        )
+            )
+        ]
+        task = self._subagent_tasks.get(part.tool_call_id)
+        if task is not None:
+            settled = task.model_copy(
+                update={
+                    "state": "completed" if state == "done" else "failed",
+                    "ended_at": _now(),
+                    "result_summary": str(part.content) if state == "done" else None,
+                    "error": None if state == "done" else str(part.content),
+                }
+            )
+            self._subagent_tasks[part.tool_call_id] = settled
+            ops.append(TaskUpsertOp(task=settled))
+        yield tuple(ops)
 
     # --- 审批与插话 ---------------------------------------------------------
 
@@ -481,14 +541,27 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         for tool_call_id, card in self._tool_cards.items():
             if tool_call_id in self._settled_calls or card.state != "running":
                 continue
-            step_id = card.frame_id[: -len(tool_call_id) - 1]
             ops.append(
                 FrameUpsertOp(
                     turn_id=self.turn_id,
-                    step_id=step_id,
+                    step_id=_step_of(card),
                     frame=card.model_copy(update={"state": "error", "error": ORPHAN_TOOL_ERROR}),
                 )
             )
+        return ops
+
+    def _orphan_task_ops(self, state: str) -> list[EmittableOperation]:
+        """轮次收尾时给仍在跑的子代理任务一个终态，否则界面永远停在 running。"""
+
+        ops: list[EmittableOperation] = []
+        for tool_call_id, task in self._subagent_tasks.items():
+            if task.state != "running":
+                continue
+            settled = task.model_copy(
+                update={"state": state, "ended_at": _now(), "state_reason": "父轮次结束"}
+            )
+            self._subagent_tasks[tool_call_id] = settled
+            ops.append(TaskUpsertOp(task=settled))
         return ops
 
     def _repaired_card_ops(self) -> list[EmittableOperation]:
@@ -508,13 +581,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             )
             self._tool_cards[tool_call_id] = settled
             self._settled_calls.add(tool_call_id)
-            ops.append(
-                FrameUpsertOp(
-                    turn_id=self.turn_id,
-                    step_id=card.frame_id[: -len(tool_call_id) - 1],
-                    frame=settled,
-                )
-            )
+            ops.append(FrameUpsertOp(turn_id=self.turn_id, step_id=_step_of(card), frame=settled))
         return ops
 
     def _next_frame_id(self) -> str:

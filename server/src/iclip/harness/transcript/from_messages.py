@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final, Literal, cast
 
@@ -32,6 +33,7 @@ from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
     COMPACTION_NOTICE,
     TOOL_STATE_BY_OUTCOME,
+    AgentRef,
     Interaction,
     NoticeFrame,
     PromptContent,
@@ -41,6 +43,7 @@ from iclip.platform.transcript.ops import (
     ToolFrame,
     TranscriptFrame,
     TranscriptStep,
+    TranscriptTask,
     TranscriptTurn,
     TurnOrigin,
     TurnUsage,
@@ -73,11 +76,13 @@ def turns_from_messages(
     turn_errors: Mapping[str, str | None] | None = None,
     prompt_of_run: Mapping[str, str] | None = None,
     prompt_status_of_run: Mapping[str, str] | None = None,
+    subagent_of_call: Mapping[str, str] | None = None,
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
 ) -> tuple[TranscriptTurn, ...]:
     """按时间重建轮次；同 prompt 的 run 合并，轮次终态取最后一次 run。
 
     turn_states/turn_errors 按 run_id 提供，prompt_status_of_run 用于开放审批调用。
+    subagent_of_call 把 toolCallId 映射到它派出的子代理 id，据此给工具卡补 agentRefs。
     display 须与实时投影共享，保持工具卡结构一致。
     """
 
@@ -103,10 +108,81 @@ def turns_from_messages(
                 run_states=states,
                 approvals=(*settled, *waiting),
                 waiting=waiting if prompt_status in _WAITING_PROMPT_STATUSES else (),
+                subagent_of_call=subagent_of_call or {},
                 display=display,
             )
         )
     return tuple(turns)
+
+
+@dataclass(frozen=True, slots=True)
+class ChildRun:
+    """一次子代理运行的持久事实，由 history 层从运行记录与结束事件读出。"""
+
+    run_id: str
+    agent_name: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    state: TurnState
+
+
+_TASK_STATE_BY_RUN: Final[dict[TurnState, str]] = {
+    "completed": "completed",
+    "cancelled": "killed",
+}
+"""子运行终态到任务终态；其余（含未收尾）一律 failed。"""
+
+
+def tasks_from_messages(
+    messages: Sequence[ModelMessage],
+    *,
+    subagent_of_call: Mapping[str, str],
+    child_runs: Sequence[ChildRun],
+) -> tuple[TranscriptTask, ...]:
+    """把子运行重建成 subagent 任务；结果与错误取父侧那次 delegate_task 的返回。
+
+    父侧返回找不到（子运行中途崩、账本没写上）时结果与错误都留空。
+    """
+
+    call_of_child = {child_id: call_id for call_id, child_id in subagent_of_call.items()}
+    returns = _tool_returns(messages)
+    tasks: list[TranscriptTask] = []
+    for child in sorted(child_runs, key=lambda item: item.started_at):
+        outcome = returns.get(call_of_child.get(child.run_id, ""))
+        state, text = (None, None) if outcome is None else outcome
+        tasks.append(
+            TranscriptTask(
+                task_id=child.run_id,
+                kind="subagent",
+                state=_TASK_STATE_BY_RUN.get(child.state, "failed"),  # pyright: ignore[reportArgumentType]
+                detached=False,
+                description=child.agent_name,
+                agent_id=child.run_id,
+                started_at=_iso(child.started_at),
+                ended_at=_iso(child.ended_at),
+                result_summary=text if state == "done" else None,
+                error=None if state is None or state == "done" else text,
+            )
+        )
+    return tuple(tasks)
+
+
+def _tool_returns(messages: Sequence[ModelMessage]) -> dict[str, tuple[str, str]]:
+    """按 toolCallId 收集工具返回的（终态, 文本），与工具卡的判定口径一致。"""
+
+    found: dict[str, tuple[str, str]] = {}
+    for message in messages:
+        if not isinstance(message, ModelRequest):
+            continue
+        for part in message.parts:
+            if isinstance(part, RetryPromptPart):
+                found[part.tool_call_id] = ("error", str(part.content))
+            elif isinstance(part, ToolReturnPart):
+                found[part.tool_call_id] = (
+                    TOOL_STATE_BY_OUTCOME.get(part.outcome, "error"),
+                    str(part.content),
+                )
+    return found
 
 
 def approvals_from_messages(
@@ -277,6 +353,7 @@ def _turn(
     state: TurnState,
     error: str | None = None,
     run_states: Mapping[str, TurnState],
+    subagent_of_call: Mapping[str, str],
     approvals: Sequence[str] = (),
     waiting: Sequence[str] = (),
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
@@ -341,6 +418,7 @@ def _turn(
                 step_id=step_id,
                 frames=frames,
                 tool_frames=tool_frames,
+                subagent_of_call=subagent_of_call,
                 display=display,
             )
             steps.append(
@@ -425,6 +503,7 @@ def _open_frames(
     step_id: str,
     frames: dict[str, TranscriptFrame],
     tool_frames: dict[str, str],
+    subagent_of_call: Mapping[str, str],
     display: ToolDisplayRegistry,
 ) -> None:
     """响应 part 转换为步骤块；正文与思考共用序号，工具使用 <stepId>.<toolCallId>。"""
@@ -438,6 +517,7 @@ def _open_frames(
             frames[frame_id] = TextFrame(frame_id=frame_id, role="assistant", text=part.content)
         elif isinstance(part, ToolCallPart):
             frame_id = f"{step_id}.{part.tool_call_id}"
+            child_id = subagent_of_call.get(part.tool_call_id)
             frames[frame_id] = ToolFrame(
                 frame_id=frame_id,
                 tool_call_id=part.tool_call_id,
@@ -446,6 +526,9 @@ def _open_frames(
                 input=part.args,
                 display=display.tool_display(part.tool_name, part.args),
                 view=display.view_of(part.tool_name),
+                agent_refs=(
+                    None if child_id is None else (AgentRef(agent_id=child_id, role="child"),)
+                ),
             )
             tool_frames[part.tool_call_id] = frame_id
 
@@ -607,6 +690,7 @@ def turn_usage(steps: Sequence[StepUsage]) -> TurnUsage | None:
 __all__ = [
     "ORPHAN_TOOL_ERROR",
     "ApprovalState",
+    "ChildRun",
     "TurnState",
     "approvals_from_messages",
     "drop_last_turn",
@@ -614,6 +698,7 @@ __all__ = [
     "run_ids_from_messages",
     "run_state_from_events",
     "step_usage",
+    "tasks_from_messages",
     "turn_run_ids",
     "turn_usage",
     "turns_from_messages",
