@@ -354,16 +354,12 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         """把 delegate_task 派出的子运行记到父卡上，并开一条 subagent 任务。
 
         卡必定已在：FunctionToolCallEvent 先于工具执行到达；不在就是投影漏了事件，直接报错。
+        一张卡只指向它最后一次派出的子运行：崩溃续跑会重放同一次调用，账本上也只记最后那个。
         """
 
         card = self._tool_cards[tool_call_id]
         stamped = card.model_copy(
-            update={
-                "agent_refs": (
-                    *(card.agent_refs or ()),
-                    AgentRef(agent_id=child_run_id, role="child"),
-                )
-            }
+            update={"agent_refs": (AgentRef(agent_id=child_run_id, role="child"),)}
         )
         self._tool_cards[tool_call_id] = stamped
         task = TranscriptTask(
