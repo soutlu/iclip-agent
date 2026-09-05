@@ -92,15 +92,11 @@ def _derived(*messages: Any) -> tuple[TranscriptTurn, ...]:
 
 
 def _shape(turns: tuple[TranscriptTurn, ...]) -> Any:
-    """手工事件里没有 AgentRunResultEvent，实时侧补不上用量；步的 startedAt 实时侧本来就不写。"""
+    """手工事件里没有 AgentRunResultEvent，实时侧补不上用量，其余逐字比。"""
 
     def strip(value: Any) -> Any:
         if isinstance(value, dict):
-            return {
-                key: strip(item)
-                for key, item in value.items()
-                if key != "usage" and not (key == "startedAt" and value.get("kind") == "step")
-            }
+            return {key: strip(item) for key, item in value.items() if key != "usage"}
         if isinstance(value, list):
             return [strip(item) for item in value]
         return value
