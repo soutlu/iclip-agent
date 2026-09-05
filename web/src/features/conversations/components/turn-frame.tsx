@@ -1,10 +1,12 @@
 /** 单块分派由普通轮次与活动组共用，避免两者循环依赖。 */
 
-import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { TranscriptFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
+import { frameArtifactId, useWorkbenchSelection } from '@/shared/workbench'
 import { AssistantMarkdown } from './assistant-markdown'
 import { DisclosureBody, DisclosureChevron } from './disclosure'
 import { toolCard, toolMedia, type MediaGridItem } from './tool-display'
@@ -103,6 +105,7 @@ function ToolRow({ frame, settled }: ToolRowProps) {
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<LightboxMedia | null>(null)
   const media = toolMedia(frame)
+  const delegated = (frame.agentRefs?.length ?? 0) > 0
   // 仅展开字符串结果，内部对象结构不展示给用户。
   const text = typeof frame.output === 'string' && frame.output !== '' ? frame.output : undefined
   const output = media.length > 0 ? undefined : text
@@ -125,7 +128,9 @@ function ToolRow({ frame, settled }: ToolRowProps) {
 
   return (
     <div className="flex flex-col">
-      {output === undefined ? (
+      {delegated ? (
+        <DelegatedHead toolCallId={frame.toolCallId}>{head}</DelegatedHead>
+      ) : output === undefined ? (
         <div className="flex items-center gap-1 py-1 text-body-sm">{head}</div>
       ) : (
         <>
@@ -151,6 +156,32 @@ function ToolRow({ frame, settled }: ToolRowProps) {
         <p className="text-body-sm text-chat-error-text">{frame.error}</p>
       )}
     </div>
+  )
+}
+
+/** 派出了子代理的卡：点开的是右侧面板里它那条流。产物参数记在 URL 上，刷新与分享都还在；再点一次也能把折叠的面板重新打开。 */
+function DelegatedHead({ children, toolCallId }: { children: ReactNode; toolCallId: string }) {
+  const navigate = useNavigate()
+  const { requestOpen } = useWorkbenchSelection()
+  return (
+    <button
+      aria-label="查看子代理过程"
+      className="flex w-full cursor-pointer items-center gap-1 rounded-xs py-1 text-left text-body-sm ui-focus"
+      onClick={() => {
+        requestOpen()
+        void navigate({
+          search: (previous: Record<string, unknown>) => ({
+            ...previous,
+            artifact: frameArtifactId(toolCallId),
+          }),
+          to: '.',
+        })
+      }}
+      type="button"
+    >
+      {children}
+      <Icon className="shrink-0 text-chat-muted-text" decorative name="panel-right" size="sm" />
+    </button>
   )
 }
 

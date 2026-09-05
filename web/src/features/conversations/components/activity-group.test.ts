@@ -73,6 +73,26 @@ describe('groupTurnEntries', () => {
     expect(run.items.map((item) => item.frame.frameId)).toEqual(['f1', 'f2', 'f3'])
   })
 
+  it('派出了子代理的卡不进活动组，「查看」入口不能被折叠藏住', () => {
+    const delegated: TranscriptFrame = {
+      agentRefs: [{ agentId: 'run-child', role: 'child' }],
+      display: { agent_name: 'shot-writer', kind: 'agent_call', prompt: '写三个镜头' },
+      frameId: 'f2',
+      kind: 'tool',
+      name: 'delegate_task',
+      state: 'done',
+      toolCallId: 'f2',
+    }
+
+    const nodes = groupTurnEntries([
+      entry(thinking('f1')),
+      entry(delegated),
+      entry(tool('f3', 'read')),
+    ])
+
+    expect(nodes.map((node) => node.kind)).toEqual(['entry', 'entry', 'entry'])
+  })
+
   it('单个工具不折；没有工具的纯思考连续块也不折', () => {
     expect(groupTurnEntries([entry(tool('f1', 'read'))])[0]?.kind).toBe('entry')
     expect(

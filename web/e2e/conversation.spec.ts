@@ -23,6 +23,22 @@ test('点开一段对话：历史铺开，回复逐字长出来', async ({ page 
   await expect(page.locator('code', { hasText: 'shots/storyboard.md' })).toBeVisible()
 })
 
+test('点派活卡的「查看」：右侧打开子代理的过程，地址记住这张卡', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await expect(page.getByText('第 1 个问题')).toBeVisible()
+
+  await page.getByRole('button', { name: '查看子代理过程' }).first().click()
+
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  await expect(panel.getByRole('heading', { name: '派活 · shot-writer' })).toBeVisible()
+  await expect(panel.getByText('shot-writer', { exact: true })).toBeVisible()
+  await expect(panel.getByText('写第 3 组的三个镜头')).toBeVisible()
+  await expect(panel.getByText(/S3-1 特写/)).toBeVisible()
+  await expect(page).toHaveURL(/artifact=frame(%3A|:)call_t2_delegate/)
+})
+
 test('长对话可以在中间消息区滚动', async ({ page }) => {
   await page.goto('/')
   await login(page)

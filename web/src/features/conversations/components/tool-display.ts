@@ -89,6 +89,15 @@ export const toolCard = (display: unknown): ToolCard => {
   }
 }
 
+/** 派活卡上的子代理名与任务文本；不是派活卡就没有。 */
+export const agentCallOf = (
+  display: unknown,
+): { agentName: string; prompt: string } | undefined => {
+  const parsed = displaySchema.safeParse(display)
+  if (!parsed.success || parsed.data.kind !== 'agent_call') return undefined
+  return { agentName: parsed.data.agent_name, prompt: parsed.data.prompt }
+}
+
 const mediaGridSchema = z.object({
   items: z.array(z.object({ caption: z.string(), url: z.string() })),
 })

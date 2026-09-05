@@ -2,19 +2,41 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { use, useEffect, useState } from 'react'
+import { use, useEffect, useMemo, useState } from 'react'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
+import { useTranscript } from '@/shared/transcript/use-transcript'
+import type { TranscriptItem } from '@/shared/transcript/vendor'
 import { IconButton } from '@/shared/ui/button'
 import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { cn } from '@/shared/lib/utils'
 import type { WorkbenchFrame } from './artifact'
 import { composeArtifacts, pickArtifact } from './registry'
 import { useWorkbenchRegistry } from './use-workbench-registry'
+import { useWorkbenchSelection } from './use-workbench-selection'
 import { DEFAULT_WORKBENCH_LAYOUT, WorkbenchLayoutContext } from './workbench-layout-context'
 import { useWorkspaceFiles } from './workspace.api'
 
-/** 暂不接工具帧：同会话的 subscribe 会覆盖现有 reader，面板另建订阅将中断聊天推送。 */
-const NO_FRAMES: readonly WorkbenchFrame[] = []
+/** 主流里的每张工具卡都是候选产物，命不命中由注册表定；view 缺省按协议算 generic。 */
+const toolFrames = (items: readonly TranscriptItem[]): WorkbenchFrame[] =>
+  items.flatMap((item) =>
+    item.kind !== 'turn'
+      ? []
+      : item.steps.flatMap((step) =>
+          step.frames.flatMap((frame) =>
+            frame.kind !== 'tool'
+              ? []
+              : [
+                  {
+                    toolCallId: frame.toolCallId,
+                    view: frame.view ?? 'generic',
+                    ...(frame.metadata === undefined ? {} : { metadata: frame.metadata }),
+                    ...(frame.display === undefined ? {} : { display: frame.display }),
+                    ...(frame.agentRefs === undefined ? {} : { agentRefs: frame.agentRefs }),
+                  },
+                ],
+          ),
+        ),
+  )
 
 type WorkbenchHostProps = {
   conversationId: string
@@ -27,8 +49,12 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const connection = use(TranscriptConnectionContext)
   const search: { artifact?: string } = useSearch({ strict: false })
   const files = useWorkspaceFiles(conversationId)
-  // 用户选择优先；尚未手动切换时根据是否存在产物决定折叠状态。
-  const [collapsedByUser, setCollapsedByUser] = useState<boolean | null>(null)
+  // 与聊天页共用同一个主流读取器（按会话与 agent 登记），这里再订不会踢掉它的订阅。
+  const { view } = useTranscript(conversationId)
+  const frames = useMemo(() => toolFrames(view.items), [view.items])
+  // 用户的折叠选择只在聊天没有新的「打开面板」请求之前有效；点了派活卡的「查看」就按默认重新打开。
+  const { openToken } = useWorkbenchSelection()
+  const [userChoice, setUserChoice] = useState<{ collapsed: boolean; token: number } | null>(null)
   const [maximized, setMaximized] = useState(false)
   const { compact, onPanelVisible, sideBySide } =
     use(WorkbenchLayoutContext) ?? DEFAULT_WORKBENCH_LAYOUT
@@ -44,11 +70,14 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
     })
   }, [connection, conversationId, queryClient])
 
-  const artifacts = composeArtifacts(registry, files.data?.files ?? [], NO_FRAMES)
+  const artifacts = composeArtifacts(registry, files.data?.files ?? [], frames)
   const selected = pickArtifact(registry, artifacts, search.artifact)
   const entry = selected === undefined ? undefined : registry.resolve(selected.type)
-  const collapsed = collapsedByUser ?? (artifacts.length === 0 || compact)
-  const setCollapsed = setCollapsedByUser
+  const collapsed =
+    userChoice !== null && userChoice.token === openToken
+      ? userChoice.collapsed
+      : artifacts.length === 0 || compact
+  const setCollapsed = (value: boolean) => setUserChoice({ collapsed: value, token: openToken })
   const covering = maximized || !sideBySide
   // 仅面板占据布局空间时通知壳显示拖柄。
   const occupiesLayout = !collapsed && !covering
@@ -83,15 +112,14 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
       )}
     >
       <div className="flex h-13 shrink-0 items-center gap-2 border-b-[0.5px] border-chat-hairline px-4">
+        {/* 标题始终是标题；多一件产物只多一个切换钮，已有产物的定位方式不变。 */}
+        <h2 className="min-w-0 truncate px-2 text-body font-medium text-on-surface">
+          {selected?.title ?? '面板'}
+        </h2>
         {artifacts.length > 1 ? (
           <MenuRoot>
             <MenuTrigger asChild>
-              <button
-                className="flex ui-state cursor-pointer items-center gap-1 rounded-sm px-2 py-1 text-body font-medium text-on-surface ui-focus"
-                type="button"
-              >
-                {selected?.title}
-              </button>
+              <IconButton label="切换产物" name="expand" size="md" />
             </MenuTrigger>
             <MenuSurface align="start">
               <MenuRadioGroup
@@ -106,11 +134,7 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
               </MenuRadioGroup>
             </MenuSurface>
           </MenuRoot>
-        ) : (
-          <h2 className="px-2 text-body font-medium text-on-surface">
-            {selected?.title ?? '面板'}
-          </h2>
-        )}
+        ) : null}
 
         <span className="flex-1" />
 

@@ -11,6 +11,8 @@ export function WorkbenchSelectionProvider({ children }: { children: ReactNode }
     ids: '',
     refs: [] as readonly WorkbenchRef[],
   })
+  const [openToken, setOpenToken] = useState(0)
+  const requestOpen = useCallback(() => setOpenToken((current) => current + 1), [])
 
   const set = useCallback((refs: readonly WorkbenchRef[], options?: { focus?: boolean }) => {
     const ids = signature(refs)
@@ -36,8 +38,16 @@ export function WorkbenchSelectionProvider({ children }: { children: ReactNode }
   }, [])
 
   const value = useMemo(
-    () => ({ clear, focusToken: state.focusToken, refs: state.refs, remove, set }),
-    [clear, remove, set, state.focusToken, state.refs],
+    () => ({
+      clear,
+      focusToken: state.focusToken,
+      openToken,
+      refs: state.refs,
+      remove,
+      requestOpen,
+      set,
+    }),
+    [clear, openToken, remove, requestOpen, set, state.focusToken, state.refs],
   )
 
   return <WorkbenchSelectionContext value={value}>{children}</WorkbenchSelectionContext>

@@ -1,4 +1,4 @@
-export type { ArtifactRendererProps } from './artifact'
+export { frameArtifactId, type ArtifactRendererProps } from './artifact'
 export { ArtifactRegistry } from './registry'
 export { useWorkbenchSelection } from './use-workbench-selection'
 export { WorkbenchHost } from './workbench-host'

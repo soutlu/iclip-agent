@@ -64,6 +64,38 @@ describe('ArtifactRegistry', () => {
     ])
   })
 
+  it('工具帧按 display.kind 命中，来源带上 display 与 agentRefs', () => {
+    const agentEntry: ArtifactEntry = {
+      autoOpen: false,
+      component: Placeholder,
+      match: { displayKind: 'agent_call' },
+      title: () => '派活',
+      type: 'sub-agent',
+    }
+    const display = { agent_name: 'shot-writer', kind: 'agent_call', prompt: '写三个镜头' }
+
+    const artifacts = registryWith(agentEntry).matchFrames([
+      { agentRefs: [{ agentId: 'run-1' }], display, toolCallId: 'call_d1', view: 'generic' },
+      { display: { kind: 'file_io' }, toolCallId: 'call_r', view: 'generic' },
+    ])
+
+    expect(artifacts).toEqual([
+      {
+        id: 'frame:call_d1',
+        source: {
+          agentRefs: [{ agentId: 'run-1' }],
+          display,
+          kind: 'frame',
+          metadata: undefined,
+          toolCallId: 'call_d1',
+          view: 'generic',
+        },
+        title: '派活',
+        type: 'sub-agent',
+      },
+    ])
+  })
+
   it('两个来源合成一份列表，文件在前', () => {
     const registry = registryWith(shotsEntry, gridEntry)
 

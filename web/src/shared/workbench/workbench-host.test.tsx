@@ -74,6 +74,29 @@ describe('WorkbenchHost', () => {
     expect(screen.getByText(/agent 交付分镜之后/)).toBeVisible()
   })
 
+  it('主流里的派活卡是一件产物：地址点名它时画它，标题来自登记', async () => {
+    serveFiles([])
+    const registry = registryWithTwo()
+    registry.register({
+      autoOpen: false,
+      component: ({ artifact }: ArtifactRendererProps) => <p>画着{artifact.title}</p>,
+      match: { displayKind: 'agent_call' },
+      title: () => '派活',
+      type: 'sub-agent',
+    })
+    await renderWithProviders(
+      <WorkbenchRegistryProvider registry={registry}>
+        <WorkbenchLayoutProvider layout={ROOMY}>
+          <WorkbenchHost conversationId={CONVERSATION_ID} />
+        </WorkbenchLayoutProvider>
+      </WorkbenchRegistryProvider>,
+      { initialPath: `/c/${CONVERSATION_ID}?artifact=frame:call_t2_delegate` },
+    )
+
+    expect(await screen.findByText('画着派活')).toBeVisible()
+    expect(screen.getByRole('heading', { name: '派活' })).toBeVisible()
+  })
+
   it('紧凑屏保持折叠，哪怕有产物', async () => {
     serveFiles(['video_shot.json'])
     await renderHost({ compact: true, sideBySide: false })
@@ -88,7 +111,7 @@ describe('WorkbenchHost', () => {
 
     expect(await screen.findByText('画着分镜')).toBeVisible()
     expect(screen.getByRole('heading', { name: '分镜' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: '分镜' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '切换产物' })).not.toBeInTheDocument()
   })
 
   it('产物不止一件时给切换器，默认选 autoOpen 的那件', async () => {
@@ -96,11 +119,14 @@ describe('WorkbenchHost', () => {
     await renderHost()
 
     expect(await screen.findByText('画着分镜')).toBeVisible()
+    // 标题始终是标题，切换器另放一个钮：多一件产物不改变已有产物的定位方式。
+    expect(screen.getByRole('heading', { name: '分镜' })).toBeVisible()
 
-    await userEvent.click(screen.getByRole('button', { name: '分镜' }))
+    await userEvent.click(screen.getByRole('button', { name: '切换产物' }))
     await userEvent.click(await screen.findByRole('menuitemradio', { name: '笔记' }))
 
     expect(await screen.findByText('画着笔记')).toBeVisible()
+    expect(screen.getByRole('heading', { name: '笔记' })).toBeVisible()
   })
 
   it('放不下并排时是二选一形态：只给「回到聊天」，点了退回展开钮', async () => {
