@@ -1,8 +1,6 @@
-"""迁移契约：alembic head 与 ORM 元数据零漂移（表与列名集合）。
+"""比较 Alembic head 与 iclip schema 的 ORM 表、列集合。
 
-断言覆盖 ``iclip`` schema 下的**全部**表，所以每个在这个 schema 里有表的模块都要把
-自己的元数据加进 ``_MODULE_METADATA``。少加一个，那张表的迁移漂移就无人看守；而这
-张表本身又不能借用别的模块的元数据——那等于让 identity 去持有别人的表。
+_MODULE_METADATA 必须包含所有自有表模块的元数据，确保迁移对账完整。
 """
 
 from __future__ import annotations
@@ -62,4 +60,4 @@ def test_upgrade_is_idempotent_at_head(migrated_pg: str) -> None:
     cfg = AlembicConfig(str(server_dir / "alembic.ini"))
     cfg.set_main_option("script_location", str(server_dir / "migrations"))
     cfg.attributes["sqlalchemy_url"] = migrated_pg
-    command.upgrade(cfg, "head")  # 已在 head：不抛错、无副作用
+    command.upgrade(cfg, "head")

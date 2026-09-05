@@ -1,8 +1,4 @@
-"""T-TASK-02：需求单在真库上的事实——数据库的钟、写在表上的约束、状态守卫的原子性。
-
-这一层只验内存替身验不了的东西：期限比较用的是哪只钟、CHECK 是不是真的在表上、
-「读到写之间被人插了一手」会不会被守住、brief 存进去读回来是不是同一份。
-"""
+"""验证需求单的数据库时钟、表约束、条件更新原子性和持久化往返。"""
 
 from __future__ import annotations
 
@@ -58,7 +54,7 @@ async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
 
 
 async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
-    """绕开 API 改状态，模拟「另一个人抢在你前面动了这一行」。"""
+    """绕过 API 更新状态，模拟读取后的并发修改。"""
 
     engine = create_async_engine(pg_url)
     try:
@@ -72,7 +68,6 @@ async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
 
 
 async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) -> None:
-    """建 → 发 → 确认 → 撤回，走完整条 HTTP（谁认领的也一并记下）。"""
 
     user_id = await login_as_editor(client, pg_url)
 
@@ -90,17 +85,14 @@ async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) 
     assert confirmed.json()["task"]["status"] == "confirmed"
     assert confirmed.json()["task"]["assigneeUserIds"] == [user_id]
 
-    # 撤回留痕：状态翻成 withdrawn，认领记录不抹掉。
     withdrawn = await client.post(f"{URL}/{task['id']}/withdraw")
     assert withdrawn.json()["task"]["status"] == "withdrawn"
     assert withdrawn.json()["task"]["assigneeUserIds"] == [user_id]
 
-    # 撤回是终态：再撤一次、或想改回去，都是 409。
     assert (await client.post(f"{URL}/{task['id']}/withdraw")).status_code == 409
 
 
 async def test_brief_survives_the_round_trip(client: httpx.AsyncClient, pg_url: str) -> None:
-    """brief 存进去读回来是同一份：入库 camelCase，读回来重新校验一次。"""
 
     await login_as_editor(client, pg_url)
     task = (await create(client)).json()["task"]
@@ -108,7 +100,6 @@ async def test_brief_survives_the_round_trip(client: httpx.AsyncClient, pg_url: 
     read_back = (await client.get(f"{URL}/{task['id']}")).json()["task"]["brief"]
 
     assert {key: read_back[key] for key in BRIEF} == BRIEF
-    # 没填的字段有确定的空值，不是缺字段。
     assert read_back["audience"] == ""
     assert read_back["referenceVideos"] == []
 
@@ -116,7 +107,6 @@ async def test_brief_survives_the_round_trip(client: httpx.AsyncClient, pg_url: 
 async def test_style_snapshot_survives_the_round_trip(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """款号快照存的是自己一列，不在 brief 里；存进去读回来是同一份。"""
 
     await login_as_editor(client, pg_url)
     created = (await create(client)).json()["task"]
@@ -138,14 +128,12 @@ async def test_style_snapshot_survives_the_round_trip(
             ).scalar_one()
     finally:
         await engine.dispose()
-    # 入库就是 camelCase 的那一份，和 wire 一致——不存在第二套字段名。
     assert stored == created["style"]
 
 
 async def test_timestamps_come_from_the_database_clock(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """时刻由库写。应用进程的钟快了几秒，「谁先动的」就会排错。"""
 
     await login_as_editor(client, pg_url)
     task = (await create(client)).json()["task"]
@@ -171,7 +159,6 @@ async def test_timestamps_come_from_the_database_clock(
 async def test_a_deadline_in_the_past_cannot_be_published(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """「期限还没到」这句比较发生在数据库里——这条用例是那只钟的落点。"""
 
     await login_as_editor(client, pg_url)
     task = (await create(client, deadline=future(-1))).json()["task"]
@@ -185,10 +172,7 @@ async def test_a_deadline_in_the_past_cannot_be_published(
 async def test_status_guard_stops_a_write_built_on_stale_reading(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """判断和写入之间隔着一次 await；那当口这一行被撤回了，这次改动必须落空。
-
-    守卫写在 ``WHERE`` 里，所以它是原子的——内存替身模拟不出这一点。
-    """
+    """读取与写入间存在 await；WHERE 状态守卫须原子地拒绝基于过时状态的写入。"""
 
     await login_as_editor(client, pg_url)
     task = (await create(client)).json()["task"]
@@ -219,7 +203,6 @@ async def test_constraints_live_on_the_table(
     style: str,
     constraint: str,
 ) -> None:
-    """四条规则写在表上，不只写在 Python 里：破了就是数据本身错了。"""
 
     user_id = await login_as_editor(client, pg_url)
     statement = text(
@@ -240,7 +223,7 @@ async def test_constraints_live_on_the_table(
 
 
 async def test_a_task_outlives_nothing_silently(client: httpx.AsyncClient, pg_url: str) -> None:
-    """提需求的人不能被静默删掉：需求单是公司账本上的事实，外键用 restrict 挡住。"""
+    """需求单创建者外键使用 RESTRICT，避免删除账号破坏业务记录。"""
 
     user_id = await login_as_editor(client, pg_url)
     await create(client)
@@ -260,7 +243,6 @@ async def test_a_task_outlives_nothing_silently(client: httpx.AsyncClient, pg_ur
 async def test_viewer_reads_everyones_tasks_but_writes_none(
     app: object, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """需求单是全公司的工作队列：别人提的看得见，但 viewer 改不动。"""
 
     await login_as_editor(client, pg_url, username="luke")
     task = (await create(client)).json()["task"]
@@ -282,10 +264,7 @@ async def test_viewer_reads_everyones_tasks_but_writes_none(
 async def test_second_claim_adds_a_person_without_touching_the_task_row(
     app: object, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """一张已确认的单再被人认领：认领表多一行，需求单那一行不动。
-
-    这两条分支（联合主键挡重复认领、单已 confirmed 时 UPDATE 落空）只有真库能验。
-    """
+    """联合主键防止重复认领；已 confirmed 时只新增认领记录，不更新需求单时间。"""
 
     first_id = await login_as_editor(client, pg_url, username="luke")
     task = (await create(client)).json()["task"]
@@ -293,7 +272,6 @@ async def test_second_claim_adds_a_person_without_touching_the_task_row(
     confirmed = (await client.post(f"{URL}/{task['id']}/confirm")).json()["task"]
     assert confirmed["assigneeUserIds"] == [first_id]
 
-    # 同一个人认领两遍：联合主键让第二行根本落不下去。
     again = (await client.post(f"{URL}/{task['id']}/confirm")).json()["task"]
     assert again["assigneeUserIds"] == [first_id]
 
@@ -306,6 +284,4 @@ async def test_second_claim_adds_a_person_without_touching_the_task_row(
         joined = (await other.post(f"{URL}/{task['id']}/confirm")).json()["task"]
 
     assert joined["assigneeUserIds"] == [first_id, second_id]
-    # 单早就是 confirmed 了，第二个人加入不改需求单本身，所以 updatedAt 不动——
-    # 「最近改动倒序」的列表不该因为多一个人认领就把它顶上去。
     assert joined["updatedAt"] == confirmed["updatedAt"]

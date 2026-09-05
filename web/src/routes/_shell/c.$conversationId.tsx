@@ -4,7 +4,7 @@ import { ConversationRoute } from '@/features/conversations'
 import { ensureSessionUser } from '@/shared/auth'
 import { WorkbenchHost } from '@/shared/workbench'
 
-// 产物面板的状态放查询串：刷新、分享链接都能回到同一件产物的同一组同一帧（ADR-0009 决策 6）。
+// 产物、组和帧状态保存在查询参数，支持刷新与分享（ADR-0009 决策 6）。
 const ConversationSearchSchema = z.object({
   artifact: z.string().optional().catch(undefined),
   frame: z.int().positive().optional().catch(undefined),
@@ -13,7 +13,7 @@ const ConversationSearchSchema = z.object({
   take: z.string().optional().catch(undefined),
 })
 
-// 会话页只对登录用户开放：对话是私有的，未登录（含会话过期后 401 触发的路由重算）回首页。
+// 会话为私有内容，未登录或会话失效时由路由守卫返回首页。
 export const Route = createFileRoute('/_shell/c/$conversationId')({
   beforeLoad: async () => {
     if (!(await ensureSessionUser())) {
@@ -25,23 +25,12 @@ export const Route = createFileRoute('/_shell/c/$conversationId')({
   validateSearch: ConversationSearchSchema,
 })
 
-/**
- * 装配会话页。
- *
- * @returns 会话页内容。
- */
 function ConversationIndexRoute() {
   const { conversationId } = Route.useParams()
   return <ConversationRoute key={conversationId} conversationId={conversationId} />
 }
 
-/**
- * 装配会话页的右面板内容。
- *
- * 面板由壳渲染，不在本路由的组件树里，所以对话 id 从当前匹配上取。
- *
- * @returns 产物面板。
- */
+/** 面板由壳渲染，对话 ID 需从当前匹配路由读取。 */
 function ConversationWorkbenchPanel() {
   const { conversationId } = useParams({ strict: false })
   if (conversationId === undefined) return null

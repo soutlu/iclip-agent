@@ -1,13 +1,11 @@
-"""agent_runtime：prompts 改名 agent_jobs，prompt_runs 改名 agent_job_runs
+"""agent_runtime：prompts / prompt_runs 表改名
 
 Revision ID: 3d7e42b8f105
 Revises: 8a1c5e39b742
 Create Date: 2026-09-02 11:00:00.000000
 
-只改名，不动列，也不动数据：这两张表的行是用户发上来的消息与它们起过的 run。所以一律走
-``RENAME``，不走 drop/create。
-
-索引与主键约束不跟着表名走，PG 不会自动改它们，得逐个点名改。
+使用 RENAME 保留数据，将表改名为 agent_jobs / agent_job_runs。
+Postgres 不自动更新索引与主键约束名称，须同步改名。
 """
 
 from __future__ import annotations

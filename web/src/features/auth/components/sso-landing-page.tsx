@@ -7,12 +7,6 @@ type SsoLandingPageProps = {
   jwt?: string | undefined
 }
 
-/**
- * 把 SSO 换会话失败映射为登录弹窗可读的错误码。
- *
- * @param error - completeSsoLogin 抛出的未知错误。
- * @returns 应用壳 ?ssoError= 错误码。
- */
 const ssoErrorCodeFromError = (error: unknown) => {
   if (error instanceof ApiError && error.status === 401) {
     return 'invalid'
@@ -25,13 +19,6 @@ const ssoErrorCodeFromError = (error: unknown) => {
   return 'unavailable'
 }
 
-/**
- * 渲染企业 SSO 回跳落地页：用 jwt 换自有会话后回到暂存的站内路径。
- *
- * @param props - 落地页属性。
- * @param props.jwt - SSO 服务回跳携带的 jwt_token。
- * @returns SSO 落地过渡页。
- */
 export function SsoLandingPage({ jwt }: SsoLandingPageProps) {
   const navigate = useNavigate()
   const completeSsoLogin = useCompleteSsoLogin()
@@ -45,7 +32,7 @@ export function SsoLandingPage({ jwt }: SsoLandingPageProps) {
 
     startedRef.current = true
 
-    // 失败一律回首页并带上错误码，应用壳读到就把登录弹窗打开
+    // 失败回首页并传递错误码，由应用壳显示登录弹窗。
     if (!jwt) {
       void navigate({ replace: true, search: { ssoError: 'missing' }, to: '/' })
       return

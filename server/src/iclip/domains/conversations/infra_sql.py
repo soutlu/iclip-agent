@@ -1,8 +1,4 @@
-"""``iclip.conversations`` 的 Postgres 后端。DDL 归 Alembic，这里不建表。
-
-所有时刻都取数据库的时钟（``now()``）。多台应用服务器的时钟差几秒，「最近活动」的
-排序就会乱，而对话列表就是按它排的。
-"""
+"""对话的 Postgres 仓储。使用数据库时钟，避免实例钟差影响最近活动排序。"""
 
 from __future__ import annotations
 
@@ -49,22 +45,17 @@ conversations_table = Table(
         ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="cascade"),
         nullable=False,
     ),
-    # agent 在配置文件里声明，库里没有对应的行，所以这里没有外键可挂。
     Column("agent_id", Text, nullable=False),
     Column("title", Text, nullable=False),
-    # 这个标题是谁起的：default 还没起过、generated 小模型起的、custom 用户自己起的。
-    # 自动生成只认 default 那一档，用户起过名的一律不覆盖。
     Column("title_kind", Text, nullable=False, server_default="default"),
     Column("last_run_id", Text, nullable=True),
-    # 这段对话是为哪张需求单开的。空着就是「直接开始创作」，不属于任何一张单。
-    # set null 而不是 cascade：删掉一张单不该带走别人为它跑过的对话。
+    # 删除需求单只清空归属，保留对话。
     Column(
         "task_id",
         Uuid,
         ForeignKey(f"{DB_SCHEMA}.tasks.id", ondelete="set null"),
         nullable=True,
     ),
-    # 放在哪个合集里，最多一个，随时可以换。空着就是没归类。
     Column(
         "collection_id",
         Uuid,
@@ -77,15 +68,13 @@ conversations_table = Table(
 
 _ROWS = conversations_table.c
 
-# 侧栏与搜索都走这一条：我的对话，最近活动的排前面。首列是属主，所以不用再单独给
-# owner_user_id 建索引。
+# 首列覆盖 owner_user_id 查询，无需另建单列索引。
 Index("ix_conversations_owner_recent", _ROWS.owner_user_id, _ROWS.updated_at.desc())
 
-# 治理者的审计列表：跨属主按最近活动倒序翻页，带上 id 是因为翻页位置是这两列。
+# 审计分页使用 updated_at 与 id 的复合游标。
 Index("ix_conversations_updated", _ROWS.updated_at.desc(), _ROWS.id.desc())
 
-# 这两条都带 WHERE：没挂单、没进合集的对话是多数，不该占索引。
-# 单那条按 created_at 升序——「这张单的第几次尝试」就是按它排出来的。
+# 部分索引排除无归属记录；需求单尝试按 created_at 升序排列。
 Index(
     "ix_conversations_task",
     _ROWS.task_id,
@@ -116,10 +105,7 @@ def _row(mapping: RowMapping) -> Conversation:
 
 
 def _after(cursor: PageCursor | None) -> list[ColumnElement[bool]]:
-    """翻页条件：严格小于上一页最后一行的排序键。
-
-    带上 id 一起比，同一时刻的几行才不会被跳过。侧栏往下滑与审计列表共用这一条。
-    """
+    """按时间和 id 的复合排序键续页，避免跳过时间相同的记录。"""
 
     if cursor is None:
         return []
@@ -132,17 +118,13 @@ def _after(cursor: PageCursor | None) -> list[ColumnElement[bool]]:
 
 
 def _only(only_ids: frozenset[uuid.UUID] | None) -> list[ColumnElement[bool]]:
-    """把结果限定在这几段对话里（列表的 ``state`` 筛选），``None`` 即不限定。"""
+    """None 不限制 id；其余集合用于活动状态筛选。"""
 
     return [] if only_ids is None else [_ROWS.id.in_(only_ids)]
 
 
 def _reject_missing_reference(error: IntegrityError) -> ValidationFailed:
-    """外键挡下来的引用错误翻成领域错误。
-
-    这一层不认识需求单表和合集表（架构上就不许认识），所以「那张单/那个合集在不在」
-    只能由外键回答。区分是哪一个靠约束名——拿不到名字时就都报，比报错但说不清好。
-    """
+    """按外键约束名将无效归属转换为领域错误；无法取得约束名时报告两个可能的引用。"""
 
     constraint = getattr(getattr(error, "orig", None), "diag", None)
     name = getattr(constraint, "constraint_name", None) or ""
@@ -259,7 +241,7 @@ class SqlConversationRepository:
         limit: int,
         after: PageCursor | None,
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序取一页。侧栏两个区的翻页只差 WHERE 那一条。"""
+        """按最近活动倒序分页，共用于侧栏未分类区和合集区。"""
 
         statement = (
             select(conversations_table)
@@ -292,7 +274,7 @@ class SqlConversationRepository:
             .where(
                 _ROWS.owner_user_id == owner,
                 _ROWS.collection_id.in_(collection_ids),
-                # 筛在这一层而不是外面：条数是窗口函数在这里算的，外面再筛就还是全部的条数。
+                # 窗口计数前完成筛选，保证总数与返回记录使用相同范围。
                 *_only(only_ids),
             )
             .subquery()
@@ -308,7 +290,7 @@ class SqlConversationRepository:
         grouped: dict[uuid.UUID, list[RowMapping]] = {}
         for row in rows:
             grouped.setdefault(row["collection_id"], []).append(row)
-        # 顺序按调用方给的合集顺序还原：库里那次排序是为了分组，不是给人看的。
+        # 恢复调用方的合集顺序，SQL 内部排序仅用于分组。
         return tuple(
             CollectionConversations(
                 collection_id=collection_id,
@@ -376,7 +358,6 @@ class SqlConversationRepository:
     async def _set_membership(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, values: dict[str, uuid.UUID | None]
     ) -> Conversation:
-        """改一处归属。两处归属的写法一模一样，差别只在改哪一列。"""
 
         statement = (
             update(conversations_table)
@@ -433,7 +414,7 @@ class SqlConversationRepository:
     async def touch_run(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, agent_id: str, run_id: str
     ) -> None:
-        # agent_id 进 WHERE 而不是 SET：对不上就一行也改不到，于是抛 NotFound。
+        # agent_id 仅用于匹配，不能改写对话绑定。
         statement = (
             update(conversations_table)
             .where(

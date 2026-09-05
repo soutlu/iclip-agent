@@ -12,7 +12,7 @@ const openDialog = () =>
 
 describe('ConversationSearchDialog', () => {
   it('输入关键词后列出标题命中的对话，最近的排前面', async () => {
-    // updatedAt 早的先塞，命中顺序仍应由服务端的倒序决定
+    // 按旧到新顺序插入，验证服务端仍按最近活动倒序返回。
     addMockConversation('夏季亚麻系列广告', '2026-08-01T00:00:00Z')
     addMockConversation('通勤背包短视频', '2026-08-02T00:00:00Z')
     addMockConversation('亚麻衬衫二剪', '2026-08-03T00:00:00Z')

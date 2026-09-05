@@ -1,12 +1,10 @@
-"""agent_runtime.prompts：中断后被重新认领过几次
+"""agent_runtime.prompts：认领次数
 
 Revision ID: 4c8b1f7d3e60
 Revises: 6e3f8a21c95b
 Create Date: 2026-09-01 16:10:00.000000
 
-清扫按这一列判「还要不要续跑」：到 ``max_attempts`` 就判失败，不再起新的 run。
-
-老行按 0 回填，等于「还没被重新认领过」，它们仍有一次续跑的机会。
+清扫根据 attempt 与 max_attempts 判断是否续跑；存量行回填为 0。
 """
 
 from __future__ import annotations

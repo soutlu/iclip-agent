@@ -1,10 +1,4 @@
-"""声明面到运行面的接线：声明里挂的 skill 必须真的到达跑起来的那个 agent。
-
-这条守的是组合根里那一行翻译（声明的名字 → 能力实例）。它两侧的环节各自都有
-测试——配置环解析得出 skill 库、harness 装得出能力、注册表挂得上——但中间那
-行要是被删掉，所有单测照样全绿，而线上每个 agent 都悄悄丢掉了自己的 SOP：不
-报错、不降级提示，只是不照流程干活了。所以这一环必须走完整的 app。
-"""
+"""通过完整 app 验证组合根将声明中的 skill 装配到运行中的 Agent。"""
 
 from __future__ import annotations
 
@@ -31,18 +25,13 @@ SKILL = "拆解素材"
 
 @pytest.fixture
 def seen_tools() -> list[str]:
-    """这次运行里模型实际看到的工具名。"""
 
     return []
 
 
 @pytest.fixture
 def models(seen_tools: list[str]) -> dict[str, FunctionModel]:
-    """替掉默认的 test 替身：这里要的是「模型看到了什么」，不是它答了什么。
-
-    必须给 ``stream_function``——运行面是流式的，只给 ``function`` 的
-    ``FunctionModel`` 会让这次运行以 ``RUN_ERROR`` 收场。
-    """
+    """通过 stream_function 记录模型实际可见工具，适配流式运行。"""
 
     async def peek(_messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
         seen_tools.extend(tool.name for tool in info.function_tools)
@@ -93,7 +82,6 @@ async def test_declared_skill_reaches_the_running_agent(
     assert sent.status_code == 200, sent.text
     await settled(client, conversation_id)
 
-    # 官方的按需加载入口（skill 正文靠它加载）与读 references 的工具，两个都得
-    # 在——只有前者说明库挂上了但读不到分支规则。
+    # 正文加载与 references 读取工具需同时挂载，确保完整 skill 访问能力。
     assert "load_capability" in seen_tools
     assert "get_skill_reference" in seen_tools

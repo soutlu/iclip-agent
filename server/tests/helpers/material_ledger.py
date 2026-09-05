@@ -1,7 +1,6 @@
-"""素材台账的进程内替身。
+"""素材台账内存替身，按 (namespace, url) 精确匹配。
 
-判定和真库一样只有一条：``(命名空间, url)`` 逐字相等。重记同一个地址保留先记的那
-条，对应真库那句 ``ON CONFLICT DO NOTHING``。
+重复登记保留首条记录，与数据库 ON CONFLICT DO NOTHING 的语义一致。
 """
 
 from __future__ import annotations
@@ -12,8 +11,6 @@ from iclip.platform.material_ledger.store import Material
 
 
 class FakeMaterialLedger:
-    """内存字典版的 ``MaterialLedger``。"""
-
     def __init__(self) -> None:
         self.rows: dict[tuple[str, str], Material] = {}
 
@@ -29,7 +26,6 @@ class FakeMaterialLedger:
             del self.rows[key]
 
     def urls(self, namespace: str) -> set[str]:
-        """这个命名空间下记着的全部地址，断言用。"""
 
         return {url for space, url in self.rows if space == namespace}
 

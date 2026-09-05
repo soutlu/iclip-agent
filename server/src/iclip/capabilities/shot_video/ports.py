@@ -1,9 +1,4 @@
-"""能力包对外要的东西：三个窄协议，真身由组合根接上去。
-
-不直接 import 生成域和 OSS——引一次，下一个能力包就照抄，围栏就破了。协议窄到
-单测能手写替身。文件存储不在这里另写一份：那是平台层的 ``FileStore`` 协议，和
-工作区能力用的是同一份。
-"""
+"""镜头能力的外部依赖协议，由组合根适配领域服务与对象存储。文件存储复用平台 FileStore。"""
 
 from __future__ import annotations
 
@@ -19,16 +14,12 @@ JobStatus = Literal["pending", "submitting", "submitted", "completed", "failed"]
 
 
 class InvalidImageRequest(ValueError):
-    """出图参数不合生成域那套请求定义。
-
-    不复用领域错误：那一套会被 HTTP 处理器映射成状态码，而这条路上没有等在线上
-    的请求——它的去处是翻成一句让模型自己改的提示。
-    """
+    """生成请求校验失败，由工具转换为模型可修正的错误。"""
 
 
 @dataclass(frozen=True, slots=True)
 class ImageRequest:
-    """一次图片生成要的参数。取值校验归生成域那套唯一定义，这里不再写一遍。"""
+    """图像生成参数，取值由生成域统一校验。"""
 
     prompt: str
     aspect_ratio: str
@@ -36,14 +27,12 @@ class ImageRequest:
     channel: ImageChannel
     reference_image_urls: tuple[str, ...] = ()
     conversation_id: str | None = None
-    """这次出图属于哪段对话，落在生成记录上（界面按它把出图归到对话下面）。
-
-    本包不认识对话那张表，所以只当一个字符串带过去，认不认得出由生成域判。"""
+    """生成来源对话 id，由生成域校验并持久化。"""
 
 
 @dataclass(frozen=True, slots=True)
 class ImageJob:
-    """一次生成走到哪了。``error_code`` 原样带出来：它是能不能自动重发的唯一依据。"""
+    """生成进度快照，保留原始错误码供调用方判断。"""
 
     job_id: uuid.UUID
     status: JobStatus
@@ -58,29 +47,21 @@ class ImageJob:
 
 
 class ImageGenerations(Protocol):
-    """提交一次图片生成，以及查它走到哪了。"""
+    """图像生成提交与状态查询协议。"""
 
     async def submit(self, principal: Principal, request: ImageRequest) -> ImageJob:
-        """受理一次生成，返回刚落下的那一行；真正去调对方是后台的事。"""
+        """受理生成并返回任务记录；实际 Provider 调用由后台执行。"""
         ...
 
     async def get(self, principal: Principal, job_id: uuid.UUID) -> ImageJob: ...
 
 
 class ObjectWriteFailed(Exception):
-    """对象存储没把这份字节存下来（那一侧已经重试过了）。
-
-    平台层有自己的异常，但本包不认识它（见模块 docstring），由组合根的适配器翻成这
-    个。工具认得它，才能把「没存下来」写进工具结果，而不是让它穿出工具打死整次运行。
-    """
+    """对象存储写入失败，由组合根转换为能力协议错误，供工具报告结果。"""
 
 
 class PublicObjectWriter(Protocol):
-    """把字节放到一个公网地址上。
-
-    帧与切格产物必须外部取得到：它们要当参考图交给生成接口，而对方是自己去下载
-    那个地址的。
-    """
+    """写入可公开访问的对象，供外部生成接口下载参考图。"""
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
         """写入并返回公网 URL；同 key 已存在即复用。存不下来抛 ``ObjectWriteFailed``。"""
@@ -88,10 +69,7 @@ class PublicObjectWriter(Protocol):
 
 
 class ShotVideoPaths(Protocol):
-    """这项能力的产物在公开桶里落在哪。
-
-    本能力不自己拼 key：桶里的布局是平台那一侧的事实源，组合根把它递进来。
-    """
+    """公开对象路径协议，布局由平台层定义并经组合根注入。"""
 
     def shot_board(self, *, extraction_key: str, index: int) -> str:
         """取帧预览板。"""

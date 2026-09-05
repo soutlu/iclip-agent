@@ -1,9 +1,4 @@
-"""素材账本的领域模型：一份素材这一行事实，以及收什么、收多大。
-
-**账本里的每一行都是我们自己桶里的一个对象。** 外部地址（provider 的视频、外部图库
-的图片）要进账本，得先转存过来——这是表结构上的硬约束：行上只有 ``object_key``，压根
-没有放外部地址的地方。
-"""
+"""素材领域模型与上传限制。素材只记录本系统桶内的 object key；外部媒体须先转存。"""
 
 from __future__ import annotations
 
@@ -22,44 +17,25 @@ UPLOAD_TYPES: Final[Mapping[str, tuple[AssetType, str]]] = {
     "video/mp4": ("video", "mp4"),
     "video/quicktime": ("video", "mov"),
 }
-"""收哪些类型，各自算哪一类、在桶里叫什么扩展名。
-
-一张表管三件事，是因为它们必须一起改：多收一种类型而忘了给扩展名，对象就会落到一个
-没有后缀的 key 上。
-"""
+"""MIME 类型、素材种类与扩展名统一维护，确保支持的类型都有对应的对象后缀。"""
 
 MAX_BYTES: Final[Mapping[AssetType, int]] = {
     "image": 16 * 1024 * 1024,
     "video": 512 * 1024 * 1024,
 }
-"""各类素材的大小上限。
-
-**只在登记时卡得住。** 预签名 PUT 没法在签名里限定长度（那是 OSS 表单上传才有的
-东西），所以超限的字节确实会先落进桶里；我们能保证的是它拿不到账本上的一行，随后被
-按前缀清理掉。
-"""
+"""登记时校验大小上限；预签名 PUT 不限制上传长度，超限对象不会登记。"""
 
 MIN_SHORT_EDGE_PIXELS: Final = 300
 MAX_LONG_EDGE_PIXELS: Final = 6000
-"""图片的尺寸区间：短边不足的剪不出画面，长边超了的后面每一步都在白烧算力。
-
-只管图，视频的分辨率不在这里管。
-"""
+"""图片尺寸限制，不适用于视频分辨率。"""
 
 IMPORT_NAMESPACE: Final = uuid.UUID("6f1f4e6a-0d1a-4c9d-9d0e-5f2a3b7c8d90")
-"""转存用它给源地址算 uuid5，算出来的就是 ``assetId``。
-
-**换掉这个值，所有存量转存素材都会被当成没搬过、再搬一遍。**
-"""
+"""源地址派生 assetId 的 UUID 命名空间；修改后存量转存记录将无法按原地址命中。"""
 
 
 @dataclass(frozen=True, slots=True)
 class UploadTicket:
-    """一次直传的许可。
-
-    它不是事实行，不落库：签名这一步不该在任何地方留下状态，登记要用的东西全都能从
-    ``asset_id`` 重新算出来。
-    """
+    """无持久状态的直传凭证；登记所需的对象位置可由 asset_id 推导。"""
 
     asset_id: uuid.UUID
     upload_url: str
@@ -69,18 +45,14 @@ class UploadTicket:
 
 @dataclass(frozen=True, slots=True)
 class Asset:
-    """账本上的一行。
-
-    ``object_key`` 是身份，公网地址是它的投影——换 CDN 域名只动一个环境变量，存量
-    数据不用迁。所以这里没有 url 字段。
-    """
+    """素材持久记录。仅存 object_key，公网地址按当前配置生成。"""
 
     id: uuid.UUID
     creator_user_id: uuid.UUID
-    """谁传的。素材是全公司的，这一列只用来查与追责，不是访问边界。"""
+    """上传者仅用于查询和审计；素材访问不按上传者隔离。"""
 
     api_key_id: uuid.UUID | None
-    """经 API key 传的记下是哪把 key 干的（可审计）。"""
+    """记录上传时使用的 API key，供审计使用。"""
 
     asset_type: AssetType
     object_key: str

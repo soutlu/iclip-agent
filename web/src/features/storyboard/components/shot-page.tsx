@@ -1,11 +1,4 @@
-/**
- * 一个镜头组一页：一张大卡（左画面 / 右描述），卡外两侧圆形箭头切帧，卡下一行是本组每个镜头的
- * 第一张帧。描述可以改、秒数可以改、帧可以换 / 删 / 挪 / 加，改动全部经 `onChangeShot` 交出去，
- * 本组件不持有草稿。出片按钮点不点得动同样由外面算好递进来——要看这一组名下有没有在飞的任务、
- * 描述存下了没有。
- *
- * 组之间是上下翻页，不在这里管——本组件只认「当前是哪一帧」，翻组由外面的 scroll-snap 容器做。
- */
+/** 草稿与生成资格由父组件管理；本组件仅处理当前镜头组和帧，组间翻页由外层容器负责。 */
 
 import { useId, useRef, useState } from 'react'
 import { cn } from '@/shared/lib/utils'
@@ -30,24 +23,18 @@ import { PromptEditor } from './prompt-editor'
 type ShotPageProps = {
   shot: Shot
   aspectRatio: string
-  /** 当前看的是第几张帧（`@ImageN` 的 N）。 */
   frameNumber: number
   onPickFrame: (frame: number) => void
   onChangeShot: (next: Shot) => void
-  /** 可以拿来当帧的候选图（agent 生成过的）。 */
   candidates: readonly FrameCandidate[]
-  /** 上传一张图，回它的地址。 */
   onUploadFrame: (file: File) => Promise<string>
-  /** 给这一组发一次出片。 */
   onGenerateVideo: () => void
   generateDisabled: boolean
-  /** 这一组正在出片：按钮换文案。 */
   generating: boolean
-  /** 按钮点不了时说一句为什么（画幅不合规、描述没存下）。 */
+  /** 生成不可用的原因，如画幅不支持或草稿未保存。 */
   generateNote?: string | undefined
 }
 
-/** 一段描述在页面上的样子：时间线头解析出的镜头信息，加它引用的帧。 */
 const sceneOf = (header: string | null, lines: readonly PromptLine[]) => {
   const parsedHeader = header === null ? undefined : parseSceneHeader(header)
   const frames = [
@@ -60,12 +47,6 @@ const sceneOf = (header: string | null, lines: readonly PromptLine[]) => {
   return { frames, header: parsedHeader }
 }
 
-/**
- * 渲染一个镜头组。
- *
- * @param props - 组件属性。
- * @returns 一页。
- */
 export function ShotPage({
   aspectRatio,
   candidates,
@@ -92,7 +73,6 @@ export function ShotPage({
     section,
   }))
   const scenes = sections.filter((item) => item.header !== undefined)
-  // 当前帧属于哪一镜：第一个写到它的镜头算数
   const currentSection =
     sections.find((item) => item.header !== undefined && item.frames.includes(frameNumber)) ??
     sections.at(-1)
@@ -157,7 +137,6 @@ export function ShotPage({
           size="lg"
         />
 
-        {/* 卡撑满可用高度：画面按高度缩放，描述列跟着一起长，不留上下大片空白 */}
         <article className="grid min-h-0 flex-1 grid-cols-[3fr_2fr] overflow-hidden rounded-lg border-[0.5px] border-chat-hairline bg-chat-card-bg">
           <div className="relative flex min-h-0 flex-col items-center justify-center gap-2 bg-surface-container p-3">
             {currentUrl === undefined ? (
@@ -192,7 +171,6 @@ export function ShotPage({
               </>
             )}
 
-            {/* 帧操作条：都作用在当前这一帧上 */}
             <div
               aria-label="帧操作"
               className="flex shrink-0 items-center gap-1 rounded-full border-[0.5px] border-chat-hairline bg-chat-card-bg px-1.5 py-0.5"
@@ -241,7 +219,6 @@ export function ShotPage({
                   const file = event.target.files?.[0]
                   event.target.value = ''
                   if (file !== undefined) {
-                    // 直接上传当替换；当前没有帧时当新增
                     setPicker(currentUrl === undefined ? 'insert' : 'replace')
                     void upload(file)
                   }
@@ -282,7 +259,6 @@ export function ShotPage({
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
               {sections.map(({ header, index, section }) => {
                 if (index === 0) {
-                  // 前言（参考锁定、剪辑形式）：默认收起，展开能改
                   if (section.lines.every((line) => line.length === 0)) return null
                   return (
                     <details
@@ -309,7 +285,6 @@ export function ShotPage({
                   <div
                     className={cn(
                       'shrink-0 rounded-md p-3 ui-motion-s',
-                      // 选中态走中性的 state-active（与侧栏行、筛选 chip 同一口径），不用主色铺底
                       current ? 'bg-state-active' : 'bg-surface-container-low',
                     )}
                     key={`${index}-${section.header ?? ''}`}
@@ -337,7 +312,6 @@ export function ShotPage({
               })}
             </div>
 
-            {/* 这一页唯一的主按钮：描述改完就在这里出片 */}
             <div className="flex shrink-0 flex-col gap-1">
               <Button
                 className="w-full"
@@ -423,13 +397,6 @@ export function ShotPage({
 
 type ShotBadgeProps = { index: number }
 
-/**
- * 序号方块。
- *
- * @param props - 组件属性。
- * @param props.index - 第几组。
- * @returns 序号方块。
- */
 function ShotBadge({ index }: ShotBadgeProps) {
   return (
     <span className="inline-grid size-5.5 shrink-0 place-items-center rounded-xs bg-secondary-container text-label font-semibold text-on-secondary-container">

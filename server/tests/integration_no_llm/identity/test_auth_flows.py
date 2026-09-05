@@ -24,7 +24,6 @@ async def test_register_login_me_logout_round_trip(client: httpx.AsyncClient) ->
         "generation:read",
         "agent:read",
     }
-    # camelCase wire：不出现 snake_case 键
     assert "displayName" in user and "display_name" not in user
     assert user["departments"] == []
 

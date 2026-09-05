@@ -1,13 +1,4 @@
-/**
- * 媒体的悬停预览卡（照 kimi 网页版的 mention-tip）。
- *
- * 反色小卡（inverse-surface 底 + inverse-on-surface 字）：图与视频给 ≤300×220 的预览
- * （棋盘格兜底透明底），下面一行类型图标 + 名字 + 大小，带上传状态的再多一行状态（上传中 N%
- * 进度环 / 已上传 / 上传失败）与「全屏查看」。
- *
- * 出没时序不在这里，由调用方的 useHoverPreview 给：光标在锚点与卡之间往返靠 onEnter /
- * onLeave 接力，卡与锚点之间那 6px 空隙由 hover 桥兜着。
- */
+/** 参考 Kimi mention-tip；锚点与卡共用悬停时序，hover 桥覆盖二者间隙。 */
 
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -17,13 +8,13 @@ import { cn } from '@/shared/lib/utils'
 import { ellipsizeAttachmentName, formatAttachmentSize } from './attachment-format'
 import { MEDIA_KIND_ICON, type MediaDescriptor, mediaDisplayName } from './media-descriptor'
 
-/** 卡与锚点之间的空隙（kimi 的 hover 桥高度也是它）。 */
+/** 卡与锚点间距，同时作为 hover 桥高度。 */
 const TIP_GAP_PX = 6
-/** 卡离视口边的最小距离（kimi --p-mention-tip-vmargin）。 */
+/** 视口边距参考 Kimi --p-mention-tip-vmargin。 */
 const TIP_VIEWPORT_MARGIN_PX = 12
-/** 预览区最大 300 宽，poster 按 2 倍屏要图。 */
+/** 300px 预览区使用两倍分辨率 poster。 */
 const POSTER_WIDTH_PX = 600
-/** 进度环：半径 6.5、周长 40.84（kimi mention-tip-media-ring 的原值）。 */
+/** 进度环尺寸参考 Kimi mention-tip-media-ring。 */
 const RING_RADIUS = 6.5
 const RING_LENGTH = 40.84
 
@@ -31,28 +22,17 @@ type TipPlacement = {
   left: number
   top: number
   side: 'bottom' | 'top'
-  /** 小三角相对卡左缘的位置。 */
   caretX: number
 }
 
 type MediaPreviewCardProps = {
-  /** 锚点元素（芯片本体）。 */
   anchorEl: HTMLElement
   media: MediaDescriptor
-  /** 光标进卡。 */
   onEnter: () => void
-  /** 光标出卡。 */
   onLeave: () => void
-  /** 点了「全屏查看」。 */
   onOpenFullscreen: () => void
 }
 
-/**
- * 渲染媒体悬停卡。
- *
- * @param props - 组件属性。
- * @returns portal 到 body 的悬停卡。
- */
 export function MediaPreviewCard({
   anchorEl,
   media,
@@ -60,8 +40,7 @@ export function MediaPreviewCard({
   onLeave,
   onOpenFullscreen,
 }: MediaPreviewCardProps) {
-  // 先隐身渲染量出尺寸再定位（kimi：未定位时 pointer-events 关闭、opacity 0）。
-  // 量尺寸发生在 ref 回调（挂载）与事件回调（图片载入、视频读到元数据）里，不经 effect。
+  // 隐藏状态下测量后定位；挂载与媒体加载回调负责重新测量。
   const [placement, setPlacement] = useState<TipPlacement | null>(null)
   const tipElRef = useRef<HTMLDivElement | null>(null)
   const tipRef = (el: HTMLDivElement | null) => {
@@ -85,7 +64,6 @@ export function MediaPreviewCard({
       side,
       top: side === 'top' ? anchor.top - rect.height - TIP_GAP_PX : anchor.bottom + TIP_GAP_PX,
     }
-    // 尺寸没变就不写状态
     setPlacement((prev) =>
       prev !== null &&
       prev.left === next.left &&
@@ -147,7 +125,7 @@ export function MediaPreviewCard({
                 src={previewUrl}
               />
             ) : (
-              // 只当首帧看：静音、不给控件，也就不需要字幕轨（用户自己传的素材本来没有）
+              // 仅展示静音首帧，不提供播放控件。
               <video
                 aria-label={name}
                 className="block max-h-[220px] max-w-[300px] rounded-sm object-contain"
@@ -211,7 +189,6 @@ export function MediaPreviewCard({
               {upload.status === 'error' ? '上传失败' : null}
             </span>
           )}
-          {/* 动作靠右（kimi 的 mention-tip-media-actions）：没有状态行时也不贴在名字底下 */}
           {canOpenFullscreen ? (
             <button
               className="media-tip-open ml-auto flex-none"

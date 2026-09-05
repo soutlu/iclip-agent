@@ -1,8 +1,4 @@
-"""爆款视频查询的夹具：在测试库里立起爆款库那两张表的替身。
-
-**绝不连真的爆款库**：那是生产数据。这里按上游的 schema 与形状建同名表（只建查询
-碰到的那几列），插进受控的行。
-"""
+"""在测试库中创建爆款视频源的最小表结构与受控数据，不连接生产源。"""
 
 from __future__ import annotations
 
@@ -50,7 +46,7 @@ CREATE TABLE video_labeling.videos (
 
 @pytest.fixture
 async def inspiration_engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
-    """爆款库的替身，跟业务库共用同一个测试容器、但用的是自己那个 schema。"""
+    """与业务库共用测试容器，使用独立 schema 的爆款视频源替身。"""
 
     engine = create_async_engine(migrated_pg)
     try:
@@ -69,7 +65,7 @@ async def app(
     migrated_pg: str,
     inspiration_engine: AsyncEngine,
 ) -> AsyncGenerator[FastAPI]:
-    """装上爆款视频查询的 app（父层那个夹具默认不开这项能力）。"""
+    """启用爆款视频查询的 app。"""
 
     monkeypatch.setenv("INSPIRATION_DATABASE_URL", migrated_pg)
     engine = create_async_engine(migrated_pg)
@@ -90,7 +86,7 @@ async def app(
 
 @pytest.fixture
 async def app_without_inspirations(base_env: None, migrated_pg: str) -> AsyncGenerator[FastAPI]:
-    """没配爆款库的 app：``base_env`` 已经把那个变量清掉了。"""
+    """未配置爆款视频源的 app；base_env 已清除连接变量。"""
 
     engine = create_async_engine(migrated_pg)
     try:

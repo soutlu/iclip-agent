@@ -1,30 +1,4 @@
-/**
- * transcript 的订阅连接：连上、按对话订阅、记水位、断了自己接回来。
- *
- * **一条连接管多段对话**：`/ws` 不带对话 id，订哪几段由 `subscribe(conversationId, handlers)`
- * 说；服务端发来的每一帧带 `session_id`，按它分给对应的 handlers。侧栏同时盯着好几段对话时，
- * 浏览器只开这一条。
- *
- * 帧的形状不在这里写，走 vendor 里那份照抄来的 zod（`contract/events.ts`）——服务端发的每一帧
- * 都按它校验，形状对不上整帧丢掉。
- *
- * **水位记账是这个文件的全部要点**，规则照 kimi 出厂客户端：
- *
- * 1. 收到 `transcript.reset` → 这段对话的水位**无条件**覆写成帧里的 seq（不是取较大值）。服务端
- *    进程重启后批次号会从 1 重来，客户端不退回去的话，之后每一批都被当成旧的丢掉，界面就此不再
- *    更新。
- * 2. 收到 `transcript.ops` → 先交给上层应用；上层返回 `false`（没吃下）就**不推进水位**，下次
- *    补批还会把它带回来。
- * 3. 任何入站帧都刷新活跃时刻；`ping` 照着 nonce 回一帧 `pong`。
- * 4. 重连之后逐段对话各发一帧 `subscribe_v2`，各带自己那段的水位。
- *
- * 掉线分两条路回来：`onclose` 走退避（照 kimi：`min(30s, 1s × 2ⁿ) + 抖动`），标签页重新
- * 露面走 `reconnect()` 立刻回来、不等退避——谁来触发后一条在 `transcript-provider` 里。
- *
- * **`session.meta.updated` 与 `event.session.work_changed` 不按订阅分流**：它们是协议里的全局事件
- * （照 kimi），发给每一条连接。侧栏列着几十段对话却一段都没订，按订阅发的话它永远收不到改名与
- * 角标，所以这两帧另走 `watchSessions`。
- */
+/** 参考 Kimi 客户端，一条连接按 session_id 分派多段对话；改名与活动全局帧经 watchSessions 分发。重连携带各 agent 的已应用水位。 */
 
 import { z } from 'zod'
 
@@ -33,69 +7,49 @@ import type { TranscriptGrade } from './vendor/granularity/grade'
 
 export type { TranscriptGrade }
 
-/**
- * 交给上层的形状取自 schema 本身，不取 vendor 里那几个 interface：校验出来的就是这一份，
- * 中间再声明一次只会在两边的可选字段口径上打架。
- */
+/** 类型从校验 schema 推导，避免重复声明造成可选字段差异。 */
 type ResetEvent = z.infer<typeof transcriptResetEventSchema>
 type OpsEvent = z.infer<typeof transcriptOpsEventSchema>
 
 export type TranscriptSnapshot = ResetEvent['snapshot'] & { hasMoreOlder: boolean }
 export type TranscriptOps = OpsEvent['ops']
 
-/** 没收到 server_hello 之前按这个算心跳间隔。服务端会在 hello 里告诉我们真实值。 */
 const DEFAULT_HEARTBEAT_MS = 30_000
 
-/** 判「没动静了」的下限：即使服务端报了一个很短的心跳，也不会比这个更急躁。 */
 const STALE_FLOOR_MS = 30_000
 
 const MAX_RECONNECT_DELAY_MS = 30_000
 
-/** 退避里掺的随机量，避免一堆客户端同时回来。 */
+/** 加入随机抖动，避免客户端集中重连。 */
 const RECONNECT_JITTER_MS = 250
 
 export interface TranscriptHandlers {
-  /**
-   * 整份状态换掉了。`snapshot.items` 恒为空——历史走 REST 分页，这一帧只带全局实体与水位。
-   */
+  /** snapshot.items 恒为空；历史由 REST 分页提供，reset 只携带全局实体和水位。 */
   onReset(agentId: string, snapshot: TranscriptSnapshot, seq: number | undefined): void
-  /**
-   * 来了一批操作。返回 `false` 表示没吃下（例如发现缺口要重拉），那样水位不会推进。
-   *
-   * `seq` 是这一批的批次号：上层拿它判跳号，缺了哪几批要自己去补。
-   */
+  /** seq 用于检测批次缺口；返回 false 表示未应用，不推进水位，允许后续补发。 */
   onOps(agentId: string, ops: TranscriptOps, seq: number | undefined): boolean | void
-  /** 这段对话订不上：不存在，或者不是这个人的。 */
   onNotFound?(): void
 }
 
 export interface TranscriptConnectionOptions {
   url: string
-  /** 连上、断开各叫一次。整条连接一个状态，不分对话。 */
+  /** 连接级状态回调，不按对话分别通知。 */
   onConnectionState?: (connected: boolean) => void
-  /** 测试用：换掉 WebSocket 实现与时钟。 */
   createSocket?: (url: string) => WebSocket
   now?: () => number
 }
 
-/**
- * 两种全局帧的 payload。
- *
- * 这两份写在这里而不是 `vendor/`：那个目录是照抄来的协议凭据，不改；而且 vendor 那些 zod 是
- * `z.object()`，默认**静默丢掉**未知字段——把这些塞进 `TranscriptMeta` 的话，服务端发了、客户端
- * 一声不响地扔掉。
- */
+/** 全局帧单独校验，不修改 vendor 协议；放入 TranscriptMeta 会被其 schema 丢弃未知字段。 */
 const titleSchema = z.object({ session_id: z.string(), title: z.string() })
 
-// `session_id` 不在这里：`event.session.work_changed` 把它放在信封上。
-// `last_turn_reason` 在忙的那几帧整个不出现（服务端 exclude_none），收场那帧才带。
+// session_id 位于信封；last_turn_reason 在运行时可能省略，结束时提供。
 const workChangedSchema = z.object({
   busy: z.boolean(),
   pending_interaction: z.enum(['none', 'approval', 'question']),
   last_turn_reason: z.enum(['completed', 'failed', 'aborted']).nullable().optional(),
 })
 
-// `session_id` 也在信封上。帧里不带版本与写入者：收到就重读那个文件，版本在文件上。
+// session_id 位于信封；版本与写入者从重新读取的文件获取。
 const fsChangedSchema = z.object({
   changes: z.array(
     z.object({
@@ -107,14 +61,9 @@ const fsChangedSchema = z.object({
   coalesced_window_ms: z.number(),
 })
 
-/** 一次文件变动通知。 */
 export type FsChange = z.infer<typeof fsChangedSchema>['changes'][number]
 
-/** 某段对话身上变了点什么。两种全局帧走同一条分发路径。
- *
- * `reconnected` 不是帧，是连接自己的事：全局帧是易失的，断线期间发生的改名与状态变化谁也补不
- * 回来，所以重连之后要让列表重拉一次——行上本来就带着同一份事实。
- */
+/** 全局事件不补发；reconnected 是本地通知，调用方据此刷新断线期间可能变化的列表。 */
 export type SessionUpdate =
   | { kind: 'title'; conversationId: string; title: string }
   | {
@@ -122,18 +71,17 @@ export type SessionUpdate =
       conversationId: string
       busy: boolean
       pendingInteraction: 'none' | 'approval' | 'question'
-      /** 最近一轮的结局；帧里没带（还在忙）就是 `null`。 */
+      /** 未提供结束原因时为 null。 */
       lastTurnReason: 'completed' | 'failed' | 'aborted' | null
     }
   | { kind: 'reconnected' }
 
 export interface ConnectionHealth {
   connected: boolean
-  /** 太久没有任何入站帧了。界面据此提示「连接可能断了」。 */
+  /** 超过心跳阈值未收到入站帧时为 true。 */
   stale: boolean
 }
 
-/** 一份文件订阅：订了哪几条路径，变了叫谁。 */
 interface FsWatch {
   paths: readonly string[]
   handler: (changes: readonly FsChange[]) => void
@@ -141,9 +89,9 @@ interface FsWatch {
 
 interface Subscription {
   handlers: TranscriptHandlers
-  /** 要哪一档。打开那段用 `delta`，侧栏里盯着的用 `turn`（只有轮与审批，没有逐字）。 */
+  /** 当前会话使用 delta；侧栏使用仅含轮次与审批的 turn 档。 */
   grade: TranscriptGrade
-  /** 这段对话里每个 agent 收到的最后一个批次号。重连时报给服务端，它据此决定补批还是重来。 */
+  /** 按 agent 保存已应用批次号，重连时用于补发或重置。 */
   watermarks: Map<string, number>
 }
 
@@ -158,16 +106,13 @@ export class TranscriptConnection {
   private nextId = 0
   private everOpened = false
 
-  /** 订着的那几段对话。断线重连之后照这张表逐段重订。 */
   private subscriptions = new Map<string, Subscription>()
 
-  /** 还没回执的 subscribe：ack 说「订不上」时得知道那一帧问的是哪段对话。 */
+  /** 请求 ID 映射到对话 ID，用于处理订阅拒绝回执。 */
   private pending = new Map<string, string>()
 
-  /** 盯着文件变动的那些人，按对话分。重连之后照这张表重发 `watch_fs_add`。 */
   private fsWatches = new Map<string, Set<FsWatch>>()
 
-  /** 盯着全局帧的那些人。不按对话分——这些帧本来就不看订阅。 */
   private sessionWatchers = new Set<(update: SessionUpdate) => void>()
 
   private readonly options: TranscriptConnectionOptions
@@ -178,14 +123,13 @@ export class TranscriptConnection {
 
   connect(): void {
     if (this.socket !== null) return
-    // `close()` 之后再 `connect()` 是「重新开着」的明确意思：不清掉这个标记，这条连接就再也
-    // 连不上了（React 严格模式下挂载效果会先跑一遍清理，正是这个次序）。
+    // 允许 close 后重新 connect，兼容 React StrictMode 的清理与重挂载。
     this.closed = false
     this.lastActivityAt = this.now()
     const socket = (this.options.createSocket ?? ((url) => new WebSocket(url)))(this.options.url)
     this.socket = socket
     socket.onmessage = (event) => {
-      // 先刷活跃时刻再解析：判「还活着」看的是有没有收到东西，不是收到的东西对不对。
+      // 所有入站消息均刷新活跃时间，独立于帧是否合法。
       this.lastActivityAt = this.now()
       this.receive(event.data)
     }
@@ -201,12 +145,7 @@ export class TranscriptConnection {
     this.connected = false
   }
 
-  /**
-   * 立刻重连，不排退避。标签页从后台回到前台、网络回来时用（照 kimi）：这时手上那条连接
-   * 多半已经僵了，等退避意味着最长再瞎等 30 秒。
-   *
-   * 关之前先摘掉旧 socket 的回调——留着的话它的 `onclose` 会把刚跳过的退避又排上。
-   */
+  /** 立即重连并跳过退避；先移除旧 socket 回调，避免 onclose 再次排入退避。 */
   reconnect(): void {
     if (this.closed) return
     this.clearTimer()
@@ -217,13 +156,7 @@ export class TranscriptConnection {
     this.connect()
   }
 
-  /**
-   * 订一段对话，`grade` 说要多细：打开那段用 `delta`，侧栏里只盯着「跑没跑」的用 `turn`。
-   *
-   * 已经订着的换掉 handlers 与档位、水位留着——同一段对话换个界面接管，不该重拉一遍。档位调
-   * 高时服务端会先发一帧 reset（低档时它没发的那些补批补不出来），上层照常按 reset 重来。
-   * 还没连上就先记下，连上之后一起订。
-   */
+  /** 更新订阅时保留水位；提高粒度时服务端先发 reset，补足低粒度未下发的内容。 */
   subscribe(
     conversationId: string,
     handlers: TranscriptHandlers,
@@ -238,7 +171,7 @@ export class TranscriptConnection {
     if (this.connected) this.sendSubscribe(conversationId)
   }
 
-  /** 退订一段对话。水位一起丢掉：再订回来时从头拉，不拿一个可能过时的号去补批。 */
+  /** 退订时清除水位，重新订阅需拉取基线。 */
   unsubscribe(conversationId: string): void {
     if (!this.subscriptions.delete(conversationId)) return
     this.send({
@@ -248,17 +181,7 @@ export class TranscriptConnection {
     })
   }
 
-  /**
-   * 订一段对话里那几条路径的变动，返回退订函数。
-   *
-   * 与 transcript 订阅各管各的：这里订的是文件，收到 `event.fs.changed` 就重读那份文件。帧是易失
-   * 的，重连之后连接会把还在的订阅原样重发一遍，断线期间漏掉的那些由调用方重拉对齐。
-   *
-   * @param conversationId - 哪一段对话。
-   * @param paths - 订哪几条路径。
-   * @param handler - 变动到达时叫谁。
-   * @returns 退订函数。
-   */
+  /** 文件订阅独立于 transcript；重连重发订阅，调用方须重拉以补偿断线期间丢失的文件通知。 */
   watchFs(
     conversationId: string,
     paths: readonly string[],
@@ -277,11 +200,7 @@ export class TranscriptConnection {
     }
   }
 
-  /**
-   * 盯着「某段对话改名了 / 在忙什么变了」。返回退订函数。
-   *
-   * 不按对话订：这两种帧是全局的，侧栏要的正是「任意一段变了」。
-   */
+  /** 监听所有会话的全局更新，返回取消监听函数。 */
   watchSessions(watcher: (update: SessionUpdate) => void): () => void {
     this.sessionWatchers.add(watcher)
     return () => void this.sessionWatchers.delete(watcher)
@@ -295,22 +214,14 @@ export class TranscriptConnection {
     }
   }
 
-  /** 供测试与界面查看：这段对话里这个 agent 手上的水位。 */
   watermarkOf(conversationId: string, agentId: string): number | undefined {
     return this.subscriptions.get(conversationId)?.watermarks.get(agentId)
   }
 
-  /**
-   * 上层报「我落地到这儿了」。
-   *
-   * REST 基线与补批不经过帧这条路，水位只能由上层报回来；不报的话重连时这条连接会说自己什么
-   * 都没有，服务端于是整份重发，客户端跟着整页重拉。
-   */
+  /** REST 基线和补批也须报告已应用水位，避免重连时重复请求完整基线。 */
   markApplied(conversationId: string, agentId: string, seq: number): void {
     this.subscriptions.get(conversationId)?.watermarks.set(agentId, seq)
   }
-
-  // --- 收 -------------------------------------------------------------------
 
   private receive(raw: unknown): void {
     let frame: { type?: unknown; id?: unknown; session_id?: unknown; payload?: unknown }
@@ -361,7 +272,6 @@ export class TranscriptConnection {
         return
       }
       case 'event.fs.changed': {
-        // 按信封上的 session_id 分流：一条连接可能订着好几段对话的文件。
         if (typeof frame.session_id !== 'string') return
         const parsed = fsChangedSchema.safeParse(frame.payload)
         if (!parsed.success) return
@@ -375,7 +285,6 @@ export class TranscriptConnection {
       }
       case 'transcript.reset':
       case 'transcript.ops': {
-        // 帧里的 session_id 是分流依据：一条连接管多段对话，不看它就不知道该给谁。
         if (typeof frame.session_id !== 'string') return
         const subscription = this.subscriptions.get(frame.session_id)
         if (subscription === undefined) return
@@ -397,7 +306,7 @@ export class TranscriptConnection {
       if (!parsed.success) return
       const { agent_id, snapshot, has_more_older, seq } = parsed.data
       subscription.handlers.onReset(agent_id, { ...snapshot, hasMoreOlder: has_more_older }, seq)
-      // 无条件覆写，不是取较大值：服务端重启后号从 1 重来，我们得跟着退回去。
+      // reset 无条件覆盖水位：服务端重启可能从 1 重新编号。
       if (seq !== undefined) subscription.watermarks.set(agent_id, seq)
       return
     }
@@ -405,7 +314,7 @@ export class TranscriptConnection {
     if (!parsed.success) return
     const { agent_id, ops, seq } = parsed.data
     const accepted = subscription.handlers.onOps(agent_id, ops, seq)
-    // 上层说没吃下就不推进：推了的话这一批再也补不回来。
+    // 仅已接受的批次推进水位，未应用的批次需保留补发机会。
     if (accepted !== false && seq !== undefined) subscription.watermarks.set(agent_id, seq)
   }
 
@@ -416,13 +325,11 @@ export class TranscriptConnection {
     if (asked === undefined) return
     const refused = (frame.payload as { not_found?: unknown })?.not_found
     if (!Array.isArray(refused) || !refused.includes(asked)) return
-    // 订不上的别再留着：重连时还会去订同一段，每次都被拒。
+    // 移除被拒绝的订阅，避免重连后重复请求。
     const subscription = this.subscriptions.get(asked)
     this.subscriptions.delete(asked)
     subscription?.handlers.onNotFound?.()
   }
-
-  // --- 发 -------------------------------------------------------------------
 
   private opened(): void {
     const reopened = this.everOpened
@@ -431,18 +338,13 @@ export class TranscriptConnection {
     this.reconnectAttempts = 0
     this.options.onConnectionState?.(true)
     for (const conversationId of this.subscriptions.keys()) this.sendSubscribe(conversationId)
-    // 文件订阅同理：新连接那一头什么都不记得，还在的订阅得原样再报一遍。
     for (const [conversationId, watches] of this.fsWatches) {
       for (const watch of watches) this.sendFsWatch('watch_fs_add', conversationId, watch.paths)
     }
-    // 第一次连上不算重连：那时列表刚拉过。
     if (reopened) this.announce({ kind: 'reconnected' })
   }
 
-  /**
-   * 发一帧文件订阅。回执不记账：`ack` 那条路是给 subscribe 用的，混进来会让「订不上」把整段
-   * 对话的 transcript 订阅也撤掉。
-   */
+  /** 文件订阅不进入 transcript 的 pending 表，避免文件拒绝回执撤销对话订阅。 */
   private sendFsWatch(
     type: 'watch_fs_add' | 'watch_fs_remove',
     conversationId: string,
@@ -467,7 +369,7 @@ export class TranscriptConnection {
       payload: {
         session_id: conversationId,
         transcript: { main: subscription.grade },
-        // 头一次订没有水位，不带这个字段——服务端据此判「第一次订阅」，回一帧 reset。
+        // 首次订阅省略 transcript_since，服务端据此发送 reset。
         ...(since === undefined ? {} : { transcript_since: { main: since } }),
       },
     })
@@ -483,14 +385,11 @@ export class TranscriptConnection {
     return `c${this.nextId}`
   }
 
-  // --- 断了 -----------------------------------------------------------------
-
   private dropped(): void {
     this.detach()
     this.scheduleReconnect()
   }
 
-  /** 撤下手上这条 socket：摘回调、清掉还没回执的 subscribe，状态退回未连接。关不关由调用方定。 */
   private detach(): void {
     if (this.socket !== null) {
       this.socket.onmessage = null

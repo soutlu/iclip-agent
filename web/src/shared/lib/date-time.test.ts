@@ -3,7 +3,7 @@ import { formatDateTime } from './date-time'
 
 describe('formatDateTime', () => {
   it('月日与时分都补足两位', () => {
-    // 构造本地时刻，避免用例结果跟着跑测试的机器的时区变。
+    // 使用本地日期构造，避免测试结果依赖机器时区。
     const at = new Date(2026, 8, 3, 9, 5)
     expect(formatDateTime(at.toISOString())).toBe('2026-09-03 09:05')
   })

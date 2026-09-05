@@ -1,7 +1,3 @@
-/**
- * 会话页：历史铺得出来，逐字来的内容跟着长。
- */
-
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -13,8 +9,7 @@ import { renderWithProviders } from '@/testing/render'
 import { Toaster } from '@/shared/ui/toast'
 import { ConversationRoute } from './conversation-route'
 
-// lottie-web 在模块加载时会探测 canvas 2d context；jsdom 没有它。摄像机是 aria-hidden
-// 装饰件，这些用例只验证状态文案与对话行为。
+// jsdom 不支持 Lottie 加载时的 canvas 探测；替换装饰动画以验证会话行为。
 vi.mock('lottie-web/build/player/lottie_light', () => ({
   default: {
     loadAnimation: () => ({
@@ -27,11 +22,10 @@ vi.mock('lottie-web/build/player/lottie_light', () => ({
 
 const TAIL_TEXT = '这是第 2 轮的回复。'
 
-/** 渲染会话页。连接与握手由 renderWithProviders 备好，返回的 socket 可以继续灌帧。 */
+/** renderWithProviders 完成连接握手，返回 socket 供测试发送后续帧。 */
 const renderConversation = async () =>
   renderWithProviders(<ConversationRoute conversationId="c1" />)
 
-/** 一批 ops 帧，直接灌给假 socket。 */
 const opsFrame = (ops: unknown[], seq: number) => ({
   payload: { agent_id: 'main', ops, seq },
   session_id: 'c1',
@@ -43,7 +37,7 @@ const runningPrompt = (promptId: string) => ({
   prompt: { createdAt: '2026-08-31T03:00:00Z', promptId, status: 'running' },
 })
 
-/** 等人点头的那次调用：审批卡按帧上的 `approvalId` 认领它。 */
+/** 审批卡通过 approvalId 匹配工具调用。 */
 const APPROVAL_TURN = {
   kind: 'turn',
   ordinal: 3,
@@ -76,7 +70,7 @@ const APPROVAL_TURN = {
   turnId: 'ta',
 }
 
-/** 把基线换成「停在审批上」的那一页。要在渲染之前装。 */
+/** 渲染前替换基线为等待审批状态。 */
 const serveApprovalPage = () => {
   const page = mockTranscriptPage()
   server.use(
@@ -124,7 +118,6 @@ describe('ConversationRoute', () => {
 
     expect(await screen.findByText('第 1 个问题')).toBeInTheDocument()
     expect(screen.getByText(TAIL_TEXT)).toBeInTheDocument()
-    // 工具卡认的是服务端给的 display，不是工具名——工具名不上界面。
     expect(screen.getByText('读文件')).toBeInTheDocument()
     expect(screen.getByText('shots/storyboard.md')).toBeInTheDocument()
     expect(screen.queryByText('read_file')).not.toBeInTheDocument()
@@ -175,7 +168,6 @@ describe('ConversationRoute', () => {
     pasteTextIntoComposer(screen.getByLabelText('输入消息'), '再拆一段')
     await user.click(screen.getByRole('button', { name: '发送' }))
 
-    // 服务端还没记下，本地这条先顶着；输入框已经清空
     await waitFor(() => {
       expect(screen.getAllByText('再拆一段')).toHaveLength(1)
     })
@@ -183,7 +175,7 @@ describe('ConversationRoute', () => {
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('')
     expect(submitted).not.toBe('')
 
-    // running prompt 不能提前撤掉气泡；要等 turn.prompt 真正接手。
+    // running prompt 不撤销乐观气泡，须由匹配的 turn.prompt 接替。
     socket.deliver(opsFrame([runningPrompt(submitted)], 11))
 
     expect(await screen.findByRole('status')).toHaveTextContent('请求中…')
@@ -226,8 +218,6 @@ describe('ConversationRoute', () => {
       ),
     )
 
-    // 这一批落地了（思考块出来了），而那句话还是只有一条——认领漏了就会并排出现两次。
-    // 轮子还在跑，思考标题是进行态；等轮子收尾后落定成「思考过程」，计时冻结
     expect(await screen.findByText('思考中…')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('工作中…')
     expect(screen.getAllByText('再拆一段')).toHaveLength(1)
@@ -254,7 +244,7 @@ describe('ConversationRoute', () => {
     )
 
     expect(await screen.findByText('思考过程')).toBeInTheDocument()
-    // Kimi 的 inFlight 不会被 completed turn 抢先清掉，收尾窗口也不会反弹成「请求中」。
+    // 防止 completed turn 提前清除 inFlight，使收尾状态回退为请求中。
     expect(screen.getByRole('status')).toHaveTextContent('工作中…')
 
     socket.deliver(
@@ -293,7 +283,6 @@ describe('ConversationRoute', () => {
 
     const editor = await screen.findByLabelText('输入消息')
     await waitFor(() => expect(editor).toHaveTextContent('再拆一段'))
-    // 气泡撤掉了：那句话只剩输入框里这一份
     expect(screen.queryAllByText('再拆一段')).toHaveLength(1)
   })
 
@@ -410,7 +399,6 @@ describe('ConversationRoute', () => {
     ).toBeNull()
     await user.click(within(screen.getByLabelText('第 2 轮')).getByRole('button', { name: '修改' }))
 
-    // 修改态：提示条出现，输入框里是原来那句
     expect(screen.getByText('正在修改第 2 轮')).toBeInTheDocument()
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('第 2 个问题')
 
@@ -426,7 +414,6 @@ describe('ConversationRoute', () => {
     expect(text).toContain('第 2 个问题')
     expect(text).toContain('再具体些')
     expect(sent?.prompt_id).not.toBe('')
-    // 发出去就退出修改态
     await waitFor(() => {
       expect(screen.queryByText('正在修改第 2 轮')).toBeNull()
     })
@@ -490,7 +477,6 @@ describe('ConversationRoute', () => {
     const { socket } = await renderConversation()
     await screen.findByText(TAIL_TEXT)
 
-    // 历史那次读文件没带结果：整行不可点，不该出现能点开又什么都没有的箭头
     expect(screen.queryByRole('button', { name: /读文件/ })).toBeNull()
 
     socket.deliver(
@@ -583,7 +569,6 @@ describe('ConversationRoute', () => {
 
     expect(await screen.findByText('展开看设定')).toBeInTheDocument()
     expect(screen.getByText('HTML').tagName).toBe('B')
-    // 脚本整段不见，事件属性被摘掉：正文是模型写的，这两样放行就是一条 XSS 通道
     expect(document.querySelector('script')).toBeNull()
     expect(screen.getByText('点我')).not.toHaveAttribute('onclick')
   })
@@ -665,7 +650,6 @@ describe('ConversationRoute', () => {
       ),
     )
 
-    // 一叠聚成一行：读取 + 写入 + 步骤起止算出的时长；轮子已收尾所以是收起的
     const head = await screen.findByRole('button', {
       name: /完成：读取了 1 个文件 · 写入了 1 个文件/,
     })
@@ -673,7 +657,6 @@ describe('ConversationRoute', () => {
 
     await user.click(head)
 
-    // 铺开之后每条就是普通的工具行
     expect(head).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getAllByText('shots/storyboard.md').length).toBeGreaterThan(1)
   })
@@ -683,7 +666,6 @@ describe('ConversationRoute', () => {
     await renderConversation()
     await screen.findByText(TAIL_TEXT)
 
-    // mock 里那张图是 data URL，没有文件名，芯片就叫「图片」
     await user.click(await screen.findByRole('button', { name: '图片' }))
 
     const dialog = await screen.findByRole('dialog', { name: '图片' })
@@ -705,7 +687,6 @@ describe('ConversationRoute', () => {
     )
     await renderConversation()
 
-    // 卡面复用工具卡那份 display：这一步要写哪个文件写在标题旁边
     const card = await screen.findByRole('region', { name: '等你审批' })
     expect(within(card).getByText('写文件')).toBeInTheDocument()
     expect(within(card).getByText('shots/cover.md')).toBeInTheDocument()
@@ -718,7 +699,7 @@ describe('ConversationRoute', () => {
         path: '/api/conversations/c1/interactions/appr_1',
       })
     })
-    // 撤掉这张卡的是服务端那份 pending 集合，本地只把两个钮换成结果
+    // 卡片移除由服务端 pending 集合驱动，本地提交仅更新结果。
     expect(await within(card).findByText('已同意')).toBeInTheDocument()
     expect(within(card).queryByRole('button', { name: /拒绝/ })).toBeNull()
   })
@@ -761,7 +742,6 @@ describe('ConversationRoute', () => {
     await user.click(within(card).getByRole('button', { name: /同意/ }))
 
     expect(await screen.findByText('已经做过决定')).toBeInTheDocument()
-    // 决定没记下，两个钮还在
     expect(within(card).getByRole('button', { name: /拒绝/ })).toBeInTheDocument()
   })
 
@@ -773,7 +753,6 @@ describe('ConversationRoute', () => {
     socket.deliver(opsFrame([queuedPrompt('p-queued', '顺便配个音')], 11))
 
     expect(await screen.findByText('1 个任务等待发送')).toBeInTheDocument()
-    // 等人点头的时候没有在跑的那一轮可插：追加得等决定落下去
     expect(screen.queryByRole('button', { name: '立即发送到当前回合' })).toBeNull()
     expect(screen.getByText('等你审批后继续')).toBeInTheDocument()
   })
@@ -781,7 +760,7 @@ describe('ConversationRoute', () => {
   it('标题来自基线，服务端起了新名字就当场换掉', async () => {
     const { socket } = await renderConversation()
 
-    // 首屏那个名字只有基线给得出：侧栏拓扑只有每段列表的第一页，翻不到更早的对话。
+    // 历史会话可能不在侧栏首页，初始标题必须来自基线。
     expect(await screen.findByRole('heading', { name: '夜景延时素材生成' })).toBeVisible()
 
     socket.deliver({

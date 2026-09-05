@@ -1,12 +1,6 @@
-"""生成请求的类型：既是对外的 wire 形状，也是入库的形状。
+"""生成请求的 HTTP 与持久化类型定义。
 
-**只有一套定义。** 字段有哪些、画幅取哪几个值、参考图最多几张，全在这里由 pydantic
-判一次；不再另写一份手工校验。这样「HTTP 进得来的东西」和「从库里读回来的东西」走
-的是同一条路，不会出现一边合法一边不合法。
-
-入库存 ``model_dump(by_alias=True)``（camelCase），读回来用 ``request_from_payload``
-重新校验一遍——库里的行可能是几分钟前另一个进程写的，形状坏了要响亮失败，不降级。
-"""
+持久化使用 camelCase，读取时经 request_from_payload 重新校验，非法数据直接报错。"""
 
 from __future__ import annotations
 
@@ -129,21 +123,13 @@ _ADAPTERS: Final = {
 
 
 def request_to_payload(request: GenerationRequest) -> dict[str, Any]:
-    """转成入库的 JSON 形状（camelCase，与对外一致）。
-
-    来源那几个字段不进这份 JSON：它们在表上有自己的列（见 ``GenerationOrigin``），
-    两处都存的话总有一天会对不上。
-    """
+    """序列化为 camelCase JSON；来源字段单独存列，不重复写入 request。"""
 
     return request.model_dump(by_alias=True, exclude={"kind", *ORIGIN_FIELDS})
 
 
 def request_from_payload(kind: str, payload: dict[str, Any]) -> GenerationRequest:
-    """从入库形状还原请求，形状坏了就响亮失败。
-
-    按 ``kind`` 挑适配器，不走判别式联合：``kind`` 是表上的一列，不在 JSON 里，联合
-    没有判别字段可读。
-    """
+    """按独立存列的 kind 选择适配器并校验持久化请求，非法数据直接报错。"""
 
     adapter = _ADAPTERS.get(kind)
     if adapter is None:

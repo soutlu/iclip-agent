@@ -1,4 +1,4 @@
-# 根级唯一命令入口；新增命令必须加进来，不散落在文档或口头约定里。
+# 项目命令入口。
 
 .PHONY: setup dev up lint format format-check typecheck tach test check contract contract-check docs-check db-upgrade test-external web-check hooks
 
@@ -32,12 +32,11 @@ test:
 
 check: lint format-check typecheck tach test contract-check docs-check
 
-# 文档核对：Markdown 里的相对链接必须存在，提到的 make 目标必须在本文件里。
+# 核对 Markdown 相对链接与 make 目标。
 docs-check:
 	python3 scripts/check-docs.py
 
-# 跨端合同：后端是唯一定义方，导出到 contract/openapi.json；前端据此生成类型与 zod。
-# 改了任何对外端点就跑一次 make contract，再去 web 跑 pnpm contract:generate。
+# 导出后运行 web 的 pnpm contract:generate，更新前端类型与 zod schema。
 contract:
 	cd server && uv run python scripts/dump_openapi.py
 

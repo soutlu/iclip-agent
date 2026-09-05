@@ -14,14 +14,6 @@ type CueUserMenuProps = {
 const USER_AVATAR_BUTTON_CLASS =
   'inline-flex h-8 w-8 min-w-8 items-center justify-center overflow-hidden rounded-full text-body-sm font-semibold ui-focus select-none transition-all ui-motion-s active:scale-95'
 
-/**
- * 渲染当前用户头像、用户名菜单和退出登录操作。
- *
- * @param props - 用户菜单属性。
- * @param props.align - 弹出菜单相对头像的定位方向。
- * @param props.className - 头像按钮额外样式类。
- * @returns 用户菜单组件。
- */
 export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMenuProps) {
   const { data: user } = useUser()
   const logoutMutation = useLogout()
@@ -43,7 +35,7 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
       return
     }
 
-    // 退出后不跳转：会话事实源翻成 null，当前页就地退回未登录形态
+    // 退出后由会话状态驱动页面更新，保留当前路由。
     logoutMutation.mutate()
   }, [logoutMutation])
 
@@ -51,7 +43,7 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
   const userLabel = user?.displayName || user?.username || '用户'
   const departments = user?.departments ?? []
   const hasProfileDetails = Boolean(user?.jobTitle || user?.city || departments.length)
-  // 头像三级策略：SSO 头像图 > 用户名首字母（品牌青底） > 通用轮廓（未拿到用户时）。
+  // 头像依次使用 SSO 图片、用户名首字母和通用轮廓。
   const avatarUrl = user?.avatarUrl.trim() ?? ''
   const avatarInitial = user ? userLabel.trim().charAt(0).toUpperCase() : ''
 
@@ -152,11 +144,6 @@ export function CueUserMenu({ align = 'bottom-end', className = '' }: CueUserMen
   )
 }
 
-/**
- * 渲染用户头像图形。
- *
- * @returns 极简用户轮廓 SVG。
- */
 function CueUserAvatarIcon() {
   return (
     <svg

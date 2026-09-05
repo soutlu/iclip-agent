@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { ArtifactEntry } from './artifact'
 import { ArtifactRegistry, composeArtifacts, pickArtifact } from './registry'
 
-/** 渲染器本身与合成无关，登记条目上放个占位组件。 */
 const Placeholder = () => null
 
 const shotsEntry: ArtifactEntry = {

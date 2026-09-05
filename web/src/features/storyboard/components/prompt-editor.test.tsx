@@ -43,7 +43,7 @@ describe('PromptEditor', () => {
     const second = chips[1]
     expect(second?.querySelector('img')).toHaveAttribute('src', frames[1])
 
-    // jsdom 没有几何：走 pointer 序列会让 PM 去量光标坐标，直接派一个 click 就够
+    // 直接触发 click，避免 ProseMirror 指针选区依赖 jsdom 不具备的布局几何。
     if (second !== undefined) fireEvent.click(second)
     expect(onPickFrame).toHaveBeenCalledWith(2)
   })

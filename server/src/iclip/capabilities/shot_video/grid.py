@@ -1,9 +1,6 @@
-"""网格图切格的纯几何：PGM 解析 + 分隔带检测。零 I/O、零子进程。
+"""网格裁剪几何：解析 PGM 并检测近白或近黑分隔带。
 
-生成的拼图常带外框和不等宽的格间距，机械等分必错，所以先找近纯白/近纯黑的整行
-整列当分隔带；找不到就退回等分，并在 ``GridLayout.detected`` 上如实标出来——等分
-切出来的格子外观正常，不标就没人知道是猜的。
-"""
+检测失败的轴使用等分，并通过 GridLayout.detected 显式报告。"""
 
 from __future__ import annotations
 
@@ -14,7 +11,7 @@ _WHITESPACE = frozenset(b" \t\r\n\v\f")
 _COMMENT = ord("#")
 
 MAX_GRID_SIDE = 6
-"""单边最多几格。上限存在的意义是「一次调用最多切出 36 张图」，不是几何限制。"""
+"""单边格数上限，用于限制每次调用的产物数量。"""
 
 
 class GridError(ValueError):
@@ -32,11 +29,7 @@ class GrayImage:
 
 @dataclass(frozen=True, slots=True)
 class GridLayout:
-    """一次切格的结果：每格的矩形，加上它是量出来的还是等分猜的。
-
-    ``boxes`` 按阅读顺序（左上→右上→左下→右下）排列，坐标是 ``(x, y, w, h)``，
-    落在**传进来那张灰度图**的坐标系里。
-    """
+    """按阅读顺序排列的矩形及检测标志；坐标为输入灰度图中的 (x, y, w, h)。"""
 
     boxes: tuple[tuple[int, int, int, int], ...]
     detected_x: bool
@@ -44,7 +37,7 @@ class GridLayout:
 
     @property
     def detected(self) -> bool:
-        """两个轴都量出了真实分隔带。"""
+        """两个轴均检测到实际分隔带。"""
 
         return self.detected_x and self.detected_y
 
@@ -84,19 +77,14 @@ def parse_pgm(data: bytes) -> GrayImage:
 
 
 def grid_cell_boxes(image: GrayImage, *, rows: int, cols: int) -> GridLayout:
-    """在灰度图上找出每一格占的矩形。
-
-    做法是行/列投影：把每个像素归成「近纯白 / 近纯黑 / 其它」，某一整行或整列
-    里前两类占到 95% 就认为它是分隔带；然后在每条理论等分线附近找最近的一条分
-    隔带当切分位置，外圈边框另外修掉。任一轴找不齐就那个轴退回等分。
-    """
+    """通过行列投影寻找理论等分线附近的分隔带并裁除外框，检测不足的轴使用等分。"""
 
     _check_side(rows, "rows")
     _check_side(cols, "cols")
     width, height = image.width, image.height
     if len(image.pixels) != width * height:
         raise GridError("灰度图的像素长度和尺寸对不上")
-    # 一张 256 项的映射表把「灰度值 → 类别」一次性翻完，比逐像素比较快一个量级。
+    # 用查找表批量分类灰度值，避免逐像素分支比较。
     table = bytes(
         1 if value >= _WHITE_LEVEL else 2 if value <= _BLACK_LEVEL else 0 for value in range(256)
     )
@@ -128,10 +116,7 @@ def parse_aspect(value: str) -> float:
 
 
 def fit_box_to_aspect(box: tuple[int, int, int, int], ratio: float) -> tuple[int, int, int, int]:
-    """把一格居中收缩到目标画幅，偏差在 2% 以内保持原样（别为一两像素白裁一刀）。
-
-    偏差大不算异常：从 16:9 的拼图上取 9:16 竖幅本来就要裁掉一大半宽度。
-    """
+    """居中收缩到目标画幅；比例偏差在 2% 内时保留原矩形，避免无意义裁剪。"""
 
     x, y, w, h = box
     if w <= 0 or h <= 0:
@@ -211,7 +196,7 @@ def _axis_segments(flags: Sequence[bool], *, count: int) -> tuple[list[tuple[int
     starts = [lead, *(end for _, end in cuts)]
     ends = [*(start for start, _ in cuts), trail]
     segments = list(zip(starts, ends, strict=True))
-    # 切出畸形的一段（不到等分宽度的一半）说明这一轴认错了分隔带，整轴作废。
+    # 区间不足等分宽度的一半时，视为该轴检测失败。
     min_len = length // (count * 2)
     if any(end - start < min_len for start, end in segments):
         return naive, False

@@ -1,4 +1,4 @@
-"""拆解文档与取帧账本：文档落在工作区的哪、镜头时间码怎么读出来、整片怎么抽帧拼板成账本。"""
+"""视频拆解文档、镜头时间区间与取帧台账的生成和读取。"""
 
 from __future__ import annotations
 
@@ -50,11 +50,7 @@ _STEM_CHARS: Final = 40
 
 
 def video_doc_path(video_url: str) -> str:
-    """拆解文档在工作区里的路径。
-
-    纯由 URL 算出，所以拆片和取帧两件工具各算各的也落在同一份文件上。带哈希后缀是
-    因为两段不同的视频完全可能同名。
-    """
+    """由视频 URL 派生稳定文档路径，哈希后缀避免同名视频冲突。"""
 
     stem = _UNSAFE_STEM.sub("-", video_url.rsplit("/", 1)[-1].rsplit(".", 1)[0]).strip("-")
     digest = hashlib.sha256(video_url.encode("utf-8")).hexdigest()[:8]
@@ -62,7 +58,7 @@ def video_doc_path(video_url: str) -> str:
 
 
 class FrameExtractor:
-    """拆片与取帧这一段：调拆解接口、读镜头时间码、按秒抽帧拼板、读写取帧账本。"""
+    """生成拆解文档和取帧台账。"""
 
     def __init__(
         self,
@@ -78,7 +74,6 @@ class FrameExtractor:
         self._objects = objects
 
     async def parse(self, video_url: str) -> str:
-        """拆解一段视频，返回文档正文。"""
 
         try:
             return await self._understanding.parse(video_url)
@@ -88,7 +83,7 @@ class FrameExtractor:
     async def shot_rows(
         self, files: FileStore, namespace: str, doc_path: str
     ) -> tuple[tuple[ShotSpan, ...], ...]:
-        """从拆解文档读逐镜时间区间；读不出就给出一条模型能自己走的修复路径。"""
+        """解析文档中的镜头区间，失败时提供可修正的错误。"""
 
         stored = await files.read(namespace, doc_path)
         if stored is None:
@@ -112,7 +107,7 @@ class FrameExtractor:
         video_url: str,
         rows: Sequence[Sequence[ShotSpan]],
     ) -> tuple[dict[str, Any], bool]:
-        """取回或重建取帧账本；第二个返回值是「复用了既有那份」。账本本身不落盘，由调用方写。"""
+        """读取或重建取帧台账，并返回是否复用；持久化由调用方负责。"""
 
         try:
             async with ffmpeg.fetched(
@@ -171,7 +166,7 @@ class FrameExtractor:
         video_hash: str,
         rows: Sequence[Sequence[ShotSpan]],
     ) -> dict[str, Any]:
-        """整片按秒抽帧、逐结构层级拼板落公开地址，产出取帧账本。"""
+        """按固定间隔抽帧，按结构分组生成公开预览板与取帧台账。"""
 
         with TemporaryDirectory(prefix="shot-video-frames-") as tmp:
             frames = await ffmpeg.extract_frames(
@@ -224,7 +219,7 @@ class FrameExtractor:
 
 
 def _check_in_range(rows: Sequence[Sequence[ShotSpan]], *, duration_ms: int) -> None:
-    # 容 500ms：拆解文档的末镜头终点常常写到时长那一刻的取整之外。
+    # 允许末镜头时间码因取整超出媒体时长 500 ms。
     out_of_range = [shot for row in rows for shot in row if shot.end_ms > duration_ms + 500]
     if out_of_range:
         ids = ", ".join(str(shot.shot_id) for shot in out_of_range)

@@ -1,9 +1,4 @@
-"""T-ASSET-02：素材在真库上的事实——数据库的钟、写在表上的约束、整条直传链路。
-
-这一层只验内存替身验不了的东西：登记时刻用的是哪只钟、唯一约束与 CHECK 是不是真的
-在表上、创建者的 restrict 挡不挡得住静默删除、以及「桶里那个对象」这条链在真装配的
-app 上跑不跑得通。
-"""
+"""验证素材的数据库时间、唯一及 CHECK 约束、创建者外键和直传登记链路。"""
 
 from __future__ import annotations
 
@@ -47,7 +42,7 @@ async def assets_app(
     monkeypatch: pytest.MonkeyPatch,
     bucket: MemoryObjectStore,
 ) -> AsyncGenerator[FastAPI]:
-    """真库 + 替身桶：装真 OSS 客户端要真凭证，而这里验的是账本这一侧。"""
+    """真实数据库配合 bucket 替身，隔离 OSS 凭证并验证素材记录。"""
 
     for name, value in OSS_ENVS.items():
         monkeypatch.setenv(name, value)
@@ -80,7 +75,6 @@ async def upload(
     content_type: str = "image/jpeg",
     content: bytes = b"JPEGDATA",
 ) -> httpx.Response:
-    """走完整条链：签名 → （替身桶里）落字节 → 登记。"""
 
     signed = await client.post(
         "/uploads/sign", json={"contentType": content_type, "width": 1200, "height": 1600}
@@ -99,7 +93,6 @@ async def upload(
 async def test_upload_round_trip_lands_a_row(
     client: httpx.AsyncClient, pg_url: str, bucket: MemoryObjectStore
 ) -> None:
-    """签名 → 直传 → 登记 → 读回来，是同一份素材。"""
 
     user_id = await login_as_editor(client, pg_url)
 
@@ -118,7 +111,7 @@ async def test_upload_round_trip_lands_a_row(
 async def test_created_at_comes_from_the_database_clock(
     client: httpx.AsyncClient, pg_url: str, bucket: MemoryObjectStore
 ) -> None:
-    """多台应用服务器的钟差几秒，列表的先后就会和实际登记顺序对不上。"""
+    """登记时间须使用数据库时钟，避免多应用实例时钟差异改变列表顺序。"""
 
     await login_as_editor(client, pg_url)
     asset_id = (await upload(client, bucket)).json()["asset"]["id"]
@@ -145,7 +138,6 @@ async def test_created_at_comes_from_the_database_clock(
 async def test_one_object_can_only_be_registered_once(
     client: httpx.AsyncClient, pg_url: str, bucket: MemoryObjectStore
 ) -> None:
-    """唯一约束真的在表上：同一个 key 想登记成两份素材，数据库自己会拦。"""
 
     await login_as_editor(client, pg_url)
     asset_id = (await upload(client, bucket)).json()["asset"]["id"]
@@ -171,7 +163,7 @@ async def test_one_object_can_only_be_registered_once(
 async def test_creator_is_protected_from_silent_deletion(
     client: httpx.AsyncClient, pg_url: str, bucket: MemoryObjectStore
 ) -> None:
-    """素材是公司账本上的事实，不该跟着传它的那个账号一起消失。"""
+    """素材为共享业务记录，创建者删除应由 RESTRICT 外键阻止。"""
 
     await login_as_editor(client, pg_url)
     await upload(client, bucket)
@@ -188,7 +180,6 @@ async def test_creator_is_protected_from_silent_deletion(
 async def test_everyone_sees_everyones_assets(
     client: httpx.AsyncClient, assets_app: FastAPI, pg_url: str, bucket: MemoryObjectStore
 ) -> None:
-    """素材是全公司共用的：换个人登录，看得见别人传的，creatorUserId 只用来筛。"""
 
     luke = await login_as_editor(client, pg_url)
     mine = (await upload(client, bucket)).json()["asset"]["id"]
@@ -215,7 +206,6 @@ async def test_registering_something_nobody_uploaded_is_a_conflict(
 
 
 async def test_routes_are_absent_without_a_bucket(base_env: None, migrated_pg: str) -> None:
-    """没配桶就没有上传这回事：整组路由不挂，而不是挂上去点了才报错。"""
 
     engine = create_async_engine(migrated_pg)
     try:

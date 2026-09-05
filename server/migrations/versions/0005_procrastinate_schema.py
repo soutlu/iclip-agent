@@ -1,22 +1,12 @@
-"""procrastinate 的排期机械：它自带的建表 DDL，冻结在这里
+"""procrastinate 3.9.0 调度表与函数
 
 Revision ID: b7f3c1d90a24
 Revises: e5b92c4718af
 Create Date: 2026-08-24 18:00:00.000000
 
-下面那段 SQL 是 procrastinate 3.9.0 的 ``schema.sql`` **原文照抄**，一个字没改。
-
-**为什么抄进来而不是运行时调它的 ``apply_schema()``**：本仓的建表只走人工迁移，
-而迁移必须是冻住的——同一个 revision 在任何时候跑出来的库都一样。运行时去读包里
-的文件，升一次库版本这个 revision 的含义就悄悄变了。
-
-**所以升级 procrastinate 的做法是**：把它 ``sql/migrations/`` 里新增的那几个脚本
-照样抄成一个新的 revision，不是改这一个。
-
-**为什么落在 public 而不是 ``iclip``**：它的 SQL 全是不带 schema 的裸名字，没有
-``CREATE SCHEMA`` 也不认 ``search_path`` 参数。要塞进 ``iclip`` 就得让它的连接一直
-带着对的 ``search_path``，多一处必须两边保持一致的配置。而这几张表是排期机械，不是
-业务事实——业务事实在 ``iclip.generation_jobs``，那张表归我们自己。
+SQL 保留自 procrastinate 3.9.0 的 schema.sql，确保同一 revision 的结构不受依赖升级影响。
+升级时将上游 sql/migrations/ 的新增脚本纳入新 revision。
+SQL 使用无 schema 前缀的名称，表安装在 public，业务记录存于 iclip.generation_jobs。
 """
 
 from __future__ import annotations
@@ -634,21 +624,13 @@ CREATE TRIGGER procrastinate_trigger_delete_jobs_v1
 
 
 _STATEMENT_COUNT = 42
-"""上面那段 SQL 切出来该有多少条语句。
-
-写死一个数是为了「切错了要当场炸」：切法要是把两条粘成一条或漏掉一条，报错的地方
-会离得很远（某个函数不存在），而不是在这里。"""
+"""校验冻结 SQL 的语句数，在执行前检出切分错误。"""
 
 
 def _statements(sql: str) -> list[str]:
-    """按分号切开，但 ``$$ ... $$`` 里面的分号不算。
+    """按分号切分语句，保留 $$ 包围的函数体，适配 asyncpg 的单语句预处理限制。
 
-    **为什么必须切**：asyncpg 把每条语句都当预处理语句发，而预处理语句不接受多条
-    命令（``cannot insert multiple commands into a prepared statement``）——整段发
-    过去必然失败。
-
-    这个切法只对上面那段冻住的 SQL 负责，不是通用的 SQL 解析器：那段里只有 ``$$``
-    一种美元引号，注释和字符串里都没有分号（都核对过了）。
+    仅适用于本文件冻结的 SQL：美元引号只有 $$，注释和字符串中不含分号。
     """
 
     statements: list[str] = []
@@ -680,17 +662,12 @@ def upgrade() -> None:
         raise RuntimeError(f"切出了 {len(statements)} 条语句，应该是 {_STATEMENT_COUNT} 条")
     bind = op.get_bind()
     for statement in statements:
-        # 走驱动原生执行：这段 SQL 里满是 ``::`` 强转，不该让 SQLAlchemy 的
-        # ``text()`` 去解析绑定参数。
+        # 原生执行避免 SQLAlchemy text() 将 PostgreSQL 的 :: 转换语法识别为绑定参数。
         bind.exec_driver_sql(statement)
 
 
 def downgrade() -> None:
-    """把它建的东西全撤掉。
-
-    表用 CASCADE：``procrastinate_events`` 到 jobs、jobs 到 workers 都有外键，
-    还有一串触发器挂在表上，逐个点名删只会写出一堆顺序依赖。
-    """
+    """用 CASCADE 删除关联外键与触发器，再清理调度函数和类型。"""
 
     op.execute("DROP TABLE IF EXISTS procrastinate_events CASCADE")
     op.execute("DROP TABLE IF EXISTS procrastinate_periodic_defers CASCADE")

@@ -43,10 +43,7 @@ class PgMaterialLedger:
         self._engine = engine
 
     async def record(self, namespace: str, materials: Sequence[Material]) -> None:
-        """记下这批素材。同一个地址重记不报错，也不改原来那行。
-
-        一条都没有就不发语句：不带 VALUES 的 INSERT 是语法错误。
-        """
+        """幂等登记素材；空输入不执行 INSERT，避免缺少 VALUES 的无效语句。"""
 
         if not materials:
             return
@@ -63,7 +60,7 @@ class PgMaterialLedger:
             )
 
     async def lookup(self, namespace: str, url: str) -> Material | None:
-        """按地址逐字查一条。不做前缀、不做归一化。"""
+        """按完整 URL 精确查询，不进行归一化。"""
 
         table = materials_table
         async with self._engine.connect() as conn:
@@ -77,7 +74,7 @@ class PgMaterialLedger:
         return Material(url=url, kind=cast(MaterialKind, row[0]))
 
     async def purge_namespace(self, namespace: str) -> None:
-        """清掉一个命名空间下的全部素材。删对话时由宿主调用。"""
+        """由宿主在删除会话时清理命名空间素材。"""
 
         table = materials_table
         async with self._engine.begin() as conn:

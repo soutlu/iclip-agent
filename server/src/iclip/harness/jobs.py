@@ -1,28 +1,9 @@
-"""用户发上来的消息，与「一段对话同时只跑一次」这条规矩。
+"""持久化消息队列、运行租约与审批状态。
 
-**「同时只跑一条」由库上的部分唯一索引挡住**，不靠调用方先查后写：两个请求同时进来时，先查
-后写的那种写法两边都会读到「没人在跑」。索引挡下来之后第二条改记成排队。
-
-这条挡板落在库上而不是进程内存里，因为它必须跨 worker：每个 worker 一份进程内存，谁也看不见谁
-在跑。幂等键同理——重发可能打到另一个 worker。``content`` 列只服务同一条命里的接续。
-
-**在跑的那条由租约认领**：``locked_by`` 记的是哪个进程在跑它，``heartbeat_at`` 由那个进程按周期
-刷新，时间一律取数据库时钟。心跳停了超过一个租约、或者关停时被主动释放（``release``）的行，都算
-中断：清扫把它重新认领下来续跑（``claim_interrupted``），``attempt`` 记它被重新认领过几次，到
-``max_attempts`` 就判失败不再续跑（``fail_exhausted``）；排着的那些由清扫叫醒
-（``conversations_waiting``）。持租那一方的写入都带 ``_owned`` 这道 fence——租约易手之后它们一行
-都改不动，结局由接手的那一方定。
-
-``steered`` 与 ``awaiting`` 都是**内部状态**，对外一律报 ``running``：协议的 prompt 状态联合里
-没有这两个值，漏出去客户端整帧被 zod 拒掉且不报错。``steered`` 表示这条消息已经递进了某次 run
-（``run_id`` 记的就是那次），结局跟着那一轮走；``awaiting`` 表示那次 run 停在审批上等人点头，
-决定记在 ``decisions`` 里，凑齐一次响应里的全部审批才 CAS 回 ``running`` 起续跑。
-
-**等审批的行照样占着这段对话**：它没有租约（心跳与清扫都不看它），但每处以 ``running`` 判「占着」
-的地方都把它算进去，包括库上那道部分唯一索引。
-
-**``agent_jobs.run_id`` 只记最近一次，全部的记在 ``agent_job_runs``。** 一条 prompt 可以由好几次 run
-跑完（中断后续跑、审批后续跑），transcript 靠那张映射表把它们合成一轮。
+部分唯一索引保证每段对话最多一条 running/awaiting 消息，跨 worker 共享幂等与排队状态。
+租约使用数据库时钟，写入以持有者和 attempt 校验，防止旧运行覆盖续跑结果。
+steered/awaiting 对外映射为 running；awaiting 占用会话但不持有租约。
+agent_jobs.run_id 记录最近运行，agent_job_runs 保存全部映射，供 transcript 合并轮次。
 """
 
 from __future__ import annotations
@@ -68,10 +49,10 @@ DB_SCHEMA: Final = "agent_runtime"
 JobStatus = Literal["running", "awaiting", "queued", "steered", "completed", "failed", "aborted"]
 
 _ACTIVE: Final = ("running", "awaiting")
-"""占着这段对话的那两种。等审批的那一轮并没有结束，所以它也算占着。"""
+"""占用会话的状态，包含等待审批的运行。"""
 
 _LIVE: Final = ("running", "awaiting", "queued")
-"""还归队列管的那几种：占着的那条与排着的那些。``steered`` 已经交给运行侧了，不在里面。"""
+"""队列管理的状态；steered 已交由运行侧管理。"""
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
 
@@ -91,7 +72,7 @@ agent_jobs_table = Table(
     Column("locked_by", Text),
     Column("heartbeat_at", TIMESTAMP(timezone=True)),
     Column("interrupt_reason", Text),
-    # 收下 prompt 的那条 INSERT 不写这一列，默认值由库给。
+    # INSERT 省略此列，使用数据库默认值。
     Column("attempt", Integer, nullable=False, server_default="0"),
     Column("decisions", Text),
     PrimaryKeyConstraint("prompt_id"),
@@ -122,7 +103,7 @@ agent_job_runs_table = Table(
 
 @dataclass(frozen=True, slots=True)
 class JobRow:
-    """一条 prompt 的持久事实行。"""
+    """持久化消息记录。"""
 
     prompt_id: str
     conversation_id: str
@@ -138,22 +119,18 @@ class JobRow:
     heartbeat_at: datetime | None
     interrupt_reason: str | None
     attempt: int
-    """中断后被重新认领过几次。第一次认领不算在里面。"""
+    """中断后的重新认领次数，不含首次认领。"""
     decisions: Mapping[str, bool]
-    """人对这一轮的审批点了什么：工具调用 id → 是否放行。没等过审批就是空的。"""
+    """工具调用 id 到审批决定的映射。"""
 
     @property
     def text(self) -> str:
-        """这条 prompt 里用户打的字。多段文字之间用换行接起来。"""
+        """以换行连接消息中的文本部分。"""
 
         return "\n".join(part.text for part in self.content if part.type == "text")
 
     def as_entity(self) -> Prompt:
-        """协议里的 ``prompt`` 实体。``prompt.upsert`` 与订阅快照发的就是这一份。
-
-        ``steered`` 与 ``awaiting`` 都报成 ``running``：两者都是这一轮的一部分，而协议的状态
-        联合里没有这两个值。
-        """
+        """生成协议 prompt；内部 steered/awaiting 状态映射为 running。"""
 
         return Prompt(
             prompt_id=self.prompt_id,
@@ -167,36 +144,28 @@ class JobRow:
 
 @dataclass(frozen=True, slots=True)
 class JobQueueView:
-    """一段对话此刻的排程：占着的那条（在跑或者在等审批），加排着的那些。"""
+    """会话中占用执行位置与排队中的消息。"""
 
     active: JobRow | None
     queued: tuple[JobRow, ...]
 
 
 ActivityChanged = Callable[[str, uuid.UUID, ActivityState], None]
-"""一段对话在忙什么变了，入参是 ``(对话 id, 属主, 新的活儿)``。
+"""会话活动变更回调，参数为 (对话 id, 属主, 活动)。
 
-同步，也不落库：它只往这个人还开着的每条连接的出站队列里塞一帧。于是**到达次序就是写入次序**
-——一条跑完接着起下一条时，idle 那一帧一定在 busy 那一帧之前。
-
-属主从行上取（``agent_jobs.owner_user_id``），不由接的那一方回头查对话表：那要 await，一次
-await 就把「按写入次序发」这条丢掉了。
+提交后同步发送，确保 idle 先于后续 busy。属主直接取自消息行，避免 await 查询打乱发送顺序。
 """
 
 
 class JobQueue:
-    """按对话排 prompt。DDL 由 Alembic 迁移拥有，这里不自建表。"""
+    """按会话调度消息；DDL 由 Alembic 管理。"""
 
     def __init__(self, engine: AsyncEngine, *, on_activity: ActivityChanged | None = None) -> None:
         self._engine = engine
         self._on_activity = on_activity
 
     def _changed(self, row: JobRow, status: JobStatus) -> None:
-        """占着这段对话的那一行状态变了，告诉外面。对话 id 与属主都从行上取。
-
-        只在写入的事务提交之后叫：在事务里叫的话，一次回滚就把一份从没成立的活儿发了出去。
-        一条跑完接着起下一条会先发 idle 再发 busy，不去抖。
-        """
+        """事务提交后广播活动变更，避免发送回滚状态；连续运行依次发出 idle、busy。"""
 
         if self._on_activity is not None:
             self._on_activity(row.conversation_id, row.owner_user_id, activity_of(status))
@@ -212,20 +181,10 @@ class JobQueue:
         now: datetime,
         locked_by: str,
     ) -> JobRow:
-        """收下一条 prompt：这段对话空着就记成在跑，否则记成排队。
+        """提交消息并原子决定运行或排队。
 
-        状态由一条 ``INSERT ... SELECT`` 自己判，不先查后写——两条同时进来时先查后写会双双
-        读到「空着」，然后一起去起 run。判成在跑的那一刻同时铸租约（``locked_by`` 记调用方这个
-        进程，``heartbeat_at`` 取数据库时钟），排队的两列留空。
-
-        ``prompt_id`` 由调用方铸，重复提交同一个 id 返回已有那条（客户端重试不会多起一次
-        运行，也不会多出一条排队）。
-
-        **认领只在同一段对话内算数。** id 是客户端铸的，两个人撞上同一个是完全可能的；不比
-        对话就返回已有那条的话，撞上的人会拿到别人的消息记录，而他自己那条从来没被收下。
-
-        两种撞车都由 ``IntegrityError`` 报到这里，各走一条路：撞「一段对话只跑一条」那道部分
-        唯一索引的，改记成排队；撞主键的是同一个 id 并发提交两次（双击），读回已有那条。
+        运行行同时创建租约，时间取数据库时钟；占用唯一索引冲突时改为排队。
+        prompt_id 重复时返回同会话中的已有记录；跨会话复用 id 必须拒绝，防止泄露消息。
         """
 
         existing = await self.get(prompt_id)
@@ -259,8 +218,7 @@ class JobQueue:
         try:
             row = await self._one(stmt)
         except IntegrityError:
-            # 唯一索引拦下来了：另一条 prompt 在这几微秒里抢先占住了「在跑」那个位置。
-            # 那条 CASE 判断和这次写入之间没有锁，所以这条路一定会有人走到。
+            # INSERT 判定后仍可能并发占用执行位置，由部分唯一索引裁决。
             try:
                 row = await self._one(
                     insert(agent_jobs_table)
@@ -268,7 +226,7 @@ class JobQueue:
                     .returning(agent_jobs_table)
                 )
             except IntegrityError:
-                # 这次撞的是主键：同一个 id 并发提交了两次，另一次已经收下了。
+                # 同一 prompt_id 并发提交，读取已成功写入的记录。
                 existing = await self.get(prompt_id)
                 if existing is None:
                     raise
@@ -280,7 +238,7 @@ class JobQueue:
         return row
 
     async def view(self, conversation_id: str) -> JobQueueView:
-        """这段对话此刻占着的和排着的。跑完的不在里面。"""
+        """返回会话中占用执行位置和排队中的消息。"""
 
         stmt = (
             select(agent_jobs_table)
@@ -301,11 +259,7 @@ class JobQueue:
         return found[0] if found else None
 
     async def get_by_run(self, run_id: str) -> JobRow | None:
-        """发起那次 run 的那条 prompt；没记过就是 ``None``。
-
-        按 ``agent_job_runs`` 找，不按 ``agent_jobs.run_id``：那一列记的是最近一次，而插话行也记着
-        它被递进的那次 run（见 ``mark_steered``），照它查得挑一条。
-        """
+        """通过 agent_job_runs 查询发起运行的消息；agent_jobs.run_id 仅表示最近运行且包含插话。"""
 
         stmt = (
             select(agent_jobs_table)
@@ -319,7 +273,7 @@ class JobQueue:
         return found[0] if found else None
 
     async def prompt_of_runs(self, conversation_id: str) -> dict[str, str]:
-        """这段对话里每次 run 归哪条 prompt。transcript 靠它把多次 run 合成一轮。"""
+        """返回 run 到 prompt 的映射，供 transcript 合并轮次。"""
 
         stmt = (
             select(agent_job_runs_table.c.run_id, agent_job_runs_table.c.prompt_id)
@@ -332,12 +286,7 @@ class JobQueue:
             return {run_id: prompt_id for run_id, prompt_id in (await conn.execute(stmt)).all()}
 
     async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, str]:
-        """这段对话里每次 run 归的那条 prompt 此刻是什么状态。
-
-        transcript 的历史侧靠它给末尾那些开放的工具调用定性：等审批、撤销了还是失败了，消息本身
-        说不出这件事。与 ``prompt_of_runs`` 分成两口，是因为轮号、截断、交接那几处调用方只要映射，
-        返回一对值会让它们全都跟着解包。
-        """
+        """返回各 run 所属消息的当前状态，供 transcript 判定开放调用的审批或终止状态。"""
 
         stmt = (
             select(agent_job_runs_table.c.run_id, agent_jobs_table.c.status)
@@ -350,10 +299,7 @@ class JobQueue:
             return {run_id: status for run_id, status in (await conn.execute(stmt)).all()}
 
     async def activities(self, conversation_ids: Sequence[str]) -> dict[str, ActivityState]:
-        """这几段对话此刻各在忙什么。问到的每一段都给得出，查不到行的是 ``IDLE``。
-
-        侧栏的角标只看这一份：它跨得过重启，而进程内存是每 worker 一份、互相看不见。
-        """
+        """从持久化队列查询各会话活动，未命中时返回 IDLE。"""
 
         if not conversation_ids:
             return {}
@@ -365,10 +311,7 @@ class JobQueue:
     async def conversation_ids(
         self, owner_user_id: uuid.UUID, state: Literal["running", "done"]
     ) -> frozenset[str]:
-        """这个人名下在跑的、或者已经跑完过的对话。列表的 ``state`` 筛选按它过滤。
-
-        从没跑过的对话两边都不在里面：它既不忙，也没有「最近一轮的结局」。
-        """
+        """查询属主的活跃会话与已运行会话；从未运行的会话不在结果中。"""
 
         decisive = await self._decisive(agent_jobs_table.c.owner_user_id == owner_user_id)
         return frozenset(
@@ -378,12 +321,9 @@ class JobQueue:
         )
 
     async def _decisive(self, scope: ColumnElement[bool]) -> dict[str, JobStatus]:
-        """每段对话里决定活儿的那一行的状态：占着的那条，否则最近结束的那条。
+        """优先取占用会话的行，否则取最近结束的运行。
 
-        两条排除各有理由。``steered`` 有一条就必有一条 running/awaiting 陪着它（插话是递进
-        那一轮的），取到它会把 approval 盖掉；``queued`` 同理只是排着，还没轮到。
-        ``run_id`` 为空的 ``aborted`` 是「排着的时候就被撤回」的那条消息——它从来没跑过，不能
-        当成这段对话最近一轮的结局。
+        排除 steered、queued 以及未启动便撤回的消息，避免其覆盖审批状态或最近运行结果。
         """
 
         stmt = (
@@ -408,12 +348,7 @@ class JobQueue:
             }
 
     async def start_next(self, conversation_id: str, *, locked_by: str) -> JobRow | None:
-        """把排在最前的那条转成在跑并铸上租约，返回它；没有排队的、或者还有占着的，返回 ``None``。
-
-        「还有占着的就不动」写在 SQL 的条件里而不是调用方那边：run 结束和新 prompt 进来是两
-        条各自独立的路，两边同时来叫它是正常的。多进程下两边同时叫会撞上那条部分唯一索引，撞
-        了就是别人抢到了，返回 ``None``。
-        """
+        """原子认领队首并创建租约；会话仍被占用、队列为空或并发认领失败时返回 None。"""
 
         head = (
             select(agent_jobs_table.c.prompt_id)
@@ -446,13 +381,7 @@ class JobQueue:
     async def attach_run(
         self, prompt_id: str, run_id: str, *, locked_by: str, attempt: int
     ) -> None:
-        """记下这条 prompt 起的是哪次 run，好把它和 transcript 里那一轮对上。
-
-        租约不在自己手上就一行都不动：那一轮已经被别人判过结局了。
-
-        两处写在同一个事务里：``agent_jobs.run_id`` 记最近一次，``agent_job_runs`` 记全部。只写成
-        一半的话 transcript 会把同一条 prompt 的两次 run 画成两轮，而且不报错。
-        """
+        """持租写入最近 run_id 与完整运行映射；两项更新同事务提交，避免 transcript 错分轮次。"""
 
         claim = (
             update(agent_jobs_table)
@@ -471,7 +400,7 @@ class JobQueue:
     async def finish(
         self, prompt_id: str, *, status: JobStatus, now: datetime, locked_by: str, attempt: int
     ) -> None:
-        """给自己手上那条 prompt 收尾。已经收过尾的、或者租约易手的都不再动。"""
+        """仅结束仍由当前租约持有的消息。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -485,18 +414,10 @@ class JobQueue:
             self._changed(row, status)
 
     async def abort(self, prompt_id: str, *, conversation_id: str, now: datetime) -> JobRow:
-        """撤掉一条 prompt，返回改完（或者没能改）的那一行。
+        """撤回指定会话的消息。
 
-        排队中的与等审批的一条 CAS 直接标掉——这两种行都没有租约，走不了 ``finish`` 那道 fence，
-        所以状态自己就是 CAS 的条件。正在跑的只标一半：真正把运行停掉是运行侧的事，这里不知道
-        那次 run 在谁手上，所以原样返回该行不改状态。
-
-        ``conversation_id`` 是调用方已经核过权的那一段，不属于它的当作没有：消息 id 是客户端铸的，
-        这道核对写进 CAS 的条件里，不然光凭一个猜到的 id 就能撤掉别人的消息。
-
-        已经跑完的抛 ``Conflict``：重复点停止是常事，但不能假装刚刚停掉了什么。
-
-        撤掉的行是不是原来那条等审批的，看 ``run_id``：排着的那些从来没起过 run，那一列是空的。
+        queued/awaiting 使用状态 CAS；running 交由运行侧停止，此处原样返回。
+        CAS 同时匹配已授权的 conversation_id，终态消息抛 Conflict。run_id 可区分审批与排队撤回。
         """
 
         stmt = (
@@ -522,11 +443,7 @@ class JobQueue:
         return row
 
     async def abort_queued(self, conversation_id: str, *, now: datetime) -> tuple[JobRow, ...]:
-        """把这段对话排着的全撤掉，返回撤掉的那几条。在跑的那条不动。
-
-        一条 UPDATE 撤完，不逐条来：逐条之间的空档里，在跑的那条要是结束了，``start_next``
-        就把还没撤到的队首顶上来接着跑。
-        """
+        """单条 UPDATE 撤回全部排队消息，避免逐条更新期间队首被 start_next 启动。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -540,11 +457,7 @@ class JobQueue:
     async def pick_for_steer(
         self, conversation_id: str, prompt_ids: tuple[str, ...]
     ) -> tuple[JobRow, ...]:
-        """挑出要插进当前这一轮的那几条，还不改状态。
-
-        有一条不是「这段对话里排着的」就整批不动——插一半进去、另一半留在队列里，用户看到的
-        顺序就乱了。
-        """
+        """验证整批插话均属于当前会话且处于 queued，验证失败时整批拒绝。"""
 
         view = await self.view(conversation_id)
         if view.active is None:
@@ -561,11 +474,7 @@ class JobQueue:
     async def mark_steered(
         self, prompt_ids: tuple[str, ...], *, run_id: str, now: datetime
     ) -> tuple[JobRow, ...]:
-        """记下这几条已经递进了哪次 run。结局不在这里定，跟着那一轮走。
-
-        **先改状态再递内容**：反过来的话，递完到改完之间那一轮要是收场了，收场时的清扫看到的
-        还是 ``queued``，什么都不会退回，随后这次写入把它钉成一个属于死运行的 ``steered``。
-        """
+        """递入内容前先记录 steered 与 run_id，确保运行结束时能将未消费消息退回队列。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -579,7 +488,7 @@ class JobQueue:
     async def settle_steered(
         self, run_id: str, *, status: JobStatus, now: datetime
     ) -> tuple[JobRow, ...]:
-        """这次 run 收场了，递进去的那几条跟着它同一个结局。"""
+        """将插话更新为所属 run 的终态。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -591,10 +500,7 @@ class JobQueue:
         return await self._all(stmt)
 
     async def requeue_steered(self, prompt_ids: tuple[str, ...]) -> tuple[JobRow, ...]:
-        """递进去了但那一轮没读到它，退回队列排着。
-
-        一条追加要么进这次 run，要么退回 ``queued``；不留在一个已经收场的 run 名下。
-        """
+        """将运行结束时未消费的插话退回 queued。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -606,10 +512,7 @@ class JobQueue:
         return await self._all(stmt)
 
     async def heartbeat(self, *, locked_by: str) -> tuple[str, ...]:
-        """给这个进程手上还在跑的那些行刷一次心跳，返回刷到的 prompt id。
-
-        调用方拿返回的这一组与自己内存里在跑的那些比对：不在里面的，租约已经不在自己手上。
-        """
+        """刷新当前进程的运行租约，返回成功更新的消息 id，供调用方识别失租运行。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -622,11 +525,7 @@ class JobQueue:
             return tuple((await conn.execute(stmt)).scalars().all())
 
     async def release(self, prompt_id: str, *, locked_by: str, reason: str, attempt: int) -> None:
-        """放掉自己手上那条的租约，行留在 ``running`` 等人接着跑。
-
-        租约不在自己手上就一行都不动：那一轮已经归接手的那一方了。行还占着这段对话，活儿没变，
-        所以不发帧。
-        """
+        """释放当前租约并保留 running，等待其他进程续跑；会话活动未变，不广播。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -639,15 +538,10 @@ class JobQueue:
     async def claim_interrupted(
         self, *, locked_by: str, lease_seconds: int, max_attempts: int
     ) -> tuple[JobRow, ...]:
-        """把中断的行认领下来续跑，返回认领到的那几条。
+        """认领其他进程的中断运行。
 
-        第一次认领不计入 ``attempt``，所以拿 ``attempt + 1`` 与 ``max_attempts`` 比：配成 1 就是
-        中断后只判失败、不续跑。
-
-        **自己名下的行不认领。** 事件循环卡过一个租约（长 GC、同步活儿）时，自己在跑的那行也是
-        「心跳落后」的样子；认领它等于同一段对话在同一个进程里起第二次运行，而先起的那一次心跳
-        照样刷得到，谁也不会停下来。``IS DISTINCT FROM`` 是 NULL 安全的，关停释放过的行（
-        ``locked_by`` 为空）照样认得到。
+        attempt 不含首次认领，使用 attempt + 1 判断上限。排除本进程持有的行，避免事件循环阻塞后
+        重复启动；IS DISTINCT FROM 允许认领 locked_by 为 NULL 的已释放租约。
         """
 
         stmt = (
@@ -665,7 +559,7 @@ class JobQueue:
         return await self._all(stmt)
 
     async def fail_exhausted(self, *, lease_seconds: int, max_attempts: int) -> tuple[JobRow, ...]:
-        """认领次数已经用完的中断行判失败并放掉租约，返回它们。"""
+        """将认领次数耗尽的中断消息标记失败并释放租约。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -685,10 +579,7 @@ class JobQueue:
         return rows
 
     async def adopt_steered(self, old_run_id: str, new_run_id: str) -> None:
-        """递进老 run 的那几条插话改挂续跑这次 run。
-
-        不改挂的话它们等的是一个已经死掉的 run 定结局，永远停在「正在跑」。
-        """
+        """将旧 run 的插话迁移至续跑 run，确保其终态随续跑更新。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -701,11 +592,7 @@ class JobQueue:
     async def await_approvals(
         self, prompt_id: str, *, locked_by: str, attempt: int
     ) -> JobRow | None:
-        """这次 run 停在审批上了：行改成 ``awaiting`` 并放掉租约，``run_id`` 留着。
-
-        租约不在自己手上就一行都不动，同 ``finish`` 那道 fence。放掉租约是因为没有 run 在跑了，
-        没人刷心跳——留着的话清扫会把它当成中断的行认领去续跑。
-        """
+        """持租转入 awaiting 并释放租约，保留 run_id；避免清扫将审批等待误判为中断。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -720,14 +607,7 @@ class JobQueue:
         return row
 
     async def record_decision(self, prompt_id: str, tool_call_id: str, *, approved: bool) -> JobRow:
-        """记下人对一张审批卡点了什么，返回记完之后的那一行。
-
-        同一张卡重复点同一个决定原样返回（客户端重试是常事），点相反的抛 ``Conflict``：工具那一侧
-        可能已经照第一次的决定走下去了，悄悄换掉等于让界面和事实分家。
-
-        读改写在同一个事务里加锁：两次点击落在两个连接上时，后写的那一次会把前一次的决定覆盖掉，
-        于是凑齐审批的判断永远差一个。
-        """
+        """事务内加锁更新审批决定，防止并发覆盖。重复相同决定幂等，冲突决定抛 Conflict。"""
 
         async with self._engine.begin() as conn:
             current = (
@@ -758,11 +638,7 @@ class JobQueue:
         return _row(updated)
 
     async def claim_for_continuation(self, prompt_id: str, *, locked_by: str) -> JobRow | None:
-        """审批凑齐了：CAS 回 ``running`` 并铸上租约，返回它；抢不到就是别人起了续跑，返回 ``None``。
-
-        ``attempt`` 不加——那一列记的是「中断后重新认领过几次」，等人点头不是中断。``decisions``
-        留着：续跑那次 run 要按它给官方 ``deferred_tool_results``。
-        """
+        """审批齐备后 CAS 转回 running 并创建租约。保留 decisions 供续跑使用，不增加中断次数。"""
 
         stmt = (
             update(agent_jobs_table)
@@ -777,7 +653,7 @@ class JobQueue:
         return row
 
     async def conversations_waiting(self) -> tuple[str, ...]:
-        """有排队的行、却一条占着的都没有的那些对话。它们等着人来叫。"""
+        """查询有排队消息且执行位置空闲的会话。"""
 
         queued = agent_jobs_table.alias("queued")
         running = (
@@ -797,31 +673,27 @@ class JobQueue:
     # --- 执行 ---------------------------------------------------------------
 
     async def _one(self, stmt: Executable) -> JobRow | None:
-        """跑一句写入，取它 ``RETURNING`` 的那一行；一行都没改到就是 ``None``。"""
+        """执行写入并返回单条 RETURNING 记录，未更新时返回 None。"""
 
         async with self._engine.begin() as conn:
             row = (await conn.execute(stmt)).one_or_none()
         return None if row is None else _row(row)
 
     async def _all(self, stmt: Executable) -> tuple[JobRow, ...]:
-        """跑一句写入，取它 ``RETURNING`` 的全部行。"""
+        """执行写入并返回全部 RETURNING 记录。"""
 
         async with self._engine.begin() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
 
     async def _rows(self, stmt: Executable) -> tuple[JobRow, ...]:
-        """跑一句只读查询。不开事务。"""
+        """执行只读查询，不开启显式事务。"""
 
         async with self._engine.connect() as conn:
             return tuple(_row(row) for row in (await conn.execute(stmt)).all())
 
 
 def _owned(prompt_id: str, locked_by: str, attempt: int) -> ColumnElement[bool]:
-    """持租那一方写入自己那条行的条件：id、租约主人、代数三者都对得上。
-
-    ``attempt`` 是代数：一条行失租之后又被清扫认领回同一个进程时，``locked_by`` 会跟原来一样，
-    老 task 的晚到写入光比租约主人是挡不掉的——它会替一个已经不是自己的轮子定结局。
-    """
+    """写入同时校验 id、locked_by 和 attempt。attempt 防止同一进程重新认领后被旧任务的延迟写入覆盖。"""
 
     return and_(
         agent_jobs_table.c.prompt_id == prompt_id,
@@ -831,13 +703,7 @@ def _owned(prompt_id: str, locked_by: str, attempt: int) -> ColumnElement[bool]:
 
 
 def _interrupted(lease_seconds: int) -> ColumnElement[bool]:
-    """中断的判据：还记着在跑，但租约要么被主动放掉了、要么停了心跳。
-
-    ``release`` 过的行 ``heartbeat_at`` 是 NULL，比不出「落后一个租约」，所以两种情形都要写上。
-    认领与判失败共用这一份，各写一遍迟早会漂成两套判据、行卡在中间没人管。
-
-    只看 ``running``：等审批的行没有租约也不刷心跳，它不是中断，是在等人。
-    """
+    """统一判定 running 行的租约释放或心跳超时。释放后的 NULL 心跳单独处理；awaiting 不参与清扫。"""
 
     return and_(
         agent_jobs_table.c.status == "running",

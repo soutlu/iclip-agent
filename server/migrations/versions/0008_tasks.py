@@ -4,14 +4,8 @@ Revision ID: f1e6b83d2c47
 Revises: d9c4a72e3b18
 Create Date: 2026-08-24 23:30:00.000000
 
-在这张表出现之前，「要做什么片子」只存在于聊天记录和口头交代里：谁提的、什么时候要、
-下发了没有、被撤了没有，一个都答不上来，也没法排队。
-
-三条约束写在数据库上，因为它们破了就是数据本身错了，不是某段代码错了：状态只有那
-四个值；一旦下发就必须写着期限（草稿可以先空着）；brief 必须是个 JSON 对象。
-
-``creator_user_id`` 用 restrict 而不是级联：一张下发过的需求单是公司账本上的事实，
-不该跟着提它的那个账号一起消失。
+数据库约束状态取值、下发期限和 brief 的 JSON 对象类型。
+creator_user_id 使用 RESTRICT，保留需求单记录，避免随创建者账号级联删除。
 """
 
 from __future__ import annotations
@@ -52,7 +46,6 @@ def upgrade() -> None:
         sa.CheckConstraint("jsonb_typeof(brief) = 'object'", name="tasks_brief_object_check"),
         schema=SCHEMA,
     )
-    # 列表页就这一个查询：最近改动的排前面。
     op.create_index(
         "ix_tasks_updated",
         "tasks",

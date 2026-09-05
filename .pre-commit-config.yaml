@@ -19,8 +19,7 @@ repos:
         language: system
         pass_filenames: false
         files: ^web/
-  # pre-push 只留快检查（pyright）：完整门禁由 CI + 人类合并门禁把守（AGENTS.md §5），
-  # 本地钩子是提速反馈，不是防线。
+  # pre-push 运行 pyright；完整检查由 CI 执行。
   - repo: local
     hooks:
       - id: server-typecheck-push

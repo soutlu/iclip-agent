@@ -1,7 +1,4 @@
-"""挂在图片地址上的 OSS 处理参数：缩放与裁切怎么拼，什么地址挂不上去。
-
-全是纯字符串函数，不出网——真的裁没裁对是对象存储那一侧的事。
-"""
+"""验证 OSS 缩放与裁切参数的 URL 构造；不发送网络请求。"""
 
 from __future__ import annotations
 
@@ -20,7 +17,7 @@ def test_crop_uses_original_pixel_coordinates() -> None:
 
 
 def test_crop_then_resize_cascades_in_that_order() -> None:
-    """顺序要紧：OSS 按 ``/`` 依次处理，所以缩的是裁出来的那块，不是原图。"""
+    """OSS 按 / 顺序处理，必须先裁切再缩放裁切区域。"""
 
     assert (
         cropped_image_url(OSS, x=0, y=0, width=3000, height=2000, max_edge=1024)
@@ -36,7 +33,7 @@ def test_crop_then_resize_cascades_in_that_order() -> None:
     ],
 )
 def test_an_address_that_cannot_carry_the_parameter_is_refused(url: str) -> None:
-    """挂不上去就抛，不原样返回：拼出来的废地址在厂商那侧才失败，更难查。"""
+    """不支持处理参数的地址应立即拒绝，避免将失败延迟到模型供应商。"""
 
     with pytest.raises(ValueError, match="缩放参数"):
         cropped_image_url(url, x=0, y=0, width=10, height=10, max_edge=None)

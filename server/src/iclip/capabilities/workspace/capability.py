@@ -1,19 +1,7 @@
-"""工作区能力：给 agent 一个跨会话持久的文本工作面。
+"""工作区能力，通过注入的 FileSpace 提供持久化文件工具。
 
-按官方 capability 的写法长：``AbstractCapability`` 的子类，贡献一个工具集加一
-段静态指引；文件落在哪由组合根注入的 ``FileSpace`` 决定（平台层的存储协议 + 一
-条算命名空间的规则），所以这里既不认识 Postgres，也不认识我们的表，更不需要知道
-「租户」在这个系统里是用什么表示的。
-
-不实现 ``from_spec``，并且把 ``get_serialization_name`` 显式关成 ``None``：官方
-的默认值是类名，也就是说不关就等于对外宣称「我能从 YAML spec 里造出来」，而
-``FileSpace`` 是运行期对象，造不出来。声明面在上一层——``agents.yaml``
-里写 ``capabilities: [workspace]``。
-
-也不做 ``before_model_request`` 注入。官方 ``Memory`` 往每轮请求里塞记忆是因为
-那本来就是「上一次会话的背景」；工作区的文件清单没有这个必要性，模型要看就调
-``list_files``，省一份每轮都付钱的噪音。
-"""
+FileSpace 包含运行对象，无法由 YAML spec 构造，因此禁用序列化名称。
+文件清单由 list_files 按需读取，不逐轮注入模型上下文。"""
 
 from __future__ import annotations
 
@@ -60,31 +48,22 @@ from iclip.platform.transcript.display import (
 )
 
 CAPABILITY_ID: Final = "workspace"
-"""能力与工具集共用的稳定 id。
-
-``for_run`` 每次运行都返回一个新实例，而官方按 id 认能力（不是按对象），所以
-它必须是写死的字符串而不是派生值。工具集用同一个 id，durable execution 按 id
-包工具集时才包得住。
-"""
+"""能力与工具集共用的稳定 id，用于识别 for_run 克隆及 durable execution 工具集。"""
 
 MAX_READ_LINES: Final = 400
 MAX_SEARCH_RESULTS: Final = 50
 
 FULL_RESOLUTION_MAX_BYTES: Final = 10 * 1024 * 1024
-"""按原分辨率交付的单图字节上限。超了就让模型改用 ``region`` 分块看。"""
+"""原分辨率单图大小上限，超限时要求使用 region 分块读取。"""
 
 _MEDIA_GRID_VIEW: Final = "media_grid"
-"""读图的结果用这个渲染器画，形状是 ``MediaGridItems``。"""
+"""读图结果的 MediaGridItems 渲染器。"""
 
 _RECORDED_AT: Final = "工具结果里返回的地址记在它写下的账本或版记录里，用 read_file 读回来再用。"
-"""素材错误消息的收尾动作：本对话产出的地址都能从工作区里翻回来。"""
+"""素材来源错误的恢复指引。"""
 
 _GUIDANCE = "这段对话有一个持久的工作目录，你和你派出去的下属共用同一个根，所有路径都相对它。"
-"""只说这个目录是什么。
-
-路径怎么写、怎么用那七件工具，都写在各自的 docstring、参数描述与错误消息里了，
-在这儿再说一遍就是每轮都要付钱的重复。这条界线见 `docs/tool-design.md` §0。
-"""
+"""仅说明目录用途，工具用法由各工具的提示与参数描述定义，避免重复注入。"""
 
 
 @dataclass
@@ -92,39 +71,27 @@ class Workspace(AbstractCapability[AgentDepsT]):
     """把工作区工具集挂到 agent 上。"""
 
     space: FileSpace
-    """文件落在哪：存储后端 + 从本次运行算命名空间的规则。
-
-    命名空间做成规则而不是字符串，是为了让「按什么分工作区」这个决定留在组合
-    根：那里才看得见身份是怎么表示的。规则抛异常就让它抛——算不出命名空间时唯
-    一正确的行为是让这次运行失败，绝不能退回某个公共命名空间。
-    """
+    """存储后端与运行命名空间解析规则。解析失败必须终止运行，禁止使用公共命名空间。"""
 
     probe: MediaProbe
-    """读图之前问原图信息用的那一口（宽高、字节数、格式）。"""
+    """读取原图尺寸、大小与格式的外部协议。"""
 
     ledger: MaterialLedger
-    """这段对话能用哪些地址。读图收的地址在这里查得到才放行。"""
+    """校验图片地址来源的对话素材台账。"""
 
-    # 显式 kw_only：父类的 ``id`` 本来就是关键字字段，重新声明时得保持这一点，
-    # 否则字段顺序会变成「有默认值的位置参数在前、没默认值的在后」而报错。
+    # 保留父类 id 的 kw_only 属性，避免默认字段先于必需位置字段。
     id: str | None = field(default=CAPABILITY_ID, kw_only=True)
 
     _scope: str | None = field(default=None, init=False, repr=False, compare=False)
 
     async def for_run(self, ctx: RunContext[AgentDepsT]) -> Workspace[AgentDepsT]:
-        """每次运行克隆一份，并当场把命名空间算出来。
-
-        算这一次的意义不是省几次函数调用，而是**在第一次模型请求之前、每次运
-        行都确定性地失败**——而不是等模型碰巧去碰了工作区工具，才在一个工具错
-        误里暴露「这次运行的身份不对」。
-        """
+        """克隆能力并解析命名空间，在首次模型请求前暴露身份或装配错误。"""
 
         clone = replace(self)
         clone._scope = clone._resolve_scope(ctx)
         return clone
 
     def resolve_scope(self, ctx: RunContext[AgentDepsT]) -> str:
-        """取本次运行的命名空间。"""
 
         if self._scope is not None:
             return self._scope
@@ -140,7 +107,7 @@ class Workspace(AbstractCapability[AgentDepsT]):
         return _GUIDANCE
 
     def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]:
-        """这七件工具的卡怎么画、结果用哪个渲染器画。组合根装配期取一次，合进那份注册表。"""
+        """供组合根合并的工具卡与结果渲染声明。"""
 
         return {
             "read_file": ToolDisplayEntry(
@@ -161,7 +128,6 @@ class Workspace(AbstractCapability[AgentDepsT]):
 
 
 def _text(args: Any, field_name: str) -> str | None:
-    """从这次调用的参数里取一个非空字符串。"""
 
     if isinstance(args, dict):
         value = args.get(field_name)
@@ -192,7 +158,6 @@ def _media_display(args: Any) -> ToolDisplay | None:
 
 
 def _bytes_label(size_bytes: int) -> str:
-    """字节数写成 KB / MB 两档。"""
 
     mib = 1024 * 1024
     if size_bytes >= mib:
@@ -201,12 +166,7 @@ def _bytes_label(size_bytes: int) -> str:
 
 
 def _checked(path: str) -> str:
-    """把路径语法错误翻成模型能自己改的重试。
-
-    存储层也会校验一遍——那里是协议边界，将来多一个调用方也绕不过去。这里再
-    校验是为了错误消息：同一件事在这一层是「让模型改」，在那一层是「拒绝非法
-    输入」。
-    """
+    """将路径语法错误转换为 ModelRetry；存储边界仍独立校验外部输入。"""
 
     try:
         return normalize_path(path)
@@ -224,11 +184,9 @@ class CropRegion(BaseModel):
 
 
 class WorkspaceToolset(FunctionToolset[AgentDepsT]):
-    """工作区的七件工具。命名空间不在任何一个工具的参数里。
+    """工作区工具集，命名空间不由工具参数指定。
 
-    读图经 ``Tool`` 登记而不走 ``add_function``：后者的参数表由 pyright 从函数推，收
-    ``ctx`` 的工具会把 ``ctx`` 也算进参数表，于是任何一个签名正确的验证器都被判不兼容。
-    """
+    读图通过 Tool 注册，避免 add_function 的类型推导将 ctx 计入参数验证器签名。"""
 
     def __init__(self, capability: Workspace[AgentDepsT]) -> None:
         super().__init__(id=CAPABILITY_ID)
@@ -254,7 +212,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         region: CropRegion | None = None,
         full_resolution: bool = False,
     ) -> None:
-        """读图收的地址。参数表与工具（去掉 ``self``）逐字一致，官方按它调；另两个参数照收不看。"""
+        """工具参数验证器，签名须与 read_media_file 一致。"""
 
         _ = (region, full_resolution)
         require_http(url, what="图片地址")
@@ -347,8 +305,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
                 f"这段原文在 {key!r} 里出现了 {occurrences} 次，不知道该改哪一处。"
                 "把上下文多带几行进 old_text，让它唯一。"
             )
-        # 带上读到的版本号写回去：这是「读—改—写」，中间被人插一刀就该失败，
-        # 而不是把别人的改动盖掉。版本号不进工具参数——模型不该管这个。
+        # 按读取版本条件写入，防止并发覆盖；版本控制由工具内部处理。
         entry = await self._write(
             scope, key, stored.content.replace(old_text, new_text), expected_version=stored.version
         )
@@ -449,8 +406,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
             info = await self._capability.probe.image_info(url)
         except MediaProbeFailed as exc:
             raise ModelRetry(f"这张图读不了（{exc}）；换一个对话里出现过的图片地址。") from exc
-        # 附地址而不是字节：厂商自己去取图，我们既不下载也不转码。缩放与裁切都是挂在
-        # 地址上的 OSS 参数，tag 里写的仍是原图地址。
+        # 使用 OSS 参数执行缩放裁切，模型下载交付地址；素材 tag 保留原图地址。
         try:
             delivered, clause, advice = self._deliver(
                 url, info, region=region, full_resolution=full_resolution
@@ -461,12 +417,8 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
             f"原图 {info.width}×{info.height} 像素，{info.media_type}，"
             f"{_bytes_label(info.size_bytes)}；{clause}。{advice}"
         )
-        # 三段直接当返回值，于是它们留在这条工具结果里。换成 ToolReturn(content=...)
-        # 的话，官方会把多模态那份接成紧随其后的一条**用户**消息——模型会读到一条用户
-        # 没发过的消息，历史里也多出一条。
-        #
-        # 摘要与像素包在一对 tag 中间：地址、这次交付了什么、以及看到的那张图是连着的
-        # 一段，模型要把这张图交给别的工具时，抄的是 tag 里的原图地址而不是交付地址。
+        # 直接返回多模态内容，保持在工具结果中；ToolReturn(content=...) 会追加用户消息。
+        # tag 关联原图地址、摘要与像素，后续工具引用原图而非带裁切参数的交付地址。
         return ToolReturn(
             return_value=[
                 media_tag_open("image", url),
@@ -474,14 +426,13 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
                 ImageUrl(url=delivered, media_type=info.media_type),
                 media_tag_close("image"),
             ],
-            # 读图一次只有一张。
             metadata=media_grid([(delivered, clause)]),
         )
 
     def _deliver(
         self, url: str, info: ImageInfo, *, region: CropRegion | None, full_resolution: bool
     ) -> tuple[str, str, str]:
-        """挑这次的交付地址，并给出摘要里「交付方式」那一小句与它后面的坐标提醒。"""
+        """选择图片交付地址，并生成交付方式与坐标说明。"""
 
         if region is not None:
             if region.x >= info.width or region.y >= info.height:
@@ -489,7 +440,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
                     f"region 的起点 ({region.x}, {region.y}) 落在原图之外：原图是 "
                     f"{info.width}×{info.height} 像素，按这个尺寸重算坐标再调。"
                 )
-            # OSS 裁到边界为止，所以报给模型的区域尺寸得是收窄后的那个。
+            # OSS 会按图像边界截断裁切，返回实际区域尺寸。
             seen_width = min(region.width, info.width - region.x)
             seen_height = min(region.height, info.height - region.y)
             shrunk = max(seen_width, seen_height) > IMAGE_CONTEXT_MAX_EDGE
@@ -524,7 +475,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
     async def _write(
         self, scope: str, key: str, content: str, *, expected_version: int | None = None
     ) -> FileEntry:
-        """写入并把存储层的失败翻成模型能自己处理的重试。"""
+        """写入文件，将存储错误转换为 ModelRetry。"""
 
         try:
             return await self._capability.space.store.write(
@@ -549,7 +500,6 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
 def workspace_capability(
     *, space: FileSpace, probe: MediaProbe, ledger: MaterialLedger
 ) -> Workspace[Any]:
-    """造一个工作区能力。组合根用这个，不直接碰 dataclass 的字段顺序。"""
 
     return Workspace[Any](space=space, probe=probe, ledger=ledger)
 

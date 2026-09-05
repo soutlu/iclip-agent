@@ -5,8 +5,7 @@ import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
 import { HomeRoute } from './home-route'
 
-// lottie-web 在模块加载时就探测 canvas 2d context，jsdom 里拿不到会直接抛。
-// hero 动画是 aria-hidden 的装饰件，这些用例断言的是标题与输入卡。
+// jsdom 缺少 Lottie 所需 canvas，替换装饰动画以验证标题与输入卡。
 vi.mock('lottie-web/build/player/lottie_light', () => ({
   default: {
     loadAnimation: () => ({
@@ -23,7 +22,6 @@ describe('HomeRoute', () => {
 
     expect(screen.getByRole('heading', { name: 'Cue' })).toBeVisible()
     expect(screen.getByLabelText('输入消息')).toBeVisible()
-    // 未登录没有 assets:write，附件入口不出现（kimi：上传不可用就不出这个入口）
     expect(screen.queryByRole('button', { name: '添加附件' })).not.toBeInTheDocument()
     expect(screen.getByText('未关联合集')).toBeVisible()
   })

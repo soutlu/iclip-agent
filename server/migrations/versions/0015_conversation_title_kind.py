@@ -1,14 +1,11 @@
-"""iclip.conversations.title_kind：这个标题是默认的、生成的，还是用户自己起的
+"""iclip.conversations.title_kind：标题来源
 
 Revision ID: 4c8e1b70d925
 Revises: 2f6c93a1d874
 Create Date: 2026-09-01 07:10:00.000000
 
-标题只自动生成一次，之后再不覆盖；用户自己改过的更是碰都不碰。分不出这三者的话，
-每一轮跑完都会把用户刚起的名字重新盖掉。
-
-存量行按当下的标题回填：还叫默认名的当作没起过（``default``），其余都是用户自己
-起的（``custom``）——这一列是新加的，之前不存在自动生成这条路。
+区分默认、自动生成和用户自定义标题，防止自动生成覆盖已有标题。
+存量默认标题回填 default，其余回填 custom。
 """
 
 from __future__ import annotations

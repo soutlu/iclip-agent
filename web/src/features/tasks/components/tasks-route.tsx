@@ -9,15 +9,7 @@ import { TaskCard } from './task-card'
 import { TaskDialog } from './task-dialog'
 import { TaskHero } from './task-hero'
 
-/**
- * 需求单页：头部「新建需求单」，「我的需求单」（我认领的）+「全部需求单」两个分区。
- *
- * 路由已用 beforeLoad 守卫挡下未登录，页面里不再判登录态。
- *
- * 数据全部来自 /tasks：我的 = claimedBy=me（认领人在服务端按会话身份过滤），
- * 全部 = 整列。搜索框在前端按标题过滤两个分区。卡片点开与「新建需求单」共用
- * 同一个弹窗——创建人与认领人都能在里面补充内容。
- */
+/** 路由负责登录守卫；我的需求单由 claimedBy=me 筛选，认领身份由服务端解析。 */
 export function TasksRoute() {
   const { data: user } = useUser()
   const [keyword, setKeyword] = useState('')
@@ -44,7 +36,7 @@ export function TasksRoute() {
   const mine = filter(myTasks.data)
   const all = filter(allTasks.data)
 
-  // 重命名走 PUT（整体覆盖），撤回是终态改不动；没有写权限就不给入口
+  // 重命名需要 tasks:write，且撤回后的需求单不可编辑。
   const canWrite = Boolean(user?.permissions.includes('tasks:write'))
   const renameProps = (task: Task) =>
     canWrite && task.status !== 'withdrawn'
@@ -53,7 +45,7 @@ export function TasksRoute() {
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      {/* 侧栏收起后展开钮浮在 top-3 left-3（36px 见方），pt-14 让页头从它下面起排 */}
+      {/* 页头预留侧栏展开按钮的覆盖空间。 */}
       <div className="flex w-full flex-col gap-15 px-6 pt-14 pb-10">
         <header className="flex items-center justify-between gap-6">
           <div className="flex flex-col gap-9">
@@ -75,13 +67,11 @@ export function TasksRoute() {
           <TaskHero className="h-62 w-auto shrink-0 max-md:hidden" />
         </header>
 
-        {/* 两个分区之间比页头到分区拉得更开，让「我的需求单」和「全部需求单」各成一段 */}
         <div className="flex flex-col gap-20">
           <section aria-label="我的需求单" className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-4">
               <h2 className="shrink-0 text-title-lg font-semibold text-on-surface">我的需求单</h2>
               <div className="w-56 shrink-0">
-                {/* 框高直接取分区标题的行高，两者等高排在一行；标题换档也不会错位 */}
                 <Input
                   aria-label="搜索需求单"
                   leadingIcon="search"

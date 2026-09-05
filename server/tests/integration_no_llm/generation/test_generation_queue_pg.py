@@ -1,9 +1,4 @@
-"""T-GEN-07：真库上的排期——排进去、被消费掉、跑到终态。
-
-单测里连接器是内存的，验的是我们的判断；这一条验的是**装配对不对**：DSN 换驱动换对
-了没有、建表迁移跟这个库版本合得上没有、进程内起 worker 能不能真的把活干完。这几样
-一旦错了，单测全绿而线上一个任务都不动。
-"""
+"""使用真实数据库与 worker 验证生成队列的驱动配置、迁移和状态推进。"""
 
 from __future__ import annotations
 
@@ -32,14 +27,14 @@ from iclip.domains.generation.queue import (
 )
 from tests.helpers.generation import ScriptedProvider, image_request, make_job, video_request
 
-# 间隔全压到秒级：这里验的是「走不走得通」，不是那几个默认值多大。
+# 缩短调度间隔以验证完整链路，默认间隔由配置测试覆盖。
 SETTINGS = GenerationQueueSettings(
     poll_interval_seconds=1, error_retry_seconds=2, shutdown_grace_seconds=2
 )
 
 
 class QueueFactory(Protocol):
-    """造一个连着真库的 queue；用完由夹具收连接。"""
+    """创建连接真实测试数据库的 queue，并在测试结束后关闭连接。"""
 
     async def __call__(
         self, *, video: ScriptedProvider, image: ScriptedProvider
@@ -53,8 +48,7 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
         await conn.execute(
             text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
         )
-        # 上一条测试留下的排期不该影响这一条。worker 行也要清：它留着的话，这一条
-        # 里「心跳还新鲜时谁都不许动」会被上一条留下的失联 worker 弄假。
+        # 清理任务及 worker，避免上一用例的失联心跳影响当前恢复判断。
         await conn.execute(text("TRUNCATE procrastinate_jobs, procrastinate_workers CASCADE"))
     try:
         yield created
@@ -64,7 +58,7 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
 
 @pytest.fixture
 async def queue_factory(engine: AsyncEngine, migrated_pg: str) -> AsyncGenerator[QueueFactory]:
-    """造一个连着真库的 ``GenerationQueue``，用完把连接收干净。"""
+    """创建并关闭连接真实测试数据库的 GenerationQueue。"""
 
     opened: list[GenerationQueue] = []
 
@@ -105,8 +99,7 @@ async def make_user(engine: AsyncEngine) -> uuid.UUID:
 
 
 async def _submit_task_statuses(engine: AsyncEngine) -> list[str]:
-    """提交任务在 procrastinate 那边的状态。只看这一种任务：同一张表里还有 healer
-    自己每分钟排进来的行，把它算进来就会让断言随着「这次跑了多久」变来变去。"""
+    """仅统计生成提交任务，排除 healer 周期任务以避免运行时长影响断言。"""
 
     async with engine.connect() as conn:
         rows = await conn.execute(
@@ -121,7 +114,7 @@ async def _submit_task_statuses(engine: AsyncEngine) -> list[str]:
 async def wait_for_status(
     repo: SqlGenerationRepository, job_id: uuid.UUID, expected: str, *, timeout: float = 20.0
 ) -> None:
-    """等那一行走到某个状态；超时就把它当时的样子报出来。"""
+    """等待任务达到指定状态，超时时报告当前任务信息。"""
 
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
@@ -136,7 +129,6 @@ async def wait_for_status(
 
 
 def test_dsn_drops_the_sqlalchemy_dialect_suffix() -> None:
-    """``+asyncpg`` 只有 SQLAlchemy 认，psycopg 会拿它当主机名的一部分。"""
 
     assert queue_dsn("postgresql+asyncpg://u:p@h:5432/db") == "postgresql://u:p@h:5432/db"
     assert queue_dsn("postgresql://u:p@h:5432/db") == "postgresql://u:p@h:5432/db"
@@ -145,7 +137,6 @@ def test_dsn_drops_the_sqlalchemy_dialect_suffix() -> None:
 async def test_a_synchronous_generation_runs_end_to_end(
     engine: AsyncEngine, queue_factory: QueueFactory
 ) -> None:
-    """图片那家：排进去 → worker 领走 → 一步到终态。全程没人手动推。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -172,11 +163,6 @@ async def test_a_synchronous_generation_runs_end_to_end(
 async def test_an_asynchronous_generation_runs_end_to_end(
     engine: AsyncEngine, queue_factory: QueueFactory
 ) -> None:
-    """视频那家：提交 → 自动排一次轮询 → 轮到结果 → 终态。
-
-    中间那一跳（``mark_submitted`` 之后自己排下一次轮询）是整条链上最容易断的地方：
-    断了这一行就永远停在「等结果」，而且不报错。
-    """
 
     from iclip.domains.generation.provider import ProviderProgress
 
@@ -205,12 +191,7 @@ async def test_an_asynchronous_generation_runs_end_to_end(
 async def test_a_restart_mid_submit_fails_the_row_honestly(
     engine: AsyncEngine, queue_factory: QueueFactory
 ) -> None:
-    """整条不重投红线在真库上走一遍（优雅关停这一种，也就是发版）。
-
-    提交被打断 → 那一行停在 ``submitting`` → 任务被重试策略重排 → 起来重跑 → 守卫看
-    见 ``submitting``，照实判失败。**provider 一次都不许被再调一次**：两家接口都没有
-    幂等键，重投就是重复付钱。
-    """
+    """优雅关停打断提交后，重排任务遇到 submitting 必须失败；供应商无幂等键，不能重复提交。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -222,7 +203,7 @@ async def test_a_restart_mid_submit_fails_the_row_honestly(
         async def submit(self, job_arg):  # type: ignore[no-untyped-def]
             self.submit_calls.append(job_arg.id)
             entered.set()
-            await asyncio.sleep(3600)  # 代表一次十几分钟的图片生成
+            await asyncio.sleep(3600)  # 模拟长时间图像生成。
             raise AssertionError("不该走到这里")
 
     image = Hanging()
@@ -233,11 +214,11 @@ async def test_a_restart_mid_submit_fails_the_row_honestly(
     await asyncio.wait_for(entered.wait(), timeout=20)
     assert (await repo.get(job.id, owner=None)).status == STATUS_SUBMITTING
 
-    # 发版：关停打断那次提交（宽限期 2 秒），那一行留在 submitting 上。
+    # 关停在两秒宽限期后打断提交，持久状态保留为 submitting。
     await queue.stop()
     assert (await repo.get(job.id, owner=None)).status == STATUS_SUBMITTING
 
-    # 新进程起来，重排回来的那个任务被重跑——这一次守卫说话。
+    # 新进程处理重排任务，验证 submitting 状态守卫。
     queue.start()
     await wait_for_status(repo, job.id, STATUS_FAILED, timeout=60)
 
@@ -249,14 +230,9 @@ async def test_a_restart_mid_submit_fails_the_row_honestly(
 async def test_a_hard_killed_worker_is_found_by_heartbeat(
     engine: AsyncEngine, queue_factory: QueueFactory
 ) -> None:
-    """硬杀（SIGKILL / OOM / 机器没了）那一种：任务留在 doing 上，只能靠心跳发现。
+    """直接认领任务并令心跳过期，模拟 worker 硬退出。
 
-    这一条打真库，因为验的是 ``select_stalled_jobs_by_heartbeat`` 那句真 SQL。
-
-    **刻意不起 worker。** 硬杀留下的状态是「有人领了它，然后那个人再也不说话了」，
-    用 job manager 直接摆出来就是了：领一次、把心跳拨到过去。起真 worker 反而验不
-    准——它会在我们断言之前把捡回去的任务又领走一次，这条测试就时好时坏。真 worker
-    跑通整条链的那两条在上面。
+    不启动 worker，避免恢复任务在断言前被再次认领，专门验证失联检测 SQL。
     """
 
     repo = SqlGenerationRepository(engine)
@@ -266,16 +242,13 @@ async def test_a_hard_killed_worker_is_found_by_heartbeat(
     queue = await queue_factory(video=ScriptedProvider(), image=ScriptedProvider())
     await queue.enqueue_submit(job)
 
-    # 一个 worker 领走了它……
     worker_id = await queue.app.job_manager.register_worker()
     queued = await queue.app.job_manager.fetch_job(queues=[QUEUE_SUBMIT_IMAGE], worker_id=worker_id)
     assert queued is not None and queued.id is not None
     assert await _submit_task_statuses(engine) == ["doing"]
 
-    # ……心跳还新鲜的时候，谁都不许动它：它可能正做着一次五分钟的生成。
     assert await queue.heal_stalled() == 0
 
-    # ……然后它再也不说话了。
     async with engine.begin() as conn:
         await conn.execute(
             text("UPDATE procrastinate_workers SET last_heartbeat = NOW() - INTERVAL '1 hour'")

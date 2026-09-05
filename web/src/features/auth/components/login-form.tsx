@@ -11,17 +11,7 @@ type LoginFormProps = {
   onSuccess: () => void
 }
 
-/**
- * 渲染并驱动 Cue 登录表单。
- *
- * 飞书登录（公司 SSO）是主通道；账号密码是辅助通道，折叠在次级区域里。
- *
- * @param props - 登录表单属性。
- * @param props.ssoEnabled - 后端是否开启企业 SSO 登录，决定飞书入口是否展示。
- * @param props.initialErrorMessage - 初始错误文案（如 SSO 回跳失败），提交后清除。
- * @param props.onSuccess - 账号密码登录成功后的回调（飞书是整页跳转，不走这里）。
- * @returns 可发起飞书登录、可提交用户名和密码的登录表单。
- */
+/** 飞书登录整页跳转；onSuccess 仅用于账号密码登录。初始错误在提交后清除。 */
 export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginFormProps) {
   const loginMutation = useLogin()
   const [username, setUsername] = useState('')
@@ -29,50 +19,29 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [ssoSubmitting, setSsoSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState(initialErrorMessage ?? '')
-  // 密码区展开状态：未手动操作过就跟随 ssoEnabled（飞书可用时默认收起）。
+  // 未手动切换时，密码区根据 SSO 是否可用决定展开状态。
   const [passwordOpenOverride, setPasswordOpenOverride] = useState<boolean | null>(null)
   const passwordOpen = passwordOpenOverride ?? !ssoEnabled
   const submitting = loginMutation.isPending || ssoSubmitting
   const passwordInputType = passwordVisible ? 'text' : 'password'
   const passwordToggleLabel = passwordVisible ? '隐藏密码' : '显示密码'
 
-  /**
-   * 同步用户名输入框内容。
-   *
-   * @param event - 用户名输入框变更事件。
-   */
   const handleUsernameChange = (event: ChangeEvent<HTMLInputElement>) => {
     setUsername(event.currentTarget.value)
   }
 
-  /**
-   * 同步密码输入框内容。
-   *
-   * @param event - 密码输入框变更事件。
-   */
   const handlePasswordChange = (event: ChangeEvent<HTMLInputElement>) => {
     setPassword(event.currentTarget.value)
   }
 
-  /**
-   * 切换密码输入框明文和密文展示状态。
-   */
   const handlePasswordVisibilityToggle = () => {
     setPasswordVisible((currentVisible) => !currentVisible)
   }
 
-  /**
-   * 展开或收起账号密码辅助登录区。
-   */
   const handlePasswordSectionToggle = () => {
     setPasswordOpenOverride(!passwordOpen)
   }
 
-  /**
-   * 提交 Cue 登录表单。
-   *
-   * @param event - 表单提交事件。
-   */
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -101,15 +70,12 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
     }
   }
 
-  /**
-   * 发起飞书登录（公司 SSO 通道，整页跳转，成功后不会回到本函数）。
-   */
   const handleFeishuLogin = async () => {
     setSsoSubmitting(true)
     setErrorMessage('')
 
     try {
-      // 飞书要整页跳转，回来后落在发起登录的那一页
+      // SSO 完成后返回发起登录的站内路径。
       await startSsoLogin(sanitizeCueAuthNextPath(window.location.pathname))
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '飞书登录暂不可用，请稍后重试')
@@ -125,7 +91,6 @@ export function LoginForm({ ssoEnabled, initialErrorMessage, onSuccess }: LoginF
         void handleSubmit(event)
       }}
     >
-      {/* 错误位不预留空高：弹窗里那点空白比登录后错位更显眼，弹窗本来就随内容长高 */}
       {errorMessage ? (
         <p id="login-error" role="alert" className="cue-auth-error mb-3 text-body leading-6">
           {errorMessage}

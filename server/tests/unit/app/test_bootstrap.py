@@ -1,4 +1,4 @@
-"""组合根的装配前提：能力没配齐就别启动，没有 agent 就别挂 agent 路由。"""
+"""验证组合根的依赖完整性和路由挂载条件。"""
 
 from __future__ import annotations
 
@@ -68,19 +68,17 @@ def base_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OSS_ACCESS_KEY_ID", "ak")
     monkeypatch.setenv("OSS_ACCESS_KEY_SECRET", "sk")
     monkeypatch.setenv("OSS_PUBLIC_URL_BASE", "https://cdn.test")
-    # 默认把媒体生成关掉：开关就是 VIDEO_SUBMIT_URL 有没有值。
     for name in MEDIA_ENVS:
         monkeypatch.delenv(name, raising=False)
 
 
 def engine():
-    """只构造，不连接——本文件验的是装配期的判断。"""
+    """仅构造 engine，不连接数据库；测试只覆盖装配。"""
 
     return create_async_engine("postgresql+asyncpg://iclip:iclip@localhost:5432/nowhere")
 
 
 def test_declared_agents_build(base_env: None, tmp_path: Path) -> None:
-    """声明了 agent 就能装起来，不再需要任何外部队列。"""
 
     app = build_app(
         minimal_config(),
@@ -93,7 +91,6 @@ def test_declared_agents_build(base_env: None, tmp_path: Path) -> None:
 
 
 async def test_transcript_endpoints_are_always_mounted(base_env: None) -> None:
-    """transcript 那组路由不看有没有声明 agent：没登录就该是 401，不是 404。"""
 
     app = build_app(minimal_config(), engine=engine(), models={})
     transport = httpx.ASGITransport(app=app)
@@ -127,7 +124,6 @@ def config_with_media() -> RuntimeConfig:
 
 
 async def test_without_media_generation_the_routes_are_absent(base_env: None) -> None:
-    """没开生成就不挂这组路由（同 SSO 关闭时的做法）。"""
 
     app = build_app(minimal_config(), engine=engine(), models={})
     transport = httpx.ASGITransport(app=app)
@@ -138,10 +134,7 @@ async def test_without_media_generation_the_routes_are_absent(base_env: None) ->
 async def test_media_generation_mounts_routes_when_configured(
     base_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """开了就挂上；未认证是 401 而不是 404——路由确实在。
-
-    对象存储注入替身：装 OSS 客户端要真的凭证，而这里验的是装配期的判断。
-    """
+    """使用对象存储替身隔离外部凭证，验证生成路由已挂载。"""
 
     for name, value in MEDIA_ENVS.items():
         monkeypatch.setenv(name, value)
@@ -160,19 +153,17 @@ async def test_media_generation_mounts_routes_when_configured(
 def test_media_generation_half_configured_fails_at_startup(
     base_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """半开着比关着更糟：路由挂上了，点下去才发现某个地址没配。"""
 
     for name, value in MEDIA_ENVS.items():
         monkeypatch.setenv(name, value)
     monkeypatch.delenv("IMAGE_EDIT_URL")
 
-    # pydantic 会把缺的那几个一次全报出来，报的是变量名本身。
     with pytest.raises(ValidationError, match="IMAGE_EDIT_URL"):
         build_app(config_with_media(), engine=engine(), models={})
 
 
 class _RecordingConnections(LiveConnections):
-    """只记下发过哪些「文件变了」的帧，不真的连 WS。"""
+    """记录文件变更帧，不创建 WS 连接。"""
 
     def __init__(self) -> None:
         super().__init__()
@@ -190,10 +181,6 @@ class _RecordingConnections(LiveConnections):
 
 
 async def test_tool_writes_announce_created_then_modified_then_deleted() -> None:
-    """工具那条路写文件也发帧：第一版是 created，之后是 modified，删了是 deleted。
-
-    能力包写文件只经 ``FileStore`` 协议，包在组合根这一层两边都不用改接口。
-    """
 
     live = _RecordingConnections()
     owner, conversation_id = uuid.uuid4(), uuid.uuid4()
@@ -211,7 +198,7 @@ async def test_tool_writes_announce_created_then_modified_then_deleted() -> None
 
 
 async def test_a_namespace_without_a_conversation_id_announces_nothing() -> None:
-    """地盘不是按对话分的就没法按对话推送。少一帧只是界面晚点对齐，不该让写入失败。"""
+    """无法解析对话 id 的命名空间不发送会话事件，但写入仍须成功。"""
 
     live = _RecordingConnections()
     store = AnnouncingFileStore(FakeFileStore(), live)

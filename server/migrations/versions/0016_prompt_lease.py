@@ -1,14 +1,11 @@
-"""agent_runtime.prompts：在跑的那条行由租约认领
+"""agent_runtime.prompts：运行租约
 
 Revision ID: 9d4b7c1f6a28
 Revises: 4c8e1b70d925
 Create Date: 2026-09-01 09:40:00.000000
 
-``locked_by`` 记哪个进程在跑它，``heartbeat_at`` 由那个进程按周期刷新，``interrupt_reason``
-写下失去租约的那句事实。
-
-存量 ``running`` 行按现在的时刻回填心跳：它们的进程早就没了，回填之后第一个租约到期时会被清扫
-判失败，而留空的话那条 ``heartbeat_at < ...`` 永远不成立，那段对话会一直「正在跑」。
+locked_by 标识执行进程，heartbeat_at 记录心跳，interrupt_reason 记录中断原因。
+存量 running 行回填迁移时刻，确保租约到期后可被清扫；NULL 心跳无法命中超时比较条件。
 """
 
 from __future__ import annotations

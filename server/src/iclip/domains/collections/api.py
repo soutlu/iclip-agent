@@ -1,11 +1,4 @@
-"""合集的 HTTP 面。
-
-五个端点：开一个、列出、读一个、改名、删掉。读用 ``collections:read``，会改动的用
-``collections:write``。
-
-合集只对属主可见，所以别人的合集一律 404（不泄露存在性）；``scope=all`` 是治理者的
-全量视图，没有 ``users:manage`` 就 403。
-"""
+"""合集 HTTP 端点。读取受属主范围限制，治理者可查询全部；写入仅允许属主或治理者。"""
 
 from __future__ import annotations
 

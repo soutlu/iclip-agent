@@ -1,9 +1,4 @@
-/**
- * 生成记录抽屉的内容：两个 tab，一列卡片。
- *
- * 「视频生成记录」是本组名下的出片任务（`shotIndex` 对得上），「分镜生成记录」是这段对话里
- * agent 出帧的那些图片任务——它们没有组归属，所以每组看到的是同一份。
- */
+/** 视频记录按 shotIndex 筛选；图片任务无组归属，各组共用会话级记录。 */
 
 import { useState } from 'react'
 import { Icon, type IconName } from '@/shared/icons'
@@ -39,7 +34,7 @@ const phaseOf = (job: GenerationJob): JobPhase => {
   return isRunningStatus(job.status) ? 'running' : 'failed'
 }
 
-/** 任务发出去时那句 prompt。`request` 是一份不透明 JSON，只在确实是字符串时才画。 */
+/** request 是不透明 JSON，仅展示字符串 prompt。 */
 const promptOf = (job: GenerationJob): string | undefined => {
   const prompt = job.request['prompt']
   return typeof prompt === 'string' ? prompt : undefined
@@ -49,21 +44,11 @@ const newestFirst = (left: GenerationJob, right: GenerationJob) =>
   right.createdAt.localeCompare(left.createdAt)
 
 type GenerationRecordsProps = {
-  /** 第几组。视频记录按它筛。 */
   shotIndex: number
   jobs: readonly GenerationJob[]
   onClose: () => void
 }
 
-/**
- * 渲染生成记录。
- *
- * @param props - 组件属性。
- * @param props.shotIndex - 第几组。
- * @param props.jobs - 这段对话的全部生成任务。
- * @param props.onClose - 关掉抽屉。
- * @returns 生成记录列表。
- */
 export function GenerationRecords({ jobs, onClose, shotIndex }: GenerationRecordsProps) {
   const [tab, setTab] = useState<TabKey>('video')
 
@@ -86,7 +71,7 @@ export function GenerationRecords({ jobs, onClose, shotIndex }: GenerationRecord
       <ChipGroup
         aria-label="记录类型"
         className="shrink-0 px-4 py-3"
-        // Radix 的单选组允许把当前项再点一次取消掉，空值会让列表整个消失，挡掉。
+        // 忽略 Radix 再次点击当前项产生的空值，保持至少一个分类选中。
         onValueChange={(value) => {
           if (value === 'image' || value === 'video') setTab(value)
         }}
@@ -118,14 +103,6 @@ type RecordCardProps = {
   promptLabel: string
 }
 
-/**
- * 一条生成记录。
- *
- * @param props - 组件属性。
- * @param props.job - 这次生成。
- * @param props.promptLabel - 正文那行小标签。
- * @returns 记录卡。
- */
 function RecordCard({ job, promptLabel }: RecordCardProps) {
   const [open, setOpen] = useState(true)
   const phase = phaseOf(job)
@@ -148,7 +125,7 @@ function RecordCard({ job, promptLabel }: RecordCardProps) {
         />
       </div>
 
-      {/* 进度取不到真实百分比（后端只给状态），所以画一条呼吸的整条，不假装知道进度 */}
+      {/* 后端仅提供状态，使用不定进度指示。 */}
       {phase === 'running' ? (
         <div className="h-0.5 w-full animate-pulse bg-chat-status-running" />
       ) : null}

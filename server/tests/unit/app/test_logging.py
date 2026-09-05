@@ -1,4 +1,4 @@
-"""日志只有一条线：标准库来源与 structlog 来源同一格式，请求上下文行行都带。"""
+"""验证标准库与 structlog 统一日志格式及请求上下文。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from iclip.app.logging import QUIET_LOGGERS, configure_logging
 
 @pytest.fixture
 def restore_logging() -> Iterator[None]:
-    """configure_logging 会整体替换 root 的 handler，测完还回去，别影响 pytest 自己的捕获。"""
+    """恢复 root handler，避免 configure_logging 影响 pytest 日志捕获。"""
 
     root = logging.getLogger()
     handlers, level = root.handlers[:], root.level
@@ -38,7 +38,7 @@ def test_json_lines_share_one_shape_and_carry_context(
 
     logging.getLogger("uvicorn.access").info('%s - "%s" %d', "127.0.0.1", "GET /x", 200)
     structlog.stdlib.get_logger("iclip.test").warning("捡回中断的生成任务", count=2)
-    logging.getLogger("procrastinate.worker").info("Starting job")  # 常态噪音，压掉
+    logging.getLogger("procrastinate.worker").info("Starting job")
 
     lines = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
     assert [line["logger"] for line in lines] == ["uvicorn.access", "iclip.test"]

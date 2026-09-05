@@ -1,9 +1,4 @@
-"""transcript 对外的那一口：HTTP 与 WS 只跟这里说话。
-
-把「读历史 + 读实时 + 排队 + 驱动」四件事收在一处，是为了让协议里那几条隐性约定只有一个实现
-——尤其是「订阅时什么情况下必须先发 reset」和「一页里历史与还没交接的实时轮子怎么接起来」。
-散在路由里的话，两个端点各写一遍，迟早不一致。
-"""
+"""HTTP 与 WebSocket 共用的 transcript 服务，统一历史、实时、队列与订阅重置规则。"""
 
 from __future__ import annotations
 
@@ -52,7 +47,7 @@ class TranscriptService:
     context_limits: Mapping[str, int]
 
     record_materials: Callable[[uuid.UUID, str, Sequence[PromptContent]], Awaitable[None]]
-    """把这条消息带的附件登进素材台账。命名空间怎么拼这一层不知道，组合根接进来。"""
+    """由组合根注入的附件登记回调，负责素材命名空间。"""
 
     # --- 写 -----------------------------------------------------------------
 
@@ -65,7 +60,7 @@ class TranscriptService:
         owner_user_id: uuid.UUID,
         content: tuple[PromptContent, ...],
     ) -> Prompt:
-        """收下一条消息。空着就地开跑，忙着就排队——哪一种由队列判，不在这里判。"""
+        """提交消息，运行或排队状态由持久化队列决定。"""
 
         if not content:
             raise ValidationFailed("消息是空的")
@@ -74,7 +69,7 @@ class TranscriptService:
                 continue
             if part.source.url is None or not part.source.url.startswith(("http://", "https://")):
                 raise ValidationFailed("附件地址必须是 http(s) 地址")
-        # 登记在入队之前：排着队的这段时间里，用户就可能让它去读这张图。
+        # 入队前登记附件，确保排队期间也可被工具引用。
         await self.record_materials(owner_user_id, conversation_id, content)
         row = await self.queue.submit(
             prompt_id=prompt_id,
@@ -99,12 +94,10 @@ class TranscriptService:
         prompt_id: str | None = None,
         content: tuple[PromptContent, ...] | None = None,
     ) -> Prompt:
-        """把末轮从历史里抹掉重跑一次；``content`` 给了就换成新内容，没给就照原样。
+        """仅在会话空闲时重新生成末轮，可替换输入内容。
 
-        寻址用协议里的轮 id（``t{N}``，N 从 1 起）：消息历史按轮分组，第 N 组就是第 N 轮。
-        只允许对**最后一轮**、且这段对话**空闲**时调用：正在跑或排着队是 ``Conflict``，动的
-        不是末轮（轮号超出现有轮数也算）也是 ``Conflict``；轮 id 形状不对是
-        ``ValidationFailed``。``prompt_id`` 没给就由服务端铸一个——原来那个已被旧记录占用。
+        轮 id 使用 t{N}；格式错误抛 ValidationFailed，忙碌或非末轮抛 Conflict。
+        未提供 prompt_id 时生成新 id，避免复用已占用的记录。
         """
 
         match = re.fullmatch(r"t([1-9]\d*)", turn_id)
@@ -113,8 +106,7 @@ class TranscriptService:
         if prompt_id is not None:
             claimed = await self.queue.get(prompt_id)
             if claimed is not None:
-                # 重发同一个 id 得当场退回那条记录。放它往下走会把刚重跑出来的末轮又截掉，
-                # 而 ``submit`` 认领旧行、不起新 run，这段对话就白少一轮。
+                # 重复 id 直接返回已有记录，避免截断已重跑的末轮却不启动新运行。
                 if claimed.conversation_id != conversation_id:
                     raise Conflict("这个消息 id 已经用过了，换一个")
                 return claimed.as_entity()
@@ -124,13 +116,12 @@ class TranscriptService:
         rewind = await self.history.plan_rewind(conversation_id, ordinal=int(match.group(1)))
         if rewind is None:
             raise Conflict("只能重新生成最后一轮")
-        # 末轮跨了几次 run 都归同一条 prompt，按它第一次 run 找得到那条。先找再截：找不到就一行不改。
+        # 先通过末轮首次 run 查找消息，再提交截断，避免查找失败后已修改历史。
         row = await self.queue.get_by_run(rewind.run_ids[0])
         if row is None:
             raise NotFound(f"找不到这一轮对应的消息：{turn_id}")
         await rewind.commit()
-        # 客户端手里那份基线还带着旧 tN 的步与块，而它对已有的轮只换头部、保留原有内容；
-        # 新回复少一步或少一块时旧的会原地留着，所以先明确说一声「这轮没了」。
+        # 先删除旧轮实体，避免客户端更新头部时保留新回复中已不存在的步骤和块。
         self.store.append(conversation_id, MAIN_AGENT_ID, (ItemsRemoveOp(ids=(turn_id,)),))
         return await self.submit(
             prompt_id=f"prm_regen_{uuid.uuid4().hex[:16]}" if prompt_id is None else prompt_id,
@@ -168,11 +159,7 @@ class TranscriptService:
         after_turn: str | None = None,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> TranscriptPage:
-        """一页轮子，默认给最新那几轮。
-
-        历史那份在前、还没交接的实时那份在后：一轮跑完到快照落库之间有一小段时间，它只在实时
-        状态里；两份接起来才是完整的一条时间线，光取一边会在那一瞬间少一轮。
-        """
+        """分页合并历史与尚未交接的实时轮次，覆盖终态发出至快照落库的间隙。"""
 
         if before_turn is not None and after_turn is not None:
             raise ValidationFailed("before_turn 与 after_turn 只能给一个")
@@ -193,8 +180,7 @@ class TranscriptService:
                 update={"agent": agent_context_status(history.context_tokens, max_context_tokens)}
             )
         if (await self.queue.view(conversation_id)).active is not None:
-            # 有条 prompt 占着（在跑或者在等审批）。库里那份才跨得过重启——实时状态是每 worker
-            # 一份的内存，只看它的话新起的进程会把一段还在忙的对话报成空闲。
+            # 占用状态以持久化队列为准，进程内实时状态无法覆盖重启和其他 worker。
             meta = meta.model_copy(update={"activity": "turn"})
         return TranscriptPage(
             agent_id=agent_id,
@@ -213,7 +199,7 @@ class TranscriptService:
     def catchup(
         self, conversation_id: str, *, agent_id: str = MAIN_AGENT_ID, since: int
     ) -> OpsCatchup:
-        """补上 ``since`` 之后的批次。要不回来时 ``complete`` 为假，客户端整页重拉。"""
+        """返回 since 后的批次；无法完整补发时 complete=False，客户端重新拉取。"""
 
         view = self.store.subscribe_view(conversation_id, agent_id, since=since)
         return OpsCatchup(
@@ -247,7 +233,7 @@ class TranscriptService:
 def _timeline(
     derived: tuple[TranscriptTurn, ...], live: tuple[TranscriptTurn, ...]
 ) -> tuple[TranscriptTurn, ...]:
-    """两份接成一条时间线，按轮号排，同号以实时那份为准（它更新）。"""
+    """按轮号合并时间线，同号以实时状态为准。"""
 
     merged = {turn.ordinal: turn for turn in derived}
     merged.update({turn.ordinal: turn for turn in live})
@@ -257,11 +243,7 @@ def _timeline(
 def _interactions(
     derived: tuple[Interaction, ...], live: tuple[Interaction, ...]
 ) -> tuple[Interaction, ...]:
-    """审批也是两份接起来，同 id 以实时那份为准。
-
-    实时那份更新：人刚点的头当场就记在内存里，而历史要等续跑那次 run 的消息落库才推得出来。
-    重启之后实时那份是空的，还等着回应的那几张只能从历史读回来。
-    """
+    """合并历史与实时审批，同 id 以实时状态为准；重启后的待处理审批从历史恢复。"""
 
     merged = {item.interaction_id: item for item in derived}
     merged.update({item.interaction_id: item for item in live})
@@ -271,10 +253,7 @@ def _interactions(
 def _slice(
     turns: tuple[TranscriptTurn, ...], *, before_turn: str | None, after_turn: str | None, size: int
 ) -> tuple[tuple[TranscriptTurn, ...], bool]:
-    """切一页出来，并说清楚前面还有没有。
-
-    ``has_more`` 说的是**更旧的那一头**：界面往上滚才要继续拉，往下是实时推过来的。
-    """
+    """分页并返回是否还有更旧轮次；新内容通过实时流提供。"""
 
     if before_turn is not None:
         end = _index(turns, before_turn)

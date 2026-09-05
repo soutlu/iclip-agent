@@ -1,24 +1,7 @@
-"""素材上传与账本的用例层。
+"""素材签名、登记与外部媒体转存。
 
-上传分两步，中间隔着一次浏览器直传：
-
-1. **签名**：服务端发一个 ``assetId``、按它算出 object key、签一条限时的 PUT 地址。
-   这一步不落库、不留内存状态——签名之后什么都没发生，客户端拿着地址走了也一样。
-2. **登记**：字节已经在桶里了，服务端去桶里核实一遍，把事实抄进账本。
-
-**为什么名字要在传之前就发下来。** 传字节是副作用，它发生之前双方必须先就「这个对象
-叫什么」达成一致，否则连接在响应到达前断掉，那份已经落进桶里的东西就没人认领了（和
-运行 id 必须由客户端预先铸造是同一个道理，见不变量 8——只是这里由服务端铸造，更严
-一档）。
-
-**登记这一步不采信客户端的任何声明。** 它连请求体都没有：真实 key、多大、什么类型
-全部来自我们自己的桶。客户端能左右的只有「登记哪一个 assetId」，而那个 id 是服务端
-发的、猜不着的。
-
-还有第三条路：**转存**（``import_from_url``）。外部地址上的东西要进账本就得先搬进
-我们自己的桶——账本行上只有 ``object_key``，没有放外部地址的地方。这条路上字节穿过
-我们的进程，所以类型、大小、尺寸全是实测的。
-"""
+直传前由服务端分配 assetId，签名过程不保存状态；登记信息从桶中读取。
+外部媒体经下载校验并转存后登记，仅持久化本系统的 object key。"""
 
 from __future__ import annotations
 
@@ -48,14 +31,13 @@ _READ_CEILING = max(MAX_BYTES.values())
 
 
 class AssetService:
-    """签直传许可、登记素材、转存外部地址、读账本。"""
+    """素材上传与查询用例。"""
 
     def __init__(self, repo: AssetRepository, objects: PublicBucket) -> None:
         self._repo = repo
         self._objects = objects
 
     def sign_upload(self, body: UploadSignIn) -> UploadTicket:
-        """发一个 assetId 并签出直传地址。"""
 
         asset_type, ext, normalized = _accepted_type(body.content_type)
         if asset_type == "image":
@@ -71,13 +53,12 @@ class AssetService:
             asset_id=asset_id,
             upload_url=upload_url,
             content_type=normalized,
-            # 取进程的钟：它只是把签名自己的有效期回显给客户端，不落库、不参与任何
-            # 判断，所以不受「时刻一律取数据库的钟」那条约束。
+            # 仅向客户端展示签名有效期，不用于持久化或业务判断。
             expires_at=datetime.now(UTC) + timedelta(seconds=SIGNED_PUT_EXPIRES_SECONDS),
         )
 
     async def register(self, principal: Principal, asset_id: uuid.UUID) -> Asset:
-        """把桶里那个对象登记进账本。重复调用返回同一行。"""
+        """从桶中读取对象信息并登记；重复调用返回同一条记录。"""
 
         found = await self._objects.find_object(prefix=MEDIA_PATHS.upload_prefix(asset_id=asset_id))
         if found is None:
@@ -98,17 +79,13 @@ class AssetService:
                 object_key=found.object_key,
                 content_type=found.content_type,
                 size_bytes=found.size_bytes,
-                # 落库时由数据库改写成它自己的 now()，这里的值不会落库。
+                # 仓储使用数据库 now() 覆盖此占位值。
                 created_at=datetime.now(UTC),
             )
         )
 
     async def import_from_url(self, principal: Principal, source_url: str) -> Asset:
-        """把一个外部地址上的东西搬进桶里并登记，返回那一行。
-
-        **源地址算 id**：同一张产品图被多少张需求单引用都只搬一次，重复调用连请求都
-        不发。代价是上游原地换了图我们不会跟着更新——那正是转存想要的，链接烂不掉。
-        """
+        """转存并登记外部媒体。源地址派生固定 id，重复调用不下载；上游原址更新不覆盖已存素材。"""
 
         asset_id = uuid.uuid5(IMPORT_NAMESPACE, source_url)
         already = await self._already_imported(asset_id)
@@ -141,7 +118,6 @@ class AssetService:
         )
 
     async def _already_imported(self, asset_id: uuid.UUID) -> Asset | None:
-        """搬过就返回那一行。仓储只有「没有就抛」那一件，这里把它翻成一个问句。"""
 
         try:
             return await self._repo.get(asset_id)
@@ -165,13 +141,12 @@ class AssetService:
         )
 
     def public_url(self, asset: Asset) -> str:
-        """账本存的是 key，对外给的是按当前公网前缀拼出来的地址。"""
 
         return self._objects.public_url(asset.object_key)
 
 
 def _accepted_type(content_type: str) -> tuple[AssetType, str, str]:
-    """归一化一个 content type，并查出它算哪一类、扩展名是什么。不收的就抛。"""
+    """返回标准 MIME 类型对应的素材种类、扩展名和 MIME 类型；不支持的类型抛 ValidationFailed。"""
 
     normalized = content_type.split(";")[0].strip().lower()
     known = UPLOAD_TYPES.get(normalized)
@@ -182,11 +157,7 @@ def _accepted_type(content_type: str) -> tuple[AssetType, str, str]:
 
 
 async def _download(source_url: str) -> tuple[bytes, str]:
-    """把一个地址上的字节整份取回来，连它自报的 content type。
-
-    **不跟随重定向**（httpx 的默认，这里只是别去打开它）：取回来的字节会落进公开桶，
-    跟着 302 走就等于把这条口子变成任意地址的搬运工。
-    """
+    """下载媒体及其 Content-Type，不跟随重定向，避免扩大源地址范围。"""
 
     chunks: list[bytes] = []
     read = 0
@@ -199,8 +170,7 @@ async def _download(source_url: str) -> tuple[bytes, str]:
             content_type = response.headers.get("content-type") or ""
             async for chunk in response.aiter_bytes():
                 read += len(chunk)
-                # 边读边卡：整份读完再判大小的话，一个指错的地址就能把进程撑爆。
-                # 这里用的是所有类型里最宽的那条线，具体类型的上限由调用方再卡一次。
+                # 流式限制总读取量，避免无界内存占用；调用方再校验具体类型的上限。
                 if read > _READ_CEILING:
                     raise ValidationFailed(f"这个地址上的东西太大了：{source_url}")
                 chunks.append(chunk)

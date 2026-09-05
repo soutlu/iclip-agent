@@ -3,7 +3,6 @@ import { expect, test } from '@playwright/test'
 test('未登录进首页看到游客态外壳，点登录弹窗登录后就地变成已登录', async ({ page }) => {
   await page.goto('/')
 
-  // 游客态：外壳照常在，对话区与账户区退成登录入口
   await expect(page.getByText('登录后查看对话')).toBeVisible()
   await expect(page.getByRole('button', { name: '用户菜单' })).toBeHidden()
 
@@ -15,7 +14,6 @@ test('未登录进首页看到游客态外壳，点登录弹窗登录后就地�
   await dialog.getByLabel('密码', { exact: true }).fill('secret')
   await dialog.getByRole('button', { name: '登录', exact: true }).click()
 
-  // 登录成功：弹窗关闭，没有离开首页，账户区换成用户菜单
   await expect(dialog).toBeHidden()
   await expect(page).toHaveURL('/')
   await page.getByRole('button', { name: '用户菜单' }).click()

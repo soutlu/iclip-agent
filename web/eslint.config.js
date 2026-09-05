@@ -47,14 +47,14 @@ export default tseslint.config(
       'coverage',
       'public',
       'src/routeTree.gen.ts',
-      // 生成物：改不了的代码不该卡门禁，形状由 pnpm contract:check 保证
+      // 生成文件由 pnpm contract:check 校验。
       'src/shared/api/generated/**',
-      // contract:check 的临时输出目录（崩溃残留也不该卡门禁）
+      // contract:check 临时输出目录。
       '.openapi-check-*',
       'node_modules',
-      // docs/ 里有脱离本项目 tsconfig 的示例代码，类型感知规则跑不动
+      // 文档示例不属于项目 tsconfig，排除类型感知检查。
       'docs',
-      // 照抄来的外部合同：逐字节保留，改动只允许出现在这个目录外面（见其 README）
+      // 外部合同保持原文，见该目录 README。
       'src/shared/transcript/vendor/**',
     ],
   },
@@ -104,9 +104,7 @@ export default tseslint.config(
     },
   },
 
-  // ── 设计系统唯一入口（图标与已封装的 radix primitive 不得在业务层直连） ──
-  //    flat config 里同名规则后者整块覆盖前者，所以两条禁令写在一起，
-  //    下面两块只各自放行自己那一半。
+  // flat config 的同名规则整块覆盖；组合图标与 Radix 约束，入口例外仅解除各自的限制。
   {
     files: ['src/**/*.{ts,tsx}'],
     rules: {
@@ -117,7 +115,7 @@ export default tseslint.config(
       'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, NO_RAW_IMPORT_META_ENV],
     },
   },
-  // 环境变量入口本体：可以读 import.meta.env（文件当前不存在，需要变量时按这个路径建）
+  // 环境变量入口允许读取 import.meta.env。
   {
     files: ['src/shared/config/env.ts'],
     rules: {
@@ -151,24 +149,12 @@ export default tseslint.config(
     },
   },
 
-  // ── 架构边界（依赖方向硬约束，违反即报错） ──────────────────────────────
-  //
-  //   app(app/、routes/、main.tsx) → 可用 feature 公开出口(index.ts)、shared
-  //   features/<name>              → 本 feature 内部随意 + shared；跨 feature 一律禁止
-  //   shared                       → 只能用 shared
-  //   testing(src/testing)         → 测试基建；业务代码（app/feature/shared）不得 import，
-  //                                  只有测试文件可用（测试文件整体豁免 boundaries，见下方测试块）
-  //
-  //   跨 feature 不留口子——包括对方的 index.ts。两个 feature 要共用东西只有两条路：
-  //   下沉到 shared，或者在 routes / app 层把它们组装起来。旧前端就是靠「只走 index.ts」
-  //   这个口子长出 69 条跨 feature 边、把 index.ts 撑成事实上的公共层的。
+  // 架构边界：app → feature 公开出口 / shared；feature → 本模块 / shared。
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { boundaries },
     settings: {
-      // v7 元素描述符只有目录语义（v6 的 mode: 'full' 已弃用）：app/、routes/ 直接按
-      // 目录归类；兜底的 'src' 让 main.tsx、routeTree.gen.ts 等 src 根部散文件也归入
-      // app 元素（feature/shared/testing 在更深路径命中，优先级不受兜底影响）。
+      // src 根目录文件归入 app；更深路径的 feature/shared/testing 匹配优先。
       'boundaries/elements': [
         { type: 'feature', pattern: 'src/features/*', capture: ['featureName'] },
         { type: 'shared', pattern: 'src/shared' },
@@ -221,9 +207,7 @@ export default tseslint.config(
     },
   },
 
-  // ── 测试文件与测试基建豁免边界规则，并提供 node 环境 ─────────────────────
-  //    测试跨 feature 深入任何模块 import 都是合法的（含 src/testing 基建本身）；
-  //    业务代码 import src/testing 仍会被上方 boundaries 默认 disallow 拦截。
+  // 测试可跨模块导入；业务代码仍禁止依赖 testing。
   {
     files: ['src/**/*.test.{ts,tsx}', 'src/testing/**/*'],
     plugins: { boundaries },
@@ -245,8 +229,7 @@ export default tseslint.config(
     },
   },
 
-  // ── 契约组件同时导出组件与 cva variants：HMR 退化为整页刷新，可接受 ────────
-  //    store/provider 文件按约定同时导出 Provider 组件与 hooks，同理。
+  // UI 与 state 模块同时导出组件和辅助函数，支持整页刷新。
   {
     files: ['src/**/state/**/*', 'src/shared/ui/**'],
     rules: {

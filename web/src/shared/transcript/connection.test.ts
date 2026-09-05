@@ -1,10 +1,3 @@
-/**
- * 订阅连接的水位记账与分流。
- *
- * 这几条错了都不报错：界面安静地停止更新、少一段内容而自己不知道、或者把别段对话的内容画到
- * 当前这段里。所以每条各有一个用例。
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FakeSocket } from '@/testing/ws'
@@ -46,7 +39,6 @@ describe('TranscriptConnection', () => {
   let received: Array<[string, TranscriptOps]>
   let accept: boolean
 
-  /** 一条连接，订上给的那几段对话。收到的每一批都记下是哪段的。 */
   function connect(conversationIds: string[] = ['c1'], now = () => 1_000) {
     socket = new FakeSocket()
     received = []
@@ -80,7 +72,6 @@ describe('TranscriptConnection', () => {
     const sent = socket.frames()
     expect(sent.map((f) => f.type)).toEqual(['subscribe_v2', 'subscribe_v2'])
     expect(sent.map((f) => f.payload?.['session_id'])).toEqual(['c1', 'c2'])
-    // 不带 transcript_since，服务端据此判「第一次订阅」，回一帧 reset。
     expect(sent[0]?.payload).not.toHaveProperty('transcript_since')
   })
 
@@ -91,7 +82,6 @@ describe('TranscriptConnection', () => {
     socket.deliver(ops(9, 'c2'))
 
     expect(received.map(([conversationId]) => conversationId)).toEqual(['c1', 'c2'])
-    // 水位各记各的：混在一起的话，切到另一段会拿着别人的号去补批。
     expect(connection.watermarkOf('c1', 'main')).toBe(3)
     expect(connection.watermarkOf('c2', 'main')).toBe(9)
   })
@@ -111,7 +101,7 @@ describe('TranscriptConnection', () => {
     socket.deliver(ops(42))
     expect(connection.watermarkOf('c1', 'main')).toBe(42)
 
-    // 服务端重启了，号从头来。不退回去的话，之后每一批都会被当成旧的丢掉。
+    // 模拟服务端重启后批次号归一，验证 reset 允许水位回退。
     socket.deliver(reset(1))
     expect(connection.watermarkOf('c1', 'main')).toBe(1)
   })
@@ -124,7 +114,6 @@ describe('TranscriptConnection', () => {
 
     accept = false
     socket.deliver(ops(8))
-    // 推了的话这一批再也补不回来了。
     expect(connection.watermarkOf('c1', 'main')).toBe(7)
   })
 
@@ -137,7 +126,7 @@ describe('TranscriptConnection', () => {
 
     before.onclose?.()
     vi.advanceTimersByTime(2_000)
-    // connect() 会用同一个工厂，但工厂给的是原来那个 socket 对象；重订的帧照样发在它上面。
+    // 测试工厂复用原 socket，重订帧仍发送到同一对象。
     socket.deliver(HELLO)
 
     const resubscribed = before
@@ -167,7 +156,6 @@ describe('TranscriptConnection', () => {
     socket.deliver({ type: 'ack', id: asked?.id, payload: { not_found: ['c-gone'] } })
 
     expect(refused).toBe(true)
-    // 留着的话，每次重连都会去订同一段、每次都被拒。
     socket.deliver(ops(1, 'c-gone'))
     expect(received).toHaveLength(0)
   })
@@ -185,7 +173,6 @@ describe('TranscriptConnection', () => {
       .filter((frame) => frame.type === 'subscribe_v2')
       .map((frame) => (frame.payload?.['transcript'] as { main?: string } | undefined)?.main)
     expect(grades).toEqual(['delta', 'turn', 'delta'])
-    // 水位不丢：升档那一帧照样报上去，由服务端决定补批还是整份换掉（它会选后者）。
     expect(connection.watermarkOf('c1', 'main')).toBe(4)
   })
 
@@ -212,7 +199,7 @@ describe('TranscriptConnection', () => {
     const connection = connect(['c1'], () => clock)
 
     expect(connection.health().stale).toBe(false)
-    // 心跳 10 秒，下限 30 秒，所以判据是 30 秒。
+    // 心跳为 10 秒，但失活阈值受 30 秒下限约束。
     clock += 31_000
     expect(connection.health().stale).toBe(true)
   })
@@ -239,10 +226,8 @@ describe('TranscriptConnection', () => {
     connection.reconnect()
 
     expect(sockets).toHaveLength(2)
-    // 旧 socket 的回调已经摘掉：它这会儿才派 onclose，也不会再排一次退避重连
     expect(sockets[0]?.onclose).toBeNull()
 
-    // 新连接带着水位重订，服务端据此补批，不整份重发
     sockets[1]?.deliver(HELLO)
     const sent = sockets[1]?.frames() ?? []
     expect(sent[0]?.type).toBe('subscribe_v2')
@@ -258,7 +243,7 @@ describe('TranscriptConnection', () => {
       type: 'session.meta.updated',
       payload: { session_id: 'c9', title: '夜景延时素材生成' },
     })
-    // 忙的那一帧不带 last_turn_reason（服务端 exclude_none），到上层归一成 null
+    // 运行帧省略结束原因，上层应规范化为 null。
     socket.deliver({
       type: 'event.session.work_changed',
       session_id: 'c9',
@@ -270,7 +255,6 @@ describe('TranscriptConnection', () => {
       payload: { busy: false, pending_interaction: 'none', last_turn_reason: 'failed' },
     })
 
-    // 侧栏列着几十段对话却一段都没订，按订阅分流的话它永远收不到改名与角标。
     expect(seen).toEqual([
       { conversationId: 'c9', kind: 'title', title: '夜景延时素材生成' },
       {
@@ -323,7 +307,6 @@ describe('TranscriptConnection', () => {
       },
     })
 
-    // 只把订了的那条路径给它：订一份文件的人不该被别的文件叫醒。
     expect(seen).toEqual(['video_shot.json'])
   })
 
@@ -374,7 +357,6 @@ describe('TranscriptConnection', () => {
     vi.advanceTimersByTime(2_000)
     socket.deliver(HELLO)
 
-    // 新连接那一头什么都不记得：不重发的话文件变了再也没人通知。
     const watches = before.frames().filter((frame) => frame.type === 'watch_fs_add')
     expect(watches).toHaveLength(2)
     vi.useRealTimers()

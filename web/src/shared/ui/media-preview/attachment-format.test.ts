@@ -1,7 +1,3 @@
-/**
- * 附件展示的格式化：大小口径与文件名截断（照 kimi 网页版 composer）。
- */
-
 import { describe, expect, it } from 'vitest'
 import { ellipsizeAttachmentName, formatAttachmentSize } from './attachment-format'
 
@@ -34,7 +30,7 @@ describe('ellipsizeAttachmentName', () => {
   it('超长时保留扩展名中间省略', () => {
     const name = `${'图'.repeat(40)}.png`
     const result = ellipsizeAttachmentName(name)
-    // 尾巴 = `.png`(4) + 前推 4 = 8，头 = 32-1-8 = 23，总长仍是 32 个 grapheme
+    // 扩展名与额外四字占八个 grapheme，头部保留 23，总长含省略号为 32。
     expect(result).toBe(`${'图'.repeat(23)}…${'图'.repeat(4)}.png`)
     expect([...result]).toHaveLength(32)
   })

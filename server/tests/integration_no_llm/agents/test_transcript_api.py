@@ -1,7 +1,4 @@
-"""transcript 对外面的 HTTP 契约：权限门控、发消息、分页、补批。
-
-模型用官方 ``test``，因此本层无需任何厂商 SDK 或凭证。
-"""
+"""使用 TestModel 验证 transcript 的 HTTP 权限、消息受理、分页和补发契约。"""
 
 from __future__ import annotations
 
@@ -46,7 +43,6 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
 
 
 async def _sign_in(client: httpx.AsyncClient, pg_url: str) -> str:
-    """注册并拿到能跑 agent 的角色，返回用户 id。"""
 
     user_id = await register_and_login(client)
     await set_roles_in_db(pg_url, "luke@example.com", ["editor"])
@@ -54,7 +50,6 @@ async def _sign_in(client: httpx.AsyncClient, pg_url: str) -> str:
 
 
 async def _materials(pg_url: str, namespace: str) -> list[tuple[str, str]]:
-    """台账里这段对话记下的地址与种类。"""
 
     engine = create_async_engine(pg_url)
     try:
@@ -74,7 +69,6 @@ async def _materials(pg_url: str, namespace: str) -> list[tuple[str, str]]:
 
 
 async def test_anonymous_cannot_send(app: FastAPI) -> None:
-    """没登录发不了消息。"""
 
     async with make_client(app) as client:
         sent = await client.post(
@@ -87,7 +81,6 @@ async def test_anonymous_cannot_send(app: FastAPI) -> None:
 async def test_sending_to_someone_elses_conversation_is_not_found(
     app: FastAPI, pg_url: str
 ) -> None:
-    """编一个会话 id 发过来，答 404，不透露它存不存在。"""
 
     async with make_client(app) as client:
         await _sign_in(client, pg_url)
@@ -99,7 +92,6 @@ async def test_sending_to_someone_elses_conversation_is_not_found(
 
 
 async def test_send_then_read_it_back(app: FastAPI, pg_url: str) -> None:
-    """发一条消息，跑完之后读得回来：一轮、带 prompt、带正文块。"""
 
     async with make_client(app) as client:
         await _sign_in(client, pg_url)
@@ -109,12 +101,12 @@ async def test_send_then_read_it_back(app: FastAPI, pg_url: str) -> None:
             json={"prompt_id": "prm_read", "content": [{"type": "text", "text": "写三个镜头"}]},
         )
         assert sent.status_code == 200, sent.text
-        assert sent.json()["status"] == "running"  # 这段对话空着，就地开跑
+        assert sent.json()["status"] == "running"
 
         await settled(client, conversation_id)
         page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()
 
-    assert page["agent_id"] == "main"  # 信封是 snake_case，实体是 camelCase
+    assert page["agent_id"] == "main"  # 信封字段为 snake_case，实体字段为 camelCase。
     assert page["has_more"] is False
     assert [turn["turnId"] for turn in page["items"]] == ["t1"]
     assert page["items"][0]["content"] == [{"type": "text", "text": "写三个镜头"}]
@@ -123,7 +115,6 @@ async def test_send_then_read_it_back(app: FastAPI, pg_url: str) -> None:
 
 
 async def test_second_prompt_queues_while_the_first_runs(app: FastAPI, pg_url: str) -> None:
-    """一段对话同时只跑一条，第二条答 queued。"""
 
     async with make_client(app) as client:
         await _sign_in(client, pg_url)
@@ -142,10 +133,7 @@ async def test_second_prompt_queues_while_the_first_runs(app: FastAPI, pg_url: s
 
 
 async def test_attachments_land_in_the_material_ledger(app: FastAPI, pg_url: str) -> None:
-    """带图带视频的消息，收下的那一刻各记一条，种类跟着 part 类型走。
-
-    不记的话，模型拿这个地址去调工具会被自己的校验拦下——用户明明刚发过。
-    """
+    """消息受理时须登记附件及类型，使后续工具的素材校验认可用户输入。"""
 
     image = "https://cdn.test/style.jpg"
     video = "https://cdn.test/ref.mp4"
@@ -186,7 +174,7 @@ async def test_a_text_only_prompt_records_nothing(app: FastAPI, pg_url: str) -> 
 
 
 async def test_an_attachment_that_is_not_http_is_refused(app: FastAPI, pg_url: str) -> None:
-    """台账存的就是这个字符串，工具照它出网；不是 http(s) 就不该进来。"""
+    """台账地址会用于工具外呼，仅接受 HTTP(S)。"""
 
     async with make_client(app) as client:
         user_id = await _sign_in(client, pg_url)
@@ -206,7 +194,6 @@ async def test_an_attachment_that_is_not_http_is_refused(app: FastAPI, pg_url: s
 
 
 async def test_catchup_reports_whether_it_got_everything(app: FastAPI, pg_url: str) -> None:
-    """补批要说清楚有没有取全；水位来自上一代编号时答 ``complete: false``。"""
 
     async with make_client(app) as client:
         await _sign_in(client, pg_url)
@@ -231,5 +218,5 @@ async def test_catchup_reports_whether_it_got_everything(app: FastAPI, pg_url: s
     assert caught["complete"] is True
     assert [batch["seq"] for batch in caught["batches"]] == list(
         range(1, len(caught["batches"]) + 1)
-    )  # 批次号从 1 起，连续
-    assert stale["complete"] is False  # 手上的号比服务端还大，只能整页重拉
+    )
+    assert stale["complete"] is False

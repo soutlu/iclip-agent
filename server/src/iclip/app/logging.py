@@ -1,10 +1,5 @@
-"""进程里所有日志走 structlog 一条线。
-
-标准库来源（uvicorn 以 ``log_config=None`` 启动、procrastinate、httpx）与我们自己的 structlog
-logger 都落到 root 的一个 handler，由 ProcessorFormatter 用同一条处理链渲染：开发是对齐的
-控制台行，生产按 ``ops.log_format: json`` 一行一个 JSON。中间件绑上的请求上下文（request_id、
-principal）随 contextvars 合进每一行，uvicorn 的访问日志也带。
-"""
+"""统一标准库与 structlog 日志。单个 root handler 通过 ProcessorFormatter 输出 console 或 JSON。
+请求上下文经 contextvars 合并至日志，包括 uvicorn 访问日志。"""
 
 from __future__ import annotations
 
@@ -18,11 +13,11 @@ from structlog.typing import Processor
 LogFormat = Literal["console", "json"]
 
 QUIET_LOGGERS = ("procrastinate", "httpx")
-"""常态下只看告警的第三方 logger：周期心跳、每次外呼各打一行 INFO，没有信息量。"""
+"""仅保留警告及以上级别的第三方 logger，抑制周期心跳与逐请求 INFO。"""
 
 
 def configure_logging(level: str, fmt: LogFormat) -> None:
-    """配 root 的 handler、格式与级别。重复调用整体替换，不叠 handler。"""
+    """整体替换 root 日志配置，重复调用不叠加 handler。"""
 
     shared: list[Processor] = [
         structlog.contextvars.merge_contextvars,
@@ -55,7 +50,7 @@ def configure_logging(level: str, fmt: LogFormat) -> None:
         processors=[*shared, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
-        # 不缓存：监督进程与 worker、测试之间会反复配置，缓存会让先用过的 logger 留在旧配置上
+        # 禁用缓存，使重新配置可应用于已使用的 logger。
         cache_logger_on_first_use=False,
     )
 

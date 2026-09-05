@@ -1,18 +1,7 @@
-"""Runtime Configuration：YAML 管形状，环境变量管值。
+"""运行配置。YAML 定义能力形状，环境变量提供地址与凭证。
 
-两份东西分得很清：
-
-- **YAML 说「装什么、什么形状」** —— 声明哪些模型、哪些节奏、哪些名字。它进仓。
-- **环境变量说「连到哪儿、用什么凭证」** —— 地址与密钥。它不进仓，也不该进。
-
-env 的读取交给 pydantic-settings：每个字段用 ``validation_alias`` 写死它对应的变量
-名，所以下面那几个 ``*Env`` 类**就是这个服务的环境变量清单**——想知道要配什么，看
-它们就够了。缺了哪几个它会一次全报出来，报的是变量名本身，不是内部字段名。
-
-**可选能力的开关是我们自己判断的**（那是策略，不是机械）：某个地址的 env 为空就整
-项关闭；一旦非空，那一组的其余变量就都是必需的——半开着比关着更糟，路由挂上了、点
-下去才发现某个地址没配。
-"""
+EnvSettings 字段别名是环境变量清单，缺失时聚合报告变量名。
+可选能力的开关为空时关闭；开启后必须提供该组全部必需变量。"""
 
 from __future__ import annotations
 
@@ -39,7 +28,7 @@ from pydantic_settings import (
 _MIN_SECRET_LENGTH = 32
 
 RequiredEnv = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-"""必需的环境变量值。**设成空串或只有空白等于没设**——那种半配置最难查。"""
+"""必需的环境变量值，空字符串和纯空白均视为缺失。"""
 
 OptionalEnv = Annotated[str, StringConstraints(strip_whitespace=True)]
 """可以缺的环境变量值；缺了就是空串。"""
@@ -75,7 +64,7 @@ class EnvSettings(BaseSettings):
     model_config = SettingsConfigDict(frozen=True, extra="ignore")
 
 
-# ── 环境变量清单 ──────────────────────────────────────────────────────────────
+# 环境变量配置
 
 
 class CoreEnv(EnvSettings):
@@ -161,7 +150,7 @@ class InspirationEnv(EnvSettings):
     database_url: RequiredEnv = Field(validation_alias=INSPIRATION_DATABASE_URL_ENV)
 
 
-# ── YAML 的形状 ───────────────────────────────────────────────────────────────
+# YAML 声明
 
 
 class AppSection(ConfigSection):
@@ -222,8 +211,7 @@ class ModelSection(ConfigSection):
 ThinkingEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 ArkReasoningEffort = Literal["minimal", "low", "medium", "high"]
-"""火山方舟文档只给这四档。对方不校验取值——配了别的它照样跑、只是静默按默认档来，
-所以这里在装配期就拒掉。"""
+"""方舟支持的思考强度；启动时拒绝其他值，避免上游静默使用默认档。"""
 
 
 class VideoGenerationSection(ConfigSection):
@@ -367,8 +355,7 @@ class RuntimeConfig(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # 只吃 YAML（经 init kwargs 注入路径）与显式 init 值。这一份是「形状」，
-        # 环境变量管的是「值」，两者不该互相覆盖。
+        # YAML 形状仅从文件与显式参数读取，环境值由独立解析流程处理。
         return (init_settings,)
 
 
@@ -384,7 +371,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     return RuntimeConfig(**data)
 
 
-# ── 装配期的运行值 ────────────────────────────────────────────────────────────
+# 解析后的运行值
 
 
 @dataclass(frozen=True, slots=True)
@@ -510,27 +497,19 @@ class ResolvedSettings:
 
 
 def _from_env[EnvT: EnvSettings](cls: type[EnvT]) -> EnvT:
-    """从环境变量构造一个 env 段。
-
-    类型检查器按字段签名以为这些值该由调用方传进来，而它们本来就该由环境提供。把这
-    条说明集中在这一处，而不是每个构造点各贴一条忽略。
-    """
+    """通过环境变量构造设置，集中适配与字段构造签名不同的加载方式。"""
 
     return cls()  # pyright: ignore[reportCallIssue]
 
 
 def _switched_on(env_name: str) -> bool:
-    """可选能力的开关：那个地址的 env 为空就是没开。
-
-    这一步必须在读那一组其余变量**之前**做——不然「没开这项能力」和「开了但没配
-    全」就分不开了。
-    """
+    """先检查能力开关，再加载该组必需变量，区分未启用与配置不完整。"""
 
     return bool(os.environ.get(env_name, "").strip())
 
 
 def _resolve_object_store() -> ObjectStoreEnv | None:
-    """解析公开对象存储；桶名为空即整项关闭。它没有 YAML 段——没有可调的形状。"""
+    """按桶名开关解析对象存储环境配置。"""
 
     if not _switched_on(OSS_BUCKET_ENV):
         return None
@@ -540,12 +519,7 @@ def _resolve_object_store() -> ObjectStoreEnv | None:
 def _resolve_media_generation(
     section: MediaGenerationSection | None, *, object_store_on: bool
 ) -> ResolvedMediaGeneration | None:
-    """解析媒体生成；没声明或总开关为空即这项能力关闭。
-
-    一旦开启，这一组 env 就都是必需的，缺哪几个 pydantic 一次全报出来（报的是变量
-    名）。对象存储也必须开着：图像接口给的是会过期的签名 URL，不转存就等于往库里写
-    一批几天后失效的链接。
-    """
+    """按声明与环境开关解析媒体生成；开启后必须配置全部凭证及结果转存所需的对象存储。"""
 
     if section is None or not _switched_on(VIDEO_SUBMIT_URL_ENV):
         return None
@@ -572,12 +546,7 @@ def _resolve_media_generation(
 def _resolve_shot_video(
     section: ShotVideoSection | None, *, generation_on: bool
 ) -> ResolvedShotVideo | None:
-    """解析镜头素材能力；没声明或总开关为空即这项能力关闭。
-
-    开关为空就是干脆没开（哪怕 YAML 留着这一段）——真有 agent 声明要用它，装配
-    期会在名字表那里报「未登记的 capability」，该响的地方会响。但开关配了、媒体
-    生成却没开是「半开着」：出图与对象存储都走生成那一套，所以直接报错。
-    """
+    """按声明与环境开关解析镜头能力；开启时必须同时启用媒体生成与对象存储。"""
 
     if section is None or not _switched_on(VIDEO_UNDERSTANDING_URL_ENV):
         return None
@@ -603,10 +572,7 @@ def _resolve_shot_video(
 
 
 def _resolve_product_catalog() -> ResolvedProductCatalog | None:
-    """解析产品资料目录；连接串为空即整项关闭（``/products`` 不挂载）。
-
-    它没有 YAML 段：这项能力没有可调的形状，只有「连到哪儿、图片在哪个桶」两个值。
-    """
+    """按数据库连接开关解析产品目录与图片公开前缀。"""
 
     if not _switched_on(PRODUCT_CATALOG_DATABASE_URL_ENV):
         return None
@@ -615,7 +581,7 @@ def _resolve_product_catalog() -> ResolvedProductCatalog | None:
 
 
 def _resolve_inspirations() -> ResolvedInspirations | None:
-    """解析爆款视频查询；连接串为空即整项关闭。它同样没有 YAML 段——没有可调的形状。"""
+    """按数据库连接开关解析爆款视频查询。"""
 
     if not _switched_on(INSPIRATION_DATABASE_URL_ENV):
         return None
@@ -623,7 +589,7 @@ def _resolve_inspirations() -> ResolvedInspirations | None:
 
 
 def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
-    """把 YAML 的形状和环境变量的值合成装配期要用的运行值，缺什么当场失败。"""
+    """合并 YAML 声明与环境值，启动时校验配置完整性。"""
 
     core = _from_env(CoreEnv)
 
@@ -692,11 +658,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
 
 
 def _require_model_key(name: str, env_name: str) -> str:
-    """取某个模型的 API Key。
-
-    这一处仍然是「按 YAML 里给的变量名去环境里取」：每个模型各自一个变量，变量名是
-    声明的一部分（见 ``ModelSection.api_key_env``），没法用写死的别名表达。
-    """
+    """按模型声明的环境变量名读取 API key。"""
 
     value = os.environ.get(env_name, "").strip()
     if not value:

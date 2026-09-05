@@ -37,11 +37,7 @@ def make_style(**overrides: Any) -> TaskStyle:
 
 
 class StubStyleSnapshots:
-    """``StyleSnapshots`` 的替身：认识 ``known`` 里的款，别的都当查不到。
-
-    真身要查产品资料库再把首图搬进对象存储，那两样都不在单测的射程里；这个端口窄到
-    一句话就能替掉，所以单测验的是「查不到怎么办、抄到了存哪去」的分支。
-    """
+    """StyleSnapshots 替身，仅返回 known 中的款号快照。"""
 
     def __init__(self, known: dict[str, TaskStyle] | None = None) -> None:
         self.known = known if known is not None else {STYLE_NO: make_style()}
@@ -89,11 +85,9 @@ def make_task(
 
 
 class InMemoryTaskRepository:
-    """``TaskRepository`` 的内存替身。
+    """TaskRepository 内存替身，保留 expect 状态守卫。
 
-    写方法照样守 ``expect``：状态守卫是这个端口的语义，替身少守一条，单测就测不出
-    「读到写之间被人插了一手」这类回归。发布时的期限比较在真实实现里由数据库的钟做，
-    这里用进程的钟近似——单测验的是分支走向，时钟一致性由真库那层的用例守。
+    期限使用进程时钟；数据库时钟的一致性由集成测试验证。
     """
 
     def __init__(self, tasks: list[Task] | None = None) -> None:
@@ -155,8 +149,7 @@ class InMemoryTaskRepository:
         if user_id not in assignees:
             assignees = (*assignees, user_id)
         updated = replace(found, status=STATUS_CONFIRMED, assignee_user_ids=assignees)
-        # 需求单那一行只在 published→confirmed 这一次真被改到，updated_at 也只在这时动。
-        # 已确认的单再被人认领只多一条认领记录，SQL 那边的 UPDATE 落空、时间不刷。
+        # 仅首次确认更新需求单时间；后续认领只新增认领记录。
         if found.status == STATUS_PUBLISHED:
             updated = replace(updated, updated_at=datetime.now(UTC))
         self.tasks[task_id] = updated

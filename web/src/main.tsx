@@ -11,7 +11,7 @@ if (!rootElement) {
   throw new Error('找不到 #root 挂载节点')
 }
 
-// 先定主题再挂载，避免首屏用错档的颜色闪一下
+// 挂载前应用主题，避免首屏闪烁。
 initTheme()
 
 createRoot(rootElement).render(

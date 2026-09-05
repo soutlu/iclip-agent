@@ -1,10 +1,6 @@
-"""工具卡怎么画：display 的类型与合表。
+"""工具 display 类型与注册表。
 
-**客户端不认工具名**，它只认这个字段里的 ``kind``（协议定死的一个封闭联合）。哪件工具画成什么
-由拥有它的那个能力包登记（与工具同文件），组合根把各能力的表合成一份注册表，同一实例递给实时
-与历史两条路。这里只留类型与合表。
-
-认不出的一律 ``generic``：卡片画得朴素而已，不会画错。
+客户端按 kind 渲染；能力包登记 display，组合根合并后供实时和历史投影共用。
 """
 
 from __future__ import annotations
@@ -80,36 +76,33 @@ ToolDisplay = (
 )
 
 DisplayFn = Callable[[Any], ToolDisplay | None]
-"""一件工具的画法：收这一次调用的参数（dict、JSON 字串，或者什么都没有），算不出来就返回
-``None``，由注册表退回 ``generic``。"""
+"""由调用参数计算 display；返回 None 时注册表使用 generic。"""
 
 
 class MediaGridItem(TypedDict):
-    """媒体墙上的一张：地址加一句标题。"""
+    """媒体网格中的 URL 与标题。"""
 
     url: str
     caption: str
 
 
 class MediaGridItems(TypedDict):
-    """一件出图 / 拼板工具给人看的结果，配 ``view="media_grid"``。
+    """供 media_grid 渲染器使用的工具 metadata。
 
-    是 TypedDict 而不是 pydantic 模型：这份东西要经 ``ToolReturn.metadata`` 落库再读回来，实时
-    那条路拿到的是工具刚造出来的对象、历史那条路拿到的是从库里解出来的。模型对象与 dict 比不
-    相等，两条路会当场分叉，而分叉不报错。
+    使用 TypedDict 保持实时对象与数据库 JSON 反序列化结果一致。
     """
 
     items: list[MediaGridItem]
 
 
 def media_grid(items: Iterable[tuple[str, str]]) -> MediaGridItems:
-    """把（地址，标题）拼成界面那份缩略图墙。各能力共用，键名只写一遍。"""
+    """统一构造媒体网格结果。"""
 
     return {"items": [MediaGridItem(url=url, caption=caption) for url, caption in items]}
 
 
 def _as_mapping(args: Any) -> Any:
-    """参数在消息里可能是 JSON 字串（模型逐字发出来的那份）。解不出来按「没有参数」处理。"""
+    """解析流式工具参数 JSON；无效 JSON 按缺少参数处理。"""
 
     if not isinstance(args, str):
         return args
@@ -121,7 +114,7 @@ def _as_mapping(args: Any) -> Any:
 
 @dataclass(frozen=True, slots=True)
 class ToolDisplayEntry:
-    """一件工具登记的两样东西：卡怎么画，结果用哪个渲染器画。"""
+    """工具的 display 函数和结果渲染器。"""
 
     draw: DisplayFn
     view: str | None = None
@@ -129,19 +122,15 @@ class ToolDisplayEntry:
 
 @dataclass(frozen=True, slots=True)
 class ToolDisplayRegistry:
-    """全部工具的画法。
-
-    实时那条路与历史那条路必须拿到同一份：两边给出的卡不一样的话，同一张卡在刷新前后会换个
-    长相，而且不报错。
-    """
+    """实时与历史投影共享的工具 display 注册表。"""
 
     entries: Mapping[str, ToolDisplayEntry]
 
     EMPTY: ClassVar[ToolDisplayRegistry]
-    """一张都没登记。测试的 helper 用它，生产的两条路都要拿真的那一份。"""
+    """供测试使用的空注册表；生产投影须使用已装配的注册表。"""
 
     def tool_display(self, name: str, args: Any) -> ToolDisplay:
-        """这件工具这一次调用该画成什么。查不到、或者算不出来都退回 ``generic``。"""
+        """查找工具 display，未登记或无法计算时使用 generic。"""
 
         entry = self.entries.get(name)
         if entry is not None:
@@ -151,17 +140,14 @@ class ToolDisplayRegistry:
         return GenericDisplay(summary=name)
 
     def view_of(self, name: str) -> str | None:
-        """这件工具的结果用哪个渲染器画。没登记就不给，前端走 generic。"""
+        """返回已登记的结果渲染器；缺失时由客户端使用 generic。"""
 
         entry = self.entries.get(name)
         return None if entry is None else entry.view
 
     @staticmethod
     def merged(*tables: Mapping[str, DisplayFn | ToolDisplayEntry]) -> ToolDisplayRegistry:
-        """把各能力的表合成一份。同一件工具在两张表里出现即装配期报错。
-
-        只给画法不给渲染器的表照收：多数工具的结果没有专门的渲染器。
-        """
+        """合并能力 display 表；重复工具名报错，渲染器可省略。"""
 
         entries: dict[str, ToolDisplayEntry] = {}
         for table in tables:
@@ -181,7 +167,7 @@ ToolDisplayRegistry.EMPTY = ToolDisplayRegistry({})
 
 @runtime_checkable
 class ToolDisplaySource(Protocol):
-    """自带一张 display 表的能力。组合根按它挑出该合进注册表的那些。"""
+    """提供 display 表的能力接口，供组合根合并。"""
 
     def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]: ...
 

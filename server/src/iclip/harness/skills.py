@@ -1,12 +1,6 @@
-"""skill 库的装配：按需加载的流程指令，加一件读 references 的工具。
+"""装配按需加载的 skill 指令与 reference 读取工具。
 
-一个 skill 就是库里的一个子目录：``SKILL.md`` 的简介先进模型视野，正文等它
-真觉得用得上才加载。正文旁边常放 ``references/``——那是刻意拆出去的分支规则
-（比如两种改编模式各一份，只该读命中的那一份），所以它们不能并进正文。
-
-官方 ``Skills`` 只读 ``SKILL.md``，不碰 ``references/``。库里放着分支规则而
-没有读它的工具，模型会照着正文里的指示去读、然后发现无从下手，且不报错。所以
-两者绑成一次装配：**挂库就一起挂那件工具**。
+官方 Skills 仅加载 SKILL.md；references 保持独立，由配套工具按需读取。
 """
 
 from __future__ import annotations
@@ -26,7 +20,7 @@ REFERENCES_DIRNAME = "references"
 """skill 目录下存放分支规则的子目录名。"""
 
 MAX_REFERENCE_CHARS = 40_000
-"""单次读取上限。超了截断并显式标注——不能悄悄少给一段。"""
+"""单次读取字符上限，截断时显式标注。"""
 
 TRUNCATION_MARKER = "\n\n[... 已截断，超出单次读取上限 ...]"
 
@@ -34,13 +28,7 @@ TRUNCATION_MARKER = "\n\n[... 已截断，超出单次读取上限 ...]"
 def build_skill_capabilities(
     library: Path, names: Sequence[str]
 ) -> tuple[AgentCapability[Any], ...]:
-    """挂一批 skill：按需加载的指令 + 只能读这批 skill 的 references 的工具。
-
-    ``names`` 里有库里不存在的名字，官方 ``Skills`` 在这里就报错（装配期
-    fail fast，而不是等模型去点一个不存在的 skill）。
-
-    一个都不挑即报错。「不挂」由根本不调用本函数表达。
-    """
+    """装配指定 skill 及受限的 reference 读取工具；空列表或未知名称在装配时抛错。"""
 
     granted = tuple(names)
     if not granted:
@@ -49,24 +37,14 @@ def build_skill_capabilities(
 
 
 def _references_capability(library: Path, granted: tuple[str, ...]) -> Capability[Any]:
-    """把读 references 做成一件工具。
-
-    它跟着 skill 库一起挂：没挂库的 agent 连这个工具都没有。但在挂了库的 agent
-    里它从第一轮就可见，不像 skill 正文那样等模型点了才加载——官方 ``Skills``
-    在内部自造 deferred capability，插不进去一个工具。
-    """
+    """随 skill 库注册 reference 工具，从首轮即可调用；skill 正文仍按需加载。"""
 
     def validate_reference(ctx: RunContext[Any], skill: str, name: str) -> None:
-        """这次调用的范围规则：只准读挂给本 agent 的 skill，只准读 ``.md``。
-
-        签名是工具的参数表前补一个 ``ctx``，一字不差，官方按它调。
-        """
+        """校验 skill 已授权且 reference 为 Markdown；参数签名须与工具一致，前置 ctx。"""
 
         _ = ctx
         if skill not in granted:
-            # include/exclude 是「模型看得见哪些 skill」，不是访问边界（官方
-            # 文档明说了）。真正的边界只能落在这里：没挂给这个 agent 的 skill，
-            # 它的 references 也不该读得到。
+            # Skills 的 include/exclude 仅控制模型可见性，reference 访问授权在此校验。
             raise ModelRetry(f"没有挂载 skill {skill!r}。可读的是: {', '.join(granted)}。")
         if Path(name).suffix != ".md":
             raise ModelRetry(f"reference 只能是 .md 文档，收到 {name!r}。")
@@ -82,13 +60,8 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
         root = (library / skill / REFERENCES_DIRNAME).resolve()
         target = (root / name).resolve()
         if not target.is_relative_to(root) or not target.is_file():
-            # 越界（``..``、绝对路径、软链接）与不存在合报一句：模型该做的动作
-            # 都是换个文件名重试，不需要知道自己踩的是哪一种。顺手把有哪些文件
-            # 报回去——让它改得动，而不是接着猜（正文里写错一个文件名很常见）。
-            #
-            # 递归列举并给出相对路径：子目录里的 reference 上面那两个条件同样放
-            # 行，所以「列出来的」必须和「读得到的」是同一批，否则模型会以为某
-            # 份文档不存在。
+            # 越界和不存在均返回可用文件列表，供模型修正参数。
+            # 递归列出的相对路径须与允许读取的文件集合一致。
             available = (
                 sorted(str(item.relative_to(root)) for item in root.rglob("*.md"))
                 if root.is_dir()
@@ -98,8 +71,7 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
                 f"skill {skill!r} 下没有 reference {name!r}。"
                 + (f"它有: {', '.join(available)}。" if available else "它没有任何 reference。")
             )
-        # 自家资产读不出字符（编码坏了）是环境故障，让它炸出来——重试改不了
-        # 坏文件，只会让模型在这儿打转。
+        # 编码错误属于资产故障，直接抛出，避免模型无效重试。
         text = target.read_text(encoding="utf-8")
         if len(text) > MAX_REFERENCE_CHARS:
             return text[:MAX_REFERENCE_CHARS] + TRUNCATION_MARKER
@@ -112,7 +84,7 @@ def _references_capability(library: Path, granted: tuple[str, ...]) -> Capabilit
 
 
 def skill_display_table() -> Mapping[str, DisplayFn]:
-    """读 references 那件工具的卡怎么画。跟着 skill 库一起挂，所以表也在这儿给。"""
+    """与 skill 工具同时注册的 reference 卡片格式。"""
 
     return {"get_skill_reference": _reference_display}
 

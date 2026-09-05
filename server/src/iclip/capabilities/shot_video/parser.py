@@ -1,10 +1,5 @@
-"""视频拆解：火山方舟 Responses 接口上的一次带视频的模型调用。
-
-不走命名模型表：pydantic-ai 的 OpenAI 适配器（Chat 与 Responses）对视频输入直接
-抛 NotImplementedError，所以这里自己说一次协议，地址与凭证来自环境变量（同两家
-生成 provider）。提示词写死在本文件——它和输出结构是一体的，第 2 节定义几个节点、
-第 4 节就得有几行。
-"""
+"""通过方舟 Responses 调用视频拆解。当前 PydanticAI 适配器不支持视频输入，因此直接使用协议。
+提示词与解析结构在同一模块维护，接口地址和凭证由环境变量提供。"""
 
 from __future__ import annotations
 
@@ -13,11 +8,7 @@ from typing import Any, Final
 import httpx
 
 TIMEOUT_SECONDS: Final = 600.0
-"""一次视频拆解的墙钟上限。
-
-模型要把整段视频看完再逐镜写出来，几分钟是常态。超时不重试：这次调用是计费的，
-而「超时了」说不清对方到底算没算这一次。
-"""
+"""付费视频拆解的总超时；超时无法确认上游执行结果，不自动重试。"""
 
 _USER_TEXT: Final = "请对随附视频做参考片拆解。"
 
@@ -107,10 +98,7 @@ SYSTEM_PROMPT: Final = """# Role & Context
 
 
 class ArkVideoUnderstanding:
-    """火山方舟 Responses 接口上的视频拆解。
-
-    ``client`` 由组合根传入（测试塞替身 transport），所以本类不自己造连接池。
-    """
+    """方舟视频拆解适配器，HTTP 客户端由组合根注入。"""
 
     def __init__(
         self,
@@ -130,7 +118,6 @@ class ArkVideoUnderstanding:
         self._fps = fps
 
     async def parse(self, video_url: str) -> str:
-        """跑一次拆解，返回 Markdown 全文。"""
 
         video: dict[str, Any] = {"type": "input_video", "video_url": video_url}
         if self._fps is not None:
@@ -172,12 +159,7 @@ class VideoUnderstandingError(RuntimeError):
 
 
 def _markdown(body: object) -> str:
-    """从 Responses 的返回里取出正文。
-
-    ``status`` 不是 completed 一律报错——撞上输出上限时对方照样返 200，只是正文
-    缺了尾巴，半份镜头表交出去没人知道少了一段。空正文同理：计费的调用返回空内
-    容是失败，不是空文档。
-    """
+    """提取 completed 响应中的非空正文；其他状态或空正文均按失败处理，避免交付截断文档。"""
 
     if not isinstance(body, dict):
         raise VideoUnderstandingError("视频拆解接口返回的顶层不是 object")

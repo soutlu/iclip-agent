@@ -12,19 +12,14 @@ depends_on = []
 path = "iclip.platform.http"
 depends_on = ["iclip.common"]
 
-# 公开对象存储：只认识 OSS SDK 与 stdlib，不认识业务。
 [[modules]]
 path = "iclip.platform.object_store"
 depends_on = []
 
-# 命名空间化文本文件存储：工作区能力把它暴露给模型，别的能力往同一处落文件也
-# 走它。只认识 SQL 与 stdlib，命名空间按什么分由调用方决定。
 [[modules]]
 path = "iclip.platform.file_store"
 depends_on = []
 
-# 对话素材台账：系统收下或产出的地址记在这里，工具收到地址时查它。只认识 SQL 与
-# stdlib，命名空间按什么分由调用方决定。
 [[modules]]
 path = "iclip.platform.material_ledger"
 depends_on = []
@@ -37,30 +32,24 @@ depends_on = ["iclip.common"]
 path = "iclip.domains.identity"
 depends_on = ["iclip.common", "iclip.platform.db", "iclip.platform.http"]
 
-# agent 运行的 HTTP 面：只认识注入进来的事件流工厂，不认识 harness。
 [[modules]]
 path = "iclip.domains.agents"
 depends_on = ["iclip.common", "iclip.domains.identity", "iclip.platform.transcript"]
 
-# 对话：自有的表。不认识 agent 引擎，也不认识工作区——删对话要连带清掉的那些东西
-# 由组合根接线进来（见 domains/conversations/service.py 的 PurgeDerived）。
 [[modules]]
+# 派生数据清理由组合根注入 PurgeDerived。
 path = "iclip.domains.conversations"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 合集：自有的表。归拢对话用的口袋，只对属主可见。它不认识往它里面放东西的那些模块
-# ——对话持有指向它的那一列，方向朝它来，它不朝外看。
 [[modules]]
 path = "iclip.domains.collections"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 创作需求单：自有的表。全公司可见的工作队列，不认识任何别的业务模块——款号快照要的
-# 产品资料与对象存储由组合根按 ports.py 的窄协议接进来。
 [[modules]]
+# 产品资料与对象存储由组合根按 ports.py 注入。
 path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 素材账本：自有的表 + 公开桶（直传签名、登记时回桶里核实）。
 [[modules]]
 path = "iclip.domains.assets"
 depends_on = [
@@ -69,7 +58,6 @@ depends_on = [
     "iclip.domains.identity",
 ]
 
-# 媒体生成：自有的表 + 两家外部生成接口 + 后台推进器。
 [[modules]]
 path = "iclip.domains.generation"
 depends_on = [
@@ -79,29 +67,22 @@ depends_on = [
     "iclip.domains.identity",
 ]
 
-# 产品资料查询：读外部的 PDM 同步副本，自己不建表。
 [[modules]]
 path = "iclip.domains.products"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# 爆款视频查询：读外部的数仓爆款榜，自己不建表。
 [[modules]]
 path = "iclip.domains.inspirations"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
-# transcript 协议的形状。照抄来的外部合同，谁都不拥有它：产出它的是 harness，
-# 序列化它的是 HTTP/WS 那一层，两边隔着围栏。它自己什么都不认识。
 [[modules]]
 path = "iclip.platform.transcript"
 depends_on = []
 
-# 通用 agent 内核，不认识业务。
 [[modules]]
 path = "iclip.harness"
 depends_on = ["iclip.common", "iclip.platform.material_ledger", "iclip.platform.transcript"]
 
-# capability 实现，唯一同时认识 harness 与 domains 的适配环。
-# 认识 platform.transcript：每件工具的 display 与工具同文件登记，用的是那里的类型。
 [[modules]]
 path = "iclip.capabilities"
 depends_on = [
@@ -114,7 +95,6 @@ depends_on = [
     "iclip.domains.agents",
 ]
 
-# 组合根：唯一可以 import 一切的地方。
 [[modules]]
 path = "iclip.app"
 depends_on = [

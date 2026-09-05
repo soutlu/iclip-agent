@@ -1,7 +1,4 @@
-"""对话的 HTTP 契约与真库事实：建/列/改名/删，归属收敛，删除连带清工作区。
-
-这一层不需要 agent：对话只是一张自己的表，跑不跑得起来是 agents 那边的事。
-"""
+"""验证对话 HTTP 契约、归属和删除时的工作区清理；无需装配 Agent。"""
 
 from __future__ import annotations
 
@@ -42,7 +39,6 @@ async def test_anonymous_is_rejected(client: httpx.AsyncClient) -> None:
 
 
 async def test_viewer_cannot_open_a_conversation(client: httpx.AsyncClient) -> None:
-    """密码注册默认 viewer：能看列表，但开不了新对话。"""
 
     await register_and_login(client)
     opened = await create(client)
@@ -58,7 +54,6 @@ async def test_open_list_rename_delete(client: httpx.AsyncClient, pg_url: str) -
     opened = await create(client)
     assert opened.status_code == 201, opened.text
     conversation = opened.json()["conversation"]
-    # id 由服务端发放，名字有个默认值，还没发过消息所以没有最近运行。
     assert conversation["agentId"] == AGENT_ID
     assert conversation["title"]
     assert conversation["lastRunId"] is None
@@ -85,7 +80,6 @@ async def test_list_is_most_recent_first(client: httpx.AsyncClient, pg_url: str)
     await login_as_editor(client, pg_url)
     first = (await create(client, title="早的")).json()["conversation"]
     await create(client, title="晚的")
-    # 改名也算一次活动：它把「早的」顶回最前面。
     await client.patch(f"{URL}/{first['id']}", json={"title": "又动过的"})
 
     listed = await client.get(SEARCH)
@@ -99,9 +93,8 @@ async def test_list_can_be_searched_by_title(client: httpx.AsyncClient, pg_url: 
     await create(client, title="亚麻衬衫二剪")
 
     hit = await client.get(SEARCH, params={"q": "亚麻"})
-    # 命中仍按最近活动倒序
     assert [item["title"] for item in hit.json()["items"]] == ["亚麻衬衫二剪", "夏季亚麻系列广告"]
-    # % 是普通字符不是通配符；只给空白等于没筛
+    # % 按字面量匹配，纯空白查询不筛选。
     assert (await client.get(SEARCH, params={"q": "%"})).json()["items"] == []
     assert len((await client.get(SEARCH, params={"q": "  "})).json()["items"]) == 3
 
@@ -120,7 +113,7 @@ async def test_search_only_covers_my_own_conversations(
 async def test_another_users_conversation_is_invisible(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """别人的对话：列表里没有，改名和删除都是 404（不是 403——那会泄露它存在）。"""
+    """他人会话返回 404，避免通过 403 泄漏存在性。"""
 
     await login_as_editor(client, pg_url)
     mine = (await create(client)).json()["conversation"]["id"]
@@ -136,11 +129,7 @@ async def test_another_users_conversation_is_invisible(
 
 
 async def test_delete_takes_the_workspace_with_it(client: httpx.AsyncClient, pg_url: str) -> None:
-    """删对话时，agent 在这段对话里写下的稿子与它的素材台账一起删掉。
-
-    两者都靠一个拼出来的命名空间认领地盘，和对话表之间没有外键，所以这条连带关系
-    只能由代码保证——它断了不会有任何报错，只会留下一堆再也没人看得见的行。
-    """
+    """工作区与素材台账按命名空间归属会话且没有外键，级联删除须由应用保证。"""
 
     user_id = await login_as_editor(client, pg_url)
     kept = (await create(client, title="留着的")).json()["conversation"]["id"]
@@ -198,7 +187,6 @@ async def test_delete_takes_the_workspace_with_it(client: httpx.AsyncClient, pg_
     finally:
         await engine.dispose()
 
-    # 只剩留着那段对话的稿子与素材：删除既没漏掉、也没多删。
     assert left == [f"{user_id}/{kept}"]
     assert materials == [f"{user_id}/{kept}"]
 
@@ -217,7 +205,7 @@ async def test_malformed_payload_is_422(client: httpx.AsyncClient, pg_url: str) 
 
 
 async def seed_workspace_files(pg_url: str, namespace: str, files: dict[str, str]) -> None:
-    """直接往工作区表里放几份稿子，装作 agent 在这段对话里写过。"""
+    """直接插入会话工作区文件。"""
 
     engine = create_async_engine(pg_url)
     try:
@@ -238,11 +226,7 @@ async def seed_workspace_files(pg_url: str, namespace: str, files: dict[str, str
 async def test_workspace_files_can_be_listed_and_read(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """界面上的工作区面板靠这两个端点：列出这段对话里写下的文件，再按路径读正文。
-
-    只看得到这一段对话的：同一个人另一段对话里的稿子不混进来。路径带 ``/`` 走查询串，
-    这里用带目录的路径把编解码那一趟也走一遍。
-    """
+    """工作区端点按会话隔离；嵌套路径覆盖查询参数编解码。"""
 
     user_id = await login_as_editor(client, pg_url)
     mine = (await create(client, title="这段")).json()["conversation"]["id"]
@@ -255,7 +239,7 @@ async def test_workspace_files_can_be_listed_and_read(
     listed = await client.get(f"{URL}/{mine}/workspace/files")
     assert listed.status_code == 200, listed.text
     files = listed.json()["files"]
-    # 按码点排（分 < 提），不是按写入顺序。
+    # 按 Unicode 码点排序，分在提之前。
     assert [item["path"] for item in files] == ["分镜/第一集.md", "提纲.md"]
     assert {item["version"] for item in files} == {1}
     assert all(item["sizeBytes"] > 0 and item["updatedAt"] for item in files)
@@ -266,18 +250,15 @@ async def test_workspace_files_can_be_listed_and_read(
         "file": {"path": "分镜/第一集.md", "content": "第一集的稿子", "version": 1}
     }
 
-    # 另一段对话只看得到它自己的；一份都没写过的是空列表，不是 404。
     other_files = (await client.get(f"{URL}/{other}/workspace/files")).json()["files"]
     assert [item["path"] for item in other_files] == ["别的.md"]
     empty = (await create(client, title="空的")).json()["conversation"]["id"]
     assert (await client.get(f"{URL}/{empty}/workspace/files")).json() == {"files": []}
 
-    # 没有这个文件是 404；路径不合语法是 422（用户给的输入，不能漏成 500）。
     missing = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "没有.md"})
     malformed = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "../越界.md"})
     assert (missing.status_code, malformed.status_code) == (404, 422)
 
-    # 别人的对话：两个端点都是 404，和其他端点同一个口径。
     async with make_client(app) as stranger:
         await login_as_editor(stranger, pg_url, username="mallory")
         listed_by_stranger = await stranger.get(f"{URL}/{mine}/workspace/files")
@@ -288,10 +269,7 @@ async def test_workspace_files_can_be_listed_and_read(
 
 
 def shots_document(*, image_url: str, index: int = 1) -> str:
-    """一份镜头组 prompt 表，形状与 ``write_video_shots`` 交付出来的一致。
-
-    ``index`` 给 1 以外的值就是一份编号不连续的（校验该拒的那种）。
-    """
+    """与 write_video_shots 一致的文档；非 1 的 index 用于构造编号不连续场景。"""
 
     return json.dumps(
         {
@@ -312,11 +290,7 @@ def shots_document(*, image_url: str, index: int = 1) -> str:
 async def test_workspace_file_can_be_written_back_with_the_version_it_was_read_at(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """面板改完整份写回：带着读到的版本号，写完版本加一。
-
-    版本对不上是 409（agent 与用户会同时写同一份文件，不能静默覆盖）；文件不存在时任何
-    版本都对不上，同样 409——不替调用方凭空新建一份。
-    """
+    """写回使用版本 CAS，冲突与文件不存在均返回 409，不能隐式新建文件。"""
 
     user_id = await login_as_editor(client, pg_url)
     mine = (await create(client, title="这段")).json()["conversation"]["id"]
@@ -348,11 +322,7 @@ async def test_workspace_file_can_be_written_back_with_the_version_it_was_read_a
 async def test_workspace_file_write_checks_the_document_on_its_path(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """``video_shot.json`` 走交付工具那套形状判定；换帧不问地址是哪来的。
-
-    不规范的路径写法一律拒：``/video_shot.json`` 与 ``video_shot.json`` 落同一个文件，
-    放行前者就等于放出一条绕开校验的路。
-    """
+    """写回沿用交付形状校验；非规范路径可能绕过 video_shot.json 校验，必须拒绝。"""
 
     user_id = await login_as_editor(client, pg_url)
     mine = (await create(client, title="这段")).json()["conversation"]["id"]
@@ -396,7 +366,6 @@ async def test_workspace_file_write_checks_the_document_on_its_path(
 async def test_workspace_file_write_is_owner_only(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """别人的对话写不进去：看不见的一律 404，治理者看得见但只读，是 403。"""
 
     user_id = await login_as_editor(client, pg_url)
     mine = (await create(client, title="这段")).json()["conversation"]["id"]
@@ -428,7 +397,6 @@ async def test_workspace_files_require_login(client: httpx.AsyncClient) -> None:
 
 
 async def _title_row(pg_url: str, conversation_id: str) -> tuple[str, str]:
-    """库里这一行现在的标题与它的来路。"""
 
     engine = create_async_engine(pg_url)
     try:
@@ -446,10 +414,6 @@ async def _title_row(pg_url: str, conversation_id: str) -> tuple[str, str]:
 
 
 async def test_generated_title_is_written_once(client: httpx.AsyncClient, pg_url: str) -> None:
-    """自动起的标题只落一次。
-
-    第二次要是也能写进去，用户每跑一轮都会看到标题变来变去。
-    """
 
     await login_as_editor(client, pg_url)
     conversation_id = (await create(client)).json()["conversation"]["id"]
@@ -474,7 +438,6 @@ async def test_generated_title_is_written_once(client: httpx.AsyncClient, pg_url
 async def test_user_named_conversations_are_left_alone(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """用户自己起的名字不会被自动生成的盖掉。"""
 
     await login_as_editor(client, pg_url)
     conversation_id = (await create(client)).json()["conversation"]["id"]
@@ -495,7 +458,6 @@ async def test_user_named_conversations_are_left_alone(
 async def test_title_given_at_creation_counts_as_the_users(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """开对话时就给了名字的，同样不该被自动起的盖掉。"""
 
     await login_as_editor(client, pg_url)
     conversation_id = (await create(client, title="第三幕")).json()["conversation"]["id"]

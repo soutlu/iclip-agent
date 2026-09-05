@@ -1,10 +1,10 @@
-"""agent_runtime.prompts：用户发上来的消息与每段对话的排程
+"""agent_runtime.prompts：消息队列与会话调度
 
 Revision ID: 2f6c93a1d874
 Revises: 7b1d4e6a92c3
 Create Date: 2026-08-30 16:20:00.000000
 
-「一段对话同时只跑一条」由部分唯一索引挡住，不靠应用层先查后写。
+部分唯一索引保证同一会话同时只有一条运行中的消息。
 """
 
 from __future__ import annotations

@@ -1,22 +1,12 @@
-"""iclip.projects → iclip.collections：口袋只装对话，而且有属主
+"""iclip.projects → iclip.collections：合集与属主
 
 Revision ID: 7b1d4e6a92c3
 Revises: 5f2a9c41d8b0
 Create Date: 2026-08-29 21:30:00.000000
 
-三件事一起做：
-
-1. **改名。** 「项目」这个词在界面上让给了需求单之外的分组概念，实体一路改名成合集。
-   改表名不会连带改索引名与约束名，所以下面逐个 RENAME——留着旧名字，迁移比对测试
-   会把它们判成漂移。
-2. **口袋不再挂需求单。** ``task_projects`` 整张删掉。**表里已有的单↔项目关联随之
-   丢失，不迁移**：需求单与对话之间本来就有直接的那一列，那才是要留的关系。
-3. **合集有属主。** ``creator_user_id`` 改叫 ``owner_user_id``：它从「谁建的」这个事实
-   变成了访问边界，只有属主与治理者看得见。侧栏那个查询按属主起头，所以补一条以属主
-   为首列的索引。
-
-权限串跟着改名。它们存在两处 JSONB 数组里——用户的直接授权与 API key 的显式授权集，
-两处都要改写；漏掉后者会让已经签发出去的 key 静默失去权限。
+表、索引和约束同步改名；creator_user_id 改为 owner_user_id，作为合集访问边界。
+删除 task_projects，已有需求单与项目的关联不迁移；需求单与会话的直接关联保留。
+用户直接授权与 API key 授权中的权限字符串均须改名，避免已签发密钥失去权限。
 """
 
 from __future__ import annotations
@@ -40,7 +30,7 @@ _RENAMED_PERMISSIONS = (
 
 
 def _rewrite_permissions(pairs: Sequence[tuple[str, str]]) -> None:
-    """把两处 JSONB 权限数组里的旧名字换成新名字。"""
+    """同步更新用户与 API key 的 JSONB 权限数组。"""
 
     cases = " ".join(f"WHEN '{old}' THEN '{new}'" for old, new in pairs)
     old_names = ", ".join(f"'{old}'" for old, _ in pairs)
@@ -93,7 +83,7 @@ def upgrade() -> None:
     op.execute(
         f"ALTER INDEX {SCHEMA}.ix_conversations_project RENAME TO ix_conversations_collection"
     )
-    # 治理者的审计列表：跨属主按最近活动翻页，位置是 (updated_at, id) 这两列。
+    # 跨属主审计查询使用 (updated_at, id) 游标分页。
     op.create_index(
         "ix_conversations_updated",
         "conversations",

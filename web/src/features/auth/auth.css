@@ -7,9 +7,7 @@
 .cue-auth-autofill:-webkit-autofill:hover,
 .cue-auth-autofill:-webkit-autofill:focus,
 .cue-auth-autofill:-webkit-autofill:active {
-  /* 自动填充时浏览器会给 input 自己刷一层底色，在半透明字段里会显出一块白方块。
-     把这层底裁到字形上就只剩文字，不必再拿一块不透明色去盖。
-     !important 不可省：Browser autofill injects UA colors above author styles. */
+  /* 将自动填充背景裁到字形内；!important 用于覆盖浏览器注入的自动填充颜色。 */
   -webkit-background-clip: text !important;
   -webkit-text-fill-color: var(--color-on-surface) !important;
   background-clip: text !important;

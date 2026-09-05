@@ -1,26 +1,10 @@
-"""transcript 的线上形状：kimi code 协议的实体与操作，逐字段照抄。
+"""transcript 实体与操作，使用 camelCase 别名序列化；metadata 为本仓扩展字段。
 
-字段名一律 camelCase，``model_dump(by_alias=True, exclude_none=True)`` 出来的就是线上
-那一份，不再翻译一道。
-
-工具帧上的 ``view`` 是 kimi 帧已有的字段；``metadata`` 是本仓的扩展，kimi 帧没有它。
-
-本模块不认识 ``pydantic_ai``：WS 与 REST 那一侧也要用这些形状，而它们在围栏另一侧。
-
-协议共 14 种操作，这里只放我们会发的那 9 种（见 ``TranscriptOperation``）。少发不破坏
-兼容——客户端的 reducer 认全部 14 种，我们哪天有了后台任务与待办再补上就行。
-
-**id 必须能被推导出来，不能由到达次序决定。**
-
-实时那条路从事件流产出操作，历史那条路从消息历史现推，两条路产出的 id 必须逐字相同，
-否则同一段对话在刷新前后会变形。所以编号一律取自这几件确定的事实：
-
-- 轮序号 = 一条 prompt 的全部 run 合成一轮，轮间按组内最早那条消息的时刻排（1 起）
-- 步序号 = 这一轮里 ``ModelResponse`` 的次序（1 起，跨 run 接着数）
-- 块序号 = 该次响应里正文块与思考块的次序（1 起，工具块不占号）
-- 工具块 id = ``<步 id>.<toolCallId>``，不参与块序号
-
-按「谁先到就给谁下一个号」编的话，一次模型重试或一个乱序事件就会让两条路永久分叉。
+实时与历史投影必须生成相同 id，编号不依赖事件到达顺序：
+- 同一 prompt 的全部 run 合为一轮，按组内最早消息时间排序，从 1 编号。
+- 步骤按轮内 ModelResponse 顺序编号，跨 run 连续。
+- 正文与思考块共享从 1 开始的块编号，工具块不占号。
+- 工具块 id 为 <stepId>.<toolCallId>。
 """
 
 from __future__ import annotations
@@ -38,36 +22,22 @@ TOOL_STATE_BY_OUTCOME: dict[str, Literal["done", "error"]] = {
     "denied": "error",
     "interrupted": "error",
 }
-"""工具返回的结局 → 卡片状态。协议只有三态，没成功的一律 error。
-
-放在这里而不是各自一份：实时那条路与历史那条路都要用它，各留一份迟早会漂。
-"""
+"""工具结果到卡片终态的统一映射；非成功结果均为 error。"""
 
 MAIN_AGENT_ID = "main"
-"""主 agent 的 id。协议按 agent 分 transcript，我们当前只产出这一个。"""
+"""当前唯一产出 transcript 的主 agent 标识。"""
 
 COMPACTION_NOTICE = "对话已压缩"
-"""压缩提示块上写这句。
-
-放在这里而不是各自一份：实时那条路与历史那条路都要发这一块，两边逐字相同才不会在刷新时变形。
-"""
+"""实时与历史投影共用的压缩提示文案。"""
 
 APPROVAL_ID_PREFIX = "apr_"
-"""审批交互 id 的前缀，它与工具调用一对一（``apr_<toolCallId>``）。
-
-放在这里而不是各自一份：实时那条路、历史那条路与收下点头的那一侧都要拼它，各写一遍迟早会漂。
-"""
+"""审批交互 id 前缀，与 toolCallId 一一对应。"""
 
 
 def utf16_len(text: str) -> int:
-    """按 UTF-16 code unit 数长度。
+    """按 UTF-16 code unit 计数，与客户端 String.length 及追加 offset 一致。
 
-    ``offset`` 的单位由协议定死是 UTF-16（客户端 reducer 是 TypeScript，量的是
-    ``String.length``）。Python 的 ``len()`` 数的是 code point，一个 emoji 差 1。
-
-    用错了不会报错：客户端会发现追加位置对不上，报缺口、整页重拉、重拉回来还是对不上，
-    表现为无限刷新，而日志里什么都看不见。所有算 ``offset`` 和块内文字长度的地方都必须
-    走这个函数。
+    Python len 按码点计数，不能用于包含 emoji 的协议偏移。
     """
 
     return len(text.encode("utf-16-le")) // 2
@@ -77,14 +47,7 @@ _F_ORDINAL = re.compile(r"\.f(\d+)$")
 
 
 def next_frame_ordinal(frame_ids: Iterable[str]) -> int:
-    """这一步里下一个正文块/思考块该用的号。
-
-    实时那条路与历史那条路共用这一个函数：两边编号只要有一处不一样，同一个块就有了两个 id，
-    刷新前后界面会变形。
-
-    不能拿块的个数当号：工具块不占 f 号（它的 id 是 ``<步 id>.<toolCallId>``），一步里只要
-    调过工具，个数就比号大。
-    """
+    """返回下一正文或思考块编号；工具块使用 toolCallId，不计入 f 序号。"""
 
     highest = 0
     for frame_id in frame_ids:
@@ -100,21 +63,18 @@ class _Wire(BaseModel):
     )
 
 
-# --- 块 ---------------------------------------------------------------------
-
-
 class TextFrame(_Wire):
     kind: Literal["text"] = "text"
     frame_id: str
     role: Literal["assistant", "user"]
     text: str
     content: tuple[PromptContent, ...] | None = None
-    """用户发上来的那串 part，原样。模型说的话没有它。"""
+    """用户原始图文 parts；助手文本不使用此字段。"""
     prompt_ids: tuple[str, ...] | None = None
 
     @model_validator(mode="after")
     def _user_block_carries_content(self) -> TextFrame:
-        """用户块必须带 part 列表：界面按次序画图文，只给 ``text`` 的话图就没了。"""
+        """用户块需保留 parts，避免仅有 text 时丢失图片及图文顺序。"""
 
         if self.role == "user" and self.content is None:
             raise ValueError(f"用户块 {self.frame_id} 没带 content")
@@ -135,13 +95,13 @@ class ToolFrame(_Wire):
     state: Literal["running", "done", "error"]
     input: Any | None = None
     output: Any | None = None
-    """这次调用给模型的那份返回，逐字。给人看的那份在 ``metadata``。"""
+    """模型收到的工具返回内容；界面结果见 metadata。"""
     display: Any | None = None
-    """这张卡怎么画由服务端说了算（协议里是一个封闭的 kind 联合）。客户端不认工具名。"""
+    """服务端提供的 display，客户端按 kind 渲染。"""
     view: str | None = None
-    """结果用哪个渲染器画，服务端给；不给就走 generic。客户端不认工具名。"""
+    """结果渲染器；未指定时使用 generic。"""
     metadata: Any | None = None
-    """给人看的那份结果，``ToolReturn.metadata`` 原样。模型看不到它。"""
+    """界面使用的 ToolReturn.metadata，不发送给模型。"""
     error: str | None = None
     approval_id: str | None = None
 
@@ -158,9 +118,6 @@ class NoticeFrame(_Wire):
 TranscriptFrame = Annotated[
     TextFrame | ThinkingFrame | ToolFrame | NoticeFrame, Field(discriminator="kind")
 ]
-
-
-# --- 轮与步 -----------------------------------------------------------------
 
 
 class TurnOrigin(_Wire):
@@ -190,7 +147,7 @@ class TurnHeader(_Wire):
     state: Literal["queued", "running", "completed", "failed", "cancelled"]
     origin: TurnOrigin
     content: tuple[PromptContent, ...]
-    """发起这一轮那条消息的 part 列表，与发消息接口收下的那份逐字相同。"""
+    """发起本轮的用户原始 parts。"""
     started_at: str | None = None
     ended_at: str | None = None
     usage: TurnUsage | None = None
@@ -222,9 +179,6 @@ class TranscriptTurn(TurnHeader):
     """带上步的完整一轮。"""
 
     steps: tuple[TranscriptStep, ...] = ()
-
-
-# --- 全局实体 ---------------------------------------------------------------
 
 
 class Interaction(_Wire):
@@ -260,11 +214,9 @@ class VideoContent(_Wire):
 
 
 PromptContent = Annotated[TextContent | ImageContent | VideoContent, Field(discriminator="type")]
-"""一条用户消息的组成部分。
+"""用户输入仅包含文字、图片和视频，媒体来源限定为 url 或 sessionMedia。
 
-协议的联合里还有工具调用、工具返回、思考三种，那些是**模型侧**消息的部分，不会出现在用户
-发上来的东西里；图片与视频的来源也只收 ``url`` 与 ``sessionMedia`` 两种（``base64`` 与本机
-``path`` 是桌面端的形态）。收窄的是入口，出去的形状没有变。
+工具调用、工具返回和思考属于模型消息；base64 与本地 path 不接受为服务端用户输入。
 """
 
 
@@ -301,9 +253,6 @@ class TranscriptMeta(_Wire):
     agent: AgentStatusMeta | None = None
 
 
-# --- 快照 -------------------------------------------------------------------
-
-
 class TranscriptSnapshot(_Wire):
     """``transcript.reset`` 带的那一份。
 
@@ -318,9 +267,6 @@ class TranscriptSnapshot(_Wire):
     prompts: tuple[Prompt, ...] = ()
     meta: TranscriptMeta = TranscriptMeta()
     has_more_older: bool = True
-
-
-# --- 操作 -------------------------------------------------------------------
 
 
 class FrameTarget(_Wire):
@@ -394,17 +340,13 @@ EmittableOperation = Annotated[
     | ItemsRemoveOp,
     Field(discriminator="op"),
 ]
-"""投影器能产出的那些。
-
-``reset`` 不在里面：它是「把状态整个换掉」，只有实时状态那一侧在拼给订阅者时才发得出。
-让投影器在类型上就构造不出它，比在运行时拦一道可靠。
-"""
+"""投影器可生成的操作，不含仅由实时状态构造的 reset。"""
 
 TranscriptOperation = Annotated[
     ResetOp | EmittableOperation,
     Field(discriminator="op"),
 ]
-"""线上会出现的全部操作，含 ``reset``。客户端那侧按这个解。"""
+"""客户端可接收的操作联合，包含 reset。"""
 
 
 __all__ = [

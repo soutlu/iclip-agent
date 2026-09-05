@@ -1,18 +1,6 @@
-"""已经跑完的那些轮子：从落库的消息与官方事件读回来。
+"""从快照、运行结束事件与 run→prompt 映射重建历史，三者以 run_id 关联。
 
-一段对话的持久事实存在三处，这里各取所需：消息历史（``StepPersistence`` 的快照）给出轮、步、
-块的全部内容，run 结束事件给出每次 run 的终态，``agent_job_runs`` 给出哪几次 run 合成一轮。三处
-按 ``run_id`` 对上——顶层 agent 的 ``StepPersistence`` 不设 ``agent_name``，于是账本里的 run id
-就是消息上的那一个（见 ``harness.agents._load_agent``）。
-
-不分页取：一段对话的全部消息本来就存在同一行快照里，读一行和读半行没有区别，页由调用方在
-内存里切。
-
-**读快照时把中断的那些也算上**，与起 run 那一侧同一个口径（见 ``runner._history``）。一次运行
-抛异常时官方存下来的是一份 ``interrupted`` 快照，它默认不在读取路径上；只读完整的话，失败那一轮
-不但自己看不见，还会从此消失——下一次运行拿不到它，于是它也不进后面任何一份快照，轮号被重用。
-
-两侧口径必须一样：显示按一份快照数轮子，起 run 按另一份数，同一段对话就会出现两个同号的轮子。
+读取完整消息快照后由调用方分页。包含中断快照，与运行入口保持相同口径，避免丢失失败轮次或复用轮号。
 """
 
 from __future__ import annotations
@@ -40,11 +28,7 @@ from iclip.platform.transcript.ops import Interaction, TranscriptTurn
 
 
 class ConversationSnapshots(Protocol):
-    """按对话取最新存档、按 run 取阶段事件、写一份存档。只要这三口，不要整个 step store。
-
-    ``save_snapshot`` 是重新生成用的：把截回末轮之前的历史另存成一份新快照，按 ``seq`` 它自动
-    成为最新的一份，旧快照留在库里不动。
-    """
+    """历史读取与截断所需的快照协议；截断保存为新快照，保留旧记录。"""
 
     async def latest_conversation_snapshot(
         self, *, conversation_id: str, include_interrupted: bool = False
@@ -56,7 +40,7 @@ class ConversationSnapshots(Protocol):
 
 
 class PromptRunsSource(Protocol):
-    """按对话取每次 run 归的那条 prompt：一份映射，一份状态。只要这两口，不要整个 prompt 队列。"""
+    """查询 run 所属消息及其当前状态。"""
 
     async def prompt_of_runs(self, conversation_id: str) -> dict[str, str]: ...
 
@@ -68,17 +52,17 @@ class TranscriptHistoryView:
     turns: tuple[TranscriptTurn, ...]
     context_tokens: int | None
     interactions: tuple[Interaction, ...] = ()
-    """已经落定与还等着人点头的审批。重启之后实时状态是空的，待回应的那几张只能从这里读回来。"""
+    """持久化审批视图，供进程重启后恢复待处理交互。"""
 
 
 @dataclass(frozen=True, slots=True)
 class TranscriptHistory:
-    """按对话 id 推出已经跑完的轮子。"""
+    """根据对话 id 重建历史轮次。"""
 
     store: ConversationSnapshots
     prompt_runs: PromptRunsSource
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY
-    """工具卡的画法。实时那侧（``ConversationRunner``）要收到同一份实例。"""
+    """与实时运行共享的工具卡展示规则。"""
 
     async def read(self, conversation_id: str) -> TranscriptHistoryView:
         """读取可恢复的时间线与 Pydantic AI 上下文读数。"""
@@ -115,14 +99,9 @@ class TranscriptHistory:
         )
 
     async def plan_rewind(self, conversation_id: str, *, ordinal: int) -> TurnRewind | None:
-        """算出「把落库历史截回第 ``ordinal`` 轮开始之前」要做的事，还没动库。
+        """从同一快照验证并规划末轮截断，不写库；非末轮返回 None。
 
-        只截末轮：``ordinal`` 不等于现有轮数就返回 ``None``（调用方据此拒掉）。核轮数与截取读的
-        是同一份快照，中间没有空隙让另一轮挤进来。分轮与显示同一个口径：中断的那些也算上
-        （见模块开头）。
-
-        分成「算」与「落」两步，是让调用方能先拿被摘掉那一轮的 run id 去查别的东西，查不到就
-        什么都不改；一步到位的话查失败时历史已经短了一轮。
+        调用方可先检查相关 run 数据，再提交截断，避免校验失败后已丢失末轮。
         """
 
         snapshot = await self.store.latest_conversation_snapshot(
@@ -140,7 +119,7 @@ class TranscriptHistory:
 
 @dataclass(frozen=True, slots=True)
 class TurnRewind:
-    """一次算好、还没落库的截取。``run_ids`` 是要被摘掉那一轮的 run。"""
+    """尚未落库的截断计划，run_ids 为末轮包含的运行。"""
 
     store: ConversationSnapshots
     conversation_id: str
@@ -148,11 +127,7 @@ class TurnRewind:
     run_ids: tuple[str, ...]
 
     async def commit(self) -> None:
-        """把截短后的历史存成一份新快照，按写入序它成为最新的一份。
-
-        历史不删行：旧快照与旧 run 的 runs/events 行原样留在库里。快照的 ``run_id`` 另铸一个，
-        不进消息历史，不参与分轮。
-        """
+        """将截断结果保存为新快照，保留旧快照和事件；新快照 run_id 不参与消息分轮。"""
 
         await self.store.save_snapshot(
             ContinuableSnapshot(

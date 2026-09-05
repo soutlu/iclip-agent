@@ -1,13 +1,11 @@
-"""agent_runtime.prompts：等审批的那条行与它记下的决定
+"""agent_runtime.prompts：审批等待与决定
 
 Revision ID: 5f2a9c60d417
 Revises: 4c8b1f7d3e60
 Create Date: 2026-09-01 18:30:00.000000
 
-``decisions`` 是 ``{toolCallId: 是否放行}`` 的 JSON，凑齐一次响应里的全部审批才起续跑。
-
-「一段对话同时只跑一条」那道部分唯一索引要把 ``awaiting`` 一并算进去：等审批的那一轮并没有
-结束，条件只写 ``running`` 的话，等审批期间新来的 prompt 会被判成在跑，同一段对话跑两条。
+decisions 保存 {toolCallId: 是否放行}，收齐本次响应的审批后续跑。
+部分唯一索引包含 awaiting，防止审批等待期间同一会话启动另一条消息。
 """
 
 from __future__ import annotations

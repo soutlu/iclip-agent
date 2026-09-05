@@ -1,10 +1,5 @@
 #!/usr/bin/env node
-/**
- * 对账脚本自测：真文件必须通过，注入漂移必须被抓出来。
- *
- * 只断言「通过」是没有意义的——对账逻辑要是把某一类差异漏了，正常用例照样绿。
- * 所以这里往运行时 CSS 里各塞一处浅色 / 深色漂移，验证两条路都报得出来。
- */
+/** 验证真实 token 一致，并能检出浅色、深色和工具类登记的漂移。 */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
@@ -52,8 +47,7 @@ test('颜色 token 没登记成工具类即报「工具类未登记」', () => {
   assert.match(problems[0], /工具类未登记：--color-canvas-card-border/)
 })
 
-// 类名写成变量再传：prettier 的 tailwind 插件会重排 cn(...) 字面量里的类名顺序，
-// 直接写进调用里的话，断言的先后关系会被格式化悄悄改掉。
+// 经变量传入类名，避免 Prettier 的 Tailwind 插件重排测试输入。
 const merge = (classes) => cn(classes)
 
 test('cn() 不把字阶类与颜色类当冲突', () => {

@@ -1,7 +1,4 @@
-/**
- * 轮尾终态栏：复制反馈、token 统计的显隐与格式化、完成时刻的格式化与悬停信息、
- * 重新生成按钮的接线。时刻段的 hover 浮现是视觉行为，由截图验收，这里只断言文本与 title。
- */
+/** 单测检查文本与 title；hover 显隐由视觉截图验证。 */
 
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -9,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptUsage } from '@/shared/transcript/vendor'
 import { TurnActions } from './turn-actions'
 
-/** jsdom 没有剪贴板，垫一个能断言的最小实现。 */
 const stubClipboard = () => {
   const writeText = vi.fn().mockResolvedValue(undefined)
   Object.defineProperty(navigator, 'clipboard', {
@@ -21,11 +17,9 @@ const stubClipboard = () => {
 
 const pad2 = (value: number): string => String(value).padStart(2, '0')
 
-/** 与组件约定一致的时刻段 title：YYYY/MM/DD HH:mm:ss。 */
 const fullTitle = (date: Date): string =>
   `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
 
-/** 时刻段 title 的形状，用来在缺 endedAt / 无法解析时断言它没渲染。 */
 const TIME_TITLE_RE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/
 
 describe('TurnActions', () => {
@@ -41,7 +35,7 @@ describe('TurnActions', () => {
 
     const button = screen.getByRole('button', { name: '复制' })
     fireEvent.click(button)
-    // writeText 之后 setCopied 走微任务，刷一轮让它落定
+    // 等待剪贴板 Promise 完成后触发的状态微任务。
     await act(async () => {})
 
     expect(writeText).toHaveBeenCalledWith('最终回复')
@@ -122,7 +116,7 @@ describe('TurnActions', () => {
 
   it('更早且同年完成的时刻显 M月d日 HH:mm', () => {
     const now = new Date()
-    // 两天前落在去年（1 月 1 / 2 日跑测试）时，改用当年 12 月 31 日——同样保证不是今天 / 昨天
+    // 跨年边界改用同年 12 月 31 日，保持日期既非今天也非昨天。
     let ended = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2, 8, 9, 7)
     if (ended.getFullYear() !== now.getFullYear()) {
       ended = new Date(now.getFullYear(), 11, 31, 8, 9, 7)

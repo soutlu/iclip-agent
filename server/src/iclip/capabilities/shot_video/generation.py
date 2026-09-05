@@ -1,4 +1,4 @@
-"""出图这一段：提交与渠道升级、把整图切成格落公开地址、拼出版记录与返回。版记录由调用方落盘。"""
+"""镜头图生成、渠道重试与网格裁剪转存。版记录返回调用方持久化。"""
 
 from __future__ import annotations
 
@@ -39,14 +39,10 @@ ANCHOR_RECORDS_DIR: Final = "anchors"
 ANCHOR_RECORD_VERSION: Final = 1
 
 GRID_RESOLUTION: Final = "4k"
-"""整图按最高档出。切成 4 格后每格只剩四分之一线性分辨率，低档不够交付。"""
+"""使用最高分辨率，保证整图裁成多格后仍有足够细节。"""
 
 ANCHOR_ASPECT: Final = "1:1"
-"""补拍整版的画幅。方版分四格后每格也接近方形，站得下全身像也放得下空景。
-
-补拍出来的是参考图，不是要交付的画面，所以不跟目标画幅走——按 9:16 出一版再切，
-每格会窄到只剩一条。切格后也不再按画幅收缩：那一刀裁掉的是实体本身。
-"""
+"""设定图使用方形网格；裁切后不再收缩到目标画幅，避免裁掉主体。"""
 
 _JPEG: Final = "image/jpeg"
 
@@ -60,12 +56,7 @@ _EVEN_SPLIT_NOTICE: Final = (
 
 @dataclass(frozen=True, slots=True)
 class GenerationPolicy:
-    """出图的重试与升级节奏：先 dev 试满 ``dev_attempts`` 次，再升 pro 试 ``pro_attempts`` 次；
-    任何失败都往下走。
-
-    **升级只在失败时发生。** 「出了图但不够好」是一次新需求，不该在这里悄悄换个
-    更贵的渠道重来。
-    """
+    """按配置的 dev、pro 顺序重试失败生成；已有成功结果时不自动升级渠道。"""
 
     poll_interval_seconds: float = 5.0
     dev_attempts: int = 2
@@ -82,7 +73,7 @@ class GenerationPolicy:
 
 @dataclass(frozen=True, slots=True)
 class GridCut:
-    """一批格子切完落地后的成品：给模型的返回、要落盘的版记录、给人看的缩略图墙。"""
+    """切格结果，包含工具响应、待持久化版记录与预览图。"""
 
     payload: dict[str, Any]
     record: dict[str, Any]
@@ -91,11 +82,11 @@ class GridCut:
     captions: Sequence[str]
 
     grid_url: str
-    """整张网格图的地址。版记录里写着它，模型 read_file 读到就可能拿去看，所以也要登记。"""
+    """整图地址也会经版记录进入模型上下文，须登记到素材台账。"""
 
 
 class FrameGenerator:
-    """出图与切格。工作区不归它写：版记录随 ``GridCut`` 交回去。"""
+    """生成与裁剪服务，工作区记录由调用方持久化。"""
 
     def __init__(
         self,
@@ -113,7 +104,7 @@ class FrameGenerator:
         self._policy = policy
 
     async def generate(self, principal: Principal, request: ImageRequest) -> ImageJob:
-        """提交出图，失败就沿 dev→dev→pro 往下试，返回成功那次或最后那次的结局。"""
+        """按配置渠道顺序重试，返回成功结果或最后一次结果。"""
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._policy.total_timeout_seconds
@@ -125,11 +116,10 @@ class FrameGenerator:
                     principal, replace(request, channel=channel), deadline=deadline
                 )
             except InvalidImageRequest as exc:
-                # 参数不合规是在提交之前拒的，一分钱没花，所以让模型改了重来。
+                # 提交前校验失败，不产生付费调用，可要求模型修正参数。
                 raise ModelRetry(str(exc)) from exc
             if job.status == "completed" and job.output_url:
                 return job
-            # 时限用尽就不再提交下一个——提交了也等不到结果。
             if index == len(channels) - 1 or loop.time() >= deadline:
                 return job
             await asyncio.sleep(self._policy.backoff_seconds * self._policy.backoff_factor**index)
@@ -145,7 +135,7 @@ class FrameGenerator:
         global_reference: str,
         target_aspect: str,
     ) -> GridCut | dict[str, Any]:
-        """镜头帧那一批：切格后按画幅收缩，逐帧记 no/shot/prompt/url。"""
+        """按目标画幅裁剪镜头帧，并生成逐帧记录。"""
 
         stored = await self._slice_and_store(
             job,
@@ -199,7 +189,7 @@ class FrameGenerator:
     async def collect_anchors(
         self, job: ImageJob, *, descriptions: Sequence[str]
     ) -> GridCut | dict[str, Any]:
-        """设定图那一批：切格后不收画幅（那一刀裁掉的会是实体本身），逐格记 index/description/url。"""
+        """裁剪设定图并生成逐格记录，保留完整主体而不收缩到目标画幅。"""
 
         stored = await self._slice_and_store(
             job,
@@ -240,7 +230,6 @@ class FrameGenerator:
             },
             record_path=record_path,
             urls=urls,
-            # 标题取那一格的描述：``images`` 里只有序号和地址，描述在入参上。
             captions=list(descriptions),
             grid_url=grid_url,
         )
@@ -248,11 +237,9 @@ class FrameGenerator:
     async def _slice_and_store(
         self, job: ImageJob, *, aspect: str | None, object_keys: Sequence[str], items_key: str
     ) -> tuple[str, list[str], bool] | dict[str, Any]:
-        """取整图、切格、逐格落公开地址。
+        """下载、裁剪并转存网格，返回整图地址、逐格地址与网格检测标志。
 
-        给出（整图地址、逐格地址、两个轴都量到了真实网格线）；哪一步没成就直接给出该返回给
-        模型的那份失败结果。补位的中性面板格不在 ``object_keys`` 里，在此丢弃。
-        """
+        失败时返回工具错误结果；补位格不在 object_keys 中，不转存。"""
 
         grid_url = job.output_url
         if not grid_url:
@@ -273,7 +260,6 @@ class FrameGenerator:
     async def _run_one(
         self, principal: Principal, request: ImageRequest, *, deadline: float
     ) -> ImageJob:
-        """提交一次生成并等它落到终态。"""
 
         job = await self._generations.submit(principal, request)
         loop = asyncio.get_running_loop()
@@ -291,11 +277,7 @@ class FrameGenerator:
         return job
 
     async def _put_all(self, cells: Sequence[tuple[str, bytes]]) -> list[str]:
-        """把切出来的格并行落公开地址，按原顺序返回地址。
-
-        等全部收尾再报第一个失败：默认的 gather 在第一个失败时就抛，其余还在跑的上传
-        就成了没人认领的任务，它们随后的失败只会在日志里留一句「异常从未被取回」。
-        """
+        """并行上传格子并保持返回顺序；等待全部任务结束后报告首个失败，避免遗留未收集异常。"""
 
         results = await asyncio.gather(
             *(
@@ -314,11 +296,7 @@ class FrameGenerator:
         return urls
 
     async def _slice_grid(self, grid_url: str, *, aspect: str | None) -> tuple[list[bytes], bool]:
-        """取回整图按网格线切开；``aspect`` 给定时每格再居中收到该画幅。
-
-        第二个返回值是「两个轴都量到了真实网格线」。退回等分时切出来的格子外观正
-        常，不标出来就没人知道它是猜的。
-        """
+        """检测网格并裁剪，指定 aspect 时居中收缩。返回检测标志，明确区分实测边界与等分结果。"""
 
         async with ffmpeg.fetched(
             self._client, grid_url, max_bytes=ffmpeg.MAX_IMAGE_BYTES, suffix=".img"
@@ -335,7 +313,7 @@ class FrameGenerator:
 
 
 def job_failure(job: ImageJob, *, items_key: str = "frames") -> dict[str, Any]:
-    """生成没收敛时的返回值：连渠道与记录号一起给出去。"""
+    """生成失败或未结束时的响应，包含渠道与任务 id。"""
 
     return _failed_payload(
         f"{job.error_code or '未知'} {job.error_message or ''}".rstrip()
@@ -345,7 +323,7 @@ def job_failure(job: ImageJob, *, items_key: str = "frames") -> dict[str, Any]:
 
 
 def _failed_payload(error: str, *, items_key: str = "frames") -> dict[str, Any]:
-    """生成未收敛时的返回值。``items_key`` 是这件工具本来该给出的那批东西。"""
+    """生成未成功时的工具响应，items_key 指定该工具的产物字段。"""
 
     return {
         "message": f"生成失败：{error}",
@@ -358,10 +336,7 @@ def _failed_payload(error: str, *, items_key: str = "frames") -> dict[str, Any]:
 def _unstored_payload(
     exc: ObjectWriteFailed, job: ImageJob, *, items_key: str = "frames"
 ) -> dict[str, Any]:
-    """图出了、切出来的格却没存进对象存储时的返回值。
-
-    不说成「生成失败」：那次生成已经收敛并计费了，只是产物没落地。
-    """
+    """生成成功但切格转存失败的响应；保留已完成生成的事实。"""
 
     error = f"切出来的图没存进对象存储：{exc}（{job.channel} 渠道，记录 {job.job_id}）"
     return {

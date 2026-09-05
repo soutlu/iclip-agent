@@ -1,7 +1,3 @@
-/**
- * 读取端的补漏纪律：这几条错了都不报错——界面少一段内容、或者停在空白，自己不知道。
- */
-
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
@@ -9,7 +5,6 @@ import { mockTranscriptPage } from '@/testing/mocks/transcript'
 import { TranscriptConnection } from './connection'
 import { TranscriptReader } from './reader'
 
-/** 历史最后一轮里模型说的那句，追加的位置照它算。 */
 const TAIL_TEXT = '这是第 2 轮的回复。'
 const TAIL_FRAME = { frameId: 't2.1.f3', stepId: 't2.1', turnId: 't2', type: 'frame' } as const
 
@@ -48,7 +43,6 @@ const EMPTY_SNAPSHOT = {
   todos: [],
 }
 
-/** 一批追加操作：往历史最后那句后面接一段。 */
 const append = (offset: number, text: string) => [
   { offset, op: 'append', target: TAIL_FRAME, text },
 ]
@@ -65,7 +59,6 @@ const resetFrame = (seq: number) => ({
   type: 'transcript.reset',
 })
 
-/** 起一个读取端，连接用假 socket。 */
 const startReader = () => {
   const socket = new FakeSocket()
   const connection = new TranscriptConnection({
@@ -79,7 +72,6 @@ const startReader = () => {
   return { connection, reader, socket }
 }
 
-/** 时间线里所有正文块拼起来，断言用。 */
 const textOf = (reader: TranscriptReader): string =>
   reader
     .view()
@@ -126,7 +118,7 @@ describe('TranscriptReader', () => {
     )
 
     const { reader, socket } = startReader()
-    // 基线在飞的时候到的这一批：当场落地会被随后那份基线整个盖掉。
+    // 基线加载中缓冲批次，避免被晚到基线覆盖。
     socket.deliver(opsFrame(11, append(TAIL_TEXT.length, '补一句')))
     release()
 
@@ -158,9 +150,7 @@ describe('TranscriptReader', () => {
       expect(reader.view().status).toBe('ready')
     })
 
-    // 11 没收到，直接来了 12。
     socket.deliver(opsFrame(12, append(TAIL_TEXT.length + 1, '乙')))
-    // 没吃下就不推进水位：推了的话缺的那批再也要不回来。
     expect(connection.watermarkOf('c1', 'main')).toBe(10)
 
     await vi.waitFor(() => {
@@ -203,7 +193,6 @@ describe('TranscriptReader', () => {
       expect(reader.view().status).toBe('ready')
     })
 
-    // 12 跳了 11，去补批；补回来那一批里是个 frame.upsert
     socket.deliver(opsFrame(12, append(TAIL_TEXT.length, '甲')))
 
     await vi.waitFor(() => {
@@ -251,7 +240,7 @@ describe('TranscriptReader', () => {
       expect(reader.view().status).toBe('ready')
     })
 
-    // 服务端的 reset 里 items 恒空（历史走 REST 分页）；照它落地会把界面清成白的。
+    // reset 的 items 恒为空，历史必须通过 REST 恢复。
     socket.deliver(resetFrame(30))
 
     await vi.waitFor(() => {
@@ -276,7 +265,6 @@ describe('TranscriptReader', () => {
     })
     connection.connect()
     const reader = new TranscriptReader('c1', connection)
-    // React 严格模式在同一次提交里同步跑：挂载 → 清理 → 再挂载
     reader.start()
     reader.stop()
     reader.start()
@@ -285,7 +273,7 @@ describe('TranscriptReader', () => {
     await vi.waitFor(() => {
       expect(reader.view().status).toBe('ready')
     })
-    // 第二次要是排上了，会紧跟着第一次之后发；等一拍确认它没来
+    // 等待串行队列继续执行，确认没有第二次基线请求。
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(pages).toBe(1)
   })
@@ -317,8 +305,6 @@ describe('TranscriptReader', () => {
       ]),
     )
 
-    // 这个字段是本仓对 kimi 帧的扩展：schema 里没有它的话，zod 会安静地把它剥掉，界面从此
-    // 只剩一行朴素的工具行。
     await vi.waitFor(() => {
       const frame = reader
         .view()

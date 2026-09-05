@@ -1,8 +1,4 @@
-"""整版 prompt 的分段拼接。纯拼接、零模型调用。
-
-逐格 visual_prompt 与「全局参考设定」都由调用方撰写后经工具入参传进来。补拍那版
-没有「全局参考设定」一段，正文其余部分与镜头帧那版相同。
-"""
+"""拼接镜头帧与设定图提示词，不调用模型。逐格内容由调用方提供，设定图不含全局参考设定段。"""
 
 from __future__ import annotations
 
@@ -13,17 +9,13 @@ GRID_COLS = 2
 GRID_CELLS = GRID_ROWS * GRID_COLS
 
 FILLER_CELL_PROMPT = "纯中性灰空面板"
-"""补满网格用的空格。切格后由调用方丢弃——出图只认完整网格。"""
+"""完整网格的补位提示词，产出的补位格由调用方丢弃。"""
 
 
 def assemble_grid_prompt(
     *, global_reference: str, visual_prompts: Sequence[str], target_aspect: str
 ) -> str:
-    """拼一版整版 prompt。
-
-    ``global_reference`` 原样进第一段，里面的 ``@ImageN`` 序号必须和提交时参考图
-    列表的顺序一致。
-    """
+    """拼接整版提示词；global_reference 中 @ImageN 的顺序必须与参考图列表一致。"""
 
     if not 1 <= len(visual_prompts) <= GRID_CELLS:
         raise ValueError(f"visual_prompts 必须是 1-{GRID_CELLS} 条")

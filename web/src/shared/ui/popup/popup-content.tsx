@@ -4,9 +4,7 @@ import { useMemo } from 'react'
 import { cn } from '@/shared/lib/utils'
 
 interface PopupContentProps extends HTMLAttributes<HTMLDivElement> {
-  /** 锚点元素的 DOMRect，用于定位 */
   anchorRect: DOMRect | null
-  /** 弹层出现方向 */
   align?: 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'
   onDismiss: () => void
   open: boolean
@@ -24,19 +22,7 @@ const ALIGN_PLACEMENT: Record<
   'top-start': { align: 'start', side: 'top' },
 }
 
-/**
- * 基于 Radix Popover 的通用锚定弹层。
- *
- * 对外 API 与原手写版完全一致（anchorRect/align/open/onDismiss），内部交由
- * Radix 处理定位、碰撞翻转、Escape 与外部点击关闭；不抢占焦点。
- *
- * @param props - 弹层属性。
- * @param props.anchorRect - 锚点元素的 DOMRect；为 null 时弹层保持挂载但不可见。
- * @param props.align - 弹层相对锚点的展开方向。
- * @param props.onDismiss - Escape 或外部点击触发的关闭回调。
- * @param props.open - 弹层是否打开。
- * @returns Portal 到 body 的弹层元素。
- */
+/** Radix 负责定位、碰撞与关闭；不自动抢焦点，anchorRect 为 null 时保持挂载但不可见。 */
 export function PopupContent({
   anchorRect,
   align = 'bottom-start',

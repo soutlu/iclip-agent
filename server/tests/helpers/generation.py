@@ -85,10 +85,7 @@ def make_job(
 
 
 class InMemoryGenerationRepository:
-    """``GenerationRepository`` 的内存替身。
-
-    只有状态跳转，没有排队——排期在 procrastinate 那边（见 ``queue.py``）。
-    """
+    """GenerationRepository 内存替身，仅处理状态跳转；排期由队列负责。"""
 
     def __init__(self, jobs: list[GenerationJob] | None = None) -> None:
         self.jobs: dict[uuid.UUID, GenerationJob] = {job.id: job for job in jobs or []}
@@ -206,7 +203,7 @@ class InMemoryGenerationRepository:
 
 
 class ScriptedProvider:
-    """按剧本回应的 provider 替身，记录被调用了几次。"""
+    """按预设顺序响应并记录调用的 provider 替身。"""
 
     def __init__(
         self,
@@ -243,11 +240,9 @@ class ScriptedProvider:
 
 
 class MemoryObjectStore:
-    """``PublicBucket`` 的内存替身：写字节、签直传、按前缀找回来。
+    """PublicBucket 内存替身。
 
-    直传那一半也在这里，是因为组合根注入的是整只桶——它同时喂给生成与素材两侧。
-    ``sign_put`` 返回的地址不指向任何真东西，测试直接调 ``put_public_object`` 模拟
-    「浏览器传上去了」。
+    sign_put 不产生可访问的地址；测试通过 put_public_object 模拟直传完成。
     """
 
     def __init__(self, *, base: str = "https://cdn.example.test") -> None:

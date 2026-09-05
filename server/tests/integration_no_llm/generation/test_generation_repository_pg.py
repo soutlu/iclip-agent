@@ -1,11 +1,4 @@
-"""T-GEN-06：真库上的状态跳转、属主可见性与那个状态守卫。
-
-只留只能打真 Postgres 的那几条：时刻取的是不是数据库自己的时钟、请求体 JSON 往返、
-外键级联，以及 ``only_if_status`` 的守卫——那是把 ``WHERE`` 塞进 ``UPDATE`` 来关掉
-「先读后写」那道缝的，内存替身模拟不出它的原子性。
-
-**领取与租约的测试没了**：排期归 procrastinate（见 ``queue.py``），这张表不再管待办。
-"""
+"""验证生成仓储的数据库时钟、JSON 往返、外键和条件更新原子性。"""
 
 from __future__ import annotations
 
@@ -45,7 +38,7 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
 
 
 async def make_user(engine: AsyncEngine) -> uuid.UUID:
-    """generation_jobs 的属主是真外键，所以得先有个用户。"""
+    """先创建用户以满足 generation_jobs 的属主外键。"""
 
     user_id = uuid.uuid4()
     async with engine.begin() as conn:
@@ -72,7 +65,6 @@ async def insert_job(
 
 
 async def test_timestamps_come_from_the_database_clock(engine: AsyncEngine) -> None:
-    """时刻由数据库写，不是应用进程写——多台机器的时钟差几秒就对不上账了。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -87,7 +79,6 @@ async def test_timestamps_come_from_the_database_clock(engine: AsyncEngine) -> N
 
 
 async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngine) -> None:
-    """整条状态链在真库上走一遍，顺便验请求体读回来还是原来那个形状。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -122,7 +113,6 @@ async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngin
 
 
 async def test_sync_result_backfills_the_submitted_moment(engine: AsyncEngine) -> None:
-    """同步接口一步到底，``submitted_at`` 只有这一步能填。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -141,11 +131,7 @@ async def test_sync_result_backfills_the_submitted_moment(engine: AsyncEngine) -
 
 
 async def test_status_guard_never_overwrites_a_real_result(engine: AsyncEngine) -> None:
-    """守卫塞在 ``WHERE`` 里，不是先读后写——那道缝正是要关掉的东西。
-
-    场景：一行已经被写成成功（图生成了、钱付了），随后那个「提交中断」的收尾才动手。
-    它必须落空，否则就是把一次已付费的成功盖成失败。
-    """
+    """WHERE 状态守卫须阻止延迟的中断清理覆盖已成功的生成结果。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -206,7 +192,6 @@ async def test_reads_are_scoped_to_the_owner(engine: AsyncEngine) -> None:
 
 
 async def test_origin_round_trips_and_filters_by_conversation(engine: AsyncEngine) -> None:
-    """来源那两列读写一趟，并且真的能按对话筛出来（分镜工作台的生成记录靠它）。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)

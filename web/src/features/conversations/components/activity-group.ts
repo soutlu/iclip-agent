@@ -1,20 +1,13 @@
-/**
- * 活动组（照 kimi 网页版的 activity-run）：一轮里连续的思考块与工具调用攒成一行可折叠摘要。
- *
- * 规则照它：连续可折叠块 ≥ 2 且含工具才成组（单块原样单列）；摘要按操作类别聚合计数、
- * 保持首次出现顺序，失败追加危险色子句，尾巴挂时长。
- */
+/** 参考 Kimi activity-run：连续可折叠块至少两个且包含工具时成组；摘要按首次出现顺序聚合。 */
 
 import type { TranscriptFrame, TranscriptStep } from '@/shared/transcript/vendor'
 import { toolCard, toolMedia } from './tool-display'
 
-/** 时间线上的一块连同它所在的那步。 */
 export type TurnEntry = {
   frame: TranscriptFrame
   step: TranscriptStep
 }
 
-/** 分组后的渲染节点：要么单独一块，要么一叠。 */
 export type ActivityNode =
   { kind: 'entry'; entry: TurnEntry } | { kind: 'run'; runId: string; items: readonly TurnEntry[] }
 
@@ -24,20 +17,10 @@ export type SummaryClause = {
   tone?: 'danger' | 'faint'
 }
 
-/**
- * 思考块与工具调用可折叠；正文、通知、报错打断一叠。
- *
- * 画出媒体的那次调用例外（照 kimi）：折进去之后一叠收起来，图就跟着不见了。
- */
+/** 正文、通知与错误中断分组；包含媒体的工具保持独立，避免折叠后隐藏预览。 */
 const foldable = (frame: TranscriptFrame) =>
   frame.kind === 'thinking' || (frame.kind === 'tool' && toolMedia(frame).length === 0)
 
-/**
- * 把一轮的块折成渲染节点。
- *
- * @param entries - 这一轮按顺序的块。
- * @returns 渲染节点序列。
- */
 export const groupTurnEntries = (entries: readonly TurnEntry[]): ActivityNode[] => {
   const out: ActivityNode[] = []
   let buffer: TurnEntry[] = []
@@ -63,9 +46,8 @@ export const groupTurnEntries = (entries: readonly TurnEntry[]): ActivityNode[] 
   return out
 }
 
-/** 时长格式照 kimi：20s、3m11s、1h2m；0 与负数不出字。 */
+/** 参考 Kimi 时长格式：20s、3m11s、1h2m；不足一秒不显示。 */
 export const formatActivityDuration = (ms: number): string => {
-  // 不足一秒不显示：四舍五入出来的「0s」是噪音不是信息
   if (ms < 1000) return ''
   const seconds = Math.round(ms / 1000)
   if (seconds < 60) return `${seconds}s`
@@ -79,14 +61,13 @@ export const formatActivityDuration = (ms: number): string => {
 
 type ToolFrame = Extract<TranscriptFrame, { kind: 'tool' }>
 
-/** 工具的聚合桶：文件操作按操作分，其余按卡片文案分；认不出的落「其他」。 */
+/** 文件操作按操作类型聚合，其余工具按卡片文案聚合。 */
 const bucketKey = (frame: ToolFrame): string => {
   const { label, operation } = toolCard(frame.display)
   if (operation !== undefined) return `op:${operation}`
   return label === '工具调用' ? 'other' : `summary:${label}`
 }
 
-/** 完成态一类的一句：读取了 2 个文件 / 出镜头帧 ×3 / 执行了 2 次操作。 */
 const doneClause = (key: string, count: number, live: boolean): string => {
   const prefix = live ? '已' : ''
   if (key.startsWith('op:')) {
@@ -105,7 +86,6 @@ const OPERATION_LABELS = {
   grep: (n: number) => `搜索了 ${n} 个模式`,
 } as const
 
-/** 运行中的当前项一句：正在读取 shots/… / 思考中…。 */
 const doingClause = (frame: TranscriptFrame): string => {
   if (frame.kind === 'thinking') return '思考中…'
   if (frame.kind !== 'tool') return ''
@@ -124,7 +104,7 @@ const DOING_VERB = {
   grep: '正在搜索',
 } as const
 
-/** 把一叠按桶聚成子句序列：类别保持首次出现顺序，失败数缀在所属类别后面。 */
+/** 按首次出现顺序聚合，失败数附在所属类别后。 */
 const aggregate = (tools: readonly ToolFrame[], live: boolean): SummaryClause[] => {
   const buckets = new Map<string, { count: number; errors: number }>()
   for (const frame of tools) {
@@ -142,13 +122,7 @@ const aggregate = (tools: readonly ToolFrame[], live: boolean): SummaryClause[] 
   return clauses
 }
 
-/**
- * 完成态摘要：「搜索了 1 个模式 · 写入了 1 个文件 · 3m11s」。
- *
- * @param items - 这一叠。
- * @param durationMs - 这一叠的墙钟时长；没有就不挂。
- * @returns 子句序列。
- */
+/** 完成态摘要附带可用的墙钟时长。 */
 export const summarizeDone = (
   items: readonly TurnEntry[],
   durationMs: number | undefined,
@@ -160,15 +134,7 @@ export const summarizeDone = (
   return clauses
 }
 
-/**
- * 运行中摘要：「正在读取 shots/storyboard.md · 已搜索了 1 个模式 · 20s」。当前子句当头，
- * 已完成的类别弱化带「已」前缀，时长实时走。
- *
- * @param items - 这一叠。
- * @param liveFrameId - 正在产出的那一块。
- * @param elapsedMs - 已经跑了多久。
- * @returns 子句序列。
- */
+/** 运行态摘要先展示当前操作，再显示已完成类别和实时时长。 */
 export const summarizeRunning = (
   items: readonly TurnEntry[],
   liveFrameId: string | undefined,
@@ -196,12 +162,7 @@ export const summarizeRunning = (
   return clauses
 }
 
-/**
- * 历史一叠的墙钟时长：成员步骤去重后取最早开始与最晚结束。缺时间戳就不给。
- *
- * @param items - 这一叠。
- * @returns 毫秒；算不出为 undefined。
- */
+/** 步骤去重后，以最早开始和最晚结束计算墙钟时长；缺少时间戳时返回 undefined。 */
 export const runHistoryMs = (items: readonly TurnEntry[]): number | undefined => {
   const steps = new Map<string, TranscriptStep>()
   for (const { step } of items) steps.set(step.stepId, step)

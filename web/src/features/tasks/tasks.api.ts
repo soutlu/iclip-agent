@@ -17,28 +17,20 @@ export const tasksQueryKeys = {
   detail: (taskId: string) => ['tasks', 'detail', taskId] as const,
 }
 
-/** 全部需求单，按最近改动倒序。 */
 export const listAllTasks = async (): Promise<Task[]> =>
   apiFetch('/tasks?limit=100', tasksPageSchema, {
     cache: 'no-store',
     fallbackErrorMessage: '读取需求单列表失败',
   })
 
-/** 「我的需求单」：我认领过的那些。认领人由服务端从会话身份取，前端不传 id。 */
+/** 查询当前用户认领的需求单，服务端从会话取身份。 */
 export const listMyTasks = async (): Promise<Task[]> =>
   apiFetch('/tasks?claimedBy=me&limit=100', tasksPageSchema, {
     cache: 'no-store',
     fallbackErrorMessage: '读取我的需求单失败',
   })
 
-/**
- * 需求单的下拉候选：只要 id 与标题。
- *
- * 与需求单页共用一个查询键，翻到侧栏再打开归属弹窗时不会再发一次请求。
- *
- * @param enabled - 用不到时不发请求（弹窗没打开、或者没登录）。
- * @returns TanStack query，数据是 `{ id, label }` 列表。
- */
+/** 下拉候选与需求单页共用查询键，避免重复加载。 */
 export const useTaskOptions = (enabled: boolean) =>
   useQuery({
     enabled,

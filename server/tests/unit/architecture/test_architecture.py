@@ -1,7 +1,4 @@
-"""架构契约：框架围栏、模块纯度、无静默兜底。
-
-tach 守模块依赖图；本文件守 tach 表达不了的红线。
-"""
+"""验证 tach 依赖图之外的框架引用、模块纯度和异常处理约束。"""
 
 from __future__ import annotations
 
@@ -10,10 +7,7 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[3] / "src" / "iclip"
 
-# 框架 → 允许直接 import 的文件（相对 src/iclip 的 glob 语义前缀）。
-#
-# 这张表是登记表，不是配额：新增一个碰外部存储或框架的文件不是违规，但必须在
-# 这里登记一行，并同步 docs/architecture.md 的落点表；没登记的 import 直接拒。
+# 框架及允许直接导入它的路径前缀（相对 src/iclip）。
 FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("pydantic_ai",): ("harness/", "capabilities/"),
     ("pydantic_ai_harness",): ("harness/",),
@@ -35,39 +29,29 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ),
     ("sqlalchemy",): (
         "platform/db/",
-        # 命名空间化文本文件存储的 PG 后端；和 object_store/oss.py 同一类东西。
         "platform/file_store/",
-        # 对话素材台账的 PG 后端；和上面那张表同一类东西。
         "platform/material_ledger/",
         "app/",
-        # 协议后端跟着「说这门协议的那一环」走：这是官方 StepPersistence 的 PG
-        # 后端，而 harness/agents.py 正是按 StepStore 协议标类型的那一方。
+        # StepPersistence 协议后端归属使用该协议的 harness。
         "harness/step_store_pg.py",
-        # prompt 队列的表。它归运行驱动所有（那一层才知道「同时只跑一条」是什么意思），
-        # 和上面那张表同属 agent_runtime schema，所以落在同一处。
+        # prompt 队列归属运行驱动，使用 agent_runtime schema。
         "harness/jobs.py",
-        # 外部只读源：这些表是别人的（PDM 的同步副本），不是本模块自有的表，所以
-        # 不叫 infra_sql.py——那个名字在落点表里的口径是「该模块自有的表」。
+        # 外部只读表使用独立适配器；infra_sql.py 仅表示模块自有表。
         "domains/products/catalog_pg.py",
         "domains/inspirations/catalog_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
-    # 模型装配唯一需要直接碰 openai SDK 的地方（给兼容端点造客户端）。
     ("openai",): ("harness/models.py",),
-    # 阿里云 OSS SDK 只在对象存储适配器里；业务侧只认 PublicObjectStore 协议。
     ("oss2",): ("platform/object_store/",),
-    # 拼预览板、量图片尺寸；只有这两处需要位图库。
     ("PIL",): ("capabilities/shot_video/board.py", "domains/assets/images.py"),
-    # 生成任务的排队机械。queue.py 是唯一说这门话的地方；module.py 只为了在签名里
-    # 写出连接器的类型；组合根造那个连接器（它决定本仓用哪个数据库驱动）。
+    # 队列实现、连接器类型与组合根需要直接引用 procrastinate。
     ("procrastinate",): (
         "domains/generation/queue.py",
         "domains/generation/module.py",
         "app/",
     ),
 }
-# 模块自有的 SQL 放自己模块里的 infra_sql.py——下面这些前缀底下按文件名放行。
-# 与上面那条协议后端规则并列：谁拥有这张表，SQL 就落在谁的模块里。
+# 模块自有 SQL 按 infra_sql.py 文件名匹配。
 _SQLALCHEMY_MODULE_FILE = "infra_sql.py"
 _SQLALCHEMY_MODULE_PREFIXES = ("domains/", "capabilities/")
 
@@ -112,7 +96,6 @@ def test_framework_fences() -> None:
 
 
 def test_cross_module_imports_only_public() -> None:
-    """跨业务模块只准 import 对方 public;capabilities 引 domains 同样只准走 public。"""
 
     violations: list[str] = []
     domains = [p.name for p in (SRC / "domains").iterdir() if p.is_dir()]
@@ -137,7 +120,6 @@ def test_cross_module_imports_only_public() -> None:
 
 
 def test_models_and_commands_are_pure() -> None:
-    """models.py / commands.py 只许 stdlib、iclip.common 与本模块。"""
 
     import sys
 
@@ -162,7 +144,6 @@ def test_models_and_commands_are_pure() -> None:
 
 
 def test_no_silent_exception_fallbacks() -> None:
-    """禁止裸 except 与 except 后只 pass 的静默兜底。"""
 
     violations: list[str] = []
     for path in _python_files():
@@ -178,7 +159,6 @@ def test_no_silent_exception_fallbacks() -> None:
 
 
 def test_config_only_consumed_by_app() -> None:
-    """domains 不 import config：业务模块只接收构造好的运行设置。"""
 
     violations: list[str] = []
     for path in (SRC / "domains").rglob("*.py"):

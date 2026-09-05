@@ -1,8 +1,3 @@
-/**
- * 分镜工作台除文件之外要碰的接口：这段对话的生成任务、发一次出片、可选的候选帧、上传一张图当帧。
- * 文件那一份走 `shared/workbench`。
- */
-
 import { useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
@@ -17,13 +12,10 @@ import type { zGenerationOut } from '@/shared/api/generated/zod.gen'
 import { useWorkspaceFiles } from '@/shared/workbench'
 import { isRunningStatus } from './shots'
 
-/** 一次生成任务对外的样子，形状即合同。 */
 export type GenerationJob = z.infer<typeof zGenerationOut>
 
-/** 一段对话的镜头组不会有几百组，一次拿够，免得翻页把旧的那几条漏掉。 */
 const PAGE_LIMIT = 100
 
-/** 有任务在飞时多久问一次。出片是分钟级的事，5 秒够勤了。 */
 const POLL_MS = 5000
 
 export const storyboardQueryKeys = {
@@ -32,18 +24,10 @@ export const storyboardQueryKeys = {
   generations: (conversationId: string) => ['generations', { conversationId }] as const,
 }
 
-/**
- * 该不该再问一次生成任务：有一条还在飞就每 5 秒问，全落定了就停。
- *
- * 服务端没有出片进度的推送，状态圆点、记录抽屉与页头都指着这一路更新。
- *
- * @param items - 当前手上的任务列表。
- * @returns 轮询间隔，或 false（不轮询）。
- */
+/** 服务端未推送生成进度；存在运行任务时每 5 秒轮询，全部结束后停止。 */
 export const generationsRefetchInterval = (items: readonly { status: string }[]): number | false =>
   items.some((item) => isRunningStatus(item.status)) ? POLL_MS : false
 
-/** 这段对话名下的生成任务，面板按 `shotIndex` 分组用。 */
 export const useShotGenerations = (conversationId: string) =>
   useQuery({
     queryFn: ({ signal }) =>
@@ -56,12 +40,11 @@ export const useShotGenerations = (conversationId: string) =>
     refetchInterval: ({ state }) => generationsRefetchInterval(state.data?.items ?? []),
   })
 
-/** 合同里视频认的那几档画幅。文档写的不在其中就不发请求，发了必定 422。 */
+/** 画幅取自生成合同，提交前检查以避免 422。 */
 export const VIDEO_ASPECT_RATIOS: readonly string[] = zVideoGenerationIn.shape.aspectRatio.options
 
 export interface VideoGenerationInput {
   conversationId: string
-  /** 第几组。填了它这条任务才归得上组。 */
   shotIndex: number
   prompt: string
   imageUrls: readonly string[]
@@ -69,14 +52,7 @@ export interface VideoGenerationInput {
   aspectRatio: string
 }
 
-/**
- * 给一个镜头组发一次出片。
- *
- * 不带幂等键（ADR-0009 决策 4）：同一组多按几次就是多条任务，界面在飞行中把按钮禁掉。
- *
- * @param input - 这一组当前的描述、帧与时长。
- * @returns 排上队的那条任务。
- */
+/** 生成不带幂等键（ADR-0009 决策 4）；同组重复提交会创建多条任务。 */
 export const submitVideoGeneration = async (
   input: VideoGenerationInput,
 ): Promise<GenerationJob> => {
@@ -96,28 +72,20 @@ export const submitVideoGeneration = async (
   return envelope.generation
 }
 
-/** 出帧工具留下的版记录：`frames/grids/<jobId>.json`，只认这两个字段。 */
+/** 帧版记录位于 frames/grids/<jobId>.json。 */
 const gridRecordSchema = z.object({
   frames: z.array(z.object({ no: z.string(), url: z.string() })),
 })
 
 const GRID_RECORDS_PREFIX = 'frames/grids/'
 
-/** 一张可以当帧用的候选图：地址加一句标签。 */
 export type FrameCandidate = { url: string; label: string }
 
 const fileContentSchema = z.object({
   file: z.object({ content: z.string(), path: z.string(), version: z.int() }),
 })
 
-/**
- * 这段对话里 agent 生成过的全部帧，按版记录逐份读出来，同一地址只留一份。
- *
- * 候选来自工作区而不是 transcript：agent 结束很久以后这些记录仍在，面板照样能换帧。
- *
- * @param conversationId - 哪一段对话。
- * @returns 候选帧查询。
- */
+/** 从持久化工作区读取候选帧并按 URL 去重，不依赖 transcript 生命周期。 */
 export const useFrameCandidates = (conversationId: string) => {
   const files = useWorkspaceFiles(conversationId)
   const recordPaths = (files.data?.files ?? [])
@@ -153,12 +121,6 @@ export const useFrameCandidates = (conversationId: string) => {
   })
 }
 
-/**
- * 上传一张图并登记成素材，返回它的公网地址。与聊天附件同一条路：签直传 → PUT 进桶 → 登记。
- *
- * @param file - 本地文件。
- * @returns 登记后的地址。
- */
 export const uploadFrameImage = async (file: File): Promise<string> => {
   const ticket = await apiFetch('/uploads/sign', zUploadTicketOut, {
     body: { contentType: file.type, height: null, width: null },

@@ -26,8 +26,7 @@ def upgrade() -> None:
         "generation_jobs",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("owner_user_id", sa.Uuid(), nullable=False),
-        # 故意没有到 api_keys 的外键：key 随属主级联删除，而「哪把 key 干的」这条
-        # 审计事实必须比那把 key 活得更久。
+        # 不建 api_keys 外键，保留密钥删除后的审计标识。
         sa.Column("api_key_id", sa.Uuid(), nullable=True),
         sa.Column("kind", sa.Text(), nullable=False),
         sa.Column("provider", sa.Text(), nullable=False),
@@ -51,8 +50,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["owner_user_id"], [f"{SCHEMA}.users.id"], ondelete="cascade"),
         schema=SCHEMA,
     )
-    # 领取查询走这条。带上「非终态」的条件，索引里就只有在途的那些行——完成的
-    # job 会一直堆积，而它们永远不会再被领一次。
+    # 部分索引仅包含非终态任务，避免历史任务增加领取查询开销。
     op.create_index(
         "ix_generation_jobs_due",
         "generation_jobs",

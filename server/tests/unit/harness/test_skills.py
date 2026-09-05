@@ -1,11 +1,6 @@
-"""skill 库的装配契约与 references 的访问边界。
+"""验证 skill 装配与 references 访问边界。
 
-工具一律经真的 ``Agent`` 调用（官方 ``FunctionModel`` 派发工具调用，断言落在
-消息历史上），不去直接调 capability 里的那个闭包——那样测不到它是否真以
-``get_skill_reference`` 这个名字注册上了，而 SKILL.md 正文里写的就是这个名字。
-
-skill 名故意用中文：目录名规则判的是「小写 + isalnum」，中文两条都过，而这套
-资产就是中文的——用 ASCII 名测等于没测这条路径。
+通过真实 Agent 调用工具，覆盖工具名称与校验器挂载；中文 skill 名覆盖目录命名规则。
 """
 
 from __future__ import annotations
@@ -57,12 +52,7 @@ def make_skill(library: Path, name: str, *, references: dict[str, str] | None = 
 async def read_reference(
     library: Path, names: tuple[str, ...], *, skill: str, name: str
 ) -> ToolReturnPart | RetryPromptPart:
-    """让 agent 真调一次 ``get_skill_reference``，返回工具那一步的结果。
-
-    成功是 ``ToolReturnPart``，被拒（``ModelRetry``）是 ``RetryPromptPart``——
-    「让模型换个文件名重试」和「中止整次运行」的区别，在消息历史上就是这两种
-    part 的区别。
-    """
+    """通过 Agent 调用 get_skill_reference，以 ToolReturnPart 和 RetryPromptPart 区分成功与可重试拒绝。"""
 
     async def call_once(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         if len(messages) == 1:
@@ -80,12 +70,11 @@ async def read_reference(
         for part in message.parts
         if isinstance(part, ToolReturnPart | RetryPromptPart) and part.tool_name == TOOL
     ]
-    assert len(parts) == 1  # 一次调用一个结果，多了说明工具被重复注册
+    assert len(parts) == 1  # 单次调用必须仅有一个结果，以检测工具重复注册。
     return parts[0]
 
 
 async def tool_names(capabilities: list[AgentCapability[Any]]) -> tuple[str, ...]:
-    """这套能力装出来的 agent，模型能看到哪些工具。"""
 
     seen: tuple[str, ...] = ()
 
@@ -99,12 +88,6 @@ async def tool_names(capabilities: list[AgentCapability[Any]]) -> tuple[str, ...
 
 
 async def test_reference_tool_comes_only_with_a_skill_library(tmp_path: Path) -> None:
-    """工具跟着 skill 库来，不跟着 agent 来：没挂 skill 的 agent 不该有它。
-
-    它不是基础装配的一部分——每个 agent 都白拿一个读不到任何东西的工具，是纯
-    噪音。挂了库才有，且此时官方的 load_capability（按需加载 skill 正文用的）
-    一并出现。
-    """
 
     make_skill(tmp_path, SKILL)
 
@@ -116,7 +99,6 @@ async def test_reference_tool_comes_only_with_a_skill_library(tmp_path: Path) ->
 
 
 def test_unknown_skill_name_fails_at_assembly(tmp_path: Path) -> None:
-    """挑了库里没有的 skill：装配期就报错，不留到模型去点一个不存在的东西。"""
 
     make_skill(tmp_path, SKILL)
     with pytest.raises(ValueError, match="没这个"):
@@ -124,7 +106,6 @@ def test_unknown_skill_name_fails_at_assembly(tmp_path: Path) -> None:
 
 
 def test_mounting_zero_skills_is_a_caller_error(tmp_path: Path) -> None:
-    """一个都不挑即报错，不是「挂一个空的」。"""
 
     make_skill(tmp_path, SKILL)
     with pytest.raises(ValueError, match="至少要挑一个 skill"):
@@ -132,7 +113,6 @@ def test_mounting_zero_skills_is_a_caller_error(tmp_path: Path) -> None:
 
 
 def test_library_and_reference_key_are_mounted_together(tmp_path: Path) -> None:
-    """有库就一定有读 references 的手段，否则模型会照着正文去读、然后无从下手。"""
 
     make_skill(tmp_path, SKILL)
 
@@ -143,10 +123,7 @@ def test_library_and_reference_key_are_mounted_together(tmp_path: Path) -> None:
 
 
 def test_the_access_boundary_is_mounted_as_a_validator(tmp_path: Path) -> None:
-    """访问边界挂在登记处的验证器上。
-
-    漏传 ``args_validator=`` 不会报错：没挂给这个 agent 的 skill 的 references 从此读得到。
-    """
+    """需检查注册表的 args_validator，避免未授权 skill 的 references 因漏挂校验器而可读。"""
 
     make_skill(tmp_path, SKILL)
     _, key = build_skill_capabilities(tmp_path, (SKILL,))
@@ -159,7 +136,6 @@ def test_the_access_boundary_is_mounted_as_a_validator(tmp_path: Path) -> None:
 
 
 def test_the_reference_tool_has_a_display(tmp_path: Path) -> None:
-    """卡上画的是「读了哪个 skill 的哪一份」；skill 名取不到就退回 generic。"""
 
     drawn = skill_display_table()[TOOL]
 
@@ -180,7 +156,6 @@ async def test_granted_skill_reference_is_readable(tmp_path: Path) -> None:
 
 
 async def test_ungranted_skill_references_are_refused(tmp_path: Path) -> None:
-    """include 只管「模型看得见哪些 skill」，访问边界在读 references 那件工具上。"""
 
     make_skill(tmp_path, SKILL)
     make_skill(tmp_path, OTHER, references={"规范.md": "别人的正文"})
@@ -196,7 +171,6 @@ async def test_ungranted_skill_references_are_refused(tmp_path: Path) -> None:
     ["../../etc/passwd", "../镜头表/references/规范.md", "/etc/passwd", "规范.txt", "不存在.md"],
 )
 async def test_reference_paths_outside_the_skill_are_refused(tmp_path: Path, name: str) -> None:
-    """越界、非 .md、不存在都让模型换个文件名重试，而不是中止整次运行。"""
 
     make_skill(tmp_path, SKILL, references={"规范.md": "正文"})
     make_skill(tmp_path, OTHER, references={"规范.md": "别人的正文"})
@@ -207,10 +181,7 @@ async def test_reference_paths_outside_the_skill_are_refused(tmp_path: Path, nam
 
 
 async def test_refusal_lists_the_available_references(tmp_path: Path) -> None:
-    """文件名写错很常见：拒绝时把有哪些文件报回去，让模型改得动而不是接着猜。
-
-    子目录里的也要列——它们同样读得到，「列出来的」必须和「读得到的」是同一批。
-    """
+    """拒绝时列出可访问文件，包含子目录，以便模型修正路径。"""
 
     make_skill(
         tmp_path,
@@ -235,7 +206,6 @@ async def test_nested_reference_is_readable(tmp_path: Path) -> None:
 
 
 async def test_overlong_reference_is_truncated_loudly(tmp_path: Path) -> None:
-    """超上限只能截断 + 明示，绝不能悄悄少给一段。"""
 
     make_skill(tmp_path, SKILL, references={"长文.md": "甲" * (MAX_REFERENCE_CHARS + 10)})
 
@@ -249,7 +219,7 @@ async def test_overlong_reference_is_truncated_loudly(tmp_path: Path) -> None:
 
 
 async def test_broken_encoding_aborts_instead_of_retrying(tmp_path: Path) -> None:
-    """自家资产读不出字符是环境故障：重试改不了坏文件，只会让模型打转。"""
+    """引用文件编码损坏属于部署资产故障，模型重试无法修复。"""
 
     make_skill(tmp_path, SKILL)
     (tmp_path / SKILL / "references").mkdir()

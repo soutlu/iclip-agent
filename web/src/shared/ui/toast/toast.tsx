@@ -2,12 +2,7 @@ import { Toaster as SonnerToaster, toast } from 'sonner'
 
 export { toast }
 
-/**
- * 状态反馈条：排队、计时、滑动关闭与 aria-live 由 sonner 接管，这里只给契约外观。
- *
- * unstyled 关掉 sonner 自带皮肤，全部走 classNames；停留时长按契约 4s，
- * 带 action 的那条由调用方传 duration 改成 8s。整个应用只挂一次。
- */
+/** 应用仅挂载一次 Toaster；sonner 管理交互，classNames 提供契约外观。默认 4 秒，带 action 时调用方设置 8 秒。 */
 export function Toaster() {
   return (
     <SonnerToaster

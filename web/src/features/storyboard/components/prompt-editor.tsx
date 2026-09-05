@@ -1,9 +1,4 @@
-/**
- * 一段描述的编辑器：裸 ProseMirror（文档模型见 prompt-editor-doc.ts）。
- *
- * 帧记号的 NodeView 画成一颗「缩略图 + 编号」的小芯片：随光标走、点选整颗选中、退格整颗删、
- * 点它切到那一帧。只读态就是 `editable = false` 的同一个编辑器，只读与编辑不维护两套渲染。
- */
+/** 帧记号使用 inline atom NodeView；只读与编辑共用实例，通过 editable 切换。 */
 
 import { baseKeymap } from 'prosemirror-commands'
 import { history, redo, undo } from 'prosemirror-history'
@@ -16,7 +11,7 @@ import { cn } from '@/shared/lib/utils'
 import { type PromptLine, serializeLines } from '../prompt-doc'
 import { docToLines, linesToDoc } from './prompt-editor-doc'
 
-/** NodeView 从外面读的东西，经 ref 拿最新值，编辑器只建一次。 */
+/** NodeView 经 ref 读取最新数据，避免重建编辑器。 */
 type ChipContext = {
   frameUrl: (n: number) => string | undefined
   highlighted: () => number | undefined
@@ -65,7 +60,6 @@ class FrameChipView implements NodeView {
     this.dom.className = cn(CHIP_CLASS, this.ctx.highlighted() === this.n && CHIP_ACTIVE_CLASS)
   }
 
-  /** 点芯片是我们的事，不让 PM 把它当成拖选的起点。 */
   stopEvent(event: Event) {
     return event.type === 'click' || event.type === 'mousedown'
   }
@@ -81,9 +75,8 @@ class FrameChipView implements NodeView {
 
 type PromptEditorProps = {
   lines: readonly PromptLine[]
-  /** 帧地址，下标 = 编号 - 1；芯片上的缩略图从这里取。 */
+  /** 帧数组下标为编号减一。 */
   frames: readonly string[]
-  /** 当前帧，那一颗芯片画成选中态。 */
   highlighted?: number | undefined
   readOnly?: boolean
   onChange?: ((lines: PromptLine[]) => void) | undefined
@@ -92,12 +85,6 @@ type PromptEditorProps = {
   className?: string
 }
 
-/**
- * 渲染一段描述的编辑器。
- *
- * @param props - 组件属性。
- * @returns 挂着 ProseMirror 的容器。
- */
 export function PromptEditor({
   'aria-label': ariaLabel,
   className,
@@ -116,9 +103,8 @@ export function PromptEditor({
   useEffect(() => {
     latestRef.current = { frames, highlighted, onChange, onPickFrame, readOnly }
   })
-  // 最后一次「文档等于哪份文本」：外面传新 lines 进来时据此判断是不是自己刚发出去的那份，避免光标被重置
+  // 记录最近序列化结果，忽略编辑器自身发出的更新，避免重置光标。
   const serializedRef = useRef(serializeLines(lines))
-  // 首屏那份文本与标签只在建编辑器时用一次，走 ref 不进依赖
   const initialRef = useRef({ ariaLabel, lines })
 
   useEffect(() => {
@@ -163,7 +149,7 @@ export function PromptEditor({
     }
   }, [])
 
-  // 外面换了一份文本（帧操作重编号、agent 改了文件）：整份换掉，光标回到开头
+  // 外部文本变化时替换文档并重置光标。
   useEffect(() => {
     const view = viewRef.current
     if (view === null) return

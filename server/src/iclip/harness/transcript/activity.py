@@ -1,19 +1,7 @@
-"""一段对话此刻「在忙什么」。侧栏的角标看的是这一份。
+"""将 JobQueue.activities 选出的消息状态映射为会话活动，不查询数据库。
 
-**这份状态是 ``agent_runtime.agent_jobs`` 里某一行状态的投影**：占着这段对话的那条行给出
-``busy`` 与待人处理的那件事，最近结束的那条行给出上一轮的结局。哪一行算「决定活儿的那一行」由
-``JobQueue.activities`` 定，本模块只做状态到状态的映射，不查库。
-
-形状照 kimi 的 ``SessionActivityView``（``agent-core-v2/src/session/sessionActivity/``），两条规矩
-一并照抄：
-
-1. **正交事实，不合成一个枚举。** kimi 原来有一个五值 ``status``，后来废弃了，理由写在它的
-   ``@deprecated`` 注释里：等审批的时候那一轮**其实还在跑**，塞进同一个枚举就分不清「在跑」和
-   「等人点头」。所以这里是各自独立的字段，怎么画由界面自己决定。
-2. **待人处理的优先级写死** ``approval > question > none``。
-
-kimi 还有 ``main_turn_active``（排除后台与子 agent 的主轮活跃）。这里没有：我们既没有后台租约
-也没有子 agent。
+busy、attention 与最近结果为独立字段；等待审批时 busy 仍为真。
+协议按 approval > question > none 确定待处理事项的优先级。
 """
 
 from __future__ import annotations
@@ -22,40 +10,36 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    # 只用来标注入参。运行时反过来是 jobs 认识本模块，两边都 import 就成了环。
+    # 仅类型检查时导入，避免 jobs 的运行时循环依赖。
     from iclip.harness.jobs import JobStatus
 
 PendingInteraction = Literal["none", "approval", "question"]
-"""最高优先级的那件待人处理的事。"""
+"""最高优先级的待处理事项。"""
 
 LastTurnReason = Literal["completed", "failed", "aborted"]
-"""最近一轮是怎么结束的。"""
+"""最近完成轮次的结果。"""
 
 
 @dataclass(frozen=True, slots=True)
 class ActivityState:
-    """一段对话此刻的活儿。三个字段互不蕴含，见模块开头第 1 条。"""
+    """会话活动的三个独立状态维度。"""
 
     busy: bool
-    """有轮次正在跑。"""
+    """是否有活跃轮次。"""
 
     pending_interaction: PendingInteraction = "none"
-    """有没有卡在等人点头。**等审批时 ``busy`` 照样为真**——那一轮并没有结束。"""
+    """待处理事项；审批等待期间 busy 仍为真。"""
 
     last_turn_reason: LastTurnReason | None = None
-    """最近结束的那一轮的结局。从没跑完过一轮的对话是 ``None``。"""
+    """最近完成轮次的结果，尚无结果时为 None。"""
 
 
 IDLE = ActivityState(busy=False)
-"""什么都没在发生，也没有跑过。库里查不到决定活儿的那一行时就是这一份。"""
+"""未运行且无待处理事项的会话状态。"""
 
 
 def activity_of(status: JobStatus | None) -> ActivityState:
-    """决定活儿的那条行的状态 → 这段对话的活儿。
-
-    :param status: 那一行的状态；库里没有这样的行就给 ``None``。
-    :returns: 这段对话此刻的活儿。
-    """
+    """将消息状态映射为会话活动，缺少记录时使用 None。"""
 
     match status:
         case "running" | "steered":
@@ -65,7 +49,7 @@ def activity_of(status: JobStatus | None) -> ActivityState:
         case "completed" | "failed" | "aborted":
             return ActivityState(busy=False, last_turn_reason=status)
         case _:
-            # ``queued`` 也走这里：排着的行从来不是决定活儿的那一行。
+            # queued 不决定当前会话活动。
             return IDLE
 
 

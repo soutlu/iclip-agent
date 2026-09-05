@@ -1,28 +1,13 @@
-/**
- * 媒体灯箱（照 kimi media-lightbox 的形）：整页遮罩 + 居中媒体 + 右上关闭。
- * ESC、点遮罩、点关闭钮都关；遮罩本身是个通铺按钮，键盘与读屏都摸得到关闭路径。
- */
-
 import { useEffect } from 'react'
 import { Icon } from '@/shared/icons'
 
-/** 灯箱里看的那份：种类决定画 <img> 还是 <video>，名字给读屏与标题用。 */
 export type LightboxMedia = { kind: 'image' | 'video'; url: string; name: string }
 
 type MediaLightboxProps = {
-  /** 正在看的那张；null 即关闭。 */
   media: LightboxMedia | null
   onClose: () => void
 }
 
-/**
- * 渲染灯箱。
- *
- * @param props - 组件属性。
- * @param props.media - 要看的那张。
- * @param props.onClose - 关闭。
- * @returns 灯箱；关着就不渲染。
- */
 export function MediaLightbox({ media, onClose }: MediaLightboxProps) {
   useEffect(() => {
     if (media === null) return

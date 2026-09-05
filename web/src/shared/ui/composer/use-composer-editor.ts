@@ -1,19 +1,4 @@
-/**
- * 输入框的 ProseMirror 装配（照 kimi 网页版 composer：自定义 schema + EditorView +
- * NodeView + handleKeyDown/handlePaste/handleDrop，不走 Tiptap 之类的封装）。
- *
- * 这里管四件事：
- * - 键盘：Enter 发送（IME 组字期间的 Enter 是选字，不触发）、Shift+Enter 换行、Mod+Z 撤销；
- * - 粘贴：剪贴板里有文件就拦下收为附件（无名文件改名 `paste-<时间戳>.<扩展名>`），纯文字
- *   交还 PM 默认行为；
- * - 拖放：Files 落在编辑区由这里 preventDefault 吞掉，真正的插入由 composer 外层的
- *   window 级处理器做（照 kimi 的分工）；
- * - pill 落位：attachment 节点的 NodeView 只出外层 span 并向 composer 登记，内容
- *   （图标、名字、悬停卡）由 composer 那边经 portal 渲染。
- *
- * 文档是 pill 的唯一事实源：每次 doc 变化都把当前引用的 attId 列表喂给
- * `attachments.syncReferences` 做 refCount 对账。
- */
+/** 编辑器处理键盘、粘贴与 NodeView；外层 window 处理文件拖放插入。文档变化后同步附件引用，确保条目随文档回收。 */
 
 import { baseKeymap } from 'prosemirror-commands'
 import { history, redo, undo } from 'prosemirror-history'
@@ -29,14 +14,13 @@ import type {
   ComposerSubmission,
 } from './use-composer-attachments'
 
-/** schema 里取节点类型；schema 是模块级常量，取不到就是写错了名字。 */
 const nodeType = (name: 'attachment' | 'paragraph') => {
   const type = composerSchema.nodes[name]
   if (type === undefined) throw new Error(`composer schema 里没有 ${name} 节点`)
   return type
 }
 
-/** 无名粘贴文件改名（照 kimi）：`paste-<时间戳>.<类型扩展名>`。 */
+/** 无名粘贴文件命名为 paste-<时间戳>.<扩展名>。 */
 const renamePastedFile = (file: File): File =>
   file.name === ''
     ? new File([file], `paste-${Date.now()}.${file.type.split('/')[1] ?? 'png'}`, {
@@ -44,7 +28,6 @@ const renamePastedFile = (file: File): File =>
       })
     : file
 
-/** pill 的 NodeView 落位信息：外层 span 登记给 composer，portal 渲染内容。 */
 export type ComposerPillHost = {
   attId: string
   el: HTMLElement
@@ -55,22 +38,14 @@ export type ComposerPillHost = {
 type UseComposerEditorOptions = {
   attachments: ComposerAttachments
   attachmentsEnabled: boolean
-  /** Enter 时判一次能不能发。 */
   canSend: () => boolean
-  /** 触发提交（具体组包在 composer 那边）。 */
   onSubmit: () => void
   registerPillHost: (host: ComposerPillHost) => void
   unregisterPillHost: (attId: string) => void
-  /** 紧凑形态（会话页）：单行起步。 */
   dense: boolean
 }
 
-/**
- * 装配输入框编辑器。
- *
- * @param options - 装配参数；除 dense 外的值经 ref 读取，编辑器实例只建一次。
- * @returns 挂载点 ref、文档状态与一组命令式操作。
- */
+/** 编辑器随宿主创建；变化中的数据和回调通过 ref 读取，避免重建实例。 */
 export const useComposerEditor = ({
   attachments,
   attachmentsEnabled,
@@ -100,7 +75,7 @@ export const useComposerEditor = ({
     unregisterPillHostRef.current = unregisterPillHost
   })
 
-  /** 往 pos 插一颗 inline pill 并把光标挪到它后面；落点不合法（块边界之类）就退到文末（照 kimi 的兜底）。 */
+  /** 插入后光标置于 pill 之后；位置不合法时回退文末。 */
   const insertNodeAt = (view: EditorView, node: PMNode, pos: number) => {
     const insert = (at: number) => {
       const tr = view.state.tr.insert(at, node)
@@ -115,12 +90,7 @@ export const useComposerEditor = ({
     }
   }
 
-  /**
-   * 收一批文件：建 entry 起传、插 pill。
-   *
-   * @param files - 文件列表。
-   * @param pos - 插入位置；不给就插当前选区。
-   */
+  /** 上传并插入附件；未指定 pos 时使用当前选区。 */
   const insertFiles = (files: readonly File[], pos?: number) => {
     const view = viewRef.current
     if (view === null) return
@@ -137,11 +107,10 @@ export const useComposerEditor = ({
     view.focus()
   }
 
-  /** 目测坐标对应的文档位置；拿不到（在编辑区外）返回 undefined。 */
   const posAtCoords = (clientX: number, clientY: number): number | undefined =>
     viewRef.current?.posAtCoords({ left: clientX, top: clientY })?.pos
 
-  /** 清空整篇（发送成功后调用）；entry 由 doc 变化触发的 syncReferences 顺带回收。 */
+  /** 清空文档后由 syncReferences 回收附件条目。 */
   const clearDoc = () => {
     const view = viewRef.current
     if (view === null) return
@@ -150,17 +119,11 @@ export const useComposerEditor = ({
     )
   }
 
-  /**
-   * 发送失败把内容还回来：附件排在文字前（原文里 pill 与文字的相对位置丢不起就不还——
-   * 它们都还在，只是聚到了开头）。
-   *
-   * @param submission - 当时发出去的那份快照。
-   */
+  /** 按原始 parts 顺序恢复正文与附件。 */
   const restoreDoc = (submission: ComposerSubmission) => {
     const view = viewRef.current
     if (view === null) return
     attachmentsRef.current.restoreEntries(submission.media)
-    // 按发出去时的先后还回来：图仍在它原来那句话旁边
     const content = submission.parts.flatMap((part) =>
       part.kind === 'text'
         ? part.text === ''
@@ -185,19 +148,16 @@ export const useComposerEditor = ({
 
   const focusEditor = () => viewRef.current?.focus()
 
-  // insertFiles 同时被 PM 的 handlePaste（编辑器只建一次）与外层 drop 用，进 ref 供前者拿
+  // PM 粘贴处理器经 ref 调用最新 insertFiles，外层拖放复用同一操作。
   const insertFilesRef = useRef(insertFiles)
   useEffect(() => {
     insertFilesRef.current = insertFiles
   })
 
-  // dense 只在挂载时读（两个页面的 composer 各自是固定形态），经 ref 读就不进依赖
+  // dense 仅在挂载时读取，两个页面各自使用固定编辑器形态。
   const denseRef = useRef(dense)
 
-  /**
-   * 编辑器的挂载点（React 19 回调 ref：返回清理函数）。编辑器随宿主元素生灭，
-   * 不依赖 effect 时序；回调里只读 ref，行为以挂载那一刻为准。
-   */
+  /** React 19 回调 ref 创建编辑器并返回清理函数，使实例生命周期与宿主元素一致。 */
   const mountEditor = useCallback((el: HTMLDivElement | null) => {
     if (el === null) return undefined
     const isDense = denseRef.current
@@ -223,7 +183,7 @@ export const useComposerEditor = ({
           view.dispatch(view.state.tr.insertText('\n').scrollIntoView())
           return true
         }
-        // 空输入 / 附件还在传时 Enter 不换行（聊天输入惯例），只是不发
+        // 内容不可发送时 Enter 仍不插入换行。
         if (canSendRef.current()) onSubmitRef.current()
         return true
       },

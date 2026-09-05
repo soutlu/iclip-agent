@@ -1,8 +1,4 @@
-"""T-GEN-02 / T-GEN-03：两家生成接口的协议映射与重试边界。
-
-不打真网络：httpx 的 ``MockTransport`` 直接扮演对方（同 identity 的 SSO/PMS 用例）。
-这里验的是「对方这样回，我们就该那样理解」，以及**什么情况下不许重试**。
-"""
+"""使用 MockTransport 验证生成供应商的协议映射和重试边界。"""
 
 from __future__ import annotations
 
@@ -102,7 +98,7 @@ async def test_video_poll_maps_terminal_and_running_states() -> None:
 
 
 async def test_video_result_is_rehosted_and_provider_url_is_not_kept() -> None:
-    """成片转存到我们自己的对象存储：provider 那个地址会过期，不能留在库里。"""
+    """供应商地址可能过期，成片必须转存为对象存储地址。"""
 
     store = MemoryObjectStore()
     fetched: list[str] = []
@@ -126,7 +122,7 @@ async def test_video_result_is_rehosted_and_provider_url_is_not_kept() -> None:
 
 
 async def test_video_rehost_failure_fails_the_job_without_retrying() -> None:
-    """片子已经出了、也已经付了钱，转存失败不能说成可重试——重试会重新生成一次。"""
+    """生成已计费，转存失败不能触发再次生成。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "cdn.test":
@@ -149,7 +145,6 @@ async def test_video_rehost_failure_fails_the_job_without_retrying() -> None:
 
 
 async def test_video_download_failure_is_not_swallowed() -> None:
-    """成片下载不回来就不算成功：不能留一个指向 provider 的地址假装完成了。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "cdn.test":
@@ -166,7 +161,6 @@ async def test_video_download_failure_is_not_swallowed() -> None:
 
 
 async def test_video_poll_rejects_unknown_status() -> None:
-    """没见过的状态不当成「还在跑」——那会让一个已经结束的任务永远轮询下去。"""
 
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"status": "moderating"})
@@ -176,7 +170,6 @@ async def test_video_poll_rejects_unknown_status() -> None:
 
 
 async def test_video_poll_rejects_success_without_output() -> None:
-    """说成功却没给结果是协议破了，必须响亮失败，不能当成还在跑。"""
 
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"status": "succeeded", "result": {}})
@@ -202,7 +195,6 @@ async def test_video_server_error_is_retryable_but_client_error_is_not() -> None
 
 
 async def test_image_generation_rehosts_result_and_returns_stable_url() -> None:
-    """结果图转存到我们自己的对象存储：库里存的地址不会随签名过期而烂掉。"""
 
     store = MemoryObjectStore()
     calls: list[str] = []
@@ -250,12 +242,7 @@ async def test_image_with_references_uses_edit_endpoint() -> None:
 
 
 async def test_image_never_retries_and_never_switches_channel() -> None:
-    """一次调用，报错就是报错。
-
-    这家没有幂等键，一次成功的生成就是一次计费；而两个渠道价钱还不一样，替调用方偷
-    偷换一个等于悄悄改了这次花多少钱。错误码分得清「送到了没有」，是给人做决定用的，
-    不驱动自动动作。
-    """
+    """供应商无幂等键，自动重试可能重复计费；渠道价格不同，不能自动切换。"""
 
     attempts: list[str] = []
 
@@ -287,7 +274,6 @@ async def test_image_has_no_polling_phase() -> None:
 
 @pytest.mark.parametrize("channel", ["dev", "pro"])
 async def test_image_sends_the_channel_from_the_request(channel: str) -> None:
-    """渠道是调用方的决定（两个渠道价钱不一样），不由我们挑。"""
 
     sent: dict[str, object] = {}
 
@@ -325,7 +311,7 @@ async def test_video_model_comes_from_the_request_when_given() -> None:
 
 
 async def test_video_falls_back_to_the_configured_default_model() -> None:
-    """请求没指定就用配置里的默认模型——但配置将来会改，所以快照里也记一份。"""
+    """默认模型会随配置变化，解析后的实际模型也须持久化到请求快照。"""
 
     sent: dict[str, object] = {}
 

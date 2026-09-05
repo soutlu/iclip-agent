@@ -1,8 +1,4 @@
-/**
- * 「看着它闲下来时跑到了哪一次」这份本地记录。
- *
- * 这套 jsdom 没有可用的 localStorage，所以用例自己装一份内存实现（同 `-use-stored-width.test.ts`）。
- */
+/** jsdom 存储不可用，使用内存实现验证跨模块重载的未读记录。 */
 
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -37,7 +33,6 @@ describe('看过的运行', () => {
   it('落盘：刷新之后记录还在', async () => {
     recordSeenRun('c-persist', 'run-7')
 
-    // 换一份新的模块实例，等于刷新页面之后重新读一遍
     vi.resetModules()
     const reloaded = await import('./conversations.unread')
 

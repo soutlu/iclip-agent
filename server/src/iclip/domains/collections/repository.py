@@ -1,8 +1,4 @@
-"""合集的持久化端口。
-
-每个方法都收一个 ``owner``：合集只对属主可见。给 ``None`` 表示不按属主过滤，那是治理
-者的全量视图专用——调用方必须先验过权限，这一层只照办。
-"""
+"""合集持久化端口。owner=None 取消属主过滤，调用方必须先校验治理权限。"""
 
 from __future__ import annotations
 
@@ -36,11 +32,7 @@ class CollectionRepository(Protocol):
         ...
 
     async def delete(self, collection_id: uuid.UUID, *, owner: uuid.UUID | None) -> None:
-        """删掉这一行。已经不在了就抛 ``NotFound``。
-
-        装在里面的对话只是把归属那一列置空——口袋没了，对话还在。这条由外键写在表上，
-        不在这一层重做。
-        """
+        """删除合集；不存在时抛 NotFound。外键将关联对话的合集归属置空，保留对话。"""
         ...
 
 

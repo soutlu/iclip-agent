@@ -111,11 +111,7 @@ def _capabilities(
     table: CapabilityTable,
     declared_by: str,
 ) -> AgentCapabilities:
-    """把声明里的名字翻译成真的能力实例。
-
-    skill 与 capability 都是「不写即不挂」，所以两边都空就是一个空元组——这个
-    agent 只有 spec 与提示词。
-    """
+    """按声明解析能力，未声明的 skill 或 capability 不挂载。"""
 
     mounted = build_skill_capabilities(skills.library, skills.names) if skills else ()
     return (*mounted, *resolve_capabilities(names, table=table, declared_by=declared_by))
@@ -144,11 +140,7 @@ def _object_store(
 def _agent_definitions(
     declared: Sequence[ResolvedAgent], *, table: CapabilityTable
 ) -> tuple[AgentDefinition, ...]:
-    """把配置环的声明翻译成 harness 的入参类型。
-
-    harness 环只依赖 common，读不到 config——这层翻译是组合根的活，
-    与 identity 的 ``CookieAuthSettings`` / ``SsoRuntime`` 同一个套路。
-    """
+    """将配置声明转换为 harness 入参，避免内核依赖配置层。"""
 
     return tuple(
         AgentDefinition(
@@ -223,11 +215,7 @@ _SOCKET_TIMEOUT_MARGIN = 5.0
 
 
 def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
-    """把工作区命名空间拆回「属主 + 对话」，拆不出来给 ``None``。
-
-    拼法在 ``capabilities/workspace/scope.py``。对话 id 是客户端给的字符串，未必是我们
-    发出去的那种；拆不出来就是没法按对话推送，不是错误。
-    """
+    """从工作区命名空间解析属主与对话；非对话命名空间返回 None。"""
 
     owner, _, conversation_id = namespace.partition("/")
     try:
@@ -237,15 +225,9 @@ def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
 
 
 class AnnouncingFileStore:
-    """工作区文件存储，外加「变了就告诉订着这个路径的连接」（kimi 的 ``event.fs.changed``）。
+    """工作区写入后发送 event.fs.changed，存储实现与连接管理通过组合根适配。
 
-    包在组合根：存储层只认识命名空间，不认识对话也不认识连接；而能力包写文件只经
-    ``FileStore`` 协议。所有工作区写入——五件工具、下属 agent、面板写回——都从这一个入口
-    过，所以不用维护「哪些工具会产文件」的表。
-
-    命名空间拆不出对话 id 时就不发（那说明地盘不是按对话分的）——推送掉一帧只是界面
-    晚一点对齐，不该让一次写入失败。
-    """
+    所有写入共用 FileStore 入口；非对话命名空间不发送通知，通知投影不影响存储结果。"""
 
     def __init__(self, inner: FileStore, live: LiveConnections) -> None:
         self._inner = inner
@@ -283,17 +265,12 @@ class AnnouncingFileStore:
 
 
 async def _no_title(_user_text: str) -> str | None:
-    """没配起名模型时的替身：一个名字都不起，对话保持默认名。"""
 
     return None
 
 
 def _require_ffmpeg(settings: ResolvedShotVideo | None) -> None:
-    """配了镜头素材就必须有 ffmpeg。
-
-    抽帧与切格全靠它，PATH 上没有的话那两件工具每次调用都会失败——那是部署环境的
-    问题，该在启动时就说清楚，不该等模型撞上去。
-    """
+    """启动时验证 ffmpeg 与 ffprobe，避免已启用的抽帧工具在调用时才暴露部署缺失。"""
 
     if settings is not None and not ffmpeg_available():
         raise RuntimeError("配了 shot_video 但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
@@ -302,11 +279,6 @@ def _require_ffmpeg(settings: ResolvedShotVideo | None) -> None:
 def _product_catalog_engine(
     settings: ResolvedProductCatalog | None, injected: AsyncEngine | None
 ) -> AsyncEngine | None:
-    """产品资料目录那个库的连接；没配这项能力就没有。
-
-    **连接在会话层就设成只读**：那个库的账号本身有写权限，而我们只该读它。把只读钉
-    在自己这边，就不依赖对方的授权配置哪天有没有改对。
-    """
 
     if settings is None:
         return None
@@ -314,11 +286,7 @@ def _product_catalog_engine(
 
 
 def _read_only_engine(database_url: str) -> AsyncEngine:
-    """外部只读源的连接。
-
-    **只读钉在会话层**：那些库的账号本身可能有写权限，而我们只该读它们。钉在自己
-    这边就不依赖对方的授权配置哪天有没有改对。
-    """
+    """为外部库设置会话级只读，独立于上游账号可能拥有的写权限。"""
 
     return create_async_engine(
         database_url,
@@ -330,7 +298,6 @@ def _read_only_engine(database_url: str) -> AsyncEngine:
 def _inspirations_engine(
     settings: ResolvedInspirations | None, injected: AsyncEngine | None
 ) -> AsyncEngine | None:
-    """爆款视频库的连接；没配这项能力就没有。"""
 
     if settings is None:
         return None
@@ -345,11 +312,7 @@ def _generation_module(
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
 ) -> GenerationModule:
-    """把配置环的运行值翻译成 generation 的入参。
-
-    与 identity 的 ``CookieAuthSettings`` / harness 的 ``ModelSpec`` 同一个套路：
-    业务模块读不到 config，翻译是组合根的活。
-    """
+    """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。"""
 
     return build_generation_module(
         SqlGenerationRepository(engine),
@@ -392,11 +355,7 @@ def build_app(
     inspirations_engine: AsyncEngine | None = None,
     style_snapshots: StyleSnapshots | None = None,
 ) -> FastAPI:
-    """装配公开 app。
-
-    测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储、队列连接器、产品目录库
-    与爆款视频库这两个外部只读源，以及需求单要的款号快照。
-    """
+    """装配 FastAPI 应用与资源生命周期，支持注入基础设施替身。"""
 
     settings = resolve_settings(config)
     if settings.db_schema != DB_SCHEMA:
@@ -431,11 +390,9 @@ def build_app(
         sso_verifier=sso_verifier,
         pms_client=pms_client,
     )
-    # 公开对象存储：它自己就是一项能力（素材上传、生成结果转存、镜头帧落地都用它），
-    # 配了就有，没配这几件各自不挂。它排在最前面，是因为后面几个都要用它。
+    # 素材、生成与镜头能力依赖同一对象存储，先完成装配。
     public_objects = _object_store(settings.object_store, object_store)
-    # 媒体生成：配了就装，没配就整组路由不挂（同 SSO 的口径）。
-    # 它排在 agent 装配之前，是因为镜头素材能力要用它的服务与对象存储。
+    # 镜头能力依赖生成服务，须先于 Agent 装配。
     generation = (
         _generation_module(
             settings.media_generation,
@@ -448,8 +405,7 @@ def build_app(
         else None
     )
     _require_ffmpeg(settings.shot_video)
-    # 出网取东西的连接池，一个就够：工作区读图要问 OSS 的 image/info（这项能力常
-    # 在），镜头素材取素材与调拆解接口也用它。
+    # 图片信息查询、素材下载与拆解请求共用 HTTP 连接池。
     http_client = httpx.AsyncClient(follow_redirects=True)
     catalog_engine = _product_catalog_engine(settings.product_catalog, product_catalog_engine)
     products = (
@@ -468,11 +424,11 @@ def build_app(
     )
     owns_inspiration_engine = inspiration_engine is not None and inspirations_engine is None
     workspace_store = PgFileStore(active_engine)
-    # 推送那张表要先有：工作区每写一次都往它上面发一帧，工具那条路与面板写回同一个入口。
+    # 工作区写入通知依赖连接注册表。
     live_connections = LiveConnections()
     announcing_workspace_store = AnnouncingFileStore(workspace_store, live_connections)
 
-    # 一个台账实例递给两处能力与收件那一口：各接各的话，记在一处、查在另一处。
+    # 附件接收与工具能力共用素材台账，保证登记和查询一致。
     material_ledger = PgMaterialLedger(active_engine)
     conversation_workspace = ConversationWorkspace(
         workspace_store, announcing_workspace_store, material_ledger
@@ -486,11 +442,7 @@ def build_app(
     collections = build_collections_module(collection_repo)
 
     async def list_owner_collections(owner: uuid.UUID) -> tuple[CollectionInfo, ...]:
-        """侧栏拓扑里那些合集的名字。
-
-        这条线只能接在组合根：分组、条数、每组最近几段都在对话表上算，只有「口袋叫
-        什么」在合集那一侧，而两个域互相不认识。
-        """
+        """将合集元信息适配到对话侧栏，保持两个领域独立。"""
 
         found = await collection_repo.list_recent(owner=owner, limit=SIDEBAR_COLLECTIONS)
         return tuple(
@@ -500,7 +452,7 @@ def build_app(
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
     ) -> Mapping[uuid.UUID, ConversationActivity]:
-        """这批对话此刻各在忙什么。引擎那侧的形状 → 对话那侧的形状。"""
+        """将引擎活动投影转换为对话活动模型。"""
 
         states = await job_queue.activities([str(one) for one in conversation_ids])
         return {
@@ -515,16 +467,11 @@ def build_app(
     async def conversation_ids_by_state(
         owner: uuid.UUID, state: Literal["running", "done"]
     ) -> frozenset[uuid.UUID]:
-        """这个人名下在跑的、或者跑完过的那几段对话。列表的 ``state`` 筛选按它过滤。"""
 
         return frozenset(uuid.UUID(one) for one in await job_queue.conversation_ids(owner, state))
 
     def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
-        """活儿变了，就地发给这个人还开着的每条连接。
-
-        属主由队列从行上带出来，这里不回头查对话表：查一次就得 await，而 await 之后到达次序就
-        不再是写入次序——一条跑完接着起下一条时，busy 那一帧可能排在 idle 前面。
-        """
+        """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
 
         live_connections.announce_activity(
             owner,
@@ -537,7 +484,6 @@ def build_app(
     built_models = build_models(_model_specs(settings.models)) if models is None else models
     title_model = settings.title_model
     if title_model is None:
-        # 没配起名模型：对话一直叫默认名，别的照跑。
         generate_title: GenerateTitle = _no_title
     elif title_model not in built_models:
         raise RuntimeError(f"conversations.title_model 指向 {title_model}，models 段里没有这个名字")
@@ -557,8 +503,7 @@ def build_app(
         activities_of=activities_of,
         conversation_ids_by_state=conversation_ids_by_state,
     )
-    # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
-    # 或对象存储缺一个，就借不到——那时装个只会响亮拒绝的替代品，而不是让它悄悄记空。
+    # 缺少产品库或对象存储时，快照端口明确拒绝创建，避免写入空快照。
     tasks = build_tasks_module(
         SqlTaskRepository(active_engine),
         style_snapshots
@@ -569,7 +514,6 @@ def build_app(
             else UnavailableStyleSnapshots()
         ),
     )
-    # 素材：表一直在（迁移建的），但没有桶就没有上传与登记这回事，整组路由不挂。
     assets = (
         build_assets_module(SqlAssetRepository(active_engine), public_objects)
         if public_objects is not None
@@ -588,27 +532,19 @@ def build_app(
         step_store=step_store,
         models=built_models,
     )
-    # 一份注册表递给两条路：实时那侧与历史那侧给出的卡不一样的话，同一张卡在刷新前后换个长相。
+    # 实时与历史共用显示注册表，保证工具卡渲染一致。
     tool_displays = build_display_registry(capability_table)
     transcript_store = TranscriptStore()
     job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = _agent_context_limits(agents, settings.models)
 
     async def name_conversation(row: JobRow) -> None:
-        """一轮跑完，给还没起过名的那段对话起个名。
-
-        接在组合根：起名字要用模型（引擎那一侧），条件写与广播在对话那一侧，两个域互相不认识。
-        """
+        """轮次结束后调用对话命名用例，连接引擎模型与对话条件更新。"""
 
         await conversations.service.name_after_turn(uuid.UUID(row.conversation_id), row.text)
 
     async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
-        """给排到的那条 prompt 重建运行依赖。
-
-        身份不随请求走：一条 prompt 可能排了很久才轮到，那时发起它的那个 HTTP 请求早就没了。
-        行上记的是**属主 id**，到这里再按它把主体拼回来——排队期间被停用的账号因此拿不到运行，
-        而权限的变动也按开跑那一刻的现状算。
-        """
+        """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。"""
 
         account = await identity.service.get_account(row.owner_user_id)
         return AgentRunDeps(
@@ -616,7 +552,7 @@ def build_app(
             conversation_id=row.conversation_id,
         )
 
-    # 显示与续跑用同一份历史：续跑的投影器要按它推出的那一轮播种实时状态。
+    # 显示与续跑共用历史投影，用于初始化续跑的实时状态。
     transcript_history = TranscriptHistory(step_store, job_queue, tool_displays)
     transcripts = TranscriptService(
         store=transcript_store,
@@ -645,21 +581,19 @@ def build_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # 先清扫一次中断的 prompt 行（判失败或认领续跑），再起心跳与清扫两个循环。
         await transcripts.runner.start()
         if generation is not None:
-            # 队列的连接要先开：HTTP 面受理一次生成时就要往队列里排。
+            # 接收 HTTP 请求前打开队列连接。
             await generation.queue.app.open_async()
             generation.queue.start()
         try:
             yield
         finally:
-            # 顺序要紧：后台运行还在用这个 engine 落库，先把它们收掉再关连接。
+            # 后台运行收尾需要落库，须先于 engine 关闭。
             if generation is not None:
                 await generation.queue.stop()
                 await generation.queue.app.close_async()
-            # 在跑的那些走第一方取消，让它们各自把终态发出去再收；这一步必须在 engine
-            # 关掉之前，收尾要落库。
+            # 通过框架取消运行，等待终态落库后再关闭 engine。
             await transcripts.runner.shutdown()
             await http_client.aclose()
             if owns_catalog_engine and catalog_engine is not None:

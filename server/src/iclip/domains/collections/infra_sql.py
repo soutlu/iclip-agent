@@ -1,8 +1,4 @@
-"""``iclip.collections`` 的 Postgres 后端。DDL 归 Alembic，这里不建表。
-
-所有时刻都取数据库的时钟（``now()``）：合集列表按「最近改动」排，多台应用服务器的
-时钟差几秒这个排序就乱了。
-"""
+"""合集的 Postgres 仓储。时间统一取数据库 now()，避免应用实例钟差影响排序。"""
 
 from __future__ import annotations
 
@@ -38,8 +34,7 @@ collections_table = Table(
     "collections",
     metadata_obj,
     Column("id", Uuid, primary_key=True),
-    # restrict 而不是 cascade：合集是记录在案的东西，不该跟着建它的那个账号一起消失
-    # （同 tasks.creator_user_id）。
+    # 删除账号不能级联删除合集。
     Column(
         "owner_user_id",
         Uuid,
@@ -53,9 +48,7 @@ collections_table = Table(
 
 _ROWS = collections_table.c
 
-# 侧栏那个查询：我的合集，最近改动的排前面。
 Index("ix_collections_owner_recent", _ROWS.owner_user_id, _ROWS.updated_at.desc())
-# 治理者的全量视图：跨属主按最近改动排。
 Index("ix_collections_updated", _ROWS.updated_at.desc())
 
 
@@ -70,7 +63,7 @@ def _row(mapping: RowMapping) -> Collection:
 
 
 def _scope(owner: uuid.UUID | None) -> list[ColumnElement[bool]]:
-    """属主条件。``None`` 是治理者的全量视图，不加这一条。"""
+    """None 表示治理者的全量视图，不添加属主条件。"""
 
     return [] if owner is None else [_ROWS.owner_user_id == owner]
 

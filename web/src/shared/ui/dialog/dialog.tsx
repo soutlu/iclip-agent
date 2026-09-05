@@ -10,14 +10,11 @@ export const DialogDescription = DialogPrimitive.Description
 
 type DialogSurfaceProps = ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   children: ReactNode
-  /** 遮罩的附加 className；画布内的弹层要靠它挂 nodrag / nopan 之类的交互豁免 */
+  /** 画布弹层通过遮罩类名声明 nodrag / nopan。 */
   overlayClassName?: string
 }
 
-/**
- * 弹层表面：600 以下贴底成 sheet，以上居中。遮罩、层级、圆角与阴影按契约固定，
- * 调用方只给内容。
- */
+/** 视口小于 600px 时使用底部 sheet，其余居中；层级与外观遵循设计契约。 */
 export function DialogSurface({
   children,
   className,
@@ -48,7 +45,6 @@ export function DialogSurface({
 }
 
 type DialogHeaderProps = {
-  /** 标题右侧、关闭键左侧的附加内容（计数、状态等） */
   actions?: ReactNode
   children?: ReactNode
   className?: string

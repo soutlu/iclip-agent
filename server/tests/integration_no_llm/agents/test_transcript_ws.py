@@ -1,10 +1,6 @@
-"""订阅连接走一遍真链路：握手、订阅、推送、重订阅。
+"""使用同步 TestClient 验证 WS 握手、订阅和序列化契约。
 
-**这一条最要紧的断言是「发出去的字节长什么样」。** 客户端的 reducer 是照抄来的 zod，形状对不上
-就是 safeParse 失败——不报错、不重试，界面永远停在空白。REST 那侧由 FastAPI 按别名序列化，
-不会犯这个错；WS 是手工发的，只有这里看得住。
-
-全程同步 TestClient（HTTP 与 WS 同一事件循环）。
+WS 手工序列化必须保留实体别名，否则客户端 schema 校验会丢弃整帧。
 """
 
 from __future__ import annotations
@@ -85,7 +81,7 @@ def _subscribe(
 
 
 def _until(ws: Any, kind: str, *, tries: int = 40) -> dict[str, Any]:
-    """收到某一类帧为止。中间会夹着 ack 与心跳，跳过它们。"""
+    """等待指定帧类型，跳过期间的 ack 和心跳。"""
 
     for _ in range(tries):
         frame: dict[str, Any] = ws.receive_json()
@@ -95,10 +91,7 @@ def _until(ws: Any, kind: str, *, tries: int = 40) -> dict[str, Any]:
 
 
 def _drain_turn(ws: Any, *, tries: int = 40) -> list[dict[str, Any]]:
-    """收到这一轮结束为止，返回期间所有操作。
-
-    判「结束」看的是轮的状态，不是等一个时长：低档位下大部分批次整批不发，等固定帧数会卡住。
-    """
+    """按轮终态收集操作；低粒度会过滤批次，不能等待固定帧数。"""
 
     collected: list[dict[str, Any]] = []
     for _ in range(tries):
@@ -113,7 +106,6 @@ def _drain_turn(ws: Any, *, tries: int = 40) -> list[dict[str, Any]]:
 
 
 def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
-    """订阅拿到 reset，发一条消息之后拿到这一轮的操作。"""
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -126,12 +118,11 @@ def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
 
             _subscribe(ws, conversation_id)
             reset = _until(ws, "transcript.reset")
-            # 一条连接管多段对话，客户端按 session_id 分流；少了它这一帧不知道该给谁。
+            # session_id 用于同一连接中的多会话分流。
             assert reset["session_id"] == conversation_id
             assert reset["payload"]["agent_id"] == "main"
-            # seq 在协议里标成可选，我们必须带：客户端拿它无条件覆写本地水位。
+            # seq 虽为可选字段，此处必须发送以覆盖客户端水位。
             assert isinstance(reset["payload"]["seq"], int)
-            # 历史走 REST 分页，这一帧的 items 恒空。
             assert reset["payload"]["snapshot"]["items"] == []
 
             sent = tc.post(
@@ -144,14 +135,13 @@ def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
             assert ops["payload"]["seq"] >= 1
             assert ops["payload"]["ops"]
 
-            # 帧里嵌的实体必须按别名出去。写成 turn_id 的话客户端整帧丢掉且不报错，
-            # 界面永远停在空白——这颗钉子就是防它。
+            # 嵌套实体需使用 camelCase 别名，保证客户端 schema 校验通过。
             text = json.dumps(ops, ensure_ascii=False)
             assert "turn_id" not in text
             assert "step_id" not in text
             assert "frame_id" not in text
 
-            # 等这一轮跑完再断开：运行不绑在连接上，跑着的时候拆连接是另一件事（下一条测）。
+            # 等待运行结束后再断开；运行中断连由独立用例覆盖。
             for _ in range(200):
                 queue = tc.get(f"/conversations/{conversation_id}/prompts").json()
                 if queue["active"] is None and not queue["queued"]:
@@ -171,12 +161,7 @@ def _settled(tc: TestClient, conversation_id: str, *, tries: int = 200) -> None:
 def test_regenerate_removes_the_old_turn_before_the_new_one_appears(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
-    """重新生成先推一帧 ``items.remove``，再推重跑那一轮。
-
-    客户端手里那份基线来自 REST 分页，对已有的轮只换头部、保留原有的步与块。新回复比旧的少
-    一步或少一块时，光靠 ``turn.upsert`` 覆不掉旧内容——这一帧就是那句「这轮没了」，而它必须
-    赶在新的 ``t1`` 出现之前。
-    """
+    """重跑前须先发送 items.remove；turn.upsert 仅更新轮头，无法清除旧步骤和块。"""
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -211,7 +196,6 @@ def test_regenerate_removes_the_old_turn_before_the_new_one_appears(
             else:
                 raise AssertionError("没等到 items.remove")
 
-            # 删除之前一条重跑的轮头部都没出去：客户端不会先看到新的 t1 再看到它被删。
             assert not [op for op in seen if op["op"] == "turn.upsert"]
             _settled(tc, conversation_id)
 
@@ -219,7 +203,6 @@ def test_regenerate_removes_the_old_turn_before_the_new_one_appears(
 def test_resubscribing_with_a_stale_watermark_gets_a_reset(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
-    """手上的水位比服务端还大（上一代编号），只能整页重来，不能补批。"""
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -232,10 +215,6 @@ def test_resubscribing_with_a_stale_watermark_gets_a_reset(
 
 
 def test_one_connection_serves_two_conversations(ws_agent_app: FastAPI, pg_url: str) -> None:
-    """一条连接订两段对话：各自收到自己那一帧 reset，互不串台。
-
-    侧栏要同时盯着好几段，这是这条连接存在的理由。
-    """
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -255,10 +234,6 @@ def test_one_connection_serves_two_conversations(ws_agent_app: FastAPI, pg_url: 
 
 
 def test_turn_grade_carries_the_turn_but_no_deltas(ws_agent_app: FastAPI, pg_url: str) -> None:
-    """侧栏那一档：拿得到「这段在跑、跑完了」，拿不到逐字。
-
-    几十段对话同时订着，逐字的那份只有打开的那一段需要。
-    """
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -277,15 +252,11 @@ def test_turn_grade_carries_the_turn_but_no_deltas(ws_agent_app: FastAPI, pg_url
 
             kinds = {op["op"] for op in _drain_turn(ws)}
             assert "turn.upsert" in kinds
-            # 逐字与块级的那些这一档不发；筛空了的批次整批不发，所以它们一帧都不该出现。
             assert kinds.isdisjoint({"append", "frame.upsert", "step.upsert"})
 
 
 def test_raising_the_grade_replaces_the_whole_thing(ws_agent_app: FastAPI, pg_url: str) -> None:
-    """从 turn 档升到 delta 档：给了水位也照样先收一帧 reset。
-
-    低档时被筛空丢掉的那些批次补不回来，拿着水位往下接会缺一段而客户端自己不知道。
-    """
+    """升档必须 reset，低粒度期间被过滤的内容无法仅凭水位完整补发。"""
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -310,10 +281,7 @@ def test_raising_the_grade_replaces_the_whole_thing(ws_agent_app: FastAPI, pg_ur
 def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
-    """订别人的（或不存在的）对话：那一帧被拒，整条连接不动。
-
-    「看不见」与「不存在」一个待遇（REST 那侧也是 404）：区分了就等于告诉调用方它存在。
-    """
+    """不可见与不存在的会话均拒绝当前订阅，不关闭连接，避免泄漏资源存在性。"""
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -326,7 +294,6 @@ def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
             assert ack["payload"]["not_found"] == ["c-not-mine"]
             assert ack["payload"]["accepted"] == []
 
-            # 连接还在：自己的对话照样订得上。
             mine = _open_conversation(tc)
             _subscribe(ws, mine, frame_id="s2")
             assert _until(ws, "transcript.reset")["session_id"] == mine
@@ -335,10 +302,7 @@ def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
 def test_cross_origin_upgrade_is_refused(
     ws_agent_app: FastAPI, pg_url: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """WS 升级不受 CORS 约束、浏览器照常带 cookie，所以 Origin 得自己校验。
-
-    拒绝要留一行日志：客户端那边只看到连接没了，服务端不写下来就查不出是哪一道拦的。
-    """
+    """WS 升级不受 CORS 约束且携带 cookie，需独立校验 Origin 并记录拒绝原因。"""
 
     from starlette.websockets import WebSocketDisconnect
 
@@ -352,10 +316,10 @@ def test_cross_origin_upgrade_is_refused(
             pytest.raises(WebSocketDisconnect) as refused,
             tc.websocket_connect("/ws", headers={"origin": "https://evil.example"}),
         ):
-            pass  # 连接根本不该成立
+            pass
 
     assert refused.value.code == 1008
-    # structlog 经标准库出去时 record.msg 是事件字典，字段可以直接取
+    # structlog 经标准日志转发时，record.msg 保留事件字典。
     assert any(
         record.name == "iclip.domains.agents.transcript_api"
         and isinstance(record.msg, dict)
@@ -365,7 +329,7 @@ def test_cross_origin_upgrade_is_refused(
 
 
 async def _seed_file(pg_url: str, namespace: str, path: str, content: str) -> None:
-    """直接往工作区表里放一份稿子，装作这段对话里已经写过。"""
+    """直接插入会话工作区文件。"""
 
     engine = create_async_engine(pg_url)
     try:
@@ -396,17 +360,13 @@ def _watch(ws: Any, conversation_id: str, *paths: str) -> dict[str, Any]:
 def test_fs_changed_reaches_only_the_connections_watching_that_path(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
-    """面板写回一份文件，只有用 ``watch_fs_add`` 订了这个路径的连接收到 ``event.fs.changed``。
-
-    照 kimi：文件变动是会话事件，按订阅投递，不是全局广播。两条连接各订一个文件，两次写回
-    各到各家——B 收到的第一帧就是它订的那个，说明 A 那份没漏到它这里。
-    """
+    """文件事件仅投递给订阅对应路径的连接；交叉写入验证订阅隔离。"""
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
         conversation_id = _open_conversation(tc)
         owner = tc.get("/users/me").json()["user"]["id"]
-        # PUT 只覆盖不新建（不存在时任何版本都对不上），所以先直接往表里放两份。
+        # PUT 只覆盖已有文件，因此先创建两份基线。
         asyncio.run(_seed_file(pg_url, f"{owner}/{conversation_id}", "提纲.md", "三幕"))
         asyncio.run(_seed_file(pg_url, f"{owner}/{conversation_id}", "其他.md", "甲"))
 
@@ -439,7 +399,6 @@ def test_fs_changed_reaches_only_the_connections_watching_that_path(
 def test_watching_an_unknown_conversation_is_refused_without_dropping_the_connection(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
-    """订一段看不见的对话：回 404 一档的 ack，连接照常。"""
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -447,7 +406,6 @@ def test_watching_an_unknown_conversation_is_refused_without_dropping_the_connec
             assert ws.receive_json()["type"] == "server_hello"
             ack = _watch(ws, str(uuid.uuid4()), "提纲.md")
             assert ack["code"] == 40401
-            # 连接没断：再发一帧仍有回执。
             conversation_id = _open_conversation(tc)
             assert _watch(ws, conversation_id, "提纲.md")["code"] == 0
 
@@ -455,10 +413,7 @@ def test_watching_an_unknown_conversation_is_refused_without_dropping_the_connec
 def test_activity_frames_reach_a_connection_that_subscribed_nothing(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
-    """跑一轮，「在忙什么」推给一条一段都没订的连接。
-
-    侧栏就是这个样子：列着几十段对话，一段也没订。按订阅发的话它永远收不到角标。
-    """
+    """会话活动事件供未订阅会话的侧栏使用，不受 subscribe_v2 限制。"""
 
     with TestClient(ws_agent_app) as tc:
         _sign_in(tc, pg_url)
@@ -466,7 +421,6 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
 
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
-            # 故意不发 subscribe_v2。
 
             sent = tc.post(
                 f"/conversations/{conversation_id}/prompts",
@@ -475,9 +429,8 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
             assert sent.status_code == 200, sent.text
 
             busy = _until(ws, "event.session.work_changed")
-            # session_id 在信封上，不在 payload 里。
             assert busy["session_id"] == conversation_id
-            # 还没跑完过一轮，没有结局；帧一律 exclude_none，所以那一项整个不出现。
+            # 未完成过运行时无终态；exclude_none 会省略该字段。
             assert busy["payload"] == {"busy": True, "pending_interaction": "none"}
 
             idle = _until(ws, "event.session.work_changed")
@@ -488,7 +441,7 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
                 "last_turn_reason": "completed",
             }
 
-            # 行上也带着同一份事实：帧是易失的，重拉列表才是对齐的办法。
+            # 列表保留同一活动状态，供事件丢失后重新同步。
             listed = tc.get("/conversations").json()
             row = next(
                 item for item in listed["ungrouped"]["items"] if item["id"] == conversation_id

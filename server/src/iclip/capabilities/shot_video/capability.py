@@ -1,11 +1,5 @@
-"""镜头素材能力的装配面：收哪些依赖、把五件工具挂上去、这几件工具的卡怎么画。
-
-工具靠工作区里的几份文件接力：拆解文档（`video/<名>.md`）、取帧账本
-（`frames/extraction.json`）、逐批版记录（`frames/grids/`、`anchors/`），终点是
-`video_shot.json`。落在哪由构造时给进来的 `FileSpace` 决定，和工作区能力收的是同一
-个——所以模型用 `read_file` / `edit_file` 看见的就是这几件工具写的那批文件，时间码写
-坏了它自己就能修。本包不认识工作区能力。
-"""
+"""镜头素材能力装配。工具通过工作区文档与台账协作，最终交付 video_shot.json。
+与工作区能力共用 FileSpace，确保写入产物可由文件工具读取和编辑。"""
 
 from __future__ import annotations
 
@@ -42,28 +36,22 @@ from iclip.platform.transcript.display import (
 CAPABILITY_ID: Final = "shot_video"
 
 _MEDIA_GRID_VIEW: Final = "media_grid"
-"""三件出图 / 拼板工具的结果用这个渲染器画，形状是 ``MediaGridItems``。"""
+"""媒体生成与预览工具共用的 MediaGridItems 渲染器。"""
 
 
 @dataclass
 class ShotVideo(AbstractCapability[AgentDepsT]):
-    """把五件工具挂到 agent 上。"""
+    """镜头素材工具集。"""
 
     space: FileSpace
-    """拆解文档、账本与镜头组产物落在哪。必须和工作区能力收的是同一个。
-
-    「同一个」由组合根保证：这里只认平台层这一件东西，不认识工作区能力。两边要
-    是各接各的，文档照写照读，只是模型的 ``read_file`` 看不见它——失效是静默的。
-    """
+    """产物存储与命名空间，必须由组合根提供与工作区能力相同的 FileSpace。"""
 
     ledger: MaterialLedger
-    """这段对话能用哪些地址。出板与出图落下的地址往它上面记，收地址的三个验证器查它。"""
+    """素材来源台账，记录产物地址并供工具输入验证使用。"""
 
     extractor: FrameExtractor
-    """拆片与取帧那一段。"""
 
     generator: FrameGenerator
-    """出图与切格那一段。"""
 
     id: str | None = field(default=CAPABILITY_ID, kw_only=True)
 
@@ -75,7 +63,7 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
         return None
 
     def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]:
-        """这五件工具的卡怎么画、结果用哪个渲染器画。组合根装配期取一次，合进那份注册表。"""
+        """供组合根合并的工具卡与结果渲染声明。"""
 
         return {
             "video_parser_md": lambda _args: GenericDisplay(summary="拆解参考片"),
@@ -111,7 +99,7 @@ def shot_video_capability(
     client: httpx.AsyncClient,
     policy: GenerationPolicy | None = None,
 ) -> ShotVideo[Any]:
-    """造一个镜头素材能力：这里是把这堆服务装成两段流水的唯一一处。"""
+    """装配素材提取与生成服务。"""
 
     return ShotVideo[Any](
         space=space,

@@ -62,7 +62,6 @@ async def test_root_updates_roles_grants_and_self_protection(
         assert promoted.status_code == 200
         assert promoted.json()["user"]["roles"] == ["editor"]
 
-        # 直接授权并入有效权限（角色并集 ∪ 直接授权）
         granted = await root.patch(
             f"/users/{other_id}", json={"directPermissions": ["analytics:read"]}
         )
@@ -71,7 +70,6 @@ async def test_root_updates_roles_grants_and_self_protection(
         assert user["directPermissions"] == ["analytics:read"]
         assert "analytics:read" in user["permissions"]
 
-        # 不能修改自己的授权 / 停用自己（wire 契约为 400）
         assert (
             await root.patch(f"/users/{root_id}", json={"roles": ["viewer"]})
         ).status_code == 400
@@ -84,12 +82,10 @@ async def test_root_updates_roles_grants_and_self_protection(
         assert deactivated.status_code == 200
         assert deactivated.json()["user"]["isActive"] is False
 
-    # 被停用用户的会话即时失效（下一次请求加载 active 用户失败）
     async with make_client(app) as member:
         login = await member.post(
             "/auth/login", data={"username": "member", "password": "password-123"}
         )
-        # fastapi-users 对停用用户直接拒绝登录
         assert login.status_code == 400
 
 
@@ -116,7 +112,7 @@ async def test_unknown_role_and_permission_rejected(
 async def test_deactivation_kills_live_cookie_session(
     app: FastAPI, client: httpx.AsyncClient, migrated_pg: str
 ) -> None:
-    """停用即时生效：已持有的活 cookie 会话在下一次请求即失效（不变量，非仅登录拒绝）。"""
+    """停用应使现有 cookie 会话在下一次请求失效，无需等待 JWT 到期。"""
 
     await register_and_login(client)
     await set_roles_in_db(migrated_pg, "luke@example.com", ["root"])
@@ -134,5 +130,4 @@ async def test_deactivation_kills_live_cookie_session(
         assert (
             await root.patch(f"/users/{member_id}", json={"isActive": False})
         ).status_code == 200
-        # 活会话下一次请求即 401，无需等 JWT 过期
         assert (await member.get("/users/me")).status_code == 401

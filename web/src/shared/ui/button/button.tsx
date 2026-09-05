@@ -28,7 +28,6 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
   VariantProps<typeof buttonVariants> & {
     children: ReactNode
     leadingIcon?: Parameters<typeof Icon>[0]['name']
-    // 转圈期间按钮保持禁用，避免同一动作被点第二次
     loading?: boolean
     trailingIcon?: Parameters<typeof Icon>[0]['name']
   }

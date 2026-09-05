@@ -11,11 +11,7 @@ from iclip.platform.object_store.oss import StoredObject
 
 
 class InMemoryAssetRepository:
-    """``AssetRepository`` 的内存替身。
-
-    ``register`` 照样幂等：那是这个端口的语义，替身少守一条，单测就测不出「客户端
-    重试登记两次」这类回归。
-    """
+    """AssetRepository 内存替身，保留 register 的幂等语义。"""
 
     def __init__(self, assets: list[Asset] | None = None) -> None:
         self.assets: dict[uuid.UUID, Asset] = {asset.id: asset for asset in assets or []}
@@ -48,11 +44,7 @@ class InMemoryAssetRepository:
 
 
 class FakeBucket:
-    """``PublicBucket`` 的内存替身：桶里有什么由测试直接摆。
-
-    ``put`` 就是「浏览器拿着签名地址传上去了」这件事的替身——真实路径里那一步不经过
-    我们的进程。
-    """
+    """PublicBucket 内存替身；put 模拟浏览器直传，测试负责填充对象。"""
 
     def __init__(self, *, base: str = "https://cdn.test") -> None:
         self.base = base
@@ -65,7 +57,6 @@ class FakeBucket:
         )
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
-        """转存那条路走的是这一件：字节确实经过我们的进程。"""
 
         self.put(object_key, content_type=content_type, size_bytes=len(content))
         return self.public_url(object_key)

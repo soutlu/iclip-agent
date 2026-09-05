@@ -1,6 +1,4 @@
-/**
- * 注册表实例的存放处。实例由 `app/` 层建并登记具体类型——宿主在 `shared/`，不认识任何 feature。
- */
+/** app 创建并注册具体类型，通过 Context 注入 shared 宿主。 */
 
 import { createContext } from 'react'
 import type { ArtifactRegistry } from './registry'

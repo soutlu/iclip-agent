@@ -1,7 +1,4 @@
-"""从拆解文档解析镜头区间，并在全片铺等间隔采样点。纯计算、零 I/O。
-
-同一份拆解文档必产出同一份候选帧，所以取帧能按内容做幂等复用。
-"""
+"""解析镜头区间并按全片等间隔采样。相同文档产生确定的候选帧，支持按内容幂等复用。"""
 
 from __future__ import annotations
 
@@ -54,14 +51,9 @@ class SampledCell:
 
 
 def parse_shot_rows(markdown: str) -> tuple[tuple[ShotSpan, ...], ...]:
-    """按结构层级分组解析逐镜时间区间。
+    """按拆解表结构分组解析镜头区间，shot_id 使用全文档顺序。
 
-    一个物理行就是拆解文档第 4 节表格的一行，也就是一个结构层级；分组只决定
-    预览板怎么分板。``shot_id`` 取全文档顺序，与分组无关。
-
-    只归一同一个值的不同写法，不推断缺失或有歧义的部分——在这里猜出来的时间戳
-    没人能复核，错了就是无声的错帧。
-    """
+    仅归一化等价写法，不推断缺失或歧义时间码，避免不可复核的错误帧。"""
 
     rows: list[tuple[ShotSpan, ...]] = []
     shot_id = 0
@@ -88,14 +80,9 @@ def parse_shot_rows(markdown: str) -> tuple[tuple[ShotSpan, ...], ...]:
 def sample_rows(
     rows: Sequence[Sequence[ShotSpan]], *, interval_ms: int = FRAME_INTERVAL_MS
 ) -> tuple[tuple[SampledCell, ...], ...]:
-    """在全片铺 ``0, interval, 2*interval, …`` 的采样栅格，每点落进覆盖它的镜头。
+    """按全片统一栅格采样，将采样点分配给覆盖它的镜头。
 
-    栅格是全片统一的，不按镜头对齐：改了镜头切分，已有候选帧不会整体位移。栅格
-    点即源帧下标，所以候选帧一律从这份等间隔帧里取。
-
-    短于一个间隔又不含栅格点的镜头没有候选帧，由调用方点名——补中点会得到一个
-    不在栅格上的时间戳，取不到对应源帧。
-    """
+    镜头切分变化不移动采样点；无采样点的短镜头不补中点，因为没有对应的等间隔源帧。"""
 
     if interval_ms <= 0:
         raise ValueError(f"采样间隔必须为正: {interval_ms}")
@@ -124,11 +111,7 @@ def parse_cell_id(cell_id: str) -> tuple[int, int]:
 
 
 def extraction_key(*, video_hash: str, rows: Sequence[Sequence[ShotSpan]], interval_ms: int) -> str:
-    """取帧幂等键。
-
-    取帧只依赖视频内容、镜头区间与采样间隔；参考图、全局参考设定与画幅是生成层
-    的输入，不进这个键。
-    """
+    """由视频内容、镜头区间与采样间隔派生幂等键，不包含参考图或画幅等生成参数。"""
 
     payload = json.dumps(
         {

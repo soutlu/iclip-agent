@@ -1,6 +1,4 @@
-/* 媒体芯片与它的悬停预览卡：输入框 pill 与用户气泡共用这一套（照 kimi 的 mention-tip）。 */
-
-/* ── 芯片内容（缩略图 / 图标 + 名字）── */
+/* 输入框与用户气泡共用媒体芯片和预览卡，参考 Kimi mention-tip。 */
 
 .media-chip-icon {
   display: inline-flex;
@@ -11,7 +9,7 @@
   align-self: center;
   flex-shrink: 0;
 }
-/* 气泡里的芯片落在 pre-wrap 正文中，nowrap 由自己带，否则长名字换行、省略号也不生效 */
+/* 覆盖正文继承的 pre-wrap，保证文件名保持单行且省略号生效。 */
 .media-chip-name {
   max-width: 24em;
   min-width: 0;
@@ -19,8 +17,6 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-
-/* ── 悬停卡：反色小卡，只随定位显隐 ── */
 
 .media-tip {
   padding: 4px 8px;
@@ -30,7 +26,7 @@
 .media-tip-media-card {
   padding: 6px;
 }
-/* 预览区：半透明描边 + 棋盘格兜底透明图（kimi --p-mention-tip-media-check-bg 的 token 化） */
+/* 棋盘格显示透明媒体区域，参考 Kimi --p-mention-tip-media-check-bg。 */
 .media-tip-preview {
   display: flex;
   flex-direction: column;
@@ -86,14 +82,13 @@
   background: color-mix(in srgb, var(--color-inverse-on-surface) 8%, transparent);
   color: color-mix(in srgb, var(--color-error) 70%, currentColor);
 }
-/* 卡内次级文字（图标、大小、状态行）：65% 墨色（kimi 的 currentColor 65% mix） */
+/* 次级文字参考 Kimi currentColor 65% 混合。 */
 .media-tip-ink {
   color: color-mix(in srgb, var(--color-inverse-on-surface) 65%, transparent);
 }
 .media-tip-danger {
   color: color-mix(in srgb, var(--color-error) 70%, var(--color-inverse-on-surface));
 }
-/* 「全屏查看」按钮（kimi 的 .mention-tip-media-open） */
 .media-tip-open {
   display: inline-flex;
   align-items: center;
@@ -119,7 +114,6 @@
 .media-tip-open:hover .lucide {
   color: var(--color-inverse-on-surface);
 }
-/* 小三角（kimi .mention-tip-caret）：12×6，上下两向 */
 .media-tip-caret {
   position: absolute;
   width: 12px;

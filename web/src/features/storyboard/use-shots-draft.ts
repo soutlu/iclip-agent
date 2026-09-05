@@ -1,16 +1,4 @@
-/**
- * `video_shot.json` 的草稿与保存：改了就存，带版本号，撞车了先看撞的是不是同一组。
- *
- * 服务端那份文件是事实源，这里只持有一份「基于第 N 版改出来的草稿」。用户每改一下（描述、秒数、
- * 帧）先落进草稿、记下改的是哪一组，停手片刻后整份 PUT 回去：
- *
- * - 成功：草稿成为新的基线，版本号跟着服务端。
- * - 409（版本对不上）：重拉最新。用户改过的那几组在最新版里如果与基线一样，说明别人改的是别的组，
- *   把我的改动重放到最新版上再存一次；只要有一组两边都改了，停下来让用户选。
- * - 422（形状不合规）：保存不下去，原文照实显示，草稿留着让用户改。
- *
- * 不静默覆盖：任何一条路都不会拿旧内容盖掉别人写的新内容。
- */
+/** 草稿基于服务端版本保存。409 后重拉：不同组修改自动重放，同组冲突由用户选择；422 保留草稿并显示错误。 */
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -19,7 +7,6 @@ import { readWorkspaceFile, workspaceQueryKeys, writeWorkspaceFile } from '@/sha
 import { validateShot } from './prompt-doc'
 import { parseShotsDocument, type Shot, type ShotsDocument } from './shots'
 
-/** 停手多久之后写回。 */
 const SAVE_DELAY_MS = 800
 
 export type ShotConflict = { index: number; mine: Shot | undefined; theirs: Shot | undefined }
@@ -29,7 +16,7 @@ export type SaveState =
   | { kind: 'saving' }
   | { kind: 'saved' }
   | { kind: 'error'; message: string }
-  /** 两边都改了同一组：等用户选留哪份。 */
+  /** 同组冲突等待用户选择版本。 */
   | { kind: 'conflict'; shots: ShotConflict[] }
 
 type Base = { version: number; document: ShotsDocument }
@@ -37,7 +24,6 @@ type Base = { version: number; document: ShotsDocument }
 type UseShotsDraftOptions = {
   conversationId: string
   path: string
-  /** 服务端那份文件；还没读到时是 undefined。 */
   file: { content: string; version: number } | undefined
 }
 
@@ -47,7 +33,6 @@ const sameShot = (left: Shot | undefined, right: Shot | undefined) =>
 const shotOf = (document: ShotsDocument, index: number) =>
   document.shots.find((shot) => shot.index === index)
 
-/** 把我改过的那几组放到别人的最新版上。 */
 const replay = (latest: ShotsDocument, mine: ShotsDocument, dirty: Set<number>): ShotsDocument => ({
   ...latest,
   shots: latest.shots.map((shot) =>
@@ -55,37 +40,29 @@ const replay = (latest: ShotsDocument, mine: ShotsDocument, dirty: Set<number>):
   ),
 })
 
-/**
- * 管一份镜头组 prompt 表的草稿。
- *
- * @param options - 哪段对话的哪个文件，以及服务端那份的当前内容。
- * @returns 当前该显示的文档、改一组的方法、保存状态与冲突的处置。
- */
 export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptions) => {
   const queryClient = useQueryClient()
   const parsed = useMemo(
     () => (file === undefined ? null : parseShotsDocument(file.content)),
     [file],
   )
-  // 用户改出来的那份；没改过就是 null，界面直接显示服务端那份
+  // 无本地草稿时直接显示服务端文档。
   const [edited, setEdited] = useState<ShotsDocument | null>(null)
   const [state, setState] = useState<SaveState>({ kind: 'idle' })
-  // 保存这条路上的账本都在 ref 里：写回是异步的，读的必须是此刻的值而不是某次渲染的快照
+  // 异步保存通过 ref 读取最新草稿与版本，避免使用旧渲染快照。
   const ledgerRef = useRef({
     base: null as Base | null,
     dirty: new Set<number>(),
     edited: null as ShotsDocument | null,
     latest: null as Base | null,
-    // 自己写出去的那些版本号：文件版本变了但在这里面，就不是别人改的
     own: new Set<number>(),
     saving: false,
     timer: null as ReturnType<typeof setTimeout> | null,
   })
 
-  /** 这个版本是不是自己写出去的。界面据此决定要不要标「agent 刚改过」。 */
   const wroteVersion = useCallback((version: number) => ledgerRef.current.own.has(version), [])
 
-  // 服务端那份变了：手上没有未存的改动就以它为基线；有的话留给保存那一步去撞版本号，不在这里丢改动
+  // 服务端更新只替换未修改的基线；未保存草稿交由版本冲突流程处理。
   useEffect(() => {
     const book = ledgerRef.current
     if (file === undefined || parsed === null || book.dirty.size > 0) return
@@ -113,14 +90,13 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
 
     const write = async (toSave: ShotsDocument, expectedVersion: number) => {
       const saved = await writeWorkspaceFile(conversationId, {
-        // 落文件的写法与工具一致：两格缩进
         content: JSON.stringify(toSave, null, 2),
         expectedVersion,
         path,
       })
       book.base = { document: toSave, version: saved.file.version }
       book.own.add(saved.file.version)
-      // 存的过程中用户又改了：脏标记与草稿留给下一轮；没改就回到「显示服务端那份」
+      // 保存期间若仍有编辑，保留草稿和脏标记供下一次保存。
       if (book.edited === toSave) {
         book.dirty.clear()
         book.edited = null
@@ -139,7 +115,6 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
         setState({ kind: 'error', message: error instanceof Error ? error.message : '保存失败' })
         return
       }
-      // 版本对不上：拉最新的来比
       try {
         const latestFile = await queryClient.fetchQuery({
           queryFn: ({ signal }) => readWorkspaceFile(conversationId, path, signal),
@@ -185,7 +160,6 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     book.timer = setTimeout(() => void saveNow(), SAVE_DELAY_MS)
   }, [saveNow])
 
-  /** 用户改了一组：落进草稿、记下脏标记、排队保存。 */
   const updateShot = useCallback(
     (next: Shot) => {
       const book = ledgerRef.current
@@ -204,7 +178,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     [scheduleSave],
   )
 
-  /** 撞车之后用户的选择：留我的（重放到最新版上再存），或用最新的（丢掉我这几组的改动）。 */
+  /** 保留本地时重放到最新版；采用服务端时丢弃冲突组的本地修改。 */
   const resolveConflict = useCallback(
     (choice: 'mine' | 'theirs') => {
       const book = ledgerRef.current
@@ -228,7 +202,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     [saveNow],
   )
 
-  // 离开时还有没存的就立刻存一次，不等停手计时
+  // 卸载前立即保存未提交的草稿。
   useEffect(() => {
     const book = ledgerRef.current
     return () => {
