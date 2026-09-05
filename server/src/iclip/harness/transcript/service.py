@@ -185,6 +185,9 @@ class TranscriptService:
         if (await self.queue.view(conversation_id)).active is not None:
             # 占用状态以持久化队列为准，进程内实时状态无法覆盖重启和其他 worker。
             meta = meta.model_copy(update={"activity": "turn"})
+        elif meta.activity is None:
+            # 刷新后没有实时状态：没在跑就是闲着，与实时收尾发的 idle 一致。
+            meta = meta.model_copy(update={"activity": "idle"})
         return TranscriptPage(
             agent_id=agent_id,
             items=items,
@@ -247,11 +250,14 @@ def _timeline(
 def _tasks(
     derived: tuple[TranscriptTask, ...], live: tuple[TranscriptTask, ...]
 ) -> tuple[TranscriptTask, ...]:
-    """合并历史与实时任务，同 id 以实时状态为准；交接后的轮次只剩历史那一份。"""
+    """合并历史与实时任务，同 id 以实时状态为准；交接后的轮次只剩历史那一份。
+
+    按 task_id 排序：子运行 id 是 UUID7，按创建时间有序，两条路才不因并发派出的先后而不同。
+    """
 
     merged = {item.task_id: item for item in derived}
     merged.update({item.task_id: item for item in live})
-    return tuple(merged.values())
+    return tuple(sorted(merged.values(), key=lambda item: item.task_id))
 
 
 def _interactions(

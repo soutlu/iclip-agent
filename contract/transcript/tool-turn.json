@@ -1,0 +1,505 @@
+{
+  "ws": [
+    {
+      "type": "transcript.reset",
+      "payload": {
+        "agent_id": "main",
+        "snapshot": {
+          "items": [],
+          "tasks": [],
+          "interactions": [],
+          "todos": [],
+          "prompts": [
+            {
+              "promptId": "<id-1>",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "先看简报再拆"
+                }
+              ],
+              "createdAt": "<ts>",
+              "finishedAt": "<ts>"
+            }
+          ],
+          "meta": {
+            "activity": "idle"
+          },
+          "hasMoreOlder": true
+        },
+        "has_more_older": true,
+        "seq": 13
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 1,
+        "ops": [
+          {
+            "op": "prompt.upsert",
+            "prompt": {
+              "promptId": "<id-1>",
+              "status": "running",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "先看简报再拆"
+                }
+              ],
+              "createdAt": "<ts>"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 2,
+        "ops": [
+          {
+            "op": "turn.upsert",
+            "turn": {
+              "kind": "turn",
+              "turnId": "t1",
+              "ordinal": 1,
+              "state": "running",
+              "origin": {
+                "kind": "user"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "先看简报再拆"
+                }
+              ],
+              "startedAt": "<ts>"
+            }
+          },
+          {
+            "op": "meta.merge",
+            "meta": {
+              "activity": "turn"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 3,
+        "ops": [
+          {
+            "op": "step.upsert",
+            "turnId": "t1",
+            "step": {
+              "kind": "step",
+              "stepId": "t1.1",
+              "turnId": "t1",
+              "ordinal": 1,
+              "state": "running",
+              "startedAt": "<ts>"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 4,
+        "ops": [
+          {
+            "op": "step.upsert",
+            "turnId": "t1",
+            "step": {
+              "kind": "step",
+              "stepId": "t1.1",
+              "turnId": "t1",
+              "ordinal": 1,
+              "state": "completed",
+              "startedAt": "<ts>",
+              "endedAt": "<ts>"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 5,
+        "ops": [
+          {
+            "op": "frame.upsert",
+            "turnId": "t1",
+            "stepId": "t1.1",
+            "frame": {
+              "kind": "tool",
+              "frameId": "t1.1.call_read",
+              "toolCallId": "call_read",
+              "name": "Read",
+              "state": "running",
+              "input": "{\"path\": \"brief.md\"}",
+              "display": {
+                "kind": "file_io",
+                "operation": "read",
+                "path": "brief.md"
+              },
+              "view": "file_content"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 6,
+        "ops": [
+          {
+            "op": "frame.upsert",
+            "turnId": "t1",
+            "stepId": "t1.1",
+            "frame": {
+              "kind": "tool",
+              "frameId": "t1.1.call_read",
+              "toolCallId": "call_read",
+              "name": "Read",
+              "state": "done",
+              "input": "{\"path\": \"brief.md\"}",
+              "output": "# 简报\n运动鞋，三组镜头。",
+              "display": {
+                "kind": "file_io",
+                "operation": "read",
+                "path": "brief.md"
+              },
+              "view": "file_content",
+              "metadata": {
+                "path": "brief.md",
+                "lines": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 7,
+        "ops": [
+          {
+            "op": "step.upsert",
+            "turnId": "t1",
+            "step": {
+              "kind": "step",
+              "stepId": "t1.2",
+              "turnId": "t1",
+              "ordinal": 2,
+              "state": "running",
+              "startedAt": "<ts>"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 8,
+        "ops": [
+          {
+            "op": "frame.upsert",
+            "turnId": "t1",
+            "stepId": "t1.2",
+            "frame": {
+              "kind": "text",
+              "frameId": "t1.2.f1",
+              "role": "assistant",
+              "text": ""
+            }
+          },
+          {
+            "op": "append",
+            "target": {
+              "type": "frame",
+              "turnId": "t1",
+              "stepId": "t1.2",
+              "frameId": "t1.2.f1"
+            },
+            "offset": 0,
+            "text": "读完了，开拆。"
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 9,
+        "ops": [
+          {
+            "op": "frame.upsert",
+            "turnId": "t1",
+            "stepId": "t1.2",
+            "frame": {
+              "kind": "text",
+              "frameId": "t1.2.f1",
+              "role": "assistant",
+              "text": "读完了，开拆。"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 10,
+        "ops": [
+          {
+            "op": "step.upsert",
+            "turnId": "t1",
+            "step": {
+              "kind": "step",
+              "stepId": "t1.2",
+              "turnId": "t1",
+              "ordinal": 2,
+              "state": "completed",
+              "startedAt": "<ts>",
+              "endedAt": "<ts>"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 11,
+        "ops": [
+          {
+            "op": "step.upsert",
+            "turnId": "t1",
+            "step": {
+              "kind": "step",
+              "stepId": "t1.1",
+              "turnId": "t1",
+              "ordinal": 1,
+              "state": "completed",
+              "startedAt": "<ts>",
+              "endedAt": "<ts>",
+              "usage": {
+                "inputOther": 50,
+                "output": 5,
+                "inputCacheRead": 0,
+                "inputCacheCreation": 0
+              }
+            }
+          },
+          {
+            "op": "step.upsert",
+            "turnId": "t1",
+            "step": {
+              "kind": "step",
+              "stepId": "t1.2",
+              "turnId": "t1",
+              "ordinal": 2,
+              "state": "completed",
+              "startedAt": "<ts>",
+              "endedAt": "<ts>",
+              "usage": {
+                "inputOther": 50,
+                "output": 1,
+                "inputCacheRead": 0,
+                "inputCacheCreation": 0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 12,
+        "ops": [
+          {
+            "op": "turn.upsert",
+            "turn": {
+              "kind": "turn",
+              "turnId": "t1",
+              "ordinal": 1,
+              "state": "completed",
+              "origin": {
+                "kind": "user"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "先看简报再拆"
+                }
+              ],
+              "startedAt": "<ts>",
+              "endedAt": "<ts>",
+              "usage": {
+                "inputTokens": 100,
+                "outputTokens": 6,
+                "cachedTokens": 0
+              }
+            }
+          },
+          {
+            "op": "meta.merge",
+            "meta": {
+              "activity": "idle"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "transcript.ops",
+      "payload": {
+        "agent_id": "main",
+        "seq": 13,
+        "ops": [
+          {
+            "op": "prompt.upsert",
+            "prompt": {
+              "promptId": "<id-1>",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "先看简报再拆"
+                }
+              ],
+              "createdAt": "<ts>",
+              "finishedAt": "<ts>"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "rest": {
+    "agent_id": "main",
+    "items": [
+      {
+        "kind": "turn",
+        "turnId": "t1",
+        "ordinal": 1,
+        "state": "completed",
+        "origin": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "先看简报再拆"
+          }
+        ],
+        "startedAt": "<ts>",
+        "endedAt": "<ts>",
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 6,
+          "cachedTokens": 0
+        },
+        "steps": [
+          {
+            "kind": "step",
+            "stepId": "t1.1",
+            "turnId": "t1",
+            "ordinal": 1,
+            "state": "completed",
+            "startedAt": "<ts>",
+            "endedAt": "<ts>",
+            "usage": {
+              "inputOther": 50,
+              "output": 5,
+              "inputCacheRead": 0,
+              "inputCacheCreation": 0
+            },
+            "frames": [
+              {
+                "kind": "tool",
+                "frameId": "t1.1.call_read",
+                "toolCallId": "call_read",
+                "name": "Read",
+                "state": "done",
+                "input": "{\"path\": \"brief.md\"}",
+                "output": "# 简报\n运动鞋，三组镜头。",
+                "display": {
+                  "kind": "file_io",
+                  "operation": "read",
+                  "path": "brief.md"
+                },
+                "view": "file_content",
+                "metadata": {
+                  "path": "brief.md",
+                  "lines": 2
+                }
+              }
+            ]
+          },
+          {
+            "kind": "step",
+            "stepId": "t1.2",
+            "turnId": "t1",
+            "ordinal": 2,
+            "state": "completed",
+            "startedAt": "<ts>",
+            "endedAt": "<ts>",
+            "usage": {
+              "inputOther": 50,
+              "output": 1,
+              "inputCacheRead": 0,
+              "inputCacheCreation": 0
+            },
+            "frames": [
+              {
+                "kind": "text",
+                "frameId": "t1.2.f1",
+                "role": "assistant",
+                "text": "读完了，开拆。"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "has_more": false,
+    "tasks": [],
+    "interactions": [],
+    "todos": [],
+    "meta": {
+      "activity": "idle"
+    },
+    "title": "",
+    "agents": [
+      {
+        "agentId": "main",
+        "type": "main"
+      }
+    ],
+    "pending_interactions": []
+  }
+}

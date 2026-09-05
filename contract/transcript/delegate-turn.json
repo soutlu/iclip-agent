@@ -1,0 +1,126 @@
+{
+  "rest": {
+    "agent_id": "main",
+    "items": [
+      {
+        "kind": "turn",
+        "turnId": "t1",
+        "ordinal": 1,
+        "state": "completed",
+        "origin": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "给这条视频做分镜"
+          }
+        ],
+        "startedAt": "<ts>",
+        "endedAt": "<ts>",
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 9,
+          "cachedTokens": 0
+        },
+        "steps": [
+          {
+            "kind": "step",
+            "stepId": "t1.1",
+            "turnId": "t1",
+            "ordinal": 1,
+            "state": "completed",
+            "startedAt": "<ts>",
+            "endedAt": "<ts>",
+            "usage": {
+              "inputOther": 50,
+              "output": 8,
+              "inputCacheRead": 0,
+              "inputCacheCreation": 0
+            },
+            "frames": [
+              {
+                "kind": "tool",
+                "frameId": "t1.1.call_d1",
+                "toolCallId": "call_d1",
+                "name": "delegate_task",
+                "state": "done",
+                "input": "{\"agent_name\": \"shot-writer\", \"task\": \"写第 3 组的三个镜头\"}",
+                "output": "S3-1 特写；S3-2 中景；S3-3 全景",
+                "display": {
+                  "kind": "agent_call",
+                  "agent_name": "shot-writer",
+                  "prompt": "写第 3 组的三个镜头"
+                },
+                "agentRefs": [
+                  {
+                    "agentId": "<id-1>",
+                    "role": "child"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "step",
+            "stepId": "t1.2",
+            "turnId": "t1",
+            "ordinal": 2,
+            "state": "completed",
+            "startedAt": "<ts>",
+            "endedAt": "<ts>",
+            "usage": {
+              "inputOther": 50,
+              "output": 1,
+              "inputCacheRead": 0,
+              "inputCacheCreation": 0
+            },
+            "frames": [
+              {
+                "kind": "text",
+                "frameId": "t1.2.f1",
+                "role": "assistant",
+                "text": "都写完了"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "has_more": false,
+    "tasks": [
+      {
+        "taskId": "<id-1>",
+        "kind": "subagent",
+        "state": "completed",
+        "detached": false,
+        "description": "shot-writer",
+        "agentId": "<id-1>",
+        "outputTail": "",
+        "startedAt": "<ts>",
+        "endedAt": "<ts>",
+        "resultSummary": "S3-1 特写；S3-2 中景；S3-3 全景"
+      }
+    ],
+    "interactions": [],
+    "todos": [],
+    "meta": {
+      "activity": "idle"
+    },
+    "title": "",
+    "agents": [
+      {
+        "agentId": "main",
+        "type": "main"
+      },
+      {
+        "agentId": "<id-1>",
+        "type": "sub",
+        "parentAgentId": "main",
+        "label": "shot-writer",
+        "createdAt": "<ts>"
+      }
+    ],
+    "pending_interactions": []
+  }
+}
