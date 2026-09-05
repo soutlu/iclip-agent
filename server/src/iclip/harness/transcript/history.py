@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -91,14 +91,17 @@ class TranscriptHistory:
         for run_id in run_ids:
             events = await self.store.list_events(run_id=run_id)
             states[run_id] = run_state_from_events(events)
-            errors[run_id] = run_error_from_events(events)
+            # 取消不是错误：实时侧的 cancelled 轮不带 error，这里也不把 CancelledError 当错误文本。
+            errors[run_id] = (
+                None if states[run_id] == "cancelled" else run_error_from_events(events)
+            )
         of_run = await self.prompt_runs.prompt_of_runs(conversation_id)
         status_of_run = await self.prompt_runs.prompt_status_of_runs(conversation_id)
         subagent_of_call = await self._subagent_of_call(snapshot.messages)
         tasks = tasks_from_messages(
             snapshot.messages,
             subagent_of_call=subagent_of_call,
-            child_runs=await self._child_runs(run_ids),
+            child_runs=await self._child_runs(run_ids, states),
         )
         return TranscriptHistoryView(
             turns=turns_from_messages(
@@ -140,8 +143,14 @@ class TranscriptHistory:
                     found[part.tool_call_id] = effect.effect_summary
         return found
 
-    async def _child_runs(self, run_ids: Sequence[str]) -> tuple[ChildRun, ...]:
-        """按运行血缘取本对话每个 run 的下属运行；终态与结束时间来自它们自己的事件。"""
+    async def _child_runs(
+        self, run_ids: Sequence[str], parent_states: Mapping[str, TurnState]
+    ) -> tuple[ChildRun, ...]:
+        """按运行血缘取本对话每个 run 的下属运行；终态与结束时间来自它们自己的事件。
+
+        父运行被停止时子运行收到的是 asyncio 取消，官方不会给它写终态事件；
+        这种没有自己终态的子运行随父运行算 cancelled，与实时侧的 killed 对上。
+        """
 
         if self.delegate_tool is None:
             return ()
@@ -149,13 +158,17 @@ class TranscriptHistory:
         for run_id in run_ids:
             for record in await self.store.list_runs(parent_run_id=run_id):
                 events = await self.store.list_events(run_id=record.run_id)
+                ended = any(event.kind in {"run_completed", "run_failed"} for event in events)
+                state = run_state_from_events(events)
+                if not ended and parent_states.get(run_id) == "cancelled":
+                    state = "cancelled"
                 children.append(
                     ChildRun(
                         run_id=record.run_id,
                         agent_name=record.metadata.get("agent_name"),
                         started_at=record.started_at,
                         ended_at=events[-1].timestamp if events else None,
-                        state=run_state_from_events(events),
+                        state=state,
                     )
                 )
         return tuple(children)

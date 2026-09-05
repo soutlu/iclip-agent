@@ -22,6 +22,7 @@ from pydantic_ai.messages import (
     FunctionToolResultEvent,
     ModelMessage,
     ModelResponse,
+    PartStartEvent,
     RetryPromptPart,
     TextPart,
     TextPartDelta,
@@ -108,6 +109,11 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     """与历史投影共享的工具展示规则。"""
 
     _started_at: str = field(default_factory=_now, init=False)
+    _step_started_at: str | None = field(default=None, init=False)
+    """当前步开始的时间；历史侧取的是这一步之前那条请求的时间，两边都有值才对得上。"""
+    _in_response: bool = field(default=False, init=False)
+    _pending_step_break: bool = field(default=False, init=False)
+    """插话让模型在同一次 run 里再答一次，中间没有工具调用，基类不会换步，下个 part 开始时自己换。"""
     _step_ordinal: int = field(default=0, init=False)
     _frame_ids: list[str] = field(default_factory=list[str], init=False)
     """当前步骤的块 id，用于分配后续正文与思考块序号。"""
@@ -229,6 +235,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
 
     async def before_response(self) -> AsyncIterator[OpsBatch]:
         self._step_ordinal += 1
+        self._step_started_at = _now()
+        self._in_response = True
         self._frame_ids = []
         ops: list[EmittableOperation] = [
             StepUpsertOp(turn_id=self.turn_id, step=self._step(state="running"))
@@ -246,6 +254,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             return
         header = self._step(state="completed")
         self._step_headers.append(header)
+        self._in_response = False
         yield (StepUpsertOp(turn_id=self.turn_id, step=header),)
 
     async def handle_run_result(self, event: AgentRunResultEvent[Any]) -> AsyncIterator[OpsBatch]:
@@ -288,6 +297,18 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             yield tuple(ops)
 
     # --- 正文与思考 ---------------------------------------------------------
+
+    async def handle_part_start(self, event: PartStartEvent) -> AsyncIterator[OpsBatch]:
+        """插话后的重定向响应前面没有工具调用，基类不会换步；这里先收上一步、开下一步。"""
+
+        if self._pending_step_break:
+            self._pending_step_break = False
+            async for batch in self.after_response():
+                yield batch
+            async for batch in self.before_response():
+                yield batch
+        async for batch in super().handle_part_start(event):
+            yield batch
 
     async def handle_text_start(
         self, part: TextPart, follows_text: bool = False
@@ -390,6 +411,10 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         if isinstance(part, RetryPromptPart):
             outcome = None
             state, output, metadata, error = "error", None, None, str(part.content)
+        elif part.outcome == "interrupted":
+            # 框架补的中断返回不进快照，历史只能按孤儿卡收尾；实时也用同一句，两条路才一致。
+            outcome = part.outcome
+            state, output, metadata, error = "error", None, None, ORPHAN_TOOL_ERROR
         else:
             outcome = part.outcome
             state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
@@ -424,7 +449,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
                     ),
                     "ended_at": _now(),
                     "result_summary": str(part.content) if state == "done" else None,
-                    "error": None if state == "done" else str(part.content),
+                    # 被停的任务没有错误文本，历史侧从子运行事件也推不出一句来。
+                    "error": None if state == "done" or outcome == "interrupted" else error,
                 }
             )
             self._subagent_tasks[part.tool_call_id] = settled
@@ -499,6 +525,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         if self._step_ordinal == 0:
             self._pending_steers.extend(said)
             return
+        if self._in_response:
+            self._pending_step_break = True
         ops: list[EmittableOperation] = []
         for content in said:
             ops.extend(self._user_frame(content))
@@ -537,6 +565,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             turn_id=self.turn_id,
             ordinal=max(self._step_ordinal, 1),
             state=state,  # pyright: ignore[reportArgumentType]
+            started_at=self._step_started_at,
             ended_at=None if state == "running" else _now(),
         )
 

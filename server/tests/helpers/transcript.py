@@ -1,13 +1,28 @@
-"""transcript 测试替身与两条路的骨架比较。"""
+"""transcript 测试替身、两条路的归一化比对与金样。"""
 
 from __future__ import annotations
 
+import difflib
+import json
+import os
+import re
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, InMemoryStepStore
 
+from iclip.harness.transcript.history import TranscriptHistory
+from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
-from iclip.platform.transcript.ops import TranscriptTurn
+from iclip.harness.transcript.subscription import subscribe_frames
+from iclip.platform.transcript.display import ToolDisplayRegistry
+from iclip.platform.transcript.ops import MAIN_AGENT_ID
+from iclip.platform.transcript.wire import TranscriptPage
+
+GOLDEN_DIR = Path(__file__).resolve().parents[3] / "contract" / "transcript"
+"""金样放在跨端合同目录，前端测试读同一份。"""
 
 
 class InMemoryConversationSnapshots(InMemoryStepStore):
@@ -43,52 +58,196 @@ class NoPromptRuns:
         return {}
 
 
-def skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
-    """轮、步、块的可比结构；忽略时间与用量，其余两条路必须逐字相等。"""
+# --- 归一化 -----------------------------------------------------------------
 
-    return [
-        {
-            "turn": (turn.turn_id, turn.ordinal, turn.state, turn.content),
-            "steps": [
-                {
-                    "step": (step.step_id, step.ordinal, step.state),
-                    "frames": [
-                        (
-                            frame.frame_id,
-                            frame.kind,
-                            getattr(frame, "text", None),
-                            getattr(frame, "role", None),
-                            getattr(frame, "content", None),
-                            getattr(frame, "state", None),
-                            # 比较完整工具卡，覆盖参数、display、renderer 和 metadata 的遗漏。
-                            getattr(frame, "input", None),
-                            getattr(frame, "display", None),
-                            getattr(frame, "view", None),
-                            getattr(frame, "metadata", None),
-                            getattr(frame, "agent_refs", None),
-                            # 比较压缩提示内容，避免仅 id 和类型相同而正文不同。
-                            getattr(frame, "message", None),
-                            getattr(frame, "detail", None),
-                        )
-                        for frame in step.frames
-                    ],
-                }
-                for step in turn.steps
-            ],
-        }
-        for turn in turns
-    ]
+_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_SHORT_ID = re.compile(r"^(?:[a-z_]+-[0-9a-f]{8}|prm_[0-9a-f]{8,})$")
+"""runner 铸的 run id（storyboard-1a2b3c4d）、测试铸的会话 id（c-…）与 prompt id。"""
 
 
-def replay(
-    live: TranscriptStore, conversation_id: str, agent_id: str
-) -> tuple[TranscriptTurn, ...]:
-    """从补发日志重放这条流的轮次；轮次交接后实时状态已释放，日志仍在。"""
+class Normalizer:
+    """把时间与随机 id 换成占位，同一个原值全程换成同一个占位。"""
+
+    def __init__(self) -> None:
+        self._ids: dict[str, str] = {}
+
+    def __call__(self, value: Any) -> Any:
+        if isinstance(value, BaseModel):
+            return self(value.model_dump(by_alias=True, exclude_none=True))
+        if isinstance(value, dict):
+            return {key: self._field(key, item) for key, item in value.items()}
+        if isinstance(value, list | tuple):
+            return [self(item) for item in value]
+        if isinstance(value, str):
+            return self._scalar(value)
+        return value
+
+    def _field(self, key: str, value: Any) -> Any:
+        if key == "durationMs":
+            return "<ms>"
+        return self(value)
+
+    def _scalar(self, value: str) -> str:
+        if _TIMESTAMP.match(value):
+            return "<ts>"
+        if _UUID.match(value) or _SHORT_ID.match(value):
+            return self._ids.setdefault(value, f"<id-{len(self._ids) + 1}>")
+        return value
+
+
+def normalize(value: Any) -> Any:
+    return Normalizer()(value)
+
+
+def comparable(page: TranscriptPage) -> dict[str, Any]:
+    """两条路能比的那部分：seq 是店的水位、prompts 只有实时店有，meta 只比 activity。
+
+    失败或取消的轮不比用量：官方在这两种收尾里不发结果事件，实时侧填不上用量，刷新后才有。
+    这是已知差异，不是两条路的结构分叉。
+    """
+
+    data = page.model_dump(by_alias=True, exclude_none=True)
+    data.pop("seq", None)
+    data.pop("prompts", None)
+    meta = data.get("meta", {})
+    data["meta"] = {"activity": meta.get("activity")}
+    for turn in data.get("items", ()):
+        if turn.get("kind") == "turn" and turn.get("state") in {"failed", "cancelled"}:
+            turn.pop("usage", None)
+            for step in turn.get("steps", ()):
+                step.pop("usage", None)
+    return normalize(data)
+
+
+# --- 两条路 -----------------------------------------------------------------
+
+
+def _service(
+    store: TranscriptStore, history: TranscriptHistory, queue: Any, runner: Any
+) -> TranscriptService:
+    async def records_nothing(*_args: Any) -> None:
+        return None
+
+    return TranscriptService(
+        store=store,
+        history=history,
+        queue=queue,
+        runner=runner,
+        context_limits={},
+        record_materials=records_nothing,
+    )
+
+
+async def live_page(
+    store: TranscriptStore,
+    conversation_id: str,
+    agent_id: str,
+    *,
+    queue: Any,
+    runner: Any,
+    display: ToolDisplayRegistry,
+    runtime_agent_id: str,
+) -> TranscriptPage:
+    """客户端实时收到的东西：把补发日志重放进一个新店，用空历史读出一页。"""
 
     replayed = TranscriptStore()
-    for batch in live.subscribe_view(conversation_id, agent_id, since=0).batches:
+    for batch in store.subscribe_view(conversation_id, agent_id, since=0).batches:
         replayed.append(conversation_id, agent_id, batch.ops)
-    return replayed.subscribe_view(conversation_id, agent_id).live_turns
+    history = TranscriptHistory(InMemoryConversationSnapshots(), NoPromptRuns(), display)
+    return await _service(replayed, history, queue, runner).page(
+        conversation_id, agent_id=agent_id, runtime_agent_id=runtime_agent_id
+    )
 
 
-__all__ = ["InMemoryConversationSnapshots", "NoPromptRuns", "replay", "skeleton"]
+async def cold_page(
+    step_store: Any,
+    conversation_id: str,
+    agent_id: str,
+    *,
+    queue: Any,
+    runner: Any,
+    display: ToolDisplayRegistry,
+    runtime_agent_id: str,
+    delegate_tool: str | None,
+) -> TranscriptPage:
+    """刷新后看到的东西：空的实时店，全靠持久化重建。"""
+
+    history = TranscriptHistory(step_store, queue, display, delegate_tool)
+    return await _service(TranscriptStore(), history, queue, runner).page(
+        conversation_id, agent_id=agent_id, runtime_agent_id=runtime_agent_id
+    )
+
+
+def ws_frames(
+    store: TranscriptStore, conversation_id: str, agent_id: str = MAIN_AGENT_ID
+) -> list[Any]:
+    """这条流从订阅起会收到的全部帧：一帧 reset，之后每批一帧 ops。"""
+
+    view = store.subscribe_view(conversation_id, agent_id, since=0)
+    frames: list[Any] = [
+        {"type": "transcript.reset", "payload": frame.model_dump(by_alias=True, exclude_none=True)}
+        for frame in subscribe_frames(view, agent_id=agent_id, since=None)
+    ]
+    for batch in view.batches:
+        frames.append(
+            {
+                "type": "transcript.ops",
+                "payload": {
+                    "agent_id": agent_id,
+                    "seq": batch.seq,
+                    "ops": [op.model_dump(by_alias=True, exclude_none=True) for op in batch.ops],
+                },
+            }
+        )
+    return frames
+
+
+# --- 金样 -------------------------------------------------------------------
+
+
+def check_golden(name: str, sample: Any) -> None:
+    """与 contract/transcript/<name>.json 比对；UPDATE_GOLDEN=1 时改写文件。"""
+
+    path = GOLDEN_DIR / f"{name}.json"
+    rendered = json.dumps(sample, ensure_ascii=False, indent=2, sort_keys=False) + "\n"
+    if os.environ.get("UPDATE_GOLDEN") == "1":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rendered, encoding="utf-8")
+        return
+    expected = path.read_text(encoding="utf-8")
+    if expected != rendered:
+        diff = "".join(
+            difflib.unified_diff(
+                expected.splitlines(keepends=True),
+                rendered.splitlines(keepends=True),
+                fromfile=str(path),
+                tofile="现在跑出来的",
+            )
+        )
+        raise AssertionError(f"金样 {name} 变了，确认是有意为之再用 UPDATE_GOLDEN=1 更新：\n{diff}")
+
+
+def frames_of(page: TranscriptPage, turn_id: str, step_id: str) -> Sequence[Any]:
+    for turn in page.items:
+        if turn.turn_id != turn_id:
+            continue
+        for step in turn.steps:
+            if step.step_id == step_id:
+                return step.frames
+    raise AssertionError(f"没有 {step_id}")
+
+
+__all__ = [
+    "GOLDEN_DIR",
+    "InMemoryConversationSnapshots",
+    "NoPromptRuns",
+    "Normalizer",
+    "check_golden",
+    "cold_page",
+    "comparable",
+    "frames_of",
+    "live_page",
+    "normalize",
+    "ws_frames",
+]

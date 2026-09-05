@@ -542,7 +542,18 @@ def _settle_tools(
     """回填工具结果；RetryPromptPart 作为失败结果关闭工具卡。"""
 
     for part in message.parts:
-        if isinstance(part, ToolReturnPart):
+        if isinstance(part, ToolReturnPart) and part.outcome == "interrupted":
+            # 框架补的中断返回与没有返回的孤儿卡是同一回事，用同一句收尾，实时侧也这么写。
+            _replace_tool(
+                part.tool_call_id,
+                tool_frames,
+                frames_by_step,
+                state="error",
+                output=None,
+                metadata=None,
+                error=ORPHAN_TOOL_ERROR,
+            )
+        elif isinstance(part, ToolReturnPart):
             state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
             _replace_tool(
                 part.tool_call_id,
