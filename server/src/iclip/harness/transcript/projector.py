@@ -7,7 +7,7 @@ DeferredToolRequests 仅结束当前 run，不发轮次终态；历史与审批�
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import KW_ONLY, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -81,6 +81,14 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _millis_since(started_at: str, ended_at: datetime) -> int:
+    return int((ended_at - datetime.fromisoformat(started_at)).total_seconds() * 1000)
+
+
+_Steer = tuple[tuple[PromptContent, ...], tuple[str, ...] | None]
+"""一条插话：内容，以及它来自哪条消息（对不上时为 None）。"""
+
+
 def _step_of(card: ToolFrame) -> str:
     """工具卡所在的步；卡的 id 是 <stepId>.<toolCallId>，据此回推，不依赖当前步号。"""
 
@@ -100,6 +108,10 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     """当前 run id，用于匹配响应与步骤用量。"""
     content: tuple[PromptContent, ...] = ()
     """轮次输入的原始 part 列表。"""
+    prompt_id: str | None = None
+    """发起本轮的消息 id；子代理的轮没有。"""
+    steered: Mapping[str, str] = field(default_factory=dict)
+    """enqueue_id → 消息 id。运行器递入插话时往同一个字典里写，插话块据此标 promptIds。"""
     max_context_tokens: int | None = None
     resume_from: TranscriptTurn | None = None
     """历史重建的续跑基线，新步骤从末步继续编号。"""
@@ -128,9 +140,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
     """按 toolCallId 保存本轮派出的子代理任务，供结果与轮次终态收尾。"""
     _step_headers: list[StepHeader] = field(default_factory=list[StepHeader], init=False)
     """保留步骤头部，补充用量时不覆盖时间。"""
-    _pending_steers: list[tuple[PromptContent, ...]] = field(
-        default_factory=list[tuple[PromptContent, ...]], init=False
-    )
+    _pending_steers: list[_Steer] = field(default_factory=list[_Steer], init=False)
     """尚无步骤承载的插话，插入下一步骤开头。"""
     _settled_calls: set[str] = field(default_factory=set[str], init=False)
     """已有结果的工具调用，供结束时识别未完成调用。"""
@@ -244,8 +254,8 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         if self._pending_summary is not None:
             ops.append(self._compaction_frame(self._pending_summary))
             self._pending_summary = None
-        for said in self._pending_steers:
-            ops.extend(self._user_frame(said))
+        for said, prompt_ids in self._pending_steers:
+            ops.extend(self._user_frame(said, prompt_ids))
         self._pending_steers.clear()
         yield tuple(ops)
 
@@ -371,11 +381,14 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         self._tool_cards[event.part.tool_call_id] = card
         yield (FrameUpsertOp(turn_id=self.turn_id, step_id=self._step_id, frame=card),)
 
-    def note_subagent(self, tool_call_id: str, child_run_id: str, agent_name: str) -> OpsBatch:
+    def note_subagent(
+        self, tool_call_id: str, child_run_id: str, profile: Mapping[str, str]
+    ) -> OpsBatch:
         """把 delegate_task 派出的子运行记到父卡上，并开一条 subagent 任务。
 
         卡必定已在：FunctionToolCallEvent 先于工具执行到达；不在就是投影漏了事件，直接报错。
         一张卡只指向它最后一次派出的子运行：崩溃续跑会重放同一次调用，账本上也只记最后那个。
+        profile 是子代理落库 metadata 的那份字典，历史侧从运行记录读回的是同一份。
         """
 
         card = self._tool_cards[tool_call_id]
@@ -388,9 +401,11 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             kind="subagent",
             state="running",
             detached=False,
-            description=agent_name,
+            description=profile["agent_name"],
             agent_id=child_run_id,
             started_at=_now(),
+            model=profile.get("model"),
+            thinking_effort=profile.get("thinking_effort"),
         )
         self._subagent_tasks[tool_call_id] = task
         return (
@@ -522,14 +537,16 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         ]
         if not said:
             return
+        prompt_id = self.steered.get(event.enqueue_id)
+        prompt_ids = None if prompt_id is None else (prompt_id,)
         if self._step_ordinal == 0:
-            self._pending_steers.extend(said)
+            self._pending_steers.extend((content, prompt_ids) for content in said)
             return
         if self._in_response:
             self._pending_step_break = True
         ops: list[EmittableOperation] = []
         for content in said:
-            ops.extend(self._user_frame(content))
+            ops.extend(self._user_frame(content, prompt_ids))
         yield tuple(ops)
 
     # --- 内部 ---------------------------------------------------------------
@@ -547,15 +564,19 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         return f"{self.turn_id}.{max(self._step_ordinal, 1)}"
 
     def _turn_header(self, *, state: str, error: str | None = None) -> TurnHeader:
+        # 结束时间与耗时取同一个时刻，两者才对得上。
+        ended_at = None if state == "running" else datetime.now(UTC)
         return TurnHeader(
             turn_id=self.turn_id,
+            trigger_prompt_id=self.prompt_id,
             ordinal=self.turn_ordinal,
             state=state,  # pyright: ignore[reportArgumentType]
             origin=TurnOrigin(kind="user"),
             content=self.content,
             started_at=self._started_at,
-            ended_at=None if state == "running" else _now(),
+            ended_at=None if ended_at is None else ended_at.isoformat(),
             usage=turn_usage(self._step_usage),
+            duration_ms=None if ended_at is None else _millis_since(self._started_at, ended_at),
             error=error,
         )
 
@@ -639,7 +660,9 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             ),
         )
 
-    def _user_frame(self, content: tuple[PromptContent, ...]) -> list[EmittableOperation]:
+    def _user_frame(
+        self, content: tuple[PromptContent, ...], prompt_ids: tuple[str, ...] | None
+    ) -> list[EmittableOperation]:
         frame_id = self._next_frame_id()
         return [
             FrameUpsertOp(
@@ -650,6 +673,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
                     role="user",
                     text=plain_text(content),
                     content=content,
+                    prompt_ids=prompt_ids,
                 ),
             )
         ]

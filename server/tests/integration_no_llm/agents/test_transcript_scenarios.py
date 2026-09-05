@@ -32,6 +32,7 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
     delegate_display_table,
+    subagent_profiles,
 )
 from iclip.harness.jobs import JobQueue
 from iclip.harness.step_store_pg import PgStepStore
@@ -310,10 +311,11 @@ async def test_a_steer_lands_on_the_step_that_was_running(engine: AsyncEngine) -
 
     # 插话挂在当时正在跑的那一步末尾，与正文共用块序号；模型的回应开新的一步。
     assert [
-        (frame.frame_id, getattr(frame, "role", None)) for frame in frames_of(live, "t1", "t1.1")
+        (frame.frame_id, getattr(frame, "role", None), getattr(frame, "prompt_ids", None))
+        for frame in frames_of(live, "t1", "t1.1")
     ] == [
-        ("t1.1.f1", "assistant"),
-        ("t1.1.f2", "user"),
+        ("t1.1.f1", "assistant", None),
+        ("t1.1.f2", "user", (second,)),
     ]
     assert [step.step_id for step in live.items[0].steps] == ["t1.1", "t1.2"]
 
@@ -460,14 +462,14 @@ async def test_regenerating_the_last_turn_replaces_it(engine: AsyncEngine) -> No
         record_materials=records_nothing,
     )
 
-    await submit_text(runner, queue, conversation_id, "写一句")
+    first = await submit_text(runner, queue, conversation_id, "写一句")
     await drained(queue, conversation_id)
-    await service.regenerate(conversation_id=conversation_id, turn_id="t1")
+    again = await service.regenerate(conversation_id=conversation_id, turn_id="t1")
     await drained(queue, conversation_id)
     await runner.shutdown()
     live, _cold = await both_pages(store, step_store, queue, runner, conversation_id)
 
-    # 重跑前先删旧轮，新的一轮沿用 t1。
+    # 重跑前先删旧轮，新的一轮沿用 t1，但认领的是新那条消息。
     removals = [
         op
         for frame in ws_frames(store, conversation_id)
@@ -476,7 +478,10 @@ async def test_regenerating_the_last_turn_replaces_it(engine: AsyncEngine) -> No
         if op["op"] == "items.remove"
     ]
     assert [list(op["ids"]) for op in removals] == [["t1"]]
-    assert [turn.turn_id for turn in live.items] == ["t1"]
+    assert [(turn.turn_id, turn.trigger_prompt_id) for turn in live.items] == [
+        ("t1", again.prompt_id)
+    ]
+    assert again.prompt_id != first
     assert frames_of(live, "t1", "t1.1")[0].text == "第二次"
 
 
@@ -489,12 +494,9 @@ TASK = "写第 3 组的三个镜头"
 
 async def test_a_delegation_becomes_its_own_stream(engine: AsyncEngine, tmp_path: Path) -> None:
     store = TranscriptStore()
+    writer = says("S3-1 特写；S3-2 中景；S3-3 全景")
     runner, step_store, queue = subagent_runner(
-        engine,
-        tmp_path,
-        store=store,
-        parent=delegates((WRITER, TASK)),
-        children={WRITER: says("S3-1 特写；S3-2 中景；S3-3 全景")},
+        engine, tmp_path, store=store, parent=delegates((WRITER, TASK)), children={WRITER: writer}
     )
     conversation_id = new_conversation_id()
 
@@ -508,12 +510,15 @@ async def test_a_delegation_becomes_its_own_stream(engine: AsyncEngine, tmp_path
     assert card.agent_refs is not None and len(card.agent_refs) == 1
     child_id = card.agent_refs[0].agent_id
     assert [
-        (task.task_id, task.state, task.description, task.result_summary) for task in live.tasks
-    ] == [(child_id, "completed", WRITER, "S3-1 特写；S3-2 中景；S3-3 全景")]
-    assert [(agent.agent_id, agent.type) for agent in live.agents] == [
-        (MAIN_AGENT_ID, "main"),
-        (child_id, "sub"),
+        (task.task_id, task.state, task.description, task.result_summary, task.model)
+        for task in live.tasks
+    ] == [(child_id, "completed", WRITER, "S3-1 特写；S3-2 中景；S3-3 全景", writer.model_name)]
+    # 子代理的描述随任务结束：disposedAt 就是任务的 endedAt。
+    assert [(agent.agent_id, agent.type, agent.disposed_at) for agent in live.agents] == [
+        (MAIN_AGENT_ID, "main", None),
+        (child_id, "sub", live.tasks[0].ended_at),
     ]
+    assert live.tasks[0].ended_at is not None
     await assert_child_stream(
         store, step_store, queue, runner, conversation_id, child_id, task=TASK
     )
@@ -621,21 +626,24 @@ def subagent_runner(
 
     step_store = PgStepStore(engine)
     models: dict[str, Any] = {AGENT_ID: parent, **children}
-    registry = build_agent_registry(
-        (
-            AgentDefinition(
-                agent_id=AGENT_ID,
-                spec=_spec(root, AGENT_ID),
-                model=AGENT_ID,
-                subagents=tuple(
-                    SubAgentDefinition(name=name, spec=_spec(root, name), model=name)
-                    for name in children
-                ),
+    definitions = (
+        AgentDefinition(
+            agent_id=AGENT_ID,
+            spec=_spec(root, AGENT_ID),
+            model=AGENT_ID,
+            subagents=tuple(
+                SubAgentDefinition(name=name, spec=_spec(root, name), model=name)
+                for name in children
             ),
         ),
+    )
+    registry = build_agent_registry(
+        definitions,
         step_store=step_store,
         models=models,
-        subagent_mirror=SubAgentMirror(live=store, display=DISPLAYS),
+        subagent_mirror=SubAgentMirror(
+            live=store, display=DISPLAYS, profiles=subagent_profiles(definitions, models)
+        ),
     )
     return make_runner(
         engine,

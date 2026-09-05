@@ -1172,6 +1172,7 @@ export const zTranscriptTurn = z.object({
   startedAt: z.string().nullish(),
   state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
   steps: z.array(zTranscriptStep).optional().default([]),
+  triggerPromptId: z.string().nullish(),
   turnId: z.string(),
   usage: zTurnUsage.nullish(),
 })
@@ -1214,6 +1215,7 @@ export const zTurnHeader = z.object({
   origin: zTurnOrigin,
   startedAt: z.string().nullish(),
   state: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
+  triggerPromptId: z.string().nullish(),
   turnId: z.string(),
   usage: zTurnUsage.nullish(),
 })

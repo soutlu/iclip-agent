@@ -66,6 +66,7 @@
             "turn": {
               "kind": "turn",
               "turnId": "t1",
+              "triggerPromptId": "<id-1>",
               "ordinal": 1,
               "state": "running",
               "origin": {
@@ -345,6 +346,7 @@
             "turn": {
               "kind": "turn",
               "turnId": "t1",
+              "triggerPromptId": "<id-1>",
               "ordinal": 1,
               "state": "completed",
               "origin": {
@@ -362,7 +364,8 @@
                 "inputTokens": 100,
                 "outputTokens": 6,
                 "cachedTokens": 0
-              }
+              },
+              "durationMs": 0
             }
           },
           {
@@ -405,6 +408,7 @@
       {
         "kind": "turn",
         "turnId": "t1",
+        "triggerPromptId": "<id-1>",
         "ordinal": 1,
         "state": "completed",
         "origin": {
@@ -423,6 +427,7 @@
           "outputTokens": 6,
           "cachedTokens": 0
         },
+        "durationMs": 0,
         "steps": [
           {
             "kind": "step",

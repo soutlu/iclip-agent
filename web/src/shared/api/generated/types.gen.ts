@@ -2070,6 +2070,10 @@ export type TranscriptTurn = {
    */
   steps?: Array<TranscriptStep>
   /**
+   * Triggerpromptid
+   */
+  triggerPromptId?: string | null
+  /**
    * Turnid
    */
   turnId: string
@@ -2115,6 +2119,10 @@ export type TurnHeader = {
    * State
    */
   state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  /**
+   * Triggerpromptid
+   */
+  triggerPromptId?: string | null
   /**
    * Turnid
    */

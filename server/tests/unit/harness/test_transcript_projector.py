@@ -12,6 +12,7 @@ from typing import Any
 from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
     CompactionPart,
+    EnqueuedMessagesEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelRequest,
@@ -47,6 +48,7 @@ from iclip.platform.transcript.ops import (
     TranscriptTask,
     TranscriptTurn,
     TurnOrigin,
+    TurnUpsertOp,
 )
 from tests.helpers.transcript import normalize
 
@@ -57,6 +59,7 @@ CONTENT: tuple[PromptContent, ...] = (TextContent(text=PROMPT),)
 WRITER = "shot-writer"
 TASK = "写第 3 组的三个镜头"
 CHILD = "child-run-1"
+PROFILE = {"agent_name": WRITER, "model": "test-model"}
 
 
 def _read_display(args: Any) -> ToolDisplay | None:
@@ -214,12 +217,61 @@ def test_a_replayed_delegation_points_the_card_at_the_latest_child_only() -> Non
         turn_id="t1", turn_ordinal=1, resume_from=baseline, display=DISPLAYS
     )
 
-    frame_op, _task_op = projector.note_subagent("c1", "new-child", WRITER)
+    frame_op, _task_op = projector.note_subagent("c1", "new-child", PROFILE)
 
     assert isinstance(frame_op, FrameUpsertOp)
     assert frame_op.step_id == "t1.1"
     assert isinstance(frame_op.frame, ToolFrame)
     assert frame_op.frame.agent_refs == (AgentRef(agent_id="new-child", role="child"),)
+
+
+async def test_the_turn_header_carries_the_prompt_that_started_it() -> None:
+    """轮头两次都带触发消息的 id；耗时只在终态那次。"""
+
+    projector = TranscriptEventStream(
+        turn_id="t1", turn_ordinal=1, content=CONTENT, prompt_id="prm_1", display=DISPLAYS
+    )
+
+    async def stream() -> AsyncIterator[Any]:
+        yield PartStartEvent(index=0, part=TextPart(content="好"))
+        yield PartEndEvent(index=0, part=TextPart(content="好"))
+
+    headers = [
+        op.turn
+        async for batch in projector.transform_stream(stream())
+        for op in batch
+        if isinstance(op, TurnUpsertOp)
+    ]
+
+    assert [
+        (header.state, header.trigger_prompt_id, header.duration_ms is not None)
+        for header in headers
+    ] == [("running", "prm_1", False), ("completed", "prm_1", True)]
+
+
+async def test_a_steer_before_the_first_step_keeps_its_prompt_id() -> None:
+    """首步还没开就到的插话先暂存，落进首步时仍带着它来自哪条消息。"""
+
+    projector = TranscriptEventStream(
+        turn_id="t1",
+        turn_ordinal=1,
+        content=CONTENT,
+        steered={"enq-1": "prm_s"},
+        display=DISPLAYS,
+    )
+
+    async def stream() -> AsyncIterator[Any]:
+        yield EnqueuedMessagesEvent(
+            enqueue_id="enq-1",
+            messages=(ModelRequest(parts=[UserPromptPart(content="插话")]),),
+        )
+        yield PartStartEvent(index=0, part=TextPart(content="好"))
+        yield PartEndEvent(index=0, part=TextPart(content="好"))
+
+    live = await _live(projector, stream())
+
+    leading = live[0].steps[0].frames[0]
+    assert (leading.frame_id, getattr(leading, "prompt_ids", None)) == ("t1.1.f1", ("prm_s",))
 
 
 async def test_a_failed_turn_fails_its_running_task() -> None:
@@ -260,7 +312,7 @@ async def _task_after(error: BaseException | None) -> TranscriptTask:
         yield PartStartEvent(index=0, part=call)
         yield PartEndEvent(index=0, part=call)
         yield FunctionToolCallEvent(part=call)
-        live.append(CONVERSATION, MAIN_AGENT_ID, projector.note_subagent("c1", CHILD, WRITER))
+        live.append(CONVERSATION, MAIN_AGENT_ID, projector.note_subagent("c1", CHILD, PROFILE))
         if error is not None:
             raise error
 

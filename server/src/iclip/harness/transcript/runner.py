@@ -631,6 +631,8 @@ class ConversationRunner:
             turn_ordinal=ordinal,
             run_id=run_id,
             content=row.content,
+            prompt_id=row.prompt_id,
+            steered=active.steered,
             max_context_tokens=context_window,
             resume_from=resume_from,
             repaired_calls=repaired,

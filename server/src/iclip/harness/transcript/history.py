@@ -16,6 +16,7 @@ from pydantic_ai_harness.step_persistence import ContinuableSnapshot, StepStore
 
 from iclip.harness.transcript.from_messages import (
     ChildRun,
+    SteeredPrompt,
     TurnState,
     approvals_from_messages,
     drop_last_turn,
@@ -53,6 +54,10 @@ class PromptRunsSource(Protocol):
     async def prompt_of_runs(self, conversation_id: str) -> dict[str, str]: ...
 
     async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, str]: ...
+
+    async def steered_prompts(self, conversation_id: str) -> tuple[SteeredPrompt, ...]:
+        """本对话插过话的消息，按插话先后。"""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +102,7 @@ class TranscriptHistory:
             )
         of_run = await self.prompt_runs.prompt_of_runs(conversation_id)
         status_of_run = await self.prompt_runs.prompt_status_of_runs(conversation_id)
+        steered = await self.prompt_runs.steered_prompts(conversation_id)
         subagent_of_call = await self._subagent_of_call(snapshot.messages)
         tasks = tasks_from_messages(
             snapshot.messages,
@@ -111,6 +117,7 @@ class TranscriptHistory:
                 prompt_of_run=of_run,
                 prompt_status_of_run=status_of_run,
                 subagent_of_call=subagent_of_call,
+                steered=steered,
                 display=self.display,
             ),
             context_tokens=estimate_context_tokens(snapshot.messages),
@@ -169,6 +176,8 @@ class TranscriptHistory:
                         started_at=record.started_at,
                         ended_at=events[-1].timestamp if events else None,
                         state=state,
+                        model=record.metadata.get("model"),
+                        thinking_effort=record.metadata.get("thinking_effort"),
                     )
                 )
         return tuple(children)

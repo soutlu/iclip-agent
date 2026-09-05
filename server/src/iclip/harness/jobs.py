@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.common.errors import Conflict, NotFound
 from iclip.harness.transcript.activity import ActivityState, activity_of
+from iclip.harness.transcript.from_messages import SteeredPrompt
 from iclip.platform.transcript.ops import Prompt, PromptContent
 
 DB_SCHEMA: Final = "agent_runtime"
@@ -297,6 +298,20 @@ class JobQueue:
         )
         async with self._engine.connect() as conn:
             return {run_id: status for run_id, status in (await conn.execute(stmt)).all()}
+
+    async def steered_prompts(self, conversation_id: str) -> tuple[SteeredPrompt, ...]:
+        """本会话插过话的消息，按插话先后；退回队列的行插话时间已清空，自然不在其中。"""
+
+        stmt = (
+            select(agent_jobs_table)
+            .where(agent_jobs_table.c.conversation_id == conversation_id)
+            .where(agent_jobs_table.c.steered_at.is_not(None))
+            .order_by(agent_jobs_table.c.steered_at.asc(), agent_jobs_table.c.prompt_id.asc())
+        )
+        return tuple(
+            SteeredPrompt(prompt_id=row.prompt_id, run_id=row.run_id, content=row.content)
+            for row in await self._rows(stmt)
+        )
 
     async def activities(self, conversation_ids: Sequence[str]) -> dict[str, ActivityState]:
         """从持久化队列查询各会话活动，未命中时返回 IDLE。"""
