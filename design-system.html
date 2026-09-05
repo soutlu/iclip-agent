@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Cue 设计系统：颜色、排版、尺度、组件契约、核心状态、图标与可复用结构的唯一事实源。"
+      content="Cue 全局设计规范：颜色与主题、排版与尺度、交互与可访问性、组件复用原则及 token 定义。"
     />
     <title>Cue Design System</title>
     <!--
@@ -929,97 +929,6 @@
         opacity: 0.78;
       }
 
-      .ext-layout {
-        display: grid;
-        gap: 28px;
-      }
-
-      .ext-table {
-        border-top: 1px solid var(--pg-line-strong);
-        border-bottom: 1px solid var(--pg-line-strong);
-      }
-
-      .ext-row {
-        display: grid;
-        grid-template-columns: 240px minmax(0, 1fr);
-        gap: 24px;
-        padding: 15px 0;
-      }
-
-      .ext-row + .ext-row {
-        border-top: 1px solid var(--pg-line);
-      }
-
-      .ext-name strong,
-      .ext-name code {
-        display: block;
-      }
-
-      .ext-name strong {
-        font-size: var(--text-label);
-        font-weight: 650;
-      }
-
-      .ext-name code {
-        margin-top: 4px;
-        color: var(--p30);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: var(--text-caption);
-        font-weight: 600;
-        line-height: 1.45;
-        overflow-wrap: anywhere;
-      }
-
-      .ext-name p {
-        margin-top: 8px;
-        color: var(--pg-ink-tertiary);
-        font-size: var(--text-caption);
-        line-height: 1.55;
-      }
-
-      .ext-swatches {
-        display: flex;
-        min-width: 0;
-        flex-wrap: wrap;
-        align-content: flex-start;
-        gap: 6px;
-      }
-
-      .ext-swatch {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        padding: 4px 10px 4px 5px;
-        border: 1px solid var(--pg-line);
-        background: var(--pg-sheet);
-        color: var(--pg-ink-secondary);
-        cursor: copy;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: var(--text-caption);
-        transition: color var(--dur-s) var(--ease);
-      }
-
-      .ext-swatch i {
-        width: 14px;
-        height: 14px;
-        flex: none;
-        background: var(--sw);
-      }
-
-      .ext-swatch i.ext-shadow {
-        background: var(--n100);
-        box-shadow: var(--sw-shadow);
-      }
-
-      .ext-swatch:hover {
-        color: var(--pg-ink);
-      }
-
-      .ext-swatch:focus-visible {
-        outline: 2px solid var(--pg-focus);
-        outline-offset: 2px;
-      }
-
       .scale-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1290,128 +1199,6 @@
         font-size: var(--text-caption);
       }
 
-      .contract-table-scroll,
-      .state-matrix {
-        width: 100%;
-        max-width: 100%;
-        overflow-x: auto;
-        border-top: 1px solid var(--pg-line-strong);
-        border-bottom: 1px solid var(--pg-line-strong);
-      }
-
-      .contract-table {
-        width: 100%;
-        min-width: 960px;
-        border-collapse: collapse;
-        table-layout: fixed;
-      }
-
-      .contract-table th,
-      .contract-table td {
-        min-width: 0;
-        padding: 16px 18px;
-        border-bottom: 1px solid var(--pg-line);
-        border-left: 1px solid var(--pg-line);
-        vertical-align: top;
-        text-align: left;
-      }
-
-      .contract-table tr > :first-child {
-        border-left: 0;
-      }
-
-      .contract-table tbody tr:last-child > * {
-        border-bottom: 0;
-      }
-
-      .contract-table thead th {
-        padding-block: 13px;
-        background: var(--n96);
-        color: var(--pg-ink-tertiary);
-        font-size: var(--text-caption);
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      .contract-table tbody tr {
-        transition: background var(--dur-s) var(--ease);
-      }
-
-      .contract-table tbody tr:hover > * {
-        background: color-mix(in srgb, var(--p95) 32%, transparent);
-      }
-
-      .contract-name strong,
-      .contract-name code,
-      .contract-cell code,
-      .contract-cell span {
-        display: block;
-      }
-
-      .contract-name strong {
-        font-size: var(--text-label);
-        font-weight: 650;
-      }
-
-      .contract-name code {
-        margin-top: 4px;
-        color: var(--pg-ink-tertiary);
-        font-size: var(--text-caption);
-        font-weight: 400;
-      }
-
-      .contract-cell {
-        color: var(--pg-ink-secondary);
-        font-size: var(--text-label);
-        font-weight: 400;
-        line-height: 1.6;
-      }
-
-      .contract-cell code {
-        color: var(--pg-ink);
-        font-size: var(--text-caption);
-      }
-
-      .contract-cell code + span,
-      .contract-cell span + span {
-        margin-top: 4px;
-      }
-
-      .component-token-strip {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin-bottom: 14px;
-        border-top: 1px solid var(--pg-line);
-        border-bottom: 1px solid var(--pg-line);
-      }
-
-      .component-token {
-        min-width: 0;
-        padding: 13px 14px;
-      }
-
-      .component-token + .component-token {
-        border-left: 1px solid var(--pg-line);
-      }
-
-      .component-token code,
-      .component-token span {
-        display: block;
-      }
-
-      .component-token code {
-        overflow-wrap: anywhere;
-        color: var(--pg-ink);
-        font-size: var(--text-caption);
-      }
-
-      .component-token span {
-        margin-top: 5px;
-        color: var(--pg-ink-tertiary);
-        font-size: var(--text-caption);
-      }
-
       .state-definition-table,
       .icon-rule-table {
         border-top: 1px solid var(--pg-line-strong);
@@ -1463,66 +1250,6 @@
         font-weight: 400;
       }
 
-      .state-matrix table {
-        width: 100%;
-        min-width: 780px;
-        border-collapse: collapse;
-        table-layout: fixed;
-      }
-
-      .state-matrix th,
-      .state-matrix td {
-        height: 48px;
-        padding: 10px 9px;
-        border-bottom: 1px solid var(--pg-line);
-        border-left: 1px solid var(--pg-line);
-        color: var(--pg-ink-secondary);
-        font-size: var(--text-label);
-        font-weight: 400;
-        text-align: center;
-        vertical-align: middle;
-      }
-
-      .state-matrix tr > :first-child {
-        width: 148px;
-        border-left: 0;
-        color: var(--pg-ink);
-        font-weight: 650;
-        text-align: left;
-      }
-
-      .state-matrix tbody tr:last-child > * {
-        border-bottom: 0;
-      }
-
-      .state-matrix thead th {
-        height: 40px;
-        background: var(--n96);
-        color: var(--pg-ink-tertiary);
-        font-size: var(--text-caption);
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-      }
-
-      .state-required {
-        background: color-mix(in srgb, var(--p95) 45%, transparent);
-        color: var(--p30) !important;
-        font-weight: 700;
-      }
-
-      .state-optional {
-        color: var(--pg-ink-secondary);
-      }
-
-      .state-na {
-        color: var(--pg-ink-tertiary) !important;
-      }
-
-      .icon-layout {
-        width: 100%;
-      }
-
       .icon-rule-row {
         display: grid;
         grid-template-columns: 168px minmax(0, 1fr);
@@ -1538,101 +1265,6 @@
         color: var(--pg-ink-secondary);
         font-size: var(--text-label);
         line-height: 1.55;
-      }
-
-      .template-table {
-        border-top: 1px solid var(--pg-line-strong);
-        border-bottom: 1px solid var(--pg-line-strong);
-      }
-
-      .template-row {
-        display: grid;
-        grid-template-columns:
-          168px minmax(240px, 1fr) minmax(220px, 0.8fr)
-          minmax(260px, 1fr);
-        min-height: 112px;
-      }
-
-      .template-row + .template-row {
-        border-top: 1px solid var(--pg-line);
-      }
-
-      .template-row > * {
-        min-width: 0;
-        padding: 18px 20px 18px 0;
-      }
-
-      .template-row > * + * {
-        border-left: 1px solid var(--pg-line);
-      }
-
-      .template-name span,
-      .template-name strong,
-      .template-name code,
-      .template-values code,
-      .template-values span {
-        display: block;
-      }
-
-      .template-name span {
-        color: var(--p40);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: var(--text-caption);
-        font-weight: 700;
-        letter-spacing: 0.12em;
-      }
-
-      .template-name strong {
-        margin-top: 10px;
-        font-size: var(--text-body-sm);
-        font-weight: 650;
-      }
-
-      .template-name code {
-        margin-top: 5px;
-        color: var(--pg-ink-secondary);
-        font-size: var(--text-caption);
-      }
-
-      .template-flow {
-        display: flex;
-        flex-wrap: wrap;
-        align-content: flex-start;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .template-flow code {
-        padding: 5px 8px;
-        border: 1px solid var(--pg-line);
-        border-radius: var(--radius-sm);
-        background: var(--n96);
-        color: var(--pg-ink);
-        font-size: var(--text-caption);
-      }
-
-      .template-flow span {
-        color: var(--pg-ink-tertiary);
-        font-size: var(--text-caption);
-      }
-
-      .template-values code {
-        color: var(--p30);
-        font-size: var(--text-caption);
-        font-weight: 600;
-      }
-
-      .template-values span {
-        margin-top: 6px;
-        color: var(--pg-ink-secondary);
-        font-size: var(--text-caption);
-        line-height: 1.5;
-      }
-
-      .template-use {
-        color: var(--pg-ink-secondary);
-        font-size: var(--text-label);
-        line-height: 1.6;
       }
 
       .rule-line {
@@ -1716,12 +1348,6 @@
       @media (max-width: 1100px) {
         .scale-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .template-row {
-          grid-template-columns:
-            120px minmax(200px, 1fr) minmax(180px, 0.8fr)
-            minmax(220px, 1fr);
         }
       }
 
@@ -1817,26 +1443,8 @@
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
-        .component-token-strip {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
         .state-definition-row {
           grid-template-columns: 110px 150px minmax(0, 1fr);
-        }
-
-        .ext-row {
-          grid-template-columns: 1fr;
-          gap: 12px;
-        }
-
-        .template-row {
-          grid-template-columns: 1fr;
-        }
-
-        .template-row > * + * {
-          border-top: 1px solid var(--pg-line);
-          border-left: 0;
         }
 
         .rule-line {
@@ -1904,8 +1512,7 @@
           border-left: 0;
         }
 
-        .radius-table,
-        .component-token-strip {
+        .radius-table {
           grid-template-columns: 1fr;
         }
 
@@ -1963,7 +1570,7 @@
         <div>
           <h1>Design System</h1>
           <p class="lead">
-            规范范围：颜色、文字、尺度、组件契约、核心状态、图标与反复出现的结构模板。浅色 <code>:root</code>、深色 <code>.dark</code>；运行时 token 与本页逐值对账。
+            全局规范：颜色与主题、排版与尺度、交互与可访问性，以及组件复用原则。页面布局和单个组件的细节由各自实现决定。
           </p>
         </div>
         <div class="token-map" aria-label="规范范围">
@@ -1975,7 +1582,7 @@
           <div class="token-layer">
             <span>02 · Type</span>
             <strong>文字层级</strong>
-            <code>--text-body · --text-canvas-*</code>
+            <code>--text-body · --text-title</code>
           </div>
           <div class="token-layer">
             <span>03 · Scale</span>
@@ -1983,18 +1590,41 @@
             <code>--radius-md · --dur-s · --z-popup</code>
           </div>
           <div class="token-layer">
-            <span>04 · Component</span>
-            <strong>组件契约</strong>
-            <code>--control-height-* · --icon-*</code>
+            <span>04 · Interaction</span>
+            <strong>交互与可访问性</strong>
+            <code>State · Focus · Feedback</code>
           </div>
           <div class="token-layer">
-            <span>05 · Template</span>
-            <strong>结构契约</strong>
-            <code>Shell · Overlay · Card · Home</code>
+            <span>05 · Principles</span>
+            <strong>全局原则</strong>
+            <code>Consistency · Reuse · Adaptation</code>
           </div>
         </div>
       </header>
 
+      <section class="section" id="rule" aria-labelledby="rule-title">
+        <header class="section-heading">
+          <div>
+            <span class="eyebrow">Global principles</span>
+            <h2 id="rule-title">全局原则</h2>
+          </div>
+          <p>统一跨页面的视觉与交互语言，具体结构按内容和任务需要组织。</p>
+        </header>
+        <div class="rule-line">
+          <div class="rule">
+            <strong>语义与主题</strong>
+            <p>颜色使用语义角色，前景与背景成套搭配。界面颜色适配浅深主题，内容身份色与媒体素材可保持稳定。</p>
+          </div>
+          <div class="rule">
+            <strong>一致与复用</strong>
+            <p>优先复用现有组件；两个独立业务模块重复使用的稳定模式再提为共用组件，局部样式留在所属模块。</p>
+          </div>
+          <div class="rule">
+            <strong>内容与适配</strong>
+            <p>通过排版和留白突出内容层级，避免无信息作用的装饰。布局适应可用空间，保持阅读顺序和核心操作可达。</p>
+          </div>
+        </div>
+      </section>
 
       <section class="section" id="color" aria-labelledby="color-title">
         <header class="section-heading">
@@ -2057,190 +1687,6 @@
           </section>
         </div>
 
-        <section aria-labelledby="extended-title" style="margin-top: 22px">
-          <header class="subsection-heading">
-            <h3 id="extended-title">Extended colors</h3>
-            <p>
-              领域扩展色分两类：随主题——引用语义角色的自动跟随，直接取色阶或字面值的在 <code>.dark</code> 另给值；主题中立——内容身份色、纸面材质、媒体遮罩，明暗不变。新增扩展色先向 primary 做色相调和。
-            </p>
-          </header>
-          <div class="ext-layout">
-            <div class="scale-group">
-              <h3>随主题</h3>
-              <div class="ext-table">
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>聊天</strong>
-                    <code>--color-chat-*</code>
-                    <p>气泡、面板、代码块、Agent 身份、状态点；muted 文字取 on-surface-faint，hairline 取 --color-hairline。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-panel-bg" title="复制 --color-chat-panel-bg"><i style="--sw: var(--color-chat-panel-bg)"></i>chat-panel-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-user-bg" title="复制 --color-chat-user-bg"><i style="--sw: var(--color-chat-user-bg)"></i>chat-user-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-agent-rail" title="复制 --color-chat-agent-rail"><i style="--sw: var(--color-chat-agent-rail)"></i>chat-agent-rail</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-error-bg" title="复制 --color-chat-error-bg"><i style="--sw: var(--color-chat-error-bg)"></i>chat-error-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-hairline" title="复制 --color-chat-hairline"><i style="--sw: var(--color-chat-hairline)"></i>chat-hairline</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chat-scrollbar-thumb" title="复制 --color-chat-scrollbar-thumb"><i style="--sw: var(--color-chat-scrollbar-thumb)"></i>chat-scrollbar-thumb</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>玻璃面</strong>
-                    <code>--color-glass-base 派生</code>
-                    <p>基色 N100 → N17；派生透明度 glass-surface 76 · input-bg 76 · control-bg 64 · chip-bg 62 · chip-bg-glass 52 · media-stack-bg 92%。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-glass-surface" title="复制 --color-glass-surface"><i style="--sw: var(--color-glass-surface)"></i>glass-surface</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-control-bg" title="复制 --color-control-bg"><i style="--sw: var(--color-control-bg)"></i>control-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chip-bg" title="复制 --color-chip-bg"><i style="--sw: var(--color-chip-bg)"></i>chip-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chip-bg-glass" title="复制 --color-chip-bg-glass"><i style="--sw: var(--color-chip-bg-glass)"></i>chip-bg-glass</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-input-bg" title="复制 --color-input-bg"><i style="--sw: var(--color-input-bg)"></i>input-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-media-stack-bg" title="复制 --color-media-stack-bg"><i style="--sw: var(--color-media-stack-bg)"></i>media-stack-bg</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>画布 · 工作台</strong>
-                    <code>--color-canvas-* · --storyboard-node-*</code>
-                    <p>画布选中 P60；节点面 N99 → N12；版本占位底另给深色值。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-canvas-card-bg" title="复制 --color-canvas-card-bg"><i style="--sw: var(--color-canvas-card-bg)"></i>canvas-card-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-canvas-card-border" title="复制 --color-canvas-card-border"><i style="--sw: var(--color-canvas-card-border)"></i>canvas-card-border</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-storyboard-canvas" title="复制 --color-storyboard-canvas"><i style="--sw: var(--color-storyboard-canvas)"></i>storyboard-canvas</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--storyboard-node-surface" title="复制 --storyboard-node-surface"><i style="--sw: var(--storyboard-node-surface)"></i>node-surface</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--storyboard-node-accent" title="复制 --storyboard-node-accent"><i style="--sw: var(--storyboard-node-accent)"></i>node-accent</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>基础别名</strong>
-                    <code>--color-background-* · --color-border-* · --color-danger-*</code>
-                    <p>引用语义角色；danger 描边 / 文字 E80 · E30 → E60 · E80。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-border" title="复制 --color-border"><i style="--sw: var(--color-border)"></i>border</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-danger-bg" title="复制 --color-danger-bg"><i style="--sw: var(--color-danger-bg)"></i>danger-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-danger-border" title="复制 --color-danger-border"><i style="--sw: var(--color-danger-border)"></i>danger-border</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-danger-text" title="复制 --color-danger-text"><i style="--sw: var(--color-danger-text)"></i>danger-text</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>海拔</strong>
-                    <code>--shadow-1/2/3 · --shadow-input/-xs/-send · --shadow-chat-* · --shadow-storyboard-*</code>
-                    <p>深色改为纯黑基底、更高不透明度。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--shadow-1" title="复制 --shadow-1"><i class="ext-shadow" style="--sw-shadow: var(--shadow-1)"></i>shadow-1</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--shadow-2" title="复制 --shadow-2"><i class="ext-shadow" style="--sw-shadow: var(--shadow-2)"></i>shadow-2</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--shadow-3" title="复制 --shadow-3"><i class="ext-shadow" style="--sw-shadow: var(--shadow-3)"></i>shadow-3</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--shadow-input" title="复制 --shadow-input"><i class="ext-shadow" style="--sw-shadow: var(--shadow-input)"></i>shadow-input</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--shadow-xs" title="复制 --shadow-xs"><i class="ext-shadow" style="--sw-shadow: var(--shadow-xs)"></i>shadow-xs</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--shadow-send" title="复制 --shadow-send"><i class="ext-shadow" style="--sw-shadow: var(--shadow-send)"></i>shadow-send</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="scale-group">
-              <h3>主题中立</h3>
-              <div class="ext-table">
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>编辑器引用身份</strong>
-                    <code>--color-reference-*</code>
-                    <p>引用素材的类型身份色；audio 取 primary。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-reference-image" title="复制 --color-reference-image"><i style="--sw: var(--color-reference-image)"></i>reference-image</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-reference-video" title="复制 --color-reference-video"><i style="--sw: var(--color-reference-video)"></i>reference-video</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-reference-audio" title="复制 --color-reference-audio"><i style="--sw: var(--color-reference-audio)"></i>reference-audio</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-reference-note" title="复制 --color-reference-note"><i style="--sw: var(--color-reference-note)"></i>reference-note</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-reference-arrow" title="复制 --color-reference-arrow"><i style="--sw: var(--color-reference-arrow)"></i>reference-arrow</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-reference-brush" title="复制 --color-reference-brush"><i style="--sw: var(--color-reference-brush)"></i>reference-brush</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-reference-frame" title="复制 --color-reference-frame"><i style="--sw: var(--color-reference-frame)"></i>reference-frame</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>标注笔触</strong>
-                    <code>--color-annotation-*</code>
-                    <p>仅标注笔触与图钉。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-annotation-red" title="复制 --color-annotation-red"><i style="--sw: var(--color-annotation-red)"></i>annotation-red</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-annotation-orange" title="复制 --color-annotation-orange"><i style="--sw: var(--color-annotation-orange)"></i>annotation-orange</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-annotation-blue" title="复制 --color-annotation-blue"><i style="--sw: var(--color-annotation-blue)"></i>annotation-blue</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-annotation-green" title="复制 --color-annotation-green"><i style="--sw: var(--color-annotation-green)"></i>annotation-green</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>图表 · 书签</strong>
-                    <code>--color-chart-1..4 · --color-artifact-*</code>
-                    <p>分类身份色，不承载状态。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chart-1" title="复制 --color-chart-1"><i style="--sw: var(--color-chart-1)"></i>chart-1</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chart-2" title="复制 --color-chart-2"><i style="--sw: var(--color-chart-2)"></i>chart-2</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chart-3" title="复制 --color-chart-3"><i style="--sw: var(--color-chart-3)"></i>chart-3</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-chart-4" title="复制 --color-chart-4"><i style="--sw: var(--color-chart-4)"></i>chart-4</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-artifact-brief" title="复制 --color-artifact-brief"><i style="--sw: var(--color-artifact-brief)"></i>artifact-brief</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-artifact-image-analysis" title="复制 --color-artifact-image-analysis"><i style="--sw: var(--color-artifact-image-analysis)"></i>artifact-image-analysis</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-artifact-markdown" title="复制 --color-artifact-markdown"><i style="--sw: var(--color-artifact-markdown)"></i>artifact-markdown</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-artifact-storyboard" title="复制 --color-artifact-storyboard"><i style="--sw: var(--color-artifact-storyboard)"></i>artifact-storyboard</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-artifact-ui-card" title="复制 --color-artifact-ui-card"><i style="--sw: var(--color-artifact-ui-card)"></i>artifact-ui-card</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-artifact-video-prompt" title="复制 --color-artifact-video-prompt"><i style="--sw: var(--color-artifact-video-prompt)"></i>artifact-video-prompt</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>纸面色板</strong>
-                    <code>--color-brief-* · --color-sb-table-*</code>
-                    <p>Creative Brief 暖纸、分镜表纸面；色卡 fallback 取 board-1..5。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--color-brief-surface" title="复制 --color-brief-surface"><i style="--sw: var(--color-brief-surface)"></i>brief-surface</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-sb-table-background" title="复制 --color-sb-table-background"><i style="--sw: var(--color-sb-table-background)"></i>sb-table-background</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-brief-board-1" title="复制 --color-brief-board-1"><i style="--sw: var(--color-brief-board-1)"></i>brief-board-1</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-brief-board-2" title="复制 --color-brief-board-2"><i style="--sw: var(--color-brief-board-2)"></i>brief-board-2</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-brief-board-3" title="复制 --color-brief-board-3"><i style="--sw: var(--color-brief-board-3)"></i>brief-board-3</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-brief-board-4" title="复制 --color-brief-board-4"><i style="--sw: var(--color-brief-board-4)"></i>brief-board-4</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-brief-board-5" title="复制 --color-brief-board-5"><i style="--sw: var(--color-brief-board-5)"></i>brief-board-5</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>媒体中立层</strong>
-                    <code>--media-* · --color-on-scrim</code>
-                    <p>压在用户媒体上的遮罩、暗角、高光；文字 on-scrim。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--media-scrim-cover" title="复制 --media-scrim-cover"><i style="--sw: var(--media-scrim-cover)"></i>media-scrim-cover</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--media-scrim-photo" title="复制 --media-scrim-photo"><i style="--sw: var(--media-scrim-photo)"></i>media-scrim-photo</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--media-vignette" title="复制 --media-vignette"><i style="--sw: var(--media-vignette)"></i>media-vignette</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--media-gloss" title="复制 --media-gloss"><i style="--sw: var(--media-gloss)"></i>media-gloss</button>
-                  </div>
-                </div>
-                <div class="ext-row">
-                  <div class="ext-name">
-                    <strong>监控浮条 · AI 徽标</strong>
-                    <code>--storyboards-monitor-* · --color-ai-gradient-*</code>
-                    <p>唯一获准的暗色浮层；品牌紫蓝渐变。</p>
-                  </div>
-                  <div class="ext-swatches">
-                    <button class="ext-swatch" type="button" data-copy-token="--storyboards-monitor-bg" title="复制 --storyboards-monitor-bg"><i style="--sw: var(--storyboards-monitor-bg)"></i>monitor-bg</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--storyboards-monitor-gold" title="复制 --storyboards-monitor-gold"><i style="--sw: var(--storyboards-monitor-gold)"></i>monitor-gold</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--storyboards-monitor-complete" title="复制 --storyboards-monitor-complete"><i style="--sw: var(--storyboards-monitor-complete)"></i>monitor-complete</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--storyboards-monitor-running" title="复制 --storyboards-monitor-running"><i style="--sw: var(--storyboards-monitor-running)"></i>monitor-running</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-ai-gradient-start" title="复制 --color-ai-gradient-start"><i style="--sw: var(--color-ai-gradient-start)"></i>ai-gradient-start</button>
-                    <button class="ext-swatch" type="button" data-copy-token="--color-ai-gradient-end" title="复制 --color-ai-gradient-end"><i style="--sw: var(--color-ai-gradient-end)"></i>ai-gradient-end</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
       </section>
 
       <section class="section" id="type" aria-labelledby="type-title">
@@ -2249,7 +1695,7 @@
             <span class="eyebrow">Typography &amp; scale</span>
             <h2 id="type-title">排版与尺度</h2>
           </div>
-          <p>UI 字阶 10 档 + 画布字阶 6 档；间距 4px 基准；圆角、动效、海拔、层级各一把尺。</p>
+          <p>按信息层级选择字阶，以 4px 为间距基准；圆角、动效、阴影与层级使用统一刻度。</p>
         </header>
 
         <div class="type-list">
@@ -2261,11 +1707,11 @@
               <div class="type-styles" data-columns="2">
                 <div class="type-style" style="--sample-size: var(--text-display); --sample-line: var(--text-display--line-height); --sample-tracking: -0.04em; font-family: var(--font-home-display); font-style: italic;">
                   <strong>创作</strong>
-                  <div><code>display · 57 / 64</code><span>首页 Hero（serif）</span></div>
+                  <div><code>display · 57 / 64</code><span>展示文字（serif）</span></div>
                 </div>
                 <div class="type-style" style="--sample-size: var(--text-display-sm); --sample-line: 1.1; --sample-tracking: -0.035em; font-family: var(--font-home-display); font-style: italic;">
                   <strong>创作</strong>
-                  <div><code>display-sm · 45</code><span>紧凑 Hero</span></div>
+                  <div><code>display-sm · 45</code><span>紧凑展示文字</span></div>
                 </div>
               </div>
             </article>
@@ -2278,7 +1724,7 @@
               <div class="type-styles" data-columns="2">
                 <div class="type-style" style="--sample-size: var(--text-headline-lg); --sample-line: 1.2; --sample-tracking: -0.025em;">
                   <strong>页面标题</strong>
-                  <div><code>headline-lg · 32</code><span>品牌字标、紧凑页大标题</span></div>
+                  <div><code>headline-lg · 32</code><span>大标题</span></div>
                 </div>
                 <div class="type-style" style="--sample-size: var(--text-headline); --sample-line: var(--text-headline--line-height); --sample-tracking: -0.02em;">
                   <strong>页面标题</strong>
@@ -2312,7 +1758,7 @@
               <div class="type-styles" data-columns="2">
                 <div class="type-style" style="--sample-size: var(--text-body); --sample-line: var(--text-body--line-height);">
                   <strong>正文与说明内容</strong>
-                  <div><code>body · 14 / 20 · 基准</code><span>默认正文、按钮、Tab、导航、输入框</span></div>
+                  <div><code>body · 14 / 20 · 基准</code><span>默认正文</span></div>
                 </div>
                 <div class="type-style" style="--sample-size: var(--text-body-sm); --sample-line: var(--text-body-sm--line-height);">
                   <strong>正文与说明内容</strong>
@@ -2333,54 +1779,13 @@
                 </div>
                 <div class="type-style" style="--sample-size: var(--text-caption); --sample-line: var(--text-caption--line-height); --sample-weight: 650;">
                   <strong>标签与元信息</strong>
-                  <div><code>caption · 11 / 16 · 下限</code><span>时间码、角标、分区标签</span></div>
+                  <div><code>caption · 11 / 16 · 下限</code><span>辅助信息</span></div>
                 </div>
               </div>
             </article>
 
-            <article class="type-family-row">
-              <header class="type-family-name">
-                <strong>Canvas title</strong>
-                <code>--text-canvas-title-*</code>
-              </header>
-              <div class="type-styles">
-                <div class="type-style" style="--sample-size: var(--text-canvas-title-lg); --sample-line: 1.25; --sample-weight: 650;">
-                  <strong>画布标题</strong>
-                  <div><code>title-lg · 28</code><span>工作台节点大标题</span></div>
-                </div>
-                <div class="type-style" style="--sample-size: var(--text-canvas-title); --sample-line: 1.25; --sample-weight: 650;">
-                  <strong>画布标题</strong>
-                  <div><code>title · 26</code><span>画布卡标题</span></div>
-                </div>
-                <div class="type-style" style="--sample-size: var(--text-canvas-title-sm); --sample-line: 1.25; --sample-weight: 650;">
-                  <strong>画布标题</strong>
-                  <div><code>title-sm · 24</code><span>画布卡分区标题</span></div>
-                </div>
-              </div>
-            </article>
-
-            <article class="type-family-row">
-              <header class="type-family-name">
-                <strong>Canvas body</strong>
-                <code>--text-canvas-body-* · --text-canvas-label</code>
-              </header>
-              <div class="type-styles">
-                <div class="type-style" style="--sample-size: var(--text-canvas-body-lg); --sample-line: 1.4;">
-                  <strong>画布正文</strong>
-                  <div><code>body-lg · 22</code><span>放大阅读面正文</span></div>
-                </div>
-                <div class="type-style" style="--sample-size: var(--text-canvas-body); --sample-line: 1.4;">
-                  <strong>画布正文</strong>
-                  <div><code>body · 20</code><span>画布卡正文</span></div>
-                </div>
-                <div class="type-style" style="--sample-size: var(--text-canvas-label); --sample-line: 1.4; --sample-weight: 650;">
-                  <strong>画布标签</strong>
-                  <div><code>label · 18</code><span>画布卡标签与元信息</span></div>
-                </div>
-              </div>
-            </article>
             <p class="type-source-note">
-              <code>--font-cue-ui</code> 系统字体栈 -apple-system → BlinkMacSystemFont → Segoe UI → Roboto → Helvetica Neue → Arial → PingFang SC　·　<code>--font-home-display</code> Source Serif 4 italic，仅 Display　·　html 16px　·　字重 400 / 500 / 650　·　画布字阶仅限缩放画布与放大阅读面
+              界面正文使用 <code>--font-cue-ui</code>，展示文字使用 <code>--font-home-display</code>。通过字阶、字重与留白区分信息层级，同类内容保持一致。
             </p>
           </div>
 
@@ -2412,7 +1817,7 @@
                 <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-4xl)"></i><span>48px</span><code>--radius-4xl</code></div></div>
                 <div class="radius-item"><div><i class="radius-shape" style="border-radius: var(--radius-full)"></i><span>full</span><code>--radius-full</code></div></div>
               </div>
-              <p class="type-source-note">xs 标签 · sm 按钮 / 图标按钮 / 菜单项 · md 菜单 · lg 输入框 / 卡片 · xl 气泡 · 2xl Dialog / Composer · 3xl 工作台 · 4xl 预览舞台 · full 胶囊 / 头像</p>
+              <p class="type-source-note">圆角从既有刻度选择；同类控件保持一致，具体档位由组件实现决定。</p>
             </div>
 
             <div class="scale-group">
@@ -2425,7 +1830,7 @@
                 <div class="motion-row"><code>--ease-decel · 进场</code><span>cubic-bezier(0, 0, 0, 1)</span><b>decel</b></div>
                 <div class="motion-row"><code>--ease-accel · 退场</code><span>cubic-bezier(0.3, 0, 1, 1)</span><b>accel</b></div>
               </div>
-              <p class="type-source-note">退场时长取进场一半。</p>
+              <p class="type-source-note">动效用于表达状态和空间变化；尊重减少动态效果的系统偏好。</p>
             </div>
             <div class="scale-group">
               <h3>Elevation tokens</h3>
@@ -2443,8 +1848,8 @@
               <div class="motion-list">
                 <div class="motion-row"><code>--z-base</code><span>页面基面</span><b>0</b></div>
                 <div class="motion-row"><code>--z-canvas</code><span>画布</span><b>2</b></div>
-                <div class="motion-row"><code>--z-content</code><span>内容、composer</span><b>5</b></div>
-                <div class="motion-row"><code>--z-panel</code><span>聊天面板</span><b>10</b></div>
+                <div class="motion-row"><code>--z-content</code><span>内容</span><b>5</b></div>
+                <div class="motion-row"><code>--z-panel</code><span>面板</span><b>10</b></div>
                 <div class="motion-row"><code>--z-sidebar</code><span>侧栏；--z-canvas-overlay 同层</span><b>40</b></div>
                 <div class="motion-row"><code>--z-header</code><span>顶栏</span><b>50</b></div>
                 <div class="motion-row"><code>--z-overlay</code><span>scrim</span><b>90</b></div>
@@ -2458,7 +1863,7 @@
               <div class="motion-list">
                 <div class="motion-row"><code>--breakpoint-sm</code><span>紧凑 → 中等</span><b>600px</b></div>
                 <div class="motion-row"><code>--breakpoint-md</code><span>中等 → 展开</span><b>840px</b></div>
-                <div class="motion-row"><code>--breakpoint-lg</code><span>展开 → 并排右面板</span><b>1280px</b></div>
+                <div class="motion-row"><code>--breakpoint-lg</code><span>宽屏</span><b>1280px</b></div>
               </div>
             </div>
           </div>
@@ -2467,486 +1872,68 @@
       <section class="section" id="component" aria-labelledby="component-title">
         <header class="section-heading">
           <div>
-            <span class="eyebrow">Component contracts</span>
-            <h2 id="component-title">组件、状态与图标</h2>
+            <span class="eyebrow">Interaction &amp; accessibility</span>
+            <h2 id="component-title">交互与可访问性</h2>
           </div>
-          <p>
-            基础组件（<code>web/src/shared/ui</code>）只拥有 anatomy、密度、语义 variant 与适用状态；业务文案、业务判断与页面专属样式留在业务层。
-          </p>
+          <p>同类交互使用一致的状态反馈；键盘、鼠标与触摸操作均能完成核心任务。</p>
         </header>
 
         <div class="component-layout">
-          <section aria-labelledby="contract-title">
-            <header class="subsection-heading">
-              <h3 id="contract-title">可模板化组件契约</h3>
-              <p>
-                高度取 <code>--control-height-*</code>，图标取 <code>--icon-*</code>，状态用 <code>ui-state</code> / <code>ui-focus</code>，变体以 <code>cva</code> 声明。几何为 M3 密度 −3 档；固定偏离：按钮圆角 8、Chip 圆角 full、菜单圆角 12、弹窗宽 ≤ 582。表外尺寸档与变体不实现。
-              </p>
-            </header>
-
-            <div class="component-token-strip" aria-label="组件核心 token">
-              <div class="component-token">
-                <code>--control-height-xs — xl</code>
-                <span>24 / 34 / 36 / 40 / 44px</span>
-              </div>
-              <div class="component-token">
-                <code>--control-hit-area</code>
-                <span>48px</span>
-              </div>
-              <div class="component-token">
-                <code>--icon-xs — xl</code>
-                <span>12 / 14 / 16 / 20 / 24px</span>
-              </div>
-              <div class="component-token">
-                <code>--state-hover / focus / pressed / dragged</code>
-                <span>8 / 12 / 12 / 16%</span>
-              </div>
-              <div class="component-token">
-                <code>--state-disabled-content / container</code>
-                <span>38 / 12%</span>
-              </div>
-              <div class="component-token">
-                <code>--state-focus-ring / offset</code>
-                <span>3 / 2px</span>
-              </div>
-            </div>
-
-            <div class="contract-table-scroll">
-              <table class="contract-table">
-                <colgroup>
-                  <col style="width: 13%" />
-                  <col style="width: 22%" />
-                  <col style="width: 18%" />
-                  <col style="width: 23%" />
-                  <col style="width: 24%" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th scope="col">Component</th>
-                    <th scope="col">Anatomy</th>
-                    <th scope="col">Types / variants</th>
-                    <th scope="col">Size contract</th>
-                    <th scope="col">Core states</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Button</strong><code>Action control</code></th>
-                    <td class="contract-cell"><code>leading icon · label · trailing icon</code><span>原生 button。</span></td>
-                    <td class="contract-cell"><span>primary · tonal · outlined</span><span>inverted · danger · ghost</span></td>
-                    <td class="contract-cell"><code>lg 40（默认）· md 36</code><span>水平 padding 22 / 16；radius sm；图标 icon-md；热区 48。</span></td>
-                    <td class="contract-cell"><span>hover · pressed（微缩 98%）· focus-visible</span><span>disabled；loading 按需</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>IconButton</strong><code>Icon-only control</code></th>
-                    <td class="contract-cell"><code>icon · optional badge</code><span>必须提供 aria-label；SVG 不承担命中区。</span></td>
-                    <td class="contract-cell"><span>standard · tonal · selected</span></td>
-                    <td class="contract-cell"><code>lg 40 / 48 · md 36 / 44 · sm 34 / 34 · xs 24 / 24</code><span>视觉 / 热区；radius sm；图标 icon-lg / icon-md / icon-md / icon-sm。sm 与 xs 热区不外扩（相邻钮会互相盖住），只用在行尾与终态栏。</span></td>
-                    <td class="contract-cell"><span>hover · pressed（微缩 98%）· focus-visible</span><span>disabled；selected 按需</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Input family</strong><code>Input · Textarea · Select</code></th>
-                    <td class="contract-cell"><code>leading icon · field · trailing action · helper</code><span>搜索是 leading-icon slot，不新建 variant。</span></td>
-                    <td class="contract-cell"><span>outlined（默认）· glass</span><span>普通 / 错误语义</span></td>
-                    <td class="contract-cell"><code>xl 44 · Textarea min 2 行</code><span>水平 15；radius lg；描边 outline，聚焦 primary；字 body。</span></td>
-                    <td class="contract-cell"><span>placeholder · hover · focus-visible</span><span>disabled · invalid；readonly 按需</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Chip</strong><code>Filter · Reference · Assist</code></th>
-                    <td class="contract-cell"><code>leading icon / avatar · label · optional remove</code><span>filter 表达同一组中的选择；reference 用 --color-reference-* 身份色。</span></td>
-                    <td class="contract-cell"><span>filter · reference · assist</span></td>
-                    <td class="contract-cell"><code>sm 34 · px 15 · gap 7</code><span>radius full；label body-sm；图标 icon-sm；selected 铺 state-active、字 on-surface、边框透明。</span></td>
-                    <td class="contract-cell"><span>hover · pressed · focus-visible</span><span>selected · disabled</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Tag · Badge</strong><code>Type · Status · Count</code></th>
-                    <td class="contract-cell"><code>label · optional count / status dot</code><span>静态信息，不承担选择。</span></td>
-                    <td class="contract-cell"><span>solid · soft</span><span>status：success · running · error</span></td>
-                    <td class="contract-cell"><code>xs 24 · px 9</code><span>radius xs；label 12；纯展示可低于 24，可点击不得低于。</span></td>
-                    <td class="contract-cell"><span>无交互状态；selected 按需</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Menu</strong><code>Dropdown · Context</code></th>
-                    <td class="contract-cell"><code>surface · item（icon · label · shortcut）· separator</code><span>radix DropdownMenu。</span></td>
-                    <td class="contract-cell"><span>dropdown · context</span><span>destructive 项用 error 字色</span></td>
-                    <td class="contract-cell"><code>item sm 34 · surface radius md · surface padding 4</code><span>item radius sm；shadow-2；layer popup。</span></td>
-                    <td class="contract-cell"><span>item：hover · pressed · focus-visible</span><span>disabled；selected 按需</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Popover · Tooltip</strong><code>Anchored surface</code></th>
-                    <td class="contract-cell"><code>trigger · surface · content</code><span>radix Popover / Tooltip。</span></td>
-                    <td class="contract-cell"><span>popover（可交互）· tooltip（只读、延迟）</span></td>
-                    <td class="contract-cell"><code>radius md · tooltip xs</code><span>shadow-2；layer popup；进场 dur-m decel，退场 dur-s accel。</span></td>
-                    <td class="contract-cell"><span>open · closed</span><span>popover 打开时焦点进入</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Dialog · BottomSheet</strong><code>Modal surface</code></th>
-                    <td class="contract-cell"><code>scrim · surface · header · body · footer</code><span>radix Dialog；&lt; 600 自动切换为 sheet。</span></td>
-                    <td class="contract-cell"><span>dialog（居中）· sheet（贴底）</span></td>
-                    <td class="contract-cell"><code>max 582 · radius 2xl</code><span>shadow-3；scrim = --color-scrim 32%；layer overlay / popup；dur-l。</span></td>
-                    <td class="contract-cell"><span>open · closed</span><span>焦点圈定 · Esc 关闭</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>ToggleGroup</strong><code>Segmented choice</code></th>
-                    <td class="contract-cell"><code>item（icon / label）× n</code><span>radix ToggleGroup。</span></td>
-                    <td class="contract-cell"><span>single · multiple</span></td>
-                    <td class="contract-cell"><code>lg 40 · md 36</code><span>组 radius md，项 radius sm；选中底 primary-container。</span></td>
-                    <td class="contract-cell"><span>item：hover · pressed · focus-visible</span><span>selected · disabled</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Slider</strong><code>Range control</code></th>
-                    <td class="contract-cell"><code>track · range · thumb</code><span>radix Slider。</span></td>
-                    <td class="contract-cell"><span>single · range</span></td>
-                    <td class="contract-cell"><code>track 4 · thumb 20 · 热区 44</code><span>track surface-container-highest；range primary。</span></td>
-                    <td class="contract-cell"><span>thumb：hover · focus-visible</span><span>dragged · disabled</span></td>
-                  </tr>
-                  <tr>
-                    <th scope="row" class="contract-name"><strong>Toast</strong><code>Status feedback</code></th>
-                    <td class="contract-cell"><code>icon · message · optional action · close</code><span>容器不交互；action 继承 Button 状态。</span></td>
-                    <td class="contract-cell"><span>neutral（inverse-surface）· error</span></td>
-                    <td class="contract-cell"><code>radius md · icon-md</code><span>shadow-3；layer popup；停留 4s，有 action 8s。</span></td>
-                    <td class="contract-cell"><span>无交互状态</span></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-
           <section aria-labelledby="state-title">
             <header class="subsection-heading">
-              <h3 id="state-title">核心状态契约</h3>
-              <p>
-                状态层 = on-surface 以 <code>--state-*</code> 透明度叠在底色上；组件不自写 hover / pressed / disabled 颜色。
-              </p>
+              <h3 id="state-title">状态语义</h3>
+              <p>复用统一状态样式，按控件实际行为提供反馈。</p>
             </header>
-
             <div class="state-definition-table">
               <div class="state-definition-row">
-                <strong>Hover</strong>
-                <code>--state-hover · 5%</code>
-                <span>前景色状态层；按钮另加放大 1.05。工具类 <code>ui-state</code>。</span>
+                <strong>悬停与按压</strong>
+                <code>hover · pressed</code>
+                <span>明确提示可操作性；反馈保持一致，不改变内容布局。</span>
               </div>
               <div class="state-definition-row">
-                <strong>Hover · subtle</strong>
-                <code>--state-hover-subtle · 3%</code>
-                <span>密排列表行专用档，工具类 <code>ui-state-subtle</code> 挂在列表容器上、行仍写 <code>ui-state</code>；只用于行高 ≤ 32 的列表，其余一律 5%。</span>
+                <strong>键盘焦点</strong>
+                <code>focus-visible</code>
+                <span>焦点位置清晰可见；交互控件可通过键盘操作，浮层正确管理焦点。</span>
               </div>
               <div class="state-definition-row">
-                <strong>Pressed</strong>
-                <code>--state-pressed · 10%</code>
-                <span>按压状态层；按钮另加缩小 0.95。</span>
+                <strong>选中与禁用</strong>
+                <code>selected · disabled</code>
+                <span>视觉状态与可访问语义一致，清楚区分当前选择和不可执行的动作。</span>
               </div>
               <div class="state-definition-row">
-                <strong>Focus visible</strong>
-                <code>--state-focus-ring · 3px / --state-focus-offset · 2px</code>
-                <span>描边 <code>--color-focus-ring</code>；只响应键盘。工具类 <code>ui-focus</code>。</span>
+                <strong>加载与错误</strong>
+                <code>loading · invalid</code>
+                <span>加载保持控件尺寸并阻止重复提交；错误关联具体字段或操作，以文字说明，不只依赖颜色。</span>
               </div>
-              <div class="state-definition-row">
-                <strong>Selected</strong>
-                <code>--color-state-active</code>
-                <span>底 state-active（on-surface 6%）、字 on-surface、描边透明；以 aria-pressed / aria-selected 暴露。</span>
-              </div>
-              <div class="state-definition-row">
-                <strong>Dragged</strong>
-                <code>--state-dragged · 16%</code>
-                <span>状态层 + shadow-2。</span>
-              </div>
-              <div class="state-definition-row">
-                <strong>Disabled</strong>
-                <code>content 38% · container 12%</code>
-                <span><code>ui-state</code> 压暗文字与描边、撤销叠层、cursor not-allowed；实心容器另加 <code>disabled:bg-disabled-container</code>。</span>
-              </div>
-              <div class="state-definition-row">
-                <strong>Loading</strong>
-                <code>spinner icon-md · aria-busy</code>
-                <span>保持原控件尺寸、阻止重复触发。</span>
-              </div>
-              <div class="state-definition-row">
-                <strong>Invalid</strong>
-                <code>error ring + helper</code>
-                <span>描边与辅助文字 error，不改底色；aria-invalid 并关联错误说明。</span>
-              </div>
-              <div class="state-definition-row">
-                <strong>Transition</strong>
-                <code>--dur-s · --ease</code>
-                <span>状态变化 150ms 标准曲线。工具类 <code>ui-motion-s</code>。</span>
-              </div>
-            </div>
-
-            <header class="subsection-heading" style="margin-top: 22px">
-              <h3>状态适用矩阵</h3>
-              <p>必备 = 组件必须实现；按需 = 只有对应行为存在时实现。</p>
-            </header>
-
-            <div class="state-matrix">
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">Component</th>
-                    <th scope="col">Hover</th>
-                    <th scope="col">Pressed</th>
-                    <th scope="col">Focus</th>
-                    <th scope="col">Disabled</th>
-                    <th scope="col">Selected</th>
-                    <th scope="col">Loading</th>
-                    <th scope="col">Invalid</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><th scope="row">Button</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-optional">按需</td><td class="state-na">不适用</td></tr>
-                  <tr><th scope="row">IconButton</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-optional">按需</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
-                  <tr><th scope="row">Input family</th><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-required">必备</td></tr>
-                  <tr><th scope="row">Chip</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
-                  <tr><th scope="row">Tag · Badge</th><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-optional">按需</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
-                  <tr><th scope="row">Menu item</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-optional">按需</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
-                  <tr><th scope="row">Popover · Dialog</th><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-required">焦点圈定</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
-                  <tr><th scope="row">ToggleGroup item</th><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
-                  <tr><th scope="row">Slider thumb</th><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-required">必备</td><td class="state-required">必备</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
-                  <tr><th scope="row">Toast</th><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td><td class="state-na">不适用</td></tr>
-                </tbody>
-              </table>
             </div>
           </section>
 
           <section aria-labelledby="icon-title">
             <header class="subsection-heading">
-              <h3 id="icon-title">Iconography</h3>
-              <p>
-                通用 UI 图标由 <code>@/shared/icons</code> 的类型化注册表管理；本页只保留使用契约，不展示图形目录、不嵌入 SVG。
-              </p>
+              <h3 id="icon-title">图标与语义</h3>
+              <p>统一图形语言与语义名称，确保图标的含义和操作可被识别。</p>
             </header>
-
-            <div class="icon-layout">
-              <div class="icon-rule-table">
-                <div class="icon-rule-row">
-                  <strong>Source</strong>
-                  <span>Lucide 为唯一通用图标来源，每个语义名称绑定一个 Lucide 组件，不做运行时 fallback。键名按用途起（<code>search</code> <code>close</code> <code>run</code>），不按图形起。</span>
-                </div>
-                <div class="icon-rule-row">
-                  <strong>Scale</strong>
-                  <span><code>--icon-xs — xl · 12 / 14 / 16 / 20 / 24px</code>；描边 2。按钮内与菜单项 icon-md，图标按钮与输入框内 icon-lg，Chip / Tag icon-sm，角标 icon-xs，空态 icon-xl。</span>
-                </div>
-                <div class="icon-rule-row">
-                  <strong>Color</strong>
-                  <span>使用 currentColor；默认、危险、选中和 disabled 颜色由父级语义控件统一接管。</span>
-                </div>
-                <div class="icon-rule-row">
-                  <strong>Hit area</strong>
-                  <span>Icon-only control 使用 IconButton 外壳（lg 40 / 48、md 36 / 44、sm 34 / 34）并提供 aria-label；SVG 不承担命中区。</span>
-                </div>
-                <div class="icon-rule-row">
-                  <strong>Accessibility</strong>
-                  <span>装饰性图标 <code>aria-hidden</code>；单独承载含义的图标必须传 <code>label</code>，缺失时组件抛错，不静默降级。</span>
-                </div>
-                <div class="icon-rule-row">
-                  <strong>Runtime bridge</strong>
-                  <span><code>@/shared/icons</code> 只公开 <code>Icon</code> 与 <code>IconName</code>；组件使用语义名称，不直接导入 <code>lucide-react</code>（ESLint 拦截）。改名或删除一次迁完全部调用点，不留兼容别名。</span>
-                </div>
-                <div class="icon-rule-row">
-                  <strong>Scope</strong>
-                  <span>通用 UI 图标进入注册表；品牌图形与插画（如 HippoIcon）放 <code>shared/ui/icons</code>；标注、编辑器引用等业务专用图形由所属 feature 管理；图表与动态几何不进入图标系统。</span>
-                </div>
+            <div class="icon-rule-table">
+              <div class="icon-rule-row">
+                <strong>一致性</strong>
+                <span>通用图标使用统一来源与尺寸刻度，按用途命名；颜色继承所在控件的语义。</span>
+              </div>
+              <div class="icon-rule-row">
+                <strong>可访问名称</strong>
+                <span>独立传达含义的图标和纯图标按钮提供可访问名称，装饰图标对辅助技术隐藏。</span>
+              </div>
+              <div class="icon-rule-row">
+                <strong>操作区域</strong>
+                <span>图形大小与点击区域分离，由语义化控件提供足够的操作区域。</span>
               </div>
             </div>
           </section>
         </div>
       </section>
 
-      <section class="section" id="template" aria-labelledby="template-title">
-        <header class="section-heading">
-          <div>
-            <span class="eyebrow">Template contracts</span>
-            <h2 id="template-title">结构模板</h2>
-          </div>
-          <p>
-            只记录重复出现的组合骨架、槽位与固定节奏；组件细节引用上方契约，槽位内容由业务层提供，feature 不改槽位规格。
-          </p>
-        </header>
-
-        <div class="template-table">
-          <article class="template-row">
-            <header class="template-name">
-              <span>01 · SHELL</span>
-              <strong>应用壳</strong>
-              <code>ProjectShell</code>
-            </header>
-            <div class="template-flow" aria-label="header 到 sidebar、canvas、chat-panel 与 composer">
-              <code>header</code><span>→</span><code>sidebar · canvas · chat-panel</code><span>→</span><code>composer</code><span>→</span><code>agent-log</code>
-            </div>
-            <div class="template-values">
-              <code>--layout-project-header-height · 72px</code>
-              <span>header · surface · layer-header · 左区 ≤ --layout-project-header-max-left 375</span>
-              <span>sidebar · glass-surface · layer-sidebar · 可折叠</span>
-              <span>canvas · surface · layer-canvas · 点阵 --color-dot-pattern · stage 内距 20</span>
-              <span>chat-panel · chat-panel-bg 渐变 · layer-panel · 底部避让 --layout-project-chat-panel-bottom-safe-area</span>
-              <span>composer · ≤ 582 · radius 2xl · glass · 预留高 180 · ≥ 840 最小 300</span>
-              <span>agent-log · 280 × clamp(220, 40vh, 320) · agent-log-bg</span>
-            </div>
-            <p class="template-use">
-              项目页统一滚动所有权、面板层级与 composer 避让；≥ 840 画布与聊天面板并排，600–840 副面板可折叠。
-            </p>
-          </article>
-
-          <article class="template-row">
-            <header class="template-name">
-              <span>02 · OVERLAY</span>
-              <strong>浮层</strong>
-              <code>Dialog · Menu · Popover</code>
-            </header>
-            <div class="template-flow" aria-label="scrim 到 surface、header、body 和 footer">
-              <code>scrim</code><span>→</span><code>surface</code><span>→</span><code>header</code><span>→</span><code>body</code><span>→</span><code>footer</code>
-            </div>
-            <div class="template-values">
-              <code>Dialog · max 582 · radius 2xl · shadow-3</code>
-              <span>scrim · --color-scrim 32% · layer-overlay（仅 Dialog）</span>
-              <span>surface · surface-container-lowest · layer-popup</span>
-              <span>header · title-lg · 关闭 IconButton 右上</span>
-              <span>body · padding 24 · 可滚动</span>
-              <span>footer · 右对齐 · 主按钮最右 · gap 8</span>
-              <span>Menu / Popover · radius md · shadow-2</span>
-            </div>
-            <p class="template-use">
-              所有浮层共用层级、进出动效（进场 dur-m decel、退场 dur-s accel）与焦点圈定。
-            </p>
-          </article>
-
-          <article class="template-row">
-            <header class="template-name">
-              <span>03 · CANVAS CARD</span>
-              <strong>画布卡</strong>
-              <code>ArtifactCanvasCard</code>
-            </header>
-            <div class="template-flow" aria-label="card 到 rail、header、body 和 media">
-              <code>card</code><span>→</span><code>rail</code><span>→</span><code>header</code><span>→</span><code>body</code><span>→</span><code>media</code>
-            </div>
-            <div class="template-values">
-              <code>card · canvas-card-bg · radius lg</code>
-              <span>选中描边 --color-canvas-card-border</span>
-              <span>rail · 左缘 3px --color-artifact-* · --shadow-rail-inset</span>
-              <span>header · text-canvas-title · label canvas-label-text</span>
-              <span>body · text-canvas-body · 纸面类用 brief / sb-table 色板（主题中立）</span>
-              <span>media · 缩略图 + --media-scrim-* · 文字 on-scrim</span>
-            </div>
-            <p class="template-use">
-              artifact 渲染器共享卡面、身份色栏与媒体遮罩；卡内文字一律取画布字阶。
-            </p>
-          </article>
-
-          <article class="template-row">
-            <header class="template-name">
-              <span>04 · HOME</span>
-              <strong>首页</strong>
-              <code>HomeViewport</code>
-            </header>
-            <div class="template-flow" aria-label="sidebar 到阅读列、hero、composer、project-bar 与右面板">
-              <code>sidebar</code><span>→</span><code>阅读列</code><span>→</span><code>hero</code><span>→</span><code>composer</code><span>→</span><code>project-bar</code><span>→</span><code>右面板</code>
-            </div>
-            <div class="template-values">
-              <code>--layout-app-sidebar-width · 264px（默认宽）</code>
-              <code>--layout-app-sidebar-min-width · 200px</code>
-              <code>--layout-app-sidebar-max-width · 400px</code>
-              <span>sidebar · background · hairline 右边线 · 品牌区 serif 字标 · 会话行尾状态色：primary 转圈 / warning 徽章 / 对勾 / status-error 红叉</span>
-              <span>sidebar 列表行 · 容器与行各 12 水平内距（文字距侧栏 24）· 行间距 2 · radius sm · 分组子行再缩进 24 · 状态层挂整行 · 容器 ui-state-subtle</span>
-              <span>sidebar 行尾槽 · text-caption on-surface-faint · IconButton xs</span>
-              <span>sidebar 行内改名 input · 底 surface-container-lowest · radius xs · 焦点环 1px 内嵌（ui-focus-inline）</span>
-              <span>sidebar 分区标题 · text-body-sm 600 on-surface-faint · 折叠箭头 icon-sm · sticky 顶部铺 background</span>
-              <span>阅读列 · ≤ --layout-home-read-max 760 · 垂直居中偏上</span>
-              <span>hero · Lottie public/lottie/hero.json 一份 · ≤440 宽 · 深色配色由 CSS 覆盖 fill</span>
-              <span>品牌字标 · Cue · --font-home-display italic semibold · --text-display（紧凑 --text-display-sm）· 字距 -0.04em（紧凑 -0.035em）· on-surface</span>
-              <span>composer · top-layer · radius 3xl（支持 superellipse 时连续曲率）· 0.5px chat-hairline 发丝边框 · shadow-input · focus-within 边框 border-hover、不抬阴影 · 发送钮反色圆形向上箭头 shadow-send · 会话页单行起步 · 上下文占用环 32×32 容器、环 16px · stroke 2 · 轨道 chat-hairline · 进度 chat-muted-text</span>
-              <span>composer 附件 pill · 文字流内联 · 14px 缩略图（图片、视频）或类型图标（文件）+ 文件名 · chat-muted-text · 无背景无边框 · 点选 primary 20% 底色 · 上传失败 error 色 · 拖入遮罩 72% background + 0.5px dashed primary 虚线卡</span>
-              <span>附件悬停卡 · inverse-surface 底 · inverse-on-surface 字 · 12×6 小三角 · 预览 ≤300×220（棋盘格兜底）· meta 行 icon-sm + 名 + 大小</span>
-              <span>project-bar · 贴 composer 下沿 · 只圆下两角 · surface-container-low</span>
-              <code>--layout-app-right-panel-width · 460px</code>
-              <code>--layout-app-workbench-width · 820px（默认宽）</code>
-              <code>--layout-app-workbench-min-width · 560px</code>
-              <code>--layout-app-chat-min-width · 400px</code>
-              <span>右面板 · background · hairline 左边线 · 空态占位 · 有内容时宽 --layout-app-workbench-width，主区（聊天）最小 --layout-app-chat-min-width · 面板头左标题、右折叠钮与放大钮</span>
-              <span>拖柄 · 侧栏｜主区 一道、聊天｜右面板 一道 · 4px 命中区 · cursor col-resize · hover / 拖动中 border-hover 色竖线，静息不画</span>
-              <span>并排条件 · 视口 ≥ 侧栏当前宽 + --layout-app-chat-min-width + --layout-app-workbench-min-width · 放不下时主区只显示聊天与面板之一</span>
-              <span>紧凑 &lt; 600 · sidebar 与右面板默认折叠</span>
-            </div>
-            <p class="template-use">
-              登录后应用壳与首页空态共用一套骨架；紧凑断点的退化规则一并登记，不在页面上另写断点。
-            </p>
-          </article>
-
-          <article class="template-row">
-            <header class="template-name">
-              <span>05 · CHAT</span>
-              <strong>会话页</strong>
-              <code>ConversationViewport</code>
-            </header>
-            <div class="template-flow" aria-label="header 到消息流、用户气泡、助手正文块与 composer">
-              <code>header</code><span>→</span><code>消息流</code><span>→</span><code>用户气泡 · 助手正文块</code><span>→</span><code>composer</code>
-            </div>
-            <div class="template-values">
-              <code>--layout-home-read-max · 760px</code>
-              <span>阅读列 · ≤ 760 · 居中 · 水平内距 20</span>
-              <span>header · 48 · 标题 text-body 500 · 0.5px chat-hairline 底边线</span>
-              <span>轮间距 16 · 轮内块间距 10</span>
-              <span>用户气泡 · 右对齐 · ≤ min(88%, 100vw-52) · chat-user-bg · radius md · 内距 10 / 12 · text-body 行高 1.5 · 无边框无阴影无状态层 · 折叠态底部渐隐，「展开」胶囊 radius full · 0.5px chat-hairline · top-layer · shadow-1</span>
-              <span>消息附件芯片 · 文字流内联 · 高 16 · 0.5px chat-hairline radius xs 一圈围住缩略图（图片、视频，满高贴左）+ 12px 种类角标（内距 3）· 无文件名无底色 · chat-muted-text · 居中对齐正文 · 左右外距 2 · 队列行 28px 缩略图 radius xs 0.5px chat-hairline</span>
-              <span>灯箱 · scrim 60% · 居中 · 限 960 / 80vh · 关闭钮右上 on-scrim</span>
-              <span>助手正文 · 左对齐满宽 · 不进卡片 · text-body 400 · 行高 relaxed · chat-message-text · 按 markdown 渲染</span>
-              <span>助手回复操作 · 左对齐 · 24×24 图标钮 radius sm · icon-sm chat-muted-text · hover 铺 hover 状态底 · 钮组后隔 8 接 token 统计与完成时刻（credit 图标与文字距 4 · text-caption chat-muted-text）· 默认透明，hover 该轮浮现</span>
-              <span>正文 markdown · 顶层块间距 14 · 标题最高 text-title、h1 底部发丝线 · 列表 28 缩进 + 5px 圆点（二级空心描边）· 引用 2px 圆角竖条 · 行内代码 chat-code-bg radius xs、chat-link-text 色 · 代码块带头部条 chat-code-block-bg radius sm 最高 500 可滚动 · 表格 chat-hairline 细线、表头 chat-chip-bg、超宽横向滚动 · 链接 chat-link-text，hover 下划线</span>
-              <span>工具行 · 一行 · 无填充无边框 · icon-sm chat-muted-text · 名称 chat-muted-text · 路径 chat-message-text 截断（≤ 60%）· 行尾状态点 chat-status-success / -error / -running</span>
-              <span>工具结果 · 展开后 chat-code-block-bg · radius sm · 内距 8 / 12 · 等宽 · 最高 256 可滚动</span>
-              <span>媒体结果卡 · 工具行下方独立一排（横向 wrap · 卡间距 8）· 每张 flex 纵向 · 内部间距 6 · 最宽 320 · 视口 &lt; 600 时宽 min(44vw, 160) · 图无填充无边框 · radius md · 溢出裁切 · 图 block 满宽 · 标题 text-body-sm chat-muted-text 单行省略</span>
-              <span>思考块 · 一行标题 灯泡 icon-sm + 折叠箭头 · chat-muted-text · 正文 chat-secondary-text 行高 1.7 · 无填充无边框</span>
-              <span>运行状态条 · 消息流末尾左对齐 · 40px 摄像机 mascot + text-body-sm chat-muted-text</span>
-              <span>活动组 · 一行摘要 · 状态图标 icon-sm + text-body-sm chat-muted-text · 折叠箭头</span>
-              <span>轮级报错 · chat-error-bg · chat-error-border · chat-error-text · radius sm · 内距 8 / 12</span>
-              <span>排队队列 · 消息流末尾右对齐一叠 · 头部 mail icon + body-sm chat-muted-text · 行 chat-user-bg 压暗 · 正文渐隐 · 第一条左侧 primary 圆钮</span>
-              <span>消息区滚动条 · 常态隐形 · 滚动中 / 悬停 6px · chat-scrollbar-thumb</span>
-              <span>回到底部胶囊 · radius full · 0.5px chat-hairline · top-layer · shadow-1</span>
-              <span>空状态 · 品牌字标 font-home-display italic + 引导文案 · 垂直居中</span>
-              <span>审批卡 · composer 上方 · 阅读列宽 · 与输入卡距 8 · chat-card-bg · 0.5px chat-hairline · radius lg · shadow-2 · 头（内距 12 / 16）标题 text-body 500 + 摘要 text-body-sm 等宽 chat-muted-text 单行省略 · 体（内距 12 / 16）· 底（上距 12 · 内距 12 / 16 · 0.5px chat-hairline 顶边线）整行左对齐选项钮 radius md · 数字键小方块 chat-chip-bg · radius xs · text-caption</span>
-              <span>右面板内容 · 会话页声明分镜工作台为右面板内容，几何按 04 · HOME 的槽位规则</span>
-              <span>composer · 同 04 · HOME · 贴底 · 消息尾部到卡片上沿约 81px · 上方 background 渐隐遮住滚动内容</span>
-            </div>
-            <p class="template-use">
-              会话页只有一处填充（用户气泡）；工具行、思考块、助手正文都不进卡片。
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section" id="rule" aria-labelledby="rule-title">
-        <header class="section-heading">
-          <div>
-            <span class="eyebrow">Usage</span>
-            <h2 id="rule-title">收敛原则</h2>
-          </div>
-          <p>判断一项内容是否应该进入设计系统的三条规则。</p>
-        </header>
-
-        <div class="rule-line">
-          <div class="rule">
-            <strong>Token 优先</strong>
-            <p>
-              颜色只引用语义角色与领域别名，排版和尺度只引用已命名 token；没有则先加入本页再镜像运行时，不在业务页面写第二套数值。
-            </p>
-          </div>
-          <div class="rule">
-            <strong>模板只管结构</strong>
-            <p>
-              模板拥有布局、槽位、响应式节奏和滚动关系；数据、权限、路由与交互逻辑由业务层提供。
-            </p>
-          </div>
-          <div class="rule">
-            <strong>两处复用再上收</strong>
-            <p>
-              只有在两个独立 feature 中重复出现的稳定组件或结构，才进入契约表与 <code>shared/ui</code>；单一业务样式保持局部。
-            </p>
-          </div>
-        </div>
-      </section>
-
       <footer class="footer">
         <span>Cue Design System</span>
-        <span>Scope · Tokens + Components + Templates · 运行时镜像 web/src/app/globals.css · base.css · 对账 pnpm lint:design</span>
+        <span>全局视觉规范 · token 定义与运行时逐值对账 · pnpm lint:design</span>
       </footer>
     </main>
 
@@ -3145,13 +2132,6 @@
       };
       const copyTokenValue = (token, value) => copyValue(value, `${token} · ${value} 已复制`);
       const copySemanticToken = (role) => copyValue(`--color-${role}`, `--color-${role} 已复制`);
-
-      // 扩展色 pill：点击复制完整 token 名
-      document.querySelectorAll("[data-copy-token]").forEach((el) => {
-        el.addEventListener("click", () =>
-          copyValue(el.dataset.copyToken, `${el.dataset.copyToken} 已复制`),
-        );
-      });
 
       palettes.forEach((palette) => {
         const row = document.createElement("div");

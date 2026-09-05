@@ -16,7 +16,7 @@
 ├── web/                # 前端 (Vite + React 19 + pnpm)；命令与边界见 web/AGENTS.md
 ├── docs/               # 领域锚点、后端架构、测试与工具规范、ADR
 ├── contract/           # 跨端合同：openapi.json 由后端导出，前端据此生成类型与 zod
-├── design-system.html  # 前端视觉规范与组件契约
+├── design-system.html  # 全局视觉规范与 token 定义
 ├── Makefile            # 全部环境装配与启动命令
 └── AGENTS.md           # 开发约定：命令入口、两端分工、禁止动作、分支流程
 ```
@@ -71,7 +71,7 @@ cd web && pnpm dev
 - [web/AGENTS.md](web/AGENTS.md)：前端的命令、分层边界与门禁；起步与目录见 [web/README.md](web/README.md)。
 - [docs/CONTEXT.md](docs/CONTEXT.md)：领域锚点（两端共用）——术语、不变量、禁止逻辑。
 - [contract/](contract/)：跨端合同。`openapi.json` 由后端导出；`conventions.md` 写合同表达不了的约定。
-- [design-system.html](design-system.html)：前端视觉规范与组件契约。
+- [design-system.html](design-system.html)：全局视觉规范与 token 定义。
 - [docs/architecture.md](docs/architecture.md)：后端架构——分层依赖规则与装配流程。
 - [docs/adr/](docs/adr/)：架构决策记录。
 - [docs/tool-design.md](docs/tool-design.md)：agent 工具模型面文本的写法与禁区。

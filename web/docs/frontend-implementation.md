@@ -2,15 +2,14 @@
 
 > 覆盖组件、Hook、TypeScript、质量和测试。视觉规则见 [设计系统](../../design-system.html)。
 
-## 新增一个契约组件
+## 组件复用
 
-先确认 `design-system.html` §组件契约 那张表里有它，实现照表走，尺寸、状态、圆角、层级都不自己发挥。表里没有的先改表再写代码。
+优先复用 `src/shared/ui` 中的现有组件。组件遵守 [设计系统](../../design-system.html) 的全局视觉规范，单个组件的 props、变体和尺寸以其实现为准。
 
 ## 组件与 JSX
 
 - 组件 props 必须有显式类型；共享 props 类型遵守本文件的类型规则。
 - 列表 key 用稳定业务标识。
-- UI 颜色、字体、层级、间距、交互状态、圆角和阴影以 [设计系统](../../design-system.html) 为准。
 - className 拼接统一走 `cn()`（clsx + tailwind-merge），不手写模板拼接。
 - 新组件的多变体样式（`variant`/`size` 等档位 props）用 `cva`（class-variance-authority）声明。
 

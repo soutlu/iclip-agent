@@ -21,7 +21,7 @@
 
 ### 设计系统
 
-视觉规范与组件契约只有一份：根目录 [design-system.html](design-system.html)。它第一个 `<style>` 里 `:root`（浅色）与 `.dark`（深色）两块是契约；运行时 token 在 `web/src/app/globals.css` 与 `base.css`，`pnpm lint:design` 逐名逐值对账。规范变更先改 HTML，再改运行时。视觉验收截图放 `.artifacts/design-qa/`（不入库）。
+全局视觉规范与 token 定义只有一份：根目录 [design-system.html](design-system.html)。它第一个 `<style>` 里 `:root`（浅色）与 `.dark`（深色）两块是 token 契约；运行时 token 在 `web/src/app/globals.css` 与 `base.css`，`pnpm lint:design` 逐名逐值对账。token 变更先改 HTML，再改运行时。视觉验收截图放 `.artifacts/design-qa/`（不入库）。
 
 ### 两端分工与合同
 
