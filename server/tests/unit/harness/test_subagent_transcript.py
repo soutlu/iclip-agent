@@ -257,6 +257,8 @@ async def test_one_delegation_lands_on_both_paths_and_in_the_ledger(tmp_path: Pa
         (child_id, "subagent", "completed", child_id, WRITER, "镜头一、镜头二、镜头三")
     ]
 
+    # 子快照已落库，父侧桥当场交接，所以子流的实时轮次已释放，只能从补发日志重放。
+    assert live.subscribe_view(CONVERSATION, child_id).live_turns == ()
     child_turns = replay(live, CONVERSATION, child_id)
     assert [(turn.turn_id, turn.state, turn.content) for turn in child_turns] == [
         ("t1", "completed", (TextContent(text=TASK),))
