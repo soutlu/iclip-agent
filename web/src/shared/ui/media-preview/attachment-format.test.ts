@@ -1,5 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { ellipsizeAttachmentName, formatAttachmentSize } from './attachment-format'
+import {
+  ellipsizeAttachmentName,
+  formatAttachmentSize,
+  formatDimensions,
+  formatDuration,
+} from './attachment-format'
+
+describe('formatDimensions', () => {
+  it('宽高用乘号连接', () => {
+    expect(formatDimensions(1024, 1536)).toBe('1024 × 1536')
+  })
+})
+
+describe('formatDuration', () => {
+  it('不足一小时写 m:ss，秒补零、分不补', () => {
+    expect(formatDuration(0)).toBe('0:00')
+    expect(formatDuration(7)).toBe('0:07')
+    expect(formatDuration(72)).toBe('1:12')
+    expect(formatDuration(600)).toBe('10:00')
+  })
+
+  it('满一小时写 h:mm:ss', () => {
+    expect(formatDuration(3600)).toBe('1:00:00')
+    expect(formatDuration(3725)).toBe('1:02:05')
+  })
+
+  it('小数秒四舍五入', () => {
+    expect(formatDuration(11.6)).toBe('0:12')
+    expect(formatDuration(59.5)).toBe('1:00')
+  })
+})
 
 describe('formatAttachmentSize', () => {
   it('不足 1KB 原样给字节数', () => {
