@@ -23,6 +23,7 @@ from iclip.platform.transcript.ops import (
     PromptUpsertOp,
     StepHeader,
     StepUpsertOp,
+    TaskUpsertOp,
     TextFrame,
     ThinkingFrame,
     ToolFrame,
@@ -30,6 +31,7 @@ from iclip.platform.transcript.ops import (
     TranscriptMeta,
     TranscriptSnapshot,
     TranscriptStep,
+    TranscriptTask,
     TranscriptTurn,
     TurnHeader,
     TurnUpsertOp,
@@ -87,6 +89,7 @@ class _AgentTranscript:
     next_seq: int = 1
     journal: deque[OpBatch] = field(default_factory=lambda: deque(maxlen=JOURNAL_CAPACITY))
     turns: dict[str, _LiveTurn] = field(default_factory=dict)
+    tasks: dict[str, TranscriptTask] = field(default_factory=dict)
     interactions: dict[str, Interaction] = field(default_factory=dict)
     prompts: dict[str, Prompt] = field(default_factory=dict)
     meta: TranscriptMeta = field(default_factory=TranscriptMeta)
@@ -115,11 +118,12 @@ class TranscriptStore:
     ) -> OpBatch:
         """原子分配序号、应用操作、记录补发日志并通知订阅者。"""
 
-        agent = self._agent(conversation_id, agent_id)
+        conversation = self._conversation(conversation_id)
+        agent = conversation.agents.setdefault(agent_id, _AgentTranscript())
         batch = OpBatch(seq=agent.next_seq, ops=ops)
         agent.next_seq += 1
         for op in ops:
-            _apply(agent, op)
+            _apply(conversation, agent, op)
         agent.journal.append(batch)
         for listener in tuple(self._listeners.get((conversation_id, agent_id), ())):
             listener(batch)
@@ -167,6 +171,7 @@ class TranscriptStore:
         return SubscribeView(
             watermark=watermark,
             snapshot=TranscriptSnapshot(
+                tasks=tuple(agent.tasks.values()),
                 interactions=tuple(agent.interactions.values()),
                 prompts=tuple(agent.prompts.values()),
                 meta=agent.meta,
@@ -230,7 +235,7 @@ class TranscriptStore:
         return wanted, oldest <= since + 1
 
 
-def _apply(agent: _AgentTranscript, op: EmittableOperation) -> None:
+def _apply(conversation: _Conversation, agent: _AgentTranscript, op: EmittableOperation) -> None:
     """应用本服务支持的 transcript 操作。"""
 
     match op:
@@ -263,6 +268,8 @@ def _apply(agent: _AgentTranscript, op: EmittableOperation) -> None:
             step.frames[op.target.frame_id] = frame.model_copy(
                 update={"text": frame.text + op.text}
             )
+        case TaskUpsertOp():
+            agent.tasks[op.task.task_id] = op.task
         case InteractionUpsertOp():
             agent.interactions[op.interaction.interaction_id] = op.interaction
         case PromptUpsertOp():
@@ -277,25 +284,35 @@ def _apply(agent: _AgentTranscript, op: EmittableOperation) -> None:
                 update["agent"] = op.meta.agent
             agent.meta = agent.meta.model_copy(update=update)
         case ItemsRemoveOp():
-            _remove_items(agent, op.ids)
+            _remove_items(conversation, agent, op.ids)
         case _:
             # reset 仅由订阅路径构造，不接受投影器输出。
             raise ValueError(f"实时状态不接受这种操作：{op.op}")
 
 
-def _remove_items(agent: _AgentTranscript, ids: tuple[str, ...]) -> None:
-    """删除时间线条目及关联工具交互，避免残留审批；客户端协议不会自动清理关联交互。"""
+def _remove_items(
+    conversation: _Conversation, agent: _AgentTranscript, ids: tuple[str, ...]
+) -> None:
+    """删除时间线条目及关联工具交互，避免残留审批；客户端协议不会自动清理关联交互。
 
-    orphaned = {
-        frame.tool_call_id
+    被删轮次派出过的子代理连同它自己那条流一起清掉，否则重新生成后仍能订到上一次的子流。
+    """
+
+    cards = [
+        frame
         for turn_id in ids
         if (turn := agent.turns.get(turn_id)) is not None
         for step in turn.steps.values()
         for frame in step.frames.values()
         if isinstance(frame, ToolFrame)
-    }
+    ]
+    orphaned = {frame.tool_call_id for frame in cards}
+    children = {ref.agent_id for frame in cards for ref in frame.agent_refs or ()}
     for turn_id in ids:
         agent.turns.pop(turn_id, None)
+    for child_id in children:
+        agent.tasks.pop(child_id, None)
+        conversation.agents.pop(child_id, None)
     agent.interactions = {
         key: item
         for key, item in agent.interactions.items()
