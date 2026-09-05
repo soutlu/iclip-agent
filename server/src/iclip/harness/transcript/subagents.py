@@ -50,8 +50,6 @@ class Delegation:
     """
 
     conversation_id: str
-    parent_agent_id: str
-    tool_call_id: str
     on_spawn: Callable[[str, str], None]
     """子运行开跑时回调 (child_run_id, agent_name)，由父侧写自己那条流。"""
     child_run_id: str | None = None
@@ -101,8 +99,6 @@ class SubAgentBridge(AbstractCapability[Any]):
             return await handler(args)
         delegation = Delegation(
             conversation_id=self.conversation_id,
-            parent_agent_id=self.parent_agent_id,
-            tool_call_id=call.tool_call_id,
             on_spawn=partial(self._spawned, call.tool_call_id),
         )
         token = current_delegation.set(delegation)

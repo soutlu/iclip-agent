@@ -391,8 +391,10 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             return
         self._settled_calls.add(part.tool_call_id)
         if isinstance(part, RetryPromptPart):
+            outcome = None
             state, output, metadata, error = "error", None, None, str(part.content)
         else:
+            outcome = part.outcome
             state = TOOL_STATE_BY_OUTCOME.get(part.outcome, "error")
             output = part.content
             metadata = part.metadata
@@ -415,7 +417,14 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
         if task is not None:
             settled = task.model_copy(
                 update={
-                    "state": "completed" if state == "done" else "failed",
+                    # interrupted 是「运行被停了」，与历史从子运行事件推出的 killed 对上。
+                    "state": (
+                        "completed"
+                        if state == "done"
+                        else "killed"
+                        if outcome == "interrupted"
+                        else "failed"
+                    ),
                     "ended_at": _now(),
                     "result_summary": str(part.content) if state == "done" else None,
                     "error": None if state == "done" else str(part.content),

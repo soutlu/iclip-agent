@@ -50,6 +50,7 @@ from iclip.platform.transcript.ops import (
     TranscriptTurn,
     VideoContent,
 )
+from tests.helpers.transcript import skeleton
 
 
 def _read_display(args: Any) -> ToolDisplay | None:
@@ -69,41 +70,6 @@ DISPLAYS = ToolDisplayRegistry.merged(
 
 MEDIA_GRID = {"items": [{"url": "https://cdn.test/s1-1.jpg", "caption": "S1-1"}]}
 """用 dict 模拟数据库反序列化后的工具 metadata。"""
-
-
-def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
-
-    return [
-        {
-            "turn": (turn.turn_id, turn.ordinal, turn.state, turn.content),
-            "steps": [
-                {
-                    "step": (step.step_id, step.ordinal, step.state),
-                    "frames": [
-                        (
-                            frame.frame_id,
-                            frame.kind,
-                            getattr(frame, "text", None),
-                            getattr(frame, "role", None),
-                            getattr(frame, "content", None),
-                            getattr(frame, "state", None),
-                            # 比较完整工具卡，覆盖参数、display、renderer 和 metadata 的遗漏。
-                            getattr(frame, "input", None),
-                            getattr(frame, "display", None),
-                            getattr(frame, "view", None),
-                            getattr(frame, "metadata", None),
-                            # 比较压缩提示内容，避免仅 id 和类型相同而正文不同。
-                            getattr(frame, "message", None),
-                            getattr(frame, "detail", None),
-                        )
-                        for frame in step.frames
-                    ],
-                }
-                for step in turn.steps
-            ],
-        }
-        for turn in turns
-    ]
 
 
 async def _project(
@@ -157,7 +123,7 @@ async def test_text_only_turn_matches_the_derived_one() -> None:
         )
     )
 
-    assert _skeleton(live) == _skeleton(derived)
+    assert skeleton(live) == skeleton(derived)
 
 
 @pytest.mark.anyio
@@ -208,7 +174,7 @@ async def test_thinking_then_text_then_tool_matches() -> None:
     )
     # 确认未同时回退为 generic，避免相等断言掩盖注册遗漏。
     assert getattr(live_card, "display", None) == FileIoDisplay(operation="read", path="/README.md")
-    assert _skeleton(live) == _skeleton(derived)
+    assert skeleton(live) == skeleton(derived)
 
 
 @pytest.mark.anyio
@@ -250,7 +216,7 @@ async def test_the_result_for_people_lands_on_the_same_card_on_both_paths() -> N
 
     live_card = next(frame for frame in live[0].steps[0].frames if frame.kind == "tool")
     assert (live_card.view, live_card.metadata) == ("file_content", MEDIA_GRID)
-    assert _skeleton(live) == _skeleton(derived)
+    assert skeleton(live) == skeleton(derived)
 
 
 @pytest.mark.anyio
@@ -284,7 +250,7 @@ async def test_a_cancelled_turn_needs_its_state_handed_to_the_deriver() -> None:
 
     assert live[0].state == "cancelled"
     assert turns_from_messages(messages)[0].state == "failed"
-    assert _skeleton(live) == _skeleton(_derive(messages, state="cancelled"))
+    assert skeleton(live) == skeleton(_derive(messages, state="cancelled"))
 
 
 @pytest.mark.anyio
@@ -324,7 +290,7 @@ async def test_two_steps_match() -> None:
         )
     )
 
-    assert _skeleton(live) == _skeleton(derived)
+    assert skeleton(live) == skeleton(derived)
 
 
 @pytest.mark.anyio
@@ -372,7 +338,7 @@ async def test_a_steer_between_two_steps_lands_in_the_same_place() -> None:
         )
     )
 
-    assert _skeleton(live) == _skeleton(derived)
+    assert skeleton(live) == skeleton(derived)
 
 
 @pytest.mark.anyio
@@ -401,7 +367,7 @@ async def test_two_adjacent_text_parts_stay_two_frames_on_both_paths() -> None:
     )
 
     assert [frame.frame_id for frame in live[0].steps[0].frames] == ["t1.1.f1", "t1.1.f2"]
-    assert _skeleton(live) == _skeleton(derived)
+    assert skeleton(live) == skeleton(derived)
 
 
 @pytest.mark.anyio
@@ -422,7 +388,7 @@ async def test_emoji_text_survives_the_utf16_offsets() -> None:
         )
     )
 
-    assert _skeleton(live) == _skeleton(derived)
+    assert skeleton(live) == skeleton(derived)
 
 
 _OSS = "https://bkt.oss-cn-hangzhou.aliyuncs.com/u"
@@ -518,4 +484,4 @@ async def test_a_compaction_notice_lands_on_the_same_step_on_both_paths() -> Non
     )
 
     assert [frame.frame_id for frame in live[0].steps[1].frames] == ["t1.2.compaction", "t1.2.f1"]
-    assert _skeleton(live) == _skeleton(derived)
+    assert skeleton(live) == skeleton(derived)
