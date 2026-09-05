@@ -313,6 +313,20 @@ describe('ConversationRoute', () => {
     expect(screen.getByRole('status')).toHaveTextContent('请求中…')
   })
 
+  it('点派活卡的「查看」：地址上点名这张卡的产物，右侧宿主据此打开', async () => {
+    const user = userEvent.setup()
+    const { router } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+
+    await user.click(screen.getByRole('button', { name: '查看子代理过程' }))
+
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({
+        artifact: 'frame:call_t2_delegate',
+      }),
+    )
+  })
+
   it('发送失败把字还回输入框', async () => {
     const user = userEvent.setup()
     await renderConversation()

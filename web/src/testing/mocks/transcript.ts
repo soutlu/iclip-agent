@@ -36,6 +36,8 @@ type Batch = unknown[]
 
 type Connection = {
   conversationId: string
+  /** 这条连接订了哪些 agent 的流；主流与子代理流各自推送。 */
+  agents: Set<string>
   send: (payload: { agent_id: string; ops: Batch; seq: number }) => void
 }
 
@@ -43,9 +45,22 @@ const connections = new Set<Connection>()
 
 let turns = HISTORY_TURNS
 
-/** 批次日志供补发端点读取，确保模拟环境也能恢复缺口。 */
+/** 批次号与日志按 (对话, agent) 各记一套，补发端点按同一把钥匙读。 */
+const streamKey = (conversationId: string, agentId: string) => `${conversationId}/${agentId}`
 const seqOf = new Map<string, number>()
 const logOf = new Map<string, { ops: Batch; seq: number }[]>()
+
+export const MOCK_CHILD_AGENT = 'shot-writer'
+export const MOCK_CHILD_TASK = '写第 3 组的三个镜头'
+export const MOCK_CHILD_REPLY = 'S3-1 特写：鞋头压过水面；S3-2 中景：起跑；S3-3 全景：冲线。'
+/** 历史第 2 轮派出的子代理，一开始就是完成的；演示运行另派一个，边跑边填。 */
+export const MOCK_HISTORY_CHILD = 't2-child'
+export const MOCK_HISTORY_DELEGATE_CALL = 'call_t2_delegate'
+
+/** 子代理流的进度：文本用整块替换，页与推送才对得上。 */
+const children = new Map<string, { text: string; done: boolean }>([
+  [MOCK_HISTORY_CHILD, { done: true, text: MOCK_CHILD_REPLY }],
+])
 
 type PromptContent =
   { type: 'text'; text: string } | { type: 'image' | 'video'; source: { kind: 'url'; url: string } }
@@ -167,6 +182,71 @@ const pendingApproval = {
   toolCallId: APPROVAL_TOOL_CALL_ID,
 }
 
+const delegateCard = (
+  toolCallId: string,
+  childId: string,
+  stepId: string,
+  state: 'running' | 'done',
+) => ({
+  agentRefs: [{ agentId: childId, role: 'child' }],
+  display: { agent_name: MOCK_CHILD_AGENT, kind: 'agent_call', prompt: MOCK_CHILD_TASK },
+  frameId: `${stepId}.${toolCallId}`,
+  kind: 'tool',
+  name: 'delegate_task',
+  ...(state === 'done' ? { output: MOCK_CHILD_REPLY } : {}),
+  state,
+  toolCallId,
+})
+
+const childTurn = (childId: string) => {
+  const child = children.get(childId) ?? { done: false, text: '' }
+  return {
+    content: [{ text: MOCK_CHILD_TASK, type: 'text' }],
+    kind: 'turn',
+    ordinal: 1,
+    origin: { kind: 'user' },
+    startedAt: '2026-08-31T02:00:00Z',
+    state: child.done ? 'completed' : 'running',
+    ...(child.done ? { durationMs: 6400, endedAt: '2026-08-31T02:00:06Z' } : {}),
+    steps: [
+      {
+        frames: [
+          { frameId: 't1.1.f1', kind: 'thinking', text: '先定每一镜的景别。' },
+          ...(child.text === ''
+            ? []
+            : [{ frameId: 't1.1.f2', kind: 'text', role: 'assistant', text: child.text }]),
+        ],
+        kind: 'step',
+        ordinal: 1,
+        startedAt: '2026-08-31T02:00:00Z',
+        state: child.done ? 'completed' : 'running',
+        stepId: 't1.1',
+        turnId: 't1',
+      },
+    ],
+    turnId: 't1',
+  }
+}
+
+/** 子代理那一页：只有它自己的 t1；名册与主页同一份。 */
+export const mockChildPage = (conversationId: string, childId: string) => ({
+  agent_id: childId,
+  agents: [
+    { agentId: 'main', type: 'main' },
+    { agentId: childId, label: MOCK_CHILD_AGENT, parentAgentId: 'main', type: 'sub' },
+  ],
+  has_more: false,
+  interactions: [],
+  items: [childTurn(childId)],
+  meta: { activity: children.get(childId)?.done === false ? 'turn' : 'idle' },
+  pending_interactions: [],
+  prompts: [],
+  seq: seqOf.get(streamKey(conversationId, childId)) ?? HISTORY_SEQ,
+  tasks: [],
+  title: '',
+  todos: [],
+})
+
 /** 为待审批会话追加固定审批轮；未传 ID 时返回普通历史。 */
 export const mockTranscriptPage = (conversationId = '') => {
   const awaiting = awaitingApproval.has(conversationId)
@@ -194,6 +274,7 @@ export const mockTranscriptPage = (conversationId = '') => {
           },
         ]
       : [],
+    // 页里只有历史那几轮，水位也停在历史处；之后的都从日志补，页与水位才对得上。
     seq: HISTORY_SEQ,
     tasks: [],
     title: '夜景延时素材生成',
@@ -232,6 +313,7 @@ const historyTurn = (ordinal: number) => ({
                 state: 'done',
                 toolCallId: `call_${ordinal}`,
               },
+              delegateCard(MOCK_HISTORY_DELEGATE_CALL, MOCK_HISTORY_CHILD, `t${ordinal}.1`, 'done'),
             ]
           : []),
         {
@@ -255,9 +337,15 @@ const historyTurn = (ordinal: number) => ({
 const socket = ws.link('*/api/ws')
 
 export const transcriptHandlers = [
-  http.get('*/api/conversations/:conversationId/transcript', ({ params }) =>
-    HttpResponse.json(mockTranscriptPage(String(params['conversationId']))),
-  ),
+  http.get('*/api/conversations/:conversationId/transcript', ({ params, request }) => {
+    const conversationId = String(params['conversationId'])
+    const agentId = new URL(request.url).searchParams.get('agent_id') ?? 'main'
+    if (agentId === 'main') return HttpResponse.json(mockTranscriptPage(conversationId))
+    if (!children.has(agentId)) {
+      return HttpResponse.json({ detail: '这段对话里没有这个 agent' }, { status: 404 })
+    }
+    return HttpResponse.json(mockChildPage(conversationId, agentId))
+  }),
 
   http.post(
     '*/api/conversations/:conversationId/interactions/:interactionId',
@@ -285,13 +373,16 @@ export const transcriptHandlers = [
   // 返回 since 之后的日志批次；固定历史基线之外的内容依赖此端点补齐。
   http.get('*/api/conversations/:conversationId/transcript/ops', ({ params, request }) => {
     const conversationId = String(params['conversationId'])
-    const since = Number(new URL(request.url).searchParams.get('since_seq') ?? 0)
-    const log = logOf.get(conversationId) ?? []
+    const query = new URL(request.url).searchParams
+    const since = Number(query.get('since_seq') ?? 0)
+    const agentId = query.get('agent_id') ?? 'main'
+    const key = streamKey(conversationId, agentId)
+    const log = logOf.get(key) ?? []
     return HttpResponse.json({
-      agent_id: 'main',
+      agent_id: agentId,
       batches: log.filter((batch) => batch.seq > since),
       complete: true,
-      latest_seq: seqOf.get(conversationId) ?? HISTORY_SEQ,
+      latest_seq: seqOf.get(key) ?? HISTORY_SEQ,
     })
   }),
 
@@ -406,7 +497,12 @@ export const transcriptHandlers = [
       if (typeof event.data !== 'string') return
       const frame = JSON.parse(event.data) as {
         id?: string
-        payload?: { paths?: string[]; session_id?: string }
+        payload?: {
+          agent_ids?: string[]
+          paths?: string[]
+          session_id?: string
+          transcript?: Record<string, string>
+        }
         type?: string
       }
 
@@ -438,34 +534,53 @@ export const transcriptHandlers = [
         return
       }
 
+      if (frame.type === 'unsubscribe_v2') {
+        const agentIds = frame.payload?.agent_ids ?? []
+        if (agentIds.length === 0) joined?.agents.clear()
+        for (const agentId of agentIds) joined?.agents.delete(agentId)
+        client.send(JSON.stringify({ id: frame.id, type: 'ack' }))
+        return
+      }
+
       if (frame.type !== 'subscribe_v2') return
       const conversationId = frame.payload?.session_id ?? ''
+      // 表里每个 agent 各回一帧 reset；不属于这段对话的子代理整帧拒绝，与后端一致。
+      const agentIds = Object.keys(frame.payload?.transcript ?? { main: 'delta' })
+      if (agentIds.some((agentId) => agentId !== 'main' && !children.has(agentId))) {
+        client.send(
+          JSON.stringify({ code: 404, id: frame.id, msg: 'agent not in session', type: 'ack' }),
+        )
+        return
+      }
       client.send(
         JSON.stringify({ id: frame.id, payload: { accepted: [conversationId] }, type: 'ack' }),
       )
-      client.send(
-        JSON.stringify({
-          payload: {
-            agent_id: 'main',
-            has_more_older: true,
-            seq: seqOf.get(conversationId) ?? HISTORY_SEQ,
-            snapshot: {
-              attachments: [],
-              interactions: [],
-              items: [],
-              meta: {},
-              prompts: [],
-              tasks: [],
-              todos: [],
+      for (const agentId of agentIds) {
+        client.send(
+          JSON.stringify({
+            payload: {
+              agent_id: agentId,
+              has_more_older: true,
+              seq: seqOf.get(streamKey(conversationId, agentId)) ?? HISTORY_SEQ,
+              snapshot: {
+                attachments: [],
+                interactions: [],
+                items: [],
+                meta: {},
+                prompts: [],
+                tasks: [],
+                todos: [],
+              },
             },
-          },
-          seq: 1,
-          session_id: conversationId,
-          type: 'transcript.reset',
-        }),
-      )
-      if (joined !== null) return
-      joined = {
+            seq: 1,
+            session_id: conversationId,
+            type: 'transcript.reset',
+          }),
+        )
+      }
+      const first = joined === null
+      joined ??= {
+        agents: new Set<string>(),
         conversationId,
         send: (payload) =>
           client.send(
@@ -477,6 +592,8 @@ export const transcriptHandlers = [
             }),
           ),
       }
+      for (const agentId of agentIds) joined.agents.add(agentId)
+      if (!first) return
       connections.add(joined)
       // 普通订阅自动启动演示运行，待审批会话保持等待。
       if (!awaitingApproval.has(conversationId)) {
@@ -494,23 +611,39 @@ export const transcriptHandlers = [
   }),
 ]
 
-const broadcast = (conversationId: string, ops: Batch) => {
-  const seq = (seqOf.get(conversationId) ?? HISTORY_SEQ) + 1
-  seqOf.set(conversationId, seq)
-  logOf.set(conversationId, [...(logOf.get(conversationId) ?? []), { ops, seq }])
-  const payload = { agent_id: 'main', ops, seq }
+const broadcast = (conversationId: string, ops: Batch, agentId = 'main') => {
+  const key = streamKey(conversationId, agentId)
+  const seq = (seqOf.get(key) ?? HISTORY_SEQ) + 1
+  seqOf.set(key, seq)
+  logOf.set(key, [...(logOf.get(key) ?? []), { ops, seq }])
+  const payload = { agent_id: agentId, ops, seq }
   for (const connection of connections) {
-    if (connection.conversationId === conversationId) connection.send(payload)
+    if (connection.conversationId === conversationId && connection.agents.has(agentId)) {
+      connection.send(payload)
+    }
   }
 }
 
-type Scheduled = Batch | (() => Batch)
+type Lazy = Batch | (() => Batch)
+
+/** 不带 agent 的批次走主流；子代理流的批次点名 agent。 */
+type Scheduled = Lazy | { agent: string; ops: Lazy }
+
+const resolve = (item: Scheduled): [string, Batch] => {
+  if (!Array.isArray(item) && typeof item !== 'function') {
+    return [item.agent, typeof item.ops === 'function' ? item.ops() : item.ops]
+  }
+  return ['main', typeof item === 'function' ? item() : item]
+}
 
 /** 记录批次定时器以支持取消；函数批次在发送时求值。 */
 const schedule = (conversationId: string, batches: Scheduled[], done?: () => void) => {
-  const handles = batches.map((ops, index) =>
+  const handles = batches.map((item, index) =>
     setTimeout(
-      () => broadcast(conversationId, typeof ops === 'function' ? ops() : ops),
+      () => {
+        const [agentId, ops] = resolve(item)
+        broadcast(conversationId, ops, agentId)
+      },
       BEAT_MS * (index + 1),
     ),
   )
@@ -525,6 +658,31 @@ const stopTurn = (conversationId: string) => {
   const active = running.get(conversationId)
   running.delete(conversationId)
   if (active === undefined) return
+  const childId = `${active.turnId}-child`
+  const child = children.get(childId)
+  if (child !== undefined && !child.done) {
+    // 父被停，子代理随之停：它那条流也收成 cancelled。
+    children.set(childId, { ...child, done: true })
+    broadcast(
+      conversationId,
+      [
+        {
+          op: 'turn.upsert',
+          turn: {
+            content: [{ text: MOCK_CHILD_TASK, type: 'text' }],
+            endedAt: new Date().toISOString(),
+            kind: 'turn',
+            ordinal: 1,
+            origin: { kind: 'user' },
+            state: 'cancelled',
+            turnId: 't1',
+          },
+        },
+        { meta: { activity: 'idle' }, op: 'meta.merge' },
+      ],
+      childId,
+    )
+  }
   broadcast(conversationId, [
     {
       op: 'turn.upsert',
@@ -718,6 +876,54 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
     },
   })
 
+  // 演示运行派一个子代理：它那条流边跑边填，面板打开时能看到进度。
+  const childId = `${turnId}-child`
+  const delegateCallId = `${turnId}-delegate`
+  children.set(childId, { done: false, text: '' })
+  const childSays = (text: string, done: boolean) => (): Batch => {
+    children.set(childId, { done, text })
+    return [
+      {
+        op: 'frame.upsert',
+        frame: { frameId: 't1.1.f2', kind: 'text', role: 'assistant', text },
+        stepId: 't1.1',
+        turnId: 't1',
+      },
+      ...(done
+        ? [
+            {
+              op: 'step.upsert',
+              step: {
+                endedAt: new Date().toISOString(),
+                kind: 'step',
+                ordinal: 1,
+                startedAt: now,
+                state: 'completed',
+                stepId: 't1.1',
+                turnId: 't1',
+              },
+              turnId: 't1',
+            },
+            {
+              op: 'turn.upsert',
+              turn: {
+                content: [{ text: MOCK_CHILD_TASK, type: 'text' }],
+                durationMs: BEAT_MS * 3,
+                endedAt: new Date().toISOString(),
+                kind: 'turn',
+                ordinal: 1,
+                origin: { kind: 'user' },
+                startedAt: now,
+                state: 'completed',
+                turnId: 't1',
+              },
+            },
+            { meta: { activity: 'idle' }, op: 'meta.merge' },
+          ]
+        : []),
+    ]
+  }
+
   // 首批立即发送并写入日志，订阅未就绪时仍可补发；开场输入存于轮头部，user frame 仅用于追加。
   broadcast(conversationId, [
     {
@@ -747,6 +953,58 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
       [tool('done'), tool2('running')],
       [
         tool2('done'),
+        {
+          frame: delegateCard(delegateCallId, childId, stepId, 'running'),
+          op: 'frame.upsert',
+          stepId,
+          turnId,
+        },
+      ],
+      {
+        agent: childId,
+        ops: [
+          {
+            op: 'turn.upsert',
+            turn: {
+              content: [{ text: MOCK_CHILD_TASK, type: 'text' }],
+              kind: 'turn',
+              ordinal: 1,
+              origin: { kind: 'user' },
+              startedAt: now,
+              state: 'running',
+              turnId: 't1',
+            },
+          },
+          { meta: { activity: 'turn' }, op: 'meta.merge' },
+          {
+            op: 'step.upsert',
+            step: {
+              kind: 'step',
+              ordinal: 1,
+              startedAt: now,
+              state: 'running',
+              stepId: 't1.1',
+              turnId: 't1',
+            },
+            turnId: 't1',
+          },
+          {
+            op: 'frame.upsert',
+            frame: { frameId: 't1.1.f1', kind: 'thinking', text: '先定每一镜的景别。' },
+            stepId: 't1.1',
+            turnId: 't1',
+          },
+        ],
+      },
+      { agent: childId, ops: childSays('S3-1 特写：鞋头压过水面；', false) },
+      { agent: childId, ops: childSays(MOCK_CHILD_REPLY, true) },
+      [
+        {
+          frame: delegateCard(delegateCallId, childId, stepId, 'done'),
+          op: 'frame.upsert',
+          stepId,
+          turnId,
+        },
         {
           op: 'frame.upsert',
           frame: { frameId: `${stepId}.f3`, kind: 'text', role: 'assistant', text: '' },

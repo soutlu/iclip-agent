@@ -9,12 +9,19 @@ export interface FileArtifactSource {
   version: number
 }
 
-/** 工具帧由 view 选择渲染器，metadata 提供展示结果。 */
+/** 工具帧上派出的子代理引用；面板按第一个 agentId 读它那条流。 */
+export interface FrameAgentRef {
+  agentId: string
+}
+
+/** 工具帧由 view 或 display.kind 选择渲染器，metadata 提供展示结果。 */
 export interface FrameArtifactSource {
   kind: 'frame'
   toolCallId: string
   view: string
   metadata: unknown
+  display?: unknown
+  agentRefs?: readonly FrameAgentRef[]
 }
 
 export type ArtifactSource = FileArtifactSource | FrameArtifactSource
@@ -36,7 +43,8 @@ export interface ArtifactRendererProps {
 
 export interface ArtifactEntry {
   type: string
-  match: { path: string } | { view: string }
+  /** 文件按路径；工具帧按结果渲染器 view，或按服务端 display 的 kind。 */
+  match: { path: string } | { view: string } | { displayKind: string }
   title: (source: ArtifactSource) => string
   component: ComponentType<ArtifactRendererProps>
   autoOpen: boolean
@@ -51,6 +59,8 @@ export interface WorkbenchFrame {
   toolCallId: string
   view: string
   metadata?: unknown
+  display?: unknown
+  agentRefs?: readonly FrameAgentRef[]
 }
 
 export const fileArtifactId = (path: string) => `file:${path}`

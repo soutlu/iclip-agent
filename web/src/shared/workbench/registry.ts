@@ -1,13 +1,24 @@
-/** 文件按完整路径匹配，工具帧按 view 匹配；新增类型仅需登记渲染器。 */
+/** 文件按完整路径匹配，工具帧按 view 或 display.kind 匹配；新增类型仅需登记渲染器。 */
 
 import {
   fileArtifactId,
   frameArtifactId,
   type Artifact,
   type ArtifactEntry,
+  type FrameArtifactSource,
   type WorkbenchFile,
   type WorkbenchFrame,
 } from './artifact'
+
+const displayKindOf = (display: unknown): string | undefined => {
+  if (typeof display !== 'object' || display === null) return undefined
+  const kind = (display as { kind?: unknown }).kind
+  return typeof kind === 'string' ? kind : undefined
+}
+
+const matchesFrame = (entry: ArtifactEntry, frame: WorkbenchFrame): boolean =>
+  ('view' in entry.match && entry.match.view === frame.view) ||
+  ('displayKind' in entry.match && entry.match.displayKind === displayKindOf(frame.display))
 
 export class ArtifactRegistry {
   private readonly entries: ArtifactEntry[] = []
@@ -39,16 +50,16 @@ export class ArtifactRegistry {
 
   matchFrames(frames: readonly WorkbenchFrame[]): Artifact[] {
     return frames.flatMap((frame) => {
-      const entry = this.entries.find(
-        (candidate) => 'view' in candidate.match && candidate.match.view === frame.view,
-      )
+      const entry = this.entries.find((candidate) => matchesFrame(candidate, frame))
       if (entry === undefined) return []
-      const source = {
+      const source: FrameArtifactSource = {
         kind: 'frame',
         metadata: frame.metadata,
         toolCallId: frame.toolCallId,
         view: frame.view,
-      } as const
+        ...(frame.display === undefined ? {} : { display: frame.display }),
+        ...(frame.agentRefs === undefined ? {} : { agentRefs: frame.agentRefs }),
+      }
       return [
         {
           id: frameArtifactId(frame.toolCallId),

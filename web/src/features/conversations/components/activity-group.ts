@@ -17,9 +17,10 @@ export type SummaryClause = {
   tone?: 'danger' | 'faint'
 }
 
-/** 正文、通知与错误中断分组；包含媒体的工具保持独立，避免折叠后隐藏预览。 */
+/** 正文、通知与错误中断分组；带媒体或派出子代理的工具保持独立，折叠后预览和「查看」入口都还在。 */
 const foldable = (frame: TranscriptFrame) =>
-  frame.kind === 'thinking' || (frame.kind === 'tool' && toolMedia(frame).length === 0)
+  frame.kind === 'thinking' ||
+  (frame.kind === 'tool' && toolMedia(frame).length === 0 && (frame.agentRefs?.length ?? 0) === 0)
 
 export const groupTurnEntries = (entries: readonly TurnEntry[]): ActivityNode[] => {
   const out: ActivityNode[] = []

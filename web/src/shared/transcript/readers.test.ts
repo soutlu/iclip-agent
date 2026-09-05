@@ -42,6 +42,19 @@ describe('TranscriptReaders', () => {
     expect(socket.frames().some((frame) => frame.type === 'unsubscribe_v2')).toBe(true)
   })
 
+  it('聊天页与面板都放手（离开这段对话）之后再回来，重新订上', () => {
+    const { readers, socket } = setup()
+    const reader = readers.get('c1')
+    const releaseRoute = readers.retain(reader)
+    const releasePanel = readers.retain(reader)
+
+    releaseRoute()
+    releasePanel()
+    readers.retain(reader)
+
+    expect(subscribes(socket)).toBe(2)
+  })
+
   it('全放手之后再 retain 同一个实例，重新订上', () => {
     const { readers, socket } = setup()
     const reader = readers.get('c1')
