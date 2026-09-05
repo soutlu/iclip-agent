@@ -344,6 +344,46 @@ describe('TranscriptReader', () => {
     })
   })
 
+  it('读子代理那条流：REST 带 agent_id，订阅表里是它的 id，reset 也认它', async () => {
+    let asked = ''
+    server.use(
+      http.get('*/api/conversations/c1/transcript', ({ request }) => {
+        asked = new URL(request.url).searchParams.get('agent_id') ?? ''
+        return HttpResponse.json({ ...mockTranscriptPage(), agent_id: 'run-child' })
+      }),
+    )
+    const socket = new FakeSocket()
+    const connection = new TranscriptConnection({
+      createSocket: () => socket as unknown as WebSocket,
+      url: 'ws://test/api/ws',
+    })
+    connection.connect()
+    const reader = new TranscriptReader('c1', connection, 'delta', 'run-child')
+    reader.start()
+    socket.deliver(HELLO)
+
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+    expect(asked).toBe('run-child')
+    const table = JSON.parse(socket.sent.find((raw) => raw.includes('subscribe_v2')) ?? '{}') as {
+      payload?: { transcript?: Record<string, string> }
+    }
+    expect(table.payload?.transcript).toEqual({ 'run-child': 'delta' })
+  })
+
+  it('停下就把内容清掉，再开从基线重来', async () => {
+    const { reader, socket } = startReader()
+    await vi.waitFor(() => {
+      expect(reader.view().status).toBe('ready')
+    })
+
+    reader.stop()
+    expect(reader.view().status).toBe('loading')
+    expect(reader.view().items).toEqual([])
+    expect(socket.sent.some((raw) => raw.includes('unsubscribe_v2'))).toBe(true)
+  })
+
   it('对话不存在就停在错误态，不一直重试', async () => {
     let pages = 0
     server.use(

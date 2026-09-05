@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { TranscriptConnection } from './connection'
-import { TranscriptConnectionContext } from './transcript-context'
+import { TranscriptReaders } from './readers'
+import { TranscriptConnectionContext, TranscriptReadersContext } from './transcript-context'
 
 /** WebSocket 复用同源 /api 反向代理。 */
 const transcriptUrl = () =>
@@ -21,6 +22,7 @@ export function TranscriptProvider({ children, createSocket }: TranscriptProvide
       }),
     [createSocket],
   )
+  const readers = useMemo(() => new TranscriptReaders(connection), [connection])
 
   useEffect(() => {
     connection.connect()
@@ -42,5 +44,9 @@ export function TranscriptProvider({ children, createSocket }: TranscriptProvide
     }
   }, [connection])
 
-  return <TranscriptConnectionContext value={connection}>{children}</TranscriptConnectionContext>
+  return (
+    <TranscriptConnectionContext value={connection}>
+      <TranscriptReadersContext value={readers}>{children}</TranscriptReadersContext>
+    </TranscriptConnectionContext>
+  )
 }

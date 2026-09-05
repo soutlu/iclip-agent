@@ -50,6 +50,8 @@ export interface StepRetry {
 export interface TranscriptTurn {
   readonly kind: 'turn';
   readonly turnId: TurnId;
+  /** 发起这一轮的消息 id；乐观气泡按它认领。子代理的轮没有。 */
+  readonly triggerPromptId?: string;
   readonly ordinal: number;
   readonly state: TurnState;
   readonly origin: TurnOrigin;

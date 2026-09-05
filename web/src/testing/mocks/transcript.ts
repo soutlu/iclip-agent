@@ -218,6 +218,7 @@ const historyTurn = (ordinal: number) => ({
       : [{ text: `第 ${ordinal} 个问题`, type: 'text' }],
   startedAt: '2026-08-31T01:59:5'.concat(String(ordinal), 'Z'),
   state: 'completed',
+  triggerPromptId: `p_t${ordinal}`,
   steps: [
     {
       frames: [
@@ -534,6 +535,7 @@ const stopTurn = (conversationId: string) => {
         origin: { kind: 'user' },
         content: active.content,
         state: 'cancelled',
+        triggerPromptId: active.promptId,
         turnId: active.turnId,
       },
     },
@@ -639,6 +641,7 @@ const steerInto = (conversationId: string, prompt: Prompt) => {
         content: prompt.content,
         frameId: `${stepId}.steer`,
         kind: 'text',
+        promptIds: [prompt.promptId],
         role: 'user',
         text: prompt.text,
       },
@@ -704,6 +707,7 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
       content: prompt.content,
       startedAt: now,
       state,
+      triggerPromptId: prompt.promptId,
       turnId,
       ...(state === 'completed'
         ? {

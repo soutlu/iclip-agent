@@ -1,7 +1,12 @@
 /** 参考 Kimi 客户端：基线加载前缓冲 WS 批次，加载后按序应用。缺批优先补发，超出窗口重拉；未应用批次必须返回 false，禁止推进水位。 */
 
 import { ApiError } from '@/shared/api/client'
-import type { TranscriptConnection, TranscriptGrade, TranscriptOps } from './connection'
+import {
+  MAIN_AGENT_ID,
+  type TranscriptConnection,
+  type TranscriptGrade,
+  type TranscriptOps,
+} from './connection'
 import {
   fetchTranscriptBaseline,
   fetchTranscriptCatchup,
@@ -14,8 +19,6 @@ import {
   type TranscriptItem,
   type TranscriptPrompt,
 } from './vendor'
-
-const MAIN_AGENT = 'main'
 
 /** 全量刷新最多三次，之后交由界面显示错误并重试。 */
 const MAX_RELOADS = 3
@@ -57,7 +60,7 @@ const EMPTY_VIEW: TranscriptView = {
 type Absorbed = 'applied' | 'duplicate' | 'gap' | 'broken'
 
 export class TranscriptReader {
-  private readonly transcript = new AgentTranscript(MAIN_AGENT)
+  private transcript: AgentTranscript
   private readonly listeners = new Set<() => void>()
 
   /** 基线加载前缓冲，加载后按批次号应用。 */
@@ -76,7 +79,9 @@ export class TranscriptReader {
   private stopped = false
   private snapshot: TranscriptView = EMPTY_VIEW
 
-  private readonly conversationId: string
+  readonly conversationId: string
+  /** main 是主流；子代理流的 id 是它的 run id，页与订阅都按它走。 */
+  readonly agentId: string
   private readonly connection: TranscriptConnection
   private readonly grade: TranscriptGrade
 
@@ -84,10 +89,13 @@ export class TranscriptReader {
     conversationId: string,
     connection: TranscriptConnection,
     grade: TranscriptGrade = 'delta',
+    agentId: string = MAIN_AGENT_ID,
   ) {
     this.conversationId = conversationId
+    this.agentId = agentId
     this.connection = connection
     this.grade = grade
+    this.transcript = new AgentTranscript(agentId)
   }
 
   start(): void {
@@ -96,21 +104,37 @@ export class TranscriptReader {
     this.connection.subscribe(
       this.conversationId,
       {
-        onNotFound: () => this.fail('这段对话不存在，或者不是你的'),
+        onNotFound: () => this.fail(this.missingMessage()),
         onOps: (_agentId, ops, seq) => this.receive(ops, seq),
         onReset: () => {
           void this.reload()
         },
       },
       this.grade,
+      this.agentId,
     )
     void this.reload()
   }
 
+  /** 停下并清空手上的内容：没人看的流不占内存，再 start 时从基线重来。 */
   stop(): void {
     this.stopped = true
     if (this.timer !== null) clearTimeout(this.timer)
-    this.connection.unsubscribe(this.conversationId)
+    this.connection.unsubscribe(this.conversationId, this.agentId)
+    this.transcript = new AgentTranscript(this.agentId)
+    this.buffered = []
+    this.appliedSeq = null
+    this.reloads = 0
+    if (this.snapshot !== EMPTY_VIEW) {
+      this.snapshot = EMPTY_VIEW
+      this.emit()
+    }
+  }
+
+  private missingMessage(): string {
+    return this.agentId === MAIN_AGENT_ID
+      ? '这段对话不存在，或者不是你的'
+      : '无法加载这个子代理的对话'
   }
 
   listen(listener: () => void): () => void {
@@ -159,7 +183,7 @@ export class TranscriptReader {
     const result = this.transcript.apply(batch.ops)
     if (result.gap !== undefined) return 'broken'
     this.appliedSeq = batch.seq
-    this.connection.markApplied(this.conversationId, MAIN_AGENT, batch.seq)
+    this.connection.markApplied(this.conversationId, this.agentId, batch.seq)
     this.publish()
     return 'applied'
   }
@@ -185,11 +209,11 @@ export class TranscriptReader {
       this.reloadQueued = false
       if (this.stopped) return
       try {
-        const baseline = await fetchTranscriptBaseline(this.conversationId)
+        const baseline = await fetchTranscriptBaseline(this.conversationId, this.agentId)
         if (this.stopped) return
-        this.transcript.apply([{ agentId: MAIN_AGENT, op: 'reset', snapshot: baseline.snapshot }])
+        this.transcript.apply([{ agentId: this.agentId, op: 'reset', snapshot: baseline.snapshot }])
         this.appliedSeq = baseline.seq
-        this.connection.markApplied(this.conversationId, MAIN_AGENT, baseline.seq)
+        this.connection.markApplied(this.conversationId, this.agentId, baseline.seq)
         this.reloads = 0
         this.snapshot = {
           activity: this.transcript.getMeta().activity ?? 'unknown',
@@ -207,7 +231,7 @@ export class TranscriptReader {
       } catch (error) {
         if (this.stopped) return
         if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-          this.fail('这段对话不存在，或者不是你的')
+          this.fail(this.missingMessage())
           return
         }
         this.fail(error instanceof Error ? error.message : '读取对话内容失败')
@@ -223,7 +247,7 @@ export class TranscriptReader {
       const since = this.appliedSeq
       if (this.stopped || since === null) return
       try {
-        const catchup = await fetchTranscriptCatchup(this.conversationId, since)
+        const catchup = await fetchTranscriptCatchup(this.conversationId, since, this.agentId)
         if (this.stopped) return
         if (!catchup.complete) {
           this.scheduleReload()

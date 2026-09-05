@@ -5,7 +5,7 @@
 ## 做过的改写
 
 - 工具帧增加 `metadata`：声明位于 [model/frame.ts](model/frame.ts)，接收校验位于 [contract/schema.ts](contract/schema.ts)，承载面向用户的工具结果。
-- 轮头部和用户文本帧使用 `content` 保存原始消息 part；类型、schema 与 [ops/apply.ts](ops/apply.ts) 的相等判断共同维护这一扩展。
+- 轮头部和用户文本帧使用 `content` 保存原始消息 part；类型、schema 与 [ops/apply.ts](ops/apply.ts) 的相等判断共同维护这一扩展。上游的 `triggerPromptId` 保留在 [model/turn.ts](model/turn.ts)、schema 与相等判断里，乐观气泡按它认领。
 - 未引入上游 `history/`。历史投影由[后端 transcript](../../../../../server/src/iclip/harness/transcript/from_messages.py)生成，相关上游 history 测试未保留。
 - [测试目录](__tests__/)使用相对导入，并按本仓的消息形状调整测试数据。
 

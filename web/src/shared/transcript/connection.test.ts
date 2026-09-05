@@ -347,6 +347,119 @@ describe('TranscriptConnection', () => {
     expect(seen).toEqual([])
   })
 
+  it('同一段对话再订一个子代理：整张表一帧上行，各带各的水位', () => {
+    const connection = connect(['c1'])
+    socket.deliver(ops(5, 'c1'))
+    const child: Array<[string, TranscriptOps]> = []
+
+    connection.subscribe(
+      'c1',
+      {
+        onReset: () => child.push(['reset', []]),
+        onOps: (_agent, list) => void child.push(['ops', list]),
+      },
+      'delta',
+      'run-child',
+    )
+
+    const table = socket
+      .frames()
+      .filter((frame) => frame.type === 'subscribe_v2')
+      .at(-1)
+    expect(table?.payload?.['transcript']).toEqual({ main: 'delta', 'run-child': 'delta' })
+    expect(table?.payload?.['transcript_since']).toEqual({ main: 5 })
+
+    // 子流的帧按 agent_id 分发，主流那份回调不收；水位各记各的。
+    socket.deliver({
+      type: 'transcript.ops',
+      session_id: 'c1',
+      payload: { agent_id: 'run-child', ops: [], seq: 2 },
+    })
+    expect(child.map(([kind]) => kind)).toEqual(['ops'])
+    expect(received.map(([conversationId]) => conversationId)).toEqual(['c1'])
+    expect(connection.watermarkOf('c1', 'run-child')).toBe(2)
+    expect(connection.watermarkOf('c1', 'main')).toBe(5)
+  })
+
+  it('只退子代理：发带 agent_ids 的退订，主流照收；退主流最后一个就整段退', () => {
+    const connection = connect(['c1'])
+    connection.subscribe('c1', { onReset: () => {}, onOps: () => true }, 'delta', 'run-child')
+
+    connection.unsubscribe('c1', 'run-child')
+    const partial = socket
+      .frames()
+      .filter((frame) => frame.type === 'unsubscribe_v2')
+      .at(-1)
+    expect(partial?.payload).toEqual({ session_id: 'c1', agent_ids: ['run-child'] })
+    socket.deliver(ops(6, 'c1'))
+    expect(received).toHaveLength(1)
+
+    connection.unsubscribe('c1', 'main')
+    const whole = socket
+      .frames()
+      .filter((frame) => frame.type === 'unsubscribe_v2')
+      .at(-1)
+    expect(whole?.payload).toEqual({ session_id: 'c1' })
+    socket.deliver(ops(7, 'c1'))
+    expect(received).toHaveLength(1)
+  })
+
+  it('表里的子代理不属于这段对话（ack 404）：退掉它并通知，主流重订', () => {
+    const connection = connect(['c1'])
+    let refused = false
+    connection.subscribe(
+      'c1',
+      { onReset: () => {}, onOps: () => true, onNotFound: () => void (refused = true) },
+      'delta',
+      'not-a-run',
+    )
+    const asked = socket
+      .frames()
+      .filter((frame) => frame.type === 'subscribe_v2')
+      .at(-1)
+
+    socket.deliver({ type: 'ack', id: asked?.id, code: 404, msg: 'agent not in session' })
+
+    expect(refused).toBe(true)
+    const resent = socket
+      .frames()
+      .filter((frame) => frame.type === 'subscribe_v2')
+      .at(-1)
+    expect(resent?.payload?.['transcript']).toEqual({ main: 'delta' })
+    expect(connection.watermarkOf('c1', 'not-a-run')).toBeUndefined()
+  })
+
+  it('404 只退这帧新加的子代理：原本订着的那条不动，水位也在', () => {
+    const connection = connect(['c1'])
+    let healthyRefused = false
+    connection.subscribe(
+      'c1',
+      { onReset: () => {}, onOps: () => true, onNotFound: () => void (healthyRefused = true) },
+      'delta',
+      'run-a',
+    )
+    socket.deliver({
+      type: 'transcript.ops',
+      session_id: 'c1',
+      payload: { agent_id: 'run-a', ops: [], seq: 3 },
+    })
+    connection.subscribe('c1', { onReset: () => {}, onOps: () => true }, 'delta', 'stale')
+    const asked = socket
+      .frames()
+      .filter((frame) => frame.type === 'subscribe_v2')
+      .at(-1)
+
+    socket.deliver({ type: 'ack', id: asked?.id, code: 404, msg: 'agent not in session' })
+
+    expect(healthyRefused).toBe(false)
+    expect(connection.watermarkOf('c1', 'run-a')).toBe(3)
+    const resent = socket
+      .frames()
+      .filter((frame) => frame.type === 'subscribe_v2')
+      .at(-1)
+    expect(resent?.payload?.['transcript']).toEqual({ main: 'delta', 'run-a': 'delta' })
+  })
+
   it('断线重连之后把还在的文件订阅原样重发', () => {
     vi.useFakeTimers()
     const connection = connect(['c1'])

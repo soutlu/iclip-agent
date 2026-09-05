@@ -192,6 +192,7 @@ describe('ConversationRoute', () => {
               origin: { kind: 'user' },
               content: [{ text: '再拆一段', type: 'text' }],
               state: 'running',
+              triggerPromptId: submitted,
               turnId: 't3',
             },
           },
@@ -234,6 +235,7 @@ describe('ConversationRoute', () => {
               origin: { kind: 'user' },
               content: [{ text: '再拆一段', type: 'text' }],
               state: 'completed',
+              triggerPromptId: submitted,
               turnId: 't3',
             },
           },
@@ -265,6 +267,50 @@ describe('ConversationRoute', () => {
     )
 
     await waitFor(() => expect(screen.queryByText('工作中…')).toBeNull())
+  })
+
+  it('气泡按 promptId 认领：同样内容但 id 不是它的轮不接替', async () => {
+    const user = userEvent.setup()
+    const { socket } = await renderConversation()
+    await screen.findByText(TAIL_TEXT)
+    server.use(
+      http.post('*/api/conversations/c1/prompts', async ({ request }) => {
+        const body = (await request.json()) as { prompt_id: string }
+        return HttpResponse.json({
+          createdAt: '2026-08-31T03:00:00Z',
+          promptId: body.prompt_id,
+          status: 'running',
+        })
+      }),
+    )
+
+    pasteTextIntoComposer(screen.getByLabelText('输入消息'), '再拆一段')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(screen.getAllByText('再拆一段')).toHaveLength(1))
+
+    socket.deliver(
+      opsFrame(
+        [
+          {
+            op: 'turn.upsert',
+            turn: {
+              kind: 'turn',
+              ordinal: 3,
+              origin: { kind: 'user' },
+              content: [{ text: '再拆一段', type: 'text' }],
+              state: 'running',
+              triggerPromptId: 'prm_someone_else',
+              turnId: 't3',
+            },
+          },
+        ],
+        11,
+      ),
+    )
+
+    // 时间线多了一份同样的字，气泡那份还在，本地也仍算在等自己那一轮。
+    await waitFor(() => expect(screen.getAllByText('再拆一段')).toHaveLength(2))
+    expect(screen.getByRole('status')).toHaveTextContent('请求中…')
   })
 
   it('发送失败把字还回输入框', async () => {
