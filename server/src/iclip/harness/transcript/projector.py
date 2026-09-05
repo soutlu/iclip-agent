@@ -56,6 +56,7 @@ from iclip.platform.transcript.ops import (
     StepHeader,
     StepUpsertOp,
     StepUsage,
+    TaskState,
     TaskUpsertOp,
     TextFrame,
     ThinkingFrame,
@@ -559,7 +560,7 @@ class TranscriptEventStream(UIEventStream[Any, OpsBatch, Any, Any]):
             )
         return ops
 
-    def _orphan_task_ops(self, state: str) -> list[EmittableOperation]:
+    def _orphan_task_ops(self, state: TaskState) -> list[EmittableOperation]:
         """轮次收尾时给仍在跑的子代理任务一个终态，否则界面永远停在 running。"""
 
         ops: list[EmittableOperation] = []

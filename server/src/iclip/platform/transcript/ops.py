@@ -145,12 +145,15 @@ class StepUsage(_Wire):
     input_cache_creation: int
 
 
+TaskState = Literal["running", "completed", "failed", "timed_out", "killed", "lost"]
+
+
 class TranscriptTask(_Wire):
     """一件后台活儿。本系统只产出 ``subagent``：一次 delegate_task 一条。"""
 
     task_id: str
     kind: Literal["shell", "subagent", "tool", "other"]
-    state: Literal["running", "completed", "failed", "timed_out", "killed", "lost"]
+    state: TaskState
     detached: bool
     description: str | None = None
     agent_id: str | None = None
@@ -435,6 +438,7 @@ __all__ = [
     "StepHeader",
     "StepUpsertOp",
     "StepUsage",
+    "TaskState",
     "TaskUpsertOp",
     "TextContent",
     "TextFrame",

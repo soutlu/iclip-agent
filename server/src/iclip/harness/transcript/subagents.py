@@ -138,7 +138,8 @@ class SubAgentBridge(AbstractCapability[Any]):
         )
         await annotate_tool_effect(self.store, scoped, effect_summary=child_run_id)
         _logger.debug("子代理已记入账本", tool_call_id=call.tool_call_id, child_run_id=child_run_id)
-        if await self.store.latest_snapshot(run_id=child_run_id) is None:
+        # 与 ConversationRunner._hand_over 同口径：中断快照也算落库，否则失败的子轮永远交接不掉。
+        if await self.store.latest_snapshot(run_id=child_run_id, include_interrupted=True) is None:
             _logger.warning("子代理那一轮还没落进快照，先留在实时状态里", child_run_id=child_run_id)
             return
         self.live.mark_snapshot_persisted(self.conversation_id, child_run_id, CHILD_TURN_ID)

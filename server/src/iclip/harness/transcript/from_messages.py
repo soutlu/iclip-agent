@@ -38,6 +38,7 @@ from iclip.platform.transcript.ops import (
     NoticeFrame,
     PromptContent,
     StepUsage,
+    TaskState,
     TextFrame,
     ThinkingFrame,
     ToolFrame,
@@ -126,7 +127,7 @@ class ChildRun:
     state: TurnState
 
 
-_TASK_STATE_BY_RUN: Final[dict[TurnState, str]] = {
+_TASK_STATE_BY_RUN: Final[dict[TurnState, TaskState]] = {
     "completed": "completed",
     "cancelled": "killed",
 }
@@ -154,7 +155,7 @@ def tasks_from_messages(
             TranscriptTask(
                 task_id=child.run_id,
                 kind="subagent",
-                state=_TASK_STATE_BY_RUN.get(child.state, "failed"),  # pyright: ignore[reportArgumentType]
+                state=_TASK_STATE_BY_RUN.get(child.state, "failed"),
                 detached=False,
                 description=child.agent_name,
                 agent_id=child.run_id,
