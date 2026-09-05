@@ -1,176 +1,86 @@
-# iclip-agent 架构文档
+# 后端架构
 
-> 本文管分层与装配。领域语言见 [CONTEXT.md](CONTEXT.md)，测试策略见 [test-design.md](test-design.md)，决策见 [adr/](adr/)。
+> 本文说明模块职责、装配与运行机制。业务术语和不变量见 [CONTEXT.md](CONTEXT.md)，接口约定见 [contract/conventions.md](../contract/conventions.md)，开发流程见 [AGENTS.md](../AGENTS.md)，决策与取舍见 [ADR](adr/)。
 
-## 1. 定位与运行拓扑
+## 1. 模块职责
 
-iclip-agent 是 Productor 视频创作产品的后端，也是跨端合同的定义方：模块化单体，单个代码库（`server/` + `web/`）。**PostgreSQL 数据库是本系统全局唯一的事实源。**
+后端是 FastAPI 模块化单体，Agent 引擎使用 PydanticAI 与 Pydantic AI Harness。`app/` 是唯一组合根：读取配置、创建连接池、装配模块、连接模块间的协议并管理生命周期。
 
-双主体身份体系：Cookie 会话用户 + Bearer API key 机器用户，浏览器经同源 `/api`（反代 rewrite）进来，两者都由 `server/` FastAPI（每 worker 一份）的 PrincipalResolver 解析成唯一信任点。
+以下路径均相对 `server/src/iclip/`。
 
-Agent 引擎是 PydanticAI，隔离在 `harness` 围栏内；agent 的运行历史（run 血缘、逐步事件、可续跑快照、工具副作用）落 Postgres 的 `agent_runtime` schema。模型经 `config.yaml` 的命名表装配，agent 在 `agents.yaml` 里引用名字。
+| 位置 | 职责 |
+|---|---|
+| `domains/` | 业务用例、领域模型、HTTP 入口及存储适配；不依赖 Agent 引擎 |
+| `harness/` | 通用 Agent 装配、运行驱动、消息持久化、上下文压缩与 transcript 投影；不解释业务身份和业务规则 |
+| `capabilities/` | 面向模型的类型化工具，连接 Agent 引擎与业务能力 |
+| `platform/` | 共用技术协议及适配器：存储、素材台账、HTTP 错误映射、transcript 类型 |
+| `common/` | 领域错误分类 |
+| `config/` | 配置声明、环境变量定义与启动期解析 |
+| `app/` | 组合根及跨模块适配 |
+| `main.py` / `asgi.py` | CLI / ASGI 入口 |
 
-agent 运行不绑在发起它的 HTTP 请求上：运行在后台跑，产出落进进程内的实时状态，HTTP/WS 只订阅（见 §10）。**实时状态是投影，不是事实源**；持久事实只在 Postgres。
+依赖图与框架引用边界以 [tach.toml](../server/tach.toml) 和 [架构测试](../server/tests/unit/architecture/test_architecture.py) 为准。业务模块按职责拆文件，不要求每个模块凑齐固定文件模板。
 
-## 2. 分层依赖规则
+能力包之间不互相 import。确需共享的技术协议下沉到 `platform/`，由组合根注入同一个实例；协议随实际调用需求定义，不提前建立抽象层。
 
-```text
-╭──────────────────────── app（组合根，可 import 一切） ───────────────────────╮
-│                                                                            │
-│   ╭─────────────╮        ╭──────────────╮        ╭────────────────────╮    │
-│   │  harness/   │◀───────│ capabilities/ │───────▶│     domains/       │    │
-│   │ 通用内核     │        │ capability     │        │ 业务模块            │    │
-│   │             │   ✗    │              │        │                    │    │
-│   │ 不认识业务    │◀──╳────┼──────────────┼───╳───▶│ 不认识 pydantic_ai  │    │
-│   ╰─────────────╯  禁止   ╰──────────────╯  禁止   ╰────────────────────╯    │
-│         │                                              │                   │
-│         ╰──────────────────┬───────────────────────────╯                   │
-│                            ▼                                               │
-│                  ╭──────────────────╮                                      │
-│                  │ platform + common │                                     │
-│                  ╰──────────────────╯                                      │
-╰────────────────────────────────────────────────────────────────────────────╯
-```
+存储适配跟随使用其协议的模块：业务自有表放对应模块的 `infra_sql.py`，外部只读库用独立适配器；官方 StepPersistence 的 Postgres 实现在 `harness/step_store_pg.py`。数据库 engine 只由组合根创建。
 
-围栏由 tach（`server/tach.toml`）与架构单测（`tests/unit/architecture/` 的 `FRAMEWORK_FENCES`）强制，只走 `server/src/`；新增一个碰 SQL 或框架的文件要在 `FRAMEWORK_FENCES` 加一行。跨模块只准 import 对方 `public.py`。能力包之间互不 import：两件能力要共用的东西下沉到 `platform/` 做成协议，组合根把同一个实例递给两边。接口随首个实现定义，不提前写投机 ABC。
+## 2. 配置与装配
 
-**外部存储落点**：实现官方协议的后端跟着「说这门协议的那一层」走（`harness/step_store_pg.py`、`harness/jobs.py`）；模块或能力包自有的表放自己模块里的 `infra_sql.py`；`platform/` 下的存储只出协议与后端，业务侧只认协议；engine 只在 `app/` 建。
+| 权威入口 | 内容 |
+|---|---|
+| [configs/config.yaml](../server/configs/config.yaml) | 运行参数、模型命名表与模型端点 |
+| [config/models.py](../server/src/iclip/config/models.py) | 配置字段、默认值、环境变量名、功能开关与依赖校验 |
+| [agents/agents.yaml](../server/agents/agents.yaml) | Agent ID、spec、模型引用、skill、capability 与子代理声明 |
+| [config/agents.py](../server/src/iclip/config/agents.py) | 声明与资产路径解析 |
+| [app/bootstrap.py](../server/src/iclip/app/bootstrap.py) | 资源创建、模块装配、路由挂载与生命周期 |
 
-## 3. 目录布局
+运行配置与 Agent 声明在启动期加载、校验并装配。配置文件路径分别由 `CONFIG_FILE`、`AGENTS_FILE` 指定；CLI 的 `--config`、`--agents` 设置这两个入口。依赖服务的连接信息与凭证由环境变量提供；模型凭证由 `models.*.api_key_env` 指向环境变量。可选功能的启用条件与缺失依赖处理集中在 `resolve_settings()`，不在业务模块中重新读取配置。
 
-| 路径 | 职责 |
-|------|------|
-| `server/src/iclip/main.py` / `asgi.py` | CLI serve 入口 / ASGI 导出入口 |
-| `server/src/iclip/app/` | 唯一组合根：装配、entrypoints、lifespan、capability 名字表 |
-| `server/src/iclip/config/` | RuntimeConfig：YAML 源（形状）+ `*Env` 类（环境变量清单） |
-| `server/src/iclip/domains/<模块>/` | 业务模块，每个是八件固定文件（`models`/`schemas`/`repository`/`infra_sql`/`service`/`api`/`module`/`public`）的组合；清单与各自的边界见 §6、§11–16 |
-| `server/src/iclip/harness/` | 通用 agent 内核：模型与 agent 装配、skill 库、prompt 队列的表、官方协议的 PG 后端、媒体引用的文法、对话素材判据、`transcript/`（见 §10） |
-| `server/src/iclip/capabilities/` | capability 实现，一件一个子目录 |
-| `server/src/iclip/platform/` | 跨模块共用的技术设施：行级归属原语、领域错误 → HTTP 单点映射、对象存储、文件存储、transcript 协议的形状（照抄来的外部合同，谁都不拥有它） |
-| `server/src/iclip/common/` | 领域错误分类（`DomainError` 及其子类） |
-| `server/configs/config.yaml` | 唯一 Runtime Configuration（只有形状） |
-| `server/agents/` | agent 装配声明 `agents.yaml` + 每 agent 一个子目录（官方 spec + 提示词）+ `skills/` 技能库 |
-| `server/migrations/versions/` | Alembic 迁移，一个 revision 一个文件 |
-| `server/scripts/admin.py` | 引导型管理 CLI（set-roles / list-users / issue-key），直连 DB，用于非 SSO 场景的 root 引导 |
-| `web/` | 产品前端；命令与边界见 [../web/AGENTS.md](../web/AGENTS.md) |
-| `contract/` | 跨端合同：`openapi.json` 由 `make contract` 从后端导出；`conventions.md` 写合同表达不了的约定 |
+Agent 声明文件必须存在；不启用 Agent 时写 `agent: {}`。`spec` 必须指向现存文件，文件内容可以为空；同目录的 `instructions.md` 自动加载。主 Agent ID 来自声明键，子 Agent 名称来自 spec 所在目录名；声明的名称、模型覆盖 spec 对应字段，关闭磁盘自动扫描。
 
-## 4. 装配流程
+skill 与 capability 都按 Agent 显式挂载，子代理不继承主代理的挂载。skill 正文由 Harness 按需加载，reference 由随库挂载的 `get_skill_reference` 读取。capability 的实例和挂载依赖集中在 [app/capability_table.py](../server/src/iclip/app/capability_table.py)，工具声明规则见 [tool-design.md](tool-design.md)。
 
-1. `asgi.py` 读 `CONFIG_FILE`（缺省 `configs/config.yaml`）与 `AGENTS_FILE`（缺省 `agents/agents.yaml`）：只做 YAML 加载与结构校验（extra=forbid），不读任何环境变量；agent 声明另把 `spec` 与同级 `skills/` 库解析成绝对路径、找出同级 `instructions.md`，声明文件、spec 文件或目录缺失即报错。
-2. 组合根 `app/bootstrap` 按序装配，`resolve_settings()` 把 YAML 的形状与环境变量的值合成运行值，缺哪几个变量一次全报出来：
-   - engine（asyncpg，每 worker 一个连接池）→ identity → `SSO_BASE_URL` 非空时装 SSO / PMS 协议客户端。
-   - conversations，把它的「删对话时连带清掉派生物」「列 / 读 / 写派生文件」口子接到工作区上，并按路径挂上写入前的校验器。
-   - `OSS_BUCKET` 非空时建公开对象存储（素材、生成、镜头帧共用这一只桶）并装 assets 模块，没有桶整组路由不挂。
-   - `media_generation` 段 + `VIDEO_SUBMIT_URL` 非空时装 generation 模块：两家 provider 一起装，缺一个 env 即报错，对象存储没开也报错。
-   - `VIDEO_UNDERSTANDING_URL` 非空时建镜头素材取素材用的 HTTP 客户端，并检查 PATH 上有 ffmpeg / ffprobe；此时媒体生成必须也开着。
-   - `PRODUCT_CATALOG_DATABASE_URL` / `INSPIRATION_DATABASE_URL` 非空时各建一个只读 engine 并装 products / inspirations 模块。
-   - tasks 模块，把「按款号抄快照」协议接到产品资料库与桶上；缺一个就接一个只会拒绝的替代品。
-   - `build_agent_registry()`：模型、凭证、spec 缺失在此 fail fast，capability 名字表在这一步建起来。
-   - 实时状态、prompt 队列与运行驱动，装上 transcript 的读写端点与订阅连接。
-   - 唯一 FastAPI → 注册路由 → PrincipalResolver 中间件，`cors_allow_origins` 非空时再在其外层加装 CORS。
-   - lifespan 启动时先清扫一次中断的 prompt 行，起心跳与清扫两个循环，然后开队列连接、起三个 worker。
-3. 关停顺序：**先收 worker 与队列连接，再按第一方取消收掉在跑的运行，然后关镜头素材的 HTTP 客户端，最后 dispose engine**。
-4. 启动期**不做任何业务表 provisioning**；表结构只经人工 `make db-upgrade` 演进。
+模型适配集中在 [harness/models.py](../server/src/iclip/harness/models.py)，同名模型复用实例。provider 选择交给官方 `infer_model`；`api: responses` 使用本仓的 Responses 子类。模型参数转换不进入业务模块或工具。
 
-## 5. 配置系统
+lifespan 启动运行驱动与已启用的生成队列；关停时先停止后台任务并等待运行终态落库，再关闭 HTTP 客户端和本应用持有的连接池。启动不建表，迁移单独执行。
 
-**一条线切开：YAML 管形状，环境变量管值。**
+## 3. 身份与模块协作
 
-- `server/configs/config.yaml` 声明装什么、什么形状，它进仓；全部模型 frozen + `extra="forbid"`，`models.*.api_key_env` 是 YAML 里**唯一**留着变量名的地方。
-- 环境变量给地址与凭证，**不进仓**。`config/models.py` 里的 `*Env` 类每个字段用 `validation_alias` 写死变量名，**那几个类就是这个服务的环境变量清单**；缺了哪几个一次全报出来，报的是变量名本身。变量名不带品牌 / 公司前缀。**空串与只有空白等于没设。**
+HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，授权由入口与业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
 
-`server/agents/agents.yaml`（路径由 `--agents` / `AGENTS_FILE` 给出）说启用哪些 agent、各自用哪份官方 spec、谁带谁，同样 frozen + `extra="forbid"`。**「没有 agent」由文件内容表达（`agent: {}`），不由文件缺席表达。** 字段语义：键名即 agent id；`spec` 相对本文件目录、允许为空，同目录 `instructions.md` 自动并入；`model` 必填，引用 `config.yaml` models 段的键名，spec 里的 `model:` 一律被覆盖，引用未声明的名字即装配期报错；`skills` 从同级 `skills/` 库里挑；`capabilities` 是登记在 `app/capability_table.py` 的名字，不写即不挂；有 `subagent` 段即主从，下属的 `spec` / `skills` / `capabilities` 各挂各的、不继承主 agent，`timeout_seconds` / `max_calls` / `on_failure` 三个字段名与 harness SubAgent 一致。
+运行通过 `AgentRunDeps` 向工具传递可信主体与对话 ID，业务含义和权限约束见 [CONTEXT.md](CONTEXT.md)。harness 只传递 deps，不解包业务字段；工具所需服务由组合根闭包注入，不放进 deps。客户端 state 不作为运行身份或服务来源。
 
-### 能力挂载（skill 与 capability）
+跨模块协作在组合根适配。例如：产品资料与对象存储实现需求单的款式快照端口；合集元信息接入对话侧栏；工作区文件和素材台账接入对话的派生数据端口。模块只使用自身声明的协议，不自行创建其他模块的客户端或仓库。
 
-**挂什么能力由声明决定，一个 agent 只拥有声明给它的那几样。**
+## 4. 持久化与迁移
 
-- **skill** 是模型面文本资产，放 `server/agents/skills/<skill 名>/`（`SKILL.md` + 可选 `references/`）；挂了 skill 库就一定同时挂 `get_skill_reference`，它只读得到挂给本 agent 的 skill 的 `.md`。
-- **capability** 是一组类型化工具，实现在 `capabilities/`，名字登记在 `app/capability_table.py`。名字没登记、或表里 `REQUIRES` 要求同挂的另一件（`shot_video` 要求 `workspace`）没声明，都是装配期报错。本仓的工具一律经 capability 挂载，`shared_capabilities` 保持空着。
-- 每个能力自带一张「工具名 → 参数 → display」的表（`display_table()`，在能力的 `capability.py` 里），组合根合成一份注册表，同一实例递给实时与历史两条路；同一件工具登记两遍即装配期报错。
-- 单工具的范围规则一律挂在登记时的验证器上（`args_validator`），在执行之前跑，工具体不判范围；地址类参数只收这段对话里出现过、且声明过匹配种类的（`harness/materials.py`，定义见 CONTEXT.md「对话素材」）。完整规则见 [adr/0007](adr/0007-tool-declaration-surface.md)。
-- **已落地的能力：`workspace`、`shot_video`**，工具与行为见 `workspace/capability.py` 与 `shot_video/toolset.py`。工具怎么接力归 skill，见 [tool-design.md](tool-design.md) §0。
+| 数据 | 实现位置 |
+|---|---|
+| `iclip` 业务表 | 各领域模块的 `infra_sql.py` |
+| `agent_runtime` 运行历史与快照 | `harness/step_store_pg.py`，实现官方 StepStore 协议 |
+| `agent_runtime` prompt 队列、运行关联与审批记录 | `harness/jobs.py` |
+| `agent_runtime` 工作区与对话素材台账 | `platform/file_store/pg.py`、`platform/material_ledger/pg.py` |
+| `public` 生成任务调度表 | procrastinate；DDL 随 Alembic 迁移维护 |
+| 产品资料与爆款视频外部库 | 对应领域的 `catalog_pg.py`，独立连接池设置会话级只读 |
 
-### 运行依赖（工具怎么拿到调用方身份）
+表结构只经 [Alembic 迁移](../server/migrations/versions/) 演进，命令见 [AGENTS.md](../AGENTS.md)。新增表与迁移的对账范围、人工核对要求见 [测试规范](test-design.md#3-postgres-测试环境)。
 
-- **一次运行的 deps 就是发起它的 `Principal`**，经官方的依赖注入机制传入；harness 一侧这个参数的类型是 `object` 且全程不解包，组合根的 `deps_for_prompt` 是唯一写具体类型的地方。
-- **身份在收下 prompt 的那一刻就定了**，不随请求走：行上记的是属主 id，开跑时按它重建主体，跑到一半吊销 key 不会中断这次运行。
-- **deps 只放身份，不放 I/O 句柄**：放的是 `AgentRunDeps`（可信主体 + 所属对话，定义见 CONTEXT.md「运行依赖」），服务经 `app/capability_table.py` 的闭包在装配期注入。不给 deps 实现 `StateHandler`，客户端发来的 state 被忽略。
-- **agent id 是唯一权威身份**：装配时以 `name=<id>` 覆盖 spec 里的 `name`，子 agent 的 name 取自其 spec 所在**目录名**；**磁盘扫描显式关闭**（`agent_folders=None`）。
+## 5. 运行、记录与订阅
 
-### 模型装配
+Agent 运行由 [ConversationRunner](../server/src/iclip/harness/transcript/runner.py) 驱动，与发起请求的连接生命周期分离。持久化机制见 [ADR-0006](adr/0006-durable-runs.md)：
 
-`config.yaml` 的 `models` 段是一张命名表，`harness/models.py` 把每条声明变成一个官方 `Model`：
+- prompt 先进入 Postgres 队列；数据库约束保证同一对话的运行互斥，租约、心跳与清扫处理认领和中断恢复。
+- StepPersistence 保存消息历史与可续跑快照；恢复读取持久记录。停止运行使用框架取消入口，等待终态落库。
+- 审批结束当前 run，决定持久化后以新 run 续跑，仍属于同一轮；审批工具只挂顶层 Agent。
+- 生成任务另由 procrastinate 的提交、轮询队列驱动，业务状态写回生成任务表；机制见 [ADR-0004](adr/0004-generation-queue-in-postgres.md)。
 
-- **provider 名 → 哪个 Model 类交给官方 `infer_model`**，本仓不维护分派表；只用 `provider_factory` 接管 provider 的构造，key 与端点一律来自配置，不走官方默认的隐式 env 读取与默认端点。
-- **`api: responses` 是唯一越过官方分派的情况**：构造本仓的 `RawReasoningResponsesModel`（官方 `OpenAIResponsesModel` 的子类，让原始思维链能显示）；写在非 OpenAI 兼容的 provider 上即装配期报错。
-- **`thinking` 走 OpenAI 方言的 `openai_reasoning_effort`**，不走官方统一的 `thinking` 字段。同名只造一个实例，被多个 agent 引用时共用连接池。
+transcript 是运行记录的投影。历史由 `from_messages` 从持久消息生成，实时由 `projector` 从引擎事件生成；两条路径必须得到相同的编号和结构，共用工具 display 注册表。上下文压缩在完整历史中插入 `CompactionPart`，发送模型时从最后一条边界计算窗口，不删除原始消息，见 [ADR-0011](adr/0011-context-compaction.md)。
 
-## 6. identity 模块（双主体）
+实时投影与连接注册表在每个 worker 的内存中，快照持久化后才移交该轮实时状态。当前没有跨 worker 广播：订阅落到其他 worker 时无法收到该运行的实时事件。多 worker 部署必须把这一限制纳入连接路由设计。
 
-Principal、API key、角色、双主体的定义见 CONTEXT.md「术语」与不变量 2、3；权限模型见 [adr/0002](adr/0002-unified-permission-model.md)。
+WebSocket 订阅、活动状态和文件变更帧的对外约定见 [contract/conventions.md](../contract/conventions.md)，本文不维护第二份帧与端点清单。
 
-PrincipalResolver 每 hop 只解析一次，写入 `request.state.principal`；对 http 与 websocket 两种连接都建立 principal，但**只解析、不拒绝**——来源校验由 `websocket_origin_allowed` 提供，**需要 WS 端点自己调用、并在不通过时 close 1008**。行级归属：不可见 `NotFound`、可见无权 `PermissionDenied`（`platform.db.ownership.scope_to_owner` 统一原语）。账号走 fastapi-users；SSO 是 identity-provider 模式，callback 内 verify → PMS（**失败显式终止**）→ oauth 关联 → 铸自有 cookie，此后普通请求零外呼。
+## 6. 日志
 
-## 7. 数据模型与迁移
-
-表结构以 ORM 元数据为准：`iclip` schema 的表在各模块的 `domains/*/infra_sql.py`；`agent_runtime` schema 的表在 `harness/step_store_pg.py`（结构严格镜像官方 pydantic_ai_harness StepPersistence 的存储形状，只换数据库实现）、`harness/jobs.py` 与 `platform/file_store/pg.py`。procrastinate 的排期表落在 `public` schema，DDL 原文冻在迁移 0005 里，升级它就把它新增的迁移脚本抄成一个新 revision。
-
-唯一 provisioning 路径是人工 `make db-upgrade`。迁移契约测试验证 head 与 ORM 元数据零漂移，覆盖 `iclip` schema 下的**全部**表，每个在这个 schema 里有表的模块都要把自己的元数据加进测试的 `_MODULE_METADATA`；`agent_runtime` 那几张表不在断言范围内，往那个 schema 加表时人工确认一次。
-
-## 8. 路由面
-
-端点、权限与状态码以 [`contract/openapi.json`](../contract/openapi.json) 为准（`make contract` 从后端导出）。合同表达不了的两条：transcript 面的字段名照协议原样（信封 snake_case、实体 camelCase），见 [conventions.md](../contract/conventions.md) §5；WS 帧的 schema **不在 openapi 里**，它归照抄来的 `packages/transcript` zod schema，前端 vendor 那一份。
-
-## 9. 运维
-
-日志走 structlog 一条线（`app/logging.py`）：root 一个 handler，ProcessorFormatter 把标准库来源（uvicorn 以 `log_config=None` 启动、procrastinate、httpx）和我们的 structlog logger 用同一条链渲染；`ops.log_level` 定级别，`ops.log_format` 选 console / json。`PrincipalMiddleware` 给每条请求与 WS 连接绑 `request_id`、`principal`，随 contextvars 进每一行。`QUIET_LOGGERS` 里的第三方 logger 常态只留 WARNING。业务代码用 `structlog.stdlib.get_logger(__name__)`，`logging.getLogger` 由 ruff（TID251）挡。管理 CLI 见 §3。测试与命令见 [test-design.md](test-design.md) 与 [../AGENTS.md](../AGENTS.md)。
-
-## 10. Transcript（对话记录与订阅）
-
-协议是 kimi code 的 transcript（[adr/0005](adr/0005-transcript-protocol.md)）。**transcript 是投影，不是事实源**：持久事实只有官方 `StepPersistence` 存的那份消息历史。已经跑完的轮子由 `from_messages` 从消息现推，正在跑的那一轮由投影器（官方 `UIEventStream` 的子类）产出操作、落在进程内存的实时状态里；一轮的快照落库之后实时状态才交接掉。
-
-**两条路必须给出逐字相同的结构**，所以编号一律从确定的事实算出来（轮 = 一条 prompt 的全部 run，映射在 `agent_runtime.agent_job_runs`；步 = 这一轮里第几次模型响应；块 = 正文与思考的次序），并有一组对齐测试钉住。
-
-**上下文压缩是历史里的一条 `CompactionPart` 边界**（[adr/0011](adr/0011-context-compaction.md)）：全量历史一条不删，快照照旧是全量，发给模型的窗口由 `harness/context_compaction.py` 在发送时从最后一条边界往后现算；界面上它是那之后第一步里的一块提示，不是一轮。
-
-**prompt 队列落在 `agent_runtime.agent_jobs`**，不待在进程内存：「一段对话同时只跑一条」由部分唯一索引挡住，在跑的那条行由租约认领，中断的行由清扫续跑（[adr/0006](adr/0006-durable-runs.md) 决策 1）。`steered` 与 `awaiting` 是内部状态，对外一律报 `running`。
-
-**审批是 run 的结束点，不是 run 内的等待**（[adr/0006](adr/0006-durable-runs.md) 决策 4）：要审批的工具只挂顶层 agent，它的 `output_type` 是 `[str, DeferredToolRequests]`，子代理保持 `str`；决定记在票据行上，凑齐一次响应里的全部审批才起续跑 run，画进同一轮。
-
-**一条 WebSocket 管多段对话**（`WS /ws`，不带对话 id）：订哪几段由客户端逐帧 `subscribe_v2` 说，每段各挂一个监听器、各记一份水位，发出去的每一帧带 `session_id` 供客户端分流。建连时只核登录与 `agent:run`，**每次订阅再核这段对话看不看得见**（看不见与不存在同一个待遇）。实时状态每 worker 一份：订阅打到另一个 worker 时看不到那一轮，且不报错。
-
-## 11. 媒体生成
-
-一次生成是一行持久事实，全程在 `iclip.generation_jobs` 里推进：HTTP 只受理与查询，调外部接口是后台三条 procrastinate 队列（图片提交、视频提交、状态轮询，各自一个 worker）的事，排期字段不在这张表上。开关是 `VIDEO_SUBMIT_URL`，且对象存储必须开着。定义见 CONTEXT.md「生成任务」与不变量 10，排队与判失败的规则见 [adr/0004](adr/0004-generation-queue-in-postgres.md)。
-
-## 12. 对话（会话）
-
-对话的定义见 CONTEXT.md「对话」与不变量 8。会话 id 由服务端在 `POST /conversations` 发放，用来归档运行、划工作区地盘、分实时状态；消息 id（`prompt_id`）由客户端铸，同一段对话里重发同一个不会多起一次运行；运行 id 由运行驱动铸（`{agent id}-{短 uuid}`）并交给引擎，于是它同时是消息上的 `run_id` 与阶段账本的主键——**顶层 agent 的 `StepPersistence` 因此不设 `agent_name`**。
-
-**一段对话「在忙什么」由 `agent_jobs` 表算**，规则在 `JobQueue.activities`，帧在写入那一刻发（[adr/0008](adr/0008-activity-from-agent-jobs.md)）。
-
-**删除对话连带删掉工作区文件，这条线接在组合根**：conversations 只声明口子（`PurgeDerived`、`ReadHistory`、`ListDerivedFiles` / `ReadDerivedFile` / `WriteDerivedFile`、`WorkspaceDocumentValidator`）并做归属判断，命名空间只在 `capabilities/workspace/scope.py` 一处拼，路径语法归存储那一侧定；**先删派生的、再删对话行**，运行记录不删。工作区文件属主可写（整份覆盖，带版本号），写入前按路径过校验器；每写一次向订了该路径的连接发一帧 `event.fs.changed`（kimi 的 `watch_fs_add` 订阅模型），界面按 `version` 判断正文变没变。
-
-**这段对话能用哪些素材记在 `agent_runtime.materials`**（命名空间同工作区）：收下 prompt 时记附件地址，`shot_video` 往公开桶落地址时记，收地址的工具在登记处的验证器里按 `(命名空间, url)` 逐字查它（[adr/0010](adr/0010-materials-ledger.md)）。
-
-## 13. 产品资料查询
-
-`GET /products/{styleNo}`：一个款号进去，拿到这个款的品牌、品类、颜色和产品图。**只读、零副作用、不建表**——数据在外部一个 Postgres 里（PDM 经 CDC 同步的副本），唯一 SQL 出口是 `catalog_pg.py`，一条 CTE 一次往返，连接在会话层设成只读。码→名字的对照表冻在 `tables.py` 里，图片地址 = `PRODUCT_IMAGE_BASE_URL` + object key。开关是 `PRODUCT_CATALOG_DATABASE_URL`。定义见 CONTEXT.md「产品资料」。
-
-## 14. 创作需求单
-
-定义见 CONTEXT.md「创作需求单」：**没有属主**，不用 `platform/db` 的行级归属原语，看得见但不让改是 403。状态机四档 `draft` →(publish)→ `published` →(confirm)→ `confirmed`，后两档都可 withdraw 到终态 `withdrawn`，delete 只在 `draft`；走不通的流转一律 409，每个写方法都带状态守卫（`expect=`），对不上就一行也改不到。认领人记在 `task_assignees`（`task_id` + `user_id` 联合主键挡重复认领）。
-
-`style` 快照由服务端经 `ports.py` 的 `StyleSnapshots` 协议抄自产品资料库，创建时冻结，真身在 `app/task_styles.py`；`published` 之后能改的只剩管理信息与 `schemas.PLANNER_FIELDS` 那五项，冻结字段有一项不同就拒。
-
-## 15. 爆款视频查询
-
-`POST /inspirations/videos/search`（`styleWmsList`、`sortBy`、`limit`）：按 WMS 编号过滤，在库里按指定维度排序后截断。**只读、零副作用、不建表**——数据在外部只读库（数仓爆款榜），唯一 SQL 出口是 `catalog_pg.py`。排序维度是封闭枚举，进 SQL 的是代码里那张表的值；指标原样给，钱走 `Decimal`。开关是 `INSPIRATION_DATABASE_URL`。定义见 CONTEXT.md「爆款视频」。
-
-## 16. 素材登记表与直传
-
-定义见 CONTEXT.md「素材」。两条入库路径：`POST /uploads/sign` 发一个 assetId、按它算出 key、签一条限时 PUT 地址（不落库、不留内存状态）→ 浏览器 PUT 到 OSS（字节不穿过应用进程）→ `POST /assets/{assetId}` 回桶里核实真实 key、多大、什么类型，落一行；`POST /assets/import` 给外部地址 → 搬进桶里 → 落一行，`assetId` 按源地址算，同一个地址只搬一次。
-
-登记之前 assetId 还不是一份素材，`GET /assets/{id}` 一律 404；登记端点没有请求体，大小上限只在登记这一步卡，没被登记的对象按 `uploads/` 前缀清理。行上存 object key，不存 URL；不做归属过滤，`creator_user_id` 只是查询维度与审计依据。需求单封面（`app/task_styles.py`）不经过登记表。
+[app/logging.py](../server/src/iclip/app/logging.py) 统一配置 structlog 与标准库日志的渲染链。请求和 WebSocket 连接的 `request_id`、`principal` 通过 contextvars 传递；级别、格式由运行配置决定。业务日志写法和第三方噪音处理见 [AGENTS.md](../AGENTS.md)。

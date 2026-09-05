@@ -12,9 +12,9 @@
 
 ### 2. Agent 配置化
 
-Agent 由**声明式配置**定义，不在代码里散落硬编码：一个运行目标 = 模型 alias × prompt 资产 × 能力包集合 × 运行参数 profile。配置在启动期一次性装配并冻结，运行期只按 ID 读取；会话建立时记录所用目标与其配置版本，配置热更不改变既有会话的语义。
+Agent 由**声明式配置**定义：官方 spec、模型引用、prompt 资产、能力与子代理声明在启动期装配并冻结，运行期按目标 ID 读取。配置入口与覆盖规则见 [architecture.md](../architecture.md#2-配置与装配)。
 
-客户端永远不能指定 provider、model 或 prompt——它只能引用一个已声明的目标 ID。
+发起 Agent 运行时，客户端只能引用已声明的目标 ID，不能覆盖其 provider、model 或系统指令。媒体生成请求的模型与渠道是另一份业务合同。
 
 ### 3. DB-based 运行
 
@@ -24,15 +24,13 @@ Agent 在代码/配置里初始化，**运行事实全部落 Postgres**：运行
 
 ### 4. 双主体身份
 
-一个 `Principal`（kind ∈ {user, api_key}）在唯一中间件点解析：cookie `iclip_session`（JWT，每 hop 验签一次）或 `Authorization: Bearer iclip_sk_...`（SHA-256 哈希查表）。解析器是传输无关 dependency，同时服务 HTTP、浏览器 WS 握手（cookie + Origin 校验）与机器 WS 握手（Bearer 头）。
-
-API key：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希与展示前缀，明文仅创建响应一次；全部事实行记录 `user_id + api_key_id?` 供审计。权限模型见 [ADR-0002](0002-unified-permission-model.md)（权限集合是唯一授权货币）。
+浏览器会话与机器 API key 统一解析为 `Principal`，HTTP 与 WebSocket 共用解析器；下游只消费可信主体。权限模型与审计约束见 [ADR-0002](0002-unified-permission-model.md)，传输约定见 [跨端合同](../../contract/conventions.md#2-双主体认证-dual-principals)。
 
 ### 5. 技术栈选型
 
 | 选型 | 理由 |
 |---|---|
-| Python 3.13 + uv | pydantic-ai 官方支持 3.10–3.14 |
+| Python + uv | 项目版本要求由 `pyproject.toml` 声明，依赖解析结果写入 lockfile |
 | FastAPI + fastapi-users | 账号生命周期 + OAuth 关联是验证过的强项；「自己写」指业务代码，不禁用成熟库 |
 | pydantic-settings（YAML 源） | 配置声明集中一处；`*_env` 间接引用与交叉引用校验为薄校验层，密钥只在环境变量 |
 | SQLAlchemy 2 async + Alembic + asyncpg | 标准组合；表结构只经人工 `alembic upgrade head` 演进，启动期不建表 |
@@ -42,17 +40,17 @@ API key：`iclip_sk_` + 32 字节 urlsafe base64；只存哈希与展示前缀�
 
 ### 6. 引擎升级纪律
 
-pydantic-ai 以 lockfile 精确 pin，不使用宽松版本区间。`pydantic-ai-harness`（0.x，官方明示 minor 可破 API）pin 到精确的发版号或官方仓库提交，且只准 `harness/` import、经再导出使用，把生态 API 抖动关在一个模块里。
+引擎依赖的精确版本由 [uv.lock](../../server/uv.lock) 固定，CI 使用 `uv sync --locked`。升级时同步依赖声明与 lockfile，并验证装配、持久化和 transcript 契约；不把安装时临时解析出的版本当成已验证版本。引擎的 import 与再导出边界由 [架构测试](../../server/tests/unit/architecture/test_architecture.py) 维护。
 
 ### 7. 刻意保留的自研组件
 
 “不要重复造轮子”的另一面约定——以下**不是轮子**，不得以该指令为由将其替换为第三方库：
 
 1. **显式组合根**：模式本身不是框架；引入 DI 容器（如 dependency-injector）才是非常规选择。
-2. **Principal 解析器 + api_keys 表**：对于双主体系统没有被广泛采用的现成包；自研的实现面很小，仅包含一张表与一个 dependency。
-3. **StepPersistence 的 Postgres 后端**：官方仅提供内存、文件、SQLite 与 MongoDB 后端，因此 PG 后端必须自研（实现官方协议，不魔改表结构）。
+2. **Principal 解析器 + api_keys 表**：封装本系统的双主体身份与显式授权规则。
+3. **StepPersistence 的 Postgres 后端**：实现官方存储协议，让运行事实进入本系统的 Postgres；不修改协议语义。
 
 ## 后果
 
 - 扩展路径被分层钉死：新业务能力 = 领域模块 + 能力包 + 配置声明，内核零改动。
-- 运行正确性由数据库持有，不由进程持有：多 worker 是配置问题，不是重写问题。
+- 运行认领与恢复由数据库约束；实时订阅仍有 worker 内存边界，限制见 [architecture.md](../architecture.md#5-运行记录与订阅)。

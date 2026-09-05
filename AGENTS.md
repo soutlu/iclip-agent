@@ -1,120 +1,94 @@
 # AGENTS.md — 开发约定
 
-> 仓库含 `server/` 后端、`web/` 前端、`contract/` 跨端合同。业务概念与不变量见 [docs/CONTEXT.md](docs/CONTEXT.md)；后端机制见 [docs/architecture.md](docs/architecture.md)；前端命令与边界见 [web/AGENTS.md](web/AGENTS.md)；文档地图见 [README.md](README.md)。
+先读本文与 [docs/CONTEXT.md](docs/CONTEXT.md)。修改后端时查 [docs/architecture.md](docs/architecture.md)，修改前端时再读 [web/AGENTS.md](web/AGENTS.md)。按任务查阅专项文档，入口见 [README.md](README.md#文档地图)。
 
-## 1. 命令入口
+## 1. 命令与验证
 
-常规操作收拢在根目录 `Makefile`。
+命令在仓库根目录执行；前端专项命令见 [web/AGENTS.md](web/AGENTS.md)。
 
-| 命令 | 作用 |
-|------|------|
-| `make setup` | 安装后端 `uv` 依赖与前端 `pnpm` 依赖 |
-| `make dev` | 启动后端（需 `.env`，Postgres 可用） |
-| `make up` | 启动 Postgres 容器、外部只读库隧道、建表、后端、前端；可重复执行，不清库 |
-| `make check` | Lint、格式化、类型检查、架构依赖检查、合同对账、常规测试 |
-| `make test` | 单元与集成测试（Testcontainers 临时 Postgres，不打真实 LLM） |
-| `make test-external` | 需要真实外部凭证的测试，缺凭证时跳过 |
-| `make db-upgrade` | Alembic 升级到最新（启动时不自动建表） |
-| `make web-check` | 前端 `ci:check` |
-| `make contract` | 导出后端 OpenAPI 到 `contract/openapi.json` |
-| `make docs-check` | 核对 Markdown 里的相对链接与 make 目标是否存在（含在 `make check` 里） |
+| 命令 | 用途 |
+|---|---|
+| `make setup` | 安装后端与前端依赖 |
+| `make dev` | 启动后端；环境准备见 [README.md](README.md#启动指南) |
+| `make db-upgrade` | 执行 Alembic 迁移；服务启动不自动建表 |
+| `make check` | 后端 lint、格式、类型、依赖边界、常规测试，以及合同与文档对账 |
+| `make web-check` | 前端 `ci:check`；构建与 e2e 另见前端验证规则 |
+| `make test` | 后端单元与无真实 LLM 的集成测试 |
+| `make test-external` | 使用外部服务凭证的测试；环境与跳过规则见 [测试规范](docs/test-design.md) |
+| `make contract` | 从后端导出 OpenAPI |
+| `make docs-check` | 核对 Markdown 相对链接与 make 目标 |
+| `make hooks` | 安装本地 pre-commit / pre-push hooks |
 
-### 设计系统
+`make up` 调用本机维护、不入库的 `scripts/dev-up.sh`；新检出的仓库使用 README 的启动步骤。
 
-全局视觉规范与 token 定义只有一份：根目录 [design-system.html](design-system.html)。它第一个 `<style>` 里 `:root`（浅色）与 `.dark`（深色）两块是 token 契约；运行时 token 在 `web/src/app/globals.css` 与 `base.css`，`pnpm lint:design` 逐名逐值对账。token 变更先改 HTML，再改运行时。视觉验收截图放 `.artifacts/design-qa/`（不入库）。
+- 后端变更提交前通过 `make check`；前端变更另按 [web/AGENTS.md](web/AGENTS.md) 验证。
+- 纯文档变更运行 `make docs-check`，修改 `web/` 下的 Markdown 另查格式；不为措辞新增业务测试。
+- 修改 SSO / PMS 接入后，本地走通一次真实登录回调。
+- 数据库测试只用一次性测试库或临时 schema；`TEST_DATABASE_URL` 不得指向业务库。迁移检查范围见 [测试规范](docs/test-design.md)。
 
-### 两端分工与合同
+## 2. 合同与实现边界
 
-- 后端定义对外合同：端点、字段、状态码以 [contract/openapi.json](contract/openapi.json) 为准；合同表达不了的约定写在 [contract/conventions.md](contract/conventions.md)。
-- 前端只消费合同：`pnpm contract:generate` 按 openapi.json 生成类型与 zod，端点形状不手写。
-- 改对外端点的顺序：改后端 → `make contract` → `pnpm contract:generate`。
-- 术语与不变量只在 [docs/CONTEXT.md](docs/CONTEXT.md) 一份。
-- 整套联调 `make up`；只联前端 `make dev` + `cd web && pnpm dev`；不连后端 `pnpm dev:mock`。
+- 领域术语与不变量以 [docs/CONTEXT.md](docs/CONTEXT.md) 为准，两端共用。
+- 对外端点、字段、状态码由后端定义，以 [contract/openapi.json](contract/openapi.json) 为准；它表达不了的约定写在 [contract/conventions.md](contract/conventions.md)。
+- 修改端点的顺序：后端实现 → `make contract` → 在 `web/` 执行 `pnpm contract:generate`。前端消费生成类型与 zod，不手写端点 schema。
+- 全局视觉与 token 以 [design-system.html](design-system.html) 为准。token 先改规范，再同步运行时 CSS，通过 `pnpm lint:design`；验收截图放 `.artifacts/design-qa/`。
+- 不通过忽略类型错误、关闭 lint 或放宽检查配置消除失败；先修正实现。
 
-## 2. 禁止动作
+日志使用 `structlog.stdlib.get_logger(__name__)`，事件为固定短句，变量用关键字参数；不拼接 f-string 或 `%s`。请求上下文由中间件绑定，业务只增加本层字段。第三方常态噪音在 [app/logging.py](server/src/iclip/app/logging.py) 的 `QUIET_LOGGERS` 调整。
 
-1. 不从 Request Body 或 Query 读取 `userId`、`tenantId` 判断权限；身份只取 `request.state.principal`。
-2. 不在 Worker 进程内存缓存跨步骤业务状态或 Agent 会话队列；Postgres 是唯一事实源。
-3. 不跨模块 import 其他 Domain 的私有文件，只引用 `public.py` 暴露的接口；不用 `# type: ignore`。
-4. API Key、Token、密码不写进代码或 YAML，只从环境变量读；CORS 允许源不设 `"*"`。
-5. 测试只用一次性 Testcontainers 容器或临时 schema；不对运行中的业务库执行 `DROP` 等破坏性操作。
-6. 后端改了对外端点必须导出合同；前端不照文档或印象手写端点 schema。
+```python
+_logger.warning("生成任务提交失败", job_id=job.id, code=exc.code)
+```
 
-## 3. 机器管不到的几条
+## 3. 分支与交付
 
-- 改了 SSO / PMS 接入：在本地完整走通一次真实登录回调。
-- 新建表：把该模块的元数据加进迁移比对测试的 `_MODULE_METADATA` 名单；`agent_runtime` schema 下的表没有自动比对，迁移自行核对。
-- 打日志：`_logger = structlog.stdlib.get_logger(__name__)`；事件是固定短句，变量一律关键字参数——`_logger.warning("生成任务提交失败", job_id=job.id, code=exc.code)`，不拼 f-string、不用 `%s`。请求级上下文（`request_id`、`principal`）中间件已绑好，业务里只绑本层新增的键。第三方 logger 的常态噪音加进 `app/logging.py` 的 `QUIET_LOGGERS`，不改它们的日志。
+### 日常开发
 
-其余边界——分层依赖、类型、格式、测试目录归层、合同漂移、CI、合并方式与 tag——由 tach、pyright、ruff、架构单测、contract-check、GitHub Actions 与仓库规则集强制。
+开发在独立 worktree 中进行；主目录常驻 `develop`，不在其中开发或切换分支。
 
-## 4. 分支、版本与合并规范
-
-### 4.1 分支
-
-| 分支 | 角色 | 什么能合进来 | 合并方式 |
-|------|------|--------------|----------|
-| `main` | 已交付的版本，每次合并打一个版本 tag | 发版 PR（`develop → main`）、热修 PR；都要开发者确认 | merge commit |
-| `develop` | 当前开发线，仓库默认分支 | 任务分支的 PR，CI 全绿即合；热修回流 PR（`main → develop`） | squash；回流用 merge commit |
-| 任务分支 | 一个任务，活在 worktree 里 | 直接 commit / push | — |
-
-`main` 与 `develop` 不能直接 push，必需检查 `server` + `web`，禁 force push、禁删除；合并后任务分支自动删除。
-
-### 4.2 日常开发：任务分支 → develop
-
-开发一律在 worktree 里进行；主目录常驻 develop，只读不改、不切分支。
-
-1. 开 worktree（Claude Code 会话可用 `EnterWorktree`，落点起点相同）：
-   ```
+1. 从最新 `origin/develop` 建任务分支：
+   ```bash
    git fetch origin
    git worktree add .claude/worktrees/<任务名> -b <分支名> origin/develop
    ```
-   起点固定 `origin/develop`。唯一例外：依赖某个未合 PR 的代码时从该 PR 的分支起，PR 描述写「依赖 #N，等它先合」。
-2. commit 后 `git push -u origin HEAD`。
-3. `make check`（动了前端再加 `make web-check`）无误后 `gh pr create --base develop`。目标误指 main 的日常 PR：`gh pr edit <n> --base develop`，不要合。
-4. 挂上自动合并，CI 全绿即合，不必请示：`gh pr merge <n> --auto --squash`
-5. 清理：`gh pr view <n> --json state` 为 `MERGED`，`git worktree list` 确认是自己的，再回主目录
+   依赖未合 PR 时可从该 PR 分支起步，PR 描述注明「依赖 #N，等它先合」。
+2. 完成适用检查后 commit，在任务 worktree 中推送并创建 PR：
+   ```bash
+   git push -u origin HEAD
+   gh pr create --base develop
+   gh pr merge <n> --auto --squash
    ```
-   git pull
+   `server` 与 `web` 检查通过后自动合并，无需再次确认。日常 PR 误指 `main` 时先用 `gh pr edit <n> --base develop` 修正。
+3. 用 `gh pr view <n> --json state` 确认 `MERGED`，用 `git worktree list` 确认是自己的 worktree，且没有待保留的未提交修改，再回主目录清理：
+   ```bash
+   git pull --ff-only
    git worktree remove .claude/worktrees/<任务名>
    git branch -D <分支名>
    ```
 
-### 4.3 发版：develop → main
+### 发版与热修
 
-1. 开发者确认发版并给出版本号后开 PR：
-   ```
-   gh pr create --base main --head develop --title "发版 vX.Y.Z" --body "<内容摘要>"
-   ```
-2. CI 全绿、开发者确认后：`gh pr merge <n> --merge`
-3. 打 tag 并生成更新说明：
-   ```
-   gh release create vX.Y.Z --target main --title vX.Y.Z --generate-notes
-   git fetch --tags
-   ```
+`main` 是已交付版本，只接收发版和热修；**创建或合并目标为 `main` 的 PR 都必须先获开发者确认**。`main` 与 `develop` 均不直接 push、不强推、不删除。
 
-### 4.4 版本号
+| 操作 | 起点与目标 | 合并方式 |
+|---|---|---|
+| 发版 | `develop → main`，开发者给出版本号后创建 PR | CI 通过并确认后 `gh pr merge <n> --merge` |
+| 热修 | 从 `origin/main` 建独立 worktree，PR 指向 `main` | 检查、确认后 merge commit |
+| 热修回流 | `main → develop` | `gh pr merge <n> --auto --merge` |
 
-`vX.Y.Z`，每次合进 main 必打，号由开发者定。X：重构或老用法不再兼容；Y：加功能，老用法可用；Z：只修 bug。前段加一，后段归零。`v0.Y.Z` 为未正式交付阶段，大改只加 Y。
+每次合入 `main` 后创建版本 release：
 
-### 4.5 热修：修已交付版本的 bug
+```bash
+gh release create vX.Y.Z --target main --title vX.Y.Z --generate-notes
+git fetch --tags
+```
 
-1. 从 main 开 worktree：
-   ```
-   git fetch origin
-   git worktree add .claude/worktrees/hotfix-<名> -b hotfix-<名> origin/main
-   ```
-2. `make check` 无误后 `gh pr create --base main`；CI 全绿、开发者确认后 `gh pr merge <n> --merge`，按 4.3 第 3 步打 `Z+1`。
-3. 回流 develop：
-   ```
-   gh pr create --base develop --head main --title "回流 vX.Y.Z 热修"
-   gh pr merge <n> --auto --merge
-   ```
+版本号由开发者确定。X 用于重构或不兼容变更，Y 用于兼容的新功能，Z 用于修复；前段增加时后段归零。`v0.Y.Z` 阶段的大改增加 Y，热修增加 Z。
 
-**Agent 禁区**：目标为 `main` 的 PR 一律要开发者确认后才开、才合；不直接 push `main` 或 `develop`。其余合并不请示。
+## 4. 文档维护
 
-## 5. 文档规则
-
-- 只写现在为真的事实与规则；不写理由、取舍、进度、日期。
-- 已被工具强制的规则不复述；同一事实只写一处，其余指过去。
-- 提到的命令、路径、链接必须真实存在；`make docs-check` 核对链接与 make 目标。
+- 普通文档只写现行事实和可执行规则，不写过程、进度或历史解释；ADR 保留决策与取舍，被替代的决策标明后继。
+- 一处事实只有一个权威来源，其余链接过去；文档归属见 [README.md](README.md#文档地图)。
+- 不复述类型、配置、检查工具已完整表达的细节；保留职责、入口、工具无法判断的约束与操作步骤。
+- 发现文档与实现不一致时，结合合同和已接受 ADR 判断；实现偏差不能自动变成新规范。
+- 更新文档后核对命令、路径、链接，并运行 `make docs-check`。

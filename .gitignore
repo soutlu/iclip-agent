@@ -30,7 +30,7 @@ artifacts/
 # make up 调用的本地启动脚本：依赖地址与跳板机每台机器不一样，各自维护
 scripts/dev-up.sh
 
-# 开发 worktree（见 AGENTS.md §4.2）
+# 开发 worktree（见 AGENTS.md）
 .claude/worktrees/
 
 # 前端本地文件

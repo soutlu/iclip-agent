@@ -6,7 +6,7 @@
 - **[ADR-0005](0005-transcript-protocol.md)**：transcript 协议照抄 kimi；本文的文件变更通知用它现成的 `watch_fs_add` / `event.fs.changed`，不自造帧。
 - **[ADR-0008](0008-activity-from-agent-jobs.md)**：帧在写入那一刻发、易失；本文的文件变更帧同此，但按订阅投递而非全局。
 - **[ADR-0004](0004-generation-queue-in-postgres.md)**：生成任务是一行持久事实；本文给它加归属列，不改排队与判失败规则。
-- **[ADR-0001](0001-architecture-foundations.md)** §6：能力包之间、能力包与领域之间不互相 import；本文的校验复用按端口注入。
+- **[ADR-0001](0001-architecture-foundations.md)** §1：领域不依赖能力包；能力包可消费领域公开接口，跨模块适配由组合根连接。本文的校验复用按端口注入。
 
 ## 背景
 
@@ -39,9 +39,8 @@ WorkBuddy 桌面端（本机 5.3.14 的构建产物）的右侧 DetailPanel 作�
 
 ### 3. agent 侧的地址规则统一为对话素材
 
-- `write_video_shots` 的 `image_urls` 不再要求在 `frames/grids/*.json` 记录里，改挂 `args_validator`：地址在这段对话里出现过即可，与 `ReadMediaFile`、`generate_shot_frames` 参考图同一套机制（CONTEXT.md「对话素材」，ADR-0007 决策 2）。工具体里扫帧记录的代码删除。
-- 这条规则只约束 agent 自己运行时能引用什么，与用户交付后做什么无关。用户叫 agent 重改某组时 agent 按 skill 先读文件，读到的地址即成对话素材。
-- 工具面文字只改 `write_video_shots` docstring 里那一句：「自己拼的、以及对话里那些素材图的地址都会被拒」改为「只收这段对话里出现过的地址」。SKILL.md 与 references 不动；签名、返回值、错误消息不变。
+- `write_video_shots` 的 `image_urls` 通过 `args_validator` 校验对话素材与类型，不依赖 `frames/grids/*.json`。来源判定以 [ADR-0010](0010-materials-ledger.md) 的精确 URL 台账为准，与 `ReadMediaFile`、`generate_shot_frames` 共用素材约束。
+- 这条规则约束 agent 引用素材，不替代面板的文件形状校验。读取文件不会登记素材；用户在面板新增的地址需通过附件提交进入台账，agent 才能引用。
 
 ### 4. 生成任务归属到对话，视频结果转存
 

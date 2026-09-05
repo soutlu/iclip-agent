@@ -3,7 +3,8 @@
 - 状态：已接受（2026-09-02）
 - **[ADR-0005](0005-transcript-protocol.md)**：transcript 协议照抄 kimi，工具帧上的 `display` 与 `view` 字段由它定义；本文定这两个字段由谁产出、取值范围。
 - **[ADR-0006](0006-durable-runs.md)** 决策 4：审批是 run 的结束点，`awaiting` 机制不变；本文定「哪次调用要审批」怎么声明。
-- **[ADR-0001](0001-architecture-foundations.md)** §6：pydantic-ai 与 harness 的接口只经 `harness/` 再导出；本文全部建立在两者的公开接口上。
+- **[ADR-0001](0001-architecture-foundations.md)**：引擎依赖遵守分层边界；本文使用 PydanticAI 与 Harness 的公开接口。
+- **[ADR-0010](0010-materials-ledger.md)**：素材范围校验以持久台账为准，取代本文原先按上下文文本判断来源的实现。
 
 ## 背景
 
@@ -17,11 +18,11 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 
 ### 1. 一件工具登记时给出完整的声明面
 
-工具经 `add_function` 登记时一并声明：范围规则（`args_validator`）、是否要审批（`requires_approval` 或验证器抛 `ApprovalRequired`）、界面画法（display）、给人看的结果形状（`ToolReturn.metadata`）。工具体只做本职，不判断范围、不判断权限。
+工具以 `Tool(..., args_validator=...)` 登记到 toolset 或 capability；登记时声明范围规则、是否要审批（`requires_approval` 或验证器抛 `ApprovalRequired`）、界面画法（display）和给人看的结果形状（`ToolReturn.metadata`）。工具体执行业务逻辑；范围策略与授权边界按决策 2 分工。
 
 ### 2. 范围规则写在 `args_validator` 里
 
-- 单工具的范围规则一律是验证器，不写在工具体里。共用的验证器放 `harness/`：`materials_only(kind)`（地址必须是这段对话里出现过、且声明为该种类的，挂 `ReadMediaFile` 的 `url` 与出图工具的参考图参数）、`skill_granted`（挂 `get_skill_reference`）。
+- 单工具的范围规则放在 `args_validator`，不写在工具体里。素材来源与类型校验按 [ADR-0010](0010-materials-ledger.md) 查询持久台账；skill reference 的验证器限制可读的已挂载 skill 与 Markdown 类型。
 - 验证器抛 `ModelRetry` 表示「参数能改」，抛 `ToolFailed` 表示「这次不行、别重试」，抛 `ApprovalRequired(metadata=...)` 表示「要人点头」；`metadata` 随 `DeferredToolRequests` 带出去给审批卡。
 - 属主隔离不在验证器里：审批与验证都不是授权边界，按 `deps` 里的身份做的数据隔离留在工具体与存储层。
 
@@ -36,7 +37,7 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 
 ### 5. 界面画法归工具所有者
 
-- 每个 capability 自带「工具名 → 参数 → display」的表，与工具同文件。`platform/transcript/display.py` 只留 display 的类型与合表协议；组合根把各能力的表合成一份，同一实例递给实时（`projector.py`）与历史（`from_messages.py`）两条路。
+- 每个 capability 自带「工具名 → 参数 → display」的表，由工具所有者维护。`platform/transcript/display.py` 只留 display 的类型与合表协议；组合根把各能力的表合成一份，同一实例递给实时（`projector.py`）与历史（`from_messages.py`）两条路。
 - display 的 `kind` 只取 kimi `packages/protocol/src/display.ts` 里已有的：`file_io`、`search`、`url_fetch`、`skill_call`、`agent_call`、`generic`。不自造 kind。
 - 帧上的 `view`（协议已有）由服务端给出，前端按它选渲染器，不认工具名；给不出就不给，前端走 generic。
 
@@ -48,13 +49,13 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 ### 7. 模型面输出的上限
 
 - 一次工具返回给模型的文本不超过 50,000 字符。超出的在源头处理：写进工作区，返回路径与摘要。`video_parser_md` 是这个写法的现成例子。
-- harness `ToolOutputLimits` 只作兜底，配置为 `Spill(then=Truncate())`，spill store 必须是 Postgres 实现（官方两个方法的 `OverflowStore` 协议），不用默认的本地盘。当前十三件工具都在源头限界，不挂它。
+- 工具在源头限界，当前不挂 harness `ToolOutputLimits`。若引入该兜底，使用 `Spill(then=Truncate())`，spill store 必须实现官方 `OverflowStore` 协议并落在 Postgres，不用默认本地盘。
 
 ### 8. `ReadMediaFile` 归 workspace
 
-- `ReadMediaFile` 是通用工具，挂在 workspace 能力上；名字、`url` 参数、「只收对话里出现过的地址」不变。
+- `ReadMediaFile` 是通用工具，挂在 workspace 能力上；名字与 `url` 参数保持稳定，地址范围按 [ADR-0010](0010-materials-ledger.md) 校验。
 - 参照 kimi 的 `read-media-file` 加 `region {x, y, width, height}`（原图像素坐标，经 OSS `image/crop` 参数裁切）与 `full_resolution`（不挂缩放参数）；结果的媒体 tag 里带一段系统摘要：mime、字节数、原图宽高、这次是原样 / 降采样 / 裁切 / 全分辨率交付、坐标按原图算。超单图字节上限时报错并指向 `region`，不重试原图。
-- 原图信息问 OSS 的 `image/info`；workspace 为此多一个窄端口 `MediaProbe.info(url)`，组合根用现有的 httpx 客户端实现。仍只读图。
+- 原图信息问 OSS 的 `image/info`；workspace 通过 `MediaProbe` 端口查询，组合根用现有的 httpx 客户端实现。仍只读图。
 
 ### 9. 进度暂缓
 
