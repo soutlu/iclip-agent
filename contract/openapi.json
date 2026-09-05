@@ -6650,7 +6650,7 @@
     },
     "/conversations/{conversation_id}/transcript": {
       "get": {
-        "description": "一页轮子。不给位置就是最新那几轮，往上翻给 ``before_turn``。\n\n标题在这里贴上：引擎那一侧不认识对话表，而首屏得有个名字显示（之后的改名走\n``session.meta.updated`` 推送，不再问这里）。",
+        "description": "一页轮子。不给位置就是最新那几轮，往上翻给 ``before_turn``。\n\n``agent_id`` 默认主 agent；给子代理的 id 就读它那条流，不属于这段对话的 id 是 404。\n标题在这里贴上：引擎那一侧不认识对话表，而首屏得有个名字显示（之后的改名走\n``session.meta.updated`` 推送，不再问这里）。",
         "operationId": "page_conversations__conversation_id__transcript_get",
         "parameters": [
           {
@@ -6660,6 +6660,17 @@
             "schema": {
               "pattern": "^[A-Za-z0-9._-]{1,128}$",
               "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Agent Id",
               "type": "string"
             }
           },
@@ -6760,6 +6771,17 @@
               "minimum": 0,
               "title": "Since Seq",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Agent Id",
+              "type": "string"
             }
           }
         ],

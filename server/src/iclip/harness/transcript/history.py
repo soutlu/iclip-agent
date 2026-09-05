@@ -12,7 +12,7 @@ from typing import Protocol
 
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
 from pydantic_ai_harness.compaction import estimate_context_tokens
-from pydantic_ai_harness.step_persistence import ContinuableSnapshot, StepStore
+from pydantic_ai_harness.step_persistence import ContinuableSnapshot, StepEvent, StepStore
 
 from iclip.harness.transcript.from_messages import (
     ChildRun,
@@ -131,6 +131,38 @@ class TranscriptHistory:
             agents=agents_from_tasks(tasks),
         )
 
+    async def read_child(self, child_run_id: str) -> TranscriptHistoryView:
+        """按子运行 id 重建子代理那条流；一次派发就是它的 t1。
+
+        子运行没有自己的终态而父运行被停时随父算 cancelled，与任务表同口径。
+        没落过快照的子运行读出来是空的，与主 agent 首个响应期间被停的边界相同。
+        """
+
+        snapshot = await self.store.latest_snapshot(run_id=child_run_id, include_interrupted=True)
+        if snapshot is None:
+            return TranscriptHistoryView(turns=(), context_tokens=None)
+        events = await self.store.list_events(run_id=child_run_id)
+        state = run_state_from_events(events)
+        if not _ended(events):
+            record = await self.store.get_run(run_id=child_run_id)
+            parent_run_id = None if record is None else record.parent_run_id
+            if parent_run_id is not None and await self._cancelled(parent_run_id):
+                state = "cancelled"
+        return TranscriptHistoryView(
+            turns=turns_from_messages(
+                snapshot.messages,
+                turn_states={child_run_id: state},
+                turn_errors={
+                    child_run_id: None if state == "cancelled" else run_error_from_events(events)
+                },
+                display=self.display,
+            ),
+            context_tokens=None,
+        )
+
+    async def _cancelled(self, run_id: str) -> bool:
+        return run_state_from_events(await self.store.list_events(run_id=run_id)) == "cancelled"
+
     async def _subagent_of_call(self, messages: Sequence[ModelMessage]) -> dict[str, str]:
         """从工具账本读出每次派发调用对上的子运行 id；父工具卡与任务都按它认领。"""
 
@@ -165,9 +197,8 @@ class TranscriptHistory:
         for run_id in run_ids:
             for record in await self.store.list_runs(parent_run_id=run_id):
                 events = await self.store.list_events(run_id=record.run_id)
-                ended = any(event.kind in {"run_completed", "run_failed"} for event in events)
                 state = run_state_from_events(events)
-                if not ended and parent_states.get(run_id) == "cancelled":
+                if not _ended(events) and parent_states.get(run_id) == "cancelled":
                     state = "cancelled"
                 children.append(
                     ChildRun(
@@ -199,6 +230,12 @@ class TranscriptHistory:
         return TurnRewind(
             store=self.store, conversation_id=conversation_id, kept=kept, run_ids=dropped
         )
+
+
+def _ended(events: Sequence[StepEvent]) -> bool:
+    """有没有官方写的终态事件；被父运行连带取消的子运行没有。"""
+
+    return any(event.kind in {"run_completed", "run_failed"} for event in events)
 
 
 @dataclass(frozen=True, slots=True)

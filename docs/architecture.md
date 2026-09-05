@@ -77,7 +77,7 @@ Agent 运行由 [ConversationRunner](../server/src/iclip/harness/transcript/runn
 
 transcript 是运行记录的投影。历史由 `from_messages` 从持久消息生成，实时由 `projector` 从引擎事件生成；两条路径必须得到相同的编号和结构，共用工具 display 注册表。上下文压缩在完整历史中插入 `CompactionPart`，发送模型时从最后一条边界计算窗口，不删除原始消息，见 [ADR-0011](adr/0011-context-compaction.md)。
 
-子代理各自一条 transcript 流，agent_id 即其 run id，一次 `delegate_task` 就是它的第一轮；父工具调用与子运行的关联记在官方 tool_effect 账本，实时与历史都据此重建，见 [ADR-0012](adr/0012-subagent-transcript.md)。
+子代理各自一条 transcript 流，agent_id 即其 run id，一次 `delegate_task` 就是它的第一轮；父工具调用与子运行的关联记在官方 tool_effect 账本，实时与历史都据此重建，见 [ADR-0012](adr/0012-subagent-transcript.md)。读子代理流走同一组接口带 `agent_id`，归属由子运行记录的 `parent_run_id` 回溯到会话。
 
 实时投影与连接注册表在每个 worker 的内存中，快照持久化后才移交该轮实时状态。当前没有跨 worker 广播：订阅落到其他 worker 时无法收到该运行的实时事件。多 worker 部署必须把这一限制纳入连接路由设计。
 

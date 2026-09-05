@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+import pytest
 from pydantic_ai import Tool
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.messages import ModelMessage, ToolReturn
@@ -26,6 +27,7 @@ from pydantic_ai.models.function import (
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from iclip.common.errors import NotFound
 from iclip.harness.agents import (
     DELEGATE_TOOL,
     AgentDefinition,
@@ -36,7 +38,6 @@ from iclip.harness.agents import (
 )
 from iclip.harness.jobs import JobQueue
 from iclip.harness.step_store_pg import PgStepStore
-from iclip.harness.transcript.from_messages import run_state_from_events, turns_from_messages
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
@@ -56,6 +57,7 @@ from tests.helpers.runtime import (
     awaits,
     build_runner,
     calls_then_says,
+    delegates,
     drained,
     first_run_messages,
     make_runner,
@@ -519,9 +521,10 @@ async def test_a_delegation_becomes_its_own_stream(engine: AsyncEngine, tmp_path
         (child_id, "sub", live.tasks[0].ended_at),
     ]
     assert live.tasks[0].ended_at is not None
-    await assert_child_stream(
+    _child_live, child_cold = await assert_child_stream(
         store, step_store, queue, runner, conversation_id, child_id, task=TASK
     )
+    assert child_cold is not None
 
     row = await queue.get(prompt_id)
     assert row is not None and row.run_id is not None
@@ -530,7 +533,49 @@ async def test_a_delegation_becomes_its_own_stream(engine: AsyncEngine, tmp_path
     record = await step_store.get_run(run_id=child_id)
     assert record is not None
     assert (record.parent_run_id, record.metadata["agent_name"]) == (row.run_id, WRITER)
-    check_golden("delegate-turn", {"rest": comparable(cold)})
+    check_golden("delegate-turn", {"rest": comparable(cold), "child_rest": comparable(child_cold)})
+
+
+async def test_a_child_stream_is_only_readable_from_its_own_conversation(
+    engine: AsyncEngine, tmp_path: Path
+) -> None:
+    """子代理 id 只是个运行 id，请求里的会话必须是它父运行所在的那段，否则 404。"""
+
+    store = TranscriptStore()
+    runner, step_store, queue = subagent_runner(
+        engine,
+        tmp_path,
+        store=store,
+        parent=delegates((WRITER, TASK)),
+        children={WRITER: says("S3-1 特写")},
+    )
+    conversation_id = new_conversation_id()
+    service = TranscriptService(
+        store=store,
+        history=TranscriptHistory(step_store, queue, DISPLAYS, DELEGATE_TOOL),
+        queue=queue,
+        runner=runner,
+        context_limits={},
+        record_materials=records_nothing,
+    )
+
+    await submit_text(runner, queue, conversation_id, "给这条视频做分镜")
+    await drained(queue, conversation_id)
+    await runner.shutdown()
+    card = frames_of(await service.page(conversation_id, runtime_agent_id=AGENT_ID), "t1", "t1.1")[
+        0
+    ]
+    assert isinstance(card, ToolFrame) and card.agent_refs is not None
+    child_id = card.agent_refs[0].agent_id
+
+    await service.verify_agent(conversation_id, MAIN_AGENT_ID)
+    await service.verify_agent(conversation_id, child_id)
+    with pytest.raises(NotFound):
+        await service.verify_agent(new_conversation_id(), child_id)
+    with pytest.raises(NotFound):
+        await service.verify_agent(conversation_id, "not-a-run")
+    # 拿别人会话配这个子 id 读页也不行：校验在页之前，实时存储里不会留下一条空流。
+    assert store.subscribe_view(new_conversation_id(), child_id).live_turns == ()
 
 
 async def test_two_delegations_in_one_response_do_not_cross(
@@ -655,29 +700,6 @@ def subagent_runner(
     )
 
 
-def delegates(*calls: tuple[str, str]) -> FunctionModel:
-    """父模型：第一次响应一口气派出这些子代理，之后收尾。toolCallId 写死。"""
-
-    async def stream(
-        messages: list[ModelMessage], _info: AgentInfo
-    ) -> AsyncIterator[str | DeltaToolCalls]:
-        if len(messages) == 1:
-            yield {
-                index: DeltaToolCall(
-                    name=DELEGATE_TOOL,
-                    json_args=json.dumps(
-                        {"agent_name": agent_name, "task": task}, ensure_ascii=False
-                    ),
-                    tool_call_id=f"call_d{index + 1}",
-                )
-                for index, (agent_name, task) in enumerate(calls)
-            }
-        else:
-            yield "都写完了"
-
-    return FunctionModel(stream_function=stream)
-
-
 async def assert_child_stream(
     store: TranscriptStore,
     step_store: PgStepStore,
@@ -689,10 +711,10 @@ async def assert_child_stream(
     task: str,
     state: str = "completed",
     cold: bool = True,
-) -> None:
-    """子代理那条流：实时重放的轮与从它自己的快照重建的轮一致，且只有以任务文本开头的 t1。
+) -> tuple[TranscriptPage, TranscriptPage | None]:
+    """子代理那条流：按它的 id 走同一个 REST 接口，实时重放与刷新后重建逐字相等，且只有以任务文本开头的 t1。
 
-    协议还没有读子代理流的入口（PR2），冷侧先直接从快照重建；cold=False 只看实时那份。
+    cold=False 只看实时那份：子运行没落过快照时刷新后读不到，与主 agent 首个响应期间被停的边界相同。
     """
 
     live = await live_page(
@@ -708,16 +730,19 @@ async def assert_child_stream(
         ("t1", state, (TextContent(text=task),))
     ]
     if not cold:
-        return
-    snapshot = await step_store.latest_snapshot(run_id=child_id, include_interrupted=True)
-    assert snapshot is not None
-    events = await step_store.list_events(run_id=child_id)
-    derived = turns_from_messages(
-        snapshot.messages,
-        turn_states={child_id: run_state_from_events(events)},
+        return live, None
+    rebuilt = await cold_page(
+        step_store,
+        conversation_id,
+        child_id,
+        queue=queue,
+        runner=runner,
         display=DISPLAYS,
+        runtime_agent_id=AGENT_ID,
+        delegate_tool=DELEGATE_TOOL,
     )
-    assert normalize(live.items) == normalize(derived)
+    assert_same_page(live, rebuilt)
+    return live, rebuilt
 
 
 # --- 更多假模型 -----------------------------------------------------------------

@@ -1623,6 +1623,11 @@ export const zPageConversationsConversationIdTranscriptGetPath = z.object({
 })
 
 export const zPageConversationsConversationIdTranscriptGetQuery = z.object({
+  agent_id: z
+    .string()
+    .regex(/^[A-Za-z0-9._-]{1,128}$/)
+    .optional()
+    .default('main'),
   before_turn: z.string().nullish(),
   after_turn: z.string().nullish(),
   page_size: z.int().gte(1).lte(100).optional().default(20),
@@ -1639,6 +1644,11 @@ export const zCatchupConversationsConversationIdTranscriptOpsGetPath = z.object(
 
 export const zCatchupConversationsConversationIdTranscriptOpsGetQuery = z.object({
   since_seq: z.int().gte(0),
+  agent_id: z
+    .string()
+    .regex(/^[A-Za-z0-9._-]{1,128}$/)
+    .optional()
+    .default('main'),
 })
 
 /**

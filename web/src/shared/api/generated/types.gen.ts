@@ -3642,6 +3642,10 @@ export type PageConversationsConversationIdTranscriptGetData = {
   }
   query?: {
     /**
+     * Agent Id
+     */
+    agent_id?: string
+    /**
      * Before Turn
      */
     before_turn?: string | null
@@ -3690,6 +3694,10 @@ export type CatchupConversationsConversationIdTranscriptOpsGetData = {
      * Since Seq
      */
     since_seq: number
+    /**
+     * Agent Id
+     */
+    agent_id?: string
   }
   url: '/conversations/{conversation_id}/transcript/ops'
 }

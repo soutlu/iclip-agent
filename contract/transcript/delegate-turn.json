@@ -126,5 +126,81 @@
       }
     ],
     "pending_interactions": []
+  },
+  "child_rest": {
+    "agent_id": "<id-1>",
+    "items": [
+      {
+        "kind": "turn",
+        "turnId": "t1",
+        "ordinal": 1,
+        "state": "completed",
+        "origin": {
+          "kind": "user"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "写第 3 组的三个镜头"
+          }
+        ],
+        "startedAt": "<ts>",
+        "endedAt": "<ts>",
+        "usage": {
+          "inputTokens": 50,
+          "outputTokens": 4,
+          "cachedTokens": 0
+        },
+        "durationMs": 0,
+        "steps": [
+          {
+            "kind": "step",
+            "stepId": "t1.1",
+            "turnId": "t1",
+            "ordinal": 1,
+            "state": "completed",
+            "startedAt": "<ts>",
+            "endedAt": "<ts>",
+            "usage": {
+              "inputOther": 50,
+              "output": 4,
+              "inputCacheRead": 0,
+              "inputCacheCreation": 0
+            },
+            "frames": [
+              {
+                "kind": "text",
+                "frameId": "t1.1.f1",
+                "role": "assistant",
+                "text": "S3-1 特写；S3-2 中景；S3-3 全景"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "has_more": false,
+    "tasks": [],
+    "interactions": [],
+    "todos": [],
+    "meta": {
+      "activity": "idle"
+    },
+    "title": "",
+    "agents": [
+      {
+        "agentId": "main",
+        "type": "main"
+      },
+      {
+        "agentId": "<id-1>",
+        "type": "sub",
+        "parentAgentId": "main",
+        "label": "shot-writer",
+        "createdAt": "<ts>",
+        "disposedAt": "<ts>"
+      }
+    ],
+    "pending_interactions": []
   }
 }

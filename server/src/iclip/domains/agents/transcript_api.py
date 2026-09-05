@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Protocol
 
@@ -53,6 +54,7 @@ from iclip.platform.transcript.wire import (
     SteerRequest,
     Subscribe,
     SubscribeAckPayload,
+    SubscribePayload,
     TranscriptOps,
     TranscriptPage,
     TranscriptReset,
@@ -110,6 +112,10 @@ class Transcripts(Protocol):
 
     async def queue_view(self, conversation_id: str) -> PromptQueueOut: ...
 
+    async def verify_agent(self, conversation_id: str, agent_id: str) -> None:
+        """agent 不属于这段对话时抛 NotFound；要在读实时状态之前调。"""
+        ...
+
     async def page(
         self,
         conversation_id: str,
@@ -151,6 +157,20 @@ class Conversations(Protocol):
 
 
 ConversationId = Annotated[str, Path(pattern=r"^[A-Za-z0-9._-]{1,128}$")]
+
+_AGENT_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+"""协议的 agent id 形状：主 agent 是 main，子代理是它的 run id。"""
+
+AgentId = Annotated[str, Query(pattern=_AGENT_ID.pattern)]
+
+
+def _subscribed_agents(spec: Mapping[str, TranscriptGrade]) -> tuple[str, ...]:
+    """订阅表里点名的 agent；`*` 只落到主 agent 上，子代理要点名订。"""
+
+    named = [agent_id for agent_id in spec if agent_id != "*"]
+    if "*" in spec and MAIN_AGENT_ID not in named:
+        named.insert(0, MAIN_AGENT_ID)
+    return tuple(named)
 
 
 class LiveConnections:
@@ -343,19 +363,23 @@ def create_transcript_router(
     async def page(
         conversation_id: ConversationId,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        agent_id: AgentId = MAIN_AGENT_ID,
         before_turn: Annotated[str | None, Query()] = None,
         after_turn: Annotated[str | None, Query()] = None,
         page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     ) -> TranscriptPage:
         """一页轮子。不给位置就是最新那几轮，往上翻给 ``before_turn``。
 
+        ``agent_id`` 默认主 agent；给子代理的 id 就读它那条流，不属于这段对话的 id 是 404。
         标题在这里贴上：引擎那一侧不认识对话表，而首屏得有个名字显示（之后的改名走
         ``session.meta.updated`` 推送，不再问这里）。
         """
 
         runtime_agent_id = await _readable(principal, conversation_id)
+        await transcripts.verify_agent(conversation_id, agent_id)
         page = await transcripts.page(
             conversation_id,
+            agent_id=agent_id,
             runtime_agent_id=runtime_agent_id,
             before_turn=before_turn,
             after_turn=after_turn,
@@ -370,11 +394,13 @@ def create_transcript_router(
         conversation_id: ConversationId,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
         since_seq: Annotated[int, Query(ge=0)],
+        agent_id: AgentId = MAIN_AGENT_ID,
     ) -> OpsCatchup:
         """补上断线期间漏掉的批次。``complete`` 为假就整页重拉。"""
 
         await _readable(principal, conversation_id)
-        return transcripts.catchup(conversation_id, since=since_seq)
+        await transcripts.verify_agent(conversation_id, agent_id)
+        return transcripts.catchup(conversation_id, agent_id=agent_id, since=since_seq)
 
     @outer.websocket("/ws")
     async def subscribe(websocket: WebSocket) -> None:
@@ -427,8 +453,9 @@ class _Connection:
         self._principal = principal
         self._outbound: asyncio.Queue[Any] = asyncio.Queue(maxsize=MAX_EVENT_BUFFER)
         self._overflowed = False
-        self._listeners: dict[str, Callable[[Any], None]] = {}
-        self._grades: dict[str, TranscriptGrade] = {}
+        # 监听与档位按 (对话, agent) 分键：一段对话里主流与各子代理流各订各的。
+        self._listeners: dict[tuple[str, str], Callable[[Any], None]] = {}
+        self._grades: dict[tuple[str, str], TranscriptGrade] = {}
         # 文件订阅按对话记录路径与递归标记，独立于 Transcript 订阅。
         self._watches: dict[str, dict[str, bool]] = {}
         self._last_inbound = datetime.now(UTC)
@@ -456,7 +483,7 @@ class _Connection:
             for helper in helpers:
                 helper.cancel()
             await asyncio.gather(*helpers, return_exceptions=True)
-            for conversation_id in tuple(self._listeners):
+            for conversation_id in {key[0] for key in self._listeners}:
                 self._unlisten(conversation_id)
 
     async def _read(self) -> None:
@@ -474,7 +501,7 @@ class _Connection:
         if isinstance(frame, Subscribe):
             await self._subscribe(frame)
         elif isinstance(frame, Unsubscribe):
-            self._unlisten(frame.payload.session_id)
+            self._unlisten(frame.payload.session_id, frame.payload.agent_ids)
             await self._outbound.put(Ack(id=frame.id))
         elif isinstance(frame, WatchFsAdd):
             await self._watch_fs(frame)
@@ -546,26 +573,54 @@ class _Connection:
                 Ack(id=frame.id, payload=SubscribeAckPayload(not_found=(conversation_id,)))
             )
             return
-        grade = grade_for(frame.payload.transcript, MAIN_AGENT_ID)
-        previous = self._grades.get(conversation_id)
-        self._grades[conversation_id] = grade
-        since = frame.payload.transcript_since.get(MAIN_AGENT_ID)
+        agent_ids = _subscribed_agents(frame.payload.transcript)
+        for agent_id in agent_ids:
+            # 陌生或不属于这段对话的 agent：整帧不生效，已有订阅保持原样。
+            if not _AGENT_ID.fullmatch(agent_id) or not await self._owns(conversation_id, agent_id):
+                await self._outbound.put(
+                    Ack(id=frame.id, code=404, msg=f"agent not in session: {agent_id}")
+                )
+                return
+        for agent_id in agent_ids:
+            await self._subscribe_agent(conversation_id, agent_id, frame.payload)
+        await self._outbound.put(
+            Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(conversation_id,)))
+        )
+
+    async def _owns(self, conversation_id: str, agent_id: str) -> bool:
+        try:
+            await self._transcripts.verify_agent(conversation_id, agent_id)
+        except DomainError:
+            return False
+        return True
+
+    async def _subscribe_agent(
+        self, conversation_id: str, agent_id: str, payload: SubscribePayload
+    ) -> None:
+        key = (conversation_id, agent_id)
+        grade = grade_for(payload.transcript, agent_id)
+        previous = self._grades.get(key)
+        self._grades[key] = grade
+        since = payload.transcript_since.get(agent_id)
         if previous is not None and needs_reset_on_transition(previous, grade):
             # 提高订阅粒度后缺少此前过滤的操作，必须重置快照，不能沿用旧水位。
             since = None
         # 先监听再取快照，避免丢失间隙批次；重复批次可安全重放。
-        if conversation_id not in self._listeners:
-            listener = self._listener_for(conversation_id)
-            self._listeners[conversation_id] = listener
-            self._transcripts.pin(conversation_id)
-            self._transcripts.listen(conversation_id, listener, agent_id=MAIN_AGENT_ID)
+        if key not in self._listeners:
+            if not self._listening(conversation_id):
+                self._transcripts.pin(conversation_id)
+            listener = self._listener_for(conversation_id, agent_id)
+            self._listeners[key] = listener
+            self._transcripts.listen(conversation_id, listener, agent_id=agent_id)
         # off 保留订阅，仅停止发送此 Agent 的帧。
         if grade != "off":
-            for item in self._transcripts.subscribe(conversation_id, since=since):
+            for item in self._transcripts.subscribe(
+                conversation_id, agent_id=agent_id, since=since
+            ):
                 await self._outbound.put(self._wrap(conversation_id, self._graded(item, grade)))
-        await self._outbound.put(
-            Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(conversation_id,)))
-        )
+
+    def _listening(self, conversation_id: str) -> bool:
+        return any(key[0] == conversation_id for key in self._listeners)
 
     def belongs_to(self, owner: uuid.UUID) -> bool:
         """按握手主体的属主判断广播接收范围。"""
@@ -580,11 +635,11 @@ class _Connection:
         except asyncio.QueueFull:
             self._overflowed = True
 
-    def _listener_for(self, conversation_id: str) -> Callable[[Any], None]:
-        """创建绑定当前对话的批次监听回调。"""
+    def _listener_for(self, conversation_id: str, agent_id: str) -> Callable[[Any], None]:
+        """创建绑定一段对话里某个 agent 流的批次监听回调。"""
 
         def on_batch(batch: Any) -> None:
-            grade = self._grades.get(conversation_id, "off")
+            grade = self._grades.get((conversation_id, agent_id), "off")
             ops = filter_ops_for_grade(grade, batch.ops)
             if not ops:
                 # 空批次不发送；过滤后的操作可重放，重连时重复读取安全。
@@ -593,7 +648,7 @@ class _Connection:
                 self._outbound.put_nowait(
                     self._wrap(
                         conversation_id,
-                        OpsPayload(agent_id=MAIN_AGENT_ID, ops=ops, seq=batch.seq),
+                        OpsPayload(agent_id=agent_id, ops=ops, seq=batch.seq),
                     )
                 )
             except asyncio.QueueFull:
@@ -632,15 +687,19 @@ class _Connection:
             payload=payload,
         )
 
-    def _unlisten(self, conversation_id: str) -> None:
-        """幂等退订，未订阅的对话无需处理。"""
+    def _unlisten(self, conversation_id: str, agent_ids: Sequence[str] = ()) -> None:
+        """幂等退订；不点名就撤这段对话的全部 agent，最后一个撤掉时放开实时状态的引用。"""
 
-        self._grades.pop(conversation_id, None)
-        listener = self._listeners.pop(conversation_id, None)
-        if listener is None:
-            return
-        self._transcripts.unlisten(conversation_id, listener, agent_id=MAIN_AGENT_ID)
-        self._transcripts.unpin(conversation_id)
+        keys = [
+            key
+            for key in self._listeners
+            if key[0] == conversation_id and (not agent_ids or key[1] in agent_ids)
+        ]
+        for key in keys:
+            self._grades.pop(key, None)
+            self._transcripts.unlisten(conversation_id, self._listeners.pop(key), agent_id=key[1])
+        if keys and not self._listening(conversation_id):
+            self._transcripts.unpin(conversation_id)
 
     async def _pump(self) -> None:
         while True:

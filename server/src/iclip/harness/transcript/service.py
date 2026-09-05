@@ -144,6 +144,24 @@ class TranscriptService:
 
     # --- 读 -----------------------------------------------------------------
 
+    async def verify_agent(self, conversation_id: str, agent_id: str) -> None:
+        """子代理 id 必须能回溯到这段对话：它是某次运行的子运行，而那次运行属于这段对话。
+
+        要在任何实时存储读取之前调：查一个不存在的 agent 会把它建出来。
+        只认一层：孙运行的父运行挂在子运行新铸的会话 id 下，自然 404。
+        """
+
+        if agent_id == MAIN_AGENT_ID:
+            return
+        record = await self.history.store.get_run(run_id=agent_id)
+        parent = (
+            None
+            if record is None or record.parent_run_id is None
+            else await self.history.store.get_run(run_id=record.parent_run_id)
+        )
+        if parent is None or parent.conversation_id != conversation_id:
+            raise NotFound("这段对话里没有这个 agent")
+
     async def queue_view(self, conversation_id: str) -> PromptQueueOut:
         view = await self.queue.view(conversation_id)
         return PromptQueueOut(
@@ -166,6 +184,10 @@ class TranscriptService:
         if before_turn is not None and after_turn is not None:
             raise ValidationFailed("before_turn 与 after_turn 只能给一个")
         size = max(1, min(page_size, MAX_PAGE_SIZE))
+        if agent_id != MAIN_AGENT_ID:
+            return await self._child_page(
+                conversation_id, agent_id, before_turn=before_turn, after_turn=after_turn, size=size
+            )
         view = self.store.subscribe_view(conversation_id, agent_id)
         history = await self.history.read(conversation_id)
         turns = _timeline(history.turns, view.live_turns)
@@ -200,6 +222,44 @@ class TranscriptService:
             pending_interactions=tuple(
                 item.interaction_id for item in interactions if item.state == "pending"
             ),
+            seq=view.watermark,
+        )
+
+    async def _child_page(
+        self,
+        conversation_id: str,
+        agent_id: str,
+        *,
+        before_turn: str | None,
+        after_turn: str | None,
+        size: int,
+    ) -> TranscriptPage:
+        """子代理那一页：历史按子运行 id 重建，名册用主流那份。
+
+        不套主 agent 的两段口径：队列有活不等于这个子代理在跑，上下文仪表子代理也没有。
+        """
+
+        view = self.store.subscribe_view(conversation_id, agent_id)
+        history = await self.history.read_child(agent_id)
+        items, has_more = _slice(
+            _timeline(history.turns, view.live_turns),
+            before_turn=before_turn,
+            after_turn=after_turn,
+            size=size,
+        )
+        meta = view.snapshot.meta
+        if meta.activity is None:
+            meta = meta.model_copy(update={"activity": "idle"})
+        roster = _tasks(
+            (await self.history.read(conversation_id)).tasks,
+            self.store.subscribe_view(conversation_id, MAIN_AGENT_ID).snapshot.tasks,
+        )
+        return TranscriptPage(
+            agent_id=agent_id,
+            items=items,
+            has_more=has_more,
+            meta=meta,
+            agents=agents_from_tasks(roster),
             seq=view.watermark,
         )
 
