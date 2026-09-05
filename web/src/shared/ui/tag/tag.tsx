@@ -9,7 +9,7 @@ export const tagVariants = cva(
       variant: {
         solid: 'bg-secondary-container text-on-secondary-container',
         soft: 'bg-chip-bg text-on-surface-variant',
-        success: 'bg-secondary-container text-on-secondary-container',
+        success: 'bg-primary-container text-on-primary-container',
         running: 'bg-warning-container text-on-warning-container',
         error: 'bg-error-container text-on-error-container',
       },

@@ -21,7 +21,7 @@ const SANITIZE = {
 
 const CODE_INLINE = cn(
   'rounded-xs bg-chat-code-bg px-1.5 py-0.5',
-  'font-mono text-body-sm text-chat-link-text',
+  'font-mono text-body-sm text-chat-message-text',
 )
 
 const CELL = 'border-[0.5px] border-chat-hairline px-3 py-2 text-left align-top'
@@ -41,13 +41,8 @@ export function AssistantMarkdown({ text }: { text: string }) {
               {children}
             </a>
           ),
-          code: ({ children, className }) =>
-            // 语言类名保留在 code 上供 CodeBlock 读取；此处仅处理行内代码。
-            className === undefined ? (
-              <code className={CODE_INLINE}>{children}</code>
-            ) : (
-              <code className={cn('font-mono', className)}>{children}</code>
-            ),
+          // 代码块由 pre → CodeBlock 读取语言与文本自行渲染，这里只会渲染到行内代码。
+          code: ({ children }) => <code className={CODE_INLINE}>{children}</code>,
           em: ({ children }) => <em className="italic">{children}</em>,
           // 正文标题使用 title 字阶；会话名保留页面标题层级，块间距由 .chat-md 统一定义。
           h1: ({ children }) => (

@@ -27,19 +27,19 @@
   --p99: #f5fff4;
   --p100: #ffffff;
 
-  /* Secondary · 灰绿 */
+  /* Secondary · 纯灰，无色相 */
   --s0: #000000;
-  --s10: #022111;
-  --s20: #213528;
-  --s30: #374b3e;
-  --s40: #466551;
-  --s50: #5f7e69;
-  --s60: #789882;
-  --s70: #92b39c;
-  --s80: #b5ccba;
-  --s90: #d1e8d6;
-  --s95: #e0f7e1;
-  --s99: #f5fff4;
+  --s10: #1c1c1c;
+  --s20: #313131;
+  --s30: #464646;
+  --s40: #5e5e5e;
+  --s50: #777777;
+  --s60: #909090;
+  --s70: #ababab;
+  --s80: #c6c6c6;
+  --s90: #e2e2e2;
+  --s95: #f1f1f1;
+  --s99: #fcfcfc;
   --s100: #ffffff;
 
   /* Tertiary · 琥珀：运行状态与警告；链接与 info 使用 primary。 */
@@ -125,10 +125,10 @@
     --p95
   ); /* #C1FFD5 大面浅底（配 1.5px P70 描边，P10 字 15.12:1） */
 
-  /* Secondary：辅助色。用户气泡、成功状态 */
-  --color-secondary: var(--s40); /* #466551 白字 6.48:1 */
+  /* Secondary：中性强调，无色相。tonal 按钮、实色标签、序号徽标 */
+  --color-secondary: var(--s40); /* #5E5E5E 白字 6.48:1 */
   --color-on-secondary: var(--s100);
-  --color-secondary-container: var(--s90); /* #D1E8D6 用户气泡 13.21:1 */
+  --color-secondary-container: var(--s90); /* #E2E2E2 配 S10 字 13.16:1 */
   --color-on-secondary-container: var(--s10);
 
   /* Tertiary · 琥珀：运行状态与成就高亮。 */
@@ -292,10 +292,10 @@
   --color-chat-error-bg: var(--color-error-container);
   --color-chat-error-border: var(--e80);
   --color-chat-error-text: var(--e30);
-  --color-chat-status-success: var(--color-secondary);
+  --color-chat-status-success: var(--color-primary);
   --color-chat-status-error: var(--color-error);
   --color-chat-status-running: var(--color-warning);
-  --color-chat-focus-ring: color-mix(in srgb, var(--color-secondary) 70%, transparent);
+  --color-chat-focus-ring: color-mix(in srgb, var(--color-primary) 70%, transparent);
   --color-chat-hairline: var(--color-hairline);
   --color-chat-scrollbar-thumb: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
   --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);

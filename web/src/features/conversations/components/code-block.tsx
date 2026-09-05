@@ -43,8 +43,9 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
           size="xs"
         />
       </div>
+      {/* 直接渲染纯文本，不复用 Markdown 的 code 组件，避免块内文字套上行内代码底色。 */}
       <pre className="max-h-[500px] overflow-auto px-3.5 py-3 font-mono text-body-sm whitespace-pre text-chat-message-text">
-        {children}
+        {text}
       </pre>
     </div>
   )
