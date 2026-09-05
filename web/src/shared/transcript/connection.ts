@@ -14,6 +14,9 @@ type OpsEvent = z.infer<typeof transcriptOpsEventSchema>
 export type TranscriptSnapshot = ResetEvent['snapshot'] & { hasMoreOlder: boolean }
 export type TranscriptOps = OpsEvent['ops']
 
+/** 主 agent 的 id；子代理的 id 是它的 run id，从工具卡的 agentRefs 拿。 */
+export const MAIN_AGENT_ID = 'main'
+
 const DEFAULT_HEARTBEAT_MS = 30_000
 
 const STALE_FLOOR_MS = 30_000
@@ -87,12 +90,24 @@ interface FsWatch {
   handler: (changes: readonly FsChange[]) => void
 }
 
-interface Subscription {
+interface AgentSubscription {
   handlers: TranscriptHandlers
   /** 当前会话使用 delta；侧栏使用仅含轮次与审批的 turn 档。 */
   grade: TranscriptGrade
+}
+
+interface Subscription {
+  /** 一段对话里各 agent 各订各的：主流与子代理流互不覆盖，同一帧 subscribe_v2 整表上行。 */
+  agents: Map<string, AgentSubscription>
   /** 按 agent 保存已应用批次号，重连时用于补发或重置。 */
   watermarks: Map<string, number>
+}
+
+/** 一帧 subscribe_v2 问的是哪段对话、这帧新加了谁；回执 404 时只退新加的，原本订着的不动。 */
+interface PendingSubscribe {
+  conversationId: string
+  agentIds: readonly string[]
+  added: readonly string[]
 }
 
 export class TranscriptConnection {
@@ -108,8 +123,8 @@ export class TranscriptConnection {
 
   private subscriptions = new Map<string, Subscription>()
 
-  /** 请求 ID 映射到对话 ID，用于处理订阅拒绝回执。 */
-  private pending = new Map<string, string>()
+  /** 请求 ID 映射到那帧问的对话与 agent，用于处理订阅拒绝回执。 */
+  private pending = new Map<string, PendingSubscribe>()
 
   private fsWatches = new Map<string, Set<FsWatch>>()
 
@@ -161,19 +176,35 @@ export class TranscriptConnection {
     conversationId: string,
     handlers: TranscriptHandlers,
     grade: TranscriptGrade = 'delta',
+    agentId: string = MAIN_AGENT_ID,
   ): void {
-    const existing = this.subscriptions.get(conversationId)
-    this.subscriptions.set(conversationId, {
-      handlers,
-      grade,
-      watermarks: existing?.watermarks ?? new Map(),
-    })
-    if (this.connected) this.sendSubscribe(conversationId)
+    const subscription = this.subscriptions.get(conversationId) ?? {
+      agents: new Map<string, AgentSubscription>(),
+      watermarks: new Map<string, number>(),
+    }
+    const added = subscription.agents.has(agentId) ? [] : [agentId]
+    subscription.agents.set(agentId, { grade, handlers })
+    this.subscriptions.set(conversationId, subscription)
+    if (this.connected) this.sendSubscribe(conversationId, added)
   }
 
-  /** 退订时清除水位，重新订阅需拉取基线。 */
-  unsubscribe(conversationId: string): void {
-    if (!this.subscriptions.delete(conversationId)) return
+  /** 退订时清除水位，重新订阅需拉取基线；给了 agentId 只退那一条流，别的照旧。 */
+  unsubscribe(conversationId: string, agentId?: string): void {
+    const subscription = this.subscriptions.get(conversationId)
+    if (subscription === undefined) return
+    if (agentId !== undefined) {
+      if (!subscription.agents.delete(agentId)) return
+      subscription.watermarks.delete(agentId)
+      if (subscription.agents.size > 0) {
+        this.send({
+          type: 'unsubscribe_v2',
+          id: this.mintId(),
+          payload: { session_id: conversationId, agent_ids: [agentId] },
+        })
+        return
+      }
+    }
+    this.subscriptions.delete(conversationId)
     this.send({
       type: 'unsubscribe_v2',
       id: this.mintId(),
@@ -224,7 +255,13 @@ export class TranscriptConnection {
   }
 
   private receive(raw: unknown): void {
-    let frame: { type?: unknown; id?: unknown; session_id?: unknown; payload?: unknown }
+    let frame: {
+      type?: unknown
+      id?: unknown
+      code?: unknown
+      session_id?: unknown
+      payload?: unknown
+    }
     try {
       frame = JSON.parse(String(raw)) as typeof frame
     } catch {
@@ -305,7 +342,9 @@ export class TranscriptConnection {
       const parsed = transcriptResetEventSchema.safeParse(wrapped)
       if (!parsed.success) return
       const { agent_id, snapshot, has_more_older, seq } = parsed.data
-      subscription.handlers.onReset(agent_id, { ...snapshot, hasMoreOlder: has_more_older }, seq)
+      const agent = subscription.agents.get(agent_id)
+      if (agent === undefined) return
+      agent.handlers.onReset(agent_id, { ...snapshot, hasMoreOlder: has_more_older }, seq)
       // reset 无条件覆盖水位：服务端重启可能从 1 重新编号。
       if (seq !== undefined) subscription.watermarks.set(agent_id, seq)
       return
@@ -313,22 +352,41 @@ export class TranscriptConnection {
     const parsed = transcriptOpsEventSchema.safeParse(wrapped)
     if (!parsed.success) return
     const { agent_id, ops, seq } = parsed.data
-    const accepted = subscription.handlers.onOps(agent_id, ops, seq)
+    const agent = subscription.agents.get(agent_id)
+    if (agent === undefined) return
+    const accepted = agent.handlers.onOps(agent_id, ops, seq)
     // 仅已接受的批次推进水位，未应用的批次需保留补发机会。
     if (accepted !== false && seq !== undefined) subscription.watermarks.set(agent_id, seq)
   }
 
-  private settleAck(frame: { id?: unknown; payload?: unknown }): void {
+  private settleAck(frame: { id?: unknown; code?: unknown; payload?: unknown }): void {
     if (typeof frame.id !== 'string') return
     const asked = this.pending.get(frame.id)
     this.pending.delete(frame.id)
     if (asked === undefined) return
+    const subscription = this.subscriptions.get(asked.conversationId)
+    if (subscription === undefined) return
     const refused = (frame.payload as { not_found?: unknown })?.not_found
-    if (!Array.isArray(refused) || !refused.includes(asked)) return
-    // 移除被拒绝的订阅，避免重连后重复请求。
-    const subscription = this.subscriptions.get(asked)
-    this.subscriptions.delete(asked)
-    subscription?.handlers.onNotFound?.()
+    if (Array.isArray(refused) && refused.includes(asked.conversationId)) {
+      // 整段对话看不见：移除，避免重连后重复请求。
+      this.subscriptions.delete(asked.conversationId)
+      for (const agent of subscription.agents.values()) agent.handlers.onNotFound?.()
+      return
+    }
+    if (frame.code !== 404) return
+    // 表里有不属于这段对话的 agent，服务端整帧不收、已有订阅不动：只退这帧新加的子代理，再把表重发。
+    // 重连重发整张表时分不清是谁，就把子代理全退掉，主流照旧。
+    const blamed = asked.added.length > 0 ? asked.added : asked.agentIds
+    const dropped = blamed.filter((agentId) => agentId !== MAIN_AGENT_ID)
+    for (const agentId of dropped) {
+      const agent = subscription.agents.get(agentId)
+      subscription.agents.delete(agentId)
+      subscription.watermarks.delete(agentId)
+      agent?.handlers.onNotFound?.()
+    }
+    if (dropped.length > 0 && subscription.agents.size > 0) {
+      this.sendSubscribe(asked.conversationId)
+    }
   }
 
   private opened(): void {
@@ -357,20 +415,26 @@ export class TranscriptConnection {
     })
   }
 
-  private sendSubscribe(conversationId: string): void {
+  private sendSubscribe(conversationId: string, added: readonly string[] = []): void {
     const subscription = this.subscriptions.get(conversationId)
-    if (subscription === undefined) return
-    const since = subscription.watermarks.get('main')
+    if (subscription === undefined || subscription.agents.size === 0) return
+    const transcript: Record<string, TranscriptGrade> = {}
+    const since: Record<string, number> = {}
+    for (const [agentId, agent] of subscription.agents) {
+      transcript[agentId] = agent.grade
+      const watermark = subscription.watermarks.get(agentId)
+      if (watermark !== undefined) since[agentId] = watermark
+    }
     const id = this.mintId()
-    this.pending.set(id, conversationId)
+    this.pending.set(id, { added, agentIds: [...subscription.agents.keys()], conversationId })
     this.send({
       type: 'subscribe_v2',
       id,
       payload: {
         session_id: conversationId,
-        transcript: { main: subscription.grade },
+        transcript,
         // 首次订阅省略 transcript_since，服务端据此发送 reset。
-        ...(since === undefined ? {} : { transcript_since: { main: since } }),
+        ...(Object.keys(since).length === 0 ? {} : { transcript_since: since }),
       },
     })
   }

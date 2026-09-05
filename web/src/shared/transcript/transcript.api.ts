@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import { zTranscriptPage } from '@/shared/api/generated/zod.gen'
+import { MAIN_AGENT_ID } from './connection'
 import {
   agentTranscriptSnapshotSchema,
   type AgentTranscriptSnapshot,
@@ -54,11 +55,16 @@ const dropNulls = (value: unknown): unknown => {
   )
 }
 
+/** 主流不带 agent_id，与只认 main 的旧请求形状一致；子代理流按它的 id 读。 */
+const agentQuery = (agentId: string) =>
+  agentId === MAIN_AGENT_ID ? '' : `&agent_id=${encodeURIComponent(agentId)}`
+
 export const fetchTranscriptBaseline = async (
   conversationId: string,
+  agentId: string = MAIN_AGENT_ID,
 ): Promise<TranscriptBaseline> => {
   const page = await apiFetch(
-    `/conversations/${conversationId}/transcript?page_size=${PAGE_SIZE}`,
+    `/conversations/${conversationId}/transcript?page_size=${PAGE_SIZE}${agentQuery(agentId)}`,
     zTranscriptPage,
     { cache: 'no-store', fallbackErrorMessage: '读取对话内容失败' },
   )
@@ -78,9 +84,10 @@ export const fetchTranscriptBaseline = async (
 export const fetchTranscriptCatchup = async (
   conversationId: string,
   sinceSeq: number,
+  agentId: string = MAIN_AGENT_ID,
 ): Promise<TranscriptCatchup> => {
   const catchup = await apiFetch(
-    `/conversations/${conversationId}/transcript/ops?since_seq=${sinceSeq}`,
+    `/conversations/${conversationId}/transcript/ops?since_seq=${sinceSeq}${agentQuery(agentId)}`,
     catchupSchema,
     { cache: 'no-store', fallbackErrorMessage: '补取对话内容失败' },
   )

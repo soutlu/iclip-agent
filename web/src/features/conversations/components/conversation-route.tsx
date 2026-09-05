@@ -9,6 +9,7 @@ import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import type { ComposerPart } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
+import { claimed, sameContent, type PendingPrompt } from '../claims'
 import {
   abortPrompt,
   mintPromptId,
@@ -57,28 +58,12 @@ type ConversationRouteProps = {
   conversationId: string
 }
 
-type PendingPrompt = {
-  promptId: string
-  content: readonly PromptContentPart[]
-  anchorTurnId: string | undefined
-}
-
 /** 保留原内容用于校验末轮身份；重新生成可能复用轮号。 */
 type EditingTurn = {
   turnId: string
   ordinal: number
   content: readonly PromptContentPart[]
 }
-
-const sameContent = (a: readonly PromptContentPart[], b: readonly PromptContentPart[]) =>
-  a.length === b.length &&
-  a.every((part, index) => {
-    const other = b[index]
-    if (other === undefined || other.type !== part.type) return false
-    return part.type === 'text'
-      ? other.type === 'text' && other.text === part.text
-      : other.type !== 'text' && other.source.url === part.source.url
-  })
 
 export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
@@ -112,21 +97,9 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
     (interaction) => interaction.interactionKind === 'approval',
   )
 
-  // 乐观气泡仅由 anchor 之后且 content 相同的轮接替；queued 由队列行接替，终态 prompt 移除气泡。
   const promptById = new Map(view.prompts.map((prompt) => [prompt.promptId, prompt]))
-  const claimed = (item: PendingPrompt) => {
-    const prompt = promptById.get(item.promptId)
-    if (prompt?.status === 'queued') return true
-    if (prompt !== undefined && prompt.status !== 'running') return true
-
-    const anchorIndex =
-      item.anchorTurnId === undefined
-        ? -1
-        : turns.findIndex((turn) => turn.turnId === item.anchorTurnId)
-    if (item.anchorTurnId !== undefined && anchorIndex === -1) return false
-    return turns.slice(anchorIndex + 1).some((turn) => sameContent(turn.content, item.content))
-  }
-  const bubbles = pending.filter((item) => !claimed(item))
+  const isClaimed = (item: PendingPrompt) => claimed(item, turns, promptById)
+  const bubbles = pending.filter((item) => !isClaimed(item))
   const queued = view.prompts.filter((prompt) => prompt.status === 'queued')
   const running = view.prompts.find((prompt) => prompt.status === 'running')
   // inFlight 表示本地提交状态，turnActive 取 transcript meta；队列不参与 working 判定。
@@ -156,8 +129,11 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       ? editingTurn
       : null
   const retry = turnActive ? latestTurn?.steps.at(-1)?.retry : undefined
-  const currentAnchor = pending.at(-1)?.anchorTurnId
-  const currentTurn = inFlight && latestTurn?.turnId === currentAnchor ? undefined : latestTurn
+  // 刚发出去的那句还没有自己的轮时，末轮是上一句的，不拿它的输出当这次的进度。
+  const currentTurn =
+    inFlight && !turns.some((turn) => turn.triggerPromptId === inFlightPromptId)
+      ? undefined
+      : latestTurn
   const workingLabel =
     retry === undefined
       ? hasAssistantOutput(currentTurn)
@@ -166,20 +142,16 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       : `模型请求失败，正在重试（第 ${retry.nextAttempt}/${retry.maxAttempts} 次）…`
   const showEmptyState = view.status === 'ready' && turns.length === 0 && bubbles.length === 0
 
-  /** 发送失败时撤销乐观气泡，输入框负责恢复内容；仅 anchorTurnId 之后的轮可接替气泡。 */
+  /** 发送失败时撤销乐观气泡，输入框负责恢复内容；气泡由带同一 promptId 的轮或插话块接替。 */
   const dispatch = async (
     parts: readonly ComposerPart[],
-    anchorTurnId: string | undefined,
     request: (promptId: string, content: readonly PromptContentPart[]) => Promise<void>,
   ) => {
     const promptId = mintPromptId()
     const content = partsContent(parts)
     const startsFlight = inFlightPromptId === null
     if (startsFlight) setInFlightPromptId(promptId)
-    setPending((list) => [
-      ...list.filter((item) => !claimed(item)),
-      { anchorTurnId, content, promptId },
-    ])
+    setPending((list) => [...list.filter((item) => !isClaimed(item)), { content, promptId }])
     try {
       await request(promptId, content)
     } catch (error) {
@@ -193,11 +165,9 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
 
   const send = (parts: readonly ComposerPart[]) =>
     editing === null
-      ? dispatch(parts, latestTurn?.turnId, (promptId, content) =>
-          submitPrompt(conversationId, { content, promptId }),
-        )
-      : // 修改末轮后服务端会替换旧轮，乐观气泡锚定在前一轮之后。
-        dispatch(parts, turns.at(-2)?.turnId, async (promptId, content) => {
+      ? dispatch(parts, (promptId, content) => submitPrompt(conversationId, { content, promptId }))
+      : // 修改末轮后服务端会替换旧轮，新轮带的是这次的 promptId。
+        dispatch(parts, async (promptId, content) => {
           await regeneratePrompt(conversationId, editing.turnId, { content, promptId })
           setEditingTurn(null)
         })
