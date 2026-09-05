@@ -1,78 +1,72 @@
-# Productor - iclip-agent
+# Productor — iclip-agent
 
-`iclip-agent` 是 Productor（AI 视频创作产品）的后端与 Web 前端。后端基于 PydanticAI 运行 agent，管理「镜头 → 结构层级 → 视频」的生成流程，对话历史、项目快照与 agent 状态全部持久化在 PostgreSQL。
+Productor 的后端与 Web 前端。产品定位、业务术语和不变量见 [docs/CONTEXT.md](docs/CONTEXT.md)，开发先读 [AGENTS.md](AGENTS.md)。
 
 ## 项目结构
 
 ```text
 .
-├── server/             # 后端 (Python 3.13, FastAPI)
-│   ├── src/            # 业务逻辑 (按 Domain 和 Capability 组织)
-│   ├── tests/          # 测试 (unit / integration_no_llm / integration_llm / e2e_full)
-│   ├── migrations/     # Alembic 数据库迁移
-│   ├── configs/        # 服务配置
-│   ├── agents/         # Agent 装配声明、各 agent 的 spec 与提示词、skills/ 技能库
-│   └── pyproject.toml  # 后端依赖 (uv)
-├── web/                # 前端 (Vite + React 19 + pnpm)；命令与边界见 web/AGENTS.md
-├── docs/               # 领域锚点、后端架构、测试与工具规范、ADR
-├── contract/           # 跨端合同：openapi.json 由后端导出，前端据此生成类型与 zod
-├── design-system.html  # 全局视觉规范与 token 定义
-├── Makefile            # 全部环境装配与启动命令
-└── AGENTS.md           # 开发约定：命令入口、两端分工、禁止动作、分支流程
+├── server/
+│   ├── src/iclip/      # FastAPI 宿主、业务域、Agent 内核与能力
+│   ├── tests/          # 单元、集成与外部服务测试
+│   ├── migrations/     # Alembic 迁移
+│   ├── configs/        # 运行配置
+│   └── agents/         # Agent 声明、spec、提示词与技能
+├── web/                # Vite + React SPA
+├── contract/           # 后端导出的 OpenAPI 与跨端约定
+├── docs/               # 领域、架构、测试、工具规范与 ADR
+├── design-system.html  # 全局视觉规范与 token
+├── Makefile            # 根目录命令入口
+└── AGENTS.md           # 开发约定
 ```
 
 ## 启动指南
 
-需要 [Python 3.13](https://www.python.org/)、[uv](https://docs.astral.sh/uv/)、[Node.js ≥ 22.18](https://nodejs.org/)（前端 `.npmrc` 开了 `engine-strict`）、与 PostgreSQL。
+### 1. 准备依赖
 
-### 1. 安装依赖
+需要 Python 3.13、uv、Node.js ≥ 22.18、pnpm，以及可连接的 PostgreSQL。仓内默认 Agent 启用了镜头素材能力，PATH 中还需有 `ffmpeg` 和 `ffprobe`。依赖版本以 [server/pyproject.toml](server/pyproject.toml)、[web/package.json](web/package.json) 与各自 lockfile 为准。
 
 ```bash
 make setup
 ```
 
-### 2. 环境配置
+### 2. 配置环境
 
-在仓库根目录建 `.env`。变量清单以 `server/src/iclip/config/models.py` 里的 `*Env` 类为准；缺少必需变量时启动报出变量名。
+在仓库根目录创建 `.env`。必需变量及各能力的启用条件见 [配置模型](server/src/iclip/config/models.py) 与 [后端装配说明](docs/architecture.md#2-配置与装配)；启动时会列出缺失的必需变量名。数据库地址必须指向开发库，密钥不入库。
 
-- 仓内的 `storyboard` agent 挂了镜头素材能力，媒体生成与视频理解两组变量必须填齐；只跑对话可把 `server/agents/agents.yaml` 里 `storyboard` 那条声明去掉。
-- 对象存储：`OSS_BUCKET` 留空即关闭，`/uploads/*` 与 `/assets/*` 不挂载；填了就把该组填齐。
-- 媒体生成：`VIDEO_SUBMIT_URL` 留空即关闭，`/generations` 不挂载、后台不跑；开启时该组填齐，且对象存储必须开着。
+[server/agents/agents.yaml](server/agents/agents.yaml) 声明启用的 Agent。默认 `storyboard` 需要镜头素材、媒体生成、视频理解与对象存储依赖；仅运行基础对话时，可在自己的配置中移除这条 Agent 声明及 [运行配置](server/configs/config.yaml) 的 `shot_video` 段，启动后在首页 Agent 菜单选择「通用助手」。
 
-### 3. 初始化数据库
+### 3. 迁移并启动
+
+确认 PostgreSQL 可用后，在仓库根目录执行：
 
 ```bash
 make db-upgrade
-```
-
-### 4. 启动服务
-
-后端：
-
-```bash
 make dev
 ```
 
-默认 `http://localhost:7788`，`/healthz` 为健康检查。
-
-前端（另一个终端）：
+后端默认 `http://localhost:7788`，健康检查为 `/healthz`。另开终端启动前端：
 
 ```bash
-cd web && pnpm dev
+cd web
+pnpm dev
 ```
 
-前端把 `/api` 请求代理到后端 `7788` 端口。整套一起起用 `make up`。
-
-命令与开发流程见 [AGENTS.md](AGENTS.md)。
+前端默认 `http://localhost:3013`；同源 `/api` 代理到后端。仅验证前端时，使用 `pnpm dev:mock`；前端启动参数见 [web/README.md](web/README.md)。
 
 ## 文档地图
 
-- [AGENTS.md](AGENTS.md)：开发约定——命令入口、两端分工与合同、禁止动作、分支与合并流程。
-- [web/AGENTS.md](web/AGENTS.md)：前端的命令、分层边界与门禁；起步与目录见 [web/README.md](web/README.md)。
-- [docs/CONTEXT.md](docs/CONTEXT.md)：领域锚点（两端共用）——术语、不变量、禁止逻辑。
-- [contract/](contract/)：跨端合同。`openapi.json` 由后端导出；`conventions.md` 写合同表达不了的约定。
-- [design-system.html](design-system.html)：全局视觉规范与 token 定义。
-- [docs/architecture.md](docs/architecture.md)：后端架构——分层依赖规则与装配流程。
-- [docs/adr/](docs/adr/)：架构决策记录。
-- [docs/tool-design.md](docs/tool-design.md)：agent 工具模型面文本的写法与禁区。
-- [docs/test-design.md](docs/test-design.md)：测试分层、编写规则与数据库测试环境。
+| 文档 | 内容与更新时机 |
+|---|---|
+| [AGENTS.md](AGENTS.md) | 全仓操作与开发规则变化时更新 |
+| [web/AGENTS.md](web/AGENTS.md) | 前端命令、边界、验证要求变化时更新 |
+| [docs/CONTEXT.md](docs/CONTEXT.md) | 两端共用的领域术语、不变量和禁止逻辑变化时更新 |
+| [docs/architecture.md](docs/architecture.md) | 后端分层、职责和装配机制变化时更新 |
+| [contract/openapi.json](contract/openapi.json) | 后端端点变更后由 `make contract` 导出 |
+| [contract/conventions.md](contract/conventions.md) | OpenAPI 无法表达的跨端约定变化时更新 |
+| [design-system.html](design-system.html) | 全局视觉规则与 token 变化时更新 |
+| [web/README.md](web/README.md) | 前端启动方式与目录变化时更新 |
+| [web/docs/frontend-implementation.md](web/docs/frontend-implementation.md) | 前端实现与测试约定变化时更新 |
+| [docs/test-design.md](docs/test-design.md) | 后端测试分层、边界和环境变化时更新 |
+| [docs/tool-design.md](docs/tool-design.md) | Agent 工具面向模型的接口与文字规范变化时更新 |
+| [docs/adr/](docs/adr/)、[web/docs/adr/](web/docs/adr/) | 记录架构决策与取舍；后继决策标明替代关系 |

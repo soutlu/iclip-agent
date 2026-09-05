@@ -1,30 +1,16 @@
-# vendor：kimi code 的 transcript 数据层
+# vendor：transcript 协议数据层
 
-照抄来的外部合同，出处：
-
-- 包：`@moonshot-ai/transcript` 0.0.2（MIT，见 `LICENSE`）
-- 仓库：https://github.com/MoonshotAI/kimi-code，目录 `packages/transcript`
-
-**这个目录不改，要改改外面。** 它是我们与协议之间那份逐字一致的凭据：服务端发的每一帧都按
-`contract/schema.ts` 里的 zod 校验，改一个字母就整帧被拒。适配、封装、状态管理一律放在
-`../` 下面。
-
-上游的两份测试也一并带来（`__tests__/`），它们是「没改坏」的免费证明。
+本目录来自 `@moonshot-ai/transcript` 0.0.2，仓库为 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) 的 `packages/transcript`；许可证见 [LICENSE](LICENSE)。本仓保留了协议扩展与裁剪，不是上游的逐字副本。
 
 ## 做过的改写
 
-上游用 `#/x` 这种包内路径引用自己（靠 package.json 的 `imports` 字段解析），vendor 之后没有
-那个字段，所以测试里的 `from '#/x'` 机械改成了相对路径。`src` 那些文件本来就用相对路径，一个
-字没动。
+- 工具帧增加 `metadata`：声明位于 [model/frame.ts](model/frame.ts)，接收校验位于 [contract/schema.ts](contract/schema.ts)，承载面向用户的工具结果。
+- 轮头部和用户文本帧使用 `content` 保存原始消息 part；类型、schema 与 [ops/apply.ts](ops/apply.ts) 的相等判断共同维护这一扩展。
+- 未引入上游 `history/`。历史投影由[后端 transcript](../../../../../server/src/iclip/harness/transcript/from_messages.py)生成，相关上游 history 测试未保留。
+- [测试目录](__tests__/)使用相对导入，并按本仓的消息形状调整测试数据。
 
-工具帧上多一个 `metadata`（`contract/schema.ts` 与 `model/frame.ts` 各一处）：kimi 的帧没有它，
-这是本仓的扩展——工具返回里给人看的那份结果原样落在这个字段上，不写进 schema 会被 zod 丢掉。
+## 维护边界
 
-轮头部与用户文本块带 `content`（`contract/schema.ts`、`model/turn.ts`、`model/frame.ts`）：用户消息的
-原样 part 列表，与发消息接口的 `content` 同形。kimi 的轮头部是 `prompt` 字符串加附件 id 列表，本仓
-不用那两个字段，附件实体表（`attachment.upsert`）也不再发；`ops/apply.ts` 里比对轮头部与用户块
-的那两处随之改看 `content`。
+日常业务适配、连接封装与应用状态放在[上级目录](../)，不在 vendor 内修改。上游同步或跨端协议变更需要修改本目录时，逐项核对并保留上述本仓扩展，不直接覆盖整目录。
 
-上游的 `history/`（从 kimi 的消息记录冷推 transcript）没有带过来：那条路的输入是 kimi 自己的消息
-形状，本仓的历史由服务端从 pydantic-ai 的消息推出来。`__tests__/layers.test.ts` 里对应的那些用例
-一并去掉。
+协议变更同时核对前端 schema、类型、操作投影和[后端协议类型](../../../../../server/src/iclip/platform/transcript/wire.py)，更新对应层的契约与行为测试。保留上游许可证；字段是否接受、保留或丢弃以 schema 为准。
