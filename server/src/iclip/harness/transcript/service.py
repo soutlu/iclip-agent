@@ -21,9 +21,11 @@ from iclip.platform.transcript.ops import (
     ItemsRemoveOp,
     Prompt,
     PromptContent,
+    TranscriptTask,
     TranscriptTurn,
     VideoContent,
     agent_context_status,
+    agents_from_tasks,
 )
 from iclip.platform.transcript.wire import (
     OpsBatchOut,
@@ -169,6 +171,7 @@ class TranscriptService:
         turns = _timeline(history.turns, view.live_turns)
         items, has_more = _slice(turns, before_turn=before_turn, after_turn=after_turn, size=size)
         interactions = _interactions(history.interactions, view.snapshot.interactions)
+        tasks = _tasks(history.tasks, view.snapshot.tasks)
         meta = view.snapshot.meta
         max_context_tokens = self.context_limits.get(runtime_agent_id)
         if (
@@ -186,10 +189,11 @@ class TranscriptService:
             agent_id=agent_id,
             items=items,
             has_more=has_more,
+            tasks=tasks,
             interactions=interactions,
             prompts=view.snapshot.prompts,
             meta=meta,
-            agents=({"agentId": agent_id, "type": "main"},),
+            agents=agents_from_tasks(tasks),
             pending_interactions=tuple(
                 item.interaction_id for item in interactions if item.state == "pending"
             ),
@@ -238,6 +242,16 @@ def _timeline(
     merged = {turn.ordinal: turn for turn in derived}
     merged.update({turn.ordinal: turn for turn in live})
     return tuple(merged[ordinal] for ordinal in sorted(merged))
+
+
+def _tasks(
+    derived: tuple[TranscriptTask, ...], live: tuple[TranscriptTask, ...]
+) -> tuple[TranscriptTask, ...]:
+    """合并历史与实时任务，同 id 以实时状态为准；交接后的轮次只剩历史那一份。"""
+
+    merged = {item.task_id: item for item in derived}
+    merged.update({item.task_id: item for item in live})
+    return tuple(merged.values())
 
 
 def _interactions(

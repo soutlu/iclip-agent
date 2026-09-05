@@ -5,6 +5,50 @@ export type ClientOptions = {
 }
 
 /**
+ * AgentDescriptor
+ */
+export type AgentDescriptor = {
+  /**
+   * Agentid
+   */
+  agentId: string
+  /**
+   * Createdat
+   */
+  createdAt?: string | null
+  /**
+   * Disposedat
+   */
+  disposedAt?: string | null
+  /**
+   * Label
+   */
+  label?: string | null
+  /**
+   * Parentagentid
+   */
+  parentAgentId?: string | null
+  /**
+   * Type
+   */
+  type?: 'main' | 'sub' | 'independent' | null
+}
+
+/**
+ * AgentRef
+ */
+export type AgentRef = {
+  /**
+   * Agentid
+   */
+  agentId: string
+  /**
+   * Role
+   */
+  role?: 'child' | 'member' | null
+}
+
+/**
  * AgentStatusMeta
  */
 export type AgentStatusMeta = {
@@ -1091,6 +1135,7 @@ export type OpsBatchOut = {
     | StepUpsertOp
     | FrameUpsertOp
     | AppendOp
+    | TaskUpsertOp
     | InteractionUpsertOp
     | PromptUpsertOp
     | MetaMergeOp
@@ -1656,6 +1701,17 @@ export type TaskStyle = {
 }
 
 /**
+ * TaskUpsertOp
+ */
+export type TaskUpsertOp = {
+  /**
+   * Op
+   */
+  op?: 'task.upsert'
+  task: TranscriptTask
+}
+
+/**
  * TasksPageOut
  */
 export type TasksPageOut = {
@@ -1732,6 +1788,10 @@ export type ThinkingFrame = {
  */
 export type ToolFrame = {
   /**
+   * Agentrefs
+   */
+  agentRefs?: Array<AgentRef> | null
+  /**
    * Approvalid
    */
   approvalId?: string | null
@@ -1797,8 +1857,8 @@ export type TranscriptMeta = {
  *
  * ``GET /transcript`` 的一页。
  *
- * ``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、
- * 后者从待回应的交互里取。
+ * ``agents`` 与 ``pending_interactions`` 是协议要求的字段：前者是主 agent 加各子代理，后者从
+ * 待回应的交互里取。
  */
 export type TranscriptPage = {
   /**
@@ -1808,9 +1868,7 @@ export type TranscriptPage = {
   /**
    * Agents
    */
-  agents?: Array<{
-    [key: string]: unknown
-  }>
+  agents?: Array<AgentDescriptor>
   /**
    * Has More
    */
@@ -1839,7 +1897,7 @@ export type TranscriptPage = {
   /**
    * Tasks
    */
-  tasks?: Array<unknown>
+  tasks?: Array<TranscriptTask>
   /**
    * Title
    */
@@ -1900,6 +1958,71 @@ export type TranscriptStep = {
    * Turnid
    */
   turnId: string
+  usage?: StepUsage | null
+}
+
+/**
+ * TranscriptTask
+ *
+ * 一件后台活儿。本系统只产出 ``subagent``：一次 delegate_task 一条。
+ */
+export type TranscriptTask = {
+  /**
+   * Agentid
+   */
+  agentId?: string | null
+  /**
+   * Description
+   */
+  description?: string | null
+  /**
+   * Detached
+   */
+  detached: boolean
+  /**
+   * Endedat
+   */
+  endedAt?: string | null
+  /**
+   * Error
+   */
+  error?: string | null
+  /**
+   * Kind
+   */
+  kind: 'shell' | 'subagent' | 'tool' | 'other'
+  /**
+   * Model
+   */
+  model?: string | null
+  /**
+   * Outputtail
+   */
+  outputTail?: string
+  /**
+   * Resultsummary
+   */
+  resultSummary?: string | null
+  /**
+   * Startedat
+   */
+  startedAt?: string | null
+  /**
+   * State
+   */
+  state: 'running' | 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost'
+  /**
+   * Statereason
+   */
+  stateReason?: string | null
+  /**
+   * Taskid
+   */
+  taskId: string
+  /**
+   * Thinkingeffort
+   */
+  thinkingEffort?: string | null
   usage?: StepUsage | null
 }
 

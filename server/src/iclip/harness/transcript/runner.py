@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 import structlog
 from pydantic_ai import Agent, CancellationToken, ToolFailed
@@ -32,9 +32,10 @@ from pydantic_ai_harness.compaction import (
     ReportContextUsage,
     SummarizingCompaction,
 )
-from pydantic_ai_harness.step_persistence import ContinuableSnapshot, ToolEffectRecord
+from pydantic_ai_harness.step_persistence import ContinuableSnapshot
 
 from iclip.common.errors import Conflict, NotFound
+from iclip.harness.agents import DELEGATE_TOOL
 from iclip.harness.context_compaction import ContextCompaction
 from iclip.harness.jobs import JobQueue, JobRow, JobStatus
 from iclip.harness.transcript.from_messages import (
@@ -43,10 +44,11 @@ from iclip.harness.transcript.from_messages import (
     turn_run_ids,
     unanswered_tool_calls,
 )
-from iclip.harness.transcript.history import TranscriptHistory
+from iclip.harness.transcript.history import ConversationSnapshots, TranscriptHistory
 from iclip.harness.transcript.projector import TranscriptEventStream
 from iclip.harness.transcript.prompt_media import model_prompt
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.transcript.subagents import SubAgentBridge
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     APPROVAL_ID_PREFIX,
@@ -74,20 +76,6 @@ DepsFor = Callable[[JobRow], Awaitable[Any]]
 TurnEnded = Callable[[JobRow], Awaitable[None]]
 """由组合根注入的轮次完成回调；异常仅记录，不影响已持久化的运行结果。"""
 """为消息构造运行依赖；身份固定为消息入队时的属主，由组合根提供具体依赖。"""
-
-
-class ConversationSnapshots(Protocol):
-    """运行所需的快照与副作用存储协议；save_snapshot 用于持久化框架未保存的审批历史。"""
-
-    async def latest_conversation_snapshot(
-        self, *, conversation_id: str, include_interrupted: bool = False
-    ) -> ContinuableSnapshot | None: ...  # pragma: no cover
-
-    async def save_snapshot(self, snapshot: ContinuableSnapshot) -> None: ...  # pragma: no cover
-
-    async def list_unresolved_tool_effects(
-        self, *, run_id: str
-    ) -> list[ToolEffectRecord]: ...  # pragma: no cover
 
 
 def _now() -> datetime:
@@ -689,6 +677,13 @@ class ConversationRunner:
             cancellation_token=active.token,
             capabilities=[
                 active.handle,
+                SubAgentBridge(
+                    store=self._snapshots,
+                    live=self._store,
+                    conversation_id=row.conversation_id,
+                    projector=projector,
+                    delegate_tool=DELEGATE_TOOL,
+                ),
                 # 先压缩再报告用量，仪表反映实际发送的窗口。
                 # 未配置窗口时不启用压缩与用量仪表。
                 *(

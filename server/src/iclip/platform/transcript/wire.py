@@ -11,12 +11,14 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from iclip.platform.transcript.ops import (
+    AgentDescriptor,
     EmittableOperation,
     Interaction,
     Prompt,
     PromptContent,
     TranscriptMeta,
     TranscriptSnapshot,
+    TranscriptTask,
     TranscriptTurn,
 )
 
@@ -263,21 +265,21 @@ ClientFrame = Annotated[
 class TranscriptPage(_Envelope):
     """``GET /transcript`` 的一页。
 
-    ``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、
-    后者从待回应的交互里取。
+    ``agents`` 与 ``pending_interactions`` 是协议要求的字段：前者是主 agent 加各子代理，后者从
+    待回应的交互里取。
     """
 
     agent_id: str
     items: tuple[TranscriptTurn, ...]
     has_more: bool
-    tasks: tuple[Any, ...] = ()
+    tasks: tuple[TranscriptTask, ...] = ()
     interactions: tuple[Interaction, ...] = ()
     todos: tuple[Any, ...] = ()
     prompts: tuple[Prompt, ...] = ()
     meta: TranscriptMeta = TranscriptMeta()
     title: str = ""
     """标题位于信封顶层，避免被协议 meta schema 丢弃；后续更新通过 session.meta.updated 发送。"""
-    agents: tuple[dict[str, Any], ...] = ()
+    agents: tuple[AgentDescriptor, ...] = ()
     pending_interactions: tuple[str, ...] = ()
     seq: int
 

@@ -27,7 +27,7 @@ def grade_for(spec: Mapping[str, TranscriptGrade], agent_id: str) -> TranscriptG
 
 
 def admits(grade: TranscriptGrade, operation: EmittableOperation) -> bool:
-    """按粒度筛选操作细节；轮、prompt、审批、meta 和删除在非 off 档保留。"""
+    """按粒度筛选操作细节；轮、任务、prompt、审批、meta 和删除在非 off 档保留。"""
 
     if operation.op == "append":
         return GRADE_RANK[grade] >= GRADE_RANK["delta"]

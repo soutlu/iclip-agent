@@ -63,6 +63,11 @@ class _Wire(BaseModel):
     )
 
 
+class AgentRef(_Wire):
+    agent_id: str
+    role: Literal["child", "member"] | None = None
+
+
 class TextFrame(_Wire):
     kind: Literal["text"] = "text"
     frame_id: str
@@ -104,6 +109,8 @@ class ToolFrame(_Wire):
     """界面使用的 ToolReturn.metadata，不发送给模型。"""
     error: str | None = None
     approval_id: str | None = None
+    agent_refs: tuple[AgentRef, ...] | None = None
+    """这次调用派出的子代理。"""
 
 
 class NoticeFrame(_Wire):
@@ -136,6 +143,57 @@ class StepUsage(_Wire):
     output: int
     input_cache_read: int
     input_cache_creation: int
+
+
+TaskState = Literal["running", "completed", "failed", "timed_out", "killed", "lost"]
+
+
+class TranscriptTask(_Wire):
+    """一件后台活儿。本系统只产出 ``subagent``：一次 delegate_task 一条。"""
+
+    task_id: str
+    kind: Literal["shell", "subagent", "tool", "other"]
+    state: TaskState
+    detached: bool
+    description: str | None = None
+    agent_id: str | None = None
+    output_tail: str = ""
+    started_at: str | None = None
+    ended_at: str | None = None
+    result_summary: str | None = None
+    error: str | None = None
+    state_reason: str | None = None
+    usage: StepUsage | None = None
+    model: str | None = None
+    thinking_effort: str | None = None
+
+
+class AgentDescriptor(_Wire):
+    agent_id: str
+    type: Literal["main", "sub", "independent"] | None = None
+    parent_agent_id: str | None = None
+    label: str | None = None
+    created_at: str | None = None
+    disposed_at: str | None = None
+
+
+def agents_from_tasks(tasks: Iterable[TranscriptTask]) -> tuple[AgentDescriptor, ...]:
+    """主 agent 加每个子代理各一条；实时与历史共用这一个函数，两条路的名册才对得上。"""
+
+    return (
+        AgentDescriptor(agent_id=MAIN_AGENT_ID, type="main"),
+        *(
+            AgentDescriptor(
+                agent_id=task.agent_id,
+                type="sub",
+                parent_agent_id=MAIN_AGENT_ID,
+                label=task.description,
+                created_at=task.started_at,
+            )
+            for task in tasks
+            if task.kind == "subagent" and task.agent_id is not None
+        ),
+    )
 
 
 class TurnHeader(_Wire):
@@ -261,7 +319,7 @@ class TranscriptSnapshot(_Wire):
     """
 
     items: tuple[Any, ...] = ()
-    tasks: tuple[Any, ...] = ()
+    tasks: tuple[TranscriptTask, ...] = ()
     interactions: tuple[Interaction, ...] = ()
     todos: tuple[Any, ...] = ()
     prompts: tuple[Prompt, ...] = ()
@@ -309,6 +367,11 @@ class AppendOp(_Wire):
     text: str
 
 
+class TaskUpsertOp(_Wire):
+    op: Literal["task.upsert"] = "task.upsert"
+    task: TranscriptTask
+
+
 class InteractionUpsertOp(_Wire):
     op: Literal["interaction.upsert"] = "interaction.upsert"
     interaction: Interaction
@@ -334,6 +397,7 @@ EmittableOperation = Annotated[
     | StepUpsertOp
     | FrameUpsertOp
     | AppendOp
+    | TaskUpsertOp
     | InteractionUpsertOp
     | PromptUpsertOp
     | MetaMergeOp
@@ -353,6 +417,8 @@ __all__ = [
     "APPROVAL_ID_PREFIX",
     "MAIN_AGENT_ID",
     "TOOL_STATE_BY_OUTCOME",
+    "AgentDescriptor",
+    "AgentRef",
     "AgentStatusMeta",
     "AppendOp",
     "AttachmentSource",
@@ -372,6 +438,8 @@ __all__ = [
     "StepHeader",
     "StepUpsertOp",
     "StepUsage",
+    "TaskState",
+    "TaskUpsertOp",
     "TextContent",
     "TextFrame",
     "ThinkingFrame",
@@ -381,6 +449,7 @@ __all__ = [
     "TranscriptOperation",
     "TranscriptSnapshot",
     "TranscriptStep",
+    "TranscriptTask",
     "TranscriptTurn",
     "TurnHeader",
     "TurnOrigin",
@@ -388,6 +457,7 @@ __all__ = [
     "TurnUsage",
     "VideoContent",
     "agent_context_status",
+    "agents_from_tasks",
     "next_frame_ordinal",
     "utf16_len",
 ]
