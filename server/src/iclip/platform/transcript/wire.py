@@ -1,17 +1,7 @@
-"""transcript 的信封：WS 帧与 REST 响应的外层形状。
+"""transcript WS 帧与 REST 响应信封。
 
-**这一层的字段名是 snake_case，里面装的实体与操作是 camelCase。** 两种写法在同一个 JSON 里
-并存不是笔误，是协议本来的样子（``packages/transcript/src/contract/schema.ts``）：
-
-    {"type": "transcript.reset", "agent_id": "main", "seq": 12,
-     "snapshot": {"items": [], "hasMoreOlder": true, ...}}
-
-客户端那侧用的是照抄过来的 zod schema，它按这个形状校验，改一个字母就整帧被拒。仓内其余端点
-仍是 camelCase（见 contract/conventions.md）。
-
-``seq`` 在协议里标成可选，**我们发的每一帧 reset 都必须带上它**。客户端收到 reset 会把本地
-水位无条件覆写成这个数（不是取较大值），这正是进程重启后批次号从 1 重来仍然安全的原因。不带
-的话客户端会守着上一代的水位，后面的批次全被当成旧的丢掉，界面就此不再更新。
+信封使用 snake_case，嵌套实体与操作使用 camelCase，与客户端 schema.ts 保持一致。
+每帧 reset 必须携带 seq 以覆盖客户端水位，支持进程重启后从 1 重新编号。
 """
 
 from __future__ import annotations
@@ -35,9 +25,6 @@ class _Envelope(BaseModel):
     """信封层：字段名原样，不转 camelCase。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-# --- WS：服务端发给客户端 -----------------------------------------------------
 
 
 class ServerHelloCapabilities(_Envelope):
@@ -149,7 +136,7 @@ class FsChangeEntry(_Envelope):
 class FsChangePayload(_Envelope):
     changes: tuple[FsChangeEntry, ...]
     coalesced_window_ms: int = 0
-    """kimi 那侧是文件系统 watcher，一个时间窗合并成一帧；我们在写入口直接发，窗口是零。"""
+    """在写入入口立即发送变更，合并窗口为零。"""
 
 
 class FsChanged(_Event):
@@ -204,9 +191,6 @@ ServerFrame = Annotated[
     | Ping,
     Field(discriminator="type"),
 ]
-
-
-# --- WS：客户端发给服务端 -----------------------------------------------------
 
 
 class SubscribePayload(_Envelope):
@@ -276,9 +260,6 @@ ClientFrame = Annotated[
 ]
 
 
-# --- REST --------------------------------------------------------------------
-
-
 class TranscriptPage(_Envelope):
     """``GET /transcript`` 的一页。
 
@@ -295,9 +276,7 @@ class TranscriptPage(_Envelope):
     prompts: tuple[Prompt, ...] = ()
     meta: TranscriptMeta = TranscriptMeta()
     title: str = ""
-    """这段对话叫什么。放在信封顶层而不是 ``meta`` 里：``meta`` 的形状归协议管，客户端拿
-    照抄来的 zod 校验它，多一个字段会被静默丢掉。首屏靠它显示标题，之后的改名走
-    ``session.meta.updated``。"""
+    """标题位于信封顶层，避免被协议 meta schema 丢弃；后续更新通过 session.meta.updated 发送。"""
     agents: tuple[dict[str, Any], ...] = ()
     pending_interactions: tuple[str, ...] = ()
     seq: int
@@ -327,14 +306,11 @@ class PromptQueueOut(_Envelope):
     queued: tuple[Prompt, ...]
 
 
-# --- REST 请求体 --------------------------------------------------------------
-#
-# 请求体的字段名同样照协议原样（snake_case）。整个 transcript 面只有一条规矩：逐字照抄，
-# 不按仓内的 camelCase 习惯翻译——一半照抄一半翻译，写客户端的人得记两套。
+# transcript 请求体按外部协议保留 snake_case。
 
 
 PromptId = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")]
-"""客户端铸的消息 id。发消息与重新生成两处同一套约束。"""
+"""客户端生成的消息 id，发送与重新生成共用此约束。"""
 
 PromptParts = Annotated[tuple[PromptContent, ...], Field(min_length=1)]
 

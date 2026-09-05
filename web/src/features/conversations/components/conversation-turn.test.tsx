@@ -1,7 +1,3 @@
-/**
- * 用户气泡：按 part 原顺序画、超长折叠。
- */
-
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,7 +5,7 @@ import type { PromptContentPart, TranscriptTurn } from '@/shared/transcript/vend
 import { ConversationTurn } from './conversation-turn'
 import { UserBubble } from './user-bubble'
 
-/** jsdom 里元素没有高度，把量高这件事垫成「内容比 10 行高」。 */
+/** jsdom 不执行布局，显式模拟超过十行的内容高度。 */
 const stubOverflowing = () => {
   const scroll = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(500)
   const client = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(240)
@@ -19,7 +15,6 @@ const stubOverflowing = () => {
   }
 }
 
-/** jsdom 没有剪贴板，垫一个能断言的最小实现。 */
 const stubClipboard = () => {
   const writeText = vi.fn().mockResolvedValue(undefined)
   Object.defineProperty(navigator, 'clipboard', {
@@ -38,7 +33,6 @@ describe('UserBubble', () => {
   afterEach(() => restore?.())
 
   it('短消息不折叠，没有展开胶囊', () => {
-    // jsdom 里元素高度是 0：量不出超高，自然不给入口
     render(<UserBubble content={[text('就一句')]} />)
     expect(screen.queryByRole('button', { name: '展开' })).toBeNull()
   })
@@ -48,7 +42,6 @@ describe('UserBubble', () => {
     const user = userEvent.setup()
     render(<UserBubble content={[text('一行长长的素材说明\n'.repeat(20))]} />)
 
-    // scrollHeight 500 > 240：量出超高才给入口
     const toggle = await screen.findByRole('button', { name: '展开' })
     await user.click(toggle)
 
@@ -56,7 +49,7 @@ describe('UserBubble', () => {
   })
 
   it('气泡下有复制钮：复制的是文字 part 原样接起来的正文；没给 onEdit 就没有修改钮', async () => {
-    // user-event 自己会垫一份剪贴板，垫子要在它之后放才生效
+    // 在 user-event 初始化后安装剪贴板替身，避免被其覆盖。
     const user = userEvent.setup()
     const writeText = stubClipboard()
     render(
@@ -91,7 +84,6 @@ describe('UserBubble', () => {
     const url = 'https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'
     render(<UserBubble content={[text('先看这张图：'), image(url), text('\n说明它写了什么')]} />)
 
-    // 芯片不再带文件名，位置看 DOM 次序
     const chip = screen.getByRole('button', { name: 'S6-1.jpg' })
     const before = screen.getByText('先看这张图：')
     const after = screen.getByText(/说明它写了什么/)
@@ -125,7 +117,7 @@ describe('UserBubble', () => {
     await user.click(screen.getByRole('button', { name: 'reference.png' }))
 
     expect(screen.getByRole('dialog', { name: 'reference.png' })).toBeInTheDocument()
-    // 芯片上那颗缩略图是装饰性的（alt 空），带名字的这张只能是灯箱里的
+    // 芯片缩略图为装饰图片，具名图片只能来自灯箱。
     expect(screen.getByRole('img', { name: 'reference.png' })).toBeInTheDocument()
   })
 
@@ -144,14 +136,14 @@ describe('UserBubble 媒体芯片的悬停卡', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
-  /** 走过 N 毫秒：卡的开合都是定时器落地的，要包在 act 里才算一次渲染。 */
+  /** 计时器推进包在 act 中，确保对应状态更新完成。 */
   const advance = (ms: number) => {
     act(() => {
       vi.advanceTimersByTime(ms)
     })
   }
 
-  /** 画一颗图片芯片。「刚关过一张就免延迟」是跨芯片的全局窗口，先走过它再开始量时序。 */
+  /** 先越过跨芯片共享的快速重开窗口，再测量当前卡片时序。 */
   const renderChip = () => {
     render(<UserBubble content={[image('https://example.com/reference.png')]} />)
     advance(500)
@@ -294,7 +286,6 @@ describe('ConversationTurn', () => {
   })
 })
 
-/** 一次出图调用：结果里给人看的那份是两张图。 */
 const mediaFrame = (metadata: unknown) => ({
   display: { kind: 'generic' as const, summary: '出镜头帧' },
   frameId: 't1.1.f1',

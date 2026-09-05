@@ -1,8 +1,4 @@
-"""产品资料的领域形状。
-
-**码和名字分开放**：码来自上游、永远有；名字来自本仓的对照表（见 ``tables.py``），
-上游新增一个码时名字就是 ``None``。空着看得见，猜错看不见。
-"""
+"""产品资料领域模型。保留上游编码，名称由 tables.py 映射；未知编码对应名称为 None。"""
 
 from __future__ import annotations
 
@@ -49,11 +45,7 @@ class ProductImage:
 
 @dataclass(frozen=True, slots=True)
 class Product:
-    """一个款的资料快照。
-
-    ``style_no`` 是 PDM 款号（本接口的查询键），``style_wms`` 是同一个款在 WMS 那
-    边的编号——两套编码不通用，爆款视频库认的是后者。
-    """
+    """产品资料快照。style_no 为 PDM 查询键，style_wms 为爆款视频查询使用的 WMS 编号，两者不可互换。"""
 
     style_no: str
     style_wms: str | None

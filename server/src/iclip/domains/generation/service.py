@@ -1,9 +1,4 @@
-"""媒体生成的用例层。
-
-提交只做三件事：校验，落一行 ``pending``，把它排进队列。真的去调 provider 是后台的
-事——图像那家接口一次要等几分钟，把它留在 HTTP 请求里，客户端会先超时，而那次生成
-还在扣钱。
-"""
+"""媒体生成用例。受理请求时校验、保存 pending 记录并排队，Provider 调用由后台执行。"""
 
 from __future__ import annotations
 
@@ -29,7 +24,7 @@ MAX_LIST_LIMIT = 100
 
 
 class GenerationService:
-    """提交一次生成，以及读回自己的生成记录。"""
+    """生成请求受理与记录查询。"""
 
     def __init__(
         self,
@@ -39,11 +34,7 @@ class GenerationService:
         video_provider_name: str,
         image_provider_name: str,
     ) -> None:
-        """provider 的名字在装配期定下来，落在 job 行上。
-
-        只要名字不要实例：这一层不调 provider（那是后台 worker 的活），但每一行都
-        得记下是谁生成的，否则换 provider 之后旧记录无从解释。
-        """
+        """持久化装配期确定的 Provider 名称，保留历史来源；此层不持有或调用 Provider 实例。"""
 
         self._repo = repo
         self._queue = queue
@@ -53,15 +44,9 @@ class GenerationService:
         }
 
     async def submit(self, principal: Principal, request: GenerationRequest) -> GenerationJob:
-        """受理一次生成，返回刚落库的 ``pending`` 行。
+        """保存 pending 记录并排队。入库与排队分属不同事务，排队失败时标记失败并抛出错误。
 
-        **落行和排队做不到一个事务里。** 行走 asyncpg，队列走 psycopg（procrastinate
-        只支持它），两个驱动就是两个事务。所以排队失败时把这一行照实判失败并把错误
-        抛给调用方——留下一个「永远 pending」的行更糟：那看起来像还在排队。
-
-        崩在两步中间会留下一个没有任务的 ``pending`` 行。罕见、看得见、由人重新发
-        起，和 ``SUBMIT_INTERRUPTED`` 是同一条道理：宁可让人来决定，不替他猜。
-        """
+        两步之间进程中断会留下未排队的 pending 记录，需要人工确认后重新发起。"""
 
         kind = request.kind
         now = datetime.now(UTC)
@@ -69,7 +54,6 @@ class GenerationService:
             id=uuid.uuid4(),
             owner_user_id=principal.user_id,
             api_key_id=principal.api_key_id,
-            # 来源落表上的列，不进 request 那份 JSON（见 schemas.GenerationOrigin）。
             conversation_id=request.conversation_id,
             shot_index=request.shot_index,
             kind=kind,
@@ -82,8 +66,7 @@ class GenerationService:
             output_url=None,
             error_code=None,
             error_message=None,
-            # 时刻字段在插入时由数据库改写成它自己的 now()；这里的值不会落库，
-            # 只是把 dataclass 填满。
+            # 仓储使用数据库 now() 覆盖时间占位值。
             created_at=now,
             updated_at=now,
             submitted_at=None,
@@ -103,7 +86,7 @@ class GenerationService:
         return created
 
     async def get(self, principal: Principal, job_id: uuid.UUID) -> GenerationJob:
-        """读一次生成；不是自己的一律当作不存在。"""
+        """读取可见生成记录，不可见时返回 NotFound。"""
 
         return await self._repo.get(job_id, owner=_owner_scope(principal))
 
@@ -114,11 +97,7 @@ class GenerationService:
         limit: int = 20,
         conversation_id: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
-        """按时间倒序列出可见的生成记录；给了 ``conversation_id`` 就只列那段对话的。
-
-        按对话筛不放宽可见性：仍然只列自己的（治理者除外），别人在那段对话里生成过什么
-        照旧看不到。
-        """
+        """按时间倒序返回可见记录；conversation_id 仅用于筛选，不扩大属主可见范围。"""
 
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")

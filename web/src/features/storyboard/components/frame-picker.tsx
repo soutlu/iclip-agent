@@ -1,8 +1,3 @@
-/**
- * 挑一张帧：候选是这段对话里 agent 生成过的帧，也可以上传一张。替换与加一帧共用这个框，
- * 只是选完落到哪里不同。
- */
-
 import { useRef } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -12,22 +7,16 @@ import type { FrameCandidate } from '../storyboard.api'
 export type FramePickerMode = 'replace' | 'insert'
 
 type FramePickerProps = {
-  /** null 表示没打开。 */
+  /** null 表示关闭。 */
   mode: FramePickerMode | null
   candidates: readonly FrameCandidate[]
-  /** 这一组已经用着的地址：标出来，避免同一张选两次。 */
+  /** 标记当前组已使用的帧，避免重复选择。 */
   inUse: readonly string[]
   onPick: (url: string) => void
   onUpload: (file: File) => Promise<void>
   onClose: () => void
 }
 
-/**
- * 渲染挑帧框。
- *
- * @param props - 组件属性。
- * @returns 对话框。
- */
 export function FramePicker({
   candidates,
   inUse,

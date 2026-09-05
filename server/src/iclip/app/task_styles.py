@@ -1,9 +1,4 @@
-"""需求单要的那份款号快照（``domains/tasks/ports.py`` 的 ``StyleSnapshots``）的真身。
-
-它接在组合根，因为抄快照要同时碰产品资料库和对象存储，而需求单域不认识那两个地盘。
-
-封面要转存：产品资料给的是上游图库地址，上游换图之后就烂了。落点由 ``layout.py`` 发。
-"""
+"""StyleSnapshots 的组合根实现：查询产品资料并转存封面，保证历史需求单使用创建时快照。"""
 
 from __future__ import annotations
 
@@ -24,7 +19,7 @@ _FALLBACK_IMAGE_CONTENT_TYPE = "image/jpeg"
 
 
 class ProductStyleSnapshots:
-    """``StyleSnapshots`` 的真身：查 PDM，把首图转存，凑出一份可冻结的快照。"""
+    """读取 PDM 产品并转存首图，生成可持久化的款号快照。"""
 
     def __init__(self, catalog: PgProductCatalog, store: PublicObjectStore) -> None:
         self._catalog = catalog
@@ -34,14 +29,13 @@ class ProductStyleSnapshots:
         try:
             product = await self._catalog.find(style_no)
         except NotFound as exc:
-            # 请求里给的款不存在，是这次提交的参数错了，不是「需求单不存在」。
+            # 款号不存在属于创建参数无效，不能作为需求单 404 返回。
             raise ValidationFailed(f"款号 {style_no} 在产品资料里查不到") from exc
 
         first_image = product.images[0] if product.images else None
         return TaskStyle(
             style_no=product.style_no,
-            # 码一定有、名字可能没有（产品资料域的口径）。名字没有就退回码，两个都
-            # 没有就空着——空着看得见，猜错看不见。
+            # 名称缺失时展示编码，两者均缺失时为空。
             brand=product.brand.name or product.brand.code or "",
             category=product.category.name or product.category.code or "",
             preview_image_url=(
@@ -50,10 +44,7 @@ class ProductStyleSnapshots:
         )
 
     async def _mirror(self, source_url: str) -> str:
-        """把一张产品图搬进对象存储，返回公网地址。
-
-        失败直接往外抛：这一步在落库之前，所以整次创建不成立，不会留下碎图封面。
-        """
+        """转存产品图并返回公开地址；失败向上传播，创建需求单整体失败。"""
 
         async with httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT_SECONDS) as client:
             response = await client.get(source_url, follow_redirects=True)
@@ -64,7 +55,7 @@ class ProductStyleSnapshots:
         return await self._store.put_public_object(
             object_key=_preview_object_key(source_url),
             content=content,
-            # 上游偶尔报个 application/octet-stream，照抄的话浏览器会当附件下载。
+            # 修正上游通用二进制类型，避免浏览器将图片作为附件下载。
             content_type=(
                 content_type if content_type.startswith("image/") else _FALLBACK_IMAGE_CONTENT_TYPE
             ),
@@ -72,7 +63,7 @@ class ProductStyleSnapshots:
 
 
 def _preview_object_key(source_url: str) -> str:
-    """源地址 → 稳定的对象 key。后缀只是好认，实际类型由写入时的 content type 决定。"""
+    """由源地址派生稳定对象 key；实际 MIME 类型由上传的 Content-Type 决定。"""
 
     return MEDIA_PATHS.task_style_cover(
         digest=hashlib.sha256(source_url.encode()).hexdigest(),
@@ -81,7 +72,7 @@ def _preview_object_key(source_url: str) -> str:
 
 
 class UnavailableStyleSnapshots:
-    """没配产品资料库或对象存储时占的位：直接拒绝，不记一份空快照混过去。"""
+    """基础设施未配置时明确拒绝快照请求。"""
 
     async def of(self, style_no: str) -> TaskStyle:
         raise ValidationFailed(

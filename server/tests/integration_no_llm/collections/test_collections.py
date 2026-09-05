@@ -1,10 +1,4 @@
-"""T-COLL-01：合集的 HTTP 契约，以及两处归属在真库上的事实。
-
-这一层验的是内存替身验不了的东西：归属那两列的外键到底怎么行动——**删合集、删单都
-不该带走对话**，只把对话上那一列置空。这条不变量写在表上（``ON DELETE SET NULL``），
-所以只有真库测得出来。侧栏拓扑与治理者的审计列表也在这里验：它们都是真 SQL（窗口
-函数、keyset 翻页），替身测不出来。
-"""
+"""验证合集 HTTP 契约、SET NULL 外键、侧栏拓扑和审计分页。"""
 
 from __future__ import annotations
 
@@ -38,7 +32,6 @@ async def login_as_editor(client: httpx.AsyncClient, pg_url: str, *, username: s
 
 
 async def login_as_root(client: httpx.AsyncClient, pg_url: str, *, username: str = "gov") -> str:
-    """治理者：持 users:manage，读得到别人的合集与对话。"""
 
     email = f"{username}@example.com"
     user_id = await register_and_login(client, username=username, email=email)
@@ -75,10 +68,7 @@ async def open_task(client: httpx.AsyncClient) -> str:
 async def plant_job(
     pg_url: str, *, owner: str, conversation_id: str, status: str, prompt_id: str
 ) -> None:
-    """往 jobs 表插一条 prompt 行。侧栏的 ``state`` 筛选算的就是这张表。
-
-    这一层没有 agent 跑得起来，所以直接摆事实：``running`` 是在跑，``completed`` 是跑完过。
-    """
+    """直接插入任务状态供侧栏筛选使用；本测试未装配 Agent。"""
 
     engine = create_async_engine(pg_url)
     try:
@@ -106,7 +96,6 @@ async def plant_job(
 
 
 async def column_of(pg_url: str, conversation_id: str, column: str) -> str | None:
-    """直接回库里读对话上那一列——外键的动作只有库自己说得准。"""
 
     engine = create_async_engine(pg_url)
     try:
@@ -122,7 +111,6 @@ async def column_of(pg_url: str, conversation_id: str, column: str) -> str | Non
 
 
 async def test_viewer_can_read_but_not_open(client: httpx.AsyncClient) -> None:
-    """密码注册默认 viewer：读得了自己的（一个也没有），但开不了新的。"""
 
     await register_and_login(client)
     opened = await client.post(URL, json={"name": "偷偷开一个"})
@@ -152,7 +140,6 @@ async def test_open_read_rename_delete(client: httpx.AsyncClient, pg_url: str) -
 async def test_collection_belongs_to_its_owner_only(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """别人的合集：列表里没有，读、改名、删除一律 404——403 会泄露它存在。"""
 
     await login_as_editor(client, pg_url)
     collection_id = await open_collection(client)
@@ -170,7 +157,6 @@ async def test_collection_belongs_to_its_owner_only(
 async def test_governor_sees_every_collection(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """``scope=all`` 是治理者的全量视图；没有 users:manage 就 403。"""
 
     owner = await login_as_editor(client, pg_url)
     collection_id = await open_collection(client, "别人的口袋")
@@ -182,14 +168,12 @@ async def test_governor_sees_every_collection(
         assert listed.status_code == 200
         rows = listed.json()["items"]
         assert [(item["id"], item["ownerUserId"]) for item in rows] == [(collection_id, owner)]
-        # 不给 scope 就还是「我的」，治理者自己一个也没建。
         assert (await governor.get(URL)).json()["items"] == []
 
 
 async def test_conversation_without_task_or_collection(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """直接开始创作：两处归属都空着，不属于任何单、没进合集。"""
 
     await login_as_editor(client, pg_url)
     conversation = await open_conversation(client)
@@ -212,7 +196,6 @@ async def test_conversation_carries_task_and_collection(
 
 
 async def test_unknown_reference_is_rejected(client: httpx.AsyncClient, pg_url: str) -> None:
-    """编一个 id 发过来，由外键挡下来翻成 422——服务层不认识那两张表。"""
 
     await login_as_editor(client, pg_url)
 
@@ -228,7 +211,6 @@ async def test_unknown_reference_is_rejected(client: httpx.AsyncClient, pg_url: 
 async def test_conversation_moves_between_collections(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """一段对话只待在一个口袋里，但随时能换，也能拿出来。"""
 
     await login_as_editor(client, pg_url)
     first = await open_collection(client, "C1")
@@ -246,7 +228,6 @@ async def test_conversation_moves_between_collections(
 
 
 async def test_task_can_be_attached_after_the_fact(client: httpx.AsyncClient, pg_url: str) -> None:
-    """跑完才想起该记在哪张单下，是常事：这处归属不冻结，也能摘掉。"""
 
     await login_as_editor(client, pg_url)
     task_id = await open_task(client)
@@ -265,7 +246,6 @@ async def test_task_can_be_attached_after_the_fact(client: httpx.AsyncClient, pg
 
 
 async def test_sidebar_groups_by_collection(client: httpx.AsyncClient, pg_url: str) -> None:
-    """侧栏一次给全：合集分组（各带条数与最近几段）加上没归类的那些。"""
 
     await login_as_editor(client, pg_url)
     collection_id = await open_collection(client, "春季系列")
@@ -279,26 +259,19 @@ async def test_sidebar_groups_by_collection(client: httpx.AsyncClient, pg_url: s
     groups = {item["id"]: item for item in sidebar["collections"]}
     assert set(groups) == {collection_id, empty_id}
     assert groups[collection_id]["conversationCount"] == 2
-    # 组内也按最近活动倒序
     assert [item["id"] for item in groups[collection_id]["page"]["items"]] == [
         second["id"],
         first["id"],
     ]
-    # 一页装得下就没有下一页
     assert groups[collection_id]["page"]["nextCursor"] is None
-    # 空合集留在拓扑里：刚建的口袋要看得见，不然没法往里放东西。
+    # 空合集仍须显示，以便用户将会话移入。
     assert groups[empty_id]["conversationCount"] == 0
     assert groups[empty_id]["page"]["items"] == []
-    # 进了合集的不再出现在「没归类」那一区
     assert sidebar["ungroupedCount"] == 1
     assert [item["id"] for item in sidebar["ungrouped"]["items"]] == [loose["id"]]
 
 
 async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: str) -> None:
-    """``state`` 只要在跑的、或者只要跑完过的；从没跑过的两边都不在，只出现在 ``all`` 里。
-
-    两个数字跟着同一个筛选走，不然侧栏标题上的数字与它下面列出来的条数会对不上。
-    """
 
     owner = await login_as_editor(client, pg_url)
     collection_id = await open_collection(client, "在跑的那些")
@@ -325,13 +298,11 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
     only_done = (await client.get(CONVERSATIONS, params={"state": "done"})).json()
 
     assert everything["ungroupedCount"] == 2
-    # 在跑的那段在合集里，「没归类」那一区因此空着，数字也是 0
     assert only_running["collections"][0]["conversationCount"] == 1
     assert [item["id"] for item in only_running["collections"][0]["page"]["items"]] == [
         running["id"]
     ]
     assert (only_running["ungroupedCount"], only_running["ungrouped"]["items"]) == (0, [])
-    # 跑完那段没进合集
     assert only_done["collections"][0]["conversationCount"] == 0
     assert only_done["ungroupedCount"] == 1
     assert [item["id"] for item in only_done["ungrouped"]["items"]] == [done["id"]]
@@ -341,7 +312,6 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
         "lastTurnReason": "completed",
     }
 
-    # 两个翻页端点同一个筛选
     paged_done = await client.get(f"{CONVERSATIONS}/ungrouped", params={"state": "done"})
     assert [item["id"] for item in paged_done.json()["items"]] == [done["id"]]
     in_collection = await client.get(
@@ -369,11 +339,10 @@ async def test_sidebar_only_shows_my_own(
 
 
 async def test_sidebar_pages_by_cursor(client: httpx.AsyncClient, pg_url: str) -> None:
-    """两个区都能往下滑：首屏给第一页与真总数，`nextCursor` 接着往下取。"""
 
     await login_as_editor(client, pg_url)
     collection_id = await open_collection(client)
-    # 每个合集内嵌 10 段、任务区一页 20 条（服务端的口径），各多开一段以越过一页
+    # 内嵌会话上限为 10、任务分页为 20；分别多建一条覆盖翻页边界。
     for index in range(11):
         await open_conversation(client, title=f"合集里第{index}段", collectionId=collection_id)
     for index in range(21):
@@ -382,7 +351,6 @@ async def test_sidebar_pages_by_cursor(client: httpx.AsyncClient, pg_url: str) -
     sidebar = (await client.get(CONVERSATIONS)).json()
     group = sidebar["collections"][0]
 
-    # 数字是真总数，不是这一页几条
     assert (group["conversationCount"], len(group["page"]["items"])) == (11, 10)
     assert (sidebar["ungroupedCount"], len(sidebar["ungrouped"]["items"])) == (21, 20)
 
@@ -398,7 +366,6 @@ async def test_sidebar_pages_by_cursor(client: httpx.AsyncClient, pg_url: str) -
     )
     assert len(more_ungrouped.json()["items"]) == 1
 
-    # 两页加起来不重不漏
     seen = [
         item["id"] for item in [*sidebar["ungrouped"]["items"], *more_ungrouped.json()["items"]]
     ]
@@ -411,7 +378,7 @@ async def test_sidebar_pages_by_cursor(client: httpx.AsyncClient, pg_url: str) -
 async def test_other_peoples_collection_pages_empty(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """别人的合集与空合集给同一个结果：一页空的，不告诉你它到底存不存在。"""
+    """不可见和不存在的合集均返回空分页，避免泄漏其存在性。"""
 
     await login_as_editor(client, pg_url)
     collection_id = await open_collection(client)
@@ -429,7 +396,6 @@ async def test_other_peoples_collection_pages_empty(
 async def test_audit_is_governor_only_and_filters(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """治理者按人、按单查全平台的对话；普通人连这个入口都进不来。"""
 
     owner = await login_as_editor(client, pg_url)
     task_id = await open_task(client)
@@ -453,13 +419,12 @@ async def test_audit_is_governor_only_and_filters(
 
         future = (datetime.now(UTC) + timedelta(days=1)).isoformat()
         assert (await governor.get(AUDIT, params={"since": future})).json()["items"] == []
-        # 只写一个日期（解析出来不带时区）按 UTC 读，不是 500。
+        # 无时区日期按 UTC 解析。
         today = datetime.now(UTC).date().isoformat()
         assert (await governor.get(AUDIT, params={"since": today})).status_code == 200
 
 
 async def test_audit_pages_by_cursor(app: FastAPI, client: httpx.AsyncClient, pg_url: str) -> None:
-    """翻页位置是上一页最后一行的排序键，不是 offset。形状不对是 422。"""
 
     await login_as_editor(client, pg_url)
     for index in range(3):
@@ -485,7 +450,6 @@ async def test_audit_pages_by_cursor(app: FastAPI, client: httpx.AsyncClient, pg
 async def test_governor_reads_other_peoples_history(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """复盘要看得到别人的对话历史与工作区；写入没有这个口子。"""
 
     await login_as_editor(client, pg_url)
     conversation_id = str((await open_conversation(client))["id"])
@@ -498,7 +462,6 @@ async def test_governor_reads_other_peoples_history(
         assert (
             await governor.get(f"{CONVERSATIONS}/{conversation_id}/workspace/files")
         ).status_code == 200
-        # 只读：改别人的对话、替别人发消息，都仍然当作不存在。
         assert (
             await governor.patch(f"{CONVERSATIONS}/{conversation_id}", json={"title": "我来改"})
         ).status_code == 404
@@ -513,7 +476,6 @@ async def test_governor_reads_other_peoples_history(
 async def test_deleting_collection_only_clears_the_column(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """删合集不带走对话——口袋没了，东西还在。这条由表上的 SET NULL 保证。"""
 
     await login_as_editor(client, pg_url)
     collection_id = await open_collection(client)
@@ -530,7 +492,6 @@ async def test_deleting_collection_only_clears_the_column(
 async def test_deleting_draft_task_only_clears_the_column(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """删单同理：为它跑过的对话留着，只是不再指向任何单。"""
 
     await login_as_editor(client, pg_url)
     task_id = await open_task(client)
@@ -545,11 +506,7 @@ async def test_deleting_draft_task_only_clears_the_column(
 async def test_attempts_of_a_task_are_listed_in_order_and_stay_private(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """一张单下面的尝试按开始时间正序——「第几次」就是这个顺序。
-
-    而且只列自己的：一张单人人可见，不等于这张单下面谁跑过什么也人人可见。别人的要看
-    走 ``/conversations/audit?taskId=``。
-    """
+    """按开始时间列出需求单的个人创作；跨用户记录仅通过审计端点访问。"""
 
     await login_as_editor(client, pg_url)
     task_id = await open_task(client)

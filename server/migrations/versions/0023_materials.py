@@ -33,7 +33,7 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("now()"),
         ),
-        # 主键首列就是 namespace，查一条与清一整段对话都走它，不再另建索引。
+        # 主键已覆盖 namespace 查询与清理，无需额外索引。
         sa.PrimaryKeyConstraint("namespace", "url"),
         schema=SCHEMA,
     )

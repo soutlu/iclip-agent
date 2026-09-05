@@ -10,12 +10,7 @@ type ConversationSearchDialogProps = {
   open: boolean
 }
 
-/**
- * 搜索对话弹窗：输入关键词，列出标题命中的对话，最近活动的排前面。
- *
- * 筛选由后端做（`GET /conversations?q=`），所以搜得到全部历史，而不只是列表接口
- * 一次给得下的那几十段。
- */
+/** 搜索由后端执行，覆盖全部历史对话。 */
 export function ConversationSearchDialog({ onOpenChange, open }: ConversationSearchDialogProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -23,7 +18,7 @@ export function ConversationSearchDialog({ onOpenChange, open }: ConversationSea
     <DialogRoot open={open} onOpenChange={onOpenChange}>
       <DialogSurface
         aria-label="搜索对话"
-        // 弹层默认把焦点丢给关闭键；这里打开就是为了打字，焦点直接给搜索框
+        // 打开弹窗时将焦点交给搜索框。
         onOpenAutoFocus={(event) => {
           event.preventDefault()
           inputRef.current?.focus()
@@ -34,7 +29,7 @@ export function ConversationSearchDialog({ onOpenChange, open }: ConversationSea
           closeLabel="关闭"
           title="搜索对话"
         />
-        {/* 关掉就卸载：下次打开是干净的空输入框，也不会在退场动画里还挂着一个搜索请求 */}
+        {/* 关闭时卸载，重置下次输入并停止订阅搜索。 */}
         {open ? <SearchPanel inputRef={inputRef} /> : null}
       </DialogSurface>
     </DialogRoot>
@@ -46,7 +41,7 @@ function SearchPanel({ inputRef }: { inputRef: RefObject<HTMLInputElement | null
   const [submitted, setSubmitted] = useState('')
 
   useEffect(() => {
-    // 每敲一个字都打一次接口太吵：停手 250ms 才发
+    // 输入停止 250ms 后发起搜索。
     const timer = setTimeout(() => setSubmitted(keyword.trim()), 250)
     return () => clearTimeout(timer)
   }, [keyword])
@@ -59,7 +54,6 @@ function SearchPanel({ inputRef }: { inputRef: RefObject<HTMLInputElement | null
 
   return (
     <>
-      {/* 输入框钉在滚动区外面：命中翻到下面时还能就地改关键词 */}
       <div className="shrink-0 px-6 pb-3">
         <Input
           aria-label="搜索对话"
@@ -70,7 +64,6 @@ function SearchPanel({ inputRef }: { inputRef: RefObject<HTMLInputElement | null
           value={keyword}
         />
       </div>
-      {/* min-h-30：结果为空时弹窗不塌成一条 */}
       <DialogBody className="flex min-h-30 flex-col gap-0.5 pt-0">
         <SearchResults keyword={submitted} query={results} />
       </DialogBody>
@@ -94,7 +87,6 @@ function SearchResults({ keyword, query }: SearchResultsProps) {
   return (
     <ul aria-label="搜索结果" className="flex flex-col gap-0.5">
       {query.data.map((conversation) => (
-        // 还没有对话页，命中只列出来看，点不开
         <li
           key={conversation.id}
           className="truncate rounded-sm px-2 py-2 text-body text-on-surface"

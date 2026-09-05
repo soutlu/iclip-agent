@@ -1,7 +1,4 @@
-"""T-GEN-05：/generations 的权限、错误映射与受理语义。
-
-不碰数据库：仓储用内存替身，主体由测试中间件写进 ``request.state.principal``。
-"""
+"""使用内存仓储验证 /generations 权限、错误映射和受理语义。"""
 
 from __future__ import annotations
 
@@ -61,7 +58,7 @@ def build_test_app(
 
     queue, _ = build_queue(repo)
     if broken_queue:
-        # 队列连不上（数据库那半边挂了）时该怎么办。
+
         async def _boom(_job: object) -> None:
             raise RuntimeError("排队失败")
 
@@ -78,7 +75,6 @@ def client(app: FastAPI) -> httpx.AsyncClient:
 
 
 async def test_submit_accepts_and_persists_pending_without_calling_provider() -> None:
-    """202 的含义是「受理了」：库里有行，但还没碰过 provider。"""
 
     repo = InMemoryGenerationRepository()
     app = build_test_app(repo, granted=principal("generation:submit"))
@@ -94,7 +90,6 @@ async def test_submit_accepts_and_persists_pending_without_calling_provider() ->
 
 
 async def test_submit_records_the_api_key_that_did_it() -> None:
-    """谁的 key 干的永远可追（不变量 4）。"""
 
     key_id = uuid.uuid4()
     caller = Principal(
@@ -112,7 +107,6 @@ async def test_submit_records_the_api_key_that_did_it() -> None:
 
 
 async def test_owner_comes_from_the_principal_not_the_body() -> None:
-    """请求体里的 ownerUserId 一类字段进不来：多余字段直接 422。"""
 
     caller = principal("generation:submit")
     repo = InMemoryGenerationRepository()
@@ -149,7 +143,7 @@ async def test_submit_requires_the_submit_permission() -> None:
 
 
 async def test_reading_someone_elses_generation_is_a_404() -> None:
-    """不可见资源返回 404，不泄露它存不存在（不变量 8）。"""
+    """不可见资源返回 404，避免泄漏其存在性。"""
 
     job = make_job(video_request())
     repo = InMemoryGenerationRepository([job])
@@ -172,7 +166,7 @@ async def test_owner_reads_own_generation_and_manager_reads_everyones() -> None:
 
 
 async def test_origin_lands_on_columns_not_in_the_stored_request() -> None:
-    """来源是「这一行属于谁」，不是发给 provider 的参数：进表上的列，不进 request 那份 JSON。"""
+    """来源字段属于任务归属，单独存列，不包含在供应商请求 JSON 中。"""
 
     conversation_id = uuid.uuid4()
     repo = InMemoryGenerationRepository()
@@ -192,7 +186,6 @@ async def test_origin_lands_on_columns_not_in_the_stored_request() -> None:
 
 
 async def test_list_can_be_filtered_by_conversation() -> None:
-    """分镜工作台只要这段对话下面的生成记录；筛选不放宽可见性。"""
 
     owner_id = uuid.uuid4()
     conversation_id = uuid.uuid4()
@@ -218,7 +211,7 @@ async def test_list_rejects_out_of_range_limit() -> None:
 
 
 async def test_response_hides_provider_snapshot_and_queue_mechanics() -> None:
-    """provider 原始快照里带着签名 URL，租约与尝试次数是内部机制，都不外泄。"""
+    """响应排除包含签名 URL 的供应商快照及内部队列字段。"""
 
     job = make_job(video_request())
     repo = InMemoryGenerationRepository([job])
@@ -231,15 +224,11 @@ async def test_response_hides_provider_snapshot_and_queue_mechanics() -> None:
 
 
 async def test_failing_to_enqueue_fails_the_row_instead_of_leaving_it_pending() -> None:
-    """落行和排队是两个驱动两个事务，做不到原子。排队失败要照实说。
-
-    留一个「永远 pending」的行更糟：那看起来像还在排队，而其实永远不会有人做它。
-    """
+    """任务落库与入队分属两个事务；入队失败须标记失败，避免永久 pending。"""
 
     repo = InMemoryGenerationRepository()
     app = build_test_app(repo, granted=principal("generation:submit"), broken_queue=True)
     async with client(app) as http:
-        # 错误照原样往上抛（线上由 uvicorn 变成 500）：不假装受理成功了。
         with pytest.raises(RuntimeError, match="排队失败"):
             await http.post("/generations", json=VIDEO_BODY)
 

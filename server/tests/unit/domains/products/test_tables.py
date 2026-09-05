@@ -1,8 +1,4 @@
-"""码 → 名字三张对照表的口径：认得的翻译成人话，不认得的空着。
-
-这几条守的是同一件事：**上游加了新码时不许猜**。猜错的名字会一路流到界面上，而
-且没人看得出来它是错的。
-"""
+"""验证上游编码映射；未知编码保留原值，缺失名称不推断。"""
 
 from __future__ import annotations
 
@@ -22,7 +18,6 @@ def test_known_codes_are_translated() -> None:
 
 
 def test_unknown_codes_keep_the_code_and_drop_the_name() -> None:
-    """码是上游的事实，永远带出去；名字是我们的对照表，查不到就是没有。"""
 
     unknown_brand = brand_for("999")
     assert (unknown_brand.code, unknown_brand.name) == ("999", None)
@@ -40,7 +35,6 @@ def test_unknown_codes_keep_the_code_and_drop_the_name() -> None:
 
 
 def test_missing_codes_are_not_guessed() -> None:
-    """上游这一格是空的：不由别的字段推一个出来。"""
 
     assert brand_for(None).code is None
     assert category_for(None).id is None

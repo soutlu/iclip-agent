@@ -1,7 +1,6 @@
-"""素材台账的契约：素材的形状与后端 Protocol。
+"""素材台账协议。
 
-素材的身份就是那个 url 字符串，原样存原样查——不解析、不归一化、不看域名。查得到
-就是这段对话能用的素材，查不到就不是。
+以原始 URL 字符串精确识别素材，不解析或归一化；访问范围由命名空间限定。
 """
 
 from __future__ import annotations
@@ -11,22 +10,19 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 MaterialKind = Literal["image", "video"]
-"""台账记得下的种类。图和视频之外的东西没有工具收，不登记。"""
+"""工具支持的素材类型。"""
 
 
 @dataclass(frozen=True, slots=True)
 class Material:
-    """一份素材：地址，以及它是图还是视频。"""
+    """图片或视频素材及其 URL。"""
 
     url: str
     kind: MaterialKind
 
 
 class MaterialLedger(Protocol):
-    """按命名空间记素材的后端。
-
-    ``record`` 幂等：同一个 ``(namespace, url)`` 再记一次不报错、也不改原来那行。
-    """
+    """按命名空间登记素材；相同 (namespace, url) 重复登记保留首条记录。"""
 
     async def record(self, namespace: str, materials: Sequence[Material]) -> None: ...
 

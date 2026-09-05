@@ -17,20 +17,11 @@ type LoginDialogProps = {
   ssoErrorCode?: string | undefined
 }
 
-/**
- * 登录弹窗：用户点到需要登录的动作时弹出，登录成功就地关闭，不离开当前页面。
- *
- * @param props - 弹窗属性。
- * @param props.open - 是否展开。
- * @param props.onOpenChange - 展开状态变化回调（遮罩、Esc、关闭键、登录成功都会触发）。
- * @param props.ssoErrorCode - SSO 回跳失败时带回的错误码，展示在表单顶部。
- * @returns 登录弹窗。
- */
+/** 登录成功后就地关闭弹窗；onOpenChange 也用于遮罩、Esc 与关闭按钮。 */
 export function LoginDialog({ open, onOpenChange, ssoErrorCode }: LoginDialogProps) {
   const ssoErrorMessage = ssoErrorCode
     ? (SSO_ERROR_MESSAGES[ssoErrorCode] ?? 'SSO 登录失败，请重试')
     : undefined
-  // 探测后端是否开启企业 SSO，决定弹窗里是否展示飞书入口。
   const { data: ssoEnabled = false } = useQuery({
     enabled: open,
     queryFn: probeSsoLoginEnabled,

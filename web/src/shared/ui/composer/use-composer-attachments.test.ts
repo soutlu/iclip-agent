@@ -1,7 +1,3 @@
-/**
- * Composer 附件状态机：上传管线（签名 → 直传 → 登记）、失败文案、refCount 回收。
- */
-
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,7 +16,7 @@ const mint = (result: { current: ReturnType<typeof useComposerAttachments> }, fi
 
 describe('useComposerAttachments', () => {
   afterEach(() => {
-    // createObjectURL/revokeObjectURL 是测试补在全局 URL 上的，用完摘掉
+    // 撤销测试添加到全局 URL 的方法，避免污染其他用例。
     delete (URL as unknown as Record<string, unknown>)['createObjectURL']
     delete (URL as unknown as Record<string, unknown>)['revokeObjectURL']
   })
@@ -35,7 +31,6 @@ describe('useComposerAttachments', () => {
     const entry = result.current.entries.get(attId)
     expect(entry?.url).toContain('/mock-oss/')
     expect(entry?.progress).toBeUndefined()
-    // ready 后预览换成公网地址
     expect(entry?.previewUrl).toBe(entry?.url)
   })
 
@@ -63,13 +58,12 @@ describe('useComposerAttachments', () => {
     expect(result.current.entries.has(dropped)).toBe(false)
     expect(result.current.entries.has(kept)).toBe(true)
 
-    // 「删掉.png」的上传随后才完成：entry 已回收，回写不得复活它
+    // 上传晚于删除完成时，异步回写不得恢复已回收条目。
     await waitFor(() => expect(result.current.entries.get(kept)?.status).toBe('ready'))
     expect(result.current.entries.has(dropped)).toBe(false)
   })
 
   it('本地预览在回收时 revoke（blob 才收，公网地址不动）', async () => {
-    // jsdom 的 URL 没有 createObjectURL，补一个可观测的
     let nextBlob = 0
     URL.createObjectURL = vi.fn(() => `blob:mock-${(nextBlob += 1)}`)
     URL.revokeObjectURL = vi.fn()
@@ -90,11 +84,10 @@ describe('useComposerAttachments', () => {
     await waitFor(() => expect(result.current.entries.get(second)?.status).toBe('ready'))
     expect(result.current.entries.get(first)?.status).toBe('ready')
 
-    // 文档顺序与建 entry 顺序相反：按文档序给
+    // 文档顺序与条目创建顺序相反，验证输出使用文档顺序。
     const ready = result.current.takeReady([second, first])
     expect(ready.map((entry) => entry.name)).toEqual(['二.png', '一.png'])
 
-    // 清掉（模拟发送后清空文档）再还回来
     act(() => result.current.syncReferences([]))
     expect(result.current.entries.size).toBe(0)
     act(() => result.current.restoreEntries(ready))

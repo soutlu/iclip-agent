@@ -1,18 +1,11 @@
-"""iclip.projects / iclip.task_projects：项目，以及单与会话往项目里的归属
+"""iclip.projects / iclip.task_projects：项目及归属关系
 
 Revision ID: c8e2b47f1a95
 Revises: a4d7c9518e63
 Create Date: 2026-08-25 16:00:00.000000
 
-项目是归拢用的口袋。一张需求单可以同时算在几个项目里（既是春季童鞋，也是北美站的
-活），所以那一头是连接表；一段会话只待在一个口袋里，所以那一头是会话表上的一列。
-
-两处归属都可以为空，也都用 SET NULL / CASCADE 而不是级联删行：**删掉一个项目不该带
-走任何人的会话，也不该带走需求单**——口袋没了，东西还在。
-
-会话上那一列不校验「必须是它那张单挂过的项目」：单挂的项目只是新建会话时的默认值，
-不是围栏。管了反而要多定一条规则——单后来取消了某个项目，已经放进去的老会话算不算
-违规。
+需求单与项目为多对多，会话通过可空外键归属单个项目。
+删除项目仅解除归属，不删除需求单或会话；会话项目不受需求单项目列表限制。
 """
 
 from __future__ import annotations
@@ -34,8 +27,7 @@ def upgrade() -> None:
     op.create_table(
         "projects",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        # 同 tasks.creator_user_id：项目是记录在案的东西，不该跟着建它的那个账号一起
-        # 消失。账号目前只停用不删除，所以 restrict 挡不住任何正常路径。
+        # 保留项目记录，禁止随创建者账号级联删除。
         sa.Column(
             "creator_user_id",
             sa.Uuid(),
@@ -68,12 +60,10 @@ def upgrade() -> None:
             sa.ForeignKey(f"{SCHEMA}.projects.id", ondelete="cascade"),
             nullable=False,
         ),
-        # 两列即主键：同一张单挂同一个项目两遍，在表结构上就放不下。
         sa.PrimaryKeyConstraint("task_id", "project_id"),
         schema=SCHEMA,
     )
-    # 主键首列是 task_id，「这张单挂了哪些项目」够用了；反向那问「这个项目里有哪些
-    # 单」得自己一个索引。
+    # 联合主键仅覆盖 task_id 查询，项目维度需单独索引。
     op.create_index(
         "ix_task_projects_project",
         "task_projects",
@@ -101,8 +91,7 @@ def upgrade() -> None:
         ),
         schema=SCHEMA,
     )
-    # 两个索引都带 WHERE：没挂单、没进项目的会话是多数，不该占索引。
-    # 单那条按 created_at 升序——「这张单的第几次尝试」就是按它排出来的。
+    # 部分索引排除无归属会话；需求单内按 created_at 排列创作尝试。
     op.create_index(
         "ix_conversations_task",
         "conversations",

@@ -2,17 +2,8 @@ import { http, HttpResponse } from 'msw'
 import { transcriptHandlers } from './transcript'
 import { workspaceHandlers } from './workspace'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MSW REST 契约镜像
-//
-//   - 单测：src/testing/setup.ts 已全局 listen / reset / close，测试里只在需要改响应时
-//     `server.use(...)` 覆盖单个端点。
-//   - 浏览器原型与 e2e：`pnpm dev:mock` 经 browser.ts 注册本数组；普通 `pnpm dev` 不注册。
-//
-// 端点形状以 contract/openapi.json 为准（响应要过生成的 zod schema），不凭印象编。
-// ─────────────────────────────────────────────────────────────────────────────
+// MSW handlers 由单测与 dev:mock 共用；普通 dev 不注册。响应字段以 contract/openapi.json 为准。
 
-/** 默认已登录用户：形状即合同 UserOut（缺一个必填字段就过不了 zUserEnvelope）。 */
 export const mockAuthUser = {
   avatarUrl: '',
   city: '',
@@ -37,18 +28,17 @@ export const mockAuthUser = {
   username: 'tester',
 }
 
-// 登录态是有状态的：没登录过 /users/me 就是 401，登录后才有用户——否则登录页永远直接被
-// 守卫送回首页，登录旅程根本走不到。浏览器里这份状态随页面刷新归零，单测在 afterEach 归零。
+// 会话状态由登录更新；页面刷新和单测清理后重置为未登录。
 let sessionActive = false
 
-// 签名时记下的上传类型：登记回包按它给 assetType/contentType（assetId → contentType）。
+// 按 assetId 记录签名时的 contentType，登记响应复用此信息。
 const mockUploads = new Map<string, string>()
 
 export const resetMockSession = () => {
   sessionActive = false
 }
 
-// 对话的内存存储：形状即合同 ConversationOut。搜索按标题过滤，跟后端一样不分大小写。
+// 内存对话遵循 ConversationOut，标题搜索不区分大小写。
 type MockConversation = {
   activity: {
     busy: boolean
@@ -68,16 +58,8 @@ type MockConversation = {
 
 export const mockConversations: MockConversation[] = []
 
-/**
- * 往内存存储里塞一段对话，字段补全到合同形状。
- *
- * @param title - 对话标题。
- * @param updatedAt - 最近活动时刻，列表与搜索都按它倒序。
- * @returns 落库形状的对话。
- */
 export const addMockConversation = (title: string, updatedAt = new Date().toISOString()) => {
   const conversation: MockConversation = {
-    // 原型里没有真在跑的运行；要演行尾状态就改这一份（busy 转圈、lastTurnReason 收场）。
     activity: { busy: false, lastTurnReason: null, pendingInteraction: 'none' },
     agentId: 'storyboard',
     collectionId: null,
@@ -98,7 +80,6 @@ export const resetMockConversations = () => {
   mockCollections.length = 0
 }
 
-// 合集的内存存储：形状即合同 CollectionOut。
 type MockCollection = {
   createdAt: string
   id: string
@@ -109,12 +90,6 @@ type MockCollection = {
 
 export const mockCollections: MockCollection[] = []
 
-/**
- * 往内存存储里塞一个合集。
- *
- * @param name - 合集名字。
- * @returns 落库形状的合集。
- */
 export const addMockCollection = (name: string) => {
   const now = new Date().toISOString()
   const collection: MockCollection = {
@@ -128,14 +103,12 @@ export const addMockCollection = (name: string) => {
   return collection
 }
 
-// 侧栏拓扑的截断口径照后端来：每个合集内嵌最近 10 段，没归类的给最近 20 条。
 const SIDEBAR_PER_COLLECTION = 10
 const SIDEBAR_UNGROUPED = 20
 
 const byRecent = (a: MockConversation, b: MockConversation) =>
   b.updatedAt.localeCompare(a.updatedAt)
 
-/** 一页对话：取满一页就给下一页的位置（口径同后端）。 */
 const pageOf = (rows: MockConversation[], limit: number) => {
   const items = rows.slice(0, limit)
   const last = items[items.length - 1]
@@ -145,25 +118,19 @@ const pageOf = (rows: MockConversation[], limit: number) => {
   }
 }
 
-/**
- * 列表筛选，口径同后端：`running` 是有轮次在跑（含等审批），`done` 是没在跑而且跑完过至少
- * 一轮；从没跑过的只在 `all` 里。两个数字按同一筛选算。
- */
+/** 筛选与后端一致：running 包含待审批，done 要求已结束且至少运行过一轮；计数使用相同筛选。 */
 const inState = (item: MockConversation, state: string | null) => {
   if (state === 'running') return item.activity.busy
   if (state === 'done') return !item.activity.busy && item.activity.lastTurnReason !== null
   return true
 }
 
-/** 按翻页位置切掉上一页给过的那些。 */
 const after = (rows: MockConversation[], cursor: string | null) => {
   if (!cursor) return rows
   const index = rows.findIndex((item) => `${item.updatedAt}|${item.id}` === cursor)
   return index < 0 ? rows : rows.slice(index + 1)
 }
 
-// 需求单的内存存储：形状即合同 TaskOut（zTaskOut 会校验，缺字段过不了边界）。
-// 测试经 server.use 覆盖单端点，或直接改这个数组后 invalidate 查询。
 type MockTask = {
   assigneeUserIds: string[]
   brief: Record<string, unknown>
@@ -180,12 +147,6 @@ type MockTask = {
 
 export const mockTasks: MockTask[] = []
 
-/**
- * 往内存存储里塞一张需求单，字段补全到合同形状。
- *
- * @param title - 需求单标题。
- * @returns 落库形状的需求单。
- */
 export const addMockTask = (title: string) => {
   const now = new Date().toISOString()
   const task: MockTask = {
@@ -210,31 +171,27 @@ export const resetMockTasks = () => {
 }
 
 export const handlers = [
-  // ── auth（src/shared/auth/cue-auth.api.ts）─────────────────────────────
-  // GET /users/me：会话唯一事实源，响应为 { user } 包装；未登录时后端返回 401。
+  // /users/me 是会话事实源，未登录时返回 401。
   http.get('*/api/users/me', () =>
     sessionActive
       ? HttpResponse.json({ user: mockAuthUser })
       : new HttpResponse(null, { status: 401 }),
   ),
 
-  // POST /auth/login：fastapi-users OAuth2 表单登录，成功 204 并种 HttpOnly cookie。
   http.post('*/api/auth/login', () => {
     sessionActive = true
     return new HttpResponse(null, { status: 204 })
   }),
 
-  // POST /auth/logout：注销会话并清 cookie；会话本就失效时后端返回 401（前端视为成功）。
   http.post('*/api/auth/logout', () => {
     sessionActive = false
     return new HttpResponse(null, { status: 204 })
   }),
 
-  // GET /auth/sso/authorize：mock 环境不开 SSO，后端关着时这条路由不挂载（404），登录页据此只显示账号密码。
+  // mock 不启用 SSO，以 404 表示路由未挂载。
   http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
 
-  // ── conversations（src/features/conversations/conversations.api.ts）──────
-  // GET /conversations/search：按标题搜我的对话，最近活动倒序（后端是 ILIKE，这里同样不分大小写）。
+  // 模拟 ILIKE 的大小写不敏感标题搜索，按最近活动排序。
   http.get('*/api/conversations/search', ({ request }) => {
     const keyword = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase()
     const items = [...mockConversations]
@@ -243,8 +200,7 @@ export const handlers = [
     return HttpResponse.json({ items })
   }),
 
-  // GET /conversations：侧栏拓扑——我的合集（各带总数与第一页）+ 没归类的第一页。
-  // 翻页位置照后端来：`updatedAt|id`，前端只当不透明字符串回传。
+  // 分页游标使用 updatedAt|id；前端将其视为不透明值。
   http.get('*/api/conversations', ({ request }) => {
     const state = new URL(request.url).searchParams.get('state')
     const sorted = [...mockConversations].sort(byRecent).filter((item) => inState(item, state))
@@ -267,7 +223,6 @@ export const handlers = [
     })
   }),
 
-  // POST /conversations：新建一段对话，落进内存存储，侧栏随后重拉就能看到。
   http.post('*/api/conversations', async ({ request }) => {
     const body = (await request.json()) as { agentId: string; title?: string | null }
     const conversation = addMockConversation(body.title ?? '新对话')
@@ -275,7 +230,6 @@ export const handlers = [
     return HttpResponse.json({ conversation }, { status: 201 })
   }),
 
-  // GET /conversations/ungrouped、/by-collection/:id：往下滑加载更多。
   http.get('*/api/conversations/ungrouped', ({ request }) => {
     const query = new URL(request.url).searchParams
     const rows = [...mockConversations]
@@ -294,7 +248,6 @@ export const handlers = [
     return HttpResponse.json(pageOf(after(rows, query.get('cursor')), SIDEBAR_PER_COLLECTION))
   }),
 
-  // PUT /conversations/:id/collection、PUT /conversations/:id/task：两处归属各一个端点。
   http.put('*/api/conversations/:conversationId/collection', async ({ params, request }) => {
     const conversation = mockConversations.find((item) => item.id === params['conversationId'])
     if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
@@ -314,7 +267,6 @@ export const handlers = [
     return HttpResponse.json({ conversation })
   }),
 
-  // PATCH /conversations/:id：重命名；DELETE /conversations/:id：删除。
   http.patch('*/api/conversations/:conversationId', async ({ params, request }) => {
     const conversation = mockConversations.find((item) => item.id === params['conversationId'])
     if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
@@ -330,8 +282,6 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
-  // ── collections（src/features/collections/collections.api.ts）────────────
-  // 内存版合集：只列自己的，最近改动倒序；新建 / 改名 / 删除。删掉时把对话上那一列置空。
   http.get('*/api/collections', () =>
     HttpResponse.json({
       items: [...mockCollections].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
@@ -361,8 +311,6 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
-  // ── tasks（src/features/tasks/tasks.api.ts）──────────────────────────────
-  // 内存版需求单：支持列表（含 claimedBy=me）、详情、创建、整体覆盖、发布/认领/撤回。
   http.get('*/api/tasks', ({ request }) => {
     const url = new URL(request.url)
     let items = [...mockTasks]
@@ -469,9 +417,7 @@ export const handlers = [
     return HttpResponse.json({ task })
   }),
 
-  // ── assets 上传（src/shared/ui/composer/use-composer-attachments.ts）───────
-  // 三步镜像：签名拿 assetId 与直传地址 → PUT 字节到 mock OSS → 登记拿回公网地址。
-  // 登记响应的 assetType/contentType 照签名时记下的类型给（与后端从桶里读到的口径一致）。
+  // 签名、直传与登记共用上传类型记录，保持登记响应与签名一致。
   http.post('*/api/uploads/sign', async ({ request }) => {
     const body = (await request.json()) as { contentType: string }
     const assetId = crypto.randomUUID()
@@ -507,9 +453,7 @@ export const handlers = [
     )
   }),
 
-  // ── 工作区文件与生成任务（src/shared/workbench、src/features/storyboard）───
   ...workspaceHandlers,
 
-  // ── transcript（src/shared/transcript）─────────────────────────────────
   ...transcriptHandlers,
 ]

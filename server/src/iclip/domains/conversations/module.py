@@ -26,7 +26,7 @@ from iclip.domains.conversations.service import (
 @dataclass(frozen=True)
 class ConversationsModule:
     routers: tuple[Any, ...]
-    """路由的类型写 ``Any``（同 identity / generation）：装配单元不该把 web 框架拖进这一环。"""
+    """使用 Any 隔离 Web 框架类型。"""
 
     service: ConversationService
 
@@ -45,16 +45,7 @@ def build_conversations_module(
     activities_of: ActivitiesOf,
     conversation_ids_by_state: ConversationIdsByState,
 ) -> ConversationsModule:
-    """装配 conversations。
-
-    每个口子都由组合根接线：``purge_derived``（删对话时连带删掉派生物）、
-    ``list_collections``（侧栏要显示的合集名字）、``list_derived_files`` 与
-    ``read_derived_file``、``write_derived_file``（列出、读取、整份写下这段对话里的文件）、
-    ``document_validators``（哪条路径上的文件写进去之前要先过谁那一关）、``generate_title``
-    （拿模型起个标题）、``announce_title``（标题变了推给还连着的标签页）、``activities_of``
-    （这批对话此刻各在忙什么）、``conversation_ids_by_state``（在跑的 / 跑完过的是哪几段）。
-    本模块不知道接上去的是什么，见 ``service.py``。
-    """
+    """外部依赖由组合根注入，协议定义见 service.py。"""
 
     service = ConversationService(
         repo,

@@ -1,7 +1,4 @@
-"""T-TASK-01：/tasks 的权限、状态机与冻结规则。
-
-不碰数据库：仓储用内存替身，主体由测试中间件写进 ``request.state.principal``。
-"""
+"""使用内存仓储验证 /tasks 权限、状态机和冻结规则；身份由测试中间件注入。"""
 
 from __future__ import annotations
 
@@ -41,7 +38,7 @@ BODY: dict[str, object] = {
 
 
 def editor(user_id: uuid.UUID | None = None, *extra: str) -> Principal:
-    """预置的 editor 角色两个权限都有；只给一个的主体在真实角色表里不存在。"""
+    """预置 editor 同时持有这两个权限，真实角色表中不存在只授予其一的角色。"""
 
     return principal("tasks:read", "tasks:write", *extra, user_id=user_id)
 
@@ -84,7 +81,6 @@ def client(app: FastAPI) -> httpx.AsyncClient:
 
 
 def body_of(task: object, **overrides: object) -> dict[str, object]:
-    """把一张需求单还原成 PUT 的请求体（PUT 是整体覆盖）。"""
 
     assert isinstance(task, dict)
     payload = {key: task[key] for key in ("title", "priority", "deadline", "brief")}
@@ -93,7 +89,6 @@ def body_of(task: object, **overrides: object) -> dict[str, object]:
 
 
 async def test_creating_lands_a_draft_owned_by_the_caller() -> None:
-    """建出来就是草稿，创建者取自主体而不是请求体。"""
 
     repo = InMemoryTaskRepository()
     caller = principal("tasks:write")
@@ -108,14 +103,12 @@ async def test_creating_lands_a_draft_owned_by_the_caller() -> None:
 
 
 async def test_style_snapshot_is_frozen_at_creation() -> None:
-    """款号快照由服务端抄，客户端说不上话，之后也改不动。"""
 
     repo = InMemoryTaskRepository()
     snapshots = StubStyleSnapshots()
     app = build_test_app(repo, granted=principal("tasks:write", "tasks:read"), snapshots=snapshots)
     async with client(app) as http:
         created = (await http.post("/tasks", json=BODY)).json()["task"]
-        # 想换款：PUT 里塞 styleNo 或 style 一律 422（形状里没有这两个字段）
         assert (
             await http.put(f"/tasks/{created['id']}", json=body_of(created, styleNo="OTHER1"))
         ).status_code == 422
@@ -137,7 +130,6 @@ async def test_style_snapshot_is_frozen_at_creation() -> None:
 
 
 async def test_style_nos_default_to_the_primary_style() -> None:
-    """没给款号全集就是「只拍这一个款」；给了就得把主款排首位（首位不对的那条见坏形状用例）。"""
 
     repo = InMemoryTaskRepository()
     caller = principal("tasks:write")
@@ -155,7 +147,6 @@ async def test_style_nos_default_to_the_primary_style() -> None:
 
 
 async def test_editing_a_draft_cannot_drift_from_the_snapshot() -> None:
-    """PUT 是整体覆盖，但主款号跟着快照走：不给就补回来，给错首位就 422。"""
 
     task = make_task(brief=make_brief(style_nos=[STYLE_NO]))
     repo = InMemoryTaskRepository([task])
@@ -163,11 +154,9 @@ async def test_editing_a_draft_cannot_drift_from_the_snapshot() -> None:
     async with client(build_test_app(repo, granted=caller)) as http:
         current = (await http.get(f"/tasks/{task.id}")).json()["task"]
 
-        # 不给 styleNos：整体覆盖不该把它清空
         without = body_of(current, brief={"theme": "换个主题"})
         assert (await http.put(f"/tasks/{task.id}", json=without)).status_code == 200
 
-        # 首位换成别的款：那就和快照说的不是同一个款了
         drifted = body_of(current, brief={**current["brief"], "styleNos": ["OTHER1"]})
         assert (await http.put(f"/tasks/{task.id}", json=drifted)).status_code == 422
 
@@ -177,7 +166,6 @@ async def test_editing_a_draft_cannot_drift_from_the_snapshot() -> None:
 
 
 async def test_style_nos_freeze_on_publish() -> None:
-    """款号全集是需求方的创作输入，下发之后动它就是 409（不在可补充的那几项里）。"""
 
     task = make_task(status=STATUS_PUBLISHED, brief=make_brief(style_nos=[STYLE_NO]))
     repo = InMemoryTaskRepository([task])
@@ -188,7 +176,6 @@ async def test_style_nos_freeze_on_publish() -> None:
 
 
 async def test_creator_cannot_be_supplied_by_the_client() -> None:
-    """请求体里的 creatorUserId 一类字段进不来：多余字段直接 422。"""
 
     async with client(
         build_test_app(InMemoryTaskRepository(), granted=principal("tasks:write"))
@@ -205,12 +192,9 @@ async def test_creator_cannot_be_supplied_by_the_client() -> None:
         {"title": "x", "styleNo": STYLE_NO, "brief": {"ratio": "7:3"}},
         {"title": "x", "styleNo": STYLE_NO, "brief": {"referenceImages": ["file:///etc/passwd"]}},
         {"title": "x", "styleNo": STYLE_NO, "brief": {"unknownField": "x"}},
-        # 款号是必填的：没有它就说不清这张单子要拍什么
         {"title": "x"},
         {"title": "x", "styleNo": ""},
-        # 产品资料里查不到这个款
         {"title": "x", "styleNo": "NOSUCHSTYLE"},
-        # 款号全集的首位必须是主款
         {"title": "x", "styleNo": STYLE_NO, "brief": {"styleNos": ["OTHER1", STYLE_NO]}},
     ],
 )
@@ -233,7 +217,6 @@ async def test_permissions_gate_the_two_kinds_of_access() -> None:
 
 
 async def test_everyone_sees_every_task() -> None:
-    """需求单是全公司的工作队列：别人提的也看得见，不做归属过滤。"""
 
     task = make_task()
     repo = InMemoryTaskRepository([task])
@@ -244,7 +227,6 @@ async def test_everyone_sees_every_task() -> None:
 
 
 async def test_a_draft_is_the_creators_own_business() -> None:
-    """草稿只有提它的人（或治理者）能改能删；看得见但不让改是 403，不是 404。"""
 
     task = make_task()
     repo = InMemoryTaskRepository([task])
@@ -273,16 +255,13 @@ async def test_publishing_needs_a_deadline_and_something_to_make() -> None:
     caller = editor(creator)
 
     async with client(build_test_app(repo, granted=caller)) as http:
-        # 没定期限
         assert (await http.post(f"/tasks/{bare.id}/publish")).status_code == 422
-        # 定了期限，但 brief 里一句要做什么都没有
         dated = body_of(
             (await http.get(f"/tasks/{bare.id}")).json()["task"],
             deadline=future().isoformat(),
         )
         assert (await http.put(f"/tasks/{bare.id}", json=dated)).status_code == 200
         assert (await http.post(f"/tasks/{bare.id}/publish")).status_code == 422
-        # 补上一句需求描述就能发
         said = body_of(
             (await http.get(f"/tasks/{bare.id}")).json()["task"],
             brief={"requirementDescription": "三十秒的上身效果"},
@@ -302,14 +281,10 @@ async def test_publishing_is_the_creators_call() -> None:
 
 
 async def test_published_input_is_frozen_but_planner_fields_stay_open() -> None:
-    """下发即冻结：需求方写下的创作输入不许再动，接单之后才补得出的那几项还能改。
-
-    这条断言是 ``published`` 这个状态的全部意义所在——去掉它，发布就只是改了个字。
-    """
+    """发布后冻结创作输入，仅允许补充规划字段。"""
 
     task = make_task(status=STATUS_PUBLISHED, brief=make_brief(theme="秋冬新品", purpose="种草"))
     repo = InMemoryTaskRepository([task])
-    # 接单的是另一个人，不是提需求的人：发布之后的补充谁都能做。
     async with client(build_test_app(repo, granted=editor())) as http:
         current = (await http.get(f"/tasks/{task.id}")).json()["task"]
 
@@ -329,7 +304,7 @@ async def test_published_input_is_frozen_but_planner_fields_stay_open() -> None:
 
 
 async def test_published_task_must_keep_a_deadline() -> None:
-    """数据库上有一条 CHECK 守着这件事；先在这一层说清楚，别让驱动去抛。"""
+    """在服务层拒绝缺失期限，避免触发数据库 CHECK 后泄漏驱动错误。"""
 
     task = make_task(status=STATUS_PUBLISHED)
     repo = InMemoryTaskRepository([task])
@@ -345,7 +320,6 @@ async def test_published_task_must_keep_a_deadline() -> None:
         (STATUS_DRAFT, "confirm", 409),
         (STATUS_DRAFT, "withdraw", 409),
         (STATUS_PUBLISHED, "publish", 409),
-        # 多人认领：已确认的单还能再认领，追加一个认领人。
         (STATUS_CONFIRMED, "confirm", 200),
         (STATUS_CONFIRMED, "publish", 409),
         (STATUS_WITHDRAWN, "confirm", 409),
@@ -356,7 +330,6 @@ async def test_published_task_must_keep_a_deadline() -> None:
     ],
 )
 async def test_illegal_transitions_are_conflicts(status: str, action: str, expected: int) -> None:
-    """走不通的流转一律 409。合同把 409 的释义定成「与资源当前状态冲突」。"""
 
     task = make_task(status=status, deadline=future())  # type: ignore[arg-type]
     repo = InMemoryTaskRepository([task])
@@ -367,7 +340,7 @@ async def test_illegal_transitions_are_conflicts(status: str, action: str, expec
 
 @pytest.mark.parametrize("status", [STATUS_PUBLISHED, STATUS_CONFIRMED, STATUS_WITHDRAWN])
 async def test_only_drafts_can_be_deleted(status: str) -> None:
-    """下发之后就删不掉了：别人可能正照着它干活。不想做了就撤回，撤回留痕。"""
+    """已发布需求单通过撤回留痕，不能直接删除。"""
 
     task = make_task(status=status, deadline=future())  # type: ignore[arg-type]
     repo = InMemoryTaskRepository([task])
@@ -399,7 +372,6 @@ async def test_list_filters_by_status_and_rejects_out_of_range_limit() -> None:
 
 
 async def test_confirm_records_who_claimed() -> None:
-    """认领要记名：认领人落进 assigneeUserIds，客户端靠它判断「我认领过没有」。"""
 
     task = make_task(status=STATUS_PUBLISHED, deadline=future())
     repo = InMemoryTaskRepository([task])
@@ -412,7 +384,6 @@ async def test_confirm_records_who_claimed() -> None:
 
 
 async def test_multiple_people_can_claim_the_same_task() -> None:
-    """多人认领：已确认的单再认领不报错，认领人追加而不是覆盖。"""
 
     first = editor()
     task = make_task(status=STATUS_CONFIRMED, deadline=future(), assignee_user_ids=(first.user_id,))
@@ -427,7 +398,6 @@ async def test_multiple_people_can_claim_the_same_task() -> None:
             str(second.user_id),
         ]
 
-    # 同一个人再认领一次是幂等的，不会冒出第二行。
     async with client(build_test_app(repo, granted=second)) as http:
         again = await http.post(f"/tasks/{task.id}/confirm")
         assert again.json()["task"]["assigneeUserIds"] == [
@@ -437,7 +407,6 @@ async def test_multiple_people_can_claim_the_same_task() -> None:
 
 
 async def test_claimed_by_me_lists_only_my_claims() -> None:
-    """「我的项目」：claimedBy=me 只看自己认领的单，认领人取服务端身份而不是参数。"""
 
     me = editor()
     mine = make_task(status=STATUS_CONFIRMED, deadline=future(), assignee_user_ids=(me.user_id,))

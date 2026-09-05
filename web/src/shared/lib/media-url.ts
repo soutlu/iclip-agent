@@ -1,13 +1,8 @@
-/**
- * 媒体地址上的几件小事：取文件名、给 OSS 地址挂缩略参数。
- *
- * 处理参数只挂得上 OSS 自家域名，而且地址上不能已经有 query——再拼一个参数上去只会得到一个
- * 废地址。其他来源的地址给不出缩略图。
- */
+/** OSS 缩略参数仅适用于无 query / hash 的 aliyuncs.com 地址，其他来源不追加处理参数。 */
 
 const OSS_PLAIN_URL = /^https?:\/\/[^/?#]*\.aliyuncs\.com\/[^?#]*$/
 
-/** 地址最后一段当文件名：去掉 query 与 hash，解开百分号编码。data: 地址没有文件名，给空串。 */
+/** 从路径末段解码文件名，忽略 query 与 hash；data: 返回空串。 */
 export const fileNameOfUrl = (url: string): string => {
   if (url.startsWith('data:')) return ''
   const path = url.split(/[?#]/, 1)[0] ?? url
@@ -18,10 +13,7 @@ export const fileNameOfUrl = (url: string): string => {
 export const imageThumbnailUrl = (url: string): string =>
   OSS_PLAIN_URL.test(url) ? `${url}?x-oss-process=image/resize,l_64` : url
 
-/**
- * 视频首帧截图（高按比例）；不是 OSS 地址就没有。宽度默认 128 够画芯片上那颗小图，
- * 当 <video> 的 poster 时要按预览区的尺寸要一张，否则放大后是糊的。
- */
+/** 仅 OSS 支持视频首帧；poster 调用方需按显示尺寸指定宽度，避免放大模糊。 */
 export const videoSnapshotUrl = (url: string, width = 128): string | undefined =>
   OSS_PLAIN_URL.test(url)
     ? `${url}?x-oss-process=video/snapshot,t_0,f_jpg,w_${width},h_0,m_fast`

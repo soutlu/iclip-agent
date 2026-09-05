@@ -1,19 +1,7 @@
-"""码 → 名字的三张对照表。
+"""产品编码到名称的静态映射，未知编码返回 None。
 
-**上游只给码，不给名字。** 目录库里 style 行上的品牌是裸数字（``"2"``）、品类是裸
-主键（``52``）、颜色大类是两字母码（``"BL"``）；翻译成人话要的那几张表没被同步进
-来。所以名字在这里，抽自权威源、冻在代码里：
-
-- 品牌：BDE 数仓按款号 join ERP 的 ``brand_name``，再按码聚合（2026-08-25 抽取）。
-- 品类：BDE 数仓的 PDM 品类表全量，``id`` 就是 style 行上的那个外键（同日抽取）。
-- 色系：目录库自己的字典 ``COLOR_CATEGORY``（同日抽取）。
-
-它们是别人的码表、不是我们的事实，所以放代码里当配置，不进数据库、不进 YAML——性质
-同 ``rbac.py`` 的预置角色表。
-
-**上游加了新码，这里查不到就返回 ``None``，绝不猜。** 界面上空一格看得见，猜错了没
-人看得见。
-"""
+品牌来自 BDE 数仓与 ERP 的 brand_name 关联结果，品类来自 PDM 品类表，
+色系来自目录库 COLOR_CATEGORY 字典。"""
 
 from __future__ import annotations
 
@@ -24,11 +12,11 @@ from iclip.domains.products.models import Brand, Category, ColorGroup
 _BRAND_NAMES: Final[dict[str, str]] = {
     "1": "Bruno Marc",
     "2": "DREAM PAIRS",
-    # ERP 里两种拼法并存（NORTIV8 1216 款 / NORTIV 8 292 款），取多数那个。
+    # ERP 存在 NORTIV8 与 NORTIV 8 两种拼写，统一为 NORTIV8。
     "3": "NORTIV8",
     "4": "TOETOS",
     "7": "BURUDANI",
-    # 童鞋线：ERP 里一半的款登记成父品牌 DREAM PAIRS，这里统一叫童鞋线的名字。
+    # 部分童鞋款使用父品牌名称，此处统一为童鞋线名称。
     "8": "DREAM PAIRS KIDS",
     "9": "ALLSWIFIT",
     "10": "SHOEDAZZLE",
@@ -140,7 +128,7 @@ def category_for(category_id: int | None) -> Category:
 
 
 def color_group_for(code: str | None) -> ColorGroup | None:
-    """颜色大类；上游没打这个标就是没有，不由颜色码去猜。"""
+    """按上游颜色大类标记查询，不从颜色码推断。"""
 
     if not code:
         return None

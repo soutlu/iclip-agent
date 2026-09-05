@@ -1,17 +1,4 @@
-"""capability 名字表：``agents.yaml`` 写名字，这里持有实现。
-
-和 ``config.yaml`` 的 ``models`` 段同一个套路——声明面只出现名字，实现由代码持
-有，组合根做翻译。
-
-**为什么不写进 agent spec 自己的 ``capabilities:`` 段。** 官方那条路是通的（我们
-走的就是 ``Agent.from_spec``，spec 里能声明官方内置能力），但它只传得进 YAML 能
-序列化的值，而这里的能力握着数据库连接池。官方自己也止步于此：它的 ``Memory``
-在 spec 里只给内存/文件/sqlite 三种后端，明明有 Postgres 的实现却不给选，就是因
-为连接池长不出来。所以需要运行期对象的能力走这张表。
-
-表放在组合根而不是 ``capabilities/``，是因为能力里的工具迟早要调 domain 的服务，
-而只有这里同时看得见 domains 与 capabilities。
-"""
+"""能力名称到运行实例的装配表。agents.yaml 仅声明名称，组合根注入连接池与领域服务等运行对象。"""
 
 from __future__ import annotations
 
@@ -46,36 +33,21 @@ from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObject
 from iclip.platform.transcript.display import ToolDisplayRegistry, ToolDisplaySource
 
 CapabilityTable = Mapping[str, AgentCapabilities]
-"""名字 → 这个名字挂上去的那几件能力。
-
-值是元组而不是单件，因为一个名字挂多件是真实存在的形状（skill 库就是「按需加载
-的指令 + 读 references 的工具」两件）。同一个实例被多个 agent 共用是安全的：
-capability 的 ``for_run`` 每次运行克隆一份，运行期状态不落在共享实例上。
-"""
+"""能力名称对应一组实例；同一声明可挂载多项能力，运行状态由 for_run 克隆隔离。"""
 
 REQUIRES: Mapping[str, tuple[str, ...]] = {"shot_video": ("workspace",)}
-"""挂某个名字就必须一起挂的名字。
-
-``shot_video`` 写的文档与账本要靠 ``workspace`` 的 ``read_file`` / ``edit_file``
-让模型看得见、改得动；少挂一个的后果是静默的——文档照写照读，只是模型看不见。
-所以在装配期就拦，而不是等模型撞上去。
-"""
+"""能力挂载依赖；shot_video 的文档与台账需要 workspace 工具访问，装配时统一校验。"""
 
 
 class GenerationsAdapter:
-    """把 generation 域的服务接到能力包的窄协议上。
-
-    翻译只做两件事：拼出生成域那套唯一的请求定义（取值合不合法由它判，这里不再
-    写一遍），以及把 job 行收窄成能力包看得懂的几个字段。
-    """
+    """将能力请求转换为生成域的统一请求模型，并将任务记录收窄为能力协议字段。"""
 
     def __init__(self, service: GenerationService) -> None:
         self._service = service
 
     async def submit(self, principal: Principal, request: ImageRequest) -> ImageJob:
         try:
-            # 走 model_validate 而不是构造器：画幅与档位是封闭枚举，模型给的是自
-            # 由字符串，判定归生成域那套唯一的请求定义，不在这里再写一遍。
+            # 模型输入为自由字符串，由生成域请求模型统一校验枚举。
             payload = ImageGenerationIn.model_validate(
                 {
                     "prompt": request.prompt,
@@ -104,11 +76,9 @@ _IMAGE_MEDIA_TYPES: Mapping[str, str] = {
 
 
 class OssMediaProbe:
-    """问 OSS 的 ``image/info`` 取一张图的原始信息。
+    """通过 OSS image/info 查询尺寸、大小与格式，无需下载像素。
 
-    只取宽高、字节数与格式，不下载像素。失败的原因会原样进模型面的错误消息，所以
-    这里给的是几句固定的中文，不是 httpx 的英文异常（那还会把带参数的地址抄一遍）。
-    """
+    对外错误使用固定文案，避免 HTTP 异常回显带参数的地址。"""
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
@@ -134,11 +104,7 @@ class OssMediaProbe:
 
 
 class ObjectWriterAdapter:
-    """把平台层的对象存储接到能力包的窄协议上，只翻译那一种失败。
-
-    平台层的异常能力包不认识，穿出工具就是打死整次运行；翻成能力包自己的类型，工具
-    才能把它写进结果里让模型接着干。
-    """
+    """将对象存储异常转换为能力协议错误，使工具可报告失败而非终止整个运行。"""
 
     def __init__(self, store: PublicObjectStore) -> None:
         self._store = store
@@ -153,7 +119,7 @@ class ObjectWriterAdapter:
 
 
 def _job_view(job: GenerationJob) -> ImageJob:
-    """job 行 → 能力包要的那几个字段。渠道从请求快照上取（那才是这次真用的）。"""
+    """生成任务到能力结果的投影，渠道取实际请求快照。"""
 
     request = job.request
     return ImageJob(
@@ -167,10 +133,7 @@ def _job_view(job: GenerationJob) -> ImageJob:
 
 
 def _first_problem(exc: ValidationError) -> str:
-    """挑一条说得清的出来。
-
-    模型一次只改得动一处，把十条校验错误原样甩过去只会让它无从下手。
-    """
+    """提取首个字段校验错误供调用方修正。"""
 
     first = exc.errors()[0]
     where = ".".join(str(part) for part in first["loc"]) or "参数"
@@ -186,16 +149,9 @@ def build_capability_table(
     object_store: PublicObjectStore | None = None,
     shot_video: ResolvedShotVideo | None = None,
 ) -> CapabilityTable:
-    """建立名字表。落地一个能力就在这里登记一个名字。
+    """装配已启用的能力。shot_video 依赖完整的生成服务与对象存储；缺失时不登记该名称。"""
 
-    ``shot_video`` 那几个入参要么一起有、要么一起没有：它建立在媒体生成之上（出
-    图走生成域，产物落生成用的那个对象存储），配置解析那一步已经保证了这一点。
-    没配就是不登记这个名字，而 agent 声明里引用它会在装配期报错——带着半套工具
-    上线的 agent 不会报错，症状只是「它不干活」。
-    """
-
-    # 往工作区落文件的能力收的是同一个 FileSpace：各接各的话，文档照写照读、
-    # 只是模型的 read_file 看不见——失效是静默的。
+    # 文件生产与读取共用 FileSpace，避免命名空间不一致。
     space = FileSpace(store=workspace_store, namespace=workspace_namespace)
     table: dict[str, AgentCapabilities] = {
         "workspace": (
@@ -235,10 +191,7 @@ def build_capability_table(
 
 
 def build_display_registry(table: CapabilityTable) -> ToolDisplayRegistry:
-    """把各能力自带的 display 表合成一份，加上 skill 与派活那两件常驻工具的。
-
-    这份注册表要同时递给实时与历史两条路，同一实例。同名工具出现在两张表里即装配期报错。
-    """
+    """合并能力、技能与委派工具的显示表，重复工具名在装配期报错。实时与历史共用结果实例。"""
 
     return ToolDisplayRegistry.merged(
         *(

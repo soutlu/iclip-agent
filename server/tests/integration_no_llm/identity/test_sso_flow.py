@@ -1,4 +1,4 @@
-"""SSO 登录链路：verify → PMS 资料 → 建号/关联 → 种 cookie。"""
+"""验证 SSO 身份校验、PMS 资料同步、账号关联和 cookie 签发。"""
 
 from __future__ import annotations
 
@@ -95,7 +95,6 @@ async def test_second_login_reuses_account_and_keeps_roles(
         assert (await client.get("/auth/sso/callback", params={"jwt": "j2"})).status_code == 204
         me = await client.get("/users/me")
     user = me.json()["user"]
-    # 非首登不重置本地授权；同 unionId 命中同一账号
     assert user["roles"] == ["root", "editor"]
 
 
@@ -104,7 +103,7 @@ class TestBindingToExistingAccount:
 
     @pytest.fixture
     def sso_transport(self) -> httpx.MockTransport:
-        # 邮箱换成可通过密码注册的域名，以便先造出一个既有账号。
+        # 使用允许密码注册的邮箱域名，先创建可供 SSO 关联的账号。
         return _json_transport(
             {
                 "result": "OK",
@@ -132,14 +131,13 @@ class TestBindingToExistingAccount:
             me = await client.get("/users/me")
         user = me.json()["user"]
         assert user["roles"] == ["root"]
-        # 资料字段照常同步，只有授权字段不许被身份提供方改写
         assert user["city"] == "杭州"
 
 
 class TestRootBootstrap:
     @pytest.fixture
     def root_email(self) -> str | None:
-        return "LUKE@corp.test"  # 大小写不敏感匹配
+        return "LUKE@corp.test"
 
     async def test_configured_root_email_gets_root_role(self, sso_app: FastAPI) -> None:
         async with make_client(sso_app) as client:
@@ -176,7 +174,6 @@ class TestPmsFailureAborts:
             response = await client.get("/auth/sso/callback", params={"jwt": "j"})
             assert response.status_code == 502
             assert "set-cookie" not in response.headers
-            # 没有半个账号被创建
             assert (await client.get("/users/me")).status_code == 401
 
 

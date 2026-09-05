@@ -1,9 +1,4 @@
-"""合集的用例层：开口袋、改名、删口袋。
-
-**合集只对属主可见。** 别人的一律 ``NotFound``（不泄露存在性），治理者例外——内部平台
-要复盘创作质量，所以持 ``users:manage`` 的人能列出、读到全部合集。写入没有这个例外之
-外的口子：改名与删除只有属主或治理者能做。
-"""
+"""合集用例。属主与治理者可读写合集；其他主体访问时返回 NotFound。"""
 
 from __future__ import annotations
 
@@ -23,13 +18,11 @@ Scope = Literal["me", "all"]
 
 
 class CollectionService:
-    """建合集、读合集、改它、删它。"""
-
     def __init__(self, repo: CollectionRepository) -> None:
         self._repo = repo
 
     def _visible_to(self, principal: Principal, *, scope: Scope = "me") -> uuid.UUID | None:
-        """这次操作按谁的名下算。``None`` 表示不按属主过滤，只有治理者拿得到。"""
+        """返回属主过滤条件；仅治理者可在 scope="all" 时获得 None。"""
 
         if scope == "me":
             return principal.user_id
@@ -38,7 +31,6 @@ class CollectionService:
         return None
 
     async def create(self, principal: Principal, *, name: str) -> Collection:
-        """开一个新合集，归到发起人名下。"""
 
         now = datetime.now(UTC)
         return await self._repo.create(
@@ -52,7 +44,7 @@ class CollectionService:
         )
 
     async def get(self, principal: Principal, collection_id: uuid.UUID) -> Collection:
-        """读一个合集。别人的是 404，治理者除外。"""
+        """读取合集；非属主且无治理权限时返回 404。"""
 
         owner = None if principal.has(MANAGE_PERMISSION) else principal.user_id
         return await self._repo.get(collection_id, owner=owner)
@@ -60,7 +52,7 @@ class CollectionService:
     async def list_recent(
         self, principal: Principal, *, scope: Scope = "me", limit: int = 20, offset: int = 0
     ) -> tuple[Collection, ...]:
-        """列出合集，最近改动的排前面。``scope="all"`` 是治理者的全量视图。"""
+        """按最近修改时间倒序返回合集；scope="all" 需要治理权限。"""
 
         return await self._repo.list_recent(
             owner=self._visible_to(principal, scope=scope),
@@ -71,13 +63,12 @@ class CollectionService:
     async def rename(
         self, principal: Principal, collection_id: uuid.UUID, *, name: str
     ) -> Collection:
-        """改名。只有属主或治理者能改，别人看不见这个合集，所以是 404 不是 403。"""
+        """仅属主或治理者可改名；其他主体返回 404，避免泄露合集存在性。"""
 
         owner = None if principal.has(MANAGE_PERMISSION) else principal.user_id
         return await self._repo.rename(collection_id, owner=owner, name=name)
 
     async def delete(self, principal: Principal, collection_id: uuid.UUID) -> None:
-        """删合集。口径同改名。"""
 
         owner = None if principal.has(MANAGE_PERMISSION) else principal.user_id
         await self._repo.delete(collection_id, owner=owner)

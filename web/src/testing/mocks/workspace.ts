@@ -1,29 +1,21 @@
-/**
- * 工作区与生成任务的 mock：一份内存文件表加几条生成任务。
- *
- * 文件表由 REST 读、由 WebSocket 那一侧改（`transcript.ts` 演 agent 改文件），两边共用这一份对象
- * ——分开放的话 `event.fs.changed` 到了、重读回来的还是旧内容。
- */
+/** REST 读取与 WebSocket 模拟写入共用内存文件表，确保通知后重读得到新内容。 */
 
 import { http, HttpResponse } from 'msw'
 
-/** 镜头帧：本地 data URL，mock 环境离线也能渲染。 */
+/** 本地 data URL 帧，避免网络依赖。 */
 const FRAME_A =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='320'%3E%3Crect width='180' height='320' fill='%23e4ded2'/%3E%3Ccircle cx='90' cy='120' r='38' fill='%23a8742a'/%3E%3Crect x='60' y='170' width='60' height='110' fill='%236b5330'/%3E%3C/svg%3E"
 const FRAME_B =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='320'%3E%3Crect width='180' height='320' fill='%23d3dee4'/%3E%3Cpolygon points='90,70 150,250 30,250' fill='%232a5f8a'/%3E%3C/svg%3E"
 
-/** 第三张候选帧：只在挑帧框里出现，还没被任何一组用上。 */
 const FRAME_C =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='320'%3E%3Crect width='180' height='320' fill='%23e8d9d1'/%3E%3Crect x='40' y='90' width='100' height='140' rx='12' fill='%238a4a2a'/%3E%3C/svg%3E"
 
-/** 出片占位：只有 ftyp 盒的 mp4，够 `<video>` 收下这个地址而不去打外网。 */
+/** 仅含 ftyp 盒的 MP4 占位地址，避免视频元素请求外网。 */
 const VIDEO_URL = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE='
 
-/** 前言那两行：界面里折叠在描述顶部，默认收起。 */
 const PREAMBLE = ['参考锁定：模特的服装与发型跟住 @Image1。', '剪辑形式：硬切。'].join('\n')
 
-/** 第 2 组有两个镜头，其中镜头 2 用了两张帧——三栏与底部缩略图都靠它才有东西可看。 */
 const SHOT_TWO_PROMPT = [
   PREAMBLE,
   '',
@@ -34,7 +26,6 @@ const SHOT_TWO_PROMPT = [
   '走到近处停下微笑 @Image2，再低头看一眼包 @Image3。',
 ].join('\n')
 
-/** agent 改过之后第 2 组的样子。e2e 靠这句话判「重读到新内容了」。 */
 const SHOT_TWO_PROMPT_AFTER = SHOT_TWO_PROMPT.replace(
   '再低头看一眼包 @Image3。',
   '再低头看一眼包 @Image3，台词并成一句。',
@@ -74,7 +65,6 @@ type MockJob = {
   status: 'completed' | 'failed' | 'submitted'
 }
 
-/** 补齐 GenerationOut 的必填字段，用例只写自己关心的那几项。 */
 const job = (spec: MockJob) => ({
   conversationId: null as string | null,
   createdAt: spec.createdAt,
@@ -93,23 +83,15 @@ const job = (spec: MockJob) => ({
   updatedAt: spec.createdAt,
 })
 
-/** 每段对话的工作区：路径 → 文件。 */
 const workspaces = new Map<string, Map<string, MockFile>>()
 
-/** 每段对话的生成任务。 */
 const generations = new Map<string, ReturnType<typeof job>[]>()
 
-/** 面板发起的出片多久「出好」。给轮询留出看得见状态走完的时间。 */
 const VIDEO_DONE_MS = 3000
 
-/** 那几个把任务改成完成的定时器：重置 mock 时要拆掉，不然会写进下一个用例。 */
+/** 重置 mock 时清除完成计时器，防止写入下一个用例。 */
 const timers = new Set<ReturnType<typeof setTimeout>>()
 
-/**
- * 给一段对话种上一份三组的 `video_shot.json`，外加第 3 组一条出好的视频。
- *
- * @param conversationId - 哪一段对话。
- */
 export const seedMockWorkspace = (conversationId: string) => {
   const now = new Date().toISOString()
   workspaces.set(
@@ -123,7 +105,6 @@ export const seedMockWorkspace = (conversationId: string) => {
           version: 1,
         },
       ],
-      // 出帧工具留下的版记录：挑帧框的候选从这里来
       [
         'frames/grids/8e5263a4-3e52-4063-b0cd-5b6c7d8e9fa0.json',
         {
@@ -197,12 +178,7 @@ export const seedMockWorkspace = (conversationId: string) => {
   ])
 }
 
-/**
- * 演一次 agent 改文件：第 2 组的台词并成一句，版本加一。
- *
- * @param conversationId - 哪一段对话。
- * @returns 改动落下了没有；这段对话没种过文件就是没有。
- */
+/** 修改第 2 组描述并递增版本；不存在工作区时返回 false。 */
 export const touchMockShots = (conversationId: string): boolean => {
   const files = workspaces.get(conversationId)
   const file = files?.get(SHOTS_MOCK_PATH)
@@ -215,7 +191,7 @@ export const touchMockShots = (conversationId: string): boolean => {
   return true
 }
 
-/** 后端那套形状校验的缩影：序号连续、秒数 4–30、`@ImageN` 不超过张数。 */
+/** 模拟结构校验：序号连续、时长 4–30 秒、帧引用不越界。 */
 const validateShotsContent = (content: string): string | undefined => {
   let parsed: unknown
   try {
@@ -269,7 +245,7 @@ export const workspaceHandlers = [
     return HttpResponse.json({ file: { content: file.content, path, version: file.version } })
   }),
 
-  // 整份写回：版本对不上 409，镜头组 prompt 表形状不合规 422（与后端校验同一口径，只判形状不判地址）
+  // 版本不匹配返回 409，内容结构无效返回 422；mock 不校验媒体地址。
   http.put('*/api/conversations/:conversationId/workspace/file', async ({ params, request }) => {
     const body = (await request.json()) as {
       content: string
@@ -308,7 +284,6 @@ export const workspaceHandlers = [
     return HttpResponse.json({ items })
   }),
 
-  // 面板发起的出片：排上队回 202，几秒后自己变成完成，好让轮询看见状态走完
   http.post('*/api/generations', async ({ request }) => {
     const body = (await request.json()) as {
       conversationId: string

@@ -1,8 +1,4 @@
-"""爆款视频查询的 HTTP 契约与取样口径。
-
-守的是三类风险：按错的编码过滤（会静默返回空列表）、在应用里排序（等于换一批
-样本）、以及把排序维度这种要变成列名的东西让调用方随便填。
-"""
+"""验证爆款视频 HTTP 契约、编码过滤、数据库排序和排序键白名单。"""
 
 from __future__ import annotations
 
@@ -79,7 +75,6 @@ async def test_anonymous_is_rejected(client: httpx.AsyncClient) -> None:
 
 
 async def test_no_match_is_an_empty_list(client: httpx.AsyncClient) -> None:
-    """上游没有这个款的爆款视频是正常结果，不是错误。"""
 
     await register_and_login(client)
 
@@ -105,24 +100,22 @@ async def test_returns_metrics_flags_and_playable_url(
     item = (await search(client)).json()["items"][0]
 
     assert item["videoId"] == "7519657364165856542"
-    # 这里给出去的是 WMS 编号——和产品资料接口的 styleNo 不是一回事。
+    # 此接口使用 WMS 编号，与产品接口的 styleNo 不同。
     assert item["styleWms"] == STYLE
     assert item["ossUrl"] == "https://bucket.example.com/a.mp4"
     assert item["combatTeam"] == "Nortiv8"
-    # 平台口径的英文类目，和产品资料里那套 PDM 品类各说各的。
+    # 平台类目与 PDM 品类属于不同编码体系。
     assert item["category"] == "Work & Safety Footwear"
     assert item["metrics"]["orders"] == 56
     assert item["metrics"]["views"] == 152446
-    # 钱不走浮点。
     assert item["metrics"]["revenue"] == "3171.510000"
-    # 三种爆款标记彼此独立。
     assert item["popular"] == {"brand": True, "kol": False, "tt": True}
 
 
 async def test_video_without_a_mirrored_copy_still_comes_back(
     client: httpx.AsyncClient, inspiration_engine: AsyncEngine
 ) -> None:
-    """转存过的副本只有八成，缺的那些照样要给——原始地址一直都在。"""
+    """部分视频没有转存副本，仍须返回原始地址。"""
 
     await register_and_login(client)
     await seed_video(inspiration_engine, video_id="1", oss_url=None)
@@ -136,7 +129,7 @@ async def test_video_without_a_mirrored_copy_still_comes_back(
 async def test_top_n_is_taken_in_the_database(
     client: httpx.AsyncClient, inspiration_engine: AsyncEngine
 ) -> None:
-    """截断发生在排序之后。捞回来再排等于换一批样本——这条就是防它。"""
+    """排序必须先于截断，避免应用层重排改变样本集合。"""
 
     await register_and_login(client)
     for index in range(5):
@@ -162,7 +155,7 @@ async def test_other_styles_are_not_returned(
 
 
 async def test_sort_key_is_a_closed_enum(client: httpx.AsyncClient) -> None:
-    """排序维度要变成 SQL 里的列名，所以只认那五个键，别的一律 422。"""
+    """排序键参与 SQL 列名选择，仅接受白名单。"""
 
     await register_and_login(client)
 
@@ -180,10 +173,7 @@ async def test_request_shape_is_bounded(client: httpx.AsyncClient) -> None:
 
 
 async def test_not_mounted_without_the_catalog(app_without_inspirations: FastAPI) -> None:
-    """没配爆款库就整组路由不挂（同 SSO、媒体生成的口径）。
-
-    断言落在路由表上：没挂载和查不到都不会有 200，从响应上分不出来。
-    """
+    """检查路由表以区分未挂载与无查询结果。"""
 
     assert app_without_inspirations.state.inspirations is None
     assert not [

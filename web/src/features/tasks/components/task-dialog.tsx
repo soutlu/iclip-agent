@@ -38,25 +38,22 @@ const PLANNER_EDITABLE = new Set([
   'ratio',
 ])
 
-/** 画幅比例的取值由合同定死；这里写死一份是为了排下拉的顺序，多一个少一个都编译不过。 */
+/** 取值由合同限制，此处仅声明下拉顺序。 */
 type Ratio = NonNullable<Brief['ratio']>
 const RATIO_OPTIONS: readonly Ratio[] = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']
 
-/** <select> 交出来的是 string，进表单前先认一遍；不在名单里的（空选项）当作没填。 */
 const toRatio = (value: string): Ratio | '' =>
   RATIO_OPTIONS.find((option) => option === value) ?? ''
 
-/** 复刻 WorkBuddy 弹窗的紧凑字段外观（34px 高、8px 圆角、发丝边框）；全局字段契约不动，只收在这个弹窗里。 */
 const COMPACT_FIELD = 'h-(--control-height-sm) rounded-sm border-border'
 
-/** 行内控件：剥掉共享字段自己的框（行本身就是框），文字右对齐、聚焦时显出主色描边。 */
 const ROW_CONTROL =
   'h-8 w-full min-w-0 flex-1 rounded-none border-transparent bg-transparent px-0 text-right disabled:cursor-not-allowed disabled:text-disabled-text'
 
 type TaskDialogProps = {
   onOpenChange: (open: boolean) => void
   open: boolean
-  /** 传了就是详情/补充模式，不传就是新建模式 */
+  /** 有 taskId 时编辑详情，否则新建。 */
   taskId?: string | undefined
 }
 
@@ -80,7 +77,6 @@ const EMPTY_FORM: FormState = {
   title: '',
 }
 
-/** datetime-local ↔ ISO。空字符串按「没填」处理成 null。 */
 const toLocalInput = (iso: string | null): string => (iso ? iso.slice(0, 16) : '')
 const toIso = (local: string): string | null => (local ? new Date(local).toISOString() : null)
 
@@ -94,12 +90,7 @@ const formOf = (task: Task): FormState => ({
   title: task.title,
 })
 
-/**
- * 需求单弹窗：新建与详情/补充共用。
- *
- * 详情模式先拉全量再整体 PUT 回去（后端 PUT 是整体覆盖，不带上的字段会被清空）；
- * 可编辑范围随状态收窄：草稿全可改，下发后只剩管理信息与 PLANNER 字段，撤回只读。
- */
+/** 详情使用完整数据执行 PUT，遗漏字段会被清空；发布后仅管理信息和 PLANNER 字段可编辑，撤回后只读。 */
 export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
   const isCreate = taskId === undefined
   const { data: task } = useQuery({
@@ -119,7 +110,7 @@ export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
         />
         {open &&
           (isCreate || task ? (
-            // key 保证换单/新建-详情切换时表单整体重挂载，初始值在 useState 里取
+            // 切换需求单或新建模式时重挂表单，以重新初始化 useState。
             <TaskDialogForm key={taskId ?? 'create'} onOpenChange={onOpenChange} task={task} />
           ) : (
             <DialogBody>
@@ -133,7 +124,6 @@ export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
 
 type TaskDialogFormProps = {
   onOpenChange: (open: boolean) => void
-  /** undefined = 新建模式 */
   task: Task | undefined
 }
 
@@ -187,7 +177,6 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
   const canWrite = Boolean(user?.permissions.includes('tasks:write'))
   const claimed = Boolean(task && user && task.assigneeUserIds.includes(user.id))
 
-  // 可编辑范围：新建全可改；草稿全可改；下发后只放 PLANNER_EDITABLE；撤回全锁。
   const editable = (field: string): boolean => {
     if (isCreate) return true
     if (!task || !canWrite) return false
@@ -219,7 +208,7 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
       toast.error('标题必填')
       return
     }
-    // 整体覆盖：以读到的整份为底，只叠上表单里放开的字段，其余原样带回去。
+    // 基于完整数据覆盖可编辑字段，保留其余字段。
     const brief: Brief = { ...task.brief }
     if (editable('requirementDescription')) {
       brief.requirementDescription = form.requirementDescription.trim()
@@ -273,7 +262,6 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
               value={form.requirementDescription}
             />
           </Field>
-          {/* 次要字段学 WorkBuddy 的 ConfigRow：标签在框内左侧、控件无边框靠右，不再每个字段一个外标签+框 */}
           <div className="flex flex-col gap-3.5">
             {isCreate && (
               <RowField label="主款号" required>
@@ -406,7 +394,6 @@ function Field({
   )
 }
 
-/** WorkBuddy ConfigRow 风格的细行：标签在框内左侧，无边框控件靠右；整行是 label，点行即聚焦控件。 */
 function RowField({
   children,
   label,

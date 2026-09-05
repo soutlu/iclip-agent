@@ -1,7 +1,6 @@
 import { defineConfig } from '@hey-api/openapi-ts'
 
-// 输入是后端导出的合同（make contract 生成），输出是类型 + zod schema。
-// 生成物入库：前端构建不依赖能跑起来的后端，漂移由 pnpm contract:check 拦。
+// 从后端合同生成类型与 zod schema，pnpm contract:check 校验生成物。
 export default defineConfig({
   input: '../contract/openapi.json',
   output: {

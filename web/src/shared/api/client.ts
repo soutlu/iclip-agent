@@ -1,13 +1,4 @@
-/**
- * 同源 API 请求客户端。
- *
- * 所有请求经 `/api` 前缀走同源代理直达后端（dev: vite proxy；prod: 反代），
- * 会话 HttpOnly cookie 由浏览器自动携带。所有响应在边界处经 zod schema
- * 校验后才交给业务代码。
- *
- * 后端 REST 接口一律走 apiFetch；仅两类请求允许裸 fetch：OSS 预签名直传 PUT、
- * 外链素材下载（均不是后端 JSON REST）。
- */
+/** REST 请求经同源 /api 代理并携带 HttpOnly 会话 cookie；响应须通过 zod 校验。OSS 直传与外链下载使用独立请求。 */
 
 import type { z } from 'zod'
 
@@ -23,26 +14,16 @@ export class ApiError extends Error {
   }
 }
 
-// 会话疑似失效（401）的全局处理由 app 层注入（强刷 /users/me + 重算路由），shared/api 不反向依赖 router。
+// 鉴权回调由 app 注入，避免 shared/api 反向依赖路由。
 let onUnauthorized: (() => void) | null = null
 
-/**
- * 注入接口 401 时的全局回调。
- *
- * @param handler - 会话失效时执行的回调；传 null 取消注入。
- */
 export const setOnUnauthorized = (handler: (() => void) | null) => {
   onUnauthorized = handler
 }
 
-// 权限不足（403）的全局处理由 app 层注入（刷新用户缓存 + 重算路由守卫），shared/api 不反向依赖 router。
+// 403 回调由 app 注入，用于刷新权限与路由守卫。
 let onForbidden: (() => void) | null = null
 
-/**
- * 注入接口 403 时的全局回调。
- *
- * @param handler - 权限不足时执行的回调；传 null 取消注入。
- */
 export const setOnForbidden = (handler: (() => void) | null) => {
   onForbidden = handler
 }
@@ -60,13 +41,6 @@ export interface ApiFetchResult<T> {
   response: Response
 }
 
-/**
- * 从后端错误响应中提取可展示的错误文案。
- *
- * @param response - fetch 返回的非成功响应。
- * @param fallbackMessage - 错误文案前缀。
- * @returns 可直接展示给用户的错误文案（`前缀：后端信息` 或 `前缀（状态码）`）。
- */
 const readApiErrorMessage = async (response: Response, fallbackMessage: string) => {
   const responseText = await response.text().catch(() => '')
   const normalizedText = responseText.trim().toLowerCase()
@@ -99,18 +73,7 @@ const readApiErrorMessage = async (response: Response, fallbackMessage: string) 
   }
 }
 
-/**
- * 发起同源后端请求，统一处理错误并在边界处校验响应。
- *
- * body 传 URLSearchParams 时按表单提交（登录是 OAuth2 表单），其余序列化为 JSON；
- * 204/空响应体在校验前解析为 undefined（schema 用 z.unknown() 表示忽略响应体）。
- *
- * @param path - 不含 `/api` 前缀的后端路径（如 `/users/me`）。
- * @param schema - 响应体的 zod schema，解析结果即返回值。
- * @param options - fetch 配置与错误处理选项。
- * @returns schema 校验后的响应数据及原始响应元信息。
- * @throws 非成功响应抛出带状态码的 ApiError；响应不符合 schema 时抛出首条校验错误。
- */
+/** path 不含 /api；URLSearchParams 按表单提交，其余 body 按 JSON。空正文按 undefined 校验；请求或校验失败抛错。 */
 export const apiFetchWithResponse = async <T>(
   path: string,
   schema: z.ZodType<T>,
@@ -170,17 +133,7 @@ export const apiFetchWithResponse = async <T>(
   }
 }
 
-/**
- * 发起同源后端请求，并只返回通过 schema 校验的响应数据。
- *
- * 需要读取状态码或响应头的调用方应使用 {@link apiFetchWithResponse}；两种入口共享
- * 同一套请求构造、鉴权通知、错误处理和响应校验。
- *
- * @param path - 不含 `/api` 前缀的后端路径。
- * @param schema - 响应体的 zod schema。
- * @param options - fetch 配置与错误处理选项。
- * @returns schema 校验后的响应数据。
- */
+/** 需要状态码或响应头时使用 {@link apiFetchWithResponse}；两入口共用请求构造、鉴权回调与校验。 */
 export const apiFetch = async <T>(
   path: string,
   schema: z.ZodType<T>,

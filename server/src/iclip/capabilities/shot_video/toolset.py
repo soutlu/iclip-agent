@@ -1,4 +1,4 @@
-"""五件工具：docstring、登记时挂的范围规则，以及工具体那点编排。"""
+"""镜头素材工具注册、输入来源校验与工作区编排。"""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     """
 
     def __init__(self, capability: ShotVideo[AgentDepsT]) -> None:
-        # id 跟着能力走，不各写一遍：durable execution 按 id 包工具集，两处对不上就包不住。
+        # 工具集复用能力 id，供 durable execution 识别。
         super().__init__(id=capability.id)
         self._cap = capability
         self.add_tool(

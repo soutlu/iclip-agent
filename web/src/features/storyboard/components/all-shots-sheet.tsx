@@ -1,11 +1,4 @@
-/**
- * 「全部分镜」浮层：一屏看完所有组，勾几组做同一件事。
- *
- * 批量动作分两类——只碰本机的（复制描述、开新页下载成片）就地做完；花钱的（批量出片）先弹确认写清
- * 条数，确认了才逐组发。已经在出片的组不重复发，确认框里说明会跳过。
- *
- * 点卡正文不是选中而是「翻到那一组」：多选交给右上那颗勾选钮，两个手势各归各的落点。
- */
+/** 批量生成先确认数量并跳过运行中的组；点击正文切组，多选由独立勾选按钮处理。 */
 
 import { useState } from 'react'
 import { Icon } from '@/shared/icons'
@@ -37,25 +30,15 @@ const DOT_LABEL: Record<ShotStatus, string> = {
 type AllShotsSheetProps = {
   shots: readonly Shot[]
   aspectRatio: string
-  /** 每组当前的成片地址：下载与状态圆点都看它。 */
+  /** 当前成片地址同时驱动下载入口和状态标记。 */
   videos: ReadonlyMap<number, string>
-  /** 还在飞的那几组。 */
   running: ReadonlySet<number>
   onClose: () => void
-  /** 点卡正文：关掉浮层翻到那一组。 */
   onOpenShot: (index: number) => void
-  /** 把选中的几组设成聊天引用。 */
   onTalk: (indexes: readonly number[]) => void
-  /** 给选中的几组各发一次出片。 */
   onGenerate: (indexes: readonly number[]) => void
 }
 
-/**
- * 渲染「全部分镜」浮层。
- *
- * @param props - 组件属性。
- * @returns 浮层。
- */
 export function AllShotsSheet({
   aspectRatio,
   onClose,
@@ -89,7 +72,7 @@ export function AllShotsSheet({
   const download = () => {
     const ready = chosen.filter((shot) => videos.has(shot.index))
     for (const shot of ready) {
-      // 新页打开而不是塞 <a download>：地址是本系统桶里的成片，跨源下载属性不生效
+      // 跨源地址不支持 download 属性，改为在新页打开成片。
       window.open(videos.get(shot.index), '_blank', 'noopener')
     }
     const missing = chosen.length - ready.length

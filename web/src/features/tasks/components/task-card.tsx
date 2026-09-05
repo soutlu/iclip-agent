@@ -8,12 +8,11 @@ import { TaskStatusTag } from './task-status-tag'
 
 type TaskCardProps = {
   onClick: () => void
-  /** 给了就在卡片右侧渲染悬停浮现的「更多操作」菜单（重命名入口），不给就是纯卡片 */
+  /** 提供 onRename 时展示更多操作菜单。 */
   onRename?: (() => void) | undefined
   task: Task
 }
 
-/** 需求单卡片：图标底块 + 标题 + 状态与时间，点击开详情弹窗。 */
 export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
 

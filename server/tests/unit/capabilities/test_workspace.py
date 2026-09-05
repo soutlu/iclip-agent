@@ -1,8 +1,4 @@
-"""工作区能力：路径语法边界、七件工具的行为与错误翻译、命名空间隔离。
-
-存储与图片探针用进程内替身（存储走和 PG 实现同一条判定序列），所以这一层测的是
-「能力和工具面的语义」，不是 SQL、也不是 OSS。真库那一侧另有集成验收。
-"""
+"""验证工作区工具的路径边界、错误映射和命名空间隔离；存储与图片探针使用内存替身。"""
 
 from __future__ import annotations
 
@@ -70,7 +66,7 @@ A_BIG_JPEG = ImageInfo(media_type="image/jpeg", size_bytes=2048, width=3000, hei
 
 
 class FakeProbe:
-    """固定回一份原图信息，或者一口拒绝。"""
+    """返回固定图片信息或抛出预设异常。"""
 
     def __init__(self, info: ImageInfo = A_BIG_JPEG, *, error: str | None = None) -> None:
         self.info = info
@@ -98,13 +94,12 @@ def make_deps(user_id: uuid.UUID = USER, conversation_id: str = THREAD) -> Agent
 
 
 def make_context(deps: object) -> RunContext[object]:
-    """造一次运行的上下文。"""
 
     return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage(), messages=[])
 
 
 def image_ledger(*urls: str) -> FakeMaterialLedger:
-    """一份记着这几个图片地址的台账，当作收件那一步已经记过了。"""
+    """模拟收件阶段已登记的图片素材。"""
 
     fake = FakeMaterialLedger()
     for url in urls:
@@ -125,10 +120,7 @@ def make_workspace(
 
 
 def model_facing(result: ToolReturn) -> list[object]:
-    """工具返回里给模型那几段。
-
-    ``return_value`` 的类型是官方那个内容联合，不随泛型参数收窄，所以读它得先 isinstance。
-    """
+    """提取面向模型的工具结果；return_value 联合类型需先经 isinstance 收窄。"""
 
     value = result.return_value
     assert isinstance(value, list)
@@ -155,11 +147,6 @@ def ctx() -> RunContext[object]:
     return make_context(make_deps())
 
 
-# --------------------------------------------------------------------------
-# 路径语法：边界就是这套字符串规则本身
-# --------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "path",
     [
@@ -177,7 +164,7 @@ def ctx() -> RunContext[object]:
     ],
 )
 def test_illegal_paths_are_refused(path: str) -> None:
-    """越界靠语法拦，不靠 resolve——这里根本没有 inode 可以 resolve。"""
+    """工作区使用逻辑路径，无本地 inode；越界检查依赖路径语法。"""
 
     with pytest.raises(InvalidPath):
         normalize_path(path)
@@ -196,45 +183,31 @@ def test_paths_are_canonicalized(given: str, expected: str) -> None:
 
 
 def test_unicode_paths_normalize_to_one_file() -> None:
-    """同一个名字的两种 Unicode 写法必须是同一个文件，不能变成两个。
-
-    带音符的字母有两种合法码位写法：预组合的单个码位，和基字母加组合符号。
-    不归一化的话，模型第二次写同一个文件名会新建出第二个文件来。
-    """
+    """预组合字符与组合字符须归一化，避免同一文件名产生两份文件。"""
 
     assert normalize_path("caf\u00e9.md") == normalize_path("cafe\u0301.md")
 
 
-# --------------------------------------------------------------------------
-# 命名空间：算不出来就失败，绝不退回公共空间
-# --------------------------------------------------------------------------
-
-
 def test_namespace_is_the_conversation_under_the_trusted_user() -> None:
-    """对话 id 是客户端给的，只能当次级段；外层必须是可信的用户 id。"""
+    """客户端提供的对话 id 仅作次级命名空间，外层使用可信用户 id。"""
 
     assert workspace_namespace(make_context(make_deps())) == f"{USER}/{THREAD}"
 
 
 def test_namespace_fails_closed_when_deps_is_not_a_run_deps() -> None:
-    """运行身份没注进来是装配 bug；退回一个公共命名空间等于把所有人并成一个。"""
+    """缺少运行身份属于装配错误，公共命名空间会破坏用户隔离。"""
 
     with pytest.raises(RuntimeError, match="不是 AgentRunDeps"):
         workspace_namespace(make_context({"user_id": str(USER)}))
 
 
 def test_a_forged_conversation_id_cannot_escape_its_user() -> None:
-    """伪造 threadId 最多只能碰到自己的另一段对话，跨不到别人名下。"""
 
     assert workspace_namespace(make_context(make_deps())).startswith(f"{USER}/")
 
 
 def test_scope_goes_through_normalization() -> None:
-    """本能力取地盘必须经 ``FileSpace.resolve()``，不能拿规则算出来的原样值。
-
-    绕开它不会报错，只会让另一件收同一个 ``FileSpace`` 的能力算出**另一个**字符
-    串——两边各写各的地方，而且写读都成功。
-    """
+    """命名空间须经 FileSpace.resolve 归一化，保证共享 FileSpace 的能力访问同一位置。"""
 
     dirty = FileSpace(store=FakeFileStore(), namespace=lambda _ctx: f"{USER}//{THREAD}")
     capability = workspace_capability(space=dirty, probe=FakeProbe(), ledger=FakeMaterialLedger())
@@ -244,7 +217,7 @@ def test_scope_goes_through_normalization() -> None:
 async def test_for_run_resolves_scope_before_any_tool_is_touched(
     capability: Workspace[object],
 ) -> None:
-    """身份不对时这次运行就该失败，而不是等模型碰巧调了工作区工具才暴露。"""
+    """运行身份在 for_run 阶段校验，不能依赖模型是否调用工作区工具。"""
 
     with pytest.raises(RuntimeError, match="不是 AgentRunDeps"):
         await capability.for_run(make_context("这不是运行依赖"))
@@ -264,17 +237,11 @@ async def test_two_users_do_not_see_each_other(
 async def test_two_conversations_of_one_user_do_not_see_each_other(
     tools: WorkspaceToolset[object],
 ) -> None:
-    """一段对话一个工作区：换一段对话就是一张干净的工作台。"""
 
     here = make_context(make_deps())
     there = make_context(make_deps(conversation_id=OTHER_THREAD))
     await tools.write_file(here, "笔记.md", "这段对话的稿子")
     assert await tools.list_files(there) == "工作区还没有任何文件。"
-
-
-# --------------------------------------------------------------------------
-# 文件那六件
-# --------------------------------------------------------------------------
 
 
 async def test_write_then_read_round_trip(
@@ -300,7 +267,6 @@ async def test_read_pages_and_says_how_much_is_left(
     page = await tools.read_file(ctx, "长稿.md", offset=3, limit=2)
     assert "     3\t第3行" in page
     assert "     4\t第4行" in page
-    # 少给了内容就必须说出来，不能让模型以为自己读完了。
     assert "还有 6 行没读" in page
 
 
@@ -323,7 +289,6 @@ async def test_edit_replaces_a_unique_match(
 async def test_edit_refuses_an_ambiguous_match(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
-    """出现多次就报错，绝不挑一个改——静默改错地方比报错难查得多。"""
 
     await tools.write_file(ctx, "稿.md", "夜景\n夜景")
     with pytest.raises(ModelRetry, match="出现了 2 次"):
@@ -348,12 +313,12 @@ async def test_edit_on_a_missing_file_points_at_write_file(
 async def test_edit_surfaces_a_concurrent_change_instead_of_clobbering_it(
     store: FakeFileStore, ctx: RunContext[object]
 ) -> None:
-    """``edit_file`` 是读—改—写；中间被人插一刀就得失败，不能把别人的改动盖掉。"""
+    """edit_file 的读改写间存在并发窗口，版本冲突必须保留其他运行的修改。"""
 
     class RacingStore(FakeFileStore):
         async def read(self, namespace: str, path: str) -> StoredFile | None:
             found = await super().read(namespace, path)
-            # 模拟「读完之后、写回之前，另一个运行落地了一次写入」。
+            # 模拟读取后、写回前发生并发更新。
             await super().write(namespace, path, "别人写的内容")
             return found
 
@@ -376,7 +341,6 @@ async def test_delete_removes_the_file_and_reports_a_miss(
 async def test_list_scopes_by_segment_boundary(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
-    """给的是「分镜」就只该看到分镜目录下的，不能把「分镜稿.md」也算进去。"""
 
     await tools.write_file(ctx, "分镜/第一集.md", "a")
     await tools.write_file(ctx, "分镜稿.md", "b")
@@ -400,7 +364,6 @@ async def test_search_is_case_insensitive_and_literal(
 ) -> None:
     await tools.write_file(ctx, "稿.md", "SCENE 100%\n别的行")
     assert "稿.md:1" in await tools.search_files(ctx, "scene")
-    # % 是字面量而不是通配符，否则检索会命中一切。
     assert "没有包含" in await tools.search_files(ctx, "%别的")
 
 
@@ -420,11 +383,6 @@ async def test_search_flags_that_it_held_matches_back(
     assert "只报了一部分" in found
 
 
-# --------------------------------------------------------------------------
-# 容量上限
-# --------------------------------------------------------------------------
-
-
 async def test_oversized_file_is_refused_with_the_file_limit(ctx: RunContext[object]) -> None:
     tools = WorkspaceToolset(make_workspace(FakeFileStore(max_file_bytes=100)))
     with pytest.raises(ModelRetry, match="超过单文件上限"):
@@ -432,18 +390,16 @@ async def test_oversized_file_is_refused_with_the_file_limit(ctx: RunContext[obj
 
 
 async def test_full_workspace_tells_the_model_how_to_recover(ctx: RunContext[object]) -> None:
-    """撞上总量上限必须给出自救手段，否则模型就卡死在这儿了。"""
 
     tools = WorkspaceToolset(make_workspace(FakeFileStore(max_namespace_bytes=100)))
     await tools.write_file(ctx, "a.md", "x" * 80)
     with pytest.raises(ModelRetry, match="删掉"):
         await tools.write_file(ctx, "b.md", "y" * 80)
-    # 覆盖同一个文件只算差量，不该被自己的旧内容挡住。
     assert "已写入 a.md" in await tools.write_file(ctx, "a.md", "z" * 90)
 
 
 async def test_quota_and_conflict_are_distinguishable(store: FakeFileStore) -> None:
-    """两种失败给模型的提示完全相反，所以存储层必须报成两种错。"""
+    """容量不足需要清理文件，版本冲突需要重新读取；二者必须保持不同错误类型。"""
 
     small = FakeFileStore(max_namespace_bytes=10)
     with pytest.raises(QuotaExceeded):
@@ -451,11 +407,6 @@ async def test_quota_and_conflict_are_distinguishable(store: FakeFileStore) -> N
     await store.write(NS, "a.md", "x")
     with pytest.raises(VersionConflict):
         await store.write(NS, "a.md", "y", expected_version=99)
-
-
-# --------------------------------------------------------------------------
-# 读图
-# --------------------------------------------------------------------------
 
 
 def read_tools(
@@ -467,10 +418,7 @@ def read_tools(
 async def check_args(
     tools: WorkspaceToolset[object], ctx: RunContext[object], **args: object
 ) -> None:
-    """走一遍读图登记时挂上的验证器（官方在 schema 校验之后、执行之前调它）。
-
-    从登记表上取，不直接调那个函数：漏传 ``args_validator=`` 时这条用例也要红。
-    """
+    """通过工具注册表调用校验器，覆盖 args_validator 的挂载遗漏。"""
 
     validator = tools.tools["ReadMediaFile"].args_validator
     assert validator is not None, "ReadMediaFile 登记时没挂验证器"
@@ -480,10 +428,7 @@ async def check_args(
 
 
 async def test_a_big_image_is_downsampled_and_says_so() -> None:
-    """默认交付缩略档：4K 原图整个进上下文没有多少信号，账单却会涨。
-
-    摘要里必须写清原图多大、这次给的是降采样档，否则模型会拿缩略档的像素当原图坐标。
-    """
+    """降采样结果必须包含原图尺寸与缩放说明，避免模型误用缩略图坐标。"""
 
     result = await read_tools(FakeProbe()).read_media_file(make_context(make_deps()), OSS_IMAGE)
 
@@ -494,7 +439,6 @@ async def test_a_big_image_is_downsampled_and_says_so() -> None:
         ImageUrl(url=f"{OSS_IMAGE}?x-oss-process=image/resize,l_1024", media_type="image/jpeg"),
         "</image>",
     ]
-    # 给人看的那份指向真正交付的那个地址，不是 tag 里的原图。
     assert result.metadata == {
         "items": [
             {
@@ -506,7 +450,7 @@ async def test_a_big_image_is_downsampled_and_says_so() -> None:
 
 
 async def test_a_small_image_goes_untouched() -> None:
-    """长边本来就不超过 1024 的图原样附上：OSS 不放大，挂个缩放参数只是白挂。"""
+    """长边不超过 1024 时无需缩放，OSS 也不会放大原图。"""
 
     probe = FakeProbe(ImageInfo(media_type="image/png", size_bytes=1536, width=800, height=600))
     result = await read_tools(probe).read_media_file(make_context(make_deps()), OSS_IMAGE)
@@ -520,11 +464,7 @@ async def test_a_small_image_goes_untouched() -> None:
 
 
 async def test_a_region_crops_in_original_coordinates_and_flags_the_offset() -> None:
-    """裁切按原图像素坐标走，裁出来还超 1024 就再级联一道缩放（OSS 按 ``/`` 顺序执行）。
-
-    区域尺寸报的是收窄后的那个：给的 width/height 越过右下边界时 OSS 裁到边界为止，照
-    原样报会让模型以为自己看到了不存在的那几百像素。
-    """
+    """裁切使用原图坐标，超出图像边界的区域按实际尺寸报告；长边超过 1024 再缩放。"""
 
     result = await read_tools(FakeProbe()).read_media_file(
         make_context(make_deps()),
@@ -543,7 +483,6 @@ async def test_a_region_crops_in_original_coordinates_and_flags_the_offset() -> 
 
 
 async def test_a_small_region_is_not_downsampled_again() -> None:
-    """裁出来已经在 1024 以内就不再挂缩放：那道参数什么也不做，摘要却会多说一句假话。"""
 
     result = await read_tools(FakeProbe()).read_media_file(
         make_context(make_deps()), OSS_IMAGE, region=CropRegion(x=10, y=20, width=200, height=100)
@@ -557,7 +496,7 @@ async def test_a_small_region_is_not_downsampled_again() -> None:
 
 
 async def test_a_region_starting_outside_the_image_reports_the_real_size() -> None:
-    """起点在图外时 OSS 会回一张空图；报出原图尺寸，模型才有得重算。"""
+    """图外起点会产生空图；错误需携带原图尺寸以便修正。"""
 
     with pytest.raises(ModelRetry, match="3000×2000") as failure:
         await read_tools(FakeProbe()).read_media_file(
@@ -570,7 +509,7 @@ async def test_a_region_starting_outside_the_image_reports_the_real_size() -> No
 
 
 async def test_full_resolution_over_the_limit_points_at_region() -> None:
-    """整幅原分辨率有上限；报错要给一条出路，不然模型只会把同一次调用重试到底。"""
+    """原分辨率超限时提示使用 region，避免重复提交同一无效请求。"""
 
     probe = FakeProbe(
         ImageInfo(
@@ -602,7 +541,6 @@ async def test_full_resolution_under_the_limit_hands_over_the_bare_address() -> 
 
 
 async def test_region_and_full_resolution_are_mutually_exclusive() -> None:
-    """两个都给就没法判断该裁还是该给整幅；说清二选一，别自己挑一个。"""
 
     with pytest.raises(ModelRetry, match="二选一"):
         await read_tools(FakeProbe()).read_media_file(
@@ -614,7 +552,7 @@ async def test_region_and_full_resolution_are_mutually_exclusive() -> None:
 
 
 async def test_an_unreachable_image_is_refused_before_the_model_sees_it() -> None:
-    """问不出原图信息就别附给模型：报错发生在厂商那侧更难查。"""
+    """在模型接收图片前拒绝探测失败的地址，避免错误延迟到模型供应商。"""
 
     with pytest.raises(ModelRetry, match="读不了") as failure:
         await read_tools(FakeProbe(error="地址访问不到")).read_media_file(
@@ -625,7 +563,7 @@ async def test_an_unreachable_image_is_refused_before_the_model_sees_it() -> Non
 
 
 async def test_an_address_that_cannot_carry_scaling_is_refused() -> None:
-    """缩放参数挂不上去就别附：一张原图整幅进上下文只会让账单涨。"""
+    """不支持缩放参数的地址不能满足图片尺寸限制。"""
 
     with pytest.raises(ModelRetry, match="读不了"):
         await read_tools(FakeProbe()).read_media_file(
@@ -634,7 +572,6 @@ async def test_an_address_that_cannot_carry_scaling_is_refused() -> None:
 
 
 async def test_read_media_file_takes_an_address_a_tool_wrote_down() -> None:
-    """预览板地址由出板的那件工具记进台账，读图这一侧照样收得下。"""
 
     board = "https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/board/1.jpg"
     tools = read_tools(FakeProbe(), image_ledger(board))
@@ -652,7 +589,7 @@ async def test_read_media_file_takes_an_address_a_tool_wrote_down() -> None:
 
 
 async def test_an_out_of_scope_address_is_refused_before_the_probe_runs() -> None:
-    """模型编一个地址：官方在执行之前跑验证器，工具体一次都没跑。"""
+    """地址校验必须在工具执行和图片探测之前完成。"""
 
     probe = FakeProbe()
     tools = read_tools(probe, image_ledger(OSS_IMAGE))
@@ -662,12 +599,11 @@ async def test_an_out_of_scope_address_is_refused_before_the_probe_runs() -> Non
     with pytest.raises(ModelRetry, match="不是这段对话里的素材") as failure:
         await check_args(tools, ctx, url="https://cdn.test/made-up.jpg")
 
-    # 不回显被拒的地址：回显一次，模型重试时它就成了「台账里有过」的东西。
+    # 不回显未登记地址，避免重试消息将其引入素材上下文。
     assert "made-up" not in str(failure.value)
 
 
 async def test_a_video_address_cannot_be_read_as_an_image() -> None:
-    """用户发的是视频，拿去读图——台账每行都带种类，认得出来。"""
 
     video = "https://cdn.test/ref.mp4"
     ledger = FakeMaterialLedger()
@@ -682,20 +618,15 @@ async def test_read_media_file_only_takes_http_urls(url: str) -> None:
         await check_args(read_tools(FakeProbe()), make_context(make_deps()), url=url)
 
 
-# --------------------------------------------------------------------------
-# 能力的装配面
-# --------------------------------------------------------------------------
-
-
 def test_capability_has_a_stable_id(capability: Workspace[object]) -> None:
-    """``for_run`` 每次返新实例，官方按 id 认能力，所以 id 必须写死。"""
+    """for_run 返回新实例；固定 id 保持框架对能力身份的识别。"""
 
     assert capability.id == CAPABILITY_ID
     assert WorkspaceToolset(capability).id == CAPABILITY_ID
 
 
 def test_capability_opts_out_of_spec_construction() -> None:
-    """不关掉的话，官方默认拿类名当序列化名，等于宣称自己能从 YAML 造出来。"""
+    """运行时依赖不可从 YAML 构造，因此禁用 spec 构造。"""
 
     assert Workspace.get_serialization_name() is None
 
@@ -703,11 +634,7 @@ def test_capability_opts_out_of_spec_construction() -> None:
 def test_capability_guidance_says_only_what_no_docstring_can(
     capability: Workspace[object],
 ) -> None:
-    """指引只说「这个工作区是什么、归谁」。
-
-    怎么用那七件工具已经写在各自的 docstring 与错误消息里；指引每轮都进上下文，
-    在这儿重复一遍就是每轮都付一次钱。
-    """
+    """指引只描述工作区归属；工具用法由 docstring 与错误消息提供，避免重复占用上下文。"""
 
     instructions = capability.get_instructions()
     assert isinstance(instructions, str)
@@ -717,7 +644,6 @@ def test_capability_guidance_says_only_what_no_docstring_can(
 
 
 def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
-    """七件工具每件都登记了画法，kind 由客户端认。字段取不到就交给注册表退回 generic。"""
 
     drawn = ToolDisplayRegistry.merged(capability.display_table()).entries
     assert sorted(drawn) == [
@@ -730,7 +656,6 @@ def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
         "write_file",
     ]
     assert drawn["ReadMediaFile"].draw({"url": OSS_IMAGE}) == UrlFetchDisplay(url=OSS_IMAGE)
-    # 地址取不到就交给注册表退回 generic，不画一张指着空地址的卡。
     assert drawn["ReadMediaFile"].draw({}) is None
     assert drawn["read_file"].draw({"path": "分镜.md"}) == FileIoDisplay(
         operation="read", path="分镜.md"
@@ -741,12 +666,11 @@ def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
     assert drawn["edit_file"].draw({"path": "分镜.md"}) == FileIoDisplay(
         operation="edit", path="分镜.md"
     )
-    # 协议的 operation 联合里没有「删」，删文件只能画成朴素的那张卡。
+    # operation 联合不含删除操作，删除工具使用 generic 展示。
     assert drawn["delete_file"].draw({"path": "分镜.md"}) == GenericDisplay(
         summary="删除文件 分镜.md"
     )
     assert drawn["search_files"].draw({"query": "门厅"}) == SearchDisplay(query="门厅")
-    # 列目录没给前缀就是整个工作区。
     assert drawn["list_files"].draw({}) == FileIoDisplay(operation="glob", path="/")
     assert drawn["list_files"].draw({"prefix": "分镜"}) == FileIoDisplay(
         operation="glob", path="分镜"
@@ -756,7 +680,6 @@ def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
 
 
 def test_only_the_three_readable_results_pick_a_renderer(capability: Workspace[object]) -> None:
-    """结果有专门渲染器的只有读文件、检索与读图三件，其余不给、前端走 generic。"""
 
     views = ToolDisplayRegistry.merged(capability.display_table())
     assert views.view_of("read_file") == "file_content"
@@ -767,11 +690,7 @@ def test_only_the_three_readable_results_pick_a_renderer(capability: Workspace[o
 
 
 async def test_capability_attaches_to_a_real_agent(store: FakeFileStore) -> None:
-    """挂到真 Agent 上跑一次。
-
-    装配面上的错——dataclass 字段顺序、``for_run`` 的签名、工具集有没有真的被
-    官方接进去——直接调工具集是验不出来的，只有让框架自己走一遍才暴露。
-    """
+    """通过真实 Agent 覆盖 for_run 签名、dataclass 初始化和工具集挂载。"""
 
     seen: list[tuple[str, ...]] = []
 
@@ -793,7 +712,6 @@ async def test_capability_attaches_to_a_real_agent(store: FakeFileStore) -> None
     result = await agent.run("起个稿", deps=make_deps())
 
     assert result.output == "写完了"
-    # 七件工具都到了模型面前。
     assert set(seen[0]) == {
         "read_file",
         "write_file",
@@ -803,19 +721,12 @@ async def test_capability_attaches_to_a_real_agent(store: FakeFileStore) -> None
         "search_files",
         "ReadMediaFile",
     }
-    # 文件真的落进了「这个用户的这段对话」名下。
     stored = await store.read(NS, "稿.md")
     assert stored is not None and stored.content == "夜景"
 
 
 async def test_a_subagent_shares_the_conversation_workspace(store: FakeFileStore) -> None:
-    """下属写的稿子，主 agent 读得到——这是「一段对话一个工作区」要的那个效果。
-
-    派活是**另起一次运行**，所以这条不是显然的。官方转发 deps 但不转发运行自己
-    的 ``conversation_id``（实测过），工作区因此从 deps 取对话 id；要是改成读
-    ``ctx.conversation_id``，下属就会拿到一个新生成的 id、写进另一个文件夹，主
-    agent 什么都读不到，而且不会报错——白干一场，静默。
-    """
+    """子代理另起运行，仅继承 deps 中的对话 id；命名空间不得使用新的 ctx.conversation_id。"""
 
     workspace = make_workspace(store)
 
@@ -854,9 +765,7 @@ async def test_a_subagent_shares_the_conversation_workspace(store: FakeFileStore
 
     result = await boss.run("安排下去", deps=make_deps())
 
-    # 断言落在「没有产生重试」上：只看最终输出是不够的——文件不在的时候
-    # read_file 抛的是 ModelRetry，模型收下重试提示接着往下走，最终输出照样是
-    # 那句话，一条静默失败就这么被漏过去了。
+    # 最终输出无法识别被 ModelRetry 掩盖的读取失败，需额外确认未发生重试。
     retries = [
         part
         for message in result.all_messages()
@@ -865,7 +774,6 @@ async def test_a_subagent_shares_the_conversation_workspace(store: FakeFileStore
     ]
     assert retries == [], f"主 agent 读不到下属写的文件: {retries}"
     assert result.output == "我读到了下属写的稿子"
-    # 文件就落在「这个用户的这段对话」名下，不在下属自己新开的地方。
     stored = await store.read(NS, "分镜/第一集.md")
     assert stored is not None and stored.content == "镜头一"
     assert [entry.path for entry in await store.entries(NS)] == ["分镜/第一集.md"]

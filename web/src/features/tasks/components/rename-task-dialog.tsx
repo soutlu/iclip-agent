@@ -17,16 +17,11 @@ import { getTask, saveTask, tasksQueryKeys, type Task } from '../tasks.api'
 type RenameTaskDialogProps = {
   onOpenChange: (open: boolean) => void
   open: boolean
-  /** 要重命名的需求单；关闭后保留上一次的值，避免退场动画期间内容闪空 */
+  /** 关闭后保留原需求单，避免退场动画期间内容闪空。 */
   task?: Task | undefined
 }
 
-/**
- * 重命名弹窗，样式对齐 WorkBuddy rename-project-dialog：原名称提示 + 新名称输入 + 字数计数。
- *
- * 后端 PUT 是整体覆盖，合同里也没有版本号可比对：提交时重新拉一次全量、只换标题再整份写回，
- * 把覆盖别人改动的窗口缩到「这次拉取到写回」之间，堵不死。
- */
+/** PUT 整体覆盖且无版本校验；提交前重新读取完整数据，仅替换标题，仍存在读写间并发覆盖窗口。 */
 export function RenameTaskDialog({ onOpenChange, open, task }: RenameTaskDialogProps) {
   return (
     <DialogRoot open={open} onOpenChange={onOpenChange}>

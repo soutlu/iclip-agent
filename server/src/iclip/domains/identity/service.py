@@ -51,8 +51,6 @@ class IdentityService:
         self._users = users
         self._api_keys = api_keys
 
-    # -- Principal ---------------------------------------------------------
-
     def principal_for_user(self, account: UserAccount) -> Principal:
         if not account.is_active:
             raise AuthenticationFailed("账号已停用")
@@ -94,8 +92,6 @@ class IdentityService:
         if account is None:
             raise NotFound("用户不存在")
         return account
-
-    # -- API key 生命周期 ----------------------------------------------------
 
     async def issue_api_key(
         self, principal: Principal, command: CreateApiKey
@@ -145,8 +141,6 @@ class IdentityService:
         if record.owner_user_id != principal.user_id and not principal.has("users:manage"):
             raise NotFound("API key 不存在")
         await self._api_keys.revoke(key_id, _now())
-
-    # -- 用户管理 ------------------------------------------------------------
 
     async def list_users_page(
         self, principal: Principal, *, page: int, page_size: int

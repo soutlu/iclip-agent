@@ -1,14 +1,11 @@
-"""iclip.generation_jobs：去掉排期用的四列
+"""iclip.generation_jobs：移除调度列
 
 Revision ID: c2a86e5b41f7
 Revises: b7f3c1d90a24
 Create Date: 2026-08-24 18:30:00.000000
 
-排期搬到 procrastinate 之后这四列没人写也没人读了：``attempts`` / ``next_attempt_at``
-是「试了几次、下次几点」，``lease_owner`` / ``lease_expires_at`` 是「谁在处理它」。同
-一件事在两个地方各存一份只会分叉——现在只有 ``procrastinate_jobs`` 说得清。
-
-那条部分索引一起走：它索的就是 ``next_attempt_at``。
+调度状态统一由 procrastinate_jobs 管理；删除 attempts、next_attempt_at、lease_owner、
+lease_expires_at 及对应的部分索引。
 """
 
 from __future__ import annotations
@@ -34,11 +31,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """加回来。
-
-    ``attempts`` / ``next_attempt_at`` 原本是 NOT NULL，而已有的行没有值可填，所以
-    带上默认值补齐——回退一个已经跑起来的库，这两列的历史值本来也找不回来了。
-    """
+    """恢复调度列；NOT NULL 列使用默认值回填，原调度历史无法恢复。"""
 
     op.add_column(
         "generation_jobs",

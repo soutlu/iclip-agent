@@ -9,7 +9,7 @@ const noContentSchema = z.unknown()
 const collectionEnvelopeSchema = zCollectionEnvelope.transform((payload) => payload.collection)
 const collectionsPageSchema = zCollectionsPageOut.transform((payload) => payload.items)
 
-// 合集是自己建的，一屏之内的量；后端上限 100，这里要满就是要全部
+// 请求后端允许的最大合集数。
 const LIST_LIMIT = 100
 
 const collectionsQueryKeys = {
@@ -17,7 +17,7 @@ const collectionsQueryKeys = {
   list: () => ['collections', 'list'] as const,
 }
 
-/** 我的合集，最近改动的排前面。别人的合集看不见，所以不带任何过滤参数。 */
+/** 仅查询当前用户的合集，按最近修改排序。 */
 export const useCollections = (enabled: boolean) =>
   useQuery({
     enabled,
@@ -29,12 +29,6 @@ export const useCollections = (enabled: boolean) =>
     queryKey: collectionsQueryKeys.list(),
   })
 
-/**
- * 新建或改名：给了 collectionId 就是改名，没给就是新建。
- *
- * @param onSaved - 落库之后调用，由调用方顺手刷掉侧栏拓扑那份缓存。
- * @returns TanStack mutation。
- */
 export const useSaveCollection = (onSaved: () => void) => {
   const queryClient = useQueryClient()
   return useMutation({
@@ -55,7 +49,7 @@ export const useSaveCollection = (onSaved: () => void) => {
   })
 }
 
-/** 删合集。里面的对话不会跟着没，只是不再属于任何合集。 */
+/** 删除合集仅解除分组，不删除其中的对话。 */
 export const useDeleteCollection = (onSaved: () => void) => {
   const queryClient = useQueryClient()
   return useMutation({

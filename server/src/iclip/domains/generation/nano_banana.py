@@ -1,27 +1,8 @@
-"""图像生成 provider。
+"""同步图像生成适配器。无参考图调用文生图接口，有参考图调用编辑接口；不支持轮询。
 
-这家接口是**同步**的：一次 POST 等到图出来，最长几分钟。所以它没有轮询阶段——
-``submit`` 直接带着结果回来，``poll`` 永远不该被调到。
-
-  POST {text_to_image_url}   没有参考图时
-  POST {image_edit_url}      有参考图时
-  → {"success": true, "output_sign_str"|"output_str": "https://…"}
-
-**两个地址连路径一起来自环境变量**，仓里不留对方的接口路由：这是个公开仓，不该说清
-我们在调谁的哪个内部接口。
-
-对方返回的是会过期的签名 URL，所以拿到就下载下来转存成我们自己的公开对象，库里存
-那个不会烂的地址。
-
-**一次调用，报错就是报错，不自动重试也不换渠道。** 这家没有幂等键，一次成功的生成
-就是一次计费；而 ``dev`` / ``pro`` 两个渠道价钱还不一样，替调用方偷偷换一个等于悄悄
-改了这次生成花多少钱——和「悄悄重投一次」是同一类毛病。渠道是请求里带来的参数，由调
-用方决定；这次失败了就把失败照实记下来，让人看着错误码决定要不要再发一次。
-
-失败的错误码分得清「送到了没有」（``PROVIDER_UNREACHABLE`` 是连都没连上、可以放心重
-发；``PROVIDER_RESULT_UNKNOWN`` 是发出去了但没拿到结果、可能已经计费，得先跟对方核
-对）。这两条不再触发任何自动动作，它们存在是为了让人做那个决定。
-"""
+完整接口地址由环境变量提供。临时结果必须转存为本系统公开对象后才能标记成功。
+生成接口没有幂等键，不自动重试或切换渠道，避免重复计费或改变调用方选择的价格。
+错误码区分连接失败与结果未知，供调用方判断是否重新提交。"""
 
 from __future__ import annotations
 
@@ -68,14 +49,13 @@ class NanoBananaSettings:
     """由组合根从环境变量解析后传入的运行值。"""
 
     text_to_image_url: str
-    """文生图的完整地址。**连路径一起来自环境变量**，仓里不留对方的接口路由——
-    公开仓不该说清我们在调谁的哪个内部接口。"""
+    """包含路径的文生图地址，由环境变量提供。"""
 
     image_edit_url: str
-    """图像编辑（带参考图）的完整地址，同上。"""
+    """包含路径的图像编辑地址，由环境变量提供。"""
 
     user_name: str
-    """对方要求的稳定调用方标识，用于它那边对账。"""
+    """Provider 要求的稳定调用方标识，用于对账。"""
 
 
 class NanoBananaImageProvider:
@@ -88,7 +68,6 @@ class NanoBananaImageProvider:
         object_store: PublicObjectStore,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        """``transport`` 只给测试注入替身用。"""
 
         self._settings = settings
         self._user_name = settings.user_name
@@ -118,16 +97,14 @@ class NanoBananaImageProvider:
                 content_type=mime,
             )
         except ObjectStoreUnavailable as exc:
-            # 图已经生成、也已经付了钱，只是没存下来。说成可重试是错的：重试会
-            # 重新走一遍生成，再付一次。
+            # 生成已计费，转存失败不得触发重新生成。
             raise ProviderError(
                 f"图像已生成但转存失败: {exc}",
                 code="OUTPUT_STORE_FAILED",
                 retryable=False,
             ) from exc
         return ProviderSubmission(
-            # 这家没有任务 id，我们发过去的 data_id 就是它认得我们的那个键，
-            # 对账时用它。
+            # Provider 不返回任务 id，使用请求 data_id 对账。
             provider_task_id=str(job.id),
             provider_status="succeeded",
             raw={"channel": request.channel, "sourceUrl": source_url, "response": body},
@@ -142,7 +119,6 @@ class NanoBananaImageProvider:
         )
 
     async def _generate(self, job: GenerationJob, request: ImageGenerationIn) -> dict[str, Any]:
-        """发起一次生成。参考图为空走文生图接口，否则走图像编辑接口。"""
 
         references = list(request.reference_image_urls)
         url = self._settings.image_edit_url if references else self._settings.text_to_image_url
@@ -160,12 +136,7 @@ class NanoBananaImageProvider:
         return await self._post(url, payload)
 
     async def _post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """发一次生成请求。
-
-        异常按「送到了没有」分两类。这个区分不再驱动任何自动重试——它是给人看的：
-        连都没连上说明这次没产生生成，可以放心重发；读超时、连接被中途掐断则可能已
-        经在算、已经计费，重发之前得先跟对方核对。
-        """
+        """提交一次生成；连接失败与请求结果未知使用不同错误码，不触发自动重试。"""
 
         try:
             async with httpx.AsyncClient(
@@ -213,10 +184,7 @@ class NanoBananaImageProvider:
         return body
 
     async def _download(self, url: str) -> tuple[bytes, str]:
-        """把结果图下载下来，返回字节与归一化后的 MIME。
-
-        流式读并且带上限：结果图的大小由对方决定，整份读进内存之前得先有个天花板。
-        """
+        """流式下载结果图并限制总字节数，返回内容与标准 MIME 类型。"""
 
         try:
             async with (
@@ -282,11 +250,7 @@ def _output_url(body: dict[str, Any]) -> str:
 
 
 def _normalize_mime(content_type: str, url: str) -> str:
-    """按响应头定 MIME，其次看 URL 后缀，都认不出就当 PNG。
-
-    这个值会写进对象的 Content-Type，浏览器按它决定是显示还是下载，所以只允许落在
-    我们支持的那几种上，不把对方给的任意字符串原样传下去。
-    """
+    """从响应头或 URL 后缀选择支持的 MIME 类型，无法识别时使用 PNG。"""
 
     mime = content_type.split(";", maxsplit=1)[0].strip().lower()
     if mime in _SUFFIX_BY_MIME:

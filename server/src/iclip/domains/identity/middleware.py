@@ -64,7 +64,7 @@ class PrincipalMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] in {"http", "websocket"}:
-            # 这条请求（或这条 WS 连接）里打的每一行日志都带上是谁、哪一次；uvicorn 的访问行也在内
+            # 请求及 WebSocket 生命周期内的日志共享请求与主体上下文。
             structlog.contextvars.clear_contextvars()
             structlog.contextvars.bind_contextvars(request_id=uuid.uuid4().hex[:12])
             connection = HTTPConnection(scope)

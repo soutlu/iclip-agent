@@ -1,10 +1,4 @@
-/**
- * 契约漂移门禁：把 contract/openapi.json 重新生成一遍，和入库的生成物逐字节比。
- *
- * 只管一个方向——**入库的生成物是不是这份合同当前的产物**。另一个方向（合同本身
- * 是不是后端当前的样子）由 `make contract-check` 管，它要跑得起后端依赖，不放在
- * 前端门禁里。
- */
+/** 从合同重新生成客户端，逐字节校验入库产物；后端合同由 make contract-check 校验。 */
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -26,9 +20,7 @@ const listFiles = (root, prefix = '') =>
     )
     .sort()
 
-// 临时目录必须在仓库里：prettier 按被格式化文件的位置找配置，放到系统 tmp
-// 会退回默认风格，比出来的差异全是引号和分号。这也意味着它不能进 .prettierignore，
-// 否则生成器自己的 prettier 后处理会跳过它。上一轮被杀掉留下的残留在这里清掉。
+// 临时目录须位于仓库内且不被 .prettierignore 排除，确保生成器使用项目的格式配置。
 for (const entry of readdirSync(WEB_ROOT)) {
   if (entry.startsWith('.openapi-check-'))
     rmSync(join(WEB_ROOT, entry), { force: true, recursive: true })

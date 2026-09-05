@@ -1,14 +1,8 @@
-/* 输入卡的局部样式：只收全局规则无法表达的特例。 */
-
-/* 编辑器不显示全局焦点环——焦点指示由卡片 focus-within 边框加深承担
-  （border-hover = on-surface 48%，白卡上 3.12:1，满足 ≥3:1 自定义焦点样式）。
-   全局兜底在匿名层（base.css），utilities 层的 outline-none 赢不了它，只能在这里收。 */
+/* 焦点由卡片 focus-within 边框提供（≥3:1）；在匿名层覆盖全局输入框焦点环，避免双重指示。 */
 .composer-editor:focus-visible {
   outline: none;
 }
 
-/* 编辑区本体（PM 挂载的 contenteditable）：换行靠文本里的 \n，pre-wrap 直接渲染（照 kimi）；
-   高度随内容长，顶到 25vh 后内部滚动（原 textarea 的观感）。 */
 .composer-editor {
   min-height: 76px;
   max-height: 25vh;
@@ -25,12 +19,10 @@
 .composer-editor p {
   margin: 0;
 }
-/* 紧凑形态（会话页）：单行起步 */
 .composer-editor-dense {
   min-height: 36px;
 }
 
-/* 占位符（kimi 的 composer-placeholder-overlay）：压在编辑区内容起点，不挡点击与选中。 */
 .composer-placeholder-overlay {
   position: absolute;
   top: 14px;
@@ -46,15 +38,11 @@
   user-select: none;
 }
 
-/* 超椭圆连续曲率（照 kimi composer）：支持的浏览器把 32px 圆角渲染成 superellipse，
-   不支持的回落普通圆角。 */
 @supports (corner-shape: superellipse(1.5)) {
   .composer-card {
     corner-shape: superellipse(1.5);
   }
 }
-
-/* ── 附件 pill（照 kimi 的 .attachment-pill）：纯文字级 chip，无背景无边框 ── */
 
 .attachment-pill {
   display: inline-flex;
@@ -71,24 +59,20 @@
 .attachment-pill:hover {
   color: var(--color-chat-message-text);
 }
-/* 图与视频 pill 悬停有预览卡，不假装是文字光标（kimi 在编辑器里给它们 default 光标） */
 .attachment-pill.attachment-image,
 .attachment-pill.attachment-video {
   cursor: default;
 }
-/* 芯片内容本身的样式在 media-preview.css（气泡也用同一套），这里只调它在 pill 里的墨色 */
 .attachment-pill .media-chip-icon {
   color: var(--color-on-surface-variant);
 }
 .attachment-pill:hover .media-chip-icon {
   color: inherit;
 }
-/* 点选（PM NodeSelection）底色：kimi 的 --p-selection（accent 20%） */
 .attachment-pill.ProseMirror-selectednode {
   background: color-mix(in srgb, var(--color-primary) 20%, transparent);
   border-radius: var(--radius-xs);
 }
-/* 上传失败：整颗变 error 色，hover 不再提亮（kimi .attachment-pill.attachment-error） */
 .attachment-pill.attachment-error,
 .attachment-pill.attachment-error:hover {
   color: var(--color-error);
@@ -97,8 +81,6 @@
 .attachment-pill.attachment-error:hover .media-chip-icon {
   color: inherit;
 }
-
-/* ── 拖放遮罩（kimi 的 .drop-overlay / .drop-card）── */
 
 .composer-drop-overlay {
   position: fixed;

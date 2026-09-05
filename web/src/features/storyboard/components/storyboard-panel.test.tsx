@@ -1,9 +1,4 @@
-/**
- * 工作台整体：读文件、翻组、切帧、抽屉、agent 改过标记。
- *
- * 翻组的真实手势是滚轮，而 jsdom 里容器没有高度、也不真滚，所以这里走「三条路都只改地址里的
- * shot」这条设计：用页码点与键盘断言翻组，滚轮那一条在 e2e 里验。
- */
+/** 单测通过页码与键盘验证查询参数同步，真实滚轮与 scroll-snap 行为由 e2e 覆盖。 */
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -44,7 +39,6 @@ describe('StoryboardPanel', () => {
     await renderPanel()
 
     expect(await screen.findByText('3 组 · 合计 21 秒 · 第 1 组')).toBeVisible()
-    // 三组各一页，都在滚动容器里
     expect(screen.getAllByRole('region', { name: /镜头组 \d/ })).toHaveLength(3)
   })
 
@@ -101,7 +95,6 @@ describe('StoryboardPanel', () => {
 
     await waitFor(() => expect(router.state.location.search).toEqual({ sheet: 'records', shot: 2 }))
     const drawer = screen.getByRole('complementary', { name: '生成记录' })
-    // 第 2 组名下三条视频任务：完成、失败、还在飞
     expect(within(drawer).getByRole('radio', { name: '视频生成记录 3' })).toBeVisible()
 
     await userEvent.click(within(drawer).getByRole('button', { name: '关闭生成记录' }))
@@ -176,7 +169,7 @@ describe('StoryboardPanel', () => {
     await renderPanel('/?shot=1')
     await screen.findByText('3 组 · 合计 21 秒 · 第 1 组')
 
-    // agent 悄悄改了第 2 组，版本到 2；我改第 1 组，手上还是版本 1
+    // 服务端先修改第 2 组并递增版本，本地仍基于旧版修改第 1 组。
     touchMockShots(CONVERSATION_ID)
     const input = within(screen.getByRole('region', { name: '镜头组 1' })).getByRole('spinbutton', {
       name: '镜头组 1 的时长（秒）',
@@ -184,7 +177,6 @@ describe('StoryboardPanel', () => {
     fireEvent.change(input, { target: { value: '8' } })
 
     expect(await screen.findByText('已保存', undefined, { timeout: 3000 })).toBeVisible()
-    // 第 2 组是 agent 的新版本，第 1 组是我的
     await userEvent.click(screen.getByRole('button', { name: '第 2 组' }))
     expect(await screen.findByText(/台词并成一句/)).toBeVisible()
   })
@@ -266,7 +258,6 @@ describe('StoryboardPanel', () => {
     )
     expect(posted['prompt']).toContain('模特提着帆布包走出门厅')
     expect(posted['imageUrls']).toHaveLength(1)
-    // 排上队之后列表重拉，这一组随即变成「正在出片」
     await waitFor(() => expect(reads).toBeGreaterThan(readsBefore))
     expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
   })
@@ -374,7 +365,6 @@ describe('StoryboardPanel', () => {
     const dialog = await screen.findByRole('dialog', { name: '确认批量出片' })
     await userEvent.click(within(dialog).getByRole('button', { name: '发出去' }))
 
-    // 第 2 组名下那条还在飞，不重复发
     await waitFor(() => expect(posted).toEqual([1, 3]))
   })
 

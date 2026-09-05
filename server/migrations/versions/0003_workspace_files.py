@@ -27,7 +27,7 @@ def upgrade() -> None:
         sa.Column("namespace", sa.Text(), nullable=False),
         sa.Column("path", sa.Text(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
-        # 生成列：容量上限要按命名空间求和，让 PG 自己算就不可能和 content 漂移。
+        # 生成列从 content 计算容量，供命名空间配额统计。
         sa.Column(
             "size_bytes",
             sa.BigInteger(),
@@ -37,13 +37,12 @@ def upgrade() -> None:
         sa.Column("version", sa.BigInteger(), nullable=False),
         sa.Column("created_at", postgresql.TIMESTAMP(timezone=True), nullable=False),
         sa.Column("updated_at", postgresql.TIMESTAMP(timezone=True), nullable=False),
-        # 主键的首列就是 namespace，所以「某个命名空间下的全部文件」和按前缀
-        # 扫目录都走它，不需要再加索引。
+        # 主键已覆盖 namespace 查询，无需额外索引。
         sa.PrimaryKeyConstraint("namespace", "path"),
         schema=SCHEMA,
     )
 
 
 def downgrade() -> None:
-    # 只删表：schema 是 0002 建的，归它去删。
+    # schema 由 0002 创建并负责回退。
     op.drop_table("workspace_files", schema=SCHEMA)

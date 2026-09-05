@@ -24,7 +24,7 @@
   z-index: var(--z-popup);
 }
 
-/* 局部堆叠（isolate 容器内兄弟排序，不承载全局层语义；v15.1 收口 z-[N] 存量） */
+/* 局部 z-index 仅用于 isolate 容器内的兄弟排序。 */
 .layer-local-1 {
   z-index: var(--z-local-1);
 }
@@ -38,16 +38,14 @@
   z-index: var(--z-canvas-overlay);
 } /* focused artifact 遮画布、低于 header */
 
-/* ===== Global interactive transitions（v13：统一走 M3 动效 token） ===== */
+/* 全局交互动效 */
 :where(header, button, input, textarea) {
   transition-property: background-color, border-color, color, transform, box-shadow;
   transition-duration: var(--dur-s);
   transition-timing-function: var(--ease);
 }
 
-/* v15 触控热区（M3 48px target）：视觉尺寸不变，::after 把可点范围外扩到 ≥48×48。
-   不设 position——调用处自行保证定位上下文（一般加 relative；本身 absolute 的按钮直接可用）；
-   overflow-hidden 的元素会裁掉伪元素，不适用本类。 */
+/* 伪元素扩展至 ≥48×48 触控热区；调用方提供定位上下文，overflow-hidden 会裁切热区。 */
 .hit-48::after {
   border-radius: inherit;
   content: '';

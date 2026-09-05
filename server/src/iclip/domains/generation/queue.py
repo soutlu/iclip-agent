@@ -1,58 +1,10 @@
-"""生成任务的排期：三条队列 + 一个收拾卡死任务的周期任务。
+"""生成任务调度。procrastinate 管理排期与 worker 心跳，generation_jobs 保存业务事实。
 
-排队机械交给 procrastinate（Postgres 原生的任务队列），**业务判断一条不交**。分工是
-这样的：
+图片提交、视频提交与轮询使用独立队列，避免长时间图片请求阻塞其他任务。
+轮询通过 StillRunning 复用重试任务，避免每次查询都新增队列记录；总时限由业务状态控制。
 
-```text
-它管：谁该跑、什么时候跑、几个同时跑、进程死了谁发现
-我管：提交出去算不算数、不知道发没发出去时怎么办、什么时候算彻底超时
-```
-
-**表还是我们自己的。** ``iclip.generation_jobs`` 是一次生成的事实；procrastinate 的
-表只是「这件事还没做完」的排期机械，随时可以清空重排而不损失任何事实。
-
-```text
-POST /generations ──▶ 插一行 pending ──▶ defer 提交任务
-                                           │
-        ┌──────────────────────────────────┴──────┐
-        ▼                                          ▼
-   submit-image 队列                          submit-video 队列
-        └──────────────┬───────────────────────────┘
-                       ▼
-              pending ──▶ submitting ──provider──▶ 有 output_url？
-                             │                      ├─ 有 → completed（同步接口）
-                             │ 崩在这里              └─ 没有 → submitted，defer 轮询
-                             ▼
-                      被重跑时守卫看见 submitting ──▶ failed（不重投：可能已计费）
-
-                    poll 队列：查一次 ──┬─ 还在跑 → 抛 StillRunning，5 秒后重试
-                                       ├─ 成了   → completed
-                                       ├─ 废了   → failed
-                                       └─ 问不通 → 30 秒后重试
-```
-
-**「还在跑」借重试通道走，但它不是失败。** 每 5 秒 defer 一个新任务的话，一个生成
-一小时就往它的表里写七百多行；改成让任务抛异常、由我们自己的重试策略决定「5 秒后再
-来」，一个生成始终只占一行，``attempts`` 正好就是问过几次。重试策略是我们写的，所
-以「还在跑」的语义没有被改成「出错了」。
-
-**三条队列切开，是因为耗时差着数量级**（图片提交 300 秒 / 视频提交 30 秒 / 查状态 1
-秒）。混在一条里，一批图片会把视频按在后面等。并发按「纯等待」开到一百：这两件事几
-乎整段时间都挂在对方的 socket 上，CPU 是空的。数据库连接也不必加——连接只在状态跳
-转那几毫秒里开合，从不跨着那次 HTTP 调用握着。
-
-**进程死掉之后，任务怎么回来，分两种。** 这一段容易看漏：
-
-- **优雅关停**（部署、重启）：宽限期到了会打断还在飞的任务，而被打断的任务是抛异常
-  结束的，重试策略把它重排回待办。这一半不用我们管。
-- **硬杀**（SIGKILL、OOM、机器没了）：任务留在「有人在做」上，那个 worker 的心跳
-  停了。procrastinate 自动维护心跳，但**不会**自动重跑——``get_stalled_jobs`` 是个
-  查询，``retry_job`` 是一次手动调用。所以下面那个周期任务是必需的，不是锦上添花：
-  没有它，一次崩在提交里的生成永远停在 ``submitting``，而它可能已经付过钱了。
-
-**重跑是安全的，靠的是任务体第一句话的守卫**（重读那一行，看见 ``submitting`` 就照
-实判失败），不是靠「不会重跑」。两家接口都没有幂等键，重投一次就是重复付一次钱。
-"""
+提交前先持久化 submitting。恢复时若仍为 submitting，标记失败且不重投，避免重复计费。
+优雅关停的中断任务由重试策略重排；硬中断遗留的 doing 任务由周期任务按心跳恢复。"""
 
 from __future__ import annotations
 
@@ -86,7 +38,7 @@ QUEUE_SUBMIT_VIDEO: Final = "generation-submit-video"
 QUEUE_POLL: Final = "generation-poll"
 
 _STOP_MARGIN_SECONDS: Final = 5
-"""收 worker 时在它自己的宽限期之外多等这么久。"""
+"""worker 自身关停宽限期之外的等待余量。"""
 
 _SUBMIT_QUEUES: Final[Mapping[GenerationKind, str]] = {
     KIND_IMAGE: QUEUE_SUBMIT_IMAGE,
@@ -95,81 +47,46 @@ _SUBMIT_QUEUES: Final[Mapping[GenerationKind, str]] = {
 
 
 def queue_dsn(database_url: str) -> str:
-    """把 SQLAlchemy 的连接串改成 psycopg 认的那种。
-
-    procrastinate 只支持 psycopg，而本仓其余部分走 asyncpg——同一个库，两个驱动。
-    ``postgresql+asyncpg://...`` 这种带方言后缀的写法只有 SQLAlchemy 认，psycopg 会
-    把 ``+asyncpg`` 当成主机名的一部分。
-    """
+    """移除 SQLAlchemy 驱动后缀，将连接串转换为 procrastinate 使用的 psycopg 格式。"""
 
     scheme, _, rest = database_url.partition("://")
     return f"{scheme.split('+')[0]}://{rest}"
 
 
 class StillRunning(Exception):
-    """provider 说还在跑。
-
-    借异常走，是因为「下次什么时候再问」在 procrastinate 里是重试策略的事。它不表示
-    出错——见本模块开头。
-    """
+    """Provider 仍在运行的调度信号，借重试策略安排下一次轮询，不代表生成失败。"""
 
 
 @dataclass(frozen=True, slots=True)
 class GenerationQueueSettings:
-    """排期的几个节奏。默认值按「视频几分钟、图片几分钟」的量级选的。"""
+    """生成队列的轮询、并发与 worker 生命周期配置。"""
 
     poll_interval_seconds: int = 5
-    """还在跑就隔这么久再问一次。**固定间隔，不做逐次拉长的退避**——退避省下的是几
-    次廉价的状态查询，代价是「做完了却没人发现」的延迟越拖越久，而且拖得最狠的正是
-    跑得最久的那些任务。用户盯着进度条等的就是这个延迟。"""
+    """固定轮询间隔，避免退避增加长任务完成后的发现延迟。"""
 
     error_retry_seconds: int = 30
-    """出错或被中断之后隔这么久再来。
-
-    比正常间隔长，是为了别在对方已经躺下的时候按正常节奏接着捶它：几百个在飞的任务
-    每 5 秒重试一次，只会让它更起不来。"""
+    """故障后的重试间隔，长于正常轮询间隔以降低故障期间的请求压力。"""
 
     job_timeout_seconds: int = 3600
-    """从提交算起，超过这么久还没终态就判失败。
-
-    固定间隔没有自我收敛的性质：一个永远说「在跑」的任务会被问到这个时限为止。所以
-    这是必需的兜底，不是可选项。"""
+    """提交后达到此时限仍无终态则失败，限制持续轮询的总时长。"""
 
     submit_concurrency: int = 100
     poll_concurrency: int = 100
-    """一条队列同时在飞多少个。按「纯等待」定的——见本模块开头。"""
 
     shutdown_grace_seconds: int = 15
-    """关停时给在飞的任务多少时间收尾，超了就打断。
-
-    不能无限等：一次图像提交最长十几分钟，等它等于把整个进程的关停拖那么久，而部署
-    环境的关停超时一到照样会杀进程——那时被打断的东西一样多，只是没人知道。被打断
-    的行停在 ``submitting`` 上，由那个周期任务照实收尾。"""
+    """关停时等待执行中任务的时限；超时中断的提交由恢复流程判定结果。"""
 
     stalled_worker_timeout_seconds: int = 30
-    """心跳断了这么久就认为那个 worker 没了，它手上的任务可以重跑。
-
-    **这个判断跟任务本身多长完全无关**，所以不需要「按最坏耗时估租约」那一套：一个
-    正在做 300 秒图片提交的活 worker 每 10 秒报一次心跳，永远不会被误判。"""
+    """按心跳失联时间判定 worker 中断，与任务自身耗时无关。"""
 
     heartbeat_interval_seconds: int = 10
 
 
 class _Retry(procrastinate.RetryStrategy):
-    """两个任务共用的重排策略：还在跑就按正常间隔，别的都按更长的错误间隔。
+    """StillRunning 使用正常轮询间隔，其他异常使用错误间隔。
 
-    继承的是具体的 ``RetryStrategy`` 而不是文档说的 ``BaseRetryStrategy``：``retry=``
-    参数的类型只写了前者，虽然两者都能跑。挑能过类型检查的那个。
-
-    **没有次数上限是刻意的，而且是必需的。** 界不在这里，在任务体的第一句话：
-
-    - 轮询：撞上总时限就写成终态、正常返回，不再抛异常。
-    - 提交：重读那一行，看见 ``submitting`` 就照实判失败、正常返回。
-
-    所以每个任务最多多跑一次就自己停了——上限是**守卫**给的，不是计数器给的。反过来
-    要是在这里设了上限，次数用完的任务会落在终态上，而它对应的那一行还停在
-    ``submitting``：一次可能已经付过钱的生成，永远没有结论，也没人知道。
-    """
+    不设置尝试次数上限：任务通过总时限或 submitting 状态收尾，避免队列停止重试后
+    业务记录仍停留在非终态。继承 RetryStrategy 以匹配 procrastinate 的参数类型。"""
 
     def __init__(self, settings: GenerationQueueSettings) -> None:
         super().__init__()
@@ -187,11 +104,7 @@ class _Retry(procrastinate.RetryStrategy):
 
 
 class GenerationQueue:
-    """把 ``generation_jobs`` 里的行往前推。
-
-    任务体（``run_submit`` / ``run_poll`` / ``heal_stalled``）都是普通协程，可以直接
-    调——测试测的是这几段判断，不是 procrastinate 的排期。
-    """
+    """推进持久化生成任务，任务协程可独立于调度器调用。"""
 
     def __init__(
         self,
@@ -210,7 +123,7 @@ class GenerationQueue:
         retry = _Retry(self._settings)
         self._submit = self._app.task(
             name="generation.submit",
-            # 队列在 defer 的时候按生成类型覆盖；这里给的只是个不会被用到的默认值。
+            # defer 时按生成类型覆盖队列。
             queue=QUEUE_SUBMIT_VIDEO,
             retry=retry,
         )(self.run_submit)
@@ -221,7 +134,7 @@ class GenerationQueue:
         )(self.run_poll)
         heal = self._app.task(
             name="generation.heal_stalled",
-            # 挂在轮询队列上：周期任务 defer 到没人消费的队列会永远躺在那儿。
+            # 周期任务必须使用已有 worker 消费的队列。
             queue=QUEUE_POLL,
             pass_context=True,
         )(self._heal_periodic)
@@ -229,16 +142,12 @@ class GenerationQueue:
 
     @property
     def app(self) -> procrastinate.App:
-        """给组合根开/关连接，以及测试查队列里有什么。"""
+        """供组合根管理队列连接生命周期。"""
 
         return self._app
 
     async def enqueue_submit(self, job: GenerationJob) -> None:
-        """把一次刚受理的生成排进提交队列。
-
-        调用方（``GenerationService``）负责在这一步失败时把那行判失败：插行走
-        asyncpg、排队走 psycopg，两个驱动两个事务，做不到原子。
-        """
+        """将任务加入对应提交队列；入库与排队分属不同事务，排队失败由服务层标记失败。"""
 
         await self._submit.configure(
             queue=_SUBMIT_QUEUES[job.kind],
@@ -246,33 +155,29 @@ class GenerationQueue:
         ).defer_async()
 
     async def run_submit(self, job_id: str) -> None:
-        """提交一次生成。**同一个 job 只允许真的提交一次。**"""
+        """提交一次生成；恢复时不得重复调用付费生成接口。"""
 
         job = await self._repo.get(uuid.UUID(job_id), owner=None)
         if job.status == STATUS_SUBMITTING:
-            # 上一次崩在提交里了。守卫：不知道发出去没有，照实判失败，绝不重投。
+            # 提交结果未知，恢复时标记失败，避免重复计费。
             await self._fail_stranded(job)
             return
         if job.status != STATUS_PENDING:
-            # 已经有结论了（重跑、或者重复排进来一次）。什么都不做。
             _logger.info("生成任务已有结论，不再提交", job_id=job.id, status=job.status)
             return
 
-        # 先落库再发请求。反过来的话，崩在响应回来之前这行还是 pending，重跑时会
-        # 再提交一次——而上一次可能已经计过费了。
+        # 提交前持久化状态，确保请求中断后不会被视为未提交而重投。
         await self._repo.mark_submitting(job.id)
         try:
             submission = await self._providers[job.kind].submit(job)
         except ProviderError as exc:
-            # 提交阶段一律不重试，连「可重试」的网络错误也不：请求可能已经落到对方
-            # 那边了，我们分不出来。
+            # 提交阶段忽略 retryable 标记，防止请求已受理时重复计费。
             await self._repo.mark_failed(job.id, error_code=exc.code, error_message=str(exc))
             _logger.warning("生成任务提交失败", job_id=job.id, code=exc.code, error=str(exc))
             return
 
         if submission.output_url is not None:
-            # 同步接口：提交这一下就已经出结果了。回执里的 task id 也得在这里落库——
-            # 它没有下一步了，错过就永远不会有人写它。
+            # 同步接口没有轮询阶段，完成时同时保存回执任务 id。
             await self._repo.mark_completed(
                 job.id,
                 output_url=submission.output_url,
@@ -314,7 +219,6 @@ class GenerationQueue:
             progress = await self._providers[job.kind].poll(job)
         except ProviderError as exc:
             if exc.retryable:
-                # 查状态失败不影响那次生成本身，隔久一点再问。
                 raise
             await self._repo.mark_failed(job.id, error_code=exc.code, error_message=str(exc))
             return
@@ -345,17 +249,10 @@ class GenerationQueue:
         raise StillRunning(f"{job.id} 还在跑（{progress.provider_status}）")
 
     async def heal_stalled(self, *, skip_job_id: int | None = None) -> int:
-        """把失联的 worker 手上那些任务重新排回去。返回捡起来几个。
+        """重排失联 worker 遗留的 doing 任务，返回数量。
 
-        **这一段是必需的**，不是保险：procrastinate 自动维护心跳，但重跑要自己调
-        （``get_stalled_jobs`` 只是个查询）。没有它，一次硬杀（SIGKILL、OOM、机器没
-        了）会让任务永远躺在 ``doing`` 上——对应那一行就永远停在 ``submitting``，而
-        它可能已经付过钱了。重跑之所以安全，靠的是 ``run_submit`` 第一句话的守卫。
-
-        **只管硬杀这一种。** 优雅关停打断在飞任务那一种不用管：那时任务是抛异常结束
-        的，``_Retry`` 会把它重排回 ``todo``，下次起来自然会跑（实测过）。这也是那个
-        策略不能设次数上限的原因之一——用完次数的任务会落在终态上，就再没人捡了。
-        """
+        procrastinate 只提供失联查询，必须显式重排；恢复提交由 run_submit 的状态检查防止重投。
+        优雅关停引发的任务异常由 _Retry 处理。"""
 
         stalled = await self._app.job_manager.get_stalled_jobs(
             seconds_since_heartbeat=self._settings.stalled_worker_timeout_seconds
@@ -372,16 +269,12 @@ class GenerationQueue:
         return healed
 
     async def _heal_periodic(self, context: procrastinate.JobContext, timestamp: int) -> None:
-        """周期任务的外壳。``timestamp`` 是 procrastinate 传的这一拍的时刻，用不上。
-
-        跳过自己：这个任务自己正处在「在跑」状态，而它的 worker 行万一被清掉过，它
-        就会把自己也当成卡死的捡一次。
-        """
+        """周期恢复任务，排除自身以免 worker 记录丢失时将自身误判为停滞任务。"""
 
         await self.heal_stalled(skip_job_id=context.job.id)
 
     def start(self) -> None:
-        """起三个 worker。重复调用无副作用。"""
+        """幂等启动三个队列 worker。"""
 
         if self._workers:
             return
@@ -400,10 +293,8 @@ class GenerationQueue:
                     shutdown_graceful_timeout=settings.shutdown_grace_seconds,
                     update_heartbeat_interval=settings.heartbeat_interval_seconds,
                     stalled_worker_timeout=settings.stalled_worker_timeout_seconds,
-                    # 信号归 uvicorn 管。默认是 True，那会让 procrastinate 抢
-                    # SIGTERM——两边都装处理器，关停顺序就成了谁先注册谁说了算。
+                    # 信号处理统一交给 uvicorn，避免覆盖 SIGTERM 处理器。
                     install_signal_handlers=False,
-                    # 成功的任务跑完就删。失败的留着，那是要人看的。
                     delete_jobs="successful",
                 ),
                 name=f"generation-worker-{queue}",
@@ -412,16 +303,9 @@ class GenerationQueue:
         )
 
     async def stop(self) -> None:
-        """收掉 worker。
+        """取消 worker 并在宽限期内等待退出，避免阻塞进程关停。
 
-        ``run_worker_async`` 被 cancel 之后自己会走优雅关停：先停领新活，再等在飞的
-        任务到 ``shutdown_grace_seconds``，还没完的打断。被打断的提交停在
-        ``submitting`` 上，下次由 ``heal_stalled`` 照实收尾。
-
-        **等待带上限，不等到底。** 这一段跑在整个进程的关停路径上，无论 worker 因为
-        什么原因收不干净，都不能把进程卡在这儿——那会让部署超时，然后被硬杀，结果比
-        主动放手更糟。宽限期本来就是 worker 自己那一层的上限，这里再多留一点余量。
-        """
+        未完成的提交保留 submitting，由恢复流程收尾。"""
 
         if not self._workers:
             return
@@ -437,11 +321,7 @@ class GenerationQueue:
             )
 
     async def _fail_stranded(self, job: GenerationJob) -> None:
-        """处置卡在 ``submitting`` 上的行：判失败，说清为什么不重投。
-
-        写入带状态守卫。判断和写入之间隔着一次 await，那当口原来那个进程可能刚把真
-        结果写完——守卫保证「谁有真结果谁说话」。
-        """
+        """将中断的 submitting 任务标记失败；条件更新避免覆盖原 worker 并发写入的结果。"""
 
         failed = await self._repo.mark_failed(
             job.id,

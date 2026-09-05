@@ -1,7 +1,4 @@
-/**
- * 拖柄只做一件事：把「相对按下那一刻移动了多少」报给调用方，并在拖完那一刻叫一次落盘。
- * 宽度怎么夹、存不存，都是壳的事，所以这里只断言报上来的位移与三个回调的次序。
- */
+/** 拖柄仅验证位移和回调顺序；宽度边界与持久化由应用壳负责。 */
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -87,7 +84,6 @@ describe('AppResizeHandle', () => {
     unmount()
     fireEvent.pointerMove(window, { clientX: 400 })
 
-    // 摘不干净的话，这条监听会一直活到标签页关掉，鼠标划过页面就一直在改宽度。
     expect(deltas).toEqual([])
   })
 })

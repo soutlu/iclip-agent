@@ -1,13 +1,11 @@
-"""agent_runtime.prompt_runs：一条 prompt 起过的那几次 run
+"""agent_runtime.prompt_runs：消息与运行映射
 
 Revision ID: 6e3f8a21c95b
 Revises: 9d4b7c1f6a28
 Create Date: 2026-09-01 14:20:00.000000
 
-transcript 把同一条 prompt 的多次 run 合成一轮，靠的就是这张映射表。
-
-回填 ``prompts.run_id`` 非空的行。插话行也记着它被递进的那次 run，所以每个 run 只取
-``created_at`` 最早的那条 prompt——发起那次 run 的一定先于递进来的。
+transcript 通过映射将同一消息的多次 run 合并为一轮。
+回填时每个 run 取 created_at 最早的消息，以排除运行中递入的插话。
 """
 
 from __future__ import annotations

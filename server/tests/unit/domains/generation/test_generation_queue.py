@@ -1,12 +1,4 @@
-"""T-GEN-04：生成任务的状态推进、不重投红线，与卡死任务的收拾。
-
-任务体是普通协程，这里直接调（``run_submit`` / ``run_poll`` / ``heal_stalled``）。
-**刻意不测 procrastinate 的排期**——「几个同时跑」「谁先被领」「租约多长」是它的契约，
-在这儿断言只是把它的实现抄一遍。这里测的是我们自己的判断。
-
-排期只在两处被断言，因为那两处一错就没人发现：**排进了哪条队列**（排错队列 = 没有
-worker 消费 = 永远躺着），和**卡死的任务会被捡回来**。
-"""
+"""直接调用任务协程，验证生成状态推进、提交幂等边界、队列选择和失联任务恢复。"""
 
 from __future__ import annotations
 
@@ -90,7 +82,6 @@ async def test_async_submit_moves_job_to_waiting_for_result() -> None:
 
 
 async def test_sync_submit_completes_in_one_step() -> None:
-    """图像接口提交这一下就出结果，所以不该经过等结果那个状态，也不该排轮询。"""
 
     job = make_job(image_request())
     repo = InMemoryGenerationRepository([job])
@@ -113,7 +104,7 @@ async def test_sync_submit_completes_in_one_step() -> None:
 
 
 async def test_marks_submitting_before_calling_provider() -> None:
-    """先落库再发请求：崩在响应回来之前，那一行必须留在「正在提交」上。"""
+    """请求前持久化 submitting，保证进程在响应前中断时留下提交状态。"""
 
     job = make_job(video_request())
     repo = InMemoryGenerationRepository([job])
@@ -133,11 +124,7 @@ async def test_marks_submitting_before_calling_provider() -> None:
 
 
 async def test_stranded_submitting_job_fails_and_is_never_resubmitted() -> None:
-    """重跑一个卡在「正在提交」上的任务，只许判失败，绝不重投。
-
-    这一条是整套「重跑是安全的」的地基：procrastinate 保证至少一次，我们靠这个守卫
-    保证「至少一次」不等于「付两次钱」。两家接口都没有幂等键。
-    """
+    """队列至少执行一次，供应商却无幂等键；重跑 submitting 任务只能失败，不能重复计费。"""
 
     job = make_job(video_request(), status=STATUS_SUBMITTING)
     repo = InMemoryGenerationRepository([job])
@@ -155,7 +142,7 @@ async def test_stranded_submitting_job_fails_and_is_never_resubmitted() -> None:
 
 
 async def test_submit_failure_is_terminal_even_when_retryable() -> None:
-    """提交阶段的网络错误也不重试：请求可能已经落到对方那边，我们分不出来。"""
+    """网络失败无法判定供应商是否收到提交，因此提交不可重试。"""
 
     job = make_job(video_request())
     repo = InMemoryGenerationRepository([job])
@@ -172,7 +159,6 @@ async def test_submit_failure_is_terminal_even_when_retryable() -> None:
 
 
 async def test_already_terminal_job_is_not_submitted_again() -> None:
-    """任务被重跑时那一行可能早有结论了——什么都不该做。"""
 
     job = make_job(video_request(), status=STATUS_COMPLETED)
     repo = InMemoryGenerationRepository([job])
@@ -217,11 +203,7 @@ async def test_poll_success_and_failure_reach_terminal_states() -> None:
 
 
 async def test_running_job_asks_again_at_a_fixed_interval() -> None:
-    """还在跑：抛 ``StillRunning``，由重试策略按**固定间隔**重排，不逐次拉长。
-
-    退避省下的是几次廉价的状态查询，代价是「做完了却没人发现」的延迟越拖越久，而且
-    拖得最狠的正是跑得最久的那些任务。用户盯着进度条等的就是这个延迟。
-    """
+    """固定间隔查询运行中任务，避免退避放大完成通知延迟。"""
 
     job = make_job(video_request(), status=STATUS_SUBMITTED, provider_task_id="t-1")
     repo = InMemoryGenerationRepository([job])
@@ -242,7 +224,7 @@ async def test_running_job_asks_again_at_a_fixed_interval() -> None:
 
 
 async def test_unreachable_provider_waits_longer_than_normal() -> None:
-    """查状态失败不等于那次生成失败；但对方躺下时要隔久一点再问，别接着捶它。"""
+    """状态查询故障不等于生成失败，使用更长间隔重试查询。"""
 
     job = make_job(video_request(), status=STATUS_SUBMITTED, provider_task_id="t-1")
     repo = InMemoryGenerationRepository([job])
@@ -261,7 +243,6 @@ async def test_unreachable_provider_waits_longer_than_normal() -> None:
 
 
 async def test_non_retryable_poll_error_is_terminal() -> None:
-    """对方明确拒绝（比如回了个我们不认识的状态），再问一万次也是同样的答案。"""
 
     job = make_job(video_request(), status=STATUS_SUBMITTED, provider_task_id="t-1")
     repo = InMemoryGenerationRepository([job])
@@ -278,10 +259,7 @@ async def test_non_retryable_poll_error_is_terminal() -> None:
 
 
 async def test_job_stuck_running_forever_eventually_times_out() -> None:
-    """对方一直说「在跑」不能就这么问到世界末日：有个总时限。
-
-    固定间隔没有自我收敛的性质，所以这个兜底是必需的，不是可选项。
-    """
+    """固定间隔轮询必须受总时限约束，避免供应商持续 running 导致无限轮询。"""
 
     stale = datetime.now(UTC) - timedelta(seconds=SETTINGS.job_timeout_seconds + 60)
     job = make_job(
@@ -305,16 +283,11 @@ async def test_job_stuck_running_forever_eventually_times_out() -> None:
 
 
 async def test_stranded_cleanup_never_overwrites_a_real_result() -> None:
-    """收尾一个「提交中断」的行，不能把一次已经成功、已经付过钱的生成盖成失败。
-
-    场景：任务被判卡死重跑了，而就在这个当口，原来那个进程带着真结果回来了。谁有真
-    结果谁说话——收尾的写入必须落空。
-    """
+    """失联恢复可能与原 worker 返回结果并发；清理更新不得覆盖已成功结果。"""
 
     job = make_job(image_request(), status=STATUS_SUBMITTING)
     repo = InMemoryGenerationRepository([job])
 
-    # 原来那个进程先把真结果写完（图已生成、已转存、已付过钱）。
     await repo.mark_completed(
         job.id,
         output_url="https://cdn.test/out.png",
@@ -322,7 +295,6 @@ async def test_stranded_cleanup_never_overwrites_a_real_result() -> None:
         provider_snapshot={},
     )
 
-    # 收尾的那一次随后才动手。
     queue, _ = build_queue(repo)
     await queue.run_submit(str(job.id))
 
@@ -333,10 +305,7 @@ async def test_stranded_cleanup_never_overwrites_a_real_result() -> None:
 
 
 async def test_sync_submit_records_the_reconciliation_id_and_timing() -> None:
-    """同步接口没有下一步，所以对账 id 和「发出去的时刻」只有这一步能落库。
-
-    错过就永远不会有人写它们：对不上账、也查不出这次生成花了多久。
-    """
+    """同步接口仅一次状态跳转，对账 id 与提交时间须在此阶段记录。"""
 
     job = make_job(image_request())
     repo = InMemoryGenerationRepository([job])
@@ -359,7 +328,6 @@ async def test_sync_submit_records_the_reconciliation_id_and_timing() -> None:
 
 
 async def test_async_submit_keeps_the_original_submitted_at() -> None:
-    """视频那条路 submitted_at 早就填过了，完成时别把它改成「拿到结果的时刻」。"""
 
     job = make_job(video_request())
     repo = InMemoryGenerationRepository([job])
@@ -385,10 +353,7 @@ async def test_async_submit_keeps_the_original_submitted_at() -> None:
 
 
 async def test_each_kind_goes_to_its_own_queue() -> None:
-    """图片提交能占满五分钟，视频提交最多三十秒——它们不能排在同一条队列上。
-
-    也因此排错队列是个哑巴故障：那条队列没有 worker 消费，任务永远躺着，没人报错。
-    """
+    """图像与视频提交耗时不同，须进入各自有 worker 消费的队列。"""
 
     video = make_job(video_request())
     image = make_job(image_request())
@@ -403,18 +368,14 @@ async def test_each_kind_goes_to_its_own_queue() -> None:
 
 
 async def test_stalled_job_of_a_dead_worker_is_picked_back_up() -> None:
-    """procrastinate 自动维护心跳，但**不会**自动重跑死掉的 worker 留下的任务。
-
-    没有这段收拾，一次崩在提交里的生成会永远停在 ``submitting``，一次崩在轮询里的
-    生成永远没人再问。重跑之所以安全，见上面那条守卫的测试。
-    """
+    """procrastinate 维护心跳但不自动恢复失联 worker 的任务，需显式重排。"""
 
     job = make_job(video_request())
     repo = InMemoryGenerationRepository([job])
     queue, connector = build_queue(repo)
     await queue.enqueue_submit(job)
 
-    # 模拟一个 worker 领走了它，然后死了（心跳停在很久以前）。
+    # 模拟任务已认领且 worker 心跳过期。
     worker_id = await queue.app.job_manager.register_worker()
     queued = await queue.app.job_manager.fetch_job(queues=[QUEUE_SUBMIT_VIDEO], worker_id=worker_id)
     assert queued is not None and queued.id is not None
@@ -428,10 +389,7 @@ async def test_stalled_job_of_a_dead_worker_is_picked_back_up() -> None:
 
 
 async def test_healer_leaves_a_live_workers_job_alone() -> None:
-    """心跳还在的 worker 手上那个任务不许动——它可能正做着一次五分钟的图片生成。
-
-    这正是心跳判活比「按最坏耗时估租约」强的地方：判断跟任务多长无关。
-    """
+    """存活由 worker 心跳决定，不能因长耗时生成而重排其任务。"""
 
     job = make_job(image_request())
     repo = InMemoryGenerationRepository([job])
@@ -449,11 +407,11 @@ async def test_healer_leaves_a_live_workers_job_alone() -> None:
 _ANY_JOB = QueuedJob(
     id=1, queue=QUEUE_POLL, lock=None, queueing_lock=None, task_name="generation.poll"
 )
-"""重试策略只看异常类型，不看这个 job——给它一个能构造出来的最简的。"""
+"""重试策略只依赖异常类型，使用最小有效 job。"""
 
 
 def _retry_seconds(queue: GenerationQueue, exception: Exception) -> int:
-    """问一下轮询任务的重试策略：碰到这个异常，隔多久再来。"""
+    """读取指定异常对应的轮询重试间隔。"""
 
     strategy = queue.app.tasks["generation.poll"].retry_strategy
     assert strategy is not None

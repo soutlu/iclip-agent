@@ -53,10 +53,7 @@ import {
 import type { LucideProps } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 
-/**
- * 加载图形照 kimi 网页版的 ui-spinner 复刻：底色轨道环 + 墨色圆弧（dasharray 56 / offset 38，
- * 可见弧约三分之一圈），调用处的 animate-spin 负责转。轨道色取发丝边框 token，深浅自动换向。
- */
+/** 参考 Kimi ui-spinner；图形包含轨道与圆弧，旋转由调用方 animate-spin 控制。 */
 const LoadingGlyph = ({ strokeWidth: _strokeWidth, ...props }: LucideProps) => (
   <svg fill="none" viewBox="0 0 24 24" {...props}>
     <circle
@@ -79,10 +76,7 @@ const LoadingGlyph = ({ strokeWidth: _strokeWidth, ...props }: LucideProps) => (
   </svg>
 )
 
-/**
- * 复制图形照 WorkBuddy 终态栏原版复刻：16×16 画布上 strokeWidth 1.3 的圆角双方块，
- * 第二个 path 是 back rect 的描边。线宽是图形自带的一部分，不吃 Icon 统一的 strokeWidth。
- */
+/** 参考 WorkBuddy 复制图标；固定线宽属于图形比例，不使用统一 strokeWidth。 */
 const CopyGlyph = ({ strokeWidth: _strokeWidth, ...props }: LucideProps) => (
   <svg fill="none" viewBox="0 0 16 16" {...props}>
     <path
@@ -102,10 +96,7 @@ const CopyGlyph = ({ strokeWidth: _strokeWidth, ...props }: LucideProps) => (
   </svg>
 )
 
-/**
- * 消耗图形照 WorkBuddy 的 credit 钻石复刻：12×12 画布，path 转 45° 后成四角星，
- * evenodd 让内圈星形镂空。原版还叠了一层全画布 clipPath，无实际裁剪作用，省去。
- */
+/** 参考 WorkBuddy credit 图标；evenodd 保留内圈镂空。 */
 const CreditGlyph = ({ strokeWidth: _strokeWidth, ...props }: LucideProps) => (
   <svg fill="none" viewBox="0 0 12 12" {...props}>
     <path
@@ -117,8 +108,7 @@ const CreditGlyph = ({ strokeWidth: _strokeWidth, ...props }: LucideProps) => (
   </svg>
 )
 
-// 键名按用途起，不按图形起：调用点写 name="close" 而不是 name="x"，
-// 换掉底层图形时只改这张表。
+// 图标键按语义用途命名，底层图形集中替换。
 const ICONS = {
   add: Plus,
   'add-file': FilePlus2,
@@ -179,8 +169,7 @@ export type IconName = keyof typeof ICONS
 
 export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
-// 尺寸走 CSS 而不是 lucide 的 size 属性：SVG 的 width/height 是表现属性，
-// 类名里的 --icon-* 会盖过它，档位因此只有规范里的五级。
+// CSS token 覆盖 SVG 尺寸属性，统一使用五档图标尺寸。
 const SIZE_CLASS: Record<IconSize, string> = {
   xs: 'size-(--icon-xs)',
   sm: 'size-(--icon-sm)',
@@ -195,7 +184,7 @@ type IconProps = {
   className?: string
 } & (
   | { label: string; decorative?: never }
-  // 纯装饰图标要显式声明，缺省不当作装饰处理，避免读屏用户丢掉唯一的含义载体
+  // 装饰图标须显式声明，避免有语义的图标缺少可访问名称。
   | { decorative: true; label?: never }
 )
 

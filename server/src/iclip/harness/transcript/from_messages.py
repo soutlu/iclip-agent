@@ -1,24 +1,8 @@
-"""从消息历史推出 transcript：已经跑完的那些轮子。
+"""从持久化消息重建 transcript，结构须与实时投影一致。
 
-实时那条路（投影器）从事件流产出操作，这条路从 ``StepPersistence`` 存下来的消息现推。
-两条路必须给出**逐字相同**的结构，否则同一段对话刷新前后会变形——所以编号一律取自消息
-里确定的事实，不取到达次序（规则见 ``ops`` 模块开头）。
-
-一轮 = 一条 prompt 起过的全部 run。消息自己带着 ``run_id``，哪几次 run 属于同一条 prompt 由
-``agent_job_runs`` 那张表给（调用方查好递进来），没有映射的 run 各自成轮。轮间按组内最早那条消息
-的时刻排。
-
-**轮的终态不在这里猜。** 消息里看不出一次 run 是跑完的、被停的还是报错的：真实数据里有一段
-对话的消息停在一条没有工具调用的响应上（看着像正常收尾），官方记的却是被取消。
-
-官方一直在记这件事——``StepPersistence`` 每次 run 结束会写一条 ``run_completed`` 或
-``run_failed``（后者把 ``repr(error)`` 存进 ``error`` 列，取消因此认得出来）。分类规则见
-``run_state_from_events``；按 ``run_id`` 查那张表即可，``turn_states`` 收的就是这个键。没查
-到的轮子给 ``failed``——「没记下一次干净的收尾」就是这个意思，不能默认当成跑完了。
-
-**等审批的那一轮也不在这里猜。** 一次 run 干净收尾、末尾那条响应上却还开着工具调用，只有
-「以 ``DeferredToolRequests`` 结束」这一种可能；那几次调用是不是还等着人点头，要看那条 prompt
-此刻是什么状态（``prompt_status_of_run``）。判据与各自的结局见 ``_approval_calls``。
+同一 prompt 的全部 run 合并为一轮，无映射的 run 各自成轮，按首条消息时间排序。
+终态与错误来自持久化结束事件；缺少结束事件时标记失败。
+末尾开放的审批调用结合 prompt 当前状态判定，见 _approval_calls。
 """
 
 from __future__ import annotations
@@ -68,11 +52,10 @@ TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
 ApprovalState = Literal["pending", "approved", "rejected", "cancelled"]
 
 _CLOSED_OUT_OUTCOMES: Final = ("failed", "interrupted")
-"""补给悬空调用的那两种返回结局，都不是人点的头：``failed`` 是新消息进来之前把前沿收掉（见
-``runner._close_out``），``interrupted`` 是崩溃续跑时官方自己补的。"""
+"""系统补全的失败结果：新消息关闭旧调用使用 failed，中断恢复使用 interrupted。"""
 
 _WAITING_PROMPT_STATUSES: Final = ("awaiting", "running")
-"""还会有人来读那几张审批卡的两种 prompt 状态：正等着点头，或者点齐了已经起了续跑。"""
+"""审批仍可被处理的状态：等待审批或已开始续跑。"""
 
 _TURN_STATE_BY_PROMPT: Final[dict[str, TurnState]] = {
     "awaiting": "running",
@@ -80,8 +63,7 @@ _TURN_STATE_BY_PROMPT: Final[dict[str, TurnState]] = {
     "aborted": "cancelled",
     "failed": "failed",
 }
-"""末尾还开着审批调用时，轮的终态按那条 prompt 的状态定，不按结束事件——那次 run 是干净收尾的，
-按它算这一轮会显示成「跑完了」，而人还没点头。"""
+"""存在开放审批调用时，按 prompt 状态决定轮次终态；run_completed 不代表审批已完成。"""
 
 
 def turns_from_messages(
@@ -93,17 +75,10 @@ def turns_from_messages(
     prompt_status_of_run: Mapping[str, str] | None = None,
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
 ) -> tuple[TranscriptTurn, ...]:
-    """把一段对话的消息历史推成一串轮子，按发生先后排。
+    """按时间重建轮次；同 prompt 的 run 合并，轮次终态取最后一次 run。
 
-    ``turn_states`` 与 ``turn_errors`` 都按 ``run_id`` 给，来自官方记的那条 run 结束事件（见模块
-    开头）。错误文字得跟着一起来：实时那侧把它挂在轮头部，这侧不给就两条路对不上。
-
-    ``prompt_of_run`` 是 run → prompt 的映射，多次 run 合成一轮靠它。轮的终态取该轮**最后一次**
-    run 的：更早那几次是中断后续跑掉的，它们的结局只定各自的步。``prompt_status_of_run`` 是
-    run → 那条 prompt 此刻的状态，只在末尾还开着审批调用时用得上（见 ``_approval_calls``）。
-
-    ``display`` 是工具卡的画法，实时那侧要拿到同一份实例；不给就每张卡都退成 generic，而且不
-    报错。
+    turn_states/turn_errors 按 run_id 提供，prompt_status_of_run 用于开放审批调用。
+    display 须与实时投影共享，保持工具卡结构一致。
     """
 
     states = turn_states or {}
@@ -141,12 +116,7 @@ def approvals_from_messages(
     prompt_of_run: Mapping[str, str] | None = None,
     prompt_status_of_run: Mapping[str, str] | None = None,
 ) -> tuple[Interaction, ...]:
-    """这段对话里的审批交互：已经落定的那些，加末尾还等着人点头的那几张。
-
-    判据与工具卡上那个审批 id 同一份（``_approval_calls``）。还开着的那几张按 prompt 状态定：
-    等审批或者已经起了续跑 → ``pending``，撤销与失败 → ``cancelled``，因为再没有 run 会来读它，
-    而界面上一张永远等回应的卡比一条已取消的记录难看得多。
-    """
+    """重建审批交互；等待审批和续跑中的调用为 pending，撤回或失败的调用为 cancelled。"""
 
     states = turn_states or {}
     statuses = prompt_status_of_run or {}
@@ -172,12 +142,9 @@ def _approval_calls(
     segments: Sequence[tuple[str, Sequence[ModelMessage]]],
     run_states: Mapping[str, TurnState],
 ) -> tuple[dict[str, ApprovalState], tuple[str, ...]]:
-    """这一轮里哪几次工具调用是审批：已经落定的各自什么结局，末尾那几个还开着。
+    """识别正常完成的 run 末尾无结果的调用作为审批。
 
-    判据只有这两条，别再加：**一段干净收尾**（官方记下了 ``run_completed``）却在末尾那条响应上
-    留着没有结果的调用——只有以 ``DeferredToolRequests`` 结束才会是这个形状，崩在工具执行中途
-    留下的形状一样，但那一段不是干净收尾；结局看同一轮后一段第一条请求里的返回，``denied`` 是
-    拒了，其余是放行了，而补上的 ``failed`` / ``interrupted`` 不算（见 ``_CLOSED_OUT_OUTCOMES``）。
+    结果取同轮后续 run 的返回：denied 为拒绝，其余为放行；系统补全的 failed/interrupted 排除。
     """
 
     settled: dict[str, ApprovalState] = {}
@@ -196,7 +163,7 @@ def _approval_calls(
 
 
 def run_ids_from_messages(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
-    """这段对话跑过哪几次 run，按发生先后排。拿去查每次 run 的结束事件。"""
+    """按顺序返回运行 id，供查询结束事件。"""
 
     return tuple(run_id for run_id, _ in _group_by_run(messages))
 
@@ -204,7 +171,7 @@ def run_ids_from_messages(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
 def turn_run_ids(
     messages: Sequence[ModelMessage], prompt_of_run: Mapping[str, str]
 ) -> tuple[tuple[str, ...], ...]:
-    """每一轮各含哪几次 run，按轮序排。轮号 ``t{N}`` 的 N 就是这份列表的长度。"""
+    """按轮序返回 run 分组，列表长度用于确定轮号。"""
 
     return tuple(
         tuple(run_id for run_id, _ in segments)
@@ -215,12 +182,7 @@ def turn_run_ids(
 def drop_last_turn(
     messages: Sequence[ModelMessage], prompt_of_run: Mapping[str, str]
 ) -> tuple[list[ModelMessage], tuple[str, ...]]:
-    """把最后一轮的消息摘出去，返回（剩下的消息，被摘掉那一轮的 run id）。
-
-    末轮跨了几次 run 就一起摘：留一段下来的话它会与续跑的那条 prompt 断开映射，自成一轮。
-    剩下的消息重新分轮后轮号不变，下一轮的轮号（``len(turn_run_ids) + 1``）自然复用被摘掉
-    那一轮的号。消息是空的就没什么可摘。
-    """
+    """移除末轮的全部 run 并返回其 id；保留消息的轮号不变，续跑复用末轮编号。"""
 
     turns = _group_by_turn(messages, prompt_of_run)
     if not turns:
@@ -230,12 +192,7 @@ def drop_last_turn(
 
 
 def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
-    """一次 run 的结束事件 → 轮的终态。
-
-    取消与报错都写成 ``run_failed``，区别在 ``error`` 那一列的异常名：第一方取消是
-    ``RunCancelled``，外部取消（任务被 cancel）是 ``CancelledError``。一条结束事件都没有说明
-    进程没活到写它——那也不是跑完了。
-    """
+    """将持久化结束事件映射为终态。run_failed 按 RunCancelled/CancelledError 区分取消；缺事件视为失败。"""
 
     for event in reversed(events):
         if event.kind == "run_completed":
@@ -247,11 +204,7 @@ def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
 
 
 def run_error_from_events(events: Sequence[StepEvent]) -> str | None:
-    """这次 run 失败时官方记下的错误文字。跑完的、或者没记下结束事件的都是 ``None``。
-
-    实时那侧把这段文字挂在轮头部的 ``error`` 上，这一侧得给出同一份，否则刷新之后失败的原因
-    就没了，两条路也对不上。
-    """
+    """读取失败事件的错误文本，与实时轮次的 error 保持一致。"""
 
     for event in reversed(events):
         if event.kind == "run_completed":
@@ -264,11 +217,7 @@ def run_error_from_events(events: Sequence[StepEvent]) -> str | None:
 def _group_by_turn(
     messages: Sequence[ModelMessage], prompt_of_run: Mapping[str, str]
 ) -> list[list[tuple[str, list[ModelMessage]]]]:
-    """把 run 分组再合成轮：相邻两组归同一条 prompt 就是同一轮。
-
-    只合相邻的——同一条 prompt 的几次 run 在时间上必然挨着。两组都没有映射时不合（``agent_job_runs``
-    建表之前的旧数据，各自成轮）。
-    """
+    """仅合并属于同一 prompt 的相邻 run；无映射的历史 run 保持独立。"""
 
     turns: list[list[tuple[str, list[ModelMessage]]]] = []
     for run_id, group in _group_by_run(messages):
@@ -281,17 +230,12 @@ def _group_by_turn(
 
 
 def _group_by_run(messages: Sequence[ModelMessage]) -> list[tuple[str, list[ModelMessage]]]:
-    """按 ``run_id`` 分组，组间按组内第一条消息的时刻排。
-
-    排序取消息上的时刻，不取 ``runs`` 表的 ``started_at``：消息里本来就带着时刻。合成轮要的那份
-    映射另说，它来自 ``agent_job_runs``（见 ``_group_by_turn``）。
-    """
+    """按 run_id 分组，以组内首条有效消息的时间排序。"""
 
     grouped: dict[str, list[ModelMessage]] = {}
     current = ""
     for message in messages:
-        # 没有 run_id 的挂到前一条那次 run 上。收尾的重试提示就是这样的（引擎没给它盖号），
-        # 单独成组的话会多出一个空轮子，而且它的时刻也是空的，排序会把它甩到最前面。
+        # 缺少 run_id 的重试提示归入前一 run，避免产生无时间的额外轮次。
         current = message.run_id or current
         grouped.setdefault(current, []).append(message)
     return sorted(grouped.items(), key=lambda item: _started_at(item[1]))
@@ -301,11 +245,7 @@ _EPOCH = datetime.min.replace(tzinfo=UTC)
 
 
 def _started_at(group: Sequence[ModelMessage]) -> datetime:
-    """这一组最早的时刻。请求的 ``timestamp`` 允许为空，所以取第一个有值的。
-
-    压缩边界不算：切点落在一轮的头一条消息上时它排在组首，而它盖的是压缩发生那一刻，拿它当
-    开始时刻的话这一轮会晚出十几分钟，轮序也可能跟着错位。
-    """
+    """取首个有效消息时间，排除压缩边界的创建时间，避免改变原轮次顺序。"""
 
     return next(
         (
@@ -341,16 +281,11 @@ def _turn(
     waiting: Sequence[str] = (),
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
 ) -> TranscriptTurn:
-    """一轮的那几次 run → 一轮。步号跨 run 接着数，工具卡在哪一段发起就留在那一段。
-
-    ``approvals`` 是这一轮里要盖审批 id 的那几次调用，``waiting`` 是其中还等着人点头的——后者
-    的卡留在 ``running``，别的没等到返回的照旧收成错的那一档。
-    """
+    """跨 run 连续编号步骤；工具卡保留在发起步骤，等待审批的卡保持 running。"""
 
     turn_id = f"t{ordinal}"
     steps: list[TranscriptStep] = []
-    # 工具卡建在发起它的那一步里，而它的结局在下一条请求里才到，所以按 toolCallId 记着位置。
-    # 结局可能落在后一次 run 的第一条请求里（续跑时给悬空调用补的那份），所以这些账跨段留着。
+    # 按 toolCallId 保留卡片位置，结果可能在后续 run 的首条请求中到达。
     tool_frames: dict[str, str] = {}
     frames_by_step: list[dict[str, TranscriptFrame]] = []
     content: tuple[PromptContent, ...] | None = None
@@ -365,26 +300,23 @@ def _turn(
                 isinstance(message, ModelResponse)
                 and (boundary := compaction_boundary(message)) is not None
             ):
-                # 提示块挂在时刻**晚于**边界的第一步上，不挂在列表位置的后一步——边界插在切点，
-                # 在列表里比它创建时正在跑的那一步早十几条。严格晚于是为了跨轮也认同一步：边界
-                # 并进后面那条响应之后，合并出来的那条盖的正是边界的时刻。
+                # 压缩提示挂在时间严格晚于边界的首步，不能按边界插入历史的位置决定。
+                # 严格比较确保边界合并至响应后仍定位同一步。
                 pending_summaries.append((message.timestamp, boundary.content or ""))
                 if compaction_only(message):
-                    # 整条只有边界：模型没答过它，不算一步。并进别的响应之后就不是这样了，那条
-                    # 消息里有模型真说过的话，照旧走下面开一步。
+                    # 纯边界消息不计为模型步骤；包含其他响应 part 时仍计一步。
                     continue
             if isinstance(message, ModelRequest):
                 said = _user_content(message)
                 if content is None and said:
-                    # 一轮的第一句用户输入是这一轮的由来，不单独成块。
+                    # 首条用户消息属于轮次输入，不另建块。
                     content = said
                 elif said and steps:
-                    # 中途插进来的用户消息挂在当时最后那一步末尾，与实时那条路一致。赶在前一段
-                    # 收场那一刻递进去的那条，挂的是前一段的末步。
+                    # 插话挂在当时的末步，与实时投影保持一致。
                     step_index = len(steps) - 1
                     _user_frame(frames_by_step[step_index], f"{turn_id}.{step_index + 1}", said)
                 elif said:
-                    # 还没有步可挂（第一次模型请求就带着插话进来），攒着，等第一步开出来放在最前。
+                    # 首步尚未创建时暂存插话，随后插入首步开头。
                     pending_steers.append(said)
                 _settle_tools(message, tool_frames, frames_by_step)
                 pending_request = message
@@ -424,7 +356,7 @@ def _turn(
                 )
             )
 
-        # 这一段后面还有续跑，而它自己没跑完：那一段停在哪一步，那一步就是断掉的。
+        # 未完成且后续有续跑的 run，其末步标记为中断。
         broke_off = (
             index < len(segments) - 1
             and len(steps) > opened
@@ -456,7 +388,7 @@ def _turn(
 
 
 def _compaction_frame(frames: dict[str, TranscriptFrame], step_id: str, summary: str) -> None:
-    """压缩提示块。id 不占 f 号——``next_frame_ordinal`` 只认 ``.f<n>`` 结尾的那些。"""
+    """压缩提示使用独立 id，不占 .f<n> 块序号。"""
 
     frame_id = f"{step_id}.compaction"
     frames[frame_id] = NoticeFrame(
@@ -467,7 +399,7 @@ def _compaction_frame(frames: dict[str, TranscriptFrame], step_id: str, summary:
 def _user_frame(
     frames: dict[str, TranscriptFrame], step_id: str, content: tuple[PromptContent, ...]
 ) -> None:
-    """把一条用户消息放进这一步，编号走 ``_next_frame_ordinal``。"""
+    """将用户消息加入步骤，使用共享块序号。"""
 
     frame_id = f"{step_id}.f{next_frame_ordinal(frames)}"
     frames[frame_id] = TextFrame(
@@ -476,12 +408,7 @@ def _user_frame(
 
 
 def _user_content(message: ModelRequest) -> tuple[PromptContent, ...]:
-    """这条请求里用户发上来的 part 列表；没有用户输入就是空的。
-
-    ``content`` 可以是一串多模态元素。图和视频的身份写在正文里的媒体 tag 上（见
-    ``prompt_media``），这里把它解回 part——不解的话那条 tag 会当成用户打的字显示出来，
-    而图在界面上根本不存在。
-    """
+    """从请求还原用户 part；媒体 tag 解析为附件，避免显示协议文本。"""
 
     parts: list[PromptContent] = []
     for part in message.parts:
@@ -500,11 +427,7 @@ def _open_frames(
     tool_frames: dict[str, str],
     display: ToolDisplayRegistry,
 ) -> None:
-    """一次模型响应里的各个 part → 这一步的块。
-
-    正文块与思考块共用一个从 1 起的序号；工具块不占这个号，它的 id 是
-    ``<步 id>.<toolCallId>``（协议里工具块 id 就是这么定的，反解不出序号）。
-    """
+    """响应 part 转换为步骤块；正文与思考共用序号，工具使用 <stepId>.<toolCallId>。"""
 
     for part in message.parts:
         if isinstance(part, ThinkingPart):
@@ -532,11 +455,7 @@ def _settle_tools(
     tool_frames: dict[str, str],
     frames_by_step: list[dict[str, TranscriptFrame]],
 ) -> None:
-    """把工具的结局回填到它那张卡上。
-
-    ``RetryPromptPart`` 也走这里：工具的参数没通过校验时，它顶替了那次调用的返回，卡片就该
-    是错的那一档——漏了它，界面上会留下一张永远转圈的卡。
-    """
+    """回填工具结果；RetryPromptPart 作为失败结果关闭工具卡。"""
 
     for part in message.parts:
         if isinstance(part, ToolReturnPart):
@@ -563,14 +482,9 @@ def _settle_tools(
 
 
 def unanswered_tool_calls(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
-    """最后那次模型响应里还没有结果的工具调用。
+    """返回最后一次模型响应中未处理的调用。
 
-    只看最后一次响应：更早的悬空调用官方在每次请求前自己补齐（``_repair_dangling_tool_calls``），
-    而最后那次是「前沿」，官方留着等调用方用 ``deferred_tool_results`` 回答——不回答就拒绝新的
-    用户消息进来（``Cannot provide a new user prompt when the message history contains
-    unprocessed tool calls``）。
-
-    已经有结果的不能再给一份，官方会报「这次调用已经执行过了」。
+    调用方须通过 deferred_tool_results 处理这些前沿调用，才能提交新用户消息；已完成调用不可重复返回。
     """
 
     last = next(
@@ -595,11 +509,7 @@ def unanswered_tool_calls(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
 
 
 ORPHAN_TOOL_ERROR = "运行中断，这次调用没有结果"
-"""没有工具返回的那次调用，卡片上写这句。
-
-一份中断的消息历史里，最后那次工具调用可能没有对应的返回（进程在工具跑到一半时没了）。不给它
-一个终态，界面上会留下一张永远转圈的卡——而这一轮明明已经结束了。
-"""
+"""无工具返回时的中断文案，用于结束已终止轮次中的开放工具卡。"""
 
 
 def _stamp_approval(
@@ -607,7 +517,7 @@ def _stamp_approval(
     tool_frames: dict[str, str],
     frames_by_step: list[dict[str, TranscriptFrame]],
 ) -> None:
-    """给这张卡盖上审批 id。客户端靠它把「同意 / 拒绝」挂在这张卡上。"""
+    """附加审批 id，供客户端关联审批操作。"""
 
     frame_id = tool_frames.get(tool_call_id)
     if frame_id is None:
@@ -627,7 +537,7 @@ def _close_orphan_tools(
     *,
     keep_open: Sequence[str] = (),
 ) -> None:
-    """把没等到返回的工具卡收成错的那一档。等审批的那几张不收：人正对着它点头。"""
+    """将无结果调用标记为错误；等待审批的调用保持开放。"""
 
     for tool_call_id in tool_frames:
         if tool_call_id in keep_open:
@@ -670,11 +580,7 @@ def _replace_tool(
 
 
 def step_usage(usage: RequestUsage | None) -> StepUsage | None:
-    """引擎的用量 → 协议的用量。实时那条路补用量时用的是同一个函数，口径只有一份。
-
-    ``input_tokens`` 是总数，缓存读写都算在里面（官方 docstring 明说 included in），所以
-    「其余」要把两块缓存都减掉，不然三项加起来会超过总数。
-    """
+    """统一转换引擎用量；input_tokens 已含缓存读写，计算普通输入时须扣除两者。"""
 
     if usage is None:
         return None
@@ -687,10 +593,7 @@ def step_usage(usage: RequestUsage | None) -> StepUsage | None:
 
 
 def turn_usage(steps: Sequence[StepUsage]) -> TurnUsage | None:
-    """一轮的用量是各步之和，口径照协议：写缓存算进 input，读缓存单列。
-
-    实时那条路（``projector``）攒着各步用量、每次改轮头部都要重算一遍，用的是同一个函数。
-    """
+    """汇总步骤用量；缓存写入计入 input，缓存读取单列。"""
 
     if not steps:
         return None

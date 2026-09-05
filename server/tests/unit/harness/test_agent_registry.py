@@ -39,23 +39,20 @@ MODEL_NAME = "m"
 
 @dataclass(frozen=True)
 class Caller:
-    """deps 的替身：这一层不认识业务身份，只验穿线本身。
+    """测试 deps 类型，验证依赖传递。
 
-    必须定义在模块级——工具的注解在 ``from __future__ import annotations`` 下
-    是字符串，注册工具时按模块全局求值，函数内的局部类解析不到。
+    类型须定义在模块级，以便框架解析延迟求值的工具注解。
     """
 
     label: str
 
 
 def store() -> InMemoryStepStore:
-    """本层验装配契约，用内存 store。"""
 
     return InMemoryStepStore()
 
 
 def models() -> dict[str, TestModel]:
-    """模型用官方 test 替身。"""
 
     return {MODEL_NAME: TestModel()}
 
@@ -75,7 +72,6 @@ def test_empty_definitions_yield_empty_registry() -> None:
 
 
 def test_agent_id_overrides_spec_name(tmp_path: Path) -> None:
-    """spec 里的 name 不得成为运行身份：两个 id 指向同名 spec 也必须可区分。"""
 
     spec = make_spec(tmp_path, "shared", spec="model: test\nname: shot-writer\n")
     registry = build_agent_registry(
@@ -93,7 +89,7 @@ def test_agent_id_overrides_spec_name(tmp_path: Path) -> None:
 
 
 async def sent_instructions(registry: AgentRegistry, agent_id: str) -> str | None:
-    """跑一次，读模型实际收到的指令（公开 API，不碰私有属性）。"""
+    """执行 Agent 并读取模型实际接收的指令。"""
 
     request = (await registry.agents[agent_id].run("hi")).all_messages()[0]
     assert isinstance(request, ModelRequest)
@@ -119,7 +115,6 @@ async def test_instructions_file_merged(tmp_path: Path) -> None:
 
 
 async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
-    """使用者会先提交空的 instructions.md——空文件不得变成一条空指令。"""
 
     spec = make_spec(tmp_path, "storyboard", instructions="   \n\n")
     registry = build_agent_registry(
@@ -139,7 +134,7 @@ async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
 
 
 async def drive(registry: AgentRegistry, agent_id: str, *, deps: object = None) -> list[Any]:
-    """跑一次，收下全部引擎事件。运行驱动走的也是这条官方入口。"""
+    """通过 run_stream_events 收集完整运行事件。"""
 
     async with registry.agents[agent_id].run_stream_events(
         "hi", conversation_id="c1", run_id="run-1", deps=deps
@@ -184,11 +179,7 @@ async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
 
 
 def test_the_delegate_tool_has_a_display() -> None:
-    """派活的卡上画的是「谁在干什么」。
-
-    表里的名字必须就是挂上去的那一件（``DELEGATE_TOOL``），对不上的话派活的卡会退成朴素的
-    那张，而且不报错。
-    """
+    """display 注册名须与实际挂载的 DELEGATE_TOOL 一致，避免错误回退到 generic。"""
 
     drawn = delegate_display_table()[DELEGATE_TOOL]
 
@@ -199,11 +190,7 @@ def test_the_delegate_tool_has_a_display() -> None:
 
 
 async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
-    """协议流路径上主 agent 与下属各落一条 run，且父子相连。
-
-    用 ``FunctionModel(stream_function=...)``：官方 ``test`` 模型给 ``delegate_task``
-    编的参数是占位串，派不出活。
-    """
+    """使用 FunctionModel 提供有效派发参数；TestModel 的占位参数无法调用子代理。"""
 
     async def delegate_once(
         messages: list[ModelMessage], _info: AgentInfo
@@ -238,20 +225,15 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
         await drive(registry, "producer")
 
     runs = await step_store.list_runs()
-    # 顶层那次 run 用发起方给的 id 记账（``agent_name`` 因此留空），下属自己铸一个带名字的。
-    # 前者是 transcript 分轮的依据：消息上盖的就是这个 id，两边对不上就查不出轮的终态。
+    # 顶层 run 使用调用方 id，使 transcript 可按消息 run_id 查询终态。
     assert [run.run_id for run in runs] == ["run-1", runs[1].run_id]
     assert [run.agent_name for run in runs] == [None, "shot-writer"]
     assert runs[0].conversation_id == "c1"
-    assert runs[1].parent_run_id == runs[0].run_id  # 派活谱系无需手工穿线
+    assert runs[1].parent_run_id == runs[0].run_id
 
 
 async def test_subagent_only_gets_the_capabilities_declared_for_it(tmp_path: Path) -> None:
-    """隔离是需求，不是巧合：下属看不见主 agent 的能力包工具，反之亦然。
-
-    靠的是官方两个默认值（``inherit_tools`` 为假、``shared_capabilities`` 为空）。
-    谁哪天把它们打开，这条就会红。
-    """
+    """保留 inherit_tools=False 和空 shared_capabilities，确保主代理与子代理的能力隔离。"""
 
     def parent_only_tool() -> str:
         """只给主 agent 的工具。"""
@@ -317,11 +299,7 @@ async def test_subagent_only_gets_the_capabilities_declared_for_it(tmp_path: Pat
 
 
 async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
-    """运行驱动传进来的 deps 一路进到工具的 ``ctx.deps``。
-
-    这一层不认识业务身份，所以用一个替身对象验穿线本身。运行驱动就是这么喂的：
-    它按 prompt 行上的属主把主体拼回来，再交给 ``run_stream_events(deps=...)``。
-    """
+    """通过替身 deps 验证 run_stream_events 到工具 ctx.deps 的传递。"""
 
     def whoami(ctx: RunContext[Caller]) -> str:
         """报出当前调用方。"""
@@ -347,7 +325,6 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
 
 
 def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:
-    """引用未声明的模型名即装配期报错。"""
 
     spec = make_spec(tmp_path, "storyboard")
     with pytest.raises(RuntimeError, match="未声明的模型"):
@@ -377,7 +354,6 @@ def test_unknown_subagent_model_name_fails_at_assembly(tmp_path: Path) -> None:
 
 
 def test_spec_model_field_is_overridden(tmp_path: Path) -> None:
-    """spec 里的 model 被声明覆盖。"""
 
     spec = make_spec(tmp_path, "storyboard", spec="model: no-such-provider:no-such-model\n")
     registry = build_agent_registry(

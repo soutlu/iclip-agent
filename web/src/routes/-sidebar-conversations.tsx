@@ -34,41 +34,29 @@ import { ChipGroup, FilterChip } from '@/shared/ui/chip'
 import { MenuItem, MenuRoot, MenuSeparator, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 
-// 侧栏各种行共用的外观。状态层铺在整行上（含行尾的钮），所以这个类挂在最外层容器，
-// 里面的标题按钮只负责焦点环。
+// 状态层作用于整行及尾部按钮；内部标题按钮只负责焦点环。
 const ROW_CLASS =
   'group flex ui-state cursor-pointer items-center gap-2 rounded-sm px-3 py-1.5 text-body text-on-surface'
 
-// 行里那个占满剩余宽度的标题按钮：不自带底色，hover 由外层行铺
 const ROW_TITLE_CLASS = 'flex min-w-0 flex-1 items-center gap-2 rounded-xs ui-focus'
 
-// 行尾槽：静息放时间、hover / 键盘聚焦 / 菜单展开时换成操作钮，两者不同时占位。
+// 时间与操作按钮共用尾部槽位，hover、键盘聚焦或菜单展开时切换。
 const ROW_TRAILING_HIDDEN =
   'group-hover:hidden group-focus-within:hidden group-has-data-[state=open]:hidden'
 const ROW_TRAILING_SHOWN =
   'hidden group-hover:flex group-focus-within:flex group-has-data-[state=open]:flex'
 
-// 合集列表一次露几个。合集是自己建的，后端一次就把（上限 100 个）全给了，
-// 「展开显示」在前端切片，不为这点量再开一个翻页端点。
+// 合集列表在前端分页展示；后端最多返回 100 个合集。
 const COLLECTIONS_PER_STEP = 10
 
-// 「任务」区的落点 id；合集的落点 id 是它自己的 uuid。
+// 任务区使用固定落点 ID，合集使用自身 UUID。
 const UNGROUPED = 'ungrouped'
 
-/**
- * 侧栏的对话区：顶部筛选 chip，「任务」（没进合集的）与「合集」两段。
- *
- * 三处列表都靠底部一行「展开显示」往下取：任务区与合集内走服务端翻页，合集列表本身
- * 在前端切片。对话可以拖进合集、拖回任务区、在合集之间互拖——落地后整块重拉，不做
- * 乐观更新（分页缓存里搬家不值那个复杂度）；键盘用户走行尾的归属弹窗，同一件事。
- *
- * @returns 对话区。
- */
+/** 任务区和合集内容使用服务端分页，合集列表在前端切片；拖动成功后刷新拓扑。 */
 export function SidebarConversations() {
   const queryClient = useQueryClient()
   const [state, setState] = useState<ConversationListState>('all')
   const topology = useSidebarTopology(true, state)
-  // 全局帧就地改缓存里那一行，行只读自己身上的字段
   useLiveConversations()
   useRecordOpened(topology.data)
   const [shownCollections, setShownCollections] = useState(COLLECTIONS_PER_STEP)
@@ -87,29 +75,19 @@ export function SidebarConversations() {
     open: boolean
   }>({ open: false })
 
-  // 两处归属的候选项只在归属弹窗打开时才拉
   const collections = useCollections(membership.open)
   const tasks = useTaskOptions(membership.open)
 
   const refreshSidebar = () => {
-    // 「展开显示」取回来的那些页整个丢掉：列表收回第一页，拓扑重拉一次即可，
-    // 不必把每一页都重新请求一遍。
+    // 拓扑刷新时丢弃额外分页，避免每个已加载页分别重新请求。
     queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
     void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
   }
 
   const moveMutation = useSetConversationMembership(refreshSidebar)
-  // 距离阈值让「点一下」还是点击，不会被当成拖拽起手
   const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
 
-  /**
-   * 拖完松手，浏览器照样会在被拖那一行的链接上派一次 click；不拦掉的话，把对话拖进合集会顺带
-   * 跳进会话页。
-   *
-   * 挡板挂在 document 上：落地之后侧栏会整块重拉，那一行连同挂在它上面的任何记号都已经换了
-   * 一个，只有 document 活得过这一下。只吃「指向刚拖走那段对话」的那一次点击——落在别处的
-   * 点击（比如紧接着去展开某个合集）必须照常放过去。
-   */
+  /** 在 document 上拦截拖动结束后指向原对话的一次 click；行可能已重建，行级监听无法可靠阻止误跳转。 */
   const swallowClickAfterDrag = (conversationId: string) => {
     document.addEventListener(
       'click',
@@ -139,8 +117,7 @@ export function SidebarConversations() {
   const allCollections: readonly SidebarCollection[] = topology.data?.collections ?? []
   const visibleCollections = allCollections.slice(0, shownCollections)
 
-  // 「进行中」那个 chip 上的圆点：这一段里有需要留意的会话就点亮（照 kimi）。只看拓扑这一份，
-  // 「展开显示」取回的那些页在各自的子组件里。
+  // 运行筛选的指示点仅取拓扑首页数据，额外分页由子组件持有。
   const anyBusy =
     (topology.data?.ungrouped.items ?? []).some((one) => one.activity.busy) ||
     allCollections.some((one) => one.page.items.some((row) => row.activity.busy))
@@ -154,7 +131,7 @@ export function SidebarConversations() {
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 pt-3 ui-state-subtle">
         <ChipGroup
           aria-label="对话筛选"
-          // 再点一下当前那片，radix 会给空串——那是「取消选中」，这里没有这一档，忽略
+          // 忽略 Radix 取消当前选项产生的空串，保持筛选始终有值。
           onValueChange={(value) => value && setState(value as ConversationListState)}
           type="single"
           value={state}
@@ -244,12 +221,6 @@ export function SidebarConversations() {
   )
 }
 
-/**
- * 「任务」区：没进任何合集的对话，也是「把对话拖出合集」的落点。
- *
- * @param props - 总条数、第一页、当前筛选、拖拽中的对话 id、行内容变更后的刷新回调与打开归属弹窗的回调。
- * @returns 任务分区。
- */
 function UngroupedSection({
   count,
   dragging,
@@ -270,7 +241,6 @@ function UngroupedSection({
   const items = [...page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
   const hasMore = more.data ? more.hasNextPage : Boolean(page.nextCursor)
 
-  // 整个分区（标题行也算）都是「拖出合集」的落点：拖到「任务」标题上等于拖回任务区
   return (
     <div className={cn('rounded-sm', isOver && 'bg-surface-container-high')} ref={setNodeRef}>
       <SidebarSection count={count} title="任务">
@@ -299,19 +269,12 @@ function UngroupedSection({
 }
 
 type SidebarSectionProps = {
-  /** 分区标题右侧的操作钮，缺省不渲染 */
   action?: { icon: IconName; label: string; onClick: () => void }
   children: React.ReactNode
   count: number
   title: string
 }
 
-/**
- * 侧栏分区：标题行（可折叠、带条数与可选操作钮）加下面的行。
- *
- * @param props - 标题、条数、操作钮与分区内容。
- * @returns 一个可折叠分区。
- */
 function SidebarSection({ action, children, count, title }: SidebarSectionProps) {
   const [open, setOpen] = useState(true)
   return (
@@ -356,13 +319,7 @@ function EmptyHint({ children }: { children: string }) {
   return <p className="px-3 py-1 text-body-sm text-on-surface-faint">{children}</p>
 }
 
-/**
- * 列表底部那一行「展开显示」。它自己就是加载态：取的时候变「加载中…」并禁用，
- * 失败了变回来（错误文案由调用链上的 toast 出），不会消失——消失了就没得重试。
- *
- * @param props - 无障碍文案、加载态与点击回调。
- * @returns 展开行。
- */
+/** 加载失败后保留展开入口以便重试；错误由调用链展示。 */
 function ExpandRow({
   label,
   loading = false,
@@ -395,13 +352,6 @@ type CollectionGroupProps = {
   state: ConversationListState
 }
 
-/**
- * 合集行：文件夹图标 + 名字 + 总条数，展开后是它里面的对话；行尾菜单管改名与删除。
- * 整行也是拖拽落点——把对话拖上来就进这个合集。
- *
- * @param props - 合集、当前筛选、拖拽中的对话 id、改名/删除入口与打开归属弹窗的回调。
- * @returns 一个合集分组。
- */
 function CollectionGroup({
   collection,
   dragging,
@@ -424,7 +374,6 @@ function CollectionGroup({
     <div className="flex flex-col gap-0.5">
       <div className={cn(ROW_CLASS, isOver && 'bg-primary-container')} ref={setNodeRef}>
         <button
-          // 行内还有一个「操作」钮，名字里带上条数才好把两者分开念、也分得开
           aria-expanded={open}
           aria-label={`${collection.name} (${collection.conversationCount})`}
           className={ROW_TITLE_CLASS}
@@ -432,7 +381,7 @@ function CollectionGroup({
           type="button"
         >
           <Icon className="shrink-0 text-on-surface-variant" decorative name="folder" size="sm" />
-          {/* 不加 flex-1：标题按内容占宽，折叠箭头才贴着名字走 */}
+          {/* 标题按内容占宽，使折叠箭头紧邻名称。 */}
           <span aria-hidden className="min-w-0 truncate text-left">
             {collection.name}
           </span>
@@ -487,14 +436,7 @@ function CollectionGroup({
 
 type RowStatus = 'approval' | 'question' | 'running' | 'failed' | 'unread' | 'idle'
 
-/**
- * 行尾画哪一种状态。优先级照 kimi 写死：
- * 等审批 > 等回答 > 在跑 > 上次失败 > 跑完了还没看 > 空闲。
- *
- * @param activity - 列表行上的 `activity`，帧到了就地改过。
- * @param unread - 最近一次运行结束时我没看着。只有正常跑完的才画点。
- * @returns 该画哪一种。
- */
+/** 状态优先级：待审批、待回答、运行、失败、完成未读、空闲。 */
 const rowStatus = (activity: Conversation['activity'], unread: boolean): RowStatus => {
   if (activity.pendingInteraction === 'approval') return 'approval'
   if (activity.pendingInteraction === 'question') return 'question'
@@ -503,15 +445,7 @@ const rowStatus = (activity: Conversation['activity'], unread: boolean): RowStat
   return unread && activity.lastTurnReason === 'completed' ? 'unread' : 'idle'
 }
 
-/**
- * 打开着的那段对话，记下「我正看着它，它此刻跑到了哪一次」：闲着就记行上的 `lastRunId`；还在跑
- * 就记 `null`——当前这一次还没看着它结束，中途走开、跑完了回来看到的 id 就对不上，点照样亮。
- *
- * 在拓扑这一层记而不在行里：合集默认折叠、任务区也能收起，打开着的那段对话常常并没有渲染成一行。
- * 拓扑里没有它（在「展开显示」才取回的那些页里、或被当前筛选滤掉）就不记。
- *
- * @param topology - 侧栏拓扑那一份数据。
- */
+/** 在拓扑层记录当前对话，避免折叠行未渲染时漏记；运行中记录 null，结束后记录 lastRunId。 */
 const useRecordOpened = (topology: SidebarTopology | undefined): void => {
   const openedId = useParams({ select: (params) => params.conversationId, strict: false })
   const opened =
@@ -522,26 +456,17 @@ const useRecordOpened = (topology: SidebarTopology | undefined): void => {
   }, [openedId, seenRun])
 }
 
-/** 拓扑里 `conversationId` 那一行：任务区第一页与每个合集的第一页都找。 */
 const findRow = (topology: SidebarTopology, conversationId: string): Conversation | undefined =>
   [topology.ungrouped, ...topology.collections.map((one) => one.page)]
     .flatMap((page) => page.items)
     .find((row) => row.id === conversationId)
 
-/**
- * 「跑完了还没看」从这一行自己身上算：我最后一次看着它时记下的 `lastRunId` 与行上现在的不一样。
- * 从没在这台浏览器上打开过的对话（没有记录）不画点：它跑完的那些轮不知道人看没看过。
- *
- * @param conversation - 列表行。
- * @param active - 这一行就是打开着的那段对话，永远不画。
- * @returns 要不要画那个点。
- */
+/** 仅对本浏览器已查看过且 lastRunId 变化的完成对话显示未读；当前打开的对话不显示。 */
 const useUnread = (conversation: Conversation, active: boolean): boolean => {
   const seenRun = useSeenRun(conversation.id)
   return !active && seenRun !== undefined && seenRun !== conversation.lastRunId
 }
 
-// 每种状态画成什么图标。`unread` 与 `idle` 不在表里：前者画一个点，后者什么都不画。
 const ROW_STATUS_MARK: Record<
   Exclude<RowStatus, 'idle' | 'unread'>,
   { className: string; label: string; name: IconName }
@@ -552,16 +477,6 @@ const ROW_STATUS_MARK: Record<
   running: { className: 'animate-spin text-primary', label: '进行中', name: 'loading' },
 }
 
-/**
- * 对话行：截断标题在左，右侧是相对时间；hover / 键盘聚焦时时间让位给更多菜单。
- * 整行可拖。重命名是行内编辑：菜单里选「重命名」后标题换成输入框，
- * Enter / 失焦提交，Esc 取消。
- *
- * 名字与活儿都读这一行自己身上的字段——推送已经把缓存里那一行改过了。
- *
- * @param props - 对话、是否正被拖着、行内容变更后的刷新回调与打开归属弹窗的回调。
- * @returns 单个对话行。
- */
 function ConversationRow({
   conversation,
   dragging,
@@ -586,7 +501,6 @@ function ConversationRow({
   const status = rowStatus(conversation.activity, unread)
   const mark = status === 'idle' || status === 'unread' ? undefined : ROW_STATUS_MARK[status]
 
-  // 空标题或没变化都不发请求，静默退回原标题
   const commitRename = (value: string) => {
     setEditing(false)
     const title = value.trim()
@@ -599,8 +513,7 @@ function ConversationRow({
   }
 
   return (
-    // 拖拽挂在整行上而不是标题上：标题是链接，浏览器自带的链接拖拽会吞掉指针事件，
-    // dnd-kit 那套拖拽从此不成立。行内编辑时不挂——不然在输入框里划选文字就变成拖行。
+    // 拖拽绑定整行，避免链接原生拖动吞掉指针事件；编辑标题时禁用拖拽以允许文字选择。
     <div
       className={cn(ROW_CLASS, dragging && 'opacity-50', active && 'bg-state-active font-medium')}
       ref={setNodeRef}
@@ -635,7 +548,6 @@ function ConversationRow({
           <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
         </Link>
       )}
-      {/* 状态标识一直露着（不像时间那样 hover 时让位）——它是这一行此刻最要紧的事。 */}
       {mark && (
         <Icon
           className={cn('shrink-0', mark.className)}
@@ -647,7 +559,6 @@ function ConversationRow({
       {status === 'unread' && (
         <span aria-label="未读" className="size-1.5 shrink-0 rounded-full bg-primary" role="img" />
       )}
-      {/* aria-hidden：可访问名只留标题，时间纯装饰 */}
       {!editing && (
         <span
           aria-hidden
@@ -656,7 +567,6 @@ function ConversationRow({
           {formatRelativeTime(conversation.updatedAt)}
         </span>
       )}
-      {/* 行内编辑时不露操作钮 */}
       {!editing && (
         <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
           <MenuRoot>

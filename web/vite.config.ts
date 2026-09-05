@@ -19,11 +19,7 @@ const MOCK_SERVICE_WORKER_PATH = path.resolve(
   'node_modules/msw/lib/mockServiceWorker.js',
 )
 
-/**
- * 浏览器 mock profile 使用等待 MSW 就绪的专用入口。
- *
- * @returns Vite HTML 转换插件。
- */
+/** mock 模式的入口等待 MSW 就绪后再加载应用。 */
 const developmentApplicationEntryPlugin = (): Plugin => ({
   apply: 'serve',
   name: 'cue-development-application-entry',
@@ -32,11 +28,7 @@ const developmentApplicationEntryPlugin = (): Plugin => ({
   },
 })
 
-/**
- * 在开发服务器中提供 MSW 官方 worker 文件，避免进入生产 public 产物。
- *
- * @returns Vite 开发服务器插件。
- */
+/** 仅开发服务器提供 MSW worker，避免进入生产 public 产物。 */
 const mockServiceWorkerPlugin = (): Plugin => ({
   apply: 'serve',
   configureServer(server) {

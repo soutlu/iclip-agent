@@ -2,20 +2,17 @@ import type { ComponentPropsWithRef, ReactNode } from 'react'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
-// 字段外观分两层：SURFACE 是那一圈框和底色，TEXT 是字。带图标时 SURFACE 挂在外壳 span 上，
-// 里面的 input 只留 TEXT——两层都画框会在字段里套出第二个圆角框。
+// 带图标时外壳承担边框与背景，input 只应用文字样式，避免重复边框。
 const FIELD_SURFACE =
   'ui-state w-full rounded-lg border border-input-border bg-input-bg px-[15px] focus-within:border-primary aria-invalid:border-error'
 const FIELD_TEXT = 'text-body text-on-surface placeholder:text-on-surface-faint'
-// field-nested-input 收掉内层的焦点环（规则在 field.css，见那里的注释）
 const NESTED_INPUT_CLASS =
   'field-nested-input h-full min-w-0 flex-1 bg-transparent disabled:cursor-not-allowed disabled:text-disabled-text'
 
 type InputProps = ComponentPropsWithRef<'input'> & {
-  /** 字段左侧的语义图标；搜索框就是它带 name="search"，不另开变体 */
   leadingIcon?: IconName
   trailingAction?: ReactNode
-  /** 带图标时那一圈框在外壳 span 上，className 只到得了里面的 input；要改框走这个 */
+  /** 带图标时 wrapperClassName 控制外壳，className 控制内部 input。 */
   wrapperClassName?: string
 }
 

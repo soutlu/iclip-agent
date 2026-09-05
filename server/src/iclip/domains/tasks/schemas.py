@@ -1,14 +1,6 @@
-"""创作需求单的 wire 形状，以及 brief 与款号快照的类型。
+"""需求单 HTTP 模型、brief 与款号快照的统一类型定义。
 
-**brief 只有一套定义。** 它既是 HTTP 进得来的形状，也是入库的形状：字段有哪些、时长
-取值范围多大、参考素材最多几条，全在这里由 pydantic 判一次，不再另写一份手工校验。
-落库存 ``model_dump(by_alias=True)``（camelCase），读回来用 ``brief_from_payload``
-重新校验一遍——库里的行可能是上一个版本的进程写的，形状坏了要响亮失败，不降级。
-
-款号快照（``TaskStyle``）走同一套路，但它不在 brief 里，而是自己一列。
-
-字段名对外一律 camelCase（见仓库根的 contract/conventions.md §3）。
-"""
+持久化使用 camelCase，brief 与款号快照独立存列，读取时重新校验。"""
 
 from __future__ import annotations
 
@@ -54,11 +46,7 @@ StyleNos = Annotated[list[StyleNo], Field(max_length=MAX_STYLE_NOS)]
 
 
 def _http_only(urls: list[str]) -> list[str]:
-    """参考素材只收 http(s)。
-
-    这些地址会被下游拿去下载（模型读参考图、拆解参考视频），放行 ``file://`` 之类的
-    scheme 等于把服务端变成任意文件的读取入口。
-    """
+    """参考素材只允许 HTTP(S)，避免下游下载器访问本地文件等非预期来源。"""
 
     for index, url in enumerate(urls):
         if not url.startswith(("http://", "https://")):
@@ -87,7 +75,7 @@ def style_to_payload(style: TaskStyle) -> dict[str, Any]:
 
 
 def style_from_payload(payload: dict[str, Any]) -> TaskStyle:
-    """从库里读回来的款号快照重新校验一遍；形状坏了响亮失败，不降级。"""
+    """读取并校验持久化款号快照，非法数据直接报错。"""
 
     try:
         return TaskStyle.model_validate(payload)
@@ -157,7 +145,7 @@ def brief_to_payload(brief: TaskBrief) -> dict[str, Any]:
 
 
 def brief_from_payload(payload: dict[str, Any]) -> TaskBrief:
-    """从库里读回来的 brief 重新校验一遍；形状坏了响亮失败，不降级成空 brief。"""
+    """读取并校验持久化 brief，非法数据直接报错。"""
 
     try:
         return TaskBrief.model_validate(payload)

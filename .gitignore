@@ -30,9 +30,9 @@ artifacts/
 # make up 调用的本地启动脚本：依赖地址与跳板机每台机器不一样，各自维护
 scripts/dev-up.sh
 
-# 开发用的 worktree 都开在这里（见 AGENTS.md §5）
+# 开发 worktree（见 AGENTS.md §4.2）
 .claude/worktrees/
 
-# web 冻结迁入时带入的本地文件
+# 前端本地文件
 web/.env.local
 web/.tanstack/

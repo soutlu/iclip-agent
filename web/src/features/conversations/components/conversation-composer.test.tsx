@@ -1,9 +1,4 @@
-/**
- * 输入框上的引用芯片：谁选中的、怎么撤掉、发出去的正文长什么样。
- *
- * 选中态由工作台报进 `shared/workbench`，所以这里把真的工作台一起挂上——两个 feature 在应用里就是
- * 这样经同一份上下文见面的（`app/app.tsx`），不另造一个报选中的假组件。
- */
+/** 同时挂载真实工作台与输入框，验证它们通过 shared/workbench 共享选中引用。 */
 
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -67,7 +62,6 @@ describe('ConversationComposer 上的引用芯片', () => {
     await userEvent.click(screen.getByRole('button', { name: '不再引用 镜头组 2' }))
     await waitFor(() => expect(screen.queryByText('镜头组 2')).not.toBeInTheDocument())
 
-    // 同一组来回翻一趟：选中变过了，引用才回来
     await userEvent.click(screen.getByRole('button', { name: '第 1 组' }))
     await screen.findByText('镜头组 1')
     await userEvent.click(screen.getByRole('button', { name: '第 2 组' }))
@@ -98,7 +92,6 @@ describe('ConversationComposer 上的引用芯片', () => {
     await userEvent.click(within(sheet).getByRole('button', { name: '全选' }))
     await userEvent.click(within(sheet).getByRole('button', { name: '在聊天里说' }))
 
-    // 浮层关掉，三条引用都在输入框上
     await waitFor(() => expect(screen.queryByRole('complementary')).not.toBeInTheDocument())
     for (const label of ['镜头组 1', '镜头组 2', '镜头组 3']) {
       expect(screen.getByText(label)).toBeVisible()

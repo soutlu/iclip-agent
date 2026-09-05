@@ -1,11 +1,7 @@
-"""权限词汇表与预置角色：后端唯一事实源，前端只按 /users/me 的 permissions 做展示。
+"""权限与预置角色的唯一事实源，前端依据 /users/me 的权限集展示。
 
-统一权限抽象：授权的唯一货币是权限集合（frozenset[str]）。
-  用户有效权限   = 所分配角色的权限并集 ∪ 直接授权
-  API key 有效权限 = key 显式授权集
-角色只是权限集合的命名快捷方式（代码内预置，无角色管理表）。
-权限是端点级能力门控，与行级归属（他人资源返 404）正交。
-"""
+用户权限为角色权限并集加直接授权；API key 权限仅为显式授权集。
+端点权限与行级归属独立判断。"""
 
 from __future__ import annotations
 
@@ -37,7 +33,6 @@ _VIEWER = frozenset(
     }
 )
 _EDITOR = frozenset(PERMISSIONS) - {"analytics:read", "users:manage", "api_keys:issue"}
-# root 由全量计算而来：新增权限自动流入，不会漏。
 _ROOT = frozenset(PERMISSIONS)
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {

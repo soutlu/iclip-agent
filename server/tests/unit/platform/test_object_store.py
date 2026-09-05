@@ -1,9 +1,4 @@
-"""T-OSS-01：公开对象存储适配器的 key 边界、URL 拼接、幂等写、瞬时故障重试与直传签名。
-
-不打真 OSS：bucket 用替身。这一层自己只做这几件事（拼公网 URL、把同步调用挪出事件
-循环、对网络故障与 5xx 再发几次、把 SDK 异常收成一种、把不属于本服务命名空间的 key
-挡在外面），验的就是它们。
-"""
+"""使用 bucket 替身验证公开对象存储适配器的 key 边界、URL、重试与直传签名。"""
 
 from __future__ import annotations
 
@@ -25,7 +20,6 @@ SETTINGS = OssSettings(
     endpoint="https://oss.test",
     access_key_id="ak",
     access_key_secret="sk",
-    # 尾斜杠要被吃掉，否则拼出来的地址会多一道斜杠。
     public_url_base="https://cdn.test/",
 )
 
@@ -34,13 +28,13 @@ KEY = f"{OSS_ROOT}/generated-images/a.png"
 
 @pytest.fixture(autouse=True)
 def no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    """重试之间不真等：这里验的是次数与分类，不是节奏。"""
+    """移除重试等待，仅验证次数和错误分类。"""
 
     monkeypatch.setattr(oss_module, "RETRY_BACKOFF_SECONDS", 0.0)
 
 
 def timeout() -> oss2.exceptions.RequestError:
-    """SDK 把 requests 的读超时包成这个形状（status 为 -2）。"""
+    """模拟 SDK 封装的 requests 读取超时，status 为 -2。"""
 
     return oss2.exceptions.RequestError(OSError("Read timed out. (read timeout=60)"))
 
@@ -76,7 +70,7 @@ class FakeBucket:
     ) -> None:
         self.existing = existing or set()
         self.failures = list(failures or [])
-        """按顺序抛给接下来的每次请求；用完就正常应答。剩几个就说明少发了几次。"""
+        """按序为请求注入异常；耗尽后正常响应，剩余项可检测请求次数。"""
         self.listed = listed or []
         self.head = head
         self.writes: list[tuple[str, bytes, str]] = []
@@ -129,7 +123,6 @@ async def test_write_returns_public_url_and_encodes_the_key() -> None:
 
 
 async def test_existing_key_is_reused_not_rewritten() -> None:
-    """key 由业务 id 派生，内容确定，所以重跑一遍不该在桶里堆垃圾。"""
 
     bucket = FakeBucket(existing={KEY})
     url = await store(bucket).put_public_object(
@@ -162,7 +155,6 @@ async def test_keys_that_could_escape_the_prefix_are_rejected(bad_key: str) -> N
 
 @pytest.mark.parametrize("outside", ["generated-images/a.png", "iclip/other/a.png", "a.png"])
 async def test_keys_outside_our_namespace_are_rejected(outside: str) -> None:
-    """桶是公司共用的：少写一段前缀不该是「悄悄落到桶根上」，该是当场失败。"""
 
     bucket = FakeBucket()
     with pytest.raises(ValueError, match=OSS_ROOT):
@@ -180,7 +172,6 @@ async def test_empty_content_is_rejected() -> None:
 
 
 async def test_a_network_blip_is_retried_and_the_write_still_lands() -> None:
-    """读超时这类网络故障再发一次多半就过了；一次抖动不该把上层整次运行打死。"""
 
     bucket = FakeBucket(failures=[timeout()])
     url = await store(bucket).put_public_object(
@@ -199,8 +190,7 @@ async def test_a_server_side_5xx_is_retried_too() -> None:
 
 
 async def test_sdk_failure_becomes_one_known_error_once_the_attempts_run_out() -> None:
-    """调用方只需要认一种失败，不让 SDK 的异常类型漏到业务侧；报错要说明试过几次，
-    不然日志看起来像只发了一枪。"""
+    """统一 SDK 异常类型并保留尝试次数，供业务层处理和日志诊断。"""
 
     bucket = FakeBucket(failures=[timeout() for _ in range(RETRY_ATTEMPTS + 1)])
     with pytest.raises(ObjectStoreUnavailable, match=f"试了 {RETRY_ATTEMPTS} 次"):
@@ -208,12 +198,12 @@ async def test_sdk_failure_becomes_one_known_error_once_the_attempts_run_out() -
             object_key=KEY, content=b"X", content_type="image/png"
         )
 
-    assert len(bucket.failures) == 1  # 正好发了 RETRY_ATTEMPTS 次，没多发
+    assert len(bucket.failures) == 1
     assert bucket.writes == []
 
 
 async def test_client_side_rejections_are_not_retried() -> None:
-    """403 这类是我们自己的问题（凭证、key），再发也是同一个答案——重试只会多等几倍。"""
+    """403 等客户端错误无法通过重试恢复，应立即返回。"""
 
     bucket = FakeBucket(failures=[server_error(403), server_error(403)])
     with pytest.raises(ObjectStoreUnavailable) as failure:
@@ -222,7 +212,7 @@ async def test_client_side_rejections_are_not_retried() -> None:
         )
 
     assert "试了" not in str(failure.value)
-    assert len(bucket.failures) == 1  # 只发了一次
+    assert len(bucket.failures) == 1
     assert bucket.writes == []
 
 
@@ -240,8 +230,7 @@ async def test_find_object_survives_a_network_blip() -> None:
 
 
 def test_signed_put_binds_the_content_type_and_keeps_slashes() -> None:
-    """两件都不能少：类型被签进签名里，浏览器换一个就验签不过；斜杠不转义，
-    否则传上去的是个名字里带 %2F 的对象，不是我们要的那个 key。"""
+    """Content-Type 必须参与签名；key 中的斜杠须保留，避免上传为含 %2F 的其他对象。"""
 
     bucket = FakeBucket()
     url = store(bucket).sign_put(object_key=KEY, content_type="image/png")
@@ -262,7 +251,6 @@ def test_signed_put_refuses_keys_outside_the_namespace() -> None:
 
 
 async def test_find_object_reports_what_the_bucket_says() -> None:
-    """登记要用的三项事实全从桶里读回来，不采信调用方的任何声明。"""
 
     bucket = FakeBucket(listed=[KEY], head=FakeHead(content_type="image/png", content_length=7))
 
@@ -279,7 +267,6 @@ async def test_find_object_returns_none_when_nothing_was_uploaded() -> None:
 
 
 async def test_find_object_refuses_an_ambiguous_prefix() -> None:
-    """一个前缀底下不该有两个对象；真有就是出了别的问题，不能随便挑一个登记。"""
 
     bucket = FakeBucket(
         listed=[f"{OSS_ROOT}/uploads/x.png", f"{OSS_ROOT}/uploads/x.mp4"],
@@ -292,7 +279,6 @@ async def test_find_object_refuses_an_ambiguous_prefix() -> None:
 
 @pytest.mark.parametrize("bad_base", ["", "cdn.test", "ftp://cdn.test", "   "])
 def test_public_url_base_must_be_http(bad_base: str) -> None:
-    """配错了就别让服务起来——运行期才发现的话，库里已经存了一批拼错的地址。"""
 
     with pytest.raises(ValueError):
         validate_public_url_base(bad_base)

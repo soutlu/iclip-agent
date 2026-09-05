@@ -1,8 +1,6 @@
-"""ffmpeg / ffprobe 子进程原语：取素材、探时长、抽帧、按矩形裁切。
+"""异步媒体下载与 ffmpeg/ffprobe 子进程封装。
 
-全部异步起进程（同步 subprocess 会把整个 worker 的事件循环按住几十秒），每个
-子进程都带超时（ffmpeg 撞上坏输入会卡死不退），超时先 kill 再 wait，不留僵尸。
-"""
+子进程设定超时，超时后先 kill 再 wait，避免阻塞事件循环或遗留僵尸进程。"""
 
 from __future__ import annotations
 
@@ -22,20 +20,17 @@ _DOWNLOAD_CHUNK = 256 * 1024
 
 PROBE_TIMEOUT_SECONDS = 30.0
 EXTRACT_TIMEOUT_SECONDS = 900.0
-"""整片按秒抽帧的上限。它要把整段视频解码一遍，和取单帧不是一个量级。"""
+"""全片解码抽帧的超时上限。"""
 
 CROP_TIMEOUT_SECONDS = 120.0
 DOWNLOAD_TIMEOUT_SECONDS = 300.0
 
 MAX_VIDEO_BYTES = 512 * 1024 * 1024
 MAX_IMAGE_BYTES = 64 * 1024 * 1024
-"""下载上限。这不是安全检查（地址是可信的），是防一个超大文件把 worker 撑爆。"""
+"""下载大小上限，限制 worker 的内存与临时文件占用。"""
 
 DETECT_WIDTH = 640
-"""做网格检测时把图降到多宽。分隔带是大尺度结构，降采样看得见，成本低两个量级。
-
-裁剪仍在原图上做，所以这个降采样不影响输出画质。
-"""
+"""网格检测的降采样宽度；裁剪仍使用原图，输出画质不受检测分辨率影响。"""
 
 
 class MediaError(RuntimeError):
@@ -52,10 +47,7 @@ def ffmpeg_available() -> bool:
 async def fetched(
     client: httpx.AsyncClient, url: str, *, max_bytes: int, suffix: str = ""
 ) -> AsyncGenerator[Path]:
-    """把素材流式落到临时文件，退出上下文时连目录删掉。
-
-    落盘而不是进内存：ffmpeg 要 seek，而一段视频动辄几百兆。
-    """
+    """将素材流式下载到临时文件供 ffmpeg seek，退出上下文时清理目录。"""
 
     with TemporaryDirectory(prefix="shot-video-") as tmp:
         target = Path(tmp) / f"source{suffix}"
@@ -107,11 +99,7 @@ async def probe_duration_ms(path: Path) -> int:
 
 
 async def extract_frames(path: Path, *, fps: float, out_dir: Path) -> list[Path]:
-    """按固定帧率整片抽帧，落进 ``out_dir``，返回按时间升序的文件路径。
-
-    第 i 张（0 起）对应源视频 ``i / fps`` 秒处。返回路径不返回字节：一段几分钟的
-    片子按秒抽就是几百张，全捧在内存里没必要。
-    """
+    """按固定帧率抽帧并返回时间升序的路径；第 i 帧对应 i / fps 秒，避免全量载入内存。"""
 
     if fps <= 0:
         raise MediaError(f"抽帧帧率必须为正: {fps}")
@@ -139,7 +127,7 @@ async def extract_frames(path: Path, *, fps: float, out_dir: Path) -> list[Path]
 
 
 async def decode_gray(path: Path, *, max_width: int = DETECT_WIDTH) -> tuple[GrayImage, int]:
-    """解码成降采样灰度图，并回报原图宽度（``grid.scale_box`` 靠它还原坐标）。"""
+    """解码降采样灰度图并返回原图宽度，供 grid.scale_box 还原裁剪坐标。"""
 
     stdout = await _run(
         [
@@ -191,10 +179,7 @@ async def _image_width(path: Path) -> int:
 
 
 async def crop_cells(path: Path, boxes: Sequence[tuple[int, int, int, int]]) -> list[bytes]:
-    """按矩形把一张图裁成若干张 JPEG，一趟子进程做完。
-
-    走 ``filter_complex`` 一路输入分 N 路裁剪；每格起一个 ffmpeg 会把整图解码 N 遍。
-    """
+    """使用一次 filter_complex 解码并裁剪多个矩形，返回 JPEG 文件，避免重复解码。"""
 
     if not boxes:
         raise MediaError("没有要裁的区域")
@@ -225,11 +210,9 @@ async def crop_cells(path: Path, boxes: Sequence[tuple[int, int, int, int]]) -> 
 
 
 async def _run(args: list[str], *, timeout: float) -> bytes:
-    """起一个子进程，等它退出，返回 stdout。超时先 kill 再 wait，不留僵尸。"""
+    """执行子进程并返回 stdout；超时先 kill 再 wait。"""
 
-    # stdin 必须接空设备。ffmpeg 默认会去读标准输入等按键；服务在后台进程组里跑时
-    # （make up 就是），这一读会让内核把整个进程组停住——不只是 ffmpeg，后端一起僵住，
-    # 表现为「取帧永远不结束、所有请求都没回音」。超时也救不了：计时的进程自己也停了。
+    # 禁止读取终端输入，避免后台进程组收到 SIGTTIN 后连同后端一起暂停。
     process = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.DEVNULL,

@@ -1,16 +1,11 @@
-"""iclip.tasks：加一列款号快照
+"""iclip.tasks：款号快照
 
 Revision ID: a4d7c9518e63
 Revises: b6a3f109d84e
 Create Date: 2026-08-25 14:00:00.000000
 
-需求单原来记不下「要拍哪个款」，而款号正是这张单子的由来。
-
-这一列存下单那天的样子（款号、品牌名、品类名、封面地址），不是外键：上游随时改名换
-图，历史需求单不该跟着变样。
-
-NOT NULL 且不给默认值：表里有存量行时加列会失败，那时该有人来看一眼，而不是悄悄塞
-个空对象进去。
+保存下单时的款号、品牌、品类与封面，避免上游资料变更影响历史需求单。
+新增列为 NOT NULL 且无默认值；存在存量行时迁移会失败，需要先明确回填数据。
 """
 
 from __future__ import annotations
@@ -35,7 +30,6 @@ def upgrade() -> None:
         sa.Column("style", postgresql.JSONB(), nullable=False),
         schema=SCHEMA,
     )
-    # 和 brief 那条同一个道理：它得是个 JSON 对象，不能是数组或裸值。
     op.create_check_constraint(
         "tasks_style_object_check",
         "tasks",

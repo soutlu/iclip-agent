@@ -1,15 +1,4 @@
-/* ============================================================================
- * Cue token 层 · M3 严格对齐（浅色 :root + 深色 .dark）
- *
- * 结构：① primitives（6 族 × 13 tone，HCT 色板，组件不直接引用）
- *       ② semantic roles（M3 标准角色，新代码只引用这一层）
- *       ③ 领域 token（现有变量名保持不变的别名层，组件零改动）
- *       ④ type 尺
- *
- * 本文件是仓库根目录 design-system.html 的运行时镜像：那份规范里 :root 与 .dark
- * 两块（除 --pg-* 页面装饰外）是唯一事实源，这里逐名逐值照抄。改 token 先改规范
- * 再改这里，`pnpm lint:design` 会逐字对账，两边不一致就报错。
- * ========================================================================== */
+/* design-system.html 的运行时 token 镜像；规范中的 :root 与 .dark 是唯一事实源。 */
 
 :root {
   /* Typography（品牌字体链，不属于 M3 色板） */
@@ -21,7 +10,7 @@
     'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas,
     'Liberation Mono', monospace;
 
-  /* ==================== ① Primitives ==================== */
+  /* Primitives */
 
   /* Primary · 绿 */
   --p0: #000000;
@@ -53,8 +42,7 @@
   --s99: #f5fff4;
   --s100: #ffffff;
 
-  /* Tertiary · 琥珀（换主色时不跟着换：warning 是本族别名，绿主色下才分得开运行中与警告）
-     职责：运行/进行中、成就高亮；链接与 info 走 primary */
+  /* Tertiary · 琥珀：运行状态与警告；链接与 info 使用 primary。 */
   --t0: #000000;
   --t10: #261a00;
   --t20: #402d00;
@@ -123,15 +111,15 @@
   --e99: #fffbff;
   --e100: #ffffff;
 
-  /* ==================== ② Semantic roles ==================== */
+  /* Semantic roles */
 
   /* Primary：品牌主色。主按钮、焦点指示、选中底、画布选中 */
   --color-primary: var(--p40); /* #006D42 白字 6.43:1 */
-  --color-primary-hover: var(--p50); /* #008954 主色 hover 加深 */
+  --color-primary-hover: var(--p50);
   --color-on-primary: var(--p100);
   --color-primary-container: var(--p90); /* #AEF2C6 选中底（配 P10 字 13.31:1） */
   --color-on-primary-container: var(--p10);
-  /* container 分色（v12 故事板工作台）：小件实色 / 大面浅底，四件套仍成对使用 */
+  /* 容器分为小件实色与大面浅底，文字与容器色必须配对。 */
   --color-primary-container-solid: var(--p70); /* #42BA79 小件实色（配 P10 字 6.96:1） */
   --color-primary-container-soft: var(
     --p95
@@ -143,7 +131,7 @@
   --color-secondary-container: var(--s90); /* #D1E8D6 用户气泡 13.21:1 */
   --color-on-secondary-container: var(--s10);
 
-  /* Tertiary · 琥珀：暖强调。运行/进行中、成就高亮（v14；链接与 info 归 primary） */
+  /* Tertiary · 琥珀：运行状态与成就高亮。 */
   --color-tertiary: var(--t40); /* #795900 白字 6.48:1 */
   --color-on-tertiary: var(--t100);
   --color-tertiary-container: var(--t90); /* #FFDF9F 运行容器 13.26:1 */
@@ -161,15 +149,13 @@
   --color-surface-variant: var(--nv90); /* #DCE5DC 弱底 */
   --color-on-surface-variant: var(--nv30); /* #404942 次级文字 8.90:1 */
   --color-on-surface-muted: var(--nv40); /* #586059 第三档文字 6.14:1（nv50 白底 4.36:1 不达标） */
-  /* 第四档文字（时间戳、占位符、分区标题）：62% 是三种浅底（白 / container-low / container）
-     上都还有 4.5:1 的最淡一档（4.82 / 4.64 / 4.55），再淡就不达标 */
+  /* 弱文字需在白色、container-low、container 三种浅底上保持 ≥4.5:1 对比度。 */
   --color-on-surface-faint: color-mix(in srgb, var(--color-on-surface) 62%, transparent);
   --color-outline: var(--nv50); /* #717972 强边框/输入框 */
   --color-outline-variant: var(--nv80); /* #C0C9C0 默认边框 */
   /* 全站发丝线：墨色透明档，深浅随 on-surface 自动换向；所有 *-border 别名指这里 */
   --color-hairline: color-mix(in srgb, var(--color-on-surface) 13%, transparent);
   --color-surface-container-lowest: var(--n100); /* #FFFFFF 卡片 */
-  /* v14：梯度改用真实 HCT tone（M3-2023 档位 96/94/92/90），替代 v13 的 color-mix 插值 */
   --color-surface-container-low: var(--n96);
   --color-surface-container: var(--n94);
   --color-surface-container-high: var(--n92);
@@ -189,8 +175,7 @@
   --color-secondary-fixed-dim: var(--s80);
   --color-tertiary-fixed: var(--t90);
   --color-tertiary-fixed-dim: var(--t80);
-  /* fixed 容器不随主题换档，配它的文字色也必须不换档：深色下若沿用 on-*-container，
-     两边会落到同一档色，字直接看不见 */
+  /* Fixed 容器与配套文字色均不随主题变化，避免深色模式下同色。 */
   --color-on-primary-fixed: var(--p10);
   --color-on-primary-fixed-variant: var(--p30);
   --color-on-secondary-fixed: var(--s10);
@@ -200,7 +185,7 @@
 
   /* State layer 透明度与焦点环几何（M3 交互态叠加层；禁用与焦点都从这里派生） */
   --state-hover: 0.05;
-  /* 密排列表行专用档：行高 32，5% 会把整列糊成一片 */
+  /* 密排列表行使用较低的 hover 透明度。 */
   --state-hover-subtle: 0.03;
   --state-focus: 0.12;
   --state-pressed: 0.1;
@@ -232,21 +217,19 @@
     transparent
   );
 
-  /* Warning · 琥珀：运行/进行中状态。v14 起收编为 tertiary 族别名（T40/T90/T10 四件套），
-     不再手写扩展色；白底双向对比度随族保证（6.48:1 / 13.26:1） */
+  /* Warning 使用 tertiary 四件套，保持文字与容器色配对。 */
   --color-warning: var(--color-tertiary);
   --color-on-warning: var(--color-on-tertiary);
   --color-warning-container: var(--color-tertiary-container);
   --color-on-warning-container: var(--color-on-tertiary-container);
 
-  /* ==================== ③ 领域 token（别名层） ==================== */
+  /* 领域 token */
 
   /* 基础色 */
   --color-background: var(
     --n100
   ); /* #FFFFFF 页面底；侧栏、右面板与主区同为页面底色，靠 hairline 分隔 */
-  --color-on-background: var(--color-on-surface); /* 主文字、选中图标、标题 */
-  /* --color-on-surface-variant 直接复用 ② 层同名角色（次级文字） */
+  --color-on-background: var(--color-on-surface);
   --color-top-layer: var(--n100);
   --color-state-active: color-mix(
     in srgb,
@@ -265,8 +248,7 @@
   --color-dot-pattern: color-mix(in srgb, var(--nv70) 12%, transparent);
   --color-border: var(--color-hairline);
   --color-header-divider: var(--color-hairline);
-  /* 聚焦加深仍在发丝线同一族；48% 是白卡上还有 3:1 的最淡一档（3.12:1，深色 n17 卡上 3.77:1），
-     composer 关掉了全局焦点环、只靠这道边框指示焦点，再淡就不达标 */
+  /* 输入卡仅靠边框指示焦点；48% 透明度在浅深主题上均满足 ≥3:1 对比度。 */
   --color-border-hover: color-mix(in srgb, var(--color-on-surface) 48%, transparent);
   --color-hover: var(--color-state-hover);
   --color-danger-bg: var(--color-error-container);
@@ -289,7 +271,7 @@
   --color-chat-muted-text: var(--color-on-surface-faint);
   --color-chat-user-bg: var(--color-surface-container-low);
 
-  /* Agent 身份（领域专用扩展色，不在 6 族内；v14 Blend.harmonize 向主色） */
+  /* Agent 身份色：独立于状态色，使用 Blend.harmonize 向主色协调。 */
   --color-chat-agent-avatar-bg: #e7f5df;
   --color-chat-agent-avatar-border: rgba(113, 136, 58, 0.28);
   --color-chat-agent-identity-bg: #f2f7ed;
@@ -305,7 +287,7 @@
   --color-chat-code-bg: color-mix(in srgb, var(--nv70) 9%, transparent);
   --color-chat-code-block-bg: var(--n95);
   --color-chat-code-border: var(--color-hairline);
-  --color-chat-link-text: var(--color-primary); /* v14：链接归 primary（原 tertiary 蓝已改琥珀） */
+  --color-chat-link-text: var(--color-primary); /* 链接使用 primary。 */
   --color-chat-link-border: color-mix(in srgb, var(--color-primary) 34%, transparent);
   --color-chat-error-bg: var(--color-error-container);
   --color-chat-error-border: var(--e80);
@@ -313,12 +295,7 @@
   --color-chat-status-success: var(--color-secondary);
   --color-chat-status-error: var(--color-error);
   --color-chat-status-running: var(--color-warning);
-  --color-chat-focus-ring: color-mix(
-    in srgb,
-    var(--color-secondary) 70%,
-    transparent
-  ); /* v13：26%（1.48:1）→ 70%（≥3:1，焦点指示达标） */
-  /* 会话页的发丝写法沿用本名，值就是全站 hairline */
+  --color-chat-focus-ring: color-mix(in srgb, var(--color-secondary) 70%, transparent);
   --color-chat-hairline: var(--color-hairline);
   --color-chat-scrollbar-thumb: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
   --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);
@@ -338,11 +315,7 @@
     var(--color-on-surface) calc(var(--state-disabled-container) * 100%),
     transparent
   );
-  --color-ring-highlight: color-mix(
-    in srgb,
-    var(--color-primary) 70%,
-    transparent
-  ); /* v13：32%（1.66:1）→ 70%（≥3:1） */
+  --color-ring-highlight: color-mix(in srgb, var(--color-primary) 70%, transparent);
   --color-focus-ring: var(--color-primary); /* 键盘焦点全局指示（白底 6.48:1） */
   --color-thumb-fallback: var(--n80);
   --color-badge-border: var(--color-hairline);
@@ -350,10 +323,10 @@
   /* 画布卡片 */
   --color-canvas-card-bg: var(--color-surface-container-lowest);
   --color-canvas-card-text: var(--color-on-surface);
-  --color-canvas-card-border: var(--p60); /* 画布选中（原 #4285F4，选中语义归 primary 族） */
+  --color-canvas-card-border: var(--p60);
   --color-canvas-label-text: var(--nv50);
 
-  /* 故事板工作台（v12 设计规格） */
+  /* 故事板工作台 */
   --color-storyboard-canvas: #eaefe8; /* 版本占位底 */
   --color-storyboard-canvas-dot: color-mix(
     in srgb,
@@ -368,7 +341,7 @@
     color-mix(in srgb, var(--color-on-surface) 28%, transparent); /* 左侧栏向工作区的柔和过渡 */
   --shadow-storyboard-sidebar-right: -12px 0 24px -18px
     color-mix(in srgb, var(--color-on-surface) 28%, transparent); /* 右侧栏向工作区的柔和过渡 */
-  --storyboard-node-shadow: 0 35px 96px rgba(38, 43, 39, 0.22); /* 工作台节点浮起（v13 从 JS 常量上收） */
+  --storyboard-node-shadow: 0 35px 96px rgba(38, 43, 39, 0.22); /* 工作台节点投影 */
   --color-annotation-red: #e04f3f; /* 标注功能色板：仅标注笔触与图钉，不进入界面配色 */
   --color-annotation-orange: #e9a13b;
   --color-annotation-blue: #3f9fd0;
@@ -395,13 +368,13 @@
   /* Agent Log */
   --color-agent-log-bg: var(--n90);
 
-  /* 图表系列色（分类数据身份色，不承载状态语义；v14 Blend.harmonize 向主色） */
+  /* 图表分类色：不表达状态，使用 Blend.harmonize 向主色协调。 */
   --color-chart-1: #00a667;
   --color-chart-2: #375971;
   --color-chart-3: #e0a800;
   --color-chart-4: #2fc6be;
 
-  /* 画布产物（artifact）书签身份色（领域扩展色；v14 Blend.harmonize 向主色） */
+  /* 产物书签身份色：使用 Blend.harmonize 向主色协调。 */
   --color-artifact-brief: #bda669;
   --color-artifact-image-analysis: #638fa7;
   --color-artifact-markdown: #9291b6;
@@ -410,14 +383,14 @@
   --color-artifact-video-prompt: #6fa2a6;
   --color-artifact-rail-bg: #101318; /* focused artifact 书签栏暗面（媒体承载区） */
 
-  /* Creative Brief 暖纸卡片（领域专用面板色；v13 从组件 PALETTE 常量上收） */
+  /* Creative Brief 专用面板色。 */
   --color-brief-surface: #f7f1e8;
   --color-brief-surface-bright: #fffdf8;
   --color-brief-surface-muted: rgba(255, 255, 255, 0.66);
   --color-brief-border: rgba(124, 112, 95, 0.18);
   --color-brief-ink: #1f2522;
   --color-brief-ink-secondary: #4c5550;
-  --color-brief-ink-soft: #5d655f; /* 原 #707873（4.05:1）→ 5.36:1 */
+  --color-brief-ink-soft: #5d655f;
   --color-brief-amber: #6b4e16;
   --color-brief-amber-soft: rgba(248, 224, 168, 0.28);
   --color-brief-sage: #29543a;
@@ -425,7 +398,7 @@
   --color-brief-danger: #8f2f2c;
   --color-brief-danger-soft: rgba(184, 50, 48, 0.1);
 
-  /* Storyboard 分镜表纸面色板（v13 从 storyboard-table-config 常量上收） */
+  /* Storyboard 分镜表纸面色板。 */
   --color-sb-table-accent: #4a7c59;
   --color-sb-table-accent-soft: rgba(74, 124, 89, 0.12);
   --color-sb-table-background: #faf6f0;
@@ -450,7 +423,7 @@
   --color-sb-table-stage-neutral-bg: rgba(74, 124, 89, 0.1);
   --color-sb-table-stage-neutral-text: #254332;
 
-  /* Storyboard Agent 运行监控浮条（唯一获准的暗色浮层；v13 从 storyboards.css 局部定义上收） */
+  /* Storyboard Agent 运行监控浮层。 */
   --storyboards-monitor-bg: rgba(21, 24, 29, 0.96);
   --storyboards-monitor-border: rgba(216, 177, 106, 0.28);
   --storyboards-monitor-gold: #d8b16a;
@@ -460,7 +433,7 @@
   --storyboards-monitor-muted: #9aa0ab;
   --storyboards-monitor-text: #f0ede4;
 
-  /* Storyboard 工作台节点（v13 从 storyboard-workbench.constants JS 常量上收；surface 对齐 neutral 色板） */
+  /* Storyboard 工作台节点；surface 使用 neutral 色板。 */
   --storyboard-node-surface: var(--n99);
   --storyboard-node-selected-surface: var(--n95);
   --storyboard-node-border: var(--storyboard-node-surface);
@@ -479,9 +452,9 @@
   --storyboard-node-timeline-badge: rgba(10, 15, 12, 0.68);
   --storyboard-node-empty-preview-bg: var(--n0);
 
-  /* ==================== ③b 媒体中立层与局部堆叠（v15.1 收口） ==================== */
+  /* 媒体中立层与局部堆叠 */
 
-  /* 压在用户媒体上的黑白遮罩/高光：中立层，不随主题走（原豁免存量收口为唯一来源） */
+  /* 用户媒体上的黑白遮罩与高光不随主题变化。 */
   --color-on-scrim: var(--n100); /* 压深色遮罩上的中立白文字 */
   --media-scrim-cover: linear-gradient(180deg, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0.52) 100%);
   --media-scrim-photo: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.72) 100%);
@@ -520,21 +493,21 @@
   --color-ai-gradient-start: #a875ff;
   --color-ai-gradient-end: #6d8cff;
 
-  /* ==================== ④ Type 尺 ==================== */
+  /* 尺寸、阴影与动效 */
 
-  /* 阴影（M3 tonal elevation，v15 四档：静态表面零投影 → shadow-1 悬浮小件 → shadow-2 菜单/浮层 → shadow-3 弹窗） */
+  /* M3 tonal elevation：静态表面无投影；shadow-1 小件、shadow-2 菜单、shadow-3 弹窗。 */
   --shadow-1: 0 2px 8px rgba(23, 29, 25, 0.05), 0 1px 3px rgba(23, 29, 25, 0.05); /* 悬浮小件轻影 */
   --shadow-2:
     0 6px 18px rgba(23, 29, 25, 0.03), 0 3px 9px rgba(23, 29, 25, 0.04),
     0 1px 1px rgba(23, 29, 25, 0.04); /* 菜单/@列表/进度 pill */
   --shadow-3:
     0 20px 56px rgba(23, 29, 25, 0.14), 0 6px 16px rgba(23, 29, 25, 0.08); /* 弹窗/toast */
-  --shadow-input: 0 5px 16px -4px rgba(23, 29, 25, 0.07); /* 输入卡常驻浮影（照 kimi composer，focus 不抬升） */
+  --shadow-input: 0 5px 16px -4px rgba(23, 29, 25, 0.07); /* 输入卡使用 Kimi composer 常驻投影，聚焦时不抬升。 */
   --shadow-xs: 0 1px 2px rgba(23, 29, 25, 0.04); /* 代码块等嵌套小件 */
   --shadow-send:
     0 7px 16px -13px rgba(23, 29, 25, 0.38), 0 1px 2px rgba(23, 29, 25, 0.07); /* 发送钮浮起 */
 
-  /* 动效（v15 对齐 M3 标准时值；进出不对称：退场用时约为进场一半） */
+  /* M3 动效时值；退场时长约为进场的一半。 */
   --dur-s: 150ms; /* 微交互：hover/按压/工具切换 */
   --dur-m: 250ms; /* 面切换：toast/菜单开合 */
   --dur-l: 400ms; /* 入场/大面积过渡 */
@@ -557,9 +530,7 @@
   --icon-lg: 20px;
   --icon-xl: 24px;
 
-  /* 字号（M3 type scale，v15 七档）：唯一事实源在 globals.css @theme（同时生成 text-* 工具类
-     与 --text-* / --text-*--line-height 变量）；此处仅保留旧 -line 命名别名供存量 CSS 引用。
-     v15：body 基准 14px（M3 body-medium）、全站下限 11px（label-sm/label-xs 已并入 caption） */
+  /* 字阶定义在 globals.css @theme；此处保留 -line 别名供现有 CSS 使用。 */
   --text-display-line: var(--text-display--line-height, 64px);
   --text-headline-line: var(--text-headline--line-height, 36px);
   --text-title-line: var(--text-title--line-height, 24px);
@@ -609,11 +580,9 @@
   );
 }
 
-/* 深色：只换 ② 层档位与 ③ 层里直接取色板/字面值的项；①④ 与主题中立项不变。
-   引用 ② 层的别名（如 --color-border）会自动跟随，不必也不该在这里重复登记。 */
+/* 深色仅覆盖语义色与直接取色板的领域 token；引用语义色的别名自动跟随。 */
 .dark {
-  /* 深色主色取 60 档而非 M3 默认的 80：80 档是给深底上前景文字定的浅色，
-     铺成按钮与色块就是一片粉调薄荷，发廉价。60 档当文字仍有 5.86:1。 */
+  /* 深色主色使用 60 档，文字对比度为 5.86:1。 */
   --color-primary: var(--p60);
   --color-primary-hover: var(--p70);
   --color-on-primary: var(--p10);
@@ -638,7 +607,7 @@
   --color-surface-variant: var(--nv30);
   --color-on-surface-variant: var(--nv80);
   --color-on-surface-muted: var(--nv70);
-  /* 深底上 54% 就够 4.5:1（页面底 4.89、surface-container 4.67），比浅色那档还能再淡 */
+  /* 54% 透明度在页面底与 surface-container 上均满足 ≥4.5:1 对比度。 */
   --color-on-surface-faint: color-mix(in srgb, var(--color-on-surface) 54%, transparent);
   --color-outline: var(--nv60);
   --color-outline-variant: var(--nv30);
@@ -705,7 +674,7 @@ html {
 }
 
 body {
-  font-size: var(--text-body, 14px); /* v15：正文基准对齐 M3 body-medium 14px */
+  font-size: var(--text-body, 14px);
 }
 
 @media (min-width: 840px) {
@@ -726,7 +695,6 @@ body {
   line-height: 1.5;
 }
 
-/* Completely hide scrollbar everywhere */
 * {
   scrollbar-width: none; /* Firefox */
 }
@@ -758,8 +726,7 @@ body {
     var(--color-chat-panel-bg);
 }
 
-/* 键盘焦点全局兜底（M3 focus indicator）：仅 :focus-visible 触发，鼠标点击不显示。
-   :where() 零特异性——组件可用任意自定义 ≥3:1 焦点样式覆盖；禁止无替代地 outline-none。 */
+/* 全局 :focus-visible 使用零特异性；组件覆盖时仍须提供 ≥3:1 对比度的焦点指示。 */
 :where(a, button, input, textarea, select, summary, [role='button'], [tabindex]):focus-visible {
   outline: var(--state-focus-ring) solid var(--color-focus-ring);
   outline-offset: var(--state-focus-offset);

@@ -1,8 +1,4 @@
-"""T-ASSET-03：``POST /assets/import``——外部地址搬进桶里、登记、给出新地址。
-
-上游用 httpx 的 ``MockTransport`` 顶着：转存这条路的字节确实穿过我们的进程，所以类型、
-大小、尺寸都是实测的，这里要验的正是「实测」这件事。
-"""
+"""使用 MockTransport 验证素材转存、登记及实际字节的类型、大小和尺寸检测。"""
 
 from __future__ import annotations
 
@@ -28,10 +24,7 @@ def jpeg(width: int, height: int) -> bytes:
 
 
 class StubUpstream:
-    """替掉 service 模块里那个 ``httpx`` 名字：地址 → 一次响应。
-
-    替的是模块里的名字而不是 httpx 本身——ASGI 测试客户端自己也在用真的 httpx。
-    """
+    """仅替换 service 的 httpx 引用，避免影响同样使用 httpx 的 ASGI 测试客户端。"""
 
     HTTPError = httpx.HTTPError
 
@@ -57,7 +50,7 @@ class StubUpstream:
 
 @pytest.fixture
 def upstream(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> StubUpstream:
-    """默认上游是一张合规的产品图；要别的用 ``@pytest.mark.parametrize`` 之外的间接参数。"""
+    """默认提供有效产品图片，可通过间接参数覆盖。"""
 
     stub: StubUpstream = getattr(request, "param", None) or StubUpstream(
         content=jpeg(1200, 1600), content_type="image/jpeg"
@@ -73,7 +66,6 @@ async def import_url(http: httpx.AsyncClient, url: str = SOURCE) -> httpx.Respon
 async def test_import_mirrors_the_bytes_and_hands_back_our_own_url(
     upstream: StubUpstream,
 ) -> None:
-    """外部地址进不了账本（行上只有 object_key），所以必须先搬过来。"""
 
     bucket = FakeBucket()
     repo = InMemoryAssetRepository()
@@ -93,7 +85,6 @@ async def test_import_mirrors_the_bytes_and_hands_back_our_own_url(
 
 
 async def test_the_same_source_is_only_fetched_once(upstream: StubUpstream) -> None:
-    """源地址算 id：同一张产品图被多少张需求单引用，都只搬一次、只有一行。"""
 
     repo = InMemoryAssetRepository()
     app = build_test_app(repo, FakeBucket(), granted=editor())
@@ -116,7 +107,6 @@ async def test_the_same_source_is_only_fetched_once(upstream: StubUpstream) -> N
     ids=["too-small", "too-large"],
 )
 async def test_out_of_range_images_get_no_row(upstream: StubUpstream) -> None:
-    """转存这条路尺寸是量出来的，不是听来的。"""
 
     bucket = FakeBucket()
     repo = InMemoryAssetRepository()
@@ -146,7 +136,7 @@ async def test_unsupported_upstream_types_are_refused(upstream: StubUpstream) ->
     indirect=True,
 )
 async def test_redirects_are_not_followed(upstream: StubUpstream) -> None:
-    """搬回来的字节会落进公开桶：跟着 302 走就等于把这条口子借给了任意地址。"""
+    """禁止重定向，避免将其他地址返回的内容转存到公开桶。"""
 
     app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
     async with client(app) as http:
@@ -159,7 +149,6 @@ async def test_redirects_are_not_followed(upstream: StubUpstream) -> None:
     indirect=True,
 )
 async def test_videos_carry_no_dimension_check(upstream: StubUpstream) -> None:
-    """爆款库那条路搬的是片子；尺寸这道闸只管图。"""
 
     app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
     async with client(app) as http:
@@ -170,7 +159,6 @@ async def test_videos_carry_no_dimension_check(upstream: StubUpstream) -> None:
 
 
 async def test_an_unreachable_source_is_a_bad_request(upstream: StubUpstream) -> None:
-    """上游取不回来，问题在给进来的那个地址上，不在我们这儿。"""
 
     app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
     async with client(app) as http:

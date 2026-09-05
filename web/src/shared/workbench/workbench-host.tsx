@@ -1,9 +1,4 @@
-/**
- * 产物面板宿主：只管几何、两个来源的合成、选中态与分派，不认识任何具体产物类型。
- *
- * 几何三态——并排、放大（铺满主区）、折叠（主区右上浮出展开钮）。放不放得下并排由壳算好递进来
- * （侧栏宽度可拖，不是一个断点能定的）；放不下时聊天与面板只显示其一，面板一侧给「回到聊天」。
- */
+/** 宿主管理布局与渲染分派；壳提供并排条件，不足时在聊天和面板间切换。 */
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
@@ -18,23 +13,13 @@ import { useWorkbenchRegistry } from './use-workbench-registry'
 import { DEFAULT_WORKBENCH_LAYOUT, WorkbenchLayoutContext } from './workbench-layout-context'
 import { useWorkspaceFiles } from './workspace.api'
 
-/**
- * 工具帧来源这一期不接线：面板与会话页会各建一个 transcript reader，而 `subscribe` 是覆盖式的，
- * 后挂上的那个会把聊天的推送顶掉。合成逻辑本身按两个来源写全（见 `registry.test.ts`）。
- */
+/** 暂不接工具帧：同会话的 subscribe 会覆盖现有 reader，面板另建订阅将中断聊天推送。 */
 const NO_FRAMES: readonly WorkbenchFrame[] = []
 
 type WorkbenchHostProps = {
   conversationId: string
 }
 
-/**
- * 渲染产物面板。
- *
- * @param props - 组件属性。
- * @param props.conversationId - 哪一段对话。
- * @returns 产物面板，折叠时是主区右上的展开钮。
- */
 export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const registry = useWorkbenchRegistry()
   const navigate = useNavigate()
@@ -42,13 +27,13 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const connection = use(TranscriptConnectionContext)
   const search: { artifact?: string } = useSearch({ strict: false })
   const files = useWorkspaceFiles(conversationId)
-  // 用户点过折叠 / 展开就听他的；没点过按「有没有产物」定：一件都没有的对话不该白占掉 820。
+  // 用户选择优先；尚未手动切换时根据是否存在产物决定折叠状态。
   const [collapsedByUser, setCollapsedByUser] = useState<boolean | null>(null)
   const [maximized, setMaximized] = useState(false)
   const { compact, onPanelVisible, sideBySide } =
     use(WorkbenchLayoutContext) ?? DEFAULT_WORKBENCH_LAYOUT
 
-  // 断线期间文件变了没人通知：重连之后整份重拉一次对齐（contract/conventions.md §5 文件订阅）。
+  // 重连后重拉文件，补偿断线期间通知丢失（contract/conventions.md §5）。
   useEffect(() => {
     if (connection === null) return undefined
     return connection.watchSessions((update) => {
@@ -64,13 +49,12 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const entry = selected === undefined ? undefined : registry.resolve(selected.type)
   const collapsed = collapsedByUser ?? (artifacts.length === 0 || compact)
   const setCollapsed = setCollapsedByUser
-  // 并排放不下、或者用户点了放大：面板盖住主区，聊天列这一刻不显示。
   const covering = maximized || !sideBySide
-  // 只有真正占着布局位的时候，壳才该在聊天与面板之间画那道拖柄。
+  // 仅面板占据布局空间时通知壳显示拖柄。
   const occupiesLayout = !collapsed && !covering
   useEffect(() => {
     onPanelVisible?.(occupiesLayout)
-    // 壳活得比面板久（换路由时它不重挂）：不报一声「我走了」，那道拖柄会留在首页上。
+    // 面板卸载时通知壳移除拖柄；壳跨路由持续挂载。
     return () => onPanelVisible?.(false)
   }, [occupiesLayout, onPanelVisible])
 

@@ -9,7 +9,7 @@ import {
 } from './prompt-doc'
 import type { Shot } from './shots'
 
-/** shot-spec.md 里的示例 prompt，以及各种模型可能写出来的边角形状。 */
+/** 保留 shot-spec.md 示例及模型可能生成的边界格式。 */
 const FIXTURES: Record<string, string> = {
   CRLF: '[0–1秒｜镜头1] 开场 @Image1。\r\n[1–2秒｜镜头2] 硬切 @Image2。',
   spec示例: [

@@ -30,12 +30,10 @@ const refreshSessionThenInvalidateRoutes = () => {
     })
 }
 
-// 任意普通接口 401 都先强刷唯一事实源 /users/me；确认结果为 null 后页面就地退回未登录
-// 形态，用户下次点需要登录的动作时才弹登录框。/users/me 自身已豁免全局处理，不会递归。
+// 401 后强刷 /users/me 并重算路由；/users/me 自身不触发全局处理，避免递归。
 setOnUnauthorized(refreshSessionThenInvalidateRoutes)
 
-// 权限不足：任意接口 403 → 本地权限可能已过期（如角色被调整），强刷 /users/me 后重算
-// 路由；接口错误文案仍由调用方就地展示。
+// 403 可能表示权限已变更，强刷 /users/me 后重算路由；原请求错误仍由调用方展示。
 setOnForbidden(refreshSessionThenInvalidateRoutes)
 
 declare module '@tanstack/react-router' {
@@ -43,7 +41,7 @@ declare module '@tanstack/react-router' {
     router: typeof router
   }
 
-  // 壳里的右面板是个槽位：路由声明了内容才展开，由 routes/-app-right-panel.tsx 按当前匹配渲染。
+  // 右面板由当前匹配路由的 staticData 声明，壳负责渲染。
   interface StaticDataRouteOption {
     rightPanel?: ComponentType
   }

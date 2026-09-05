@@ -4,17 +4,7 @@ type TaskHeroProps = {
   className?: string
 }
 
-/**
- * 需求单页页头线稿插画，纯装饰。
- *
- * 只有一份产物：ph-* 是配色钩子，浅深两套颜色都在 tasks.css 里，深色由 <html> 上的 .dark
- * 命中，换主题不重建元素。之所以是内联组件而不是 <img src="…svg">，是因为 <img> 里的 SVG
- * 是独立文档，页面的 .dark 够不到它——那样就只能存浅深两份图，浏览器还会把两份都下载。
- *
- * @param props - 组件属性。
- * @param props.className - 追加到 <svg> 上的类名，尺寸由调用方决定。
- * @returns 装饰性插画（aria-hidden，含义由页面标题承担）。
- */
+/** 使用内联 SVG，使 tasks.css 可通过 .dark 与 ph-* 配色钩子切换主题。 */
 export function TaskHero({ className }: TaskHeroProps) {
   return (
     <svg

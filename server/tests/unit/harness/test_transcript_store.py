@@ -1,7 +1,4 @@
-"""实时 transcript 状态：批次号、追加位置、补批窗口、撤销连带。
-
-这几条违反了都不会报错，只会让客户端反复整页重拉，所以逐条钉住。
-"""
+"""验证实时 transcript 的批次序号、UTF-16 偏移、补发窗口和交互清理。"""
 
 from __future__ import annotations
 
@@ -31,7 +28,6 @@ AGENT = "main"
 
 
 def _open_turn(store: TranscriptStore, *, turn: str = "t1", step: str = "t1.1") -> None:
-    """开一轮、开一步、建一个空的正文块——追加操作的最小前置。"""
 
     store.append(
         CONVERSATION,
@@ -60,7 +56,6 @@ def _open_turn(store: TranscriptStore, *, turn: str = "t1", step: str = "t1.1") 
 
 
 def _first_text(store: TranscriptStore) -> str:
-    """取第一轮第一步第一个块的正文。"""
 
     frame = store.subscribe_view(CONVERSATION, AGENT).live_turns[0].steps[0].frames[0]
     assert isinstance(frame, TextFrame)
@@ -82,7 +77,6 @@ def _append(store: TranscriptStore, offset: int, text: str, *, frame: str = "t1.
 
 
 def test_batch_numbers_are_contiguous_from_one() -> None:
-    """协议要求每 agent 连续递增：客户端跳一个就判丢批。"""
 
     store = TranscriptStore()
     seqs = [store.append(CONVERSATION, AGENT, ()).seq for _ in range(5)]
@@ -105,7 +99,7 @@ def test_append_accumulates_text_on_the_frame() -> None:
 
 
 def test_append_offset_is_counted_in_utf16_units() -> None:
-    """emoji 在 UTF-16 里算两个单位。按 Python 的 len() 发号，客户端会永远对不上。"""
+    """emoji 占两个 UTF-16 单位，Python len 不能直接作为客户端追加偏移。"""
 
     store = TranscriptStore()
     _open_turn(store)
@@ -113,7 +107,7 @@ def test_append_offset_is_counted_in_utf16_units() -> None:
 
     assert utf16_len("好的👍") == 4
     assert len("好的👍") == 3
-    # 下一条要从 4 接。给 3（Python 的长度）必须被当场拒绝。
+    # UTF-16 偏移为 4；Python 字符数 3 应被拒绝。
     with pytest.raises(ValueError, match="追加位置对不上"):
         _append(store, 3, "继续")
     _append(store, 4, "继续")
@@ -131,7 +125,6 @@ def test_catch_up_returns_the_batches_after_the_given_position() -> None:
 
 
 def test_catch_up_reports_incomplete_when_the_window_has_moved_past() -> None:
-    """要的批次已经出了日志窗口。答不全就得说，不能默默给一段。"""
 
     store = TranscriptStore(resident=4)
     for _ in range(3):
@@ -139,7 +132,7 @@ def test_catch_up_reports_incomplete_when_the_window_has_moved_past() -> None:
     agent = store.subscribe_view(CONVERSATION, AGENT)
     assert agent.watermark == 3
 
-    # 手工把窗口推过去：日志容量在实现里是 2000 批，这里直接丢掉最老的两批。
+    # 直接移除最早两批，模拟补发日志窗口过期。
     journal = store._conversations[CONVERSATION].agents[AGENT].journal  # pyright: ignore[reportPrivateUsage]
     journal.popleft()
     journal.popleft()
@@ -149,7 +142,6 @@ def test_catch_up_reports_incomplete_when_the_window_has_moved_past() -> None:
 
 
 def test_catch_up_from_a_position_beyond_the_watermark_is_incomplete() -> None:
-    """进程重启后水位从 1 起。客户端手里那个大号来自上一代，必须让它整页重拉。"""
 
     store = TranscriptStore()
     store.append(CONVERSATION, AGENT, ())
@@ -160,7 +152,7 @@ def test_catch_up_from_a_position_beyond_the_watermark_is_incomplete() -> None:
 
 
 def test_removing_a_turn_cancels_the_interactions_anchored_to_its_tools() -> None:
-    """少这一步，撤销之后界面上会留下永远等不到回应的审批卡。"""
+    """删除轮次需取消关联审批，避免留下无法响应的交互。"""
 
     store = TranscriptStore()
     _open_turn(store)
@@ -195,7 +187,7 @@ def test_removing_a_turn_cancels_the_interactions_anchored_to_its_tools() -> Non
 
 
 def test_a_turn_is_held_until_the_message_history_has_it() -> None:
-    """交接点是「快照落库了」，不是「轮子进了终态」——中间丢掉两边都拿不出它。"""
+    """实时轮需保留至消息快照持久化完成，避免交接期间两侧均无数据。"""
 
     store = TranscriptStore()
     _open_turn(store)
@@ -224,7 +216,7 @@ def test_a_turn_is_held_until_the_message_history_has_it() -> None:
 
 
 def test_pinned_conversations_survive_eviction() -> None:
-    """有运行在跑或有连接订阅着的对话被淘汰，会让批次号从头开始，流到一半分叉。"""
+    """运行中或被订阅的对话不可淘汰，否则批次序号重置会中断流。"""
 
     store = TranscriptStore(resident=2)
     store.pin(CONVERSATION)
@@ -236,7 +228,7 @@ def test_pinned_conversations_survive_eviction() -> None:
 
 
 def test_unpinned_conversations_are_evicted() -> None:
-    """淘汰之后重新装上，批次号从 1 重来——所以订阅路径上那帧 reset 是必需的，见下一条。"""
+    """淘汰后序号从 1 开始，订阅端必须发送 reset。"""
 
     store = TranscriptStore(resident=2)
     store.append(CONVERSATION, AGENT, ())
@@ -247,20 +239,17 @@ def test_unpinned_conversations_are_evicted() -> None:
 
 
 def test_catch_up_after_eviction_is_only_safe_behind_a_reset() -> None:
-    """钉住调用方契约：``batches`` 要接在按 ``watermark`` 发的那帧 reset 后面。
+    """batches 必须接在按 watermark 发送的 reset 之后。
 
-    这段对话被淘汰过，号重新从 1 起。客户端手里还揣着上一代的 3。这里照样会给出新一代的
-    批次，而且 ``complete`` 是真——单看这个返回值分不出代际。让它落在对位置上的是那帧
-    reset：客户端收到就把本地水位无条件覆写成 ``watermark``。少发那一帧，客户端会拿新一代
-    的 4、5 去接上一代的第 3 批。
+    complete 无法区分淘汰前后的批次代际，客户端需由 reset 覆盖旧水位。
     """
 
     store = TranscriptStore(resident=2)
-    store.append(CONVERSATION, AGENT, ())  # 上一代
+    store.append(CONVERSATION, AGENT, ())
     for index in range(5):
-        store.append(f"other-{index}", AGENT, ())  # 挤掉它
+        store.append(f"other-{index}", AGENT, ())
     for _ in range(5):
-        store.append(CONVERSATION, AGENT, ())  # 新一代，号从 1 起
+        store.append(CONVERSATION, AGENT, ())
 
     view = store.subscribe_view(CONVERSATION, AGENT, since=3)
     assert view.watermark == 5

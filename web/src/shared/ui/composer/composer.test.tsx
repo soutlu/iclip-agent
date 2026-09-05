@@ -1,7 +1,3 @@
-/**
- * 输入卡：PM 编辑区的键盘与发送门槛、附件 pill 的粘贴/拖入/删除、拖放遮罩。
- */
-
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
@@ -20,7 +16,6 @@ const sendButton = () => screen.getByRole('button', { name: '发送' })
 const imageFile = (name = '截图.png') => new File(['fake-png-bytes'], name, { type: 'image/png' })
 const videoFile = (name = '样片.mp4') => new File(['fake-mp4-bytes'], name, { type: 'video/mp4' })
 
-/** pill 的悬停锚点是编辑器给的那个 span，芯片名字就画在它里面。 */
 const pillHost = (name: string): HTMLElement => {
   const host = screen.getByText(name).parentElement
   if (host === null) throw new Error(`没找到 ${name} 的 pill`)
@@ -73,11 +68,9 @@ describe('Composer', () => {
 
     pasteFilesIntoComposer(editor(), [imageFile()])
 
-    // pill 立刻落进文档，但还在传：发送被挡（照 kimi 的 blocked 语义）
     expect(screen.getByText('截图.png')).toBeInTheDocument()
     expect(sendButton()).toBeDisabled()
 
-    // 上传管线（签名 → 直传 → 登记）走完才放开；只有附件没有字也能发
     await waitFor(() => expect(sendButton()).toBeEnabled())
     await user.click(sendButton())
 
@@ -104,12 +97,10 @@ describe('Composer', () => {
     pasteFilesIntoComposer(editor(), [imageFile()])
 
     await waitFor(() => expect(screen.getByText('截图.png')).toBeInTheDocument())
-    // 给失败落定一拍；pill 引着一颗失败附件，发送始终禁用
     await waitFor(() => expect(sendButton()).toBeDisabled())
     fireEvent.keyDown(editor(), { key: 'Enter' })
     expect(onSubmit).not.toHaveBeenCalled()
 
-    // 失败原因只在悬停卡里说，而且是接口原文
     fireEvent.mouseEnter(pillHost('截图.png'))
     const tip = await screen.findByRole('tooltip')
     expect(within(tip).getByText(/不收 image\/png 这个类型/)).toBeInTheDocument()
@@ -122,7 +113,7 @@ describe('Composer', () => {
     pasteFilesIntoComposer(editor(), [imageFile()])
     await waitFor(() => expect(sendButton()).toBeEnabled())
 
-    // 光标紧跟 pill 时一下退格整颗删（PM captureKeyDown 的 stopNativeHorizontalDelete）
+    // 验证 PM captureKeyDown 的 stopNativeHorizontalDelete：退格删除完整原子节点。
     fireEvent.keyDown(editor(), { key: 'Backspace', keyCode: 8 })
 
     await waitFor(() => expect(screen.queryByText('截图.png')).not.toBeInTheDocument())

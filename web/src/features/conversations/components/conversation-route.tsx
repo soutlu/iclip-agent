@@ -1,11 +1,4 @@
-/**
- * 会话页：一段对话的内容，底下贴着输入框。
- *
- * 内容来自 `useTranscript`——订阅、拉基线、补漏都在它里面，这里只管铺开、滚动与发送。
- *
- * 标题来自基线（首屏那一份），之后被自动起名或改名会由推送盖过去。不从侧栏那份拓扑里翻：
- * 拓扑只有每段列表的第一页，从搜索里点开一段更早的对话就翻不到，标题会退成「对话」。
- */
+/** 标题来自 transcript 基线与推送；侧栏拓扑仅包含各列表首页，无法覆盖全部历史对话。 */
 
 import { useEffect, useRef, useState } from 'react'
 import { useSessionTitles } from '@/shared/transcript/use-session-titles'
@@ -34,13 +27,10 @@ import { PromptQueue } from './prompt-queue'
 import { UserBubble } from './user-bubble'
 import { WorkingIndicator } from './working-indicator'
 
-/** 离底多少像素之内算「还贴着底」，越过就不再自动跟随。照 kimi。 */
 const STICK_THRESHOLD_PX = 80
 
-/** 停止滚动多久之后把滚动条收回去（照 kimi：滚动条只在滚动中与悬停时浮现）。 */
 const SCROLL_IDLE_MS = 600
 
-/** 审批卡对着的那次调用：帧上的 `approvalId` 就是这张卡的 id。 */
 const frameAwaiting = (
   turns: readonly TranscriptTurn[],
   interactionId: string,
@@ -53,7 +43,7 @@ const frameAwaiting = (
         frame.kind === 'tool' && frame.approvalId === interactionId,
     )
 
-/** Kimi 的 Requesting → Working 判据：非空助手正文/思考，或任一工具块。 */
+/** 参考 Kimi Requesting → Working：助手正文、思考非空或存在工具块。 */
 const hasAssistantOutput = (turn: TranscriptTurn | undefined): boolean =>
   turn?.steps.some((step) =>
     step.frames.some((frame) => {
@@ -69,19 +59,17 @@ type ConversationRouteProps = {
 
 type PendingPrompt = {
   promptId: string
-  /** 发出去的那份 part 列表；服务端回来的轮头部带的是同一份。 */
   content: readonly PromptContentPart[]
   anchorTurnId: string | undefined
 }
 
-/** 正在修改的那一轮：轮 id、轮号与原内容。内容留着是为了核「末轮还是不是它」——轮号会复用。 */
+/** 保留原内容用于校验末轮身份；重新生成可能复用轮号。 */
 type EditingTurn = {
   turnId: string
   ordinal: number
   content: readonly PromptContentPart[]
 }
 
-/** 两份 part 列表是不是同一条消息：逐项比类型与正文 / 地址。 */
 const sameContent = (a: readonly PromptContentPart[], b: readonly PromptContentPart[]) =>
   a.length === b.length &&
   a.every((part, index) => {
@@ -92,25 +80,16 @@ const sameContent = (a: readonly PromptContentPart[], b: readonly PromptContentP
       : other.type !== 'text' && other.source.url === part.source.url
   })
 
-/**
- * 渲染会话页。
- *
- * @param props - 组件属性。
- * @param props.conversationId - 哪一段对话。
- * @returns 会话页内容。
- */
 export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
   const { titleOf } = useSessionTitles()
   const title = titleOf(conversationId) ?? view.title
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
   const [inFlightPromptId, setInFlightPromptId] = useState<string | null>(null)
-  // 正在修改的那一轮：点了末轮气泡的「修改」进来，发出去或点取消出去
   const [editingTurn, setEditingTurn] = useState<EditingTurn | null>(null)
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const stickingRef = useRef(true)
-  // 「贴着底」同时是一份状态：离开底部时浮出「回到底部」胶囊（照 kimi 的 newmsg-pill）
   const [sticking, setSticking] = useState(true)
   const scrollIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -128,13 +107,12 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   )
 
   const turns = view.items.filter((item) => item.kind === 'turn')
-  // 一次只请一个决定（照 kimi）：等着的还有别的，等这张收掉再露出下一张。提问那一类不归审批卡。
+  // 每次仅显示一张审批卡；其他待处理交互依次展示。
   const approval = view.pendingInteractions.find(
     (interaction) => interaction.interactionKind === 'approval',
   )
 
-  // 照 Kimi：running prompt 本身不认领乐观消息；必须等 anchor 之后的轮头部带着同一份 content 真正接手。
-  // queued 由队列行接手，终态则直接收掉，二者都不再保留气泡。
+  // 乐观气泡仅由 anchor 之后且 content 相同的轮接替；queued 由队列行接替，终态 prompt 移除气泡。
   const promptById = new Map(view.prompts.map((prompt) => [prompt.promptId, prompt]))
   const claimed = (item: PendingPrompt) => {
     const prompt = promptById.get(item.promptId)
@@ -151,8 +129,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const bubbles = pending.filter((item) => !claimed(item))
   const queued = view.prompts.filter((prompt) => prompt.status === 'queued')
   const running = view.prompts.find((prompt) => prompt.status === 'running')
-  // 照 Kimi：inFlight 是本地提交生命周期，turnActive 直接读 transcript meta。
-  // prompt 队列不参与 working 判据；这里只用终态 prompt 给本地 inFlight 收尾。
+  // inFlight 表示本地提交状态，turnActive 取 transcript meta；队列不参与 working 判定。
   const latestTurn = turns.at(-1)
   const turnActive = view.activity === 'turn'
   const submittedPrompt =
@@ -169,9 +146,9 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   if (inFlightSettled) setInFlightPromptId(null)
   const inFlight = inFlightPromptId !== null && !inFlightSettled
   const working = inFlight || turnActive
-  // 重新生成只对空闲对话的末轮开放：在跑、排着、本地还在发都算忙（与服务端 409 同一判据）。
+  // 重新生成仅允许空闲对话末轮；运行、排队或本地提交中均视为忙，与服务端 409 条件一致。
   const conversationBusy = working || hasLivePrompts
-  // 末轮换了（别人发了一条、重跑出来的新轮顶上）就不再是在改它。轮号会复用，所以连内容一起核。
+  // 同时核对轮号和原内容，防止末轮替换或轮号复用后继续修改旧轮。
   const editing =
     editingTurn !== null &&
     latestTurn?.turnId === editingTurn.turnId &&
@@ -189,14 +166,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       : `模型请求失败，正在重试（第 ${retry.nextAttempt}/${retry.maxAttempts} 次）…`
   const showEmptyState = view.status === 'ready' && turns.length === 0 && bubbles.length === 0
 
-  /**
-   * 挂上乐观气泡、记下本地在飞，再把请求发出去。没送到就把气泡撤掉——留着一条永远认领
-   * 不到的更糟；输入框那边会把内容还回去。
-   *
-   * @param parts - 输入框里的段。
-   * @param anchorTurnId - 气泡挂在哪一轮之后，认领时只看它后面的轮。
-   * @param request - 真正的请求；发消息与修改重发在这一步分道。
-   */
+  /** 发送失败时撤销乐观气泡，输入框负责恢复内容；仅 anchorTurnId 之后的轮可接替气泡。 */
   const dispatch = async (
     parts: readonly ComposerPart[],
     anchorTurnId: string | undefined,
@@ -226,13 +196,12 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
       ? dispatch(parts, latestTurn?.turnId, (promptId, content) =>
           submitPrompt(conversationId, { content, promptId }),
         )
-      : // 改末轮：旧轮会被服务端抹掉，气泡挂在它前一轮之后，等重跑出来的新轮接手
+      : // 修改末轮后服务端会替换旧轮，乐观气泡锚定在前一轮之后。
         dispatch(parts, turns.at(-2)?.turnId, async (promptId, content) => {
           await regeneratePrompt(conversationId, editing.turnId, { content, promptId })
           setEditingTurn(null)
         })
 
-  /** 出错就地报一声：这几个动作都不该把页面推走。 */
   const act = (work: Promise<void>) => {
     void work.catch((error: unknown) => {
       toast.error(error instanceof Error ? error.message : '操作失败')
@@ -248,8 +217,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   }
 
   return (
-    // h-dvh 顶死视口高：不顶死的话壳（min-h-dvh）会跟着长文内容长，整页外滚、composer 掉出
-    // 视口底。顶死后滚动只发生在消息区内部，停靠、粘底、回到底部胶囊才都成立（照 kimi chat-dock）
+    // 固定视口高度，使滚动限制在消息区，保持输入框和自动跟随定位稳定。
     <main className="flex h-dvh min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-12 shrink-0 items-center border-b-[0.5px] border-chat-hairline px-4">
         <h1 className="truncate text-body font-medium text-on-surface">{title}</h1>
@@ -262,7 +230,6 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
             const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
             stickingRef.current = distance <= STICK_THRESHOLD_PX
             setSticking(stickingRef.current)
-            // 滚动中把滚动条露出来，停滚一会儿再收回（直接改 DOM，不引重渲）
             scroller.dataset['scrolling'] = 'true'
             if (scrollIdleRef.current !== null) clearTimeout(scrollIdleRef.current)
             scrollIdleRef.current = setTimeout(() => {
@@ -315,7 +282,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               </div>
             ) : null}
             <PromptQueue
-              // 等审批的时候没有在跑的那一轮可插：追加得等决定落下去
+              // 等待审批时不能向当前轮追加消息。
               canSteer={running !== undefined && approval === undefined}
               onDiscard={(promptId) => act(abortPrompt(conversationId, promptId))}
               onSteer={(promptId) => act(steerPrompt(conversationId, promptId))}
@@ -357,7 +324,6 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
         )}
       </div>
       <div className="relative shrink-0 px-5 pb-4">
-        {/* 输入卡上方一段渐隐：内容滚到卡后面时不会齐刷刷切断（照 kimi 的 chat-dock） */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-12 h-12 bg-gradient-to-b from-transparent to-background"

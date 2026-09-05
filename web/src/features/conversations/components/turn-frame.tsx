@@ -1,9 +1,4 @@
-/**
- * 一块的渲染分派：用户气泡 / 助手正文 / 思考块 / 工具行 / 通知。
- *
- * 从 conversation-turn 拆出来：活动组（activity-run）里每一条就是普通的一块，两边共用这一个
- * 分派，拆开才不至于循环引用。
- */
+/** 单块分派由普通轮次与活动组共用，避免两者循环依赖。 */
 
 import { useEffect, useRef, useState } from 'react'
 import type { TranscriptFrame } from '@/shared/transcript/vendor'
@@ -17,24 +12,14 @@ import { UserBubble } from './user-bubble'
 
 type TurnFrameProps = {
   frame: TranscriptFrame
-  /** 这一块是整轮最新的一块且轮子还在跑（思考块据此计时与呼吸）。 */
+  /** 未结束轮次的最后一块，用于思考计时与动效。 */
   live: boolean
   settled: boolean
 }
 
-/**
- * 渲染一块。
- *
- * @param props - 组件属性。
- * @param props.frame - 这一块。
- * @param props.live - 这一块是否还在产出。
- * @param props.settled - 所在的轮子是否已结束。
- * @returns 一块的内容。
- */
 export function TurnFrame({ frame, live, settled }: TurnFrameProps) {
   switch (frame.kind) {
     case 'text':
-      // 用户那条（运行中插进来的消息）按 part 原样画，助手正文走 markdown
       return frame.role === 'user' ? (
         <UserBubble content={frame.content} />
       ) : (
@@ -53,13 +38,6 @@ export function TurnFrame({ frame, live, settled }: TurnFrameProps) {
   }
 }
 
-/**
- * 出错那一条：整轮失败与 error 级通知共用这一个样子。
- *
- * @param props - 组件属性。
- * @param props.message - 错误文案。
- * @returns 报错行。
- */
 export function ErrorNotice({ message }: { message: string }) {
   return (
     <p className="rounded-sm border border-chat-error-border bg-chat-error-bg px-3 py-2 text-body-sm text-chat-error-text">
@@ -68,13 +46,7 @@ export function ErrorNotice({ message }: { message: string }) {
   )
 }
 
-/**
- * 思考计时（照 kimi）：块还在产出就开始走秒，轮子收尾后冻结在最后读数；历史里早已结束的
- * 思考块本地没账本，不显示时长。
- *
- * @param live - 这块思考是否还在产出。
- * @returns 秒数；没计过时为 null。
- */
+/** 仅对实时思考块计时，结束时冻结；历史块没有本地计时记录，返回 null。 */
 function useThinkingSeconds(live: boolean): number | null {
   const startedRef = useRef<number | null>(null)
   const [seconds, setSeconds] = useState<number | null>(null)
@@ -87,18 +59,9 @@ function useThinkingSeconds(live: boolean): number | null {
     return () => clearInterval(id)
   }, [live])
 
-  // 走秒从 0 开始：第一拍（1s 后）之前用 0 顶上
   return live ? (seconds ?? 0) : seconds
 }
 
-/**
- * 思考块：一行标题（走秒计时），点开才显示正文。还在产出时标题呼吸、文案是「思考中…」。
- *
- * @param props - 组件属性。
- * @param props.live - 这块思考是否还在产出。
- * @param props.text - 思考正文。
- * @returns 思考块。
- */
 function ThinkingBlock({ live, text }: { live: boolean; text: string }) {
   const [open, setOpen] = useState(false)
   const seconds = useThinkingSeconds(live)
@@ -132,20 +95,7 @@ type ToolRowProps = {
   settled: boolean
 }
 
-/**
- * 一次工具调用：一行——图标、做了什么、对象、行尾一个状态点；结果怎么画由帧上的 `view` 选，
- * 开合是 grid-rows 平滑过渡（照 kimi）。
- *
- * 结果渲染器认 `view` 不认工具名：媒体墙在行下面独立画一排图（正文让给图），`file_content`
- * 与 `search_results` 以及没给 `view` 的都走纯文本折叠。
- *
- * 轮子结束了还停在 `running` 的强制收尾：不这样的话，用户按停止之后会留下永远转圈的行。
- *
- * @param props - 组件属性。
- * @param props.frame - 这次调用。
- * @param props.settled - 所在的轮子是否已结束。
- * @returns 工具行。
- */
+/** 结果渲染按 view 分派；轮次结束后将遗留 running 工具显示为结束，避免停止后持续转圈。 */
 function ToolRow({ frame, settled }: ToolRowProps) {
   const card = toolCard(frame.display)
   const state = frame.state === 'running' && settled ? 'done' : frame.state
@@ -153,7 +103,7 @@ function ToolRow({ frame, settled }: ToolRowProps) {
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<LightboxMedia | null>(null)
   const media = toolMedia(frame)
-  // 只展开纯文本的结果（读文件、搜内容这些）。对象结果不塞进界面——那是内部形状，不是给人看的。
+  // 仅展开字符串结果，内部对象结构不展示给用户。
   const text = typeof frame.output === 'string' && frame.output !== '' ? frame.output : undefined
   const output = media.length > 0 ? undefined : text
 
@@ -204,14 +154,6 @@ function ToolRow({ frame, settled }: ToolRowProps) {
   )
 }
 
-/**
- * 工具画出来的那排图（照 kimi 的 media-tool）：横向铺开，每张一图一标题，点图进灯箱。
- *
- * @param props - 组件属性。
- * @param props.items - 这一排图。
- * @param props.onOpen - 点开一张。
- * @returns 媒体墙。
- */
 function MediaWall({
   items,
   onOpen,

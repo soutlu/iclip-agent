@@ -1,9 +1,5 @@
-/* 会话页局部样式：markdown 排版细节、消息区滚动条、气泡超长折叠——
-   全局规则与 Tailwind 类表达不了的部分。几何与节奏照 kimi 网页版，颜色只引 token。 */
+/* 助手 Markdown 排版 */
 
-/* ---- 助手正文（.chat-md） ---- */
-
-/* 顶层块间距统一 14px（照 kimi 的 node-slot 节奏）；标题再抬高（h1/h2 前 28、h3 前 21） */
 .chat-md > * + * {
   margin-top: 14px;
 }
@@ -18,7 +14,6 @@
   margin-top: 0;
 }
 
-/* 列表：28px 缩进；圆点 5px 实心（二级改 1px 描边空心）；li 间距 11px */
 .chat-md ul,
 .chat-md ol {
   padding-left: 28px;
@@ -54,7 +49,6 @@
   color: var(--color-chat-secondary-text);
 }
 
-/* 引用块：2px 圆角竖条、上下各留 2px 呼吸位，左内距 21px */
 .chat-md blockquote {
   color: var(--color-chat-secondary-text);
   padding-left: 21px;
@@ -71,12 +65,11 @@
   width: 2px;
 }
 
-/* 正文里夹的 HTML 折叠块（<details> 过白名单后留下）：summary 与内容之间留 10px */
 .chat-md details > * + * {
   margin-top: 10px;
 }
 
-/* ---- 消息区滚动条（照 kimi：常态隐形，滚动中或悬停时浮现 6px 细条） ---- */
+/* 消息区滚动条：参考 Kimi，仅在滚动或悬停时显示。 */
 
 .chat-scroller {
   scrollbar-width: none;
@@ -103,8 +96,7 @@
   background: var(--color-chat-scrollbar-thumb);
 }
 
-/* ---- 用户气泡超长折叠（照 kimi 的 u-text-wrap.is-clamped）：10lh 截断，
-   底部 5lh 起渐隐到 1lh 全透明，给「展开」胶囊一个压得住的底 ---- */
+/* 用户气泡折叠：十行截断，底部渐隐为展开按钮保留空间。 */
 
 .chat-clamp {
   mask-image: linear-gradient(to bottom, black calc(100% - 5lh), transparent calc(100% - 1lh));
@@ -112,14 +104,13 @@
   overflow: hidden;
 }
 
-/* 队列行正文折叠（照 kimi 的 q-body）：3lh 截断，底部 1.2lh 渐隐 */
 .chat-q-clamp {
   mask-image: linear-gradient(to bottom, black calc(100% - 1.2lh), transparent calc(100% - 0.2lh));
   max-height: 3lh;
   overflow: hidden;
 }
 
-/* ---- 媒体灯箱（照 kimi 的 media-lightbox）：遮罩 scrim 60%，媒体居中限 960px / 80vh ---- */
+/* 媒体灯箱：中性遮罩，媒体限制在视口内。 */
 
 .chat-lightbox {
   background: color-mix(in srgb, var(--color-scrim) 60%, transparent);

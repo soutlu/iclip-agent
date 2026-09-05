@@ -1,7 +1,4 @@
-/**
- * 这套 jsdom 没有可用的 localStorage（`clear` 都不是个函数），正好是这个 hook 要兜住的那种环境。
- * 所以用例自己装一份最小的内存实现，另有一条用例把它换成「一读就抛」，验默认宽这条退路。
- */
+/** 使用内存存储替身，并模拟读取抛错以验证默认宽度。 */
 
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'

@@ -6,5 +6,4 @@ export type CueLoginRequest = {
   password: string
 }
 
-/** 当前用户：形状就是合同里的 UserOut，后端改字段由 contract:check 拦。 */
 export type CueAuthUser = z.output<typeof zUserOut>

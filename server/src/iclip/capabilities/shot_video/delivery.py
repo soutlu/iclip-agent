@@ -1,4 +1,4 @@
-"""交付表的形状：逐格请求怎么算合规、镜头组 prompt 表收什么、写成什么。纯判定，不碰存储。"""
+"""逐格生成请求与镜头组交付表的纯校验和序列化。"""
 
 from __future__ import annotations
 
@@ -40,11 +40,7 @@ class VideoShotRequest(BaseModel):
 
 
 def resolve_requests(frames: Sequence[FrameRequest]) -> tuple[list[str], list[str]]:
-    """校验逐格请求并解出各格的帧号。
-
-    帧号只查形状与同批重复，不查它是不是账本里的候选帧：候选帧是写 prompt 时看的参
-    考，定格记的是属于哪一镜——新增的镜头、短于一秒的镜头没有候选帧，一样要出定格。
-    """
+    """校验逐格请求与同批帧号唯一性，不要求帧号属于候选帧台账；新增或短镜头也可生成。"""
 
     if not 1 <= len(frames) <= GRID_CELLS:
         raise ModelRetry(f"frames 必须是 1-{GRID_CELLS} 条，当前 {len(frames)} 条。")
@@ -81,12 +77,9 @@ def resolve_cells(cells: Sequence[str]) -> list[str]:
 
 
 def resolve_shots(shots: Sequence[VideoShotRequest]) -> list[dict[str, Any]]:
-    """校验镜头组的形状并整理成落文件的样子。有一条不合规就整份拒收。
+    """校验并序列化整份镜头组表，任一条非法则拒绝。
 
-    **只看形状，不看地址来源。** 「这些地址是不是本对话的」是素材规则，挂在工具登记处的
-    验证器上；用户从面板整份写回来的那条路走不到工具，但形状得是同一套，所以形状判定单
-    独在这里，两条路共用。
-    """
+    这里只校验结构，地址来源由工具输入验证器负责；工具交付与面板写回共用此规则。"""
 
     if not shots:
         raise ModelRetry("shots 一条都没有；镜头组 prompt 表不能是空的。")
@@ -124,14 +117,9 @@ def resolve_shots(shots: Sequence[VideoShotRequest]) -> list[dict[str, Any]]:
 
 
 def validate_video_shots_document(content: str) -> None:
-    """判一份写回来的 ``video_shot.json`` 的形状，不合规抛 ``ValueError``（消息给人看）。
+    """校验写回的 video_shot.json，非法时抛 ValueError。
 
-    用户在界面上改完这份文件是整份写回工作区的，走不到 ``write_video_shots``。两条路交付
-    的是同一份东西，所以形状判定必须是同一套——这里复用工具那一份，不另写一套规矩。
-
-    **地址来源不在这里判。** 那是模型才需要的素材规则（防它凭空编地址）；用户从面板换帧
-    是从自己这段对话的记录里挑的，再问一遍「这地址哪来的」只会拦下合法操作。
-    """
+    与交付工具共用结构规则；模型工具的地址来源校验不属于此入口。"""
 
     try:
         document = json.loads(content)

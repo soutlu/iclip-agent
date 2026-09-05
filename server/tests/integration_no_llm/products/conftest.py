@@ -1,8 +1,4 @@
-"""产品资料查询的夹具：在测试库里立起外部目录库那几张表的替身。
-
-**绝不连真的目录库**：那是别人的生产数据。这里按上游的形状建同名表（只建查询碰到
-的那几列），插进受控的行——真实结构变了我们靠显式列名响亮地失败，不靠这层测试。
-"""
+"""在测试库中创建外部产品目录的最小表结构与受控数据，不连接生产目录库。"""
 
 from __future__ import annotations
 
@@ -17,7 +13,7 @@ from iclip.app.bootstrap import build_app
 from tests.integration_no_llm.conftest import make_runtime_config
 
 IMAGE_BASE_URL = "https://bucket.example.com/"
-"""末尾故意带一条斜杠：拼地址时要吃掉它，不然会拼出两条。"""
+"""末尾斜杠用于验证 URL 拼接不会产生双斜杠。"""
 
 _DDL = """
 DROP TABLE IF EXISTS pdm_asset_versions, assets, pdm_file_mappings,
@@ -81,7 +77,7 @@ CREATE TABLE pdm_colors (
 
 @pytest.fixture
 async def catalog_engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
-    """外部目录库的替身，跟业务库共用同一个测试容器、但用的是自己那几张表。"""
+    """与业务库共用测试容器的产品目录替身表。"""
 
     engine = create_async_engine(migrated_pg)
     try:
@@ -100,7 +96,7 @@ async def app(
     migrated_pg: str,
     catalog_engine: AsyncEngine,
 ) -> AsyncGenerator[FastAPI]:
-    """装上产品资料查询的 app（父层那个夹具默认不开这项能力）。"""
+    """启用产品资料查询的 app。"""
 
     monkeypatch.setenv("PRODUCT_CATALOG_DATABASE_URL", migrated_pg)
     monkeypatch.setenv("PRODUCT_IMAGE_BASE_URL", IMAGE_BASE_URL)
@@ -122,7 +118,7 @@ async def app(
 
 @pytest.fixture
 async def app_without_catalog(base_env: None, migrated_pg: str) -> AsyncGenerator[FastAPI]:
-    """没配目录库的 app：``base_env`` 已经把那两个变量清掉了。"""
+    """未配置产品目录的 app；base_env 已清除相关变量。"""
 
     engine = create_async_engine(migrated_pg)
     try:

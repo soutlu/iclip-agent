@@ -188,7 +188,7 @@
         --color-chat-status-error: var(--color-error);
         --color-chat-status-running: var(--color-warning);
         --color-chat-focus-ring: color-mix(in srgb, var(--color-secondary) 70%, transparent);
-        /* 发丝边框与滚动条（照 kimi：边框用墨色透明档而非实色灰，深浅随 on-surface 自动换向） */
+        /* 发丝边框与滚动条：透明度随 on-surface 适配主题 */
         --color-chat-hairline: var(--color-hairline);
         --color-chat-scrollbar-thumb: color-mix(in srgb, var(--color-on-surface) 12%, transparent);
         --shadow-chat-panel: 0 20px 48px rgba(64, 73, 66, 0.18);
@@ -387,8 +387,7 @@
       }
 
       .dark {
-        /* 深色主色取 60 档而非 M3 默认的 80：80 档是给深底上前景文字定的浅色，
-           铺成按钮与色块就是一片粉调薄荷，发廉价。60 档当文字仍有 5.86:1。 */
+        /* 深色主色使用 60 档，兼顾按钮填色与前景文字对比度。 */
         --color-primary: var(--p60);
         --color-primary-hover: var(--p70);
         --color-on-primary: var(--p10);

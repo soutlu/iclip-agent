@@ -1,9 +1,4 @@
-/**
- * 宿主的几何与分派。
- *
- * 几何事实由壳算好递进来（放不放得下并排、是不是紧凑屏），所以用例直接给这两个布尔值，
- * 不去摆布视口宽度。
- */
+/** 宿主接收壳计算的布局结果；测试直接注入 compact 与 sideBySide。 */
 
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -20,7 +15,6 @@ import { WorkbenchRegistryProvider } from './workbench-registry-provider'
 
 const CONVERSATION_ID = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
 
-/** 两条假条目：分镜自动打开，笔记不自动打开。渲染器只把自己认出来。 */
 const registryWithTwo = () => {
   const registry = new ArtifactRegistry()
   registry.register({
@@ -55,7 +49,6 @@ const serveFiles = (paths: string[]) => {
   )
 }
 
-/** 放得下并排、不是紧凑屏——大多数用例要的那一档。 */
 const ROOMY: WorkbenchLayout = { compact: false, sideBySide: true }
 
 const renderHost = (layout: WorkbenchLayout = ROOMY, registry = registryWithTwo()) =>
@@ -102,7 +95,6 @@ describe('WorkbenchHost', () => {
     serveFiles(['notes.md', 'video_shot.json'])
     await renderHost()
 
-    // 文件列表里笔记在前，但自动打开的是分镜。
     expect(await screen.findByText('画着分镜')).toBeVisible()
 
     await userEvent.click(screen.getByRole('button', { name: '分镜' }))

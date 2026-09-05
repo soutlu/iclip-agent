@@ -1,12 +1,6 @@
-"""对话的 HTTP 面。
+"""对话 HTTP 端点。读操作使用 agent:read，写操作使用 agent:run。
 
-十五个端点：开一段、侧栏拓扑、任务区翻页、合集内翻页、搜自己的、治理者查全部、列出某
-张单下我的尝试、读历史、列工作区文件、读工作区文件、写工作区文件、改名、换合集、挂需求单、删掉。读用 ``agent:read``，会改动
-的用 ``agent:run``——能不能看和能不能跑本来就是两件事。
-
-别人的对话一律 404，不返 403：那会泄露「这个 id 确实存在」。治理者例外，读得到全部
-（只读，写入路径没有这个口子）。
-"""
+不可见对话返回 404；治理者可跨属主读取，写入仍限属主。"""
 
 from __future__ import annotations
 
@@ -48,8 +42,7 @@ from iclip.domains.identity.public import Principal, require_permission
 def create_conversations_router(service: ConversationService) -> APIRouter:
     router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-    # 每行都要带上「此刻在忙什么」，而那不在对话这张表的行上。这两个助手把「批量问一次活儿」
-    # 收在一处，免得每个端点各写一遍、漏一个就有一批行谎报自己空闲。
+    # 活动状态独立于对话记录，在序列化前批量读取。
     async def _out(conversation: Conversation) -> ConversationOut:
         activities = await service.activities([conversation.id])
         return conversation_out(conversation, activities[conversation.id])

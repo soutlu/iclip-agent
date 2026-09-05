@@ -17,12 +17,6 @@ type CollectionDeleteDialogProps = {
   open: boolean
 }
 
-/**
- * 删合集前问一句：删除不可撤销，但影响面有限——里面的对话都还在。
- *
- * @param props - 要删的合集、开关与删除后的回调。
- * @returns 确认弹窗。
- */
 export function CollectionDeleteDialog({
   collection,
   onOpenChange,

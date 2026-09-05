@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { login } from './login'
 
-// 宽度记在 localStorage 里，刷新还在——这条只有真浏览器验得了。
+// 在真实浏览器中验证拖动宽度跨刷新持久化。
 
 test.use({ viewport: { height: 900, width: 1600 } })
 
@@ -65,7 +65,6 @@ test('打开工作台之后聊天与面板之间也有一道拖柄', async ({ pa
   const grip = await handle.boundingBox()
   if (!grip) throw new Error('拖柄没有可测量的位置')
 
-  // 往右拖是把面板压窄
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
   await page.mouse.down()
   await page.mouse.move(grip.x + grip.width / 2 + 80, grip.y + grip.height / 2, { steps: 8 })

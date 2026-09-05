@@ -1,15 +1,11 @@
-"""agent_runtime：官方 StepPersistence 的幂等键列与键表
+"""agent_runtime：StepPersistence 幂等键
 
 Revision ID: 8a1c5e39b742
 Revises: 5f2a9c60d417
 Create Date: 2026-09-02 08:00:00.000000
 
-``runs.registration_id`` 记下是哪一次注册占下这个 run_id：重放同一次注册时官方直接返回，
-换了一次才判成 run_id 撞车。``events`` / ``snapshots`` 的 ``idempotency_key`` 是边界的稳定
-身份，重放同一个边界时把重复的追加与保存挡掉。
-
-``snapshot_idempotency_keys`` 单独存一份键，**不随快照修剪一起删**：修剪掉的那次保存在重放
-里仍要被认出来，键跟着快照行一起没了的话，重放会把同一份快照再写一遍。
+registration_id 区分注册重放与 run_id 冲突；事件和快照的 idempotency_key 防止重复写入。
+snapshot_idempotency_keys 不随快照修剪删除，确保修剪后的保存重放仍能去重。
 """
 
 from __future__ import annotations

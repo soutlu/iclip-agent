@@ -42,7 +42,7 @@ IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
 
 
 def idle_client() -> httpx.AsyncClient:
-    """装配面用不到出网，给一个不会被调到的客户端。"""
+    """装配测试不发送网络请求。"""
 
     return httpx.AsyncClient()
 
@@ -75,7 +75,6 @@ def table(video: Capability[object]) -> CapabilityTable:
 
 
 def test_unknown_name_fails_loudly(table: CapabilityTable) -> None:
-    """名字打错不能静默变成「没挂」——那样 agent 会带着半套工具上线。"""
 
     with pytest.raises(RuntimeError, match="引用了未登记的 capability 'shots'"):
         resolve_capabilities(("shots",), table=table, declared_by="agent storyboard")
@@ -90,7 +89,6 @@ def test_nothing_declared_mounts_nothing(table: CapabilityTable) -> None:
 
 
 def test_workspace_is_registered_under_its_declaration_name() -> None:
-    """``agents.yaml`` 里写 capabilities: [workspace] 得真能装出工作区来。"""
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
@@ -102,7 +100,6 @@ def test_workspace_is_registered_under_its_declaration_name() -> None:
 
 
 def test_shot_video_needs_its_whole_backing() -> None:
-    """依赖不齐就不登记这个名字——引用它的 agent 会在装配期响亮地失败。"""
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
@@ -132,7 +129,7 @@ def test_shot_video_is_registered_when_backed(shot_video_settings: ResolvedShotV
 def test_shot_video_without_workspace_fails_at_assembly(
     shot_video_settings: ResolvedShotVideo,
 ) -> None:
-    """镜头素材写的文档要靠工作区的工具让模型看见；少挂一个的失效是静默的，所以装配期就拦。"""
+    """镜头素材产物依赖工作区工具读取，缺少工作区能力须在装配时拒绝。"""
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
@@ -149,11 +146,7 @@ def test_shot_video_without_workspace_fails_at_assembly(
 def test_the_display_registry_covers_every_mounted_tool(
     shot_video_settings: ResolvedShotVideo,
 ) -> None:
-    """十四件工具每件都在注册表里：登记不到的画成朴素的那张卡，而且不报错。
-
-    skill 与派活那两件不在名字表里（一件跟着 skill 库挂，一件跟着子代理声明挂），所以合表时
-    单独加上。
-    """
+    """合并 display 表时需包含不在能力名称表中的 skill 和子代理工具。"""
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
@@ -185,7 +178,6 @@ def test_the_display_registry_covers_every_mounted_tool(
 
 
 def test_a_capability_without_a_table_is_skipped(table: CapabilityTable) -> None:
-    """能力包没有 display 表也照样挂得上，它的工具画成朴素的那张卡。"""
 
     registry = build_display_registry(table)
 
@@ -193,7 +185,7 @@ def test_a_capability_without_a_table_is_skipped(table: CapabilityTable) -> None
 
 
 async def test_generations_adapter_translates_and_reports_bad_parameters() -> None:
-    """画幅与档位的判定归生成域那套唯一的请求定义，适配器只负责把话带到。"""
+    """生成域定义请求约束，适配器负责映射参数与错误。"""
 
     adapter = GenerationsAdapter(cast("GenerationService", object()))
     with pytest.raises(InvalidImageRequest, match="aspect_ratio"):
@@ -204,7 +196,6 @@ async def test_generations_adapter_translates_and_reports_bad_parameters() -> No
 
 
 async def test_generations_adapter_carries_the_conversation_onto_the_job() -> None:
-    """工具发起的出图也要归到对话下面，界面才列得出这段对话生成过什么。"""
 
     seen: list[ImageGenerationIn] = []
 
@@ -239,7 +230,7 @@ def oss(handler: Callable[[httpx.Request], httpx.Response]) -> OssMediaProbe:
     return OssMediaProbe(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
-# OSS 的 image/info 真实形状：值一律是字串。
+# OSS image/info 的字段值均为字符串。
 INFO_BODY = {
     "FileSize": {"value": "21839"},
     "Format": {"value": "jpg"},
@@ -249,7 +240,6 @@ INFO_BODY = {
 
 
 async def test_the_probe_reads_the_oss_image_info() -> None:
-    """问的是 image/info，不下载像素；值都是字串，格式要翻成 mime。"""
 
     asked: list[str] = []
 
@@ -264,7 +254,6 @@ async def test_the_probe_reads_the_oss_image_info() -> None:
 
 
 async def test_an_unknown_format_keeps_its_own_name() -> None:
-    """映射表里没有的格式原样拼成 image/<格式>，不冒充成 jpeg。"""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={**INFO_BODY, "Format": {"value": "bmp"}})
@@ -273,7 +262,6 @@ async def test_an_unknown_format_keeps_its_own_name() -> None:
 
 
 async def test_a_non_success_status_is_a_probe_failure() -> None:
-    """非 2xx 就是问不出来。原因给的是固定中文，它会原样进模型面的错误消息。"""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, text="NoSuchKey")
@@ -286,7 +274,6 @@ async def test_a_non_success_status_is_a_probe_failure() -> None:
     "body", [{"Format": {"value": "jpg"}}, {**INFO_BODY, "ImageWidth": {"value": "宽"}}]
 )
 async def test_missing_or_unreadable_fields_are_a_probe_failure(body: dict[str, Any]) -> None:
-    """字段缺了、或者值不是数，都当问不出来——半份信息算不出该怎么交付。"""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=body)
@@ -296,7 +283,6 @@ async def test_missing_or_unreadable_fields_are_a_probe_failure(body: dict[str, 
 
 
 async def test_a_non_json_body_is_a_probe_failure() -> None:
-    """对方回的是图片本身（比如域名压根不支持处理参数）时也别硬解。"""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"\xff\xd8\xff\xe0")
@@ -314,7 +300,7 @@ async def test_a_network_failure_is_a_probe_failure() -> None:
 
 
 async def test_object_writer_adapter_translates_the_failure_and_passes_urls_through() -> None:
-    """平台层的异常能力包不认识，穿出工具就是整次运行中断；适配器翻成能力包自己的类型。"""
+    """适配器须转换平台异常为能力包异常，避免可处理的工具错误中断整个运行。"""
 
     with pytest.raises(ObjectWriteFailed, match="Read timed out"):
         await ObjectWriterAdapter(_StoreDown()).put_public_object(

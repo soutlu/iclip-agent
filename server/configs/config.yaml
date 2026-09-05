@@ -1,7 +1,4 @@
-# 唯一 Runtime Configuration。
-#
-# 这份文件说「装什么、什么形状」；地址与凭证一概不在这里，它们由环境变量提供，
-# 清单见 src/iclip/config/models.py 里那几个 *Env 类。
+# 运行配置；环境变量定义见 src/iclip/config/models.py。
 app:
   name: iclip-agent
 
@@ -15,73 +12,62 @@ security:
   cors_allow_origins: []
 
 sso:
-  # 我们在对方那边注册的应用名。整项 SSO 的开关是 SSO_BASE_URL 这个环境变量：
-  # 为空即关闭（/auth/sso/* 不挂载）。
+  # SSO_BASE_URL 为空时不挂载 /auth/sso/*。
   app_name: iclip
 
 media_generation:
-  # 媒体生成。开关是 VIDEO_SUBMIT_URL 这个环境变量：为空即整项关闭（/generations
-  # 不挂载、后台不跑）；一旦非空，那一组地址与对象存储的凭证就都是必需的。
+  # VIDEO_SUBMIT_URL 为空时关闭生成路由与后台队列；启用后须提供生成接口与对象存储凭证。
   video:
-    model: mmt-seedance-2-0 # 对方的模型名，不是本仓 models 段里的键
-    user_name: iclip-agent # 对方要求的稳定调用方标识，用于它那边对账
+    model: mmt-seedance-2-0 # 供应方模型名
+    user_name: iclip-agent # 供应方对账使用的稳定调用方标识
   image:
     user_name: iclip-agent
-  # 后台队列的节奏。并发、错误重试间隔、关停宽限、心跳是实现细节，默认值在代码里。
-  poll_interval_seconds: 5 # 每隔多久查一次状态（固定间隔，不做退避）
-  job_timeout_seconds: 3600 # 提交后超过这么久还没终态就判失败
+  poll_interval_seconds: 5 # 状态查询间隔，固定轮询
+  job_timeout_seconds: 3600 # 提交后等待终态的上限
 
 shot_video:
-  # 镜头素材能力（capability 名 shot_video）：拆参考片、取帧、出图、切格。
-  # 开关是 VIDEO_UNDERSTANDING_URL 这个环境变量：为空即整项关闭（名字不登记，
-  # agent 声明里引用它会在装配期报错）。它建立在媒体生成之上——出图走生成域，
-  # 帧与切格产物落生成用的那个公开对象存储——所以生成没开时配了这一段即启动报错。
-  understanding_model: doubao-seed-2-0-lite-260428 # 对方的模型名，不是 models 段的键
-  understanding_thinking: medium # minimal / low / medium / high 四档；不写即用对方默认档
-  # 每秒看几帧，0.2-5。对方默认 1 帧，快剪片一秒切两三刀就看不见剪辑点、时间码全压在整秒上；
-  # 5 帧下视频 token 约涨 4 倍，单次拆解耗时不变。
+  # VIDEO_UNDERSTANDING_URL 为空时不注册 shot_video；启用后须同时启用媒体生成。
+  understanding_model: doubao-seed-2-0-lite-260428 # 供应方模型名
+  understanding_thinking: medium # minimal / low / medium / high；省略时使用供应方默认值
+  # 采样帧率范围 0.2–5；提高帧率有助于识别快速剪辑点，同时增加视频 token 消耗。
   understanding_fps: 5
-  # 出图的等待与重试。渠道从 dev 起，试满 dev_attempts 次还不成再升 pro；任何失败
-  # 都往下试，出了图就停。
-  poll_interval_seconds: 5 # 提交之后隔多久查一次结果
+  # 出图先使用 dev 渠道，耗尽 dev_attempts 后转 pro；成功后停止重试。
+  poll_interval_seconds: 5 # 结果轮询间隔
   dev_attempts: 2
   pro_attempts: 1
-  backoff_seconds: 5 # 首次重试前等多久，之后逐次乘以 backoff_factor
+  backoff_seconds: 5 # 初次重试间隔，后续乘以 backoff_factor
   backoff_factor: 3
-  job_timeout_seconds: 1800 # 一次出图工具调用总共等多久
+  job_timeout_seconds: 1800 # 单次出图工具调用的总时限
 
 models:
   # 键名即模型名，也是 agents.yaml 里 model 字段引用的名字。
   # provider 是官方 provider 名，决定厂商适配；api 不写即 chat。
   # thinking 是思考强度：none / minimal / low / medium / high / xhigh / max，不写即厂商默认档。
-  #
-  # api_key_env 是这里唯一还留着「变量名」的地方：每个模型各自一把 key，用哪个变量
-  # 取是这条声明的一部分，没法用一套写死的名字表达。
+  # api_key_env 指定该模型 API key 所在的环境变量。
   glm-5.3-flash:
     provider: alibaba
     model: ZHIPU/GLM-5.3-Flash
-    # 走 chat 而不是 responses：百炼的 Responses 流式接口在一次并行调用多个工具时，
-    # 第二个起的工具名与参数会先报成第一个的、到结束事件才改对，而解析只认开头那一下，
-    # 后面的调用就全变成第一个的复制品，流程里的步骤会被静默吞掉。chat 接口没有这个问题。
+    # 使用默认 chat 接口：百炼 Responses 流在并行工具调用开始事件中重复首个工具的名称与参数，
+    # 会导致解析器错误识别后续调用。
     api_key_env: MODEL_API_KEY
     base_url: https://llm-dd2phm2wuagx7ezo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
     thinking: high
     context_window: 1048576
 
 conversations:
-  title_model: glm-5.3-flash # 给对话起标题的模型，取 models 段的键名；不配就不起标题
+  title_model: glm-5.3-flash # 引用 models 键名；省略时禁用自动标题
   compaction:
-    # 历史压成摘要：触发线是模型 context_window 乘以下面这个比例，没配窗口的 agent 不压。
-    max_fraction: 0.85 # 历史估算占到窗口的这个比例就压一次
-    keep_messages: 20 # 压完之后摘要后面留几条原始消息
+    # 压缩阈值为 context_window × max_fraction；未配置窗口时禁用压缩。
+    max_fraction: 0.85 # 历史估算占窗口的触发比例
+    keep_messages: 20 # 摘要之后保留的原始消息条数
 
 agent_runs:
-  # agent 运行的租约节奏。lease_seconds 必须大于 heartbeat_seconds。
-  heartbeat_seconds: 10 # 在跑的行每隔多久刷一次心跳
-  lease_seconds: 30 # 心跳停了多久就算中断，由清扫接管（续跑或判失败）
-  sweep_seconds: 15 # 每隔多久清扫一次中断的行、并叫醒没人管的队列
-  max_attempts: 2 # 一条 prompt 最多被认领几次；1 等于中断后只判失败不续跑
-  max_snapshots_per_run: 3 # 一次 run 在库里留几份快照；每份都是全量历史
+  # lease_seconds 必须大于 heartbeat_seconds。
+  heartbeat_seconds: 10 # 运行期间的心跳间隔
+  lease_seconds: 30 # 心跳失联判定时限；超时后由清扫续跑或判失败
+  sweep_seconds: 15 # 中断清扫与队列唤醒间隔
+  max_attempts: 2 # 单条消息的最大认领次数；1 表示中断后不续跑
+  max_snapshots_per_run: 3 # 每个 run 保留的全量历史快照数
 
 ops:
   log_level: INFO

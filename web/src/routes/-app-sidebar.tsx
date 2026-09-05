@@ -9,8 +9,7 @@ import { IconButton } from '@/shared/ui/button'
 import { useLoginPrompt } from './-login-prompt'
 import { SidebarConversations } from './-sidebar-conversations'
 
-// 侧栏里几种行（操作行、对话行、合集行、未登录的登录行）共用的外观：幽灵行，
-// hover / pressed 由 ui-state 铺，焦点走 ui-focus。宽度与内距由调用处按需覆盖。
+// 侧栏行共用 ui-state 与 ui-focus，尺寸由调用方控制。
 const SIDEBAR_ROW_CLASS =
   'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-3 py-2 ui-focus text-body text-on-surface'
 
@@ -19,21 +18,7 @@ type AppSidebarProps = {
   onCollapsedChange: (collapsed: boolean) => void
 }
 
-/**
- * 应用侧栏：每页共享的外壳（品牌区、新建任务 / 搜索 / 需求单 / 资料库入口、对话区、账户区）。
- *
- * 对话区就是后端那份侧栏拓扑：「任务」是还没进合集的对话，「合集」是分好组的那些，
- * 每个合集可折叠、行尾显示条数。合集在这里新建、改名、删除；一段对话的两处归属
- * （在哪个合集、记在哪张需求单下）走同一个归属弹窗。未登录时对话区与账户区退成登录
- * 入口，点任何操作都弹登录框。
- *
- * 折叠态由壳持有：拖柄宽度与「聊天和面板放不放得下并排」都要看侧栏此刻占多宽。
- *
- * @param props - 组件属性。
- * @param props.collapsed - 侧栏此刻收着没有。
- * @param props.onCollapsedChange - 请壳换一个折叠态。
- * @returns 侧栏与折叠态下的浮出展开按钮。
- */
+/** 折叠状态由应用壳持有，供拖柄与聊天、面板并排布局统一计算。 */
 export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -99,7 +84,7 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
         <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />
       </nav>
 
-      {/* 未登录也要把中间撑满，否则底部账户区会顶到导航底下 */}
+      {/* 未登录时保留弹性空间，使账户区保持底部对齐。 */}
       {user ? (
         <SidebarConversations />
       ) : (
@@ -137,19 +122,11 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
 type SidebarActionProps = {
   active?: boolean
   icon: IconName
-  /** 右侧快捷键提示，缺省不渲染 */
   kbd?: string
   label: string
   onClick?: (() => void) | undefined
 }
 
-/**
- * 侧栏操作行：全宽幽灵按钮，右侧 kbd 提示默认隐藏、hover 行才淡入；
- * 当前页面对应的入口带高亮（active）。
- *
- * @param props - 图标、快捷键提示、文案、高亮态与点击回调。
- * @returns 单个侧栏操作按钮。
- */
 function SidebarAction({ active = false, icon, kbd, label, onClick }: SidebarActionProps) {
   return (
     <button

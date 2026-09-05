@@ -214,9 +214,7 @@ def create_sso_router(
 
         async with user_manager_ctx() as manager:
             email = session.email or sso_placeholder_email(session.union_id)
-            # 默认角色只在本次真的新建了账号时写入：既没有 SSO 绑定记录、也没有同邮箱账号可关联。
-            # 若同邮箱账号已存在，下面的 associate_by_email 只是把 SSO 身份绑上去，那不是建号——
-            # 授权字段的属主是 root 而不是身份提供方（ADR-0002），不得在此重置。
+            # 仅新建账号时设置默认角色；同邮箱关联不得重置既有授权（ADR-0002）。
             is_new_account = False
             try:
                 await manager.get_by_oauth_account(OAUTH_NAME, session.union_id)

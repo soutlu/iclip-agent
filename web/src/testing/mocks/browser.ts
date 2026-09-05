@@ -3,8 +3,7 @@ import { addMockCollection, addMockConversation, handlers } from './handlers'
 import { markMockAwaitingApproval, markMockJustFinished } from './transcript'
 import { seedMockWorkspace } from './workspace'
 
-// 原型里没有新建对话的入口，不预置几段就永远搜不出东西、侧栏也是空的。只种在浏览器
-// 这一侧：单测每个用例后会清空这份存储，种进 handlers 会让那边的断言凭空多出几行。
+// 演示数据仅在浏览器侧初始化，避免影响每例清空存储的单测。
 const DEMO_CONVERSATIONS = [
   '夜景延时素材生成',
   '夏季亚麻系列广告',
@@ -13,7 +12,6 @@ const DEMO_CONVERSATIONS = [
   '产品宣传片 · 分镜生成中',
 ]
 
-// 越靠后越新：列表与搜索都按最近活动倒序，一小时一档拉开
 const seeded = DEMO_CONVERSATIONS.map((title, index) =>
   addMockConversation(
     title,
@@ -21,36 +19,30 @@ const seeded = DEMO_CONVERSATIONS.map((title, index) =>
   ),
 )
 
-// 末尾那段停在审批上：媒体卡、读规范卡与审批卡都在它的第三轮里。侧栏那一行也跟着标成
-// 「等审批」，两处说的是同一件事。
+// 末个会话的 transcript 和侧栏同时设为等待审批。
 const awaiting = seeded.at(-1)
 if (awaiting !== undefined) {
   awaiting.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'approval' }
   markMockAwaitingApproval(awaiting.id)
 }
 
-// 「亚麻衬衫二剪」每次连上两秒后都算又跑完了一次：点开过它再刷新页面，侧栏那一行就冒出未读点，
-// 再点开清掉。第一次进原型没有点——这台浏览器上还没打开过它，不知道人看没看过。
-// 行上的 activity 写成跑完，「已完成」那一档才收得到它。
+// 连接后模拟运行结束并更新 lastRunId，用于验证已查看会话的未读标记。
 const unseen = seeded[3]
 if (unseen !== undefined) {
   unseen.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
   markMockJustFinished(unseen)
 }
 
-// 第一段对话里有 agent 交付的 video_shot.json：点开它右面板就是分镜工作台。只种在浏览器
-// 这一侧，理由同上。
+// 首个演示会话提供 video_shot.json，供浏览器工作台演示。
 const withShots = seeded[0]
 if (withShots !== undefined) {
   seedMockWorkspace(withShots.id)
 }
 
-// 一个装了两段对话的合集。没进合集的对话待在「任务」区，不给它们造一个「待归档」
-// 之类的口袋——那会让原型看起来像是「所有对话都得挂进某个合集」。
+// 两个会话归入示例合集，其余保持未分组。
 const linen = addMockCollection('夏季亚麻系列')
 seeded.slice(1, 3).forEach((conversation) => {
   conversation.collectionId = linen.id
 })
 
-/** 显式 mock profile 使用的完整浏览器 Mock。 */
 export const worker = setupWorker(...handlers)

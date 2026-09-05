@@ -1,9 +1,4 @@
-"""从消息历史推 transcript。
-
-这里的消息形状不是编的，是照着库里 32 段真实运行核对过的：每次响应都带思考块、一次响应可
-以调多件工具、工具校验失败时用 ``RetryPromptPart`` 顶替返回、用户输入是文字与图片混排的
-一串、收尾的重试提示不带 ``run_id``。
-"""
+"""验证思考、多工具调用、重试、图文混排和无 run_id 收尾消息的历史 transcript 投影。"""
 
 from __future__ import annotations
 
@@ -93,7 +88,6 @@ def _returns(*parts: object, run_id: str | None = RUN, minute: int = 2) -> Model
 
 
 def test_one_run_becomes_one_turn_with_steps_per_response() -> None:
-    """一次 run 就是一轮；每次模型响应是一步。"""
 
     turns = turns_from_messages(
         [
@@ -116,7 +110,6 @@ def test_one_run_becomes_one_turn_with_steps_per_response() -> None:
 
 
 def test_frame_ids_number_text_and_thinking_only() -> None:
-    """正文块与思考块共用一个从 1 起的号；工具块用 toolCallId，不占这个号。"""
 
     turns = turns_from_messages(
         [
@@ -172,7 +165,7 @@ def test_tool_return_settles_the_card() -> None:
 
 
 def test_retry_prompt_marks_the_card_as_failed() -> None:
-    """工具参数没过校验时没有返回，只有一条重试提示。漏了它界面上会留一张永远转圈的卡。"""
+    """参数校验失败以 RetryPromptPart 代替工具返回，工具卡必须据此结束。"""
 
     turns = turns_from_messages(
         [
@@ -194,12 +187,10 @@ def test_retry_prompt_marks_the_card_as_failed() -> None:
     assert card.state == "error"
     assert card.error is not None
     assert "S4-1" in card.error
-    # 重试提示顶替了那次返回，没有给人看的那份可拿。
     assert card.metadata is None
 
 
 def test_denied_and_interrupted_tools_are_errors() -> None:
-    """协议只有三态。审批被拒、运行被停，都不是成功。"""
 
     turns = turns_from_messages(
         [
@@ -225,10 +216,7 @@ def test_denied_and_interrupted_tools_are_errors() -> None:
 
 
 def test_multimodal_prompt_keeps_the_part_order() -> None:
-    """用户输入是文字与图混排的一串，还原出来的 part 保持原次序。
-
-    次序丢了图就换了位置：界面按这份列表画，图挪到哪句话旁边全看它。
-    """
+    """用户 parts 顺序决定图文相对位置，历史投影需保持原序。"""
 
     url = "https://example.invalid/a.png"
     turns = turns_from_messages(
@@ -254,7 +242,7 @@ def test_multimodal_prompt_keeps_the_part_order() -> None:
 
 
 def test_trailing_message_without_a_run_id_stays_in_the_same_turn() -> None:
-    """收尾的重试提示不带 run_id。单独成组会多出一个空轮子，还会因为时刻为空排到最前面。"""
+    """无 run_id 的收尾重试消息应归属前一运行，避免生成时间戳为空的额外轮。"""
 
     turns = turns_from_messages(
         [
@@ -292,10 +280,7 @@ def test_two_runs_become_two_turns_in_time_order() -> None:
 
 
 def _resumed() -> list[ModelRequest | ModelResponse]:
-    """一条 prompt 跨两次 run 的消息：``r1`` 断在一次工具调用上，``r2`` 从那里续跑。
-
-    续跑那次 run 的第一条请求里有两样东西：给悬空调用补的那份返回，和一条跑到一半进来的用户消息。
-    """
+    """模拟同一 prompt 的中断与续跑；续跑首条请求包含工具补偿返回和追加用户消息。"""
 
     return [
         _ask("出三张图", run_id="r1", minute=0),
@@ -321,7 +306,6 @@ _OF_ONE_PROMPT = {"r1": "p1", "r2": "p1"}
 
 
 def test_two_runs_of_one_prompt_become_one_turn() -> None:
-    """同一条 prompt 的两次 run 合成一轮：轮号 1，步号跨 run 接着数，时刻按整轮算。"""
 
     turns = turns_from_messages(
         _resumed(),
@@ -332,7 +316,6 @@ def test_two_runs_of_one_prompt_become_one_turn() -> None:
     assert len(turns) == 1
     turn = turns[0]
     assert (turn.turn_id, turn.ordinal) == ("t1", 1)
-    # 轮头部仍是整轮第一句用户输入
     assert turn.content == (TextContent(text="出三张图"),)
     assert [step.step_id for step in turn.steps] == ["t1.1", "t1.2"]
     assert turn.started_at == _at(0).isoformat()
@@ -340,10 +323,7 @@ def test_two_runs_of_one_prompt_become_one_turn() -> None:
 
 
 def test_the_turn_state_comes_from_the_last_run() -> None:
-    """轮的终态取最后一次 run 的；更早那次没跑完的，它最后一步是 ``interrupted``。
-
-    按第一次 run 判的话，一条续跑成功的 prompt 在界面上会显示成失败。
-    """
+    """轮状态取最后一次运行；早期中断不应覆盖续跑成功的终态。"""
 
     turns = turns_from_messages(
         _resumed(),
@@ -356,7 +336,6 @@ def test_the_turn_state_comes_from_the_last_run() -> None:
     assert turns[0].error is None
     assert [step.state for step in turns[0].steps] == ["interrupted", "completed"]
 
-    # 「没跑完」的另外两种：被停的，和一条结束事件都没记下的。
     broken_off: tuple[dict[str, TurnState], ...] = (
         {"r1": "cancelled", "r2": "completed"},
         {"r2": "completed"},
@@ -367,7 +346,6 @@ def test_the_turn_state_comes_from_the_last_run() -> None:
 
 
 def test_an_earlier_run_that_finished_keeps_its_last_step_completed() -> None:
-    """更早那次 run 是干净收尾的（审批结束的那种），它最后一步照旧是 ``completed``。"""
 
     turns = turns_from_messages(
         _resumed(),
@@ -379,10 +357,7 @@ def test_an_earlier_run_that_finished_keeps_its_last_step_completed() -> None:
 
 
 def test_a_tool_call_is_settled_by_the_return_in_the_next_run() -> None:
-    """前一段发起的工具调用，由后一段第一条请求里那份收尾返回结掉，卡还留在前一段那一步。
-
-    不跨段结的话那张卡会被当成没等到返回，写上「运行中断」那句兜底文字——而库里明明有它的结局。
-    """
+    """工具调用可由下一运行的返回结束，卡片位置保留在原步骤。"""
 
     turns = turns_from_messages(
         _resumed(),
@@ -398,7 +373,6 @@ def test_a_tool_call_is_settled_by_the_return_in_the_next_run() -> None:
 
 
 def test_a_mid_turn_user_message_lands_on_the_previous_step() -> None:
-    """赶在前一段收场那一刻递进去的插话：挂在前一段末步的末尾，与轮中间的插话同形。"""
 
     turns = turns_from_messages(
         _resumed(),
@@ -415,11 +389,7 @@ def test_a_mid_turn_user_message_lands_on_the_previous_step() -> None:
 
 
 def _awaiting() -> list[ModelRequest | ModelResponse]:
-    """一次 run 以待审批结束留下的消息：末尾那条响应里有一次要审批的调用，没有返回。
-
-    这一段是**干净收尾**的（官方记下 ``run_completed``），崩在工具执行中途留下的形状一样但
-    那一段不是——审批的判据就在这个区别上。
-    """
+    """模拟待审批运行：以 run_completed 结束，但保留未返回调用；区别于运行中断。"""
 
     return [
         _ask("把这个文件改掉", run_id="r1", minute=0),
@@ -433,7 +403,7 @@ def _awaiting() -> list[ModelRequest | ModelResponse]:
 
 
 def _decided(outcome: str) -> list[ModelRequest | ModelResponse]:
-    """人点过头之后续跑那次 run 的消息：那次调用的返回落在后一段的第一条请求里。"""
+    """审批续跑消息，首条请求包含待审批工具的返回。"""
 
     return [
         *_awaiting(),
@@ -453,7 +423,6 @@ def _decided(outcome: str) -> list[ModelRequest | ModelResponse]:
 
 _BOTH_COMPLETED: dict[str, TurnState] = {"r1": "completed", "r2": "completed"}
 _SETTLED = {"r1": "completed", "r2": "completed"}
-"""两次 run 都跑完、那条 prompt 也收了尾时的 prompt 状态。"""
 
 
 def _card(turn: TranscriptTurn) -> ToolFrame:
@@ -463,11 +432,7 @@ def _card(turn: TranscriptTurn) -> ToolFrame:
 
 
 def test_a_frontier_approval_waits_with_its_card_still_running() -> None:
-    """等审批：卡留在 running 并带上审批 id，轮仍是 running，那一步是干净结束的。
-
-    按结束事件算的话这一轮会显示成「跑完了」，而人还没点头；把卡收成 orphan 错误则等于告诉
-    用户这次调用已经没戏了。
-    """
+    """待审批运行虽已完成，轮和工具卡仍为 running，步骤为 completed。"""
 
     messages = _awaiting()
     states: dict[str, TurnState] = {"r1": "completed"}
@@ -493,7 +458,6 @@ def test_a_frontier_approval_waits_with_its_card_still_running() -> None:
 
 
 def test_a_frontier_approval_is_settled_by_the_prompt_that_stopped_waiting() -> None:
-    """没人会再来点头的两种收场：撤销 → 轮 cancelled、卡收成错、交互已取消；失败 → 轮失败。"""
 
     messages = _awaiting()
     states: dict[str, TurnState] = {"r1": "completed"}
@@ -518,7 +482,6 @@ def test_a_frontier_approval_is_settled_by_the_prompt_that_stopped_waiting() -> 
 
 
 def test_a_decision_is_read_off_the_return_in_the_next_run() -> None:
-    """跨段判定：放行的卡成功、被拒的卡报错，两种都带审批 id，交互记下点的是什么。"""
 
     for outcome, card_state, decision in (
         ("success", "done", "approved"),
@@ -546,11 +509,7 @@ def test_a_decision_is_read_off_the_return_in_the_next_run() -> None:
 
 
 def test_a_close_out_return_is_not_a_decision() -> None:
-    """新消息进来之前给悬空调用补的那份返回不是人点的头。
-
-    判成放行的话，界面会说这次调用被批准执行过，而它根本没跑；反过来，中断的那一段压根不是
-    干净收尾，它末尾的开放调用也不该被当成审批。
-    """
+    """悬空调用的补偿返回不代表用户批准；中断运行也不应产生审批交互。"""
 
     closed_out = [
         *_awaiting(),
@@ -579,7 +538,6 @@ def test_a_close_out_return_is_not_a_decision() -> None:
         )
         == ()
     )
-    # 中断续跑那条路（``r1`` 没有干净收尾）一个审批都不该冒出来。
     assert (
         approvals_from_messages(
             _resumed(),
@@ -592,11 +550,7 @@ def test_a_close_out_return_is_not_a_decision() -> None:
 
 
 def test_an_official_repair_return_is_not_a_decision() -> None:
-    """崩溃续跑时官方给没有返回的调用补上的那份 ``interrupted`` 返回，也不是人点的头。
-
-    形状与等审批一模一样，区别只在那一段有没有干净收尾。判成放行的话，界面会说这次调用被批准
-    执行过，而它根本没跑完。
-    """
+    """中断修复返回与审批返回形状相似，需结合运行是否正常结束判断。"""
 
     repaired = [
         *_awaiting(),
@@ -635,7 +589,6 @@ def test_an_official_repair_return_is_not_a_decision() -> None:
 
 
 def test_two_runs_without_a_mapping_stay_two_turns() -> None:
-    """没有映射就各自成轮：``agent_job_runs`` 建表之前的旧数据照旧一次 run 一轮。"""
 
     turns = turns_from_messages(_resumed(), turn_states={"r1": "failed", "r2": "completed"})
 
@@ -647,7 +600,7 @@ def test_two_runs_without_a_mapping_stay_two_turns() -> None:
 
 
 def test_step_usage_splits_cache_out_of_the_input_total() -> None:
-    """``input_tokens`` 是总数、缓存读写都算在里面，所以「其余」要把两块都减掉。"""
+    """input_tokens 包含缓存读写，普通输入量需减去二者。"""
 
     turns = turns_from_messages([_ask("走"), _reply(TextPart(content="好"))])
 
@@ -660,10 +613,7 @@ def test_step_usage_splits_cache_out_of_the_input_total() -> None:
 
 
 def test_turn_usage_adds_up_the_step_readings() -> None:
-    """求和口径：写缓存算进 input，读缓存单列；一步都没有用量就没有这一项。
-
-    实时那侧攒着各步用量调同一个函数，所以这条钉住的是两条路共用的那把尺子。
-    """
+    """实时与历史共用用量汇总口径：写缓存计入 input，读缓存单列；全部缺失则省略。"""
 
     assert turn_usage([]) is None
 
@@ -680,7 +630,6 @@ def test_turn_usage_adds_up_the_step_readings() -> None:
 
 
 def test_turn_usage_sums_the_steps() -> None:
-    """一轮的用量口径照协议：写缓存算进 input，读缓存单列。"""
 
     turns = turns_from_messages(
         [
@@ -699,12 +648,7 @@ def test_turn_usage_sums_the_steps() -> None:
 
 
 def test_terminal_state_comes_from_the_caller_not_from_the_message_shape() -> None:
-    """终态不猜。
-
-    库里有一段对话的消息停在一条没有工具调用的响应上、看着像正常收尾，官方记的却是被取消。
-    按消息形状猜会把「被取消」说成「已完成」，方向正好反了。没给终态时给 ``failed``——那是
-    「没记下一次干净的收尾」，不是默认跑完了。
-    """
+    """最终响应形状无法区分完成与取消，必须使用调用方提供的终态；缺失时按 failed 处理。"""
 
     messages = [_ask("走"), _reply(TextPart(content="好"))]
 
@@ -714,7 +658,7 @@ def test_terminal_state_comes_from_the_caller_not_from_the_message_shape() -> No
 
 
 def test_run_state_is_read_off_the_official_run_end_event() -> None:
-    """取消与报错都写成 ``run_failed``，区别在 ``error`` 那一列的异常名。"""
+    """取消与异常均记录为 run_failed，使用 error 异常名区分。"""
 
     def event(kind: str, error: str | None = None) -> StepEvent:
         return StepEvent(run_id="r1", kind=kind, step_index=0, error=error)  # pyright: ignore[reportArgumentType]
@@ -723,15 +667,11 @@ def test_run_state_is_read_off_the_official_run_end_event() -> None:
     assert run_state_from_events([event("run_failed", "CancelledError()")]) == "cancelled"
     assert run_state_from_events([event("run_failed", "RunCancelled('用户停止')")]) == "cancelled"
     assert run_state_from_events([event("run_failed", "RemoteProtocolError('...')")]) == "failed"
-    # 一条结束事件都没有：进程没活到写它。那也不是跑完了。
     assert run_state_from_events([event("run_started")]) == "failed"
 
 
 def test_mid_run_user_message_becomes_a_user_frame_on_the_open_step() -> None:
-    """插话：跑到一半进来的用户消息挂在当时开着的那一步末尾，与实时那条路一致。
-
-    这一步里有工具块，而工具块不占 f 号——按块的个数编号会编成 f3，两条路就对不上了。
-    """
+    """追加用户消息接在当前步骤末尾；工具块不占 f 序号。"""
 
     turns = turns_from_messages(
         [
@@ -758,7 +698,7 @@ def test_mid_run_user_message_becomes_a_user_frame_on_the_open_step() -> None:
 
 
 def test_a_steer_arriving_before_any_step_leads_the_first_one() -> None:
-    """插话赶在第一次模型响应之前进来时没有步可挂。丢掉的话它在界面上就凭空消失了。"""
+    """首个模型响应前的追加消息暂存至第一步，避免无步骤时丢弃。"""
 
     turns = turns_from_messages(
         [
@@ -787,21 +727,16 @@ def test_thinking_frames_carry_their_text() -> None:
 
 
 def test_attached_image_survives_the_round_trip() -> None:
-    """图不能在路上丢：进模型那一串里带着 tag，从消息推回来时还原成原图地址那一项。
+    """用户图片经过消息持久化后，须从 tag 恢复为原图 part。"""
 
-    漏了这条，用户附的图会被收下、落库、然后无声消失——tag 当成用户打的字显示出来，
-    而界面上根本没有那张图。
-    """
-
-    # 地址得是缩得动的那种：缩不动的图只留一条空标签，而图片真实的形状是「开标签 + 像素 +
-    # 闭标签」三项，闭标签落单——它正是最容易被漏掉的那一项。
+    # 使用可缩放地址以生成完整的开标签、图片和闭标签三项，覆盖独立闭标签的解析。
     url = "https://bkt.oss-cn-hangzhou.aliyuncs.com/u/shot.png"
     items = model_prompt(
         (ImageContent(source=AttachmentSource(kind="url", url=url)), TextContent(text="照这张做"))
     )
     turns = turns_from_messages([_ask(items), _reply(TextPart(content="好"))])
 
-    # 地址是 tag 里那个原图地址，不是喂模型那份带缩放参数的。
+    # 恢复 tag 中的原图地址，不能使用模型收到的缩略图地址。
     assert turns[0].content == (
         ImageContent(source=AttachmentSource(kind="url", url=url)),
         TextContent(text="照这张做"),
@@ -809,7 +744,6 @@ def test_attached_image_survives_the_round_trip() -> None:
 
 
 def test_tool_card_carries_how_to_draw_it() -> None:
-    """客户端不认工具名，只认 display 里的 kind。注册表里没有的工具退回 generic，不画错。"""
 
     displays = ToolDisplayRegistry.merged(
         {"read_file": lambda args: FileIoDisplay(operation="read", path=args["path"])}
@@ -831,7 +765,6 @@ def test_tool_card_carries_how_to_draw_it() -> None:
 
 
 def test_tool_card_carries_the_renderer_and_the_result_for_people() -> None:
-    """``view`` 由注册表给，``metadata`` 是这次返回上给人看的那份，两样都不进模型。"""
 
     displays = ToolDisplayRegistry.merged(
         {
@@ -866,13 +799,11 @@ def test_tool_card_carries_the_renderer_and_the_result_for_people() -> None:
 
 
 def test_drop_last_turn_on_empty_history_is_a_no_op() -> None:
-    """一份消息都没有就没什么可截，调用方按「没有末轮」处理。"""
 
     assert drop_last_turn([], {}) == ([], ())
 
 
 def test_drop_last_turn_removes_exactly_the_last_group() -> None:
-    """截断只摘走最后一轮的那组，前面的消息一条不动。"""
 
     messages = [
         _ask("第一问", run_id="r1", minute=0),
@@ -888,7 +819,6 @@ def test_drop_last_turn_removes_exactly_the_last_group() -> None:
 
 
 def test_drop_last_turn_takes_every_run_of_that_turn() -> None:
-    """末轮跨了两次 run：一起摘走，留一段下来它会自成一轮。"""
 
     messages = [
         _ask("第一问", run_id="r1", minute=0),
@@ -906,7 +836,6 @@ def test_drop_last_turn_takes_every_run_of_that_turn() -> None:
 
 
 def test_drop_last_turn_takes_trailing_unstamped_messages_with_it() -> None:
-    """末尾不带 run_id 的消息挂在前一次 run 上，截断时跟着那一轮一起走。"""
 
     messages = [
         _ask("第一问", run_id="r1", minute=0),
@@ -922,7 +851,6 @@ def test_drop_last_turn_takes_trailing_unstamped_messages_with_it() -> None:
 
 
 def test_truncation_reuses_the_dropped_ordinal() -> None:
-    """截掉末轮之后，下一轮的轮号（``len(turn_run_ids) + 1``）正好复用被摘掉那一轮的号。"""
 
     messages = [
         _ask("第一问", run_id="r1", minute=0),
@@ -930,7 +858,7 @@ def test_truncation_reuses_the_dropped_ordinal() -> None:
         _ask("第二问", run_id="r2", minute=2),
         _reply(TextPart(content="第二答"), run_id="r2", minute=3),
     ]
-    dropped_ordinal = len(turn_run_ids(messages, {}))  # 被摘掉那一轮的轮号
+    dropped_ordinal = len(turn_run_ids(messages, {}))
 
     kept, _ = drop_last_turn(messages, {})
 
@@ -938,7 +866,6 @@ def test_truncation_reuses_the_dropped_ordinal() -> None:
 
 
 def test_turn_run_ids_groups_the_runs_of_one_prompt() -> None:
-    """一条 prompt 的几次 run 归一轮；没有映射的各自成轮，两个「没有映射」不算同一条。"""
 
     messages = [
         _ask("第一问", run_id="r1", minute=0),
@@ -951,12 +878,11 @@ def test_turn_run_ids_groups_the_runs_of_one_prompt() -> None:
 
     assert turn_run_ids(messages, {"r1": "p1", "r2": "p2", "r3": "p2"}) == (("r1",), ("r2", "r3"))
     assert turn_run_ids(messages, {}) == (("r1",), ("r2",), ("r3",))
-    # run_id 仍按 run 逐个给：事件按 run 查，交接也按 run 核对。
     assert run_ids_from_messages(messages) == ("r1", "r2", "r3")
 
 
 def _compaction(summary: str, *, run_id: str = RUN, minute: int) -> ModelResponse:
-    """一条压缩边界。它插在切点上，在列表里比它创建时正在跑的那一步早十几条。"""
+    """构造位于历史切点的压缩边界，其创建时间晚于列表中的相邻消息。"""
 
     return ModelResponse(
         parts=[CompactionPart(content=summary, provider_name="function")],
@@ -966,7 +892,7 @@ def _compaction(summary: str, *, run_id: str = RUN, minute: int) -> ModelRespons
 
 
 def test_a_compaction_boundary_is_not_a_step() -> None:
-    """边界是个标记，模型没答过它。算成一步的话步号整体错位，两条路当场分叉。"""
+    """压缩边界不代表模型响应，不占步骤编号。"""
 
     turns = turns_from_messages(
         [
@@ -982,7 +908,7 @@ def test_a_compaction_boundary_is_not_a_step() -> None:
 
 
 def test_the_compaction_notice_hangs_on_the_first_step_after_it() -> None:
-    """按时刻挂，不按列表位置：边界排在更早那几轮的消息中间，按位置会挂到早跑完的那一步上。"""
+    """压缩提示按边界时间关联后续步骤，不能按边界所在的历史列表位置关联。"""
 
     turns = turns_from_messages(
         [
@@ -998,13 +924,12 @@ def test_the_compaction_notice_hangs_on_the_first_step_after_it() -> None:
     assert [frame.frame_id for frame in first.frames] == ["t1.1.f1"]
     notice = second.frames[0]
     assert isinstance(notice, NoticeFrame)
-    # 提示块不占 f 号，正文块照旧从 f1 起。
     assert [frame.frame_id for frame in second.frames] == ["t1.2.compaction", "t1.2.f1"]
     assert (notice.level, notice.message, notice.detail) == ("info", COMPACTION_NOTICE, "旧账")
 
 
 def test_a_boundary_with_no_step_after_it_shows_nothing() -> None:
-    """压完那次请求就失败了：没有步可挂，实时那侧也发不出这一块。"""
+    """压缩后请求失败而未产生步骤时，不展示压缩提示。"""
 
     turns = turns_from_messages(
         [
@@ -1018,10 +943,7 @@ def test_a_boundary_with_no_step_after_it_shows_nothing() -> None:
 
 
 def test_a_boundary_does_not_become_the_turns_start_time() -> None:
-    """边界盖的是压缩发生那一刻，在列表里却排在这次 run 自己的消息之前。
-
-    拿它当开始时刻的话这一轮会晚出十几分钟，轮序也可能跟着错位。
-    """
+    """边界列表位置早于当前 run 消息，但创建时间较晚，不能作为轮开始时间。"""
 
     turns = turns_from_messages(
         [
@@ -1037,7 +959,6 @@ def test_a_boundary_does_not_become_the_turns_start_time() -> None:
 
 
 def test_drop_last_turn_takes_the_boundary_of_that_run_with_it() -> None:
-    """边界盖的是切点那条消息的号；切点落在末轮里时，它跟着末轮一起被摘掉。"""
 
     messages = [
         _ask("第一问", run_id="r1", minute=0),
@@ -1054,11 +975,7 @@ def test_drop_last_turn_takes_the_boundary_of_that_run_with_it() -> None:
 
 
 def test_a_boundary_merged_into_a_response_still_shows_its_notice() -> None:
-    """这份历史再交回引擎时，框架会把边界并进它后面那条响应。
-
-    按整条认边界的话，界面上那块提示从下一轮起就没了；而那条消息里有模型真说过的话，它照旧
-    是一步，漏算的话步号整体错位。
-    """
+    """边界合入响应后需按 part 识别；响应仍计为步骤，压缩提示保持可见。"""
 
     merged = ModelResponse(
         parts=[
@@ -1066,7 +983,7 @@ def test_a_boundary_merged_into_a_response_still_shows_its_notice() -> None:
             TextPart(content="第一答"),
         ],
         run_id=RUN,
-        # 合并保留前一条的时刻，也就是边界那一刻。
+        # 框架合并时保留前一条消息的时间戳。
         timestamp=_at(8),
     )
     turns = turns_from_messages(
@@ -1078,8 +995,6 @@ def test_a_boundary_merged_into_a_response_still_shows_its_notice() -> None:
         ]
     )
 
-    # 带着边界的那条响应照旧算一步，模型说的话还在。
     assert [step.step_id for step in turns[0].steps] == ["t1.1", "t1.2"]
     assert [frame.frame_id for frame in turns[0].steps[0].frames] == ["t1.1.f1"]
-    # 提示块挂在时刻严格晚于边界的那一步，与边界还独立成条时挂的是同一步。
     assert [frame.frame_id for frame in turns[0].steps[1].frames] == ["t1.2.compaction", "t1.2.f1"]

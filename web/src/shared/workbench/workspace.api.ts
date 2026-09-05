@@ -1,9 +1,4 @@
-/**
- * 工作区文件的读取面：文件列表与单份内容。
- *
- * 两处共用同一套查询键——宿主按列表合成产物，渲染器读自己那一份内容，收到 `event.fs.changed`
- * 时只失效那一个键。
- */
+/** 宿主与渲染器共用文件查询键，event.fs.changed 仅失效对应文件。 */
 
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
@@ -16,7 +11,6 @@ export const workspaceQueryKeys = {
     ['conversations', conversationId, 'workspace', 'files'] as const,
 }
 
-/** 这段对话里 agent 写下的文件清单。 */
 export const useWorkspaceFiles = (conversationId: string) =>
   useQuery({
     queryFn: ({ signal }) =>
@@ -27,13 +21,7 @@ export const useWorkspaceFiles = (conversationId: string) =>
     queryKey: workspaceQueryKeys.files(conversationId),
   })
 
-/**
- * 整份写回一个工作区文件。带上读到那一份的版本号：对不上服务端回 409，调用方据此重拉再决定。
- *
- * @param conversationId - 哪一段对话。
- * @param body - 路径、新正文、读到的版本。
- * @returns 写下之后那一份（版本已加一）。
- */
+/** 整份写回须携带读取版本；409 时由调用方重拉处理，成功返回递增后的版本。 */
 export const writeWorkspaceFile = (
   conversationId: string,
   body: { path: string; content: string; expectedVersion: number },
@@ -44,7 +32,6 @@ export const writeWorkspaceFile = (
     method: 'PUT',
   })
 
-/** 读一份工作区文件的正文与版本号。 */
 export const readWorkspaceFile = (conversationId: string, path: string, signal?: AbortSignal) =>
   apiFetch(
     `/conversations/${conversationId}/workspace/file?path=${encodeURIComponent(path)}`,
@@ -52,7 +39,6 @@ export const readWorkspaceFile = (conversationId: string, path: string, signal?:
     { fallbackErrorMessage: '读取工作区文件失败', ...(signal === undefined ? {} : { signal }) },
   )
 
-/** 一份工作区文件的正文与版本号。 */
 export const useWorkspaceFile = (conversationId: string, path: string) =>
   useQuery({
     queryFn: ({ signal }) => readWorkspaceFile(conversationId, path, signal),

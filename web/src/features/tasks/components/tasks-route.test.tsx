@@ -5,7 +5,7 @@ import { mockAuthUser, mockTasks } from '@/testing/mocks/handlers'
 import { renderWithProviders } from '@/testing/render'
 import { TasksRoute } from './tasks-route'
 
-// 走一遍真实登录流程（MSW 会置会话），之后 /users/me 才有用户——比手写缓存更接近真实路径。
+// 通过 MSW 登录设置会话，保持 /users/me 路径与实际应用一致。
 const login = async () => {
   await fetch('/api/auth/login', {
     body: new URLSearchParams({ password: 'x', username: 'tester' }),
@@ -66,7 +66,6 @@ describe('TasksRoute', () => {
     expect(await screen.findByText('夏季新品视频')).toBeVisible()
     expect(screen.getAllByText('我认领的需求单')).toHaveLength(2)
 
-    // 我认领的只出现在「我的需求单」，「全部需求单」两张都有
     const mine = screen.getByRole('region', { name: '我的需求单' })
     expect(within(mine).getByText('我认领的需求单')).toBeVisible()
     expect(within(mine).queryByText('夏季新品视频')).not.toBeInTheDocument()
@@ -108,7 +107,6 @@ describe('TasksRoute', () => {
     const user = userEvent.setup()
     await renderLoggedIn()
 
-    // 认领过的需求单同时出现在两个分区，在「我的需求单」里点它
     const mine = screen.getByRole('region', { name: '我的需求单' })
     await user.click(await within(mine).findByText('进行中的需求单'))
     const dialog = await screen.findByRole('dialog')
@@ -130,7 +128,6 @@ describe('TasksRoute', () => {
     const user = userEvent.setup()
     await renderLoggedIn()
 
-    // 重命名入口只在「我的需求单」的卡片上
     const all = screen.getByRole('region', { name: '全部需求单' })
     await within(all).findByText('进行中的需求单')
     expect(within(all).queryByRole('button', { name: '更多操作' })).toBeNull()

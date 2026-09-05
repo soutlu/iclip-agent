@@ -167,10 +167,7 @@ class ConversationFileEnvelope(CamelModel):
 
 
 def conversation_out(conversation: Conversation, activity: ConversationActivity) -> ConversationOut:
-    """领域行 + 此刻的活儿 → wire 形状。
-
-    活儿由调用方带进来：它不在库的那一行上，是引擎那侧的实时状态，得另外问一次。
-    """
+    """合并对话记录与引擎提供的活动投影，转换为响应模型。"""
 
     return ConversationOut(
         id=conversation.id,

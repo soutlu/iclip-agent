@@ -1,17 +1,4 @@
-/**
- * 分镜工作台：一屏一个镜头组，上下翻页换组，改了就存。
- *
- * 翻组是一个纵向 scroll-snap 容器：滚轮 / 触控板上下滑、↑↓ 键、右侧页码点，三条路都只改地址里的
- * `shot`，再由一个效果滚到那一页——这样「地址即当前页」，刷新与分享链接都落在同一组上。
- *
- * 内容来自两处——工作区里的 `video_shot.json`（组、prompt、帧地址）与这段对话的生成任务
- * （每组的出片记录）。文件变了由 `event.fs.changed` 通知，只重读那一份。用户的改动经
- * `useShotsDraft` 落草稿、停手即存、撞版本再比对（见那里）。
- *
- * 一组一颗「生成视频」、「全部分镜」里的批量出片，走的是同一个提交（`useVideoGeneration`）；任务列表
- * 在有任务在飞时自己轮询，状态圆点与生成记录跟着变。当前组 / 帧同时报进 `useWorkbenchSelection`，
- * 聊天输入框据此画引用芯片。
- */
+/** shot 查询参数是当前组的事实源，滚动与导航保持同步。文件更新走 event.fs.changed，生成状态走任务轮询。 */
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
@@ -61,18 +48,9 @@ const DOT_LABEL: Record<ShotStatus, string> = {
   running: '正在出片',
 }
 
-/** 容器高度取不到（jsdom、还没布局）时按「已经在正确的页上」处理，不去滚。 */
 const pageOfScroll = (element: HTMLElement): number | undefined =>
   element.clientHeight > 0 ? Math.round(element.scrollTop / element.clientHeight) + 1 : undefined
 
-/**
- * 渲染分镜工作台。
- *
- * @param props - 渲染器属性。
- * @param props.artifact - 选中的产物。
- * @param props.conversationId - 哪一段对话。
- * @returns 分镜工作台。
- */
 export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererProps) {
   const path = artifact.source.kind === 'file' ? artifact.source.path : SHOTS_PATH
   const file = useWorkspaceFile(conversationId, path)
@@ -86,8 +64,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     strict: false,
   })
   const pagesRef = useRef<HTMLDivElement | null>(null)
-  // 正在往哪一页跳。跳的过程中（浏览器的吸附动画也算）会一路发 scroll，中途那些位置属于
-  // 「路过」，认真读的话会被当成翻到别的组、把地址连同 frame 一起改掉。
+  // 记录滚动目标，在到达前忽略中间位置，避免误改 shot 和 frame 查询参数。
   const scrollTargetRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -99,8 +76,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     })
   }, [connection, conversationId, path, queryClient])
 
-  // 「agent 刚改过」：重读回来的版本号变了、又不是自己写出去的，就标上，翻页即清。
-  // 逐组 diff 这一期不做，所以标在页头那一行上。
+  // 版本变化且非本地保存时显示 agent 修改提示，切组后清除。
   const version = file.data?.file.version
   const seenVersionRef = useRef<number | undefined>(undefined)
   const [changedByAgent, setChangedByAgent] = useState(false)
@@ -120,7 +96,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     conversationId,
   })
 
-  // 选中即上下文：当前组（带上当前帧）就是聊天里的那条引用，面板走了就撤掉。
+  // 当前组和帧同步为聊天引用，面板卸载时清除。
   const { clear: clearSelection, set: setSelection } = useWorkbenchSelection()
   const frameCount = shots[position - 1]?.imageUrls.length ?? 0
   const selectedFrame =
@@ -133,7 +109,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   }, [position, selectedFrame, setSelection, shots.length])
   useEffect(() => () => clearSelection(), [clearSelection])
 
-  // 地址变了滚到那一页。反向（滚动改地址）在 onScroll 里，两边各自比对当前页，不会来回打架。
+  // 查询参数驱动滚动；反向同步仅在页码变化时更新，避免循环。
   useEffect(() => {
     const element = pagesRef.current
     if (element === null) return
@@ -141,11 +117,9 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     if (showing === undefined || showing === position) return
     scrollTargetRef.current = position
     const top = (position - 1) * element.clientHeight
-    // 瞬时跳而不是 smooth：平滑动画途中每一帧都在发 scroll，那些中途位置会被 onScroll 当成
-    // 「翻到别的组了」写回地址，把 frame 一起清掉。
+    // 使用瞬时滚动，避免平滑过程的中间页写回地址并清除 frame。
     element.scrollTo({ behavior: 'instant', top })
-    // 跳完还要在下一帧确认一次：这一跳会在同一帧里被吸附容器随后那次布局拉回原处（实测如此），
-    // 补这一下之后落点才留得住。
+    // 下一帧再次校准位置，防止 scroll-snap 的后续布局将跳转拉回。
     const frame = requestAnimationFrame(() => {
       if (element.scrollTop !== top) element.scrollTo({ behavior: 'instant', top })
     })
@@ -171,7 +145,6 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const running = runningShots(jobs)
   const status = shotStatus(shot.index, videos, running)
 
-  // 出片按钮点不动的三种情形：这一组已经在飞、描述没落盘、画幅不在合同的档位里。
   const generateNote = !generation.aspectRatioSupported
     ? `画幅 ${shotsDocument.aspectRatio} 不在出片支持的档位里，先改文件里的画幅`
     : draft.state.kind === 'saving'
@@ -182,7 +155,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const generatingShot = (index: number) =>
     running.has(index) || generation.submitting.includes(index)
 
-  /** 批量出片：一组一条任务，逐条发；已经在飞的跳过。 */
+  /** 逐组提交，跳过已有运行任务的组。 */
   const generateMany = async (indexes: readonly number[]) => {
     for (const index of indexes) {
       const target = shots.find((item) => item.index === index)
@@ -196,7 +169,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     sheet?: 'all' | 'records' | undefined
     shot?: number
   }) => {
-    // 换组就把帧号丢掉：第 1 组的第 5 帧放到第 2 组上没有意义。
+    // 切组时清除帧号，避免沿用上一组的帧位置。
     const cleared = next.shot !== undefined && next.shot !== position ? { frame: undefined } : {}
     if (next.shot !== undefined && next.shot !== position) setChangedByAgent(false)
     void navigate({ replace: true, search: { ...search, ...cleared, ...next }, to: '.' })
@@ -208,7 +181,6 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
     const showing = pageOfScroll(element)
     if (showing === undefined) return
     if (scrollTargetRef.current !== null) {
-      // 还在往目标页去的路上：到了才把这道闸放开，没到就当这一帧没发生过。
       if (showing !== scrollTargetRef.current) return
       scrollTargetRef.current = null
     }
@@ -236,7 +208,6 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         {changedByAgent ? <Tag variant="running">agent 刚改过</Tag> : null}
         <SaveStatus state={draft.state} />
         <span className="flex-1" />
-        {/* 圆点单独一颗没人看得懂，配上一句状态文字 */}
         <span className="flex items-center gap-1.5 text-body-sm text-on-surface-faint">
           <span aria-hidden className={cn('size-2 shrink-0 rounded-full', DOT_CLASS[status])} />
           {DOT_LABEL[status]}
@@ -283,7 +254,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           ))}
         </div>
 
-        {/* 页码点也是键盘翻页的落点：滚动容器本身挂不了 ↑↓（div 加 tabIndex 过不了 a11y 门禁） */}
+        {/* 原生页码按钮同时提供键盘翻页入口。 */}
         <nav
           aria-label="镜头组页码"
           className="flex shrink-0 flex-col items-center justify-center gap-2 px-2"
@@ -349,13 +320,6 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
 
 type SaveStatusProps = { state: ReturnType<typeof useShotsDraft>['state'] }
 
-/**
- * 保存状态那一小段字：存着、存好了、存不下去。冲突另有对话框。
- *
- * @param props - 组件属性。
- * @param props.state - 保存状态。
- * @returns 一段小字，没什么可说时是 null。
- */
 function SaveStatus({ state }: SaveStatusProps) {
   switch (state.kind) {
     case 'saving':
@@ -384,14 +348,7 @@ type ConflictDialogProps = {
   resolve: (choice: 'mine' | 'theirs') => void
 }
 
-/**
- * 两边改了同一组时让用户选：留我的，还是用最新的。不静默覆盖任何一方。
- *
- * @param props - 组件属性。
- * @param props.state - 保存状态。
- * @param props.resolve - 用户的选择。
- * @returns 对话框。
- */
+/** 同组并发修改必须由用户选择保留本地或服务端版本。 */
 function ConflictDialog({ resolve, state }: ConflictDialogProps) {
   const open = state.kind === 'conflict'
   const indexes = state.kind === 'conflict' ? state.shots.map((item) => item.index) : []
@@ -424,13 +381,6 @@ function ConflictDialog({ resolve, state }: ConflictDialogProps) {
 
 type PanelNoticeProps = { text: string }
 
-/**
- * 面板里的一句话状态。
- *
- * @param props - 组件属性。
- * @param props.text - 要说的那句话。
- * @returns 居中的一句话。
- */
 function PanelNotice({ text }: PanelNoticeProps) {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center gap-2 px-6 text-center">

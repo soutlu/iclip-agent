@@ -1,8 +1,4 @@
-"""对话的用例层。
-
-一段对话是用户能看见、能改名、能删掉的东西，所以它必须是服务端记下来的事实：
-``id`` 由这里生成，别人拿一个没见过的 id 来发消息一律当作不存在。
-"""
+"""对话生命周期、访问控制与派生文件操作。对话 id 由服务端生成。"""
 
 from __future__ import annotations
 
@@ -27,66 +23,39 @@ from iclip.domains.identity.public import Principal
 
 MAX_LIST_LIMIT = 100
 MANAGE_PERMISSION = "users:manage"
-"""治理者。内部平台要按需求单、按人复盘创作质量，所以持这个权限的人读得到别人的对话
-与工作区文件——**只读**，写入路径一概仍限属主。"""
+"""治理者可读取所有对话及工作区文件；写入仍限属主。"""
 
 SIDEBAR_COLLECTIONS = 100
-"""侧栏一次列多少个合集。合集是自己建的，这个上限实际上碰不到。"""
 SIDEBAR_UNGROUPED = 20
-"""侧栏「任务」区（没进合集的对话）一次给几条。"""
 SIDEBAR_PER_COLLECTION = 10
-"""每个合集里内嵌几段对话。再多要展开看，是另一次查询的事。"""
 
 ListState = Literal["all", "running", "done"]
-"""列表要哪一批：全部、正在跑的、已经跑完过的。从没跑过的对话只在 ``all`` 里。"""
+"""列表状态筛选；从未运行的对话仅属于 all。"""
 
 
 ActivitiesOf = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, ConversationActivity]]]
-"""这批对话此刻各在忙什么。
-
-**这一层不认识 agent 引擎。** 「在跑没跑、卡在等谁」是引擎那边的事，本模块只把它贴到自己的行
-上；接什么由组合根决定。
-
-要 await：这件事的事实在引擎那侧的库表上。名单里没给到的按 ``IDLE_ACTIVITY`` 算。
-"""
+"""批量读取引擎侧活动信息，由组合根注入；未返回的 id 使用 IDLE_ACTIVITY。"""
 
 ConversationIdsByState = Callable[
     [uuid.UUID, Literal["running", "done"]], Awaitable[frozenset[uuid.UUID]]
 ]
-"""这个人名下在跑的、或者已经跑完过的对话有哪几段。列表的 ``state`` 筛选按它过滤。
-
-**这一层不认识 agent 引擎**，同 ``ActivitiesOf``。从没跑过的对话两边都不在返回里：它既不忙，
-也没有「最近一轮的结局」。
-"""
+"""按属主与活动状态查询对话 id；从未运行的对话不属于 running 或 done。"""
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
-"""一段用户输入 → 一个标题，起不出来给 ``None``。
-
-**这一层不知道标题是怎么来的。** 「起名字」是模型的活，模型属于 agent 引擎那一侧，本模块
-不认识它；这里只留一个口子，接什么由组合根决定。没配起名模型时接一个恒给 ``None`` 的。
-"""
+"""由组合根注入的标题生成器；返回 None 表示本次不生成标题。"""
 
 AnnounceTitle = Callable[[uuid.UUID, uuid.UUID, str], None]
-"""标题变了，告诉这个人还开着的每个标签页，入参是 ``(属主, 对话 id, 新标题)``。
+"""同步广播标题更新，参数为 (属主, 对话 id, 标题)。
 
-**带上属主是必须的。** 这一帧不看订阅（侧栏列着几十段对话却一段都没订），所以派发那一侧只能
-靠属主认人；不带的话，一次改名会把标题发给当时连着的每一个人。
-
-同步：广播只是往每条连接的出站队列里塞一帧，不落库也不等回执。
-"""
+广播不依赖对话订阅，必须按属主隔离；仅写入出站队列，不等待回执。"""
 
 PurgeDerived = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
-"""删掉一段对话派生出来的东西，入参是 ``(属主, 对话 id)``。
-
-**这一层不知道那是什么。** 对话的生命周期归它管（删对话要连带删干净），但「附属物长
-什么样、存在哪张表、地盘怎么拼名字」是别人的知识。所以这里只留一个口子，接什么由组
-合根决定——本模块的代码里因此不会出现工作区的存储与命名空间。
-"""
+"""删除对话派生数据，参数为 (属主, 对话 id)；存储与命名空间由注入实现负责。"""
 
 
 @dataclass(frozen=True, slots=True)
 class DerivedFile:
-    """agent 在这段对话里写下的一个文件的元信息。"""
+    """对话工作区文件元信息。"""
 
     path: str
     size_bytes: int
@@ -96,7 +65,7 @@ class DerivedFile:
 
 @dataclass(frozen=True, slots=True)
 class DerivedFileContent:
-    """一个派生文件的全文与版本号。"""
+    """工作区文件内容与版本。"""
 
     path: str
     content: str
@@ -105,7 +74,7 @@ class DerivedFileContent:
 
 @dataclass(frozen=True, slots=True)
 class CollectionInfo:
-    """侧栏要显示的一个合集：id、名字、最近改动时刻。"""
+    """侧栏合集元信息。"""
 
     id: uuid.UUID
     name: str
@@ -113,40 +82,25 @@ class CollectionInfo:
 
 
 ListCollections = Callable[[uuid.UUID], Awaitable[Sequence[CollectionInfo]]]
-"""列出这个人的合集，最近改动的排前面，入参是属主 id。
-
-**这一层不认识合集表。** 侧栏拓扑是对话这一侧的查询（分组、条数、每组最近几段都在
-对话表上算），只有「口袋叫什么名字」得问合集那一侧，所以留一个口子由组合根接上。
-"""
+"""按最近修改时间倒序读取属主的合集元信息；实现由组合根注入。"""
 
 
 ListDerivedFiles = Callable[[uuid.UUID, uuid.UUID], Awaitable[Sequence[DerivedFile]]]
-"""列出一段对话派生出来的文件，入参是 ``(属主, 对话 id)``。"""
+"""列出工作区文件，参数为 (属主, 对话 id)。"""
 
 ReadDerivedFile = Callable[[uuid.UUID, uuid.UUID, str], Awaitable[DerivedFileContent | None]]
-"""读一段对话派生出来的某个文件，入参是 ``(属主, 对话 id, 路径)``；没有这个文件返回
-``None``。路径是用户给的字符串，不合语法时由接线方抛 ``ValidationFailed``——路径的语法
-归存储那一侧定，这里不重复一份。
-"""
+"""读取工作区文件，参数为 (属主, 对话 id, 路径)；不存在时返回 None。
+路径语法由存储实现校验，非法路径抛 ValidationFailed。"""
 
 WriteDerivedFile = Callable[[uuid.UUID, uuid.UUID, str, str, int], Awaitable[DerivedFileContent]]
-"""整份写下一段对话里的某个文件，入参是 ``(属主, 对话 id, 路径, 正文, 期望版本)``。
-
-期望版本对不上时由接线方抛 ``Conflict``；路径与容量的问题同 ``ReadDerivedFile``，归存储
-那一侧定。
-"""
+"""覆盖工作区文件，参数为 (属主, 对话 id, 路径, 正文, 期望版本)。
+版本不匹配抛 Conflict；路径和容量由存储实现校验。"""
 
 
 class WorkspaceDocumentValidator(Protocol):
-    """某一条路径上的文件写进去之前得先过的那一关。
+    """工作区文件写入前的校验协议，由组合根按路径注入。
 
-    **这一层不知道校验的是什么。** 工作区里有几份文件是别处的工具按自己的规矩产出的
-    （镜头组 prompt 表就是一份），用户改完写回来时得按同一套规矩再判一次，而那套规矩
-    属于那件工具，对话这一侧看不见它。所以这里只留一个口子，接什么、按路径挂在哪，都
-    由组合根决定。
-
-    不合规抛 ``ValidationFailed``，消息原样给到调用方——用户要照着它改。
-    """
+    校验实现与文件生产方共用规则；失败抛 ValidationFailed，消息返回调用方。"""
 
     async def __call__(
         self, owner: uuid.UUID, conversation_id: uuid.UUID, content: str
@@ -154,11 +108,7 @@ class WorkspaceDocumentValidator(Protocol):
 
 
 def _as_utc(moment: datetime | None) -> datetime | None:
-    """不带时区的时刻按 UTC 读。
-
-    ``?since=2026-08-29`` 这种写法解析出来是不带时区的，直接拿去比 timestamptz 会在
-    驱动那一层炸成 500。跨端时间戳的口径本来就是 UTC（见 contract/conventions.md §3）。
-    """
+    """无时区输入按 UTC 解释，避免与 timestamptz 比较时驱动报错。"""
 
     if moment is None or moment.tzinfo is not None:
         return moment
@@ -166,15 +116,10 @@ def _as_utc(moment: datetime | None) -> datetime | None:
 
 
 def _as_conversation_id(raw: str) -> uuid.UUID:
-    """客户端给的那串字符 → 对话 id。不是我们发出去的一律当作不存在。
+    """仅接受规范 UUID 字符串，非法输入统一抛 NotFound。
 
-    不区分「形状不对」和「没有这一行」：区分了就等于告诉调用方 id 该长什么样。
-
-    **必须一个字节都不差。** 大写十六进制、去掉短横线、带花括号都能被解析成同一个 UUID，
-    于是这一关放行了；但下游用的是**原样的字符串**——工作区按它拼命名空间、实时状态按它
-    分段。于是同一段对话会长出第二个工作区、第二份实时状态，而删除时按规范写法拼出来的
-    命名空间又碰不到它们。所以解析完再比一次原文。
-    """
+    工作区与实时状态直接使用原字符串作为标识，必须拒绝同一 UUID 的非规范写法，
+    避免产生重复命名空间及无法清理的派生数据。"""
 
     try:
         parsed = uuid.UUID(raw)
@@ -194,11 +139,7 @@ class ConversationPage:
 
 
 def _page(items: tuple[Conversation, ...], *, limit: int) -> ConversationPage:
-    """取满一页就给下一页的位置。
-
-    多给一次「翻过去发现是空的」，好过为了精确再查一次——多的那次请求只在正好整除时
-    发生，而多查一次是每页都要付的。
-    """
+    """满页时生成下一页游标，避免额外查询；最后一页恰好满额时允许下一页为空。"""
 
     return ConversationPage(
         items=items, next_cursor=_encode_cursor(items[-1]) if len(items) == limit else None
@@ -206,13 +147,12 @@ def _page(items: tuple[Conversation, ...], *, limit: int) -> ConversationPage:
 
 
 def _encode_cursor(conversation: Conversation) -> str:
-    """翻页位置就是这一行的排序键，原样写进查询串。"""
 
     return f"{conversation.updated_at.isoformat()}|{conversation.id}"
 
 
 def _decode_cursor(cursor: str | None) -> PageCursor | None:
-    """解翻页位置。形状不对就 422，不假装是「从头开始」。"""
+    """解析游标，格式错误抛 ValidationFailed。"""
 
     if cursor is None:
         return None
@@ -226,7 +166,7 @@ def _decode_cursor(cursor: str | None) -> PageCursor | None:
 
 
 class ConversationService:
-    """建对话、列对话、改名、删除，以及读这段对话的历史与派生文件。"""
+    """对话生命周期、查询与工作区用例。"""
 
     def __init__(
         self,
@@ -258,24 +198,20 @@ class ConversationService:
     async def activities(
         self, conversation_ids: Sequence[uuid.UUID]
     ) -> Mapping[uuid.UUID, ConversationActivity]:
-        """这批对话此刻各在忙什么。**每个都给得出**，问到的 id 一定在返回里。
-
-        :param conversation_ids: 要问的那些对话。
-        :returns: 对话 id → 它此刻的活儿。
-        """
+        """返回每个请求 id 的活动状态；缺失信息按 IDLE_ACTIVITY 补齐。"""
 
         known = await self._activities_of(conversation_ids)
         return {one: known.get(one, IDLE_ACTIVITY) for one in conversation_ids}
 
     def _readable_by(self, principal: Principal) -> uuid.UUID | None:
-        """读取按谁的名下算。治理者拿 ``None``：不按属主过滤，看得到全部。"""
+        """治理者返回 None，取消读取时的属主过滤。"""
 
         return None if principal.has(MANAGE_PERMISSION) else principal.user_id
 
     async def files(
         self, principal: Principal, conversation_id: uuid.UUID
     ) -> Sequence[DerivedFile]:
-        """列出这段对话里写下的文件。别人的一律 404，治理者除外。"""
+        """列出可见对话的工作区文件；治理者可跨属主读取。"""
 
         conversation = await self._repo.get(conversation_id, owner=self._readable_by(principal))
         return await self._list_derived_files(conversation.owner_user_id, conversation.id)
@@ -283,7 +219,7 @@ class ConversationService:
     async def file(
         self, principal: Principal, conversation_id: uuid.UUID, *, path: str
     ) -> DerivedFileContent:
-        """读这段对话里的一个文件。对话看不到、或者没有这个文件，都是 404。"""
+        """读取工作区文件；不可见对话或不存在的文件均返回 404。"""
 
         conversation = await self._repo.get(conversation_id, owner=self._readable_by(principal))
         found = await self._read_derived_file(conversation.owner_user_id, conversation.id, path)
@@ -300,11 +236,7 @@ class ConversationService:
         content: str,
         expected_version: int,
     ) -> DerivedFileContent:
-        """整份写下这段对话里的一个文件。
-
-        治理者读得到别人的对话，但写入一概限属主——所以这里先按读的口径找到那一行（找
-        不到就是 404，不泄露存在性），再判属主（看得见而不许写才是 403）。
-        """
+        """覆盖属主的工作区文件。不可见对话返回 404，可见但非属主返回 403。"""
 
         conversation = await self._repo.get(conversation_id, owner=self._readable_by(principal))
         if conversation.owner_user_id != principal.user_id:
@@ -325,11 +257,7 @@ class ConversationService:
         task_id: uuid.UUID | None = None,
         collection_id: uuid.UUID | None = None,
     ) -> Conversation:
-        """开一段新对话。id 在这里生成，客户端拿它当会话身份用。
-
-        两个归属都可以不给：那就是「直接开始创作」，既不属于哪张单，也没进合集。
-        给了但不存在，由外键挡下来（这一层不认识那两张表）。
-        """
+        """创建服务端 id 的对话；可选归属是否存在由外键约束校验。"""
 
         now = datetime.now(UTC)
         return await self._repo.create(
@@ -338,13 +266,11 @@ class ConversationService:
                 owner_user_id=principal.user_id,
                 agent_id=agent_id,
                 title=title or DEFAULT_TITLE,
-                # 调用方给了名字就是它自己起的，别再自动改掉。
                 title_kind="custom" if title else "default",
                 last_run_id=None,
                 task_id=task_id,
                 collection_id=collection_id,
-                # 两个时刻在插入时由数据库改写成它自己的 now()；这里的值不落库，
-                # 只是把 dataclass 填满。
+                # 仓储使用数据库 now() 覆盖时间占位值。
                 created_at=now,
                 updated_at=now,
             )
@@ -353,21 +279,14 @@ class ConversationService:
     async def list_for_task(
         self, principal: Principal, task_id: uuid.UUID
     ) -> tuple[Conversation, ...]:
-        """列出自己在某张需求单下的尝试，按开始时间正序（第几次就是这个顺序）。
-
-        只列自己的：对话是私有的，一张单人人可见不等于这张单下面谁跑过什么也人人可见。
-        """
+        """按创建时间正序返回自己的需求单对话；需求单公开不扩大对话可见范围。"""
 
         return await self._repo.list_for_task(task_id=task_id, owner=principal.user_id)
 
     async def search(
         self, principal: Principal, *, limit: int = 20, title_query: str | None = None
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序列出自己的对话；给了 ``title_query`` 就按标题筛，仍是倒序。
-
-        搜索走库而不是让前端拉回来自己筛：``limit`` 卡的是返回条数，前端拿不到更旧的，
-        自己筛就只能筛到最近这几十段。
-        """
+        """在数据库中按标题筛选，再按最近活动倒序截取，确保可搜索全部历史。"""
 
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
@@ -377,7 +296,7 @@ class ConversationService:
         )
 
     async def _only(self, principal: Principal, state: ListState) -> frozenset[uuid.UUID] | None:
-        """这次列表要限定在哪几段对话里；``all`` 不限定，给 ``None``。"""
+        """返回状态筛选对应的 id 集合；all 返回 None，不限制 id。"""
 
         if state == "all":
             return None
@@ -386,12 +305,7 @@ class ConversationService:
     async def sidebar(
         self, principal: Principal, *, state: ListState = "all"
     ) -> tuple[tuple[CollectionInfo, int, ConversationPage], ...]:
-        """侧栏合集区：每个合集的元信息、里面一共几段，加第一页对话。
-
-        空合集也留在结果里（配一页空的）——刚建的口袋要看得见，不然没法往里放东西。
-
-        ``state`` 筛在跑的 / 跑完过的，条数与第一页按同一个筛选算。
-        """
+        """返回侧栏合集元信息、对话总数及第一页，保留空合集。条数与分页使用相同状态筛选。"""
 
         collections = await self._list_collections(principal.user_id)
         only_ids = await self._only(principal, state)
@@ -417,7 +331,7 @@ class ConversationService:
         )
 
     async def ungrouped_count(self, principal: Principal, *, state: ListState = "all") -> int:
-        """侧栏「任务」区标题上那个数字：一共多少段没进合集的对话，不是这一页几条。"""
+        """返回符合状态筛选的未分类对话总数。"""
 
         only_ids = await self._only(principal, state)
         if only_ids is not None and not only_ids:
@@ -427,10 +341,7 @@ class ConversationService:
     async def ungrouped(
         self, principal: Principal, *, cursor: str | None = None, state: ListState = "all"
     ) -> ConversationPage:
-        """侧栏「任务」区：自己没进任何合集的对话，最近活动的排前面。
-
-        ``cursor`` 是上一页的 ``nextCursor``，往下滑加载更多时原样回传。
-        """
+        """按最近活动倒序分页读取自己的未分类对话。"""
 
         only_ids = await self._only(principal, state)
         if only_ids is not None and not only_ids:
@@ -451,10 +362,7 @@ class ConversationService:
         cursor: str | None = None,
         state: ListState = "all",
     ) -> ConversationPage:
-        """某个合集里的对话，翻页口径同上。
-
-        不校验合集在不在：别人的合集与空合集都是空的一页（见 contract/conventions.md §6）。
-        """
+        """分页读取合集内的对话；不存在或不可见的合集均返回空页。"""
 
         only_ids = await self._only(principal, state)
         if only_ids is not None and not only_ids:
@@ -479,11 +387,7 @@ class ConversationService:
         limit: int = 20,
         cursor: str | None = None,
     ) -> tuple[tuple[Conversation, ...], str | None]:
-        """治理者的全平台对话列表，按最近活动倒序。返回这一页与下一页的位置。
-
-        翻页位置是上一页最后一行的排序键，不是 offset：全平台的量往后翻会越翻越慢，
-        而且翻页期间有新对话进来会让某些行被跳过。
-        """
+        """治理者按最近活动倒序分页查询全平台对话。"""
 
         if not principal.has(MANAGE_PERMISSION):
             raise PermissionDenied("只有治理者能查全部对话")
@@ -504,19 +408,11 @@ class ConversationService:
         self, principal: Principal, conversation_id: uuid.UUID, *, title: str
     ) -> Conversation:
         renamed = await self._repo.rename(conversation_id, owner=principal.user_id, title=title)
-        # 自己改的名字也要告诉别的标签页：同一个人常常开着好几个。
         self._announce_title(renamed.owner_user_id, conversation_id, renamed.title)
         return renamed
 
     async def name_after_turn(self, conversation_id: uuid.UUID, user_text: str) -> None:
-        """一轮跑完，给还没起过名的对话起个名。
-
-        起不出来就不起——下一轮跑完还会再试一次，不记重试次数：能不能起名取决于当时模型答不答
-        得上来，攒一个计数器只会让一段本可以有名字的对话永远叫「新对话」。
-
-        :param conversation_id: 哪段对话。
-        :param user_text: 用户这一轮说的话。
-        """
+        """轮次结束后生成 default 标题；本次未生成时保留 default，后续轮次可再次尝试。"""
 
         conversation = await self._repo.get(conversation_id, owner=None)
         if conversation.title_kind != "default":
@@ -524,14 +420,14 @@ class ConversationService:
         title = await self._generate_title(user_text)
         if title is None:
             return
-        # 起名期间用户可能已经自己改了名，所以写入时再判一次——条件在 SQL 里。
+        # SQL 条件更新防止生成期间的用户改名被覆盖。
         if await self._repo.apply_generated_title(conversation_id, title=title):
             self._announce_title(conversation.owner_user_id, conversation_id, title)
 
     async def set_collection(
         self, principal: Principal, conversation_id: uuid.UUID, *, collection_id: uuid.UUID | None
     ) -> Conversation:
-        """把这段对话放进某个合集，或者给 ``None`` 拿出来。"""
+        """设置或清空对话的合集归属。"""
 
         return await self._repo.set_collection(
             conversation_id, owner=principal.user_id, collection_id=collection_id
@@ -540,22 +436,14 @@ class ConversationService:
     async def set_task(
         self, principal: Principal, conversation_id: uuid.UUID, *, task_id: uuid.UUID | None
     ) -> Conversation:
-        """把这段对话记在某张需求单下，或者给 ``None`` 摘掉。
-
-        跑完才想起该记在哪张单下是常事，所以这一处归属不冻结。改了之后「这张单的第几
-        次尝试」按对话的开始时刻重排——一段更早的老对话事后挂进来，会排在前面。
-        """
+        """设置或清空需求单归属。尝试顺序按对话创建时间计算，重新关联不会改变创建时间。"""
 
         return await self._repo.set_task(conversation_id, owner=principal.user_id, task_id=task_id)
 
     async def delete(self, principal: Principal, conversation_id: uuid.UUID) -> None:
-        """删掉这段对话，连带删掉它派生出来的东西。
+        """先清理派生数据，再删除对话记录。
 
-        **先删派生的，再删对话行。** 两者在不同的表、不同的连接上，凑不成一个事务，
-        所以顺序就是这里唯一能给的保证：崩在中间留下的是「派生的没了、对话还在」，
-        用户再删一次即可；反过来才是真麻烦——对话行没了，那些东西就再也没人认领、
-        也没人看得见了。
-        """
+        两者无法共用事务；清理中断时保留对话以便重试，避免产生失去归属的派生数据。"""
 
         conversation = await self._repo.get(conversation_id, owner=principal.user_id)
         await self._purge_derived(conversation.owner_user_id, conversation.id)
@@ -564,35 +452,23 @@ class ConversationService:
     async def begin_run(
         self, *, owner: uuid.UUID, agent_id: str, conversation_id: str, run_id: str
     ) -> None:
-        """在这段对话里开始一次运行：核对它归谁、是不是这个 agent 的，并记下这次运行。
-
-        ``conversation_id`` 是客户端给的字符串，怎么核对见 ``_as_conversation_id``。
-        """
+        """核对规范对话 id、属主和 Agent 后记录运行。"""
 
         await self._repo.touch_run(
             _as_conversation_id(conversation_id), owner=owner, agent_id=agent_id, run_id=run_id
         )
 
     async def agent_of(self, principal: Principal, conversation_id: str, *, writing: bool) -> str:
-        """这段对话跑哪个 agent；看不到的一律抛 ``NotFound``。
+        """从可见对话中读取 Agent，拒绝由调用方指定 Agent 绕过对话绑定。
 
-        transcript 那一侧每个端点都先过这一关：那些端点的路径里只有对话 id，agent 是从这里
-        查出来的，不由调用方给——由调用方给的话，拿自己的对话去指别人的 agent 就成了一条绕过
-        声明的路。
-
-        ``writing`` 分开两种口径。读按 ``_readable_by`` 走，治理者因此看得到别人的对话（复盘
-        创作质量要用）；写一概限属主——治理者读得到不等于能替别人发消息、停别人的运行。
-        """
+        读取允许治理者跨属主访问；写入始终限定属主。"""
 
         owner = principal.user_id if writing else self._readable_by(principal)
         conversation = await self._repo.get(_as_conversation_id(conversation_id), owner=owner)
         return conversation.agent_id
 
     async def title_of(self, principal: Principal, conversation_id: str) -> str:
-        """这段对话叫什么；看不到的一律抛 ``NotFound``。
-
-        会话页首屏要它。之后的改名走推送那条路（``session.meta.updated``），不再问这里。
-        """
+        """读取可见对话的当前标题；后续更新经 session.meta.updated 推送。"""
 
         conversation = await self._repo.get(
             _as_conversation_id(conversation_id), owner=self._readable_by(principal)

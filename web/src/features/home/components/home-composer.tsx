@@ -6,30 +6,19 @@ import type { ComposerHandle, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 
-/** 能挑哪个 agent。名字与后端 `server/agents/agents.yaml` 的键一致。 */
+/** Agent ID 必须与 server/agents/agents.yaml 的键一致。 */
 const AGENTS = [
   { id: 'storyboard', label: '分镜 Agent' },
   { id: 'assistant', label: '通用助手' },
 ] as const
 
 type HomeComposerProps = {
-  /** 发送时做什么；未给就是还没接上（按钮照常按状态显示，但不产生动作）。 */
+  /** 未提供回调时不提交内容。 */
   onSend?: ((input: { agentId: string; parts: ComposerSubmission['parts'] }) => void) | undefined
-  /** 正在新建对话：发送钮转圈。 */
   sending?: boolean | undefined
 }
 
-/**
- * 首页输入卡：卡壳是 `shared/ui/composer`，这里只挂首页那几个控件与卡下沿的合集条。
- *
- * 「逐条确认」暂不接后端：对应的 `permission_mode` 合同里还没有这个字段。
- * 附件入口只在有 assets:write 权限时给（kimi：上传不可用就不出这个入口）。
- *
- * @param props - 组件属性。
- * @param props.onSend - 发送动作。
- * @param props.sending - 是否正在新建对话。
- * @returns 首页输入卡与合集条。
- */
+/** 附件入口由 assets:write 控制；逐条确认尚无后端 permission_mode 合同。 */
 export function HomeComposer({ onSend, sending = false }: HomeComposerProps) {
   const composerRef = useRef<ComposerHandle>(null)
   const [agent, setAgent] = useState<(typeof AGENTS)[number]>(AGENTS[0])

@@ -42,9 +42,7 @@ export function MenuSurface({
 
 type MenuItemProps = ComponentPropsWithoutRef<typeof DropdownMenu.Item> & {
   destructive?: boolean
-  /** 行首图标 */
   icon?: Parameters<typeof Icon>[0]['name']
-  /** 行尾快捷键提示，如 ['⌘', '+'] */
   shortcut?: readonly string[]
 }
 
@@ -76,7 +74,6 @@ export function MenuItem({
   )
 }
 
-/** 单选菜单项：选中标记由 Radix 的 ItemIndicator 挂在行尾。 */
 export function MenuRadioItem({
   children,
   className,

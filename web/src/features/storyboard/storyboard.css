@@ -1,4 +1,4 @@
-/* 分镜工作台：描述编辑器（PM 挂载的 contenteditable）。换行靠段落，pre-wrap 保住行内空白。 */
+/* ProseMirror 段落保留换行，pre-wrap 保留行内空白。 */
 .prompt-editor-content {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -14,7 +14,7 @@
   margin: 0;
   min-height: var(--text-body--line-height);
 }
-/* 点选（PM NodeSelection）一颗帧芯片：与输入框附件 pill 同一口径的 primary 20% 底 */
+/* NodeSelection 的帧芯片与附件 pill 共用选中色。 */
 .frame-chip.ProseMirror-selectednode {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 60%, transparent);
   outline-offset: 1px;

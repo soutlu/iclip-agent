@@ -1,8 +1,4 @@
-"""产品资料查询的 HTTP 契约与那条查询的过滤口径。
-
-守的是两类风险：拼出错的图片地址（前端拿到就是裂图），以及把上游标记为删除、
-转存失败或重复的行当成有效数据返回。
-"""
+"""验证产品资料 HTTP 契约、图片 URL 及删除、转存失败和重复数据的过滤。"""
 
 from __future__ import annotations
 
@@ -134,7 +130,6 @@ async def test_anonymous_is_rejected(client: httpx.AsyncClient) -> None:
 
 
 async def test_unknown_style_is_not_found(client: httpx.AsyncClient) -> None:
-    """viewer 也能查（``assets:read`` 三个预置角色都有），查不到就是 404。"""
 
     await register_and_login(client)
 
@@ -153,12 +148,9 @@ async def test_returns_names_images_and_colors(
 
     assert found.status_code == 200, found.text
     product = found.json()["product"]
-    # 码原样带出来，名字由本仓的对照表补上。
     assert product["brand"] == {"code": "1", "name": "Bruno Marc"}
     assert product["category"] == {"id": 52, "code": "PU", "name": "高跟鞋", "en": "Pumps"}
-    # 爆款视频库认的是 WMS 编号，所以它必须出现在响应里。
     assert product["styleWms"] == "SDFA2310W-NEW"
-    # 上游还没同步 CT 归属那一列。
     assert product["combatTeam"] is None
     assert product["colors"] == [
         {
@@ -168,7 +160,6 @@ async def test_returns_names_images_and_colors(
             "rgb": "0,0,0",
         }
     ]
-    # 前缀末尾那条斜杠要被吃掉，不能拼出两条。
     assert product["images"] == [
         {"id": "1991", "url": f"{IMAGE_BASE_URL}pdm/a.webp", "width": 644, "height": 508}
     ]
@@ -177,7 +168,6 @@ async def test_returns_names_images_and_colors(
 async def test_style_with_no_images_or_colors_is_still_a_hit(
     client: httpx.AsyncClient, catalog_engine: AsyncEngine
 ) -> None:
-    """上游同步不全是常态：查得到款、图和色为空是正常结果，不是错误。"""
 
     await register_and_login(client)
     await seed_style(catalog_engine)
@@ -192,12 +182,11 @@ async def test_style_with_no_images_or_colors_is_still_a_hit(
 async def test_only_current_succeeded_product_images_count(
     client: httpx.AsyncClient, catalog_engine: AsyncEngine
 ) -> None:
-    """四条过滤各挡一种脏数据；漏一条就会把它们当成有效图返回。"""
 
     await register_and_login(client)
     await seed_style(catalog_engine)
     await seed_image(catalog_engine, file_id=1, object_key="ok.webp", content_hash="keep")
-    # 同一张图被两条映射指着——去重之后只该出现一次。
+    # 两条映射引用同一图片，验证去重。
     await seed_image(catalog_engine, file_id=2, object_key="ok.webp", content_hash="keep")
     await seed_image(
         catalog_engine, file_id=3, object_key="old.webp", content_hash="a", is_current=False
@@ -208,11 +197,9 @@ async def test_only_current_succeeded_product_images_count(
     await seed_image(
         catalog_engine, file_id=5, object_key="gone.webp", content_hash="c", is_source_deleted=True
     )
-    # 工艺图（模具、材料这些）不是产品图。
     await seed_image(
         catalog_engine, file_id=6, object_key="mold.webp", content_hash="d", file_type=1
     )
-    # 挂在别的款上的图。
     await seed_image(
         catalog_engine, file_id=7, object_key="other.webp", content_hash="e", business_id=9999
     )
@@ -227,7 +214,6 @@ async def test_only_current_succeeded_product_images_count(
 async def test_deleted_style_is_invisible(
     client: httpx.AsyncClient, catalog_engine: AsyncEngine
 ) -> None:
-    """同步副本用标记位表达删除，读的时候必须认它。"""
 
     await register_and_login(client)
     await seed_style(catalog_engine, is_source_deleted=True)
@@ -238,7 +224,6 @@ async def test_deleted_style_is_invisible(
 async def test_unknown_codes_return_null_names(
     client: httpx.AsyncClient, catalog_engine: AsyncEngine
 ) -> None:
-    """上游加了新码，名字空着——空一格看得见，猜错了没人看得见。"""
 
     await register_and_login(client)
     await seed_style(
@@ -268,10 +253,7 @@ async def test_same_color_on_several_skcs_appears_once(
 
 
 async def test_products_not_mounted_without_catalog(app_without_catalog: FastAPI) -> None:
-    """没配目录库就整组路由不挂（同 SSO、媒体生成的口径）。
-
-    断言落在路由表上而不是状态码上：没挂载和查不到都是 404，从响应上分不出来。
-    """
+    """检查路由表以区分未挂载与资源不存在；二者响应均为 404。"""
 
     assert app_without_catalog.state.products is None
     assert not [

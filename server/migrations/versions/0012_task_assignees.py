@@ -1,15 +1,11 @@
-"""iclip.task_assignees：谁认领了哪张需求单
+"""iclip.task_assignees：需求单认领记录
 
 Revision ID: 5f2a9c41d8b0
 Revises: c8e2b47f1a95
 Create Date: 2026-08-29 10:00:00.000000
 
-认领是记录在案的事实：一张需求单可以被多个人认领（同一个人只记一行），撤回之后这些
-行也留着——它们和单本身一样是发生过的事。结构照 ``task_projects`` 的样子来：两列
-外键加联合主键，「认领两遍」在表结构上就放不下。
-
-指向 users 的外键用 RESTRICT 而不是 CASCADE（同 tasks.creator_user_id 的注释）：账号
-只停用不删除，认领记录不该跟着账号一起消失。
+联合主键防止重复认领，需求单撤回后保留记录。
+用户外键使用 RESTRICT，避免删除账号时级联删除认领记录。
 """
 
 from __future__ import annotations
@@ -46,8 +42,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("task_id", "user_id"),
         schema=SCHEMA,
     )
-    # 主键首列是 task_id，「这张单谁认领了」够用了；反过来问「这个人认领了哪些单」
-    # （「我的项目」那个列表）得自己一个索引。
+    # 联合主键仅覆盖 task_id 查询，认领人维度需单独索引。
     op.create_index(
         "ix_task_assignees_user",
         "task_assignees",

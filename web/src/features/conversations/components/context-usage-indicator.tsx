@@ -21,11 +21,7 @@ type ContextUsageIndicatorProps = {
   used: number
 }
 
-/**
- * 上下文用量环，版式照 WorkBuddy：32×32 圆形容器（与同行按钮几何对齐，hover 铺状态底），
- * 环本体 16px、stroke 2、中性灰进度，tooltip 报「百分比 · used / total 上下文已使用」。
- * 只展示后端给的 used/max，不在浏览器估算 token。
- */
+/** 参考 WorkBuddy 上下文用量环；只展示后端 used/max，不在浏览器估算 token。 */
 export function ContextUsageIndicator({ max, used }: ContextUsageIndicatorProps) {
   const percentValue = Math.min(100, Math.max(0, (used / max) * 100))
   const label = `${percentValue.toFixed(1)}% · ${formatTokens(used)} / ${formatTokens(max)} 上下文已使用`

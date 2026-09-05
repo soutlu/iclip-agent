@@ -22,7 +22,6 @@ const renderSheet = () => {
     onGenerate: vi.fn(),
     onOpenShot: vi.fn(),
     onTalk: vi.fn(),
-    // 第 2 组还在飞，第 1 组已经有成片
     running: new Set([2]),
     shots,
     videos: new Map([[1, 'take-1.mp4']]),

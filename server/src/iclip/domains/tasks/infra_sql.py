@@ -1,12 +1,4 @@
-"""``iclip.tasks`` 的 Postgres 后端。DDL 归 Alembic，这里不建表。
-
-**所有时刻都取数据库的时钟**（``now()``）：创建与改动时刻是这样，发布时「期限还没
-到」那一句比较也是这样。多台应用服务器的钟差几秒，同一张需求单就会在这台机器上发得
-出去、在另一台上发不出去。
-
-**没有属主过滤**：需求单是全公司的工作队列（见 ``repository.py``），所以这里不用
-``platform/db`` 的行级归属原语——那是给私人资源用的。
-"""
+"""需求单 Postgres 仓储。创建、更新时间及发布期限比较均使用数据库时钟；读取不按属主隔离。"""
 
 from __future__ import annotations
 
@@ -67,22 +59,19 @@ tasks_table = Table(
     Column("status", Text, nullable=False),
     Column("priority", Integer, nullable=False),
     Column("deadline", DateTime(timezone=True), nullable=True),
-    # 不级联删除：一张下发过的需求单是公司账本上的事实，不该跟着提它的那个账号一起
-    # 消失（同 generation_jobs 里「哪把 key 干的」那条审计事实）。账号目前只停用不
-    # 删除，所以 restrict 不会挡住任何正常路径；真去删就该响亮地失败。
+    # 删除账号不能级联删除需求单。
     Column(
         "creator_user_id",
         Uuid,
         ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="restrict"),
         nullable=False,
     ),
-    # 下单那天主款的样子。不塞进 brief：那是需求方填的，这是服务端抄的，可改性不同。
+    # 冻结的服务端快照独立于可编辑 brief。
     Column("style", JSONB, nullable=False),
     Column("brief", JSONB, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(f"status IN ({_STATUS_LIST})", name="tasks_status_check"),
-    # 草稿可以先不定期限；一旦下发，「什么时候要」就必须写着。
     CheckConstraint(
         f"status = '{STATUS_DRAFT}' OR deadline IS NOT NULL", name="tasks_deadline_check"
     ),
@@ -92,12 +81,9 @@ tasks_table = Table(
 
 _ROWS = tasks_table.c
 
-# 列表页就这一个查询：最近改动的排前面（可以再按状态筛一档，那是行数很少之后的事，
-# 走顺序过滤就够）。
 Index("ix_tasks_updated", _ROWS.updated_at.desc())
 
-# 谁认领了哪张单：两列外键加联合主键，「认领两遍」在表结构上就放不下。撤回不清这里
-# 的行——撤回是单的终态，认领记录是各自发生过的事实。
+# 联合主键保证认领幂等；撤回需求单时保留认领记录。
 task_assignees_table = Table(
     "task_assignees",
     metadata_obj,
@@ -107,7 +93,7 @@ task_assignees_table = Table(
         ForeignKey(f"{DB_SCHEMA}.tasks.id", ondelete="cascade"),
         nullable=False,
     ),
-    # restrict 同 creator_user_id：认领记录不该跟着账号一起消失。
+    # 删除账号不能级联删除认领记录。
     Column(
         "user_id",
         Uuid,
@@ -118,8 +104,7 @@ task_assignees_table = Table(
     PrimaryKeyConstraint("task_id", "user_id"),
 )
 
-# 主键首列是 task_id，「这张单谁认领了」够用了；反过来问「这个人认领了哪些单」
-# （「我的项目」那一栏）得自己一个索引。
+# 补充按认领人查询的索引，联合主键仅覆盖 task_id 前缀查询。
 Index("ix_task_assignees_user", task_assignees_table.c.user_id)
 
 
@@ -202,7 +187,7 @@ class SqlTaskRepository:
     async def _assignees_of(
         conn: AsyncConnection, task_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, tuple[uuid.UUID, ...]]:
-        """批量取这几张单的认领人。一次查询拿回来再按单分组，避免逐单点射。"""
+        """批量读取并按需求单分组认领人，避免逐单查询。"""
 
         if not task_ids:
             return {}
@@ -247,7 +232,6 @@ class SqlTaskRepository:
         return _row(row, assignees.get(task_id, ()))
 
     async def publish(self, task_id: uuid.UUID) -> Task | None:
-        # 期限的比较写在 WHERE 里，用的是数据库自己的 now()——见模块顶部。
         statement = (
             update(tasks_table)
             .where(
@@ -293,7 +277,7 @@ class SqlTaskRepository:
                 .one_or_none()
             )
             if row is None:
-                # 已经在 confirmed：追加认领人即可，行本身没变，重新读一次。
+                # 已 confirmed 时只增加认领关系，重新读取聚合结果。
                 row = (
                     (await conn.execute(select(tasks_table).where(_ROWS.id == task_id)))
                     .mappings()

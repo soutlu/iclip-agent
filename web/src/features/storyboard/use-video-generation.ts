@@ -1,10 +1,4 @@
-/**
- * 发出片：一组一次，也可以按选中的几组连着发。
- *
- * 提交是「发出去就算」——202 之后由生成任务表接手，界面靠重拉任务列表看进展（`useShotGenerations`
- * 在有任务在飞时自己轮询）。同一组不去防重发到毫秒级：请求在飞、以及该组名下已经有在飞的任务，
- * 界面都把按钮禁掉（ADR-0009 决策 4，不设幂等键）。
- */
+/** 202 后由生成任务列表轮询进度；提交中及已有运行任务时禁用按钮，不提供幂等键（ADR-0009 决策 4）。 */
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
@@ -14,16 +8,9 @@ import { storyboardQueryKeys, submitVideoGeneration, VIDEO_ASPECT_RATIOS } from 
 
 type UseVideoGenerationOptions = {
   conversationId: string
-  /** 整份文件的画幅，出片按它。 */
   aspectRatio: string
 }
 
-/**
- * 管出片的提交。
- *
- * @param options - 哪段对话、什么画幅。
- * @returns 画幅认不认、正在提交哪几组、发一组的方法。
- */
 export const useVideoGeneration = ({ aspectRatio, conversationId }: UseVideoGenerationOptions) => {
   const queryClient = useQueryClient()
   const [submitting, setSubmitting] = useState<readonly number[]>([])

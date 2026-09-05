@@ -1,8 +1,4 @@
-"""PgMaterialLedger 对真实 Postgres 的验收。
-
-三件事只有真库证得了：重记同一个地址走的是 ON CONFLICT 而不是报错、查一条是逐字
-比对（前缀不算命中）、清空只碰自己的命名空间。
-"""
+"""验证 PgMaterialLedger 的冲突去重、URL 精确匹配和命名空间隔离。"""
 
 from __future__ import annotations
 
@@ -51,7 +47,6 @@ async def test_records_and_looks_up_each_kind(ledger: PgMaterialLedger, namespac
 async def test_recording_the_same_url_twice_keeps_the_first_row(
     ledger: PgMaterialLedger, engine: AsyncEngine, namespace: str
 ) -> None:
-    """同一个地址反复登记是常态（取帧复用既有账本就会再记一遍），不能报错也不能改原行。"""
 
     await ledger.record(namespace, [Material(url=VIDEO, kind="video")])
     await ledger.record(namespace, [Material(url=VIDEO, kind="image")])
@@ -69,7 +64,7 @@ async def test_recording_the_same_url_twice_keeps_the_first_row(
 async def test_the_same_url_twice_in_one_batch_is_fine(
     ledger: PgMaterialLedger, namespace: str
 ) -> None:
-    """同一张图在一条消息里发两次就是这个形状；一条语句里出现两次不能把整条打回。"""
+    """同一消息可以重复引用素材；批量登记不能因重复 URL 失败。"""
 
     await ledger.record(
         namespace, [Material(url=IMAGE, kind="image"), Material(url=IMAGE, kind="image")]
@@ -79,7 +74,6 @@ async def test_the_same_url_twice_in_one_batch_is_fine(
 
 
 async def test_lookup_matches_the_whole_url(ledger: PgMaterialLedger, namespace: str) -> None:
-    """逐字比对：合法地址的前缀不算命中。"""
 
     await ledger.record(namespace, [Material(url=VIDEO, kind="video")])
 
@@ -106,7 +100,7 @@ async def test_purge_only_clears_its_own_namespace(
 
 
 async def test_recording_nothing_is_a_no_op(ledger: PgMaterialLedger, namespace: str) -> None:
-    """纯文字的消息一条素材都没有；不带 VALUES 的 INSERT 是语法错误，所以这条路不发语句。"""
+    """空素材列表必须跳过 INSERT，避免生成缺少 VALUES 的无效语句。"""
 
     await ledger.record(namespace, [])
 

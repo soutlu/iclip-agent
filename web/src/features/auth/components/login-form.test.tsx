@@ -29,7 +29,7 @@ describe('LoginForm', () => {
   it('提交用户名密码后以表单登录并回调 onSuccess', async () => {
     const user = userEvent.setup()
     const onSuccess = vi.fn()
-    // 只旁听请求、不替换 handler：登录成功后 mock 的会话状态要真的翻成已登录
+    // 仅记录请求，保留原 handler 的登录状态更新。
     const loginBodies: Promise<string>[] = []
     server.events.on('request:start', ({ request }) => {
       if (request.method === 'POST' && request.url.endsWith('/api/auth/login')) {

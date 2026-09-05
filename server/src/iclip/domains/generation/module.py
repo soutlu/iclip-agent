@@ -1,9 +1,4 @@
-"""generation 装配单元：组合根只调用 ``build_generation_module``。
-
-两家 provider 一起装。视频和图片是同一件产品能力的两半，声明「要生成」而只给一半
-的接入，落到用户那里就是「点图片没反应，而且不报错」——所以两半的配置都必须在启动
-期齐备，缺了直接不装这个模块。
-"""
+"""媒体生成模块装配。图片与视频 Provider 必须同时配置，启动时校验依赖完整性。"""
 
 from __future__ import annotations
 
@@ -34,7 +29,7 @@ from iclip.platform.object_store.oss import PublicObjectStore
 @dataclass(frozen=True)
 class GenerationModule:
     routers: tuple[Any, ...]
-    """路由的类型写 ``Any``（同 identity）：装配单元不该把 web 框架拖进这一环。"""
+    """使用 Any 隔离 Web 框架类型。"""
 
     service: GenerationService
     queue: GenerationQueue
@@ -51,11 +46,7 @@ def build_generation_module(
     video_transport: httpx.AsyncBaseTransport | None = None,
     image_transport: httpx.AsyncBaseTransport | None = None,
 ) -> GenerationModule:
-    """装配 generation。两个 ``*_transport`` 只给测试注入 provider 替身用。
-
-    ``queue_connector`` 由组合根造：procrastinate 只支持 psycopg，而「本仓用哪个数据
-    库驱动」这种事该在组合根决定，不在业务模块里。测试传内存连接器。
-    """
+    """装配 Provider 与队列；transport 支持测试替身，queue_connector 由组合根选择数据库驱动。"""
 
     providers: dict[GenerationKind, GenerationProvider] = {
         KIND_VIDEO: MultiflowVideoProvider(

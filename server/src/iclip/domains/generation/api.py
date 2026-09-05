@@ -1,8 +1,4 @@
-"""媒体生成的 HTTP 面。
-
-提交返回 202：这时候一行 ``pending`` 已经落库，但还没碰过 provider。客户端拿着
-``id`` 去查状态。
-"""
+"""媒体生成 HTTP 端点。提交返回 202，此时 pending 记录已落库，Provider 调用由后台执行。"""
 
 from __future__ import annotations
 

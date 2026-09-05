@@ -1,1 +1,1 @@
-"""transcript：给人看的那一份运行记录，形状按 kimi code 协议。"""
+"""按 Kimi Code 协议投影运行记录。"""

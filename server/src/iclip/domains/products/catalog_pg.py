@@ -1,21 +1,8 @@
-"""产品资料目录的只读后端：外部 Postgres（PDM 的同步副本）。
+"""外部 PDM 同步库的只读查询，不建表、不迁移、不写入。
 
-**这些表不是我们的。** 本模块不建表、不迁移、不写入，只按显式列名读。上游改结构时
-我们会响亮地失败（列名对不上直接报错），而不是悄悄返回半截数据——这正是要的失效
-方式。
-
-一个款一次往返：款、图、颜色三段在库里聚成 JSON 再回来。分三条查会是三次往返，而
-这个库在网络另一头。
-
-四条不能省的过滤，少一条就会给出错的东西：
-
-- 每一跳都要 ``is_active AND NOT is_source_deleted``——同步副本用标记位表达删除。
-- 取图那跳还要 ``is_current AND status = 'succeeded'``：转存失败的行也在表里，用它
-  会得到一个指向空对象的地址。
-- 图按 ``content_hash`` 去重：同一个款下确实存在多条映射指向同一张图。
-- 颜色走 ``style_pdm_id``；``pdm_skcs.style_id`` 那个 UUID 外键列上游还没回填，全是
-  NULL，用它一个颜色都查不到而且不报错。
-"""
+款、图片与颜色在单次查询中聚合；每层仅取 is_active 且未被源端删除的记录。
+图片仅取当前成功转存记录，并按 content_hash 去重。
+颜色通过 style_pdm_id 关联；上游 style_id 未回填，不能作为关联键。"""
 
 from __future__ import annotations
 
@@ -30,7 +17,7 @@ from iclip.domains.products.models import Color, Product, ProductImage
 from iclip.domains.products.tables import brand_for, category_for, color_group_for
 
 PRODUCT_IMAGE_FILE_TYPE: Final = 17
-"""上游给产品图用的文件类型码；别的类型是模具图、材料图这些工艺资料。"""
+"""上游产品图类型码，排除模具图和材料图等工艺资料。"""
 
 _FIND_PRODUCT: Final = text(f"""
 WITH style AS (
@@ -80,10 +67,7 @@ FROM style s
 
 
 def _rows(value: Any) -> list[dict[str, Any]]:
-    """把聚合出来的那一列还原成行。
-
-    驱动对 ``text()`` 查询里的 json 列不做解码，拿到的是一段字符串。
-    """
+    """解码 text() 查询返回的 JSON 字符串；驱动不自动处理此列。"""
 
     if isinstance(value, str):
         return json.loads(value)
@@ -91,7 +75,7 @@ def _rows(value: Any) -> list[dict[str, Any]]:
 
 
 def _blank_to_none(value: str | None) -> str | None:
-    """上游的空串等于没填（``style_wms`` 里就有空串）。"""
+    """将上游空字符串视为缺失值。"""
 
     return value.strip() or None if value else None
 
@@ -115,7 +99,7 @@ class PgProductCatalog:
             dev_year=_blank_to_none(row["dev_year"]),
             brand=brand_for(row["brand_code"]),
             category=category_for(row["product_category_id"]),
-            # 上游同步 style 时没带 CT 归属那一列；等它同步过来这里才有值。
+            # 同步库未提供 CT 归属。
             combat_team=None,
             colors=tuple(
                 Color(

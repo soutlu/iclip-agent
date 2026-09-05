@@ -1,16 +1,8 @@
-"""上下文压缩：摘要作为一条边界留在历史里，发给模型的窗口在发送时现算。
+"""通过 CompactionPart 标记摘要边界，保留完整历史。
 
-核心库自己就是这个模型——``CompactionPart`` 标出「这之前的都被摘要顶掉了」，全量历史一条不删，
-模型看到的那段由 ``post_compaction_window`` 从最后一条边界往后推。缺的只有两段：核心库只在厂商
-自己返回边界时产生它，而我们用的 Chat Completions 适配器在发送时把 ``CompactionPart`` 直接丢掉。
-两段都补在公开 hook 上：
-
-- ``before_model_request`` 产生边界。这个 hook 的改动按框架设计写回 run 历史，所以边界落得进去。
-- ``wrap_model_request`` 算窗口。它只影响交给 handler 的那一次请求，不写回历史，快照因此仍是全量。
-
-摘要本身借 harness 的 ``SummarizingCompaction`` 当黑盒用：它有调好的 prompt、增量更新与不拆工具
-对的切点。它自己的触发不挂。摘要在窗口里的位置由这里定：紧跟 instructions 的一条 user 消息，
-与核心库原生压缩、Claude Code 同一个位置。
+before_model_request 将边界写入历史；wrap_model_request 仅裁剪发往模型的窗口。
+SummarizingCompaction 提供摘要和工具对完整的切点，触发条件由本模块控制。
+摘要以 user 消息置于 instructions 之后，适配 Chat Completions。
 """
 
 from __future__ import annotations
@@ -42,16 +34,11 @@ _logger = structlog.stdlib.get_logger(__name__)
 SUMMARY_FRAMING = (
     "The summary above is secondhand; re-verify critical facts against primary sources."
 )
-"""摘要之后补的一句话，逐字取 harness receipt 里那句。"""
+"""与 harness receipt 一致的摘要后续指令。"""
 
 
 def compaction_boundary(message: ModelMessage) -> CompactionPart | None:
-    """这条消息带着一条压缩边界时，返回那个 part。
-
-    按 part 认，不按整条认：刚插进去时边界自成一条消息，但这份历史再被当成 ``message_history``
-    交回引擎时，框架会把相邻的同角色消息并成一条，边界从此和旁边那次响应挤在一起。按整条认的话
-    界面上那块提示在下一轮之后就没了，而且不报错。
-    """
+    """按 part 查找压缩边界，兼容框架合并相邻同角色消息后的历史。"""
 
     if not isinstance(message, ModelResponse):
         return None
@@ -61,12 +48,7 @@ def compaction_boundary(message: ModelMessage) -> CompactionPart | None:
 
 
 def compaction_only(message: ModelMessage) -> bool:
-    """这条消息除了边界什么都没有——它不是模型答的一步。
-
-    并进别的响应之后就不再成立：那条消息里还有模型真说过的话，它照样是一步。
-
-    ``parts`` 空的响应在真实历史里存在，而 ``all()`` 对空列表为真，所以先要求它非空。
-    """
+    """判断非空消息是否仅包含压缩边界；混有模型响应内容时仍计为一步。"""
 
     if not isinstance(message, ModelResponse) or not message.parts:
         return False
@@ -74,12 +56,7 @@ def compaction_only(message: ModelMessage) -> bool:
 
 
 def model_window(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
-    """这份历史此刻该发给模型的那一段：最后一条边界之后的全部消息，前面顶一条摘要。
-
-    摘要是一条 user 消息，不是 system part：chat 适配器把开头连续的 system 消息排在 instructions
-    之前，摘要做成 system part 就会顶到 system prompt 前面去。做成 user 消息，instructions 仍是
-    第一条，摘要紧跟其后、在对话之内，与核心库原生压缩和 Claude Code 同一个位置。
-    """
+    """返回最新边界后的模型窗口。摘要使用 user 消息，确保位于 instructions 之后。"""
 
     return _window(
         messages,
@@ -88,11 +65,7 @@ def model_window(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
 
 
 def summarizer_input(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
-    """喂给摘要器的那份：与窗口同一段消息，只是摘要作 system part。
-
-    摘要器认上一份摘要靠的是「以它自己前缀开头的 system part」，换成别的形状它就认不出来，
-    增量更新退化成对摘要再摘要。这份只进摘要器，不发给模型。
-    """
+    """为摘要器构造窗口，使用带其约定前缀的 system part 标记旧摘要，以支持增量更新。"""
 
     return _window(messages, lambda summary: SystemPromptPart(content=summary))
 
@@ -100,12 +73,7 @@ def summarizer_input(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
 def _window(
     messages: Sequence[ModelMessage], head_part: Callable[[str], ModelRequestPart]
 ) -> list[ModelMessage]:
-    """最后一条边界之后的全部消息，前面顶一条只装摘要的请求；没有边界就是原样。
-
-    切点由核心库的 ``post_compaction_window`` 给，它认的是 part 级的位置而不是整条消息：
-    框架在发送前会把相邻的同角色消息并成一条，边界因此常常和旁边那次响应挤在一条里，按整条
-    认就再也找不着它，窗口悄悄退回整份历史。同一条消息里排在边界后面的 part 仍属于窗口。
-    """
+    """按 part 级边界提取窗口，保留同一消息中边界之后的内容，并在前方插入摘要请求。"""
 
     window = post_compaction_window(messages)
     if not window or not isinstance(head := window[0], ModelResponse) or not head.parts:
@@ -122,25 +90,21 @@ def _window(
 
 @dataclass
 class ContextCompaction(AbstractCapability[Any]):
-    """历史超过触发线时压一次：在切点插一条边界，之后每次请求只发边界之后那一段。"""
+    """历史超过阈值时写入压缩边界，后续请求使用边界后的窗口。"""
 
     strategy: SummarizingCompaction[Any]
-    """只当摘要器用，它自己的触发从不调用。"""
+    """仅调用摘要能力，由本模块控制触发。"""
 
     max_tokens: int
-    """触发线，由运行侧按模型窗口乘比例算好。"""
+    """模型上下文窗口乘以压缩比例。"""
 
     on_compaction: Callable[[str], None]
-    """压缩发生时把摘要正文交给运行侧，界面据此画一块提示。"""
+    """压缩完成后通知运行侧更新显示。"""
 
     async def before_model_request(
         self, ctx: RunContext[Any], request_context: ModelRequestContext
     ) -> ModelRequestContext:
-        """超过触发线就压一次，边界插在切点上。
-
-        用量估算锚在最近一条响应的 ``input_tokens`` 上，而那个数量正是上次实际发出去的窗口，
-        所以在全量历史上算出来的也是窗口的大小。
-        """
+        """超过阈值时插入摘要边界；最近响应的 input_tokens 对应上次实际发送的窗口。"""
 
         messages = request_context.messages
         if (
@@ -154,7 +118,7 @@ class ContextCompaction(AbstractCapability[Any]):
         window = summarizer_input(messages)
         result = await self.strategy.compact(window, ctx)
         if result is window:
-            # 切不动：消息少到留够尾巴就没剩下可摘要的了。
+            # 保留尾部消息后，没有可摘要的内容。
             _logger.info("历史超线但切不动，这次不压", run_id=ctx.run_id, messages=len(messages))
             return request_context
 
@@ -162,11 +126,9 @@ class ContextCompaction(AbstractCapability[Any]):
         index = _cut_index(messages, result[1:])
         boundary = ModelResponse(
             parts=[CompactionPart(content=summary, provider_name=ctx.model.system)],
-            # 盖切点那条消息的号，不盖本次 run 的：这份历史下次交回引擎时，框架会把边界并进它后面
-            # 那条响应，而合并保留前一条的号。盖本次 run 的话，那条响应连同它那一步会被拽进本轮，
-            # 早就跑完的那一轮当场空掉一步。
+            # 使用切点消息的 run_id；框架合并时保留前一消息的 id，避免历史响应被归入当前轮。
             run_id=messages[index].run_id if index < len(messages) else ctx.run_id,
-            # 时刻自己盖：框架的 run 元数据只盖末条请求，不盖中途插进来的消息。
+            # 显式记录时间；框架仅为末条请求补充运行元数据。
             timestamp=datetime.now(UTC),
         )
         _logger.info(
@@ -186,7 +148,7 @@ class ContextCompaction(AbstractCapability[Any]):
         request_context: ModelRequestContext,
         handler: WrapModelRequestHandler,
     ) -> ModelResponse:
-        """只把窗口交给这一次请求。换一份 context 而不是原地改：改了就写进历史了。"""
+        """复制请求 context 并替换为模型窗口，保持完整历史不变。"""
 
         return await handler(
             dataclasses.replace(request_context, messages=model_window(request_context.messages))
@@ -194,11 +156,7 @@ class ContextCompaction(AbstractCapability[Any]):
 
 
 def _summary_of(message: ModelMessage) -> str:
-    """摘要器把新摘要放在首条请求的最后一个 part，它前面可能还带着原有的 system prompt。
-
-    形状对不上就是摘要器换了写法，当场抛出来——拿一段空摘要插条边界的话，边界之前那段历史
-    就此从模型眼里消失，而且不报错。
-    """
+    """提取摘要器首条请求末尾的摘要 part；结构不符时抛错，避免空摘要遮蔽历史。"""
 
     last = message.parts[-1] if isinstance(message, ModelRequest) and message.parts else None
     if not isinstance(last, SystemPromptPart):
@@ -207,12 +165,7 @@ def _summary_of(message: ModelMessage) -> str:
 
 
 def _cut_index(messages: Sequence[ModelMessage], preserved: Sequence[ModelMessage]) -> int:
-    """切点在原列表里的位置：留下来那几条中，头一条在原列表里的下标。
-
-    按对象身份找，不按相等找：消息之间字段相等是常事（两条一样的空请求），``list.index`` 会指到
-    别处去。逐条找而不是只找 ``preserved[0]``：首条可能是 ``summarizer_input`` 现造的那半条
-    （边界与模型的话挤在同一条时，排在边界后面的 part 被拆出来），它压根不在原列表里。
-    """
+    """按对象身份定位首条保留消息；跳过窗口拆分产生的新对象，避免相等消息误匹配。"""
 
     alive = {id(item) for item in preserved}
     return next(

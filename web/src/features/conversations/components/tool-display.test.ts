@@ -1,12 +1,7 @@
-/**
- * 工具卡认的是 display 的 kind：认得的每一种给一句人话，认不出的画朴素卡。
- */
-
 import { describe, expect, it } from 'vitest'
 import type { ToolCallFrame } from '@/shared/transcript/vendor'
 import { toolCard, toolMedia } from './tool-display'
 
-/** 一次调用，只填这几种用例关心的字段。 */
 const toolFrame = (fields: Partial<ToolCallFrame>): ToolCallFrame => ({
   frameId: 'f1',
   kind: 'tool',

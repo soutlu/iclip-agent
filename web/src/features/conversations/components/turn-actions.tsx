@@ -1,13 +1,4 @@
-/**
- * 一轮回复尾部的终态栏：「复制 / 重新生成」图标钮、token 统计、完成时刻。
- *
- * 版式照 WorkBuddy 终态栏：24×24 透明图标钮（IconButton size="xs" 外壳，字色压成
- * chat-muted-text）常显；统计段由 credit 钻石图标领头，三项只留 k 缩略，精确值收进
- * 原生 title；完成时刻按「今天 HH:mm / 昨天 HH:mm / 更早 M月d日 HH:mm（跨自然年补年份）」缩写。
- * 统计与时刻默认透明、hover 该轮时一起浮现（WorkBuddy 同此：credit 与时刻都是 opacity 0 → hover 显现），
- * title 里各留精确值。统计只在这轮带 usage 时出现
- * （运行中、失败轮与旧数据没有它），时刻只在 endedAt 存在且能解析时出现。
- */
+/** 参考 WorkBuddy 终态栏；usage 与 endedAt 缺失时分别省略统计和时刻，悬停提示保留精确值。 */
 
 import { useState } from 'react'
 import type { TranscriptUsage } from '@/shared/transcript/vendor'
@@ -21,17 +12,13 @@ const compactTokens = (tokens: number): string => {
   return `${(tokens / 1000).toFixed(2).replace(/\.?0+$/, '')}k`
 }
 
-/** 悬停里的精确值：千分位整数。 */
 const exactTokens = (tokens: number): string => tokens.toLocaleString('zh-CN')
 
 const pad2 = (value: number): string => String(value).padStart(2, '0')
 
 const isSameDay = (a: Date, b: Date): boolean => a.toDateString() === b.toDateString()
 
-/**
- * 栏内时刻照 WorkBuddy formatMessageTime：今天只显 HH:mm，昨天补「昨天」前缀，
- * 更早显 M月d日 HH:mm，跨自然年再补年份。解析不出来就当作没有。
- */
+/** 参考 WorkBuddy formatMessageTime：今天显示时分、昨天加前缀、更早显示月日，跨年补年份。 */
 const messageTime = (iso: string, now: Date): string => {
   const then = new Date(iso)
   if (Number.isNaN(then.getTime())) return ''
@@ -51,7 +38,6 @@ const fullTime = (iso: string): string => {
   return `${then.getFullYear()}/${pad2(then.getMonth() + 1)}/${pad2(then.getDate())} ${pad2(then.getHours())}:${pad2(then.getMinutes())}:${pad2(then.getSeconds())}`
 }
 
-/** 统计段：钻石图标领头，输入 / 缓存 / 输出三段中点分隔；默认透明、hover 该轮浮现；精确口径在 title 里。 */
 const UsageStats = ({ usage }: { usage: TranscriptUsage }) => {
   const input = usage.inputTokens ?? 0
   const cached = usage.cachedTokens ?? 0
@@ -67,9 +53,8 @@ const UsageStats = ({ usage }: { usage: TranscriptUsage }) => {
   )
 }
 
-/** 时刻段：默认透明，hover 该轮（article.group）时浮现；title 留精确完整时刻。 */
 const TurnTime = ({ endedAt }: { endedAt: string }) => {
-  // 「今天 / 昨天」的参照点取挂载时刻：一行时刻不需要随真实时间滚动
+  // 相对日期以组件挂载时刻为参照。
   const [now] = useState(() => new Date())
   const label = messageTime(endedAt, now)
   if (label === '') return null
@@ -85,28 +70,17 @@ const TurnTime = ({ endedAt }: { endedAt: string }) => {
 }
 
 type TurnActionsProps = {
-  /** 这轮回复的原始 markdown（复制内容）。 */
+  /** 复制使用原始 Markdown。 */
   copyText: string
-  /** 这轮结束时刻；渲染栏尾时刻段，缺失或解析不出则时刻段不渲染。 */
+  /** 缺失或无效的结束时间不显示。 */
   endedAt?: string | undefined
-  /** 这轮 token 统计；整体缺失（运行中 / 失败 / 旧数据）时统计段不渲染。 */
+  /** 缺少 usage 时省略统计。 */
   usage?: TranscriptUsage | undefined
-  /** 重新生成这一轮；不传则不渲染该按钮（调用方判定是否最后一轮、对话是否空闲）。 */
+  /** 未提供回调时隐藏按钮；调用方负责末轮与空闲状态判断。 */
   onRegenerate?: (() => void) | undefined
   regenerateDisabled?: boolean | undefined
 }
 
-/**
- * 渲染终态栏。
- *
- * @param props - 组件属性。
- * @param props.copyText - 复制内容。
- * @param props.endedAt - 这轮结束时刻。
- * @param props.usage - 这轮 token 统计。
- * @param props.onRegenerate - 重新生成回调。
- * @param props.regenerateDisabled - 重新生成暂不可用。
- * @returns 终态栏。
- */
 export function TurnActions({
   copyText,
   endedAt,

@@ -1,8 +1,4 @@
-/**
- * 活动组（照 kimi 网页版的 activity-run）：一轮里连续的思考块与工具调用收成一行可折叠
- * 摘要——状态图标 + 聚合计数 + 时长，运行中自动展开、收尾自动收起；展开后每条就是普通的
- * 思考块 / 工具行。
- */
+/** 参考 Kimi activity-run：活动组运行时自动展开，结束后自动收起。 */
 
 import { useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from '@/shared/icons'
@@ -14,20 +10,11 @@ import { TurnFrame } from './turn-frame'
 
 type ActivityRunProps = {
   items: readonly TurnEntry[]
-  /** 整轮正在产出的那一块。 */
   liveFrameId: string | undefined
-  /** 所在轮子是否已结束。 */
   settled: boolean
 }
 
-/**
- * 这一叠的墙钟：在跑就本地计时走秒，收尾冻结；历史一叠（没赶上直播）用成员步骤的起止
- * 时间算，缺时间戳就不显示。
- *
- * @param running - 这一叠是否还在跑。
- * @param historyMs - 历史时长（毫秒）。
- * @returns 毫秒；没有为 undefined。
- */
+/** 运行时本地计时并在结束时冻结；历史记录使用步骤起止时间，缺失时不显示。 */
 function useActivityMs(running: boolean, historyMs: number | undefined): number | undefined {
   const startedRef = useRef<number | null>(null)
   const [elapsed, setElapsed] = useState<number | undefined>(undefined)
@@ -37,7 +24,7 @@ function useActivityMs(running: boolean, historyMs: number | undefined): number 
     startedRef.current ??= Date.now()
     const started = startedRef.current
     const tick = () => setElapsed(Date.now() - started)
-    // 先补一拍零帧：不到 1 秒就收尾的一叠，等第一拍早就把读数丢光了
+    // 立即记录初始读数，避免一秒内结束的活动没有计时结果。
     const first = setTimeout(tick, 0)
     const id = setInterval(tick, 1000)
     return () => {
@@ -50,7 +37,7 @@ function useActivityMs(running: boolean, historyMs: number | undefined): number 
   return elapsed ?? historyMs
 }
 
-/** 运行中头部图标的当前项：直播块优先，其次第一个在跑的工具。 */
+/** 当前图标优先取 liveFrameId，其次取运行中的工具。 */
 const currentIcon = (items: readonly TurnEntry[], liveFrameId: string | undefined): IconName => {
   const current =
     items.find((entry) => entry.frame.frameId === liveFrameId) ??
@@ -66,15 +53,6 @@ const CLAUSE_TONE_CLASS = {
   faint: 'text-chat-muted-text',
 } as const
 
-/**
- * 渲染一叠活动。
- *
- * @param props - 组件属性。
- * @param props.items - 这一叠的块（连同步，给历史时长用）。
- * @param props.liveFrameId - 正在产出的那一块。
- * @param props.settled - 所在轮子是否已结束。
- * @returns 活动组。
- */
 export function ActivityRun({ items, liveFrameId, settled }: ActivityRunProps) {
   const running =
     !settled &&
@@ -85,7 +63,7 @@ export function ActivityRun({ items, liveFrameId, settled }: ActivityRunProps) {
     )
   const failed = items.some((entry) => entry.frame.kind === 'tool' && entry.frame.state === 'error')
 
-  // 自动开合照 kimi：起跑自动展开，收尾自动收起；用户点过之后以最后一次操作为准
+  // 用户手动切换后，自动开合不再覆盖其选择。
   const [open, setOpen] = useState(running)
   const [prevRunning, setPrevRunning] = useState(running)
   if (running !== prevRunning) {
@@ -98,10 +76,9 @@ export function ActivityRun({ items, liveFrameId, settled }: ActivityRunProps) {
     ? summarizeRunning(items, liveFrameId, elapsedMs)
     : summarizeDone(items, elapsedMs)
   const stateLabel = running ? '进行中' : failed ? '有失败' : '完成'
-  // 可访问名走 aria-label：子句拆成多个 span 染色后，name-from-content 会在元素边界裁掉
-  // 空白，拼出「完成读取了 1 个文件·写入了」这种没空格的串
+  // 显式提供 aria-label，避免分色 span 的边界空白被可访问名称计算裁掉。
   const summaryText = clauses.map((clause) => clause.text).join(' · ')
-  // key 靠「内容 + 出现次数」去重（两个类别可能都欠出同一句「（1 失败）」），不用数组索引
+  // 以内容和出现次数组成 key，区分相同的失败子句。
   const seen = new Map<string, number>()
   const keyed = clauses.map((clause) => {
     const base = `${clause.tone ?? ''}:${clause.text}`

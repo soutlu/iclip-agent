@@ -9,7 +9,6 @@ const CHIP_CLASS =
 const SELECTED_CLASS =
   'data-[state=on]:border-transparent data-[state=on]:bg-state-active data-[state=on]:text-on-surface'
 
-/** 一组 filter chip；单选传 type="single"，多选传 type="multiple"。 */
 export function ChipGroup({
   className,
   ...props
@@ -38,7 +37,7 @@ type AssistChipProps = ComponentPropsWithRef<'button'> & {
   leadingIcon?: IconName
 }
 
-/** 触发一次动作的 chip（如「自定义」新增入口），不参与选中语义。 */
+/** 触发动作，不参与选择状态。 */
 export function AssistChip({
   children,
   className,

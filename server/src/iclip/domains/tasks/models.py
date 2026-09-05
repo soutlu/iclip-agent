@@ -1,13 +1,6 @@
-"""创作需求单的领域模型。
+"""创作需求单领域模型。需求单全公司可见，创建者不构成读取边界。
 
-一张需求单是一份被记录在案的视频创作要求：谁提的、要什么、什么时候要、走到哪一步。
-它是**全公司都看得见的工作队列**，不是私人物品——所以这里没有「属主」，只有「创建
-者」。认领人另记：谁接了这张单是一组事实行（``task_assignees``），不是单上的一个槽
-位——一张单可以被多个人认领。
-
-创作输入本身在 [schemas.py](schemas.py)：那一套定义同时是 wire 形状与入库形状，不在
-这里再写一遍。
-"""
+认领关系存于 task_assignees，支持多人认领；创作输入和款号快照的类型统一定义在 schemas.py。"""
 
 from __future__ import annotations
 
@@ -21,16 +14,14 @@ from iclip.domains.tasks.schemas import TaskBrief, TaskStyle
 TaskStatus = Literal["draft", "published", "confirmed", "withdrawn"]
 
 STATUS_DRAFT: Final = "draft"
-"""还在写。只有创建者看得见的那部分权利：随便改、可以删。"""
 STATUS_PUBLISHED: Final = "published"
-"""已下发。创作输入从这一刻起冻结（见 ``schemas.PLANNER_FIELDS``）。"""
+"""发布后冻结创作输入，允许补充的字段见 schemas.PLANNER_FIELDS。"""
 STATUS_CONFIRMED: Final = "confirmed"
-"""已被认领。可以据此开工；认领人记在 ``task_assignees``，谁接的一目了然。"""
 STATUS_WITHDRAWN: Final = "withdrawn"
-"""已撤回。终态，改不动也删不掉——它是发生过的事实。"""
+"""撤回是终态，禁止修改和删除。"""
 
 ACTIVE_STATUSES: Final = frozenset({STATUS_PUBLISHED, STATUS_CONFIRMED})
-"""下发之后、还没撤回：这两个状态下的需求单才能被拿去开工。"""
+"""允许开工的需求单状态。"""
 
 TASK_STATUSES: Final = (STATUS_DRAFT, STATUS_PUBLISHED, STATUS_CONFIRMED, STATUS_WITHDRAWN)
 
@@ -44,15 +35,15 @@ class Task:
     status: TaskStatus
     priority: int
     deadline: datetime | None
-    """什么时候要。草稿可以先空着；一旦下发就必须有（数据库上也有一条 CHECK 守着）。"""
+    """草稿可不设期限；发布后必须存在，由数据库 CHECK 约束保证。"""
     creator_user_id: uuid.UUID
     style: TaskStyle
-    """下单那天主款长什么样。创建时冻结，之后没有任何写入路径能改它。"""
+    """创建时冻结的主款快照，更新路径不可修改。"""
     brief: TaskBrief
     created_at: datetime
     updated_at: datetime
     assignee_user_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
-    """谁认领了这张单。事实存在 ``task_assignees`` 表里，读出来挂在这；可多个人。"""
+    """task_assignees 表中认领关系的读取投影。"""
 
 
 __all__ = [

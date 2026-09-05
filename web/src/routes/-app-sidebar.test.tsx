@@ -18,24 +18,13 @@ import { LoginPromptProvider } from './-login-prompt'
 const loginAsUser = () =>
   server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
 
-/**
- * 折叠态住在壳里（宽度与并排判定都要看它），单测里用这个最小的壳替身持有它。
- *
- * @returns 带折叠态的侧栏。
- */
+/** 测试壳持有折叠状态，与应用壳的状态归属一致。 */
 function SidebarHarness() {
-  // 与壳同一条规矩：jsdom 的 matchMedia 恒为不匹配，等于紧凑屏，默认收起。
+  // matchMedia 替身恒为 false，模拟紧凑屏初始折叠。
   const [collapsed, setCollapsed] = useState(() => !window.matchMedia('(min-width: 600px)').matches)
   return <AppSidebar collapsed={collapsed} onCollapsedChange={setCollapsed} />
 }
 
-/**
- * 把侧栏挂在应用壳的登录信号下渲染。
- *
- * @param requireLogin - 侧栏请求登录时调用的回调。
- * @param initialPath - 起始地址，用来断言侧栏发起的跳转。
- * @returns 渲染结果。
- */
 const renderSidebar = (requireLogin = vi.fn(), initialPath = '/') =>
   renderWithProviders(
     <LoginPromptProvider value={requireLogin}>
@@ -105,7 +94,7 @@ describe('AppSidebar', () => {
     const { router } = await renderSidebar(vi.fn(), '/tasks')
 
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
-    // 等 /users/me 落地：拿到用户前新建任务还挂在登录弹窗上，点了不会跳
+    // 等待 /users/me 完成，避免新建任务仍触发登录弹窗。
     await screen.findByRole('button', { name: '用户菜单' })
     await user.click(screen.getByRole('button', { name: '新建任务' }))
 
@@ -114,7 +103,6 @@ describe('AppSidebar', () => {
 })
 
 describe('AppSidebar 对话区', () => {
-  /** 展开侧栏并等登录态落地，返回操作用的 user。 */
   const openSidebar = async () => {
     loginAsUser()
     const user = userEvent.setup()
@@ -130,11 +118,9 @@ describe('AppSidebar 对话区', () => {
     addMockConversation('合集里的那段').collectionId = collection.id
     const user = await openSidebar()
 
-    // 标题带条数：任务区是没归类的那些，合集区是合集本身的个数
     expect(await screen.findByRole('button', { name: '任务 (1)' })).toBeVisible()
     expect(screen.getByRole('button', { name: '合集 (1)' })).toBeVisible()
     expect(screen.getByText('没归类的那段')).toBeVisible()
-    // 合集默认收起，里面的对话要点开才看得到
     expect(screen.queryByText('合集里的那段')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '夏季亚麻系列 (1)' }))
@@ -176,7 +162,6 @@ describe('AppSidebar 对话区', () => {
     )
 
     await waitFor(() => expect(mockCollections).toHaveLength(0))
-    // 对话还在，只是回到了「任务」区
     expect(await screen.findByRole('button', { name: '任务 (1)' })).toBeVisible()
     expect(screen.getByText('里面的对话')).toBeVisible()
   })
@@ -210,7 +195,6 @@ describe('AppSidebar 对话区', () => {
     await user.click(within(dialog).getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(conversation.taskId).toBe(task.id))
-    // 只动了需求单那一处，合集那一处没碰
     expect(conversation.collectionId).toBeNull()
   })
 })

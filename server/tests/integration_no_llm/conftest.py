@@ -48,7 +48,9 @@ def pg_url() -> Generator[str]:
         from testcontainers.community.postgres import PostgresContainer
     except ImportError:
         try:
-            from testcontainers.postgres import PostgresContainer  # 旧命名空间兜底
+            from testcontainers.postgres import (
+                PostgresContainer,
+            )  # 兼容 testcontainers 的旧导入路径。
         except ImportError:
             pytest.skip("无 TEST_DATABASE_URL 且未安装 testcontainers")
     try:
@@ -74,7 +76,7 @@ def migrated_pg(pg_url: str) -> str:
 
 
 def make_runtime_config() -> RuntimeConfig:
-    """测试用的 YAML 形状。地址与凭证不在这里——它们由 env 提供（见 ``base_env``）。"""
+    """测试运行配置；地址与凭证由 base_env 提供。"""
 
     return RuntimeConfig(
         app=AppSection(name="iclip-test"),
@@ -93,11 +95,11 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
     monkeypatch.delenv("PMS_BASE_URL", raising=False)
     monkeypatch.delenv("SSO_REDIRECT_URL", raising=False)
     monkeypatch.delenv("ROOT_EMAIL", raising=False)
-    # 开发机上真配了产品目录库的话，别让它悄悄混进每个测试的 app。
+    # 隔离开发机的产品目录库配置。
     monkeypatch.delenv("PRODUCT_CATALOG_DATABASE_URL", raising=False)
     monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL", raising=False)
     monkeypatch.delenv("INSPIRATION_DATABASE_URL", raising=False)
-    # 同理，别让开发机上那把真桶凭证混进来——测试要么注入替身桶，要么就没有桶。
+    # 隔离开发机的对象存储凭证。
     monkeypatch.delenv("OSS_BUCKET", raising=False)
 
 
@@ -142,8 +144,7 @@ async def app(
             agents=agent_declarations,
             engine=engine,
             models=models,
-            # 款号快照的内容来自 PDM 与对象存储，这一层不连它们；替身给一份固定快照，
-            # 让「快照存进库读回来还是同一份」这件事仍然在真库上被验到。
+            # 固定快照隔离 PDM 与对象存储，数据库仍验证快照的持久化往返。
             style_snapshots=StubStyleSnapshots(),
         )
     finally:
@@ -157,10 +158,9 @@ def ws_agent_app(
     agent_declarations: tuple[ResolvedAgent, ...],
     models: dict[str, TestModel],
 ) -> Generator[FastAPI]:
-    """带 agent 的 WS 场景：app 全程活在 TestClient 的事件循环里。
+    """在 TestClient 事件循环中装配带 agent 的 WS app。
 
-    与 ``ws_app`` 同一个道理（NullPool，见下），区别只是装上了声明的 agent——订阅要看得到
-    真跑出来的操作。
+    使用 NullPool 避免 asyncpg 连接跨事件循环复用。
     """
 
     import asyncio
@@ -194,10 +194,9 @@ def ws_agent_app(
 
 @pytest.fixture
 def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
-    """WS 场景专用：app 全程活在 TestClient 的事件循环里。
+    """在 TestClient 事件循环中装配 WS app。
 
-    NullPool 让每个连接在当前 loop 新建，避免连接池跨 loop 复用
-    （asyncpg 连接绑定创建时的事件循环）。
+    使用 NullPool 避免 asyncpg 连接跨事件循环复用。
     """
 
     import asyncio
@@ -309,11 +308,7 @@ async def set_roles_in_db(pg_url: str, email: str, roles: list[str]) -> None:
 
 
 async def new_conversation(client: httpx.AsyncClient, agent_id: str) -> str:
-    """开一段对话，返回它的 id（AG-UI 请求体里的 ``threadId`` 用的就是它）。
-
-    agent 端点只认服务端自己发出去的会话 id，所以凡是要真跑一次运行的用例都得
-    先走这一步。
-    """
+    """创建会话并返回 AG-UI threadId；agent 端点仅接受服务端创建的会话。"""
 
     created = await client.post("/conversations", json={"agentId": agent_id})
     assert created.status_code == 201, created.text

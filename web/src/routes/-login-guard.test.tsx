@@ -8,8 +8,7 @@ import { queryClient } from '@/shared/api/query-client'
 import { mockAuthUser } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 
-// lottie-web 在模块加载时就探测 canvas 2d context，jsdom 里拿不到会直接抛。
-// 被挡回首页时会渲染到 hero 动画，这里只关心落在哪个路由。
+// jsdom 缺少 Lottie 的 canvas 支持；替换装饰动画，保留真实路由守卫。
 vi.mock('lottie-web/build/player/lottie_light', () => ({
   default: {
     loadAnimation: () => ({
@@ -20,13 +19,7 @@ vi.mock('lottie-web/build/player/lottie_light', () => ({
   },
 }))
 
-/**
- * 用真实路由树在指定地址起一个内存路由——守卫写在路由上，只有整棵树跑起来才测得到。
- * 用的是应用同一个 queryClient 单例，因为 ensureSessionUser 读的就是它。
- *
- * @param initialPath - 起始地址。
- * @returns 加载并挂载完的 router。
- */
+/** 使用应用路由树与 queryClient 单例，确保 beforeLoad 和 ensureSessionUser 共用身份缓存。 */
 const renderAt = async (initialPath: string) => {
   const router = createRouter({
     history: createMemoryHistory({ initialEntries: [initialPath] }),
@@ -43,7 +36,7 @@ const renderAt = async (initialPath: string) => {
   return router
 }
 
-// 登录态缓存在单例 queryClient 里，staleTime 30s，不清会串到下一个用例
+// 每例清理单例 queryClient，避免登录缓存污染后续测试。
 afterEach(() => {
   queryClient.clear()
 })
@@ -65,7 +58,6 @@ describe('整页要登录的那几页', () => {
     expect(await screen.findByRole('heading', { name: '需求单' })).toBeVisible()
   })
 
-  // 对话是私有的：拿到别人的链接也不该看见内容，更不该让页面自己去打一发注定 401 的请求。
   it('未登录直接访问会话页时挡回首页', async () => {
     const router = await renderAt('/c/11111111-1111-4111-8111-111111111111')
 

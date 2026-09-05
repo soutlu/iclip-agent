@@ -27,14 +27,14 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      # CI 上不许静默 skip：给了地址，跑不起来就是红的。
+      # 显式配置测试库，连接失败时测试报错而非跳过。
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
     defaults:
       run:
         working-directory: server
     steps:
       - uses: actions/checkout@v7
-      # 钉到具体版本：上游从 v8 起不再维护浮动的大版本标签，@v10 解析不出来。
+      # 上游不提供浮动的大版本标签，须使用完整版本号。
       - uses: astral-sh/setup-uv@v10.0.1
       - name: Sync dependencies (lockfile 精确 pin)
         run: uv sync --locked
@@ -67,12 +67,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install pnpm
-        # 直接取发布页的可执行文件。pnpm/action-setup 会先用 npm 装一个引导版，npm 源一慢
-        # 就是几分钟，而它每次先删安装目录，缓存也接不住。版本取自 packageManager，不另写一处。
+        # 从发布页下载 packageManager 指定版本，避免额外的 npm 引导安装。
         run: |
           version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
           mkdir -p "$HOME/.pnpm-bin"
-          # 整包解开：根目录那个 pnpm 只是启动器，要同目录的 dist/ 才跑得起来。
+          # 启动器依赖同目录 dist/，须解压完整发布包。
           curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
           chmod +x "$HOME/.pnpm-bin/pnpm"
           echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
@@ -87,7 +86,7 @@ jobs:
         run: pnpm ci:check
       - name: Build
         run: pnpm build
-      # e2e 不进 ci:check：要装浏览器、要起 dev 服务器，本地按需跑，CI 每次都跑
+      # e2e 需要浏览器与开发服务器，在 ci:check 之外单独执行。
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
       - name: e2e (browser MSW as backend)

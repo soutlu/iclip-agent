@@ -1,11 +1,4 @@
-"""``iclip.media_assets`` 的 Postgres 后端。DDL 归 Alembic，这里不建表。
-
-**登记时刻取数据库的时钟**（``now()``）：多台应用服务器的钟差几秒，列表的先后就会
-和实际登记顺序对不上。
-
-**没有属主过滤**：素材是全公司共用的（见 ``repository.py``），所以这里不用
-``platform/db`` 的行级归属原语——那是给私人资源用的。
-"""
+"""素材的 Postgres 仓储。登记时间使用数据库时钟，读取不按属主隔离。"""
 
 from __future__ import annotations
 
@@ -41,21 +34,16 @@ media_assets_table = Table(
     "media_assets",
     metadata_obj,
     Column("id", Uuid, primary_key=True),
-    # 不级联删除：素材是公司账本上的事实，不该跟着传它的那个账号一起消失（同
-    # tasks.creator_user_id）。账号目前只停用不删除，所以 restrict 不会挡住任何
-    # 正常路径；真去删就该响亮地失败。
+    # 删除账号不能级联删除素材记录。
     Column(
         "creator_user_id",
         Uuid,
         ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="restrict"),
         nullable=False,
     ),
-    # 故意没有到 api_keys 的外键：key 随属主级联删除，而「哪把 key 干的」这条审计
-    # 事实必须比那把 key 活得更久（同 generation_jobs）。
+    # 不关联 api_keys 外键，保留 key 删除后的审计身份。
     Column("api_key_id", Uuid, nullable=True),
     Column("asset_type", Text, nullable=False),
-    # 唯一：一个对象只该在账本上出现一次。key 由 assetId 派生，所以这条唯一约束
-    # 实际守的是「同一份素材被登记两遍」。
     Column("object_key", Text, nullable=False, unique=True),
     Column("content_type", Text, nullable=False),
     Column("size_bytes", BigInteger, nullable=False),
@@ -66,8 +54,6 @@ media_assets_table = Table(
 
 _ROWS = media_assets_table.c
 
-# 列表页就这一个查询：最近登记的排前面。按创建者或类型筛是在它之上的顺序过滤，
-# 行数很少之后再说。
 Index("ix_media_assets_created", _ROWS.created_at.desc())
 
 
@@ -108,7 +94,7 @@ class SqlAssetRepository:
         )
         async with self._engine.begin() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
-        # 冲突即「这一行早就登记过了」——重试打到这里是正常路径，把既有那行读回来。
+        # 重复登记返回既有记录，支持客户端重试。
         return await self.get(asset.id) if row is None else _row(row)
 
     async def get(self, asset_id: uuid.UUID) -> Asset:

@@ -1,7 +1,3 @@
-/**
- * 活动组的分组与摘要：连续的思考块与工具调用折成一叠，聚合计数与时长格式。
- */
-
 import { describe, expect, it } from 'vitest'
 import type { TranscriptFrame, TranscriptStep } from '@/shared/transcript/vendor'
 import {
@@ -26,7 +22,6 @@ const step: TranscriptStep = {
 
 const entry = (frame: TranscriptFrame): TurnEntry => ({ frame, step })
 
-/** 没带时间戳的一步。 */
 const timelessStep: TranscriptStep = (() => {
   const bare = { ...step }
   delete bare.startedAt

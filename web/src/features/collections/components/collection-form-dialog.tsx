@@ -16,22 +16,14 @@ import { useSaveCollection } from '../collections.api'
 const MAX_NAME_CHARS = 200
 
 type CollectionFormDialogProps = {
-  /** 给了就是改名（连带带出原名），没给就是新建 */
+  /** 提供 collection 时编辑原名，否则新建。 */
   collection?: { id: string; name: string } | undefined
   onOpenChange: (open: boolean) => void
-  /** 落库之后调用，由调用方刷掉侧栏那份拓扑 */
+  /** 保存后由调用方刷新侧栏拓扑。 */
   onSaved: () => void
   open: boolean
 }
 
-/**
- * 合集的新建 / 改名弹窗：一个名字输入框加字数计数。
- *
- * 两件事共用一个弹窗，是因为它们的表单完全一样——差别只在标题文案与要不要带原名。
- *
- * @param props - 要改名的合集（不给即新建）、开关与保存后的回调。
- * @returns 合集表单弹窗。
- */
 export function CollectionFormDialog({
   collection,
   onOpenChange,

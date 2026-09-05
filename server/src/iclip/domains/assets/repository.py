@@ -1,11 +1,4 @@
-"""素材账本的持久化端口。
-
-**只有登记一条写路径**：素材是账本上的事实，登记完既不改也不删。这一版连删除都没有
-——那是后面的功能，不是这一层现在该留的口子。
-
-**读没有属主参数**：素材是全公司共用的，谁有 ``assets:read`` 谁就看得见全部；
-``creator_user_id`` 是查询维度，不是访问边界。
-"""
+"""素材持久化端口，仅支持登记和读取。素材全公司共享，creator_user_id 仅用于筛选。"""
 
 from __future__ import annotations
 
@@ -19,11 +12,7 @@ class AssetRepository(Protocol):
     """``iclip.media_assets`` 的数据访问。"""
 
     async def register(self, asset: Asset) -> Asset:
-        """登记一份素材，返回落库后的整行。
-
-        **幂等**：这一行已经在了就原样返回它，不报错也不覆盖。登记是客户端传完文件
-        之后自己发起的，它断线重试是正常路径。
-        """
+        """幂等登记素材：已存在时返回原记录，不覆盖。"""
         ...
 
     async def get(self, asset_id: uuid.UUID) -> Asset:

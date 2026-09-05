@@ -7,7 +7,7 @@ import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { SidebarConversations } from './-sidebar-conversations'
 
-/** 造 n 段对话，越靠后越新（一分钟一档，列表按最近活动倒序）。 */
+/** 按分钟递增活动时间，验证列表倒序。 */
 const seedConversations = (count: number, collectionId: string | null = null) =>
   Array.from({ length: count }, (_, index) => {
     const conversation = addMockConversation(
@@ -18,7 +18,7 @@ const seedConversations = (count: number, collectionId: string | null = null) =>
     return conversation
   })
 
-/** 一帧 `event.session.work_changed`：`session_id` 在信封上，忙的那几帧不带 last_turn_reason。 */
+/** session_id 位于信封；运行帧省略 last_turn_reason。 */
 const workChanged = (
   conversationId: string,
   payload: {
@@ -32,7 +32,6 @@ const workChanged = (
   payload: { pending_interaction: 'none', ...payload },
 })
 
-/** 渲染侧栏；`initialPath` 给成 `/c/<id>` 就是打开着那段对话。 */
 const render = async (initialPath = '/') => {
   server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
   const user = userEvent.setup()
@@ -47,7 +46,7 @@ describe('SidebarConversations', () => {
     const done = addMockConversation('跑完了', new Date(Date.UTC(2026, 7, 29, 0, 2)).toISOString())
     running.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'none' }
     done.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
-    // 只旁听请求：筛选是服务端做的，这里看它有没有把那一档带过去
+    // 记录实际请求，验证筛选参数传递到服务端。
     const listed: string[] = []
     server.events.on('request:start', ({ request }) => {
       if (request.url.includes('/api/conversations?')) listed.push(request.url)
@@ -59,7 +58,6 @@ describe('SidebarConversations', () => {
     await user.click(screen.getByRole('radio', { name: '进行中' }))
 
     expect(await screen.findByRole('link', { name: '在跑' })).toBeVisible()
-    // 标题上那个数字是这一档筛选下的总数
     expect(await screen.findByRole('button', { name: '任务 (1)' })).toBeVisible()
     expect(screen.queryByRole('link', { name: '跑完了' })).not.toBeInTheDocument()
     expect(listed.at(-1)).toContain('state=running')
@@ -76,14 +74,12 @@ describe('SidebarConversations', () => {
     seedConversations(21)
     const { user } = await render()
 
-    // 标题上的数字是总数，与这一页给了几条无关
     expect(await screen.findByRole('button', { name: '任务 (21)' })).toBeVisible()
     expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(20)
 
     await user.click(screen.getByRole('button', { name: '展开显示更多对话' }))
 
     await waitFor(() => expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(21))
-    // 没有更多了，那一行就不再出现
     expect(screen.queryByRole('button', { name: '展开显示更多对话' })).not.toBeInTheDocument()
   })
 
@@ -156,7 +152,6 @@ describe('SidebarConversations', () => {
       payload: { session_id: conversation?.id ?? '', title: '夜景延时素材生成' },
     })
 
-    // 不重拉列表：改名那一帧自己带着新名字，再发一次请求只是白等一个来回。
     expect(await screen.findByText('夜景延时素材生成')).toBeVisible()
     expect(screen.queryByText('第0段')).not.toBeInTheDocument()
   })
@@ -166,7 +161,6 @@ describe('SidebarConversations', () => {
     const { socket } = await render()
     await screen.findByText('第0段')
 
-    // 首屏那一份来自列表行（mock 里是不忙），所以一开始没有转圈。
     expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
 
     socket.deliver(workChanged(conversation?.id ?? '', { busy: true }))
@@ -184,13 +178,12 @@ describe('SidebarConversations', () => {
 
     socket.deliver(workChanged(id, { busy: true, pending_interaction: 'approval' }))
     expect(await screen.findByLabelText('等待审批')).toBeVisible()
-    // 等审批盖过在跑：那一轮并没有结束，但要紧的是等人点头
     expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
 
     socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'failed' }))
     expect(await screen.findByLabelText('上次失败')).toBeVisible()
 
-    // 跑完那一帧会让列表重拉，行上得带着同一份事实（真后端本来就是这样）
+    // 同步更新 MSW 列表状态，使推送后的重拉返回一致事实。
     if (conversation !== undefined) {
       conversation.activity = {
         busy: false,
@@ -201,7 +194,6 @@ describe('SidebarConversations', () => {
     socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
     await waitFor(() => expect(screen.queryByLabelText('上次失败')).not.toBeInTheDocument())
     expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument()
-    // 这段对话在这台浏览器上从没打开过：跑完了也不算「没看」
     expect(screen.queryByLabelText('未读')).not.toBeInTheDocument()
   })
 
@@ -223,11 +215,10 @@ describe('SidebarConversations', () => {
     const id = conversation?.id ?? ''
     const { router, socket } = await render(`/c/${id}`)
     await screen.findByText('第0段')
-    // 打开着的那一行记下了它此刻的 lastRunId，自己从不画点
     expect(screen.queryByLabelText('未读')).not.toBeInTheDocument()
 
     await act(() => router.navigate({ to: '/' }))
-    // 走开之后它跑了一次并结束：运行开始时写的 lastRunId 变了，收场那一帧让列表重拉
+    // 模拟离开后产生新 lastRunId，再通过结束帧触发列表刷新。
     if (conversation !== undefined) {
       conversation.lastRunId = 'run-2'
       conversation.activity = {
@@ -249,7 +240,6 @@ describe('SidebarConversations', () => {
     const id = conversation?.id ?? ''
     const { router, socket, user } = await render(`/c/${id}`)
     await screen.findByRole('button', { name: '夏季亚麻系列 (1)' })
-    // 合集默认折叠，这一行此刻不在页面上
     expect(screen.queryByText('第0段')).not.toBeInTheDocument()
 
     await act(() => router.navigate({ to: '/' }))
@@ -275,7 +265,7 @@ describe('SidebarConversations', () => {
     await user.click(await screen.findByRole('button', { name: '展开显示更多对话' }))
     await waitFor(() => expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(21))
 
-    // 第0段最旧，落在展开取回来的那一页里
+    // 最旧对话位于展开加载的额外分页中。
     socket.deliver(workChanged(rows[0]?.id ?? '', { busy: true }))
 
     expect(await screen.findByLabelText('进行中')).toBeVisible()
@@ -289,7 +279,6 @@ describe('SidebarConversations', () => {
     await user.click(await screen.findByRole('radio', { name: '进行中' }))
     expect(await screen.findByRole('link', { name: '在跑' })).toBeVisible()
 
-    // 帧只改这一行身上的字段，还进不进这一档筛选得问服务端
     conversation.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
     socket.deliver(workChanged(conversation.id, { busy: false, last_turn_reason: 'completed' }))
 

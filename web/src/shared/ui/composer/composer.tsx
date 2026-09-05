@@ -1,19 +1,4 @@
-/**
- * 输入卡：32 大圆角卡，ProseMirror 编辑区 + 下工具行。
- *
- * 形状对齐 kimi Code Web 的 composer：0.5px 发丝边框（chat-hairline），常驻 shadow-input；
- * focus-within 只把边框加深到 border-hover（≥3:1 的自定义焦点指示），不抬升阴影；支持的浏览器
- * 用 superellipse 连续曲率（composer.css）。编辑器是 PM（schema 见 editor-schema.ts）：
- * Enter 发送、Shift+Enter 换行、IME 组字期间的 Enter 不触发发送。
- * 深色下卡面用 top-layer（比主区亮一档；浅色都是白）。
- *
- * 附件（attachmentsEnabled 时才有这条线）：`+` 钮开文件选择框、拖文件进窗口（卡片变色 +
- * 全屏虚线遮罩，落在编辑区插目测光标位）、粘贴剪贴板文件——都落成文字流里的内联 pill
- * （attachment-pill）。上传中或失败时发送被禁（照 kimi 的 blocked 语义）；只有附件没有字
- * 也能发。
- *
- * 工具行里放什么由调用方给：首页要 agent 选择与合集条，会话页只要发送。
- */
+/** 参考 Kimi composer；Enter 发送，Shift+Enter 换行，IME 组字不发送。文档中的附件必须全部就绪才可提交，允许纯附件内容。 */
 
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { ReactNode, Ref } from 'react'
@@ -29,53 +14,35 @@ import { useComposerEditor } from './use-composer-editor'
 import type { ComposerPart, ComposerSubmission } from './use-composer-attachments'
 import { useComposerAttachments } from './use-composer-attachments'
 
-/** 输入卡的命令式句柄：发送成败之后调用方用它们收放内容。 */
 export type ComposerHandle = {
-  /** 清空整篇（文字 + 附件 pill）。 */
   clear: () => void
-  /** 把一份内容整篇装进来（替换现有的），文字与附件按它们在 parts 里的先后排。发送失败还回去、修改已发消息都用它。 */
+  /** 按 parts 顺序替换整篇内容，用于发送失败恢复与修改已发消息。 */
   restore: (submission: ComposerSubmission) => void
   focus: () => void
 }
 
 type ComposerProps = {
-  /** 按回车或点发送时调用（带上当时的文字与可发送附件）。内容为空或附件未就绪时不会触发。 */
+  /** 回车或发送按钮触发；空内容和未就绪附件不提交。 */
   onSubmit: (submission: ComposerSubmission) => void
   placeholder?: string
-  /** 工具行左侧那几个控件（在附件钮之后）。 */
+  /** 附件按钮之后的工具行内容。 */
   leading?: ReactNode
-  /** 发送钮左边那几个控件。 */
+  /** 发送按钮之前的工具行内容。 */
   trailing?: ReactNode
-  /** 正在提交这一条：发送钮转圈并禁用。 */
   sending?: boolean
-  /** 紧凑形态：单行起步随内容长高（会话页）；缺省三行起步（首页 hero）。 */
+  /** dense 从单行起步，否则从三行起步。 */
   dense?: boolean
-  /**
-   * 这段对话正在跑：发送钮换成停止钮。
-   *
-   * 换的是钮而不是禁用态——输入框空着时发送本来就是禁用的，那样就没法停了。
-   */
+  /** 运行时替换为停止按钮，不受空输入的发送禁用条件影响。 */
   busy?: boolean
   onStop?: (() => void) | undefined
-  /** 附件上传入口（+ 钮 / 拖放 / 粘贴）。调用方按登录态与 assets:write 权限给。 */
+  /** 由调用方根据登录态与 assets:write 决定上传入口是否可用。 */
   attachmentsEnabled?: boolean
-  /**
-   * 编辑区上方那排引用芯片（工作台里选中的组 / 帧）。
-   *
-   * 不塞进 PM 文档：它不是用户打的字，删掉一条也不该进撤销栈；发送时怎么变成文字由调用方定。
-   */
+  /** 工作台引用独立于 PM 文档与撤销栈，发送时由调用方转换为正文。 */
   references?: readonly { id: string; label: string; onRemove: () => void }[]
-  /** 命令式句柄 ref。 */
   ref?: Ref<ComposerHandle>
   className?: string
 }
 
-/**
- * 渲染输入卡。
- *
- * @param props - 组件属性。
- * @returns 输入卡。
- */
 export function Composer({
   attachmentsEnabled = false,
   busy = false,
@@ -102,22 +69,17 @@ export function Composer({
     setPillHosts((prev) => prev.filter((item) => item.attId !== attId))
   }, [])
 
-  /**
-   * 当前能不能发：有内容（文字或 pill）且文档引着的附件全部就绪（照 kimi 的 blocked 语义）。
-   * useComposerEditor 每次渲染都把这份闭包镜像进它的 ref，PM 事件里读到的永远是最新渲染的值。
-   */
+  /** 只有内容非空且引用附件全部就绪才可发送；编辑器经 ref 获取最新判定闭包。 */
   const canSendNow = () => {
     if (sending || editor.empty) return false
     return !editor.attIds.some((attId) => attachments.entries.get(attId)?.status !== 'ready')
   }
 
-  /** 组一份提交内容并交给调用方；能不能发在 Enter 与发送钮两处都已分别把过。 */
   const submit = () => {
     const view = editor.viewRef.current
     if (view === null || !canSendNow()) return
     const text = readComposerText(view.state.doc).trim()
     const media = attachments.takeReady(editor.attIds)
-    // 按文档顺序切段：没就绪的 pill 到不了这里（canSendNow 已挡），找不到的只当它不存在
     const parts: ComposerPart[] = []
     for (const segment of readComposerSegments(view.state.doc)) {
       if (segment.kind === 'attachment') {
@@ -144,10 +106,10 @@ export function Composer({
     registerPillHost,
     unregisterPillHost,
   })
-  // 解构出来再传给 ref=：直接写 ref={editor.mountEditor} 会撞 react-hooks/refs 的启发式
+  // 先解构挂载回调，避免 react-hooks/refs 将 editor.mountEditor 误判为 ref 读取。
   const { mountEditor } = editor
 
-  // 命令式句柄与 window 级拖放监听器经 ref 读最新的编辑器命令
+  // 命令式句柄与全局拖放监听器经 ref 获取最新编辑器操作。
   const editorRef = useRef(editor)
   useEffect(() => {
     editorRef.current = editor
@@ -163,7 +125,7 @@ export function Composer({
     [],
   )
 
-  // 拖放：window 级计数防闪（dragenter/dragleave 在子元素间成对触发），只认 Files
+  // 用 window 级计数吸收子元素间的 dragenter / dragleave，避免遮罩闪烁。
   useEffect(() => {
     if (!attachmentsEnabled) return
     let depth = 0
@@ -176,7 +138,7 @@ export function Composer({
     }
     const onDragOver = (event: DragEvent) => {
       if (!hasFiles(event)) return
-      event.preventDefault() // 不拦就不允许 drop
+      event.preventDefault() // dragover 必须 preventDefault 才能接收 drop。
     }
     const onDragLeave = (event: DragEvent) => {
       if (!hasFiles(event)) return
@@ -191,7 +153,7 @@ export function Composer({
       const { dataTransfer } = event
       if (dataTransfer === null) return
       const items = [...dataTransfer.items]
-      // 文件夹不收（没有 MIME，签名一步也过不了）
+      // 过滤无 MIME 的目录，上传签名不支持目录。
       const files = [...dataTransfer.files].filter(
         (_file, index) => items[index]?.webkitGetAsEntry()?.isDirectory !== true,
       )
@@ -282,7 +244,6 @@ export function Composer({
               aria-label="发送"
               className={cn(
                 'grid size-(--control-height-md) ui-state cursor-pointer place-items-center rounded-full ui-focus',
-                // 禁用时 ui-state 把图标压成 disabled-text，灰底灰箭头对齐 kimi 的禁用发送钮
                 canSend
                   ? 'bg-inverse-surface text-inverse-on-surface shadow-[var(--shadow-send)] active:scale-95'
                   : 'bg-surface-container-high',
@@ -308,7 +269,7 @@ export function Composer({
           multiple
           onChange={(event) => {
             const files = [...(event.target.files ?? [])]
-            event.target.value = '' // 清掉才允许重选同一份文件（照 kimi）
+            event.target.value = '' // 清空文件输入值，允许再次选择同一文件。
             if (files.length > 0) editorRef.current.insertFiles(files)
           }}
           ref={fileInputRef}

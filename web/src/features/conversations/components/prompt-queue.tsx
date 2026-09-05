@@ -1,11 +1,4 @@
-/**
- * 排队队列（照 kimi 网页版）：消息流末尾右对齐的一叠队列行——头部一行「队列 · N 个任务
- * 等待发送」，每条是压暗的队列行：第一条约左侧有「立即发送到当前回合」圆钮 + 「下一条」
- * 胶囊，行尾 × 撤回 hover 才浮出。
- *
- * 队列本身由服务端 prompts 表管，这里只是那张表的呈现与两个入口（追加 / 撤回）。
- * kimi 队列行的拖拽排序与点击编回输入框不做：服务端队列没有重排接口，编辑等价于撤回后重发。
- */
+/** 队列状态来自服务端 prompts；仅提供追加和撤回，服务端没有重排接口。 */
 
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
@@ -14,28 +7,17 @@ import { useClampable } from './use-clampable'
 type QueueItem = {
   promptId: string
   text: string
-  /** 这条消息附着的图片与视频（缩略图）。 */
   media: readonly { kind: 'image' | 'video'; url: string }[]
 }
 
 type PromptQueueProps = {
   prompts: readonly QueueItem[]
-  /** 有在跑的轮次时才给「立即发送」入口。 */
+  /** 仅运行中的轮次支持立即追加。 */
   canSteer: boolean
   onSteer: (promptId: string) => void
   onDiscard: (promptId: string) => void
 }
 
-/**
- * 渲染排队队列。
- *
- * @param props - 组件属性。
- * @param props.prompts - 排着的消息。
- * @param props.canSteer - 是否有在跑的轮次。
- * @param props.onSteer - 追加到当前轮。
- * @param props.onDiscard - 撤回。
- * @returns 队列区；没有排队的就不渲染。
- */
 export function PromptQueue({ canSteer, onDiscard, onSteer, prompts }: PromptQueueProps) {
   if (prompts.length === 0) return null
 
@@ -67,17 +49,6 @@ type QueueRowProps = {
   onDiscard: (promptId: string) => void
 }
 
-/**
- * 一条队列行：压暗的文字（超 3 行折叠成渐隐），hover 提亮并浮出撤回钮。
- *
- * @param props - 组件属性。
- * @param props.prompt - 这条消息。
- * @param props.first - 是不是队首（队首有立即发送与「下一条」）。
- * @param props.canSteer - 是否有在跑的轮次。
- * @param props.onSteer - 追加到当前轮。
- * @param props.onDiscard - 撤回。
- * @returns 队列行。
- */
 function QueueRow({ canSteer, first, onDiscard, onSteer, prompt }: QueueRowProps) {
   const { clampable, ref } = useClampable(3, prompt.text)
 

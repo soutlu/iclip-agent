@@ -9,13 +9,7 @@ export const Route = createFileRoute('/_shell/')({
   component: HomeIndexRoute,
 })
 
-/**
- * 装配首页：发送就是「新建一段对话 + 把这条消息发进去」，然后跳到会话页。
- *
- * 首页与会话页是两个 feature，互相不能引用，所以这条线在路由层接起来。未登录一律先弹登录框。
- *
- * @returns 首页内容。
- */
+/** 首页与会话属于不同 feature，由路由层连接新建、发送和跳转流程。 */
 function HomeIndexRoute() {
   const { data: user } = useUser()
   const requireLogin = useLoginPrompt()

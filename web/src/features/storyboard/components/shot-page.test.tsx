@@ -137,7 +137,6 @@ describe('ShotPage', () => {
   it('改时长：整数落进组里', () => {
     const { onChangeShot } = renderPage(1)
     const input = screen.getByRole('spinbutton', { name: '镜头组 2 的时长（秒）' })
-    // 受控输入框：值由外面给，这里直接派一次 change
     fireEvent.change(input, { target: { value: '9' } })
 
     const last = onChangeShot.mock.calls.at(-1)?.[0] as Shot

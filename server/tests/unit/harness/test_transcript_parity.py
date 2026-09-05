@@ -1,13 +1,6 @@
-"""两条路必须产出同一份 transcript。
+"""对比引擎事件投影与历史消息推导的 transcript 结构、标识和内容。
 
-实时那条：引擎事件流 → 投影器 → 操作 → 落到实时状态。
-历史那条：落库的消息 → ``from_messages``。
-
-同一段对话，客户端在跑的时候看到的是前者、刷新之后看到的是后者。两边只要有一个 id 或一段
-文字不一样，界面就会在刷新的瞬间变形，而且没有任何报错。所以这条测试比单看哪一侧都重要。
-
-时刻不参与比较：前者按事件到达的真实时刻走，后者按消息上记的时刻走，本来就不同。用量也不比
-——它由 ``AgentRunResultEvent`` 在 run 跑完时一次补齐，而这些用例是手工喂事件的，不发那一条。
+忽略事件到达时间与消息时间的差异；手工事件不包含 AgentRunResultEvent，因此不比较用量。
 """
 
 from __future__ import annotations
@@ -72,14 +65,13 @@ RUN = "run-a"
 DISPLAYS = ToolDisplayRegistry.merged(
     {"Read": ToolDisplayEntry(draw=_read_display, view="file_content")}
 )
-"""两条路都收这一份。都用默认的空注册表时，卡上的画法与渲染器比对会平凡地通过。"""
+"""使用非空注册表，避免两条路径均缺少 display 时仍通过一致性比较。"""
 
 MEDIA_GRID = {"items": [{"url": "https://cdn.test/s1-1.jpg", "caption": "S1-1"}]}
-"""给人看的那份结果。造成 dict 而不是模型对象：历史那侧从库里解出来的就是 dict。"""
+"""用 dict 模拟数据库反序列化后的工具 metadata。"""
 
 
 def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
-    """只留下两边都该一致的那些：结构、id、正文。"""
 
     return [
         {
@@ -95,14 +87,12 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
                             getattr(frame, "role", None),
                             getattr(frame, "content", None),
                             getattr(frame, "state", None),
-                            # 工具卡整张比：参数、画法、渲染器与给人看的那份在结局到达时最容易
-                            # 被漏掉，而漏了不报错。
+                            # 比较完整工具卡，覆盖参数、display、renderer 和 metadata 的遗漏。
                             getattr(frame, "input", None),
                             getattr(frame, "display", None),
                             getattr(frame, "view", None),
                             getattr(frame, "metadata", None),
-                            # 提示块的正文与详情：不比的话压缩那一块只对上 id 和种类，
-                            # 两边写着不同的话也算通过。
+                            # 比较压缩提示内容，避免仅 id 和类型相同而正文不同。
                             getattr(frame, "message", None),
                             getattr(frame, "detail", None),
                         )
@@ -119,7 +109,7 @@ def _skeleton(turns: tuple[TranscriptTurn, ...]) -> list[dict[str, Any]]:
 async def _project(
     events: list[Any], *, content: tuple[PromptContent, ...] = CONTENT
 ) -> tuple[TranscriptTurn, ...]:
-    """把事件流喂给投影器，把产出的操作落到实时状态，取回它拼出来的轮子。"""
+    """将事件投影操作应用到实时状态，返回轮列表。"""
 
     async def stream() -> AsyncIterator[Any]:
         for event in events:
@@ -145,7 +135,7 @@ def _messages(*messages: ModelMessage) -> list[ModelMessage]:
 def _derive(
     messages: list[ModelMessage], *, state: TurnState = "completed"
 ) -> tuple[TranscriptTurn, ...]:
-    """历史那侧。终态由运行侧从官方的 run 结束事件记下来给进去，推导器自己不猜。"""
+    """从历史消息推导 transcript，运行终态由调用方显式传入。"""
 
     return turns_from_messages(messages, turn_states={RUN: state}, display=DISPLAYS)
 
@@ -172,7 +162,6 @@ async def test_text_only_turn_matches_the_derived_one() -> None:
 
 @pytest.mark.anyio
 async def test_thinking_then_text_then_tool_matches() -> None:
-    """一步里三种块都有，而且工具块不占 f 号——两边的编号规则必须同一套。"""
 
     live = await _project(
         [
@@ -217,20 +206,18 @@ async def test_thinking_then_text_then_tool_matches() -> None:
     live_card = next(
         frame for frame in live[0].steps[0].frames if getattr(frame, "kind", None) == "tool"
     )
-    # 钉住画出来的不是兜底那张：两条路都退成 generic 时上面那句照样成立。
+    # 确认未同时回退为 generic，避免相等断言掩盖注册遗漏。
     assert getattr(live_card, "display", None) == FileIoDisplay(operation="read", path="/README.md")
     assert _skeleton(live) == _skeleton(derived)
 
 
 @pytest.mark.anyio
 async def test_the_result_for_people_lands_on_the_same_card_on_both_paths() -> None:
-    """``ToolReturn.metadata`` 原样进帧：实时那侧从事件上的 part 读，历史那侧从落库的 part 读。"""
 
     call = ToolCallPart(tool_name="Read", args={"path": "/a.md"}, tool_call_id="c1")
     live = await _project(
         [
-            # 只有工具调用的一次响应也先流出它那块 part：这一步就是在这里开出来的，没有它
-            # 投影器会把后面的派活当成上一轮遗留的调用丢掉。
+            # 纯工具调用也须先发送 part 以创建步骤，避免后续调用被当作历史遗留事件丢弃。
             PartStartEvent(index=0, part=call),
             PartEndEvent(index=0, part=call),
             FunctionToolCallEvent(part=call),
@@ -262,19 +249,13 @@ async def test_the_result_for_people_lands_on_the_same_card_on_both_paths() -> N
     )
 
     live_card = next(frame for frame in live[0].steps[0].frames if frame.kind == "tool")
-    # 钉住比的不是两边都空：漏了字段时上面那句照样成立。
     assert (live_card.view, live_card.metadata) == ("file_content", MEDIA_GRID)
     assert _skeleton(live) == _skeleton(derived)
 
 
 @pytest.mark.anyio
 async def test_a_cancelled_turn_needs_its_state_handed_to_the_deriver() -> None:
-    """这是两条路唯一推不平的地方，钉在这里免得实现时被当成偶然。
-
-    被停掉的运行，实时那侧从 ``on_cancelled`` 知道它是 ``cancelled``；消息那侧只看得出「没停
-    在一条最终响应上」，分不清是被停的还是报错的，只能给 ``failed``。所以运行那一层必须把终态
-    传给推导器（``run_states``），否则同一轮在刷新前后会从「已取消」变成「失败」。
-    """
+    """消息形状无法区分取消与失败，运行层必须将 run_states 传给历史推导器。"""
 
     events: list[Any] = [
         PartStartEvent(index=0, part=TextPart(content="")),
@@ -302,14 +283,12 @@ async def test_a_cancelled_turn_needs_its_state_handed_to_the_deriver() -> None:
     )
 
     assert live[0].state == "cancelled"
-    # 没给终态就是「没记下一次干净的收尾」，不能默认当成跑完了。
     assert turns_from_messages(messages)[0].state == "failed"
     assert _skeleton(live) == _skeleton(_derive(messages, state="cancelled"))
 
 
 @pytest.mark.anyio
 async def test_two_steps_match() -> None:
-    """工具调完再问一次模型就是新的一步，块号从头开始。"""
 
     live = await _project(
         [
@@ -350,12 +329,7 @@ async def test_two_steps_match() -> None:
 
 @pytest.mark.anyio
 async def test_a_steer_between_two_steps_lands_in_the_same_place() -> None:
-    """插话进来时块在哪一步、排第几，两边必须一致。
-
-    ``EnqueuedMessagesEvent`` 是在下一次模型请求前排空的，那时上一步的块已经收尾、步号还指着
-    上一步——所以它落在上一步的末尾。推导那侧也是把它接在上一步已有块的后面。这条不靠推理，
-    靠这里比对。
-    """
+    """EnqueuedMessagesEvent 在下一请求前处理，此时步骤号仍指向上一步；追加消息应接在该步末尾。"""
 
     live = await _project(
         [
@@ -403,12 +377,7 @@ async def test_a_steer_between_two_steps_lands_in_the_same_place() -> None:
 
 @pytest.mark.anyio
 async def test_two_adjacent_text_parts_stay_two_frames_on_both_paths() -> None:
-    """一次响应里连着两个正文 part。
-
-    基类会给第二个打上 ``follows_text``。我们两条路都按「一个 part 一个块」编号，所以这里的
-    契约是**不合并**——kimi 自己是合并的，但决定我们界面会不会在刷新时变形的是我们这两条路一
-    致，不是与 kimi 一致。
-    """
+    """相邻正文 part 保持独立块；即使标记 follows_text，实时与历史也不合并。"""
 
     live = await _project(
         [
@@ -437,7 +406,6 @@ async def test_two_adjacent_text_parts_stay_two_frames_on_both_paths() -> None:
 
 @pytest.mark.anyio
 async def test_emoji_text_survives_the_utf16_offsets() -> None:
-    """逐字追加按 UTF-16 记位置。算错了不会报错，只会让客户端反复整页重拉。"""
 
     live = await _project(
         [
@@ -467,19 +435,11 @@ MIXED: tuple[PromptContent, ...] = (
     VideoContent(source=AttachmentSource(kind="url", url=f"{_OSS}/clip.mp4")),
     TextContent(text="做个 30 秒的"),
 )
-"""图夹在两句话中间、两张图连着、还有一条视频。
-
-第三张的地址缩不动（不是 OSS 的），进模型那一串里它只留一条空标签——与前两张的「开标签 +
-像素 + 闭标签」不是一个形状，两种都得还原得回来。
-"""
+"""覆盖文字间插图、相邻图片、视频，以及不可缩放地址生成的空标签。"""
 
 
 @pytest.mark.anyio
 async def test_mixed_content_is_the_same_on_both_paths() -> None:
-    """图文混排那串 part 两条路给出同一份，次序不动。
-
-    界面按这份列表画，图落在哪句话旁边全看它：两条路只要有一处不一样，刷新的瞬间图就换了位置。
-    """
 
     live = await _project(
         [
@@ -506,11 +466,7 @@ async def test_mixed_content_is_the_same_on_both_paths() -> None:
 
 @pytest.mark.anyio
 async def test_a_compaction_notice_lands_on_the_same_step_on_both_paths() -> None:
-    """压缩在界面上是一块提示，挂在它之后第一步的最前面。
-
-    实时那侧在压缩发生的当下收到摘要、等下一步开出来才发；历史那侧只有一条插在切点上的边界，
-    得按它的时刻找那一步。两边差一步的话，同一段对话刷新前后那块提示会跳到别的步上去。
-    """
+    """压缩提示关联之后的第一步：实时等待步骤创建，历史按边界时间定位。"""
 
     summary = "Summary of previous conversation:\n\n## Intent\n翻 README"
 
@@ -522,7 +478,6 @@ async def test_a_compaction_notice_lands_on_the_same_step_on_both_paths() -> Non
         yield FunctionToolResultEvent(
             part=ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1")
         )
-        # 第二步的模型请求之前压了一次：这一刻能力把摘要交给投影器。
         projector.note_compaction(summary)
         yield PartStartEvent(index=0, part=TextPart(content=""))
         yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="读完了"))
@@ -552,7 +507,7 @@ async def test_a_compaction_notice_lands_on_the_same_step_on_both_paths() -> Non
                 run_id=RUN,
                 timestamp=_at(2),
             ),
-            # 边界的时刻落在第一步的响应之后、第二步的响应之前。
+            # 边界时间位于第一步与第二步响应之间。
             ModelResponse(
                 parts=[CompactionPart(content=summary, provider_name="function")],
                 run_id=RUN,
@@ -562,6 +517,5 @@ async def test_a_compaction_notice_lands_on_the_same_step_on_both_paths() -> Non
         )
     )
 
-    # 钉住比的不是两边都没有这一块：漏发时上面那句照样成立。
     assert [frame.frame_id for frame in live[0].steps[1].frames] == ["t1.2.compaction", "t1.2.f1"]
     assert _skeleton(live) == _skeleton(derived)

@@ -1,11 +1,5 @@
-"""媒体生成的持久化端口。
-
-写入方法都以 job id 为准、返回写完之后的整行，因为调用方接着要把它发给下一步；
-没有「取出来改改再存回去」的接口——那种写法在多 worker 下必然覆盖别人的更新。
-
-**这里没有「领一批待办」的方法**：待办的排期归 procrastinate（见 ``queue.py``），
-这张表只负责一次生成的事实。
-"""
+"""生成任务持久化端口。提供按状态更新的方法，避免读取后整体覆盖导致并发丢失。
+排期由 procrastinate 管理，仓储仅记录业务事实。"""
 
 from __future__ import annotations
 
@@ -23,11 +17,7 @@ class GenerationRepository(Protocol):
         ...
 
     async def get(self, job_id: uuid.UUID, *, owner: uuid.UUID | None) -> GenerationJob:
-        """按 id 读一行。
-
-        ``owner`` 为 ``None`` 即治理者视角（不按属主过滤）。不可见时抛 ``NotFound``
-        而不是 ``PermissionDenied``——不泄露这个 id 存不存在。
-        """
+        """读取可见任务；owner=None 取消属主过滤，不可见时抛 NotFound。"""
         ...
 
     async def list_for_owner(
@@ -37,11 +27,7 @@ class GenerationRepository(Protocol):
         ...
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
-        """标记「正要发给 provider」。
-
-        必须在真的发出去之前落库：崩在这之后，这行会停在 ``submitting`` 上，从而
-        被识别成「发没发出去不知道」，而不是被当成还没发过重投一次。
-        """
+        """在调用 Provider 前持久化 submitting，使恢复流程能识别提交结果未知的任务。"""
         ...
 
     async def mark_submitted(
@@ -64,14 +50,7 @@ class GenerationRepository(Protocol):
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
     ) -> GenerationJob:
-        """终态：成功。
-
-        ``provider_task_id`` 是给同步接口用的：它没有「先提交后轮询」两步，回执和结果
-        一起回来，所以对账用的那个 id 只有在这一步才有机会落库。
-
-        ``submitted_at`` 若还空着就在这里补上——同步接口「发出去」和「拿到结果」是同一
-        个时刻，留空会让「这次生成花了多久」查不出来，也让两种生成的语义不一致。
-        """
+        """记录成功终态。同步生成在此保存回执 id，并补齐尚未写入的 submitted_at。"""
         ...
 
     async def mark_failed(
@@ -84,13 +63,7 @@ class GenerationRepository(Protocol):
         provider_snapshot: dict[str, Any] | None = None,
         only_if_status: GenerationStatus | None = None,
     ) -> GenerationJob | None:
-        """终态：失败。
-
-        ``only_if_status`` 给出时，这一行的状态不是它就什么都不做并返回 ``None``。
-        收尾一个「提交中断」的行要用它：判断和写入之间隔着一次 await，那当口原来那个
-        worker 可能刚把真结果写完——没有这个守卫就会把一次已经成功、也已经付过钱的
-        生成盖成失败。
-        """
+        """记录失败终态；指定 only_if_status 时原子校验状态，不匹配返回 None，避免覆盖并发结果。"""
         ...
 
     async def record_progress(
@@ -100,10 +73,7 @@ class GenerationRepository(Protocol):
         provider_status: str,
         provider_snapshot: dict[str, Any],
     ) -> GenerationJob:
-        """还没出结果：把这次问到的东西记下来，累计一次尝试。
-
-        「下次什么时候再问」不在这里——那是排期的事（见 ``queue.py``）。
-        """
+        """保存本次 Provider 状态；后续查询时间由队列管理。"""
         ...
 
 
