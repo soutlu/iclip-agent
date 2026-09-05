@@ -11,12 +11,7 @@ from typing import Any
 import pytest
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Capability
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-)
+from pydantic_ai.messages import ModelMessage, ModelRequest
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai_harness.step_persistence import InMemoryStepStore
@@ -29,6 +24,8 @@ from iclip.harness.agents import (
     build_agent_registry,
     delegate_display_table,
 )
+from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.transcript.subagents import SubAgentMirror
 from iclip.platform.transcript.display import AgentCallDisplay
 
 SPEC = "model: test\n"
@@ -57,6 +54,11 @@ def models() -> dict[str, TestModel]:
     return {MODEL_NAME: TestModel()}
 
 
+def mirror() -> SubAgentMirror:
+
+    return SubAgentMirror(live=TranscriptStore())
+
+
 def make_spec(root: Path, name: str, *, spec: str = SPEC, instructions: str | None = None) -> Path:
     folder = root / name
     folder.mkdir(parents=True, exist_ok=True)
@@ -68,7 +70,11 @@ def make_spec(root: Path, name: str, *, spec: str = SPEC, instructions: str | No
 
 
 def test_empty_definitions_yield_empty_registry() -> None:
-    assert build_agent_registry((), step_store=store(), models=models()).ids == ()
+    registry = build_agent_registry(
+        (), step_store=store(), models=models(), subagent_mirror=mirror()
+    )
+
+    assert registry.ids == ()
 
 
 def test_agent_id_overrides_spec_name(tmp_path: Path) -> None:
@@ -81,6 +87,7 @@ def test_agent_id_overrides_spec_name(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        subagent_mirror=mirror(),
     )
 
     assert registry.ids == ("storyboard", "producer")
@@ -109,6 +116,7 @@ async def test_instructions_file_merged(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        subagent_mirror=mirror(),
     )
 
     assert await sent_instructions(registry, "storyboard") == "写镜头表。"
@@ -128,6 +136,7 @@ async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        subagent_mirror=mirror(),
     )
 
     assert await sent_instructions(registry, "a") is None
@@ -164,6 +173,7 @@ async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        subagent_mirror=mirror(),
     )
 
     seen: list[str] = []
@@ -219,21 +229,23 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
         ),
         step_store=step_store,
         models=models(),
+        subagent_mirror=mirror(),
     )
 
     with registry.agents["producer"].override(model=FunctionModel(stream_function=delegate_once)):
         await drive(registry, "producer")
 
     runs = await step_store.list_runs()
-    # 顶层 run 使用调用方 id，使 transcript 可按消息 run_id 查询终态。
+    # 顶层与子代理都不设 agent_name，落库 id 与消息 run_id 一致；子代理的名字放 metadata。
     assert [run.run_id for run in runs] == ["run-1", runs[1].run_id]
-    assert [run.agent_name for run in runs] == [None, "shot-writer"]
+    assert [run.agent_name for run in runs] == [None, None]
+    assert runs[1].metadata["agent_name"] == "shot-writer"
     assert runs[0].conversation_id == "c1"
     assert runs[1].parent_run_id == runs[0].run_id
 
 
 async def test_subagent_only_gets_the_capabilities_declared_for_it(tmp_path: Path) -> None:
-    """保留 inherit_tools=False 和空 shared_capabilities，确保主代理与子代理的能力隔离。"""
+    """保留 inherit_tools=False，shared_capabilities 只有不带工具的 transcript 镜像。"""
 
     def parent_only_tool() -> str:
         """只给主 agent 的工具。"""
@@ -261,9 +273,9 @@ async def test_subagent_only_gets_the_capabilities_declared_for_it(tmp_path: Pat
         else:
             yield "done"
 
-    async def child_records(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+    async def child_records(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
         seen["child"] = tuple(tool.name for tool in info.function_tools)
-        return ModelResponse(parts=[TextPart("done")])
+        yield "done"
 
     parent = make_spec(tmp_path, "producer")
     child = make_spec(tmp_path, "shot-writer")
@@ -285,7 +297,12 @@ async def test_subagent_only_gets_the_capabilities_declared_for_it(tmp_path: Pat
             ),
         ),
         step_store=store(),
-        models={MODEL_NAME: TestModel(), "recorder": FunctionModel(child_records)},
+        # 挂了 transcript 镜像的子代理一律走流式，模型须提供 stream_function。
+        models={
+            MODEL_NAME: TestModel(),
+            "recorder": FunctionModel(stream_function=child_records),
+        },
+        subagent_mirror=mirror(),
     )
 
     with registry.agents["producer"].override(
@@ -318,6 +335,7 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
         ),
         step_store=store(),
         models=models(),
+        subagent_mirror=mirror(),
     )
 
     events = await drive(registry, "storyboard", deps=Caller("经运行驱动"))
@@ -332,6 +350,7 @@ def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:
             (AgentDefinition(agent_id="storyboard", spec=spec, model="ghost"),),
             step_store=store(),
             models=models(),
+            subagent_mirror=mirror(),
         )
 
 
@@ -350,6 +369,7 @@ def test_unknown_subagent_model_name_fails_at_assembly(tmp_path: Path) -> None:
             ),
             step_store=store(),
             models=models(),
+            subagent_mirror=mirror(),
         )
 
 
@@ -360,6 +380,7 @@ def test_spec_model_field_is_overridden(tmp_path: Path) -> None:
         (AgentDefinition(agent_id="storyboard", spec=spec, model=MODEL_NAME),),
         step_store=store(),
         models=models(),
+        subagent_mirror=mirror(),
     )
 
     assert isinstance(registry.agents["storyboard"].model, TestModel)

@@ -84,11 +84,11 @@ def _load_agent(
     step_store: StepStore,
     accepts_deferred: bool,
     extra: Sequence[AgentCapability[Any]] = (),
-    persistence_agent_name: str | None = None,
+    persistence_metadata: Mapping[str, str] | None = None,
 ) -> Agent[Any, Any]:
     """装配 Agent。
 
-    顶层 persistence_agent_name 留空，使持久化 run id 与消息 run_id 一致；子代理保留名称。
+    顶层与子代理都不设 agent_name，落库 run id 与消息 run_id 一致；子代理的名字放 metadata。
     审批工具仅挂顶层 Agent，并通过 accepts_deferred 启用 DeferredToolRequests。
     StepPersistence.run_id 保持为空，由 for_run 按运行计算，以支持并发复用能力实例。
     """
@@ -100,7 +100,7 @@ def _load_agent(
         instructions=_read_instructions(instructions),
         output_type=[str, DeferredToolRequests] if accepts_deferred else str,
         capabilities=[
-            StepPersistence(store=step_store, agent_name=persistence_agent_name),
+            StepPersistence(store=step_store, metadata=dict(persistence_metadata or {})),
             *extra,
         ],
     )
@@ -110,6 +110,7 @@ def _build_subagents(
     definitions: Sequence[SubAgentDefinition],
     step_store: StepStore,
     models: BuiltModels,
+    mirror: AgentCapability[Any],
 ) -> SubAgents[Any]:
     return SubAgents(
         agents=[
@@ -122,7 +123,7 @@ def _build_subagents(
                     step_store=step_store,
                     accepts_deferred=False,
                     extra=sub.capabilities,
-                    persistence_agent_name=sub.name,
+                    persistence_metadata={"agent_name": sub.name},
                 ),
                 timeout_seconds=sub.timeout_seconds,
                 max_calls=sub.max_calls,
@@ -133,8 +134,9 @@ def _build_subagents(
         tool_name=DELEGATE_TOOL,
         # 禁用磁盘扫描，避免个人 .agents/.claude 目录中的 Agent 定义进入运行环境。
         agent_folders=None,
-        # 子代理能力仅来自显式声明；shared_capabilities 保持为空，避免隐式继承。
+        # 共享的只有 transcript 镜像；业务能力仍按子代理各自声明。
         # 工具统一经 capability 挂载；inherit_tools 仅影响直接注册的 toolset。
+        shared_capabilities=[mirror],
     )
 
 
@@ -170,8 +172,9 @@ def build_agent_registry(
     *,
     step_store: StepStore,
     models: BuiltModels,
+    subagent_mirror: AgentCapability[Any],
 ) -> AgentRegistry:
-    """根据声明与注入依赖装配 Agent。"""
+    """根据声明与注入依赖装配 Agent；subagent_mirror 由组合根构造，挂到每个子代理运行上。"""
 
     agents: dict[str, Agent[Any, Any]] = {}
     for definition in definitions:
@@ -185,7 +188,7 @@ def build_agent_registry(
             extra=(
                 *definition.capabilities,
                 *(
-                    [_build_subagents(definition.subagents, step_store, models)]
+                    [_build_subagents(definition.subagents, step_store, models, subagent_mirror)]
                     if definition.subagents
                     else ()
                 ),

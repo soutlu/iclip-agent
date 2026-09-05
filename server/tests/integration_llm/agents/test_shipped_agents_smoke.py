@@ -18,6 +18,8 @@ from iclip.harness.agents import (
     build_agent_registry,
 )
 from iclip.harness.models import ModelSpec, build_models
+from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.transcript.subagents import SubAgentMirror
 
 SERVER_DIR = Path(__file__).resolve().parents[3]
 
@@ -64,6 +66,7 @@ def shipped_registry() -> AgentRegistry:
                 for model in settings.models
             )
         ),
+        subagent_mirror=SubAgentMirror(live=TranscriptStore()),
     )
 
 

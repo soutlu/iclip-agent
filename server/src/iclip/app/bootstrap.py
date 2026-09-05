@@ -71,6 +71,7 @@ from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
 from iclip.domains.tasks.ports import StyleSnapshots
 from iclip.harness.agents import (
+    DELEGATE_TOOL,
     AgentCapabilities,
     AgentDefinition,
     SubAgentDefinition,
@@ -86,6 +87,7 @@ from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.transcript.subagents import SubAgentMirror
 from iclip.platform.file_store.pg import PgFileStore
 from iclip.platform.file_store.store import (
     FileEntry,
@@ -527,14 +529,16 @@ def build_app(
         object_store=public_objects,
         shot_video=settings.shot_video,
     )
+    # 实时与历史共用显示注册表，保证工具卡渲染一致。
+    tool_displays = build_display_registry(capability_table)
+    transcript_store = TranscriptStore()
+    # 子代理镜像要拿到实时投影与显示表，装配 Agent 前先备好这两样。
     agent_registry = build_agent_registry(
         _agent_definitions(agents, table=capability_table),
         step_store=step_store,
         models=built_models,
+        subagent_mirror=SubAgentMirror(live=transcript_store, display=tool_displays),
     )
-    # 实时与历史共用显示注册表，保证工具卡渲染一致。
-    tool_displays = build_display_registry(capability_table)
-    transcript_store = TranscriptStore()
     job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = _agent_context_limits(agents, settings.models)
 
@@ -553,7 +557,7 @@ def build_app(
         )
 
     # 显示与续跑共用历史投影，用于初始化续跑的实时状态。
-    transcript_history = TranscriptHistory(step_store, job_queue, tool_displays)
+    transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
     transcripts = TranscriptService(
         store=transcript_store,
         history=transcript_history,
