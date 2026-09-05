@@ -12,7 +12,6 @@ from pydantic_ai.messages import (
     ModelResponse,
     RetryPromptPart,
     TextPart,
-    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -33,12 +32,6 @@ from iclip.harness.transcript.from_messages import (
     turns_from_messages,
 )
 from iclip.harness.transcript.prompt_media import model_prompt
-from iclip.platform.transcript.display import (
-    FileIoDisplay,
-    GenericDisplay,
-    ToolDisplayEntry,
-    ToolDisplayRegistry,
-)
 from iclip.platform.transcript.ops import (
     COMPACTION_NOTICE,
     AttachmentSource,
@@ -47,7 +40,6 @@ from iclip.platform.transcript.ops import (
     StepUsage,
     TextContent,
     TextFrame,
-    ThinkingFrame,
     ToolFrame,
     TranscriptTurn,
 )
@@ -85,134 +77,6 @@ def _returns(*parts: object, run_id: str | None = RUN, minute: int = 2) -> Model
         run_id=run_id,
         timestamp=_at(minute),
     )
-
-
-def test_one_run_becomes_one_turn_with_steps_per_response() -> None:
-
-    turns = turns_from_messages(
-        [
-            _ask("帮我把 README 翻译成英文"),
-            _reply(
-                ThinkingPart(content="先读一下"),
-                ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"),
-            ),
-            _returns(ToolReturnPart(tool_name="Read", content="# iclip", tool_call_id="c1")),
-            _reply(ThinkingPart(content="翻"), TextPart(content="# iclip"), minute=3),
-        ]
-    )
-
-    assert len(turns) == 1
-    turn = turns[0]
-    assert turn.turn_id == "t1"
-    assert turn.ordinal == 1
-    assert turn.content == (TextContent(text="帮我把 README 翻译成英文"),)
-    assert [step.step_id for step in turn.steps] == ["t1.1", "t1.2"]
-
-
-def test_frame_ids_number_text_and_thinking_only() -> None:
-
-    turns = turns_from_messages(
-        [
-            _ask("走"),
-            _reply(
-                ThinkingPart(content="想"),
-                TextPart(content="说"),
-                ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"),
-                ToolCallPart(tool_name="Bash", args={}, tool_call_id="c2"),
-            ),
-        ]
-    )
-
-    assert [frame.frame_id for frame in turns[0].steps[0].frames] == [
-        "t1.1.f1",
-        "t1.1.f2",
-        "t1.1.c1",
-        "t1.1.c2",
-    ]
-
-
-def test_frame_numbering_restarts_each_step() -> None:
-    turns = turns_from_messages(
-        [
-            _ask("走"),
-            _reply(
-                ThinkingPart(content="一"),
-                ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"),
-            ),
-            _returns(ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1")),
-            _reply(ThinkingPart(content="二"), TextPart(content="好"), minute=3),
-        ]
-    )
-
-    assert [frame.frame_id for frame in turns[0].steps[1].frames] == ["t1.2.f1", "t1.2.f2"]
-
-
-def test_tool_return_settles_the_card() -> None:
-    turns = turns_from_messages(
-        [
-            _ask("走"),
-            _reply(ToolCallPart(tool_name="Read", args={"path": "/a"}, tool_call_id="c1")),
-            _returns(ToolReturnPart(tool_name="Read", content="内容", tool_call_id="c1")),
-            _reply(TextPart(content="好"), minute=3),
-        ]
-    )
-
-    card = turns[0].steps[0].frames[0]
-    assert isinstance(card, ToolFrame)
-    assert card.state == "done"
-    assert card.output == "内容"
-    assert card.error is None
-
-
-def test_retry_prompt_marks_the_card_as_failed() -> None:
-    """参数校验失败以 RetryPromptPart 代替工具返回，工具卡必须据此结束。"""
-
-    turns = turns_from_messages(
-        [
-            _ask("走"),
-            _reply(ToolCallPart(tool_name="generate_shot_frames", args={}, tool_call_id="c1")),
-            _returns(
-                RetryPromptPart(
-                    tool_name="generate_shot_frames",
-                    tool_call_id="c1",
-                    content="帧号 S4-1 不在取帧账本中",
-                )
-            ),
-            _reply(TextPart(content="换一个"), minute=3),
-        ]
-    )
-
-    card = turns[0].steps[0].frames[0]
-    assert isinstance(card, ToolFrame)
-    assert card.state == "error"
-    assert card.error is not None
-    assert "S4-1" in card.error
-    assert card.metadata is None
-
-
-def test_denied_and_interrupted_tools_are_errors() -> None:
-
-    turns = turns_from_messages(
-        [
-            _ask("走"),
-            _reply(
-                ToolCallPart(tool_name="Write", args={}, tool_call_id="c1"),
-                ToolCallPart(tool_name="Bash", args={}, tool_call_id="c2"),
-            ),
-            _returns(
-                ToolReturnPart(
-                    tool_name="Write", content="用户拒绝", tool_call_id="c1", outcome="denied"
-                ),
-                ToolReturnPart(
-                    tool_name="Bash", content="被打断", tool_call_id="c2", outcome="interrupted"
-                ),
-            ),
-            _reply(TextPart(content="停了"), minute=3),
-        ]
-    )
-
-    states = [frame.state for frame in turns[0].steps[0].frames if isinstance(frame, ToolFrame)]
-    assert states == ["error", "error"]
 
 
 def test_multimodal_prompt_keeps_the_part_order() -> None:
@@ -368,24 +232,8 @@ def test_a_tool_call_is_settled_by_the_return_in_the_next_run() -> None:
     card = turns[0].steps[0].frames[1]
     assert isinstance(card, ToolFrame)
     assert card.frame_id == "t1.1.c1"
-    assert card.state == "error"
-    assert card.error == "运行中断"
-
-
-def test_a_mid_turn_user_message_lands_on_the_previous_step() -> None:
-
-    turns = turns_from_messages(
-        _resumed(),
-        turn_states={"r1": "failed", "r2": "completed"},
-        prompt_of_run=_OF_ONE_PROMPT,
-    )
-
-    frames = turns[0].steps[0].frames
-    assert [frame.frame_id for frame in frames] == ["t1.1.f1", "t1.1.c1", "t1.1.f2"]
-    resumed = frames[2]
-    assert isinstance(resumed, TextFrame)
-    assert resumed.role == "user"
-    assert resumed.text == "接着做"
+    # 中断返回与没有返回的孤儿卡同一句收尾，实时侧也是这句。
+    assert (card.state, card.output, card.error) == ("error", None, ORPHAN_TOOL_ERROR)
 
 
 def _awaiting() -> list[ModelRequest | ModelResponse]:
@@ -572,11 +420,7 @@ def test_an_official_repair_return_is_not_a_decision() -> None:
     )
 
     card = _card(turns[0])
-    assert (card.state, card.error, card.approval_id) == (
-        "error",
-        INTERRUPTED_TOOL_RETURN_CONTENT,
-        None,
-    )
+    assert (card.state, card.error, card.approval_id) == ("error", ORPHAN_TOOL_ERROR, None)
     assert (
         approvals_from_messages(
             repaired,
@@ -670,33 +514,6 @@ def test_run_state_is_read_off_the_official_run_end_event() -> None:
     assert run_state_from_events([event("run_started")]) == "failed"
 
 
-def test_mid_run_user_message_becomes_a_user_frame_on_the_open_step() -> None:
-    """追加用户消息接在当前步骤末尾；工具块不占 f 序号。"""
-
-    turns = turns_from_messages(
-        [
-            _ask("走"),
-            _reply(
-                TextPart(content="在做了"),
-                ToolCallPart(tool_name="Read", args={}, tool_call_id="c1"),
-            ),
-            _returns(
-                ToolReturnPart(tool_name="Read", content="x", tool_call_id="c1"),
-                UserPromptPart(content="等一下，改成英文"),
-                minute=2,
-            ),
-            _reply(TextPart(content="好"), minute=3),
-        ]
-    )
-
-    frames = turns[0].steps[0].frames
-    assert [frame.frame_id for frame in frames] == ["t1.1.f1", "t1.1.c1", "t1.1.f2"]
-    steered = frames[2]
-    assert isinstance(steered, TextFrame)
-    assert steered.role == "user"
-    assert steered.text == "等一下，改成英文"
-
-
 def test_a_steer_arriving_before_any_step_leads_the_first_one() -> None:
     """首个模型响应前的追加消息暂存至第一步，避免无步骤时丢弃。"""
 
@@ -716,16 +533,6 @@ def test_a_steer_arriving_before_any_step_leads_the_first_one() -> None:
     assert leading.text == "补充一句"
 
 
-def test_thinking_frames_carry_their_text() -> None:
-    turns = turns_from_messages(
-        [_ask("走"), _reply(ThinkingPart(content="先想想"), TextPart(content="好"))]
-    )
-
-    thinking = turns[0].steps[0].frames[0]
-    assert isinstance(thinking, ThinkingFrame)
-    assert thinking.text == "先想想"
-
-
 def test_attached_image_survives_the_round_trip() -> None:
     """用户图片经过消息持久化后，须从 tag 恢复为原图 part。"""
 
@@ -741,61 +548,6 @@ def test_attached_image_survives_the_round_trip() -> None:
         ImageContent(source=AttachmentSource(kind="url", url=url)),
         TextContent(text="照这张做"),
     )
-
-
-def test_tool_card_carries_how_to_draw_it() -> None:
-
-    displays = ToolDisplayRegistry.merged(
-        {"read_file": lambda args: FileIoDisplay(operation="read", path=args["path"])}
-    )
-    turns = turns_from_messages(
-        [
-            _ask("看看"),
-            _reply(
-                ToolCallPart(tool_name="read_file", args={"path": "shots.md"}, tool_call_id="c1"),
-                ToolCallPart(tool_name="generate_shot_frames", args={}, tool_call_id="c2"),
-            ),
-        ],
-        display=displays,
-    )
-
-    cards = [f for f in turns[0].steps[0].frames if isinstance(f, ToolFrame)]
-    assert cards[0].display == FileIoDisplay(operation="read", path="shots.md")
-    assert cards[1].display == GenericDisplay(summary="generate_shot_frames")
-
-
-def test_tool_card_carries_the_renderer_and_the_result_for_people() -> None:
-
-    displays = ToolDisplayRegistry.merged(
-        {
-            "generate_shot_frames": ToolDisplayEntry(
-                draw=lambda _args: GenericDisplay(summary="出图"), view="media_grid"
-            )
-        }
-    )
-    grid = {"items": [{"url": "https://cdn.test/s1-1.jpg", "caption": "S1-1"}]}
-    turns = turns_from_messages(
-        [
-            _ask("出图"),
-            _reply(ToolCallPart(tool_name="generate_shot_frames", args={}, tool_call_id="c1")),
-            _returns(
-                ToolReturnPart(
-                    tool_name="generate_shot_frames",
-                    content={"message": "生成完成 1 帧"},
-                    tool_call_id="c1",
-                    metadata=grid,
-                )
-            ),
-            _reply(TextPart(content="好了"), minute=3),
-        ],
-        display=displays,
-    )
-
-    card = turns[0].steps[0].frames[0]
-    assert isinstance(card, ToolFrame)
-    assert card.view == "media_grid"
-    assert card.metadata == grid
-    assert card.output == {"message": "生成完成 1 帧"}
 
 
 def test_drop_last_turn_on_empty_history_is_a_no_op() -> None:

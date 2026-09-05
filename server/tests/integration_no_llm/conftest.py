@@ -15,9 +15,10 @@ import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
+from pydantic_ai import models as pydantic_ai_models
 from pydantic_ai.models.test import TestModel
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.app.bootstrap import build_app
 from iclip.config import (
@@ -34,6 +35,14 @@ from iclip.domains.identity.sso import SsoVerifier
 from tests.helpers.tasks import StubStyleSnapshots
 
 SERVER_DIR = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def _no_real_model_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """官方护栏：这一层只用替身，任何真模型请求都直接报错。按用例开关，不影响同一进程里的其他层。"""
+
+    monkeypatch.setattr(pydantic_ai_models, "ALLOW_MODEL_REQUESTS", False)
+
 
 TEST_SECRET = "test-secret-0123456789-0123456789-xyz"
 
@@ -110,6 +119,25 @@ async def _fresh_engine(url: str):
             text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
         )
     return engine
+
+
+@pytest.fixture
+async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
+    """清空 agent 运行时各表后给出引擎；runner 与 transcript 场景测试直接用它装配。"""
+
+    engine = create_async_engine(migrated_pg)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "TRUNCATE agent_runtime.runs, agent_runtime.events, agent_runtime.snapshots, "
+                "agent_runtime.tool_effects, agent_runtime.media, agent_runtime.agent_jobs, "
+                "agent_runtime.agent_job_runs"
+            )
+        )
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 TEST_MODEL_NAME = "test-model"

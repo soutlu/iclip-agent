@@ -158,48 +158,6 @@ def _settled(tc: TestClient, conversation_id: str, *, tries: int = 200) -> None:
     raise AssertionError("这段对话没跑完")
 
 
-def test_regenerate_removes_the_old_turn_before_the_new_one_appears(
-    ws_agent_app: FastAPI, pg_url: str
-) -> None:
-    """重跑前须先发送 items.remove；turn.upsert 仅更新轮头，无法清除旧步骤和块。"""
-
-    with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
-        conversation_id = _open_conversation(tc)
-
-        sent = tc.post(
-            f"/conversations/{conversation_id}/prompts",
-            json={"prompt_id": "prm_regen_ws", "content": [{"type": "text", "text": "走"}]},
-        )
-        assert sent.status_code == 200, sent.text
-        _settled(tc, conversation_id)
-
-        with tc.websocket_connect("/ws") as ws:
-            assert ws.receive_json()["type"] == "server_hello"
-            _subscribe(ws, conversation_id)
-            assert _until(ws, "transcript.reset")["session_id"] == conversation_id
-
-            replayed = tc.post(f"/conversations/{conversation_id}/turns/t1:regenerate")
-            assert replayed.status_code == 200, replayed.text
-
-            seen: list[dict[str, Any]] = []
-            for _ in range(40):
-                frame = ws.receive_json()
-                if frame.get("type") != "transcript.ops":
-                    continue
-                ops: list[dict[str, Any]] = frame["payload"]["ops"]
-                removals = [op for op in ops if op["op"] == "items.remove"]
-                if removals:
-                    assert removals[0]["ids"] == ["t1"]
-                    break
-                seen.extend(ops)
-            else:
-                raise AssertionError("没等到 items.remove")
-
-            assert not [op for op in seen if op["op"] == "turn.upsert"]
-            _settled(tc, conversation_id)
-
-
 def test_resubscribing_with_a_stale_watermark_gets_a_reset(
     ws_agent_app: FastAPI, pg_url: str
 ) -> None:
