@@ -1,6 +1,6 @@
 # ADR-0005: 对话协议换成 kimi code 的 transcript
 
-- 状态：已接受（2026-08-31）。轮与 run 的关系改由 **[ADR-0006](0006-durable-runs.md)** 定（一轮 = 一条 prompt，可跨多次 run）；工具帧的 `metadata` 字段是本仓对 kimi 帧的扩展，见 **[ADR-0007](0007-tool-declaration-surface.md)** 决策 6
+- 状态：已接受（2026-08-31）。轮与 run 的关系改由 **[ADR-0006](0006-durable-runs.md)** 定（一轮 = 一条 prompt，可跨多次 run）；工具帧的 `metadata` 字段是本仓对 kimi 帧的扩展，见 **[ADR-0007](0007-tool-declaration-surface.md)** 决策 6；照抄字段的填充口径与加字段规则见 **[ADR-0013](0013-transcript-protocol-freeze.md)**
 - **[ADR-0001](0001-architecture-foundations.md)**：Postgres 是唯一事实源，是本文的前提。
 
 ## 决策

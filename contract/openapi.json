@@ -3973,6 +3973,17 @@
             "title": "Steps",
             "type": "array"
           },
+          "triggerPromptId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triggerpromptid"
+          },
           "turnId": {
             "title": "Turnid",
             "type": "string"
@@ -4094,6 +4105,17 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "triggerPromptId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triggerpromptid"
           },
           "turnId": {
             "title": "Turnid",

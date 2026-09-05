@@ -76,6 +76,7 @@ from iclip.harness.agents import (
     AgentDefinition,
     SubAgentDefinition,
     build_agent_registry,
+    subagent_profiles,
 )
 from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.models import BuiltModels, ModelSpec, build_models
@@ -532,12 +533,17 @@ def build_app(
     # 实时与历史共用显示注册表，保证工具卡渲染一致。
     tool_displays = build_display_registry(capability_table)
     transcript_store = TranscriptStore()
-    # 子代理镜像要拿到实时投影与显示表，装配 Agent 前先备好这两样。
+    agent_definitions = _agent_definitions(agents, table=capability_table)
+    # 子代理镜像要拿到实时投影、显示表和子代理档案，装配 Agent 前先备好。
     agent_registry = build_agent_registry(
-        _agent_definitions(agents, table=capability_table),
+        agent_definitions,
         step_store=step_store,
         models=built_models,
-        subagent_mirror=SubAgentMirror(live=transcript_store, display=tool_displays),
+        subagent_mirror=SubAgentMirror(
+            live=transcript_store,
+            display=tool_displays,
+            profiles=subagent_profiles(agent_definitions, built_models),
+        ),
     )
     job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = _agent_context_limits(agents, settings.models)

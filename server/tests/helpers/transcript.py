@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, InMemoryStepStore
 
+from iclip.harness.transcript.from_messages import SteeredPrompt
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
@@ -57,6 +58,9 @@ class NoPromptRuns:
     async def prompt_status_of_runs(self, conversation_id: str) -> dict[str, str]:
         return {}
 
+    async def steered_prompts(self, conversation_id: str) -> tuple[SteeredPrompt, ...]:
+        return ()
+
 
 # --- 归一化 -----------------------------------------------------------------
 
@@ -85,7 +89,8 @@ class Normalizer:
 
     def _field(self, key: str, value: Any) -> Any:
         if key == "durationMs":
-            return "<ms>"
+            # 两条路的时钟不同，耗时对不上；金样要能过前端的 number schema，所以写 0 不写占位串。
+            return 0
         return self(value)
 
     def _scalar(self, value: str) -> str:

@@ -55,6 +55,22 @@ TurnState = Literal["queued", "running", "completed", "failed", "cancelled"]
 
 ApprovalState = Literal["pending", "approved", "rejected", "cancelled"]
 
+_ENDED_STATES: Final = ("completed", "failed", "cancelled")
+"""轮到了这几个状态才有耗时；running 与等审批的轮没有。"""
+
+
+@dataclass(frozen=True, slots=True)
+class SteeredPrompt:
+    """一条插过话的消息；历史重建时按轮内顺序与内容把它对回插话块。"""
+
+    prompt_id: str
+    run_id: str | None
+    content: tuple[PromptContent, ...]
+
+
+_Steer = tuple[tuple[PromptContent, ...], tuple[str, ...] | None]
+"""一条插话：内容，以及它来自哪条消息（对不上时为 None）。"""
+
 _CLOSED_OUT_OUTCOMES: Final = ("failed", "interrupted")
 """系统补全的失败结果：新消息关闭旧调用使用 failed，中断恢复使用 interrupted。"""
 
@@ -78,20 +94,23 @@ def turns_from_messages(
     prompt_of_run: Mapping[str, str] | None = None,
     prompt_status_of_run: Mapping[str, str] | None = None,
     subagent_of_call: Mapping[str, str] | None = None,
+    steered: Sequence[SteeredPrompt] = (),
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
 ) -> tuple[TranscriptTurn, ...]:
     """按时间重建轮次；同 prompt 的 run 合并，轮次终态取最后一次 run。
 
     turn_states/turn_errors 按 run_id 提供，prompt_status_of_run 用于开放审批调用。
     subagent_of_call 把 toolCallId 映射到它派出的子代理 id，据此给工具卡补 agentRefs。
+    steered 是本对话插过话的消息（按插话先后），插话块靠它标 promptIds。
     display 须与实时投影共享，保持工具卡结构一致。
     """
 
     states = turn_states or {}
     errors = turn_errors or {}
     statuses = prompt_status_of_run or {}
+    of_run = prompt_of_run or {}
     turns: list[TranscriptTurn] = []
-    for ordinal, segments in enumerate(_group_by_turn(messages, prompt_of_run or {}), start=1):
+    for ordinal, segments in enumerate(_group_by_turn(messages, of_run), start=1):
         last_run = segments[-1][0]
         settled, waiting = _approval_calls(segments, states)
         prompt_status = statuses.get(last_run)
@@ -110,6 +129,8 @@ def turns_from_messages(
                 approvals=(*settled, *waiting),
                 waiting=waiting if prompt_status in _WAITING_PROMPT_STATUSES else (),
                 subagent_of_call=subagent_of_call or {},
+                prompt_id=of_run.get(segments[0][0]),
+                steered=steered,
                 display=display,
             )
         )
@@ -125,6 +146,8 @@ class ChildRun:
     started_at: datetime
     ended_at: datetime | None
     state: TurnState
+    model: str | None = None
+    thinking_effort: str | None = None
 
 
 _TASK_STATE_BY_RUN: Final[dict[TurnState, TaskState]] = {
@@ -163,6 +186,8 @@ def tasks_from_messages(
                 ended_at=_iso(child.ended_at),
                 result_summary=text if state == "done" else None,
                 error=None if state is None or state == "done" else text,
+                model=child.model,
+                thinking_effort=child.thinking_effort,
             )
         )
     return tuple(tasks)
@@ -357,6 +382,8 @@ def _turn(
     subagent_of_call: Mapping[str, str],
     approvals: Sequence[str] = (),
     waiting: Sequence[str] = (),
+    prompt_id: str | None = None,
+    steered: Sequence[SteeredPrompt] = (),
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
 ) -> TranscriptTurn:
     """跨 run 连续编号步骤；工具卡保留在发起步骤，等待审批的卡保持 running。"""
@@ -368,8 +395,11 @@ def _turn(
     frames_by_step: list[dict[str, TranscriptFrame]] = []
     content: tuple[PromptContent, ...] | None = None
     pending_request: ModelRequest | None = None
-    pending_steers: list[tuple[PromptContent, ...]] = []
+    pending_steers: list[_Steer] = []
     pending_summaries: list[tuple[datetime, str]] = []
+    # 插话行按轮取而不按 run：续跑会把它们挪到新 run，消息却留在旧 run 的段里。
+    turn_runs = {run_id for run_id, _ in segments}
+    unclaimed = [row for row in steered if row.run_id in turn_runs]
 
     for index, (run_id, group) in enumerate(segments):
         opened = len(steps)
@@ -392,10 +422,15 @@ def _turn(
                 elif said and steps:
                     # 插话挂在当时的末步，与实时投影保持一致。
                     step_index = len(steps) - 1
-                    _user_frame(frames_by_step[step_index], f"{turn_id}.{step_index + 1}", said)
+                    _user_frame(
+                        frames_by_step[step_index],
+                        f"{turn_id}.{step_index + 1}",
+                        said,
+                        _claim(unclaimed, said),
+                    )
                 elif said:
                     # 首步尚未创建时暂存插话，随后插入首步开头。
-                    pending_steers.append(said)
+                    pending_steers.append((said, _claim(unclaimed, said)))
                 _settle_tools(message, tool_frames, frames_by_step)
                 pending_request = message
                 continue
@@ -411,8 +446,8 @@ def _turn(
                 else:
                     later.append((at, summary))
             pending_summaries = later
-            for said in pending_steers:
-                _user_frame(frames, step_id, said)
+            for said, prompt_ids in pending_steers:
+                _user_frame(frames, step_id, said, prompt_ids)
             pending_steers.clear()
             _open_frames(
                 message,
@@ -449,15 +484,18 @@ def _turn(
     _close_orphan_tools(tool_frames, frames_by_step, keep_open=waiting)
 
     messages = [message for _, group in segments for message in group]
+    started, ended = _started_at(messages), _ended_at(messages)
     return TranscriptTurn(
         turn_id=turn_id,
+        trigger_prompt_id=prompt_id,
         ordinal=ordinal,
         state=state,
         origin=TurnOrigin(kind="user"),
         content=content or (),
-        started_at=_iso(_started_at(messages)),
-        ended_at=_iso(_ended_at(messages)),
+        started_at=_iso(started),
+        ended_at=_iso(ended),
         usage=turn_usage([step.usage for step in steps if step.usage is not None]),
+        duration_ms=_duration_ms(started, ended) if state in _ENDED_STATES else None,
         error=error,
         steps=tuple(
             step.model_copy(update={"frames": tuple(frames_by_step[index].values())})
@@ -476,14 +514,39 @@ def _compaction_frame(frames: dict[str, TranscriptFrame], step_id: str, summary:
 
 
 def _user_frame(
-    frames: dict[str, TranscriptFrame], step_id: str, content: tuple[PromptContent, ...]
+    frames: dict[str, TranscriptFrame],
+    step_id: str,
+    content: tuple[PromptContent, ...],
+    prompt_ids: tuple[str, ...] | None,
 ) -> None:
     """将用户消息加入步骤，使用共享块序号。"""
 
     frame_id = f"{step_id}.f{next_frame_ordinal(frames)}"
     frames[frame_id] = TextFrame(
-        frame_id=frame_id, role="user", text=plain_text(content), content=content
+        frame_id=frame_id,
+        role="user",
+        text=plain_text(content),
+        content=content,
+        prompt_ids=prompt_ids,
     )
+
+
+def _claim(
+    unclaimed: list[SteeredPrompt], content: tuple[PromptContent, ...]
+) -> tuple[str, ...] | None:
+    """按先后取第一条内容相同的插话行；enqueue_id 不进历史，只能这样把块对回消息。"""
+
+    for index, row in enumerate(unclaimed):
+        if row.content == content:
+            del unclaimed[index]
+            return (row.prompt_id,)
+    return None
+
+
+def _duration_ms(started: datetime, ended: datetime | None) -> int | None:
+    if ended is None or started == _EPOCH:
+        return None
+    return int((ended - started).total_seconds() * 1000)
 
 
 def _user_content(message: ModelRequest) -> tuple[PromptContent, ...]:
@@ -703,6 +766,7 @@ __all__ = [
     "ORPHAN_TOOL_ERROR",
     "ApprovalState",
     "ChildRun",
+    "SteeredPrompt",
     "TurnState",
     "approvals_from_messages",
     "drop_last_turn",

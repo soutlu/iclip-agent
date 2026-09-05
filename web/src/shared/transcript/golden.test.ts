@@ -26,6 +26,10 @@ describe.each(Object.keys(SAMPLES))('金样 %s', (name) => {
     expect(page.agent_id).toBe('main')
     expect(page.items.length).toBeGreaterThan(0)
     expect(page.agents.map((agent) => agent.type)).toContain('main')
+    // zod 默认剥掉未声明字段：schema 漏了 triggerPromptId 这里会红，而不是悄悄丢。
+    for (const item of page.items) {
+      if (item.kind === 'turn') expect(item.triggerPromptId).toBeDefined()
+    }
   })
 
   it.skipIf(sample.ws === undefined)('WS 帧序列逐帧过 schema，回放不缺批、轮数与 REST 一致', () => {

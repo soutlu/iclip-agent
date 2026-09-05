@@ -13,6 +13,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Capability
 from pydantic_ai.messages import ModelMessage, ModelRequest
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.models.test import TestModel
 from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
@@ -23,6 +24,7 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
     delegate_display_table,
+    subagent_profiles,
 )
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.harness.transcript.subagents import SubAgentMirror
@@ -67,6 +69,55 @@ def make_spec(root: Path, name: str, *, spec: str = SPEC, instructions: str | No
     if instructions is not None:
         (folder / "instructions.md").write_text(instructions, encoding="utf-8")
     return path
+
+
+def _never(_messages: list[ModelMessage], _info: AgentInfo) -> Any:
+    raise AssertionError("装配阶段不该调用模型")
+
+
+def _with_subagents(root: Path, agent_id: str, model: str, subs: dict[str, str]) -> AgentDefinition:
+    return AgentDefinition(
+        agent_id=agent_id,
+        spec=make_spec(root, agent_id),
+        model=model,
+        subagents=tuple(
+            SubAgentDefinition(name=name, spec=make_spec(root, name), model=sub_model)
+            for name, sub_model in subs.items()
+        ),
+    )
+
+
+def test_subagent_profiles_carry_the_model_id_and_thinking_effort(tmp_path: Path) -> None:
+    """档案记供应方模型 id；配了思考档位才有 thinking_effort。"""
+
+    thinking = FunctionModel(
+        _never,
+        model_name="qwen3-max",
+        settings=OpenAIChatModelSettings(openai_reasoning_effort="low"),
+    )
+    plain = FunctionModel(_never, model_name="qwen3-plus")
+    definitions = (
+        _with_subagents(tmp_path, "a", "plain", {"writer": "thinking", "copy": "plain"}),
+    )
+
+    assert subagent_profiles(definitions, {"thinking": thinking, "plain": plain}) == {
+        "writer": {"agent_name": "writer", "model": "qwen3-max", "thinking_effort": "low"},
+        "copy": {"agent_name": "copy", "model": "qwen3-plus"},
+    }
+
+
+def test_subagent_profiles_refuse_one_name_with_two_models(tmp_path: Path) -> None:
+    """同名子代理在两个 agent 下配了不同模型：档案按名查，一份会盖掉另一份，启动就拦。"""
+
+    fast = FunctionModel(_never, model_name="fast")
+    slow = FunctionModel(_never, model_name="slow")
+    definitions = (
+        _with_subagents(tmp_path, "a", "fast", {"writer": "fast"}),
+        _with_subagents(tmp_path, "b", "slow", {"writer": "slow"}),
+    )
+
+    with pytest.raises(RuntimeError, match="writer"):
+        subagent_profiles(definitions, {"fast": fast, "slow": slow})
 
 
 def test_empty_definitions_yield_empty_registry() -> None:

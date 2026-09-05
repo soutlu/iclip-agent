@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Any
 
@@ -50,8 +50,8 @@ class Delegation:
     """
 
     conversation_id: str
-    on_spawn: Callable[[str, str], None]
-    """子运行开跑时回调 (child_run_id, agent_name)，由父侧写自己那条流。"""
+    on_spawn: Callable[[str, Mapping[str, str]], None]
+    """子运行开跑时回调 (child_run_id, 子代理档案)，由父侧写自己那条流。"""
     child_run_id: str | None = None
 
 
@@ -118,13 +118,13 @@ class SubAgentBridge(AbstractCapability[Any]):
         await self._settle(ctx, call=call, tool_def=tool_def, delegation=delegation)
         return result
 
-    def _spawned(self, tool_call_id: str, child_run_id: str, agent_name: str) -> None:
+    def _spawned(self, tool_call_id: str, child_run_id: str, profile: Mapping[str, str]) -> None:
         """子运行开跑：父流上的那张卡认领它，并开一条 subagent 任务。"""
 
         self.live.append(
             self.conversation_id,
             self.parent_agent_id,
-            self.projector.note_subagent(tool_call_id, child_run_id, agent_name),
+            self.projector.note_subagent(tool_call_id, child_run_id, profile),
         )
 
     async def _settle(
@@ -166,6 +166,8 @@ class SubAgentMirror(AbstractCapability[Any]):
     id: str | None = "subagent_mirror"
     live: TranscriptStore
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY
+    profiles: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    """子代理名 → 落库 metadata 那份档案，由 subagent_profiles 产出；任务卡上的字段从这里取。"""
     _delegation: Delegation | None = None
     _queue: asyncio.Queue[_Item] | None = None
 
@@ -187,11 +189,14 @@ class SubAgentMirror(AbstractCapability[Any]):
         agent_name = None if ctx.agent is None else ctx.agent.name
         if agent_name is None:
             raise RuntimeError("子代理没有名字，镜像不了")
+        profile = self.profiles.get(agent_name)
+        if profile is None:
+            raise RuntimeError(f"子代理 {agent_name} 没有登记档案，镜像不了")
         task = ctx.prompt
         if not isinstance(task, str):
             raise RuntimeError("子代理的 prompt 不是纯文本")
         delegation.child_run_id = child_run_id
-        delegation.on_spawn(child_run_id, agent_name)
+        delegation.on_spawn(child_run_id, profile)
         projector = TranscriptEventStream(
             agent_id=child_run_id,
             turn_id=CHILD_TURN_ID,

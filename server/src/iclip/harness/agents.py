@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from pydantic_ai import Agent, AgentSpec
@@ -106,11 +106,43 @@ def _load_agent(
     )
 
 
+def subagent_profiles(
+    definitions: Sequence[AgentDefinition], models: BuiltModels
+) -> Mapping[str, Mapping[str, str]]:
+    """每个子代理一份档案：名字、模型 id、思考档位。
+
+    同一份既写进子运行的落库 metadata，也交给镜像标在任务上，实时与历史读到的字符串才相同。
+    """
+
+    profiles: dict[str, Mapping[str, str]] = {}
+    for definition in definitions:
+        for sub in definition.subagents:
+            model = _pick_model(models, sub.model, declared_by=f"子 agent {sub.name}")
+            profile = {"agent_name": sub.name, "model": model.model_name}
+            effort = _thinking_effort(model)
+            if effort is not None:
+                profile["thinking_effort"] = effort
+            # 档案按子代理名查，同名不同配置会让一份盖掉另一份，启动时就拦住。
+            if profiles.get(sub.name, profile) != profile:
+                raise RuntimeError(f"子 agent {sub.name} 在多个 agent 下声明了不同的模型配置")
+            profiles[sub.name] = profile
+    return profiles
+
+
+def _thinking_effort(model: Model) -> str | None:
+    """思考档位只在 OpenAI 方言的 settings 里；没配就没有。"""
+
+    settings = cast("Mapping[str, object] | None", model.settings)
+    effort = None if settings is None else settings.get("openai_reasoning_effort")
+    return effort if isinstance(effort, str) else None
+
+
 def _build_subagents(
     definitions: Sequence[SubAgentDefinition],
     step_store: StepStore,
     models: BuiltModels,
     mirror: AgentCapability[Any],
+    profiles: Mapping[str, Mapping[str, str]],
 ) -> SubAgents[Any]:
     return SubAgents(
         agents=[
@@ -123,7 +155,7 @@ def _build_subagents(
                     step_store=step_store,
                     accepts_deferred=False,
                     extra=sub.capabilities,
-                    persistence_metadata={"agent_name": sub.name},
+                    persistence_metadata=profiles[sub.name],
                 ),
                 timeout_seconds=sub.timeout_seconds,
                 max_calls=sub.max_calls,
@@ -176,6 +208,7 @@ def build_agent_registry(
 ) -> AgentRegistry:
     """根据声明与注入依赖装配 Agent；subagent_mirror 由组合根构造，挂到每个子代理运行上。"""
 
+    profiles = subagent_profiles(definitions, models)
     agents: dict[str, Agent[Any, Any]] = {}
     for definition in definitions:
         agents[definition.agent_id] = _load_agent(
@@ -188,7 +221,11 @@ def build_agent_registry(
             extra=(
                 *definition.capabilities,
                 *(
-                    [_build_subagents(definition.subagents, step_store, models, subagent_mirror)]
+                    [
+                        _build_subagents(
+                            definition.subagents, step_store, models, subagent_mirror, profiles
+                        )
+                    ]
                     if definition.subagents
                     else ()
                 ),
@@ -205,4 +242,5 @@ __all__ = [
     "SubAgentDefinition",
     "build_agent_registry",
     "delegate_display_table",
+    "subagent_profiles",
 ]

@@ -5,6 +5,7 @@
       {
         "kind": "turn",
         "turnId": "t1",
+        "triggerPromptId": "<id-1>",
         "ordinal": 1,
         "state": "completed",
         "origin": {
@@ -23,6 +24,7 @@
           "outputTokens": 9,
           "cachedTokens": 0
         },
+        "durationMs": 0,
         "steps": [
           {
             "kind": "step",
@@ -54,7 +56,7 @@
                 },
                 "agentRefs": [
                   {
-                    "agentId": "<id-1>",
+                    "agentId": "<id-2>",
                     "role": "child"
                   }
                 ]
@@ -90,16 +92,17 @@
     "has_more": false,
     "tasks": [
       {
-        "taskId": "<id-1>",
+        "taskId": "<id-2>",
         "kind": "subagent",
         "state": "completed",
         "detached": false,
         "description": "shot-writer",
-        "agentId": "<id-1>",
+        "agentId": "<id-2>",
         "outputTail": "",
         "startedAt": "<ts>",
         "endedAt": "<ts>",
-        "resultSummary": "S3-1 特写；S3-2 中景；S3-3 全景"
+        "resultSummary": "S3-1 特写；S3-2 中景；S3-3 全景",
+        "model": "function::stream"
       }
     ],
     "interactions": [],
@@ -114,11 +117,12 @@
         "type": "main"
       },
       {
-        "agentId": "<id-1>",
+        "agentId": "<id-2>",
         "type": "sub",
         "parentAgentId": "main",
         "label": "shot-writer",
-        "createdAt": "<ts>"
+        "createdAt": "<ts>",
+        "disposedAt": "<ts>"
       }
     ],
     "pending_interactions": []

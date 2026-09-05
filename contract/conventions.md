@@ -83,7 +83,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 订阅
 
-`WS /ws` 一条连接订阅多段对话，经过同源代理时使用 `/api/ws`。WebSocket 帧不在 OpenAPI 中：标准 Transcript 实体与操作消费 [vendor](../web/src/shared/transcript/vendor/README.md)，本项目的连接帧 schema 位于 [connection.ts](../web/src/shared/transcript/connection.ts)。后端实际发出的帧序列与 REST 一页存成金样 [transcript/](transcript/)，由后端场景测试生成、前端测试解析，两端形状对不上会在其中一边先红。
+`WS /ws` 一条连接订阅多段对话，经过同源代理时使用 `/api/ws`。WebSocket 帧不在 OpenAPI 中：标准 Transcript 实体与操作消费 [vendor](../web/src/shared/transcript/vendor/README.md)，本项目的连接帧 schema 位于 [connection.ts](../web/src/shared/transcript/connection.ts)。后端实际发出的帧序列与 REST 一页存成金样 [transcript/](transcript/)，由后端场景测试生成、前端测试解析，两端形状对不上会在其中一边先红。协议字段哪些填、哪些留空，以及加字段的规则，见 [ADR-0013](../docs/adr/0013-transcript-protocol-freeze.md)。
 
 - 握手：服务端先发 `server_hello`（客户端只取 `heartbeat_ms`），客户端**每段对话各发一帧**
   `subscribe_v2`，体里 `session_id` 是对话 id，`transcript` 是按 agent 给的档位，带

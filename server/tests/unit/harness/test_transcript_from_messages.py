@@ -22,6 +22,7 @@ from pydantic_ai_harness.step_persistence import StepEvent
 from iclip.harness.media import media_tag_close, media_tag_open
 from iclip.harness.transcript.from_messages import (
     ORPHAN_TOOL_ERROR,
+    SteeredPrompt,
     TurnState,
     approvals_from_messages,
     drop_last_turn,
@@ -531,6 +532,70 @@ def test_a_steer_arriving_before_any_step_leads_the_first_one() -> None:
     assert isinstance(leading, TextFrame)
     assert leading.role == "user"
     assert leading.text == "补充一句"
+
+
+def _steered(prompt_id: str, text_: str, *, run_id: str = RUN) -> SteeredPrompt:
+    return SteeredPrompt(prompt_id=prompt_id, run_id=run_id, content=(TextContent(text=text_),))
+
+
+def _user_prompt_ids(turn: TranscriptTurn) -> list[tuple[str, ...] | None]:
+    return [
+        frame.prompt_ids
+        for step in turn.steps
+        for frame in step.frames
+        if isinstance(frame, TextFrame) and frame.role == "user"
+    ]
+
+
+def test_a_steer_block_is_claimed_by_the_steered_prompt_with_the_same_content() -> None:
+    """插话块按先后对回内容相同的插话行，每行只用一次；别的轮的行不算，对不上的留空。"""
+
+    turns = turns_from_messages(
+        [
+            _ask("走"),
+            _reply(TextPart(content="好"), minute=1),
+            _returns(UserPromptPart(content="第一句插话"), minute=2),
+            _returns(UserPromptPart(content="没登记的插话"), minute=3),
+            _returns(UserPromptPart(content="第一句插话"), minute=4),
+            _reply(TextPart(content="收到"), minute=5),
+        ],
+        steered=(
+            _steered("prm_a", "第一句插话"),
+            _steered("prm_b", "第一句插话"),
+            _steered("prm_other", "没登记的插话", run_id="run-of-another-turn"),
+        ),
+    )
+
+    assert _user_prompt_ids(turns[0]) == [("prm_a",), None, ("prm_b",)]
+
+
+def test_a_steer_row_moved_to_the_resumed_run_still_claims_its_block() -> None:
+    """续跑把插话行挪到新 run，块却留在旧 run 的段里；按轮配对才对得上。"""
+
+    turns = turns_from_messages(
+        [
+            _ask("走"),
+            _reply(TextPart(content="好"), minute=1),
+            _returns(UserPromptPart(content="插话"), minute=2),
+            _reply(TextPart(content="续跑答"), run_id="run-b", minute=3),
+        ],
+        prompt_of_run={RUN: "prm_1", "run-b": "prm_1"},
+        steered=(_steered("prm_s", "插话", run_id="run-b"),),
+    )
+
+    assert len(turns) == 1
+    assert turns[0].trigger_prompt_id == "prm_1"
+    assert _user_prompt_ids(turns[0]) == [("prm_s",)]
+
+
+def test_duration_is_only_reported_for_ended_turns() -> None:
+    messages = [_ask("走", minute=0), _reply(TextPart(content="好"), minute=2)]
+
+    ended = turns_from_messages(messages, turn_states={RUN: "completed"})
+    running = turns_from_messages(messages, turn_states={RUN: "running"})
+
+    assert ended[0].duration_ms == 120_000
+    assert running[0].duration_ms is None
 
 
 def test_attached_image_survives_the_round_trip() -> None:

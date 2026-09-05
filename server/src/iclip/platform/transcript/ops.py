@@ -189,6 +189,7 @@ def agents_from_tasks(tasks: Iterable[TranscriptTask]) -> tuple[AgentDescriptor,
                 parent_agent_id=MAIN_AGENT_ID,
                 label=task.description,
                 created_at=task.started_at,
+                disposed_at=task.ended_at,
             )
             for task in tasks
             if task.kind == "subagent" and task.agent_id is not None
@@ -201,6 +202,8 @@ class TurnHeader(_Wire):
 
     kind: Literal["turn"] = "turn"
     turn_id: str
+    trigger_prompt_id: str | None = None
+    """发起本轮的消息 id；客户端按它认领自己先画出来的气泡。子代理的轮没有。"""
     ordinal: int
     state: Literal["queued", "running", "completed", "failed", "cancelled"]
     origin: TurnOrigin

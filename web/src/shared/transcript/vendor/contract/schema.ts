@@ -170,6 +170,7 @@ export const transcriptStepSchema = z.object({
 export const transcriptTurnSchema = z.object({
   kind: z.literal('turn'),
   turnId: turnIdSchema,
+  triggerPromptId: z.string().min(1).optional(),
   ordinal: z.number().int(),
   state: turnStateSchema,
   origin: turnOriginSchema,
