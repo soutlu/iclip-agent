@@ -16,6 +16,8 @@
 
 marker 由 [tests/conftest.py](../server/tests/conftest.py) 按目录注入；测试树和私有符号导入由 [集合契约测试](../server/tests/unit/architecture/test_collection_contract.py) 检查。新增顶层测试层时同时更新这些入口和 [pyproject.toml](../server/pyproject.toml)，普通子目录不需要修改分层契约。
 
+transcript 按场景测：[场景测试](../server/tests/integration_no_llm/agents/test_transcript_scenarios.py)用假模型跑真实运行，断言实时重放出的页与冷启动重建的页逐字相等，并把两个场景存成 `contract/transcript/` 下的金样（`UPDATE_GOLDEN=1` 重生成），前端 [golden 测试](../web/src/shared/transcript/golden.test.ts)用 vendored schema 解析同一份。只有历史才会遇到的规则留在 [历史重建单测](../server/tests/unit/harness/test_transcript_from_messages.py)，手工事件才能造出的形状留在 [投影器单测](../server/tests/unit/harness/test_transcript_projector.py)；新场景先进场景文件，不另开对照测试。
+
 ## 2. 断言与替身
 
 - 断言结果，不记录并断言内部调用过程；不 import 或 monkeypatch 生产代码的下划线私有符号。
