@@ -50,10 +50,14 @@ from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
     AgentDescriptor,
     AgentRef,
+    FrameUpsertOp,
     PromptContent,
     TextContent,
+    ToolFrame,
+    TranscriptStep,
     TranscriptTask,
     TranscriptTurn,
+    TurnOrigin,
 )
 from tests.helpers.transcript import (
     InMemoryConversationSnapshots,
@@ -150,6 +154,45 @@ async def test_the_delegate_card_and_task_match_on_both_paths() -> None:
     assert _task_facts(derived_tasks) == [
         (CHILD, "subagent", "completed", CHILD, WRITER, "三个镜头写好了")
     ]
+
+
+def test_a_replayed_delegation_points_the_card_at_the_latest_child_only() -> None:
+    """崩溃续跑会重放同一次 delegate；账本只记最后一个子运行，父卡也只能指向它。"""
+
+    baseline = TranscriptTurn(
+        turn_id="t1",
+        ordinal=1,
+        state="running",
+        origin=TurnOrigin(kind="user"),
+        content=CONTENT,
+        steps=(
+            TranscriptStep(
+                step_id="t1.1",
+                turn_id="t1",
+                ordinal=1,
+                state="interrupted",
+                frames=(
+                    ToolFrame(
+                        frame_id="t1.1.c1",
+                        tool_call_id="c1",
+                        name=DELEGATE_TOOL,
+                        state="running",
+                        agent_refs=(AgentRef(agent_id="old-child", role="child"),),
+                    ),
+                ),
+            ),
+        ),
+    )
+    projector = TranscriptEventStream(
+        turn_id="t1", turn_ordinal=1, resume_from=baseline, display=DISPLAYS
+    )
+
+    frame_op, _task_op = projector.note_subagent("c1", "new-child", WRITER)
+
+    assert isinstance(frame_op, FrameUpsertOp)
+    assert frame_op.step_id == "t1.1"
+    assert isinstance(frame_op.frame, ToolFrame)
+    assert frame_op.frame.agent_refs == (AgentRef(agent_id="new-child", role="child"),)
 
 
 async def test_the_child_stream_matches_the_derived_one() -> None:
