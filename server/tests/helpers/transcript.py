@@ -154,11 +154,15 @@ async def live_page(
     display: ToolDisplayRegistry,
     runtime_agent_id: str,
 ) -> TranscriptPage:
-    """客户端实时收到的东西：把补发日志重放进一个新店，用空历史读出一页。"""
+    """客户端实时收到的东西：把补发日志重放进一个新店，用空历史读出一页。
+
+    读子代理那页时主流也一起重放：子页的名册取自主流的任务表。
+    """
 
     replayed = TranscriptStore()
-    for batch in store.subscribe_view(conversation_id, agent_id, since=0).batches:
-        replayed.append(conversation_id, agent_id, batch.ops)
+    for replayed_agent in dict.fromkeys((MAIN_AGENT_ID, agent_id)):
+        for batch in store.subscribe_view(conversation_id, replayed_agent, since=0).batches:
+            replayed.append(conversation_id, replayed_agent, batch.ops)
     history = TranscriptHistory(InMemoryConversationSnapshots(), NoPromptRuns(), display)
     return await _service(replayed, history, queue, runner).page(
         conversation_id, agent_id=agent_id, runtime_agent_id=runtime_agent_id

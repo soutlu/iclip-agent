@@ -14,6 +14,7 @@ import type { TranscriptOpsEvent } from './vendor'
 interface Golden {
   ws?: Array<{ type: string; payload: unknown }>
   rest: unknown
+  child_rest?: unknown
 }
 
 const SAMPLES: Record<string, Golden> = { 'tool-turn': toolTurn, 'delegate-turn': delegateTurn }
@@ -30,6 +31,13 @@ describe.each(Object.keys(SAMPLES))('金样 %s', (name) => {
     for (const item of page.items) {
       if (item.kind === 'turn') expect(item.triggerPromptId).toBeDefined()
     }
+  })
+
+  it.skipIf(sample.child_rest === undefined)('子代理那一页过同一个 schema', () => {
+    const page = transcriptResponseSchema.parse(sample.child_rest)
+    expect(page.agent_id).not.toBe('main')
+    expect(page.items.filter((item) => item.kind === 'turn')).toHaveLength(1)
+    expect(page.agents.map((agent) => agent.agentId)).toContain(page.agent_id)
   })
 
   it.skipIf(sample.ws === undefined)('WS 帧序列逐帧过 schema，回放不缺批、轮数与 REST 一致', () => {

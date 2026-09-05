@@ -61,7 +61,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 读
 
 - `GET /conversations/{id}/transcript` 默认取最新轮次；`before_turn` 向旧翻，`after_turn` 取指定轮之后的内容，两者不能同时给。`has_more` 始终表示当前页之前还有更旧轮次，不是向新翻页的结束标志。
-- `GET /conversations/{id}/transcript/ops?since_seq=` 补断线期间漏掉的批次。
+  `agent_id` 默认 `main`；给子代理的 id（工具卡 `agentRefs` 里那个）就读它那条流，`agents` 名册与主页同一份。不属于这段对话的 id 是 `404`，带路径分隔符的是 `422`。
+- `GET /conversations/{id}/transcript/ops?since_seq=` 补断线期间漏掉的批次，`agent_id` 同上。
   `complete: false` 表示要的批次已经出了窗口，整页重拉。
 - `GET /conversations/{id}/prompts` 当前排程：`{active, queued}`。
 - 轮头部与用户文本块都带 `content`，就是发消息那串 part 原样、次序不动。
@@ -87,8 +88,10 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 - 握手：服务端先发 `server_hello`（客户端只取 `heartbeat_ms`），客户端**每段对话各发一帧**
   `subscribe_v2`，体里 `session_id` 是对话 id，`transcript` 是按 agent 给的档位，带
-  `transcript_since` 就是补批。协议里的 `client_hello` 我们不收。
-- 退订一段发 `unsubscribe_v2`（体里 `session_id`）；关连接就是全退。
+  `transcript_since` 就是补批。表里每个 agent 各自订阅、各自水位，同一帧里再发就是更新；
+  出现不属于这段对话的 agent 时整帧拒绝，`ack` 带 `code: 404`，订阅不变。协议里的
+  `client_hello` 我们不收。
+- 退订一段发 `unsubscribe_v2`（体里 `session_id`）；带 `agent_ids` 只退列出的 agent；关连接就是全退。
 - **订阅逐段核权**：看不见的对话与不存在的对话一个待遇——回执 `ack` 的 `payload.not_found` 里
   带上它，整条连接不动（其余对话照旧）。建连时只核登录与 `agent:run`。
 - 对话帧带 `session_id`，客户端按它分流；Transcript 水位按对话各记一份。连接级握手与心跳不属于某段对话。

@@ -20,10 +20,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.testclient import TestClient
 
 from iclip.config import ResolvedAgent
-from tests.integration_no_llm.conftest import TEST_MODEL_NAME, set_roles_in_db
-
-AGENT_ID = "storyboard"
-PASSWORD = "password-123"
+from tests.helpers.ws import (
+    AGENT_ID,
+    drain_turn,
+    open_conversation,
+    sign_in,
+    subscribe,
+    until,
+)
+from tests.integration_no_llm.conftest import TEST_MODEL_NAME
 
 
 @pytest.fixture
@@ -45,79 +50,19 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
     )
 
 
-def _sign_in(tc: TestClient, pg_url: str) -> None:
-    created = tc.post(
-        "/auth/register",
-        json={"email": "luke@example.com", "password": PASSWORD, "username": "luke"},
-    )
-    assert created.status_code == 201, created.text
-    asyncio.run(set_roles_in_db(pg_url, "luke@example.com", ["editor"]))
-    assert (
-        tc.post("/auth/login", data={"username": "luke", "password": PASSWORD}).status_code == 204
-    )
-
-
-def _open_conversation(tc: TestClient) -> str:
-    created = tc.post("/conversations", json={"agentId": AGENT_ID})
-    assert created.status_code == 201, created.text
-    return str(created.json()["conversation"]["id"])
-
-
-def _subscribe(
-    ws: Any,
-    conversation_id: str,
-    *,
-    since: int | None = None,
-    frame_id: str = "s1",
-    grade: str = "delta",
-) -> None:
-    payload: dict[str, Any] = {
-        "session_id": conversation_id,
-        "transcript": {"main": grade},
-    }
-    if since is not None:
-        payload["transcript_since"] = {"main": since}
-    ws.send_json({"type": "subscribe_v2", "id": frame_id, "payload": payload})
-
-
-def _until(ws: Any, kind: str, *, tries: int = 40) -> dict[str, Any]:
-    """等待指定帧类型，跳过期间的 ack 和心跳。"""
-
-    for _ in range(tries):
-        frame: dict[str, Any] = ws.receive_json()
-        if frame.get("type") == kind:
-            return frame
-    raise AssertionError(f"没收到 {kind}")
-
-
-def _drain_turn(ws: Any, *, tries: int = 40) -> list[dict[str, Any]]:
-    """按轮终态收集操作；低粒度会过滤批次，不能等待固定帧数。"""
-
-    collected: list[dict[str, Any]] = []
-    for _ in range(tries):
-        frame = ws.receive_json()
-        if frame.get("type") != "transcript.ops":
-            continue
-        ops: list[dict[str, Any]] = frame["payload"]["ops"]
-        collected.extend(ops)
-        if any(op["op"] == "turn.upsert" and op["turn"]["state"] != "running" for op in ops):
-            return collected
-    raise AssertionError("这一轮没等到结束")
-
-
 def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
-        conversation_id = _open_conversation(tc)
+        sign_in(tc, pg_url)
+        conversation_id = open_conversation(tc)
 
         with tc.websocket_connect("/ws") as ws:
             hello = ws.receive_json()
             assert hello["type"] == "server_hello"
             assert hello["payload"]["heartbeat_ms"] > 0
 
-            _subscribe(ws, conversation_id)
-            reset = _until(ws, "transcript.reset")
+            subscribe(ws, conversation_id)
+            reset = until(ws, "transcript.reset")
             # session_id 用于同一连接中的多会话分流。
             assert reset["session_id"] == conversation_id
             assert reset["payload"]["agent_id"] == "main"
@@ -131,7 +76,7 @@ def test_subscribe_then_receive_ops(ws_agent_app: FastAPI, pg_url: str) -> None:
             )
             assert sent.status_code == 200, sent.text
 
-            ops = _until(ws, "transcript.ops")
+            ops = until(ws, "transcript.ops")
             assert ops["payload"]["seq"] >= 1
             assert ops["payload"]["ops"]
 
@@ -163,30 +108,30 @@ def test_resubscribing_with_a_stale_watermark_gets_a_reset(
 ) -> None:
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
-        conversation_id = _open_conversation(tc)
+        sign_in(tc, pg_url)
+        conversation_id = open_conversation(tc)
 
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
-            _subscribe(ws, conversation_id, since=99999)
-            assert _until(ws, "transcript.reset")["payload"]["seq"] == 0
+            subscribe(ws, conversation_id, since=99999)
+            assert until(ws, "transcript.reset")["payload"]["seq"] == 0
 
 
 def test_one_connection_serves_two_conversations(ws_agent_app: FastAPI, pg_url: str) -> None:
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
-        first = _open_conversation(tc)
-        second = _open_conversation(tc)
+        sign_in(tc, pg_url)
+        first = open_conversation(tc)
+        second = open_conversation(tc)
 
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
-            _subscribe(ws, first, frame_id="s1")
-            _subscribe(ws, second, frame_id="s2")
+            subscribe(ws, first, frame_id="s1")
+            subscribe(ws, second, frame_id="s2")
 
             landed = {
-                _until(ws, "transcript.reset")["session_id"],
-                _until(ws, "transcript.reset")["session_id"],
+                until(ws, "transcript.reset")["session_id"],
+                until(ws, "transcript.reset")["session_id"],
             }
             assert landed == {first, second}
 
@@ -194,13 +139,13 @@ def test_one_connection_serves_two_conversations(ws_agent_app: FastAPI, pg_url: 
 def test_turn_grade_carries_the_turn_but_no_deltas(ws_agent_app: FastAPI, pg_url: str) -> None:
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
-        conversation_id = _open_conversation(tc)
+        sign_in(tc, pg_url)
+        conversation_id = open_conversation(tc)
 
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
-            _subscribe(ws, conversation_id, grade="turn")
-            assert _until(ws, "transcript.reset")["session_id"] == conversation_id
+            subscribe(ws, conversation_id, grade="turn")
+            assert until(ws, "transcript.reset")["session_id"] == conversation_id
 
             sent = tc.post(
                 f"/conversations/{conversation_id}/prompts",
@@ -208,7 +153,7 @@ def test_turn_grade_carries_the_turn_but_no_deltas(ws_agent_app: FastAPI, pg_url
             )
             assert sent.status_code == 200, sent.text
 
-            kinds = {op["op"] for op in _drain_turn(ws)}
+            kinds = {op["op"] for op in drain_turn(ws)}
             assert "turn.upsert" in kinds
             assert kinds.isdisjoint({"append", "frame.upsert", "step.upsert"})
 
@@ -217,23 +162,23 @@ def test_raising_the_grade_replaces_the_whole_thing(ws_agent_app: FastAPI, pg_ur
     """升档必须 reset，低粒度期间被过滤的内容无法仅凭水位完整补发。"""
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
-        conversation_id = _open_conversation(tc)
+        sign_in(tc, pg_url)
+        conversation_id = open_conversation(tc)
 
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
-            _subscribe(ws, conversation_id, grade="turn")
-            assert _until(ws, "transcript.reset")
+            subscribe(ws, conversation_id, grade="turn")
+            assert until(ws, "transcript.reset")
 
             sent = tc.post(
                 f"/conversations/{conversation_id}/prompts",
                 json={"prompt_id": "prm_grade", "content": [{"type": "text", "text": "走"}]},
             )
             assert sent.status_code == 200, sent.text
-            _drain_turn(ws)
+            drain_turn(ws)
 
-            _subscribe(ws, conversation_id, since=1, frame_id="s2", grade="delta")
-            assert _until(ws, "transcript.reset")["session_id"] == conversation_id
+            subscribe(ws, conversation_id, since=1, frame_id="s2", grade="delta")
+            assert until(ws, "transcript.reset")["session_id"] == conversation_id
 
 
 def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
@@ -242,19 +187,19 @@ def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
     """不可见与不存在的会话均拒绝当前订阅，不关闭连接，避免泄漏资源存在性。"""
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
+        sign_in(tc, pg_url)
 
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
-            _subscribe(ws, "c-not-mine")
+            subscribe(ws, "c-not-mine")
 
-            ack = _until(ws, "ack")
+            ack = until(ws, "ack")
             assert ack["payload"]["not_found"] == ["c-not-mine"]
             assert ack["payload"]["accepted"] == []
 
-            mine = _open_conversation(tc)
-            _subscribe(ws, mine, frame_id="s2")
-            assert _until(ws, "transcript.reset")["session_id"] == mine
+            mine = open_conversation(tc)
+            subscribe(ws, mine, frame_id="s2")
+            assert until(ws, "transcript.reset")["session_id"] == mine
 
 
 def test_cross_origin_upgrade_is_refused(
@@ -268,7 +213,7 @@ def test_cross_origin_upgrade_is_refused(
         caplog.at_level(logging.INFO, logger="iclip.domains.agents.transcript_api"),
         TestClient(ws_agent_app) as tc,
     ):
-        _sign_in(tc, pg_url)
+        sign_in(tc, pg_url)
 
         with (
             pytest.raises(WebSocketDisconnect) as refused,
@@ -312,7 +257,7 @@ def _watch(ws: Any, conversation_id: str, *paths: str) -> dict[str, Any]:
             "payload": {"session_id": conversation_id, "paths": list(paths)},
         }
     )
-    return _until(ws, "ack")
+    return until(ws, "ack")
 
 
 def test_fs_changed_reaches_only_the_connections_watching_that_path(
@@ -321,8 +266,8 @@ def test_fs_changed_reaches_only_the_connections_watching_that_path(
     """文件事件仅投递给订阅对应路径的连接；交叉写入验证订阅隔离。"""
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
-        conversation_id = _open_conversation(tc)
+        sign_in(tc, pg_url)
+        conversation_id = open_conversation(tc)
         owner = tc.get("/users/me").json()["user"]["id"]
         # PUT 只覆盖已有文件，因此先创建两份基线。
         asyncio.run(_seed_file(pg_url, f"{owner}/{conversation_id}", "提纲.md", "三幕"))
@@ -343,8 +288,8 @@ def test_fs_changed_reaches_only_the_connections_watching_that_path(
                 )
                 assert written.status_code == 200, written.text
 
-            to_a = _until(a, "event.fs.changed")
-            to_b = _until(b, "event.fs.changed")
+            to_a = until(a, "event.fs.changed")
+            to_b = until(b, "event.fs.changed")
 
     assert to_a["session_id"] == conversation_id
     assert to_a["payload"] == {
@@ -359,12 +304,12 @@ def test_watching_an_unknown_conversation_is_refused_without_dropping_the_connec
 ) -> None:
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
+        sign_in(tc, pg_url)
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
             ack = _watch(ws, str(uuid.uuid4()), "提纲.md")
             assert ack["code"] == 40401
-            conversation_id = _open_conversation(tc)
+            conversation_id = open_conversation(tc)
             assert _watch(ws, conversation_id, "提纲.md")["code"] == 0
 
 
@@ -374,8 +319,8 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
     """会话活动事件供未订阅会话的侧栏使用，不受 subscribe_v2 限制。"""
 
     with TestClient(ws_agent_app) as tc:
-        _sign_in(tc, pg_url)
-        conversation_id = _open_conversation(tc)
+        sign_in(tc, pg_url)
+        conversation_id = open_conversation(tc)
 
         with tc.websocket_connect("/ws") as ws:
             assert ws.receive_json()["type"] == "server_hello"
@@ -386,12 +331,12 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
             )
             assert sent.status_code == 200, sent.text
 
-            busy = _until(ws, "event.session.work_changed")
+            busy = until(ws, "event.session.work_changed")
             assert busy["session_id"] == conversation_id
             # 未完成过运行时无终态；exclude_none 会省略该字段。
             assert busy["payload"] == {"busy": True, "pending_interaction": "none"}
 
-            idle = _until(ws, "event.session.work_changed")
+            idle = until(ws, "event.session.work_changed")
             assert idle["session_id"] == conversation_id
             assert idle["payload"] == {
                 "busy": False,

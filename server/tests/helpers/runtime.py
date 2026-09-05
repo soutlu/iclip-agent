@@ -6,6 +6,7 @@ runner 的队列、续跑测试与 transcript 场景测试共用这一份，改�
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
 from datetime import UTC, datetime
@@ -81,6 +82,29 @@ def says(*replies: str) -> FunctionModel:
         nonlocal said
         yield replies[min(said, len(replies) - 1)]
         said += 1
+
+    return FunctionModel(stream_function=stream)
+
+
+def delegates(*calls: tuple[str, str]) -> FunctionModel:
+    """父模型：第一次响应一口气派出这些子代理，之后收尾。toolCallId 写死。"""
+
+    async def stream(
+        messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        if len(messages) == 1:
+            yield {
+                index: DeltaToolCall(
+                    name=DELEGATE_TOOL,
+                    json_args=json.dumps(
+                        {"agent_name": agent_name, "task": task}, ensure_ascii=False
+                    ),
+                    tool_call_id=f"call_d{index + 1}",
+                )
+                for index, (agent_name, task) in enumerate(calls)
+            }
+        else:
+            yield "都写完了"
 
     return FunctionModel(stream_function=stream)
 
