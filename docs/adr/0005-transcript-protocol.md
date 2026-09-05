@@ -17,7 +17,7 @@ kimi code 的 transcript 协议把三件事收在协议里：结构化的轮 / �
 
 步 = 一次 run 里第几次模型响应，块 = 这一步里正文与思考的次序（轮的分组见 [ADR-0006](0006-durable-runs.md) 决策 2）。按「谁先到就给谁下一个号」编的话，一次模型重试就会让两条路永久分叉，而且不报错。
 
-为此顶层 agent 的 `StepPersistence` 不设 `agent_name`：设了官方就自己铸 `{名字}-{短 uuid}`，与消息上的 `run_id` 是两套 id，轮的终态就查不出来。子代理同样不设，名字改放 `StepPersistence.metadata`，见 ADR-0012。
+为此顶层 agent 的 `StepPersistence` 不设 `agent_name`：设了官方就自己铸 `{名字}-{短 uuid}`，与消息上的 `run_id` 是两套 id，轮的终态就查不出来。子代理同样不设，名字改放 `StepPersistence.metadata`，见 [ADR-0012](0012-subagent-transcript.md)。
 
 ### 3. 传输换成 WebSocket
 

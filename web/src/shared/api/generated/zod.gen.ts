@@ -3,6 +3,26 @@
 import * as z from 'zod'
 
 /**
+ * AgentDescriptor
+ */
+export const zAgentDescriptor = z.object({
+  agentId: z.string(),
+  createdAt: z.string().nullish(),
+  disposedAt: z.string().nullish(),
+  label: z.string().nullish(),
+  parentAgentId: z.string().nullish(),
+  type: z.enum(['main', 'sub', 'independent']).nullish(),
+})
+
+/**
+ * AgentRef
+ */
+export const zAgentRef = z.object({
+  agentId: z.string(),
+  role: z.enum(['child', 'member']).nullish(),
+})
+
+/**
  * AgentStatusMeta
  */
 export const zAgentStatusMeta = z.object({
@@ -805,6 +825,7 @@ export const zThinkingFrame = z.object({
  * ToolFrame
  */
 export const zToolFrame = z.object({
+  agentRefs: z.array(zAgentRef).nullish(),
   approvalId: z.string().nullish(),
   display: z.unknown().nullish(),
   error: z.string().nullish(),
@@ -833,6 +854,37 @@ export const zTranscriptMeta = z.object({
 export const zMetaMergeOp = z.object({
   meta: zTranscriptMeta,
   op: z.literal('meta.merge').optional().default('meta.merge'),
+})
+
+/**
+ * TranscriptTask
+ *
+ * 一件后台活儿。本系统只产出 ``subagent``：一次 delegate_task 一条。
+ */
+export const zTranscriptTask = z.object({
+  agentId: z.string().nullish(),
+  description: z.string().nullish(),
+  detached: z.boolean(),
+  endedAt: z.string().nullish(),
+  error: z.string().nullish(),
+  kind: z.enum(['shell', 'subagent', 'tool', 'other']),
+  model: z.string().nullish(),
+  outputTail: z.string().optional().default(''),
+  resultSummary: z.string().nullish(),
+  startedAt: z.string().nullish(),
+  state: z.enum(['running', 'completed', 'failed', 'timed_out', 'killed', 'lost']),
+  stateReason: z.string().nullish(),
+  taskId: z.string(),
+  thinkingEffort: z.string().nullish(),
+  usage: zStepUsage.nullish(),
+})
+
+/**
+ * TaskUpsertOp
+ */
+export const zTaskUpsertOp = z.object({
+  op: z.literal('task.upsert').optional().default('task.upsert'),
+  task: zTranscriptTask,
 })
 
 /**
@@ -1129,12 +1181,12 @@ export const zTranscriptTurn = z.object({
  *
  * ``GET /transcript`` 的一页。
  *
- * ``agents`` 与 ``pending_interactions`` 是协议要求的字段，我们只有主 agent，前者恒为一条、
- * 后者从待回应的交互里取。
+ * ``agents`` 与 ``pending_interactions`` 是协议要求的字段：前者是主 agent 加各子代理，后者从
+ * 待回应的交互里取。
  */
 export const zTranscriptPage = z.object({
   agent_id: z.string(),
-  agents: z.array(z.record(z.string(), z.unknown())).optional().default([]),
+  agents: z.array(zAgentDescriptor).optional().default([]),
   has_more: z.boolean(),
   interactions: z.array(zInteraction).optional().default([]),
   items: z.array(zTranscriptTurn),
@@ -1142,7 +1194,7 @@ export const zTranscriptPage = z.object({
   pending_interactions: z.array(z.string()).optional().default([]),
   prompts: z.array(zPrompt).optional().default([]),
   seq: z.int(),
-  tasks: z.array(z.unknown()).optional().default([]),
+  tasks: z.array(zTranscriptTask).optional().default([]),
   title: z.string().optional().default(''),
   todos: z.array(z.unknown()).optional().default([]),
 })
@@ -1184,6 +1236,7 @@ export const zOpsBatchOut = z.object({
       zStepUpsertOp,
       zFrameUpsertOp,
       zAppendOp,
+      zTaskUpsertOp,
       zInteractionUpsertOp,
       zPromptUpsertOp,
       zMetaMergeOp,
