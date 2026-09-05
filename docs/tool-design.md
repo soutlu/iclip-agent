@@ -42,6 +42,20 @@
 
 给模型的单次文本返回不超过 50,000 字符；超出时在源头写入工作区，返回路径与摘要。`video_parser_md` 使用这一方式。
 
-给用户的结构化结果放 `ToolReturn(return_value=给模型的内容, metadata=给用户的内容)`。metadata 随工具结果持久化，不进入模型上下文；媒体结果使用 `{"items": [{"url": ..., "caption": ...}]}`，对应 `view="media_grid"`。
+每件工具由所属 capability 提供 display 映射，组合根合并后供实时与历史共同使用。`kind` 只取 [display 协议](../server/src/iclip/platform/transcript/display.py) 已有值，不自行扩展；无法生成专用展示时使用 `generic`。
 
-每件工具由所属 capability 提供 display 映射，组合根合并后供实时与历史共同使用。`kind` 只取 [display 协议](../server/src/iclip/platform/transcript/display.py) 已有值，不自行扩展；无法生成专用展示时使用 `generic`。前端按协议的 `view` 选择结果渲染器，不按工具名判断。
+卡头文案：
+
+- `generic.summary` 是标题：书面动宾短语，四到五个字（读取图片、生成画面、保存分镜），不带数字、路径和口语缩略。
+- `generic.detail` 是主语：这一步作用的对象实例（文件名、路径、镜头号），取不到就不给。
+- 数字（行数、张数、字节、命中数、渠道）一律放 metadata 的角标，不进标题。
+- 前端为 `file_io`、`search`、`url_fetch`、`skill_call`、`agent_call` 各配一个同写法的标题，活动组摘要沿用同一套词。
+
+给用户的结构化结果放 `ToolReturn(return_value=给模型的内容, metadata=给用户的内容)`。metadata 随工具结果持久化，不进入模型上下文，形状由登记的 `view` 决定：
+
+- `file_content`：`{"path", "lines", "truncated"}`，正文仍在 output 里，不重复。
+- `search_results`：`{"query", "matches": [{"file", "line", "text"}], "truncated"}`。
+- `media_grid`：`{"items": [{"url", "caption"}], "note"?}`，`note` 是角标原文（几张、哪个渠道），由工具写好。
+- 没有 `view` 的工具只能带 `ToolNote`：`{"chip"?}` 或 `{"added", "removed"}`；`"body": "none"` 表示结果正文不给展开。
+
+构造函数在 display 模块：`file_content`、`search_results`、`media_grid`、`tool_note`、`diff_note`。前端按 `view` 选择结果渲染器、按形状取角标，不按工具名判断。

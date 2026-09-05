@@ -13,6 +13,10 @@ from iclip.platform.transcript.display import (
     ToolDisplay,
     ToolDisplayEntry,
     ToolDisplayRegistry,
+    diff_note,
+    media_grid,
+    tool_note,
+    url_filename,
 )
 
 
@@ -83,3 +87,39 @@ def test_display_fields_follow_the_kimi_contract() -> None:
 
     dumped = SkillCallDisplay(skill_name="拆解素材", args="规范.md").model_dump(by_alias=True)
     assert dumped == {"kind": "skill_call", "skill_name": "拆解素材", "args": "规范.md"}
+
+
+def test_generic_display_keeps_title_and_subject_apart() -> None:
+
+    dumped = GenericDisplay(summary="删除文件", detail="分镜.md").model_dump(exclude_none=True)
+    assert dumped == {"kind": "generic", "summary": "删除文件", "detail": "分镜.md"}
+    assert GenericDisplay(summary="生成设定图").model_dump(exclude_none=True) == {
+        "kind": "generic",
+        "summary": "生成设定图",
+    }
+
+
+@pytest.mark.parametrize(
+    ("url", "name"),
+    [
+        ("https://cdn.test/a/ref.mp4", "ref.mp4"),
+        ("https://cdn.test/a/%E5%A4%9C%E6%99%AF.png?x-oss-process=image", "夜景.png"),
+        ("https://cdn.test/", None),
+        ("https://cdn.test", None),
+    ],
+)
+def test_the_subject_of_a_url_is_its_file_name(url: str, name: str | None) -> None:
+
+    assert url_filename(url) == name
+
+
+def test_notes_only_carry_what_was_given() -> None:
+
+    assert tool_note() == {}
+    assert tool_note("4.2 KB") == {"chip": "4.2 KB"}
+    assert tool_note(body="none") == {"body": "none"}
+    assert diff_note(3, 1) == {"added": 3, "removed": 1}
+    assert media_grid([("https://cdn.test/a.png", "S1-1")]) == {
+        "items": [{"url": "https://cdn.test/a.png", "caption": "S1-1"}]
+    }
+    assert media_grid([], note="0 张") == {"items": [], "note": "0 张"}

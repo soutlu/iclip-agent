@@ -29,7 +29,7 @@ from iclip.harness.skills import (
     build_skill_capabilities,
     skill_display_table,
 )
-from iclip.platform.transcript.display import SkillCallDisplay
+from iclip.platform.transcript.display import GenericDisplay, SkillCallDisplay
 
 SKILL = "拆解素材"
 OTHER = "镜头表"
@@ -144,6 +144,15 @@ def test_the_reference_tool_has_a_display(tmp_path: Path) -> None:
     )
     assert drawn({"skill": SKILL}) == SkillCallDisplay(skill_name=SKILL, args=None)
     assert drawn({}) is None
+
+
+def test_loading_a_skill_body_has_a_display_too() -> None:
+    """官方按需加载工具不归任何能力包，名字固定，画法跟 skill 表走。"""
+
+    drawn = skill_display_table()["load_capability"]
+
+    assert drawn({"id": SKILL}) == GenericDisplay(summary="启用技能", detail=SKILL)
+    assert drawn({}) == GenericDisplay(summary="启用技能")
 
 
 async def test_granted_skill_reference_is_readable(tmp_path: Path) -> None:

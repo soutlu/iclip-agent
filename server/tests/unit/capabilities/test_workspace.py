@@ -48,7 +48,6 @@ from iclip.platform.transcript.display import (
     GenericDisplay,
     SearchDisplay,
     ToolDisplayRegistry,
-    UrlFetchDisplay,
 )
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.material_ledger import FakeMaterialLedger
@@ -125,6 +124,14 @@ def model_facing(result: ToolReturn) -> list[object]:
     value = result.return_value
     assert isinstance(value, list)
     return list(value)
+
+
+def text(result: ToolReturn) -> str:
+    """文本工具给模型的正文；卡片用的 metadata 另行断言。"""
+
+    value = result.return_value
+    assert isinstance(value, str)
+    return value
 
 
 @pytest.fixture
@@ -229,8 +236,8 @@ async def test_two_users_do_not_see_each_other(
     mine = make_context(make_deps())
     theirs = make_context(make_deps(OTHER_USER))
     await tools.write_file(mine, "笔记.md", "我的稿子")
-    assert "笔记.md" in await tools.list_files(mine)
-    assert await tools.list_files(theirs) == "工作区还没有任何文件。"
+    assert "笔记.md" in text(await tools.list_files(mine))
+    assert text(await tools.list_files(theirs)) == "工作区还没有任何文件。"
     assert await store.read(f"{OTHER_USER}/{THREAD}", "笔记.md") is None
 
 
@@ -241,16 +248,16 @@ async def test_two_conversations_of_one_user_do_not_see_each_other(
     here = make_context(make_deps())
     there = make_context(make_deps(conversation_id=OTHER_THREAD))
     await tools.write_file(here, "笔记.md", "这段对话的稿子")
-    assert await tools.list_files(there) == "工作区还没有任何文件。"
+    assert text(await tools.list_files(there)) == "工作区还没有任何文件。"
 
 
 async def test_write_then_read_round_trip(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
-    assert "已写入 分镜/第一集.md" in await tools.write_file(
-        ctx, "分镜/第一集.md", "镜头一\n镜头二"
+    assert "已写入 分镜/第一集.md" in text(
+        await tools.write_file(ctx, "分镜/第一集.md", "镜头一\n镜头二")
     )
-    assert await tools.read_file(ctx, "分镜/第一集.md") == "     1\t镜头一\n     2\t镜头二"
+    assert text(await tools.read_file(ctx, "分镜/第一集.md")) == "     1\t镜头一\n     2\t镜头二"
 
 
 async def test_read_missing_file_is_retryable(
@@ -265,9 +272,13 @@ async def test_read_pages_and_says_how_much_is_left(
 ) -> None:
     await tools.write_file(ctx, "长稿.md", "\n".join(f"第{n}行" for n in range(1, 11)))
     page = await tools.read_file(ctx, "长稿.md", offset=3, limit=2)
-    assert "     3\t第3行" in page
-    assert "     4\t第4行" in page
-    assert "还有 6 行没读" in page
+    assert "     3\t第3行" in text(page)
+    assert "     4\t第4行" in text(page)
+    assert "还有 6 行没读" in text(page)
+    # 卡片只拿范围，正文仍在 output 里，不重复一份。
+    assert page.metadata == {"path": "长稿.md", "lines": 2, "truncated": True}
+    whole = await tools.read_file(ctx, "长稿.md")
+    assert whole.metadata == {"path": "长稿.md", "lines": 10, "truncated": False}
 
 
 async def test_read_past_the_end_is_retryable(
@@ -282,8 +293,10 @@ async def test_edit_replaces_a_unique_match(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
     await tools.write_file(ctx, "稿.md", "开场是夜景\n结尾是日景")
-    await tools.edit_file(ctx, "稿.md", "夜景", "黄昏")
-    assert "开场是黄昏" in await tools.read_file(ctx, "稿.md")
+    edited = await tools.edit_file(ctx, "稿.md", "夜景", "黄昏")
+    assert "开场是黄昏" in text(await tools.read_file(ctx, "稿.md"))
+    # 卡尾角标：改了一行算一增一删。
+    assert edited.metadata == {"added": 1, "removed": 1}
 
 
 async def test_edit_refuses_an_ambiguous_match(
@@ -329,6 +342,15 @@ async def test_edit_surfaces_a_concurrent_change_instead_of_clobbering_it(
         await tools.edit_file(ctx, "稿.md", "夜景", "黄昏")
 
 
+async def test_write_reports_the_size_as_a_chip(
+    tools: WorkspaceToolset[object], ctx: RunContext[object]
+) -> None:
+    small = await tools.write_file(ctx, "稿.md", "夜景")
+    assert small.metadata == {"chip": "6 B"}
+    big = await tools.write_file(ctx, "长稿.md", "x" * 2048)
+    assert big.metadata == {"chip": "2.0 KB"}
+
+
 async def test_delete_removes_the_file_and_reports_a_miss(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
@@ -345,8 +367,9 @@ async def test_list_scopes_by_segment_boundary(
     await tools.write_file(ctx, "分镜/第一集.md", "a")
     await tools.write_file(ctx, "分镜稿.md", "b")
     listed = await tools.list_files(ctx, prefix="分镜")
-    assert "分镜/第一集.md" in listed
-    assert "分镜稿.md" not in listed
+    assert "分镜/第一集.md" in text(listed)
+    assert "分镜稿.md" not in text(listed)
+    assert listed.metadata == {"chip": "1 个文件"}
 
 
 async def test_search_reports_the_matching_lines(
@@ -354,24 +377,35 @@ async def test_search_reports_the_matching_lines(
 ) -> None:
     await tools.write_file(ctx, "稿.md", "开场是夜景\n中段是雨\n结尾也是夜景")
     found = await tools.search_files(ctx, "夜景")
-    assert "稿.md:1" in found
-    assert "稿.md:3" in found
-    assert "稿.md:2" not in found
+    assert "稿.md:1" in text(found)
+    assert "稿.md:3" in text(found)
+    assert "稿.md:2" not in text(found)
+    # 卡身逐条画命中行，拿的是结构化的那份。
+    assert found.metadata == {
+        "query": "夜景",
+        "truncated": False,
+        "matches": [
+            {"file": "稿.md", "line": 1, "text": "开场是夜景"},
+            {"file": "稿.md", "line": 3, "text": "结尾也是夜景"},
+        ],
+    }
 
 
 async def test_search_is_case_insensitive_and_literal(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
     await tools.write_file(ctx, "稿.md", "SCENE 100%\n别的行")
-    assert "稿.md:1" in await tools.search_files(ctx, "scene")
-    assert "没有包含" in await tools.search_files(ctx, "%别的")
+    assert "稿.md:1" in text(await tools.search_files(ctx, "scene"))
+    assert "没有包含" in text(await tools.search_files(ctx, "%别的"))
 
 
 async def test_search_without_hits_says_so(
     tools: WorkspaceToolset[object], ctx: RunContext[object]
 ) -> None:
     await tools.write_file(ctx, "稿.md", "夜景")
-    assert "没有包含" in await tools.search_files(ctx, "雨景")
+    missed = await tools.search_files(ctx, "雨景")
+    assert "没有包含" in text(missed)
+    assert missed.metadata == {"query": "雨景", "truncated": False, "matches": []}
 
 
 async def test_search_flags_that_it_held_matches_back(
@@ -380,7 +414,7 @@ async def test_search_flags_that_it_held_matches_back(
     await tools.write_file(ctx, "a.md", "夜景")
     await tools.write_file(ctx, "b.md", "夜景")
     found = await tools.search_files(ctx, "夜景", limit=1)
-    assert "只报了一部分" in found
+    assert "只报了一部分" in text(found)
 
 
 async def test_oversized_file_is_refused_with_the_file_limit(ctx: RunContext[object]) -> None:
@@ -395,7 +429,7 @@ async def test_full_workspace_tells_the_model_how_to_recover(ctx: RunContext[obj
     await tools.write_file(ctx, "a.md", "x" * 80)
     with pytest.raises(ModelRetry, match="删掉"):
         await tools.write_file(ctx, "b.md", "y" * 80)
-    assert "已写入 a.md" in await tools.write_file(ctx, "a.md", "z" * 90)
+    assert "已写入 a.md" in text(await tools.write_file(ctx, "a.md", "z" * 90))
 
 
 async def test_quota_and_conflict_are_distinguishable(store: FakeFileStore) -> None:
@@ -439,13 +473,15 @@ async def test_a_big_image_is_downsampled_and_says_so() -> None:
         ImageUrl(url=f"{OSS_IMAGE}?x-oss-process=image/resize,l_1024", media_type="image/jpeg"),
         "</image>",
     ]
+    # 卡片：交付的是处理过的图就在角标说明。
     assert result.metadata == {
         "items": [
             {
                 "url": f"{OSS_IMAGE}?x-oss-process=image/resize,l_1024",
                 "caption": "已降采样到长边 1024",
             }
-        ]
+        ],
+        "note": "已处理",
     }
 
 
@@ -655,20 +691,27 @@ def test_every_tool_has_a_display(capability: Workspace[object]) -> None:
         "search_files",
         "write_file",
     ]
-    assert drawn["ReadMediaFile"].draw({"url": OSS_IMAGE}) == UrlFetchDisplay(url=OSS_IMAGE)
+    # 读图不是取网页：标题「读取图片」，主语是文件名。
+    assert drawn["ReadMediaFile"].draw({"url": OSS_IMAGE}) == GenericDisplay(
+        summary="读取图片", detail="style.jpg"
+    )
     assert drawn["ReadMediaFile"].draw({}) is None
     assert drawn["read_file"].draw({"path": "分镜.md"}) == FileIoDisplay(
         operation="read", path="分镜.md"
     )
-    assert drawn["write_file"].draw({"path": "分镜.md"}) == FileIoDisplay(
-        operation="write", path="分镜.md"
+    # 写入与编辑把内容带给审批卡预览；参数没带时字段留空。
+    assert drawn["write_file"].draw({"path": "分镜.md", "content": "夜景"}) == FileIoDisplay(
+        operation="write", path="分镜.md", content="夜景"
     )
+    assert drawn["edit_file"].draw(
+        {"path": "分镜.md", "old_text": "夜景", "new_text": "黄昏"}
+    ) == FileIoDisplay(operation="edit", path="分镜.md", before="夜景", after="黄昏")
     assert drawn["edit_file"].draw({"path": "分镜.md"}) == FileIoDisplay(
         operation="edit", path="分镜.md"
     )
-    # operation 联合不含删除操作，删除工具使用 generic 展示。
+    # operation 联合不含删除操作，删除工具使用 generic 展示：标题与主语分开。
     assert drawn["delete_file"].draw({"path": "分镜.md"}) == GenericDisplay(
-        summary="删除文件 分镜.md"
+        summary="删除文件", detail="分镜.md"
     )
     assert drawn["search_files"].draw({"query": "门厅"}) == SearchDisplay(query="门厅")
     assert drawn["list_files"].draw({}) == FileIoDisplay(operation="glob", path="/")

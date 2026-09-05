@@ -50,11 +50,7 @@ from iclip.domains.identity.models import Principal
 from iclip.platform.file_store.store import FileSpace
 from iclip.platform.material_ledger.store import Material
 from iclip.platform.object_store.layout import MEDIA_PATHS
-from iclip.platform.transcript.display import (
-    FileIoDisplay,
-    GenericDisplay,
-    ToolDisplayRegistry,
-)
+from iclip.platform.transcript.display import GenericDisplay, ToolDisplayRegistry
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.material_ledger import FakeMaterialLedger
 from tests.helpers.shot_video import (
@@ -261,14 +257,22 @@ def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
         "video_parser_md",
         "write_video_shots",
     ]
-    assert drawn["generate_shot_frames"].draw({"frames": [1, 2]}) == GenericDisplay(
-        summary="出图 2 帧"
+    # 标题是书面动宾短语，主语是镜头号；张数进结果角标，不进标题。
+    assert drawn["generate_shot_frames"].draw(
+        {"frames": [{"no": "S2-1"}, {"no": "S1-3"}, {"no": "S2-2"}]}
+    ) == GenericDisplay(summary="生成画面", detail="镜头 1、2")
+    assert drawn["generate_shot_frames"].draw(None) == GenericDisplay(summary="生成画面")
+    assert drawn["write_video_shots"].draw({}) == GenericDisplay(
+        summary="保存分镜", detail=SHOTS_PATH
     )
-    assert drawn["generate_shot_frames"].draw(None) == GenericDisplay(summary="出图")
-    assert drawn["write_video_shots"].draw({}) == FileIoDisplay(operation="write", path=SHOTS_PATH)
-    assert drawn["video_parser_md"].draw({}) == GenericDisplay(summary="拆解参考片")
-    assert drawn["plan_shot_frames"].draw({}) == GenericDisplay(summary="按镜头取帧拼板")
-    assert drawn["generate_anchor_sheet"].draw({}) == GenericDisplay(summary="补拍设定图")
+    assert drawn["video_parser_md"].draw({"video_url": VIDEO}) == GenericDisplay(
+        summary="拆解视频", detail="ref.mp4"
+    )
+    assert drawn["video_parser_md"].draw({}) == GenericDisplay(summary="拆解视频")
+    assert drawn["plan_shot_frames"].draw({"video_url": VIDEO}) == GenericDisplay(
+        summary="提取候选帧", detail="ref.mp4"
+    )
+    assert drawn["generate_anchor_sheet"].draw({}) == GenericDisplay(summary="生成设定图")
 
 
 def test_only_the_three_media_tools_pick_a_renderer(capability: ShotVideo[object]) -> None:
@@ -915,10 +919,12 @@ async def deliver(
     *,
     aspect_ratio: str = "9:16",
 ) -> dict[str, Any]:
-    """直接调用交付工具体；地址范围校验由独立用例覆盖。"""
+    """直接调用交付工具体，取给模型的那份；地址范围校验由独立用例覆盖。"""
 
     _ = files
-    return await tools.write_video_shots(ctx, aspect_ratio, shots)
+    delivered = await tools.write_video_shots(ctx, aspect_ratio, shots)
+    assert isinstance(delivered.return_value, dict)
+    return delivered.return_value
 
 
 async def test_delivered_table_lands_in_the_workspace(
