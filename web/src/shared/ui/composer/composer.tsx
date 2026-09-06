@@ -226,6 +226,9 @@ export function Composer({
           {leading}
         </div>
         <div className="flex items-center gap-2">
+          {busy && !editor.empty ? (
+            <span className="text-caption text-on-surface-faint">发送后排队，这一轮结束再跑</span>
+          ) : null}
           {trailing}
           {busy && onStop !== undefined ? (
             <button
@@ -239,7 +242,9 @@ export function Composer({
             >
               <Icon decorative name="stopped" size="md" />
             </button>
-          ) : (
+          ) : null}
+          {/* 跑着的时候输入框也能发：写了字就把发送钮亮出来，发出去的排队。空着时只留停止。 */}
+          {!busy || onStop === undefined || !editor.empty ? (
             <button
               aria-label="发送"
               className={cn(
@@ -259,7 +264,7 @@ export function Composer({
                 size="md"
               />
             </button>
-          )}
+          ) : null}
         </div>
       </div>
       {attachmentsEnabled ? (
