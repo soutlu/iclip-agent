@@ -120,7 +120,7 @@ test('短桌面中首帧卡片在原位展开，预览与底部导航均完整�
   await expect(firstFrame).toHaveAttribute('aria-pressed', 'true')
 })
 
-test('移动端镜头展开动画结束后，选中的末帧完整显示在胶片条内', async ({ page }) => {
+test('移动端选中的末帧和替换图片弹窗完整显示在视口内', async ({ page }) => {
   await page.setViewportSize({ height: 844, width: 390 })
   await page.goto('/')
   await login(page)
@@ -141,6 +141,11 @@ test('移动端镜头展开动画结束后，选中的末帧完整显示在胶�
   await expect(navigation).toBeInViewport({ ratio: 1 })
   await expect(group.getByRole('button', { name: '加一帧' })).toBeInViewport({ ratio: 1 })
   await expect(group.getByRole('button', { name: '全部分镜' })).toBeInViewport({ ratio: 1 })
+
+  await group.getByRole('button', { name: '替换图片' }).click()
+  const picker = page.getByRole('dialog', { name: '替换图片' })
+  await expect(picker).toBeInViewport({ ratio: 1 })
+  await expect(picker.getByRole('button', { name: '上传图片' })).toBeInViewport({ ratio: 1 })
 })
 
 // MSW 会话随整页加载清空，无法直接验证带参数刷新；此处验证程序化跳页不被中间滚动事件覆盖。
@@ -201,7 +206,7 @@ test('agent 改了文件：重读之后描述更新并标出改动', async ({ pa
   await expect(panel.getByText('agent 刚改过')).toBeVisible()
 })
 
-test('在工作台底部加帧并修改当前镜头描述：停手即存', async ({ page }) => {
+test('替换当前预览图后继续编辑镜头描述：保留当前帧并自动保存', async ({ page }) => {
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
@@ -214,14 +219,26 @@ test('在工作台底部加帧并修改当前镜头描述：停手即存', async
   await panel.getByRole('button', { name: '第 2 组' }).click()
   const shot2 = panel.getByRole('region', { name: '镜头组 2' })
 
-  await shot2.getByRole('button', { name: '加一帧' }).click()
-  const picker = page.getByRole('dialog', { name: '加一帧' })
-  await picker.getByRole('button', { name: '选 S3-1' }).click()
+  await shot2
+    .getByRole('navigation', { name: '本组镜头' })
+    .getByRole('button', { name: '镜头 2', exact: true })
+    .click()
+  await expect(page).toHaveURL(/frame=2/)
+  await shot2.getByRole('button', { name: '替换图片' }).click()
+  const picker = page.getByRole('dialog', { name: '替换图片' })
+  const candidate = picker.getByRole('button', { name: '选 S3-1' })
+  const replacementUrl = await candidate.locator('img').getAttribute('src')
+  expect(replacementUrl).not.toBeNull()
+  await candidate.click()
   await expect(picker).toBeHidden()
   await expect(page).toHaveURL(/frame=2/)
-  await expect(shot2.getByRole('img', { name: '镜头组 2 第 2 帧' })).toBeVisible()
+  await expect(shot2.getByRole('img', { name: '镜头组 2 第 2 帧' })).toHaveAttribute(
+    'src',
+    replacementUrl ?? '',
+  )
+  await expect(panel.getByText('已保存')).toBeVisible({ timeout: 5_000 })
 
-  const editor = shot2.getByRole('textbox', { name: '镜头 1 的描述' })
+  const editor = shot2.getByRole('textbox', { name: '镜头 2 的描述' })
   await editor.click()
   await page.keyboard.press('End')
   await page.keyboard.type('镜头缓慢推进。')
