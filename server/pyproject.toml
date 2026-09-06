@@ -36,6 +36,7 @@ dev = [
     "pyright>=1.1.380",
     "tach>=0.20",
     "pre-commit>=4.6.2",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -83,6 +84,8 @@ reportUnusedFunction = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# 单个用例的墙钟上限：卡住就报错并打印栈，不让整条门禁挂死。真 Postgres 场景最慢也在一分钟内。
+timeout = 180
 markers = [
     "unit: 纯逻辑与进程内契约（默认门禁）",
     "integration_no_llm: 无 LLM 的集成面，identity 域使用真实 Postgres（默认门禁）",

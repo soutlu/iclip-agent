@@ -33,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.harness.step_store_pg import PgMediaStore, PgStepStore
+from tests.helpers.pg import truncate_clean
 
 T0 = datetime(2026, 8, 21, 10, 0, 0, tzinfo=UTC)
 
@@ -41,12 +42,16 @@ T0 = datetime(2026, 8, 21, 10, 0, 0, tzinfo=UTC)
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(migrated_pg)
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "TRUNCATE agent_runtime.runs, agent_runtime.events, "
-                "agent_runtime.snapshots, agent_runtime.snapshot_idempotency_keys, "
-                "agent_runtime.tool_effects, agent_runtime.media"
-            )
+        await truncate_clean(
+            conn,
+            (
+                "agent_runtime.runs",
+                "agent_runtime.events",
+                "agent_runtime.snapshots",
+                "agent_runtime.snapshot_idempotency_keys",
+                "agent_runtime.tool_effects",
+                "agent_runtime.media",
+            ),
         )
     try:
         yield engine
