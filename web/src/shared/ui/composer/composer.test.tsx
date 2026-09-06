@@ -50,6 +50,30 @@ describe('Composer', () => {
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
+  it('跑着的时候：空着只有停止；写了字发送钮亮出来，停止照旧在，点发送照常提交', async () => {
+    const onSubmit = vi.fn()
+    const onStop = vi.fn()
+    const user = userEvent.setup()
+    await renderWithProviders(<Composer busy onStop={onStop} onSubmit={onSubmit} />)
+
+    expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '发送' })).toBeNull()
+
+    pasteTextIntoComposer(editor(), '顺便配个音')
+
+    expect(screen.getByRole('button', { name: '停止' })).toBeInTheDocument()
+    expect(sendButton()).toBeEnabled()
+    expect(screen.getByText('发送后排队，这一轮结束再跑')).toBeInTheDocument()
+
+    await user.click(sendButton())
+    expect(onSubmit).toHaveBeenCalledWith({
+      media: [],
+      parts: [{ kind: 'text', text: '顺便配个音' }],
+      text: '顺便配个音',
+    })
+    expect(onStop).not.toHaveBeenCalled()
+  })
+
   it('Shift+Enter 换行不提交', async () => {
     const onSubmit = vi.fn()
     await renderWithProviders(<Composer onSubmit={onSubmit} />)
