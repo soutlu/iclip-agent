@@ -22,7 +22,6 @@ from iclip.app.capability_table import (
 )
 from iclip.app.conversation_workspace import ConversationWorkspace, validate_video_shots
 from iclip.app.logging import configure_logging
-from iclip.app.task_styles import ProductStyleSnapshots, UnavailableStyleSnapshots
 from iclip.capabilities.shot_video.delivery import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.common.errors import DomainError
@@ -69,7 +68,6 @@ from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.products.module import build_products_module
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
-from iclip.domains.tasks.ports import StyleSnapshots
 from iclip.harness.agents import (
     DELEGATE_TOOL,
     AgentCapabilities,
@@ -356,7 +354,6 @@ def build_app(
     queue_connector: procrastinate.BaseConnector | None = None,
     product_catalog_engine: AsyncEngine | None = None,
     inspirations_engine: AsyncEngine | None = None,
-    style_snapshots: StyleSnapshots | None = None,
 ) -> FastAPI:
     """装配 FastAPI 应用与资源生命周期，支持注入基础设施替身。"""
 
@@ -506,17 +503,7 @@ def build_app(
         activities_of=activities_of,
         conversation_ids_by_state=conversation_ids_by_state,
     )
-    # 缺少产品库或对象存储时，快照端口明确拒绝创建，避免写入空快照。
-    tasks = build_tasks_module(
-        SqlTaskRepository(active_engine),
-        style_snapshots
-        if style_snapshots is not None
-        else (
-            ProductStyleSnapshots(products.catalog, public_objects)
-            if products is not None and public_objects is not None
-            else UnavailableStyleSnapshots()
-        ),
-    )
+    tasks = build_tasks_module(SqlTaskRepository(active_engine))
     assets = (
         build_assets_module(SqlAssetRepository(active_engine), public_objects)
         if public_objects is not None

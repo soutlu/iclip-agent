@@ -1,10 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import type { z } from 'zod'
 import { useUser } from '@/shared/auth'
 import { ApiError } from '@/shared/api/client'
-import type { zTaskBrief } from '@/shared/api/generated/zod.gen'
-import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import {
   DialogBody,
@@ -13,7 +10,6 @@ import {
   DialogRoot,
   DialogSurface,
 } from '@/shared/ui/dialog'
-import { Input, Select, Textarea } from '@/shared/ui/field'
 import { toast } from '@/shared/ui/toast'
 import {
   claimTask,
@@ -26,29 +22,19 @@ import {
   type Task,
 } from '../tasks.api'
 import { TaskStatusTag } from './task-status-tag'
+import { TaskFormFields } from './task-form-fields'
+import { emptyTaskForm, taskFormOf, type TaskFormState } from './task-form-state'
 
-type Brief = z.output<typeof zTaskBrief>
-
-/** 发布之后仍能改的字段（对齐后端 PLANNER_FIELDS + 管理信息）。 */
+/** 发布后的创作参数及管理字段，对齐后端冻结规则。 */
 const PLANNER_EDITABLE = new Set([
   'title',
   'deadline',
-  'requirementDescription',
-  'durationSeconds',
-  'ratio',
+  'creative_requirement',
+  'duration_seconds',
+  'aspect_ratio',
+  'resolution',
+  'references',
 ])
-
-/** 取值由合同限制，此处仅声明下拉顺序。 */
-type Ratio = NonNullable<Brief['ratio']>
-const RATIO_OPTIONS: readonly Ratio[] = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']
-
-const toRatio = (value: string): Ratio | '' =>
-  RATIO_OPTIONS.find((option) => option === value) ?? ''
-
-const COMPACT_FIELD = 'h-(--control-height-sm) rounded-sm border-border'
-
-const ROW_CONTROL =
-  'h-8 w-full min-w-0 flex-1 rounded-none border-transparent bg-transparent px-0 text-right disabled:cursor-not-allowed disabled:text-disabled-text'
 
 type TaskDialogProps = {
   onOpenChange: (open: boolean) => void
@@ -57,43 +43,16 @@ type TaskDialogProps = {
   taskId?: string | undefined
 }
 
-type FormState = {
-  title: string
-  styleNo: string
-  deadline: string
-  requirementDescription: string
-  theme: string
-  durationSeconds: string
-  ratio: Ratio | ''
-}
-
-const EMPTY_FORM: FormState = {
-  deadline: '',
-  durationSeconds: '',
-  ratio: '',
-  requirementDescription: '',
-  styleNo: '',
-  theme: '',
-  title: '',
-}
-
-const toLocalInput = (iso: string | null): string => (iso ? iso.slice(0, 16) : '')
 const toIso = (local: string): string | null => (local ? new Date(local).toISOString() : null)
-
-const formOf = (task: Task): FormState => ({
-  deadline: toLocalInput(task.deadline),
-  durationSeconds: task.brief.durationSeconds?.toString() ?? '',
-  ratio: task.brief.ratio ?? '',
-  requirementDescription: task.brief.requirementDescription,
-  styleNo: task.style.styleNo,
-  theme: task.brief.theme,
-  title: task.title,
-})
 
 /** 详情使用完整数据执行 PUT，遗漏字段会被清空；发布后仅管理信息和 PLANNER 字段可编辑，撤回后只读。 */
 export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
   const isCreate = taskId === undefined
-  const { data: task } = useQuery({
+  const {
+    data: task,
+    error,
+    refetch,
+  } = useQuery({
     enabled: open && !isCreate,
     queryFn: () => getTask(taskId ?? ''),
     queryKey: tasksQueryKeys.detail(taskId ?? ''),
@@ -101,7 +60,10 @@ export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
 
   return (
     <DialogRoot open={open} onOpenChange={onOpenChange}>
-      <DialogSurface aria-label={isCreate ? '新建需求单' : '需求单详情'}>
+      <DialogSurface
+        className="task-form-dialog"
+        aria-label={isCreate ? '新建需求单' : '需求单详情'}
+      >
         <DialogHeader
           actions={task ? <TaskStatusTag status={task.status} /> : undefined}
           className="h-(--layout-dialog-header-height) items-center border-b-0 px-6 py-0"
@@ -114,7 +76,18 @@ export function TaskDialog({ onOpenChange, open, taskId }: TaskDialogProps) {
             <TaskDialogForm key={taskId ?? 'create'} onOpenChange={onOpenChange} task={task} />
           ) : (
             <DialogBody>
-              <p className="text-body-sm text-on-surface-variant">加载中…</p>
+              {error ? (
+                <div className="flex flex-col items-start gap-3">
+                  <p className="text-body-sm text-error" role="alert">
+                    {error instanceof ApiError ? error.message : '读取需求单失败，请重试'}
+                  </p>
+                  <Button onClick={() => void refetch()} variant="outlined">
+                    重试
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-body-sm text-on-surface-variant">加载中…</p>
+              )}
             </DialogBody>
           ))}
       </DialogSurface>
@@ -131,7 +104,9 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
   const isCreate = task === undefined
   const { data: user } = useUser()
   const queryClient = useQueryClient()
-  const [form, setForm] = useState<FormState>(() => (task ? formOf(task) : EMPTY_FORM))
+  const [form, setForm] = useState<TaskFormState>(() => (task ? taskFormOf(task) : emptyTaskForm()))
+  const [uploadingFields, setUploadingFields] = useState<Record<string, boolean>>({})
+  const uploading = Object.values(uploadingFields).some(Boolean)
 
   const invalidateTasks = () => queryClient.invalidateQueries({ queryKey: tasksQueryKeys.all })
 
@@ -175,170 +150,77 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
   })
 
   const canWrite = Boolean(user?.permissions.includes('tasks:write'))
+  const canEditDraft = Boolean(
+    user && (user.id === task?.creatorUserId || user.permissions.includes('users:manage')),
+  )
   const claimed = Boolean(task && user && task.assigneeUserIds.includes(user.id))
 
   const editable = (field: string): boolean => {
-    if (isCreate) return true
+    if (isCreate) return canWrite
     if (!task || !canWrite) return false
     if (task.status === 'withdrawn') return false
-    if (task.status === 'draft') return true
+    if (field === 'style_no') return false
+    if (task.status === 'draft') return canEditDraft
     return PLANNER_EDITABLE.has(field)
   }
 
-  const patch = (partial: Partial<FormState>) => setForm((prev) => ({ ...prev, ...partial }))
-
-  const handleCreate = () => {
-    if (!form.title.trim() || !form.styleNo.trim()) {
-      toast.error('标题和主款号必填')
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (uploading || busy || !editable('title')) return
+    if (!form.title.trim() || !form.inputs.product.style_no.trim()) {
+      toast.error('需求单名称和商品款号必填')
       return
     }
-    createMutation.mutate({
-      brief: {
-        requirementDescription: form.requirementDescription.trim(),
-        theme: form.theme.trim(),
-      },
+    const body = {
       deadline: toIso(form.deadline),
-      styleNo: form.styleNo.trim(),
+      inputs: isCreate
+        ? {
+            ...form.inputs,
+            product: { ...form.inputs.product, style_no: form.inputs.product.style_no.trim() },
+          }
+        : form.inputs,
       title: form.title.trim(),
-    })
+    }
+    if (isCreate) createMutation.mutate(body)
+    else saveMutation.mutate({ ...body, priority: task.priority })
   }
 
-  const handleSave = () => {
-    if (!task || !form.title.trim()) {
-      toast.error('标题必填')
-      return
-    }
-    // 基于完整数据覆盖可编辑字段，保留其余字段。
-    const brief: Brief = { ...task.brief }
-    if (editable('requirementDescription')) {
-      brief.requirementDescription = form.requirementDescription.trim()
-    }
-    if (editable('theme')) brief.theme = form.theme.trim()
-    if (editable('durationSeconds')) {
-      brief.durationSeconds = form.durationSeconds ? Number(form.durationSeconds) : null
-    }
-    if (editable('ratio')) {
-      brief.ratio = form.ratio || null
-    }
-    saveMutation.mutate({
-      brief,
-      deadline: editable('deadline') ? toIso(form.deadline) : task.deadline,
-      priority: task.priority,
-      title: form.title.trim(),
-    })
-  }
+  const busy = createMutation.isPending || saveMutation.isPending || actionMutation.isPending
+  const hasUnsavedChanges =
+    task !== undefined && JSON.stringify(form) !== JSON.stringify(taskFormOf(task))
 
   return (
-    <>
-      <DialogBody className="px-6 pt-2.5 pb-6">
-        <div className="flex flex-col gap-3.5">
-          <Field label="需求单名称" required>
-            <Input
-              aria-label="需求单名称"
-              className={COMPACT_FIELD}
-              disabled={!editable('title')}
-              maxLength={200}
-              onChange={(e) => patch({ title: e.target.value })}
-              placeholder="请输入需求单名称"
-              value={form.title}
-            />
-            <span
-              className={cn(
-                'self-end text-caption',
-                form.title.length >= 200 ? 'text-error' : 'text-on-surface-variant',
-              )}
-            >
-              {form.title.length}/200
-            </span>
-          </Field>
-          <Field label="需求描述">
-            <Textarea
-              aria-label="需求描述"
-              className="resize-none rounded-sm"
-              disabled={!editable('requirementDescription')}
-              onChange={(e) => patch({ requirementDescription: e.target.value })}
-              placeholder="提供这次创作的背景信息和要求，让输出更精准、更符合要求。比如：创作目标、风格偏好、目标受众、输出约束等"
-              rows={5}
-              value={form.requirementDescription}
-            />
-          </Field>
-          <div className="flex flex-col gap-3.5">
-            {isCreate && (
-              <RowField label="主款号" required>
-                <Input
-                  aria-label="主款号"
-                  className={ROW_CONTROL}
-                  onChange={(e) => patch({ styleNo: e.target.value })}
-                  placeholder="例如 SBPU24001W"
-                  value={form.styleNo}
-                />
-              </RowField>
-            )}
-            <RowField label="主题">
-              <Input
-                aria-label="主题"
-                className={ROW_CONTROL}
-                disabled={!editable('theme')}
-                onChange={(e) => patch({ theme: e.target.value })}
-                placeholder="选填"
-                value={form.theme}
-              />
-            </RowField>
-            <RowField label="时长（秒，3–50）">
-              <Input
-                aria-label="时长"
-                className={ROW_CONTROL}
-                disabled={!editable('durationSeconds')}
-                inputMode="numeric"
-                onChange={(e) => patch({ durationSeconds: e.target.value })}
-                placeholder="选填"
-                value={form.durationSeconds}
-              />
-            </RowField>
-            <RowField label="画幅">
-              <Select
-                aria-label="画幅"
-                className={cn(ROW_CONTROL, 'w-auto flex-none')}
-                disabled={!editable('ratio')}
-                onChange={(e) => patch({ ratio: toRatio(e.target.value) })}
-                value={form.ratio}
-              >
-                <option value="">未指定</option>
-                {RATIO_OPTIONS.map((ratio) => (
-                  <option key={ratio} value={ratio}>
-                    {ratio}
-                  </option>
-                ))}
-              </Select>
-            </RowField>
-            <RowField label="截止时间">
-              <Input
-                aria-label="截止时间"
-                className={ROW_CONTROL}
-                disabled={!editable('deadline')}
-                onChange={(e) => patch({ deadline: e.target.value })}
-                type="datetime-local"
-                value={form.deadline}
-              />
-            </RowField>
-          </div>
-        </div>
+    <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+      <DialogBody className="px-6 pt-2 pb-6">
+        <TaskFormFields
+          form={form}
+          editable={(field) => !busy && editable(field)}
+          onChange={setForm}
+          onUploadingChange={(field, value) =>
+            setUploadingFields((previous) => ({ ...previous, [field]: value }))
+          }
+        />
       </DialogBody>
       {(isCreate || (task && canWrite)) && (
         <DialogFooter>
-          <div className="flex gap-2">
-            {task?.status === 'draft' && (
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {task?.status === 'draft' && canEditDraft && (
               <Button
                 loading={actionMutation.isPending}
+                disabled={busy || uploading || hasUnsavedChanges}
                 onClick={() => actionMutation.mutate('publish')}
                 variant="ghost"
               >
                 发布
               </Button>
             )}
+            {task?.status === 'draft' && canEditDraft && hasUnsavedChanges && (
+              <span className="text-caption text-on-surface-variant">先保存修改，再发布</span>
+            )}
             {(task?.status === 'published' || (task?.status === 'confirmed' && !claimed)) && (
               <Button
                 loading={actionMutation.isPending}
+                disabled={busy || uploading}
                 onClick={() => actionMutation.mutate('claim')}
                 variant="ghost"
               >
@@ -348,6 +230,7 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
             {(task?.status === 'published' || task?.status === 'confirmed') && (
               <Button
                 loading={actionMutation.isPending}
+                disabled={busy || uploading}
                 onClick={() => actionMutation.mutate('withdraw')}
                 variant="ghost"
               >
@@ -355,61 +238,23 @@ function TaskDialogForm({ onOpenChange, task }: TaskDialogFormProps) {
               </Button>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             <Button className="min-w-[74px]" onClick={() => onOpenChange(false)} variant="outlined">
               取消
             </Button>
-            <Button
-              className="min-w-[74px]"
-              disabled={!isCreate && !canWrite}
-              loading={createMutation.isPending || saveMutation.isPending}
-              onClick={isCreate ? handleCreate : handleSave}
-            >
-              {isCreate ? '确定' : '保存'}
-            </Button>
+            {(isCreate || task?.status !== 'withdrawn') && (
+              <Button
+                className="min-w-[74px]"
+                disabled={uploading || busy || !editable('title')}
+                loading={createMutation.isPending || saveMutation.isPending}
+                type="submit"
+              >
+                {isCreate ? '创建需求单' : '保存'}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       )}
-    </>
-  )
-}
-
-function Field({
-  children,
-  label,
-  required = false,
-}: {
-  children: React.ReactNode
-  label: string
-  required?: boolean
-}) {
-  return (
-    <label className="flex flex-col gap-2">
-      <span className="text-body font-semibold text-on-surface">
-        {label}
-        {required && <span className="text-error"> *</span>}
-      </span>
-      {children}
-    </label>
-  )
-}
-
-function RowField({
-  children,
-  label,
-  required = false,
-}: {
-  children: React.ReactNode
-  label: string
-  required?: boolean
-}) {
-  return (
-    <label className="flex min-h-[38px] cursor-text items-center justify-between gap-3 rounded-sm border border-border px-3">
-      <span className="shrink-0 text-body font-semibold text-on-surface">
-        {label}
-        {required && <span className="text-error"> *</span>}
-      </span>
-      {children}
-    </label>
+    </form>
   )
 }

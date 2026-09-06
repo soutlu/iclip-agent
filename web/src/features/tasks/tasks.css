@@ -67,3 +67,53 @@
   /* design-allow -- 插画原色，品牌色板里没有对应档 */
   stroke: #fcc934;
 }
+
+/* 固定首尾，仅表单正文滚动；三列规格与参考图遵循需求单设计稿。 */
+.task-form-dialog {
+  max-width: 640px;
+  max-height: 94dvh;
+  color-scheme: light;
+}
+
+.dark .task-form-dialog {
+  color-scheme: dark;
+}
+
+.task-form-basics {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.task-form-specs,
+.task-form-references {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.task-form-product {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+@media (max-width: 599px) {
+  .task-form-specs,
+  .task-form-references {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .task-form-basics,
+  .task-form-product {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+
+@media (max-width: 359px) {
+  .task-form-references {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

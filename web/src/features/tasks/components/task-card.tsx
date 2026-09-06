@@ -42,7 +42,7 @@ export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
             </span>
           </span>
           <span className="mt-1 block truncate text-body-sm text-on-surface-variant">
-            {task.style.styleNo} · 添加于 {formatRelativeTime(task.createdAt)}
+            {task.inputs.product.style_no} · 添加于 {formatRelativeTime(task.createdAt)}
           </span>
         </span>
       </button>

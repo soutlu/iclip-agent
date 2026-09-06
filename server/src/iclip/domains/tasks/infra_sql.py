@@ -37,13 +37,7 @@ from iclip.domains.tasks.models import (
     Task,
     TaskStatus,
 )
-from iclip.domains.tasks.schemas import (
-    TaskBrief,
-    brief_from_payload,
-    brief_to_payload,
-    style_from_payload,
-    style_to_payload,
-)
+from iclip.domains.tasks.schemas import TaskInputs, inputs_from_payload, inputs_to_payload
 
 DB_SCHEMA: Final = "iclip"
 
@@ -66,17 +60,14 @@ tasks_table = Table(
         ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="restrict"),
         nullable=False,
     ),
-    # 冻结的服务端快照独立于可编辑 brief。
-    Column("style", JSONB, nullable=False),
-    Column("brief", JSONB, nullable=False),
+    Column("inputs", JSONB, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(f"status IN ({_STATUS_LIST})", name="tasks_status_check"),
     CheckConstraint(
         f"status = '{STATUS_DRAFT}' OR deadline IS NOT NULL", name="tasks_deadline_check"
     ),
-    CheckConstraint("jsonb_typeof(brief) = 'object'", name="tasks_brief_object_check"),
-    CheckConstraint("jsonb_typeof(style) = 'object'", name="tasks_style_object_check"),
+    CheckConstraint("jsonb_typeof(inputs) = 'object'", name="tasks_inputs_object_check"),
 )
 
 _ROWS = tasks_table.c
@@ -116,8 +107,7 @@ def _row(mapping: RowMapping, assignee_user_ids: tuple[uuid.UUID, ...] = ()) -> 
         priority=mapping["priority"],
         deadline=mapping["deadline"],
         creator_user_id=mapping["creator_user_id"],
-        style=style_from_payload(mapping["style"]),
-        brief=brief_from_payload(mapping["brief"]),
+        inputs=inputs_from_payload(mapping["inputs"]),
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
         assignee_user_ids=assignee_user_ids,
@@ -140,8 +130,7 @@ class SqlTaskRepository:
                 priority=task.priority,
                 deadline=task.deadline,
                 creator_user_id=task.creator_user_id,
-                style=style_to_payload(task.style),
-                brief=brief_to_payload(task.brief),
+                inputs=inputs_to_payload(task.inputs),
                 created_at=func.now(),
                 updated_at=func.now(),
             )
@@ -210,7 +199,7 @@ class SqlTaskRepository:
         title: str,
         priority: int,
         deadline: datetime | None,
-        brief: TaskBrief,
+        inputs: TaskInputs,
     ) -> Task | None:
         statement = (
             update(tasks_table)
@@ -219,7 +208,7 @@ class SqlTaskRepository:
                 title=title,
                 priority=priority,
                 deadline=deadline,
-                brief=brief_to_payload(brief),
+                inputs=inputs_to_payload(inputs),
                 updated_at=func.now(),
             )
             .returning(*tasks_table.c)

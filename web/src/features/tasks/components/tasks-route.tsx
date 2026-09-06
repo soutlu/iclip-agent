@@ -55,6 +55,7 @@ export function TasksRoute() {
             </div>
             <div>
               <Button
+                disabled={!canWrite}
                 leadingIcon="add"
                 onClick={() => setDialog({ open: true })}
                 size="md"

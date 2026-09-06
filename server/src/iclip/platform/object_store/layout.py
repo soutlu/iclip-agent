@@ -43,11 +43,6 @@ class MediaPaths:
 
         return f"{OSS_ROOT}/anchor-sheets/{job_id}/{index}.jpg"
 
-    def task_style_cover(self, *, digest: str, ext: str) -> str:
-        """按源 URL 摘要命名需求单封面，复用同一产品图片。"""
-
-        return f"{OSS_ROOT}/task-styles/{digest}.{ext}"
-
     def upload(self, *, asset_id: uuid.UUID, ext: str) -> str:
 
         return f"{OSS_ROOT}/uploads/{asset_id}.{ext}"

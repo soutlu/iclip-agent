@@ -1,4 +1,11 @@
 import { http, HttpResponse } from 'msw'
+import type { z } from 'zod'
+import {
+  zTaskCreateIn,
+  zTaskIn,
+  zTaskInputsOutput,
+  type zTaskOut,
+} from '@/shared/api/generated/zod.gen'
 import { transcriptHandlers } from './transcript'
 import { workspaceHandlers } from './workspace'
 
@@ -33,9 +40,12 @@ let sessionActive = false
 
 // 按 assetId 记录签名时的 contentType，登记响应复用此信息。
 const mockUploads = new Map<string, string>()
+const mockUploadBytes = new Map<string, { body: ArrayBuffer; contentType: string }>()
 
 export const resetMockSession = () => {
   sessionActive = false
+  mockUploads.clear()
+  mockUploadBytes.clear()
 }
 
 // 内存对话遵循 ConversationOut，标题搜索不区分大小写。
@@ -131,19 +141,22 @@ const after = (rows: MockConversation[], cursor: string | null) => {
   return index < 0 ? rows : rows.slice(index + 1)
 }
 
-type MockTask = {
-  assigneeUserIds: string[]
-  brief: Record<string, unknown>
-  createdAt: string
-  creatorUserId: string
-  deadline: string | null
-  id: string
-  priority: number
-  status: string
-  style: { brand: string; category: string; previewImageUrl: string; styleNo: string }
-  title: string
-  updatedAt: string
-}
+type MockTask = z.output<typeof zTaskOut>
+
+/** 模拟后端在请求默认值补齐后输出完整的 inputs。 */
+const completeTaskInputs = (inputs: z.output<typeof zTaskCreateIn>['inputs']) =>
+  zTaskInputsOutput.parse({
+    ...inputs,
+    product: { image_oss_urls: [], ...inputs.product },
+    reference_image_oss_urls: {
+      model: [],
+      outfit: [],
+      prop: [],
+      ...inputs.reference_image_oss_urls,
+    },
+    reference_video_oss_url: inputs.reference_video_oss_url ?? null,
+    video_spec: { aspect_ratio: null, duration_seconds: null, ...inputs.video_spec },
+  })
 
 export const mockTasks: MockTask[] = []
 
@@ -151,14 +164,18 @@ export const addMockTask = (title: string) => {
   const now = new Date().toISOString()
   const task: MockTask = {
     assigneeUserIds: [],
-    brief: { referenceImages: [], referenceVideos: [], styleNos: ['SBPU24001W'] },
+    inputs: zTaskInputsOutput.parse({
+      video_spec: { aspect_ratio: null, duration_seconds: null },
+      reference_video_oss_url: null,
+      product: { style_no: 'SBPU24001W', image_oss_urls: [] },
+      reference_image_oss_urls: { model: [], outfit: [], prop: [] },
+    }),
     createdAt: now,
     creatorUserId: mockAuthUser.id,
     deadline: null,
     id: crypto.randomUUID(),
     priority: 0,
     status: 'draft',
-    style: { brand: '', category: '', previewImageUrl: '', styleNo: 'SBPU24001W' },
     title,
     updatedAt: now,
   }
@@ -323,40 +340,18 @@ export const handlers = [
   }),
 
   http.post('*/api/tasks', async ({ request }) => {
-    const body = (await request.json()) as Record<string, unknown>
+    const parsed = zTaskCreateIn.safeParse(await request.json())
+    if (!parsed.success) return HttpResponse.json({ detail: '需求单参数不合法' }, { status: 422 })
     const now = new Date().toISOString()
-    const brief = (body['brief'] ?? {}) as Record<string, unknown>
-    const styleNo = typeof body['styleNo'] === 'string' ? body['styleNo'] : ''
-    const task = {
+    const task: MockTask = {
+      ...parsed.data,
+      deadline: parsed.data.deadline ?? null,
+      inputs: completeTaskInputs(parsed.data.inputs),
       assigneeUserIds: [],
-      brief: {
-        audience: '',
-        color: '',
-        contentType: '',
-        department: '',
-        durationSeconds: null,
-        language: '',
-        platform: '',
-        purpose: '',
-        referenceImages: [],
-        referenceVideos: [],
-        requester: '',
-        requirementDescription: '',
-        scene: '',
-        selling: '',
-        styleNos: [styleNo],
-        theme: '',
-        videoType: '',
-        ...brief,
-      },
       createdAt: now,
       creatorUserId: mockAuthUser.id,
-      deadline: (body['deadline'] as string | null | undefined) ?? null,
       id: crypto.randomUUID(),
-      priority: (body['priority'] as number | undefined) ?? 0,
       status: 'draft',
-      style: { brand: '', category: '', previewImageUrl: '', styleNo },
-      title: typeof body['title'] === 'string' ? body['title'] : '',
       updatedAt: now,
     }
     mockTasks.unshift(task)
@@ -373,12 +368,10 @@ export const handlers = [
   http.put('*/api/tasks/:taskId', async ({ params, request }) => {
     const task = mockTasks.find((item) => item.id === params['taskId'])
     if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
-    const body = (await request.json()) as Record<string, unknown>
-    Object.assign(task, {
-      brief: { ...task.brief, ...(body['brief'] as object) },
-      deadline: body['deadline'] as string | null,
-      priority: body['priority'] as number,
-      title: body['title'] as string,
+    const parsed = zTaskIn.safeParse(await request.json())
+    if (!parsed.success) return HttpResponse.json({ detail: '需求单参数不合法' }, { status: 422 })
+    Object.assign(task, parsed.data, {
+      inputs: completeTaskInputs(parsed.data.inputs),
       updatedAt: new Date().toISOString(),
     })
     return HttpResponse.json({ task })
@@ -432,7 +425,19 @@ export const handlers = [
     })
   }),
 
-  http.put('*/mock-oss/:assetId', () => new HttpResponse(null, { status: 200 })),
+  http.put('*/mock-oss/:assetId', async ({ params, request }) => {
+    mockUploadBytes.set(String(params['assetId']), {
+      body: await request.arrayBuffer(),
+      contentType: request.headers.get('Content-Type') ?? 'application/octet-stream',
+    })
+    return new HttpResponse(null, { status: 200 })
+  }),
+  http.get('*/mock-oss/:assetId', ({ params }) => {
+    const media = mockUploadBytes.get(String(params['assetId']))
+    return media
+      ? new HttpResponse(media.body, { headers: { 'Content-Type': media.contentType } })
+      : new HttpResponse(null, { status: 404 })
+  }),
 
   http.post('*/api/assets/:assetId', ({ params }) => {
     const assetId = params['assetId'] as string
