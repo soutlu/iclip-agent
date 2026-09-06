@@ -33,7 +33,7 @@
 工具登记时声明输入范围、审批条件和展示信息。当前工具使用 `Tool(..., args_validator=...)` 注册到 toolset 或 capability；参考 [workspace](../server/src/iclip/capabilities/workspace/capability.py)、[shot_video](../server/src/iclip/capabilities/shot_video/toolset.py) 与 [skill references](../server/src/iclip/harness/skills.py)。
 
 - 素材来源、素材类型、已挂载 skill 等单工具范围规则放 `args_validator`，不散入工具执行逻辑。共用素材校验使用 [harness/materials.py](../server/src/iclip/harness/materials.py) 的 `require_http`、`require_material`。
-- `ModelRetry` 表示参数可以修正；`ToolFailed` 表示本次失败、不要重试；`ApprovalRequired(metadata=...)` 表示需要审批，metadata 提供原因。
+- `ModelRetry` 表示参数可以修正；`ToolFailed` 报告本次失败，不消耗工具重试次数；是否再次调用由业务策略决定；`ApprovalRequired(metadata=...)` 表示需要审批，metadata 提供原因。
 - 范围验证与审批不替代授权。属主隔离仍按运行 deps 在工具和存储层执行；文件存在性、存储安全与业务状态校验保留在对应执行边界。
 - Agent 能看见哪些工具由挂载声明决定。不应拥有的工具不挂载；需要按运行条件过滤工具表时使用 `PrepareTools`。
 - 跨工具统一规则有实际需求时，集中在一个 capability 的 `before_tool_execute`；不为尚不存在的规则创建策略层。

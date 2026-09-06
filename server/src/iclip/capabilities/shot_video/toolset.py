@@ -7,7 +7,8 @@ import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai import ModelRetry
+import structlog
+from pydantic_ai import ModelRetry, ToolFailed
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import FunctionToolset
@@ -38,6 +39,8 @@ from iclip.harness.materials import require_http, require_material
 from iclip.platform.file_store.store import FileStore, QuotaExceeded
 from iclip.platform.material_ledger.store import Material
 from iclip.platform.transcript.display import media_grid, tool_note
+
+_logger = structlog.stdlib.get_logger(__name__)
 
 if TYPE_CHECKING:
     from iclip.capabilities.shot_video.capability import ShotVideo
@@ -186,7 +189,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         reference_images: list[str],
         global_reference: str,
         target_aspect: str,
-    ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
+    ) -> ToolReturn[dict[str, Any]]:
         """按逐帧 visual_prompt 生成镜头帧：一次调用出一张 2×2 网格图、切成 4 帧返回逐帧 URL。
 
         - frames 每条给一个定格：`no` 是 S8-1 形状的帧号，镜头号即它所属的镜头，挑
@@ -238,7 +241,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             ),
         )
         if job.status != "completed" or not job.output_url:
-            return job_failure(job)
+            job_failure(job, message="镜头帧生成失败。")
         cut = await self._cap.generator.collect_frames(
             job,
             cell_ids=cell_ids,
@@ -247,11 +250,11 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             global_reference=global_reference,
             target_aspect=target_aspect,
         )
-        return await self._deliver(files, namespace, cut)
+        return await self._deliver(files, namespace, cut, failure_message="镜头帧处理失败。")
 
     async def generate_anchor_sheet(
         self, ctx: RunContext[AgentDepsT], cells: list[str]
-    ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
+    ) -> ToolReturn[dict[str, Any]]:
         """按文字补拍设定图：一次调用出一张 2×2 网格图、切成 4 格返回逐格 URL。
 
         - 一格一个实体，cells 每条是那一格画面的完整描述；返回的 `index` 就是它在
@@ -284,9 +287,9 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             ),
         )
         if job.status != "completed" or not job.output_url:
-            return job_failure(job, items_key="images")
+            job_failure(job, message="设定图生成失败。")
         cut = await self._cap.generator.collect_anchors(job, descriptions=descriptions)
-        return await self._deliver(files, namespace, cut)
+        return await self._deliver(files, namespace, cut, failure_message="设定图处理失败。")
 
     async def write_video_shots(
         self,
@@ -399,19 +402,21 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 )
 
     async def _deliver(
-        self, files: FileStore, namespace: str, cut: GridCut | dict[str, Any]
-    ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
-        """切格没成就把失败返回原样交出去；成了就落版记录，再拼上给人看的缩略图墙。"""
+        self, files: FileStore, namespace: str, cut: GridCut, *, failure_message: str
+    ) -> ToolReturn[dict[str, Any]]:
+        """先落版记录并登记素材，再返回成功结果；登记失败不要求模型重新出图。"""
 
-        if not isinstance(cut, GridCut):
-            return cut
-        await self._write(
-            files,
-            namespace,
-            cut.record_path,
-            json.dumps(cut.record, ensure_ascii=False, indent=2),
-        )
-        await self._record_images(namespace, [*cut.urls, cut.grid_url])
+        try:
+            await self._write(
+                files,
+                namespace,
+                cut.record_path,
+                json.dumps(cut.record, ensure_ascii=False, indent=2),
+            )
+            await self._record_images(namespace, [*cut.urls, cut.grid_url])
+        except ModelRetry as exc:
+            _logger.warning("生成产物登记失败", record_path=cut.record_path, reason=str(exc))
+            raise ToolFailed(failure_message) from exc
         return ToolReturn(
             return_value=cut.payload,
             metadata=media_grid(zip(cut.urls, cut.captions, strict=True), note=cut.note),

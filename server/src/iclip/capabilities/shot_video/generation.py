@@ -6,10 +6,11 @@ import asyncio
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Final
+from typing import Any, Final, NoReturn
 
 import httpx
-from pydantic_ai import ModelRetry
+import structlog
+from pydantic_ai import ModelRetry, ToolFailed
 
 from iclip.capabilities.shot_video import ffmpeg
 from iclip.capabilities.shot_video.grid import (
@@ -33,6 +34,8 @@ from iclip.capabilities.shot_video.prompt import GRID_CELLS, GRID_COLS, GRID_ROW
 from iclip.capabilities.shot_video.shots import parse_cell_id
 from iclip.domains.identity.public import Principal
 
+_logger = structlog.stdlib.get_logger(__name__)
+
 GRID_RECORDS_DIR: Final = "frames/grids"
 GRID_RECORD_VERSION: Final = 1
 ANCHOR_RECORDS_DIR: Final = "anchors"
@@ -47,7 +50,6 @@ ANCHOR_ASPECT: Final = "1:1"
 _JPEG: Final = "image/jpeg"
 
 _STATUS_DONE: Final = "done"
-_STATUS_FAILED: Final = "failed"
 
 _EVEN_SPLIT_NOTICE: Final = (
     " 整图没找到清晰的网格线，按等分切的——单格可能带白边或错半格，用之前先看一眼。"
@@ -137,7 +139,7 @@ class FrameGenerator:
         references: Sequence[str],
         global_reference: str,
         target_aspect: str,
-    ) -> GridCut | dict[str, Any]:
+    ) -> GridCut:
         """按目标画幅裁剪镜头帧，并生成逐帧记录。"""
 
         stored = await self._slice_and_store(
@@ -146,10 +148,8 @@ class FrameGenerator:
             object_keys=[
                 self._paths.shot_cell(job_id=job.job_id, cell_id=cell_id) for cell_id in cell_ids
             ],
-            items_key="frames",
+            failure_message="镜头帧处理失败。",
         )
-        if isinstance(stored, dict):
-            return stored
         grid_url, urls, detected = stored
 
         frames_payload = [
@@ -190,9 +190,7 @@ class FrameGenerator:
             note=f"{len(frames_payload)} 张 · {job.channel} 渠道",
         )
 
-    async def collect_anchors(
-        self, job: ImageJob, *, descriptions: Sequence[str]
-    ) -> GridCut | dict[str, Any]:
+    async def collect_anchors(self, job: ImageJob, *, descriptions: Sequence[str]) -> GridCut:
         """裁剪设定图并生成逐格记录，保留完整主体而不收缩到目标画幅。"""
 
         stored = await self._slice_and_store(
@@ -202,10 +200,8 @@ class FrameGenerator:
                 self._paths.anchor_sheet(job_id=job.job_id, index=index)
                 for index in range(1, len(descriptions) + 1)
             ],
-            items_key="images",
+            failure_message="设定图处理失败。",
         )
-        if isinstance(stored, dict):
-            return stored
         grid_url, urls, detected = stored
 
         images = [{"index": index, "url": url} for index, url in enumerate(urls, start=1)]
@@ -240,26 +236,26 @@ class FrameGenerator:
         )
 
     async def _slice_and_store(
-        self, job: ImageJob, *, aspect: str | None, object_keys: Sequence[str], items_key: str
-    ) -> tuple[str, list[str], bool] | dict[str, Any]:
+        self, job: ImageJob, *, aspect: str | None, object_keys: Sequence[str], failure_message: str
+    ) -> tuple[str, list[str], bool]:
         """下载、裁剪并转存网格，返回整图地址、逐格地址与网格检测标志。
 
-        失败时返回工具错误结果；补位格不在 object_keys 中，不转存。"""
+        失败时向模型报告简短错误，诊断信息留日志；补位格不转存。"""
 
         grid_url = job.output_url
         if not grid_url:
-            return _failed_payload("生成记录未携带结果 URL", items_key=items_key)
+            job_failure(job, message=failure_message, reason="生成记录未携带结果 URL")
         try:
             cells, detected = await self._slice_grid(grid_url, aspect=aspect)
         except (ffmpeg.MediaError, GridError) as exc:
-            return _failed_payload(str(exc), items_key=items_key)
+            job_failure(job, message=failure_message, reason=str(exc))
         if len(cells) != GRID_CELLS:
-            return _failed_payload("整图切格数量异常", items_key=items_key)
+            job_failure(job, message=failure_message, reason="整图切格数量异常")
 
         try:
             urls = await self._put_all(list(zip(object_keys, cells, strict=False)))
         except ObjectWriteFailed as exc:
-            return _unstored_payload(exc, job, items_key=items_key)
+            job_failure(job, message=failure_message, reason=str(exc))
         return grid_url, urls, detected
 
     async def _run_one(
@@ -317,39 +313,17 @@ class FrameGenerator:
             return await ffmpeg.crop_cells(source, boxes), layout.detected
 
 
-def job_failure(job: ImageJob, *, items_key: str = "frames") -> dict[str, Any]:
-    """生成失败或未结束时的响应，包含渠道与任务 id。"""
+def job_failure(job: ImageJob, *, message: str, reason: str | None = None) -> NoReturn:
+    """记录诊断信息并报告失败，模型仅收到调用方指定的简短文案。"""
 
-    return _failed_payload(
-        f"{job.error_code or '未知'} {job.error_message or ''}".rstrip()
-        + f"（{job.channel} 渠道，记录 {job.job_id}）",
-        items_key=items_key,
+    _logger.warning(
+        "图像工具失败",
+        job_id=str(job.job_id),
+        channel=job.channel,
+        error_code=job.error_code,
+        reason=reason if reason is not None else job.error_message,
     )
-
-
-def _failed_payload(error: str, *, items_key: str = "frames") -> dict[str, Any]:
-    """生成未成功时的工具响应，items_key 指定该工具的产物字段。"""
-
-    return {
-        "message": f"生成失败：{error}",
-        "status": _STATUS_FAILED,
-        items_key: [],
-        "error": error,
-    }
-
-
-def _unstored_payload(
-    exc: ObjectWriteFailed, job: ImageJob, *, items_key: str = "frames"
-) -> dict[str, Any]:
-    """生成成功但切格转存失败的响应；保留已完成生成的事实。"""
-
-    error = f"切出来的图没存进对象存储：{exc}（{job.channel} 渠道，记录 {job.job_id}）"
-    return {
-        "message": f"生成已完成，但{error}。重新调用一次。",
-        "status": _STATUS_FAILED,
-        items_key: [],
-        "error": error,
-    }
+    raise ToolFailed(message)
 
 
 __all__ = [
