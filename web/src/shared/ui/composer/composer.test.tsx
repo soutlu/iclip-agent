@@ -1,6 +1,7 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { createEvent, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
+import { EditorView } from 'prosemirror-view'
 import { describe, expect, it, vi } from 'vitest'
 import {
   dropFilesIntoWindow,
@@ -161,6 +162,83 @@ describe('Composer', () => {
     expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
     expect(screen.getByText('截图.png')).toBeInTheDocument()
     await waitFor(() => expect(sendButton()).toBeEnabled())
+  })
+
+  it('拖入聊天编辑器按落点插入附件，过滤目录且不会被窗口重复上传', async () => {
+    const onSubmit = vi.fn()
+    const uploadRequested = vi.fn()
+    server.events.on('request:start', ({ request }) => {
+      if (new URL(request.url).pathname === '/api/uploads/sign') uploadRequested()
+    })
+    await renderWithProviders(<Composer attachmentsEnabled onSubmit={onSubmit} />)
+    pasteTextIntoComposer(editor(), '正文')
+    // jsdom 没有布局，将实际 drop 事件的命中位置固定在正文之前。
+    vi.spyOn(EditorView.prototype, 'posAtCoords').mockReturnValue({ inside: 0, pos: 1 })
+
+    const file = imageFile()
+    const dataTransfer = {
+      files: [file, new File([], '图片目录')],
+      getData: () => '',
+      items: [
+        { kind: 'file', type: file.type, webkitGetAsEntry: () => null },
+        { kind: 'file', type: '', webkitGetAsEntry: () => ({ isDirectory: true }) },
+      ],
+      types: ['Files'],
+    }
+    fireEvent.dragEnter(window, { dataTransfer })
+    fireEvent.drop(editor(), { clientX: 10, clientY: 10, dataTransfer })
+
+    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.getAllByText('截图.png')).toHaveLength(1)
+    expect(screen.queryByText('图片目录')).not.toBeInTheDocument()
+    await waitFor(() => expect(sendButton()).toBeEnabled())
+    expect(uploadRequested).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+    expect(onSubmit).toHaveBeenCalledWith({
+      media: [expect.objectContaining({ name: '截图.png' })],
+      parts: [
+        { kind: 'media', media: expect.objectContaining({ name: '截图.png' }) },
+        { kind: 'text', text: '正文' },
+      ],
+      text: '正文',
+    })
+  })
+
+  it('局部区域接管拖放后不添加聊天附件，并清理已有遮罩与拖放深度', async () => {
+    await renderWithProviders(<Composer attachmentsEnabled onSubmit={vi.fn()} />)
+
+    const file = imageFile()
+    const dataTransfer = {
+      files: [file],
+      items: [{ kind: 'file', type: file.type, webkitGetAsEntry: () => null }],
+      types: ['Files'],
+    }
+    fireEvent.dragEnter(window, { dataTransfer })
+    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+
+    const enter = createEvent.dragEnter(window, { dataTransfer })
+    enter.preventDefault()
+    fireEvent(window, enter)
+    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+
+    fireEvent.dragOver(window, { dataTransfer })
+    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+    const over = createEvent.dragOver(window, { dataTransfer })
+    over.preventDefault()
+    fireEvent(window, over)
+    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+
+    fireEvent.dragOver(window, { dataTransfer })
+    const drop = createEvent.drop(window, { dataTransfer })
+    drop.preventDefault()
+    fireEvent(window, drop)
+    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+    expect(screen.queryByText('截图.png')).not.toBeInTheDocument()
+    expect(sendButton()).toBeDisabled()
+
+    fireEvent.dragEnter(window, { dataTransfer })
+    fireEvent.dragLeave(window, { dataTransfer })
+    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
   })
 
   it('attachmentsEnabled 未给时：没有附件入口，拖入也不出遮罩', async () => {

@@ -178,6 +178,23 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     [scheduleSave],
   )
 
+  /** 上传只更新目标 URL，保留上传期间最新的描述编辑；原图已变时拒绝覆盖。 */
+  const replaceFrame = useCallback(
+    (index: number, frame: number, previousUrl: string, url: string) => {
+      const book = ledgerRef.current
+      const current = book.edited ?? book.base?.document
+      const shot = current === undefined ? undefined : shotOf(current, index)
+      if (shot === undefined || frame < 1 || shot.imageUrls[frame - 1] !== previousUrl) {
+        throw new Error('这张图片已发生变化，请重新选择要替换的图片')
+      }
+      updateShot({
+        ...shot,
+        imageUrls: shot.imageUrls.map((image, position) => (position === frame - 1 ? url : image)),
+      })
+    },
+    [updateShot],
+  )
+
   /** 保留本地时重放到最新版；采用服务端时丢弃冲突组的本地修改。 */
   const resolveConflict = useCallback(
     (choice: 'mine' | 'theirs') => {
@@ -214,5 +231,5 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     }
   }, [saveNow])
 
-  return { document, resolveConflict, state, updateShot, wroteVersion }
+  return { document, replaceFrame, resolveConflict, saveNow, state, updateShot, wroteVersion }
 }

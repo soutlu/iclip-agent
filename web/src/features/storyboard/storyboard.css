@@ -68,6 +68,24 @@
   display: grid;
   place-items: center;
 }
+.storyboard-frame-tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border-radius: var(--radius-xs);
+  background: var(--color-inverse-surface);
+  color: var(--color-inverse-on-surface);
+  opacity: 0;
+  transition: opacity var(--dur-s) var(--ease-decel);
+}
+.storyboard-frame-tools > button {
+  color: inherit;
+  border-radius: var(--radius-xs);
+}
+.storyboard-media:hover .storyboard-frame-tools,
+.storyboard-media:focus-within .storyboard-frame-tools {
+  opacity: 1;
+}
 .storyboard-strip {
   display: flex;
   min-width: 0;
@@ -224,8 +242,14 @@
     padding: 8px;
   }
 }
+@media (hover: none) {
+  .storyboard-frame-tools {
+    opacity: 1;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .storyboard-scene {
+  .storyboard-scene,
+  .storyboard-frame-tools {
     transition: none;
   }
 }
