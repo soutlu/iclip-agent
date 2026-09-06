@@ -23,7 +23,7 @@ const artifactFor = (childId: string): Artifact => ({
     toolCallId: MOCK_HISTORY_DELEGATE_CALL,
     view: 'generic',
   },
-  title: `派活 · ${MOCK_CHILD_AGENT}`,
+  title: `委派任务 · ${MOCK_CHILD_AGENT}`,
   type: 'sub-agent',
 })
 

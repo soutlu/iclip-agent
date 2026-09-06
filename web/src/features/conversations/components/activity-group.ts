@@ -62,12 +62,14 @@ export const formatActivityDuration = (ms: number): string => {
 
 type ToolFrame = Extract<TranscriptFrame, { kind: 'tool' }>
 
-/** 文件操作按操作类型聚合，其余工具按卡片文案聚合。 */
+/** 文件操作与检索按操作类型聚合，其余工具按标题聚合；认不出的工具归到「操作」。 */
 const bucketKey = (frame: ToolFrame): string => {
-  const { label, operation } = toolCard(frame.display)
+  const { label, operation } = toolCard(frame.display, frame.view)
   if (operation !== undefined) return `op:${operation}`
-  return label === '工具调用' ? 'other' : `summary:${label}`
+  return label === FALLBACK_LABEL ? 'other' : `summary:${label}`
 }
+
+const FALLBACK_LABEL = toolCard(undefined).label
 
 const doneClause = (key: string, count: number, live: boolean): string => {
   const prefix = live ? '已' : ''
@@ -79,29 +81,30 @@ const doneClause = (key: string, count: number, live: boolean): string => {
   return `${prefix}${key.slice(8)} ×${count}`
 }
 
+/** 完成态的计数句，动词与卡头标题同一套词（docs/tool-design.md §4）。 */
 const OPERATION_LABELS = {
   read: (n: number) => `读取了 ${n} 个文件`,
   write: (n: number) => `写入了 ${n} 个文件`,
   edit: (n: number) => `编辑了 ${n} 处`,
-  glob: (n: number) => `列出了 ${n} 个目录`,
-  grep: (n: number) => `搜索了 ${n} 个模式`,
+  glob: (n: number) => `浏览了 ${n} 个目录`,
+  grep: (n: number) => `搜索了 ${n} 次`,
 } as const
 
+/** 运行中的当前项：动词加主语；标题本身就是动宾短语，前面加「正在」即可。 */
 const doingClause = (frame: TranscriptFrame): string => {
   if (frame.kind === 'thinking') return '思考中…'
   if (frame.kind !== 'tool') return ''
-  const { detail, operation } = toolCard(frame.display)
+  const { detail, label, operation } = toolCard(frame.display, frame.view)
   const subject = detail === undefined ? '' : ` ${detail}`
-  if (operation === undefined) return '正在执行…'
+  if (operation === undefined) return `正在${label}${subject}`
   return `${DOING_VERB[operation]}${subject}`
 }
 
-/** 运行中的当前项动词（照 kimi 的 tools.activity.doing.*）。 */
 const DOING_VERB = {
   read: '正在读取',
   write: '正在写入',
   edit: '正在编辑',
-  glob: '正在列出',
+  glob: '正在浏览',
   grep: '正在搜索',
 } as const
 

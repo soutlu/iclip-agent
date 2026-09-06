@@ -109,7 +109,12 @@ export const markMockAwaitingApproval = (conversationId: string) => {
 
 const approvalFrame = (state: 'running' | 'done' | 'error') => ({
   approvalId: APPROVAL_INTERACTION_ID,
-  display: { kind: 'file_io', operation: 'write', path: 'shots/cover.md' },
+  display: {
+    content: '# 封面\n\n两张镜头帧拼版，主图在左。',
+    kind: 'file_io',
+    operation: 'write',
+    path: 'shots/cover.md',
+  },
   frameId: `${APPROVAL_STEP_ID}.f4`,
   input: { path: 'shots/cover.md', text: '# 封面\n\n两张镜头帧拼版，主图在左。' },
   kind: 'tool',
@@ -147,17 +152,18 @@ const approvalTurn = () => ({
           text: '两张镜头帧出好了：',
         },
         {
-          display: { kind: 'generic', summary: '出镜头帧' },
+          display: { detail: '镜头 1、2', kind: 'generic', summary: '生成画面' },
           frameId: `${APPROVAL_STEP_ID}.f3`,
           kind: 'tool',
           metadata: {
             items: [
-              { caption: 'S01 · 产品特写', url: DEMO_FRAME_URLS[0] },
-              { caption: 'S02 · 场景全景', url: DEMO_FRAME_URLS[1] },
+              { caption: 'S1-1', url: DEMO_FRAME_URLS[0] },
+              { caption: 'S2-1', url: DEMO_FRAME_URLS[1] },
             ],
+            note: '2 张 · dev 渠道',
           },
           name: 'generate_shot_frames',
-          output: '出好了 2 张',
+          output: '生成完成 2 帧（dev 渠道），版记录见 frames/grids/job-1.json。',
           state: 'done',
           toolCallId: 'call_frames',
           view: 'media_grid',
@@ -309,9 +315,12 @@ const historyTurn = (ordinal: number) => ({
                 display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
                 frameId: `t${ordinal}.1.f2`,
                 kind: 'tool',
+                metadata: { lines: 3, path: 'shots/storyboard.md', truncated: false },
                 name: 'read_file',
+                output: '     1\t# 分镜\n     2\t\n     3\t## 镜头 1 · 产品特写 · 2.4s',
                 state: 'done',
                 toolCallId: `call_${ordinal}`,
+                view: 'file_content',
               },
               delegateCard(MOCK_HISTORY_DELEGATE_CALL, MOCK_HISTORY_CHILD, `t${ordinal}.1`, 'done'),
             ]
@@ -827,21 +836,32 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
   const now = new Date().toISOString()
   running.set(conversationId, { ...prompt, ordinal, turnId })
 
+  const matches = [
+    { file: 'shots/s01.md', line: 4, text: '运镜：缓推' },
+    { file: 'shots/s02.md', line: 9, text: '运镜：横移跟随' },
+    { file: 'shots/s03.md', line: 2, text: '运镜幅度小于半个画面' },
+  ]
   const tool = (state: 'running' | 'done') => ({
     op: 'frame.upsert',
     frame: {
-      display: { kind: 'file_io', operation: 'grep', path: 'shots/' },
+      display: { kind: 'search', query: '运镜' },
       frameId: `${stepId}.call`,
       kind: 'tool',
       name: 'search_files',
-      output: state === 'done' ? 'shots/s01.md\nshots/s02.md\nshots/s03.md' : undefined,
       state,
       toolCallId: `${turnId}-call`,
+      view: 'search_results',
+      ...(state === 'done'
+        ? {
+            metadata: { matches, query: '运镜', truncated: false },
+            output: matches.map((m) => `${m.file}:${m.line}\t${m.text}`).join('\n'),
+          }
+        : {}),
     },
     stepId,
     turnId,
   })
-  // 相邻的读取与写入调用用于验证活动组聚合。
+  // 相邻的检索与写入调用用于验证活动组聚合。
   const tool2 = (state: 'running' | 'done') => ({
     op: 'frame.upsert',
     frame: {
@@ -849,9 +869,11 @@ const playTurn = (conversationId: string, prompt: Prompt) => {
       frameId: `${stepId}.call2`,
       kind: 'tool',
       name: 'write_file',
-      output: state === 'done' ? '已写入 12 行' : undefined,
       state,
       toolCallId: `${turnId}-call2`,
+      ...(state === 'done'
+        ? { metadata: { chip: '1.2 KB' }, output: '已写入 shots/storyboard.md（1234 字节）' }
+        : {}),
     },
     stepId,
     turnId,

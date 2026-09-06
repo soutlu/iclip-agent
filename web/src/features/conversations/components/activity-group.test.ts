@@ -116,7 +116,7 @@ describe('summarizeDone', () => {
     )
 
     expect(clauses.map((clause) => clause.text)).toEqual([
-      '搜索了 2 个模式',
+      '搜索了 2 次',
       '写入了 1 个文件',
       '出镜头帧 ×2',
       '（1 失败）',
@@ -137,7 +137,7 @@ describe('summarizeRunning', () => {
 
     expect(clauses.map((clause) => clause.text)).toEqual([
       '正在读取 shots/storyboard.md',
-      '已搜索了 1 个模式',
+      '已搜索了 1 次',
       '20s',
     ])
   })

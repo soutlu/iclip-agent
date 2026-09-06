@@ -44,7 +44,7 @@ const currentIcon = (items: readonly TurnEntry[], liveFrameId: string | undefine
     items.find((entry) => entry.frame.kind === 'tool' && entry.frame.state === 'running')
   if (current === undefined) return 'loading'
   if (current.frame.kind === 'thinking') return 'thinking'
-  if (current.frame.kind === 'tool') return toolCard(current.frame.display).icon
+  if (current.frame.kind === 'tool') return toolCard(current.frame.display, current.frame.view).icon
   return 'loading'
 }
 

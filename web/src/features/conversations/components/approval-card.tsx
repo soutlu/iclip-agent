@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import { ApiError } from '@/shared/api/client'
 import type { ToolCallFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
+import { cn } from '@/shared/lib/utils'
 import { toast } from '@/shared/ui/toast'
 import { respondInteraction } from '../conversations.api'
-import { toolCard } from './tool-display'
+import { fileChangeOf, toolCard, type FileChange } from './tool-display'
 
 type ApprovalCardProps = {
   conversationId: string
@@ -30,7 +31,8 @@ export function ApprovalCard({
   interactionId,
   onRefresh,
 }: ApprovalCardProps) {
-  const card = toolCard(frame?.display)
+  const card = toolCard(frame?.display, frame?.view)
+  const change = fileChangeOf(frame?.display)
   const [decision, setDecision] = useState<keyof typeof DECISION_LABELS | null>(null)
   const [sending, setSending] = useState(false)
   // 卡片移除由服务端 pending 集合决定；interactionId 变化时由父组件 key 重置本地决定。
@@ -83,7 +85,8 @@ export function ApprovalCard({
           </p>
         )}
       </header>
-      {/* display 提供操作说明，内部参数不进入审批正文。 */}
+      {/* display 提供操作说明与可预览的改动，内部参数不进入审批正文。 */}
+      {change === undefined ? null : <ChangePreview change={change} />}
       <p className="px-4 pt-3 text-body text-chat-message-text">这一步要你点头才会继续</p>
       <footer className="mt-3 flex flex-col gap-1 border-t-[0.5px] border-chat-hairline px-4 py-3">
         {settled ? (
@@ -103,6 +106,38 @@ export function ApprovalCard({
         )}
       </footer>
     </section>
+  )
+}
+
+/** 编辑给前后对照，写入给整份内容；都最多显示十来行，看全貌不是审批卡的事。 */
+function ChangePreview({ change }: { change: FileChange }) {
+  // 同一段里可能有相同的行，key 用「哪一段的第几行」；序号在这里算好，不在渲染时取下标。
+  const block = (text: string, tone: 'plain' | 'removed' | 'added') =>
+    text.split('\n').map((line, index) => ({ id: `${tone}-${index}`, text: line, tone }))
+  const lines =
+    'content' in change
+      ? block(change.content, 'plain')
+      : [...block(change.before, 'removed'), ...block(change.after, 'added')]
+  return (
+    <div
+      aria-label="改动预览"
+      className="mx-4 mt-3 max-h-56 overflow-auto rounded-sm border-[0.5px] border-chat-hairline bg-chat-code-block-bg py-1.5 font-mono text-body-sm"
+      role="region"
+    >
+      {lines.map((line) => (
+        <div
+          className={cn(
+            'px-3 whitespace-pre-wrap',
+            line.tone === 'removed' && 'bg-error-container text-on-error-container line-through',
+            line.tone === 'added' && 'bg-primary-container text-on-primary-container',
+            line.tone === 'plain' && 'text-chat-message-text',
+          )}
+          key={line.id}
+        >
+          {line.text === '' ? ' ' : line.text}
+        </div>
+      ))}
+    </div>
   )
 }
 
