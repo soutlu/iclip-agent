@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -12,8 +13,16 @@ from typing import Any
 
 import httpx
 import pytest
-from pydantic_ai import ModelRetry
-from pydantic_ai.messages import ModelRequest, ToolReturn, UserPromptPart
+from pydantic_ai import Agent, ModelRetry
+from pydantic_ai.exceptions import ToolFailed
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ToolReturn,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
@@ -31,8 +40,12 @@ from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
 from iclip.harness.media import media_tag
+from iclip.harness.transcript.from_messages import turns_from_messages
+from iclip.harness.transcript.projector import TranscriptEventStream
+from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.file_store.store import FileSpace
 from iclip.platform.object_store.layout import MEDIA_PATHS
+from iclip.platform.transcript.ops import MAIN_AGENT_ID, TextContent, ToolFrame
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.material_ledger import FakeMaterialLedger
 from tests.helpers.shot_video import FakeGenerations, FakeObjects, FakeUnderstanding, Outcome
@@ -402,22 +415,21 @@ async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked
     try:
         tools = make_tools(client, FakeObjects(), files, generations=generations)
         await tools.plan_shot_frames(make_context(), VIDEO_URL)
-        result = await tools.generate_shot_frames(
-            make_context(), [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
-        )
+        with pytest.raises(ToolFailed) as raised:
+            await tools.generate_shot_frames(
+                make_context(), [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+            )
     finally:
         await client.aclose()
 
-    assert isinstance(result, dict)
-    assert result["status"] == "failed"
-    assert result["frames"] == []
-    assert "取不到素材" in result["error"]
+    assert str(raised.value) == "镜头帧处理失败。"
+    assert not await files.entries(NAMESPACE, prefix=GRID_RECORDS_DIR)
 
 
-async def test_generate_reports_unstored_frames_without_calling_the_generation_failed(
+async def test_generate_fails_when_cut_frames_cannot_be_stored(
     media: dict[str, bytes],
 ) -> None:
-    """切格存储失败发生在付费生成之后，需区分错误阶段并返回记录 id，不保存无效版记录。"""
+    """切格存储失败只向模型返回简短错误，不保存无效版记录。"""
 
     objects = FakeObjects()
     files = FakeFileStore()
@@ -428,19 +440,15 @@ async def test_generate_reports_unstored_frames_without_calling_the_generation_f
         tools = make_tools(client, objects, files, generations=generations)
         await tools.plan_shot_frames(make_context(), VIDEO_URL)
         objects.error = ObjectWriteFailed(STORE_DOWN)
-        result = await tools.generate_shot_frames(
-            make_context(), [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
-        )
+        with pytest.raises(ToolFailed) as raised:
+            await tools.generate_shot_frames(
+                make_context(), [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+            )
     finally:
         await client.aclose()
 
-    assert isinstance(result, dict)
-    assert result["status"] == "failed"
-    assert result["frames"] == []
-    assert "生成失败" not in result["message"]
-    assert "生成已完成" in result["message"]
-    assert str(generations.job_ids[0]) in result["error"]
-    assert "Read timed out" in result["error"]
+    assert str(raised.value) == "镜头帧处理失败。"
+    assert len(generations.job_ids) == 1
     assert not await files.entries(NAMESPACE, prefix=GRID_RECORDS_DIR)
 
 
@@ -450,16 +458,14 @@ async def test_anchor_sheet_reports_unstored_cells_the_same_way(media: dict[str,
     generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
     client = make_client(media)
     try:
-        result = await make_tools(
-            client, objects, files, generations=generations
-        ).generate_anchor_sheet(make_context(), ["全身正面平视的女性"])
+        with pytest.raises(ToolFailed) as raised:
+            await make_tools(client, objects, files, generations=generations).generate_anchor_sheet(
+                make_context(), ["全身正面平视的女性"]
+            )
     finally:
         await client.aclose()
 
-    assert isinstance(result, dict)
-    assert result["status"] == "failed"
-    assert result["images"] == []
-    assert "生成失败" not in result["message"]
+    assert str(raised.value) == "设定图处理失败。"
     assert not await files.entries(NAMESPACE, prefix=ANCHOR_RECORDS_DIR)
 
 
@@ -505,6 +511,105 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
     written = list(objects.written.values())
     assert written[0] != written[1]
     assert {image["url"] for image in payload["images"]} | {GRID_URL} <= materials.urls(NAMESPACE)
+
+
+async def test_anchor_record_failure_is_reported_after_successful_generation(
+    media: dict[str, bytes],
+) -> None:
+    """图片已上传但版记录写入失败时报告处理失败，不重复生成或宣告成功。"""
+
+    files = FakeFileStore(max_file_bytes=1)
+    objects = FakeObjects()
+    generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
+    materials = FakeMaterialLedger()
+    async with make_client(media) as client:
+        tools = make_tools(client, objects, files, generations=generations, ledger=materials)
+        with pytest.raises(ToolFailed, match=r"^设定图处理失败。$"):
+            await tools.generate_anchor_sheet(make_context(), ["空景门厅"])
+    assert len(generations.job_ids) == 1
+    assert len(objects.written) == 1
+    assert not await files.entries(NAMESPACE, prefix=ANCHOR_RECORDS_DIR)
+    assert not materials.urls(NAMESPACE)
+
+
+async def test_processing_failure_is_an_error_in_real_agent_live_and_history(
+    media: dict[str, bytes],
+) -> None:
+    """真实工具失败经官方框架返回 failed，Agent 仍能回复；两条投影都显示错误。"""
+
+    failure = "设定图处理失败。"
+    secret_detail = "private-storage-response-with-signature"
+    objects = FakeObjects(error=ObjectWriteFailed(secret_detail))
+    files = FakeFileStore()
+    generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
+    received: list[ToolReturnPart] = []
+
+    async def model_stream(
+        messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        returns = [
+            part
+            for message in messages
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+        ]
+        if not returns:
+            yield {
+                0: DeltaToolCall(
+                    name="generate_anchor_sheet",
+                    json_args=json.dumps({"cells": ["全身正面平视的女性"]}),
+                    tool_call_id="call_anchor",
+                )
+            }
+        else:
+            received.extend(returns)
+            yield "本次设定图没有完成。"
+
+    run_id = "anchor-failed-run"
+    prompt = "请生成设定图。"
+    store = TranscriptStore()
+    projector = TranscriptEventStream(
+        run_id=run_id,
+        content=(TextContent(text=prompt),),
+    )
+    async with make_client(media) as client:
+        tools = make_tools(client, objects, files, generations=generations)
+        agent = Agent(
+            FunctionModel(stream_function=model_stream),
+            deps_type=object,
+            toolsets=[tools],
+            retries=0,
+        )
+        async with agent.run_stream_events(
+            prompt, deps=make_context().deps, run_id=run_id
+        ) as events:
+            async for batch in projector.transform_stream(events):
+                store.append("thread-1", MAIN_AGENT_ID, batch)
+            result = events.result
+
+    assert result is not None
+    assert result.output == "本次设定图没有完成。"
+    assert len(received) == 1
+    assert received[0].outcome == "failed"
+    assert received[0].content == failure
+    assert len(generations.job_ids) == 1
+    assert not await files.entries(NAMESPACE, prefix=ANCHOR_RECORDS_DIR)
+    live = store.subscribe_view("thread-1", MAIN_AGENT_ID).live_turns
+    history = turns_from_messages(result.all_messages(), turn_states={run_id: "completed"})
+    for turns in (live, history):
+        assert len(turns) == 1
+        assert turns[0].state == "completed"
+        cards = [
+            frame
+            for step in turns[0].steps
+            for frame in step.frames
+            if isinstance(frame, ToolFrame)
+        ]
+        assert len(cards) == 1
+        assert cards[0].state == "error"
+        assert cards[0].output == failure
+        assert secret_detail not in turns[0].model_dump_json()
+        assert str(generations.job_ids[0]) not in turns[0].model_dump_json()
 
 
 def probe_size(data: bytes) -> tuple[int, int]:

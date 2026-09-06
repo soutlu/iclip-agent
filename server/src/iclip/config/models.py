@@ -277,7 +277,7 @@ class ShotVideoSection(ConfigSection):
 
     backoff_factor: float = Field(default=3.0, ge=1)
     job_timeout_seconds: float = Field(default=1800.0, gt=0)
-    """一次出图工具调用总共等多久；超了就把记录 id 报回去，让人自己查。"""
+    """一次出图工具调用总共等多久；超时向模型报告失败，任务标识保留在诊断日志。"""
 
 
 class CompactionSection(ConfigSection):

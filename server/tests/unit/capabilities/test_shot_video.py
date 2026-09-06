@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 import pytest
-from pydantic_ai import Agent, ModelRetry
+from pydantic_ai import Agent, ModelRetry, ToolFailed
 from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
@@ -23,6 +23,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
+from structlog.testing import capture_logs
 
 from iclip.capabilities.shot_video.capability import (
     CAPABILITY_ID,
@@ -635,9 +636,10 @@ async def test_generate_accepts_a_frame_the_ledger_never_sampled(
         Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
     ]
     await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
-    await tools.generate_shot_frames(
-        ctx, [FrameRequest(no="S9-2", prompt="猫")], [], "全局", "9:16"
-    )
+    with pytest.raises(ToolFailed):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S9-2", prompt="猫")], [], "全局", "9:16"
+        )
     assert generations.submitted
 
 
@@ -652,10 +654,12 @@ async def test_generate_tags_the_job_with_the_conversation(
     # 使用失败结果避免进入切格流程，本测试仅检查提交字段。
     generations.outcomes = [Outcome(status="failed", output_url=None, error_code="REJECTED")]
     await files.write(f"{USER}/{conversation_id}", EXTRACTION_PATH, ledger("S1-1"))
-    await tools.generate_shot_frames(
-        ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
-    )
-    await tools.generate_anchor_sheet(ctx, ["一只猫"])
+    with pytest.raises(ToolFailed):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+        )
+    with pytest.raises(ToolFailed):
+        await tools.generate_anchor_sheet(ctx, ["一只猫"])
 
     assert {request.conversation_id for request in generations.submitted} == {conversation_id}
 
@@ -669,9 +673,10 @@ async def test_generate_leaves_the_conversation_empty_when_it_is_not_an_id(
 
     generations.outcomes = [Outcome(status="failed", output_url=None, error_code="REJECTED")]
     await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
-    await tools.generate_shot_frames(
-        ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
-    )
+    with pytest.raises(ToolFailed):
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局", "9:16"
+        )
 
     assert generations.submitted[0].conversation_id is None
 
@@ -706,15 +711,15 @@ async def test_generate_refuses_an_empty_global_reference(
 
 async def submit_once(
     tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
-) -> dict[str, Any]:
-    """提交一次生成；使用失败结果避免依赖 ffmpeg 切格。"""
+) -> ToolFailed:
+    """提交一次生成并捕获模型可见的失败，避免依赖 ffmpeg 切格。"""
 
     await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
-    result = await tools.generate_shot_frames(
-        ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局参考", "9:16"
-    )
-    assert isinstance(result, dict)
-    return result
+    with pytest.raises(ToolFailed) as failed:
+        await tools.generate_shot_frames(
+            ctx, [FrameRequest(no="S1-1", prompt="猫")], [], "全局参考", "9:16"
+        )
+    return failed.value
 
 
 async def test_generate_submits_a_full_grid_at_the_top_tier(
@@ -747,8 +752,7 @@ async def test_generate_escalates_to_pro_after_dev(
     ]
     result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev", "dev", "pro"]
-    assert result["status"] == "failed"
-    assert result["frames"] == []
+    assert result.message == "镜头帧生成失败。"
 
 
 @pytest.mark.parametrize(
@@ -776,7 +780,7 @@ async def test_generate_walks_every_channel_on_any_failure(
     generations.outcomes = [Outcome(status="failed", output_url=None, error_code=error_code)]
     result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev", "dev", "pro"]
-    assert error_code in result["error"]
+    assert result.message == "镜头帧生成失败。"
 
 
 async def test_generate_stays_on_dev_when_pro_is_off(
@@ -804,7 +808,7 @@ async def test_generate_stays_on_dev_when_pro_is_off(
     assert isinstance(toolset, ShotVideoToolset)
     result = await submit_once(toolset, ctx, files)
     assert generations.channels() == ["dev", "dev"]
-    assert "PROVIDER_REJECTED" in result["error"]
+    assert result.message == "镜头帧生成失败。"
 
 
 async def test_generate_rejects_bad_parameters_before_paying(
@@ -823,13 +827,13 @@ async def test_generate_rejects_bad_parameters_before_paying(
     assert generations.submitted == []
 
 
-async def test_generate_gives_up_waiting_but_names_the_record(
+async def test_generate_timeout_is_a_brief_failure_and_logs_the_record(
     ctx: RunContext[object],
     generations: FakeGenerations,
     objects: FakeObjects,
     files: FakeFileStore,
 ) -> None:
-    """等待超时需返回记录 id；总时限耗尽后不再提交下一次生成。"""
+    """超时对模型报告失败，诊断留日志；总时限耗尽后不新增生成。"""
 
     generations.outcomes = [Outcome(status="submitted", output_url=None)]
     toolset = shot_video_capability(
@@ -849,10 +853,12 @@ async def test_generate_gives_up_waiting_but_names_the_record(
         ),
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
-    result = await submit_once(toolset, ctx, files)
+    with capture_logs() as logs:
+        result = await submit_once(toolset, ctx, files)
     assert generations.channels() == ["dev"]
-    assert "TOOL_WAIT_TIMEOUT" in result["error"]
-    assert str(generations.job_ids[0]) in result["error"]
+    assert result.message == "镜头帧生成失败。"
+    assert logs[-1]["error_code"] == "TOOL_WAIT_TIMEOUT"
+    assert logs[-1]["job_id"] == str(generations.job_ids[0])
 
 
 @pytest.mark.parametrize(
@@ -885,7 +891,8 @@ async def test_anchor_sheet_submits_a_full_square_grid_without_references(
     generations.outcomes = [
         Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
     ]
-    result = await tools.generate_anchor_sheet(ctx, ["全身正面平视的女性", "空景全景平视的门厅"])
+    with pytest.raises(ToolFailed, match=r"^设定图生成失败。$"):
+        await tools.generate_anchor_sheet(ctx, ["全身正面平视的女性", "空景全景平视的门厅"])
 
     request = generations.submitted[0]
     assert request.reference_image_urls == ()
@@ -893,8 +900,6 @@ async def test_anchor_sheet_submits_a_full_square_grid_without_references(
     assert request.prompt.count("visual_prompt:") == 4
     assert "全局参考设定" not in request.prompt
     assert request.prompt.startswith("1. Core Command")
-    assert isinstance(result, dict)
-    assert result["images"] == []
 
 
 FRAME_URL = "https://cdn.test/frames/s1-1.jpg"
