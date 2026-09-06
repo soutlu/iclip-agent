@@ -101,7 +101,7 @@ def _load_display(args: Any) -> ToolDisplay | None:
     """按需加载一个 skill 正文；参数只有它的 id。"""
 
     loaded = args.get("id") if isinstance(args, dict) else None
-    return GenericDisplay(summary="启用技能", detail=loaded if isinstance(loaded, str) else None)
+    return GenericDisplay(summary="加载技能", detail=loaded if isinstance(loaded, str) else None)
 
 
 def _reference_display(args: Any) -> ToolDisplay | None:
