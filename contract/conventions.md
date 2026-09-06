@@ -146,7 +146,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 | `watch_fs_add` / `watch_fs_remove` | 客户端 → 服务端 | `{ id, payload: { session_id, paths, recursive? } }`；回执 `ack`，payload `{ watched_paths, current_count }`；订看不见的对话 `code` 为 `40401` |
 | `event.fs.changed` | 服务端 → 客户端 | `session_id` 在信封上，payload `{ changes: [{ path, change, kind }], coalesced_window_ms }`；`change` 为 `created` / `modified` / `deleted`，`kind` 恒为 `file`，`coalesced_window_ms` 恒为 `0` |
 
-- 订的是文件就要路径一样；订的是目录，`recursive` 为假只看直接子项，为真看整棵。
+- 订的是文件就要路径一样；订的是目录，`recursive` 为假只看直接子项，为真看整棵。空串是工作区根：`recursive` 为真就是整个工作区。
 - 帧上不带版本与写入者：收到就重读那个文件，`version` 在文件上；是不是自己刚写的由客户端记自己写回拿到的版本号来判。
 - 工具与面板写文件都会触发通知。通知易失，重连后重拉文件列表对齐。
 

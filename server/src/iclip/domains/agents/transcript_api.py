@@ -536,14 +536,18 @@ class _Connection:
         )
 
     def _watching(self, conversation_id: str, path: str) -> bool:
-        """匹配文件精确订阅或目录订阅范围。"""
+        """匹配文件精确订阅或目录订阅范围；空串是工作区根，订它就能看到整个工作区的变动。"""
 
         for watched, recursive in self._watches.get(conversation_id, {}).items():
             if watched == path:
                 return True
-            if not path.startswith(watched + "/"):
+            if watched == "":
+                inside = path
+            elif path.startswith(watched + "/"):
+                inside = path[len(watched) + 1 :]
+            else:
                 continue
-            if recursive or "/" not in path[len(watched) + 1 :]:
+            if recursive or "/" not in inside:
                 return True
         return False
 

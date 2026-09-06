@@ -249,15 +249,60 @@ async def _seed_file(pg_url: str, namespace: str, path: str, content: str) -> No
         await engine.dispose()
 
 
-def _watch(ws: Any, conversation_id: str, *paths: str) -> dict[str, Any]:
+def _watch(ws: Any, conversation_id: str, *paths: str, recursive: bool = False) -> dict[str, Any]:
     ws.send_json(
         {
             "type": "watch_fs_add",
             "id": f"watch-{'-'.join(paths)}",
-            "payload": {"session_id": conversation_id, "paths": list(paths)},
+            "payload": {
+                "session_id": conversation_id,
+                "paths": list(paths),
+                "recursive": recursive,
+            },
         }
     )
     return until(ws, "ack")
+
+
+def test_watching_the_workspace_root_covers_every_file_only_when_recursive(
+    ws_agent_app: FastAPI, pg_url: str
+) -> None:
+    """空串路径是工作区根：recursive 看整棵，否则只看根目录直接子项。"""
+
+    with TestClient(ws_agent_app) as tc:
+        sign_in(tc, pg_url)
+        conversation_id = open_conversation(tc)
+        owner = tc.get("/users/me").json()["user"]["id"]
+        namespace = f"{owner}/{conversation_id}"
+        asyncio.run(_seed_file(pg_url, namespace, "storyboard.md", "初稿"))
+        asyncio.run(_seed_file(pg_url, namespace, "frames/grids/a.json", "{}"))
+
+        with tc.websocket_connect("/ws") as whole, tc.websocket_connect("/ws") as top:
+            assert whole.receive_json()["type"] == "server_hello"
+            assert top.receive_json()["type"] == "server_hello"
+            assert _watch(whole, conversation_id, "", recursive=True)["code"] == 0
+            assert _watch(top, conversation_id, "")["code"] == 0
+
+            for path, body in (("frames/grids/a.json", '{"v": 2}'), ("storyboard.md", "二稿")):
+                written = tc.put(
+                    f"/conversations/{conversation_id}/workspace/file",
+                    json={"path": path, "content": body, "expectedVersion": 1},
+                )
+                assert written.status_code == 200, written.text
+
+            first = until(whole, "event.fs.changed")
+            second = until(whole, "event.fs.changed")
+            only = until(top, "event.fs.changed")
+
+    assert [
+        change["path"] for frame in (first, second) for change in frame["payload"]["changes"]
+    ] == [
+        "frames/grids/a.json",
+        "storyboard.md",
+    ]
+    assert only["payload"]["changes"] == [
+        {"path": "storyboard.md", "change": "modified", "kind": "file"}
+    ]
 
 
 def test_fs_changed_reaches_only_the_connections_watching_that_path(
