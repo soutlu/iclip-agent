@@ -1,4 +1,4 @@
-/** 用户输入与乐观气泡共用渲染，保持文字和媒体顺序；参考 Kimi 用户气泡，超过十行可折叠。 */
+/** 用户输入与乐观气泡共用渲染，保持文字和媒体顺序；超过十行可折叠。圆角比工具行与卡片大一档，一眼分得出是人说的话。 */
 
 import { useState } from 'react'
 import type { PromptContentPart } from '@/shared/transcript/vendor'
@@ -48,9 +48,9 @@ export function UserBubble({ className, content, editDisabled = false, onEdit }:
 
   return (
     <div
-      className={cn('group/bubble flex max-w-[min(88%,100vw-52px)] flex-col self-end', className)}
+      className={cn('group/bubble flex max-w-[min(80%,100vw-52px)] flex-col self-end', className)}
     >
-      <div className="rounded-md bg-chat-user-bg px-3 py-2.5 text-body leading-normal whitespace-pre-wrap text-chat-message-text">
+      <div className="rounded-lg bg-chat-user-bg px-3.5 py-2.5 text-body leading-normal whitespace-pre-wrap text-chat-message-text">
         <div className="relative flex flex-col">
           <div ref={ref} className={cn(clampable && !expanded && 'chat-clamp')}>
             {content.map((part, index) =>

@@ -210,7 +210,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
         >
           <div
             className={cn(
-              'mx-auto flex min-h-full w-full max-w-(--layout-home-read-max) flex-col gap-4 px-5 pt-2',
+              'mx-auto flex min-h-full w-full max-w-(--layout-home-read-max) flex-col gap-6 px-5 pt-3',
               showEmptyState ? 'pb-4' : 'pb-[81px]',
             )}
           >
@@ -224,6 +224,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               <ConversationTurn
                 editDisabled={conversationBusy}
                 key={turn.turnId}
+                latest={turn.turnId === latestTurn?.turnId}
                 onEdit={
                   turn.turnId === latestTurn?.turnId
                     ? () =>
@@ -247,7 +248,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               <UserBubble content={item.content} key={item.promptId} />
             ))}
             {working ? (
-              <div className="self-start py-2.5">
+              <div className="self-start py-1">
                 <WorkingIndicator label={workingLabel} />
               </div>
             ) : null}

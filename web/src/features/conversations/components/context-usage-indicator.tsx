@@ -1,4 +1,5 @@
 import { Tooltip } from 'radix-ui'
+import { cn } from '@/shared/lib/utils'
 
 const RING_PATH = 100
 const KILO = 1000
@@ -21,10 +22,24 @@ type ContextUsageIndicatorProps = {
   used: number
 }
 
-/** 参考 WorkBuddy 上下文用量环；只展示后端 used/max，不在浏览器估算 token。 */
+/** 弧长低于这个数在 16px 的环上看不出来，整个环就像在转圈；画的时候垫到这里，数字照实报。 */
+const MIN_ARC = 8
+
+/** 用量过了这两条线，弧的颜色跟着变，不用看数字。 */
+const WARN_AT = 80
+const FULL_AT = 95
+
+/** 上下文用量环；只展示后端 used/max，不在浏览器估算 token。 */
 export function ContextUsageIndicator({ max, used }: ContextUsageIndicatorProps) {
   const percentValue = Math.min(100, Math.max(0, (used / max) * 100))
   const label = `${percentValue.toFixed(1)}% · ${formatTokens(used)} / ${formatTokens(max)} 上下文已使用`
+  const arc = Math.max(MIN_ARC, percentValue)
+  const arcColor =
+    percentValue >= FULL_AT
+      ? 'text-error'
+      : percentValue >= WARN_AT
+        ? 'text-warning'
+        : 'text-primary'
 
   return (
     <Tooltip.Provider delayDuration={300}>
@@ -46,7 +61,7 @@ export function ContextUsageIndicator({ max, used }: ContextUsageIndicatorProps)
                 strokeWidth="2"
               />
               <circle
-                className="transition-[stroke-dashoffset] ui-motion-m"
+                className={cn('transition-[stroke-dashoffset] ui-motion-m', arcColor)}
                 cx="10"
                 cy="10"
                 fill="none"
@@ -54,7 +69,7 @@ export function ContextUsageIndicator({ max, used }: ContextUsageIndicatorProps)
                 r="7.5"
                 stroke="currentColor"
                 strokeDasharray={RING_PATH}
-                strokeDashoffset={RING_PATH - percentValue}
+                strokeDashoffset={RING_PATH - arc}
                 strokeLinecap="round"
                 strokeWidth="2"
                 transform="rotate(-90 10 10)"

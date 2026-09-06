@@ -1,8 +1,9 @@
-/** 参考 WorkBuddy 终态栏；usage 与 endedAt 缺失时分别省略统计和时刻，悬停提示保留精确值。 */
+/** 回复的终态栏：复制、重新生成、用量、时刻。只有最新一轮常驻，历史轮悬停才露出，别让每条回复下面都挂一排小图标。 */
 
 import { useState } from 'react'
 import type { TranscriptUsage } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
+import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { CopyButton } from './copy-button'
 
@@ -44,7 +45,7 @@ const UsageStats = ({ usage }: { usage: TranscriptUsage }) => {
   const output = usage.outputTokens ?? 0
   return (
     <p
-      className="flex items-center gap-1 text-caption text-chat-muted-text tabular-nums opacity-0 transition-opacity ui-motion-s group-hover:opacity-100"
+      className="flex items-center gap-1 text-caption text-chat-muted-text tabular-nums"
       title={`输入 ${exactTokens(input)} · 缓存 ${exactTokens(cached)} · 输出 ${exactTokens(output)}`}
     >
       <Icon decorative name="credit" size="xs" />
@@ -60,7 +61,7 @@ const TurnTime = ({ endedAt }: { endedAt: string }) => {
   if (label === '') return null
   return (
     <time
-      className="text-caption text-chat-muted-text tabular-nums opacity-0 transition-opacity ui-motion-s group-hover:opacity-100"
+      className="text-caption text-chat-muted-text tabular-nums"
       dateTime={endedAt}
       title={fullTime(endedAt)}
     >
@@ -79,6 +80,8 @@ type TurnActionsProps = {
   /** 未提供回调时隐藏按钮；调用方负责末轮与空闲状态判断。 */
   onRegenerate?: (() => void) | undefined
   regenerateDisabled?: boolean | undefined
+  /** 最新一轮常驻；历史轮只在悬停或聚焦时露出。 */
+  revealed?: boolean | undefined
 }
 
 export function TurnActions({
@@ -86,10 +89,16 @@ export function TurnActions({
   endedAt,
   onRegenerate,
   regenerateDisabled = false,
+  revealed = false,
   usage,
 }: TurnActionsProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2 pt-3">
+    <div
+      className={cn(
+        'flex flex-wrap items-center gap-2 pt-2 transition-opacity ui-motion-s',
+        !revealed && 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
+      )}
+    >
       <div className="flex items-center gap-2">
         <CopyButton text={copyText} />
         {onRegenerate === undefined ? null : (

@@ -1,10 +1,11 @@
-/** 审批与工具卡共用 display 合同（ADR-0007 决策 5）；数字键 1 / 2 可提交决定。 */
+/** 审批与工具卡共用 display 合同（ADR-0007 决策 5）；两个正式按钮，数字键 1 / 2 是快捷方式。 */
 
 import { useEffect, useState } from 'react'
 import { ApiError } from '@/shared/api/client'
 import type { ToolCallFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
+import { Button } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
 import { respondInteraction } from '../conversations.api'
 import { fileChangeOf, toolCard, type FileChange } from './tool-display'
@@ -88,7 +89,7 @@ export function ApprovalCard({
       {/* display 提供操作说明与可预览的改动，内部参数不进入审批正文。 */}
       {change === undefined ? null : <ChangePreview change={change} />}
       <p className="px-4 pt-3 text-body text-chat-message-text">这一步要你点头才会继续</p>
-      <footer className="mt-3 flex flex-col gap-1 border-t-[0.5px] border-chat-hairline px-4 py-3">
+      <footer className="mt-3 flex items-center justify-between gap-3 border-t-[0.5px] border-chat-hairline px-4 py-3">
         {settled ? (
           <p className="flex items-center gap-1 text-body-sm text-chat-muted-text">
             <Icon decorative name="check" size="sm" />
@@ -96,12 +97,21 @@ export function ApprovalCard({
           </p>
         ) : (
           <>
-            <ApprovalOption disabled={sending} onSelect={() => decide(true)} shortcut="1">
-              同意
-            </ApprovalOption>
-            <ApprovalOption disabled={sending} onSelect={() => decide(false)} shortcut="2">
-              拒绝
-            </ApprovalOption>
+            <p className="text-caption text-chat-muted-text">按 1 同意，按 2 拒绝</p>
+            <div className="flex items-center gap-2">
+              <Button
+                disabled={sending}
+                onClick={() => decide(false)}
+                size="md"
+                type="button"
+                variant="outlined"
+              >
+                拒绝
+              </Button>
+              <Button disabled={sending} onClick={() => decide(true)} size="md" type="button">
+                同意
+              </Button>
+            </div>
           </>
         )}
       </footer>
@@ -138,31 +148,5 @@ function ChangePreview({ change }: { change: FileChange }) {
         </div>
       ))}
     </div>
-  )
-}
-
-function ApprovalOption({
-  children,
-  disabled,
-  onSelect,
-  shortcut,
-}: {
-  children: string
-  shortcut: string
-  disabled: boolean
-  onSelect: () => void
-}) {
-  return (
-    <button
-      className="flex w-full ui-state cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-body text-chat-message-text ui-focus"
-      disabled={disabled}
-      onClick={onSelect}
-      type="button"
-    >
-      <span className="grid size-4 shrink-0 place-items-center rounded-xs bg-chat-chip-bg text-caption text-chat-muted-text">
-        {shortcut}
-      </span>
-      {children}
-    </button>
   )
 }

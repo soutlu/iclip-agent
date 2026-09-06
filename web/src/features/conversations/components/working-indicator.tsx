@@ -1,4 +1,4 @@
-/** 模型运行状态条：结构与生命周期照 Kimi Code 的 WorkingIndicator。 */
+/** 模型运行状态条：相机吉祥物加一句状态；尺寸对齐工具行的图标列，不抢正文。 */
 
 import { useEffect, useRef } from 'react'
 import type { AnimationItem } from 'lottie-web'
@@ -51,5 +51,5 @@ function CameraMascot() {
     }
   }, [])
 
-  return <div aria-hidden className="size-10 shrink-0" ref={hostRef} />
+  return <div aria-hidden className="size-8 shrink-0" ref={hostRef} />
 }
