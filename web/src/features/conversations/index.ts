@@ -8,7 +8,10 @@ export type {
 export { useLiveConversations } from './conversations.live'
 export { recordSeenRun, useSeenRun } from './conversations.unread'
 export {
+  createConversation,
   conversationsQueryKeys,
+  mintPromptId,
+  submitPrompt,
   useStartConversation,
   useDeleteConversation,
   useMoreConversations,

@@ -104,6 +104,32 @@ describe('TaskMediaField', () => {
     expect(screen.getByRole('button', { name: '预览参考视频 1' })).toBeVisible()
   })
 
+  it('视频可打开真实播放器，媒体移除按钮支持键盘操作', async () => {
+    const user = userEvent.setup()
+    const videoUrl = 'https://assets.example.com/reference.mp4'
+    await renderWithProviders(
+      <TaskMediaField
+        kind="video"
+        label="参考视频"
+        onChange={(urls) => changes.push(urls)}
+        value={[videoUrl]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: '替换参考视频' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: '预览参考视频 1' }))
+    expect(screen.getByRole('dialog', { name: '参考视频 1' })).toBeVisible()
+    const player = screen.getByLabelText('参考视频 1', { selector: 'video' })
+    expect(player).toHaveAttribute('src', videoUrl)
+    expect(player).toHaveAttribute('controls')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '参考视频 1' })).not.toBeInTheDocument()
+
+    screen.getByRole('button', { name: '移除参考视频 1' }).focus()
+    await user.keyboard('{Enter}')
+    expect(changes).toEqual([[]])
+  })
+
   it('超过剩余容量时不上传，也不会截断用户选择', async () => {
     const user = userEvent.setup()
     await renderWithProviders(

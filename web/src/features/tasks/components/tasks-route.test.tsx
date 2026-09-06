@@ -6,6 +6,7 @@ import { server } from '@/testing/mocks/server'
 import { zTaskInputsOutput } from '@/shared/api/generated/zod.gen'
 import { mockAuthUser, mockTasks } from '@/testing/mocks/handlers'
 import { renderWithProviders } from '@/testing/render'
+import type { TaskCreationDraft } from '../task-creation'
 import { TasksRoute } from './tasks-route'
 
 // 通过 MSW 登录设置会话，保持 /users/me 路径与实际应用一致。
@@ -35,9 +36,9 @@ const makeTask = (overrides: Partial<(typeof mockTasks)[number]>) => ({
   ...overrides,
 })
 
-const renderLoggedIn = async () => {
+const renderLoggedIn = async (onStartCreation?: (draft: TaskCreationDraft) => Promise<void>) => {
   await login()
-  return renderWithProviders(<TasksRoute />)
+  return renderWithProviders(<TasksRoute {...(onStartCreation ? { onStartCreation } : {})} />)
 }
 
 describe('TasksRoute', () => {
@@ -347,5 +348,149 @@ describe('TasksRoute', () => {
     expect(within(savedDialog).queryByText('先保存修改，再发布')).not.toBeInTheDocument()
     await user.click(within(savedDialog).getByRole('button', { name: '发布' }))
     await waitFor(() => expect(task.status).toBe('published'))
+  })
+  it('预览返回不提交，失败保留同一发送草稿并可重试', async () => {
+    const task = makeTask({
+      status: 'confirmed',
+      assigneeUserIds: [mockAuthUser.id],
+      title: '开始创作的需求',
+    })
+    task.inputs.creative_requirement = '  保留原文\n口播：Hello!  '
+    task.inputs.video_spec.aspect_ratio = '9:16'
+    task.inputs.product.image_oss_urls = ['https://assets.example.com/product.png']
+    task.inputs.reference_image_oss_urls.model = ['https://assets.example.com/model.png']
+    task.inputs.reference_image_oss_urls.outfit = ['https://assets.example.com/excluded.png']
+    mockTasks.push(task)
+    const sent: TaskCreationDraft[] = []
+    const user = userEvent.setup()
+    await renderLoggedIn(async (draft) => {
+      sent.push(draft)
+      if (sent.length === 1) throw new Error('启动连接失败，可重试')
+    })
+    const mine = screen.getByRole('region', { name: '我的需求单' })
+    await user.click(await within(mine).findByText(task.title))
+    let dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: '开始创作' }))
+    dialog = await screen.findByRole('dialog', { name: '发起创作' })
+    const previewText = within(dialog).getByLabelText('发送文字预览')
+    expect(previewText).toHaveAttribute('readonly')
+    expect((previewText as HTMLTextAreaElement).value).toContain(task.inputs.creative_requirement)
+    expect(within(dialog).getAllByRole('img')).toHaveLength(2)
+    expect(sent).toHaveLength(0)
+    await user.click(within(dialog).getByRole('button', { name: '返回修改' }))
+    expect(within(await screen.findByRole('dialog')).getByLabelText('创作要求')).toHaveValue(
+      task.inputs.creative_requirement,
+    )
+    expect(sent).toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: '开始创作' }))
+    await user.click(screen.getByRole('button', { name: '确认并开始' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('启动连接失败，可重试')
+    expect(screen.getByLabelText<HTMLTextAreaElement>('发送文字预览').value).toContain(
+      task.inputs.creative_requirement,
+    )
+    await user.click(screen.getByRole('button', { name: '确认并开始' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(sent).toHaveLength(2)
+    expect(sent[1]).toBe(sent[0])
+    expect(sent[0]?.content.filter((part) => part.type === 'text')).toHaveLength(1)
+    expect(task.inputs.creative_requirement).toBe('  保留原文\n口播：Hello!  ')
+  })
+
+  it('已认领需求有未保存修改时先保存，空创作内容不能开始', async () => {
+    const task = makeTask({
+      status: 'confirmed',
+      assigneeUserIds: [mockAuthUser.id],
+      title: '需保存后开始',
+    })
+    task.inputs.creative_requirement = '已有创作要求'
+    const emptyTask = makeTask({
+      status: 'confirmed',
+      assigneeUserIds: [mockAuthUser.id],
+      title: '没有创作内容的需求',
+    })
+    mockTasks.push(task, emptyTask)
+    const user = userEvent.setup()
+    await renderLoggedIn(async () => {})
+    await user.click(
+      await within(screen.getByRole('region', { name: '我的需求单' })).findByText(task.title),
+    )
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: '开始创作' })).toBeEnabled()
+    await user.type(within(dialog).getByLabelText('创作要求'), '补充内容')
+    expect(within(dialog).getByRole('button', { name: '开始创作' })).toBeDisabled()
+    expect(within(dialog).getByText('先保存修改，再开始创作')).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: '保存' })).toBeEnabled()
+    await user.click(within(dialog).getByRole('button', { name: '关闭' }))
+    await user.click(
+      await within(screen.getByRole('region', { name: '我的需求单' })).findByText(emptyTask.title),
+    )
+    expect(screen.getByRole('button', { name: '开始创作' })).toBeDisabled()
+    expect(screen.getByText('请补充创作要求、视频规格或参考素材后开始')).toBeVisible()
+  })
+
+  it.each([
+    { status: 'confirmed', claimed: false, canRun: true },
+    { status: 'published', claimed: true, canRun: true },
+    { status: 'confirmed', claimed: true, canRun: false },
+  ])('开始入口要求已认领、confirmed和agent:run：%j', async ({ status, claimed, canRun }) => {
+    server.use(
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({
+          user: {
+            ...mockAuthUser,
+            permissions: canRun
+              ? mockAuthUser.permissions
+              : mockAuthUser.permissions.filter((permission) => permission !== 'agent:run'),
+          },
+        }),
+      ),
+    )
+    const task = makeTask({
+      status,
+      assigneeUserIds: claimed ? [mockAuthUser.id] : [],
+      title: '开始权限需求',
+    })
+    task.inputs.creative_requirement = '需求内容'
+    mockTasks.push(task)
+    const user = userEvent.setup()
+    await renderLoggedIn(async () => {})
+    await user.click(
+      await within(screen.getByRole('region', { name: '全部需求单' })).findByText(task.title),
+    )
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: '开始创作' })).not.toBeInTheDocument()
+  })
+  it('预览后被其他窗口撤回，确认重新读取状态并阻止启动，保留原发送草稿', async () => {
+    const task = makeTask({
+      status: 'confirmed',
+      assigneeUserIds: [mockAuthUser.id],
+      title: '预览后被撤回的需求',
+    })
+    task.inputs.creative_requirement = '已经确认的原始需求'
+    mockTasks.push(task)
+    const sent: TaskCreationDraft[] = []
+    const user = userEvent.setup()
+    await renderLoggedIn(async (draft) => {
+      sent.push(draft)
+    })
+    await user.click(
+      await within(screen.getByRole('region', { name: '我的需求单' })).findByText(task.title),
+    )
+    await user.click(await screen.findByRole('button', { name: '开始创作' }))
+    const preview = await screen.findByRole('dialog', { name: '发起创作' })
+    task.status = 'withdrawn'
+    task.inputs.creative_requirement = '另一个窗口修改的内容'
+    await user.click(within(preview).getByRole('button', { name: '确认并开始' }))
+    expect(await within(preview).findByRole('alert')).toHaveTextContent(
+      '需求单已撤回，无法开始创作',
+    )
+    expect(within(preview).getByRole('button', { name: '确认并开始' })).toBeDisabled()
+    expect(within(preview).getByLabelText<HTMLTextAreaElement>('发送文字预览').value).toContain(
+      '已经确认的原始需求',
+    )
+    expect(within(preview).getByLabelText<HTMLTextAreaElement>('发送文字预览').value).not.toContain(
+      '另一个窗口修改的内容',
+    )
+    expect(sent).toHaveLength(0)
   })
 })
