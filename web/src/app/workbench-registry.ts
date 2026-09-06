@@ -19,10 +19,11 @@ workbenchRegistry.register({
   type: 'storyboard',
 })
 
-// 工作区里有文件就能翻，但不自动展开，用户从面板菜单里点进来。
+// 工作区里有文件就能翻，但不自动展开，用户从面板的选择页点进来。
 workbenchRegistry.register({
   autoOpen: false,
   component: WorkspaceFilesPanel,
+  detail: (source) => (source.kind === 'workspace' ? `${source.fileCount} 个文件` : undefined),
   empty: '还没有文件',
   icon: 'folder',
   label: '文件',

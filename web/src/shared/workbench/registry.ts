@@ -61,7 +61,7 @@ export class ArtifactRegistry {
   matchWorkspace(files: readonly WorkbenchFile[]): Artifact[] {
     const entry = this.entries.find((candidate) => 'workspace' in candidate.match)
     if (entry === undefined || files.length === 0) return []
-    const source = { kind: 'workspace' } as const
+    const source = { fileCount: files.length, kind: 'workspace' } as const
     return [{ id: WORKSPACE_ARTIFACT_ID, source, title: entry.title(source), type: entry.type }]
   }
 
@@ -100,12 +100,11 @@ export const composeArtifacts = (
   ...registry.matchFrames(frames),
 ]
 
-/** 优先选择请求的产物，其次为首个 autoOpen 类型，最后为列表首项。 */
+/** 优先选择请求的产物，其次为首个 autoOpen 类型；都没有就不选，宿主给选择页。 */
 export const pickArtifact = (
   registry: ArtifactRegistry,
   artifacts: readonly Artifact[],
   requestedId: string | undefined,
 ): Artifact | undefined =>
   artifacts.find((artifact) => artifact.id === requestedId) ??
-  artifacts.find((artifact) => registry.autoOpens(artifact.type)) ??
-  artifacts[0]
+  artifacts.find((artifact) => registry.autoOpens(artifact.type))

@@ -126,7 +126,6 @@ test('移动端镜头展开动画结束后，选中的末帧完整显示在胶�
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
   await page.getByRole('button', { name: '打开右侧面板' }).click()
-  await page.getByRole('menuitem', { name: '分镜' }).click()
 
   const panel = page.getByRole('complementary', { name: '右侧面板' })
   await panel.getByRole('button', { name: '第 2 组' }).click()

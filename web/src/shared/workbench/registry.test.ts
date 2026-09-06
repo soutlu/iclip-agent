@@ -118,7 +118,12 @@ describe('ArtifactRegistry', () => {
     const registry = registryWith(workspaceEntry)
 
     expect(registry.matchWorkspace([{ path: 'video/a.md', version: 1 }])).toEqual([
-      { id: 'workspace', source: { kind: 'workspace' }, title: '文件', type: 'workspace' },
+      {
+        id: 'workspace',
+        source: { fileCount: 1, kind: 'workspace' },
+        title: '文件',
+        type: 'workspace',
+      },
     ])
     expect(registry.matchWorkspace([])).toEqual([])
   })
@@ -171,13 +176,13 @@ describe('pickArtifact', () => {
     expect(pickArtifact(registry, artifacts, 'file:gone.json')?.id).toBe('file:video_shot.json')
   })
 
-  it('一件 autoOpen 都没有就选第一件', () => {
+  it('一件 autoOpen 都没有就不替用户挑，宿主给选择页', () => {
     const onlyFrames = composeArtifacts(
       registry,
       [],
       [{ toolCallId: 'call_frames', view: 'media_grid' }],
     )
-    expect(pickArtifact(registry, onlyFrames, undefined)?.id).toBe('frame:call_frames')
+    expect(pickArtifact(registry, onlyFrames, undefined)).toBeUndefined()
   })
 
   it('一件都没有时选不出东西', () => {
