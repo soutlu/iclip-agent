@@ -33,12 +33,28 @@
   justify-content: center;
 }
 .storyboard-preview {
+  --storyboard-card-width: min(70cqw, 960px);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  width: min(76%, 1040px);
-  height: min(40cqw, 58cqh, 480px);
+  width: var(--storyboard-card-width);
+  /* 高度由画幅算出：画面正好填满左半边，卡片不会比画面大出一圈灰边。 */
+  height: min(100%, calc(var(--storyboard-card-width) / 2 * var(--storyboard-frame-tall)));
+}
+/* 横版帧上下堆叠：画面吃满卡片宽度，描述接在下面。 */
+.storyboard-preview-wide {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: fit-content(62%) minmax(0, 1fr);
+  height: min(100%, calc(var(--storyboard-card-width) * var(--storyboard-frame-tall) / 0.6));
+}
+.storyboard-preview-wide .storyboard-media {
+  /* 画幅决定这一行的高度；卡片放不下时由 max-height 收住，画面退回居中留边。 */
   max-height: 100%;
+  aspect-ratio: var(--storyboard-frame-aspect);
+}
+.storyboard-preview-wide .storyboard-description {
+  border-top: 0.5px solid var(--color-chat-hairline);
+  border-left-width: 0;
 }
 .storyboard-page-arrow {
   position: absolute;
@@ -169,6 +185,21 @@
   border-radius: var(--radius-xs);
   background: var(--color-state-hover);
 }
+/* 靠右占住胶片条剩下的横向空间；行高随内容增长，窄面板下换行的说明不会溢出。 */
+.storyboard-group-actions {
+  display: flex;
+  min-height: calc(var(--storyboard-frame-height) + 28px);
+  max-width: max(150px, 40%);
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 4px;
+  margin-left: auto;
+  padding-left: 12px;
+  border-left: 0.5px solid var(--color-chat-hairline);
+}
 .storyboard-add-frame,
 .storyboard-all-shots {
   height: calc(var(--storyboard-frame-height) + 28px);
@@ -182,12 +213,21 @@
 }
 @container storyboard (width < 680px) {
   .storyboard-preview {
-    width: calc(100% - 80px);
-    height: min(50cqh, 320px);
+    --storyboard-card-width: calc(100cqw - 80px);
   }
   .storyboard-description {
     gap: 12px;
     padding: 12px;
+  }
+  /* 窄面板放不下并排的组操作，让胶片条独占一行，缩略图才有完整宽度。 */
+  .storyboard-filmstrip {
+    flex-wrap: wrap;
+  }
+  .storyboard-strip {
+    flex: 1 1 100%;
+  }
+  .storyboard-group-actions {
+    max-width: none;
   }
 }
 @container storyboard (width < 440px) {

@@ -43,6 +43,14 @@ const renderPage = (
   return { onChangeShot, onGenerateVideo, onPickFrame }
 }
 
+describe('ShotPage 出片入口', () => {
+  it('出片按钮旁写明提交范围是整组：镜头条数与组时长', () => {
+    renderPage(1)
+
+    expect(screen.getByText('整组 2 镜头 · 11s')).toBeVisible()
+  })
+})
+
 describe('ShotPage 帧操作', () => {
   it('左右箭头切帧，到头了按不动', async () => {
     const { onPickFrame } = renderPage(1)
