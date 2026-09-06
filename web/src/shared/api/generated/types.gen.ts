@@ -2533,6 +2533,10 @@ export type VideoGenerationIn = {
    */
   durationSeconds: number
   /**
+   * Generateaudio
+   */
+  generateAudio?: boolean | null
+  /**
    * Imageurls
    */
   imageUrls?: Array<string>

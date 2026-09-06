@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { Shot } from '../shots'
+import { DEFAULT_VIDEO_OPTIONS } from '../video-generation-options'
 import { ShotPage } from './shot-page'
 
 const shot: Shot = {
@@ -33,12 +34,14 @@ const renderPage = (
       generateDisabled={false}
       generating={false}
       onChangeShot={onChangeShot}
+      onChangeVideoOptions={vi.fn()}
       onGenerateVideo={onGenerateVideo}
       onOpenAllShots={vi.fn()}
       onPickFrame={onPickFrame}
       onReplaceFrame={vi.fn()}
       onUploadFrame={() => Promise.resolve('uploaded.png')}
       shot={shot}
+      videoOptions={DEFAULT_VIDEO_OPTIONS}
     />,
   )
   return { onChangeShot, onGenerateVideo, onPickFrame }

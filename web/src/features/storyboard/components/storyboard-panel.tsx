@@ -196,6 +196,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               generating={generatingShot(item.index)}
               key={`${item.index}-${offset + 1 === position ? 'active' : 'inactive'}`}
               onChangeShot={draft.updateShot}
+              onChangeVideoOptions={generation.setOptions}
               onGenerateVideo={() => void generation.submit(item)}
               onOpenAllShots={() => go({ sheet: 'all', shot: offset + 1 })}
               onPickFrame={(frame) => go({ frame, shot: offset + 1 })}
@@ -204,6 +205,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               }
               onUploadFrame={uploadFrameImage}
               shot={item}
+              videoOptions={generation.options}
             />
           ))}
         </div>
@@ -236,6 +238,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           >
             <AllShotsSheet
               aspectRatio={shotsDocument.aspectRatio}
+              onChangeVideoOptions={generation.setOptions}
               onClose={() => go({ sheet: undefined })}
               onGenerate={(indexes) => void generateMany(indexes)}
               onOpenShot={(index) => go({ sheet: undefined, shot: index })}
@@ -249,6 +252,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               running={running}
               shots={shots}
               videos={videos}
+              videoOptions={generation.options}
             />
           </aside>
         ) : null}

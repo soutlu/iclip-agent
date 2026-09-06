@@ -15,10 +15,12 @@ import {
 } from '../prompt-doc'
 import { aspectRatioStyle, parseSceneHeader, shotName, type Shot } from '../shots'
 import type { FrameCandidate } from '../storyboard.api'
+import type { VideoGenerationOptions } from '../video-generation-options'
 import { FramePicker } from './frame-picker'
 import { FramePreview } from './frame-preview'
 import { PromptEditor } from './prompt-editor'
 import { ShotFilmstrip } from './shot-filmstrip'
+import { VideoGenerationControls } from './video-generation-controls'
 
 type ShotPageProps = {
   shot: Shot
@@ -30,6 +32,8 @@ type ShotPageProps = {
   candidates: readonly FrameCandidate[]
   onUploadFrame: (file: File) => Promise<string>
   onGenerateVideo: () => void
+  videoOptions: VideoGenerationOptions
+  onChangeVideoOptions: (value: VideoGenerationOptions) => void
   onOpenAllShots: () => void
   generateDisabled: boolean
   generating: boolean
@@ -57,12 +61,14 @@ export function ShotPage({
   generateNote,
   generating,
   onChangeShot,
+  onChangeVideoOptions,
   onGenerateVideo,
   onOpenAllShots,
   onPickFrame,
   onReplaceFrame,
   onUploadFrame,
   shot,
+  videoOptions,
 }: ShotPageProps) {
   const [zoomed, setZoomed] = useState<LightboxMedia | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -279,6 +285,11 @@ export function ShotPage({
         </button>
         {/* 出片提交的是整组，按钮跟着代表整组的胶片条走，不放在只显示单个镜头的描述栏。 */}
         <div className="storyboard-group-actions">
+          <VideoGenerationControls
+            disabled={generating}
+            onChange={onChangeVideoOptions}
+            value={videoOptions}
+          />
           <span className="text-right text-body-sm text-on-surface-faint">
             {generateNote ?? groupSummary}
           </span>

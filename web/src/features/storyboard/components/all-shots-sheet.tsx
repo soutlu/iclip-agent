@@ -14,6 +14,8 @@ import {
 import { Tag } from '@/shared/ui/tag'
 import { toast } from '@/shared/ui/toast'
 import { aspectRatioStyle, shotName, shotStatus, type Shot, type ShotStatus } from '../shots'
+import type { VideoGenerationOptions } from '../video-generation-options'
+import { VideoGenerationControls } from './video-generation-controls'
 
 const DOT_CLASS: Record<ShotStatus, string> = {
   idle: 'bg-outline-variant',
@@ -37,17 +39,21 @@ type AllShotsSheetProps = {
   onOpenShot: (index: number) => void
   onTalk: (indexes: readonly number[]) => void
   onGenerate: (indexes: readonly number[]) => void
+  videoOptions: VideoGenerationOptions
+  onChangeVideoOptions: (value: VideoGenerationOptions) => void
 }
 
 export function AllShotsSheet({
   aspectRatio,
   onClose,
+  onChangeVideoOptions,
   onGenerate,
   onOpenShot,
   onTalk,
   running,
   shots,
   videos,
+  videoOptions,
 }: AllShotsSheetProps) {
   const [selected, setSelected] = useState<readonly number[]>([])
   const [confirming, setConfirming] = useState(false)
@@ -194,6 +200,7 @@ export function AllShotsSheet({
             要给选中的 {chosen.length} 组各发一次出片。
           </DialogHeader>
           <DialogBody>
+            <VideoGenerationControls onChange={onChangeVideoOptions} value={videoOptions} />
             <p className="text-body text-on-surface">
               每一组都是一次真实的出片调用。已经在出片的组会跳过，不重复发。
             </p>

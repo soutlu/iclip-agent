@@ -42,7 +42,13 @@ def video_provider(
     )
 
 
-async def test_video_submit_sends_protocol_payload_and_key() -> None:
+@pytest.mark.parametrize(
+    ("generate_audio", "audio_payload"),
+    [(True, {"generate_audio": True}), (False, {"generate_audio": False}), (None, {})],
+)
+async def test_video_submit_sends_protocol_payload_and_key(
+    generate_audio: bool | None, audio_payload: dict[str, bool]
+) -> None:
     seen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -51,7 +57,14 @@ async def test_video_submit_sends_protocol_payload_and_key() -> None:
         seen["body"] = httpx.Response(200, content=request.content).json()
         return httpx.Response(200, json={"task_id": "t-1"})
 
-    job = make_job(video_request(image_urls=["https://example.test/first.png"]))
+    job = make_job(
+        video_request(
+            image_urls=["https://example.test/first.png"],
+            reference_video_urls=["https://example.test/reference.mp4"],
+            reference_audio_urls=["https://example.test/reference.mp3"],
+            generate_audio=generate_audio,
+        )
+    )
     submission = await video_provider(handler).submit(job)
 
     assert submission.provider_task_id == "t-1"
@@ -61,11 +74,12 @@ async def test_video_submit_sends_protocol_payload_and_key() -> None:
         "model": "seedance",
         "prompt": "一只猫跳上窗台",
         "user_name": "iclip-agent",
-        "image_urls": ["https://example.test/first.png"],
-        "reference_videos": [],
-        "reference_audios": [],
+        "reference_image_urls": ["https://example.test/first.png"],
+        "reference_video_urls": ["https://example.test/reference.mp4"],
+        "reference_audio_urls": ["https://example.test/reference.mp3"],
         "aspect_ratio": "16:9",
         "seconds": 5,
+        **audio_payload,
     }
 
 

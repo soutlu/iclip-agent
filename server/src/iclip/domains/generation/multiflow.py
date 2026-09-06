@@ -81,16 +81,18 @@ class MultiflowVideoProvider:
                 retryable=False,
             )
         model = request.model or self._settings.model
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "prompt": request.prompt,
             "user_name": self._settings.user_name,
-            "image_urls": list(request.image_urls),
-            "reference_videos": list(request.reference_video_urls),
-            "reference_audios": list(request.reference_audio_urls),
+            "reference_image_urls": list(request.image_urls),
+            "reference_video_urls": list(request.reference_video_urls),
+            "reference_audio_urls": list(request.reference_audio_urls),
             "aspect_ratio": request.aspect_ratio,
             "seconds": request.duration_seconds,
         }
+        if request.generate_audio is not None:
+            payload["generate_audio"] = request.generate_audio
         body = await self._request(
             "POST",
             self._settings.submit_url,

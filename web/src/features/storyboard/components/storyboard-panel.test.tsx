@@ -821,7 +821,14 @@ describe('StoryboardPanel', () => {
     )
   })
 
-  it('点「生成视频」发一条出片任务：带这一组的描述、帧、时长与画幅，发完重拉任务列表', async () => {
+  it.each([
+    ['wan3.0-video', true],
+    ['wan3.0-video', false],
+    ['mmt-seedance-2-5', true],
+    ['mmt-seedance-2-5', false],
+    ['mmt-seedance-2-0', true],
+    ['mmt-seedance-2-0', false],
+  ])('按所选模型 %s 和音频 %s 提交整组分镜，发完重拉任务列表', async (model, generateAudio) => {
     seedMockWorkspace(CONVERSATION_ID)
     const prompt =
       '参考锁定：服装始终一致。\n[0–2秒｜镜头1] 开场 @Image1。\n[2–6秒｜镜头2] 特写 @Image2，收尾 @Image3。'
@@ -848,6 +855,13 @@ describe('StoryboardPanel', () => {
     expect(within(page).getByRole('textbox', { name: '镜头 2 的描述' })).toBeVisible()
     expect(within(page).queryByRole('textbox', { name: '镜头 1 的描述' })).not.toBeInTheDocument()
 
+    const modelSelect = within(page).getByRole('combobox', { name: '视频模型' })
+    const audioSwitch = within(page).getByRole('switch', { name: '生成音频' })
+    expect(modelSelect).toHaveValue('mmt-seedance-2-0')
+    expect(audioSwitch).toBeChecked()
+    await userEvent.selectOptions(modelSelect, String(model))
+    if (!generateAudio) await userEvent.click(audioSwitch)
+
     await userEvent.click(within(page).getByRole('button', { name: '生成视频' }))
 
     await waitFor(() =>
@@ -855,7 +869,9 @@ describe('StoryboardPanel', () => {
         aspectRatio: '9:16',
         conversationId: CONVERSATION_ID,
         durationSeconds: 6,
+        generateAudio,
         kind: 'video',
+        model,
         shotIndex: 1,
       }),
     )
@@ -863,6 +879,8 @@ describe('StoryboardPanel', () => {
     expect(posted['imageUrls']).toEqual(imageUrls)
     await waitFor(() => expect(reads).toBeGreaterThan(readsBefore))
     expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
+    expect(modelSelect).toBeDisabled()
+    expect(audioSwitch).toBeDisabled()
   })
 
   it('这一组名下已经有在飞的任务：按钮就是「正在出片…」，点不动', async () => {
@@ -950,14 +968,14 @@ describe('StoryboardPanel', () => {
 
   it('批量出片：确认之后逐组发，已经在飞的那一组跳过', async () => {
     seedMockWorkspace(CONVERSATION_ID)
-    const posted: number[] = []
+    const posted: Record<string, unknown>[] = []
     server.events.on('request:start', ({ request }) => {
       if (request.method !== 'POST' || !request.url.includes('/api/generations')) return
       void request
         .clone()
         .json()
-        .then((body: { shotIndex: number }) => {
-          posted.push(body.shotIndex)
+        .then((body: Record<string, unknown>) => {
+          posted.push(body)
         })
     })
     await renderPanel('/?shot=1&sheet=all')
@@ -966,9 +984,19 @@ describe('StoryboardPanel', () => {
     await userEvent.click(within(sheet).getByRole('button', { name: '全选' }))
     await userEvent.click(within(sheet).getByRole('button', { name: '生成选中的 3 组' }))
     const dialog = await screen.findByRole('dialog', { name: '确认批量出片' })
+    await userEvent.selectOptions(
+      within(dialog).getByRole('combobox', { name: '视频模型' }),
+      'mmt-seedance-2-5',
+    )
+    await userEvent.click(within(dialog).getByRole('switch', { name: '生成音频' }))
     await userEvent.click(within(dialog).getByRole('button', { name: '发出去' }))
 
-    await waitFor(() => expect(posted).toEqual([1, 3]))
+    await waitFor(() =>
+      expect(posted).toMatchObject([
+        { shotIndex: 1, model: 'mmt-seedance-2-5', generateAudio: false },
+        { shotIndex: 3, model: 'mmt-seedance-2-5', generateAudio: false },
+      ]),
+    )
   })
 
   it('翻页就把「agent 刚改过」清掉', async () => {

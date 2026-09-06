@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Shot } from '../shots'
+import { DEFAULT_VIDEO_OPTIONS } from '../video-generation-options'
 import { AllShotsSheet } from './all-shots-sheet'
 
 const shots: Shot[] = [
@@ -19,12 +20,14 @@ const renderSheet = () => {
   const props = {
     aspectRatio: '9:16',
     onClose: vi.fn(),
+    onChangeVideoOptions: vi.fn(),
     onGenerate: vi.fn(),
     onOpenShot: vi.fn(),
     onTalk: vi.fn(),
     running: new Set([2]),
     shots,
     videos: new Map([[1, 'take-1.mp4']]),
+    videoOptions: DEFAULT_VIDEO_OPTIONS,
   }
   render(<AllShotsSheet {...props} />)
   return props

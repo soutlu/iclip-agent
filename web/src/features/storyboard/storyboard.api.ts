@@ -10,6 +10,7 @@ import {
 import type { zGenerationOut } from '@/shared/api/generated/zod.gen'
 import { useWorkspaceFiles } from '@/shared/workbench'
 import { isRunningStatus } from './shots'
+import type { VideoGenerationOptions } from './video-generation-options'
 
 export type GenerationJob = z.infer<typeof zGenerationOut>
 
@@ -42,7 +43,7 @@ export const useShotGenerations = (conversationId: string) =>
 /** 画幅取自生成合同，提交前检查以避免 422。 */
 export const VIDEO_ASPECT_RATIOS: readonly string[] = zVideoGenerationIn.shape.aspectRatio.options
 
-export interface VideoGenerationInput {
+export interface VideoGenerationInput extends VideoGenerationOptions {
   conversationId: string
   shotIndex: number
   prompt: string
@@ -60,8 +61,10 @@ export const submitVideoGeneration = async (
       aspectRatio: input.aspectRatio,
       conversationId: input.conversationId,
       durationSeconds: input.seconds,
+      generateAudio: input.generateAudio,
       imageUrls: input.imageUrls,
       kind: 'video',
+      model: input.model,
       prompt: input.prompt,
       shotIndex: input.shotIndex,
     },

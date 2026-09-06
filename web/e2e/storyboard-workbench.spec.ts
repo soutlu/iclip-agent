@@ -322,7 +322,34 @@ test('点「生成视频」：状态走到出片完成，生成记录里多一�
 
   // 仅第 1 组没有生成任务；第 2 组运行中，第 3 组已有成片。
   const shot1 = panel.getByRole('region', { name: '镜头组 1' })
+  const modelSelect = shot1.getByRole('combobox', { name: '视频模型' })
+  const audioSwitch = shot1.getByRole('switch', { name: '生成音频' })
+  await expect(modelSelect).toHaveValue('mmt-seedance-2-0')
+  await expect(audioSwitch).toBeChecked()
+  await modelSelect.selectOption('wan3.0-video')
+  await audioSwitch.focus()
+  await page.keyboard.press('Space')
+  await expect(audioSwitch).not.toBeChecked()
+  await expect(audioSwitch).toBeFocused()
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/video-options-desktop.png',
+  })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/video-options-desktop-dark.png',
+  })
+  await page.emulateMedia({ colorScheme: 'light' })
+  const submitted = page.waitForRequest(
+    (request) => request.method() === 'POST' && request.url().endsWith('/api/generations'),
+  )
   await shot1.getByRole('button', { name: '生成视频' }).click()
+  expect((await submitted).postDataJSON()).toMatchObject({
+    generateAudio: false,
+    model: 'wan3.0-video',
+  })
   await expect(shot1.getByRole('button', { name: '正在出片…' })).toBeDisabled()
 
   await panel.getByRole('button', { name: '生成记录' }).click()
@@ -332,6 +359,39 @@ test('点「生成视频」：状态走到出片完成，生成记录里多一�
   await expect(records.getByText('生成完成')).toBeVisible({ timeout: 15_000 })
   await records.getByRole('button', { name: '关闭生成记录' }).click()
   await expect(shot1.getByRole('button', { name: '生成视频' })).toBeEnabled()
+})
+
+test('窄屏出片选项可见，切组后保留模型与音频设置', async ({ page }) => {
+  await page.setViewportSize({ height: 844, width: 390 })
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await page.getByRole('button', { name: '打开右侧面板' }).click()
+
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  const shot1 = panel.getByRole('region', { name: '镜头组 1' })
+  const modelSelect = shot1.getByRole('combobox', { name: '视频模型' })
+  const audioSwitch = shot1.getByRole('switch', { name: '生成音频' })
+  await modelSelect.selectOption('mmt-seedance-2-5')
+  await audioSwitch.click()
+  await expect(modelSelect).toBeInViewport({ ratio: 1 })
+  await expect(audioSwitch).toBeInViewport({ ratio: 1 })
+  await expect(shot1.getByRole('button', { name: '生成视频' })).toBeInViewport({ ratio: 1 })
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/video-options-mobile.png',
+  })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/video-options-mobile-dark.png',
+  })
+
+  await panel.getByRole('button', { name: '第 3 组' }).click()
+  const shot3 = panel.getByRole('region', { name: '镜头组 3' })
+  await expect(shot3.getByRole('combobox', { name: '视频模型' })).toHaveValue('mmt-seedance-2-5')
+  await expect(shot3.getByRole('switch', { name: '生成音频' })).not.toBeChecked()
 })
 
 test('「全部分镜」全选之后批量出片：确认框写清条数', async ({ page }) => {
