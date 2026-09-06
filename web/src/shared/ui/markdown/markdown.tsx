@@ -1,6 +1,6 @@
-/** 模型正文可能包含不可信 HTML。按 react-markdown Security 建议，在 rehype-raw 后执行 rehype-sanitize，过滤脚本、事件属性及危险协议。 */
+/** 正文可能包含不可信 HTML。按 react-markdown Security 建议，在 rehype-raw 后执行 rehype-sanitize，过滤脚本、事件属性及危险协议。 */
 
-import Markdown from 'react-markdown'
+import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
@@ -26,10 +26,16 @@ const CODE_INLINE = cn(
 
 const CELL = 'border-[0.5px] border-chat-hairline px-3 py-2 text-left align-top'
 
-export function AssistantMarkdown({ text }: { text: string }) {
+type MarkdownProps = {
+  text: string
+  className?: string
+}
+
+/** 聊天回复与工作区文档共用同一套排版；块间距由 .md-body 统一定义。 */
+export function Markdown({ className, text }: MarkdownProps) {
   return (
-    <div className="chat-md text-body leading-relaxed text-chat-message-text">
-      <Markdown
+    <div className={cn('md-body text-body leading-relaxed text-chat-message-text', className)}>
+      <ReactMarkdown
         components={{
           a: ({ children, href }) => (
             <a
@@ -44,7 +50,7 @@ export function AssistantMarkdown({ text }: { text: string }) {
           // 代码块由 pre → CodeBlock 读取语言与文本自行渲染，这里只会渲染到行内代码。
           code: ({ children }) => <code className={CODE_INLINE}>{children}</code>,
           em: ({ children }) => <em className="italic">{children}</em>,
-          // 正文标题使用 title 字阶；会话名保留页面标题层级，块间距由 .chat-md 统一定义。
+          // 正文标题使用 title 字阶；页面标题层级留给宿主。
           h1: ({ children }) => (
             <h3 className="border-b-[0.5px] border-chat-hairline pb-1 text-title font-semibold">
               {children}
@@ -69,7 +75,7 @@ export function AssistantMarkdown({ text }: { text: string }) {
         remarkPlugins={[remarkGfm]}
       >
         {text}
-      </Markdown>
+      </ReactMarkdown>
     </div>
   )
 }

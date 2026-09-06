@@ -7,6 +7,9 @@ const Placeholder = () => null
 const shotsEntry: ArtifactEntry = {
   autoOpen: true,
   component: Placeholder,
+  empty: 'agent 交付分镜后出现',
+  icon: 'grid',
+  label: '分镜',
   match: { path: 'video_shot.json' },
   title: () => '分镜',
   type: 'storyboard',
@@ -15,9 +18,22 @@ const shotsEntry: ArtifactEntry = {
 const gridEntry: ArtifactEntry = {
   autoOpen: false,
   component: Placeholder,
+  icon: 'image',
+  label: '媒体墙',
   match: { view: 'media_grid' },
   title: (source) => (source.kind === 'frame' ? `媒体墙 ${source.toolCallId}` : '媒体墙'),
   type: 'media-grid',
+}
+
+const workspaceEntry: ArtifactEntry = {
+  autoOpen: false,
+  component: Placeholder,
+  empty: '还没有文件',
+  icon: 'folder',
+  label: '文件',
+  match: { workspace: true },
+  title: () => '文件',
+  type: 'workspace',
 }
 
 const registryWith = (...entries: ArtifactEntry[]) => {
@@ -68,6 +84,8 @@ describe('ArtifactRegistry', () => {
     const agentEntry: ArtifactEntry = {
       autoOpen: false,
       component: Placeholder,
+      icon: 'agent',
+      label: '派活',
       match: { displayKind: 'agent_call' },
       title: () => '派活',
       type: 'sub-agent',
@@ -96,8 +114,17 @@ describe('ArtifactRegistry', () => {
     ])
   })
 
-  it('两个来源合成一份列表，文件在前', () => {
-    const registry = registryWith(shotsEntry, gridEntry)
+  it('工作区有文件就是一件产物，一份文件都没有就没有', () => {
+    const registry = registryWith(workspaceEntry)
+
+    expect(registry.matchWorkspace([{ path: 'video/a.md', version: 1 }])).toEqual([
+      { id: 'workspace', source: { kind: 'workspace' }, title: '文件', type: 'workspace' },
+    ])
+    expect(registry.matchWorkspace([])).toEqual([])
+  })
+
+  it('三个来源合成一份列表：按路径命中的文件、工作区、工具帧', () => {
+    const registry = registryWith(shotsEntry, workspaceEntry, gridEntry)
 
     const artifacts = composeArtifacts(
       registry,
@@ -107,8 +134,15 @@ describe('ArtifactRegistry', () => {
 
     expect(artifacts.map((artifact) => artifact.id)).toEqual([
       'file:video_shot.json',
+      'workspace',
       'frame:call_frames',
     ])
+  })
+
+  it('常驻类型是按路径与按工作区命中的那些，按登记顺序给', () => {
+    const registry = registryWith(gridEntry, workspaceEntry, shotsEntry)
+
+    expect(registry.standing().map((entry) => entry.type)).toEqual(['workspace', 'storyboard'])
   })
 
   it('没登记过的类型解析不出渲染器', () => {

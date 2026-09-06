@@ -6,6 +6,7 @@ import { useTranscript } from '@/shared/transcript/use-transcript'
 import type { PromptContentPart, ToolCallFrame, TranscriptTurn } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
+import { useShellChrome } from '@/shared/shell'
 import { Button } from '@/shared/ui/button'
 import type { ComposerPart } from '@/shared/ui/composer'
 import { toast } from '@/shared/ui/toast'
@@ -69,6 +70,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
   const { titleOf } = useSessionTitles()
   const title = titleOf(conversationId) ?? view.title
+  const chrome = useShellChrome()
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
   const [inFlightPromptId, setInFlightPromptId] = useState<string | null>(null)
   const [editingTurn, setEditingTurn] = useState<EditingTurn | null>(null)
@@ -189,7 +191,14 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   return (
     // 固定视口高度，使滚动限制在消息区，保持输入框和自动跟随定位稳定。
     <main className="flex h-dvh min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-12 shrink-0 items-center border-b-[0.5px] border-chat-hairline px-4">
+      {/* 两侧收起时各留一个图标钮的位，钮由侧栏与面板画在角上。 */}
+      <header
+        className={cn(
+          'flex h-12 shrink-0 items-center border-b-[0.5px] border-chat-hairline px-4',
+          chrome.sidebarCollapsed && 'pl-14',
+          !chrome.panelVisible && 'pr-14',
+        )}
+      >
         <h1 className="truncate text-body font-medium text-on-surface">{title}</h1>
       </header>
       <div className="relative flex min-h-0 flex-1 flex-col">

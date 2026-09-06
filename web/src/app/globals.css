@@ -351,6 +351,7 @@
 @import '../shared/ui/media-preview/media-preview.css';
 @import '../shared/ui/field/field.css';
 @import '../shared/ui/hero/hero.css';
+@import '../shared/ui/markdown/markdown.css';
 @import '../features/auth/auth.css';
 @import '../features/tasks/tasks.css';
 @import '../features/conversations/conversations.css';

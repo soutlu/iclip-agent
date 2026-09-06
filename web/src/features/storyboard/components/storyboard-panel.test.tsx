@@ -4,7 +4,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
-import type { ArtifactRendererProps } from '@/shared/workbench'
+import { workspaceQueryKeys, type ArtifactRendererProps } from '@/shared/workbench'
 import { pasteTextIntoComposer } from '@/testing/editor'
 import { server } from '@/testing/mocks/server'
 import { seedMockWorkspace, SHOTS_MOCK_PATH, touchMockShots } from '@/testing/mocks/workspace'
@@ -42,15 +42,6 @@ const provideDocument = (document: ShotsDocument) => {
       }),
     ),
   )
-}
-
-const fsChanged = {
-  payload: {
-    changes: [{ change: 'modified', kind: 'file', path: SHOTS_MOCK_PATH }],
-    coalesced_window_ms: 0,
-  },
-  session_id: CONVERSATION_ID,
-  type: 'event.fs.changed',
 }
 
 describe('StoryboardPanel', () => {
@@ -434,15 +425,18 @@ describe('StoryboardPanel', () => {
     expect(await screen.findByText('文件格式不对，读不出镜头组')).toBeVisible()
   })
 
-  it('收到文件变更就重读，版本变了标出「agent 刚改过」', async () => {
+  it('文件查询被宿主失效后重读，版本变了标出「agent 刚改过」', async () => {
     seedMockWorkspace(CONVERSATION_ID)
-    const { socket } = await renderPanel('/?shot=2&frame=2')
+    const { queryClient } = await renderPanel('/?shot=2&frame=2')
 
     await screen.findByRole('textbox', { name: '镜头 2 的描述' })
     expect(screen.queryByText('agent 刚改过')).not.toBeInTheDocument()
 
+    // 文件变更帧由宿主订整个工作区后转成这一步失效；面板只认查询结果里的版本号。
     touchMockShots(CONVERSATION_ID)
-    socket.deliver(fsChanged)
+    void queryClient.invalidateQueries({
+      queryKey: workspaceQueryKeys.file(CONVERSATION_ID, SHOTS_MOCK_PATH),
+    })
 
     await waitFor(() =>
       expect(screen.getByRole('textbox', { name: '镜头 2 的描述' })).toHaveTextContent(
@@ -782,11 +776,13 @@ describe('StoryboardPanel', () => {
 
   it('翻页就把「agent 刚改过」清掉', async () => {
     seedMockWorkspace(CONVERSATION_ID)
-    const { socket } = await renderPanel('/?shot=2&frame=2')
+    const { queryClient } = await renderPanel('/?shot=2&frame=2')
 
     await screen.findByRole('textbox', { name: '镜头 2 的描述' })
     touchMockShots(CONVERSATION_ID)
-    socket.deliver(fsChanged)
+    void queryClient.invalidateQueries({
+      queryKey: workspaceQueryKeys.file(CONVERSATION_ID, SHOTS_MOCK_PATH),
+    })
     await waitFor(() =>
       expect(screen.getByRole('textbox', { name: '镜头 2 的描述' })).toHaveTextContent(
         '台词并成一句',

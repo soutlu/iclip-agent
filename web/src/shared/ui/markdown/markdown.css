@@ -1,0 +1,84 @@
+/* Markdown 正文排版：聊天回复与工作区文档共用 */
+
+.md-body > * + * {
+  margin-top: 14px;
+}
+.md-body > h3,
+.md-body > h4 {
+  margin-top: 28px;
+}
+.md-body > h5 {
+  margin-top: 21px;
+}
+.md-body > :first-child {
+  margin-top: 0;
+}
+
+.md-body ul,
+.md-body ol {
+  padding-left: 28px;
+}
+.md-body li + li {
+  margin-top: 11px;
+}
+.md-body ul > li {
+  list-style: none;
+  position: relative;
+}
+.md-body ul > li::before {
+  background: var(--color-chat-message-text);
+  border-radius: var(--radius-full);
+  content: '';
+  height: 5px;
+  left: -18px;
+  opacity: 0.9;
+  position: absolute;
+  top: 0.62em;
+  width: 5px;
+}
+.md-body ul ul > li::before {
+  background: transparent;
+  border: 1px solid var(--color-chat-message-text);
+  height: 4px;
+  width: 4px;
+}
+.md-body ol {
+  list-style: decimal;
+}
+.md-body ol > li::marker {
+  color: var(--color-chat-secondary-text);
+}
+
+.md-body blockquote {
+  color: var(--color-chat-secondary-text);
+  padding-left: 21px;
+  position: relative;
+}
+.md-body blockquote::before {
+  background: var(--color-chat-hairline);
+  border-radius: var(--radius-xs);
+  bottom: 2px;
+  content: '';
+  left: 0;
+  position: absolute;
+  top: 2px;
+  width: 2px;
+}
+
+.md-body details > * + * {
+  margin-top: 10px;
+}
+/* 正文里的折叠块：摘要行照页面其他可折叠行的样子，弱化浏览器默认的三角。 */
+.md-body details > summary {
+  color: var(--color-chat-secondary-text);
+  cursor: pointer;
+  font-weight: 500;
+  width: fit-content;
+}
+.md-body details > summary::marker {
+  color: var(--color-chat-muted-text);
+  font-size: 0.75em;
+}
+.md-body details[open] > summary {
+  color: var(--color-chat-message-text);
+}

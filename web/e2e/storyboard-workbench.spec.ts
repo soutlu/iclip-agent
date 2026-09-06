@@ -12,7 +12,7 @@ test('点开有分镜的对话：滚轮翻到第 2 组，看生成记录，点�
   await expect(page).toHaveURL(/\/c\//)
 
   const panel = page.getByRole('complementary', { name: '右侧面板' })
-  await expect(panel.getByRole('heading', { name: '分镜' })).toBeVisible()
+  await expect(panel.getByRole('tab', { name: '分镜', selected: true })).toBeVisible()
   await expect(panel.getByRole('button', { name: '第 1 组' })).toHaveAttribute(
     'aria-current',
     'true',
@@ -125,7 +125,8 @@ test('移动端镜头展开动画结束后，选中的末帧完整显示在胶�
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-  await page.getByRole('button', { name: '展开右侧面板' }).click()
+  await page.getByRole('button', { name: '打开右侧面板' }).click()
+  await page.getByRole('menuitem', { name: '分镜' }).click()
 
   const panel = page.getByRole('complementary', { name: '右侧面板' })
   await panel.getByRole('button', { name: '第 2 组' }).click()
@@ -318,6 +319,6 @@ test('没有工作区文件的对话仍是折叠空态', async ({ page }) => {
   await page.getByRole('link', { name: '亚麻衬衫二剪', exact: true }).click()
   await expect(page).toHaveURL(/\/c\//)
 
-  await expect(page.getByRole('button', { name: '展开右侧面板' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '分镜' })).toBeHidden()
+  await expect(page.getByRole('button', { name: '打开右侧面板' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '分镜' })).toBeHidden()
 })

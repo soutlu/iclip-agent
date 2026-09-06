@@ -16,6 +16,40 @@ const VIDEO_URL = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1
 
 const PREAMBLE = ['参考锁定：模特的服装与发型跟住 @Image1。', '剪辑形式：硬切。'].join('\n')
 
+/** 比 video_shot.json 早一点，列表里的时间才有先后。 */
+const EARLIER = '2026-09-01T09:20:00Z'
+
+const STORYBOARD_MD = [
+  '## 角色设定',
+  '',
+  '- [人物「模特」：二十五岁上下，浅金色直发到肩，深蓝色圆领卫衣配高腰阔腿牛仔裤]',
+  '- [场景「门厅」：暖木色墙面，长椅靠窗，午后侧光]',
+  '',
+  '## 剪辑形式',
+  '',
+  '以硬切为主，第 2 镜叠化转场，其余镜头保持正常播放速度。',
+  '',
+  '## 逐镜拉片表',
+  '',
+  '| 结构层级 | 出场 | Storyline |',
+  '| :--- | :--- | :--- |',
+  '| Open Hook | 模特、门厅 | 提着帆布包走出门厅，抬头看向前方 |',
+  '| Detail Show | 模特 | 走到近处停下微笑，低头看一眼包 |',
+  '| Closure | 帆布包 | 低角度拍鞋面与魔术贴细节 |',
+].join('\n')
+
+const VIDEO_DOC_MD = [
+  '## 1、商业目的',
+  '- **内容类型**：城市夜景延时素材——全程以固定机位与慢速摇移呈现车流与灯光',
+  '- **目标人群**：需要片头与转场素材的短视频创作者',
+  '',
+  '## 2、结构与信息递进',
+  '| 结构节点 | 时间段 | 叙事节奏 | 支撑证据 |',
+  '| :--- | :--- | :--- | :--- |',
+  '| Open Hook | 00:00-00:02 | 明快开篇 | 高架桥车流拉成光带 |',
+  '| Detail Show | 00:02-00:08 | 律动轻快 | 楼群灯光逐层亮起 |',
+].join('\n')
+
 const SHOT_TWO_PROMPT = [
   PREAMBLE,
   '',
@@ -120,6 +154,62 @@ export const seedMockWorkspace = (conversationId: string) => {
             2,
           ),
           updatedAt: now,
+          version: 1,
+        },
+      ],
+      // 下面几份照真实工作区的五种文件各给一份，文件页按类别渲染时有东西可看。
+      ['storyboard.md', { content: STORYBOARD_MD, updatedAt: EARLIER, version: 2 }],
+      [
+        'video/night-city-timelapse-9a3f2c1d.md',
+        { content: VIDEO_DOC_MD, updatedAt: EARLIER, version: 1 },
+      ],
+      [
+        'frames/extraction.json',
+        {
+          content: JSON.stringify(
+            {
+              boards: [
+                {
+                  board: 1,
+                  cells: [
+                    { id: 'S1-1', shot: 1, timecode: '00:00.000', url: FRAME_A },
+                    { id: 'S2-1', shot: 2, timecode: '00:04.000', url: FRAME_B },
+                  ],
+                  layout: '2x1',
+                  shots: [1, 2],
+                  url: FRAME_C,
+                },
+              ],
+              extractionKey: '6339e1aeb441bdbdf7867d8f69bdcaf84b5648b5',
+              extractionVersion: 1,
+              intervalMs: 1000,
+              video: { contentHash: 'sha256:2f71…', url: VIDEO_URL },
+            },
+            null,
+            2,
+          ),
+          updatedAt: EARLIER,
+          version: 1,
+        },
+      ],
+      [
+        'anchors/b18d7e94-b199-441a-b14d-86df2cca7945.json',
+        {
+          content: JSON.stringify(
+            {
+              anchorRecordVersion: 1,
+              cells: [
+                { description: '空景全景平视，长椅与门厅。', index: 1, url: FRAME_A },
+                { description: '模特正面半身，浅色帆布包。', index: 2, url: FRAME_B },
+              ],
+              gridUrl: FRAME_C,
+              jobId: 'b18d7e94-b199-441a-b14d-86df2cca7945',
+              sheetAspect: '1:1',
+            },
+            null,
+            2,
+          ),
+          updatedAt: EARLIER,
           version: 1,
         },
       ],

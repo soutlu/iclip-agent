@@ -1,5 +1,6 @@
-export { frameArtifactId, type ArtifactRendererProps } from './artifact'
+export { frameArtifactId, type ArtifactEntry, type ArtifactRendererProps } from './artifact'
 export { ArtifactRegistry } from './registry'
+export { useWorkbenchRegistry } from './use-workbench-registry'
 export { useWorkbenchSelection } from './use-workbench-selection'
 export { WorkbenchHost } from './workbench-host'
 export { WorkbenchLayoutProvider } from './workbench-layout-provider'
