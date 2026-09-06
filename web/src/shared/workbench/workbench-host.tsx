@@ -1,4 +1,4 @@
-/** 宿主管理布局与渲染分派；壳提供并排条件，不足时在聊天和面板间切换。收起时是一个菜单钮，列出能打开的产物。 */
+/** 宿主管理布局与渲染分派；壳提供并排条件，不足时在聊天和面板间切换。没选中产物时正文是一张「能打开什么」的列表。 */
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
@@ -6,9 +6,9 @@ import { use, useEffect, useMemo, useState } from 'react'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { useTranscript } from '@/shared/transcript/use-transcript'
 import type { TranscriptItem } from '@/shared/transcript/vendor'
+import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
-import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from '@/shared/ui/tabs'
 import type { Artifact, ArtifactEntry, WorkbenchFrame } from './artifact'
 import { composeArtifacts, isStanding, pickArtifact, type ArtifactRegistry } from './registry'
@@ -39,18 +39,18 @@ const toolFrames = (items: readonly TranscriptItem[]): WorkbenchFrame[] =>
         ),
   )
 
-/** 常驻类型与被点开的那张工具卡才占标签位；没点开的派活卡留在菜单里，从卡上「查看」进来。 */
+/** 常驻类型与被点开的那张工具卡才占标签位；没点开的派活卡留在选择页里，或从卡上「查看」进来。 */
 const tabArtifacts = (
   registry: ArtifactRegistry,
   artifacts: readonly Artifact[],
-  selected: Artifact | undefined,
+  selected: Artifact,
 ): Artifact[] =>
   artifacts.filter((artifact) => {
     const entry = registry.resolve(artifact.type)
-    return (entry !== undefined && isStanding(entry)) || artifact.id === selected?.id
+    return (entry !== undefined && isStanding(entry)) || artifact.id === selected.id
   })
 
-type MenuRow = {
+type ChooserRow = {
   key: string
   label: string
   icon: ArtifactEntry['icon']
@@ -60,19 +60,27 @@ type MenuRow = {
 }
 
 /** 常驻类型一行一个，没有产物的也列出来；工具卡产物一件一行。 */
-const menuRows = (registry: ArtifactRegistry, artifacts: readonly Artifact[]): MenuRow[] => {
-  const standing = registry.standing().map((entry): MenuRow => {
+const chooserRows = (registry: ArtifactRegistry, artifacts: readonly Artifact[]): ChooserRow[] => {
+  const standing = registry.standing().map((entry): ChooserRow => {
     const artifact = artifacts.find((candidate) => candidate.type === entry.type)
-    return artifact === undefined
-      ? {
-          icon: entry.icon,
-          key: entry.type,
-          label: entry.label,
-          ...(entry.empty ? { detail: entry.empty } : {}),
-        }
-      : { artifactId: artifact.id, icon: entry.icon, key: artifact.id, label: artifact.title }
+    if (artifact === undefined) {
+      return {
+        icon: entry.icon,
+        key: entry.type,
+        label: entry.label,
+        ...(entry.empty ? { detail: entry.empty } : {}),
+      }
+    }
+    const detail = entry.detail?.(artifact.source)
+    return {
+      artifactId: artifact.id,
+      icon: entry.icon,
+      key: artifact.id,
+      label: artifact.title,
+      ...(detail === undefined ? {} : { detail }),
+    }
   })
-  const fromFrames = artifacts.flatMap((artifact): MenuRow[] => {
+  const fromFrames = artifacts.flatMap((artifact): ChooserRow[] => {
     const entry = registry.resolve(artifact.type)
     if (entry === undefined || isStanding(entry)) return []
     const detail = entry.detail?.(artifact.source)
@@ -140,16 +148,14 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   }, [connection, conversationId, queryClient])
 
   const artifacts = composeArtifacts(registry, files.data?.files ?? [], frames)
+  // 地址点名的或 autoOpen 的那件才算选中；都没有就给选择页，不替用户挑第一件。
   const selected = pickArtifact(registry, artifacts, search.artifact)
   const entry = selected === undefined ? undefined : registry.resolve(selected.type)
-  // 只有分镜这类 autoOpen 的产物落地、或地址点名了某件产物，面板才自动展开；其余时候等用户从菜单里点。
-  const opensByItself =
-    artifacts.some((artifact) => artifact.id === search.artifact) ||
-    artifacts.some((artifact) => registry.autoOpens(artifact.type))
+  // 只有分镜这类 autoOpen 的产物落地、或地址点名了某件产物，面板才自动展开；其余时候等用户自己点开。
   const collapsed =
     userChoice !== null && userChoice.token === openToken
       ? userChoice.collapsed
-      : !opensByItself || compact
+      : selected === undefined || compact
   const setCollapsed = (value: boolean) => setUserChoice({ collapsed: value, token: openToken })
   const open = (id: string) => {
     setCollapsed(false)
@@ -170,32 +176,40 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   if (collapsed) {
     return (
       <div className="layer-sidebar absolute top-2 right-3">
-        <MenuRoot>
-          <MenuTrigger asChild>
-            <IconButton label="打开右侧面板" name="panel-right" size="md" />
-          </MenuTrigger>
-          <MenuSurface align="end" className="min-w-52">
-            {menuRows(registry, artifacts).map((row) => (
-              <MenuItem
-                disabled={row.artifactId === undefined}
-                icon={row.icon}
-                key={row.key}
-                onSelect={() => {
-                  if (row.artifactId !== undefined) open(row.artifactId)
-                }}
-                {...(row.detail === undefined ? {} : { detail: row.detail })}
-              >
-                {row.label}
-              </MenuItem>
-            ))}
-          </MenuSurface>
-        </MenuRoot>
+        <IconButton
+          label="打开右侧面板"
+          name="panel-right"
+          onClick={() => setCollapsed(false)}
+          size="md"
+        />
       </div>
     )
   }
 
+  const actions = (
+    <div className="flex shrink-0 items-center gap-1">
+      {covering && !sideBySide ? (
+        <IconButton label="回到聊天" name="back" onClick={() => setCollapsed(true)} size="md" />
+      ) : (
+        <>
+          <IconButton
+            label={maximized ? '缩小面板' : '放大面板'}
+            name={maximized ? 'minimize-panel' : 'maximize-panel'}
+            onClick={() => setMaximized(!maximized)}
+            size="md"
+          />
+          <IconButton
+            label="折叠右侧面板"
+            name="panel-right"
+            onClick={() => setCollapsed(true)}
+            size="md"
+          />
+        </>
+      )}
+    </div>
+  )
+
   const Renderer = entry?.component
-  const tabs = tabArtifacts(registry, artifacts, selected)
 
   return (
     <aside
@@ -207,60 +221,77 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
           : 'sticky top-0 h-dvh w-(--layout-app-workbench-width) shrink-0',
       )}
     >
-      <TabsRoot
-        className="flex min-h-0 flex-1 flex-col"
-        onValueChange={open}
-        value={selected?.id ?? ''}
-      >
-        <div className="flex h-13 shrink-0 items-stretch gap-2 border-b-[0.5px] border-chat-hairline pr-2 pl-3">
-          <TabsList aria-label="面板内容" className="min-w-0 flex-1">
-            {tabs.map((artifact) => (
-              <TabsTrigger className="max-w-64" key={artifact.id} value={artifact.id}>
-                {artifact.title}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-
-          <div className="flex shrink-0 items-center gap-1">
-            {covering && !sideBySide ? (
-              <IconButton
-                label="回到聊天"
-                name="back"
-                onClick={() => setCollapsed(true)}
-                size="md"
-              />
-            ) : (
-              <>
-                <IconButton
-                  label={maximized ? '缩小面板' : '放大面板'}
-                  name={maximized ? 'minimize-panel' : 'maximize-panel'}
-                  onClick={() => setMaximized(!maximized)}
-                  size="md"
-                />
-                <IconButton
-                  label="折叠右侧面板"
-                  name="panel-right"
-                  onClick={() => setCollapsed(true)}
-                  size="md"
-                />
-              </>
-            )}
+      {selected === undefined || Renderer === undefined ? (
+        <>
+          <div className="flex h-13 shrink-0 items-center justify-end pr-2">{actions}</div>
+          <Chooser onPick={open} rows={chooserRows(registry, artifacts)} />
+        </>
+      ) : (
+        <TabsRoot className="flex min-h-0 flex-1 flex-col" onValueChange={open} value={selected.id}>
+          <div className="flex h-13 shrink-0 items-stretch gap-2 border-b-[0.5px] border-chat-hairline pr-2 pl-3">
+            <TabsList aria-label="面板内容" className="min-w-0 flex-1">
+              {tabArtifacts(registry, artifacts, selected).map((artifact) => (
+                <TabsTrigger className="max-w-64" key={artifact.id} value={artifact.id}>
+                  {artifact.title}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {actions}
           </div>
-        </div>
-
-        {selected === undefined || Renderer === undefined ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center">
-            <p className="text-body text-on-surface-variant">还没有产物</p>
-            <p className="text-body-sm text-on-surface-faint">
-              agent 写下第一份文件之后，它会出现在这里。
-            </p>
-          </div>
-        ) : (
           <TabsContent className="flex min-h-0 flex-1 flex-col" value={selected.id}>
             <Renderer artifact={selected} conversationId={conversationId} key={selected.id} />
           </TabsContent>
-        )}
-      </TabsRoot>
+        </TabsRoot>
+      )}
     </aside>
+  )
+}
+
+/** 选择页：正文居中一列，能打开的项一行一个；没有产物的常驻类型灰着，行尾说明为什么。 */
+function Chooser({ onPick, rows }: { onPick: (id: string) => void; rows: readonly ChooserRow[] }) {
+  return (
+    <nav
+      aria-label="能打开的产物"
+      className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-8 py-6"
+    >
+      <ul className="mx-auto flex w-full max-w-md flex-col gap-1">
+        {rows.map((row) => {
+          const enabled = row.artifactId !== undefined
+          return (
+            <li key={row.key}>
+              <button
+                aria-disabled={enabled ? undefined : true}
+                className={cn(
+                  'flex h-11 w-full items-center gap-3 rounded-sm px-3 text-left text-body ui-focus',
+                  enabled
+                    ? 'ui-state cursor-pointer text-on-surface'
+                    : 'cursor-default text-on-surface-faint',
+                )}
+                onClick={() => {
+                  if (row.artifactId !== undefined) onPick(row.artifactId)
+                }}
+                type="button"
+              >
+                <Icon
+                  className={cn(
+                    'shrink-0',
+                    enabled ? 'text-on-surface-variant' : 'text-on-surface-faint',
+                  )}
+                  decorative
+                  name={row.icon}
+                  size="md"
+                />
+                <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                {row.detail === undefined ? null : (
+                  <span className="shrink-0 rounded-full bg-chip-bg px-2 py-0.5 text-label text-on-surface-faint">
+                    {row.detail}
+                  </span>
+                )}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
   )
 }

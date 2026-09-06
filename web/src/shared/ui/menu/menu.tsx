@@ -44,41 +44,25 @@ type MenuItemProps = ComponentPropsWithoutRef<typeof DropdownMenu.Item> & {
   destructive?: boolean
   icon?: Parameters<typeof Icon>[0]['name']
   shortcut?: readonly string[]
-  /** 右侧一句补充，比如禁用项为什么还不能选。 */
-  detail?: string
 }
 
 export function MenuItem({
   children,
   className,
   destructive = false,
-  detail,
   icon,
   shortcut,
   ...props
 }: MenuItemProps) {
   return (
     <DropdownMenu.Item
-      className={cn(
-        ITEM_CLASS,
-        destructive ? 'text-error' : 'text-on-surface',
-        'data-[disabled]:cursor-default data-[disabled]:text-on-surface-faint',
-        className,
-      )}
+      className={cn(ITEM_CLASS, destructive ? 'text-error' : 'text-on-surface', className)}
       {...props}
     >
       {icon ? (
-        <Icon
-          className="shrink-0 text-on-surface-variant in-data-[disabled]:text-on-surface-faint"
-          decorative
-          name={icon}
-          size="sm"
-        />
+        <Icon className="shrink-0 text-on-surface-variant" decorative name={icon} size="sm" />
       ) : null}
       <span className="min-w-0 flex-1 truncate">{children}</span>
-      {detail ? (
-        <span className="ml-4 shrink-0 text-label text-on-surface-faint">{detail}</span>
-      ) : null}
       {shortcut?.length ? (
         <span className="ml-4 flex shrink-0 items-center gap-1 text-label text-on-surface-variant">
           {shortcut.map((key) => (

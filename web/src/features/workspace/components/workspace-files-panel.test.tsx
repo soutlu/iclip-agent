@@ -12,7 +12,7 @@ const CONVERSATION_ID = '4d3a7f8e-1b2c-4d5e-8f90-a1b2c3d4e5f6'
 
 const artifact = {
   id: 'workspace',
-  source: { kind: 'workspace' },
+  source: { fileCount: 6, kind: 'workspace' },
   title: '文件',
   type: 'workspace',
 } as const

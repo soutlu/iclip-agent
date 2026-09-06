@@ -1,6 +1,6 @@
 /** 宿主接收壳计算的布局结果；测试直接注入 compact 与 sideBySide。 */
 
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -141,21 +141,23 @@ const delegationReset = (state: 'running' | 'done') => ({
 })
 
 describe('WorkbenchHost 收起态', () => {
-  it('一份文件都没有时收着；菜单里常驻的两行都灰着，各带一句为什么', async () => {
+  it('一份文件都没有时收着；点开是选择页，常驻的两行都灰着，各带一句为什么', async () => {
     serveFiles([])
     await renderHost()
 
     await userEvent.click(await screen.findByRole('button', { name: '打开右侧面板' }))
 
-    const shots = await screen.findByRole('menuitem', { name: /分镜/ })
+    const chooser = await screen.findByRole('navigation', { name: '能打开的产物' })
+    const shots = within(chooser).getByRole('button', { name: /分镜/ })
     expect(shots).toHaveAttribute('aria-disabled', 'true')
     expect(shots).toHaveTextContent('agent 交付分镜后出现')
-    const files = screen.getByRole('menuitem', { name: /文件/ })
+    const files = within(chooser).getByRole('button', { name: /文件/ })
     expect(files).toHaveAttribute('aria-disabled', 'true')
     expect(files).toHaveTextContent('还没有文件')
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
   })
 
-  it('只有普通文件时不自动展开，从菜单点「文件」才打开，地址记下这件产物', async () => {
+  it('只有普通文件时不自动展开；点开是选择页，选「文件」才画它，地址记下这件产物', async () => {
     serveFiles(['video/a.md'])
     const { router } = await renderHost()
 
@@ -163,20 +165,25 @@ describe('WorkbenchHost 收起态', () => {
     expect(screen.queryByText('画着文件')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '打开右侧面板' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: '文件' }))
+    const chooser = await screen.findByRole('navigation', { name: '能打开的产物' })
+    expect(screen.queryByText('画着文件')).not.toBeInTheDocument()
+
+    await userEvent.click(within(chooser).getByRole('button', { name: '文件' }))
 
     expect(await screen.findByText('画着文件')).toBeVisible()
+    expect(screen.getByRole('tab', { name: '文件', selected: true })).toBeVisible()
     expect(router.state.location.search).toMatchObject({ artifact: 'workspace' })
   })
 
-  it('派活卡在菜单里一件一行，点它打开子代理那条流', async () => {
+  it('派活卡在选择页里一件一行，点它打开子代理那条流', async () => {
     serveFiles([])
     const { socket } = await renderHost(ROOMY, registryWith(shotsEntry, workspaceEntry, agentEntry))
     await screen.findByRole('button', { name: '打开右侧面板' })
     socket.deliver(delegationReset('running'))
 
     await userEvent.click(screen.getByRole('button', { name: '打开右侧面板' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: '委派任务 · 拆解' }))
+    const chooser = await screen.findByRole('navigation', { name: '能打开的产物' })
+    await userEvent.click(within(chooser).getByRole('button', { name: '委派任务 · 拆解' }))
 
     expect(await screen.findByText('画着委派任务 · 拆解')).toBeVisible()
   })

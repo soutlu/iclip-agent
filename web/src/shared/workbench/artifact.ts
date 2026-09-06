@@ -25,9 +25,10 @@ export interface FrameArtifactSource {
   agentRefs?: readonly FrameAgentRef[]
 }
 
-/** 整个工作区当一件产物；渲染器自己读文件列表，来源上不用再带一份。 */
+/** 整个工作区当一件产物；渲染器自己读文件列表，来源上只带个数给选择页写行尾。 */
 export interface WorkspaceArtifactSource {
   kind: 'workspace'
+  fileCount: number
 }
 
 export type ArtifactSource = FileArtifactSource | FrameArtifactSource | WorkspaceArtifactSource
