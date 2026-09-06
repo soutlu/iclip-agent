@@ -1,7 +1,8 @@
 /** 草稿与生成资格由父组件管理；本组件仅处理当前镜头组和帧，组间翻页由外层容器负责。 */
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type CSSProperties } from 'react'
 import { Icon } from '@/shared/icons'
+import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
@@ -77,6 +78,14 @@ export function ShotPage({
     section,
   }))
   const scenes = sections.filter((item) => item.header !== undefined)
+  // 横版帧在左右分栏里只能缩成一条，改成上下堆叠让画面吃满卡片宽度。
+  const [ratioWidth = 0, ratioHeight = 0] = aspectRatio.split(':').map(Number)
+  const wideFrame = ratioWidth > ratioHeight
+  // 画幅高宽比驱动卡片高度；画幅读不出时按正方处理，卡片仍有确定高度。
+  const frameTall = ratioWidth > 0 && ratioHeight > 0 ? ratioHeight / ratioWidth : 1
+  const groupSeconds = Math.round(shot.seconds * 10) / 10
+  const groupSummary =
+    scenes.length === 0 ? `整组 ${groupSeconds}s` : `整组 ${scenes.length} 镜头 · ${groupSeconds}s`
   // 显式选择区分共用首帧的镜头；外部帧导航优先，编辑时不按引用重新切镜。
   const explicitScene =
     sceneSelection?.frame === frameNumber
@@ -159,7 +168,18 @@ export function ShotPage({
           onClick={() => pickFrame(frameNumber - 1)}
           size="md"
         />
-        <article className="storyboard-preview overflow-hidden rounded-xs border-[0.5px] border-chat-hairline bg-chat-card-bg">
+        <article
+          className={cn(
+            'storyboard-preview overflow-hidden rounded-xs border-[0.5px] border-chat-hairline bg-chat-card-bg',
+            wideFrame && 'storyboard-preview-wide',
+          )}
+          style={
+            {
+              '--storyboard-frame-aspect': aspectRatioStyle(aspectRatio),
+              '--storyboard-frame-tall': frameTall,
+            } as CSSProperties
+          }
+        >
           <div className="storyboard-media relative min-h-0 min-w-0 bg-surface-container">
             {currentUrl === undefined ? (
               <p className="text-body-sm text-on-surface-faint">这个镜头还没有帧</p>
@@ -273,20 +293,6 @@ export function ShotPage({
                 />
               )}
             </div>
-            <div className="flex shrink-0 flex-col gap-1">
-              <Button
-                className="w-full rounded-xs"
-                disabled={generateDisabled}
-                leadingIcon="video"
-                onClick={onGenerateVideo}
-                size="md"
-              >
-                {generating ? '正在出片…' : '生成视频'}
-              </Button>
-              {generateNote === undefined ? null : (
-                <p className="text-body-sm text-on-surface-faint">{generateNote}</p>
-              )}
-            </div>
           </div>
         </article>
         <IconButton
@@ -333,6 +339,21 @@ export function ShotPage({
         >
           <Icon decorative name="collapse" size="md" />
         </button>
+        {/* 出片提交的是整组，按钮跟着代表整组的胶片条走，不放在只显示单个镜头的描述栏。 */}
+        <div className="storyboard-group-actions">
+          <span className="text-right text-body-sm text-on-surface-faint">
+            {generateNote ?? groupSummary}
+          </span>
+          <Button
+            className="rounded-xs"
+            disabled={generateDisabled}
+            leadingIcon="video"
+            onClick={onGenerateVideo}
+            size="md"
+          >
+            {generating ? '正在出片…' : '生成视频'}
+          </Button>
+        </div>
       </div>
       <FramePicker
         candidates={candidates}
