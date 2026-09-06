@@ -151,8 +151,8 @@ def test_loading_a_skill_body_has_a_display_too() -> None:
 
     drawn = skill_display_table()["load_capability"]
 
-    assert drawn({"id": SKILL}) == GenericDisplay(summary="启用技能", detail=SKILL)
-    assert drawn({}) == GenericDisplay(summary="启用技能")
+    assert drawn({"id": SKILL}) == GenericDisplay(summary="加载技能", detail=SKILL)
+    assert drawn({}) == GenericDisplay(summary="加载技能")
 
 
 async def test_granted_skill_reference_is_readable(tmp_path: Path) -> None:
