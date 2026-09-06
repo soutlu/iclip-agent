@@ -79,29 +79,15 @@ export const frameMentions = (doc: PromptDoc): number[] =>
     ),
   )
 
-/** 重排编号；映射为 null 时删除记号及其前方紧邻的一个空格，返回新文档。 */
-export const renumberFrames = (doc: PromptDoc, remap: (n: number) => number | null): PromptDoc => ({
+/** 重排帧引用编号，保留其余正文，返回新文档。 */
+export const renumberFrames = (doc: PromptDoc, remap: (n: number) => number): PromptDoc => ({
   sections: doc.sections.map((section) => ({
     ...section,
-    lines: section.lines.map((line) => {
-      const next: PromptLine = []
-      for (const inline of line) {
-        if (inline.kind === 'text') {
-          next.push(inline)
-          continue
-        }
-        const mapped = remap(inline.n)
-        if (mapped !== null) {
-          next.push({ kind: 'frame', n: mapped })
-          continue
-        }
-        const previous = next.at(-1)
-        if (previous?.kind === 'text' && previous.text.endsWith(' ')) {
-          next[next.length - 1] = { kind: 'text', text: previous.text.slice(0, -1) }
-        }
-      }
-      return mergeText(next)
-    }),
+    lines: section.lines.map((line) =>
+      line.map((inline) =>
+        inline.kind === 'frame' ? { kind: 'frame', n: remap(inline.n) } : inline,
+      ),
+    ),
   })),
 })
 
@@ -116,69 +102,34 @@ const mergeText = (line: PromptLine): PromptLine =>
     return merged
   }, [])
 
-/** 帧编号使用 @ImageN 的 N，从 1 开始。 */
-export type FrameOp =
-  | { type: 'replace'; n: number; url: string }
-  | { type: 'remove'; n: number }
-  | { type: 'move'; n: number; to: number }
-  | {
-      /** after 为 0 时插入最前；记号追加到指定段落最后一个非空行末尾。 */
-      type: 'insert'
-      after: number
-      url: string
-      sectionIndex: number
-    }
+type InsertFrameOptions = {
+  /** 帧编号从 1 开始；after 为 0 时插入最前。 */
+  after: number
+  url: string
+  /** 记号追加到指定段落最后一个非空行末尾。 */
+  sectionIndex: number
+}
 
-/** 同步修改 imageUrls 与 prompt 引用编号，避免中间状态引用越界。 */
-export const applyFrameOp = (shot: Shot, op: FrameOp): Shot => {
+/** 插入图片并同步后续 prompt 引用编号，避免中间状态引用越界。 */
+export const insertShotFrame = (shot: Shot, options: InsertFrameOptions): Shot => {
   const urls = [...shot.imageUrls]
   const doc = parsePromptDoc(shot.prompt)
-  switch (op.type) {
-    case 'replace': {
-      if (op.n < 1 || op.n > urls.length) return shot
-      urls[op.n - 1] = op.url
-      return { ...shot, imageUrls: urls }
-    }
-    case 'remove': {
-      if (op.n < 1 || op.n > urls.length) return shot
-      urls.splice(op.n - 1, 1)
-      const renumbered = renumberFrames(doc, (n) => (n === op.n ? null : n > op.n ? n - 1 : n))
-      return { ...shot, imageUrls: urls, prompt: serializePromptDoc(renumbered) }
-    }
-    case 'move': {
-      const { n, to } = op
-      if (n < 1 || n > urls.length || to < 1 || to > urls.length || n === to) return shot
-      const moved = urls[n - 1]
-      if (moved === undefined) return shot
-      urls.splice(n - 1, 1)
-      urls.splice(to - 1, 0, moved)
-      const remap = (m: number): number => {
-        if (m === n) return to
-        if (n < to && m > n && m <= to) return m - 1
-        if (n > to && m >= to && m < n) return m + 1
-        return m
-      }
-      return { ...shot, imageUrls: urls, prompt: serializePromptDoc(renumberFrames(doc, remap)) }
-    }
-    case 'insert': {
-      const after = Math.min(Math.max(op.after, 0), urls.length)
-      urls.splice(after, 0, op.url)
-      const shifted = renumberFrames(doc, (n) => (n > after ? n + 1 : n))
-      const section = shifted.sections[op.sectionIndex] ?? shifted.sections.at(-1)
-      if (section !== undefined) {
-        const target = section.lines.findLastIndex((line) => line.length > 0)
-        const line = target === -1 ? [] : (section.lines[target] ?? [])
-        const withFrame: PromptLine = [
-          ...line,
-          { kind: 'text', text: ' ' },
-          { kind: 'frame', n: after + 1 },
-        ]
-        if (target === -1) section.lines.push(mergeText(withFrame))
-        else section.lines[target] = mergeText(withFrame)
-      }
-      return { ...shot, imageUrls: urls, prompt: serializePromptDoc(shifted) }
-    }
+  const after = Math.min(Math.max(options.after, 0), urls.length)
+  urls.splice(after, 0, options.url)
+  const shifted = renumberFrames(doc, (n) => (n > after ? n + 1 : n))
+  const section = shifted.sections[options.sectionIndex] ?? shifted.sections.at(-1)
+  if (section !== undefined) {
+    const target = section.lines.findLastIndex((line) => line.length > 0)
+    const line = target === -1 ? [] : (section.lines[target] ?? [])
+    const withFrame: PromptLine = [
+      ...line,
+      { kind: 'text', text: ' ' },
+      { kind: 'frame', n: after + 1 },
+    ]
+    if (target === -1) section.lines.push(mergeText(withFrame))
+    else section.lines[target] = mergeText(withFrame)
   }
+  return { ...shot, imageUrls: urls, prompt: serializePromptDoc(shifted) }
 }
 
 /** 秒数的合法范围，与后端校验一致。 */

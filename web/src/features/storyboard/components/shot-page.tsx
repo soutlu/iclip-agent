@@ -1,14 +1,13 @@
 /** 草稿与生成资格由父组件管理；本组件仅处理当前镜头组和帧，组间翻页由外层容器负责。 */
 
-import { useRef, useState, type CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
-import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import {
-  applyFrameOp,
+  insertShotFrame,
   parsePromptDoc,
   type PromptLine,
   serializeLines,
@@ -16,7 +15,7 @@ import {
 } from '../prompt-doc'
 import { aspectRatioStyle, parseSceneHeader, shotName, type Shot } from '../shots'
 import type { FrameCandidate } from '../storyboard.api'
-import { FramePicker, type FramePickerMode } from './frame-picker'
+import { FramePicker } from './frame-picker'
 import { PromptEditor } from './prompt-editor'
 import { ShotFilmstrip } from './shot-filmstrip'
 
@@ -63,13 +62,12 @@ export function ShotPage({
   shot,
 }: ShotPageProps) {
   const [zoomed, setZoomed] = useState<LightboxMedia | null>(null)
-  const [picker, setPicker] = useState<FramePickerMode | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [sceneSelection, setSceneSelection] = useState<{
     index: number
     frame: number
     empty: boolean
   } | null>(null)
-  const uploadRef = useRef<HTMLInputElement | null>(null)
   const doc = parsePromptDoc(shot.prompt)
   const frames = shot.imageUrls
   const sections = doc.sections.map((section, index) => ({
@@ -123,32 +121,18 @@ export function ShotPage({
     onChangeShot({ ...shot, prompt: serializePromptDoc(next) })
   }
 
-  const replaceOrInsert = (url: string, mode = picker) => {
-    if (mode === 'replace') {
-      onChangeShot(applyFrameOp(shot, { n: frameNumber, type: 'replace', url }))
-    } else {
-      const sectionIndex = currentSection?.index ?? doc.sections.length - 1
-      const after = frames.length === 0 ? 0 : frameNumber
-      onChangeShot(applyFrameOp(shot, { after, sectionIndex, type: 'insert', url }))
-      pickFrame(after + 1)
-    }
-    setPicker(null)
+  const insertFrame = (url: string) => {
+    const sectionIndex = currentSection?.index ?? doc.sections.length - 1
+    const after = frames.length === 0 ? 0 : frameNumber
+    onChangeShot(insertShotFrame(shot, { after, sectionIndex, url }))
+    pickFrame(after + 1)
+    setPickerOpen(false)
   }
 
-  const removeFrame = () => {
-    onChangeShot(applyFrameOp(shot, { n: frameNumber, type: 'remove' }))
-    pickFrame(Math.max(1, Math.min(frameNumber, frames.length - 1)))
-  }
-
-  const moveFrame = (to: number) => {
-    onChangeShot(applyFrameOp(shot, { n: frameNumber, to, type: 'move' }))
-    pickFrame(to)
-  }
-
-  const upload = async (file: File, mode = picker) => {
+  const upload = async (file: File) => {
     try {
       const url = await onUploadFrame(file)
-      replaceOrInsert(url, mode)
+      insertFrame(url)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '上传失败')
     }
@@ -204,65 +188,6 @@ export function ShotPage({
                 />
               </button>
             )}
-            <div aria-label="帧操作" className="storyboard-frame-tools" role="toolbar">
-              <IconButton
-                disabled={currentUrl === undefined}
-                label="替换这一帧"
-                name="image"
-                onClick={() => setPicker('replace')}
-                size="sm"
-                title="替换这一帧"
-              />
-              <IconButton
-                label="上传一张图当帧"
-                name="add-file"
-                onClick={() => uploadRef.current?.click()}
-                size="sm"
-                title="上传一张图当帧"
-              />
-              <IconButton
-                disabled={currentUrl === undefined}
-                label="删掉这一帧"
-                name="delete"
-                onClick={removeFrame}
-                size="sm"
-                title="删掉这一帧"
-              />
-              <MenuRoot>
-                <MenuTrigger asChild>
-                  <IconButton label="更多帧操作" name="more" size="sm" title="更多帧操作" />
-                </MenuTrigger>
-                <MenuSurface align="end">
-                  <MenuItem
-                    disabled={currentUrl === undefined || frameNumber <= 1}
-                    icon="back"
-                    onSelect={() => moveFrame(frameNumber - 1)}
-                  >
-                    左移这一帧
-                  </MenuItem>
-                  <MenuItem
-                    disabled={currentUrl === undefined || frameNumber >= frames.length}
-                    icon="next"
-                    onSelect={() => moveFrame(frameNumber + 1)}
-                  >
-                    右移这一帧
-                  </MenuItem>
-                </MenuSurface>
-              </MenuRoot>
-            </div>
-            <input
-              accept="image/*"
-              aria-label="选择要上传的图片"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                event.target.value = ''
-                if (file !== undefined)
-                  void upload(file, currentUrl === undefined ? 'insert' : 'replace')
-              }}
-              ref={uploadRef}
-              type="file"
-            />
           </div>
 
           <div className="storyboard-description flex min-h-0 min-w-0 flex-col gap-4 p-4">
@@ -324,7 +249,7 @@ export function ShotPage({
         <button
           aria-label="加一帧"
           className="storyboard-add-frame grid shrink-0 ui-state cursor-pointer place-items-center rounded-xs border-[0.5px] border-chat-hairline bg-surface-container text-on-surface-faint ui-focus"
-          onClick={() => setPicker('insert')}
+          onClick={() => setPickerOpen(true)}
           title="加一帧"
           type="button"
         >
@@ -358,10 +283,10 @@ export function ShotPage({
       <FramePicker
         candidates={candidates}
         inUse={frames}
-        mode={picker}
-        onClose={() => setPicker(null)}
-        onPick={replaceOrInsert}
+        onClose={() => setPickerOpen(false)}
+        onPick={insertFrame}
         onUpload={upload}
+        open={pickerOpen}
       />
       <MediaLightbox media={zoomed} onClose={() => setZoomed(null)} />
     </section>
