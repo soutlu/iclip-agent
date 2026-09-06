@@ -142,3 +142,122 @@ test('手机需求单正文可滚动，长创作要求与固定操作栏可用',
   await expect(dialog).toBeHidden()
   await expect(page.getByRole('button', { name: /夏季系列长内容需求单/ })).toBeVisible()
 })
+
+test('认领需求后预览单段文字与图片，创建关联对话并发送首次消息', async ({ page }) => {
+  await page.goto('/')
+  await login(page)
+  const png = await productPng(page)
+  const original = '保留这段创作要求。\n人物不露脸，保持原文换行。'
+  const task = await page.evaluate(async (requirement) => {
+    const response = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: '需求单发起创作验收',
+        deadline: new Date(Date.now() + 86_400_000).toISOString(),
+        inputs: {
+          creative_requirement: requirement,
+          product: {
+            style_no: 'NOT-SENT-SKU',
+            name: '不发送商品名称',
+            image_oss_urls: [],
+          },
+          video_spec: {
+            aspect_ratio: '9:16',
+            duration_seconds: 25,
+            resolution: '1080p',
+            platform: '不发送平台',
+          },
+          reference_image_oss_urls: {
+            model: [],
+            outfit: [],
+            prop: [],
+          },
+          reference_video_oss_url: null,
+        },
+      }),
+    })
+    if (!response.ok) throw new Error('创建测试需求失败')
+    const payload = (await response.json()) as { task: { id: string; title: string } }
+    return payload.task
+  }, original)
+  await page.getByRole('button', { name: '需求单', exact: true }).click()
+  await page.getByRole('button', { name: /需求单发起创作验收/ }).click()
+  let dialog = page.getByRole('dialog', { name: task.title })
+  await dialog
+    .getByLabel('选择商品图片文件', { exact: true })
+    .setInputFiles({ buffer: png, mimeType: 'image/png', name: '商品.png' })
+  await expect(dialog.getByRole('button', { name: '预览商品图片 1', exact: true })).toBeVisible()
+  await dialog
+    .getByLabel('选择模特参考图文件', { exact: true })
+    .setInputFiles({ buffer: png, mimeType: 'image/png', name: '模特.png' })
+  await expect(dialog.getByRole('button', { name: '预览模特参考图 1', exact: true })).toBeVisible()
+  const productUrl = await dialog.getByAltText('商品图片 1', { exact: true }).getAttribute('src')
+  const modelUrl = await dialog.getByAltText('模特参考图 1', { exact: true }).getAttribute('src')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: /需求单发起创作验收/ }).click()
+  await dialog.getByRole('button', { name: '发布', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: /需求单发起创作验收/ }).click()
+  await expect(dialog.getByRole('button', { name: '开始创作', exact: true })).toHaveCount(0)
+  await dialog.getByRole('button', { name: '认领', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await page
+    .getByRole('region', { name: '我的需求单' })
+    .getByRole('button', { name: /需求单发起创作验收/ })
+    .click()
+  dialog = page.getByRole('dialog', { name: task.title })
+  await dialog.getByRole('button', { name: '开始创作', exact: true }).click()
+  const preview = page.getByRole('dialog', { name: '发起创作' })
+  const previewText = await preview.getByLabel('发送文字预览').inputValue()
+  expect(previewText).toContain(original)
+  expect(previewText).not.toContain('素材说明')
+  expect(previewText).not.toContain('不发送平台')
+  await expect
+    .poll(() =>
+      preview
+        .getByAltText('图片 1', { exact: true })
+        .evaluate((image: HTMLImageElement) => image.naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.screenshot({
+    path: '../.artifacts/design-qa/task-creation/mock-preview-dark.png',
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await page.emulateMedia({ colorScheme: 'light' })
+
+  const createdResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/conversations') && response.request().method() === 'POST',
+  )
+  const submittedRequest = page.waitForRequest(
+    (request) =>
+      /\/api\/conversations\/[^/]+\/prompts$/.test(request.url()) && request.method() === 'POST',
+  )
+  await preview.getByRole('button', { name: '确认并开始' }).click()
+  const created = await createdResponse
+  expect(created.request().postDataJSON()).toEqual({
+    agentId: 'storyboard',
+    taskId: task.id,
+    title: task.title,
+  })
+  const { conversation } = (await created.json()) as {
+    conversation: { id: string; taskId: string }
+  }
+  expect(conversation.taskId).toBe(task.id)
+  const submitted = (await submittedRequest).postDataJSON() as {
+    prompt_id: string
+    content: unknown[]
+  }
+  expect(submitted.prompt_id).toBeTruthy()
+  expect(submitted.content).toEqual([
+    { type: 'text', text: previewText },
+    { type: 'image', source: { kind: 'url', url: productUrl } },
+    { type: 'image', source: { kind: 'url', url: modelUrl } },
+  ])
+  await expect(page).toHaveURL(`/c/${conversation.id}`)
+})

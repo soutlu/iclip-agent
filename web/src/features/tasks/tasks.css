@@ -70,8 +70,8 @@
 
 /* 固定首尾，仅表单正文滚动；三列规格与参考图遵循需求单设计稿。 */
 .task-form-dialog {
-  max-width: 640px;
-  max-height: 94dvh;
+  max-width: 720px;
+  max-height: calc(100dvh - 24px);
   color-scheme: light;
 }
 
@@ -115,5 +115,27 @@
 @media (max-width: 359px) {
   .task-form-references {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.task-creation-dialog {
+  max-width: 720px;
+  max-height: 94dvh;
+}
+
+.task-creation-text {
+  min-height: 240px;
+  max-height: 360px;
+}
+
+.task-creation-images {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 599px) {
+  .task-creation-images {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

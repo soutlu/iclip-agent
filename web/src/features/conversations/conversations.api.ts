@@ -15,6 +15,7 @@ import {
   zSidebarOut,
   zTextContent,
   zVideoContent,
+  type zConversationIn,
 } from '@/shared/api/generated/zod.gen'
 
 export type Conversation = z.output<typeof zConversationsPageOut>['items'][number]
@@ -88,16 +89,22 @@ export const useMoreConversations = (
   })
 }
 
+/** 创建服务端编号的对话；可同时指定需求单和合集归属。 */
+export const createConversation = async (
+  body: z.input<typeof zConversationIn>,
+): Promise<Conversation> =>
+  apiFetch('/conversations', conversationEnvelopeSchema, {
+    body,
+    fallbackErrorMessage: '新建对话失败',
+    method: 'POST',
+  })
+
 /** 客户端 promptId 用于服务端幂等去重；回执丢失时须复用同一 ID 重试。 */
 export const useStartConversation = (onCreated: (conversationId: string) => void) => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ agentId, parts }: { agentId: string; parts: readonly ComposerPart[] }) => {
-      const conversation = await apiFetch('/conversations', conversationEnvelopeSchema, {
-        body: { agentId },
-        fallbackErrorMessage: '新建对话失败',
-        method: 'POST',
-      })
+      const conversation = await createConversation({ agentId })
       // 先进入会话页再提交消息，订阅与基线加载无需等待提交回执。
       onCreated(conversation.id)
       await submitPrompt(conversation.id, {

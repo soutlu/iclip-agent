@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
+import type { TaskCreationDraft } from '../task-creation'
 import { listAllTasks, listMyTasks, tasksQueryKeys, type Task } from '../tasks.api'
 import { RenameTaskDialog } from './rename-task-dialog'
 import { TaskCard } from './task-card'
@@ -10,7 +11,9 @@ import { TaskDialog } from './task-dialog'
 import { TaskHero } from './task-hero'
 
 /** 路由负责登录守卫；我的需求单由 claimedBy=me 筛选，认领身份由服务端解析。 */
-export function TasksRoute() {
+type TasksRouteProps = { onStartCreation?: (draft: TaskCreationDraft) => Promise<void> }
+
+export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
   const { data: user } = useUser()
   const [keyword, setKeyword] = useState('')
   const [dialog, setDialog] = useState<{ open: boolean; taskId?: string }>({ open: false })
@@ -115,6 +118,7 @@ export function TasksRoute() {
       </div>
 
       <TaskDialog
+        onStartCreation={onStartCreation}
         onOpenChange={(open) => setDialog((prev) => ({ ...prev, open }))}
         open={dialog.open}
         taskId={dialog.taskId}

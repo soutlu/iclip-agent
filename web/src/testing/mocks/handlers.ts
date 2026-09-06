@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import type { z } from 'zod'
 import {
+  zConversationIn,
   zTaskCreateIn,
   zTaskIn,
   zTaskInputsOutput,
@@ -24,6 +25,8 @@ export const mockAuthUser = {
   jobTitle: '',
   lastLoginAt: null,
   permissions: [
+    'agent:read',
+    'agent:run',
     'assets:read',
     'assets:write',
     'collections:read',
@@ -241,9 +244,11 @@ export const handlers = [
   }),
 
   http.post('*/api/conversations', async ({ request }) => {
-    const body = (await request.json()) as { agentId: string; title?: string | null }
+    const body = zConversationIn.parse(await request.json())
     const conversation = addMockConversation(body.title ?? '新对话')
     conversation.agentId = body.agentId
+    conversation.taskId = body.taskId ?? null
+    conversation.collectionId = body.collectionId ?? null
     return HttpResponse.json({ conversation }, { status: 201 })
   }),
 

@@ -3,7 +3,6 @@ import { MEDIA_IMAGE_ACCEPT, MEDIA_VIDEO_ACCEPT, uploadMediaFile } from '@/share
 import { Icon } from '@/shared/icons'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
-import { IconButton } from '@/shared/ui/button'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 
 type TaskMediaFieldProps = {
@@ -131,7 +130,21 @@ export function TaskMediaField({
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <span className="text-body-sm text-on-surface-variant">{label}</span>
+      <div className="flex min-h-5 items-center gap-3">
+        <span className="text-body-sm text-on-surface-variant">{label}</span>
+        {kind === 'video' && value.length > 0 && !disabled && (
+          <button
+            aria-label={`替换${label}`}
+            className="inline-flex ui-state cursor-pointer items-center gap-1 rounded-xs text-caption text-on-surface-variant ui-focus ui-focus-inline disabled:cursor-not-allowed"
+            disabled={blocked}
+            onClick={() => inputRef.current?.click()}
+            type="button"
+          >
+            <Icon decorative name="video" size="xs" />
+            替换视频
+          </button>
+        )}
+      </div>
       <div
         aria-busy={uploading}
         aria-label={label}
@@ -148,57 +161,55 @@ export function TaskMediaField({
         {value.map((url, index) => (
           <div
             className={cn(
-              'relative overflow-hidden rounded-sm border border-border bg-surface-container-low',
+              'relative',
               kind === 'video'
-                ? 'flex w-full items-center gap-3 p-2'
-                : compact
-                  ? 'size-20'
-                  : 'size-28',
+                ? 'w-full'
+                : cn(
+                    'overflow-hidden rounded-sm border border-border bg-surface-container-low',
+                    compact ? 'size-20' : 'size-28',
+                  ),
             )}
             key={url}
           >
-            <button
-              aria-label={`预览${label} ${index + 1}`}
-              className={cn(
-                'cursor-zoom-in overflow-hidden rounded-xs ui-focus',
-                kind === 'video'
-                  ? 'grid size-12 shrink-0 place-items-center bg-surface-container'
-                  : 'size-full',
-              )}
-              onClick={() => setPreview({ kind, name: `${label} ${index + 1}`, url })}
-              type="button"
-            >
-              {kind === 'image' ? (
+            {kind === 'video' ? (
+              <TaskVideoPreview
+                name={`${label} ${index + 1}`}
+                onOpen={() => setPreview({ kind, name: `${label} ${index + 1}`, url })}
+                url={url}
+              />
+            ) : (
+              <button
+                aria-label={`预览${label} ${index + 1}`}
+                className="size-full cursor-zoom-in overflow-hidden rounded-xs ui-focus"
+                onClick={() => setPreview({ kind, name: `${label} ${index + 1}`, url })}
+                type="button"
+              >
                 <img
                   alt={`${label} ${index + 1}`}
                   className="size-full object-contain"
                   draggable={false}
                   src={url}
                 />
-              ) : (
-                <VideoThumbnail url={url} />
-              )}
-            </button>
-            {kind === 'video' && (
-              <span className="min-w-0 flex-1 text-body-sm text-on-surface-variant">
-                已添加参考视频 · 点击预览
-              </span>
+              </button>
             )}
             {!disabled && (
-              <IconButton
-                className={cn(kind === 'image' && 'absolute top-0 right-0 bg-surface/90')}
+              <button
+                aria-label={`移除${label} ${index + 1}`}
+                className="absolute top-0 right-0 grid size-8 cursor-pointer place-items-center rounded-full ui-focus ui-focus-inline disabled:cursor-not-allowed"
                 disabled={uploading}
-                label={`移除${label} ${index + 1}`}
-                name="close"
                 onClick={() => onChange(value.filter((_, position) => position !== index))}
-                size="sm"
-              />
+                type="button"
+              >
+                <span className="grid size-5 place-items-center rounded-full border border-border bg-surface/95 text-on-surface">
+                  <Icon decorative name="close" size="xs" />
+                </span>
+              </button>
             )}
           </div>
         ))}
-        {!disabled && (kind === 'video' || value.length < limit) && (
+        {!disabled && value.length < limit && (
           <button
-            aria-label={`${value.length > 0 && kind === 'video' ? '替换' : '添加'}${label}`}
+            aria-label={`添加${label}`}
             className={cn(
               'flex ui-state cursor-pointer items-center justify-center gap-2 rounded-sm border border-dashed border-outline-variant bg-surface text-on-surface-variant ui-focus disabled:cursor-not-allowed',
               kind === 'video'
@@ -216,7 +227,7 @@ export function TaskMediaField({
               name={kind === 'video' ? 'video' : 'add'}
               size={kind === 'video' ? 'sm' : 'lg'}
             />
-            {kind === 'video' ? (value.length > 0 ? '替换参考视频' : '添加参考视频') : '添加图片'}
+            {kind === 'video' ? '添加参考视频' : '添加图片'}
           </button>
         )}
         {disabled && value.length === 0 && (
@@ -258,16 +269,62 @@ export function TaskMediaField({
   )
 }
 
-function VideoThumbnail({ url }: { url: string }) {
+/** 表单和发送预览共用；只显示素材首帧，由调用方打开完整播放器。 */
+export function TaskVideoPreview({
+  url,
+  name,
+  onOpen,
+}: {
+  url: string
+  name: string
+  onOpen: () => void
+}) {
+  const [duration, setDuration] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
-  const thumbnail = videoSnapshotUrl(url)
-  if (thumbnail === undefined || failed) return <Icon decorative name="video" size="lg" />
+  const durationLabel =
+    duration === null
+      ? null
+      : `${Math.floor(duration / 60)
+          .toString()
+          .padStart(2, '0')}:${Math.floor(duration % 60)
+          .toString()
+          .padStart(2, '0')}`
   return (
-    <img
-      alt=""
-      className="size-full object-cover"
-      onError={() => setFailed(true)}
-      src={thumbnail}
-    />
+    <button
+      aria-label={`预览${name}`}
+      className="relative block h-46 w-full cursor-zoom-in overflow-hidden rounded-sm border border-border bg-surface-container-highest ui-focus ui-focus-inline"
+      onClick={onOpen}
+      type="button"
+    >
+      <video
+        aria-hidden="true"
+        className="pointer-events-none size-full object-contain"
+        muted
+        onError={() => setFailed(true)}
+        onLoadedMetadata={(event) => {
+          const seconds = event.currentTarget.duration
+          if (Number.isFinite(seconds)) setDuration(seconds)
+        }}
+        playsInline
+        poster={videoSnapshotUrl(url)}
+        preload="metadata"
+        src={url}
+        tabIndex={-1}
+      />
+      <span className="pointer-events-none absolute inset-0 grid place-items-center">
+        <span className="grid size-11 place-items-center rounded-full bg-scrim/50 text-on-scrim">
+          <Icon decorative name="play" size="xl" />
+        </span>
+      </span>
+      {failed ? (
+        <span className="absolute right-2 bottom-2 left-2 rounded-xs bg-scrim/60 px-2 py-1 text-caption text-on-scrim">
+          视频暂时无法加载，点击打开预览
+        </span>
+      ) : durationLabel ? (
+        <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-xs bg-scrim/60 px-2 py-0.5 text-caption text-on-scrim">
+          {durationLabel}
+        </span>
+      ) : null}
+    </button>
   )
 }

@@ -7,7 +7,7 @@ import type { TaskFormState } from './task-form-state'
 type TaskInputs = Task['inputs']
 type VideoSpec = TaskInputs['video_spec']
 
-const CONTROL = 'h-(--control-height-sm) min-w-0 rounded-sm border-border px-3'
+const CONTROL = 'h-(--control-height-sm) min-w-0 rounded-sm border-border px-3 ui-focus-inline'
 const RATIO_OPTIONS: readonly NonNullable<VideoSpec['aspect_ratio']>[] = [
   '1:1',
   '3:4',
@@ -59,7 +59,7 @@ export function TaskFormFields({
     }))
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3">
       <div className="task-form-basics">
         <Field label="需求单名称" required>
           <Input
@@ -258,7 +258,7 @@ function Field({
   required?: boolean
 }) {
   return (
-    <label className="flex min-w-0 flex-col gap-2">
+    <label className="flex min-w-0 flex-col gap-1">
       <span className="text-body-sm font-medium text-on-surface">
         {label}
         {required && <span className="text-error"> *</span>}
@@ -270,7 +270,7 @@ function Field({
 
 function Section({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <section className="flex min-w-0 flex-col gap-4" aria-label={title}>
+    <section className="flex min-w-0 flex-col gap-3" aria-label={title}>
       <div className="flex items-center gap-3">
         <h3 className="shrink-0 text-body font-semibold text-on-surface">{title}</h3>
         <span className="h-px flex-1 bg-border" />
