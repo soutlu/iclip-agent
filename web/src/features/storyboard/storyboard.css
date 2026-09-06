@@ -23,7 +23,7 @@
   container: storyboard / size;
 }
 
-/* 预览有界且居中，悬浮工具不占空间，胶片条独立保留高度。 */
+/* 预览有界且居中，胶片条独立保留高度。 */
 .storyboard-stage {
   position: relative;
   display: flex;
@@ -67,29 +67,6 @@
 .storyboard-media {
   display: grid;
   place-items: center;
-}
-.storyboard-frame-tools {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  max-width: calc(100% - 16px);
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  border-radius: var(--radius-xs);
-  background: var(--color-inverse-surface);
-  color: var(--color-inverse-on-surface);
-  opacity: 0;
-  transition: opacity var(--dur-s) var(--ease-decel);
-}
-.storyboard-frame-tools > button {
-  color: inherit;
-  border-radius: var(--radius-xs);
-}
-.storyboard-media:hover .storyboard-frame-tools,
-.storyboard-media:focus-within .storyboard-frame-tools,
-.storyboard-frame-tools:has([data-state='open']) {
-  opacity: 1;
 }
 .storyboard-strip {
   display: flex;
@@ -247,14 +224,8 @@
     padding: 8px;
   }
 }
-@media (hover: none) {
-  .storyboard-frame-tools {
-    opacity: 1;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
-  .storyboard-scene,
-  .storyboard-frame-tools {
+  .storyboard-scene {
     transition: none;
   }
 }

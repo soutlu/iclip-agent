@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyFrameOp,
   frameMentions,
+  insertShotFrame,
   parsePromptDoc,
   renumberFrames,
   serializePromptDoc,
@@ -92,12 +92,6 @@ describe('parsePromptDoc / serializePromptDoc', () => {
 })
 
 describe('renumberFrames', () => {
-  it('抠掉的帧连同前面紧贴的一个空格一起走', () => {
-    const doc = parsePromptDoc('走向镜头 @Image1，停下 @Image2。')
-    const next = renumberFrames(doc, (n) => (n === 1 ? null : n - 1))
-    expect(serializePromptDoc(next)).toBe('走向镜头，停下 @Image1。')
-  })
-
   it('修改同行正文的帧引用后保留头与正文的空白和换行', () => {
     const doc = parsePromptDoc('  [0–2秒｜镜头1]\t 开场 @Image1。\n[2–6秒｜镜头2]收尾 @Image2。\n')
     const next = renumberFrames(doc, (n) => (n === 1 ? 2 : 1))
@@ -115,47 +109,19 @@ const shot: Shot = {
   seconds: 11,
 }
 
-describe('applyFrameOp', () => {
-  it('replace 只换地址，prompt 一字不动', () => {
-    const next = applyFrameOp(shot, { n: 2, type: 'replace', url: 'z' })
-    expect(next.imageUrls).toEqual(['a', 'z', 'c'])
-    expect(next.prompt).toBe(shot.prompt)
-  })
-
-  it('remove 抠掉记号并把后面的编号前移', () => {
-    const next = applyFrameOp(shot, { n: 2, type: 'remove' })
-    expect(next.imageUrls).toEqual(['a', 'c'])
-    expect(next.prompt).toBe(
-      '[0–4秒｜镜头1]\n她走向镜头 @Image1，脚步放慢。\n[4–11秒｜镜头2]\n停下微笑，看包 @Image2。',
-    )
-  })
-
-  it('move 交换地址并把夹在中间的编号顺移', () => {
-    const next = applyFrameOp(shot, { n: 1, to: 3, type: 'move' })
-    expect(next.imageUrls).toEqual(['b', 'c', 'a'])
-    expect(next.prompt).toBe(
-      '[0–4秒｜镜头1]\n她走向镜头 @Image3，脚步放慢。\n[4–11秒｜镜头2]\n停下微笑 @Image1，看包 @Image2。',
-    )
-  })
-
+describe('insertShotFrame', () => {
   it('insert 把新帧塞进位置，记号追加到指定段的末行', () => {
-    const next = applyFrameOp(shot, { after: 1, sectionIndex: 1, type: 'insert', url: 'n' })
+    const next = insertShotFrame(shot, { after: 1, sectionIndex: 1, url: 'n' })
     expect(next.imageUrls).toEqual(['a', 'n', 'b', 'c'])
     expect(next.prompt).toBe(
       '[0–4秒｜镜头1]\n她走向镜头 @Image1，脚步放慢。 @Image2\n[4–11秒｜镜头2]\n停下微笑 @Image3，看包 @Image4。',
     )
   })
 
-  it('越界的编号原样返回', () => {
-    expect(applyFrameOp(shot, { n: 9, type: 'remove' })).toBe(shot)
-  })
-
-  it.each([
-    ['remove', { n: 3, type: 'remove' } as const],
-    ['move', { n: 3, to: 1, type: 'move' } as const],
-    ['insert', { after: 0, sectionIndex: 2, type: 'insert', url: 'n' } as const],
-  ])('%s 之后仍过得了形状预检', (_name, op) => {
-    expect(validateShot(applyFrameOp(shot, op))).toBeUndefined()
+  it('插入首帧之后仍过得了形状预检', () => {
+    expect(
+      validateShot(insertShotFrame(shot, { after: 0, sectionIndex: 2, url: 'n' })),
+    ).toBeUndefined()
   })
 })
 

@@ -277,7 +277,6 @@ describe('StoryboardPanel', () => {
     expect(within(page).getByRole('button', { name: '上一帧' })).toBeDisabled()
     expect(within(page).getByRole('button', { name: '下一帧' })).toBeDisabled()
     if (imageUrls.length === 0) {
-      expect(within(page).getByRole('button', { name: '删掉这一帧' })).toBeDisabled()
       expect(within(page).queryByRole('button', { name: '预览第 1 帧' })).not.toBeInTheDocument()
     } else {
       expect(within(page).getByRole('button', { name: '预览第 1 帧' })).toHaveAttribute(
@@ -285,34 +284,6 @@ describe('StoryboardPanel', () => {
         'true',
       )
     }
-  })
-
-  it('删除当前镜头首帧后，下一张递补首帧且仍关联当前镜头', async () => {
-    seedMockWorkspace(CONVERSATION_ID)
-    const { router } = await renderPanel('/?shot=2&frame=2')
-    const page = await screen.findByRole('region', { name: '镜头组 2' })
-    const scene = within(sceneNavigation(page)).getByRole('group', { name: '镜头 2' })
-    const nextFrameUrl = within(scene)
-      .getByRole('button', { name: '预览第 3 帧' })
-      .querySelector('img')
-      ?.getAttribute('src')
-
-    await userEvent.click(within(page).getByRole('button', { name: '删掉这一帧' }))
-
-    await waitFor(() => expect(router.state.location.search).toEqual({ frame: 2, shot: 2 }))
-    expect(scene).toHaveAttribute('aria-current', 'true')
-    expect(within(scene).getAllByRole('button')).toHaveLength(1)
-    expect(
-      within(scene).getByRole('button', { name: '预览第 2 帧' }).querySelector('img'),
-    ).toHaveAttribute('src', nextFrameUrl)
-    expect(within(page).getByRole('img', { name: '镜头组 2 第 2 帧' })).toHaveAttribute(
-      'src',
-      nextFrameUrl,
-    )
-    expect(within(page).getByRole('textbox', { name: '镜头 2 的描述' })).toHaveTextContent(
-      '再低头看一眼包 @2',
-    )
-    expect(await screen.findByText('已保存', undefined, { timeout: 3000 })).toBeVisible()
   })
 
   it('无帧镜头可选中查看描述，未关联图片仍可独立预览且不沿用别的镜头正文', async () => {
@@ -336,7 +307,6 @@ describe('StoryboardPanel', () => {
       '这里只有旁白。',
     )
     expect(within(page).queryByRole('img', { name: '镜头组 1 第 1 帧' })).not.toBeInTheDocument()
-    expect(within(page).getByRole('button', { name: '删掉这一帧' })).toBeDisabled()
 
     await userEvent.click(within(navigation).getByRole('button', { name: '预览第 2 帧' }))
     expect(within(page).getByRole('img', { name: '镜头组 1 第 2 帧' })).toHaveAttribute(

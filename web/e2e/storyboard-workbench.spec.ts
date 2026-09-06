@@ -201,7 +201,7 @@ test('agent 改了文件：重读之后描述更新并标出改动', async ({ pa
   await expect(panel.getByText('agent 刚改过')).toBeVisible()
 })
 
-test('在工作台里换帧并修改当前镜头描述：停手即存', async ({ page }) => {
+test('在工作台底部加帧并修改当前镜头描述：停手即存', async ({ page }) => {
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
@@ -214,10 +214,12 @@ test('在工作台里换帧并修改当前镜头描述：停手即存', async ({
   await panel.getByRole('button', { name: '第 2 组' }).click()
   const shot2 = panel.getByRole('region', { name: '镜头组 2' })
 
-  await shot2.getByRole('button', { name: '替换这一帧' }).click()
-  const picker = page.getByRole('dialog', { name: '替换这一帧' })
+  await shot2.getByRole('button', { name: '加一帧' }).click()
+  const picker = page.getByRole('dialog', { name: '加一帧' })
   await picker.getByRole('button', { name: '选 S3-1' }).click()
   await expect(picker).toBeHidden()
+  await expect(page).toHaveURL(/frame=2/)
+  await expect(shot2.getByRole('img', { name: '镜头组 2 第 2 帧' })).toBeVisible()
 
   const editor = shot2.getByRole('textbox', { name: '镜头 1 的描述' })
   await editor.click()

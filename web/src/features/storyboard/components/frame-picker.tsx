@@ -4,11 +4,8 @@ import { Button } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import type { FrameCandidate } from '../storyboard.api'
 
-export type FramePickerMode = 'replace' | 'insert'
-
 type FramePickerProps = {
-  /** null 表示关闭。 */
-  mode: FramePickerMode | null
+  open: boolean
   candidates: readonly FrameCandidate[]
   /** 标记当前组已使用的帧，避免重复选择。 */
   inUse: readonly string[]
@@ -20,17 +17,16 @@ type FramePickerProps = {
 export function FramePicker({
   candidates,
   inUse,
-  mode,
   onClose,
   onPick,
   onUpload,
+  open,
 }: FramePickerProps) {
   const uploadRef = useRef<HTMLInputElement | null>(null)
-  const title = mode === 'insert' ? '加一帧' : '替换这一帧'
 
   return (
-    <DialogRoot onOpenChange={(open) => !open && onClose()} open={mode !== null}>
-      <DialogSurface aria-label={title}>
+    <DialogRoot onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
+      <DialogSurface aria-label="加一帧">
         <DialogHeader
           actions={
             <>
@@ -57,7 +53,7 @@ export function FramePicker({
             </>
           }
           closeLabel="关闭"
-          title={title}
+          title="加一帧"
         >
           从这段对话生成过的帧里选一张，或者上传一张。
         </DialogHeader>
