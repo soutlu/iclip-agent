@@ -227,7 +227,7 @@ class Unsubscribe(_Envelope):
 
 
 class WatchFsPayload(_Envelope):
-    """订一段对话里的几个路径。路径是目录时 ``recursive`` 决定只看直接子项还是整棵。"""
+    """订一段对话里的几个路径。路径是目录时 ``recursive`` 决定只看直接子项还是整棵；空串是工作区根。"""
 
     session_id: str
     paths: tuple[str, ...]
