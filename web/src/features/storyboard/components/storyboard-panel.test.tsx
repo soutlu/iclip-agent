@@ -1,9 +1,9 @@
 /** 单测通过页码与键盘验证查询参数同步，真实滚轮与 scroll-snap 行为由 e2e 覆盖。 */
 
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Toaster } from '@/shared/ui/toast'
 import { workspaceQueryKeys, type ArtifactRendererProps } from '@/shared/workbench'
 import { pasteTextIntoComposer } from '@/testing/editor'
@@ -35,6 +35,14 @@ const editDescription = (editor: HTMLElement, text = '镜头缓慢推进。') =>
 const sceneNavigation = (page: HTMLElement) =>
   within(page).getByRole('navigation', { name: '本组镜头' })
 
+const imageFile = () => new File(['image bytes'], '新帧.png', { type: 'image/png' })
+
+const dragImages = (files: readonly File[]) => ({
+  files,
+  items: files.map((file) => ({ kind: 'file', type: file.type })),
+  types: ['Files'],
+})
+
 const provideDocument = (document: ShotsDocument) => {
   server.use(
     http.get('*/api/conversations/:conversationId/workspace/file', () =>
@@ -46,6 +54,18 @@ const provideDocument = (document: ShotsDocument) => {
 }
 
 describe('StoryboardPanel', () => {
+  beforeEach(() => {
+    vi.stubGlobal('createImageBitmap', async () => ({
+      close: () => {},
+      height: 800,
+      width: 600,
+    }))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('常态只保留生成记录与导航入口，不展示组统计、状态和时长输入', async () => {
     seedMockWorkspace(CONVERSATION_ID)
     await renderPanel()
@@ -464,90 +484,99 @@ describe('StoryboardPanel', () => {
     expect(screen.queryByText('agent 刚改过')).not.toBeInTheDocument()
   })
 
-  it.each(['选择候选帧', '上传图片'])(
-    '%s 只替换当前帧，原样保存描述、其他帧和其他组',
-    async (source) => {
-      seedMockWorkspace(CONVERSATION_ID)
-      let original: ShotsDocument | undefined
-      let replacementUrl: string | null | undefined
-      let written: { expectedVersion?: number; content?: string } = {}
-      server.events.on('response:mocked', ({ request, response }) => {
-        if (request.method === 'GET' && request.url.includes(`path=${SHOTS_MOCK_PATH}`)) {
-          void response
-            .clone()
-            .json()
-            .then((body: { file: { content: string } }) => {
-              original ??= JSON.parse(body.file.content) as ShotsDocument
-            })
-        }
-        if (request.method === 'POST' && request.url.includes('/api/assets/')) {
-          void response
-            .clone()
-            .json()
-            .then((body: { asset: { url: string } }) => {
-              replacementUrl = body.asset.url
-            })
-        }
-      })
-      server.events.on('request:start', ({ request }) => {
-        if (request.method === 'PUT' && request.url.includes('/workspace/file')) {
-          void request
-            .clone()
-            .json()
-            .then((body: { expectedVersion: number; content: string }) => {
-              written = body
-            })
-        }
-      })
-      const { router } = await renderPanel('/?shot=2&frame=2')
-      const page = await screen.findByRole('region', { name: '镜头组 2' })
-      const originalUrl = within(page)
-        .getByRole('img', { name: '镜头组 2 第 2 帧' })
-        .getAttribute('src')
-      await userEvent.click(within(page).getByRole('button', { name: '替换图片' }))
-      await userEvent.click(
-        within(screen.getByRole('dialog', { name: '替换图片' })).getByRole('button', {
-          name: '关闭',
-        }),
-      )
-      expect(within(page).getByRole('img', { name: '镜头组 2 第 2 帧' })).toHaveAttribute(
-        'src',
-        originalUrl,
-      )
-      expect(written.content).toBeUndefined()
-
-      await userEvent.click(within(page).getByRole('button', { name: '替换图片' }))
-      const picker = screen.getByRole('dialog', { name: '替换图片' })
-      if (source === '上传图片') {
-        await userEvent.upload(
-          within(picker).getByLabelText('选择要上传的图片'),
-          new File(['replacement'], '新帧.png', { type: 'image/png' }),
-        )
-      } else {
-        const candidate = await within(picker).findByRole('button', { name: '选 S3-1' })
-        replacementUrl = candidate.querySelector('img')?.getAttribute('src')
-        await userEvent.click(candidate)
+  it('拖放上传期间继续编辑描述，完成后只替换当前帧并保留最新内容', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    let replacementUrl: string | undefined
+    let written: { expectedVersion?: number; content?: string } = {}
+    let finishUpload = () => {}
+    const uploadPending = new Promise<void>((resolve) => {
+      finishUpload = resolve
+    })
+    server.use(
+      http.put('*/mock-oss/:assetId', async () => {
+        await uploadPending
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    server.events.on('response:mocked', ({ request, response }) => {
+      if (request.method === 'POST' && request.url.includes('/api/assets/')) {
+        void response
+          .clone()
+          .json()
+          .then((body: { asset: { url: string } }) => {
+            replacementUrl = body.asset.url
+          })
       }
+    })
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'PUT' && request.url.includes('/workspace/file')) {
+        void request
+          .clone()
+          .json()
+          .then((body: { expectedVersion: number; content: string }) => {
+            written = body
+          })
+      }
+    })
+    const { router } = await renderPanel('/?shot=2&frame=2')
+    const page = await screen.findByRole('region', { name: '镜头组 2' })
+    const preview = within(page).getByRole('img', { name: '镜头组 2 第 2 帧' })
+    const originalUrl = preview.getAttribute('src')
+    const imageArea = within(page).getByRole('group', { name: '当前帧图片' })
+    const dataTransfer = dragImages([imageFile()])
+    fireEvent.dragEnter(imageArea, { dataTransfer })
+    expect(within(page).getByText('松开替换当前图片')).toBeVisible()
+    fireEvent.drop(imageArea, { dataTransfer })
+    expect(within(page).queryByText('松开替换当前图片')).not.toBeInTheDocument()
+    expect(await within(page).findByRole('status')).toHaveTextContent('正在上传…')
+    expect(preview).toHaveAttribute('src', originalUrl)
 
-      expect(await screen.findByText('已保存', undefined, { timeout: 3000 })).toBeVisible()
-      expect(written.expectedVersion).toBe(1)
-      expect(original).toBeDefined()
-      expect(replacementUrl).toBeTruthy()
-      const saved = JSON.parse(written.content ?? '{}') as ShotsDocument
-      expect(saved).toEqual({
-        ...original,
-        shots: original?.shots.map((shot) =>
-          shot.index === 2
-            ? { ...shot, imageUrls: [shot.imageUrls[0], replacementUrl, shot.imageUrls[2]] }
-            : shot,
-        ),
+    editDescription(within(page).getByRole('textbox', { name: '镜头 2 的描述' }))
+    await screen.findByText('已保存', undefined, { timeout: 3000 })
+    const edited = JSON.parse(written.content ?? '{}') as ShotsDocument
+    expect(edited.shots[1]?.prompt).toContain('镜头缓慢推进。')
+    finishUpload()
+
+    await waitFor(() => expect(written.expectedVersion).toBe(2), { timeout: 3000 })
+    expect(await screen.findByText('已保存', undefined, { timeout: 3000 })).toBeVisible()
+    expect(replacementUrl).toBeTruthy()
+    const saved = JSON.parse(written.content ?? '{}') as ShotsDocument
+    expect(saved).toEqual({
+      ...edited,
+      shots: edited.shots.map((shot) =>
+        shot.index === 2
+          ? { ...shot, imageUrls: [shot.imageUrls[0], replacementUrl, shot.imageUrls[2]] }
+          : shot,
+      ),
+    })
+    expect(router.state.location.search).toEqual({ frame: 2, shot: 2 })
+  })
+
+  it.each([
+    { files: [new File(['text'], '说明.txt', { type: 'text/plain' })], name: '非图片' },
+    { files: [imageFile(), imageFile()], name: '多张图片' },
+  ])('拖入$name 不上传也不修改当前图片', async ({ files }) => {
+    seedMockWorkspace(CONVERSATION_ID)
+    let uploads = 0
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'POST' && request.url.includes('/uploads/sign')) uploads += 1
+    })
+    await renderPanel('/?shot=2&frame=2')
+    const page = await screen.findByRole('region', { name: '镜头组 2' })
+    const preview = within(page).getByRole('img', { name: '镜头组 2 第 2 帧' })
+    const originalUrl = preview.getAttribute('src')
+    await act(async () => {
+      fireEvent.drop(within(page).getByRole('group', { name: '当前帧图片' }), {
+        dataTransfer: dragImages(files),
       })
-      expect(router.state.location.search).toEqual({ frame: 2, shot: 2 })
-      expect(screen.queryByRole('dialog', { name: '替换图片' })).not.toBeInTheDocument()
-    },
-  )
+    })
 
-  it('替换图片上传失败时保留原图和选择框，显示错误且不保存', async () => {
+    expect(uploads).toBe(0)
+    expect(preview).toHaveAttribute('src', originalUrl)
+    expect(within(page).queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('本地替换图片上传失败时保留原图，显示错误且不保存', async () => {
     seedMockWorkspace(CONVERSATION_ID)
     let writes = 0
     server.use(http.put('*/mock-oss/:assetId', () => new HttpResponse(null, { status: 503 })))
@@ -564,22 +593,44 @@ describe('StoryboardPanel', () => {
     const page = await screen.findByRole('region', { name: '镜头组 2' })
     const preview = within(page).getByRole('img', { name: '镜头组 2 第 2 帧' })
     const originalUrl = preview.getAttribute('src')
-    await userEvent.click(within(page).getByRole('button', { name: '替换图片' }))
-    const picker = screen.getByRole('dialog', { name: '替换图片' })
-    await userEvent.upload(
-      within(picker).getByLabelText('选择要上传的图片'),
-      new File(['replacement'], '新帧.png', { type: 'image/png' }),
-    )
+    await userEvent.upload(within(page).getByLabelText('选择替换图片'), imageFile())
 
     expect(await screen.findByText('上传失败：503')).toBeVisible()
-    expect(picker).toBeVisible()
     expect(preview).toHaveAttribute('src', originalUrl)
     expect(writes).toBe(0)
   })
 
-  it('上传期间关闭替换弹窗后，迟到的上传成功不修改原图也不保存', async () => {
+  it('新图保存失败时保留草稿预览，重试保存后完成落盘', async () => {
     seedMockWorkspace(CONVERSATION_ID)
-    let uploadStarted = false
+    let writes = 0
+    server.use(
+      http.put('*/api/conversations/:id/workspace/file', () =>
+        HttpResponse.json({ detail: '暂时无法保存' }, { status: 503 }),
+      ),
+    )
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'PUT' && request.url.includes('/workspace/file')) writes += 1
+    })
+    await renderPanel('/?shot=2&frame=2')
+    const page = await screen.findByRole('region', { name: '镜头组 2' })
+    const preview = () => within(page).getByRole('img', { name: '镜头组 2 第 2 帧' })
+    await userEvent.upload(within(page).getByLabelText('选择替换图片'), imageFile())
+
+    const retry = await screen.findByRole('button', { name: '重试保存' }, { timeout: 3000 })
+    expect(preview()).toHaveAttribute('src', expect.stringContaining('/mock-oss/'))
+    const replacementUrl = preview().getAttribute('src')
+    expect(writes).toBe(1)
+    server.resetHandlers()
+    await userEvent.click(retry)
+
+    expect(await screen.findByText('已保存', undefined, { timeout: 3000 })).toBeVisible()
+    expect(writes).toBe(2)
+    expect(preview()).toHaveAttribute('src', replacementUrl)
+  })
+
+  it('上传期间切换帧后，迟到的上传成功不修改任何帧也不保存', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    let uploads = 0
     let writes = 0
     let finishUpload = () => {}
     const uploadPending = new Promise<void>((resolve) => {
@@ -587,7 +638,7 @@ describe('StoryboardPanel', () => {
     })
     server.use(
       http.put('*/mock-oss/:assetId', async () => {
-        uploadStarted = true
+        uploads += 1
         await uploadPending
         return new HttpResponse(null, { status: 200 })
       }),
@@ -607,24 +658,34 @@ describe('StoryboardPanel', () => {
     })
     await renderPanel('/?shot=2&frame=2')
     const page = await screen.findByRole('region', { name: '镜头组 2' })
-    const preview = within(page).getByRole('img', { name: '镜头组 2 第 2 帧' })
-    const originalUrl = preview.getAttribute('src')
-    await userEvent.click(within(page).getByRole('button', { name: '替换图片' }))
-    const picker = screen.getByRole('dialog', { name: '替换图片' })
-    await userEvent.upload(
-      within(picker).getByLabelText('选择要上传的图片'),
-      new File(['replacement'], '新帧.png', { type: 'image/png' }),
-    )
-    await waitFor(() => expect(uploadStarted).toBe(true))
-    await userEvent.click(within(picker).getByRole('button', { name: '关闭' }))
+    const originalUrl = within(page)
+      .getByRole('img', { name: '镜头组 2 第 2 帧' })
+      .getAttribute('src')
+    await userEvent.upload(within(page).getByLabelText('选择替换图片'), imageFile())
+    await waitFor(() => expect(uploads).toBe(1))
+    expect(within(page).getByRole('status')).toHaveTextContent('正在上传…')
+    expect(within(page).getByRole('button', { name: '替换图片' })).toBeDisabled()
+    fireEvent.drop(within(page).getByRole('group', { name: '当前帧图片' }), {
+      dataTransfer: dragImages([imageFile()]),
+    })
+    await userEvent.click(within(page).getByRole('button', { name: '下一帧' }))
+    const nextUrl = within(page).getByRole('img', { name: '镜头组 2 第 3 帧' }).getAttribute('src')
 
     await act(async () => {
       finishUpload()
       await uploadCompleted
     })
 
-    expect(screen.queryByRole('dialog', { name: '替换图片' })).not.toBeInTheDocument()
-    expect(preview).toHaveAttribute('src', originalUrl)
+    expect(within(page).getByRole('img', { name: '镜头组 2 第 3 帧' })).toHaveAttribute(
+      'src',
+      nextUrl,
+    )
+    await userEvent.click(within(page).getByRole('button', { name: '上一帧' }))
+    expect(within(page).getByRole('img', { name: '镜头组 2 第 2 帧' })).toHaveAttribute(
+      'src',
+      originalUrl,
+    )
+    expect(uploads).toBe(1)
     expect(writes).toBe(0)
   })
 

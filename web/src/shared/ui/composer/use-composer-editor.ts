@@ -1,4 +1,4 @@
-/** 编辑器处理键盘、粘贴与 NodeView；外层 window 处理文件拖放插入。文档变化后同步附件引用，确保条目随文档回收。 */
+/** 编辑器处理键盘、粘贴、局部拖放与 NodeView；外层 window 接收其他区域的文件拖放。文档变化后同步附件引用，确保条目随文档回收。 */
 
 import { baseKeymap } from 'prosemirror-commands'
 import { history, redo, undo } from 'prosemirror-history'
@@ -107,9 +107,6 @@ export const useComposerEditor = ({
     view.focus()
   }
 
-  const posAtCoords = (clientX: number, clientY: number): number | undefined =>
-    viewRef.current?.posAtCoords({ left: clientX, top: clientY })?.pos
-
   /** 清空文档后由 syncReferences 回收附件条目。 */
   const clearDoc = () => {
     const view = viewRef.current
@@ -195,10 +192,19 @@ export const useComposerEditor = ({
         insertFilesRef.current(files)
         return true
       },
-      handleDrop(_view, event) {
+      handleDrop(view, event) {
         if (!attachmentsEnabledRef.current) return false
-        if (event.dataTransfer?.types.includes('Files') !== true) return false
+        const { dataTransfer } = event
+        if (dataTransfer?.types.includes('Files') !== true) return false
         event.preventDefault()
+        const items = [...dataTransfer.items]
+        const files = [...dataTransfer.files].filter(
+          (_file, index) => items[index]?.webkitGetAsEntry()?.isDirectory !== true,
+        )
+        if (files.length > 0) {
+          const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
+          insertFilesRef.current(files, pos)
+        }
         return true
       },
       nodeViews: {
@@ -248,7 +254,6 @@ export const useComposerEditor = ({
     focusEditor,
     insertFiles,
     mountEditor,
-    posAtCoords,
     restoreDoc,
     viewRef,
   }

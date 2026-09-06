@@ -132,12 +132,16 @@ export function Composer({
     const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') === true
     const onDragEnter = (event: DragEvent) => {
       if (!hasFiles(event)) return
-      event.preventDefault()
       depth += 1
-      setDragOver(true)
+      setDragOver(!event.defaultPrevented)
+      if (event.defaultPrevented) return
+      event.preventDefault()
     }
     const onDragOver = (event: DragEvent) => {
       if (!hasFiles(event)) return
+      // 局部拖放区域用 preventDefault 接管文件，聊天入口让出遮罩与上传。
+      setDragOver(!event.defaultPrevented)
+      if (event.defaultPrevented) return
       event.preventDefault() // dragover 必须 preventDefault 才能接收 drop。
     }
     const onDragLeave = (event: DragEvent) => {
@@ -146,10 +150,10 @@ export function Composer({
       if (depth === 0) setDragOver(false)
     }
     const onDrop = (event: DragEvent) => {
-      if (!hasFiles(event)) return
-      event.preventDefault()
       depth = 0
       setDragOver(false)
+      if (event.defaultPrevented || !hasFiles(event)) return
+      event.preventDefault()
       const { dataTransfer } = event
       if (dataTransfer === null) return
       const items = [...dataTransfer.items]
@@ -158,12 +162,7 @@ export function Composer({
         (_file, index) => items[index]?.webkitGetAsEntry()?.isDirectory !== true,
       )
       if (files.length === 0) return
-      const editorDom = editorRef.current.viewRef.current?.dom
-      const pos =
-        editorDom !== undefined && event.target instanceof Node && editorDom.contains(event.target)
-          ? editorRef.current.posAtCoords(event.clientX, event.clientY)
-          : undefined
-      editorRef.current.insertFiles(files, pos)
+      editorRef.current.insertFiles(files)
     }
     window.addEventListener('dragenter', onDragEnter)
     window.addEventListener('dragover', onDragOver)

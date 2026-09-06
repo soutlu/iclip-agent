@@ -121,9 +121,35 @@ export const useFrameCandidates = (conversationId: string) => {
   })
 }
 
+const FRAME_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+export const FRAME_IMAGE_ACCEPT = FRAME_IMAGE_TYPES.join(',')
+
+/** 与素材上传限制一致；文件选择和拖放共用，实际尺寸在解码后校验。 */
+const validateFrameImageFile = (file: File): void => {
+  if (!FRAME_IMAGE_TYPES.includes(file.type)) {
+    throw new Error('请选择 JPEG、PNG 或 WebP 图片')
+  }
+  if (file.size > 16 * 1024 * 1024) {
+    throw new Error('图片不能超过 16 MiB')
+  }
+}
+
+/** 上传并登记本地图片，返回可用于分镜引用的素材地址。 */
 export const uploadFrameImage = async (file: File): Promise<string> => {
+  validateFrameImageFile(file)
+  let bitmap: ImageBitmap
+  try {
+    bitmap = await createImageBitmap(file)
+  } catch (cause) {
+    throw new Error('无法读取图片，请选择有效的图片文件', { cause })
+  }
+  const { width, height } = bitmap
+  bitmap.close()
+  if (Math.min(width, height) < 300 || Math.max(width, height) > 6000) {
+    throw new Error('图片短边至少 300 像素，长边不能超过 6000 像素')
+  }
   const ticket = await apiFetch('/uploads/sign', zUploadTicketOut, {
-    body: { contentType: file.type, height: null, width: null },
+    body: { contentType: file.type, height, width },
     fallbackErrorMessage: '上传失败',
     method: 'POST',
   })

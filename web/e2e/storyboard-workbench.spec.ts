@@ -1,8 +1,29 @@
-import { expect, test } from '@playwright/test'
+/// <reference lib="dom" />
+
+import { expect, test, type Page } from '@playwright/test'
 import { login } from './login'
 
 // 在浏览器验证 scroll-snap 翻组；视口需容纳 264px 侧栏、400px 聊天和 560px 面板。
 test.use({ viewport: { height: 900, width: 1600 } })
+
+const framePng = async (page: Page) => {
+  const base64 = await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 600
+    canvas.height = 800
+    const context = canvas.getContext('2d')
+    if (context === null) throw new Error('测试图片需要 Canvas 2D')
+    context.fillStyle = '#dfe8dd'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    context.fillStyle = '#23503e'
+    context.fillRect(70, 180, 460, 440)
+    context.font = '36px sans-serif'
+    context.fillStyle = '#ffffff'
+    context.fillText('Local frame', 180, 420)
+    return canvas.toDataURL('image/png').split(',')[1] ?? ''
+  })
+  return Buffer.from(base64, 'base64')
+}
 
 test('点开有分镜的对话：滚轮翻到第 2 组，看生成记录，点镜头缩略图切帧', async ({ page }) => {
   await page.goto('/')
@@ -120,32 +141,38 @@ test('短桌面中首帧卡片在原位展开，预览与底部导航均完整�
   await expect(firstFrame).toHaveAttribute('aria-pressed', 'true')
 })
 
-test('移动端选中的末帧和替换图片弹窗完整显示在视口内', async ({ page }) => {
-  await page.setViewportSize({ height: 844, width: 390 })
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-  await page.getByRole('button', { name: '打开右侧面板' }).click()
+test.describe('移动触屏分镜', () => {
+  test.use({ hasTouch: true, isMobile: true })
 
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
-  await panel.getByRole('button', { name: '第 2 组' }).click()
-  const group = panel.getByRole('region', { name: '镜头组 2' })
-  const navigation = group.getByRole('navigation', { name: '本组镜头' })
-  await navigation.getByRole('button', { name: '镜头 2', exact: true }).click()
-  const lastFrame = navigation.getByRole('button', { name: '预览第 3 帧' })
-  await lastFrame.click()
+  test('选中的末帧完整显示，替换图标可直接点开文件选择器', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 })
+    await page.goto('/')
+    await login(page)
+    await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+    await page.getByRole('button', { name: '打开右侧面板' }).click()
 
-  await expect(lastFrame).toHaveAttribute('aria-pressed', 'true')
-  await expect(lastFrame).toBeInViewport({ ratio: 1 })
-  await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeVisible()
-  await expect(navigation).toBeInViewport({ ratio: 1 })
-  await expect(group.getByRole('button', { name: '加一帧' })).toBeInViewport({ ratio: 1 })
-  await expect(group.getByRole('button', { name: '全部分镜' })).toBeInViewport({ ratio: 1 })
+    const panel = page.getByRole('complementary', { name: '右侧面板' })
+    await panel.getByRole('button', { name: '第 2 组' }).click()
+    const group = panel.getByRole('region', { name: '镜头组 2' })
+    const navigation = group.getByRole('navigation', { name: '本组镜头' })
+    await navigation.getByRole('button', { name: '镜头 2', exact: true }).click()
+    const lastFrame = navigation.getByRole('button', { name: '预览第 3 帧' })
+    await lastFrame.click()
 
-  await group.getByRole('button', { name: '替换图片' }).click()
-  const picker = page.getByRole('dialog', { name: '替换图片' })
-  await expect(picker).toBeInViewport({ ratio: 1 })
-  await expect(picker.getByRole('button', { name: '上传图片' })).toBeInViewport({ ratio: 1 })
+    await expect(lastFrame).toHaveAttribute('aria-pressed', 'true')
+    await expect(lastFrame).toBeInViewport({ ratio: 1 })
+    await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeVisible()
+    await expect(navigation).toBeInViewport({ ratio: 1 })
+    await expect(group.getByRole('button', { name: '加一帧' })).toBeInViewport({ ratio: 1 })
+    await expect(group.getByRole('button', { name: '全部分镜' })).toBeInViewport({ ratio: 1 })
+
+    const replaceImage = group.getByRole('button', { name: '替换图片' })
+    await expect(replaceImage).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: '../.artifacts/design-qa/storyboard-replace-touch.png' })
+    const fileChooserOpened = page.waitForEvent('filechooser')
+    await replaceImage.tap()
+    await fileChooserOpened
+  })
 })
 
 // MSW 会话随整页加载清空，无法直接验证带参数刷新；此处验证程序化跳页不被中间滚动事件覆盖。
@@ -206,7 +233,7 @@ test('agent 改了文件：重读之后描述更新并标出改动', async ({ pa
   await expect(panel.getByText('agent 刚改过')).toBeVisible()
 })
 
-test('替换当前预览图后继续编辑镜头描述：保留当前帧并自动保存', async ({ page }) => {
+test('替换图标与拖放都可上传本地图片，保持当前帧并可继续编辑', async ({ page }) => {
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
@@ -224,19 +251,55 @@ test('替换当前预览图后继续编辑镜头描述：保留当前帧并自�
     .getByRole('button', { name: '镜头 2', exact: true })
     .click()
   await expect(page).toHaveURL(/frame=2/)
-  await shot2.getByRole('button', { name: '替换图片' }).click()
-  const picker = page.getByRole('dialog', { name: '替换图片' })
-  const candidate = picker.getByRole('button', { name: '选 S3-1' })
-  const replacementUrl = await candidate.locator('img').getAttribute('src')
-  expect(replacementUrl).not.toBeNull()
-  await candidate.click()
-  await expect(picker).toBeHidden()
+  const preview = shot2.getByRole('img', { name: '镜头组 2 第 2 帧' })
+  const imageArea = shot2.getByRole('group', { name: '当前帧图片' })
+  const png = await framePng(page)
+  await page.context().route('http://localhost/mock-oss/**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ body: png, contentType: 'image/png' })
+    } else {
+      await route.continue()
+    }
+  })
+  await preview.hover()
+  const replaceImage = shot2.getByRole('button', { name: '替换图片' })
+  await expect(replaceImage).toBeInViewport({ ratio: 1 })
+  await page.screenshot({ path: '../.artifacts/design-qa/storyboard-replace-hover.png' })
+  await replaceImage.focus()
+  await expect(replaceImage).toBeFocused()
+  const fileChooserOpened = page.waitForEvent('filechooser')
+  await page.keyboard.press('Enter')
+  const fileChooser = await fileChooserOpened
+  await fileChooser.setFiles({ buffer: png, mimeType: 'image/png', name: '新帧.png' })
   await expect(page).toHaveURL(/frame=2/)
-  await expect(shot2.getByRole('img', { name: '镜头组 2 第 2 帧' })).toHaveAttribute(
-    'src',
-    replacementUrl ?? '',
-  )
+  await expect(preview).toHaveAttribute('src', /\/mock-oss\//)
+  await expect(preview).toHaveJSProperty('naturalWidth', 600)
   await expect(panel.getByText('已保存')).toBeVisible({ timeout: 5_000 })
+  const uploadedUrl = await preview.getAttribute('src')
+
+  const dataTransfer = await page.evaluateHandle((bytes) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([new Uint8Array(bytes)], '拖入帧.png', { type: 'image/png' }))
+    return transfer
+  }, Array.from(png))
+  await imageArea.dispatchEvent('dragenter', { dataTransfer })
+  await expect(imageArea.getByText('松开替换当前图片')).toBeVisible()
+  await expect(page.getByText('松开鼠标添加附件')).toBeHidden()
+  await page.screenshot({ path: '../.artifacts/design-qa/storyboard-replace-drop.png' })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/storyboard-replace-drop-dark.png',
+  })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await imageArea.dispatchEvent('drop', { dataTransfer })
+  await expect(preview).not.toHaveAttribute('src', uploadedUrl ?? '')
+  await expect(preview).toHaveAttribute('src', /\/mock-oss\//)
+  await expect(preview).toHaveJSProperty('naturalWidth', 600)
+  await expect(page).toHaveURL(/frame=2/)
+  await expect(panel.getByText('已保存')).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByText('拖入帧.png', { exact: true })).toBeHidden()
+  await dataTransfer.dispose()
 
   const editor = shot2.getByRole('textbox', { name: '镜头 2 的描述' })
   await editor.click()

@@ -16,6 +16,7 @@ import {
 import { aspectRatioStyle, parseSceneHeader, shotName, type Shot } from '../shots'
 import type { FrameCandidate } from '../storyboard.api'
 import { FramePicker } from './frame-picker'
+import { FramePreview } from './frame-preview'
 import { PromptEditor } from './prompt-editor'
 import { ShotFilmstrip } from './shot-filmstrip'
 
@@ -25,6 +26,7 @@ type ShotPageProps = {
   frameNumber: number
   onPickFrame: (frame: number) => void
   onChangeShot: (next: Shot) => void
+  onReplaceFrame: (frame: number, previousUrl: string, url: string) => void
   candidates: readonly FrameCandidate[]
   onUploadFrame: (file: File) => Promise<string>
   onGenerateVideo: () => void
@@ -58,11 +60,12 @@ export function ShotPage({
   onGenerateVideo,
   onOpenAllShots,
   onPickFrame,
+  onReplaceFrame,
   onUploadFrame,
   shot,
 }: ShotPageProps) {
   const [zoomed, setZoomed] = useState<LightboxMedia | null>(null)
-  const [pickerMode, setPickerMode] = useState<'insert' | 'replace' | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const uploadRevisionRef = useRef(0)
   const [sceneSelection, setSceneSelection] = useState<{
     index: number
@@ -71,12 +74,6 @@ export function ShotPage({
   } | null>(null)
   const doc = parsePromptDoc(shot.prompt)
   const frames = shot.imageUrls
-  useEffect(
-    () => () => {
-      uploadRevisionRef.current += 1
-    },
-    [frameNumber, shot.index],
-  )
   const sections = doc.sections.map((section, index) => ({
     ...sceneOf(section.header, section.lines),
     index,
@@ -108,6 +105,13 @@ export function ShotPage({
       ? '未关联镜头'
       : shotName({ ...shot, prompt: serializeLines(currentSection.section.lines) })
 
+  useEffect(
+    () => () => {
+      uploadRevisionRef.current += 1
+    },
+    [frameNumber, shot.index],
+  )
+
   const pickFrame = (number: number) => {
     setSceneSelection(null)
     onPickFrame(number)
@@ -130,21 +134,14 @@ export function ShotPage({
 
   const closePicker = () => {
     uploadRevisionRef.current += 1
-    setPickerMode(null)
+    setPickerOpen(false)
   }
 
-  const selectFrame = (url: string) => {
-    if (pickerMode === 'replace') {
-      onChangeShot({
-        ...shot,
-        imageUrls: frames.map((frame, index) => (index === frameNumber - 1 ? url : frame)),
-      })
-    } else {
-      const sectionIndex = currentSection?.index ?? doc.sections.length - 1
-      const after = frames.length === 0 ? 0 : frameNumber
-      onChangeShot(insertShotFrame(shot, { after, sectionIndex, url }))
-      pickFrame(after + 1)
-    }
+  const insertFrame = (url: string) => {
+    const sectionIndex = currentSection?.index ?? doc.sections.length - 1
+    const after = frames.length === 0 ? 0 : frameNumber
+    onChangeShot(insertShotFrame(shot, { after, sectionIndex, url }))
+    pickFrame(after + 1)
     closePicker()
   }
 
@@ -152,9 +149,8 @@ export function ShotPage({
     const revision = ++uploadRevisionRef.current
     try {
       const url = await onUploadFrame(file)
-      // 关闭弹窗、另选候选图或开始新上传后，不再应用旧上传的结果。
       if (revision !== uploadRevisionRef.current) return
-      selectFrame(url)
+      insertFrame(url)
     } catch (error) {
       if (revision !== uploadRevisionRef.current) return
       toast.error(error instanceof Error ? error.message : '上传失败')
@@ -187,42 +183,25 @@ export function ShotPage({
             } as CSSProperties
           }
         >
-          <div className="storyboard-media relative min-h-0 min-w-0 bg-surface-container">
-            {currentUrl === undefined ? (
-              <p className="text-body-sm text-on-surface-faint">这个镜头还没有帧</p>
-            ) : (
-              <button
-                aria-label="打开原图"
-                className="absolute inset-0 cursor-zoom-in ui-focus"
-                onClick={() =>
-                  setZoomed({
-                    kind: 'image',
-                    name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`,
-                    url: currentUrl,
-                  })
-                }
-                type="button"
-              >
-                <img
-                  alt={`镜头组 ${shot.index} 第 ${frameNumber} 帧`}
-                  className="size-full object-contain"
-                  src={currentUrl}
-                  style={{ aspectRatio: aspectRatioStyle(aspectRatio) }}
-                />
-              </button>
-            )}
-            {currentUrl === undefined ? null : (
-              <Button
-                className="absolute right-2 bottom-2 rounded-xs"
-                leadingIcon="image"
-                onClick={() => setPickerMode('replace')}
-                size="md"
-                variant="inverted"
-              >
-                替换图片
-              </Button>
-            )}
-          </div>
+          <FramePreview
+            aspectRatio={aspectRatio}
+            key={`${frameNumber}:${currentUrl ?? 'empty'}`}
+            name={`镜头组 ${shot.index} 第 ${frameNumber} 帧`}
+            onOpen={() => {
+              if (currentUrl !== undefined) {
+                setZoomed({
+                  kind: 'image',
+                  name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`,
+                  url: currentUrl,
+                })
+              }
+            }}
+            onReplace={(url) => {
+              if (currentUrl !== undefined) onReplaceFrame(frameNumber, currentUrl, url)
+            }}
+            onUpload={onUploadFrame}
+            url={currentUrl}
+          />
 
           <div className="storyboard-description flex min-h-0 min-w-0 flex-col gap-4 p-4">
             <h3 className="flex min-w-0 items-center gap-2 text-body font-medium text-on-surface">
@@ -283,7 +262,7 @@ export function ShotPage({
         <button
           aria-label="加一帧"
           className="storyboard-add-frame grid shrink-0 ui-state cursor-pointer place-items-center rounded-xs border-[0.5px] border-chat-hairline bg-surface-container text-on-surface-faint ui-focus"
-          onClick={() => setPickerMode('insert')}
+          onClick={() => setPickerOpen(true)}
           title="加一帧"
           type="button"
         >
@@ -318,10 +297,9 @@ export function ShotPage({
         candidates={candidates}
         inUse={frames}
         onClose={closePicker}
-        onPick={selectFrame}
+        onPick={insertFrame}
         onUpload={upload}
-        open={pickerMode !== null}
-        title={pickerMode === 'replace' ? '替换图片' : '加一帧'}
+        open={pickerOpen}
       />
       <MediaLightbox media={zoomed} onClose={() => setZoomed(null)} />
     </section>

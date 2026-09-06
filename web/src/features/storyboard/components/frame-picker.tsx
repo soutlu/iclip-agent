@@ -2,11 +2,10 @@ import { useRef } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
-import type { FrameCandidate } from '../storyboard.api'
+import { FRAME_IMAGE_ACCEPT, type FrameCandidate } from '../storyboard.api'
 
 type FramePickerProps = {
   open: boolean
-  title: string
   candidates: readonly FrameCandidate[]
   /** 标记当前组已使用的帧，避免重复选择。 */
   inUse: readonly string[]
@@ -22,13 +21,12 @@ export function FramePicker({
   onPick,
   onUpload,
   open,
-  title,
 }: FramePickerProps) {
   const uploadRef = useRef<HTMLInputElement | null>(null)
 
   return (
     <DialogRoot onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
-      <DialogSurface aria-label={title}>
+      <DialogSurface aria-label="加一帧">
         <DialogHeader
           actions={
             <>
@@ -41,7 +39,7 @@ export function FramePicker({
                 上传图片
               </Button>
               <input
-                accept="image/*"
+                accept={FRAME_IMAGE_ACCEPT}
                 aria-label="选择要上传的图片"
                 className="hidden"
                 onChange={(event) => {
@@ -55,7 +53,7 @@ export function FramePicker({
             </>
           }
           closeLabel="关闭"
-          title={title}
+          title="加一帧"
         >
           从这段对话生成过的帧里选一张，或者上传一张。
         </DialogHeader>

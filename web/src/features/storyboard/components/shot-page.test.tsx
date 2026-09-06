@@ -36,6 +36,7 @@ const renderPage = (
       onGenerateVideo={onGenerateVideo}
       onOpenAllShots={vi.fn()}
       onPickFrame={onPickFrame}
+      onReplaceFrame={vi.fn()}
       onUploadFrame={() => Promise.resolve('uploaded.png')}
       shot={shot}
     />,

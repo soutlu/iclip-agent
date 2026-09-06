@@ -168,7 +168,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
       <div className="flex min-w-0 shrink-0 items-center gap-2 px-4 pt-2 pb-1">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 wrap-anywhere">
           {changedByAgent ? <Tag variant="running">agent 刚改过</Tag> : null}
-          <SaveStatus state={draft.state} />
+          <SaveStatus onRetry={() => void draft.saveNow()} state={draft.state} />
         </div>
         <Button
           className="shrink-0"
@@ -199,6 +199,9 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               onGenerateVideo={() => void generation.submit(item)}
               onOpenAllShots={() => go({ sheet: 'all', shot: offset + 1 })}
               onPickFrame={(frame) => go({ frame, shot: offset + 1 })}
+              onReplaceFrame={(frame, previousUrl, url) =>
+                draft.replaceFrame(item.index, frame, previousUrl, url)
+              }
               onUploadFrame={uploadFrameImage}
               shot={item}
             />
@@ -269,9 +272,12 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   )
 }
 
-type SaveStatusProps = { state: ReturnType<typeof useShotsDraft>['state'] }
+type SaveStatusProps = {
+  state: ReturnType<typeof useShotsDraft>['state']
+  onRetry: () => void
+}
 
-function SaveStatus({ state }: SaveStatusProps) {
+function SaveStatus({ onRetry, state }: SaveStatusProps) {
   switch (state.kind) {
     case 'saving':
       return <span className="text-body-sm text-on-surface-faint">保存中…</span>
@@ -284,9 +290,14 @@ function SaveStatus({ state }: SaveStatusProps) {
       )
     case 'error':
       return (
-        <span className="text-body-sm text-error" role="alert">
-          没存下：{state.message}
-        </span>
+        <>
+          <span className="text-body-sm text-error" role="alert">
+            没存下：{state.message}
+          </span>
+          <Button onClick={onRetry} size="md" variant="ghost">
+            重试保存
+          </Button>
+        </>
       )
     case 'idle':
     case 'conflict':
