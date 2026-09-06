@@ -1,11 +1,9 @@
-/** shot 查询参数是当前组的事实源，滚动与导航保持同步。文件更新走 event.fs.changed，生成状态走任务轮询。 */
+/** shot 查询参数是当前组的事实源，滚动与导航保持同步。文件变更由宿主订整个工作区后失效查询，生成状态走任务轮询。 */
 
-import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { use, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { Button } from '@/shared/ui/button'
 import {
   DialogBody,
@@ -18,7 +16,6 @@ import { Tag } from '@/shared/ui/tag'
 import {
   useWorkbenchSelection,
   useWorkspaceFile,
-  workspaceQueryKeys,
   type ArtifactRendererProps,
 } from '@/shared/workbench'
 import { latestShotVideos, runningShots, shotSelectionRef, SHOTS_PATH } from '../shots'
@@ -38,8 +35,6 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const generations = useShotGenerations(conversationId)
   const candidates = useFrameCandidates(conversationId)
   const draft = useShotsDraft({ conversationId, file: file.data?.file, path })
-  const queryClient = useQueryClient()
-  const connection = use(TranscriptConnectionContext)
   const navigate = useNavigate()
   const search: { frame?: number; sheet?: 'all' | 'records'; shot?: number } = useSearch({
     strict: false,
@@ -47,15 +42,6 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const pagesRef = useRef<HTMLDivElement | null>(null)
   // 记录滚动目标，在到达前忽略中间位置，避免误改 shot 和 frame 查询参数。
   const scrollTargetRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    if (connection === null) return undefined
-    return connection.watchFs(conversationId, [path], () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceQueryKeys.file(conversationId, path),
-      })
-    })
-  }, [connection, conversationId, path, queryClient])
 
   // 版本变化且非本地保存时显示 agent 修改提示，切组后清除。
   const version = file.data?.file.version

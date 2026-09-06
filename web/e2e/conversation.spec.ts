@@ -32,7 +32,9 @@ test('点派活卡的「查看」：右侧打开子代理的过程，地址记�
   await page.getByRole('button', { name: '查看子代理过程' }).first().click()
 
   const panel = page.getByRole('complementary', { name: '右侧面板' })
-  await expect(panel.getByRole('heading', { name: '委派任务 · shot-writer' })).toBeVisible()
+  await expect(
+    panel.getByRole('tab', { name: '委派任务 · shot-writer', selected: true }),
+  ).toBeVisible()
   await expect(panel.getByText('shot-writer', { exact: true })).toBeVisible()
   await expect(panel.getByText('写第 3 组的三个镜头')).toBeVisible()
   await expect(panel.getByText(/S3-1 特写/)).toBeVisible()

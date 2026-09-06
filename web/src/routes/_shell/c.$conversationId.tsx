@@ -4,9 +4,10 @@ import { ConversationRoute } from '@/features/conversations'
 import { ensureSessionUser } from '@/shared/auth'
 import { WorkbenchHost } from '@/shared/workbench'
 
-// 产物、组和帧状态保存在查询参数，支持刷新与分享（ADR-0009 决策 6）。
+// 产物、组、帧与正在看的文件保存在查询参数，支持刷新与分享（ADR-0009 决策 6）。
 const ConversationSearchSchema = z.object({
   artifact: z.string().optional().catch(undefined),
+  file: z.string().optional().catch(undefined),
   frame: z.int().positive().optional().catch(undefined),
   sheet: z.enum(['all', 'records']).optional().catch(undefined),
   shot: z.int().positive().optional().catch(undefined),

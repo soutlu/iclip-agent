@@ -1,8 +1,9 @@
 import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { z } from 'zod'
 import { LoginDialog } from '@/features/auth'
 import { cn } from '@/shared/lib/utils'
+import { ShellChromeContext } from '@/shared/shell'
 import { WorkbenchLayoutProvider } from '@/shared/workbench'
 import { AppResizeHandle } from './-app-resize-handle'
 import { AppRightPanel } from './-app-right-panel'
@@ -83,6 +84,11 @@ function AppShell() {
   }, [])
 
   const layout = { compact, onPanelVisible: setPanelVisible, sideBySide }
+  // 页头按这两个状态给收起态的展开钮留位；钮本身由侧栏与面板各自画在角上。
+  const chrome = useMemo(
+    () => ({ panelVisible, sidebarCollapsed }),
+    [panelVisible, sidebarCollapsed],
+  )
 
   const shellVars = {
     '--layout-app-sidebar-width': `${sidebarWidth}px`,
@@ -91,75 +97,81 @@ function AppShell() {
 
   return (
     <LoginPromptProvider value={requireLogin}>
-      <div className="flex h-dvh" style={shellVars}>
-        <AppSidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
+      <ShellChromeContext value={chrome}>
+        <div className="flex h-dvh" style={shellVars}>
+          <AppSidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
 
-        {/* 紧凑屏侧栏不占布局空间，不显示拖柄。 */}
-        {sidebarCollapsed || compact ? null : (
-          <AppResizeHandle
-            label="调整侧栏宽度"
-            max={SIDEBAR_MAX}
-            min={SIDEBAR_MIN}
-            onReset={() => {
-              sidebar.setWidth(SIDEBAR_DEFAULT)
-              sidebar.persist(SIDEBAR_DEFAULT)
-            }}
-            onResize={(delta) => {
-              dragValueRef.current = clamp(dragOriginRef.current + delta, SIDEBAR_MIN, SIDEBAR_MAX)
-              sidebar.setWidth(dragValueRef.current)
-            }}
-            onResizeEnd={() => sidebar.persist(dragValueRef.current)}
-            onResizeStart={() => {
-              dragOriginRef.current = sidebarWidth
-              dragValueRef.current = sidebarWidth
-            }}
-            value={sidebarWidth}
-          />
-        )}
-
-        {/* 主区为覆盖模式的右面板提供定位上下文。 */}
-        <div className="relative flex min-w-0 flex-1">
-          <div
-            className={cn(
-              'flex min-w-0 flex-1 flex-col',
-              sideBySide && 'min-w-(--layout-app-chat-min-width)',
-            )}
-          >
-            <Outlet />
-          </div>
-
-          {sideBySide && panelVisible ? (
+          {/* 紧凑屏侧栏不占布局空间，不显示拖柄。 */}
+          {sidebarCollapsed || compact ? null : (
             <AppResizeHandle
-              label="调整面板宽度"
-              max={Math.max(WORKBENCH_MIN, viewport - occupiedBySidebar - CHAT_MIN)}
-              min={WORKBENCH_MIN}
+              label="调整侧栏宽度"
+              max={SIDEBAR_MAX}
+              min={SIDEBAR_MIN}
               onReset={() => {
-                workbench.setWidth(WORKBENCH_DEFAULT)
-                workbench.persist(WORKBENCH_DEFAULT)
+                sidebar.setWidth(SIDEBAR_DEFAULT)
+                sidebar.persist(SIDEBAR_DEFAULT)
               }}
-              // 面板左侧拖柄向右移动时宽度减小，位移取反。
               onResize={(delta) => {
                 dragValueRef.current = clamp(
-                  dragOriginRef.current - delta,
-                  WORKBENCH_MIN,
-                  Math.max(WORKBENCH_MIN, viewport - occupiedBySidebar - CHAT_MIN),
+                  dragOriginRef.current + delta,
+                  SIDEBAR_MIN,
+                  SIDEBAR_MAX,
                 )
-                workbench.setWidth(dragValueRef.current)
+                sidebar.setWidth(dragValueRef.current)
               }}
-              onResizeEnd={() => workbench.persist(dragValueRef.current)}
+              onResizeEnd={() => sidebar.persist(dragValueRef.current)}
               onResizeStart={() => {
-                dragOriginRef.current = workbenchWidth
-                dragValueRef.current = workbenchWidth
+                dragOriginRef.current = sidebarWidth
+                dragValueRef.current = sidebarWidth
               }}
-              value={workbenchWidth}
+              value={sidebarWidth}
             />
-          ) : null}
+          )}
 
-          <WorkbenchLayoutProvider layout={layout}>
-            <AppRightPanel />
-          </WorkbenchLayoutProvider>
+          {/* 主区为覆盖模式的右面板提供定位上下文。 */}
+          <div className="relative flex min-w-0 flex-1">
+            <div
+              className={cn(
+                'flex min-w-0 flex-1 flex-col',
+                sideBySide && 'min-w-(--layout-app-chat-min-width)',
+              )}
+            >
+              <Outlet />
+            </div>
+
+            {sideBySide && panelVisible ? (
+              <AppResizeHandle
+                label="调整面板宽度"
+                max={Math.max(WORKBENCH_MIN, viewport - occupiedBySidebar - CHAT_MIN)}
+                min={WORKBENCH_MIN}
+                onReset={() => {
+                  workbench.setWidth(WORKBENCH_DEFAULT)
+                  workbench.persist(WORKBENCH_DEFAULT)
+                }}
+                // 面板左侧拖柄向右移动时宽度减小，位移取反。
+                onResize={(delta) => {
+                  dragValueRef.current = clamp(
+                    dragOriginRef.current - delta,
+                    WORKBENCH_MIN,
+                    Math.max(WORKBENCH_MIN, viewport - occupiedBySidebar - CHAT_MIN),
+                  )
+                  workbench.setWidth(dragValueRef.current)
+                }}
+                onResizeEnd={() => workbench.persist(dragValueRef.current)}
+                onResizeStart={() => {
+                  dragOriginRef.current = workbenchWidth
+                  dragValueRef.current = workbenchWidth
+                }}
+                value={workbenchWidth}
+              />
+            ) : null}
+
+            <WorkbenchLayoutProvider layout={layout}>
+              <AppRightPanel />
+            </WorkbenchLayoutProvider>
+          </div>
         </div>
-      </div>
+      </ShellChromeContext>
 
       <LoginDialog open={loginOpen} onOpenChange={handleLoginOpenChange} ssoErrorCode={ssoError} />
     </LoginPromptProvider>

@@ -87,8 +87,19 @@ export interface ConnectionHealth {
 
 interface FsWatch {
   paths: readonly string[]
+  /** 目录订阅是否看整棵；空串路径是工作区根。 */
+  recursive: boolean
   handler: (changes: readonly FsChange[]) => void
 }
+
+/** 与服务端同一条匹配规则：文件要路径相同，目录看直接子项或整棵，空串是根。 */
+const watchCovers = (watch: FsWatch, path: string): boolean =>
+  watch.paths.some((watched) => {
+    if (watched === path) return true
+    if (watched !== '' && !path.startsWith(`${watched}/`)) return false
+    const inside = watched === '' ? path : path.slice(watched.length + 1)
+    return watch.recursive || !inside.includes('/')
+  })
 
 interface AgentSubscription {
   handlers: TranscriptHandlers
@@ -217,17 +228,18 @@ export class TranscriptConnection {
     conversationId: string,
     paths: readonly string[],
     handler: (changes: readonly FsChange[]) => void,
+    options: { recursive?: boolean } = {},
   ): () => void {
-    const watch: FsWatch = { handler, paths }
+    const watch: FsWatch = { handler, paths, recursive: options.recursive ?? false }
     const watches = this.fsWatches.get(conversationId) ?? new Set<FsWatch>()
     watches.add(watch)
     this.fsWatches.set(conversationId, watches)
-    if (this.connected) this.sendFsWatch('watch_fs_add', conversationId, paths)
+    if (this.connected) this.sendFsWatch('watch_fs_add', conversationId, watch)
     return () => {
       const current = this.fsWatches.get(conversationId)
       if (current === undefined || !current.delete(watch)) return
       if (current.size === 0) this.fsWatches.delete(conversationId)
-      this.sendFsWatch('watch_fs_remove', conversationId, paths)
+      this.sendFsWatch('watch_fs_remove', conversationId, watch)
     }
   }
 
@@ -315,7 +327,7 @@ export class TranscriptConnection {
         const watches = this.fsWatches.get(frame.session_id)
         if (watches === undefined) return
         for (const watch of watches) {
-          const mine = parsed.data.changes.filter((change) => watch.paths.includes(change.path))
+          const mine = parsed.data.changes.filter((change) => watchCovers(watch, change.path))
           if (mine.length > 0) watch.handler(mine)
         }
         return
@@ -397,7 +409,7 @@ export class TranscriptConnection {
     this.options.onConnectionState?.(true)
     for (const conversationId of this.subscriptions.keys()) this.sendSubscribe(conversationId)
     for (const [conversationId, watches] of this.fsWatches) {
-      for (const watch of watches) this.sendFsWatch('watch_fs_add', conversationId, watch.paths)
+      for (const watch of watches) this.sendFsWatch('watch_fs_add', conversationId, watch)
     }
     if (reopened) this.announce({ kind: 'reconnected' })
   }
@@ -406,12 +418,12 @@ export class TranscriptConnection {
   private sendFsWatch(
     type: 'watch_fs_add' | 'watch_fs_remove',
     conversationId: string,
-    paths: readonly string[],
+    watch: FsWatch,
   ): void {
     this.send({
       type,
       id: this.mintId(),
-      payload: { session_id: conversationId, paths: [...paths] },
+      payload: { session_id: conversationId, paths: [...watch.paths], recursive: watch.recursive },
     })
   }
 

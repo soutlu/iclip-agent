@@ -1,8 +1,9 @@
-/** 文件按完整路径匹配，工具帧按 view 或 display.kind 匹配；新增类型仅需登记渲染器。 */
+/** 文件按完整路径匹配，工具帧按 view 或 display.kind 匹配，工作区有文件即匹配；新增类型仅需登记渲染器。 */
 
 import {
   fileArtifactId,
   frameArtifactId,
+  WORKSPACE_ARTIFACT_ID,
   type Artifact,
   type ArtifactEntry,
   type FrameArtifactSource,
@@ -20,6 +21,10 @@ const matchesFrame = (entry: ArtifactEntry, frame: WorkbenchFrame): boolean =>
   ('view' in entry.match && entry.match.view === frame.view) ||
   ('displayKind' in entry.match && entry.match.displayKind === displayKindOf(frame.display))
 
+/** 按路径或工作区命中的类型不随某张工具卡来去，菜单里常驻。 */
+export const isStanding = (entry: ArtifactEntry): boolean =>
+  'path' in entry.match || 'workspace' in entry.match
+
 export class ArtifactRegistry {
   private readonly entries: ArtifactEntry[] = []
 
@@ -35,6 +40,11 @@ export class ArtifactRegistry {
     return this.resolve(type)?.autoOpen ?? false
   }
 
+  /** 常驻类型按登记顺序；折叠态菜单据此列行，没有产物的行灰着并给出 empty 说明。 */
+  standing(): ArtifactEntry[] {
+    return this.entries.filter(isStanding)
+  }
+
   matchFiles(files: readonly WorkbenchFile[]): Artifact[] {
     return files.flatMap((file) => {
       const entry = this.entries.find(
@@ -46,6 +56,13 @@ export class ArtifactRegistry {
         { id: fileArtifactId(file.path), source, title: entry.title(source), type: entry.type },
       ]
     })
+  }
+
+  matchWorkspace(files: readonly WorkbenchFile[]): Artifact[] {
+    const entry = this.entries.find((candidate) => 'workspace' in candidate.match)
+    if (entry === undefined || files.length === 0) return []
+    const source = { kind: 'workspace' } as const
+    return [{ id: WORKSPACE_ARTIFACT_ID, source, title: entry.title(source), type: entry.type }]
   }
 
   matchFrames(frames: readonly WorkbenchFrame[]): Artifact[] {
@@ -72,11 +89,16 @@ export class ArtifactRegistry {
   }
 }
 
+/** 三个来源合成一份列表：按路径命中的文件、整个工作区、工具帧。 */
 export const composeArtifacts = (
   registry: ArtifactRegistry,
   files: readonly WorkbenchFile[],
   frames: readonly WorkbenchFrame[],
-): Artifact[] => [...registry.matchFiles(files), ...registry.matchFrames(frames)]
+): Artifact[] => [
+  ...registry.matchFiles(files),
+  ...registry.matchWorkspace(files),
+  ...registry.matchFrames(frames),
+]
 
 /** 优先选择请求的产物，其次为首个 autoOpen 类型，最后为列表首项。 */
 export const pickArtifact = (

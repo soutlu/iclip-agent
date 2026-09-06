@@ -2,6 +2,7 @@
 
 - 状态：已接受（2026-09-02；2026-09-03 两次修订：去掉文件历史表与用户侧文件、生成记录归生成任务表；产物双来源、文件变更帧、写入只校验形状、地址规则统一为对话素材）
 - 推翻 2026-08-25 的「对话工作区对前端只读」：面板现在可以写工作区文件，写入走本文决策 2 的接口。
+- 取舍「不做通用文件浏览器」已被 **[ADR-0015](0015-workspace-files-panel.md)** 推翻：整个工作区成为第三种产物来源，宿主的切换器换成并排标签。
 - **[ADR-0007](0007-tool-declaration-surface.md)** 决策 2、5、6：范围规则挂 `args_validator`；帧上的 `view` 由服务端给；给人看的结果走 `ToolReturn.metadata`。本文的产物列表以工具帧为第二来源，`write_video_shots` 的地址规则改挂验证器。
 - **[ADR-0005](0005-transcript-protocol.md)**：transcript 协议照抄 kimi；本文的文件变更通知用它现成的 `watch_fs_add` / `event.fs.changed`，不自造帧。
 - **[ADR-0008](0008-activity-from-agent-jobs.md)**：帧在写入那一刻发、易失；本文的文件变更帧同此，但按订阅投递而非全局。

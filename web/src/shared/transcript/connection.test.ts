@@ -293,7 +293,11 @@ describe('TranscriptConnection', () => {
     })
 
     const asked = socket.frames().find((frame) => frame.type === 'watch_fs_add')
-    expect(asked?.payload).toEqual({ paths: ['video_shot.json'], session_id: 'c1' })
+    expect(asked?.payload).toEqual({
+      paths: ['video_shot.json'],
+      recursive: false,
+      session_id: 'c1',
+    })
 
     socket.deliver({
       type: 'event.fs.changed',
@@ -308,6 +312,38 @@ describe('TranscriptConnection', () => {
     })
 
     expect(seen).toEqual(['video_shot.json'])
+  })
+
+  it('订目录：空串是工作区根，recursive 收整棵，不 recursive 只收直接子项', () => {
+    const connection = connect(['c1'])
+    const whole: string[] = []
+    const top: string[] = []
+    connection.watchFs('c1', [''], (changes) => whole.push(...changes.map((c) => c.path)), {
+      recursive: true,
+    })
+    connection.watchFs('c1', [''], (changes) => top.push(...changes.map((c) => c.path)))
+    connection.watchFs('c1', ['frames'], (changes) =>
+      top.push(...changes.map((c) => `d:${c.path}`)),
+    )
+
+    const asked = socket.frames().filter((frame) => frame.type === 'watch_fs_add')
+    expect(asked.map((frame) => frame.payload?.['recursive'])).toEqual([true, false, false])
+
+    socket.deliver({
+      type: 'event.fs.changed',
+      session_id: 'c1',
+      payload: {
+        changes: [
+          { path: 'storyboard.md', change: 'created', kind: 'file' },
+          { path: 'frames/extraction.json', change: 'created', kind: 'file' },
+          { path: 'frames/grids/a.json', change: 'created', kind: 'file' },
+        ],
+        coalesced_window_ms: 0,
+      },
+    })
+
+    expect(whole).toEqual(['storyboard.md', 'frames/extraction.json', 'frames/grids/a.json'])
+    expect(top).toEqual(['storyboard.md', 'd:frames/extraction.json'])
   })
 
   it('别段对话的文件变动不串门', () => {

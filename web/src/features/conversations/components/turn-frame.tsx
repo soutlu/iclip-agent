@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { TranscriptFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import { AssistantMarkdown } from './assistant-markdown'
+import { Markdown } from '@/shared/ui/markdown'
 import { DisclosureBody, DisclosureChevron } from './disclosure'
 import { ToolLine } from './tool-line'
 import { UserBubble } from './user-bubble'
@@ -22,7 +22,7 @@ export function TurnFrame({ frame, live, settled }: TurnFrameProps) {
       return frame.role === 'user' ? (
         <UserBubble content={frame.content} />
       ) : (
-        <AssistantMarkdown text={frame.text} />
+        <Markdown text={frame.text} />
       )
     case 'thinking':
       return <ThinkingBlock live={live} text={frame.text} />

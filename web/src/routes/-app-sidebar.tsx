@@ -25,10 +25,11 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const [searchOpen, setSearchOpen] = useState(false)
   const { data: user } = useUser()
   const requireLogin = useLoginPrompt()
+  // 收起时只剩页头左上角一个普通图标钮，不浮、不带阴影；页头按 ShellChrome 给它留位。
   if (collapsed) {
     return (
       <IconButton
-        className="layer-sidebar fixed top-3 left-3 bg-surface-container-lowest shadow-[var(--shadow-1)]"
+        className="layer-sidebar fixed top-2 left-3"
         label="展开侧边栏"
         name="panel-left"
         onClick={() => onCollapsedChange(false)}
