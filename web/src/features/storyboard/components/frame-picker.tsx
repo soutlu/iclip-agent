@@ -6,6 +6,7 @@ import type { FrameCandidate } from '../storyboard.api'
 
 type FramePickerProps = {
   open: boolean
+  title: string
   candidates: readonly FrameCandidate[]
   /** 标记当前组已使用的帧，避免重复选择。 */
   inUse: readonly string[]
@@ -21,12 +22,13 @@ export function FramePicker({
   onPick,
   onUpload,
   open,
+  title,
 }: FramePickerProps) {
   const uploadRef = useRef<HTMLInputElement | null>(null)
 
   return (
     <DialogRoot onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
-      <DialogSurface aria-label="加一帧">
+      <DialogSurface aria-label={title}>
         <DialogHeader
           actions={
             <>
@@ -53,7 +55,7 @@ export function FramePicker({
             </>
           }
           closeLabel="关闭"
-          title="加一帧"
+          title={title}
         >
           从这段对话生成过的帧里选一张，或者上传一张。
         </DialogHeader>

@@ -1,6 +1,6 @@
 /** 草稿与生成资格由父组件管理；本组件仅处理当前镜头组和帧，组间翻页由外层容器负责。 */
 
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
@@ -62,7 +62,8 @@ export function ShotPage({
   shot,
 }: ShotPageProps) {
   const [zoomed, setZoomed] = useState<LightboxMedia | null>(null)
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerMode, setPickerMode] = useState<'insert' | 'replace' | null>(null)
+  const uploadRevisionRef = useRef(0)
   const [sceneSelection, setSceneSelection] = useState<{
     index: number
     frame: number
@@ -70,6 +71,12 @@ export function ShotPage({
   } | null>(null)
   const doc = parsePromptDoc(shot.prompt)
   const frames = shot.imageUrls
+  useEffect(
+    () => () => {
+      uploadRevisionRef.current += 1
+    },
+    [frameNumber, shot.index],
+  )
   const sections = doc.sections.map((section, index) => ({
     ...sceneOf(section.header, section.lines),
     index,
@@ -121,19 +128,35 @@ export function ShotPage({
     onChangeShot({ ...shot, prompt: serializePromptDoc(next) })
   }
 
-  const insertFrame = (url: string) => {
-    const sectionIndex = currentSection?.index ?? doc.sections.length - 1
-    const after = frames.length === 0 ? 0 : frameNumber
-    onChangeShot(insertShotFrame(shot, { after, sectionIndex, url }))
-    pickFrame(after + 1)
-    setPickerOpen(false)
+  const closePicker = () => {
+    uploadRevisionRef.current += 1
+    setPickerMode(null)
+  }
+
+  const selectFrame = (url: string) => {
+    if (pickerMode === 'replace') {
+      onChangeShot({
+        ...shot,
+        imageUrls: frames.map((frame, index) => (index === frameNumber - 1 ? url : frame)),
+      })
+    } else {
+      const sectionIndex = currentSection?.index ?? doc.sections.length - 1
+      const after = frames.length === 0 ? 0 : frameNumber
+      onChangeShot(insertShotFrame(shot, { after, sectionIndex, url }))
+      pickFrame(after + 1)
+    }
+    closePicker()
   }
 
   const upload = async (file: File) => {
+    const revision = ++uploadRevisionRef.current
     try {
       const url = await onUploadFrame(file)
-      insertFrame(url)
+      // 关闭弹窗、另选候选图或开始新上传后，不再应用旧上传的结果。
+      if (revision !== uploadRevisionRef.current) return
+      selectFrame(url)
     } catch (error) {
+      if (revision !== uploadRevisionRef.current) return
       toast.error(error instanceof Error ? error.message : '上传失败')
     }
   }
@@ -187,6 +210,17 @@ export function ShotPage({
                   style={{ aspectRatio: aspectRatioStyle(aspectRatio) }}
                 />
               </button>
+            )}
+            {currentUrl === undefined ? null : (
+              <Button
+                className="absolute right-2 bottom-2 rounded-xs"
+                leadingIcon="image"
+                onClick={() => setPickerMode('replace')}
+                size="md"
+                variant="inverted"
+              >
+                替换图片
+              </Button>
             )}
           </div>
 
@@ -249,7 +283,7 @@ export function ShotPage({
         <button
           aria-label="加一帧"
           className="storyboard-add-frame grid shrink-0 ui-state cursor-pointer place-items-center rounded-xs border-[0.5px] border-chat-hairline bg-surface-container text-on-surface-faint ui-focus"
-          onClick={() => setPickerOpen(true)}
+          onClick={() => setPickerMode('insert')}
           title="加一帧"
           type="button"
         >
@@ -283,10 +317,11 @@ export function ShotPage({
       <FramePicker
         candidates={candidates}
         inUse={frames}
-        onClose={() => setPickerOpen(false)}
-        onPick={insertFrame}
+        onClose={closePicker}
+        onPick={selectFrame}
         onUpload={upload}
-        open={pickerOpen}
+        open={pickerMode !== null}
+        title={pickerMode === 'replace' ? '替换图片' : '加一帧'}
       />
       <MediaLightbox media={zoomed} onClose={() => setZoomed(null)} />
     </section>
