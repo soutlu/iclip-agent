@@ -55,6 +55,15 @@ const provideDocument = (document: ShotsDocument) => {
 
 describe('StoryboardPanel', () => {
   beforeEach(() => {
+    // jsdom 不计算布局；弹层的真实定位与尺寸由浏览器用例验证。
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
     vi.stubGlobal('createImageBitmap', async () => ({
       close: () => {},
       height: 800,
@@ -822,66 +831,74 @@ describe('StoryboardPanel', () => {
   })
 
   it.each([
-    ['wan3.0-video', true],
-    ['wan3.0-video', false],
-    ['mmt-seedance-2-5', true],
-    ['mmt-seedance-2-5', false],
-    ['mmt-seedance-2-0', true],
-    ['mmt-seedance-2-0', false],
-  ])('按所选模型 %s 和音频 %s 提交整组分镜，发完重拉任务列表', async (model, generateAudio) => {
-    seedMockWorkspace(CONVERSATION_ID)
-    const prompt =
-      '参考锁定：服装始终一致。\n[0–2秒｜镜头1] 开场 @Image1。\n[2–6秒｜镜头2] 特写 @Image2，收尾 @Image3。'
-    const imageUrls = ['one.png', 'two.png', 'three.png']
-    provideDocument({ aspectRatio: '9:16', shots: [{ imageUrls, index: 1, prompt, seconds: 6 }] })
-    let posted: Record<string, unknown> = {}
-    let reads = 0
-    server.events.on('request:start', ({ request }) => {
-      if (!request.url.includes('/api/generations')) return
-      if (request.method === 'GET') reads += 1
-      if (request.method === 'POST') {
-        void request
-          .clone()
-          .json()
-          .then((body: Record<string, unknown>) => {
-            posted = body
-          })
-      }
-    })
-    await renderPanel('/?shot=1&frame=2')
-    await screen.findByRole('region', { name: '镜头组 1' })
-    const page = screen.getByRole('region', { name: '镜头组 1' })
-    const readsBefore = reads
-    expect(within(page).getByRole('textbox', { name: '镜头 2 的描述' })).toBeVisible()
-    expect(within(page).queryByRole('textbox', { name: '镜头 1 的描述' })).not.toBeInTheDocument()
+    ['wan3.0-video', true, 'Wan3'],
+    ['wan3.0-video', false, 'Wan3'],
+    ['mmt-seedance-2-5', true, 'SD2.5'],
+    ['mmt-seedance-2-5', false, 'SD2.5'],
+    ['mmt-seedance-2-0', true, 'SD2'],
+    ['mmt-seedance-2-0', false, 'SD2'],
+  ] as const)(
+    '按所选模型 %s 和音频 %s 提交整组分镜，发完重拉任务列表',
+    async (model, generateAudio, modelLabel) => {
+      seedMockWorkspace(CONVERSATION_ID)
+      const prompt =
+        '参考锁定：服装始终一致。\n[0–2秒｜镜头1] 开场 @Image1。\n[2–6秒｜镜头2] 特写 @Image2，收尾 @Image3。'
+      const imageUrls = ['one.png', 'two.png', 'three.png']
+      provideDocument({ aspectRatio: '9:16', shots: [{ imageUrls, index: 1, prompt, seconds: 6 }] })
+      let posted: Record<string, unknown> = {}
+      let reads = 0
+      server.events.on('request:start', ({ request }) => {
+        if (!request.url.includes('/api/generations')) return
+        if (request.method === 'GET') reads += 1
+        if (request.method === 'POST') {
+          void request
+            .clone()
+            .json()
+            .then((body: Record<string, unknown>) => {
+              posted = body
+            })
+        }
+      })
+      await renderPanel('/?shot=1&frame=2')
+      await screen.findByRole('region', { name: '镜头组 1' })
+      const page = screen.getByRole('region', { name: '镜头组 1' })
+      const readsBefore = reads
+      expect(within(page).getByRole('textbox', { name: '镜头 2 的描述' })).toBeVisible()
+      expect(within(page).queryByRole('textbox', { name: '镜头 1 的描述' })).not.toBeInTheDocument()
 
-    const modelSelect = within(page).getByRole('combobox', { name: '视频模型' })
-    const audioSwitch = within(page).getByRole('switch', { name: '生成音频' })
-    expect(modelSelect).toHaveValue('mmt-seedance-2-0')
-    expect(audioSwitch).toBeChecked()
-    await userEvent.selectOptions(modelSelect, String(model))
-    if (!generateAudio) await userEvent.click(audioSwitch)
+      const settingsButton = within(page).getByRole('button', { name: '生成设置：SD2，音频开启' })
+      await userEvent.click(settingsButton)
+      const settings = await screen.findByRole('dialog', { name: '生成设置' })
+      const audioSwitch = within(settings).getByRole('switch', { name: '生成音频' })
+      expect(within(settings).getByRole('radio', { name: 'SD2' })).toBeChecked()
+      expect(audioSwitch).toBeChecked()
+      await userEvent.click(within(settings).getByRole('radio', { name: modelLabel }))
+      if (!generateAudio) await userEvent.click(audioSwitch)
+      await userEvent.keyboard('{Escape}')
+      expect(settingsButton).toHaveAccessibleName(
+        `生成设置：${modelLabel}，音频${generateAudio ? '开启' : '关闭'}`,
+      )
 
-    await userEvent.click(within(page).getByRole('button', { name: '生成视频' }))
+      await userEvent.click(within(page).getByRole('button', { name: '生成视频' }))
 
-    await waitFor(() =>
-      expect(posted).toMatchObject({
-        aspectRatio: '9:16',
-        conversationId: CONVERSATION_ID,
-        durationSeconds: 6,
-        generateAudio,
-        kind: 'video',
-        model,
-        shotIndex: 1,
-      }),
-    )
-    expect(posted['prompt']).toBe(prompt)
-    expect(posted['imageUrls']).toEqual(imageUrls)
-    await waitFor(() => expect(reads).toBeGreaterThan(readsBefore))
-    expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
-    expect(modelSelect).toBeDisabled()
-    expect(audioSwitch).toBeDisabled()
-  })
+      await waitFor(() =>
+        expect(posted).toMatchObject({
+          aspectRatio: '9:16',
+          conversationId: CONVERSATION_ID,
+          durationSeconds: 6,
+          generateAudio,
+          kind: 'video',
+          model,
+          shotIndex: 1,
+        }),
+      )
+      expect(posted['prompt']).toBe(prompt)
+      expect(posted['imageUrls']).toEqual(imageUrls)
+      await waitFor(() => expect(reads).toBeGreaterThan(readsBefore))
+      expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
+      expect(settingsButton).toBeDisabled()
+    },
+  )
 
   it('这一组名下已经有在飞的任务：按钮就是「正在出片…」，点不动', async () => {
     seedMockWorkspace(CONVERSATION_ID)
@@ -984,10 +1001,7 @@ describe('StoryboardPanel', () => {
     await userEvent.click(within(sheet).getByRole('button', { name: '全选' }))
     await userEvent.click(within(sheet).getByRole('button', { name: '生成选中的 3 组' }))
     const dialog = await screen.findByRole('dialog', { name: '确认批量出片' })
-    await userEvent.selectOptions(
-      within(dialog).getByRole('combobox', { name: '视频模型' }),
-      'mmt-seedance-2-5',
-    )
+    await userEvent.click(within(dialog).getByRole('radio', { name: 'SD2.5' }))
     await userEvent.click(within(dialog).getByRole('switch', { name: '生成音频' }))
     await userEvent.click(within(dialog).getByRole('button', { name: '发出去' }))
 

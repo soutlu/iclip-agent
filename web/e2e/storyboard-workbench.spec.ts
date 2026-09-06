@@ -322,26 +322,63 @@ test('点「生成视频」：状态走到出片完成，生成记录里多一�
 
   // 仅第 1 组没有生成任务；第 2 组运行中，第 3 组已有成片。
   const shot1 = panel.getByRole('region', { name: '镜头组 1' })
-  const modelSelect = shot1.getByRole('combobox', { name: '视频模型' })
-  const audioSwitch = shot1.getByRole('switch', { name: '生成音频' })
-  await expect(modelSelect).toHaveValue('mmt-seedance-2-0')
+  const settings = shot1.getByRole('button', { name: /^生成设置：/ })
+  await expect(settings).toHaveAccessibleName('生成设置：SD2，音频开启')
+  await settings.focus()
+  await page.keyboard.press('Enter')
+  const popover = page.getByRole('dialog', { name: '生成设置', exact: true })
+  const models = popover.getByRole('radiogroup', { name: '视频模型' })
+  const sd2 = models.getByRole('radio', { name: 'SD2', exact: true })
+  const sd25 = models.getByRole('radio', { name: 'SD2.5', exact: true })
+  const wan3 = models.getByRole('radio', { name: 'Wan3', exact: true })
+  const audioSwitch = popover.getByRole('switch', { name: '生成音频' })
+  await expect(sd2).toBeChecked()
   await expect(audioSwitch).toBeChecked()
-  await modelSelect.selectOption('wan3.0-video')
+  await sd2.focus()
+  // Radix 在下一次任务中移动焦点；完成按下动作后再释放，避免瞬时 keyup 抢先。
+  await page.keyboard.down('ArrowLeft')
+  try {
+    await expect(sd25).toBeFocused()
+    await expect(sd25).toBeChecked()
+  } finally {
+    await page.keyboard.up('ArrowLeft')
+  }
+  await page.keyboard.down('ArrowLeft')
+  try {
+    await expect(wan3).toBeFocused()
+    await expect(wan3).toBeChecked()
+  } finally {
+    await page.keyboard.up('ArrowLeft')
+  }
   await audioSwitch.focus()
   await page.keyboard.press('Space')
   await expect(audioSwitch).not.toBeChecked()
   await expect(audioSwitch).toBeFocused()
+  await expect(popover).toBeVisible()
   await page.screenshot({
     animations: 'disabled',
-    path: '../.artifacts/design-qa/video-options-desktop.png',
+    path: '../.artifacts/design-qa/video-options-desktop-popover.png',
   })
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(page.locator('html')).toHaveClass(/dark/)
   await page.screenshot({
     animations: 'disabled',
+    path: '../.artifacts/design-qa/video-options-desktop-popover-dark.png',
+  })
+  await page.keyboard.press('Escape')
+  await expect(popover).toBeHidden()
+  await expect(settings).toBeFocused()
+  await expect(settings).toHaveAccessibleName('生成设置：Wan3，音频关闭')
+  await page.screenshot({
+    animations: 'disabled',
     path: '../.artifacts/design-qa/video-options-desktop-dark.png',
   })
   await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/video-options-desktop.png',
+  })
   const submitted = page.waitForRequest(
     (request) => request.method() === 'POST' && request.url().endsWith('/api/generations'),
   )
@@ -361,7 +398,7 @@ test('点「生成视频」：状态走到出片完成，生成记录里多一�
   await expect(shot1.getByRole('button', { name: '生成视频' })).toBeEnabled()
 })
 
-test('窄屏出片选项可见，切组后保留模型与音频设置', async ({ page }) => {
+test('窄屏生成设置弹层完整可见，切组后保留模型与音频设置', async ({ page }) => {
   await page.setViewportSize({ height: 844, width: 390 })
   await page.goto('/')
   await login(page)
@@ -370,28 +407,57 @@ test('窄屏出片选项可见，切组后保留模型与音频设置', async ({
 
   const panel = page.getByRole('complementary', { name: '右侧面板' })
   const shot1 = panel.getByRole('region', { name: '镜头组 1' })
-  const modelSelect = shot1.getByRole('combobox', { name: '视频模型' })
-  const audioSwitch = shot1.getByRole('switch', { name: '生成音频' })
-  await modelSelect.selectOption('mmt-seedance-2-5')
-  await audioSwitch.click()
-  await expect(modelSelect).toBeInViewport({ ratio: 1 })
-  await expect(audioSwitch).toBeInViewport({ ratio: 1 })
+  const settings = shot1.getByRole('button', { name: /^生成设置：/ })
+  await expect(settings).toBeInViewport({ ratio: 1 })
   await expect(shot1.getByRole('button', { name: '生成视频' })).toBeInViewport({ ratio: 1 })
+  await settings.click()
+  const popover = page.getByRole('dialog', { name: '生成设置', exact: true })
+  const models = popover.getByRole('radiogroup', { name: '视频模型' })
+  const audioSwitch = popover.getByRole('switch', { name: '生成音频' })
+  await models.getByRole('radio', { name: 'SD2.5', exact: true }).click()
+  await audioSwitch.click()
+  await expect(popover).toBeInViewport({ ratio: 1 })
+  await expect(models).toBeInViewport({ ratio: 1 })
+  await expect(audioSwitch).toBeInViewport({ ratio: 1 })
+  await expect(audioSwitch).not.toBeChecked()
+  const popoverBox = await popover.boundingBox()
+  const viewport = page.viewportSize()
+  if (popoverBox === null || viewport === null) {
+    throw new Error('生成设置弹层必须有可见布局和固定视口')
+  }
+  expect(popoverBox.x).toBeGreaterThanOrEqual(0)
+  expect(popoverBox.y).toBeGreaterThanOrEqual(0)
+  expect(popoverBox.x + popoverBox.width).toBeLessThanOrEqual(viewport.width)
+  expect(popoverBox.y + popoverBox.height).toBeLessThanOrEqual(viewport.height)
   await page.screenshot({
     animations: 'disabled',
-    path: '../.artifacts/design-qa/video-options-mobile.png',
+    path: '../.artifacts/design-qa/video-options-mobile-popover.png',
   })
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(page.locator('html')).toHaveClass(/dark/)
   await page.screenshot({
     animations: 'disabled',
+    path: '../.artifacts/design-qa/video-options-mobile-popover-dark.png',
+  })
+  await page.keyboard.press('Escape')
+  await expect(popover).toBeHidden()
+  await expect(settings).toHaveAccessibleName('生成设置：SD2.5，音频关闭')
+  await page.screenshot({
+    animations: 'disabled',
     path: '../.artifacts/design-qa/video-options-mobile-dark.png',
+  })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/video-options-mobile.png',
   })
 
   await panel.getByRole('button', { name: '第 3 组' }).click()
   const shot3 = panel.getByRole('region', { name: '镜头组 3' })
-  await expect(shot3.getByRole('combobox', { name: '视频模型' })).toHaveValue('mmt-seedance-2-5')
-  await expect(shot3.getByRole('switch', { name: '生成音频' })).not.toBeChecked()
+  await shot3.getByRole('button', { name: '生成设置：SD2.5，音频关闭' }).click()
+  await expect(popover.getByRole('radio', { name: 'SD2.5', exact: true })).toBeChecked()
+  await expect(popover.getByRole('switch', { name: '生成音频' })).not.toBeChecked()
 })
 
 test('「全部分镜」全选之后批量出片：确认框写清条数', async ({ page }) => {

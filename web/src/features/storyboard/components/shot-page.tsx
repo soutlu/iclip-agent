@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import { Button, IconButton } from '@/shared/ui/button'
+import { IconButton } from '@/shared/ui/button'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import {
@@ -20,7 +20,7 @@ import { FramePicker } from './frame-picker'
 import { FramePreview } from './frame-preview'
 import { PromptEditor } from './prompt-editor'
 import { ShotFilmstrip } from './shot-filmstrip'
-import { VideoGenerationControls } from './video-generation-controls'
+import { VideoGenerationButton } from './video-generation-button'
 
 type ShotPageProps = {
   shot: Shot
@@ -285,23 +285,16 @@ export function ShotPage({
         </button>
         {/* 出片提交的是整组，按钮跟着代表整组的胶片条走，不放在只显示单个镜头的描述栏。 */}
         <div className="storyboard-group-actions">
-          <VideoGenerationControls
-            disabled={generating}
-            onChange={onChangeVideoOptions}
-            value={videoOptions}
-          />
           <span className="text-right text-body-sm text-on-surface-faint">
             {generateNote ?? groupSummary}
           </span>
-          <Button
-            className="rounded-xs"
+          <VideoGenerationButton
             disabled={generateDisabled}
-            leadingIcon="video"
-            onClick={onGenerateVideo}
-            size="md"
-          >
-            {generating ? '正在出片…' : '生成视频'}
-          </Button>
+            generating={generating}
+            onChange={onChangeVideoOptions}
+            onGenerate={onGenerateVideo}
+            value={videoOptions}
+          />
         </div>
       </div>
       <FramePicker
