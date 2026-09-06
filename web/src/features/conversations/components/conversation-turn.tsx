@@ -10,6 +10,8 @@ import { UserBubble } from './user-bubble'
 
 type ConversationTurnProps = {
   turn: TranscriptTurn
+  /** 最新一轮：终态栏常驻；历史轮悬停才露出。 */
+  latest?: boolean | undefined
   /** 仅在末轮且对话空闲时提供重新生成回调。 */
   onRegenerate?: (() => void) | undefined
   regenerateDisabled?: boolean | undefined
@@ -23,6 +25,7 @@ const isSettled = (turn: TranscriptTurn) => turn.state !== 'running' && turn.sta
 /** 按轮 memo，避免流式更新重渲历史轮次。 */
 export const ConversationTurn = memo(function ConversationTurn({
   editDisabled,
+  latest = false,
   onEdit,
   onRegenerate,
   regenerateDisabled,
@@ -46,7 +49,7 @@ export const ConversationTurn = memo(function ConversationTurn({
   const nodes = groupTurnEntries(entries)
 
   return (
-    <article className="group flex flex-col gap-2.5" aria-label={`第 ${turn.ordinal} 轮`}>
+    <article className="group flex flex-col gap-3" aria-label={`第 ${turn.ordinal} 轮`}>
       {turn.content.length > 0 ? (
         <UserBubble content={turn.content} editDisabled={editDisabled} onEdit={onEdit} />
       ) : null}
@@ -73,6 +76,7 @@ export const ConversationTurn = memo(function ConversationTurn({
           endedAt={turn.endedAt}
           onRegenerate={onRegenerate}
           regenerateDisabled={regenerateDisabled}
+          revealed={latest}
           usage={turn.usage}
         />
       ) : null}
