@@ -1488,110 +1488,20 @@ export type StepUsage = {
 }
 
 /**
- * TaskBrief
- *
- * 一份需求单上的创作输入。
- *
- * 每一项都可以先空着——需求方通常是分几次填完的，草稿阶段不催。发布时才要求它至少
- * 说清楚要做什么（见 ``service.py`` 的发布关卡）。
- */
-export type TaskBrief = {
-  /**
-   * Audience
-   */
-  audience?: string
-  /**
-   * Color
-   */
-  color?: string
-  /**
-   * Contenttype
-   */
-  contentType?: string
-  /**
-   * Department
-   */
-  department?: string
-  /**
-   * Durationseconds
-   */
-  durationSeconds?: number | null
-  /**
-   * Language
-   */
-  language?: string
-  /**
-   * Platform
-   */
-  platform?: string
-  /**
-   * Purpose
-   */
-  purpose?: string
-  /**
-   * Ratio
-   */
-  ratio?: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | '21:9' | null
-  /**
-   * Referenceimages
-   */
-  referenceImages?: Array<string>
-  /**
-   * Referencevideos
-   */
-  referenceVideos?: Array<string>
-  /**
-   * Requester
-   */
-  requester?: string
-  /**
-   * Requirementdescription
-   */
-  requirementDescription?: string
-  /**
-   * Scene
-   */
-  scene?: string
-  /**
-   * Selling
-   */
-  selling?: string
-  /**
-   * Stylenos
-   */
-  styleNos?: Array<string>
-  /**
-   * Theme
-   */
-  theme?: string
-  /**
-   * Videotype
-   */
-  videoType?: string
-}
-
-/**
  * TaskCreateIn
  *
- * 建一张需求单。比 ``TaskIn`` 多一个主款号。
- *
- * 主款号只在创建时收：快照冻结之后就不许改写了，所以 ``PUT`` 用的还是 ``TaskIn``，
- * 往里塞 ``styleNo`` 会被 ``extra="forbid"`` 挡成 422——想换款就提一张新的。
+ * 创建需求单；输入形状与整体更新一致。
  */
 export type TaskCreateIn = {
-  brief?: TaskBrief
   /**
    * Deadline
    */
   deadline?: string | null
+  inputs: TaskInputsInput
   /**
    * Priority
    */
   priority?: number
-  /**
-   * Styleno
-   */
-  styleNo: string
   /**
    * Title
    */
@@ -1614,11 +1524,11 @@ export type TaskEnvelope = {
  * 在「哪些字段发布后冻结」这种规则面前很难说清楚「没传」到底是不改还是清空。
  */
 export type TaskIn = {
-  brief?: TaskBrief
   /**
    * Deadline
    */
   deadline?: string | null
+  inputs: TaskInputsInput
   /**
    * Priority
    */
@@ -1630,6 +1540,44 @@ export type TaskIn = {
 }
 
 /**
+ * TaskInputs
+ *
+ * 唯一的创作需求结构，HTTP 与 JSONB 均使用 snake_case。
+ */
+export type TaskInputsInput = {
+  /**
+   * Creative Requirement
+   */
+  creative_requirement?: string
+  product: TaskProductInput
+  reference_image_oss_urls?: TaskReferenceImagesInput
+  /**
+   * Reference Video Oss Url
+   */
+  reference_video_oss_url?: string | null
+  video_spec?: TaskVideoSpecInput
+}
+
+/**
+ * TaskInputs
+ *
+ * 唯一的创作需求结构，HTTP 与 JSONB 均使用 snake_case。
+ */
+export type TaskInputsOutput = {
+  /**
+   * Creative Requirement
+   */
+  creative_requirement: string
+  product: TaskProductOutput
+  reference_image_oss_urls: TaskReferenceImagesOutput
+  /**
+   * Reference Video Oss Url
+   */
+  reference_video_oss_url: string | null
+  video_spec: TaskVideoSpecOutput
+}
+
+/**
  * TaskOut
  */
 export type TaskOut = {
@@ -1637,7 +1585,6 @@ export type TaskOut = {
    * Assigneeuserids
    */
   assigneeUserIds?: Array<string>
-  brief: TaskBrief
   /**
    * Createdat
    */
@@ -1654,6 +1601,7 @@ export type TaskOut = {
    * Id
    */
   id: string
+  inputs: TaskInputsOutput
   /**
    * Priority
    */
@@ -1662,7 +1610,6 @@ export type TaskOut = {
    * Status
    */
   status: string
-  style: TaskStyle
   /**
    * Title
    */
@@ -1674,30 +1621,83 @@ export type TaskOut = {
 }
 
 /**
- * TaskStyle
+ * TaskProduct
  *
- * 下单那天主款长什么样，创建时冻结。
- *
- * 抄一份而不是每次回头查产品资料：上游随时改名换图，历史需求单不该跟着变样。除了
- * 款号，另三项在上游缺名缺图时是空字符串。
+ * 需求单的商品快照，由调用方明确提供名称和素材。
  */
-export type TaskStyle = {
+export type TaskProductInput = {
   /**
-   * Brand
+   * Image Oss Urls
    */
-  brand?: string
+  image_oss_urls?: Array<string>
   /**
-   * Category
+   * Name
    */
-  category?: string
+  name?: string
   /**
-   * Previewimageurl
+   * Style No
    */
-  previewImageUrl?: string
+  style_no: string
+}
+
+/**
+ * TaskProduct
+ *
+ * 需求单的商品快照，由调用方明确提供名称和素材。
+ */
+export type TaskProductOutput = {
   /**
-   * Styleno
+   * Image Oss Urls
    */
-  styleNo: string
+  image_oss_urls: Array<string>
+  /**
+   * Name
+   */
+  name: string
+  /**
+   * Style No
+   */
+  style_no: string
+}
+
+/**
+ * TaskReferenceImages
+ *
+ * 按用途分类的参考图片，不推断素材所属类别。
+ */
+export type TaskReferenceImagesInput = {
+  /**
+   * Model
+   */
+  model?: Array<string>
+  /**
+   * Outfit
+   */
+  outfit?: Array<string>
+  /**
+   * Prop
+   */
+  prop?: Array<string>
+}
+
+/**
+ * TaskReferenceImages
+ *
+ * 按用途分类的参考图片，不推断素材所属类别。
+ */
+export type TaskReferenceImagesOutput = {
+  /**
+   * Model
+   */
+  model: Array<string>
+  /**
+   * Outfit
+   */
+  outfit: Array<string>
+  /**
+   * Prop
+   */
+  prop: Array<string>
 }
 
 /**
@@ -1709,6 +1709,70 @@ export type TaskUpsertOp = {
    */
   op?: 'task.upsert'
   task: TranscriptTask
+}
+
+/**
+ * TaskVideoSpec
+ *
+ * 视频创作规格；草稿允许尚未确定的参数留空。
+ */
+export type TaskVideoSpecInput = {
+  /**
+   * Aspect Ratio
+   */
+  aspect_ratio?: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | '21:9' | null
+  /**
+   * Content Type
+   */
+  content_type?: string
+  /**
+   * Duration Seconds
+   */
+  duration_seconds?: number | null
+  /**
+   * Platform
+   */
+  platform?: string
+  /**
+   * Resolution
+   */
+  resolution?: string
+  /**
+   * Video Type
+   */
+  video_type?: string
+}
+
+/**
+ * TaskVideoSpec
+ *
+ * 视频创作规格；草稿允许尚未确定的参数留空。
+ */
+export type TaskVideoSpecOutput = {
+  /**
+   * Aspect Ratio
+   */
+  aspect_ratio: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | '21:9' | null
+  /**
+   * Content Type
+   */
+  content_type: string
+  /**
+   * Duration Seconds
+   */
+  duration_seconds: number | null
+  /**
+   * Platform
+   */
+  platform: string
+  /**
+   * Resolution
+   */
+  resolution: string
+  /**
+   * Video Type
+   */
+  video_type: string
 }
 
 /**

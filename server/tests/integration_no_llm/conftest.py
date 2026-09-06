@@ -33,7 +33,6 @@ from iclip.config import (
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
 from tests.helpers.pg import AGENT_RUNTIME_TABLES, IDENTITY_TABLES, truncate_clean
-from tests.helpers.tasks import StubStyleSnapshots
 
 SERVER_DIR = Path(__file__).resolve().parents[2]
 
@@ -166,7 +165,6 @@ async def app(
             engine=engine,
             models=models,
             # 固定快照隔离 PDM 与对象存储，数据库仍验证快照的持久化往返。
-            style_snapshots=StubStyleSnapshots(),
         )
     finally:
         await engine.dispose()
@@ -206,7 +204,6 @@ def ws_agent_app(
         agents=agent_declarations,
         engine=engine,
         models=models,
-        style_snapshots=StubStyleSnapshots(),
     )
     asyncio.run(engine.dispose())
 

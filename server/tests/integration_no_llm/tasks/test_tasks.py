@@ -19,13 +19,27 @@ from tests.integration_no_llm.conftest import (
 
 URL = "/tasks"
 
-BRIEF = {
-    "theme": "秋冬新品",
-    "purpose": "种草",
-    "requirementDescription": "三十秒的上身效果",
-    "durationSeconds": 30,
-    "ratio": "9:16",
-    "referenceImages": ["https://example.com/a.jpg"],
+INPUTS = {
+    "product": {
+        "style_no": STYLE_NO,
+        "name": "秋冬长靴",
+        "image_oss_urls": ["https://example.com/product.jpg"],
+    },
+    "video_spec": {
+        "platform": "douyin",
+        "video_type": "product_showcase",
+        "content_type": "short_video",
+        "resolution": "1080p",
+        "aspect_ratio": "9:16",
+        "duration_seconds": 30,
+    },
+    "creative_requirement": "三十秒的上身效果",
+    "reference_image_oss_urls": {
+        "model": ["https://example.com/model.jpg"],
+        "outfit": [],
+        "prop": [],
+    },
+    "reference_video_oss_url": None,
 }
 
 
@@ -45,8 +59,7 @@ async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
         URL,
         json={
             "title": "秋冬新品短视频",
-            "styleNo": STYLE_NO,
-            "brief": BRIEF,
+            "inputs": INPUTS,
             "deadline": future(),
             **body,
         },
@@ -92,43 +105,25 @@ async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) 
     assert (await client.post(f"{URL}/{task['id']}/withdraw")).status_code == 409
 
 
-async def test_brief_survives_the_round_trip(client: httpx.AsyncClient, pg_url: str) -> None:
-
-    await login_as_editor(client, pg_url)
-    task = (await create(client)).json()["task"]
-
-    read_back = (await client.get(f"{URL}/{task['id']}")).json()["task"]["brief"]
-
-    assert {key: read_back[key] for key in BRIEF} == BRIEF
-    assert read_back["audience"] == ""
-    assert read_back["referenceVideos"] == []
-
-
-async def test_style_snapshot_survives_the_round_trip(
+async def test_inputs_survive_http_and_jsonb_round_trip(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-
     await login_as_editor(client, pg_url)
     created = (await create(client)).json()["task"]
-
     read_back = (await client.get(f"{URL}/{created['id']}")).json()["task"]
-
-    assert read_back["style"] == created["style"]
-    assert read_back["style"]["styleNo"] == STYLE_NO
-    assert read_back["brief"]["styleNos"] == [STYLE_NO]
-
+    assert read_back["inputs"] == INPUTS
     engine = create_async_engine(pg_url)
     try:
         async with engine.connect() as conn:
             stored = (
                 await conn.execute(
-                    text("SELECT style FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
+                    text("SELECT inputs FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
                     {"id": created["id"]},
                 )
             ).scalar_one()
     finally:
         await engine.dispose()
-    assert stored == created["style"]
+    assert stored == INPUTS
 
 
 async def test_timestamps_come_from_the_database_clock(
@@ -186,37 +181,36 @@ async def test_status_guard_stops_a_write_built_on_stale_reading(
 
 
 @pytest.mark.parametrize(
-    ("status", "deadline", "brief", "style", "constraint"),
+    ("status", "deadline", "inputs", "constraint"),
     [
-        ("nonsense", "now()", "'{}'::jsonb", "'{}'::jsonb", "tasks_status_check"),
-        ("published", "NULL", "'{}'::jsonb", "'{}'::jsonb", "tasks_deadline_check"),
-        ("draft", "now()", "'[]'::jsonb", "'{}'::jsonb", "tasks_brief_object_check"),
-        ("draft", "now()", "'{}'::jsonb", "'[]'::jsonb", "tasks_style_object_check"),
+        ("nonsense", datetime.now(UTC), "{}", "tasks_status_check"),
+        ("published", None, "{}", "tasks_deadline_check"),
+        ("draft", None, "[]", "tasks_inputs_object_check"),
     ],
 )
 async def test_constraints_live_on_the_table(
     client: httpx.AsyncClient,
     pg_url: str,
     status: str,
-    deadline: str,
-    brief: str,
-    style: str,
+    deadline: datetime | None,
+    inputs: str,
     constraint: str,
 ) -> None:
-
     user_id = await login_as_editor(client, pg_url)
     statement = text(
         "INSERT INTO iclip.tasks"
-        " (id, title, status, priority, deadline, creator_user_id, style, brief,"
-        " created_at, updated_at)"
-        f" VALUES (gen_random_uuid(), 't', :status, 0, {deadline}, CAST(:owner AS uuid),"
-        f" {style}, {brief}, now(), now())"
+        " (id, title, status, priority, deadline, creator_user_id, inputs, created_at, updated_at)"
+        " VALUES (gen_random_uuid(), 't', :status, 0, :deadline, CAST(:owner AS uuid),"
+        " CAST(:inputs AS jsonb), now(), now())"
     )
     engine = create_async_engine(pg_url)
     try:
         with pytest.raises(DBAPIError) as raised:
             async with engine.begin() as conn:
-                await conn.execute(statement, {"status": status, "owner": user_id})
+                await conn.execute(
+                    statement,
+                    {"status": status, "owner": user_id, "deadline": deadline, "inputs": inputs},
+                )
     finally:
         await engine.dispose()
     assert constraint in str(raised.value)
@@ -253,7 +247,7 @@ async def test_viewer_reads_everyones_tasks_but_writes_none(
     async with make_client(app) as other:
         await register_and_login(other, username="viewer", email="viewer@example.com")
         listed = await other.get(URL)
-        blocked = await other.post(URL, json={"title": "我也提一个", "styleNo": STYLE_NO})
+        blocked = await other.post(URL, json={"title": "我也提一个", "inputs": INPUTS})
         forbidden = await other.delete(f"{URL}/{task['id']}")
 
     assert [item["id"] for item in listed.json()["items"]] == [task["id"]]

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from iclip.domains.tasks.api import create_tasks_router
-from iclip.domains.tasks.ports import StyleSnapshots
 from iclip.domains.tasks.repository import TaskRepository
 from iclip.domains.tasks.service import TaskService
 
@@ -19,10 +18,10 @@ class TasksModule:
     service: TaskService
 
 
-def build_tasks_module(repo: TaskRepository, snapshots: StyleSnapshots) -> TasksModule:
-    """通过注入的 StyleSnapshots 读取产品快照，需求单域不依赖产品库或对象存储实现。"""
+def build_tasks_module(repo: TaskRepository) -> TasksModule:
+    """需求单持久化明确提供的创作输入，不依赖产品库或对象存储。"""
 
-    service = TaskService(repo, snapshots)
+    service = TaskService(repo)
     return TasksModule(routers=(create_tasks_router(service),), service=service)
 
 

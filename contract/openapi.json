@@ -2777,175 +2777,10 @@
         "title": "StepUsage",
         "type": "object"
       },
-      "TaskBrief": {
-        "additionalProperties": false,
-        "description": "一份需求单上的创作输入。\n\n每一项都可以先空着——需求方通常是分几次填完的，草稿阶段不催。发布时才要求它至少\n说清楚要做什么（见 ``service.py`` 的发布关卡）。",
-        "properties": {
-          "audience": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Audience",
-            "type": "string"
-          },
-          "color": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Color",
-            "type": "string"
-          },
-          "contentType": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Contenttype",
-            "type": "string"
-          },
-          "department": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Department",
-            "type": "string"
-          },
-          "durationSeconds": {
-            "anyOf": [
-              {
-                "maximum": 50.0,
-                "minimum": 3.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Durationseconds"
-          },
-          "language": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Language",
-            "type": "string"
-          },
-          "platform": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Platform",
-            "type": "string"
-          },
-          "purpose": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Purpose",
-            "type": "string"
-          },
-          "ratio": {
-            "anyOf": [
-              {
-                "enum": [
-                  "1:1",
-                  "3:4",
-                  "4:3",
-                  "9:16",
-                  "16:9",
-                  "21:9"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ratio"
-          },
-          "referenceImages": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 16,
-            "title": "Referenceimages",
-            "type": "array"
-          },
-          "referenceVideos": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 16,
-            "title": "Referencevideos",
-            "type": "array"
-          },
-          "requester": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Requester",
-            "type": "string"
-          },
-          "requirementDescription": {
-            "default": "",
-            "maxLength": 4000,
-            "title": "Requirementdescription",
-            "type": "string"
-          },
-          "scene": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Scene",
-            "type": "string"
-          },
-          "selling": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Selling",
-            "type": "string"
-          },
-          "styleNos": {
-            "items": {
-              "maxLength": 64,
-              "minLength": 1,
-              "type": "string"
-            },
-            "maxItems": 20,
-            "title": "Stylenos",
-            "type": "array"
-          },
-          "theme": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Theme",
-            "type": "string"
-          },
-          "videoType": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Videotype",
-            "type": "string"
-          }
-        },
-        "title": "TaskBrief",
-        "type": "object"
-      },
       "TaskCreateIn": {
         "additionalProperties": false,
-        "description": "建一张需求单。比 ``TaskIn`` 多一个主款号。\n\n主款号只在创建时收：快照冻结之后就不许改写了，所以 ``PUT`` 用的还是 ``TaskIn``，\n往里塞 ``styleNo`` 会被 ``extra=\"forbid\"`` 挡成 422——想换款就提一张新的。",
+        "description": "创建需求单；输入形状与整体更新一致。",
         "properties": {
-          "brief": {
-            "$ref": "#/components/schemas/TaskBrief",
-            "default": {
-              "audience": "",
-              "color": "",
-              "contentType": "",
-              "department": "",
-              "language": "",
-              "platform": "",
-              "purpose": "",
-              "referenceImages": [],
-              "referenceVideos": [],
-              "requester": "",
-              "requirementDescription": "",
-              "scene": "",
-              "selling": "",
-              "styleNos": [],
-              "theme": "",
-              "videoType": ""
-            }
-          },
           "deadline": {
             "anyOf": [
               {
@@ -2958,18 +2793,15 @@
             ],
             "title": "Deadline"
           },
+          "inputs": {
+            "$ref": "#/components/schemas/TaskInputs-Input"
+          },
           "priority": {
             "default": 0,
             "maximum": 100.0,
             "minimum": 0.0,
             "title": "Priority",
             "type": "integer"
-          },
-          "styleNo": {
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Styleno",
-            "type": "string"
           },
           "title": {
             "maxLength": 200,
@@ -2980,7 +2812,7 @@
         },
         "required": [
           "title",
-          "styleNo"
+          "inputs"
         ],
         "title": "TaskCreateIn",
         "type": "object"
@@ -3002,27 +2834,6 @@
         "additionalProperties": false,
         "description": "建一张需求单，或整体覆盖一张已有的。\n\n创建与更新用同一个形状：更新就是整体覆盖（PUT），不做字段级的局部合并——局部合并\n在「哪些字段发布后冻结」这种规则面前很难说清楚「没传」到底是不改还是清空。",
         "properties": {
-          "brief": {
-            "$ref": "#/components/schemas/TaskBrief",
-            "default": {
-              "audience": "",
-              "color": "",
-              "contentType": "",
-              "department": "",
-              "language": "",
-              "platform": "",
-              "purpose": "",
-              "referenceImages": [],
-              "referenceVideos": [],
-              "requester": "",
-              "requirementDescription": "",
-              "scene": "",
-              "selling": "",
-              "styleNos": [],
-              "theme": "",
-              "videoType": ""
-            }
-          },
           "deadline": {
             "anyOf": [
               {
@@ -3034,6 +2845,9 @@
               }
             ],
             "title": "Deadline"
+          },
+          "inputs": {
+            "$ref": "#/components/schemas/TaskInputs-Input"
           },
           "priority": {
             "default": 0,
@@ -3050,9 +2864,88 @@
           }
         },
         "required": [
-          "title"
+          "title",
+          "inputs"
         ],
         "title": "TaskIn",
+        "type": "object"
+      },
+      "TaskInputs-Input": {
+        "additionalProperties": false,
+        "description": "唯一的创作需求结构，HTTP 与 JSONB 均使用 snake_case。",
+        "properties": {
+          "creative_requirement": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Creative Requirement",
+            "type": "string"
+          },
+          "product": {
+            "$ref": "#/components/schemas/TaskProduct-Input"
+          },
+          "reference_image_oss_urls": {
+            "$ref": "#/components/schemas/TaskReferenceImages-Input"
+          },
+          "reference_video_oss_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Video Oss Url"
+          },
+          "video_spec": {
+            "$ref": "#/components/schemas/TaskVideoSpec-Input"
+          }
+        },
+        "required": [
+          "product"
+        ],
+        "title": "TaskInputs",
+        "type": "object"
+      },
+      "TaskInputs-Output": {
+        "additionalProperties": false,
+        "description": "唯一的创作需求结构，HTTP 与 JSONB 均使用 snake_case。",
+        "properties": {
+          "creative_requirement": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Creative Requirement",
+            "type": "string"
+          },
+          "product": {
+            "$ref": "#/components/schemas/TaskProduct-Output"
+          },
+          "reference_image_oss_urls": {
+            "$ref": "#/components/schemas/TaskReferenceImages-Output"
+          },
+          "reference_video_oss_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Video Oss Url"
+          },
+          "video_spec": {
+            "$ref": "#/components/schemas/TaskVideoSpec-Output"
+          }
+        },
+        "required": [
+          "video_spec",
+          "product",
+          "reference_image_oss_urls",
+          "reference_video_oss_url",
+          "creative_requirement"
+        ],
+        "title": "TaskInputs",
         "type": "object"
       },
       "TaskOut": {
@@ -3066,9 +2959,6 @@
             },
             "title": "Assigneeuserids",
             "type": "array"
-          },
-          "brief": {
-            "$ref": "#/components/schemas/TaskBrief"
           },
           "createdAt": {
             "format": "date-time",
@@ -3097,6 +2987,9 @@
             "title": "Id",
             "type": "string"
           },
+          "inputs": {
+            "$ref": "#/components/schemas/TaskInputs-Output"
+          },
           "priority": {
             "title": "Priority",
             "type": "integer"
@@ -3104,9 +2997,6 @@
           "status": {
             "title": "Status",
             "type": "string"
-          },
-          "style": {
-            "$ref": "#/components/schemas/TaskStyle"
           },
           "title": {
             "title": "Title",
@@ -3125,46 +3015,144 @@
           "priority",
           "deadline",
           "creatorUserId",
-          "style",
-          "brief",
+          "inputs",
           "createdAt",
           "updatedAt"
         ],
         "title": "TaskOut",
         "type": "object"
       },
-      "TaskStyle": {
+      "TaskProduct-Input": {
         "additionalProperties": false,
-        "description": "下单那天主款长什么样，创建时冻结。\n\n抄一份而不是每次回头查产品资料：上游随时改名换图，历史需求单不该跟着变样。除了\n款号，另三项在上游缺名缺图时是空字符串。",
+        "description": "需求单的商品快照，由调用方明确提供名称和素材。",
         "properties": {
-          "brand": {
+          "image_oss_urls": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Image Oss Urls",
+            "type": "array"
+          },
+          "name": {
             "default": "",
             "maxLength": 200,
-            "title": "Brand",
+            "title": "Name",
             "type": "string"
           },
-          "category": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Category",
-            "type": "string"
-          },
-          "previewImageUrl": {
-            "default": "",
-            "title": "Previewimageurl",
-            "type": "string"
-          },
-          "styleNo": {
+          "style_no": {
             "maxLength": 64,
             "minLength": 1,
-            "title": "Styleno",
+            "title": "Style No",
             "type": "string"
           }
         },
         "required": [
-          "styleNo"
+          "style_no"
         ],
-        "title": "TaskStyle",
+        "title": "TaskProduct",
+        "type": "object"
+      },
+      "TaskProduct-Output": {
+        "additionalProperties": false,
+        "description": "需求单的商品快照，由调用方明确提供名称和素材。",
+        "properties": {
+          "image_oss_urls": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Image Oss Urls",
+            "type": "array"
+          },
+          "name": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          },
+          "style_no": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Style No",
+            "type": "string"
+          }
+        },
+        "required": [
+          "style_no",
+          "name",
+          "image_oss_urls"
+        ],
+        "title": "TaskProduct",
+        "type": "object"
+      },
+      "TaskReferenceImages-Input": {
+        "additionalProperties": false,
+        "description": "按用途分类的参考图片，不推断素材所属类别。",
+        "properties": {
+          "model": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Model",
+            "type": "array"
+          },
+          "outfit": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Outfit",
+            "type": "array"
+          },
+          "prop": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Prop",
+            "type": "array"
+          }
+        },
+        "title": "TaskReferenceImages",
+        "type": "object"
+      },
+      "TaskReferenceImages-Output": {
+        "additionalProperties": false,
+        "description": "按用途分类的参考图片，不推断素材所属类别。",
+        "properties": {
+          "model": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Model",
+            "type": "array"
+          },
+          "outfit": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Outfit",
+            "type": "array"
+          },
+          "prop": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Prop",
+            "type": "array"
+          }
+        },
+        "required": [
+          "model",
+          "outfit",
+          "prop"
+        ],
+        "title": "TaskReferenceImages",
         "type": "object"
       },
       "TaskUpsertOp": {
@@ -3184,6 +3172,142 @@
           "task"
         ],
         "title": "TaskUpsertOp",
+        "type": "object"
+      },
+      "TaskVideoSpec-Input": {
+        "additionalProperties": false,
+        "description": "视频创作规格；草稿允许尚未确定的参数留空。",
+        "properties": {
+          "aspect_ratio": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1:1",
+                  "3:4",
+                  "4:3",
+                  "9:16",
+                  "16:9",
+                  "21:9"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aspect Ratio"
+          },
+          "content_type": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Content Type",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 3.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "platform": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Platform",
+            "type": "string"
+          },
+          "resolution": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Resolution",
+            "type": "string"
+          },
+          "video_type": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Video Type",
+            "type": "string"
+          }
+        },
+        "title": "TaskVideoSpec",
+        "type": "object"
+      },
+      "TaskVideoSpec-Output": {
+        "additionalProperties": false,
+        "description": "视频创作规格；草稿允许尚未确定的参数留空。",
+        "properties": {
+          "aspect_ratio": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1:1",
+                  "3:4",
+                  "4:3",
+                  "9:16",
+                  "16:9",
+                  "21:9"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aspect Ratio"
+          },
+          "content_type": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Content Type",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 3.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "platform": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Platform",
+            "type": "string"
+          },
+          "resolution": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Resolution",
+            "type": "string"
+          },
+          "video_type": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Video Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "video_type",
+          "content_type",
+          "resolution",
+          "aspect_ratio",
+          "duration_seconds"
+        ],
+        "title": "TaskVideoSpec",
         "type": "object"
       },
       "TasksPageOut": {

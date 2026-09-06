@@ -38,7 +38,7 @@ make setup
 
 ### 3. 迁移并启动
 
-确认 PostgreSQL 可用后，在仓库根目录执行：
+确认 PostgreSQL 可用后，在仓库根目录执行。已有数据库升级前先备份；需求单输入迁移的内容保留和恢复规则见[需求单数据升级](contract/conventions.md#需求单数据升级)。
 
 ```bash
 make db-upgrade

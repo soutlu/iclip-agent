@@ -218,14 +218,13 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `PUT /tasks/{id}` 是**整体覆盖**，不是局部合并。
 - **创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`。
 
-### 款号
+### 创作输入与商品
 
-- `styleNo` 只在创建请求体里，是主款号；`brief.styleNos` 是要拍的款全集，**主款排首位**。不给全集，服务端补成 `[styleNo]`；给了但首位不是主款 → `422`。
-- `PUT` 改草稿不给 `styleNos` 会补成仅含原主款号的列表，首位给错 `422`；已下发的不给 `styleNos` 等于动了冻结字段，返 `409`。
-- `style` 是服务端按 `styleNo` 查产品资料后冻结的一份快照，**创建后不可改写**，没有端点能改。`PUT` 请求体里带 `styleNo` 或 `style` 一律 `422`。
-- `style.brand` / `style.category` 上游没名字时是空字符串；`previewImageUrl` 在这个款没有产品图时也是空字符串。
-- `previewImageUrl` 是首图转存到本仓对象存储后的地址。它只做列表封面，不进 `brief.referenceImages`。
-- 创建时款号这一步的失败口径：产品资料里查不到这个款（或已被上游标记删除）→ `422`，`detail` 说明是哪个款号；服务端没配产品资料库或对象存储 → `422`；首图取不到、或转存写不进对象存储 → `5xx`，这次创建整体不落地。
+- `POST /tasks` 与 `PUT /tasks/{id}` 使用同一份 `inputs` 结构。任务外层沿用 camelCase，`inputs` 内部使用 snake_case，与持久化 JSONB 一致；具体字段由 OpenAPI 定义。
+- `inputs` 是唯一的创作需求来源。创建不再隐式查询产品目录或转存商品图，调用方明确提供商品款号、名称和图片；本地文件先走 §11 的上传流程。
+- `inputs.product.style_no` 是主款号，创建后不可更换；草稿允许补充商品名称和图片，发布后商品信息冻结。
+- 商品图片用于商品展示，参考图片分别归入模特、穿搭、道具类别，不根据 URL 或上传顺序推断用途。
+- `task_id` 使用需求单自身 ID，`generation_id` 对应一次创作尝试的 Conversation ID，二者不重复保存在 Task 的 `inputs` 中。
 
 ### 状态机
 
@@ -251,11 +250,11 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 冻结字段
 
-`published` / `confirmed` 状态下，`PUT` 提交上来的 `brief` 与库里的逐字段比对：
+`published` / `confirmed` 状态下，`PUT` 提交的 `inputs` 与持久化内容按业务字段比较：
 
-- **仍可修改**：`title`、`priority`、`deadline`，以及 `brief` 里的 `durationSeconds`、`ratio`、`requirementDescription`、`referenceImages`、`referenceVideos`。`brief.styleNos` **不在**这几项里，下发之后动它是 `409`。
-- **其余 `brief` 字段有任何一项与库里不同 → `409`**，并在 `detail` 里列出是哪几个字段。改法：先 `GET` 拿到当前这张单子，改动允许的字段，再整体 `PUT` 回来。
-- `deadline` 在非草稿状态下**不能清空**（`422`）。
+- **仍可修改**：`title`、`priority`、`deadline`，以及 `inputs.video_spec` 的 `resolution`、`aspect_ratio`、`duration_seconds`，`creative_requirement`、分类参考图片和参考视频。
+- **冻结**：商品信息，以及 `video_spec` 的 `platform`、`video_type`、`content_type`。改变冻结字段返回 `409`，响应列出具体路径。
+- `deadline` 在非草稿状态下不能清空（`422`）。更新前先读取完整需求单，保留不能修改的字段，再整体 `PUT` 回来。
 
 ### 发布关卡
 
@@ -264,12 +263,19 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 不是 `draft` → `409`
 - 调用者既不是创建者也没有 `users:manage` → `403`
 - 没有 `deadline` → `422`
-- `brief` 里 `requirementDescription`、`theme`、`referenceImages`、`referenceVideos` **四项全空** → `422`
+- 创作要求、商品图片、三类参考图片与参考视频全部为空 → `422`
 - `deadline` 已经过去 → `409`
 
-### brief
+### 素材地址
 
-- `referenceImages`、`referenceVideos` **只收 `http://` 或 `https://`** 地址，别的 scheme `422`。本地文件先走 §11 的直传换成地址。
+- 商品图片、参考图片和参考视频只接受具有主机名的 HTTP(S) 地址；空参考视频使用 `null`。本地文件先走 §11 的直传换成地址。
+
+### 需求单数据升级
+
+- 执行 [0024_task_inputs](../server/migrations/versions/0024_task_inputs.py) 前备份 `iclip.tasks`。迁移保留管理字段、主键、认领及对话关联，将创作内容转换为 `inputs` 后移除原 `style`、`brief`。
+- 旧主题、目的、受众等补充内容和未分类图片地址追加到创作要求；分类参考图保持为空，不自动猜测用途。旧商品封面保留为商品图片，缺少的商品名称与分辨率留空。
+- 非法数据或合并后超过创作要求长度限制时，迁移失败并回滚，不截断内容。
+- 有需求单数据时禁止有损 downgrade；恢复旧结构须使用迁移前备份。空表支持结构降级。
 
 ## 10. 爆款视频查询 (Inspirations)
 

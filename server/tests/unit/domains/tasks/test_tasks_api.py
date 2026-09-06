@@ -24,16 +24,14 @@ from iclip.platform.http import status_code_for
 from tests.helpers.tasks import (
     STYLE_NO,
     InMemoryTaskRepository,
-    StubStyleSnapshots,
     future,
-    make_brief,
+    make_inputs,
     make_task,
 )
 
 BODY: dict[str, object] = {
     "title": "秋冬新品短视频",
-    "styleNo": STYLE_NO,
-    "brief": {"theme": "秋冬新品", "requirementDescription": "三十秒的上身效果"},
+    "inputs": make_inputs().model_dump(),
 }
 
 
@@ -56,7 +54,6 @@ def build_test_app(
     repo: InMemoryTaskRepository,
     *,
     granted: Principal | None,
-    snapshots: StubStyleSnapshots | None = None,
 ) -> FastAPI:
     app = FastAPI()
 
@@ -72,7 +69,7 @@ def build_test_app(
     async def _domain_error(_request: Request, exc: DomainError) -> JSONResponse:
         return JSONResponse(status_code=status_code_for(exc), content={"detail": str(exc)})
 
-    app.include_router(create_tasks_router(TaskService(repo, snapshots or StubStyleSnapshots())))
+    app.include_router(create_tasks_router(TaskService(repo)))
     return app
 
 
@@ -83,7 +80,7 @@ def client(app: FastAPI) -> httpx.AsyncClient:
 def body_of(task: object, **overrides: object) -> dict[str, object]:
 
     assert isinstance(task, dict)
-    payload = {key: task[key] for key in ("title", "priority", "deadline", "brief")}
+    payload = {key: task[key] for key in ("title", "priority", "deadline", "inputs")}
     payload.update(overrides)
     return payload
 
@@ -102,77 +99,34 @@ async def test_creating_lands_a_draft_owned_by_the_caller() -> None:
     assert task["deadline"] is None
 
 
-async def test_style_snapshot_is_frozen_at_creation() -> None:
-
-    repo = InMemoryTaskRepository()
-    snapshots = StubStyleSnapshots()
-    app = build_test_app(repo, granted=principal("tasks:write", "tasks:read"), snapshots=snapshots)
-    async with client(app) as http:
-        created = (await http.post("/tasks", json=BODY)).json()["task"]
-        assert (
-            await http.put(f"/tasks/{created['id']}", json=body_of(created, styleNo="OTHER1"))
-        ).status_code == 422
-        assert (
-            await http.put(
-                f"/tasks/{created['id']}", json=body_of(created, style={"styleNo": "OTHER1"})
-            )
-        ).status_code == 422
-        after = (await http.get(f"/tasks/{created['id']}")).json()["task"]
-
-    assert snapshots.asked == [STYLE_NO]
-    assert created["style"] == {
-        "styleNo": STYLE_NO,
-        "brand": "Bruno Marc",
-        "category": "高跟鞋",
-        "previewImageUrl": "https://cdn.example.com/task-styles/cover.jpg",
-    }
-    assert after["style"] == created["style"]
-
-
-async def test_style_nos_default_to_the_primary_style() -> None:
-
-    repo = InMemoryTaskRepository()
-    caller = principal("tasks:write")
-    async with client(build_test_app(repo, granted=caller)) as http:
-        alone = (await http.post("/tasks", json=BODY)).json()["task"]
-        many = (
-            await http.post(
-                "/tasks",
-                json={**BODY, "brief": {"styleNos": [STYLE_NO, "OTHER1"]}},
-            )
-        ).json()["task"]
-
-    assert alone["brief"]["styleNos"] == [STYLE_NO]
-    assert many["brief"]["styleNos"] == [STYLE_NO, "OTHER1"]
-
-
-async def test_editing_a_draft_cannot_drift_from_the_snapshot() -> None:
-
-    task = make_task(brief=make_brief(style_nos=[STYLE_NO]))
+async def test_draft_product_is_editable_except_for_its_style_number() -> None:
+    task = make_task()
     repo = InMemoryTaskRepository([task])
-    caller = editor(task.creator_user_id)
-    async with client(build_test_app(repo, granted=caller)) as http:
+    async with client(build_test_app(repo, granted=editor(task.creator_user_id))) as http:
         current = (await http.get(f"/tasks/{task.id}")).json()["task"]
-
-        without = body_of(current, brief={"theme": "换个主题"})
-        assert (await http.put(f"/tasks/{task.id}", json=without)).status_code == 200
-
-        drifted = body_of(current, brief={**current["brief"], "styleNos": ["OTHER1"]})
-        assert (await http.put(f"/tasks/{task.id}", json=drifted)).status_code == 422
-
+        inputs = current["inputs"]
+        inputs["product"].update(name="及膝长靴", image_oss_urls=["https://example.com/boots.jpg"])
+        saved = await http.put(f"/tasks/{task.id}", json=body_of(current, inputs=inputs))
+        assert saved.status_code == 200
+        assert saved.json()["task"]["inputs"]["product"] == inputs["product"]
+        inputs["product"]["style_no"] = "OTHER1"
+        assert (
+            await http.put(f"/tasks/{task.id}", json=body_of(current, inputs=inputs))
+        ).status_code == 409
         after = (await http.get(f"/tasks/{task.id}")).json()["task"]
+        assert after["inputs"]["product"]["style_no"] == STYLE_NO
 
-    assert after["brief"]["styleNos"] == [STYLE_NO]
 
-
-async def test_style_nos_freeze_on_publish() -> None:
-
-    task = make_task(status=STATUS_PUBLISHED, brief=make_brief(style_nos=[STYLE_NO]))
+@pytest.mark.parametrize("field", ["name", "image_oss_urls"])
+async def test_product_freezes_on_publish(field: str) -> None:
+    task = make_task(status=STATUS_PUBLISHED)
     repo = InMemoryTaskRepository([task])
     async with client(build_test_app(repo, granted=editor())) as http:
         current = (await http.get(f"/tasks/{task.id}")).json()["task"]
-        changed = body_of(current, brief={**current["brief"], "styleNos": [STYLE_NO, "OTHER1"]})
-        assert (await http.put(f"/tasks/{task.id}", json=changed)).status_code == 409
+        current["inputs"]["product"][field] = (
+            ["https://example.com/new.jpg"] if field == "image_oss_urls" else "new name"
+        )
+        assert (await http.put(f"/tasks/{task.id}", json=body_of(current))).status_code == 409
 
 
 async def test_creator_cannot_be_supplied_by_the_client() -> None:
@@ -187,15 +141,37 @@ async def test_creator_cannot_be_supplied_by_the_client() -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"title": "", "styleNo": STYLE_NO},
-        {"title": "x", "styleNo": STYLE_NO, "brief": {"durationSeconds": 1}},
-        {"title": "x", "styleNo": STYLE_NO, "brief": {"ratio": "7:3"}},
-        {"title": "x", "styleNo": STYLE_NO, "brief": {"referenceImages": ["file:///etc/passwd"]}},
-        {"title": "x", "styleNo": STYLE_NO, "brief": {"unknownField": "x"}},
+        {**BODY, "title": ""},
+        {
+            **BODY,
+            "inputs": {"product": {"style_no": STYLE_NO}, "video_spec": {"duration_seconds": 1}},
+        },
+        {
+            **BODY,
+            "inputs": {"product": {"style_no": STYLE_NO}, "video_spec": {"aspect_ratio": "7:3"}},
+        },
+        {
+            **BODY,
+            "inputs": {"product": {"style_no": STYLE_NO, "image_oss_urls": ["file:///etc/passwd"]}},
+        },
+        {
+            **BODY,
+            "inputs": {
+                "product": {"style_no": STYLE_NO},
+                "reference_image_oss_urls": {"model": ["https://"]},
+            },
+        },
+        {
+            **BODY,
+            "inputs": {
+                "product": {"style_no": STYLE_NO},
+                "reference_video_oss_url": "file:///video.mp4",
+            },
+        },
+        {**BODY, "inputs": {"product": {"style_no": STYLE_NO}, "unknown_field": "x"}},
         {"title": "x"},
-        {"title": "x", "styleNo": ""},
-        {"title": "x", "styleNo": "NOSUCHSTYLE"},
-        {"title": "x", "styleNo": STYLE_NO, "brief": {"styleNos": ["OTHER1", STYLE_NO]}},
+        {**BODY, "inputs": {"product": {"style_no": ""}}},
+        {**BODY, "inputs": {"product": {"style_no": "   "}}},
     ],
 )
 async def test_bad_request_shapes_are_rejected(payload: dict[str, object]) -> None:
@@ -230,7 +206,7 @@ async def test_a_draft_is_the_creators_own_business() -> None:
 
     task = make_task()
     repo = InMemoryTaskRepository([task])
-    payload = {"title": "改个名", "brief": {}}
+    payload = {"title": "改个名", "inputs": make_inputs().model_dump()}
 
     async with client(build_test_app(repo, granted=principal("tasks:write"))) as http:
         assert (await http.put(f"/tasks/{task.id}", json=payload)).status_code == 403
@@ -248,9 +224,7 @@ async def test_a_draft_is_the_creators_own_business() -> None:
 
 async def test_publishing_needs_a_deadline_and_something_to_make() -> None:
     creator = uuid.uuid4()
-    bare = make_task(
-        creator_user_id=creator, brief=make_brief(theme="", requirement_description="")
-    )
+    bare = make_task(creator_user_id=creator, inputs=make_inputs(creative_requirement=""))
     repo = InMemoryTaskRepository([bare])
     caller = editor(creator)
 
@@ -264,7 +238,7 @@ async def test_publishing_needs_a_deadline_and_something_to_make() -> None:
         assert (await http.post(f"/tasks/{bare.id}/publish")).status_code == 422
         said = body_of(
             (await http.get(f"/tasks/{bare.id}")).json()["task"],
-            brief={"requirementDescription": "三十秒的上身效果"},
+            inputs=make_inputs().model_dump(),
         )
         assert (await http.put(f"/tasks/{bare.id}", json=said)).status_code == 200
         published = await http.post(f"/tasks/{bare.id}/publish")
@@ -280,26 +254,27 @@ async def test_publishing_is_the_creators_call() -> None:
         assert (await http.post(f"/tasks/{task.id}/publish")).status_code == 403
 
 
-async def test_published_input_is_frozen_but_planner_fields_stay_open() -> None:
-    """发布后冻结创作输入，仅允许补充规划字段。"""
-
-    task = make_task(status=STATUS_PUBLISHED, brief=make_brief(theme="秋冬新品", purpose="种草"))
+@pytest.mark.parametrize("field", ["platform", "video_type", "content_type"])
+async def test_published_input_is_frozen_but_planner_fields_stay_open(field: str) -> None:
+    task = make_task(status=STATUS_PUBLISHED)
     repo = InMemoryTaskRepository([task])
     async with client(build_test_app(repo, granted=editor())) as http:
         current = (await http.get(f"/tasks/{task.id}")).json()["task"]
-
-        frozen = body_of(current, brief={**current["brief"], "purpose": "改成品宣"})
-        assert (await http.put(f"/tasks/{task.id}", json=frozen)).status_code == 409
-
-        planner = body_of(
-            current,
-            title="策划师改的标题",
-            brief={**current["brief"], "durationSeconds": 30, "ratio": "9:16"},
-        )
-        saved = await http.put(f"/tasks/{task.id}", json=planner)
-
+        inputs = current["inputs"]
+        inputs["video_spec"][field] = "changed"
+        assert (await http.put(f"/tasks/{task.id}", json=body_of(current))).status_code == 409
+        inputs["video_spec"][field] = ""
+        inputs["video_spec"].update(duration_seconds=30, aspect_ratio="9:16", resolution="1080p")
+        inputs["creative_requirement"] = "新创作要求"
+        inputs["reference_image_oss_urls"] = {
+            "model": ["https://example.com/model.jpg"],
+            "outfit": ["https://example.com/outfit.jpg"],
+            "prop": ["https://example.com/prop.jpg"],
+        }
+        inputs["reference_video_oss_url"] = "https://example.com/video.mp4"
+        saved = await http.put(f"/tasks/{task.id}", json=body_of(current, title="策划师改的标题"))
     assert saved.status_code == 200, saved.text
-    assert saved.json()["task"]["brief"]["durationSeconds"] == 30
+    assert saved.json()["task"]["inputs"] == inputs
     assert saved.json()["task"]["title"] == "策划师改的标题"
 
 
@@ -417,3 +392,22 @@ async def test_claimed_by_me_lists_only_my_claims() -> None:
         items = (await http.get("/tasks?claimedBy=me")).json()["items"]
         assert [item["id"] for item in items] == [str(mine.id)]
         assert (await http.get("/tasks?claimedBy=someone-else")).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        {"product": {"style_no": STYLE_NO, "image_oss_urls": ["https://example.com/product.jpg"]}},
+        {"reference_image_oss_urls": {"model": ["https://example.com/model.jpg"]}},
+        {"reference_image_oss_urls": {"outfit": ["https://example.com/outfit.jpg"]}},
+        {"reference_image_oss_urls": {"prop": ["https://example.com/prop.jpg"]}},
+        {"reference_video_oss_url": "https://example.com/video.mp4"},
+    ],
+)
+async def test_a_supplied_creative_asset_is_enough_to_publish(media: dict[str, object]) -> None:
+    task = make_task(deadline=future(), inputs=make_inputs(creative_requirement="", **media))
+    async with client(
+        build_test_app(InMemoryTaskRepository([task]), granted=editor(task.creator_user_id))
+    ) as http:
+        response = await http.post(f"/tasks/{task.id}/publish")
+    assert response.status_code == 200, response.text

@@ -45,7 +45,7 @@ function RenameForm({ onOpenChange, task }: { onOpenChange: (open: boolean) => v
     mutationFn: async (title: string) => {
       const fresh = await getTask(task.id)
       return saveTask(task.id, {
-        brief: fresh.brief,
+        inputs: fresh.inputs,
         deadline: fresh.deadline,
         priority: fresh.priority,
         title,

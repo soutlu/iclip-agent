@@ -56,8 +56,7 @@ async def open_task(client: httpx.AsyncClient) -> str:
         TASKS,
         json={
             "title": "儿童运动凉鞋多场景卖点",
-            "styleNo": STYLE_NO,
-            "brief": {"requirementDescription": "海边多视角"},
+            "inputs": {"product": {"style_no": STYLE_NO}, "creative_requirement": "海边多视角"},
             "deadline": (datetime.now(UTC) + timedelta(days=7)).isoformat(),
         },
     )

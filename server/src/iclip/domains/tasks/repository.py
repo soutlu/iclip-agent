@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Protocol
 
 from iclip.domains.tasks.models import Task, TaskStatus
-from iclip.domains.tasks.schemas import TaskBrief
+from iclip.domains.tasks.schemas import TaskInputs
 
 
 class TaskRepository(Protocol):
@@ -42,9 +42,9 @@ class TaskRepository(Protocol):
         title: str,
         priority: int,
         deadline: datetime | None,
-        brief: TaskBrief,
+        inputs: TaskInputs,
     ) -> Task | None:
-        """整体更新可变字段；状态与 expect 不符时返回 None。接口不接受创建时冻结的款号快照。"""
+        """整体更新可变字段；状态与 expect 不符时返回 None。字段冻结由服务层校验。"""
         ...
 
     async def publish(self, task_id: uuid.UUID) -> Task | None:

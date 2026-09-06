@@ -665,64 +665,85 @@ export const zStepUpsertOp = z.object({
 })
 
 /**
- * TaskBrief
+ * TaskProduct
  *
- * 一份需求单上的创作输入。
- *
- * 每一项都可以先空着——需求方通常是分几次填完的，草稿阶段不催。发布时才要求它至少
- * 说清楚要做什么（见 ``service.py`` 的发布关卡）。
+ * 需求单的商品快照，由调用方明确提供名称和素材。
  */
-export const zTaskBrief = z.object({
-  audience: z.string().max(200).optional().default(''),
-  color: z.string().max(200).optional().default(''),
-  contentType: z.string().max(200).optional().default(''),
-  department: z.string().max(200).optional().default(''),
-  durationSeconds: z.int().gte(3).lte(50).nullish(),
-  language: z.string().max(200).optional().default(''),
+export const zTaskProductInput = z.object({
+  image_oss_urls: z.array(z.string()).max(16).optional(),
+  name: z.string().max(200).optional().default(''),
+  style_no: z.string().min(1).max(64),
+})
+
+/**
+ * TaskProduct
+ *
+ * 需求单的商品快照，由调用方明确提供名称和素材。
+ */
+export const zTaskProductOutput = z.object({
+  image_oss_urls: z.array(z.string()).max(16),
+  name: z.string().max(200).default(''),
+  style_no: z.string().min(1).max(64),
+})
+
+/**
+ * TaskReferenceImages
+ *
+ * 按用途分类的参考图片，不推断素材所属类别。
+ */
+export const zTaskReferenceImagesInput = z.object({
+  model: z.array(z.string()).max(16).optional(),
+  outfit: z.array(z.string()).max(16).optional(),
+  prop: z.array(z.string()).max(16).optional(),
+})
+
+/**
+ * TaskReferenceImages
+ *
+ * 按用途分类的参考图片，不推断素材所属类别。
+ */
+export const zTaskReferenceImagesOutput = z.object({
+  model: z.array(z.string()).max(16),
+  outfit: z.array(z.string()).max(16),
+  prop: z.array(z.string()).max(16),
+})
+
+/**
+ * TaskVideoSpec
+ *
+ * 视频创作规格；草稿允许尚未确定的参数留空。
+ */
+export const zTaskVideoSpecInput = z.object({
+  aspect_ratio: z.enum(['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']).nullish(),
+  content_type: z.string().max(200).optional().default(''),
+  duration_seconds: z.int().gte(3).lte(50).nullish(),
   platform: z.string().max(200).optional().default(''),
-  purpose: z.string().max(200).optional().default(''),
-  ratio: z.enum(['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']).nullish(),
-  referenceImages: z.array(z.string()).max(16).optional(),
-  referenceVideos: z.array(z.string()).max(16).optional(),
-  requester: z.string().max(200).optional().default(''),
-  requirementDescription: z.string().max(4000).optional().default(''),
-  scene: z.string().max(200).optional().default(''),
-  selling: z.string().max(200).optional().default(''),
-  styleNos: z.array(z.string().min(1).max(64)).max(20).optional(),
-  theme: z.string().max(200).optional().default(''),
-  videoType: z.string().max(200).optional().default(''),
+  resolution: z.string().max(200).optional().default(''),
+  video_type: z.string().max(200).optional().default(''),
+})
+
+/**
+ * TaskInputs
+ *
+ * 唯一的创作需求结构，HTTP 与 JSONB 均使用 snake_case。
+ */
+export const zTaskInputsInput = z.object({
+  creative_requirement: z.string().max(4000).optional().default(''),
+  product: zTaskProductInput,
+  reference_image_oss_urls: zTaskReferenceImagesInput.optional(),
+  reference_video_oss_url: z.string().nullish(),
+  video_spec: zTaskVideoSpecInput.optional(),
 })
 
 /**
  * TaskCreateIn
  *
- * 建一张需求单。比 ``TaskIn`` 多一个主款号。
- *
- * 主款号只在创建时收：快照冻结之后就不许改写了，所以 ``PUT`` 用的还是 ``TaskIn``，
- * 往里塞 ``styleNo`` 会被 ``extra="forbid"`` 挡成 422——想换款就提一张新的。
+ * 创建需求单；输入形状与整体更新一致。
  */
 export const zTaskCreateIn = z.object({
-  brief: zTaskBrief.optional().default({
-    audience: '',
-    color: '',
-    contentType: '',
-    department: '',
-    language: '',
-    platform: '',
-    purpose: '',
-    referenceImages: [],
-    referenceVideos: [],
-    requester: '',
-    requirementDescription: '',
-    scene: '',
-    selling: '',
-    styleNos: [],
-    theme: '',
-    videoType: '',
-  }),
   deadline: z.iso.datetime().nullish(),
+  inputs: zTaskInputsInput,
   priority: z.int().gte(0).lte(100).optional().default(0),
-  styleNo: z.string().min(1).max(64),
   title: z.string().min(1).max(200),
 })
 
@@ -735,42 +756,37 @@ export const zTaskCreateIn = z.object({
  * 在「哪些字段发布后冻结」这种规则面前很难说清楚「没传」到底是不改还是清空。
  */
 export const zTaskIn = z.object({
-  brief: zTaskBrief.optional().default({
-    audience: '',
-    color: '',
-    contentType: '',
-    department: '',
-    language: '',
-    platform: '',
-    purpose: '',
-    referenceImages: [],
-    referenceVideos: [],
-    requester: '',
-    requirementDescription: '',
-    scene: '',
-    selling: '',
-    styleNos: [],
-    theme: '',
-    videoType: '',
-  }),
   deadline: z.iso.datetime().nullish(),
+  inputs: zTaskInputsInput,
   priority: z.int().gte(0).lte(100).optional().default(0),
   title: z.string().min(1).max(200),
 })
 
 /**
- * TaskStyle
+ * TaskVideoSpec
  *
- * 下单那天主款长什么样，创建时冻结。
- *
- * 抄一份而不是每次回头查产品资料：上游随时改名换图，历史需求单不该跟着变样。除了
- * 款号，另三项在上游缺名缺图时是空字符串。
+ * 视频创作规格；草稿允许尚未确定的参数留空。
  */
-export const zTaskStyle = z.object({
-  brand: z.string().max(200).optional().default(''),
-  category: z.string().max(200).optional().default(''),
-  previewImageUrl: z.string().optional().default(''),
-  styleNo: z.string().min(1).max(64),
+export const zTaskVideoSpecOutput = z.object({
+  aspect_ratio: z.enum(['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']).nullable(),
+  content_type: z.string().max(200).default(''),
+  duration_seconds: z.int().gte(3).lte(50).nullable(),
+  platform: z.string().max(200).default(''),
+  resolution: z.string().max(200).default(''),
+  video_type: z.string().max(200).default(''),
+})
+
+/**
+ * TaskInputs
+ *
+ * 唯一的创作需求结构，HTTP 与 JSONB 均使用 snake_case。
+ */
+export const zTaskInputsOutput = z.object({
+  creative_requirement: z.string().max(4000).default(''),
+  product: zTaskProductOutput,
+  reference_image_oss_urls: zTaskReferenceImagesOutput,
+  reference_video_oss_url: z.string().nullable(),
+  video_spec: zTaskVideoSpecOutput,
 })
 
 /**
@@ -778,14 +794,13 @@ export const zTaskStyle = z.object({
  */
 export const zTaskOut = z.object({
   assigneeUserIds: z.array(z.uuid()).optional().default([]),
-  brief: zTaskBrief,
   createdAt: z.iso.datetime(),
   creatorUserId: z.uuid(),
   deadline: z.iso.datetime().nullable(),
   id: z.uuid(),
+  inputs: zTaskInputsOutput,
   priority: z.int(),
   status: z.string(),
-  style: zTaskStyle,
   title: z.string(),
   updatedAt: z.iso.datetime(),
 })
