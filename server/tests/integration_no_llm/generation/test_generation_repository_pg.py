@@ -22,15 +22,14 @@ from iclip.domains.generation.models import (
 )
 from iclip.domains.generation.schemas import GenerationRequest
 from tests.helpers.generation import image_request, make_job, video_request
+from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 
 
 @pytest.fixture
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     created = create_async_engine(migrated_pg)
     async with created.begin() as conn:
-        await conn.execute(
-            text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
-        )
+        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
     try:
         yield created
     finally:

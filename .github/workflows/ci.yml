@@ -12,6 +12,8 @@ on:
 jobs:
   server:
     runs-on: ubuntu-latest
+    # 单测挂死时的最后一道闸；单个用例的上限见 pyproject 的 pytest timeout。
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -46,10 +48,10 @@ jobs:
         run: uv run pyright
       - name: Architecture graph
         run: uv run tach check
+      - name: Install ffmpeg (媒体用例要真取帧切格，导出合同装配 app 时 shot_video 也检查它)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Default test gate (real Postgres)
         run: uv run pytest -m "unit or integration_no_llm"
-      - name: Install ffmpeg (导出合同要把整个 app 装配起来，shot_video 启动时检查它)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Contract check (openapi.json 与后端一致)
         run: uv run python scripts/dump_openapi.py --check
       - name: Docs check (链接与 make 目标存在)

@@ -32,6 +32,7 @@ from iclip.config import (
 )
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
+from tests.helpers.pg import AGENT_RUNTIME_TABLES, IDENTITY_TABLES, truncate_clean
 from tests.helpers.tasks import StubStyleSnapshots
 
 SERVER_DIR = Path(__file__).resolve().parents[2]
@@ -115,9 +116,7 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
 async def _fresh_engine(url: str):
     engine = create_async_engine(url)
     async with engine.begin() as conn:
-        await conn.execute(
-            text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
-        )
+        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
     return engine
 
 
@@ -127,13 +126,7 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
 
     engine = create_async_engine(migrated_pg)
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "TRUNCATE agent_runtime.runs, agent_runtime.events, agent_runtime.snapshots, "
-                "agent_runtime.tool_effects, agent_runtime.media, agent_runtime.agent_jobs, "
-                "agent_runtime.agent_job_runs"
-            )
-        )
+        await truncate_clean(conn, AGENT_RUNTIME_TABLES)
     try:
         yield engine
     finally:
@@ -199,11 +192,9 @@ def ws_agent_app(
         engine = create_async_engine(migrated_pg, poolclass=NullPool)
         try:
             async with engine.begin() as conn:
-                await conn.execute(
-                    text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
-                )
-                await conn.execute(
-                    text("TRUNCATE agent_runtime.agent_jobs, agent_runtime.agent_job_runs")
+                await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
+                await truncate_clean(
+                    conn, ("agent_runtime.agent_jobs", "agent_runtime.agent_job_runs")
                 )
         finally:
             await engine.dispose()
@@ -235,9 +226,7 @@ def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
         engine = create_async_engine(migrated_pg, poolclass=NullPool)
         try:
             async with engine.begin() as conn:
-                await conn.execute(
-                    text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
-                )
+                await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
         finally:
             await engine.dispose()
 

@@ -17,13 +17,14 @@ from iclip.platform.file_store.store import (
     QuotaExceeded,
     VersionConflict,
 )
+from tests.helpers.pg import truncate_clean
 
 
 @pytest.fixture
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(migrated_pg)
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE agent_runtime.workspace_files"))
+        await truncate_clean(conn, ("agent_runtime.workspace_files",))
     yield engine
     await engine.dispose()
 

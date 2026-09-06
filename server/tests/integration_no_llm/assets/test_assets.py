@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.app.bootstrap import build_app
 from tests.helpers.generation import MemoryObjectStore
+from tests.helpers.pg import truncate_clean
 from tests.integration_no_llm.conftest import (
     make_client,
     make_runtime_config,
@@ -48,7 +49,9 @@ async def assets_app(
         monkeypatch.setenv(name, value)
     engine = create_async_engine(migrated_pg)
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE iclip.media_assets, iclip.api_keys, iclip.users CASCADE"))
+        await truncate_clean(
+            conn, ("iclip.media_assets", "iclip.api_keys", "iclip.users"), cascade=True
+        )
     try:
         yield build_app(make_runtime_config(), engine=engine, object_store=bucket)
     finally:

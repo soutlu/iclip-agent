@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.platform.material_ledger.pg import PgMaterialLedger
 from iclip.platform.material_ledger.store import Material
+from tests.helpers.pg import truncate_clean
 
 VIDEO = "https://cdn.test/ref.mp4"
 IMAGE = "https://cdn.test/poster.jpg?x-oss-process=image/resize,l_1024"
@@ -20,7 +21,7 @@ IMAGE = "https://cdn.test/poster.jpg?x-oss-process=image/resize,l_1024"
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(migrated_pg)
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE agent_runtime.materials"))
+        await truncate_clean(conn, ("agent_runtime.materials",))
     yield engine
     await engine.dispose()
 

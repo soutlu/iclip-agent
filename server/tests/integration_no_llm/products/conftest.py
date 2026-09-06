@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.app.bootstrap import build_app
+from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 from tests.integration_no_llm.conftest import make_runtime_config
 
 IMAGE_BASE_URL = "https://bucket.example.com/"
@@ -102,9 +103,7 @@ async def app(
     monkeypatch.setenv("PRODUCT_IMAGE_BASE_URL", IMAGE_BASE_URL)
     engine = create_async_engine(migrated_pg)
     async with engine.begin() as conn:
-        await conn.execute(
-            text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
-        )
+        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
     try:
         yield build_app(
             make_runtime_config(),

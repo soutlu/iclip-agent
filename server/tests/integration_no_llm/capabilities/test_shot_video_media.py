@@ -279,7 +279,10 @@ async def test_plan_extracts_every_second_and_boards_them(media: dict[str, bytes
     boards = model_facing(result)["boards"]
     assert len(boards) == 1
     assert materials.urls(NAMESPACE) == {boards[0]["url"]}
-    assert result.metadata == {"items": [{"url": boards[0]["url"], "caption": "板 1 · 1,2"}]}
+    assert result.metadata == {
+        "items": [{"url": boards[0]["url"], "caption": "板 1 · 1,2"}],
+        "note": "1 板 · 3 格",
+    }
     assert len(objects.written) == 1
     stored = await files.read(NAMESPACE, EXTRACTION_PATH)
     assert stored is not None
@@ -376,7 +379,8 @@ async def test_generate_cuts_the_grid_and_records_the_batch(media: dict[str, byt
     assert [frame["shot"] for frame in payload["frames"]] == [1, 2]
     assert len(objects.written) == boards_written + 2
     assert result.metadata == {
-        "items": [{"url": frame["url"], "caption": frame["no"]} for frame in payload["frames"]]
+        "items": [{"url": frame["url"], "caption": frame["no"]} for frame in payload["frames"]],
+        "note": "2 张 · dev 渠道",
     }
 
     stored = await files.read(NAMESPACE, payload["record"])
@@ -486,7 +490,8 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
         "items": [
             {"url": payload["images"][0]["url"], "caption": "全身正面平视的女性"},
             {"url": payload["images"][1]["url"], "caption": "空景全景平视的门厅"},
-        ]
+        ],
+        "note": "2 格 · dev 渠道",
     }
 
     stored = await files.read(NAMESPACE, payload["record"])
