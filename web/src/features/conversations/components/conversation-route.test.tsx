@@ -50,7 +50,12 @@ const APPROVAL_TURN = {
       frames: [
         {
           approvalId: 'appr_1',
-          display: { kind: 'file_io', operation: 'write', path: 'shots/cover.md' },
+          display: {
+            content: '# 封面\n\n两张镜头帧拼版，主图在左。',
+            kind: 'file_io',
+            operation: 'write',
+            path: 'shots/cover.md',
+          },
           frameId: 'ta.1.f1',
           input: { path: 'shots/cover.md' },
           kind: 'tool',
@@ -118,7 +123,7 @@ describe('ConversationRoute', () => {
 
     expect(await screen.findByText('第 1 个问题')).toBeInTheDocument()
     expect(screen.getByText(TAIL_TEXT)).toBeInTheDocument()
-    expect(screen.getByText('读文件')).toBeInTheDocument()
+    expect(screen.getByText('读取文件')).toBeInTheDocument()
     expect(screen.getByText('shots/storyboard.md')).toBeInTheDocument()
     expect(screen.queryByText('read_file')).not.toBeInTheDocument()
   })
@@ -532,12 +537,16 @@ describe('ConversationRoute', () => {
     ).toBeInTheDocument()
   })
 
-  it('工具结果是纯文本时可以展开，没有结果就不给展开箭头', async () => {
+  it('工具结果是纯文本时可以展开；历史里的读文件卡尾写行数', async () => {
     const user = userEvent.setup()
     const { socket } = await renderConversation()
     await screen.findByText(TAIL_TEXT)
 
-    expect(screen.queryByRole('button', { name: /读文件/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /读取文件/ })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.getByText('3 行')).toBeInTheDocument()
 
     socket.deliver(
       opsFrame(
@@ -561,7 +570,7 @@ describe('ConversationRoute', () => {
       ),
     )
 
-    const row = await screen.findByRole('button', { name: /搜内容/ })
+    const row = await screen.findByRole('button', { name: /搜索内容/ })
     expect(row).toHaveAttribute('aria-expanded', 'false')
 
     await user.click(row)
@@ -748,7 +757,9 @@ describe('ConversationRoute', () => {
     await renderConversation()
 
     const card = await screen.findByRole('region', { name: '等你审批' })
-    expect(within(card).getByText('写文件')).toBeInTheDocument()
+    expect(within(card).getByText('写入文件')).toBeInTheDocument()
+    // 审批卡预览要写的内容，来自 display 里的 content。
+    expect(within(card).getByRole('region', { name: '改动预览' })).toHaveTextContent('# 封面')
     expect(within(card).getByText('shots/cover.md')).toBeInTheDocument()
 
     await user.click(within(card).getByRole('button', { name: /同意/ }))

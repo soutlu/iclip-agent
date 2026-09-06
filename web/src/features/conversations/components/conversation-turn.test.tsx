@@ -323,16 +323,25 @@ describe('工具结果按 view 选渲染器', () => {
     expect(screen.getByRole('dialog', { name: 'S01 · 产品特写' })).toBeInTheDocument()
   })
 
-  it('结果形状对不上就退回朴素行：没有图，纯文本结果照旧可以展开', async () => {
-    const user = userEvent.setup()
+  it('结果形状对不上就退回朴素行：没有图，一句话的结果也不给展开', () => {
     render(<ConversationTurn turn={turnWithFrames([mediaFrame({ items: 3 })])} />)
 
     expect(screen.queryByRole('figure')).toBeNull()
-    await user.click(screen.getByRole('button', { name: /出镜头帧/ }))
-    expect(screen.getByText('出好了 2 张')).toBeInTheDocument()
+    expect(screen.getByText('出镜头帧')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /出镜头帧/ })).toBeNull()
   })
 
-  it('file_content 的纯文本结果可以展开', async () => {
+  it('媒体墙的角标写工具给的说明', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([mediaFrame({ ...TWO_ITEMS, note: '2 张 · dev 渠道' })])}
+      />,
+    )
+
+    expect(screen.getByText('2 张 · dev 渠道')).toBeInTheDocument()
+  })
+
+  it('file_content：卡尾写行数，展开是带行号的正文', async () => {
     const user = userEvent.setup()
     render(
       <ConversationTurn
@@ -341,8 +350,10 @@ describe('工具结果按 view 选渲染器', () => {
             display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
             frameId: 't1.1.f1',
             kind: 'tool',
+            metadata: { lines: 3, path: 'shots/storyboard.md', truncated: true },
             name: 'read_file',
-            output: '# 分镜\n\nS01 产品特写',
+            output:
+              '     1\t# 分镜\n     2\t\n     3\tS01 产品特写\n[还有 6 行没读，接着从第 4 行读]',
             state: 'done',
             toolCallId: 'call_1',
             view: 'file_content',
@@ -351,9 +362,70 @@ describe('工具结果按 view 选渲染器', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: /读文件/ }))
+    expect(screen.getByText('3 行 · 未读完')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /读取文件/ }))
 
-    expect(screen.getByText(/S01 产品特写/)).toBeInTheDocument()
+    expect(screen.getByText('S01 产品特写')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText(/还有 6 行没读/)).toBeInTheDocument()
+  })
+
+  it('search_results：卡尾写命中数，展开是逐条命中行', async () => {
+    const user = userEvent.setup()
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          {
+            display: { kind: 'search', query: '夜景' },
+            frameId: 't1.1.f1',
+            kind: 'tool',
+            metadata: {
+              matches: [
+                { file: 'shots/s01.md', line: 4, text: '开场是夜景' },
+                { file: 'shots/s02.md', line: 9, text: '结尾也是夜景' },
+              ],
+              query: '夜景',
+              truncated: true,
+            },
+            name: 'search_files',
+            output: 'shots/s01.md:4\t开场是夜景\nshots/s02.md:9\t结尾也是夜景',
+            state: 'done',
+            toolCallId: 'call_1',
+            view: 'search_results',
+          },
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('2 处命中')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /搜索工作区/ }))
+
+    expect(screen.getByText('shots/s02.md:9')).toBeInTheDocument()
+    expect(screen.getByText('结尾也是夜景')).toBeInTheDocument()
+    expect(screen.getByText('命中较多，只列出一部分')).toBeInTheDocument()
+  })
+
+  it('改文件：卡尾是增删数，一句话的结果不给展开', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          {
+            display: { kind: 'file_io', operation: 'edit', path: 'shots/storyboard.md' },
+            frameId: 't1.1.f1',
+            kind: 'tool',
+            metadata: { added: 3, removed: 1 },
+            name: 'edit_file',
+            output: '已改 shots/storyboard.md（现在 4312 字节）',
+            state: 'done',
+            toolCallId: 'call_1',
+          },
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('+3')).toBeInTheDocument()
+    expect(screen.getByText('−1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /编辑文件/ })).toBeNull()
   })
 
   it('画出图的那次调用不折进活动组：折起来图就跟着不见了', () => {

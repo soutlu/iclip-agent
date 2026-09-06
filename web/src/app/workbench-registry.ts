@@ -20,6 +20,6 @@ workbenchRegistry.register({
   component: SubAgentPanel,
   match: { displayKind: 'agent_call' },
   title: (source) =>
-    `派活 · ${(source.kind === 'frame' ? agentCallOf(source.display)?.agentName : undefined) ?? '子代理'}`,
+    `委派任务 · ${(source.kind === 'frame' ? agentCallOf(source.display)?.agentName : undefined) ?? '子代理'}`,
   type: 'sub-agent',
 })

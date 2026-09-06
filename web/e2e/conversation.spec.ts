@@ -14,7 +14,7 @@ test('点开一段对话：历史铺开，回复逐字长出来', async ({ page 
 
   await expect(page.getByText('第 1 个问题')).toBeVisible()
   await expect(page.getByText('这是第 2 轮的回复。')).toBeVisible()
-  await expect(page.getByText('读文件')).toBeVisible()
+  await expect(page.getByText('读取文件')).toBeVisible()
   await expect(page.getByText('shots/storyboard.md')).toBeVisible()
 
   await expect(page.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
@@ -32,7 +32,7 @@ test('点派活卡的「查看」：右侧打开子代理的过程，地址记�
   await page.getByRole('button', { name: '查看子代理过程' }).first().click()
 
   const panel = page.getByRole('complementary', { name: '右侧面板' })
-  await expect(panel.getByRole('heading', { name: '派活 · shot-writer' })).toBeVisible()
+  await expect(panel.getByRole('heading', { name: '委派任务 · shot-writer' })).toBeVisible()
   await expect(panel.getByText('shot-writer', { exact: true })).toBeVisible()
   await expect(panel.getByText('写第 3 组的三个镜头')).toBeVisible()
   await expect(panel.getByText(/S3-1 特写/)).toBeVisible()
