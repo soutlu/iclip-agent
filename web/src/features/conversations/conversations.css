@@ -1,12 +1,12 @@
-/* 消息区滚动条：参考 Kimi，仅在滚动或悬停时显示。 */
+/* 保持滚动条占位，仅在滚动或悬停时显色，避免正文换行触发滚动循环。 */
 
 .chat-scroller {
-  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
 }
 .chat-scroller:hover,
 .chat-scroller[data-scrolling='true'] {
   scrollbar-color: var(--color-chat-scrollbar-thumb) transparent;
-  scrollbar-width: thin;
 }
 .chat-scroller::-webkit-scrollbar {
   display: block;
