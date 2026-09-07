@@ -781,7 +781,7 @@ export type FrameEditAnnotation = {
   /**
    * Kind
    */
-  kind: 'rectangle' | 'ellipse' | 'arrow' | 'pen'
+  kind: 'point' | 'rectangle' | 'ellipse' | 'arrow' | 'pen'
   /**
    * Number
    */

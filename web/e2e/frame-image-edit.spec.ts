@@ -38,6 +38,23 @@ const drawEllipse = async (page: Page, dialog: Locator) => {
   await page.mouse.move(box.x + box.width / 2 + 25, box.y + box.height * 0.6, { steps: 8 })
   await page.mouse.up()
   await expect(canvas.getByRole('button', { name: '标注 1', exact: true })).toBeVisible()
+  await canvas
+    .getByRole('button', { name: '标注 1', exact: true })
+    .locator('[data-annotation-label] rect')
+    .click()
+}
+
+const drawPoint = async (page: Page, dialog: Locator) => {
+  const canvas = dialog.getByRole('group', { name: '图片标注画布', exact: true })
+  await canvas.scrollIntoViewIfNeeded()
+  const box = await canvas.boundingBox()
+  if (box === null) throw new Error('图片标注画布必须可见')
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.35)
+  const mark = canvas.getByRole('button', { name: '标注 1', exact: true })
+  await expect(mark).toHaveAttribute('data-annotation-kind', 'point')
+  await expect(mark).toHaveAttribute('aria-pressed', 'false')
+  await mark.locator('[data-annotation-label] rect').click()
+  return { canvas, mark }
 }
 
 const selectInputs = async (page: Page, dialog: Locator, annotated: boolean) => {
@@ -161,7 +178,7 @@ for (const width of [1335, 390]) {
     test(`图片编辑 ${width}px ${colorScheme}：画布、引用输入和操作可用`, async ({ page }) => {
       await page.emulateMedia({ colorScheme })
       const { dialog } = await openEditor(page, width)
-      await drawEllipse(page, dialog)
+      await drawPoint(page, dialog)
       await selectInputs(page, dialog, true)
       await writeInstructions(page, dialog)
       await expect(dialog).toBeInViewport({ ratio: 1 })
@@ -173,13 +190,13 @@ for (const width of [1335, 390]) {
       })
       await page.screenshot({
         animations: 'disabled',
-        path: `../.artifacts/design-qa/frame-image-editor/editor-${width}-${colorScheme}.png`,
+        path: `../.artifacts/design-qa/annotation-tools/editor-${width}-${colorScheme}.png`,
       })
       if (width === 390) {
         await dialog.getByRole('group', { name: '图片标注编辑器' }).scrollIntoViewIfNeeded()
         await page.screenshot({
           animations: 'disabled',
-          path: `../.artifacts/design-qa/frame-image-editor/canvas-${width}-${colorScheme}.png`,
+          path: `../.artifacts/design-qa/annotation-tools/canvas-${width}-${colorScheme}.png`,
         })
       }
       await dialog.getByRole('button', { name: '关闭图片编辑' }).focus()
@@ -188,6 +205,131 @@ for (const width of [1335, 390]) {
     })
   }
 }
+
+test('点标注支持编号引用和拖动，取消选择不新增，连续点击保持点工具', async ({ page }) => {
+  const { dialog } = await openEditor(page)
+  const toolbar = dialog.getByRole('toolbar', { name: '标注工具' })
+  await expect(toolbar.getByRole('button').first()).toHaveAccessibleName('点标注')
+  await expect(toolbar.getByRole('button', { name: '点标注', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await expect(toolbar.getByRole('button', { name: '引用选中标注' })).toHaveCount(0)
+  const { canvas, mark } = await drawPoint(page, dialog)
+  await expect(mark.locator('[data-handle]')).toHaveCount(0)
+  const target = mark.locator('[data-annotation-outline] circle')
+  const before = await target.boundingBox()
+  const badge = await mark.locator('[data-annotation-label] rect').boundingBox()
+  if (before === null || badge === null) throw new Error('定位点和编号必须可见')
+  await page.mouse.move(badge.x + badge.width / 2, badge.y + badge.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(badge.x + badge.width / 2 + 30, badge.y + badge.height / 2 + 24, {
+    steps: 5,
+  })
+  await page.mouse.up()
+  const after = await target.boundingBox()
+  if (after === null) throw new Error('移动后定位点必须可见')
+  expect(after.x - before.x).toBeCloseTo(30, 0)
+  expect(after.y - before.y).toBeCloseTo(24, 0)
+  // 靶心中心也必须命中标注，不能穿透成取消选择或新增重叠点。
+  await page.mouse.move(after.x + after.width / 2, after.y + after.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(after.x + after.width / 2 + 12, after.y + after.height / 2 + 10, {
+    steps: 4,
+  })
+  await page.mouse.up()
+  const movedFromCenter = await target.boundingBox()
+  if (movedFromCenter === null) throw new Error('从中心拖动后定位点必须可见')
+  expect(movedFromCenter.x - after.x).toBeCloseTo(12, 0)
+  expect(movedFromCenter.y - after.y).toBeCloseTo(10, 0)
+  await expect(canvas.getByRole('button')).toHaveCount(1)
+  await expect(mark).toHaveAttribute('aria-pressed', 'true')
+  await dialog.getByRole('button', { name: '引用选中标注' }).click()
+  await expect(
+    dialog.getByRole('textbox', { name: '修改要求' }).getByRole('button', { name: '标注 1' }),
+  ).toBeVisible()
+  const box = await canvas.boundingBox()
+  if (box === null) throw new Error('图片标注画布必须可见')
+  const empty = { x: box.x + box.width / 2, y: box.y + box.height * 0.7 }
+  await page.mouse.click(empty.x, empty.y)
+  await expect(canvas.getByRole('button')).toHaveCount(1)
+  await expect(mark).toHaveAttribute('aria-pressed', 'false')
+  await expect(dialog.getByRole('button', { name: '引用选中标注' })).toHaveCount(0)
+  await page.mouse.click(empty.x, empty.y)
+  await expect(canvas.getByRole('button')).toHaveCount(2)
+  await page.mouse.click(empty.x + 45, empty.y - 60)
+  await expect(canvas.getByRole('button')).toHaveCount(3)
+  await expect(toolbar.getByRole('button', { name: '点标注', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await mark.locator('[data-annotation-label] rect').click()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await expect(mark).toHaveAttribute('aria-pressed', 'false')
+  await expect(canvas.getByRole('button')).toHaveCount(3)
+  await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height * 0.85)
+  await page.mouse.down()
+  await expect(canvas.locator('[data-annotation-kind="point"]')).toHaveCount(4)
+  await expect(canvas.getByRole('button', { name: '标注 4', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  await expect(dialog).toBeVisible()
+  await expect(canvas.locator('[data-annotation-kind="point"]')).toHaveCount(3)
+  await expect(canvas.getByRole('button')).toHaveCount(3)
+  await selectInputs(page, dialog, true)
+  const submitted = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' && new URL(request.url()).pathname === '/api/generations',
+  )
+  await dialog.getByRole('button', { name: '生成编辑结果' }).click()
+  const body = (await submitted).postDataJSON() as ImageGenerationIn
+  expect(body.frameEdit?.annotations).toHaveLength(3)
+  for (const annotation of body.frameEdit?.annotations ?? []) {
+    expect(annotation.kind).toBe('point')
+    expect(annotation.points).toHaveLength(1)
+    expect(annotation.points[0]?.x).toBeGreaterThanOrEqual(0)
+    expect(annotation.points[0]?.x).toBeLessThanOrEqual(1)
+    expect(annotation.points[0]?.y).toBeGreaterThanOrEqual(0)
+    expect(annotation.points[0]?.y).toBeLessThanOrEqual(1)
+  }
+  expect(body.frameEdit?.instructions).toContainEqual({
+    kind: 'annotation',
+    id: body.frameEdit?.annotations?.[0]?.id,
+  })
+})
+
+test('画笔连续绘制平滑笔迹，松手后出现编号，选中时没有四角手柄', async ({ page }) => {
+  const { dialog } = await openEditor(page)
+  await dialog.getByRole('button', { name: '自由画笔', exact: true }).click()
+  const canvas = dialog.getByRole('group', { name: '图片标注画布', exact: true })
+  const box = await canvas.boundingBox()
+  if (box === null) throw new Error('图片标注画布必须可见')
+  for (const number of [1, 2]) {
+    const start = { x: box.x + box.width / 2 - 55, y: box.y + box.height * (0.2 * number) }
+    await page.mouse.move(start.x, start.y)
+    await page.mouse.down()
+    await page.mouse.move(start.x + 30, start.y - 10, { steps: 4 })
+    await page.mouse.move(start.x + 65, start.y + 20, { steps: 4 })
+    await page.mouse.move(start.x + 110, start.y + 15, { steps: 4 })
+    await expect(canvas.getByRole('button', { name: `标注 ${number}`, exact: true })).toHaveCount(0)
+    await page.mouse.up()
+    await expect(canvas.getByRole('button', { name: `标注 ${number}`, exact: true })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '自由画笔', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  }
+  const first = canvas.getByRole('button', { name: '标注 1', exact: true })
+  await first.locator('[data-annotation-label] rect').click()
+  await expect(first).toHaveAttribute('aria-pressed', 'true')
+  await expect(first.locator('[data-handle]')).toHaveCount(0)
+  await expect(first.locator('[data-annotation-outline] path')).toHaveAttribute('d', /Q/)
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/annotation-tools/pen-desktop.png',
+  })
+})
 
 test('参考图区支持点击上传、拖放上传和键盘排序，移除图片会使原引用失效', async ({ page }) => {
   const { dialog } = await openEditor(page, 390)

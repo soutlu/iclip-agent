@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { exportAnnotatedImage } from './annotation-export'
+import { annotationVisual } from './annotation-geometry'
+import type { ImageAnnotation } from './image-edit-types'
 
 let imageFails = false
 let imageWidth = 1200
@@ -41,6 +43,9 @@ describe('explicit annotation image export', () => {
       drawImage: (_image: HTMLImageElement, ...coordinates: number[]) => drawing.push(coordinates),
       beginPath: () => undefined,
       rect: (...coordinates: number[]) => drawing.push(coordinates),
+      roundRect: () => undefined,
+      moveTo: () => undefined,
+      lineTo: () => undefined,
       stroke: () => undefined,
       arc: () => undefined,
       fill: () => undefined,
@@ -70,6 +75,67 @@ describe('explicit annotation image export', () => {
     expect(drawing[1]?.[1]).toBe(1800)
     expect(drawing[1]?.[2]).toBeCloseTo(1600)
     expect(drawing[1]?.[3]).toBe(3000)
+  })
+
+  it('exports the shared smooth stroke, target rings, and compact square labels without edit handles', async () => {
+    const paths: string[] = []
+    const circles: number[][] = []
+    const labels: number[][] = []
+    const texts: string[] = []
+    vi.stubGlobal(
+      'Path2D',
+      class {
+        constructor(path: string) {
+          paths.push(path)
+        }
+      },
+    )
+    const context = {
+      drawImage: () => undefined,
+      beginPath: () => undefined,
+      moveTo: () => undefined,
+      lineTo: () => undefined,
+      arc: (...coordinates: number[]) => circles.push(coordinates),
+      roundRect: (...coordinates: number[]) => labels.push(coordinates),
+      stroke: () => undefined,
+      fill: () => undefined,
+      fillText: (text: string) => texts.push(text),
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context as unknown as CanvasRenderingContext2D,
+    )
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) =>
+      callback(new Blob(['png'], { type: 'image/png' })),
+    )
+    const pen: ImageAnnotation = {
+      id: 'stroke',
+      number: 1,
+      kind: 'pen',
+      points: [
+        { x: 0.4, y: 0.3 },
+        { x: 0.2, y: 0.5 },
+        { x: 0.7, y: 0.8 },
+      ],
+    }
+    const point: ImageAnnotation = {
+      id: 'target',
+      number: 2,
+      kind: 'point',
+      points: [{ x: 0.6, y: 0.4 }],
+    }
+    await exportAnnotatedImage('/frame.png', [pen, point])
+    const size = { width: imageWidth, height: imageHeight }
+    const exportScale = Math.min(imageWidth, imageHeight) / 480
+    const penGeometry = annotationVisual(pen, size, exportScale)
+    const pointGeometry = annotationVisual(point, size, exportScale)
+    expect(paths).toEqual([penGeometry.penPath])
+    expect(circles.map((circle) => circle.slice(0, 3))).toEqual([
+      [pointGeometry.anchor.x, pointGeometry.anchor.y, pointGeometry.targetRadius],
+      [pointGeometry.anchor.x, pointGeometry.anchor.y, pointGeometry.targetDotRadius],
+    ])
+    expect(labels).toHaveLength(2)
+    expect(labels[0]?.slice(2, 4)).toEqual([50, 50])
+    expect(texts).toEqual(['1', '2'])
   })
 
   it('reports unreadable source images', async () => {

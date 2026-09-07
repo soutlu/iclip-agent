@@ -1,6 +1,6 @@
 /** 编辑器的交互数据；引用用稳定 ID，编号仅作显示。HTTP 边界由生成合同校验。 */
 export type AnnotationPoint = { x: number; y: number }
-export type AnnotationKind = 'rectangle' | 'ellipse' | 'arrow' | 'pen'
+export type AnnotationKind = 'point' | 'rectangle' | 'ellipse' | 'arrow' | 'pen'
 export type ImageAnnotation = {
   id: string
   number: number

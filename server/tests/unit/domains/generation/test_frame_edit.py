@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from iclip.common.errors import Conflict, NotFound
 from iclip.domains.generation.schemas import (
+    FrameEditAnnotation,
     ImageGenerationIn,
     request_from_payload,
     request_to_payload,
@@ -67,8 +68,12 @@ def edit_request(context: dict[str, Any] | None = None, **overrides: Any) -> Ima
     )
 
 
-def test_compile_tracks_current_image_order_and_preserves_literal_text() -> None:
+@pytest.mark.parametrize("kind", ["point", "ellipse"])
+def test_compile_tracks_current_image_order_and_preserves_literal_text(kind: str) -> None:
     context = edit_context()
+    context["annotations"][0]["kind"] = kind
+    if kind == "point":
+        context["annotations"][0]["points"] = [{"x": 0.1, "y": 0.2}]
     request = edit_request(context)
     assert request.frame_edit is not None
     assert request.frame_edit.compile_prompt().startswith(
@@ -81,6 +86,42 @@ def test_compile_tracks_current_image_order_and_preserves_literal_text() -> None
         "将 【输入图片 1 中的标注 3】 换成 【输入图片 2】"
     )
     assert request_from_payload("image", request_to_payload(request)) == request
+
+
+@pytest.mark.parametrize(
+    ("kind", "point_count", "valid"),
+    [
+        ("point", 0, False),
+        ("point", 1, True),
+        ("point", 2, False),
+        ("rectangle", 1, False),
+        ("rectangle", 2, True),
+        ("rectangle", 3, False),
+        ("ellipse", 1, False),
+        ("ellipse", 2, True),
+        ("ellipse", 3, False),
+        ("arrow", 1, False),
+        ("arrow", 2, True),
+        ("arrow", 3, False),
+        ("pen", 1, False),
+        ("pen", 2, True),
+        ("pen", 3, True),
+    ],
+)
+def test_annotation_geometry_requires_points_for_its_tool(
+    kind: str, point_count: int, valid: bool
+) -> None:
+    annotation = {
+        "id": "a",
+        "number": 1,
+        "kind": kind,
+        "points": [{"x": 0.1 * index, "y": 0.2} for index in range(point_count)],
+    }
+    if valid:
+        assert FrameEditAnnotation.model_validate(annotation).model_dump() == annotation
+    else:
+        with pytest.raises(ValidationError):
+            FrameEditAnnotation.model_validate(annotation)
 
 
 @pytest.mark.parametrize(
@@ -130,7 +171,8 @@ def test_request_cannot_disagree_with_user_order() -> None:
         )
 
 
-async def test_submission_validates_target_before_queue_and_persists_snapshot() -> None:
+@pytest.mark.parametrize("kind", ["point", "ellipse"])
+async def test_submission_validates_target_before_queue_and_persists_snapshot(kind: str) -> None:
     repo = InMemoryGenerationRepository()
     queue, _ = build_queue(repo)
     validate = AsyncMock()
@@ -143,7 +185,11 @@ async def test_submission_validates_target_before_queue_and_persists_snapshot() 
         video_allowed_models=("video",),
         validate_frame_edit_target=validate,
     )
-    request = edit_request(conversation_id=uuid.uuid4(), shot_index=1)
+    context = edit_context()
+    context["annotations"][0]["kind"] = kind
+    if kind == "point":
+        context["annotations"][0]["points"] = [{"x": 0.1, "y": 0.2}]
+    request = edit_request(context, conversation_id=uuid.uuid4(), shot_index=1)
     actor = principal("generation:submit", "agent:run")
     job = await service.submit(actor, request)
     validate.assert_awaited_once_with(actor, request.conversation_id, 1, request.frame_edit)

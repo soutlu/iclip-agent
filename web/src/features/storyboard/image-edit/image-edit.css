@@ -169,3 +169,27 @@
 .image-edit-instruction-input p + p {
   margin-top: 8px;
 }
+
+.image-edit-annotation-actions {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 8px 4px 12px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-lowest);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-local-1);
+}
+.image-edit-annotation:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+}
+
+.image-edit-canvas-surface:focus:not(:focus-visible),
+.image-edit-annotation:focus:not(:focus-visible) {
+  /* design-allow -- 鼠标聚焦不画浏览器默认框；键盘仍由 ui-focus / :focus-visible 提供清晰焦点环。 */
+  outline: none;
+}

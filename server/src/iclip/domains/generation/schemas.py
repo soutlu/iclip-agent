@@ -102,12 +102,16 @@ class FrameEditPoint(CamelModel):
 class FrameEditAnnotation(CamelModel):
     id: FrameEditId
     number: int = Field(ge=1, le=9999)
-    kind: Literal["rectangle", "ellipse", "arrow", "pen"]
-    points: Annotated[list[FrameEditPoint], Field(min_length=2, max_length=2000)]
+    kind: Literal["point", "rectangle", "ellipse", "arrow", "pen"]
+    points: Annotated[list[FrameEditPoint], Field(min_length=1, max_length=2000)]
 
     @model_validator(mode="after")
     def check_geometry(self) -> FrameEditAnnotation:
-        if self.kind != "pen" and len(self.points) != 2:
+        if self.kind == "point" and len(self.points) != 1:
+            raise ValueError("点标注必须使用一个定位点")
+        if self.kind == "pen" and len(self.points) < 2:
+            raise ValueError("画笔必须使用至少两个点")
+        if self.kind in {"rectangle", "ellipse", "arrow"} and len(self.points) != 2:
             raise ValueError("矩形、椭圆和箭头必须使用两个端点")
         return self
 

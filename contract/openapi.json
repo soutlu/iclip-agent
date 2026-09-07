@@ -1431,6 +1431,7 @@
           },
           "kind": {
             "enum": [
+              "point",
               "rectangle",
               "ellipse",
               "arrow",
@@ -1450,7 +1451,7 @@
               "$ref": "#/components/schemas/FrameEditPoint"
             },
             "maxItems": 2000,
-            "minItems": 2,
+            "minItems": 1,
             "title": "Points",
             "type": "array"
           }
