@@ -70,7 +70,7 @@ def build_test_app(
         video_provider_name="video_api",
         image_provider_name="nano_banana_pro",
         video_model="moyu-seedance-2-5",
-        video_allowed_models=("moyu-seedance-2-0", "moyu-seedance-2-5"),
+        video_allowed_models=("moyu-seedance-2-0", "moyu-seedance-2-5", "wan3.0-video"),
     )
     app.include_router(create_generations_router(service))
     return app
@@ -80,7 +80,7 @@ def client(app: FastAPI) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
 
 
-@pytest.mark.parametrize("model", [None, "moyu-seedance-2-0", "moyu-seedance-2-5"])
+@pytest.mark.parametrize("model", [None, "moyu-seedance-2-0", "moyu-seedance-2-5", "wan3.0-video"])
 async def test_submit_accepts_and_persists_pending_without_calling_provider(
     model: str | None,
 ) -> None:

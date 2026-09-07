@@ -41,7 +41,10 @@ def video_provider(handler: object, *, store: MemoryObjectStore | None = None) -
 
 
 @pytest.mark.parametrize("generate_audio", [True, False, None])
-async def test_video_submit_sends_protocol_payload_and_key(generate_audio: bool | None) -> None:
+@pytest.mark.parametrize("model", ["moyu-seedance-2-5", "wan3.0-video"])
+async def test_video_submit_sends_protocol_payload_and_key(
+    generate_audio: bool | None, model: str
+) -> None:
     seen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -52,6 +55,7 @@ async def test_video_submit_sends_protocol_payload_and_key(generate_audio: bool 
 
     job = make_job(
         video_request(
+            model=model,
             image_urls=["https://example.test/first.png"],
             reference_video_urls=["https://example.test/reference.mp4"],
             reference_audio_urls=["https://example.test/reference.wav"],
@@ -64,7 +68,7 @@ async def test_video_submit_sends_protocol_payload_and_key(generate_audio: bool 
     assert submission.output_url is None, "异步接口这一步不该有结果"
     assert seen["key"] == "secret-key"
     expected_payload = {
-        "model": "moyu-seedance-2-5",
+        "model": model,
         "prompt": "一只猫跳上窗台",
         "user_name": "iclip-agent",
         "reference_image_urls": ["https://example.test/first.png"],

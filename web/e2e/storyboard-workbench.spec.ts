@@ -389,7 +389,7 @@ for (const viewport of [
   { height: 900, width: 1600 },
   { height: 844, width: 390 },
 ]) {
-  test(`生成设置 ${viewport.width}px：两款Moyu模型和音频开关可操作，Escape归还焦点`, async ({
+  test(`生成设置 ${viewport.width}px：Wan3、两款Moyu模型和音频开关可操作，Escape归还焦点`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport)
@@ -413,6 +413,10 @@ for (const viewport of [
     const older = settings.getByRole('radio', { name: 'SD2.0', exact: true })
     await expect(newer).toBeChecked()
     await expect(older).toBeVisible()
+    const wan = settings.getByRole('radio', { name: 'Wan3', exact: true })
+    await wan.click()
+    await expect(wan).toBeChecked()
+    await newer.click()
     await newer.focus()
     await page.keyboard.down('ArrowRight')
     try {
@@ -449,6 +453,8 @@ for (const viewport of [
     await expect(older).toBeChecked()
     await expect(audio).not.toBeChecked()
     await expect(settings).toBeInViewport({ ratio: 1 })
+    await wan.click()
+    await expect(wan).toBeChecked()
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
       await expect(settings).toBeInViewport({ ratio: 1 })

@@ -22,6 +22,7 @@ media_generation:
     allowed_models:
       - moyu-seedance-2-0
       - moyu-seedance-2-5
+      - wan3.0-video
     user_name: iclip-agent # 供应方对账使用的稳定调用方标识
   image:
     user_name: iclip-agent
