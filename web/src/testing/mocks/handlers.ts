@@ -27,6 +27,8 @@ export const mockAuthUser = {
   permissions: [
     'agent:read',
     'agent:run',
+    'generation:read',
+    'generation:submit',
     'assets:read',
     'assets:write',
     'collections:read',

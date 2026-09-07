@@ -17,6 +17,7 @@ from sqlalchemy import (
     Uuid,
     func,
     select,
+    tuple_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.row import RowMapping
@@ -129,11 +130,31 @@ class SqlGenerationRepository:
         return _job_from_row(row)
 
     async def list_for_owner(
-        self, *, owner: uuid.UUID | None, limit: int, conversation_id: uuid.UUID | None = None
+        self,
+        *,
+        owner: uuid.UUID | None,
+        limit: int,
+        conversation_id: uuid.UUID | None = None,
+        kind: str | None = None,
+        artifact_path: str | None = None,
+        shot_index: int | None = None,
+        frame_number: int | None = None,
+        before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         stmt = scope_to_owner(select(generation_jobs_table), _JOBS.owner_user_id, owner)
         if conversation_id is not None:
             stmt = stmt.where(_JOBS.conversation_id == conversation_id)
+        if kind is not None:
+            stmt = stmt.where(_JOBS.kind == kind)
+        if shot_index is not None:
+            stmt = stmt.where(_JOBS.shot_index == shot_index)
+        if artifact_path is not None:
+            stmt = stmt.where(_JOBS.request["frameEdit"]["artifactPath"].astext == artifact_path)
+        if frame_number is not None:
+            stmt = stmt.where(_JOBS.request["frameEdit"]["frameNumber"].astext == str(frame_number))
+        if before is not None:
+            anchor = await self.get(before, owner=owner)
+            stmt = stmt.where(tuple_(_JOBS.created_at, _JOBS.id) < (anchor.created_at, anchor.id))
         stmt = stmt.order_by(_JOBS.created_at.desc(), _JOBS.id.desc())
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt.limit(limit))).mappings().all()

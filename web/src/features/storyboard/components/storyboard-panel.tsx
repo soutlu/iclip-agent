@@ -29,6 +29,8 @@ import {
 import { validateShot } from '../prompt-doc'
 import { uploadFrameImage, useFrameCandidates, useShotGenerations } from '../storyboard.api'
 import { useShotsDraft } from '../use-shots-draft'
+import { FrameImageEditor } from '../image-edit/frame-image-editor'
+import type { FrameEditTarget } from '../image-edit/image-edit-types'
 import { useVideoGeneration } from '../use-video-generation'
 import { AllShotsSheet } from './all-shots-sheet'
 import { GenerationRecords } from './generation-records'
@@ -44,6 +46,8 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const generations = useShotGenerations(conversationId)
   const candidates = useFrameCandidates(conversationId)
   const draft = useShotsDraft({ conversationId, file: file.data?.file, path })
+  const [imageEditTarget, setImageEditTarget] = useState<FrameEditTarget | null>(null)
+  const imageEditTriggerRef = useRef<HTMLElement | null>(null)
   const navigate = useNavigate()
   const search: { frame?: number; sheet?: 'all' | 'prompt' | 'records'; shot?: number } = useSearch(
     {
@@ -238,6 +242,17 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               onReplaceFrame={(frame, previousUrl, url) =>
                 draft.replaceFrame(item.index, frame, previousUrl, url)
               }
+              onEditFrame={(frame, sourceUrl) => {
+                imageEditTriggerRef.current =
+                  document.activeElement instanceof HTMLElement ? document.activeElement : null
+                setImageEditTarget({
+                  conversationId,
+                  artifactPath: path,
+                  shotIndex: item.index,
+                  frameNumber: frame,
+                  sourceUrl,
+                })
+              }}
               onUploadFrame={uploadFrameImage}
               promptTriggerRef={offset + 1 === position ? promptTriggerRef : undefined}
               shot={item}
@@ -333,6 +348,26 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         ) : null}
       </div>
 
+      {imageEditTarget === null ? null : (
+        <FrameImageEditor
+          key={JSON.stringify(imageEditTarget)}
+          target={imageEditTarget}
+          frames={shots.find((item) => item.index === imageEditTarget.shotIndex)?.imageUrls ?? []}
+          aspectRatio={shotsDocument.aspectRatio}
+          onClose={() => {
+            setImageEditTarget(null)
+            requestAnimationFrame(() => imageEditTriggerRef.current?.focus())
+          }}
+          onApply={(url) =>
+            draft.applyFrame(
+              imageEditTarget.shotIndex,
+              imageEditTarget.frameNumber,
+              imageEditTarget.sourceUrl,
+              url,
+            )
+          }
+        />
+      )}
       <ConflictDialog resolve={draft.resolveConflict} state={draft.state} />
     </div>
   )

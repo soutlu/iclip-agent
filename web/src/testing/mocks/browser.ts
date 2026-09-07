@@ -36,7 +36,7 @@ if (unseen !== undefined) {
 // 首个演示会话提供 video_shot.json，供浏览器工作台演示。
 const withShots = seeded[0]
 if (withShots !== undefined) {
-  seedMockWorkspace(withShots.id)
+  seedMockWorkspace(withShots.id, { httpFrames: true })
 }
 
 // 两个会话归入示例合集，其余保持未分组。

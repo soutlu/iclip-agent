@@ -103,7 +103,16 @@ class InMemoryGenerationRepository:
         return job
 
     async def list_for_owner(
-        self, *, owner: uuid.UUID | None, limit: int, conversation_id: uuid.UUID | None = None
+        self,
+        *,
+        owner: uuid.UUID | None,
+        limit: int,
+        conversation_id: uuid.UUID | None = None,
+        kind: str | None = None,
+        artifact_path: str | None = None,
+        shot_index: int | None = None,
+        frame_number: int | None = None,
+        before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         rows = [
             job
@@ -111,7 +120,27 @@ class InMemoryGenerationRepository:
             if (owner is None or job.owner_user_id == owner)
             and (conversation_id is None or job.conversation_id == conversation_id)
         ]
-        rows.sort(key=lambda job: job.created_at, reverse=True)
+        rows = [
+            job
+            for job in rows
+            if (kind is None or job.kind == kind)
+            and (shot_index is None or job.shot_index == shot_index)
+        ]
+        if artifact_path is not None or frame_number is not None:
+            rows = [
+                job
+                for job in rows
+                if isinstance(job.request, ImageGenerationIn)
+                and job.request.frame_edit is not None
+                and (artifact_path is None or job.request.frame_edit.artifact_path == artifact_path)
+                and (frame_number is None or job.request.frame_edit.frame_number == frame_number)
+            ]
+        if before is not None:
+            anchor = await self.get(before, owner=owner)
+            rows = [
+                job for job in rows if (job.created_at, job.id) < (anchor.created_at, anchor.id)
+            ]
+        rows.sort(key=lambda job: (job.created_at, job.id), reverse=True)
         return tuple(rows[:limit])
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:

@@ -21,7 +21,16 @@ class GenerationRepository(Protocol):
         ...
 
     async def list_for_owner(
-        self, *, owner: uuid.UUID | None, limit: int, conversation_id: uuid.UUID | None = None
+        self,
+        *,
+        owner: uuid.UUID | None,
+        limit: int,
+        conversation_id: uuid.UUID | None = None,
+        kind: str | None = None,
+        artifact_path: str | None = None,
+        shot_index: int | None = None,
+        frame_number: int | None = None,
+        before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         """按创建时间倒序列出；``conversation_id`` 给了就只要那段对话下面的。"""
         ...

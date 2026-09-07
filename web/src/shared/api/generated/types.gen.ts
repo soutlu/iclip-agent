@@ -771,6 +771,138 @@ export type ErrorModel = {
 }
 
 /**
+ * FrameEditAnnotation
+ */
+export type FrameEditAnnotation = {
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Kind
+   */
+  kind: 'rectangle' | 'ellipse' | 'arrow' | 'pen'
+  /**
+   * Number
+   */
+  number: number
+  /**
+   * Points
+   */
+  points: Array<FrameEditPoint>
+}
+
+/**
+ * FrameEditAnnotationReference
+ */
+export type FrameEditAnnotationReference = {
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Kind
+   */
+  kind: 'annotation'
+}
+
+/**
+ * FrameEditContext
+ *
+ * 一次帧编辑的输入快照；图片顺序由用户确定，不由服务端补图。
+ */
+export type FrameEditContext = {
+  /**
+   * Annotations
+   */
+  annotations?: Array<FrameEditAnnotation>
+  /**
+   * Artifactpath
+   */
+  artifactPath: string
+  /**
+   * Framenumber
+   */
+  frameNumber: number
+  /**
+   * Instructions
+   */
+  instructions: Array<FrameEditText | FrameEditAnnotationReference | FrameEditImageReference>
+  /**
+   * References
+   */
+  references: Array<FrameEditReference>
+  /**
+   * Sourceurl
+   */
+  sourceUrl: string
+}
+
+/**
+ * FrameEditImageReference
+ */
+export type FrameEditImageReference = {
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Kind
+   */
+  kind: 'referenceImage'
+}
+
+/**
+ * FrameEditPoint
+ */
+export type FrameEditPoint = {
+  /**
+   * X
+   */
+  x: number
+  /**
+   * Y
+   */
+  y: number
+}
+
+/**
+ * FrameEditReference
+ */
+export type FrameEditReference = {
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Kind
+   */
+  kind: 'image' | 'annotated'
+  /**
+   * Label
+   */
+  label: string
+  /**
+   * Url
+   */
+  url: string
+}
+
+/**
+ * FrameEditText
+ */
+export type FrameEditText = {
+  /**
+   * Kind
+   */
+  kind: 'text'
+  /**
+   * Text
+   */
+  text: string
+}
+
+/**
  * FrameTarget
  */
 export type FrameTarget = {
@@ -955,6 +1087,7 @@ export type ImageGenerationIn = {
    * Conversationid
    */
   conversationId?: string | null
+  frameEdit?: FrameEditContext | null
   /**
    * Kind
    */
@@ -3974,6 +4107,26 @@ export type ListGenerationsGenerationsGetData = {
      * Conversationid
      */
     conversationId?: string | null
+    /**
+     * Kind
+     */
+    kind?: 'image' | 'video' | null
+    /**
+     * Artifactpath
+     */
+    artifactPath?: string | null
+    /**
+     * Shotindex
+     */
+    shotIndex?: number | null
+    /**
+     * Framenumber
+     */
+    frameNumber?: number | null
+    /**
+     * Before
+     */
+    before?: string | null
   }
   url: '/generations'
 }

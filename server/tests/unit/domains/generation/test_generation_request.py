@@ -61,6 +61,7 @@ def test_stored_payload_is_camel_case_without_the_kind_column() -> None:
         "aspectRatio",
         "resolution",
         "referenceImageUrls",
+        "frameEdit",
     }
 
 

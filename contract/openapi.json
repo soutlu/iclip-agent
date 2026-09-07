@@ -1420,6 +1420,254 @@
         "title": "ErrorModel",
         "type": "object"
       },
+      "FrameEditAnnotation": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rectangle",
+              "ellipse",
+              "arrow",
+              "pen"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "number": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "Number",
+            "type": "integer"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/FrameEditPoint"
+            },
+            "maxItems": 2000,
+            "minItems": 2,
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "kind",
+          "points"
+        ],
+        "title": "FrameEditAnnotation",
+        "type": "object"
+      },
+      "FrameEditAnnotationReference": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "annotation",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "FrameEditAnnotationReference",
+        "type": "object"
+      },
+      "FrameEditContext": {
+        "additionalProperties": false,
+        "description": "一次帧编辑的输入快照；图片顺序由用户确定，不由服务端补图。",
+        "properties": {
+          "annotations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FrameEditAnnotation"
+            },
+            "maxItems": 50,
+            "title": "Annotations",
+            "type": "array"
+          },
+          "artifactPath": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Artifactpath",
+            "type": "string"
+          },
+          "frameNumber": {
+            "minimum": 1.0,
+            "title": "Framenumber",
+            "type": "integer"
+          },
+          "instructions": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "annotation": "#/components/schemas/FrameEditAnnotationReference",
+                  "referenceImage": "#/components/schemas/FrameEditImageReference",
+                  "text": "#/components/schemas/FrameEditText"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FrameEditText"
+                },
+                {
+                  "$ref": "#/components/schemas/FrameEditAnnotationReference"
+                },
+                {
+                  "$ref": "#/components/schemas/FrameEditImageReference"
+                }
+              ]
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Instructions",
+            "type": "array"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/FrameEditReference"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "References",
+            "type": "array"
+          },
+          "sourceUrl": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Sourceurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifactPath",
+          "frameNumber",
+          "sourceUrl",
+          "instructions",
+          "references"
+        ],
+        "title": "FrameEditContext",
+        "type": "object"
+      },
+      "FrameEditImageReference": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "referenceImage",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "FrameEditImageReference",
+        "type": "object"
+      },
+      "FrameEditPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "FrameEditPoint",
+        "type": "object"
+      },
+      "FrameEditReference": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "annotated"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "kind",
+          "label"
+        ],
+        "title": "FrameEditReference",
+        "type": "object"
+      },
+      "FrameEditText": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "text",
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 4000,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "FrameEditText",
+        "type": "object"
+      },
       "FrameTarget": {
         "additionalProperties": false,
         "properties": {
@@ -1752,6 +2000,16 @@
               }
             ],
             "title": "Conversationid"
+          },
+          "frameEdit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FrameEditContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "kind": {
             "const": "image",
@@ -7238,6 +7496,94 @@
                 }
               ],
               "title": "Conversationid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "image",
+                    "video"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "artifactPath",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Artifactpath"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shotIndex",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Shotindex"
+            }
+          },
+          {
+            "in": "query",
+            "name": "frameNumber",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Framenumber"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
             }
           }
         ],

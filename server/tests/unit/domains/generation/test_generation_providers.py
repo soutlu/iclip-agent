@@ -355,3 +355,37 @@ async def test_video_falls_back_to_the_configured_default_model() -> None:
     submission = await video_provider(handler).submit(make_job(video_request()))
     assert sent["model"] == VIDEO_SETTINGS.model
     assert submission.raw["model"] == VIDEO_SETTINGS.model
+
+
+async def test_frame_edit_preserves_user_image_order_without_sending_editor_metadata() -> None:
+    from tests.unit.domains.generation.test_frame_edit import edit_request
+
+    request = edit_request()
+    assert request.frame_edit is not None
+    request = request.model_copy(update={"prompt": request.frame_edit.compile_prompt()})
+    sent: dict[str, object] = {}
+
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        if str(http_request.url) == IMAGE_EDIT_URL:
+            sent.update(httpx.Response(200, content=http_request.content).json())
+            return httpx.Response(
+                200, json={"success": True, "output_str": "https://cdn.test/out.png"}
+            )
+        return httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"})
+
+    provider = NanoBananaImageProvider(
+        IMAGE_SETTINGS, object_store=MemoryObjectStore(), transport=httpx.MockTransport(handler)
+    )
+    await provider.submit(make_job(request))
+    assert sent["input_str_list"] == request.reference_image_urls
+    assert sent["prompt"] == request.prompt
+    assert set(sent) == {
+        "data_id",
+        "user_name",
+        "prompt",
+        "task_source",
+        "aspect_ratio",
+        "resolution",
+        "channel",
+        "input_str_list",
+    }

@@ -32,7 +32,7 @@ export const useShotGenerations = (conversationId: string) =>
   useQuery({
     queryFn: ({ signal }) =>
       apiFetch(
-        `/generations?conversationId=${conversationId}&limit=${PAGE_LIMIT}`,
+        `/generations?conversationId=${conversationId}&kind=video&limit=${PAGE_LIMIT}`,
         zGenerationsPageOut,
         { fallbackErrorMessage: '读取生成任务失败', signal },
       ),

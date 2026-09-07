@@ -225,3 +225,36 @@ async def test_deleting_the_owner_takes_their_generations_with_it(
         await conn.execute(text("DELETE FROM iclip.users WHERE id = :id"), {"id": owner})
     with pytest.raises(NotFound):
         await repo.get(job.id, owner=None)
+
+
+async def test_frame_edit_json_filtering_pagination_and_owner_scope(engine: AsyncEngine) -> None:
+    from tests.unit.domains.generation.test_frame_edit import edit_context, edit_request
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    other = await make_user(engine)
+    first = await repo.create(make_job(edit_request(), owner_user_id=owner, shot_index=1))
+    second = await repo.create(make_job(edit_request(), owner_user_id=owner, shot_index=1))
+    context = edit_context()
+    context["frameNumber"] = 2
+    await repo.create(make_job(edit_request(context), owner_user_id=owner, shot_index=1))
+    foreign = await repo.create(make_job(edit_request(), owner_user_id=other, shot_index=1))
+
+    async def page_before(before: uuid.UUID | None = None) -> tuple[GenerationJob, ...]:
+        return await repo.list_for_owner(
+            owner=owner,
+            limit=1,
+            kind="image",
+            artifact_path="video_shot.json",
+            shot_index=1,
+            frame_number=1,
+            before=before,
+        )
+
+    page = await page_before()
+    assert [job.id for job in page] == [second.id]
+    assert page[0].request == second.request
+    assert [job.id for job in await page_before(before=second.id)] == [first.id]
+    assert await page_before(before=first.id) == ()
+    with pytest.raises(NotFound):
+        await page_before(before=foreign.id)
