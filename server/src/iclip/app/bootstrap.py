@@ -53,9 +53,9 @@ from iclip.domains.conversations.service import (
 )
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
 from iclip.domains.generation.module import GenerationModule, build_generation_module
-from iclip.domains.generation.multiflow import MultiflowSettings
 from iclip.domains.generation.nano_banana import NanoBananaSettings
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
+from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
 from iclip.domains.identity.middleware import PrincipalMiddleware
@@ -317,7 +317,8 @@ def _generation_module(
 
     return build_generation_module(
         SqlGenerationRepository(engine),
-        video=MultiflowSettings(
+        video_allowed_models=settings.video_allowed_models,
+        video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
             api_key=settings.video_api_key,

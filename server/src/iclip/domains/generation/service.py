@@ -35,12 +35,14 @@ class GenerationService:
         video_provider_name: str,
         image_provider_name: str,
         video_model: str,
+        video_allowed_models: tuple[str, ...],
     ) -> None:
         """持久化装配期确定的 Provider 名称，保留历史来源；此层不持有或调用 Provider 实例。"""
 
         self._repo = repo
         self._queue = queue
         self._video_model = video_model
+        self._video_allowed_models = video_allowed_models
         self._provider_names = {
             KIND_VIDEO: video_provider_name,
             KIND_IMAGE: image_provider_name,
@@ -52,10 +54,13 @@ class GenerationService:
         两步之间进程中断会留下未排队的 pending 记录，需要人工确认后重新发起。"""
 
         if isinstance(request, VideoGenerationIn):
-            if request.model not in (None, self._video_model):
-                raise ValidationFailed(f"视频生成仅支持模型 {self._video_model}")
+            model = request.model or self._video_model
+            if model not in self._video_allowed_models:
+                raise ValidationFailed(
+                    f"视频生成仅支持模型 {'、'.join(self._video_allowed_models)}"
+                )
             # 在受理时固定模型，队列等待期间的配置变化不能改变这次请求的选择。
-            request = request.model_copy(update={"model": self._video_model})
+            request = request.model_copy(update={"model": model})
 
         kind = request.kind
         now = datetime.now(UTC)

@@ -10,10 +10,6 @@ import procrastinate
 
 from iclip.domains.generation.api import create_generations_router
 from iclip.domains.generation.models import GenerationKind
-from iclip.domains.generation.multiflow import (
-    MultiflowSettings,
-    MultiflowVideoProvider,
-)
 from iclip.domains.generation.nano_banana import (
     NanoBananaImageProvider,
     NanoBananaSettings,
@@ -23,6 +19,10 @@ from iclip.domains.generation.queue import GenerationQueue, GenerationQueueSetti
 from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import KIND_IMAGE, KIND_VIDEO
 from iclip.domains.generation.service import GenerationService
+from iclip.domains.generation.video import (
+    HttpVideoProvider,
+    VideoProviderSettings,
+)
 from iclip.platform.object_store.oss import PublicObjectStore
 
 
@@ -38,7 +38,8 @@ class GenerationModule:
 def build_generation_module(
     repo: GenerationRepository,
     *,
-    video: MultiflowSettings,
+    video: VideoProviderSettings,
+    video_allowed_models: tuple[str, ...],
     image: NanoBananaSettings,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector,
@@ -49,9 +50,7 @@ def build_generation_module(
     """装配 Provider 与队列；transport 支持测试替身，queue_connector 由组合根选择数据库驱动。"""
 
     providers: dict[GenerationKind, GenerationProvider] = {
-        KIND_VIDEO: MultiflowVideoProvider(
-            video, object_store=object_store, transport=video_transport
-        ),
+        KIND_VIDEO: HttpVideoProvider(video, object_store=object_store, transport=video_transport),
         KIND_IMAGE: NanoBananaImageProvider(
             image, object_store=object_store, transport=image_transport
         ),
@@ -68,6 +67,7 @@ def build_generation_module(
         video_provider_name=providers[KIND_VIDEO].name,
         image_provider_name=providers[KIND_IMAGE].name,
         video_model=video.model,
+        video_allowed_models=video_allowed_models,
     )
     return GenerationModule(
         routers=(create_generations_router(service),),

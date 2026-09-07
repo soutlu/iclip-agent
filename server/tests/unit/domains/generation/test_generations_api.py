@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -66,9 +67,10 @@ def build_test_app(
     service = GenerationService(
         repo,
         queue,
-        video_provider_name="multiflow",
+        video_provider_name="video_api",
         image_provider_name="nano_banana_pro",
         video_model="moyu-seedance-2-5",
+        video_allowed_models=("moyu-seedance-2-0", "moyu-seedance-2-5"),
     )
     app.include_router(create_generations_router(service))
     return app
@@ -78,7 +80,7 @@ def client(app: FastAPI) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
 
 
-@pytest.mark.parametrize("model", [None, "moyu-seedance-2-5"])
+@pytest.mark.parametrize("model", [None, "moyu-seedance-2-0", "moyu-seedance-2-5"])
 async def test_submit_accepts_and_persists_pending_without_calling_provider(
     model: str | None,
 ) -> None:
@@ -91,14 +93,18 @@ async def test_submit_accepts_and_persists_pending_without_calling_provider(
     assert response.status_code == 202
     body = response.json()["generation"]
     assert body["status"] == STATUS_PENDING
-    assert body["provider"] == "multiflow"
+    assert body["provider"] == "video_api"
     assert body["outputUrl"] is None
-    assert body["request"]["model"] == "moyu-seedance-2-5"
+    assert body["request"]["model"] == (model or "moyu-seedance-2-5")
     assert len(repo.jobs) == 1
-    assert next(iter(repo.jobs.values())).request.model_dump()["model"] == "moyu-seedance-2-5"
+    assert next(iter(repo.jobs.values())).request.model_dump()["model"] == (
+        model or "moyu-seedance-2-5"
+    )
 
 
-@pytest.mark.parametrize("model", ["mmt-seedance-2-5", "atlas-seedance-2-5", "moyu-seedance-2-0"])
+@pytest.mark.parametrize(
+    "model", ["mmt-seedance-2-5", "atlas-seedance-2-5", "moyu-seedance-unknown"]
+)
 async def test_submit_rejects_other_video_models_before_persisting_or_queueing(model: str) -> None:
     repo = InMemoryGenerationRepository()
     # 若错误路径仍尝试入队，坏队列会让此用例失败。
@@ -112,13 +118,14 @@ async def test_submit_rejects_other_video_models_before_persisting_or_queueing(m
 
 
 async def test_historical_video_models_are_read_without_rewriting() -> None:
-    job = make_job(video_request(model="mmt-seedance-2-0"))
+    job = replace(make_job(video_request(model="mmt-seedance-2-0")), provider="multiflow")
     repo = InMemoryGenerationRepository([job])
     owner = principal("generation:read", user_id=job.owner_user_id)
     async with client(build_test_app(repo, granted=owner)) as http:
         response = await http.get(f"/generations/{job.id}")
 
     assert response.status_code == 200
+    assert response.json()["generation"]["provider"] == "multiflow"
     assert response.json()["generation"]["request"]["model"] == "mmt-seedance-2-0"
     assert repo.jobs[job.id].request.model_dump()["model"] == "mmt-seedance-2-0"
 

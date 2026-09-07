@@ -254,6 +254,7 @@ MEDIA = """
 media_generation:
   video:
     model: seedance
+    allowed_models: [seedance, seedance-other]
     user_name: iclip-agent
   image:
     user_name: iclip-agent
@@ -271,6 +272,13 @@ MEDIA_ENV = {
     "OSS_ACCESS_KEY_SECRET": "sk",
     "OSS_PUBLIC_URL_BASE": "https://cdn.test",
 }
+
+
+@pytest.mark.parametrize("allowed", ["[]", "[other]", "[seedance, '   ']"])
+def test_video_model_selection_rejects_invalid_configuration(tmp_path: Path, allowed: str) -> None:
+    media = MEDIA.replace("[seedance, seedance-other]", allowed)
+    with pytest.raises(ValidationError):
+        load_runtime_config(write(tmp_path, VALID + media))
 
 
 def _media_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -299,6 +307,7 @@ def test_media_generation_resolves_both_providers_and_store(
 
     assert media is not None
     assert media.video_model == "seedance", "对方的模型名来自 YAML"
+    assert media.video_allowed_models == ("seedance", "seedance-other")
     assert media.image_text_to_image_url == "https://image.test/text-to-image"
     assert media.image_edit_url == "https://image.test/image-edit"
     assert (media.poll_interval_seconds, media.job_timeout_seconds) == (5, 3600)

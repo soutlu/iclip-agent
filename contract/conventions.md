@@ -306,6 +306,6 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 12. 媒体生成 (Generations)
 
-- 视频新请求只接受 [运行配置](../server/configs/config.yaml) 中 `media_generation.video.model` 指定的模型。`model` 省略或为 `null` 时，受理阶段将该模型写入请求快照；显式指定其他模型返回 `422`，不创建任务、不入队。
+- 视频新请求只接受 [运行配置](../server/configs/config.yaml) 中 `media_generation.video.allowed_models` 列出的模型。`model` 省略或为 `null` 时，使用配置中的默认 `model`；受理阶段将选定模型写入请求快照。不在允许范围内的模型返回 `422`，不创建任务、不入队。
 - 视频模型在受理时确定，后台提交使用已保存的请求快照；配置变化不改写历史记录中的模型。
 - 图片的 `channel` 选择独立于视频模型策略，按图片接口合同处理。

@@ -74,7 +74,7 @@ class VideoGenerationIn(GenerationOrigin):
     kind: Literal["video"] = KIND_VIDEO
     prompt: Prompt
     model: Annotated[str, Field(min_length=1, max_length=MAX_MODEL_CHARS)] | None = None
-    """新请求只接受配置中的视频模型；省略时在受理阶段填入该模型。
+    """新请求只接受配置允许的视频模型；省略时在受理阶段填入默认模型。
 
     历史记录保留原模型字符串，读取持久化请求时不套用当前的模型选择策略。"""
     aspect_ratio: VIDEO_ASPECT_RATIOS

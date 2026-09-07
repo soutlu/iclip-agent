@@ -1,4 +1,4 @@
-"""Multiflow 视频生成适配器。提交取得 task_id，随后轮询状态；未知状态按协议错误处理。
+"""视频 HTTP 适配器。提交取得 task_id，随后轮询状态；未知状态按协议错误处理。
 
 Provider 结果地址会过期，必须转存为本系统公开对象后才能标记成功。"""
 
@@ -20,7 +20,7 @@ from iclip.domains.generation.schemas import VideoGenerationIn
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
 
-PROVIDER_NAME: Final = "multiflow"
+PROVIDER_NAME: Final = "video_api"
 
 _RUNNING_STATUSES: Final = frozenset({"queued", "pending", "running", "processing"})
 _SUCCEEDED_STATUS: Final = "succeeded"
@@ -41,7 +41,7 @@ _DEFAULT_MIME: Final = "video/mp4"
 
 
 @dataclass(frozen=True, slots=True)
-class MultiflowSettings:
+class VideoProviderSettings:
     """由组合根从环境变量解析后传入的运行值。"""
 
     submit_url: str
@@ -53,12 +53,12 @@ class MultiflowSettings:
     """Provider 要求的稳定调用方标识，用于对账。"""
 
 
-class MultiflowVideoProvider:
+class HttpVideoProvider:
     """``GenerationProvider`` 的视频实现。"""
 
     def __init__(
         self,
-        settings: MultiflowSettings,
+        settings: VideoProviderSettings,
         *,
         object_store: PublicObjectStore,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -329,4 +329,4 @@ def _error_fields(error: Any) -> tuple[str | None, str | None]:
     return None, None
 
 
-__all__ = ["PROVIDER_NAME", "MultiflowSettings", "MultiflowVideoProvider"]
+__all__ = ["PROVIDER_NAME", "HttpVideoProvider", "VideoProviderSettings"]

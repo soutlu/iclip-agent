@@ -5,17 +5,17 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from iclip.domains.generation.multiflow import MultiflowSettings, MultiflowVideoProvider
 from iclip.domains.generation.nano_banana import (
     NanoBananaImageProvider,
     NanoBananaSettings,
 )
 from iclip.domains.generation.provider import ProviderError
+from iclip.domains.generation.video import HttpVideoProvider, VideoProviderSettings
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable
 from tests.helpers.generation import MemoryObjectStore, image_request, make_job, video_request
 
-VIDEO_SETTINGS = MultiflowSettings(
+VIDEO_SETTINGS = VideoProviderSettings(
     submit_url="https://video.test/generate",
     status_base_url="https://video.test/tasks",
     api_key="secret-key",
@@ -31,11 +31,9 @@ IMAGE_SETTINGS = NanoBananaSettings(
 )
 
 
-def video_provider(
-    handler: object, *, store: MemoryObjectStore | None = None
-) -> MultiflowVideoProvider:
+def video_provider(handler: object, *, store: MemoryObjectStore | None = None) -> HttpVideoProvider:
     assert callable(handler)
-    return MultiflowVideoProvider(
+    return HttpVideoProvider(
         VIDEO_SETTINGS,
         object_store=store if store is not None else MemoryObjectStore(),
         transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
@@ -104,7 +102,7 @@ async def test_video_poll_maps_terminal_and_running_states() -> None:
     assert rejected.error_message == "被拦了"
 
 
-async def test_video_poll_preserves_multiflow_upstream_error_message() -> None:
+async def test_video_poll_preserves_upstream_error_message() -> None:
     upstream_error = {
         "code": "PROVIDER_ERROR",
         "upstream_status": 422,
