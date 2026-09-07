@@ -1286,6 +1286,7 @@ export const zVideoGenerationIn = z.object({
   aspectRatio: z.enum(['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']),
   conversationId: z.uuid().nullish(),
   durationSeconds: z.int().gte(1).lte(60),
+  generateAudio: z.boolean().nullish(),
   imageUrls: z.array(z.string()).max(16).optional().default([]),
   kind: z.literal('video').optional().default('video'),
   model: z.string().min(1).max(200).nullish(),

@@ -48,6 +48,8 @@ import {
   TriangleAlert,
   User,
   Video,
+  Volume2,
+  VolumeOff,
   X,
   ZoomIn,
 } from 'lucide-react'
@@ -114,6 +116,8 @@ const ICONS = {
   add: Plus,
   'add-file': FilePlus2,
   agent: Bot,
+  audio: Volume2,
+  'audio-off': VolumeOff,
   back: ArrowLeft,
   braces: Braces,
   'chat-new': CirclePlus,

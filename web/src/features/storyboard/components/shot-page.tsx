@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import { Button, IconButton } from '@/shared/ui/button'
+import { IconButton } from '@/shared/ui/button'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import {
@@ -15,10 +15,12 @@ import {
 } from '../prompt-doc'
 import { aspectRatioStyle, parseSceneHeader, shotName, type Shot } from '../shots'
 import type { FrameCandidate } from '../storyboard.api'
+import type { VideoGenerationOptions } from '../video-generation-options'
 import { FramePicker } from './frame-picker'
 import { FramePreview } from './frame-preview'
 import { PromptEditor } from './prompt-editor'
 import { ShotFilmstrip } from './shot-filmstrip'
+import { VideoGenerationButton } from './video-generation-button'
 
 type ShotPageProps = {
   shot: Shot
@@ -30,6 +32,8 @@ type ShotPageProps = {
   candidates: readonly FrameCandidate[]
   onUploadFrame: (file: File) => Promise<string>
   onGenerateVideo: () => void
+  videoOptions: VideoGenerationOptions
+  onChangeVideoOptions: (value: VideoGenerationOptions) => void
   onOpenPrompt: () => void
   promptTriggerRef?: Ref<HTMLButtonElement> | undefined
   generateDisabled: boolean
@@ -58,6 +62,7 @@ export function ShotPage({
   generateNote,
   generating,
   onChangeShot,
+  onChangeVideoOptions,
   onGenerateVideo,
   onOpenPrompt,
   onPickFrame,
@@ -65,6 +70,7 @@ export function ShotPage({
   onUploadFrame,
   promptTriggerRef,
   shot,
+  videoOptions,
 }: ShotPageProps) {
   const [zoomed, setZoomed] = useState<LightboxMedia | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -285,15 +291,13 @@ export function ShotPage({
           <span className="text-right text-body-sm text-on-surface-faint">
             {generateNote ?? groupSummary}
           </span>
-          <Button
-            className="rounded-xs"
+          <VideoGenerationButton
             disabled={generateDisabled}
-            leadingIcon="video"
-            onClick={onGenerateVideo}
-            size="md"
-          >
-            {generating ? '正在出片…' : '生成视频'}
-          </Button>
+            generating={generating}
+            onChange={onChangeVideoOptions}
+            onGenerate={onGenerateVideo}
+            value={videoOptions}
+          />
         </div>
       </div>
       <FramePicker

@@ -1,7 +1,39 @@
 import { Popover } from 'radix-ui'
-import type { HTMLAttributes } from 'react'
+import type { ComponentPropsWithoutRef, HTMLAttributes } from 'react'
 import { useMemo } from 'react'
 import { cn } from '@/shared/lib/utils'
+
+export const PopupRoot = Popover.Root
+export const PopupAnchor = Popover.Anchor
+export const PopupTrigger = Popover.Trigger
+
+type PopupSurfaceProps = ComponentPropsWithoutRef<typeof Popover.Content> & {
+  showArrow?: boolean
+}
+
+/** 共用弹层外观；触发按钮的焦点与键盘关闭由 Radix 管理。 */
+export function PopupSurface({
+  children,
+  className,
+  showArrow = false,
+  ...props
+}: PopupSurfaceProps) {
+  return (
+    <Popover.Portal>
+      <Popover.Content
+        className={cn(
+          'layer-popup rounded-md border-[0.5px] border-border bg-popup-bg shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+          'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:duration-(--dur-m) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        {showArrow ? <Popover.Arrow className="fill-popup-bg" height={8} width={16} /> : null}
+      </Popover.Content>
+    </Popover.Portal>
+  )
+}
 
 interface PopupContentProps extends HTMLAttributes<HTMLDivElement> {
   anchorRect: DOMRect | null
@@ -55,23 +87,17 @@ export function PopupContent({
       }}
     >
       <Popover.Anchor virtualRef={virtualRef} />
-      <Popover.Portal>
-        <Popover.Content
-          align={placement.align}
-          side={placement.side}
-          sideOffset={ALIGN_OFFSET}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          className={cn(
-            'layer-popup rounded-md border-[0.5px] border-border bg-popup-bg shadow-[var(--shadow-2)] backdrop-blur-[40px]',
-            'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:duration-(--dur-m) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
-            className,
-          )}
-          style={anchorRect ? style : { ...style, visibility: 'hidden' }}
-          {...props}
-        >
-          {children}
-        </Popover.Content>
-      </Popover.Portal>
+      <PopupSurface
+        align={placement.align}
+        side={placement.side}
+        sideOffset={ALIGN_OFFSET}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className={className}
+        style={anchorRect ? style : { ...style, visibility: 'hidden' }}
+        {...props}
+      >
+        {children}
+      </PopupSurface>
     </Popover.Root>
   )
 }

@@ -203,6 +203,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               generating={generatingShot(item.index)}
               key={`${item.index}-${offset + 1 === position ? 'active' : 'inactive'}`}
               onChangeShot={draft.updateShot}
+              onChangeVideoOptions={generation.setOptions}
               onGenerateVideo={() => void generation.submit(item)}
               onOpenPrompt={() => go({ sheet: 'prompt', shot: offset + 1 })}
               onPickFrame={(frame) => go({ frame, shot: offset + 1 })}
@@ -212,6 +213,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               onUploadFrame={uploadFrameImage}
               promptTriggerRef={offset + 1 === position ? promptTriggerRef : undefined}
               shot={item}
+              videoOptions={generation.options}
             />
           ))}
         </div>

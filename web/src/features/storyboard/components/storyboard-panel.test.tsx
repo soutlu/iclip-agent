@@ -77,6 +77,15 @@ const provideHistoricalPrompt = (prompt: string) => {
 
 describe('StoryboardPanel', () => {
   beforeEach(() => {
+    // jsdom 不提供尺寸观察；弹层的实际几何与窄屏避让由浏览器用例验证。
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn()
+        unobserve = vi.fn()
+        disconnect = vi.fn()
+      },
+    )
     vi.stubGlobal('createImageBitmap', async () => ({
       close: () => {},
       height: 800,
@@ -963,7 +972,9 @@ describe('StoryboardPanel', () => {
         aspectRatio: '9:16',
         conversationId: CONVERSATION_ID,
         durationSeconds: 6,
+        generateAudio: true,
         kind: 'video',
+        model: 'moyu-seedance-2-5',
         shotIndex: 1,
       }),
     )
@@ -971,6 +982,42 @@ describe('StoryboardPanel', () => {
     expect(posted['imageUrls']).toEqual(imageUrls)
     await waitFor(() => expect(reads).toBeGreaterThan(readsBefore))
     expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
+  })
+
+  it('选择SD2.0并关闭音频后切组仍保留设置，提交到新组的视频请求', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    const posted: Record<string, unknown>[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (request.method !== 'POST' || !request.url.includes('/api/generations')) return
+      void request
+        .clone()
+        .json()
+        .then((body: Record<string, unknown>) => posted.push(body))
+    })
+    const { router } = await renderPanel('/?shot=1')
+    const first = await screen.findByRole('region', { name: '镜头组 1' })
+    await userEvent.click(within(first).getByRole('button', { name: '生成设置：SD2.5，音频开启' }))
+    const settings = await screen.findByRole('dialog', { name: '生成设置' })
+    expect(within(settings).getByRole('radio', { name: 'SD2.5' })).toBeChecked()
+    expect(within(settings).getByRole('switch', { name: '生成音频' })).toBeChecked()
+
+    await userEvent.click(within(settings).getByRole('radio', { name: 'SD2.0' }))
+    await userEvent.click(within(settings).getByRole('switch', { name: '生成音频' }))
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getByRole('button', { name: '第 3 组' }))
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ shot: 3 }))
+    const third = screen.getByRole('region', { name: '镜头组 3' })
+    expect(within(third).getByRole('button', { name: '生成设置：SD2.0，音频关闭' })).toBeVisible()
+    await userEvent.click(within(third).getByRole('button', { name: '生成视频' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      model: 'moyu-seedance-2-0',
+      generateAudio: false,
+      shotIndex: 3,
+      conversationId: CONVERSATION_ID,
+    })
   })
 
   it('这一组名下已经有在飞的任务：按钮就是「正在出片…」，点不动', async () => {
@@ -1118,7 +1165,14 @@ describe('StoryboardPanel', () => {
         .json()
         .then((body: unknown) => posted.push(body))
     })
-    await renderPanel('/?shot=1&frame=2&sheet=prompt')
+    await renderPanel('/?shot=1&frame=2')
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    await userEvent.click(within(page).getByRole('button', { name: '生成设置：SD2.5，音频开启' }))
+    const settings = await screen.findByRole('dialog', { name: '生成设置' })
+    await userEvent.click(within(settings).getByRole('radio', { name: 'SD2.0' }))
+    await userEvent.click(within(settings).getByRole('switch', { name: '生成音频' }))
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
     const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
 
     await userEvent.click(within(sheet).getByRole('button', { name: '生成视频' }))
@@ -1128,8 +1182,10 @@ describe('StoryboardPanel', () => {
       aspectRatio: '9:16',
       conversationId: CONVERSATION_ID,
       durationSeconds: 6,
+      generateAudio: false,
       imageUrls,
       kind: 'video',
+      model: 'moyu-seedance-2-0',
       prompt,
       shotIndex: 1,
     })
