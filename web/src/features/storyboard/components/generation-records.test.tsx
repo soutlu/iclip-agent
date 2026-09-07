@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GenerationJob } from '../storyboard.api'
@@ -151,26 +151,71 @@ describe('GenerationRecords', () => {
     expect(within(card).queryByText('视频描述')).not.toBeInTheDocument()
     expect(within(card).queryByText('第一版：走向镜头。')).not.toBeInTheDocument()
     expect(within(card).queryByRole('button', { name: '编辑生成' })).not.toBeInTheDocument()
-    expect(within(card).getByLabelText('生成的视频')).toHaveAttribute('src', 'take-1.mp4')
-    expect(within(card).getByRole('button', { name: '播放视频' })).toBeVisible()
+    const play = within(card).getByRole('button', { name: '播放视频' })
+    expect(play).toBeVisible()
+    expect(document.querySelector('video')).toBeNull()
+
+    await userEvent.click(play)
+    const dialog = await screen.findByRole('dialog', { name: '生成的视频' })
+    expect(within(dialog).getByLabelText('生成的视频')).toHaveAttribute('src', 'take-1.mp4')
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '生成的视频' })).not.toBeInTheDocument()
+    expect(document.querySelector('video')).toBeNull()
+    await waitFor(() => expect(play).toHaveFocus())
 
     await userEvent.click(within(card).getByRole('button', { name: '展开这条记录' }))
     expect(within(card).getByText('第一版：走向镜头。')).toBeVisible()
     expect(within(card).getByRole('button', { name: '编辑生成' })).toBeEnabled()
   })
 
-  it('点击视频封面调用媒体播放，成功后显示原生控制条', async () => {
-    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
-    renderRecords()
-    const video = screen.getByLabelText('生成的视频')
-    expect(video).not.toHaveAttribute('controls')
+  it.each([
+    {
+      name: 'OSS封面',
+      url: 'https://assets.oss-cn-shanghai.aliyuncs.com/take.mp4',
+      hasPoster: true,
+    },
+    { name: '非OSS视频图标', url: 'https://example.com/take.mp4', hasPoster: false },
+  ])(
+    '$name 默认不挂载视频，点击后在共享预览中播放正确地址，关闭后卸载并归还焦点',
+    async ({ url, hasPoster }) => {
+      const { container } = render(
+        <GenerationRecords
+          jobs={[job({ id: 'preview', outputUrl: url })]}
+          onClose={vi.fn()}
+          onEditPrompt={vi.fn()}
+          shotIndex={2}
+        />,
+      )
+      const play = screen.getByRole('button', { name: '播放视频' })
+      expect(document.querySelector('video')).toBeNull()
+      const poster = play.querySelector('img')
+      if (hasPoster) {
+        expect(poster).toHaveAttribute(
+          'src',
+          expect.stringContaining(`${url}?x-oss-process=video/snapshot,`),
+        )
+      } else {
+        expect(poster).toBeNull()
+      }
 
-    await userEvent.click(screen.getByRole('button', { name: '播放视频' }))
+      await userEvent.click(play)
 
-    expect(play).toHaveBeenCalledOnce()
-    await waitFor(() => expect(video).toHaveAttribute('controls'))
-    expect(screen.queryByRole('button', { name: '播放视频' })).not.toBeInTheDocument()
-  })
+      const dialog = await screen.findByRole('dialog', { name: '生成的视频' })
+      expect(container).not.toContainElement(dialog)
+      const video = within(dialog).getByLabelText('生成的视频')
+      expect(video.tagName).toBe('VIDEO')
+      expect(video).toHaveAttribute('src', url)
+      expect(video).toHaveAttribute('controls')
+      expect(video).toHaveAttribute('autoplay')
+      expect(document.querySelectorAll('video')).toHaveLength(1)
+
+      await userEvent.click(within(dialog).getByRole('button', { name: '关闭' }))
+
+      expect(screen.queryByRole('dialog', { name: '生成的视频' })).not.toBeInTheDocument()
+      expect(document.querySelector('video')).toBeNull()
+      await waitFor(() => expect(play).toHaveFocus())
+    },
+  )
 
   it('只有图片或其它组的视频时，当前组仍显示空态', () => {
     render(
@@ -197,22 +242,6 @@ describe('GenerationRecords', () => {
 
     expect(onClose).toHaveBeenCalledOnce()
     expect(onEditPrompt).not.toHaveBeenCalled()
-  })
-
-  it('封面仅显示实际媒体时长，无效时长不伪造标签', () => {
-    renderRecords()
-    const video = screen.getByLabelText('生成的视频')
-    expect(screen.queryByText('0:26')).not.toBeInTheDocument()
-
-    Object.defineProperty(video, 'duration', { configurable: true, value: 26.4 })
-    fireEvent.durationChange(video)
-    expect(screen.getByText('0:26')).toBeVisible()
-
-    for (const duration of [0, Number.POSITIVE_INFINITY, Number.NaN]) {
-      Object.defineProperty(video, 'duration', { configurable: true, value: duration })
-      fireEvent.durationChange(video)
-      expect(screen.queryByText('0:26')).not.toBeInTheDocument()
-    }
   })
 
   it('✕ 关掉抽屉', async () => {

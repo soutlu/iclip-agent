@@ -1,13 +1,13 @@
 /** 仅展示当前镜头组的视频生成记录。 */
 
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon, type IconName } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
-import { formatDuration } from '@/shared/ui/media-preview'
-import { toast } from '@/shared/ui/toast'
+import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { isRunningStatus } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
 
@@ -174,54 +174,44 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
 }
 
 function RecordVideo({ url }: { url: string }) {
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const [started, setStarted] = useState(false)
-  const [duration, setDuration] = useState<number>()
-
-  const play = async () => {
-    try {
-      await videoRef.current?.play()
-      setStarted(true)
-    } catch {
-      toast.error('视频暂时无法播放')
-    }
-  }
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const [viewing, setViewing] = useState(false)
+  const poster = videoSnapshotUrl(url, 640)
 
   return (
-    <div className="relative overflow-hidden rounded-sm bg-scrim/88">
-      <video
-        aria-label="生成的视频"
-        className="aspect-[2/1] w-full object-contain"
-        controls={started}
-        onDurationChange={(event) => {
-          const seconds = event.currentTarget.duration
-          setDuration(Number.isFinite(seconds) && seconds > 0 ? seconds : undefined)
-        }}
-        playsInline
-        poster={videoSnapshotUrl(url, 640)}
-        preload="metadata"
-        ref={videoRef}
-        src={url}
+    <>
+      <button
+        aria-label="播放视频"
+        className="relative grid aspect-[2/1] w-full cursor-pointer place-items-center overflow-hidden rounded-sm bg-surface-container ui-focus"
+        onClick={() => setViewing(true)}
+        ref={triggerRef}
+        type="button"
       >
-        <track kind="captions" />
-      </video>
-      {started ? null : (
-        <button
-          aria-label="播放视频"
-          className="absolute inset-0 grid cursor-pointer place-items-center ui-focus"
-          onClick={() => void play()}
-          type="button"
-        >
-          <span className="grid size-9 place-items-center rounded-full border border-on-scrim/70 bg-scrim/48 text-on-scrim">
-            <Icon className="fill-current" decorative name="play" size="md" />
-          </span>
-        </button>
-      )}
-      {!started && duration !== undefined ? (
-        <span className="pointer-events-none absolute right-2 bottom-2 rounded-xs bg-scrim/70 px-1.5 py-0.5 text-label text-on-scrim tabular-nums">
-          {formatDuration(duration)}
+        {poster === undefined ? null : (
+          <img
+            alt="生成的视频封面"
+            className="absolute size-full object-contain"
+            loading="lazy"
+            src={poster}
+          />
+        )}
+        <span className="relative grid size-9 place-items-center rounded-full bg-scrim/48 text-on-scrim">
+          <Icon className="fill-current" decorative name="play" size="md" />
         </span>
-      ) : null}
-    </div>
+      </button>
+      {viewing
+        ? // 与对话附件使用同一个播放器；挂到 body，避免被记录抽屉的动画与裁剪限制。
+          createPortal(
+            <MediaLightbox
+              media={{ kind: 'video', name: '生成的视频', url }}
+              onClose={() => {
+                setViewing(false)
+                triggerRef.current?.focus()
+              }}
+            />,
+            document.body,
+          )
+        : null}
+    </>
   )
 }
