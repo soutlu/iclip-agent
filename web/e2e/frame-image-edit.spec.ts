@@ -163,7 +163,7 @@ test('标注引用缺少标注图时阻止提交，删除标注后引用明确�
     dialog.getByRole('list', { name: '提交图片顺序' }).getByRole('listitem'),
   ).toHaveCount(1)
   expect(submitted).toBe(0)
-  await dialog.getByRole('button', { name: '删除标注' }).click()
+  await dialog.getByRole('button', { name: '删除此标注' }).click()
   await expect(editor.getByRole('button', { name: '标注已失效' })).toHaveAttribute(
     'aria-disabled',
     'true',
@@ -376,4 +376,54 @@ test('参考图区支持点击上传、拖放上传和键盘排序，移除图�
   )
   await dialog.getByRole('button', { name: '生成编辑结果' }).click()
   await expect(dialog.getByRole('alert')).toHaveText('修改要求中有已移除的图片，请处理失效引用')
+})
+
+test('左侧按钮清空所有标注，一次撤销恢复，浮动删除仍只删除当前标注', async ({ page }) => {
+  const { dialog } = await openEditor(page)
+  const canvas = dialog.getByRole('group', { name: '图片标注画布', exact: true })
+  const toolbar = dialog.getByRole('toolbar', { name: '标注工具' })
+  const clear = toolbar.getByRole('button', { name: '清空标注', exact: true })
+  const box = await canvas.boundingBox()
+  if (box === null) throw new Error('图片标注画布必须可见')
+  await expect(clear).toBeDisabled()
+  await page.mouse.click(box.x + box.width / 2 - 40, box.y + box.height * 0.35)
+  await page.mouse.click(box.x + box.width / 2 + 40, box.y + box.height * 0.6)
+  const first = canvas.getByRole('button', { name: '标注 1', exact: true })
+  const second = canvas.getByRole('button', { name: '标注 2', exact: true })
+  await expect(first).toHaveAttribute('aria-pressed', 'false')
+  await expect(second).toHaveAttribute('aria-pressed', 'false')
+  await expect(clear).toBeEnabled()
+  await clear.click()
+  await expect(canvas.getByRole('button')).toHaveCount(0)
+  await expect(clear).toBeDisabled()
+  await toolbar.getByRole('button', { name: '撤销标注' }).click()
+  await expect(first).toBeVisible()
+  await expect(second).toBeVisible()
+  await first.locator('[data-annotation-label] rect').click()
+  await dialog.getByRole('button', { name: '引用选中标注' }).click()
+  const editor = dialog.getByRole('textbox', { name: '修改要求' })
+  await expect(editor.getByRole('button', { name: '标注 1', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: '删除此标注' }).click()
+  await expect(first).toHaveCount(0)
+  await expect(second).toBeVisible()
+  await expect(editor.getByRole('button', { name: '标注已失效' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  )
+  await toolbar.getByRole('button', { name: '撤销标注' }).click()
+  await expect(first).toBeVisible()
+  await expect(editor.getByRole('button', { name: '标注 1', exact: true })).toHaveAttribute(
+    'aria-disabled',
+    'false',
+  )
+  await clear.click()
+  await expect(canvas.getByRole('button')).toHaveCount(0)
+  await expect(editor.getByRole('button', { name: '标注已失效' })).toBeVisible()
+  await toolbar.getByRole('button', { name: '撤销标注' }).click()
+  await expect(canvas.getByRole('button')).toHaveCount(2)
+  await expect(editor.getByRole('button', { name: '标注 1', exact: true })).toHaveAttribute(
+    'aria-disabled',
+    'false',
+  )
+  await expect(dialog).toBeVisible()
 })

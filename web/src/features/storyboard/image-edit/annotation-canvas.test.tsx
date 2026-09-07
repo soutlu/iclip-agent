@@ -207,4 +207,51 @@ describe('annotation canvas', () => {
     expect(screen.queryByRole('toolbar', { name: '标注 1 操作' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '自由画笔' })).toHaveAttribute('aria-pressed', 'true')
   })
+
+  it('clears all annotations without a selection and restores them together with undo', async () => {
+    const user = userEvent.setup()
+    const point: ImageAnnotation = {
+      id: 'boot',
+      number: 2,
+      kind: 'point',
+      points: [{ x: 0.8, y: 0.2 }],
+    }
+    await renderWithProviders(<Editor initial={[original, point]} />)
+    const canvas = loadImage()
+    const clear = screen.getByRole('button', { name: '清空标注' })
+    expect(clear).toBeEnabled()
+    await user.click(clear)
+    expect(screen.queryByRole('button', { name: '标注 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '标注 2' })).not.toBeInTheDocument()
+    expect(clear).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: '撤销标注' }))
+    expect(screen.getByRole('button', { name: '标注 1' })).toHaveAttribute(
+      'data-annotation-id',
+      'jacket',
+    )
+    expect(screen.getByRole('button', { name: '标注 2' })).toHaveAttribute(
+      'data-annotation-id',
+      'boot',
+    )
+    await user.click(screen.getByRole('button', { name: '重做标注' }))
+    expect(screen.queryByRole('button', { name: '标注 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '标注 2' })).not.toBeInTheDocument()
+    expect(canvas).toBeInTheDocument()
+  })
+
+  it('keeps single deletion in the selected annotation toolbar', async () => {
+    const user = userEvent.setup()
+    const point: ImageAnnotation = {
+      id: 'boot',
+      number: 2,
+      kind: 'point',
+      points: [{ x: 0.8, y: 0.2 }],
+    }
+    await renderWithProviders(<Editor initial={[original, point]} />)
+    loadImage()
+    fireEvent.keyDown(screen.getByRole('button', { name: '标注 1' }), { key: 'Enter' })
+    await user.click(screen.getByRole('button', { name: '删除此标注' }))
+    expect(screen.queryByRole('button', { name: '标注 1' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '标注 2' })).toBeInTheDocument()
+  })
 })
