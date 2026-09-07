@@ -5,21 +5,21 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from iclip.domains.generation.multiflow import MultiflowSettings, MultiflowVideoProvider
 from iclip.domains.generation.nano_banana import (
     NanoBananaImageProvider,
     NanoBananaSettings,
 )
 from iclip.domains.generation.provider import ProviderError
+from iclip.domains.generation.video import HttpVideoProvider, VideoProviderSettings
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable
 from tests.helpers.generation import MemoryObjectStore, image_request, make_job, video_request
 
-VIDEO_SETTINGS = MultiflowSettings(
+VIDEO_SETTINGS = VideoProviderSettings(
     submit_url="https://video.test/generate",
     status_base_url="https://video.test/tasks",
     api_key="secret-key",
-    model="seedance",
+    model="moyu-seedance-2-5",
     user_name="iclip-agent",
 )
 IMAGE_TEXT_TO_IMAGE_URL = "https://image.test/text-to-image"
@@ -31,11 +31,9 @@ IMAGE_SETTINGS = NanoBananaSettings(
 )
 
 
-def video_provider(
-    handler: object, *, store: MemoryObjectStore | None = None
-) -> MultiflowVideoProvider:
+def video_provider(handler: object, *, store: MemoryObjectStore | None = None) -> HttpVideoProvider:
     assert callable(handler)
-    return MultiflowVideoProvider(
+    return HttpVideoProvider(
         VIDEO_SETTINGS,
         object_store=store if store is not None else MemoryObjectStore(),
         transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
@@ -51,19 +49,25 @@ async def test_video_submit_sends_protocol_payload_and_key() -> None:
         seen["body"] = httpx.Response(200, content=request.content).json()
         return httpx.Response(200, json={"task_id": "t-1"})
 
-    job = make_job(video_request(image_urls=["https://example.test/first.png"]))
+    job = make_job(
+        video_request(
+            image_urls=["https://example.test/first.png"],
+            reference_video_urls=["https://example.test/reference.mp4"],
+            reference_audio_urls=["https://example.test/reference.wav"],
+        )
+    )
     submission = await video_provider(handler).submit(job)
 
     assert submission.provider_task_id == "t-1"
     assert submission.output_url is None, "异步接口这一步不该有结果"
     assert seen["key"] == "secret-key"
     assert seen["body"] == {
-        "model": "seedance",
+        "model": "moyu-seedance-2-5",
         "prompt": "一只猫跳上窗台",
         "user_name": "iclip-agent",
-        "image_urls": ["https://example.test/first.png"],
-        "reference_videos": [],
-        "reference_audios": [],
+        "reference_image_urls": ["https://example.test/first.png"],
+        "reference_video_urls": ["https://example.test/reference.mp4"],
+        "reference_audio_urls": ["https://example.test/reference.wav"],
         "aspect_ratio": "16:9",
         "seconds": 5,
     }
@@ -95,6 +99,26 @@ async def test_video_poll_maps_terminal_and_running_states() -> None:
     assert (await video_provider(running).poll(job)).outcome == "running"
     rejected = await video_provider(failed).poll(job)
     assert (rejected.outcome, rejected.error_code) == ("failed", "NSFW")
+    assert rejected.error_message == "被拦了"
+
+
+async def test_video_poll_preserves_upstream_error_message() -> None:
+    upstream_error = {
+        "code": "PROVIDER_ERROR",
+        "upstream_status": 422,
+        "upstream_code": "InvalidParameter.ReferenceVideo",
+        "upstream_message": "Reference video duration exceeds the limit.\n最大时长为 15 秒。",
+    }
+
+    def failed(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "failed", "error": upstream_error})
+
+    progress = await video_provider(failed).poll(make_job(provider_task_id="t-1"))
+
+    assert progress.outcome == "failed"
+    assert progress.error_code == "PROVIDER_ERROR"
+    assert progress.error_message == upstream_error["upstream_message"]
+    assert progress.raw["error"] == upstream_error
 
 
 async def test_video_result_is_rehosted_and_provider_url_is_not_kept() -> None:

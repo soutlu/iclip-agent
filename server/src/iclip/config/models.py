@@ -215,10 +215,19 @@ ArkReasoningEffort = Literal["minimal", "low", "medium", "high"]
 
 
 class VideoGenerationSection(ConfigSection):
-    """视频生成里对方约定的取值。地址与 key 在 ``MediaGenerationEnv``。"""
+    """新视频生成允许选择的模型、默认模型与调用方标识。"""
 
     model: str
+    allowed_models: tuple[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)], ...
+    ] = Field(min_length=1)
     user_name: str
+
+    @model_validator(mode="after")
+    def _default_model_is_allowed(self) -> VideoGenerationSection:
+        if self.model not in self.allowed_models:
+            raise ValueError("video.model 必须包含在 video.allowed_models 中")
+        return self
 
 
 class ImageGenerationSection(ConfigSection):
@@ -400,6 +409,7 @@ class ResolvedMediaGeneration:
     video_status_base_url: str
     video_api_key: str
     video_model: str
+    video_allowed_models: tuple[str, ...]
     video_user_name: str
     image_text_to_image_url: str
     image_edit_url: str
@@ -534,6 +544,7 @@ def _resolve_media_generation(
         video_status_base_url=env.video_status_base_url,
         video_api_key=env.video_api_key,
         video_model=section.video.model,
+        video_allowed_models=section.video.allowed_models,
         video_user_name=section.video.user_name,
         image_text_to_image_url=env.image_text_to_image_url,
         image_edit_url=env.image_edit_url,

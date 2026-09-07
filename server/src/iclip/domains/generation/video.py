@@ -1,4 +1,4 @@
-"""Multiflow 视频生成适配器。提交取得 task_id，随后轮询状态；未知状态按协议错误处理。
+"""视频 HTTP 适配器。提交取得 task_id，随后轮询状态；未知状态按协议错误处理。
 
 Provider 结果地址会过期，必须转存为本系统公开对象后才能标记成功。"""
 
@@ -20,7 +20,7 @@ from iclip.domains.generation.schemas import VideoGenerationIn
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
 
-PROVIDER_NAME: Final = "multiflow"
+PROVIDER_NAME: Final = "video_api"
 
 _RUNNING_STATUSES: Final = frozenset({"queued", "pending", "running", "processing"})
 _SUCCEEDED_STATUS: Final = "succeeded"
@@ -41,7 +41,7 @@ _DEFAULT_MIME: Final = "video/mp4"
 
 
 @dataclass(frozen=True, slots=True)
-class MultiflowSettings:
+class VideoProviderSettings:
     """由组合根从环境变量解析后传入的运行值。"""
 
     submit_url: str
@@ -53,12 +53,12 @@ class MultiflowSettings:
     """Provider 要求的稳定调用方标识，用于对账。"""
 
 
-class MultiflowVideoProvider:
+class HttpVideoProvider:
     """``GenerationProvider`` 的视频实现。"""
 
     def __init__(
         self,
-        settings: MultiflowSettings,
+        settings: VideoProviderSettings,
         *,
         object_store: PublicObjectStore,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -85,9 +85,9 @@ class MultiflowVideoProvider:
             "model": model,
             "prompt": request.prompt,
             "user_name": self._settings.user_name,
-            "image_urls": list(request.image_urls),
-            "reference_videos": list(request.reference_video_urls),
-            "reference_audios": list(request.reference_audio_urls),
+            "reference_image_urls": list(request.image_urls),
+            "reference_video_urls": list(request.reference_video_urls),
+            "reference_audio_urls": list(request.reference_audio_urls),
             "aspect_ratio": request.aspect_ratio,
             "seconds": request.duration_seconds,
         }
@@ -308,13 +308,20 @@ def _normalize_mime(content_type: str, url: str) -> str:
 
 
 def _error_fields(error: Any) -> tuple[str | None, str | None]:
-    """对方的 error 字段有时是字符串，有时是 ``{code, message}``。"""
+    """本地错误读 message；PROVIDER_ERROR 优先保留上游的 upstream_message 原文。"""
 
     if isinstance(error, str) and error.strip():
         return None, error.strip()
     if isinstance(error, dict):
         code = error.get("code")
         message = error.get("message")
+        upstream_message = error.get("upstream_message")
+        if (
+            code == "PROVIDER_ERROR"
+            and isinstance(upstream_message, str)
+            and upstream_message.strip()
+        ):
+            message = upstream_message
         return (
             code.strip() if isinstance(code, str) and code.strip() else None,
             message.strip() if isinstance(message, str) and message.strip() else None,
@@ -322,4 +329,4 @@ def _error_fields(error: Any) -> tuple[str | None, str | None]:
     return None, None
 
 
-__all__ = ["PROVIDER_NAME", "MultiflowSettings", "MultiflowVideoProvider"]
+__all__ = ["PROVIDER_NAME", "HttpVideoProvider", "VideoProviderSettings"]

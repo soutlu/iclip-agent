@@ -15,6 +15,7 @@ from iclip.domains.generation.schemas import (
     KIND_IMAGE,
     KIND_VIDEO,
     GenerationRequest,
+    VideoGenerationIn,
 )
 from iclip.domains.identity.public import Principal
 
@@ -33,11 +34,15 @@ class GenerationService:
         *,
         video_provider_name: str,
         image_provider_name: str,
+        video_model: str,
+        video_allowed_models: tuple[str, ...],
     ) -> None:
         """持久化装配期确定的 Provider 名称，保留历史来源；此层不持有或调用 Provider 实例。"""
 
         self._repo = repo
         self._queue = queue
+        self._video_model = video_model
+        self._video_allowed_models = video_allowed_models
         self._provider_names = {
             KIND_VIDEO: video_provider_name,
             KIND_IMAGE: image_provider_name,
@@ -47,6 +52,15 @@ class GenerationService:
         """保存 pending 记录并排队。入库与排队分属不同事务，排队失败时标记失败并抛出错误。
 
         两步之间进程中断会留下未排队的 pending 记录，需要人工确认后重新发起。"""
+
+        if isinstance(request, VideoGenerationIn):
+            model = request.model or self._video_model
+            if model not in self._video_allowed_models:
+                raise ValidationFailed(
+                    f"视频生成仅支持模型 {'、'.join(self._video_allowed_models)}"
+                )
+            # 在受理时固定模型，队列等待期间的配置变化不能改变这次请求的选择。
+            request = request.model_copy(update={"model": model})
 
         kind = request.kind
         now = datetime.now(UTC)

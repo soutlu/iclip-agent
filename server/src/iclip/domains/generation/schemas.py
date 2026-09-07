@@ -74,10 +74,9 @@ class VideoGenerationIn(GenerationOrigin):
     kind: Literal["video"] = KIND_VIDEO
     prompt: Prompt
     model: Annotated[str, Field(min_length=1, max_length=MAX_MODEL_CHARS)] | None = None
-    """用对方哪个模型。不给就用配置里的默认模型。
+    """新请求只接受配置允许的视频模型；省略时在受理阶段填入默认模型。
 
-    刻意**不在本仓维护一张可选模型白名单**：能用哪些模型是对方说了算的，白名单只会
-    过期；名字写错的后果是这一行带着对方自己的拒绝理由失败，看得见、查得清。"""
+    历史记录保留原模型字符串，读取持久化请求时不套用当前的模型选择策略。"""
     aspect_ratio: VIDEO_ASPECT_RATIOS
     duration_seconds: int = Field(ge=1, le=VIDEO_MAX_SECONDS)
     image_urls: MediaUrls = []
