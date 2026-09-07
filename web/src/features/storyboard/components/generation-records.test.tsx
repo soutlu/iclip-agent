@@ -1,6 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GenerationJob } from '../storyboard.api'
 import { GenerationRecords } from './generation-records'
 
@@ -54,16 +54,23 @@ const jobs: GenerationJob[] = [
 ]
 
 const renderRecords = (onClose = vi.fn()) => {
-  render(<GenerationRecords jobs={jobs} onClose={onClose} shotIndex={2} />)
+  render(<GenerationRecords jobs={jobs} onClose={onClose} onEditPrompt={vi.fn()} shotIndex={2} />)
   return onClose
 }
 
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 describe('GenerationRecords', () => {
-  it('视频 tab 只列本组的，按时间倒序', () => {
+  it('只列本组视频，排除图片和其它组，按时间倒序', () => {
     renderRecords()
 
-    expect(screen.getByRole('radio', { name: '视频生成记录 3' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '视频生成记录' })).toBeVisible()
+    expect(screen.getByText('3', { exact: true })).toBeVisible()
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
     expect(screen.queryByText('别的组。')).not.toBeInTheDocument()
+    expect(screen.queryByText('出镜头帧：门厅全景。')).not.toBeInTheDocument()
 
     const prompts = screen.getAllByText(/第[一二三]版/).map((node) => node.textContent)
     expect(prompts).toEqual([
@@ -87,7 +94,7 @@ describe('GenerationRecords', () => {
     expect(screen.getByText('2026-09-01 12:20')).toBeVisible()
   })
 
-  it('折叠箭头收起之后只留第一行', async () => {
+  it('折叠箭头收起之后隐藏运行中的描述', async () => {
     renderRecords()
     const card = screen.getByText('第三版：脚步放慢。').closest('article') as HTMLElement
 
@@ -97,27 +104,90 @@ describe('GenerationRecords', () => {
     expect(within(card).getByText('生成中…')).toBeVisible()
   })
 
-  it('换到分镜 tab 看的是这段对话的出帧任务，标签也跟着换', async () => {
-    renderRecords()
+  it('编辑生成交出完整历史提示词，保留超过三行的内容和原始空白', async () => {
+    const prompt =
+      '  产品：黑色短靴。\n人物与场景：客厅模特。\n剪辑形式：硬切。\n\n[0–2秒｜镜头1]\n走近 @Image1。\n[2–6秒｜镜头2]\n停下 @Image2。\n不要生成字幕。  \n'
+    const onEditPrompt = vi.fn()
+    render(
+      <GenerationRecords
+        jobs={[job({ id: 'long-prompt', request: { prompt } })]}
+        onClose={vi.fn()}
+        onEditPrompt={onEditPrompt}
+        shotIndex={2}
+      />,
+    )
 
-    await userEvent.click(screen.getByRole('radio', { name: '分镜生成记录 1' }))
+    await userEvent.click(screen.getByRole('button', { name: '编辑生成' }))
 
-    expect(screen.getByText('出镜头帧：门厅全景。')).toBeVisible()
-    expect(screen.getByText('分镜描述')).toBeVisible()
-    expect(screen.queryByText('第三版：脚步放慢。')).not.toBeInTheDocument()
+    expect(onEditPrompt).toHaveBeenCalledExactlyOnceWith(prompt)
   })
 
-  it('再点一次当前 tab 不会把列表点空', async () => {
+  it.each([undefined, null, 123, '', '  \n '])(
+    '没有有效提示词 %s 时禁用编辑生成',
+    async (prompt) => {
+      const onEditPrompt = vi.fn()
+      render(
+        <GenerationRecords
+          jobs={[job({ id: 'no-prompt', request: prompt === undefined ? {} : { prompt } })]}
+          onClose={vi.fn()}
+          onEditPrompt={onEditPrompt}
+          shotIndex={2}
+        />,
+      )
+
+      const edit = screen.getByRole('button', { name: '编辑生成' })
+      expect(edit).toBeDisabled()
+      await userEvent.click(edit)
+      expect(onEditPrompt).not.toHaveBeenCalled()
+    },
+  )
+
+  it('收起已完成记录隐藏描述与编辑按钮，视频预览和播放入口仍保留', async () => {
     renderRecords()
-    const current = screen.getByRole('radio', { name: '视频生成记录 3' })
+    const card = screen.getByText('第一版：走向镜头。').closest('article') as HTMLElement
 
-    await userEvent.click(current)
+    await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
 
-    expect(screen.getByText('第三版：脚步放慢。')).toBeVisible()
+    expect(within(card).queryByText('视频描述')).not.toBeInTheDocument()
+    expect(within(card).queryByText('第一版：走向镜头。')).not.toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: '编辑生成' })).not.toBeInTheDocument()
+    expect(within(card).getByLabelText('生成的视频')).toHaveAttribute('src', 'take-1.mp4')
+    expect(within(card).getByRole('button', { name: '播放视频' })).toBeVisible()
+
+    await userEvent.click(within(card).getByRole('button', { name: '展开这条记录' }))
+    expect(within(card).getByText('第一版：走向镜头。')).toBeVisible()
+    expect(within(card).getByRole('button', { name: '编辑生成' })).toBeEnabled()
+  })
+
+  it('点击视频封面调用媒体播放，成功后显示原生控制条', async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+    renderRecords()
+    const video = screen.getByLabelText('生成的视频')
+    expect(video).not.toHaveAttribute('controls')
+
+    await userEvent.click(screen.getByRole('button', { name: '播放视频' }))
+
+    expect(play).toHaveBeenCalledOnce()
+    await waitFor(() => expect(video).toHaveAttribute('controls'))
+    expect(screen.queryByRole('button', { name: '播放视频' })).not.toBeInTheDocument()
+  })
+
+  it('只有图片或其它组的视频时，当前组仍显示空态', () => {
+    render(
+      <GenerationRecords
+        jobs={jobs.filter((item) => item.kind === 'image' || item.shotIndex === 3)}
+        onClose={vi.fn()}
+        onEditPrompt={vi.fn()}
+        shotIndex={2}
+      />,
+    )
+    expect(screen.getByText('0', { exact: true })).toBeVisible()
+    expect(screen.getByText('还没有生成记录')).toBeVisible()
+    expect(screen.queryByRole('article')).not.toBeInTheDocument()
   })
 
   it('一条都没有时说一句，不留空白', async () => {
-    render(<GenerationRecords jobs={[]} onClose={vi.fn()} shotIndex={2} />)
+    render(<GenerationRecords jobs={[]} onClose={vi.fn()} onEditPrompt={vi.fn()} shotIndex={2} />)
     expect(screen.getByText('还没有生成记录')).toBeVisible()
   })
 

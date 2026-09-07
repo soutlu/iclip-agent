@@ -49,7 +49,8 @@ test('点开有分镜的对话：滚轮翻到第 2 组，看生成记录，点�
 
   await panel.getByRole('button', { name: '生成记录' }).click()
   const records = panel.getByRole('complementary', { name: '生成记录' })
-  await expect(records.getByRole('radio', { name: '视频生成记录 3' })).toBeVisible()
+  await expect(records.getByRole('heading', { name: '视频生成记录' })).toBeVisible()
+  await expect(records.getByRole('article')).toHaveCount(3)
   await expect(records.getByText('生成中…')).toBeVisible()
   await records.getByRole('button', { name: '关闭生成记录' }).click()
 
@@ -139,6 +140,44 @@ test('短桌面中首帧卡片在原位展开，预览与底部导航均完整�
   await page.keyboard.press('Enter')
   await expect(preview).toBeVisible()
   await expect(firstFrame).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('视频记录按卡片展示，编辑生成回填当前组且不自动出片', async ({ page }) => {
+  await page.setViewportSize({ width: 1335, height: 934 })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  await panel.getByRole('button', { name: '第 2 组' }).click()
+  const group = panel.getByRole('region', { name: '镜头组 2' })
+  await group.getByRole('button', { name: '镜头 2', exact: true }).click()
+  await expect(group.getByRole('textbox', { name: '镜头 2 的描述' })).toContainText(
+    '台词并成一句',
+    { timeout: 20_000 },
+  )
+  await panel.getByRole('button', { name: '生成记录' }).click()
+  const records = panel.getByRole('complementary', { name: '生成记录' })
+  await expect(records.getByRole('heading', { name: '视频生成记录' })).toBeVisible()
+  await expect(records.getByRole('radio')).toHaveCount(0)
+  await expect(records.getByRole('article')).toHaveCount(3)
+  await expect(records).toBeInViewport({ ratio: 1 })
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/video-records/desktop-dark.png',
+  })
+
+  const completed = records.getByRole('article').filter({ hasText: '生成完成' })
+  await completed.getByRole('button', { name: '收起这条记录' }).click()
+  await expect(completed.getByRole('button', { name: '播放视频' })).toBeVisible()
+  await expect(completed.getByText('视频描述')).toBeHidden()
+  await completed.getByRole('button', { name: '展开这条记录' }).click()
+  await completed.getByRole('button', { name: '编辑生成' }).click()
+  await expect(records).toBeHidden()
+  await expect(group.getByRole('textbox')).toContainText('第 2 组第一版：走向镜头后停下。')
+  await expect(panel.getByText('已保存', { exact: true })).toBeVisible()
+  await panel.getByRole('button', { name: '生成记录' }).click()
+  await expect(records.getByRole('article')).toHaveCount(3)
 })
 
 test.describe('移动触屏分镜', () => {

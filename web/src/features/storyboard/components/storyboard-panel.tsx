@@ -13,12 +13,14 @@ import {
   DialogSurface,
 } from '@/shared/ui/dialog'
 import { Tag } from '@/shared/ui/tag'
+import { toast } from '@/shared/ui/toast'
 import {
   useWorkbenchSelection,
   useWorkspaceFile,
   type ArtifactRendererProps,
 } from '@/shared/workbench'
 import { latestShotVideos, runningShots, shotSelectionRef, SHOTS_PATH } from '../shots'
+import { validateShot } from '../prompt-doc'
 import { uploadFrameImage, useFrameCandidates, useShotGenerations } from '../storyboard.api'
 import { useShotsDraft } from '../use-shots-draft'
 import { useVideoGeneration } from '../use-video-generation'
@@ -285,11 +287,22 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         {search.sheet === 'records' ? (
           <aside
             aria-label="生成记录"
-            className="absolute inset-y-0 right-0 flex w-full max-w-100 min-w-0 animate-in flex-col border-l-[0.5px] border-chat-hairline bg-background shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-right"
+            className="absolute inset-y-0 right-0 flex w-full max-w-100 min-w-0 animate-in flex-col border-l-[0.5px] border-chat-hairline bg-surface-container shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-right"
           >
             <GenerationRecords
               jobs={jobs}
               onClose={() => go({ sheet: undefined })}
+              onEditPrompt={(prompt) => {
+                const next = { ...shot, prompt }
+                const problem = validateShot(next)
+                if (problem !== undefined) {
+                  toast.error(problem)
+                  return
+                }
+                draft.updateShot(next)
+                go({ sheet: undefined })
+                toast('历史提示词已回填到当前镜头组')
+              }}
               shotIndex={shot.index}
             />
           </aside>

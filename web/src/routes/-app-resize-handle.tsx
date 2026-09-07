@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/shared/lib/utils'
 
+/** 拖柄占据的实际列宽，同时供壳计算并排空间。 */
+export const APP_RESIZE_HANDLE_WIDTH = 4
+
 const KEY_STEP = 16
 
 type AppResizeHandleProps = {
@@ -68,10 +71,11 @@ export function AppResizeHandle({
     // 使用原生 button 提供键盘交互；jsx-a11y 将 separator 视为非交互角色。
     <button
       aria-label={label}
-      className="group layer-canvas relative w-1 shrink-0 cursor-col-resize touch-none ui-focus select-none"
+      className="group layer-canvas relative shrink-0 cursor-col-resize touch-none ui-focus select-none"
       onDoubleClick={onReset}
       onKeyDown={nudge}
       onPointerDown={startDrag}
+      style={{ width: APP_RESIZE_HANDLE_WIDTH }}
       title={`${label}（当前 ${value}px，可拖动 ${min}–${max}，双击恢复默认）`}
       type="button"
     >
