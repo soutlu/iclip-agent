@@ -11,7 +11,7 @@ import { server } from '@/testing/mocks/server'
 import { seedMockWorkspace, SHOTS_MOCK_PATH, touchMockShots } from '@/testing/mocks/workspace'
 import { renderWithProviders } from '@/testing/render'
 import type { ShotsDocument } from '../shots'
-import type { GenerationJob } from '../storyboard.api'
+import { storyboardQueryKeys, type GenerationJob } from '../storyboard.api'
 import { StoryboardPanel } from './storyboard-panel'
 
 const CONVERSATION_ID = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
@@ -981,7 +981,8 @@ describe('StoryboardPanel', () => {
     expect(posted['prompt']).toBe(prompt)
     expect(posted['imageUrls']).toEqual(imageUrls)
     await waitFor(() => expect(reads).toBeGreaterThan(readsBefore))
-    expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
+    expect(await within(page).findByRole('button', { name: '生成视频' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '生成记录' })).toHaveTextContent('生成中 1')
   })
 
   it.each([
@@ -1025,15 +1026,145 @@ describe('StoryboardPanel', () => {
     })
   })
 
-  it('这一组名下已经有在飞的任务：按钮就是「正在出片…」，点不动', async () => {
+  it('后台仍在生成时可以换模型再提交，顶部显示当前组任务数，原文出片也保持可用', async () => {
     seedMockWorkspace(CONVERSATION_ID)
+    const posted: Record<string, unknown>[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (request.method !== 'POST' || !request.url.includes('/api/generations')) return
+      void request
+        .clone()
+        .json()
+        .then((body: Record<string, unknown>) => posted.push(body))
+    })
     await renderPanel('/?shot=2')
-
     const page = await screen.findByRole('region', { name: '镜头组 2' })
-    expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
+    const records = screen.getByRole('button', { name: '生成记录' })
+    await waitFor(() => expect(records).toHaveTextContent('生成中 1'))
+    expect(within(page).getByRole('button', { name: '生成视频' })).toBeEnabled()
+
+    await userEvent.click(within(page).getByRole('button', { name: '生成设置：SD2.5，音频开启' }))
+    const settings = await screen.findByRole('dialog', { name: '生成设置' })
+    await userEvent.click(within(settings).getByRole('radio', { name: 'SD2.0' }))
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(within(page).getByRole('button', { name: '生成视频' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ model: 'moyu-seedance-2-0', shotIndex: 2 })
+    await waitFor(() => expect(records).toHaveTextContent('生成中 2'))
+    expect(within(page).getByRole('button', { name: '生成视频' })).toBeEnabled()
+    expect(within(page).getByRole('button', { name: '生成设置：SD2.0，音频开启' })).toBeEnabled()
     await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
     const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
-    expect(within(sheet).getByRole('button', { name: '正在出片…' })).toBeDisabled()
+    expect(within(sheet).getByRole('button', { name: '生成视频' })).toBeEnabled()
+  })
+
+  it('顶部计数按当前组的视频任务计数，排除图片和终态，切组及完成后同步', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    const job = (spec: Partial<GenerationJob>): GenerationJob => ({
+      conversationId: CONVERSATION_ID,
+      createdAt: '2026-09-01T10:00:00Z',
+      errorCode: null,
+      errorMessage: null,
+      finishedAt: null,
+      id: crypto.randomUUID(),
+      kind: 'video',
+      outputUrl: null,
+      provider: 'mock',
+      providerStatus: null,
+      request: {},
+      shotIndex: 2,
+      status: 'submitted',
+      submittedAt: null,
+      updatedAt: '2026-09-01T10:00:00Z',
+      ...spec,
+    })
+    let jobs = [
+      job({ status: 'pending' }),
+      job({ status: 'submitting' }),
+      job({ status: 'submitted' }),
+      job({ status: 'completed' }),
+      job({ status: 'failed' }),
+      job({ kind: 'image' }),
+      job({ shotIndex: 1 }),
+      job({ shotIndex: null }),
+    ]
+    server.use(http.get('*/api/generations', () => HttpResponse.json({ items: jobs })))
+    const { queryClient } = await renderPanel('/?shot=2')
+    const records = await screen.findByRole('button', { name: '生成记录' })
+    await waitFor(() => expect(records).toHaveTextContent('生成中 3'))
+
+    await userEvent.click(screen.getByRole('button', { name: '第 1 组' }))
+    expect(records).toHaveTextContent('生成中 1')
+    await userEvent.click(screen.getByRole('button', { name: '第 2 组' }))
+    expect(records).toHaveTextContent('生成中 3')
+    jobs = jobs.map((item) =>
+      item.kind === 'video' && item.shotIndex === 2 ? { ...item, status: 'completed' } : item,
+    )
+    await act(() =>
+      queryClient.invalidateQueries({
+        queryKey: storyboardQueryKeys.generations(CONVERSATION_ID),
+      }),
+    )
+
+    await waitFor(() => expect(records).not.toHaveTextContent('生成中'))
+    expect(records).toHaveTextContent('生成记录')
+  })
+
+  it('POST未完成时两处出片入口与模型设置禁用，失败后可从原文入口重试', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    let release = () => {}
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.post(
+        '*/api/generations',
+        async () => {
+          await pending
+          return HttpResponse.json({ detail: '提交暂时失败' }, { status: 503 })
+        },
+        { once: true },
+      ),
+    )
+    const posted: string[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'POST' && request.url.includes('/api/generations'))
+        posted.push(request.url)
+    })
+    await renderWithProviders(
+      <>
+        <StoryboardPanel artifact={artifact} conversationId={CONVERSATION_ID} />
+        <Toaster />
+      </>,
+      { initialPath: '/?shot=1' },
+    )
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    await userEvent.click(within(page).getByRole('button', { name: '生成视频' }))
+    try {
+      const submit = within(page).getByRole('button', { name: '提交中…' })
+      expect(submit).toBeDisabled()
+      expect(within(page).getByRole('button', { name: '生成设置：SD2.5，音频开启' })).toBeDisabled()
+      await userEvent.dblClick(submit)
+      await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
+      const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+      expect(within(sheet).getByRole('button', { name: '提交中…' })).toBeDisabled()
+      await userEvent.click(within(sheet).getByRole('button', { name: '提交中…' }))
+      expect(posted).toHaveLength(1)
+    } finally {
+      release()
+    }
+    expect(await screen.findByText('出片没发出去：提交暂时失败')).toBeVisible()
+    const sheet = screen.getByRole('complementary', { name: '镜头组完整提示词' })
+    const retry = within(sheet).getByRole('button', { name: '生成视频' })
+    expect(retry).toBeEnabled()
+
+    await userEvent.click(retry)
+
+    await waitFor(() => expect(posted).toHaveLength(2))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '生成记录' })).toHaveTextContent('生成中 1'),
+    )
+    expect(within(sheet).getByRole('button', { name: '生成视频' })).toBeEnabled()
   })
 
   it('描述还在保存的时候不许出片：别把没落盘的描述发出去', async () => {

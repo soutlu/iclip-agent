@@ -37,7 +37,7 @@ type ShotPageProps = {
   onOpenPrompt: () => void
   promptTriggerRef?: Ref<HTMLButtonElement> | undefined
   generateDisabled: boolean
-  generating: boolean
+  submitting: boolean
   /** 生成不可用的原因，如画幅不支持或草稿未保存。 */
   generateNote?: string | undefined
 }
@@ -60,7 +60,7 @@ export function ShotPage({
   frameNumber,
   generateDisabled,
   generateNote,
-  generating,
+  submitting,
   onChangeShot,
   onChangeVideoOptions,
   onGenerateVideo,
@@ -293,7 +293,7 @@ export function ShotPage({
           </span>
           <VideoGenerationButton
             disabled={generateDisabled}
-            generating={generating}
+            submitting={submitting}
             onChange={onChangeVideoOptions}
             onGenerate={onGenerateVideo}
             value={videoOptions}

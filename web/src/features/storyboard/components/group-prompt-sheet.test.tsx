@@ -17,7 +17,7 @@ const renderSheet = (overrides: Partial<Parameters<typeof GroupPromptSheet>[0]> 
   const props = {
     aspectRatio: '9:16',
     generateDisabled: false,
-    generating: false,
+    submitting: false,
     onClose: vi.fn(),
     onGenerate: vi.fn(),
     shot,

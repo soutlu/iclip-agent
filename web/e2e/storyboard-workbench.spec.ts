@@ -467,6 +467,48 @@ for (const viewport of [
   })
 }
 
+for (const viewport of [
+  { height: 1103, width: 1426 },
+  { height: 844, width: 390 },
+]) {
+  test(`同组后台生成 ${viewport.width}px：可选择另一模型继续提交，顶部计数增加`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport)
+    await page.goto('/')
+    await login(page)
+    await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+    if (viewport.width < 600) await page.getByRole('button', { name: '打开右侧面板' }).click()
+    const panel = page.getByRole('complementary', { name: '右侧面板' })
+    await panel.getByRole('button', { name: '第 2 组' }).click()
+    const group = panel.getByRole('region', { name: '镜头组 2' })
+    const recordsTrigger = panel.getByRole('button', { name: '生成记录', exact: true })
+    await expect(recordsTrigger).toHaveText(/生成中\s*1/)
+    await expect(group.getByRole('button', { name: '生成视频' })).toBeEnabled()
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme })
+      await expect(recordsTrigger).toBeInViewport({ ratio: 1 })
+      await expect(group.getByRole('button', { name: '生成视频' })).toBeInViewport({ ratio: 1 })
+      await page.screenshot({
+        animations: 'disabled',
+        path: `../.artifacts/design-qa/generation-status-control/${viewport.width}-${colorScheme}.png`,
+      })
+    }
+    await group.getByRole('button', { name: /^生成设置：/ }).click()
+    const settings = page.getByRole('dialog', { name: '生成设置', exact: true })
+    await settings.getByRole('radio', { name: 'SD2.0', exact: true }).click()
+    await page.keyboard.press('Escape')
+    await group.getByRole('button', { name: '生成视频' }).click()
+
+    await expect(recordsTrigger).toHaveText(/生成中\s*2/)
+    await expect(group.getByRole('button', { name: '生成视频' })).toBeEnabled()
+    await expect(group.getByRole('button', { name: '生成设置：SD2.0，音频开启' })).toBeEnabled()
+    await group.getByRole('button', { name: '完整提示词', exact: true }).click()
+    const sheet = panel.getByRole('complementary', { name: '镜头组完整提示词' })
+    await expect(sheet.getByRole('button', { name: '生成视频' })).toBeEnabled()
+  })
+}
+
 test('点「生成视频」：状态走到出片完成，生成记录里多一条', async ({ page }) => {
   await page.goto('/')
   await login(page)
@@ -481,13 +523,17 @@ test('点「生成视频」：状态走到出片完成，生成记录里多一�
   // 仅第 1 组没有生成任务；第 2 组运行中，第 3 组已有成片。
   const shot1 = panel.getByRole('region', { name: '镜头组 1' })
   await shot1.getByRole('button', { name: '生成视频' }).click()
-  await expect(shot1.getByRole('button', { name: '正在出片…' })).toBeDisabled()
+  const recordsTrigger = panel.getByRole('button', { name: '生成记录', exact: true })
+  await expect(recordsTrigger).toHaveText(/生成中\s*1/)
+  await expect(shot1.getByRole('button', { name: '生成视频' })).toBeEnabled()
+  await expect(shot1.getByRole('button', { name: /^生成设置：/ })).toBeEnabled()
 
   await panel.getByRole('button', { name: '生成记录' }).click()
   const records = panel.getByRole('complementary', { name: '生成记录' })
   await expect(records.getByText('生成中…')).toBeVisible()
 
   await expect(records.getByText('生成完成')).toBeVisible({ timeout: 15_000 })
+  await expect(recordsTrigger).not.toHaveText(/生成中/)
   await records.getByRole('button', { name: '关闭生成记录' }).click()
   await expect(shot1.getByRole('button', { name: '生成视频' })).toBeEnabled()
 })
