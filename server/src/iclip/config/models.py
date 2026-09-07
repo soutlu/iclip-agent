@@ -215,7 +215,7 @@ ArkReasoningEffort = Literal["minimal", "low", "medium", "high"]
 
 
 class VideoGenerationSection(ConfigSection):
-    """视频生成里对方约定的取值。地址与 key 在 ``MediaGenerationEnv``。"""
+    """新视频生成统一使用的模型与调用方标识。地址与 key 在 ``MediaGenerationEnv``。"""
 
     model: str
     user_name: str

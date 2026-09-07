@@ -18,7 +18,7 @@ sso:
 media_generation:
   # VIDEO_SUBMIT_URL 为空时关闭生成路由与后台队列；启用后须提供生成接口与对象存储凭证。
   video:
-    model: mmt-seedance-2-0 # 供应方模型名
+    model: moyu-seedance-2-5 # 新视频生成统一使用此模型，避免共享别名切换供应商
     user_name: iclip-agent # 供应方对账使用的稳定调用方标识
   image:
     user_name: iclip-agent

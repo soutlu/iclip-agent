@@ -67,6 +67,7 @@ def build_generation_module(
         queue,
         video_provider_name=providers[KIND_VIDEO].name,
         image_provider_name=providers[KIND_IMAGE].name,
+        video_model=video.model,
     )
     return GenerationModule(
         routers=(create_generations_router(service),),

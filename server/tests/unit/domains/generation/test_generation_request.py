@@ -133,8 +133,8 @@ def test_model_is_optional_but_channel_always_has_a_value() -> None:
     assert image_request().channel == "dev"
 
 
-def test_bad_channel_is_rejected_but_model_is_free_form() -> None:
-    """渠道为封闭枚举；模型名由供应商定义，不维护本地白名单。"""
+def test_bad_channel_is_rejected_but_historical_model_names_remain_readable() -> None:
+    """渠道为封闭枚举；模型选择策略在受理时校验，不妨碍读取历史模型名。"""
 
     with pytest.raises(ValueError):
         image_request(channel="prod")

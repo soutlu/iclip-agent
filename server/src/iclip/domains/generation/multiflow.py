@@ -85,9 +85,9 @@ class MultiflowVideoProvider:
             "model": model,
             "prompt": request.prompt,
             "user_name": self._settings.user_name,
-            "image_urls": list(request.image_urls),
-            "reference_videos": list(request.reference_video_urls),
-            "reference_audios": list(request.reference_audio_urls),
+            "reference_image_urls": list(request.image_urls),
+            "reference_video_urls": list(request.reference_video_urls),
+            "reference_audio_urls": list(request.reference_audio_urls),
             "aspect_ratio": request.aspect_ratio,
             "seconds": request.duration_seconds,
         }
@@ -308,13 +308,20 @@ def _normalize_mime(content_type: str, url: str) -> str:
 
 
 def _error_fields(error: Any) -> tuple[str | None, str | None]:
-    """对方的 error 字段有时是字符串，有时是 ``{code, message}``。"""
+    """本地错误读 message；PROVIDER_ERROR 优先保留上游的 upstream_message 原文。"""
 
     if isinstance(error, str) and error.strip():
         return None, error.strip()
     if isinstance(error, dict):
         code = error.get("code")
         message = error.get("message")
+        upstream_message = error.get("upstream_message")
+        if (
+            code == "PROVIDER_ERROR"
+            and isinstance(upstream_message, str)
+            and upstream_message.strip()
+        ):
+            message = upstream_message
         return (
             code.strip() if isinstance(code, str) and code.strip() else None,
             message.strip() if isinstance(message, str) and message.strip() else None,
