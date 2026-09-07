@@ -184,16 +184,15 @@
 .storyboard-group-actions {
   display: flex;
   min-height: calc(var(--storyboard-frame-height) + 28px);
-  max-width: max(150px, 40%);
+  max-width: max(240px, 40%);
   flex: none;
   flex-direction: column;
   align-items: flex-end;
   justify-content: center;
-  gap: 4px;
+  gap: 8px;
   margin-top: 4px;
   margin-left: auto;
-  padding-left: 12px;
-  border-left: 0.5px solid var(--color-chat-hairline);
+  padding-left: 8px;
 }
 .storyboard-add-frame,
 .storyboard-open-prompt {
@@ -226,6 +225,12 @@
   }
 }
 @container storyboard (width < 440px) {
+  .storyboard-add-frame,
+  .storyboard-open-prompt {
+    width: 32px;
+    height: var(--control-height-lg);
+    align-self: flex-end;
+  }
   .storyboard-preview {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);

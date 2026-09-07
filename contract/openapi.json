@@ -4876,6 +4876,17 @@
             "title": "Durationseconds",
             "type": "integer"
           },
+          "generateAudio": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generateaudio"
+          },
           "imageUrls": {
             "default": [],
             "items": {

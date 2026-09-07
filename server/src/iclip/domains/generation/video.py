@@ -91,6 +91,8 @@ class HttpVideoProvider:
             "aspect_ratio": request.aspect_ratio,
             "seconds": request.duration_seconds,
         }
+        if request.generate_audio is not None:
+            payload["generate_audio"] = request.generate_audio
         body = await self._request(
             "POST",
             self._settings.submit_url,

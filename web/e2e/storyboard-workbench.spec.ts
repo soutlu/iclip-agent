@@ -385,6 +385,82 @@ test('替换图标与拖放都可上传本地图片，保持当前帧并可继�
   await expect(panel.getByText('已保存')).toBeVisible({ timeout: 5_000 })
 })
 
+for (const viewport of [
+  { height: 900, width: 1600 },
+  { height: 844, width: 390 },
+]) {
+  test(`生成设置 ${viewport.width}px：两款Moyu模型和音频开关可操作，Escape归还焦点`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport)
+    await page.goto('/')
+    await login(page)
+    await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+    if (viewport.width < 600) {
+      await page.getByRole('button', { name: '打开右侧面板' }).click()
+    }
+    const panel = page.getByRole('complementary', { name: '右侧面板' })
+    const group = panel.getByRole('region', { name: '镜头组 1' })
+    const trigger = group.getByRole('button', { name: /^生成设置：/ })
+    await expect(trigger).toHaveAccessibleName('生成设置：SD2.5，音频开启')
+    await expect(trigger).toBeInViewport({ ratio: 1 })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+
+    const settings = page.getByRole('dialog', { name: '生成设置', exact: true })
+    await expect(settings).toBeInViewport({ ratio: 1 })
+    const newer = settings.getByRole('radio', { name: 'SD2.5', exact: true })
+    const older = settings.getByRole('radio', { name: 'SD2.0', exact: true })
+    await expect(newer).toBeChecked()
+    await expect(older).toBeVisible()
+    await newer.focus()
+    await page.keyboard.down('ArrowRight')
+    try {
+      await expect(older).toBeFocused()
+      await expect(older).toBeChecked()
+    } finally {
+      await page.keyboard.up('ArrowRight')
+    }
+    await page.keyboard.down('ArrowLeft')
+    try {
+      await expect(newer).toBeFocused()
+      await expect(newer).toBeChecked()
+    } finally {
+      await page.keyboard.up('ArrowLeft')
+    }
+    await page.keyboard.down('ArrowRight')
+    try {
+      await expect(older).toBeFocused()
+      await expect(older).toBeChecked()
+    } finally {
+      await page.keyboard.up('ArrowRight')
+    }
+    const audio = settings.getByRole('switch', { name: '生成音频' })
+    await expect(audio).toBeChecked()
+    await audio.focus()
+    await page.keyboard.press('Space')
+    await expect(audio).not.toBeChecked()
+    await page.keyboard.press('Escape')
+
+    await expect(settings).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await expect(trigger).toHaveAccessibleName('生成设置：SD2.0，音频关闭')
+    await trigger.click()
+    await expect(older).toBeChecked()
+    await expect(audio).not.toBeChecked()
+    await expect(settings).toBeInViewport({ ratio: 1 })
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme })
+      await expect(settings).toBeInViewport({ ratio: 1 })
+      await page.screenshot({
+        animations: 'disabled',
+        path: `../.artifacts/design-qa/video-selector/${viewport.width}-${colorScheme}.png`,
+      })
+    }
+    await page.keyboard.press('Escape')
+  })
+}
+
 test('点「生成视频」：状态走到出片完成，生成记录里多一条', async ({ page }) => {
   await page.goto('/')
   await login(page)

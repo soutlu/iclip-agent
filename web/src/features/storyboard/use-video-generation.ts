@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react'
 import { toast } from '@/shared/ui/toast'
 import type { Shot } from './shots'
 import { storyboardQueryKeys, submitVideoGeneration, VIDEO_ASPECT_RATIOS } from './storyboard.api'
+import { DEFAULT_VIDEO_OPTIONS } from './video-generation-options'
 
 type UseVideoGenerationOptions = {
   conversationId: string
@@ -14,6 +15,7 @@ type UseVideoGenerationOptions = {
 export const useVideoGeneration = ({ aspectRatio, conversationId }: UseVideoGenerationOptions) => {
   const queryClient = useQueryClient()
   const [submitting, setSubmitting] = useState<readonly number[]>([])
+  const [options, setOptions] = useState(DEFAULT_VIDEO_OPTIONS)
   const aspectRatioSupported = VIDEO_ASPECT_RATIOS.includes(aspectRatio)
 
   const submit = useCallback(
@@ -22,6 +24,7 @@ export const useVideoGeneration = ({ aspectRatio, conversationId }: UseVideoGene
       setSubmitting((current) => [...current, shot.index])
       try {
         await submitVideoGeneration({
+          ...options,
           aspectRatio,
           conversationId,
           imageUrls: shot.imageUrls,
@@ -38,8 +41,8 @@ export const useVideoGeneration = ({ aspectRatio, conversationId }: UseVideoGene
         setSubmitting((current) => current.filter((index) => index !== shot.index))
       }
     },
-    [aspectRatio, aspectRatioSupported, conversationId, queryClient],
+    [aspectRatio, aspectRatioSupported, conversationId, options, queryClient],
   )
 
-  return { aspectRatioSupported, submit, submitting }
+  return { aspectRatioSupported, options, setOptions, submit, submitting }
 }

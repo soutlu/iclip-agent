@@ -83,6 +83,8 @@ class VideoGenerationIn(GenerationOrigin):
     """首帧/参考图。frozen 模型不会改这个列表，所以空列表当默认值是安全的。"""
     reference_video_urls: MediaUrls = []
     reference_audio_urls: MediaUrls = []
+    generate_audio: bool | None = None
+    """是否生成音频；未指定时使用供应商模型的默认值，显式 False 保持关闭。"""
 
     _check_urls = field_validator("image_urls", "reference_video_urls", "reference_audio_urls")(
         _http_only

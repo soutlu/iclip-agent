@@ -40,7 +40,8 @@ def video_provider(handler: object, *, store: MemoryObjectStore | None = None) -
     )
 
 
-async def test_video_submit_sends_protocol_payload_and_key() -> None:
+@pytest.mark.parametrize("generate_audio", [True, False, None])
+async def test_video_submit_sends_protocol_payload_and_key(generate_audio: bool | None) -> None:
     seen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -54,6 +55,7 @@ async def test_video_submit_sends_protocol_payload_and_key() -> None:
             image_urls=["https://example.test/first.png"],
             reference_video_urls=["https://example.test/reference.mp4"],
             reference_audio_urls=["https://example.test/reference.wav"],
+            generate_audio=generate_audio,
         )
     )
     submission = await video_provider(handler).submit(job)
@@ -61,7 +63,7 @@ async def test_video_submit_sends_protocol_payload_and_key() -> None:
     assert submission.provider_task_id == "t-1"
     assert submission.output_url is None, "异步接口这一步不该有结果"
     assert seen["key"] == "secret-key"
-    assert seen["body"] == {
+    expected_payload = {
         "model": "moyu-seedance-2-5",
         "prompt": "一只猫跳上窗台",
         "user_name": "iclip-agent",
@@ -71,6 +73,9 @@ async def test_video_submit_sends_protocol_payload_and_key() -> None:
         "aspect_ratio": "16:9",
         "seconds": 5,
     }
+    if generate_audio is not None:
+        expected_payload["generate_audio"] = generate_audio
+    assert seen["body"] == expected_payload
 
 
 async def test_video_poll_maps_terminal_and_running_states() -> None:

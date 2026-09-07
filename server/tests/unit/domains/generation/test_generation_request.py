@@ -26,6 +26,16 @@ def test_payload_round_trip_video() -> None:
     assert request_from_payload(KIND_VIDEO, request_to_payload(original)) == original
 
 
+@pytest.mark.parametrize("generate_audio", [True, False, None])
+def test_video_audio_choice_survives_payload_round_trip(generate_audio: bool | None) -> None:
+    original = video_request(generate_audio=generate_audio)
+
+    payload = request_to_payload(original)
+
+    assert payload["generateAudio"] is generate_audio
+    assert request_from_payload(KIND_VIDEO, payload) == original
+
+
 def test_payload_round_trip_image() -> None:
     original = image_request(resolution="2k", reference_image_urls=["https://example.test/ref.png"])
     assert request_from_payload(KIND_IMAGE, request_to_payload(original)) == original
@@ -43,6 +53,7 @@ def test_stored_payload_is_camel_case_without_the_kind_column() -> None:
         "imageUrls",
         "referenceVideoUrls",
         "referenceAudioUrls",
+        "generateAudio",
     }
     assert set(request_to_payload(image_request())) == {
         "prompt",
