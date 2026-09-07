@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GenerationJob } from '../storyboard.api'
@@ -66,8 +66,8 @@ describe('GenerationRecords', () => {
   it('只列本组视频，排除图片和其它组，按时间倒序', () => {
     renderRecords()
 
-    expect(screen.getByRole('heading', { name: '视频生成记录' })).toBeVisible()
-    expect(screen.getByText('3', { exact: true })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '当前镜头组 · 视频' })).toBeVisible()
+    expect(screen.getAllByRole('article')).toHaveLength(3)
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
     expect(screen.queryByText('别的组。')).not.toBeInTheDocument()
     expect(screen.queryByText('出镜头帧：门厅全景。')).not.toBeInTheDocument()
@@ -181,14 +181,38 @@ describe('GenerationRecords', () => {
         shotIndex={2}
       />,
     )
-    expect(screen.getByText('0', { exact: true })).toBeVisible()
-    expect(screen.getByText('还没有生成记录')).toBeVisible()
+    expect(screen.getByText('暂无视频记录')).toBeVisible()
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
   })
 
-  it('一条都没有时说一句，不留空白', async () => {
-    render(<GenerationRecords jobs={[]} onClose={vi.fn()} onEditPrompt={vi.fn()} shotIndex={2} />)
-    expect(screen.getByText('还没有生成记录')).toBeVisible()
+  it('空态可返回分镜，关闭抽屉且不回填提示词', async () => {
+    const onClose = vi.fn()
+    const onEditPrompt = vi.fn()
+    render(
+      <GenerationRecords jobs={[]} onClose={onClose} onEditPrompt={onEditPrompt} shotIndex={2} />,
+    )
+    expect(screen.getByText('暂无视频记录')).toBeVisible()
+
+    await userEvent.click(screen.getByRole('button', { name: '返回分镜' }))
+
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(onEditPrompt).not.toHaveBeenCalled()
+  })
+
+  it('封面仅显示实际媒体时长，无效时长不伪造标签', () => {
+    renderRecords()
+    const video = screen.getByLabelText('生成的视频')
+    expect(screen.queryByText('0:26')).not.toBeInTheDocument()
+
+    Object.defineProperty(video, 'duration', { configurable: true, value: 26.4 })
+    fireEvent.durationChange(video)
+    expect(screen.getByText('0:26')).toBeVisible()
+
+    for (const duration of [0, Number.POSITIVE_INFINITY, Number.NaN]) {
+      Object.defineProperty(video, 'duration', { configurable: true, value: duration })
+      fireEvent.durationChange(video)
+      expect(screen.queryByText('0:26')).not.toBeInTheDocument()
+    }
   })
 
   it('✕ 关掉抽屉', async () => {
