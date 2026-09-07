@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { login } from './login'
 
+// Headless Chromium 默认隐藏滚动条，必须显示它才能检验显隐引起的正文重排。
+test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
+
 // MSW 同时提供 REST 历史与 WebSocket 流式批次，用于验证浏览器中的合并渲染。
 
 test('点开一段对话：历史铺开，回复逐字长出来', async ({ page }) => {
@@ -41,11 +44,13 @@ test('点派活卡的「查看」：右侧打开子代理的过程，地址记�
   await expect(page).toHaveURL(/artifact=frame(%3A|:)call_t2_delegate/)
 })
 
-test('长对话可以在中间消息区滚动', async ({ page }) => {
+test('长对话可以滚动，鼠标离开后正文位置与宽度保持稳定', async ({ page }) => {
+  await page.setViewportSize({ height: 900, width: 1594 })
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
   await expect(page.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: '停止', exact: true })).toBeHidden()
 
   const scroller = page.locator('.chat-scroller')
   await scroller.hover()
@@ -60,6 +65,38 @@ test('长对话可以在中间消息区滚动', async ({ page }) => {
     .poll(async () => (await firstTurn.boundingBox())?.y ?? before.y)
     .toBeLessThan(before.y)
   await expect(page.getByLabel('输入消息')).toBeInViewport()
+
+  const layout = await scroller.evaluate((element) => ({
+    height: element.scrollHeight,
+    top: element.scrollTop,
+    width: element.clientWidth,
+  }))
+  await page.getByRole('heading', { name: '夜景延时素材生成' }).hover()
+
+  // 跨过两次滚动条空闲收起周期，逐帧检查，避免只看最终位置漏掉中间的跳动。
+  const samples = await scroller.evaluate(async (element) => {
+    const positions: { height: number; top: number; width: number }[] = []
+    const end = performance.now() + 1500
+    await new Promise<void>((resolve) => {
+      const sample = () => {
+        positions.push({
+          height: element.scrollHeight,
+          top: element.scrollTop,
+          width: element.clientWidth,
+        })
+        if (performance.now() >= end) resolve()
+        else requestAnimationFrame(sample)
+      }
+      sample()
+    })
+    return positions
+  })
+  expect(samples.length).toBeGreaterThan(1)
+  expect([...new Set(samples.map((sample) => sample.width))]).toEqual([layout.width])
+  expect([...new Set(samples.map((sample) => sample.height))]).toEqual([layout.height])
+  expect(
+    Math.max(...samples.map((sample) => Math.abs(sample.top - layout.top))),
+  ).toBeLessThanOrEqual(1)
 })
 
 test('在会话页发一条：气泡先出来，回复跟着长出来', async ({ page }) => {
