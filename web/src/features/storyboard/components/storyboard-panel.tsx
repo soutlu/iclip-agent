@@ -178,14 +178,6 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         </div>
         <Button
           className="shrink-0"
-          onClick={() => go({ sheet: search.sheet === 'all' ? undefined : 'all' })}
-          size="md"
-          variant="ghost"
-        >
-          全部镜头组
-        </Button>
-        <Button
-          className="shrink-0"
           onClick={() => go({ sheet: search.sheet === 'records' ? undefined : 'records' })}
           size="md"
           variant="primary"
