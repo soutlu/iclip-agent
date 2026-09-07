@@ -253,6 +253,11 @@ test('替换图标与拖放都可上传本地图片，保持当前帧并可继�
   await expect(page).toHaveURL(/frame=2/)
   const preview = shot2.getByRole('img', { name: '镜头组 2 第 2 帧' })
   const imageArea = shot2.getByRole('group', { name: '当前帧图片' })
+  // 夹具订阅后会整份重写分镜；等示例 agent 更新完成，避免重置图片打断上传和编辑。
+  await expect(shot2.getByRole('textbox', { name: '镜头 2 的描述' })).toContainText(
+    '台词并成一句',
+    { timeout: 20_000 },
+  )
   const png = await framePng(page)
   await page.context().route('http://localhost/mock-oss/**', async (route) => {
     if (route.request().method() === 'GET') {
