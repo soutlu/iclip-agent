@@ -24,22 +24,35 @@ export async function exportAnnotatedImage(
   // Resolve semantic colors through a real element because CSS variables may refer to other tokens.
   const colorProbe = document.createElement('span')
   colorProbe.style.color = 'var(--color-error)'
-  colorProbe.style.backgroundColor = 'var(--color-on-error)'
+  colorProbe.style.backgroundColor = 'var(--color-on-scrim)'
+  colorProbe.style.borderColor = 'var(--color-scrim)'
   colorProbe.style.display = 'none'
   document.body.append(colorProbe)
   const colors = getComputedStyle(colorProbe)
   const stroke = colors.color
   const foreground = colors.backgroundColor
+  const labelColor = colors.borderTopColor
   colorProbe.remove()
+  // A 480 px short edge is the review scale: larger exports retain the same legible marker proportions.
+  const unitsPerPixel = Math.min(canvas.width, canvas.height) / 480
   for (const annotation of annotations) {
-    const geometry = annotationVisual(annotation, canvas)
-    context.strokeStyle = stroke
-    context.lineWidth = geometry.strokeWidth
+    const geometry = annotationVisual(annotation, canvas, unitsPerPixel)
     context.lineJoin = 'round'
     context.lineCap = 'round'
+    const outline = (path?: Path2D) => {
+      context.strokeStyle = foreground
+      context.lineWidth = geometry.strokeWidth + geometry.haloWidth
+      if (path) context.stroke(path)
+      else context.stroke()
+      context.strokeStyle = stroke
+      context.lineWidth = geometry.strokeWidth
+      if (path) context.stroke(path)
+      else context.stroke()
+    }
     context.beginPath()
     if (annotation.kind === 'rectangle') {
       context.rect(geometry.left, geometry.top, geometry.width, geometry.height)
+      outline()
     } else if (annotation.kind === 'ellipse') {
       context.ellipse(
         geometry.left + geometry.width / 2,
@@ -50,32 +63,60 @@ export async function exportAnnotatedImage(
         0,
         Math.PI * 2,
       )
-    } else {
+      outline()
+    } else if (annotation.kind === 'pen') {
+      outline(new Path2D(geometry.penPath))
+    } else if (annotation.kind === 'arrow') {
       geometry.points.forEach((point, index) => {
         if (index === 0) context.moveTo(point.x, point.y)
         else context.lineTo(point.x, point.y)
       })
-    }
-    context.stroke()
-    if (annotation.kind === 'arrow') {
+      outline()
       context.beginPath()
       geometry.arrow.forEach((point, index) => {
         if (index === 0) context.moveTo(point.x, point.y)
         else context.lineTo(point.x, point.y)
       })
-      context.stroke()
+      outline()
     }
     context.beginPath()
-    context.arc(geometry.label.x, geometry.label.y, geometry.radius, 0, Math.PI * 2)
-    context.fillStyle = stroke
+    context.moveTo(geometry.connector.start.x, geometry.connector.start.y)
+    context.lineTo(geometry.connector.end.x, geometry.connector.end.y)
+    context.strokeStyle = foreground
+    context.lineWidth = 2 * unitsPerPixel + geometry.haloWidth
+    context.stroke()
+    context.strokeStyle = labelColor
+    context.lineWidth = 2 * unitsPerPixel
+    context.stroke()
+    if (annotation.kind === 'point') {
+      context.beginPath()
+      context.arc(geometry.anchor.x, geometry.anchor.y, geometry.targetRadius, 0, Math.PI * 2)
+      outline()
+      context.beginPath()
+      context.arc(geometry.anchor.x, geometry.anchor.y, geometry.targetDotRadius, 0, Math.PI * 2)
+      context.fillStyle = stroke
+      context.strokeStyle = foreground
+      context.lineWidth = 2 * unitsPerPixel
+      context.stroke()
+      context.fill()
+    }
+    context.beginPath()
+    context.roundRect(
+      geometry.label.x - geometry.label.width / 2,
+      geometry.label.y - geometry.label.height / 2,
+      geometry.label.width,
+      geometry.label.height,
+      geometry.label.radius,
+    )
+    context.fillStyle = labelColor
     context.fill()
     context.strokeStyle = foreground
-    context.lineWidth = geometry.strokeWidth * 0.7
+    context.lineWidth = 1.5 * unitsPerPixel
     context.stroke()
     context.fillStyle = foreground
     context.textAlign = 'center'
     context.textBaseline = 'middle'
-    context.font = `600 ${geometry.radius * 1.25}px sans-serif`
+    context.font = `600 ${geometry.label.fontSize}px sans-serif`
     context.fillText(String(annotation.number), geometry.label.x, geometry.label.y)
   }
   const blob = await new Promise<Blob>((resolve, reject) => {

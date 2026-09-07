@@ -62,10 +62,20 @@ function EditorPage({ onApply }: { onApply: (url: string) => Promise<void> }) {
 
 describe('图片编辑提交与应用的失败边界', () => {
   beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    )
     sessionStorage.clear()
     sessionStorage.setItem(editDraftKey(target), JSON.stringify(draft))
   })
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
 
   it('POST 成功后草稿暂存与记录刷新失败，仍显示新任务生成中且不提供旧结果应用', async () => {
     const completed = job('completed')

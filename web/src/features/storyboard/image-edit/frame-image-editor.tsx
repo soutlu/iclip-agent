@@ -194,6 +194,18 @@ export function FrameImageEditor({
         aria-describedby={undefined}
         className="image-edit-dialog"
         onInteractOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          // Dialog 先于画布捕获 Escape；画布内取消笔迹/选择时不能关闭编辑器。
+          if (selectedAnnotation !== null) {
+            event.preventDefault()
+            setSelectedAnnotation(null)
+          } else if (
+            event.target instanceof Element &&
+            event.target.closest('[data-annotation-canvas]')
+          ) {
+            event.preventDefault()
+          }
+        }}
       >
         <DialogHeader title="编辑图片" closeLabel="关闭图片编辑">
           <p className="mt-1 text-body-sm text-on-surface-muted">

@@ -1,5 +1,5 @@
-import { useState, type KeyboardEvent, type PointerEvent } from 'react'
-import { IconButton } from '@/shared/ui/button'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { Button, IconButton } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
 import {
   annotationHandles,
@@ -31,7 +31,7 @@ type Gesture = {
 }
 
 const TOOLS = [
-  { kind: 'select', label: '选择标注' },
+  { kind: 'point', label: '点标注' },
   { kind: 'rectangle', label: '矩形标注' },
   { kind: 'ellipse', label: '椭圆标注' },
   { kind: 'arrow', label: '箭头标注' },
@@ -47,8 +47,10 @@ export function AnnotationCanvas({
   disabled = false,
   onInsertReference,
 }: AnnotationCanvasProps) {
-  const [tool, setTool] = useState<'select' | AnnotationKind>('select')
+  const [tool, setTool] = useState<AnnotationKind>('point')
   const [size, setSize] = useState({ width: 0, height: 0 })
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const [viewport, setViewport] = useState({ width: 0, height: 0 })
   const [imageFailed, setImageFailed] = useState(false)
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [nextNumber, setNextNumber] = useState(
@@ -66,6 +68,20 @@ export function AnnotationCanvas({
     setNextNumber(Math.max(nextNumber, ...annotations.map((annotation) => annotation.number + 1)))
   }
   const blocked = disabled || !size.width || imageFailed
+  useEffect(() => {
+    const element = viewportRef.current
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setViewport({ width: entry.contentRect.width, height: entry.contentRect.height })
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const displayScale =
+    size.width && viewport.width && viewport.height
+      ? Math.min(viewport.width / size.width, viewport.height / size.height)
+      : 1
+  const unitsPerPixel = 1 / displayScale
 
   function commit(next: ImageAnnotation[]) {
     setHistory({ present: next, past: [...history.past, annotations].slice(-100), future: [] })
@@ -113,7 +129,10 @@ export function AnnotationCanvas({
   function startGesture(event: PointerEvent<SVGSVGElement>) {
     if (blocked || gesture || event.button !== 0) return
     const point = pointerPoint(event)
-    if (!point) return
+    if (!point) {
+      onSelect(null)
+      return
+    }
     event.preventDefault()
     event.currentTarget.focus()
     const element = event.target instanceof Element ? event.target : null
@@ -121,14 +140,19 @@ export function AnnotationCanvas({
     const selected = annotations.find(
       (annotation) => annotation.id === shape?.getAttribute('data-annotation-id'),
     )
-    const handleValue = element?.getAttribute('data-handle')
+    const handleValue = element?.closest('[data-handle]')?.getAttribute('data-handle')
     const handle = handleValue == null ? -1 : Number(handleValue)
     let original: ImageAnnotation
     let kind: Gesture['kind']
-    if (selected && (tool === 'select' || handle >= 0)) {
+    if (selected) {
       original = selected
       kind = handle >= 0 ? 'resize' : 'move'
-    } else if (tool !== 'select') {
+    } else {
+      // 第一次空白点击仅取消当前选择，不能意外新增点或笔迹。
+      if (selectedId !== null) {
+        onSelect(null)
+        return
+      }
       if (annotations.length >= 50) {
         toast.error('每张图片最多添加 50 个标注')
         return
@@ -137,16 +161,12 @@ export function AnnotationCanvas({
         id: crypto.randomUUID(),
         number: nextNumber,
         kind: tool,
-        points: [point, point],
+        points: tool === 'point' ? [point] : [point, point],
       }
       kind = 'draw'
-      setNextNumber(nextNumber + 1)
-    } else {
-      onSelect(null)
-      return
     }
     event.currentTarget.setPointerCapture(event.pointerId)
-    onSelect(original.id)
+    if (kind !== 'draw') onSelect(original.id)
     setGesture({
       pointerId: event.pointerId,
       kind,
@@ -171,10 +191,17 @@ export function AnnotationCanvas({
         })
       } else if (previous.kind === 'resize') {
         current = resizeAnnotation(previous.original, previous.handle, point)
+      } else if (previous.original.kind === 'point') {
+        current = { ...previous.original, points: [point] }
       } else if (previous.original.kind === 'pen') {
         const last = previous.current.points.at(-1)
         if (last && Math.hypot(last.x - point.x, last.y - point.y) < 0.001) return previous
-        current = { ...previous.current, points: [...previous.current.points.slice(0, 499), point] }
+        // 长笔迹均匀降采样，保留整段轨迹，不能截断后把终点直接连回第 499 个点。
+        const points =
+          previous.current.points.length >= 500
+            ? previous.current.points.filter((_, index) => index % 2 === 0)
+            : previous.current.points
+        current = { ...previous.current, points: [...points, point] }
       } else {
         current = { ...previous.original, points: [previous.start, point] }
       }
@@ -194,7 +221,8 @@ export function AnnotationCanvas({
     }
     if (gesture.kind === 'draw') {
       commit([...annotations, gesture.current])
-      setTool('select')
+      setNextNumber(nextNumber + 1)
+      onSelect(null)
     } else if (gesture.current !== gesture.original) {
       commit(
         annotations.map((annotation) =>
@@ -215,11 +243,11 @@ export function AnnotationCanvas({
       event.preventDefault()
       event.stopPropagation()
       redo()
-    } else if (event.key === 'Escape' && gesture) {
+    } else if (event.key === 'Escape' && (gesture || selectedId)) {
       event.preventDefault()
       event.stopPropagation()
       setGesture(null)
-      if (gesture.kind === 'draw') onSelect(null)
+      onSelect(null)
     } else if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault()
       event.stopPropagation()
@@ -248,6 +276,68 @@ export function AnnotationCanvas({
           annotation.id === gesture?.current.id ? gesture.current : annotation,
         )
 
+  const selectedAnnotation = visible.find((annotation) => annotation.id === selectedId)
+  const selectedGeometry = selectedAnnotation
+    ? annotationVisual(selectedAnnotation, size, unitsPerPixel)
+    : null
+  const imageLeft = (viewport.width - size.width * displayScale) / 2
+  const imageTop = (viewport.height - size.height * displayScale) / 2
+  const toolbarWidth = Math.min(240, Math.max(0, viewport.width - 16))
+  const toolbarLeft = selectedGeometry
+    ? Math.max(
+        8,
+        Math.min(
+          viewport.width - toolbarWidth - 8,
+          imageLeft + selectedGeometry.label.x * displayScale - toolbarWidth / 2,
+        ),
+      )
+    : 8
+  const annotationTop = selectedGeometry
+    ? imageTop +
+      Math.min(selectedGeometry.top, selectedGeometry.label.y - selectedGeometry.label.height / 2) *
+        displayScale
+    : 0
+  const annotationBottom = selectedGeometry
+    ? imageTop +
+      Math.max(
+        selectedGeometry.top + selectedGeometry.height,
+        selectedGeometry.label.y + selectedGeometry.label.height / 2,
+      ) *
+        displayScale
+    : 0
+  let toolbarTop =
+    annotationTop >= 64
+      ? annotationTop - 56
+      : Math.max(8, Math.min(viewport.height - 52, annotationBottom + 12))
+  // 操作条避开其它编号，密集标注也能直接找到并切换选中对象。
+  if (selectedAnnotation) {
+    const labels = visible
+      .map((annotation) => {
+        const { label } = annotationVisual(annotation, size, unitsPerPixel)
+        return {
+          left: imageLeft + (label.x - label.width / 2) * displayScale,
+          right: imageLeft + (label.x + label.width / 2) * displayScale,
+          top: imageTop + (label.y - label.height / 2) * displayScale,
+          bottom: imageTop + (label.y + label.height / 2) * displayScale,
+        }
+      })
+      .filter(
+        (label) => label.right + 8 > toolbarLeft && label.left - 8 < toolbarLeft + toolbarWidth,
+      )
+    for (const label of labels.toSorted((a, b) => b.top - a.top)) {
+      if (toolbarTop < label.bottom + 8 && toolbarTop + 52 > label.top - 8)
+        toolbarTop = label.top - 60
+    }
+    if (toolbarTop < 8) {
+      toolbarTop = annotationBottom + 12
+      for (const label of labels.toSorted((a, b) => a.top - b.top)) {
+        if (toolbarTop < label.bottom + 8 && toolbarTop + 52 > label.top - 8)
+          toolbarTop = label.bottom + 8
+      }
+      toolbarTop = Math.max(8, Math.min(viewport.height - 52, toolbarTop))
+    }
+  }
+
   return (
     <div className="image-edit-canvas" role="group" aria-label="图片标注编辑器">
       <div className="image-edit-canvas-toolbar" role="toolbar" aria-label="标注工具">
@@ -260,7 +350,10 @@ export function AnnotationCanvas({
             variant={tool === kind ? 'selected' : 'standard'}
             aria-pressed={tool === kind}
             disabled={Boolean(blocked)}
-            onClick={() => setTool(kind)}
+            onClick={() => {
+              setTool(kind)
+              onSelect(null)
+            }}
           />
         ))}
         <span className="image-edit-canvas-toolbar-divider" aria-hidden="true" />
@@ -285,19 +378,8 @@ export function AnnotationCanvas({
           disabled={Boolean(blocked) || !selectedId}
           onClick={removeSelected}
         />
-        {onInsertReference && (
-          <IconButton
-            label="引用选中标注"
-            title="引用选中标注"
-            name="reference"
-            disabled={Boolean(blocked) || !selectedId}
-            onClick={() => {
-              if (selectedId) onInsertReference(selectedId)
-            }}
-          />
-        )}
       </div>
-      <div className="image-edit-canvas-viewport">
+      <div ref={viewportRef} className="image-edit-canvas-viewport">
         <img
           src={url}
           alt="当前编辑帧"
@@ -320,7 +402,8 @@ export function AnnotationCanvas({
         {size.width > 0 && !imageFailed && (
           <svg
             onKeyDown={handleKeyDown}
-            className="image-edit-canvas-surface"
+            data-annotation-canvas=""
+            className="image-edit-canvas-surface ui-focus ui-focus-inline"
             viewBox={`0 0 ${size.width} ${size.height}`}
             preserveAspectRatio="xMidYMid meet"
             role="group"
@@ -328,7 +411,7 @@ export function AnnotationCanvas({
             tabIndex={0}
             style={{
               touchAction: 'none',
-              cursor: blocked ? 'default' : tool === 'select' ? 'default' : 'crosshair',
+              cursor: blocked ? 'default' : 'crosshair',
             }}
             onPointerDown={startGesture}
             onPointerMove={updateGesture}
@@ -346,6 +429,8 @@ export function AnnotationCanvas({
                 key={annotation.id}
                 annotation={annotation}
                 size={size}
+                unitsPerPixel={unitsPerPixel}
+                draft={gesture?.kind === 'draw' && gesture.current.id === annotation.id}
                 selected={annotation.id === selectedId}
                 disabled={Boolean(blocked)}
                 onSelect={() => onSelect(annotation.id)}
@@ -353,122 +438,240 @@ export function AnnotationCanvas({
             ))}
           </svg>
         )}
+        {selectedAnnotation && !blocked && !gesture && (
+          <div
+            className="image-edit-annotation-actions"
+            role="toolbar"
+            aria-label={`标注 ${selectedAnnotation.number} 操作`}
+            style={{ left: toolbarLeft, top: toolbarTop, width: toolbarWidth }}
+          >
+            <span className="min-w-0 flex-1 truncate text-body text-on-surface">
+              标注 {selectedAnnotation.number} · {TOOL_NAMES[selectedAnnotation.kind]}
+            </span>
+            {onInsertReference && (
+              <Button
+                variant="ghost"
+                size="md"
+                aria-label="引用选中标注"
+                onClick={() => onInsertReference(selectedAnnotation.id)}
+              >
+                引用
+              </Button>
+            )}
+            <IconButton label="删除此标注" name="delete" onClick={removeSelected} />
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
+const TOOL_NAMES: Record<AnnotationKind, string> = {
+  point: '点',
+  rectangle: '矩形',
+  ellipse: '椭圆',
+  arrow: '箭头',
+  pen: '画笔',
+}
+
 function AnnotationMark({
   annotation,
   size,
+  unitsPerPixel,
+  draft,
   selected,
   disabled,
   onSelect,
 }: {
   annotation: ImageAnnotation
   size: { width: number; height: number }
+  unitsPerPixel: number
+  draft: boolean
   selected: boolean
   disabled: boolean
   onSelect: () => void
 }) {
-  const geometry = annotationVisual(annotation, size)
+  const geometry = annotationVisual(annotation, size, unitsPerPixel)
   const points = geometry.points.map((p) => `${p.x},${p.y}`).join(' ')
+  const shape =
+    annotation.kind === 'rectangle' ? (
+      <rect x={geometry.left} y={geometry.top} width={geometry.width} height={geometry.height} />
+    ) : annotation.kind === 'ellipse' ? (
+      <ellipse
+        cx={geometry.left + geometry.width / 2}
+        cy={geometry.top + geometry.height / 2}
+        rx={geometry.width / 2}
+        ry={geometry.height / 2}
+      />
+    ) : annotation.kind === 'pen' ? (
+      <path d={geometry.penPath} />
+    ) : annotation.kind === 'arrow' ? (
+      <>
+        <polyline points={points} />
+        <polyline points={geometry.arrow.map((p) => `${p.x},${p.y}`).join(' ')} />
+      </>
+    ) : (
+      <circle cx={geometry.anchor.x} cy={geometry.anchor.y} r={geometry.targetRadius} />
+    )
+  const connector = `${geometry.connector.start.x},${geometry.connector.start.y} ${geometry.connector.end.x},${geometry.connector.end.y}`
+  const unit = unitsPerPixel
   return (
     <g
-      data-annotation-id={annotation.id}
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      aria-label={`标注 ${annotation.number}`}
-      aria-pressed={selected}
+      data-annotation-id={draft ? undefined : annotation.id}
+      data-annotation-kind={annotation.kind}
+      role={draft ? undefined : 'button'}
+      tabIndex={disabled || draft ? -1 : 0}
+      aria-label={draft ? undefined : `标注 ${annotation.number}`}
+      aria-pressed={draft ? undefined : selected}
       aria-disabled={disabled}
       onKeyDown={(event) => {
-        if (!disabled && (event.key === 'Enter' || event.key === ' ')) {
+        if (!disabled && !draft && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault()
           onSelect()
         }
       }}
-      style={{ color: 'var(--color-error)' }}
+      className="image-edit-annotation"
+      style={{
+        color: 'var(--color-error)',
+        cursor: draft ? 'crosshair' : selected ? 'move' : 'pointer',
+      }}
     >
-      <g
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={geometry.strokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {annotation.kind === 'rectangle' ? (
-          <rect
-            x={geometry.left}
-            y={geometry.top}
-            width={geometry.width}
-            height={geometry.height}
-            fill="transparent"
-          />
-        ) : annotation.kind === 'ellipse' ? (
-          <ellipse
-            cx={geometry.left + geometry.width / 2}
-            cy={geometry.top + geometry.height / 2}
-            rx={geometry.width / 2}
-            ry={geometry.height / 2}
-            fill="transparent"
-          />
-        ) : (
-          <polyline points={points} />
+      <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+        {selected && (
+          <g
+            stroke="currentColor"
+            strokeWidth={geometry.strokeWidth + 6 * unit}
+            opacity={0.2}
+            pointerEvents="none"
+          >
+            {shape}
+          </g>
         )}
-        {(annotation.kind === 'pen' || annotation.kind === 'arrow') && (
-          <polyline
-            points={points}
-            stroke="transparent"
-            strokeWidth={geometry.strokeWidth * 6}
-            pointerEvents="stroke"
-          />
-        )}
-        {annotation.kind === 'arrow' && (
-          <polyline points={geometry.arrow.map((p) => `${p.x},${p.y}`).join(' ')} />
-        )}
+        <g
+          stroke="var(--color-on-scrim)"
+          strokeWidth={geometry.strokeWidth + geometry.haloWidth}
+          pointerEvents="none"
+        >
+          {shape}
+        </g>
+        <g stroke="currentColor" strokeWidth={geometry.strokeWidth} data-annotation-outline="">
+          {shape}
+        </g>
+        <g
+          stroke="transparent"
+          strokeWidth={Math.max(12 * unit, geometry.strokeWidth)}
+          fill={annotation.kind === 'point' ? 'transparent' : 'none'}
+          pointerEvents={annotation.kind === 'point' ? 'all' : 'stroke'}
+          aria-hidden="true"
+        >
+          {shape}
+        </g>
       </g>
-      <circle
-        cx={geometry.label.x}
-        cy={geometry.label.y}
-        r={geometry.radius}
-        fill="currentColor"
-        stroke="var(--color-on-error)"
-        strokeWidth={geometry.strokeWidth * 0.7}
-      />
-      <text
-        x={geometry.label.x}
-        y={geometry.label.y}
-        fill="var(--color-on-error)"
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontSize={geometry.radius * 1.25}
-        fontWeight={600}
-        pointerEvents="none"
-      >
-        {annotation.number}
-      </text>
+      {annotation.kind === 'point' && (
+        <circle
+          cx={geometry.anchor.x}
+          cy={geometry.anchor.y}
+          r={geometry.targetDotRadius}
+          paintOrder="stroke fill"
+          fill="currentColor"
+          stroke="var(--color-on-scrim)"
+          strokeWidth={2 * unit}
+          pointerEvents="none"
+        />
+      )}
+      {!draft && (
+        <g data-annotation-label="">
+          <polyline
+            points={connector}
+            fill="none"
+            stroke="var(--color-on-scrim)"
+            strokeWidth={5 * unit}
+            pointerEvents="none"
+          />
+          <polyline
+            points={connector}
+            fill="none"
+            stroke="var(--color-scrim)"
+            strokeWidth={2 * unit}
+            pointerEvents="none"
+          />
+          <rect
+            x={geometry.label.x - geometry.label.width / 2}
+            y={geometry.label.y - geometry.label.height / 2}
+            width={geometry.label.width}
+            height={geometry.label.height}
+            rx={geometry.label.radius}
+            fill="var(--color-scrim)"
+            stroke="var(--color-on-scrim)"
+            strokeWidth={1.5 * unit}
+          />
+          <text
+            x={geometry.label.x}
+            y={geometry.label.y}
+            fill="var(--color-on-scrim)"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize={geometry.label.fontSize}
+            fontWeight={600}
+            pointerEvents="none"
+          >
+            {annotation.number}
+          </text>
+        </g>
+      )}
       {selected &&
         !disabled &&
-        annotationHandles(annotation).map((point, index) => (
-          <circle
-            key={['top-left', 'top-right', 'bottom-right', 'bottom-left'][index]}
-            data-handle={index}
-            cx={point.x * size.width}
-            cy={point.y * size.height}
-            r={geometry.radius * 0.4}
-            fill="var(--color-on-error)"
-            stroke="currentColor"
-            strokeWidth={geometry.strokeWidth}
-            style={{
-              cursor:
-                annotation.kind === 'arrow'
-                  ? 'move'
-                  : index % 2 === 0
-                    ? 'nwse-resize'
-                    : 'nesw-resize',
-            }}
-          />
-        ))}
+        annotationHandles(annotation).map((point, index) => {
+          const x = point.x * size.width
+          const y = point.y * size.height
+          const handleSize = 8 * unit
+          const cursor =
+            annotation.kind === 'arrow'
+              ? 'move'
+              : annotation.kind === 'ellipse'
+                ? index % 2 === 0
+                  ? 'ns-resize'
+                  : 'ew-resize'
+                : index % 2 === 0
+                  ? 'nwse-resize'
+                  : 'nesw-resize'
+          return (
+            <g
+              key={['top', 'right', 'bottom', 'left'][index]}
+              data-handle={index}
+              style={{ cursor }}
+            >
+              <rect
+                x={x - 10 * unit}
+                y={y - 10 * unit}
+                width={20 * unit}
+                height={20 * unit}
+                fill="transparent"
+              />
+              {annotation.kind === 'rectangle' ? (
+                <rect
+                  x={x - handleSize / 2}
+                  y={y - handleSize / 2}
+                  width={handleSize}
+                  height={handleSize}
+                  rx={unit}
+                  fill="var(--color-on-scrim)"
+                  stroke="currentColor"
+                  strokeWidth={1.5 * unit}
+                />
+              ) : (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={handleSize / 2}
+                  fill="var(--color-on-scrim)"
+                  stroke="currentColor"
+                  strokeWidth={1.5 * unit}
+                />
+              )}
+            </g>
+          )
+        })}
     </g>
   )
 }

@@ -19,9 +19,11 @@ const original: ImageAnnotation = {
 function Editor({
   initial = [],
   disabled = false,
+  onInsertReference,
 }: {
   initial?: ImageAnnotation[]
   disabled?: boolean
+  onInsertReference?: (id: string) => void
 }) {
   const [annotations, setAnnotations] = useState(initial)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -33,6 +35,7 @@ function Editor({
       selectedId={selectedId}
       onSelect={setSelectedId}
       disabled={disabled}
+      {...(onInsertReference ? { onInsertReference } : {})}
     />
   )
 }
@@ -52,6 +55,21 @@ function loadImage() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      readonly callback: (entries: { contentRect: { width: number; height: number } }[]) => void
+      constructor(
+        callback: (entries: { contentRect: { width: number; height: number } }[]) => void,
+      ) {
+        this.callback = callback
+      }
+      observe() {
+        this.callback([{ contentRect: { width: 800, height: 800 } }])
+      }
+      disconnect() {}
+    },
+  )
   vi.stubGlobal(
     'PointerEvent',
     class extends MouseEvent {
@@ -73,7 +91,8 @@ describe('annotation canvas', () => {
     fireEvent.pointerDown(canvas, { clientX: 280, clientY: 240, button: 0 })
     fireEvent.pointerMove(canvas, { clientX: 440, clientY: 640 })
     fireEvent.pointerUp(canvas, { clientX: 440, clientY: 640 })
-    expect(screen.getByRole('button', { name: '标注 1' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '标注 1' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '椭圆标注' })).toHaveAttribute('aria-pressed', 'true')
     await user.click(screen.getByRole('button', { name: '撤销标注' }))
     expect(screen.queryByRole('button', { name: '标注 1' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '重做标注' }))
@@ -92,15 +111,21 @@ describe('annotation canvas', () => {
     fireEvent.pointerMove(canvas, { clientX: 340, clientY: 380 })
     fireEvent.pointerUp(canvas, { clientX: 340, clientY: 380 })
     expect(mark).toHaveAttribute('data-annotation-id', 'jacket')
-    expect(Number(mark.querySelector('rect')?.getAttribute('x'))).toBeCloseTo(120)
+    expect(
+      Number(mark.querySelector('[data-annotation-outline] rect')?.getAttribute('x')),
+    ).toBeCloseTo(120)
     const handle = mark.querySelector('[data-handle="2"]')
     if (!handle) throw new Error('Missing resize handle')
     fireEvent.pointerDown(handle, { clientX: 480, clientY: 720, button: 0 })
     fireEvent.pointerMove(canvas, { clientX: 560, clientY: 760 })
     fireEvent.pointerUp(canvas, { clientX: 560, clientY: 760 })
-    expect(Number(mark.querySelector('rect')?.getAttribute('width'))).toBeCloseTo(240)
+    expect(
+      Number(mark.querySelector('[data-annotation-outline] rect')?.getAttribute('width')),
+    ).toBeCloseTo(240)
     fireEvent.keyDown(canvas, { key: 'z', metaKey: true })
-    expect(Number(mark.querySelector('rect')?.getAttribute('width'))).toBeCloseTo(160)
+    expect(
+      Number(mark.querySelector('[data-annotation-outline] rect')?.getAttribute('width')),
+    ).toBeCloseTo(160)
   })
 
   it('discards a cancelled stroke without changing the committed annotation', async () => {
@@ -126,5 +151,60 @@ describe('annotation canvas', () => {
     fireEvent.error(screen.getByRole('img', { name: '当前编辑帧' }))
     expect(screen.getByRole('alert')).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: '图片标注画布' })).not.toBeInTheDocument()
+  })
+
+  it('places continuous single points and separates selection dismissal from drawing', async () => {
+    await renderWithProviders(<Editor />)
+    const canvas = loadImage()
+    expect(screen.queryByRole('button', { name: '选择标注' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '点标注' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.pointerDown(canvas, { clientX: 400, clientY: 400, button: 0 })
+    expect(screen.queryByRole('button', { name: '标注 1' })).not.toBeInTheDocument()
+    fireEvent.pointerUp(canvas, { clientX: 400, clientY: 400, button: 0 })
+    const first = screen.getByRole('button', { name: '标注 1' })
+    const target = first.querySelector('[data-annotation-outline] circle')
+    expect(target).toHaveAttribute('cx', '200')
+    expect(target).toHaveAttribute('cy', '400')
+    expect(first.querySelectorAll('[data-handle]')).toHaveLength(0)
+    fireEvent.pointerDown(canvas, { clientX: 440, clientY: 480, button: 0 })
+    fireEvent.pointerUp(canvas, { clientX: 440, clientY: 480, button: 0 })
+    expect(screen.getByRole('button', { name: '标注 2' })).toBeInTheDocument()
+    fireEvent.pointerDown(first, { clientX: 400, clientY: 400, button: 0 })
+    fireEvent.pointerUp(canvas, { clientX: 400, clientY: 400, button: 0 })
+    expect(first).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.pointerDown(canvas, { clientX: 560, clientY: 600, button: 0 })
+    fireEvent.pointerUp(canvas, { clientX: 560, clientY: 600, button: 0 })
+    expect(first).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: '标注 3' })).not.toBeInTheDocument()
+    fireEvent.pointerDown(canvas, { clientX: 560, clientY: 600, button: 0 })
+    fireEvent.pointerUp(canvas, { clientX: 560, clientY: 600, button: 0 })
+    expect(screen.getByRole('button', { name: '标注 3' })).toBeInTheDocument()
+  })
+
+  it('selects a smooth pen stroke without corner handles and references it from the contextual bar', async () => {
+    const user = userEvent.setup()
+    const insert = vi.fn()
+    await renderWithProviders(<Editor onInsertReference={insert} />)
+    const canvas = loadImage()
+    const tools = screen.getByRole('toolbar', { name: '标注工具' })
+    expect(tools.querySelectorAll('button')).toHaveLength(8)
+    expect(screen.queryByRole('button', { name: '引用选中标注' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '自由画笔' }))
+    fireEvent.pointerDown(canvas, { clientX: 280, clientY: 400, button: 0 })
+    fireEvent.pointerMove(canvas, { clientX: 320, clientY: 320 })
+    fireEvent.pointerMove(canvas, { clientX: 360, clientY: 300 })
+    fireEvent.pointerUp(canvas, { clientX: 360, clientY: 300, button: 0 })
+    const mark = screen.getByRole('button', { name: '标注 1' })
+    expect(mark.querySelector('[data-annotation-outline] path')?.getAttribute('d')).toContain('Q')
+    fireEvent.keyDown(mark, { key: 'Enter' })
+    expect(mark).toHaveAttribute('aria-pressed', 'true')
+    expect(mark.querySelectorAll('[data-handle]')).toHaveLength(0)
+    expect(screen.getByRole('toolbar', { name: '标注 1 操作' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '引用选中标注' }))
+    expect(insert).toHaveBeenCalledWith(mark.getAttribute('data-annotation-id'))
+    fireEvent.keyDown(canvas, { key: 'Escape' })
+    expect(mark).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('toolbar', { name: '标注 1 操作' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '自由画笔' })).toHaveAttribute('aria-pressed', 'true')
   })
 })

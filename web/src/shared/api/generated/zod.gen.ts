@@ -430,9 +430,9 @@ export const zFrameEditPoint = z.object({
  */
 export const zFrameEditAnnotation = z.object({
   id: z.string().min(1).max(100),
-  kind: z.enum(['rectangle', 'ellipse', 'arrow', 'pen']),
+  kind: z.enum(['point', 'rectangle', 'ellipse', 'arrow', 'pen']),
   number: z.int().gte(1).lte(9999),
-  points: z.array(zFrameEditPoint).min(2).max(2000),
+  points: z.array(zFrameEditPoint).min(1).max(2000),
 })
 
 /**
