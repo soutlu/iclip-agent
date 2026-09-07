@@ -117,6 +117,12 @@ export function AnnotationCanvas({
     onSelect(null)
   }
 
+  function clearAnnotations() {
+    if (blocked || gesture || annotations.length === 0) return
+    commit([])
+    onSelect(null)
+  }
+
   function pointerPoint(event: PointerEvent<SVGSVGElement>, constrain = false) {
     return imagePoint(
       { x: event.clientX, y: event.clientY },
@@ -372,11 +378,11 @@ export function AnnotationCanvas({
           onClick={redo}
         />
         <IconButton
-          label="删除标注"
-          title="删除标注"
+          label="清空标注"
+          title="清空全部标注，可撤销"
           name="delete"
-          disabled={Boolean(blocked) || !selectedId}
-          onClick={removeSelected}
+          disabled={Boolean(blocked) || annotations.length === 0 || gesture !== null}
+          onClick={clearAnnotations}
         />
       </div>
       <div ref={viewportRef} className="image-edit-canvas-viewport">
