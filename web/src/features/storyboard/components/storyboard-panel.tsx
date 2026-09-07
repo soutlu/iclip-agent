@@ -19,7 +19,13 @@ import {
   useWorkspaceFile,
   type ArtifactRendererProps,
 } from '@/shared/workbench'
-import { latestShotVideos, runningShots, shotSelectionRef, SHOTS_PATH } from '../shots'
+import {
+  isRunningStatus,
+  latestShotVideos,
+  runningShots,
+  shotSelectionRef,
+  SHOTS_PATH,
+} from '../shots'
 import { validateShot } from '../prompt-doc'
 import { uploadFrameImage, useFrameCandidates, useShotGenerations } from '../storyboard.api'
 import { useShotsDraft } from '../use-shots-draft'
@@ -116,6 +122,9 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const jobs = generations.data?.items ?? []
   const videos = latestShotVideos(jobs)
   const running = runningShots(jobs)
+  const activeCount = jobs.filter(
+    (job) => job.kind === 'video' && job.shotIndex === shot.index && isRunningStatus(job.status),
+  ).length
 
   const generateNote = !generation.aspectRatioSupported
     ? `画幅 ${shotsDocument.aspectRatio} 不在出片支持的档位里，先改文件里的画幅`
@@ -177,12 +186,29 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           <SaveStatus onRetry={() => void draft.saveNow()} state={draft.state} />
         </div>
         <Button
-          className="shrink-0"
+          aria-expanded={search.sheet === 'records'}
+          aria-label="生成记录"
+          className="shrink-0 border-[0.5px] border-chat-hairline bg-background px-3 text-body text-on-surface"
+          leadingIcon="history"
           onClick={() => go({ sheet: search.sheet === 'records' ? undefined : 'records' })}
           size="md"
-          variant="primary"
+          variant="outlined"
         >
           生成记录
+          {activeCount > 0 ? (
+            <span
+              className="ml-1 inline-flex items-center gap-2 border-l-[0.5px] border-chat-hairline pl-3 text-primary"
+              role="status"
+            >
+              <Icon
+                className="animate-spin motion-reduce:animate-none"
+                decorative
+                name="loading"
+                size="sm"
+              />
+              <span>生成中 {activeCount}</span>
+            </span>
+          ) : null}
         </Button>
       </div>
 
@@ -198,9 +224,11 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               aspectRatio={shotsDocument.aspectRatio}
               candidates={candidates.data ?? []}
               frameNumber={offset + 1 === position ? frameNumber : 1}
-              generateDisabled={generateNote !== undefined || generatingShot(item.index)}
+              generateDisabled={
+                generateNote !== undefined || generation.submitting.includes(item.index)
+              }
               generateNote={generateNote}
-              generating={generatingShot(item.index)}
+              submitting={generation.submitting.includes(item.index)}
               key={`${item.index}-${offset + 1 === position ? 'active' : 'inactive'}`}
               onChangeShot={draft.updateShot}
               onChangeVideoOptions={generation.setOptions}
@@ -243,9 +271,11 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         {search.sheet === 'prompt' ? (
           <GroupPromptSheet
             aspectRatio={shotsDocument.aspectRatio}
-            generateDisabled={generateNote !== undefined || generatingShot(shot.index)}
+            generateDisabled={
+              generateNote !== undefined || generation.submitting.includes(shot.index)
+            }
             generateNote={generateNote}
-            generating={generatingShot(shot.index)}
+            submitting={generation.submitting.includes(shot.index)}
             key={shot.index}
             onClose={() => go({ sheet: undefined })}
             onGenerate={() => void generation.submit(shot)}

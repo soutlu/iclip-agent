@@ -12,7 +12,7 @@ type GroupPromptSheetProps = {
   onClose: () => void
   onGenerate: () => void
   generateDisabled: boolean
-  generating: boolean
+  submitting: boolean
   generateNote?: string | undefined
   triggerRef?: RefObject<HTMLButtonElement | null> | undefined
 }
@@ -21,7 +21,7 @@ export function GroupPromptSheet({
   aspectRatio,
   generateDisabled,
   generateNote,
-  generating,
+  submitting,
   onClose,
   onGenerate,
   shot,
@@ -166,7 +166,7 @@ export function GroupPromptSheet({
           复制完整提示词
         </Button>
         <Button disabled={generateDisabled} leadingIcon="video" onClick={onGenerate} size="md">
-          {generating ? '正在出片…' : '生成视频'}
+          {submitting ? '提交中…' : '生成视频'}
         </Button>
       </footer>
 

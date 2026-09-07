@@ -9,12 +9,12 @@ type VideoGenerationButtonProps = {
   onChange: (value: VideoGenerationOptions) => void
   onGenerate: () => void
   disabled: boolean
-  generating: boolean
+  submitting: boolean
 }
 
 export function VideoGenerationButton({
   disabled,
-  generating,
+  submitting,
   onChange,
   onGenerate,
   value,
@@ -30,7 +30,7 @@ export function VideoGenerationButton({
             <button
               aria-label={`生成设置：${modelLabel}，${audioLabel}`}
               className="group inline-flex h-(--control-height-lg) ui-state cursor-pointer items-center gap-2 rounded-l-sm border-[0.5px] border-r-0 border-chat-hairline bg-chat-card-bg px-3 text-body text-on-surface ui-focus"
-              disabled={generating}
+              disabled={submitting}
               type="button"
             >
               <span>{modelLabel}</span>
@@ -50,7 +50,7 @@ export function VideoGenerationButton({
             onClick={onGenerate}
             size="lg"
           >
-            {generating ? '正在出片…' : '生成视频'}
+            {submitting ? '提交中…' : '生成视频'}
           </Button>
         </div>
       </PopupAnchor>

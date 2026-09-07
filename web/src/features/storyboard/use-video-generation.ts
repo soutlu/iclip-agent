@@ -1,7 +1,7 @@
-/** 202 后由生成任务列表轮询进度；提交中及已有运行任务时禁用按钮，不提供幂等键（ADR-0009 决策 4）。 */
+/** 只在提交请求期间防止重复点击；202 后由任务列表轮询进度，同组可继续生成新版本。 */
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { toast } from '@/shared/ui/toast'
 import type { Shot } from './shots'
 import { storyboardQueryKeys, submitVideoGeneration, VIDEO_ASPECT_RATIOS } from './storyboard.api'
@@ -15,12 +15,15 @@ type UseVideoGenerationOptions = {
 export const useVideoGeneration = ({ aspectRatio, conversationId }: UseVideoGenerationOptions) => {
   const queryClient = useQueryClient()
   const [submitting, setSubmitting] = useState<readonly number[]>([])
+  const submittingRef = useRef(new Set<number>())
   const [options, setOptions] = useState(DEFAULT_VIDEO_OPTIONS)
   const aspectRatioSupported = VIDEO_ASPECT_RATIOS.includes(aspectRatio)
 
   const submit = useCallback(
     async (shot: Shot) => {
-      if (!aspectRatioSupported) return
+      if (!aspectRatioSupported || submittingRef.current.has(shot.index)) return
+      // 同一次渲染内的重复触发也只发一次请求，不等待按钮状态重绘。
+      submittingRef.current.add(shot.index)
       setSubmitting((current) => [...current, shot.index])
       try {
         await submitVideoGeneration({
@@ -32,12 +35,13 @@ export const useVideoGeneration = ({ aspectRatio, conversationId }: UseVideoGene
           seconds: shot.seconds,
           shotIndex: shot.index,
         })
-        await queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: storyboardQueryKeys.generations(conversationId),
         })
       } catch (error) {
         toast.error(error instanceof Error ? error.message : '出片没发出去')
       } finally {
+        submittingRef.current.delete(shot.index)
         setSubmitting((current) => current.filter((index) => index !== shot.index))
       }
     },
