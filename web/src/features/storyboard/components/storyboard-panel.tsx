@@ -24,6 +24,7 @@ import { useShotsDraft } from '../use-shots-draft'
 import { useVideoGeneration } from '../use-video-generation'
 import { AllShotsSheet } from './all-shots-sheet'
 import { GenerationRecords } from './generation-records'
+import { GroupPromptSheet } from './group-prompt-sheet'
 import { ShotPage } from './shot-page'
 
 const pageOfScroll = (element: HTMLElement): number | undefined =>
@@ -36,10 +37,13 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
   const candidates = useFrameCandidates(conversationId)
   const draft = useShotsDraft({ conversationId, file: file.data?.file, path })
   const navigate = useNavigate()
-  const search: { frame?: number; sheet?: 'all' | 'records'; shot?: number } = useSearch({
-    strict: false,
-  })
+  const search: { frame?: number; sheet?: 'all' | 'prompt' | 'records'; shot?: number } = useSearch(
+    {
+      strict: false,
+    },
+  )
   const pagesRef = useRef<HTMLDivElement | null>(null)
+  const promptTriggerRef = useRef<HTMLButtonElement | null>(null)
   // 记录滚动目标，在到达前忽略中间位置，避免误改 shot 和 frame 查询参数。
   const scrollTargetRef = useRef<number | null>(null)
 
@@ -132,7 +136,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
 
   const go = (next: {
     frame?: number | undefined
-    sheet?: 'all' | 'records' | undefined
+    sheet?: 'all' | 'prompt' | 'records' | undefined
     shot?: number
   }) => {
     // 切组时清除帧号，避免沿用上一组的帧位置。
@@ -172,6 +176,14 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         </div>
         <Button
           className="shrink-0"
+          onClick={() => go({ sheet: search.sheet === 'all' ? undefined : 'all' })}
+          size="md"
+          variant="ghost"
+        >
+          全部镜头组
+        </Button>
+        <Button
+          className="shrink-0"
           onClick={() => go({ sheet: search.sheet === 'records' ? undefined : 'records' })}
           size="md"
           variant="primary"
@@ -183,6 +195,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
       <div className="relative flex min-h-0 w-full min-w-0 flex-1 overflow-hidden">
         <div
           className="flex min-h-0 min-w-0 flex-1 snap-y snap-mandatory flex-col overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
+          inert={search.sheet === 'prompt'}
           onScroll={onScroll}
           ref={pagesRef}
         >
@@ -197,12 +210,13 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
               key={`${item.index}-${offset + 1 === position ? 'active' : 'inactive'}`}
               onChangeShot={draft.updateShot}
               onGenerateVideo={() => void generation.submit(item)}
-              onOpenAllShots={() => go({ sheet: 'all', shot: offset + 1 })}
+              onOpenPrompt={() => go({ sheet: 'prompt', shot: offset + 1 })}
               onPickFrame={(frame) => go({ frame, shot: offset + 1 })}
               onReplaceFrame={(frame, previousUrl, url) =>
                 draft.replaceFrame(item.index, frame, previousUrl, url)
               }
               onUploadFrame={uploadFrameImage}
+              promptTriggerRef={offset + 1 === position ? promptTriggerRef : undefined}
               shot={item}
             />
           ))}
@@ -212,6 +226,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         <nav
           aria-label="镜头组页码"
           className="flex shrink-0 flex-col items-center justify-center gap-2 px-2"
+          inert={search.sheet === 'prompt'}
         >
           {shots.map((item) => (
             <button
@@ -229,9 +244,23 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
           ))}
         </nav>
 
+        {search.sheet === 'prompt' ? (
+          <GroupPromptSheet
+            aspectRatio={shotsDocument.aspectRatio}
+            generateDisabled={generateNote !== undefined || generatingShot(shot.index)}
+            generateNote={generateNote}
+            generating={generatingShot(shot.index)}
+            key={shot.index}
+            onClose={() => go({ sheet: undefined })}
+            onGenerate={() => void generation.submit(shot)}
+            shot={shot}
+            triggerRef={promptTriggerRef}
+          />
+        ) : null}
+
         {search.sheet === 'all' ? (
           <aside
-            aria-label="全部分镜"
+            aria-label="全部镜头组"
             className="absolute inset-0 flex min-w-0 animate-in flex-col bg-background shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-right"
           >
             <AllShotsSheet
