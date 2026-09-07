@@ -6,6 +6,7 @@ import { formatDateTime } from '@/shared/lib/date-time'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
+import { formatDuration } from '@/shared/ui/media-preview'
 import { toast } from '@/shared/ui/toast'
 import { isRunningStatus } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
@@ -56,27 +57,42 @@ export function GenerationRecords({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-5 py-4">
-        <Icon decorative name="history" size="sm" />
-        <h3 className="text-body-sm font-medium text-on-surface">生成记录</h3>
+      <div className="flex shrink-0 items-center gap-2.5 border-b-[0.5px] border-chat-hairline px-6 py-2.5">
+        <Icon decorative name="history" size="md" />
+        <h3 className="text-body font-medium text-on-surface">生成记录</h3>
         <span className="flex-1" />
         <IconButton label="关闭生成记录" name="close" onClick={onClose} size="sm" />
       </div>
 
-      <div className="shrink-0 px-5 pt-3">
-        <div className="border-b-[0.5px] border-chat-hairline">
-          <div className="inline-flex items-center gap-1.5 border-b-2 border-on-surface pb-2">
-            <h4 className="text-body-sm font-medium text-on-surface">视频生成记录</h4>
-            <span className="rounded-full bg-on-surface px-1 text-caption text-surface">
-              {listed.length}
-            </span>
-          </div>
-        </div>
-      </div>
+      <h4 className="shrink-0 px-6 py-3 text-body-sm text-on-surface-muted">当前镜头组 · 视频</h4>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-5 pt-3.5 pb-5">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 pb-6">
         {listed.length === 0 ? (
-          <p className="py-6 text-center text-body-sm text-on-surface-faint">还没有生成记录</p>
+          <div className="flex min-h-full flex-col items-center text-center">
+            <div className="min-h-8 flex-[0.6]" />
+            <img
+              alt=""
+              className="mb-3 h-30 w-36 shrink-0 object-contain mix-blend-multiply dark:mix-blend-screen dark:hue-rotate-180 dark:invert"
+              height={120}
+              src="/images/video-records-empty.png"
+              width={144}
+            />
+            <h5 className="text-title font-semibold text-on-surface">暂无视频记录</h5>
+            <p className="mt-3 text-body-sm leading-relaxed text-on-surface-muted">
+              生成后，视频和使用过的提示词
+              <br />
+              会保存在这里。
+            </p>
+            <Button
+              className="mt-6 min-w-32 shrink-0 text-body"
+              leadingIcon="back"
+              onClick={onClose}
+              size="md"
+            >
+              返回分镜
+            </Button>
+            <div className="min-h-8 flex-[1.4]" />
+          </div>
         ) : (
           listed.map((job) => <RecordCard job={job} key={job.id} onEditPrompt={onEditPrompt} />)
         )}
@@ -96,34 +112,33 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   const prompt = promptOf(job)
 
   return (
-    <article className="flex shrink-0 flex-col gap-3 overflow-hidden rounded-sm bg-surface-container-high p-3.5">
+    <article className="flex shrink-0 flex-col gap-2.5 overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface p-3">
       <div className="flex items-center gap-2">
         <span className={cn('flex items-center gap-1.5 text-body-sm', PHASE[phase].className)}>
-          <Icon className={PHASE[phase].spin} decorative name={PHASE[phase].icon} size="sm" />
+          <Icon className={PHASE[phase].spin} decorative name={PHASE[phase].icon} size="md" />
           {PHASE[phase].text}
         </span>
         <span className="flex-1" />
-        <span className="text-label text-on-surface-faint">{formatDateTime(job.createdAt)}</span>
+        <time className="text-caption text-on-surface-muted" dateTime={job.createdAt}>
+          {formatDateTime(job.createdAt)}
+        </time>
         <IconButton
           aria-expanded={open}
-          className="rounded-xs bg-surface-container text-on-surface"
+          className="text-on-surface"
           label={open ? '收起这条记录' : '展开这条记录'}
           name={open ? 'collapse' : 'expand'}
           onClick={() => setOpen(!open)}
-          size="sm"
+          size="xs"
         />
       </div>
 
-      {/* 后端仅提供状态，使用不定进度指示。 */}
-      {phase === 'running' ? (
-        <div className="h-1 overflow-hidden rounded-full bg-surface-container-lowest">
-          <div className="h-full w-1/3 animate-pulse rounded-full bg-on-surface-faint" />
-        </div>
+      {phase === 'done' && job.outputUrl !== null ? (
+        <RecordVideo key={job.outputUrl} url={job.outputUrl} />
       ) : null}
 
       {open ? (
         <div className="flex flex-col gap-1.5">
-          <p className="text-label text-on-surface-faint">视频描述</p>
+          <p className="text-label text-on-surface-muted">视频描述</p>
           {prompt === undefined ? null : (
             <p className="line-clamp-3 text-body-sm text-on-surface">{prompt}</p>
           )}
@@ -133,13 +148,16 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
         </div>
       ) : null}
 
-      {phase === 'done' && job.outputUrl !== null ? (
-        <RecordVideo key={job.outputUrl} url={job.outputUrl} />
+      {/* 后端仅提供状态，使用不定进度指示。 */}
+      {phase === 'running' ? (
+        <div className="h-1 overflow-hidden rounded-full bg-surface-container-high">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-on-surface-faint/48" />
+        </div>
       ) : null}
 
       {open ? (
         <Button
-          className="w-full rounded-xs bg-surface-container-lowest text-on-surface"
+          className="w-full border-[0.5px] border-chat-hairline bg-primary/4 text-primary"
           disabled={prompt === undefined || prompt.trim() === ''}
           leadingIcon="edit"
           onClick={() => {
@@ -158,6 +176,7 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
 function RecordVideo({ url }: { url: string }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [started, setStarted] = useState(false)
+  const [duration, setDuration] = useState<number>()
 
   const play = async () => {
     try {
@@ -169,11 +188,15 @@ function RecordVideo({ url }: { url: string }) {
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xs bg-surface-container-lowest">
+    <div className="relative overflow-hidden rounded-sm bg-scrim/88">
       <video
         aria-label="生成的视频"
-        className="aspect-video w-full object-contain"
+        className="aspect-[2/1] w-full object-contain"
         controls={started}
+        onDurationChange={(event) => {
+          const seconds = event.currentTarget.duration
+          setDuration(Number.isFinite(seconds) && seconds > 0 ? seconds : undefined)
+        }}
         playsInline
         poster={videoSnapshotUrl(url, 640)}
         preload="metadata"
@@ -189,11 +212,16 @@ function RecordVideo({ url }: { url: string }) {
           onClick={() => void play()}
           type="button"
         >
-          <span className="grid size-9 place-items-center rounded-full bg-scrim/48 text-on-scrim">
-            <Icon decorative name="play" size="md" />
+          <span className="grid size-9 place-items-center rounded-full border border-on-scrim/70 bg-scrim/48 text-on-scrim">
+            <Icon className="fill-current" decorative name="play" size="md" />
           </span>
         </button>
       )}
+      {!started && duration !== undefined ? (
+        <span className="pointer-events-none absolute right-2 bottom-2 rounded-xs bg-scrim/70 px-1.5 py-0.5 text-label text-on-scrim tabular-nums">
+          {formatDuration(duration)}
+        </span>
+      ) : null}
     </div>
   )
 }

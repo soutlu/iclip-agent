@@ -413,7 +413,7 @@ describe('StoryboardPanel', () => {
 
     await waitFor(() => expect(router.state.location.search).toEqual({ sheet: 'records', shot: 2 }))
     const drawer = screen.getByRole('complementary', { name: '生成记录' })
-    expect(within(drawer).getByRole('heading', { name: '视频生成记录' })).toBeVisible()
+    expect(within(drawer).getByRole('heading', { name: '当前镜头组 · 视频' })).toBeVisible()
 
     await userEvent.click(within(drawer).getByRole('button', { name: '关闭生成记录' }))
     await waitFor(() => expect(router.state.location.search).toEqual({ shot: 2 }))

@@ -49,7 +49,7 @@ test('点开有分镜的对话：滚轮翻到第 2 组，看生成记录，点�
 
   await panel.getByRole('button', { name: '生成记录' }).click()
   const records = panel.getByRole('complementary', { name: '生成记录' })
-  await expect(records.getByRole('heading', { name: '视频生成记录' })).toBeVisible()
+  await expect(records.getByRole('heading', { name: '当前镜头组 · 视频' })).toBeVisible()
   await expect(records.getByRole('article')).toHaveCount(3)
   await expect(records.getByText('生成中…')).toBeVisible()
   await records.getByRole('button', { name: '关闭生成记录' }).click()
@@ -142,6 +142,37 @@ test('短桌面中首帧卡片在原位展开，预览与底部导航均完整�
   await expect(firstFrame).toHaveAttribute('aria-pressed', 'true')
 })
 
+for (const width of [1335, 390]) {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test(`视频记录空态 ${width}px ${colorScheme}：说明和返回分镜入口完整可见`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 880 })
+      await page.emulateMedia({ colorScheme })
+      await page.goto('/')
+      await login(page)
+      await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+      if (width === 390) await page.getByRole('button', { name: '打开右侧面板' }).click()
+      const panel = page.getByRole('complementary', { name: '右侧面板' })
+      await panel.getByRole('button', { name: '生成记录', exact: true }).click()
+      const records = panel.getByRole('complementary', { name: '生成记录' })
+      await expect(records.getByRole('heading', { name: '暂无视频记录' })).toBeVisible()
+      await expect(records).toBeInViewport({ ratio: 1 })
+      const back = records.getByRole('button', { name: '返回分镜' })
+      await expect(back).toBeInViewport({ ratio: 1 })
+      await page.screenshot({
+        animations: 'disabled',
+        path: `../.artifacts/design-qa/video-records-design/empty-${width}-${colorScheme}.png`,
+      })
+
+      await back.focus()
+      await page.keyboard.press('Enter')
+      await expect(records).toBeHidden()
+      await expect(
+        panel.getByRole('button', { name: '生成视频', exact: true }).first(),
+      ).toBeVisible()
+    })
+  }
+}
+
 test('视频记录按卡片展示，编辑生成回填当前组且不自动出片', async ({ page }) => {
   await page.setViewportSize({ width: 1335, height: 934 })
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -158,13 +189,13 @@ test('视频记录按卡片展示，编辑生成回填当前组且不自动出�
   )
   await panel.getByRole('button', { name: '生成记录' }).click()
   const records = panel.getByRole('complementary', { name: '生成记录' })
-  await expect(records.getByRole('heading', { name: '视频生成记录' })).toBeVisible()
+  await expect(records.getByRole('heading', { name: '当前镜头组 · 视频' })).toBeVisible()
   await expect(records.getByRole('radio')).toHaveCount(0)
   await expect(records.getByRole('article')).toHaveCount(3)
   await expect(records).toBeInViewport({ ratio: 1 })
   await page.screenshot({
     animations: 'disabled',
-    path: '../.artifacts/design-qa/video-records/desktop-dark.png',
+    path: '../.artifacts/design-qa/video-records-design/desktop-dark.png',
   })
 
   const completed = records.getByRole('article').filter({ hasText: '生成完成' })

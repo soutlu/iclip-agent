@@ -287,7 +287,7 @@ export function StoryboardPanel({ artifact, conversationId }: ArtifactRendererPr
         {search.sheet === 'records' ? (
           <aside
             aria-label="生成记录"
-            className="absolute inset-y-0 right-0 flex w-full max-w-100 min-w-0 animate-in flex-col border-l-[0.5px] border-chat-hairline bg-surface-container shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-right"
+            className="absolute inset-y-0 right-0 flex w-full max-w-100 min-w-0 animate-in flex-col border-l-[0.5px] border-chat-hairline bg-surface-container-lowest shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) slide-in-from-right"
           >
             <GenerationRecords
               jobs={jobs}
