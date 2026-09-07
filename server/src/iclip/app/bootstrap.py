@@ -21,6 +21,7 @@ from iclip.app.capability_table import (
     resolve_capabilities,
 )
 from iclip.app.conversation_workspace import ConversationWorkspace, validate_video_shots
+from iclip.app.frame_edit_target import FrameEditTargetValidator
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_video.delivery import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
@@ -312,12 +313,14 @@ def _generation_module(
     database_url: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
+    validate_frame_edit_target: FrameEditTargetValidator,
 ) -> GenerationModule:
     """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。"""
 
     return build_generation_module(
         SqlGenerationRepository(engine),
         video_allowed_models=settings.video_allowed_models,
+        validate_frame_edit_target=validate_frame_edit_target,
         video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
@@ -393,18 +396,6 @@ def build_app(
     )
     # 素材、生成与镜头能力依赖同一对象存储，先完成装配。
     public_objects = _object_store(settings.object_store, object_store)
-    # 镜头能力依赖生成服务，须先于 Agent 装配。
-    generation = (
-        _generation_module(
-            settings.media_generation,
-            active_engine,
-            database_url=settings.database_url,
-            object_store=public_objects,
-            queue_connector=queue_connector,
-        )
-        if settings.media_generation is not None and public_objects is not None
-        else None
-    )
     _require_ffmpeg(settings.shot_video)
     # 图片信息查询、素材下载与拆解请求共用 HTTP 连接池。
     http_client = httpx.AsyncClient(follow_redirects=True)
@@ -433,6 +424,22 @@ def build_app(
     material_ledger = PgMaterialLedger(active_engine)
     conversation_workspace = ConversationWorkspace(
         workspace_store, announcing_workspace_store, material_ledger
+    )
+
+    # 镜头能力依赖生成服务，须先于 Agent 装配。
+    generation = (
+        _generation_module(
+            settings.media_generation,
+            active_engine,
+            database_url=settings.database_url,
+            object_store=public_objects,
+            queue_connector=queue_connector,
+            validate_frame_edit_target=FrameEditTargetValidator(
+                SqlConversationRepository(active_engine), conversation_workspace
+            ),
+        )
+        if settings.media_generation is not None and public_objects is not None
+        else None
     )
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。

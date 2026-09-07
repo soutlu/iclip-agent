@@ -1,0 +1,171 @@
+.image-edit-dialog {
+  width: min(1240px, calc(100vw - 48px));
+  max-width: 1240px;
+  height: min(880px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  border-radius: var(--radius-lg);
+}
+.image-edit-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+.image-edit-left {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--color-surface-container);
+  border-right: 1px solid var(--color-outline-variant);
+}
+.image-edit-view-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--color-surface-container-lowest);
+  flex-shrink: 0;
+}
+.image-edit-canvas-slot {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+}
+.image-edit-canvas-slot[hidden] {
+  display: none;
+}
+.image-edit-canvas {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.image-edit-canvas-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-lowest);
+  box-shadow: var(--shadow-1);
+  z-index: var(--z-local-1);
+}
+.image-edit-canvas-toolbar-divider {
+  width: 100%;
+  height: 1px;
+  margin: 3px 0;
+  background: var(--color-outline-variant);
+}
+.image-edit-canvas-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin-left: 72px;
+}
+.image-edit-canvas-source,
+.image-edit-canvas-surface {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+}
+.image-edit-canvas-surface {
+  touch-action: none;
+}
+.image-edit-photo {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+}
+.image-edit-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.image-edit-right {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+  padding: 22px;
+}
+.image-edit-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 22px;
+  border-top: 1px solid var(--color-outline-variant);
+}
+@media (max-width: 760px) {
+  .image-edit-dialog {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    transform: none;
+    border-radius: 0;
+  }
+  .image-edit-body {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .image-edit-left {
+    flex-shrink: 0;
+    height: 46dvh;
+    min-height: 280px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-outline-variant);
+  }
+  .image-edit-canvas-toolbar {
+    left: 6px;
+    top: 8px;
+    gap: 2px;
+    padding: 4px;
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+  }
+  .image-edit-canvas-viewport {
+    margin-left: 54px;
+  }
+  .image-edit-right {
+    min-height: auto;
+    overflow: visible;
+    gap: 18px;
+    padding: 18px;
+  }
+  .image-edit-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 18px;
+  }
+  .image-edit-footer > div {
+    justify-content: flex-end;
+  }
+}
+
+.image-edit-instruction-editor:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+.image-edit-instruction-input:focus {
+  /* design-allow -- 外层 focus-within 使用主色边框与焦点环，输入区共享同一焦点指示。 */
+  outline: none;
+}
+.image-edit-instruction-input p + p {
+  margin-top: 8px;
+}

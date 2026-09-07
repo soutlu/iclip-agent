@@ -71,20 +71,21 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
 
   const document = edited ?? parsed
 
-  const saveNow = useCallback(async () => {
+  const saveNow = useCallback(async (): Promise<boolean> => {
     const book = ledgerRef.current
     if (book.timer !== null) {
       clearTimeout(book.timer)
       book.timer = null
     }
     const { base, edited: mine } = book
-    if (base === null || mine === null || book.dirty.size === 0 || book.saving) return
+    if (base === null || book.saving) return false
+    if (mine === null || book.dirty.size === 0) return true
     for (const index of book.dirty) {
       const shot = shotOf(mine, index)
       const problem = shot === undefined ? undefined : validateShot(shot)
       if (problem !== undefined) {
         setState({ kind: 'error', message: problem })
-        return
+        return false
       }
     }
 
@@ -110,10 +111,11 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     setState({ kind: 'saving' })
     try {
       await write(mine, base.version)
+      return true
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 409) {
         setState({ kind: 'error', message: error instanceof Error ? error.message : '保存失败' })
-        return
+        return false
       }
       try {
         const latestFile = await queryClient.fetchQuery({
@@ -124,7 +126,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
         const latestDocument = parseShotsDocument(latestFile.file.content)
         if (latestDocument === null) {
           setState({ kind: 'error', message: '最新的文件读不出镜头组，先别存' })
-          return
+          return false
         }
         const latest: Base = { document: latestDocument, version: latestFile.file.version }
         const conflicts: ShotConflict[] = [...book.dirty]
@@ -139,15 +141,17 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
         if (conflicts.length > 0) {
           book.latest = latest
           setState({ kind: 'conflict', shots: conflicts })
-          return
+          return false
         }
         const merged = replay(latest.document, mine, book.dirty)
         book.base = latest
         book.edited = merged
         setEdited(merged)
         await write(merged, latest.version)
+        return true
       } catch (again) {
         setState({ kind: 'error', message: again instanceof Error ? again.message : '保存失败' })
+        return false
       }
     } finally {
       book.saving = false
@@ -195,6 +199,56 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     [updateShot],
   )
 
+  /** 候选图写入成功才算应用；失败只撤回本次图片替换，保留其它草稿与冲突。 */
+  const applyFrame = useCallback(
+    async (index: number, frame: number, previousUrl: string, url: string) => {
+      const book = ledgerRef.current
+      if (book.saving) throw new Error('当前修改正在保存，请稍后重试')
+      if (book.latest !== null) throw new Error('分镜存在版本冲突，请先处理冲突')
+      const current = book.edited ?? book.base?.document
+      const target = current === undefined ? undefined : shotOf(current, index)
+      const replaced = target?.imageUrls[frame - 1] !== url
+      if (replaced) replaceFrame(index, frame, previousUrl, url)
+      if (!(await saveNow())) {
+        const currentDraft = book.edited
+        const currentShot = currentDraft === null ? undefined : shotOf(currentDraft, index)
+        // 保存期间发生的文字编辑和其它图片变化不属于本次失败，不能整份回滚。
+        if (replaced && currentDraft !== null && currentShot?.imageUrls[frame - 1] === url) {
+          const restored = {
+            ...currentShot,
+            imageUrls: currentShot.imageUrls.map((image, position) =>
+              position === frame - 1 ? previousUrl : image,
+            ),
+          }
+          const restoredDocument = {
+            ...currentDraft,
+            shots: currentDraft.shots.map((shot) => (shot.index === index ? restored : shot)),
+          }
+          if (
+            book.latest === null &&
+            book.base !== null &&
+            sameShot(restored, shotOf(book.base.document, index))
+          )
+            book.dirty.delete(index)
+          book.edited = book.dirty.size === 0 ? null : restoredDocument
+          setEdited(book.edited)
+          setState((previous) =>
+            previous.kind === 'conflict'
+              ? {
+                  ...previous,
+                  shots: previous.shots.map((conflict) =>
+                    conflict.index === index ? { ...conflict, mine: restored } : conflict,
+                  ),
+                }
+              : previous,
+          )
+        }
+        throw new Error('图片尚未保存，请处理保存错误或冲突后重试')
+      }
+    },
+    [replaceFrame, saveNow],
+  )
+
   /** 保留本地时重放到最新版；采用服务端时丢弃冲突组的本地修改。 */
   const resolveConflict = useCallback(
     (choice: 'mine' | 'theirs') => {
@@ -231,5 +285,14 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     }
   }, [saveNow])
 
-  return { document, replaceFrame, resolveConflict, saveNow, state, updateShot, wroteVersion }
+  return {
+    applyFrame,
+    document,
+    replaceFrame,
+    resolveConflict,
+    saveNow,
+    state,
+    updateShot,
+    wroteVersion,
+  }
 }

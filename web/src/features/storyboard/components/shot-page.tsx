@@ -30,6 +30,7 @@ type ShotPageProps = {
   onChangeShot: (next: Shot) => void
   onReplaceFrame: (frame: number, previousUrl: string, url: string) => void
   candidates: readonly FrameCandidate[]
+  onEditFrame?: ((frame: number, url: string) => void) | undefined
   onUploadFrame: (file: File) => Promise<string>
   onGenerateVideo: () => void
   videoOptions: VideoGenerationOptions
@@ -67,6 +68,7 @@ export function ShotPage({
   onOpenPrompt,
   onPickFrame,
   onReplaceFrame,
+  onEditFrame,
   onUploadFrame,
   promptTriggerRef,
   shot,
@@ -204,6 +206,11 @@ export function ShotPage({
                 })
               }
             }}
+            onEdit={
+              onEditFrame === undefined || currentUrl === undefined
+                ? undefined
+                : () => onEditFrame(frameNumber, currentUrl)
+            }
             onReplace={(url) => {
               if (currentUrl !== undefined) onReplaceFrame(frameNumber, currentUrl, url)
             }}

@@ -1,6 +1,11 @@
 /** REST 读取与 WebSocket 模拟写入共用内存文件表，确保通知后重读得到新内容。 */
 
 import { http, HttpResponse } from 'msw'
+import type {
+  FrameEditContext,
+  ImageGenerationIn,
+  VideoGenerationIn,
+} from '@/shared/api/generated/types.gen'
 
 /** 本地 data URL 帧，避免网络依赖。 */
 const FRAME_A =
@@ -10,6 +15,21 @@ const FRAME_B =
 
 const FRAME_C =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='320'%3E%3Crect width='180' height='320' fill='%23e8d9d1'/%3E%3Crect x='40' y='90' width='100' height='140' rx='12' fill='%238a4a2a'/%3E%3C/svg%3E"
+
+type MockFrames = { a: string; b: string; c: string }
+const DATA_FRAMES: MockFrames = { a: FRAME_A, b: FRAME_B, c: FRAME_C }
+const workspaceFrames = new Map<string, MockFrames>()
+
+/** 浏览器专用 PNG，保持原示例图形，360×640 满足既有上传尺寸合同。 */
+const FRAME_PNGS: Record<string, string> = {
+  a: 'iVBORw0KGgoAAAANSUhEUgAAAWgAAAKAAgMAAADMdAo0AAAACVBMVEXk3tKodCprUzAOLc9JAAACEElEQVR42u3bUU6DQBSG0c4DS3A/XcI8wH5cj6vUxEQbW6Bh5teOPd8CTsgFaoTL6SRJkiRJkiRJkiRJkiRJkiRJkiRJkiSdTstH5wT8snyWk/vb05e8zH3lslxUu5/B786ZcfQeybKkDnv6Sc+xg+532NM1PccOutdhl1t07XyLXxabR5+JlNt0jc2jy0RW5A4TKWt0Tdwvve6atVF3GPaq3Dzssk7X1Kjbh70+6uZhb8iNwy5bdE2NunXYW6NuHPam3DbsHF226Zo6i23ncfssNp3HIL0jN5zHskfXR6SnPXp+RHrvAmm4RIL0rnz86svRZZ+uj0dP+/T8ePT+tXf46huTvkM+emEPSZd76PpE9HQPPaN70Pfc5wfvdDS6/Tf14K8qGo1Go8eg/W1E/xntv4Lfo/2363mIJ2bP8OBzzIfMYz7QH/TlyZgvqsZ8KRh8Szroa+Pge/Tg2/8x1yGS+yHBrZbgLk5wgyi59xTc1grumAU345L7fMEtxODuZHDjM7mnGtyuDe4EJzeZg/vXwa3x5K57cEM/+V1B8GuI5DccwS9Pkt/LBL/ySX6blPyiKvkdmCRJ0nVvm72i0Wg0Go1Go9FoNBqNRqPRaDQajUaj0Wg0Go1Go9FoNBqNRqPRaDQajUaj0Wg0Go1Go9FoNBqNRqPRaDQajUaj0Wg0+n/SkiRJkiRJkiRJkkbvHb9ilkSQA7ohAAAAAElFTkSuQmCC',
+  b: 'iVBORw0KGgoAAAANSUhEUgAAAWgAAAKAAQMAAACL1HDkAAAABlBMVEXT3uQqX4pbgSiKAAAChElEQVR42u3TzY3eIBRG4UEsyI4GItFJKG1SGqVQAksWCOJxHMc/wOfR6HIZ6T3rZ3ve3hBCCCGEEEIIIYQQQgghhNChH4T65zT61zT6fRpdfk+iRXGTaFn8JFqVMInWJU6iTUmTaFvyJPq9lEl0KZ+ZnlCLRbsptFy0n0KrRYcptF50nEKbRacptF10nkIvy39iekr9gZ9PT6jFqt0EWq7aT6DVqsMEWq86TqDNqtME2q46T6DX5R9PT6n/4qfTE2qxaceu5aY9u1abDuxabzqya7PpxK7tpjO73pZ/OD2l/oefTU+oxa4ds5a79sxa7Towa73ryKzNrhOztrvOzHpf/tH0lPo/fjI9oRYH7Vi1PGjPqtVBB1atDzqyanPQiVXbg86s+rD8g+kp9RG/np5Qi5N2jFqetGfU6qQDo9YnHRm1OenEqO1JZ0Z9Wv7l9JT6jF9NT6jFRTs2LS/as2l10YFN64uObNpcdGLT9qIzm74s/2J6Sn3F/ekJtbhpx6TlTXsmrW46MGl905FJm5tOTNredGbSt+W701PqO+5NT6hFRTsWLSvas2hV0YFF64qOLNpUdGLRtqIzi64s35meUtdwe3pCLaraMWhZ1Z5Bq6oODFpXdWTQpqoTg7ZVnRl0dfnm9JS6jlvTE2rR0G64lg3th2vV0GG41g0dh2vT0Gm4tg2dh+vG8o3pKXUL16cn1KKp3WAtm9oP1qqpw2CtmzoO1qap02BtmzoP1s3lq9NT6jauTU+oRUe7oVp2tB+qVUeHoVp3dByqTUenodp2dB6qO8tXpqfUPXyfnlCLrnYDtexqP1Crrg4Dte7q+CWNEEIIIYQQQgghhBBCCCH0/fsDW28/8IKYIwAAAAAASUVORK5CYII=',
+  c: 'iVBORw0KGgoAAAANSUhEUgAAAWgAAAKAAQMAAACL1HDkAAAABlBMVEXo2dGKSip48hP7AAAA20lEQVR42u3bsQ3CMBCG0SAKyoyQUTJaGI1RGIEyBcIMgE/ilxIJovfqr4jtlHfDAAAAAAAAAADwhbF9Wsu69VyL+Nyt78GH1J8ydetnUS/duiWHrI55KupbcCXVpVyK+rFBPRb1Glx3deFZPRf1a4O6ePji6X+nruL+T6hWq9VqtVqtVqvVarVarVar1Wq1Wq1Wq9VqtVqtVqvVarVarVYfqV7af04Bz22/yeip7TfRnc2W7znlns3bZ7P82Z5AuIMwRfsN2e5EtpeR7XyE+yQAAAAAAAAAwMG9AcTXj6eYvhqHAAAAAElFTkSuQmCC',
+}
+const httpFrames = (): MockFrames => {
+  const url = (name: string) => new URL(`/mock-frames/${name}.png`, window.location.origin).href
+  return { a: url('a'), b: url('b'), c: url('c') }
+}
 
 /** 仅含 ftyp 盒的 MP4 占位地址，避免视频元素请求外网。 */
 const VIDEO_URL = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE='
@@ -65,18 +85,18 @@ const SHOT_TWO_PROMPT_AFTER = SHOT_TWO_PROMPT.replace(
 
 export const SHOTS_MOCK_PATH = 'video_shot.json'
 
-const shotsDocument = (secondPrompt: string) => ({
+const shotsDocument = (secondPrompt: string, frames: MockFrames) => ({
   aspectRatio: '9:16',
   shots: [
     {
-      imageUrls: [FRAME_A],
+      imageUrls: [frames.a],
       index: 1,
       prompt: ['[0–6秒｜镜头1]', '开场，模特提着帆布包走出门厅 @Image1，抬头看向前方。'].join('\n'),
       seconds: 6,
     },
-    { imageUrls: [FRAME_A, FRAME_B, FRAME_A], index: 2, prompt: secondPrompt, seconds: 11 },
+    { imageUrls: [frames.a, frames.b, frames.a], index: 2, prompt: secondPrompt, seconds: 11 },
     {
-      imageUrls: [FRAME_B],
+      imageUrls: [frames.b],
       index: 3,
       prompt: ['[0–4秒｜镜头1]', '低角度拍鞋面 @Image1，鞋头包覆与魔术贴细节。'].join('\n'),
       seconds: 4,
@@ -93,6 +113,7 @@ type MockJob = {
   kind?: 'video' | 'image'
   outputUrl?: string
   prompt: string
+  request?: Record<string, unknown>
   shotIndex?: number
   status: 'completed' | 'failed' | 'submitted'
 }
@@ -108,7 +129,7 @@ const job = (spec: MockJob) => ({
   outputUrl: spec.outputUrl ?? null,
   provider: 'mock',
   providerStatus: spec.status,
-  request: { prompt: spec.prompt },
+  request: spec.request ?? { prompt: spec.prompt },
   shotIndex: spec.shotIndex ?? null,
   status: spec.status,
   submittedAt: spec.createdAt,
@@ -124,7 +145,12 @@ const VIDEO_DONE_MS = 3000
 /** 重置 mock 时清除完成计时器，防止写入下一个用例。 */
 const timers = new Set<ReturnType<typeof setTimeout>>()
 
-export const seedMockWorkspace = (conversationId: string) => {
+export const seedMockWorkspace = (
+  conversationId: string,
+  options: { httpFrames?: boolean } = {},
+) => {
+  const frames = options.httpFrames ? httpFrames() : DATA_FRAMES
+  workspaceFrames.set(conversationId, frames)
   const now = new Date().toISOString()
   workspaces.set(
     conversationId,
@@ -132,7 +158,7 @@ export const seedMockWorkspace = (conversationId: string) => {
       [
         SHOTS_MOCK_PATH,
         {
-          content: JSON.stringify(shotsDocument(SHOT_TWO_PROMPT), null, 2),
+          content: JSON.stringify(shotsDocument(SHOT_TWO_PROMPT, frames), null, 2),
           updatedAt: now,
           version: 1,
         },
@@ -143,9 +169,9 @@ export const seedMockWorkspace = (conversationId: string) => {
           content: JSON.stringify(
             {
               frames: [
-                { no: 'S1-1', shot: 1, url: FRAME_A },
-                { no: 'S2-1', shot: 2, url: FRAME_B },
-                { no: 'S3-1', shot: 3, url: FRAME_C },
+                { no: 'S1-1', shot: 1, url: frames.a },
+                { no: 'S2-1', shot: 2, url: frames.b },
+                { no: 'S3-1', shot: 3, url: frames.c },
               ],
               gridRecordVersion: 1,
               jobId: '8e5263a4-3e52-4063-b0cd-5b6c7d8e9fa0',
@@ -172,12 +198,12 @@ export const seedMockWorkspace = (conversationId: string) => {
                 {
                   board: 1,
                   cells: [
-                    { id: 'S1-1', shot: 1, timecode: '00:00.000', url: FRAME_A },
-                    { id: 'S2-1', shot: 2, timecode: '00:04.000', url: FRAME_B },
+                    { id: 'S1-1', shot: 1, timecode: '00:00.000', url: frames.a },
+                    { id: 'S2-1', shot: 2, timecode: '00:04.000', url: frames.b },
                   ],
                   layout: '2x1',
                   shots: [1, 2],
-                  url: FRAME_C,
+                  url: frames.c,
                 },
               ],
               extractionKey: '6339e1aeb441bdbdf7867d8f69bdcaf84b5648b5',
@@ -199,10 +225,10 @@ export const seedMockWorkspace = (conversationId: string) => {
             {
               anchorRecordVersion: 1,
               cells: [
-                { description: '空景全景平视，长椅与门厅。', index: 1, url: FRAME_A },
-                { description: '模特正面半身，浅色帆布包。', index: 2, url: FRAME_B },
+                { description: '空景全景平视，长椅与门厅。', index: 1, url: frames.a },
+                { description: '模特正面半身，浅色帆布包。', index: 2, url: frames.b },
               ],
-              gridUrl: FRAME_C,
+              gridUrl: frames.c,
               jobId: 'b18d7e94-b199-441a-b14d-86df2cca7945',
               sheetAspect: '1:1',
             },
@@ -251,7 +277,7 @@ export const seedMockWorkspace = (conversationId: string) => {
       createdAt: '2026-09-01T09:30:00Z',
       id: '8e5263a4-3e52-4063-b0cd-5b6c7d8e9fa0',
       kind: 'image',
-      outputUrl: FRAME_A,
+      outputUrl: frames.a,
       prompt: '出镜头帧：门厅全景，模特提包。',
       status: 'completed',
     }),
@@ -259,7 +285,7 @@ export const seedMockWorkspace = (conversationId: string) => {
       createdAt: '2026-09-01T09:35:00Z',
       id: '9f6374b5-4f63-4174-91de-6c7d8e9fa0b1',
       kind: 'image',
-      outputUrl: FRAME_B,
+      outputUrl: frames.b,
       prompt: '出镜头帧：近景微笑。',
       status: 'completed',
     }),
@@ -270,9 +296,10 @@ export const seedMockWorkspace = (conversationId: string) => {
 export const touchMockShots = (conversationId: string): boolean => {
   const files = workspaces.get(conversationId)
   const file = files?.get(SHOTS_MOCK_PATH)
-  if (files === undefined || file === undefined) return false
+  const frames = workspaceFrames.get(conversationId)
+  if (files === undefined || file === undefined || frames === undefined) return false
   files.set(SHOTS_MOCK_PATH, {
-    content: JSON.stringify(shotsDocument(SHOT_TWO_PROMPT_AFTER), null, 2),
+    content: JSON.stringify(shotsDocument(SHOT_TWO_PROMPT_AFTER, frames), null, 2),
     updatedAt: new Date().toISOString(),
     version: file.version + 1,
   })
@@ -310,10 +337,17 @@ export const resetMockWorkspace = () => {
   for (const timer of timers) clearTimeout(timer)
   timers.clear()
   workspaces.clear()
+  workspaceFrames.clear()
   generations.clear()
 }
 
 export const workspaceHandlers = [
+  http.get('*/mock-frames/:name.png', ({ params }) => {
+    const png = FRAME_PNGS[String(params['name'])]
+    if (png === undefined) return new HttpResponse(null, { status: 404 })
+    const bytes = Uint8Array.from(atob(png), (character) => character.charCodeAt(0))
+    return new HttpResponse(bytes, { headers: { 'Content-Type': 'image/png' } })
+  }),
   http.get('*/api/conversations/:conversationId/workspace/files', ({ params }) => {
     const files = workspaces.get(String(params['conversationId'])) ?? new Map<string, MockFile>()
     return HttpResponse.json({
@@ -367,30 +401,54 @@ export const workspaceHandlers = [
   }),
 
   http.get('*/api/generations', ({ request }) => {
-    const conversationId = new URL(request.url).searchParams.get('conversationId')
-    const items = conversationId === null ? [] : (generations.get(conversationId) ?? [])
+    const params = new URL(request.url).searchParams
+    const conversationId = params.get('conversationId')
+    let items = conversationId === null ? [] : (generations.get(conversationId) ?? [])
+    const kind = params.get('kind')
+    const shotIndex = params.get('shotIndex')
+    const artifactPath = params.get('artifactPath')
+    const frameNumber = params.get('frameNumber')
+    items = items.filter((item) => {
+      const frameEdit = item.request['frameEdit'] as FrameEditContext | undefined
+      return (
+        (kind === null || item.kind === kind) &&
+        (shotIndex === null || item.shotIndex === Number(shotIndex)) &&
+        (artifactPath === null || frameEdit?.artifactPath === artifactPath) &&
+        (frameNumber === null || frameEdit?.frameNumber === Number(frameNumber))
+      )
+    })
+    items = [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    const before = params.get('before')
+    if (before !== null) items = items.slice(items.findIndex((item) => item.id === before) + 1)
+    const limit = params.get('limit')
+    if (limit !== null) items = items.slice(0, Number(limit))
     return HttpResponse.json({ items })
   }),
 
   http.post('*/api/generations', async ({ request }) => {
-    const body = (await request.json()) as {
-      conversationId: string
-      durationSeconds: number
-      prompt: string
-      shotIndex: number
-    }
+    const body = (await request.json()) as ImageGenerationIn | VideoGenerationIn
     const created = job({
       createdAt: new Date().toISOString(),
       id: crypto.randomUUID(),
+      kind: body.kind ?? 'video',
       prompt: body.prompt,
-      shotIndex: body.shotIndex,
+      request: { ...body },
+      ...(body.shotIndex == null ? {} : { shotIndex: body.shotIndex }),
       status: 'submitted',
     })
-    created.conversationId = body.conversationId
-    generations.set(body.conversationId, [...(generations.get(body.conversationId) ?? []), created])
+    created.conversationId = body.conversationId ?? null
+    if (body.conversationId !== null && body.conversationId !== undefined) {
+      generations.set(body.conversationId, [
+        ...(generations.get(body.conversationId) ?? []),
+        created,
+      ])
+    }
     const timer = setTimeout(() => {
       created.finishedAt = new Date().toISOString()
-      created.outputUrl = VIDEO_URL
+      created.outputUrl =
+        body.kind === 'image'
+          ? (workspaceFrames.get(body.conversationId ?? '') ?? DATA_FRAMES).c
+          : VIDEO_URL
       created.providerStatus = 'completed'
       created.status = 'completed'
       timers.delete(timer)

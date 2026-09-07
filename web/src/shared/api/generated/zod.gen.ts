@@ -402,6 +402,75 @@ export const zErrorModel = z.object({
 })
 
 /**
+ * FrameEditAnnotationReference
+ */
+export const zFrameEditAnnotationReference = z.object({
+  id: z.string().min(1).max(100),
+  kind: z.literal('annotation'),
+})
+
+/**
+ * FrameEditImageReference
+ */
+export const zFrameEditImageReference = z.object({
+  id: z.string().min(1).max(100),
+  kind: z.literal('referenceImage'),
+})
+
+/**
+ * FrameEditPoint
+ */
+export const zFrameEditPoint = z.object({
+  x: z.number().gte(0).lte(1),
+  y: z.number().gte(0).lte(1),
+})
+
+/**
+ * FrameEditAnnotation
+ */
+export const zFrameEditAnnotation = z.object({
+  id: z.string().min(1).max(100),
+  kind: z.enum(['rectangle', 'ellipse', 'arrow', 'pen']),
+  number: z.int().gte(1).lte(9999),
+  points: z.array(zFrameEditPoint).min(2).max(2000),
+})
+
+/**
+ * FrameEditReference
+ */
+export const zFrameEditReference = z.object({
+  id: z.string().min(1).max(100),
+  kind: z.enum(['image', 'annotated']),
+  label: z.string().min(1).max(200),
+  url: z.string().min(1).max(4096),
+})
+
+/**
+ * FrameEditText
+ */
+export const zFrameEditText = z.object({
+  kind: z.literal('text'),
+  text: z.string().max(4000),
+})
+
+/**
+ * FrameEditContext
+ *
+ * 一次帧编辑的输入快照；图片顺序由用户确定，不由服务端补图。
+ */
+export const zFrameEditContext = z.object({
+  annotations: z.array(zFrameEditAnnotation).max(50).optional().default([]),
+  artifactPath: z.string().min(1).max(500),
+  frameNumber: z.int().gte(1),
+  instructions: z
+    .array(z.union([zFrameEditText, zFrameEditAnnotationReference, zFrameEditImageReference]))
+    .min(1)
+    .max(200),
+  references: z.array(zFrameEditReference).min(1).max(10),
+  sourceUrl: z.string().min(1).max(4096),
+})
+
+/**
  * FrameTarget
  */
 export const zFrameTarget = z.object({
@@ -480,6 +549,7 @@ export const zImageGenerationIn = z.object({
   aspectRatio: z.enum(['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']),
   channel: z.enum(['dev', 'pro']).optional().default('dev'),
   conversationId: z.uuid().nullish(),
+  frameEdit: zFrameEditContext.nullish(),
   kind: z.literal('image').optional().default('image'),
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
@@ -1737,6 +1807,11 @@ export const zAbortConversationConversationsConversationIdAbortPostResponse = z.
 export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
   conversationId: z.uuid().nullish(),
+  kind: z.enum(['image', 'video']).nullish(),
+  artifactPath: z.string().max(500).nullish(),
+  shotIndex: z.int().gte(1).nullish(),
+  frameNumber: z.int().gte(1).nullish(),
+  before: z.uuid().nullish(),
 })
 
 /**

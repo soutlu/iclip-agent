@@ -12,6 +12,7 @@ type FramePreviewProps = {
   name: string
   url: string | undefined
   onOpen: () => void
+  onEdit?: (() => void) | undefined
   onUpload: (file: File) => Promise<string>
   onReplace: (url: string) => void
 }
@@ -20,6 +21,7 @@ export function FramePreview({
   aspectRatio,
   name,
   onOpen,
+  onEdit,
   onReplace,
   onUpload,
   url,
@@ -124,6 +126,16 @@ export function FramePreview({
             />
           </button>
           <div className="storyboard-frame-tools">
+            {onEdit === undefined ? null : (
+              <IconButton
+                disabled={uploading}
+                label="编辑图片"
+                title="编辑图片"
+                name="edit-image"
+                size="sm"
+                onClick={onEdit}
+              />
+            )}
             <IconButton
               disabled={uploading}
               label="替换图片"
