@@ -1,13 +1,15 @@
 /** 仅展示当前镜头组的视频生成记录。 */
 
+import { Tooltip } from 'radix-ui'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon, type IconName } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
-import { videoSnapshotUrl } from '@/shared/lib/media-url'
+import { fileNameOfUrl, videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
+import { toast } from '@/shared/ui/toast'
 import { isRunningStatus } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
 
@@ -114,14 +116,17 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   return (
     <article className="flex shrink-0 flex-col gap-2.5 overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface p-3">
       <div className="flex items-center gap-2">
-        <span className={cn('flex items-center gap-1.5 text-body-sm', PHASE[phase].className)}>
+        <span
+          className={cn('flex shrink-0 items-center gap-1.5 text-body-sm', PHASE[phase].className)}
+        >
           <Icon className={PHASE[phase].spin} decorative name={PHASE[phase].icon} size="md" />
           {PHASE[phase].text}
         </span>
         <span className="flex-1" />
-        <time className="text-caption text-on-surface-muted" dateTime={job.createdAt}>
+        <time className="min-w-0 text-caption text-on-surface-muted" dateTime={job.createdAt}>
           {formatDateTime(job.createdAt)}
         </time>
+        {phase === 'done' && job.outputUrl !== null ? <RecordDownload url={job.outputUrl} /> : null}
         <IconButton
           aria-expanded={open}
           className="text-on-surface"
@@ -170,6 +175,72 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
         </Button>
       ) : null}
     </article>
+  )
+}
+
+function RecordDownload({ url }: { url: string }) {
+  const activeRef = useRef(false)
+  const [downloading, setDownloading] = useState(false)
+  const label = downloading ? '正在准备下载…' : '下载视频'
+
+  const download = async () => {
+    if (activeRef.current) return
+    activeRef.current = true
+    setDownloading(true)
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`)
+      const blob = await response.blob()
+      if (blob.size === 0) throw new Error('Empty download')
+      const filename = fileNameOfUrl(url) || '生成的视频'
+      const objectUrl = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      try {
+        anchor.href = objectUrl
+        anchor.download = filename
+        document.body.append(anchor)
+        anchor.click()
+      } finally {
+        anchor.remove()
+        // 给浏览器接管下载留出时间，再释放大文件的临时 URL。
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+      }
+    } catch {
+      toast.error('视频下载失败，请重试')
+    } finally {
+      activeRef.current = false
+      setDownloading(false)
+    }
+  }
+
+  return (
+    <Tooltip.Provider delayDuration={300}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <IconButton
+            aria-busy={downloading}
+            className={cn(
+              'shrink-0 border-[0.5px] border-chat-hairline text-on-surface disabled:cursor-wait disabled:opacity-60',
+              downloading && '[&_svg]:animate-spin',
+            )}
+            disabled={downloading}
+            label={label}
+            name={downloading ? 'loading' : 'download'}
+            onClick={() => void download()}
+            size="sm"
+          />
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            className="layer-popup rounded-sm bg-inverse-surface px-3 py-2 text-label text-inverse-on-surface shadow-[var(--shadow-1)]"
+            sideOffset={6}
+          >
+            {label}
+            <Tooltip.Arrow className="fill-inverse-surface" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
   )
 }
 

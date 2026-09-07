@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 
+import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 import { login } from './login'
 
@@ -676,3 +677,41 @@ test('没有工作区文件的对话仍是折叠空态', async ({ page }) => {
   await expect(page.getByRole('button', { name: '打开右侧面板' })).toBeVisible()
   await expect(page.getByRole('tab', { name: '分镜' })).toBeHidden()
 })
+
+for (const width of [1335, 390]) {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test(`记录下载 ${width}px ${colorScheme}：保存视频字节并保留记录界面`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 934 })
+      await page.emulateMedia({ colorScheme })
+      await page.goto('/')
+      await login(page)
+      await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+      if (width === 390) await page.getByRole('button', { name: '打开右侧面板' }).click()
+      const panel = page.getByRole('complementary', { name: '右侧面板' })
+      await panel.getByRole('button', { name: '第 2 组' }).click()
+      await panel.getByRole('button', { name: '生成记录' }).click()
+      const records = panel.getByRole('complementary', { name: '生成记录' })
+      const downloadButton = records.getByRole('button', { name: '下载视频' })
+      await expect(downloadButton).toHaveCount(1)
+      await expect(downloadButton).toBeInViewport({ ratio: 1 })
+      await downloadButton.focus()
+      await expect(page.getByRole('tooltip', { name: '下载视频' })).toBeVisible()
+      await page.screenshot({
+        path: `../.artifacts/design-qa/download-record-video/${width}-${colorScheme}.png`,
+      })
+      const saved = page.waitForEvent('download')
+      await downloadButton.press('Enter')
+      const download = await saved
+      expect(await download.failure()).toBeNull()
+      expect(download.suggestedFilename()).toMatch(/^生成的视频(?:\.mp4)?$/)
+      const path = await download.path()
+      expect(path).not.toBeNull()
+      expect(await readFile(path)).toEqual(
+        Buffer.from('AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE=', 'base64'),
+      )
+      await expect(records).toBeVisible()
+      await expect(downloadButton).toBeEnabled()
+      await expect(records.locator('video')).toHaveCount(0)
+    })
+  }
+}
