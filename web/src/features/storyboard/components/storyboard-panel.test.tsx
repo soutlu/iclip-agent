@@ -11,6 +11,7 @@ import { server } from '@/testing/mocks/server'
 import { seedMockWorkspace, SHOTS_MOCK_PATH, touchMockShots } from '@/testing/mocks/workspace'
 import { renderWithProviders } from '@/testing/render'
 import type { ShotsDocument } from '../shots'
+import type { GenerationJob } from '../storyboard.api'
 import { StoryboardPanel } from './storyboard-panel'
 
 const CONVERSATION_ID = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
@@ -51,6 +52,27 @@ const provideDocument = (document: ShotsDocument) => {
       }),
     ),
   )
+}
+
+const provideHistoricalPrompt = (prompt: string) => {
+  const history: GenerationJob = {
+    conversationId: CONVERSATION_ID,
+    createdAt: '2026-09-01T10:00:00Z',
+    errorCode: null,
+    errorMessage: null,
+    finishedAt: '2026-09-01T10:01:00Z',
+    id: '5b2f3071-0b2f-4d30-8d9c-2e3f4a5b6c7d',
+    kind: 'video',
+    outputUrl: null,
+    provider: 'mock',
+    providerStatus: 'completed',
+    request: { prompt, imageUrls: ['old-reference.png'], durationSeconds: 4 },
+    shotIndex: 2,
+    status: 'completed',
+    submittedAt: '2026-09-01T10:00:00Z',
+    updatedAt: '2026-09-01T10:01:00Z',
+  }
+  server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [history] })))
 }
 
 describe('StoryboardPanel', () => {
@@ -391,7 +413,7 @@ describe('StoryboardPanel', () => {
 
     await waitFor(() => expect(router.state.location.search).toEqual({ sheet: 'records', shot: 2 }))
     const drawer = screen.getByRole('complementary', { name: '生成记录' })
-    expect(within(drawer).getByRole('radio', { name: '视频生成记录 3' })).toBeVisible()
+    expect(within(drawer).getByRole('heading', { name: '视频生成记录' })).toBeVisible()
 
     await userEvent.click(within(drawer).getByRole('button', { name: '关闭生成记录' }))
     await waitFor(() => expect(router.state.location.search).toEqual({ shot: 2 }))
@@ -402,6 +424,92 @@ describe('StoryboardPanel', () => {
     await renderPanel('/?shot=2&sheet=records')
 
     expect(await screen.findByRole('complementary', { name: '生成记录' })).toBeVisible()
+  })
+
+  it('编辑生成只回填完整历史提示词并保存，保留当前帧、时长和其它组，不自动出片', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    const original: ShotsDocument = {
+      aspectRatio: '9:16',
+      shots: [
+        { index: 1, imageUrls: ['other.png'], prompt: '其它组原文 @Image1。', seconds: 6 },
+        {
+          index: 2,
+          imageUrls: ['current-one.png', 'current-two.png', 'current-three.png'],
+          prompt: '[0–11秒｜镜头1]\n当前组原文 @Image1。',
+          seconds: 11,
+        },
+      ],
+    }
+    const prompt =
+      '  产品：黑色短靴。\n人物与场景：客厅模特。\n剪辑形式：硬切。\n\n[0–3秒｜镜头1]\n走近 @Image1。\n[3–11秒｜镜头2]\n停下 @Image3。\n不要生成字幕。  \n'
+    provideDocument(original)
+    provideHistoricalPrompt(prompt)
+    const writes: { content: string; expectedVersion: number }[] = []
+    const generated: string[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'PUT' && request.url.includes('/workspace/file')) {
+        void request
+          .clone()
+          .json()
+          .then((body: { content: string; expectedVersion: number }) => writes.push(body))
+      }
+      if (request.method === 'POST' && request.url.includes('/api/generations')) {
+        generated.push(request.url)
+      }
+    })
+    const { router } = await renderPanel('/?shot=2&frame=2&sheet=records')
+    const drawer = await screen.findByRole('complementary', { name: '生成记录' })
+    const edit = await within(drawer).findByRole('button', { name: '编辑生成' })
+
+    await userEvent.click(edit)
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ shot: 2, frame: 2 }))
+    expect(screen.queryByRole('complementary', { name: '生成记录' })).not.toBeInTheDocument()
+    expect(await screen.findByText('已保存', undefined, { timeout: 3000 })).toBeVisible()
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.expectedVersion).toBe(1)
+    const saved = JSON.parse(writes[0]?.content ?? '{}') as ShotsDocument
+    expect(saved).toEqual({
+      ...original,
+      shots: original.shots.map((shot) => (shot.index === 2 ? { ...shot, prompt } : shot)),
+    })
+    expect(generated).toEqual([])
+  })
+
+  it('历史提示词引用越界时明确拒绝，保留当前原文和抽屉，不保存也不出片', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    const prompt = '历史设定。\n[0–11秒｜镜头1]\n展示第四张帧 @Image4。'
+    provideHistoricalPrompt(prompt)
+    const writes: string[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (
+        (request.method === 'PUT' && request.url.includes('/workspace/file')) ||
+        (request.method === 'POST' && request.url.includes('/api/generations'))
+      ) {
+        writes.push(request.url)
+      }
+    })
+    const { router } = await renderWithProviders(
+      <>
+        <StoryboardPanel artifact={artifact} conversationId={CONVERSATION_ID} />
+        <Toaster />
+      </>,
+      { initialPath: '/?shot=2&frame=2&sheet=records' },
+    )
+    const drawer = await screen.findByRole('complementary', { name: '生成记录' })
+    const edit = await within(drawer).findByRole('button', { name: '编辑生成' })
+    const current = screen.getByRole('textbox', { name: '镜头 2 的描述' })
+    const original = current.textContent
+
+    await userEvent.click(edit)
+
+    expect(await screen.findByText('描述里写到了 @Image4，但这一组只有 3 张帧')).toBeVisible()
+    expect(drawer).toBeVisible()
+    expect(current.textContent).toBe(original)
+    expect(router.state.location.search).toEqual({ shot: 2, frame: 2, sheet: 'records' })
+    // 超过草稿保存防抖窗口，确保错误路径没有安排延迟写入。
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 1000)))
+    expect(writes).toEqual([])
   })
 
   it('文件格式不对时说清楚，不崩', async () => {

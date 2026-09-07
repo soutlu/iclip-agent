@@ -5,7 +5,7 @@ import { LoginDialog } from '@/features/auth'
 import { cn } from '@/shared/lib/utils'
 import { ShellChromeContext } from '@/shared/shell'
 import { WorkbenchLayoutProvider } from '@/shared/workbench'
-import { AppResizeHandle } from './-app-resize-handle'
+import { APP_RESIZE_HANDLE_WIDTH, AppResizeHandle } from './-app-resize-handle'
 import { AppRightPanel } from './-app-right-panel'
 import { AppSidebar } from './-app-sidebar'
 import { LoginPromptProvider } from './-login-prompt'
@@ -57,15 +57,13 @@ function AppShell() {
   const dragValueRef = useRef(0)
 
   const sidebarWidth = clamp(sidebar.width, SIDEBAR_MIN, SIDEBAR_MAX)
-  const occupiedBySidebar = sidebarCollapsed ? 0 : sidebarWidth
-  const sideBySide = viewport >= occupiedBySidebar + CHAT_MIN + WORKBENCH_MIN
   const compact = viewport < COMPACT_MAX
-  // 根据视口和侧栏限制面板宽度，保证聊天区最小宽度。
-  const workbenchWidth = clamp(
-    workbench.width,
-    WORKBENCH_MIN,
-    Math.max(WORKBENCH_MIN, viewport - occupiedBySidebar - CHAT_MIN),
-  )
+  const occupiedBySidebar = sidebarCollapsed || compact ? 0 : sidebarWidth + APP_RESIZE_HANDLE_WIDTH
+  // 并排时两条拖柄都占列宽；紧凑屏侧栏覆盖主区，不占并排空间。
+  const availableForWorkbench = viewport - occupiedBySidebar - CHAT_MIN - APP_RESIZE_HANDLE_WIDTH
+  const sideBySide = availableForWorkbench >= WORKBENCH_MIN
+  const workbenchMax = Math.max(WORKBENCH_MIN, availableForWorkbench)
+  const workbenchWidth = clamp(workbench.width, WORKBENCH_MIN, workbenchMax)
 
   const handleLoginOpenChange = useCallback(
     (open: boolean) => {
@@ -142,7 +140,7 @@ function AppShell() {
             {sideBySide && panelVisible ? (
               <AppResizeHandle
                 label="调整面板宽度"
-                max={Math.max(WORKBENCH_MIN, viewport - occupiedBySidebar - CHAT_MIN)}
+                max={workbenchMax}
                 min={WORKBENCH_MIN}
                 onReset={() => {
                   workbench.setWidth(WORKBENCH_DEFAULT)
@@ -153,7 +151,7 @@ function AppShell() {
                   dragValueRef.current = clamp(
                     dragOriginRef.current - delta,
                     WORKBENCH_MIN,
-                    Math.max(WORKBENCH_MIN, viewport - occupiedBySidebar - CHAT_MIN),
+                    workbenchMax,
                   )
                   workbench.setWidth(dragValueRef.current)
                 }}
