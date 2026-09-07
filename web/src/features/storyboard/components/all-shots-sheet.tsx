@@ -83,7 +83,7 @@ export function AllShotsSheet({
     <>
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-2 border-b-[0.5px] border-chat-hairline px-4 py-3">
-          <h3 className="text-body font-medium text-on-surface">全部分镜</h3>
+          <h3 className="text-body font-medium text-on-surface">全部镜头组</h3>
           <Button
             onClick={() => setSelected(allSelected ? [] : shots.map((shot) => shot.index))}
             size="md"
@@ -111,7 +111,7 @@ export function AllShotsSheet({
           >
             下载成片
           </Button>
-          <IconButton label="关闭全部分镜" name="close" onClick={onClose} size="sm" />
+          <IconButton label="关闭全部镜头组" name="close" onClick={onClose} size="sm" />
         </div>
 
         <ul className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fill,minmax(150px,1fr))] content-start gap-3 overflow-y-auto p-4">

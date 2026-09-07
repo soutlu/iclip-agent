@@ -196,14 +196,14 @@
   border-left: 0.5px solid var(--color-chat-hairline);
 }
 .storyboard-add-frame,
-.storyboard-all-shots {
+.storyboard-open-prompt {
   height: calc(var(--storyboard-frame-height) + 28px);
   margin-top: 4px;
 }
 .storyboard-add-frame {
   width: var(--storyboard-frame-width);
 }
-.storyboard-all-shots {
+.storyboard-open-prompt {
   width: 36px;
 }
 @container storyboard (width < 680px) {
@@ -251,5 +251,30 @@
   .storyboard-scene,
   .storyboard-frame-tools {
     transition: none;
+  }
+}
+
+/* 原文和全组参考图各自滚动，底栏始终可见；窄面板按阅读顺序上下排列。 */
+.group-prompt-sheet {
+  container: group-prompt / inline-size;
+}
+.group-prompt-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 28%);
+}
+@container group-prompt (width < 600px) {
+  .group-prompt-body {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .group-prompt-reading,
+  .group-prompt-references {
+    overflow-y: visible;
+    padding: 16px;
+  }
+  .group-prompt-references {
+    border-top: 0.5px solid var(--color-chat-hairline);
+    border-left-width: 0;
   }
 }

@@ -9,7 +9,7 @@ const ConversationSearchSchema = z.object({
   artifact: z.string().optional().catch(undefined),
   file: z.string().optional().catch(undefined),
   frame: z.int().positive().optional().catch(undefined),
-  sheet: z.enum(['all', 'records']).optional().catch(undefined),
+  sheet: z.enum(['all', 'prompt', 'records']).optional().catch(undefined),
   shot: z.int().positive().optional().catch(undefined),
   take: z.string().optional().catch(undefined),
 })

@@ -1,6 +1,6 @@
 /** 草稿与生成资格由父组件管理；本组件仅处理当前镜头组和帧，组间翻页由外层容器负责。 */
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
@@ -30,7 +30,8 @@ type ShotPageProps = {
   candidates: readonly FrameCandidate[]
   onUploadFrame: (file: File) => Promise<string>
   onGenerateVideo: () => void
-  onOpenAllShots: () => void
+  onOpenPrompt: () => void
+  promptTriggerRef?: Ref<HTMLButtonElement> | undefined
   generateDisabled: boolean
   generating: boolean
   /** 生成不可用的原因，如画幅不支持或草稿未保存。 */
@@ -58,10 +59,11 @@ export function ShotPage({
   generating,
   onChangeShot,
   onGenerateVideo,
-  onOpenAllShots,
+  onOpenPrompt,
   onPickFrame,
   onReplaceFrame,
   onUploadFrame,
+  promptTriggerRef,
   shot,
 }: ShotPageProps) {
   const [zoomed, setZoomed] = useState<LightboxMedia | null>(null)
@@ -269,10 +271,11 @@ export function ShotPage({
           <Icon decorative name="add" size="lg" />
         </button>
         <button
-          aria-label="全部分镜"
-          className="storyboard-all-shots grid shrink-0 ui-state cursor-pointer place-items-center rounded-xs border-[0.5px] border-chat-hairline bg-surface-container text-on-surface-variant ui-focus"
-          onClick={onOpenAllShots}
-          title="全部分镜"
+          aria-label="完整提示词"
+          className="storyboard-open-prompt grid shrink-0 ui-state cursor-pointer place-items-center rounded-xs border-[0.5px] border-chat-hairline bg-surface-container text-on-surface-variant ui-focus"
+          onClick={onOpenPrompt}
+          ref={promptTriggerRef}
+          title="完整提示词"
           type="button"
         >
           <Icon decorative name="collapse" size="md" />

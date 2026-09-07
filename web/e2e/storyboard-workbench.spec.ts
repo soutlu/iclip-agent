@@ -85,7 +85,7 @@ test('短桌面中首帧卡片在原位展开，预览与底部导航均完整�
   await expect(navigation).toBeInViewport({ ratio: 1 })
   await expect(firstScene).toBeInViewport({ ratio: 1 })
   await expect(lastFrame).toBeInViewport({ ratio: 1 })
-  await expect(group.getByRole('button', { name: '全部分镜' })).toBeInViewport({ ratio: 1 })
+  await expect(group.getByRole('button', { name: '完整提示词' })).toBeInViewport({ ratio: 1 })
 
   const [
     groupBox,
@@ -164,7 +164,7 @@ test.describe('移动触屏分镜', () => {
     await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeVisible()
     await expect(navigation).toBeInViewport({ ratio: 1 })
     await expect(group.getByRole('button', { name: '加一帧' })).toBeInViewport({ ratio: 1 })
-    await expect(group.getByRole('button', { name: '全部分镜' })).toBeInViewport({ ratio: 1 })
+    await expect(group.getByRole('button', { name: '完整提示词' })).toBeInViewport({ ratio: 1 })
 
     const replaceImage = group.getByRole('button', { name: '替换图片' })
     await expect(replaceImage).toBeInViewport({ ratio: 1 })
@@ -334,7 +334,7 @@ test('点「生成视频」：状态走到出片完成，生成记录里多一�
   await expect(shot1.getByRole('button', { name: '生成视频' })).toBeEnabled()
 })
 
-test('「全部分镜」全选之后批量出片：确认框写清条数', async ({ page }) => {
+test('「全部镜头组」全选之后批量出片：确认框写清条数', async ({ page }) => {
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
@@ -345,11 +345,8 @@ test('「全部分镜」全选之后批量出片：确认框写清条数', async
     'true',
   )
 
-  await panel
-    .getByRole('region', { name: '镜头组 1' })
-    .getByRole('button', { name: '全部分镜' })
-    .click()
-  const sheet = panel.getByRole('complementary', { name: '全部分镜' })
+  await panel.getByRole('button', { name: '全部镜头组' }).click()
+  const sheet = panel.getByRole('complementary', { name: '全部镜头组' })
   await sheet.getByRole('button', { name: '全选' }).click()
   await expect(sheet.getByText('已选 3 个')).toBeVisible()
 
@@ -362,6 +359,69 @@ test('「全部分镜」全选之后批量出片：确认框写清条数', async
   await expect(sheet.getByRole('img', { name: '已出片' })).toHaveCount(2, { timeout: 20_000 })
   await expect(sheet.getByRole('img', { name: '正在出片' })).toHaveCount(1)
 })
+
+for (const viewport of [
+  { height: 700, width: 1600 },
+  { height: 844, width: 390 },
+]) {
+  test(`完整提示词面板 ${viewport.width}px：原文与参考图可读，收起保留帧与焦点`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport)
+    await page.emulateMedia({ colorScheme: viewport.width < 600 ? 'light' : 'dark' })
+    await page.goto('/')
+    await login(page)
+    await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+    if (viewport.width < 600) {
+      await page.getByRole('button', { name: '打开右侧面板' }).click()
+    }
+
+    const panel = page.getByRole('complementary', { name: '右侧面板' })
+    await panel.getByRole('button', { name: '第 2 组' }).click()
+    const group = panel.getByRole('region', { name: '镜头组 2' })
+    await group
+      .getByRole('navigation', { name: '本组镜头' })
+      .getByRole('button', { name: '镜头 2', exact: true })
+      .click()
+    await group.getByRole('button', { name: '预览第 3 帧' }).click()
+    const trigger = group.getByRole('button', { name: '完整提示词', exact: true })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+
+    const sheet = panel.getByRole('complementary', { name: '镜头组完整提示词' })
+    const original = sheet.getByRole('region', { name: '镜头组原文' })
+    await expect(sheet).toBeVisible()
+    await expect(original).toBeFocused()
+    await expect(original).toContainText('参考锁定：模特的服装与发型跟住 @Image1。')
+    await expect(original).toContainText('剪辑形式：硬切。')
+    await expect(original).toContainText('[0–4秒｜镜头1]')
+    await expect(original).toContainText('[4–11秒｜镜头2]')
+    await expect(sheet.getByRole('button', { name: '复制完整提示词' })).toBeInViewport({
+      ratio: 1,
+    })
+    await page.screenshot({
+      path: `../.artifacts/design-qa/shot-group-prompt/${viewport.width < 600 ? 'mobile' : 'desktop-dark'}-mock.png`,
+    })
+    const lastReference = sheet.getByRole('button', { name: '查看参考图 @Image3', exact: true })
+    await lastReference.scrollIntoViewIfNeeded()
+    await expect(lastReference).toBeInViewport({ ratio: 1 })
+    await lastReference.click()
+    const preview = page.getByRole('dialog', { name: '参考图 @Image3', exact: true })
+    await expect(preview).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(preview).toBeHidden()
+    await expect(sheet).toBeVisible()
+    await expect(lastReference).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(sheet).toBeHidden()
+    await expect(trigger).toBeFocused()
+    const search = new URL(page.url()).searchParams
+    expect(search.get('shot')).toBe('2')
+    expect(search.get('frame')).toBe('3')
+    expect(search.has('sheet')).toBe(false)
+    await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeInViewport()
+  })
+}
 
 test('选中即上下文：输入框上出现芯片，× 掉不再回来，发出去的正文带前缀', async ({ page }) => {
   await page.goto('/')

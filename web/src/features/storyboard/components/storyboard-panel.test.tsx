@@ -871,6 +871,9 @@ describe('StoryboardPanel', () => {
 
     const page = await screen.findByRole('region', { name: '镜头组 2' })
     expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
+    await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
+    const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+    expect(within(sheet).getByRole('button', { name: '正在出片…' })).toBeDisabled()
   })
 
   it('描述还在保存的时候不许出片：别把没落盘的描述发出去', async () => {
@@ -889,6 +892,13 @@ describe('StoryboardPanel', () => {
     expect(await screen.findByText('保存中…', undefined, { timeout: 3000 })).toBeVisible()
     expect(within(page).getByRole('button', { name: '生成视频' })).toBeDisabled()
     expect(within(page).getByText('描述还在保存，存好了再出片')).toBeVisible()
+    await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
+    const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+    expect(within(sheet).getByRole('button', { name: '生成视频' })).toBeDisabled()
+    expect(within(sheet).getByText('描述还在保存，存好了再出片')).toBeVisible()
+    expect(within(sheet).getByRole('region', { name: '镜头组原文' })).toHaveTextContent(
+      '镜头缓慢推进。',
+    )
   })
 
   it('描述没存下的时候不许出片，并说清原因', async () => {
@@ -906,6 +916,10 @@ describe('StoryboardPanel', () => {
     await screen.findByRole('alert', undefined, { timeout: 3000 })
     expect(within(page).getByRole('button', { name: '生成视频' })).toBeDisabled()
     expect(within(page).getByText('描述没存下，先把它存下来再出片')).toBeVisible()
+    await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
+    const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+    expect(within(sheet).getByRole('button', { name: '生成视频' })).toBeDisabled()
+    expect(within(sheet).getByText('描述没存下，先把它存下来再出片')).toBeVisible()
   })
 
   it('画幅不在出片支持的档位里：按钮点不动并说明原因', async () => {
@@ -930,19 +944,101 @@ describe('StoryboardPanel', () => {
     expect(within(page).getByText(/画幅 5:4 不在出片支持的档位里/)).toBeVisible()
   })
 
-  it('「全部分镜」开浮层、写进地址，点一张卡翻到那一组', async () => {
+  it('完整提示词显示当前组原文，打开和收起保留组号与帧号', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    const prompt =
+      '产品：切尔西短靴。人物：短发女性。场景：客厅。\n剪辑形式：硬切。\n\n[0–2秒｜镜头1]\n全景 @Image1。\n[2–6秒｜镜头2]\n鞋底特写 @Image2。\n不要生成字幕。'
+    provideDocument({
+      aspectRatio: '9:16',
+      shots: [
+        { index: 1, imageUrls: ['other.png'], prompt: '另一个镜头组的原文', seconds: 4 },
+        { index: 2, imageUrls: ['one.png', 'two.png'], prompt, seconds: 6 },
+      ],
+    })
+    const { router } = await renderPanel('/?shot=2&frame=2')
+    const page = await screen.findByRole('region', { name: '镜头组 2' })
+    const trigger = within(page).getByRole('button', { name: '完整提示词' })
+
+    await userEvent.click(trigger)
+
+    const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+    expect(within(sheet).getByRole('region', { name: '镜头组原文' }).textContent).toBe(prompt)
+    expect(within(sheet).queryByText('另一个镜头组的原文')).not.toBeInTheDocument()
+    expect(router.state.location.search).toEqual({ frame: 2, shot: 2, sheet: 'prompt' })
+
+    await userEvent.click(within(sheet).getByRole('button', { name: '收起完整提示词' }))
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ frame: 2, shot: 2 }))
+    expect(
+      screen.queryByRole('complementary', { name: '镜头组完整提示词' }),
+    ).not.toBeInTheDocument()
+    await waitFor(() => expect(trigger).toHaveFocus())
+  })
+
+  it.each(['生成记录', '全部镜头组'])(
+    '从原文切到%s，焦点保留在顶部入口，不回到被覆盖的底部按钮',
+    async (name) => {
+      seedMockWorkspace(CONVERSATION_ID)
+      await renderPanel('/?shot=1')
+      const page = await screen.findByRole('region', { name: '镜头组 1' })
+      const promptTrigger = within(page).getByRole('button', { name: '完整提示词' })
+      await userEvent.click(promptTrigger)
+      await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+      const nextTrigger = screen.getByRole('button', { name })
+
+      await userEvent.click(nextTrigger)
+
+      expect(await screen.findByRole('complementary', { name })).toBeVisible()
+      expect(
+        screen.queryByRole('complementary', { name: '镜头组完整提示词' }),
+      ).not.toBeInTheDocument()
+      // 等待卸载清理可能安排的焦点恢复执行，避免只断言点击当帧。
+      await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+      expect(nextTrigger).toHaveFocus()
+      expect(promptTrigger).not.toHaveFocus()
+    },
+  )
+
+  it('从完整提示词出片仍提交当前整组原文和全部参考图', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    const prompt =
+      '产品设定：黑色短靴。\n剪辑形式：硬切。\n[0–2秒｜镜头1]\n走近 @Image1。\n[2–6秒｜镜头2]\n停下 @Image2。\n不要生成字幕或背景音乐。'
+    const imageUrls = ['one.png', 'two.png', 'unmentioned.png']
+    provideDocument({ aspectRatio: '9:16', shots: [{ imageUrls, index: 1, prompt, seconds: 6 }] })
+    const posted: unknown[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (request.method !== 'POST' || !request.url.includes('/api/generations')) return
+      void request
+        .clone()
+        .json()
+        .then((body: unknown) => posted.push(body))
+    })
+    await renderPanel('/?shot=1&frame=2&sheet=prompt')
+    const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+
+    await userEvent.click(within(sheet).getByRole('button', { name: '生成视频' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      aspectRatio: '9:16',
+      conversationId: CONVERSATION_ID,
+      durationSeconds: 6,
+      imageUrls,
+      kind: 'video',
+      prompt,
+      shotIndex: 1,
+    })
+  })
+
+  it('顶部「全部镜头组」开浮层、写进地址，点一张卡翻到那一组', async () => {
     seedMockWorkspace(CONVERSATION_ID)
     const { router } = await renderPanel('/?shot=1')
     await screen.findByRole('region', { name: '镜头组 1' })
 
-    await userEvent.click(
-      within(screen.getByRole('region', { name: '镜头组 1' })).getByRole('button', {
-        name: '全部分镜',
-      }),
-    )
+    await userEvent.click(screen.getByRole('button', { name: '全部镜头组' }))
     await waitFor(() => expect(router.state.location.search).toEqual({ sheet: 'all', shot: 1 }))
 
-    const sheet = screen.getByRole('complementary', { name: '全部分镜' })
+    const sheet = screen.getByRole('complementary', { name: '全部镜头组' })
     await userEvent.click(within(sheet).getByText(/低角度拍鞋面/))
 
     await waitFor(() => expect(router.state.location.search).toEqual({ shot: 3 }))
@@ -962,7 +1058,7 @@ describe('StoryboardPanel', () => {
     })
     await renderPanel('/?shot=1&sheet=all')
 
-    const sheet = await screen.findByRole('complementary', { name: '全部分镜' })
+    const sheet = await screen.findByRole('complementary', { name: '全部镜头组' })
     await userEvent.click(within(sheet).getByRole('button', { name: '全选' }))
     await userEvent.click(within(sheet).getByRole('button', { name: '生成选中的 3 组' }))
     const dialog = await screen.findByRole('dialog', { name: '确认批量出片' })
