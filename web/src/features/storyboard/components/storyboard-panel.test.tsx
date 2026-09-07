@@ -984,7 +984,10 @@ describe('StoryboardPanel', () => {
     expect(await within(page).findByRole('button', { name: '正在出片…' })).toBeDisabled()
   })
 
-  it('选择SD2.0并关闭音频后切组仍保留设置，提交到新组的视频请求', async () => {
+  it.each([
+    { label: 'SD2.0', model: 'moyu-seedance-2-0' },
+    { label: 'Wan3', model: 'wan3.0-video' },
+  ])('选择 $label 并关闭音频后切组仍保留设置，提交到新组的视频请求', async ({ label, model }) => {
     seedMockWorkspace(CONVERSATION_ID)
     const posted: Record<string, unknown>[] = []
     server.events.on('request:start', ({ request }) => {
@@ -1001,19 +1004,21 @@ describe('StoryboardPanel', () => {
     expect(within(settings).getByRole('radio', { name: 'SD2.5' })).toBeChecked()
     expect(within(settings).getByRole('switch', { name: '生成音频' })).toBeChecked()
 
-    await userEvent.click(within(settings).getByRole('radio', { name: 'SD2.0' }))
+    await userEvent.click(within(settings).getByRole('radio', { name: label }))
     await userEvent.click(within(settings).getByRole('switch', { name: '生成音频' }))
     await userEvent.keyboard('{Escape}')
     await userEvent.click(screen.getByRole('button', { name: '第 3 组' }))
 
     await waitFor(() => expect(router.state.location.search).toEqual({ shot: 3 }))
     const third = screen.getByRole('region', { name: '镜头组 3' })
-    expect(within(third).getByRole('button', { name: '生成设置：SD2.0，音频关闭' })).toBeVisible()
+    expect(
+      within(third).getByRole('button', { name: `生成设置：${label}，音频关闭` }),
+    ).toBeVisible()
     await userEvent.click(within(third).getByRole('button', { name: '生成视频' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted[0]).toMatchObject({
-      model: 'moyu-seedance-2-0',
+      model,
       generateAudio: false,
       shotIndex: 3,
       conversationId: CONVERSATION_ID,

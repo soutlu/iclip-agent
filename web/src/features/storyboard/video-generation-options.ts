@@ -2,6 +2,7 @@ import type { VideoGenerationIn } from '@/shared/api/generated/types.gen'
 
 /** 分镜出片入口提供的模型；值使用视频接口的公开调用名。 */
 export const VIDEO_MODELS = [
+  { label: 'Wan3', value: 'wan3.0-video' },
   { label: 'SD2.5', value: 'moyu-seedance-2-5' },
   { label: 'SD2.0', value: 'moyu-seedance-2-0' },
 ] as const
