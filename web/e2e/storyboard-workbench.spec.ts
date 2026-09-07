@@ -34,6 +34,7 @@ test('点开有分镜的对话：滚轮翻到第 2 组，看生成记录，点�
 
   const panel = page.getByRole('complementary', { name: '右侧面板' })
   await expect(panel.getByRole('tab', { name: '分镜', selected: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: '全部镜头组', exact: true })).toHaveCount(0)
   await expect(panel.getByRole('button', { name: '第 1 组' })).toHaveAttribute(
     'aria-current',
     'true',
@@ -407,32 +408,6 @@ test('点「生成视频」：状态走到出片完成，生成记录里多一�
   await expect(records.getByText('生成完成')).toBeVisible({ timeout: 15_000 })
   await records.getByRole('button', { name: '关闭生成记录' }).click()
   await expect(shot1.getByRole('button', { name: '生成视频' })).toBeEnabled()
-})
-
-test('「全部镜头组」全选之后批量出片：确认框写清条数', async ({ page }) => {
-  await page.goto('/')
-  await login(page)
-  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-
-  const panel = page.getByRole('complementary', { name: '右侧面板' })
-  await expect(panel.getByRole('button', { name: '第 1 组' })).toHaveAttribute(
-    'aria-current',
-    'true',
-  )
-
-  await panel.getByRole('button', { name: '全部镜头组' }).click()
-  const sheet = panel.getByRole('complementary', { name: '全部镜头组' })
-  await sheet.getByRole('button', { name: '全选' }).click()
-  await expect(sheet.getByText('已选 3 个')).toBeVisible()
-
-  await sheet.getByRole('button', { name: '生成选中的 3 组' }).click()
-  const confirm = page.getByRole('dialog', { name: '确认批量出片' })
-  await expect(confirm.getByText(/3 组/)).toBeVisible()
-  await confirm.getByRole('button', { name: '发出去' }).click()
-
-  // 第 1 组新生成、第 3 组原有成片；运行中的第 2 组跳过提交。
-  await expect(sheet.getByRole('img', { name: '已出片' })).toHaveCount(2, { timeout: 20_000 })
-  await expect(sheet.getByRole('img', { name: '正在出片' })).toHaveCount(1)
 })
 
 for (const viewport of [

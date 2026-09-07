@@ -1083,29 +1083,26 @@ describe('StoryboardPanel', () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
-  it.each(['生成记录', '全部镜头组'])(
-    '从原文切到%s，焦点保留在顶部入口，不回到被覆盖的底部按钮',
-    async (name) => {
-      seedMockWorkspace(CONVERSATION_ID)
-      await renderPanel('/?shot=1')
-      const page = await screen.findByRole('region', { name: '镜头组 1' })
-      const promptTrigger = within(page).getByRole('button', { name: '完整提示词' })
-      await userEvent.click(promptTrigger)
-      await screen.findByRole('complementary', { name: '镜头组完整提示词' })
-      const nextTrigger = screen.getByRole('button', { name })
+  it('从原文切到生成记录，焦点保留在顶部入口，不回到被覆盖的底部按钮', async () => {
+    seedMockWorkspace(CONVERSATION_ID)
+    await renderPanel('/?shot=1')
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    const promptTrigger = within(page).getByRole('button', { name: '完整提示词' })
+    await userEvent.click(promptTrigger)
+    await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+    const nextTrigger = screen.getByRole('button', { name: '生成记录' })
 
-      await userEvent.click(nextTrigger)
+    await userEvent.click(nextTrigger)
 
-      expect(await screen.findByRole('complementary', { name })).toBeVisible()
-      expect(
-        screen.queryByRole('complementary', { name: '镜头组完整提示词' }),
-      ).not.toBeInTheDocument()
-      // 等待卸载清理可能安排的焦点恢复执行，避免只断言点击当帧。
-      await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
-      expect(nextTrigger).toHaveFocus()
-      expect(promptTrigger).not.toHaveFocus()
-    },
-  )
+    expect(await screen.findByRole('complementary', { name: '生成记录' })).toBeVisible()
+    expect(
+      screen.queryByRole('complementary', { name: '镜头组完整提示词' }),
+    ).not.toBeInTheDocument()
+    // 等待卸载清理可能安排的焦点恢复执行，避免只断言点击当帧。
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+    expect(nextTrigger).toHaveFocus()
+    expect(promptTrigger).not.toHaveFocus()
+  })
 
   it('从完整提示词出片仍提交当前整组原文和全部参考图', async () => {
     seedMockWorkspace(CONVERSATION_ID)
@@ -1136,20 +1133,6 @@ describe('StoryboardPanel', () => {
       prompt,
       shotIndex: 1,
     })
-  })
-
-  it('顶部「全部镜头组」开浮层、写进地址，点一张卡翻到那一组', async () => {
-    seedMockWorkspace(CONVERSATION_ID)
-    const { router } = await renderPanel('/?shot=1')
-    await screen.findByRole('region', { name: '镜头组 1' })
-
-    await userEvent.click(screen.getByRole('button', { name: '全部镜头组' }))
-    await waitFor(() => expect(router.state.location.search).toEqual({ sheet: 'all', shot: 1 }))
-
-    const sheet = screen.getByRole('complementary', { name: '全部镜头组' })
-    await userEvent.click(within(sheet).getByText(/低角度拍鞋面/))
-
-    await waitFor(() => expect(router.state.location.search).toEqual({ shot: 3 }))
   })
 
   it('批量出片：确认之后逐组发，已经在飞的那一组跳过', async () => {
