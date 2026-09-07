@@ -1,4 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
+import { Toaster, toast } from '@/shared/ui/toast'
+import { server } from '@/testing/mocks/server'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GenerationJob } from '../storyboard.api'
@@ -59,6 +62,7 @@ const renderRecords = (onClose = vi.fn()) => {
 }
 
 afterEach(() => {
+  toast.dismiss()
   vi.restoreAllMocks()
 })
 
@@ -88,6 +92,58 @@ describe('GenerationRecords', () => {
     expect(screen.getByText('生成失败')).toBeVisible()
     expect(screen.getByText('上游返回了空结果。')).toBeVisible()
   })
+
+  it('只有完成且有结果的记录提供下载，折叠后仍可下载', async () => {
+    renderRecords()
+    expect(screen.getAllByRole('button', { name: '下载视频' })).toHaveLength(1)
+    const card = screen.getByText('第一版：走向镜头。').closest('article') as HTMLElement
+    await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
+    expect(within(card).getByRole('button', { name: '下载视频' })).toBeEnabled()
+  })
+
+  it.each(['http', 'network', 'empty'])(
+    '下载遇到 %s 错误时提示失败并允许重试，等待时阻止重复点击',
+    async (failure) => {
+      let requests = 0
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const url = 'https://downloads.example.test/result.webm'
+      server.use(
+        http.get(url, async () => {
+          requests += 1
+          await gate
+          if (failure === 'network') return HttpResponse.error()
+          return new HttpResponse(null, { status: failure === 'http' ? 503 : 200 })
+        }),
+      )
+      const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click')
+      render(
+        <>
+          <Toaster />
+          <GenerationRecords
+            jobs={[job({ id: 'download', outputUrl: url })]}
+            onClose={vi.fn()}
+            onEditPrompt={vi.fn()}
+            shotIndex={2}
+          />
+        </>,
+      )
+      await userEvent.click(screen.getByRole('button', { name: '下载视频' }))
+      const busy = screen.getByRole('button', { name: '正在准备下载…' })
+      expect(busy).toBeDisabled()
+      await userEvent.click(busy)
+      await waitFor(() => expect(requests).toBe(1))
+      release()
+      expect(await screen.findByText('视频下载失败，请重试')).toBeVisible()
+      expect(screen.getByRole('button', { name: '下载视频' })).toBeEnabled()
+      expect(anchorClick).not.toHaveBeenCalled()
+      await userEvent.click(screen.getByRole('button', { name: '下载视频' }))
+      await waitFor(() => expect(requests).toBe(2))
+      await waitFor(() => expect(screen.getByRole('button', { name: '下载视频' })).toBeEnabled())
+    },
+  )
 
   it('时刻写成年月日时分', () => {
     renderRecords()
