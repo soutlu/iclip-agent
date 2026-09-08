@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { compileEditPrompt, parseEditPrompt } from './image-edit.api'
+import { compileEditPrompt, parseEditPrompt, resolveImageOptions } from './image-edit.api'
+import type { ImageModel } from './image-edit.api'
 import type { FrameEditDraft } from './image-edit-types'
 
 const draft = (): FrameEditDraft => ({
@@ -54,5 +55,62 @@ describe('parseEditPrompt', () => {
     expect(parseEditPrompt('参考@图片9', draft().references)).toEqual([
       { kind: 'text', text: '参考@图片9' },
     ])
+  })
+})
+
+const NANO: ImageModel = {
+  model: 'nano_banana_pro',
+  label: 'Nano Banana Pro',
+  aspectRatios: ['1:1', '4:5', '9:16'],
+  resolutions: ['1k', '2k', '4k'],
+  channels: ['dev', 'pro'],
+}
+const SEEDREAM: ImageModel = {
+  model: 'seedream_v5_pro',
+  label: 'Seedream 5.0 Pro',
+  aspectRatios: ['1:1', '9:16'],
+  resolutions: ['1k', '2k'],
+  channels: [],
+}
+const WANTED = { model: 'nano_banana_pro', channel: 'dev', resolution: '2k' } as const
+
+describe('resolveImageOptions', () => {
+  it('保留调用方想要的那一组', () => {
+    const resolved = resolveImageOptions([NANO, SEEDREAM], '9:16', WANTED)
+    expect(resolved.model?.model).toBe('nano_banana_pro')
+    expect(resolved.resolution).toBe('2k')
+    expect(resolved.channel).toBe('dev')
+  })
+
+  it('所选模型没有渠道这个轴时不给渠道', () => {
+    const resolved = resolveImageOptions([NANO, SEEDREAM], '9:16', {
+      ...WANTED,
+      model: 'seedream_v5_pro',
+    })
+    expect(resolved.channel).toBeUndefined()
+  })
+
+  it('档位落在所选模型范围外时退到它最高的一档', () => {
+    const resolved = resolveImageOptions([NANO, SEEDREAM], '9:16', {
+      ...WANTED,
+      model: 'seedream_v5_pro',
+      resolution: '4k',
+    })
+    expect(resolved.resolution).toBe('2k')
+  })
+
+  it('画幅这家出不了就换成出得了的那家', () => {
+    const resolved = resolveImageOptions([SEEDREAM, NANO], '4:5', WANTED)
+    expect(resolved.model?.model).toBe('nano_banana_pro')
+  })
+
+  it('一家都出不了这个画幅时报出来，而不是挑一家去撞 422', () => {
+    const resolved = resolveImageOptions([SEEDREAM], '4:5', WANTED)
+    expect(resolved.model).toBeUndefined()
+    expect(resolved.aspectUnsupported).toBe(true)
+  })
+
+  it('模型还没加载完不算画幅不支持', () => {
+    expect(resolveImageOptions([], '4:5', WANTED).aspectUnsupported).toBe(false)
   })
 })

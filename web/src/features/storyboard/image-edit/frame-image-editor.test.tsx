@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Toaster } from '@/shared/ui/toast'
+import { Toaster, toast } from '@/shared/ui/toast'
 import { writeWorkspaceFile } from '@/shared/workbench'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
@@ -66,8 +66,35 @@ describe('图片编辑提交与应用的失败边界', () => {
     sessionStorage.setItem(editDraftKey(target), JSON.stringify(draft))
   })
   afterEach(() => {
+    // Toaster 是模块级单例，上一条用例弹出的提示不清掉会串进下一条。
+    toast.dismiss()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('换成没有渠道轴的模型后，渠道那栏不再渲染，档位也收敛到它支持的范围', async () => {
+    const submissions: Record<string, unknown>[] = []
+    server.use(
+      http.post('*/api/generations', async ({ request }) => {
+        submissions.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json({ generation: job('pending') }, { status: 202 })
+      }),
+    )
+    await renderWithProviders(<EditorPage onApply={async () => {}} />)
+
+    const models = await screen.findByLabelText('图片模型')
+    expect(await screen.findByLabelText('图片生成渠道')).toBeInTheDocument()
+
+    await userEvent.selectOptions(models, 'seedream_v5_pro')
+
+    await waitFor(() => expect(screen.queryByLabelText('图片生成渠道')).not.toBeInTheDocument())
+    const resolutions = within(screen.getByLabelText('图片分辨率')).getAllByRole('option')
+    expect(resolutions.map((option) => option.textContent)).toEqual(['1K', '2K'])
+
+    await userEvent.click(screen.getByRole('button', { name: '生成编辑结果' }))
+    await waitFor(() => expect(submissions).toHaveLength(1))
+    expect(submissions[0]?.['model']).toBe('seedream_v5_pro')
+    expect(submissions[0]?.['channel']).toBeUndefined()
   })
 
   it('POST 成功后草稿暂存与记录刷新失败，仍显示新任务生成中且不提供旧结果应用', async () => {

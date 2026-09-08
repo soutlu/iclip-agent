@@ -1,12 +1,12 @@
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { zImageGenerationIn } from '@/shared/api/generated/zod.gen'
 import { uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
+import { Select } from '@/shared/ui/field'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import { isRunningStatus } from '../shots'
@@ -21,8 +21,12 @@ import {
   parseEditPrompt,
   readSubmittedImages,
   readSubmittedPrompt,
+  resolveImageOptions,
   submitImageEdit,
   useImageEditJobs,
+  useImageModels,
+  type ImageChannel,
+  type ImageResolution,
 } from './image-edit.api'
 import type { EditReference, FrameEditDraft, FrameEditTarget } from './image-edit-types'
 import './image-edit.css'
@@ -78,8 +82,9 @@ export function FrameImageEditor({
   } | null>(null)
   const [preview, setPreview] = useState<EditReference | null>(null)
   const [mode, setMode] = useState<'edit' | 'original' | 'result'>('edit')
-  const [channel, setChannel] = useState<'dev' | 'pro'>('dev')
-  const [resolution, setResolution] = useState<'1k' | '2k' | '4k'>('2k')
+  const [wantedModel, setWantedModel] = useState<string>()
+  const [wantedChannel, setWantedChannel] = useState<ImageChannel>('dev')
+  const [wantedResolution, setWantedResolution] = useState<ImageResolution>('2k')
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -89,6 +94,17 @@ export function FrameImageEditor({
   const activeRef = useRef(false)
   const storageErrorRef = useRef(false)
   const insertionRef = useRef(0)
+  const modelsQuery = useImageModels()
+  const models = modelsQuery.data?.items ?? []
+  const { model, resolution, channel, aspectUnsupported } = resolveImageOptions(
+    models,
+    aspectRatio,
+    {
+      model: wantedModel ?? modelsQuery.data?.default,
+      channel: wantedChannel,
+      resolution: wantedResolution,
+    },
+  )
   const jobsQuery = useImageEditJobs(target)
   const jobs = jobsQuery.data?.pages.flatMap((page) => page.items) ?? []
   // 列表已按这一格筛过，所以最新一条就是这一格的。
@@ -148,7 +164,16 @@ export function FrameImageEditor({
         )
       }
       const snapshot = { ...draft, references }
-      const job = await submitImageEdit(target, snapshot, { aspectRatio, channel, resolution })
+      if (model === undefined || resolution === undefined) {
+        setOperationError('图片模型还没读到，稍等一下再提交')
+        return
+      }
+      const job = await submitImageEdit(target, snapshot, {
+        aspectRatio,
+        model: model.model,
+        resolution,
+        ...(channel === undefined ? {} : { channel }),
+      })
       setDraft(snapshot)
       setSelectedJobId(job.id)
       queryClient.setQueryData<InfiniteData<{ items: GenerationJob[] }>>(
@@ -313,41 +338,68 @@ export function FrameImageEditor({
               onPreview={previewReference}
             />
             <div className="flex flex-wrap items-center gap-2 rounded-sm border border-outline-variant px-3 py-2">
-              <span className="mr-auto flex items-center gap-2 text-body-sm">
-                <Icon decorative name="edit-image" size="sm" />
-                Nano Banana Pro
-              </span>
-              <label className="text-caption text-on-surface-muted">
-                渠道{' '}
-                <select
-                  className="rounded-xs bg-transparent p-1 text-on-surface ui-focus"
-                  aria-label="图片生成渠道"
-                  value={channel}
-                  disabled={busy}
-                  onChange={(event) => {
-                    // 合同里渠道可空（有的模型没有这个轴），下拉里只有 dev / pro 两项。
-                    const next = zImageGenerationIn.shape.channel.parse(event.target.value)
-                    if (next) setChannel(next)
-                  }}
-                >
-                  <option value="dev">dev</option>
-                  <option value="pro">pro</option>
-                </select>
-              </label>
-              <select
-                className="rounded-xs bg-transparent p-1 text-body-sm ui-focus"
-                aria-label="图片分辨率"
-                value={resolution}
-                disabled={busy}
-                onChange={(event) =>
-                  setResolution(zImageGenerationIn.shape.resolution.parse(event.target.value))
-                }
-              >
-                <option value="1k">1K</option>
-                <option value="2k">2K</option>
-                <option value="4k">4K</option>
-              </select>
-              <span className="text-caption text-on-surface-muted">{aspectRatio}</span>
+              <Icon
+                decorative
+                name="edit-image"
+                size="sm"
+                className="shrink-0 text-on-surface-muted"
+              />
+              {aspectUnsupported ? (
+                <span role="alert" className="text-body-sm text-error">
+                  没有哪家模型出得了 {aspectRatio}，改分镜画幅才能编辑这一帧
+                </span>
+              ) : (
+                <>
+                  <Select
+                    className="mr-auto w-auto"
+                    aria-label="图片模型"
+                    value={model?.model ?? ''}
+                    disabled={busy || models.length === 0}
+                    onChange={(event) => setWantedModel(event.target.value)}
+                  >
+                    {models.map((item) => {
+                      const usable = item.aspectRatios.includes(aspectRatio)
+                      return (
+                        <option key={item.model} value={item.model} disabled={!usable}>
+                          {usable ? item.label : `${item.label}（出不了 ${aspectRatio}）`}
+                        </option>
+                      )
+                    })}
+                  </Select>
+                  {channel === undefined ? null : (
+                    <label className="flex items-center gap-1 text-caption text-on-surface-muted">
+                      渠道
+                      <Select
+                        className="w-auto"
+                        aria-label="图片生成渠道"
+                        value={channel}
+                        disabled={busy}
+                        onChange={(event) => setWantedChannel(event.target.value as ImageChannel)}
+                      >
+                        {model?.channels.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                  )}
+                  <Select
+                    className="w-auto"
+                    aria-label="图片分辨率"
+                    value={resolution ?? ''}
+                    disabled={busy}
+                    onChange={(event) => setWantedResolution(event.target.value as ImageResolution)}
+                  >
+                    {model?.resolutions.map((value) => (
+                      <option key={value} value={value}>
+                        {value.toUpperCase()}
+                      </option>
+                    ))}
+                  </Select>
+                  <span className="text-caption text-on-surface-muted">{aspectRatio}</span>
+                </>
+              )}
             </div>
             {draftError !== null ? (
               <div role="alert" className="text-body-sm text-error">
@@ -496,7 +548,7 @@ export function FrameImageEditor({
               <Button
                 size="md"
                 className="min-w-48"
-                disabled={busy || draftError !== null}
+                disabled={busy || draftError !== null || model === undefined}
                 loading={submitting}
                 onClick={() => void submit()}
               >
