@@ -27,6 +27,16 @@ from iclip.domains.generation.queue import (
     ProviderLane,
 )
 from iclip.domains.generation.repository import GenerationRepository
+from iclip.domains.generation.seedream import (
+    PROVIDER_NAME as SEEDREAM_V5_PRO,
+)
+from iclip.domains.generation.seedream import (
+    SPEC as SEEDREAM_V5_PRO_SPEC,
+)
+from iclip.domains.generation.seedream import (
+    SeedreamImageProvider,
+    SeedreamSettings,
+)
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.generation.video import (
     HttpVideoProvider,
@@ -122,7 +132,10 @@ def build_generation_module(
     )
 
 
-IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {NANO_BANANA_PRO: NANO_BANANA_PRO_SPEC}
+IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {
+    NANO_BANANA_PRO: NANO_BANANA_PRO_SPEC,
+    SEEDREAM_V5_PRO: SEEDREAM_V5_PRO_SPEC,
+}
 """有适配器的那几家图片模型及其能力声明。加一家＝这里一行，加一支 _image_provider 分支。"""
 
 
@@ -138,6 +151,12 @@ def _image_provider(
     if model.name == NANO_BANANA_PRO:
         return NanoBananaImageProvider(
             NanoBananaSettings(api_base=model.api_base, user_name=user_name),
+            object_store=object_store,
+            transport=transport,
+        )
+    if model.name == SEEDREAM_V5_PRO:
+        return SeedreamImageProvider(
+            SeedreamSettings(api_base=model.api_base, user_name=user_name),
             object_store=object_store,
             transport=transport,
         )

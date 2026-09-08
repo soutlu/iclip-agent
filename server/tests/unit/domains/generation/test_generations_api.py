@@ -16,6 +16,7 @@ from iclip.domains.generation.api import create_generations_router
 from iclip.domains.generation.models import STATUS_PENDING
 from iclip.domains.generation.nano_banana import SPEC as NANO_SPEC
 from iclip.domains.generation.provider import ImageModelSpec
+from iclip.domains.generation.seedream import SPEC as SEEDREAM_SPEC
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.models import Principal
 from iclip.platform.http import status_code_for
@@ -31,14 +32,7 @@ VIDEO_BODY = {
 
 IMAGE_BODY = {"kind": "image", "prompt": "一只猫的正面特写", "aspectRatio": "1:1"}
 
-NARROW_MODEL = "narrow_model"
-NARROW_SPEC = ImageModelSpec(
-    label="收窄的一家",
-    aspect_ratios=("1:1", "16:9"),
-    resolutions=("1k",),
-    channels=(),
-)
-IMAGE_MODELS = {"nano_banana_pro": NANO_SPEC, NARROW_MODEL: NARROW_SPEC}
+IMAGE_MODELS = {"nano_banana_pro": NANO_SPEC, "seedream_v5_pro": SEEDREAM_SPEC}
 
 
 def principal(*permissions: str, user_id: uuid.UUID | None = None) -> Principal:
@@ -324,21 +318,21 @@ async def test_image_keeps_the_model_the_caller_named() -> None:
     app = build_test_app(repo, granted=principal("generation:submit"))
     async with client(app) as http:
         response = await http.post(
-            "/generations", json={**IMAGE_BODY, "model": NARROW_MODEL, "resolution": "1k"}
+            "/generations", json={**IMAGE_BODY, "model": "seedream_v5_pro", "resolution": "1k"}
         )
 
     assert response.status_code == 202
     assert response.json()["generation"]["request"]["channel"] is None, "这家没有渠道这个轴"
-    assert next(iter(repo.jobs.values())).provider == NARROW_MODEL
+    assert next(iter(repo.jobs.values())).provider == "seedream_v5_pro"
 
 
 @pytest.mark.parametrize(
     ("body", "expected"),
     [
         ({"model": "没装配过的一家"}, "图片生成仅支持模型"),
-        ({"model": NARROW_MODEL, "aspectRatio": "4:5"}, "不支持画幅 4:5"),
-        ({"model": NARROW_MODEL, "resolution": "4k"}, "不支持分辨率 4k"),
-        ({"model": NARROW_MODEL, "channel": "dev"}, "没有渠道这个轴"),
+        ({"model": "seedream_v5_pro", "aspectRatio": "4:5"}, "不支持画幅 4:5"),
+        ({"model": "seedream_v5_pro", "resolution": "4k"}, "不支持分辨率 4k"),
+        ({"model": "seedream_v5_pro", "channel": "dev"}, "没有渠道这个轴"),
     ],
 )
 async def test_image_requests_beyond_the_model_are_rejected_before_queueing(
@@ -365,11 +359,11 @@ async def test_image_models_endpoint_declares_what_intake_enforces() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["default"] == "nano_banana_pro"
-    assert [item["model"] for item in body["items"]] == ["nano_banana_pro", NARROW_MODEL]
+    assert [item["model"] for item in body["items"]] == ["nano_banana_pro", "seedream_v5_pro"]
     narrow = body["items"][1]
-    assert narrow["label"] == "收窄的一家"
-    assert narrow["aspectRatios"] == ["1:1", "16:9"]
-    assert narrow["resolutions"] == ["1k"]
+    assert narrow["label"] == "Seedream 5.0 Pro"
+    assert "4:5" not in narrow["aspectRatios"], "这家没有这一档"
+    assert narrow["resolutions"] == ["1k", "2k"], "这家没有 4k"
     assert narrow["channels"] == [], "空数组即这家没有渠道这个轴"
 
 
