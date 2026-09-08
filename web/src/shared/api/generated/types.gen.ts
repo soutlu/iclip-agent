@@ -923,7 +923,7 @@ export type ImageGenerationIn = {
   /**
    * Channel
    */
-  channel?: 'dev' | 'pro'
+  channel?: 'dev' | 'pro' | null
   /**
    * Conversationid
    */
@@ -936,6 +936,10 @@ export type ImageGenerationIn = {
    * Kind
    */
   kind?: 'image'
+  /**
+   * Model
+   */
+  model?: string | null
   /**
    * Prompt
    */
@@ -952,6 +956,48 @@ export type ImageGenerationIn = {
    * Shotindex
    */
   shotIndex?: number | null
+}
+
+/**
+ * ImageModelOut
+ *
+ * 一家图片模型对外声明的能力。调用方照它决定能填什么，受理层照同一份声明拦。
+ */
+export type ImageModelOut = {
+  /**
+   * Aspectratios
+   */
+  aspectRatios: Array<string>
+  /**
+   * Channels
+   */
+  channels: Array<string>
+  /**
+   * Label
+   */
+  label: string
+  /**
+   * Model
+   */
+  model: string
+  /**
+   * Resolutions
+   */
+  resolutions: Array<string>
+}
+
+/**
+ * ImageModelsOut
+ */
+export type ImageModelsOut = {
+  /**
+   * Default
+   */
+  default: string
+  /**
+   * Items
+   */
+  items: Array<ImageModelOut>
 }
 
 /**
@@ -4072,6 +4118,23 @@ export type SubmitGenerationsPostResponses = {
 
 export type SubmitGenerationsPostResponse =
   SubmitGenerationsPostResponses[keyof SubmitGenerationsPostResponses]
+
+export type ListImageModelsGenerationsImageModelsGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/generations/image-models'
+}
+
+export type ListImageModelsGenerationsImageModelsGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: ImageModelsOut
+}
+
+export type ListImageModelsGenerationsImageModelsGetResponse =
+  ListImageModelsGenerationsImageModelsGetResponses[keyof ListImageModelsGenerationsImageModelsGetResponses]
 
 export type GetGenerationGenerationsJobIdGetData = {
   body?: never

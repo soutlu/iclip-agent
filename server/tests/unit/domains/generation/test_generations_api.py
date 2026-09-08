@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 
 import httpx
@@ -14,6 +14,8 @@ from fastapi.responses import JSONResponse
 from iclip.common.errors import DomainError
 from iclip.domains.generation.api import create_generations_router
 from iclip.domains.generation.models import STATUS_PENDING
+from iclip.domains.generation.nano_banana import SPEC as NANO_SPEC
+from iclip.domains.generation.provider import ImageModelSpec
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.models import Principal
 from iclip.platform.http import status_code_for
@@ -26,6 +28,17 @@ VIDEO_BODY = {
     "aspectRatio": "16:9",
     "durationSeconds": 5,
 }
+
+IMAGE_BODY = {"kind": "image", "prompt": "一只猫的正面特写", "aspectRatio": "1:1"}
+
+NARROW_MODEL = "narrow_model"
+NARROW_SPEC = ImageModelSpec(
+    label="收窄的一家",
+    aspect_ratios=("1:1", "16:9"),
+    resolutions=("1k",),
+    channels=(),
+)
+IMAGE_MODELS = {"nano_banana_pro": NANO_SPEC, NARROW_MODEL: NARROW_SPEC}
 
 
 def principal(*permissions: str, user_id: uuid.UUID | None = None) -> Principal:
@@ -42,6 +55,7 @@ def build_test_app(
     *,
     granted: Principal | None,
     broken_queue: bool = False,
+    image_models: Mapping[str, ImageModelSpec] | None = None,
 ) -> FastAPI:
     app = FastAPI()
 
@@ -68,7 +82,8 @@ def build_test_app(
         repo,
         queue,
         video_provider_name="video_api",
-        image_provider_name="nano_banana_pro",
+        image_models=image_models if image_models is not None else IMAGE_MODELS,
+        image_default_model="nano_banana_pro",
         video_model="moyu-seedance-2-5",
         video_allowed_models=("moyu-seedance-2-0", "moyu-seedance-2-5", "wan3.0-video"),
     )
@@ -286,3 +301,79 @@ async def test_failing_to_enqueue_fails_the_row_instead_of_leaving_it_pending() 
     (stored,) = list(repo.jobs.values())
     assert stored.status == "failed"
     assert stored.error_code == "QUEUE_DEFER_FAILED"
+
+
+async def test_image_model_and_channel_are_settled_at_intake() -> None:
+    """省略两者时按配置的默认那家与它声明的默认渠道填，并写进 provider 列。"""
+
+    repo = InMemoryGenerationRepository()
+    app = build_test_app(repo, granted=principal("generation:submit"))
+    async with client(app) as http:
+        response = await http.post("/generations", json=IMAGE_BODY)
+
+    assert response.status_code == 202
+    snapshot = response.json()["generation"]["request"]
+    assert snapshot["model"] == "nano_banana_pro"
+    assert snapshot["channel"] == "dev", "那家声明的第一个渠道"
+    stored = next(iter(repo.jobs.values()))
+    assert stored.provider == "nano_banana_pro", "API 藏了 provider，只能从库里断"
+
+
+async def test_image_keeps_the_model_the_caller_named() -> None:
+    repo = InMemoryGenerationRepository()
+    app = build_test_app(repo, granted=principal("generation:submit"))
+    async with client(app) as http:
+        response = await http.post(
+            "/generations", json={**IMAGE_BODY, "model": NARROW_MODEL, "resolution": "1k"}
+        )
+
+    assert response.status_code == 202
+    assert response.json()["generation"]["request"]["channel"] is None, "这家没有渠道这个轴"
+    assert next(iter(repo.jobs.values())).provider == NARROW_MODEL
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"model": "没装配过的一家"}, "图片生成仅支持模型"),
+        ({"model": NARROW_MODEL, "aspectRatio": "4:5"}, "不支持画幅 4:5"),
+        ({"model": NARROW_MODEL, "resolution": "4k"}, "不支持分辨率 4k"),
+        ({"model": NARROW_MODEL, "channel": "dev"}, "没有渠道这个轴"),
+    ],
+)
+async def test_image_requests_beyond_the_model_are_rejected_before_queueing(
+    body: dict[str, str], expected: str
+) -> None:
+    """按所选模型的能力声明拦在受理层，不留下一行已排队、可能已付费的失败。"""
+
+    repo = InMemoryGenerationRepository()
+    # 若错误路径仍尝试入队，坏队列会让此用例失败。
+    app = build_test_app(repo, granted=principal("generation:submit"), broken_queue=True)
+    async with client(app) as http:
+        response = await http.post("/generations", json={**IMAGE_BODY, **body})
+
+    assert response.status_code == 422
+    assert expected in response.json()["detail"]
+    assert repo.jobs == {}
+
+
+async def test_image_models_endpoint_declares_what_intake_enforces() -> None:
+    app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:read"))
+    async with client(app) as http:
+        response = await http.get("/generations/image-models")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["default"] == "nano_banana_pro"
+    assert [item["model"] for item in body["items"]] == ["nano_banana_pro", NARROW_MODEL]
+    narrow = body["items"][1]
+    assert narrow["label"] == "收窄的一家"
+    assert narrow["aspectRatios"] == ["1:1", "16:9"]
+    assert narrow["resolutions"] == ["1k"]
+    assert narrow["channels"] == [], "空数组即这家没有渠道这个轴"
+
+
+async def test_image_models_endpoint_needs_read_permission() -> None:
+    app = build_test_app(InMemoryGenerationRepository(), granted=principal())
+    async with client(app) as http:
+        assert (await http.get("/generations/image-models")).status_code == 403

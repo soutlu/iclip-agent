@@ -33,6 +33,10 @@ from iclip.domains.identity.public import Principal
 
 _logger = structlog.stdlib.get_logger(__name__)
 
+IMAGE_MODEL: Final = "nano_banana_pro"
+"""出图用哪家。写在这里而不是配置里：这条链路的 4k 整图与 dev/pro 重试只有这一家给得了，
+产品接口的默认模型换成别家不该带着它一起换。"""
+
 GRID_RESOLUTION: Final = "4k"
 """使用最高分辨率，保证整图裁成多格后仍有足够细节。"""
 
@@ -202,6 +206,7 @@ def job_failure(job: ImageJob, *, message: str, reason: str | None = None) -> No
 __all__ = [
     "ANCHOR_ASPECT",
     "GRID_RESOLUTION",
+    "IMAGE_MODEL",
     "CellCut",
     "FrameGenerator",
     "GenerationPolicy",

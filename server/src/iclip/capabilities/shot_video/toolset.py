@@ -26,6 +26,7 @@ from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_
 from iclip.capabilities.shot_video.generation import (
     ANCHOR_ASPECT,
     GRID_RESOLUTION,
+    IMAGE_MODEL,
     job_failure,
 )
 from iclip.capabilities.shot_video.grid import GridError, parse_aspect
@@ -237,6 +238,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             principal,
             ImageRequest(
                 prompt=prompt,
+                model=IMAGE_MODEL,
                 aspect_ratio=target_aspect,
                 resolution=GRID_RESOLUTION,
                 channel="dev",
@@ -312,6 +314,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         job = await self._cap.generator.generate(
             principal,
             ImageRequest(
+                model=IMAGE_MODEL,
                 prompt=assemble_anchor_prompt(cells=descriptions, target_aspect=ANCHOR_ASPECT),
                 aspect_ratio=ANCHOR_ASPECT,
                 resolution=GRID_RESOLUTION,

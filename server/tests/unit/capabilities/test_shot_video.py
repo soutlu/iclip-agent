@@ -38,7 +38,11 @@ from iclip.capabilities.shot_video.delivery import (
     validate_video_shots_document,
 )
 from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_path
-from iclip.capabilities.shot_video.generation import ANCHOR_ASPECT, GRID_RESOLUTION
+from iclip.capabilities.shot_video.generation import (
+    ANCHOR_ASPECT,
+    GRID_RESOLUTION,
+    IMAGE_MODEL,
+)
 from iclip.capabilities.shot_video.parser import (
     SYSTEM_PROMPT,
     ArkVideoUnderstanding,
@@ -47,6 +51,7 @@ from iclip.capabilities.shot_video.parser import (
 from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
+from iclip.domains.generation.module import IMAGE_MODEL_SPECS
 from iclip.domains.identity.models import Principal
 from iclip.platform.file_store.store import FileSpace
 from iclip.platform.material_ledger.store import Material
@@ -1110,3 +1115,16 @@ def test_written_back_table_is_rejected_with_the_reason(content: str, message: s
 
     with pytest.raises(ValueError, match=message):
         validate_video_shots_document(content)
+
+
+def test_the_pinned_image_model_can_do_what_the_frame_tools_ask_for() -> None:
+    """出图把用哪家、多大、哪个渠道都钉在代码里，模型面签名里没有这些参数。
+
+    钉的那家给不了其中任何一样，就是每次出图都拿到一个模型改不了的错误。这些全是代码
+    里的常量，所以在这里拦，不等部署。"""
+
+    spec = IMAGE_MODEL_SPECS.get(IMAGE_MODEL)
+    assert spec is not None, f"{IMAGE_MODEL} 没有对应的适配器"
+    assert GRID_RESOLUTION in spec.resolutions
+    assert ANCHOR_ASPECT in spec.aspect_ratios
+    assert set(GenerationPolicy().channels()) <= set(spec.channels)

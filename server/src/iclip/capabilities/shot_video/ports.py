@@ -22,6 +22,9 @@ class ImageRequest:
     """图像生成参数，取值由生成域统一校验。"""
 
     prompt: str
+    model: str
+    """要哪家图片模型。工具按自己那条链路需要的能力钉死，不由配置决定。"""
+
     aspect_ratio: str
     resolution: str
     channel: ImageChannel

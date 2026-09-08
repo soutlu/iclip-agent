@@ -96,14 +96,16 @@ class ImageGenerationIn(GenerationOrigin):
 
     kind: Literal["image"] = KIND_IMAGE
     prompt: Prompt
-    channel: Literal["dev", "pro"] = "dev"
-    """走哪个渠道。
+    model: Annotated[str, Field(min_length=1, max_length=MAX_MODEL_CHARS)] | None = None
+    """要哪家图片模型。省略时在受理阶段填入配置的默认模型。
 
-    图片这家的**模型是写死在接口地址里的**（那个地址整条来自环境变量），今天真正可
-    选的就是这个渠道。所以图片暴露 ``channel``、视频暴露 ``model``——各自照对方
-    真实的那个轴来，不硬凑成一个统一字段。
+    可选集合是装配表里那几家，不是一份枚举——运行配置声明接入了谁，能力清单端点照
+    同一份声明对外说明。历史记录保留原模型字符串，读取持久化请求时不套用当前的选择策略。"""
+    channel: Literal["dev", "pro"] | None = None
+    """走哪个渠道。**只对声明了渠道轴的那几家有意义**，给别家会在受理阶段被拒。
 
-    两个渠道价钱不一样，所以这是调用方的决定，不是我们能替他换的。"""
+    有渠道轴的那家两个渠道价钱不一样，所以这是调用方的决定，不是我们能替他换的；
+    省略时受理阶段按那家声明的默认渠道填。"""
     aspect_ratio: IMAGE_ASPECT_RATIOS
     resolution: IMAGE_RESOLUTIONS = "1k"
     reference_image_urls: Annotated[list[str], Field(max_length=IMAGE_MAX_REFERENCES)] = []
@@ -175,6 +177,24 @@ def generation_out(job: GenerationJob) -> GenerationOut:
     )
 
 
+class ImageModelOut(CamelModel):
+    """一家图片模型对外声明的能力。调用方照它决定能填什么，受理层照同一份声明拦。"""
+
+    model: str
+    label: str
+    aspect_ratios: tuple[str, ...]
+    resolutions: tuple[str, ...]
+    channels: tuple[str, ...]
+    """空数组表示这家没有渠道这个轴，别给它传 ``channel``。"""
+
+
+class ImageModelsOut(CamelModel):
+    default: str
+    """请求省略 ``model`` 时用的那家。"""
+
+    items: list[ImageModelOut]
+
+
 class GenerationEnvelope(CamelModel):
     generation: GenerationOut
 
@@ -199,6 +219,8 @@ __all__ = [
     "GenerationRequest",
     "GenerationsPageOut",
     "ImageGenerationIn",
+    "ImageModelOut",
+    "ImageModelsOut",
     "VideoGenerationIn",
     "generation_out",
     "request_from_payload",

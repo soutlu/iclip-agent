@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, get_args
 
 import httpx
 
@@ -19,14 +19,28 @@ from iclip.domains.generation.image_upstream import (
 )
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.provider import (
+    ImageModelSpec,
     ProviderError,
     ProviderProgress,
     ProviderSubmission,
 )
-from iclip.domains.generation.schemas import ImageGenerationIn
+from iclip.domains.generation.schemas import (
+    IMAGE_ASPECT_RATIOS,
+    IMAGE_RESOLUTIONS,
+    ImageGenerationIn,
+)
 from iclip.platform.object_store.oss import PublicObjectStore
 
 PROVIDER_NAME: Final = "nano_banana_pro"
+
+SPEC: Final = ImageModelSpec(
+    label="Nano Banana Pro",
+    # 上游接受全部十档画幅与三档分辨率，与本仓的全局枚举一致。
+    aspect_ratios=get_args(IMAGE_ASPECT_RATIOS),
+    resolutions=get_args(IMAGE_RESOLUTIONS),
+    # dev 先打 developer 模型、失败兜底非 developer；pro 只打非 developer。两档价钱不同。
+    channels=("dev", "pro"),
+)
 
 _TASK_SOURCE: Final = "iClip"
 
@@ -117,4 +131,4 @@ class NanoBananaImageProvider:
         return url, payload
 
 
-__all__ = ["PROVIDER_NAME", "NanoBananaImageProvider", "NanoBananaSettings"]
+__all__ = ["PROVIDER_NAME", "SPEC", "NanoBananaImageProvider", "NanoBananaSettings"]

@@ -57,6 +57,7 @@ def test_stored_payload_is_camel_case_without_the_kind_column() -> None:
     }
     assert set(request_to_payload(image_request())) == {
         "prompt",
+        "model",
         "channel",
         "aspectRatio",
         "resolution",
@@ -150,9 +151,12 @@ def test_model_and_channel_are_part_of_the_stored_request() -> None:
     assert request_from_payload(KIND_IMAGE, request_to_payload(image)) == image
 
 
-def test_model_is_optional_but_channel_always_has_a_value() -> None:
-    assert video_request().model is None, "不给就用配置里的默认模型"
-    assert image_request().channel == "dev"
+def test_model_and_channel_are_both_optional_on_the_wire() -> None:
+    """两者都在受理阶段填：模型按配置的默认那家，渠道按那家声明的默认档。"""
+
+    assert video_request().model is None
+    assert image_request().model is None
+    assert image_request().channel is None
 
 
 def test_bad_channel_is_rejected_but_historical_model_names_remain_readable() -> None:

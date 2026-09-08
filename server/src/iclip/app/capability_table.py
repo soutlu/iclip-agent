@@ -9,6 +9,7 @@ import httpx
 from pydantic import ValidationError
 
 from iclip.capabilities.shot_video.capability import GenerationPolicy, shot_video_capability
+from iclip.capabilities.shot_video.generation import IMAGE_MODEL
 from iclip.capabilities.shot_video.parser import ArkVideoUnderstanding
 from iclip.capabilities.shot_video.ports import (
     ImageJob,
@@ -19,6 +20,7 @@ from iclip.capabilities.shot_video.ports import (
 from iclip.capabilities.workspace.capability import workspace_capability
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.capabilities.workspace.scope import workspace_namespace
+from iclip.common.errors import ValidationFailed
 from iclip.config import ResolvedShotVideo
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
@@ -51,6 +53,7 @@ class GenerationsAdapter:
             payload = ImageGenerationIn.model_validate(
                 {
                     "prompt": request.prompt,
+                    "model": request.model,
                     "channel": request.channel,
                     "aspect_ratio": request.aspect_ratio,
                     "resolution": request.resolution,
@@ -58,9 +61,12 @@ class GenerationsAdapter:
                     "conversation_id": request.conversation_id,
                 }
             )
+            return _job_view(await self._service.submit(principal, payload))
         except ValidationError as exc:
             raise InvalidImageRequest(_first_problem(exc)) from exc
-        return _job_view(await self._service.submit(principal, payload))
+        except ValidationFailed as exc:
+            # 受理层按所选模型的能力拒绝，收成能力协议错误，工具才能让模型改参数。
+            raise InvalidImageRequest(str(exc)) from exc
 
     async def get(self, principal: Principal, job_id: uuid.UUID) -> ImageJob:
         return _job_view(await self._service.get(principal, job_id))
@@ -125,6 +131,9 @@ def _job_view(job: GenerationJob) -> ImageJob:
     if not isinstance(request, ImageGenerationIn):
         # 出图适配器只提交图片请求；拿回视频请求说明装配串了，不替它编一个渠道。
         raise TypeError(f"图像任务 {job.id} 的请求是 {job.kind}")
+    if request.channel is None:
+        # 出图钉死的那家有渠道轴（装配期校验过），为空同样说明装配串了。
+        raise TypeError(f"图像任务 {job.id} 没有渠道")
     return ImageJob(
         job_id=job.id,
         status=job.status,
@@ -151,6 +160,7 @@ def build_capability_table(
     generation_service: GenerationService | None = None,
     object_store: PublicObjectStore | None = None,
     shot_video: ResolvedShotVideo | None = None,
+    image_models: frozenset[str] = frozenset(),
 ) -> CapabilityTable:
     """装配已启用的能力。shot_video 依赖完整的生成服务与对象存储；缺失时不登记该名称。"""
 
@@ -164,6 +174,12 @@ def build_capability_table(
         ),
     }
     if shot_video is not None and generation_service is not None and object_store is not None:
+        if IMAGE_MODEL not in image_models:
+            # 出图把用哪家钉在代码里，配置没接这家就是每次出图都失败，起不来比跑起来好。
+            raise RuntimeError(
+                f"出图工具要 {IMAGE_MODEL}，但 media_generation.image.models 里没有它；"
+                f"已接入的是 {'、'.join(sorted(image_models)) or '（空）'}"
+            )
         table["shot_video"] = (
             shot_video_capability(
                 space=space,

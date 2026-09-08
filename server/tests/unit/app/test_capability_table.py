@@ -20,6 +20,7 @@ from iclip.app.capability_table import (
     resolve_capabilities,
 )
 from iclip.capabilities.shot_video.capability import ShotVideo
+from iclip.capabilities.shot_video.generation import IMAGE_MODEL
 from iclip.capabilities.shot_video.ports import (
     ImageRequest,
     InvalidImageRequest,
@@ -27,6 +28,7 @@ from iclip.capabilities.shot_video.ports import (
 )
 from iclip.capabilities.workspace.capability import Workspace
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
+from iclip.common.errors import ValidationFailed
 from iclip.config import ResolvedShotVideo
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
@@ -119,6 +121,7 @@ def test_shot_video_is_registered_when_backed(shot_video_settings: ResolvedShotV
         object_store=FakeObjects(),
         http_client=idle_client(),
         shot_video=shot_video_settings,
+        image_models=frozenset({IMAGE_MODEL}),
     )
     resolved = resolve_capabilities(
         ("workspace", "shot_video"), table=built, declared_by="agent storyboard"
@@ -138,6 +141,7 @@ def test_shot_video_without_workspace_fails_at_assembly(
         object_store=FakeObjects(),
         http_client=idle_client(),
         shot_video=shot_video_settings,
+        image_models=frozenset({IMAGE_MODEL}),
     )
     with pytest.raises(RuntimeError, match=r"没挂 'workspace'.*agents\.yaml"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
@@ -155,6 +159,7 @@ def test_the_display_registry_covers_every_mounted_tool(
         object_store=FakeObjects(),
         http_client=idle_client(),
         shot_video=shot_video_settings,
+        image_models=frozenset({IMAGE_MODEL}),
     )
 
     registry = build_display_registry(built)
@@ -192,7 +197,13 @@ async def test_generations_adapter_translates_and_reports_bad_parameters() -> No
     with pytest.raises(InvalidImageRequest, match="aspect_ratio"):
         await adapter.submit(
             cast("Principal", object()),
-            ImageRequest(prompt="猫", aspect_ratio="17:9", resolution="1k", channel="dev"),
+            ImageRequest(
+                prompt="猫",
+                model="nano_banana_pro",
+                aspect_ratio="17:9",
+                resolution="1k",
+                channel="dev",
+            ),
         )
 
 
@@ -212,6 +223,7 @@ async def test_generations_adapter_carries_the_conversation_onto_the_job() -> No
         cast("Principal", object()),
         ImageRequest(
             prompt="猫",
+            model="nano_banana_pro",
             aspect_ratio="1:1",
             resolution="1k",
             channel="dev",
@@ -312,3 +324,42 @@ async def test_object_writer_adapter_translates_the_failure_and_passes_urls_thro
         object_key="k", content=b"x", content_type="image/jpeg"
     )
     assert url == "https://cdn.test/k"
+
+
+async def test_generations_adapter_turns_intake_rejection_into_a_fixable_error() -> None:
+    """受理层按所选模型的能力拒绝时，工具要能让模型改参数，而不是把异常裸抛出去。"""
+
+    class _Rejecting:
+        async def submit(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
+            _ = principal, request
+            raise ValidationFailed("nano_banana_pro 不支持分辨率 8k")
+
+    adapter = GenerationsAdapter(cast("GenerationService", _Rejecting()))
+    with pytest.raises(InvalidImageRequest, match="不支持分辨率 8k"):
+        await adapter.submit(
+            cast("Principal", object()),
+            ImageRequest(
+                prompt="猫",
+                model="nano_banana_pro",
+                aspect_ratio="1:1",
+                resolution="1k",
+                channel="dev",
+            ),
+        )
+
+
+def test_shot_video_refuses_to_mount_when_its_image_model_is_not_wired(
+    shot_video_settings: ResolvedShotVideo,
+) -> None:
+    """出图把用哪家钉在代码里；配置没接这家，起不来比跑起来之后每次出图失败好。"""
+
+    with pytest.raises(RuntimeError, match=IMAGE_MODEL):
+        build_capability_table(
+            workspace_store=FakeFileStore(),
+            material_ledger=FakeMaterialLedger(),
+            generation_service=cast("GenerationService", object()),
+            object_store=FakeObjects(),
+            http_client=idle_client(),
+            shot_video=shot_video_settings,
+            image_models=frozenset({"别的一家"}),
+        )

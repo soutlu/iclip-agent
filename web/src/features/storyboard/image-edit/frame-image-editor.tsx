@@ -324,9 +324,11 @@ export function FrameImageEditor({
                   aria-label="图片生成渠道"
                   value={channel}
                   disabled={busy}
-                  onChange={(event) =>
-                    setChannel(zImageGenerationIn.shape.channel.parse(event.target.value))
-                  }
+                  onChange={(event) => {
+                    // 合同里渠道可空（有的模型没有这个轴），下拉里只有 dev / pro 两项。
+                    const next = zImageGenerationIn.shape.channel.parse(event.target.value)
+                    if (next) setChannel(next)
+                  }}
                 >
                   <option value="dev">dev</option>
                   <option value="pro">pro</option>
