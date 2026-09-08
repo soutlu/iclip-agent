@@ -484,7 +484,12 @@ for (const width of [1335, 390]) {
       const downloadButton = records.getByRole('button', { name: '下载视频' })
       await expect(downloadButton).toHaveCount(1)
       await expect(downloadButton).toBeInViewport({ ratio: 1 })
+      // 等入场动画结束，避免祖先滚动在聚焦后关闭 tooltip。
+      await records.evaluate(async (element) => {
+        await Promise.all(element.getAnimations().map((animation) => animation.finished))
+      })
       await downloadButton.focus()
+      await expect(downloadButton).toBeFocused()
       await expect(page.getByRole('tooltip', { name: '下载视频' })).toBeVisible()
       await page.screenshot({
         path: `../.artifacts/design-qa/download-record-video/${width}-${colorScheme}.png`,
