@@ -21,11 +21,16 @@ from iclip.domains.generation.provider import (
     ProviderSubmission,
 )
 from iclip.domains.generation.schemas import (
+    KIND_VIDEO,
     GenerationRequest,
     ImageGenerationIn,
     VideoGenerationIn,
 )
 from iclip.platform.object_store.oss import StoredObject
+
+FAKE_VIDEO_PROVIDER = "video_fake"
+FAKE_IMAGE_PROVIDER = "image_fake"
+"""替身 provider 的名字。队列按任务行上的 provider 列查表，替身与 make_job 得用同一套。"""
 
 
 def video_request(**overrides: Any) -> VideoGenerationIn:
@@ -52,6 +57,7 @@ def make_job(
     request: GenerationRequest | None = None,
     *,
     status: GenerationStatus = STATUS_PENDING,
+    provider: str | None = None,
     provider_task_id: str | None = None,
     submitted_at: datetime | None = None,
     created_at: datetime | None = None,
@@ -68,7 +74,8 @@ def make_job(
         conversation_id=conversation_id,
         shot_index=shot_index,
         kind=payload.kind,
-        provider="fake",
+        provider=provider
+        or (FAKE_VIDEO_PROVIDER if payload.kind == KIND_VIDEO else FAKE_IMAGE_PROVIDER),
         request=payload,
         status=status,
         provider_task_id=provider_task_id,
@@ -238,7 +245,8 @@ class ScriptedProvider:
         submission: ProviderSubmission | Exception | None = None,
         progress: ProviderProgress | Exception | None = None,
     ) -> None:
-        self._name = name
+        self.provider_name = name
+        """可写：装配替身时按那条 lane 该叫什么名字改。"""
         self._submission = submission
         self._progress = progress
         self.submit_calls: list[uuid.UUID] = []
@@ -246,7 +254,7 @@ class ScriptedProvider:
 
     @property
     def name(self) -> str:
-        return self._name
+        return self.provider_name
 
     async def submit(self, job: GenerationJob) -> ProviderSubmission:
         self.submit_calls.append(job.id)

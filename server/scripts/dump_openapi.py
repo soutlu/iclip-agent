@@ -18,8 +18,7 @@ from pathlib import Path
 PLACEHOLDER_ENV = {
     "AUTH_SECRET": "openapi-dump-placeholder-secret-0123456789",
     "DATABASE_URL": "postgresql+asyncpg://placeholder:placeholder@127.0.0.1:5432/placeholder",
-    "IMAGE_EDIT_URL": "https://placeholder.invalid/image/edit",
-    "IMAGE_TEXT_TO_IMAGE_URL": "https://placeholder.invalid/image/generate",
+    "IMAGE_API_BASE": "https://placeholder.invalid/image",
     "INSPIRATION_DATABASE_URL": "postgresql+asyncpg://placeholder:placeholder@127.0.0.1:5432/placeholder",
     "MODEL_API_KEY": "openapi-dump-placeholder",
     "OSS_ACCESS_KEY_ID": "placeholder",

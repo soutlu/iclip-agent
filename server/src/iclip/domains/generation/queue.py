@@ -1,6 +1,7 @@
 """生成任务调度。procrastinate 管理排期与 worker 心跳，generation_jobs 保存业务事实。
 
-图片提交、视频提交与轮询使用独立队列，避免长时间图片请求阻塞其他任务。
+**一家 provider 一条提交队列**，各带自己的并发上限：图片提交是同步等待，慢的一家会把
+槽位占满，共用一条队列就会拖住别家。轮询另起一条队列。
 轮询通过 StillRunning 复用重试任务，避免每次查询都新增队列记录；总时限由业务状态控制。
 
 提交前先持久化 submitting。恢复时若仍为 submitting，标记失败且不重投，避免重复计费。
@@ -10,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
@@ -25,25 +26,23 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
     GenerationJob,
-    GenerationKind,
+    GenerationStatus,
 )
 from iclip.domains.generation.provider import GenerationProvider, ProviderError
 from iclip.domains.generation.repository import GenerationRepository
-from iclip.domains.generation.schemas import KIND_IMAGE, KIND_VIDEO
 
 _logger = structlog.stdlib.get_logger(__name__)
 
-QUEUE_SUBMIT_IMAGE: Final = "generation-submit-image"
-QUEUE_SUBMIT_VIDEO: Final = "generation-submit-video"
 QUEUE_POLL: Final = "generation-poll"
 
 _STOP_MARGIN_SECONDS: Final = 5
 """worker 自身关停宽限期之外的等待余量。"""
 
-_SUBMIT_QUEUES: Final[Mapping[GenerationKind, str]] = {
-    KIND_IMAGE: QUEUE_SUBMIT_IMAGE,
-    KIND_VIDEO: QUEUE_SUBMIT_VIDEO,
-}
+
+def submit_queue(provider: str) -> str:
+    """这家 provider 的提交队列名。"""
+
+    return f"generation-submit-{provider}"
 
 
 def queue_dsn(database_url: str) -> str:
@@ -55,6 +54,21 @@ def queue_dsn(database_url: str) -> str:
 
 class StillRunning(Exception):
     """Provider 仍在运行的调度信号，借重试策略安排下一次轮询，不代表生成失败。"""
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderLane:
+    """一家 provider 和它那条提交队列的并发上限。"""
+
+    provider: GenerationProvider
+    concurrency: int
+
+
+def _by_name(lanes: Sequence[ProviderLane]) -> Mapping[str, ProviderLane]:
+    by_name = {lane.provider.name: lane for lane in lanes}
+    if len(by_name) != len(lanes):
+        raise ValueError("同一个 provider 名字装配了两次")
+    return by_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +84,9 @@ class GenerationQueueSettings:
     job_timeout_seconds: int = 3600
     """提交后达到此时限仍无终态则失败，限制持续轮询的总时长。"""
 
-    submit_concurrency: int = 100
+    video_submit_concurrency: int = 100
+    """视频只有一家，它那条提交队列的并发不进配置。图片按家配，见 ProviderLane。"""
+
     poll_concurrency: int = 100
 
     shutdown_grace_seconds: int = 15
@@ -110,12 +126,13 @@ class GenerationQueue:
         self,
         repo: GenerationRepository,
         *,
-        providers: Mapping[GenerationKind, GenerationProvider],
+        lanes: Sequence[ProviderLane],
         connector: procrastinate.BaseConnector,
         settings: GenerationQueueSettings | None = None,
     ) -> None:
         self._repo = repo
-        self._providers = providers
+        # 键取自 provider 自己报的名字，与任务行上的 provider 列同源，装配期就撞出重名。
+        self._lanes: Mapping[str, ProviderLane] = _by_name(lanes)
         self._settings = settings or GenerationQueueSettings()
         self._app = procrastinate.App(connector=connector)
         self._workers: tuple[asyncio.Task[None], ...] = ()
@@ -123,8 +140,8 @@ class GenerationQueue:
         retry = _Retry(self._settings)
         self._submit = self._app.task(
             name="generation.submit",
-            # defer 时按生成类型覆盖队列。
-            queue=QUEUE_SUBMIT_VIDEO,
+            # 每次 defer 都按这一行的 provider 指定队列，这里的默认值不参与路由。
+            queue=QUEUE_POLL,
             retry=retry,
         )(self.run_submit)
         self._poll = self._app.task(
@@ -150,7 +167,7 @@ class GenerationQueue:
         """将任务加入对应提交队列；入库与排队分属不同事务，排队失败由服务层标记失败。"""
 
         await self._submit.configure(
-            queue=_SUBMIT_QUEUES[job.kind],
+            queue=submit_queue(job.provider),
             task_kwargs={"job_id": str(job.id)},
         ).defer_async()
 
@@ -165,15 +182,27 @@ class GenerationQueue:
         if job.status != STATUS_PENDING:
             _logger.info("生成任务已有结论，不再提交", job_id=job.id, status=job.status)
             return
+        # 查表在落 submitting 之前：装配里没有这家时，这一行还没占住「提交中」，
+        # 可以直接判失败并写明真实原因，而不是过一会儿被当成进程中断。
+        lane = self._lanes.get(job.provider)
+        if lane is None:
+            await self._not_configured(job, only_if_status=STATUS_PENDING)
+            return
 
         # 提交前持久化状态，确保请求中断后不会被视为未提交而重投。
         await self._repo.mark_submitting(job.id)
         try:
-            submission = await self._providers[job.kind].submit(job)
+            submission = await lane.provider.submit(job)
         except ProviderError as exc:
             # 提交阶段忽略 retryable 标记，防止请求已受理时重复计费。
             await self._repo.mark_failed(job.id, error_code=exc.code, error_message=str(exc))
-            _logger.warning("生成任务提交失败", job_id=job.id, code=exc.code, error=str(exc))
+            _logger.warning(
+                "生成任务提交失败",
+                job_id=job.id,
+                provider=job.provider,
+                code=exc.code,
+                error=str(exc),
+            )
             return
 
         if submission.output_url is not None:
@@ -214,9 +243,14 @@ class GenerationQueue:
                 ),
             )
             return
+        lane = self._lanes.get(job.provider)
+        if lane is None:
+            # 不接住就是 KeyError 逃进重试策略，而它不设次数上限，会一直重排到总时限。
+            await self._not_configured(job, only_if_status=STATUS_SUBMITTED)
+            return
 
         try:
-            progress = await self._providers[job.kind].poll(job)
+            progress = await lane.provider.poll(job)
         except ProviderError as exc:
             if exc.retryable:
                 raise
@@ -274,14 +308,13 @@ class GenerationQueue:
         await self.heal_stalled(skip_job_id=context.job.id)
 
     def start(self) -> None:
-        """幂等启动三个队列 worker。"""
+        """幂等启动 worker：每家 provider 一条提交队列，外加一条共用的轮询队列。"""
 
         if self._workers:
             return
         settings = self._settings
         lanes = (
-            (QUEUE_SUBMIT_IMAGE, settings.submit_concurrency),
-            (QUEUE_SUBMIT_VIDEO, settings.submit_concurrency),
+            *((submit_queue(name), lane.concurrency) for name, lane in self._lanes.items()),
             (QUEUE_POLL, settings.poll_concurrency),
         )
         self._workers = tuple(
@@ -320,6 +353,22 @@ class GenerationQueue:
                 "生成 worker 没在关停宽限期内收干净，不再等它", worker=worker.get_name()
             )
 
+    async def _not_configured(
+        self, job: GenerationJob, *, only_if_status: GenerationStatus
+    ) -> None:
+        """装配里没有这家，判失败并写明原因；条件更新避免覆盖并发写入的结果。"""
+
+        failed = await self._repo.mark_failed(
+            job.id,
+            error_code="PROVIDER_NOT_CONFIGURED",
+            error_message=f"装配里没有 {job.provider} 这家，本次不提交",
+            only_if_status=only_if_status,
+        )
+        if failed is None:
+            _logger.info("生成任务在收尾之前已有结论，不改它", job_id=job.id)
+            return
+        _logger.warning("生成任务的 provider 没配", job_id=job.id, provider=job.provider)
+
     async def _fail_stranded(self, job: GenerationJob) -> None:
         """将中断的 submitting 任务标记失败；条件更新避免覆盖原 worker 并发写入的结果。"""
 
@@ -345,10 +394,10 @@ class GenerationQueue:
 
 __all__ = [
     "QUEUE_POLL",
-    "QUEUE_SUBMIT_IMAGE",
-    "QUEUE_SUBMIT_VIDEO",
     "GenerationQueue",
     "GenerationQueueSettings",
+    "ProviderLane",
     "StillRunning",
     "queue_dsn",
+    "submit_queue",
 ]

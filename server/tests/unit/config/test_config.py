@@ -24,8 +24,7 @@ MANIFEST = (
     "VIDEO_SUBMIT_URL",
     "VIDEO_STATUS_BASE_URL",
     "VIDEO_API_KEY",
-    "IMAGE_TEXT_TO_IMAGE_URL",
-    "IMAGE_EDIT_URL",
+    "IMAGE_API_BASE",
     "OSS_BUCKET",
     "OSS_ENDPOINT",
     "OSS_ACCESS_KEY_ID",
@@ -258,14 +257,17 @@ media_generation:
     user_name: iclip-agent
   image:
     user_name: iclip-agent
+    models:
+      nano_banana_pro:
+        route: nano-banana-pro
+        concurrency: 4
 """
 
 MEDIA_ENV = {
     "VIDEO_SUBMIT_URL": "https://video.test/generate",
     "VIDEO_STATUS_BASE_URL": "https://video.test/tasks",
     "VIDEO_API_KEY": "vk",
-    "IMAGE_TEXT_TO_IMAGE_URL": "https://image.test/text-to-image",
-    "IMAGE_EDIT_URL": "https://image.test/image-edit",
+    "IMAGE_API_BASE": "https://image.test/atlas",
     "OSS_BUCKET": "iclip",
     "OSS_ENDPOINT": "https://oss.test",
     "OSS_ACCESS_KEY_ID": "ak",
@@ -308,14 +310,15 @@ def test_media_generation_resolves_both_providers_and_store(
     assert media is not None
     assert media.video_model == "seedance", "对方的模型名来自 YAML"
     assert media.video_allowed_models == ("seedance", "seedance-other")
-    assert media.image_text_to_image_url == "https://image.test/text-to-image"
-    assert media.image_edit_url == "https://image.test/image-edit"
+    assert [(model.name, model.api_base, model.concurrency) for model in media.image_models] == [
+        ("nano_banana_pro", "https://image.test/atlas/nano-banana-pro", 4)
+    ], "网关根地址与声明的路由段在这一层拼好"
     assert (media.poll_interval_seconds, media.job_timeout_seconds) == (5, 3600)
 
 
 @pytest.mark.parametrize(
     "missing",
-    ["VIDEO_STATUS_BASE_URL", "VIDEO_API_KEY", "IMAGE_EDIT_URL"],
+    ["VIDEO_STATUS_BASE_URL", "VIDEO_API_KEY", "IMAGE_API_BASE"],
 )
 def test_media_generation_half_configured_fails_loudly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str

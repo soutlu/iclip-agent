@@ -52,8 +52,11 @@ from iclip.domains.conversations.service import (
     GenerateTitle,
 )
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
-from iclip.domains.generation.module import GenerationModule, build_generation_module
-from iclip.domains.generation.nano_banana import NanoBananaSettings
+from iclip.domains.generation.module import (
+    GenerationModule,
+    ImageModelConfig,
+    build_generation_module,
+)
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
 from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.accounts import CookieAuthSettings
@@ -325,11 +328,13 @@ def _generation_module(
             model=settings.video_model,
             user_name=settings.video_user_name,
         ),
-        image=NanoBananaSettings(
-            text_to_image_url=settings.image_text_to_image_url,
-            image_edit_url=settings.image_edit_url,
-            user_name=settings.image_user_name,
+        image_models=tuple(
+            ImageModelConfig(
+                name=model.name, api_base=model.api_base, concurrency=model.concurrency
+            )
+            for model in settings.image_models
         ),
+        image_user_name=settings.image_user_name,
         object_store=object_store,
         queue_connector=(
             queue_connector

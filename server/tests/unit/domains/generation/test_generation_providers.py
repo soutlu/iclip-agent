@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from iclip.domains.generation.image_upstream import task_url
 from iclip.domains.generation.nano_banana import (
     NanoBananaImageProvider,
     NanoBananaSettings,
@@ -22,13 +23,10 @@ VIDEO_SETTINGS = VideoProviderSettings(
     model="moyu-seedance-2-5",
     user_name="iclip-agent",
 )
-IMAGE_TEXT_TO_IMAGE_URL = "https://image.test/text-to-image"
-IMAGE_EDIT_URL = "https://image.test/image-edit"
-IMAGE_SETTINGS = NanoBananaSettings(
-    text_to_image_url=IMAGE_TEXT_TO_IMAGE_URL,
-    image_edit_url=IMAGE_EDIT_URL,
-    user_name="iclip-agent",
-)
+IMAGE_API_BASE = "https://image.test/nano-banana-pro"
+IMAGE_TEXT_TO_IMAGE_URL = task_url(IMAGE_API_BASE, editing=False)
+IMAGE_EDIT_URL = task_url(IMAGE_API_BASE, editing=True)
+IMAGE_SETTINGS = NanoBananaSettings(api_base=IMAGE_API_BASE, user_name="iclip-agent")
 
 
 def video_provider(handler: object, *, store: MemoryObjectStore | None = None) -> HttpVideoProvider:

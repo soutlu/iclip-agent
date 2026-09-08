@@ -20,12 +20,20 @@ from iclip.domains.generation.models import (
 )
 from iclip.domains.generation.provider import ProviderSubmission
 from iclip.domains.generation.queue import (
-    QUEUE_SUBMIT_IMAGE,
     GenerationQueue,
     GenerationQueueSettings,
+    ProviderLane,
     queue_dsn,
+    submit_queue,
 )
-from tests.helpers.generation import ScriptedProvider, image_request, make_job, video_request
+from tests.helpers.generation import (
+    FAKE_IMAGE_PROVIDER,
+    FAKE_VIDEO_PROVIDER,
+    ScriptedProvider,
+    image_request,
+    make_job,
+    video_request,
+)
 from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 
 # 缩短调度间隔以验证完整链路，默认间隔由配置测试覆盖。
@@ -62,9 +70,11 @@ async def queue_factory(engine: AsyncEngine, migrated_pg: str) -> AsyncGenerator
     opened: list[GenerationQueue] = []
 
     async def make(*, video: ScriptedProvider, image: ScriptedProvider) -> GenerationQueue:
+        video.provider_name = FAKE_VIDEO_PROVIDER
+        image.provider_name = FAKE_IMAGE_PROVIDER
         queue = GenerationQueue(
             SqlGenerationRepository(engine),
-            providers={"video": video, "image": image},  # type: ignore[arg-type]
+            lanes=(ProviderLane(video, 1), ProviderLane(image, 1)),
             connector=procrastinate.PsycopgConnector(conninfo=queue_dsn(migrated_pg)),
             settings=SETTINGS,
         )
@@ -242,7 +252,9 @@ async def test_a_hard_killed_worker_is_found_by_heartbeat(
     await queue.enqueue_submit(job)
 
     worker_id = await queue.app.job_manager.register_worker()
-    queued = await queue.app.job_manager.fetch_job(queues=[QUEUE_SUBMIT_IMAGE], worker_id=worker_id)
+    queued = await queue.app.job_manager.fetch_job(
+        queues=[submit_queue(FAKE_IMAGE_PROVIDER)], worker_id=worker_id
+    )
     assert queued is not None and queued.id is not None
     assert await _submit_task_statuses(engine) == ["doing"]
 

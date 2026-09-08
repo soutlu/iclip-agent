@@ -114,14 +114,13 @@ class ObjectStoreEnv(EnvSettings):
 class MediaGenerationEnv(EnvSettings):
     """两家生成接口的地址与凭证。只在总开关非空时才构造，所以这里全是必需的。
 
-    图片那两个地址要**完整的**（含路径）：接口路由不留在仓里，这是个公开仓。
+    图片那个地址是网关根，每家的路由段与并发在 ``ImageGenerationSection`` 里声明。
     """
 
     video_submit_url: RequiredEnv = Field(validation_alias=VIDEO_SUBMIT_URL_ENV)
     video_status_base_url: RequiredEnv = Field(validation_alias="VIDEO_STATUS_BASE_URL")
     video_api_key: RequiredEnv = Field(validation_alias="VIDEO_API_KEY")
-    image_text_to_image_url: RequiredEnv = Field(validation_alias="IMAGE_TEXT_TO_IMAGE_URL")
-    image_edit_url: RequiredEnv = Field(validation_alias="IMAGE_EDIT_URL")
+    image_api_base: RequiredEnv = Field(validation_alias="IMAGE_API_BASE")
 
 
 class VideoUnderstandingEnv(EnvSettings):
@@ -230,10 +229,22 @@ class VideoGenerationSection(ConfigSection):
         return self
 
 
+class ImageModelSection(ConfigSection):
+    """一家图片模型。``route`` 拼在 ``IMAGE_API_BASE`` 后面构成它的地址。"""
+
+    route: str = Field(min_length=1)
+    concurrency: int = Field(gt=0)
+    """这家同时最多挂几个提交。一家一条队列，慢的一家占满自己的槽位不拖别家。"""
+
+
 class ImageGenerationSection(ConfigSection):
-    """图像生成里对方约定的取值。地址在 ``MediaGenerationEnv``。"""
+    """图像生成接入了哪几家，以及对方约定的调用方标识。
+
+    键名即落库的 provider 名，也是这家那条提交队列的名字，改名会让历史记录对不上。
+    """
 
     user_name: str
+    models: dict[str, ImageModelSection] = Field(min_length=1)
 
 
 class MediaGenerationSection(ConfigSection):
@@ -242,8 +253,9 @@ class MediaGenerationSection(ConfigSection):
     整项能力的开关在环境里（``VIDEO_SUBMIT_URL`` 为空即关闭），不在这份文件
     里。关闭时 ``/generations`` 不挂载、后台也不跑。
 
-    只暴露两个节奏参数：查得多勤、多久算超时。并发与关停宽限是实现细节（按「纯等
-    待」定的高值），默认值在 ``GenerationQueueSettings`` 里，真要调再往上抬。
+    节奏参数只暴露两个：查得多勤、多久算超时。图片的并发按家声明在 ``image.models``
+    里；轮询、视频提交与关停宽限是实现细节（按「纯等待」定的高值），默认值在
+    ``GenerationQueueSettings`` 里，真要调再往上抬。
     """
 
     video: VideoGenerationSection
@@ -402,6 +414,15 @@ class ResolvedSso:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedImageModel:
+    """一家图片模型的运行值：网关根地址与声明的路由段已经拼好。"""
+
+    name: str
+    api_base: str
+    concurrency: int
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedMediaGeneration:
     """媒体生成的运行值：env 里的地址凭证 + YAML 里的取值与节奏。"""
 
@@ -411,8 +432,7 @@ class ResolvedMediaGeneration:
     video_model: str
     video_allowed_models: tuple[str, ...]
     video_user_name: str
-    image_text_to_image_url: str
-    image_edit_url: str
+    image_models: tuple[ResolvedImageModel, ...]
     image_user_name: str
     poll_interval_seconds: int
     job_timeout_seconds: int
@@ -546,8 +566,14 @@ def _resolve_media_generation(
         video_model=section.video.model,
         video_allowed_models=section.video.allowed_models,
         video_user_name=section.video.user_name,
-        image_text_to_image_url=env.image_text_to_image_url,
-        image_edit_url=env.image_edit_url,
+        image_models=tuple(
+            ResolvedImageModel(
+                name=name,
+                api_base=f"{env.image_api_base.rstrip('/')}/{model.route.strip('/')}",
+                concurrency=model.concurrency,
+            )
+            for name, model in section.image.models.items()
+        ),
         image_user_name=section.image.user_name,
         poll_interval_seconds=section.poll_interval_seconds,
         job_timeout_seconds=section.job_timeout_seconds,

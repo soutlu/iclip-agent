@@ -1,7 +1,7 @@
 """同步图像生成适配器。无参考图调用文生图接口，有参考图调用编辑接口；不支持轮询。
 
-完整接口地址由环境变量提供。提交、读结果地址与转存三段是各家图像 provider 共用的，
-在 image_upstream.py；这里只剩这家自己的地址、payload 与超时。
+地址由组合根按「网关根地址 + 这家的路由段」拼好传进来。提交、读结果地址与转存三段是
+各家图像 provider 共用的，在 image_upstream.py；这里只剩这家自己的 payload 与超时。
 生成接口没有幂等键，不自动重试或切换渠道，避免重复计费或改变调用方选择的价格。"""
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from iclip.domains.generation.image_upstream import (
     post_generation,
     read_output_url,
     store_result,
+    task_url,
 )
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.provider import (
@@ -36,11 +37,8 @@ _GENERATE_TIMEOUT_SECONDS: Final = 300.0
 class NanoBananaSettings:
     """由组合根从环境变量解析后传入的运行值。"""
 
-    text_to_image_url: str
-    """包含路径的文生图地址，由环境变量提供。"""
-
-    image_edit_url: str
-    """包含路径的图像编辑地址，由环境变量提供。"""
+    api_base: str
+    """这家在网关上的地址，两条任务路由拼在它后面。"""
 
     user_name: str
     """Provider 要求的稳定调用方标识，用于对账。"""
@@ -104,7 +102,7 @@ class NanoBananaImageProvider:
         """这家自己的那一段：按有无参考图选端点，把领域请求拼成上游 payload。"""
 
         references = list(request.reference_image_urls)
-        url = self._settings.image_edit_url if references else self._settings.text_to_image_url
+        url = task_url(self._settings.api_base, editing=bool(references))
         payload: dict[str, Any] = {
             "data_id": str(job.id),
             "user_name": self._user_name,

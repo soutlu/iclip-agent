@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,22 +14,24 @@ from iclip.domains.generation.models import (
     STATUS_FAILED,
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
+    GenerationJob,
 )
 from iclip.domains.generation.provider import (
-    GenerationProvider,
     ProviderError,
     ProviderProgress,
     ProviderSubmission,
 )
 from iclip.domains.generation.queue import (
     QUEUE_POLL,
-    QUEUE_SUBMIT_IMAGE,
-    QUEUE_SUBMIT_VIDEO,
     GenerationQueue,
     GenerationQueueSettings,
+    ProviderLane,
     StillRunning,
+    submit_queue,
 )
 from tests.helpers.generation import (
+    FAKE_IMAGE_PROVIDER,
+    FAKE_VIDEO_PROVIDER,
     InMemoryGenerationRepository,
     ScriptedProvider,
     image_request,
@@ -46,15 +49,20 @@ def build_queue(
     *,
     video: ScriptedProvider | None = None,
     image: ScriptedProvider | None = None,
+    lanes: tuple[ProviderLane, ...] | None = None,
 ) -> tuple[GenerationQueue, InMemoryConnector]:
-    providers: dict[str, GenerationProvider] = {
-        "video": video or ScriptedProvider(),
-        "image": image or ScriptedProvider(),
-    }
+    """两家替身各占一条 lane，名字与 make_job 落到 provider 列上的值一致。"""
+
+    if lanes is None:
+        video_double = video or ScriptedProvider()
+        video_double.provider_name = FAKE_VIDEO_PROVIDER
+        image_double = image or ScriptedProvider()
+        image_double.provider_name = FAKE_IMAGE_PROVIDER
+        lanes = (ProviderLane(video_double, 1), ProviderLane(image_double, 1))
     connector = InMemoryConnector()
     queue = GenerationQueue(
         repo,
-        providers=providers,  # type: ignore[arg-type]
+        lanes=lanes,
         connector=connector,
         settings=SETTINGS,
     )
@@ -352,8 +360,57 @@ async def test_async_submit_keeps_the_original_submitted_at() -> None:
     assert repo.jobs[job.id].submitted_at == submitted_at
 
 
-async def test_each_kind_goes_to_its_own_queue() -> None:
-    """图像与视频提交耗时不同，须进入各自有 worker 消费的队列。"""
+async def test_submit_fails_loudly_when_the_provider_is_not_assembled() -> None:
+    """行上的 provider 不在装配表里：直接判失败写明原因，不占住「提交中」。"""
+
+    marked_submitting: list[uuid.UUID] = []
+
+    class Recording(InMemoryGenerationRepository):
+        async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
+            marked_submitting.append(job_id)
+            return await super().mark_submitting(job_id)
+
+    job = make_job(image_request(), provider="没配过的一家")
+    repo = Recording([job])
+    image = ScriptedProvider(
+        submission=ProviderSubmission(provider_task_id="t-1", provider_status="succeeded")
+    )
+    queue, _ = build_queue(repo, image=image)
+
+    await queue.run_submit(str(job.id))
+
+    stored = repo.jobs[job.id]
+    assert stored.status == STATUS_FAILED
+    assert stored.error_code == "PROVIDER_NOT_CONFIGURED"
+    assert marked_submitting == [], "没配的家不该先占住 submitting"
+    assert image.submit_calls == [], "别家的适配器不能替它提交"
+
+
+async def test_poll_fails_loudly_when_the_provider_is_not_assembled() -> None:
+    """轮询这一侧同样要接住：漏了就是无上限重排，一直排到总时限才收尾。"""
+
+    job = make_job(
+        video_request(),
+        status=STATUS_SUBMITTED,
+        provider="没配过的一家",
+        provider_task_id="t-1",
+    )
+    repo = InMemoryGenerationRepository([job])
+    video = ScriptedProvider(
+        progress=ProviderProgress(outcome="running", provider_status="running")
+    )
+    queue, _ = build_queue(repo, video=video)
+
+    await queue.run_poll(str(job.id))
+
+    stored = repo.jobs[job.id]
+    assert stored.status == STATUS_FAILED
+    assert stored.error_code == "PROVIDER_NOT_CONFIGURED"
+    assert video.poll_calls == []
+
+
+async def test_each_provider_goes_to_its_own_queue() -> None:
+    """一家一条队列：慢的一家占满自己的槽位，不拖住别家。"""
 
     video = make_job(video_request())
     image = make_job(image_request())
@@ -364,7 +421,7 @@ async def test_each_kind_goes_to_its_own_queue() -> None:
     await queue.enqueue_submit(image)
 
     routed = {row["queue_name"] for row in connector.jobs.values()}
-    assert routed == {QUEUE_SUBMIT_VIDEO, QUEUE_SUBMIT_IMAGE}
+    assert routed == {submit_queue(FAKE_VIDEO_PROVIDER), submit_queue(FAKE_IMAGE_PROVIDER)}
 
 
 async def test_stalled_job_of_a_dead_worker_is_picked_back_up() -> None:
@@ -377,7 +434,9 @@ async def test_stalled_job_of_a_dead_worker_is_picked_back_up() -> None:
 
     # 模拟任务已认领且 worker 心跳过期。
     worker_id = await queue.app.job_manager.register_worker()
-    queued = await queue.app.job_manager.fetch_job(queues=[QUEUE_SUBMIT_VIDEO], worker_id=worker_id)
+    queued = await queue.app.job_manager.fetch_job(
+        queues=[submit_queue(FAKE_VIDEO_PROVIDER)], worker_id=worker_id
+    )
     assert queued is not None and queued.id is not None
     assert connector.jobs[queued.id]["status"] == "doing"
     connector.workers[worker_id] = datetime.now(UTC) - timedelta(
@@ -397,7 +456,9 @@ async def test_healer_leaves_a_live_workers_job_alone() -> None:
     await queue.enqueue_submit(job)
 
     worker_id = await queue.app.job_manager.register_worker()
-    queued = await queue.app.job_manager.fetch_job(queues=[QUEUE_SUBMIT_IMAGE], worker_id=worker_id)
+    queued = await queue.app.job_manager.fetch_job(
+        queues=[submit_queue(FAKE_IMAGE_PROVIDER)], worker_id=worker_id
+    )
     assert queued is not None and queued.id is not None
 
     assert await queue.heal_stalled() == 0
