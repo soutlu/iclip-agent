@@ -26,6 +26,7 @@ media_generation:
     user_name: iclip-agent # 供应方对账使用的稳定调用方标识
   image:
     user_name: iclip-agent
+    default: nano_banana_pro # 请求省略 model 时用哪家
     # 键名即落库的 provider 名；route 拼在 IMAGE_API_BASE 后面。
     # concurrency 是这家同时最多挂几个提交，一家一条队列，互不占用。
     models:

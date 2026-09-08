@@ -334,6 +334,7 @@ def _generation_module(
             )
             for model in settings.image_models
         ),
+        image_default_model=settings.image_default_model,
         image_user_name=settings.image_user_name,
         object_store=object_store,
         queue_connector=(
@@ -521,6 +522,7 @@ def build_app(
         material_ledger=material_ledger,
         http_client=http_client,
         generation_service=generation.service if generation is not None else None,
+        image_models=generation.image_models if generation is not None else frozenset(),
         object_store=public_objects,
         shot_video=settings.shot_video,
     )

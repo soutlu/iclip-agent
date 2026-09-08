@@ -472,14 +472,36 @@ export const zImageContent = z.object({
  */
 export const zImageGenerationIn = z.object({
   aspectRatio: z.enum(['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']),
-  channel: z.enum(['dev', 'pro']).optional().default('dev'),
+  channel: z.enum(['dev', 'pro']).nullish(),
   conversationId: z.uuid().nullish(),
   frameNumber: z.int().gte(1).nullish(),
   kind: z.literal('image').optional().default('image'),
+  model: z.string().min(1).max(200).nullish(),
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
   resolution: z.enum(['1k', '2k', '4k']).optional().default('1k'),
   shotIndex: z.int().nullish(),
+})
+
+/**
+ * ImageModelOut
+ *
+ * 一家图片模型对外声明的能力。调用方照它决定能填什么，受理层照同一份声明拦。
+ */
+export const zImageModelOut = z.object({
+  aspectRatios: z.array(z.string()),
+  channels: z.array(z.string()),
+  label: z.string(),
+  model: z.string(),
+  resolutions: z.array(z.string()),
+})
+
+/**
+ * ImageModelsOut
+ */
+export const zImageModelsOut = z.object({
+  default: z.string(),
+  items: z.array(zImageModelOut),
 })
 
 /**
@@ -1775,6 +1797,11 @@ export const zSubmitGenerationsPostBody = z.discriminatedUnion('kind', [
  * Successful Response
  */
 export const zSubmitGenerationsPostResponse = zGenerationEnvelope
+
+/**
+ * Successful Response
+ */
+export const zListImageModelsGenerationsImageModelsGetResponse = zImageModelsOut
 
 export const zGetGenerationGenerationsJobIdGetPath = z.object({
   job_id: z.uuid(),

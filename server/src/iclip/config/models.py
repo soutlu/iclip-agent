@@ -244,7 +244,15 @@ class ImageGenerationSection(ConfigSection):
     """
 
     user_name: str
+    default: str
+    """请求省略 ``model`` 时用哪家。"""
     models: dict[str, ImageModelSection] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _default_is_declared(self) -> ImageGenerationSection:
+        if self.default not in self.models:
+            raise ValueError("image.default 必须是 image.models 里的一个键")
+        return self
 
 
 class MediaGenerationSection(ConfigSection):
@@ -433,6 +441,7 @@ class ResolvedMediaGeneration:
     video_allowed_models: tuple[str, ...]
     video_user_name: str
     image_models: tuple[ResolvedImageModel, ...]
+    image_default_model: str
     image_user_name: str
     poll_interval_seconds: int
     job_timeout_seconds: int
@@ -574,6 +583,7 @@ def _resolve_media_generation(
             )
             for name, model in section.image.models.items()
         ),
+        image_default_model=section.image.default,
         image_user_name=section.image.user_name,
         poll_interval_seconds=section.poll_interval_seconds,
         job_timeout_seconds=section.job_timeout_seconds,

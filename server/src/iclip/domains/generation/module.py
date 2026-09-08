@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 import httpx
 import procrastinate
@@ -14,10 +14,13 @@ from iclip.domains.generation.nano_banana import (
     PROVIDER_NAME as NANO_BANANA_PRO,
 )
 from iclip.domains.generation.nano_banana import (
+    SPEC as NANO_BANANA_PRO_SPEC,
+)
+from iclip.domains.generation.nano_banana import (
     NanoBananaImageProvider,
     NanoBananaSettings,
 )
-from iclip.domains.generation.provider import GenerationProvider
+from iclip.domains.generation.provider import GenerationProvider, ImageModelSpec
 from iclip.domains.generation.queue import (
     GenerationQueue,
     GenerationQueueSettings,
@@ -52,6 +55,9 @@ class GenerationModule:
     service: GenerationService
     queue: GenerationQueue
 
+    image_models: frozenset[str]
+    """装配好的图片模型名，供组合根校验别处钉死的那家在不在里面。"""
+
 
 def build_generation_module(
     repo: GenerationRepository,
@@ -59,6 +65,7 @@ def build_generation_module(
     video: VideoProviderSettings,
     video_allowed_models: tuple[str, ...],
     image_models: Sequence[ImageModelConfig],
+    image_default_model: str,
     image_user_name: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector,
@@ -70,6 +77,11 @@ def build_generation_module(
 
     if not image_models:
         raise RuntimeError("媒体生成开着却一家图片模型都没声明")
+    declared = [model.name for model in image_models]
+    if image_default_model not in declared:
+        raise RuntimeError(
+            f"默认图片模型 {image_default_model} 不在声明的那几家里（{'、'.join(declared)}）"
+        )
     settings = queue_settings or GenerationQueueSettings()
     video_provider = HttpVideoProvider(video, object_store=object_store, transport=video_transport)
     image_providers = [
@@ -97,8 +109,8 @@ def build_generation_module(
         repo,
         queue,
         video_provider_name=video_provider.name,
-        # 受理层现在把每次图片生成都记到第一家名下；按请求选哪一家属于对外合同那一层。
-        image_provider_name=image_providers[0].name,
+        image_models={name: IMAGE_MODEL_SPECS[name] for name in declared},
+        image_default_model=image_default_model,
         video_model=video.model,
         video_allowed_models=video_allowed_models,
     )
@@ -106,7 +118,12 @@ def build_generation_module(
         routers=(create_generations_router(service),),
         service=service,
         queue=queue,
+        image_models=frozenset(declared),
     )
+
+
+IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {NANO_BANANA_PRO: NANO_BANANA_PRO_SPEC}
+"""有适配器的那几家图片模型及其能力声明。加一家＝这里一行，加一支 _image_provider 分支。"""
 
 
 def _image_provider(
@@ -118,13 +135,20 @@ def _image_provider(
 ) -> GenerationProvider:
     """按声明的名字建这家的适配器；名字没有对应实现就在装配期报错。"""
 
-    if model.name != NANO_BANANA_PRO:
-        raise RuntimeError(f"没有 {model.name} 这家图片模型的适配器（现有：{NANO_BANANA_PRO}）")
-    return NanoBananaImageProvider(
-        NanoBananaSettings(api_base=model.api_base, user_name=user_name),
-        object_store=object_store,
-        transport=transport,
+    if model.name == NANO_BANANA_PRO:
+        return NanoBananaImageProvider(
+            NanoBananaSettings(api_base=model.api_base, user_name=user_name),
+            object_store=object_store,
+            transport=transport,
+        )
+    raise RuntimeError(
+        f"没有 {model.name} 这家图片模型的适配器（现有：{'、'.join(IMAGE_MODEL_SPECS)}）"
     )
 
 
-__all__ = ["GenerationModule", "ImageModelConfig", "build_generation_module"]
+__all__ = [
+    "IMAGE_MODEL_SPECS",
+    "GenerationModule",
+    "ImageModelConfig",
+    "build_generation_module",
+]

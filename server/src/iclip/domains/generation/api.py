@@ -11,6 +11,8 @@ from iclip.domains.generation.schemas import (
     GenerationEnvelope,
     GenerationIn,
     GenerationsPageOut,
+    ImageModelOut,
+    ImageModelsOut,
     generation_out,
 )
 from iclip.domains.generation.service import GenerationService
@@ -50,6 +52,28 @@ def create_generations_router(service: GenerationService) -> APIRouter:
             before=before,
         )
         return GenerationsPageOut(items=[generation_out(job) for job in jobs])
+
+    # 必须声明在 /{job_id} 之前，否则被路径参数吞掉。
+    @router.get("/image-models", response_model=ImageModelsOut)
+    async def list_image_models(
+        principal: Annotated[Principal, Depends(require_permission("generation:read"))],
+    ) -> ImageModelsOut:
+        """列出接入了哪几家图片模型与各家支持的档位；受理层照同一份声明校验。"""
+
+        default, models = service.image_models()
+        return ImageModelsOut(
+            default=default,
+            items=[
+                ImageModelOut(
+                    model=name,
+                    label=spec.label,
+                    aspect_ratios=spec.aspect_ratios,
+                    resolutions=spec.resolutions,
+                    channels=spec.channels,
+                )
+                for name, spec in models
+            ],
+        )
 
     @router.get("/{job_id}", response_model=GenerationEnvelope)
     async def get_generation(

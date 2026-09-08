@@ -121,6 +121,7 @@ def config_with_media() -> RuntimeConfig:
                 ),
                 image=ImageGenerationSection(
                     user_name="iclip-agent",
+                    default="nano_banana_pro",
                     models={
                         "nano_banana_pro": ImageModelSection(route="nano-banana-pro", concurrency=4)
                     },

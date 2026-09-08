@@ -1659,13 +1659,19 @@
             "type": "string"
           },
           "channel": {
-            "default": "dev",
-            "enum": [
-              "dev",
-              "pro"
+            "anyOf": [
+              {
+                "enum": [
+                  "dev",
+                  "pro"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Channel",
-            "type": "string"
+            "title": "Channel"
           },
           "conversationId": {
             "anyOf": [
@@ -1696,6 +1702,19 @@
             "default": "image",
             "title": "Kind",
             "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
           },
           "prompt": {
             "maxLength": 4000,
@@ -1739,6 +1758,72 @@
           "aspectRatio"
         ],
         "title": "ImageGenerationIn",
+        "type": "object"
+      },
+      "ImageModelOut": {
+        "additionalProperties": false,
+        "description": "一家图片模型对外声明的能力。调用方照它决定能填什么，受理层照同一份声明拦。",
+        "properties": {
+          "aspectRatios": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aspectratios",
+            "type": "array"
+          },
+          "channels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "resolutions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resolutions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "model",
+          "label",
+          "aspectRatios",
+          "resolutions",
+          "channels"
+        ],
+        "title": "ImageModelOut",
+        "type": "object"
+      },
+      "ImageModelsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImageModelOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "default",
+          "items"
+        ],
+        "title": "ImageModelsOut",
         "type": "object"
       },
       "ImageOut": {
@@ -7392,6 +7477,25 @@
           }
         },
         "summary": "Submit"
+      }
+    },
+    "/generations/image-models": {
+      "get": {
+        "description": "列出接入了哪几家图片模型与各家支持的档位；受理层照同一份声明校验。",
+        "operationId": "list_image_models_generations_image_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageModelsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Image Models"
       }
     },
     "/generations/{job_id}": {

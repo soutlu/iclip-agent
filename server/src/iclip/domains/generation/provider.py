@@ -22,6 +22,21 @@ class ProviderError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class ImageModelSpec:
+    """一家图片模型自报的能力。受理层照它拦请求，能力清单端点照它对外声明，只有这一份。"""
+
+    label: str
+    """给人看的模型名。"""
+
+    aspect_ratios: tuple[str, ...]
+    resolutions: tuple[str, ...]
+    """按全局枚举的顺序声明——端点原样输出，顺序不能随哈希漂。"""
+
+    channels: tuple[str, ...]
+    """空元组表示这家没有渠道这个轴；非空时第一个是请求省略 channel 时使用的值。"""
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderSubmission:
     """Provider 提交回执。"""
 
@@ -64,6 +79,7 @@ class GenerationProvider(Protocol):
 
 __all__ = [
     "GenerationProvider",
+    "ImageModelSpec",
     "ProviderError",
     "ProviderOutcome",
     "ProviderProgress",
