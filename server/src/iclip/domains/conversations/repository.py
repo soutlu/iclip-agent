@@ -34,7 +34,8 @@ class ConversationRepository(Protocol):
         """按 id 幂等插入一行新对话。
 
         返回落库后的整行与「本次是否新建」；id 已存在时不写入，返回已有那一行。
-        已存在那一行属于别人时抛 ``NotFound``，与按 id 读别人的对话一致。"""
+        已存在那一行属于别人，或这个 id 对应的对话已删除时抛 ``NotFound``。
+        已使用的 id 永不重新分配，避免新对话接上保留的运行历史。"""
         ...
 
     async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:

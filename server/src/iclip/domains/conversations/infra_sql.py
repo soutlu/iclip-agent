@@ -37,6 +37,13 @@ DB_SCHEMA: Final = "iclip"
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
 
+# 不关联用户或对话外键：业务行删除后仍须阻止 ID 重新绑定保留的运行历史。
+conversation_ids_table = Table(
+    "conversation_ids",
+    metadata_obj,
+    Column("id", Uuid, primary_key=True),
+)
+
 conversations_table = Table(
     "conversations",
     metadata_obj,
@@ -144,6 +151,12 @@ class SqlConversationRepository:
         self._engine = engine
 
     async def create_if_absent(self, conversation: Conversation) -> tuple[Conversation, bool]:
+        claim_id = (
+            pg_insert(conversation_ids_table)
+            .values(id=conversation.id)
+            .on_conflict_do_nothing(index_elements=[conversation_ids_table.c.id])
+            .returning(conversation_ids_table.c.id)
+        )
         statement = (
             pg_insert(conversations_table)
             .values(
@@ -158,17 +171,21 @@ class SqlConversationRepository:
                 created_at=func.now(),
                 updated_at=func.now(),
             )
-            # 主键冲突交给幂等分支，剩下的 IntegrityError 才真的是归属引用不存在。
-            .on_conflict_do_nothing(index_elements=[_ROWS.id])
             .returning(*conversations_table.c)
         )
         try:
             async with self._engine.begin() as conn:
-                row = (await conn.execute(statement)).mappings().one_or_none()
+                claimed = (await conn.execute(claim_id)).scalar_one_or_none()
+                # 认领与业务插入共用事务：失败不占用 ID，并发重发只允许一个新建。
+                row = (
+                    (await conn.execute(statement)).mappings().one()
+                    if claimed is not None
+                    else None
+                )
         except IntegrityError as exc:
             raise _reject_missing_reference(exc) from exc
         if row is None:
-            # id 已存在：不写入，把已有那一段交回去；别人的对话一律 NotFound。
+            # ID 已用过：只返回属主仍存在的对话；已删除或属于别人均为 NotFound。
             return await self.get(conversation.id, owner=conversation.owner_user_id), False
         return _row(row), True
 

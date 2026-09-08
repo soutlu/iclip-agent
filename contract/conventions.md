@@ -20,7 +20,7 @@
 
 - **命名**：业务 HTTP API 的请求体、查询参数和响应使用 camelCase。既有例外是 SSO `authorization_url`、注册接口的用户状态字段，以及 §5 的 Transcript 协议字段；消费者按生成合同取名，新业务端点不沿用这些例外。
 - **时间**：时间戳使用 ISO 8601 UTC。
-- **标识**：资源 ID、游标与协议 ID 按各自合同使用，不从 URL、显示名称或序号推导资源身份。客户端 `prompt_id` 是消息幂等键；会话和运行 ID 由服务端发放，轮 ID 则是 Transcript 内的顺序标识。
+- **标识**：资源 ID、游标与协议 ID 按各自合同使用，不从 URL、显示名称或序号推导资源身份。客户端 `prompt_id` 是消息幂等键；对话和需求单 ID 可由调用方提供，运行 ID 由服务端发放，轮 ID 则是 Transcript 内的顺序标识。
 
 ## 4. 错误处理与响应信封
 
@@ -157,7 +157,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 **权限**：会话列表、搜索、审计和工作区读取需要 `agent:read`；创建、修改、删除与工作区写入需要 `agent:run`。Transcript 的历史、消息队列与订阅另按 §5，需要 `agent:run`。
 
-- `POST /conversations` 的 `id` 可由调用方给，缺省由服务端生成。带 `id` 重发同一个值**不新建第二段对话**，答复已有那一段并把状态码降为 `200`（新建仍 `201`）；这个 id 属于别人的对话时是 `404`，与按 id 读别人的对话一致。
+- `POST /conversations` 的 `id` 可由调用方给，缺省由服务端生成。带 `id` 重发同一个值**不新建第二段对话**，答复已有那一段并把状态码降为 `200`（新建仍 `201`）；这个 id 属于别人的对话时是 `404`，与按 id 读别人的对话一致。对话删除后 ID 仍保留，任何人重用都返回 `404`；新对话必须换一个 ID。
 - `GET /conversations` 返回自己的侧栏拓扑：合集及各自第一页对话、未分组合的第一页对话。对话按最近活动倒序，空合集也保留。
 - **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
 - `GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}` 都收 `state`，三值 `all`（默认）/ `running` / `done`。`running` 是有轮次正在跑（含等审批），`done` 是没在跑而且跑完过至少一轮；从没发过消息的对话两边都不在，只出现在 `all` 里。`ungroupedCount` 与每个合集的 `conversationCount` 按同一个筛选算。

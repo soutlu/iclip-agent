@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 
 import httpx
 from fastapi import FastAPI
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai_harness.step_persistence import ContinuableSnapshot, RunRecord, StepEvent
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.schemas import DEFAULT_TITLE
+from iclip.harness.step_store_pg import PgStepStore
 from tests.integration_no_llm.conftest import (
     make_client,
     register_and_login,
@@ -88,6 +92,28 @@ async def test_client_minted_id_is_idempotent(client: httpx.AsyncClient, pg_url:
     assert [item["id"] for item in listed.json()["items"]] == [minted]
 
 
+async def test_concurrent_client_minted_id_creates_one_conversation(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """同时提交同一 ID 时仅一个请求新建，另一个读取获胜请求的完整记录。"""
+
+    await login_as_editor(client, pg_url)
+    minted = str(uuid.uuid4())
+
+    first, second = await asyncio.gather(
+        create(client, id=minted, title="第一次提交"),
+        create(client, id=minted, title="同时提交"),
+    )
+
+    assert sorted([first.status_code, second.status_code]) == [200, 201], (
+        first.text,
+        second.text,
+    )
+    assert first.json()["conversation"] == second.json()["conversation"]
+    listed = await client.get(SEARCH)
+    assert [item["id"] for item in listed.json()["items"]] == [minted]
+
+
 async def test_client_minted_id_of_another_owner_is_not_handed_over(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
@@ -104,6 +130,65 @@ async def test_client_minted_id_of_another_owner_is_not_handed_over(
         assert (await other.get(SEARCH)).json()["items"] == []
 
 
+async def test_deleted_client_minted_id_cannot_reassign_retained_history(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """删除保留历史，但原属主和其他用户都不能重新认领这段对话的 ID。"""
+
+    await login_as_editor(client, pg_url)
+    minted = str(uuid.uuid4())
+    opened = await create(client, id=minted)
+    assert opened.status_code == 201, opened.text
+    run_id = f"storyboard-{uuid.uuid4().hex[:8]}"
+    original_text = "原属主的私有创作要求"
+    engine = create_async_engine(pg_url)
+    try:
+        store = PgStepStore(engine)
+        await store.register_run(RunRecord(run_id=run_id, conversation_id=minted))
+        await store.append_event(
+            StepEvent(run_id=run_id, conversation_id=minted, kind="run_completed", step_index=1)
+        )
+        await store.save_snapshot(
+            ContinuableSnapshot(
+                run_id=run_id,
+                conversation_id=minted,
+                step_index=1,
+                messages=[
+                    ModelRequest(parts=[UserPromptPart(original_text)], run_id=run_id),
+                    ModelResponse(parts=[TextPart("已记录。")], run_id=run_id),
+                ],
+            )
+        )
+        history = await client.get(f"{URL}/{minted}/transcript")
+        assert history.status_code == 200, history.text
+        assert history.json()["items"][0]["content"] == [{"type": "text", "text": original_text}]
+
+        removed = await client.delete(f"{URL}/{minted}")
+        assert removed.status_code == 204, removed.text
+
+        async with make_client(app) as other:
+            await login_as_editor(other, pg_url, username="mia")
+            for caller in (other, client):
+                recreated = await create(caller, id=minted)
+                assert recreated.status_code == 404, recreated.text
+                hidden = await caller.get(f"{URL}/{minted}/transcript")
+                assert hidden.status_code == 404, hidden.text
+                assert (await caller.get(SEARCH)).json()["items"] == []
+
+        retained = await store.latest_conversation_snapshot(conversation_id=minted)
+        assert retained is not None
+        prompts = [
+            part.content
+            for message in retained.messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        ]
+        assert prompts == [original_text]
+    finally:
+        await engine.dispose()
+
+
 async def test_missing_attribution_is_still_reported_as_such(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
@@ -111,15 +196,20 @@ async def test_missing_attribution_is_still_reported_as_such(
 
     await login_as_editor(client, pg_url)
     missing = str(uuid.uuid4())
+    task_minted = str(uuid.uuid4())
+    collection_minted = str(uuid.uuid4())
 
-    bad_task = await create(client, id=str(uuid.uuid4()), taskId=missing)
-    bad_collection = await create(client, id=str(uuid.uuid4()), collectionId=missing)
+    bad_task = await create(client, id=task_minted, taskId=missing)
+    bad_collection = await create(client, id=collection_minted, collectionId=missing)
 
     assert bad_task.status_code == 422, bad_task.text
     assert bad_collection.status_code == 422, bad_collection.text
     # 报文仍是领域语言，不是主键冲突，也不是驱动错误。
-    for response in (bad_task, bad_collection):
+    for response, minted in ((bad_task, task_minted), (bad_collection, collection_minted)):
         assert "不存在" in response.json()["detail"], response.text
+        corrected = await create(client, id=minted)
+        assert corrected.status_code == 201, corrected.text
+        assert corrected.json()["conversation"]["id"] == minted
 
 
 async def test_title_can_be_given_at_creation(client: httpx.AsyncClient, pg_url: str) -> None:
