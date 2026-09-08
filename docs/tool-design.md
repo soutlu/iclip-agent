@@ -26,7 +26,7 @@
 
 不放设计理由，不复述业务背景或计费细节。需要约束重复付费调用时，直接说明禁止重复的条件和失败后的动作。
 
-例如，「结果会说明是否退回等分；退回等分时查看图片后再使用」是可执行规则；解释拼图为什么出现不等宽间距不属于工具指引。完整工具示例直接阅读 [ShotVideoToolset.plan_shot_frames](../server/src/iclip/capabilities/shot_video/toolset.py)，不在文档复制 docstring。
+例如，「一批 1-4 条；不足 4 条时空格由中性面板补满并在切格后丢弃」是可执行规则；解释为什么要补满空格不属于工具指引。完整工具示例直接阅读 [ShotVideoToolset.plan_shot_frames](../server/src/iclip/capabilities/shot_video/toolset.py)，不在文档复制 docstring。
 
 ## 3. 登记与范围校验
 

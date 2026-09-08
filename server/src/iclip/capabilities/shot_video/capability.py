@@ -47,6 +47,9 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
     ledger: MaterialLedger
     """素材来源台账，记录产物地址并供工具输入验证使用。"""
 
+    paths: ShotVideoPaths
+    """产物对象路径布局；出图工具按它给每一格定键。"""
+
     extractor: FrameExtractor
 
     generator: FrameGenerator
@@ -122,13 +125,13 @@ def shot_video_capability(
     return ShotVideo[Any](
         space=space,
         ledger=ledger,
+        paths=paths,
         extractor=FrameExtractor(
             understanding=understanding, client=client, paths=paths, objects=objects
         ),
         generator=FrameGenerator(
             generations=generations,
             objects=objects,
-            paths=paths,
             client=client,
             policy=policy if policy is not None else GenerationPolicy(),
         ),

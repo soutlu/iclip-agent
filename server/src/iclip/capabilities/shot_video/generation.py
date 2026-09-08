@@ -1,12 +1,11 @@
-"""镜头图生成、渠道重试与网格裁剪转存。版记录返回调用方持久化。"""
+"""镜头图生成、渠道重试与网格裁剪转存。版记录与工具返回值由调用方拼装。"""
 
 from __future__ import annotations
 
 import asyncio
-import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Final, NoReturn
+from typing import Final, NoReturn
 
 import httpx
 import structlog
@@ -28,18 +27,11 @@ from iclip.capabilities.shot_video.ports import (
     InvalidImageRequest,
     ObjectWriteFailed,
     PublicObjectWriter,
-    ShotVideoPaths,
 )
 from iclip.capabilities.shot_video.prompt import GRID_CELLS, GRID_COLS, GRID_ROWS
-from iclip.capabilities.shot_video.shots import parse_cell_id
 from iclip.domains.identity.public import Principal
 
 _logger = structlog.stdlib.get_logger(__name__)
-
-GRID_RECORDS_DIR: Final = "frames/grids"
-GRID_RECORD_VERSION: Final = 1
-ANCHOR_RECORDS_DIR: Final = "anchors"
-ANCHOR_RECORD_VERSION: Final = 1
 
 GRID_RESOLUTION: Final = "4k"
 """使用最高分辨率，保证整图裁成多格后仍有足够细节。"""
@@ -48,12 +40,6 @@ ANCHOR_ASPECT: Final = "1:1"
 """设定图使用方形网格；裁切后不再收缩到目标画幅，避免裁掉主体。"""
 
 _JPEG: Final = "image/jpeg"
-
-_STATUS_DONE: Final = "done"
-
-_EVEN_SPLIT_NOTICE: Final = (
-    " 整图没找到清晰的网格线，按等分切的——单格可能带白边或错半格，用之前先看一眼。"
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,20 +60,11 @@ class GenerationPolicy:
 
 
 @dataclass(frozen=True, slots=True)
-class GridCut:
-    """切格结果，包含工具响应、待持久化版记录与预览图。"""
-
-    payload: dict[str, Any]
-    record: dict[str, Any]
-    record_path: str
-    urls: Sequence[str]
-    captions: Sequence[str]
+class CellCut:
+    """一次切格转存的结果：未切的整图，与逐格转存后的地址。"""
 
     grid_url: str
-    """整图地址也会经版记录进入模型上下文，须登记到素材台账。"""
-
-    note: str | None = None
-    """工具卡角标原文：几张、哪个渠道。"""
+    urls: tuple[str, ...]
 
 
 class FrameGenerator:
@@ -98,13 +75,11 @@ class FrameGenerator:
         *,
         generations: ImageGenerations,
         objects: PublicObjectWriter,
-        paths: ShotVideoPaths,
         client: httpx.AsyncClient,
         policy: GenerationPolicy,
     ) -> None:
         self._generations = generations
         self._objects = objects
-        self._paths = paths
         self._client = client
         self._policy = policy
 
@@ -130,133 +105,31 @@ class FrameGenerator:
             await asyncio.sleep(self._policy.backoff_seconds * self._policy.backoff_factor**index)
         raise AssertionError("重试策略至少要有一个渠道")
 
-    async def collect_frames(
-        self,
-        job: ImageJob,
-        *,
-        cell_ids: Sequence[str],
-        prompts: Sequence[str],
-        references: Sequence[str],
-        global_reference: str,
-        target_aspect: str,
-    ) -> GridCut:
-        """按目标画幅裁剪镜头帧，并生成逐帧记录。"""
+    async def cut(
+        self, job: ImageJob, *, object_keys: Sequence[str], aspect: str | None, failure_message: str
+    ) -> CellCut:
+        """下载整图、裁剪并转存，逐格地址与 ``object_keys`` 同序。
 
-        stored = await self._slice_and_store(
-            job,
-            aspect=target_aspect,
-            object_keys=[
-                self._paths.shot_cell(job_id=job.job_id, cell_id=cell_id) for cell_id in cell_ids
-            ],
-            failure_message="镜头帧处理失败。",
-        )
-        grid_url, urls, detected = stored
-
-        frames_payload = [
-            {"no": cell_id, "shot": parse_cell_id(cell_id)[0], "url": url}
-            for cell_id, url in zip(cell_ids, urls, strict=True)
-        ]
-        record_path = f"{GRID_RECORDS_DIR}/{job.job_id}.json"
-        message = (
-            f"生成完成 {len(frames_payload)} 帧（{job.channel} 渠道），版记录见 {record_path}。"
-        )
-        if not detected:
-            message += _EVEN_SPLIT_NOTICE
-        return GridCut(
-            payload={
-                "message": message,
-                "status": _STATUS_DONE,
-                "frames": frames_payload,
-                "record": record_path,
-                "error": None,
-            },
-            record={
-                "gridRecordVersion": GRID_RECORD_VERSION,
-                "jobId": str(job.job_id),
-                "gridUrl": grid_url,
-                "targetAspect": target_aspect,
-                "globalReference": global_reference,
-                "referenceImages": list(references),
-                "frames": [
-                    {**frame, "prompt": prompt}
-                    for frame, prompt in zip(frames_payload, prompts, strict=True)
-                ],
-                "createdAt": int(time.time()),
-            },
-            record_path=record_path,
-            urls=urls,
-            captions=list(cell_ids),
-            grid_url=grid_url,
-            note=f"{len(frames_payload)} 张 · {job.channel} 渠道",
-        )
-
-    async def collect_anchors(self, job: ImageJob, *, descriptions: Sequence[str]) -> GridCut:
-        """裁剪设定图并生成逐格记录，保留完整主体而不收缩到目标画幅。"""
-
-        stored = await self._slice_and_store(
-            job,
-            aspect=None,
-            object_keys=[
-                self._paths.anchor_sheet(job_id=job.job_id, index=index)
-                for index in range(1, len(descriptions) + 1)
-            ],
-            failure_message="设定图处理失败。",
-        )
-        grid_url, urls, detected = stored
-
-        images = [{"index": index, "url": url} for index, url in enumerate(urls, start=1)]
-        record_path = f"{ANCHOR_RECORDS_DIR}/{job.job_id}.json"
-        message = f"补拍完成 {len(images)} 格（{job.channel} 渠道），版记录见 {record_path}。"
-        if not detected:
-            message += _EVEN_SPLIT_NOTICE
-        return GridCut(
-            payload={
-                "message": message,
-                "status": _STATUS_DONE,
-                "images": images,
-                "record": record_path,
-                "error": None,
-            },
-            record={
-                "anchorRecordVersion": ANCHOR_RECORD_VERSION,
-                "jobId": str(job.job_id),
-                "gridUrl": grid_url,
-                "sheetAspect": ANCHOR_ASPECT,
-                "cells": [
-                    {**image, "description": description}
-                    for image, description in zip(images, descriptions, strict=True)
-                ],
-                "createdAt": int(time.time()),
-            },
-            record_path=record_path,
-            urls=urls,
-            captions=list(descriptions),
-            grid_url=grid_url,
-            note=f"{len(images)} 格 · {job.channel} 渠道",
-        )
-
-    async def _slice_and_store(
-        self, job: ImageJob, *, aspect: str | None, object_keys: Sequence[str], failure_message: str
-    ) -> tuple[str, list[str], bool]:
-        """下载、裁剪并转存网格，返回整图地址、逐格地址与网格检测标志。
-
-        失败时向模型报告简短错误，诊断信息留日志；补位格不转存。"""
+        整图恒为 GRID_CELLS 格，``object_keys`` 只给实际请求的那几格，多出来的是补位格，
+        不转存。失败时向模型报告简短错误，诊断信息留日志。"""
 
         grid_url = job.output_url
         if not grid_url:
             job_failure(job, message=failure_message, reason="生成记录未携带结果 URL")
         try:
-            cells, detected = await self._slice_grid(grid_url, aspect=aspect)
+            cells = await self._slice_grid(grid_url, aspect=aspect)
         except (ffmpeg.MediaError, GridError) as exc:
             job_failure(job, message=failure_message, reason=str(exc))
         if len(cells) != GRID_CELLS:
             job_failure(job, message=failure_message, reason="整图切格数量异常")
 
         try:
-            urls = await self._put_all(list(zip(object_keys, cells, strict=False)))
+            urls = await self._put_all(
+                list(zip(object_keys, cells[: len(object_keys)], strict=True))
+            )
         except ObjectWriteFailed as exc:
             job_failure(job, message=failure_message, reason=str(exc))
-        return grid_url, urls, detected
+        return CellCut(grid_url=grid_url, urls=tuple(urls))
 
     async def _run_one(
         self, principal: Principal, request: ImageRequest, *, deadline: float
@@ -296,8 +169,8 @@ class FrameGenerator:
             urls.append(result)
         return urls
 
-    async def _slice_grid(self, grid_url: str, *, aspect: str | None) -> tuple[list[bytes], bool]:
-        """检测网格并裁剪，指定 aspect 时居中收缩。返回检测标志，明确区分实测边界与等分结果。"""
+    async def _slice_grid(self, grid_url: str, *, aspect: str | None) -> list[bytes]:
+        """检测网格并裁剪，指定 aspect 时居中收缩；检测不到分隔带的轴由 grid 按等分退回。"""
 
         async with ffmpeg.fetched(
             self._client, grid_url, max_bytes=ffmpeg.MAX_IMAGE_BYTES, suffix=".img"
@@ -310,7 +183,7 @@ class FrameGenerator:
             if aspect is not None:
                 ratio = parse_aspect(aspect)
                 boxes = [fit_box_to_aspect(box, ratio) for box in boxes]
-            return await ffmpeg.crop_cells(source, boxes), layout.detected
+            return await ffmpeg.crop_cells(source, boxes)
 
 
 def job_failure(job: ImageJob, *, message: str, reason: str | None = None) -> NoReturn:
@@ -328,13 +201,9 @@ def job_failure(job: ImageJob, *, message: str, reason: str | None = None) -> No
 
 __all__ = [
     "ANCHOR_ASPECT",
-    "ANCHOR_RECORDS_DIR",
-    "ANCHOR_RECORD_VERSION",
-    "GRID_RECORDS_DIR",
-    "GRID_RECORD_VERSION",
     "GRID_RESOLUTION",
+    "CellCut",
     "FrameGenerator",
     "GenerationPolicy",
-    "GridCut",
     "job_failure",
 ]

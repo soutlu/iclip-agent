@@ -122,10 +122,13 @@ def _job_view(job: GenerationJob) -> ImageJob:
     """生成任务到能力结果的投影，渠道取实际请求快照。"""
 
     request = job.request
+    if not isinstance(request, ImageGenerationIn):
+        # 出图适配器只提交图片请求；拿回视频请求说明装配串了，不替它编一个渠道。
+        raise TypeError(f"图像任务 {job.id} 的请求是 {job.kind}")
     return ImageJob(
         job_id=job.id,
         status=job.status,
-        channel=request.channel if isinstance(request, ImageGenerationIn) else "dev",
+        channel=request.channel,
         output_url=job.output_url,
         error_code=job.error_code,
         error_message=job.error_message,
