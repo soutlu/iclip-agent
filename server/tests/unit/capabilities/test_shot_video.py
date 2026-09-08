@@ -241,6 +241,48 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
     ]
 
 
+async def test_structured_shot_input_schema_reaches_the_model(
+    capability: ShotVideo[object],
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        _ = messages
+        tool = next(tool for tool in info.function_tools if tool.name == "write_video_shots")
+        seen["schema"] = tool.parameters_json_schema
+        seen["description"] = tool.description
+        return ModelResponse(parts=[TextPart("好")])
+
+    await Agent(FunctionModel(script), capabilities=[capability]).run("看看参数", deps=make_deps())
+
+    schema = seen["schema"]
+    assert set(schema["properties"]) == {"aspect_ratio", "shots"}
+    assert set(schema["required"]) == {"aspect_ratio", "shots"}
+    definitions = schema["$defs"]
+    shot = definitions["VideoShotRequest"]
+    assert set(shot["properties"]) == {"index", "prompt", "seconds", "image_urls"}
+    assert set(shot["required"]) == set(shot["properties"])
+    assert shot["properties"]["prompt"] == {"$ref": "#/$defs/VideoShotPrompt"}
+    assert shot["properties"]["image_urls"]["type"] == "array"
+    assert shot["properties"]["image_urls"].get("minItems", 0) == 0
+    prompt = definitions["VideoShotPrompt"]
+    assert prompt["type"] == "object"
+    assert set(prompt["properties"]) == {"global_settings", "timeline"}
+    assert set(prompt["required"]) == set(prompt["properties"])
+    assert prompt["additionalProperties"] is False
+    assert prompt["properties"]["timeline"]["minItems"] == 1
+    timeline_item = definitions["TimelineItem"]
+    assert set(timeline_item["properties"]) == {"timestamps", "prompt"}
+    assert set(timeline_item["required"]) == set(timeline_item["properties"])
+    assert timeline_item["additionalProperties"] is False
+    timestamps = timeline_item["properties"]["timestamps"]
+    assert timestamps["type"] == "array"
+    assert timestamps["minItems"] == timestamps["maxItems"] == 2
+    assert timestamps["items"]["type"] == "number"
+    assert timestamps["items"]["minimum"] == 0
+    assert seen["description"].splitlines()[0] == "提交镜头组 prompt 表。"
+
+
 @pytest.mark.parametrize(
     "tool_name",
     ["video_parser_md", "plan_shot_frames", "generate_shot_frames", "write_video_shots"],
@@ -914,7 +956,12 @@ OTHER_FRAME_URL = "https://cdn.test/frames/s2-1.jpg"
 def one_shot(**overrides: Any) -> VideoShotRequest:
     fields: dict[str, Any] = {
         "index": 1,
-        "prompt": "0-8s 全景 平视 固定，她走进门厅 @Image1。不要字幕，不要背景音乐。",
+        "prompt": {
+            "global_settings": "人物与门厅保持一致。不要生成字幕，不要生成背景音乐。",
+            "timeline": [
+                {"timestamps": [0, 8], "prompt": "全景，平视，固定，她走进门厅 @Image1。"}
+            ],
+        },
         "seconds": 8,
         "image_urls": [FRAME_URL],
     }
@@ -941,11 +988,12 @@ async def test_delivered_table_lands_in_the_workspace(
     tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
 ) -> None:
 
+    shots = [one_shot(), one_shot(index=2, seconds=12, image_urls=[FRAME_URL, OTHER_FRAME_URL])]
     result = await deliver(
         tools,
         ctx,
         files,
-        [one_shot(), one_shot(index=2, seconds=12, image_urls=[FRAME_URL, OTHER_FRAME_URL])],
+        shots,
     )
 
     assert result["path"] == SHOTS_PATH
@@ -953,9 +1001,34 @@ async def test_delivered_table_lands_in_the_workspace(
     stored = await files.read(NAMESPACE, SHOTS_PATH)
     assert stored is not None
     document = json.loads(stored.content)
-    assert document["aspectRatio"] == "9:16"
-    assert [row["index"] for row in document["shots"]] == [1, 2]
-    assert document["shots"][1]["imageUrls"] == [FRAME_URL, OTHER_FRAME_URL]
+    expected_rows = [shot.model_dump(mode="json") for shot in shots]
+    for row in expected_rows:
+        row["prompt"]["timeline"][0]["image_indexes"] = [1]
+    assert document == {"aspect_ratio": "9:16", "shots": expected_rows}
+    validate_video_shots_document(stored.content)
+
+
+async def test_delivered_table_accepts_a_group_without_reference_images(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+) -> None:
+    shot = one_shot(
+        prompt={
+            "global_settings": "人物与门厅保持一致。",
+            "timeline": [{"timestamps": [0, 8], "prompt": " 她走进门厅。\n"}],
+        },
+        image_urls=[],
+    )
+    await check_args(tools, "write_video_shots", ctx, aspect_ratio="9:16", shots=[shot])
+
+    result = await deliver(tools, ctx, files, [shot])
+
+    assert result["path"] == SHOTS_PATH
+    stored = await files.read(NAMESPACE, SHOTS_PATH)
+    assert stored is not None
+    expected = shot.model_dump(mode="json")
+    expected["prompt"]["timeline"][0]["image_indexes"] = []
+    assert json.loads(stored.content) == {"aspect_ratio": "9:16", "shots": [expected]}
+    validate_video_shots_document(stored.content)
 
 
 @pytest.mark.parametrize(
@@ -963,12 +1036,29 @@ async def test_delivered_table_lands_in_the_workspace(
     [
         ([], "一条都没有"),
         ([one_shot(index=2)], "连续编号"),
-        ([one_shot(prompt="   ")], "prompt 为空"),
+        (
+            [
+                one_shot(
+                    prompt={
+                        "global_settings": "人物与门厅保持一致。",
+                        "timeline": [{"timestamps": [0, 8], "prompt": "   "}],
+                    }
+                )
+            ],
+            "prompt 为空",
+        ),
         ([one_shot(seconds=3)], "4-30"),
         ([one_shot(seconds=31)], "4-30"),
-        ([one_shot(image_urls=[])], "image_urls 为空"),
+        ([one_shot(image_urls=[])], "@Image1"),
         (
-            [one_shot(prompt="0-8s 她走进门厅 @Image2。")],
+            [
+                one_shot(
+                    prompt={
+                        "global_settings": "人物与门厅保持一致。",
+                        "timeline": [{"timestamps": [0, 8], "prompt": "她走进门厅 @Image2。"}],
+                    }
+                )
+            ],
             "@Image2",
         ),
     ],
@@ -984,6 +1074,21 @@ async def test_delivery_rejects_the_whole_table(
     with pytest.raises(ModelRetry, match=message):
         await deliver(tools, ctx, files, shots)
     assert await files.read(NAMESPACE, SHOTS_PATH) is None
+
+
+async def test_invalid_later_group_preserves_the_complete_existing_file(
+    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
+) -> None:
+    original = shots_document()
+    written = await files.write(NAMESPACE, SHOTS_PATH, original)
+    shots = [one_shot(seconds=12), one_shot(index=2, image_urls=[])]
+
+    with pytest.raises(ModelRetry, match=r"镜头组 2.*@Image1"):
+        await deliver(tools, ctx, files, shots)
+
+    stored = await files.read(NAMESPACE, SHOTS_PATH)
+    assert stored is not None
+    assert (stored.content, stored.version) == (original, written.version)
 
 
 async def test_delivery_rejects_a_bad_aspect_ratio(
@@ -1031,20 +1136,83 @@ async def test_delivery_rejects_a_frame_url_that_is_not_http(
         )
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "0-8s 她走进门厅 @Image1。",
+        {
+            "global_settings": "人物与门厅保持一致。",
+            "timeline": [
+                {"timestamps": [0, 5], "prompt": "她走进门厅 @Image1。"},
+                {"timestamps": [4, 8], "prompt": "她停下脚步 @Image1。"},
+            ],
+        },
+    ],
+    ids=["string-prompt", "overlapping-timeline"],
+)
+async def test_invalid_shot_input_keeps_the_existing_file_on_the_agent_path(
+    capability: ShotVideo[object],
+    files: FakeFileStore,
+    materials: FakeMaterialLedger,
+    prompt: object,
+) -> None:
+    original = shots_document()
+    await files.write(NAMESPACE, SHOTS_PATH, original)
+    materials.rows[(NAMESPACE, FRAME_URL)] = Material(url=FRAME_URL, kind="image")
+    shot = one_shot().model_dump()
+    shot["prompt"] = prompt
+
+    def call_once(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        if len(messages) == 1:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "write_video_shots",
+                        {"aspect_ratio": "9:16", "shots": [shot]},
+                        tool_call_id="c1",
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart("好")])
+
+    result = await Agent(FunctionModel(call_once), capabilities=[capability]).run(
+        "提交镜头组", deps=make_deps()
+    )
+    refusals = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, RetryPromptPart) and part.tool_name == "write_video_shots"
+    ]
+    assert len(refusals) == 1
+    stored = await files.read(NAMESPACE, SHOTS_PATH)
+    assert stored is not None
+    assert stored.content == original
+
+
 def shots_document(**overrides: Any) -> str:
-    """与工具交付格式一致的有效镜头组 prompt 表。"""
+    """工作区文件校验入口接受的有效镜头组 prompt 表。"""
 
     row: dict[str, Any] = {
         "index": 1,
-        "prompt": "0-8s 全景 平视 固定，她走进门厅 @Image1。不要字幕，不要背景音乐。",
+        "prompt": {
+            "global_settings": "人物与门厅保持一致。不要生成字幕，不要生成背景音乐。",
+            "timeline": [
+                {
+                    "timestamps": [0, 8],
+                    "prompt": "全景，平视，固定，她走进门厅 @Image1。",
+                    "image_indexes": [1],
+                }
+            ],
+        },
         "seconds": 8,
-        "imageUrls": [FRAME_URL],
+        "image_urls": [FRAME_URL],
     }
-    document: dict[str, Any] = {"aspectRatio": "9:16", "shots": [row]}
+    document: dict[str, Any] = {"aspect_ratio": "9:16", "shots": [row]}
     return json.dumps({**document, **overrides}, ensure_ascii=False)
 
 
-def test_written_back_table_passes_the_same_shape_check_as_delivery() -> None:
+def test_written_back_table_accepts_the_current_document_format() -> None:
 
     validate_video_shots_document(shots_document())
 
@@ -1056,7 +1224,7 @@ def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
         shots_document(
             shots=[
                 json.loads(shots_document())["shots"][0]
-                | {"imageUrls": ["https://别处.test/x.jpg"]}
+                | {"image_urls": ["https://别处.test/x.jpg"]}
             ]
         )
     )
@@ -1067,9 +1235,9 @@ def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
     [
         ("{不是 json", "不是合法的 JSON"),
         ("[]", "根必须是一个对象"),
-        (json.dumps({"aspectRatio": "9:16"}), "shots 要写成一个数组"),
-        (shots_document(aspectRatio="竖版"), "画幅"),
-        (json.dumps({"aspectRatio": "9:16", "shots": [{"index": 1}]}), "第 1 个镜头组"),
+        (json.dumps({"aspect_ratio": "9:16"}), "shots"),
+        (shots_document(aspect_ratio="竖版"), "画幅"),
+        (json.dumps({"aspect_ratio": "9:16", "shots": [{"index": 1}]}), "prompt"),
         (
             shots_document(shots=[json.loads(shots_document())["shots"][0] | {"index": 2}]),
             "连续编号",
@@ -1079,12 +1247,12 @@ def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
             "4-30",
         ),
         (
-            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"imageUrls": []}]),
-            "image_urls 为空",
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"image_urls": []}]),
+            "@Image1",
         ),
         (
             shots_document(
-                shots=[json.loads(shots_document())["shots"][0] | {"imageUrls": ["  "]}]
+                shots=[json.loads(shots_document())["shots"][0] | {"image_urls": ["  "]}]
             ),
             "空地址",
         ),
@@ -1092,7 +1260,18 @@ def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
             shots_document(
                 shots=[
                     json.loads(shots_document())["shots"][0]
-                    | {"prompt": "0-8s 她走进门厅 @Image2。"}
+                    | {
+                        "prompt": {
+                            "global_settings": "人物与门厅保持一致。",
+                            "timeline": [
+                                {
+                                    "timestamps": [0, 8],
+                                    "prompt": "她走进门厅 @Image2。",
+                                    "image_indexes": [2],
+                                }
+                            ],
+                        }
+                    }
                 ]
             ),
             "@Image2",
@@ -1106,7 +1285,7 @@ def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
         "bad-row",
         "index-gap",
         "seconds",
-        "no-urls",
+        "reference-without-images",
         "blank-url",
         "image-ref",
     ],

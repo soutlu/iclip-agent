@@ -18,9 +18,9 @@ from iclip.capabilities.shot_video.delivery import (
     SHOTS_PATH,
     FrameRequest,
     VideoShotRequest,
+    build_video_shots_document,
     resolve_cells,
     resolve_requests,
-    resolve_shots,
 )
 from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_path
 from iclip.capabilities.shot_video.generation import (
@@ -29,7 +29,6 @@ from iclip.capabilities.shot_video.generation import (
     IMAGE_MODEL,
     job_failure,
 )
-from iclip.capabilities.shot_video.grid import GridError, parse_aspect
 from iclip.capabilities.shot_video.ports import ImageRequest
 from iclip.capabilities.shot_video.prompt import assemble_anchor_prompt, assemble_grid_prompt
 from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE, parse_cell_id
@@ -371,46 +370,49 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         aspect_ratio: str,
         shots: list[VideoShotRequest],
     ) -> ToolReturn[dict[str, Any]]:
-        """交付镜头组 prompt 表：校验后写成工作区里的 ``video_shot.json``。
+        """提交镜头组 prompt 表。
 
-        - 镜头组 prompt 表只经本工具交付。不要用 `write_file` 写 ``video_shot.json``
-          或它的副本。
-        - `index` 从 1 连续编号，`seconds` 是 4-30 的整数。
-        - `image_urls` 只收这段对话里出现过的地址；上下文里翻不到时用 `read_file` 读
-          ``frames/grids/`` 下的版记录取回来。
-        - `image_urls` 的顺序即 prompt 里 ``@Image1..N`` 的编号，写到的最大编号不
-          得超过这一组的张数。
-        - 每次调用整份覆盖，不是追加：重做时把全部镜头组一起传。
-        - 任一条不合规即整份拒收，不会写下半份。
+        参数说明：
+        - aspect_ratio：目标画幅，例如 9:16。
+        - shots：按顺序排列的全部镜头组。
 
-        Args:
-            ctx: 框架给的运行上下文。
-            aspect_ratio: 目标画幅，如 ``9:16``。
-            shots: 逐个镜头组，按 index 顺序排列。
+        每个镜头组包含：
+        - index：镜头组编号，从 1 连续编号。
+        - prompt：本组的结构化提示词，包含：
+          - global_settings：本组的全局设定。
+          - timeline：按镜头顺序排列的时间线，每项包含：
+            - timestamps：[开始秒数, 结束秒数]，每组第一镜从 0 开始，
+              保留小数。结束时间须大于开始时间，各镜头时间段不得重叠。
+            - prompt：该镜头的正文，保留对应位置的 @ImageN。
+        - seconds：本组总时长，四舍五入到整数秒，范围 4–30 秒。
+        - image_urls：本组的镜头帧 URL 列表，可为空；有图时 @ImageN
+          对应列表中的第 N 张图，地址须已登记在本对话素材台账中。
+          无图时传 []，global_settings 和各镜头正文中不得出现 @ImageN。
+
+        每次提交全部镜头组，替换已有的镜头组表。
+        任一镜头组不符合要求时，整次提交拒绝；修正后重新提交全部镜头组。
         """
 
         files, namespace = self._workspace(ctx)
-        try:
-            parse_aspect(aspect_ratio)
-        except GridError as exc:
-            raise ModelRetry(str(exc)) from exc
-        rows = resolve_shots(shots)
+        document = build_video_shots_document(aspect_ratio, shots)
         await self._write(
             files,
             namespace,
             SHOTS_PATH,
-            json.dumps({"aspectRatio": aspect_ratio, "shots": rows}, ensure_ascii=False, indent=2),
+            document.model_dump_json(indent=2),
         )
-        seconds = sum(shot.seconds for shot in shots)
+        group_count = len(document.shots)
+        shot_count = sum(len(shot.prompt.timeline) for shot in document.shots)
+        seconds = sum(shot.seconds for shot in document.shots)
         return ToolReturn(
             return_value={
                 "message": (
                     f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
-                    f"{len(rows)} 个镜头组，合计 {seconds} 秒。"
+                    f"{group_count} 个镜头组，{shot_count} 个镜头，合计 {seconds} 秒。"
                 ),
                 "path": SHOTS_PATH,
             },
-            metadata=tool_note(chip=f"{len(rows)} 镜 · {seconds} 秒"),
+            metadata=tool_note(chip=f"{group_count} 组 · {shot_count} 镜 · {seconds} 秒"),
         )
 
     async def _validate_video_url(self, ctx: RunContext[Any], video_url: str) -> None:

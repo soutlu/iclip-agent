@@ -84,16 +84,14 @@ describe('ConversationComposer 上的引用芯片', () => {
     await waitFor(() => expect(screen.queryByText('镜头组 2 · 帧 @3')).not.toBeInTheDocument())
   })
 
-  it('「全部镜头组」里的「在聊天里说」把选中的几组一起变成引用', async () => {
+  it('从只读总览定位镜头组后，输入框同步当前组引用', async () => {
     await renderChatWithWorkbench('/?shot=2&sheet=all')
 
     const sheet = await screen.findByRole('complementary', { name: '全部镜头组' })
-    await userEvent.click(within(sheet).getByRole('button', { name: '全选' }))
-    await userEvent.click(within(sheet).getByRole('button', { name: '在聊天里说' }))
+    await userEvent.click(within(sheet).getByRole('button', { name: '查看镜头组 3' }))
 
     await waitFor(() => expect(screen.queryByRole('complementary')).not.toBeInTheDocument())
-    for (const label of ['镜头组 1', '镜头组 2', '镜头组 3']) {
-      expect(screen.getByText(label)).toBeVisible()
-    }
+    expect(await screen.findByText('镜头组 3')).toBeVisible()
+    expect(screen.queryByText('镜头组 2')).not.toBeInTheDocument()
   })
 })

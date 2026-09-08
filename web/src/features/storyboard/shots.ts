@@ -1,44 +1,12 @@
-/** video_shot.json 由 write_video_shots 工具定义，独立于 REST 合同。 */
+/** 分镜的文本展示、图片选择与历史生成状态辅助函数。 */
 
-import { z } from 'zod'
 import type { WorkbenchRef } from '@/shared/workbench'
 
 export const SHOTS_PATH = 'video_shot.json'
 
-const shotSchema = z.object({
-  imageUrls: z.array(z.string()),
-  index: z.int(),
-  prompt: z.string(),
-  seconds: z.number(),
-})
-
-const shotsDocumentSchema = z.object({
-  aspectRatio: z.string(),
-  shots: z.array(shotSchema),
-})
-
-export type Shot = z.infer<typeof shotSchema>
-export type ShotsDocument = z.infer<typeof shotsDocumentSchema>
-
-export const parseShotsDocument = (content: string): ShotsDocument | null => {
-  const parsed = shotsDocumentSchema.safeParse(
-    ((): unknown => {
-      try {
-        return JSON.parse(content)
-      } catch {
-        return null
-      }
-    })(),
-  )
-  return parsed.success ? parsed.data : null
-}
-
 export const aspectRatioStyle = (aspectRatio: string) => aspectRatio.replace(':', ' / ')
 
 const FRAME_REF = /@Image(\d+)/g
-
-/** 组名取首个句末标点前的正文，视觉截断交给界面。 */
-const SENTENCE_END = /[。；！？!?;]/
 
 /** 以原文起始位置作为 key，避免重复正文产生冲突。 */
 export type PromptSegment =
@@ -61,28 +29,8 @@ export const splitPrompt = (prompt: string): PromptSegment[] => {
   return segments
 }
 
-/** 时间线头从行首识别，接受同行正文、- 与 – 分隔符，并保留小数秒。 */
-const SCENE_HEADER =
-  /^[ \t]*[[【][ \t]*(\d+(?:\.\d+)?)[ \t]*[–-][ \t]*(\d+(?:\.\d+)?)[ \t]*秒?[ \t]*[|｜][ \t]*镜头[ \t]*(\d+)[ \t]*[\]】][ \t]*/
-
-export const parseSceneHeader = (
-  line: string,
-):
-  | { startSeconds: number; endSeconds: number; scene: number; text: string; body: string }
-  | undefined => {
-  const header = SCENE_HEADER.exec(line)
-  if (header === null) return undefined
-  return {
-    body: line.slice(header[0].length),
-    endSeconds: Number(header[2]),
-    scene: Number(header[3]),
-    startSeconds: Number(header[1]),
-    text: header[0],
-  }
-}
-
 export interface ShotScene {
-  /** 使用行号作为 key，容忍模型输出重复镜头号。 */
+  /** 由结构化时间线的位置生成的稳定显示标识。 */
   id: string
   scene: number
   startSeconds: number
@@ -97,73 +45,8 @@ export interface ShotTimeline {
   scenes: ShotScene[]
 }
 
-/** 时间线头划分镜头；没有头时整段作为前言，界面显示完整描述。 */
-export const splitShotTimeline = (shot: Shot): ShotTimeline => {
-  const preamble: string[] = []
-  const scenes: ShotScene[] = []
-  let body: string[] = []
-
-  const flush = () => {
-    const current = scenes.at(-1)
-    if (current === undefined) return
-    current.segments = splitPrompt(body.join('\n').trim())
-    current.frameNumbers = [
-      ...new Set(
-        current.segments.flatMap((segment) => (segment.kind === 'frame' ? [segment.number] : [])),
-      ),
-    ]
-  }
-
-  for (const [line, text] of shot.prompt.split('\n').entries()) {
-    const header = parseSceneHeader(text)
-    if (header === undefined) {
-      if (scenes.length === 0) preamble.push(text)
-      else body.push(text)
-      continue
-    }
-    flush()
-    body = header.body.length === 0 ? [] : [header.body]
-    scenes.push({
-      endSeconds: header.endSeconds,
-      frameNumbers: [],
-      id: `s${line}`,
-      scene: header.scene,
-      segments: [],
-      startSeconds: header.startSeconds,
-    })
-  }
-  flush()
-
-  return { preamble: preamble.join('\n').trim(), scenes }
-}
-
 export const sceneOfFrame = (timeline: ShotTimeline, frameNumber: number): ShotScene | undefined =>
   timeline.scenes.find((scene) => scene.frameNumbers.includes(frameNumber))
-
-/** 优先取第一镜正文，避免参考锁定等通用前言成为所有组的名称。 */
-export const shotName = (shot: Shot): string => {
-  const timeline = splitShotTimeline(shot)
-  const source =
-    timeline.scenes[0] === undefined
-      ? timeline.preamble
-      : timeline.scenes[0].segments
-          .flatMap((segment) => (segment.kind === 'text' ? [segment.text] : []))
-          .join('')
-  const firstLine = source
-    .split('\n')
-    // 移除帧记号后清理标点前残留空格。
-    .map((line) =>
-      line
-        .replace(FRAME_REF, '')
-        .replace(/\s+([，。；！？、,.;!?])/g, '$1')
-        .replace(/\s{2,}/g, ' ')
-        .trim(),
-    )
-    .find((line) => line.length > 0)
-  if (firstLine === undefined || firstLine.length === 0) return `镜头组 ${shot.index}`
-  const sentence = firstLine.split(SENTENCE_END)[0]?.trim() ?? ''
-  return sentence.length === 0 ? firstLine : sentence
-}
 
 export const firstFrameOfScene = (scene: ShotScene): number | undefined => scene.frameNumbers[0]
 

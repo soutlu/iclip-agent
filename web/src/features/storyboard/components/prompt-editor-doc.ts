@@ -1,7 +1,6 @@
-/** doc → paragraph+ → text | frame；每行对应一个段落，保留 PromptLine[] 的换行。 */
+/** 每行对应一个段落，帧节点保留原始 @ImageN 字符，选区偏移以原文 UTF-16 为准。 */
 
 import { type Node as PMNode, Schema } from 'prosemirror-model'
-import type { PromptLine } from '../prompt-doc'
 
 export const promptSchema = new Schema({
   nodes: {
@@ -15,20 +14,27 @@ export const promptSchema = new Schema({
     text: { group: 'inline' },
     frame: {
       atom: true,
-      attrs: { n: {} },
+      attrs: { n: {}, token: {} },
       group: 'inline',
       inline: true,
-      leafText: (node) => `@Image${node.attrs['n'] as number}`,
+      leafText: (node) => node.attrs['token'] as string,
       parseDOM: [
         {
-          getAttrs: (dom) => ({ n: Number(dom.getAttribute('data-n')) }),
+          getAttrs: (dom) => {
+            const n = Number(dom.getAttribute('data-n'))
+            return { n, token: dom.getAttribute('data-token') ?? `@Image${n}` }
+          },
           tag: 'span.frame-chip',
         },
       ],
       selectable: true,
       toDOM: (node) => [
         'span',
-        { class: 'frame-chip', 'data-n': String(node.attrs['n'] as number) },
+        {
+          class: 'frame-chip',
+          'data-n': String(node.attrs['n'] as number),
+          'data-token': node.attrs['token'] as string,
+        },
         `@${node.attrs['n'] as number}`,
       ],
     },
@@ -41,43 +47,63 @@ const nodeType = (name: 'doc' | 'frame' | 'paragraph') => {
   return type
 }
 
-/** 空行对应空段落；空列表仍生成一个段落，以满足 schema。 */
-export const linesToDoc = (lines: readonly PromptLine[]): PMNode =>
+const FRAME_REF = /@Image(\d+)/g
+
+export const promptToDoc = (prompt: string): PMNode =>
   nodeType('doc').create(
     null,
-    (lines.length === 0 ? [[]] : lines).map((line) =>
-      nodeType('paragraph').create(
-        null,
-        line.flatMap((inline) =>
-          inline.kind === 'text'
-            ? inline.text.length === 0
-              ? []
-              : [promptSchema.text(inline.text)]
-            : [nodeType('frame').create({ n: inline.n })],
-        ),
-      ),
-    ),
+    prompt.split('\n').map((line) => {
+      const nodes: PMNode[] = []
+      let cursor = 0
+      for (const match of line.matchAll(FRAME_REF)) {
+        if (match.index > cursor) nodes.push(promptSchema.text(line.slice(cursor, match.index)))
+        nodes.push(nodeType('frame').create({ n: Number(match[1]), token: match[0] }))
+        cursor = match.index + match[0].length
+      }
+      if (cursor < line.length) nodes.push(promptSchema.text(line.slice(cursor)))
+      return nodeType('paragraph').create(null, nodes)
+    }),
   )
 
-/** 转换回行时合并相邻文字节点。 */
-export const docToLines = (doc: PMNode): PromptLine[] => {
-  const lines: PromptLine[] = []
+const inlineText = (node: PMNode): string =>
+  node.isText ? (node.text ?? '') : (node.attrs['token'] as string)
+
+export const docToPrompt = (doc: PMNode): string => {
+  const lines: string[] = []
   doc.forEach((paragraph) => {
-    const line: PromptLine = []
+    let line = ''
     paragraph.forEach((child) => {
-      if (child.type === nodeType('frame')) {
-        line.push({ kind: 'frame', n: child.attrs['n'] as number })
-        return
-      }
-      const text = child.text ?? ''
-      const previous = line.at(-1)
-      if (previous?.kind === 'text') {
-        line[line.length - 1] = { kind: 'text', text: previous.text + text }
-      } else if (text.length > 0) {
-        line.push({ kind: 'text', text })
-      }
+      line += inlineText(child)
     })
     lines.push(line)
   })
-  return lines
+  return lines.join('\n')
+}
+
+/** 帧节点在编辑器中占一个位置，在正文中占完整标记长度。 */
+export const promptOffsetAt = (doc: PMNode, position: number): number => {
+  let length = 0
+  let found: number | undefined
+  doc.forEach((paragraph, paragraphOffset, index) => {
+    if (found !== undefined) return
+    if (index > 0) length += 1
+    const start = paragraphOffset + 1
+    if (position <= start) {
+      found = length
+      return
+    }
+    paragraph.forEach((child, offset) => {
+      if (found !== undefined) return
+      const childStart = start + offset
+      if (position <= childStart) {
+        found = length
+      } else if (position < childStart + child.nodeSize) {
+        found = length + (child.isText ? position - childStart : 0)
+      } else {
+        length += inlineText(child).length
+      }
+    })
+    if (found === undefined && position <= start + paragraph.content.size) found = length
+  })
+  return found ?? length
 }

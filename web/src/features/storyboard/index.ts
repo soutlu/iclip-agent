@@ -1,2 +1,2 @@
 export { SHOTS_PATH } from './shots'
-export { StoryboardPanel } from './components/storyboard-panel'
+export { StoryboardReader as StoryboardPanel } from './components/storyboard-reader'
