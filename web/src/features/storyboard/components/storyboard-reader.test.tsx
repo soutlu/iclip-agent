@@ -85,6 +85,27 @@ const jobs: GenerationJob[] = [
   },
 ]
 
+/** 一条按拼装规则提交过的历史正文，可以反解回镜头组。 */
+const historyPrompt = [
+  '历史版参考锁定：人物和产品保持一致。',
+  '剪辑形式：硬切。',
+  '',
+  '[0–2.5秒｜镜头1] 历史版：模特走出门厅 @Image2。',
+  '[2.5–6秒｜镜头2] 历史版：转身看向鞋面 @Image1。',
+  '不要生成字幕，不要生成背景音乐。',
+].join('\n')
+
+const editableJob: GenerationJob = {
+  id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
+  createdAt: '2026-09-01T10:02:00Z',
+  errorMessage: null,
+  kind: 'video',
+  outputUrl: 'https://example.com/history.mp4',
+  request: { prompt: historyPrompt },
+  shotIndex: 1,
+  status: 'completed',
+}
+
 const provide = (content: ShotsDocument | string = document, version = 1) => {
   let stored = typeof content === 'string' ? content : JSON.stringify(content)
   let storedVersion = version
@@ -311,7 +332,7 @@ describe('StoryboardReader', () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
-  it('全部组概览可定位镜头组，记录只显示当前组且没有编辑入口', async () => {
+  it('全部组概览可定位镜头组，记录只显示当前组且拆不出时间线的不能回填', async () => {
     provide()
     const { router } = await renderReader()
     await screen.findByRole('region', { name: '镜头组 1' })
@@ -324,7 +345,38 @@ describe('StoryboardReader', () => {
     const records = await screen.findByRole('complementary', { name: '生成记录' })
     expect(await within(records).findByText('另一组的历史描述。')).toBeVisible()
     expect(within(records).queryByText('本组生成时使用的历史描述。')).not.toBeInTheDocument()
-    expect(within(records).queryByRole('button', { name: '编辑生成' })).not.toBeInTheDocument()
+    expect(within(records).getByRole('button', { name: '编辑生成' })).toBeDisabled()
+  })
+
+  it('编辑生成把历史正文反解回当前镜头组并保存', async () => {
+    const files = provide()
+    server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [editableJob] })))
+    await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+    await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    await userEvent.click(within(records).getByRole('button', { name: '编辑生成' }))
+    expect(await screen.findByText('历史提示词已回填到当前镜头组')).toBeVisible()
+
+    await waitFor(() => expect(files.writes).toHaveLength(1))
+    const saved = JSON.parse(files.writes[0]?.content ?? '{}') as ShotsDocument
+    expect(saved.shots[0]?.prompt).toEqual({
+      global_settings: '历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。',
+      timeline: [
+        {
+          timestamps: [0, 2.5],
+          prompt: '历史版：模特走出门厅 @Image2。',
+          image_indexes: [2],
+        },
+        {
+          timestamps: [2.5, 6],
+          prompt: '历史版：转身看向鞋面 @Image1。',
+          image_indexes: [1],
+        },
+      ],
+    })
+    // 图片跟着文档，不跟历史记录。
+    expect(saved.shots[0]?.image_urls).toEqual(document.shots[0]?.image_urls)
   })
 
   it('浏览与记录查看不会触发写入，也没有视频生成或 AI 修图入口', async () => {
@@ -344,7 +396,9 @@ describe('StoryboardReader', () => {
     await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
     const records = await screen.findByRole('complementary', { name: '生成记录' })
     await within(records).findByText('本组生成时使用的历史描述。')
-    expect(within(records).queryByRole('button', { name: /编辑|生成视频/ })).not.toBeInTheDocument()
+    expect(
+      within(records).queryByRole('button', { name: /生成视频|编辑图片/ }),
+    ).not.toBeInTheDocument()
     expect(requests.filter((request) => request.method !== 'GET')).toEqual([])
   })
 
@@ -487,7 +541,10 @@ describe('StoryboardReader', () => {
     await user.click(within(sheet).getByRole('button', { name: '复制完整提示词' }))
     expect(copied).toHaveBeenLastCalledWith(
       settings +
-        '\n\n[0–2.5秒｜镜头1]\n  模特走出门厅 @Image2，再看向鞋面 @Image1。\n\n\n[3.25–5秒｜镜头2]\n共用同一帧继续动作 @Image2，再次看向 @Image1。\n\n[5–6秒｜镜头3]\n这里保留旁白，没有图片引用。',
+        '\n\n[0–2.5秒｜镜头1]   模特走出门厅 @Image2，再看向鞋面 @Image1。\n' +
+        '\n[3.25–5秒｜镜头2] 共用同一帧继续动作 @Image2，再次看向 @Image1。\n' +
+        '[5–6秒｜镜头3] 这里保留旁白，没有图片引用。\n' +
+        '不要生成字幕，不要生成背景音乐。',
     )
   })
 

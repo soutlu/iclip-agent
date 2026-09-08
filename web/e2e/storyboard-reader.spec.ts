@@ -33,14 +33,13 @@ const readDocument = async (page: Page) =>
     return { document: JSON.parse(body.file.content) as StoredDocument, version: body.file.version }
   })
 
-const rawGroupPrompt = (shot: StoredShot) =>
-  [
-    shot.prompt.global_settings,
-    ...shot.prompt.timeline.map(
-      (item, position) =>
-        `[${item.timestamps[0]}–${item.timestamps[1]}秒｜镜头${position + 1}]\n${item.prompt}`,
-    ),
-  ].join('\n\n')
+const rawGroupPrompt = (shot: StoredShot) => {
+  const lines = shot.prompt.timeline.map(
+    (item, position) =>
+      `[${item.timestamps[0]}–${item.timestamps[1]}秒｜镜头${position + 1}] ${item.prompt}`,
+  )
+  return `${shot.prompt.global_settings}\n\n${lines.join('\n')}\n不要生成字幕，不要生成背景音乐。`
+}
 
 const watchGenerationPosts = (page: Page) => {
   const posts: string[] = []
@@ -105,7 +104,9 @@ test('分镜可以滚轮翻组、键盘切帧和查看记录，浏览操作不�
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()
   const records = panel.getByRole('complementary', { name: '生成记录', exact: true })
   await expect(records.getByRole('article')).toHaveCount(3)
-  await expect(records.getByRole('button', { name: '编辑生成' })).toHaveCount(0)
+  // 只有按拼装规则提交过的那条能回填，纯描述的两条禁用。
+  await expect(records.getByRole('button', { name: '编辑生成' })).toHaveCount(3)
+  await expect(records.getByRole('button', { name: '编辑生成', disabled: true })).toHaveCount(2)
   await records.getByRole('button', { name: '关闭生成记录' }).click()
   await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeVisible()
   expect(writes).toEqual([])
@@ -238,6 +239,49 @@ test('编辑一镜后保存并读回，复制整组保留 raw 图片标记与空
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(rawGroupPrompt(secondGroup))
+  expect(generationPosts).toEqual([])
+})
+
+test('编辑生成把历史正文反解回当前镜头组并落盘，图片不跟历史走', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
+  const generationPosts = watchGenerationPosts(page)
+  const panel = await openStoryboard(page)
+  await panel.getByRole('button', { name: '第 2 组' }).click()
+  const group = panel.getByRole('region', { name: '镜头组 2', exact: true })
+  await expect(group.getByRole('textbox', { name: '镜头 1 的描述' })).toContainText('走向镜头', {
+    timeout: 20_000,
+  })
+  const before = await readDocument(page)
+
+  await panel.getByRole('button', { name: '生成记录', exact: true }).click()
+  const records = panel.getByRole('complementary', { name: '生成记录', exact: true })
+  const editable = records
+    .getByRole('article')
+    .filter({ hasText: '第一版：她从长椅间走向镜头' })
+    .getByRole('button', { name: '编辑生成' })
+  await editable.click()
+  await expect(page.getByText('历史提示词已回填到当前镜头组')).toBeVisible()
+
+  await expect
+    .poll(async () => (await readDocument(page)).document.shots[1]?.prompt, { timeout: 20_000 })
+    .toEqual({
+      global_settings: before.document.shots[1]?.prompt.global_settings,
+      timeline: [
+        {
+          timestamps: [0, 4],
+          prompt: '第一版：她从长椅间走向镜头 @Image1。',
+          image_indexes: [1],
+        },
+        {
+          timestamps: [4, 11],
+          prompt: '第一版：走到近处停下微笑 @Image2。',
+          image_indexes: [2],
+        },
+      ],
+    })
+  expect((await readDocument(page)).document.shots[1]?.image_urls).toEqual(
+    before.document.shots[1]?.image_urls,
+  )
   expect(generationPosts).toEqual([])
 })
 

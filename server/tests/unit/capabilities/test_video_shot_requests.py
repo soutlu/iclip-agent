@@ -45,7 +45,7 @@ def request(**overrides: Any) -> VideoShotRequest:
 
 
 def test_accepts_decimal_timestamps_and_preserves_text_and_picture_order() -> None:
-    settings = "  人物与场景保持一致。\n不要生成字幕，不要生成背景音乐。\n"
+    settings = "  人物与场景保持一致。\n剪辑形式：硬切。\n"
     opening = "\n 开场，她说 {Look here!} @Image2，<脚步声>。  "
     ending = " 硬切，镜头推进 @Image1。\n"
     shot = request(

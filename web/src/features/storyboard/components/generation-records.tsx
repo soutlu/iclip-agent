@@ -10,6 +10,7 @@ import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
+import { parseShotPrompt } from '../shot-document'
 import { isRunningStatus } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
 
@@ -112,6 +113,8 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   const [open, setOpen] = useState(true)
   const phase = phaseOf(job)
   const prompt = promptOf(job)
+  // 拆不出镜头时间线的正文回填不了镜头组，例如接口调用方自己写的描述。
+  const editable = prompt !== undefined && parseShotPrompt(prompt) !== undefined
 
   return (
     <article className="flex shrink-0 flex-col gap-2.5 overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface p-3">
@@ -163,7 +166,7 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
       {open && onEditPrompt !== undefined ? (
         <Button
           className="w-full border-[0.5px] border-chat-hairline bg-primary/4 text-primary"
-          disabled={prompt === undefined || prompt.trim() === ''}
+          disabled={!editable}
           leadingIcon="edit"
           onClick={() => {
             if (prompt !== undefined) onEditPrompt(prompt)
