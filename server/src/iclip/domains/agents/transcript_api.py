@@ -45,6 +45,7 @@ from iclip.platform.transcript.wire import (
     PromptSubmission,
     RegenerateBody,
     ResetPayload,
+    RunStatusOut,
     ServerHello,
     ServerHelloPayload,
     SessionMetaPayload,
@@ -111,6 +112,8 @@ class Transcripts(Protocol):
     ) -> None: ...
 
     async def queue_view(self, conversation_id: str) -> PromptQueueOut: ...
+
+    async def run_status(self, conversation_id: str) -> RunStatusOut: ...
 
     async def verify_agent(self, conversation_id: str, agent_id: str) -> None:
         """agent 不属于这段对话时抛 NotFound；要在读实时状态之前调。"""
@@ -285,6 +288,16 @@ def create_transcript_router(
     ) -> PromptQueueOut:
         await _readable(principal, conversation_id)
         return await transcripts.queue_view(conversation_id)
+
+    @router.get("/status", response_model=RunStatusOut)
+    async def run_status(
+        conversation_id: ConversationId,
+        principal: Annotated[Principal, Depends(require_permission("agent:read"))],
+    ) -> RunStatusOut:
+        """这段对话跑没跑完、有没有出错。只读，凭 API key 可单独轮询。"""
+
+        await _readable(principal, conversation_id)
+        return await transcripts.run_status(conversation_id)
 
     @router.post("/prompts/{prompt_id}:abort", status_code=204)
     async def abort(

@@ -33,6 +33,7 @@ from iclip.platform.transcript.wire import (
     OpsPayload,
     PromptQueueOut,
     ResetPayload,
+    RunStatusOut,
     TranscriptPage,
 )
 
@@ -168,6 +169,23 @@ class TranscriptService:
             active=None if view.active is None else view.active.as_entity(),
             queued=tuple(row.as_entity() for row in view.queued),
         )
+
+    async def run_status(self, conversation_id: str) -> RunStatusOut:
+        """这段对话此刻在跑、跑完了还是出错了，供外部调用方轮询。
+
+        排队中的消息算「在跑」：``JobQueue.activities`` 有意不看 queued，照它答会把「刚提交、
+        还没被捡起来」说成上一轮已完成。
+        """
+
+        view = await self.queue.view(conversation_id)
+        if view.active is not None:
+            return RunStatusOut(
+                status="awaiting" if view.active.status == "awaiting" else "running"
+            )
+        if view.queued:
+            return RunStatusOut(status="running")
+        activity = (await self.queue.activities([conversation_id]))[conversation_id]
+        return RunStatusOut(status=activity.last_turn_reason or "idle")
 
     async def page(
         self,

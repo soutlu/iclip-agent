@@ -308,6 +308,15 @@ class PromptQueueOut(_Envelope):
     queued: tuple[Prompt, ...]
 
 
+class RunStatusOut(_Envelope):
+    """``GET /status``：这段对话此刻在跑、跑完了还是出错了。
+
+    ``running`` 含排队；``awaiting`` 卡在人工审批上，不给决定就不会往下走；``idle`` 是从没跑过。
+    """
+
+    status: Literal["running", "awaiting", "completed", "failed", "aborted", "idle"]
+
+
 # transcript 请求体按外部协议保留 snake_case。
 
 
@@ -366,6 +375,7 @@ __all__ = [
     "PromptSubmission",
     "RegenerateBody",
     "ResetPayload",
+    "RunStatusOut",
     "ServerFrame",
     "ServerHello",
     "ServerHelloCapabilities",

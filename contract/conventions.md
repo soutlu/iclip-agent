@@ -65,6 +65,9 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `GET /conversations/{id}/transcript/ops?since_seq=` 补断线期间漏掉的批次，`agent_id` 同上。
   `complete: false` 表示要的批次已经出了窗口，整页重拉。
 - `GET /conversations/{id}/prompts` 当前排程：`{active, queued}`。
+- `GET /conversations/{id}/status` 只回一个 `status`，给轮询的调用方用：`running` 含排队，
+  `awaiting` 是不给审批决定就不会往下走，`completed` / `failed` / `aborted` 是上一轮的结果，
+  `idle` 是从没跑过。只要 `agent:read`，凭 API key 可单独调。
 - 轮头部与用户文本块都带 `content`，就是发消息那串 part 原样、次序不动。
 - 图和视频只在 `content` 里，不另发附件实体，快照与分页里也没有 `attachments`。
 - 压缩不删除可见的历史轮次；压缩提示属于步骤内的块，不单独占一轮。模型窗口与完整历史的区别见 [CONTEXT.md](../docs/CONTEXT.md)。
@@ -186,7 +189,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 - `GET /conversations/audit` 列全平台的对话，按最近活动倒序。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `updatedAt` 上），可任意组合；没有 `users:manage` 是 `403`。
 - 翻页给 `limit` 与 `cursor`：`cursor` 原样回传响应里的 `nextCursor`，为 `null` 表示没有更多了。自己编一个形状不对的是 `422`。
-- `GET /conversations/{id}/transcript`、`.../transcript/ops`、`.../prompts`、`.../workspace/files`、`.../workspace/file` 允许治理者跨属主读取；`GET /conversations` 与 `GET /conversations/search` 对治理者也只列自己的对话。
+- `GET /conversations/{id}/transcript`、`.../transcript/ops`、`.../prompts`、`.../status`、`.../workspace/files`、`.../workspace/file` 允许治理者跨属主读取；`GET /conversations` 与 `GET /conversations/search` 对治理者也只列自己的对话。
 
 ### 附件
 
