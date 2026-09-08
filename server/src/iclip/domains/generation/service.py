@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Protocol
 
 import structlog
 
@@ -15,7 +14,6 @@ from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import (
     KIND_IMAGE,
     KIND_VIDEO,
-    FrameEditContext,
     GenerationRequest,
     ImageGenerationIn,
     VideoGenerationIn,
@@ -25,18 +23,6 @@ from iclip.domains.identity.public import Principal
 _logger = structlog.stdlib.get_logger(__name__)
 
 MAX_LIST_LIMIT = 100
-
-
-class ValidateFrameEditTarget(Protocol):
-    async def __call__(
-        self,
-        principal: Principal,
-        conversation_id: uuid.UUID,
-        shot_index: int,
-        context: FrameEditContext,
-    ) -> None:
-        """核对可编辑目标仍指向本次底图；不可见或已变化时拒绝。"""
-        ...
 
 
 class GenerationService:
@@ -51,11 +37,9 @@ class GenerationService:
         image_provider_name: str,
         video_model: str,
         video_allowed_models: tuple[str, ...],
-        validate_frame_edit_target: ValidateFrameEditTarget | None = None,
     ) -> None:
         """持久化装配期确定的 Provider 名称，保留历史来源；此层不持有或调用 Provider 实例。"""
 
-        self._validate_frame_edit_target = validate_frame_edit_target
         self._repo = repo
         self._queue = queue
         self._video_model = video_model
@@ -79,19 +63,13 @@ class GenerationService:
             # 在受理时固定模型，队列等待期间的配置变化不能改变这次请求的选择。
             request = request.model_copy(update={"model": model})
 
-        if isinstance(request, ImageGenerationIn) and request.frame_edit is not None:
-            if (
-                request.conversation_id is None
-                or request.shot_index is None
-                or request.shot_index < 1
-            ):
-                raise ValidationFailed("帧编辑必须指定对话和镜头组")
-            if self._validate_frame_edit_target is None:
-                raise ValidationFailed("帧编辑目标校验未配置")
-            await self._validate_frame_edit_target(
-                principal, request.conversation_id, request.shot_index, request.frame_edit
-            )
-            request = request.model_copy(update={"prompt": request.frame_edit.compile_prompt()})
+        # 只在受理时查：来源字段落表上的列，读回持久化请求时看不到它们。
+        if (
+            isinstance(request, ImageGenerationIn)
+            and request.frame_number is not None
+            and request.shot_index is None
+        ):
+            raise ValidationFailed("给了 frameNumber 就必须给 shotIndex")
 
         kind = request.kind
         now = datetime.now(UTC)
@@ -142,7 +120,6 @@ class GenerationService:
         limit: int = 20,
         conversation_id: uuid.UUID | None = None,
         kind: str | None = None,
-        artifact_path: str | None = None,
         shot_index: int | None = None,
         frame_number: int | None = None,
         before: uuid.UUID | None = None,
@@ -156,7 +133,6 @@ class GenerationService:
             limit=limit,
             conversation_id=conversation_id,
             kind=kind,
-            artifact_path=artifact_path,
             shot_index=shot_index,
             frame_number=frame_number,
             before=before,

@@ -357,12 +357,15 @@ async def test_video_falls_back_to_the_configured_default_model() -> None:
     assert submission.raw["model"] == VIDEO_SETTINGS.model
 
 
-async def test_frame_edit_preserves_user_image_order_without_sending_editor_metadata() -> None:
-    from tests.unit.domains.generation.test_frame_edit import edit_request
+async def test_image_edit_sends_the_urls_in_the_order_the_caller_gave() -> None:
+    """编号由图片顺序决定，所以顺序必须原样发出；帧号只是我们自己的标签，不外发。"""
 
-    request = edit_request()
-    assert request.frame_edit is not None
-    request = request.model_copy(update={"prompt": request.frame_edit.compile_prompt()})
+    request = image_request(
+        prompt="把【输入图片 2 中的标注 1】的杯子换成红色",
+        reference_image_urls=["https://cdn.test/frame.png", "https://cdn.test/annotated.png"],
+        shot_index=3,
+        frame_number=2,
+    )
     sent: dict[str, object] = {}
 
     def handler(http_request: httpx.Request) -> httpx.Response:

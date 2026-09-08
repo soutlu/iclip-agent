@@ -20,7 +20,7 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTING,
     GenerationJob,
 )
-from iclip.domains.generation.schemas import GenerationRequest
+from iclip.domains.generation.schemas import GenerationRequest, ImageGenerationIn
 from tests.helpers.generation import image_request, make_job, video_request
 from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 
@@ -227,25 +227,25 @@ async def test_deleting_the_owner_takes_their_generations_with_it(
         await repo.get(job.id, owner=None)
 
 
-async def test_frame_edit_json_filtering_pagination_and_owner_scope(engine: AsyncEngine) -> None:
-    from tests.unit.domains.generation.test_frame_edit import edit_context, edit_request
+async def test_frame_number_json_filtering_pagination_and_owner_scope(engine: AsyncEngine) -> None:
+    """帧号存在 request JSON 里，筛选走 JSONB 路径，且在分页截断之前生效。"""
+
+    def edit(frame_number: int) -> ImageGenerationIn:
+        return image_request(shot_index=1, frame_number=frame_number)
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
     other = await make_user(engine)
-    first = await repo.create(make_job(edit_request(), owner_user_id=owner, shot_index=1))
-    second = await repo.create(make_job(edit_request(), owner_user_id=owner, shot_index=1))
-    context = edit_context()
-    context["frameNumber"] = 2
-    await repo.create(make_job(edit_request(context), owner_user_id=owner, shot_index=1))
-    foreign = await repo.create(make_job(edit_request(), owner_user_id=other, shot_index=1))
+    first = await repo.create(make_job(edit(1), owner_user_id=owner, shot_index=1))
+    second = await repo.create(make_job(edit(1), owner_user_id=owner, shot_index=1))
+    await repo.create(make_job(edit(2), owner_user_id=owner, shot_index=1))
+    foreign = await repo.create(make_job(edit(1), owner_user_id=other, shot_index=1))
 
     async def page_before(before: uuid.UUID | None = None) -> tuple[GenerationJob, ...]:
         return await repo.list_for_owner(
             owner=owner,
             limit=1,
             kind="image",
-            artifact_path="video_shot.json",
             shot_index=1,
             frame_number=1,
             before=before,

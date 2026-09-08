@@ -402,75 +402,6 @@ export const zErrorModel = z.object({
 })
 
 /**
- * FrameEditAnnotationReference
- */
-export const zFrameEditAnnotationReference = z.object({
-  id: z.string().min(1).max(100),
-  kind: z.literal('annotation'),
-})
-
-/**
- * FrameEditImageReference
- */
-export const zFrameEditImageReference = z.object({
-  id: z.string().min(1).max(100),
-  kind: z.literal('referenceImage'),
-})
-
-/**
- * FrameEditPoint
- */
-export const zFrameEditPoint = z.object({
-  x: z.number().gte(0).lte(1),
-  y: z.number().gte(0).lte(1),
-})
-
-/**
- * FrameEditAnnotation
- */
-export const zFrameEditAnnotation = z.object({
-  id: z.string().min(1).max(100),
-  kind: z.enum(['point', 'rectangle', 'ellipse', 'arrow', 'pen']),
-  number: z.int().gte(1).lte(9999),
-  points: z.array(zFrameEditPoint).min(1).max(2000),
-})
-
-/**
- * FrameEditReference
- */
-export const zFrameEditReference = z.object({
-  id: z.string().min(1).max(100),
-  kind: z.enum(['image', 'annotated']),
-  label: z.string().min(1).max(200),
-  url: z.string().min(1).max(4096),
-})
-
-/**
- * FrameEditText
- */
-export const zFrameEditText = z.object({
-  kind: z.literal('text'),
-  text: z.string().max(4000),
-})
-
-/**
- * FrameEditContext
- *
- * 一次帧编辑的输入快照；图片顺序由用户确定，不由服务端补图。
- */
-export const zFrameEditContext = z.object({
-  annotations: z.array(zFrameEditAnnotation).max(50).optional().default([]),
-  artifactPath: z.string().min(1).max(500),
-  frameNumber: z.int().gte(1),
-  instructions: z
-    .array(z.union([zFrameEditText, zFrameEditAnnotationReference, zFrameEditImageReference]))
-    .min(1)
-    .max(200),
-  references: z.array(zFrameEditReference).min(1).max(10),
-  sourceUrl: z.string().min(1).max(4096),
-})
-
-/**
  * FrameTarget
  */
 export const zFrameTarget = z.object({
@@ -497,25 +428,19 @@ export const zAppendOp = z.object({
  *
  * 一次生成对外的样子。
  *
- * 刻意不含 provider 的原始快照、租约与尝试次数：那些是排队与排障的内部机制，
- * 对调用方没有意义，而快照里还带着 provider 的签名 URL。
+ * 只给调用方用得上的：图在哪、跑到哪一步、失败了给人看什么。provider 名称、原始
+ * 快照、租约与各段时间戳都是排队与排障的内部机制，快照里还带着 provider 的签名
+ * URL；来源对话不写回去——查的时候本来就是按它查的。
  */
 export const zGenerationOut = z.object({
-  conversationId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
-  errorCode: z.string().nullable(),
   errorMessage: z.string().nullable(),
-  finishedAt: z.iso.datetime().nullable(),
   id: z.uuid(),
   kind: z.string(),
   outputUrl: z.string().nullable(),
-  provider: z.string(),
-  providerStatus: z.string().nullable(),
   request: z.record(z.string(), z.unknown()),
   shotIndex: z.int().nullable(),
   status: z.string(),
-  submittedAt: z.iso.datetime().nullable(),
-  updatedAt: z.iso.datetime(),
 })
 
 /**
@@ -549,7 +474,7 @@ export const zImageGenerationIn = z.object({
   aspectRatio: z.enum(['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']),
   channel: z.enum(['dev', 'pro']).optional().default('dev'),
   conversationId: z.uuid().nullish(),
-  frameEdit: zFrameEditContext.nullish(),
+  frameNumber: z.int().gte(1).nullish(),
   kind: z.literal('image').optional().default('image'),
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
@@ -1808,7 +1733,6 @@ export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
   conversationId: z.uuid().nullish(),
   kind: z.enum(['image', 'video']).nullish(),
-  artifactPath: z.string().max(500).nullish(),
   shotIndex: z.int().gte(1).nullish(),
   frameNumber: z.int().gte(1).nullish(),
   before: z.uuid().nullish(),

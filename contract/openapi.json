@@ -1420,255 +1420,6 @@
         "title": "ErrorModel",
         "type": "object"
       },
-      "FrameEditAnnotation": {
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "point",
-              "rectangle",
-              "ellipse",
-              "arrow",
-              "pen"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "number": {
-            "maximum": 9999.0,
-            "minimum": 1.0,
-            "title": "Number",
-            "type": "integer"
-          },
-          "points": {
-            "items": {
-              "$ref": "#/components/schemas/FrameEditPoint"
-            },
-            "maxItems": 2000,
-            "minItems": 1,
-            "title": "Points",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "number",
-          "kind",
-          "points"
-        ],
-        "title": "FrameEditAnnotation",
-        "type": "object"
-      },
-      "FrameEditAnnotationReference": {
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "const": "annotation",
-            "title": "Kind",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "id"
-        ],
-        "title": "FrameEditAnnotationReference",
-        "type": "object"
-      },
-      "FrameEditContext": {
-        "additionalProperties": false,
-        "description": "一次帧编辑的输入快照；图片顺序由用户确定，不由服务端补图。",
-        "properties": {
-          "annotations": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/FrameEditAnnotation"
-            },
-            "maxItems": 50,
-            "title": "Annotations",
-            "type": "array"
-          },
-          "artifactPath": {
-            "maxLength": 500,
-            "minLength": 1,
-            "title": "Artifactpath",
-            "type": "string"
-          },
-          "frameNumber": {
-            "minimum": 1.0,
-            "title": "Framenumber",
-            "type": "integer"
-          },
-          "instructions": {
-            "items": {
-              "discriminator": {
-                "mapping": {
-                  "annotation": "#/components/schemas/FrameEditAnnotationReference",
-                  "referenceImage": "#/components/schemas/FrameEditImageReference",
-                  "text": "#/components/schemas/FrameEditText"
-                },
-                "propertyName": "kind"
-              },
-              "oneOf": [
-                {
-                  "$ref": "#/components/schemas/FrameEditText"
-                },
-                {
-                  "$ref": "#/components/schemas/FrameEditAnnotationReference"
-                },
-                {
-                  "$ref": "#/components/schemas/FrameEditImageReference"
-                }
-              ]
-            },
-            "maxItems": 200,
-            "minItems": 1,
-            "title": "Instructions",
-            "type": "array"
-          },
-          "references": {
-            "items": {
-              "$ref": "#/components/schemas/FrameEditReference"
-            },
-            "maxItems": 10,
-            "minItems": 1,
-            "title": "References",
-            "type": "array"
-          },
-          "sourceUrl": {
-            "maxLength": 4096,
-            "minLength": 1,
-            "title": "Sourceurl",
-            "type": "string"
-          }
-        },
-        "required": [
-          "artifactPath",
-          "frameNumber",
-          "sourceUrl",
-          "instructions",
-          "references"
-        ],
-        "title": "FrameEditContext",
-        "type": "object"
-      },
-      "FrameEditImageReference": {
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "const": "referenceImage",
-            "title": "Kind",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "id"
-        ],
-        "title": "FrameEditImageReference",
-        "type": "object"
-      },
-      "FrameEditPoint": {
-        "additionalProperties": false,
-        "properties": {
-          "x": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "X",
-            "type": "number"
-          },
-          "y": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Y",
-            "type": "number"
-          }
-        },
-        "required": [
-          "x",
-          "y"
-        ],
-        "title": "FrameEditPoint",
-        "type": "object"
-      },
-      "FrameEditReference": {
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "image",
-              "annotated"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "label": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Label",
-            "type": "string"
-          },
-          "url": {
-            "maxLength": 4096,
-            "minLength": 1,
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "url",
-          "kind",
-          "label"
-        ],
-        "title": "FrameEditReference",
-        "type": "object"
-      },
-      "FrameEditText": {
-        "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "const": "text",
-            "title": "Kind",
-            "type": "string"
-          },
-          "text": {
-            "maxLength": 4000,
-            "title": "Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "text"
-        ],
-        "title": "FrameEditText",
-        "type": "object"
-      },
       "FrameTarget": {
         "additionalProperties": false,
         "properties": {
@@ -1766,35 +1517,12 @@
       },
       "GenerationOut": {
         "additionalProperties": false,
-        "description": "一次生成对外的样子。\n\n刻意不含 provider 的原始快照、租约与尝试次数：那些是排队与排障的内部机制，\n对调用方没有意义，而快照里还带着 provider 的签名 URL。",
+        "description": "一次生成对外的样子。\n\n只给调用方用得上的：图在哪、跑到哪一步、失败了给人看什么。provider 名称、原始\n快照、租约与各段时间戳都是排队与排障的内部机制，快照里还带着 provider 的签名\nURL；来源对话不写回去——查的时候本来就是按它查的。",
         "properties": {
-          "conversationId": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Conversationid"
-          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
             "type": "string"
-          },
-          "errorCode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Errorcode"
           },
           "errorMessage": {
             "anyOf": [
@@ -1806,18 +1534,6 @@
               }
             ],
             "title": "Errormessage"
-          },
-          "finishedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Finishedat"
           },
           "id": {
             "format": "uuid",
@@ -1839,21 +1555,6 @@
             ],
             "title": "Outputurl"
           },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          },
-          "providerStatus": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Providerstatus"
-          },
           "request": {
             "additionalProperties": true,
             "title": "Request",
@@ -1873,41 +1574,17 @@
           "status": {
             "title": "Status",
             "type": "string"
-          },
-          "submittedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Submittedat"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "title": "Updatedat",
-            "type": "string"
           }
         },
         "required": [
           "id",
           "kind",
-          "provider",
           "status",
           "request",
-          "conversationId",
           "shotIndex",
           "outputUrl",
-          "providerStatus",
-          "errorCode",
           "errorMessage",
-          "createdAt",
-          "updatedAt",
-          "submittedAt",
-          "finishedAt"
+          "createdAt"
         ],
         "title": "GenerationOut",
         "type": "object"
@@ -2002,15 +1679,17 @@
             ],
             "title": "Conversationid"
           },
-          "frameEdit": {
+          "frameNumber": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/FrameEditContext"
+                "minimum": 1.0,
+                "type": "integer"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Framenumber"
           },
           "kind": {
             "const": "image",
@@ -7517,23 +7196,6 @@
                 }
               ],
               "title": "Kind"
-            }
-          },
-          {
-            "in": "query",
-            "name": "artifactPath",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maxLength": 500,
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Artifactpath"
             }
           },
           {

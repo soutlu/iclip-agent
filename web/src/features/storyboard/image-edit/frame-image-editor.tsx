@@ -18,12 +18,29 @@ import { EditReferences } from './edit-references'
 import { editDraftError, editDraftKey, emptyEditDraft, loadEditDraft } from './image-edit-draft'
 import {
   imageEditQueryKey,
-  readFrameEdit,
+  parseEditPrompt,
+  readSubmittedImages,
+  readSubmittedPrompt,
   submitImageEdit,
   useImageEditJobs,
 } from './image-edit.api'
 import type { EditReference, FrameEditDraft, FrameEditTarget } from './image-edit-types'
 import './image-edit.css'
+
+/** 快照里只有地址，名字重新推一份：和当前帧同一张标「当前原图」，其余取文件名。 */
+const restoredReference =
+  (sourceUrl: string) =>
+  (url: string): EditReference => ({
+    id: crypto.randomUUID(),
+    kind: 'image',
+    url,
+    label:
+      url === sourceUrl
+        ? '当前原图'
+        : (decodeURIComponent(url.split('?')[0] ?? '')
+            .split('/')
+            .at(-1) ?? '图片'),
+  })
 
 type FrameImageEditorProps = {
   target: FrameEditTarget
@@ -74,10 +91,9 @@ export function FrameImageEditor({
   const insertionRef = useRef(0)
   const jobsQuery = useImageEditJobs(target)
   const jobs = jobsQuery.data?.pages.flatMap((page) => page.items) ?? []
+  // 列表已按这一格筛过，所以最新一条就是这一格的。
   const selectedJob =
-    selectedJobId === null
-      ? jobs.find((job) => readFrameEdit(job)?.sourceUrl === target.sourceUrl)
-      : jobs.find((job) => job.id === selectedJobId)
+    selectedJobId === null ? jobs[0] : jobs.find((job) => job.id === selectedJobId)
   const resultUrl = selectedJob?.status === 'completed' ? selectedJob.outputUrl : null
   const busy = submitting || uploading || applying
   const problem = editDraftError(draft)
@@ -414,25 +430,24 @@ export function FrameImageEditor({
                       type="button"
                       disabled={busy}
                       onClick={() => {
-                        const context = readFrameEdit(job)
-                        if (context === null) {
-                          toast.error('这条记录没有可恢复的编辑输入')
+                        const urls = readSubmittedImages(job)
+                        if (urls.length === 0) {
+                          toast.error('这条记录没有可恢复的输入')
                           return
                         }
-                        if (context.sourceUrl !== target.sourceUrl) {
-                          toast.error('这条记录的原图与当前帧不同，无法恢复标注')
-                          return
-                        }
+                        const references = urls.map(restoredReference(target.sourceUrl))
                         changeDraft({
-                          annotations: context.annotations,
-                          instructions: context.instructions,
-                          references: context.references,
+                          // 画布上的圈没存，恢复不出来；那张烙好的标注图还在图片列表里。
+                          annotations: [],
+                          instructions: parseEditPrompt(readSubmittedPrompt(job), references),
+                          references,
                         })
                         setDraftError(null)
                         setSelectedAnnotation(null)
                         setCanvasRevision((value) => value + 1)
                         setMode('edit')
                         setSelectedJobId(job.id)
+                        toast.info('已装回这次提交的图片和修改要求；画布上的标注需要重画')
                       }}
                     >
                       恢复输入

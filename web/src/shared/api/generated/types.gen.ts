@@ -771,138 +771,6 @@ export type ErrorModel = {
 }
 
 /**
- * FrameEditAnnotation
- */
-export type FrameEditAnnotation = {
-  /**
-   * Id
-   */
-  id: string
-  /**
-   * Kind
-   */
-  kind: 'point' | 'rectangle' | 'ellipse' | 'arrow' | 'pen'
-  /**
-   * Number
-   */
-  number: number
-  /**
-   * Points
-   */
-  points: Array<FrameEditPoint>
-}
-
-/**
- * FrameEditAnnotationReference
- */
-export type FrameEditAnnotationReference = {
-  /**
-   * Id
-   */
-  id: string
-  /**
-   * Kind
-   */
-  kind: 'annotation'
-}
-
-/**
- * FrameEditContext
- *
- * 一次帧编辑的输入快照；图片顺序由用户确定，不由服务端补图。
- */
-export type FrameEditContext = {
-  /**
-   * Annotations
-   */
-  annotations?: Array<FrameEditAnnotation>
-  /**
-   * Artifactpath
-   */
-  artifactPath: string
-  /**
-   * Framenumber
-   */
-  frameNumber: number
-  /**
-   * Instructions
-   */
-  instructions: Array<FrameEditText | FrameEditAnnotationReference | FrameEditImageReference>
-  /**
-   * References
-   */
-  references: Array<FrameEditReference>
-  /**
-   * Sourceurl
-   */
-  sourceUrl: string
-}
-
-/**
- * FrameEditImageReference
- */
-export type FrameEditImageReference = {
-  /**
-   * Id
-   */
-  id: string
-  /**
-   * Kind
-   */
-  kind: 'referenceImage'
-}
-
-/**
- * FrameEditPoint
- */
-export type FrameEditPoint = {
-  /**
-   * X
-   */
-  x: number
-  /**
-   * Y
-   */
-  y: number
-}
-
-/**
- * FrameEditReference
- */
-export type FrameEditReference = {
-  /**
-   * Id
-   */
-  id: string
-  /**
-   * Kind
-   */
-  kind: 'image' | 'annotated'
-  /**
-   * Label
-   */
-  label: string
-  /**
-   * Url
-   */
-  url: string
-}
-
-/**
- * FrameEditText
- */
-export type FrameEditText = {
-  /**
-   * Kind
-   */
-  kind: 'text'
-  /**
-   * Text
-   */
-  text: string
-}
-
-/**
  * FrameTarget
  */
 export type FrameTarget = {
@@ -970,30 +838,19 @@ export type GenerationEnvelope = {
  *
  * 一次生成对外的样子。
  *
- * 刻意不含 provider 的原始快照、租约与尝试次数：那些是排队与排障的内部机制，
- * 对调用方没有意义，而快照里还带着 provider 的签名 URL。
+ * 只给调用方用得上的：图在哪、跑到哪一步、失败了给人看什么。provider 名称、原始
+ * 快照、租约与各段时间戳都是排队与排障的内部机制，快照里还带着 provider 的签名
+ * URL；来源对话不写回去——查的时候本来就是按它查的。
  */
 export type GenerationOut = {
-  /**
-   * Conversationid
-   */
-  conversationId: string | null
   /**
    * Createdat
    */
   createdAt: string
   /**
-   * Errorcode
-   */
-  errorCode: string | null
-  /**
    * Errormessage
    */
   errorMessage: string | null
-  /**
-   * Finishedat
-   */
-  finishedAt: string | null
   /**
    * Id
    */
@@ -1006,14 +863,6 @@ export type GenerationOut = {
    * Outputurl
    */
   outputUrl: string | null
-  /**
-   * Provider
-   */
-  provider: string
-  /**
-   * Providerstatus
-   */
-  providerStatus: string | null
   /**
    * Request
    */
@@ -1028,14 +877,6 @@ export type GenerationOut = {
    * Status
    */
   status: string
-  /**
-   * Submittedat
-   */
-  submittedAt: string | null
-  /**
-   * Updatedat
-   */
-  updatedAt: string
 }
 
 /**
@@ -1087,7 +928,10 @@ export type ImageGenerationIn = {
    * Conversationid
    */
   conversationId?: string | null
-  frameEdit?: FrameEditContext | null
+  /**
+   * Framenumber
+   */
+  frameNumber?: number | null
   /**
    * Kind
    */
@@ -4111,10 +3955,6 @@ export type ListGenerationsGenerationsGetData = {
      * Kind
      */
     kind?: 'image' | 'video' | null
-    /**
-     * Artifactpath
-     */
-    artifactPath?: string | null
     /**
      * Shotindex
      */

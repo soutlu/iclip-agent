@@ -1,24 +1,39 @@
 import { z } from 'zod'
-import {
-  zFrameEditAnnotation,
-  zFrameEditReference,
-  zFrameEditText,
-  zFrameEditAnnotationReference,
-  zFrameEditImageReference,
-} from '@/shared/api/generated/zod.gen'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
-// 未提交草稿可以没有参考图；提交边界继续使用后端合同的完整约束。
+// 编辑器内部的形状，不进 HTTP：提交时只发编译好的 prompt 与图片地址。
+const idSchema = z.string().min(1).max(100)
 const draftSchema = z.object({
-  annotations: z.array(zFrameEditAnnotation).max(50),
+  annotations: z
+    .array(
+      z.object({
+        id: idSchema,
+        number: z.int().min(1).max(9999),
+        kind: z.enum(['point', 'rectangle', 'ellipse', 'arrow', 'pen']),
+        points: z
+          .array(z.object({ x: z.number(), y: z.number() }))
+          .min(1)
+          .max(2000),
+      }),
+    )
+    .max(50),
   instructions: z.array(
     z.union([
-      zFrameEditText.extend({ text: z.string() }),
-      zFrameEditAnnotationReference,
-      zFrameEditImageReference,
+      z.object({ kind: z.literal('text'), text: z.string() }),
+      z.object({ kind: z.literal('annotation'), id: idSchema }),
+      z.object({ kind: z.literal('referenceImage'), id: idSchema }),
     ]),
   ),
-  references: z.array(zFrameEditReference).max(10),
+  references: z
+    .array(
+      z.object({
+        id: idSchema,
+        url: z.string().min(1).max(4096),
+        kind: z.enum(['image', 'annotated']),
+        label: z.string().min(1).max(200),
+      }),
+    )
+    .max(10),
 })
 
 export const emptyEditDraft = (): FrameEditDraft => ({

@@ -29,17 +29,10 @@ const originalDocument = (): ShotsDocument => ({
 const completedJob = (outputUrl: string, createdAt: string): GenerationJob => ({
   id: crypto.randomUUID(),
   kind: 'image',
-  conversationId: CONVERSATION_ID,
   shotIndex: 1,
   createdAt,
-  updatedAt: createdAt,
-  submittedAt: createdAt,
-  finishedAt: createdAt,
   status: 'completed',
-  provider: 'mock',
-  providerStatus: 'completed',
   outputUrl,
-  errorCode: null,
   errorMessage: null,
   request: {
     frameEdit: {

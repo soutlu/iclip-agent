@@ -93,7 +93,6 @@ async def test_submit_accepts_and_persists_pending_without_calling_provider(
     assert response.status_code == 202
     body = response.json()["generation"]
     assert body["status"] == STATUS_PENDING
-    assert body["provider"] == "video_api"
     assert body["outputUrl"] is None
     assert body["request"]["model"] == (model or "moyu-seedance-2-5")
     assert len(repo.jobs) == 1
@@ -125,7 +124,6 @@ async def test_historical_video_models_are_read_without_rewriting() -> None:
         response = await http.get(f"/generations/{job.id}")
 
     assert response.status_code == 200
-    assert response.json()["generation"]["provider"] == "multiflow"
     assert response.json()["generation"]["request"]["model"] == "mmt-seedance-2-0"
     assert repo.jobs[job.id].request.model_dump()["model"] == "mmt-seedance-2-0"
 
@@ -175,6 +173,18 @@ async def test_bad_request_shapes_are_rejected(body: dict[str, object]) -> None:
     assert response.status_code == 422
 
 
+async def test_a_frame_number_without_a_shot_is_rejected_at_intake() -> None:
+    """帧号只在镜头组内有意义。这条只在受理时查：来源字段落列，读回持久化请求时看不到。"""
+
+    body = {"kind": "image", "prompt": "猫", "aspectRatio": "1:1", "frameNumber": 2}
+    app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:submit"))
+    async with client(app) as http:
+        rejected = await http.post("/generations", json=body)
+        accepted = await http.post("/generations", json={**body, "shotIndex": 3})
+    assert rejected.status_code == 422
+    assert accepted.status_code == 202
+
+
 async def test_submit_requires_the_submit_permission() -> None:
     repo = InMemoryGenerationRepository()
     async with client(build_test_app(repo, granted=principal("generation:read"))) as http:
@@ -220,7 +230,7 @@ async def test_origin_lands_on_columns_not_in_the_stored_request() -> None:
 
     assert response.status_code == 202, response.text
     body = response.json()["generation"]
-    assert (body["conversationId"], body["shotIndex"]) == (str(conversation_id), 3)
+    assert body["shotIndex"] == 3
     assert {"conversationId", "shotIndex"}.isdisjoint(body["request"])
     stored = next(iter(repo.jobs.values()))
     assert (stored.conversation_id, stored.shot_index) == (conversation_id, 3)
@@ -260,7 +270,7 @@ async def test_response_hides_provider_snapshot_and_queue_mechanics() -> None:
     async with client(build_test_app(repo, granted=owner)) as http:
         body = (await http.get(f"/generations/{job.id}")).json()["generation"]
 
-    hidden = {"providerSnapshot", "providerTaskId", "leaseOwner", "attempts", "nextAttemptAt"}
+    hidden = {"providerSnapshot", "providerTaskId", "provider", "leaseOwner", "attempts"}
     assert hidden.isdisjoint(body)
 
 

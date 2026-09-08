@@ -99,16 +99,10 @@ test('标注引用与用户图片顺序提交，候选须明确采用后才替�
   await dialog.getByRole('button', { name: '生成编辑结果' }).click()
   const body = (await submitted).postDataJSON() as ImageGenerationIn
   expect(body.kind).toBe('image')
-  expect(body.frameEdit?.frameNumber).toBe(2)
-  expect(body.frameEdit?.sourceUrl).toBe(originalUrl)
-  expect(body.frameEdit?.annotations).toHaveLength(1)
-  expect(body.frameEdit?.references.map((reference) => reference.kind)).toEqual([
-    'annotated',
-    'image',
-  ])
-  expect(body.referenceImageUrls).toEqual(
-    body.frameEdit?.references.map((reference) => reference.url),
-  )
+  expect(body.frameNumber).toBe(2)
+  // 芯片落成字面文字，编号即图片在本次提交里的位置。
+  expect(body.prompt).toContain('@标注1')
+  expect(body.prompt).toContain('图中的编号和圈选只表示位置')
   expect(body.referenceImageUrls).toHaveLength(2)
   expect(body.referenceImageUrls?.[0]).toContain('/mock-oss/')
   expect(body.referenceImageUrls?.[1]).toContain('/mock-frames/a.png')
@@ -284,19 +278,8 @@ test('点标注支持编号引用和拖动，取消选择不新增，连续点�
   )
   await dialog.getByRole('button', { name: '生成编辑结果' }).click()
   const body = (await submitted).postDataJSON() as ImageGenerationIn
-  expect(body.frameEdit?.annotations).toHaveLength(3)
-  for (const annotation of body.frameEdit?.annotations ?? []) {
-    expect(annotation.kind).toBe('point')
-    expect(annotation.points).toHaveLength(1)
-    expect(annotation.points[0]?.x).toBeGreaterThanOrEqual(0)
-    expect(annotation.points[0]?.x).toBeLessThanOrEqual(1)
-    expect(annotation.points[0]?.y).toBeGreaterThanOrEqual(0)
-    expect(annotation.points[0]?.y).toBeLessThanOrEqual(1)
-  }
-  expect(body.frameEdit?.instructions).toContainEqual({
-    kind: 'annotation',
-    id: body.frameEdit?.annotations?.[0]?.id,
-  })
+  // 标注本身不上行，能验证的是它在修改要求里被引用到了。
+  expect(body.prompt).toContain('@标注1')
 })
 
 test('画笔连续绘制平滑笔迹，松手后出现编号，选中时没有四角手柄', async ({ page }) => {
