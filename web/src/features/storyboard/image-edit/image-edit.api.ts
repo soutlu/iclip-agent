@@ -1,9 +1,11 @@
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
+import type { ImageModelOut } from '@/shared/api/generated/types.gen'
 import {
   zGenerationEnvelope,
   zGenerationsPageOut,
   zImageGenerationIn,
+  zImageModelsOut,
 } from '@/shared/api/generated/zod.gen'
 import type { GenerationJob } from '../storyboard.api'
 import { isRunningStatus } from '../shots'
@@ -96,10 +98,81 @@ export function parseEditPrompt(
   return parts
 }
 
+export type ImageModel = ImageModelOut
+
+/** 接入了哪几家图片模型、各家支持什么档位。可选项与受理层照同一份声明，不在前端复制一份。 */
+export function useImageModels() {
+  return useQuery({
+    queryKey: ['generations', 'image-models'] as const,
+    queryFn: ({ signal }) =>
+      apiFetch('/generations/image-models', zImageModelsOut, {
+        signal,
+        fallbackErrorMessage: '读取图片模型失败',
+      }),
+    staleTime: Infinity,
+  })
+}
+
+/** 这家支持这个画幅吗。画幅由分镜决定，用户在编辑器里改不了。 */
+export const modelSupportsAspect = (model: ImageModel, aspectRatio: string) =>
+  model.aspectRatios.includes(aspectRatio)
+
+export type ImageResolution = '1k' | '2k' | '4k'
+export type ImageChannel = 'dev' | 'pro'
+
+export type ResolvedImageOptions = {
+  model: ImageModel | undefined
+  resolution: ImageResolution | undefined
+  channel: ImageChannel | undefined
+  /** 一家都出不了这个画幅：不是选错了，是这个画幅没人支持。 */
+  aspectUnsupported: boolean
+}
+
+/** 把「用户想要的」收敛成「这次真能提交的」。
+ *
+ * 各家支持的档位不同，切模型后旧的选择可能落在新模型的范围外；在这里收敛而不是用副作用
+ * 改 state，切回去时用户原来的选择还在。画幅是分镜给的，改不了，所以它反过来筛模型。 */
+export function resolveImageOptions(
+  models: readonly ImageModel[],
+  aspectRatio: string,
+  wanted: { model?: string | undefined; resolution: ImageResolution; channel: ImageChannel },
+): ResolvedImageOptions {
+  const usable = models.filter((model) => modelSupportsAspect(model, aspectRatio))
+  const model = usable.find((item) => item.model === wanted.model) ?? usable[0]
+  if (model === undefined) {
+    return {
+      model: undefined,
+      resolution: undefined,
+      channel: undefined,
+      aspectUnsupported: models.length > 0,
+    }
+  }
+  const resolutions = model.resolutions.filter(isResolution)
+  const channels = model.channels.filter(isChannel)
+  return {
+    model,
+    resolution: resolutions.includes(wanted.resolution) ? wanted.resolution : resolutions.at(-1),
+    // 空数组即这家没有渠道这个轴，提交时不带这个字段。
+    channel: channels.includes(wanted.channel) ? wanted.channel : channels[0],
+    aspectUnsupported: false,
+  }
+}
+
+const RESOLUTIONS: readonly string[] = zImageGenerationIn.shape.resolution.unwrap().unwrap().options
+const CHANNELS: readonly string[] = zImageGenerationIn.shape.channel.unwrap().unwrap().options
+
+const isResolution = (value: string): value is ImageResolution => RESOLUTIONS.includes(value)
+const isChannel = (value: string): value is ImageChannel => CHANNELS.includes(value)
+
 export async function submitImageEdit(
   target: FrameEditTarget,
   draft: FrameEditDraft,
-  options: { channel: 'dev' | 'pro'; resolution: '1k' | '2k' | '4k'; aspectRatio: string },
+  options: {
+    model: string
+    channel?: 'dev' | 'pro'
+    resolution: '1k' | '2k' | '4k'
+    aspectRatio: string
+  },
 ) {
   const body = zImageGenerationIn.parse({
     kind: 'image',

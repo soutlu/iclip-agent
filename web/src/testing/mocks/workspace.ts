@@ -389,6 +389,28 @@ export const workspaceHandlers = [
     })
   }),
 
+  http.get('*/api/generations/image-models', () =>
+    HttpResponse.json({
+      default: 'nano_banana_pro',
+      items: [
+        {
+          model: 'nano_banana_pro',
+          label: 'Nano Banana Pro',
+          aspectRatios: ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'],
+          resolutions: ['1k', '2k', '4k'],
+          channels: ['dev', 'pro'],
+        },
+        {
+          model: 'seedream_v5_pro',
+          label: 'Seedream 5.0 Pro',
+          aspectRatios: ['1:1', '3:2', '2:3', '3:4', '4:3', '9:16', '16:9', '21:9'],
+          resolutions: ['1k', '2k'],
+          channels: [],
+        },
+      ],
+    }),
+  ),
+
   http.get('*/api/generations', ({ request }) => {
     const params = new URL(request.url).searchParams
     const conversationId = params.get('conversationId')
