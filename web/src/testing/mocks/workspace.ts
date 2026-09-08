@@ -1,11 +1,7 @@
 /** REST 读取与 WebSocket 模拟写入共用内存文件表，确保通知后重读得到新内容。 */
 
 import { http, HttpResponse } from 'msw'
-import type {
-  FrameEditContext,
-  ImageGenerationIn,
-  VideoGenerationIn,
-} from '@/shared/api/generated/types.gen'
+import type { ImageGenerationIn, VideoGenerationIn } from '@/shared/api/generated/types.gen'
 
 /** 本地 data URL 帧，避免网络依赖。 */
 const FRAME_A =
@@ -119,21 +115,14 @@ type MockJob = {
 }
 
 const job = (spec: MockJob) => ({
-  conversationId: null as string | null,
   createdAt: spec.createdAt,
-  errorCode: spec.status === 'failed' ? 'provider_empty' : null,
   errorMessage: spec.errorMessage ?? null,
-  finishedAt: spec.status === 'submitted' ? null : spec.createdAt,
   id: spec.id,
   kind: spec.kind ?? 'video',
   outputUrl: spec.outputUrl ?? null,
-  provider: 'mock',
-  providerStatus: spec.status,
   request: spec.request ?? { prompt: spec.prompt },
   shotIndex: spec.shotIndex ?? null,
   status: spec.status,
-  submittedAt: spec.createdAt,
-  updatedAt: spec.createdAt,
 })
 
 const workspaces = new Map<string, Map<string, MockFile>>()
@@ -406,17 +395,13 @@ export const workspaceHandlers = [
     let items = conversationId === null ? [] : (generations.get(conversationId) ?? [])
     const kind = params.get('kind')
     const shotIndex = params.get('shotIndex')
-    const artifactPath = params.get('artifactPath')
     const frameNumber = params.get('frameNumber')
-    items = items.filter((item) => {
-      const frameEdit = item.request['frameEdit'] as FrameEditContext | undefined
-      return (
+    items = items.filter(
+      (item) =>
         (kind === null || item.kind === kind) &&
         (shotIndex === null || item.shotIndex === Number(shotIndex)) &&
-        (artifactPath === null || frameEdit?.artifactPath === artifactPath) &&
-        (frameNumber === null || frameEdit?.frameNumber === Number(frameNumber))
-      )
-    })
+        (frameNumber === null || item.request['frameNumber'] === Number(frameNumber)),
+    )
     items = [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     const before = params.get('before')
     if (before !== null) items = items.slice(items.findIndex((item) => item.id === before) + 1)
@@ -436,7 +421,6 @@ export const workspaceHandlers = [
       ...(body.shotIndex == null ? {} : { shotIndex: body.shotIndex }),
       status: 'submitted',
     })
-    created.conversationId = body.conversationId ?? null
     if (body.conversationId !== null && body.conversationId !== undefined) {
       generations.set(body.conversationId, [
         ...(generations.get(body.conversationId) ?? []),
@@ -444,12 +428,10 @@ export const workspaceHandlers = [
       ])
     }
     const timer = setTimeout(() => {
-      created.finishedAt = new Date().toISOString()
       created.outputUrl =
         body.kind === 'image'
           ? (workspaceFrames.get(body.conversationId ?? '') ?? DATA_FRAMES).c
           : VIDEO_URL
-      created.providerStatus = 'completed'
       created.status = 'completed'
       timers.delete(timer)
     }, VIDEO_DONE_MS)

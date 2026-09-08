@@ -61,8 +61,18 @@ def test_stored_payload_is_camel_case_without_the_kind_column() -> None:
         "aspectRatio",
         "resolution",
         "referenceImageUrls",
-        "frameEdit",
+        "frameNumber",
     }
+
+
+def test_a_stored_image_request_reads_back_without_its_origin_columns() -> None:
+    """来源字段落列不落 JSON，所以读回时看不到 shotIndex——校验不能建在这条路上。"""
+
+    stored = request_to_payload(image_request(shot_index=1, frame_number=2))
+    assert "shotIndex" not in stored
+    restored = request_from_payload(KIND_IMAGE, stored)
+    assert isinstance(restored, ImageGenerationIn)
+    assert restored.frame_number == 2
 
 
 def test_unknown_kind_is_rejected() -> None:

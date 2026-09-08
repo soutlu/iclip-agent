@@ -26,17 +26,10 @@ const draft: FrameEditDraft = {
 }
 const job = (status: 'pending' | 'completed'): GenerationJob => ({
   id: crypto.randomUUID(),
-  conversationId: target.conversationId,
   shotIndex: target.shotIndex,
   kind: 'image',
   status,
   createdAt: '2026-09-07T12:00:00Z',
-  updatedAt: '2026-09-07T12:00:00Z',
-  submittedAt: null,
-  finishedAt: null,
-  provider: 'mock',
-  providerStatus: null,
-  errorCode: null,
   errorMessage: null,
   outputUrl: status === 'completed' ? 'https://example.com/old-result.png' : null,
   request: { frameEdit: { ...target, ...draft } },

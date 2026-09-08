@@ -18,7 +18,7 @@ from iclip.domains.generation.provider import GenerationProvider
 from iclip.domains.generation.queue import GenerationQueue, GenerationQueueSettings
 from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import KIND_IMAGE, KIND_VIDEO
-from iclip.domains.generation.service import GenerationService, ValidateFrameEditTarget
+from iclip.domains.generation.service import GenerationService
 from iclip.domains.generation.video import (
     HttpVideoProvider,
     VideoProviderSettings,
@@ -44,7 +44,6 @@ def build_generation_module(
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector,
     queue_settings: GenerationQueueSettings | None = None,
-    validate_frame_edit_target: ValidateFrameEditTarget | None = None,
     video_transport: httpx.AsyncBaseTransport | None = None,
     image_transport: httpx.AsyncBaseTransport | None = None,
 ) -> GenerationModule:
@@ -69,7 +68,6 @@ def build_generation_module(
         image_provider_name=providers[KIND_IMAGE].name,
         video_model=video.model,
         video_allowed_models=video_allowed_models,
-        validate_frame_edit_target=validate_frame_edit_target,
     )
     return GenerationModule(
         routers=(create_generations_router(service),),

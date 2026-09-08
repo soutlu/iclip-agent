@@ -136,7 +136,6 @@ class SqlGenerationRepository:
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: str | None = None,
-        artifact_path: str | None = None,
         shot_index: int | None = None,
         frame_number: int | None = None,
         before: uuid.UUID | None = None,
@@ -148,10 +147,8 @@ class SqlGenerationRepository:
             stmt = stmt.where(_JOBS.kind == kind)
         if shot_index is not None:
             stmt = stmt.where(_JOBS.shot_index == shot_index)
-        if artifact_path is not None:
-            stmt = stmt.where(_JOBS.request["frameEdit"]["artifactPath"].astext == artifact_path)
         if frame_number is not None:
-            stmt = stmt.where(_JOBS.request["frameEdit"]["frameNumber"].astext == str(frame_number))
+            stmt = stmt.where(_JOBS.request["frameNumber"].astext == str(frame_number))
         if before is not None:
             anchor = await self.get(before, owner=owner)
             stmt = stmt.where(tuple_(_JOBS.created_at, _JOBS.id) < (anchor.created_at, anchor.id))

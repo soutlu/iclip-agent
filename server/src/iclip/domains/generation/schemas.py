@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
@@ -91,130 +91,6 @@ class VideoGenerationIn(GenerationOrigin):
     )
 
 
-FrameEditId = Annotated[str, Field(min_length=1, max_length=100)]
-
-
-class FrameEditPoint(CamelModel):
-    x: float = Field(ge=0, le=1)
-    y: float = Field(ge=0, le=1)
-
-
-class FrameEditAnnotation(CamelModel):
-    id: FrameEditId
-    number: int = Field(ge=1, le=9999)
-    kind: Literal["point", "rectangle", "ellipse", "arrow", "pen"]
-    points: Annotated[list[FrameEditPoint], Field(min_length=1, max_length=2000)]
-
-    @model_validator(mode="after")
-    def check_geometry(self) -> FrameEditAnnotation:
-        if self.kind == "point" and len(self.points) != 1:
-            raise ValueError("点标注必须使用一个定位点")
-        if self.kind == "pen" and len(self.points) < 2:
-            raise ValueError("画笔必须使用至少两个点")
-        if self.kind in {"rectangle", "ellipse", "arrow"} and len(self.points) != 2:
-            raise ValueError("矩形、椭圆和箭头必须使用两个端点")
-        return self
-
-
-class FrameEditText(CamelModel):
-    kind: Literal["text"]
-    text: Annotated[str, Field(max_length=MAX_PROMPT_CHARS)]
-
-
-class FrameEditAnnotationReference(CamelModel):
-    kind: Literal["annotation"]
-    id: FrameEditId
-
-
-class FrameEditImageReference(CamelModel):
-    kind: Literal["referenceImage"]
-    id: FrameEditId
-
-
-FrameEditInstruction = Annotated[
-    FrameEditText | FrameEditAnnotationReference | FrameEditImageReference,
-    Field(discriminator="kind"),
-]
-
-
-class FrameEditReference(CamelModel):
-    id: FrameEditId
-    url: Annotated[str, Field(min_length=1, max_length=4096)]
-    kind: Literal["image", "annotated"]
-    label: Annotated[str, Field(min_length=1, max_length=200)]
-
-    @field_validator("url")
-    @classmethod
-    def check_url(cls, value: str) -> str:
-        return _http_only([value])[0]
-
-
-class FrameEditContext(CamelModel):
-    """一次帧编辑的输入快照；图片顺序由用户确定，不由服务端补图。"""
-
-    artifact_path: Annotated[str, Field(min_length=1, max_length=500)]
-    frame_number: int = Field(ge=1)
-    source_url: Annotated[str, Field(min_length=1, max_length=4096)]
-    annotations: Annotated[list[FrameEditAnnotation], Field(max_length=50)] = []
-    instructions: Annotated[list[FrameEditInstruction], Field(min_length=1, max_length=200)]
-    references: Annotated[list[FrameEditReference], Field(min_length=1, max_length=10)]
-
-    @field_validator("source_url")
-    @classmethod
-    def check_url(cls, value: str) -> str:
-        return _http_only([value])[0]
-
-    @model_validator(mode="after")
-    def check_references(self) -> FrameEditContext:
-        annotation_ids = {item.id for item in self.annotations}
-        reference_ids = {item.id for item in self.references}
-        if len(annotation_ids) != len(self.annotations) or len(reference_ids) != len(
-            self.references
-        ):
-            raise ValueError("标注和参考图的 ID 必须各自唯一")
-        if len({item.number for item in self.annotations}) != len(self.annotations):
-            raise ValueError("标注编号必须唯一")
-        if sum(len(item.points) for item in self.annotations) > 10000:
-            raise ValueError("标注总点数不能超过 10000")
-        annotated_count = sum(item.kind == "annotated" for item in self.references)
-        if annotated_count > 1:
-            raise ValueError("最多选择一张标注图")
-        for part in self.instructions:
-            if part.kind == "annotation" and (part.id not in annotation_ids or not annotated_count):
-                raise ValueError("标注引用必须存在，并在图片列表中选择标注图")
-            if part.kind == "referenceImage" and part.id not in reference_ids:
-                raise ValueError("参考图引用已失效")
-        return self
-
-    def compile_prompt(self) -> str:
-        """把稳定引用 ID 解析为本次图片顺序，保留用户输入的文字。"""
-
-        indices = {item.id: index for index, item in enumerate(self.references, start=1)}
-        annotations = {item.id: item.number for item in self.annotations}
-        annotated_index = next(
-            (indices[item.id] for item in self.references if item.kind == "annotated"), None
-        )
-        parts: list[str] = []
-        for part in self.instructions:
-            if part.kind == "text":
-                parts.append(part.text)
-            elif part.kind == "referenceImage":
-                parts.append(f"【输入图片 {indices[part.id]}】")
-            else:
-                parts.append(f"【输入图片 {annotated_index} 中的标注 {annotations[part.id]}】")
-        prompt = "".join(parts)
-        if not prompt.strip():
-            raise ValueError("修改要求不能为空")
-        if annotated_index is not None:
-            prompt += (
-                f"\n输入图片 {annotated_index} 中的编号、线条和圈选仅表示修改位置；"
-                "输出干净的编辑图片，不保留这些标注。"
-            )
-        if len(prompt) > MAX_PROMPT_CHARS:
-            raise ValueError(f"编译后的修改要求不能超过 {MAX_PROMPT_CHARS} 字符")
-        return prompt
-
-
 class ImageGenerationIn(GenerationOrigin):
     """一次图像生成的输入。参考图为空即文生图，否则走图像编辑。"""
 
@@ -232,17 +108,10 @@ class ImageGenerationIn(GenerationOrigin):
     resolution: IMAGE_RESOLUTIONS = "1k"
     reference_image_urls: Annotated[list[str], Field(max_length=IMAGE_MAX_REFERENCES)] = []
 
-    frame_edit: FrameEditContext | None = None
+    frame_number: int | None = Field(default=None, ge=1)
+    """要顶替镜头组里的第几帧。服务端只当标签存着供筛选，不解析、不定位。"""
 
     _check_urls = field_validator("reference_image_urls")(_http_only)
-
-    @model_validator(mode="after")
-    def check_frame_edit(self) -> ImageGenerationIn:
-        if self.frame_edit is not None:
-            if [item.url for item in self.frame_edit.references] != self.reference_image_urls:
-                raise ValueError("参考图顺序必须与 frameEdit.references 一致")
-            self.frame_edit.compile_prompt()
-        return self
 
 
 GenerationRequest = VideoGenerationIn | ImageGenerationIn
@@ -278,45 +147,31 @@ def request_from_payload(kind: str, payload: dict[str, Any]) -> GenerationReques
 class GenerationOut(CamelModel):
     """一次生成对外的样子。
 
-    刻意不含 provider 的原始快照、租约与尝试次数：那些是排队与排障的内部机制，
-    对调用方没有意义，而快照里还带着 provider 的签名 URL。
+    只给调用方用得上的：图在哪、跑到哪一步、失败了给人看什么。provider 名称、原始
+    快照、租约与各段时间戳都是排队与排障的内部机制，快照里还带着 provider 的签名
+    URL；来源对话不写回去——查的时候本来就是按它查的。
     """
 
     id: uuid.UUID
     kind: str
-    provider: str
     status: str
     request: dict[str, Any]
-    conversation_id: uuid.UUID | None
-    """这次生成属于哪段对话，从表上的列来（不在 ``request`` 里，见 ``GenerationOrigin``）。"""
     shot_index: int | None
     output_url: str | None
-    provider_status: str | None
-    error_code: str | None
     error_message: str | None
     created_at: datetime
-    updated_at: datetime
-    submitted_at: datetime | None
-    finished_at: datetime | None
 
 
 def generation_out(job: GenerationJob) -> GenerationOut:
     return GenerationOut(
         id=job.id,
         kind=job.kind,
-        provider=job.provider,
         status=job.status,
         request=request_to_payload(job.request),
-        conversation_id=job.conversation_id,
         shot_index=job.shot_index,
         output_url=job.output_url,
-        provider_status=job.provider_status,
-        error_code=job.error_code,
         error_message=job.error_message,
         created_at=job.created_at,
-        updated_at=job.updated_at,
-        submitted_at=job.submitted_at,
-        finished_at=job.finished_at,
     )
 
 

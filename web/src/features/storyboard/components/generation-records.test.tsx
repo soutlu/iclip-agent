@@ -8,20 +8,13 @@ import type { GenerationJob } from '../storyboard.api'
 import { GenerationRecords } from './generation-records'
 
 const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
-  conversationId: null,
   createdAt: '2026-09-01T10:00:00Z',
-  errorCode: null,
   errorMessage: null,
-  finishedAt: null,
   kind: 'video',
   outputUrl: null,
-  provider: 'mock',
-  providerStatus: null,
   request: {},
   shotIndex: 2,
   status: 'completed',
-  submittedAt: null,
-  updatedAt: '2026-09-01T10:00:00Z',
   ...spec,
 })
 

@@ -27,7 +27,6 @@ class GenerationRepository(Protocol):
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: str | None = None,
-        artifact_path: str | None = None,
         shot_index: int | None = None,
         frame_number: int | None = None,
         before: uuid.UUID | None = None,

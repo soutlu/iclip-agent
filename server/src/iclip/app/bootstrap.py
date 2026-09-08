@@ -21,7 +21,6 @@ from iclip.app.capability_table import (
     resolve_capabilities,
 )
 from iclip.app.conversation_workspace import ConversationWorkspace, validate_video_shots
-from iclip.app.frame_edit_target import FrameEditTargetValidator
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_video.delivery import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
@@ -313,14 +312,12 @@ def _generation_module(
     database_url: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
-    validate_frame_edit_target: FrameEditTargetValidator,
 ) -> GenerationModule:
     """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。"""
 
     return build_generation_module(
         SqlGenerationRepository(engine),
         video_allowed_models=settings.video_allowed_models,
-        validate_frame_edit_target=validate_frame_edit_target,
         video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
@@ -434,9 +431,6 @@ def build_app(
             database_url=settings.database_url,
             object_store=public_objects,
             queue_connector=queue_connector,
-            validate_frame_edit_target=FrameEditTargetValidator(
-                SqlConversationRepository(active_engine), conversation_workspace
-            ),
         )
         if settings.media_generation is not None and public_objects is not None
         else None

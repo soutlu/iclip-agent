@@ -56,21 +56,14 @@ const provideDocument = (document: ShotsDocument) => {
 
 const provideHistoricalPrompt = (prompt: string) => {
   const history: GenerationJob = {
-    conversationId: CONVERSATION_ID,
     createdAt: '2026-09-01T10:00:00Z',
-    errorCode: null,
     errorMessage: null,
-    finishedAt: '2026-09-01T10:01:00Z',
     id: '5b2f3071-0b2f-4d30-8d9c-2e3f4a5b6c7d',
     kind: 'video',
     outputUrl: null,
-    provider: 'mock',
-    providerStatus: 'completed',
     request: { prompt, imageUrls: ['old-reference.png'], durationSeconds: 4 },
     shotIndex: 2,
     status: 'completed',
-    submittedAt: '2026-09-01T10:00:00Z',
-    updatedAt: '2026-09-01T10:01:00Z',
   }
   server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [history] })))
 }
@@ -1061,21 +1054,14 @@ describe('StoryboardPanel', () => {
   it('顶部计数按当前组的视频任务计数，排除图片和终态，切组及完成后同步', async () => {
     seedMockWorkspace(CONVERSATION_ID)
     const job = (spec: Partial<GenerationJob>): GenerationJob => ({
-      conversationId: CONVERSATION_ID,
       createdAt: '2026-09-01T10:00:00Z',
-      errorCode: null,
       errorMessage: null,
-      finishedAt: null,
       id: crypto.randomUUID(),
       kind: 'video',
       outputUrl: null,
-      provider: 'mock',
-      providerStatus: null,
       request: {},
       shotIndex: 2,
       status: 'submitted',
-      submittedAt: null,
-      updatedAt: '2026-09-01T10:00:00Z',
       ...spec,
     })
     let jobs = [
