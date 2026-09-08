@@ -32,6 +32,10 @@ class ConversationIn(CamelModel):
     ``ConversationCollectionIn``）。
     """
 
+    id: uuid.UUID | None = None
+    """由调用方铸的对话 id，可不给（服务端生成）。给了就按它幂等：重发同一个 id
+    不会多出第二段对话，答复的是已有那一段。"""
+
     agent_id: Annotated[str, Field(min_length=1, max_length=MAX_AGENT_ID_CHARS)]
     title: Title | None = None
     task_id: uuid.UUID | None = None

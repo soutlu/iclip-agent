@@ -58,14 +58,20 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
     async def create_conversation(
         body: ConversationIn,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+        response: Response,
     ) -> ConversationEnvelope:
-        conversation = await service.create(
+        """开一段对话。带 ``id`` 重发时不新建，答复已有那一段并把状态码降为 200。"""
+
+        conversation, created = await service.create(
             principal,
             agent_id=body.agent_id,
+            conversation_id=body.id,
             title=body.title,
             task_id=body.task_id,
             collection_id=body.collection_id,
         )
+        if not created:
+            response.status_code = 200
         return ConversationEnvelope(conversation=await _out(conversation))
 
     @router.get("", response_model=SidebarOut)

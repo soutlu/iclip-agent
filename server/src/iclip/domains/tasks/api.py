@@ -28,8 +28,13 @@ def create_tasks_router(service: TaskService) -> APIRouter:
     async def create_task(
         body: TaskCreateIn,
         principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        response: Response,
     ) -> TaskEnvelope:
-        task = await service.create(principal, body)
+        """建一张需求单。带 ``id`` 重发时不新建，答复已有那一张并把状态码降为 200。"""
+
+        task, created = await service.create(principal, body)
+        if not created:
+            response.status_code = 200
         return TaskEnvelope(task=task_out(task))
 
     @router.get("", response_model=TasksPageOut)

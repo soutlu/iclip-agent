@@ -99,6 +99,48 @@ async def test_creating_lands_a_draft_owned_by_the_caller() -> None:
     assert task["deadline"] is None
 
 
+async def test_client_minted_id_lands_published_and_repeats_idempotently() -> None:
+    """机器链路自带 id 直接落已下发状态；重发同一个 id 不会多出第二张单。"""
+
+    minted = uuid.uuid4()
+    repo = InMemoryTaskRepository()
+    async with client(build_test_app(repo, granted=principal("tasks:write"))) as http:
+        first = await http.post("/tasks", json={**BODY, "id": str(minted), "status": "published"})
+        second = await http.post(
+            "/tasks", json={**BODY, "id": str(minted), "status": "published", "title": "另一个标题"}
+        )
+
+    assert first.status_code == 201, first.text
+    assert first.json()["task"]["id"] == str(minted)
+    assert first.json()["task"]["status"] == STATUS_PUBLISHED
+    assert second.status_code == 200, second.text
+    assert second.json()["task"]["title"] == BODY["title"]
+    assert list(repo.tasks) == [minted]
+
+
+@pytest.mark.parametrize("status", ["confirmed", "withdrawn", "", "PUBLISHED"])
+async def test_creation_only_accepts_draft_or_published(status: str) -> None:
+
+    async with client(
+        build_test_app(InMemoryTaskRepository(), granted=principal("tasks:write"))
+    ) as http:
+        response = await http.post("/tasks", json={**BODY, "status": status})
+    assert response.status_code == 422
+
+
+async def test_status_cannot_be_supplied_when_overwriting() -> None:
+    """状态只在创建时可选，之后一律走状态机端点。"""
+
+    task = make_task()
+    repo = InMemoryTaskRepository([task])
+    async with client(build_test_app(repo, granted=editor(task.creator_user_id))) as http:
+        current = (await http.get(f"/tasks/{task.id}")).json()["task"]
+        response = await http.put(
+            f"/tasks/{task.id}", json=body_of(current, status=STATUS_PUBLISHED)
+        )
+    assert response.status_code == 422
+
+
 async def test_draft_product_is_editable_except_for_its_style_number() -> None:
     task = make_task()
     repo = InMemoryTaskRepository([task])
@@ -222,19 +264,13 @@ async def test_a_draft_is_the_creators_own_business() -> None:
     assert repo.tasks == {}
 
 
-async def test_publishing_needs_a_deadline_and_something_to_make() -> None:
+async def test_publishing_needs_something_to_make_but_no_deadline() -> None:
     creator = uuid.uuid4()
     bare = make_task(creator_user_id=creator, inputs=make_inputs(creative_requirement=""))
     repo = InMemoryTaskRepository([bare])
     caller = editor(creator)
 
     async with client(build_test_app(repo, granted=caller)) as http:
-        assert (await http.post(f"/tasks/{bare.id}/publish")).status_code == 422
-        dated = body_of(
-            (await http.get(f"/tasks/{bare.id}")).json()["task"],
-            deadline=future().isoformat(),
-        )
-        assert (await http.put(f"/tasks/{bare.id}", json=dated)).status_code == 200
         assert (await http.post(f"/tasks/{bare.id}/publish")).status_code == 422
         said = body_of(
             (await http.get(f"/tasks/{bare.id}")).json()["task"],
@@ -245,6 +281,7 @@ async def test_publishing_needs_a_deadline_and_something_to_make() -> None:
 
     assert published.status_code == 200, published.text
     assert published.json()["task"]["status"] == STATUS_PUBLISHED
+    assert published.json()["task"]["deadline"] is None
 
 
 async def test_publishing_is_the_creators_call() -> None:
@@ -278,15 +315,18 @@ async def test_published_input_is_frozen_but_planner_fields_stay_open(field: str
     assert saved.json()["task"]["title"] == "策划师改的标题"
 
 
-async def test_published_task_must_keep_a_deadline() -> None:
-    """在服务层拒绝缺失期限，避免触发数据库 CHECK 后泄漏驱动错误。"""
+async def test_published_task_may_have_no_deadline() -> None:
+    """期限始终可选：机器提交的需求单不带期限，策划仍能继续编辑它。"""
 
     task = make_task(status=STATUS_PUBLISHED)
     repo = InMemoryTaskRepository([task])
     async with client(build_test_app(repo, granted=editor())) as http:
         current = (await http.get(f"/tasks/{task.id}")).json()["task"]
         cleared = body_of(current, deadline=None)
-        assert (await http.put(f"/tasks/{task.id}", json=cleared)).status_code == 422
+        saved = await http.put(f"/tasks/{task.id}", json=cleared)
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["task"]["deadline"] is None
 
 
 @pytest.mark.parametrize(

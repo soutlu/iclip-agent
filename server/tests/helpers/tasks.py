@@ -68,9 +68,12 @@ class InMemoryTaskRepository:
     def __init__(self, tasks: list[Task] | None = None) -> None:
         self.tasks: dict[uuid.UUID, Task] = {task.id: task for task in tasks or []}
 
-    async def create(self, task: Task) -> Task:
+    async def create_if_absent(self, task: Task) -> tuple[Task, bool]:
+        found = self.tasks.get(task.id)
+        if found is not None:
+            return found, False
         self.tasks[task.id] = task
-        return task
+        return task, True
 
     async def get(self, task_id: uuid.UUID) -> Task:
         found = self.tasks.get(task_id)
@@ -110,7 +113,7 @@ class InMemoryTaskRepository:
         found = self.tasks.get(task_id)
         if found is None or found.status != STATUS_DRAFT:
             return None
-        if found.deadline is None or found.deadline <= datetime.now(UTC):
+        if found.deadline is not None and found.deadline <= datetime.now(UTC):
             return None
         return self._replace(task_id, STATUS_DRAFT, status="published")
 

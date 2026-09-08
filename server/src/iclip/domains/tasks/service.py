@@ -35,15 +35,17 @@ class TaskService:
     def __init__(self, repo: TaskRepository) -> None:
         self._repo = repo
 
-    async def create(self, principal: Principal, body: TaskCreateIn) -> Task:
-        """创建草稿并保存调用方提供的完整创作输入。"""
+    async def create(self, principal: Principal, body: TaskCreateIn) -> tuple[Task, bool]:
+        """按调用方给定的 id 与状态落一张需求单，返回它与「本次是否新建」。
+
+        id 由调用方铸时按它幂等：重发同一个 id 返回已有那一张，不新建第二张。"""
 
         now = datetime.now(UTC)
-        return await self._repo.create(
+        return await self._repo.create_if_absent(
             Task(
-                id=uuid.uuid4(),
+                id=body.id or uuid.uuid4(),
                 title=body.title,
-                status=STATUS_DRAFT,
+                status=body.status,
                 priority=body.priority,
                 deadline=body.deadline,
                 creator_user_id=principal.user_id,
@@ -80,8 +82,6 @@ class TaskService:
             _require_creator_or_manager(principal, task, action="修改这张草稿")
         else:
             _require_frozen_input_unchanged(task.inputs, body.inputs)
-            if body.deadline is None:
-                raise ValidationFailed("已下发的需求单必须有期限")
 
         if body.inputs.product.style_no != task.inputs.product.style_no:
             raise Conflict("需求单创建后不能更换商品款号")
@@ -104,15 +104,13 @@ class TaskService:
         task = await self._repo.get(task_id)
         _require_status(task, STATUS_DRAFT, action="发布")
         _require_creator_or_manager(principal, task, action="发布这张需求单")
-        if task.deadline is None:
-            raise ValidationFailed("发布前必须定下期限")
         if not _says_what_to_make(task.inputs):
             raise ValidationFailed("发布前至少要说清做什么：创作要求、商品图片或参考素材填一项")
 
         published = await self._repo.publish(task_id)
         if published is None:
             # 期限已过或状态已并发改变，调用方须重新读取。
-            raise Conflict(f"发布失败：期限必须晚于当前时间，或{_CONFLICT_RACED}")
+            raise Conflict(f"发布失败：填了期限就必须晚于当前时间，或{_CONFLICT_RACED}")
         return published
 
     async def confirm(self, principal: Principal, task_id: uuid.UUID) -> Task:

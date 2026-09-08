@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -105,6 +106,28 @@ async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) 
     assert (await client.post(f"{URL}/{task['id']}/withdraw")).status_code == 409
 
 
+async def test_client_minted_id_lands_published_without_a_deadline(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """机器链路自带 id、直接落已下发、不带期限，重发同一个 id 不新建第二张。"""
+
+    await login_as_editor(client, pg_url)
+    minted = str(uuid.uuid4())
+
+    created = await create(client, id=minted, status="published", deadline=None)
+    assert created.status_code == 201, created.text
+    assert created.json()["task"]["id"] == minted
+    assert created.json()["task"]["status"] == "published"
+    assert created.json()["task"]["deadline"] is None
+
+    again = await create(client, id=minted, status="published", deadline=None, title="另一个标题")
+    assert again.status_code == 200, again.text
+    assert again.json()["task"]["title"] == "秋冬新品短视频"
+
+    listed = await client.get(URL)
+    assert [item["id"] for item in listed.json()["items"]] == [minted]
+
+
 async def test_inputs_survive_http_and_jsonb_round_trip(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
@@ -184,7 +207,6 @@ async def test_status_guard_stops_a_write_built_on_stale_reading(
     ("status", "deadline", "inputs", "constraint"),
     [
         ("nonsense", datetime.now(UTC), "{}", "tasks_status_check"),
-        ("published", None, "{}", "tasks_deadline_check"),
         ("draft", None, "[]", "tasks_inputs_object_check"),
     ],
 )

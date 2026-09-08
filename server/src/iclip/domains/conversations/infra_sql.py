@@ -23,6 +23,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine.row import RowMapping
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -35,6 +36,13 @@ from iclip.platform.db.ownership import owner_conditions
 DB_SCHEMA: Final = "iclip"
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
+
+# 不关联用户或对话外键：业务行删除后仍须阻止 ID 重新绑定保留的运行历史。
+conversation_ids_table = Table(
+    "conversation_ids",
+    metadata_obj,
+    Column("id", Uuid, primary_key=True),
+)
 
 conversations_table = Table(
     "conversations",
@@ -142,9 +150,15 @@ class SqlConversationRepository:
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
 
-    async def create(self, conversation: Conversation) -> Conversation:
+    async def create_if_absent(self, conversation: Conversation) -> tuple[Conversation, bool]:
+        claim_id = (
+            pg_insert(conversation_ids_table)
+            .values(id=conversation.id)
+            .on_conflict_do_nothing(index_elements=[conversation_ids_table.c.id])
+            .returning(conversation_ids_table.c.id)
+        )
         statement = (
-            conversations_table.insert()
+            pg_insert(conversations_table)
             .values(
                 id=conversation.id,
                 owner_user_id=conversation.owner_user_id,
@@ -161,10 +175,19 @@ class SqlConversationRepository:
         )
         try:
             async with self._engine.begin() as conn:
-                row = (await conn.execute(statement)).mappings().one()
+                claimed = (await conn.execute(claim_id)).scalar_one_or_none()
+                # 认领与业务插入共用事务：失败不占用 ID，并发重发只允许一个新建。
+                row = (
+                    (await conn.execute(statement)).mappings().one()
+                    if claimed is not None
+                    else None
+                )
         except IntegrityError as exc:
             raise _reject_missing_reference(exc) from exc
-        return _row(row)
+        if row is None:
+            # ID 已用过：只返回属主仍存在的对话；已删除或属于别人均为 NotFound。
+            return await self.get(conversation.id, owner=conversation.owner_user_id), False
+        return _row(row), True
 
     async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:
         statement = select(conversations_table).where(

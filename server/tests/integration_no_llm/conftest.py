@@ -46,6 +46,9 @@ def _no_real_model_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 
 TEST_SECRET = "test-secret-0123456789-0123456789-xyz"
 
+# ID 保留表没有级联外键；应用测试仍需显式清理它，隔离不同用例的状态。
+_APP_TABLES = (*IDENTITY_TABLES, "iclip.conversation_ids")
+
 
 @pytest.fixture(scope="session")
 def pg_url() -> Generator[str]:
@@ -115,7 +118,7 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
 async def _fresh_engine(url: str):
     engine = create_async_engine(url)
     async with engine.begin() as conn:
-        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
+        await truncate_clean(conn, _APP_TABLES, cascade=True)
     return engine
 
 
@@ -190,7 +193,7 @@ def ws_agent_app(
         engine = create_async_engine(migrated_pg, poolclass=NullPool)
         try:
             async with engine.begin() as conn:
-                await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
+                await truncate_clean(conn, _APP_TABLES, cascade=True)
                 await truncate_clean(
                     conn, ("agent_runtime.agent_jobs", "agent_runtime.agent_job_runs")
                 )
@@ -223,7 +226,7 @@ def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
         engine = create_async_engine(migrated_pg, poolclass=NullPool)
         try:
             async with engine.begin() as conn:
-                await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
+                await truncate_clean(conn, _APP_TABLES, cascade=True)
         finally:
             await engine.dispose()
 

@@ -1084,6 +1084,18 @@
             ],
             "title": "Collectionid"
           },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "taskId": {
             "anyOf": [
               {
@@ -2825,7 +2837,7 @@
       },
       "TaskCreateIn": {
         "additionalProperties": false,
-        "description": "创建需求单；输入形状与整体更新一致。",
+        "description": "创建需求单；输入形状与整体更新一致，另可指定 id 与落单状态。\n\n``id`` 由调用方铸：机器链路要在服务端答复之前就用这个 id 把自己的记录串起来，\n重发同一个 id 不会多出第二张单。``status`` 只在创建时可选，之后按状态机流转\n（见 ``TaskService``）；两项都只属于创建，整体覆盖的 PUT 不接受它们。",
         "properties": {
           "deadline": {
             "anyOf": [
@@ -2839,6 +2851,18 @@
             ],
             "title": "Deadline"
           },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "inputs": {
             "$ref": "#/components/schemas/TaskInputs-Input"
           },
@@ -2848,6 +2872,15 @@
             "minimum": 0.0,
             "title": "Priority",
             "type": "integer"
+          },
+          "status": {
+            "default": "draft",
+            "enum": [
+              "draft",
+              "published"
+            ],
+            "title": "Status",
+            "type": "string"
           },
           "title": {
             "maxLength": 200,
@@ -5969,6 +6002,7 @@
         ]
       },
       "post": {
+        "description": "开一段对话。带 ``id`` 重发时不新建，答复已有那一段并把状态码降为 200。",
         "operationId": "create_conversation_conversations_post",
         "requestBody": {
           "content": {
@@ -7729,6 +7763,7 @@
         ]
       },
       "post": {
+        "description": "建一张需求单。带 ``id`` 重发时不新建，答复已有那一张并把状态码降为 200。",
         "operationId": "create_task_tasks_post",
         "requestBody": {
           "content": {

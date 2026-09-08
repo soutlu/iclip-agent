@@ -594,6 +594,10 @@ export type ConversationIn = {
    */
   collectionId?: string | null
   /**
+   * Id
+   */
+  id?: string | null
+  /**
    * Taskid
    */
   taskId?: string | null
@@ -1527,18 +1531,30 @@ export type StepUsage = {
 /**
  * TaskCreateIn
  *
- * 创建需求单；输入形状与整体更新一致。
+ * 创建需求单；输入形状与整体更新一致，另可指定 id 与落单状态。
+ *
+ * ``id`` 由调用方铸：机器链路要在服务端答复之前就用这个 id 把自己的记录串起来，
+ * 重发同一个 id 不会多出第二张单。``status`` 只在创建时可选，之后按状态机流转
+ * （见 ``TaskService``）；两项都只属于创建，整体覆盖的 PUT 不接受它们。
  */
 export type TaskCreateIn = {
   /**
    * Deadline
    */
   deadline?: string | null
+  /**
+   * Id
+   */
+  id?: string | null
   inputs: TaskInputsInput
   /**
    * Priority
    */
   priority?: number
+  /**
+   * Status
+   */
+  status?: 'draft' | 'published'
   /**
    * Title
    */
