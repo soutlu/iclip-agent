@@ -33,6 +33,9 @@ media_generation:
       nano_banana_pro:
         route: nano-banana-pro
         concurrency: 4
+      seedream_v5_pro:
+        route: seedrance5.0pro # 上游路由拼写沿用它公开契约里的 seedrance
+        concurrency: 20
   poll_interval_seconds: 5 # 状态查询间隔，固定轮询
   job_timeout_seconds: 3600 # 提交后等待终态的上限
 

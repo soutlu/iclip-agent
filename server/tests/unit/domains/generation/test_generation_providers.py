@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -11,6 +13,13 @@ from iclip.domains.generation.nano_banana import (
     NanoBananaSettings,
 )
 from iclip.domains.generation.provider import ProviderError
+from iclip.domains.generation.seedream import (
+    SPEC as SEEDREAM_SPEC,
+)
+from iclip.domains.generation.seedream import (
+    SeedreamImageProvider,
+    SeedreamSettings,
+)
 from iclip.domains.generation.video import HttpVideoProvider, VideoProviderSettings
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable
@@ -27,6 +36,26 @@ IMAGE_API_BASE = "https://image.test/nano-banana-pro"
 IMAGE_TEXT_TO_IMAGE_URL = task_url(IMAGE_API_BASE, editing=False)
 IMAGE_EDIT_URL = task_url(IMAGE_API_BASE, editing=True)
 IMAGE_SETTINGS = NanoBananaSettings(api_base=IMAGE_API_BASE, user_name="iclip-agent")
+
+SEEDREAM_API_BASE = "https://image.test/seedrance5.0pro"
+SEEDREAM_TEXT_TO_IMAGE_URL = task_url(SEEDREAM_API_BASE, editing=False)
+SEEDREAM_EDIT_URL = task_url(SEEDREAM_API_BASE, editing=True)
+SEEDREAM_SETTINGS = SeedreamSettings(api_base=SEEDREAM_API_BASE, user_name="iclip-agent")
+
+
+def seedream_provider(handler: object, *, store: MemoryObjectStore) -> SeedreamImageProvider:
+    assert callable(handler)
+    return SeedreamImageProvider(
+        SEEDREAM_SETTINGS,
+        object_store=store,
+        transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+    )
+
+
+def seedream_ok(request: httpx.Request) -> httpx.Response:
+    if str(request.url) in (SEEDREAM_TEXT_TO_IMAGE_URL, SEEDREAM_EDIT_URL):
+        return httpx.Response(200, json={"success": True, "output_str": "https://image.test/o.jpg"})
+    return httpx.Response(200, content=b"JPGDATA", headers={"content-type": "image/jpeg"})
 
 
 def video_provider(handler: object, *, store: MemoryObjectStore | None = None) -> HttpVideoProvider:
@@ -390,3 +419,110 @@ async def test_image_edit_sends_the_urls_in_the_order_the_caller_gave() -> None:
         "channel",
         "input_str_list",
     }
+
+
+async def test_seedream_sends_a_pixel_size_and_no_channel() -> None:
+    """上游只收一个同时表达画幅与分辨率的像素 size，也没有渠道这个轴。"""
+
+    sent: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == SEEDREAM_TEXT_TO_IMAGE_URL:
+            sent.append(json.loads(request.content))
+        return seedream_ok(request)
+
+    store = MemoryObjectStore()
+    job = make_job(image_request(aspect_ratio="9:16", resolution="2k"))
+    submission = await seedream_provider(handler, store=store).submit(job)
+
+    assert set(sent[0]) == {
+        "data_id",
+        "user_name",
+        "prompt",
+        "task_source",
+        "size",
+        "output_format",
+    }, "键集变了就是上游合同变了"
+    assert sent[0]["size"] == "1584*2816"
+    assert submission.provider_task_id == str(job.id), "上游不回任务 id，用 data_id 对账"
+
+    key = MEDIA_PATHS.generated_image(job_id=job.id, ext="jpg")
+    assert submission.output_url == f"{store.base}/{key}"
+
+
+@pytest.mark.parametrize(
+    ("aspect_ratio", "resolution", "size"),
+    [
+        ("1:1", "1k", "1024*1024"),
+        ("1:1", "2k", "2048*2048"),
+        ("3:2", "1k", "1248*832"),
+        ("2:3", "1k", "832*1248"),
+        ("3:4", "2k", "1776*2368"),
+        ("4:3", "2k", "2368*1776"),
+        ("16:9", "1k", "1424*800"),
+        ("21:9", "2k", "3136*1344"),
+    ],
+)
+async def test_seedream_translates_every_declared_ratio_and_tier(
+    aspect_ratio: str, resolution: str, size: str
+) -> None:
+    sent: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == SEEDREAM_TEXT_TO_IMAGE_URL:
+            sent.append(json.loads(request.content))
+        return seedream_ok(request)
+
+    await seedream_provider(handler, store=MemoryObjectStore()).submit(
+        make_job(image_request(aspect_ratio=aspect_ratio, resolution=resolution))
+    )
+    assert sent[0]["size"] == size
+
+
+async def test_seedream_declares_exactly_what_it_can_translate() -> None:
+    """能力声明由那张映射表的键推导，两处不可能漂。"""
+
+    assert SEEDREAM_SPEC.resolutions == ("1k", "2k"), "上游没有 4k"
+    assert "4:5" not in SEEDREAM_SPEC.aspect_ratios
+    assert "5:4" not in SEEDREAM_SPEC.aspect_ratios
+    assert SEEDREAM_SPEC.channels == (), "没有渠道这个轴"
+
+    sent: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == SEEDREAM_TEXT_TO_IMAGE_URL:
+            sent.append(json.loads(request.content))
+        return seedream_ok(request)
+
+    provider = seedream_provider(handler, store=MemoryObjectStore())
+    for aspect_ratio in SEEDREAM_SPEC.aspect_ratios:
+        for resolution in SEEDREAM_SPEC.resolutions:
+            await provider.submit(
+                make_job(image_request(aspect_ratio=aspect_ratio, resolution=resolution))
+            )
+    assert len(sent) == len(SEEDREAM_SPEC.aspect_ratios) * len(SEEDREAM_SPEC.resolutions)
+
+
+async def test_seedream_with_references_uses_the_edit_endpoint_in_order() -> None:
+    urls: list[str] = []
+    sent: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        if str(request.url) == SEEDREAM_EDIT_URL:
+            sent.append(json.loads(request.content))
+        return seedream_ok(request)
+
+    references = ["https://cdn.test/a.png", "https://cdn.test/b.png"]
+    await seedream_provider(handler, store=MemoryObjectStore()).submit(
+        make_job(image_request(reference_image_urls=references))
+    )
+
+    assert urls[0] == SEEDREAM_EDIT_URL, "有参考图要走编辑那个地址"
+    assert sent[0]["input_str_list"] == references, "顺序即 prompt 里 image 1 / image 2 的编号"
+
+
+async def test_seedream_has_no_polling_phase() -> None:
+    provider = seedream_provider(seedream_ok, store=MemoryObjectStore())
+    with pytest.raises(ProviderError, match="同步"):
+        await provider.poll(make_job(image_request()))
