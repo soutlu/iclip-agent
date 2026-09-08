@@ -69,7 +69,7 @@ depends_on = [
 
 [[modules]]
 path = "iclip.domains.products"
-depends_on = ["iclip.common", "iclip.domains.identity"]
+depends_on = ["iclip.common"]
 
 [[modules]]
 path = "iclip.domains.inspirations"

@@ -326,42 +326,6 @@ export type BodyAuthCookieLoginAuthLoginPost = {
 }
 
 /**
- * BrandOut
- */
-export type BrandOut = {
-  /**
-   * Code
-   */
-  code: string | null
-  /**
-   * Name
-   */
-  name: string | null
-}
-
-/**
- * CategoryOut
- */
-export type CategoryOut = {
-  /**
-   * Code
-   */
-  code: string | null
-  /**
-   * En
-   */
-  en: string | null
-  /**
-   * Id
-   */
-  id: number | null
-  /**
-   * Name
-   */
-  name: string | null
-}
-
-/**
  * CollectionEnvelope
  */
 export type CollectionEnvelope = {
@@ -414,39 +378,6 @@ export type CollectionsPageOut = {
    * Items
    */
   items: Array<CollectionOut>
-}
-
-/**
- * ColorGroupOut
- */
-export type ColorGroupOut = {
-  /**
-   * Code
-   */
-  code: string
-  /**
-   * Name
-   */
-  name: string | null
-}
-
-/**
- * ColorOut
- */
-export type ColorOut = {
-  /**
-   * Code
-   */
-  code: string
-  group: ColorGroupOut | null
-  /**
-   * Name
-   */
-  name: string
-  /**
-   * Rgb
-   */
-  rgb: string | null
 }
 
 /**
@@ -1005,28 +936,6 @@ export type ImageModelsOut = {
 }
 
 /**
- * ImageOut
- */
-export type ImageOut = {
-  /**
-   * Height
-   */
-  height: number | null
-  /**
-   * Id
-   */
-  id: string
-  /**
-   * Url
-   */
-  url: string
-  /**
-   * Width
-   */
-  width: number | null
-}
-
-/**
  * Interaction
  *
  * 待人回应的审批或提问。``request`` / ``response`` 的形状由发起方决定。
@@ -1202,51 +1111,6 @@ export type OpsCatchup = {
    * Latest Seq
    */
   latest_seq: number
-}
-
-/**
- * ProductEnvelope
- */
-export type ProductEnvelope = {
-  product: ProductOut
-}
-
-/**
- * ProductOut
- *
- * ``styleWms`` 给调用方拿去查爆款视频——那边认的是 WMS 编号，不是 PDM 款号。
- */
-export type ProductOut = {
-  brand: BrandOut
-  category: CategoryOut
-  /**
-   * Colors
-   */
-  colors: Array<ColorOut>
-  /**
-   * Combatteam
-   */
-  combatTeam: string | null
-  /**
-   * Devyear
-   */
-  devYear: string | null
-  /**
-   * Images
-   */
-  images: Array<ImageOut>
-  /**
-   * Status
-   */
-  status: string
-  /**
-   * Styleno
-   */
-  styleNo: string
-  /**
-   * Stylewms
-   */
-  styleWms: string | null
 }
 
 /**
@@ -4196,38 +4060,6 @@ export type SearchVideosInspirationsVideosSearchPostResponses = {
 
 export type SearchVideosInspirationsVideosSearchPostResponse =
   SearchVideosInspirationsVideosSearchPostResponses[keyof SearchVideosInspirationsVideosSearchPostResponses]
-
-export type GetProductProductsStyleNoGetData = {
-  body?: never
-  path: {
-    /**
-     * Style No
-     */
-    style_no: string
-  }
-  query?: never
-  url: '/products/{style_no}'
-}
-
-export type GetProductProductsStyleNoGetErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type GetProductProductsStyleNoGetError =
-  GetProductProductsStyleNoGetErrors[keyof GetProductProductsStyleNoGetErrors]
-
-export type GetProductProductsStyleNoGetResponses = {
-  /**
-   * Successful Response
-   */
-  200: ProductEnvelope
-}
-
-export type GetProductProductsStyleNoGetResponse =
-  GetProductProductsStyleNoGetResponses[keyof GetProductProductsStyleNoGetResponses]
 
 export type ListTasksTasksGetData = {
   body?: never

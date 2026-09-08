@@ -153,24 +153,6 @@ export const zBodyAuthCookieLoginAuthLoginPost = z.object({
 })
 
 /**
- * BrandOut
- */
-export const zBrandOut = z.object({
-  code: z.string().nullable(),
-  name: z.string().nullable(),
-})
-
-/**
- * CategoryOut
- */
-export const zCategoryOut = z.object({
-  code: z.string().nullable(),
-  en: z.string().nullable(),
-  id: z.int().nullable(),
-  name: z.string().nullable(),
-})
-
-/**
  * CollectionIn
  *
  * 新建或改名。名字必填——没名字的口袋没法认。
@@ -202,24 +184,6 @@ export const zCollectionEnvelope = z.object({
  */
 export const zCollectionsPageOut = z.object({
   items: z.array(zCollectionOut),
-})
-
-/**
- * ColorGroupOut
- */
-export const zColorGroupOut = z.object({
-  code: z.string(),
-  name: z.string().nullable(),
-})
-
-/**
- * ColorOut
- */
-export const zColorOut = z.object({
-  code: z.string(),
-  group: zColorGroupOut.nullable(),
-  name: z.string(),
-  rgb: z.string().nullable(),
 })
 
 /**
@@ -506,16 +470,6 @@ export const zImageModelsOut = z.object({
 })
 
 /**
- * ImageOut
- */
-export const zImageOut = z.object({
-  height: z.int().nullable(),
-  id: z.string(),
-  url: z.string(),
-  width: z.int().nullable(),
-})
-
-/**
  * Interaction
  *
  * 待人回应的审批或提问。``request`` / ``response`` 的形状由发起方决定。
@@ -572,30 +526,6 @@ export const zNoticeFrame = z.object({
   level: z.enum(['error', 'warning', 'info']),
   message: z.string(),
   source: z.string().nullish(),
-})
-
-/**
- * ProductOut
- *
- * ``styleWms`` 给调用方拿去查爆款视频——那边认的是 WMS 编号，不是 PDM 款号。
- */
-export const zProductOut = z.object({
-  brand: zBrandOut,
-  category: zCategoryOut,
-  colors: z.array(zColorOut),
-  combatTeam: z.string().nullable(),
-  devYear: z.string().nullable(),
-  images: z.array(zImageOut),
-  status: z.string(),
-  styleNo: z.string(),
-  styleWms: z.string().nullable(),
-})
-
-/**
- * ProductEnvelope
- */
-export const zProductEnvelope = z.object({
-  product: zProductOut,
 })
 
 /**
@@ -1824,15 +1754,6 @@ export const zSearchVideosInspirationsVideosSearchPostBody = zVideoSearchIn
  * Successful Response
  */
 export const zSearchVideosInspirationsVideosSearchPostResponse = zVideoSearchOut
-
-export const zGetProductProductsStyleNoGetPath = z.object({
-  style_no: z.string().min(1).max(64),
-})
-
-/**
- * Successful Response
- */
-export const zGetProductProductsStyleNoGetResponse = zProductEnvelope
 
 export const zListTasksTasksGetQuery = z.object({
   status: z.enum(['draft', 'published', 'confirmed', 'withdrawn']).nullish(),
