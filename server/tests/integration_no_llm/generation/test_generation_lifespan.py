@@ -11,6 +11,7 @@ import pytest
 from iclip.app.bootstrap import build_app
 from iclip.config import (
     ImageGenerationSection,
+    ImageModelSection,
     MediaGenerationSection,
     RuntimeConfig,
     VideoGenerationSection,
@@ -27,8 +28,7 @@ MEDIA_ENVS = {
     "VIDEO_SUBMIT_URL": "https://video.test/submit",
     "VIDEO_STATUS_BASE_URL": "https://video.test/status",
     "VIDEO_API_KEY": "vk",
-    "IMAGE_TEXT_TO_IMAGE_URL": "https://image.test/text-to-image",
-    "IMAGE_EDIT_URL": "https://image.test/image-edit",
+    "IMAGE_API_BASE": "https://image.test/atlas",
 }
 
 
@@ -39,7 +39,12 @@ def config_with_media() -> RuntimeConfig:
                 video=VideoGenerationSection(
                     model="seedance", allowed_models=("seedance",), user_name="iclip-agent"
                 ),
-                image=ImageGenerationSection(user_name="iclip-agent"),
+                image=ImageGenerationSection(
+                    user_name="iclip-agent",
+                    models={
+                        "nano_banana_pro": ImageModelSection(route="nano-banana-pro", concurrency=4)
+                    },
+                ),
             ),
         }
     )

@@ -17,6 +17,7 @@ from iclip.config import (
     AppSection,
     DbSection,
     ImageGenerationSection,
+    ImageModelSection,
     MediaGenerationSection,
     OpsSection,
     ResolvedAgent,
@@ -107,8 +108,7 @@ MEDIA_ENVS = {
     "VIDEO_SUBMIT_URL": "https://video.test/generate",
     "VIDEO_STATUS_BASE_URL": "https://video.test/tasks",
     "VIDEO_API_KEY": "vk",
-    "IMAGE_TEXT_TO_IMAGE_URL": "https://image.test/text-to-image",
-    "IMAGE_EDIT_URL": "https://image.test/image-edit",
+    "IMAGE_API_BASE": "https://image.test/atlas",
 }
 
 
@@ -119,7 +119,12 @@ def config_with_media() -> RuntimeConfig:
                 video=VideoGenerationSection(
                     model="seedance", allowed_models=("seedance",), user_name="iclip-agent"
                 ),
-                image=ImageGenerationSection(user_name="iclip-agent"),
+                image=ImageGenerationSection(
+                    user_name="iclip-agent",
+                    models={
+                        "nano_banana_pro": ImageModelSection(route="nano-banana-pro", concurrency=4)
+                    },
+                ),
             ),
         }
     )
@@ -158,9 +163,9 @@ def test_media_generation_half_configured_fails_at_startup(
 
     for name, value in MEDIA_ENVS.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.delenv("IMAGE_EDIT_URL")
+    monkeypatch.delenv("IMAGE_API_BASE")
 
-    with pytest.raises(ValidationError, match="IMAGE_EDIT_URL"):
+    with pytest.raises(ValidationError, match="IMAGE_API_BASE"):
         build_app(config_with_media(), engine=engine(), models={})
 
 

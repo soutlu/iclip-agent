@@ -18,6 +18,9 @@ from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObject
 _DOWNLOAD_TIMEOUT_SECONDS: Final = 60.0
 _MAX_IMAGE_BYTES: Final = 64 * 1024 * 1024
 
+_TASK_TEXT_TO_IMAGE: Final = "text-to-image_ixiaomei"
+_TASK_IMAGE_EDIT: Final = "image-edit_ixiaomei"
+
 _MIME_BY_SUFFIX: Final = {
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -30,6 +33,13 @@ _SUFFIX_BY_MIME: Final = {
     "image/webp": "webp",
 }
 _DEFAULT_MIME: Final = "image/png"
+
+
+def task_url(api_base: str, *, editing: bool) -> str:
+    """拼出这次要打的地址。每个模型在网关上都是两条路由：文生图与图像编辑各一条。"""
+
+    task = _TASK_IMAGE_EDIT if editing else _TASK_TEXT_TO_IMAGE
+    return f"{api_base.rstrip('/')}/{task}"
 
 
 async def post_generation(
@@ -187,4 +197,4 @@ def _normalize_mime(content_type: str, url: str) -> str:
     return _DEFAULT_MIME
 
 
-__all__ = ["post_generation", "read_output_url", "store_result"]
+__all__ = ["post_generation", "read_output_url", "store_result", "task_url"]

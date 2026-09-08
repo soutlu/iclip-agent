@@ -26,6 +26,12 @@ media_generation:
     user_name: iclip-agent # 供应方对账使用的稳定调用方标识
   image:
     user_name: iclip-agent
+    # 键名即落库的 provider 名；route 拼在 IMAGE_API_BASE 后面。
+    # concurrency 是这家同时最多挂几个提交，一家一条队列，互不占用。
+    models:
+      nano_banana_pro:
+        route: nano-banana-pro
+        concurrency: 4
   poll_interval_seconds: 5 # 状态查询间隔，固定轮询
   job_timeout_seconds: 3600 # 提交后等待终态的上限
 
