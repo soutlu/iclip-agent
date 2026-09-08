@@ -253,16 +253,19 @@ class ConversationService:
         principal: Principal,
         *,
         agent_id: str,
+        conversation_id: uuid.UUID | None = None,
         title: str | None = None,
         task_id: uuid.UUID | None = None,
         collection_id: uuid.UUID | None = None,
-    ) -> Conversation:
-        """创建服务端 id 的对话；可选归属是否存在由外键约束校验。"""
+    ) -> tuple[Conversation, bool]:
+        """创建一段对话，返回它与「本次是否新建」；可选归属是否存在由外键约束校验。
+
+        ``conversation_id`` 由调用方铸时按它幂等：重发同一个 id 返回已有那一段。"""
 
         now = datetime.now(UTC)
-        return await self._repo.create(
+        return await self._repo.create_if_absent(
             Conversation(
-                id=uuid.uuid4(),
+                id=conversation_id or uuid.uuid4(),
                 owner_user_id=principal.user_id,
                 agent_id=agent_id,
                 title=title or DEFAULT_TITLE,

@@ -23,6 +23,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine.row import RowMapping
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -142,9 +143,9 @@ class SqlConversationRepository:
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
 
-    async def create(self, conversation: Conversation) -> Conversation:
+    async def create_if_absent(self, conversation: Conversation) -> tuple[Conversation, bool]:
         statement = (
-            conversations_table.insert()
+            pg_insert(conversations_table)
             .values(
                 id=conversation.id,
                 owner_user_id=conversation.owner_user_id,
@@ -157,14 +158,19 @@ class SqlConversationRepository:
                 created_at=func.now(),
                 updated_at=func.now(),
             )
+            # 主键冲突交给幂等分支，剩下的 IntegrityError 才真的是归属引用不存在。
+            .on_conflict_do_nothing(index_elements=[_ROWS.id])
             .returning(*conversations_table.c)
         )
         try:
             async with self._engine.begin() as conn:
-                row = (await conn.execute(statement)).mappings().one()
+                row = (await conn.execute(statement)).mappings().one_or_none()
         except IntegrityError as exc:
             raise _reject_missing_reference(exc) from exc
-        return _row(row)
+        if row is None:
+            # id 已存在：不写入，把已有那一段交回去；别人的对话一律 NotFound。
+            return await self.get(conversation.id, owner=conversation.owner_user_id), False
+        return _row(row), True
 
     async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:
         statement = select(conversations_table).where(

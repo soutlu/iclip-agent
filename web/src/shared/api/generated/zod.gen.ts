@@ -308,6 +308,7 @@ export const zConversationFilesOut = z.object({
 export const zConversationIn = z.object({
   agentId: z.string().min(1).max(128),
   collectionId: z.uuid().nullish(),
+  id: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
   title: z.string().min(1).max(200).nullish(),
 })
@@ -766,12 +767,18 @@ export const zTaskInputsInput = z.object({
 /**
  * TaskCreateIn
  *
- * 创建需求单；输入形状与整体更新一致。
+ * 创建需求单；输入形状与整体更新一致，另可指定 id 与落单状态。
+ *
+ * ``id`` 由调用方铸：机器链路要在服务端答复之前就用这个 id 把自己的记录串起来，
+ * 重发同一个 id 不会多出第二张单。``status`` 只在创建时可选，之后按状态机流转
+ * （见 ``TaskService``）；两项都只属于创建，整体覆盖的 PUT 不接受它们。
  */
 export const zTaskCreateIn = z.object({
   deadline: z.iso.datetime().nullish(),
+  id: z.uuid().nullish(),
   inputs: zTaskInputsInput,
   priority: z.int().gte(0).lte(100).optional().default(0),
+  status: z.enum(['draft', 'published']).optional().default('draft'),
   title: z.string().min(1).max(200),
 })
 

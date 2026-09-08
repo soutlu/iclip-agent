@@ -20,6 +20,7 @@ from sqlalchemy import (
     Uuid,
     delete,
     func,
+    or_,
     select,
     update,
 )
@@ -64,9 +65,6 @@ tasks_table = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(f"status IN ({_STATUS_LIST})", name="tasks_status_check"),
-    CheckConstraint(
-        f"status = '{STATUS_DRAFT}' OR deadline IS NOT NULL", name="tasks_deadline_check"
-    ),
     CheckConstraint("jsonb_typeof(inputs) = 'object'", name="tasks_inputs_object_check"),
 )
 
@@ -120,9 +118,9 @@ class SqlTaskRepository:
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
 
-    async def create(self, task: Task) -> Task:
+    async def create_if_absent(self, task: Task) -> tuple[Task, bool]:
         statement = (
-            tasks_table.insert()
+            pg_insert(tasks_table)
             .values(
                 id=task.id,
                 title=task.title,
@@ -134,11 +132,15 @@ class SqlTaskRepository:
                 created_at=func.now(),
                 updated_at=func.now(),
             )
+            .on_conflict_do_nothing(index_elements=[_ROWS.id])
             .returning(*tasks_table.c)
         )
         async with self._engine.begin() as conn:
-            row = (await conn.execute(statement)).mappings().one()
-        return _row(row)
+            row = (await conn.execute(statement)).mappings().one_or_none()
+        if row is None:
+            # id 已存在：不写入，把已有那一张原样交回去（认领人一并读出）。
+            return await self.get(task.id), False
+        return _row(row), True
 
     async def get(self, task_id: uuid.UUID) -> Task:
         statement = select(tasks_table).where(_ROWS.id == task_id)
@@ -226,8 +228,8 @@ class SqlTaskRepository:
             .where(
                 _ROWS.id == task_id,
                 _ROWS.status == STATUS_DRAFT,
-                _ROWS.deadline.is_not(None),
-                _ROWS.deadline > func.now(),
+                # 期限可以不填；填了就不能已经过期。
+                or_(_ROWS.deadline.is_(None), _ROWS.deadline > func.now()),
             )
             .values(status=STATUS_PUBLISHED, updated_at=func.now())
             .returning(*tasks_table.c)

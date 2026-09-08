@@ -70,6 +70,58 @@ async def test_open_list_rename_delete(client: httpx.AsyncClient, pg_url: str) -
     assert (await client.get(SEARCH)).json()["items"] == []
 
 
+async def test_client_minted_id_is_idempotent(client: httpx.AsyncClient, pg_url: str) -> None:
+    """机器链路自带对话 id：重发同一个 id 答复已有那一段，不新建第二段。"""
+
+    await login_as_editor(client, pg_url)
+    minted = str(uuid.uuid4())
+
+    opened = await create(client, id=minted, title="第一幕")
+    assert opened.status_code == 201, opened.text
+    assert opened.json()["conversation"]["id"] == minted
+
+    again = await create(client, id=minted, title="改了标题")
+    assert again.status_code == 200, again.text
+    assert again.json()["conversation"]["title"] == "第一幕"
+
+    listed = await client.get(SEARCH)
+    assert [item["id"] for item in listed.json()["items"]] == [minted]
+
+
+async def test_client_minted_id_of_another_owner_is_not_handed_over(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """撞上别人的对话 id 与按 id 读别人的对话一致：404，不交出那一段。"""
+
+    await login_as_editor(client, pg_url)
+    minted = str(uuid.uuid4())
+    assert (await create(client, id=minted)).status_code == 201
+
+    async with make_client(app) as other:
+        await login_as_editor(other, pg_url, username="mia")
+        taken = await create(other, id=minted)
+        assert taken.status_code == 404, taken.text
+        assert (await other.get(SEARCH)).json()["items"] == []
+
+
+async def test_missing_attribution_is_still_reported_as_such(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """主键幂等不能把「归属不存在」的报文带偏：那仍然是 422。"""
+
+    await login_as_editor(client, pg_url)
+    missing = str(uuid.uuid4())
+
+    bad_task = await create(client, id=str(uuid.uuid4()), taskId=missing)
+    bad_collection = await create(client, id=str(uuid.uuid4()), collectionId=missing)
+
+    assert bad_task.status_code == 422, bad_task.text
+    assert bad_collection.status_code == 422, bad_collection.text
+    # 报文仍是领域语言，不是主键冲突，也不是驱动错误。
+    for response in (bad_task, bad_collection):
+        assert "不存在" in response.json()["detail"], response.text
+
+
 async def test_title_can_be_given_at_creation(client: httpx.AsyncClient, pg_url: str) -> None:
     await login_as_editor(client, pg_url)
     opened = await create(client, title="第三幕")

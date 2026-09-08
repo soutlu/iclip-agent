@@ -16,8 +16,10 @@ from iclip.domains.tasks.schemas import TaskInputs
 class TaskRepository(Protocol):
     """``iclip.tasks`` 的数据访问。"""
 
-    async def create(self, task: Task) -> Task:
-        """插入一行新需求单，返回落库后的整行。"""
+    async def create_if_absent(self, task: Task) -> tuple[Task, bool]:
+        """按 id 幂等插入一行新需求单。
+
+        返回落库后的整行与「本次是否新建」；id 已存在时不写入，返回已有那一行。"""
         ...
 
     async def get(self, task_id: uuid.UUID) -> Task:
