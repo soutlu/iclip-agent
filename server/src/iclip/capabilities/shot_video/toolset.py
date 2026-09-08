@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 from pydantic_ai import ModelRetry, ToolFailed
@@ -24,15 +25,13 @@ from iclip.capabilities.shot_video.delivery import (
 from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_path
 from iclip.capabilities.shot_video.generation import (
     ANCHOR_ASPECT,
-    GRID_RECORDS_DIR,
     GRID_RESOLUTION,
-    GridCut,
     job_failure,
 )
 from iclip.capabilities.shot_video.grid import GridError, parse_aspect
 from iclip.capabilities.shot_video.ports import ImageRequest
 from iclip.capabilities.shot_video.prompt import assemble_anchor_prompt, assemble_grid_prompt
-from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE
+from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE, parse_cell_id
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
 from iclip.harness.materials import require_http, require_material
@@ -44,6 +43,11 @@ _logger = structlog.stdlib.get_logger(__name__)
 
 if TYPE_CHECKING:
     from iclip.capabilities.shot_video.capability import ShotVideo
+
+GRID_RECORDS_DIR: Final = "frames/grids"
+GRID_RECORD_VERSION: Final = 1
+ANCHOR_RECORDS_DIR: Final = "anchors"
+ANCHOR_RECORD_VERSION: Final = 1
 
 _RECORDED_AT = (
     f"本能力写下的地址也记在 {EXTRACTION_PATH} 与 {GRID_RECORDS_DIR}/ 下，用 read_file 读回来再用。"
@@ -242,15 +246,44 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         )
         if job.status != "completed" or not job.output_url:
             job_failure(job, message="镜头帧生成失败。")
-        cut = await self._cap.generator.collect_frames(
+        cut = await self._cap.generator.cut(
             job,
-            cell_ids=cell_ids,
-            prompts=prompts,
-            references=references,
-            global_reference=global_reference,
-            target_aspect=target_aspect,
+            object_keys=[
+                self._cap.paths.shot_cell(job_id=job.job_id, cell_id=cell_id)
+                for cell_id in cell_ids
+            ],
+            aspect=target_aspect,
+            failure_message="镜头帧处理失败。",
         )
-        return await self._deliver(files, namespace, cut, failure_message="镜头帧处理失败。")
+        frames_payload = [
+            {"no": cell_id, "shot": parse_cell_id(cell_id)[0], "url": url}
+            for cell_id, url in zip(cell_ids, cut.urls, strict=True)
+        ]
+        record_path = f"{GRID_RECORDS_DIR}/{job.job_id}.json"
+        await self._publish(
+            files,
+            namespace,
+            record_path=record_path,
+            record={
+                "gridRecordVersion": GRID_RECORD_VERSION,
+                "jobId": str(job.job_id),
+                "gridUrl": cut.grid_url,
+                "targetAspect": target_aspect,
+                "globalReference": global_reference,
+                "referenceImages": list(references),
+                "frames": [
+                    {**frame, "prompt": prompt}
+                    for frame, prompt in zip(frames_payload, prompts, strict=True)
+                ],
+                "createdAt": int(time.time()),
+            },
+            urls=[*cut.urls, cut.grid_url],
+            failure_message="镜头帧处理失败。",
+        )
+        return ToolReturn(
+            return_value={"frames": frames_payload, "record": record_path},
+            metadata=media_grid(zip(cut.urls, cell_ids, strict=True)),
+        )
 
     async def generate_anchor_sheet(
         self, ctx: RunContext[AgentDepsT], cells: list[str]
@@ -288,8 +321,46 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         )
         if job.status != "completed" or not job.output_url:
             job_failure(job, message="设定图生成失败。")
-        cut = await self._cap.generator.collect_anchors(job, descriptions=descriptions)
-        return await self._deliver(files, namespace, cut, failure_message="设定图处理失败。")
+        cut = await self._cap.generator.cut(
+            job,
+            object_keys=[
+                self._cap.paths.anchor_sheet(job_id=job.job_id, index=index)
+                for index in range(1, len(descriptions) + 1)
+            ],
+            # 设定图不收缩到目标画幅，避免裁掉主体。
+            aspect=None,
+            failure_message="设定图处理失败。",
+        )
+        images = [{"index": index, "url": url} for index, url in enumerate(cut.urls, start=1)]
+        record_path = f"{ANCHOR_RECORDS_DIR}/{job.job_id}.json"
+        await self._publish(
+            files,
+            namespace,
+            record_path=record_path,
+            record={
+                "anchorRecordVersion": ANCHOR_RECORD_VERSION,
+                "jobId": str(job.job_id),
+                "gridUrl": cut.grid_url,
+                "sheetAspect": ANCHOR_ASPECT,
+                "cells": [
+                    {**image, "description": description}
+                    for image, description in zip(images, descriptions, strict=True)
+                ],
+                "createdAt": int(time.time()),
+            },
+            urls=[*cut.urls, cut.grid_url],
+            failure_message="设定图处理失败。",
+        )
+        return ToolReturn(
+            return_value={
+                "message": f"补拍完成 {len(images)} 格，版记录见 {record_path}。",
+                "status": "done",
+                "images": images,
+                "record": record_path,
+                "error": None,
+            },
+            metadata=media_grid(zip(cut.urls, descriptions, strict=True), note=f"{len(images)} 格"),
+        )
 
     async def write_video_shots(
         self,
@@ -401,26 +472,26 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                     recorded_at=_RECORDED_AT,
                 )
 
-    async def _deliver(
-        self, files: FileStore, namespace: str, cut: GridCut, *, failure_message: str
-    ) -> ToolReturn[dict[str, Any]]:
-        """先落版记录并登记素材，再返回成功结果；登记失败不要求模型重新出图。"""
+    async def _publish(
+        self,
+        files: FileStore,
+        namespace: str,
+        *,
+        record_path: str,
+        record: dict[str, Any],
+        urls: Sequence[str],
+        failure_message: str,
+    ) -> None:
+        """落版记录并登记素材；登记失败不要求模型重新出图。"""
 
         try:
             await self._write(
-                files,
-                namespace,
-                cut.record_path,
-                json.dumps(cut.record, ensure_ascii=False, indent=2),
+                files, namespace, record_path, json.dumps(record, ensure_ascii=False, indent=2)
             )
-            await self._record_images(namespace, [*cut.urls, cut.grid_url])
+            await self._record_images(namespace, urls)
         except ModelRetry as exc:
-            _logger.warning("生成产物登记失败", record_path=cut.record_path, reason=str(exc))
+            _logger.warning("生成产物登记失败", record_path=record_path, reason=str(exc))
             raise ToolFailed(failure_message) from exc
-        return ToolReturn(
-            return_value=cut.payload,
-            metadata=media_grid(zip(cut.urls, cut.captions, strict=True), note=cut.note),
-        )
 
     async def _record_images(self, namespace: str, urls: Sequence[str]) -> None:
         """把本能力落下的图片地址记进台账，模型下一步才交得回来。"""

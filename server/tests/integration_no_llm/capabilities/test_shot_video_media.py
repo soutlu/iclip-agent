@@ -32,10 +32,13 @@ from iclip.capabilities.shot_video.capability import GenerationPolicy, shot_vide
 from iclip.capabilities.shot_video.delivery import FrameRequest
 from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_path
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.capabilities.shot_video.generation import ANCHOR_RECORDS_DIR, GRID_RECORDS_DIR
 from iclip.capabilities.shot_video.grid import grid_cell_boxes, scale_box
 from iclip.capabilities.shot_video.ports import ObjectWriteFailed
-from iclip.capabilities.shot_video.toolset import ShotVideoToolset
+from iclip.capabilities.shot_video.toolset import (
+    ANCHOR_RECORDS_DIR,
+    GRID_RECORDS_DIR,
+    ShotVideoToolset,
+)
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
@@ -387,13 +390,13 @@ async def test_generate_cuts_the_grid_and_records_the_batch(media: dict[str, byt
 
     assert isinstance(result, ToolReturn)
     payload = model_facing(result)
-    assert payload["status"] == "done"
+    # 模型面只有图在哪、版记录在哪；渠道与切格细节不进返回值。
+    assert set(payload) == {"frames", "record"}
     assert [frame["no"] for frame in payload["frames"]] == ["S1-1", "S2-1"]
     assert [frame["shot"] for frame in payload["frames"]] == [1, 2]
     assert len(objects.written) == boards_written + 2
     assert result.metadata == {
-        "items": [{"url": frame["url"], "caption": frame["no"]} for frame in payload["frames"]],
-        "note": "2 张 · dev 渠道",
+        "items": [{"url": frame["url"], "caption": frame["no"]} for frame in payload["frames"]]
     }
 
     stored = await files.read(NAMESPACE, payload["record"])
@@ -497,7 +500,7 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
             {"url": payload["images"][0]["url"], "caption": "全身正面平视的女性"},
             {"url": payload["images"][1]["url"], "caption": "空景全景平视的门厅"},
         ],
-        "note": "2 格 · dev 渠道",
+        "note": "2 格",
     }
 
     stored = await files.read(NAMESPACE, payload["record"])
