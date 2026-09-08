@@ -2462,6 +2462,29 @@
         "title": "RegenerateBody",
         "type": "object"
       },
+      "RunStatusOut": {
+        "additionalProperties": false,
+        "description": "``GET /status``：这段对话此刻在跑、跑完了还是出错了。\n\n``running`` 含排队；``awaiting`` 卡在人工审批上，不给决定就不会往下走；``idle`` 是从没跑过。",
+        "properties": {
+          "status": {
+            "enum": [
+              "running",
+              "awaiting",
+              "completed",
+              "failed",
+              "aborted",
+              "idle"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RunStatusOut",
+        "type": "object"
+      },
       "SidebarCollectionOut": {
         "additionalProperties": false,
         "description": "侧栏里的一个合集：元信息、里面一共几段，加第一页对话。\n\n``conversationCount`` 是全部条数，``page`` 只有第一页——往下滑要更多是另一次查询。",
@@ -6662,6 +6685,51 @@
           }
         },
         "summary": "Steer",
+        "tags": [
+          "transcript",
+          "transcript"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}/status": {
+      "get": {
+        "description": "这段对话跑没跑完、有没有出错。只读，凭 API key 可单独轮询。",
+        "operationId": "run_status_conversations__conversation_id__status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Status",
         "tags": [
           "transcript",
           "transcript"

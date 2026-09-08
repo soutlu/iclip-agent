@@ -220,3 +220,40 @@ async def test_catchup_reports_whether_it_got_everything(app: FastAPI, pg_url: s
         range(1, len(caught["batches"]) + 1)
     )
     assert stale["complete"] is False
+
+
+async def test_status_answers_an_api_key_holder(app: FastAPI, pg_url: str) -> None:
+    """外部调用方凭 key 单独轮询运行状态：只读，要 agent:read，不需要登录会话。"""
+
+    async with make_client(app) as client:
+        await register_and_login(client)
+        await set_roles_in_db(pg_url, "luke@example.com", ["root"])
+        async with make_client(app) as owner:
+            await owner.post("/auth/login", data={"username": "luke", "password": "password-123"})
+            conversation_id = await new_conversation(owner, AGENT_ID)
+            await owner.post(
+                f"/conversations/{conversation_id}/prompts",
+                json={"prompt_id": "prm_status", "content": [{"type": "text", "text": "走"}]},
+            )
+            await settled(owner, conversation_id)
+            issued = await owner.post(
+                "/api-keys", json={"name": "ops", "permissions": ["agent:read"]}
+            )
+            blind = await owner.post(
+                "/api-keys", json={"name": "blind", "permissions": ["collections:read"]}
+            )
+
+        token = issued.json()["apiKey"]["token"]
+        async with make_client(app) as machine:
+            got = await machine.get(
+                f"/conversations/{conversation_id}/status",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            denied = await machine.get(
+                f"/conversations/{conversation_id}/status",
+                headers={"Authorization": f"Bearer {blind.json()['apiKey']['token']}"},
+            )
+
+    assert got.status_code == 200, got.text
+    assert got.json() == {"status": "completed"}
+    assert denied.status_code == 403

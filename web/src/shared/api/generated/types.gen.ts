@@ -1314,6 +1314,20 @@ export type RegenerateBody = {
 }
 
 /**
+ * RunStatusOut
+ *
+ * ``GET /status``：这段对话此刻在跑、跑完了还是出错了。
+ *
+ * ``running`` 含排队；``awaiting`` 卡在人工审批上，不给决定就不会往下走；``idle`` 是从没跑过。
+ */
+export type RunStatusOut = {
+  /**
+   * Status
+   */
+  status: 'running' | 'awaiting' | 'completed' | 'failed' | 'aborted' | 'idle'
+}
+
+/**
  * SidebarCollectionOut
  *
  * 侧栏里的一个合集：元信息、里面一共几段，加第一页对话。
@@ -3644,6 +3658,38 @@ export type SteerConversationsConversationIdPromptsSteerPostResponses = {
 
 export type SteerConversationsConversationIdPromptsSteerPostResponse =
   SteerConversationsConversationIdPromptsSteerPostResponses[keyof SteerConversationsConversationIdPromptsSteerPostResponses]
+
+export type RunStatusConversationsConversationIdStatusGetData = {
+  body?: never
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/status'
+}
+
+export type RunStatusConversationsConversationIdStatusGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type RunStatusConversationsConversationIdStatusGetError =
+  RunStatusConversationsConversationIdStatusGetErrors[keyof RunStatusConversationsConversationIdStatusGetErrors]
+
+export type RunStatusConversationsConversationIdStatusGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: RunStatusOut
+}
+
+export type RunStatusConversationsConversationIdStatusGetResponse =
+  RunStatusConversationsConversationIdStatusGetResponses[keyof RunStatusConversationsConversationIdStatusGetResponses]
 
 export type SetConversationTaskConversationsConversationIdTaskPutData = {
   body: ConversationTaskIn
