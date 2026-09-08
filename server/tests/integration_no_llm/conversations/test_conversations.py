@@ -415,13 +415,27 @@ def shots_document(*, image_url: str, index: int = 1) -> str:
 
     return json.dumps(
         {
-            "aspectRatio": "9:16",
+            "aspect_ratio": "9:16",
             "shots": [
                 {
                     "index": index,
-                    "prompt": "0-8s 全景 平视 固定，她走进门厅 @Image1。",
+                    "prompt": {
+                        "global_settings": "人物与门厅保持一致。",
+                        "timeline": [
+                            {
+                                "timestamps": [0, 1.2],
+                                "prompt": "全景，平视，固定，她走进门厅 @Image1。",
+                                "image_indexes": [1],
+                            },
+                            {
+                                "timestamps": [1.2, 8],
+                                "prompt": "她走到窗边 @Image1。",
+                                "image_indexes": [1],
+                            },
+                        ],
+                    },
                     "seconds": 8,
-                    "imageUrls": [image_url],
+                    "image_urls": [image_url],
                 }
             ],
         },
@@ -494,6 +508,19 @@ async def test_workspace_file_write_checks_the_document_on_its_path(
     assert broken.status_code == 422
     assert "连续编号" in broken.json()["detail"], "校验器的原话要给到用户"
 
+    mismatched_document = json.loads(swapped.json()["file"]["content"])
+    mismatched_document["shots"][0]["prompt"]["timeline"][0]["image_indexes"] = []
+    mismatched = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={
+            "path": "video_shot.json",
+            "content": json.dumps(mismatched_document, ensure_ascii=False),
+            "expectedVersion": 2,
+        },
+    )
+    assert mismatched.status_code == 422
+    assert "image_indexes" in mismatched.json()["detail"]
+
     sneaky = await client.put(
         f"{URL}/{mine}/workspace/file",
         json={
@@ -503,6 +530,36 @@ async def test_workspace_file_write_checks_the_document_on_its_path(
         },
     )
     assert sneaky.status_code == 422
+
+    unchanged = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "video_shot.json"})
+    assert unchanged.json()["file"] == swapped.json()["file"]
+
+
+async def test_workspace_file_accepts_a_group_without_reference_images(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    user_id = await login_as_editor(client, pg_url)
+    mine = (await create(client, title="无图镜头组")).json()["conversation"]["id"]
+    original = shots_document(image_url="https://cdn.test/frames/s1-1.jpg")
+    await seed_workspace_files(pg_url, f"{user_id}/{mine}", {"video_shot.json": original})
+    document = json.loads(original)
+    shot = document["shots"][0]
+    shot["image_urls"] = []
+    for item in shot["prompt"]["timeline"]:
+        item["prompt"] = item["prompt"].replace(" @Image1", "")
+        item["image_indexes"] = []
+    content = json.dumps(document, ensure_ascii=False)
+
+    written = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={"path": "video_shot.json", "content": content, "expectedVersion": 1},
+    )
+
+    assert written.status_code == 200, written.text
+    expected = {"path": "video_shot.json", "content": content, "version": 2}
+    assert written.json()["file"] == expected
+    read = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "video_shot.json"})
+    assert read.json()["file"] == expected
 
 
 async def test_workspace_file_write_is_owner_only(

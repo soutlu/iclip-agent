@@ -2,15 +2,10 @@ import { useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import { MEDIA_IMAGE_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
-import {
-  zGenerationEnvelope,
-  zGenerationsPageOut,
-  zVideoGenerationIn,
-} from '@/shared/api/generated/zod.gen'
+import { zGenerationsPageOut } from '@/shared/api/generated/zod.gen'
 import type { zGenerationOut } from '@/shared/api/generated/zod.gen'
 import { useWorkspaceFiles } from '@/shared/workbench'
 import { isRunningStatus } from './shots'
-import type { VideoGenerationOptions } from './video-generation-options'
 
 export type GenerationJob = z.infer<typeof zGenerationOut>
 
@@ -39,40 +34,6 @@ export const useShotGenerations = (conversationId: string) =>
     queryKey: storyboardQueryKeys.generations(conversationId),
     refetchInterval: ({ state }) => generationsRefetchInterval(state.data?.items ?? []),
   })
-
-/** 画幅取自生成合同，提交前检查以避免 422。 */
-export const VIDEO_ASPECT_RATIOS: readonly string[] = zVideoGenerationIn.shape.aspectRatio.options
-
-export interface VideoGenerationInput extends VideoGenerationOptions {
-  conversationId: string
-  shotIndex: number
-  prompt: string
-  imageUrls: readonly string[]
-  seconds: number
-  aspectRatio: string
-}
-
-/** 生成不带幂等键（ADR-0009 决策 4）；同组重复提交会创建多条任务。 */
-export const submitVideoGeneration = async (
-  input: VideoGenerationInput,
-): Promise<GenerationJob> => {
-  const envelope = await apiFetch('/generations', zGenerationEnvelope, {
-    body: {
-      aspectRatio: input.aspectRatio,
-      conversationId: input.conversationId,
-      durationSeconds: input.seconds,
-      generateAudio: input.generateAudio,
-      imageUrls: input.imageUrls,
-      kind: 'video',
-      model: input.model,
-      prompt: input.prompt,
-      shotIndex: input.shotIndex,
-    },
-    fallbackErrorMessage: '出片没发出去',
-    method: 'POST',
-  })
-  return envelope.generation
-}
 
 /** 帧版记录位于 frames/grids/<jobId>.json。 */
 const gridRecordSchema = z.object({

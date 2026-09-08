@@ -9,6 +9,7 @@ import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
 
 type FramePreviewProps = {
   aspectRatio: string
+  caption?: string | undefined
   name: string
   url: string | undefined
   onOpen: () => void
@@ -19,6 +20,7 @@ type FramePreviewProps = {
 
 export function FramePreview({
   aspectRatio,
+  caption,
   name,
   onOpen,
   onEdit,
@@ -125,6 +127,11 @@ export function FramePreview({
               style={{ aspectRatio: aspectRatioStyle(aspectRatio) }}
             />
           </button>
+          {caption === undefined ? null : (
+            <p className="pointer-events-none absolute right-2 bottom-2 left-2 rounded-xs bg-surface-container-lowest px-2 py-1 text-caption text-on-surface-variant">
+              {caption}
+            </p>
+          )}
           <div className="storyboard-frame-tools">
             {onEdit === undefined ? null : (
               <IconButton

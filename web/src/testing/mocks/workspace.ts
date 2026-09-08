@@ -66,39 +66,91 @@ const VIDEO_DOC_MD = [
   '| Detail Show | 00:02-00:08 | 律动轻快 | 楼群灯光逐层亮起 |',
 ].join('\n')
 
-const SHOT_TWO_PROMPT = [
-  PREAMBLE,
-  '',
-  '[0–4秒｜镜头1] 她从长椅间走向镜头 @Image1，脚步放慢。',
-  '',
-  '[4–11秒｜镜头2] 走到近处停下微笑 @Image2，再低头看一眼包 @Image3。',
-].join('\n')
-
-const SHOT_TWO_PROMPT_AFTER = SHOT_TWO_PROMPT.replace(
-  '再低头看一眼包 @Image3。',
-  '再低头看一眼包 @Image3，台词并成一句。',
-)
-
 export const SHOTS_MOCK_PATH = 'video_shot.json'
 
-const shotsDocument = (secondPrompt: string, frames: MockFrames) => ({
-  aspectRatio: '9:16',
+const shotsDocument = (frames: MockFrames, updated = false) => ({
+  aspect_ratio: '9:16',
   shots: [
     {
-      imageUrls: [frames.a],
       index: 1,
-      prompt: ['[0–6秒｜镜头1]', '开场，模特提着帆布包走出门厅 @Image1，抬头看向前方。'].join('\n'),
       seconds: 6,
+      image_urls: [frames.a],
+      prompt: {
+        global_settings: PREAMBLE,
+        timeline: [
+          {
+            timestamps: [0, 6],
+            prompt: '开场，模特提着帆布包走出门厅 @Image1，抬头看向前方。',
+            image_indexes: [1],
+          },
+        ],
+      },
     },
-    { imageUrls: [frames.a, frames.b, frames.a], index: 2, prompt: secondPrompt, seconds: 11 },
     {
-      imageUrls: [frames.b],
+      index: 2,
+      seconds: 11,
+      image_urls: [frames.a, frames.b, frames.a],
+      prompt: {
+        global_settings: PREAMBLE,
+        timeline: [
+          {
+            timestamps: [0, 4],
+            prompt: '她从长椅间走向镜头 @Image1，脚步放慢。',
+            image_indexes: [1],
+          },
+          {
+            timestamps: [4, 11],
+            prompt: updated
+              ? '走到近处停下微笑 @Image2，再低头看一眼包 @Image3，台词并成一句。'
+              : '走到近处停下微笑 @Image2，再低头看一眼包 @Image3。',
+            image_indexes: [2, 3],
+          },
+        ],
+      },
+    },
+    {
       index: 3,
-      prompt: ['[0–4秒｜镜头1]', '低角度拍鞋面 @Image1，鞋头包覆与魔术贴细节。'].join('\n'),
       seconds: 4,
+      image_urls: [frames.b],
+      prompt: {
+        global_settings: PREAMBLE,
+        timeline: [
+          {
+            timestamps: [0, 4],
+            prompt: '低角度拍鞋面 @Image1，鞋头包覆与魔术贴细节。',
+            image_indexes: [1],
+          },
+        ],
+      },
     },
   ],
 })
+
+const noImageShotsDocument = {
+  aspect_ratio: '9:16',
+  shots: [
+    {
+      index: 1,
+      seconds: 8,
+      image_urls: [],
+      prompt: {
+        global_settings: '人物和产品外观保持一致。正常播放速度，不要生成字幕。',
+        timeline: [
+          {
+            timestamps: [0, 3.2],
+            prompt: '开场，中景，模特双手托起帆布包，展示正面。',
+            image_indexes: [],
+          },
+          {
+            timestamps: [3.2, 8],
+            prompt: '硬切，特写，模特转动帆布包，展示侧面与提手。',
+            image_indexes: [],
+          },
+        ],
+      },
+    },
+  ],
+}
 
 type MockFile = { content: string; updatedAt: string; version: number }
 
@@ -136,18 +188,32 @@ const timers = new Set<ReturnType<typeof setTimeout>>()
 
 export const seedMockWorkspace = (
   conversationId: string,
-  options: { httpFrames?: boolean } = {},
+  options: { httpFrames?: boolean; withoutImages?: boolean } = {},
 ) => {
   const frames = options.httpFrames ? httpFrames() : DATA_FRAMES
-  workspaceFrames.set(conversationId, frames)
   const now = new Date().toISOString()
+  if (options.withoutImages) {
+    workspaceFrames.delete(conversationId)
+    workspaces.set(
+      conversationId,
+      new Map([
+        [
+          SHOTS_MOCK_PATH,
+          { content: JSON.stringify(noImageShotsDocument, null, 2), updatedAt: now, version: 1 },
+        ],
+      ]),
+    )
+    generations.set(conversationId, [])
+    return
+  }
+  workspaceFrames.set(conversationId, frames)
   workspaces.set(
     conversationId,
     new Map([
       [
         SHOTS_MOCK_PATH,
         {
-          content: JSON.stringify(shotsDocument(SHOT_TWO_PROMPT, frames), null, 2),
+          content: JSON.stringify(shotsDocument(frames), null, 2),
           updatedAt: now,
           version: 1,
         },
@@ -288,14 +354,24 @@ export const touchMockShots = (conversationId: string): boolean => {
   const frames = workspaceFrames.get(conversationId)
   if (files === undefined || file === undefined || frames === undefined) return false
   files.set(SHOTS_MOCK_PATH, {
-    content: JSON.stringify(shotsDocument(SHOT_TWO_PROMPT_AFTER, frames), null, 2),
+    content: JSON.stringify(shotsDocument(frames, true), null, 2),
     updatedAt: new Date().toISOString(),
     version: file.version + 1,
   })
   return true
 }
 
-/** 模拟结构校验：序号连续、时长 4–30 秒、帧引用不越界。 */
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+
+const imageIndexes = (prompt: string): number[] => [
+  ...new Set([...prompt.matchAll(/@Image(\d+)/g)].map((match) => Number(match[1]))),
+]
+
+const hasOnlyKeys = (value: Record<string, unknown>, keys: string[]) =>
+  Object.keys(value).every((key) => keys.includes(key))
+
+/** 模拟文档结构、时间顺序和图片引用校验，不模拟素材来源台账。 */
 const validateShotsContent = (content: string): string | undefined => {
   let parsed: unknown
   try {
@@ -303,20 +379,84 @@ const validateShotsContent = (content: string): string | undefined => {
   } catch {
     return '不是合法的 JSON'
   }
-  const shots = (parsed as { shots?: unknown }).shots
-  if (!Array.isArray(shots)) return '缺 shots'
-  for (const [offset, shot] of (shots as Record<string, unknown>[]).entries()) {
+  if (!isRecord(parsed) || !hasOnlyKeys(parsed, ['aspect_ratio', 'shots'])) {
+    return '分镜文档只能包含 aspect_ratio 和 shots'
+  }
+  const aspect = parsed['aspect_ratio']
+  if (
+    typeof aspect !== 'string' ||
+    !/^\s*\+?\d+\s*:\s*\+?\d+\s*$/.test(aspect) ||
+    aspect.split(':').some((part) => Number(part) <= 0)
+  ) {
+    return 'aspect_ratio 要写成 9:16 这样的正整数画幅'
+  }
+  const shots = parsed['shots']
+  if (!Array.isArray(shots) || shots.length === 0) return 'shots 至少需要一个镜头组'
+  for (const [offset, shot] of (shots as unknown[]).entries()) {
+    if (!isRecord(shot) || !hasOnlyKeys(shot, ['index', 'seconds', 'image_urls', 'prompt'])) {
+      return `镜头组 ${offset + 1} 的字段不正确`
+    }
     if (shot['index'] !== offset + 1) return `index 要从 1 连续编号，第 ${offset + 1} 条不是`
     const seconds = shot['seconds']
     if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 4 || seconds > 30) {
       return `镜头组 ${offset + 1} 的 seconds 要是 4-30 的整数`
     }
-    const urls = shot['imageUrls']
-    const count = Array.isArray(urls) ? urls.length : 0
-    const prompt = typeof shot['prompt'] === 'string' ? shot['prompt'] : ''
-    for (const match of prompt.matchAll(/@Image(\d+)/g)) {
-      if (Number(match[1]) > count)
-        return `镜头组 ${offset + 1} 写到了 @Image${match[1]}，但只有 ${count} 张帧`
+    const urls = shot['image_urls']
+    if (
+      !Array.isArray(urls) ||
+      urls.some((url: unknown) => typeof url !== 'string' || url.trim().length === 0)
+    ) {
+      return `镜头组 ${offset + 1} 的 image_urls 必须是图片地址数组`
+    }
+    const prompt = shot['prompt']
+    if (!isRecord(prompt) || !hasOnlyKeys(prompt, ['global_settings', 'timeline'])) {
+      return `镜头组 ${offset + 1} 的 prompt 必须包含 global_settings 和 timeline`
+    }
+    const globalSettings = prompt['global_settings']
+    if (typeof globalSettings !== 'string' || globalSettings.trim().length === 0) {
+      return `镜头组 ${offset + 1} 的 global_settings 不能为空`
+    }
+    const timeline = prompt['timeline']
+    if (!Array.isArray(timeline) || timeline.length === 0) {
+      return `镜头组 ${offset + 1} 的 timeline 至少需要一个镜头`
+    }
+    if (imageIndexes(globalSettings).some((index) => index < 1 || index > urls.length)) {
+      return `镜头组 ${offset + 1} 的全局设定引用超出图片范围`
+    }
+    let previousEnd = 0
+    for (const [scene, item] of (timeline as unknown[]).entries()) {
+      const label = `镜头组 ${offset + 1} 的镜头 ${scene + 1}`
+      if (!isRecord(item) || !hasOnlyKeys(item, ['timestamps', 'prompt', 'image_indexes'])) {
+        return `${label} 的字段不正确`
+      }
+      const timestamps = item['timestamps']
+      if (!Array.isArray(timestamps) || timestamps.length !== 2) {
+        return `${label} 的 timestamps 必须包含开始和结束时间`
+      }
+      const start: unknown = timestamps[0]
+      const end: unknown = timestamps[1]
+      if (
+        typeof start !== 'number' ||
+        typeof end !== 'number' ||
+        !Number.isFinite(start) ||
+        !Number.isFinite(end) ||
+        start < 0 ||
+        end <= start ||
+        (scene === 0 && start !== 0) ||
+        start < previousEnd
+      ) {
+        return `${label} 的时间段无效；首镜从 0 开始，各镜头不得重叠`
+      }
+      previousEnd = end
+      const body = item['prompt']
+      if (typeof body !== 'string' || body.trim().length === 0) return `${label} 的正文不能为空`
+      const indexes = imageIndexes(body)
+      if (indexes.some((index) => index < 1 || index > urls.length)) {
+        return `${label} 的图片引用超出范围`
+      }
+      if (JSON.stringify(item['image_indexes']) !== JSON.stringify(indexes)) {
+        return `${label} 的 image_indexes 与正文引用不一致`
+      }
     }
   }
   return undefined

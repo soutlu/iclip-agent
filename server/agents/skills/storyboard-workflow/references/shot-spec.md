@@ -30,24 +30,35 @@
 
 ## Prompt 结构
 
-prompt 依次是参考锁定、剪辑形式、逐镜时间线，末尾固定写 `不要生成字幕，不要生成背景音乐。`
+每个镜头组的 `prompt` 包含两个字段：
+
+- `global_settings`：参考锁定和剪辑形式，末尾固定写 `不要生成字幕，不要生成背景音乐。`
+- `timeline`：按镜头顺序排列，每镜一项。每项包含 `timestamps`（起止秒数）和 `prompt`（该镜正文）。
 
 1. **参考锁定**：本组出场的产品、人物、场景各一行，实体名取角色设定块，不写 `@ImageN`——外观由镜头帧承载。产品行写「以镜头帧为唯一外观参考」，不列部件名，同品类多产品并成一行；人物行固定写身份、脸部、发型与穿搭；场景行固定写空间结构与光线。
 2. **剪辑形式**：照抄 `storyboard.md` 的剪辑形式块，删去相机类型后的括号依据。
-3. **时间线**：逐镜照抄 Storyline 正文，每镜以 `[起–止秒｜镜头N]` 开头——时间码归零，数值照 Storyline 保留小数（整秒不带小数），N 是镜头号，带（新增）的镜头与它前面那个原镜头同号。只做下列转换：人物首次出现改成「图中的…」、声音改用下方记号并丢弃配乐、镜头帧 `@ImageN` 嵌进对应分句、删去字幕贴纸等后期叠加物与「（新增）」、删去非慢镜头里人物动作前的「缓慢」等放慢词；其余字句原样保留。
+3. **时间线**：以本组第一个镜头的开始时间为 0，在 `timestamps` 中写出每镜的起止秒数，保留 Storyline 的小数精度；`prompt` 逐镜照抄 Storyline 正文。只做下列转换：人物首次出现改成「图中的…」、声音改用下方记号并丢弃配乐、镜头帧 `@ImageN` 嵌进对应分句、删去字幕贴纸等后期叠加物与「（新增）」、删去非慢镜头里人物动作前的「缓慢」等放慢词；其余字句原样保留。
 
-```text
-产品「X」以镜头帧为唯一外观参考，所有镜头中外观保持一致。
-人物「X」身份、脸部、发型与穿搭在所有镜头中保持一致。
-场景「X」空间结构与光线在所有镜头中保持一致。
+以下示例为 `prompt` 字段的值：
 
-剪辑形式：
-[照抄 storyboard.md 的剪辑形式块]
-
-[0–1秒｜镜头1] 开场，[照抄 Storyline 第 1 镜正文，人物首次出现写成「图中的…」] @Image1，[声音记号]。
-[1–1.7秒｜镜头2] 硬切，[照抄 Storyline 第 2 镜正文] @Image2，[声音记号]。
-[1.7–3.2秒｜镜头3] 硬切，[照抄 Storyline 第 3 镜正文] @Image3，[后续动作] @Image4。
-不要生成字幕，不要生成背景音乐。
+```json
+{
+  "global_settings": "产品「X」以镜头帧为唯一外观参考，所有镜头中外观保持一致。\n人物「X」身份、脸部、发型与穿搭在所有镜头中保持一致。\n场景「X」空间结构与光线在所有镜头中保持一致。\n\n剪辑形式：\n[照抄 storyboard.md 的剪辑形式块]\n\n不要生成字幕，不要生成背景音乐。",
+  "timeline": [
+    {
+      "timestamps": [0, 1],
+      "prompt": "开场，[照抄 Storyline 第 1 镜正文，人物首次出现写成「图中的…」] @Image1，[声音记号]。"
+    },
+    {
+      "timestamps": [1, 1.7],
+      "prompt": "硬切，[照抄 Storyline 第 2 镜正文] @Image2，[声音记号]。"
+    },
+    {
+      "timestamps": [1.7, 3.2],
+      "prompt": "硬切，[照抄 Storyline 第 3 镜正文] @Image3，[后续动作] @Image4。"
+    }
+  ]
+}
 ```
 
 - 每个镜头组是独立的生成单元，prompt 自包含人物、场景和产品描述，不引用其他镜头组的内容、不写"延续镜头组 1"。
@@ -71,19 +82,31 @@ prompt 依次是参考锁定、剪辑形式、逐镜时间线，末尾固定写 
 
 参考视频是一条 31 秒的职场通勤鞋口播短片，切成两个镜头组（21.9 秒、9.1 秒），下面是第 1 个。新片替换人物（穿黑裙长发年轻女性 → 金发女性）与产品（黑色粗跟工作鞋 → 玛丽珍鞋），第二位人物与三个场景沿用。逐镜正文照抄拆解文件第 4 节，只换了这两类词，`{ }` 台词随新产品改写；「环境无额外杂音，人声清晰」改成记号。
 
-> 产品「玛丽珍鞋」以镜头帧为唯一外观参考，所有镜头中外观保持一致。
-> 人物「金发女性」身份、脸部、发型与穿搭在所有镜头中保持一致。
-> 人物「红裙女性」身份、脸部、发型与穿搭在所有镜头中保持一致。
-> 场景「浅色简约卧室」「圣诞氛围居家客厅」「铺花纹地毯的玄关」空间结构与光线在所有镜头中各自保持一致。
->
-> 剪辑形式：
-> 以硬切为主要切换方式，全程无其他特殊转场效果，所有镜头均为正常播放速度，没有慢动作或快放处理。使用手机拍摄，以手持近距离固定机位为主，大多采用平视近景、特写角度拍摄产品细节。
->
-> [0–5秒｜镜头1] 开场，中景，手机固定机位平视正面拍摄，图中的金发女性双手托住黑色漆皮鞋面、一字搭扣带的玛丽珍鞋先转身凑近镜头 @Image1，随后抬手指向镜头，美国口音女声口语化说：{You need some cute and comfy shoes that you can wear to work. I got you okay this is where you're gonna wanna start}，背景为浅色卧室墙面与置物架，<清晰的人声>。
-> [5–10.7秒｜镜头2] 硬切，特写，手持机位固定对准鞋内底，手部托住鞋子先左右转动展示鞋垫上完整的黑色品牌字样 @Image2，随后拇指按向米色软垫反复按压展示弹性，美国口音女声继续说：{They actually literally have like these cushions inside the shoes these are the Mary Janes}，背景为圣诞氛围客厅散景圣诞树暖光。
-> [10.7–12.7秒｜镜头3] 硬切，特写，机位第一视角平拍向前伸出的脚，她踩入鞋内先抬左脚再抬右脚转动展示鞋身侧面 @Image3，美国口音女声说：{They have a little bit more of that block heel as well}，背景为暖光木地板与圣诞树。
-> [12.7–21.9秒｜镜头4] 硬切，近景俯拍，机位固定在镜子上方垂直向下对准脚边，图中的红裙女性一只手举鞋展示鞋内底 @Image4，随后翻转向镜头展示橡胶鞋底，最后把脚抬起来对比鞋跟高度，说完脚穿鞋子踩在地毯上小步移动 @Image5，美国口音女声说：{so I feel like these are a little bit more casual rather than a pointed toe but also more comfortable than a pointed toe shoe. The heel is like what one and a half two inches}，背景为花纹地毯与木地板。
-> 不要生成字幕，不要生成背景音乐。
+以下示例为 `prompt` 字段的值：
+
+```json
+{
+  "global_settings": "产品「玛丽珍鞋」以镜头帧为唯一外观参考，所有镜头中外观保持一致。\n人物「金发女性」身份、脸部、发型与穿搭在所有镜头中保持一致。\n人物「红裙女性」身份、脸部、发型与穿搭在所有镜头中保持一致。\n场景「浅色简约卧室」「圣诞氛围居家客厅」「铺花纹地毯的玄关」空间结构与光线在所有镜头中各自保持一致。\n\n剪辑形式：\n以硬切为主要切换方式，全程无其他特殊转场效果，所有镜头均为正常播放速度，没有慢动作或快放处理。使用手机拍摄，以手持近距离固定机位为主，大多采用平视近景、特写角度拍摄产品细节。\n\n不要生成字幕，不要生成背景音乐。",
+  "timeline": [
+    {
+      "timestamps": [0, 5],
+      "prompt": "开场，中景，手机固定机位平视正面拍摄，图中的金发女性双手托住黑色漆皮鞋面、一字搭扣带的玛丽珍鞋先转身凑近镜头 @Image1，随后抬手指向镜头，美国口音女声口语化说：{You need some cute and comfy shoes that you can wear to work. I got you okay this is where you're gonna wanna start}，背景为浅色卧室墙面与置物架，<清晰的人声>。"
+    },
+    {
+      "timestamps": [5, 10.7],
+      "prompt": "硬切，特写，手持机位固定对准鞋内底，手部托住鞋子先左右转动展示鞋垫上完整的黑色品牌字样 @Image2，随后拇指按向米色软垫反复按压展示弹性，美国口音女声继续说：{They actually literally have like these cushions inside the shoes these are the Mary Janes}，背景为圣诞氛围客厅散景圣诞树暖光。"
+    },
+    {
+      "timestamps": [10.7, 12.7],
+      "prompt": "硬切，特写，机位第一视角平拍向前伸出的脚，她踩入鞋内先抬左脚再抬右脚转动展示鞋身侧面 @Image3，美国口音女声说：{They have a little bit more of that block heel as well}，背景为暖光木地板与圣诞树。"
+    },
+    {
+      "timestamps": [12.7, 21.9],
+      "prompt": "硬切，近景俯拍，机位固定在镜子上方垂直向下对准脚边，图中的红裙女性一只手举鞋展示鞋内底 @Image4，随后翻转向镜头展示橡胶鞋底，最后把脚抬起来对比鞋跟高度，说完脚穿鞋子踩在地毯上小步移动 @Image5，美国口音女声说：{so I feel like these are a little bit more casual rather than a pointed toe but also more comfortable than a pointed toe shoe. The heel is like what one and a half two inches}，背景为花纹地毯与木地板。"
+    }
+  ]
+}
+```
 
 ## 交付
 
@@ -91,4 +114,4 @@ prompt 依次是参考锁定、剪辑形式、逐镜时间线，末尾固定写 
 
 再逐个核对 prompt 里的 `@ImageN`：帧号里的镜头号（`S5-2` 属镜头 5）必须与贴它那段文字所属的镜头一致，不一致就挪进正确的镜头段落。
 
-调用 `write_video_shots`：`aspect_ratio` 传目标画幅，`shots` 逐个给出 `index`、`prompt`、`seconds` 与 `image_urls`。`seconds` 是整数，取该镜头组覆盖的各结构层级时长之和四舍五入到秒，范围 4-30 秒。
+调用 `write_video_shots`：`aspect_ratio` 传目标画幅，`shots` 逐个给出 `index`、`prompt`、`seconds` 与 `image_urls`。`image_urls` 必填；无参考图时传 `[]`，`prompt.global_settings` 和 `prompt.timeline[].prompt` 中不得出现 `@ImageN`。`seconds` 是整数，取该镜头组覆盖的各结构层级时长之和四舍五入到秒，范围 4-30 秒。

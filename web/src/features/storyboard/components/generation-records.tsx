@@ -44,7 +44,7 @@ type GenerationRecordsProps = {
   shotIndex: number
   jobs: readonly GenerationJob[]
   onClose: () => void
-  onEditPrompt: (prompt: string) => void
+  onEditPrompt?: ((prompt: string) => void) | undefined
 }
 
 export function GenerationRecords({
@@ -105,7 +105,7 @@ export function GenerationRecords({
 
 type RecordCardProps = {
   job: GenerationJob
-  onEditPrompt: (prompt: string) => void
+  onEditPrompt?: ((prompt: string) => void) | undefined
 }
 
 function RecordCard({ job, onEditPrompt }: RecordCardProps) {
@@ -160,7 +160,7 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
         </div>
       ) : null}
 
-      {open ? (
+      {open && onEditPrompt !== undefined ? (
         <Button
           className="w-full border-[0.5px] border-chat-hairline bg-primary/4 text-primary"
           disabled={prompt === undefined || prompt.trim() === ''}

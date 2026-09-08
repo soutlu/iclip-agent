@@ -39,6 +39,10 @@ if (withShots !== undefined) {
   seedMockWorkspace(withShots.id, { httpFrames: true })
 }
 
+// 独立的无图草稿用于演示先编辑正文、再补充第一张图片。
+const withoutImages = addMockConversation('无图分镜草稿', new Date().toISOString())
+seedMockWorkspace(withoutImages.id, { withoutImages: true })
+
 // 两个会话归入示例合集，其余保持未分组。
 const linen = addMockCollection('夏季亚麻系列')
 seeded.slice(1, 3).forEach((conversation) => {

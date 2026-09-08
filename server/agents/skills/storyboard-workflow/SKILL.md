@@ -184,7 +184,7 @@ global_reference 里回退成纯文本行的实体（素材没图、补拍又失
 
 ## 5. 镜头组 prompt 生成
 
-先按 `shot-spec.md`「镜头组切分」把结构层级自上而下累加合并成镜头组序列，输出合并结果（每个镜头组含哪几个结构层级、合计时长）；然后写各镜头组的 prompt，每张镜头帧紧跟在描绘它的那段文字之后（写法见 `shot-spec.md`），调用 `write_video_shots` 交付 `video_shot.json`。
+先按 `shot-spec.md`「镜头组切分」把结构层级自上而下累加合并成镜头组序列，输出合并结果（每个镜头组含哪几个结构层级、合计时长）；然后写各镜头组的结构化 `prompt`，每张镜头帧紧跟在描绘它的那段文字之后（写法见 `shot-spec.md`），调用 `write_video_shots` 交付 `video_shot.json`。
 
 ## 输出要求
 

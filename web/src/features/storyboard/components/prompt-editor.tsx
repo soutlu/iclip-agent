@@ -3,13 +3,13 @@
 import { baseKeymap } from 'prosemirror-commands'
 import { history, redo, undo } from 'prosemirror-history'
 import { keymap } from 'prosemirror-keymap'
-import type { Node as PMNode } from 'prosemirror-model'
+import { Slice, type Node as PMNode } from 'prosemirror-model'
 import { EditorState } from 'prosemirror-state'
 import { EditorView, type NodeView } from 'prosemirror-view'
-import { useEffect, useRef } from 'react'
+import { useEffect, useImperativeHandle, useRef, type Ref } from 'react'
 import { cn } from '@/shared/lib/utils'
-import { type PromptLine, serializeLines } from '../prompt-doc'
-import { docToLines, linesToDoc } from './prompt-editor-doc'
+import type { PromptInsertion } from '../shot-document'
+import { docToPrompt, promptOffsetAt, promptToDoc } from './prompt-editor-doc'
 
 /** NodeView 经 ref 读取最新数据，避免重建编辑器。 */
 type ChipContext = {
@@ -37,6 +37,7 @@ class FrameChipView implements NodeView {
     this.n = node.attrs['n'] as number
     this.dom = document.createElement('span')
     this.dom.dataset['n'] = String(this.n)
+    this.dom.dataset['token'] = node.attrs['token'] as string
     this.dom.setAttribute('role', 'button')
     this.dom.setAttribute('aria-label', `看第 ${this.n} 帧`)
     this.dom.contentEditable = 'false'
@@ -85,13 +86,16 @@ class FrameChipView implements NodeView {
   }
 }
 
+export type PromptEditorHandle = { getInsertion: () => PromptInsertion | undefined }
+
 type PromptEditorProps = {
-  lines: readonly PromptLine[]
+  value: string
+  ref?: Ref<PromptEditorHandle> | undefined
   /** 帧数组下标为编号减一。 */
   frames: readonly string[]
   highlighted?: number | undefined
   readOnly?: boolean
-  onChange?: ((lines: PromptLine[]) => void) | undefined
+  onChange?: ((value: string) => void) | undefined
   onPickFrame?: ((n: number) => void) | undefined
   'aria-label': string
   className?: string
@@ -102,13 +106,15 @@ export function PromptEditor({
   className,
   frames,
   highlighted,
-  lines,
+  value,
+  ref,
   onChange,
   onPickFrame,
   readOnly = false,
 }: PromptEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const hadSelectionRef = useRef(false)
   const chipsRef = useRef(new Set<FrameChipView>())
   // 编辑器只建一次；变化中的回调与数据经 ref 读最新值
   const latestRef = useRef({ frames, highlighted, onChange, onPickFrame, readOnly })
@@ -116,8 +122,24 @@ export function PromptEditor({
     latestRef.current = { frames, highlighted, onChange, onPickFrame, readOnly }
   })
   // 记录最近序列化结果，忽略编辑器自身发出的更新，避免重置光标。
-  const serializedRef = useRef(serializeLines(lines))
-  const initialRef = useRef({ ariaLabel, lines })
+  const serializedRef = useRef(value)
+  const initialRef = useRef({ ariaLabel, value })
+  useImperativeHandle(
+    ref,
+    () => ({
+      getInsertion: () => {
+        const view = viewRef.current
+        if (view === null || !hadSelectionRef.current) return undefined
+        const { doc, selection } = view.state
+        return {
+          text: docToPrompt(doc),
+          start: promptOffsetAt(doc, selection.from),
+          end: promptOffsetAt(doc, selection.to),
+        }
+      },
+    }),
+    [],
+  )
 
   useEffect(() => {
     const host = hostRef.current
@@ -139,14 +161,21 @@ export function PromptEditor({
         const next = view.state.apply(tr)
         view.updateState(next)
         if (!tr.docChanged) return
-        const changed = docToLines(next.doc)
-        serializedRef.current = serializeLines(changed)
+        const changed = docToPrompt(next.doc)
+        serializedRef.current = changed
         latestRef.current.onChange?.(changed)
+      },
+      clipboardTextParser: (text) => new Slice(promptToDoc(text).content, 1, 1),
+      handleDOMEvents: {
+        focus: () => {
+          hadSelectionRef.current = true
+          return false
+        },
       },
       editable: () => !latestRef.current.readOnly,
       nodeViews: { frame: (node) => new FrameChipView(node, ctx, chips) },
       state: EditorState.create({
-        doc: linesToDoc(initialRef.current.lines),
+        doc: promptToDoc(initialRef.current.value),
         plugins: [
           history(),
           keymap({ 'Mod-y': redo, 'Mod-z': undo, 'Shift-Mod-z': redo }),
@@ -165,11 +194,11 @@ export function PromptEditor({
   useEffect(() => {
     const view = viewRef.current
     if (view === null) return
-    const serialized = serializeLines(lines)
-    if (serialized === serializedRef.current) return
-    serializedRef.current = serialized
-    view.updateState(EditorState.create({ doc: linesToDoc(lines), plugins: view.state.plugins }))
-  }, [lines])
+    if (value === serializedRef.current) return
+    serializedRef.current = value
+    hadSelectionRef.current = false
+    view.updateState(EditorState.create({ doc: promptToDoc(value), plugins: view.state.plugins }))
+  }, [value])
 
   useEffect(() => {
     for (const chip of chipsRef.current) chip.refresh()
