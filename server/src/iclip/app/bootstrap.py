@@ -336,6 +336,7 @@ def _generation_module(
         ),
         image_default_model=settings.image_default_model,
         image_user_name=settings.image_user_name,
+        image_env=settings.image_env,
         object_store=object_store,
         queue_connector=(
             queue_connector
