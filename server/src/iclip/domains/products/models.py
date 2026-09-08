@@ -58,4 +58,23 @@ class Product:
     images: tuple[ProductImage, ...]
 
 
-__all__ = ["Brand", "Category", "Color", "ColorGroup", "Product", "ProductImage"]
+@dataclass(frozen=True, slots=True)
+class StyleGrouping:
+    """一个款归属的品类与品牌，保留上游编码；名称由 tables.py 映射。
+
+    供跨模块按品类／品牌圈选同类款使用，不含款自身的展示资料。
+    """
+
+    category_id: int
+    brand_code: str
+
+
+__all__ = [
+    "Brand",
+    "Category",
+    "Color",
+    "ColorGroup",
+    "Product",
+    "ProductImage",
+    "StyleGrouping",
+]

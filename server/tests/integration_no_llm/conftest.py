@@ -110,7 +110,6 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
     # 隔离开发机的产品目录库配置。
     monkeypatch.delenv("PRODUCT_CATALOG_DATABASE_URL", raising=False)
     monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL", raising=False)
-    monkeypatch.delenv("INSPIRATION_DATABASE_URL", raising=False)
     # 隔离开发机的对象存储凭证。
     monkeypatch.delenv("OSS_BUCKET", raising=False)
 

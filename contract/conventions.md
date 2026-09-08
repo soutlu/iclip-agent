@@ -285,8 +285,13 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 `POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `assets:read`。
 
-- `styleWmsList` 使用产品资料响应中的 `styleWms`，编号与分类含义见 [CONTEXT.md](../docs/CONTEXT.md)。
-- **排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
+- `styleNos` 使用 **PDM 款号**，与 `GET /products/{styleNo}` 同一个查询键。WMS 编号只在数据入库时用于对齐数仓，不出现在接口上。
+- 只返回可下载的自家副本地址（`videoUrls`），按 `sortBy` 降序。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
+- **绝大多数结果是替身。** 自己有爆款视频的款只占少数，因此本款没有视频时按「同品牌同类目 → 同类目」逐级放宽。`matches` 逐款给出 `exact` / `sameBrandCategory` / `sameCategory` / `none`；除 `exact` 外，属于这个款的链接都不是它自己的视频。
+- **`filters` 不影响降级。** 五个下限只筛最终结果；门槛把本款的视频筛空，不等于这个款没有视频，仍判 `exact`，不去找替身。
+- 款号在产品资料中查不到、或该款没有品类，都落 `none`，不是 404。全部落空时返回空 `videoUrls`，仍是 `200`。
+- 数据是随迁移灌入的一次性快照，不自动更新；接口不连任何外部库。已知边界见 [CONTEXT.md](../docs/CONTEXT.md)。
+- 未配置产品资料库时接口照常提供，但降级整级失效，未精确命中的款一律 `none`；这属于能力缺失，服务启动时会告警。
 
 ## 11. 素材上传 (Assets)
 

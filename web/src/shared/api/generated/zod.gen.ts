@@ -546,14 +546,20 @@ export const zItemsRemoveOp = z.object({
 })
 
 /**
- * MetricsOut
+ * MetricFiltersIn
+ *
+ * 表现下限，全部可选；省略的维度不设限。
+ *
+ * 门槛只筛最终结果：把结果筛空不会让这个款被判为「没有视频」，也就不会因此降级。
  */
-export const zMetricsOut = z.object({
-  clicks: z.int(),
-  impressions: z.int(),
-  orders: z.int(),
-  revenue: z.string().regex(/^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$/),
-  views: z.int(),
+export const zMetricFiltersIn = z.object({
+  minClicks: z.int().gte(0).nullish(),
+  minImpressions: z.int().gte(0).nullish(),
+  minOrders: z.int().gte(0).nullish(),
+  minRevenue: z
+    .union([z.number().gte(0), z.string().regex(/^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$/)])
+    .nullish(),
+  minViews: z.int().gte(0).nullish(),
 })
 
 /**
@@ -566,17 +572,6 @@ export const zNoticeFrame = z.object({
   level: z.enum(['error', 'warning', 'info']),
   message: z.string(),
   source: z.string().nullish(),
-})
-
-/**
- * PopularOut
- *
- * 三种爆款标记彼此独立，可以同时成立。
- */
-export const zPopularOut = z.object({
-  brand: z.boolean(),
-  kol: z.boolean(),
-  tt: z.boolean(),
 })
 
 /**
@@ -691,6 +686,16 @@ export const zStepUpsertOp = z.object({
   op: z.literal('step.upsert').optional().default('step.upsert'),
   step: zStepHeader,
   turnId: z.string(),
+})
+
+/**
+ * StyleMatchOut
+ *
+ * 一个入参款落在哪一级。除 ``exact`` 外，属于这个款的结果都是替身。
+ */
+export const zStyleMatchOut = z.object({
+  matchLevel: z.enum(['exact', 'sameBrandCategory', 'sameCategory', 'none']),
+  styleNo: z.string(),
 })
 
 /**
@@ -1332,44 +1337,31 @@ export const zVideoGenerationIn = z.object({
 })
 
 /**
- * VideoOut
- */
-export const zVideoOut = z.object({
-  category: z.string().nullable(),
-  combatTeam: z.string().nullable(),
-  creatorHandle: z.string().nullable(),
-  metrics: zMetricsOut,
-  ossUrl: z.string().nullable(),
-  popular: zPopularOut,
-  postedDate: z.string().nullable(),
-  styleWms: z.string().nullable(),
-  videoId: z.string(),
-  videoUrl: z.string(),
-})
-
-/**
  * VideoSearchIn
  *
  * 按款搜爆款视频。
  *
- * ``style_wms_list`` 收的是 **WMS 编号**，不是 PDM 款号——名字里带着 ``wms`` 就是
- * 为了让传错的人在字段名上先愣一下：传成 PDM 款号会安静地搜不到任何东西。产品
- * 资料接口响应里的 ``styleWms`` 就是拿来喂这里的。
+ * ``style_nos`` 收的是 **PDM 款号**，与产品资料接口的查询键同源；WMS 编号只在数据
+ * 入库时用于对齐数仓，调用方不接触。
  */
 export const zVideoSearchIn = z.object({
+  filters: zMetricFiltersIn.optional().default({}),
   limit: z.int().gte(1).lte(100).optional().default(50),
   sortBy: z
     .enum(['impressions', 'views', 'clicks', 'orders', 'revenue'])
     .optional()
     .default('orders'),
-  styleWmsList: z.array(z.string().min(1).max(64)).min(1).max(20),
+  styleNos: z.array(z.string().min(1).max(64)).min(1).max(20),
 })
 
 /**
  * VideoSearchOut
+ *
+ * 可下载地址按所选维度降序；``matches`` 逐款说明结果的来源层级。
  */
 export const zVideoSearchOut = z.object({
-  items: z.array(zVideoOut),
+  matches: z.array(zStyleMatchOut),
+  videoUrls: z.array(z.string()),
 })
 
 /**

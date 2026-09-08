@@ -1095,29 +1095,33 @@ export type MetaMergeOp = {
 }
 
 /**
- * MetricsOut
+ * MetricFiltersIn
+ *
+ * 表现下限，全部可选；省略的维度不设限。
+ *
+ * 门槛只筛最终结果：把结果筛空不会让这个款被判为「没有视频」，也就不会因此降级。
  */
-export type MetricsOut = {
+export type MetricFiltersIn = {
   /**
-   * Clicks
+   * Minclicks
    */
-  clicks: number
+  minClicks?: number | null
   /**
-   * Impressions
+   * Minimpressions
    */
-  impressions: number
+  minImpressions?: number | null
   /**
-   * Orders
+   * Minorders
    */
-  orders: number
+  minOrders?: number | null
   /**
-   * Revenue
+   * Minrevenue
    */
-  revenue: string
+  minRevenue?: number | string | null
   /**
-   * Views
+   * Minviews
    */
-  views: number
+  minViews?: number | null
 }
 
 /**
@@ -1198,26 +1202,6 @@ export type OpsCatchup = {
    * Latest Seq
    */
   latest_seq: number
-}
-
-/**
- * PopularOut
- *
- * 三种爆款标记彼此独立，可以同时成立。
- */
-export type PopularOut = {
-  /**
-   * Brand
-   */
-  brand: boolean
-  /**
-   * Kol
-   */
-  kol: boolean
-  /**
-   * Tt
-   */
-  tt: boolean
 }
 
 /**
@@ -1526,6 +1510,22 @@ export type StepUsage = {
    * Output
    */
   output: number
+}
+
+/**
+ * StyleMatchOut
+ *
+ * 一个入参款落在哪一级。除 ``exact`` 外，属于这个款的结果都是替身。
+ */
+export type StyleMatchOut = {
+  /**
+   * Matchlevel
+   */
+  matchLevel: 'exact' | 'sameBrandCategory' | 'sameCategory' | 'none'
+  /**
+   * Styleno
+   */
+  styleNo: string
 }
 
 /**
@@ -2620,55 +2620,15 @@ export type VideoGenerationIn = {
 }
 
 /**
- * VideoOut
- */
-export type VideoOut = {
-  /**
-   * Category
-   */
-  category: string | null
-  /**
-   * Combatteam
-   */
-  combatTeam: string | null
-  /**
-   * Creatorhandle
-   */
-  creatorHandle: string | null
-  metrics: MetricsOut
-  /**
-   * Ossurl
-   */
-  ossUrl: string | null
-  popular: PopularOut
-  /**
-   * Posteddate
-   */
-  postedDate: string | null
-  /**
-   * Stylewms
-   */
-  styleWms: string | null
-  /**
-   * Videoid
-   */
-  videoId: string
-  /**
-   * Videourl
-   */
-  videoUrl: string
-}
-
-/**
  * VideoSearchIn
  *
  * 按款搜爆款视频。
  *
- * ``style_wms_list`` 收的是 **WMS 编号**，不是 PDM 款号——名字里带着 ``wms`` 就是
- * 为了让传错的人在字段名上先愣一下：传成 PDM 款号会安静地搜不到任何东西。产品
- * 资料接口响应里的 ``styleWms`` 就是拿来喂这里的。
+ * ``style_nos`` 收的是 **PDM 款号**，与产品资料接口的查询键同源；WMS 编号只在数据
+ * 入库时用于对齐数仓，调用方不接触。
  */
 export type VideoSearchIn = {
+  filters?: MetricFiltersIn
   /**
    * Limit
    */
@@ -2678,19 +2638,25 @@ export type VideoSearchIn = {
    */
   sortBy?: 'impressions' | 'views' | 'clicks' | 'orders' | 'revenue'
   /**
-   * Stylewmslist
+   * Stylenos
    */
-  styleWmsList: Array<string>
+  styleNos: Array<string>
 }
 
 /**
  * VideoSearchOut
+ *
+ * 可下载地址按所选维度降序；``matches`` 逐款说明结果的来源层级。
  */
 export type VideoSearchOut = {
   /**
-   * Items
+   * Matches
    */
-  items: Array<VideoOut>
+  matches: Array<StyleMatchOut>
+  /**
+   * Videourls
+   */
+  videoUrls: Array<string>
 }
 
 export type ListKeysApiKeysGetData = {

@@ -10,27 +10,21 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.app.bootstrap import build_app
+from tests.helpers.pdm import PDM_STYLES_DDL
 from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 from tests.integration_no_llm.conftest import make_runtime_config
 
 IMAGE_BASE_URL = "https://bucket.example.com/"
 """末尾斜杠用于验证 URL 拼接不会产生双斜杠。"""
 
-_DDL = """
+_DDL = (
+    """
 DROP TABLE IF EXISTS pdm_asset_versions, assets, pdm_file_mappings,
                      pdm_skcs, pdm_colors, pdm_styles CASCADE;
 
-CREATE TABLE pdm_styles (
-    pdm_entity_id      bigint PRIMARY KEY,
-    product_number     varchar NOT NULL,
-    style_wms          varchar,
-    source_status      varchar NOT NULL,
-    product_category_id bigint,
-    attributes         json    NOT NULL DEFAULT '{}'::json,
-    is_active          boolean NOT NULL DEFAULT true,
-    is_source_deleted  boolean NOT NULL DEFAULT false
-);
-
+"""
+    + PDM_STYLES_DDL
+    + """
 CREATE TABLE pdm_file_mappings (
     id                uuid PRIMARY KEY,
     pdm_entity_id     bigint  NOT NULL,
@@ -74,6 +68,7 @@ CREATE TABLE pdm_colors (
     is_source_deleted boolean NOT NULL DEFAULT false
 );
 """
+)
 
 
 @pytest.fixture
