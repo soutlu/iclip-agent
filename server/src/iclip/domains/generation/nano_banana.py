@@ -12,6 +12,7 @@ from typing import Any, Final, get_args
 import httpx
 
 from iclip.domains.generation.image_upstream import (
+    TASK_SOURCE,
     post_generation,
     read_output_url,
     store_result,
@@ -42,8 +43,6 @@ SPEC: Final = ImageModelSpec(
     channels=("dev", "pro"),
 )
 
-_TASK_SOURCE: Final = "iClip"
-
 _GENERATE_TIMEOUT_SECONDS: Final = 300.0
 
 
@@ -56,6 +55,9 @@ class NanoBananaSettings:
 
     user_name: str
     """Provider 要求的稳定调用方标识，用于对账。"""
+
+    env: str
+    """网关要求的调用环境。它按 task_source 与这一项一起判这次调用合不合法。"""
 
 
 class NanoBananaImageProvider:
@@ -115,13 +117,21 @@ class NanoBananaImageProvider:
     def _call(self, job: GenerationJob, request: ImageGenerationIn) -> tuple[str, dict[str, Any]]:
         """这家自己的那一段：按有无参考图选端点，把领域请求拼成上游 payload。"""
 
+        if request.channel is None:
+            # 这家声明了渠道轴，受理层会填好；为空说明装配串了，不给付费接口送 null。
+            raise ProviderError(
+                f"{PROVIDER_NAME} 的请求没有渠道",
+                code="PROVIDER_CHANNEL_MISSING",
+                retryable=False,
+            )
         references = list(request.reference_image_urls)
         url = task_url(self._settings.api_base, editing=bool(references))
         payload: dict[str, Any] = {
             "data_id": str(job.id),
             "user_name": self._user_name,
             "prompt": request.prompt,
-            "task_source": _TASK_SOURCE,
+            "task_source": TASK_SOURCE,
+            "env": self._settings.env,
             "aspect_ratio": request.aspect_ratio,
             "resolution": request.resolution,
             "channel": request.channel,

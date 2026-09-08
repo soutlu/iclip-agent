@@ -35,12 +35,14 @@ VIDEO_SETTINGS = VideoProviderSettings(
 IMAGE_API_BASE = "https://image.test/nano-banana-pro"
 IMAGE_TEXT_TO_IMAGE_URL = task_url(IMAGE_API_BASE, editing=False)
 IMAGE_EDIT_URL = task_url(IMAGE_API_BASE, editing=True)
-IMAGE_SETTINGS = NanoBananaSettings(api_base=IMAGE_API_BASE, user_name="iclip-agent")
+IMAGE_SETTINGS = NanoBananaSettings(api_base=IMAGE_API_BASE, user_name="iclip-agent", env="test")
 
 SEEDREAM_API_BASE = "https://image.test/seedrance5.0pro"
 SEEDREAM_TEXT_TO_IMAGE_URL = task_url(SEEDREAM_API_BASE, editing=False)
 SEEDREAM_EDIT_URL = task_url(SEEDREAM_API_BASE, editing=True)
-SEEDREAM_SETTINGS = SeedreamSettings(api_base=SEEDREAM_API_BASE, user_name="iclip-agent")
+SEEDREAM_SETTINGS = SeedreamSettings(
+    api_base=SEEDREAM_API_BASE, user_name="iclip-agent", env="test"
+)
 
 
 def seedream_provider(handler: object, *, store: MemoryObjectStore) -> SeedreamImageProvider:
@@ -268,7 +270,7 @@ async def test_image_generation_rehosts_result_and_returns_stable_url() -> None:
             )
         return httpx.Response(200, content=b"PNGDATA", headers={"content-type": "image/png"})
 
-    job = make_job(image_request())
+    job = make_job(image_request(channel="dev"))
     provider = NanoBananaImageProvider(
         IMAGE_SETTINGS, object_store=store, transport=httpx.MockTransport(handler)
     )
@@ -296,7 +298,9 @@ async def test_image_with_references_uses_edit_endpoint() -> None:
         IMAGE_SETTINGS, object_store=store, transport=httpx.MockTransport(handler)
     )
     await provider.submit(
-        make_job(image_request(reference_image_urls=["https://example.test/ref.png"]))
+        make_job(
+            image_request(channel="dev", reference_image_urls=["https://example.test/ref.png"])
+        )
     )
     assert paths[0] == httpx.URL(IMAGE_EDIT_URL).path, "有参考图要走编辑那个地址"
 
@@ -316,7 +320,7 @@ async def test_image_never_retries_and_never_switches_channel() -> None:
         transport=httpx.MockTransport(handler),
     )
     with pytest.raises(ProviderError) as error:
-        await provider.submit(make_job(image_request()))
+        await provider.submit(make_job(image_request(channel="dev")))
     assert error.value.code == "PROVIDER_RESULT_UNKNOWN"
     assert error.value.retryable is False
     assert len(attempts) == 1, "只调一次，不换渠道再来"
@@ -388,6 +392,7 @@ async def test_image_edit_sends_the_urls_in_the_order_the_caller_gave() -> None:
     """编号由图片顺序决定，所以顺序必须原样发出；帧号只是我们自己的标签，不外发。"""
 
     request = image_request(
+        channel="dev",
         prompt="把【输入图片 2 中的标注 1】的杯子换成红色",
         reference_image_urls=["https://cdn.test/frame.png", "https://cdn.test/annotated.png"],
         shot_index=3,
@@ -414,11 +419,13 @@ async def test_image_edit_sends_the_urls_in_the_order_the_caller_gave() -> None:
         "user_name",
         "prompt",
         "task_source",
+        "env",
         "aspect_ratio",
         "resolution",
         "channel",
         "input_str_list",
     }
+    assert (sent["task_source"], sent["env"]) == ("iclip_agent", "test")
 
 
 async def test_seedream_sends_a_pixel_size_and_no_channel() -> None:
@@ -440,9 +447,11 @@ async def test_seedream_sends_a_pixel_size_and_no_channel() -> None:
         "user_name",
         "prompt",
         "task_source",
+        "env",
         "size",
         "output_format",
     }, "键集变了就是上游合同变了"
+    assert (sent[0]["task_source"], sent[0]["env"]) == ("iclip_agent", "test")
     assert sent[0]["size"] == "1584*2816"
     assert submission.provider_task_id == str(job.id), "上游不回任务 id，用 data_id 对账"
 
@@ -526,3 +535,15 @@ async def test_seedream_has_no_polling_phase() -> None:
     provider = seedream_provider(seedream_ok, store=MemoryObjectStore())
     with pytest.raises(ProviderError, match="同步"):
         await provider.poll(make_job(image_request()))
+
+
+async def test_nano_refuses_to_send_a_null_channel() -> None:
+    """这家声明了渠道轴，受理层会填好；真为空说明装配串了，不能给付费接口送 null。"""
+
+    provider = NanoBananaImageProvider(
+        IMAGE_SETTINGS,
+        object_store=MemoryObjectStore(),
+        transport=httpx.MockTransport(lambda _request: httpx.Response(500)),
+    )
+    with pytest.raises(ProviderError, match="没有渠道"):
+        await provider.submit(make_job(image_request(channel=None)))

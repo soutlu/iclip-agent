@@ -238,12 +238,14 @@ class ImageModelSection(ConfigSection):
 
 
 class ImageGenerationSection(ConfigSection):
-    """图像生成接入了哪几家，以及对方约定的调用方标识。
+    """图像生成接入了哪几家，以及对方约定的取值。
 
     键名即落库的 provider 名，也是这家那条提交队列的名字，改名会让历史记录对不上。
     """
 
     user_name: str
+    env: Literal["prod", "uat", "test"]
+    """网关要求的调用环境。它按调用方标识与这一项一起判这次调用合不合法。"""
     default: str
     """请求省略 ``model`` 时用哪家。"""
     models: dict[str, ImageModelSection] = Field(min_length=1)
@@ -443,6 +445,7 @@ class ResolvedMediaGeneration:
     image_models: tuple[ResolvedImageModel, ...]
     image_default_model: str
     image_user_name: str
+    image_env: str
     poll_interval_seconds: int
     job_timeout_seconds: int
 
@@ -585,6 +588,7 @@ def _resolve_media_generation(
         ),
         image_default_model=section.image.default,
         image_user_name=section.image.user_name,
+        image_env=section.image.env,
         poll_interval_seconds=section.poll_interval_seconds,
         job_timeout_seconds=section.job_timeout_seconds,
     )

@@ -77,6 +77,7 @@ def build_generation_module(
     image_models: Sequence[ImageModelConfig],
     image_default_model: str,
     image_user_name: str,
+    image_env: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector,
     queue_settings: GenerationQueueSettings | None = None,
@@ -98,6 +99,7 @@ def build_generation_module(
         _image_provider(
             model,
             user_name=image_user_name,
+            env=image_env,
             object_store=object_store,
             transport=image_transport,
         )
@@ -143,6 +145,7 @@ def _image_provider(
     model: ImageModelConfig,
     *,
     user_name: str,
+    env: str,
     object_store: PublicObjectStore,
     transport: httpx.AsyncBaseTransport | None,
 ) -> GenerationProvider:
@@ -150,13 +153,13 @@ def _image_provider(
 
     if model.name == NANO_BANANA_PRO:
         return NanoBananaImageProvider(
-            NanoBananaSettings(api_base=model.api_base, user_name=user_name),
+            NanoBananaSettings(api_base=model.api_base, user_name=user_name, env=env),
             object_store=object_store,
             transport=transport,
         )
     if model.name == SEEDREAM_V5_PRO:
         return SeedreamImageProvider(
-            SeedreamSettings(api_base=model.api_base, user_name=user_name),
+            SeedreamSettings(api_base=model.api_base, user_name=user_name, env=env),
             object_store=object_store,
             transport=transport,
         )

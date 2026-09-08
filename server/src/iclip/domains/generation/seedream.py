@@ -12,6 +12,7 @@ from typing import Any, Final, get_args
 import httpx
 
 from iclip.domains.generation.image_upstream import (
+    TASK_SOURCE,
     post_generation,
     read_output_url,
     store_result,
@@ -70,8 +71,6 @@ SPEC: Final = ImageModelSpec(
     channels=(),
 )
 
-_TASK_SOURCE: Final = "iClip"
-
 _GENERATE_TIMEOUT_SECONDS: Final = 600.0
 """比 nano 长一倍：出图更慢，而它自己一条队列，占着不影响别家。"""
 
@@ -87,6 +86,9 @@ class SeedreamSettings:
 
     user_name: str
     """Provider 要求的稳定调用方标识，用于对账。"""
+
+    env: str
+    """网关要求的调用环境。它按 task_source 与这一项一起判这次调用合不合法。"""
 
 
 class SeedreamImageProvider:
@@ -158,7 +160,8 @@ class SeedreamImageProvider:
             "data_id": str(job.id),
             "user_name": self._settings.user_name,
             "prompt": request.prompt,
-            "task_source": _TASK_SOURCE,
+            "task_source": TASK_SOURCE,
+            "env": self._settings.env,
             "size": size,
             "output_format": _OUTPUT_FORMAT,
         }

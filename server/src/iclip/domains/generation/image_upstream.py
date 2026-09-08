@@ -18,6 +18,9 @@ from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObject
 _DOWNLOAD_TIMEOUT_SECONDS: Final = 60.0
 _MAX_IMAGE_BYTES: Final = 64 * 1024 * 1024
 
+TASK_SOURCE: Final = "iclip_agent"
+"""网关按它认调用方，取值须在它的来源白名单里。"""
+
 _TASK_TEXT_TO_IMAGE: Final = "text-to-image_ixiaomei"
 _TASK_IMAGE_EDIT: Final = "image-edit_ixiaomei"
 
@@ -197,4 +200,4 @@ def _normalize_mime(content_type: str, url: str) -> str:
     return _DEFAULT_MIME
 
 
-__all__ = ["post_generation", "read_output_url", "store_result", "task_url"]
+__all__ = ["TASK_SOURCE", "post_generation", "read_output_url", "store_result", "task_url"]

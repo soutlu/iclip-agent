@@ -257,6 +257,7 @@ media_generation:
     user_name: iclip-agent
   image:
     user_name: iclip-agent
+    env: test
     default: nano_banana_pro
     models:
       nano_banana_pro:
