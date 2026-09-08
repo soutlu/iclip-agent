@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.common.errors import NotFound
 from iclip.domains.collections.models import Collection
+from iclip.platform.db.ownership import owner_conditions
 
 DB_SCHEMA: Final = "iclip"
 
@@ -63,9 +64,9 @@ def _row(mapping: RowMapping) -> Collection:
 
 
 def _scope(owner: uuid.UUID | None) -> list[ColumnElement[bool]]:
-    """None 表示治理者的全量视图，不添加属主条件。"""
+    """把属主列绑好的归属条件，语义见平台原语。"""
 
-    return [] if owner is None else [_ROWS.owner_user_id == owner]
+    return owner_conditions(_ROWS.owner_user_id, owner)
 
 
 class SqlCollectionRepository:

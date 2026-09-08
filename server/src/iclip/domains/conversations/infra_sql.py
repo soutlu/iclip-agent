@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.conversations.models import Conversation
 from iclip.domains.conversations.repository import CollectionConversations, PageCursor
+from iclip.platform.db.ownership import owner_conditions
 
 DB_SCHEMA: Final = "iclip"
 
@@ -166,8 +167,9 @@ class SqlConversationRepository:
         return _row(row)
 
     async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:
-        scope = [] if owner is None else [_ROWS.owner_user_id == owner]
-        statement = select(conversations_table).where(_ROWS.id == conversation_id, *scope)
+        statement = select(conversations_table).where(
+            _ROWS.id == conversation_id, *owner_conditions(_ROWS.owner_user_id, owner)
+        )
         async with self._engine.connect() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
         if row is None:

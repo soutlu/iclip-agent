@@ -39,11 +39,11 @@ depends_on = ["iclip.common", "iclip.domains.identity", "iclip.platform.transcri
 [[modules]]
 # 派生数据清理由组合根注入 PurgeDerived。
 path = "iclip.domains.conversations"
-depends_on = ["iclip.common", "iclip.domains.identity"]
+depends_on = ["iclip.common", "iclip.platform.db", "iclip.domains.identity"]
 
 [[modules]]
 path = "iclip.domains.collections"
-depends_on = ["iclip.common", "iclip.domains.identity"]
+depends_on = ["iclip.common", "iclip.platform.db", "iclip.domains.identity"]
 
 [[modules]]
 # 产品资料与对象存储由组合根按 ports.py 注入。
