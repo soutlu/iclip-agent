@@ -12,6 +12,7 @@ import {
   formatShotPrompt,
   formatShotPrompts,
   insertFrameReference,
+  parseShotPrompt,
   updateTimelinePrompt,
   validateShot,
 } from './shot-document'
@@ -202,12 +203,47 @@ describe('structured editing', () => {
   it('文本导出保留原文空白、原始标记和小数时间，批量导出显式分组', () => {
     const original = updateTimelinePrompt(shot, 0, '  原文 @Image02。\n')
     const exported = formatShotPrompt(original)
-    expect(exported).toContain(original.prompt.global_settings)
-    expect(exported).toContain('[0–3.5秒｜镜头1]\n  原文 @Image02。\n')
-    expect(exported).toContain('[4.25–8.5秒｜镜头2]\n走近拍摄鞋面 @Image1。')
+    expect(exported).toBe(
+      `${original.prompt.global_settings}\n\n` +
+        '[0–3.5秒｜镜头1]   原文 @Image02。\n\n' +
+        '[4.25–8.5秒｜镜头2] 走近拍摄鞋面 @Image1。\n' +
+        '[8.5–9秒｜镜头3] 只有旁白，没有图片引用。\n' +
+        '不要生成字幕，不要生成背景音乐。',
+    )
     expect(formatShotPrompts([original, { ...original, index: 2 }])).toBe(
       `镜头组 1\n${exported}\n\n镜头组 2\n${exported}`,
     )
+  })
+})
+
+describe('parseShotPrompt', () => {
+  it('拆回结构与拼装互为逆，末尾约束和镜头标记不留在正文里', () => {
+    expect(parseShotPrompt(formatShotPrompt(shot))).toEqual({
+      global_settings: shot.prompt.global_settings.trimEnd(),
+      timeline: [
+        {
+          ...shot.prompt.timeline[0],
+          prompt: '  开场，她站在门厅 @Image2，转身看向屋内 @Image1。',
+        },
+        shot.prompt.timeline[1],
+        shot.prompt.timeline[2],
+      ],
+    })
+  })
+
+  it('正文自带换行时按行并回同一镜，不被当成下一镜', () => {
+    const multiline = withBody('第一句 @Image1。\n第二句。', [1])
+    expect(parseShotPrompt(formatShotPrompt(multiline))).toEqual({
+      ...multiline.prompt,
+      global_settings: multiline.prompt.global_settings.trimEnd(),
+    })
+  })
+
+  it.each([
+    ['没有镜头标记', '模特走向镜头，停下微笑。'],
+    ['空正文', '   '],
+  ])('%s 时拆不出时间线', (_name, text) => {
+    expect(parseShotPrompt(text)).toBeUndefined()
   })
 })
 

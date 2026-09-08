@@ -32,6 +32,15 @@ const VIDEO_URL = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1
 
 const PREAMBLE = ['参考锁定：模特的服装与发型跟住 @Image1。', '剪辑形式：硬切。'].join('\n')
 
+/** 第 2 组那条成片当初提交的正文，形状与 formatShotPrompt 的输出一致。 */
+const HISTORY_PROMPT = [
+  PREAMBLE,
+  '',
+  '[0–4秒｜镜头1] 第一版：她从长椅间走向镜头 @Image1。',
+  '[4–11秒｜镜头2] 第一版：走到近处停下微笑 @Image2。',
+  '不要生成字幕，不要生成背景音乐。',
+].join('\n')
+
 /** 比 video_shot.json 早一点，列表里的时间才有先后。 */
 const EARLIER = '2026-09-01T09:20:00Z'
 
@@ -134,7 +143,7 @@ const noImageShotsDocument = {
       seconds: 8,
       image_urls: [],
       prompt: {
-        global_settings: '人物和产品外观保持一致。正常播放速度，不要生成字幕。',
+        global_settings: '人物和产品外观保持一致。正常播放速度。',
         timeline: [
           {
             timestamps: [0, 3.2],
@@ -309,7 +318,8 @@ export const seedMockWorkspace = (
       createdAt: '2026-09-01T11:10:00Z',
       id: '5b2f3071-0b2f-4d30-8d9c-2e3f4a5b6c7d',
       outputUrl: VIDEO_URL,
-      prompt: '第 2 组第一版：走向镜头后停下。',
+      // 按拼装规则提交过的正文，可以反解回镜头组；纯描述的那两条只能看不能回填。
+      prompt: HISTORY_PROMPT,
       shotIndex: 2,
       status: 'completed',
     }),

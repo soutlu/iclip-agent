@@ -957,7 +957,7 @@ def one_shot(**overrides: Any) -> VideoShotRequest:
     fields: dict[str, Any] = {
         "index": 1,
         "prompt": {
-            "global_settings": "人物与门厅保持一致。不要生成字幕，不要生成背景音乐。",
+            "global_settings": "人物与门厅保持一致。",
             "timeline": [
                 {"timestamps": [0, 8], "prompt": "全景，平视，固定，她走进门厅 @Image1。"}
             ],
@@ -1196,7 +1196,7 @@ def shots_document(**overrides: Any) -> str:
     row: dict[str, Any] = {
         "index": 1,
         "prompt": {
-            "global_settings": "人物与门厅保持一致。不要生成字幕，不要生成背景音乐。",
+            "global_settings": "人物与门厅保持一致。",
             "timeline": [
                 {
                     "timestamps": [0, 8],

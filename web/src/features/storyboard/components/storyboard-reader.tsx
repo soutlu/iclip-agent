@@ -25,11 +25,13 @@ import {
   formatShotPrompt,
   formatShotPrompts,
   insertFrameReference,
+  parseShotPrompt,
   parseShotsDocument,
   updateTimelinePrompt,
   promptTitle,
   shotName,
   splitShotTimeline,
+  validateShot,
   type Shot,
 } from '../shot-document'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH, shotSelectionRef } from '../shots'
@@ -320,7 +322,23 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                   <ReaderNotice text="正在读取生成记录…" />
                 </>
               ) : (
-                <GenerationRecords jobs={jobs} onClose={closeSheet} shotIndex={shot.index} />
+                <GenerationRecords
+                  jobs={jobs}
+                  onClose={closeSheet}
+                  onEditPrompt={(text) => {
+                    const prompt = parseShotPrompt(text)
+                    if (prompt === undefined) return
+                    const problem = validateShot({ ...shot, prompt })
+                    if (problem !== undefined) {
+                      toast.error(problem)
+                      return
+                    }
+                    draft.updateShot(shot.index, (current) => ({ ...current, prompt }))
+                    closeSheet()
+                    toast('历史提示词已回填到当前镜头组')
+                  }}
+                  shotIndex={shot.index}
+                />
               )}
             </ReaderOverlay>
           ) : null}

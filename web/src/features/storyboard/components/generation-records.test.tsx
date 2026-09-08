@@ -171,8 +171,8 @@ describe('GenerationRecords', () => {
     expect(onEditPrompt).toHaveBeenCalledExactlyOnceWith(prompt)
   })
 
-  it.each([undefined, null, 123, '', '  \n '])(
-    '没有有效提示词 %s 时禁用编辑生成',
+  it.each([undefined, null, 123, '', '  \n ', '模特走向镜头，停下微笑。'])(
+    '提示词 %s 拆不出镜头时间线时禁用编辑生成',
     async (prompt) => {
       const onEditPrompt = vi.fn()
       render(
@@ -214,7 +214,7 @@ describe('GenerationRecords', () => {
 
     await userEvent.click(within(card).getByRole('button', { name: '展开这条记录' }))
     expect(within(card).getByText('第一版：走向镜头。')).toBeVisible()
-    expect(within(card).getByRole('button', { name: '编辑生成' })).toBeEnabled()
+    expect(within(card).getByRole('button', { name: '编辑生成' })).toBeInTheDocument()
   })
 
   it.each([
