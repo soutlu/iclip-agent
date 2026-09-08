@@ -12,7 +12,7 @@ class StyleDirectory(Protocol):
     """按 PDM 款号批量取品类与品牌的窄端口。"""
 
     async def resolve(self, style_nos: Sequence[str]) -> Mapping[str, StyleGrouping]:
-        """返回 ``款号 -> 品类与品牌``；查不到的款不出现在结果里。"""
+        """返回 ``款号 -> 品类与品牌``；查不到或归属缺失的款不出现在结果里。"""
 
         ...
 

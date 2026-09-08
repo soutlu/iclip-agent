@@ -194,18 +194,11 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 附件
 
-- 附件通过 `content` 的图片或视频 part 提交，只收 HTTP(S) URL；其他地址返回 `422`。本地文件先直传得到公开地址（§11），不要求先登记素材库。
+- 附件通过 `content` 的图片或视频 part 提交，只收 HTTP(S) URL；其他地址返回 `422`。本地文件先直传得到公开地址（§10），不要求先登记素材库。
 - 附件提交会登记对话素材；普通正文 URL、面板文件内容与素材库登记均不会代替这一步，精确匹配与类型规则见 [CONTEXT.md](../docs/CONTEXT.md)。
 - 图片输入保留原图引用；仅支持缩放的地址附带缩放像素，其他图片及视频保留媒体引用，内容由相应工具读取。提交成功不保证外部 URL 在后续读取时可用。
 
-## 7. 产品资料查询 (Products)
-
-`GET /products/{styleNo}` 按 **PDM 款号**精确查一个款，只读、零副作用。权限 `assets:read`。
-
-- 跨系统查询使用返回的 `styleWms`，不要把 `styleNo` 当作 WMS 编号。
-- 款号不存在、或已被上游标记删除，一律 `404`。
-
-## 8. 合集 (Collections)
+## 7. 合集 (Collections)
 
 **权限**：`GET /collections`、`GET /collections/{id}` 需要 `collections:read`；`POST /collections`、`PATCH /collections/{id}`、`DELETE /collections/{id}` 需要 `collections:write`。
 
@@ -213,7 +206,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `GET /collections` 默认只列自己的，最近改动的排在前面；`?scope=all` 是治理者的全量视图，需要 `users:manage`，否则 `403`。翻页用 `limit` 与 `offset`。
 - **属主取自登录身份**，请求体里带 `ownerUserId` 一类字段一律 `422`。
 
-## 9. 创作需求单 (Tasks)
+## 8. 创作需求单 (Tasks)
 
 **权限**：`GET /tasks`、`GET /tasks/{id}` 需要 `tasks:read`；`POST /tasks`、`PUT /tasks/{id}`、`POST /tasks/{id}/publish`、`POST /tasks/{id}/confirm`、`POST /tasks/{id}/withdraw`、`DELETE /tasks/{id}` 需要 `tasks:write`。
 
@@ -226,7 +219,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 创作输入与商品
 
 - `POST /tasks` 与 `PUT /tasks/{id}` 使用同一份 `inputs` 结构。任务外层沿用 camelCase，`inputs` 内部使用 snake_case，与持久化 JSONB 一致；具体字段由 OpenAPI 定义。
-- `inputs` 是唯一的创作需求来源。创建不再隐式查询产品目录或转存商品图，调用方明确提供商品款号、名称和图片；本地文件先走 §11 的上传流程。
+- `inputs` 是唯一的创作需求来源。创建不再隐式查询产品目录或转存商品图，调用方明确提供商品款号、名称和图片；本地文件先走 §10 的上传流程。
 - `inputs.product.style_no` 是主款号，创建后不可更换；草稿允许补充商品名称和图片，发布后商品信息冻结。
 - 商品图片用于商品展示，参考图片分别归入模特、穿搭、道具类别，不根据 URL 或上传顺序推断用途。
 - `task_id` 使用需求单自身 ID，`generation_id` 对应一次创作尝试的 Conversation ID，二者不重复保存在 Task 的 `inputs` 中。
@@ -272,7 +265,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 素材地址
 
-- 商品图片、参考图片和参考视频只接受具有主机名的 HTTP(S) 地址；空参考视频使用 `null`。本地文件先走 §11 的直传换成地址。
+- 商品图片、参考图片和参考视频只接受具有主机名的 HTTP(S) 地址；空参考视频使用 `null`。本地文件先走 §10 的直传换成地址。
 
 ### 需求单数据升级
 
@@ -281,19 +274,19 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 非法数据或合并后超过创作要求长度限制时，迁移失败并回滚，不截断内容。
 - 有需求单数据时禁止有损 downgrade；恢复旧结构须使用迁移前备份。空表支持结构降级。
 
-## 10. 爆款视频查询 (Inspirations)
+## 9. 爆款视频查询 (Inspirations)
 
 `POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `assets:read`。
 
-- `styleNos` 使用 **PDM 款号**，与 `GET /products/{styleNo}` 同一个查询键。WMS 编号只在数据入库时用于对齐数仓，不出现在接口上。
+- `styleNos` 使用 **PDM 款号**。WMS 编号只在数据入库时用于对齐数仓，不出现在接口上。
 - 只返回可下载的自家副本地址（`videoUrls`），按 `sortBy` 降序。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
 - **绝大多数结果是替身。** 自己有爆款视频的款只占少数，因此本款没有视频时按「同品牌同类目 → 同类目」逐级放宽。`matches` 逐款给出 `exact` / `sameBrandCategory` / `sameCategory` / `none`；除 `exact` 外，属于这个款的链接都不是它自己的视频。
 - **`filters` 不影响降级。** 五个下限只筛最终结果；门槛把本款的视频筛空，不等于这个款没有视频，仍判 `exact`，不去找替身。
-- 款号在产品资料中查不到、或该款没有品类，都落 `none`，不是 404。全部落空时返回空 `videoUrls`，仍是 `200`。
+- 款号在 PDM 款目录中查不到、或该款没有品类，都落 `none`，不是 404。全部落空时返回空 `videoUrls`，仍是 `200`。
 - 数据是随迁移灌入的一次性快照，不自动更新；接口不连任何外部库。已知边界见 [CONTEXT.md](../docs/CONTEXT.md)。
-- 未配置产品资料库时接口照常提供，但降级整级失效，未精确命中的款一律 `none`；这属于能力缺失，服务启动时会告警。
+- 未配置 PDM 款目录库时接口照常提供，但降级整级失效，未精确命中的款一律 `none`；这属于能力缺失，服务启动时会告警。
 
-## 11. 素材上传 (Assets)
+## 10. 素材上传 (Assets)
 
 上传分两步：`POST /uploads/sign` 领一个 `assetId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /assets/{assetId}` 登记。外部地址上的东西（产品图、爆款库的视频）走 `POST /assets/import` **转存**进本仓对象存储再登记。
 
@@ -313,7 +306,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 转存**不跟随重定向**：`3xx` 直接当取不回来。
 - 素材库登记不会登记对话素材；把素材地址作为附件提交后，agent 才能按对话素材规则引用（§6）。
 
-## 12. 媒体生成 (Generations)
+## 11. 媒体生成 (Generations)
 
 - 视频新请求只接受 [运行配置](../server/configs/config.yaml) 中 `media_generation.video.allowed_models` 列出的模型。`model` 省略或为 `null` 时，使用配置中的默认 `model`；受理阶段将选定模型写入请求快照。不在允许范围内的模型返回 `422`，不创建任务、不入队。
 - 视频模型在受理时确定，后台提交使用已保存的请求快照；配置变化不改写历史记录中的模型。

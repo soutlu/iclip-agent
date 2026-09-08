@@ -82,7 +82,6 @@ async def app(
     """启用爆款视频查询的 app。"""
 
     monkeypatch.setenv("PRODUCT_CATALOG_DATABASE_URL", migrated_pg)
-    monkeypatch.setenv("PRODUCT_IMAGE_BASE_URL", "https://bucket.example.com/")
     yield build_app(
         make_runtime_config(),
         engine=business_engine,

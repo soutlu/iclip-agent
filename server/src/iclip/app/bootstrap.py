@@ -68,8 +68,7 @@ from iclip.domains.identity.sso import SsoVerifier
 from iclip.domains.inspirations.infra_sql import PgInspirationVideos
 from iclip.domains.inspirations.module import build_inspirations_module
 from iclip.domains.inspirations.service import NoStyleDirectory
-from iclip.domains.products.catalog_pg import PgProductCatalog
-from iclip.domains.products.module import build_products_module
+from iclip.domains.products.catalog_pg import PgStyleDirectory
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
 from iclip.harness.agents import (
@@ -397,21 +396,14 @@ def build_app(
     # 图片信息查询、素材下载与拆解请求共用 HTTP 连接池。
     http_client = httpx.AsyncClient(follow_redirects=True)
     catalog_engine = _product_catalog_engine(settings.product_catalog, product_catalog_engine)
-    products = (
-        build_products_module(
-            PgProductCatalog(catalog_engine, image_base_url=settings.product_catalog.image_base_url)
-        )
-        if settings.product_catalog is not None and catalog_engine is not None
-        else None
-    )
     owns_catalog_engine = catalog_engine is not None and product_catalog_engine is None
-    # 爆款视频读自家快照表，无条件提供。降级要按品类与品牌圈选同类款，需要产品资料
-    # 目录；缺它时降级整级失效，此处显式告警，不让调用方把「能力没开」误当成「查不到」。
-    if products is None:
+    # 爆款视频读自家快照表，无条件提供。降级要按品类与品牌圈选同类款，需要 PDM 款目录；
+    # 缺它时降级整级失效，此处显式告警，不让调用方把「能力没开」误当成「查不到」。
+    if catalog_engine is None:
         _logger.warning("未配置产品资料库，爆款视频降级不可用，未命中的款一律返回 none")
     inspirations = build_inspirations_module(
         PgInspirationVideos(active_engine),
-        products.catalog if products is not None else NoStyleDirectory(),
+        PgStyleDirectory(catalog_engine) if catalog_engine is not None else NoStyleDirectory(),
     )
     workspace_store = PgFileStore(active_engine)
     # 工作区写入通知依赖连接注册表。
@@ -621,8 +613,6 @@ def build_app(
         app.include_router(router)
     for router in assets.routers if assets is not None else ():
         app.include_router(router)
-    for router in products.routers if products is not None else ():
-        app.include_router(router)
     for router in inspirations.routers:
         app.include_router(router)
     for router in conversations.routers:
@@ -656,7 +646,6 @@ def build_app(
     app.state.agents = agent_registry
     app.state.conversations = conversations
     app.state.generation = generation
-    app.state.products = products
     app.state.inspirations = inspirations
     app.state.collections = collections
     app.state.tasks = tasks

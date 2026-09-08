@@ -33,7 +33,6 @@ MANIFEST = (
     "VIDEO_UNDERSTANDING_URL",
     "VIDEO_UNDERSTANDING_API_KEY",
     "PRODUCT_CATALOG_DATABASE_URL",
-    "PRODUCT_IMAGE_BASE_URL",
     "T_QWEN_KEY",
 )
 
@@ -446,7 +445,6 @@ def test_shot_video_section_absent_means_off(
 
 PRODUCT_CATALOG_ENV = {
     "PRODUCT_CATALOG_DATABASE_URL": "postgresql+asyncpg://reader@catalog.test/catalog",
-    "PRODUCT_IMAGE_BASE_URL": "https://bucket.test",
 }
 
 
@@ -466,7 +464,7 @@ def test_product_catalog_off_when_database_url_empty(
     assert resolve_settings(config).product_catalog is None
 
 
-def test_product_catalog_resolves_both_values(
+def test_product_catalog_resolves_connection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = load_runtime_config(write(tmp_path, VALID))
@@ -474,15 +472,4 @@ def test_product_catalog_resolves_both_values(
     catalog = resolve_settings(config).product_catalog
 
     assert catalog is not None
-    assert catalog.image_base_url == "https://bucket.test"
-
-
-def test_product_catalog_half_configured_fails_loudly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-
-    config = load_runtime_config(write(tmp_path, VALID))
-    _product_catalog_env(monkeypatch)
-    monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL")
-    with pytest.raises(ValidationError, match="PRODUCT_IMAGE_BASE_URL"):
-        resolve_settings(config)
+    assert catalog.database_url.endswith("/catalog")

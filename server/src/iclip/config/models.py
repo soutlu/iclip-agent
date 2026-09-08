@@ -46,7 +46,7 @@ VIDEO_UNDERSTANDING_URL_ENV: Final = "VIDEO_UNDERSTANDING_URL"
 """镜头素材能力的总开关：这个地址为空即整项关闭（`shot_video` 不登记）。"""
 
 PRODUCT_CATALOG_DATABASE_URL_ENV: Final = "PRODUCT_CATALOG_DATABASE_URL"
-"""产品资料查询的总开关：这个连接串为空即整项关闭（`/products` 不挂载）。"""
+"""PDM 款目录的总开关：这个连接串为空即爆款视频的降级不可用。"""
 
 
 class ConfigSection(BaseModel):
@@ -131,13 +131,9 @@ class VideoUnderstandingEnv(EnvSettings):
 
 
 class ProductCatalogEnv(EnvSettings):
-    """产品资料目录：外部只读库的连接串 + 产品图所在公开桶的前缀。
-
-    两个一起有才有意义：查得到款却给不出图片地址，是那种「点进去才发现」的半开着。
-    """
+    """PDM 款目录：外部只读库的连接串。供爆款视频按品类与品牌圈选同类款。"""
 
     database_url: RequiredEnv = Field(validation_alias=PRODUCT_CATALOG_DATABASE_URL_ENV)
-    image_base_url: RequiredEnv = Field(validation_alias="PRODUCT_IMAGE_BASE_URL")
 
 
 # YAML 声明
@@ -460,10 +456,9 @@ class ResolvedShotVideo:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedProductCatalog:
-    """产品资料目录的运行值：外部只读库 + 产品图公开桶前缀。"""
+    """PDM 款目录的运行值：外部只读库连接。"""
 
     database_url: str
-    image_base_url: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -611,7 +606,7 @@ def _resolve_product_catalog() -> ResolvedProductCatalog | None:
     if not _switched_on(PRODUCT_CATALOG_DATABASE_URL_ENV):
         return None
     env = _from_env(ProductCatalogEnv)
-    return ResolvedProductCatalog(database_url=env.database_url, image_base_url=env.image_base_url)
+    return ResolvedProductCatalog(database_url=env.database_url)
 
 
 def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
