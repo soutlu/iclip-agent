@@ -2008,39 +2008,76 @@
         "title": "MetaMergeOp",
         "type": "object"
       },
-      "MetricsOut": {
+      "MetricFiltersIn": {
         "additionalProperties": false,
+        "description": "表现下限，全部可选；省略的维度不设限。\n\n门槛只筛最终结果：把结果筛空不会让这个款被判为「没有视频」，也就不会因此降级。",
         "properties": {
-          "clicks": {
-            "title": "Clicks",
-            "type": "integer"
+          "minClicks": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minclicks"
           },
-          "impressions": {
-            "title": "Impressions",
-            "type": "integer"
+          "minImpressions": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimpressions"
           },
-          "orders": {
-            "title": "Orders",
-            "type": "integer"
+          "minOrders": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minorders"
           },
-          "revenue": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Revenue",
-            "type": "string"
+          "minRevenue": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minrevenue"
           },
-          "views": {
-            "title": "Views",
-            "type": "integer"
+          "minViews": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minviews"
           }
         },
-        "required": [
-          "impressions",
-          "views",
-          "clicks",
-          "orders",
-          "revenue"
-        ],
-        "title": "MetricsOut",
+        "title": "MetricFiltersIn",
         "type": "object"
       },
       "NoticeFrame": {
@@ -2193,31 +2230,6 @@
           "complete"
         ],
         "title": "OpsCatchup",
-        "type": "object"
-      },
-      "PopularOut": {
-        "additionalProperties": false,
-        "description": "三种爆款标记彼此独立，可以同时成立。",
-        "properties": {
-          "brand": {
-            "title": "Brand",
-            "type": "boolean"
-          },
-          "kol": {
-            "title": "Kol",
-            "type": "boolean"
-          },
-          "tt": {
-            "title": "Tt",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "brand",
-          "kol",
-          "tt"
-        ],
-        "title": "PopularOut",
         "type": "object"
       },
       "ProductEnvelope": {
@@ -2833,6 +2845,32 @@
           "inputCacheCreation"
         ],
         "title": "StepUsage",
+        "type": "object"
+      },
+      "StyleMatchOut": {
+        "additionalProperties": false,
+        "description": "一个入参款落在哪一级。除 ``exact`` 外，属于这个款的结果都是替身。",
+        "properties": {
+          "matchLevel": {
+            "enum": [
+              "exact",
+              "sameBrandCategory",
+              "sameCategory",
+              "none"
+            ],
+            "title": "Matchlevel",
+            "type": "string"
+          },
+          "styleNo": {
+            "title": "Styleno",
+            "type": "string"
+          }
+        },
+        "required": [
+          "styleNo",
+          "matchLevel"
+        ],
+        "title": "StyleMatchOut",
         "type": "object"
       },
       "TaskCreateIn": {
@@ -5038,109 +5076,14 @@
         "title": "VideoGenerationIn",
         "type": "object"
       },
-      "VideoOut": {
-        "additionalProperties": false,
-        "properties": {
-          "category": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Category"
-          },
-          "combatTeam": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Combatteam"
-          },
-          "creatorHandle": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Creatorhandle"
-          },
-          "metrics": {
-            "$ref": "#/components/schemas/MetricsOut"
-          },
-          "ossUrl": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ossurl"
-          },
-          "popular": {
-            "$ref": "#/components/schemas/PopularOut"
-          },
-          "postedDate": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Posteddate"
-          },
-          "styleWms": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Stylewms"
-          },
-          "videoId": {
-            "title": "Videoid",
-            "type": "string"
-          },
-          "videoUrl": {
-            "title": "Videourl",
-            "type": "string"
-          }
-        },
-        "required": [
-          "videoId",
-          "styleWms",
-          "videoUrl",
-          "ossUrl",
-          "creatorHandle",
-          "postedDate",
-          "combatTeam",
-          "category",
-          "metrics",
-          "popular"
-        ],
-        "title": "VideoOut",
-        "type": "object"
-      },
       "VideoSearchIn": {
         "additionalProperties": false,
-        "description": "按款搜爆款视频。\n\n``style_wms_list`` 收的是 **WMS 编号**，不是 PDM 款号——名字里带着 ``wms`` 就是\n为了让传错的人在字段名上先愣一下：传成 PDM 款号会安静地搜不到任何东西。产品\n资料接口响应里的 ``styleWms`` 就是拿来喂这里的。",
+        "description": "按款搜爆款视频。\n\n``style_nos`` 收的是 **PDM 款号**，与产品资料接口的查询键同源；WMS 编号只在数据\n入库时用于对齐数仓，调用方不接触。",
         "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/MetricFiltersIn",
+            "default": {}
+          },
           "limit": {
             "default": 50,
             "maximum": 100.0,
@@ -5160,7 +5103,7 @@
             "title": "Sortby",
             "type": "string"
           },
-          "styleWmsList": {
+          "styleNos": {
             "items": {
               "maxLength": 64,
               "minLength": 1,
@@ -5168,29 +5111,38 @@
             },
             "maxItems": 20,
             "minItems": 1,
-            "title": "Stylewmslist",
+            "title": "Stylenos",
             "type": "array"
           }
         },
         "required": [
-          "styleWmsList"
+          "styleNos"
         ],
         "title": "VideoSearchIn",
         "type": "object"
       },
       "VideoSearchOut": {
         "additionalProperties": false,
+        "description": "可下载地址按所选维度降序；``matches`` 逐款说明结果的来源层级。",
         "properties": {
-          "items": {
+          "matches": {
             "items": {
-              "$ref": "#/components/schemas/VideoOut"
+              "$ref": "#/components/schemas/StyleMatchOut"
             },
-            "title": "Items",
+            "title": "Matches",
+            "type": "array"
+          },
+          "videoUrls": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Videourls",
             "type": "array"
           }
         },
         "required": [
-          "items"
+          "videoUrls",
+          "matches"
         ],
         "title": "VideoSearchOut",
         "type": "object"

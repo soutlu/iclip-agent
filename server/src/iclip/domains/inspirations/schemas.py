@@ -8,7 +8,12 @@ from typing import Annotated, Final
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from iclip.domains.inspirations.models import InspirationVideo, SortKey
+from iclip.domains.inspirations.models import (
+    MatchLevel,
+    MetricFilters,
+    SortKey,
+    VideoSearchResult,
+)
 
 MAX_STYLES_PER_SEARCH: Final = 20
 """一次最多问几个款。上限不是性能考虑——是让「把整个款库倒进来」这件事做不出来。"""
@@ -24,75 +29,70 @@ class CamelModel(BaseModel):
     )
 
 
+class MetricFiltersIn(CamelModel):
+    """表现下限，全部可选；省略的维度不设限。
+
+    门槛只筛最终结果：把结果筛空不会让这个款被判为「没有视频」，也就不会因此降级。
+    """
+
+    min_impressions: Annotated[int | None, Field(ge=0)] = None
+    min_views: Annotated[int | None, Field(ge=0)] = None
+    min_clicks: Annotated[int | None, Field(ge=0)] = None
+    min_orders: Annotated[int | None, Field(ge=0)] = None
+    min_revenue: Annotated[Decimal | None, Field(ge=0)] = None
+
+
 class VideoSearchIn(CamelModel):
     """按款搜爆款视频。
 
-    ``style_wms_list`` 收的是 **WMS 编号**，不是 PDM 款号——名字里带着 ``wms`` 就是
-    为了让传错的人在字段名上先愣一下：传成 PDM 款号会安静地搜不到任何东西。产品
-    资料接口响应里的 ``styleWms`` 就是拿来喂这里的。
+    ``style_nos`` 收的是 **PDM 款号**，与产品资料接口的查询键同源；WMS 编号只在数据
+    入库时用于对齐数仓，调用方不接触。
     """
 
-    style_wms_list: Annotated[
+    style_nos: Annotated[
         list[Annotated[str, Field(min_length=1, max_length=MAX_STYLE_CHARS)]],
         Field(min_length=1, max_length=MAX_STYLES_PER_SEARCH),
     ]
+    filters: MetricFiltersIn = MetricFiltersIn()
     sort_by: SortKey = "orders"
     limit: Annotated[int, Field(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT
 
 
-class MetricsOut(CamelModel):
-    impressions: int
-    views: int
-    clicks: int
-    orders: int
-    revenue: Decimal
+class StyleMatchOut(CamelModel):
+    """一个入参款落在哪一级。除 ``exact`` 外，属于这个款的结果都是替身。"""
 
-
-class PopularOut(CamelModel):
-    """三种爆款标记彼此独立，可以同时成立。"""
-
-    brand: bool
-    kol: bool
-    tt: bool
-
-
-class VideoOut(CamelModel):
-    video_id: str
-    style_wms: str | None
-    video_url: str
-    oss_url: str | None
-    creator_handle: str | None
-    posted_date: str | None
-    combat_team: str | None
-    category: str | None
-    metrics: MetricsOut
-    popular: PopularOut
+    style_no: str
+    match_level: MatchLevel
 
 
 class VideoSearchOut(CamelModel):
-    items: list[VideoOut]
+    """可下载地址按所选维度降序；``matches`` 逐款说明结果的来源层级。"""
+
+    video_urls: list[str]
+    matches: list[StyleMatchOut]
 
 
-def video_out(video: InspirationVideo) -> VideoOut:
+def filters_of(body: MetricFiltersIn) -> MetricFilters:
+    """wire 形状 → 领域形状。"""
+
+    return MetricFilters(
+        min_impressions=body.min_impressions,
+        min_views=body.min_views,
+        min_clicks=body.min_clicks,
+        min_orders=body.min_orders,
+        min_revenue=body.min_revenue,
+    )
+
+
+def search_out(result: VideoSearchResult) -> VideoSearchOut:
     """领域形状 → wire 形状。"""
 
-    return VideoOut(
-        video_id=video.video_id,
-        style_wms=video.style_wms,
-        video_url=video.video_url,
-        oss_url=video.oss_url,
-        creator_handle=video.creator_handle,
-        posted_date=video.posted_date,
-        combat_team=video.combat_team,
-        category=video.category,
-        metrics=MetricsOut(
-            impressions=video.metrics.impressions,
-            views=video.metrics.views,
-            clicks=video.metrics.clicks,
-            orders=video.metrics.orders,
-            revenue=video.metrics.revenue,
-        ),
-        popular=PopularOut(brand=video.popular.brand, kol=video.popular.kol, tt=video.popular.tt),
+    return VideoSearchOut(
+        video_urls=list(result.oss_urls),
+        matches=[
+            StyleMatchOut(style_no=match.style_no, match_level=match.match_level)
+            for match in result.matches
+        ],
     )
 
 
@@ -101,10 +101,10 @@ __all__ = [
     "MAX_LIMIT",
     "MAX_STYLES_PER_SEARCH",
     "MAX_STYLE_CHARS",
-    "MetricsOut",
-    "PopularOut",
-    "VideoOut",
+    "MetricFiltersIn",
+    "StyleMatchOut",
     "VideoSearchIn",
     "VideoSearchOut",
-    "video_out",
+    "filters_of",
+    "search_out",
 ]

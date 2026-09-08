@@ -9,6 +9,7 @@ from typing import Literal
 
 import httpx
 import procrastinate
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -28,7 +29,6 @@ from iclip.common.errors import DomainError
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
-    ResolvedInspirations,
     ResolvedMediaGeneration,
     ResolvedModel,
     ResolvedProductCatalog,
@@ -65,8 +65,9 @@ from iclip.domains.identity.middleware import PrincipalMiddleware
 from iclip.domains.identity.module import SsoRuntime, build_identity_module
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
-from iclip.domains.inspirations.catalog_pg import PgInspirationCatalog
+from iclip.domains.inspirations.infra_sql import PgInspirationVideos
 from iclip.domains.inspirations.module import build_inspirations_module
+from iclip.domains.inspirations.service import NoStyleDirectory
 from iclip.domains.products.catalog_pg import PgProductCatalog
 from iclip.domains.products.module import build_products_module
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
@@ -106,6 +107,8 @@ from iclip.platform.object_store.oss import (
     PublicObjectStore,
     validate_public_url_base,
 )
+
+_logger = structlog.stdlib.get_logger(__name__)
 
 
 def _capabilities(
@@ -299,15 +302,6 @@ def _read_only_engine(database_url: str) -> AsyncEngine:
     )
 
 
-def _inspirations_engine(
-    settings: ResolvedInspirations | None, injected: AsyncEngine | None
-) -> AsyncEngine | None:
-
-    if settings is None:
-        return None
-    return injected if injected is not None else _read_only_engine(settings.database_url)
-
-
 def _generation_module(
     settings: ResolvedMediaGeneration,
     engine: AsyncEngine,
@@ -361,7 +355,6 @@ def build_app(
     object_store: PublicBucket | None = None,
     queue_connector: procrastinate.BaseConnector | None = None,
     product_catalog_engine: AsyncEngine | None = None,
-    inspirations_engine: AsyncEngine | None = None,
 ) -> FastAPI:
     """装配 FastAPI 应用与资源生命周期，支持注入基础设施替身。"""
 
@@ -412,13 +405,14 @@ def build_app(
         else None
     )
     owns_catalog_engine = catalog_engine is not None and product_catalog_engine is None
-    inspiration_engine = _inspirations_engine(settings.inspirations, inspirations_engine)
-    inspirations = (
-        build_inspirations_module(PgInspirationCatalog(inspiration_engine))
-        if inspiration_engine is not None
-        else None
+    # 爆款视频读自家快照表，无条件提供。降级要按品类与品牌圈选同类款，需要产品资料
+    # 目录；缺它时降级整级失效，此处显式告警，不让调用方把「能力没开」误当成「查不到」。
+    if products is None:
+        _logger.warning("未配置产品资料库，爆款视频降级不可用，未命中的款一律返回 none")
+    inspirations = build_inspirations_module(
+        PgInspirationVideos(active_engine),
+        products.catalog if products is not None else NoStyleDirectory(),
     )
-    owns_inspiration_engine = inspiration_engine is not None and inspirations_engine is None
     workspace_store = PgFileStore(active_engine)
     # 工作区写入通知依赖连接注册表。
     live_connections = LiveConnections()
@@ -605,8 +599,6 @@ def build_app(
             await http_client.aclose()
             if owns_catalog_engine and catalog_engine is not None:
                 await catalog_engine.dispose()
-            if owns_inspiration_engine and inspiration_engine is not None:
-                await inspiration_engine.dispose()
             if owns_engine:
                 await active_engine.dispose()
 
@@ -631,7 +623,7 @@ def build_app(
         app.include_router(router)
     for router in products.routers if products is not None else ():
         app.include_router(router)
-    for router in inspirations.routers if inspirations is not None else ():
+    for router in inspirations.routers:
         app.include_router(router)
     for router in conversations.routers:
         app.include_router(router)

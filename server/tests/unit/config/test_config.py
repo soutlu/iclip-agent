@@ -34,7 +34,6 @@ MANIFEST = (
     "VIDEO_UNDERSTANDING_API_KEY",
     "PRODUCT_CATALOG_DATABASE_URL",
     "PRODUCT_IMAGE_BASE_URL",
-    "INSPIRATION_DATABASE_URL",
     "T_QWEN_KEY",
 )
 
@@ -487,24 +486,3 @@ def test_product_catalog_half_configured_fails_loudly(
     monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL")
     with pytest.raises(ValidationError, match="PRODUCT_IMAGE_BASE_URL"):
         resolve_settings(config)
-
-
-def test_inspirations_off_when_database_url_empty(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config = load_runtime_config(write(tmp_path, VALID))
-    _core(monkeypatch)
-
-    assert resolve_settings(config).inspirations is None
-
-
-def test_inspirations_resolves_connection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """爆款视频地址由数据库完整提供，无需额外地址前缀。"""
-
-    config = load_runtime_config(write(tmp_path, VALID))
-    _core(monkeypatch)
-    monkeypatch.setenv("INSPIRATION_DATABASE_URL", "postgresql+asyncpg://reader@vl.test/vl")
-    inspirations = resolve_settings(config).inspirations
-
-    assert inspirations is not None
-    assert inspirations.database_url.endswith("/vl")

@@ -38,7 +38,6 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "harness/jobs.py",
         # 外部只读表使用独立适配器；infra_sql.py 仅表示模块自有表。
         "domains/products/catalog_pg.py",
-        "domains/inspirations/catalog_pg.py",
     ),
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
     ("openai",): ("harness/models.py",),

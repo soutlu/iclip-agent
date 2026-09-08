@@ -1,6 +1,6 @@
-"""按 WMS 编号只读查询爆款视频，使用 assets:read 权限。
+"""按 PDM 款号只读查询爆款视频，使用 assets:read 权限。
 
-POST 请求体承载批量款号与排序维度；爆款库未配置时不挂载路由。"""
+数据是随迁移灌入的快照，路由无条件挂载；没有可用参考时返回空列表，不是 404。"""
 
 from __future__ import annotations
 
@@ -9,11 +9,16 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from iclip.domains.identity.public import Principal, require_permission
-from iclip.domains.inspirations.catalog_pg import PgInspirationCatalog
-from iclip.domains.inspirations.schemas import VideoSearchIn, VideoSearchOut, video_out
+from iclip.domains.inspirations.schemas import (
+    VideoSearchIn,
+    VideoSearchOut,
+    filters_of,
+    search_out,
+)
+from iclip.domains.inspirations.service import InspirationService
 
 
-def create_inspirations_router(catalog: PgInspirationCatalog) -> APIRouter:
+def create_inspirations_router(service: InspirationService) -> APIRouter:
     router = APIRouter(prefix="/inspirations", tags=["inspirations"])
 
     @router.post("/videos/search", response_model=VideoSearchOut)
@@ -21,8 +26,13 @@ def create_inspirations_router(catalog: PgInspirationCatalog) -> APIRouter:
         body: VideoSearchIn,
         _principal: Annotated[Principal, Depends(require_permission("assets:read"))],
     ) -> VideoSearchOut:
-        found = await catalog.search(body.style_wms_list, sort_by=body.sort_by, limit=body.limit)
-        return VideoSearchOut(items=[video_out(video) for video in found])
+        result = await service.search_videos(
+            body.style_nos,
+            filters=filters_of(body.filters),
+            sort_by=body.sort_by,
+            limit=body.limit,
+        )
+        return search_out(result)
 
     return router
 

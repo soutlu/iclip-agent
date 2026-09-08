@@ -13,6 +13,7 @@ from iclip.domains.collections.infra_sql import metadata_obj as collections_meta
 from iclip.domains.conversations.infra_sql import metadata_obj as conversations_metadata
 from iclip.domains.generation.infra_sql import metadata_obj as generation_metadata
 from iclip.domains.identity.infra_sql import DB_SCHEMA, Base
+from iclip.domains.inspirations.infra_sql import metadata_obj as inspirations_metadata
 from iclip.domains.tasks.infra_sql import metadata_obj as tasks_metadata
 
 _MODULE_METADATA: tuple[MetaData, ...] = (
@@ -22,6 +23,7 @@ _MODULE_METADATA: tuple[MetaData, ...] = (
     generation_metadata,
     collections_metadata,
     tasks_metadata,
+    inspirations_metadata,
 )
 
 

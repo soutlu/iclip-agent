@@ -7,17 +7,28 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.common.errors import NotFound
-from iclip.domains.products.models import Color, Product, ProductImage
+from iclip.domains.products.models import Color, Product, ProductImage, StyleGrouping
 from iclip.domains.products.tables import brand_for, category_for, color_group_for
 
 PRODUCT_IMAGE_FILE_TYPE: Final = 17
 """上游产品图类型码，排除模具图和材料图等工艺资料。"""
+
+_BRAND_CODE: Final = "replace(attributes::text, '\\u0000', '')::json ->> 'brand'"
+"""上游有款把 ``\\u0000`` 写进了 attributes；json 存得下，取成 text 却会整条查询报错，
+所以取值前先剔除。"""
+
+_RESOLVE_GROUPING: Final = text(f"""
+SELECT product_number, product_category_id, {_BRAND_CODE} AS brand_code
+FROM pdm_styles
+WHERE product_number = ANY(:style_nos) AND is_active AND NOT is_source_deleted
+""")
 
 _FIND_PRODUCT: Final = text(f"""
 WITH style AS (
@@ -120,6 +131,27 @@ class PgProductCatalog:
                 for item in _rows(row["images"])
             ),
         )
+
+    async def resolve(self, style_nos: Sequence[str]) -> Mapping[str, StyleGrouping]:
+        """批量取这些款的品类与品牌；查不到、或品类品牌缺失的款不出现在结果里。"""
+
+        if not style_nos:
+            return {}
+        async with self._engine.connect() as conn:
+            rows = (
+                (await conn.execute(_RESOLVE_GROUPING, {"style_nos": list(style_nos)}))
+                .mappings()
+                .all()
+            )
+        found: dict[str, StyleGrouping] = {}
+        for row in rows:
+            brand_code = _blank_to_none(row["brand_code"])
+            if row["product_category_id"] is None or brand_code is None:
+                continue
+            found[row["product_number"]] = StyleGrouping(
+                category_id=row["product_category_id"], brand_code=brand_code
+            )
+        return found
 
 
 __all__ = ["PRODUCT_IMAGE_FILE_TYPE", "PgProductCatalog"]
