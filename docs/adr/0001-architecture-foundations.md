@@ -12,7 +12,7 @@
 
 ### 2. Agent 配置化
 
-Agent 由**声明式配置**定义：官方 spec、模型引用、prompt 资产、能力与子代理声明在启动期装配并冻结，运行期按目标 ID 读取。配置入口与覆盖规则见 [architecture.md](../architecture.md#2-配置与装配)。
+Agent 由**声明式配置**定义：官方 spec、模型引用、prompt 资产、能力与子代理声明在启动期装配成不可变的一层，运行期按目标 ID 读取；这一层可以整体替换，边界与触发方式见 [ADR-0019](0019-hot-reload-agent-layer.md)。配置入口与覆盖规则见 [architecture.md](../architecture.md#2-配置与装配)。
 
 发起 Agent 运行时，客户端只能引用已声明的目标 ID，不能覆盖其 provider、model 或系统指令。媒体生成请求的模型与渠道是另一份业务合同。
 

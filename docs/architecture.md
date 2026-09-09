@@ -34,8 +34,9 @@
 | [agents/agents.yaml](../server/agents/agents.yaml) | Agent ID、spec、模型引用、skill、capability 与子代理声明 |
 | [config/agents.py](../server/src/iclip/config/agents.py) | 声明与资产路径解析 |
 | [app/bootstrap.py](../server/src/iclip/app/bootstrap.py) | 资源创建、模块装配、路由挂载与生命周期 |
+| [app/agent_layer.py](../server/src/iclip/app/agent_layer.py) | 模型表与 agent 注册表的装配、热重载与拒绝规则 |
 
-运行配置与 Agent 声明在启动期加载、校验并装配。配置文件路径分别由 `CONFIG_FILE`、`AGENTS_FILE` 指定；CLI 的 `--config`、`--agents` 设置这两个入口。依赖服务的连接信息与凭证由环境变量提供；模型凭证由 `models.*.api_key_env` 指向环境变量。可选功能的启用条件与缺失依赖处理集中在 `resolve_settings()`，不在业务模块中重新读取配置。
+运行配置与 Agent 声明在启动期加载、校验并装配。配置文件路径分别由 `CONFIG_FILE`、`AGENTS_FILE` 指定；CLI 的 `--config`、`--agents` 设置这两个入口。`models` 段、`conversations.title_model` 与 `agents/` 目录构成可热换的一层（[app/agent_layer.py](../server/src/iclip/app/agent_layer.py)）：进程收到 `SIGHUP` 即重读、完整装配、整体替换，结果报告在 `/healthz` 的 `config` 段；其余配置段与环境变量改了要重启，规则见 [ADR-0019](adr/0019-hot-reload-agent-layer.md)。依赖服务的连接信息与凭证由环境变量提供；模型凭证由 `models.*.api_key_env` 指向环境变量。可选功能的启用条件与缺失依赖处理集中在 `resolve_settings()`，不在业务模块中重新读取配置。
 
 Agent 声明文件必须存在；不启用 Agent 时写 `agent: {}`。`spec` 必须指向现存文件，文件内容可以为空；同目录的 `instructions.md` 自动加载。主 Agent ID 来自声明键，子 Agent 名称来自 spec 所在目录名；声明的名称、模型覆盖 spec 对应字段，关闭磁盘自动扫描。
 

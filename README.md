@@ -85,7 +85,7 @@ curl http://localhost/api/healthz
 
 ### 配置发布
 
-模型、agent、skill 与其参考资料（`server/configs/`、`server/agents/`）不随镜像发版。合入 `main` 后 [deploy-config](.github/workflows/deploy-config.yml) 工作流经 SSH 把这两个目录同步到服务器部署目录的 `incoming/`，再执行 `apply-config.sh`：先用线上镜像做一次完整装配校验，通过才替换 `configs/`、`agents/` 并重启后端；校验不过线上目录不动，工作流标红。工作流需要仓库 secret `DEPLOY_SSH_KEY`（专用部署私钥，公钥加进服务器账号的 `authorized_keys`）与变量 `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_DIR`、`DEPLOY_HOST_KEY`（`ssh-keyscan -t ed25519 <主机>` 的输出）。
+模型、agent、skill 与其参考资料（`server/configs/`、`server/agents/`）不随镜像发版，改完也不用重启后端（[ADR-0019](docs/adr/0019-hot-reload-agent-layer.md)）。新模型若用新的环境变量放 API key，要先在服务器 `.env` 加上并 `docker compose up -d`（`restart` 不重读 `.env`），再推配置。合入 `main` 后 [deploy-config](.github/workflows/deploy-config.yml) 工作流经 SSH 把这两个目录同步到服务器部署目录的 `incoming/`，再执行 `apply-config.sh`：先用线上镜像做一次完整装配校验，通过才替换 `configs/`、`agents/`，然后给后端发 `SIGHUP` 热重载，正在跑的运行不受影响；改动落在模型与 agent 之外的配置段时脚本改走重启。校验不过线上目录不动，工作流标红。工作流需要仓库 secret `DEPLOY_SSH_KEY`（专用部署私钥，公钥加进服务器账号的 `authorized_keys`）与变量 `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_DIR`、`DEPLOY_HOST_KEY`（`ssh-keyscan -t ed25519 <主机>` 的输出）。
 
 配置与代码同一次合入 `main` 时，工作流会拿旧镜像校验新配置，配置依赖新代码就会标红；先按上面的步骤发版，再手动触发一次工作流即可。手工发布等价于把两个目录 `rsync` 到 `incoming/` 后在部署目录执行 `./apply-config.sh`。
 

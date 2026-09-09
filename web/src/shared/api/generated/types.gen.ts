@@ -4285,7 +4285,7 @@ export type HealthzHealthzGetResponses = {
    * Successful Response
    */
   200: {
-    [key: string]: string
+    [key: string]: unknown
   }
 }
 
