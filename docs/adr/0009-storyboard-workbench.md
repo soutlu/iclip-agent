@@ -45,10 +45,10 @@ WorkBuddy 桌面端（本机 5.3.14 的构建产物）的右侧 DetailPanel 作�
 
 ### 4. 生成任务归属到对话，视频结果转存
 
-- `generation_jobs` 加两列，都可空、不建外键：`conversation_id`、`shot_index`；索引 `(conversation_id, created_at)`。`GET /generations` 加 `conversationId` 过滤。
-- 面板发起的生成两列都填；工具发起的生成填 `conversation_id`（`deps` 里有），`shot_index` 留空。
+- `generation_jobs` 加两列，都可空、不建外键：`conversation_id`、`shot_index`；索引 `(conversation_id, created_at)`。`GET /generations` 加 `conversationId` 过滤。2026-09-09 修订：再加需求单归属 `task_id` 与对应索引、过滤，见 [ADR-0018](0018-video-generation-mirrors-upstream.md)。
+- 面板发起的生成三列都填；工具发起的生成填 `conversation_id`（`deps` 里有），`shot_index` 留空。
 - 同一组多次生成就是多条任务行，不持久化「当前用哪条」。面板默认显示该组最新一条完成的视频。
-- 视频结果与图片一样转存进本系统的桶后才算完成，`output_url` 存本系统地址。
+- 视频结果原先与图片一样转存进本系统的桶，2026-09-09 起改为直接存上游发布好的地址，见 [ADR-0018](0018-video-generation-mirrors-upstream.md)。
 - 面板发起的生成不设幂等键（[ADR-0004](0004-generation-queue-in-postgres.md) 与不变量 10 未变）。2026-09-07 修订：单组生成仅在提交请求未返回时禁用按钮、防止重复点击；任务受理后可继续调整模型并生成新版本。此前整个生成期间禁用按钮的规则不再适用，后台任务状态由「生成记录」入口显示当前组的进行中视频任务数。批量生成仍跳过已有运行任务的组。
 
 ### 5. 用户上传的帧走素材路径

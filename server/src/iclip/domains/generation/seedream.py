@@ -17,6 +17,7 @@ from iclip.domains.generation.image_upstream import (
     read_output_url,
     store_result,
     task_url,
+    user_name_of,
 )
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.provider import (
@@ -83,9 +84,6 @@ class SeedreamSettings:
 
     api_base: str
     """这家在网关上的地址，两条任务路由拼在它后面。"""
-
-    user_name: str
-    """Provider 要求的稳定调用方标识，用于对账。"""
 
     env: str
     """网关要求的调用环境。它按 task_source 与这一项一起判这次调用合不合法。"""
@@ -158,7 +156,7 @@ class SeedreamImageProvider:
         references = list(request.reference_image_urls)
         payload: dict[str, Any] = {
             "data_id": str(job.id),
-            "user_name": self._settings.user_name,
+            "user_name": user_name_of(request),
             "prompt": request.prompt,
             "task_source": TASK_SOURCE,
             "env": self._settings.env,

@@ -73,10 +73,10 @@ def build_generation_module(
     repo: GenerationRepository,
     *,
     video: VideoProviderSettings,
+    video_default_model: str,
     video_allowed_models: tuple[str, ...],
     image_models: Sequence[ImageModelConfig],
     image_default_model: str,
-    image_user_name: str,
     image_env: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector,
@@ -84,7 +84,10 @@ def build_generation_module(
     video_transport: httpx.AsyncBaseTransport | None = None,
     image_transport: httpx.AsyncBaseTransport | None = None,
 ) -> GenerationModule:
-    """装配 Provider 与队列；transport 支持测试替身，queue_connector 由组合根选择数据库驱动。"""
+    """装配 Provider 与队列；transport 支持测试替身，queue_connector 由组合根选择数据库驱动。
+
+    对象存储只给图片用：图片网关给的是会过期的签名地址，要转存；视频上游给的是它自己
+    发布好的稳定地址，直接存。"""
 
     if not image_models:
         raise RuntimeError("媒体生成开着却一家图片模型都没声明")
@@ -94,15 +97,9 @@ def build_generation_module(
             f"默认图片模型 {image_default_model} 不在声明的那几家里（{'、'.join(declared)}）"
         )
     settings = queue_settings or GenerationQueueSettings()
-    video_provider = HttpVideoProvider(video, object_store=object_store, transport=video_transport)
+    video_provider = HttpVideoProvider(video, transport=video_transport)
     image_providers = [
-        _image_provider(
-            model,
-            user_name=image_user_name,
-            env=image_env,
-            object_store=object_store,
-            transport=image_transport,
-        )
+        _image_provider(model, env=image_env, object_store=object_store, transport=image_transport)
         for model in image_models
     ]
     queue = GenerationQueue(
@@ -121,10 +118,10 @@ def build_generation_module(
         repo,
         queue,
         video_provider_name=video_provider.name,
+        video_default_model=video_default_model,
+        video_allowed_models=video_allowed_models,
         image_models={name: IMAGE_MODEL_SPECS[name] for name in declared},
         image_default_model=image_default_model,
-        video_model=video.model,
-        video_allowed_models=video_allowed_models,
     )
     return GenerationModule(
         routers=(create_generations_router(service),),
@@ -144,7 +141,6 @@ IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {
 def _image_provider(
     model: ImageModelConfig,
     *,
-    user_name: str,
     env: str,
     object_store: PublicObjectStore,
     transport: httpx.AsyncBaseTransport | None,
@@ -153,13 +149,13 @@ def _image_provider(
 
     if model.name == NANO_BANANA_PRO:
         return NanoBananaImageProvider(
-            NanoBananaSettings(api_base=model.api_base, user_name=user_name, env=env),
+            NanoBananaSettings(api_base=model.api_base, env=env),
             object_store=object_store,
             transport=transport,
         )
     if model.name == SEEDREAM_V5_PRO:
         return SeedreamImageProvider(
-            SeedreamSettings(api_base=model.api_base, user_name=user_name, env=env),
+            SeedreamSettings(api_base=model.api_base, env=env),
             object_store=object_store,
             transport=transport,
         )

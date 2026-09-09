@@ -55,6 +55,8 @@ generation_jobs_table = Table(
     # 不关联对话外键，删除对话后仍保留生成来源。
     Column("conversation_id", Uuid, nullable=True),
     Column("shot_index", Integer, nullable=True),
+    # 需求单同样不建外键：它是归属标签，删单不抹生成记录。
+    Column("task_id", Uuid, nullable=True),
     Column("kind", Text, nullable=False),
     Column("provider", Text, nullable=False),
     Column("request", JSONB, nullable=False),
@@ -63,6 +65,7 @@ generation_jobs_table = Table(
     Column("provider_status", Text, nullable=True),
     Column("provider_snapshot", JSONB, nullable=True),
     Column("output_url", Text, nullable=True),
+    Column("watermark_output_url", Text, nullable=True),
     Column("error_code", Text, nullable=True),
     Column("error_message", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
@@ -71,6 +74,7 @@ generation_jobs_table = Table(
     Column("finished_at", DateTime(timezone=True), nullable=True),
     Index("ix_generation_jobs_owner_created", "owner_user_id", "created_at"),
     Index("ix_generation_jobs_conversation_created", "conversation_id", "created_at"),
+    Index("ix_generation_jobs_task_created", "task_id", "created_at"),
 )
 
 _JOBS = generation_jobs_table.c
@@ -94,6 +98,7 @@ class SqlGenerationRepository:
                             api_key_id=job.api_key_id,
                             conversation_id=job.conversation_id,
                             shot_index=job.shot_index,
+                            task_id=job.task_id,
                             kind=job.kind,
                             provider=job.provider,
                             request=request_to_payload(job.request),
@@ -102,6 +107,7 @@ class SqlGenerationRepository:
                             provider_status=None,
                             provider_snapshot=None,
                             output_url=None,
+                            watermark_output_url=None,
                             error_code=None,
                             error_message=None,
                             created_at=func.now(),
@@ -138,11 +144,14 @@ class SqlGenerationRepository:
         kind: str | None = None,
         shot_index: int | None = None,
         frame_number: int | None = None,
+        task_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         stmt = scope_to_owner(select(generation_jobs_table), _JOBS.owner_user_id, owner)
         if conversation_id is not None:
             stmt = stmt.where(_JOBS.conversation_id == conversation_id)
+        if task_id is not None:
+            stmt = stmt.where(_JOBS.task_id == task_id)
         if kind is not None:
             stmt = stmt.where(_JOBS.kind == kind)
         if shot_index is not None:
@@ -186,10 +195,12 @@ class SqlGenerationRepository:
         provider_status: str,
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
+        watermark_output_url: str | None = None,
     ) -> GenerationJob:
         values: dict[str, Any] = {
             "status": STATUS_COMPLETED,
             "output_url": output_url,
+            "watermark_output_url": watermark_output_url,
             "provider_status": provider_status,
             "provider_snapshot": provider_snapshot,
             # 同步生成在完成时补写 submitted_at；异步生成保留提交时间。
@@ -288,6 +299,7 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         api_key_id=row["api_key_id"],
         conversation_id=row["conversation_id"],
         shot_index=row["shot_index"],
+        task_id=row["task_id"],
         kind=kind,
         provider=row["provider"],
         request=request_from_payload(kind, row["request"]),
@@ -296,6 +308,7 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         provider_status=row["provider_status"],
         provider_snapshot=row["provider_snapshot"],
         output_url=row["output_url"],
+        watermark_output_url=row["watermark_output_url"],
         error_code=row["error_code"],
         error_message=row["error_message"],
         created_at=row["created_at"],

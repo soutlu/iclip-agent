@@ -241,6 +241,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 aspect_ratio=target_aspect,
                 resolution=GRID_RESOLUTION,
                 channel="dev",
+                user_name=_user_name(ctx),
                 reference_image_urls=references,
                 conversation_id=_conversation_id(ctx),
             ),
@@ -318,6 +319,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 aspect_ratio=ANCHOR_ASPECT,
                 resolution=GRID_RESOLUTION,
                 channel="dev",
+                user_name=_user_name(ctx),
                 conversation_id=_conversation_id(ctx),
             ),
         )
@@ -539,12 +541,22 @@ def _principal(ctx: RunContext[AgentDepsT]) -> Principal:
     错误，所以让它炸，不翻成一句可重试的提示。
     """
 
+    return _deps(ctx).principal
+
+
+def _user_name(ctx: RunContext[AgentDepsT]) -> str:
+    """这次运行替谁跑：随消息进来的归属标签，出图时发给上游落表。不看运行主体是谁。"""
+
+    return _deps(ctx).user_name
+
+
+def _deps(ctx: RunContext[AgentDepsT]) -> AgentRunDeps:
     deps = ctx.deps
     if not isinstance(deps, AgentRunDeps):
         raise RuntimeError(
             f"这次运行的 deps 是 {type(deps).__name__}，不是 AgentRunDeps——运行身份没有注入进来。"
         )
-    return deps.principal
+    return deps
 
 
 __all__ = ["ShotVideoToolset"]

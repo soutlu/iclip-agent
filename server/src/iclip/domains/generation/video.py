@@ -1,12 +1,13 @@
-"""视频 HTTP 适配器。提交取得 task_id，随后轮询状态；未知状态按协议错误处理。
+"""视频异步接口的适配器。提交拿 task_id，之后按固定间隔查状态。
 
-Provider 结果地址会过期，必须转存为本系统公开对象后才能标记成功。"""
+请求字段与上游一字不差，原样转发；成功时上游给的是它自己发布好的两个稳定地址（原片与
+水印版），直接存，不再转存。"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Final
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import httpx
 
@@ -16,9 +17,7 @@ from iclip.domains.generation.provider import (
     ProviderProgress,
     ProviderSubmission,
 )
-from iclip.domains.generation.schemas import VideoGenerationIn
-from iclip.platform.object_store.layout import MEDIA_PATHS
-from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
+from iclip.domains.generation.schemas import ORIGIN_FIELDS, VideoGenerationIn
 
 PROVIDER_NAME: Final = "video_api"
 
@@ -29,28 +28,14 @@ _FAILED_STATUSES: Final = frozenset({"failed", "cancelled", "canceled", "error",
 _SUBMIT_TIMEOUT_SECONDS: Final = 30.0
 _POLL_TIMEOUT_SECONDS: Final = 20.0
 
-_DOWNLOAD_TIMEOUT_SECONDS: Final = 600.0
-"""成片下载使用独立超时，覆盖大文件传输耗时。"""
-
-_MAX_VIDEO_BYTES: Final = 512 * 1024 * 1024
-"""成片大小上限。"""
-
-_MIME_BY_SUFFIX: Final = {"mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm"}
-_SUFFIX_BY_MIME: Final = {"video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm"}
-_DEFAULT_MIME: Final = "video/mp4"
-
 
 @dataclass(frozen=True, slots=True)
 class VideoProviderSettings:
-    """由组合根从环境变量解析后传入的运行值。"""
+    """由组合根从环境变量解析后传入的运行值。模型与归属标签都在请求里，这里不持有。"""
 
     submit_url: str
     status_base_url: str
     api_key: str
-    model: str
-    """默认模型。请求里给了 ``model`` 就用请求的。"""
-    user_name: str
-    """Provider 要求的稳定调用方标识，用于对账。"""
 
 
 class HttpVideoProvider:
@@ -60,12 +45,10 @@ class HttpVideoProvider:
         self,
         settings: VideoProviderSettings,
         *,
-        object_store: PublicObjectStore,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
 
         self._settings = settings
-        self._object_store = object_store
         self._transport = transport
 
     @property
@@ -73,31 +56,16 @@ class HttpVideoProvider:
         return PROVIDER_NAME
 
     async def submit(self, job: GenerationJob) -> ProviderSubmission:
-        request = job.request
-        if not isinstance(request, VideoGenerationIn):
-            raise ProviderError(
-                f"视频 provider 收到了 {job.kind} 请求",
-                code="PROVIDER_KIND_MISMATCH",
-                retryable=False,
-            )
-        model = request.model or self._settings.model
-        payload = {
-            "model": model,
-            "prompt": request.prompt,
-            "user_name": self._settings.user_name,
-            "reference_image_urls": list(request.image_urls),
-            "reference_video_urls": list(request.reference_video_urls),
-            "reference_audio_urls": list(request.reference_audio_urls),
-            "aspect_ratio": request.aspect_ratio,
-            "seconds": request.duration_seconds,
-        }
-        if request.generate_audio is not None:
-            payload["generate_audio"] = request.generate_audio
+        request = _video_request(job)
+        _user_name(request)
+        # 没给的可选字段不发，上游的模型默认值才能生效；归属字段是我们自己的，不发。
+        payload = request.model_dump(exclude_none=True, exclude=set(ORIGIN_FIELDS))
         body = await self._request(
             "POST",
             self._settings.submit_url,
             json=payload,
             timeout=_SUBMIT_TIMEOUT_SECONDS,
+            result_unknown_on_transport_error=True,
         )
         task_id = body.get("task_id")
         if not isinstance(task_id, str) or not task_id.strip():
@@ -109,11 +77,11 @@ class HttpVideoProvider:
         return ProviderSubmission(
             provider_task_id=task_id.strip(),
             provider_status="queued",
-            # 记录实际模型，避免后续配置变化影响历史对账。
-            raw={"model": model, "response": body},
+            raw={"response": body},
         )
 
     async def poll(self, job: GenerationJob) -> ProviderProgress:
+        request = _video_request(job)
         task_id = job.provider_task_id
         if task_id is None:
             raise ProviderError(
@@ -125,74 +93,10 @@ class HttpVideoProvider:
         body = await self._request(
             "GET",
             url,
-            params={"user_name": self._settings.user_name},
+            params={"user_name": _user_name(request)},
             timeout=_POLL_TIMEOUT_SECONDS,
         )
-        progress = _progress_from_body(body)
-        if progress.outcome != "succeeded" or progress.output_url is None:
-            return progress
-        return replace(progress, output_url=await self._rehost(job, progress.output_url))
-
-    async def _rehost(self, job: GenerationJob, source_url: str) -> str:
-        """转存成片并返回永久对象地址；转存失败不得保留 Provider 的临时结果地址。"""
-
-        content, mime = await self._download(source_url)
-        try:
-            return await self._object_store.put_public_object(
-                object_key=MEDIA_PATHS.generated_video(job_id=job.id, ext=_SUFFIX_BY_MIME[mime]),
-                content=content,
-                content_type=mime,
-            )
-        except ObjectStoreUnavailable as exc:
-            # 转存失败作为终态返回，不自动重试。
-            raise ProviderError(
-                f"视频已生成但转存失败: {exc}",
-                code="OUTPUT_STORE_FAILED",
-                retryable=False,
-            ) from exc
-
-    async def _download(self, url: str) -> tuple[bytes, str]:
-        """流式下载成片并限制总字节数，返回内容与标准 MIME 类型。"""
-
-        try:
-            async with (
-                httpx.AsyncClient(
-                    timeout=_DOWNLOAD_TIMEOUT_SECONDS, transport=self._transport
-                ) as client,
-                client.stream("GET", url) as response,
-            ):
-                if response.status_code >= 400:
-                    raise ProviderError(
-                        f"成片下载失败（{response.status_code}）",
-                        code="OUTPUT_DOWNLOAD_FAILED",
-                        retryable=False,
-                    )
-                mime = _normalize_mime(response.headers.get("content-type", ""), url)
-                chunks: list[bytes] = []
-                size = 0
-                async for chunk in response.aiter_bytes():
-                    size += len(chunk)
-                    if size > _MAX_VIDEO_BYTES:
-                        raise ProviderError(
-                            f"成片超过 {_MAX_VIDEO_BYTES} 字节上限",
-                            code="OUTPUT_TOO_LARGE",
-                            retryable=False,
-                        )
-                    chunks.append(chunk)
-        except httpx.HTTPError as exc:
-            raise ProviderError(
-                f"成片下载失败: {exc}",
-                code="OUTPUT_DOWNLOAD_FAILED",
-                retryable=False,
-            ) from exc
-        content = b"".join(chunks)
-        if not content:
-            raise ProviderError(
-                "成片下载为空",
-                code="OUTPUT_DOWNLOAD_EMPTY",
-                retryable=False,
-            )
-        return content, mime
+        return _progress_from_body(body)
 
     async def _request(
         self,
@@ -202,8 +106,14 @@ class HttpVideoProvider:
         timeout: float,
         json: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
+        result_unknown_on_transport_error: bool = False,
     ) -> dict[str, Any]:
-        """请求 JSON 对象响应。网络错误与 5xx 标记为可重试，4xx 标记为不可重试。"""
+        """请求 JSON 对象响应。
+
+        连不上是 ``PROVIDER_UNREACHABLE``。连上了却没拿到结果（读超时之类）在提交阶段是
+        ``PROVIDER_RESULT_UNKNOWN``：请求可能已被收下，不能当成没发出去；查状态是幂等的，
+        仍按不可达处理。5xx 可重试，4xx 不可重试。
+        """
 
         try:
             async with httpx.AsyncClient(timeout=timeout, transport=self._transport) as client:
@@ -214,21 +124,33 @@ class HttpVideoProvider:
                     params=params,
                     headers={"X-API-Key": self._settings.api_key},
                 )
-        except httpx.HTTPError as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             raise ProviderError(
-                f"视频 provider 不可达: {exc}",
+                f"视频接口连不上: {exc}",
+                code="PROVIDER_UNREACHABLE",
+                retryable=True,
+            ) from exc
+        except httpx.HTTPError as exc:
+            if result_unknown_on_transport_error:
+                raise ProviderError(
+                    f"视频提交请求已发出但没拿到结果，不重试以免重复计费: {exc}",
+                    code="PROVIDER_RESULT_UNKNOWN",
+                    retryable=False,
+                ) from exc
+            raise ProviderError(
+                f"视频接口不可达: {exc}",
                 code="PROVIDER_UNREACHABLE",
                 retryable=True,
             ) from exc
         if response.status_code >= 500:
             raise ProviderError(
-                f"视频 provider 返回 {response.status_code}",
+                f"视频接口返回 {response.status_code}",
                 code="PROVIDER_SERVER_ERROR",
                 retryable=True,
             )
         if response.status_code >= 400:
             raise ProviderError(
-                f"视频 provider 拒绝了这次请求（{response.status_code}）: {response.text[:500]}",
+                f"视频接口拒绝了这次请求（{response.status_code}）: {response.text[:500]}",
                 code="PROVIDER_REJECTED",
                 retryable=False,
             )
@@ -236,17 +158,40 @@ class HttpVideoProvider:
             body = response.json()
         except ValueError as exc:
             raise ProviderError(
-                "视频 provider 的响应不是 JSON",
+                "视频接口的响应不是 JSON",
                 code="PROVIDER_MALFORMED",
                 retryable=True,
             ) from exc
         if not isinstance(body, dict):
             raise ProviderError(
-                "视频 provider 的响应根不是 object",
+                "视频接口的响应根不是 object",
                 code="PROVIDER_MALFORMED",
                 retryable=True,
             )
         return body
+
+
+def _video_request(job: GenerationJob) -> VideoGenerationIn:
+    request = job.request
+    if not isinstance(request, VideoGenerationIn):
+        raise ProviderError(
+            f"视频 provider 收到了 {job.kind} 请求",
+            code="PROVIDER_KIND_MISMATCH",
+            retryable=False,
+        )
+    return request
+
+
+def _user_name(request: VideoGenerationIn) -> str:
+    """受理层保证填好了；为空说明装配串了，不给付费接口送一个没名字的请求。"""
+
+    if request.user_name is None:
+        raise ProviderError(
+            "视频请求没有 user_name",
+            code="PROVIDER_USER_NAME_MISSING",
+            retryable=False,
+        )
+    return request.user_name
 
 
 def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
@@ -261,11 +206,19 @@ def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
 
     if status == _SUCCEEDED_STATUS:
         result = body.get("result")
-        output_url = result.get("output_url") if isinstance(result, dict) else None
-        if not isinstance(output_url, str) or not output_url.startswith(("http://", "https://")):
-            # 成功状态缺少结果属于协议错误。
+        urls = {
+            key: (result.get(key) if isinstance(result, dict) else None)
+            for key in ("output_url", "watermark_output_url")
+        }
+        missing = [
+            key
+            for key, value in urls.items()
+            if not isinstance(value, str) or not value.startswith(("http://", "https://"))
+        ]
+        if missing:
+            # 上游两份产物都发布完才进 succeeded，缺一份就是协议错。
             raise ProviderError(
-                "视频 provider 报成功但没给 result.output_url",
+                f"视频接口报成功但没给 result.{' / result.'.join(missing)}",
                 code="PROVIDER_OUTPUT_MISSING",
                 retryable=False,
             )
@@ -273,7 +226,8 @@ def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
             outcome="succeeded",
             provider_status=status,
             raw=body,
-            output_url=output_url,
+            output_url=str(urls["output_url"]),
+            watermark_output_url=str(urls["watermark_output_url"]),
         )
 
     if status in _FAILED_STATUSES:
@@ -294,19 +248,6 @@ def _progress_from_body(body: dict[str, Any]) -> ProviderProgress:
         code="PROVIDER_STATUS_UNKNOWN",
         retryable=False,
     )
-
-
-def _normalize_mime(content_type: str, url: str) -> str:
-    """从响应头或 URL 后缀选择支持的 MIME 类型，无法识别时使用 MP4。"""
-
-    mime = content_type.split(";", maxsplit=1)[0].strip().lower()
-    if mime in _SUFFIX_BY_MIME:
-        return mime
-    path = urlsplit(url).path.lower()
-    for suffix, known in _MIME_BY_SUFFIX.items():
-        if path.endswith(f".{suffix}"):
-            return known
-    return _DEFAULT_MIME
 
 
 def _error_fields(error: Any) -> tuple[str | None, str | None]:

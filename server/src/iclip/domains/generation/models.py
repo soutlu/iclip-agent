@@ -7,9 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal
 
-from iclip.domains.generation.schemas import GenerationRequest
-
-GenerationKind = Literal["video", "image"]
+from iclip.domains.generation.schemas import GenerationKind, GenerationRequest
 
 GenerationStatus = Literal["pending", "submitting", "submitted", "completed", "failed"]
 STATUS_PENDING: Final = "pending"
@@ -52,6 +50,10 @@ class GenerationJob:
     """生成来源对话。无对话上下文时为空；不设外键，删除对话后仍保留来源。"""
     shot_index: int | None = None
     """对应 video_shot.json 的镜头组 index；非镜头组生成时为空。"""
+    task_id: uuid.UUID | None = None
+    """需求单 id，调用方给的归属标签；不设外键，只做筛选。"""
+    watermark_output_url: str | None = None
+    """视频成功时上游发布的水印版地址；图片没有这一份。"""
 
 
 __all__ = [

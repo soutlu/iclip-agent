@@ -174,8 +174,8 @@ export async function submitImageEdit(
     aspectRatio: string
   },
 ) {
+  // 不带 userName：浏览器会话由服务端填登录用户名。
   const body = zImageGenerationIn.parse({
-    kind: 'image',
     conversationId: target.conversationId,
     shotIndex: target.shotIndex,
     frameNumber: target.frameNumber,
@@ -183,7 +183,7 @@ export async function submitImageEdit(
     prompt: compileEditPrompt(draft),
     referenceImageUrls: draft.references.map((reference) => reference.url),
   })
-  const result = await apiFetch('/generations', zGenerationEnvelope, {
+  const result = await apiFetch('/generations/image', zGenerationEnvelope, {
     method: 'POST',
     body,
     fallbackErrorMessage: '图片编辑任务提交失败',

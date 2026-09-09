@@ -74,7 +74,7 @@ Agent 运行由 [ConversationRunner](../server/src/iclip/harness/transcript/runn
 - prompt 先进入 Postgres 队列；数据库约束保证同一对话的运行互斥，租约、心跳与清扫处理认领和中断恢复。
 - StepPersistence 保存消息历史与可续跑快照；恢复读取持久记录。停止运行使用框架取消入口，等待终态落库。
 - 审批结束当前 run，决定持久化后以新 run 续跑，仍属于同一轮；审批工具只挂顶层 Agent。
-- 生成任务另由 procrastinate 的提交、轮询队列驱动，业务状态写回生成任务表；机制见 [ADR-0004](adr/0004-generation-queue-in-postgres.md)。
+- 生成任务另由 procrastinate 的提交、轮询队列驱动，业务状态写回生成任务表；机制见 [ADR-0004](adr/0004-generation-queue-in-postgres.md)。视频的提交与任务查询对外是上游异步接口的镜像，请求原样转发、结果地址直接存，见 [ADR-0018](adr/0018-video-generation-mirrors-upstream.md)。
 
 transcript 是运行记录的投影。历史由 `from_messages` 从持久消息生成，实时由 `projector` 从引擎事件生成；两条路径必须得到相同的编号和结构，共用工具 display 注册表。上下文压缩在完整历史中插入 `CompactionPart`，发送模型时从最后一条边界计算窗口，不删除原始消息，见 [ADR-0011](adr/0011-context-compaction.md)。
 

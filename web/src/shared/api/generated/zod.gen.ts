@@ -406,6 +406,8 @@ export const zGenerationOut = z.object({
   request: z.record(z.string(), z.unknown()),
   shotIndex: z.int().nullable(),
   status: z.string(),
+  taskId: z.uuid().nullable(),
+  watermarkOutputUrl: z.string().nullable(),
 })
 
 /**
@@ -440,12 +442,13 @@ export const zImageGenerationIn = z.object({
   channel: z.enum(['dev', 'pro']).nullish(),
   conversationId: z.uuid().nullish(),
   frameNumber: z.int().gte(1).nullish(),
-  kind: z.literal('image').optional().default('image'),
   model: z.string().min(1).max(200).nullish(),
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
   resolution: z.enum(['1k', '2k', '4k']).optional().default('1k'),
-  shotIndex: z.int().nullish(),
+  shotIndex: z.int().gte(1).nullish(),
+  taskId: z.uuid().nullish(),
+  userName: z.string().min(1).max(200).nullish(),
 })
 
 /**
@@ -1254,20 +1257,36 @@ export const zOpsCatchup = z.object({
 /**
  * VideoGenerationIn
  *
- * 一次视频生成的输入。
+ * 一次视频生成的输入。字段与上游异步接口一字不差，外加三个归属字段。
+ *
+ * 只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1。画幅、
+ * 分辨率、时长范围、素材规格由上游按模型判，这里不复制一份。
  */
 export const zVideoGenerationIn = z.object({
-  aspectRatio: z.enum(['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']),
-  conversationId: z.uuid().nullish(),
-  durationSeconds: z.int().gte(1).lte(60),
-  generateAudio: z.boolean().nullish(),
-  imageUrls: z.array(z.string()).max(16).optional().default([]),
-  kind: z.literal('video').optional().default('video'),
-  model: z.string().min(1).max(200).nullish(),
+  aspect_ratio: z.string().min(1).max(20).nullish(),
+  conversation_id: z.uuid().nullish(),
+  generate_audio: z.boolean().nullish(),
+  model: z.string().min(1).max(200),
   prompt: z.string().min(1).max(4000),
-  referenceAudioUrls: z.array(z.string()).max(16).optional().default([]),
-  referenceVideoUrls: z.array(z.string()).max(16).optional().default([]),
-  shotIndex: z.int().nullish(),
+  provider_options: z.record(z.string(), z.unknown()).nullish(),
+  reference_audio_urls: z.array(z.string()).max(16).optional().default([]),
+  reference_image_urls: z.array(z.string()).max(16).optional().default([]),
+  reference_video_urls: z.array(z.string()).max(16).optional().default([]),
+  resolution: z.string().min(1).max(50).nullish(),
+  seconds: z.int().gte(-1).nullish(),
+  shot_index: z.int().gte(1).nullish(),
+  task_id: z.uuid().nullish(),
+  user_name: z.string().min(1).max(200).nullish(),
+})
+
+/**
+ * VideoModelsOut
+ *
+ * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
+ */
+export const zVideoModelsOut = z.object({
+  default: z.string(),
+  items: z.array(z.string()),
 })
 
 /**
@@ -1296,6 +1315,45 @@ export const zVideoSearchIn = z.object({
 export const zVideoSearchOut = z.object({
   matches: z.array(zStyleMatchOut),
   videoUrls: z.array(z.string()),
+})
+
+/**
+ * VideoSubmitOut
+ *
+ * 视频提交的回执，照上游：只有任务号。这里的 ``task_id`` 是我们这条生成记录的 id。
+ */
+export const zVideoSubmitOut = z.object({
+  task_id: z.uuid(),
+})
+
+/**
+ * VideoTaskError
+ */
+export const zVideoTaskError = z.object({
+  code: z.string(),
+  message: z.string(),
+})
+
+/**
+ * VideoTaskResult
+ */
+export const zVideoTaskResult = z.object({
+  output_url: z.string(),
+  watermark_output_url: z.string(),
+})
+
+/**
+ * VideoTaskOut
+ *
+ * 视频任务快照，照上游任务查询的形状。
+ */
+export const zVideoTaskOut = z.object({
+  created_at: z.iso.datetime(),
+  error: zVideoTaskError.nullish(),
+  result: zVideoTaskResult.nullish(),
+  status: z.enum(['queued', 'running', 'succeeded', 'failed']),
+  task_id: z.uuid(),
+  type: z.literal('video').optional().default('video'),
 })
 
 /**
@@ -1707,6 +1765,7 @@ export const zAbortConversationConversationsConversationIdAbortPostResponse = z.
 export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
   conversationId: z.uuid().nullish(),
+  taskId: z.uuid().nullish(),
   kind: z.enum(['image', 'video']).nullish(),
   shotIndex: z.int().gte(1).nullish(),
   frameNumber: z.int().gte(1).nullish(),
@@ -1718,23 +1777,38 @@ export const zListGenerationsGenerationsGetQuery = z.object({
  */
 export const zListGenerationsGenerationsGetResponse = zGenerationsPageOut
 
-/**
- * Body
- */
-export const zSubmitGenerationsPostBody = z.discriminatedUnion('kind', [
-  zVideoGenerationIn,
-  zImageGenerationIn,
-])
+export const zSubmitImageGenerationsImagePostBody = zImageGenerationIn
 
 /**
  * Successful Response
  */
-export const zSubmitGenerationsPostResponse = zGenerationEnvelope
+export const zSubmitImageGenerationsImagePostResponse = zGenerationEnvelope
 
 /**
  * Successful Response
  */
 export const zListImageModelsGenerationsImageModelsGetResponse = zImageModelsOut
+
+export const zSubmitVideoGenerationsVideoPostBody = zVideoGenerationIn
+
+/**
+ * Successful Response
+ */
+export const zSubmitVideoGenerationsVideoPostResponse = zVideoSubmitOut
+
+/**
+ * Successful Response
+ */
+export const zListVideoModelsGenerationsVideoModelsGetResponse = zVideoModelsOut
+
+export const zGetVideoTaskGenerationsVideoTaskIdGetPath = z.object({
+  task_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zGetVideoTaskGenerationsVideoTaskIdGetResponse = zVideoTaskOut
 
 export const zGetGenerationGenerationsJobIdGetPath = z.object({
   job_id: z.uuid(),

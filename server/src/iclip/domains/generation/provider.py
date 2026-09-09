@@ -56,6 +56,8 @@ class ProviderProgress:
     raw: dict[str, Any] = field(default_factory=dict[str, Any])
     output_url: str | None = None
     """``outcome == "succeeded"`` 时必有。"""
+    watermark_output_url: str | None = None
+    """视频成功时上游给的水印版地址；图片 provider 不填。"""
     error_code: str | None = None
     error_message: str | None = None
 

@@ -35,9 +35,11 @@ FAKE_IMAGE_PROVIDER = "image_fake"
 
 def video_request(**overrides: Any) -> VideoGenerationIn:
     fields: dict[str, Any] = {
+        "model": "moyu-seedance-2-5",
         "prompt": "一只猫跳上窗台",
+        "user_name": "luke",
         "aspect_ratio": "16:9",
-        "duration_seconds": 5,
+        "seconds": 5,
     }
     fields.update(overrides)
     return VideoGenerationIn(**fields)
@@ -46,6 +48,7 @@ def video_request(**overrides: Any) -> VideoGenerationIn:
 def image_request(**overrides: Any) -> ImageGenerationIn:
     fields: dict[str, Any] = {
         "prompt": "一只猫的正面特写",
+        "user_name": "luke",
         "aspect_ratio": "1:1",
         "resolution": "1k",
     }
@@ -64,6 +67,11 @@ def make_job(
     owner_user_id: uuid.UUID | None = None,
     conversation_id: uuid.UUID | None = None,
     shot_index: int | None = None,
+    task_id: uuid.UUID | None = None,
+    output_url: str | None = None,
+    watermark_output_url: str | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
 ) -> GenerationJob:
     now = datetime.now(UTC)
     payload = request or video_request()
@@ -73,6 +81,7 @@ def make_job(
         api_key_id=None,
         conversation_id=conversation_id,
         shot_index=shot_index,
+        task_id=task_id,
         kind=payload.kind,
         provider=provider
         or (FAKE_VIDEO_PROVIDER if payload.kind == KIND_VIDEO else FAKE_IMAGE_PROVIDER),
@@ -81,9 +90,10 @@ def make_job(
         provider_task_id=provider_task_id,
         provider_status=None,
         provider_snapshot=None,
-        output_url=None,
-        error_code=None,
-        error_message=None,
+        output_url=output_url,
+        watermark_output_url=watermark_output_url,
+        error_code=error_code,
+        error_message=error_message,
         created_at=created_at or now,
         updated_at=now,
         submitted_at=submitted_at,
@@ -118,6 +128,7 @@ class InMemoryGenerationRepository:
         kind: str | None = None,
         shot_index: int | None = None,
         frame_number: int | None = None,
+        task_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         rows = [
@@ -125,6 +136,7 @@ class InMemoryGenerationRepository:
             for job in self.jobs.values()
             if (owner is None or job.owner_user_id == owner)
             and (conversation_id is None or job.conversation_id == conversation_id)
+            and (task_id is None or job.task_id == task_id)
         ]
         rows = [
             job
@@ -175,12 +187,14 @@ class InMemoryGenerationRepository:
         provider_status: str,
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
+        watermark_output_url: str | None = None,
     ) -> GenerationJob:
         current = self.jobs[job_id]
         return self._replace(
             job_id,
             status=STATUS_COMPLETED,
             output_url=output_url,
+            watermark_output_url=watermark_output_url,
             provider_status=provider_status,
             provider_snapshot=provider_snapshot,
             provider_task_id=provider_task_id or current.provider_task_id,

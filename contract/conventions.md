@@ -18,7 +18,7 @@
 
 ## 3. 数据载荷与格式 (Payload Formatting)
 
-- **命名**：业务 HTTP API 的请求体、查询参数和响应使用 camelCase。既有例外是 SSO `authorization_url`、注册接口的用户状态字段，以及 §5 的 Transcript 协议字段；消费者按生成合同取名，新业务端点不沿用这些例外。
+- **命名**：业务 HTTP API 的请求体、查询参数和响应使用 camelCase。既有例外是 SSO `authorization_url`、注册接口的用户状态字段、§5 的 Transcript 协议字段，以及 §11 里视频提交与视频任务查询这一对端点（它们是上游视频异步接口的原样镜像）；消费者按生成合同取名，新业务端点不沿用这些例外。
 - **时间**：时间戳使用 ISO 8601 UTC。
 - **标识**：资源 ID、游标与协议 ID 按各自合同使用，不从 URL、显示名称或序号推导资源身份。客户端 `prompt_id` 是消息幂等键；对话和需求单 ID 可由调用方提供，运行 ID 由服务端发放，轮 ID 则是 Transcript 内的顺序标识。
 
@@ -311,15 +311,30 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 11. 媒体生成 (Generations)
 
-- 视频新请求只接受 [运行配置](../server/configs/config.yaml) 中 `media_generation.video.allowed_models` 列出的模型。`model` 省略或为 `null` 时，使用配置中的默认 `model`；受理阶段将选定模型写入请求快照。不在允许范围内的模型返回 `422`，不创建任务、不入队。
-- 视频模型在受理时确定，后台提交使用已保存的请求快照；配置变化不改写历史记录中的模型。
-- 图片新请求只接受运行配置接入的那几家模型，`GET /generations/image-models` 声明有哪几家、各家支持的画幅与分辨率档位、以及有没有渠道这个轴。`model` 省略或为 `null` 时使用该接口给出的 `default`；受理阶段将选定模型写入请求快照。
+两种生成各有自己的提交地址：`POST /generations/video` 与 `POST /generations/image`。受理即 `202`，此时还没发给上游；上游的拒绝会变成记录里的 `failed`，由调用方查状态看到。
+
+### 归属标签 `user_name`
+
+- 两种提交都带 `user_name`（图片端点按 camelCase 叫 `userName`），是上游落表对账用的归属标签，不是身份：不参与授权，不决定行归属。规则与发消息（§5）相同：API key 调用方必填、给什么用什么；浏览器会话可省略，服务端填登录用户名，给了就必须等于登录用户名，否则 `422`。
+
+### 视频：镜像上游异步接口
+
+- `POST /generations/video` 的请求体与上游视频异步接口一字不差（`model`、`prompt`、`user_name`、`reference_image_urls`、`reference_video_urls`、`reference_audio_urls`、`generate_audio`、`resolution`、`aspect_ratio`、`seconds`、`provider_options`），外加三个归属字段 `conversation_id`、`shot_index`、`task_id`（需求单 id）。响应是 `{"task_id"}`，值是本系统这条生成记录的 id；请求体里的 `task_id` 是需求单 id，两者是两个层级。
+- `model` 必填，只接受 [运行配置](../server/configs/config.yaml) 中 `media_generation.video.allowed_models` 列出的模型，`GET /generations/video-models` 给出允许表与默认值；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
+- 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
+- `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，拿图片记录的 id 来查是 `404`。
+- 视频成功时存的是上游发布好的两个地址，不转存；缺任一份这次生成判失败。
+
+### 图片
+
+- `POST /generations/image` 只接受运行配置接入的那几家模型，`GET /generations/image-models` 声明有哪几家、各家支持的画幅与分辨率档位、以及有没有渠道这个轴。`model` 省略或为 `null` 时使用该接口给出的 `default`；受理阶段将选定模型写入请求快照。
 - 图片的画幅与分辨率枚举是各家的并集。所选模型不支持这次的画幅或分辨率、点了没接入的模型、或给没有渠道轴的模型传了 `channel`，都返回 `422`，不创建任务、不入队。
 - 图片的 `channel` 只对声明了渠道轴的模型合法，省略时按该模型声明的默认渠道填；它与视频的模型策略互不相干。
+- 图片结果转存成本系统的公开对象后才算完成，`outputUrl` 存本系统地址。
 
 ### 参考帧图片编辑
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
 - `frameNumber` 是这次出图要顶替镜头组里的第几帧，只作标签供筛选；给了它就必须给 `shotIndex`，否则返回 `422`。服务端不按它定位文档，也不校验那一帧当前是什么。
-- `GET /generations` 的类型、镜头组和帧筛选在分页截断前执行，归属范围不因筛选扩大。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。
+- `GET /generations` 的类型、对话、需求单、镜头组和帧筛选在分页截断前执行，归属范围不因筛选扩大。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。

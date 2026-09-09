@@ -313,14 +313,13 @@ def _generation_module(
 
     return build_generation_module(
         SqlGenerationRepository(engine),
-        video_allowed_models=settings.video_allowed_models,
         video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
             api_key=settings.video_api_key,
-            model=settings.video_model,
-            user_name=settings.video_user_name,
         ),
+        video_default_model=settings.video_model,
+        video_allowed_models=settings.video_allowed_models,
         image_models=tuple(
             ImageModelConfig(
                 name=model.name, api_base=model.api_base, concurrency=model.concurrency
@@ -328,7 +327,6 @@ def _generation_module(
             for model in settings.image_models
         ),
         image_default_model=settings.image_default_model,
-        image_user_name=settings.image_user_name,
         image_env=settings.image_env,
         object_store=object_store,
         queue_connector=(

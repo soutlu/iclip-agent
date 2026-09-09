@@ -184,6 +184,8 @@ const job = (spec: MockJob) => ({
   request: spec.request ?? { prompt: spec.prompt },
   shotIndex: spec.shotIndex ?? null,
   status: spec.status,
+  taskId: null,
+  watermarkOutputUrl: null,
 })
 
 const workspaces = new Map<string, Map<string, MockFile>>()
@@ -582,32 +584,60 @@ export const workspaceHandlers = [
     return HttpResponse.json({ items })
   }),
 
-  http.post('*/api/generations', async ({ request }) => {
-    const body = (await request.json()) as ImageGenerationIn | VideoGenerationIn
-    const created = job({
-      createdAt: new Date().toISOString(),
-      id: crypto.randomUUID(),
-      kind: body.kind ?? 'video',
+  http.post('*/api/generations/image', async ({ request }) => {
+    const body = (await request.json()) as ImageGenerationIn
+    const created = acceptGeneration({
+      kind: 'image',
       prompt: body.prompt,
       request: { ...body },
-      ...(body.shotIndex == null ? {} : { shotIndex: body.shotIndex }),
-      status: 'submitted',
+      conversationId: body.conversationId ?? null,
+      shotIndex: body.shotIndex ?? null,
+      outputUrl: (workspaceFrames.get(body.conversationId ?? '') ?? DATA_FRAMES).c,
     })
-    if (body.conversationId !== null && body.conversationId !== undefined) {
-      generations.set(body.conversationId, [
-        ...(generations.get(body.conversationId) ?? []),
-        created,
-      ])
-    }
-    const timer = setTimeout(() => {
-      created.outputUrl =
-        body.kind === 'image'
-          ? (workspaceFrames.get(body.conversationId ?? '') ?? DATA_FRAMES).c
-          : VIDEO_URL
-      created.status = 'completed'
-      timers.delete(timer)
-    }, VIDEO_DONE_MS)
-    timers.add(timer)
     return HttpResponse.json({ generation: created }, { status: 202 })
   }),
+
+  // 视频那一对端点照上游：提交只回任务号，字段是 snake_case。
+  http.post('*/api/generations/video', async ({ request }) => {
+    const body = (await request.json()) as VideoGenerationIn
+    const created = acceptGeneration({
+      kind: 'video',
+      prompt: body.prompt,
+      request: { ...body },
+      conversationId: body.conversation_id ?? null,
+      shotIndex: body.shot_index ?? null,
+      outputUrl: VIDEO_URL,
+    })
+    return HttpResponse.json({ task_id: created.id }, { status: 202 })
+  }),
 ]
+
+/** 受理一条生成记录并在固定延迟后把它标成完成，与真实后端的「先受理、后台出结果」同形。 */
+function acceptGeneration(spec: {
+  kind: 'image' | 'video'
+  prompt: string
+  request: Record<string, unknown>
+  conversationId: string | null
+  shotIndex: number | null
+  outputUrl: string
+}) {
+  const created = job({
+    createdAt: new Date().toISOString(),
+    id: crypto.randomUUID(),
+    kind: spec.kind,
+    prompt: spec.prompt,
+    request: spec.request,
+    ...(spec.shotIndex === null ? {} : { shotIndex: spec.shotIndex }),
+    status: 'submitted',
+  })
+  if (spec.conversationId !== null) {
+    generations.set(spec.conversationId, [...(generations.get(spec.conversationId) ?? []), created])
+  }
+  const timer = setTimeout(() => {
+    created.outputUrl = spec.outputUrl
+    created.status = 'completed'
+    timers.delete(timer)
+  }, VIDEO_DONE_MS)
+  timers.add(timer)
+  return created
+}

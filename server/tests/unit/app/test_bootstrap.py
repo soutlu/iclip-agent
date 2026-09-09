@@ -116,11 +116,8 @@ def config_with_media() -> RuntimeConfig:
     return minimal_config().model_copy(
         update={
             "media_generation": MediaGenerationSection(
-                video=VideoGenerationSection(
-                    model="seedance", allowed_models=("seedance",), user_name="iclip-agent"
-                ),
+                video=VideoGenerationSection(model="seedance", allowed_models=("seedance",)),
                 image=ImageGenerationSection(
-                    user_name="iclip-agent",
                     env="test",
                     default="nano_banana_pro",
                     models={

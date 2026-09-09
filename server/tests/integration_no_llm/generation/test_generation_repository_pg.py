@@ -81,7 +81,7 @@ async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngin
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
-    request = video_request(image_urls=["https://example.test/first.png"])
+    request = video_request(reference_image_urls=["https://example.test/first.png"])
     job = await insert_job(repo, owner, request)
 
     assert (await repo.mark_submitting(job.id)).status == STATUS_SUBMITTING
@@ -103,10 +103,12 @@ async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngin
     completed = await repo.mark_completed(
         job.id,
         output_url="https://cdn.test/v.mp4",
+        watermark_output_url="https://cdn.test/v-wm.mp4",
         provider_status="succeeded",
         provider_snapshot={"status": "succeeded"},
     )
     assert completed.finished_at is not None
+    assert completed.watermark_output_url == "https://cdn.test/v-wm.mp4"
     assert completed.submitted_at == submitted.submitted_at, "别把发出去的时刻改成拿到结果的时刻"
     assert completed.request == request, "请求体读回来必须还是原来那个"
 
@@ -194,23 +196,34 @@ async def test_origin_round_trips_and_filters_by_conversation(engine: AsyncEngin
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
-    conversation_id = uuid.uuid4()
+    conversation_id, task_id = uuid.uuid4(), uuid.uuid4()
     tagged = await repo.create(
         make_job(
             video_request(),
             owner_user_id=owner,
             conversation_id=conversation_id,
             shot_index=3,
+            task_id=task_id,
         )
     )
     await insert_job(repo, owner)
 
-    assert (tagged.conversation_id, tagged.shot_index) == (conversation_id, 3)
+    assert (tagged.conversation_id, tagged.shot_index, tagged.task_id) == (
+        conversation_id,
+        3,
+        task_id,
+    )
     read_back = await repo.get(tagged.id, owner=owner)
-    assert (read_back.conversation_id, read_back.shot_index) == (conversation_id, 3)
+    assert (read_back.conversation_id, read_back.shot_index, read_back.task_id) == (
+        conversation_id,
+        3,
+        task_id,
+    )
 
     listed = await repo.list_for_owner(owner=owner, limit=10, conversation_id=conversation_id)
     assert [job.id for job in listed] == [tagged.id]
+    by_task = await repo.list_for_owner(owner=owner, limit=10, task_id=task_id)
+    assert [job.id for job in by_task] == [tagged.id]
     assert len(await repo.list_for_owner(owner=owner, limit=10)) == 2, "不给就是不筛"
 
 
