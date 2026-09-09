@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
 import {
@@ -164,7 +165,7 @@ export function AnnotationCanvas({
         return
       }
       original = {
-        id: crypto.randomUUID(),
+        id: mintUuid(),
         number: nextNumber,
         kind: tool,
         points: tool === 'point' ? [point] : [point, point],

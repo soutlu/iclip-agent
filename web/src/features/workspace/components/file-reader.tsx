@@ -3,6 +3,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { ApiError } from '@/shared/api/client'
+import { copyText } from '@/shared/lib/clipboard'
 import { Button, IconButton } from '@/shared/ui/button'
 import { Markdown } from '@/shared/ui/markdown'
 import { Tag } from '@/shared/ui/tag'
@@ -32,7 +33,7 @@ export function FileReader({ conversationId, onBack, path }: FileReaderProps) {
   const copy = async () => {
     if (file.data === undefined) return
     try {
-      await navigator.clipboard.writeText(file.data.file.content)
+      await copyText(file.data.file.content)
       toast.success('已复制')
     } catch {
       toast.error('复制失败')

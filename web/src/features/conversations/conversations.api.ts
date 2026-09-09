@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
 import type { PromptContentPart } from '@/shared/transcript/vendor'
 import { fileNameOfUrl } from '@/shared/lib/media-url'
+import { mintUuid } from '@/shared/lib/uuid'
 import { type ComposerPart, readyAttachment } from '@/shared/ui/composer'
 import { mediaDisplayName } from '@/shared/ui/media-preview'
 import {
@@ -119,7 +120,7 @@ export const useStartConversation = (onCreated: (conversationId: string) => void
   })
 }
 
-export const mintPromptId = (): string => crypto.randomUUID()
+export const mintPromptId = (): string => mintUuid()
 
 /** 保持文字与媒体相对顺序；空文字、未就绪附件和文件附件不进入消息。 */
 export const partsContent = (parts: readonly ComposerPart[]): PromptContentPart[] =>

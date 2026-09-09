@@ -4,6 +4,7 @@ import { uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
+import { mintUuid } from '@/shared/lib/uuid'
 import { Button } from '@/shared/ui/button'
 import { DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { Select } from '@/shared/ui/field'
@@ -35,7 +36,7 @@ import './image-edit.css'
 const restoredReference =
   (sourceUrl: string) =>
   (url: string): EditReference => ({
-    id: crypto.randomUUID(),
+    id: mintUuid(),
     kind: 'image',
     url,
     label:
