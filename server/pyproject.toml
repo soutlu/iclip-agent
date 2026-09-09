@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "watchfiles>=1.2",  # 配置目录监听，热重载入口
     "structlog>=24",
     "fastapi-users[sqlalchemy]>=14",
     "sqlalchemy[asyncio]>=2.0",

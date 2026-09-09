@@ -196,18 +196,11 @@ def test_non_mapping_document_rejected(tmp_path: Path) -> None:
         load_agent_declarations(write_declaration(tmp_path, "- a\n- b\n"))
 
 
-def test_shipped_declaration_loads(tmp_path: Path) -> None:
+def test_contract_placeholder_declaration_loads() -> None:
+    """合同导出用的占位声明要能装配；真实声明只在服务器上，不进仓库。"""
 
-    shipped = Path(__file__).resolve().parents[3] / "agents" / "agents.yaml"
-    declared = load_agent_declarations(shipped)
-    assert [agent.agent_id for agent in declared] == ["assistant", "storyboard"]
-    for agent in declared:
-        assert agent.spec.is_file()
-        assert agent.model
-        if agent.skills is None:
-            continue
-        for name in agent.skills.names:
-            assert (agent.skills.library / name / "SKILL.md").is_file()
+    placeholder = Path(__file__).resolve().parents[3] / "scripts" / "contract" / "agents.yaml"
+    assert load_agent_declarations(placeholder) == ()
 
 
 def test_agent_without_model_rejected(tmp_path: Path) -> None:

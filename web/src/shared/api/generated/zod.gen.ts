@@ -1853,7 +1853,7 @@ export const zGetGenerationGenerationsJobIdGetResponse = zGenerationEnvelope
  *
  * Successful Response
  */
-export const zHealthzHealthzGetResponse = z.record(z.string(), z.string())
+export const zHealthzHealthzGetResponse = z.record(z.string(), z.unknown())
 
 export const zSearchVideosInspirationsVideosSearchPostBody = zVideoSearchIn
 

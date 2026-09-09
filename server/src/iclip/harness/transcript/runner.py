@@ -181,7 +181,7 @@ class ConversationRunner:
     def __init__(
         self,
         *,
-        agents: dict[str, Agent[Any, Any]],
+        agents: Mapping[str, Agent[Any, Any]],
         store: TranscriptStore,
         queue: JobQueue,
         snapshots: ConversationSnapshots,
@@ -569,6 +569,8 @@ class ConversationRunner:
         agent = self._agents.get(row.agent_id)
         if agent is None:
             raise NotFound(f"未注册的 agent: {row.agent_id}")
+        # 注册表可能在运行期整体换掉，agent 与它的窗口要在同一刻取，别跨版本。
+        context_window = self._context_limits.get(row.agent_id)
 
         awaiting = row.status == "awaiting"
         history = await self._messages(row.conversation_id)
@@ -625,7 +627,6 @@ class ConversationRunner:
             and tail.state == "interrupted"
             else ()
         )
-        context_window = self._context_limits.get(row.agent_id)
         projector = TranscriptEventStream(
             turn_id=turn_id,
             turn_ordinal=ordinal,

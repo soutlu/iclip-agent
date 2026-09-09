@@ -13,7 +13,8 @@ ENV UV_PYTHON_DOWNLOADS=never \
     UV_LINK_MODE=copy \
     PATH=/app/.venv/bin:$PATH
 
-# alembic.ini、configs/、agents/ 与 scripts.admin 都按相对路径解析，工作目录必须是 server 根。
+# alembic.ini 与 scripts.admin 按相对路径解析，工作目录必须是 server 根；
+# configs/、agents/ 不进镜像，由部署把两个目录挂到 /app 下。
 WORKDIR /app
 
 # 先装依赖再拷源码，改代码不重装依赖。
@@ -22,8 +23,6 @@ RUN uv sync --locked --no-dev --no-install-project
 
 COPY alembic.ini ./
 COPY src ./src
-COPY configs ./configs
-COPY agents ./agents
 COPY migrations ./migrations
 COPY scripts ./scripts
 RUN uv sync --locked --no-dev

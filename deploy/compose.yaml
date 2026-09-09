@@ -1,7 +1,7 @@
 # 单机部署：一次性迁移 → 后端 → nginx 前端。Postgres 用服务器现有实例，本项目独占一个数据库。
 # 变量与凭证来自同目录的 .env（模板见 env.example）。
-# 模型、agent、skill 配置不随镜像发版：同目录的 configs/、agents/ 挂进后端覆盖镜像内置的一份，
-# 由 apply-config.sh 校验后替换。
+# 模型、agent、skill 配置不进镜像也不进仓库：同目录的 configs/、agents/ 只读挂进后端，
+# 改文件保存即热重载。
 
 services:
   # 服务启动不建表，迁移单独跑完退出，后端等它成功才起。
@@ -32,16 +32,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-
-  # 只被 apply-config.sh 调用：用线上镜像对 incoming/ 里待生效的配置做一次完整装配，不建连接。
-  config-check:
-    image: ${ACR_REGISTRY}/${ACR_NAMESPACE}/iclip-server:${IMAGE_TAG:-latest}
-    profiles: ["tools"]
-    env_file: .env
-    volumes:
-      - ./incoming/configs:/app/configs:ro
-      - ./incoming/agents:/app/agents:ro
-    command: ["python", "-c", "import iclip.asgi"]
 
   web:
     image: ${ACR_REGISTRY}/${ACR_NAMESPACE}/iclip-web:${IMAGE_TAG:-latest}
