@@ -399,6 +399,8 @@ export type {
   VideoModelsOut,
   VideoSearchIn,
   VideoSearchOut,
+  VideoShotIn,
+  VideoShotTimelineItemIn,
   VideoSubmitOut,
   VideoTaskError,
   VideoTaskOut,

@@ -35,9 +35,11 @@ def create_generations_router(service: GenerationService) -> APIRouter:
         body: VideoGenerationIn,
         principal: Annotated[Principal, Depends(require_permission("generation:submit"))],
     ) -> VideoSubmitOut:
-        """提交一次视频生成。请求体与上游异步接口一致，外加 conversation_id / shot_index / task_id。
+        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / shot_index / task_id。
 
-        ``user_name``：API key 调用方必填、照收；浏览器会话可省略，填登录用户名。
+        正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里
+        两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可
+        省略，填登录用户名。
         """
 
         request = body.model_copy(

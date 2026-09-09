@@ -33,7 +33,6 @@ import {
   formatShotPrompt,
   formatShotPrompts,
   insertFrameReference,
-  parseShotPrompt,
   parseShotsDocument,
   updateTimelinePrompt,
   promptTitle,
@@ -369,9 +368,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                 <GenerationRecords
                   jobs={jobs}
                   onClose={closeSheet}
-                  onEditPrompt={(text) => {
-                    const prompt = parseShotPrompt(text)
-                    if (prompt === undefined) return
+                  onEditPrompt={(prompt) => {
                     const problem = validateShot({ ...shot, prompt })
                     if (problem !== undefined) {
                       toast.error(problem)

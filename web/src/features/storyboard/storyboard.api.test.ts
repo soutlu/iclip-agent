@@ -4,25 +4,30 @@ import { server } from '@/testing/mocks/server'
 import type { Shot } from './shot-document'
 import {
   generationsRefetchInterval,
+  historyShotOf,
   submitVideoGeneration,
   uploadFrameImage,
+  videoShotOf,
+  type GenerationJob,
 } from './storyboard.api'
 
-describe('submitVideoGeneration', () => {
-  const conversationId = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
-  const shot: Shot = {
-    index: 2,
-    seconds: 6,
-    image_urls: ['https://example.com/a.png', 'https://example.com/b.png'],
-    prompt: {
-      global_settings: '人物保持一致。',
-      timeline: [
-        { timestamps: [0, 6], prompt: '走向镜头 @Image1，停下 @Image2。', image_indexes: [1, 2] },
-      ],
-    },
-  }
+const conversationId = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
 
-  it('照上游形状发到视频端点：正文按拼装规则、参考图取整组，回执只取任务号', async () => {
+/** 与 server/tests/helpers/generation.py 的 video_shot 是同一份夹具；服务端拼出的正文见那边的 SHOT_PROMPT。 */
+const shot: Shot = {
+  index: 2,
+  seconds: 6,
+  image_urls: ['https://example.com/a.png', 'https://example.com/b.png'],
+  prompt: {
+    global_settings: '人物保持一致。',
+    timeline: [
+      { timestamps: [0, 6], prompt: '走向镜头 @Image1，停下 @Image2。', image_indexes: [1, 2] },
+    ],
+  },
+}
+
+describe('submitVideoGeneration', () => {
+  it('照上游形状发到视频端点：镜头组结构化发出、参考图取整组，回执只取任务号', async () => {
     let body: unknown
     server.use(
       http.post('*/api/generations/video', async ({ request }) => {
@@ -49,10 +54,14 @@ describe('submitVideoGeneration', () => {
       conversation_id: conversationId,
       generate_audio: false,
       model: 'wan3.0-video',
-      prompt:
-        '人物保持一致。\n\n[0–6秒｜镜头1] 走向镜头 @Image1，停下 @Image2。\n不要生成字幕，不要生成背景音乐。',
       reference_image_urls: shot.image_urls,
       seconds: 6,
+      shot: {
+        global_settings: '人物保持一致。',
+        timeline: [
+          { image_indexes: [1, 2], prompt: '走向镜头 @Image1，停下 @Image2。', seconds: 6 },
+        ],
+      },
       shot_index: 2,
     })
   })
@@ -73,6 +82,87 @@ describe('submitVideoGeneration', () => {
         shot,
       }),
     ).rejects.toThrow('视频生成仅支持模型 moyu-seedance-2-5')
+  })
+})
+
+describe('videoShotOf', () => {
+  it('起止秒改成每镜时长，间隙不算进去，保留到毫秒', () => {
+    const gapped: Shot = {
+      ...shot,
+      prompt: {
+        global_settings: '设定。',
+        timeline: [
+          { timestamps: [0, 3.5], prompt: '一。', image_indexes: [] },
+          { timestamps: [4.25, 8.5], prompt: '二 @Image1。', image_indexes: [1] },
+          { timestamps: [8.5, 8.6], prompt: '三。', image_indexes: [] },
+        ],
+      },
+    }
+    expect(videoShotOf(gapped)).toEqual({
+      global_settings: '设定。',
+      timeline: [
+        { image_indexes: [], prompt: '一。', seconds: 3.5 },
+        { image_indexes: [1], prompt: '二 @Image1。', seconds: 4.25 },
+        { image_indexes: [], prompt: '三。', seconds: 0.1 },
+      ],
+    })
+  })
+})
+
+describe('historyShotOf', () => {
+  const job = (request: Record<string, unknown>): GenerationJob => ({
+    createdAt: '2026-09-01T10:00:00Z',
+    errorMessage: null,
+    id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
+    kind: 'video',
+    outputUrl: null,
+    request,
+    shotIndex: 2,
+    status: 'completed',
+    taskId: null,
+    watermarkOutputUrl: null,
+  })
+
+  it('时长首尾相接算回起止秒，浮点尾数按毫秒收掉', () => {
+    expect(
+      historyShotOf(
+        job({
+          prompt: '拼好的正文',
+          shot: {
+            global_settings: '设定。',
+            timeline: [
+              { image_indexes: [], prompt: '一。', seconds: 0.1 },
+              { image_indexes: [1], prompt: '二 @Image1。', seconds: 0.2 },
+              { image_indexes: [], prompt: '三。', seconds: 0.3 },
+            ],
+          },
+        }),
+      ),
+    ).toEqual({
+      global_settings: '设定。',
+      timeline: [
+        { timestamps: [0, 0.1], prompt: '一。', image_indexes: [] },
+        { timestamps: [0.1, 0.3], prompt: '二 @Image1。', image_indexes: [1] },
+        { timestamps: [0.3, 0.6], prompt: '三。', image_indexes: [] },
+      ],
+    })
+  })
+
+  it.each([
+    ['只有正文', { prompt: '模特走向镜头，停下微笑。' }],
+    ['shot 为空', { prompt: '正文', shot: null }],
+    ['shot 缺时间线', { prompt: '正文', shot: { global_settings: '设定。', timeline: [] } }],
+    [
+      '时长不是正数',
+      {
+        shot: {
+          global_settings: '设定。',
+          timeline: [{ image_indexes: [], prompt: '一。', seconds: 0 }],
+        },
+      },
+    ],
+  ])('%s 的记录回填不了', (_name, request) => {
+    expect(historyShotOf(job(request))).toBeUndefined()
   })
 })
 

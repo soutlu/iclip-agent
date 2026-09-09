@@ -12,7 +12,6 @@ import {
   formatShotPrompt,
   formatShotPrompts,
   insertFrameReference,
-  parseShotPrompt,
   updateTimelinePrompt,
   validateShot,
 } from './shot-document'
@@ -213,37 +212,6 @@ describe('structured editing', () => {
     expect(formatShotPrompts([original, { ...original, index: 2 }])).toBe(
       `镜头组 1\n${exported}\n\n镜头组 2\n${exported}`,
     )
-  })
-})
-
-describe('parseShotPrompt', () => {
-  it('拆回结构与拼装互为逆，末尾约束和镜头标记不留在正文里', () => {
-    expect(parseShotPrompt(formatShotPrompt(shot))).toEqual({
-      global_settings: shot.prompt.global_settings.trimEnd(),
-      timeline: [
-        {
-          ...shot.prompt.timeline[0],
-          prompt: '  开场，她站在门厅 @Image2，转身看向屋内 @Image1。',
-        },
-        shot.prompt.timeline[1],
-        shot.prompt.timeline[2],
-      ],
-    })
-  })
-
-  it('正文自带换行时按行并回同一镜，不被当成下一镜', () => {
-    const multiline = withBody('第一句 @Image1。\n第二句。', [1])
-    expect(parseShotPrompt(formatShotPrompt(multiline))).toEqual({
-      ...multiline.prompt,
-      global_settings: multiline.prompt.global_settings.trimEnd(),
-    })
-  })
-
-  it.each([
-    ['没有镜头标记', '模特走向镜头，停下微笑。'],
-    ['空正文', '   '],
-  ])('%s 时拆不出时间线', (_name, text) => {
-    expect(parseShotPrompt(text)).toBeUndefined()
   })
 })
 

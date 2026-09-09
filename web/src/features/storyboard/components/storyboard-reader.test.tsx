@@ -7,8 +7,8 @@ import { pasteTextIntoComposer } from '@/testing/editor'
 import { workspaceQueryKeys, type ArtifactRendererProps } from '@/shared/workbench'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
-import { formatShotPrompt, type ShotsDocument } from '../shot-document'
-import type { GenerationJob } from '../storyboard.api'
+import type { ShotsDocument } from '../shot-document'
+import { videoShotOf, type GenerationJob } from '../storyboard.api'
 import { StoryboardReader } from './storyboard-reader'
 
 const CONVERSATION_ID = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
@@ -89,7 +89,7 @@ const jobs: GenerationJob[] = [
   },
 ]
 
-/** 一条按拼装规则提交过的历史正文，可以反解回镜头组。 */
+/** 一条带结构化 shot 的历史记录，可以回填镜头组；正文是服务端从 shot 拼出来的。 */
 const historyPrompt = [
   '历史版参考锁定：人物和产品保持一致。',
   '剪辑形式：硬切。',
@@ -99,13 +99,21 @@ const historyPrompt = [
   '不要生成字幕，不要生成背景音乐。',
 ].join('\n')
 
+const historyShot = {
+  global_settings: '历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。',
+  timeline: [
+    { image_indexes: [2], prompt: '历史版：模特走出门厅 @Image2。', seconds: 2.5 },
+    { image_indexes: [1], prompt: '历史版：转身看向鞋面 @Image1。', seconds: 3.5 },
+  ],
+}
+
 const editableJob: GenerationJob = {
   id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
   createdAt: '2026-09-01T10:02:00Z',
   errorMessage: null,
   kind: 'video',
   outputUrl: 'https://example.com/history.mp4',
-  request: { prompt: historyPrompt },
+  request: { prompt: historyPrompt, shot: historyShot },
   shotIndex: 1,
   status: 'completed',
   taskId: null,
@@ -352,7 +360,7 @@ describe('StoryboardReader', () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
-  it('全部组概览可定位镜头组，记录只显示当前组且拆不出时间线的不能回填', async () => {
+  it('全部组概览可定位镜头组，记录只显示当前组且没有 shot 的不能回填', async () => {
     provide()
     const { router } = await renderReader()
     await screen.findByRole('region', { name: '镜头组 1' })
@@ -368,7 +376,7 @@ describe('StoryboardReader', () => {
     expect(within(records).getByRole('button', { name: '编辑生成' })).toBeDisabled()
   })
 
-  it('编辑生成把历史正文反解回当前镜头组并保存', async () => {
+  it('编辑生成把历史记录里的镜头组回填到当前组并保存', async () => {
     const files = provide()
     server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [editableJob] })))
     await renderReader()
@@ -457,9 +465,9 @@ describe('StoryboardReader', () => {
         conversation_id: CONVERSATION_ID,
         generate_audio: false,
         model: 'wan3.0-video',
-        prompt: formatShotPrompt(firstShot),
         reference_image_urls: firstShot.image_urls,
         seconds: firstShot.seconds,
+        shot: videoShotOf(firstShot),
         shot_index: 1,
       },
     ])

@@ -1,7 +1,7 @@
 """视频异步接口的适配器。提交拿 task_id，之后按固定间隔查状态。
 
-请求字段与上游一字不差，原样转发；成功时上游给的是它自己发布好的两个稳定地址（原片与
-水印版），直接存，不再转存。"""
+请求字段照上游原样转发，只去掉我们自己加的归属字段与结构化 shot；成功时上游给的是它自己
+发布好的两个稳定地址（原片与水印版），直接存，不再转存。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from iclip.domains.generation.provider import (
     ProviderProgress,
     ProviderSubmission,
 )
-from iclip.domains.generation.schemas import ORIGIN_FIELDS, VideoGenerationIn
+from iclip.domains.generation.schemas import NOT_FORWARDED_FIELDS, VideoGenerationIn
 
 PROVIDER_NAME: Final = "video_api"
 
@@ -58,8 +58,8 @@ class HttpVideoProvider:
     async def submit(self, job: GenerationJob) -> ProviderSubmission:
         request = _video_request(job)
         _user_name(request)
-        # 没给的可选字段不发，上游的模型默认值才能生效；归属字段是我们自己的，不发。
-        payload = request.model_dump(exclude_none=True, exclude=set(ORIGIN_FIELDS))
+        # 没给的可选字段不发，上游的模型默认值才能生效；归属字段与 shot 是我们自己的，不发。
+        payload = request.model_dump(exclude_none=True, exclude=set(NOT_FORWARDED_FIELDS))
         body = await self._request(
             "POST",
             self._settings.submit_url,

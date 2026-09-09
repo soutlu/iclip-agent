@@ -2,15 +2,16 @@ import { useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import { MEDIA_IMAGE_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
-import type { VideoGenerationIn } from '@/shared/api/generated/types.gen'
+import type { VideoGenerationIn, VideoShotIn } from '@/shared/api/generated/types.gen'
 import {
   zGenerationsPageOut,
   zVideoModelsOut,
+  zVideoShotIn,
   zVideoSubmitOut,
 } from '@/shared/api/generated/zod.gen'
 import type { zGenerationOut } from '@/shared/api/generated/zod.gen'
 import { useWorkspaceFiles } from '@/shared/workbench'
-import { formatShotPrompt, type Shot } from './shot-document'
+import type { Shot } from './shot-document'
 import { isRunningStatus } from './shots'
 
 export type GenerationJob = z.infer<typeof zGenerationOut>
@@ -46,18 +47,54 @@ export type VideoGenerationInput = {
   shot: Shot
 }
 
-/** 提交一次出片：正文与参考图照分镜当前这一版，字段名照上游异步接口（snake_case）。
+/** 分镜文件记起止秒，接口记每镜时长；两边都保留到毫秒，避免相减带出浮点尾数。 */
+const toMilliseconds = (value: number): number => Math.round(value * 1000) / 1000
+
+/** 分镜里的镜头组变成接口的结构化 shot：起止秒改成时长，其余照抄。 */
+export const videoShotOf = (shot: Shot): VideoShotIn => ({
+  global_settings: shot.prompt.global_settings,
+  timeline: shot.prompt.timeline.map((item) => ({
+    image_indexes: [...item.image_indexes],
+    prompt: item.prompt,
+    seconds: toMilliseconds(item.timestamps[1] - item.timestamps[0]),
+  })),
+})
+
+/** 历史记录里的结构化 shot 变回镜头组的 prompt：时长首尾相接算回起止秒。
  *
- * 不带 user_name：浏览器会话由服务端填登录用户名。回执只有任务号，记录本身靠刷新列表拿到。 */
+ * 记录里没有 shot 的（接口调用方自己写的正文）回填不了，返回 undefined。 */
+export const historyShotOf = (job: GenerationJob): Shot['prompt'] | undefined => {
+  const parsed = zVideoShotIn.safeParse(job.request['shot'])
+  if (!parsed.success) return undefined
+  let start = 0
+  return {
+    global_settings: parsed.data.global_settings,
+    timeline: parsed.data.timeline.map((item) => {
+      const end = toMilliseconds(start + item.seconds)
+      const converted = {
+        image_indexes: [...item.image_indexes],
+        prompt: item.prompt,
+        timestamps: [start, end] as [number, number],
+      }
+      start = end
+      return converted
+    }),
+  }
+}
+
+/** 提交一次出片：镜头组与参考图照分镜当前这一版，字段名照上游异步接口（snake_case）。
+ *
+ * 正文由服务端从 shot 拼出来，这里不发 prompt。不带 user_name：浏览器会话由服务端填登录
+ * 用户名。回执只有任务号，记录本身靠刷新列表拿到。 */
 export const submitVideoGeneration = async (input: VideoGenerationInput): Promise<string> => {
   const body: VideoGenerationIn = {
     aspect_ratio: input.aspectRatio,
     conversation_id: input.conversationId,
     generate_audio: input.generateAudio,
     model: input.model,
-    prompt: formatShotPrompt(input.shot),
     reference_image_urls: [...input.shot.image_urls],
     seconds: input.shot.seconds,
+    shot: videoShotOf(input.shot),
     shot_index: input.shot.index,
   }
   const receipt = await apiFetch('/generations/video', zVideoSubmitOut, {

@@ -16,7 +16,13 @@ from iclip.domains.generation.schemas import (
     request_from_payload,
     request_to_payload,
 )
-from tests.helpers.generation import image_request, video_request
+from tests.helpers.generation import (
+    SHOT_IMAGE_URLS,
+    SHOT_PROMPT,
+    image_request,
+    video_request,
+    video_shot,
+)
 
 
 def test_payload_round_trip_video() -> None:
@@ -52,6 +58,7 @@ def test_stored_payload_keeps_each_kinds_own_field_names() -> None:
     assert set(payload) == {
         "model",
         "prompt",
+        "shot",
         "user_name",
         "reference_image_urls",
         "reference_video_urls",
@@ -91,6 +98,121 @@ def test_a_stored_request_reads_back_without_its_origin_columns() -> None:
 def test_unknown_kind_is_rejected() -> None:
     with pytest.raises(ValidationFailed, match="未知的生成类型"):
         request_from_payload("audio", {"prompt": "x"})
+
+
+# --- 结构化镜头组 shot ------------------------------------------------------------
+
+
+def test_shot_is_assembled_into_the_prompt_and_both_are_stored() -> None:
+    original = video_request(prompt=None, shot=video_shot(), reference_image_urls=SHOT_IMAGE_URLS)
+
+    assert original.prompt == SHOT_PROMPT
+    payload = request_to_payload(original)
+    assert payload["prompt"] == SHOT_PROMPT
+    assert payload["shot"]["timeline"][0]["image_indexes"] == [1, 2]
+    assert request_from_payload(KIND_VIDEO, payload) == original, "读回时两者都在且一致"
+
+
+def test_image_indexes_follow_the_text_in_first_appearance_order() -> None:
+    item = {
+        "seconds": 6,
+        "prompt": "走向镜头 @Image2，停下 @Image1，回头 @Image2。",
+        "image_indexes": [2, 1],
+    }
+    request = video_request(
+        prompt=None, shot=video_shot(timeline=[item]), reference_image_urls=SHOT_IMAGE_URLS
+    )
+
+    assert request.shot is not None
+    assert request.shot.timeline[0].image_indexes == [2, 1]
+    with pytest.raises(ValueError, match="Field required"):
+        video_request(
+            prompt=None,
+            shot=video_shot(timeline=[{"seconds": 6, "prompt": "看 @Image1。"}]),
+            reference_image_urls=SHOT_IMAGE_URLS,
+        )
+
+
+def test_a_prompt_identical_to_the_assembly_is_accepted_alongside_the_shot() -> None:
+    request = video_request(
+        prompt=SHOT_PROMPT, shot=video_shot(), reference_image_urls=SHOT_IMAGE_URLS
+    )
+    assert request.prompt == SHOT_PROMPT
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"prompt": None}, "至少传一个"),
+        (
+            {
+                "prompt": "自己写的正文",
+                "shot": video_shot(),
+                "reference_image_urls": SHOT_IMAGE_URLS,
+            },
+            "不一致，二者只传一个",
+        ),
+        (
+            {"prompt": None, "shot": video_shot(), "reference_image_urls": SHOT_IMAGE_URLS[:1]},
+            "@Image2",
+        ),
+        ({"prompt": None, "shot": video_shot()}, "只有 0 张"),
+        (
+            {
+                "prompt": None,
+                "shot": video_shot(global_settings="开场看 @Image3。"),
+                "reference_image_urls": SHOT_IMAGE_URLS,
+            },
+            "global_settings 引用了 @Image3",
+        ),
+        (
+            {
+                "prompt": None,
+                "shot": video_shot(
+                    timeline=[{"seconds": 6, "prompt": "看 @Image1。", "image_indexes": [2]}]
+                ),
+                "reference_image_urls": SHOT_IMAGE_URLS,
+            },
+            "image_indexes",
+        ),
+        ({"prompt": None, "shot": video_shot(timeline=[])}, "at least 1"),
+        (
+            {
+                "prompt": None,
+                "shot": video_shot(
+                    timeline=[{"seconds": 0, "prompt": "一。", "image_indexes": []}]
+                ),
+            },
+            "greater than 0",
+        ),
+        (
+            {
+                "prompt": None,
+                "shot": video_shot(timeline=[{"seconds": 2, "prompt": " \n", "image_indexes": []}]),
+            },
+            "空白",
+        ),
+        ({"prompt": None, "shot": video_shot(global_settings="  ")}, "空白"),
+        (
+            {
+                "prompt": None,
+                "shot": video_shot(
+                    timeline=[{"seconds": 2, "prompt": "长" * 3990, "image_indexes": []}]
+                ),
+            },
+            "超过 4000 字上限",
+        ),
+        (
+            {"prompt": None, "shot": {"global_settings": "设定。", "timeline": [], "index": 1}},
+            "extra",
+        ),
+    ],
+)
+def test_shot_is_rejected_when_it_does_not_hold_together(
+    overrides: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        video_request(**overrides)
 
 
 @pytest.mark.parametrize(
@@ -169,6 +291,7 @@ def test_request_is_frozen() -> None:
     "damaged",
     [
         {"prompt": "猫"},
+        {"model": "m", "seconds": 5},
         {"model": "m", "prompt": "猫", "seconds": "五秒"},
         {"model": "m", "prompt": "猫", "aspectRatio": "16:9"},
     ],
