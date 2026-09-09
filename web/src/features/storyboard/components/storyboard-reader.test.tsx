@@ -399,7 +399,7 @@ describe('StoryboardReader', () => {
     expect(saved.shots[0]?.image_urls).toEqual(document.shots[0]?.image_urls)
   })
 
-  it('浏览与记录查看不会触发写入，也没有 AI 修图入口', async () => {
+  it('浏览与记录查看不会触发写入', async () => {
     provide()
     const requests: { method: string; url: string }[] = []
     server.events.on('request:start', ({ request }) => {
@@ -408,7 +408,6 @@ describe('StoryboardReader', () => {
     await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     expect(within(page).getByRole('textbox', { name: '镜头 1 的描述' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: /编辑图片/ })).not.toBeInTheDocument()
     await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
     const prompt = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
     expect(within(prompt).getByRole('button', { name: '复制完整提示词' })).toBeVisible()

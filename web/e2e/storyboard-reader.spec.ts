@@ -102,7 +102,8 @@ test('分镜可以滚轮翻组、键盘切帧和查看记录，浏览操作不�
   await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeInViewport({ ratio: 1 })
   await expect(filmstrip).toBeInViewport({ ratio: 1 })
   await expect(group.getByRole('textbox', { name: '镜头 2 的描述' })).toContainText('低头看一眼包')
-  await expect(group.getByRole('button', { name: /生成视频|编辑图片/ })).toHaveCount(0)
+  await expect(group.getByRole('button', { name: '生成视频' })).toHaveCount(0)
+  await expect(group.getByRole('button', { name: '编辑图片', exact: true })).toHaveCount(1)
 
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()
   const records = panel.getByRole('complementary', { name: '生成记录', exact: true })
@@ -462,4 +463,24 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
   await expect(page.getByRole('menuitem', { name: '下载水印版' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menuitem', { name: '下载原片' })).toBeHidden()
+})
+
+test('帧工具里的编辑图片打开编辑器，关闭后焦点回到入口', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
+  const panel = await openStoryboard(page)
+  const group = panel.getByRole('region', { name: '镜头组 1', exact: true })
+  await group.getByRole('img', { name: '镜头组 1 第 1 帧' }).hover()
+  const entry = group.getByRole('button', { name: '编辑图片', exact: true })
+  await entry.click()
+  const editor = page.getByRole('dialog', { name: '编辑图片', exact: true })
+  await expect(editor).toBeVisible()
+  await expect(editor.getByText('镜头组 1 · 帧 @1')).toBeVisible()
+  await expect(editor.getByLabel('图片模型', { exact: true })).toBeVisible()
+  await page.screenshot({
+    animations: 'disabled',
+    path: '../.artifacts/design-qa/storyboard-reader/image-edit-entry-desktop.png',
+  })
+  await editor.getByRole('button', { name: '关闭图片编辑', exact: true }).click()
+  await expect(editor).toBeHidden()
+  await expect(entry).toBeFocused()
 })

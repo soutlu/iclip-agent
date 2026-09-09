@@ -266,6 +266,56 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     [updateShot],
   )
 
+  /** 候选图写入成功才算应用；失败只撤回本次图片替换，保留其它草稿与冲突。 */
+  const applyFrame = useCallback(
+    async (index: number, frame: number, previousUrl: string, url: string) => {
+      const book = ledgerRef.current
+      if (book.inFlight !== null) throw new Error('当前修改正在保存，请稍后重试')
+      if (book.latest !== null) throw new Error('分镜存在版本冲突，请先处理冲突')
+      const current = book.edited ?? book.base?.document
+      const target = current === undefined ? undefined : shotOf(current, index)
+      const replaced = target?.image_urls[frame - 1] !== url
+      if (replaced) replaceFrame(index, frame, previousUrl, url)
+      if (!(await saveNow())) {
+        const currentDraft = book.edited
+        const currentShot = currentDraft === null ? undefined : shotOf(currentDraft, index)
+        // 保存期间发生的文字编辑和其它图片变化不属于本次失败，不能整份回滚。
+        if (replaced && currentDraft !== null && currentShot?.image_urls[frame - 1] === url) {
+          const restored = {
+            ...currentShot,
+            image_urls: currentShot.image_urls.map((image, position) =>
+              position === frame - 1 ? previousUrl : image,
+            ),
+          }
+          const restoredDocument = {
+            ...currentDraft,
+            shots: currentDraft.shots.map((shot) => (shot.index === index ? restored : shot)),
+          }
+          if (
+            book.latest === null &&
+            book.base !== null &&
+            sameShot(restored, shotOf(book.base.document, index))
+          )
+            book.dirty.delete(index)
+          book.edited = book.dirty.size === 0 ? null : restoredDocument
+          setEdited(book.edited)
+          setState((previous) =>
+            previous.kind === 'conflict'
+              ? {
+                  ...previous,
+                  shots: previous.shots.map((conflict) =>
+                    conflict.index === index ? { ...conflict, mine: restored } : conflict,
+                  ),
+                }
+              : previous,
+          )
+        }
+        throw new Error('图片尚未保存，请处理保存错误或冲突后重试')
+      }
+    },
+    [replaceFrame, saveNow],
+  )
+
   const resolveConflict = useCallback(
     (choice: 'mine' | 'theirs') => {
       const book = ledgerRef.current
@@ -302,6 +352,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
   )
 
   return {
+    applyFrame,
     document: edited ?? parsed,
     hasUnsavedChanges: edited !== null,
     state,
