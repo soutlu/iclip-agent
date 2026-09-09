@@ -197,12 +197,12 @@ async def test_watching_a_directory_reloads_after_a_file_changes(tmp_path: Path)
 
     stop = asyncio.Event()
     task = asyncio.create_task(watch_and_reload((watched,), reload, stop=stop, debounce_ms=100))
-    await asyncio.sleep(0.5)
-    (watched / "instructions.md").write_text("v2", encoding="utf-8")
-    for _ in range(50):
+    # 监听线程起来要一点时间，写早了事件会丢；隔一会儿再写一次，直到看到重载。
+    for round_ in range(20):
+        (watched / "instructions.md").write_text(f"v{round_}", encoding="utf-8")
+        await asyncio.sleep(0.5)
         if reloads:
             break
-        await asyncio.sleep(0.1)
     stop.set()
     await task
 

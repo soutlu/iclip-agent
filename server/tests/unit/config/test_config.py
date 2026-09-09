@@ -70,14 +70,15 @@ def test_valid_config_loads(tmp_path: Path) -> None:
     assert config.db.db_schema == "iclip"
 
 
-def test_the_shipped_config_file_still_loads() -> None:
-    """配置模型拒绝额外字段；直接加载仓库配置以发现过时字段导致的启动失败。"""
+def test_the_contract_placeholder_config_still_loads() -> None:
+    """配置模型拒绝额外字段；合同导出用的占位配置过时了导出就会挂，这里先拦。"""
 
-    shipped = Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
-    config = load_runtime_config(shipped)
+    placeholder = Path(__file__).resolve().parents[3] / "scripts" / "contract" / "config.yaml"
+    config = load_runtime_config(placeholder)
 
     assert config.app.name
-    assert config.media_generation is not None, "仓里这份是开着媒体生成的"
+    assert config.media_generation is not None, "占位配置要开着媒体生成，路由才齐"
+    assert config.shot_video is not None, "占位配置要开着镜头素材，路由才齐"
     assert config.models, "至少要声明一个模型"
 
 
