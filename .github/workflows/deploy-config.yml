@@ -1,0 +1,49 @@
+name: deploy-config
+
+# 模型、agent、skill 配置不随镜像发版：main 上 server/configs、server/agents 一有变化就同步到服务器，
+# 服务器用线上镜像校验通过后才替换生效。手动触发用于发版后按新镜像重新同步。
+# 公开仓：绝不在 pull_request 触发，fork 的 PR 不能碰到部署密钥。
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/configs/**"
+      - "server/agents/**"
+      - "deploy/apply-config.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-config
+  cancel-in-progress: false
+
+env:
+  DEPLOY_TARGET: ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}
+  DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+  SSH: ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: SSH key and pinned host key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST_KEY: ${{ vars.DEPLOY_HOST_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_HOST_KEY" > ~/.ssh/known_hosts
+      - name: Upload to incoming/ (线上目录此时不动)
+        run: |
+          $SSH "$DEPLOY_TARGET" "mkdir -p '$DEPLOY_DIR/incoming'"
+          rsync -az --delete --chmod=D755,F644 -e "$SSH" server/configs/ "$DEPLOY_TARGET:$DEPLOY_DIR/incoming/configs/"
+          rsync -az --delete --chmod=D755,F644 -e "$SSH" server/agents/ "$DEPLOY_TARGET:$DEPLOY_DIR/incoming/agents/"
+          rsync -az --chmod=F755 -e "$SSH" deploy/apply-config.sh "$DEPLOY_TARGET:$DEPLOY_DIR/apply-config.sh"
+      - name: Validate, swap, restart
+        run: $SSH "$DEPLOY_TARGET" "'$DEPLOY_DIR/apply-config.sh'"
