@@ -1,0 +1,451 @@
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PromptContentPart, TranscriptTurn } from '@/shared/transcript/vendor'
+import { ConversationTurn } from './conversation-turn'
+import { UserBubble } from './user-bubble'
+
+/** jsdom 不执行布局，显式模拟超过十行的内容高度。 */
+const stubOverflowing = () => {
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(500)
+  const client = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(240)
+  return () => {
+    scroll.mockRestore()
+    client.mockRestore()
+  }
+}
+
+const stubClipboard = () => {
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  })
+  return writeText
+}
+
+const text = (value: string): PromptContentPart => ({ text: value, type: 'text' })
+const image = (url: string): PromptContentPart => ({ source: { kind: 'url', url }, type: 'image' })
+const video = (url: string): PromptContentPart => ({ source: { kind: 'url', url }, type: 'video' })
+
+describe('UserBubble', () => {
+  let restore: (() => void) | undefined
+  afterEach(() => restore?.())
+
+  it('短消息不折叠，没有展开胶囊', () => {
+    render(<UserBubble content={[text('就一句')]} />)
+    expect(screen.queryByRole('button', { name: '展开' })).toBeNull()
+  })
+
+  it('超长消息折叠成渐隐，点「展开」放开全文', async () => {
+    restore = stubOverflowing()
+    const user = userEvent.setup()
+    render(<UserBubble content={[text('一行长长的素材说明\n'.repeat(20))]} />)
+
+    const toggle = await screen.findByRole('button', { name: '展开' })
+    await user.click(toggle)
+
+    expect(screen.getByRole('button', { name: '收起' })).toBeInTheDocument()
+  })
+
+  it('气泡下有复制钮：复制的是文字 part 原样接起来的正文；没给 onEdit 就没有修改钮', async () => {
+    // 在 user-event 初始化后安装剪贴板替身，避免被其覆盖。
+    const user = userEvent.setup()
+    const writeText = stubClipboard()
+    render(
+      <UserBubble
+        content={[
+          text('先看这张图：'),
+          image('https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'),
+          text('\n说明它写了什么'),
+        ]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: '复制消息' }))
+
+    expect(writeText).toHaveBeenCalledWith('先看这张图：\n说明它写了什么')
+    expect(screen.queryByRole('button', { name: '修改' })).toBeNull()
+  })
+
+  it('给了 onEdit 才有修改钮，editDisabled 时置灰', async () => {
+    const onEdit = vi.fn()
+    const user = userEvent.setup()
+    const { rerender } = render(<UserBubble content={[text('问')]} onEdit={onEdit} />)
+
+    await user.click(screen.getByRole('button', { name: '修改' }))
+    expect(onEdit).toHaveBeenCalledOnce()
+
+    rerender(<UserBubble content={[text('问')]} editDisabled onEdit={onEdit} />)
+    expect(screen.getByRole('button', { name: '修改' })).toBeDisabled()
+  })
+
+  it('图夹在两句话中间：芯片就画在那两句话中间，头部是这张图的缩略图', () => {
+    const url = 'https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'
+    render(<UserBubble content={[text('先看这张图：'), image(url), text('\n说明它写了什么')]} />)
+
+    const chip = screen.getByRole('button', { name: 'S6-1.jpg' })
+    const before = screen.getByText('先看这张图：')
+    const after = screen.getByText(/说明它写了什么/)
+    expect(before.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(chip.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(chip.querySelector('img')?.getAttribute('src')).toBe(
+      `${url}?x-oss-process=image/resize,l_64`,
+    )
+  })
+
+  it('视频芯片：OSS 地址给首帧缩略图，其他来源画视频图标', () => {
+    render(
+      <UserBubble
+        content={[
+          video('https://bkt.oss-cn-hangzhou.aliyuncs.com/u/demo.mp4'),
+          video('https://example.com/clip.mp4'),
+        ]}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'demo.mp4' }).querySelector('img')?.getAttribute('src'),
+    ).toContain('x-oss-process=video/snapshot')
+    expect(screen.getByRole('button', { name: 'clip.mp4' }).querySelector('img')).toBeNull()
+  })
+
+  it('点图片芯片开灯箱，灯箱里是图', async () => {
+    const user = userEvent.setup()
+    render(<UserBubble content={[image('https://example.com/reference.png')]} />)
+
+    await user.click(screen.getByRole('button', { name: 'reference.png' }))
+
+    expect(screen.getByRole('dialog', { name: 'reference.png' })).toBeInTheDocument()
+    // 芯片缩略图为装饰图片，具名图片只能来自灯箱。
+    expect(screen.getByRole('img', { name: 'reference.png' })).toBeInTheDocument()
+  })
+
+  it('点视频芯片开灯箱，灯箱里是能播的视频', async () => {
+    const user = userEvent.setup()
+    render(<UserBubble content={[video('https://example.com/clip.mp4')]} />)
+
+    await user.click(screen.getByRole('button', { name: 'clip.mp4' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'clip.mp4' })
+    expect(dialog.querySelector('video')).not.toBeNull()
+  })
+})
+
+describe('UserBubble 媒体芯片的悬停卡', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  /** 计时器推进包在 act 中，确保对应状态更新完成。 */
+  const advance = (ms: number) => {
+    act(() => {
+      vi.advanceTimersByTime(ms)
+    })
+  }
+
+  /** 先越过跨芯片共享的快速重开窗口，再测量当前卡片时序。 */
+  const renderChip = () => {
+    render(<UserBubble content={[image('https://example.com/reference.png')]} />)
+    advance(500)
+    return screen.getByRole('button', { name: 'reference.png' })
+  }
+
+  it('悬停 150ms 后出卡，离开 120ms 后收起', () => {
+    const chip = renderChip()
+
+    fireEvent.mouseEnter(chip)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    advance(150)
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+
+    fireEvent.mouseLeave(chip)
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+    advance(120)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('光标从芯片移进卡里，卡不收起', () => {
+    const chip = renderChip()
+
+    fireEvent.mouseEnter(chip)
+    advance(150)
+    fireEvent.mouseLeave(chip)
+    fireEvent.mouseEnter(screen.getByRole('tooltip'))
+    advance(500)
+
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+  })
+})
+
+const turnWithFrames = (frames: TranscriptTurn['steps'][number]['frames']): TranscriptTurn => ({
+  content: [text('先做开场镜头')],
+  kind: 'turn',
+  ordinal: 1,
+  origin: { kind: 'user' },
+  state: 'completed',
+  steps: [
+    {
+      frames: [...frames],
+      kind: 'step',
+      ordinal: 1,
+      state: 'completed',
+      stepId: 't1.1',
+      turnId: 't1',
+    },
+  ],
+  turnId: 't1',
+})
+
+describe('ConversationTurn', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('已经有模型块时仍显示轮头部的开场输入', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          { frameId: 't1.1.f1', kind: 'thinking', text: '先分析素材' },
+          { frameId: 't1.1.f2', kind: 'text', role: 'assistant', text: '已经完成。' },
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('先做开场镜头')).toBeInTheDocument()
+    expect(screen.getByText('已经完成。')).toBeInTheDocument()
+  })
+
+  it('开场输入与中途插话各自显示一次', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          {
+            content: [text('再补一个特写')],
+            frameId: 't1.1.f1',
+            kind: 'text',
+            role: 'user',
+            text: '再补一个特写',
+          },
+          { frameId: 't1.1.f2', kind: 'text', role: 'assistant', text: '收到。' },
+        ])}
+      />,
+    )
+
+    expect(screen.getAllByText('先做开场镜头')).toHaveLength(1)
+    expect(screen.getAllByText('再补一个特写')).toHaveLength(1)
+  })
+
+  it('只有一张图的开场输入也显示用户气泡', () => {
+    render(
+      <ConversationTurn
+        turn={{ ...turnWithFrames([]), content: [image('https://example.com/reference.png')] }}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'reference.png' })).toBeInTheDocument()
+  })
+
+  it('回复结束后复制最后一次用户输入之后的助手原始 markdown', async () => {
+    const user = userEvent.setup()
+    const writeText = stubClipboard()
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          { frameId: 't1.1.f1', kind: 'text', role: 'assistant', text: '前一段回复' },
+          {
+            content: [text('再补一个结尾')],
+            frameId: 't1.1.f2',
+            kind: 'text',
+            role: 'user',
+            text: '再补一个结尾',
+          },
+          { frameId: 't1.1.f3', kind: 'thinking', text: '调整结构' },
+          { frameId: 't1.1.f4', kind: 'text', role: 'assistant', text: '## 最终回复' },
+          { frameId: 't1.1.f5', kind: 'text', role: 'assistant', text: '补充说明' },
+        ])}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: '复制' }))
+
+    expect(writeText).toHaveBeenCalledWith('## 最终回复\n\n补充说明')
+  })
+
+  it('回复仍在输出时不显示复制按钮', () => {
+    stubClipboard()
+    render(
+      <ConversationTurn
+        turn={{
+          ...turnWithFrames([
+            { frameId: 't1.1.f1', kind: 'text', role: 'assistant', text: '还在输出' },
+          ]),
+          state: 'running',
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: '复制' })).toBeNull()
+  })
+})
+
+const mediaFrame = (metadata: unknown) => ({
+  display: { kind: 'generic' as const, summary: '出镜头帧' },
+  frameId: 't1.1.f1',
+  kind: 'tool' as const,
+  metadata,
+  name: 'generate_shot_frames',
+  output: '出好了 2 张',
+  state: 'done' as const,
+  toolCallId: 'call_1',
+  view: 'media_grid',
+})
+
+const TWO_ITEMS = {
+  items: [
+    { caption: 'S01 · 产品特写', url: 'https://example.com/a.png' },
+    { caption: 'S02 · 场景全景', url: 'https://example.com/b.png' },
+  ],
+}
+
+describe('工具结果按 view 选渲染器', () => {
+  it('media_grid 在工具行下面画出每一张图与它的标题', () => {
+    render(<ConversationTurn turn={turnWithFrames([mediaFrame(TWO_ITEMS)])} />)
+
+    expect(screen.getAllByRole('figure')).toHaveLength(2)
+    expect(screen.getByRole('img', { name: 'S01 · 产品特写' })).toBeInTheDocument()
+    expect(screen.getByText('S02 · 场景全景')).toBeInTheDocument()
+  })
+
+  it('点一张图开灯箱', async () => {
+    const user = userEvent.setup()
+    render(<ConversationTurn turn={turnWithFrames([mediaFrame(TWO_ITEMS)])} />)
+
+    await user.click(screen.getByRole('button', { name: 'S01 · 产品特写' }))
+
+    expect(screen.getByRole('dialog', { name: 'S01 · 产品特写' })).toBeInTheDocument()
+  })
+
+  it('结果形状对不上就退回朴素行：没有图，一句话的结果也不给展开', () => {
+    render(<ConversationTurn turn={turnWithFrames([mediaFrame({ items: 3 })])} />)
+
+    expect(screen.queryByRole('figure')).toBeNull()
+    expect(screen.getByText('出镜头帧')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /出镜头帧/ })).toBeNull()
+  })
+
+  it('媒体墙的角标写工具给的说明', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([mediaFrame({ ...TWO_ITEMS, note: '2 张 · dev 渠道' })])}
+      />,
+    )
+
+    expect(screen.getByText('2 张 · dev 渠道')).toBeInTheDocument()
+  })
+
+  it('file_content：卡尾写行数，展开是带行号的正文', async () => {
+    const user = userEvent.setup()
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          {
+            display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
+            frameId: 't1.1.f1',
+            kind: 'tool',
+            metadata: { lines: 3, path: 'shots/storyboard.md', truncated: true },
+            name: 'read_file',
+            output:
+              '     1\t# 分镜\n     2\t\n     3\tS01 产品特写\n[还有 6 行没读，接着从第 4 行读]',
+            state: 'done',
+            toolCallId: 'call_1',
+            view: 'file_content',
+          },
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('3 行 · 未读完')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /读取文件/ }))
+
+    expect(screen.getByText('S01 产品特写')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText(/还有 6 行没读/)).toBeInTheDocument()
+  })
+
+  it('search_results：卡尾写命中数，展开是逐条命中行', async () => {
+    const user = userEvent.setup()
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          {
+            display: { kind: 'search', query: '夜景' },
+            frameId: 't1.1.f1',
+            kind: 'tool',
+            metadata: {
+              matches: [
+                { file: 'shots/s01.md', line: 4, text: '开场是夜景' },
+                { file: 'shots/s02.md', line: 9, text: '结尾也是夜景' },
+              ],
+              query: '夜景',
+              truncated: true,
+            },
+            name: 'search_files',
+            output: 'shots/s01.md:4\t开场是夜景\nshots/s02.md:9\t结尾也是夜景',
+            state: 'done',
+            toolCallId: 'call_1',
+            view: 'search_results',
+          },
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('2 处命中')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /搜索工作区/ }))
+
+    expect(screen.getByText('shots/s02.md:9')).toBeInTheDocument()
+    expect(screen.getByText('结尾也是夜景')).toBeInTheDocument()
+    expect(screen.getByText('命中较多，只列出一部分')).toBeInTheDocument()
+  })
+
+  it('改文件：卡尾是增删数，一句话的结果不给展开', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          {
+            display: { kind: 'file_io', operation: 'edit', path: 'shots/storyboard.md' },
+            frameId: 't1.1.f1',
+            kind: 'tool',
+            metadata: { added: 3, removed: 1 },
+            name: 'edit_file',
+            output: '已改 shots/storyboard.md（现在 4312 字节）',
+            state: 'done',
+            toolCallId: 'call_1',
+          },
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('+3')).toBeInTheDocument()
+    expect(screen.getByText('−1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /编辑文件/ })).toBeNull()
+  })
+
+  it('画出图的那次调用不折进活动组：折起来图就跟着不见了', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          {
+            display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
+            frameId: 't1.1.f0',
+            kind: 'tool',
+            name: 'read_file',
+            state: 'done',
+            toolCallId: 'call_0',
+          },
+          mediaFrame(TWO_ITEMS),
+        ])}
+      />,
+    )
+
+    expect(screen.getAllByRole('figure')).toHaveLength(2)
+    expect(screen.queryByText(/读取了 1 个文件/)).toBeNull()
+  })
+})

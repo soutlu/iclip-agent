@@ -1,12 +1,4 @@
-"""素材的 HTTP 面。
-
-两组路由，一件事：``/uploads/*`` 是文件进系统的入口，``/assets/*`` 是账本。分开是因为
-它们的对象不同——前者操作的是桶里的字节，后者操作的是账本上的行。转存挂在账本这一
-组，因为它交付的是账本上的一行，搬字节只是它的手段。
-
-权限用现成的 ``assets:read`` / ``assets:write``，权限词汇表里早就留好了这两个名字。
-素材是全公司共用的，所以这里不存在「别人的返 404」那套写法：不存在才 404。
-"""
+"""素材上传与登记 HTTP 端点。直传签名不保存状态，登记事实从对象存储读取。"""
 
 from __future__ import annotations
 
@@ -55,8 +47,7 @@ def create_uploads_router(service: AssetService) -> APIRouter:
 def create_assets_router(service: AssetService) -> APIRouter:
     router = APIRouter(prefix="/assets", tags=["assets"])
 
-    # 这条必须声明在 ``/{asset_id}`` 之前：路由按声明顺序匹配，反过来的话 import
-    # 会被当成一个 assetId，报一个「不是合法 UUID」的 422。
+    # 固定路径须先于 /{asset_id} 声明，避免 import 被识别为 UUID 参数。
     @router.post("/import", response_model=AssetEnvelope, status_code=201)
     async def import_asset(
         body: AssetImportIn,

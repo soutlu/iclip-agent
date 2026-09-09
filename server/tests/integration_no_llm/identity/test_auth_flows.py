@@ -18,13 +18,12 @@ async def test_register_login_me_logout_round_trip(client: httpx.AsyncClient) ->
     assert user["roles"] == ["viewer"]
     assert user["directPermissions"] == []
     assert set(user["permissions"]) == {
-        "projects:read",
+        "collections:read",
         "tasks:read",
         "assets:read",
         "generation:read",
         "agent:read",
     }
-    # camelCase wire：不出现 snake_case 键
     assert "displayName" in user and "display_name" not in user
     assert user["departments"] == []
 

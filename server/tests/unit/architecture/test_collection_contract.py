@@ -1,4 +1,4 @@
-"""测试树契约：四层 + helpers，未知层级与越位命名拒收；棘轮基线从零起步。"""
+"""验证测试分层目录与命名规则。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parents[2]
 ALLOWED_TOP = {"unit", "integration_no_llm", "integration_llm", "e2e_full", "helpers"}
 
-# 棘轮：只降不升。新增违规 = 门禁红。
 PRIVATE_IMPORT_BASELINE: frozenset[str] = frozenset()
 
 

@@ -1,6 +1,6 @@
-# 根级唯一命令入口；新增命令必须加进来，不散落在文档或口头约定里。
+# 项目命令入口。
 
-.PHONY: setup dev up lint format format-check typecheck tach test check db-upgrade test-external web-check hooks
+.PHONY: setup dev up lint format format-check typecheck tach test check contract contract-check docs-check db-upgrade test-external web-check hooks
 
 setup:
 	cd server && uv sync
@@ -30,7 +30,18 @@ tach:
 test:
 	cd server && uv run pytest -m "unit or integration_no_llm"
 
-check: lint format-check typecheck tach test
+check: lint format-check typecheck tach test contract-check docs-check
+
+# 核对 Markdown 相对链接与 make 目标。
+docs-check:
+	python3 scripts/check-docs.py
+
+# 导出后运行 web 的 pnpm contract:generate，更新前端类型与 zod schema。
+contract:
+	cd server && uv run python scripts/dump_openapi.py
+
+contract-check:
+	cd server && uv run python scripts/dump_openapi.py --check
 
 db-upgrade:
 	cd server && uv run --env-file ../.env alembic upgrade head

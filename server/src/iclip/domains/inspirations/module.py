@@ -6,21 +6,26 @@ from dataclasses import dataclass
 from typing import Any
 
 from iclip.domains.inspirations.api import create_inspirations_router
-from iclip.domains.inspirations.catalog_pg import PgInspirationCatalog
+from iclip.domains.inspirations.infra_sql import PgInspirationVideos
+from iclip.domains.inspirations.service import InspirationService
+from iclip.domains.products.public import StyleDirectory
 
 
 @dataclass(frozen=True, slots=True)
 class InspirationsModule:
     routers: tuple[Any, ...]
-    """路由的类型写 ``Any``（同 identity / products）：装配单元不该把 web 框架拖进这一环。"""
+    """使用 Any 隔离 Web 框架类型。"""
 
-    catalog: PgInspirationCatalog
+    service: InspirationService
 
 
-def build_inspirations_module(catalog: PgInspirationCatalog) -> InspirationsModule:
-    """装配 inspirations。爆款库的连接由组合根给（同 products 收 catalog 的套路）。"""
+def build_inspirations_module(
+    videos: PgInspirationVideos, styles: StyleDirectory
+) -> InspirationsModule:
+    """仓储与产品资料目录由组合根注入。"""
 
-    return InspirationsModule(routers=(create_inspirations_router(catalog),), catalog=catalog)
+    service = InspirationService(videos, styles)
+    return InspirationsModule(routers=(create_inspirations_router(service),), service=service)
 
 
 __all__ = ["InspirationsModule", "build_inspirations_module"]

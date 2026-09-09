@@ -1,12 +1,6 @@
-"""请求身份到工具手上：工具执行时拿到的必须是发起这次运行的那个主体。
+"""通过完整 HTTP 登录与工具调用验证每次运行的身份隔离。
 
-这是工具授权与审计的地基。串错人的后果不是报错，而是 A 的运行拿着 B 的身份去
-读写数据——所以这条必须走完整 HTTP 路径（真登录、真 cookie、真 principal 解析），
-在替身上验不出来。
-
-第二条尤其要紧：身份是**每次运行**传进去的，不是装配期挂在 agent 上的。注册表
-是启动期冻结的共享对象，谁哪天把 deps 挪进装配，第一个用户的身份就会粘在所有
-后续运行上。
+Agent 注册表为共享对象，deps 必须逐次运行传入，不能在装配时绑定首个用户。
 """
 
 from __future__ import annotations
@@ -21,7 +15,7 @@ from pydantic_ai.capabilities import AgentCapability, Capability
 
 from iclip.config import ResolvedAgent
 from iclip.domains.agents.public import AgentRunDeps
-from tests.helpers.agui import run_input, sse_events
+from tests.integration_no_llm.agents.waiting import settled
 from tests.integration_no_llm.conftest import (
     TEST_MODEL_NAME,
     make_client,
@@ -31,14 +25,10 @@ from tests.integration_no_llm.conftest import (
 )
 
 AGENT_ID = "storyboard"
-URL = f"/agents/{AGENT_ID}/chat"
 
 
 def identity_capability() -> tuple[AgentCapability[AgentRunDeps], ...]:
-    """一件只做一件事的能力：把工具看到的运行依赖报出来。
-
-    工具按 ``RunContext[AgentRunDeps]`` 写——这就是能力里工具的形状。
-    """
+    """提供返回运行依赖的工具，用于验证 RunContext[AgentRunDeps] 注入。"""
 
     def whoami(ctx: RunContext[AgentRunDeps]) -> str:
         """报出当前调用方。"""
@@ -50,7 +40,14 @@ def identity_capability() -> tuple[AgentCapability[AgentRunDeps], ...]:
 
         return ctx.deps.conversation_id
 
-    return (Capability[AgentRunDeps](id="identity", tools=[whoami, which_conversation]),)
+    def on_behalf_of(ctx: RunContext[AgentRunDeps]) -> str:
+        """报出这次运行替谁跑。"""
+
+        return f"for:{ctx.deps.user_name}"
+
+    return (
+        Capability[AgentRunDeps](id="identity", tools=[whoami, which_conversation, on_behalf_of]),
+    )
 
 
 @pytest.fixture
@@ -74,11 +71,7 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
 
 @pytest.fixture(autouse=True)
 def registered_capability(monkeypatch: pytest.MonkeyPatch) -> None:
-    """把上面那件能力登记进名字表，让声明里的 capabilities: [identity] 解析得到。
-
-    名字表由组合根建起来（能力要拿运行期的存储后端），所以这里替的是组合根手里
-    那个函数，而不是某个模块级常量。
-    """
+    """替换组合根的能力表构造函数，使声明可解析测试 identity 能力。"""
 
     from iclip.app import bootstrap
     from iclip.app.capability_table import CapabilityTable
@@ -90,26 +83,35 @@ def registered_capability(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def tools_said(
-    client: httpx.AsyncClient, run_id: str, *, conversation_id: str | None = None
+    client: httpx.AsyncClient,
+    prompt_id: str,
+    *,
+    conversation_id: str | None = None,
+    user_name: str | None = None,
 ) -> list[str]:
-    """跑一次，取出工具实际返回的那几个字。
-
-    官方 ``test`` 模型会把每个可见工具都调一遍，所以工具的返回值以
-    ``TOOL_CALL_RESULT`` 事件出现在流里。断言落在这个值上而不是「整条流里有没
-    有这个子串」——后者能被任何别处出现的同名字符串蒙对（用户名互不为子串纯属
-    取名的运气）。
-    """
+    """直接检查工具返回值，避免整份 transcript 的子串匹配产生误报。"""
 
     conversation_id = conversation_id or await new_conversation(client, AGENT_ID)
-    body = run_input(thread_id=conversation_id, run_id=run_id)
-    async with client.stream("POST", URL, json=body) as response:
-        assert response.status_code == 200
-        raw = "".join([chunk async for chunk in response.aiter_text()])
-    return [event["content"] for event in sse_events(raw) if event["type"] == "TOOL_CALL_RESULT"]
+    body: dict[str, object] = {
+        "prompt_id": prompt_id,
+        "content": [{"type": "text", "text": "你是谁"}],
+    }
+    if user_name is not None:
+        body["user_name"] = user_name
+    sent = await client.post(f"/conversations/{conversation_id}/prompts", json=body)
+    assert sent.status_code == 200, sent.text
+    await settled(client, conversation_id)
+    page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()
+    return [
+        str(frame["output"])
+        for turn in page["items"]
+        for step in turn["steps"]
+        for frame in step["frames"]
+        if frame["kind"] == "tool" and frame.get("output") is not None
+    ]
 
 
 def said_by(reported: list[str], *, among: set[str]) -> list[str]:
-    """从工具返回值里挑出属于某一组的那些（``test`` 模型会把每个工具都调一遍）。"""
 
     return [value for value in reported if value in among]
 
@@ -120,27 +122,55 @@ async def test_tool_receives_the_caller_principal(client: httpx.AsyncClient, pg_
 
     conversation_id = await new_conversation(client, AGENT_ID)
 
-    # audit_label 是 username（没有 username 才退到 email）。
-    reported = await tools_said(client, "run-whoami", conversation_id=conversation_id)
+    reported = await tools_said(client, "prm-whoami", conversation_id=conversation_id)
     assert "caller-alpha" in reported
-    # 对话 id 也一路到了工具手上——工作区就是按它分文件夹的。
     assert conversation_id in reported
 
 
 async def test_each_run_carries_its_own_principal(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """两个人各跑一次：各自拿到自己的主体，不是第一个人的。"""
 
     await register_and_login(client, username="caller-alpha", email="alpha@example.com")
     await set_roles_in_db(pg_url, "alpha@example.com", ["editor"])
     names = {"caller-alpha", "caller-beta"}
-    mine = await tools_said(client, "run-mine")
+    mine = await tools_said(client, "prm-mine")
 
     async with make_client(app) as other:
         await register_and_login(other, username="caller-beta", email="beta@example.com")
         await set_roles_in_db(pg_url, "beta@example.com", ["editor"])
-        theirs = await tools_said(other, "run-theirs")
+        theirs = await tools_said(other, "prm-theirs")
 
     assert said_by(mine, among=names) == ["caller-alpha"]
     assert said_by(theirs, among=names) == ["caller-beta"]
+
+
+async def test_browser_run_is_on_behalf_of_the_login_user(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """浏览器发消息不带 user_name，运行替登录的这个人跑。"""
+
+    await register_and_login(client, username="caller-alpha", email="alpha@example.com")
+    await set_roles_in_db(pg_url, "alpha@example.com", ["editor"])
+
+    assert "for:caller-alpha" in await tools_said(client, "prm-behalf-browser")
+
+
+async def test_api_key_run_is_on_behalf_of_the_named_user_not_the_key_owner(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """机器调用方替它的终端用户发消息：运行带的是它给的名字，不是 key 属主账号。"""
+
+    await register_and_login(client, username="service-bot", email="bot@example.com")
+    await set_roles_in_db(pg_url, "bot@example.com", ["root"])
+    issued = await client.post(
+        "/api-keys", json={"name": "relay", "permissions": ["agent:run", "agent:read"]}
+    )
+    assert issued.status_code == 201, issued.text
+
+    async with make_client(app) as machine:
+        machine.headers["Authorization"] = f"Bearer {issued.json()['apiKey']['token']}"
+        reported = await tools_said(machine, "prm-behalf-key", user_name="designer-zhang")
+
+    assert "for:designer-zhang" in reported
+    assert "for:service-bot" not in reported

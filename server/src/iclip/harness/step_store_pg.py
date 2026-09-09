@@ -1,20 +1,15 @@
-"""官方 pydantic_ai_harness StepPersistence 的 Postgres 后端。
+"""StepPersistence 的 Postgres 实现，表结构对齐官方 SQLite 后端，DDL 由 Alembic 管理。
 
-表结构严格镜像官方 ``SqliteStepStore`` / ``SqliteMediaStore``（决策：严格复用
-官方结构，仅替换数据库实现）；DDL 由 Alembic 迁移拥有，store 不自建表。
-
-``messages`` / ``metadata`` 存 JSON 文本（text 而非 jsonb）：jsonb 会解析并
-拒绝字符串中的 ``\\u0000`` 转义，text 保证官方后端能写入的任何负载这里同样
-能写入；读取一律回到 Python 反序列化，不依赖 SQL 内查询 JSON。
+messages/metadata 使用 JSON 文本，避免 jsonb 拒绝 \\u0000；读取时由 Python 反序列化。
 """
 
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime
 from typing import Final, Literal, cast, get_args
 
+import structlog
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 from pydantic_ai_harness.media import (
     MediaContext,
@@ -46,13 +41,14 @@ from sqlalchemy import (
     Text,
     delete,
     select,
+    text,
     union,
 )
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-_logger = logging.getLogger(__name__)
+_logger = structlog.stdlib.get_logger(__name__)
 
 DB_SCHEMA: Final = "agent_runtime"
 
@@ -76,6 +72,7 @@ runs_table = Table(
     Column("agent_name", Text),
     Column("metadata", Text, nullable=False),
     Column("started_at", TIMESTAMP(timezone=True), nullable=False),
+    Column("registration_id", Text),
     Index("idx_runs_conv", "conversation_id"),
     Index("idx_runs_parent", "parent_run_id"),
     Index("idx_runs_started", "started_at"),
@@ -96,7 +93,15 @@ events_table = Table(
     Column("tool_name", Text),
     Column("error", Text),
     Column("metadata", Text, nullable=False),
+    Column("idempotency_key", Text),
     Index("idx_events_run", "run_id", "seq"),
+    Index(
+        "idx_events_idempotency",
+        "run_id",
+        "idempotency_key",
+        unique=True,
+        postgresql_where=text("idempotency_key IS NOT NULL"),
+    ),
 )
 
 snapshots_table = Table(
@@ -111,7 +116,17 @@ snapshots_table = Table(
     Column("timestamp", TIMESTAMP(timezone=True), nullable=False),
     Column("state", Text, nullable=False, server_default="complete"),
     Column("messages", Text, nullable=False),
+    Column("idempotency_key", Text),
     Index("idx_snapshots_run", "run_id", "seq"),
+)
+
+# 快照幂等键独立保存，修剪快照后仍需阻止重复保存。
+snapshot_idempotency_keys_table = Table(
+    "snapshot_idempotency_keys",
+    metadata_obj,
+    Column("run_id", Text, nullable=False),
+    Column("idempotency_key", Text, nullable=False),
+    PrimaryKeyConstraint("run_id", "idempotency_key"),
 )
 
 tool_effects_table = Table(
@@ -169,12 +184,7 @@ def _snapshot_state(raw: object) -> SnapshotState:
 
 
 class PgMediaStore:
-    """实现官方 ``MediaStore`` 协议：内容寻址的字节存储，一行一 blob。
-
-    与官方 ``SqliteMediaStore`` 同构：sha256 主键、``ON CONFLICT DO NOTHING``
-    幂等写入、metadata 存 JSON 文本。``public_url`` 恒为 ``None``（本部署无
-    模型可直取的公网媒体地址）。
-    """
+    """基于 sha256 的幂等媒体存储，metadata 使用 JSON 文本；无公网媒体地址时 public_url 为 None。"""
 
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
@@ -240,13 +250,9 @@ class PgMediaStore:
 
 
 class PgStepStore:
-    """实现官方 ``StepStore`` 协议的 Postgres 后端。
+    """对齐 StepStore 协议的 Postgres 实现。
 
-    语义逐条对齐官方 ``SqliteStepStore``：``register_run`` 单发（重复主键让
-    IntegrityError 上抛，capability 的 ``before_run`` 已做预检）；
-    ``list_runs`` 按 ``started_at`` 升序（协议约定）；快照默认只读
-    ``complete``；``tool_effects`` 按 ``(run_id, tool_call_id)`` upsert；
-    ``max_snapshots_per_run`` 的保留集 = 最新 keep 条 ∪ 最新一条 complete。
+    快照保留集为最新 keep 条加最新完整快照；事件用唯一索引去重，快照先认领幂等键再写入。
     """
 
     def __init__(
@@ -278,6 +284,7 @@ class PgStepStore:
             agent_name=record.agent_name,
             metadata=json.dumps(dict(record.metadata)),
             started_at=record.started_at,
+            registration_id=record.registration_id,
         )
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
@@ -296,6 +303,7 @@ class PgStepStore:
             agent_name=row.agent_name,
             metadata=_str_str_dict(json.loads(row.metadata)),
             started_at=row.started_at,
+            registration_id=row.registration_id,
         )
 
     async def list_runs(
@@ -319,6 +327,7 @@ class PgStepStore:
                 agent_name=row.agent_name,
                 metadata=_str_str_dict(json.loads(row.metadata)),
                 started_at=row.started_at,
+                registration_id=row.registration_id,
             )
             for row in rows
         ]
@@ -326,7 +335,7 @@ class PgStepStore:
     # -- events ---------------------------------------------------------------
 
     async def append_event(self, event: StepEvent) -> None:
-        stmt = events_table.insert().values(
+        stmt = pg_insert(events_table).values(
             run_id=event.run_id,
             kind=event.kind,
             step_index=event.step_index,
@@ -338,7 +347,14 @@ class PgStepStore:
             tool_name=event.tool_name,
             error=event.error,
             metadata=json.dumps(dict(event.metadata)),
+            idempotency_key=event.idempotency_key,
         )
+        if event.idempotency_key is not None:
+            # index_where 必须匹配部分唯一索引条件，供 PostgreSQL 选择冲突仲裁索引。
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=["run_id", "idempotency_key"],
+                index_where=events_table.c.idempotency_key.isnot(None),
+            )
         async with self._engine.begin() as conn:
             await conn.execute(stmt)
 
@@ -363,6 +379,7 @@ class PgStepStore:
                 tool_name=row.tool_name,
                 error=row.error,
                 metadata=_str_str_dict(json.loads(row.metadata)),
+                idempotency_key=row.idempotency_key,
             )
             for row in rows
         ]
@@ -388,8 +405,24 @@ class PgStepStore:
             timestamp=snapshot.timestamp,
             state=snapshot.state,
             messages=json.dumps(messages_json),
+            idempotency_key=snapshot.idempotency_key,
         )
         async with self._engine.begin() as conn:
+            if snapshot.idempotency_key is not None:
+                # 幂等键与快照须同事务写入，避免崩溃后仅保留键而丢失快照。
+                claimed = (
+                    await conn.execute(
+                        pg_insert(snapshot_idempotency_keys_table)
+                        .values(
+                            run_id=snapshot.run_id,
+                            idempotency_key=snapshot.idempotency_key,
+                        )
+                        .on_conflict_do_nothing()
+                        .returning(snapshot_idempotency_keys_table.c.run_id)
+                    )
+                ).first()
+                if claimed is None:
+                    return
             await conn.execute(insert_stmt)
             if self._max_snapshots_per_run is not None:
                 newest_keep = (
@@ -428,21 +461,17 @@ class PgStepStore:
         return await self._snapshot_from_row(run_id, row)
 
     async def latest_conversation_snapshot(
-        self, *, conversation_id: str
+        self, *, conversation_id: str, include_interrupted: bool = False
     ) -> ContinuableSnapshot | None:
-        """这段对话最新的一份完整快照（非协议方法）。
+        """按全局 seq 查询会话最新快照，默认仅返回完整快照。
 
-        快照按运行分片存，但 ``seq`` 是全表自增的，所以「最新的一份」一句 SQL 就能取
-        到，不必先列运行再逐个问。派活出去的下属另有自己的会话 id，不会混进来。
+        include_interrupted 包含中断及审批快照；续跑须处理未完成工具调用，并结合副作用账本。
         """
 
-        stmt = (
-            select(snapshots_table)
-            .where(snapshots_table.c.conversation_id == conversation_id)
-            .where(snapshots_table.c.state == "complete")
-            .order_by(snapshots_table.c.seq.desc())
-            .limit(1)
-        )
+        stmt = select(snapshots_table).where(snapshots_table.c.conversation_id == conversation_id)
+        if not include_interrupted:
+            stmt = stmt.where(snapshots_table.c.state == "complete")
+        stmt = stmt.order_by(snapshots_table.c.seq.desc()).limit(1)
         async with self._engine.connect() as conn:
             row = (await conn.execute(stmt)).one_or_none()
         if row is None:
@@ -452,7 +481,7 @@ class PgStepStore:
     async def list_snapshots(
         self, *, run_id: str, include_interrupted: bool = False
     ) -> list[ContinuableSnapshot]:
-        """写入序返回保留的快照；坏行跳过并记日志（对齐官方，非协议方法）。"""
+        """按写入顺序读取快照；反序列化失败时记录日志并跳过，与官方实现一致。"""
         stmt = select(snapshots_table).where(snapshots_table.c.run_id == run_id)
         if not include_interrupted:
             stmt = stmt.where(snapshots_table.c.state == "complete")
@@ -464,9 +493,7 @@ class PgStepStore:
             try:
                 snapshots.append(await self._snapshot_from_row(run_id, row))
             except Exception:
-                _logger.warning(
-                    "Skipping unparsable snapshot row for run %s", run_id, exc_info=True
-                )
+                _logger.warning("跳过解析不了的快照行", run_id=run_id, exc_info=True)
         return snapshots
 
     async def _snapshot_from_row(self, run_id: str, row: object) -> ContinuableSnapshot:
@@ -484,6 +511,7 @@ class PgStepStore:
             agent_name=r.agent_name,
             timestamp=r.timestamp,
             state=_snapshot_state(r.state),
+            idempotency_key=r.idempotency_key,
         )
 
     # -- tool effects ---------------------------------------------------------
@@ -559,6 +587,7 @@ class _SnapshotRow:
     timestamp: datetime
     state: str
     messages: str
+    idempotency_key: str | None
 
 
 class _ToolEffectRow:

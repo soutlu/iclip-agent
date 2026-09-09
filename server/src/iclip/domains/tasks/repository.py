@@ -1,13 +1,7 @@
-"""创作需求单的持久化端口。
+"""需求单持久化端口，读取不按属主隔离。
 
-**读没有属主参数**：需求单是全公司的工作队列，谁有 ``tasks:read`` 谁就看得见全部。
-「能不能改」是另一回事，那一层判断在 ``service.py``。
-
-**每个写方法都带一个 ``expect``**：调用方读到这一行时它是什么状态，就把那个状态交回
-来当写入条件。判断和写入之间隔着一次 await，那当口别人可能刚把它发布或撤回；不带这
-个条件的话，一次「改草稿」会落到一张已经下发的需求单上。对不上就一行也改不到，方法
-返回 ``None``（或 ``False``），由 ``service.py`` 翻译成冲突。
-"""
+状态条件与写入须原子执行，避免校验后状态被并发改变；条件不匹配返回 None 或 False，
+由服务层转换为冲突。修改权限由服务层校验。"""
 
 from __future__ import annotations
 
@@ -16,14 +10,16 @@ from datetime import datetime
 from typing import Protocol
 
 from iclip.domains.tasks.models import Task, TaskStatus
-from iclip.domains.tasks.schemas import TaskBrief
+from iclip.domains.tasks.schemas import TaskInputs
 
 
 class TaskRepository(Protocol):
     """``iclip.tasks`` 的数据访问。"""
 
-    async def create(self, task: Task) -> Task:
-        """插入一行新需求单，返回落库后的整行。"""
+    async def create_if_absent(self, task: Task) -> tuple[Task, bool]:
+        """按 id 幂等插入一行新需求单。
+
+        返回落库后的整行与「本次是否新建」；id 已存在时不写入，返回已有那一行。"""
         ...
 
     async def get(self, task_id: uuid.UUID) -> Task:
@@ -31,9 +27,13 @@ class TaskRepository(Protocol):
         ...
 
     async def list_recent(
-        self, *, status: TaskStatus | None = None, limit: int
+        self,
+        *,
+        status: TaskStatus | None = None,
+        assignee_user_id: uuid.UUID | None = None,
+        limit: int,
     ) -> tuple[Task, ...]:
-        """按最近改动倒序列出需求单；``status`` 给了就只看那一档。"""
+        """按最近修改时间倒序返回需求单，可按状态和认领人筛选。"""
         ...
 
     async def save(
@@ -44,44 +44,29 @@ class TaskRepository(Protocol):
         title: str,
         priority: int,
         deadline: datetime | None,
-        brief: TaskBrief,
+        inputs: TaskInputs,
     ) -> Task | None:
-        """整体覆盖一行。状态不再是 ``expect`` 就什么都不做并返回 ``None``。
-
-        参数里没有款号快照，这是故意的：它创建时冻结，之后不该有任何写入路径碰得到。
-        """
+        """整体更新可变字段；状态与 expect 不符时返回 None。字段冻结由服务层校验。"""
         ...
 
     async def publish(self, task_id: uuid.UUID) -> Task | None:
-        """``draft`` → ``published``，并在同一条语句里守住「期限必须还没到」。
+        """原子校验 draft 状态和未过期的期限后发布，时间比较使用数据库时钟。"""
+        ...
 
-        期限的比较必须发生在数据库里：这是本仓「所有时刻一律取数据库的钟」的一处落
-        点。应用进程的钟快了几秒，同一张需求单在这台机器上发得出去、在另一台上发不
-        出去。
-        """
+    async def confirm(self, task_id: uuid.UUID, *, user_id: uuid.UUID) -> Task | None:
+        """在同一事务中幂等添加认领人，并将 published 转为 confirmed。
+
+        已 confirmed 的需求单仅追加认领人；其他状态不写入并返回 None。"""
         ...
 
     async def set_status(
         self, task_id: uuid.UUID, *, expect: TaskStatus, status: TaskStatus
     ) -> Task | None:
-        """流转状态。当前状态不是 ``expect`` 就什么都不做并返回 ``None``。"""
-        ...
-
-    async def list_project_ids(self, task_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
-        """这张单挂了哪些项目。没挂就是空的。"""
-        ...
-
-    async def set_project_ids(
-        self, task_id: uuid.UUID, *, project_ids: tuple[uuid.UUID, ...]
-    ) -> tuple[uuid.UUID, ...]:
-        """整体覆盖这张单挂的项目（给空的就是全部取消），返回落库后的那一组。
-
-        项目不存在时抛 ``ValidationFailed``——那是外键挡下来的，这一层不认识项目表。
-        """
+        """条件更新状态；当前状态与 expect 不符时返回 None。"""
         ...
 
     async def delete(self, task_id: uuid.UUID, *, expect: TaskStatus) -> bool:
-        """删掉一行；状态对不上就什么都不做并返回 ``False``。"""
+        """条件删除；当前状态与 expect 不符时返回 False。"""
         ...
 
 

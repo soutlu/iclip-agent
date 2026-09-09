@@ -1,4 +1,4 @@
-"""命名模型的装配：一条配置声明 → 一个官方 ``Model`` 实例。"""
+"""按配置装配命名模型。"""
 
 from __future__ import annotations
 
@@ -25,12 +25,12 @@ ThinkingEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "m
 """思考强度档位，即 OpenAI 方言的 ``reasoning.effort``。"""
 
 BuiltModels = Mapping[str, Model]
-"""名字 → 模型实例。"""
+"""模型名称到实例的映射。"""
 
 
 @dataclass(frozen=True, slots=True)
 class ModelSpec:
-    """一个命名模型的装配输入。``name`` 是 agent 引用的名字；``thinking`` 不写即厂商默认档。"""
+    """命名模型配置；省略 thinking 时使用供应方默认值。"""
 
     name: str
     provider: str
@@ -65,12 +65,9 @@ class _RawReasoningAsSummary:
 
 
 class RawReasoningResponsesModel(OpenAIResponsesModel):
-    """Responses 模型：把厂商流里的原始思维链当作可显示的思考正文。
+    """将供应方原始思维块映射为同 id 的 summary，供 ThinkingPart.content 展示。
 
-    官方只把 summary 块写进 ThinkingPart.content，原始块只进 provider_details.raw_content；
-    百炼这类厂商流式只发原始块，照官方行为思考正文到不了前端。补出来的 summary 块与原始块
-    同 id，官方会合进同一个 ThinkingPart——raw_content 因此照旧保留，不能只替换不保留：
-    回传厂商时靠它判断，丢了思考会被包成 ``<think>`` 标签的 assistant 文本发回去。
+    保留 raw_content，确保回传供应方时使用原始推理格式，避免退化为 assistant 的 <think> 文本。
     """
 
     async def _process_streamed_response(
@@ -95,7 +92,7 @@ class RawReasoningResponsesModel(OpenAIResponsesModel):
 
 
 def _build_provider(spec: ModelSpec) -> Provider[Any]:
-    """按配置造 provider；provider 名不认识即报错。"""
+    """根据配置构造 provider，未知名称抛错。"""
 
     provider_class = cast("Any", infer_provider_class(spec.provider))
     if spec.base_url is None:
@@ -116,13 +113,12 @@ def _build_provider(spec: ModelSpec) -> Provider[Any]:
 def _model_settings(spec: ModelSpec) -> OpenAIChatModelSettings | None:
     if spec.thinking is None:
         return None
-    # 不走官方统一的 thinking 字段：它要过厂商 profile 的 supports_thinking 那道门，
-    # Qwen 的 profile 没开，值会被静默丢掉。reasoning_effort 不经那道门。
+    # Qwen profile 未声明 supports_thinking，通用 thinking 会被忽略；使用 reasoning_effort。
     return OpenAIChatModelSettings(openai_reasoning_effort=spec.thinking)
 
 
 def build_model(spec: ModelSpec) -> Model:
-    """造一个 ``Model``；provider 名非法或组合不成立即报错。"""
+    """构造 Model，拒绝无效 provider 或配置组合。"""
 
     provider = _build_provider(spec)
     settings = _model_settings(spec)
@@ -145,7 +141,7 @@ def build_model(spec: ModelSpec) -> Model:
 
 
 def build_models(specs: Sequence[ModelSpec]) -> BuiltModels:
-    """按名字造出全部模型；同名只造一个实例。"""
+    """按名称装配模型，每个名称共享一个实例。"""
 
     return {spec.name: build_model(spec) for spec in specs}
 

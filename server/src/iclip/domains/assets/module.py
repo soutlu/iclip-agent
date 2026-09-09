@@ -14,14 +14,12 @@ from iclip.platform.object_store.oss import PublicBucket
 @dataclass(frozen=True)
 class AssetsModule:
     routers: tuple[Any, ...]
-    """路由的类型写 ``Any``（同 identity / conversations / generation）：装配单元不该
-    把 web 框架拖进这一环。"""
+    """使用 Any 隔离 Web 框架类型。"""
 
     service: AssetService
 
 
 def build_assets_module(repo: AssetRepository, objects: PublicBucket) -> AssetsModule:
-    """装配 assets。它要一张自己的表和那个公开桶，不依赖任何别的业务模块。"""
 
     service = AssetService(repo, objects)
     return AssetsModule(

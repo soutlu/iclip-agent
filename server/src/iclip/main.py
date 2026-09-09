@@ -7,6 +7,8 @@ import os
 
 import uvicorn
 
+from iclip.app.logging import configure_logging
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="iClip Agent server")
@@ -25,12 +27,17 @@ def main() -> None:
 
     os.environ["CONFIG_FILE"] = args.config
     os.environ["AGENTS_FILE"] = args.agents
+    # 这里先配一遍给监督进程（reload / 多 worker 时 uvicorn 的启动行由它打）；
+    # 每个 worker 进程装配 app 时再按 config.yaml 的级别与格式配自己那一份。
+    configure_logging("INFO", "console")
     uvicorn.run(
         "iclip.asgi:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
         workers=args.workers if not args.reload else 1,
+        # 不让 uvicorn 自带一套 handler，它的日志与其他来源同一格式
+        log_config=None,
     )
 
 

@@ -1,8 +1,4 @@
-"""T-ASSET-01：/uploads/sign 与 /assets 的权限、直传许可与登记规则。
-
-不碰数据库也不碰 OSS：仓储与桶都是内存替身，主体由测试中间件写进
-``request.state.principal``。
-"""
+"""使用内存仓储与 bucket 替身验证上传签名、素材权限和登记规则。"""
 
 from __future__ import annotations
 
@@ -83,9 +79,6 @@ async def sign(
     return await http.post("/uploads/sign", json=body)
 
 
-# --- 权限 ---------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("method", "path"),
     [
@@ -110,11 +103,7 @@ async def test_reading_does_not_grant_uploading() -> None:
         assert (await http.get("/assets")).status_code == 200
 
 
-# --- 签名 ---------------------------------------------------------------
-
-
 async def test_sign_mints_the_name_before_the_bytes_move() -> None:
-    """id 必须在传之前就发下来，否则那份已经落进桶里的东西没人认领得了。"""
 
     bucket = FakeBucket()
     app = build_test_app(InMemoryAssetRepository(), bucket, granted=editor())
@@ -125,15 +114,12 @@ async def test_sign_mints_the_name_before_the_bytes_move() -> None:
     asset_id = uuid.UUID(body["assetId"])
     assert body["upload"]["method"] == "PUT"
     assert body["upload"]["headers"] == {"Content-Type": "video/mp4"}
-    # 签的就是那个 id 派生出来的 key，类型一起签进去。
     assert bucket.signed == [(f"iclip/agent/uploads/{asset_id}.mp4", "video/mp4")]
-    # 到期时刻要给出来：客户端得知道什么时候这条地址作废、该重新要一条。
     expires_at = datetime.fromisoformat(body["upload"]["expiresAt"])
     assert expires_at > datetime.now(UTC)
 
 
 async def test_sign_does_not_create_a_row() -> None:
-    """签名之后什么都还没发生：拿了地址不传，账本里不该多出一行。"""
 
     repo = InMemoryAssetRepository()
     app = build_test_app(repo, FakeBucket(), granted=editor())
@@ -155,9 +141,6 @@ async def test_unsupported_types_are_refused_before_signing(content_type: str) -
     assert bucket.signed == []
 
 
-# --- 图片尺寸 -----------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("width", "height"),
     [
@@ -168,7 +151,6 @@ async def test_unsupported_types_are_refused_before_signing(content_type: str) -
     ],
 )
 async def test_out_of_range_images_are_refused_before_signing(width: int, height: int) -> None:
-    """横竖都一样：只看短边够不够、长边超没超。不合格的压根不用传上来。"""
 
     bucket = FakeBucket()
     app = build_test_app(InMemoryAssetRepository(), bucket, granted=editor())
@@ -190,7 +172,7 @@ async def test_the_bounds_themselves_pass(width: int, height: int) -> None:
 
 
 async def test_an_image_must_report_its_size() -> None:
-    """尺寸由客户端报（账本里没有宽高列，谎报污染不了任何落库的事实），但必须报。"""
+    """直传前尺寸由客户端申报；账本不存储宽高。"""
 
     app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
     async with client(app) as http:
@@ -206,11 +188,7 @@ async def test_video_needs_no_size() -> None:
     assert response.status_code == 200
 
 
-# --- 登记 ---------------------------------------------------------------
-
-
 async def test_register_copies_the_facts_from_the_bucket() -> None:
-    """登记没有请求体：类型、大小、真实 key 全部来自桶。"""
 
     bucket = FakeBucket()
     repo = InMemoryAssetRepository()
@@ -232,7 +210,6 @@ async def test_register_copies_the_facts_from_the_bucket() -> None:
 
 
 async def test_register_before_the_upload_landed_is_a_conflict() -> None:
-    """桶里没有那个对象，就是「还没传上来」——状态冲突，不是参数错。"""
 
     app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
     async with client(app) as http:
@@ -243,7 +220,6 @@ async def test_register_before_the_upload_landed_is_a_conflict() -> None:
 
 
 async def test_register_is_idempotent() -> None:
-    """登记是客户端传完之后自己发起的，它断线重试是正常路径。"""
 
     bucket = FakeBucket()
     repo = InMemoryAssetRepository()
@@ -260,7 +236,7 @@ async def test_register_is_idempotent() -> None:
 
 
 async def test_oversized_upload_gets_no_row() -> None:
-    """上限只在这一步卡得住（预签名 PUT 限不住长度）：字节进了桶，但拿不到账本上的行。"""
+    """预签名 PUT 无法限制长度，登记时须校验桶内实际大小。"""
 
     bucket = FakeBucket()
     repo = InMemoryAssetRepository()
@@ -280,7 +256,6 @@ async def test_oversized_upload_gets_no_row() -> None:
 
 
 async def test_registering_a_name_nobody_signed_is_a_conflict() -> None:
-    """猜一个 id 来登记：桶里没有对应对象，走的还是「还没传上来」那条。"""
 
     app = build_test_app(InMemoryAssetRepository(), FakeBucket(), granted=editor())
     async with client(app) as http:
@@ -289,11 +264,7 @@ async def test_registering_a_name_nobody_signed_is_a_conflict() -> None:
     assert response.status_code == 409
 
 
-# --- 读 -----------------------------------------------------------------
-
-
 async def test_everyone_sees_everything() -> None:
-    """素材是全公司共用的：不做归属过滤，creatorUserId 只是查询维度。"""
 
     mine = make_asset(creator_user_id=uuid.uuid4(), object_key="iclip/agent/uploads/a.jpg")
     theirs = make_asset(
@@ -314,7 +285,6 @@ async def test_everyone_sees_everything() -> None:
 
 
 async def test_url_is_composed_not_stored() -> None:
-    """库里存的是 key；换一个公网前缀，同一行读出来就是另一个地址。"""
 
     asset = make_asset(object_key="iclip/agent/uploads/a.jpg")
     repo = InMemoryAssetRepository([asset])

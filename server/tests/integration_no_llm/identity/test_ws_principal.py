@@ -1,7 +1,4 @@
-"""Principal 的传输无关性：WebSocket 握手走同一信任点 + CSWSH Origin 规则。
-
-全程使用同步 TestClient（HTTP 与 WS 同一事件循环）。
-"""
+"""验证 HTTP 与 WS 共用身份解析，以及 WS Origin 校验；同步 TestClient 保持同一事件循环。"""
 
 from __future__ import annotations
 
@@ -86,19 +83,16 @@ def test_origin_rules(ws_app: FastAPI) -> None:
         cookie = _register_and_login(tc)
         headers = {"cookie": f"iclip_session={cookie}"}
 
-        # 白名单跨域放行
         with tc.websocket_connect(
             "/ws-echo", headers={**headers, "origin": "https://allowed.example"}
         ) as ws:
             assert ws.receive_json()["kind"] == "user"
 
-        # 同源（Origin host == Host）放行
         with tc.websocket_connect(
             "/ws-echo", headers={**headers, "origin": "http://testserver"}
         ) as ws:
             assert ws.receive_json()["kind"] == "user"
 
-        # 未知跨域拒绝
         with (
             pytest.raises(WebSocketDisconnect) as exc,
             tc.websocket_connect(

@@ -1,17 +1,23 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { router } from '@/app/router'
+import { workbenchRegistry } from '@/app/workbench-registry'
 import { queryClient } from '@/shared/api/query-client'
+import { TranscriptProvider } from '@/shared/transcript/transcript-provider'
+import { Toaster } from '@/shared/ui/toast'
+import { WorkbenchRegistryProvider, WorkbenchSelectionProvider } from '@/shared/workbench'
 
-/**
- * 渲染应用根组件：挂载 TanStack Query 与路由。
- *
- * @returns 应用根组件。
- */
-export default function App() {
+export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <TranscriptProvider>
+        <WorkbenchRegistryProvider registry={workbenchRegistry}>
+          <WorkbenchSelectionProvider>
+            <RouterProvider router={router} />
+          </WorkbenchSelectionProvider>
+        </WorkbenchRegistryProvider>
+      </TranscriptProvider>
+      <Toaster />
     </QueryClientProvider>
   )
 }

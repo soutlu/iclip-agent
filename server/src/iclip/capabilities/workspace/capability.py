@@ -1,32 +1,32 @@
-"""工作区能力：给 agent 一个跨会话持久的文本工作面。
+"""工作区能力，通过注入的 FileSpace 提供持久化文件工具。
 
-按官方 capability 的写法长：``AbstractCapability`` 的子类，贡献一个工具集加一
-段静态指引；文件落在哪由组合根注入的 ``FileSpace`` 决定（平台层的存储协议 + 一
-条算命名空间的规则），所以这里既不认识 Postgres，也不认识我们的表，更不需要知道
-「租户」在这个系统里是用什么表示的。
-
-不实现 ``from_spec``，并且把 ``get_serialization_name`` 显式关成 ``None``：官方
-的默认值是类名，也就是说不关就等于对外宣称「我能从 YAML spec 里造出来」，而
-``FileSpace`` 是运行期对象，造不出来。声明面在上一层——``agents.yaml``
-里写 ``capabilities: [workspace]``。
-
-也不做 ``before_model_request`` 注入。官方 ``Memory`` 往每轮请求里塞记忆是因为
-那本来就是「上一次会话的背景」；工作区的文件清单没有这个必要性，模型要看就调
-``list_files``，省一份每轮都付钱的噪音。
-"""
+FileSpace 包含运行对象，无法由 YAML spec 构造，因此禁用序列化名称。
+文件清单由 list_files 按需读取，不逐轮注入模型上下文。"""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import difflib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Final
+from typing import Any, Final, Literal
 
+from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
 from pydantic_ai.capabilities import AbstractCapability
-from pydantic_ai.tools import AgentDepsT, RunContext
+from pydantic_ai.messages import ImageUrl, ToolReturn
+from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
+from iclip.capabilities.workspace.ports import ImageInfo, MediaProbe, MediaProbeFailed
+from iclip.harness.materials import require_http, require_material
+from iclip.harness.media import (
+    IMAGE_CONTEXT_MAX_EDGE,
+    cropped_image_url,
+    media_tag_close,
+    media_tag_open,
+    resized_image_url,
+)
 from iclip.platform.file_store.store import (
     FileEntry,
     FileSpace,
@@ -36,24 +36,39 @@ from iclip.platform.file_store.store import (
     VersionConflict,
     normalize_path,
 )
+from iclip.platform.material_ledger.store import MaterialLedger
+from iclip.platform.transcript.display import (
+    FILE_CONTENT_VIEW,
+    MEDIA_GRID_VIEW,
+    SEARCH_RESULTS_VIEW,
+    DisplayFn,
+    FileIoDisplay,
+    GenericDisplay,
+    SearchDisplay,
+    ToolDisplay,
+    ToolDisplayEntry,
+    diff_note,
+    file_content,
+    media_grid,
+    search_results,
+    tool_note,
+    url_filename,
+)
 
 CAPABILITY_ID: Final = "workspace"
-"""能力与工具集共用的稳定 id。
-
-``for_run`` 每次运行都返回一个新实例，而官方按 id 认能力（不是按对象），所以
-它必须是写死的字符串而不是派生值。工具集用同一个 id，durable execution 按 id
-包工具集时才包得住。
-"""
+"""能力与工具集共用的稳定 id，用于识别 for_run 克隆及 durable execution 工具集。"""
 
 MAX_READ_LINES: Final = 400
 MAX_SEARCH_RESULTS: Final = 50
 
-_GUIDANCE = "这段对话有一个持久的工作目录，你和你派出去的下属共用同一个根，所有路径都相对它。"
-"""只说这个目录是什么。
+FULL_RESOLUTION_MAX_BYTES: Final = 10 * 1024 * 1024
+"""原分辨率单图大小上限，超限时要求使用 region 分块读取。"""
 
-路径怎么写、怎么用那六件工具，都写在各自的 docstring、参数描述与错误消息里了，
-在这儿再说一遍就是每轮都要付钱的重复。这条界线见 `docs/tool-design.md` §0。
-"""
+_RECORDED_AT: Final = "工具结果里返回的地址记在它写下的账本或版记录里，用 read_file 读回来再用。"
+"""素材来源错误的恢复指引。"""
+
+_GUIDANCE = "这段对话有一个持久的工作目录，你和你派出去的下属共用同一个根，所有路径都相对它。"
+"""仅说明目录用途，工具用法由各工具的提示与参数描述定义，避免重复注入。"""
 
 
 @dataclass
@@ -61,33 +76,27 @@ class Workspace(AbstractCapability[AgentDepsT]):
     """把工作区工具集挂到 agent 上。"""
 
     space: FileSpace
-    """文件落在哪：存储后端 + 从本次运行算命名空间的规则。
+    """存储后端与运行命名空间解析规则。解析失败必须终止运行，禁止使用公共命名空间。"""
 
-    命名空间做成规则而不是字符串，是为了让「按什么分工作区」这个决定留在组合
-    根：那里才看得见身份是怎么表示的。规则抛异常就让它抛——算不出命名空间时唯
-    一正确的行为是让这次运行失败，绝不能退回某个公共命名空间。
-    """
+    probe: MediaProbe
+    """读取原图尺寸、大小与格式的外部协议。"""
 
-    # 显式 kw_only：父类的 ``id`` 本来就是关键字字段，重新声明时得保持这一点，
-    # 否则字段顺序会变成「有默认值的位置参数在前、没默认值的在后」而报错。
+    ledger: MaterialLedger
+    """校验图片地址来源的对话素材台账。"""
+
+    # 保留父类 id 的 kw_only 属性，避免默认字段先于必需位置字段。
     id: str | None = field(default=CAPABILITY_ID, kw_only=True)
 
     _scope: str | None = field(default=None, init=False, repr=False, compare=False)
 
     async def for_run(self, ctx: RunContext[AgentDepsT]) -> Workspace[AgentDepsT]:
-        """每次运行克隆一份，并当场把命名空间算出来。
-
-        算这一次的意义不是省几次函数调用，而是**在第一次模型请求之前、每次运
-        行都确定性地失败**——而不是等模型碰巧去碰了工作区工具，才在一个工具错
-        误里暴露「这次运行的身份不对」。
-        """
+        """克隆能力并解析命名空间，在首次模型请求前暴露身份或装配错误。"""
 
         clone = replace(self)
         clone._scope = clone._resolve_scope(ctx)
         return clone
 
     def resolve_scope(self, ctx: RunContext[AgentDepsT]) -> str:
-        """取本次运行的命名空间。"""
 
         if self._scope is not None:
             return self._scope
@@ -102,18 +111,110 @@ class Workspace(AbstractCapability[AgentDepsT]):
     def get_instructions(self) -> AgentInstructions[AgentDepsT] | None:
         return _GUIDANCE
 
+    def display_table(self) -> Mapping[str, DisplayFn | ToolDisplayEntry]:
+        """供组合根合并的工具卡与结果渲染声明。"""
+
+        return {
+            "read_file": ToolDisplayEntry(
+                draw=lambda args: _file_io("read", _text(args, "path")), view=FILE_CONTENT_VIEW
+            ),
+            # 写入与编辑把内容带上，审批卡才能预览要写的东西和 diff。
+            "write_file": lambda args: _file_io(
+                "write", _text(args, "path"), content=_text(args, "content")
+            ),
+            "edit_file": lambda args: _file_io(
+                "edit",
+                _text(args, "path"),
+                before=_text(args, "old_text"),
+                after=_text(args, "new_text"),
+            ),
+            # 列目录按 glob 画；协议的 operation 联合里没有「删」，删文件走 generic。
+            "list_files": lambda args: _file_io("glob", _text(args, "prefix") or "/"),
+            "delete_file": _delete_display,
+            "search_files": ToolDisplayEntry(draw=_search_display, view=SEARCH_RESULTS_VIEW),
+            "ReadMediaFile": ToolDisplayEntry(draw=_media_display, view=MEDIA_GRID_VIEW),
+        }
+
     @classmethod
     def get_serialization_name(cls) -> str | None:
         return None
 
 
-def _checked(path: str) -> str:
-    """把路径语法错误翻成模型能自己改的重试。
+def _text(args: Any, field_name: str) -> str | None:
 
-    存储层也会校验一遍——那里是协议边界，将来多一个调用方也绕不过去。这里再
-    校验是为了错误消息：同一件事在这一层是「让模型改」，在那一层是「拒绝非法
-    输入」。
-    """
+    if isinstance(args, dict):
+        value = args.get(field_name)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _file_io(
+    operation: Literal["read", "write", "edit", "glob", "grep"],
+    path: str | None,
+    *,
+    content: str | None = None,
+    before: str | None = None,
+    after: str | None = None,
+) -> ToolDisplay | None:
+    if path is None:
+        return None
+    return FileIoDisplay(
+        operation=operation, path=path, content=content, before=before, after=after
+    )
+
+
+def _delete_display(args: Any) -> ToolDisplay | None:
+    path = _text(args, "path")
+    return None if path is None else GenericDisplay(summary="删除文件", detail=path)
+
+
+def _search_display(args: Any) -> ToolDisplay | None:
+    query = _text(args, "query")
+    return None if query is None else SearchDisplay(query=query)
+
+
+def _media_display(args: Any) -> ToolDisplay | None:
+    url = _text(args, "url")
+    return None if url is None else GenericDisplay(summary="读取图片", detail=url_filename(url))
+
+
+def _size_chip(size_bytes: int) -> str:
+    """卡尾角标用的文件大小；给模型的摘要另有 ``_bytes_label``，不要合并。"""
+
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    return _bytes_label(size_bytes)
+
+
+def _diff_counts(old_text: str, new_text: str) -> tuple[int, int]:
+    """一次替换增删了多少行，只看行级 diff。"""
+
+    added = removed = 0
+    for line in difflib.unified_diff(old_text.splitlines(), new_text.splitlines(), n=0):
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return added, removed
+
+
+def _bytes_label(size_bytes: int) -> str:
+
+    mib = 1024 * 1024
+    if size_bytes >= mib:
+        return f"{size_bytes / mib:.1f} MB"
+    return f"{size_bytes / 1024:.1f} KB"
+
+
+def _delivery_chip(delivered: str, original: str) -> str:
+    """交付地址带了缩放或裁切参数就是加工过的图，否则是原图。"""
+
+    return "原图" if delivered == original else "已处理"
+
+
+def _checked(path: str) -> str:
+    """将路径语法错误转换为 ModelRetry；存储边界仍独立校验外部输入。"""
 
     try:
         return normalize_path(path)
@@ -121,8 +222,19 @@ def _checked(path: str) -> str:
         raise ModelRetry(str(exc)) from exc
 
 
+class CropRegion(BaseModel):
+    """原图像素坐标下的一块矩形。"""
+
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    width: int = Field(ge=1)
+    height: int = Field(ge=1)
+
+
 class WorkspaceToolset(FunctionToolset[AgentDepsT]):
-    """工作区的六件工具。命名空间不在任何一个工具的参数里。"""
+    """工作区工具集，命名空间不由工具参数指定。
+
+    读图通过 Tool 注册，避免 add_function 的类型推导将 ctx 计入参数验证器签名。"""
 
     def __init__(self, capability: Workspace[AgentDepsT]) -> None:
         super().__init__(id=CAPABILITY_ID)
@@ -133,10 +245,37 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         self.add_function(self.delete_file, name="delete_file")
         self.add_function(self.list_files, name="list_files")
         self.add_function(self.search_files, name="search_files")
+        self.add_tool(
+            Tool(
+                self.read_media_file,
+                name="ReadMediaFile",
+                args_validator=self._validate_image_url,
+            )
+        )
+
+    async def _validate_image_url(
+        self,
+        ctx: RunContext[Any],
+        url: str,
+        region: CropRegion | None = None,
+        full_resolution: bool = False,
+    ) -> None:
+        """工具参数验证器，签名须与 read_media_file 一致。"""
+
+        _ = (region, full_resolution)
+        require_http(url, what="图片地址")
+        await require_material(
+            self._capability.ledger,
+            self._capability.resolve_scope(ctx),
+            url,
+            kind="image",
+            what="图片地址",
+            recorded_at=_RECORDED_AT,
+        )
 
     async def read_file(
         self, ctx: RunContext[AgentDepsT], path: str, offset: int = 1, limit: int = MAX_READ_LINES
-    ) -> str:
+    ) -> ToolReturn[str]:
         """读一个工作区文件，返回带行号的内容。
 
         Args:
@@ -162,9 +301,14 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         remaining = len(lines) - (offset - 1 + len(window))
         if remaining > 0:
             numbered += f"\n[还有 {remaining} 行没读，接着从第 {offset + len(window)} 行读]"
-        return numbered
+        return ToolReturn(
+            return_value=numbered,
+            metadata=file_content(key, lines=len(window), truncated=remaining > 0),
+        )
 
-    async def write_file(self, ctx: RunContext[AgentDepsT], path: str, content: str) -> str:
+    async def write_file(
+        self, ctx: RunContext[AgentDepsT], path: str, content: str
+    ) -> ToolReturn[str]:
         """写一个工作区文件，已存在就整份覆盖。
 
         覆盖就是覆盖：别人（或你自己上一轮）改过的内容会一起没掉。只改其中一
@@ -180,11 +324,14 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         key = _checked(path)
         scope = self._capability.resolve_scope(ctx)
         entry = await self._write(scope, key, content)
-        return f"已写入 {entry.path}（{entry.size_bytes} 字节）"
+        return ToolReturn(
+            return_value=f"已写入 {entry.path}（{entry.size_bytes} 字节）",
+            metadata=tool_note(chip=_size_chip(entry.size_bytes)),
+        )
 
     async def edit_file(
         self, ctx: RunContext[AgentDepsT], path: str, old_text: str, new_text: str
-    ) -> str:
+    ) -> ToolReturn[str]:
         """把文件里的一段文本替换掉，``old_text`` 必须恰好出现一次。
 
         改一处就用它，别把整份稿子重写一遍。``old_text`` 要连标点和空白一起照
@@ -214,12 +361,14 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
                 f"这段原文在 {key!r} 里出现了 {occurrences} 次，不知道该改哪一处。"
                 "把上下文多带几行进 old_text，让它唯一。"
             )
-        # 带上读到的版本号写回去：这是「读—改—写」，中间被人插一刀就该失败，
-        # 而不是把别人的改动盖掉。版本号不进工具参数——模型不该管这个。
+        # 按读取版本条件写入，防止并发覆盖；版本控制由工具内部处理。
         entry = await self._write(
             scope, key, stored.content.replace(old_text, new_text), expected_version=stored.version
         )
-        return f"已改 {entry.path}（现在 {entry.size_bytes} 字节）"
+        return ToolReturn(
+            return_value=f"已改 {entry.path}（现在 {entry.size_bytes} 字节）",
+            metadata=diff_note(*_diff_counts(old_text, new_text)),
+        )
 
     async def delete_file(self, ctx: RunContext[AgentDepsT], path: str) -> str:
         """删掉一个不再需要的工作区文件。
@@ -235,7 +384,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
             raise ModelRetry(f"工作区里没有 {key!r}，无从删除。")
         return f"已删除 {key}"
 
-    async def list_files(self, ctx: RunContext[AgentDepsT], prefix: str = "") -> str:
+    async def list_files(self, ctx: RunContext[AgentDepsT], prefix: str = "") -> ToolReturn[str]:
         """列出工作区里的文件。
 
         接手一段对话先用它看看已经攒了什么，别从零重来。
@@ -249,10 +398,17 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         entries = await self._entries(scope, prefix)
         if not entries:
             where = "工作区" if not prefix else f"{prefix!r} 下"
-            return f"{where}还没有任何文件。"
-        return "\n".join(f"{entry.path}\t{entry.size_bytes} 字节" for entry in entries)
+            return ToolReturn(
+                return_value=f"{where}还没有任何文件。", metadata=tool_note(chip="0 个文件")
+            )
+        return ToolReturn(
+            return_value="\n".join(f"{entry.path}\t{entry.size_bytes} 字节" for entry in entries),
+            metadata=tool_note(chip=f"{len(entries)} 个文件"),
+        )
 
-    async def search_files(self, ctx: RunContext[AgentDepsT], query: str, limit: int = 20) -> str:
+    async def search_files(
+        self, ctx: RunContext[AgentDepsT], query: str, limit: int = 20
+    ) -> ToolReturn[str]:
         """在工作区的文件内容里检索一个字符串，返回命中的行。
 
         大小写不敏感，按字面量匹配（不是正则）。同一个文件最多报前几处命中。
@@ -269,17 +425,128 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         result = await self._capability.space.store.search(
             scope, query, limit=min(limit, MAX_SEARCH_RESULTS)
         )
+        hits = search_results(
+            query,
+            ((match.path, match.line, match.snippet) for match in result.matches),
+            truncated=result.truncated,
+        )
         if not result.matches:
-            return f"工作区里没有包含 {query!r} 的内容。"
+            return ToolReturn(return_value=f"工作区里没有包含 {query!r} 的内容。", metadata=hits)
         lines = [f"{match.path}:{match.line}\t{match.snippet}" for match in result.matches]
         if result.truncated:
             lines.append("[命中较多，只报了一部分；把检索词写得更具体一些]")
-        return "\n".join(lines)
+        return ToolReturn(return_value="\n".join(lines), metadata=hits)
+
+    async def read_media_file(
+        self,
+        ctx: RunContext[AgentDepsT],
+        url: str,
+        region: CropRegion | None = None,
+        full_resolution: bool = False,
+    ) -> ToolReturn:
+        """读取一张图片，原始内容以多模态形式附在工具结果中。
+
+        - 本工具通常是你会希望并行使用的工具：需要看多张图时在同一次回复中发起多
+          次调用，不要分多轮逐张读取。
+        - 已读取且仍在上下文中的图片不要重复读取。
+        - 本工具只读图片。视频信息读拆解文档，文本与产物文件用 `read_file`。
+        - 默认降采样到长边 1024（原图长边本来不超过 1024 时原样附上）。要看清小字
+          或细节，给 `region` 按原图像素坐标取一块看；`full_resolution` 只在必须看
+          整幅原分辨率时给，常规读图不给。
+        - `region` 与 `full_resolution` 不要同时给，同时给会被拒。
+        - 原图超过 10 MB 时 `full_resolution` 会被拒，改用 `region` 分块看。
+        - 结果开头一句报出原图宽高、格式、字节数与这次的交付方式。输出坐标一律按
+          原图尺寸算，读的是 `region` 时再加上区域偏移。
+        - 只接受这段对话里出现过的地址；自行构造的一律被拒。上下文里已经翻不到那
+          个地址时，用 `read_file` 读回记着它的那份账本或版记录。
+
+        Args:
+            ctx: 框架给的运行上下文。
+            url: 图片地址，逐字取自对话或本会话工具结果里的图片 URL，不要自行构造。
+            region: 要看的那一块，x / y / width / height 按原图像素坐标给；越过右下
+                边界的部分裁到边界为止。
+            full_resolution: 整幅按原分辨率附上，不降采样。
+        """
+
+        if region is not None and full_resolution:
+            raise ModelRetry(
+                "region 与 full_resolution 二选一：看局部小字给 region，看整幅原分辨率给 "
+                "full_resolution。去掉一个再调。"
+            )
+        try:
+            info = await self._capability.probe.image_info(url)
+        except MediaProbeFailed as exc:
+            raise ModelRetry(f"这张图读不了（{exc}）；换一个对话里出现过的图片地址。") from exc
+        # 使用 OSS 参数执行缩放裁切，模型下载交付地址；素材 tag 保留原图地址。
+        try:
+            delivered, clause, advice = self._deliver(
+                url, info, region=region, full_resolution=full_resolution
+            )
+        except ValueError as exc:
+            raise ModelRetry(f"这张图读不了（{exc}）") from exc
+        summary = (
+            f"原图 {info.width}×{info.height} 像素，{info.media_type}，"
+            f"{_bytes_label(info.size_bytes)}；{clause}。{advice}"
+        )
+        # 直接返回多模态内容，保持在工具结果中；ToolReturn(content=...) 会追加用户消息。
+        # tag 关联原图地址、摘要与像素，后续工具引用原图而非带裁切参数的交付地址。
+        return ToolReturn(
+            return_value=[
+                media_tag_open("image", url),
+                summary,
+                ImageUrl(url=delivered, media_type=info.media_type),
+                media_tag_close("image"),
+            ],
+            metadata=media_grid([(delivered, clause)], note=_delivery_chip(delivered, url)),
+        )
+
+    def _deliver(
+        self, url: str, info: ImageInfo, *, region: CropRegion | None, full_resolution: bool
+    ) -> tuple[str, str, str]:
+        """选择图片交付地址，并生成交付方式与坐标说明。"""
+
+        if region is not None:
+            if region.x >= info.width or region.y >= info.height:
+                raise ModelRetry(
+                    f"region 的起点 ({region.x}, {region.y}) 落在原图之外：原图是 "
+                    f"{info.width}×{info.height} 像素，按这个尺寸重算坐标再调。"
+                )
+            # OSS 会按图像边界截断裁切，返回实际区域尺寸。
+            seen_width = min(region.width, info.width - region.x)
+            seen_height = min(region.height, info.height - region.y)
+            shrunk = max(seen_width, seen_height) > IMAGE_CONTEXT_MAX_EDGE
+            delivered = cropped_image_url(
+                url,
+                x=region.x,
+                y=region.y,
+                width=region.width,
+                height=region.height,
+                max_edge=IMAGE_CONTEXT_MAX_EDGE if shrunk else None,
+            )
+            clause = f"当前显示区域 x={region.x}, y={region.y}, {seen_width}×{seen_height}"
+            if shrunk:
+                clause += f"，已降采样到长边 {IMAGE_CONTEXT_MAX_EDGE}"
+            return delivered, clause, "输出原图坐标时加上区域偏移 (x, y)。"
+        if full_resolution:
+            if info.size_bytes > FULL_RESOLUTION_MAX_BYTES:
+                raise ModelRetry(
+                    f"这张图 {_bytes_label(info.size_bytes)}，超过按原分辨率读取的上限 "
+                    f"{_bytes_label(FULL_RESOLUTION_MAX_BYTES)}；改用 region 按原图像素"
+                    "坐标分块看。"
+                )
+            return url, "原分辨率", ""
+        if max(info.width, info.height) > IMAGE_CONTEXT_MAX_EDGE:
+            return (
+                resized_image_url(url, max_edge=IMAGE_CONTEXT_MAX_EDGE),
+                f"已降采样到长边 {IMAGE_CONTEXT_MAX_EDGE}",
+                "要看清小字或细节，用 `region` 按原图像素坐标看一块。输出坐标一律按原图尺寸算。",
+            )
+        return url, "未缩放", ""
 
     async def _write(
         self, scope: str, key: str, content: str, *, expected_version: int | None = None
     ) -> FileEntry:
-        """写入并把存储层的失败翻成模型能自己处理的重试。"""
+        """写入文件，将存储错误转换为 ModelRetry。"""
 
         try:
             return await self._capability.space.store.write(
@@ -301,16 +568,19 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
             raise ModelRetry(str(exc)) from exc
 
 
-def workspace_capability(*, space: FileSpace) -> Workspace[Any]:
-    """造一个工作区能力。组合根用这个，不直接碰 dataclass 的字段顺序。"""
+def workspace_capability(
+    *, space: FileSpace, probe: MediaProbe, ledger: MaterialLedger
+) -> Workspace[Any]:
 
-    return Workspace[Any](space=space)
+    return Workspace[Any](space=space, probe=probe, ledger=ledger)
 
 
 __all__ = [
     "CAPABILITY_ID",
+    "FULL_RESOLUTION_MAX_BYTES",
     "MAX_READ_LINES",
     "MAX_SEARCH_RESULTS",
+    "CropRegion",
     "Workspace",
     "WorkspaceToolset",
     "workspace_capability",

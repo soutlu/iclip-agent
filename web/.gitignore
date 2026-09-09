@@ -52,3 +52,6 @@ dev.pid
 next-env.d.ts
 
 /test-results/
+
+# contract:check 的临时输出
+.openapi-check-*

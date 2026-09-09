@@ -1,417 +1,471 @@
 import { http, HttpResponse } from 'msw'
+import type { z } from 'zod'
+import {
+  zConversationIn,
+  zTaskCreateIn,
+  zTaskIn,
+  zTaskInputsOutput,
+  type zTaskOut,
+} from '@/shared/api/generated/zod.gen'
+import { transcriptHandlers } from './transcript'
+import { workspaceHandlers } from './workspace'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MSW canonical REST 契约镜像
-//
-// 用法：
-//   - 单测（node 端）：`import { server } from '@/testing/mocks/server'`，在测试文件里
-//     `beforeAll(() => server.listen())` / `afterEach(() => server.resetHandlers())` /
-//     `afterAll(() => server.close())`。全局 setup 仍不接线，避免干扰存量 fetch 行为 mock。
-//   - 浏览器原型：仅 `pnpm dev:mock` 经 browser.ts 注册本数组；普通 `pnpm dev` 不注册
-//     canonical handlers，未命中的请求仍走真实后端。
-//   - 单个测试覆盖响应：`server.use(http.get('*/api/users/me', () => HttpResponse.json(...)))`。
-//
-// 扩展方式：
-//   - handlers 镜像 iclip_agent 后端 REST 契约。后端路由挂根路径，前端一律经 `/api`
-//     前缀走同源代理（vite proxy / nginx 会去掉 `/api`），因此 handler 匹配前端视角的
-//     `*/api/...` 路径（`*` 前缀兼容 node 端绝对 URL 与浏览器端相对 URL）。
-//   - 响应形状以前端 API 层的解析函数为准（parse/map 函数即前端侧契约事实源）：
-//     auth 见 src/shared/auth/producer-auth.api.ts，项目见
-//     src/features/projects/api/producer-project.api.ts。新增接口时先读对应 API 层。
-//   - WS（/api/generations/ws 生成事件）与 AG-UI 流式端点 MSW 支持有限，**不用 MSW**，
-//     沿用现有测试的注入 stub 方案（参考 project-chat-provider.test.tsx 的 fetch/WS stub）。
-//   - 真实后端尚不存在的页面数据留在对应 feature 内嵌，不注册虚构的原型接口。
-// ─────────────────────────────────────────────────────────────────────────────
+// MSW handlers 由单测与 dev:mock 共用；普通 dev 不注册。响应字段以 contract/openapi.json 为准。
 
-/** 默认已登录用户：持有 editor 全量权限，形状对齐 parseProducerAuthUser。 */
 export const mockAuthUser = {
   avatarUrl: '',
+  city: '',
+  createdAt: null,
+  departments: [],
+  directPermissions: [],
   displayName: '测试用户',
-  id: 'user-1',
-  permissions: ['projects:read', 'projects:write'],
+  email: 'tester@example.com',
+  id: '0f7f4c1e-8a3b-4d0e-9c2a-6b1d2e3f4a5b',
+  isActive: true,
+  jobTitle: '',
+  lastLoginAt: null,
+  permissions: [
+    'agent:read',
+    'agent:run',
+    'generation:read',
+    'generation:submit',
+    'assets:read',
+    'assets:write',
+    'collections:read',
+    'collections:write',
+    'tasks:read',
+    'tasks:write',
+  ],
   roles: ['editor'],
   username: 'tester',
 }
 
-/** 默认项目列表：形状对齐 mapProducerProject（kind 仅 'agent' | 'direct'）。 */
-export const mockProjects = [
-  {
-    createdAt: '2026-07-01T00:00:00Z',
-    id: 'project-1',
-    kind: 'agent',
-    sessionIds: ['session-1'],
-    title: '测试项目',
-    updatedAt: '2026-07-02T00:00:00Z',
-  },
-]
+// 会话状态由登录更新；页面刷新和单测清理后重置为未登录。
+let sessionActive = false
 
-/** dev:mock 内存任务账本（node 测试一律用 server.use 覆盖，不依赖此状态）。 */
-const mockVideoTasks: Array<Record<string, unknown> & { id: string; status: string }> = []
+// 按 assetId 记录签名时的 contentType，登记响应复用此信息。
+const mockUploads = new Map<string, string>()
+const mockUploadBytes = new Map<string, { body: ArrayBuffer; contentType: string }>()
 
-/** dev:mock 内存素材账本：登记（直传或转存）之后可被 GET /assets 列出。 */
-const mockAssets: Array<{
-  assetType: string
-  contentType: string
+export const resetMockSession = () => {
+  sessionActive = false
+  mockUploads.clear()
+  mockUploadBytes.clear()
+}
+
+// 内存对话遵循 ConversationOut，标题搜索不区分大小写。
+type MockConversation = {
+  activity: {
+    busy: boolean
+    lastTurnReason: 'completed' | 'failed' | 'aborted' | null
+    pendingInteraction: 'none' | 'approval' | 'question'
+  }
+  agentId: string
+  collectionId: string | null
   createdAt: string
-  creatorUserId: string
   id: string
-  sizeBytes: number
-  url: string
-}> = []
-
-/** 签名时说过的类型：登记那一步没有请求体，mock 只能靠它还原（真后端是回桶里读）。 */
-const mockSignedContentTypes = new Map<string, string>()
-
-/** 爆款库推荐视频固定样本（排序字段齐全，sortBy 在 handler 内生效）。 */
-export const mockInspirationVideos = [
-  {
-    creatorHandle: '@sneaker.daily',
-    metrics: {
-      clicks: 4200,
-      impressions: 1200000,
-      orders: 320,
-      revenue: '12999.50',
-      views: 90000,
-    },
-    ossUrl: 'https://oss.example.com/inspiration/video-orders.mp4',
-    postedDate: '2026-07-08',
-    styleWms: 'SNST26006U-WMS',
-    videoId: 'video-orders',
-    videoUrl: 'https://video.example.com/video-orders.mp4',
-  },
-  {
-    creatorHandle: '@outdoor.walks',
-    metrics: {
-      clicks: 9000,
-      impressions: 2600000,
-      orders: 120,
-      revenue: '5200.00',
-      views: 480000,
-    },
-    ossUrl: 'https://oss.example.com/inspiration/video-views.mp4',
-    postedDate: '2026-06-21',
-    styleWms: 'SNST26006U-WMS',
-    videoId: 'video-views',
-    videoUrl: 'https://video.example.com/video-views.mp4',
-  },
-  {
-    creatorHandle: null,
-    metrics: {
-      clicks: 1500,
-      impressions: 600000,
-      orders: 45,
-      revenue: '1800.00',
-      views: 30000,
-    },
-    ossUrl: null,
-    postedDate: null,
-    styleWms: 'RAIN2026-WMS',
-    videoId: 'video-substitute',
-    videoUrl: 'https://video.example.com/video-substitute.mp4',
-  },
-]
-
-const mockWebInspirationPosts = {
-  instagram: [
-    {
-      creatorHandle: '@mock.instagram',
-      durationSeconds: null,
-      platformVideoId: 'mock-instagram-001',
-      postUrl: 'https://social.example.com/reel/mock-instagram-001/',
-      selectionToken: 'selection-token-instagram-001',
-      thumbnailUrl: null,
-      title: 'Mock Instagram water shoes',
-    },
-  ],
-  tiktok: [
-    {
-      creatorHandle: '@mock.creator',
-      durationSeconds: 18,
-      platformVideoId: 'mock-tiktok-001',
-      postUrl: 'https://www.tiktok.com/@mock.creator/video/mock-tiktok-001',
-      selectionToken: 'selection-token-tiktok-001',
-      thumbnailUrl: null,
-      title: 'Mock TikTok water shoes',
-    },
-  ],
-  youtube: [
-    {
-      creatorHandle: '@mock-channel',
-      durationSeconds: 24,
-      platformVideoId: 'mock-youtube-001',
-      postUrl: 'https://www.youtube.com/watch?v=mock-youtube-001',
-      selectionToken: 'selection-token-youtube-001',
-      thumbnailUrl: 'https://i.ytimg.com/vi/mock-youtube-001/hqdefault.jpg',
-      title: 'Mock YouTube water shoes',
-    },
-  ],
-} as const
-
-const mockWebInspirationDurations = {
-  instagram: 20,
-  tiktok: 18,
-  youtube: 24,
-} as const
-
-const MOCK_EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'video/mp4': 'mp4',
-  'video/quicktime': 'mov',
+  lastRunId: string | null
+  ownerUserId: string
+  taskId: string | null
+  title: string
+  updatedAt: string
 }
 
-/**
- * 登记一条内存素材（直传与转存共用）。
- *
- * @param input - 素材 id 与 content type。
- * @returns 已入账本的那一行；同一个 id 重复登记返回同一行。
- */
-const registerMockAsset = ({ assetId, contentType }: { assetId: string; contentType: string }) => {
-  const existing = mockAssets.find((asset) => asset.id === assetId)
-  if (existing) {
-    return existing
-  }
+export const mockConversations: MockConversation[] = []
 
-  const extension = MOCK_EXTENSION_BY_CONTENT_TYPE[contentType] ?? 'bin'
-  const asset = {
-    assetType: contentType.startsWith('video/') ? 'video' : 'image',
-    contentType,
-    createdAt: new Date().toISOString(),
+export const addMockConversation = (title: string, updatedAt = new Date().toISOString()) => {
+  const conversation: MockConversation = {
+    activity: { busy: false, lastTurnReason: null, pendingInteraction: 'none' },
+    agentId: 'storyboard',
+    collectionId: null,
+    createdAt: updatedAt,
+    id: crypto.randomUUID(),
+    lastRunId: null,
+    ownerUserId: mockAuthUser.id,
+    taskId: null,
+    title,
+    updatedAt,
+  }
+  mockConversations.push(conversation)
+  return conversation
+}
+
+export const resetMockConversations = () => {
+  mockConversations.length = 0
+  mockCollections.length = 0
+}
+
+type MockCollection = {
+  createdAt: string
+  id: string
+  name: string
+  ownerUserId: string
+  updatedAt: string
+}
+
+export const mockCollections: MockCollection[] = []
+
+export const addMockCollection = (name: string) => {
+  const now = new Date().toISOString()
+  const collection: MockCollection = {
+    createdAt: now,
+    id: crypto.randomUUID(),
+    name,
+    ownerUserId: mockAuthUser.id,
+    updatedAt: now,
+  }
+  mockCollections.push(collection)
+  return collection
+}
+
+const SIDEBAR_PER_COLLECTION = 10
+const SIDEBAR_UNGROUPED = 20
+
+const byRecent = (a: MockConversation, b: MockConversation) =>
+  b.updatedAt.localeCompare(a.updatedAt)
+
+const pageOf = (rows: MockConversation[], limit: number) => {
+  const items = rows.slice(0, limit)
+  const last = items[items.length - 1]
+  return {
+    items,
+    nextCursor: items.length === limit && last ? `${last.updatedAt}|${last.id}` : null,
+  }
+}
+
+/** 筛选与后端一致：running 包含待审批，done 要求已结束且至少运行过一轮；计数使用相同筛选。 */
+const inState = (item: MockConversation, state: string | null) => {
+  if (state === 'running') return item.activity.busy
+  if (state === 'done') return !item.activity.busy && item.activity.lastTurnReason !== null
+  return true
+}
+
+const after = (rows: MockConversation[], cursor: string | null) => {
+  if (!cursor) return rows
+  const index = rows.findIndex((item) => `${item.updatedAt}|${item.id}` === cursor)
+  return index < 0 ? rows : rows.slice(index + 1)
+}
+
+type MockTask = z.output<typeof zTaskOut>
+
+/** 模拟后端在请求默认值补齐后输出完整的 inputs。 */
+const completeTaskInputs = (inputs: z.output<typeof zTaskCreateIn>['inputs']) =>
+  zTaskInputsOutput.parse({
+    ...inputs,
+    products: inputs.products.map((product) => ({ image_oss_urls: [], ...product })),
+    reference_image_oss_urls: {
+      model: [],
+      outfit: [],
+      prop: [],
+      ...inputs.reference_image_oss_urls,
+    },
+    reference_video_oss_url: inputs.reference_video_oss_url ?? null,
+    video_spec: { aspect_ratio: null, duration_seconds: null, ...inputs.video_spec },
+  })
+
+export const mockTasks: MockTask[] = []
+
+export const addMockTask = (title: string) => {
+  const now = new Date().toISOString()
+  const task: MockTask = {
+    assigneeUserIds: [],
+    inputs: zTaskInputsOutput.parse({
+      video_spec: { aspect_ratio: null, duration_seconds: null },
+      reference_video_oss_url: null,
+      products: [{ style_no: 'SBPU24001W', image_oss_urls: [] }],
+      reference_image_oss_urls: { model: [], outfit: [], prop: [] },
+    }),
+    createdAt: now,
     creatorUserId: mockAuthUser.id,
-    id: assetId,
-    sizeBytes: 1024,
-    // 地址带上真实扩展名：前端按它判断媒体类型（见 video-task.api.ts）。
-    url: `https://oss.mock.example.com/public/${assetId}.${extension}`,
+    deadline: null,
+    id: crypto.randomUUID(),
+    priority: 0,
+    status: 'draft',
+    title,
+    updatedAt: now,
   }
-  mockAssets.push(asset)
-  return asset
+  mockTasks.push(task)
+  return task
 }
 
-/**
- * 推进内存任务的状态并返回标准响应。
- *
- * @param taskId - 目标任务 id。
- * @param status - 目标状态。
- * @returns 任务包装响应；任务不存在时 404。
- */
-const transitionMockVideoTask = (taskId: string, status: 'confirmed' | 'published') => {
-  const task = mockVideoTasks.find((item) => item.id === taskId)
-  if (!task) {
-    return HttpResponse.json({ detail: 'Video Task 不存在' }, { status: 404 })
-  }
-  task.status = status
-  task.updatedAt = new Date().toISOString()
-  return HttpResponse.json({ task })
+export const resetMockTasks = () => {
+  mockTasks.length = 0
 }
 
 export const handlers = [
-  // ── auth（src/shared/auth/producer-auth.api.ts）─────────────────────────────
-  // GET /users/me：会话唯一事实源，响应为 { user } 包装；未登录时后端返回 401。
-  http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })),
-
-  // POST /auth/login：fastapi-users OAuth2 表单登录，成功 204 并种 HttpOnly cookie。
-  http.post('*/api/auth/login', () => new HttpResponse(null, { status: 204 })),
-
-  // POST /auth/logout：注销会话并清 cookie；会话本就失效时后端返回 401（前端视为成功）。
-  http.post('*/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
-
-  // ── 项目列表（src/features/projects/api/producer-project.api.ts）───────────
-  // GET /projects：当前登录用户可访问的项目文件夹列表，响应为 { projects } 包装。
-  http.get('*/api/projects', () => HttpResponse.json({ projects: mockProjects })),
-
-  // ── 创作需求单（src/features/tasks/api/video-task.api.ts）──────────────────
-  // 浏览器原型的内存任务账本：下发（create+publish）与确认在 dev:mock 下可走通全流程。
-  http.get('*/api/tasks', () => HttpResponse.json({ items: mockVideoTasks })),
-  http.post('*/api/tasks', async ({ request }) => {
-    const body = (await request.json()) as {
-      brief?: Record<string, unknown>
-      deadline?: null | string
-      styleNo?: string
-      title?: string
-    }
-    const now = new Date().toISOString()
-    const task = {
-      brief: { referenceImages: [], referenceVideos: [], ...body.brief },
-      createdAt: now,
-      creatorUserId: mockAuthUser.id,
-      deadline: body.deadline ?? null,
-      id: `mock-task-${String(mockVideoTasks.length + 1)}`,
-      priority: 0,
-      status: 'draft',
-      style: {
-        brand: 'NORTIV8',
-        category: '运动凉鞋',
-        previewImageUrl: 'https://assets.example.com/SNST26006U-1.jpg',
-        styleNo: body.styleNo ?? '',
-      },
-      title: body.title ?? body.styleNo ?? '',
-      updatedAt: now,
-    }
-    mockVideoTasks.push(task)
-    return HttpResponse.json({ task }, { status: 201 })
-  }),
-  // PUT /tasks/{taskId} 是整体覆盖；mock 不复刻「下发即冻结」那套比对，直接盖。
-  http.put('*/api/tasks/:taskId', async ({ params, request }) => {
-    const task = mockVideoTasks.find((item) => item.id === String(params.taskId))
-    if (!task) {
-      return HttpResponse.json({ detail: '需求单不存在' }, { status: 404 })
-    }
-    const body = (await request.json()) as { brief?: Record<string, unknown> }
-    task.brief = { ...(task.brief as Record<string, unknown>), ...body.brief }
-    task.updatedAt = new Date().toISOString()
-    return HttpResponse.json({ task })
-  }),
-  http.post('*/api/tasks/:taskId/publish', ({ params }) =>
-    transitionMockVideoTask(String(params.taskId), 'published'),
-  ),
-  http.post('*/api/tasks/:taskId/confirm', ({ params }) =>
-    transitionMockVideoTask(String(params.taskId), 'confirmed'),
+  // /users/me 是会话事实源，未登录时返回 401。
+  http.get('*/api/users/me', () =>
+    sessionActive
+      ? HttpResponse.json({ user: mockAuthUser })
+      : new HttpResponse(null, { status: 401 }),
   ),
 
-  // ── 产品资料（src/features/tasks/api/video-task.api.ts）────────────────────
-  // GET /products/{styleNo}：码永远有、名字可能是 null；图不带颜色归属。
-  http.get('*/api/products/:styleNo', ({ params }) => {
-    const styleNo = String(params.styleNo)
-    if (styleNo !== 'SNST26006U') {
-      return HttpResponse.json({ detail: `未找到款号 ${styleNo}` }, { status: 404 })
-    }
+  http.post('*/api/auth/login', () => {
+    sessionActive = true
+    return new HttpResponse(null, { status: 204 })
+  }),
 
+  http.post('*/api/auth/logout', () => {
+    sessionActive = false
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  // mock 不启用 SSO，以 404 表示路由未挂载。
+  http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
+
+  // 模拟 ILIKE 的大小写不敏感标题搜索，按最近活动排序。
+  http.get('*/api/conversations/search', ({ request }) => {
+    const keyword = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase()
+    const items = [...mockConversations]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .filter((item) => !keyword || item.title.toLowerCase().includes(keyword))
+    return HttpResponse.json({ items })
+  }),
+
+  // 分页游标使用 updatedAt|id；前端将其视为不透明值。
+  http.get('*/api/conversations', ({ request }) => {
+    const state = new URL(request.url).searchParams.get('state')
+    const sorted = [...mockConversations].sort(byRecent).filter((item) => inState(item, state))
+    const ungrouped = sorted.filter((item) => item.collectionId === null)
     return HttpResponse.json({
-      product: {
-        brand: { code: '2', name: 'NORTIV8' },
-        category: { code: 'SD', id: 61, name: '运动凉鞋' },
-        colors: [
-          { code: 'BK07', name: 'ALL BLACK' },
-          { code: 'BL03', name: 'BLUE/BLACK' },
-          { code: 'GY01', name: null },
-        ],
-        images: Array.from({ length: 6 }, (_, index) => ({
-          height: 508,
-          id: `SNST26006U-${String(index + 1)}`,
-          url: `https://assets.example.com/products/mock-product/image-${String(index + 1)}.jpg`,
-          width: 644,
-        })),
-        styleNo,
-        styleWms: 'SNST26006U-WMS',
-      },
+      collections: [...mockCollections]
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map((collection) => {
+          const inside = sorted.filter((item) => item.collectionId === collection.id)
+          return {
+            conversationCount: inside.length,
+            id: collection.id,
+            name: collection.name,
+            page: pageOf(inside, SIDEBAR_PER_COLLECTION),
+            updatedAt: collection.updatedAt,
+          }
+        }),
+      ungrouped: pageOf(ungrouped, SIDEBAR_UNGROUPED),
+      ungroupedCount: ungrouped.length,
     })
   }),
 
-  // ── 素材账本（src/shared/lib/file-upload.ts）───────────────────────────────
-  // 签名 → 直传 PUT → 登记；外部地址走转存。内容在 dev:mock 下不真正存储。
+  http.post('*/api/conversations', async ({ request }) => {
+    const body = zConversationIn.parse(await request.json())
+    const conversation = addMockConversation(body.title ?? '新对话')
+    conversation.agentId = body.agentId
+    conversation.taskId = body.taskId ?? null
+    conversation.collectionId = body.collectionId ?? null
+    return HttpResponse.json({ conversation }, { status: 201 })
+  }),
+
+  http.get('*/api/conversations/ungrouped', ({ request }) => {
+    const query = new URL(request.url).searchParams
+    const rows = [...mockConversations]
+      .sort(byRecent)
+      .filter((item) => item.collectionId === null && inState(item, query.get('state')))
+    return HttpResponse.json(pageOf(after(rows, query.get('cursor')), SIDEBAR_UNGROUPED))
+  }),
+
+  http.get('*/api/conversations/by-collection/:collectionId', ({ params, request }) => {
+    const query = new URL(request.url).searchParams
+    const rows = [...mockConversations]
+      .sort(byRecent)
+      .filter(
+        (item) => item.collectionId === params['collectionId'] && inState(item, query.get('state')),
+      )
+    return HttpResponse.json(pageOf(after(rows, query.get('cursor')), SIDEBAR_PER_COLLECTION))
+  }),
+
+  http.put('*/api/conversations/:conversationId/collection', async ({ params, request }) => {
+    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    const body = (await request.json()) as { collectionId: string | null }
+    Object.assign(conversation, {
+      collectionId: body.collectionId,
+      updatedAt: new Date().toISOString(),
+    })
+    return HttpResponse.json({ conversation })
+  }),
+
+  http.put('*/api/conversations/:conversationId/task', async ({ params, request }) => {
+    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    const body = (await request.json()) as { taskId: string | null }
+    Object.assign(conversation, { taskId: body.taskId, updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ conversation })
+  }),
+
+  http.patch('*/api/conversations/:conversationId', async ({ params, request }) => {
+    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    const body = (await request.json()) as { title: string }
+    Object.assign(conversation, { title: body.title, updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ conversation })
+  }),
+
+  http.delete('*/api/conversations/:conversationId', ({ params }) => {
+    const index = mockConversations.findIndex((item) => item.id === params['conversationId'])
+    if (index < 0) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    mockConversations.splice(index, 1)
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.get('*/api/collections', () =>
+    HttpResponse.json({
+      items: [...mockCollections].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    }),
+  ),
+
+  http.post('*/api/collections', async ({ request }) => {
+    const body = (await request.json()) as { name: string }
+    return HttpResponse.json({ collection: addMockCollection(body.name) }, { status: 201 })
+  }),
+
+  http.patch('*/api/collections/:collectionId', async ({ params, request }) => {
+    const collection = mockCollections.find((item) => item.id === params['collectionId'])
+    if (!collection) return HttpResponse.json({ detail: '没有这个合集' }, { status: 404 })
+    const body = (await request.json()) as { name: string }
+    Object.assign(collection, { name: body.name, updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ collection })
+  }),
+
+  http.delete('*/api/collections/:collectionId', ({ params }) => {
+    const index = mockCollections.findIndex((item) => item.id === params['collectionId'])
+    if (index < 0) return HttpResponse.json({ detail: '没有这个合集' }, { status: 404 })
+    const [removed] = mockCollections.splice(index, 1)
+    mockConversations.forEach((item) => {
+      if (item.collectionId === removed?.id) item.collectionId = null
+    })
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.get('*/api/tasks', ({ request }) => {
+    const url = new URL(request.url)
+    let items = [...mockTasks]
+    if (url.searchParams.get('claimedBy') === 'me') {
+      items = items.filter((task) => task.assigneeUserIds.includes(mockAuthUser.id))
+    }
+    const status = url.searchParams.get('status')
+    if (status) items = items.filter((task) => task.status === status)
+    return HttpResponse.json({ items })
+  }),
+
+  http.post('*/api/tasks', async ({ request }) => {
+    const parsed = zTaskCreateIn.safeParse(await request.json())
+    if (!parsed.success) return HttpResponse.json({ detail: '需求单参数不合法' }, { status: 422 })
+    const now = new Date().toISOString()
+    const task: MockTask = {
+      ...parsed.data,
+      deadline: parsed.data.deadline ?? null,
+      inputs: completeTaskInputs(parsed.data.inputs),
+      assigneeUserIds: [],
+      createdAt: now,
+      creatorUserId: mockAuthUser.id,
+      id: crypto.randomUUID(),
+      status: 'draft',
+      updatedAt: now,
+    }
+    mockTasks.unshift(task)
+    return HttpResponse.json({ task }, { status: 201 })
+  }),
+
+  http.get('*/api/tasks/:taskId', ({ params }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    return task
+      ? HttpResponse.json({ task })
+      : HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+  }),
+
+  http.put('*/api/tasks/:taskId', async ({ params, request }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+    const parsed = zTaskIn.safeParse(await request.json())
+    if (!parsed.success) return HttpResponse.json({ detail: '需求单参数不合法' }, { status: 422 })
+    Object.assign(task, parsed.data, {
+      inputs: completeTaskInputs(parsed.data.inputs),
+      updatedAt: new Date().toISOString(),
+    })
+    return HttpResponse.json({ task })
+  }),
+
+  http.post('*/api/tasks/:taskId/publish', ({ params }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+    if (task.status !== 'draft') {
+      return HttpResponse.json({ detail: '只有草稿能发布' }, { status: 409 })
+    }
+    Object.assign(task, { status: 'published', updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ task })
+  }),
+
+  http.post('*/api/tasks/:taskId/confirm', ({ params }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+    if (task.status !== 'published' && task.status !== 'confirmed') {
+      return HttpResponse.json({ detail: '这张单认领不了' }, { status: 409 })
+    }
+    if (!task.assigneeUserIds.includes(mockAuthUser.id)) {
+      task.assigneeUserIds.push(mockAuthUser.id)
+    }
+    Object.assign(task, { status: 'confirmed', updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ task })
+  }),
+
+  http.post('*/api/tasks/:taskId/withdraw', ({ params }) => {
+    const task = mockTasks.find((item) => item.id === params['taskId'])
+    if (!task) return HttpResponse.json({ detail: '没有这张需求单' }, { status: 404 })
+    if (task.status !== 'published' && task.status !== 'confirmed') {
+      return HttpResponse.json({ detail: '这张单撤不了' }, { status: 409 })
+    }
+    Object.assign(task, { status: 'withdrawn', updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ task })
+  }),
+
+  // 签名、直传与登记共用上传类型记录，保持登记响应与签名一致。
   http.post('*/api/uploads/sign', async ({ request }) => {
-    const body = (await request.json()) as { contentType?: string }
-    const contentType = body.contentType ?? 'image/jpeg'
-    const assetId = `mock-asset-${String(mockSignedContentTypes.size + 1)}`
-    // 登记那一步没有请求体，类型只能由「签名时说过什么」记着——真后端是回桶里读。
-    mockSignedContentTypes.set(assetId, contentType)
+    const body = (await request.json()) as { contentType: string }
+    const assetId = crypto.randomUUID()
+    mockUploads.set(assetId, body.contentType)
     return HttpResponse.json({
       assetId,
       upload: {
-        expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
-        headers: { 'Content-Type': contentType },
-        method: 'PUT',
-        url: `https://oss.mock.example.com/upload/${assetId}`,
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        headers: { 'Content-Type': body.contentType },
+        url: `http://localhost/mock-oss/${assetId}`,
       },
     })
   }),
-  http.put('https://oss.mock.example.com/upload/*', () => new HttpResponse(null, { status: 200 })),
-  http.post('*/api/assets/import', async ({ request }) => {
-    const source = ((await request.json()) as { url?: string }).url ?? ''
+
+  http.put('*/mock-oss/:assetId', async ({ params, request }) => {
+    mockUploadBytes.set(String(params['assetId']), {
+      body: await request.arrayBuffer(),
+      contentType: request.headers.get('Content-Type') ?? 'application/octet-stream',
+    })
+    return new HttpResponse(null, { status: 200 })
+  }),
+  http.get('*/mock-oss/:assetId', ({ params }) => {
+    const media = mockUploadBytes.get(String(params['assetId']))
+    return media
+      ? new HttpResponse(media.body, { headers: { 'Content-Type': media.contentType } })
+      : new HttpResponse(null, { status: 404 })
+  }),
+
+  http.post('*/api/assets/:assetId', ({ params }) => {
+    const assetId = params['assetId'] as string
+    const contentType = mockUploads.get(assetId) ?? 'image/png'
     return HttpResponse.json(
       {
-        // 真后端按源地址算 uuid5；mock 拿地址本身当键，同样是「一个地址只有一行」。
-        asset: registerMockAsset({
-          assetId: `mock-import-${encodeURIComponent(source)}`,
-          contentType: source.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg',
-        }),
+        asset: {
+          assetType: contentType.startsWith('video/') ? 'video' : 'image',
+          contentType,
+          createdAt: new Date().toISOString(),
+          creatorUserId: mockAuthUser.id,
+          id: assetId,
+          sizeBytes: 1024,
+          url: `http://localhost/mock-oss/${assetId}`,
+        },
       },
       { status: 201 },
     )
   }),
-  http.post('*/api/assets/:assetId', ({ params }) => {
-    const assetId = String(params.assetId)
-    const contentType = mockSignedContentTypes.get(assetId)
-    if (contentType === undefined) {
-      return HttpResponse.json({ detail: '这份素材还没传上来，传完再登记' }, { status: 409 })
-    }
-    return HttpResponse.json(
-      { asset: registerMockAsset({ assetId, contentType }) },
-      { status: 201 },
-    )
-  }),
-  http.get('*/api/assets', () => HttpResponse.json({ items: mockAssets })),
 
-  // ── 创作灵感目录（src/features/tasks/api/inspiration.api.ts）────────────────
-  // POST /inspirations/videos/search：收 WMS 编号（不是 PDM 款号），按 sortBy 服务端排序。
-  http.post('*/api/inspirations/videos/search', async ({ request }) => {
-    const sortBy = ((await request.json()) as { sortBy?: string }).sortBy ?? 'orders'
-    const items = [...mockInspirationVideos].sort((left, right) =>
-      sortBy === 'clicks' || sortBy === 'impressions' || sortBy === 'orders' || sortBy === 'views'
-        ? right.metrics[sortBy] - left.metrics[sortBy]
-        : Number(right.metrics.revenue) - Number(left.metrics.revenue),
-    )
-    return HttpResponse.json({ items })
-  }),
-  // POST /inspirations/videos/web-search：每次只搜索一个平台，只返回可预览候选。
-  http.post('*/api/inspirations/videos/web-search', async ({ request }) => {
-    const body = (await request.json()) as {
-      category?: string
-      platform?: 'instagram' | 'tiktok' | 'youtube'
-      scene?: string
-      sellingPoint?: string
-    }
-    if (!body.platform) {
-      return HttpResponse.json({ detail: 'platform 必填' }, { status: 422 })
-    }
-    return HttpResponse.json({
-      items: mockWebInspirationPosts[body.platform].map((post, index) => ({
-        ...post,
-        responsePosition: index + 1,
-      })),
-      platform: body.platform,
-      query: [body.category, body.scene, body.sellingPoint].filter(Boolean).join(' '),
-      source: 'web',
-    })
-  }),
-  // POST /inspirations/videos/web-enrich：只按 opaque token 补齐元数据，不下载视频。
-  http.post('*/api/inspirations/videos/web-enrich', async ({ request }) => {
-    const body = (await request.json()) as {
-      platform?: 'instagram' | 'tiktok' | 'youtube'
-      selectionTokens?: string[]
-    }
-    if (!body.platform) {
-      return HttpResponse.json({ detail: 'platform 必填' }, { status: 422 })
-    }
-    const platform = body.platform
-    const posts = mockWebInspirationPosts[platform]
-    return HttpResponse.json({
-      items: (body.selectionTokens ?? []).flatMap((selectionToken) => {
-        const index = posts.findIndex((post) => post.selectionToken === selectionToken)
-        const post = posts[index]
-        return post
-          ? [
-              {
-                durationSeconds: mockWebInspirationDurations[platform],
-                metrics: {
-                  commentCount: 380,
-                  likeCount: 26_000,
-                  shareCount: platform === 'youtube' ? null : 940,
-                  viewCount: 540_000,
-                },
-                platformVideoId: post.platformVideoId,
-                responsePosition: index + 1,
-                selectionToken,
-                thumbnailUrl:
-                  post.thumbnailUrl ??
-                  `https://images.mock.example.com/${platform}/${post.platformVideoId}.jpg`,
-              },
-            ]
-          : []
-      }),
-      platform,
-      source: 'web',
-    })
-  }),
+  ...workspaceHandlers,
+
+  ...transcriptHandlers,
 ]

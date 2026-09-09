@@ -1,0 +1,106 @@
+/* 焦点由卡片 focus-within 边框提供（≥3:1）；在匿名层覆盖全局输入框焦点环，避免双重指示。 */
+.composer-editor:focus-visible {
+  outline: none;
+}
+
+.composer-editor {
+  min-height: 76px;
+  max-height: 25vh;
+  overflow-y: auto;
+  padding: 14px 16px 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--color-on-surface);
+  caret-color: var(--color-primary);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  outline: none;
+}
+.composer-editor p {
+  margin: 0;
+}
+.composer-editor-dense {
+  min-height: 36px;
+}
+
+.composer-placeholder-overlay {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-on-surface-faint);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  pointer-events: none;
+  user-select: none;
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .composer-card {
+    corner-shape: superellipse(1.5);
+  }
+}
+
+.attachment-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding-inline: 2px;
+  white-space: nowrap;
+  vertical-align: baseline;
+  color: var(--color-chat-muted-text);
+  font-weight: 500;
+  cursor: text;
+  transition: color var(--dur-s) var(--ease);
+}
+.attachment-pill:hover {
+  color: var(--color-chat-message-text);
+}
+.attachment-pill.attachment-image,
+.attachment-pill.attachment-video {
+  cursor: default;
+}
+.attachment-pill .media-chip-icon {
+  color: var(--color-on-surface-variant);
+}
+.attachment-pill:hover .media-chip-icon {
+  color: inherit;
+}
+.attachment-pill.ProseMirror-selectednode {
+  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+  border-radius: var(--radius-xs);
+}
+.attachment-pill.attachment-error,
+.attachment-pill.attachment-error:hover {
+  color: var(--color-error);
+}
+.attachment-pill.attachment-error .media-chip-icon,
+.attachment-pill.attachment-error:hover .media-chip-icon {
+  color: inherit;
+}
+
+.composer-drop-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-background) 72%, transparent);
+  pointer-events: none;
+}
+.composer-drop-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  border: 0.5px dashed var(--color-primary);
+  border-radius: var(--radius-lg);
+  background: var(--color-top-layer);
+  color: var(--color-primary);
+  font-size: var(--text-title);
+  font-weight: 500;
+  box-shadow: var(--shadow-2);
+}

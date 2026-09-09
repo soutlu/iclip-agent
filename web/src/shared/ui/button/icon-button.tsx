@@ -4,7 +4,7 @@ import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
 export const iconButtonVariants = cva(
-  'hit-48 relative inline-grid ui-state cursor-pointer place-items-center rounded-full ui-focus',
+  'relative inline-grid ui-state cursor-pointer place-items-center rounded-sm ui-focus active:scale-[0.98]',
   {
     variants: {
       variant: {
@@ -13,19 +13,22 @@ export const iconButtonVariants = cva(
         selected: 'bg-primary-container text-on-primary-container',
       },
       size: {
-        lg: 'size-(--control-height-lg)',
-        md: 'size-(--control-height-md)',
+        lg: 'hit-48 size-(--control-height-lg)',
+        md: 'hit-48 size-(--control-height-md)',
+        // sm 与 xs 不扩大热区，避免密排按钮的 48px 点击区域互相覆盖。
+        sm: 'size-(--control-height-sm)',
+        xs: 'size-(--control-height-xs)',
       },
     },
     defaultVariants: { variant: 'standard', size: 'lg' },
   },
 )
 
-const ICON_SIZE = { lg: 'lg', md: 'md' } as const
+const ICON_SIZE = { lg: 'lg', md: 'md', sm: 'md', xs: 'sm' } as const
 
 type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> &
   VariantProps<typeof iconButtonVariants> & {
-    // 图标按钮没有可见文字，可访问名只能由这里给，所以是必填
+    // 图标按钮无可见文字，label 必须提供可访问名称。
     label: string
     name: IconName
   }

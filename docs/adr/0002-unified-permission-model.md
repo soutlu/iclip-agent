@@ -3,10 +3,6 @@
 - 状态：已接受（2026-08-19）
 - **[ADR-0001](0001-architecture-foundations.md) §4（双主体身份）**：阐述了系统对用户与 API Key 两套身份同等视之的设计初衷。
 
-## 背景
-
-最初的权限体系有两套并行语义：用户按单一角色（如 admin / editor / viewer）推导权限，API Key 按“显式授予集 ∩ 属主当下角色权限”推导权限。两者虽最终落在 `Principal.permissions`，但上游推导规则不同：角色是一种身份等级，而 Key 的权限要在签发与解析两处与属主对齐。这就导致若想做精细化控制（例如仅给某个用户增加一项权限），只能将整级角色提升。
-
 ## 决策
 
 **授权的唯一货币是权限集合（`frozenset[str]`）**，将两类主体的有效权限统一计算方式：
@@ -25,5 +21,4 @@ API key 有效权限 = key 显式授权集
 ## 后果
 
 - 下游零改动：`require_permission` 与一切授权检查只消费 `Principal.permissions`，本来就与角色无关。
-- wire 契约：`/users/me`、`GET /users`、`PATCH /users/{id}` 暴露 `roles` + `directPermissions`（不再有单值 `role`）。
-- 直接改 0001 baseline 迁移（`users.roles` + `users.direct_permissions`），无数据迁移。
+- wire 契约：`/users/me`、`GET /users`、`PATCH /users/{id}` 暴露 `roles` + `directPermissions`，没有单值 `role`。

@@ -1,18 +1,7 @@
-"""Runtime Configuration：YAML 管形状，环境变量管值。
+"""运行配置。YAML 定义能力形状，环境变量提供地址与凭证。
 
-两份东西分得很清：
-
-- **YAML 说「装什么、什么形状」** —— 声明哪些模型、哪些节奏、哪些名字。它进仓。
-- **环境变量说「连到哪儿、用什么凭证」** —— 地址与密钥。它不进仓，也不该进。
-
-env 的读取交给 pydantic-settings：每个字段用 ``validation_alias`` 写死它对应的变量
-名，所以下面那几个 ``*Env`` 类**就是这个服务的环境变量清单**——想知道要配什么，看
-它们就够了。缺了哪几个它会一次全报出来，报的是变量名本身，不是内部字段名。
-
-**可选能力的开关是我们自己判断的**（那是策略，不是机械）：某个地址的 env 为空就整
-项关闭；一旦非空，那一组的其余变量就都是必需的——半开着比关着更糟，路由挂上了、点
-下去才发现某个地址没配。
-"""
+EnvSettings 字段别名是环境变量清单，缺失时聚合报告变量名。
+可选能力的开关为空时关闭；开启后必须提供该组全部必需变量。"""
 
 from __future__ import annotations
 
@@ -21,7 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -32,7 +28,7 @@ from pydantic_settings import (
 _MIN_SECRET_LENGTH = 32
 
 RequiredEnv = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-"""必需的环境变量值。**设成空串或只有空白等于没设**——那种半配置最难查。"""
+"""必需的环境变量值，空字符串和纯空白均视为缺失。"""
 
 OptionalEnv = Annotated[str, StringConstraints(strip_whitespace=True)]
 """可以缺的环境变量值；缺了就是空串。"""
@@ -50,10 +46,7 @@ VIDEO_UNDERSTANDING_URL_ENV: Final = "VIDEO_UNDERSTANDING_URL"
 """镜头素材能力的总开关：这个地址为空即整项关闭（`shot_video` 不登记）。"""
 
 PRODUCT_CATALOG_DATABASE_URL_ENV: Final = "PRODUCT_CATALOG_DATABASE_URL"
-"""产品资料查询的总开关：这个连接串为空即整项关闭（`/products` 不挂载）。"""
-
-INSPIRATION_DATABASE_URL_ENV: Final = "INSPIRATION_DATABASE_URL"
-"""爆款视频查询的总开关：这个连接串为空即整项关闭（`/inspirations/*` 不挂载）。"""
+"""PDM 款目录的总开关：这个连接串为空即爆款视频的降级不可用。"""
 
 
 class ConfigSection(BaseModel):
@@ -68,7 +61,7 @@ class EnvSettings(BaseSettings):
     model_config = SettingsConfigDict(frozen=True, extra="ignore")
 
 
-# ── 环境变量清单 ──────────────────────────────────────────────────────────────
+# 环境变量配置
 
 
 class CoreEnv(EnvSettings):
@@ -101,12 +94,6 @@ class SsoEnv(EnvSettings):
     root_email: OptionalEnv = Field("", validation_alias="ROOT_EMAIL")
 
 
-class RedisEnv(EnvSettings):
-    """运行事件流的 Redis。声明了 ``redis`` 段就必需。"""
-
-    url: RequiredEnv = Field(validation_alias="REDIS_URL")
-
-
 class ObjectStoreEnv(EnvSettings):
     """公开对象存储（阿里云 OSS）的地址与凭证。
 
@@ -124,14 +111,13 @@ class ObjectStoreEnv(EnvSettings):
 class MediaGenerationEnv(EnvSettings):
     """两家生成接口的地址与凭证。只在总开关非空时才构造，所以这里全是必需的。
 
-    图片那两个地址要**完整的**（含路径）：接口路由不留在仓里，这是个公开仓。
+    图片那个地址是网关根，每家的路由段与并发在 ``ImageGenerationSection`` 里声明。
     """
 
     video_submit_url: RequiredEnv = Field(validation_alias=VIDEO_SUBMIT_URL_ENV)
     video_status_base_url: RequiredEnv = Field(validation_alias="VIDEO_STATUS_BASE_URL")
     video_api_key: RequiredEnv = Field(validation_alias="VIDEO_API_KEY")
-    image_text_to_image_url: RequiredEnv = Field(validation_alias="IMAGE_TEXT_TO_IMAGE_URL")
-    image_edit_url: RequiredEnv = Field(validation_alias="IMAGE_EDIT_URL")
+    image_api_base: RequiredEnv = Field(validation_alias="IMAGE_API_BASE")
 
 
 class VideoUnderstandingEnv(EnvSettings):
@@ -145,22 +131,12 @@ class VideoUnderstandingEnv(EnvSettings):
 
 
 class ProductCatalogEnv(EnvSettings):
-    """产品资料目录：外部只读库的连接串 + 产品图所在公开桶的前缀。
-
-    两个一起有才有意义：查得到款却给不出图片地址，是那种「点进去才发现」的半开着。
-    """
+    """PDM 款目录：外部只读库的连接串。供爆款视频按品类与品牌圈选同类款。"""
 
     database_url: RequiredEnv = Field(validation_alias=PRODUCT_CATALOG_DATABASE_URL_ENV)
-    image_base_url: RequiredEnv = Field(validation_alias="PRODUCT_IMAGE_BASE_URL")
 
 
-class InspirationEnv(EnvSettings):
-    """爆款视频库：外部只读库的连接串。视频地址在行上是完整的，不用另配前缀。"""
-
-    database_url: RequiredEnv = Field(validation_alias=INSPIRATION_DATABASE_URL_ENV)
-
-
-# ── YAML 的形状 ───────────────────────────────────────────────────────────────
+# YAML 声明
 
 
 class AppSection(ConfigSection):
@@ -200,19 +176,6 @@ class SsoSection(ConfigSection):
     app_name: str
 
 
-class RedisSection(ConfigSection):
-    """运行事件流的调参。地址在 ``RedisEnv``。"""
-
-    replay_window_seconds: int = 3600
-    max_frames: int = 100_000
-    max_connections: int = 64
-    """连接池上限。
-
-    每个正在读流的客户端都会占住一条连接不放（它一直阻塞着等新事件），
-    所以这个数就是「同时能有多少人在看事件流」的天花板，不是普通的性能旋钮。
-    """
-
-
 class ModelSection(ConfigSection):
     """一个命名模型。``provider`` 是官方 provider 名；``model`` 缺省即键名。
 
@@ -227,26 +190,57 @@ class ModelSection(ConfigSection):
     model: str | None = None
     thinking: ThinkingEffort | None = None
     """思考强度档位；不写即不发该参数，用厂商默认档。"""
+    context_window: int | None = Field(default=None, gt=0)
+    """传给 Pydantic AI Harness 的模型上下文窗口。"""
 
 
 ThinkingEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 ArkReasoningEffort = Literal["minimal", "low", "medium", "high"]
-"""火山方舟文档只给这四档。对方不校验取值——配了别的它照样跑、只是静默按默认档来，
-所以这里在装配期就拒掉。"""
+"""方舟支持的思考强度；启动时拒绝其他值，避免上游静默使用默认档。"""
 
 
 class VideoGenerationSection(ConfigSection):
-    """视频生成里对方约定的取值。地址与 key 在 ``MediaGenerationEnv``。"""
+    """新视频生成允许选择的模型与默认模型。归属标签 user_name 随每次请求来，不在配置里。"""
 
     model: str
-    user_name: str
+    allowed_models: tuple[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)], ...
+    ] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _default_model_is_allowed(self) -> VideoGenerationSection:
+        if self.model not in self.allowed_models:
+            raise ValueError("video.model 必须包含在 video.allowed_models 中")
+        return self
+
+
+class ImageModelSection(ConfigSection):
+    """一家图片模型。``route`` 拼在 ``IMAGE_API_BASE`` 后面构成它的地址。"""
+
+    route: str = Field(min_length=1)
+    concurrency: int = Field(gt=0)
+    """这家同时最多挂几个提交。一家一条队列，慢的一家占满自己的槽位不拖别家。"""
 
 
 class ImageGenerationSection(ConfigSection):
-    """图像生成里对方约定的取值。地址在 ``MediaGenerationEnv``。"""
+    """图像生成接入了哪几家，以及对方约定的取值。
 
-    user_name: str
+    键名即落库的 provider 名，也是这家那条提交队列的名字，改名会让历史记录对不上。
+    归属标签 user_name 随每次请求来，不在配置里。
+    """
+
+    env: Literal["prod", "uat", "test"]
+    """网关要求的调用环境。它按调用方标识与这一项一起判这次调用合不合法。"""
+    default: str
+    """请求省略 ``model`` 时用哪家。"""
+    models: dict[str, ImageModelSection] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _default_is_declared(self) -> ImageGenerationSection:
+        if self.default not in self.models:
+            raise ValueError("image.default 必须是 image.models 里的一个键")
+        return self
 
 
 class MediaGenerationSection(ConfigSection):
@@ -255,8 +249,9 @@ class MediaGenerationSection(ConfigSection):
     整项能力的开关在环境里（``VIDEO_SUBMIT_URL`` 为空即关闭），不在这份文件
     里。关闭时 ``/generations`` 不挂载、后台也不跑。
 
-    只暴露两个节奏参数：查得多勤、多久算超时。并发与关停宽限是实现细节（按「纯等
-    待」定的高值），默认值在 ``GenerationQueueSettings`` 里，真要调再往上抬。
+    节奏参数只暴露两个：查得多勤、多久算超时。图片的并发按家声明在 ``image.models``
+    里；轮询、视频提交与关停宽限是实现细节（按「纯等待」定的高值），默认值在
+    ``GenerationQueueSettings`` 里，真要调再往上抬。
     """
 
     video: VideoGenerationSection
@@ -299,11 +294,59 @@ class ShotVideoSection(ConfigSection):
 
     backoff_factor: float = Field(default=3.0, ge=1)
     job_timeout_seconds: float = Field(default=1800.0, gt=0)
-    """一次出图工具调用总共等多久；超了就把记录 id 报回去，让人自己查。"""
+    """一次出图工具调用总共等多久；超时向模型报告失败，任务标识保留在诊断日志。"""
+
+
+class CompactionSection(ConfigSection):
+    """历史压成摘要的触发线与尾巴长度。"""
+
+    max_fraction: float = Field(default=0.85, gt=0, lt=1)
+    """历史估算占到模型窗口的这个比例就压一次。"""
+
+    keep_messages: int = Field(default=20, ge=1)
+    """压完之后留几条原始消息在摘要后面。"""
+
+
+class ConversationsSection(ConfigSection):
+    """对话本身的设置。
+
+    ``title_model`` 是给对话起标题的那个小模型，取 ``models`` 段的键名。不配就不起标题，
+    对话一直叫默认名。
+    """
+
+    title_model: str | None = None
+    compaction: CompactionSection = CompactionSection()
+
+
+class AgentRunsSection(ConfigSection):
+    """agent 运行租约的节奏：在跑的行按心跳续租，中断的由清扫重新认领续跑或判失败。"""
+
+    heartbeat_seconds: int = Field(default=10, gt=0)
+    """在跑的行每隔多久刷一次心跳。"""
+
+    lease_seconds: int = Field(default=30, gt=0)
+    """心跳停了多久就算失联。"""
+
+    sweep_seconds: int = Field(default=15, gt=0)
+    """每隔多久清扫一次失联的行、并叫醒没人管的队列。"""
+
+    max_attempts: int = Field(default=2, ge=1)
+    """一条 prompt 最多被认领几次。1 等于中断后只判失败，不续跑。"""
+
+    max_snapshots_per_run: int = Field(default=3, ge=1)
+    """一次 run 在库里留几份快照。每份都是全量历史，留多了对话级体积按份数翻倍。"""
+
+    @model_validator(mode="after")
+    def _lease_outlasts_a_heartbeat(self) -> AgentRunsSection:
+        if self.lease_seconds <= self.heartbeat_seconds:
+            raise ValueError("lease_seconds 必须大于 heartbeat_seconds")
+        return self
 
 
 class OpsSection(ConfigSection):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_format: Literal["console", "json"] = "console"
+    """console 给人看；json 一行一个对象，给日志平台按字段检索。"""
 
 
 class RuntimeConfig(BaseSettings):
@@ -313,10 +356,11 @@ class RuntimeConfig(BaseSettings):
     db: DbSection
     security: SecuritySection
     sso: SsoSection
-    redis: RedisSection | None = None
     media_generation: MediaGenerationSection | None = None
     shot_video: ShotVideoSection | None = None
     models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
+    conversations: ConversationsSection = ConversationsSection()
+    agent_runs: AgentRunsSection = AgentRunsSection()
     ops: OpsSection = OpsSection()
 
     @classmethod
@@ -328,8 +372,7 @@ class RuntimeConfig(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # 只吃 YAML（经 init kwargs 注入路径）与显式 init 值。这一份是「形状」，
-        # 环境变量管的是「值」，两者不该互相覆盖。
+        # YAML 形状仅从文件与显式参数读取，环境值由独立解析流程处理。
         return (init_settings,)
 
 
@@ -345,7 +388,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     return RuntimeConfig(**data)
 
 
-# ── 装配期的运行值 ────────────────────────────────────────────────────────────
+# 解析后的运行值
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,11 +410,12 @@ class ResolvedSso:
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedRedis:
-    url: str
-    replay_window_seconds: int
-    max_frames: int
-    max_connections: int
+class ResolvedImageModel:
+    """一家图片模型的运行值：网关根地址与声明的路由段已经拼好。"""
+
+    name: str
+    api_base: str
+    concurrency: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,10 +426,10 @@ class ResolvedMediaGeneration:
     video_status_base_url: str
     video_api_key: str
     video_model: str
-    video_user_name: str
-    image_text_to_image_url: str
-    image_edit_url: str
-    image_user_name: str
+    video_allowed_models: tuple[str, ...]
+    image_models: tuple[ResolvedImageModel, ...]
+    image_default_model: str
+    image_env: str
     poll_interval_seconds: int
     job_timeout_seconds: int
 
@@ -409,17 +453,28 @@ class ResolvedShotVideo:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedProductCatalog:
-    """产品资料目录的运行值：外部只读库 + 产品图公开桶前缀。"""
+    """PDM 款目录的运行值：外部只读库连接。"""
 
     database_url: str
-    image_base_url: str
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedInspirations:
-    """爆款视频查询的运行值。"""
+class ResolvedAgentRuns:
+    """agent 运行租约的节奏。"""
 
-    database_url: str
+    heartbeat_seconds: int
+    lease_seconds: int
+    sweep_seconds: int
+    max_attempts: int
+    max_snapshots_per_run: int
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCompaction:
+    """历史压成摘要的触发线与尾巴长度。"""
+
+    max_fraction: float
+    keep_messages: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,6 +488,7 @@ class ResolvedModel:
     api_key: str
     base_url: str | None
     thinking: ThinkingEffort | None
+    context_window: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -444,38 +500,33 @@ class ResolvedSettings:
     db_schema: str
     security: ResolvedSecurity
     sso: ResolvedSso | None
-    redis: ResolvedRedis | None
     object_store: ObjectStoreEnv | None
     media_generation: ResolvedMediaGeneration | None
     shot_video: ResolvedShotVideo | None
     product_catalog: ResolvedProductCatalog | None
-    inspirations: ResolvedInspirations | None
     models: tuple[ResolvedModel, ...]
+    title_model: str | None
+    """给对话起标题的模型名，取 ``models`` 里的一个。为空即不起标题。"""
+    compaction: ResolvedCompaction
+    agent_runs: ResolvedAgentRuns
     log_level: str
+    log_format: Literal["console", "json"]
 
 
 def _from_env[EnvT: EnvSettings](cls: type[EnvT]) -> EnvT:
-    """从环境变量构造一个 env 段。
-
-    类型检查器按字段签名以为这些值该由调用方传进来，而它们本来就该由环境提供。把这
-    条说明集中在这一处，而不是每个构造点各贴一条忽略。
-    """
+    """通过环境变量构造设置，集中适配与字段构造签名不同的加载方式。"""
 
     return cls()  # pyright: ignore[reportCallIssue]
 
 
 def _switched_on(env_name: str) -> bool:
-    """可选能力的开关：那个地址的 env 为空就是没开。
-
-    这一步必须在读那一组其余变量**之前**做——不然「没开这项能力」和「开了但没配
-    全」就分不开了。
-    """
+    """先检查能力开关，再加载该组必需变量，区分未启用与配置不完整。"""
 
     return bool(os.environ.get(env_name, "").strip())
 
 
 def _resolve_object_store() -> ObjectStoreEnv | None:
-    """解析公开对象存储；桶名为空即整项关闭。它没有 YAML 段——没有可调的形状。"""
+    """按桶名开关解析对象存储环境配置。"""
 
     if not _switched_on(OSS_BUCKET_ENV):
         return None
@@ -485,12 +536,7 @@ def _resolve_object_store() -> ObjectStoreEnv | None:
 def _resolve_media_generation(
     section: MediaGenerationSection | None, *, object_store_on: bool
 ) -> ResolvedMediaGeneration | None:
-    """解析媒体生成；没声明或总开关为空即这项能力关闭。
-
-    一旦开启，这一组 env 就都是必需的，缺哪几个 pydantic 一次全报出来（报的是变量
-    名）。对象存储也必须开着：图像接口给的是会过期的签名 URL，不转存就等于往库里写
-    一批几天后失效的链接。
-    """
+    """按声明与环境开关解析媒体生成；开启后必须配置全部凭证及结果转存所需的对象存储。"""
 
     if section is None or not _switched_on(VIDEO_SUBMIT_URL_ENV):
         return None
@@ -505,10 +551,17 @@ def _resolve_media_generation(
         video_status_base_url=env.video_status_base_url,
         video_api_key=env.video_api_key,
         video_model=section.video.model,
-        video_user_name=section.video.user_name,
-        image_text_to_image_url=env.image_text_to_image_url,
-        image_edit_url=env.image_edit_url,
-        image_user_name=section.image.user_name,
+        video_allowed_models=section.video.allowed_models,
+        image_models=tuple(
+            ResolvedImageModel(
+                name=name,
+                api_base=f"{env.image_api_base.rstrip('/')}/{model.route.strip('/')}",
+                concurrency=model.concurrency,
+            )
+            for name, model in section.image.models.items()
+        ),
+        image_default_model=section.image.default,
+        image_env=section.image.env,
         poll_interval_seconds=section.poll_interval_seconds,
         job_timeout_seconds=section.job_timeout_seconds,
     )
@@ -517,12 +570,7 @@ def _resolve_media_generation(
 def _resolve_shot_video(
     section: ShotVideoSection | None, *, generation_on: bool
 ) -> ResolvedShotVideo | None:
-    """解析镜头素材能力；没声明或总开关为空即这项能力关闭。
-
-    开关为空就是干脆没开（哪怕 YAML 留着这一段）——真有 agent 声明要用它，装配
-    期会在名字表那里报「未登记的 capability」，该响的地方会响。但开关配了、媒体
-    生成却没开是「半开着」：出图与对象存储都走生成那一套，所以直接报错。
-    """
+    """按声明与环境开关解析镜头能力；开启时必须同时启用媒体生成与对象存储。"""
 
     if section is None or not _switched_on(VIDEO_UNDERSTANDING_URL_ENV):
         return None
@@ -548,27 +596,16 @@ def _resolve_shot_video(
 
 
 def _resolve_product_catalog() -> ResolvedProductCatalog | None:
-    """解析产品资料目录；连接串为空即整项关闭（``/products`` 不挂载）。
-
-    它没有 YAML 段：这项能力没有可调的形状，只有「连到哪儿、图片在哪个桶」两个值。
-    """
+    """按数据库连接开关解析产品目录与图片公开前缀。"""
 
     if not _switched_on(PRODUCT_CATALOG_DATABASE_URL_ENV):
         return None
     env = _from_env(ProductCatalogEnv)
-    return ResolvedProductCatalog(database_url=env.database_url, image_base_url=env.image_base_url)
-
-
-def _resolve_inspirations() -> ResolvedInspirations | None:
-    """解析爆款视频查询；连接串为空即整项关闭。它同样没有 YAML 段——没有可调的形状。"""
-
-    if not _switched_on(INSPIRATION_DATABASE_URL_ENV):
-        return None
-    return ResolvedInspirations(database_url=_from_env(InspirationEnv).database_url)
+    return ResolvedProductCatalog(database_url=env.database_url)
 
 
 def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
-    """把 YAML 的形状和环境变量的值合成装配期要用的运行值，缺什么当场失败。"""
+    """合并 YAML 声明与环境值，启动时校验配置完整性。"""
 
     core = _from_env(CoreEnv)
 
@@ -581,15 +618,6 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             redirect_url=env.redirect_url,
             pms_base_url=env.pms_base_url or None,
             root_email=env.root_email or None,
-        )
-
-    redis: ResolvedRedis | None = None
-    if config.redis is not None:
-        redis = ResolvedRedis(
-            url=_from_env(RedisEnv).url,
-            replay_window_seconds=config.redis.replay_window_seconds,
-            max_frames=config.redis.max_frames,
-            max_connections=config.redis.max_connections,
         )
 
     object_store = _resolve_object_store()
@@ -608,14 +636,12 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
             cors_allow_origins=config.security.cors_allow_origins,
         ),
         sso=sso,
-        redis=redis,
         object_store=object_store,
         media_generation=media_generation,
         shot_video=_resolve_shot_video(
             config.shot_video, generation_on=media_generation is not None
         ),
         product_catalog=_resolve_product_catalog(),
-        inspirations=_resolve_inspirations(),
         models=tuple(
             ResolvedModel(
                 name=name,
@@ -625,19 +651,29 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
                 api_key=_require_model_key(name, model.api_key_env),
                 base_url=model.base_url,
                 thinking=model.thinking,
+                context_window=model.context_window,
             )
             for name, model in config.models.items()
         ),
+        title_model=config.conversations.title_model,
+        compaction=ResolvedCompaction(
+            max_fraction=config.conversations.compaction.max_fraction,
+            keep_messages=config.conversations.compaction.keep_messages,
+        ),
+        agent_runs=ResolvedAgentRuns(
+            heartbeat_seconds=config.agent_runs.heartbeat_seconds,
+            lease_seconds=config.agent_runs.lease_seconds,
+            sweep_seconds=config.agent_runs.sweep_seconds,
+            max_attempts=config.agent_runs.max_attempts,
+            max_snapshots_per_run=config.agent_runs.max_snapshots_per_run,
+        ),
         log_level=config.ops.log_level,
+        log_format=config.ops.log_format,
     )
 
 
 def _require_model_key(name: str, env_name: str) -> str:
-    """取某个模型的 API Key。
-
-    这一处仍然是「按 YAML 里给的变量名去环境里取」：每个模型各自一个变量，变量名是
-    声明的一部分（见 ``ModelSection.api_key_env``），没法用写死的别名表达。
-    """
+    """按模型声明的环境变量名读取 API key。"""
 
     value = os.environ.get(env_name, "").strip()
     if not value:

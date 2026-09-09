@@ -21,26 +21,57 @@ from iclip.domains.generation.provider import (
     ProviderSubmission,
 )
 from iclip.domains.generation.schemas import (
+    KIND_VIDEO,
     GenerationRequest,
     ImageGenerationIn,
     VideoGenerationIn,
 )
 from iclip.platform.object_store.oss import StoredObject
 
+FAKE_VIDEO_PROVIDER = "video_fake"
+FAKE_IMAGE_PROVIDER = "image_fake"
+"""替身 provider 的名字。队列按任务行上的 provider 列查表，替身与 make_job 得用同一套。"""
+
 
 def video_request(**overrides: Any) -> VideoGenerationIn:
     fields: dict[str, Any] = {
+        "model": "moyu-seedance-2-5",
         "prompt": "一只猫跳上窗台",
+        "user_name": "luke",
         "aspect_ratio": "16:9",
-        "duration_seconds": 5,
+        "seconds": 5,
     }
     fields.update(overrides)
     return VideoGenerationIn(**fields)
 
 
+SHOT_IMAGE_URLS = ["https://example.com/a.png", "https://example.com/b.png"]
+
+SHOT_PROMPT = "人物保持一致。\n\n[0–6秒｜镜头1] 走向镜头 @Image1，停下 @Image2。\n不要生成字幕，不要生成背景音乐。"
+"""与 web/src/features/storyboard/storyboard.api.test.ts 里的镜头组拼出的正文一字不差。"""
+
+
+def video_shot(**overrides: Any) -> dict[str, Any]:
+    """一段结构化镜头组的请求体，默认值与前端那份单测夹具相同。"""
+
+    shot: dict[str, Any] = {
+        "global_settings": "人物保持一致。",
+        "timeline": [
+            {
+                "timestamps": [0, 6],
+                "prompt": "走向镜头 @Image1，停下 @Image2。",
+                "image_indexes": [1, 2],
+            }
+        ],
+    }
+    shot.update(overrides)
+    return shot
+
+
 def image_request(**overrides: Any) -> ImageGenerationIn:
     fields: dict[str, Any] = {
         "prompt": "一只猫的正面特写",
+        "user_name": "luke",
         "aspect_ratio": "1:1",
         "resolution": "1k",
     }
@@ -52,10 +83,18 @@ def make_job(
     request: GenerationRequest | None = None,
     *,
     status: GenerationStatus = STATUS_PENDING,
+    provider: str | None = None,
     provider_task_id: str | None = None,
     submitted_at: datetime | None = None,
     created_at: datetime | None = None,
     owner_user_id: uuid.UUID | None = None,
+    conversation_id: uuid.UUID | None = None,
+    shot_index: int | None = None,
+    task_id: uuid.UUID | None = None,
+    output_url: str | None = None,
+    watermark_output_url: str | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
 ) -> GenerationJob:
     now = datetime.now(UTC)
     payload = request or video_request()
@@ -63,16 +102,21 @@ def make_job(
         id=uuid.uuid4(),
         owner_user_id=owner_user_id or uuid.uuid4(),
         api_key_id=None,
+        conversation_id=conversation_id,
+        shot_index=shot_index,
+        task_id=task_id,
         kind=payload.kind,
-        provider="fake",
+        provider=provider
+        or (FAKE_VIDEO_PROVIDER if payload.kind == KIND_VIDEO else FAKE_IMAGE_PROVIDER),
         request=payload,
         status=status,
         provider_task_id=provider_task_id,
         provider_status=None,
         provider_snapshot=None,
-        output_url=None,
-        error_code=None,
-        error_message=None,
+        output_url=output_url,
+        watermark_output_url=watermark_output_url,
+        error_code=error_code,
+        error_message=error_message,
         created_at=created_at or now,
         updated_at=now,
         submitted_at=submitted_at,
@@ -81,10 +125,7 @@ def make_job(
 
 
 class InMemoryGenerationRepository:
-    """``GenerationRepository`` 的内存替身。
-
-    只有状态跳转，没有排队——排期在 procrastinate 那边（见 ``queue.py``）。
-    """
+    """GenerationRepository 内存替身，仅处理状态跳转；排期由队列负责。"""
 
     def __init__(self, jobs: list[GenerationJob] | None = None) -> None:
         self.jobs: dict[uuid.UUID, GenerationJob] = {job.id: job for job in jobs or []}
@@ -102,10 +143,43 @@ class InMemoryGenerationRepository:
         return job
 
     async def list_for_owner(
-        self, *, owner: uuid.UUID | None, limit: int
+        self,
+        *,
+        owner: uuid.UUID | None,
+        limit: int,
+        conversation_id: uuid.UUID | None = None,
+        kind: str | None = None,
+        shot_index: int | None = None,
+        frame_number: int | None = None,
+        task_id: uuid.UUID | None = None,
+        before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
-        rows = [job for job in self.jobs.values() if owner is None or job.owner_user_id == owner]
-        rows.sort(key=lambda job: job.created_at, reverse=True)
+        rows = [
+            job
+            for job in self.jobs.values()
+            if (owner is None or job.owner_user_id == owner)
+            and (conversation_id is None or job.conversation_id == conversation_id)
+            and (task_id is None or job.task_id == task_id)
+        ]
+        rows = [
+            job
+            for job in rows
+            if (kind is None or job.kind == kind)
+            and (shot_index is None or job.shot_index == shot_index)
+        ]
+        if frame_number is not None:
+            rows = [
+                job
+                for job in rows
+                if isinstance(job.request, ImageGenerationIn)
+                and job.request.frame_number == frame_number
+            ]
+        if before is not None:
+            anchor = await self.get(before, owner=owner)
+            rows = [
+                job for job in rows if (job.created_at, job.id) < (anchor.created_at, anchor.id)
+            ]
+        rows.sort(key=lambda job: (job.created_at, job.id), reverse=True)
         return tuple(rows[:limit])
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
@@ -136,12 +210,14 @@ class InMemoryGenerationRepository:
         provider_status: str,
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
+        watermark_output_url: str | None = None,
     ) -> GenerationJob:
         current = self.jobs[job_id]
         return self._replace(
             job_id,
             status=STATUS_COMPLETED,
             output_url=output_url,
+            watermark_output_url=watermark_output_url,
             provider_status=provider_status,
             provider_snapshot=provider_snapshot,
             provider_task_id=provider_task_id or current.provider_task_id,
@@ -197,7 +273,7 @@ class InMemoryGenerationRepository:
 
 
 class ScriptedProvider:
-    """按剧本回应的 provider 替身，记录被调用了几次。"""
+    """按预设顺序响应并记录调用的 provider 替身。"""
 
     def __init__(
         self,
@@ -206,7 +282,8 @@ class ScriptedProvider:
         submission: ProviderSubmission | Exception | None = None,
         progress: ProviderProgress | Exception | None = None,
     ) -> None:
-        self._name = name
+        self.provider_name = name
+        """可写：装配替身时按那条 lane 该叫什么名字改。"""
         self._submission = submission
         self._progress = progress
         self.submit_calls: list[uuid.UUID] = []
@@ -214,7 +291,7 @@ class ScriptedProvider:
 
     @property
     def name(self) -> str:
-        return self._name
+        return self.provider_name
 
     async def submit(self, job: GenerationJob) -> ProviderSubmission:
         self.submit_calls.append(job.id)
@@ -234,11 +311,9 @@ class ScriptedProvider:
 
 
 class MemoryObjectStore:
-    """``PublicBucket`` 的内存替身：写字节、签直传、按前缀找回来。
+    """PublicBucket 内存替身。
 
-    直传那一半也在这里，是因为组合根注入的是整只桶——它同时喂给生成与素材两侧。
-    ``sign_put`` 返回的地址不指向任何真东西，测试直接调 ``put_public_object`` 模拟
-    「浏览器传上去了」。
+    sign_put 不产生可访问的地址；测试通过 put_public_object 模拟直传完成。
     """
 
     def __init__(self, *, base: str = "https://cdn.example.test") -> None:

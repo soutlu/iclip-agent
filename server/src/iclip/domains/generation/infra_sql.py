@@ -1,12 +1,4 @@
-"""``iclip.generation_jobs`` 的 Postgres 后端。DDL 归 Alembic，这里不建表。
-
-**这张表只存事实，不存排期。** 「下一个该做谁、几点做」在 procrastinate 自己的表里
-（见 ``queue.py``）；这里只回答「这次生成是谁发起的、发给了谁、现在到哪一步了、结果
-是什么」。清空 procrastinate 的表只会丢掉排期，不会丢掉任何一次生成的事实。
-
-**所有时刻都取数据库的时钟**（``now()``），一个都不从应用进程取。多台应用服务器的
-时钟差几秒，「这次生成花了多久」「谁先写的」就都对不上了，而这些是要拿去对账的。
-"""
+"""生成任务的 Postgres 仓储，仅记录业务事实；排期由 procrastinate 管理。时间统一使用数据库时钟。"""
 
 from __future__ import annotations
 
@@ -18,12 +10,14 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     MetaData,
     Table,
     Text,
     Uuid,
     func,
     select,
+    tuple_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.row import RowMapping
@@ -56,9 +50,13 @@ generation_jobs_table = Table(
         ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="cascade"),
         nullable=False,
     ),
-    # 故意不建到 api_keys 的外键：key 行随属主级联删除，而「哪把 key 干的」这条
-    # 审计事实必须比那把 key 活得更久。
+    # 不关联 api_keys 外键，保留 key 删除后的审计身份。
     Column("api_key_id", Uuid, nullable=True),
+    # 不关联对话外键，删除对话后仍保留生成来源。
+    Column("conversation_id", Uuid, nullable=True),
+    Column("shot_index", Integer, nullable=True),
+    # 需求单同样不建外键：它是归属标签，删单不抹生成记录。
+    Column("task_id", Uuid, nullable=True),
     Column("kind", Text, nullable=False),
     Column("provider", Text, nullable=False),
     Column("request", JSONB, nullable=False),
@@ -67,14 +65,16 @@ generation_jobs_table = Table(
     Column("provider_status", Text, nullable=True),
     Column("provider_snapshot", JSONB, nullable=True),
     Column("output_url", Text, nullable=True),
+    Column("watermark_output_url", Text, nullable=True),
     Column("error_code", Text, nullable=True),
     Column("error_message", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("submitted_at", DateTime(timezone=True), nullable=True),
     Column("finished_at", DateTime(timezone=True), nullable=True),
-    # 列表页：某个人的，按时间倒序。
     Index("ix_generation_jobs_owner_created", "owner_user_id", "created_at"),
+    Index("ix_generation_jobs_conversation_created", "conversation_id", "created_at"),
+    Index("ix_generation_jobs_task_created", "task_id", "created_at"),
 )
 
 _JOBS = generation_jobs_table.c
@@ -96,6 +96,9 @@ class SqlGenerationRepository:
                             id=job.id,
                             owner_user_id=job.owner_user_id,
                             api_key_id=job.api_key_id,
+                            conversation_id=job.conversation_id,
+                            shot_index=job.shot_index,
+                            task_id=job.task_id,
                             kind=job.kind,
                             provider=job.provider,
                             request=request_to_payload(job.request),
@@ -104,6 +107,7 @@ class SqlGenerationRepository:
                             provider_status=None,
                             provider_snapshot=None,
                             output_url=None,
+                            watermark_output_url=None,
                             error_code=None,
                             error_message=None,
                             created_at=func.now(),
@@ -132,11 +136,32 @@ class SqlGenerationRepository:
         return _job_from_row(row)
 
     async def list_for_owner(
-        self, *, owner: uuid.UUID | None, limit: int
+        self,
+        *,
+        owner: uuid.UUID | None,
+        limit: int,
+        conversation_id: uuid.UUID | None = None,
+        kind: str | None = None,
+        shot_index: int | None = None,
+        frame_number: int | None = None,
+        task_id: uuid.UUID | None = None,
+        before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
-        stmt = scope_to_owner(select(generation_jobs_table), _JOBS.owner_user_id, owner).order_by(
-            _JOBS.created_at.desc(), _JOBS.id.desc()
-        )
+        stmt = scope_to_owner(select(generation_jobs_table), _JOBS.owner_user_id, owner)
+        if conversation_id is not None:
+            stmt = stmt.where(_JOBS.conversation_id == conversation_id)
+        if task_id is not None:
+            stmt = stmt.where(_JOBS.task_id == task_id)
+        if kind is not None:
+            stmt = stmt.where(_JOBS.kind == kind)
+        if shot_index is not None:
+            stmt = stmt.where(_JOBS.shot_index == shot_index)
+        if frame_number is not None:
+            stmt = stmt.where(_JOBS.request["frameNumber"].astext == str(frame_number))
+        if before is not None:
+            anchor = await self.get(before, owner=owner)
+            stmt = stmt.where(tuple_(_JOBS.created_at, _JOBS.id) < (anchor.created_at, anchor.id))
+        stmt = stmt.order_by(_JOBS.created_at.desc(), _JOBS.id.desc())
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt.limit(limit))).mappings().all()
         return tuple(_job_from_row(row) for row in rows)
@@ -170,14 +195,15 @@ class SqlGenerationRepository:
         provider_status: str,
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
+        watermark_output_url: str | None = None,
     ) -> GenerationJob:
         values: dict[str, Any] = {
             "status": STATUS_COMPLETED,
             "output_url": output_url,
+            "watermark_output_url": watermark_output_url,
             "provider_status": provider_status,
             "provider_snapshot": provider_snapshot,
-            # 同步接口一步到底，submitted_at 还没人填过；已经填过的（视频那条路）
-            # 保持原值，别把「发出去的时刻」改成「拿到结果的时刻」。
+            # 同步生成在完成时补写 submitted_at；异步生成保留提交时间。
             "submitted_at": func.coalesce(_JOBS.submitted_at, func.now()),
             "finished_at": func.now(),
             "updated_at": func.now(),
@@ -228,11 +254,7 @@ class SqlGenerationRepository:
     async def _update_if(
         self, job_id: uuid.UUID, expected: GenerationStatus, **values: Any
     ) -> GenerationJob | None:
-        """带状态守卫的更新：状态已经不是 ``expected`` 就一行都不动。
-
-        守卫塞进 ``WHERE`` 而不是先读后写：这是两个 worker 抢同一行的当口，先读后写
-        中间的那道缝正是要关掉的东西。
-        """
+        """在 WHERE 中原子校验 expected 状态，避免并发覆盖；不匹配时不更新。"""
 
         async with self._engine.begin() as conn:
             row = (
@@ -275,6 +297,9 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         id=row["id"],
         owner_user_id=row["owner_user_id"],
         api_key_id=row["api_key_id"],
+        conversation_id=row["conversation_id"],
+        shot_index=row["shot_index"],
+        task_id=row["task_id"],
         kind=kind,
         provider=row["provider"],
         request=request_from_payload(kind, row["request"]),
@@ -283,6 +308,7 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         provider_status=row["provider_status"],
         provider_snapshot=row["provider_snapshot"],
         output_url=row["output_url"],
+        watermark_output_url=row["watermark_output_url"],
         error_code=row["error_code"],
         error_message=row["error_message"],
         created_at=row["created_at"],

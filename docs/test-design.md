@@ -1,72 +1,48 @@
-# iclip-agent 测试设计
+# 后端测试规范
 
-> 测试策略与测试点登记的事实源。命令入口见 [../AGENTS.md](../AGENTS.md)。
+> 命令入口与交付检查见 [AGENTS.md](../AGENTS.md)，前端测试见 [web/AGENTS.md](../web/AGENTS.md)。
 
-## §0 测试哲学（唯一编写规范）
+## 1. 按行为选择测试层
 
-测试的目的不是凑代码覆盖率，而是验证用户和系统的可见边界。
+优先验证用户可观察的结果或稳定契约：HTTP 状态与 payload、事件序列、持久化结果、文件产物。每个行为选一个主要测试层；同一断言在两层重复时保留靠近可观察边界的一份。unit 用于纯逻辑、进程内契约，或集成层无法经济触达的分支。
 
-### 0.1 行为归层
+| `server/tests/` 下的目录 | 验证范围 |
+|---|---|
+| `unit/` | 纯逻辑、配置与引擎装配等进程内契约；可用临时文件和模型替身，不连接真实数据库或外部服务 |
+| `integration_no_llm/` | 真实 Postgres、应用装配、HTTP/WS 与存储往返；LLM、OSS、provider 使用替身 |
+| `integration_llm/` | 真实模型的协议与结构 |
+| `e2e_full/` | 依赖真实外部服务的全链路 |
+| `helpers/` | 共用测试基建，不放测试用例 |
 
-每个行为只在**一个**层测试，选**最靠近用户可观察边界**的层：HTTP 状态码 + camelCase payload、事件序列、Postgres 行、文件产物。unit 层只收两类：纯函数逻辑，或 integration 层无法经济触达的分支。同一断言出现在两层即删除靠内的那份。
+marker 由 [tests/conftest.py](../server/tests/conftest.py) 按目录注入；测试树和私有符号导入由 [集合契约测试](../server/tests/unit/architecture/test_collection_contract.py) 检查。新增顶层测试层时同时更新这些入口和 [pyproject.toml](../server/pyproject.toml)，普通子目录不需要修改分层契约。
 
-### 0.2 测试禁区 (Anti-patterns)
+transcript 按场景测：[场景测试](../server/tests/integration_no_llm/agents/test_transcript_scenarios.py)用假模型跑真实运行，断言实时重放出的页与冷启动重建的页逐字相等，并把两个场景存成 `contract/transcript/` 下的金样（`UPDATE_GOLDEN=1` 重生成），前端 [golden 测试](../web/src/shared/transcript/golden.test.ts)用 vendored schema 解析同一份。只有历史才会遇到的规则留在 [历史重建单测](../server/tests/unit/harness/test_transcript_from_messages.py)，手工事件才能造出的形状留在 [投影器单测](../server/tests/unit/harness/test_transcript_projector.py)；新场景先进场景文件，不另开对照测试。
 
-为了保持测试的生命力和可重构性，严禁以下行为：
-- ⛔️ **禁止 import / monkeypatch 下划线私有符号**（棘轮基线登记，只降不升，当前为**空**）。
-- ⛔️ **禁止调用录像断言**（断言结果，不断言过程；「某函数被以某参数调用过」不是行为）。
-- ⛔️ **禁止框架 kwargs 快照**。**单点例外**：当调用形状本身就是契约时（引擎运行入口的调用形状），允许且仅允许一个单点契约测试承担。
-- ⛔️ **禁止 prompt / 自然语言文本快照**（只断言结构，不断言措辞）。
-- ⛔️ **禁止在 fake 里写生产逻辑**；fake 只做最小状态机。
-- 边界用例必须映射到已登记的风险点，不做覆盖率驱动的凑数测试；发现测试违反本节规则时先删测试再补对层。
+## 2. 断言与替身
 
-### 0.3 棘轮
+- 断言结果，不记录并断言内部调用过程；不 import 或 monkeypatch 生产代码的下划线私有符号。
+- 不对框架 kwargs 做快照。调用形状本身是稳定契约时，可以用一个集中的契约测试覆盖。
+- 不对 prompt 或自然语言措辞做快照；只验证所需结构与行为。
+- fake 只实现测试所需的最小状态，不复制生产业务逻辑。
+- 调整不合层的测试时，将有效行为覆盖迁移到合适层，再删除重复或依赖实现细节的断言。
 
-棘轮基线是历史违规的豁免清单，只许减少、不许新增：`PRIVATE_IMPORT_BASELINE` 在架构测试中登记，初始为空，条目消失后必须同步从基线删除（防陈旧豁免）。
+## 3. Postgres 测试环境
 
-### 0.4 执行节奏
+[integration_no_llm/conftest.py](../server/tests/integration_no_llm/conftest.py) 按以下顺序提供数据库：
 
-开发内环只跑被改 surface 的定向测试（按 §1 测试树目录与 §3 登记表定位对应用例）；提交前 `make check`；合入前 CI 全链。不在迭代中反复跑全量。
+1. `TEST_DATABASE_URL` 非空时使用指定测试库。
+2. 否则由 Testcontainers 启动一次性 Postgres，测试会话内复用。
+3. 两者都不可用时，本地数据库测试跳过；报告结果时必须说明跳过范围。
 
-## §1 四层测试树结构
+`TEST_DATABASE_URL` 必须指向专用、可清理的测试数据库。夹具会执行迁移并清空测试表，不能指向开发或生产业务库。数据库安全边界见 [AGENTS.md](../AGENTS.md)。
 
-我们将测试从快到慢、从纯逻辑到依赖外部，分为以下四层：
+CI 使用明确配置的 Postgres service container；连接失败应报错，不能依赖本地跳过路径。真实外部服务测试缺凭证时可以跳过；凭证齐备后的连接、协议或业务失败不得伪装成缺凭证。
 
-```text
-server/tests/
-├── unit/                  # 纯逻辑 + 架构契约；无 I/O、无网络、无真实数据库
-├── integration_no_llm/    # 默认集成门禁：使用真实 Postgres，但无真实 LLM / OSS / provider
-├── integration_llm/       # 外部集成门禁：连通真实大模型进行对话或生成测试（当前无用例）
-├── e2e_full/              # 外部门禁：全链路 Smoke Test（当前无用例）
-└── helpers/               # 测试基建；不得命名为 test_*.py
-```
+新增 `iclip` 自有表时，把模块元数据纳入 [迁移对账测试](../server/tests/integration_no_llm/bootstrap/test_migrations.py) 的 `_MODULE_METADATA`。该测试只比较表名与列名集合；列类型、索引、约束，以及 `agent_runtime` 和 procrastinate 表的迁移需另行核对。
 
-- **Marker 自动注入**：`tests/conftest.py` 会根据上述目录结构自动为测试用例注入 pytest marker（例如 `unit` 或 `integration_no_llm`）。
-- **Collection Contract**：如果 `tests/` 根目录或未定义的层级下出现了 `test_*.py`，`T-COLL-01` 这条单测会报错点名该文件。注意它是收集完成之后的断言失败，不是在收集阶段被拒收——这类文件同时也拿不到层级 marker，跑默认门禁时会被直接跳过。如果需要新增子目录，请先修改契约。
-- **门禁定义**：
-  - **默认门禁**：通过 `pytest -m "unit or integration_no_llm"` 运行。
-  - **外部门禁**：通过 `make test-external` 运行（若缺少真实外部凭证则自动 skip，但**不得产生 fail**）。
+## 4. 验证边界
 
-## §2 Postgres / Redis 测试环境规则 (针对 integration_no_llm)
-
-针对需要数据库的集成测试 (`integration_no_llm`)，数据库连接解析顺序如下：
-
-1. 如果环境变量 `TEST_DATABASE_URL` 被显式设置，则直连该库（适用于本地已有库或 CI 容器）。
-2. 若未设置环境变量，但本地 Docker 可用，则通过 Testcontainers 自动拉起一个一次性的 Postgres（Session 级别复用）。
-3. 如果两者皆不可用，则直接 Skip。**注意：CI 必须提供 service container，因此 CI 上永远不允许出现静默 Skip**。
-
-Redis 走同一套顺序（`TEST_REDIS_URL` > testcontainers > skip），但**只有声明了 agent 的测试才会去要它**，别的测试不会因此多起一个容器。
-
-**注意：** 测试代码只准使用临时环境（scratch schema 或一次性容器），严禁执行诸如 `DROP` 之类的操作影响或破坏配置在运行中的业务库结构。
-
-## §3 测试点登记表 (Verification Map)
-
-随着系统演进，测试点登记表会持续增长。所有的具体测试点、验证行为与风险映射，均已抽离并统一登记在独立的文档中：
-👉 **[test-registry.md](test-registry.md)**
-
-## §4 已知不可测 / 人工清单
-
-- SSO / PMS 真实环境联通性：人工验收（见 [../AGENTS.md](../AGENTS.md) §3 验证矩阵），自动化测试只打替身协议客户端。
-- LLM 输出语义质量：不进自动化门禁，自动测试只断言协议与结构。
-- cookie `Secure` / 反代 WS upgrade 等部署属性：部署检查表，人工。
-- 「客户端断开」这类行为测不了替身传输：httpx 的 ASGITransport 会把整个响应缓冲完才交出来，用它写出来的「读一半就断」其实是读完之后才松手。要验真断开必须起真服务器（见 `test_run_detached.py`）。
+- SSO/PMS 自动化使用协议替身；接入变更还需按 [AGENTS.md](../AGENTS.md) 完成真实登录回调验收。
+- LLM 自动化验证协议与结构，输出语义质量单独评估。
+- cookie `Secure`、反向代理 WebSocket upgrade 等属性在实际部署链路验收。
+- 连接断开后的行为需要真实传输边界验证；不能把 `httpx.ASGITransport` 的完整缓冲响应当作中途断连测试。

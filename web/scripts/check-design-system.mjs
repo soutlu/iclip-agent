@@ -58,7 +58,7 @@ const readDeclarations = (body, into) => {
  * 规范侧：第一个 <style> 里第一个 :root 块与第一个 .dark 块，--pg-* 不入账。
  */
 export function collectSpecTokens(html) {
-  // 先去掉 HTML 注释：文件头那段说明里也写着 <style> 字样，会抢走第一个 <style> 的位置
+  // 排除 HTML 注释内的 <style> 字样，定位实际样式块。
   const styleMatch = /<style>([\s\S]*?)<\/style>/.exec(html.replace(/<!--[\s\S]*?-->/g, ''))
   if (!styleMatch) throw new Error('design-system.html 里找不到 <style> 块')
   const css = stripComments(styleMatch[1])
@@ -84,14 +84,14 @@ export function collectRuntimeTokens(css) {
   const text = stripComments(css)
   const light = new Map()
   const dark = new Map()
-  // @theme inline reference 里登记过的名字：漏登记的颜色在 TSX 里写成类名会静默编译不出 CSS
+  // @theme inline reference 登记 token 后，Tailwind 才能生成对应工具类。
   const registered = new Map()
 
   let cursor = 0
   while (cursor < text.length) {
     const open = text.indexOf('{', cursor)
     if (open < 0) break
-    // 选择器只取最后一个分号之后的部分：前面可能堆着 @layer / @import 这类独立语句
+    // 跳过选择器前的 @layer / @import 独立语句。
     const prelude = text.slice(cursor, open).split(';').pop().trim().replace(/\s+/g, ' ')
     const body = blockBody(text, open)
     cursor = open + body.length + 2

@@ -1,11 +1,5 @@
-"""预览板合成：等格拼版，每格左上角叠印帧号。
-
-给模型看的中间产物，不进图像生成。帧号是模型引用某一格的唯一凭据，所以它必须
-烧进像素里——写在旁边的文字清单对不上格子。
-
-按路径读帧而不是收一堆 bytes：一段几分钟的片子按秒抽帧就是几百张，全捧在内存里
-没必要。
-"""
+"""生成带帧号的等格预览板，仅供模型选帧。帧号烧录到像素中，作为格子的引用标识。
+逐张按路径读取帧，避免将全片图像同时加载到内存。"""
 
 from __future__ import annotations
 
@@ -36,7 +30,7 @@ class BoardError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class BoardGeometry:
-    """一块板的排布与格尺寸（格尺寸取偶数）。"""
+    """预览板布局，格尺寸取偶数。"""
 
     cols: int
     rows: int
@@ -60,10 +54,7 @@ def image_aspect(path: Path) -> float:
 def board_geometry(
     cell_count: int, *, cell_aspect: float, max_edge: int = BOARD_MAX_EDGE, gap: int = BOARD_GAP_PX
 ) -> BoardGeometry:
-    """选让整版最接近方形的列数，再由长边上限反推格尺寸。
-
-    整版越接近方形，同样的长边下每格越大——竖长格尤其明显。
-    """
+    """选择接近方形的布局，在长边上限内提高单格可用尺寸。"""
 
     if cell_count <= 0:
         raise BoardError(f"预览板格数必须为正: {cell_count}")

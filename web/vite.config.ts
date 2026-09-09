@@ -4,11 +4,11 @@ import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
-import { createSameOriginApiProxy } from './src/shared/config/api-proxy'
-import { resolveDevServerProfile } from './src/shared/config/dev-server-profile'
+import { createSameOriginApiProxy } from './vite/api-proxy'
+import { resolveDevServerProfile } from './vite/dev-server-profile'
 
 // dev/preview 同源代理：去掉 /api 前缀后转发到后端（后端路由挂根路径）。
-// 生产环境反代（nginx）必须保持同一 rewrite 语义，见 docs/vite-migration-plan.md §3 Phase 5。
+// 生产环境反代（nginx）必须保持同一 rewrite 语义，见 docs/adr/0001。
 const backendProxyTarget = process.env.VITE_BACKEND_PROXY_TARGET ?? 'http://127.0.0.1:7788'
 const apiProxy = createSameOriginApiProxy(backendProxyTarget)
 
@@ -19,24 +19,16 @@ const MOCK_SERVICE_WORKER_PATH = path.resolve(
   'node_modules/msw/lib/mockServiceWorker.js',
 )
 
-/**
- * 浏览器 mock profile 使用等待 MSW 就绪的专用入口。
- *
- * @returns Vite HTML 转换插件。
- */
+/** mock 模式的入口等待 MSW 就绪后再加载应用。 */
 const developmentApplicationEntryPlugin = (): Plugin => ({
   apply: 'serve',
-  name: 'producer-development-application-entry',
+  name: 'cue-development-application-entry',
   transformIndexHtml(html) {
     return html.replace(APPLICATION_ENTRY, DEVELOPMENT_APPLICATION_ENTRY)
   },
 })
 
-/**
- * 在开发服务器中提供 MSW 官方 worker 文件，避免进入生产 public 产物。
- *
- * @returns Vite 开发服务器插件。
- */
+/** 仅开发服务器提供 MSW worker，避免进入生产 public 产物。 */
 const mockServiceWorkerPlugin = (): Plugin => ({
   apply: 'serve',
   configureServer(server) {
@@ -52,7 +44,7 @@ const mockServiceWorkerPlugin = (): Plugin => ({
       response.end(workerSource)
     })
   },
-  name: 'producer-mock-service-worker',
+  name: 'cue-mock-service-worker',
 })
 
 export default defineConfig(({ mode }) => {

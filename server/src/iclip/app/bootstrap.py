@@ -3,85 +3,102 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import Any
+from typing import Literal
 
 import httpx
 import procrastinate
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from redis.asyncio import BlockingConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from iclip.app.capability_table import (
     CapabilityTable,
     build_capability_table,
+    build_display_registry,
     resolve_capabilities,
 )
+from iclip.app.conversation_workspace import ConversationWorkspace, validate_video_shots
 from iclip.app.logging import configure_logging
-from iclip.app.task_styles import ProductStyleSnapshots, UnavailableStyleSnapshots
+from iclip.capabilities.shot_video.delivery import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.capabilities.workspace.scope import namespace_for
-from iclip.common.errors import DomainError, ValidationFailed
+from iclip.common.errors import DomainError
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
-    ResolvedInspirations,
     ResolvedMediaGeneration,
     ResolvedModel,
     ResolvedProductCatalog,
-    ResolvedRedis,
     ResolvedShotVideo,
     RuntimeConfig,
     SkillMount,
     resolve_settings,
 )
-from iclip.domains.agents.api import create_agents_router
+from iclip.domains.agents.public import AgentRunDeps
+from iclip.domains.agents.transcript_api import LiveConnections, create_transcript_router
 from iclip.domains.assets.infra_sql import SqlAssetRepository
 from iclip.domains.assets.module import build_assets_module
+from iclip.domains.collections.infra_sql import SqlCollectionRepository
+from iclip.domains.collections.module import build_collections_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.module import build_conversations_module
-from iclip.domains.conversations.service import DerivedFile, DerivedFileContent
+from iclip.domains.conversations.service import (
+    SIDEBAR_COLLECTIONS,
+    CollectionInfo,
+    ConversationActivity,
+    GenerateTitle,
+)
 from iclip.domains.generation.infra_sql import SqlGenerationRepository
-from iclip.domains.generation.module import GenerationModule, build_generation_module
-from iclip.domains.generation.multiflow import MultiflowSettings
-from iclip.domains.generation.nano_banana import NanoBananaSettings
+from iclip.domains.generation.module import (
+    GenerationModule,
+    ImageModelConfig,
+    build_generation_module,
+)
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
+from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
 from iclip.domains.identity.middleware import PrincipalMiddleware
 from iclip.domains.identity.module import SsoRuntime, build_identity_module
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
-from iclip.domains.inspirations.catalog_pg import PgInspirationCatalog
+from iclip.domains.inspirations.infra_sql import PgInspirationVideos
 from iclip.domains.inspirations.module import build_inspirations_module
-from iclip.domains.products.catalog_pg import PgProductCatalog
-from iclip.domains.products.module import build_products_module
-from iclip.domains.projects.infra_sql import SqlProjectRepository
-from iclip.domains.projects.module import build_projects_module
+from iclip.domains.inspirations.service import NoStyleDirectory
+from iclip.domains.products.catalog_pg import PgStyleDirectory
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
-from iclip.domains.tasks.ports import StyleSnapshots
 from iclip.harness.agents import (
+    DELEGATE_TOOL,
     AgentCapabilities,
     AgentDefinition,
     SubAgentDefinition,
     build_agent_registry,
+    subagent_profiles,
 )
-from iclip.harness.history import HistoryReader
-from iclip.harness.media import MediaCodec
+from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.models import BuiltModels, ModelSpec, build_models
-from iclip.harness.run_stream_redis import RedisRunStream, RunStream
-from iclip.harness.runs import RunBroker, RunStreamSettings
 from iclip.harness.skills import build_skill_capabilities
 from iclip.harness.step_store_pg import PgStepStore
+from iclip.harness.titles import title_generator
+from iclip.harness.transcript.activity import ActivityState
+from iclip.harness.transcript.history import TranscriptHistory
+from iclip.harness.transcript.runner import ConversationRunner
+from iclip.harness.transcript.service import TranscriptService
+from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.transcript.subagents import SubAgentMirror
 from iclip.platform.file_store.pg import PgFileStore
-from iclip.platform.file_store.store import InvalidPath
+from iclip.platform.file_store.store import (
+    FileEntry,
+    FileStore,
+    SearchResult,
+    StoredFile,
+)
 from iclip.platform.http import status_code_for
-from iclip.platform.object_store.layout import MEDIA_PATHS
+from iclip.platform.material_ledger.pg import PgMaterialLedger
 from iclip.platform.object_store.oss import (
     OssObjectStore,
     OssSettings,
@@ -89,6 +106,8 @@ from iclip.platform.object_store.oss import (
     PublicObjectStore,
     validate_public_url_base,
 )
+
+_logger = structlog.stdlib.get_logger(__name__)
 
 
 def _capabilities(
@@ -98,24 +117,36 @@ def _capabilities(
     table: CapabilityTable,
     declared_by: str,
 ) -> AgentCapabilities:
-    """把声明里的名字翻译成真的能力实例。
-
-    skill 与 capability 都是「不写即不挂」，所以两边都空就是一个空元组——这个
-    agent 只有 spec 与提示词。
-    """
+    """按声明解析能力，未声明的 skill 或 capability 不挂载。"""
 
     mounted = build_skill_capabilities(skills.library, skills.names) if skills else ()
     return (*mounted, *resolve_capabilities(names, table=table, declared_by=declared_by))
 
 
+def _object_store(
+    settings: ObjectStoreEnv | None, injected: PublicBucket | None
+) -> PublicBucket | None:
+    """公开对象存储：素材上传、生成结果转存、镜头帧共用这一个（测试可注入替身）。"""
+
+    if injected is not None:
+        return injected
+    if settings is None:
+        return None
+    return OssObjectStore(
+        OssSettings(
+            bucket=settings.bucket,
+            endpoint=settings.endpoint,
+            access_key_id=settings.access_key_id,
+            access_key_secret=settings.access_key_secret,
+            public_url_base=validate_public_url_base(settings.public_url_base),
+        )
+    )
+
+
 def _agent_definitions(
     declared: Sequence[ResolvedAgent], *, table: CapabilityTable
 ) -> tuple[AgentDefinition, ...]:
-    """把配置环的声明翻译成 harness 的入参类型。
-
-    harness 环只依赖 common，读不到 config——这层翻译是组合根的活，
-    与 identity 的 ``CookieAuthSettings`` / ``SsoRuntime`` 同一个套路。
-    """
+    """将配置声明转换为 harness 入参，避免内核依赖配置层。"""
 
     return tuple(
         AgentDefinition(
@@ -167,83 +198,93 @@ def _model_specs(declared: Sequence[ResolvedModel]) -> tuple[ModelSpec, ...]:
     )
 
 
+def _agent_context_limits(
+    declared_agents: Sequence[ResolvedAgent],
+    declared_models: Sequence[ResolvedModel],
+) -> dict[str, int]:
+    """只给对话顶层 agent 配窗口；子 agent 不进入 transcript 统计。"""
+
+    limits_by_model = {
+        model.name: model.context_window
+        for model in declared_models
+        if model.context_window is not None
+    }
+    return {
+        agent.agent_id: limits_by_model[agent.model]
+        for agent in declared_agents
+        if agent.model in limits_by_model
+    }
+
+
 _SOCKET_TIMEOUT_MARGIN = 5.0
 """socket 超时比阻塞等待多留的余量（秒）。"""
 
 
-def _shot_video_client(settings: ResolvedShotVideo | None) -> httpx.AsyncClient | None:
-    """镜头素材能力取素材与调拆解接口用的连接池。
+def _namespace_owner(namespace: str) -> tuple[uuid.UUID, uuid.UUID] | None:
+    """从工作区命名空间解析属主与对话；非对话命名空间返回 None。"""
 
-    ffmpeg 在这里检查：抽帧与切格全靠它，PATH 上没有的话那两件工具每次调用都会
-    失败——那是部署环境的问题，该在启动时就说清楚，不该等模型撞上去。
-    """
-
-    if settings is None:
+    owner, _, conversation_id = namespace.partition("/")
+    try:
+        return uuid.UUID(owner), uuid.UUID(conversation_id)
+    except ValueError:
         return None
-    if not ffmpeg_available():
+
+
+class AnnouncingFileStore:
+    """工作区写入后发送 event.fs.changed，存储实现与连接管理通过组合根适配。
+
+    所有写入共用 FileStore 入口；非对话命名空间不发送通知，通知投影不影响存储结果。"""
+
+    def __init__(self, inner: FileStore, live: LiveConnections) -> None:
+        self._inner = inner
+        self._live = live
+
+    async def read(self, namespace: str, path: str) -> StoredFile | None:
+        return await self._inner.read(namespace, path)
+
+    async def write(
+        self, namespace: str, path: str, content: str, *, expected_version: int | None = None
+    ) -> FileEntry:
+        entry = await self._inner.write(namespace, path, content, expected_version=expected_version)
+        self._announce(namespace, entry.path, "created" if entry.version == 1 else "modified")
+        return entry
+
+    async def delete(self, namespace: str, path: str) -> bool:
+        deleted = await self._inner.delete(namespace, path)
+        if deleted:
+            self._announce(namespace, path, "deleted")
+        return deleted
+
+    def _announce(
+        self, namespace: str, path: str, change: Literal["created", "modified", "deleted"]
+    ) -> None:
+        addressed = _namespace_owner(namespace)
+        if addressed is not None:
+            owner, conversation_id = addressed
+            self._live.announce_fs_changed(owner, conversation_id, path=path, change=change)
+
+    async def entries(self, namespace: str, *, prefix: str = "") -> Sequence[FileEntry]:
+        return await self._inner.entries(namespace, prefix=prefix)
+
+    async def search(self, namespace: str, query: str, *, limit: int) -> SearchResult:
+        return await self._inner.search(namespace, query, limit=limit)
+
+
+async def _no_title(_user_text: str) -> str | None:
+
+    return None
+
+
+def _require_ffmpeg(settings: ResolvedShotVideo | None) -> None:
+    """启动时验证 ffmpeg 与 ffprobe，避免已启用的抽帧工具在调用时才暴露部署缺失。"""
+
+    if settings is not None and not ffmpeg_available():
         raise RuntimeError("配了 shot_video 但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
-    return httpx.AsyncClient(follow_redirects=True)
-
-
-def _stream_settings(redis: ResolvedRedis | None) -> RunStreamSettings:
-    """配置段缺席时（测试注入了自己的事件流）用默认时长与容量。"""
-
-    if redis is None:
-        return RunStreamSettings()
-    return RunStreamSettings(
-        replay_window_seconds=redis.replay_window_seconds,
-        max_frames=redis.max_frames,
-    )
-
-
-def _object_store(
-    settings: ObjectStoreEnv | None, injected: PublicBucket | None
-) -> PublicBucket | None:
-    """公开对象存储：素材上传、生成结果转存、镜头帧共用这一个（测试可注入替身）。"""
-
-    if injected is not None:
-        return injected
-    if settings is None:
-        return None
-    return OssObjectStore(
-        OssSettings(
-            bucket=settings.bucket,
-            endpoint=settings.endpoint,
-            access_key_id=settings.access_key_id,
-            access_key_secret=settings.access_key_secret,
-            public_url_base=validate_public_url_base(settings.public_url_base),
-        )
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _InlineMediaLanding:
-    """聊天里内嵌上传的媒体落到公开桶的哪个位置。
-
-    这条线只能接在组合根：agent 内核那一环不认识 platform，所以它只说「同一份字节
-    要落回同一个地方」，落在哪个目录由这里按桶布局补上。
-    """
-
-    objects: PublicObjectStore
-
-    async def put_inline_media(
-        self, *, digest: str, ext: str, content: bytes, content_type: str
-    ) -> str:
-        return await self.objects.put_public_object(
-            object_key=MEDIA_PATHS.chat_media(digest=digest, ext=ext),
-            content=content,
-            content_type=content_type,
-        )
 
 
 def _product_catalog_engine(
     settings: ResolvedProductCatalog | None, injected: AsyncEngine | None
 ) -> AsyncEngine | None:
-    """产品资料目录那个库的连接；没配这项能力就没有。
-
-    **连接在会话层就设成只读**：那个库的账号本身有写权限，而我们只该读它。把只读钉
-    在自己这边，就不依赖对方的授权配置哪天有没有改对。
-    """
 
     if settings is None:
         return None
@@ -251,27 +292,13 @@ def _product_catalog_engine(
 
 
 def _read_only_engine(database_url: str) -> AsyncEngine:
-    """外部只读源的连接。
-
-    **只读钉在会话层**：那些库的账号本身可能有写权限，而我们只该读它们。钉在自己
-    这边就不依赖对方的授权配置哪天有没有改对。
-    """
+    """为外部库设置会话级只读，独立于上游账号可能拥有的写权限。"""
 
     return create_async_engine(
         database_url,
         pool_pre_ping=True,
         connect_args={"server_settings": {"default_transaction_read_only": "on"}},
     )
-
-
-def _inspirations_engine(
-    settings: ResolvedInspirations | None, injected: AsyncEngine | None
-) -> AsyncEngine | None:
-    """爆款视频库的连接；没配这项能力就没有。"""
-
-    if settings is None:
-        return None
-    return injected if injected is not None else _read_only_engine(settings.database_url)
 
 
 def _generation_module(
@@ -282,26 +309,25 @@ def _generation_module(
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
 ) -> GenerationModule:
-    """把配置环的运行值翻译成 generation 的入参。
-
-    与 identity 的 ``CookieAuthSettings`` / harness 的 ``ModelSpec`` 同一个套路：
-    业务模块读不到 config，翻译是组合根的活。
-    """
+    """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。"""
 
     return build_generation_module(
         SqlGenerationRepository(engine),
-        video=MultiflowSettings(
+        video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
             api_key=settings.video_api_key,
-            model=settings.video_model,
-            user_name=settings.video_user_name,
         ),
-        image=NanoBananaSettings(
-            text_to_image_url=settings.image_text_to_image_url,
-            image_edit_url=settings.image_edit_url,
-            user_name=settings.image_user_name,
+        video_default_model=settings.video_model,
+        video_allowed_models=settings.video_allowed_models,
+        image_models=tuple(
+            ImageModelConfig(
+                name=model.name, api_base=model.api_base, concurrency=model.concurrency
+            )
+            for model in settings.image_models
         ),
+        image_default_model=settings.image_default_model,
+        image_env=settings.image_env,
         object_store=object_store,
         queue_connector=(
             queue_connector
@@ -321,25 +347,18 @@ def build_app(
     agents: Sequence[ResolvedAgent] = (),
     engine: AsyncEngine | None = None,
     models: BuiltModels | None = None,
-    run_stream: RunStream | None = None,
     sso_verifier: SsoVerifier | None = None,
     pms_client: PmsUserClient | None = None,
     object_store: PublicBucket | None = None,
     queue_connector: procrastinate.BaseConnector | None = None,
     product_catalog_engine: AsyncEngine | None = None,
-    inspirations_engine: AsyncEngine | None = None,
-    style_snapshots: StyleSnapshots | None = None,
 ) -> FastAPI:
-    """装配公开 app。
-
-    测试可注入 engine、模型表、事件流、SSO/PMS 替身、对象存储、队列连接器、产品目录库
-    与爆款视频库这两个外部只读源，以及需求单要的款号快照。
-    """
+    """装配 FastAPI 应用与资源生命周期，支持注入基础设施替身。"""
 
     settings = resolve_settings(config)
     if settings.db_schema != DB_SCHEMA:
         raise RuntimeError(f"db.schema 当前固定为 {DB_SCHEMA}（declarative 元数据定义期绑定）")
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
 
     owns_engine = engine is None
     active_engine = (
@@ -369,11 +388,33 @@ def build_app(
         sso_verifier=sso_verifier,
         pms_client=pms_client,
     )
-    # 公开对象存储：它自己就是一项能力（素材上传、生成结果转存、镜头帧落地都用它），
-    # 配了就有，没配这几件各自不挂。它排在最前面，是因为后面几个都要用它。
+    # 素材、生成与镜头能力依赖同一对象存储，先完成装配。
     public_objects = _object_store(settings.object_store, object_store)
-    # 媒体生成：配了就装，没配就整组路由不挂（同 SSO 的口径）。
-    # 它排在 agent 装配之前，是因为镜头素材能力要用它的服务与对象存储。
+    _require_ffmpeg(settings.shot_video)
+    # 图片信息查询、素材下载与拆解请求共用 HTTP 连接池。
+    http_client = httpx.AsyncClient(follow_redirects=True)
+    catalog_engine = _product_catalog_engine(settings.product_catalog, product_catalog_engine)
+    owns_catalog_engine = catalog_engine is not None and product_catalog_engine is None
+    # 爆款视频读自家快照表，无条件提供。降级要按品类与品牌圈选同类款，需要 PDM 款目录；
+    # 缺它时降级整级失效，此处显式告警，不让调用方把「能力没开」误当成「查不到」。
+    if catalog_engine is None:
+        _logger.warning("未配置产品资料库，爆款视频降级不可用，未命中的款一律返回 none")
+    inspirations = build_inspirations_module(
+        PgInspirationVideos(active_engine),
+        PgStyleDirectory(catalog_engine) if catalog_engine is not None else NoStyleDirectory(),
+    )
+    workspace_store = PgFileStore(active_engine)
+    # 工作区写入通知依赖连接注册表。
+    live_connections = LiveConnections()
+    announcing_workspace_store = AnnouncingFileStore(workspace_store, live_connections)
+
+    # 附件接收与工具能力共用素材台账，保证登记和查询一致。
+    material_ledger = PgMaterialLedger(active_engine)
+    conversation_workspace = ConversationWorkspace(
+        workspace_store, announcing_workspace_store, material_ledger
+    )
+
+    # 镜头能力依赖生成服务，须先于 Agent 装配。
     generation = (
         _generation_module(
             settings.media_generation,
@@ -385,170 +426,170 @@ def build_app(
         if settings.media_generation is not None and public_objects is not None
         else None
     )
-    shot_video_client = _shot_video_client(settings.shot_video)
-    catalog_engine = _product_catalog_engine(settings.product_catalog, product_catalog_engine)
-    products = (
-        build_products_module(
-            PgProductCatalog(catalog_engine, image_base_url=settings.product_catalog.image_base_url)
-        )
-        if settings.product_catalog is not None and catalog_engine is not None
-        else None
-    )
-    owns_catalog_engine = catalog_engine is not None and product_catalog_engine is None
-    inspiration_engine = _inspirations_engine(settings.inspirations, inspirations_engine)
-    inspirations = (
-        build_inspirations_module(PgInspirationCatalog(inspiration_engine))
-        if inspiration_engine is not None
-        else None
-    )
-    owns_inspiration_engine = inspiration_engine is not None and inspirations_engine is None
-    workspace_store = PgFileStore(active_engine)
-
-    async def purge_conversation_workspace(owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
-        """删掉一段对话时，连带清空它在工作区里的地盘。
-
-        这条线只能接在组合根：对话那一侧不该知道工作区的存在，工作区那一侧也不该
-        知道有「对话」这种东西。这里是唯一同时认识两者的地方。
-        """
-
-        await workspace_store.purge_namespace(namespace_for(owner, str(conversation_id)))
-
-    async def list_conversation_files(
-        owner: uuid.UUID, conversation_id: uuid.UUID
-    ) -> tuple[DerivedFile, ...]:
-        """列出 agent 在一段对话里写下的文件，给界面上的工作区面板看。"""
-
-        entries = await workspace_store.entries(namespace_for(owner, str(conversation_id)))
-        return tuple(
-            DerivedFile(
-                path=entry.path,
-                size_bytes=entry.size_bytes,
-                version=entry.version,
-                updated_at=entry.updated_at,
-            )
-            for entry in entries
-        )
-
-    async def read_conversation_file(
-        owner: uuid.UUID, conversation_id: uuid.UUID, path: str
-    ) -> DerivedFileContent | None:
-        """读其中一个文件。路径是用户给的，不合语法就是 422，不能漏成 500。"""
-
-        try:
-            stored = await workspace_store.read(namespace_for(owner, str(conversation_id)), path)
-        except InvalidPath as exc:
-            raise ValidationFailed(str(exc)) from exc
-        if stored is None:
-            return None
-        return DerivedFileContent(path=stored.path, content=stored.content, version=stored.version)
 
     # step store、工作区与 identity 共用同一个 engine（表在 agent_runtime schema）。
-    step_store = PgStepStore(active_engine)
-    media = MediaCodec(
-        inline_store=_InlineMediaLanding(public_objects) if public_objects is not None else None
+    step_store = PgStepStore(
+        active_engine, max_snapshots_per_run=settings.agent_runs.max_snapshots_per_run
     )
-    history = HistoryReader(snapshots=step_store, media=media)
+    collection_repo = SqlCollectionRepository(active_engine)
+    collections = build_collections_module(collection_repo)
 
-    async def read_conversation_history(conversation_id: uuid.UUID) -> tuple[dict[str, Any], ...]:
-        """读一段对话里发生过的消息。
+    async def list_owner_collections(owner: uuid.UUID) -> tuple[CollectionInfo, ...]:
+        """将合集元信息适配到对话侧栏，保持两个领域独立。"""
 
-        这条线同样只能接在组合根：消息落在 agent 引擎的账本里，而对话那一侧不认识
-        引擎，引擎那一侧也不认识「谁的对话」。
-        """
+        found = await collection_repo.list_recent(owner=owner, limit=SIDEBAR_COLLECTIONS)
+        return tuple(
+            CollectionInfo(id=item.id, name=item.name, updated_at=item.updated_at) for item in found
+        )
 
-        return await history.read(str(conversation_id))
+    async def activities_of(
+        conversation_ids: Sequence[uuid.UUID],
+    ) -> Mapping[uuid.UUID, ConversationActivity]:
+        """将引擎活动投影转换为对话活动模型。"""
+
+        states = await job_queue.activities([str(one) for one in conversation_ids])
+        return {
+            one: ConversationActivity(
+                busy=state.busy,
+                pending_interaction=state.pending_interaction,
+                last_turn_reason=state.last_turn_reason,
+            )
+            for one, state in ((one, states[str(one)]) for one in conversation_ids)
+        }
+
+    async def conversation_ids_by_state(
+        owner: uuid.UUID, state: Literal["running", "done"]
+    ) -> frozenset[uuid.UUID]:
+
+        return frozenset(uuid.UUID(one) for one in await job_queue.conversation_ids(owner, state))
+
+    def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
+        """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
+
+        live_connections.announce_activity(
+            owner,
+            uuid.UUID(conversation_id),
+            busy=state.busy,
+            pending_interaction=state.pending_interaction,
+            last_turn_reason=state.last_turn_reason,
+        )
+
+    built_models = build_models(_model_specs(settings.models)) if models is None else models
+    title_model = settings.title_model
+    if title_model is None:
+        generate_title: GenerateTitle = _no_title
+    elif title_model not in built_models:
+        raise RuntimeError(f"conversations.title_model 指向 {title_model}，models 段里没有这个名字")
+    else:
+        generate_title = title_generator(built_models[title_model])
 
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
-        purge_derived=purge_conversation_workspace,
-        read_history=read_conversation_history,
-        list_derived_files=list_conversation_files,
-        read_derived_file=read_conversation_file,
+        purge_derived=conversation_workspace.purge,
+        list_collections=list_owner_collections,
+        list_derived_files=conversation_workspace.list_files,
+        read_derived_file=conversation_workspace.read_file,
+        write_derived_file=conversation_workspace.write_file,
+        document_validators={SHOTS_PATH: validate_video_shots},
+        generate_title=generate_title,
+        announce_title=live_connections.announce_title,
+        activities_of=activities_of,
+        conversation_ids_by_state=conversation_ids_by_state,
     )
-    projects = build_projects_module(SqlProjectRepository(active_engine))
-    # 创作需求单：一张自己的表，外加「按款号抄一份快照」这一件要向外借的事。产品资料库
-    # 或对象存储缺一个，就借不到——那时装个只会响亮拒绝的替代品，而不是让它悄悄记空。
-    tasks = build_tasks_module(
-        SqlTaskRepository(active_engine),
-        style_snapshots
-        if style_snapshots is not None
-        else (
-            ProductStyleSnapshots(products.catalog, public_objects)
-            if products is not None and public_objects is not None
-            else UnavailableStyleSnapshots()
-        ),
-    )
-    # 素材：表一直在（迁移建的），但没有桶就没有上传与登记这回事，整组路由不挂。
+    tasks = build_tasks_module(SqlTaskRepository(active_engine))
     assets = (
         build_assets_module(SqlAssetRepository(active_engine), public_objects)
         if public_objects is not None
         else None
     )
-    agent_registry = build_agent_registry(
-        _agent_definitions(
-            agents,
-            table=build_capability_table(
-                workspace_store=workspace_store,
-                generation_service=generation.service if generation is not None else None,
-                object_store=public_objects,
-                http_client=shot_video_client,
-                shot_video=settings.shot_video,
-            ),
-        ),
-        step_store=step_store,
-        models=build_models(_model_specs(settings.models)) if models is None else models,
-        media=media,
+    capability_table = build_capability_table(
+        workspace_store=announcing_workspace_store,
+        material_ledger=material_ledger,
+        http_client=http_client,
+        generation_service=generation.service if generation is not None else None,
+        image_models=generation.image_models if generation is not None else frozenset(),
+        object_store=public_objects,
+        shot_video=settings.shot_video,
     )
-    # 事件流只在真有 agent 时才装（同 SSO：能力没配就不挂对应路由）。
-    redis_client: Redis | None = None
-    broker: RunBroker | None = None
-    if agents:
-        stream_settings = _stream_settings(settings.redis)
-        if run_stream is None:
-            if settings.redis is None:
-                raise RuntimeError(
-                    "声明了 agent 就必须配 redis 段：运行的事件写进 Redis 才能断线重放"
-                )
-            redis_client = Redis(
-                # 连接池满了要排队等，不能直接报错。读事件的人多是常态（每个人
-                # 占住一条连接不放），而报错砸中的可能是后台运行的心跳——心跳
-                # 一断，租约就过期，一个还在跑的运行会被判成中断。
-                connection_pool=BlockingConnectionPool.from_url(
-                    settings.redis.url,
-                    decode_responses=True,
-                    max_connections=settings.redis.max_connections,
-                    # 读事件时会挂在 Redis 上等新事件，一等就是 block_ms 那么久。
-                    # socket 超时必须比这个等待时间宽出一截，否则客户端会先把自己
-                    # 判成超时——那正是「模型算得久、没有新事件」的正常情况。
-                    socket_timeout=stream_settings.block_ms / 1000 + _SOCKET_TIMEOUT_MARGIN,
-                )
-            )
-            run_stream = RedisRunStream(redis_client)
-        broker = RunBroker(agent_registry, run_stream, stream_settings)
+    # 实时与历史共用显示注册表，保证工具卡渲染一致。
+    tool_displays = build_display_registry(capability_table)
+    transcript_store = TranscriptStore()
+    agent_definitions = _agent_definitions(agents, table=capability_table)
+    # 子代理镜像要拿到实时投影、显示表和子代理档案，装配 Agent 前先备好。
+    agent_registry = build_agent_registry(
+        agent_definitions,
+        step_store=step_store,
+        models=built_models,
+        subagent_mirror=SubAgentMirror(
+            live=transcript_store,
+            display=tool_displays,
+            profiles=subagent_profiles(agent_definitions, built_models),
+        ),
+    )
+    job_queue = JobQueue(active_engine, on_activity=on_activity)
+    context_limits = _agent_context_limits(agents, settings.models)
+
+    async def name_conversation(row: JobRow) -> None:
+        """轮次结束后调用对话命名用例，连接引擎模型与对话条件更新。"""
+
+        await conversations.service.name_after_turn(uuid.UUID(row.conversation_id), row.text)
+
+    async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
+        """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。"""
+
+        account = await identity.service.get_account(row.owner_user_id)
+        return AgentRunDeps(
+            principal=identity.service.principal_for_user(account),
+            conversation_id=row.conversation_id,
+            user_name=row.user_name,
+        )
+
+    # 显示与续跑共用历史投影，用于初始化续跑的实时状态。
+    transcript_history = TranscriptHistory(step_store, job_queue, tool_displays, DELEGATE_TOOL)
+    transcripts = TranscriptService(
+        store=transcript_store,
+        history=transcript_history,
+        queue=job_queue,
+        context_limits=context_limits,
+        record_materials=conversation_workspace.record_materials,
+        runner=ConversationRunner(
+            agents=dict(agent_registry.agents),
+            store=transcript_store,
+            queue=job_queue,
+            snapshots=step_store,
+            history=transcript_history,
+            deps_for=deps_for_prompt,
+            context_limits=context_limits,
+            heartbeat_seconds=settings.agent_runs.heartbeat_seconds,
+            lease_seconds=settings.agent_runs.lease_seconds,
+            sweep_seconds=settings.agent_runs.sweep_seconds,
+            max_attempts=settings.agent_runs.max_attempts,
+            compaction_max_fraction=settings.compaction.max_fraction,
+            compaction_keep_messages=settings.compaction.keep_messages,
+            on_turn_ended=name_conversation,
+            display=tool_displays,
+        ),
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+        await transcripts.runner.start()
         if generation is not None:
-            # 队列的连接要先开：HTTP 面受理一次生成时就要往队列里排。
+            # 接收 HTTP 请求前打开队列连接。
             await generation.queue.app.open_async()
             generation.queue.start()
         try:
             yield
         finally:
-            # 顺序要紧：后台运行还在用这个 engine 落库，先把它们收掉再关连接。
+            # 后台运行收尾需要落库，须先于 engine 关闭。
             if generation is not None:
                 await generation.queue.stop()
                 await generation.queue.app.close_async()
-            if broker is not None:
-                await broker.shutdown()
-            if shot_video_client is not None:
-                await shot_video_client.aclose()
+            # 通过框架取消运行，等待终态落库后再关闭 engine。
+            await transcripts.runner.shutdown()
+            await http_client.aclose()
             if owns_catalog_engine and catalog_engine is not None:
                 await catalog_engine.dispose()
-            if owns_inspiration_engine and inspiration_engine is not None:
-                await inspiration_engine.dispose()
-            if redis_client is not None:
-                await redis_client.aclose()
             if owns_engine:
                 await active_engine.dispose()
 
@@ -571,18 +612,22 @@ def build_app(
         app.include_router(router)
     for router in assets.routers if assets is not None else ():
         app.include_router(router)
-    for router in products.routers if products is not None else ():
-        app.include_router(router)
-    for router in inspirations.routers if inspirations is not None else ():
+    for router in inspirations.routers:
         app.include_router(router)
     for router in conversations.routers:
         app.include_router(router)
-    for router in projects.routers:
+    for router in collections.routers:
         app.include_router(router)
     for router in tasks.routers:
         app.include_router(router)
-    if broker is not None:
-        app.include_router(create_agents_router(broker, conversations.service))
+    app.include_router(
+        create_transcript_router(
+            transcripts,
+            conversations.service,
+            allowed_origins=settings.security.cors_allow_origins,
+            live=live_connections,
+        )
+    )
 
     # 中间件顺序（先加的在内层）：Principal 解析在内，CORS 在外
     # （preflight 无凭证也必须被 CORS 应答）。
@@ -600,9 +645,8 @@ def build_app(
     app.state.agents = agent_registry
     app.state.conversations = conversations
     app.state.generation = generation
-    app.state.products = products
     app.state.inspirations = inspirations
-    app.state.projects = projects
+    app.state.collections = collections
     app.state.tasks = tasks
     return app
 

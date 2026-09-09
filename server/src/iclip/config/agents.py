@@ -1,14 +1,6 @@
-"""Agent 装配声明（``agents/agents.yaml``）的加载与路径解析。
+"""Agent 装配声明的加载、结构校验与路径解析。
 
-与 ``config.yaml`` 分开的理由是变更节奏不同：那一份是运维配置（只存 ``*_env``
-变量名），这一份是产品资产的装配声明。本模块只做加载、结构校验与路径解析——
-把 ``spec`` 解析成绝对路径、按目录约定找出同级 ``instructions.md``，并在文件
-缺失时立刻失败（启动期 fail fast）。
-
-声明文件本身必须存在——路径打错、部署漏目录、文件被删都必须大声失败，而不是
-降级成空注册表（那与「故意没配 agent」无法区分）。「没有 agent」由文件里的
-``agent: {}`` 表达，不由文件缺席表达。
-"""
+声明文件和引用资产缺失时立即失败；空注册表必须显式声明 agent: {}。"""
 
 from __future__ import annotations
 
@@ -110,11 +102,7 @@ def _resolve_spec(base_dir: Path, spec: str, *, declared_by: str) -> tuple[Path,
 def _resolve_skills(
     base_dir: Path, names: tuple[str, ...], *, declared_by: str
 ) -> SkillMount | None:
-    """把 skill 名字列表解析成一次库挂载；没挑就是不挂。
-
-    库路径在这里解析成绝对路径，不留给官方 ``Skills`` 按进程工作目录去猜——
-    否则同一份代码在不同工作目录下行为不同，且不报错。
-    """
+    """将选定技能解析为绝对路径挂载；空列表不挂载，避免依赖进程工作目录。"""
 
     if not names:
         return None

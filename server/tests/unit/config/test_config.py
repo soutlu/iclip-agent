@@ -1,10 +1,6 @@
-"""配置加载与环境解析的失败即失败契约。
+"""验证 YAML 形状和环境变量的配置契约。
 
-YAML 只管形状，值一律来自环境变量。所以这一份里的 YAML 片段不含任何变量名（只有
-``models.*.api_key_env`` 例外——每个模型各自一把 key，用哪个变量取是声明的一部分）。
-
-**每条测试之前先把这个服务认的环境变量全清掉**：变量名现在是写死的真名字，开发机
-上要是恰好导出过同名变量，测试就会读到真值而不是这条测试想要的值。
+每项测试先清理服务使用的环境变量，避免读取开发机配置。
 """
 
 from __future__ import annotations
@@ -25,12 +21,10 @@ MANIFEST = (
     "SSO_REDIRECT_URL",
     "PMS_BASE_URL",
     "ROOT_EMAIL",
-    "REDIS_URL",
     "VIDEO_SUBMIT_URL",
     "VIDEO_STATUS_BASE_URL",
     "VIDEO_API_KEY",
-    "IMAGE_TEXT_TO_IMAGE_URL",
-    "IMAGE_EDIT_URL",
+    "IMAGE_API_BASE",
     "OSS_BUCKET",
     "OSS_ENDPOINT",
     "OSS_ACCESS_KEY_ID",
@@ -39,8 +33,6 @@ MANIFEST = (
     "VIDEO_UNDERSTANDING_URL",
     "VIDEO_UNDERSTANDING_API_KEY",
     "PRODUCT_CATALOG_DATABASE_URL",
-    "PRODUCT_IMAGE_BASE_URL",
-    "INSPIRATION_DATABASE_URL",
     "T_QWEN_KEY",
 )
 
@@ -67,7 +59,6 @@ def write(tmp_path: Path, content: str) -> Path:
 
 
 def _core(monkeypatch: pytest.MonkeyPatch) -> None:
-    """必需的那两个，供只关心别处的测试用。"""
 
     monkeypatch.setenv("DATABASE_URL", DB_URL)
     monkeypatch.setenv("AUTH_SECRET", "s" * 32)
@@ -80,11 +71,7 @@ def test_valid_config_loads(tmp_path: Path) -> None:
 
 
 def test_the_shipped_config_file_still_loads() -> None:
-    """仓里那份 ``configs/config.yaml`` 必须能被现在的模型加载。
-
-    ``extra="forbid"`` 意味着留一个过时的键就会在启动时炸——而那种错误只在真启动
-    时才暴露，本地测试全绿。所以这一条专门盯着那个文件本身。
-    """
+    """配置模型拒绝额外字段；直接加载仓库配置以发现过时字段导致的启动失败。"""
 
     shipped = Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
     config = load_runtime_config(shipped)
@@ -100,12 +87,26 @@ def test_unknown_key_rejected(tmp_path: Path) -> None:
 
 
 def test_env_var_names_are_not_accepted_in_yaml(tmp_path: Path) -> None:
-    """变量名不该再出现在 YAML 里：那是旧写法，留着会让人以为它还起作用。"""
 
     with pytest.raises(ValidationError):
         load_runtime_config(
             write(tmp_path, VALID.replace("db: {schema: iclip}", "db: {url_env: X}"))
         )
+
+
+def test_lease_must_outlast_a_heartbeat(tmp_path: Path) -> None:
+    """租约必须长于心跳间隔，避免有效运行被误判失联。"""
+
+    bad = VALID + "\nagent_runs: {heartbeat_seconds: 30, lease_seconds: 30}\n"
+    with pytest.raises(ValidationError, match="heartbeat_seconds"):
+        load_runtime_config(write(tmp_path, bad))
+
+
+def test_a_prompt_must_be_claimable_at_least_once(tmp_path: Path) -> None:
+
+    bad = VALID + "\nagent_runs: {max_attempts: 0}\n"
+    with pytest.raises(ValidationError, match="max_attempts"):
+        load_runtime_config(write(tmp_path, bad))
 
 
 def test_cors_wildcard_rejected(tmp_path: Path) -> None:
@@ -120,7 +121,6 @@ def test_missing_file_fails(tmp_path: Path) -> None:
 
 
 def test_resolve_names_every_missing_variable_at_once(tmp_path: Path) -> None:
-    """缺了几个就一次报几个，而且报的是变量名本身——一个一个试太费时间。"""
 
     config = load_runtime_config(write(tmp_path, VALID))
     with pytest.raises(ValidationError) as caught:
@@ -148,7 +148,6 @@ def test_resolve_rejects_short_secret(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_blank_value_counts_as_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """设成空串或空白等于没设：那种半配置最难查。"""
 
     config = load_runtime_config(write(tmp_path, VALID))
     monkeypatch.setenv("DATABASE_URL", DB_URL)
@@ -158,7 +157,6 @@ def test_blank_value_counts_as_missing(tmp_path: Path, monkeypatch: pytest.Monke
 
 
 def test_sso_off_when_env_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """开关在环境里：地址为空就整项关闭，而不是半开着。"""
 
     config = load_runtime_config(write(tmp_path, VALID))
     _core(monkeypatch)
@@ -187,6 +185,7 @@ models:
     api: responses
     api_key_env: T_QWEN_KEY
     base_url: https://dashscope.test/v1
+    context_window: 131072
 """
 
 
@@ -200,7 +199,6 @@ def test_no_models_section_means_no_models(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_model_key_requires_its_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """模型的 key 仍然是「按声明里给的变量名去取」，缺了要报出是哪个变量。"""
 
     config = load_runtime_config(write(tmp_path, VALID + MODELS))
     with pytest.raises(RuntimeError, match="T_QWEN_KEY"):
@@ -208,7 +206,6 @@ def test_model_key_requires_its_env(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 def test_model_key_name_is_the_model_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """键名即模型名。"""
 
     monkeypatch.setenv("T_QWEN_KEY", "sk-test")
     (model,) = resolve_with_base(
@@ -218,10 +215,10 @@ def test_model_key_name_is_the_model_name(tmp_path: Path, monkeypatch: pytest.Mo
     assert (model.name, model.model) == ("qwen3.8-max", "qwen3.8-max")
     assert (model.provider, model.api) == ("alibaba", "responses")
     assert (model.api_key, model.base_url) == ("sk-test", "https://dashscope.test/v1")
+    assert model.context_window == 131072
 
 
 def test_explicit_model_overrides_key_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """键名不是模型名时，用 model 字段指明真实模型名。"""
 
     monkeypatch.setenv("T_QWEN_KEY", "sk-test")
     yaml_text = VALID + MODELS.replace("  qwen3.8-max:", "  qwen-intl:").replace(
@@ -250,60 +247,38 @@ def test_unknown_api_value_rejected(tmp_path: Path) -> None:
         load_runtime_config(write(tmp_path, bad))
 
 
-REDIS = """
-redis: {}
-"""
-
-
-def test_redis_env_required_when_section_present(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """配了 redis 段就必须有地址，缺了就在启动期报出是哪个变量。"""
-
-    config = load_runtime_config(write(tmp_path, VALID + REDIS))
-    _core(monkeypatch)
-    with pytest.raises(ValidationError, match="REDIS_URL"):
-        resolve_settings(config)
-
-
-def test_redis_defaults_are_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config = load_runtime_config(write(tmp_path, VALID + REDIS))
-    _core(monkeypatch)
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    redis = resolve_settings(config).redis
-
-    assert redis is not None
-    assert (redis.replay_window_seconds, redis.max_frames) == (3600, 100_000)
-
-
-def test_no_redis_section_means_no_stream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    config = load_runtime_config(write(tmp_path, VALID))
-    _core(monkeypatch)
-
-    assert resolve_settings(config).redis is None
-
-
 MEDIA = """
 media_generation:
   video:
     model: seedance
-    user_name: iclip-agent
+    allowed_models: [seedance, seedance-other]
   image:
-    user_name: iclip-agent
+    env: test
+    default: nano_banana_pro
+    models:
+      nano_banana_pro:
+        route: nano-banana-pro
+        concurrency: 4
 """
 
 MEDIA_ENV = {
     "VIDEO_SUBMIT_URL": "https://video.test/generate",
     "VIDEO_STATUS_BASE_URL": "https://video.test/tasks",
     "VIDEO_API_KEY": "vk",
-    "IMAGE_TEXT_TO_IMAGE_URL": "https://image.test/text-to-image",
-    "IMAGE_EDIT_URL": "https://image.test/image-edit",
+    "IMAGE_API_BASE": "https://image.test/atlas",
     "OSS_BUCKET": "iclip",
     "OSS_ENDPOINT": "https://oss.test",
     "OSS_ACCESS_KEY_ID": "ak",
     "OSS_ACCESS_KEY_SECRET": "sk",
     "OSS_PUBLIC_URL_BASE": "https://cdn.test",
 }
+
+
+@pytest.mark.parametrize("allowed", ["[]", "[other]", "[seedance, '   ']"])
+def test_video_model_selection_rejects_invalid_configuration(tmp_path: Path, allowed: str) -> None:
+    media = MEDIA.replace("[seedance, seedance-other]", allowed)
+    with pytest.raises(ValidationError):
+        load_runtime_config(write(tmp_path, VALID + media))
 
 
 def _media_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -315,7 +290,6 @@ def _media_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_media_generation_off_when_submit_url_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """开关在环境里（同 SSO）：地址为空就整项关闭，而不是半开着。"""
 
     config = load_runtime_config(write(tmp_path, VALID + MEDIA))
     _media_env(monkeypatch)
@@ -333,19 +307,20 @@ def test_media_generation_resolves_both_providers_and_store(
 
     assert media is not None
     assert media.video_model == "seedance", "对方的模型名来自 YAML"
-    assert media.image_text_to_image_url == "https://image.test/text-to-image"
-    assert media.image_edit_url == "https://image.test/image-edit"
+    assert media.video_allowed_models == ("seedance", "seedance-other")
+    assert [(model.name, model.api_base, model.concurrency) for model in media.image_models] == [
+        ("nano_banana_pro", "https://image.test/atlas/nano-banana-pro", 4)
+    ], "网关根地址与声明的路由段在这一层拼好"
     assert (media.poll_interval_seconds, media.job_timeout_seconds) == (5, 3600)
 
 
 @pytest.mark.parametrize(
     "missing",
-    ["VIDEO_STATUS_BASE_URL", "VIDEO_API_KEY", "IMAGE_EDIT_URL"],
+    ["VIDEO_STATUS_BASE_URL", "VIDEO_API_KEY", "IMAGE_API_BASE"],
 )
 def test_media_generation_half_configured_fails_loudly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str
 ) -> None:
-    """一旦开启，剩下的 env 就都是必需的——半开着比关着更糟。"""
 
     config = load_runtime_config(write(tmp_path, VALID + MEDIA))
     _media_env(monkeypatch)
@@ -355,7 +330,6 @@ def test_media_generation_half_configured_fails_loudly(
 
 
 def test_object_store_is_its_own_switch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """桶名为空即整项关闭：素材上传那组路由不挂，但服务照常起得来。"""
 
     config = load_runtime_config(write(tmp_path, VALID))
     _media_env(monkeypatch)
@@ -380,7 +354,7 @@ def test_object_store_half_configured_fails_loudly(
 def test_media_generation_without_a_bucket_fails_loudly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """生成开着、桶没开是「半开着」：图片结果没处转存，库里就会存一批会过期的地址。"""
+    """生成结果依赖对象存储转存，缺少桶会留下可能过期的供应商地址。"""
 
     config = load_runtime_config(write(tmp_path, VALID + MEDIA))
     _media_env(monkeypatch)
@@ -413,11 +387,7 @@ def _shot_video_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_shot_video_off_when_understanding_url_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """开关在环境里：地址为空即整项关闭，哪怕 YAML 里留着这一段。
-
-    真有 agent 声明要用它，装配期会在名字表那里报「引用了未登记的 capability」，
-    所以这里安静地关掉不会变成一个查不出来的「它不干活」。
-    """
+    """未配置视频解析地址时关闭能力；agent 引用未启用能力由装配阶段拒绝。"""
 
     config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
     _shot_video_env(monkeypatch)
@@ -454,7 +424,6 @@ def test_shot_video_half_configured_fails_loudly(
 def test_shot_video_without_media_generation_fails_loudly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """出图与对象存储都走生成那一套，生成没开就是半开着——不许悄悄降级。"""
 
     config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
     _shot_video_env(monkeypatch)
@@ -474,7 +443,6 @@ def test_shot_video_section_absent_means_off(
 
 PRODUCT_CATALOG_ENV = {
     "PRODUCT_CATALOG_DATABASE_URL": "postgresql+asyncpg://reader@catalog.test/catalog",
-    "PRODUCT_IMAGE_BASE_URL": "https://bucket.test",
 }
 
 
@@ -487,7 +455,6 @@ def _product_catalog_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_product_catalog_off_when_database_url_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """开关在环境里，而且这项能力没有 YAML 段——连接串为空就是整项关闭。"""
 
     config = load_runtime_config(write(tmp_path, VALID))
     _core(monkeypatch)
@@ -495,7 +462,7 @@ def test_product_catalog_off_when_database_url_empty(
     assert resolve_settings(config).product_catalog is None
 
 
-def test_product_catalog_resolves_both_values(
+def test_product_catalog_resolves_connection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = load_runtime_config(write(tmp_path, VALID))
@@ -503,37 +470,4 @@ def test_product_catalog_resolves_both_values(
     catalog = resolve_settings(config).product_catalog
 
     assert catalog is not None
-    assert catalog.image_base_url == "https://bucket.test"
-
-
-def test_product_catalog_half_configured_fails_loudly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """查得到款却给不出图片地址，是那种点进去才发现的半开着。"""
-
-    config = load_runtime_config(write(tmp_path, VALID))
-    _product_catalog_env(monkeypatch)
-    monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL")
-    with pytest.raises(ValidationError, match="PRODUCT_IMAGE_BASE_URL"):
-        resolve_settings(config)
-
-
-def test_inspirations_off_when_database_url_empty(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config = load_runtime_config(write(tmp_path, VALID))
-    _core(monkeypatch)
-
-    assert resolve_settings(config).inspirations is None
-
-
-def test_inspirations_resolves_connection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """它只有一个值：视频地址在行上就是完整的，不用再配前缀。"""
-
-    config = load_runtime_config(write(tmp_path, VALID))
-    _core(monkeypatch)
-    monkeypatch.setenv("INSPIRATION_DATABASE_URL", "postgresql+asyncpg://reader@vl.test/vl")
-    inspirations = resolve_settings(config).inspirations
-
-    assert inspirations is not None
-    assert inspirations.database_url.endswith("/vl")
+    assert catalog.database_url.endswith("/catalog")

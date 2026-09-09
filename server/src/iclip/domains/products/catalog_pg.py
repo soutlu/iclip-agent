@@ -1,141 +1,64 @@
-"""产品资料目录的只读后端：外部 Postgres（PDM 的同步副本）。
+"""外部 PDM 同步库的只读查询，不建表、不迁移、不写入。
 
-**这些表不是我们的。** 本模块不建表、不迁移、不写入，只按显式列名读。上游改结构时
-我们会响亮地失败（列名对不上直接报错），而不是悄悄返回半截数据——这正是要的失效
-方式。
-
-一个款一次往返：款、图、颜色三段在库里聚成 JSON 再回来。分三条查会是三次往返，而
-这个库在网络另一头。
-
-四条不能省的过滤，少一条就会给出错的东西：
-
-- 每一跳都要 ``is_active AND NOT is_source_deleted``——同步副本用标记位表达删除。
-- 取图那跳还要 ``is_current AND status = 'succeeded'``：转存失败的行也在表里，用它
-  会得到一个指向空对象的地址。
-- 图按 ``content_hash`` 去重：同一个款下确实存在多条映射指向同一张图。
-- 颜色走 ``style_pdm_id``；``pdm_skcs.style_id`` 那个 UUID 外键列上游还没回填，全是
-  NULL，用它一个颜色都查不到而且不报错。
-"""
+只解析款的品类与品牌归属；产品资料查询（图片、颜色、名称）已下线，相应的多表
+聚合与编码到名称的对照表一并移除。"""
 
 from __future__ import annotations
 
-import json
-from typing import Any, Final
+from collections.abc import Mapping, Sequence
+from typing import Final
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from iclip.common.errors import NotFound
-from iclip.domains.products.models import Color, Product, ProductImage
-from iclip.domains.products.tables import brand_for, category_for, color_group_for
+from iclip.domains.products.models import StyleGrouping
 
-PRODUCT_IMAGE_FILE_TYPE: Final = 17
-"""上游给产品图用的文件类型码；别的类型是模具图、材料图这些工艺资料。"""
+_BRAND_CODE: Final = "replace(attributes::text, '\\u0000', '')::json ->> 'brand'"
+"""上游有款把 ``\\u0000`` 写进了 attributes；json 存得下，取成 text 却会整条查询
+报错，所以取值前先剔除。"""
 
-_FIND_PRODUCT: Final = text(f"""
-WITH style AS (
-    SELECT pdm_entity_id, product_number, style_wms, source_status,
-           product_category_id,
-           attributes ->> 'brand'    AS brand_code,
-           attributes ->> 'dev_year' AS dev_year
-    FROM pdm_styles
-    WHERE product_number = :style_no AND is_active AND NOT is_source_deleted
-),
-images AS (
-    SELECT DISTINCT ON (a.content_hash)
-           m.pdm_entity_id AS file_id, a.object_key, a.width, a.height
-    FROM style s
-    JOIN pdm_file_mappings m
-           ON m.business_id = s.pdm_entity_id
-          AND m.file_type = {PRODUCT_IMAGE_FILE_TYPE}
-          AND m.is_active AND NOT m.is_source_deleted
-    JOIN pdm_asset_versions v
-           ON v.pdm_file_mapping_id = m.id AND v.is_current AND v.status = 'succeeded'
-    JOIN assets a ON a.id = v.asset_id
-    ORDER BY a.content_hash, m.pdm_entity_id
-),
-colors AS (
-    SELECT DISTINCT c.color_code, c.display_name,
-           c.attributes ->> 'color_group' AS color_group, c.rgb
-    FROM style s
-    JOIN pdm_skcs k
-           ON k.style_pdm_id = s.pdm_entity_id
-          AND k.is_active AND NOT k.is_source_deleted
-    JOIN pdm_colors c
-           ON c.pdm_entity_id = k.color_pdm_id
-          AND c.is_active AND NOT c.is_source_deleted
-)
-SELECT s.product_number, s.style_wms, s.source_status, s.product_category_id,
-       s.brand_code, s.dev_year,
-       (SELECT coalesce(json_agg(json_build_object(
-                   'file_id', file_id, 'object_key', object_key,
-                   'width', width, 'height', height) ORDER BY file_id), '[]'::json)
-        FROM images) AS images,
-       (SELECT coalesce(json_agg(json_build_object(
-                   'code', color_code, 'name', display_name,
-                   'group', color_group, 'rgb', rgb) ORDER BY color_code), '[]'::json)
-        FROM colors) AS colors
-FROM style s
+_RESOLVE_GROUPING: Final = text(f"""
+SELECT product_number, product_category_id, {_BRAND_CODE} AS brand_code
+FROM pdm_styles
+WHERE product_number = ANY(:style_nos) AND is_active AND NOT is_source_deleted
 """)
 
 
-def _rows(value: Any) -> list[dict[str, Any]]:
-    """把聚合出来的那一列还原成行。
-
-    驱动对 ``text()`` 查询里的 json 列不做解码，拿到的是一段字符串。
-    """
-
-    if isinstance(value, str):
-        return json.loads(value)
-    return list(value)
-
-
 def _blank_to_none(value: str | None) -> str | None:
-    """上游的空串等于没填（``style_wms`` 里就有空串）。"""
+    """将上游空字符串视为缺失值。"""
 
     return value.strip() or None if value else None
 
 
-class PgProductCatalog:
-    """按 PDM 款号查一个款；查不到即 ``NotFound``。"""
+class PgStyleDirectory:
+    """按 PDM 款号批量解析品类与品牌归属。"""
 
-    def __init__(self, engine: AsyncEngine, *, image_base_url: str) -> None:
+    def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
-        self._image_base_url = image_base_url.rstrip("/")
 
-    async def find(self, style_no: str) -> Product:
+    async def resolve(self, style_nos: Sequence[str]) -> Mapping[str, StyleGrouping]:
+        """查不到的款、以及品类或品牌缺失的款，都不出现在结果里。
+
+        缺归属不是错误：使用方据此判断这个款无从圈选同类款，自行决定怎么处理。
+        """
+
+        if not style_nos:
+            return {}
         async with self._engine.connect() as conn:
-            row = (await conn.execute(_FIND_PRODUCT, {"style_no": style_no})).mappings().first()
-        if row is None:
-            raise NotFound(f"没有款号 {style_no}")
-        return Product(
-            style_no=row["product_number"],
-            style_wms=_blank_to_none(row["style_wms"]),
-            status=row["source_status"],
-            dev_year=_blank_to_none(row["dev_year"]),
-            brand=brand_for(row["brand_code"]),
-            category=category_for(row["product_category_id"]),
-            # 上游同步 style 时没带 CT 归属那一列；等它同步过来这里才有值。
-            combat_team=None,
-            colors=tuple(
-                Color(
-                    code=item["code"],
-                    name=item["name"],
-                    group=color_group_for(item["group"]),
-                    rgb=_blank_to_none(item["rgb"]),
-                )
-                for item in _rows(row["colors"])
-            ),
-            images=tuple(
-                ProductImage(
-                    id=str(item["file_id"]),
-                    url=f"{self._image_base_url}/{item['object_key']}",
-                    width=item["width"],
-                    height=item["height"],
-                )
-                for item in _rows(row["images"])
-            ),
-        )
+            rows = (
+                (await conn.execute(_RESOLVE_GROUPING, {"style_nos": list(style_nos)}))
+                .mappings()
+                .all()
+            )
+        found: dict[str, StyleGrouping] = {}
+        for row in rows:
+            brand_code = _blank_to_none(row["brand_code"])
+            if row["product_category_id"] is None or brand_code is None:
+                continue
+            found[row["product_number"]] = StyleGrouping(
+                category_id=row["product_category_id"], brand_code=brand_code
+            )
+        return found
 
 
-__all__ = ["PRODUCT_IMAGE_FILE_TYPE", "PgProductCatalog"]
+__all__ = ["PgStyleDirectory"]

@@ -6,10 +6,12 @@ Bearer API key 哈希查表一次。任何一步失败即匿名（None），受�
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+import structlog
 from fastapi import HTTPException, Request, WebSocket
 from starlette.requests import HTTPConnection
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -62,8 +64,13 @@ class PrincipalMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] in {"http", "websocket"}:
+            # 请求及 WebSocket 生命周期内的日志共享请求与主体上下文。
+            structlog.contextvars.clear_contextvars()
+            structlog.contextvars.bind_contextvars(request_id=uuid.uuid4().hex[:12])
             connection = HTTPConnection(scope)
             principal = await self._resolver.resolve(connection.headers, connection.cookies)
+            if principal is not None:
+                structlog.contextvars.bind_contextvars(principal=principal.audit_label)
             state = scope.setdefault("state", {})
             state["principal"] = principal
         await self._app(scope, receive, send)

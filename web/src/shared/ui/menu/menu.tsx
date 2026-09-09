@@ -9,7 +9,7 @@ export const MenuRadioGroup = DropdownMenu.RadioGroup
 
 const ITEM_CLASS =
   // design-allow -- Radix 用 .focus() 移动高亮，浏览器默认框会和 ui-focus 的焦点环叠一起
-  'ui-state ui-focus flex h-(--control-height-md) cursor-pointer items-center gap-2 rounded-sm px-3 text-body outline-none select-none'
+  'ui-state ui-focus flex h-(--control-height-sm) cursor-pointer items-center gap-2 rounded-sm px-2 text-body outline-none select-none'
 
 export function MenuSeparator({
   className,
@@ -29,7 +29,8 @@ export function MenuSurface({
     <DropdownMenu.Portal>
       <DropdownMenu.Content
         className={cn(
-          'layer-popup popup-menu-enter min-w-[180px] rounded-md border border-border bg-popup-bg p-1 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+          'layer-popup flex min-w-36 flex-col gap-0.5 rounded-md border-[0.5px] border-border bg-popup-bg p-1 shadow-[var(--shadow-2)] backdrop-blur-[40px]',
+          'data-[state=closed]:animate-out data-[state=closed]:duration-(--dur-s) data-[state=closed]:ease-(--ease-accel) data-[state=closed]:zoom-out-95 data-[state=closed]:fade-out data-[state=open]:animate-in data-[state=open]:duration-(--dur-m) data-[state=open]:ease-(--ease-decel) data-[state=open]:zoom-in-95 data-[state=open]:fade-in',
           className,
         )}
         sideOffset={sideOffset}
@@ -41,7 +42,7 @@ export function MenuSurface({
 
 type MenuItemProps = ComponentPropsWithoutRef<typeof DropdownMenu.Item> & {
   destructive?: boolean
-  /** 行尾快捷键提示，如 ['⌘', '+'] */
+  icon?: Parameters<typeof Icon>[0]['name']
   shortcut?: readonly string[]
 }
 
@@ -49,20 +50,19 @@ export function MenuItem({
   children,
   className,
   destructive = false,
+  icon,
   shortcut,
   ...props
 }: MenuItemProps) {
   return (
     <DropdownMenu.Item
-      className={cn(
-        ITEM_CLASS,
-        'justify-between',
-        destructive ? 'text-error' : 'text-on-surface',
-        className,
-      )}
+      className={cn(ITEM_CLASS, destructive ? 'text-error' : 'text-on-surface', className)}
       {...props}
     >
-      <span className="truncate">{children}</span>
+      {icon ? (
+        <Icon className="shrink-0 text-on-surface-variant" decorative name={icon} size="sm" />
+      ) : null}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
       {shortcut?.length ? (
         <span className="ml-4 flex shrink-0 items-center gap-1 text-label text-on-surface-variant">
           {shortcut.map((key) => (
@@ -74,7 +74,6 @@ export function MenuItem({
   )
 }
 
-/** 单选菜单项：选中标记由 Radix 的 ItemIndicator 挂在行尾。 */
 export function MenuRadioItem({
   children,
   className,

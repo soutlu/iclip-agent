@@ -1,0 +1,4 @@
+/* 外壳描边承担字段焦点指示，内层 input 移除焦点环；匿名层规则才能覆盖全局兜底。 */
+.field-nested-input:focus-visible {
+  outline: none;
+}

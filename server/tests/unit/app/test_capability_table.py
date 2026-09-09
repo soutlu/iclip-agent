@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import cast
+import uuid
+from collections.abc import Callable
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -12,22 +14,39 @@ from iclip.app.capability_table import (
     CapabilityTable,
     GenerationsAdapter,
     ObjectWriterAdapter,
+    OssMediaProbe,
     build_capability_table,
+    build_display_registry,
     resolve_capabilities,
 )
 from iclip.capabilities.shot_video.capability import ShotVideo
+from iclip.capabilities.shot_video.generation import IMAGE_MODEL
 from iclip.capabilities.shot_video.ports import (
     ImageRequest,
     InvalidImageRequest,
     ObjectWriteFailed,
 )
 from iclip.capabilities.workspace.capability import Workspace
+from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
+from iclip.common.errors import ValidationFailed
 from iclip.config import ResolvedShotVideo
+from iclip.domains.generation.models import GenerationJob
+from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.public import Principal
 from iclip.platform.object_store.oss import ObjectStoreUnavailable
 from tests.helpers.file_store import FakeFileStore
+from tests.helpers.generation import make_job
+from tests.helpers.material_ledger import FakeMaterialLedger
 from tests.helpers.shot_video import FakeObjects
+
+IMAGE_URL = "https://bucket.oss-cn-hangzhou.aliyuncs.com/style.jpg"
+
+
+def idle_client() -> httpx.AsyncClient:
+    """装配测试不发送网络请求。"""
+
+    return httpx.AsyncClient()
 
 
 @pytest.fixture
@@ -58,7 +77,6 @@ def table(video: Capability[object]) -> CapabilityTable:
 
 
 def test_unknown_name_fails_loudly(table: CapabilityTable) -> None:
-    """名字打错不能静默变成「没挂」——那样 agent 会带着半套工具上线。"""
 
     with pytest.raises(RuntimeError, match="引用了未登记的 capability 'shots'"):
         resolve_capabilities(("shots",), table=table, declared_by="agent storyboard")
@@ -73,17 +91,23 @@ def test_nothing_declared_mounts_nothing(table: CapabilityTable) -> None:
 
 
 def test_workspace_is_registered_under_its_declaration_name() -> None:
-    """``agents.yaml`` 里写 capabilities: [workspace] 得真能装出工作区来。"""
 
-    built = build_capability_table(workspace_store=FakeFileStore())
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
+        http_client=idle_client(),
+    )
     resolved = resolve_capabilities(("workspace",), table=built, declared_by="agent storyboard")
     assert [type(capability) for capability in resolved] == [Workspace]
 
 
 def test_shot_video_needs_its_whole_backing() -> None:
-    """依赖不齐就不登记这个名字——引用它的 agent 会在装配期响亮地失败。"""
 
-    built = build_capability_table(workspace_store=FakeFileStore())
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
+        http_client=idle_client(),
+    )
     assert "shot_video" not in built
     with pytest.raises(RuntimeError, match="引用了未登记的 capability 'shot_video'"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
@@ -92,10 +116,12 @@ def test_shot_video_needs_its_whole_backing() -> None:
 def test_shot_video_is_registered_when_backed(shot_video_settings: ResolvedShotVideo) -> None:
     built = build_capability_table(
         workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
-        http_client=cast("httpx.AsyncClient", object()),
+        http_client=idle_client(),
         shot_video=shot_video_settings,
+        image_models=frozenset({IMAGE_MODEL}),
     )
     resolved = resolve_capabilities(
         ("workspace", "shot_video"), table=built, declared_by="agent storyboard"
@@ -106,28 +132,110 @@ def test_shot_video_is_registered_when_backed(shot_video_settings: ResolvedShotV
 def test_shot_video_without_workspace_fails_at_assembly(
     shot_video_settings: ResolvedShotVideo,
 ) -> None:
-    """镜头素材写的文档要靠工作区的工具让模型看见；少挂一个的失效是静默的，所以装配期就拦。"""
+    """镜头素材产物依赖工作区工具读取，缺少工作区能力须在装配时拒绝。"""
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
-        http_client=cast("httpx.AsyncClient", object()),
+        http_client=idle_client(),
         shot_video=shot_video_settings,
+        image_models=frozenset({IMAGE_MODEL}),
     )
     with pytest.raises(RuntimeError, match=r"没挂 'workspace'.*agents\.yaml"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
 
 
+def test_the_display_registry_covers_every_mounted_tool(
+    shot_video_settings: ResolvedShotVideo,
+) -> None:
+    """合并 display 表时需包含不在能力名称表中的 skill 和子代理工具。"""
+
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
+        generation_service=cast("GenerationService", object()),
+        object_store=FakeObjects(),
+        http_client=idle_client(),
+        shot_video=shot_video_settings,
+        image_models=frozenset({IMAGE_MODEL}),
+    )
+
+    registry = build_display_registry(built)
+
+    assert sorted(registry.entries) == [
+        "ReadMediaFile",
+        "delegate_task",
+        "delete_file",
+        "edit_file",
+        "generate_anchor_sheet",
+        "generate_shot_frames",
+        "get_skill_reference",
+        "list_files",
+        "load_capability",
+        "plan_shot_frames",
+        "read_file",
+        "search_files",
+        "video_parser_md",
+        "write_file",
+        "write_video_shots",
+    ]
+
+
+def test_a_capability_without_a_table_is_skipped(table: CapabilityTable) -> None:
+
+    registry = build_display_registry(table)
+
+    assert "read_file" not in registry.entries
+
+
 async def test_generations_adapter_translates_and_reports_bad_parameters() -> None:
-    """画幅与档位的判定归生成域那套唯一的请求定义，适配器只负责把话带到。"""
+    """生成域定义请求约束，适配器负责映射参数与错误。"""
 
     adapter = GenerationsAdapter(cast("GenerationService", object()))
     with pytest.raises(InvalidImageRequest, match="aspect_ratio"):
         await adapter.submit(
             cast("Principal", object()),
-            ImageRequest(prompt="猫", aspect_ratio="17:9", resolution="1k", channel="dev"),
+            ImageRequest(
+                prompt="猫",
+                model="nano_banana_pro",
+                aspect_ratio="17:9",
+                resolution="1k",
+                channel="dev",
+                user_name="luke",
+            ),
         )
+
+
+async def test_generations_adapter_carries_the_conversation_onto_the_job() -> None:
+
+    seen: list[ImageGenerationIn] = []
+
+    class _Recording:
+        async def submit_image(
+            self, principal: Principal, request: ImageGenerationIn
+        ) -> GenerationJob:
+            _ = principal
+            seen.append(request)
+            return make_job(request)
+
+    conversation_id = uuid.uuid4()
+    adapter = GenerationsAdapter(cast("GenerationService", _Recording()))
+    await adapter.submit(
+        cast("Principal", object()),
+        ImageRequest(
+            prompt="猫",
+            model="nano_banana_pro",
+            aspect_ratio="1:1",
+            resolution="1k",
+            channel="dev",
+            user_name="designer-zhang",
+            conversation_id=str(conversation_id),
+        ),
+    )
+    assert seen[0].conversation_id == conversation_id
+    assert seen[0].user_name == "designer-zhang", "运行替谁跑，图就记在谁头上"
 
 
 class _StoreDown:
@@ -136,8 +244,81 @@ class _StoreDown:
         raise ObjectStoreUnavailable("OSS 写入失败（试了 3 次）: Read timed out")
 
 
+def oss(handler: Callable[[httpx.Request], httpx.Response]) -> OssMediaProbe:
+    return OssMediaProbe(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+
+# OSS image/info 的字段值均为字符串。
+INFO_BODY = {
+    "FileSize": {"value": "21839"},
+    "Format": {"value": "jpg"},
+    "ImageHeight": {"value": "267"},
+    "ImageWidth": {"value": "400"},
+}
+
+
+async def test_the_probe_reads_the_oss_image_info() -> None:
+
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(200, json=INFO_BODY)
+
+    info = await oss(handler).image_info(IMAGE_URL)
+
+    assert asked == [f"{IMAGE_URL}?x-oss-process=image/info"]
+    assert info == ImageInfo(media_type="image/jpeg", size_bytes=21839, width=400, height=267)
+
+
+async def test_an_unknown_format_keeps_its_own_name() -> None:
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**INFO_BODY, "Format": {"value": "bmp"}})
+
+    assert (await oss(handler).image_info(IMAGE_URL)).media_type == "image/bmp"
+
+
+async def test_a_non_success_status_is_a_probe_failure() -> None:
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="NoSuchKey")
+
+    with pytest.raises(MediaProbeFailed, match="对方返回 404"):
+        await oss(handler).image_info(IMAGE_URL)
+
+
+@pytest.mark.parametrize(
+    "body", [{"Format": {"value": "jpg"}}, {**INFO_BODY, "ImageWidth": {"value": "宽"}}]
+)
+async def test_missing_or_unreadable_fields_are_a_probe_failure(body: dict[str, Any]) -> None:
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    with pytest.raises(MediaProbeFailed, match="不是图片信息"):
+        await oss(handler).image_info(IMAGE_URL)
+
+
+async def test_a_non_json_body_is_a_probe_failure() -> None:
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"\xff\xd8\xff\xe0")
+
+    with pytest.raises(MediaProbeFailed, match="不是图片信息"):
+        await oss(handler).image_info(IMAGE_URL)
+
+
+async def test_a_network_failure_is_a_probe_failure() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(MediaProbeFailed, match="地址访问不到"):
+        await oss(handler).image_info(IMAGE_URL)
+
+
 async def test_object_writer_adapter_translates_the_failure_and_passes_urls_through() -> None:
-    """平台层的异常能力包不认识，穿出工具就是整次运行中断；适配器翻成能力包自己的类型。"""
+    """适配器须转换平台异常为能力包异常，避免可处理的工具错误中断整个运行。"""
 
     with pytest.raises(ObjectWriteFailed, match="Read timed out"):
         await ObjectWriterAdapter(_StoreDown()).put_public_object(
@@ -148,3 +329,45 @@ async def test_object_writer_adapter_translates_the_failure_and_passes_urls_thro
         object_key="k", content=b"x", content_type="image/jpeg"
     )
     assert url == "https://cdn.test/k"
+
+
+async def test_generations_adapter_turns_intake_rejection_into_a_fixable_error() -> None:
+    """受理层按所选模型的能力拒绝时，工具要能让模型改参数，而不是把异常裸抛出去。"""
+
+    class _Rejecting:
+        async def submit_image(
+            self, principal: Principal, request: ImageGenerationIn
+        ) -> GenerationJob:
+            _ = principal, request
+            raise ValidationFailed("nano_banana_pro 不支持分辨率 8k")
+
+    adapter = GenerationsAdapter(cast("GenerationService", _Rejecting()))
+    with pytest.raises(InvalidImageRequest, match="不支持分辨率 8k"):
+        await adapter.submit(
+            cast("Principal", object()),
+            ImageRequest(
+                prompt="猫",
+                model="nano_banana_pro",
+                aspect_ratio="1:1",
+                resolution="1k",
+                channel="dev",
+                user_name="luke",
+            ),
+        )
+
+
+def test_shot_video_refuses_to_mount_when_its_image_model_is_not_wired(
+    shot_video_settings: ResolvedShotVideo,
+) -> None:
+    """出图把用哪家钉在代码里；配置没接这家，起不来比跑起来之后每次出图失败好。"""
+
+    with pytest.raises(RuntimeError, match=IMAGE_MODEL):
+        build_capability_table(
+            workspace_store=FakeFileStore(),
+            material_ledger=FakeMaterialLedger(),
+            generation_service=cast("GenerationService", object()),
+            object_store=FakeObjects(),
+            http_client=idle_client(),
+            shot_video=shot_video_settings,
+            image_models=frozenset({"别的一家"}),
+        )

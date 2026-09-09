@@ -1,7 +1,6 @@
-"""真实模型冒烟：仓内 config.yaml + agents.yaml 装出来的 agent 能真的说话。
+"""使用仓库配置执行真实模型冒烟测试。
 
-只跑 ``make test-external``，需要 ``.env`` 里的真实 key。单测只能证明装配形状对，
-端点 / key / 模型名在厂商那边成不成立，只有这一层能回答。
+通过 make test-external 运行，需要真实供应商凭证。
 """
 
 from __future__ import annotations
@@ -18,8 +17,9 @@ from iclip.harness.agents import (
     SubAgentDefinition,
     build_agent_registry,
 )
-from iclip.harness.media import MediaCodec
 from iclip.harness.models import ModelSpec, build_models
+from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.transcript.subagents import SubAgentMirror
 
 SERVER_DIR = Path(__file__).resolve().parents[3]
 
@@ -66,7 +66,7 @@ def shipped_registry() -> AgentRegistry:
                 for model in settings.models
             )
         ),
-        media=MediaCodec(),
+        subagent_mirror=SubAgentMirror(live=TranscriptStore()),
     )
 
 

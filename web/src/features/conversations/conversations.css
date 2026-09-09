@@ -1,0 +1,53 @@
+/* 保持滚动条占位，仅在滚动或悬停时显色，避免正文换行触发滚动循环。 */
+
+.chat-scroller {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+.chat-scroller:hover,
+.chat-scroller[data-scrolling='true'] {
+  scrollbar-color: var(--color-chat-scrollbar-thumb) transparent;
+}
+.chat-scroller::-webkit-scrollbar {
+  display: block;
+  height: 6px;
+  width: 6px;
+}
+.chat-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroller::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: var(--radius-full);
+}
+.chat-scroller:hover::-webkit-scrollbar-thumb,
+.chat-scroller[data-scrolling='true']::-webkit-scrollbar-thumb {
+  background: var(--color-chat-scrollbar-thumb);
+}
+
+/* 用户气泡折叠：十行截断，底部渐隐为展开按钮保留空间。 */
+
+.chat-clamp {
+  mask-image: linear-gradient(to bottom, black calc(100% - 5lh), transparent calc(100% - 1lh));
+  max-height: 10lh;
+  overflow: hidden;
+}
+
+.chat-q-clamp {
+  mask-image: linear-gradient(to bottom, black calc(100% - 1.2lh), transparent calc(100% - 0.2lh));
+  max-height: 3lh;
+  overflow: hidden;
+}
+
+/* 媒体灯箱：中性遮罩，媒体限制在视口内。 */
+
+.chat-lightbox {
+  background: color-mix(in srgb, var(--color-scrim) 60%, transparent);
+}
+.chat-lightbox-media {
+  background: var(--color-thumb-fallback);
+  border-radius: var(--radius-md);
+  max-height: 80vh;
+  max-width: min(960px, 90vw);
+  object-fit: contain;
+}

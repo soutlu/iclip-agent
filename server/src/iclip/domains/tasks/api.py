@@ -1,12 +1,4 @@
-"""创作需求单的 HTTP 面。
-
-读用 ``tasks:read``，一切会改动的用 ``tasks:write``——权限词汇表里早就留好了这两个
-名字，不发明新的。端点级的权限只管「能不能做这类事」；「这一张能不能由你来改」是
-``service.py`` 的判断。
-
-需求单人人可见，所以这里不存在「别人的返 404」那套写法：不存在才 404，看得见但不让
-改是 403。
-"""
+"""需求单 HTTP 端点。读取使用 tasks:read，写入使用 tasks:write，状态和角色约束由服务层校验。"""
 
 from __future__ import annotations
 
@@ -23,8 +15,6 @@ from iclip.domains.tasks.schemas import (
     TaskCreateIn,
     TaskEnvelope,
     TaskIn,
-    TaskProjectsIn,
-    TaskProjectsOut,
     TasksPageOut,
     task_out,
 )
@@ -38,17 +28,25 @@ def create_tasks_router(service: TaskService) -> APIRouter:
     async def create_task(
         body: TaskCreateIn,
         principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        response: Response,
     ) -> TaskEnvelope:
-        task = await service.create(principal, body)
+        """建一张需求单。带 ``id`` 重发时不新建，答复已有那一张并把状态码降为 200。"""
+
+        task, created = await service.create(principal, body)
+        if not created:
+            response.status_code = 200
         return TaskEnvelope(task=task_out(task))
 
     @router.get("", response_model=TasksPageOut)
     async def list_tasks(
-        _: Annotated[Principal, Depends(require_permission("tasks:read"))],
+        principal: Annotated[Principal, Depends(require_permission("tasks:read"))],
         status: TaskStatus | None = None,
         limit: Annotated[int, Query(ge=1, le=MAX_LIST_LIMIT)] = DEFAULT_LIST_LIMIT,
+        claimed_by: Annotated[str | None, Query(alias="claimedBy", pattern="^me$")] = None,
     ) -> TasksPageOut:
-        found = await service.list_recent(status=status, limit=limit)
+        # 「我认领的」只认 me：认领人必须从服务端身份来，不能是调用方报上来的 id。
+        assignee = principal.user_id if claimed_by == "me" else None
+        found = await service.list_recent(status=status, assignee_user_id=assignee, limit=limit)
         return TasksPageOut(items=[task_out(task) for task in found])
 
     @router.get("/{task_id}", response_model=TaskEnvelope)
@@ -78,9 +76,9 @@ def create_tasks_router(service: TaskService) -> APIRouter:
     @router.post("/{task_id}/confirm", response_model=TaskEnvelope)
     async def confirm_task(
         task_id: uuid.UUID,
-        _: Annotated[Principal, Depends(require_permission("tasks:write"))],
+        principal: Annotated[Principal, Depends(require_permission("tasks:write"))],
     ) -> TaskEnvelope:
-        return TaskEnvelope(task=task_out(await service.confirm(task_id)))
+        return TaskEnvelope(task=task_out(await service.confirm(principal, task_id)))
 
     @router.post("/{task_id}/withdraw", response_model=TaskEnvelope)
     async def withdraw_task(
@@ -88,25 +86,6 @@ def create_tasks_router(service: TaskService) -> APIRouter:
         _: Annotated[Principal, Depends(require_permission("tasks:write"))],
     ) -> TaskEnvelope:
         return TaskEnvelope(task=task_out(await service.withdraw(task_id)))
-
-    @router.get("/{task_id}/projects", response_model=TaskProjectsOut)
-    async def read_task_projects(
-        task_id: uuid.UUID,
-        _: Annotated[Principal, Depends(require_permission("tasks:read"))],
-    ) -> TaskProjectsOut:
-        found = await service.list_project_ids(task_id)
-        return TaskProjectsOut(project_ids=list(found))
-
-    @router.put("/{task_id}/projects", response_model=TaskProjectsOut)
-    async def set_task_projects(
-        task_id: uuid.UUID,
-        body: TaskProjectsIn,
-        _: Annotated[Principal, Depends(require_permission("tasks:write"))],
-    ) -> TaskProjectsOut:
-        """整体覆盖这张单挂的项目。PUT 而不是 POST：给什么就是最终的那一组。"""
-
-        saved = await service.set_project_ids(task_id, project_ids=tuple(body.project_ids))
-        return TaskProjectsOut(project_ids=list(saved))
 
     @router.delete("/{task_id}", status_code=204)
     async def delete_task(

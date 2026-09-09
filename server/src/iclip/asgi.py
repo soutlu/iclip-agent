@@ -2,6 +2,9 @@
 
 配置路径来自 ``CONFIG_FILE``，agent 装配声明来自 ``AGENTS_FILE``
 （缺省 ``agents/agents.yaml``；文件不存在即启动失败，空注册表由 ``agent: {}`` 表达）。
+
+装配在 import 期完成且不建立任何连接，连接与后台循环都留给 lifespan。合同导出靠
+的就是这一点：``scripts/dump_openapi.py`` 只 import 本模块取 OpenAPI，从不启动应用。
 """
 
 from __future__ import annotations

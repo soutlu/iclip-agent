@@ -1,0 +1,8 @@
+# 本机 venv 是 macOS 的，进了镜像既不能用又撑大上下文。
+.venv/
+tests/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+.python-version

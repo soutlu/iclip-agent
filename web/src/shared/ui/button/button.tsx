@@ -4,7 +4,7 @@ import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 
 export const buttonVariants = cva(
-  'hit-48 relative inline-flex ui-state cursor-pointer items-center justify-center gap-2 rounded-md font-semibold whitespace-nowrap ui-focus',
+  'hit-48 relative inline-flex ui-state cursor-pointer items-center justify-center gap-2 rounded-sm font-medium whitespace-nowrap ui-focus active:scale-[0.98]',
   {
     variants: {
       variant: {
@@ -28,7 +28,6 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
   VariantProps<typeof buttonVariants> & {
     children: ReactNode
     leadingIcon?: Parameters<typeof Icon>[0]['name']
-    // 转圈期间按钮保持禁用，避免同一动作被点第二次
     loading?: boolean
     trailingIcon?: Parameters<typeof Icon>[0]['name']
   }

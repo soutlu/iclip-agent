@@ -1,11 +1,4 @@
-"""T-GEN-06：真库上的状态跳转、属主可见性与那个状态守卫。
-
-只留只能打真 Postgres 的那几条：时刻取的是不是数据库自己的时钟、请求体 JSON 往返、
-外键级联，以及 ``only_if_status`` 的守卫——那是把 ``WHERE`` 塞进 ``UPDATE`` 来关掉
-「先读后写」那道缝的，内存替身模拟不出它的原子性。
-
-**领取与租约的测试没了**：排期归 procrastinate（见 ``queue.py``），这张表不再管待办。
-"""
+"""验证生成仓储的数据库时钟、JSON 往返、外键和条件更新原子性。"""
 
 from __future__ import annotations
 
@@ -27,17 +20,16 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTING,
     GenerationJob,
 )
-from iclip.domains.generation.schemas import GenerationRequest
+from iclip.domains.generation.schemas import GenerationRequest, ImageGenerationIn
 from tests.helpers.generation import image_request, make_job, video_request
+from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 
 
 @pytest.fixture
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     created = create_async_engine(migrated_pg)
     async with created.begin() as conn:
-        await conn.execute(
-            text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
-        )
+        await truncate_clean(conn, IDENTITY_TABLES, cascade=True)
     try:
         yield created
     finally:
@@ -45,7 +37,7 @@ async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
 
 
 async def make_user(engine: AsyncEngine) -> uuid.UUID:
-    """generation_jobs 的属主是真外键，所以得先有个用户。"""
+    """先创建用户以满足 generation_jobs 的属主外键。"""
 
     user_id = uuid.uuid4()
     async with engine.begin() as conn:
@@ -72,7 +64,6 @@ async def insert_job(
 
 
 async def test_timestamps_come_from_the_database_clock(engine: AsyncEngine) -> None:
-    """时刻由数据库写，不是应用进程写——多台机器的时钟差几秒就对不上账了。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -87,11 +78,10 @@ async def test_timestamps_come_from_the_database_clock(engine: AsyncEngine) -> N
 
 
 async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngine) -> None:
-    """整条状态链在真库上走一遍，顺便验请求体读回来还是原来那个形状。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
-    request = video_request(image_urls=["https://example.test/first.png"])
+    request = video_request(reference_image_urls=["https://example.test/first.png"])
     job = await insert_job(repo, owner, request)
 
     assert (await repo.mark_submitting(job.id)).status == STATUS_SUBMITTING
@@ -113,16 +103,17 @@ async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngin
     completed = await repo.mark_completed(
         job.id,
         output_url="https://cdn.test/v.mp4",
+        watermark_output_url="https://cdn.test/v-wm.mp4",
         provider_status="succeeded",
         provider_snapshot={"status": "succeeded"},
     )
     assert completed.finished_at is not None
+    assert completed.watermark_output_url == "https://cdn.test/v-wm.mp4"
     assert completed.submitted_at == submitted.submitted_at, "别把发出去的时刻改成拿到结果的时刻"
     assert completed.request == request, "请求体读回来必须还是原来那个"
 
 
 async def test_sync_result_backfills_the_submitted_moment(engine: AsyncEngine) -> None:
-    """同步接口一步到底，``submitted_at`` 只有这一步能填。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -141,11 +132,7 @@ async def test_sync_result_backfills_the_submitted_moment(engine: AsyncEngine) -
 
 
 async def test_status_guard_never_overwrites_a_real_result(engine: AsyncEngine) -> None:
-    """守卫塞在 ``WHERE`` 里，不是先读后写——那道缝正是要关掉的东西。
-
-    场景：一行已经被写成成功（图生成了、钱付了），随后那个「提交中断」的收尾才动手。
-    它必须落空，否则就是把一次已付费的成功盖成失败。
-    """
+    """WHERE 状态守卫须阻止延迟的中断清理覆盖已成功的生成结果。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -205,6 +192,41 @@ async def test_reads_are_scoped_to_the_owner(engine: AsyncEngine) -> None:
     assert len(await repo.list_for_owner(owner=None, limit=10)) == 1
 
 
+async def test_origin_round_trips_and_filters_by_conversation(engine: AsyncEngine) -> None:
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    conversation_id, task_id = uuid.uuid4(), uuid.uuid4()
+    tagged = await repo.create(
+        make_job(
+            video_request(),
+            owner_user_id=owner,
+            conversation_id=conversation_id,
+            shot_index=3,
+            task_id=task_id,
+        )
+    )
+    await insert_job(repo, owner)
+
+    assert (tagged.conversation_id, tagged.shot_index, tagged.task_id) == (
+        conversation_id,
+        3,
+        task_id,
+    )
+    read_back = await repo.get(tagged.id, owner=owner)
+    assert (read_back.conversation_id, read_back.shot_index, read_back.task_id) == (
+        conversation_id,
+        3,
+        task_id,
+    )
+
+    listed = await repo.list_for_owner(owner=owner, limit=10, conversation_id=conversation_id)
+    assert [job.id for job in listed] == [tagged.id]
+    by_task = await repo.list_for_owner(owner=owner, limit=10, task_id=task_id)
+    assert [job.id for job in by_task] == [tagged.id]
+    assert len(await repo.list_for_owner(owner=owner, limit=10)) == 2, "不给就是不筛"
+
+
 async def test_deleting_the_owner_takes_their_generations_with_it(
     engine: AsyncEngine,
 ) -> None:
@@ -216,3 +238,36 @@ async def test_deleting_the_owner_takes_their_generations_with_it(
         await conn.execute(text("DELETE FROM iclip.users WHERE id = :id"), {"id": owner})
     with pytest.raises(NotFound):
         await repo.get(job.id, owner=None)
+
+
+async def test_frame_number_json_filtering_pagination_and_owner_scope(engine: AsyncEngine) -> None:
+    """帧号存在 request JSON 里，筛选走 JSONB 路径，且在分页截断之前生效。"""
+
+    def edit(frame_number: int) -> ImageGenerationIn:
+        return image_request(shot_index=1, frame_number=frame_number)
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    other = await make_user(engine)
+    first = await repo.create(make_job(edit(1), owner_user_id=owner, shot_index=1))
+    second = await repo.create(make_job(edit(1), owner_user_id=owner, shot_index=1))
+    await repo.create(make_job(edit(2), owner_user_id=owner, shot_index=1))
+    foreign = await repo.create(make_job(edit(1), owner_user_id=other, shot_index=1))
+
+    async def page_before(before: uuid.UUID | None = None) -> tuple[GenerationJob, ...]:
+        return await repo.list_for_owner(
+            owner=owner,
+            limit=1,
+            kind="image",
+            shot_index=1,
+            frame_number=1,
+            before=before,
+        )
+
+    page = await page_before()
+    assert [job.id for job in page] == [second.id]
+    assert page[0].request == second.request
+    assert [job.id for job in await page_before(before=second.id)] == [first.id]
+    assert await page_before(before=first.id) == ()
+    with pytest.raises(NotFound):
+        await page_before(before=foreign.id)

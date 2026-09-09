@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
-# 本地验证生产构建用（vite preview 不适合对外服务）；
-# 正式部署为纯静态 dist/ + 反向代理，见 docs/vite-migration-plan.md §3 Phase 5。
+# 本地预览生产构建；正式部署使用静态 dist/ 与反向代理。
 
 set -euo pipefail
 

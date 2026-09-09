@@ -1,0 +1,148 @@
+/* 按容器宽度计算 2–4 列，以适应侧栏折叠；修改 gap 时同步调整等分公式中的间隙总宽。 */
+.grid-task-cards {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(min(max(288px, calc((100% - 48px) / 4)), calc((100% - 16px) / 2)), 1fr)
+  );
+}
+
+/* TaskHero 使用 ph-* 钩子与 .dark 共用一份 SVG；色板外的插画原色在此声明。 */
+.task-hero .ph-ink {
+  fill: var(--n0);
+}
+.task-hero .ph-ink-deep {
+  fill: var(--n0);
+}
+.task-hero .ph-ink-line {
+  stroke: var(--n0);
+}
+.task-hero .ph-green {
+  fill: var(--p40);
+}
+.task-hero .ph-green-shadow {
+  fill: var(--p40);
+}
+.task-hero .ph-green-bright {
+  fill: var(--p60);
+}
+.task-hero .ph-mint {
+  fill: var(--p90);
+}
+.task-hero .ph-amber {
+  /* design-allow -- 插画原色，品牌色板里没有对应档 */
+  fill: #f9ab00;
+}
+.task-hero .ph-amber-line {
+  /* design-allow -- 插画原色，品牌色板里没有对应档 */
+  stroke: #f9ab00;
+}
+
+.dark .task-hero .ph-green,
+.dark .task-hero .ph-green-bright {
+  fill: var(--p80);
+}
+.dark .task-hero .ph-green-shadow,
+.dark .task-hero .ph-mint {
+  fill: var(--p30);
+}
+.dark .task-hero .ph-ink {
+  /* design-allow -- 插画原色，品牌色板里没有对应档 */
+  fill: #b4b4b4;
+}
+.dark .task-hero .ph-ink-deep {
+  /* design-allow -- 插画原色，品牌色板里没有对应档；比线条更深，压住深底上的实心块 */
+  fill: #141414;
+}
+.dark .task-hero .ph-ink-line {
+  /* design-allow -- 插画原色，品牌色板里没有对应档 */
+  stroke: #b4b4b4;
+}
+.dark .task-hero .ph-amber {
+  /* design-allow -- 插画原色，品牌色板里没有对应档 */
+  fill: #fcc934;
+}
+.dark .task-hero .ph-amber-line {
+  /* design-allow -- 插画原色，品牌色板里没有对应档 */
+  stroke: #fcc934;
+}
+
+/* 固定首尾，仅表单正文滚动；三列规格与参考图遵循需求单设计稿。 */
+.task-form-dialog {
+  max-width: 720px;
+  max-height: calc(100dvh - 24px);
+  color-scheme: light;
+}
+
+.dark .task-form-dialog {
+  color-scheme: dark;
+}
+
+.task-form-basics {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.task-form-specs,
+.task-form-references {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.task-form-product {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.task-form-product-attributes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+@media (max-width: 599px) {
+  .task-form-specs,
+  .task-form-references {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .task-form-basics,
+  .task-form-product,
+  .task-form-product-attributes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+
+@media (max-width: 359px) {
+  .task-form-references {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.task-creation-dialog {
+  max-width: 720px;
+  max-height: 94dvh;
+}
+
+.task-creation-text {
+  min-height: 240px;
+  max-height: 360px;
+}
+
+.task-creation-images {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 599px) {
+  .task-creation-images {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

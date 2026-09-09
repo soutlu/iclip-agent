@@ -1,10 +1,4 @@
-"""PgStepStore / PgMediaStore 对官方 StepPersistence 协议的一致性验收（真实 Postgres）。
-
-覆盖与官方 SqliteStepStore 语义对齐的关键点：register 单发、list_runs 排序与
-过滤、快照 complete/interrupted 门、保留集裁剪边界、tool_effects upsert、
-媒体外置阈值往返，以及真实 Agent(FunctionModel) + 官方 StepPersistence
-capability 的端到端落库。
-"""
+"""验证 PgStepStore、PgMediaStore 与 StepPersistence 的持久化协议一致性。"""
 
 from __future__ import annotations
 
@@ -28,6 +22,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai_harness.step_persistence import (
     ContinuableSnapshot,
     RunRecord,
+    StepEvent,
     StepPersistence,
     StepStore,
     ToolEffectRecord,
@@ -38,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.harness.step_store_pg import PgMediaStore, PgStepStore
+from tests.helpers.pg import truncate_clean
 
 T0 = datetime(2026, 8, 21, 10, 0, 0, tzinfo=UTC)
 
@@ -46,11 +42,16 @@ T0 = datetime(2026, 8, 21, 10, 0, 0, tzinfo=UTC)
 async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(migrated_pg)
     async with engine.begin() as conn:
-        await conn.execute(
-            text(
-                "TRUNCATE agent_runtime.runs, agent_runtime.events, "
-                "agent_runtime.snapshots, agent_runtime.tool_effects, agent_runtime.media"
-            )
+        await truncate_clean(
+            conn,
+            (
+                "agent_runtime.runs",
+                "agent_runtime.events",
+                "agent_runtime.snapshots",
+                "agent_runtime.snapshot_idempotency_keys",
+                "agent_runtime.tool_effects",
+                "agent_runtime.media",
+            ),
         )
     try:
         yield engine
@@ -86,6 +87,7 @@ async def test_register_run_roundtrip_and_single_shot(store: PgStepStore) -> Non
         agent_name="probe",
         metadata={"k": "v"},
         started_at=T0,
+        registration_id="reg-1",
     )
     await store.register_run(record)
 
@@ -117,6 +119,67 @@ async def test_list_runs_order_and_filters(store: PgStepStore) -> None:
     assert [
         r.run_id for r in await store.list_runs(parent_run_id="root", conversation_id="conv-2")
     ] == ["c"]
+
+
+async def test_event_idempotency_key_suppresses_replay(store: PgStepStore) -> None:
+    keyed = StepEvent(
+        run_id="r1",
+        kind="run_started",
+        step_index=0,
+        timestamp=T0,
+        idempotency_key="0:0:run_started:",
+    )
+    await store.append_event(keyed)
+    await store.append_event(keyed)
+
+    unkeyed = StepEvent(run_id="r1", kind="model_request_started", step_index=1, timestamp=T0)
+    await store.append_event(unkeyed)
+    await store.append_event(unkeyed)
+
+    events = await store.list_events(run_id="r1")
+    assert [e.kind for e in events] == [
+        "run_started",
+        "model_request_started",
+        "model_request_started",
+    ]
+    assert events[0].idempotency_key == "0:0:run_started:"
+    assert events[1].idempotency_key is None
+
+
+async def test_snapshot_idempotency_key_suppresses_replay(store: PgStepStore) -> None:
+    keyed = ContinuableSnapshot(
+        run_id="r1",
+        step_index=1,
+        messages=_messages("s1"),
+        state="complete",
+        idempotency_key="1:1:complete",
+    )
+    await store.save_snapshot(keyed)
+    await store.save_snapshot(keyed)
+
+    listed = await store.list_snapshots(run_id="r1")
+    assert [s.step_index for s in listed] == [1]
+    assert listed[0].idempotency_key == "1:1:complete"
+
+
+async def test_snapshot_idempotency_key_survives_prune(engine: AsyncEngine) -> None:
+    """幂等键必须在快照被修剪后保留，以识别旧保存请求的重放。"""
+    store = PgStepStore(engine, max_snapshots_per_run=1)
+    keyed = ContinuableSnapshot(
+        run_id="r1",
+        step_index=1,
+        messages=_messages("s1"),
+        state="complete",
+        idempotency_key="1:1:complete",
+    )
+    await store.save_snapshot(keyed)
+    await store.save_snapshot(
+        ContinuableSnapshot(run_id="r1", step_index=2, messages=_messages("s2"), state="complete")
+    )
+    assert [s.step_index for s in await store.list_snapshots(run_id="r1")] == [2]
+
+    await store.save_snapshot(keyed)
+    assert [s.step_index for s in await store.list_snapshots(run_id="r1")] == [2]
 
 
 async def test_snapshot_latest_gate_and_roundtrip(store: PgStepStore) -> None:
@@ -172,7 +235,7 @@ async def test_snapshot_prune_retain_set(engine: AsyncEngine) -> None:
 
 
 async def test_snapshot_nul_escape_roundtrip(store: PgStepStore) -> None:
-    """text 列的存在理由：含 \\u0000 转义的负载 jsonb 会拒收，text 必须无损往返。"""
+    """jsonb 拒绝含 NUL 转义的负载；text 必须保留该负载。"""
     messages: list[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content="a\x00b")]),
         ModelResponse(parts=[TextPart(content="ok")]),
@@ -221,7 +284,6 @@ async def test_media_store_content_addressed(engine: AsyncEngine) -> None:
     uri = await media.put(
         data, context=MediaContext(media_type="text/plain", metadata={"origin": "test"})
     )
-    # 幂等：同内容重复写同一 URI，不覆盖。
     assert await media.put(data) == uri
 
     assert await media.get(uri) == data
@@ -261,7 +323,7 @@ async def test_snapshot_media_externalization_roundtrip(
             await conn.execute(text("SELECT count(*) FROM agent_runtime.media"))
         ).scalar_one()
     assert "media+sha256://" in raw
-    assert len(raw) < len(blob)  # 大负载已外置，快照行里只剩引用
+    assert len(raw) < len(blob)
     assert media_rows == 1
 
     restored = await store.latest_snapshot(run_id="r1")
@@ -270,7 +332,6 @@ async def test_snapshot_media_externalization_roundtrip(
 
 
 async def test_agent_run_end_to_end_with_official_capability(store: PgStepStore) -> None:
-    """真实 Agent + 官方 StepPersistence capability 全程写入 PG。"""
 
     def model_logic(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         if len(messages) == 1:
@@ -293,7 +354,9 @@ async def test_agent_run_end_to_end_with_official_capability(store: PgStepStore)
     assert len(runs) == 1
     run = runs[0]
     assert run.agent_name == "probe"
-    assert run.run_id.startswith("probe-")
+    # StepPersistence 将 agent_name 和 run_id 编码为不透明的 sp- 标识。
+    assert run.run_id.startswith("sp-")
+    assert run.registration_id is not None
 
     kinds = [e.kind for e in await store.list_events(run_id=run.run_id)]
     assert kinds[0] == "run_started"
@@ -301,7 +364,7 @@ async def test_agent_run_end_to_end_with_official_capability(store: PgStepStore)
     assert "tool_call_started" in kinds and "tool_call_completed" in kinds
 
     effects = await store.list_unresolved_tool_effects(run_id=run.run_id)
-    assert effects == []  # 工具已完成，无 unknown_after_crash 残留
+    assert effects == []
 
     history = await continue_run(store, run_id=run.run_id)
     assert json.loads(_dump(history)) == json.loads(_dump(result.all_messages()))

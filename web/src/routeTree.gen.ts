@@ -9,169 +9,105 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as AuthedRouteImport } from './routes/_authed'
-import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
-import { Route as AuthedStoryboardDebugRouteImport } from './routes/_authed/storyboard-debug'
-import { Route as AuthedAnalyticsRouteImport } from './routes/_authed/analytics'
+import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as ShellIndexRouteImport } from './routes/_shell/index'
+import { Route as ShellTasksRouteImport } from './routes/_shell/tasks'
+import { Route as ShellCConversationIdRouteImport } from './routes/_shell/c.$conversationId'
 import { Route as AuthSsoLandingRouteImport } from './routes/auth.sso.landing'
-import { Route as AuthedStoryboardsTaskIdRouteImport } from './routes/_authed/storyboards.$taskId'
-import { Route as AuthedProjectsProjectIdRouteImport } from './routes/_authed/projects.$projectId'
-import { Route as AuthedAdminUsersRouteImport } from './routes/_authed/admin.users'
 
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const ShellRoute = ShellRouteImport.update({
+  id: '/_shell',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthedRoute = AuthedRouteImport.update({
-  id: '/_authed',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthedIndexRoute = AuthedIndexRouteImport.update({
+const ShellIndexRoute = ShellIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AuthedRoute,
+  getParentRoute: () => ShellRoute,
 } as any)
-const AuthedStoryboardDebugRoute = AuthedStoryboardDebugRouteImport.update({
-  id: '/storyboard-debug',
-  path: '/storyboard-debug',
-  getParentRoute: () => AuthedRoute,
+const ShellTasksRoute = ShellTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => ShellRoute,
 } as any)
-const AuthedAnalyticsRoute = AuthedAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => AuthedRoute,
+const ShellCConversationIdRoute = ShellCConversationIdRouteImport.update({
+  id: '/c/$conversationId',
+  path: '/c/$conversationId',
+  getParentRoute: () => ShellRoute,
 } as any)
 const AuthSsoLandingRoute = AuthSsoLandingRouteImport.update({
   id: '/auth/sso/landing',
   path: '/auth/sso/landing',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthedStoryboardsTaskIdRoute = AuthedStoryboardsTaskIdRouteImport.update({
-  id: '/storyboards/$taskId',
-  path: '/storyboards/$taskId',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedProjectsProjectIdRoute = AuthedProjectsProjectIdRouteImport.update({
-  id: '/projects/$projectId',
-  path: '/projects/$projectId',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedAdminUsersRoute = AuthedAdminUsersRouteImport.update({
-  id: '/admin/users',
-  path: '/admin/users',
-  getParentRoute: () => AuthedRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof AuthedIndexRoute
-  '/login': typeof LoginRoute
-  '/analytics': typeof AuthedAnalyticsRoute
-  '/storyboard-debug': typeof AuthedStoryboardDebugRoute
-  '/admin/users': typeof AuthedAdminUsersRoute
-  '/projects/$projectId': typeof AuthedProjectsProjectIdRoute
-  '/storyboards/$taskId': typeof AuthedStoryboardsTaskIdRoute
+  '/': typeof ShellIndexRoute
+  '/tasks': typeof ShellTasksRoute
+  '/c/$conversationId': typeof ShellCConversationIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesByTo {
-  '/login': typeof LoginRoute
-  '/analytics': typeof AuthedAnalyticsRoute
-  '/storyboard-debug': typeof AuthedStoryboardDebugRoute
-  '/': typeof AuthedIndexRoute
-  '/admin/users': typeof AuthedAdminUsersRoute
-  '/projects/$projectId': typeof AuthedProjectsProjectIdRoute
-  '/storyboards/$taskId': typeof AuthedStoryboardsTaskIdRoute
+  '/tasks': typeof ShellTasksRoute
+  '/': typeof ShellIndexRoute
+  '/c/$conversationId': typeof ShellCConversationIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/_authed': typeof AuthedRouteWithChildren
-  '/login': typeof LoginRoute
-  '/_authed/analytics': typeof AuthedAnalyticsRoute
-  '/_authed/storyboard-debug': typeof AuthedStoryboardDebugRoute
-  '/_authed/': typeof AuthedIndexRoute
-  '/_authed/admin/users': typeof AuthedAdminUsersRoute
-  '/_authed/projects/$projectId': typeof AuthedProjectsProjectIdRoute
-  '/_authed/storyboards/$taskId': typeof AuthedStoryboardsTaskIdRoute
+  '/_shell': typeof ShellRouteWithChildren
+  '/_shell/tasks': typeof ShellTasksRoute
+  '/_shell/': typeof ShellIndexRoute
+  '/_shell/c/$conversationId': typeof ShellCConversationIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/login'
-    | '/analytics'
-    | '/storyboard-debug'
-    | '/admin/users'
-    | '/projects/$projectId'
-    | '/storyboards/$taskId'
-    | '/auth/sso/landing'
+  fullPaths: '/' | '/tasks' | '/c/$conversationId' | '/auth/sso/landing'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/login'
-    | '/analytics'
-    | '/storyboard-debug'
-    | '/'
-    | '/admin/users'
-    | '/projects/$projectId'
-    | '/storyboards/$taskId'
-    | '/auth/sso/landing'
+  to: '/tasks' | '/' | '/c/$conversationId' | '/auth/sso/landing'
   id:
     | '__root__'
-    | '/_authed'
-    | '/login'
-    | '/_authed/analytics'
-    | '/_authed/storyboard-debug'
-    | '/_authed/'
-    | '/_authed/admin/users'
-    | '/_authed/projects/$projectId'
-    | '/_authed/storyboards/$taskId'
+    | '/_shell'
+    | '/_shell/tasks'
+    | '/_shell/'
+    | '/_shell/c/$conversationId'
     | '/auth/sso/landing'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  AuthedRoute: typeof AuthedRouteWithChildren
-  LoginRoute: typeof LoginRoute
+  ShellRoute: typeof ShellRouteWithChildren
   AuthSsoLandingRoute: typeof AuthSsoLandingRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authed': {
-      id: '/_authed'
+    '/_shell': {
+      id: '/_shell'
       path: ''
       fullPath: '/'
-      preLoaderRoute: typeof AuthedRouteImport
+      preLoaderRoute: typeof ShellRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authed/': {
-      id: '/_authed/'
+    '/_shell/': {
+      id: '/_shell/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof AuthedIndexRouteImport
-      parentRoute: typeof AuthedRoute
+      preLoaderRoute: typeof ShellIndexRouteImport
+      parentRoute: typeof ShellRoute
     }
-    '/_authed/storyboard-debug': {
-      id: '/_authed/storyboard-debug'
-      path: '/storyboard-debug'
-      fullPath: '/storyboard-debug'
-      preLoaderRoute: typeof AuthedStoryboardDebugRouteImport
-      parentRoute: typeof AuthedRoute
+    '/_shell/tasks': {
+      id: '/_shell/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof ShellTasksRouteImport
+      parentRoute: typeof ShellRoute
     }
-    '/_authed/analytics': {
-      id: '/_authed/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AuthedAnalyticsRouteImport
-      parentRoute: typeof AuthedRoute
+    '/_shell/c/$conversationId': {
+      id: '/_shell/c/$conversationId'
+      path: '/c/$conversationId'
+      fullPath: '/c/$conversationId'
+      preLoaderRoute: typeof ShellCConversationIdRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/auth/sso/landing': {
       id: '/auth/sso/landing'
@@ -180,54 +116,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthSsoLandingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authed/storyboards/$taskId': {
-      id: '/_authed/storyboards/$taskId'
-      path: '/storyboards/$taskId'
-      fullPath: '/storyboards/$taskId'
-      preLoaderRoute: typeof AuthedStoryboardsTaskIdRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/projects/$projectId': {
-      id: '/_authed/projects/$projectId'
-      path: '/projects/$projectId'
-      fullPath: '/projects/$projectId'
-      preLoaderRoute: typeof AuthedProjectsProjectIdRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/admin/users': {
-      id: '/_authed/admin/users'
-      path: '/admin/users'
-      fullPath: '/admin/users'
-      preLoaderRoute: typeof AuthedAdminUsersRouteImport
-      parentRoute: typeof AuthedRoute
-    }
   }
 }
 
-interface AuthedRouteChildren {
-  AuthedAnalyticsRoute: typeof AuthedAnalyticsRoute
-  AuthedStoryboardDebugRoute: typeof AuthedStoryboardDebugRoute
-  AuthedIndexRoute: typeof AuthedIndexRoute
-  AuthedAdminUsersRoute: typeof AuthedAdminUsersRoute
-  AuthedProjectsProjectIdRoute: typeof AuthedProjectsProjectIdRoute
-  AuthedStoryboardsTaskIdRoute: typeof AuthedStoryboardsTaskIdRoute
+interface ShellRouteChildren {
+  ShellTasksRoute: typeof ShellTasksRoute
+  ShellIndexRoute: typeof ShellIndexRoute
+  ShellCConversationIdRoute: typeof ShellCConversationIdRoute
 }
 
-const AuthedRouteChildren: AuthedRouteChildren = {
-  AuthedAnalyticsRoute: AuthedAnalyticsRoute,
-  AuthedStoryboardDebugRoute: AuthedStoryboardDebugRoute,
-  AuthedIndexRoute: AuthedIndexRoute,
-  AuthedAdminUsersRoute: AuthedAdminUsersRoute,
-  AuthedProjectsProjectIdRoute: AuthedProjectsProjectIdRoute,
-  AuthedStoryboardsTaskIdRoute: AuthedStoryboardsTaskIdRoute,
+const ShellRouteChildren: ShellRouteChildren = {
+  ShellTasksRoute: ShellTasksRoute,
+  ShellIndexRoute: ShellIndexRoute,
+  ShellCConversationIdRoute: ShellCConversationIdRoute,
 }
 
-const AuthedRouteWithChildren =
-  AuthedRoute._addFileChildren(AuthedRouteChildren)
+const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  AuthedRoute: AuthedRouteWithChildren,
-  LoginRoute: LoginRoute,
+  ShellRoute: ShellRouteWithChildren,
   AuthSsoLandingRoute: AuthSsoLandingRoute,
 }
 export const routeTree = rootRouteImport

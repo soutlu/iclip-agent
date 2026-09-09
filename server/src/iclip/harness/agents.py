@@ -1,39 +1,33 @@
-"""Agent 装配与官方协议事件流：把声明变成一张冻结的 id → Agent 表。
-
-装配在启动期完成并冻结，运行期只按 id 取用。每个 agent（含子代理）挂官方
-``StepPersistence`` 落 ``step_store``，模型从传入的 ``models`` 表按名字取
-（spec 里的 ``model:`` 被覆盖），能力从传入的 ``capabilities`` 挂（skill 库与
-capability 都由组合根译好，本模块不认识它们是什么）。
-"""
+"""启动时按声明装配并冻结 Agent 映射，注入模型、能力与 StepPersistence。"""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
-from ag_ui.core import EventType
-from pydantic import ValidationError
 from pydantic_ai import Agent, AgentSpec
 from pydantic_ai.capabilities import AgentCapability
 from pydantic_ai.models import Model
-from pydantic_ai.ui.ag_ui import AGUIAdapter
+from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai_harness.step_persistence import StepPersistence, StepStore
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
 
-from iclip.common.errors import NotFound, ValidationFailed
-from iclip.harness.media import MediaCodec
 from iclip.harness.models import BuiltModels
+from iclip.platform.transcript.display import AgentCallDisplay, DisplayFn, ToolDisplay
 
 AgentCapabilities = tuple[AgentCapability[Any], ...]
-"""一组待挂载的能力；具体来自 skill 还是名字表由组合根决定。"""
+"""由组合根解析的能力集合。"""
+
+DELEGATE_TOOL = "delegate_task"
+"""显式指定 SubAgents 工具名，与 display 注册保持一致。"""
 
 
 @dataclass(frozen=True, slots=True)
 class SubAgentDefinition:
-    """一条派活关系：下属的身份、spec，加这次派活的资源额度。"""
+    """子代理身份、声明与调用资源限额。"""
 
     name: str
     spec: Path
@@ -47,7 +41,7 @@ class SubAgentDefinition:
 
 @dataclass(frozen=True, slots=True)
 class AgentDefinition:
-    """一个待注册 agent 的装配输入。``agent_id`` 会被强制成为它的 ``name``。"""
+    """Agent 装配输入；agent_id 同时作为 Agent.name。"""
 
     agent_id: str
     spec: Path
@@ -64,7 +58,7 @@ def _read_spec(path: Path) -> AgentSpec:
 
 
 def _read_instructions(path: Path | None) -> str | None:
-    """读提示词正文；空文件按「没有提示词」处理，不注入空指令。"""
+    """读取非空提示词，空文件不注入指令。"""
 
     if path is None:
         return None
@@ -88,12 +82,15 @@ def _load_agent(
     name: str,
     model: Model,
     step_store: StepStore,
+    accepts_deferred: bool,
     extra: Sequence[AgentCapability[Any]] = (),
+    persistence_metadata: Mapping[str, str] | None = None,
 ) -> Agent[Any, Any]:
-    """装一个 agent；``name`` 同时是它在 run 记录里的 ``agent_name``。
+    """装配 Agent。
 
-    ``StepPersistence`` 不带 ``run_id``：官方按 ``{agent_name}-{短 uuid}`` 逐次
-    materialise，因此同一个 capability 实例被并发的多次运行共用是安全的。
+    顶层与子代理都不设 agent_name，落库 run id 与消息 run_id 一致；子代理的名字放 metadata。
+    审批工具仅挂顶层 Agent，并通过 accepts_deferred 启用 DeferredToolRequests。
+    StepPersistence.run_id 保持为空，由 for_run 按运行计算，以支持并发复用能力实例。
     """
 
     return Agent.from_spec(
@@ -101,14 +98,51 @@ def _load_agent(
         model=model,
         name=name,
         instructions=_read_instructions(instructions),
-        capabilities=[StepPersistence(store=step_store, agent_name=name), *extra],
+        output_type=[str, DeferredToolRequests] if accepts_deferred else str,
+        capabilities=[
+            StepPersistence(store=step_store, metadata=dict(persistence_metadata or {})),
+            *extra,
+        ],
     )
+
+
+def subagent_profiles(
+    definitions: Sequence[AgentDefinition], models: BuiltModels
+) -> Mapping[str, Mapping[str, str]]:
+    """每个子代理一份档案：名字、模型 id、思考档位。
+
+    同一份既写进子运行的落库 metadata，也交给镜像标在任务上，实时与历史读到的字符串才相同。
+    """
+
+    profiles: dict[str, Mapping[str, str]] = {}
+    for definition in definitions:
+        for sub in definition.subagents:
+            model = _pick_model(models, sub.model, declared_by=f"子 agent {sub.name}")
+            profile = {"agent_name": sub.name, "model": model.model_name}
+            effort = _thinking_effort(model)
+            if effort is not None:
+                profile["thinking_effort"] = effort
+            # 档案按子代理名查，同名不同配置会让一份盖掉另一份，启动时就拦住。
+            if profiles.get(sub.name, profile) != profile:
+                raise RuntimeError(f"子 agent {sub.name} 在多个 agent 下声明了不同的模型配置")
+            profiles[sub.name] = profile
+    return profiles
+
+
+def _thinking_effort(model: Model) -> str | None:
+    """思考档位只在 OpenAI 方言的 settings 里；没配就没有。"""
+
+    settings = cast("Mapping[str, object] | None", model.settings)
+    effort = None if settings is None else settings.get("openai_reasoning_effort")
+    return effort if isinstance(effort, str) else None
 
 
 def _build_subagents(
     definitions: Sequence[SubAgentDefinition],
     step_store: StepStore,
     models: BuiltModels,
+    mirror: AgentCapability[Any],
+    profiles: Mapping[str, Mapping[str, str]],
 ) -> SubAgents[Any]:
     return SubAgents(
         agents=[
@@ -119,7 +153,9 @@ def _build_subagents(
                     name=sub.name,
                     model=_pick_model(models, sub.model, declared_by=f"子 agent {sub.name}"),
                     step_store=step_store,
+                    accepts_deferred=False,
                     extra=sub.capabilities,
+                    persistence_metadata=profiles[sub.name],
                 ),
                 timeout_seconds=sub.timeout_seconds,
                 max_calls=sub.max_calls,
@@ -127,67 +163,29 @@ def _build_subagents(
             )
             for sub in definitions
         ],
-        # 必须显式关掉磁盘扫描。默认值 'agents' 会扫 <cwd>/.agents|.claude/agents/
-        # 以及 ~ 下的同名目录——开发者个人的 agent 定义会静默变成生产下属，
-        # 同一份代码在不同机器上行为不同且不报错。子 agent 一律走显式声明。
+        tool_name=DELEGATE_TOOL,
+        # 禁用磁盘扫描，避免个人 .agents/.claude 目录中的 Agent 定义进入运行环境。
         agent_folders=None,
-        # 下属只拥有上面显式给它的能力。能力包这条路官方已经堵死：capability 挂
-        # 上去的 toolset 绑在「注册了这个 capability 的那次运行」上，派活是另起
-        # 一次运行，所以它结构上就不转发（连打开 inherit_tools 也不转发）。
-        #
-        # 真正要守的是 shared_capabilities——它是「给每个下属统一追加能力」的口
-        # 子，一开就绕过声明：谁能动什么不再看 agents.yaml，而是看这里写了什么。
-        # 保持空着。
-        #
-        # inherit_tools 影响的是直接注册在 Agent(toolsets=[...]) 上的工具。本仓
-        # 的工具一律经 capability 挂载，所以它对我们没有作用面；反过来说，别把
-        # 工具直接注册到 agent 上，那会把这条路打开。
+        # 共享的只有 transcript 镜像；业务能力仍按子代理各自声明。
+        # 工具统一经 capability 挂载；inherit_tools 仅影响直接注册的 toolset。
+        shared_capabilities=[mirror],
     )
 
 
-_TERMINAL_EVENTS = frozenset({EventType.RUN_FINISHED, EventType.RUN_ERROR})
+def delegate_display_table() -> Mapping[str, DisplayFn]:
+    """从 delegate_task 参数生成子代理工具卡。"""
+
+    return {DELEGATE_TOOL: _delegate_display}
 
 
-async def _encoded_frames(
-    adapter: AGUIAdapter[Any, Any], deps: object, run_id: str
-) -> AsyncIterator[tuple[str, bool]]:
-    """把协议事件逐个编码成 SSE 帧，并标出哪一帧是最后一帧。
-
-    终帧要在编码之前从事件对象上认出来。存进流里的帧是一段不透明的文本，谁去
-    读它都不该再解析一遍才知道流结束了没有。
-
-    帧一律编码成 SSE。整条流是可重放的，重放时得给出和当初一样的字节，所以编
-    码不看请求头的 ``Accept``——不能让先来的那个请求决定后来重连的人拿到什么
-    格式。
-
-    一条流最后必定有一帧终帧：官方 adapter 把运行中的异常也转成 ``RUN_ERROR``
-    事件发出来，正常跑完则是 ``RUN_FINISHED``。
-
-    ``deps`` 原样交给官方接口，工具执行时经 ``ctx.deps`` 取用。这里不看它是什
-    么：宿主传什么就是什么，本模块不认识业务身份。
-
-    ``run_id`` 把客户端给这次运行起的名字交给引擎，于是它会被盖到每一条消息、每
-    一条快照和遥测 span 上。不这么做的话，客户端手上的名字和落库的运行记录之间没
-    有任何可对上的东西——用户报「刚才这条回复不对」就查不到它。落库那条记录的主
-    键仍由官方自己派生，不受这里影响。
-    """
-
-    encoder = adapter.build_event_stream()
-    async for event in adapter.run_stream(deps=deps, run_id=run_id):
-        yield encoder.encode_event(event), event.type in _TERMINAL_EVENTS
-
-
-@dataclass(frozen=True, slots=True)
-class RunHandle:
-    """一次准备好但还没开始跑的运行。
-
-    ``run_id`` 是客户端给这次运行起的名字，``conversation_id`` 是它所属的那段对话
-    （两个都从请求体里解析出来）；``frames`` 要等有人读它才真的开跑。
-    """
-
-    run_id: str
-    conversation_id: str
-    frames: AsyncIterator[tuple[str, bool]]
+def _delegate_display(args: Any) -> ToolDisplay | None:
+    if not isinstance(args, dict):
+        return None
+    name = args.get("agent_name")
+    task = args.get("task")
+    if not isinstance(name, str) or not name or not isinstance(task, str):
+        return None
+    return AgentCallDisplay(agent_name=name, prompt=task)
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,65 +193,10 @@ class AgentRegistry:
     """启动期冻结的 id → Agent 映射。"""
 
     agents: Mapping[str, Agent[Any, Any]]
-    media: MediaCodec
-    """媒体引用协议：把请求体里的媒体 part 换成模型形状（见 ``harness.media``）。"""
 
     @property
     def ids(self) -> tuple[str, ...]:
         return tuple(self.agents)
-
-    async def start(
-        self, agent_id: str, body: bytes, deps: Callable[[str, str], Awaitable[object]]
-    ) -> RunHandle:
-        """准备一次运行：校验请求，返回运行 id 和一个还没开始跑的帧流。
-
-        未注册的 id 抛 ``NotFound``、请求体形状不合法抛 ``ValidationFailed``，
-        两者都在这里就发生，还没开始产生任何事件，因此调用方能拿到正常的错误
-        响应。返回的帧流要等到有人开始读它才真的把 agent 跑起来。
-
-        请求体里客户端给了两个 id，作用完全不同。会话 id（``threadId``）决定
-        这次运行归到哪段对话，服务端照它归档。运行 id（``runId``）是客户端给
-        这次运行起的名字，用来把收到的事件对回自己这次请求，断线重连时也靠它
-        找回同一条流；它还会被交给引擎盖到消息与快照上（见 ``_encoded_frames``），
-        但**不是**库里那条运行记录的主键——主键由官方自己派生，拿这个 id 直接
-        查主键是查不到的。
-
-        ``deps`` 造出宿主给这次运行的依赖：两个 id 都是从请求体里解析出来的（宿主
-        那一层拿不到，请求体是协议的形状），所以拿它们回调宿主，宿主把依赖拼全。结
-        果被返回的帧流闭包捕获，运行真正跑起来时交给官方接口。
-
-        它是个可等待的调用：宿主在这里要读库（这段对话是不是这个人的、是不是这个
-        agent 的），那件事没法同步做。
-
-        依赖是**每次运行**传进来的，不是装配期挂在 agent 上的——注册表是启动期
-        冻结的共享对象，把身份挂上去就串了人。宿主在这个回调里抛出的错误也发生
-        在开流之前，所以它照样能变成一个正常的错误响应。
-        """
-
-        agent = self.agents.get(agent_id)
-        if agent is None:
-            raise NotFound(f"未注册的 agent: {agent_id}")
-        try:
-            run_input = AGUIAdapter.build_run_input(body)
-        except ValidationError as exc:
-            raise ValidationFailed("请求体不符合 AG-UI 协议") from exc
-        if not run_input.thread_id:
-            # 协议把 threadId 标成必填，但空串照样过 pydantic。会话 id 是要拿去
-            # 分隔离段的，空的当不了段，所以在这里（拥有协议的这一层）就拒掉，
-            # 而不是让它一路漂到某个存储层报一句看不懂的话。
-            raise ValidationFailed("请求体的 threadId 是空的")
-        # 媒体换形状要放在这里：往后就是引擎的地盘了，而且这一步会写对象存储，失
-        # 败得赶在开流之前变成一个正常的错误响应。
-        run_input = run_input.model_copy(
-            update={"messages": await self.media.rewrite(run_input.messages)}
-        )
-        adapter = AGUIAdapter[Any, Any](agent=agent, run_input=run_input)
-        resolved = await deps(run_input.thread_id, run_input.run_id)
-        return RunHandle(
-            run_id=run_input.run_id,
-            conversation_id=run_input.thread_id,
-            frames=_encoded_frames(adapter, resolved, run_input.run_id),
-        )
 
 
 def build_agent_registry(
@@ -261,10 +204,11 @@ def build_agent_registry(
     *,
     step_store: StepStore,
     models: BuiltModels,
-    media: MediaCodec,
+    subagent_mirror: AgentCapability[Any],
 ) -> AgentRegistry:
-    """按声明装配全部 agent。三个依赖都无默认值。"""
+    """根据声明与注入依赖装配 Agent；subagent_mirror 由组合根构造，挂到每个子代理运行上。"""
 
+    profiles = subagent_profiles(definitions, models)
     agents: dict[str, Agent[Any, Any]] = {}
     for definition in definitions:
         agents[definition.agent_id] = _load_agent(
@@ -273,23 +217,30 @@ def build_agent_registry(
             name=definition.agent_id,
             model=_pick_model(models, definition.model, declared_by=f"agent {definition.agent_id}"),
             step_store=step_store,
+            accepts_deferred=True,
             extra=(
                 *definition.capabilities,
                 *(
-                    [_build_subagents(definition.subagents, step_store, models)]
+                    [
+                        _build_subagents(
+                            definition.subagents, step_store, models, subagent_mirror, profiles
+                        )
+                    ]
                     if definition.subagents
                     else ()
                 ),
             ),
         )
-    return AgentRegistry(agents=agents, media=media)
+    return AgentRegistry(agents=agents)
 
 
 __all__ = [
+    "DELEGATE_TOOL",
     "AgentCapabilities",
     "AgentDefinition",
     "AgentRegistry",
-    "RunHandle",
     "SubAgentDefinition",
     "build_agent_registry",
+    "delegate_display_table",
+    "subagent_profiles",
 ]

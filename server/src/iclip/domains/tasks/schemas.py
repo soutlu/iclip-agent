@@ -1,22 +1,13 @@
-"""创作需求单的 wire 形状，以及 brief 与款号快照的类型。
-
-**brief 只有一套定义。** 它既是 HTTP 进得来的形状，也是入库的形状：字段有哪些、时长
-取值范围多大、参考素材最多几条，全在这里由 pydantic 判一次，不再另写一份手工校验。
-落库存 ``model_dump(by_alias=True)``（camelCase），读回来用 ``brief_from_payload``
-重新校验一遍——库里的行可能是上一个版本的进程写的，形状坏了要响亮失败，不降级。
-
-款号快照（``TaskStyle``）走同一套路，但它不在 brief 里，而是自己一列。
-
-字段名对外一律 camelCase（见仓库根的 contract/conventions.md §3）。
-"""
+"""需求单 HTTP 模型与 inputs JSONB 的统一类型定义。"""
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
@@ -29,13 +20,11 @@ MAX_SHORT_TEXT_CHARS: Final = 200
 MAX_DESCRIPTION_CHARS: Final = 4000
 MAX_REFERENCE_URLS: Final = 16
 MAX_STYLE_NO_CHARS: Final = 64
-MAX_STYLE_NOS: Final = 20
+MAX_PRODUCTS: Final = 20
 MIN_DURATION_SECONDS: Final = 3
 MAX_DURATION_SECONDS: Final = 50
 DEFAULT_LIST_LIMIT: Final = 20
 MAX_LIST_LIMIT: Final = 100
-# 一张单能算在几个项目里。给个上限只为挡住「一次贴几千个」这种请求。
-MAX_TASK_PROJECTS: Final = 20
 
 TaskRatio = Literal["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"]
 """需求方期望的画幅。这是需求单上的一句要求，不是某家生成接口的参数——所以它在这里
@@ -52,119 +41,105 @@ ShortText = Annotated[str, Field(max_length=MAX_SHORT_TEXT_CHARS)]
 Description = Annotated[str, Field(max_length=MAX_DESCRIPTION_CHARS)]
 ReferenceUrls = Annotated[list[str], Field(max_length=MAX_REFERENCE_URLS)]
 StyleNo = Annotated[str, Field(min_length=1, max_length=MAX_STYLE_NO_CHARS)]
-StyleNos = Annotated[list[StyleNo], Field(max_length=MAX_STYLE_NOS)]
 
 
 def _http_only(urls: list[str]) -> list[str]:
-    """参考素材只收 http(s)。
-
-    这些地址会被下游拿去下载（模型读参考图、拆解参考视频），放行 ``file://`` 之类的
-    scheme 等于把服务端变成任意文件的读取入口。
-    """
+    """素材地址只允许具有主机名的 HTTP(S) URL。"""
 
     for index, url in enumerate(urls):
-        if not url.startswith(("http://", "https://")):
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError(f"[{index}] 必须是 http:// 或 https:// 地址")
     return urls
 
 
-class TaskStyle(CamelModel):
-    """下单那天主款长什么样，创建时冻结。
-
-    抄一份而不是每次回头查产品资料：上游随时改名换图，历史需求单不该跟着变样。除了
-    款号，另三项在上游缺名缺图时是空字符串。
-    """
-
-    style_no: StyleNo
-    brand: ShortText = ""
-    category: ShortText = ""
-    preview_image_url: str = ""
-    """列表封面：首图转存到本仓对象存储后的地址。不进 ``brief.reference_images``。"""
+class InputsModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, json_schema_serialization_defaults_required=True
+    )
 
 
-def style_to_payload(style: TaskStyle) -> dict[str, Any]:
-    """入库形状：camelCase，与 wire 完全一致（同 brief）。"""
+class TaskVideoSpec(InputsModel):
+    """视频创作规格；草稿允许尚未确定的参数留空。"""
 
-    return style.model_dump(by_alias=True)
-
-
-def style_from_payload(payload: dict[str, Any]) -> TaskStyle:
-    """从库里读回来的款号快照重新校验一遍；形状坏了响亮失败，不降级。"""
-
-    try:
-        return TaskStyle.model_validate(payload)
-    except Exception as exc:
-        raise ValidationFailed(f"需求单的款号快照形状非法：{exc}") from exc
-
-
-class TaskBrief(CamelModel):
-    """一份需求单上的创作输入。
-
-    每一项都可以先空着——需求方通常是分几次填完的，草稿阶段不催。发布时才要求它至少
-    说清楚要做什么（见 ``service.py`` 的发布关卡）。
-    """
-
-    theme: ShortText = ""
-    purpose: ShortText = ""
-    audience: ShortText = ""
-    selling: ShortText = ""
-    scene: ShortText = ""
-    department: ShortText = ""
+    platform: ShortText = ""
     video_type: ShortText = ""
-    color: ShortText = ""
     content_type: ShortText = ""
-    requester: ShortText = ""
-    requirement_description: Description = ""
-
+    resolution: ShortText = ""
+    aspect_ratio: TaskRatio | None = None
     duration_seconds: Annotated[
         int | None, Field(ge=MIN_DURATION_SECONDS, le=MAX_DURATION_SECONDS)
     ] = None
-    ratio: TaskRatio | None = None
-    language: ShortText = ""
-    platform: ShortText = ""
-
-    style_nos: StyleNos = Field(default_factory=list)
-    """要拍的款全集，主款排首位。首位与 ``TaskStyle`` 那一列一致，由 service 对齐。"""
-
-    reference_images: ReferenceUrls = Field(default_factory=list)
-    reference_videos: ReferenceUrls = Field(default_factory=list)
-
-    _check_images = field_validator("reference_images")(_http_only)
-    _check_videos = field_validator("reference_videos")(_http_only)
 
 
-EMPTY_BRIEF: Final = TaskBrief()
+class TaskProduct(InputsModel):
+    """需求单里的一款商品，由调用方明确提供名称、属性和素材。"""
 
-PLANNER_FIELDS: Final = frozenset(
-    {
-        "duration_seconds",
-        "ratio",
-        "requirement_description",
-        "reference_images",
-        "reference_videos",
-    }
-)
-"""发布之后仍然可以改的 brief 字段。
+    style_no: StyleNo
+    name: ShortText = ""
+    brand: ShortText = ""
+    category: ShortText = ""
+    color_name: ShortText = ""
+    image_oss_urls: ReferenceUrls = Field(default_factory=list)
 
-需求单一旦下发，需求方写下的创作输入就冻结了——接单的人是照着它开工的，改了等于让
-两边看到的需求不一样。留这几项能改，是因为它们是接单之后才补得出来的：从参考视频里
-量出的时长与画幅、整理过的参考素材、以及把口头需求落成文字的那段描述。
-"""
+    _check_images = field_validator("image_oss_urls")(_http_only)
 
-
-def brief_to_payload(brief: TaskBrief) -> dict[str, Any]:
-    """入库形状：camelCase，与 wire 完全一致。"""
-
-    return brief.model_dump(by_alias=True)
+    @field_validator("style_no")
+    @classmethod
+    def nonblank_style_no(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("商品款号不能为空")
+        return value
 
 
-def brief_from_payload(payload: dict[str, Any]) -> TaskBrief:
-    """从库里读回来的 brief 重新校验一遍；形状坏了响亮失败，不降级成空 brief。"""
+class TaskReferenceImages(InputsModel):
+    """按用途分类的参考图片，不推断素材所属类别。"""
+
+    model: ReferenceUrls = Field(default_factory=list)
+    outfit: ReferenceUrls = Field(default_factory=list)
+    prop: ReferenceUrls = Field(default_factory=list)
+
+    _check_images = field_validator("model", "outfit", "prop")(_http_only)
+
+
+class TaskInputs(InputsModel):
+    """唯一的创作需求结构，HTTP 与 JSONB 均使用 snake_case。"""
+
+    video_spec: TaskVideoSpec = Field(default_factory=TaskVideoSpec)
+    products: Annotated[list[TaskProduct], Field(min_length=1, max_length=MAX_PRODUCTS)]
+    reference_image_oss_urls: TaskReferenceImages = Field(default_factory=TaskReferenceImages)
+    reference_video_oss_url: str | None = None
+    creative_requirement: Description = ""
+
+    @field_validator("products")
+    @classmethod
+    def unique_style_nos(cls, products: list[TaskProduct]) -> list[TaskProduct]:
+        style_nos = [product.style_no.strip() for product in products]
+        if len(set(style_nos)) != len(style_nos):
+            raise ValueError("同一张需求单里的商品款号不能重复")
+        return products
+
+    @field_validator("reference_video_oss_url")
+    @classmethod
+    def check_video(cls, value: str | None) -> str | None:
+        if value is not None:
+            _http_only([value])
+        return value
+
+
+def inputs_to_payload(inputs: TaskInputs) -> dict[str, Any]:
+    """序列化唯一的持久化结构。"""
+
+    return inputs.model_dump()
+
+
+def inputs_from_payload(payload: dict[str, Any]) -> TaskInputs:
+    """读取时校验 JSONB，非法持久化数据直接报错。"""
 
     try:
-        return TaskBrief.model_validate(payload)
-    except Exception as exc:
-        raise ValidationFailed(f"需求单的 brief 形状非法：{exc}") from exc
+        return TaskInputs.model_validate(payload)
+    except ValidationError as exc:
+        raise ValidationFailed(f"需求单的 inputs 形状非法：{exc}") from exc
 
 
 class TaskIn(CamelModel):
@@ -177,17 +152,19 @@ class TaskIn(CamelModel):
     title: Annotated[str, Field(min_length=1, max_length=MAX_TITLE_CHARS)]
     priority: Annotated[int, Field(ge=0, le=100)] = 0
     deadline: datetime | None = None
-    brief: TaskBrief = EMPTY_BRIEF
+    inputs: TaskInputs
 
 
 class TaskCreateIn(TaskIn):
-    """建一张需求单。比 ``TaskIn`` 多一个主款号。
+    """创建需求单；输入形状与整体更新一致，另可指定 id 与落单状态。
 
-    主款号只在创建时收：快照冻结之后就不许改写了，所以 ``PUT`` 用的还是 ``TaskIn``，
-    往里塞 ``styleNo`` 会被 ``extra="forbid"`` 挡成 422——想换款就提一张新的。
+    ``id`` 由调用方铸：机器链路要在服务端答复之前就用这个 id 把自己的记录串起来，
+    重发同一个 id 不会多出第二张单。``status`` 只在创建时可选，之后按状态机流转
+    （见 ``TaskService``）；两项都只属于创建，整体覆盖的 PUT 不接受它们。
     """
 
-    style_no: StyleNo
+    id: uuid.UUID | None = None
+    status: Literal["draft", "published"] = "draft"
 
 
 class TaskOut(CamelModel):
@@ -199,8 +176,9 @@ class TaskOut(CamelModel):
     creator_user_id: uuid.UUID
     """谁提的这张需求单。需求单是大家都看得见的工作队列，所以这一项对外可见——
     客户端也要靠它判断当前这个人能不能改草稿。"""
-    style: TaskStyle
-    brief: TaskBrief
+    inputs: TaskInputs
+    assignee_user_ids: list[uuid.UUID] = []
+    """谁认领了这张单（``task_assignees`` 的 user_id 集合）。多人认领，按认领先后排。"""
     created_at: datetime
     updated_at: datetime
 
@@ -213,19 +191,6 @@ class TasksPageOut(CamelModel):
     items: list[TaskOut]
 
 
-class TaskProjectsIn(CamelModel):
-    """这张单算在哪几个项目里。**整体覆盖**，给空数组就是全部取消。
-
-    重复的 id 不算错——「挂两遍」和「挂一遍」是同一件事，落库时去重。
-    """
-
-    project_ids: Annotated[list[uuid.UUID], Field(max_length=MAX_TASK_PROJECTS)]
-
-
-class TaskProjectsOut(CamelModel):
-    project_ids: list[uuid.UUID]
-
-
 def task_out(task: Task) -> TaskOut:
     """领域行 → wire 形状。"""
 
@@ -236,8 +201,8 @@ def task_out(task: Task) -> TaskOut:
         priority=task.priority,
         deadline=task.deadline,
         creator_user_id=task.creator_user_id,
-        style=task.style,
-        brief=task.brief,
+        inputs=task.inputs,
+        assignee_user_ids=list(task.assignee_user_ids),
         created_at=task.created_at,
         updated_at=task.updated_at,
     )
@@ -245,31 +210,26 @@ def task_out(task: Task) -> TaskOut:
 
 __all__ = [
     "DEFAULT_LIST_LIMIT",
-    "EMPTY_BRIEF",
     "MAX_DESCRIPTION_CHARS",
     "MAX_DURATION_SECONDS",
     "MAX_LIST_LIMIT",
+    "MAX_PRODUCTS",
     "MAX_REFERENCE_URLS",
     "MAX_SHORT_TEXT_CHARS",
-    "MAX_STYLE_NOS",
     "MAX_STYLE_NO_CHARS",
-    "MAX_TASK_PROJECTS",
     "MAX_TITLE_CHARS",
     "MIN_DURATION_SECONDS",
-    "PLANNER_FIELDS",
-    "TaskBrief",
     "TaskCreateIn",
     "TaskEnvelope",
     "TaskIn",
+    "TaskInputs",
     "TaskOut",
-    "TaskProjectsIn",
-    "TaskProjectsOut",
+    "TaskProduct",
     "TaskRatio",
-    "TaskStyle",
+    "TaskReferenceImages",
+    "TaskVideoSpec",
     "TasksPageOut",
-    "brief_from_payload",
-    "brief_to_payload",
-    "style_from_payload",
-    "style_to_payload",
+    "inputs_from_payload",
+    "inputs_to_payload",
     "task_out",
 ]

@@ -1,0 +1,19 @@
+# pnpm 工作区设置；单包项目也须声明 packages。
+
+packages:
+  - .
+
+allowBuilds:
+  # 浏览器 mock 所需的 service worker 安装脚本。
+  msw: true
+  # ESLint 的 TypeScript 路径解析依赖原生解析器。
+  unrs-resolver: true
+
+# 指定版本豁免 minimumReleaseAge 安装等待期。
+minimumReleaseAgeExclude:
+  - '@vitest/mocker@5.0.0'
+  - '@vitest/spy@5.0.0'
+  - vitest@5.0.0
+
+overrides:
+  postcss: ^8.5.10

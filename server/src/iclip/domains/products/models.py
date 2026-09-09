@@ -1,8 +1,4 @@
-"""产品资料的领域形状。
-
-**码和名字分开放**：码来自上游、永远有；名字来自本仓的对照表（见 ``tables.py``），
-上游新增一个码时名字就是 ``None``。空着看得见，猜错看不见。
-"""
+"""产品资料领域模型。保留上游编码，不在本域翻译成名称。"""
 
 from __future__ import annotations
 
@@ -10,60 +6,16 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
-class Brand:
-    code: str | None
-    name: str | None
+class StyleGrouping:
+    """一个款归属的品类与品牌。
 
-
-@dataclass(frozen=True, slots=True)
-class Category:
-    id: int | None
-    code: str | None
-    name: str | None
-    en: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ColorGroup:
-    code: str
-    name: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class Color:
-    code: str
-    name: str
-    group: ColorGroup | None
-    rgb: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ProductImage:
-    """一张产品图。``width``/``height`` 来自上游的转存记录，可能没量到。"""
-
-    id: str
-    url: str
-    width: int | None
-    height: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class Product:
-    """一个款的资料快照。
-
-    ``style_no`` 是 PDM 款号（本接口的查询键），``style_wms`` 是同一个款在 WMS 那
-    边的编号——两套编码不通用，爆款视频库认的是后者。
+    只保留编码：使用方按这两维圈选同类款，比对的是编码，不展示名称。名称字典在
+    上游库里（品类见 ``pdm_product_categories``，品牌的 ``mdm_model_brands``
+    目前还是空表），等有对外展示需求时再从那里取，不在本域冻结副本。
     """
 
-    style_no: str
-    style_wms: str | None
-    status: str
-    dev_year: str | None
-    brand: Brand
-    category: Category
-    combat_team: str | None
-    colors: tuple[Color, ...]
-    images: tuple[ProductImage, ...]
+    category_id: int
+    brand_code: str
 
 
-__all__ = ["Brand", "Category", "Color", "ColorGroup", "Product", "ProductImage"]
+__all__ = ["StyleGrouping"]

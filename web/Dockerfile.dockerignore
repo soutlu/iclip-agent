@@ -1,0 +1,17 @@
+# 前端以仓库根为构建上下文，只发送前端源码及共享合同。
+**
+!web/
+!web/**
+!contract/
+!contract/**
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/coverage/
+web/output/
+web/.playwright/
+web/.playwright-cli/
+web/Dockerfile
+web/Dockerfile.dockerignore
+**/.env*

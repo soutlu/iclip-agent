@@ -50,9 +50,26 @@ def test_user_principal_permissions_are_role_union_plus_direct_grants() -> None:
     account = make_account(roles=("viewer",), direct_permissions=frozenset({"generation:submit"}))
     service, _, _ = make_service(account)
     principal = service.principal_for_user(account)
-    assert principal.has("projects:read")
+    assert principal.has("collections:read")
     assert principal.has("generation:submit")
-    assert not principal.has("projects:write")
+    assert not principal.has("collections:write")
+
+
+async def test_principals_carry_the_account_username() -> None:
+    """用户名跟着主体走：用户主体是自己的，key 主体是属主的；账号没有就是空，不拿邮箱顶。"""
+
+    owner = make_account(roles=("root",), username="alice")
+    nameless = make_account(username=None, email="nobody@example.com")
+    service, _, _ = make_service(owner, nameless)
+
+    assert service.principal_for_user(owner).username == "alice"
+    assert service.principal_for_user(nameless).username is None
+
+    _, token = await service.issue_api_key(
+        service.principal_for_user(owner),
+        CreateApiKey(name="ci", permissions=frozenset({"collections:read"})),
+    )
+    assert (await service.authenticate_api_key(token)).username == "alice"
 
 
 async def test_issue_and_authenticate_round_trip() -> None:
@@ -61,7 +78,7 @@ async def test_issue_and_authenticate_round_trip() -> None:
     principal = service.principal_for_user(owner)
 
     record, token = await service.issue_api_key(
-        principal, CreateApiKey(name="ci", permissions=frozenset({"projects:read"}))
+        principal, CreateApiKey(name="ci", permissions=frozenset({"collections:read"}))
     )
     assert record.token_prefix == token[:16]
 
@@ -69,7 +86,7 @@ async def test_issue_and_authenticate_round_trip() -> None:
     assert key_principal.kind == "api_key"
     assert key_principal.user_id == owner.id
     assert key_principal.api_key_id == record.id
-    assert key_principal.permissions == {"projects:read"}
+    assert key_principal.permissions == {"collections:read"}
 
 
 async def test_issue_requires_api_keys_issue_permission() -> None:
@@ -78,7 +95,7 @@ async def test_issue_requires_api_keys_issue_permission() -> None:
     principal = service.principal_for_user(owner)
     with pytest.raises(PermissionDenied):
         await service.issue_api_key(
-            principal, CreateApiKey(name="k", permissions=frozenset({"projects:read"}))
+            principal, CreateApiKey(name="k", permissions=frozenset({"collections:read"}))
         )
 
 
@@ -88,12 +105,12 @@ async def test_direct_grant_of_issue_permission_still_caps_key_at_owner_permissi
     principal = service.principal_for_user(owner)
     with pytest.raises(PermissionDenied):
         await service.issue_api_key(
-            principal, CreateApiKey(name="k", permissions=frozenset({"projects:write"}))
+            principal, CreateApiKey(name="k", permissions=frozenset({"collections:write"}))
         )
     record, _ = await service.issue_api_key(
-        principal, CreateApiKey(name="k", permissions=frozenset({"projects:read"}))
+        principal, CreateApiKey(name="k", permissions=frozenset({"collections:read"}))
     )
-    assert record.permissions == {"projects:read"}
+    assert record.permissions == {"collections:read"}
 
 
 async def test_issue_rejects_unknown_permission_and_empty_grant() -> None:
@@ -144,7 +161,7 @@ async def test_revoked_expired_and_inactive_owner_all_fail_auth() -> None:
     principal = service.principal_for_user(owner)
 
     _, revoked_token = await service.issue_api_key(
-        principal, CreateApiKey(name="a", permissions=frozenset({"projects:read"}))
+        principal, CreateApiKey(name="a", permissions=frozenset({"collections:read"}))
     )
     record = (await api_keys.list_for_owner(owner.id))[0]
     await api_keys.revoke(record.id, datetime.now(UTC))
@@ -155,7 +172,7 @@ async def test_revoked_expired_and_inactive_owner_all_fail_auth() -> None:
         principal,
         CreateApiKey(
             name="b",
-            permissions=frozenset({"projects:read"}),
+            permissions=frozenset({"collections:read"}),
             expires_at=datetime.now(UTC) + timedelta(seconds=1),
         ),
     )
@@ -167,7 +184,7 @@ async def test_revoked_expired_and_inactive_owner_all_fail_auth() -> None:
         await service.authenticate_api_key(expired_token)
 
     _, live_token = await service.issue_api_key(
-        principal, CreateApiKey(name="c", permissions=frozenset({"projects:read"}))
+        principal, CreateApiKey(name="c", permissions=frozenset({"collections:read"}))
     )
     await users.update_access_fields(owner.id, roles=None, direct_permissions=None, is_active=False)
     with pytest.raises(AuthenticationFailed):
@@ -180,7 +197,7 @@ async def test_revoke_hides_others_keys_as_not_found() -> None:
     service, _, api_keys = make_service(owner, stranger)
     principal = service.principal_for_user(owner)
     await service.issue_api_key(
-        principal, CreateApiKey(name="k", permissions=frozenset({"projects:read"}))
+        principal, CreateApiKey(name="k", permissions=frozenset({"collections:read"}))
     )
     record = (await api_keys.list_for_owner(owner.id))[0]
 

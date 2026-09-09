@@ -1,43 +1,24 @@
-import type { ReactNode } from 'react'
-import { cn } from '@/shared/lib/utils'
-import { IconButton } from '@/shared/ui/button'
+import { Toaster as SonnerToaster, toast } from 'sonner'
 
-type ToastProps = {
-  /** 右侧的可选动作，状态由 Button 自己接管 */
-  action?: ReactNode
-  className?: string
-  message: ReactNode
-  onDismiss?: () => void
-  variant?: 'neutral' | 'error'
-}
+export { toast }
 
-/**
- * 状态反馈条：容器本身不交互，只有 action 与关闭键可点。
- * 定位交给调用方（各页面的安全区不同），这里只固定表面、层级与排版。
- */
-export function Toast({ action, className, message, onDismiss, variant = 'neutral' }: ToastProps) {
+/** 应用仅挂载一次 Toaster；sonner 管理交互，classNames 提供契约外观。默认 4 秒，带 action 时调用方设置 8 秒。 */
+export function Toaster() {
   return (
-    <div
-      className={cn(
-        'layer-popup flex max-w-[70vw] items-center gap-[9px] rounded-md py-[9px] pr-[10px] pl-[17px] text-label shadow-[var(--shadow-3)]',
-        variant === 'error'
-          ? 'bg-error-container text-on-error-container'
-          : 'bg-inverse-surface text-inverse-on-surface',
-        className,
-      )}
-      role="status"
-    >
-      <span className="min-w-0">{message}</span>
-      {action}
-      {onDismiss ? (
-        <IconButton
-          className="-mr-1 shrink-0 text-inherit"
-          label="关闭提示"
-          name="close"
-          size="md"
-          onClick={onDismiss}
-        />
-      ) : null}
-    </div>
+    <SonnerToaster
+      duration={4000}
+      position="bottom-center"
+      toastOptions={{
+        unstyled: true,
+        classNames: {
+          toast:
+            'flex w-full items-center gap-[9px] rounded-md bg-inverse-surface py-[9px] pr-[10px] pl-[17px] text-label text-inverse-on-surface shadow-[var(--shadow-3)]',
+          error: 'bg-error-container text-on-error-container',
+          actionButton:
+            'ui-focus ml-auto cursor-pointer rounded-sm px-2 py-1 font-semibold text-inverse-primary',
+          closeButton: 'ui-focus cursor-pointer rounded-full',
+        },
+      }}
+    />
   )
 }

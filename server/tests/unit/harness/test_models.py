@@ -55,7 +55,7 @@ def test_chat_uses_official_dispatch_with_configured_endpoint() -> None:
 
 
 def test_responses_api_selected_explicitly() -> None:
-    """官方分派对 alibaba 默认给 chat，写了 responses 才切换。"""
+    """alibaba 默认分派到 chat，responses 需显式配置。"""
 
     model = build_model(spec(api="responses"))
 
@@ -64,7 +64,6 @@ def test_responses_api_selected_explicitly() -> None:
 
 
 def test_vendor_profile_survives_on_both_apis() -> None:
-    """厂商适配在 chat / responses 两条路径上都要保留。"""
 
     for api in ("chat", "responses"):
         profile = dict(build_model(spec(api=api)).profile)
@@ -74,7 +73,7 @@ def test_vendor_profile_survives_on_both_apis() -> None:
 
 
 def test_provider_without_base_url_param_still_gets_configured_endpoint() -> None:
-    """deepseek 的构造函数不收 base_url，走 openai_client。"""
+    """deepseek 构造器不接受 base_url，通过 openai_client 传入端点。"""
 
     model = build_model(spec(name="ds", provider="deepseek", model="deepseek-chat"))
 
@@ -91,7 +90,6 @@ def test_base_url_absent_uses_provider_default() -> None:
 
 
 def test_provider_owning_model_class_is_not_flattened() -> None:
-    """有专属模型类的 provider 不得被拍平成 OpenAIChatModel。"""
 
     model = build_model(
         spec(name="local", provider="ollama", model="qwen3-8b", base_url="http://x/v1")
@@ -106,7 +104,6 @@ def test_unknown_provider_fails() -> None:
 
 
 def test_responses_rejected_for_non_openai_provider() -> None:
-    """非 OpenAI 兼容的 provider 写 responses 即报错。"""
 
     pytest.importorskip("anthropic")
     with pytest.raises(RuntimeError, match="只适用于 OpenAI 兼容"):
@@ -121,7 +118,7 @@ def test_build_models_keys_by_name_and_reuses_instance() -> None:
 
 
 def test_thinking_lands_in_model_settings_on_both_apis() -> None:
-    """chat 路径官方分派入口不收 settings，要另造一次；两条路径落的 settings 一样。"""
+    """chat 分派入口不接受 settings，需额外构造模型并保持两种 API 设置一致。"""
 
     for api in ("chat", "responses"):
         model = build_model(spec(api=api, thinking="medium"))
@@ -131,7 +128,7 @@ def test_thinking_lands_in_model_settings_on_both_apis() -> None:
 
 
 def _reasoning_stream() -> bytes:
-    """百炼流式回复的形状：思考只有 reasoning_text 原始块，done 项里才放 summary。"""
+    """模拟百炼流：原始思考为 reasoning_text，done 项携带 summary。"""
 
     reasoning_done = {
         "id": "msg_r",
@@ -207,11 +204,7 @@ def _reasoning_stream() -> bytes:
 
 
 async def test_raw_reasoning_streams_as_thinking_content() -> None:
-    """流式原始思维链要落进 ThinkingPart.content，raw_content 也要留着（回传厂商靠它）。
-
-    走真实 SSE 解析而不是直接喂事件：官方若改了被覆写的那个方法名，覆写会静默失效，
-    这条测试就是那根绊线。
-    """
+    """通过 SSE 解析覆盖覆写方法的兼容性，确认原始思考保存在 content 与回传用 raw_content 中。"""
 
     def serve(_: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(

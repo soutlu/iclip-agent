@@ -1,7 +1,10 @@
+import eslintReact from '@eslint-react/eslint-plugin'
 import js from '@eslint/js'
 import pluginQuery from '@tanstack/eslint-plugin-query'
 import configPrettier from 'eslint-config-prettier'
+import jsxA11y from 'eslint-plugin-jsx-a11y-x'
 import boundaries from 'eslint-plugin-boundaries'
+import checkFile from 'eslint-plugin-check-file'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import globals from 'globals'
@@ -14,13 +17,27 @@ const LUCIDE_LOCK = {
 }
 const LUCIDE_DEEP = ['lucide-react/*']
 
-/** Slider / AspectRatio 不在名单里：workbench 的时间轴与播放器是分段轨道加播放头，
-    契约 Slider（track 4 / thumb 20）表达不了，这两处继续用原语。 */
 const RADIX_LOCK = {
   name: 'radix-ui',
   importNames: ['Dialog', 'DropdownMenu', 'Popover', 'ToggleGroup'],
   message:
     '这些 primitive 已有契约组件：Dialog → @/shared/ui/dialog，DropdownMenu → @/shared/ui/menu，ToggleGroup → @/shared/ui/chip，Popover → @/shared/ui/popup',
+}
+
+// 语法级禁令（no-restricted-syntax 同名规则整块覆盖，所以各处按需拼这几条）
+const NO_DEFAULT_EXPORT = {
+  selector: 'ExportDefaultDeclaration',
+  message: '只用具名导出：default 导出让每个调用点各起各的名字，rg 找不全用例',
+}
+const NO_RAW_IMPORT_META_ENV = {
+  selector: 'MemberExpression[object.type="MetaProperty"][property.name="env"]',
+  message: '环境变量只经 src/shared/config/env.ts 的 zod schema 读取，新变量先在那里声明',
+}
+const NO_MOCK_LOCAL_MODULE = {
+  selector:
+    'CallExpression[callee.object.name="vi"][callee.property.name="mock"] > Literal[value=/^(@\\/|\\.)/]',
+  message:
+    '不 vi.mock 同仓模块：渲染真实子树，网络走 MSW（docs/frontend-implementation.md 测试要求）',
 }
 
 export default tseslint.config(
@@ -30,9 +47,15 @@ export default tseslint.config(
       'coverage',
       'public',
       'src/routeTree.gen.ts',
+      // 生成文件由 pnpm contract:check 校验。
+      'src/shared/api/generated/**',
+      // contract:check 临时输出目录。
+      '.openapi-check-*',
       'node_modules',
-      // docs/ 里有脱离本项目 tsconfig 的示例代码，类型感知规则跑不动
+      // 文档示例不属于项目 tsconfig，排除类型感知检查。
       'docs',
+      // 外部合同保持原文，见该目录 README。
+      'src/shared/transcript/vendor/**',
     ],
   },
 
@@ -43,6 +66,8 @@ export default tseslint.config(
       js.configs.recommended,
       ...tseslint.configs.recommendedTypeChecked,
       ...pluginQuery.configs['flat/recommended'],
+      jsxA11y.configs.recommended,
+      eslintReact.configs['recommended-typescript'],
     ],
     languageOptions: {
       globals: globals.browser,
@@ -57,16 +82,13 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // React Compiler 尚未启用，以下编译器诊断命中的是存量 ref 镜像/effect 同步模式，
-      // 属行为敏感重构，随 React Compiler 接入另行治理（见工具链迁移报告）。
-      'react-hooks/set-state-in-effect': 'off',
-      'react-hooks/refs': 'off',
-      'react-hooks/preserve-manual-memoization': 'off',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': 'error',
       // disallowTypeAnnotations:false 允许 vi.importActual<typeof import('...')> 的 vitest 官方写法
       '@typescript-eslint/consistent-type-imports': [
         'error',
@@ -82,15 +104,33 @@ export default tseslint.config(
     },
   },
 
-  // ── 设计系统唯一入口（图标与已封装的 radix primitive 不得在业务层直连） ──
-  //    flat config 里同名规则后者整块覆盖前者，所以两条禁令写在一起，
-  //    下面两块只各自放行自己那一半。
+  // flat config 的同名规则整块覆盖；组合图标与 Radix 约束，入口例外仅解除各自的限制。
   {
     files: ['src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
         { paths: [LUCIDE_LOCK, RADIX_LOCK], patterns: LUCIDE_DEEP },
+      ],
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, NO_RAW_IMPORT_META_ENV],
+    },
+  },
+  // 环境变量入口允许读取 import.meta.env。
+  {
+    files: ['src/shared/config/env.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
+    },
+  },
+  // ── 文件名 kebab-case（routes/ 按 TanStack 约定用 _ 前缀与 . 分段，不在此列） ──
+  {
+    files: ['src/{app,features,shared,testing}/**/*.{ts,tsx}'],
+    plugins: { 'check-file': checkFile },
+    rules: {
+      'check-file/filename-naming-convention': [
+        'error',
+        { '**/*.{ts,tsx}': 'KEBAB_CASE' },
+        { ignoreMiddleExtensions: true },
       ],
     },
   },
@@ -109,22 +149,12 @@ export default tseslint.config(
     },
   },
 
-  // ── 架构边界（依赖方向硬约束，违反即报错） ──────────────────────────────
-  //
-  //   app(app/、routes/、main.tsx) → 可用 feature 公开出口(index.ts)、shared
-  //   features/<name>              → 本 feature 内部随意 + shared + 其它 feature 仅经 index.ts
-  //   shared                       → 只能用 shared
-  //   testing(src/testing)         → 测试基建；业务代码（app/feature/shared）不得 import，
-  //                                  只有测试文件可用（测试文件整体豁免 boundaries，见下方测试块）
-  //
-  //   跨 feature 依赖是允许的，但只准走对方的 index.ts 公开出口；深层 import 一律禁止。
+  // 架构边界：app → feature 公开出口 / shared；feature → 本模块 / shared。
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { boundaries },
     settings: {
-      // v7 元素描述符只有目录语义（v6 的 mode: 'full' 已弃用）：app/、routes/ 直接按
-      // 目录归类；兜底的 'src' 让 main.tsx、routeTree.gen.ts 等 src 根部散文件也归入
-      // app 元素（feature/shared/testing 在更深路径命中，优先级不受兜底影响）。
+      // src 根目录文件归入 app；更深路径的 feature/shared/testing 匹配优先。
       'boundaries/elements': [
         { type: 'feature', pattern: 'src/features/*', capture: ['featureName'] },
         { type: 'shared', pattern: 'src/shared' },
@@ -141,7 +171,7 @@ export default tseslint.config(
         {
           default: 'disallow',
           message:
-            '依赖方向违规：请遵守 CLAUDE.md 的架构规则（feature 对外只经 index.ts、跨 feature 仅可用对方公开出口、shared 不依赖业务层）',
+            '依赖方向违规：app 只能用 shared 与 feature 的 index.ts；feature 只能用本 feature 与 shared（跨 feature 一律禁止）；shared 只能用 shared',
           policies: [
             {
               from: { element: { type: 'app' } },
@@ -164,7 +194,6 @@ export default tseslint.config(
                       captured: { featureName: '{{ from.element.captured.featureName }}' },
                     },
                   },
-                  { element: { type: 'feature', fileInternalPath: 'index.ts' } },
                 ],
               },
             },
@@ -178,15 +207,19 @@ export default tseslint.config(
     },
   },
 
-  // ── 测试文件与测试基建豁免边界规则，并提供 node 环境 ─────────────────────
-  //    测试跨 feature 深入任何模块 import 都是合法的（含 src/testing 基建本身）；
-  //    业务代码 import src/testing 仍会被上方 boundaries 默认 disallow 拦截。
+  // 测试可跨模块导入；业务代码仍禁止依赖 testing。
   {
     files: ['src/**/*.test.{ts,tsx}', 'src/testing/**/*'],
     plugins: { boundaries },
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     rules: {
       'boundaries/dependencies': 'off',
+      'no-restricted-syntax': [
+        'error',
+        NO_DEFAULT_EXPORT,
+        NO_RAW_IMPORT_META_ENV,
+        NO_MOCK_LOCAL_MODULE,
+      ],
       // fetch/adapter mock 习惯写成 async () => value 以保持 Promise 返回类型
       '@typescript-eslint/require-await': 'off',
       // 对 vi.fn/mock 上的方法引用断言（toHaveBeenCalled 等）会误报 unbound-method
@@ -196,21 +229,9 @@ export default tseslint.config(
     },
   },
 
-  // ── 组件与 hooks/工具混合导出的存量文件：HMR 退化为整页刷新，可接受 ────────
-  //    store/provider 文件按约定同时导出 Provider 组件与 hooks；其余为逐文件豁免。
+  // UI 与 state 模块同时导出组件和辅助函数，支持整页刷新。
   {
-    files: [
-      'src/**/state/**/*',
-      // ProjectConversationPanel 拆分出的会话时间线子模块：按域内聚组件与判定/转换工具
-      'src/features/chat/components/sidebar/ProjectAgentIdentity.tsx',
-      'src/features/chat/components/sidebar/ProjectAskUserQuestionTimelineCard.tsx',
-      'src/features/chat/components/sidebar/ProjectMessageMarkdown.tsx',
-      'src/features/chat/components/sidebar/ProjectSubagentFlowCards.tsx',
-      'src/features/chat/components/sidebar/ProjectToolRunLog.tsx',
-      'src/features/project-canvas/components/nodes/video-generation-status-ui.tsx',
-      'src/shared/composer/VideoGenerationSettingsControl.tsx',
-      'src/shared/markdown/components/RichMarkdownCodeBlock.tsx',
-    ],
+    files: ['src/**/state/**/*', 'src/shared/ui/**'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },
@@ -224,9 +245,9 @@ export default tseslint.config(
     },
   },
 
-  // ── Node 环境文件（构建配置与 Playwright e2e） ──────────────────────────
+  // ── Node 环境文件（构建配置、vite/ 下的配置助手、Playwright e2e） ────────
   {
-    files: ['e2e/**/*.ts', '*.config.{js,ts}'],
+    files: ['vite/**/*.ts', 'e2e/**/*.ts', '*.config.{js,ts}'],
     languageOptions: { globals: globals.node },
   },
 

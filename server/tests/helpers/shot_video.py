@@ -1,9 +1,4 @@
-"""镜头素材能力的进程内替身：出图、对象存储、视频拆解。
-
-三个都窄到能手写：能力包对外只要「提交/查一次生成」「把字节放到公网地址」「把
-视频换成一份文档」。所以工具面的语义不需要真的生成后端、真的 OSS 或真的模型就
-能验。
-"""
+"""镜头素材能力的内存替身：生成、对象存储和视频解析。"""
 
 from __future__ import annotations
 
@@ -24,7 +19,7 @@ _RESOLUTIONS = {"1k", "2k", "4k"}
 
 @dataclass(frozen=True, slots=True)
 class Outcome:
-    """一次生成脚本化的结局。"""
+    """预设的生成结果。"""
 
     status: str = "completed"
     output_url: str | None = "https://cdn.test/out.png"
@@ -34,10 +29,9 @@ class Outcome:
 
 @dataclass
 class FakeGenerations:
-    """按脚本逐次给结局；用光了就一直给最后一条。
+    """按预设顺序返回结果，耗尽后重复最后一条。
 
-    ``submit`` 一律先落 ``pending``，结局在 ``get`` 那一步才出现——真实路径就是
-    这样（受理时不碰对方），工具的轮询逻辑因此真的被走到。
+    submit 始终返回 pending，get 才返回结果，以覆盖工具的轮询逻辑。
     """
 
     outcomes: list[Outcome] = field(default_factory=lambda: [Outcome()])
@@ -81,7 +75,7 @@ class FakeGenerations:
 
 @dataclass
 class FakeObjects:
-    """记下写过哪些 key，返回一个可预测的公网地址；``error`` 设上就每次都抛它。"""
+    """记录对象 key 并返回固定格式的 URL；设置 error 后写入抛出该异常。"""
 
     written: dict[str, bytes] = field(default_factory=dict[str, bytes])
     error: Exception | None = None
@@ -96,7 +90,7 @@ class FakeObjects:
 
 @dataclass
 class FakeUnderstanding:
-    """给一份固定文档，或抛一个失败。"""
+    """返回预设文档或抛出预设异常。"""
 
     document: str = "## 4、逐镜拉片表\n**[00:00.000-00:03.800]** 中景……"
     error: Exception | None = None

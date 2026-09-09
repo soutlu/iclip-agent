@@ -1,229 +1,261 @@
 # 跨端合同约定 (API Conventions)
 
-> **核心声明**：对外的网络传输契约 (Wire Contract) **统一由后端定义**。本文档是跨端协议的唯一事实源，前端及所有外部调用方必须严格按照本约定进行对接。
+> HTTP 端点与数据形状以 [`openapi.json`](openapi.json) 为准，生成流程见 [开发约定](../AGENTS.md)。本文补充跨端消费语义、认证、动态错误与 WebSocket 约定；领域术语和不变量见 [CONTEXT.md](../docs/CONTEXT.md)。
 
 ## 1. 部署与路由路径
 
-- **路径代理**：前端浏览器代码只应调用同源的 `/api/*`。在开发环境 (dev) 由 Vite Proxy 代理，在生产环境 (prod) 由 Nginx/Ingress 反向代理，将 `^/api` rewrite 掉后直达后端根路径（例如前端调用 `/api/users/me`，实际到达后端为 `/users/me`）。**本项目不设 BFF 层**。
-- **WebSocket 支持**：反向代理与 Vite Proxy 必须显式放行 WebSocket upgrade（配置 `ws: true` 或透传 `Upgrade` 与 `Connection` 头）。
+- **路径代理**：前端浏览器代码只调用同源的 `/api/*`。在开发环境 (dev) 由 Vite Proxy 代理，在生产环境 (prod) 由 Nginx/Ingress 反向代理，将 `^/api` rewrite 掉后直达后端根路径（前端调用 `/api/users/me`，实际到达后端为 `/users/me`）。
+- **保持同源**：`/api` 由反向代理转发，不用 `3xx` 把浏览器重定向到另一个 Host。会话 Cookie 不设置 Domain；同一次登录与 API 访问使用同一主机名，不混用 `localhost`、`127.0.0.1` 和局域网地址。
+- **WebSocket 代理**：支持 `/api/ws` 的 Upgrade，并保留浏览器 Origin。后端以 Origin 与 Host 核对同源，代理应保留外部 Host，或显式配置允许的 Origin；不能通过删除 Origin 绕过校验。
 
 ## 2. 双主体认证 (Dual Principals)
 
-- **浏览器端用户**：基于 HttpOnly Cookie 的会话管理 (`iclip_session` JWT)。Cookie 完全由后端种入，浏览器原生自动携带；前端 JavaScript **绝对不持有、不存储、不转发**任何类型的 Token。
-  - 登录接口：`POST /auth/login`（接受 `form-urlencoded`），成功则返回 `204 No Content` 并带上 `Set-Cookie`，响应体中不再包含 Token 数据。
+- **浏览器会话**：使用后端设置的 HttpOnly Cookie `iclip_session`，浏览器自动携带；前端 JavaScript 不读取、存储或转发这个会话凭证，也不代持 API Key。
+- **SSO 回调票据**：落地页接收查询参数 `jwt`，仅交给同源 `GET /auth/sso/callback` 验证并建立上述会话，随后以 replace 导航离开票据 URL。票据不作为后续 API 的认证头，不存入浏览器持久存储。
+- **登录态**：以 `GET /users/me` 为准；`401` 表示未登录或会话失效，前端不从 SSO 票据或本地标记推断已登录。
 - **机器端调用方**：基于 Bearer Token 的无状态调用（请求头携带 `Authorization: Bearer iclip_sk_...`）。
-  - API Key 权限完全等价于其创建时的“显式授予集”（见 [ADR-0002](../docs/adr/0002-unified-permission-model.md)），不再随属主的角色变动而膨胀。其明文内容只在成功创建的响应包中下发唯一一次。
-- **一致性防线**：两类主体在后端都会被一致地收拢为 `Principal` 并命中相同的路由权限与校验规则。任何由客户端自主提交的身份类字段均被视为不可信声明，将被直接抛弃或仅作普通文本处理。
-- **WebSocket 握手**：浏览器的 WS 握手依赖 Cookie 校验与 Origin 校验（跨域非白名单的非法 Origin 直接触发 `Close 1008`）；机器调用的 WS 则通过标准的头信息传递 Bearer Token。
+  - 明文仅在成功创建的响应中返回一次；权限语义见 [CONTEXT.md](../docs/CONTEXT.md)。
 
 ## 3. 数据载荷与格式 (Payload Formatting)
 
-- **命名规范**：HTTP API 的所有的字段（包括 Request Body、Query Parameters 及 JSON Response）**一律采用 camelCase (驼峰命名法)**。目前有两处历史例外，新端点不得照此办理：
-  - `GET /auth/sso/authorize` 的响应字段名是 `authorization_url`（前端 zod 已锁定这个名字）。
-  - `POST /auth/register` 的请求体与响应体沿用 fastapi-users 自带的模型，带 `is_active` / `is_superuser` / `is_verified` 三个下划线字段。
-- **当前登录态查询**：客户端判断用户是否登录的唯一事实源为调用 `GET /users/me`。
-  - 成功示例：`{ "user": { ...camelCase, roles: [], directPermissions: [], permissions: [], city: "", jobTitle: "", departments: [] } }`。
-  - 如果返回 `401 Unauthorized`，则代表用户当前为未登录或会话过期状态。
-- **类型标准**：时间戳强制统一使用 **ISO 8601 UTC** 格式；所有的资源 ID 必须为服务端生成的不可猜测字符串。
+- **命名**：业务 HTTP API 的请求体、查询参数和响应使用 camelCase。既有例外是 SSO `authorization_url`、注册接口的用户状态字段、§5 的 Transcript 协议字段，以及 §11 里视频提交与视频任务查询这一对端点（它们是上游视频异步接口的原样镜像）；消费者按生成合同取名，新业务端点不沿用这些例外。
+- **时间**：时间戳使用 ISO 8601 UTC。
+- **标识**：资源 ID、游标与协议 ID 按各自合同使用，不从 URL、显示名称或序号推导资源身份。客户端 `prompt_id` 是消息幂等键；对话和需求单 ID 可由调用方提供，运行 ID 由服务端发放，轮 ID 则是 Transcript 内的顺序标识。
 
 ## 4. 错误处理与响应信封
 
-业务逻辑判定的错误（下称领域错误）统一返回 JSON 信封 `{ "detail": "<人类可读的报错消息>" }`，其状态码映射固定如下：
+领域错误统一返回 JSON 信封 `{ "detail": "<人类可读的报错消息>" }`，其状态码映射固定如下：
 
-| 领域内部错误分类 | HTTP 状态码 | 释义与边界 |
-|------------------|-------------|------------|
-| **AuthenticationFailed** | `401` | 用户未登录 / 凭证无效或伪造 / API Key 已吊销或过期 |
-| **PermissionDenied** | `403` | 用户已知晓资源存在，但当前拥有的权限集合不足以操作此资源 |
-| **NotFound** | `404` | 资源确实不存在，**或资源存在但对当前用户不可见**（绝不越权泄露资源存在性） |
-| **Conflict** | `409` | 请求与资源**当前状态**冲突：乐观锁并发冲突、不合法的状态机转换（如撤回已撤回的需求单），以及在当前状态下不许改的字段（如改动已下发需求单的创作输入） |
-| **ValidationFailed** | `422` | 请求参数结构非法、或违反了强类型的业务语义校验规则 |
+| 领域内部错误分类 | HTTP 状态码 |
+|------------------|-------------|
+| **AuthenticationFailed** | `401` |
+| **PermissionDenied** | `403` |
+| **NotFound** | `404`：资源不存在，**或资源存在但对当前用户不可见** |
+| **Conflict** | `409`：请求与资源**当前状态**冲突——乐观锁并发冲突、不合法的状态机转换、当前状态下不许改的字段 |
+| **ValidationFailed** | `422` |
 
-**上表之外，客户端还必须处理以下三种情况**——它们不走上面的映射，写错误处理时不要漏：
+上表之外：`PATCH /users/{id}` 改自己的授权、或停用自己返回 `400`。
 
-| 场景 | 实际返回 | 说明 |
-|------|---------|------|
-| 请求体结构不合法（少字段、类型不对） | `422`，但 `detail` 是**数组**而不是字符串 | 由 FastAPI 自己拦下，没走领域错误信封。数组里每项含 `loc` / `msg` / `type` |
-| 登录、注册相关的失败 | 一律 `400` | `/auth/login` 与 `/auth/register` 直接挂 fastapi-users 自带路由：密码错误、账号被停用、用户名或邮箱重复都是 400；其中密码过短的 `detail` 是个**对象**（含 `code` / `reason`） |
-| `PATCH /users/{id}` 改自己的授权、或停用自己 | `400` | 自我保护规则，不是 422 |
+请求结构校验与认证框架的错误可能使用列表或对象形式的 `detail`；客户端不能假定所有错误都是上述字符串信封。生成任务的业务失败通过任务状态与 `errorCode` / `errorMessage` 表达，HTTP 受理成功不代表生成成功。
 
-> **容错原则**：本项目绝不执行“部分成功 (Partial Success)”响应，也不做“静默降级”。只要客户端请求的数据结构或语义有一处非法，整次请求将原子性失败。
+## 5. Agent 对话 (Transcript)
 
-## 5. Agent 运行流 (Agent Run Stream)
+agent 对话使用 kimi code 的 Transcript 协议，HTTP 端点挂在对话下面。该组 HTTP 读写与 WebSocket 建连均需 `agent:run`；写入限属主，治理者可读取其他用户的对话。
 
-`POST /agents/{agentId}/chat` 是唯一的 agent 对话入口，走**官方 AG-UI 协议**，不是本仓自创的格式。
+### 字段名：这一面照协议原样，不套 §3
 
-- **请求体**：官方 `RunAgentInput`。七个字段全部必填，一个都不能省（少任何一个都是 `422`）：`threadId`、`runId`、`state`、`messages`、`tools`、`context`、`forwardedProps`。
-  - `threadId` 即会话身份，同一会话的多次运行必须复用它——服务端据此把运行归到同一会话。它**必须是 `POST /conversations` 发放的 id**：客户端自己编一个会被拒（见下）。
-  - `runId` 由客户端铸造，用来把协议事件对回本次请求、断线时找回同一条流。服务端会把它盖到这次运行的消息与快照上，但它**不是**运行记录的主键——主键由服务端自己生成，拿 `runId` 直接查主键查不到。
-- **响应**：`200` + `text/event-stream`。每帧形如 `id: <位置>\ndata: <AG-UI 事件 JSON>\n\n`，首帧为 `RUN_STARTED`，终帧为 `RUN_FINISHED` 或 `RUN_ERROR`。字段名沿用 AG-UI 官方拼写（`threadId` / `runId` / `type` 等），不套用本文 §3 的 camelCase 改写规则。本端点只发 SSE，不做 `Accept` 协商。
-- **运行不绑在这次请求上**：断开连接只是结束订阅，运行会继续跑完。同一个 `runId` 再 POST 一次不会重跑，而是接着读同一条流。
-- **必须发 `Content-Type: application/json`**，否则 `415`——这不是洁癖，是 CSRF 防线的一半：浏览器能跨域直接发的三种 content-type 都能塞 JSON 且不触发预检，所以这里刻意要求一个非免检类型来强制预检，再由 `OPTIONS /agents/{agentId}/chat` 拒掉预检（返 `204` 且不带任何 `Access-Control-Allow-*` 头）。跨域调用方拿不到这个端点。
-- **权限**：需要 `agent:run`。未注册的 `agentId` 返 `404`（不泄露它是否存在）。
-- **`threadId` 必须是自己名下、且属于这个 agent 的会话**，否则 `404`：不存在、是别人的、或者当初是给另一个 agent 开的，三种情况一律当作不存在。这一步发生在开流之前，所以拿到的是正常的错误响应而不是流中途的报错。
+Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生成：
 
-### 断线重连
+- **信封 snake_case**：`agent_id`、`has_more_older`、`has_more`、`latest_seq`、`prompt_id`、
+  `since_seq`、`before_turn`、`after_turn`、`page_size`。
+- **里面装的实体与操作 camelCase**：`turnId`、`stepId`、`frameId`、`toolCallId`、`hasMoreOlder`。
 
-`GET /agents/{agentId}/chat/{conversationId}/{runId}` 接着读同一次运行的事件。会话 id 要跟着一起给：一次运行由「谁 + 哪段对话 + 哪个 agent + 哪次运行」共同指认，少一段就找不到。
+### 发消息
 
-- **位置**：把最后收到的那帧的 `id` 放进标准的 `Last-Event-ID` 请求头（浏览器原生 `EventSource` 会自动带上），也可以用 `?from=<位置>`；两个都不给就从头整段重放。
-- `404`：没有这次运行（也包括别人的运行——运行只对发起它的用户可见）。
-- `409`：这次运行的事件已经过了重放窗口，接不上了，要重新发起运行。**服务端绝不默默跳到当前位置**，所以收到 200 就意味着中间没有缺口。
-- `422`：`runId` 或 `conversationId` 形状不合法（只允许字母、数字、`.`、`_`、`-`，不超过 128 字符），或位置的形状不合法（必须是原样回传的某帧 `id`）。
-- 位置已经在末尾（该看的都看过了）：正常 `200`，然后直接收流，不再补发任何事件。
-- **终帧可能是 `RUN_ERROR` 且 `code` 为 `RUN_INTERRUPTED`**：表示这次运行没跑完就断了（例如服务端进程重启），可以重新发起。它不代表模型或业务出错。
-- 权限同 POST：需要 `agent:run`。
+`POST /conversations/{id}/prompts`，体是 `{prompt_id, content, user_name?}`。
+
+- `prompt_id` 由客户端铸（乐观气泡靠它认领服务端回来的那条）。同一段对话里重发同一个 id
+  返回已有那条，不会多起一次运行；换一段对话用同一个 id 是 `409`。
+- `user_name` 是这条消息替谁发的，运行带着它、工具把它发给上游落表对账；它不是身份，
+  不参与授权。API key 调用方必填，缺失是 `422`，给什么用什么。浏览器会话可省略，服务端填
+  登录用户名；给了就必须等于登录用户名，否则 `422`。重新生成沿用原消息的值。
+- 答复是这条消息的记录：这段对话空着就 `status: "running"`，正忙就 `"queued"`。
+
+### 读
+
+- `GET /conversations/{id}/transcript` 默认取最新轮次；`before_turn` 向旧翻，`after_turn` 取指定轮之后的内容，两者不能同时给。`has_more` 始终表示当前页之前还有更旧轮次，不是向新翻页的结束标志。
+  `agent_id` 默认 `main`；给子代理的 id（工具卡 `agentRefs` 里那个）就读它那条流，`agents` 名册与主页同一份。不属于这段对话的 id 是 `404`，带路径分隔符的是 `422`。
+- `GET /conversations/{id}/transcript/ops?since_seq=` 补断线期间漏掉的批次，`agent_id` 同上。
+  `complete: false` 表示要的批次已经出了窗口，整页重拉。
+- `GET /conversations/{id}/prompts` 当前排程：`{active, queued}`。
+- `GET /conversations/{id}/status` 只回一个 `status`，给轮询的调用方用：`running` 含排队，
+  `awaiting` 是不给审批决定就不会往下走，`completed` / `failed` / `aborted` 是上一轮的结果，
+  `idle` 是从没跑过。只要 `agent:read`，凭 API key 可单独调。
+- 轮头部与用户文本块都带 `content`，就是发消息那串 part 原样、次序不动。
+- 图和视频只在 `content` 里，不另发附件实体，快照与分页里也没有 `attachments`。
+- 压缩不删除可见的历史轮次；压缩提示属于步骤内的块，不单独占一轮。模型窗口与完整历史的区别见 [CONTEXT.md](../docs/CONTEXT.md)。
+
+### 停止、插话、审批、重新生成
+
+- `POST /conversations/{id}/prompts/{prompt_id}:abort`：排队的直接撤，在跑的发取消让它自己
+  收尾。已经结束的是 `409`。
+- `POST /conversations/{id}:abort`：停整段对话——排着的**全部**撤掉，在跑的那条发取消。什么
+  都没在跑照样是 `204`。**别拿上一条逐条撤**：撤到一半在跑的那条结束了，还没撤到的队首会被
+  顶上来接着跑。
+- `POST /conversations/{id}/prompts:steer`，体 `{prompt_ids}`：把排队中的几条插进正在跑的
+  那一轮，不必等它跑完。没有在跑的运行是 `409`。
+- `POST /conversations/{id}/turns/{turn_id}:regenerate` 只重跑空闲对话的最后一轮。客户端使用轮头部的 `t{N}`，不可按当前页面位置自行编号；忙碌或非末轮返回 `409`。旧运行记录保留，可见末轮由新运行替代并复用轮 ID；替代前会收到 `items.remove`。
+- 重新生成可省略整个请求体；省略 `content` 使用原输入，提供则替换。提供 `prompt_id` 时沿用发消息的幂等语义，省略时由服务端生成。
+- `POST /conversations/{id}/interactions/{interaction_id}` 提交审批决定，记录后返回 `204`；同批决定齐备后服务端续跑。仍在等待的审批重复同值幂等，改值返回 `409`；已不在等待的卡返回 `404`。
+
+### 订阅
+
+`WS /ws` 一条连接订阅多段对话，经过同源代理时使用 `/api/ws`。WebSocket 帧不在 OpenAPI 中：标准 Transcript 实体与操作消费 [vendor](../web/src/shared/transcript/vendor/README.md)，本项目的连接帧 schema 位于 [connection.ts](../web/src/shared/transcript/connection.ts)。后端实际发出的帧序列与 REST 一页存成金样 [transcript/](transcript/)，由后端场景测试生成、前端测试解析，两端形状对不上会在其中一边先红。协议字段哪些填、哪些留空，以及加字段的规则，见 [ADR-0013](../docs/adr/0013-transcript-protocol-freeze.md)。
+
+- 握手：服务端先发 `server_hello`（客户端只取 `heartbeat_ms`），客户端**每段对话各发一帧**
+  `subscribe_v2`，体里 `session_id` 是对话 id，`transcript` 是按 agent 给的档位，带
+  `transcript_since` 就是补批。表里每个 agent 各自订阅、各自水位，同一帧里再发就是更新；
+  出现不属于这段对话的 agent 时整帧拒绝，`ack` 带 `code: 404`，订阅不变。协议里的
+  `client_hello` 我们不收。
+- 退订一段发 `unsubscribe_v2`（体里 `session_id`）；带 `agent_ids` 只退列出的 agent；关连接就是全退。
+- **订阅逐段核权**：看不见的对话与不存在的对话一个待遇——回执 `ack` 的 `payload.not_found` 里
+  带上它，整条连接不动（其余对话照旧）。建连时只核登录与 `agent:run`。
+- 对话帧带 `session_id`，客户端按它分流；Transcript 水位按对话各记一份。连接级握手与心跳不属于某段对话。
+- 服务端每 10 秒发一帧 `ping`；连着两个周期没有收到**任何**入站帧就断开（`1001`）。
+- 每段对话第一次订阅收到一帧 `transcript.reset`（档位是 `off` 时一帧都不发，见下），其后是
+  `transcript.ops`。**reset 里的 `seq` 会无条件覆写客户端本地水位**（不是取较大值）——进程重启
+  后批次号从 1 重来，靠的就是这条。
+- 不在显式允许列表中的跨域升级请求关闭（`1008`）；浏览器同源请求通过，机器端无 Origin 的请求仍须认证。
+- 服务端积压超过上限会关连接（`1013`），重连补批即可。积压上限按连接算，不按对话。
+
+#### 档位
+
+`subscribe_v2` 的 `transcript` 是 `{agentId: 档位}`，四档 `off / turn / block / delta`。打开的
+那段用 `delta`，侧栏里盯着的用 `turn`。
+
+| 档位 | 收得到 | 收不到 |
+|---|---|---|
+| `off` | 什么都没有：连 `reset` 也不发，所以水位也不会初始化 | 全部 |
+| `turn` | `turn.upsert`、`prompt.upsert`、`interaction.upsert`、`attachment.upsert`、`meta.merge`、`items.remove` | 逐字与块级 |
+| `block` | 上面那些，加 `step.upsert`、`frame.upsert` | `append` |
+| `delta` | 全部 | — |
+
+- **不给档位就是 `off`**，不是「全都要」：查法是 `transcript[agentId] ?? transcript["*"] ?? "off"`。
+- 筛空了的批次**整批不发**，客户端水位就停在原处。这样安全的前提是：`append` 是唯一不可重放
+  的操作，而它只在 `delta` 档留得下来，而 `delta` 档不筛任何东西。
+- **档位调高必须重订，服务端会先发一帧 `reset`**（给了 `transcript_since` 也不理）：低档时被
+  筛空丢掉的那些批次补不回来。调低不用重来。
+- **`off` 不等于退订**：订阅还在，服务端那边照样占着这段对话的实时状态。不要用 `off` 省资源，
+  不看了就 `unsubscribe_v2`。
+
+#### 全局帧
+
+两帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
+
+| 帧 | 体 | 什么时候发 |
+|---|---|---|
+| `session.meta.updated` | `{session_id, title}` | 标题变了（自动起名或用户改名） |
+| `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | 对话运行活动发生变化 |
+
+- **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。
+- `event.session.work_changed` 的 `last_turn_reason` 只在 `busy: false` 的那几帧上有：帧一律
+  `exclude_none`，没有结局时那一项整个不出现（列表行上是 `null`，见 §6）。
+- **两帧都是易失通知**，客户端据此更新列表；断线期间的变化不补发，重连后须重拉列表，从 `ConversationOut.title` 与 `activity` 对齐当前事实。
+- 一条跑完接着起下一条会先发 idle 再发 busy。
+
+#### 文件订阅
+
+照 kimi 的 `watch_fs_add` / `watch_fs_remove` / `event.fs.changed`：文件变动是**会话事件，按订阅投递**，与 transcript 订阅各管各的。
+
+| 帧 | 方向 | 体 |
+|---|---|---|
+| `watch_fs_add` / `watch_fs_remove` | 客户端 → 服务端 | `{ id, payload: { session_id, paths, recursive? } }`；回执 `ack`，payload `{ watched_paths, current_count }`；订看不见的对话 `code` 为 `40401` |
+| `event.fs.changed` | 服务端 → 客户端 | `session_id` 在信封上，payload `{ changes: [{ path, change, kind }], coalesced_window_ms }`；`change` 为 `created` / `modified` / `deleted`，`kind` 恒为 `file`，`coalesced_window_ms` 恒为 `0` |
+
+- 订的是文件就要路径一样；订的是目录，`recursive` 为假只看直接子项，为真看整棵。空串是工作区根：`recursive` 为真就是整个工作区。
+- 帧上不带版本与写入者：收到就重读那个文件，`version` 在文件上；是不是自己刚写的由客户端记自己写回拿到的版本号来判。
+- 工具与面板写文件都会触发通知。通知易失，重连后重拉文件列表对齐。
 
 ## 6. 对话 (Conversations)
 
-一段对话就是界面上的一个聊天窗口，它的 id 即 AG-UI 的 `threadId`。**id 一律由服务端发放**：会话是服务端记录在案的事实（有归属、有名字、能删），客户端自己编一个发去 `POST /agents/{agentId}/chat` 会得到 `404`。
+**权限**：会话列表、搜索、审计和工作区读取需要 `agent:read`；创建、修改、删除与工作区写入需要 `agent:run`。Transcript 的历史、消息队列与订阅另按 §5，需要 `agent:run`。
 
-| 端点 | 权限 | 说明 |
-|------|------|------|
-| `POST /conversations` | `agent:run` | 开一段新对话。请求体 `{ agentId, title?, taskId?, projectId? }`，不给 `title` 就用默认名。`201` + `{ conversation: {...} }` |
-| `GET /conversations?limit=20` | `agent:read` | 列出自己的对话，**最近活动的排在前面**（`limit` 取值 1–100）。`200` + `{ items: [...] }` |
-| `GET /conversations/by-task/{taskId}` | `agent:read` | 列出自己在这张需求单下的尝试，**按开始时间正序**（第几次尝试就是这个顺序）。`200` + `{ items: [...] }` |
-| `GET /conversations/{id}/messages` | `agent:read` | 读这段对话已经发生过的消息（刷新、重新登录后靠它拿回历史）。`200` + `{ messages: [...] }` |
-| `GET /conversations/{id}/workspace/files` | `agent:read` | 列出 agent 在这段对话里写下的工作区文件（按路径排序；一份都没写过是空数组）。`200` + `{ files: [{ path, sizeBytes, version, updatedAt }] }` |
-| `GET /conversations/{id}/workspace/file?path=…` | `agent:read` | 读其中一个文件的全文。路径放查询串（它自己就带 `/`）。`200` + `{ file: { path, content, version } }`；没有这个文件 `404`；路径不合语法 `422` |
-| `PATCH /conversations/{id}` | `agent:run` | 改名。请求体 `{ title }`。`200` + `{ conversation: {...} }` |
-| `PUT /conversations/{id}/project` | `agent:run` | 换个项目，或者给 `{ projectId: null }` 把它拿出来。`200` + `{ conversation: {...} }` |
-| `DELETE /conversations/{id}` | `agent:run` | 删掉这段对话，**agent 在这段对话里写下的工作区文件一并删除**。`204` |
-
-- `conversation` 的形状：`{ id, agentId, title, lastRunId, taskId, projectId, createdAt, updatedAt }`。`lastRunId` 是最近一次运行的 `runId`（还没发过消息时为 `null`）——刷新页面后拿它去续读那条流。
-- **只看得到自己的对话**：别人的一律 `404`，不返 `403`（那会泄露这个 id 确实有人在用）。治理者也没有看别人对话的口子。按需求单列尝试也是同一个口径：只列自己的——一张单人人可见，不等于这张单下面谁跑过什么也人人可见。
-- 删除只带走对话与它的工作区文件；`agent_runtime` 里的运行记录留着，那是账本。
-- 工作区文件只读，没有推送：`version` 变了内容才变，客户端按它决定要不要重读正文。什么时候重拉列表由客户端定——事件流里每有一个工具调用出结果就拉一次是够用的口径（写文件的不只那几件工作区工具）。
+- `POST /conversations` 的 `id` 可由调用方给，缺省由服务端生成。带 `id` 重发同一个值**不新建第二段对话**，答复已有那一段并把状态码降为 `200`（新建仍 `201`）；这个 id 属于别人的对话时是 `404`，与按 id 读别人的对话一致。对话删除后 ID 仍保留，任何人重用都返回 `404`；新对话必须换一个 ID。
+- `GET /conversations` 返回自己的侧栏拓扑：合集及各自第一页对话、未分组合的第一页对话。对话按最近活动倒序，空合集也保留。
+- **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
+- `GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}` 都收 `state`，三值 `all`（默认）/ `running` / `done`。`running` 是有轮次正在跑（含等审批），`done` 是没在跑而且跑完过至少一轮；从没发过消息的对话两边都不在，只出现在 `all` 里。`ungroupedCount` 与每个合集的 `conversationCount` 按同一个筛选算。
+- 往下滑加载更多：`GET /conversations/ungrouped?cursor=` 与 `GET /conversations/by-collection/{collectionId}?cursor=`，都返回 `{ items, nextCursor }`。`cursor` 原样回传上一页的 `nextCursor`（把它当不透明字符串），为 `null` 表示没有更多了；形状不对是 `422`。
+- **`by-collection` 不区分「合集不存在」「合集是别人的」「合集是空的」**，三种都给一页空的；这是只列自己对话的工作台接口。
+- `GET /conversations/search?q=` 按标题搜自己的对话，返回扁平列表，最近活动的排在前面；`GET /conversations/by-task/{taskId}` 按开始时间正序。
+- `lastRunId` 只标识最近一次运行，不能作为续读地址；刷新与重连按对话 ID 和 Transcript 水位恢复（§5）。
+- `activity` 的领域语义见 [CONTEXT.md](../docs/CONTEXT.md)，变化通过 §5 的全局帧通知。
+- **标题服务端自动起，只成功写入一次**：配置标题模型时，轮次结束后尝试起名；
+  用户自己改过名（`PATCH`，或者开对话时就给了 `title`）的一律不碰。起不出来就还叫默认名，下一
+  轮跑完再试，不报错。改名与自动起名都会发一帧 `session.meta.updated`（见 §5 全局帧）。
+- 会话页首屏的标题在 `GET /transcript` 响应的顶层 `title` 上——**不在 `meta` 里**（那是协议形状，
+  加字段会被客户端静默丢掉）。之后的变化只走推送，不用轮询。
+- 普通用户访问其他人的对话返回 `404`。按需求单列尝试只列自己的；治理者读权限见下文。
+- `PUT /conversations/{id}/workspace/file` 整份覆盖一个文件，体是 `{ path, content, expectedVersion }`，答复形状同 `GET .../workspace/file`。
+  - **只有属主能写**：看不见的对话仍是 `404`，治理者看得见但写入是 `403`。
+  - `expectedVersion` 是读到那一份的版本号，对不上是 `409`（文件不存在时任何版本都对不上，同样 `409`——不替调用方新建）。写成功后版本加一。
+  - `path` 必须是文件列表里那个写法（规范形式），`/video_shot.json` 这种是 `422`。
+  - `video_shot.json` 复用镜头表形状校验，不合法返回 `422`。面板写入不校验地址来源，也不把地址登记成对话素材；用户要让 agent 使用新地址，须以附件提交。
 
 ### 两处归属
 
-`taskId` 说的是这段对话为哪张需求单而开，`projectId` 说的是它放在哪个项目里。两个都可以不给——那就是**直接开始创作**，不属于任何一张单、也没归类。
-
-- **一张单下面可以有好几段对话**，每段就是一次尝试；第几次按 `createdAt` 排。
-- `taskId` 只在开对话时给，之后不改：它说的是这段对话的由来，改了等于改历史。`projectId` 随时能换（`PUT .../project`），但**一段对话最多待在一个项目里**。
+- 归属关系见 [CONTEXT.md](../docs/CONTEXT.md)。`taskId` 用 `PUT .../task` 改，`collectionId` 用 `PUT .../collection` 改，给 `null` 就是摘掉。
+- 需求单下的尝试按对话 `createdAt` 排，事后补挂不改变这个次序。
 - 两处都给不存在的 id 是 `422`。
-- `projectId` **不要求是那张单挂过的项目**：单挂的项目只是新建对话时的默认值，不是围栏。
-- **删项目、删需求单都不带走对话**，只把对话上那一列置空。
 
-### 读历史
+### 治理者复盘
 
-`messages` 里是**官方 AG-UI 形状**的消息，字段名沿用 AG-UI 拼写（不套 §3 的 camelCase 改写）：它们要能原样放进 `POST /agents/{agentId}/chat` 请求体的 `messages` 再发一次。
+治理者使用 `users:manage` 扩大读取范围，操作本身所需的 `agent:read` / `agent:run` 仍须具备。其他人的改名、换归属、删除、发消息路径返回 `404`；工作区覆盖写入返回 `403`。
 
-- 返回的是这段对话**服务端最新的那份存档**。一次运行都没跑过、或者第一次运行就崩在落档之前，返回 `{ "messages": [] }`，不是 404。
-- **服务端在 agent 跑出一步之后才落档**，所以最后一次运行如果崩在落档之前，用户刚发的那条消息不会出现在这里（它在服务端从未被记下）。那次运行发生了什么，由它那条流的 `RUN_ERROR` 告诉你。
-- 用户消息里的附件是规范的媒体 part（`{ "type": "video", "source": { "type": "url", "value": "…" }, "metadata": { "filename": "…" } }`），跟当初发上来的一致。服务端在内部会把它换成另一副给模型看的形状，那副形状不会出现在这里。
-- `system` 消息不返回。其余原样：模型上下文里有什么，这里就有什么——工具读进来的图片也照常带着它的内容出现。
-- 别人的对话 `404`，口径同上。
+- `GET /conversations/audit` 列全平台的对话，按最近活动倒序。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `updatedAt` 上），可任意组合；没有 `users:manage` 是 `403`。
+- 翻页给 `limit` 与 `cursor`：`cursor` 原样回传响应里的 `nextCursor`，为 `null` 表示没有更多了。自己编一个形状不对的是 `422`。
+- `GET /conversations/{id}/transcript`、`.../transcript/ops`、`.../prompts`、`.../status`、`.../workspace/files`、`.../workspace/file` 允许治理者跨属主读取；`GET /conversations` 与 `GET /conversations/search` 对治理者也只列自己的对话。
 
-### 上传附件
+### 附件
 
-附件要先成为一个后端与模型都取得到的 **HTTP(S) 地址**，再作为媒体 part 放进消息。`POST /agents/{agentId}/chat` 也接受 `source.type` 为 `data` 的内嵌 base64（单个 16MB 以内，且仅限常见图/音/视频类型），但那是兜底路径：正常路径是先把文件传到对象存储拿到地址（`POST /uploads/sign` 直传，见 §10）。走直传拿地址不要求登记进素材库——**登记与否和 agent 能不能用这个地址无关**，判据永远是「它在这段对话里出现过没有」。
+- 附件通过 `content` 的图片或视频 part 提交，只收 HTTP(S) URL；其他地址返回 `422`。本地文件先直传得到公开地址（§10），不要求先登记素材库。
+- 附件提交会登记对话素材；普通正文 URL、面板文件内容与素材库登记均不会代替这一步，精确匹配与类型规则见 [CONTEXT.md](../docs/CONTEXT.md)。
+- 图片输入保留原图引用；仅支持缩放的地址附带缩放像素，其他图片及视频保留媒体引用，内容由相应工具读取。提交成功不保证外部 URL 在后续读取时可用。
 
-传不进来的附件不会让整条请求失败，而是在消息里原位变成一句 `[媒体不可用：…]`，模型据此知道有东西没进来。
+## 7. 合集 (Collections)
 
-## 7. 产品资料查询 (Products)
+**权限**：`GET /collections`、`GET /collections/{id}` 需要 `collections:read`；`POST /collections`、`PATCH /collections/{id}`、`DELETE /collections/{id}` 需要 `collections:write`。
 
-`GET /products/{styleNo}` 按 **PDM 款号**精确查一个款，只读、零副作用。权限 `assets:read`（三个预置角色都有）。
-
-```json
-{ "product": {
-    "styleNo": "SBPU24001W",
-    "styleWms": "SDFA2310W-NEW",
-    "status": "effective",
-    "devYear": "24",
-    "brand":      { "code": "1",  "name": "Bruno Marc" },
-    "category":   { "id": 52, "code": "PU", "name": "高跟鞋", "en": "Pumps" },
-    "combatTeam": null,
-    "colors": [{ "code": "BL02", "name": "BLACK",
-                 "group": { "code": "BL", "name": "黑色系" }, "rgb": "0,0,0" }],
-    "images": [{ "id": "1991", "url": "https://…/….webp", "width": 644, "height": 508 }]
-} }
-```
-
-- **码永远有，名字可能为 `null`。** `brand.code` / `category.id` / `colors[].group.code` 来自上游，一定有；对应的 `name` 来自服务端的对照表，上游出现新码时就是 `null`。**前端不要自己猜名字**，也不要把 `null` 当成错误。
-- **`styleWms` 不是 `styleNo` 的别名。** 它是同一个款在 WMS 那边的编号，两套编码不通用；要按款去别的系统查东西时用它。
-- **`combatTeam` 目前恒为 `null`**：上游同步款资料时还没带这一列。字段先在合同里占好位置，等它有值时前端不用改。
-- **`colors` 和 `images` 可能是空数组**，这是正常结果（上游资料不全），不是错误。`images[].width`/`height` 也可能为 `null`。
-- 款号不存在、或已被上游标记删除，一律 `404`。
-- 服务端没配目录库时这组路由整个不挂载，请求同样是 `404`。
-
-## 7.5 项目 (Projects)
-
-项目是归拢用的口袋：需求单和对话往里放，方便按一摊活找东西。它自己不承载创作事实——里面装的东西没了它还在，它没了里面的东西也还在。
-
-可见性口径同需求单：**没有属主，谁有 `projects:read` 谁就看得见全部**。所以这里也不适用「别人的一律 404」，`404` 只意味着这个项目不存在。
-
-| 端点 | 权限 | 说明 |
-|------|------|------|
-| `GET /projects?limit=20` | `projects:read` | 列出项目，**最近改动的排在前面**（`limit` 取值 1–100）。`200` + `{ items: [...] }` |
-| `GET /projects/{id}` | `projects:read` | `200` + `{ project: {...} }` |
-| `POST /projects` | `projects:write` | 开一个新项目。请求体 `{ name }`（1–200 字）。`201` + `{ project: {...} }` |
-| `PATCH /projects/{id}` | `projects:write` | 改名。请求体 `{ name }`。`200` + `{ project: {...} }` |
-| `DELETE /projects/{id}` | `projects:write` | 删掉这个项目。`204` |
-
-`project` 的形状：`{ id, name, creatorUserId, createdAt, updatedAt }`。**创建者取自登录身份**，请求体里带它一律 `422`。
-
-- **改名是公事，删除不是。** 谁都会往项目里放东西，所以改名任何持 `projects:write` 的人都能做；删除只有开它的人或治理者能做（看得见但不让删是 `403`），因为它会把别人对话上的归属一并置空。
-- **删项目不带走任何东西**：需求单那边的关联消失，对话那边只是 `projectId` 变 `null`。
+- 普通用户访问其他人的合集返回 `404`；治理者可读、改名和删除其他人的合集，不能据此取得其中对话的写权限。
+- `GET /collections` 默认只列自己的，最近改动的排在前面；`?scope=all` 是治理者的全量视图，需要 `users:manage`，否则 `403`。翻页用 `limit` 与 `offset`。
+- **属主取自登录身份**，请求体里带 `ownerUserId` 一类字段一律 `422`。
 
 ## 8. 创作需求单 (Tasks)
 
-一张需求单是一份记录在案的视频创作要求。它和本文其余资源最大的不同：**它没有属主，是全公司共用的一张工作队列**。谁有 `tasks:read` 谁就看得见全部——所以这里不适用「别人的一律 404」那条规则，看得见但不让你改返回的是 `403`，`404` 只意味着这张单子不存在。
+**权限**：`GET /tasks`、`GET /tasks/{id}` 需要 `tasks:read`；`POST /tasks`、`PUT /tasks/{id}`、`POST /tasks/{id}/publish`、`POST /tasks/{id}/confirm`、`POST /tasks/{id}/withdraw`、`DELETE /tasks/{id}` 需要 `tasks:write`。
 
-| 端点 | 权限 | 说明 |
-|------|------|------|
-| `GET /tasks?status=&limit=20` | `tasks:read` | 列出需求单，**最近改动的排在前面**（`limit` 取值 1–100）。`status` 可选，取 `draft` / `published` / `confirmed` / `withdrawn` 之一，别的值 `422`。`200` + `{ items: [...] }` |
-| `GET /tasks/{id}` | `tasks:read` | `200` + `{ task: {...} }` |
-| `POST /tasks` | `tasks:write` | 提一张需求单，落地即 `draft`。请求体 `{ title, styleNo, priority?, deadline?, brief? }`（`title` 1–200 字，`styleNo` 必填，`priority` 取 0–100，默认 0）。`201` + `{ task: {...} }` |
-| `PUT /tasks/{id}` | `tasks:write` | **整体覆盖**（不是局部合并）。请求体同上，`title` 必填。`200` + `{ task: {...} }` |
-| `POST /tasks/{id}/publish` | `tasks:write` | 下发。`200` + `{ task: {...} }` |
-| `POST /tasks/{id}/confirm` | `tasks:write` | 接单。`200` + `{ task: {...} }` |
-| `POST /tasks/{id}/withdraw` | `tasks:write` | 撤回。`200` + `{ task: {...} }` |
-| `GET /tasks/{id}/projects` | `tasks:read` | 这张单算在哪几个项目里。`200` + `{ projectIds: [...] }` |
-| `PUT /tasks/{id}/projects` | `tasks:write` | **整体覆盖**这张单挂的项目，给 `{ projectIds: [] }` 就是全部取消（最多 20 个，重复的 id 不算错、落库时去重，给不存在的项目 `422`）。`200` + `{ projectIds: [...] }` |
-| `DELETE /tasks/{id}` | `tasks:write` | 删掉草稿。`204` |
+- **可见性**：需求单没有属主，谁有 `tasks:read` 谁就看得见全部；看得见但不让改返回 `403`，`404` 只意味着这张单子不存在。
+- `GET /tasks` 最近改动的排在前面。
+- `PUT /tasks/{id}` 是**整体覆盖**，不是局部合并。
+- **创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`。
+- `POST /tasks` 的 `id` 与 `status` 可由调用方给：`id` 缺省由服务端生成，`status` 只接受 `draft`（缺省）与 `published`。带 `id` 重发同一个值**不新建第二张单**，答复已有那一张并把状态码降为 `200`（新建仍 `201`）。两项只在创建时接受，`PUT` 带上它们是 `422`。
 
-`task` 的形状：`{ id, title, status, priority, deadline, creatorUserId, style, brief, createdAt, updatedAt }`。`creatorUserId` 是提需求的那个人——客户端靠它判断当前用户能不能改这张草稿。**创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`（整个请求体不接受未声明的字段）。
+### 创作输入与商品
 
-### 款号
-
-款号有两个落点：`styleNo` 只在创建请求体里，是主款号；`brief.styleNos` 是要拍的款全集（≤ 20 个），**主款排首位**。不给全集，服务端补成 `[styleNo]`；给了但首位不是主款 → `422`。
-
-`PUT` 是整体覆盖，所以这条在改动时也守着，但两种状态的结果不同：**改草稿**不给 `styleNos` 会被补回原值，首位给错 `422`；**已下发的**不给就等于动了冻结字段，返 `409`（见下文「下发即冻结」）。
-
-`style` 是服务端按 `styleNo` 查产品资料后冻结的一份快照，形状 `{ styleNo, brand, category, previewImageUrl }`。
-
-- **创建后不可改写**，没有端点能改。`PUT` 请求体里带 `styleNo` 或 `style` 一律 `422`。想换款就提一张新的。
-- **只有 `styleNo` 一定有值。** `brand` / `category` 上游没名字时是空字符串（同 §7）；`previewImageUrl` 在这个款没有产品图时也是空字符串——**客户端要显示「主图不可用」，不要当错误，也不要拿 URL 规则去校验它**。
-- `previewImageUrl` 是首图转存到本仓对象存储后的地址。它只做列表封面，不进 `brief.referenceImages`。
-
-创建时款号这一步的失败口径：
-
-| 情况 | 返回 |
-|------|------|
-| 产品资料里查不到这个款（或已被上游标记删除） | `422`，`detail` 说明是哪个款号 |
-| 服务端没配产品资料库或对象存储 | `422`，不会落一张没有款的需求单 |
-| 首图取不到、或转存写不进对象存储 | `5xx`，这次创建整体不落地 |
+- `POST /tasks` 与 `PUT /tasks/{id}` 使用同一份 `inputs` 结构。任务外层沿用 camelCase，`inputs` 内部使用 snake_case，与持久化 JSONB 一致；具体字段由 OpenAPI 定义。
+- `inputs` 是唯一的创作需求来源。创建不再隐式查询产品目录或转存商品图，调用方明确提供商品款号、名称、品牌、品类、颜色和图片；本地文件先走 §10 的上传流程。
+- `inputs.products` 是这张单要拍的商品列表，1 到 20 款，款号不重复。列表里的款号及其顺序在创建时定下，之后不能增减、调换或更换；草稿允许补充每款的名称、品牌、品类、颜色和图片，发布后整个列表冻结。
+- 商品图片用于商品展示，参考图片分别归入模特、穿搭、道具类别，不根据 URL 或上传顺序推断用途。
+- `task_id` 使用需求单自身 ID，`generation_id` 对应一次创作尝试的 Conversation ID，二者不重复保存在 Task 的 `inputs` 中。
 
 ### 状态机
 
 `draft` →（publish）→ `published` →（confirm）→ `confirmed`；`published` 与 `confirmed` 都可以（withdraw）→ `withdrawn`。
 
-- **`withdrawn` 是终态**：改不动、删不掉、也回不到 `published`。不做了就撤回，撤回留痕；想重新来就提一张新的。
-- **走不通的流转一律 `409`**，不是 `422`：撤回一张已撤回的、确认一张还是草稿的、发布一张已下发的，都是 `409`。
+- **`withdrawn` 是终态**：改不动、删不掉、也回不到 `published`。
+- **走不通的流转一律 `409`**，不是 `422`。
 - **只有 `draft` 能删**，下发之后 `DELETE` 返回 `409`。
+- **`confirm` 在 `published` 与 `confirmed` 上都返 `200`**：前者把状态推到 `confirmed`，后者只多一个认领人；`draft` 与 `withdrawn` 上返 `409`。
 
-### 谁能改
+### 认领
 
-- **草稿是提它的人的私事**：`PUT` 与 `DELETE` 只有创建者本人或持 `users:manage` 的治理者能做，其他人 `403`。`publish` 同理——下发是需求方的决定。
-- **下发之后的流转是公事**：`confirm` 与 `withdraw` 任何持 `tasks:write` 的人都能做，`PUT` 也不再挑人（因为那时能改的只剩下面这几项）。
+- `POST /tasks/{id}/confirm` 记下调用者认领了这张单。**一张单可以被多个人认领**，同一个人重复认领不多记一次。
+- **认领人取自登录身份**，请求体与查询参数都不接收 user id。
+- `assigneeUserIds` 按认领先后排序；`withdraw` 不清空它。
+- 已是 `confirmed` 的单再被认领，`updatedAt` 不变，`GET /tasks` 的排序位置不动。
+- `GET /tasks?claimedBy=me` 只回调用者认领过的单；`claimedBy` 只接受 `me`，其他值 `422`。
 
-### 下发即冻结
+### 修改权限
 
-`published` / `confirmed` 状态下，需求方写下的创作输入**冻结**。`PUT` 是整体覆盖，服务端会把提交上来的 `brief` 和库里的逐字段比对：
+- 草稿的 `PUT`、`DELETE` 与 `publish` 只有创建者本人或持 `users:manage` 的治理者能做，其他人 `403`。
+- 下发之后的 `confirm`、`withdraw` 与 `PUT` 任何持 `tasks:write` 的人都能做。
 
-- **仍可修改**：`title`、`priority`、`deadline`（管理信息），以及 `brief` 里的 `durationSeconds`、`ratio`、`requirementDescription`、`referenceImages`、`referenceVideos`（接单之后才补得出来的那几项）。`brief.styleNos` **不在**这几项里：要拍哪几个款是需求方的决定，下发之后动它是 `409`。
-- **其余 `brief` 字段有任何一项与库里不同 → `409`**，并在 `detail` 里列出是哪几个字段。所以正确的改法是：先 `GET` 拿到当前这张单子，改动允许的字段，再整体 `PUT` 回来。
-- `deadline` 在非草稿状态下**不能清空**（`422`）。
+### 冻结字段
+
+`published` / `confirmed` 状态下，`PUT` 提交的 `inputs` 与持久化内容按业务字段比较：
+
+- **仍可修改**：`title`、`priority`、`deadline`，以及 `inputs.video_spec` 的 `resolution`、`aspect_ratio`、`duration_seconds`，`creative_requirement`、分类参考图片和参考视频。
+- **冻结**：商品信息，以及 `video_spec` 的 `platform`、`video_type`、`content_type`。改变冻结字段返回 `409`，响应列出具体路径。
+- `deadline` 始终可选，任何状态下都可以清空。更新前先读取完整需求单，保留不能修改的字段，再整体 `PUT` 回来。
 
 ### 发布关卡
 
@@ -231,116 +263,72 @@
 
 - 不是 `draft` → `409`
 - 调用者既不是创建者也没有 `users:manage` → `403`
-- 没有 `deadline` → `422`
-- `brief` 里 `requirementDescription`、`theme`、`referenceImages`、`referenceVideos` **四项全空**（等于没说要做什么）→ `422`
-- `deadline` 已经过去 → `409`（这个比较由服务端的数据库时钟做，不看客户端的钟）
+- 创作要求、商品图片、三类参考图片与参考视频全部为空 → `422`
+- 填了 `deadline` 而它已经过去 → `409`；没填期限不拦
 
-### brief 的字段
+### 素材地址
 
-全部可选，不填就是空字符串 / `null` / 空数组——需求方通常分几次填完。
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `theme`、`purpose`、`audience`、`selling`、`scene`、`department`、`videoType`、`color`、`contentType`、`requester` | `string`（≤ 200） | 需求方填的创作输入 |
-| `requirementDescription` | `string`（≤ 4000） | 需求描述 |
-| `durationSeconds` | `int \| null` | 期望时长，取值 3–50 |
-| `ratio` | `string \| null` | 画幅，取 `1:1` / `3:4` / `4:3` / `9:16` / `16:9` / `21:9` |
-| `language`、`platform` | `string`（≤ 200） | 语言与投放平台 |
-| `styleNos` | `string[]`（≤ 20 条，每条 1–64 字符） | 要拍的款全集，主款排首位（见上文「款号与它的快照」） |
-| `referenceImages`、`referenceVideos` | `string[]`（各 ≤ 16 条） | 参考素材地址，**只收 `http://` 或 `https://`**，别的 scheme `422`。本地文件先走 §10 的直传换成地址 |
-
-`brief` 不接受未声明的字段（多给一个就是 `422`）。
+- 商品图片、参考图片和参考视频只接受具有主机名的 HTTP(S) 地址；空参考视频使用 `null`。本地文件先走 §10 的直传换成地址。
 
 ## 9. 爆款视频查询 (Inspirations)
 
 `POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `assets:read`。
 
-```json
-// 请求
-{ "styleWmsList": ["SNMT241M"], "sortBy": "orders", "limit": 50 }
+- `styleNos` 使用 **PDM 款号**。WMS 编号只在数据入库时用于对齐数仓，不出现在接口上。
+- 只返回可下载的自家副本地址（`videoUrls`），按 `sortBy` 降序。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
+- **绝大多数结果是替身。** 自己有爆款视频的款只占少数，因此本款没有视频时按「同品牌同类目 → 同类目」逐级放宽。`matches` 逐款给出 `exact` / `sameBrandCategory` / `sameCategory` / `none`；除 `exact` 外，属于这个款的链接都不是它自己的视频。
+- **`filters` 不影响降级。** 五个下限只筛最终结果；门槛把本款的视频筛空，不等于这个款没有视频，仍判 `exact`，不去找替身。
+- 款号在 PDM 款目录中查不到、或该款没有品类，都落 `none`，不是 404。全部落空时返回空 `videoUrls`，仍是 `200`。
+- 数据是随迁移灌入的一次性快照，不自动更新；接口不连任何外部库。已知边界见 [CONTEXT.md](../docs/CONTEXT.md)。
+- 未配置 PDM 款目录库时接口照常提供，但降级整级失效，未精确命中的款一律 `none`；这属于能力缺失，服务启动时会告警。
 
-// 响应
-{ "items": [{
-    "videoId": "7519657364165856542",
-    "styleWms": "SNMT241M",
-    "videoUrl": "https://www.tiktok.com/@…/video/…",
-    "ossUrl": "https://…/….mp4",
-    "creatorHandle": "fraw_berry",
-    "postedDate": "2025-06-24",
-    "combatTeam": "Nortiv8",
-    "category": "Casual Trainers",
-    "metrics": { "impressions": 20455, "views": 152446, "clicks": 38,
-                 "orders": 56, "revenue": "3171.510000" },
-    "popular": { "brand": true, "kol": false, "tt": true }
-}] }
-```
+## 10. 素材上传 (Assets)
 
-- **`styleWmsList` 收的是 WMS 编号，不是 PDM 款号。** 两套编码不通用，传成款号会安静地搜不到东西。拿 `GET /products/{styleNo}` 响应里的 `styleWms` 来喂它。
-- `sortBy ∈ impressions | views | clicks | orders | revenue`（默认 `orders`），`limit` 取值 1–100（默认 50），`styleWmsList` 1–20 个。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
-- `metrics.revenue` 是**字符串**（十进制原样，不走浮点）；其余四项是整数。
-- `popular` 三个标记彼此独立，可以同时为 `true`。
-- `ossUrl` 可能为 `null`（不是每条都有转存副本），`videoUrl` 一定有。
-- `category` 是**平台口径的英文类目**，和产品资料接口里的 PDM 品类不是一套，两边不互相翻译。
-- 没有匹配的视频返回 `{"items": []}`，不是 404。
-- 服务端没配爆款库时这组路由整个不挂载。
+上传分两步：`POST /uploads/sign` 领一个 `assetId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /assets/{assetId}` 登记。外部地址上的东西（产品图、爆款库的视频）走 `POST /assets/import` **转存**进本仓对象存储再登记。
 
-## 10. 素材上传与账本 (Assets)
+**权限**：`POST /uploads/sign`、`POST /assets/{assetId}`、`POST /assets/import` 需要 `assets:write`；`GET /assets`、`GET /assets/{assetId}` 需要 `assets:read`。
 
-一份素材 = 我们自己桶里的一个对象 + 账本上的一行。上传分两步，中间那一步是**浏览器直接把字节 PUT 到对象存储**——不经过后端（参考片能到几百 MB）。
+- `creatorUserId` 是查询维度；素材的共享范围见 [CONTEXT.md](../docs/CONTEXT.md)。
+- `GET /assets` 最近登记的在前。
+- **`upload.headers` 必须原样带上。** `Content-Type` 被签进了签名里，换一个值去 PUT 会被对象存储拒掉（`403`）。
+- **`expiresAt` 之前必须发起上传**。过期后重新调用 `sign`，会拿到新的 `assetId`。
+- **登记之前那个 `assetId` 还不是一份素材**，`GET /assets/{id}` 会 `404`。
+- **登记可以重复调**：第二次返回同一行（还是 `201`）。
+- 类型、大小和图片尺寸边界以 [素材规则](../server/src/iclip/domains/assets/models.py) 为准。直传图片在 `sign` 时校验客户端声明的宽高；登记时按桶中对象校验类型和大小。登记失败不代表已上传字节已删除。
+- 桶内没有对应对象时登记返回 `409`；签名成功本身不代表上传完成。
+- **`url` 是由对象 key 拼出来的，不是存的。不要把 `url` 当作素材的身份**，`id` 才是。
+- 转存的 **`assetId` 由源地址算出来**：同一个地址转存多少次都是同一行，第二次连请求都不往上游发；上游原地换了图不会跟着更新。
+- 转存按下载响应的 Content-Type 选择允许的媒体类型，大小按实际下载字节计算，图片解码后校验尺寸。取不回来、类型不收或图片校验不通过返回 `422`。
+- 转存**不跟随重定向**：`3xx` 直接当取不回来。
+- 素材库登记不会登记对话素材；把素材地址作为附件提交后，agent 才能按对话素材规则引用（§6）。
 
-外部地址上的东西（产品图、爆款库的视频）走另一条路：`POST /assets/import` 把它**转存**进我们的桶再登记。账本行上只有对象 key，没有放外部地址的地方——外链会烂，我们的不会。
+## 11. 媒体生成 (Generations)
 
-和需求单一样，**素材是全公司共用的**：谁有 `assets:read` 谁就看得见全部，`creatorUserId` 只是查询维度，不是访问边界。
+两种生成各有自己的提交地址：`POST /generations/video` 与 `POST /generations/image`。受理即 `202`，此时还没发给上游；上游的拒绝会变成记录里的 `failed`，由调用方查状态看到。
 
-| 端点 | 权限 | 说明 |
-|------|------|------|
-| `POST /uploads/sign` | `assets:write` | 领一个 `assetId` 和一条限时直传地址。`200` |
-| `POST /assets/{assetId}` | `assets:write` | 传完之后来登记。**没有请求体。** `201` |
-| `POST /assets/import` | `assets:write` | 把一个外部地址转存进来并登记。`201` |
-| `GET /assets?creatorUserId=&assetType=&limit=20` | `assets:read` | 列出素材，最近登记的在前（`limit` 1–100）。`200` + `{ items: [...] }` |
-| `GET /assets/{assetId}` | `assets:read` | 单条。`200` |
+### 归属标签 `user_name`
 
-```jsonc
-// ① POST /uploads/sign        （传图还要带 width / height）
-{ "contentType": "video/mp4" }
-→ 200
-{ "assetId": "0f9c3a1e-77b4-4c2e-9a51-2d8e6b0f4a13",
-  "upload": { "url": "https://…?OSSAccessKeyId=…&Expires=…&Signature=…",
-              "method": "PUT",
-              "headers": { "Content-Type": "video/mp4" },
-              "expiresAt": "2026-08-25T09:12:00Z" } }
+- 两种提交都带 `user_name`（图片端点按 camelCase 叫 `userName`），是上游落表对账用的归属标签，不是身份：不参与授权，不决定行归属。规则与发消息（§5）相同：API key 调用方必填、给什么用什么；浏览器会话可省略，服务端填登录用户名，给了就必须等于登录用户名，否则 `422`。
 
-// ② 浏览器：PUT 到 upload.url，把 upload.headers 原样带上，body 是文件本身
+### 视频：镜像上游异步接口
 
-// ③ POST /assets/0f9c3a1e-77b4-4c2e-9a51-2d8e6b0f4a13     （空 body）
-→ 201
-{ "asset": { "id": "0f9c3a1e-…", "assetType": "video",
-             "url": "https://…/iclip/agent/uploads/0f9c3a1e-….mp4",
-             "contentType": "video/mp4", "sizeBytes": 18234112,
-             "creatorUserId": "…", "createdAt": "2026-08-25T09:10:31Z" } }
-```
+- `POST /generations/video` 的请求体照上游视频异步接口（`model`、`prompt`、`user_name`、`reference_image_urls`、`reference_video_urls`、`reference_audio_urls`、`generate_audio`、`resolution`、`aspect_ratio`、`seconds`、`provider_options`），外加三个归属字段 `conversation_id`、`shot_index`、`task_id`（需求单 id）与结构化的 `shot`。响应是 `{"task_id"}`，值是本系统这条生成记录的 id；请求体里的 `task_id` 是需求单 id，两者是两个层级。
+- 正文二选一：直接给 `prompt`，或给 `shot`（与分镜文件 `video_shot.json` 里 `shots[].prompt` 同形：`global_settings` 加 `timeline[]`，每镜 `timestamps: [起, 止]`、`prompt`、`image_indexes`）由服务端拼成 `prompt`。时间线规则与分镜交付相同：结束晚于开始、第一镜从 0 起、各镜按先后排不重叠。拼法：全局设定、空一行、每镜一行 `[起–止秒｜镜头N] 正文`（起止照给的，保留到毫秒），末尾一行 `不要生成字幕，不要生成背景音乐。`。两者都不给、都给但不一致、`@ImageN` 超出 `reference_image_urls` 的张数、`image_indexes` 与正文里 `@Image` 的出现顺序不一致、拼出的正文超过 4000 字，都是 `422`。记录的 `request` 里 `shot` 与拼好的 `prompt` 都在；发给上游的只有 `prompt`，`shot` 不转发。
+- `model` 必填，只接受 [运行配置](../server/configs/config.yaml) 中 `media_generation.video.allowed_models` 列出的模型，`GET /generations/video-models` 给出允许表与默认值；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
+- 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
+- `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，拿图片记录的 id 来查是 `404`。
+- 视频成功时存的是上游发布好的两个地址，不转存；缺任一份这次生成判失败。
 
-- **`upload.headers` 必须原样带上。** `Content-Type` 被签进了签名里，换一个值去 PUT 会被对象存储拒掉（`403`，那是它返回的，不是我们）。
-- **`expiresAt` 之前必须把上传发起**（有效期一小时）。过期了就重新调一次 `sign`，会拿到一个新的 `assetId`。一次上传如果传到一半跨过了这个时刻会怎样，我们没有核实过，**别把余量压到刚好够传**。
-- **登记之前那个 `assetId` 还不是一份素材**，`GET /assets/{id}` 会 `404`。它是个「登记名额」——服务端在字节动之前就把名字发下来，是为了断线时那份已经传上去的东西仍然认领得回来。
-- **登记可以重复调**：客户端断线重试是正常路径，第二次返回同一行（还是 `201`）。
-- **收什么**：`image/jpeg`、`image/png`、`image/webp`、`video/mp4`、`video/quicktime`。别的类型在 `sign` 那一步就 `422`。
-- **多大**：图片 16MB、视频 512MB。**超限是在登记那一步才拒（`422`）**，字节已经传进桶里了——它只是拿不到账本上的行，随后会被清理。前端最好自己先量一下再传。
-- **图片尺寸**：短边 ≥ 300px、长边 ≤ 6000px，横竖同一把尺子。直传这条路上**尺寸由客户端在 `sign` 时报**（`width` / `height`，传图必填，传视频不用给），不合格当场 `422`，不用先传上来。账本里没有宽高列，所以谎报污染不了任何落库的事实——最坏是一张超范围的图混进库里。转存那条路字节经过后端，尺寸是量出来的。
-- **传上来之前就登记是 `409`**（「还没传上来」是状态冲突，不是参数错），猜一个没人签过的 `assetId` 去登记同样是 `409`。
-- **`url` 是拼出来的，不是存的。** 账本里存的是对象 key；哪天换了 CDN 域名，同一份素材读出来就是新地址。**不要把 `url` 当作素材的身份**，`id` 才是。
-**转存。** 给一个地址，拿回一行素材，形状和登记完全一样：
+### 图片
 
-```jsonc
-// POST /assets/import
-{ "url": "https://pdm.example.com/styles/SBPU24001W/1.jpg" }
-→ 201
-{ "asset": { "id": "…", "assetType": "image",
-             "url": "https://…/iclip/agent/uploads/….jpg", "…": "…" } }
-```
+- `POST /generations/image` 只接受运行配置接入的那几家模型，`GET /generations/image-models` 声明有哪几家、各家支持的画幅与分辨率档位、以及有没有渠道这个轴。`model` 省略或为 `null` 时使用该接口给出的 `default`；受理阶段将选定模型写入请求快照。
+- 图片的画幅与分辨率枚举是各家的并集。所选模型不支持这次的画幅或分辨率、点了没接入的模型、或给没有渠道轴的模型传了 `channel`，都返回 `422`，不创建任务、不入队。
+- 图片的 `channel` 只对声明了渠道轴的模型合法，省略时按该模型声明的默认渠道填；它与视频的模型策略互不相干。
+- 图片结果转存成本系统的公开对象后才算完成，`outputUrl` 存本系统地址。
 
-- **`assetId` 由源地址算出来**：同一个地址转存多少次都是同一行，第二次连请求都不往上游发。代价是上游原地换了图我们不会跟着更新——那正是转存要的效果。
-- 类型、大小、尺寸全是**实测**的，上游报什么不作数。取不回来、类型不收、尺寸不合格都是 `422`。
-- **不跟随重定向**：`3xx` 直接当取不回来。
-- 服务端没配对象存储时这两组路由整个不挂载，请求是 `404`。
-- **能登记不等于 agent 能用。** agent 工具只接受「这段对话里出现过」的地址（见 §5），素材库里有这一条并不构成通行证——要让 agent 用它，得把它发进对话里。
+### 参考帧图片编辑
+
+- 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
+- `frameNumber` 是这次出图要顶替镜头组里的第几帧，只作标签供筛选；给了它就必须给 `shotIndex`，否则返回 `422`。服务端不按它定位文档，也不校验那一帧当前是什么。
+- `GET /generations` 的类型、对话、需求单、镜头组和帧筛选在分页截断前执行，归属范围不因筛选扩大。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
+- 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。

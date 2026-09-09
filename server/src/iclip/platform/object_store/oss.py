@@ -1,20 +1,6 @@
-"""阿里云 OSS 的公开对象读写。
+"""OSS 公开对象适配器：稳定 key 写入、直传签名、重试和异常映射。
 
-签名、分片这些都由官方 SDK 负责，这里不重造——本文件只做几件官方 SDK 不管的事：
-把 key 拼成公网 URL、把同步调用挪出事件循环、对网络故障与 5xx 再试几次（SDK 对普
-通请求只发一次，一次读超时就直接抛）、把 SDK 的异常收成一种、把不属于本服务命名
-空间的 key 挡在外面。
-
-**为什么要有这一层。** 图片生成接口返回的是会过期的签名 URL，直接存进库里，过几
-天链接就烂了。所以生成结果一到手就下载下来转存成自己的公开对象，库里存的是这个
-不会过期的地址。
-
-写入按稳定 key 做幂等：同一个 key 已经存在就直接复用，不重复上传。key 一律由
-[layout.py](layout.py) 发，所以「同一次生成重跑一遍」不会在桶里堆垃圾。
-
-**直传这条路为什么在这儿而不在业务侧。** 大文件（参考片能到几百 MB）穿过应用进程
-是这一层当初就想避免的事，所以浏览器拿预签名 URL 直接 PUT 到桶里。签名是本地 HMAC
-计算，不走网络。
+同步网络调用在线程中执行；供应商生成结果转存后避免依赖临时签名 URL。
 """
 
 from __future__ import annotations
@@ -31,26 +17,18 @@ import oss2
 from iclip.platform.object_store.layout import OSS_ROOT
 
 RETRY_ATTEMPTS = 3
-"""一次读写最多发几次。只有网络故障与 OSS 那边的 5xx 才再发；4xx 再发也是同一个答案。"""
+"""网络错误与 5xx 的最大尝试次数；4xx 不重试。"""
 
 RETRY_BACKOFF_SECONDS = 1.0
-"""两次尝试之间等多久，逐次线性加长。"""
+"""重试基础间隔，按尝试次数线性增加。"""
 
 SIGNED_PUT_EXPIRES_SECONDS = 3600
-"""预签名 PUT 的有效期：这条地址过了这么久就不能再用来发起上传。
-
-定得这么宽有两个原因，都不是「上传本来就要这么久」：一是挑文件、填表单那段时间也在
-里面走，二是参考片能到几百 MB，慢网上传本身也不短。**没有去核实过一次跨越了到期时刻
-的上传会不会被中途拒掉**，所以不要把余量压到刚好够传。
-"""
+"""预签名 PUT 有效期，包含用户准备与大文件上传所需时间。"""
 
 
 @dataclass(frozen=True, slots=True)
 class StoredObject:
-    """桶里已经存在的一个对象。
-
-    这三项都是桶自己说的，不是调用方报的：登记素材时全部事实都从这里来。
-    """
+    """从桶读取的对象元信息，作为素材登记的事实来源。"""
 
     object_key: str
     content_type: str
@@ -58,20 +36,11 @@ class StoredObject:
 
 
 class ObjectStoreUnavailable(Exception):
-    """对象存储不可达或拒绝了这次写入。
-
-    和 identity 的 ``PmsUnavailable`` 同一个位置：外部系统的故障留在自己的边界
-    上，不混进领域错误分类学（那套是给 HTTP 状态码用的，而这条路径上没有等在
-    线上的请求）。
-    """
+    """对象存储调用失败；由调用边界转换，不归入领域 HTTP 错误。"""
 
 
 class PublicObjectStore(Protocol):
-    """把字节写到公开地址上的最小端口。
-
-    只想写字节的调用方（生成结果转存、镜头帧落地）依赖这一个就够，不必认识直传那几
-    件。测试给替身即可；换云厂商也只换实现。
-    """
+    """公开对象写入端口，供无需直传能力的调用方依赖。"""
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
         """写入公开对象，返回它的公网 URL；同 key 已存在即复用。"""
@@ -79,33 +48,23 @@ class PublicObjectStore(Protocol):
 
 
 class SignedUploadStore(Protocol):
-    """浏览器直传这条路要用的三件。"""
+    """浏览器直传所需的签名、对象查询和 URL 构造端口。"""
 
     def sign_put(self, *, object_key: str, content_type: str) -> str:
-        """签一条限时的 PUT 地址，交给浏览器直传。
-
-        ``content_type`` 被签进签名里：拿着这条地址换一个类型去传，OSS 那边验签就
-        不过。所以对象存下来时的类型是服务端定的，登记时读回来即可采信。
-        """
+        """生成限时 PUT URL，并将 Content-Type 纳入签名，限制上传类型。"""
         ...
 
     async def find_object(self, *, prefix: str) -> StoredObject | None:
-        """按前缀找唯一那个对象；没有就是 ``None``。
-
-        直传是浏览器直接对着桶做的，服务端没有旁证——「到底传上来没有」只能来问桶。
-        """
+        """按前缀查询唯一对象；不存在返回 None，多个匹配视为错误。"""
         ...
 
     def public_url(self, object_key: str) -> str:
-        """把 key 拼成公网地址。
-
-        库里存的是 key，地址是它的投影：换 CDN 域名只动一个环境变量，存量数据不用迁。
-        """
+        """从 key 生成公网地址，支持更换域名而无需迁移持久化记录。"""
         ...
 
 
 class PublicBucket(PublicObjectStore, SignedUploadStore, Protocol):
-    """整只桶。组合根注入的是它，各消费者按自己要的那一半声明依赖。"""
+    """完整公开桶端口；消费者可依赖所需的较小接口。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,18 +83,14 @@ class OssObjectStore:
     """``PublicObjectStore`` 的 OSS 实现。"""
 
     def __init__(self, settings: OssSettings, *, bucket: Any | None = None) -> None:
-        """``bucket`` 只给测试注入替身用；生产路径由 settings 自己造。"""
+        """允许注入 bucket 替身；未提供时按 settings 创建客户端。"""
 
         self._public_url_base = settings.public_url_base.rstrip("/")
-        # SDK 没有类型标注，显式标成 Any，免得每次取它的成员都被判成「类型不明」。
+        # OSS SDK 无类型标注，边界处显式使用 Any。
         self._bucket: Any = bucket if bucket is not None else _build_bucket(settings)
 
     async def put_public_object(self, *, object_key: str, content: bytes, content_type: str) -> str:
-        """写入公开对象，返回公网 URL。
-
-        oss2 是同步 SDK，上传要走网络，所以整段挪到线程里——留在事件循环上会把
-        整个 worker 卡住。
-        """
+        """在线程中执行同步 OSS 上传，避免阻塞事件循环。"""
 
         key = _validate_object_key(object_key)
         if not content:
@@ -144,7 +99,7 @@ class OssObjectStore:
         return self.public_url(key)
 
     def sign_put(self, *, object_key: str, content_type: str) -> str:
-        """签一条限时的 PUT 地址。本地 HMAC，不走网络，可以直接在请求处理器里调。"""
+        """本地计算限时 PUT 签名，不发送网络请求。"""
 
         key = _validate_object_key(object_key)
         if not content_type.strip():
@@ -156,8 +111,7 @@ class OssObjectStore:
                     key,
                     SIGNED_PUT_EXPIRES_SECONDS,
                     headers={"Content-Type": content_type},
-                    # key 里的 / 不转义。不开这个的话签出来的地址是 uploads%2Fxxx，
-                    # 传上去就成了一个名字里带斜杠的对象，和我们要的 key 不是同一个。
+                    # 保留 key 中的斜杠，避免编码后上传到其他对象名。
                     slash_safe=True,
                 )
             )
@@ -165,7 +119,7 @@ class OssObjectStore:
             raise ObjectStoreUnavailable(f"OSS 签名失败: {exc}") from exc
 
     async def find_object(self, *, prefix: str) -> StoredObject | None:
-        """按前缀找唯一那个对象。列举与读元信息都走网络，所以整段挪到线程里。"""
+        """在线程中执行对象列举及元信息查询。"""
 
         return await asyncio.to_thread(self._find, _validate_object_key(prefix))
 
@@ -192,12 +146,9 @@ class OssObjectStore:
         )
 
     def _put(self, object_key: str, content: bytes, content_type: str) -> None:
-        """同步上传；已存在即跳过。
+        """已存在 key 直接复用；存在性检查与写入整体重试。
 
-        存在性检查与写入之间有竞争窗口，但 key 是内容确定的（同一次生成同一个
-        key、同一份字节），两个 worker 同时写同一个 key 的结果一样，所以这个窗口
-        没有后果。重试也是整段一起重：上一次的 PUT 其实已落地、只是等响应时超时的
-        话，这一次的存在性检查直接放行，不会重传。
+        稳定 key 对应确定内容，并发写入相同 key 不改变结果；响应超时后可通过检查避免重传。
         """
 
         def once() -> None:
@@ -209,7 +160,7 @@ class OssObjectStore:
 
 
 def _with_retries[T](action: Callable[[], T], *, what: str) -> T:
-    """同步跑一次 OSS 调用，网络故障与 5xx 最多再发到 ``RETRY_ATTEMPTS`` 次；其余失败原地收成一种。"""
+    """执行同步调用；仅重试网络错误与 5xx，其他异常立即转换。"""
 
     attempt = 0
     while True:
@@ -224,7 +175,6 @@ def _with_retries[T](action: Callable[[], T], *, what: str) -> T:
 
 
 def _is_transient(exc: oss2.exceptions.OssError) -> bool:
-    """读超时、连接断开这类网络故障，以及 OSS 那边的 5xx：换个时刻再发多半就过了。"""
 
     return isinstance(exc, oss2.exceptions.RequestError) or exc.status >= 500
 
@@ -235,12 +185,7 @@ def _build_bucket(settings: OssSettings) -> oss2.Bucket:
 
 
 def _validate_object_key(object_key: str) -> str:
-    """拒掉能逃出本服务命名空间的 key。
-
-    key 由 ``layout.py`` 发，但拼的那一步在别的模块里；这里当边界再挡一次，免得
-    某个上游哪天把用户输入拼进去。命名空间那一条也在这里守：桶是公司共用的，少写
-    一段前缀不该是「悄悄落到桶根上」，该是当场失败。
-    """
+    """校验 key 的路径与命名空间，避免写入共享桶中本服务范围之外。"""
 
     key = object_key.strip().strip("/")
     if not key:
@@ -253,7 +198,7 @@ def _validate_object_key(object_key: str) -> str:
 
 
 def validate_public_url_base(value: str) -> str:
-    """校验公网访问前缀；启动期用，配置错了就别让服务起来。"""
+    """启动时校验公网 URL 前缀。"""
 
     base = value.strip().rstrip("/")
     parts = urlsplit(base)

@@ -28,14 +28,12 @@ def write_declaration(root: Path, content: str) -> Path:
 
 
 def test_missing_file_fails_loudly(tmp_path: Path) -> None:
-    """路径打错 / 部署漏目录不得降级成空注册表——那与「故意没配」无法区分。"""
 
     with pytest.raises(FileNotFoundError, match="agent 声明文件不存在"):
         load_agent_declarations(tmp_path / "nope.yaml")
 
 
 def test_empty_file_yields_empty_registry(tmp_path: Path) -> None:
-    """「没有 agent」由文件内容表达（存在但为空），不由文件缺席表达。"""
 
     assert load_agent_declarations(write_declaration(tmp_path, "")) == ()
 
@@ -90,12 +88,11 @@ def test_subagent_controls_parsed(tmp_path: Path) -> None:
     (sub,) = declared.subagents
 
     assert sub.spec == (tmp_path / "shot-writer" / "agent.yaml").resolve()
-    assert (declared.model, sub.model) == ("qwen", "local")  # 主从各自指定模型
+    assert (declared.model, sub.model) == ("qwen", "local")
     assert (sub.timeout_seconds, sub.max_calls, sub.on_failure) == (180.0, 3, "就此收手")
 
 
 def test_skills_and_capabilities_resolve_per_agent(tmp_path: Path) -> None:
-    """主从各挂各的：下属不继承主 agent 的 skill 与能力包。"""
 
     make_agent_dir(tmp_path, "producer")
     make_agent_dir(tmp_path, "shot-writer")
@@ -121,13 +118,11 @@ def test_skills_and_capabilities_resolve_per_agent(tmp_path: Path) -> None:
     assert declared.skills.library == (tmp_path / "skills").resolve()
     assert declared.skills.names == ("拆解素材",)
     assert declared.capabilities == ("video",)
-    # 下属只有显式给它的那一样：挂了 skill，没挂能力包。
     assert sub.skills is not None and sub.skills.names == ("拆解素材",)
     assert sub.capabilities == ()
 
 
 def test_no_skills_declared_mounts_nothing(tmp_path: Path) -> None:
-    """写空列表和不写是同一件事：都不挂，也都不要求 skill 库存在。"""
 
     make_agent_dir(tmp_path, "storyboard")
     path = write_declaration(
@@ -141,7 +136,6 @@ def test_no_skills_declared_mounts_nothing(tmp_path: Path) -> None:
 
 
 def test_declared_skills_without_library_fails_loudly(tmp_path: Path) -> None:
-    """声明要挂 skill 却没有库：部署漏目录必须报错，不能降级成没挂。"""
 
     make_agent_dir(tmp_path, "storyboard")
     path = write_declaration(
@@ -203,7 +197,6 @@ def test_non_mapping_document_rejected(tmp_path: Path) -> None:
 
 
 def test_shipped_declaration_loads(tmp_path: Path) -> None:
-    """仓内 agents/agents.yaml 必须可加载，且引用的 spec、模型名与 skill 都真的在。"""
 
     shipped = Path(__file__).resolve().parents[3] / "agents" / "agents.yaml"
     declared = load_agent_declarations(shipped)
@@ -213,13 +206,11 @@ def test_shipped_declaration_loads(tmp_path: Path) -> None:
         assert agent.model
         if agent.skills is None:
             continue
-        # 挑的 skill 名打错只在装配期才炸，这里提前到单测里。
         for name in agent.skills.names:
             assert (agent.skills.library / name / "SKILL.md").is_file()
 
 
 def test_agent_without_model_rejected(tmp_path: Path) -> None:
-    """没有默认模型：漏写就拒收，不悄悄挑一个。"""
 
     make_agent_dir(tmp_path, "storyboard")
     path = write_declaration(tmp_path, "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n")

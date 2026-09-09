@@ -4,7 +4,7 @@
     "target": "ES2022",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": ["vite/client", "node"],
+    "types": ["vite/client"],
     "skipLibCheck": true,
 
     "moduleResolution": "bundler",
@@ -17,13 +17,21 @@
 
     "strict": true,
     "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noPropertyAccessFromIndexSignature": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
 
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // vendor 目录另有一份 tsconfig（宽两格，见 tsconfig.vendor.json）。引用它而不是把它的源码
+  // 收进来：引用之后这里看到的是它出的 .d.ts，那两格宽松不会漏进本仓自己的代码。
+  "exclude": ["src/shared/transcript/vendor"],
+  "references": [{ "path": "./tsconfig.vendor.json" }]
 }

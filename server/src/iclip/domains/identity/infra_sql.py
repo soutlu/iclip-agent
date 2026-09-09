@@ -119,7 +119,7 @@ def _department_from_json(data: dict[str, Any]) -> PmsDepartment:
 
 
 def account_from_row(row: User) -> UserAccount:
-    """ORM 行 → 领域快照；持久化的部门 JSON 形状非法时大声失败。"""
+    """将 ORM 行转换为领域快照；持久化部门 JSON 非法时抛出校验错误。"""
 
     return UserAccount(
         id=row.id,

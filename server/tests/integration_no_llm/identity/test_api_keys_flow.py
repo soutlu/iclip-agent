@@ -31,7 +31,7 @@ async def test_issue_bearer_call_and_revoke(
 ) -> None:
     async with _root_client(app, client, migrated_pg) as root:
         created = await root.post(
-            "/api-keys", json={"name": "ci", "permissions": ["projects:read", "agent:read"]}
+            "/api-keys", json={"name": "ci", "permissions": ["collections:read", "agent:read"]}
         )
         assert created.status_code == 201, created.text
         payload = created.json()["apiKey"]
@@ -39,7 +39,6 @@ async def test_issue_bearer_call_and_revoke(
         assert token.startswith("iclip_sk_")
         assert payload["tokenPrefix"] == token[:16]
 
-        # 明文只出现一次：列表面只有前缀
         listed = await root.get("/api-keys")
         assert listed.status_code == 200
         rows = listed.json()["apiKeys"]
@@ -47,11 +46,10 @@ async def test_issue_bearer_call_and_revoke(
         assert "token" not in rows[0]
         assert rows[0]["tokenPrefix"] == token[:16]
 
-        # Bearer 调用：permissions 是 key 的显式授权集
         async with make_client(app) as machine:
             me = await machine.get("/users/me", headers={"Authorization": f"Bearer {token}"})
             assert me.status_code == 200
-            assert set(me.json()["user"]["permissions"]) == {"projects:read", "agent:read"}
+            assert set(me.json()["user"]["permissions"]) == {"collections:read", "agent:read"}
 
             revoked = await root.delete(f"/api-keys/{payload['id']}")
             assert revoked.status_code == 204
@@ -61,8 +59,8 @@ async def test_issue_bearer_call_and_revoke(
 
 
 async def test_non_root_cannot_issue_keys(client: httpx.AsyncClient) -> None:
-    await register_and_login(client)  # 密码注册默认 viewer，无 api_keys:issue
-    denied = await client.post("/api-keys", json={"name": "k", "permissions": ["projects:read"]})
+    await register_and_login(client)
+    denied = await client.post("/api-keys", json={"name": "k", "permissions": ["collections:read"]})
     assert denied.status_code == 403
 
 
@@ -88,7 +86,6 @@ async def test_key_permissions_survive_owner_role_change(
         assert (await machine.get("/users", headers=headers)).status_code == 200
 
         await set_roles_in_db(migrated_pg, "luke@example.com", ["viewer"])
-        # key 有效权限 = 显式授权集，不随属主角色变化
         assert (await machine.get("/users", headers=headers)).status_code == 200
 
 

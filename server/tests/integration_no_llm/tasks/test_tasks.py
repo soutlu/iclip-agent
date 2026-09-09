@@ -1,11 +1,8 @@
-"""T-TASK-02：需求单在真库上的事实——数据库的钟、写在表上的约束、状态守卫的原子性。
-
-这一层只验内存替身验不了的东西：期限比较用的是哪只钟、CHECK 是不是真的在表上、
-「读到写之间被人插了一手」会不会被守住、brief 存进去读回来是不是同一份。
-"""
+"""验证需求单的数据库时钟、表约束、条件更新原子性和持久化往返。"""
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -23,13 +20,40 @@ from tests.integration_no_llm.conftest import (
 
 URL = "/tasks"
 
-BRIEF = {
-    "theme": "秋冬新品",
-    "purpose": "种草",
-    "requirementDescription": "三十秒的上身效果",
-    "durationSeconds": 30,
-    "ratio": "9:16",
-    "referenceImages": ["https://example.com/a.jpg"],
+INPUTS = {
+    "products": [
+        {
+            "style_no": STYLE_NO,
+            "name": "秋冬长靴",
+            "brand": "品牌甲",
+            "category": "鞋靴",
+            "color_name": "黑色",
+            "image_oss_urls": ["https://example.com/product.jpg"],
+        },
+        {
+            "style_no": "SBPU24002W",
+            "name": "同系列短靴",
+            "brand": "品牌甲",
+            "category": "鞋靴",
+            "color_name": "棕色",
+            "image_oss_urls": [],
+        },
+    ],
+    "video_spec": {
+        "platform": "douyin",
+        "video_type": "product_showcase",
+        "content_type": "short_video",
+        "resolution": "1080p",
+        "aspect_ratio": "9:16",
+        "duration_seconds": 30,
+    },
+    "creative_requirement": "三十秒的上身效果",
+    "reference_image_oss_urls": {
+        "model": ["https://example.com/model.jpg"],
+        "outfit": [],
+        "prop": [],
+    },
+    "reference_video_oss_url": None,
 }
 
 
@@ -49,8 +73,7 @@ async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
         URL,
         json={
             "title": "秋冬新品短视频",
-            "styleNo": STYLE_NO,
-            "brief": BRIEF,
+            "inputs": INPUTS,
             "deadline": future(),
             **body,
         },
@@ -58,7 +81,7 @@ async def create(client: httpx.AsyncClient, **body: object) -> httpx.Response:
 
 
 async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
-    """绕开 API 改状态，模拟「另一个人抢在你前面动了这一行」。"""
+    """绕过 API 更新状态，模拟读取后的并发修改。"""
 
     engine = create_async_engine(pg_url)
     try:
@@ -72,14 +95,14 @@ async def set_status_directly(pg_url: str, task_id: str, status: str) -> None:
 
 
 async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) -> None:
-    """建 → 发 → 确认 → 撤回，走完整条 HTTP 路径。"""
 
-    await login_as_editor(client, pg_url)
+    user_id = await login_as_editor(client, pg_url)
 
     created = await create(client)
     assert created.status_code == 201, created.text
     task = created.json()["task"]
     assert task["status"] == "draft"
+    assert task["assigneeUserIds"] == []
 
     published = await client.post(f"{URL}/{task['id']}/publish")
     assert published.status_code == 200, published.text
@@ -87,61 +110,61 @@ async def test_full_lifecycle_over_http(client: httpx.AsyncClient, pg_url: str) 
 
     confirmed = await client.post(f"{URL}/{task['id']}/confirm")
     assert confirmed.json()["task"]["status"] == "confirmed"
+    assert confirmed.json()["task"]["assigneeUserIds"] == [user_id]
 
     withdrawn = await client.post(f"{URL}/{task['id']}/withdraw")
     assert withdrawn.json()["task"]["status"] == "withdrawn"
+    assert withdrawn.json()["task"]["assigneeUserIds"] == [user_id]
 
-    # 撤回是终态：再撤一次、或想改回去，都是 409。
     assert (await client.post(f"{URL}/{task['id']}/withdraw")).status_code == 409
 
 
-async def test_brief_survives_the_round_trip(client: httpx.AsyncClient, pg_url: str) -> None:
-    """brief 存进去读回来是同一份：入库 camelCase，读回来重新校验一次。"""
-
-    await login_as_editor(client, pg_url)
-    task = (await create(client)).json()["task"]
-
-    read_back = (await client.get(f"{URL}/{task['id']}")).json()["task"]["brief"]
-
-    assert {key: read_back[key] for key in BRIEF} == BRIEF
-    # 没填的字段有确定的空值，不是缺字段。
-    assert read_back["audience"] == ""
-    assert read_back["referenceVideos"] == []
-
-
-async def test_style_snapshot_survives_the_round_trip(
+async def test_client_minted_id_lands_published_without_a_deadline(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """款号快照存的是自己一列，不在 brief 里；存进去读回来是同一份。"""
+    """机器链路自带 id、直接落已下发、不带期限，重发同一个 id 不新建第二张。"""
 
     await login_as_editor(client, pg_url)
+    minted = str(uuid.uuid4())
+
+    created = await create(client, id=minted, status="published", deadline=None)
+    assert created.status_code == 201, created.text
+    assert created.json()["task"]["id"] == minted
+    assert created.json()["task"]["status"] == "published"
+    assert created.json()["task"]["deadline"] is None
+
+    again = await create(client, id=minted, status="published", deadline=None, title="另一个标题")
+    assert again.status_code == 200, again.text
+    assert again.json()["task"]["title"] == "秋冬新品短视频"
+
+    listed = await client.get(URL)
+    assert [item["id"] for item in listed.json()["items"]] == [minted]
+
+
+async def test_inputs_survive_http_and_jsonb_round_trip(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    await login_as_editor(client, pg_url)
     created = (await create(client)).json()["task"]
-
     read_back = (await client.get(f"{URL}/{created['id']}")).json()["task"]
-
-    assert read_back["style"] == created["style"]
-    assert read_back["style"]["styleNo"] == STYLE_NO
-    assert read_back["brief"]["styleNos"] == [STYLE_NO]
-
+    assert read_back["inputs"] == INPUTS
     engine = create_async_engine(pg_url)
     try:
         async with engine.connect() as conn:
             stored = (
                 await conn.execute(
-                    text("SELECT style FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
+                    text("SELECT inputs FROM iclip.tasks WHERE id = CAST(:id AS uuid)"),
                     {"id": created["id"]},
                 )
             ).scalar_one()
     finally:
         await engine.dispose()
-    # 入库就是 camelCase 的那一份，和 wire 一致——不存在第二套字段名。
-    assert stored == created["style"]
+    assert stored == INPUTS
 
 
 async def test_timestamps_come_from_the_database_clock(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """时刻由库写。应用进程的钟快了几秒，「谁先动的」就会排错。"""
 
     await login_as_editor(client, pg_url)
     task = (await create(client)).json()["task"]
@@ -167,7 +190,6 @@ async def test_timestamps_come_from_the_database_clock(
 async def test_a_deadline_in_the_past_cannot_be_published(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """「期限还没到」这句比较发生在数据库里——这条用例是那只钟的落点。"""
 
     await login_as_editor(client, pg_url)
     task = (await create(client, deadline=future(-1))).json()["task"]
@@ -181,10 +203,7 @@ async def test_a_deadline_in_the_past_cannot_be_published(
 async def test_status_guard_stops_a_write_built_on_stale_reading(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """判断和写入之间隔着一次 await；那当口这一行被撤回了，这次改动必须落空。
-
-    守卫写在 ``WHERE`` 里，所以它是原子的——内存替身模拟不出这一点。
-    """
+    """读取与写入间存在 await；WHERE 状态守卫须原子地拒绝基于过时状态的写入。"""
 
     await login_as_editor(client, pg_url)
     task = (await create(client)).json()["task"]
@@ -198,45 +217,42 @@ async def test_status_guard_stops_a_write_built_on_stale_reading(
 
 
 @pytest.mark.parametrize(
-    ("status", "deadline", "brief", "style", "constraint"),
+    ("status", "deadline", "inputs", "constraint"),
     [
-        ("nonsense", "now()", "'{}'::jsonb", "'{}'::jsonb", "tasks_status_check"),
-        ("published", "NULL", "'{}'::jsonb", "'{}'::jsonb", "tasks_deadline_check"),
-        ("draft", "now()", "'[]'::jsonb", "'{}'::jsonb", "tasks_brief_object_check"),
-        ("draft", "now()", "'{}'::jsonb", "'[]'::jsonb", "tasks_style_object_check"),
+        ("nonsense", datetime.now(UTC), "{}", "tasks_status_check"),
+        ("draft", None, "[]", "tasks_inputs_object_check"),
     ],
 )
 async def test_constraints_live_on_the_table(
     client: httpx.AsyncClient,
     pg_url: str,
     status: str,
-    deadline: str,
-    brief: str,
-    style: str,
+    deadline: datetime | None,
+    inputs: str,
     constraint: str,
 ) -> None:
-    """四条规则写在表上，不只写在 Python 里：破了就是数据本身错了。"""
-
     user_id = await login_as_editor(client, pg_url)
     statement = text(
         "INSERT INTO iclip.tasks"
-        " (id, title, status, priority, deadline, creator_user_id, style, brief,"
-        " created_at, updated_at)"
-        f" VALUES (gen_random_uuid(), 't', :status, 0, {deadline}, CAST(:owner AS uuid),"
-        f" {style}, {brief}, now(), now())"
+        " (id, title, status, priority, deadline, creator_user_id, inputs, created_at, updated_at)"
+        " VALUES (gen_random_uuid(), 't', :status, 0, :deadline, CAST(:owner AS uuid),"
+        " CAST(:inputs AS jsonb), now(), now())"
     )
     engine = create_async_engine(pg_url)
     try:
         with pytest.raises(DBAPIError) as raised:
             async with engine.begin() as conn:
-                await conn.execute(statement, {"status": status, "owner": user_id})
+                await conn.execute(
+                    statement,
+                    {"status": status, "owner": user_id, "deadline": deadline, "inputs": inputs},
+                )
     finally:
         await engine.dispose()
     assert constraint in str(raised.value)
 
 
 async def test_a_task_outlives_nothing_silently(client: httpx.AsyncClient, pg_url: str) -> None:
-    """提需求的人不能被静默删掉：需求单是公司账本上的事实，外键用 restrict 挡住。"""
+    """需求单创建者外键使用 RESTRICT，避免删除账号破坏业务记录。"""
 
     user_id = await login_as_editor(client, pg_url)
     await create(client)
@@ -256,7 +272,6 @@ async def test_a_task_outlives_nothing_silently(client: httpx.AsyncClient, pg_ur
 async def test_viewer_reads_everyones_tasks_but_writes_none(
     app: object, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """需求单是全公司的工作队列：别人提的看得见，但 viewer 改不动。"""
 
     await login_as_editor(client, pg_url, username="luke")
     task = (await create(client)).json()["task"]
@@ -267,9 +282,35 @@ async def test_viewer_reads_everyones_tasks_but_writes_none(
     async with make_client(app) as other:
         await register_and_login(other, username="viewer", email="viewer@example.com")
         listed = await other.get(URL)
-        blocked = await other.post(URL, json={"title": "我也提一个", "styleNo": STYLE_NO})
+        blocked = await other.post(URL, json={"title": "我也提一个", "inputs": INPUTS})
         forbidden = await other.delete(f"{URL}/{task['id']}")
 
     assert [item["id"] for item in listed.json()["items"]] == [task["id"]]
     assert blocked.status_code == 403
     assert forbidden.status_code == 403
+
+
+async def test_second_claim_adds_a_person_without_touching_the_task_row(
+    app: object, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """联合主键防止重复认领；已 confirmed 时只新增认领记录，不更新需求单时间。"""
+
+    first_id = await login_as_editor(client, pg_url, username="luke")
+    task = (await create(client)).json()["task"]
+    await client.post(f"{URL}/{task['id']}/publish")
+    confirmed = (await client.post(f"{URL}/{task['id']}/confirm")).json()["task"]
+    assert confirmed["assigneeUserIds"] == [first_id]
+
+    again = (await client.post(f"{URL}/{task['id']}/confirm")).json()["task"]
+    assert again["assigneeUserIds"] == [first_id]
+
+    from fastapi import FastAPI
+
+    assert isinstance(app, FastAPI)
+    async with make_client(app) as other:
+        second_id = await register_and_login(other, username="mia", email="mia@example.com")
+        await set_roles_in_db(pg_url, "mia@example.com", ["editor"])
+        joined = (await other.post(f"{URL}/{task['id']}/confirm")).json()["task"]
+
+    assert joined["assigneeUserIds"] == [first_id, second_id]
+    assert joined["updatedAt"] == confirmed["updatedAt"]

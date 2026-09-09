@@ -15,16 +15,16 @@ import pytest
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
+from pydantic_ai import models as pydantic_ai_models
 from pydantic_ai.models.test import TestModel
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.app.bootstrap import build_app
 from iclip.config import (
     AppSection,
     DbSection,
     OpsSection,
-    RedisSection,
     ResolvedAgent,
     RuntimeConfig,
     SecuritySection,
@@ -32,11 +32,22 @@ from iclip.config import (
 )
 from iclip.domains.identity.pms import PmsUserClient
 from iclip.domains.identity.sso import SsoVerifier
-from tests.helpers.tasks import StubStyleSnapshots
+from tests.helpers.pg import AGENT_RUNTIME_TABLES, IDENTITY_TABLES, truncate_clean
 
 SERVER_DIR = Path(__file__).resolve().parents[2]
 
+
+@pytest.fixture(autouse=True)
+def _no_real_model_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """官方护栏：这一层只用替身，任何真模型请求都直接报错。按用例开关，不影响同一进程里的其他层。"""
+
+    monkeypatch.setattr(pydantic_ai_models, "ALLOW_MODEL_REQUESTS", False)
+
+
 TEST_SECRET = "test-secret-0123456789-0123456789-xyz"
+
+# ID 保留表没有级联外键；应用测试仍需显式清理它，隔离不同用例的状态。
+_APP_TABLES = (*IDENTITY_TABLES, "iclip.conversation_ids")
 
 
 @pytest.fixture(scope="session")
@@ -49,7 +60,9 @@ def pg_url() -> Generator[str]:
         from testcontainers.community.postgres import PostgresContainer
     except ImportError:
         try:
-            from testcontainers.postgres import PostgresContainer  # 旧命名空间兜底
+            from testcontainers.postgres import (
+                PostgresContainer,
+            )  # 兼容 testcontainers 的旧导入路径。
         except ImportError:
             pytest.skip("无 TEST_DATABASE_URL 且未安装 testcontainers")
     try:
@@ -59,34 +72,6 @@ def pg_url() -> Generator[str]:
         pytest.skip(f"本地无可用 Docker/Postgres: {exc}")
     try:
         yield container.get_connection_url()
-    finally:
-        container.stop()
-
-
-@pytest.fixture(scope="session")
-def redis_url() -> Generator[str]:
-    """真实 Redis，解析顺序同 Postgres：显式 env > 一次性容器 > 不可用即 skip。
-
-    只有声明了 agent 的测试才会用到它（见 ``stream_url``），别的测试不会因此
-    多起一个容器。
-    """
-
-    explicit = os.environ.get("TEST_REDIS_URL", "").strip()
-    if explicit:
-        yield explicit
-        return
-    try:
-        from testcontainers.community.redis import RedisContainer
-    except ImportError:
-        pytest.skip("无 TEST_REDIS_URL 且未安装 testcontainers 的 redis 模块")
-    try:
-        container = RedisContainer("redis:7")
-        container.start()
-    except Exception as exc:
-        pytest.skip(f"本地无可用 Docker/Redis: {exc}")
-    try:
-        host = container.get_container_host_ip()
-        yield f"redis://{host}:{container.get_exposed_port(6379)}/0"
     finally:
         container.stop()
 
@@ -102,15 +87,14 @@ def migrated_pg(pg_url: str) -> str:
     return pg_url
 
 
-def make_runtime_config(*, with_redis: bool = False) -> RuntimeConfig:
-    """测试用的 YAML 形状。地址与凭证不在这里——它们由 env 提供（见 ``base_env``）。"""
+def make_runtime_config() -> RuntimeConfig:
+    """测试运行配置；地址与凭证由 base_env 提供。"""
 
     return RuntimeConfig(
         app=AppSection(name="iclip-test"),
         db=DbSection(schema="iclip"),
         security=SecuritySection(),
         sso=SsoSection(app_name="iclip"),
-        redis=RedisSection() if with_redis else None,
         ops=OpsSection(log_level="WARNING"),
     )
 
@@ -123,21 +107,30 @@ def base_env(monkeypatch: pytest.MonkeyPatch, migrated_pg: str) -> None:
     monkeypatch.delenv("PMS_BASE_URL", raising=False)
     monkeypatch.delenv("SSO_REDIRECT_URL", raising=False)
     monkeypatch.delenv("ROOT_EMAIL", raising=False)
-    # 开发机上真配了产品目录库的话，别让它悄悄混进每个测试的 app。
+    # 隔离开发机的产品目录库配置。
     monkeypatch.delenv("PRODUCT_CATALOG_DATABASE_URL", raising=False)
-    monkeypatch.delenv("PRODUCT_IMAGE_BASE_URL", raising=False)
-    monkeypatch.delenv("INSPIRATION_DATABASE_URL", raising=False)
-    # 同理，别让开发机上那把真桶凭证混进来——测试要么注入替身桶，要么就没有桶。
+    # 隔离开发机的对象存储凭证。
     monkeypatch.delenv("OSS_BUCKET", raising=False)
 
 
 async def _fresh_engine(url: str):
     engine = create_async_engine(url)
     async with engine.begin() as conn:
-        await conn.execute(
-            text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
-        )
+        await truncate_clean(conn, _APP_TABLES, cascade=True)
     return engine
+
+
+@pytest.fixture
+async def engine(migrated_pg: str) -> AsyncGenerator[AsyncEngine]:
+    """清空 agent 运行时各表后给出引擎；runner 与 transcript 场景测试直接用它装配。"""
+
+    engine = create_async_engine(migrated_pg)
+    async with engine.begin() as conn:
+        await truncate_clean(conn, AGENT_RUNTIME_TABLES)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 TEST_MODEL_NAME = "test-model"
@@ -158,48 +151,36 @@ def models() -> dict[str, TestModel]:
 
 
 @pytest.fixture
-def stream_url(
-    request: pytest.FixtureRequest, agent_declarations: tuple[ResolvedAgent, ...]
-) -> str | None:
-    """声明了 agent 才去要 Redis：没有 agent 的测试不该为此起容器。"""
-
-    if not agent_declarations:
-        return None
-    return str(request.getfixturevalue("redis_url"))
-
-
-@pytest.fixture
 async def app(
     monkeypatch: pytest.MonkeyPatch,
     base_env: None,
     migrated_pg: str,
     agent_declarations: tuple[ResolvedAgent, ...],
     models: dict[str, TestModel],
-    stream_url: str | None,
 ) -> AsyncGenerator[FastAPI]:
-    if stream_url is not None:
-        monkeypatch.setenv("REDIS_URL", stream_url)
     engine = await _fresh_engine(migrated_pg)
     try:
         yield build_app(
-            make_runtime_config(with_redis=stream_url is not None),
+            make_runtime_config(),
             agents=agent_declarations,
             engine=engine,
             models=models,
-            # 款号快照的内容来自 PDM 与对象存储，这一层不连它们；替身给一份固定快照，
-            # 让「快照存进库读回来还是同一份」这件事仍然在真库上被验到。
-            style_snapshots=StubStyleSnapshots(),
+            # 固定快照隔离 PDM 与对象存储，数据库仍验证快照的持久化往返。
         )
     finally:
         await engine.dispose()
 
 
 @pytest.fixture
-def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
-    """WS 场景专用：app 全程活在 TestClient 的事件循环里。
+def ws_agent_app(
+    base_env: None,
+    migrated_pg: str,
+    agent_declarations: tuple[ResolvedAgent, ...],
+    models: dict[str, TestModel],
+) -> Generator[FastAPI]:
+    """在 TestClient 事件循环中装配带 agent 的 WS app。
 
-    NullPool 让每个连接在当前 loop 新建，避免连接池跨 loop 复用
-    （asyncpg 连接绑定创建时的事件循环）。
+    使用 NullPool 避免 asyncpg 连接跨事件循环复用。
     """
 
     import asyncio
@@ -210,9 +191,40 @@ def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
         engine = create_async_engine(migrated_pg, poolclass=NullPool)
         try:
             async with engine.begin() as conn:
-                await conn.execute(
-                    text("TRUNCATE iclip.api_keys, iclip.oauth_accounts, iclip.users CASCADE")
+                await truncate_clean(conn, _APP_TABLES, cascade=True)
+                await truncate_clean(
+                    conn, ("agent_runtime.agent_jobs", "agent_runtime.agent_job_runs")
                 )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_truncate())
+    engine = create_async_engine(migrated_pg, poolclass=NullPool)
+    yield build_app(
+        make_runtime_config(),
+        agents=agent_declarations,
+        engine=engine,
+        models=models,
+    )
+    asyncio.run(engine.dispose())
+
+
+@pytest.fixture
+def ws_app(base_env: None, migrated_pg: str) -> Generator[FastAPI]:
+    """在 TestClient 事件循环中装配 WS app。
+
+    使用 NullPool 避免 asyncpg 连接跨事件循环复用。
+    """
+
+    import asyncio
+
+    from sqlalchemy.pool import NullPool
+
+    async def _truncate() -> None:
+        engine = create_async_engine(migrated_pg, poolclass=NullPool)
+        try:
+            async with engine.begin() as conn:
+                await truncate_clean(conn, _APP_TABLES, cascade=True)
         finally:
             await engine.dispose()
 
@@ -311,11 +323,7 @@ async def set_roles_in_db(pg_url: str, email: str, roles: list[str]) -> None:
 
 
 async def new_conversation(client: httpx.AsyncClient, agent_id: str) -> str:
-    """开一段对话，返回它的 id（AG-UI 请求体里的 ``threadId`` 用的就是它）。
-
-    agent 端点只认服务端自己发出去的会话 id，所以凡是要真跑一次运行的用例都得
-    先走这一步。
-    """
+    """创建会话并返回 AG-UI threadId；agent 端点仅接受服务端创建的会话。"""
 
     created = await client.post("/conversations", json={"agentId": agent_id})
     assert created.status_code == 201, created.text

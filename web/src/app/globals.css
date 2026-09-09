@@ -1,10 +1,4 @@
-/*
- * 全局样式编排器：集中声明 Tailwind @theme，并按域编排 @import；不写组件规则。
- *
- * 各段样式按域拆分到 feature/shared/app 子文件；import 顺序与拆分前的
- * 原文件段落顺序严格一致——所有自定义规则都在匿名层（unlayered），
- * 顺序即级联优先级，调整顺序可能改变同优先级选择器的胜负。
- */
+/* 集中声明 Tailwind @theme 与样式导入；未分层规则的导入顺序决定同特异性选择器的优先级。 */
 @layer theme, base, components, utilities;
 @import '../../node_modules/tailwindcss/theme.css' layer(theme);
 @import '../../node_modules/tailwindcss/preflight.css' layer(base);
@@ -27,40 +21,39 @@
   --radius-full: 9999px;
 }
 
-/* v15 窗口分级（M3 window size classes）：compact <600 / medium 600–840 / expanded ≥840。
-   覆写 Tailwind sm/md：sm: = medium 起点 600，md: = expanded 起点 840；lg 及以上保持默认。
-   手写媒体查询与 useBreakpoint 同用这两档，内容特调阈值（1100/1180 等）不在此列。 */
+/* 断点：sm 600、md 840、lg 1280；手写媒体查询应与对应断点保持一致。 */
 @theme {
   --breakpoint-sm: 600px;
   --breakpoint-md: 840px;
+  --breakpoint-lg: 1280px;
 }
 
-/* 唯一 UI 字阶（M3 type scale，10 档）：同时驱动 --text-* CSS 变量和 Tailwind text-* 工具类。
-   先把 Tailwind 自带字号整族清空，让 text-sm / text-xl 这类档外写法编译不出任何 CSS；
-   TSX 只用下面这些名字，CSS 用 var(--text-*)。旧 -line 别名见 base.css。 */
+/* 唯一 UI 字阶，同时生成 CSS 变量与 Tailwind 工具类；清除默认字阶以避免档外字号。 */
 @theme {
   --text-*: initial;
-  --text-caption: 11px; /* 全站下限（v15：10 / 10.5 废除，刻度、角标、分区标签并入本档） */
+  --text-caption: 11px; /* 全站最小字号：刻度、角标与分区标签共用。 */
   --text-caption--line-height: 16px;
   --text-label: 12px; /* 标签、日期 */
   --text-label--line-height: 16px;
-  --text-body-sm: 13px; /* 紧凑正文（时间戳、辅助说明） */
-  --text-body-sm--line-height: 18px;
-  --text-body: 14px; /* 正文基准（M3 body-medium，v15 起为 body 元素默认）；按钮、Tab、导航、chip、输入框 */
+  --text-body-sm: 12px; /* M3 body-small：紧凑正文（时间戳、辅助说明）；与 label 同值不同角色 */
+  --text-body-sm--line-height: 16px;
+  --text-body: 14px; /* M3 body-medium：正文与常规控件。 */
   --text-body--line-height: 20px;
   --text-title: 16px;
   --text-title--line-height: 24px;
-  --text-title-lg: 20px; /* 大标题（对话框头、分区 h2；介于 title/headline，自研档） */
+  --text-title-lg: 22px; /* M3 title-large；对话框头、分区 h2 */
+  --text-title-lg--line-height: 28px;
   --text-headline: 28px;
   --text-headline--line-height: 36px;
   --text-headline-lg: 32px; /* M3 headline-large；品牌字标、紧凑页大标题、画布大字 */
+  --text-headline-lg--line-height: 40px;
   --text-display-sm: 45px; /* M3 display-medium；紧凑 hero 标题 */
+  --text-display-sm--line-height: 52px;
   --text-display: 57px;
   --text-display--line-height: 64px;
 }
 
-/* 画布展示字阶（React Flow 缩放画布内的放大字号，约为 UI 字阶 2 倍；v15.1 存量收口，
-   仅限画布卡/工作台节点与放大阅读面使用，普通 UI 一律用上方字阶） */
+/* 画布字阶仅用于缩放画布与放大阅读区，普通 UI 使用上方字阶。 */
 @theme {
   --text-canvas-label: 18px;
   --text-canvas-body: 20px;
@@ -70,12 +63,7 @@
   --text-canvas-title-lg: 28px;
 }
 
-/* 把 ②③ 层颜色与海拔登记成 Tailwind 工具类：bg-primary、text-chat-muted-text、shadow-2 …
- *
- * inline + reference 两个修饰缺一不可：inline 让工具类直接写 var(--color-x)，值随 .dark 切换；
- * reference 让这一段只做名字登记、不往 :root 再吐一份变量（值的唯一来源是 base.css）。
- * 名字与值同名是刻意的——组件写 bg-primary，编译出来就是 var(--color-primary)。
- * 新增颜色 token 时这里补一行，否则 TSX 里那个类名编译不出 CSS 也不会报错。 */
+/* inline 使工具类直接引用 token，reference 避免重复输出变量；新增 token 需在此登记工具类。 */
 @theme inline reference {
   --color-primary: var(--color-primary);
   --color-primary-hover: var(--color-primary-hover);
@@ -100,8 +88,11 @@
   --color-on-surface: var(--color-on-surface);
   --color-surface-variant: var(--color-surface-variant);
   --color-on-surface-variant: var(--color-on-surface-variant);
+  --color-on-surface-muted: var(--color-on-surface-muted);
+  --color-on-surface-faint: var(--color-on-surface-faint);
   --color-outline: var(--color-outline);
   --color-outline-variant: var(--color-outline-variant);
+  --color-hairline: var(--color-hairline);
   --color-surface-container-lowest: var(--color-surface-container-lowest);
   --color-surface-container-low: var(--color-surface-container-low);
   --color-surface-container: var(--color-surface-container);
@@ -118,6 +109,12 @@
   --color-secondary-fixed-dim: var(--color-secondary-fixed-dim);
   --color-tertiary-fixed: var(--color-tertiary-fixed);
   --color-tertiary-fixed-dim: var(--color-tertiary-fixed-dim);
+  --color-on-primary-fixed: var(--color-on-primary-fixed);
+  --color-on-primary-fixed-variant: var(--color-on-primary-fixed-variant);
+  --color-on-secondary-fixed: var(--color-on-secondary-fixed);
+  --color-on-secondary-fixed-variant: var(--color-on-secondary-fixed-variant);
+  --color-on-tertiary-fixed: var(--color-on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--color-on-tertiary-fixed-variant);
   --color-state-hover: var(--color-state-hover);
   --color-state-focus: var(--color-state-focus);
   --color-state-pressed: var(--color-state-pressed);
@@ -131,8 +128,6 @@
   --color-warning-container: var(--color-warning-container);
   --color-on-warning-container: var(--color-on-warning-container);
   --color-background: var(--color-background);
-  --color-background-top: var(--color-background-top);
-  --color-background-bottom: var(--color-background-bottom);
   --color-on-background: var(--color-on-background);
   --color-top-layer: var(--color-top-layer);
   --color-state-active: var(--color-state-active);
@@ -173,13 +168,6 @@
   --color-chat-secondary-text: var(--color-chat-secondary-text);
   --color-chat-muted-text: var(--color-chat-muted-text);
   --color-chat-user-bg: var(--color-chat-user-bg);
-  --color-chat-user-bg-hover: var(--color-chat-user-bg-hover);
-  --color-chat-user-bg-active: var(--color-chat-user-bg-active);
-  --color-chat-user-border: var(--color-chat-user-border);
-  --color-chat-user-border-active: var(--color-chat-user-border-active);
-  --color-chat-assistant-bg: var(--color-chat-assistant-bg);
-  --color-chat-assistant-border: var(--color-chat-assistant-border);
-  --color-chat-assistant-highlight: var(--color-chat-assistant-highlight);
   --color-chat-agent-avatar-bg: var(--color-chat-agent-avatar-bg);
   --color-chat-agent-avatar-border: var(--color-chat-agent-avatar-border);
   --color-chat-agent-identity-bg: var(--color-chat-agent-identity-bg);
@@ -188,8 +176,6 @@
   --color-chat-agent-rail: var(--color-chat-agent-rail);
   --color-chat-inline-bg: var(--color-chat-inline-bg);
   --color-chat-inline-border: var(--color-chat-inline-border);
-  --color-chat-tool-bg: var(--color-chat-tool-bg);
-  --color-chat-tool-border: var(--color-chat-tool-border);
   --color-chat-chip-bg: var(--color-chat-chip-bg);
   --color-chat-chip-border: var(--color-chat-chip-border);
   --color-chat-code-bg: var(--color-chat-code-bg);
@@ -204,6 +190,8 @@
   --color-chat-status-error: var(--color-chat-status-error);
   --color-chat-status-running: var(--color-chat-status-running);
   --color-chat-focus-ring: var(--color-chat-focus-ring);
+  --color-chat-hairline: var(--color-chat-hairline);
+  --color-chat-scrollbar-thumb: var(--color-chat-scrollbar-thumb);
   --color-canvas-card-bg: var(--color-canvas-card-bg);
   --color-canvas-card-text: var(--color-canvas-card-text);
   --color-canvas-card-border: var(--color-canvas-card-border);
@@ -283,10 +271,16 @@
   --shadow-3: var(--shadow-3);
 }
 
+/* 登记 font-home-display 与 font-mono 工具类；字体链定义在 base.css。 */
+@theme inline reference {
+  --font-home-display: var(--font-home-display);
+  --font-mono: var(--font-mono);
+}
+
 /* 交互态叠层：hover / pressed 用渐变铺一层半透明 on-surface，不覆盖组件自己的底色；
    禁用态撤掉叠层，只压暗文字并给出 not-allowed。组件不再自写 hover / pressed / disabled 颜色。 */
 @utility ui-state {
-  transition-property: background-color, background-image, border-color, color, box-shadow;
+  transition-property: background-color, background-image, border-color, color, box-shadow, scale;
   transition-duration: var(--dur-s);
   transition-timing-function: var(--ease);
 
@@ -305,6 +299,21 @@
     color: var(--color-disabled-text);
     cursor: not-allowed;
   }
+}
+
+/* 容器内重新派生 hover 色；只覆盖透明度不会重算已在 :root 解析的颜色变量。 */
+@utility ui-state-subtle {
+  --color-state-hover: color-mix(
+    in srgb,
+    var(--color-on-surface) calc(var(--state-hover-subtle) * 100%),
+    transparent
+  );
+}
+
+/* 行内编辑框通过变量调整全局焦点环，保持焦点样式只有一份实现。 */
+@utility ui-focus-inline {
+  --state-focus-ring: 1px;
+  --state-focus-offset: -1px;
 }
 
 /* 键盘焦点环：只在 :focus-visible 触发，鼠标点击不显示 */
@@ -332,20 +341,18 @@
   transition-timing-function: var(--ease);
 }
 
+/* 进退场动画用 tw-animate-css 的 animate-in / animate-out；它读 --tw-duration 与
+   --tw-ease，所以时长曲线仍由 duration-(--dur-*) / ease-(--ease-*) 给，不另写 keyframes。 */
+@import 'tw-animate-css';
 @import './fonts.css';
 @import './base.css';
-@import '../features/home/home.css';
-@import '../features/storyboards/storyboards.css';
-@import '../features/analytics/analytics.css';
-@import '../features/admin-users/admin-users.css';
-@import '../features/auth/auth.css';
-@import '../features/project-canvas/canvas-video-generation.css';
-@import '../shared/composer/composer.css';
-@import './popup-animations.css';
-@import '../features/project-canvas/canvas-highlight.css';
-@import '../features/project-canvas/storyboard-workbench.css';
-@import './banner-animations.css';
-@import '../shared/editor/tiptap.css';
-@import '../features/chat/chat-scrollbar.css';
-@import '../shared/markdown/markdown.css';
 @import './utility-classes.css';
+@import '../shared/ui/composer/composer.css';
+@import '../shared/ui/media-preview/media-preview.css';
+@import '../shared/ui/field/field.css';
+@import '../shared/ui/hero/hero.css';
+@import '../shared/ui/markdown/markdown.css';
+@import '../features/auth/auth.css';
+@import '../features/tasks/tasks.css';
+@import '../features/conversations/conversations.css';
+@import '../features/storyboard/storyboard.css';

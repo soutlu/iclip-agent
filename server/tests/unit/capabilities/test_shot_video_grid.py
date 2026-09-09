@@ -1,8 +1,4 @@
-"""切格几何：PGM 解析、分隔带检测、退回等分、画幅收缩、坐标还原。
-
-这一层是纯函数，没有 ffmpeg 也没有网络。像素在测试里直接拼出来，所以「检测到
-了」和「退回等分」两条路都能精确地摆出来——真图上很难稳定复现后一条。
-"""
+"""使用合成灰度图验证网格检测、等分回退、画幅收缩和坐标还原。"""
 
 from __future__ import annotations
 
@@ -31,7 +27,7 @@ def make_image(
     white_cols: Collection[int] = (),
     white_rows: Collection[int] = (),
 ) -> GrayImage:
-    """拼一张灰度图：指定的整列/整行是纯白（分隔带），其余是中灰。"""
+    """构造灰度图：指定整行、整列为白色分隔带，其余像素为中灰。"""
 
     cols, rows = set(white_cols), set(white_rows)
     pixels = bytearray(CELL for _ in range(width * height))
@@ -77,7 +73,6 @@ def test_pgm_rejects_broken_input(data: bytes, fragment: str) -> None:
 
 
 def test_detects_offset_gutter_and_trims_outer_border() -> None:
-    """分隔带不在等分线上时按它切，外圈边框另外修掉。"""
 
     image = make_image(
         100,
@@ -92,7 +87,6 @@ def test_detects_offset_gutter_and_trims_outer_border() -> None:
 
 
 def test_falls_back_to_equal_split_and_says_so() -> None:
-    """一张没有分隔带的图：切得出来，但必须标明是猜的。"""
 
     layout = grid_cell_boxes(make_image(100, 100), rows=2, cols=2)
     assert layout.boxes == ((0, 0, 50, 50), (50, 0, 50, 50), (0, 50, 50, 50), (50, 50, 50, 50))
@@ -100,7 +94,7 @@ def test_falls_back_to_equal_split_and_says_so() -> None:
 
 
 def test_one_axis_detected_is_not_detected() -> None:
-    """只量到一个轴也算没量到——另一个轴仍然是猜的，切出来照样可能错位。"""
+    """任一轴检测失败都应标记等分回退，避免宣称所有坐标均来自检测。"""
 
     image = make_image(100, 100, white_cols={*range(44, 48)})
     layout = grid_cell_boxes(image, rows=2, cols=2)
@@ -154,14 +148,11 @@ def test_aspect_within_tolerance_is_left_alone() -> None:
 
 
 def test_aspect_shrinks_centered() -> None:
-    # 200×100 收到 1:1：宽收到 100，左右各让出 50。
     assert fit_box_to_aspect((10, 20, 200, 100), 1.0) == (60, 20, 100, 100)
-    # 100×200 收到 1:1：高收到 100，上下各让出 50。
     assert fit_box_to_aspect((10, 20, 100, 200), 1.0) == (10, 70, 100, 100)
 
 
 def test_aspect_shrink_handles_large_drift() -> None:
-    """从宽幅格子里取竖幅是正常操作，不该被当成异常拦下。"""
 
     assert fit_box_to_aspect((0, 0, 400, 100), 9 / 16) == (172, 0, 56, 100)
 
