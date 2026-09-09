@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+import structlog
 from fastapi_users_db_sqlalchemy import (
     SQLAlchemyBaseOAuthAccountTableUUID,
     SQLAlchemyBaseUserTableUUID,
@@ -22,6 +23,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 from iclip.domains.identity.models import ApiKeyRecord, PmsDepartment, UserAccount
 from iclip.platform.db.ownership import scope_to_owner
+
+_logger = structlog.stdlib.get_logger(__name__)
 
 DB_SCHEMA = "iclip"
 
@@ -232,6 +235,18 @@ class SqlUserRepository:
                 return
             if display_name:
                 row.display_name = display_name
+                # 用户名是发往上游的归属标签，SSO 账号拿显示名当用户名；撞名就留空，
+                # 发消息时会明确报「没有用户名」，不悄悄改成别的名字。
+                if row.username is None:
+                    taken = await get_user_row_by_username(session, display_name)
+                    if taken is None:
+                        row.username = display_name
+                    else:
+                        _logger.warning(
+                            "SSO 显示名已被其他账号占用，用户名留空",
+                            user_id=str(user_id),
+                            display_name=display_name,
+                        )
             if avatar_url:
                 row.avatar_url = avatar_url
             if roles is not None:
