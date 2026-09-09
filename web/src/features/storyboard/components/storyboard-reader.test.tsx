@@ -8,7 +8,7 @@ import { workspaceQueryKeys, type ArtifactRendererProps } from '@/shared/workben
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import type { ShotsDocument } from '../shot-document'
-import { videoShotOf, type GenerationJob } from '../storyboard.api'
+import type { GenerationJob } from '../storyboard.api'
 import { StoryboardReader } from './storyboard-reader'
 
 const CONVERSATION_ID = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
@@ -102,8 +102,8 @@ const historyPrompt = [
 const historyShot = {
   global_settings: '历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。',
   timeline: [
-    { image_indexes: [2], prompt: '历史版：模特走出门厅 @Image2。', seconds: 2.5 },
-    { image_indexes: [1], prompt: '历史版：转身看向鞋面 @Image1。', seconds: 3.5 },
+    { image_indexes: [2], prompt: '历史版：模特走出门厅 @Image2。', timestamps: [0, 2.5] },
+    { image_indexes: [1], prompt: '历史版：转身看向鞋面 @Image1。', timestamps: [2.5, 6] },
   ],
 }
 
@@ -467,7 +467,7 @@ describe('StoryboardReader', () => {
         model: 'wan3.0-video',
         reference_image_urls: firstShot.image_urls,
         seconds: firstShot.seconds,
-        shot: videoShotOf(firstShot),
+        shot: firstShot.prompt,
         shot_index: 1,
       },
     ])

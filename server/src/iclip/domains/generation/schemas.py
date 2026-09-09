@@ -23,7 +23,11 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
-from iclip.domains.generation.shot_prompt import format_shot_prompt, image_indexes_of
+from iclip.domains.generation.shot_prompt import (
+    format_seconds,
+    format_shot_prompt,
+    image_indexes_of,
+)
 
 if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
     from iclip.domains.generation.models import GenerationJob
@@ -95,10 +99,14 @@ def _nonblank(text: str) -> str:
     return text
 
 
-class VideoShotTimelineItemIn(SnakeModel):
-    """镜头组里的一镜：多长、说什么、引了哪几张图。"""
+Seconds = Annotated[float, Field(ge=0)]
 
-    seconds: Annotated[float, Field(gt=0)]
+
+class VideoShotTimelineItemIn(SnakeModel):
+    """镜头组里的一镜：起止时间、说什么、引了哪几张图。与分镜文件 video_shot.json 里的一镜同形。"""
+
+    timestamps: tuple[Seconds, Seconds]
+    """``[开始秒, 结束秒]``，正文里的镜头标记直接用它，不重算。"""
     prompt: Annotated[str, Field(max_length=MAX_PROMPT_CHARS)]
     image_indexes: list[Annotated[int, Field(ge=1)]]
     """正文里 ``@ImageN`` 的编号，按首次出现顺序；与分镜交付物里的同名字段是同一份。"""
@@ -122,6 +130,28 @@ class VideoShotIn(SnakeModel):
     timeline: Annotated[list[VideoShotTimelineItemIn], Field(min_length=1)]
 
     _check_global_settings = field_validator("global_settings")(_nonblank)
+
+    @model_validator(mode="after")
+    def _timeline_runs_forward(self) -> VideoShotIn:
+        """与分镜交付同一套规则：第一镜从 0 起，每镜结束晚于开始，各镜按先后排、不重叠。"""
+
+        previous_end = 0.0
+        for position, item in enumerate(self.timeline, start=1):
+            start, end = item.timestamps
+            if end <= start:
+                raise ValueError(
+                    f"第 {position} 镜的 timestamps 为 [{format_seconds(start)}, "
+                    f"{format_seconds(end)}]，结束必须晚于开始"
+                )
+            if position == 1 and start != 0:
+                raise ValueError(f"第一镜从 {format_seconds(start)} 秒开始，必须从 0 开始")
+            if start < previous_end:
+                raise ValueError(
+                    f"第 {position} 镜从 {format_seconds(start)} 秒开始，"
+                    f"早于上一镜的结束 {format_seconds(previous_end)} 秒"
+                )
+            previous_end = end
+        return self
 
 
 def _check_image_references(shot: VideoShotIn, available: int) -> None:

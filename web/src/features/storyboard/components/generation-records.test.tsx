@@ -206,7 +206,7 @@ describe('GenerationRecords', () => {
     expect(within(card).getByText('生成中…')).toBeVisible()
   })
 
-  it('编辑生成交出记录里的镜头组，时长算回起止秒，正文原样保留空白', async () => {
+  it('编辑生成交出记录里的镜头组，起止秒与正文空白原样保留', async () => {
     const onEditPrompt = vi.fn()
     render(
       <GenerationRecords
@@ -218,8 +218,8 @@ describe('GenerationRecords', () => {
               shot: {
                 global_settings: '  产品：黑色短靴。\n剪辑形式：硬切。',
                 timeline: [
-                  { image_indexes: [1], prompt: '走近 @Image1。\n', seconds: 2 },
-                  { image_indexes: [2], prompt: '停下 @Image2。', seconds: 4 },
+                  { image_indexes: [1], prompt: '走近 @Image1。\n', timestamps: [0, 2] },
+                  { image_indexes: [2], prompt: '停下 @Image2。', timestamps: [2, 6] },
                 ],
               },
             },

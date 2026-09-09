@@ -28,37 +28,28 @@ def test_single_shot_matches_the_frontend_fixture() -> None:
     assert format_shot_prompt(VideoShotIn.model_validate(video_shot())) == SHOT_PROMPT
 
 
-def test_starts_accumulate_and_decimals_print_like_the_browser() -> None:
+def test_timestamps_are_printed_as_given_including_gaps_and_decimals() -> None:
+    """起止照分镜文件里的写，镜头之间留的空档也照实保留，不改成首尾相接。"""
+
     shot = shot_of(
         "设定。",
-        {"seconds": 3.5, "prompt": "一。", "image_indexes": []},
-        {"seconds": 4.25, "prompt": "二。", "image_indexes": []},
-        {"seconds": 0.5, "prompt": "三。", "image_indexes": []},
+        {"timestamps": [0, 3.5], "prompt": "一。", "image_indexes": []},
+        {"timestamps": [4.25, 8.5], "prompt": "二。", "image_indexes": []},
+        {"timestamps": [8.5, 9], "prompt": "三。", "image_indexes": []},
     )
     assert format_shot_prompt(shot) == (
         "设定。\n\n"
         "[0–3.5秒｜镜头1] 一。\n"
-        "[3.5–7.75秒｜镜头2] 二。\n"
-        "[7.75–8.25秒｜镜头3] 三。\n"
+        "[4.25–8.5秒｜镜头2] 二。\n"
+        "[8.5–9秒｜镜头3] 三。\n"
         "不要生成字幕，不要生成背景音乐。"
     )
 
 
-def test_float_tails_are_rounded_to_milliseconds() -> None:
-    """0.1 + 0.2 在浮点里是 0.30000000000000004，拼进正文就是给模型看的乱码。"""
-
-    shot = shot_of(
-        "设定。",
-        {"seconds": 0.1, "prompt": "一。", "image_indexes": []},
-        {"seconds": 0.2, "prompt": "二。", "image_indexes": []},
-        {"seconds": 0.3, "prompt": "三。", "image_indexes": []},
-    )
-    assert "[0.3–0.6秒｜镜头3] 三。" in format_shot_prompt(shot)
-
-
 def test_whitespace_inside_the_texts_is_kept() -> None:
     shot = shot_of(
-        "  设定。\n", {"seconds": 2, "prompt": "  原文 @Image02。\n", "image_indexes": [2]}
+        "  设定。\n",
+        {"timestamps": [0, 2.0], "prompt": "  原文 @Image02。\n", "image_indexes": [2]},
     )
     assert format_shot_prompt(shot) == (
         "  设定。\n\n\n[0–2秒｜镜头1]   原文 @Image02。\n\n不要生成字幕，不要生成背景音乐。"

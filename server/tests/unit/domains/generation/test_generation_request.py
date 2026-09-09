@@ -115,7 +115,7 @@ def test_shot_is_assembled_into_the_prompt_and_both_are_stored() -> None:
 
 def test_image_indexes_follow_the_text_in_first_appearance_order() -> None:
     item = {
-        "seconds": 6,
+        "timestamps": [0, 6],
         "prompt": "走向镜头 @Image2，停下 @Image1，回头 @Image2。",
         "image_indexes": [2, 1],
     }
@@ -128,7 +128,7 @@ def test_image_indexes_follow_the_text_in_first_appearance_order() -> None:
     with pytest.raises(ValueError, match="Field required"):
         video_request(
             prompt=None,
-            shot=video_shot(timeline=[{"seconds": 6, "prompt": "看 @Image1。"}]),
+            shot=video_shot(timeline=[{"timestamps": [0, 6], "prompt": "看 @Image1。"}]),
             reference_image_urls=SHOT_IMAGE_URLS,
         )
 
@@ -169,7 +169,9 @@ def test_a_prompt_identical_to_the_assembly_is_accepted_alongside_the_shot() -> 
             {
                 "prompt": None,
                 "shot": video_shot(
-                    timeline=[{"seconds": 6, "prompt": "看 @Image1。", "image_indexes": [2]}]
+                    timeline=[
+                        {"timestamps": [0, 6], "prompt": "看 @Image1。", "image_indexes": [2]}
+                    ]
                 ),
                 "reference_image_urls": SHOT_IMAGE_URLS,
             },
@@ -180,15 +182,47 @@ def test_a_prompt_identical_to_the_assembly_is_accepted_alongside_the_shot() -> 
             {
                 "prompt": None,
                 "shot": video_shot(
-                    timeline=[{"seconds": 0, "prompt": "一。", "image_indexes": []}]
+                    timeline=[{"timestamps": [3, 3], "prompt": "一。", "image_indexes": []}]
                 ),
             },
-            "greater than 0",
+            "结束必须晚于开始",
         ),
         (
             {
                 "prompt": None,
-                "shot": video_shot(timeline=[{"seconds": 2, "prompt": " \n", "image_indexes": []}]),
+                "shot": video_shot(
+                    timeline=[{"timestamps": [1, 4], "prompt": "一。", "image_indexes": []}]
+                ),
+            },
+            "必须从 0 开始",
+        ),
+        (
+            {
+                "prompt": None,
+                "shot": video_shot(
+                    timeline=[
+                        {"timestamps": [0, 4], "prompt": "一。", "image_indexes": []},
+                        {"timestamps": [3.5, 7], "prompt": "二。", "image_indexes": []},
+                    ]
+                ),
+            },
+            "早于上一镜的结束 4 秒",
+        ),
+        (
+            {
+                "prompt": None,
+                "shot": video_shot(
+                    timeline=[{"timestamps": [-1, 4], "prompt": "一。", "image_indexes": []}]
+                ),
+            },
+            "greater than or equal to 0",
+        ),
+        (
+            {
+                "prompt": None,
+                "shot": video_shot(
+                    timeline=[{"timestamps": [0, 2], "prompt": " \n", "image_indexes": []}]
+                ),
             },
             "空白",
         ),
@@ -197,7 +231,7 @@ def test_a_prompt_identical_to_the_assembly_is_accepted_alongside_the_shot() -> 
             {
                 "prompt": None,
                 "shot": video_shot(
-                    timeline=[{"seconds": 2, "prompt": "长" * 3990, "image_indexes": []}]
+                    timeline=[{"timestamps": [0, 2], "prompt": "长" * 3990, "image_indexes": []}]
                 ),
             },
             "超过 4000 字上限",

@@ -38,22 +38,19 @@ const PREAMBLE = ['参考锁定：模特的服装与发型跟住 @Image1。', '�
 
 /** 与服务端 shot_prompt.py 同一条拼装规则：受理时把结构化 shot 拼成正文，记录里两者都存。 */
 const assembleShotPrompt = (shot: VideoShotIn): string => {
-  let start = 0
-  const lines = shot.timeline.map((item, position) => {
-    const end = Math.round((start + item.seconds) * 1000) / 1000
-    const line = `[${start}–${end}秒｜镜头${position + 1}] ${item.prompt}`
-    start = end
-    return line
-  })
+  const lines = shot.timeline.map(
+    (item, position) =>
+      `[${item.timestamps[0]}–${item.timestamps[1]}秒｜镜头${position + 1}] ${item.prompt}`,
+  )
   return `${shot.global_settings}\n\n${lines.join('\n')}\n不要生成字幕，不要生成背景音乐。`
 }
 
-/** 第 2 组那条成片当初提交的镜头组；带 shot 的记录才能回填。 */
+/** 第 2 组那条成片当初提交的镜头组，形状与分镜文件里的 prompt 相同；带 shot 的记录才能回填。 */
 const HISTORY_SHOT: VideoShotIn = {
   global_settings: PREAMBLE,
   timeline: [
-    { image_indexes: [1], prompt: '第一版：她从长椅间走向镜头 @Image1。', seconds: 4 },
-    { image_indexes: [2], prompt: '第一版：走到近处停下微笑 @Image2。', seconds: 7 },
+    { image_indexes: [1], prompt: '第一版：她从长椅间走向镜头 @Image1。', timestamps: [0, 4] },
+    { image_indexes: [2], prompt: '第一版：走到近处停下微笑 @Image2。', timestamps: [4, 11] },
   ],
 }
 

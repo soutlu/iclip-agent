@@ -2626,7 +2626,7 @@ export type VideoShotIn = {
 /**
  * VideoShotTimelineItemIn
  *
- * 镜头组里的一镜：多长、说什么、引了哪几张图。
+ * 镜头组里的一镜：起止时间、说什么、引了哪几张图。与分镜文件 video_shot.json 里的一镜同形。
  */
 export type VideoShotTimelineItemIn = {
   /**
@@ -2638,9 +2638,9 @@ export type VideoShotTimelineItemIn = {
    */
   prompt: string
   /**
-   * Seconds
+   * Timestamps
    */
-  seconds: number
+  timestamps: [number, number]
 }
 
 /**

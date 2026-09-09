@@ -1301,12 +1301,12 @@ export const zVideoSearchOut = z.object({
 /**
  * VideoShotTimelineItemIn
  *
- * 镜头组里的一镜：多长、说什么、引了哪几张图。
+ * 镜头组里的一镜：起止时间、说什么、引了哪几张图。与分镜文件 video_shot.json 里的一镜同形。
  */
 export const zVideoShotTimelineItemIn = z.object({
   image_indexes: z.array(z.int().gte(1)),
   prompt: z.string().max(4000),
-  seconds: z.number().gt(0),
+  timestamps: z.tuple([z.number().gte(0), z.number().gte(0)]),
 })
 
 /**
