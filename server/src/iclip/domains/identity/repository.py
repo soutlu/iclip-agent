@@ -42,7 +42,9 @@ class UserRepository(Protocol):
         job_title: str | None,
         departments: tuple[PmsDepartment, ...] | None,
     ) -> None:
-        """SSO 登录后同步展示资料；None 字段不变（roles 仅首登时传入）。"""
+        """SSO 登录后同步展示资料；None 字段不变（roles 仅首登时传入）。
+
+        账号还没有用户名时用 ``display_name`` 补上，已有的不改；名字被别的账号占着就留空。"""
         ...
 
 
