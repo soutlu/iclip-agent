@@ -38,3 +38,7 @@ scripts/dev-up.sh
 # 前端本地文件
 web/.env.local
 web/.tanstack/
+
+# 模型表、agent、skill 只存在于服务器与本机，仓库只放代码
+server/configs/
+server/agents/

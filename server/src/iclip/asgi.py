@@ -6,7 +6,8 @@
 装配在 import 期完成且不建立任何连接，连接与后台循环都留给 lifespan。合同导出靠
 的就是这一点：``scripts/dump_openapi.py`` 只 import 本模块取 OpenAPI，从不启动应用。
 
-进程收到 SIGHUP 时从同样两个路径重读，热换模型表与 agent 层（见 app/agent_layer.py）。
+两个文件所在目录被监听，文件一变就从同样两个路径重读，热换模型表与 agent 层
+（见 app/agent_layer.py）；SIGHUP 触发同一次重读。
 """
 
 from __future__ import annotations
@@ -26,4 +27,9 @@ def _load() -> tuple[RuntimeConfig, tuple[ResolvedAgent, ...]]:
 
 
 _config, _agents = _load()
-app = build_app(_config, agents=_agents, reload_source=_load)
+app = build_app(
+    _config,
+    agents=_agents,
+    reload_source=_load,
+    watch_paths=(_config_path.parent, _agents_path.parent),
+)

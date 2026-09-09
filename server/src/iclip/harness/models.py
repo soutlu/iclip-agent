@@ -146,6 +146,15 @@ def build_models(specs: Sequence[ModelSpec]) -> BuiltModels:
     return {spec.name: build_model(spec) for spec in specs}
 
 
+def rebuild_models(
+    specs: Sequence[ModelSpec], previous_specs: Sequence[ModelSpec], previous: BuiltModels
+) -> BuiltModels:
+    """重载时只重建声明变了的模型；声明一字未改的沿用旧实例，客户端连接池不动。"""
+
+    kept = {spec: previous[spec.name] for spec in previous_specs}
+    return {spec.name: kept.get(spec) or build_model(spec) for spec in specs}
+
+
 __all__ = [
     "BuiltModels",
     "ModelApi",
@@ -154,4 +163,5 @@ __all__ = [
     "ThinkingEffort",
     "build_model",
     "build_models",
+    "rebuild_models",
 ]

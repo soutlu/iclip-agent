@@ -179,3 +179,31 @@ async def test_healthz_reports_reload_state(base_env: None, tmp_path: Path) -> N
     assert body["config"]["generation"] == 1
     assert body["config"]["needs_restart"] is True
     assert "security" in body["config"]["error"]
+
+
+async def test_watching_a_directory_reloads_after_a_file_changes(tmp_path: Path) -> None:
+    from iclip.app.agent_layer import watch_and_reload
+
+    watched = tmp_path / "agents"
+    watched.mkdir()
+    (watched / "instructions.md").write_text("v1", encoding="utf-8")
+    reloads = 0
+
+    def reload() -> None:
+        nonlocal reloads
+        reloads += 1
+
+    import asyncio
+
+    stop = asyncio.Event()
+    task = asyncio.create_task(watch_and_reload((watched,), reload, stop=stop, debounce_ms=100))
+    await asyncio.sleep(0.5)
+    (watched / "instructions.md").write_text("v2", encoding="utf-8")
+    for _ in range(50):
+        if reloads:
+            break
+        await asyncio.sleep(0.1)
+    stop.set()
+    await task
+
+    assert reloads >= 1

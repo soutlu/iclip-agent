@@ -21,6 +21,9 @@ from iclip.platform.transcript.display import AgentCallDisplay, DisplayFn, ToolD
 AgentCapabilities = tuple[AgentCapability[Any], ...]
 """由组合根解析的能力集合。"""
 
+AgentMap = Mapping[str, Agent[Any, Any]]
+"""agent id → 装配好的 Agent。"""
+
 DELEGATE_TOOL = "delegate_task"
 """显式指定 SubAgents 工具名，与 display 注册保持一致。"""
 
@@ -192,7 +195,7 @@ def _delegate_display(args: Any) -> ToolDisplay | None:
 class AgentRegistry:
     """一次装配得到的 id → Agent 映射，装配后不可变。"""
 
-    agents: Mapping[str, Agent[Any, Any]]
+    agents: AgentMap
 
     @property
     def ids(self) -> tuple[str, ...]:
@@ -238,6 +241,7 @@ __all__ = [
     "DELEGATE_TOOL",
     "AgentCapabilities",
     "AgentDefinition",
+    "AgentMap",
     "AgentRegistry",
     "SubAgentDefinition",
     "build_agent_registry",

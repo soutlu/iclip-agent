@@ -7,6 +7,7 @@ import signal
 import uuid
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 import httpx
@@ -25,6 +26,7 @@ from iclip.app.agent_layer import (
     live_agents,
     live_context_limits,
     live_title_generator,
+    watch_and_reload,
 )
 from iclip.app.capability_table import build_capability_table, build_display_registry
 from iclip.app.conversation_workspace import ConversationWorkspace, validate_video_shots
@@ -266,10 +268,12 @@ def build_app(
     queue_connector: procrastinate.BaseConnector | None = None,
     product_catalog_engine: AsyncEngine | None = None,
     reload_source: ReloadSource | None = None,
+    watch_paths: Sequence[Path] = (),
 ) -> FastAPI:
     """装配 FastAPI 应用与资源生命周期，支持注入基础设施替身。
 
-    ``reload_source`` 重读配置与 agent 声明，供 SIGHUP 热换 agent 层；不给就不能热重载。
+    ``reload_source`` 重读配置与 agent 声明；``watch_paths`` 下的文件一变就用它热换 agent 层，
+    SIGHUP 也触发同一次重载。两者都不给就不能热重载。
     """
 
     settings = resolve_settings(config)
@@ -480,6 +484,14 @@ def build_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         hup_installed = _install_hup_reload(agent_layer)
+        stop_watching = asyncio.Event()
+        watcher = (
+            asyncio.create_task(
+                watch_and_reload(watch_paths, agent_layer.reload, stop=stop_watching)
+            )
+            if watch_paths
+            else None
+        )
         await transcripts.runner.start()
         if generation is not None:
             # 接收 HTTP 请求前打开队列连接。
@@ -497,6 +509,9 @@ def build_app(
             await http_client.aclose()
             if hup_installed:
                 asyncio.get_running_loop().remove_signal_handler(signal.SIGHUP)
+            if watcher is not None:
+                stop_watching.set()
+                await watcher
             if owns_catalog_engine and catalog_engine is not None:
                 await catalog_engine.dispose()
             if owns_engine:

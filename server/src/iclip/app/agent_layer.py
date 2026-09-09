@@ -1,21 +1,21 @@
 """可热换的 agent 层：模型表、agent 注册表、上下文窗口与标题模型一次装配、整体替换。
 
 config.yaml 的 ``models`` 段、``conversations.title_model`` 与 agents/ 目录下的一切
-（agents.yaml、agent.yaml、instructions.md、SKILL.md）属于这一层，运行期可以重载。
+（agents.yaml、agent.yaml、instructions.md、SKILL.md）属于这一层，运行期可以重载：
+目录里的文件一变就重读，SIGHUP 是手动触发的备用入口。
 其余配置段与环境变量在启动期冻结，改了要重启。
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
 
 import structlog
-from pydantic_ai import Agent
-from pydantic_ai.models import Model
-from pydantic_ai_harness.step_persistence import StepStore
+from watchfiles import awatch
 
 from iclip.app.capability_table import CapabilityTable, resolve_capabilities
 from iclip.config import (
@@ -30,13 +30,15 @@ from iclip.domains.conversations.service import GenerateTitle
 from iclip.harness.agents import (
     AgentCapabilities,
     AgentDefinition,
+    AgentMap,
     AgentRegistry,
     SubAgentDefinition,
     build_agent_registry,
     subagent_profiles,
 )
-from iclip.harness.models import BuiltModels, ModelSpec, build_model
+from iclip.harness.models import BuiltModels, ModelSpec, build_models, rebuild_models
 from iclip.harness.skills import build_skill_capabilities
+from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.titles import title_generator
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.harness.transcript.subagents import SubAgentMirror
@@ -50,13 +52,16 @@ ReloadSource = Callable[[], tuple[RuntimeConfig, Sequence[ResolvedAgent]]]
 HOT_SETTINGS = frozenset({"models", "title_model"})
 """ResolvedSettings 里允许热重载的字段；其余字段变了只能重启。"""
 
+WATCH_DEBOUNCE_MS = 1500
+"""目录变动到触发重载的静默期。编辑器保存往往是删旧建新几次写入，合成一次再读。"""
+
 
 @dataclass(frozen=True, slots=True)
 class LayerDeps:
     """启动期冻结、每次装配都复用的依赖。"""
 
     table: CapabilityTable
-    step_store: StepStore
+    step_store: PgStepStore
     live: TranscriptStore
     display: ToolDisplayRegistry
 
@@ -146,17 +151,6 @@ def _model_specs(declared: Sequence[ResolvedModel]) -> tuple[ModelSpec, ...]:
     )
 
 
-def _build_models(specs: Sequence[ModelSpec], previous: AgentLayer | None) -> BuiltModels:
-    """声明没变的模型沿用上一层的实例，只改 agent 或 skill 时一个模型客户端都不重建。"""
-
-    reusable: dict[ModelSpec, Model] = (
-        {}
-        if previous is None
-        else {spec: previous.models[spec.name] for spec in previous.model_specs}
-    )
-    return {spec.name: reusable.get(spec) or build_model(spec) for spec in specs}
-
-
 def _agent_context_limits(
     declared_agents: Sequence[ResolvedAgent],
     declared_models: Sequence[ResolvedModel],
@@ -185,11 +179,16 @@ def build_agent_layer(
 ) -> AgentLayer:
     """完整装配一层；任何一处不合法都在这里抛出，不会留下半成品。
 
-    ``models`` 是测试注入的替身；``previous`` 给重载复用没变的模型实例。
+    ``models`` 是测试注入的替身；``previous`` 给重载复用声明没变的模型实例。
     """
 
     specs = _model_specs(settings.models)
-    built_models = models if models is not None else _build_models(specs, previous)
+    if models is not None:
+        built_models = models
+    elif previous is None:
+        built_models = build_models(specs)
+    else:
+        built_models = rebuild_models(specs, previous.model_specs, previous.models)
     title_model = settings.title_model
     if title_model is None:
         generate_title: GenerateTitle = _no_title
@@ -250,8 +249,8 @@ class CurrentAgentLayer:
     def reload(self) -> None:
         """重新读配置并整体替换。
 
-        失败保留旧层、记下原因，不抛出——它挂在信号处理器上，抛了没人接。
-        非热区段有改动时拒绝替换并标记 ``needs_restart``，由发布脚本改走重启。
+        失败保留旧层、记下原因，不抛出——它挂在目录监听与信号处理器上，抛了没人接。
+        非热区段有改动时拒绝替换并标记 ``needs_restart``。
         """
 
         if self._source is None:
@@ -287,13 +286,32 @@ class CurrentAgentLayer:
         _logger.error("配置热重载失败，继续用旧配置", reason=reason, needs_restart=needs_restart)
 
     def status(self) -> dict[str, object]:
-        """给 /healthz 的一段：发布脚本据此判断重载成功、失败还是该重启。"""
+        """给 /healthz 的一段：看重载成功、失败还是该重启。不鉴权，文案里不带取值。"""
 
         return {
             "generation": self.generation,
             "error": self.error,
             "needs_restart": self.needs_restart,
         }
+
+
+async def watch_and_reload(
+    paths: Sequence[Path],
+    reload: Callable[[], None],
+    *,
+    stop: asyncio.Event,
+    debounce_ms: int = WATCH_DEBOUNCE_MS,
+) -> None:
+    """目录下任何文件变动后重载一次，直到 ``stop`` 置位。
+
+    监听本身出错就退出并记日志：之后改文件不再自动生效，SIGHUP 仍可手动触发。
+    """
+
+    try:
+        async for _changes in awatch(*paths, stop_event=stop, debounce=debounce_ms):
+            reload()
+    except Exception:
+        _logger.exception("配置目录监听退出，之后的改动不会自动重载，可发 SIGHUP 手动触发")
 
 
 class LiveView[K, V](Mapping[K, V]):
@@ -315,7 +333,7 @@ class LiveView[K, V](Mapping[K, V]):
         return len(self._pick(self._holder.current))
 
 
-def live_agents(holder: CurrentAgentLayer) -> Mapping[str, Agent[Any, Any]]:
+def live_agents(holder: CurrentAgentLayer) -> AgentMap:
     return LiveView(holder, lambda layer: layer.registry.agents)
 
 
@@ -332,6 +350,7 @@ def live_title_generator(holder: CurrentAgentLayer) -> GenerateTitle:
 
 __all__ = [
     "HOT_SETTINGS",
+    "WATCH_DEBOUNCE_MS",
     "AgentLayer",
     "CurrentAgentLayer",
     "LayerDeps",
@@ -340,4 +359,5 @@ __all__ = [
     "live_agents",
     "live_context_limits",
     "live_title_generator",
+    "watch_and_reload",
 ]

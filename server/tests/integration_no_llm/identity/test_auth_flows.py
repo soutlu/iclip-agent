@@ -76,4 +76,6 @@ async def test_anonymous_me_is_401(client: httpx.AsyncClient) -> None:
 async def test_healthz_is_public(client: httpx.AsyncClient) -> None:
     response = await client.get("/healthz")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["config"] == {"generation": 1, "error": None, "needs_restart": False}
