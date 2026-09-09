@@ -232,7 +232,11 @@ async def test_video_submit_assembles_the_prompt_from_a_shot_and_stores_both() -
     assert stored["shot"] == {
         "global_settings": "人物保持一致。",
         "timeline": [
-            {"seconds": 6.0, "prompt": "走向镜头 @Image1，停下 @Image2。", "image_indexes": [1, 2]}
+            {
+                "timestamps": (0, 6),
+                "prompt": "走向镜头 @Image1，停下 @Image2。",
+                "image_indexes": [1, 2],
+            }
         ],
     }
 

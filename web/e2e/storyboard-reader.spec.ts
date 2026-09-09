@@ -40,17 +40,6 @@ const rawGroupPrompt = (shot: StoredShot) => {
   )
   return `${shot.prompt.global_settings}\n\n${lines.join('\n')}\n不要生成字幕，不要生成背景音乐。`
 }
-
-/** 出片请求里的结构化镜头组：起止秒改成每镜时长，正文由服务端拼。 */
-const wireShot = (shot: StoredShot) => ({
-  global_settings: shot.prompt.global_settings,
-  timeline: shot.prompt.timeline.map((item) => ({
-    image_indexes: item.image_indexes,
-    prompt: item.prompt,
-    seconds: Math.round((item.timestamps[1] - item.timestamps[0]) * 1000) / 1000,
-  })),
-})
-
 const watchGenerationPosts = (page: Page) => {
   const posts: string[] = []
   page.on('request', (request) => {
@@ -456,7 +445,7 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
     model: 'wan3.0-video',
     reference_image_urls: third.image_urls,
     seconds: third.seconds,
-    shot: wireShot(third),
+    shot: third.prompt,
     shot_index: 3,
   })
   await expect(panel.getByText('生成中 1', { exact: true })).toBeVisible()

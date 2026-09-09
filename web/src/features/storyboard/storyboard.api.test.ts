@@ -7,7 +7,6 @@ import {
   historyShotOf,
   submitVideoGeneration,
   uploadFrameImage,
-  videoShotOf,
   type GenerationJob,
 } from './storyboard.api'
 
@@ -27,7 +26,7 @@ const shot: Shot = {
 }
 
 describe('submitVideoGeneration', () => {
-  it('照上游形状发到视频端点：镜头组结构化发出、参考图取整组，回执只取任务号', async () => {
+  it('照上游形状发到视频端点：镜头组按分镜文件的形状原样发出、参考图取整组，回执只取任务号', async () => {
     let body: unknown
     server.use(
       http.post('*/api/generations/video', async ({ request }) => {
@@ -59,7 +58,7 @@ describe('submitVideoGeneration', () => {
       shot: {
         global_settings: '人物保持一致。',
         timeline: [
-          { image_indexes: [1, 2], prompt: '走向镜头 @Image1，停下 @Image2。', seconds: 6 },
+          { image_indexes: [1, 2], prompt: '走向镜头 @Image1，停下 @Image2。', timestamps: [0, 6] },
         ],
       },
       shot_index: 2,
@@ -85,30 +84,6 @@ describe('submitVideoGeneration', () => {
   })
 })
 
-describe('videoShotOf', () => {
-  it('起止秒改成每镜时长，间隙不算进去，保留到毫秒', () => {
-    const gapped: Shot = {
-      ...shot,
-      prompt: {
-        global_settings: '设定。',
-        timeline: [
-          { timestamps: [0, 3.5], prompt: '一。', image_indexes: [] },
-          { timestamps: [4.25, 8.5], prompt: '二 @Image1。', image_indexes: [1] },
-          { timestamps: [8.5, 8.6], prompt: '三。', image_indexes: [] },
-        ],
-      },
-    }
-    expect(videoShotOf(gapped)).toEqual({
-      global_settings: '设定。',
-      timeline: [
-        { image_indexes: [], prompt: '一。', seconds: 3.5 },
-        { image_indexes: [1], prompt: '二 @Image1。', seconds: 4.25 },
-        { image_indexes: [], prompt: '三。', seconds: 0.1 },
-      ],
-    })
-  })
-})
-
 describe('historyShotOf', () => {
   const job = (request: Record<string, unknown>): GenerationJob => ({
     createdAt: '2026-09-01T10:00:00Z',
@@ -123,29 +98,15 @@ describe('historyShotOf', () => {
     watermarkOutputUrl: null,
   })
 
-  it('时长首尾相接算回起止秒，浮点尾数按毫秒收掉', () => {
-    expect(
-      historyShotOf(
-        job({
-          prompt: '拼好的正文',
-          shot: {
-            global_settings: '设定。',
-            timeline: [
-              { image_indexes: [], prompt: '一。', seconds: 0.1 },
-              { image_indexes: [1], prompt: '二 @Image1。', seconds: 0.2 },
-              { image_indexes: [], prompt: '三。', seconds: 0.3 },
-            ],
-          },
-        }),
-      ),
-    ).toEqual({
+  it('记录里的 shot 与分镜文件的 prompt 同形，起止秒与间隙原样取回', () => {
+    const history = {
       global_settings: '设定。',
       timeline: [
-        { timestamps: [0, 0.1], prompt: '一。', image_indexes: [] },
-        { timestamps: [0.1, 0.3], prompt: '二 @Image1。', image_indexes: [1] },
-        { timestamps: [0.3, 0.6], prompt: '三。', image_indexes: [] },
+        { timestamps: [0, 3.5], prompt: '一。', image_indexes: [] },
+        { timestamps: [4.25, 8.5], prompt: '二 @Image1。', image_indexes: [1] },
       ],
-    })
+    }
+    expect(historyShotOf(job({ prompt: '拼好的正文', shot: history }))).toEqual(history)
   })
 
   it.each([
@@ -153,11 +114,11 @@ describe('historyShotOf', () => {
     ['shot 为空', { prompt: '正文', shot: null }],
     ['shot 缺时间线', { prompt: '正文', shot: { global_settings: '设定。', timeline: [] } }],
     [
-      '时长不是正数',
+      'timestamps 不是一对秒数',
       {
         shot: {
           global_settings: '设定。',
-          timeline: [{ image_indexes: [], prompt: '一。', seconds: 0 }],
+          timeline: [{ image_indexes: [], prompt: '一。', timestamps: [3] }],
         },
       },
     ],

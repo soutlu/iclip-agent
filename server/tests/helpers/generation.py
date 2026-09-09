@@ -57,7 +57,11 @@ def video_shot(**overrides: Any) -> dict[str, Any]:
     shot: dict[str, Any] = {
         "global_settings": "人物保持一致。",
         "timeline": [
-            {"seconds": 6, "prompt": "走向镜头 @Image1，停下 @Image2。", "image_indexes": [1, 2]}
+            {
+                "timestamps": [0, 6],
+                "prompt": "走向镜头 @Image1，停下 @Image2。",
+                "image_indexes": [1, 2],
+            }
         ],
     }
     shot.update(overrides)

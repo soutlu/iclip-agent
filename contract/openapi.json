@@ -5070,7 +5070,7 @@
       },
       "VideoShotTimelineItemIn": {
         "additionalProperties": false,
-        "description": "镜头组里的一镜：多长、说什么、引了哪几张图。",
+        "description": "镜头组里的一镜：起止时间、说什么、引了哪几张图。与分镜文件 video_shot.json 里的一镜同形。",
         "properties": {
           "image_indexes": {
             "items": {
@@ -5085,14 +5085,25 @@
             "title": "Prompt",
             "type": "string"
           },
-          "seconds": {
-            "exclusiveMinimum": 0.0,
-            "title": "Seconds",
-            "type": "number"
+          "timestamps": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "minimum": 0.0,
+                "type": "number"
+              }
+            ],
+            "title": "Timestamps",
+            "type": "array"
           }
         },
         "required": [
-          "seconds",
+          "timestamps",
           "prompt",
           "image_indexes"
         ],
