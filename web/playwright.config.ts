@@ -11,6 +11,8 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   reporter: CI ? 'github' : 'list',
   retries: CI ? 1 : 0,
+  // CI 机器 4 核；用例之间靠各自的浏览器上下文与 MSW 隔离，可以并行。
+  workers: CI ? 3 : undefined,
   testDir: 'e2e',
   use: { baseURL: BASE_URL, trace: 'on-first-retry' },
   webServer: {
