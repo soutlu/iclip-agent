@@ -96,6 +96,7 @@ def make_deps() -> AgentRunDeps:
             api_key_id=None,
         ),
         conversation_id="thread-1",
+        user_name="luke",
     )
 
 

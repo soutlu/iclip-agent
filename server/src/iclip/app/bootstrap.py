@@ -543,6 +543,7 @@ def build_app(
         return AgentRunDeps(
             principal=identity.service.principal_for_user(account),
             conversation_id=row.conversation_id,
+            user_name=row.user_name,
         )
 
     # 显示与续跑共用历史投影，用于初始化续跑的实时状态。

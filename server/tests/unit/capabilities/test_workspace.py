@@ -89,7 +89,9 @@ def make_principal(user_id: uuid.UUID = USER) -> Principal:
 
 
 def make_deps(user_id: uuid.UUID = USER, conversation_id: str = THREAD) -> AgentRunDeps:
-    return AgentRunDeps(principal=make_principal(user_id), conversation_id=conversation_id)
+    return AgentRunDeps(
+        principal=make_principal(user_id), conversation_id=conversation_id, user_name="luke"
+    )
 
 
 def make_context(deps: object) -> RunContext[object]:

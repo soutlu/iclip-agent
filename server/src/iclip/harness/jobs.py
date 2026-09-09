@@ -64,6 +64,7 @@ agent_jobs_table = Table(
     Column("conversation_id", Text, nullable=False),
     Column("agent_id", Text, nullable=False),
     Column("owner_user_id", UUID(as_uuid=True), nullable=False),
+    Column("user_name", Text, nullable=False),
     Column("content", Text, nullable=False),
     Column("status", Text, nullable=False),
     Column("run_id", Text),
@@ -110,6 +111,8 @@ class JobRow:
     conversation_id: str
     agent_id: str
     owner_user_id: uuid.UUID
+    user_name: str
+    """替谁跑：发往上游落表对账的归属标签。owner_user_id 回答以谁的身份跑，两者可以不是同一个人。"""
     content: tuple[PromptContent, ...]
     status: JobStatus
     run_id: str | None
@@ -178,6 +181,7 @@ class JobQueue:
         conversation_id: str,
         agent_id: str,
         owner_user_id: uuid.UUID,
+        user_name: str,
         content: tuple[PromptContent, ...],
         now: datetime,
         locked_by: str,
@@ -203,6 +207,7 @@ class JobQueue:
             "conversation_id": conversation_id,
             "agent_id": agent_id,
             "owner_user_id": owner_user_id,
+            "user_name": user_name,
             "content": _dump(content),
             "created_at": now,
         }
@@ -747,6 +752,7 @@ class _JobRow:
     conversation_id: str
     agent_id: str
     owner_user_id: uuid.UUID
+    user_name: str
     content: str
     status: str
     run_id: str | None
@@ -767,6 +773,7 @@ def _row(row: object) -> JobRow:
         conversation_id=r.conversation_id,
         agent_id=r.agent_id,
         owner_user_id=r.owner_user_id,
+        user_name=r.user_name,
         content=_CONTENT.validate_json(r.content),
         status=cast("JobStatus", r.status),
         run_id=r.run_id,

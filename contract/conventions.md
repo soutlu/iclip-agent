@@ -52,10 +52,13 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 发消息
 
-`POST /conversations/{id}/prompts`，体是 `{prompt_id, content}`。
+`POST /conversations/{id}/prompts`，体是 `{prompt_id, content, user_name?}`。
 
 - `prompt_id` 由客户端铸（乐观气泡靠它认领服务端回来的那条）。同一段对话里重发同一个 id
   返回已有那条，不会多起一次运行；换一段对话用同一个 id 是 `409`。
+- `user_name` 是这条消息替谁发的，运行带着它、工具把它发给上游落表对账；它不是身份，
+  不参与授权。API key 调用方必填，缺失是 `422`，给什么用什么。浏览器会话可省略，服务端填
+  登录用户名；给了就必须等于登录用户名，否则 `422`。重新生成沿用原消息的值。
 - 答复是这条消息的记录：这段对话空着就 `status: "running"`，正忙就 `"queued"`。
 
 ### 读

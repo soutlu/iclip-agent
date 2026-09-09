@@ -114,6 +114,38 @@ async def test_send_then_read_it_back(app: FastAPI, pg_url: str) -> None:
     assert page["items"][0]["steps"][0]["frames"][0]["kind"] == "text"
 
 
+async def test_api_key_caller_must_say_who_the_message_is_for(app: FastAPI, pg_url: str) -> None:
+    """机器调用方替终端用户发消息：不带 user_name 是 422，带了就照它给的收下。"""
+
+    async with make_client(app) as owner:
+        await register_and_login(owner)
+        await set_roles_in_db(pg_url, "luke@example.com", ["root"])
+        conversation_id = await new_conversation(owner, AGENT_ID)
+        issued = await owner.post(
+            "/api-keys", json={"name": "relay", "permissions": ["agent:run", "agent:read"]}
+        )
+        assert issued.status_code == 201, issued.text
+
+    async with make_client(app) as machine:
+        machine.headers["Authorization"] = f"Bearer {issued.json()['apiKey']['token']}"
+        nameless = await machine.post(
+            f"/conversations/{conversation_id}/prompts",
+            json={"prompt_id": "prm_key_nameless", "content": [{"type": "text", "text": "走"}]},
+        )
+        named = await machine.post(
+            f"/conversations/{conversation_id}/prompts",
+            json={
+                "prompt_id": "prm_key_named",
+                "content": [{"type": "text", "text": "走"}],
+                "user_name": "designer-zhang",
+            },
+        )
+        assert nameless.status_code == 422, nameless.text
+        assert "user_name" in nameless.json()["detail"]
+        assert named.status_code == 200, named.text
+        await settled(machine, conversation_id)
+
+
 async def test_second_prompt_queues_while_the_first_runs(app: FastAPI, pg_url: str) -> None:
 
     async with make_client(app) as client:

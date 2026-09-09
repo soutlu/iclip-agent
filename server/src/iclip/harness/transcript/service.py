@@ -61,9 +61,10 @@ class TranscriptService:
         conversation_id: str,
         agent_id: str,
         owner_user_id: uuid.UUID,
+        user_name: str,
         content: tuple[PromptContent, ...],
     ) -> Prompt:
-        """提交消息，运行或排队状态由持久化队列决定。"""
+        """提交消息，运行或排队状态由持久化队列决定。``user_name`` 已由入口按主体定好。"""
 
         if not content:
             raise ValidationFailed("消息是空的")
@@ -79,6 +80,7 @@ class TranscriptService:
             conversation_id=conversation_id,
             agent_id=agent_id,
             owner_user_id=owner_user_id,
+            user_name=user_name,
             content=content,
             now=datetime.now(UTC),
             locked_by=self.runner.locked_by,
@@ -131,6 +133,8 @@ class TranscriptService:
             conversation_id=conversation_id,
             agent_id=row.agent_id,
             owner_user_id=row.owner_user_id,
+            # 重跑的是同一个人的那条消息，归属标签照原样。
+            user_name=row.user_name,
             content=row.content if content is None else content,
         )
 

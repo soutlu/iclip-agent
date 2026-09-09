@@ -331,10 +331,14 @@ class PromptSubmission(_Envelope):
 
     ``prompt_id`` 由客户端铸：它得在服务端答复回来之前就用这个 id 把自己的乐观气泡挂上，
     而且重发同一个 id 不会多起一次运行。
+
+    ``user_name`` 是这条消息替谁发的，发往上游落表对账用。API key 调用方必须给；浏览器
+    会话可省略，服务端填登录用户名。
     """
 
     prompt_id: PromptId
     content: PromptParts
+    user_name: str | None = None
 
 
 class RegenerateBody(_Envelope):
