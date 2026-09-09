@@ -1,6 +1,5 @@
 /** 结构化分镜工作台；查询参数保存组与帧位置，草稿局部更新后整份保存。 */
 
-import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import {
   useEffect,
@@ -45,15 +44,13 @@ import {
 } from '../shot-document'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH, shotSelectionRef } from '../shots'
 import {
-  storyboardQueryKeys,
-  submitVideoGeneration,
   uploadFrameImage,
   useFrameCandidates,
   useShotGenerations,
-  useVideoModels,
   type FrameCandidate,
 } from '../storyboard.api'
 import { useShotsDraft, type SaveState } from '../use-shots-draft'
+import { useVideoGeneration } from '../use-video-generation'
 import { GenerationRecords } from './generation-records'
 import { ShotFilmstrip } from './shot-filmstrip'
 import { FrameAssignmentPicker } from './frame-assignment-picker'
@@ -81,10 +78,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const file = useWorkspaceFile(conversationId, path)
   const generations = useShotGenerations(conversationId)
   const candidates = useFrameCandidates(conversationId)
-  const videoModels = useVideoModels()
-  const queryClient = useQueryClient()
-  const [wantedModel, setWantedModel] = useState<string>()
-  const [submitting, setSubmitting] = useState(false)
+  const video = useVideoGeneration(conversationId)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
   const [uploadedSources, setUploadedSources] = useState<
     { group: number; frame: number; url: string }[]
@@ -186,38 +180,13 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const activeCount = jobs.filter(
     (job) => job.kind === 'video' && job.shotIndex === shot.index && isRunningStatus(job.status),
   ).length
-  // 选过的模型不在允许表里（配置改了）就退回默认，不用副作用改 state。
-  const modelOptions = videoModels.data?.items ?? []
-  const model =
-    wantedModel !== undefined && modelOptions.includes(wantedModel)
-      ? wantedModel
-      : videoModels.data?.default
-  const generate = async () => {
-    if (model === undefined) return
-    // 正文按屏幕上这一版拼，没存下的改动也一起发；引用越界这类文件规则先在本地拦下。
-    const problem = validateShot(shot)
-    if (problem !== undefined) {
-      toast.error(problem)
-      return
-    }
-    setSubmitting(true)
-    try {
-      await submitVideoGeneration({
-        aspectRatio: document.aspect_ratio,
-        conversationId,
-        model,
-        shot,
-      })
-      toast(`镜头组 ${shot.index} 已提交出片，进度看生成记录`)
-      void queryClient.invalidateQueries({
-        queryKey: storyboardQueryKeys.generations(conversationId),
-      })
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '出片没发出去')
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  // 出片发的是描述的当前版本；还在存或没存下就先别发，免得发出去的和文件里的不一样。
+  // 原因不另写一句：左边的保存状态已经在说。
+  const generateDisabled =
+    video.options.model === undefined ||
+    draft.state.kind === 'saving' ||
+    draft.state.kind === 'error' ||
+    video.submitting.includes(shot.index)
   const onScroll = () => {
     const element = pagesRef.current
     if (element === null) return
@@ -268,12 +237,13 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
             ) : null}
           </Button>
           <VideoGenerationButton
-            model={model}
-            models={modelOptions}
-            onChangeModel={setWantedModel}
-            onGenerate={() => void generate()}
-            submitting={submitting}
-            unavailable={videoModels.isError ? '视频模型读不到' : undefined}
+            disabled={generateDisabled}
+            models={video.models}
+            onChange={video.setOptions}
+            onGenerate={() => void video.submit(shot, document.aspect_ratio)}
+            submitting={video.submitting.includes(shot.index)}
+            unavailable={video.modelsUnavailable ? '视频模型读不到' : undefined}
+            value={video.options}
           />
         </div>
         <div className="relative flex min-h-0 w-full min-w-0 flex-1 overflow-hidden">

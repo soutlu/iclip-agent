@@ -35,12 +35,19 @@ describe('submitVideoGeneration', () => {
     )
 
     await expect(
-      submitVideoGeneration({ aspectRatio: '9:16', conversationId, model: 'wan3.0-video', shot }),
+      submitVideoGeneration({
+        aspectRatio: '9:16',
+        conversationId,
+        generateAudio: false,
+        model: 'wan3.0-video',
+        shot,
+      }),
     ).resolves.toBe('4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c')
 
     expect(body).toEqual({
       aspect_ratio: '9:16',
       conversation_id: conversationId,
+      generate_audio: false,
       model: 'wan3.0-video',
       prompt:
         '人物保持一致。\n\n[0–6秒｜镜头1] 走向镜头 @Image1，停下 @Image2。\n不要生成字幕，不要生成背景音乐。',
@@ -58,7 +65,13 @@ describe('submitVideoGeneration', () => {
     )
 
     await expect(
-      submitVideoGeneration({ aspectRatio: '9:16', conversationId, model: 'x', shot }),
+      submitVideoGeneration({
+        aspectRatio: '9:16',
+        conversationId,
+        generateAudio: true,
+        model: 'x',
+        shot,
+      }),
     ).rejects.toThrow('视频生成仅支持模型 moyu-seedance-2-5')
   })
 })

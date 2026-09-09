@@ -42,6 +42,7 @@ export type VideoGenerationInput = {
   conversationId: string
   aspectRatio: string
   model: string
+  generateAudio: boolean
   shot: Shot
 }
 
@@ -52,6 +53,7 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
   const body: VideoGenerationIn = {
     aspect_ratio: input.aspectRatio,
     conversation_id: input.conversationId,
+    generate_audio: input.generateAudio,
     model: input.model,
     prompt: formatShotPrompt(input.shot),
     reference_image_urls: [...input.shot.image_urls],
