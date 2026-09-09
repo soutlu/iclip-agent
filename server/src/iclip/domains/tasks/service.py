@@ -83,8 +83,8 @@ class TaskService:
         else:
             _require_frozen_input_unchanged(task.inputs, body.inputs)
 
-        if body.inputs.product.style_no != task.inputs.product.style_no:
-            raise Conflict("需求单创建后不能更换商品款号")
+        if _style_nos(body.inputs) != _style_nos(task.inputs):
+            raise Conflict("需求单创建后不能增减或更换商品款号")
 
         saved = await self._repo.save(
             task_id,
@@ -160,10 +160,14 @@ def _require_creator_or_manager(principal: Principal, task: Task, *, action: str
     raise PermissionDenied(f"只有提出需求的人能{action}")
 
 
+def _style_nos(inputs: TaskInputs) -> list[str]:
+    return [product.style_no for product in inputs.products]
+
+
 def _require_frozen_input_unchanged(stored: TaskInputs, incoming: TaskInputs) -> None:
     changed = []
-    if stored.product != incoming.product:
-        changed.append("product")
+    if stored.products != incoming.products:
+        changed.append("products")
     for name in ("platform", "video_type", "content_type"):
         if getattr(stored.video_spec, name) != getattr(incoming.video_spec, name):
             changed.append(f"video_spec.{name}")
@@ -175,7 +179,7 @@ def _says_what_to_make(inputs: TaskInputs) -> bool:
     references = inputs.reference_image_oss_urls
     return bool(
         inputs.creative_requirement.strip()
-        or inputs.product.image_oss_urls
+        or any(product.image_oss_urls for product in inputs.products)
         or references.model
         or references.outfit
         or references.prop

@@ -634,9 +634,12 @@ export const zStyleMatchOut = z.object({
 /**
  * TaskProduct
  *
- * 需求单的商品快照，由调用方明确提供名称和素材。
+ * 需求单里的一款商品，由调用方明确提供名称、属性和素材。
  */
 export const zTaskProductInput = z.object({
+  brand: z.string().max(200).optional().default(''),
+  category: z.string().max(200).optional().default(''),
+  color_name: z.string().max(200).optional().default(''),
   image_oss_urls: z.array(z.string()).max(16).optional(),
   name: z.string().max(200).optional().default(''),
   style_no: z.string().min(1).max(64),
@@ -645,9 +648,12 @@ export const zTaskProductInput = z.object({
 /**
  * TaskProduct
  *
- * 需求单的商品快照，由调用方明确提供名称和素材。
+ * 需求单里的一款商品，由调用方明确提供名称、属性和素材。
  */
 export const zTaskProductOutput = z.object({
+  brand: z.string().max(200).default(''),
+  category: z.string().max(200).default(''),
+  color_name: z.string().max(200).default(''),
   image_oss_urls: z.array(z.string()).max(16),
   name: z.string().max(200).default(''),
   style_no: z.string().min(1).max(64),
@@ -696,7 +702,7 @@ export const zTaskVideoSpecInput = z.object({
  */
 export const zTaskInputsInput = z.object({
   creative_requirement: z.string().max(4000).optional().default(''),
-  product: zTaskProductInput,
+  products: z.array(zTaskProductInput).min(1).max(20),
   reference_image_oss_urls: zTaskReferenceImagesInput.optional(),
   reference_video_oss_url: z.string().nullish(),
   video_spec: zTaskVideoSpecInput.optional(),
@@ -756,7 +762,7 @@ export const zTaskVideoSpecOutput = z.object({
  */
 export const zTaskInputsOutput = z.object({
   creative_requirement: z.string().max(4000).default(''),
-  product: zTaskProductOutput,
+  products: z.array(zTaskProductOutput).min(1).max(20),
   reference_image_oss_urls: zTaskReferenceImagesOutput,
   reference_video_oss_url: z.string().nullable(),
   video_spec: zTaskVideoSpecOutput,

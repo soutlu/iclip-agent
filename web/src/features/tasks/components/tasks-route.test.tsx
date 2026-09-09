@@ -22,7 +22,7 @@ const makeTask = (overrides: Partial<(typeof mockTasks)[number]>) => ({
   inputs: zTaskInputsOutput.parse({
     video_spec: { aspect_ratio: null, duration_seconds: null },
     reference_video_oss_url: null,
-    product: { style_no: 'SBPU24001W', image_oss_urls: [] },
+    products: [{ style_no: 'SBPU24001W', image_oss_urls: [] }],
     reference_image_oss_urls: { model: [], outfit: [], prop: [] },
   }),
   createdAt: new Date().toISOString(),
@@ -62,15 +62,25 @@ describe('TasksRoute', () => {
     expect(within(mine).queryByText('夏季新品视频')).not.toBeInTheDocument()
   })
 
-  it('完整创建后回读创作规格和商品内容，时长比例与分辨率均保留', async () => {
+  it('完整创建后回读创作规格和多款商品，时长比例与分辨率均保留', async () => {
     const user = userEvent.setup()
     await renderLoggedIn()
 
     await user.click(await screen.findByRole('button', { name: '新建需求单' }))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByLabelText('需求单名称'), '新品测评视频')
-    await user.type(within(dialog).getByLabelText('商品款号'), 'SBPU24001W')
-    await user.type(within(dialog).getByLabelText('商品名称'), '轻薄防晒衣')
+    await user.type(within(dialog).getByLabelText('商品 1 款号'), 'SBPU24001W')
+    await user.type(within(dialog).getByLabelText('商品 1 名称'), '轻薄防晒衣')
+    await user.type(within(dialog).getByLabelText('商品 1 品牌'), '品牌甲')
+    await user.type(within(dialog).getByLabelText('商品 1 品类'), '外套')
+    await user.type(within(dialog).getByLabelText('商品 1 颜色'), '白色')
+    expect(within(dialog).queryByRole('button', { name: '移除商品 1' })).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
+    await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
+    await user.type(within(dialog).getByLabelText('商品 3 款号'), 'SBPU24003W')
+    await user.click(within(dialog).getByRole('button', { name: '移除商品 2' }))
+    expect(within(dialog).getByLabelText('商品 2 款号')).toHaveValue('SBPU24003W')
+    expect(within(dialog).queryByLabelText('商品 3 款号')).not.toBeInTheDocument()
     await user.type(within(dialog).getByLabelText('发布平台'), 'douyin')
     await user.type(within(dialog).getByLabelText('视频类型'), 'product_showcase')
     await user.type(within(dialog).getByLabelText('内容类型'), 'short_video')
@@ -93,14 +103,37 @@ describe('TasksRoute', () => {
         aspect_ratio: '9:16',
         duration_seconds: 15,
       },
-      product: { style_no: 'SBPU24001W', name: '轻薄防晒衣', image_oss_urls: [] },
+      products: [
+        {
+          style_no: 'SBPU24001W',
+          name: '轻薄防晒衣',
+          brand: '品牌甲',
+          category: '外套',
+          color_name: '白色',
+          image_oss_urls: [],
+        },
+        {
+          style_no: 'SBPU24003W',
+          name: '',
+          brand: '',
+          category: '',
+          color_name: '',
+          image_oss_urls: [],
+        },
+      ],
       reference_image_oss_urls: { model: [], outfit: [], prop: [] },
       reference_video_oss_url: null,
       creative_requirement: '展示面料的轻薄透气',
     })
+    expect(screen.getByText(/SBPU24001W 等 2 款/)).toBeVisible()
     await user.click(screen.getByText('新品测评视频'))
     const reopened = await screen.findByRole('dialog')
-    expect(within(reopened).getByLabelText('商品名称')).toHaveValue('轻薄防晒衣')
+    expect(within(reopened).getByLabelText('商品 1 名称')).toHaveValue('轻薄防晒衣')
+    expect(within(reopened).getByLabelText('商品 1 颜色')).toHaveValue('白色')
+    expect(within(reopened).getByLabelText('商品 2 款号')).toBeDisabled()
+    expect(within(reopened).getByLabelText('商品 2 名称')).toBeEnabled()
+    expect(within(reopened).queryByRole('button', { name: '添加商品' })).not.toBeInTheDocument()
+    expect(within(reopened).queryByRole('button', { name: '移除商品 2' })).not.toBeInTheDocument()
     expect(within(reopened).getByLabelText('目标时长（秒）')).toHaveValue(15)
     expect(within(reopened).getByLabelText('分辨率')).toHaveValue('1080p')
     expect(within(reopened).getByLabelText('比例')).toHaveValue('9:16')
@@ -173,10 +206,22 @@ describe('TasksRoute', () => {
     await renderLoggedIn()
     await user.click(await screen.findByText('已发布需求'))
     const dialog = await screen.findByRole('dialog')
-    for (const label of ['商品款号', '商品名称', '发布平台', '视频类型', '内容类型']) {
+    for (const label of [
+      '商品 1 款号',
+      '商品 1 名称',
+      '商品 1 品牌',
+      '商品 1 品类',
+      '商品 1 颜色',
+      '发布平台',
+      '视频类型',
+      '内容类型',
+    ]) {
       expect(within(dialog).getByLabelText(label)).toBeDisabled()
     }
-    expect(within(dialog).queryByRole('button', { name: '添加商品图片' })).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: '添加商品 1 图片' }),
+    ).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: '添加商品' })).not.toBeInTheDocument()
     for (const label of ['分辨率', '比例', '目标时长（秒）', '创作要求']) {
       expect(within(dialog).getByLabelText(label)).toBeEnabled()
     }
@@ -242,12 +287,13 @@ describe('TasksRoute', () => {
     await user.click(await screen.findByRole('button', { name: '新建需求单' }))
     const dialog = await screen.findByRole('dialog')
     await user.type(within(dialog).getByLabelText('需求单名称'), '并行上传需求')
-    await user.type(within(dialog).getByLabelText('商品款号'), 'TEST-001')
+    await user.type(within(dialog).getByLabelText('商品 1 款号'), 'TEST-001')
     await user.upload(
-      within(dialog).getByLabelText('选择商品图片文件'),
+      within(dialog).getByLabelText('选择商品 1 图片文件'),
       new File(['image'], '商品.png', { type: 'image/png' }),
     )
     await waitFor(() => expect(signed).toBe(1))
+    expect(within(dialog).queryByRole('button', { name: '添加商品' })).not.toBeInTheDocument()
     fireEvent.drop(within(dialog).getByRole('group', { name: '模特参考图' }), {
       dataTransfer: {
         types: ['Files'],
@@ -258,18 +304,19 @@ describe('TasksRoute', () => {
     await waitFor(() => expect(signed).toBe(2))
     await user.type(within(dialog).getByLabelText('创作要求'), '上传期间补充的要求')
     releaseProduct?.()
-    expect(await within(dialog).findByRole('button', { name: '预览商品图片 1' })).toBeVisible()
+    expect(await within(dialog).findByRole('button', { name: '预览商品 1 图片 1' })).toBeVisible()
     expect(within(dialog).getByRole('button', { name: '创建需求单' })).toBeDisabled()
     releaseModel?.()
     expect(await within(dialog).findByRole('button', { name: '预览模特参考图 1' })).toBeVisible()
     await waitFor(() =>
       expect(within(dialog).getByRole('button', { name: '创建需求单' })).toBeEnabled(),
     )
+    expect(within(dialog).getByRole('button', { name: '添加商品' })).toBeVisible()
     await user.click(within(dialog).getByRole('button', { name: '创建需求单' }))
     await waitFor(() => expect(mockTasks).toHaveLength(1))
     expect(mockTasks[0]?.inputs.creative_requirement).toBe('上传期间补充的要求')
-    expect(mockTasks[0]?.inputs.product.image_oss_urls).toEqual([
-      `http://localhost/mock-oss/${ids[0]}`,
+    expect(mockTasks[0]?.inputs.products.map((product) => product.image_oss_urls)).toEqual([
+      [`http://localhost/mock-oss/${ids[0]}`],
     ])
     expect(mockTasks[0]?.inputs.reference_image_oss_urls?.model).toEqual([
       `http://localhost/mock-oss/${ids[1]}`,
@@ -357,7 +404,10 @@ describe('TasksRoute', () => {
     })
     task.inputs.creative_requirement = '  保留原文\n口播：Hello!  '
     task.inputs.video_spec.aspect_ratio = '9:16'
-    task.inputs.product.image_oss_urls = ['https://assets.example.com/product.png']
+    task.inputs.products = task.inputs.products.map((product) => ({
+      ...product,
+      image_oss_urls: ['https://assets.example.com/product.png'],
+    }))
     task.inputs.reference_image_oss_urls.model = ['https://assets.example.com/model.png']
     task.inputs.reference_image_oss_urls.outfit = ['https://assets.example.com/excluded.png']
     mockTasks.push(task)

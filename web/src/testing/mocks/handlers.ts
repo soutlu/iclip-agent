@@ -152,7 +152,7 @@ type MockTask = z.output<typeof zTaskOut>
 const completeTaskInputs = (inputs: z.output<typeof zTaskCreateIn>['inputs']) =>
   zTaskInputsOutput.parse({
     ...inputs,
-    product: { image_oss_urls: [], ...inputs.product },
+    products: inputs.products.map((product) => ({ image_oss_urls: [], ...product })),
     reference_image_oss_urls: {
       model: [],
       outfit: [],
@@ -172,7 +172,7 @@ export const addMockTask = (title: string) => {
     inputs: zTaskInputsOutput.parse({
       video_spec: { aspect_ratio: null, duration_seconds: null },
       reference_video_oss_url: null,
-      product: { style_no: 'SBPU24001W', image_oss_urls: [] },
+      products: [{ style_no: 'SBPU24001W', image_oss_urls: [] }],
       reference_image_oss_urls: { model: [], outfit: [], prop: [] },
     }),
     createdAt: now,

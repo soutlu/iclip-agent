@@ -1485,7 +1485,10 @@ export type TaskInputsInput = {
    * Creative Requirement
    */
   creative_requirement?: string
-  product: TaskProductInput
+  /**
+   * Products
+   */
+  products: Array<TaskProductInput>
   reference_image_oss_urls?: TaskReferenceImagesInput
   /**
    * Reference Video Oss Url
@@ -1504,7 +1507,10 @@ export type TaskInputsOutput = {
    * Creative Requirement
    */
   creative_requirement: string
-  product: TaskProductOutput
+  /**
+   * Products
+   */
+  products: Array<TaskProductOutput>
   reference_image_oss_urls: TaskReferenceImagesOutput
   /**
    * Reference Video Oss Url
@@ -1559,9 +1565,21 @@ export type TaskOut = {
 /**
  * TaskProduct
  *
- * 需求单的商品快照，由调用方明确提供名称和素材。
+ * 需求单里的一款商品，由调用方明确提供名称、属性和素材。
  */
 export type TaskProductInput = {
+  /**
+   * Brand
+   */
+  brand?: string
+  /**
+   * Category
+   */
+  category?: string
+  /**
+   * Color Name
+   */
+  color_name?: string
   /**
    * Image Oss Urls
    */
@@ -1579,9 +1597,21 @@ export type TaskProductInput = {
 /**
  * TaskProduct
  *
- * 需求单的商品快照，由调用方明确提供名称和素材。
+ * 需求单里的一款商品，由调用方明确提供名称、属性和素材。
  */
 export type TaskProductOutput = {
+  /**
+   * Brand
+   */
+  brand: string
+  /**
+   * Category
+   */
+  category: string
+  /**
+   * Color Name
+   */
+  color_name: string
   /**
    * Image Oss Urls
    */

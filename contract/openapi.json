@@ -2759,8 +2759,14 @@
             "title": "Creative Requirement",
             "type": "string"
           },
-          "product": {
-            "$ref": "#/components/schemas/TaskProduct-Input"
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/TaskProduct-Input"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Products",
+            "type": "array"
           },
           "reference_image_oss_urls": {
             "$ref": "#/components/schemas/TaskReferenceImages-Input"
@@ -2781,7 +2787,7 @@
           }
         },
         "required": [
-          "product"
+          "products"
         ],
         "title": "TaskInputs",
         "type": "object"
@@ -2796,8 +2802,14 @@
             "title": "Creative Requirement",
             "type": "string"
           },
-          "product": {
-            "$ref": "#/components/schemas/TaskProduct-Output"
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/TaskProduct-Output"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Products",
+            "type": "array"
           },
           "reference_image_oss_urls": {
             "$ref": "#/components/schemas/TaskReferenceImages-Output"
@@ -2819,7 +2831,7 @@
         },
         "required": [
           "video_spec",
-          "product",
+          "products",
           "reference_image_oss_urls",
           "reference_video_oss_url",
           "creative_requirement"
@@ -2903,8 +2915,26 @@
       },
       "TaskProduct-Input": {
         "additionalProperties": false,
-        "description": "需求单的商品快照，由调用方明确提供名称和素材。",
+        "description": "需求单里的一款商品，由调用方明确提供名称、属性和素材。",
         "properties": {
+          "brand": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Brand",
+            "type": "string"
+          },
+          "category": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Category",
+            "type": "string"
+          },
+          "color_name": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Color Name",
+            "type": "string"
+          },
           "image_oss_urls": {
             "items": {
               "type": "string"
@@ -2934,8 +2964,26 @@
       },
       "TaskProduct-Output": {
         "additionalProperties": false,
-        "description": "需求单的商品快照，由调用方明确提供名称和素材。",
+        "description": "需求单里的一款商品，由调用方明确提供名称、属性和素材。",
         "properties": {
+          "brand": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Brand",
+            "type": "string"
+          },
+          "category": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Category",
+            "type": "string"
+          },
+          "color_name": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Color Name",
+            "type": "string"
+          },
           "image_oss_urls": {
             "items": {
               "type": "string"
@@ -2960,6 +3008,9 @@
         "required": [
           "style_no",
           "name",
+          "brand",
+          "category",
+          "color_name",
           "image_oss_urls"
         ],
         "title": "TaskProduct",
