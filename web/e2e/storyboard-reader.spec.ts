@@ -424,8 +424,14 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
   const third = before.document.shots[2]
   if (third === undefined) throw new Error('需要第三组')
 
-  await panel.getByRole('button', { name: '视频模型：moyu-seedance-2-5', exact: true }).click()
-  await page.getByRole('menuitemradio', { name: 'wan3.0-video', exact: true }).click()
+  await panel
+    .getByRole('button', { name: '生成设置：moyu-seedance-2-5，音频开启', exact: true })
+    .click()
+  const settings = page.getByRole('dialog', { name: '生成设置', exact: true })
+  await settings.getByRole('radio', { name: 'wan3.0-video', exact: true }).click()
+  await settings.getByRole('switch', { name: '生成音频', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
   const posted = page.waitForRequest(
     (request) =>
       request.method() === 'POST' && new URL(request.url()).pathname === '/api/generations/video',
@@ -435,13 +441,13 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
   expect(request.postDataJSON()).toEqual({
     aspect_ratio: before.document.aspect_ratio,
     conversation_id: new URL(page.url()).pathname.split('/').at(-1),
+    generate_audio: false,
     model: 'wan3.0-video',
     prompt: rawGroupPrompt(third),
     reference_image_urls: third.image_urls,
     seconds: third.seconds,
     shot_index: 3,
   })
-  await expect(page.getByText('镜头组 3 已提交出片，进度看生成记录')).toBeVisible()
   await expect(panel.getByText('生成中 1', { exact: true })).toBeVisible()
 
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()

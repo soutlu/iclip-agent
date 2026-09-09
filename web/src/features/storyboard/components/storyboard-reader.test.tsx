@@ -422,7 +422,7 @@ describe('StoryboardReader', () => {
     expect(requests.filter((request) => request.method !== 'GET')).toEqual([])
   })
 
-  it('选模型后生成视频：请求体照上游形状取当前组内容，提交后记录里出现生成中', async () => {
+  it('生成设置里换模型、关音频后出片：请求体照上游形状取当前组内容，提交后记录里出现生成中', async () => {
     provide()
     const user = userEvent.setup()
     const [firstShot] = document.shots
@@ -439,15 +439,24 @@ describe('StoryboardReader', () => {
     )
     await renderReader()
     await screen.findByRole('region', { name: '镜头组 1' })
-    await user.click(await screen.findByRole('button', { name: '视频模型：moyu-seedance-2-5' }))
-    await user.click(await screen.findByRole('menuitemradio', { name: 'wan3.0-video' }))
+    await user.click(
+      await screen.findByRole('button', { name: '生成设置：moyu-seedance-2-5，音频开启' }),
+    )
+    const settings = await screen.findByRole('dialog', { name: '生成设置' })
+    await user.click(within(settings).getByRole('radio', { name: 'wan3.0-video' }))
+    await user.click(within(settings).getByRole('switch', { name: '生成音频' }))
+    await user.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '生成设置' })).not.toBeInTheDocument(),
+    )
     await user.click(screen.getByRole('button', { name: '生成视频' }))
 
-    expect(await screen.findByText('镜头组 1 已提交出片，进度看生成记录')).toBeVisible()
+    await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted).toEqual([
       {
         aspect_ratio: '9:16',
         conversation_id: CONVERSATION_ID,
+        generate_audio: false,
         model: 'wan3.0-video',
         prompt: formatShotPrompt(firstShot),
         reference_image_urls: firstShot.image_urls,
@@ -456,10 +465,10 @@ describe('StoryboardReader', () => {
       },
     ])
     expect(await screen.findByText('生成中 1')).toBeVisible()
+    expect(screen.getByRole('button', { name: '生成设置：wan3.0-video，音频关闭' })).toBeVisible()
     await user.click(screen.getByRole('button', { name: '生成记录' }))
     const records = await screen.findByRole('complementary', { name: '生成记录' })
     expect(await within(records).findByText('生成中…')).toBeVisible()
-    expect(screen.getByRole('button', { name: '视频模型：wan3.0-video' })).toBeVisible()
   })
 
   it('服务端拒收出片时提示原话，不刷新记录', async () => {
@@ -484,7 +493,7 @@ describe('StoryboardReader', () => {
 
     expect(await screen.findByText(/视频生成仅支持模型 moyu-seedance-2-5/)).toBeVisible()
     expect(reads).toBe(readsBefore)
-    expect(generate).toBeEnabled()
+    await waitFor(() => expect(generate).toBeEnabled())
   })
 
   it('视频模型清单读不到时说明原因，不能出片', async () => {
@@ -496,8 +505,9 @@ describe('StoryboardReader', () => {
     )
     await renderReader()
     await screen.findByRole('region', { name: '镜头组 1' })
-    expect(await screen.findByText('视频模型读不到')).toBeVisible()
-    expect(screen.getByRole('button', { name: '视频模型' })).toBeDisabled()
+    expect(
+      await screen.findByRole('button', { name: '生成设置：视频模型读不到，音频开启' }),
+    ).toBeDisabled()
     expect(screen.getByRole('button', { name: '生成视频' })).toBeDisabled()
   })
 
