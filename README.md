@@ -34,7 +34,7 @@ make setup
 
 在仓库根目录创建 `.env`。必需变量及各能力的启用条件见 [配置模型](server/src/iclip/config/models.py) 与 [后端装配说明](docs/architecture.md#2-配置与装配)；启动时会列出缺失的必需变量名。数据库地址必须指向开发库，密钥不入库。
 
-[server/agents/agents.yaml](server/agents/agents.yaml) 声明启用的 Agent。默认 `storyboard` 需要镜头素材、媒体生成、视频理解与对象存储依赖；仅运行基础对话时，可在自己的配置中移除这条 Agent 声明及 [运行配置](server/configs/config.yaml) 的 `shot_video` 段，启动后在首页 Agent 菜单选择「通用助手」。
+模型表、agent 与 skill 不进仓库：把一份 `server/configs/`（`config.yaml`）与 `server/agents/`（`agents.yaml`、各 agent 目录、`skills/`）放到本机对应位置，两个目录已在 .gitignore。`agents.yaml` 声明启用的 Agent。默认 `storyboard` 需要镜头素材、媒体生成、视频理解与对象存储依赖；仅运行基础对话时，可移除这条 Agent 声明及 `config.yaml` 的 `shot_video` 段，启动后在首页 Agent 菜单选择「通用助手」。改这两个目录里的文件保存即生效，不用重启。
 
 ### 3. 迁移并启动
 
@@ -72,7 +72,7 @@ CREATE ROLE iclip LOGIN PASSWORD '<密码>';
 CREATE DATABASE iclip OWNER iclip;
 ```
 
-服务器上准备一个目录，放入 [deploy/compose.yaml](deploy/compose.yaml) 与 [deploy/env.example](deploy/env.example)：
+服务器上准备一个目录，放入 [deploy/compose.yaml](deploy/compose.yaml) 与 [deploy/env.example](deploy/env.example)，再把 `configs/`、`agents/` 两个目录放到同目录（后端以只读挂载读它们，镜像里没有这两份）：
 
 ```bash
 docker login registry.cn-shenzhen.aliyuncs.com
@@ -82,6 +82,12 @@ curl http://localhost/api/healthz
 ```
 
 后端只跑 1 个 worker，实时订阅在进程内存中。首个管理员：SSO 场景在 `.env` 设置 `ROOT_EMAIL`，该邮箱首次登录即 root；密码注册场景执行 `docker compose run --rm server python -m scripts.admin set-roles <账号> root,editor`。升级改 `.env` 的 `IMAGE_TAG` 后重新 `docker compose pull && docker compose up -d`，迁移随启动执行，数据卷保留。
+
+### 改配置
+
+模型、agent、skill 与其参考资料只存在于服务器的 `configs/`、`agents/`，不进仓库、不随镜像发版。直接改文件保存：后端监听这两个目录，约 1.5 秒后完整装配一遍并整体替换，正在跑的运行不受影响；写错则拒绝并沿用旧配置，原因在 `docker compose logs server` 与 `/healthz` 的 `config` 段（[ADR-0019](docs/adr/0019-hot-reload-agent-layer.md)）。手动触发一次：`docker compose kill -s HUP server`。
+
+要重启的只有两种情况：改了 `models` 与 agents 以外的配置段（`/healthz` 会标 `needs_restart`），或 `.env` 加了新变量（比如新模型用新的 key 变量）。两种都执行 `docker compose up -d`，`restart` 不重读 `.env`。
 
 ## 文档地图
 

@@ -1,4 +1,4 @@
-# 运行配置；环境变量定义见 src/iclip/config/models.py。
+# 合同导出（scripts/dump_openapi.py）用的占位配置：各可选段全开，路由才齐；真实配置不进仓库。
 app:
   name: iclip-agent
 
@@ -53,22 +53,14 @@ shot_video:
   job_timeout_seconds: 1800 # 单次出图工具调用的总时限
 
 models:
-  # 键名即模型名，也是 agents.yaml 里 model 字段引用的名字。
-  # provider 是官方 provider 名，决定厂商适配；api 不写即 chat。
-  # thinking 是思考强度：none / minimal / low / medium / high / xhigh / max，不写即厂商默认档。
-  # api_key_env 指定该模型 API key 所在的环境变量。
-  glm-5.3-flash:
-    provider: alibaba
-    model: ZHIPU/GLM-5.3-Flash
-    # 使用默认 chat 接口：百炼 Responses 流在并行工具调用开始事件中重复首个工具的名称与参数，
-    # 会导致解析器错误识别后续调用。
+  # 合同导出用的占位模型：只为让装配通过，不代表任何真实端点。
+  placeholder:
+    provider: openai
     api_key_env: MODEL_API_KEY
-    base_url: https://llm-dd2phm2wuagx7ezo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
-    thinking: high
-    context_window: 1048576
+    base_url: https://placeholder.invalid/v1
 
 conversations:
-  title_model: glm-5.3-flash # 引用 models 键名；省略时禁用自动标题
+  title_model: placeholder
   compaction:
     # 压缩阈值为 context_window × max_fraction；未配置窗口时禁用压缩。
     max_fraction: 0.85 # 历史估算占窗口的触发比例

@@ -1,4 +1,4 @@
-"""启动时按声明装配并冻结 Agent 映射，注入模型、能力与 StepPersistence。"""
+"""按声明装配 Agent 映射，注入模型、能力与 StepPersistence；一次装配的结果不可变，替换整体换。"""
 
 from __future__ import annotations
 
@@ -20,6 +20,9 @@ from iclip.platform.transcript.display import AgentCallDisplay, DisplayFn, ToolD
 
 AgentCapabilities = tuple[AgentCapability[Any], ...]
 """由组合根解析的能力集合。"""
+
+AgentMap = Mapping[str, Agent[Any, Any]]
+"""agent id → 装配好的 Agent。"""
 
 DELEGATE_TOOL = "delegate_task"
 """显式指定 SubAgents 工具名，与 display 注册保持一致。"""
@@ -190,9 +193,9 @@ def _delegate_display(args: Any) -> ToolDisplay | None:
 
 @dataclass(frozen=True, slots=True)
 class AgentRegistry:
-    """启动期冻结的 id → Agent 映射。"""
+    """一次装配得到的 id → Agent 映射，装配后不可变。"""
 
-    agents: Mapping[str, Agent[Any, Any]]
+    agents: AgentMap
 
     @property
     def ids(self) -> tuple[str, ...]:
@@ -238,6 +241,7 @@ __all__ = [
     "DELEGATE_TOOL",
     "AgentCapabilities",
     "AgentDefinition",
+    "AgentMap",
     "AgentRegistry",
     "SubAgentDefinition",
     "build_agent_registry",
