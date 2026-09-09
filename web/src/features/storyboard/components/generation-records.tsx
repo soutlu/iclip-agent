@@ -11,9 +11,9 @@ import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
-import { parseShotPrompt } from '../shot-document'
+import type { Shot } from '../shot-document'
 import { isRunningStatus } from '../shots'
-import type { GenerationJob } from '../storyboard.api'
+import { historyShotOf, type GenerationJob } from '../storyboard.api'
 
 type JobPhase = 'running' | 'done' | 'failed'
 
@@ -46,7 +46,7 @@ type GenerationRecordsProps = {
   shotIndex: number
   jobs: readonly GenerationJob[]
   onClose: () => void
-  onEditPrompt?: ((prompt: string) => void) | undefined
+  onEditPrompt?: ((prompt: Shot['prompt']) => void) | undefined
 }
 
 export function GenerationRecords({
@@ -107,15 +107,15 @@ export function GenerationRecords({
 
 type RecordCardProps = {
   job: GenerationJob
-  onEditPrompt?: ((prompt: string) => void) | undefined
+  onEditPrompt?: ((prompt: Shot['prompt']) => void) | undefined
 }
 
 function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   const [open, setOpen] = useState(true)
   const phase = phaseOf(job)
   const prompt = promptOf(job)
-  // 拆不出镜头时间线的正文回填不了镜头组，例如接口调用方自己写的描述。
-  const editable = prompt !== undefined && parseShotPrompt(prompt) !== undefined
+  // 只有带结构化 shot 的记录能回填镜头组；接口调用方自己写的正文只能看。
+  const history = historyShotOf(job)
 
   return (
     <article className="flex shrink-0 flex-col gap-2.5 overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface p-3">
@@ -169,10 +169,10 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
       {open && onEditPrompt !== undefined ? (
         <Button
           className="w-full border-[0.5px] border-chat-hairline bg-primary/4 text-primary"
-          disabled={!editable}
+          disabled={history === undefined}
           leadingIcon="edit"
           onClick={() => {
-            if (prompt !== undefined) onEditPrompt(prompt)
+            if (history !== undefined) onEditPrompt(history)
           }}
           size="md"
           variant="ghost"

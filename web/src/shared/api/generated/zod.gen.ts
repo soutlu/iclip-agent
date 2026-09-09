@@ -1261,31 +1261,6 @@ export const zOpsCatchup = z.object({
 })
 
 /**
- * VideoGenerationIn
- *
- * 一次视频生成的输入。字段与上游异步接口一字不差，外加三个归属字段。
- *
- * 只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1。画幅、
- * 分辨率、时长范围、素材规格由上游按模型判，这里不复制一份。
- */
-export const zVideoGenerationIn = z.object({
-  aspect_ratio: z.string().min(1).max(20).nullish(),
-  conversation_id: z.uuid().nullish(),
-  generate_audio: z.boolean().nullish(),
-  model: z.string().min(1).max(200),
-  prompt: z.string().min(1).max(4000),
-  provider_options: z.record(z.string(), z.unknown()).nullish(),
-  reference_audio_urls: z.array(z.string()).max(16).optional().default([]),
-  reference_image_urls: z.array(z.string()).max(16).optional().default([]),
-  reference_video_urls: z.array(z.string()).max(16).optional().default([]),
-  resolution: z.string().min(1).max(50).nullish(),
-  seconds: z.int().gte(-1).nullish(),
-  shot_index: z.int().gte(1).nullish(),
-  task_id: z.uuid().nullish(),
-  user_name: z.string().min(1).max(200).nullish(),
-})
-
-/**
  * VideoModelsOut
  *
  * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
@@ -1321,6 +1296,54 @@ export const zVideoSearchIn = z.object({
 export const zVideoSearchOut = z.object({
   matches: z.array(zStyleMatchOut),
   videoUrls: z.array(z.string()),
+})
+
+/**
+ * VideoShotTimelineItemIn
+ *
+ * 镜头组里的一镜：多长、说什么、引了哪几张图。
+ */
+export const zVideoShotTimelineItemIn = z.object({
+  image_indexes: z.array(z.int().gte(1)),
+  prompt: z.string().max(4000),
+  seconds: z.number().gt(0),
+})
+
+/**
+ * VideoShotIn
+ *
+ * 结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 shot_prompt 的规则拼。
+ */
+export const zVideoShotIn = z.object({
+  global_settings: z.string().max(4000),
+  timeline: z.array(zVideoShotTimelineItemIn).min(1),
+})
+
+/**
+ * VideoGenerationIn
+ *
+ * 一次视频生成的输入。字段照上游异步接口，外加三个归属字段与结构化的 ``shot``。
+ *
+ * 只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1、``shot``
+ * 自身对得上（图片引用不越界、编号与正文一致）。画幅、分辨率、时长范围、素材规格由上游
+ * 按模型判，这里不复制一份。
+ */
+export const zVideoGenerationIn = z.object({
+  aspect_ratio: z.string().min(1).max(20).nullish(),
+  conversation_id: z.uuid().nullish(),
+  generate_audio: z.boolean().nullish(),
+  model: z.string().min(1).max(200),
+  prompt: z.string().min(1).max(4000).nullish(),
+  provider_options: z.record(z.string(), z.unknown()).nullish(),
+  reference_audio_urls: z.array(z.string()).max(16).optional().default([]),
+  reference_image_urls: z.array(z.string()).max(16).optional().default([]),
+  reference_video_urls: z.array(z.string()).max(16).optional().default([]),
+  resolution: z.string().min(1).max(50).nullish(),
+  seconds: z.int().gte(-1).nullish(),
+  shot: zVideoShotIn.nullish(),
+  shot_index: z.int().gte(1).nullish(),
+  task_id: z.uuid().nullish(),
+  user_name: z.string().min(1).max(200).nullish(),
 })
 
 /**

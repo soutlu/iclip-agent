@@ -197,40 +197,14 @@ export const appendShotFrame = (
 }
 
 const OUTPUT_CONSTRAINT = '不要生成字幕，不要生成背景音乐。'
-const SHOT_MARKER = /^\[(\d+(?:\.\d+)?)[–-](\d+(?:\.\d+)?)秒｜镜头\d+\]\s?(.*)$/
 
-/** 发给视频模型的正文：镜头标记与末尾约束由这里追加，「复制完整提示词」给出的就是它。 */
+/** 「复制完整提示词」显示的正文。拼装规则归服务端（shot_prompt.py），这里照同一规则给人看，出片时发的是结构化镜头组。 */
 export const formatShotPrompt = (shot: Shot): string => {
   const lines = shot.prompt.timeline.map(
     (item, position) =>
       `[${item.timestamps[0]}–${item.timestamps[1]}秒｜镜头${position + 1}] ${item.prompt}`,
   )
   return `${shot.prompt.global_settings}\n\n${lines.join('\n')}\n${OUTPUT_CONSTRAINT}`
-}
-
-/** `formatShotPrompt` 的逆：历史记录的正文按镜头标记拆回结构，拆不出时间线返回 undefined。 */
-export const parseShotPrompt = (text: string): Shot['prompt'] | undefined => {
-  const preamble: string[] = []
-  const timeline: { timestamps: [number, number]; prompt: string }[] = []
-  for (const line of text.split('\n')) {
-    const marker = SHOT_MARKER.exec(line)
-    if (marker !== null) {
-      timeline.push({ timestamps: [Number(marker[1]), Number(marker[2])], prompt: marker[3] ?? '' })
-      continue
-    }
-    if (line.trim() === OUTPUT_CONSTRAINT) continue
-    const current = timeline.at(-1)
-    if (current === undefined) preamble.push(line)
-    else current.prompt += `\n${line}`
-  }
-  if (timeline.length === 0) return undefined
-  return {
-    global_settings: preamble.join('\n').trimEnd(),
-    timeline: timeline.map((item) => {
-      const prompt = item.prompt.trimEnd()
-      return { ...item, prompt, image_indexes: extractImageIndexes(prompt) }
-    }),
-  }
 }
 
 export const formatShotPrompts = (shots: readonly Shot[]): string =>

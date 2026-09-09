@@ -206,13 +206,25 @@ describe('GenerationRecords', () => {
     expect(within(card).getByText('生成中…')).toBeVisible()
   })
 
-  it('编辑生成交出完整历史提示词，保留超过三行的内容和原始空白', async () => {
-    const prompt =
-      '  产品：黑色短靴。\n人物与场景：客厅模特。\n剪辑形式：硬切。\n\n[0–2秒｜镜头1]\n走近 @Image1。\n[2–6秒｜镜头2]\n停下 @Image2。\n不要生成字幕。  \n'
+  it('编辑生成交出记录里的镜头组，时长算回起止秒，正文原样保留空白', async () => {
     const onEditPrompt = vi.fn()
     render(
       <GenerationRecords
-        jobs={[job({ id: 'long-prompt', request: { prompt } })]}
+        jobs={[
+          job({
+            id: 'structured',
+            request: {
+              prompt: '拼好的正文',
+              shot: {
+                global_settings: '  产品：黑色短靴。\n剪辑形式：硬切。',
+                timeline: [
+                  { image_indexes: [1], prompt: '走近 @Image1。\n', seconds: 2 },
+                  { image_indexes: [2], prompt: '停下 @Image2。', seconds: 4 },
+                ],
+              },
+            },
+          }),
+        ]}
         onClose={vi.fn()}
         onEditPrompt={onEditPrompt}
         shotIndex={2}
@@ -221,28 +233,36 @@ describe('GenerationRecords', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '编辑生成' }))
 
-    expect(onEditPrompt).toHaveBeenCalledExactlyOnceWith(prompt)
+    expect(onEditPrompt).toHaveBeenCalledExactlyOnceWith({
+      global_settings: '  产品：黑色短靴。\n剪辑形式：硬切。',
+      timeline: [
+        { timestamps: [0, 2], prompt: '走近 @Image1。\n', image_indexes: [1] },
+        { timestamps: [2, 6], prompt: '停下 @Image2。', image_indexes: [2] },
+      ],
+    })
   })
 
-  it.each([undefined, null, 123, '', '  \n ', '模特走向镜头，停下微笑。'])(
-    '提示词 %s 拆不出镜头时间线时禁用编辑生成',
-    async (prompt) => {
-      const onEditPrompt = vi.fn()
-      render(
-        <GenerationRecords
-          jobs={[job({ id: 'no-prompt', request: prompt === undefined ? {} : { prompt } })]}
-          onClose={vi.fn()}
-          onEditPrompt={onEditPrompt}
-          shotIndex={2}
-        />,
-      )
+  it.each([
+    ['没有 shot', { prompt: '模特走向镜头，停下微笑。' }],
+    ['shot 为空', { prompt: '正文', shot: null }],
+    ['shot 缺时间线', { prompt: '正文', shot: { global_settings: '设定。', timeline: [] } }],
+    ['正文也没有', {}],
+  ])('记录%s时禁用编辑生成', async (_name, request) => {
+    const onEditPrompt = vi.fn()
+    render(
+      <GenerationRecords
+        jobs={[job({ id: 'no-shot', request })]}
+        onClose={vi.fn()}
+        onEditPrompt={onEditPrompt}
+        shotIndex={2}
+      />,
+    )
 
-      const edit = screen.getByRole('button', { name: '编辑生成' })
-      expect(edit).toBeDisabled()
-      await userEvent.click(edit)
-      expect(onEditPrompt).not.toHaveBeenCalled()
-    },
-  )
+    const edit = screen.getByRole('button', { name: '编辑生成' })
+    expect(edit).toBeDisabled()
+    await userEvent.click(edit)
+    expect(onEditPrompt).not.toHaveBeenCalled()
+  })
 
   it('收起已完成记录隐藏描述与编辑按钮，视频预览和播放入口仍保留', async () => {
     renderRecords()

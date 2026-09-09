@@ -11,10 +11,19 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 from iclip.common.errors import ValidationFailed
+from iclip.domains.generation.shot_prompt import format_shot_prompt, image_indexes_of
 
 if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
     from iclip.domains.generation.models import GenerationJob
@@ -41,6 +50,10 @@ ORIGIN_FIELDS: Final = frozenset({"conversation_id", "shot_index", "task_id"})
 
 它们不是发给 provider 的参数，而是「这一行属于谁」——按对话、需求单查生成记录要走索引，
 藏在 JSON 里就只能全表扫。"""
+
+NOT_FORWARDED_FIELDS: Final = ORIGIN_FIELDS | frozenset({"shot"})
+"""发给上游时去掉的字段：归属字段是我们自己的；``shot`` 已经拼成 ``prompt``，上游只认正文。
+``shot`` 与归属字段不同，它要留在 ``request`` JSON 里给前端回填，所以不能进 ORIGIN_FIELDS。"""
 
 
 class CamelModel(BaseModel):
@@ -74,18 +87,74 @@ def _http_only(urls: list[str]) -> list[str]:
     return urls
 
 
-class VideoGenerationIn(SnakeModel):
-    """一次视频生成的输入。字段与上游异步接口一字不差，外加三个归属字段。
+def _nonblank(text: str) -> str:
+    """只拒全空白，不改写：正文里的空格与换行会原样进拼出来的提示词。"""
 
-    只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1。画幅、
-    分辨率、时长范围、素材规格由上游按模型判，这里不复制一份。
+    if not text.strip():
+        raise ValueError("不能是空白")
+    return text
+
+
+class VideoShotTimelineItemIn(SnakeModel):
+    """镜头组里的一镜：多长、说什么、引了哪几张图。"""
+
+    seconds: Annotated[float, Field(gt=0)]
+    prompt: Annotated[str, Field(max_length=MAX_PROMPT_CHARS)]
+    image_indexes: list[Annotated[int, Field(ge=1)]]
+    """正文里 ``@ImageN`` 的编号，按首次出现顺序；与分镜交付物里的同名字段是同一份。"""
+
+    _check_prompt = field_validator("prompt")(_nonblank)
+
+    @model_validator(mode="after")
+    def _indexes_follow_the_prompt(self) -> VideoShotTimelineItemIn:
+        derived = image_indexes_of(self.prompt)
+        if self.image_indexes != derived:
+            raise ValueError(
+                f"image_indexes {self.image_indexes} 与正文里 @Image 的出现顺序 {derived} 不一致"
+            )
+        return self
+
+
+class VideoShotIn(SnakeModel):
+    """结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 shot_prompt 的规则拼。"""
+
+    global_settings: Annotated[str, Field(max_length=MAX_PROMPT_CHARS)]
+    timeline: Annotated[list[VideoShotTimelineItemIn], Field(min_length=1)]
+
+    _check_global_settings = field_validator("global_settings")(_nonblank)
+
+
+def _check_image_references(shot: VideoShotIn, available: int) -> None:
+    """``@ImageN`` 指的是 reference_image_urls 的第 N 张；编号越界说明图和正文对不上。"""
+
+    texts = [("global_settings", shot.global_settings)]
+    texts += [
+        (f"timeline[{index}].prompt", item.prompt) for index, item in enumerate(shot.timeline)
+    ]
+    for where, text in texts:
+        for number in image_indexes_of(text):
+            if not 1 <= number <= available:
+                raise ValueError(
+                    f"shot.{where} 引用了 @Image{number}，但 reference_image_urls 只有 {available} 张"
+                )
+
+
+class VideoGenerationIn(SnakeModel):
+    """一次视频生成的输入。字段照上游异步接口，外加三个归属字段与结构化的 ``shot``。
+
+    只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1、``shot``
+    自身对得上（图片引用不越界、编号与正文一致）。画幅、分辨率、时长范围、素材规格由上游
+    按模型判，这里不复制一份。
     """
 
     kind: ClassVar[GenerationKind] = KIND_VIDEO
 
     model: ModelName
     """新请求只接受配置允许的视频模型。历史记录保留原模型字符串，读回时不套用当前允许表。"""
-    prompt: Prompt
+    prompt: Prompt | None = None
+    """发给模型的正文。传了 ``shot`` 可以不传，由服务端拼出来；两个都传时必须一字不差。"""
+    shot: VideoShotIn | None = None
+    """结构化的镜头组。存进记录供前端回填，不发上游——上游只认拼好的 ``prompt``。"""
     user_name: UserName | None = None
     """替谁发的。HTTP 边界按主体定值（API key 必填、浏览器填登录名），受理时已经非空。"""
     reference_image_urls: MediaUrls = []
@@ -108,6 +177,26 @@ class VideoGenerationIn(SnakeModel):
     _check_urls = field_validator(
         "reference_image_urls", "reference_video_urls", "reference_audio_urls"
     )(_http_only)
+
+    @model_validator(mode="after")
+    def _assemble_prompt_from_shot(self) -> VideoGenerationIn:
+        """持久化的记录里两者都在，读回时也走这里，所以规则是「至少一个、都给就得一致」。"""
+
+        if self.shot is None:
+            if self.prompt is None:
+                raise ValueError("prompt 与 shot 至少传一个")
+            return self
+        _check_image_references(self.shot, len(self.reference_image_urls))
+        assembled = format_shot_prompt(self.shot)
+        if len(assembled) > MAX_PROMPT_CHARS:
+            raise ValueError(
+                f"shot 拼出的正文有 {len(assembled)} 字，超过 {MAX_PROMPT_CHARS} 字上限"
+            )
+        if self.prompt is not None and self.prompt != assembled:
+            raise ValueError("prompt 与 shot 拼出的正文不一致，二者只传一个")
+        # 模型是 frozen 的，校验器又不能换掉 self，派生字段只能这样填进去。
+        object.__setattr__(self, "prompt", assembled)
+        return self
 
 
 class ImageGenerationIn(CamelModel):
@@ -306,6 +395,7 @@ __all__ = [
     "MAX_PROMPT_CHARS",
     "MAX_REFERENCE_URLS",
     "MAX_USER_NAME_CHARS",
+    "NOT_FORWARDED_FIELDS",
     "ORIGIN_FIELDS",
     "GenerationEnvelope",
     "GenerationKind",
@@ -317,6 +407,8 @@ __all__ = [
     "ImageModelsOut",
     "VideoGenerationIn",
     "VideoModelsOut",
+    "VideoShotIn",
+    "VideoShotTimelineItemIn",
     "VideoSubmitOut",
     "VideoTaskError",
     "VideoTaskOut",

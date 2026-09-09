@@ -41,6 +41,16 @@ const rawGroupPrompt = (shot: StoredShot) => {
   return `${shot.prompt.global_settings}\n\n${lines.join('\n')}\n不要生成字幕，不要生成背景音乐。`
 }
 
+/** 出片请求里的结构化镜头组：起止秒改成每镜时长，正文由服务端拼。 */
+const wireShot = (shot: StoredShot) => ({
+  global_settings: shot.prompt.global_settings,
+  timeline: shot.prompt.timeline.map((item) => ({
+    image_indexes: item.image_indexes,
+    prompt: item.prompt,
+    seconds: Math.round((item.timestamps[1] - item.timestamps[0]) * 1000) / 1000,
+  })),
+})
+
 const watchGenerationPosts = (page: Page) => {
   const posts: string[] = []
   page.on('request', (request) => {
@@ -108,7 +118,7 @@ test('分镜可以滚轮翻组、键盘切帧和查看记录，浏览操作不�
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()
   const records = panel.getByRole('complementary', { name: '生成记录', exact: true })
   await expect(records.getByRole('article')).toHaveCount(3)
-  // 只有按拼装规则提交过的那条能回填，纯描述的两条禁用。
+  // 只有带结构化 shot 的那条能回填，纯描述的两条禁用。
   await expect(records.getByRole('button', { name: '编辑生成' })).toHaveCount(3)
   await expect(records.getByRole('button', { name: '编辑生成', disabled: true })).toHaveCount(2)
   await records.getByRole('button', { name: '关闭生成记录' }).click()
@@ -246,7 +256,7 @@ test('编辑一镜后保存并读回，复制整组保留 raw 图片标记与空
   expect(generationPosts).toEqual([])
 })
 
-test('编辑生成把历史正文反解回当前镜头组并落盘，图片不跟历史走', async ({ page }) => {
+test('编辑生成把历史记录里的镜头组回填到当前组并落盘，图片不跟历史走', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 })
   const generationPosts = watchGenerationPosts(page)
   const panel = await openStoryboard(page)
@@ -444,9 +454,9 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
     conversation_id: new URL(page.url()).pathname.split('/').at(-1),
     generate_audio: false,
     model: 'wan3.0-video',
-    prompt: rawGroupPrompt(third),
     reference_image_urls: third.image_urls,
     seconds: third.seconds,
+    shot: wireShot(third),
     shot_index: 3,
   })
   await expect(panel.getByText('生成中 1', { exact: true })).toBeVisible()

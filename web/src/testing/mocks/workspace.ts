@@ -1,7 +1,11 @@
 /** REST 读取与 WebSocket 模拟写入共用内存文件表，确保通知后重读得到新内容。 */
 
 import { http, HttpResponse } from 'msw'
-import type { ImageGenerationIn, VideoGenerationIn } from '@/shared/api/generated/types.gen'
+import type {
+  ImageGenerationIn,
+  VideoGenerationIn,
+  VideoShotIn,
+} from '@/shared/api/generated/types.gen'
 
 /** 本地 data URL 帧，避免网络依赖。 */
 const FRAME_A =
@@ -32,14 +36,26 @@ const VIDEO_URL = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1
 
 const PREAMBLE = ['参考锁定：模特的服装与发型跟住 @Image1。', '剪辑形式：硬切。'].join('\n')
 
-/** 第 2 组那条成片当初提交的正文，形状与 formatShotPrompt 的输出一致。 */
-const HISTORY_PROMPT = [
-  PREAMBLE,
-  '',
-  '[0–4秒｜镜头1] 第一版：她从长椅间走向镜头 @Image1。',
-  '[4–11秒｜镜头2] 第一版：走到近处停下微笑 @Image2。',
-  '不要生成字幕，不要生成背景音乐。',
-].join('\n')
+/** 与服务端 shot_prompt.py 同一条拼装规则：受理时把结构化 shot 拼成正文，记录里两者都存。 */
+const assembleShotPrompt = (shot: VideoShotIn): string => {
+  let start = 0
+  const lines = shot.timeline.map((item, position) => {
+    const end = Math.round((start + item.seconds) * 1000) / 1000
+    const line = `[${start}–${end}秒｜镜头${position + 1}] ${item.prompt}`
+    start = end
+    return line
+  })
+  return `${shot.global_settings}\n\n${lines.join('\n')}\n不要生成字幕，不要生成背景音乐。`
+}
+
+/** 第 2 组那条成片当初提交的镜头组；带 shot 的记录才能回填。 */
+const HISTORY_SHOT: VideoShotIn = {
+  global_settings: PREAMBLE,
+  timeline: [
+    { image_indexes: [1], prompt: '第一版：她从长椅间走向镜头 @Image1。', seconds: 4 },
+    { image_indexes: [2], prompt: '第一版：走到近处停下微笑 @Image2。', seconds: 7 },
+  ],
+}
 
 /** 比 video_shot.json 早一点，列表里的时间才有先后。 */
 const EARLIER = '2026-09-01T09:20:00Z'
@@ -322,8 +338,9 @@ export const seedMockWorkspace = (
       createdAt: '2026-09-01T11:10:00Z',
       id: '5b2f3071-0b2f-4d30-8d9c-2e3f4a5b6c7d',
       outputUrl: VIDEO_URL,
-      // 按拼装规则提交过的正文，可以反解回镜头组；纯描述的那两条只能看不能回填。
-      prompt: HISTORY_PROMPT,
+      // 带结构化 shot 的记录可以回填镜头组；纯描述的那两条只能看不能回填。
+      prompt: assembleShotPrompt(HISTORY_SHOT),
+      request: { prompt: assembleShotPrompt(HISTORY_SHOT), shot: HISTORY_SHOT },
       shotIndex: 2,
       status: 'completed',
       watermarkOutputUrl: VIDEO_URL,
@@ -608,13 +625,18 @@ export const workspaceHandlers = [
     return HttpResponse.json({ generation: created }, { status: 202 })
   }),
 
-  // 视频那一对端点照上游：提交只回任务号，字段是 snake_case。
+  // 视频那一对端点照上游：提交只回任务号，字段是 snake_case。正文可直接给，也可给 shot 由服务端拼。
   http.post('*/api/generations/video', async ({ request }) => {
     const body = (await request.json()) as VideoGenerationIn
+    const prompt =
+      body.shot === undefined || body.shot === null ? body.prompt : assembleShotPrompt(body.shot)
+    if (typeof prompt !== 'string') {
+      return HttpResponse.json({ detail: 'prompt 与 shot 至少传一个' }, { status: 422 })
+    }
     const created = acceptGeneration({
       kind: 'video',
-      prompt: body.prompt,
-      request: { ...body },
+      prompt,
+      request: { ...body, prompt },
       conversationId: body.conversation_id ?? null,
       shotIndex: body.shot_index ?? null,
       outputUrl: VIDEO_URL,

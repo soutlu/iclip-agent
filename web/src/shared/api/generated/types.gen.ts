@@ -2483,10 +2483,11 @@ export type VideoContent = {
 /**
  * VideoGenerationIn
  *
- * 一次视频生成的输入。字段与上游异步接口一字不差，外加三个归属字段。
+ * 一次视频生成的输入。字段照上游异步接口，外加三个归属字段与结构化的 ``shot``。
  *
- * 只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1。画幅、
- * 分辨率、时长范围、素材规格由上游按模型判，这里不复制一份。
+ * 只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1、``shot``
+ * 自身对得上（图片引用不越界、编号与正文一致）。画幅、分辨率、时长范围、素材规格由上游
+ * 按模型判，这里不复制一份。
  */
 export type VideoGenerationIn = {
   /**
@@ -2508,7 +2509,7 @@ export type VideoGenerationIn = {
   /**
    * Prompt
    */
-  prompt: string
+  prompt?: string | null
   /**
    * Provider Options
    */
@@ -2535,6 +2536,7 @@ export type VideoGenerationIn = {
    * Seconds
    */
   seconds?: number | null
+  shot?: VideoShotIn | null
   /**
    * Shot Index
    */
@@ -2603,6 +2605,42 @@ export type VideoSearchOut = {
    * Videourls
    */
   videoUrls: Array<string>
+}
+
+/**
+ * VideoShotIn
+ *
+ * 结构化的镜头组：全局设定加逐镜时间线。发给模型的正文由服务端按 shot_prompt 的规则拼。
+ */
+export type VideoShotIn = {
+  /**
+   * Global Settings
+   */
+  global_settings: string
+  /**
+   * Timeline
+   */
+  timeline: Array<VideoShotTimelineItemIn>
+}
+
+/**
+ * VideoShotTimelineItemIn
+ *
+ * 镜头组里的一镜：多长、说什么、引了哪几张图。
+ */
+export type VideoShotTimelineItemIn = {
+  /**
+   * Image Indexes
+   */
+  image_indexes: Array<number>
+  /**
+   * Prompt
+   */
+  prompt: string
+  /**
+   * Seconds
+   */
+  seconds: number
 }
 
 /**

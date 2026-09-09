@@ -23,7 +23,15 @@ from iclip.domains.generation.seedream import (
 )
 from iclip.domains.generation.video import HttpVideoProvider, VideoProviderSettings
 from iclip.platform.object_store.layout import MEDIA_PATHS
-from tests.helpers.generation import MemoryObjectStore, image_request, make_job, video_request
+from tests.helpers.generation import (
+    SHOT_IMAGE_URLS,
+    SHOT_PROMPT,
+    MemoryObjectStore,
+    image_request,
+    make_job,
+    video_request,
+    video_shot,
+)
 
 VIDEO_SETTINGS = VideoProviderSettings(
     submit_url="https://video.test/generate",
@@ -113,6 +121,32 @@ async def test_video_submit_sends_protocol_payload_and_key(
     if generate_audio is not None:
         expected_payload["generate_audio"] = generate_audio
     assert seen["body"] == expected_payload, "请求原样转发：没给的不发，归属字段不发"
+
+
+async def test_video_submit_forwards_the_assembled_prompt_but_not_the_shot() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = httpx.Response(200, content=request.content).json()
+        return httpx.Response(200, json={"task_id": "t-2"})
+
+    job = make_job(
+        video_request(
+            prompt=None, shot=video_shot(), reference_image_urls=SHOT_IMAGE_URLS, seconds=6
+        )
+    )
+    await video_provider(handler).submit(job)
+
+    assert seen["body"] == {
+        "model": "moyu-seedance-2-5",
+        "prompt": SHOT_PROMPT,
+        "user_name": "luke",
+        "reference_image_urls": SHOT_IMAGE_URLS,
+        "reference_video_urls": [],
+        "reference_audio_urls": [],
+        "aspect_ratio": "16:9",
+        "seconds": 6,
+    }, "上游只认正文：shot 拼进 prompt 后不再出现在请求里"
 
 
 async def test_video_submit_passes_provider_options_and_resolution_through() -> None:

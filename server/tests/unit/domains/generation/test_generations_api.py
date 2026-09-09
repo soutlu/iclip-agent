@@ -28,10 +28,13 @@ from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.models import Principal
 from iclip.platform.http import status_code_for
 from tests.helpers.generation import (
+    SHOT_IMAGE_URLS,
+    SHOT_PROMPT,
     InMemoryGenerationRepository,
     image_request,
     make_job,
     video_request,
+    video_shot,
 )
 from tests.unit.domains.generation.test_generation_queue import build_queue
 
@@ -206,6 +209,55 @@ async def test_video_submit_rejects_fields_we_do_not_take(extra: dict[str, objec
     async with client(app) as http:
         response = await http.post("/generations/video", json={**VIDEO_BODY, **extra})
     assert response.status_code == 422
+
+
+SHOT_BODY = {
+    "model": "moyu-seedance-2-5",
+    "aspect_ratio": "16:9",
+    "seconds": 6,
+    "reference_image_urls": SHOT_IMAGE_URLS,
+    "shot": video_shot(),
+}
+
+
+async def test_video_submit_assembles_the_prompt_from_a_shot_and_stores_both() -> None:
+    repo = InMemoryGenerationRepository()
+    app = build_test_app(repo, granted=principal("generation:submit"))
+    async with client(app) as http:
+        response = await http.post("/generations/video", json=SHOT_BODY)
+
+    assert response.status_code == 202, response.text
+    stored = only_job(repo).request.model_dump()
+    assert stored["prompt"] == SHOT_PROMPT
+    assert stored["shot"] == {
+        "global_settings": "人物保持一致。",
+        "timeline": [
+            {"seconds": 6.0, "prompt": "走向镜头 @Image1，停下 @Image2。", "image_indexes": [1, 2]}
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {key: value for key, value in VIDEO_BODY.items() if key != "prompt"},
+        {**SHOT_BODY, "prompt": "自己写的一段正文"},
+        {**SHOT_BODY, "reference_image_urls": []},
+        {**SHOT_BODY, "shot": video_shot(timeline=[])},
+    ],
+)
+async def test_video_submit_rejects_a_body_whose_text_does_not_hold_together(
+    body: dict[str, object],
+) -> None:
+    """没正文、正文与 shot 打架、引用了不存在的图、空时间线，都在受理前拒掉。"""
+
+    repo = InMemoryGenerationRepository()
+    app = build_test_app(repo, granted=principal("generation:submit"), broken_queue=True)
+    async with client(app) as http:
+        response = await http.post("/generations/video", json=body)
+
+    assert response.status_code == 422, response.text
+    assert repo.jobs == {}
 
 
 async def test_the_old_shared_submit_route_is_gone() -> None:

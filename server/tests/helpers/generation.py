@@ -45,6 +45,25 @@ def video_request(**overrides: Any) -> VideoGenerationIn:
     return VideoGenerationIn(**fields)
 
 
+SHOT_IMAGE_URLS = ["https://example.com/a.png", "https://example.com/b.png"]
+
+SHOT_PROMPT = "人物保持一致。\n\n[0–6秒｜镜头1] 走向镜头 @Image1，停下 @Image2。\n不要生成字幕，不要生成背景音乐。"
+"""与 web/src/features/storyboard/storyboard.api.test.ts 里的镜头组拼出的正文一字不差。"""
+
+
+def video_shot(**overrides: Any) -> dict[str, Any]:
+    """一段结构化镜头组的请求体，默认值与前端那份单测夹具相同。"""
+
+    shot: dict[str, Any] = {
+        "global_settings": "人物保持一致。",
+        "timeline": [
+            {"seconds": 6, "prompt": "走向镜头 @Image1，停下 @Image2。", "image_indexes": [1, 2]}
+        ],
+    }
+    shot.update(overrides)
+    return shot
+
+
 def image_request(**overrides: Any) -> ImageGenerationIn:
     fields: dict[str, Any] = {
         "prompt": "一只猫的正面特写",
