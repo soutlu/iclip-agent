@@ -252,9 +252,7 @@ media_generation:
   video:
     model: seedance
     allowed_models: [seedance, seedance-other]
-    user_name: iclip-agent
   image:
-    user_name: iclip-agent
     env: test
     default: nano_banana_pro
     models:

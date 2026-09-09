@@ -812,6 +812,14 @@ export type GenerationOut = {
    * Status
    */
   status: string
+  /**
+   * Taskid
+   */
+  taskId: string | null
+  /**
+   * Watermarkoutputurl
+   */
+  watermarkOutputUrl: string | null
 }
 
 /**
@@ -868,10 +876,6 @@ export type ImageGenerationIn = {
    */
   frameNumber?: number | null
   /**
-   * Kind
-   */
-  kind?: 'image'
-  /**
    * Model
    */
   model?: string | null
@@ -891,6 +895,14 @@ export type ImageGenerationIn = {
    * Shotindex
    */
   shotIndex?: number | null
+  /**
+   * Taskid
+   */
+  taskId?: string | null
+  /**
+   * Username
+   */
+  userName?: string | null
 }
 
 /**
@@ -2441,53 +2453,86 @@ export type VideoContent = {
 /**
  * VideoGenerationIn
  *
- * 一次视频生成的输入。
+ * 一次视频生成的输入。字段与上游异步接口一字不差，外加三个归属字段。
+ *
+ * 只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1。画幅、
+ * 分辨率、时长范围、素材规格由上游按模型判，这里不复制一份。
  */
 export type VideoGenerationIn = {
   /**
-   * Aspectratio
+   * Aspect Ratio
    */
-  aspectRatio: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | '21:9'
+  aspect_ratio?: string | null
   /**
-   * Conversationid
+   * Conversation Id
    */
-  conversationId?: string | null
+  conversation_id?: string | null
   /**
-   * Durationseconds
+   * Generate Audio
    */
-  durationSeconds: number
-  /**
-   * Generateaudio
-   */
-  generateAudio?: boolean | null
-  /**
-   * Imageurls
-   */
-  imageUrls?: Array<string>
-  /**
-   * Kind
-   */
-  kind?: 'video'
+  generate_audio?: boolean | null
   /**
    * Model
    */
-  model?: string | null
+  model: string
   /**
    * Prompt
    */
   prompt: string
   /**
-   * Referenceaudiourls
+   * Provider Options
    */
-  referenceAudioUrls?: Array<string>
+  provider_options?: {
+    [key: string]: unknown
+  } | null
   /**
-   * Referencevideourls
+   * Reference Audio Urls
    */
-  referenceVideoUrls?: Array<string>
+  reference_audio_urls?: Array<string>
   /**
-   * Shotindex
+   * Reference Image Urls
    */
-  shotIndex?: number | null
+  reference_image_urls?: Array<string>
+  /**
+   * Reference Video Urls
+   */
+  reference_video_urls?: Array<string>
+  /**
+   * Resolution
+   */
+  resolution?: string | null
+  /**
+   * Seconds
+   */
+  seconds?: number | null
+  /**
+   * Shot Index
+   */
+  shot_index?: number | null
+  /**
+   * Task Id
+   */
+  task_id?: string | null
+  /**
+   * User Name
+   */
+  user_name?: string | null
+}
+
+/**
+ * VideoModelsOut
+ *
+ * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
+ */
+export type VideoModelsOut = {
+  /**
+   * Default
+   */
+  default: string
+  /**
+   * Items
+   */
+  items: Array<string>
 }
 
 /**
@@ -2528,6 +2573,72 @@ export type VideoSearchOut = {
    * Videourls
    */
   videoUrls: Array<string>
+}
+
+/**
+ * VideoSubmitOut
+ *
+ * 视频提交的回执，照上游：只有任务号。这里的 ``task_id`` 是我们这条生成记录的 id。
+ */
+export type VideoSubmitOut = {
+  /**
+   * Task Id
+   */
+  task_id: string
+}
+
+/**
+ * VideoTaskError
+ */
+export type VideoTaskError = {
+  /**
+   * Code
+   */
+  code: string
+  /**
+   * Message
+   */
+  message: string
+}
+
+/**
+ * VideoTaskOut
+ *
+ * 视频任务快照，照上游任务查询的形状。
+ */
+export type VideoTaskOut = {
+  /**
+   * Created At
+   */
+  created_at: string
+  error?: VideoTaskError | null
+  result?: VideoTaskResult | null
+  /**
+   * Status
+   */
+  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  /**
+   * Task Id
+   */
+  task_id: string
+  /**
+   * Type
+   */
+  type?: 'video'
+}
+
+/**
+ * VideoTaskResult
+ */
+export type VideoTaskResult = {
+  /**
+   * Output Url
+   */
+  output_url: string
+  /**
+   * Watermark Output Url
+   */
+  watermark_output_url: string
 }
 
 export type ListKeysApiKeysGetData = {
@@ -3897,6 +4008,10 @@ export type ListGenerationsGenerationsGetData = {
      */
     conversationId?: string | null
     /**
+     * Taskid
+     */
+    taskId?: string | null
+    /**
      * Kind
      */
     kind?: 'image' | 'video' | null
@@ -3936,41 +4051,32 @@ export type ListGenerationsGenerationsGetResponses = {
 export type ListGenerationsGenerationsGetResponse =
   ListGenerationsGenerationsGetResponses[keyof ListGenerationsGenerationsGetResponses]
 
-export type SubmitGenerationsPostData = {
-  /**
-   * Body
-   */
-  body:
-    | ({
-        kind: 'video'
-      } & VideoGenerationIn)
-    | ({
-        kind: 'image'
-      } & ImageGenerationIn)
+export type SubmitImageGenerationsImagePostData = {
+  body: ImageGenerationIn
   path?: never
   query?: never
-  url: '/generations'
+  url: '/generations/image'
 }
 
-export type SubmitGenerationsPostErrors = {
+export type SubmitImageGenerationsImagePostErrors = {
   /**
    * Validation Error
    */
   422: HttpValidationError
 }
 
-export type SubmitGenerationsPostError =
-  SubmitGenerationsPostErrors[keyof SubmitGenerationsPostErrors]
+export type SubmitImageGenerationsImagePostError =
+  SubmitImageGenerationsImagePostErrors[keyof SubmitImageGenerationsImagePostErrors]
 
-export type SubmitGenerationsPostResponses = {
+export type SubmitImageGenerationsImagePostResponses = {
   /**
    * Successful Response
    */
   202: GenerationEnvelope
 }
 
-export type SubmitGenerationsPostResponse =
-  SubmitGenerationsPostResponses[keyof SubmitGenerationsPostResponses]
+export type SubmitImageGenerationsImagePostResponse =
+  SubmitImageGenerationsImagePostResponses[keyof SubmitImageGenerationsImagePostResponses]
 
 export type ListImageModelsGenerationsImageModelsGetData = {
   body?: never
@@ -3988,6 +4094,82 @@ export type ListImageModelsGenerationsImageModelsGetResponses = {
 
 export type ListImageModelsGenerationsImageModelsGetResponse =
   ListImageModelsGenerationsImageModelsGetResponses[keyof ListImageModelsGenerationsImageModelsGetResponses]
+
+export type SubmitVideoGenerationsVideoPostData = {
+  body: VideoGenerationIn
+  path?: never
+  query?: never
+  url: '/generations/video'
+}
+
+export type SubmitVideoGenerationsVideoPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SubmitVideoGenerationsVideoPostError =
+  SubmitVideoGenerationsVideoPostErrors[keyof SubmitVideoGenerationsVideoPostErrors]
+
+export type SubmitVideoGenerationsVideoPostResponses = {
+  /**
+   * Successful Response
+   */
+  202: VideoSubmitOut
+}
+
+export type SubmitVideoGenerationsVideoPostResponse =
+  SubmitVideoGenerationsVideoPostResponses[keyof SubmitVideoGenerationsVideoPostResponses]
+
+export type ListVideoModelsGenerationsVideoModelsGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/generations/video-models'
+}
+
+export type ListVideoModelsGenerationsVideoModelsGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: VideoModelsOut
+}
+
+export type ListVideoModelsGenerationsVideoModelsGetResponse =
+  ListVideoModelsGenerationsVideoModelsGetResponses[keyof ListVideoModelsGenerationsVideoModelsGetResponses]
+
+export type GetVideoTaskGenerationsVideoTaskIdGetData = {
+  body?: never
+  path: {
+    /**
+     * Task Id
+     */
+    task_id: string
+  }
+  query?: never
+  url: '/generations/video/{task_id}'
+}
+
+export type GetVideoTaskGenerationsVideoTaskIdGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type GetVideoTaskGenerationsVideoTaskIdGetError =
+  GetVideoTaskGenerationsVideoTaskIdGetErrors[keyof GetVideoTaskGenerationsVideoTaskIdGetErrors]
+
+export type GetVideoTaskGenerationsVideoTaskIdGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: VideoTaskOut
+}
+
+export type GetVideoTaskGenerationsVideoTaskIdGetResponse =
+  GetVideoTaskGenerationsVideoTaskIdGetResponses[keyof GetVideoTaskGenerationsVideoTaskIdGetResponses]
 
 export type GetGenerationGenerationsJobIdGetData = {
   body?: never

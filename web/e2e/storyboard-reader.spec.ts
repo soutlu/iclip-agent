@@ -44,7 +44,10 @@ const rawGroupPrompt = (shot: StoredShot) => {
 const watchGenerationPosts = (page: Page) => {
   const posts: string[] = []
   page.on('request', (request) => {
-    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/generations') {
+    if (
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname.startsWith('/api/generations/')
+    ) {
       posts.push(request.url())
     }
   })

@@ -33,6 +33,8 @@ const job = (status: 'pending' | 'completed'): GenerationJob => ({
   errorMessage: null,
   outputUrl: status === 'completed' ? 'https://example.com/old-result.png' : null,
   request: { frameEdit: { ...target, ...draft } },
+  taskId: null,
+  watermarkOutputUrl: null,
 })
 
 function EditorPage({ onApply }: { onApply: (url: string) => Promise<void> }) {
@@ -75,7 +77,7 @@ describe('图片编辑提交与应用的失败边界', () => {
   it('换成没有渠道轴的模型后，渠道那栏不再渲染，档位也收敛到它支持的范围', async () => {
     const submissions: Record<string, unknown>[] = []
     server.use(
-      http.post('*/api/generations', async ({ request }) => {
+      http.post('*/api/generations/image', async ({ request }) => {
         submissions.push((await request.json()) as Record<string, unknown>)
         return HttpResponse.json({ generation: job('pending') }, { status: 202 })
       }),
@@ -109,7 +111,7 @@ describe('图片编辑提交与应用的失败边界', () => {
           ? HttpResponse.json({ items: [completed] })
           : HttpResponse.json({ detail: '记录刷新失败' }, { status: 503 })
       }),
-      http.post('*/api/generations', async ({ request }) => {
+      http.post('*/api/generations/image', async ({ request }) => {
         submissions.push(await request.json())
         return HttpResponse.json({ generation: pending }, { status: 202 })
       }),

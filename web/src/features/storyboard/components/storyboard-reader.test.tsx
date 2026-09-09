@@ -72,6 +72,8 @@ const jobs: GenerationJob[] = [
     request: { prompt: '本组生成时使用的历史描述。' },
     shotIndex: 1,
     status: 'completed',
+    taskId: null,
+    watermarkOutputUrl: null,
   },
   {
     id: 'cdf9d301-fe78-4c9b-a4f7-c936621179f0',
@@ -82,6 +84,8 @@ const jobs: GenerationJob[] = [
     request: { prompt: '另一组的历史描述。' },
     shotIndex: 2,
     status: 'completed',
+    taskId: null,
+    watermarkOutputUrl: null,
   },
 ]
 
@@ -104,6 +108,8 @@ const editableJob: GenerationJob = {
   request: { prompt: historyPrompt },
   shotIndex: 1,
   status: 'completed',
+  taskId: null,
+  watermarkOutputUrl: null,
 }
 
 const provide = (content: ShotsDocument | string = document, version = 1) => {

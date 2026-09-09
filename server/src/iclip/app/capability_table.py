@@ -53,6 +53,7 @@ class GenerationsAdapter:
             payload = ImageGenerationIn.model_validate(
                 {
                     "prompt": request.prompt,
+                    "user_name": request.user_name,
                     "model": request.model,
                     "channel": request.channel,
                     "aspect_ratio": request.aspect_ratio,
@@ -61,7 +62,7 @@ class GenerationsAdapter:
                     "conversation_id": request.conversation_id,
                 }
             )
-            return _job_view(await self._service.submit(principal, payload))
+            return _job_view(await self._service.submit_image(principal, payload))
         except ValidationError as exc:
             raise InvalidImageRequest(_first_problem(exc)) from exc
         except ValidationFailed as exc:

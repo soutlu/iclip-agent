@@ -261,6 +261,7 @@ class GenerationQueue:
             await self._repo.mark_completed(
                 job.id,
                 output_url=progress.output_url,
+                watermark_output_url=progress.watermark_output_url,
                 provider_status=progress.provider_status,
                 provider_snapshot=progress.raw,
             )

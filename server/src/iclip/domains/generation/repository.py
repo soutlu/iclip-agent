@@ -29,9 +29,10 @@ class GenerationRepository(Protocol):
         kind: str | None = None,
         shot_index: int | None = None,
         frame_number: int | None = None,
+        task_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
-        """按创建时间倒序列出；``conversation_id`` 给了就只要那段对话下面的。"""
+        """按创建时间倒序列出；``conversation_id`` / ``task_id`` 给了就只要那段对话、那张需求单下面的。"""
         ...
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
@@ -57,6 +58,7 @@ class GenerationRepository(Protocol):
         provider_status: str,
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
+        watermark_output_url: str | None = None,
     ) -> GenerationJob:
         """记录成功终态。同步生成在此保存回执 id，并补齐尚未写入的 submitted_at。"""
         ...

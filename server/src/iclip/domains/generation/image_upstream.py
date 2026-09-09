@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from iclip.domains.generation.provider import ProviderError
+from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.object_store.oss import ObjectStoreUnavailable, PublicObjectStore
 
@@ -43,6 +44,18 @@ def task_url(api_base: str, *, editing: bool) -> str:
 
     task = _TASK_IMAGE_EDIT if editing else _TASK_TEXT_TO_IMAGE
     return f"{api_base.rstrip('/')}/{task}"
+
+
+def user_name_of(request: ImageGenerationIn) -> str:
+    """网关按它落表对账。受理层保证填好了；为空说明装配串了，不给付费接口送一个没名字的请求。"""
+
+    if request.user_name is None:
+        raise ProviderError(
+            "图像请求没有 user_name",
+            code="PROVIDER_USER_NAME_MISSING",
+            retryable=False,
+        )
+    return request.user_name
 
 
 async def post_generation(
@@ -200,4 +213,11 @@ def _normalize_mime(content_type: str, url: str) -> str:
     return _DEFAULT_MIME
 
 
-__all__ = ["TASK_SOURCE", "post_generation", "read_output_url", "store_result", "task_url"]
+__all__ = [
+    "TASK_SOURCE",
+    "post_generation",
+    "read_output_url",
+    "store_result",
+    "task_url",
+    "user_name_of",
+]

@@ -28,6 +28,8 @@ class ImageRequest:
     aspect_ratio: str
     resolution: str
     channel: ImageChannel
+    user_name: str
+    """替谁出的图：运行依赖里带的归属标签，上游按它落表对账。"""
     reference_image_urls: tuple[str, ...] = ()
     conversation_id: str | None = None
     """生成来源对话 id，由生成域校验并持久化。"""

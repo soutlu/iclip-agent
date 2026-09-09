@@ -203,6 +203,7 @@ async def test_generations_adapter_translates_and_reports_bad_parameters() -> No
                 aspect_ratio="17:9",
                 resolution="1k",
                 channel="dev",
+                user_name="luke",
             ),
         )
 
@@ -212,7 +213,9 @@ async def test_generations_adapter_carries_the_conversation_onto_the_job() -> No
     seen: list[ImageGenerationIn] = []
 
     class _Recording:
-        async def submit(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
+        async def submit_image(
+            self, principal: Principal, request: ImageGenerationIn
+        ) -> GenerationJob:
             _ = principal
             seen.append(request)
             return make_job(request)
@@ -227,10 +230,12 @@ async def test_generations_adapter_carries_the_conversation_onto_the_job() -> No
             aspect_ratio="1:1",
             resolution="1k",
             channel="dev",
+            user_name="designer-zhang",
             conversation_id=str(conversation_id),
         ),
     )
     assert seen[0].conversation_id == conversation_id
+    assert seen[0].user_name == "designer-zhang", "运行替谁跑，图就记在谁头上"
 
 
 class _StoreDown:
@@ -330,7 +335,9 @@ async def test_generations_adapter_turns_intake_rejection_into_a_fixable_error()
     """受理层按所选模型的能力拒绝时，工具要能让模型改参数，而不是把异常裸抛出去。"""
 
     class _Rejecting:
-        async def submit(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
+        async def submit_image(
+            self, principal: Principal, request: ImageGenerationIn
+        ) -> GenerationJob:
             _ = principal, request
             raise ValidationFailed("nano_banana_pro 不支持分辨率 8k")
 
@@ -344,6 +351,7 @@ async def test_generations_adapter_turns_intake_rejection_into_a_fixable_error()
                 aspect_ratio="1:1",
                 resolution="1k",
                 channel="dev",
+                user_name="luke",
             ),
         )
 
