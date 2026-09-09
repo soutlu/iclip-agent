@@ -55,6 +55,23 @@ def test_user_principal_permissions_are_role_union_plus_direct_grants() -> None:
     assert not principal.has("collections:write")
 
 
+async def test_principals_carry_the_account_username() -> None:
+    """用户名跟着主体走：用户主体是自己的，key 主体是属主的；账号没有就是空，不拿邮箱顶。"""
+
+    owner = make_account(roles=("root",), username="alice")
+    nameless = make_account(username=None, email="nobody@example.com")
+    service, _, _ = make_service(owner, nameless)
+
+    assert service.principal_for_user(owner).username == "alice"
+    assert service.principal_for_user(nameless).username is None
+
+    _, token = await service.issue_api_key(
+        service.principal_for_user(owner),
+        CreateApiKey(name="ci", permissions=frozenset({"collections:read"})),
+    )
+    assert (await service.authenticate_api_key(token)).username == "alice"
+
+
 async def test_issue_and_authenticate_round_trip() -> None:
     owner = make_account(roles=("root",))
     service, _, _ = make_service(owner)
