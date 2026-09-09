@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { Icon } from '@/shared/icons'
 import { uploadMediaFile, MEDIA_IMAGE_ACCEPT } from '@/shared/api/media-upload'
 import { cn } from '@/shared/lib/utils'
+import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { toast } from '@/shared/ui/toast'
@@ -60,7 +61,7 @@ export function EditReferences({
       )
     )
       return
-    const next = [...current, { ...reference, id: crypto.randomUUID() }]
+    const next = [...current, { ...reference, id: mintUuid() }]
     latestRef.current = next
     onChange(next)
   }

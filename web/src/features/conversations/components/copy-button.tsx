@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { copyText } from '@/shared/lib/clipboard'
 import { IconButton } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
 
@@ -9,7 +10,7 @@ export function CopyButton({ label = '复制', text }: { text: string; label?: s
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(text)
+      await copyText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), COPY_FEEDBACK_MS)
     } catch {

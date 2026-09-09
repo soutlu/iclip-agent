@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react'
 import { Icon } from '@/shared/icons'
+import { copyText as writeClipboard } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
@@ -949,7 +950,7 @@ function ReaderNotice({ text }: { text: string }) {
 
 const copyText = async (text: string, message: string) => {
   try {
-    await navigator.clipboard.writeText(text)
+    await writeClipboard(text)
     toast(message)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : '复制失败')

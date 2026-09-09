@@ -1,4 +1,5 @@
 import { isValidElement, useState, type ReactNode } from 'react'
+import { copyText } from '@/shared/lib/clipboard'
 import { IconButton } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
 
@@ -24,7 +25,7 @@ export function CodeBlock({ children }: { children?: ReactNode }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(text)
+      await copyText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 1200)
     } catch {
