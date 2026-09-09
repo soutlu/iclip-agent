@@ -270,14 +270,6 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 - 商品图片、参考图片和参考视频只接受具有主机名的 HTTP(S) 地址；空参考视频使用 `null`。本地文件先走 §10 的直传换成地址。
 
-### 需求单数据升级
-
-- 执行 [0024_task_inputs](../server/migrations/versions/0024_task_inputs.py) 前备份 `iclip.tasks`。迁移保留管理字段、主键、认领及对话关联，将创作内容转换为 `inputs` 后移除原 `style`、`brief`。
-- [0030_task_products](../server/migrations/versions/0030_task_products.py) 把每张单的 `inputs.product` 放进 `inputs.products` 列表的第一项，品牌、品类、颜色留空；不是单商品形状的行让迁移整体失败。
-- 旧主题、目的、受众等补充内容和未分类图片地址追加到创作要求；分类参考图保持为空，不自动猜测用途。旧商品封面保留为商品图片，缺少的商品名称与分辨率留空。
-- 非法数据或合并后超过创作要求长度限制时，迁移失败并回滚，不截断内容。
-- 有需求单数据时禁止有损 downgrade；恢复旧结构须使用迁移前备份。空表支持结构降级。
-
 ## 9. 爆款视频查询 (Inspirations)
 
 `POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `assets:read`。
