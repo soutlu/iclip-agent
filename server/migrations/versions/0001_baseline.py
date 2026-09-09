@@ -53,6 +53,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     """回到空库：只留 env.py 建的 iclip schema 与版本表。"""
 
+    op.execute("SET LOCAL search_path TO public")
     for statement in _PROCRASTINATE_DROPS:
         op.execute(statement)
     op.execute(f"DROP SCHEMA {RUNTIME_SCHEMA} CASCADE")
@@ -553,6 +554,9 @@ def _install_procrastinate() -> None:
     if len(statements) != PROCRASTINATE_STATEMENTS:
         raise RuntimeError(f"切出了 {len(statements)} 条语句，应该是 {PROCRASTINATE_STATEMENTS} 条")
     bind = op.get_bind()
+    # SQL 里的表名不带 schema，落点由 search_path 决定；账号名与某个 schema 同名时默认会落进
+    # 那个 schema。钉死到 public，与运行时 procrastinate 的查询一致。
+    bind.exec_driver_sql("SET LOCAL search_path TO public")
     for statement in statements:
         # 原生执行：SQLAlchemy 的 text() 会把 PostgreSQL 的 :: 转换语法当成绑定参数。
         bind.exec_driver_sql(statement)
