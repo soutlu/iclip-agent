@@ -76,6 +76,8 @@ async def test_first_login_creates_editor_with_pms_profile(sso_app: FastAPI) -> 
     user = me.json()["user"]
     assert user["roles"] == ["editor"]
     assert user["displayName"] == "Luke W"
+    # 显示名同时成为用户名：它是发消息时发往上游的归属标签。
+    assert user["username"] == "Luke W"
     assert user["email"] == "luke@corp.test"
     assert user["city"] == "杭州"
     assert user["jobTitle"] == "策划"
@@ -132,6 +134,40 @@ class TestBindingToExistingAccount:
         user = me.json()["user"]
         assert user["roles"] == ["root"]
         assert user["city"] == "杭州"
+        assert user["username"] == "luke"
+
+
+class TestDisplayNameAlreadyTaken:
+    """两个 SSO 账号同名：后来者用户名留空，登录照常成功。"""
+
+    @pytest.fixture
+    def sso_transport(self) -> httpx.MockTransport:
+        sessions = iter(
+            [
+                {"innerUserId": 42, "unionId": "u-42", "name": "Luke W", "email": "luke@corp.test"},
+                {
+                    "innerUserId": 43,
+                    "unionId": "u-43",
+                    "name": "Luke W",
+                    "email": "luke2@corp.test",
+                },
+            ]
+        )
+        return httpx.MockTransport(
+            lambda request: httpx.Response(
+                200, json={"result": "OK", "userSession": {**next(sessions), "avatarUrl": ""}}
+            )
+        )
+
+    async def test_second_account_with_same_name_has_no_username(self, sso_app: FastAPI) -> None:
+        async with make_client(sso_app) as client:
+            assert (await client.get("/auth/sso/callback", params={"jwt": "j1"})).status_code == 204
+            assert (await client.get("/users/me")).json()["user"]["username"] == "Luke W"
+        async with make_client(sso_app) as other:
+            assert (await other.get("/auth/sso/callback", params={"jwt": "j2"})).status_code == 204
+            user = (await other.get("/users/me")).json()["user"]
+        assert user["email"] == "luke2@corp.test"
+        assert user["username"] is None
 
 
 class TestRootBootstrap:
