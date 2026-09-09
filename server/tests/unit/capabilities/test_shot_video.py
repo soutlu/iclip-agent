@@ -105,25 +105,14 @@ def make_context(deps: object) -> RunContext[object]:
     return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage(), messages=[])
 
 
-def ledger(*cell_ids: str) -> str:
-    """仅包含逐格请求校验字段的取帧账本。"""
+def ledger(*_cell_ids: str) -> str:
+    """取帧账本。逐格请求不校验帧号是否在账本里，出图工具只看它存不存在。"""
 
     return json.dumps(
         {
             "extractionVersion": 1,
             "extractionKey": "k",
-            "intervalMs": 1000,
-            "video": {"url": VIDEO, "contentHash": "sha256:x"},
-            "boards": [
-                {
-                    "board": 1,
-                    "url": "https://cdn.test/board.jpg",
-                    "shots": [1],
-                    "layout": "2x2",
-                    "cells": [{"id": cell, "shotId": 1} for cell in cell_ids],
-                }
-            ],
-            "shotsWithoutCells": [],
+            "boards": [{"board": 1, "url": "https://cdn.test/board.jpg"}],
         }
     )
 
