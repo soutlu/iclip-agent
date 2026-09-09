@@ -21,7 +21,7 @@ STYLE_NO = "SBPU24001W"
 
 def make_inputs(**overrides: Any) -> TaskInputs:
     fields: dict[str, Any] = {
-        "product": {"style_no": STYLE_NO},
+        "products": [{"style_no": STYLE_NO}],
         "creative_requirement": "三十秒的上身效果",
     }
     fields.update(overrides)

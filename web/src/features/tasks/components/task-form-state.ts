@@ -1,6 +1,7 @@
 import type { Task } from '../tasks.api'
 
 type TaskInputs = Task['inputs']
+export type TaskProduct = TaskInputs['products'][number]
 
 export type TaskFormState = {
   title: string
@@ -8,11 +9,20 @@ export type TaskFormState = {
   inputs: TaskInputs
 }
 
+export const emptyProduct = (): TaskProduct => ({
+  brand: '',
+  category: '',
+  color_name: '',
+  image_oss_urls: [],
+  name: '',
+  style_no: '',
+})
+
 export const emptyTaskForm = (): TaskFormState => ({
   deadline: '',
   inputs: {
     creative_requirement: '',
-    product: { image_oss_urls: [], name: '', style_no: '' },
+    products: [emptyProduct()],
     reference_image_oss_urls: { model: [], outfit: [], prop: [] },
     reference_video_oss_url: null,
     video_spec: {

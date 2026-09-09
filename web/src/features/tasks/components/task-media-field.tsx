@@ -7,6 +7,8 @@ import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 
 type TaskMediaFieldProps = {
   label: string
+  /** 可访问名称的词根，同一表单里有多组同类素材时用它区分；默认就是 label。 */
+  name?: string
   kind: 'image' | 'video'
   value: readonly string[]
   onChange: (urls: string[]) => void
@@ -19,6 +21,7 @@ type TaskMediaFieldProps = {
 /** 只维护素材引用；移除不会删除上传文件，关闭表单后不会应用迟到的上传结果。 */
 export function TaskMediaField({
   label,
+  name = label,
   kind,
   value,
   onChange,
@@ -134,7 +137,7 @@ export function TaskMediaField({
         <span className="text-body-sm text-on-surface-variant">{label}</span>
         {kind === 'video' && value.length > 0 && !disabled && (
           <button
-            aria-label={`替换${label}`}
+            aria-label={`替换${name}`}
             className="inline-flex ui-state cursor-pointer items-center gap-1 rounded-xs text-caption text-on-surface-variant ui-focus ui-focus-inline disabled:cursor-not-allowed"
             disabled={blocked}
             onClick={() => inputRef.current?.click()}
@@ -147,7 +150,7 @@ export function TaskMediaField({
       </div>
       <div
         aria-busy={uploading}
-        aria-label={label}
+        aria-label={name}
         className={cn(
           'relative flex flex-wrap gap-2 rounded-sm',
           dragOver && 'outline-2 outline-offset-4 outline-primary',
@@ -173,19 +176,19 @@ export function TaskMediaField({
           >
             {kind === 'video' ? (
               <TaskVideoPreview
-                name={`${label} ${index + 1}`}
-                onOpen={() => setPreview({ kind, name: `${label} ${index + 1}`, url })}
+                name={`${name} ${index + 1}`}
+                onOpen={() => setPreview({ kind, name: `${name} ${index + 1}`, url })}
                 url={url}
               />
             ) : (
               <button
-                aria-label={`预览${label} ${index + 1}`}
+                aria-label={`预览${name} ${index + 1}`}
                 className="size-full cursor-zoom-in overflow-hidden rounded-xs ui-focus"
-                onClick={() => setPreview({ kind, name: `${label} ${index + 1}`, url })}
+                onClick={() => setPreview({ kind, name: `${name} ${index + 1}`, url })}
                 type="button"
               >
                 <img
-                  alt={`${label} ${index + 1}`}
+                  alt={`${name} ${index + 1}`}
                   className="size-full object-contain"
                   draggable={false}
                   src={url}
@@ -194,7 +197,7 @@ export function TaskMediaField({
             )}
             {!disabled && (
               <button
-                aria-label={`移除${label} ${index + 1}`}
+                aria-label={`移除${name} ${index + 1}`}
                 className="absolute top-0 right-0 grid size-8 cursor-pointer place-items-center rounded-full ui-focus ui-focus-inline disabled:cursor-not-allowed"
                 disabled={uploading}
                 onClick={() => onChange(value.filter((_, position) => position !== index))}
@@ -209,7 +212,7 @@ export function TaskMediaField({
         ))}
         {!disabled && value.length < limit && (
           <button
-            aria-label={`添加${label}`}
+            aria-label={`添加${name}`}
             className={cn(
               'flex ui-state cursor-pointer items-center justify-center gap-2 rounded-sm border border-dashed border-outline-variant bg-surface text-on-surface-variant ui-focus disabled:cursor-not-allowed',
               kind === 'video'
@@ -241,7 +244,7 @@ export function TaskMediaField({
       </div>
       <input
         accept={kind === 'image' ? MEDIA_IMAGE_ACCEPT : MEDIA_VIDEO_ACCEPT}
-        aria-label={`选择${label}文件`}
+        aria-label={`选择${name}文件`}
         className="hidden"
         disabled={blocked}
         multiple={kind === 'image' && limit > 1}

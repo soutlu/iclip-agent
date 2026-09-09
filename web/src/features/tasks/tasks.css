@@ -98,6 +98,12 @@
   gap: 20px;
 }
 
+.task-form-product-attributes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
 @media (max-width: 599px) {
   .task-form-specs,
   .task-form-references {
@@ -106,7 +112,8 @@
   }
 
   .task-form-basics,
-  .task-form-product {
+  .task-form-product,
+  .task-form-product-attributes {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
   }

@@ -237,7 +237,8 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
     if (isCreate) return canWrite
     if (!task || !canWrite) return false
     if (task.status === 'withdrawn') return false
-    if (field === 'style_no') return false
+    // 款号及其顺序在创建时定下，之后只能改每款的名称、属性和图片。
+    if (field === 'style_no' || field === 'products') return false
     if (task.status === 'draft') return canEditDraft
     return PLANNER_EDITABLE.has(field)
   }
@@ -245,18 +246,21 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (uploading || busy || !editable('title')) return
-    if (!form.title.trim() || !form.inputs.product.style_no.trim()) {
+    const products = form.inputs.products.map((product) => ({
+      ...product,
+      style_no: product.style_no.trim(),
+    }))
+    if (!form.title.trim() || products.some((product) => !product.style_no)) {
       toast.error('需求单名称和商品款号必填')
+      return
+    }
+    if (new Set(products.map((product) => product.style_no)).size !== products.length) {
+      toast.error('商品款号不能重复')
       return
     }
     const body = {
       deadline: toIso(form.deadline),
-      inputs: isCreate
-        ? {
-            ...form.inputs,
-            product: { ...form.inputs.product, style_no: form.inputs.product.style_no.trim() },
-          }
-        : form.inputs,
+      inputs: isCreate ? { ...form.inputs, products } : form.inputs,
       title: form.title.trim(),
     }
     if (isCreate) createMutation.mutate(body)
@@ -272,7 +276,8 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
       <DialogBody className="px-6 pt-2 pb-6">
         <TaskFormFields
           form={form}
-          editable={(field) => !busy && editable(field)}
+          // 上传中不增减商品：图片字段按位置挂载，删一款会让还在传的那一款换位置。
+          editable={(field) => !busy && !(field === 'products' && uploading) && editable(field)}
           onChange={setForm}
           onUploadingChange={(field, value) =>
             setUploadingFields((previous) => ({ ...previous, [field]: value }))

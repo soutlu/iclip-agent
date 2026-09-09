@@ -21,11 +21,24 @@ from tests.integration_no_llm.conftest import (
 URL = "/tasks"
 
 INPUTS = {
-    "product": {
-        "style_no": STYLE_NO,
-        "name": "秋冬长靴",
-        "image_oss_urls": ["https://example.com/product.jpg"],
-    },
+    "products": [
+        {
+            "style_no": STYLE_NO,
+            "name": "秋冬长靴",
+            "brand": "品牌甲",
+            "category": "鞋靴",
+            "color_name": "黑色",
+            "image_oss_urls": ["https://example.com/product.jpg"],
+        },
+        {
+            "style_no": "SBPU24002W",
+            "name": "同系列短靴",
+            "brand": "品牌甲",
+            "category": "鞋靴",
+            "color_name": "棕色",
+            "image_oss_urls": [],
+        },
+    ],
     "video_spec": {
         "platform": "douyin",
         "video_type": "product_showcase",

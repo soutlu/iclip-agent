@@ -25,7 +25,10 @@ const prepare = async () => {
   task.inputs = {
     ...task.inputs,
     creative_requirement: '保留这段原文。\n第二行要求。',
-    product: { ...task.inputs.product, image_oss_urls: ['https://example.com/boot.jpg'] },
+    products: task.inputs.products.map((product) => ({
+      ...product,
+      image_oss_urls: ['https://example.com/boot.jpg'],
+    })),
     video_spec: { ...task.inputs.video_spec, aspect_ratio: '9:16', duration_seconds: 25 },
   }
   const user = userEvent.setup()

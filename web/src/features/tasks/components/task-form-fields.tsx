@@ -1,13 +1,37 @@
-import { useId, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useId, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { Icon } from '@/shared/icons'
+import { IconButton } from '@/shared/ui/button'
 import { Input, Select, Textarea } from '@/shared/ui/field'
 import type { Task } from '../tasks.api'
 import { TaskMediaField } from './task-media-field'
-import type { TaskFormState } from './task-form-state'
+import { emptyProduct, type TaskFormState, type TaskProduct } from './task-form-state'
 
 type TaskInputs = Task['inputs']
 type VideoSpec = TaskInputs['video_spec']
 
 const CONTROL = 'h-(--control-height-sm) min-w-0 rounded-sm border-border px-3 ui-focus-inline'
+/** 与合同 inputs.products 的上限一致。 */
+const MAX_PRODUCTS = 20
+const PRODUCT_ATTRIBUTES: readonly {
+  label: string
+  placeholder: string
+  value: (product: TaskProduct) => string
+  patch: (value: string) => Partial<TaskProduct>
+}[] = [
+  { label: '品牌', placeholder: '输入品牌', value: (p) => p.brand, patch: (brand) => ({ brand }) },
+  {
+    label: '品类',
+    placeholder: '例如 鞋靴',
+    value: (p) => p.category,
+    patch: (category) => ({ category }),
+  },
+  {
+    label: '颜色',
+    placeholder: '例如 黑色',
+    value: (p) => p.color_name,
+    patch: (color_name) => ({ color_name }),
+  },
+]
 const RATIO_OPTIONS: readonly NonNullable<VideoSpec['aspect_ratio']>[] = [
   '1:1',
   '3:4',
@@ -37,6 +61,12 @@ export function TaskFormFields({
   onUploadingChange,
 }: TaskFormFieldsProps) {
   const { inputs } = form
+  // 商品没有自己的 id；给每一款配一个本地序号做 key，删中间一款时其余款的图片字段不换挂载点。
+  const [productKeys, setProductKeys] = useState(() => inputs.products.map((_, index) => index))
+  const productRows = inputs.products.map((product, index) => ({
+    key: productKeys[index] ?? index,
+    product,
+  }))
   const patchInputs = (partial: Partial<TaskInputs>) =>
     onChange((previous) => ({ ...previous, inputs: { ...previous.inputs, ...partial } }))
   const patchVideo = (partial: Partial<VideoSpec>) =>
@@ -44,11 +74,25 @@ export function TaskFormFields({
       ...previous,
       inputs: { ...previous.inputs, video_spec: { ...previous.inputs.video_spec, ...partial } },
     }))
-  const patchProduct = (partial: Partial<TaskInputs['product']>) =>
+  const patchProducts = (update: (products: readonly TaskProduct[]) => TaskProduct[]) =>
     onChange((previous) => ({
       ...previous,
-      inputs: { ...previous.inputs, product: { ...previous.inputs.product, ...partial } },
+      inputs: { ...previous.inputs, products: update(previous.inputs.products) },
     }))
+  const patchProduct = (index: number, partial: Partial<TaskProduct>) =>
+    patchProducts((products) =>
+      products.map((product, position) =>
+        position === index ? { ...product, ...partial } : product,
+      ),
+    )
+  const addProduct = () => {
+    setProductKeys((keys) => [...keys, Math.max(-1, ...keys) + 1])
+    patchProducts((products) => [...products, emptyProduct()])
+  }
+  const removeProduct = (index: number) => {
+    setProductKeys((keys) => keys.filter((_, position) => position !== index))
+    patchProducts((products) => products.filter((_, position) => position !== index))
+  }
   const patchReferences = (key: keyof TaskInputs['reference_image_oss_urls'], urls: string[]) =>
     onChange((previous) => ({
       ...previous,
@@ -166,40 +210,89 @@ export function TaskFormFields({
       </Section>
 
       <Section title="商品信息">
-        <div className="task-form-product">
-          <Field label="商品款号" required>
-            <Input
-              aria-label="商品款号"
-              className={CONTROL}
-              disabled={!editable('style_no')}
-              required
-              placeholder="例如 SBPU24001W"
-              maxLength={64}
-              value={inputs.product.style_no}
-              onChange={(event) => patchProduct({ style_no: event.target.value })}
-            />
-          </Field>
-          <Field label="商品名称">
-            <Input
-              aria-label="商品名称"
-              className={CONTROL}
-              disabled={!editable('product')}
-              placeholder="输入商品名称"
-              maxLength={200}
-              value={inputs.product.name}
-              onChange={(event) => patchProduct({ name: event.target.value })}
-            />
-          </Field>
-        </div>
-        <TaskMediaField
-          label="商品图片"
-          kind="image"
-          value={inputs.product.image_oss_urls}
-          disabled={!editable('product')}
-          maxFiles={16}
-          onUploadingChange={(busy) => onUploadingChange('product', busy)}
-          onChange={(image_oss_urls) => patchProduct({ image_oss_urls })}
-        />
+        {productRows.map(({ key, product }, index) => {
+          const ordinal = `商品 ${index + 1}`
+          return (
+            <div
+              aria-label={ordinal}
+              className="flex min-w-0 flex-col gap-3 rounded-md border border-border p-4"
+              key={key}
+              role="group"
+            >
+              <div className="flex h-6 items-center justify-between gap-3">
+                <span className="text-body-sm font-medium text-on-surface">{ordinal}</span>
+                {editable('products') && inputs.products.length > 1 && (
+                  <IconButton
+                    label={`移除${ordinal}`}
+                    name="delete"
+                    onClick={() => removeProduct(index)}
+                    size="xs"
+                  />
+                )}
+              </div>
+              <div className="task-form-product">
+                <Field label="商品款号" required>
+                  <Input
+                    aria-label={`${ordinal} 款号`}
+                    className={CONTROL}
+                    disabled={!editable('style_no')}
+                    required
+                    placeholder="例如 SBPU24001W"
+                    maxLength={64}
+                    value={product.style_no}
+                    onChange={(event) => patchProduct(index, { style_no: event.target.value })}
+                  />
+                </Field>
+                <Field label="商品名称">
+                  <Input
+                    aria-label={`${ordinal} 名称`}
+                    className={CONTROL}
+                    disabled={!editable('product')}
+                    placeholder="输入商品名称"
+                    maxLength={200}
+                    value={product.name}
+                    onChange={(event) => patchProduct(index, { name: event.target.value })}
+                  />
+                </Field>
+              </div>
+              <div className="task-form-product-attributes">
+                {PRODUCT_ATTRIBUTES.map((attribute) => (
+                  <Field key={attribute.label} label={attribute.label}>
+                    <Input
+                      aria-label={`${ordinal} ${attribute.label}`}
+                      className={CONTROL}
+                      disabled={!editable('product')}
+                      placeholder={attribute.placeholder}
+                      maxLength={200}
+                      value={attribute.value(product)}
+                      onChange={(event) => patchProduct(index, attribute.patch(event.target.value))}
+                    />
+                  </Field>
+                ))}
+              </div>
+              <TaskMediaField
+                label="商品图片"
+                name={`${ordinal} 图片`}
+                kind="image"
+                value={product.image_oss_urls}
+                disabled={!editable('product')}
+                maxFiles={16}
+                onUploadingChange={(busy) => onUploadingChange(`product-${index}`, busy)}
+                onChange={(image_oss_urls) => patchProduct(index, { image_oss_urls })}
+              />
+            </div>
+          )
+        })}
+        {editable('products') && inputs.products.length < MAX_PRODUCTS && (
+          <button
+            className="flex h-10 w-full ui-state cursor-pointer items-center justify-center gap-2 rounded-sm border border-dashed border-outline-variant bg-surface text-body-sm text-on-surface-variant ui-focus"
+            onClick={addProduct}
+            type="button"
+          >
+            <Icon decorative name="add" size="sm" />
+            添加商品
+          </button>
+        )}
       </Section>
 
       <Section title="参考素材">

@@ -13,6 +13,12 @@ type TaskCardProps = {
   task: Task
 }
 
+/** 卡片只放得下一个款号：多款时用第一款代表整单，带上款数。 */
+const productsSummary = ([first, ...rest]: Task['inputs']['products']): string => {
+  if (!first) return '未填商品'
+  return rest.length ? `${first.style_no} 等 ${rest.length + 1} 款` : first.style_no
+}
+
 export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -42,7 +48,7 @@ export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
             </span>
           </span>
           <span className="mt-1 block truncate text-body-sm text-on-surface-variant">
-            {task.inputs.product.style_no} · 添加于 {formatRelativeTime(task.createdAt)}
+            {productsSummary(task.inputs.products)} · 添加于 {formatRelativeTime(task.createdAt)}
           </span>
         </span>
       </button>

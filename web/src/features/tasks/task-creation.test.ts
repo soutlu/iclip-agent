@@ -14,14 +14,23 @@ const task = () => ({
       duration_seconds: 25,
       resolution: '1080p',
     },
-    product: {
-      style_no: '不发送的款号',
-      name: '不发送的商品名',
-      image_oss_urls: [
-        'https://assets.example.com/product-1.png',
-        'https://assets.example.com/product-2.png',
-      ],
-    },
+    products: [
+      {
+        style_no: '不发送的款号',
+        name: '不发送的商品名',
+        brand: '不发送的品牌',
+        category: '不发送的品类',
+        color_name: '不发送的颜色',
+        image_oss_urls: ['https://assets.example.com/product-1.png'],
+      },
+      {
+        style_no: '不发送的第二款号',
+        image_oss_urls: [
+          'https://assets.example.com/product-2.png',
+          'https://assets.example.com/product-1.png',
+        ],
+      },
+    ],
     reference_image_oss_urls: {
       model: ['https://assets.example.com/product-2.png', 'https://assets.example.com/model.png'],
       outfit: ['https://assets.example.com/outfit.png'],
@@ -33,7 +42,7 @@ const task = () => ({
 })
 
 describe('buildTaskCreationDraft', () => {
-  it('仅组装约定字段，一条文字后按顺序附商品图、模特图和视频，不修改需求单', () => {
+  it('仅组装约定字段，一条文字后按顺序附各款商品图、模特图和视频，重复地址只发一次，不修改需求单', () => {
     const original = task()
     const snapshot = structuredClone(original)
     const draft = buildTaskCreationDraft(original)
@@ -80,7 +89,10 @@ describe('buildTaskCreationDraft', () => {
       resolution: '  ',
     }
     original.inputs.creative_requirement = '  \n'
-    original.inputs.product.image_oss_urls = []
+    original.inputs.products = original.inputs.products.map((product) => ({
+      ...product,
+      image_oss_urls: [],
+    }))
     original.inputs.reference_image_oss_urls.model = []
     original.inputs.reference_video_oss_url = null
     expect(buildTaskCreationDraft(original)).toBeNull()

@@ -21,7 +21,10 @@ export function buildTaskCreationDraft(
   if (spec.resolution.trim()) specs.push(`- 分辨率：${spec.resolution}`)
 
   const images = [
-    ...new Set([...inputs.product.image_oss_urls, ...inputs.reference_image_oss_urls.model]),
+    ...new Set([
+      ...inputs.products.flatMap((product) => product.image_oss_urls),
+      ...inputs.reference_image_oss_urls.model,
+    ]),
   ]
   const video = inputs.reference_video_oss_url
   if (!specs.length && !inputs.creative_requirement.trim() && !images.length && !video) return null

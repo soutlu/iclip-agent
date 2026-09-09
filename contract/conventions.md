@@ -222,8 +222,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 创作输入与商品
 
 - `POST /tasks` 与 `PUT /tasks/{id}` 使用同一份 `inputs` 结构。任务外层沿用 camelCase，`inputs` 内部使用 snake_case，与持久化 JSONB 一致；具体字段由 OpenAPI 定义。
-- `inputs` 是唯一的创作需求来源。创建不再隐式查询产品目录或转存商品图，调用方明确提供商品款号、名称和图片；本地文件先走 §10 的上传流程。
-- `inputs.product.style_no` 是主款号，创建后不可更换；草稿允许补充商品名称和图片，发布后商品信息冻结。
+- `inputs` 是唯一的创作需求来源。创建不再隐式查询产品目录或转存商品图，调用方明确提供商品款号、名称、品牌、品类、颜色和图片；本地文件先走 §10 的上传流程。
+- `inputs.products` 是这张单要拍的商品列表，1 到 20 款，款号不重复。列表里的款号及其顺序在创建时定下，之后不能增减、调换或更换；草稿允许补充每款的名称、品牌、品类、颜色和图片，发布后整个列表冻结。
 - 商品图片用于商品展示，参考图片分别归入模特、穿搭、道具类别，不根据 URL 或上传顺序推断用途。
 - `task_id` 使用需求单自身 ID，`generation_id` 对应一次创作尝试的 Conversation ID，二者不重复保存在 Task 的 `inputs` 中。
 
@@ -273,6 +273,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 需求单数据升级
 
 - 执行 [0024_task_inputs](../server/migrations/versions/0024_task_inputs.py) 前备份 `iclip.tasks`。迁移保留管理字段、主键、认领及对话关联，将创作内容转换为 `inputs` 后移除原 `style`、`brief`。
+- [0030_task_products](../server/migrations/versions/0030_task_products.py) 把每张单的 `inputs.product` 放进 `inputs.products` 列表的第一项，品牌、品类、颜色留空；不是单商品形状的行让迁移整体失败。
 - 旧主题、目的、受众等补充内容和未分类图片地址追加到创作要求；分类参考图保持为空，不自动猜测用途。旧商品封面保留为商品图片，缺少的商品名称与分辨率留空。
 - 非法数据或合并后超过创作要求长度限制时，迁移失败并回滚，不截断内容。
 - 有需求单数据时禁止有损 downgrade；恢复旧结构须使用迁移前备份。空表支持结构降级。

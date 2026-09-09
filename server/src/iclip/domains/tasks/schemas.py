@@ -20,6 +20,7 @@ MAX_SHORT_TEXT_CHARS: Final = 200
 MAX_DESCRIPTION_CHARS: Final = 4000
 MAX_REFERENCE_URLS: Final = 16
 MAX_STYLE_NO_CHARS: Final = 64
+MAX_PRODUCTS: Final = 20
 MIN_DURATION_SECONDS: Final = 3
 MAX_DURATION_SECONDS: Final = 50
 DEFAULT_LIST_LIMIT: Final = 20
@@ -72,10 +73,13 @@ class TaskVideoSpec(InputsModel):
 
 
 class TaskProduct(InputsModel):
-    """需求单的商品快照，由调用方明确提供名称和素材。"""
+    """需求单里的一款商品，由调用方明确提供名称、属性和素材。"""
 
     style_no: StyleNo
     name: ShortText = ""
+    brand: ShortText = ""
+    category: ShortText = ""
+    color_name: ShortText = ""
     image_oss_urls: ReferenceUrls = Field(default_factory=list)
 
     _check_images = field_validator("image_oss_urls")(_http_only)
@@ -102,10 +106,18 @@ class TaskInputs(InputsModel):
     """唯一的创作需求结构，HTTP 与 JSONB 均使用 snake_case。"""
 
     video_spec: TaskVideoSpec = Field(default_factory=TaskVideoSpec)
-    product: TaskProduct
+    products: Annotated[list[TaskProduct], Field(min_length=1, max_length=MAX_PRODUCTS)]
     reference_image_oss_urls: TaskReferenceImages = Field(default_factory=TaskReferenceImages)
     reference_video_oss_url: str | None = None
     creative_requirement: Description = ""
+
+    @field_validator("products")
+    @classmethod
+    def unique_style_nos(cls, products: list[TaskProduct]) -> list[TaskProduct]:
+        style_nos = [product.style_no.strip() for product in products]
+        if len(set(style_nos)) != len(style_nos):
+            raise ValueError("同一张需求单里的商品款号不能重复")
+        return products
 
     @field_validator("reference_video_oss_url")
     @classmethod
@@ -201,6 +213,7 @@ __all__ = [
     "MAX_DESCRIPTION_CHARS",
     "MAX_DURATION_SECONDS",
     "MAX_LIST_LIMIT",
+    "MAX_PRODUCTS",
     "MAX_REFERENCE_URLS",
     "MAX_SHORT_TEXT_CHARS",
     "MAX_STYLE_NO_CHARS",

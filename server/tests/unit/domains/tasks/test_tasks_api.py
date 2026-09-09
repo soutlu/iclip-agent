@@ -141,34 +141,53 @@ async def test_status_cannot_be_supplied_when_overwriting() -> None:
     assert response.status_code == 422
 
 
-async def test_draft_product_is_editable_except_for_its_style_number() -> None:
-    task = make_task()
+async def test_draft_products_are_editable_except_for_their_style_numbers() -> None:
+    task = make_task(
+        inputs=make_inputs(products=[{"style_no": STYLE_NO}, {"style_no": "SBPU24002W"}])
+    )
     repo = InMemoryTaskRepository([task])
     async with client(build_test_app(repo, granted=editor(task.creator_user_id))) as http:
         current = (await http.get(f"/tasks/{task.id}")).json()["task"]
         inputs = current["inputs"]
-        inputs["product"].update(name="及膝长靴", image_oss_urls=["https://example.com/boots.jpg"])
+        inputs["products"][0].update(
+            name="及膝长靴",
+            brand="品牌甲",
+            category="鞋靴",
+            color_name="黑色",
+            image_oss_urls=["https://example.com/boots.jpg"],
+        )
         saved = await http.put(f"/tasks/{task.id}", json=body_of(current, inputs=inputs))
         assert saved.status_code == 200
-        assert saved.json()["task"]["inputs"]["product"] == inputs["product"]
-        inputs["product"]["style_no"] = "OTHER1"
-        assert (
-            await http.put(f"/tasks/{task.id}", json=body_of(current, inputs=inputs))
-        ).status_code == 409
+        assert saved.json()["task"]["inputs"]["products"] == inputs["products"]
+        for products in (
+            [inputs["products"][0]],
+            [*inputs["products"], {"style_no": "SBPU24003W"}],
+            [inputs["products"][1], inputs["products"][0]],
+            [{**inputs["products"][0], "style_no": "OTHER1"}, inputs["products"][1]],
+        ):
+            response = await http.put(
+                f"/tasks/{task.id}", json=body_of(current, inputs={**inputs, "products": products})
+            )
+            assert response.status_code == 409, products
         after = (await http.get(f"/tasks/{task.id}")).json()["task"]
-        assert after["inputs"]["product"]["style_no"] == STYLE_NO
+        assert [item["style_no"] for item in after["inputs"]["products"]] == [
+            STYLE_NO,
+            "SBPU24002W",
+        ]
 
 
-@pytest.mark.parametrize("field", ["name", "image_oss_urls"])
-async def test_product_freezes_on_publish(field: str) -> None:
+@pytest.mark.parametrize("field", ["name", "brand", "category", "color_name", "image_oss_urls"])
+async def test_products_freeze_on_publish(field: str) -> None:
     task = make_task(status=STATUS_PUBLISHED)
     repo = InMemoryTaskRepository([task])
     async with client(build_test_app(repo, granted=editor())) as http:
         current = (await http.get(f"/tasks/{task.id}")).json()["task"]
-        current["inputs"]["product"][field] = (
-            ["https://example.com/new.jpg"] if field == "image_oss_urls" else "new name"
+        current["inputs"]["products"][0][field] = (
+            ["https://example.com/new.jpg"] if field == "image_oss_urls" else "new value"
         )
-        assert (await http.put(f"/tasks/{task.id}", json=body_of(current))).status_code == 409
+        response = await http.put(f"/tasks/{task.id}", json=body_of(current))
+        assert response.status_code == 409
+        assert "products" in response.json()["detail"]
 
 
 async def test_creator_cannot_be_supplied_by_the_client() -> None:
@@ -186,34 +205,41 @@ async def test_creator_cannot_be_supplied_by_the_client() -> None:
         {**BODY, "title": ""},
         {
             **BODY,
-            "inputs": {"product": {"style_no": STYLE_NO}, "video_spec": {"duration_seconds": 1}},
+            "inputs": {"products": [{"style_no": STYLE_NO}], "video_spec": {"duration_seconds": 1}},
         },
         {
             **BODY,
-            "inputs": {"product": {"style_no": STYLE_NO}, "video_spec": {"aspect_ratio": "7:3"}},
-        },
-        {
-            **BODY,
-            "inputs": {"product": {"style_no": STYLE_NO, "image_oss_urls": ["file:///etc/passwd"]}},
+            "inputs": {"products": [{"style_no": STYLE_NO}], "video_spec": {"aspect_ratio": "7:3"}},
         },
         {
             **BODY,
             "inputs": {
-                "product": {"style_no": STYLE_NO},
+                "products": [{"style_no": STYLE_NO, "image_oss_urls": ["file:///etc/passwd"]}]
+            },
+        },
+        {
+            **BODY,
+            "inputs": {
+                "products": [{"style_no": STYLE_NO}],
                 "reference_image_oss_urls": {"model": ["https://"]},
             },
         },
         {
             **BODY,
             "inputs": {
-                "product": {"style_no": STYLE_NO},
+                "products": [{"style_no": STYLE_NO}],
                 "reference_video_oss_url": "file:///video.mp4",
             },
         },
-        {**BODY, "inputs": {"product": {"style_no": STYLE_NO}, "unknown_field": "x"}},
+        {**BODY, "inputs": {"products": [{"style_no": STYLE_NO}], "unknown_field": "x"}},
         {"title": "x"},
-        {**BODY, "inputs": {"product": {"style_no": ""}}},
-        {**BODY, "inputs": {"product": {"style_no": "   "}}},
+        {**BODY, "inputs": {"products": [{"style_no": ""}]}},
+        {**BODY, "inputs": {"products": [{"style_no": "   "}]}},
+        {**BODY, "inputs": {"products": []}},
+        {**BODY, "inputs": {"product": {"style_no": STYLE_NO}}},
+        {**BODY, "inputs": {"products": [{"style_no": STYLE_NO}, {"style_no": f" {STYLE_NO}"}]}},
+        {**BODY, "inputs": {"products": [{"style_no": f"SKU{i}"} for i in range(21)]}},
+        {**BODY, "inputs": {"products": [{"style_no": STYLE_NO, "brand": "x" * 201}]}},
     ],
 )
 async def test_bad_request_shapes_are_rejected(payload: dict[str, object]) -> None:
@@ -437,7 +463,12 @@ async def test_claimed_by_me_lists_only_my_claims() -> None:
 @pytest.mark.parametrize(
     "media",
     [
-        {"product": {"style_no": STYLE_NO, "image_oss_urls": ["https://example.com/product.jpg"]}},
+        {
+            "products": [
+                {"style_no": STYLE_NO},
+                {"style_no": "SBPU24002W", "image_oss_urls": ["https://example.com/product.jpg"]},
+            ]
+        },
         {"reference_image_oss_urls": {"model": ["https://example.com/model.jpg"]}},
         {"reference_image_oss_urls": {"outfit": ["https://example.com/outfit.jpg"]}},
         {"reference_image_oss_urls": {"prop": ["https://example.com/prop.jpg"]}},
