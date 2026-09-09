@@ -411,3 +411,49 @@ test('无图分镜上传首图后关联到另一镜，替换共享图片只改�
   })
   expect(generationPosts).toEqual([])
 })
+
+test('选模型出片：请求照上游形状取当前组，记录先生成中后完成，下载分原片与水印版', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
+  const panel = await openStoryboard(page)
+  await panel.getByRole('button', { name: '第 3 组' }).click()
+  const group = panel.getByRole('region', { name: '镜头组 3', exact: true })
+  await expect(group.getByRole('textbox', { name: '镜头 1 的描述' })).toContainText('低角度拍鞋面')
+  const before = await readDocument(page)
+  const third = before.document.shots[2]
+  if (third === undefined) throw new Error('需要第三组')
+
+  await panel.getByRole('button', { name: '视频模型：moyu-seedance-2-5', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: 'wan3.0-video', exact: true }).click()
+  const posted = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' && new URL(request.url()).pathname === '/api/generations/video',
+  )
+  await panel.getByRole('button', { name: '生成视频', exact: true }).click()
+  const request = await posted
+  expect(request.postDataJSON()).toEqual({
+    aspect_ratio: before.document.aspect_ratio,
+    conversation_id: new URL(page.url()).pathname.split('/').at(-1),
+    model: 'wan3.0-video',
+    prompt: rawGroupPrompt(third),
+    reference_image_urls: third.image_urls,
+    seconds: third.seconds,
+    shot_index: 3,
+  })
+  await expect(page.getByText('镜头组 3 已提交出片，进度看生成记录')).toBeVisible()
+  await expect(panel.getByText('生成中 1', { exact: true })).toBeVisible()
+
+  await panel.getByRole('button', { name: '生成记录', exact: true }).click()
+  const records = panel.getByRole('complementary', { name: '生成记录', exact: true })
+  await expect(records.getByRole('article')).toHaveCount(2)
+  await expect(records.getByText('生成中…')).toBeVisible()
+  // mock 三秒后出片，前端每五秒问一次。
+  await expect(records.getByText('生成中…')).toBeHidden({ timeout: 15_000 })
+  await expect(records.getByRole('button', { name: '下载视频' })).toHaveCount(2)
+  await records.getByRole('button', { name: '下载视频' }).first().click()
+  await expect(page.getByRole('menuitem', { name: '下载原片' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '下载水印版' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menuitem', { name: '下载原片' })).toBeHidden()
+})

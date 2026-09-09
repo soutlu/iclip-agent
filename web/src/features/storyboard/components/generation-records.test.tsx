@@ -3,7 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { Toaster, toast } from '@/shared/ui/toast'
 import { server } from '@/testing/mocks/server'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GenerationJob } from '../storyboard.api'
 import { GenerationRecords } from './generation-records'
 
@@ -56,8 +56,21 @@ const renderRecords = (onClose = vi.fn()) => {
   return onClose
 }
 
+beforeEach(() => {
+  // 下载菜单是 Radix 弹层，定位时要量尺寸；jsdom 没有 ResizeObserver。
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  )
+})
+
 afterEach(() => {
   toast.dismiss()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
@@ -139,6 +152,44 @@ describe('GenerationRecords', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: '下载视频' })).toBeEnabled())
     },
   )
+
+  it('上游给了水印版时，下载先选原片或水印版，各取各的地址', async () => {
+    const user = userEvent.setup()
+    const requested: string[] = []
+    server.use(
+      http.get('https://downloads.example.test/*', ({ request }) => {
+        requested.push(request.url)
+        return new HttpResponse(null, { status: 503 })
+      }),
+    )
+    render(
+      <>
+        <Toaster />
+        <GenerationRecords
+          jobs={[
+            job({
+              id: 'marked',
+              outputUrl: 'https://downloads.example.test/clean.mp4',
+              watermarkOutputUrl: 'https://downloads.example.test/marked.mp4',
+            }),
+          ]}
+          onClose={vi.fn()}
+          onEditPrompt={vi.fn()}
+          shotIndex={2}
+        />
+      </>,
+    )
+    await user.click(screen.getByRole('button', { name: '下载视频' }))
+    await user.click(await screen.findByRole('menuitem', { name: '下载水印版' }))
+    await waitFor(() => expect(requested).toEqual(['https://downloads.example.test/marked.mp4']))
+    expect(await screen.findByText('视频下载失败，请重试')).toBeVisible()
+    await waitFor(() => expect(screen.getByRole('button', { name: '下载视频' })).toBeEnabled())
+
+    await user.click(screen.getByRole('button', { name: '下载视频' }))
+    await user.click(await screen.findByRole('menuitem', { name: '下载原片' }))
+    await waitFor(() => expect(requested).toHaveLength(2))
+    expect(requested[1]).toBe('https://downloads.example.test/clean.mp4')
+  })
 
   it('时刻写成年月日时分', () => {
     renderRecords()

@@ -1,7 +1,16 @@
 /** 结构化分镜工作台；查询参数保存组与帧位置，草稿局部更新后整份保存。 */
 
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import {
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
@@ -36,9 +45,12 @@ import {
 } from '../shot-document'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH, shotSelectionRef } from '../shots'
 import {
+  storyboardQueryKeys,
+  submitVideoGeneration,
   uploadFrameImage,
   useFrameCandidates,
   useShotGenerations,
+  useVideoModels,
   type FrameCandidate,
 } from '../storyboard.api'
 import { useShotsDraft, type SaveState } from '../use-shots-draft'
@@ -47,6 +59,7 @@ import { ShotFilmstrip } from './shot-filmstrip'
 import { FrameAssignmentPicker } from './frame-assignment-picker'
 import { FramePreview } from './frame-preview'
 import { PromptEditor, type PromptEditorHandle } from './prompt-editor'
+import { VideoGenerationButton } from './video-generation-button'
 
 type ReaderSearch = {
   frame?: number | undefined
@@ -68,6 +81,10 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const file = useWorkspaceFile(conversationId, path)
   const generations = useShotGenerations(conversationId)
   const candidates = useFrameCandidates(conversationId)
+  const videoModels = useVideoModels()
+  const queryClient = useQueryClient()
+  const [wantedModel, setWantedModel] = useState<string>()
+  const [submitting, setSubmitting] = useState(false)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
   const [uploadedSources, setUploadedSources] = useState<
     { group: number; frame: number; url: string }[]
@@ -169,6 +186,38 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const activeCount = jobs.filter(
     (job) => job.kind === 'video' && job.shotIndex === shot.index && isRunningStatus(job.status),
   ).length
+  // 选过的模型不在允许表里（配置改了）就退回默认，不用副作用改 state。
+  const modelOptions = videoModels.data?.items ?? []
+  const model =
+    wantedModel !== undefined && modelOptions.includes(wantedModel)
+      ? wantedModel
+      : videoModels.data?.default
+  const generate = async () => {
+    if (model === undefined) return
+    // 正文按屏幕上这一版拼，没存下的改动也一起发；引用越界这类文件规则先在本地拦下。
+    const problem = validateShot(shot)
+    if (problem !== undefined) {
+      toast.error(problem)
+      return
+    }
+    setSubmitting(true)
+    try {
+      await submitVideoGeneration({
+        aspectRatio: document.aspect_ratio,
+        conversationId,
+        model,
+        shot,
+      })
+      toast(`镜头组 ${shot.index} 已提交出片，进度看生成记录`)
+      void queryClient.invalidateQueries({
+        queryKey: storyboardQueryKeys.generations(conversationId),
+      })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '出片没发出去')
+    } finally {
+      setSubmitting(false)
+    }
+  }
   const onScroll = () => {
     const element = pagesRef.current
     if (element === null) return
@@ -187,7 +236,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
         className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden"
         inert={media !== null}
       >
-        <div className="flex min-w-0 shrink-0 items-center justify-end gap-2 px-4 pt-2 pb-1">
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 px-4 pt-2 pb-1">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <SaveStatus
               state={draft.state}
@@ -218,6 +267,14 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
               <span className="ml-1 text-primary">生成中 {activeCount}</span>
             ) : null}
           </Button>
+          <VideoGenerationButton
+            model={model}
+            models={modelOptions}
+            onChangeModel={setWantedModel}
+            onGenerate={() => void generate()}
+            submitting={submitting}
+            unavailable={videoModels.isError ? '视频模型读不到' : undefined}
+          />
         </div>
         <div className="relative flex min-h-0 w-full min-w-0 flex-1 overflow-hidden">
           <div
@@ -715,6 +772,9 @@ function ReaderOverlay({ children, className, label, onClose }: ReaderOverlayPro
       ref.current?.querySelector<HTMLElement>('button')
     target?.focus()
   }, [])
+  // 监听只挂一次。跟着 onClose 重挂会排到预览弹层的监听之后：弹层先关、焦点回到抽屉里，
+  // 这里再看到的就是「没有弹层、焦点在抽屉内」，会把抽屉也一起关掉。
+  const close = useEffectEvent(onClose)
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (
@@ -725,11 +785,11 @@ function ReaderOverlay({ children, className, label, onClose }: ReaderOverlayPro
       )
         return
       event.preventDefault()
-      onClose()
+      close()
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose])
+  }, [])
   return (
     <aside
       aria-label={label}
