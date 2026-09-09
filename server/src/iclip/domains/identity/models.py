@@ -67,6 +67,8 @@ class Principal:
     ``permissions`` 是主体的有效权限集：用户为角色并集 ∪ 直接授权，
     API key 为 key 显式授权集。``audit_label`` 是日志/审计输出用的
     人类可读主体标识（用户为 username/email，key 为「属主#key名」）。
+    ``username`` 是属主账号的用户名，给发往上游的归属标签取默认值用；
+    账号没有用户名时为空，不拿邮箱顶替。
     """
 
     kind: PrincipalKind
@@ -74,6 +76,7 @@ class Principal:
     permissions: frozenset[str]
     audit_label: str
     api_key_id: uuid.UUID | None = field(default=None)
+    username: str | None = field(default=None)
 
     def has(self, permission: str) -> bool:
         return permission in self.permissions

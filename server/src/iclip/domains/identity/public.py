@@ -10,6 +10,7 @@ from iclip.domains.identity.middleware import (
 )
 from iclip.domains.identity.models import Principal, UserAccount
 from iclip.domains.identity.rbac import PERMISSIONS, ROLES, effective_permissions
+from iclip.domains.identity.user_name import resolve_user_name
 
 __all__ = [
     "PERMISSIONS",
@@ -19,6 +20,7 @@ __all__ = [
     "effective_permissions",
     "require_authenticated",
     "require_permission",
+    "resolve_user_name",
     "websocket_origin_allowed",
     "websocket_principal",
 ]

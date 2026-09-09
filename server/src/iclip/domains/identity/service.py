@@ -59,6 +59,7 @@ class IdentityService:
             user_id=account.id,
             permissions=effective_permissions(account.roles, account.direct_permissions),
             audit_label=account.username or account.email,
+            username=account.username,
         )
 
     async def authenticate_api_key(self, token: str) -> Principal:
@@ -85,6 +86,7 @@ class IdentityService:
             api_key_id=record.id,
             permissions=record.permissions,
             audit_label=f"{owner.username or owner.email}#{record.name}",
+            username=owner.username,
         )
 
     async def get_account(self, user_id: uuid.UUID) -> UserAccount:
