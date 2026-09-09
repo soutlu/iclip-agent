@@ -123,23 +123,11 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     async def plan_shot_frames(
         self, ctx: RunContext[AgentDepsT], video_url: str
     ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
-        """从参考视频等间隔抽帧，按结构层级分板返回候选帧预览板。
-
-        - 镜头起止时间戳与结构层级分组取自该视频的拆解文档；每秒取一帧，帧按时间
-          戳落进覆盖它的镜头。
-        - 一个结构层级一张预览板，每张候选帧左上角标注帧号，形如 S8-3（第 8 个镜
-          头的第 3 个候选帧）。
-        - 图像内容不随本工具返回；用 `ReadMediaFile` 读 url 看板，需要多板时在同一
-          次回复中并行读取。
-        - 同一视频与同一份拆解文档重复调用会直接复用既有结果，不重复抽帧。
-        - 该视频尚未拆解、拆解文档读不出镜头时间戳、或时间戳超出视频时长时返回
-          错误。
-        - 只接受这段对话里出现过的视频地址；自己拼的、以及对话里那些图片的地址，
-          都会被拒。
+        """从参考视频抽帧，按结构层级组合成图片。
 
         Args:
             ctx: 框架给的运行上下文。
-            video_url: 参考视频地址，逐字取自对话里给你的那个。
+            video_url: 参考视频地址。
         """
 
         files, namespace = self._workspace(ctx)
@@ -158,31 +146,37 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         boards = document["boards"]
         await self._record_images(namespace, [board["url"] for board in boards])
-        cells_total = sum(len(board["cells"]) for board in boards)
-        flat = sum(len(row) for row in rows)
+        # 台账只存板号与地址；板上有哪几个镜头按 rows 现算。命中复用时 rows 与建账时
+        # 逐字相同（它是 extractionKey 的组成部分），两条路算出来一样。
+        shots_of = {
+            board["board"]: sorted({shot.shot_id for shot in rows[board["board"] - 1]})
+            for board in boards
+        }
         message = (
-            f"取帧{'复用既有账本' if reused else '完成'}：从 {doc_path} 读到 {flat} 个镜头分 "
-            f"{len(rows)} 个结构层级，每秒一帧共 {cells_total} 个候选帧，取帧账本见 "
-            f"{EXTRACTION_PATH}；每板用 ReadMediaFile 读 url 查看，候选帧上的标注即帧号"
-            f"（{CELL_ID_SHAPE}）。"
+            f"取帧完成：共 {len(rows)} 个结构层级，组合成 {len(boards)} 组图片。"
+            f"每组图中每张视频帧左上的标注即帧号（{CELL_ID_SHAPE}）。"
         )
-        starved = document["shotsWithoutCells"]
-        if starved:
-            message += f" 短于一秒未取到候选帧的镜头：{', '.join(map(str, starved))}。"
         return ToolReturn(
             return_value={
                 "message": message,
                 "boards": [
-                    {"board": board["board"], "shots": board["shots"], "url": board["url"]}
+                    {
+                        "board": board["board"],
+                        "shots": shots_of[board["board"]],
+                        "url": board["url"],
+                    }
                     for board in boards
                 ],
             },
             metadata=media_grid(
                 (
-                    (board["url"], f"板 {board['board']} · {','.join(map(str, board['shots']))}")
+                    (
+                        board["url"],
+                        f"板 {board['board']} · {','.join(map(str, shots_of[board['board']]))}",
+                    )
                     for board in boards
                 ),
-                note=f"{len(boards)} 板 · {cells_total} 格",
+                note=f"{len(boards)} 板",
             ),
         )
 

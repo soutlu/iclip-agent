@@ -298,14 +298,15 @@ async def test_plan_extracts_every_second_and_boards_them(media: dict[str, bytes
     assert materials.urls(NAMESPACE) == {boards[0]["url"]}
     assert result.metadata == {
         "items": [{"url": boards[0]["url"], "caption": "板 1 · 1,2"}],
-        "note": "1 板 · 3 格",
+        "note": "1 板",
     }
     assert len(objects.written) == 1
+    # 台账只留复用判定要用的东西：板上有哪几个镜头由调用方按 rows 现算。
     stored = await files.read(NAMESPACE, EXTRACTION_PATH)
     assert stored is not None
     ledger = json.loads(stored.content)
-    cells = [cell["id"] for board in ledger["boards"] for cell in board["cells"]]
-    assert cells == ["S1-1", "S1-2", "S2-1"]
+    assert ledger.keys() == {"extractionVersion", "extractionKey", "boards"}
+    assert ledger["boards"] == [{"board": 1, "url": boards[0]["url"]}]
 
 
 async def test_plan_reuses_the_ledger_instead_of_extracting_again(
@@ -319,13 +320,15 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
     client = make_client(media)
     try:
         tools = make_tools(client, objects, files, ledger=materials)
-        await tools.plan_shot_frames(make_context(), VIDEO_URL)
+        first = await tools.plan_shot_frames(make_context(), VIDEO_URL)
         again = await tools.plan_shot_frames(make_context(), VIDEO_URL)
     finally:
         await client.aclose()
 
+    assert isinstance(first, ToolReturn)
     assert isinstance(again, ToolReturn)
-    assert "复用既有账本" in model_facing(again)["message"]
+    # 复用路径不重抽帧也不重传，但结果要与首次逐字相同：板上有哪几个镜头是按 rows 现算的。
+    assert model_facing(again) == model_facing(first)
     assert len(objects.written) == 1
     # 复用时也需登记预览板地址，保证后续工具可引用。
     assert materials.urls(NAMESPACE) == {model_facing(again)["boards"][0]["url"]}

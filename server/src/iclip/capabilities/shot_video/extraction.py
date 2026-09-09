@@ -122,18 +122,12 @@ class FrameExtractor:
                 document = await self.load(files, namespace, expected_key=key)
                 if document is not None:
                     return document, True
-                built = await self._build(
-                    source=source,
-                    key=key,
-                    video_url=video_url,
-                    video_hash=video_hash,
-                    rows=rows,
-                )
+                built = await self._build(source=source, key=key, rows=rows)
         except (ffmpeg.MediaError, BoardError) as exc:
             raise ModelRetry(str(exc)) from exc
         except ObjectWriteFailed as exc:
             raise ModelRetry(
-                f"候选帧预览板没存进对象存储：{exc}。重新调用一次；已经存下的板会直接复用，不重传。"
+                f"图片没存进对象存储：{exc}。重新调用一次；已经存下的会直接复用，不重传。"
             ) from exc
         return built, False
 
@@ -162,11 +156,13 @@ class FrameExtractor:
         *,
         source: Path,
         key: str,
-        video_url: str,
-        video_hash: str,
         rows: Sequence[Sequence[ShotSpan]],
     ) -> dict[str, Any]:
-        """按固定间隔抽帧，按结构分组生成公开预览板与取帧台账。"""
+        """按固定间隔抽帧，按结构分组生成公开预览板与取帧台账。
+
+        台账只存算不出来的东西：复用判定用的版本与 key，以及生成时才产生的板子地址。
+        板上有哪几个镜头由调用方按 ``rows`` 现算——rows 是 key 的组成部分，命中复用时
+        它与建账时逐字相同。"""
 
         with TemporaryDirectory(prefix="shot-video-frames-") as tmp:
             frames = await ffmpeg.extract_frames(
@@ -175,7 +171,7 @@ class FrameExtractor:
             cell_aspect = await asyncio.to_thread(image_aspect, frames[0])
             sampled = sample_rows(rows, interval_ms=FRAME_INTERVAL_MS)
             boards: list[dict[str, Any]] = []
-            for index, (row, cells) in enumerate(zip(rows, sampled, strict=True), start=1):
+            for index, cells in enumerate(sampled, start=1):
                 in_range = [
                     cell for cell in cells if cell.src_ms // FRAME_INTERVAL_MS < len(frames)
                 ]
@@ -194,27 +190,11 @@ class FrameExtractor:
                     content=image,
                     content_type=_JPEG,
                 )
-                boards.append(
-                    {
-                        "board": index,
-                        "url": url,
-                        "shots": sorted({shot.shot_id for shot in row}),
-                        "layout": f"{geometry.cols}x{geometry.rows}",
-                        "cells": [
-                            {"id": cell.cell_id, "shotId": cell.shot_id} for cell in in_range
-                        ],
-                    }
-                )
-        covered = {cell["shotId"] for board in boards for cell in board["cells"]}
+                boards.append({"board": index, "url": url})
         return {
             "extractionVersion": EXTRACTION_VERSION,
             "extractionKey": key,
-            "intervalMs": FRAME_INTERVAL_MS,
-            "video": {"url": video_url, "contentHash": f"sha256:{video_hash}"},
             "boards": boards,
-            "shotsWithoutCells": sorted(
-                shot.shot_id for row in rows for shot in row if shot.shot_id not in covered
-            ),
         }
 
 
