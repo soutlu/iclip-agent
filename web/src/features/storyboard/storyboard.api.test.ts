@@ -1,7 +1,67 @@
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
-import { generationsRefetchInterval, uploadFrameImage } from './storyboard.api'
+import type { Shot } from './shot-document'
+import {
+  generationsRefetchInterval,
+  submitVideoGeneration,
+  uploadFrameImage,
+} from './storyboard.api'
+
+describe('submitVideoGeneration', () => {
+  const conversationId = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
+  const shot: Shot = {
+    index: 2,
+    seconds: 6,
+    image_urls: ['https://example.com/a.png', 'https://example.com/b.png'],
+    prompt: {
+      global_settings: '人物保持一致。',
+      timeline: [
+        { timestamps: [0, 6], prompt: '走向镜头 @Image1，停下 @Image2。', image_indexes: [1, 2] },
+      ],
+    },
+  }
+
+  it('照上游形状发到视频端点：正文按拼装规则、参考图取整组，回执只取任务号', async () => {
+    let body: unknown
+    server.use(
+      http.post('*/api/generations/video', async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json(
+          { task_id: '4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c' },
+          { status: 202 },
+        )
+      }),
+    )
+
+    await expect(
+      submitVideoGeneration({ aspectRatio: '9:16', conversationId, model: 'wan3.0-video', shot }),
+    ).resolves.toBe('4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c')
+
+    expect(body).toEqual({
+      aspect_ratio: '9:16',
+      conversation_id: conversationId,
+      model: 'wan3.0-video',
+      prompt:
+        '人物保持一致。\n\n[0–6秒｜镜头1] 走向镜头 @Image1，停下 @Image2。\n不要生成字幕，不要生成背景音乐。',
+      reference_image_urls: shot.image_urls,
+      seconds: 6,
+      shot_index: 2,
+    })
+  })
+
+  it('服务端拒收时把 detail 原话抛出来', async () => {
+    server.use(
+      http.post('*/api/generations/video', () =>
+        HttpResponse.json({ detail: '视频生成仅支持模型 moyu-seedance-2-5' }, { status: 422 }),
+      ),
+    )
+
+    await expect(
+      submitVideoGeneration({ aspectRatio: '9:16', conversationId, model: 'x', shot }),
+    ).rejects.toThrow('视频生成仅支持模型 moyu-seedance-2-5')
+  })
+})
 
 describe('generationsRefetchInterval', () => {
   it('有任务还在飞就定时再问一次', () => {

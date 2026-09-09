@@ -1,7 +1,7 @@
 /** 仅展示当前镜头组的视频生成记录。 */
 
 import { Tooltip } from 'radix-ui'
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon, type IconName } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
@@ -9,6 +9,7 @@ import { fileNameOfUrl, videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
+import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import { parseShotPrompt } from '../shot-document'
 import { isRunningStatus } from '../shots'
@@ -129,7 +130,9 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
         <time className="min-w-0 text-caption text-on-surface-muted" dateTime={job.createdAt}>
           {formatDateTime(job.createdAt)}
         </time>
-        {phase === 'done' && job.outputUrl !== null ? <RecordDownload url={job.outputUrl} /> : null}
+        {phase === 'done' && job.outputUrl !== null ? (
+          <RecordDownload url={job.outputUrl} watermarkUrl={job.watermarkOutputUrl} />
+        ) : null}
         <IconButton
           aria-expanded={open}
           className="text-on-surface"
@@ -181,21 +184,24 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   )
 }
 
-function RecordDownload({ url }: { url: string }) {
+type RecordDownloadProps = { url: string; watermarkUrl: string | null }
+
+/** 只有原片时点了就下；上游也给了水印版时先选哪一份。两份共用一个忙碌态，下载中不接第二次点击。 */
+function RecordDownload({ url, watermarkUrl }: RecordDownloadProps) {
   const activeRef = useRef(false)
   const [downloading, setDownloading] = useState(false)
   const label = downloading ? '正在准备下载…' : '下载视频'
 
-  const download = async () => {
+  const download = async (target: string, fallbackName: string) => {
     if (activeRef.current) return
     activeRef.current = true
     setDownloading(true)
     try {
-      const response = await fetch(url)
+      const response = await fetch(target)
       if (!response.ok) throw new Error(`Download failed: ${response.status}`)
       const blob = await response.blob()
       if (blob.size === 0) throw new Error('Empty download')
-      const filename = fileNameOfUrl(url) || '生成的视频'
+      const filename = fileNameOfUrl(target) || fallbackName
       const objectUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       try {
@@ -216,23 +222,41 @@ function RecordDownload({ url }: { url: string }) {
     }
   }
 
+  const trigger = (
+    <IconButton
+      aria-busy={downloading}
+      className={cn(
+        'shrink-0 border-[0.5px] border-chat-hairline text-on-surface disabled:cursor-wait disabled:opacity-60',
+        downloading && '[&_svg]:animate-spin',
+      )}
+      disabled={downloading}
+      label={label}
+      name={downloading ? 'loading' : 'download'}
+      onClick={watermarkUrl === null ? () => void download(url, '生成的视频') : undefined}
+      size="sm"
+    />
+  )
+  if (watermarkUrl === null) return <DownloadTooltip label={label}>{trigger}</DownloadTooltip>
+  return (
+    <MenuRoot>
+      <DownloadTooltip label={label}>
+        <MenuTrigger asChild>{trigger}</MenuTrigger>
+      </DownloadTooltip>
+      <MenuSurface align="end">
+        <MenuItem onSelect={() => void download(url, '生成的视频')}>下载原片</MenuItem>
+        <MenuItem onSelect={() => void download(watermarkUrl, '生成的视频（水印版）')}>
+          下载水印版
+        </MenuItem>
+      </MenuSurface>
+    </MenuRoot>
+  )
+}
+
+function DownloadTooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <IconButton
-            aria-busy={downloading}
-            className={cn(
-              'shrink-0 border-[0.5px] border-chat-hairline text-on-surface disabled:cursor-wait disabled:opacity-60',
-              downloading && '[&_svg]:animate-spin',
-            )}
-            disabled={downloading}
-            label={label}
-            name={downloading ? 'loading' : 'download'}
-            onClick={() => void download()}
-            size="sm"
-          />
-        </Tooltip.Trigger>
+        <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
         <Tooltip.Portal>
           <Tooltip.Content
             className="layer-popup rounded-sm bg-inverse-surface px-3 py-2 text-label text-inverse-on-surface shadow-[var(--shadow-1)]"

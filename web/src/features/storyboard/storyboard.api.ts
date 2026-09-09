@@ -2,9 +2,15 @@ import { useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import { MEDIA_IMAGE_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
-import { zGenerationsPageOut } from '@/shared/api/generated/zod.gen'
+import type { VideoGenerationIn } from '@/shared/api/generated/types.gen'
+import {
+  zGenerationsPageOut,
+  zVideoModelsOut,
+  zVideoSubmitOut,
+} from '@/shared/api/generated/zod.gen'
 import type { zGenerationOut } from '@/shared/api/generated/zod.gen'
 import { useWorkspaceFiles } from '@/shared/workbench'
+import { formatShotPrompt, type Shot } from './shot-document'
 import { isRunningStatus } from './shots'
 
 export type GenerationJob = z.infer<typeof zGenerationOut>
@@ -17,6 +23,47 @@ export const storyboardQueryKeys = {
   frameCandidates: (conversationId: string) =>
     ['conversations', conversationId, 'workspace', 'frame-candidates'] as const,
   generations: (conversationId: string) => ['generations', { conversationId }] as const,
+  videoModels: ['generations', 'video-models'] as const,
+}
+
+/** 接入了哪几个视频模型。只有模型 id，下拉直接显示它；允许表随服务端配置走，前端不复制一份。 */
+export const useVideoModels = () =>
+  useQuery({
+    queryFn: ({ signal }) =>
+      apiFetch('/generations/video-models', zVideoModelsOut, {
+        fallbackErrorMessage: '读取视频模型失败',
+        signal,
+      }),
+    queryKey: storyboardQueryKeys.videoModels,
+    staleTime: Infinity,
+  })
+
+export type VideoGenerationInput = {
+  conversationId: string
+  aspectRatio: string
+  model: string
+  shot: Shot
+}
+
+/** 提交一次出片：正文与参考图照分镜当前这一版，字段名照上游异步接口（snake_case）。
+ *
+ * 不带 user_name：浏览器会话由服务端填登录用户名。回执只有任务号，记录本身靠刷新列表拿到。 */
+export const submitVideoGeneration = async (input: VideoGenerationInput): Promise<string> => {
+  const body: VideoGenerationIn = {
+    aspect_ratio: input.aspectRatio,
+    conversation_id: input.conversationId,
+    model: input.model,
+    prompt: formatShotPrompt(input.shot),
+    reference_image_urls: [...input.shot.image_urls],
+    seconds: input.shot.seconds,
+    shot_index: input.shot.index,
+  }
+  const receipt = await apiFetch('/generations/video', zVideoSubmitOut, {
+    body,
+    fallbackErrorMessage: '出片没发出去',
+    method: 'POST',
+  })
+  return receipt.task_id
 }
 
 /** 服务端未推送生成进度；存在运行任务时每 5 秒轮询，全部结束后停止。 */

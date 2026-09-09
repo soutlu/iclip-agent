@@ -173,6 +173,7 @@ type MockJob = {
   request?: Record<string, unknown>
   shotIndex?: number
   status: 'completed' | 'failed' | 'submitted'
+  watermarkOutputUrl?: string
 }
 
 const job = (spec: MockJob) => ({
@@ -185,7 +186,7 @@ const job = (spec: MockJob) => ({
   shotIndex: spec.shotIndex ?? null,
   status: spec.status,
   taskId: null,
-  watermarkOutputUrl: null,
+  watermarkOutputUrl: spec.watermarkOutputUrl ?? null,
 })
 
 const workspaces = new Map<string, Map<string, MockFile>>()
@@ -315,6 +316,7 @@ export const seedMockWorkspace = (
       prompt: '模特走向镜头，停下微笑，暖光。',
       shotIndex: 3,
       status: 'completed',
+      watermarkOutputUrl: VIDEO_URL,
     }),
     job({
       createdAt: '2026-09-01T11:10:00Z',
@@ -324,6 +326,7 @@ export const seedMockWorkspace = (
       prompt: HISTORY_PROMPT,
       shotIndex: 2,
       status: 'completed',
+      watermarkOutputUrl: VIDEO_URL,
     }),
     job({
       createdAt: '2026-09-01T11:40:00Z',
@@ -563,6 +566,14 @@ export const workspaceHandlers = [
     }),
   ),
 
+  // 视频模型只有 id，允许表照服务端配置。
+  http.get('*/api/generations/video-models', () =>
+    HttpResponse.json({
+      default: 'moyu-seedance-2-5',
+      items: ['moyu-seedance-2-0', 'moyu-seedance-2-5', 'wan3.0-video'],
+    }),
+  ),
+
   http.get('*/api/generations', ({ request }) => {
     const params = new URL(request.url).searchParams
     const conversationId = params.get('conversationId')
@@ -607,6 +618,7 @@ export const workspaceHandlers = [
       conversationId: body.conversation_id ?? null,
       shotIndex: body.shot_index ?? null,
       outputUrl: VIDEO_URL,
+      watermarkOutputUrl: VIDEO_URL,
     })
     return HttpResponse.json({ task_id: created.id }, { status: 202 })
   }),
@@ -620,6 +632,7 @@ function acceptGeneration(spec: {
   conversationId: string | null
   shotIndex: number | null
   outputUrl: string
+  watermarkOutputUrl?: string
 }) {
   const created = job({
     createdAt: new Date().toISOString(),
@@ -635,6 +648,7 @@ function acceptGeneration(spec: {
   }
   const timer = setTimeout(() => {
     created.outputUrl = spec.outputUrl
+    created.watermarkOutputUrl = spec.watermarkOutputUrl ?? null
     created.status = 'completed'
     timers.delete(timer)
   }, VIDEO_DONE_MS)

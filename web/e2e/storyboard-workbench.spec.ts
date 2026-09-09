@@ -494,8 +494,12 @@ for (const width of [1335, 390]) {
       await page.screenshot({
         path: `../.artifacts/design-qa/download-record-video/${width}-${colorScheme}.png`,
       })
-      const saved = page.waitForEvent('download')
+      // 这条记录上游给了水印版：回车先弹出选单，原片和水印版各自可下。
       await downloadButton.press('Enter')
+      const menu = page.getByRole('menu')
+      await expect(menu.getByRole('menuitem', { name: '下载水印版' })).toBeVisible()
+      const saved = page.waitForEvent('download')
+      await menu.getByRole('menuitem', { name: '下载原片' }).click()
       const download = await saved
       expect(await download.failure()).toBeNull()
       expect(download.suggestedFilename()).toMatch(/^生成的视频(?:\.mp4)?$/)
@@ -507,6 +511,12 @@ for (const width of [1335, 390]) {
       await expect(records).toBeVisible()
       await expect(downloadButton).toBeEnabled()
       await expect(records.locator('video')).toHaveCount(0)
+
+      await downloadButton.press('Enter')
+      const savedMarked = page.waitForEvent('download')
+      await menu.getByRole('menuitem', { name: '下载水印版' }).click()
+      expect((await savedMarked).suggestedFilename()).toMatch(/^生成的视频（水印版）(?:\.mp4)?$/)
+      await expect(downloadButton).toBeEnabled()
     })
   }
 }

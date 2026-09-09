@@ -7,7 +7,7 @@ import { pasteTextIntoComposer } from '@/testing/editor'
 import { workspaceQueryKeys, type ArtifactRendererProps } from '@/shared/workbench'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
-import type { ShotsDocument } from '../shot-document'
+import { formatShotPrompt, type ShotsDocument } from '../shot-document'
 import type { GenerationJob } from '../storyboard.api'
 import { StoryboardReader } from './storyboard-reader'
 
@@ -108,6 +108,20 @@ const editableJob: GenerationJob = {
   request: { prompt: historyPrompt },
   shotIndex: 1,
   status: 'completed',
+  taskId: null,
+  watermarkOutputUrl: null,
+}
+
+/** 刚提交、还在跑的那一条，服务端刷新列表时才会出现。 */
+const runningJob: GenerationJob = {
+  id: 'b7e0f4c2-3d1a-4e5b-9c6d-7e8f9a0b1c2d',
+  createdAt: '2026-09-01T10:03:00Z',
+  errorMessage: null,
+  kind: 'video',
+  outputUrl: null,
+  request: { prompt: '刚提交的这一版。' },
+  shotIndex: 1,
+  status: 'submitted',
   taskId: null,
   watermarkOutputUrl: null,
 }
@@ -385,7 +399,7 @@ describe('StoryboardReader', () => {
     expect(saved.shots[0]?.image_urls).toEqual(document.shots[0]?.image_urls)
   })
 
-  it('浏览与记录查看不会触发写入，也没有视频生成或 AI 修图入口', async () => {
+  it('浏览与记录查看不会触发写入，也没有 AI 修图入口', async () => {
     provide()
     const requests: { method: string; url: string }[] = []
     server.events.on('request:start', ({ request }) => {
@@ -394,7 +408,7 @@ describe('StoryboardReader', () => {
     await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     expect(within(page).getByRole('textbox', { name: '镜头 1 的描述' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: /编辑图片|生成视频/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /编辑图片/ })).not.toBeInTheDocument()
     await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
     const prompt = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
     expect(within(prompt).getByRole('button', { name: '复制完整提示词' })).toBeVisible()
@@ -406,6 +420,85 @@ describe('StoryboardReader', () => {
       within(records).queryByRole('button', { name: /生成视频|编辑图片/ }),
     ).not.toBeInTheDocument()
     expect(requests.filter((request) => request.method !== 'GET')).toEqual([])
+  })
+
+  it('选模型后生成视频：请求体照上游形状取当前组内容，提交后记录里出现生成中', async () => {
+    provide()
+    const user = userEvent.setup()
+    const [firstShot] = document.shots
+    if (firstShot === undefined) throw new Error('测试文档缺第一组')
+    const posted: unknown[] = []
+    let items = jobs
+    server.use(
+      http.get('*/api/generations', () => HttpResponse.json({ items })),
+      http.post('*/api/generations/video', async ({ request }) => {
+        posted.push(await request.json())
+        items = [runningJob, ...jobs]
+        return HttpResponse.json({ task_id: runningJob.id }, { status: 202 })
+      }),
+    )
+    await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+    await user.click(await screen.findByRole('button', { name: '视频模型：moyu-seedance-2-5' }))
+    await user.click(await screen.findByRole('menuitemradio', { name: 'wan3.0-video' }))
+    await user.click(screen.getByRole('button', { name: '生成视频' }))
+
+    expect(await screen.findByText('镜头组 1 已提交出片，进度看生成记录')).toBeVisible()
+    expect(posted).toEqual([
+      {
+        aspect_ratio: '9:16',
+        conversation_id: CONVERSATION_ID,
+        model: 'wan3.0-video',
+        prompt: formatShotPrompt(firstShot),
+        reference_image_urls: firstShot.image_urls,
+        seconds: firstShot.seconds,
+        shot_index: 1,
+      },
+    ])
+    expect(await screen.findByText('生成中 1')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '生成记录' }))
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    expect(await within(records).findByText('生成中…')).toBeVisible()
+    expect(screen.getByRole('button', { name: '视频模型：wan3.0-video' })).toBeVisible()
+  })
+
+  it('服务端拒收出片时提示原话，不刷新记录', async () => {
+    provide()
+    let reads = 0
+    server.use(
+      http.get('*/api/generations', () => {
+        reads += 1
+        return HttpResponse.json({ items: jobs })
+      }),
+      http.post('*/api/generations/video', () =>
+        HttpResponse.json({ detail: '视频生成仅支持模型 moyu-seedance-2-5' }, { status: 422 }),
+      ),
+    )
+    await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+    const generate = screen.getByRole('button', { name: '生成视频' })
+    await waitFor(() => expect(generate).toBeEnabled())
+    const readsBefore = reads
+
+    await userEvent.click(generate)
+
+    expect(await screen.findByText(/视频生成仅支持模型 moyu-seedance-2-5/)).toBeVisible()
+    expect(reads).toBe(readsBefore)
+    expect(generate).toBeEnabled()
+  })
+
+  it('视频模型清单读不到时说明原因，不能出片', async () => {
+    provide()
+    server.use(
+      http.get('*/api/generations/video-models', () =>
+        HttpResponse.json({ detail: '配置没加载' }, { status: 503 }),
+      ),
+    )
+    await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+    expect(await screen.findByText('视频模型读不到')).toBeVisible()
+    expect(screen.getByRole('button', { name: '视频模型' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '生成视频' })).toBeDisabled()
   })
 
   it('刷新文件后失效的镜头引用按新时间线重新定位，保留当前帧地址参数', async () => {
