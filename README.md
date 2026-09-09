@@ -54,6 +54,35 @@ pnpm dev
 
 前端默认 `http://localhost:3013`；同源 `/api` 代理到后端。仅验证前端时，使用 `pnpm dev:mock`；前端启动参数见 [web/README.md](web/README.md)。
 
+## 部署
+
+两个镜像：`iclip-server`（[server/Dockerfile](server/Dockerfile)）与 `iclip-web`（[web/Dockerfile](web/Dockerfile)，nginx 托管静态产物并把 `/api` 去前缀反代到后端，配置见 [web/nginx.conf](web/nginx.conf)）。推 `v*` 标签时 [release-images](.github/workflows/release-images.yml) 自动构建并推到 ACR，标签为版本号与 `latest`；手动触发只打分支名标签，用于发版前验证推送。
+
+在仓库根目录构建本地镜像。前端构建需包含 `contract/` 中的共享样例，构建上下文由 [web/Dockerfile.dockerignore](web/Dockerfile.dockerignore) 限定为前端和合同文件。
+
+```bash
+docker build -t iclip-server:local server
+docker build -f web/Dockerfile -t iclip-web:local .
+```
+
+单机部署使用 [deploy/compose.yaml](deploy/compose.yaml)：一次性 `alembic upgrade head` → 后端 → 前端。Postgres 使用服务器现有实例，本项目独占一个数据库，先以管理员建库建账号：
+
+```sql
+CREATE ROLE iclip LOGIN PASSWORD '<密码>';
+CREATE DATABASE iclip OWNER iclip;
+```
+
+服务器上准备一个目录，放入 [deploy/compose.yaml](deploy/compose.yaml) 与 [deploy/env.example](deploy/env.example)：
+
+```bash
+docker login registry.cn-shenzhen.aliyuncs.com
+cp env.example .env   # 按注释填写真实值，DATABASE_URL 指向上面建的库
+docker compose pull && docker compose up -d
+curl http://localhost/api/healthz
+```
+
+后端只跑 1 个 worker，实时订阅在进程内存中。首个管理员：SSO 场景在 `.env` 设置 `ROOT_EMAIL`，该邮箱首次登录即 root；密码注册场景执行 `docker compose run --rm server python -m scripts.admin set-roles <账号> root,editor`。升级改 `.env` 的 `IMAGE_TAG` 后重新 `docker compose pull && docker compose up -d`，迁移随启动执行，数据卷保留。
+
 ## 文档地图
 
 | 文档 | 内容与更新时机 |
