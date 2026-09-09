@@ -75,10 +75,10 @@ async def plant_job(
             await conn.execute(
                 text(
                     "INSERT INTO agent_runtime.agent_jobs "
-                    "(prompt_id, conversation_id, agent_id, owner_user_id, content, status, "
-                    " run_id, created_at, finished_at) "
-                    "VALUES (:prompt_id, :conversation_id, :agent_id, :owner, '[]', :status, "
-                    " :run_id, now(), :finished_at)"
+                    "(prompt_id, conversation_id, agent_id, owner_user_id, user_name, content, "
+                    " status, run_id, created_at, finished_at) "
+                    "VALUES (:prompt_id, :conversation_id, :agent_id, :owner, 'luke', '[]', "
+                    " :status, :run_id, now(), :finished_at)"
                 ),
                 {
                     "prompt_id": prompt_id,
