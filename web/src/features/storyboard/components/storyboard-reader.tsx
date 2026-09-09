@@ -42,6 +42,8 @@ import {
   validateShot,
   type Shot,
 } from '../shot-document'
+import { FrameImageEditor } from '../image-edit/frame-image-editor'
+import type { FrameEditTarget } from '../image-edit/image-edit-types'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH, shotSelectionRef } from '../shots'
 import {
   uploadFrameImage,
@@ -79,6 +81,8 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const generations = useShotGenerations(conversationId)
   const candidates = useFrameCandidates(conversationId)
   const video = useVideoGeneration(conversationId)
+  const [imageEditTarget, setImageEditTarget] = useState<FrameEditTarget | null>(null)
+  const imageEditTriggerRef = useRef<HTMLElement | null>(null)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
   const [uploadedSources, setUploadedSources] = useState<
     { group: number; frame: number; url: string }[]
@@ -264,6 +268,19 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                   recordUpload(item.index, frame, url)
                 }}
                 onUploaded={(frame, url) => recordUpload(item.index, frame, url)}
+                onEditFrame={(frame, sourceUrl) => {
+                  imageEditTriggerRef.current =
+                    window.document.activeElement instanceof HTMLElement
+                      ? window.document.activeElement
+                      : null
+                  setImageEditTarget({
+                    conversationId,
+                    artifactPath: path,
+                    shotIndex: item.index,
+                    frameNumber: frame,
+                    sourceUrl,
+                  })
+                }}
                 frame={offset + 1 === position ? search.frame : undefined}
                 key={`${item.index}-${offset + 1 === position ? 'active' : 'inactive'}`}
                 onOpenPrompt={(trigger) => {
@@ -372,6 +389,26 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
         </div>
       </div>
       <MediaLightbox media={media} onClose={closePreview} />
+      {imageEditTarget === null ? null : (
+        <FrameImageEditor
+          key={JSON.stringify(imageEditTarget)}
+          target={imageEditTarget}
+          frames={shots.find((item) => item.index === imageEditTarget.shotIndex)?.image_urls ?? []}
+          aspectRatio={document.aspect_ratio}
+          onClose={() => {
+            setImageEditTarget(null)
+            requestAnimationFrame(() => imageEditTriggerRef.current?.focus())
+          }}
+          onApply={(url) =>
+            draft.applyFrame(
+              imageEditTarget.shotIndex,
+              imageEditTarget.frameNumber,
+              imageEditTarget.sourceUrl,
+              url,
+            )
+          }
+        />
+      )}
       <ConflictDialog
         state={draft.state}
         resolve={(choice) => {
@@ -395,6 +432,7 @@ type ReaderPageProps = {
   onPickFrame: (frame: number | undefined) => void
   onOpenPrompt: (trigger: HTMLElement) => void
   onPreview: Preview
+  onEditFrame: (frame: number, sourceUrl: string) => void
 }
 
 const sceneTitle = (shot: Shot, index: number): string =>
@@ -405,6 +443,7 @@ function ReaderPage({
   candidates,
   candidateError,
   frame,
+  onEditFrame,
   onOpenPrompt,
   onPickFrame,
   onPreview,
@@ -610,6 +649,7 @@ function ReaderPage({
             caption={sharedCaption}
             key={`${scene?.scene ?? 'unassigned'}:${frameNumber}:${url ?? 'empty'}`}
             name={`镜头组 ${shot.index} 第 ${frameNumber} 帧`}
+            onEdit={url === undefined ? undefined : () => onEditFrame(frameNumber, url)}
             onOpen={() => {
               if (url !== undefined)
                 onPreview(
