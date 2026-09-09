@@ -40,7 +40,14 @@ def identity_capability() -> tuple[AgentCapability[AgentRunDeps], ...]:
 
         return ctx.deps.conversation_id
 
-    return (Capability[AgentRunDeps](id="identity", tools=[whoami, which_conversation]),)
+    def on_behalf_of(ctx: RunContext[AgentRunDeps]) -> str:
+        """报出这次运行替谁跑。"""
+
+        return f"for:{ctx.deps.user_name}"
+
+    return (
+        Capability[AgentRunDeps](id="identity", tools=[whoami, which_conversation, on_behalf_of]),
+    )
 
 
 @pytest.fixture
@@ -76,15 +83,22 @@ def registered_capability(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def tools_said(
-    client: httpx.AsyncClient, prompt_id: str, *, conversation_id: str | None = None
+    client: httpx.AsyncClient,
+    prompt_id: str,
+    *,
+    conversation_id: str | None = None,
+    user_name: str | None = None,
 ) -> list[str]:
     """直接检查工具返回值，避免整份 transcript 的子串匹配产生误报。"""
 
     conversation_id = conversation_id or await new_conversation(client, AGENT_ID)
-    sent = await client.post(
-        f"/conversations/{conversation_id}/prompts",
-        json={"prompt_id": prompt_id, "content": [{"type": "text", "text": "你是谁"}]},
-    )
+    body: dict[str, object] = {
+        "prompt_id": prompt_id,
+        "content": [{"type": "text", "text": "你是谁"}],
+    }
+    if user_name is not None:
+        body["user_name"] = user_name
+    sent = await client.post(f"/conversations/{conversation_id}/prompts", json=body)
     assert sent.status_code == 200, sent.text
     await settled(client, conversation_id)
     page = (await client.get(f"/conversations/{conversation_id}/transcript")).json()
@@ -129,3 +143,34 @@ async def test_each_run_carries_its_own_principal(
 
     assert said_by(mine, among=names) == ["caller-alpha"]
     assert said_by(theirs, among=names) == ["caller-beta"]
+
+
+async def test_browser_run_is_on_behalf_of_the_login_user(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """浏览器发消息不带 user_name，运行替登录的这个人跑。"""
+
+    await register_and_login(client, username="caller-alpha", email="alpha@example.com")
+    await set_roles_in_db(pg_url, "alpha@example.com", ["editor"])
+
+    assert "for:caller-alpha" in await tools_said(client, "prm-behalf-browser")
+
+
+async def test_api_key_run_is_on_behalf_of_the_named_user_not_the_key_owner(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """机器调用方替它的终端用户发消息：运行带的是它给的名字，不是 key 属主账号。"""
+
+    await register_and_login(client, username="service-bot", email="bot@example.com")
+    await set_roles_in_db(pg_url, "bot@example.com", ["root"])
+    issued = await client.post(
+        "/api-keys", json={"name": "relay", "permissions": ["agent:run", "agent:read"]}
+    )
+    assert issued.status_code == 201, issued.text
+
+    async with make_client(app) as machine:
+        machine.headers["Authorization"] = f"Bearer {issued.json()['apiKey']['token']}"
+        reported = await tools_said(machine, "prm-behalf-key", user_name="designer-zhang")
+
+    assert "for:designer-zhang" in reported
+    assert "for:service-bot" not in reported

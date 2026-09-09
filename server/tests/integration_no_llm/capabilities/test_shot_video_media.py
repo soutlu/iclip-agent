@@ -193,6 +193,7 @@ def make_context(*, said: str = _USER_SENT) -> RunContext[object]:
             api_key_id=None,
         ),
         conversation_id="thread-1",
+        user_name="luke",
     )
     return RunContext[object](
         deps=deps,

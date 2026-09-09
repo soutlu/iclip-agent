@@ -139,6 +139,7 @@ async def _plant(queue: JobQueue, conversation_id: str, text_: str, *, now: date
         conversation_id=conversation_id,
         agent_id=AGENT_ID,
         owner_user_id=OWNER,
+        user_name="luke",
         content=(TextContent(text=text_),),
         now=now,
         locked_by=LOCKED_BY,

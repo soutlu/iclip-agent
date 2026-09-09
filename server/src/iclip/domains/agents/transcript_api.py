@@ -20,6 +20,7 @@ from iclip.common.errors import DomainError
 from iclip.domains.identity.public import (
     Principal,
     require_permission,
+    resolve_user_name,
     websocket_origin_allowed,
     websocket_principal,
 )
@@ -89,6 +90,7 @@ class Transcripts(Protocol):
         conversation_id: str,
         agent_id: str,
         owner_user_id: uuid.UUID,
+        user_name: str,
         content: tuple[PromptContent, ...],
     ) -> Prompt: ...
 
@@ -270,7 +272,10 @@ def create_transcript_router(
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
         body: PromptSubmission,
     ) -> Prompt:
-        """发一条消息。``prompt_id`` 由客户端铸，重发同一个不会多起一次运行。"""
+        """发一条消息。``prompt_id`` 由客户端铸，重发同一个不会多起一次运行。
+
+        ``user_name`` 是这条消息替谁发的：API key 调用方必须给，浏览器会话默认是登录用户名。
+        """
 
         agent_id = await _writable(principal, conversation_id)
         return await transcripts.submit(
@@ -278,6 +283,7 @@ def create_transcript_router(
             conversation_id=conversation_id,
             agent_id=agent_id,
             owner_user_id=principal.user_id,
+            user_name=resolve_user_name(principal, body.user_name),
             content=body.content,
         )
 
