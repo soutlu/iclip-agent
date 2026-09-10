@@ -485,7 +485,7 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
 
     assert isinstance(result, ToolReturn)
     payload = model_facing(result)
-    assert set(payload) == {"message", "images"}
+    assert set(payload) == {"images"}
     assert [image["index"] for image in payload["images"]] == [1, 2]
     assert len(objects.written) == 2
     assert result.metadata == {
