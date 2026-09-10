@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import yaml
 from pydantic_ai import Agent, AgentSpec
@@ -26,6 +26,13 @@ AgentMap = Mapping[str, Agent[Any, Any]]
 
 DELEGATE_TOOL = "delegate_task"
 """显式指定 SubAgents 工具名，与 display 注册保持一致。"""
+
+TOOL_RETRIES: Final = 3
+"""每件工具在一次运行里的参数纠错次数。
+
+官方默认 1：同一件工具第二次参数出错就抛 UnexpectedModelBehavior 终止整次运行，
+一次手滑会作废前面已完成的全部产物。计数按工具名累计、成功一次归零，同一步里并行
+失败多次只记一次。output 预算保持默认。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +109,7 @@ def _load_agent(
         name=name,
         instructions=_read_instructions(instructions),
         output_type=[str, DeferredToolRequests] if accepts_deferred else str,
+        retries={"tools": TOOL_RETRIES},
         capabilities=[
             StepPersistence(store=step_store, metadata=dict(persistence_metadata or {})),
             *extra,

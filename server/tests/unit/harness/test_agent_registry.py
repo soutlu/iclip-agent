@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic_ai import RunContext
+from pydantic_ai import ModelRetry, RunContext, UnexpectedModelBehavior
 from pydantic_ai.capabilities import Capability
-from pydantic_ai.messages import ModelMessage, ModelRequest
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.models.test import TestModel
@@ -19,6 +19,7 @@ from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
 from iclip.harness.agents import (
     DELEGATE_TOOL,
+    TOOL_RETRIES,
     AgentDefinition,
     AgentRegistry,
     SubAgentDefinition,
@@ -391,6 +392,36 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
 
     events = await drive(registry, "storyboard", deps=Caller("经运行驱动"))
     assert "经运行驱动" in json.dumps([str(event) for event in events], ensure_ascii=False)
+
+
+async def test_tools_get_more_than_one_chance_to_correct_their_arguments(tmp_path: Path) -> None:
+    """官方默认 1：同一件工具第二次参数出错就终止整次运行，作废前面已完成的产物。"""
+
+    def always_wrong(value: int) -> str:
+        """总是要求改参数的工具。"""
+
+        raise ModelRetry(f"value={value} 不对，换一个再来")
+
+    def call_it(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[ToolCallPart("always_wrong", {"value": 1}, tool_call_id="c1")])
+
+    spec = make_spec(tmp_path, "storyboard")
+    registry = build_agent_registry(
+        (
+            AgentDefinition(
+                agent_id="storyboard",
+                spec=spec,
+                model=MODEL_NAME,
+                capabilities=(Capability[Any](id="wrong", tools=[always_wrong]),),
+            ),
+        ),
+        step_store=store(),
+        models={MODEL_NAME: FunctionModel(call_it)},
+        subagent_mirror=mirror(),
+    )
+
+    with pytest.raises(UnexpectedModelBehavior, match=f"max retries count of {TOOL_RETRIES}"):
+        await registry.agents["storyboard"].run("hi")
 
 
 def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:
