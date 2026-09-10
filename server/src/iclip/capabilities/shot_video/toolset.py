@@ -278,28 +278,12 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         ctx: RunContext[AgentDepsT],
         aspect_ratio: str,
         shots: list[VideoShotRequest],
-    ) -> ToolReturn[dict[str, Any]]:
-        """提交镜头组 prompt 表。
+    ) -> ToolReturn[str]:
+        """提交镜头组 prompt 表；每次提交全部镜头组，替换已有的。
 
-        参数说明：
-        - aspect_ratio：目标画幅，例如 9:16。
-        - shots：按顺序排列的全部镜头组。
-
-        每个镜头组包含：
-        - index：镜头组编号，从 1 连续编号。
-        - prompt：本组的结构化提示词，包含：
-          - global_settings：本组的全局设定。
-          - timeline：按镜头顺序排列的时间线，每项包含：
-            - timestamps：[开始秒数, 结束秒数]，每组第一镜从 0 开始，
-              保留小数。结束时间须大于开始时间，各镜头时间段不得重叠。
-            - prompt：该镜头的正文，保留对应位置的 @ImageN。
-        - seconds：本组总时长，四舍五入到整数秒，范围 4–30 秒。
-        - image_urls：本组的镜头帧 URL 列表，可为空；有图时 @ImageN
-          对应列表中的第 N 张图，地址须已登记在本对话素材台账中。
-          无图时传 []，global_settings 和各镜头正文中不得出现 @ImageN。
-
-        每次提交全部镜头组，替换已有的镜头组表。
-        任一镜头组不符合要求时，整次提交拒绝；修正后重新提交全部镜头组。
+        Args:
+            aspect_ratio: 目标画幅，如 ``9:16``。
+            shots: 按顺序排列的全部镜头组。
         """
 
         files, namespace = self._workspace(ctx)
@@ -314,13 +298,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         shot_count = sum(len(shot.prompt.timeline) for shot in document.shots)
         seconds = sum(shot.seconds for shot in document.shots)
         return ToolReturn(
-            return_value={
-                "message": (
-                    f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
-                    f"{group_count} 个镜头组，{shot_count} 个镜头，合计 {seconds} 秒。"
-                ),
-                "path": SHOTS_PATH,
-            },
+            return_value=(
+                f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
+                f"{group_count} 个镜头组，{shot_count} 个镜头，合计 {seconds} 秒。"
+            ),
             metadata=tool_note(chip=f"{group_count} 组 · {shot_count} 镜 · {seconds} 秒"),
         )
 
