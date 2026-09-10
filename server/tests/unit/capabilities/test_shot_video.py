@@ -792,7 +792,7 @@ async def test_generate_escalates_to_pro_after_dev(
     ]
     result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev", "dev", "pro"]
-    assert result.message == "镜头帧生成失败。"
+    assert result.message == "镜头帧生成失败（PROVIDER_UNREACHABLE）。"
 
 
 @pytest.mark.parametrize(
@@ -820,7 +820,7 @@ async def test_generate_walks_every_channel_on_any_failure(
     generations.outcomes = [Outcome(status="failed", output_url=None, error_code=error_code)]
     result = await submit_once(tools, ctx, files)
     assert generations.channels() == ["dev", "dev", "pro"]
-    assert result.message == "镜头帧生成失败。"
+    assert result.message == f"镜头帧生成失败（{error_code}）。"
 
 
 async def test_generate_stays_on_dev_when_pro_is_off(
@@ -848,7 +848,7 @@ async def test_generate_stays_on_dev_when_pro_is_off(
     assert isinstance(toolset, ShotVideoToolset)
     result = await submit_once(toolset, ctx, files)
     assert generations.channels() == ["dev", "dev"]
-    assert result.message == "镜头帧生成失败。"
+    assert result.message == "镜头帧生成失败（PROVIDER_REJECTED）。"
 
 
 async def test_generate_rejects_bad_parameters_before_paying(
@@ -896,7 +896,7 @@ async def test_generate_timeout_is_a_brief_failure_and_logs_the_record(
     with capture_logs() as logs:
         result = await submit_once(toolset, ctx, files)
     assert generations.channels() == ["dev"]
-    assert result.message == "镜头帧生成失败。"
+    assert result.message == "镜头帧生成失败（TOOL_WAIT_TIMEOUT）。"
     assert logs[-1]["error_code"] == "TOOL_WAIT_TIMEOUT"
     assert logs[-1]["job_id"] == str(generations.job_ids[0])
 
@@ -931,7 +931,7 @@ async def test_anchor_sheet_submits_a_full_square_grid_without_references(
     generations.outcomes = [
         Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
     ]
-    with pytest.raises(ToolFailed, match=r"^设定图生成失败。$"):
+    with pytest.raises(ToolFailed, match=r"^设定图生成失败（PROVIDER_REJECTED）。$"):
         await tools.generate_anchor_sheet(ctx, ["全身正面平视的女性", "空景全景平视的门厅"])
 
     request = generations.submitted[0]
