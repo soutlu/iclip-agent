@@ -68,7 +68,7 @@ class ShotVideo(AbstractCapability[AgentDepsT]):
 
         # 标题写法见 docs/tool-design.md §4：书面动宾短语，数字进 metadata 角标。
         return {
-            "video_parser_md": lambda args: GenericDisplay(
+            "video_parser": lambda args: GenericDisplay(
                 summary="拆解视频", detail=_video_name(args)
             ),
             "plan_shot_frames": ToolDisplayEntry(

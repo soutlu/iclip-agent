@@ -45,12 +45,7 @@ import {
 import { FrameImageEditor } from '../image-edit/frame-image-editor'
 import type { FrameEditTarget } from '../image-edit/image-edit-types'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH, shotSelectionRef } from '../shots'
-import {
-  uploadFrameImage,
-  useFrameCandidates,
-  useShotGenerations,
-  type FrameCandidate,
-} from '../storyboard.api'
+import { uploadFrameImage, useShotGenerations } from '../storyboard.api'
 import { useShotsDraft, type SaveState } from '../use-shots-draft'
 import { useVideoGeneration } from '../use-video-generation'
 import { GenerationRecords } from './generation-records'
@@ -79,7 +74,6 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const path = artifact.source.kind === 'file' ? artifact.source.path : SHOTS_PATH
   const file = useWorkspaceFile(conversationId, path)
   const generations = useShotGenerations(conversationId)
-  const candidates = useFrameCandidates(conversationId)
   const video = useVideoGeneration(conversationId)
   const [imageEditTarget, setImageEditTarget] = useState<FrameEditTarget | null>(null)
   const imageEditTriggerRef = useRef<HTMLElement | null>(null)
@@ -260,8 +254,6 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
             {shots.map((item, offset) => (
               <ReaderPage
                 aspect_ratio={document.aspect_ratio}
-                candidates={candidates.data ?? []}
-                candidateError={candidates.isError ? candidates.error.message : undefined}
                 onUpdateShot={(updater) => draft.updateShot(item.index, updater)}
                 onReplaceFrame={(frame, previousUrl, url) => {
                   draft.replaceFrame(item.index, frame, previousUrl, url)
@@ -422,8 +414,6 @@ type ReaderPageProps = {
   shot: Shot
   aspect_ratio: string
   frame: number | undefined
-  candidates: readonly FrameCandidate[]
-  candidateError: string | undefined
   onUpdateShot: (updater: (current: Shot) => Shot) => Shot | undefined
   onReplaceFrame: (frame: number, previousUrl: string, url: string) => void
   onUploaded: (frame: number, url: string) => void
@@ -438,8 +428,6 @@ const sceneTitle = (shot: Shot, index: number): string =>
 
 function ReaderPage({
   aspect_ratio,
-  candidates,
-  candidateError,
   frame,
   onEditFrame,
   onOpenPrompt,
@@ -577,13 +565,6 @@ function ReaderPage({
       onPickFrame(number)
     }
     return number
-  }
-  const pickNew = (newUrl: string) => {
-    try {
-      addNew(newUrl)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '添加图片失败')
-    }
   }
   const pickExisting = (number: number, previousUrl: string) => {
     try {
@@ -752,12 +733,9 @@ function ReaderPage({
         ) : null}
       </div>
       <FrameAssignmentPicker
-        candidates={candidates}
-        error={candidateError}
         frames={shot.image_urls}
         onClose={closePicker}
         onPickExisting={pickExisting}
-        onPickNew={pickNew}
         onUpload={upload}
         open={pickerOpen}
       />

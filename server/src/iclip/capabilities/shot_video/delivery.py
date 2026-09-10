@@ -12,7 +12,7 @@ from pydantic_ai import ModelRetry
 
 from iclip.capabilities.shot_video.grid import GridError, parse_aspect
 from iclip.capabilities.shot_video.prompt import GRID_CELLS
-from iclip.capabilities.shot_video.shots import ShotParseError, parse_cell_id
+from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE, ShotParseError, parse_cell_id
 
 SHOTS_PATH: Final = "video_shot.json"
 
@@ -26,8 +26,10 @@ _IMAGE_REF = re.compile(r"@Image(\d+)")
 class FrameRequest(BaseModel):
     """一格的生成请求。"""
 
-    no: str
-    prompt: str
+    no: Annotated[
+        str, Field(description=f"帧号，{CELL_ID_SHAPE} 形状；挑中候选帧的直接用板上的帧号。")
+    ]
+    prompt: Annotated[str, Field(description="为这一帧撰写的 visual_prompt。")]
 
 
 TimestampSeconds = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]

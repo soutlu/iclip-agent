@@ -243,27 +243,7 @@ export const seedMockWorkspace = (
           version: 1,
         },
       ],
-      [
-        'frames/grids/8e5263a4-3e52-4063-b0cd-5b6c7d8e9fa0.json',
-        {
-          content: JSON.stringify(
-            {
-              frames: [
-                { no: 'S1-1', shot: 1, url: frames.a },
-                { no: 'S2-1', shot: 2, url: frames.b },
-                { no: 'S3-1', shot: 3, url: frames.c },
-              ],
-              gridRecordVersion: 1,
-              jobId: '8e5263a4-3e52-4063-b0cd-5b6c7d8e9fa0',
-            },
-            null,
-            2,
-          ),
-          updatedAt: now,
-          version: 1,
-        },
-      ],
-      // 下面几份照真实工作区的五种文件各给一份，文件页按类别渲染时有东西可看。
+      // 下面几份照真实工作区的文件各给一份，文件页按类别渲染时有东西可看。
       ['storyboard.md', { content: STORYBOARD_MD, updatedAt: EARLIER, version: 2 }],
       [
         'video/night-city-timelapse-9a3f2c1d.md',
@@ -274,43 +254,9 @@ export const seedMockWorkspace = (
         {
           content: JSON.stringify(
             {
-              boards: [
-                {
-                  board: 1,
-                  cells: [
-                    { id: 'S1-1', shot: 1, timecode: '00:00.000', url: frames.a },
-                    { id: 'S2-1', shot: 2, timecode: '00:04.000', url: frames.b },
-                  ],
-                  layout: '2x1',
-                  shots: [1, 2],
-                  url: frames.c,
-                },
-              ],
+              boards: [{ board: 1, url: frames.c }],
               extractionKey: '6339e1aeb441bdbdf7867d8f69bdcaf84b5648b5',
               extractionVersion: 1,
-              intervalMs: 1000,
-              video: { contentHash: 'sha256:2f71…', url: VIDEO_URL },
-            },
-            null,
-            2,
-          ),
-          updatedAt: EARLIER,
-          version: 1,
-        },
-      ],
-      [
-        'anchors/b18d7e94-b199-441a-b14d-86df2cca7945.json',
-        {
-          content: JSON.stringify(
-            {
-              anchorRecordVersion: 1,
-              cells: [
-                { description: '空景全景平视，长椅与门厅。', index: 1, url: frames.a },
-                { description: '模特正面半身，浅色帆布包。', index: 2, url: frames.b },
-              ],
-              gridUrl: frames.c,
-              jobId: 'b18d7e94-b199-441a-b14d-86df2cca7945',
-              sheetAspect: '1:1',
             },
             null,
             2,

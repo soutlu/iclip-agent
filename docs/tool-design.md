@@ -26,7 +26,7 @@
 
 不放设计理由，不复述业务背景或计费细节。需要约束重复付费调用时，直接说明禁止重复的条件和失败后的动作。
 
-例如，「一批 1-4 条；不足 4 条时空格由中性面板补满并在切格后丢弃」是可执行规则；解释为什么要补满空格不属于工具指引。完整工具示例直接阅读 [ShotVideoToolset.plan_shot_frames](../server/src/iclip/capabilities/shot_video/toolset.py)，不在文档复制 docstring。
+例如，「镜头组 3 的 seconds 是 42，只收 4-30；重新切分这一组再交付」写清了上限与超限后的动作；解释为什么卡这个区间不属于工具指引。完整工具示例直接阅读 [ShotVideoToolset.plan_shot_frames](../server/src/iclip/capabilities/shot_video/toolset.py)，不在文档复制 docstring。
 
 ## 3. 登记与范围校验
 
@@ -40,7 +40,7 @@
 
 ## 4. 输出与展示
 
-给模型的单次文本返回不超过 50,000 字符；超出时在源头写入工作区，返回路径与摘要。`video_parser_md` 使用这一方式。
+给模型的单次文本返回不超过 50,000 字符；超出时在源头写入工作区，返回路径与摘要。`video_parser` 使用这一方式。
 
 每件工具由所属 capability 提供 display 映射，组合根合并后供实时与历史共同使用。`kind` 只取 [display 协议](../server/src/iclip/platform/transcript/display.py) 已有值，不自行扩展；无法生成专用展示时使用 `generic`。
 

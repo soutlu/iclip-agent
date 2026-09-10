@@ -177,7 +177,7 @@ def test_the_display_registry_covers_every_mounted_tool(
         "plan_shot_frames",
         "read_file",
         "search_files",
-        "video_parser_md",
+        "video_parser",
         "write_file",
         "write_video_shots",
     ]
