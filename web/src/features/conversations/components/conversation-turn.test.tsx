@@ -449,3 +449,61 @@ describe('工具结果按 view 选渲染器', () => {
     expect(screen.queryByText(/读取了 1 个文件/)).toBeNull()
   })
 })
+
+describe('轮次没跑完', () => {
+  const toolFrame = (frameId: string, state: 'done' | 'error') =>
+    ({
+      display: { kind: 'file_io', operation: 'read', path: 'shots/storyboard.md' },
+      frameId,
+      kind: 'tool',
+      name: 'read_file',
+      state,
+      toolCallId: frameId,
+    }) as const
+
+  it('失败的轮次只显示一句固定提示，原始异常折在「详情」里', async () => {
+    const user = userEvent.setup()
+    render(
+      <ConversationTurn
+        turn={{
+          ...turnWithFrames([]),
+          error: 'UnexpectedModelBehavior("Tool \'write_video_shots\' exceeded max retries")',
+          state: 'failed',
+        }}
+      />,
+    )
+
+    expect(screen.getByText('这一轮没有跑完，发一条消息可以从当前进度继续。')).toBeInTheDocument()
+    expect(screen.queryByText(/UnexpectedModelBehavior/)).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '详情' }))
+
+    expect(screen.getByText(/UnexpectedModelBehavior/)).toBeInTheDocument()
+  })
+
+  it('含失败工具的活动组结束后仍然展开', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          { frameId: 't1.1.f1', kind: 'thinking', text: '先读分镜' },
+          toolFrame('t1.1.f2', 'error'),
+        ])}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /^有失败/ })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('全部成功的活动组结束后收起', () => {
+    render(
+      <ConversationTurn
+        turn={turnWithFrames([
+          { frameId: 't1.1.f1', kind: 'thinking', text: '先读分镜' },
+          toolFrame('t1.1.f2', 'done'),
+        ])}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /^完成/ })).toHaveAttribute('aria-expanded', 'false')
+  })
+})

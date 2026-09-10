@@ -24,6 +24,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
 from structlog.testing import capture_logs
+from structlog.typing import EventDict
 
 from iclip.capabilities.shot_video.capability import (
     CAPABILITY_ID,
@@ -1177,6 +1178,85 @@ async def test_invalid_shot_input_keeps_the_existing_file_on_the_agent_path(
         for part in message.parts
         if isinstance(part, RetryPromptPart) and part.tool_name == "write_video_shots"
     ]
+    assert len(refusals) == 1
+    stored = await files.read(NAMESPACE, SHOTS_PATH)
+    assert stored is not None
+    assert stored.content == original
+
+
+def test_delivery_tool_has_room_to_correct_its_arguments(tools: ShotVideoToolset[object]) -> None:
+    """默认预算 1 会让第二次参数错误终止整次运行，最后一步的表单要多给几次。"""
+
+    assert tools.tools["write_video_shots"].max_retries == 3
+
+
+async def run_delivery_once(
+    capability: ShotVideo[object], shots: object
+) -> tuple[list[RetryPromptPart], list[EventDict]]:
+    """让模型只调一次交付工具，返回它收到的退回单与本次的日志。"""
+
+    def call_once(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        if len(messages) == 1:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "write_video_shots",
+                        {"aspect_ratio": "9:16", "shots": shots},
+                        tool_call_id="c1",
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart("好")])
+
+    with capture_logs() as logs:
+        result = await Agent(FunctionModel(call_once), capabilities=[capability]).run(
+            "提交镜头组", deps=make_deps()
+        )
+    refusals = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, RetryPromptPart) and part.tool_name == "write_video_shots"
+    ]
+    return refusals, logs
+
+
+@pytest.mark.parametrize("field", ["shots", "prompt"])
+async def test_stringified_nested_input_is_parsed_on_the_agent_path(
+    capability: ShotVideo[object],
+    files: FakeFileStore,
+    materials: FakeMaterialLedger,
+    field: str,
+) -> None:
+    """弱模型把嵌套结构整体序列化成字符串时照常交付，并留一条可数的日志。"""
+
+    materials.rows[(NAMESPACE, FRAME_URL)] = Material(url=FRAME_URL, kind="image")
+    shot = one_shot().model_dump()
+    shots: object
+    if field == "prompt":
+        shot["prompt"] = json.dumps(shot["prompt"], ensure_ascii=False)
+        shots = [shot]
+    else:
+        shots = json.dumps([shot], ensure_ascii=False)
+
+    refusals, logs = await run_delivery_once(capability, shots)
+
+    assert refusals == []
+    stored = await files.read(NAMESPACE, SHOTS_PATH)
+    assert stored is not None
+    validate_video_shots_document(stored.content)
+    parsed = [log for log in logs if log["event"] == "工具参数以字符串传入，已解析"]
+    assert [log["field"] for log in parsed] == [field]
+
+
+async def test_a_string_that_is_not_json_is_refused_and_keeps_the_file(
+    capability: ShotVideo[object], files: FakeFileStore
+) -> None:
+    original = shots_document()
+    await files.write(NAMESPACE, SHOTS_PATH, original)
+
+    refusals, _ = await run_delivery_once(capability, "index: 1, seconds: 8")
+
     assert len(refusals) == 1
     stored = await files.read(NAMESPACE, SHOTS_PATH)
     assert stored is not None

@@ -70,7 +70,7 @@ def test_accepts_decimal_timestamps_and_preserves_text_and_picture_order() -> No
     "prompt",
     [
         pytest.param("原有字符串描述", id="string-prompt"),
-        pytest.param(json.dumps(prompt_value()), id="json-encoded-prompt"),
+        pytest.param(json.dumps({"global_settings": "设定"}), id="json-encoded-but-incomplete"),
         pytest.param({}, id="missing-prompt-fields"),
         pytest.param({"global_settings": "设定"}, id="missing-timeline"),
         pytest.param({"timeline": [item()]}, id="missing-global-settings"),
@@ -85,6 +85,14 @@ def test_accepts_decimal_timestamps_and_preserves_text_and_picture_order() -> No
 def test_rejects_invalid_prompt_structure(prompt: Any) -> None:
     with pytest.raises(ValidationError):
         request(prompt=prompt)
+
+
+def test_json_encoded_prompt_is_parsed_into_the_same_structure() -> None:
+    """模型把 prompt 整体序列化成字符串时先还原，结果与直接传对象一致。"""
+
+    encoded = request(prompt=json.dumps(prompt_value(), ensure_ascii=False))
+
+    assert encoded.prompt == request(prompt=prompt_value()).prompt
 
 
 @pytest.mark.parametrize("timestamps", [[], [0], [0, 4, 8]], ids=["empty", "one", "three"])
