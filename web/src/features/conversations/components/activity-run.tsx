@@ -1,4 +1,4 @@
-/** 参考 Kimi activity-run：活动组运行时自动展开，结束后自动收起。 */
+/** 参考 Kimi activity-run：活动组运行时自动展开，结束后自动收起；含失败工具的组留着展开。 */
 
 import { useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from '@/shared/icons'
@@ -64,11 +64,11 @@ export function ActivityRun({ items, liveFrameId, settled }: ActivityRunProps) {
   const failed = items.some((entry) => entry.frame.kind === 'tool' && entry.frame.state === 'error')
 
   // 用户手动切换后，自动开合不再覆盖其选择。
-  const [open, setOpen] = useState(running)
+  const [open, setOpen] = useState(running || failed)
   const [prevRunning, setPrevRunning] = useState(running)
   if (running !== prevRunning) {
     setPrevRunning(running)
-    setOpen(running)
+    setOpen(running || failed)
   }
 
   const elapsedMs = useActivityMs(running, runHistoryMs(items))

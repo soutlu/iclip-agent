@@ -37,11 +37,33 @@ export function TurnFrame({ frame, live, settled }: TurnFrameProps) {
   }
 }
 
-export function ErrorNotice({ message }: { message: string }) {
+function ErrorNotice({ message }: { message: string }) {
   return (
     <p className="rounded-sm border border-chat-error-border bg-chat-error-bg px-3 py-2 text-body-sm text-chat-error-text">
       {message}
     </p>
+  )
+}
+
+/** 轮次没跑完：固定一句给使用者，原始异常文本折叠给排错的人。 */
+export function RunFailedNotice({ detail }: { detail: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-sm border border-chat-error-border bg-chat-error-bg px-3 py-2 text-body-sm text-chat-error-text">
+      <div className="flex items-center justify-between gap-2">
+        <p>这一轮没有跑完，发一条消息可以从当前进度继续。</p>
+        <button
+          aria-expanded={open}
+          className="flex shrink-0 cursor-pointer items-center gap-0.5 rounded-xs ui-focus"
+          onClick={() => setOpen(!open)}
+          type="button"
+        >
+          详情
+          <DisclosureChevron open={open} />
+        </button>
+      </div>
+      {open ? <pre className="mt-2 font-mono break-all whitespace-pre-wrap">{detail}</pre> : null}
+    </div>
   )
 }
 
