@@ -87,16 +87,14 @@ class FrameExtractor:
 
         stored = await files.read(namespace, doc_path)
         if stored is None:
-            raise ModelRetry(
-                f"参考视频拆解文档 {doc_path} 不存在，先对该视频调用 video_parser_md。"
-            )
+            raise ModelRetry(f"参考视频拆解文档 {doc_path} 不存在，先对该视频调用 video_parser。")
         try:
             return parse_shot_rows(stored.content)
         except ShotParseError as exc:
             raise ModelRetry(
                 f"参考视频拆解文档 {doc_path} 解析失败：{exc}。用 edit_file 就地把该时间码改成 "
                 f"{SHOT_TIMECODE_SHAPE} 形状（只改时间码，不动正文）后重新调用；整份文档都读"
-                f"不出时改为对该视频重新调用 video_parser_md。"
+                f"不出时改为对该视频重新调用 video_parser。"
             ) from exc
 
     async def ledger(

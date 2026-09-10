@@ -50,7 +50,7 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 
 ### 7. 模型面输出的上限
 
-- 一次工具返回给模型的文本不超过 50,000 字符。超出的在源头处理：写进工作区，返回路径与摘要。`video_parser_md` 是这个写法的现成例子。
+- 一次工具返回给模型的文本不超过 50,000 字符。超出的在源头处理：写进工作区，返回路径与摘要。`video_parser` 是这个写法的现成例子。
 - 工具在源头限界，当前不挂 harness `ToolOutputLimits`。若引入该兜底，使用 `Spill(then=Truncate())`，spill store 必须实现官方 `OverflowStore` 协议并落在 Postgres，不用默认本地盘。
 
 ### 8. `ReadMediaFile` 归 workspace
