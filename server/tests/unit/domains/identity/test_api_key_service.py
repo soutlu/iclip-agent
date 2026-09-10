@@ -15,12 +15,14 @@ from iclip.common.errors import (
     ValidationFailed,
 )
 from iclip.domains.identity.commands import CreateApiKey
+from iclip.domains.identity.models import ApiKeyRecord
 from iclip.domains.identity.service import (
     API_KEY_TOKEN_PREFIX,
     IdentityService,
     api_key_token_prefix,
     generate_api_key_token,
     hash_api_key_token,
+    validate_api_key_token,
 )
 from tests.helpers.identity import (
     InMemoryApiKeyRepository,
@@ -205,6 +207,40 @@ async def test_revoke_hides_others_keys_as_not_found() -> None:
         await service.revoke_api_key(service.principal_for_user(stranger), record.id)
     with pytest.raises(NotFound):
         await service.revoke_api_key(principal, uuid.uuid4())
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["a" * 31, "has spaces in it but is long enough to pass", "a" * 31 + "!"],
+)
+def test_custom_token_is_rejected_when_too_short_or_not_url_safe(token: str) -> None:
+    with pytest.raises(ValidationFailed):
+        validate_api_key_token(token)
+
+
+async def test_authenticates_a_key_issued_with_a_custom_token() -> None:
+    """服务器上可按调用方已有的串签发；认证只查哈希，不看前缀。"""
+
+    owner = make_account(roles=("root",))
+    service, _, api_keys = make_service(owner)
+    token = validate_api_key_token("Zq7fN2xLb9TmKd4Rv1WyPc6Hs8Gj3Ute")
+    record = ApiKeyRecord(
+        id=uuid.uuid4(),
+        owner_user_id=owner.id,
+        name="上游对接",
+        token_prefix=api_key_token_prefix(token),
+        permissions=frozenset({"collections:read"}),
+        expires_at=None,
+        revoked_at=None,
+        last_used_at=None,
+        created_at=None,
+    )
+    await api_keys.add(record, token_hash=hash_api_key_token(token))
+
+    principal = await service.authenticate_api_key(token)
+    assert principal.kind == "api_key"
+    assert principal.api_key_id == record.id
+    assert principal.permissions == {"collections:read"}
 
 
 def test_inactive_user_gets_no_principal() -> None:

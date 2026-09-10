@@ -13,7 +13,7 @@
 - **浏览器会话**：使用后端设置的 HttpOnly Cookie `iclip_session`，浏览器自动携带；前端 JavaScript 不读取、存储或转发这个会话凭证，也不代持 API Key。
 - **SSO 回调票据**：落地页接收查询参数 `jwt`，仅交给同源 `GET /auth/sso/callback` 验证并建立上述会话，随后以 replace 导航离开票据 URL。票据不作为后续 API 的认证头，不存入浏览器持久存储。
 - **登录态**：以 `GET /users/me` 为准；`401` 表示未登录或会话失效，前端不从 SSO 票据或本地标记推断已登录。
-- **机器端调用方**：基于 Bearer Token 的无状态调用（请求头携带 `Authorization: Bearer iclip_sk_...`）。
+- **机器端调用方**：基于 Bearer Token 的无状态调用（请求头携带 `Authorization: Bearer <token>`）。明文形态不构成合同，服务端按哈希查表认证，不从前缀判断。
   - 明文仅在成功创建的响应中返回一次；权限语义见 [CONTEXT.md](../docs/CONTEXT.md)。
 
 ## 3. 数据载荷与格式 (Payload Formatting)
