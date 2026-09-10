@@ -270,7 +270,10 @@ async def test_structured_shot_input_schema_reaches_the_model(
     assert timestamps["minItems"] == timestamps["maxItems"] == 2
     assert timestamps["items"]["type"] == "number"
     assert timestamps["items"]["minimum"] == 0
-    assert seen["description"].splitlines()[0] == "提交镜头组 prompt 表。"
+    assert (
+        seen["description"].splitlines()[0]
+        == "提交镜头组 prompt 表；每次提交全部镜头组，替换已有的。"
+    )
 
 
 @pytest.mark.parametrize(
@@ -965,12 +968,12 @@ async def deliver(
     shots: list[VideoShotRequest],
     *,
     aspect_ratio: str = "9:16",
-) -> dict[str, Any]:
+) -> str:
     """直接调用交付工具体，取给模型的那份；地址范围校验由独立用例覆盖。"""
 
     _ = files
     delivered = await tools.write_video_shots(ctx, aspect_ratio, shots)
-    assert isinstance(delivered.return_value, dict)
+    assert isinstance(delivered.return_value, str)
     return delivered.return_value
 
 
@@ -986,8 +989,8 @@ async def test_delivered_table_lands_in_the_workspace(
         shots,
     )
 
-    assert result["path"] == SHOTS_PATH
-    assert "20 秒" in result["message"]
+    assert SHOTS_PATH in result
+    assert "20 秒" in result
     stored = await files.read(NAMESPACE, SHOTS_PATH)
     assert stored is not None
     document = json.loads(stored.content)
@@ -1012,7 +1015,7 @@ async def test_delivered_table_accepts_a_group_without_reference_images(
 
     result = await deliver(tools, ctx, files, [shot])
 
-    assert result["path"] == SHOTS_PATH
+    assert SHOTS_PATH in result
     stored = await files.read(NAMESPACE, SHOTS_PATH)
     assert stored is not None
     expected = shot.model_dump(mode="json")
