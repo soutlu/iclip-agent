@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import uuid
 
 import pytest
@@ -21,6 +22,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
 from pydantic_ai_harness.subagents import SubAgent, SubAgents
+from structlog.testing import capture_logs
 
 from iclip.capabilities.workspace.capability import (
     CAPABILITY_ID,
@@ -518,6 +520,40 @@ async def test_a_region_crops_in_original_coordinates_and_flags_the_offset() -> 
         ImageUrl(url=delivered, media_type="image/jpeg"),
         "</image>",
     ]
+
+
+async def test_a_stringified_region_is_parsed_on_the_agent_path(store: FakeFileStore) -> None:
+    """模型有一定概率把 region 裹成一个 JSON 字符串传进来；还原后照常裁切，不退回改参数。"""
+
+    # 入参按生产形状整体是一个 JSON 字符串，走 validate_json 那条分支；region 在里面又被裹了一层。
+    args = json.dumps(
+        {"url": OSS_IMAGE, "region": '{"x": 100, "y": 100, "width": 5000, "height": 5000}'}
+    )
+
+    def script(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        if len(messages) == 1:
+            return ModelResponse(parts=[ToolCallPart("ReadMediaFile", args)])
+        return ModelResponse(parts=[TextPart("看完了")])
+
+    agent = Agent(
+        FunctionModel(script),
+        deps_type=AgentRunDeps,
+        capabilities=[make_workspace(store, FakeProbe(), image_ledger(OSS_IMAGE))],
+    )
+
+    with capture_logs() as logs:
+        result = await agent.run("看这块", deps=make_deps())
+
+    refusals = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, RetryPromptPart) and part.tool_name == "ReadMediaFile"
+    ]
+    assert refusals == []
+    assert result.output == "看完了"
+    parsed = [log for log in logs if log["event"] == "工具参数以字符串传入，已解析"]
+    assert [log["field"] for log in parsed] == ["region"]
 
 
 async def test_a_small_region_is_not_downsampled_again() -> None:

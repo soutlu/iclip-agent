@@ -1184,12 +1184,6 @@ async def test_invalid_shot_input_keeps_the_existing_file_on_the_agent_path(
     assert stored.content == original
 
 
-def test_delivery_tool_has_room_to_correct_its_arguments(tools: ShotVideoToolset[object]) -> None:
-    """默认预算 1 会让第二次参数错误终止整次运行，最后一步的表单要多给几次。"""
-
-    assert tools.tools["write_video_shots"].max_retries == 3
-
-
 async def run_delivery_once(
     capability: ShotVideo[object], shots: object
 ) -> tuple[list[RetryPromptPart], list[EventDict]]:
@@ -1247,6 +1241,47 @@ async def test_stringified_nested_input_is_parsed_on_the_agent_path(
     validate_video_shots_document(stored.content)
     parsed = [log for log in logs if log["event"] == "工具参数以字符串传入，已解析"]
     assert [log["field"] for log in parsed] == [field]
+
+
+async def test_stringified_frames_are_parsed_on_the_agent_path(
+    capability: ShotVideo[object],
+    files: FakeFileStore,
+    generations: FakeGenerations,
+) -> None:
+    """frames 与 shots 同形；模型把它裹成字符串时照常受理，不退回改参数。"""
+
+    await files.write(NAMESPACE, EXTRACTION_PATH, ledger("S1-1"))
+    generations.outcomes = [
+        Outcome(status="failed", output_url=None, error_code="PROVIDER_REJECTED")
+    ]
+    args = {
+        "frames": json.dumps([{"no": "S1-1", "prompt": "猫"}], ensure_ascii=False),
+        "reference_images": [],
+        "global_reference": "全局参考",
+        "target_aspect": "9:16",
+    }
+
+    def call_once(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        if len(messages) == 1:
+            return ModelResponse(
+                parts=[ToolCallPart("generate_shot_frames", args, tool_call_id="c1")]
+            )
+        return ModelResponse(parts=[TextPart("好")])
+
+    with capture_logs() as logs:
+        result = await Agent(FunctionModel(call_once), capabilities=[capability]).run(
+            "出这一批帧", deps=make_deps()
+        )
+
+    refusals = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, RetryPromptPart) and part.tool_name == "generate_shot_frames"
+    ]
+    assert refusals == []
+    parsed = [log for log in logs if log["event"] == "工具参数以字符串传入，已解析"]
+    assert [log["field"] for log in parsed] == ["frames"]
 
 
 async def test_a_string_that_is_not_json_is_refused_and_keeps_the_file(
