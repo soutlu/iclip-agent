@@ -43,9 +43,6 @@ _logger = structlog.stdlib.get_logger(__name__)
 if TYPE_CHECKING:
     from iclip.capabilities.shot_video.capability import ShotVideo
 
-_RECORDED_AT = f"本能力写下的地址也记在 {EXTRACTION_PATH} 下，用 read_file 读回来再用。"
-"""素材错误消息的收尾动作：本能力产出的地址都能从工作区里翻回来。"""
-
 
 class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     """五件工具。参数的范围规则挂在登记处的验证器上，工具体只做本职。
@@ -234,19 +231,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     async def generate_anchor_sheet(
         self, ctx: RunContext[AgentDepsT], cells: list[str]
     ) -> ToolReturn[dict[str, Any]]:
-        """按文字补拍设定图：一次调用出一张 2×2 网格图、切成 4 格返回逐格 URL。
-
-        - 一格一个实体，cells 每条是那一格画面的完整描述；返回的 `index` 就是它在
-          cells 里的位置。
-        - 一批 1-4 条；不足 4 条时空格由中性面板补满并在切格后丢弃。
-        - 本工具不收参考图，每格的文字就是那一格的全部依据。要按已有的图生成画面
-          用 `generate_shot_frames`。
-        - 需要多次调用时，在同一次回复中并行发起，不要串行等待。
-        - 生成需要数分钟，调用会阻塞到收敛后返回。
-        - 每次调用都重新提交生成，没有复用；同一批实体不要补拍第二次。
+        """按 prompt 生成设定图，一条描述一张图，返回逐张地址。
 
         Args:
-            cells: 逐格描述，1-4 条。
+            cells: 逐张描述，一张一个实体，1-4 条。
         """
 
         _, namespace = self._workspace(ctx)
@@ -281,10 +269,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             namespace, [*cut.urls, cut.grid_url], failure_message="设定图处理失败。"
         )
         return ToolReturn(
-            return_value={
-                "message": f"补拍完成 {len(images)} 格。",
-                "images": images,
-            },
+            return_value={"images": images},
             metadata=media_grid(zip(cut.urls, descriptions, strict=True), note=f"{len(images)} 格"),
         )
 
@@ -349,7 +334,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             video_url,
             kind="video",
             what="视频地址",
-            recorded_at=_RECORDED_AT,
         )
 
     async def _validate_frame_generation(
@@ -376,7 +360,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 url,
                 kind="image",
                 what="参考图地址",
-                recorded_at=_RECORDED_AT,
             )
 
     async def _validate_shot_delivery(
@@ -398,7 +381,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                     url,
                     kind="image",
                     what="镜头帧地址",
-                    recorded_at=_RECORDED_AT,
                 )
 
     async def _register(self, namespace: str, urls: Sequence[str], *, failure_message: str) -> None:

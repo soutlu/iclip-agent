@@ -25,19 +25,19 @@ async def require_material(
     *,
     kind: MaterialKind,
     what: str,
-    recorded_at: str,
+    recorded_at: str | None = None,
 ) -> None:
     """校验当前会话的素材与类型。
 
     错误不回显被拒 URL，避免未经认可的地址通过错误消息进入模型上下文。
-    recorded_at 由调用方提供，说明能力使用的素材记录位置。
+    能力的产出地址落在某个工作区文件里时给 recorded_at，让模型能自己读回来。
     """
 
     recorded = await ledger.lookup(namespace, url)
     if recorded is None:
         raise ModelRetry(
             f"这个{what}不是这段对话里的素材。只能用对话里给你的地址、或工具结果里"
-            f"返回的地址，不要自己拼；{recorded_at}"
+            f"返回的地址，不要自己拼{'；' + recorded_at if recorded_at else '。'}"
         )
     if recorded.kind != kind:
         raise ModelRetry(

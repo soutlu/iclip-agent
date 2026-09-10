@@ -1102,7 +1102,7 @@ async def test_delivery_rejects_a_made_up_frame_url(
 ) -> None:
     """拒绝未登记帧地址，错误仅提示合法来源，不回显该地址。"""
 
-    with pytest.raises(ModelRetry, match=EXTRACTION_PATH) as rejected:
+    with pytest.raises(ModelRetry, match="不要自己拼。") as rejected:
         await check_args(
             tools,
             "write_video_shots",
