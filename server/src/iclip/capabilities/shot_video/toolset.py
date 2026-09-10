@@ -16,7 +16,6 @@ from pydantic_ai.toolsets import FunctionToolset
 from iclip.capabilities.shot_video.delivery import (
     SHOTS_PATH,
     FrameRequest,
-    JsonText,
     VideoShotRequest,
     build_video_shots_document,
     resolve_cells,
@@ -32,6 +31,7 @@ from iclip.capabilities.shot_video.generation import (
 from iclip.capabilities.shot_video.ports import ImageRequest
 from iclip.capabilities.shot_video.prompt import assemble_anchor_prompt, assemble_grid_prompt
 from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE
+from iclip.common.tool_args import JsonText
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
 from iclip.harness.materials import require_http, require_material
@@ -86,8 +86,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 self.write_video_shots,
                 name="write_video_shots",
                 args_validator=self._validate_shot_delivery,
-                # 参数嵌套最深、又是最后一步；默认预算 1 会让第二次参数错误终止整次运行。
-                max_retries=3,
             )
         )
 
@@ -166,7 +164,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     async def generate_shot_frames(
         self,
         ctx: RunContext[AgentDepsT],
-        frames: list[FrameRequest],
+        frames: Annotated[list[FrameRequest], JsonText],
         reference_images: list[str],
         global_reference: str,
         target_aspect: str,

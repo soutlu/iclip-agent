@@ -8,7 +8,7 @@ from __future__ import annotations
 import difflib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Final, Literal
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
@@ -19,6 +19,7 @@ from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbe, MediaProbeFailed
+from iclip.common.tool_args import JsonText
 from iclip.harness.materials import require_http, require_material
 from iclip.harness.media import (
     IMAGE_CONTEXT_MAX_EDGE,
@@ -435,7 +436,7 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         self,
         ctx: RunContext[AgentDepsT],
         url: str,
-        region: CropRegion | None = None,
+        region: Annotated[CropRegion | None, JsonText] = None,
         full_resolution: bool = False,
     ) -> ToolReturn:
         """读取一张图片，原始内容以多模态形式附在工具结果中。
