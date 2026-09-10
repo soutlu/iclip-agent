@@ -35,8 +35,6 @@ from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.capabilities.shot_video.grid import grid_cell_boxes, scale_box
 from iclip.capabilities.shot_video.ports import ObjectWriteFailed
 from iclip.capabilities.shot_video.toolset import (
-    ANCHOR_RECORDS_DIR,
-    GRID_RECORDS_DIR,
     ShotVideoToolset,
 )
 from iclip.capabilities.workspace.scope import workspace_namespace
@@ -298,14 +296,15 @@ async def test_plan_extracts_every_second_and_boards_them(media: dict[str, bytes
     assert materials.urls(NAMESPACE) == {boards[0]["url"]}
     assert result.metadata == {
         "items": [{"url": boards[0]["url"], "caption": "板 1 · 1,2"}],
-        "note": "1 板 · 3 格",
+        "note": "1 板",
     }
     assert len(objects.written) == 1
+    # 台账只留复用判定要用的东西：板上有哪几个镜头由调用方按 rows 现算。
     stored = await files.read(NAMESPACE, EXTRACTION_PATH)
     assert stored is not None
     ledger = json.loads(stored.content)
-    cells = [cell["id"] for board in ledger["boards"] for cell in board["cells"]]
-    assert cells == ["S1-1", "S1-2", "S2-1"]
+    assert ledger.keys() == {"extractionVersion", "extractionKey", "boards"}
+    assert ledger["boards"] == [{"board": 1, "url": boards[0]["url"]}]
 
 
 async def test_plan_reuses_the_ledger_instead_of_extracting_again(
@@ -319,13 +318,15 @@ async def test_plan_reuses_the_ledger_instead_of_extracting_again(
     client = make_client(media)
     try:
         tools = make_tools(client, objects, files, ledger=materials)
-        await tools.plan_shot_frames(make_context(), VIDEO_URL)
+        first = await tools.plan_shot_frames(make_context(), VIDEO_URL)
         again = await tools.plan_shot_frames(make_context(), VIDEO_URL)
     finally:
         await client.aclose()
 
+    assert isinstance(first, ToolReturn)
     assert isinstance(again, ToolReturn)
-    assert "复用既有账本" in model_facing(again)["message"]
+    # 复用路径不重抽帧也不重传，但结果要与首次逐字相同：板上有哪几个镜头是按 rows 现算的。
+    assert model_facing(again) == model_facing(first)
     assert len(objects.written) == 1
     # 复用时也需登记预览板地址，保证后续工具可引用。
     assert materials.urls(NAMESPACE) == {model_facing(again)["boards"][0]["url"]}
@@ -392,19 +393,13 @@ async def test_generate_cuts_the_grid_and_records_the_batch(media: dict[str, byt
     assert isinstance(result, ToolReturn)
     payload = model_facing(result)
     # 模型面只有图在哪、版记录在哪；渠道与切格细节不进返回值。
-    assert set(payload) == {"frames", "record"}
+    assert set(payload) == {"frames"}
     assert [frame["no"] for frame in payload["frames"]] == ["S1-1", "S2-1"]
-    assert [frame["shot"] for frame in payload["frames"]] == [1, 2]
     assert len(objects.written) == boards_written + 2
     assert result.metadata == {
         "items": [{"url": frame["url"], "caption": frame["no"]} for frame in payload["frames"]]
     }
 
-    stored = await files.read(NAMESPACE, payload["record"])
-    assert stored is not None
-    record = json.loads(stored.content)
-    assert record["gridUrl"] == GRID_URL
-    assert [frame["prompt"] for frame in record["frames"]] == ["雨中中景", "鞋底特写"]
     assert {frame["url"] for frame in payload["frames"]} | {GRID_URL} <= materials.urls(NAMESPACE)
 
 
@@ -427,7 +422,6 @@ async def test_generate_reports_an_unreachable_grid_without_pretending_it_worked
         await client.aclose()
 
     assert str(raised.value) == "镜头帧处理失败。"
-    assert not await files.entries(NAMESPACE, prefix=GRID_RECORDS_DIR)
 
 
 async def test_generate_fails_when_cut_frames_cannot_be_stored(
@@ -453,7 +447,6 @@ async def test_generate_fails_when_cut_frames_cannot_be_stored(
 
     assert str(raised.value) == "镜头帧处理失败。"
     assert len(generations.job_ids) == 1
-    assert not await files.entries(NAMESPACE, prefix=GRID_RECORDS_DIR)
 
 
 async def test_anchor_sheet_reports_unstored_cells_the_same_way(media: dict[str, bytes]) -> None:
@@ -470,7 +463,6 @@ async def test_anchor_sheet_reports_unstored_cells_the_same_way(media: dict[str,
         await client.aclose()
 
     assert str(raised.value) == "设定图处理失败。"
-    assert not await files.entries(NAMESPACE, prefix=ANCHOR_RECORDS_DIR)
 
 
 async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
@@ -493,7 +485,7 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
 
     assert isinstance(result, ToolReturn)
     payload = model_facing(result)
-    assert payload["status"] == "done"
+    assert set(payload) == {"images"}
     assert [image["index"] for image in payload["images"]] == [1, 2]
     assert len(objects.written) == 2
     assert result.metadata == {
@@ -504,36 +496,9 @@ async def test_anchor_sheet_cuts_the_sheet_and_records_each_entity(
         "note": "2 格",
     }
 
-    stored = await files.read(NAMESPACE, payload["record"])
-    assert stored is not None
-    record = json.loads(stored.content)
-    assert record["gridUrl"] == GRID_URL
-    assert [cell["description"] for cell in record["cells"]] == [
-        "全身正面平视的女性",
-        "空景全景平视的门厅",
-    ]
     written = list(objects.written.values())
     assert written[0] != written[1]
     assert {image["url"] for image in payload["images"]} | {GRID_URL} <= materials.urls(NAMESPACE)
-
-
-async def test_anchor_record_failure_is_reported_after_successful_generation(
-    media: dict[str, bytes],
-) -> None:
-    """图片已上传但版记录写入失败时报告处理失败，不重复生成或宣告成功。"""
-
-    files = FakeFileStore(max_file_bytes=1)
-    objects = FakeObjects()
-    generations = FakeGenerations(outcomes=[Outcome(output_url=GRID_URL)])
-    materials = FakeMaterialLedger()
-    async with make_client(media) as client:
-        tools = make_tools(client, objects, files, generations=generations, ledger=materials)
-        with pytest.raises(ToolFailed, match=r"^设定图处理失败。$"):
-            await tools.generate_anchor_sheet(make_context(), ["空景门厅"])
-    assert len(generations.job_ids) == 1
-    assert len(objects.written) == 1
-    assert not await files.entries(NAMESPACE, prefix=ANCHOR_RECORDS_DIR)
-    assert not materials.urls(NAMESPACE)
 
 
 async def test_processing_failure_is_an_error_in_real_agent_live_and_history(
@@ -597,7 +562,6 @@ async def test_processing_failure_is_an_error_in_real_agent_live_and_history(
     assert received[0].outcome == "failed"
     assert received[0].content == failure
     assert len(generations.job_ids) == 1
-    assert not await files.entries(NAMESPACE, prefix=ANCHOR_RECORDS_DIR)
     live = store.subscribe_view("thread-1", MAIN_AGENT_ID).live_turns
     history = turns_from_messages(result.all_messages(), turn_states={run_id: "completed"})
     for turns in (live, history):

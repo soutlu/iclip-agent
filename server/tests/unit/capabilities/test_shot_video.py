@@ -105,25 +105,14 @@ def make_context(deps: object) -> RunContext[object]:
     return RunContext[object](deps=deps, model=TestModel(), usage=RunUsage(), messages=[])
 
 
-def ledger(*cell_ids: str) -> str:
-    """仅包含逐格请求校验字段的取帧账本。"""
+def ledger(*_cell_ids: str) -> str:
+    """取帧账本。逐格请求不校验帧号是否在账本里，出图工具只看它存不存在。"""
 
     return json.dumps(
         {
             "extractionVersion": 1,
             "extractionKey": "k",
-            "intervalMs": 1000,
-            "video": {"url": VIDEO, "contentHash": "sha256:x"},
-            "boards": [
-                {
-                    "board": 1,
-                    "url": "https://cdn.test/board.jpg",
-                    "shots": [1],
-                    "layout": "2x2",
-                    "cells": [{"id": cell, "shotId": 1} for cell in cell_ids],
-                }
-            ],
-            "shotsWithoutCells": [],
+            "boards": [{"board": 1, "url": "https://cdn.test/board.jpg"}],
         }
     )
 
@@ -237,7 +226,7 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
         "generate_anchor_sheet",
         "generate_shot_frames",
         "plan_shot_frames",
-        "video_parser_md",
+        "video_parser",
         "write_video_shots",
     ]
 
@@ -281,12 +270,15 @@ async def test_structured_shot_input_schema_reaches_the_model(
     assert timestamps["minItems"] == timestamps["maxItems"] == 2
     assert timestamps["items"]["type"] == "number"
     assert timestamps["items"]["minimum"] == 0
-    assert seen["description"].splitlines()[0] == "提交镜头组 prompt 表。"
+    assert (
+        seen["description"].splitlines()[0]
+        == "提交镜头组 prompt 表；每次提交全部镜头组，替换已有的。"
+    )
 
 
 @pytest.mark.parametrize(
     "tool_name",
-    ["video_parser_md", "plan_shot_frames", "generate_shot_frames", "write_video_shots"],
+    ["video_parser", "plan_shot_frames", "generate_shot_frames", "write_video_shots"],
 )
 def test_scope_rules_are_mounted_on_the_tool(
     tools: ShotVideoToolset[object], tool_name: str
@@ -303,7 +295,7 @@ def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
         "generate_anchor_sheet",
         "generate_shot_frames",
         "plan_shot_frames",
-        "video_parser_md",
+        "video_parser",
         "write_video_shots",
     ]
     # 标题是书面动宾短语，主语是镜头号；张数进结果角标，不进标题。
@@ -314,10 +306,10 @@ def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
     assert drawn["write_video_shots"].draw({}) == GenericDisplay(
         summary="保存分镜", detail=SHOTS_PATH
     )
-    assert drawn["video_parser_md"].draw({"video_url": VIDEO}) == GenericDisplay(
+    assert drawn["video_parser"].draw({"video_url": VIDEO}) == GenericDisplay(
         summary="拆解视频", detail="ref.mp4"
     )
-    assert drawn["video_parser_md"].draw({}) == GenericDisplay(summary="拆解视频")
+    assert drawn["video_parser"].draw({}) == GenericDisplay(summary="拆解视频")
     assert drawn["plan_shot_frames"].draw({"video_url": VIDEO}) == GenericDisplay(
         summary="提取候选帧", detail="ref.mp4"
     )
@@ -329,7 +321,7 @@ def test_only_the_three_media_tools_pick_a_renderer(capability: ShotVideo[object
     views = ToolDisplayRegistry.merged(capability.display_table())
     for tool_name in ("plan_shot_frames", "generate_shot_frames", "generate_anchor_sheet"):
         assert views.view_of(tool_name) == "media_grid"
-    for tool_name in ("video_parser_md", "write_video_shots"):
+    for tool_name in ("video_parser", "write_video_shots"):
         assert views.view_of(tool_name) is None
 
 
@@ -343,7 +335,7 @@ async def test_an_out_of_scope_address_is_refused_on_the_agent_path(
             return ModelResponse(
                 parts=[
                     ToolCallPart(
-                        "video_parser_md",
+                        "video_parser",
                         {"video_url": "https://cdn.test/made-up.mp4"},
                         tool_call_id="c1",
                     )
@@ -369,7 +361,7 @@ async def test_missing_run_identity_is_a_bug_not_a_retry(tools: ShotVideoToolset
     """deps 类型错误属于装配故障，模型重试无法修复。"""
 
     with pytest.raises(RuntimeError, match="AgentRunDeps"):
-        await tools.video_parser_md(make_context(object()), VIDEO)
+        await tools.video_parser(make_context(object()), VIDEO)
 
 
 async def test_files_land_in_the_normalized_namespace(
@@ -389,8 +381,8 @@ async def test_files_land_in_the_normalized_namespace(
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
 
-    result = await toolset.video_parser_md(make_context(make_deps()), VIDEO)
-    assert await files.read(NAMESPACE, result["path"]) is not None
+    await toolset.video_parser(make_context(make_deps()), VIDEO)
+    assert await files.read(NAMESPACE, video_doc_path(VIDEO)) is not None
 
 
 async def test_parse_writes_the_document_and_returns_its_path(
@@ -401,10 +393,10 @@ async def test_parse_writes_the_document_and_returns_its_path(
 ) -> None:
     """拆解文档持久化供后续工具读取，返回路径以避免重复占用上下文。"""
 
-    result = await tools.video_parser_md(ctx, VIDEO)
-    assert result["path"] == video_doc_path(VIDEO)
+    result = await tools.video_parser(ctx, VIDEO)
+    assert video_doc_path(VIDEO) in result
     assert understanding.calls == [VIDEO]
-    stored = await files.read(NAMESPACE, result["path"])
+    stored = await files.read(NAMESPACE, video_doc_path(VIDEO))
     assert stored is not None
     assert stored.content == DOCUMENT
 
@@ -415,7 +407,7 @@ async def test_parse_and_plan_agree_on_where_the_document_lives(
     """使用无时间码文档触发解析错误，以确认取帧工具读取了拆解工具写入的文件。"""
 
     understanding.document = "## 4、逐镜拉片表\n没有任何时间码\n"
-    await tools.video_parser_md(ctx, VIDEO)
+    await tools.video_parser(ctx, VIDEO)
     with pytest.raises(ModelRetry, match="解析失败"):
         await tools.plan_shot_frames(ctx, VIDEO)
 
@@ -432,7 +424,7 @@ async def test_parse_translates_failure(
 ) -> None:
     understanding.error = VideoUnderstandingError("接口连不上")
     with pytest.raises(ModelRetry, match="连不上"):
-        await tools.video_parser_md(ctx, VIDEO)
+        await tools.video_parser(ctx, VIDEO)
 
 
 @pytest.mark.parametrize("url", ["ref.mp4", "file:///etc/passwd", "ftp://host/a.mp4"])
@@ -440,10 +432,10 @@ async def test_tools_only_take_http_urls(
     tools: ShotVideoToolset[object], ctx: RunContext[object], url: str
 ) -> None:
     with pytest.raises(ModelRetry, match="http"):
-        await check_args(tools, "video_parser_md", ctx, video_url=url)
+        await check_args(tools, "video_parser", ctx, video_url=url)
 
 
-@pytest.mark.parametrize("tool_name", ["video_parser_md", "plan_shot_frames"])
+@pytest.mark.parametrize("tool_name", ["video_parser", "plan_shot_frames"])
 async def test_video_tools_refuse_an_address_the_conversation_never_had(
     tools: ShotVideoToolset[object], ctx: RunContext[object], tool_name: str
 ) -> None:
@@ -613,7 +605,7 @@ async def test_plan_needs_the_document_first(
 ) -> None:
     """替身不提供 HTTP 客户端；缺少文档时应在下载前失败。"""
 
-    with pytest.raises(ModelRetry, match="video_parser_md"):
+    with pytest.raises(ModelRetry, match="video_parser"):
         await tools.plan_shot_frames(ctx, VIDEO)
 
 
@@ -976,12 +968,12 @@ async def deliver(
     shots: list[VideoShotRequest],
     *,
     aspect_ratio: str = "9:16",
-) -> dict[str, Any]:
+) -> str:
     """直接调用交付工具体，取给模型的那份；地址范围校验由独立用例覆盖。"""
 
     _ = files
     delivered = await tools.write_video_shots(ctx, aspect_ratio, shots)
-    assert isinstance(delivered.return_value, dict)
+    assert isinstance(delivered.return_value, str)
     return delivered.return_value
 
 
@@ -997,8 +989,8 @@ async def test_delivered_table_lands_in_the_workspace(
         shots,
     )
 
-    assert result["path"] == SHOTS_PATH
-    assert "20 秒" in result["message"]
+    assert SHOTS_PATH in result
+    assert "20 秒" in result
     stored = await files.read(NAMESPACE, SHOTS_PATH)
     assert stored is not None
     document = json.loads(stored.content)
@@ -1023,7 +1015,7 @@ async def test_delivered_table_accepts_a_group_without_reference_images(
 
     result = await deliver(tools, ctx, files, [shot])
 
-    assert result["path"] == SHOTS_PATH
+    assert SHOTS_PATH in result
     stored = await files.read(NAMESPACE, SHOTS_PATH)
     assert stored is not None
     expected = shot.model_dump(mode="json")
@@ -1113,7 +1105,7 @@ async def test_delivery_rejects_a_made_up_frame_url(
 ) -> None:
     """拒绝未登记帧地址，错误仅提示合法来源，不回显该地址。"""
 
-    with pytest.raises(ModelRetry, match="frames/grids/") as rejected:
+    with pytest.raises(ModelRetry, match="不要自己拼。") as rejected:
         await check_args(
             tools,
             "write_video_shots",

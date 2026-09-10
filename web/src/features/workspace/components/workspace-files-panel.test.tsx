@@ -12,7 +12,7 @@ const CONVERSATION_ID = '4d3a7f8e-1b2c-4d5e-8f90-a1b2c3d4e5f6'
 
 const artifact = {
   id: 'workspace',
-  source: { fileCount: 6, kind: 'workspace' },
+  source: { fileCount: 4, kind: 'workspace' },
   title: '文件',
   type: 'workspace',
 } as const
@@ -47,8 +47,8 @@ describe('WorkspaceFilesPanel 列表', () => {
     expect(within(root).getByRole('button', { name: /storyboard\.md/ })).toBeVisible()
     expect(within(root).getByRole('button', { name: /video_shot\.json/ })).toHaveTextContent('KB')
 
-    const grids = screen.getByRole('region', { name: 'frames/grids' })
-    expect(within(grids).getByRole('button', { name: /8e5263a4/ })).toBeVisible()
+    const frames = screen.getByRole('region', { name: 'frames' })
+    expect(within(frames).getByRole('button', { name: /extraction\.json/ })).toBeVisible()
   })
 
   it('没有文件就是空态', async () => {
@@ -82,16 +82,14 @@ describe('WorkspaceFilesPanel 阅读', () => {
 
   it('JSON 排成树，图片地址是缩略图；「看原文」切到带行号的原文', async () => {
     seedMockWorkspace(CONVERSATION_ID)
-    await renderPanel(
-      `/c/${CONVERSATION_ID}?file=anchors%2Fb18d7e94-b199-441a-b14d-86df2cca7945.json`,
-    )
+    await renderPanel(`/c/${CONVERSATION_ID}?file=frames%2Fextraction.json`)
 
-    expect(await screen.findByRole('button', { name: '收起 cells' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: '收起 boards' })).toBeVisible()
     expect(screen.getAllByRole('img').length).toBeGreaterThan(0)
 
     await userEvent.click(screen.getByRole('button', { name: '看原文' }))
 
-    expect(screen.getByText('"anchorRecordVersion": 1,')).toBeVisible()
+    expect(screen.getByText('"board": 1,')).toBeVisible()
     expect(screen.getByRole('button', { name: '看结构' })).toBeVisible()
   })
 

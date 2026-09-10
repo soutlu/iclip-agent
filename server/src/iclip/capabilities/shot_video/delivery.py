@@ -12,7 +12,7 @@ from pydantic_ai import ModelRetry
 
 from iclip.capabilities.shot_video.grid import GridError, parse_aspect
 from iclip.capabilities.shot_video.prompt import GRID_CELLS
-from iclip.capabilities.shot_video.shots import ShotParseError, parse_cell_id
+from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE, ShotParseError, parse_cell_id
 
 SHOTS_PATH: Final = "video_shot.json"
 
@@ -26,8 +26,10 @@ _IMAGE_REF = re.compile(r"@Image(\d+)")
 class FrameRequest(BaseModel):
     """一格的生成请求。"""
 
-    no: str
-    prompt: str
+    no: Annotated[
+        str, Field(description=f"帧号，{CELL_ID_SHAPE} 形状；挑中候选帧的直接用板上的帧号。")
+    ]
+    prompt: Annotated[str, Field(description="为这一帧撰写的 visual_prompt。")]
 
 
 TimestampSeconds = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
@@ -38,8 +40,11 @@ class TimelineItem(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    timestamps: Annotated[list[TimestampSeconds], Field(min_length=2, max_length=2)]
-    prompt: str
+    timestamps: Annotated[
+        list[TimestampSeconds],
+        Field(min_length=2, max_length=2, description="[开始秒数, 结束秒数]。"),
+    ]
+    prompt: Annotated[str, Field(description="该镜头的正文。")]
 
 
 class VideoShotPrompt(BaseModel):
@@ -47,17 +52,21 @@ class VideoShotPrompt(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    global_settings: str
-    timeline: Annotated[list[TimelineItem], Field(min_length=1)]
+    global_settings: Annotated[str, Field(description="本组的全局设定。")]
+    timeline: Annotated[
+        list[TimelineItem], Field(min_length=1, description="按镜头顺序排列的时间线。")
+    ]
 
 
 class VideoShotRequest(BaseModel):
     """提交工具接收的一个镜头组。"""
 
-    index: int
+    index: Annotated[int, Field(description="镜头组编号，从 1 连续编号。")]
     prompt: VideoShotPrompt
-    seconds: int
-    image_urls: list[str]
+    seconds: Annotated[int, Field(description="本组总时长，取整秒，4-30。")]
+    image_urls: Annotated[
+        list[str], Field(description="本组镜头帧地址，@ImageN 即第 N 张；无图传 []。")
+    ]
 
 
 class StoredTimelineItem(TimelineItem):

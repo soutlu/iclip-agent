@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from pydantic_ai import ModelRetry, ToolFailed
@@ -31,7 +30,7 @@ from iclip.capabilities.shot_video.generation import (
 )
 from iclip.capabilities.shot_video.ports import ImageRequest
 from iclip.capabilities.shot_video.prompt import assemble_anchor_prompt, assemble_grid_prompt
-from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE, parse_cell_id
+from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
 from iclip.harness.materials import require_http, require_material
@@ -43,16 +42,6 @@ _logger = structlog.stdlib.get_logger(__name__)
 
 if TYPE_CHECKING:
     from iclip.capabilities.shot_video.capability import ShotVideo
-
-GRID_RECORDS_DIR: Final = "frames/grids"
-GRID_RECORD_VERSION: Final = 1
-ANCHOR_RECORDS_DIR: Final = "anchors"
-ANCHOR_RECORD_VERSION: Final = 1
-
-_RECORDED_AT = (
-    f"本能力写下的地址也记在 {EXTRACTION_PATH} 与 {GRID_RECORDS_DIR}/ 下，用 read_file 读回来再用。"
-)
-"""素材错误消息的收尾动作：本能力产出的地址都能从工作区里翻回来。"""
 
 
 class ShotVideoToolset(FunctionToolset[AgentDepsT]):
@@ -71,8 +60,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         self._cap = capability
         self.add_tool(
             Tool(
-                self.video_parser_md,
-                name="video_parser_md",
+                self.video_parser,
+                name="video_parser",
                 args_validator=self._validate_video_url,
             )
         )
@@ -99,47 +88,26 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             )
         )
 
-    async def video_parser_md(self, ctx: RunContext[AgentDepsT], video_url: str) -> dict[str, Any]:
-        """拆解一段参考视频，把拆解文档写进工作区，返回它的路径。
-
-        - 文档含商业目的、结构分段、出场清单、逐镜拉片表和剪辑形式，镜头时间码写成
-          ``**[00:03.800-00:05.600]**``。
-        - 同一段视频不要重复拆解——每次调用都是一次新的拆解，不复用上次结果。
-        - 文档正文不随本工具返回；要看内容用 `read_file` 读返回的路径。
-        - 只接受这段对话里出现过的视频地址；自己拼的、以及对话里那些图片的地址，
-          都会被拒。
+    async def video_parser(self, ctx: RunContext[AgentDepsT], video_url: str) -> str:
+        """拆解参考视频，把拆解内容写进文件，返回它的路径。
 
         Args:
-            ctx: 框架给的运行上下文。
-            video_url: 视频地址，逐字取自对话里给你的那个。
+            video_url: 参考视频地址。
         """
 
         files, namespace = self._workspace(ctx)
         path = video_doc_path(video_url)
         content = await self._cap.extractor.parse(video_url)
         await self._write(files, namespace, path, content)
-        return {"message": f"视频解析完毕，拆解结果已保存到 {path}。", "path": path}
+        return f"视频解析完毕，文档在 {path}。"
 
     async def plan_shot_frames(
         self, ctx: RunContext[AgentDepsT], video_url: str
     ) -> ToolReturn[dict[str, Any]] | dict[str, Any]:
-        """从参考视频等间隔抽帧，按结构层级分板返回候选帧预览板。
-
-        - 镜头起止时间戳与结构层级分组取自该视频的拆解文档；每秒取一帧，帧按时间
-          戳落进覆盖它的镜头。
-        - 一个结构层级一张预览板，每张候选帧左上角标注帧号，形如 S8-3（第 8 个镜
-          头的第 3 个候选帧）。
-        - 图像内容不随本工具返回；用 `ReadMediaFile` 读 url 看板，需要多板时在同一
-          次回复中并行读取。
-        - 同一视频与同一份拆解文档重复调用会直接复用既有结果，不重复抽帧。
-        - 该视频尚未拆解、拆解文档读不出镜头时间戳、或时间戳超出视频时长时返回
-          错误。
-        - 只接受这段对话里出现过的视频地址；自己拼的、以及对话里那些图片的地址，
-          都会被拒。
+        """从参考视频抽帧，按结构层级组合成图片。
 
         Args:
-            ctx: 框架给的运行上下文。
-            video_url: 参考视频地址，逐字取自对话里给你的那个。
+            video_url: 参考视频地址。
         """
 
         files, namespace = self._workspace(ctx)
@@ -158,31 +126,37 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
 
         boards = document["boards"]
         await self._record_images(namespace, [board["url"] for board in boards])
-        cells_total = sum(len(board["cells"]) for board in boards)
-        flat = sum(len(row) for row in rows)
+        # 台账只存板号与地址；板上有哪几个镜头按 rows 现算。命中复用时 rows 与建账时
+        # 逐字相同（它是 extractionKey 的组成部分），两条路算出来一样。
+        shots_of = {
+            board["board"]: sorted({shot.shot_id for shot in rows[board["board"] - 1]})
+            for board in boards
+        }
         message = (
-            f"取帧{'复用既有账本' if reused else '完成'}：从 {doc_path} 读到 {flat} 个镜头分 "
-            f"{len(rows)} 个结构层级，每秒一帧共 {cells_total} 个候选帧，取帧账本见 "
-            f"{EXTRACTION_PATH}；每板用 ReadMediaFile 读 url 查看，候选帧上的标注即帧号"
-            f"（{CELL_ID_SHAPE}）。"
+            f"取帧完成：共 {len(rows)} 个结构层级，组合成 {len(boards)} 组图片。"
+            f"每组图中每张视频帧左上的标注即帧号（{CELL_ID_SHAPE}）。"
         )
-        starved = document["shotsWithoutCells"]
-        if starved:
-            message += f" 短于一秒未取到候选帧的镜头：{', '.join(map(str, starved))}。"
         return ToolReturn(
             return_value={
                 "message": message,
                 "boards": [
-                    {"board": board["board"], "shots": board["shots"], "url": board["url"]}
+                    {
+                        "board": board["board"],
+                        "shots": shots_of[board["board"]],
+                        "url": board["url"],
+                    }
                     for board in boards
                 ],
             },
             metadata=media_grid(
                 (
-                    (board["url"], f"板 {board['board']} · {','.join(map(str, board['shots']))}")
+                    (
+                        board["url"],
+                        f"板 {board['board']} · {','.join(map(str, shots_of[board['board']]))}",
+                    )
                     for board in boards
                 ),
-                note=f"{len(boards)} 板 · {cells_total} 格",
+                note=f"{len(boards)} 板",
             ),
         )
 
@@ -194,23 +168,9 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         global_reference: str,
         target_aspect: str,
     ) -> ToolReturn[dict[str, Any]]:
-        """按逐帧 visual_prompt 生成镜头帧：一次调用出一张 2×2 网格图、切成 4 帧返回逐帧 URL。
-
-        - frames 每条给一个定格：`no` 是 S8-1 形状的帧号，镜头号即它所属的镜头，挑
-          中候选帧的直接用板上的帧号；prompt 是为它撰写的 visual_prompt。
-        - 一批 1-4 条；不足 4 条时空格由中性面板补满并在切格后丢弃。
-        - reference_images 的顺序即 global_reference 中 @Image1..N 的编号。
-        - 需要多次调用时，在同一次回复中并行发起，不要串行等待。
-        - 生成需要数分钟，调用会阻塞到收敛后返回。
-        - 每次调用都重新提交生成，没有复用；同一批帧不满意就改 prompt 再调。
-        - 参考图只接受这段对话里出现过的地址；自己拼的、以及对话里那些视频的地
-          址，都会被拒。
-        - 每批成功后把逐帧 no/shot/prompt/url 与本批入参写进版记录
-          ``frames/grids/<jobId>.json``。
-        - 该视频尚未抽帧、帧号格式错误或同批重复时返回错误。
+        """按逐帧 visual_prompt 生成镜头帧，返回每帧的图片地址。
 
         Args:
-            ctx: 框架给的运行上下文。
             frames: 逐格请求，1-4 条。
             reference_images: 参考图地址，顺序即 @Image1..N；逐字取自工具结果或对话。
             target_aspect: 目标画幅，如 ``9:16``。
@@ -258,57 +218,26 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             failure_message="镜头帧处理失败。",
         )
         frames_payload = [
-            {"no": cell_id, "shot": parse_cell_id(cell_id)[0], "url": url}
-            for cell_id, url in zip(cell_ids, cut.urls, strict=True)
+            {"no": cell_id, "url": url} for cell_id, url in zip(cell_ids, cut.urls, strict=True)
         ]
-        record_path = f"{GRID_RECORDS_DIR}/{job.job_id}.json"
-        await self._publish(
-            files,
-            namespace,
-            record_path=record_path,
-            record={
-                "gridRecordVersion": GRID_RECORD_VERSION,
-                "jobId": str(job.job_id),
-                "gridUrl": cut.grid_url,
-                "targetAspect": target_aspect,
-                "globalReference": global_reference,
-                "referenceImages": list(references),
-                "frames": [
-                    {**frame, "prompt": prompt}
-                    for frame, prompt in zip(frames_payload, prompts, strict=True)
-                ],
-                "createdAt": int(time.time()),
-            },
-            urls=[*cut.urls, cut.grid_url],
-            failure_message="镜头帧处理失败。",
+        await self._register(
+            namespace, [*cut.urls, cut.grid_url], failure_message="镜头帧处理失败。"
         )
         return ToolReturn(
-            return_value={"frames": frames_payload, "record": record_path},
+            return_value={"frames": frames_payload},
             metadata=media_grid(zip(cut.urls, cell_ids, strict=True)),
         )
 
     async def generate_anchor_sheet(
         self, ctx: RunContext[AgentDepsT], cells: list[str]
     ) -> ToolReturn[dict[str, Any]]:
-        """按文字补拍设定图：一次调用出一张 2×2 网格图、切成 4 格返回逐格 URL。
-
-        - 一格一个实体，cells 每条是那一格画面的完整描述；返回的 `index` 就是它在
-          cells 里的位置。
-        - 一批 1-4 条；不足 4 条时空格由中性面板补满并在切格后丢弃。
-        - 本工具不收参考图，每格的文字就是那一格的全部依据。要按已有的图生成画面
-          用 `generate_shot_frames`。
-        - 需要多次调用时，在同一次回复中并行发起，不要串行等待。
-        - 生成需要数分钟，调用会阻塞到收敛后返回。
-        - 每次调用都重新提交生成，没有复用；同一批实体不要补拍第二次。
-        - 每批成功后把逐格 index/description/url 写进版记录
-          ``anchors/<jobId>.json``。
+        """按 prompt 生成设定图，一条描述一张图，返回逐张地址。
 
         Args:
-            ctx: 框架给的运行上下文。
-            cells: 逐格描述，1-4 条。
+            cells: 逐张描述，一张一个实体，1-4 条。
         """
 
-        files, namespace = self._workspace(ctx)
+        _, namespace = self._workspace(ctx)
         principal = _principal(ctx)
         descriptions = resolve_cells(cells)
         job = await self._cap.generator.generate(
@@ -336,33 +265,11 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             failure_message="设定图处理失败。",
         )
         images = [{"index": index, "url": url} for index, url in enumerate(cut.urls, start=1)]
-        record_path = f"{ANCHOR_RECORDS_DIR}/{job.job_id}.json"
-        await self._publish(
-            files,
-            namespace,
-            record_path=record_path,
-            record={
-                "anchorRecordVersion": ANCHOR_RECORD_VERSION,
-                "jobId": str(job.job_id),
-                "gridUrl": cut.grid_url,
-                "sheetAspect": ANCHOR_ASPECT,
-                "cells": [
-                    {**image, "description": description}
-                    for image, description in zip(images, descriptions, strict=True)
-                ],
-                "createdAt": int(time.time()),
-            },
-            urls=[*cut.urls, cut.grid_url],
-            failure_message="设定图处理失败。",
+        await self._register(
+            namespace, [*cut.urls, cut.grid_url], failure_message="设定图处理失败。"
         )
         return ToolReturn(
-            return_value={
-                "message": f"补拍完成 {len(images)} 格，版记录见 {record_path}。",
-                "status": "done",
-                "images": images,
-                "record": record_path,
-                "error": None,
-            },
+            return_value={"images": images},
             metadata=media_grid(zip(cut.urls, descriptions, strict=True), note=f"{len(images)} 格"),
         )
 
@@ -371,28 +278,12 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         ctx: RunContext[AgentDepsT],
         aspect_ratio: str,
         shots: list[VideoShotRequest],
-    ) -> ToolReturn[dict[str, Any]]:
-        """提交镜头组 prompt 表。
+    ) -> ToolReturn[str]:
+        """提交镜头组 prompt 表；每次提交全部镜头组，替换已有的。
 
-        参数说明：
-        - aspect_ratio：目标画幅，例如 9:16。
-        - shots：按顺序排列的全部镜头组。
-
-        每个镜头组包含：
-        - index：镜头组编号，从 1 连续编号。
-        - prompt：本组的结构化提示词，包含：
-          - global_settings：本组的全局设定。
-          - timeline：按镜头顺序排列的时间线，每项包含：
-            - timestamps：[开始秒数, 结束秒数]，每组第一镜从 0 开始，
-              保留小数。结束时间须大于开始时间，各镜头时间段不得重叠。
-            - prompt：该镜头的正文，保留对应位置的 @ImageN。
-        - seconds：本组总时长，四舍五入到整数秒，范围 4–30 秒。
-        - image_urls：本组的镜头帧 URL 列表，可为空；有图时 @ImageN
-          对应列表中的第 N 张图，地址须已登记在本对话素材台账中。
-          无图时传 []，global_settings 和各镜头正文中不得出现 @ImageN。
-
-        每次提交全部镜头组，替换已有的镜头组表。
-        任一镜头组不符合要求时，整次提交拒绝；修正后重新提交全部镜头组。
+        Args:
+            aspect_ratio: 目标画幅，如 ``9:16``。
+            shots: 按顺序排列的全部镜头组。
         """
 
         files, namespace = self._workspace(ctx)
@@ -407,13 +298,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         shot_count = sum(len(shot.prompt.timeline) for shot in document.shots)
         seconds = sum(shot.seconds for shot in document.shots)
         return ToolReturn(
-            return_value={
-                "message": (
-                    f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
-                    f"{group_count} 个镜头组，{shot_count} 个镜头，合计 {seconds} 秒。"
-                ),
-                "path": SHOTS_PATH,
-            },
+            return_value=(
+                f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
+                f"{group_count} 个镜头组，{shot_count} 个镜头，合计 {seconds} 秒。"
+            ),
             metadata=tool_note(chip=f"{group_count} 组 · {shot_count} 镜 · {seconds} 秒"),
         )
 
@@ -427,7 +315,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             video_url,
             kind="video",
             what="视频地址",
-            recorded_at=_RECORDED_AT,
         )
 
     async def _validate_frame_generation(
@@ -454,7 +341,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 url,
                 kind="image",
                 what="参考图地址",
-                recorded_at=_RECORDED_AT,
             )
 
     async def _validate_shot_delivery(
@@ -476,28 +362,15 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                     url,
                     kind="image",
                     what="镜头帧地址",
-                    recorded_at=_RECORDED_AT,
                 )
 
-    async def _publish(
-        self,
-        files: FileStore,
-        namespace: str,
-        *,
-        record_path: str,
-        record: dict[str, Any],
-        urls: Sequence[str],
-        failure_message: str,
-    ) -> None:
-        """落版记录并登记素材；登记失败不要求模型重新出图。"""
+    async def _register(self, namespace: str, urls: Sequence[str], *, failure_message: str) -> None:
+        """登记生成出来的地址；登记失败不要求模型重新出图。"""
 
         try:
-            await self._write(
-                files, namespace, record_path, json.dumps(record, ensure_ascii=False, indent=2)
-            )
             await self._record_images(namespace, urls)
         except ModelRetry as exc:
-            _logger.warning("生成产物登记失败", record_path=record_path, reason=str(exc))
+            _logger.warning("生成产物登记失败", reason=str(exc))
             raise ToolFailed(failure_message) from exc
 
     async def _record_images(self, namespace: str, urls: Sequence[str]) -> None:

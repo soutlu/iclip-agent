@@ -18,7 +18,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from iclip.common.errors import DomainError
 from iclip.domains.identity.models import Principal, UserAccount
-from iclip.domains.identity.service import API_KEY_TOKEN_PREFIX, IdentityService
+from iclip.domains.identity.service import IdentityService
 
 SessionUserReader = Callable[[str], Awaitable[UserAccount | None]]
 
@@ -37,12 +37,12 @@ class PrincipalResolver:
         scheme, _, bearer_token = headers.get("authorization", "").partition(" ")
         if scheme.lower() == "bearer":
             token = bearer_token.strip()
-            if token.startswith(API_KEY_TOKEN_PREFIX):
-                try:
-                    return await self.service.authenticate_api_key(token)
-                except DomainError:
-                    return None
-            return None
+            if not token:
+                return None
+            try:
+                return await self.service.authenticate_api_key(token)
+            except DomainError:
+                return None
         raw_token = cookies.get(self.cookie_name)
         if not raw_token:
             return None

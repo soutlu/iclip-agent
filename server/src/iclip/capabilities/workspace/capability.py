@@ -279,7 +279,6 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         """读一个工作区文件，返回带行号的内容。
 
         Args:
-            ctx: 框架给的运行上下文。
             path: 文件路径，如 ``分镜/第一集.md``。
             offset: 从第几行开始读，1 起算。
             limit: 最多读多少行。
@@ -316,7 +315,6 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         进来。
 
         Args:
-            ctx: 框架给的运行上下文。
             path: 文件路径，如 ``分镜/第一集.md``。
             content: 文件全文。
         """
@@ -338,7 +336,6 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         抄；不唯一时把上下文多带几行进来。
 
         Args:
-            ctx: 框架给的运行上下文。
             path: 文件路径，如 ``分镜/第一集.md``。
             old_text: 要被替换掉的原文，须与文件内容逐字符一致。
             new_text: 替换成什么。留空即删掉这一段。
@@ -374,7 +371,6 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         """删掉一个不再需要的工作区文件。
 
         Args:
-            ctx: 框架给的运行上下文。
             path: 文件路径。
         """
 
@@ -390,7 +386,6 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         接手一段对话先用它看看已经攒了什么，别从零重来。
 
         Args:
-            ctx: 框架给的运行上下文。
             prefix: 只看某个目录下的，如 ``分镜``。留空即全部。
         """
 
@@ -414,7 +409,6 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         大小写不敏感，按字面量匹配（不是正则）。同一个文件最多报前几处命中。
 
         Args:
-            ctx: 框架给的运行上下文。
             query: 要找的文本。
             limit: 最多返回多少条命中。
         """
@@ -461,7 +455,6 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
           个地址时，用 `read_file` 读回记着它的那份账本或版记录。
 
         Args:
-            ctx: 框架给的运行上下文。
             url: 图片地址，逐字取自对话或本会话工具结果里的图片 URL，不要自行构造。
             region: 要看的那一块，x / y / width / height 按原图像素坐标给；越过右下
                 边界的部分裁到边界为止。
