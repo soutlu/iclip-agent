@@ -7,6 +7,9 @@ root 引导有两条路：SSO 场景配置 ROOT_EMAIL，非 SSO 场景用这里�
     uv run --env-file ../.env python -m scripts.admin list-users
     uv run --env-file ../.env python -m scripts.admin set-roles <username_or_email> root,editor
     uv run --env-file ../.env python -m scripts.admin issue-key <username_or_email> <key名> <perm1,perm2>
+
+issue-key 默认随机生成明文；设置 API_KEY_TOKEN 则按它签发，用于沿用调用方
+已在用的串。
 """
 
 from __future__ import annotations
@@ -19,15 +22,20 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from iclip.common.errors import ValidationFailed
 from iclip.domains.identity.infra_sql import ApiKeyRow, User
 from iclip.domains.identity.rbac import PERMISSIONS, ROLES
 from iclip.domains.identity.service import (
     api_key_token_prefix,
     generate_api_key_token,
     hash_api_key_token,
+    validate_api_key_token,
 )
+
+_TOKEN_ENV = "API_KEY_TOKEN"
 
 
 def _database_url() -> str:
@@ -94,21 +102,34 @@ async def _issue_key(identifier: str, name: str, permissions_csv: str) -> None:
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:
         user = await _find_user(sessions, identifier)
-        token = generate_api_key_token()
-        async with sessions() as session, session.begin():
-            session.add(
-                ApiKeyRow(
-                    id=uuid.uuid4(),
-                    owner_user_id=user.id,
-                    name=name,
-                    token_hash=hash_api_key_token(token),
-                    token_prefix=api_key_token_prefix(token),
-                    permissions=sorted(permissions),
-                    created_at=datetime.now(UTC),
+        given = os.environ.get(_TOKEN_ENV, "").strip()
+        if given:
+            try:
+                token = validate_api_key_token(given)
+            except ValidationFailed as exc:
+                sys.exit(f"{_TOKEN_ENV} 不合法：{exc}")
+        else:
+            token = generate_api_key_token()
+        try:
+            async with sessions() as session, session.begin():
+                session.add(
+                    ApiKeyRow(
+                        id=uuid.uuid4(),
+                        owner_user_id=user.id,
+                        name=name,
+                        token_hash=hash_api_key_token(token),
+                        token_prefix=api_key_token_prefix(token),
+                        permissions=sorted(permissions),
+                        created_at=datetime.now(UTC),
+                    )
                 )
-            )
-        print("API key（明文仅此一次，请立即保存）：")
-        print(token)
+        except IntegrityError:
+            sys.exit("这个明文已经签发过；换一个，或先吊销旧的 key")
+        if given:
+            print(f"已按 {_TOKEN_ENV} 签发 key: {name}")
+        else:
+            print("API key（明文仅此一次，请立即保存）：")
+            print(token)
     finally:
         await engine.dispose()
 

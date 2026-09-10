@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 import uuid
 from datetime import UTC, datetime
@@ -24,6 +25,8 @@ from iclip.domains.identity.repository import ApiKeyRepository, UserRepository
 API_KEY_TOKEN_PREFIX = "iclip_sk_"
 _TOKEN_PREFIX_DISPLAY_LENGTH = 16
 _MAX_KEY_NAME_LENGTH = 200
+_MIN_TOKEN_LENGTH = 32
+_TOKEN_CHARSET = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class SelfManagementForbidden(ValidationFailed):
@@ -32,6 +35,20 @@ class SelfManagementForbidden(ValidationFailed):
 
 def generate_api_key_token() -> str:
     return f"{API_KEY_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
+
+
+def validate_api_key_token(token: str) -> str:
+    """校验调用方自带的 key 明文。
+
+    长度下限护的是库：存的是无盐哈希加前 16 位明文，短串连库泄露就等于明文。
+    字符集限制保证它能原样放进 Authorization 头。
+    """
+
+    if len(token) < _MIN_TOKEN_LENGTH:
+        raise ValidationFailed(f"key 至少 {_MIN_TOKEN_LENGTH} 个字符")
+    if not _TOKEN_CHARSET.match(token):
+        raise ValidationFailed("key 只能包含字母、数字、下划线和连字符")
+    return token
 
 
 def hash_api_key_token(token: str) -> str:
@@ -68,8 +85,6 @@ class IdentityService:
         有效权限 = key 显式授权集；属主停用/吊销/过期即失效。
         """
 
-        if not token.startswith(API_KEY_TOKEN_PREFIX):
-            raise AuthenticationFailed("API key 无效")
         record = await self._api_keys.get_by_hash(hash_api_key_token(token))
         if record is None or record.revoked_at is not None:
             raise AuthenticationFailed("API key 无效")
@@ -189,4 +204,5 @@ __all__ = [
     "api_key_token_prefix",
     "generate_api_key_token",
     "hash_api_key_token",
+    "validate_api_key_token",
 ]
