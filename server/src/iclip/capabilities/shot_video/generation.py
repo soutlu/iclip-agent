@@ -191,7 +191,7 @@ class FrameGenerator:
 
 
 def job_failure(job: ImageJob, *, message: str, reason: str | None = None) -> NoReturn:
-    """记录诊断信息并报告失败，模型仅收到调用方指定的简短文案。"""
+    """记录诊断信息并报告失败。模型收到短句加错误码，供它判断重试是否有用；网关原文只留日志。"""
 
     _logger.warning(
         "图像工具失败",
@@ -200,7 +200,10 @@ def job_failure(job: ImageJob, *, message: str, reason: str | None = None) -> No
         error_code=job.error_code,
         reason=reason if reason is not None else job.error_message,
     )
-    raise ToolFailed(message)
+    # 切格、下载、转存阶段的失败没有错误码，调用方给的短句本身已写明阶段。
+    if job.error_code is None:
+        raise ToolFailed(message)
+    raise ToolFailed(f"{message.rstrip('。')}（{job.error_code}）。")
 
 
 __all__ = [
