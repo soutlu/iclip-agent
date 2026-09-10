@@ -7,12 +7,22 @@ import re
 from collections.abc import Sequence
 from typing import Annotated, Final
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+import structlog
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+)
 from pydantic_ai import ModelRetry
 
 from iclip.capabilities.shot_video.grid import GridError, parse_aspect
 from iclip.capabilities.shot_video.prompt import GRID_CELLS
 from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE, ShotParseError, parse_cell_id
+
+_logger = structlog.stdlib.get_logger(__name__)
 
 SHOTS_PATH: Final = "video_shot.json"
 
@@ -58,11 +68,26 @@ class VideoShotPrompt(BaseModel):
     ]
 
 
+def parse_json_text(value: object, info: ValidationInfo) -> object:
+    """模型把嵌套结构整体序列化成字符串时先还原再校验；不是字符串原样放行。
+
+    解析失败抛出的 ValueError 由 pydantic 收成普通校验错误退回模型。"""
+
+    if not isinstance(value, str):
+        return value
+    _logger.warning("工具参数以字符串传入，已解析", field=info.field_name)
+    return json.loads(value)
+
+
+JsonText = BeforeValidator(parse_json_text)
+"""挂在嵌套对象字段上：弱模型常把多层结构序列化成一个字符串传进来。"""
+
+
 class VideoShotRequest(BaseModel):
     """提交工具接收的一个镜头组。"""
 
     index: Annotated[int, Field(description="镜头组编号，从 1 连续编号。")]
-    prompt: VideoShotPrompt
+    prompt: Annotated[VideoShotPrompt, JsonText]
     seconds: Annotated[int, Field(description="本组总时长，取整秒，4-30。")]
     image_urls: Annotated[
         list[str], Field(description="本组镜头帧地址，@ImageN 即第 N 张；无图传 []。")

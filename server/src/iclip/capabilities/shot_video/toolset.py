@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import structlog
 from pydantic_ai import ModelRetry, ToolFailed
@@ -16,6 +16,7 @@ from pydantic_ai.toolsets import FunctionToolset
 from iclip.capabilities.shot_video.delivery import (
     SHOTS_PATH,
     FrameRequest,
+    JsonText,
     VideoShotRequest,
     build_video_shots_document,
     resolve_cells,
@@ -85,6 +86,8 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
                 self.write_video_shots,
                 name="write_video_shots",
                 args_validator=self._validate_shot_delivery,
+                # 参数嵌套最深、又是最后一步；默认预算 1 会让第二次参数错误终止整次运行。
+                max_retries=3,
             )
         )
 
@@ -277,13 +280,13 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         self,
         ctx: RunContext[AgentDepsT],
         aspect_ratio: str,
-        shots: list[VideoShotRequest],
+        shots: Annotated[list[VideoShotRequest], JsonText],
     ) -> ToolReturn[str]:
         """提交镜头组 prompt 表；每次提交全部镜头组，替换已有的。
 
         Args:
             aspect_ratio: 目标画幅，如 ``9:16``。
-            shots: 按顺序排列的全部镜头组。
+            shots: 按顺序排列的全部镜头组；以 JSON 数组传入，不要整体序列化成字符串。
         """
 
         files, namespace = self._workspace(ctx)
