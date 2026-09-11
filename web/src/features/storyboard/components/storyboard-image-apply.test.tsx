@@ -211,6 +211,7 @@ describe('图片编辑结果应用', () => {
     let persisted = initial
     let version = 1
     const writes: ShotsDocument[] = []
+    const writeTargets: { path: string; expectedVersion: number }[] = []
     server.use(
       http.get('*/api/conversations/:id/workspace/file', () =>
         HttpResponse.json({ file: { path: PATH, content: JSON.stringify(persisted), version } }),
@@ -221,8 +222,7 @@ describe('图片编辑结果应用', () => {
           expectedVersion: number
           path: string
         }
-        expect(body.path).toBe(PATH)
-        expect(body.expectedVersion).toBe(version)
+        writeTargets.push({ path: body.path, expectedVersion: body.expectedVersion })
         persisted = JSON.parse(body.content) as ShotsDocument
         writes.push(persisted)
         version += 1
@@ -246,6 +246,7 @@ describe('图片编辑结果应用', () => {
       expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
     )
     expect(writes).toHaveLength(1)
+    expect(writeTargets).toEqual([{ path: PATH, expectedVersion: 1 }])
     expect(persisted).toEqual({
       ...initial,
       shots: [{ ...initial.shots[0], image_urls: [CANDIDATE_A] }],
