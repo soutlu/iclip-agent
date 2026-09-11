@@ -89,12 +89,6 @@ class ShotVideoPaths(Protocol):
         ...
 
 
-class VideoUnderstanding(Protocol):
-    """把一段视频交给多模态模型，拿回一份拆解文档。"""
-
-    async def parse(self, video_url: str) -> str: ...
-
-
 __all__ = [
     "ImageChannel",
     "ImageGenerations",
@@ -105,5 +99,4 @@ __all__ = [
     "ObjectWriteFailed",
     "PublicObjectWriter",
     "ShotVideoPaths",
-    "VideoUnderstanding",
 ]

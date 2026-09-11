@@ -1,3 +1,4 @@
+import { appendContentImage, insertContentReference } from './shot-content'
 import { describe, expect, it } from 'vitest'
 import {
   firstFrameOfScene,
@@ -7,11 +8,9 @@ import {
   splitShotTimeline,
   type Shot,
   type ShotsDocument,
-  appendShotFrame,
   extractImageIndexes,
   formatShotPrompt,
   formatShotPrompts,
-  insertFrameReference,
   updateTimelinePrompt,
   validateShot,
 } from './shot-document'
@@ -175,7 +174,7 @@ describe('structured editing', () => {
 
   it('上传追加新编号，并将引用插到指定的正文选区', () => {
     const body = shot.prompt.timeline[0]?.prompt ?? ''
-    const next = appendShotFrame(shot, 0, 'new.png', { text: body, start: 2, end: 4 })
+    const next = appendContentImage(shot, 'scene:1', 'new.png', { text: body, start: 2, end: 4 })
     expect(next.image_urls).toEqual(['a.png', 'b.png', 'new.png'])
     expect(next.prompt.timeline[0]?.prompt).toBe(body.slice(0, 2) + '@Image3' + body.slice(4))
     expect(next.prompt.timeline[0]?.image_indexes).toEqual([3, 2, 1])
@@ -183,17 +182,21 @@ describe('structured editing', () => {
   })
 
   it('旧选区不覆盖新文字，追加引用时不重编号其它图片', () => {
-    const next = appendShotFrame(shot, 1, 'new.png', { text: '旧正文', start: 0, end: 3 })
+    const next = appendContentImage(shot, 'scene:2', 'new.png', {
+      text: '旧正文',
+      start: 0,
+      end: 3,
+    })
     expect(next.prompt.timeline[1]?.prompt).toBe('走近拍摄鞋面 @Image1。 @Image3')
     expect(next.prompt.timeline[0]?.prompt).toBe(shot.prompt.timeline[0]?.prompt)
   })
 
   it('关联已有图片不增加图片槽，空图组添加首图后获得编号1', () => {
-    const linked = insertFrameReference(shot, 2, 2)
+    const linked = insertContentReference(shot, 'scene:3', 2)
     expect(linked.image_urls).toBe(shot.image_urls)
     expect(linked.prompt.timeline[2]?.image_indexes).toEqual([2])
     const empty = { ...withBody('纯文字。', [], 1), image_urls: [] }
-    const first = appendShotFrame(empty, 0, 'first.png')
+    const first = appendContentImage(empty, 'scene:1', 'first.png')
     expect(first.image_urls).toEqual(['first.png'])
     expect(first.prompt.timeline[0]?.prompt).toBe('纯文字。 @Image1')
     expect(first.prompt.timeline[0]?.image_indexes).toEqual([1])

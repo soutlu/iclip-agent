@@ -1,8 +1,9 @@
 /** 分镜的文本展示、图片选择与历史生成状态辅助函数。 */
 
-import type { WorkbenchRef } from '@/shared/workbench'
-
 export const SHOTS_PATH = 'video_shot.json'
+
+/** 每组参考图上限，与后端 MAX_REFERENCE_IMAGES 一致（见 contract/conventions.md）。 */
+export const MAX_REFERENCE_IMAGES = 30
 
 export const aspectRatioStyle = (aspectRatio: string) => aspectRatio.replace(':', ' / ')
 
@@ -49,15 +50,6 @@ export const sceneOfFrame = (timeline: ShotTimeline, frameNumber: number): ShotS
   timeline.scenes.find((scene) => scene.frameNumbers.includes(frameNumber))
 
 export const firstFrameOfScene = (scene: ShotScene): number | undefined => scene.frameNumbers[0]
-
-export const shotSelectionRef = (index: number, frame?: number): WorkbenchRef =>
-  frame === undefined
-    ? { id: `shot:${index}`, label: `镜头组 ${index}`, prefix: `针对镜头组 ${index}：` }
-    : {
-        id: `shot:${index}:frame:${frame}`,
-        label: `镜头组 ${index} · 帧 @${frame}`,
-        prefix: `针对镜头组 ${index} 的帧 @${frame}：`,
-      }
 
 export interface ShotGeneration {
   createdAt: string

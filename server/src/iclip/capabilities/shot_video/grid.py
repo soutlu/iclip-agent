@@ -100,21 +100,6 @@ def grid_cell_boxes(image: GrayImage, *, rows: int, cols: int) -> GridLayout:
     )
 
 
-def parse_aspect(value: str) -> float:
-    """把 ``宽:高`` 解析成宽高比。"""
-
-    parts = value.split(":")
-    if len(parts) != 2:
-        raise GridError(f"画幅要写成 宽:高，比如 9:16；收到的是 {value!r}")
-    try:
-        w, h = int(parts[0]), int(parts[1])
-    except ValueError as exc:
-        raise GridError(f"画幅的两段必须是整数；收到的是 {value!r}") from exc
-    if w <= 0 or h <= 0:
-        raise GridError(f"画幅必须是正数；收到的是 {value!r}")
-    return w / h
-
-
 def fit_box_to_aspect(box: tuple[int, int, int, int], ratio: float) -> tuple[int, int, int, int]:
     """居中收缩到目标画幅；比例偏差在 2% 内时保留原矩形，避免无意义裁剪。"""
 
@@ -253,7 +238,6 @@ __all__ = [
     "GridLayout",
     "fit_box_to_aspect",
     "grid_cell_boxes",
-    "parse_aspect",
     "parse_pgm",
     "scale_box",
 ]

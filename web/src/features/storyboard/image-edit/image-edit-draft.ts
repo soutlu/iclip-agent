@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { mintUuid } from '@/shared/lib/uuid'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
 // 编辑器内部的形状，不进 HTTP：提交时只发编译好的 prompt 与图片地址。
@@ -36,18 +37,20 @@ const draftSchema = z.object({
     .max(10),
 })
 
-export const emptyEditDraft = (): FrameEditDraft => ({
+export const emptyEditDraft = (target: FrameEditTarget): FrameEditDraft => ({
   annotations: [],
   instructions: [],
-  references: [],
+  references: [{ id: mintUuid(), kind: 'image', url: target.sourceUrl, label: '当前原图' }],
 })
 export const editDraftKey = (target: FrameEditTarget) => `cue:frame-edit:${JSON.stringify(target)}`
 export function loadEditDraft(target: FrameEditTarget): FrameEditDraft {
   const raw = sessionStorage.getItem(editDraftKey(target))
-  if (raw === null) return emptyEditDraft()
+  if (raw === null) return emptyEditDraft(target)
   const parsed = draftSchema.safeParse(JSON.parse(raw))
   if (!parsed.success) throw new Error('本地图片编辑草稿无法读取')
-  return parsed.data
+  return parsed.data.references.length === 0
+    ? { ...parsed.data, references: emptyEditDraft(target).references }
+    : parsed.data
 }
 
 export function editDraftError(draft: FrameEditDraft): string | null {

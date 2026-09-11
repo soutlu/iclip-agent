@@ -422,14 +422,27 @@ def test_shot_video_half_configured_fails_loudly(
         resolve_settings(config)
 
 
-def test_shot_video_without_media_generation_fails_loudly(
+def test_video_understanding_resolves_without_media_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
     config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
     _shot_video_env(monkeypatch)
     monkeypatch.delenv("VIDEO_SUBMIT_URL")
-    with pytest.raises(RuntimeError, match="VIDEO_SUBMIT_URL"):
+    settings = resolve_settings(config)
+    assert settings.media_generation is None
+    assert settings.shot_video is not None
+    assert settings.shot_video.understanding_model == "seed-vision"
+
+
+def test_video_understanding_without_generation_still_requires_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
+    _shot_video_env(monkeypatch)
+    monkeypatch.delenv("VIDEO_SUBMIT_URL")
+    monkeypatch.delenv("VIDEO_UNDERSTANDING_API_KEY")
+    with pytest.raises(ValidationError, match="VIDEO_UNDERSTANDING_API_KEY"):
         resolve_settings(config)
 
 

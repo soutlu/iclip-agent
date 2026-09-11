@@ -130,9 +130,7 @@ for (const width of [1335, 390]) {
       await page.keyboard.press('Enter')
       await expect(records).toBeHidden()
       await expect(
-        panel
-          .getByRole('region', { name: '镜头组 1' })
-          .getByRole('textbox', { name: '镜头 1 的描述' }),
+        panel.getByRole('region', { name: '镜头组 1' }).getByRole('textbox', { name: '全局设定' }),
       ).toBeVisible()
     })
   }
@@ -439,10 +437,10 @@ test('选中即上下文：输入框上出现芯片，× 掉不再回来，发�
   )
 
   await panel.getByRole('button', { name: '第 2 组' }).click()
-  const chip = page.getByText('镜头组 2', { exact: true })
+  const chip = page.getByText('镜头组 2 · 全局设定 · @Image1', { exact: true })
   await expect(chip).toBeVisible()
 
-  await page.getByRole('button', { name: '不再引用 镜头组 2' }).click()
+  await page.getByRole('button', { name: '不再引用 镜头组 2 · 全局设定 · @Image1' }).click()
   await expect(chip).toBeHidden()
 
   await panel.getByRole('button', { name: '第 1 组' }).click()
@@ -454,7 +452,7 @@ test('选中即上下文：输入框上出现芯片，× 掉不再回来，发�
   await page.keyboard.type('把这一组的节奏放慢')
   await page.getByRole('button', { name: '发送' }).click()
 
-  await expect(page.getByText('针对镜头组 2：').first()).toBeVisible()
+  await expect(page.getByText('针对镜头组 2 的全局设定（参考图 @Image1）：').first()).toBeVisible()
 })
 
 test('没有工作区文件的对话仍是折叠空态', async ({ page }) => {

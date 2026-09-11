@@ -11,7 +11,6 @@ from iclip.capabilities.shot_video.grid import (
     GridError,
     fit_box_to_aspect,
     grid_cell_boxes,
-    parse_aspect,
     parse_pgm,
     scale_box,
 )
@@ -128,18 +127,6 @@ def test_grid_side_bounds(rows: int, cols: int) -> None:
 def test_pixel_length_must_match_size() -> None:
     with pytest.raises(GridError, match="对不上"):
         grid_cell_boxes(GrayImage(width=10, height=10, pixels=b"\x80" * 99), rows=1, cols=1)
-
-
-@pytest.mark.parametrize(
-    "value", ["9", "9:16:1", "a:b", "0:16", "9:0", "-9:16", ""], ids=lambda v: v or "empty"
-)
-def test_aspect_rejects_broken_text(value: str) -> None:
-    with pytest.raises(GridError):
-        parse_aspect(value)
-
-
-def test_aspect_parses() -> None:
-    assert parse_aspect("16:9") == pytest.approx(16 / 9)
 
 
 def test_aspect_within_tolerance_is_left_alone() -> None:

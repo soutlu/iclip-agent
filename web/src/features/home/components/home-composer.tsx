@@ -9,6 +9,7 @@ import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 /** Agent ID 必须与 server/agents/agents.yaml 的键一致。 */
 const AGENTS = [
   { id: 'storyboard', label: '分镜 Agent' },
+  { id: 'exact-replica', label: '完全复刻' },
   { id: 'assistant', label: '通用助手' },
 ] as const
 

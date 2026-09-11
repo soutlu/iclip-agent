@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import re
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -21,12 +20,10 @@ from iclip.capabilities.shot_video.board import (
     compose_board,
     image_aspect,
 )
-from iclip.capabilities.shot_video.parser import VideoUnderstandingError
 from iclip.capabilities.shot_video.ports import (
     ObjectWriteFailed,
     PublicObjectWriter,
     ShotVideoPaths,
-    VideoUnderstanding,
 )
 from iclip.capabilities.shot_video.shots import (
     FRAME_INTERVAL_MS,
@@ -37,24 +34,13 @@ from iclip.capabilities.shot_video.shots import (
     parse_shot_rows,
     sample_rows,
 )
+from iclip.capabilities.video_understanding import VideoUnderstanding, VideoUnderstandingError
 from iclip.platform.file_store.store import FileStore
 
 EXTRACTION_PATH: Final = "frames/extraction.json"
 EXTRACTION_VERSION: Final = 1
 
 _JPEG: Final = "image/jpeg"
-_DOC_DIR: Final = "video"
-
-_UNSAFE_STEM = re.compile(r"[^A-Za-z0-9_-]+")
-_STEM_CHARS: Final = 40
-
-
-def video_doc_path(video_url: str) -> str:
-    """由视频 URL 派生稳定文档路径，哈希后缀避免同名视频冲突。"""
-
-    stem = _UNSAFE_STEM.sub("-", video_url.rsplit("/", 1)[-1].rsplit(".", 1)[0]).strip("-")
-    digest = hashlib.sha256(video_url.encode("utf-8")).hexdigest()[:8]
-    return f"{_DOC_DIR}/{(stem[:_STEM_CHARS] or 'video')}-{digest}.md"
 
 
 class FrameExtractor:
@@ -219,5 +205,4 @@ __all__ = [
     "EXTRACTION_PATH",
     "EXTRACTION_VERSION",
     "FrameExtractor",
-    "video_doc_path",
 ]

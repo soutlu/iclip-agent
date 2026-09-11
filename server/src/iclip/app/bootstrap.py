@@ -29,17 +29,21 @@ from iclip.app.agent_layer import (
     watch_and_reload,
 )
 from iclip.app.capability_table import build_capability_table, build_display_registry
-from iclip.app.conversation_workspace import ConversationWorkspace, validate_video_shots
+from iclip.app.conversation_workspace import (
+    ConversationWorkspace,
+    validate_video_shots,
+)
 from iclip.app.logging import configure_logging
-from iclip.capabilities.shot_video.delivery import SHOTS_PATH
+from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.common.errors import DomainError
 from iclip.config import (
+    OSS_BUCKET_ENV,
+    VIDEO_SUBMIT_URL_ENV,
     ObjectStoreEnv,
     ResolvedAgent,
     ResolvedMediaGeneration,
     ResolvedProductCatalog,
-    ResolvedShotVideo,
     RuntimeConfig,
     resolve_settings,
 )
@@ -190,11 +194,11 @@ def _install_hup_reload(agent_layer: CurrentAgentLayer) -> bool:
     return True
 
 
-def _require_ffmpeg(settings: ResolvedShotVideo | None) -> None:
+def _require_ffmpeg(enabled: bool) -> None:
     """启动时验证 ffmpeg 与 ffprobe，避免已启用的抽帧工具在调用时才暴露部署缺失。"""
 
-    if settings is not None and not ffmpeg_available():
-        raise RuntimeError("配了 shot_video 但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
+    if enabled and not ffmpeg_available():
+        raise RuntimeError("启用了取帧与出图但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
 
 
 def _product_catalog_engine(
@@ -311,7 +315,20 @@ def build_app(
     )
     # 素材、生成与镜头能力依赖同一对象存储，先完成装配。
     public_objects = _object_store(settings.object_store, object_store)
-    _require_ffmpeg(settings.shot_video)
+    _require_ffmpeg(settings.shot_tools_enabled)
+    if settings.shot_video is not None and not settings.shot_tools_enabled:
+        # 只剩完全复刻能挂上。声明了 shot_video 的 Agent 会在解析能力名时报错，这里先点名缺什么。
+        _logger.warning(
+            "只启用了完全复刻，取帧与出图不可用",
+            missing=[
+                name
+                for name, present in (
+                    (VIDEO_SUBMIT_URL_ENV, settings.media_generation is not None),
+                    (OSS_BUCKET_ENV, settings.object_store is not None),
+                )
+                if not present
+            ],
+        )
     # 图片信息查询、素材下载与拆解请求共用 HTTP 连接池。
     http_client = httpx.AsyncClient(follow_redirects=True)
     catalog_engine = _product_catalog_engine(settings.product_catalog, product_catalog_engine)
@@ -424,7 +441,9 @@ def build_app(
         list_derived_files=conversation_workspace.list_files,
         read_derived_file=conversation_workspace.read_file,
         write_derived_file=conversation_workspace.write_file,
-        document_validators={SHOTS_PATH: validate_video_shots},
+        document_validators={
+            SHOTS_PATH: validate_video_shots,
+        },
         generate_title=live_title_generator(agent_layer),
         announce_title=live_connections.announce_title,
         activities_of=activities_of,

@@ -1,13 +1,15 @@
 /** 结构化分镜工作台；查询参数保存组与帧位置，草稿局部更新后整份保存。 */
 
+import { useQueryClient } from '@tanstack/react-query'
+import type { ConversationFileEnvelope } from '@/shared/api/generated/types.gen'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from 'react'
 import { Icon } from '@/shared/icons'
@@ -17,45 +19,35 @@ import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import {
-  DialogBody,
-  DialogFooter,
-  DialogHeader,
-  DialogRoot,
-  DialogSurface,
-} from '@/shared/ui/dialog'
-import {
+  workspaceQueryKeys,
   useWorkbenchSelection,
   useWorkspaceFile,
   type ArtifactRendererProps,
+  type WorkbenchRef,
 } from '@/shared/workbench'
 import {
-  appendShotFrame,
-  firstFrameOfScene,
   formatShotPrompt,
   formatShotPrompts,
-  insertFrameReference,
   parseShotsDocument,
-  updateTimelinePrompt,
-  promptTitle,
   shotName,
-  splitShotTimeline,
   validateShot,
   type Shot,
 } from '../shot-document'
 import { FrameImageEditor } from '../image-edit/frame-image-editor'
 import type { FrameEditTarget } from '../image-edit/image-edit-types'
-import { aspectRatioStyle, isRunningStatus, SHOTS_PATH, shotSelectionRef } from '../shots'
-import { uploadFrameImage, useShotGenerations } from '../storyboard.api'
-import { useShotsDraft, type SaveState } from '../use-shots-draft'
+import { aspectRatioStyle, isRunningStatus, SHOTS_PATH } from '../shots'
+import { useShotGenerations } from '../storyboard.api'
+import { useShotsDraft } from '../use-shots-draft'
 import { useVideoGeneration } from '../use-video-generation'
+import { ConflictDialog, ReaderNotice, SaveStatus } from './draft-status'
 import { GenerationRecords } from './generation-records'
-import { ShotFilmstrip } from './shot-filmstrip'
-import { FrameAssignmentPicker } from './frame-assignment-picker'
-import { FramePreview } from './frame-preview'
-import { PromptEditor, type PromptEditorHandle } from './prompt-editor'
+import { ReaderPage } from './reader-page'
+import { shotContents } from '../shot-content'
+import { PromptEditor } from './prompt-editor'
 import { VideoGenerationButton } from './video-generation-button'
 
 type ReaderSearch = {
+  content?: string | undefined
   frame?: number | undefined
   sheet?: 'all' | 'prompt' | 'records' | undefined
   shot?: number | undefined
@@ -72,6 +64,26 @@ export function StoryboardReader(props: ArtifactRendererProps) {
 
 function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps) {
   const path = artifact.source.kind === 'file' ? artifact.source.path : SHOTS_PATH
+  const queryClient = useQueryClient()
+  const [preparing, setPreparing] = useState(false)
+  const prepareRef = useRef({ busy: false, mounted: true })
+  useEffect(() => {
+    const lifetime = prepareRef.current
+    lifetime.mounted = true
+    return () => {
+      lifetime.mounted = false
+    }
+  }, [])
+  const [uploadingGroups, setUploadingGroups] = useState<ReadonlySet<number>>(() => new Set())
+  const onUploadingChange = useCallback((group: number, uploading: boolean) => {
+    setUploadingGroups((current) => {
+      if (current.has(group) === uploading) return current
+      const next = new Set(current)
+      if (uploading) next.add(group)
+      else next.delete(group)
+      return next
+    })
+  }, [])
   const file = useWorkspaceFile(conversationId, path)
   const generations = useShotGenerations(conversationId)
   const video = useVideoGeneration(conversationId)
@@ -117,19 +129,46 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
     search.shot !== undefined && search.shot >= 1 && search.shot <= shots.length ? search.shot : 1
 
   const { clear: clearSelection, set: setSelection } = useWorkbenchSelection()
-  const frameCount = shots[position - 1]?.image_urls.length ?? 0
+  const currentShot = shots[position - 1]
+  const activeContents = currentShot === undefined ? [] : shotContents(currentShot)
+  const activeContent =
+    activeContents.find((item) => item.id === search.content) ?? activeContents[0]
   const selectedFrame =
-    search.frame !== undefined && search.frame >= 1 && search.frame <= frameCount
+    search.frame !== undefined && activeContent?.frameNumbers.includes(search.frame)
       ? search.frame
-      : undefined
+      : activeContent?.frameNumbers[0]
+  const selectedContentId = activeContent?.id
+  const selectedContentLabel =
+    activeContent?.timelineIndex === undefined
+      ? activeContent?.title
+      : `镜头 ${activeContent.timelineIndex + 1}`
   useEffect(() => {
-    if (shots.length === 0) clearSelection()
-    else setSelection([shotSelectionRef(position, selectedFrame)])
-  }, [clearSelection, position, selectedFrame, setSelection, shots.length])
+    if (selectedContentId === undefined) clearSelection()
+    else {
+      const label = selectedContentLabel
+      const reference: WorkbenchRef = {
+        id: `${artifact.id}:shot:${position}:${selectedContentId}:${selectedFrame ?? ''}`,
+        label: `镜头组 ${position} · ${label}${selectedFrame === undefined ? '' : ` · @Image${selectedFrame}`}`,
+        prefix: `针对镜头组 ${position} 的${label}${selectedFrame === undefined ? '' : `（参考图 @Image${selectedFrame}）`}：`,
+      }
+      setSelection([reference])
+    }
+  }, [
+    selectedContentId,
+    selectedContentLabel,
+    artifact.id,
+    clearSelection,
+    position,
+    selectedFrame,
+    setSelection,
+  ])
   useEffect(() => () => clearSelection(), [clearSelection])
 
   const go = (next: ReaderSearch) => {
-    const cleared = next.shot !== undefined && next.shot !== position ? { frame: undefined } : {}
+    const cleared =
+      next.shot !== undefined && next.shot !== position
+        ? { content: undefined, frame: undefined }
+        : {}
     void navigate({ replace: true, search: { ...search, ...cleared, ...next }, to: '.' })
   }
 
@@ -181,10 +220,34 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   // 出片发的是描述的当前版本；还在存或没存下就先别发，免得发出去的和文件里的不一样。
   // 原因不另写一句：左边的保存状态已经在说。
   const generateDisabled =
+    preparing ||
+    uploadingGroups.size > 0 ||
+    draft.state.kind === 'conflict' ||
     video.options.model === undefined ||
     draft.state.kind === 'saving' ||
     draft.state.kind === 'error' ||
     video.submitting.includes(shot.index)
+  const generate = async () => {
+    if (prepareRef.current.busy || uploadingGroups.size > 0) return
+    prepareRef.current.busy = true
+    setPreparing(true)
+    try {
+      if (!(await draft.saveNow()) || !prepareRef.current.mounted) return
+      const saved = queryClient.getQueryData<ConversationFileEnvelope>(
+        workspaceQueryKeys.file(conversationId, path),
+      )
+      const document = saved === undefined ? null : parseShotsDocument(saved.file.content)
+      const current = document?.shots.find((item) => item.index === shot.index)
+      if (current === undefined || document === null) {
+        toast.error('无法读取已保存的镜头组，请重新打开后生成')
+        return
+      }
+      await video.submit(current, document.aspect_ratio)
+    } finally {
+      prepareRef.current.busy = false
+      if (prepareRef.current.mounted) setPreparing(false)
+    }
+  }
   const onScroll = () => {
     const element = pagesRef.current
     if (element === null) return
@@ -238,8 +301,8 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
             disabled={generateDisabled}
             models={video.models}
             onChange={video.setOptions}
-            onGenerate={() => void video.submit(shot, document.aspect_ratio)}
-            submitting={video.submitting.includes(shot.index)}
+            onGenerate={() => void generate()}
+            submitting={preparing || video.submitting.includes(shot.index)}
             unavailable={video.modelsUnavailable ? '视频模型读不到' : undefined}
             value={video.options}
           />
@@ -253,6 +316,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
           >
             {shots.map((item, offset) => (
               <ReaderPage
+                editingDisabled={preparing}
                 aspect_ratio={document.aspect_ratio}
                 onUpdateShot={(updater) => draft.updateShot(item.index, updater)}
                 onReplaceFrame={(frame, previousUrl, url) => {
@@ -260,6 +324,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                   recordUpload(item.index, frame, url)
                 }}
                 onUploaded={(frame, url) => recordUpload(item.index, frame, url)}
+                onUploadingChange={onUploadingChange}
                 onEditFrame={(frame, sourceUrl) => {
                   imageEditTriggerRef.current =
                     window.document.activeElement instanceof HTMLElement
@@ -273,13 +338,14 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                     sourceUrl,
                   })
                 }}
+                content={offset + 1 === position ? search.content : undefined}
                 frame={offset + 1 === position ? search.frame : undefined}
                 key={`${item.index}-${offset + 1 === position ? 'active' : 'inactive'}`}
                 onOpenPrompt={(trigger) => {
                   sheetTriggerRef.current = trigger
                   go({ sheet: 'prompt', shot: offset + 1 })
                 }}
-                onPickFrame={(frame) => go({ frame, shot: offset + 1 })}
+                onSelect={(content, frame) => go({ content, frame, shot: offset + 1 })}
                 onPreview={preview}
                 shot={item}
               />
@@ -407,339 +473,6 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
         }}
       />
     </>
-  )
-}
-
-type ReaderPageProps = {
-  shot: Shot
-  aspect_ratio: string
-  frame: number | undefined
-  onUpdateShot: (updater: (current: Shot) => Shot) => Shot | undefined
-  onReplaceFrame: (frame: number, previousUrl: string, url: string) => void
-  onUploaded: (frame: number, url: string) => void
-  onPickFrame: (frame: number | undefined) => void
-  onOpenPrompt: (trigger: HTMLElement) => void
-  onPreview: Preview
-  onEditFrame: (frame: number, sourceUrl: string) => void
-}
-
-const sceneTitle = (shot: Shot, index: number): string =>
-  promptTitle(shot.prompt.timeline[index]?.prompt ?? '') ?? `镜头 ${index + 1}`
-
-function ReaderPage({
-  aspect_ratio,
-  frame,
-  onEditFrame,
-  onOpenPrompt,
-  onPickFrame,
-  onPreview,
-  onReplaceFrame,
-  onUpdateShot,
-  onUploaded,
-  shot,
-}: ReaderPageProps) {
-  const validFrame = (number: number) => number >= 1 && number <= shot.image_urls.length
-  const scenes = splitShotTimeline(shot).scenes.map((scene) => ({
-    ...scene,
-    frameNumbers: scene.frameNumbers.filter(validFrame),
-  }))
-  const firstScene = scenes[0]
-  const explicitFrame = frame !== undefined && validFrame(frame) ? frame : undefined
-  const initialFrame = (firstScene === undefined ? undefined : firstFrameOfScene(firstScene)) ?? 1
-  const frameNumber = explicitFrame ?? initialFrame
-  const [selection, setSelection] = useState<{
-    index: number
-    frame: number
-    empty: boolean
-    editingText?: string
-  } | null>(null)
-  const selectedCandidate = scenes.find((item) => item.scene - 1 === selection?.index)
-  const selected =
-    selection?.frame === frameNumber &&
-    selectedCandidate !== undefined &&
-    (selection.editingText === shot.prompt.timeline[selectedCandidate.scene - 1]?.prompt ||
-      (selection.empty
-        ? selectedCandidate.frameNumbers.length === 0
-        : selectedCandidate.frameNumbers.includes(frameNumber)))
-      ? selectedCandidate
-      : undefined
-  const scene =
-    selected ??
-    (explicitFrame === undefined
-      ? firstScene
-      : scenes.find((item) => item.frameNumbers.includes(frameNumber)))
-  const item = scene === undefined ? undefined : shot.prompt.timeline[scene.scene - 1]
-  const url =
-    scene !== undefined && !scene.frameNumbers.includes(frameNumber)
-      ? undefined
-      : shot.image_urls[frameNumber - 1]
-  const [width = 0, height = 0] = aspect_ratio.split(':').map(Number)
-  const title = scene === undefined ? '未关联镜头' : sceneTitle(shot, scene.scene - 1)
-  const sharing = shot.prompt.timeline.flatMap((entry, index) =>
-    entry.image_indexes.includes(frameNumber) ? [index + 1] : [],
-  )
-  const sharedCaption =
-    url !== undefined && sharing.length > 1
-      ? `@Image${frameNumber} · 镜头 ${sharing.join('、')} 共用`
-      : undefined
-  const editorRef = useRef<PromptEditorHandle | null>(null)
-  const uploadRevisionRef = useRef(0)
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [pendingUpload, setPendingUpload] = useState<{ revision: number; target: string } | null>(
-    null,
-  )
-  const targetKey = JSON.stringify([shot.index, scene?.scene, frameNumber, url, item?.timestamps])
-  const uploading = pendingUpload?.target === targetKey
-
-  useEffect(
-    () => () => {
-      uploadRevisionRef.current += 1
-      setPendingUpload(null)
-    },
-    [targetKey],
-  )
-
-  const invalidateUpload = () => {
-    uploadRevisionRef.current += 1
-    setPendingUpload(null)
-  }
-  const pickFrame = (number: number) => {
-    if (!validFrame(number)) return
-    if (number !== frameNumber) invalidateUpload()
-    setSelection(
-      scene?.frameNumbers.includes(number)
-        ? { index: scene.scene - 1, frame: number, empty: false }
-        : null,
-    )
-    onPickFrame(number)
-  }
-  const pickScene = (index: number, number?: number) => {
-    if (number !== undefined && !validFrame(number)) return
-    if (scene === undefined || scene.scene - 1 !== index || number !== frameNumber)
-      invalidateUpload()
-    setSelection({ index, frame: number ?? initialFrame, empty: number === undefined })
-    onPickFrame(number)
-  }
-  const changePrompt = (text: string) => {
-    if (scene === undefined) return
-    const index = scene.scene - 1
-    setSelection({
-      index,
-      frame: frameNumber,
-      empty: scene.frameNumbers.length === 0,
-      editingText: text,
-    })
-    onUpdateShot((current) => updateTimelinePrompt(current, index, text))
-  }
-  const closePicker = () => {
-    setPickerOpen(false)
-    invalidateUpload()
-  }
-  const updateTarget = (updater: (current: Shot, position: number) => Shot): Shot => {
-    if (scene === undefined || item === undefined) throw new Error('请先选择要添加图片的镜头')
-    const position = scene.scene - 1
-    const updated = onUpdateShot((current) => {
-      const target = current.prompt.timeline[position]
-      if (
-        target === undefined ||
-        target.timestamps[0] !== item.timestamps[0] ||
-        target.timestamps[1] !== item.timestamps[1]
-      )
-        throw new Error('这个镜头已发生变化，请重新选择')
-      if (url !== undefined && current.image_urls[frameNumber - 1] !== url)
-        throw new Error('这张图片已发生变化，请重新选择')
-      return updater(current, position)
-    })
-    if (updated === undefined) throw new Error('镜头组已不存在，请重新选择')
-    return updated
-  }
-  const addNew = (newUrl: string) => {
-    const insertion = editorRef.current?.getInsertion()
-    const updated = updateTarget((current, position) =>
-      appendShotFrame(current, position, newUrl, insertion),
-    )
-    const number = updated.image_urls.length
-    setPickerOpen(false)
-    if (scene !== undefined) {
-      setSelection({ index: scene.scene - 1, frame: number, empty: false })
-      onPickFrame(number)
-    }
-    return number
-  }
-  const pickExisting = (number: number, previousUrl: string) => {
-    try {
-      const insertion = editorRef.current?.getInsertion()
-      updateTarget((current, position) => {
-        if (current.image_urls[number - 1] !== previousUrl)
-          throw new Error('这张图片已发生变化，请重新选择')
-        return insertFrameReference(current, position, number, insertion)
-      })
-      setPickerOpen(false)
-      if (scene !== undefined) pickScene(scene.scene - 1, number)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '关联图片失败')
-    }
-  }
-  const upload = async (file: File) => {
-    const revision = ++uploadRevisionRef.current
-    setPendingUpload({ revision, target: targetKey })
-    setPickerOpen(false)
-    try {
-      const newUrl = await uploadFrameImage(file)
-      if (revision !== uploadRevisionRef.current) return
-      const number = addNew(newUrl)
-      onUploaded(number, newUrl)
-    } catch (error) {
-      if (revision === uploadRevisionRef.current)
-        toast.error(error instanceof Error ? error.message : '上传失败')
-    } finally {
-      if (revision === uploadRevisionRef.current) setPendingUpload(null)
-    }
-  }
-
-  return (
-    <section
-      aria-label={`镜头组 ${shot.index}`}
-      className="storyboard-page flex h-full min-h-0 w-full min-w-0 shrink-0 snap-start flex-col gap-4 p-4"
-    >
-      <div className="storyboard-stage">
-        <IconButton
-          className="storyboard-page-arrow rounded-full border-[0.5px] border-chat-hairline bg-chat-card-bg"
-          disabled={frameNumber <= 1 || shot.image_urls.length === 0}
-          label="上一帧"
-          name="back"
-          onClick={() => pickFrame(frameNumber - 1)}
-          size="md"
-        />
-        <article
-          className={cn(
-            'storyboard-preview overflow-hidden rounded-xs border-[0.5px] border-chat-hairline bg-chat-card-bg',
-            width > height && 'storyboard-preview-wide',
-          )}
-          style={
-            {
-              '--storyboard-frame-aspect': aspectRatioStyle(aspect_ratio),
-              '--storyboard-frame-tall': width > 0 && height > 0 ? height / width : 1,
-            } as CSSProperties
-          }
-        >
-          <FramePreview
-            aspectRatio={aspect_ratio}
-            caption={sharedCaption}
-            key={`${scene?.scene ?? 'unassigned'}:${frameNumber}:${url ?? 'empty'}`}
-            name={`镜头组 ${shot.index} 第 ${frameNumber} 帧`}
-            onEdit={url === undefined ? undefined : () => onEditFrame(frameNumber, url)}
-            onOpen={() => {
-              if (url !== undefined)
-                onPreview(
-                  { kind: 'image', name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`, url },
-                  window.document.activeElement instanceof HTMLElement
-                    ? window.document.activeElement
-                    : window.document.body,
-                )
-            }}
-            onReplace={(newUrl) => {
-              if (url !== undefined) onReplaceFrame(frameNumber, url, newUrl)
-            }}
-            onUpload={uploadFrameImage}
-            url={url}
-          />
-          <div className="storyboard-description flex min-h-0 min-w-0 flex-col gap-4 p-4">
-            <div className="flex min-w-0 items-center gap-2">
-              <h3 className="flex min-w-0 flex-1 items-center gap-2 text-body font-medium text-on-surface">
-                {scene === undefined ? null : (
-                  <span className="inline-grid size-5.5 shrink-0 place-items-center rounded-xs bg-surface-container-high text-label font-medium text-on-surface">
-                    {scene.scene}
-                  </span>
-                )}
-                <span className="min-w-0 truncate" title={title}>
-                  {title}
-                </span>
-              </h3>
-              {item === undefined ? null : (
-                <IconButton
-                  label="复制镜头正文"
-                  name="copy"
-                  onClick={() => void copyText(item.prompt, '已复制镜头正文')}
-                  size="sm"
-                />
-              )}
-            </div>
-            {scene === undefined || item === undefined ? (
-              <p className="text-body text-on-surface-faint">这张帧还没有关联的镜头描述</p>
-            ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <PromptEditor
-                  aria-label={`镜头 ${scene.scene} 的描述`}
-                  frames={shot.image_urls}
-                  highlighted={frameNumber}
-                  key={scene.scene}
-                  onChange={changePrompt}
-                  onPickFrame={(number) => pickScene(scene.scene - 1, number)}
-                  ref={editorRef}
-                  value={item.prompt}
-                />
-              </div>
-            )}
-          </div>
-        </article>
-        <IconButton
-          className="storyboard-page-arrow rounded-full border-[0.5px] border-chat-hairline bg-chat-card-bg"
-          disabled={frameNumber >= shot.image_urls.length}
-          label="下一帧"
-          name="next"
-          onClick={() => pickFrame(frameNumber + 1)}
-          size="md"
-        />
-      </div>
-      <div className="storyboard-filmstrip flex shrink-0 items-stretch gap-1 border-t-[0.5px] border-chat-hairline pt-3">
-        <ShotFilmstrip
-          activeScene={scene === undefined ? undefined : scene.scene - 1}
-          frameNumber={frameNumber}
-          frames={shot.image_urls}
-          onPickFrame={pickFrame}
-          onPickScene={pickScene}
-          scenes={scenes.map((item) => ({
-            frameNumbers: item.frameNumbers,
-            id: item.scene - 1,
-            number: item.scene,
-            seconds: item.endSeconds - item.startSeconds,
-            title: sceneTitle(shot, item.scene - 1),
-          }))}
-        />
-        <button
-          aria-label="添加图片"
-          className="storyboard-add-frame grid shrink-0 cursor-pointer place-items-center rounded-xs border-[0.5px] border-chat-hairline bg-surface-container text-on-surface-faint ui-focus disabled:cursor-default disabled:opacity-50"
-          disabled={scene === undefined || uploading}
-          onClick={() => setPickerOpen(true)}
-          title="添加图片"
-          type="button"
-        >
-          <Icon decorative name="add" size="md" />
-        </button>
-        <button
-          aria-label="完整提示词"
-          className="storyboard-open-prompt grid shrink-0 cursor-pointer place-items-center rounded-xs border-[0.5px] border-chat-hairline bg-surface-container text-on-surface-variant ui-focus"
-          onClick={(event) => onOpenPrompt(event.currentTarget)}
-          title="完整提示词"
-          type="button"
-        >
-          <Icon decorative name="collapse" size="md" />
-        </button>
-        {uploading ? (
-          <span className="self-center text-body-sm text-on-surface-faint" role="status">
-            正在上传新图…
-          </span>
-        ) : null}
-      </div>
-      <FrameAssignmentPicker
-        frames={shot.image_urls}
-        onClose={closePicker}
-        onPickExisting={pickExisting}
-        onUpload={upload}
-        open={pickerOpen}
-      />
-    </section>
   )
 }
 
@@ -918,14 +651,6 @@ function PromptReading({
   )
 }
 
-function ReaderNotice({ text }: { text: string }) {
-  return (
-    <div className="flex min-h-0 flex-1 items-center justify-center gap-2 px-6 text-center">
-      <p className="text-body-sm text-on-surface-variant">{text}</p>
-    </div>
-  )
-}
-
 const copyText = async (text: string, message: string) => {
   try {
     await writeClipboard(text)
@@ -1032,76 +757,5 @@ function ShotOverview({ shots, aspect_ratio, onClose, onOpenShot }: ShotOverview
         })}
       </ul>
     </>
-  )
-}
-
-type SaveStatusProps = {
-  state: SaveState
-  hasUnsavedChanges: boolean
-  appliedUpload: boolean
-  onRetry: () => void
-}
-
-function SaveStatus({ state, hasUnsavedChanges, appliedUpload, onRetry }: SaveStatusProps) {
-  if (state.kind === 'error')
-    return (
-      <>
-        <span className="text-body-sm text-error" role="alert">
-          <span>{appliedUpload && hasUnsavedChanges ? '已上传，分镜未保存' : '没存下'}</span>：
-          {state.message}
-        </span>
-        <Button onClick={onRetry} size="md" variant="ghost">
-          重试保存
-        </Button>
-      </>
-    )
-  if (state.kind === 'conflict')
-    return <span className="text-body-sm text-on-surface-faint">有版本冲突待处理</span>
-  if (state.kind === 'saving')
-    return <span className="text-body-sm text-on-surface-faint">保存中…</span>
-  if (hasUnsavedChanges) return <span className="text-body-sm text-on-surface-faint">待保存</span>
-  if (state.kind === 'saved')
-    return <span className="text-body-sm text-on-surface-faint">已保存</span>
-  return null
-}
-
-function ConflictDialog({
-  state,
-  resolve,
-}: {
-  state: SaveState
-  resolve: (choice: 'mine' | 'theirs') => void
-}) {
-  const conflicts = state.kind === 'conflict' ? state.shots : []
-  const removed = conflicts.some((conflict) => conflict.theirs === undefined)
-  return (
-    <DialogRoot
-      onOpenChange={(open) => !open && resolve('theirs')}
-      open={state.kind === 'conflict'}
-    >
-      <DialogSurface aria-label="这一组有别的改动">
-        <DialogHeader closeLabel="关闭（用最新的）" title="这一组有别的改动">
-          第 {conflicts.map((conflict) => conflict.index).join('、')} 组在你编辑时被更新了。
-        </DialogHeader>
-        <DialogBody>
-          <p className="text-body text-on-surface">
-            {removed
-              ? '原镜头组已被移除，当前修改不能覆盖到其它镜头组。采用最新版本只会放弃冲突组的修改。'
-              : '选择保留你的修改，或采用这些镜头组的最新版本；其它组的草稿会保留。'}
-          </p>
-        </DialogBody>
-        <DialogFooter>
-          <span />
-          <span className="flex gap-2">
-            <Button onClick={() => resolve('theirs')} size="md" variant="ghost">
-              用最新的
-            </Button>
-            <Button disabled={removed} onClick={() => resolve('mine')} size="md">
-              留我的
-            </Button>
-          </span>
-        </DialogFooter>
-      </DialogSurface>
-    </DialogRoot>
   )
 }
