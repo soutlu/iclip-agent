@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from iclip.capabilities.shot_document import SHOTS_PATH, validate_shots_document
 from iclip.capabilities.video.capability import Video
-from iclip.capabilities.video_understanding import video_doc_path
+from iclip.capabilities.video_document import video_doc_path
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal

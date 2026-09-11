@@ -31,7 +31,8 @@ from iclip.capabilities.shot_document import (
     validate_shots_document,
 )
 from iclip.capabilities.video.capability import CAPABILITY_ID, Video, VideoToolset
-from iclip.capabilities.video_understanding import VideoUnderstandingError, video_doc_path
+from iclip.capabilities.video_document import video_doc_path
+from iclip.capabilities.video_understanding import VideoUnderstandingError
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal

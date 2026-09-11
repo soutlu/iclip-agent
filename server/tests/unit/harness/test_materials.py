@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai import ModelRetry
 
-from iclip.harness.materials import require_http, require_material
+from iclip.harness.materials import require_http, require_material, require_materials
 from iclip.platform.material_ledger.store import Material, MaterialKind
 from tests.helpers.material_ledger import FakeMaterialLedger
 
@@ -66,3 +66,27 @@ async def test_wrong_kind_is_refused(ledger: FakeMaterialLedger) -> None:
 def test_require_http_refuses_other_schemes(url: str) -> None:
     with pytest.raises(ModelRetry, match="http"):
         require_http(url, what="视频地址")
+
+
+async def test_a_batch_passes_when_every_address_is_recorded(ledger: FakeMaterialLedger) -> None:
+    ledger.rows[(NAMESPACE, "https://cdn.test/second.jpg")] = Material(
+        url="https://cdn.test/second.jpg", kind="image"
+    )
+
+    await require_materials(
+        ledger, NAMESPACE, [IMAGE, "https://cdn.test/second.jpg"], kind="image", what="图片地址"
+    )
+
+
+async def test_a_batch_refuses_an_address_that_is_not_http(ledger: FakeMaterialLedger) -> None:
+    with pytest.raises(ModelRetry, match="http"):
+        await require_materials(
+            ledger, NAMESPACE, [IMAGE, "frames/s1-1.jpg"], kind="image", what="图片地址"
+        )
+
+
+async def test_a_batch_refuses_an_unrecorded_address(ledger: FakeMaterialLedger) -> None:
+    with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
+        await require_materials(
+            ledger, NAMESPACE, (VIDEO, "https://cdn.test/other.mp4"), kind="video", what="视频地址"
+        )

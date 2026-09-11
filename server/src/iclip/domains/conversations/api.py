@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated
 
@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from iclip.domains.conversations.models import Conversation
 from iclip.domains.conversations.schemas import (
+    ConversationAgentOut,
     ConversationAgentsOut,
     ConversationCollectionIn,
     ConversationEnvelope,
@@ -35,14 +36,13 @@ from iclip.domains.conversations.schemas import (
 from iclip.domains.conversations.service import (
     ConversationPage,
     ConversationService,
+    ListAgents,
     ListState,
 )
 from iclip.domains.identity.public import Principal, require_permission
 
 
-def create_conversations_router(
-    service: ConversationService, *, agents: Mapping[str, object]
-) -> APIRouter:
+def create_conversations_router(service: ConversationService, *, agents: ListAgents) -> APIRouter:
     router = APIRouter(prefix="/conversations", tags=["conversations"])
 
     # 活动状态独立于对话记录，在序列化前批量读取。
@@ -61,10 +61,13 @@ def create_conversations_router(
     async def list_agents(
         _: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> ConversationAgentsOut:
-        """读取当前装配的顶层 Agent ID，按声明顺序返回；热重载后下次请求即见新目录。"""
+        """读取当前装配的顶层 Agent 名册，按声明顺序返回；热重载后下次请求即见新目录。"""
 
-        items = list(agents)
-        return ConversationAgentsOut(items=items, default=items[0] if items else None)
+        directory = agents()
+        return ConversationAgentsOut(
+            items=[ConversationAgentOut(id=entry.id, name=entry.name) for entry in directory.items],
+            default=directory.default,
+        )
 
     @router.post("", response_model=ConversationEnvelope, status_code=201)
     async def create_conversation(

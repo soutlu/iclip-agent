@@ -38,7 +38,7 @@ from iclip.capabilities.shot_video.ports import ObjectWriteFailed
 from iclip.capabilities.shot_video.toolset import (
     ShotVideoToolset,
 )
-from iclip.capabilities.video_understanding import video_doc_path
+from iclip.capabilities.video_document import video_doc_path
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal

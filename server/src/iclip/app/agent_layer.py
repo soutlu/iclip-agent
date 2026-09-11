@@ -26,7 +26,12 @@ from iclip.config import (
     SkillMount,
     resolve_settings,
 )
-from iclip.domains.conversations.service import GenerateTitle
+from iclip.domains.conversations.service import (
+    AgentDirectory,
+    AgentEntry,
+    GenerateTitle,
+    ListAgents,
+)
 from iclip.harness.agents import (
     AgentCapabilities,
     AgentDefinition,
@@ -74,6 +79,7 @@ class AgentLayer:
     model_specs: tuple[ModelSpec, ...]
     models: BuiltModels
     registry: AgentRegistry
+    directory: AgentDirectory
     context_limits: Mapping[str, int]
     generate_title: GenerateTitle
 
@@ -214,8 +220,18 @@ def build_agent_layer(
         model_specs=specs,
         models=built_models,
         registry=registry,
+        directory=_agent_directory(agents),
         context_limits=_agent_context_limits(agents, settings.models),
         generate_title=generate_title,
+    )
+
+
+def _agent_directory(declared: Sequence[ResolvedAgent]) -> AgentDirectory:
+    """名册按声明顺序，第一条是默认项。"""
+
+    return AgentDirectory(
+        items=tuple(AgentEntry(id=agent.agent_id, name=agent.name) for agent in declared),
+        default=declared[0].agent_id if declared else None,
     )
 
 
@@ -337,6 +353,10 @@ def live_agents(holder: CurrentAgentLayer) -> AgentMap:
     return LiveView(holder, lambda layer: layer.registry.agents)
 
 
+def live_agent_directory(holder: CurrentAgentLayer) -> ListAgents:
+    return lambda: holder.current.directory
+
+
 def live_context_limits(holder: CurrentAgentLayer) -> Mapping[str, int]:
     return LiveView(holder, lambda layer: layer.context_limits)
 
@@ -356,6 +376,7 @@ __all__ = [
     "LayerDeps",
     "ReloadSource",
     "build_agent_layer",
+    "live_agent_directory",
     "live_agents",
     "live_context_limits",
     "live_title_generator",

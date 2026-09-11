@@ -39,10 +39,11 @@ class SubAgentSection(CapabilitySection):
 
 
 class AgentSection(CapabilitySection):
-    """``model`` 引用 ``config.yaml`` 中 ``models`` 段的键名。"""
+    """``model`` 引用 ``config.yaml`` 中 ``models`` 段的键名；``name`` 是给人看的名字，缺省用 id。"""
 
     spec: str
     model: str
+    name: str | None = Field(default=None, min_length=1)
     subagent: tuple[SubAgentSection, ...] = ()
 
 
@@ -80,9 +81,10 @@ class ResolvedSubAgent:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedAgent:
-    """一个已注册 agent 的装配事实；``agent_id`` 是唯一权威标识。"""
+    """一个已注册 agent 的装配事实；``agent_id`` 是唯一权威标识，``name`` 只用于展示。"""
 
     agent_id: str
+    name: str
     spec: Path
     instructions: Path | None
     model: str
@@ -150,6 +152,7 @@ def load_agent_declarations(path: Path) -> tuple[ResolvedAgent, ...]:
         resolved.append(
             ResolvedAgent(
                 agent_id=agent_id,
+                name=section.name or agent_id,
                 spec=spec,
                 instructions=instructions,
                 model=section.model,

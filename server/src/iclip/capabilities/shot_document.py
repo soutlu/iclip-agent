@@ -1,7 +1,4 @@
-"""镜头组 prompt 表的结构、校验与交付，供各条创作流共用。
-
-两条创作流共用同一份文件、结构与写回规则。
-"""
+"""镜头组 prompt 表的结构与校验，供交付工具与文件写回共用。"""
 
 from __future__ import annotations
 
@@ -11,12 +8,8 @@ from collections.abc import Sequence
 from typing import Annotated, Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from pydantic_ai import ModelRetry
-from pydantic_ai.messages import ToolReturn
 
 from iclip.common.tool_args import JsonText
-from iclip.platform.file_store.store import FileStore, QuotaExceeded
-from iclip.platform.transcript.display import tool_note
 
 SHOTS_PATH: Final = "video_shot.json"
 MAX_REFERENCE_IMAGES: Final = 30
@@ -28,7 +21,11 @@ _IMAGE_REF = re.compile(r"@Image(\d+)")
 """镜头组 prompt 里指向参考图的记号。"""
 
 
-class AspectError(ValueError):
+class ShotDocumentError(ValueError):
+    """镜头组 prompt 表不合规则。"""
+
+
+class AspectError(ShotDocumentError):
     """画幅写法不合法。"""
 
 
@@ -129,25 +126,25 @@ class VideoShotsDocument(BaseModel):
 def validate_video_shot_requests(
     shots: Sequence[VideoShotRequest | VideoShotDocumentRow],
 ) -> None:
-    """校验整份结构化入参，非法时抛 ModelRetry；不改写文本、时间或图片顺序。
+    """校验整份结构化入参，非法时抛 ShotDocumentError；不改写文本、时间或图片顺序。
 
     素材来源由工具输入验证器检查；本函数不访问工作区或序列化交付文件。
     """
 
     if not shots:
-        raise ModelRetry("shots 一条都没有；镜头组 prompt 表不能是空的。")
+        raise ShotDocumentError("shots 一条都没有；镜头组 prompt 表不能是空的。")
     for position, shot in enumerate(shots, start=1):
         if shot.index != position:
-            raise ModelRetry(f"index 要从 1 连续编号：第 {position} 条写的是 {shot.index}。")
+            raise ShotDocumentError(f"index 要从 1 连续编号：第 {position} 条写的是 {shot.index}。")
         if not SHOT_MIN_SECONDS <= shot.seconds <= SHOT_MAX_SECONDS:
-            raise ModelRetry(
+            raise ShotDocumentError(
                 f"镜头组 {shot.index} 的 seconds 是 {shot.seconds}，只收 "
                 f"{SHOT_MIN_SECONDS}-{SHOT_MAX_SECONDS}；重新切分这一组再交付。"
             )
         if any(not url.strip() for url in shot.image_urls):
-            raise ModelRetry(f"镜头组 {shot.index} 的 image_urls 里有空地址。")
+            raise ShotDocumentError(f"镜头组 {shot.index} 的 image_urls 里有空地址。")
         if not shot.prompt.global_settings.strip():
-            raise ModelRetry(f"镜头组 {shot.index} 的 prompt.global_settings 为空。")
+            raise ShotDocumentError(f"镜头组 {shot.index} 的 prompt.global_settings 为空。")
         _validate_image_refs(
             shot.prompt.global_settings,
             where=f"镜头组 {shot.index} 的 prompt.global_settings",
@@ -158,16 +155,18 @@ def validate_video_shot_requests(
         for shot_number, item in enumerate(shot.prompt.timeline, start=1):
             where = f"镜头组 {shot.index} 的第 {shot_number} 镜"
             if not item.prompt.strip():
-                raise ModelRetry(f"{where}的 prompt 为空。")
+                raise ShotDocumentError(f"{where}的 prompt 为空。")
             start, end = item.timestamps
             if end <= start:
-                raise ModelRetry(
+                raise ShotDocumentError(
                     f"{where}的 timestamps 为 [{start}, {end}]；结束时间必须大于开始时间。"
                 )
             if shot_number == 1 and start != 0:
-                raise ModelRetry(f"{where}从 {start} 秒开始；每个镜头组的第一镜必须从 0 开始。")
+                raise ShotDocumentError(
+                    f"{where}从 {start} 秒开始；每个镜头组的第一镜必须从 0 开始。"
+                )
             if start < previous_end:
-                raise ModelRetry(
+                raise ShotDocumentError(
                     f"{where}从 {start} 秒开始，早于上一镜的结束时间 {previous_end} 秒；"
                     "各镜头时间段必须按先后顺序排列且不得重叠。"
                 )
@@ -180,7 +179,7 @@ def validate_video_shot_requests(
 def _validate_image_refs(prompt: str, *, where: str, image_count: int) -> None:
     for number in _IMAGE_REF.findall(prompt):
         if not 1 <= int(number) <= image_count:
-            raise ModelRetry(
+            raise ShotDocumentError(
                 f"{where} 引用了 @Image{number}，但本组 image_urls 只有 {image_count} 张图片；"
                 "编号必须从 1 开始且不超过图片数。"
             )
@@ -195,12 +194,9 @@ def extract_image_indexes(prompt: str) -> list[int]:
 def build_video_shots_document(
     aspect_ratio: str, shots: Sequence[VideoShotRequest]
 ) -> VideoShotsDocument:
-    """校验整份提交并补充逐镜图片编号，失败时抛 ModelRetry；不改写输入或访问存储。"""
+    """校验整份提交并补充逐镜图片编号，失败时抛 ShotDocumentError；不改写输入或访问存储。"""
 
-    try:
-        parse_aspect(aspect_ratio)
-    except AspectError as exc:
-        raise ModelRetry(str(exc)) from exc
+    parse_aspect(aspect_ratio)
     validate_video_shot_requests(shots)
     return VideoShotsDocument(
         aspect_ratio=aspect_ratio,
@@ -227,7 +223,7 @@ def build_video_shots_document(
 
 
 def validate_shots_document(content: str) -> VideoShotsDocument:
-    """校验写回的镜头组表并返回解析结果，非法时抛 ValueError。
+    """校验写回的镜头组表并返回解析结果，非法时抛 ShotDocumentError。
 
     与提交共用字段校验，并检查派生的图片编号；模型工具的地址来源校验不属于此入口。
     """
@@ -235,66 +231,32 @@ def validate_shots_document(content: str) -> VideoShotsDocument:
     try:
         document = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"{SHOTS_PATH} 不是合法的 JSON：{exc}") from exc
+        raise ShotDocumentError(f"{SHOTS_PATH} 不是合法的 JSON：{exc}") from exc
     if not isinstance(document, dict):
-        raise ValueError(f"{SHOTS_PATH} 的根必须是一个对象。")
+        raise ShotDocumentError(f"{SHOTS_PATH} 的根必须是一个对象。")
     aspect_ratio = document.get("aspect_ratio")
     if not isinstance(aspect_ratio, str):
-        raise ValueError("aspect_ratio 要写成 9:16 这样的字符串。")
+        raise ShotDocumentError("aspect_ratio 要写成 9:16 这样的字符串。")
     raw_shots = document.get("shots")
     if not isinstance(raw_shots, list):
-        raise ValueError("shots 要写成一个数组。")
-    try:
-        parse_aspect(aspect_ratio)
-    except AspectError as exc:
-        raise ValueError(str(exc)) from exc
+        raise ShotDocumentError("shots 要写成一个数组。")
+    parse_aspect(aspect_ratio)
     try:
         parsed = VideoShotsDocument.model_validate(document)
     except ValidationError as exc:
         first = exc.errors()[0]
         where = ".".join(str(part) for part in first["loc"]) or "字段"
-        raise ValueError(f"{SHOTS_PATH} 的 {where}：{first['msg']}") from exc
-    try:
-        validate_video_shot_requests(parsed.shots)
-    except ModelRetry as exc:
-        raise ValueError(str(exc)) from exc
+        raise ShotDocumentError(f"{SHOTS_PATH} 的 {where}：{first['msg']}") from exc
+    validate_video_shot_requests(parsed.shots)
     for shot in parsed.shots:
         for position, item in enumerate(shot.prompt.timeline, start=1):
             expected = extract_image_indexes(item.prompt)
             if item.image_indexes != expected:
-                raise ValueError(
+                raise ShotDocumentError(
                     f"镜头组 {shot.index} 的第 {position} 镜 image_indexes 与正文引用不一致；"
                     f"应为 {expected}。"
                 )
     return parsed
-
-
-async def deliver_shots(
-    files: FileStore,
-    namespace: str,
-    *,
-    aspect_ratio: str,
-    shots: Sequence[VideoShotRequest],
-) -> ToolReturn[str]:
-    """整份交付镜头组 prompt 表，替换共用分镜文件上已有的内容。"""
-
-    document = build_video_shots_document(aspect_ratio, shots)
-    try:
-        await files.write(namespace, SHOTS_PATH, document.model_dump_json(indent=2))
-    except QuotaExceeded as exc:
-        raise ModelRetry(
-            f"工作区写不下 {SHOTS_PATH}：{exc} 用 delete_file 清掉不用的文件。"
-        ) from exc
-    group_count = len(document.shots)
-    shot_count = sum(len(shot.prompt.timeline) for shot in document.shots)
-    seconds = sum(shot.seconds for shot in document.shots)
-    return ToolReturn(
-        return_value=(
-            f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
-            f"{group_count} 个镜头组，{shot_count} 个镜头，合计 {seconds} 秒。"
-        ),
-        metadata=tool_note(chip=f"{group_count} 组 · {shot_count} 镜 · {seconds} 秒"),
-    )
 
 
 __all__ = [
@@ -303,6 +265,7 @@ __all__ = [
     "SHOT_MAX_SECONDS",
     "SHOT_MIN_SECONDS",
     "AspectError",
+    "ShotDocumentError",
     "StoredTimelineItem",
     "StoredVideoShotPrompt",
     "TimelineItem",
@@ -311,7 +274,6 @@ __all__ = [
     "VideoShotRequest",
     "VideoShotsDocument",
     "build_video_shots_document",
-    "deliver_shots",
     "extract_image_indexes",
     "parse_aspect",
     "validate_shots_document",

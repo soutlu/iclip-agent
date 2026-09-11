@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from pydantic_ai import ModelRetry
 
 from iclip.capabilities.shot_document import (
     AspectError,
+    ShotDocumentError,
     VideoShotRequest,
     build_video_shots_document,
     parse_aspect,
@@ -135,7 +135,7 @@ def test_timestamps_reject_non_numeric_non_finite_and_negative_values(
     ids=["blank-settings", "blank-item-prompt"],
 )
 def test_rejects_blank_text(prompt: dict[str, Any], message: str) -> None:
-    with pytest.raises(ModelRetry, match=message):
+    with pytest.raises(ShotDocumentError, match=message):
         validate_video_shot_requests([request(prompt=prompt)])
 
 
@@ -150,7 +150,7 @@ def test_rejects_blank_text(prompt: dict[str, Any], message: str) -> None:
     ],
 )
 def test_rejects_invalid_timeline_order(timeline: list[dict[str, Any]], message: str) -> None:
-    with pytest.raises(ModelRetry, match=message):
+    with pytest.raises(ShotDocumentError, match=message):
         validate_video_shot_requests([request(prompt=prompt_value(timeline=timeline))])
 
 
@@ -164,7 +164,7 @@ def test_accepts_time_gaps_without_closing_them() -> None:
 
 @pytest.mark.parametrize("indexes", [[], [0], [2], [1, 1], [1, 3]])
 def test_requires_nonempty_shots_numbered_from_one(indexes: list[int]) -> None:
-    with pytest.raises(ModelRetry, match=r"shots|index"):
+    with pytest.raises(ShotDocumentError, match=r"shots|index"):
         validate_video_shot_requests([request(index=index) for index in indexes])
 
 
@@ -177,7 +177,7 @@ def test_accepts_group_duration_boundaries(seconds: int) -> None:
 
 @pytest.mark.parametrize("seconds", [3, 31])
 def test_rejects_out_of_range_group_duration(seconds: int) -> None:
-    with pytest.raises(ModelRetry, match="4-30"):
+    with pytest.raises(ShotDocumentError, match="4-30"):
         validate_video_shot_requests(
             [request(seconds=seconds, prompt=prompt_value(timeline=[item([0, seconds])]))]
         )
@@ -195,7 +195,7 @@ def test_rejects_references_outside_the_groups_image_list(reference: str) -> Non
         image_urls=[FIRST_IMAGE, SECOND_IMAGE],
     )
 
-    with pytest.raises(ModelRetry, match=reference):
+    with pytest.raises(ShotDocumentError, match=reference):
         validate_video_shot_requests([shot])
 
 
@@ -203,7 +203,7 @@ def test_global_settings_references_use_the_groups_image_list() -> None:
     settings = " 参考图 @Image2。\n"
     shot = request(prompt=prompt_value(global_settings=settings), image_urls=[FIRST_IMAGE])
 
-    with pytest.raises(ModelRetry, match=r"global_settings.*@Image2"):
+    with pytest.raises(ShotDocumentError, match=r"global_settings.*@Image2"):
         validate_video_shot_requests([shot])
 
     assert shot.prompt.global_settings == settings
@@ -239,13 +239,13 @@ def test_image_reference_cannot_borrow_another_groups_image_count() -> None:
         image_urls=[SECOND_IMAGE],
     )
 
-    with pytest.raises(ModelRetry, match=r"镜头组 2.*@Image2"):
+    with pytest.raises(ShotDocumentError, match=r"镜头组 2.*@Image2"):
         validate_video_shot_requests([first, second])
 
 
 @pytest.mark.parametrize("image_urls", [[""], [FIRST_IMAGE, " \n\t"]])
 def test_rejects_blank_image_addresses(image_urls: list[str]) -> None:
-    with pytest.raises(ModelRetry, match="image_urls"):
+    with pytest.raises(ShotDocumentError, match="image_urls"):
         validate_video_shot_requests([request(image_urls=image_urls)])
 
 
@@ -272,7 +272,7 @@ def test_accepts_an_image_free_group_without_references() -> None:
     ],
 )
 def test_image_free_group_rejects_references(prompt: dict[str, Any], message: str) -> None:
-    with pytest.raises(ModelRetry, match=message):
+    with pytest.raises(ShotDocumentError, match=message):
         validate_video_shot_requests([request(prompt=prompt, image_urls=[])])
 
 

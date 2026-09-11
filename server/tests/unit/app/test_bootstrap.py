@@ -53,6 +53,7 @@ def declared_agent(tmp_path: Path) -> ResolvedAgent:
     spec.write_text("", encoding="utf-8")
     return ResolvedAgent(
         agent_id=AGENT_ID,
+        name=AGENT_ID,
         spec=spec,
         instructions=None,
         model="m",

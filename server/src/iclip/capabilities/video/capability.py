@@ -12,17 +12,20 @@ from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import FunctionToolset
 
-from iclip.capabilities.shot_document import SHOTS_PATH, VideoShotRequest, deliver_shots
-from iclip.capabilities.video_understanding import (
-    VideoUnderstanding,
-    VideoUnderstandingError,
-    video_doc_path,
+from iclip.capabilities.shot_document import (
+    SHOTS_PATH,
+    ShotDocumentError,
+    VideoShotRequest,
+    build_video_shots_document,
 )
+from iclip.capabilities.video_document import video_doc_path
+from iclip.capabilities.video_understanding import VideoUnderstanding, VideoUnderstandingError
 from iclip.common.tool_args import JsonText
-from iclip.harness.materials import require_http, require_material
-from iclip.platform.file_store.store import FileSpace, FileStore, QuotaExceeded
+from iclip.harness.files import write_or_retry
+from iclip.harness.materials import require_materials
+from iclip.platform.file_store.store import FileSpace, FileStore
 from iclip.platform.material_ledger.store import MaterialLedger
-from iclip.platform.transcript.display import DisplayFn, GenericDisplay, url_filename
+from iclip.platform.transcript.display import DisplayFn, GenericDisplay, tool_note, url_filename
 
 CAPABILITY_ID: Final = "video"
 
@@ -98,10 +101,7 @@ class VideoToolset(FunctionToolset[AgentDepsT]):
             content = await self._cap.understanding.parse(video_url)
         except VideoUnderstandingError as exc:
             raise ModelRetry(f"这段视频没拆解成功：{exc}") from exc
-        try:
-            await files.write(namespace, path, content)
-        except QuotaExceeded as exc:
-            raise ModelRetry(f"工作区写不下 {path}：{exc} 用 delete_file 清掉不用的文件。") from exc
+        await write_or_retry(files, namespace, path, content)
         return f"视频解析完毕，文档在 {path}。"
 
     async def write_video_shots(
@@ -118,16 +118,29 @@ class VideoToolset(FunctionToolset[AgentDepsT]):
         """
 
         files, namespace = self._workspace(ctx)
-        return await deliver_shots(files, namespace, aspect_ratio=aspect_ratio, shots=shots)
+        try:
+            document = build_video_shots_document(aspect_ratio, shots)
+        except ShotDocumentError as exc:
+            raise ModelRetry(str(exc)) from exc
+        await write_or_retry(files, namespace, SHOTS_PATH, document.model_dump_json(indent=2))
+        group_count = len(document.shots)
+        shot_count = sum(len(shot.prompt.timeline) for shot in document.shots)
+        seconds = sum(shot.seconds for shot in document.shots)
+        return ToolReturn(
+            return_value=(
+                f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
+                f"{group_count} 个镜头组，{shot_count} 个镜头，合计 {seconds} 秒。"
+            ),
+            metadata=tool_note(chip=f"{group_count} 组 · {shot_count} 镜 · {seconds} 秒"),
+        )
 
     async def _validate_video_url(self, ctx: RunContext[Any], video_url: str) -> None:
         """视频地址须是本对话已登记的视频素材。"""
 
-        require_http(video_url, what="视频地址")
-        await require_material(
+        await require_materials(
             self._cap.ledger,
             self._cap.space.resolve(ctx),
-            video_url,
+            (video_url,),
             kind="video",
             what="视频地址",
         )
@@ -138,17 +151,13 @@ class VideoToolset(FunctionToolset[AgentDepsT]):
         """镜头帧地址须是本对话已登记的图片素材；表的形状由工具体校验。"""
 
         _ = aspect_ratio
-        namespace = self._cap.space.resolve(ctx)
-        for shot in shots:
-            for url in shot.image_urls:
-                require_http(url, what="镜头帧地址")
-                await require_material(
-                    self._cap.ledger,
-                    namespace,
-                    url,
-                    kind="image",
-                    what="镜头帧地址",
-                )
+        await require_materials(
+            self._cap.ledger,
+            self._cap.space.resolve(ctx),
+            (url for shot in shots for url in shot.image_urls),
+            kind="image",
+            what="镜头帧地址",
+        )
 
     def _workspace(self, ctx: RunContext[AgentDepsT]) -> tuple[FileStore, str]:
         """这次运行的文件存储与命名空间。"""

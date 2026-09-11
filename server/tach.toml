@@ -81,7 +81,12 @@ depends_on = []
 
 [[modules]]
 path = "iclip.harness"
-depends_on = ["iclip.common", "iclip.platform.material_ledger", "iclip.platform.transcript"]
+depends_on = [
+    "iclip.common",
+    "iclip.platform.file_store",
+    "iclip.platform.material_ledger",
+    "iclip.platform.transcript",
+]
 
 [[modules]]
 path = "iclip.capabilities"

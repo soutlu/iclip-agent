@@ -40,7 +40,10 @@ describe('首页真实数据流程', () => {
     authenticate()
     server.use(
       http.get('*/api/conversations/agents', () =>
-        HttpResponse.json({ items: ['new-agent'], default: 'new-agent' }),
+        HttpResponse.json({
+          items: [{ id: 'new-agent', name: 'new-agent' }],
+          default: 'new-agent',
+        }),
       ),
       http.post('*/api/conversations/:conversationId/prompts', async ({ request }) => {
         const body = (await request.json()) as { prompt_id: string }

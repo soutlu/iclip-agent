@@ -1,13 +1,7 @@
-"""视频拆解协议与方舟 Responses 适配器，供各条创作流共用。
-
-当前 PydanticAI 适配器不支持视频输入，因此直接使用协议。提示词与解析结构在同一模块维护，
-接口地址和凭证由环境变量提供。
-"""
+"""视频拆解协议与方舟 Responses 适配器。"""
 
 from __future__ import annotations
 
-import hashlib
-import re
 from typing import Any, Final, Protocol
 
 import httpx
@@ -201,24 +195,10 @@ class VideoUnderstanding(Protocol):
     async def parse(self, video_url: str) -> str: ...
 
 
-_UNSAFE_STEM = re.compile(r"[^A-Za-z0-9_-]+")
-_STEM_CHARS: Final = 40
-_DOC_DIR: Final = "video"
-
-
-def video_doc_path(video_url: str) -> str:
-    """由视频 URL 派生稳定文档路径，哈希后缀避免同名视频冲突。"""
-
-    stem = _UNSAFE_STEM.sub("-", video_url.rsplit("/", 1)[-1].rsplit(".", 1)[0]).strip("-")
-    digest = hashlib.sha256(video_url.encode("utf-8")).hexdigest()[:8]
-    return f"{_DOC_DIR}/{(stem[:_STEM_CHARS] or 'video')}-{digest}.md"
-
-
 __all__ = [
     "SYSTEM_PROMPT",
     "TIMEOUT_SECONDS",
     "ArkVideoUnderstanding",
     "VideoUnderstanding",
     "VideoUnderstandingError",
-    "video_doc_path",
 ]

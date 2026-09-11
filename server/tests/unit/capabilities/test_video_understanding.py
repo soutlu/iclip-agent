@@ -9,11 +9,11 @@ from typing import Any
 import httpx
 import pytest
 
+from iclip.capabilities.video_document import video_doc_path
 from iclip.capabilities.video_understanding import (
     SYSTEM_PROMPT,
     ArkVideoUnderstanding,
     VideoUnderstandingError,
-    video_doc_path,
 )
 
 VIDEO = "https://cdn.test/ref.mp4"

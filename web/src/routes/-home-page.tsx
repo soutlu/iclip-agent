@@ -17,11 +17,6 @@ import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import { useLoginPrompt } from './-login-prompt'
 
-const agentLabels: Record<string, string> = {
-  storyboard: '分镜 Agent',
-  'exact-replica': '完全复刻',
-}
-
 /** 路由组合首页输入、真实合集与对话创建；两端 feature 不互相依赖。 */
 export function HomePage() {
   const { data: user } = useUser()
@@ -51,7 +46,8 @@ export function HomePage() {
     ? chosenCollectionId
     : null
   const agentId = chosenAgentId ?? agents.data?.default ?? null
-  const validAgent = agentId !== null && (agents.data?.items.includes(agentId) ?? false)
+  const chosenAgent = agents.data?.items.find((item) => item.id === agentId) ?? null
+  const validAgent = chosenAgent !== null
   const start = useStartConversation(user?.id ?? null, (conversationId) => {
     void navigate({ params: { conversationId }, to: '/c/$conversationId' })
   })
@@ -84,8 +80,8 @@ export function HomePage() {
         ? '正在加载 Agent…'
         : agents.isError
           ? 'Agent 加载失败'
-          : validAgent && agentId
-            ? (agentLabels[agentId] ?? agentId)
+          : chosenAgent
+            ? chosenAgent.name
             : agentId
               ? '所选 Agent 已不可用'
               : '暂无可用 Agent'
@@ -116,9 +112,9 @@ export function HomePage() {
                   <MenuItem onSelect={() => void agents.refetch()}>重新加载 Agent</MenuItem>
                 </>
               ) : agents.data?.items.length ? (
-                agents.data.items.map((id) => (
-                  <MenuItem key={id} onSelect={() => setChosenAgentId(id)}>
-                    {agentLabels[id] ?? id}
+                agents.data.items.map((item) => (
+                  <MenuItem key={item.id} onSelect={() => setChosenAgentId(item.id)}>
+                    {item.name}
                   </MenuItem>
                 ))
               ) : (
