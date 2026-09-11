@@ -69,6 +69,7 @@ def agent_declarations(tmp_path: Path) -> tuple[ResolvedAgent, ...]:
     return (
         ResolvedAgent(
             agent_id=AGENT_ID,
+            name=AGENT_ID,
             spec=_spec(tmp_path, AGENT_ID),
             instructions=None,
             model=TEST_MODEL_NAME,

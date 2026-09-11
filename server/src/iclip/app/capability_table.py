@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 import httpx
 from pydantic import ValidationError
@@ -37,6 +37,13 @@ from iclip.platform.transcript.display import ToolDisplayRegistry, ToolDisplaySo
 
 CapabilityTable = Mapping[str, AgentCapabilities]
 """能力名称对应一组实例；同一声明可挂载多项能力，运行状态由 for_run 克隆隔离。"""
+
+
+@runtime_checkable
+class RequiresCapabilities(Protocol):
+    """要求同一 agent 一起挂载其它能力名的能力；没有这个属性就是不要求。"""
+
+    REQUIRES: ClassVar[tuple[str, ...]]
 
 
 class GenerationsAdapter:
@@ -237,10 +244,7 @@ def build_display_registry(table: CapabilityTable) -> ToolDisplayRegistry:
 def resolve_capabilities(
     names: Sequence[str], *, table: CapabilityTable, declared_by: str
 ) -> AgentCapabilities:
-    """按名字取能力；名字没登记、或少挂了它要求同挂的名字，即报错（装配期 fail fast）。
-
-    同挂要求由能力自己的 ``REQUIRES`` 类属性声明，没声明就是不要求。
-    """
+    """按名字取能力；名字没登记、或少挂了它要求同挂的名字，即报错（装配期 fail fast）。"""
 
     resolved: AgentCapabilities = ()
     for name in names:
@@ -253,7 +257,8 @@ def resolve_capabilities(
         required = (
             requirement
             for capability in found
-            for requirement in getattr(capability, "REQUIRES", ())
+            if isinstance(capability, RequiresCapabilities)
+            for requirement in capability.REQUIRES
         )
         missing = [requirement for requirement in required if requirement not in names]
         if missing:
@@ -270,6 +275,7 @@ __all__ = [
     "GenerationsAdapter",
     "ObjectWriterAdapter",
     "OssMediaProbe",
+    "RequiresCapabilities",
     "build_capability_table",
     "build_display_registry",
     "resolve_capabilities",

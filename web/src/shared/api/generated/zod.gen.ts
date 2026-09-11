@@ -201,13 +201,23 @@ export const zConversationActivityOut = z.object({
 })
 
 /**
+ * ConversationAgentOut
+ *
+ * 可发起对话的一个顶层 Agent；``name`` 是声明里给人看的名字。
+ */
+export const zConversationAgentOut = z.object({
+  id: z.string(),
+  name: z.string(),
+})
+
+/**
  * ConversationAgentsOut
  *
- * 当前可发起对话的顶层 Agent；默认项取声明顺序的第一项，空目录为 None。
+ * 当前可发起对话的顶层 Agent 名册；``default`` 取声明顺序的第一项，空目录为 null。
  */
 export const zConversationAgentsOut = z.object({
   default: z.string().nullable(),
-  items: z.array(z.string()),
+  items: z.array(zConversationAgentOut),
 })
 
 /**

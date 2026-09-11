@@ -215,7 +215,13 @@ export const handlers = [
 
   // 模拟 ILIKE 的大小写不敏感标题搜索，按最近活动排序。
   http.get('*/api/conversations/agents', () =>
-    HttpResponse.json({ items: ['storyboard', 'exact-replica'], default: 'storyboard' }),
+    HttpResponse.json({
+      items: [
+        { id: 'storyboard', name: '分镜 Agent' },
+        { id: 'replica', name: '完全复刻' },
+      ],
+      default: 'storyboard',
+    }),
   ),
 
   http.get('*/api/conversations/search', ({ request }) => {

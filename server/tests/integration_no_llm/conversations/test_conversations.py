@@ -7,7 +7,6 @@ import json
 import uuid
 
 import httpx
-import pytest
 from fastapi import FastAPI
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, RunRecord, StepEvent
@@ -476,12 +475,12 @@ async def test_workspace_file_can_be_written_back_with_the_version_it_was_read_a
     assert absent.status_code == 409
 
 
-@pytest.mark.parametrize("path", ["video_shot.json"])
 async def test_workspace_file_write_checks_the_document_on_its_path(
-    client: httpx.AsyncClient, pg_url: str, path: str
+    client: httpx.AsyncClient, pg_url: str
 ) -> None:
     """写回沿用交付形状校验；非规范路径可能绕过分镜文档校验，必须拒绝。"""
 
+    path = "video_shot.json"
     user_id = await login_as_editor(client, pg_url)
     mine = (await create(client, title="这段")).json()["conversation"]["id"]
     frame_url = "https://cdn.test/frames/s1-1.jpg"

@@ -404,9 +404,25 @@ export type ConversationActivityOut = {
 }
 
 /**
+ * ConversationAgentOut
+ *
+ * 可发起对话的一个顶层 Agent；``name`` 是声明里给人看的名字。
+ */
+export type ConversationAgentOut = {
+  /**
+   * Id
+   */
+  id: string
+  /**
+   * Name
+   */
+  name: string
+}
+
+/**
  * ConversationAgentsOut
  *
- * 当前可发起对话的顶层 Agent；默认项取声明顺序的第一项，空目录为 None。
+ * 当前可发起对话的顶层 Agent 名册；``default`` 取声明顺序的第一项，空目录为 null。
  */
 export type ConversationAgentsOut = {
   /**
@@ -416,7 +432,7 @@ export type ConversationAgentsOut = {
   /**
    * Items
    */
-  items: Array<string>
+  items: Array<ConversationAgentOut>
 }
 
 /**

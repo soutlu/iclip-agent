@@ -757,9 +757,29 @@
         "title": "ConversationActivityOut",
         "type": "object"
       },
+      "ConversationAgentOut": {
+        "additionalProperties": false,
+        "description": "可发起对话的一个顶层 Agent；``name`` 是声明里给人看的名字。",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ConversationAgentOut",
+        "type": "object"
+      },
       "ConversationAgentsOut": {
         "additionalProperties": false,
-        "description": "当前可发起对话的顶层 Agent；默认项取声明顺序的第一项，空目录为 None。",
+        "description": "当前可发起对话的顶层 Agent 名册；``default`` 取声明顺序的第一项，空目录为 null。",
         "properties": {
           "default": {
             "anyOf": [
@@ -774,7 +794,7 @@
           },
           "items": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ConversationAgentOut"
             },
             "title": "Items",
             "type": "array"
@@ -6102,7 +6122,7 @@
     },
     "/conversations/agents": {
       "get": {
-        "description": "读取当前装配的顶层 Agent ID，按声明顺序返回；热重载后下次请求即见新目录。",
+        "description": "读取当前装配的顶层 Agent 名册，按声明顺序返回；热重载后下次请求即见新目录。",
         "operationId": "list_agents_conversations_agents_get",
         "responses": {
           "200": {

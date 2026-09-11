@@ -20,6 +20,7 @@ from pydantic_ai.toolsets import AgentToolset, FunctionToolset
 
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbe, MediaProbeFailed
 from iclip.common.tool_args import JsonText
+from iclip.harness.files import write_or_retry
 from iclip.harness.materials import require_http, require_material
 from iclip.harness.media import (
     IMAGE_CONTEXT_MAX_EDGE,
@@ -31,10 +32,7 @@ from iclip.harness.media import (
 from iclip.platform.file_store.store import (
     FileEntry,
     FileSpace,
-    InvalidContent,
     InvalidPath,
-    QuotaExceeded,
-    VersionConflict,
     normalize_path,
 )
 from iclip.platform.material_ledger.store import MaterialLedger
@@ -541,18 +539,9 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
     ) -> FileEntry:
         """写入文件，将存储错误转换为 ModelRetry。"""
 
-        try:
-            return await self._capability.space.store.write(
-                scope, key, content, expected_version=expected_version
-            )
-        except InvalidContent as exc:
-            raise ModelRetry(str(exc)) from exc
-        except QuotaExceeded as exc:
-            if exc.scope == "file":
-                raise ModelRetry(f"{exc}。把内容拆成几个文件，或者精简一些。") from exc
-            raise ModelRetry(f"{exc}。用 list_files 找出不再需要的文件删掉。") from exc
-        except VersionConflict as exc:
-            raise ModelRetry(f"{exc}。用 read_file 重新读一遍，再基于新内容改。") from exc
+        return await write_or_retry(
+            self._capability.space.store, scope, key, content, expected_version=expected_version
+        )
 
     async def _entries(self, scope: str, prefix: str) -> Sequence[FileEntry]:
         try:

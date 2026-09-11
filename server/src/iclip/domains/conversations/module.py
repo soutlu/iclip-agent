@@ -14,6 +14,7 @@ from iclip.domains.conversations.service import (
     ConversationIdsByState,
     ConversationService,
     GenerateTitle,
+    ListAgents,
     ListCollections,
     ListDerivedFiles,
     PurgeDerived,
@@ -34,7 +35,7 @@ class ConversationsModule:
 def build_conversations_module(
     repo: ConversationRepository,
     *,
-    agents: Mapping[str, object],
+    list_agents: ListAgents,
     purge_derived: PurgeDerived,
     list_collections: ListCollections,
     list_derived_files: ListDerivedFiles,
@@ -62,7 +63,7 @@ def build_conversations_module(
         conversation_ids_by_state=conversation_ids_by_state,
     )
     return ConversationsModule(
-        routers=(create_conversations_router(service, agents=agents),),
+        routers=(create_conversations_router(service, agents=list_agents),),
         service=service,
     )
 

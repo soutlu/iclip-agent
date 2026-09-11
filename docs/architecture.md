@@ -31,20 +31,20 @@
 |---|---|
 | `server/configs/config.yaml`（不进仓库） | 运行参数、模型命名表与模型端点 |
 | [config/models.py](../server/src/iclip/config/models.py) | 配置字段、默认值、环境变量名、功能开关与依赖校验 |
-| `server/agents/agents.yaml`（不进仓库） | Agent ID、spec、模型引用、skill、capability 与子代理声明 |
+| `server/agents/agents.yaml`（不进仓库） | Agent ID、显示名、spec、模型引用、skill、capability 与子代理声明 |
 | [config/agents.py](../server/src/iclip/config/agents.py) | 声明与资产路径解析 |
 | [app/bootstrap.py](../server/src/iclip/app/bootstrap.py) | 资源创建、模块装配、路由挂载与生命周期 |
 | [app/agent_layer.py](../server/src/iclip/app/agent_layer.py) | 模型表与 agent 注册表的装配、热重载与拒绝规则 |
 
 运行配置与 Agent 声明在启动期加载、校验并装配。配置文件路径分别由 `CONFIG_FILE`、`AGENTS_FILE` 指定；CLI 的 `--config`、`--agents` 设置这两个入口。`models` 段、`conversations.title_model` 与 `agents/` 目录构成可热换的一层（[app/agent_layer.py](../server/src/iclip/app/agent_layer.py)）：后端监听两个目录，文件一变即重读、完整装配、整体替换，`SIGHUP` 触发同一次重载，结果报告在 `/healthz` 的 `config` 段；其余配置段与环境变量改了要重启，规则见 [ADR-0019](adr/0019-hot-reload-agent-layer.md)。两个目录只存在于服务器与开发机，接口合同导出用 [scripts/contract/](../server/scripts/contract/config.yaml) 下的占位配置。依赖服务的连接信息与凭证由环境变量提供；模型凭证由 `models.*.api_key_env` 指向环境变量。可选功能的启用条件与缺失依赖处理集中在 `resolve_settings()`，不在业务模块中重新读取配置。
 
-Agent 声明文件必须存在；不启用 Agent 时写 `agent: {}`。`spec` 必须指向现存文件，文件内容可以为空；同目录的 `instructions.md` 自动加载。主 Agent ID 来自声明键，子 Agent 名称来自 spec 所在目录名；声明的名称、模型覆盖 spec 对应字段，关闭磁盘自动扫描。
+Agent 声明文件必须存在；不启用 Agent 时写 `agent: {}`。`spec` 必须指向现存文件，文件内容可以为空；同目录的 `instructions.md` 自动加载。主 Agent ID 来自声明键，`name` 是首页 Agent 菜单显示的名字，不写就显示 ID；子 Agent 名称来自 spec 所在目录名；声明的名称、模型覆盖 spec 对应字段，关闭磁盘自动扫描。
 
 skill 与 capability 都按 Agent 显式挂载，子代理不继承主代理的挂载。skill 正文由 Harness 按需加载，reference 由随库挂载的 `get_skill_reference` 读取。capability 的实例和挂载依赖集中在 [app/capability_table.py](../server/src/iclip/app/capability_table.py)，工具声明规则见 [tool-design.md](tool-design.md)。
 
 `video` 提供参考视频拆解（`video_parser`）与镜头组 prompt 表交付（`write_video_shots`），依赖 `workspace`；由 `video` 配置段与 `VIDEO_UNDERSTANDING_*` 环境变量启用，不需要媒体生成、对象存储和 ffmpeg。`shot_video` 提供取帧与出图，依赖 `workspace` 与 `video`；由 `shot_video` 配置段启用，另需媒体生成、对象存储和 ffmpeg，三者是否齐由 `ResolvedSettings.shot_tools_enabled` 一处判定：ffmpeg 检查按它执行，能力表只在它成立时收到 `shot_video`。`video_shot.json` 的形状与前端约定见 [contract/conventions.md](../contract/conventions.md#6-对话-conversations)。
 
-能力包之间不 import，共用件放 `capabilities/` 下不带工具的模块：[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验规则，供 `video` 的交付工具与对话域的文件写回共用；[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议、方舟适配器与拆解文档路径，`shot_video` 只用路径函数定位 `video` 写下的文档。划分标准：模型看得见的东西（工具名、docstring、参数 schema、验证器措辞、display 表、指令）留在各自包内，换 agent 就可以不同；模型看不见、换 agent 也不允许有差异的机制（素材台账校验、工作区写入与配额处理、文档结构）下沉到 `harness/` 或这类共用模块，不在包之间复制。
+能力包之间不 import，共用件放 `capabilities/` 下不带工具的模块：[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验规则，供 `video` 的交付工具与对话域的文件写回共用；[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议与方舟适配器；[video_document.py](../server/src/iclip/capabilities/video_document.py) 只回答拆解文档在工作区的路径，`shot_video` 靠它定位 `video` 写下的文档。划分标准：模型看得见的东西（工具名、docstring、参数 schema、验证器措辞、display 表、指令）留在各自包内，换 agent 就可以不同；模型看不见、换 agent 也不允许有差异的机制下沉到 `harness/` 或这类共用模块，不在包之间复制：素材台账校验在 [harness/materials.py](../server/src/iclip/harness/materials.py)，工作区写入与配额、版本错误的翻译在 [harness/files.py](../server/src/iclip/harness/files.py)。
 
 模型适配集中在 [harness/models.py](../server/src/iclip/harness/models.py)，同名模型复用实例。provider 选择交给官方 `infer_model`；`api: responses` 使用本仓的 Responses 子类。模型参数转换不进入业务模块或工具。
 

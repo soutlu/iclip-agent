@@ -69,6 +69,7 @@ export type {
   ConfirmTaskTasksTaskIdConfirmPostResponse,
   ConfirmTaskTasksTaskIdConfirmPostResponses,
   ConversationActivityOut,
+  ConversationAgentOut,
   ConversationAgentsOut,
   ConversationCollectionIn,
   ConversationEnvelope,

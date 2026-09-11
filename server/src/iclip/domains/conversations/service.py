@@ -33,6 +33,26 @@ ListState = Literal["all", "running", "done"]
 """列表状态筛选；从未运行的对话仅属于 all。"""
 
 
+@dataclass(frozen=True, slots=True)
+class AgentEntry:
+    """可发起对话的一个顶层 Agent；``name`` 是给人看的名字。"""
+
+    id: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class AgentDirectory:
+    """当前装配的顶层 Agent 名册，按声明顺序；``default`` 为空即目录是空的。"""
+
+    items: tuple[AgentEntry, ...]
+    default: str | None
+
+
+ListAgents = Callable[[], AgentDirectory]
+"""读当前名册；热重载后再调就是新的一份。"""
+
+
 ActivitiesOf = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, ConversationActivity]]]
 """批量读取引擎侧活动信息，由组合根注入；未返回的 id 使用 IDLE_ACTIVITY。"""
 
@@ -487,11 +507,14 @@ __all__ = [
     "SIDEBAR_PER_COLLECTION",
     "SIDEBAR_UNGROUPED",
     "ActivitiesOf",
+    "AgentDirectory",
+    "AgentEntry",
     "CollectionInfo",
     "ConversationIdsByState",
     "ConversationService",
     "DerivedFile",
     "DerivedFileContent",
+    "ListAgents",
     "ListCollections",
     "ListDerivedFiles",
     "ListState",

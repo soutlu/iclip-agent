@@ -25,10 +25,17 @@ class CamelModel(BaseModel):
 Title = Annotated[str, Field(min_length=1, max_length=MAX_TITLE_CHARS)]
 
 
-class ConversationAgentsOut(CamelModel):
-    """当前可发起对话的顶层 Agent；默认项取声明顺序的第一项，空目录为 None。"""
+class ConversationAgentOut(CamelModel):
+    """可发起对话的一个顶层 Agent；``name`` 是声明里给人看的名字。"""
 
-    items: list[str]
+    id: str
+    name: str
+
+
+class ConversationAgentsOut(CamelModel):
+    """当前可发起对话的顶层 Agent 名册；``default`` 取声明顺序的第一项，空目录为 null。"""
+
+    items: list[ConversationAgentOut]
     default: str | None
 
 

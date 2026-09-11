@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final, Literal, cast
+from typing import Final, Literal, NamedTuple, cast
 
 from pydantic import TypeAdapter
 from sqlalchemy import (
@@ -154,6 +154,13 @@ class JobQueueView:
     queued: tuple[JobRow, ...]
 
 
+class Submission(NamedTuple):
+    """一次提交的结果：落下的记录，以及这次是不是新受理的。"""
+
+    row: JobRow
+    accepted: bool
+
+
 ActivityChanged = Callable[[str, uuid.UUID, ActivityState], None]
 """会话活动变更回调，参数为 (对话 id, 属主, 活动)。
 
@@ -185,7 +192,7 @@ class JobQueue:
         content: tuple[PromptContent, ...],
         now: datetime,
         locked_by: str,
-    ) -> tuple[JobRow, bool]:
+    ) -> Submission:
         """提交消息并原子决定运行或排队，返回记录与本次是否新受理。
 
         运行行同时创建租约，时间取数据库时钟；占用唯一索引冲突时改为排队。
@@ -197,7 +204,7 @@ class JobQueue:
         if existing is not None:
             if existing.conversation_id != conversation_id:
                 raise Conflict("这个消息 id 已经用过了，换一个")
-            return existing, False
+            return Submission(existing, accepted=False)
         busy = exists(
             select(agent_jobs_table.c.prompt_id)
             .where(agent_jobs_table.c.conversation_id == conversation_id)
@@ -239,12 +246,12 @@ class JobQueue:
                     raise
                 if existing.conversation_id != conversation_id:
                     raise Conflict("这个消息 id 已经用过了，换一个") from exc
-                return existing, False
+                return Submission(existing, accepted=False)
         if row is None:
             raise Conflict("这条消息没被收下")
         if row.status == "running":
             self._changed(row, row.status)
-        return row, True
+        return Submission(row, accepted=True)
 
     async def view(self, conversation_id: str) -> JobQueueView:
         """返回会话中占用执行位置和排队中的消息。"""
@@ -798,6 +805,7 @@ __all__ = [
     "JobQueueView",
     "JobRow",
     "JobStatus",
+    "Submission",
     "agent_job_runs_table",
     "agent_jobs_table",
     "metadata_obj",

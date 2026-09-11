@@ -61,7 +61,9 @@ def config(models: dict[str, ModelSection], *, cookie_name: str = "iclip_session
     )
 
 
-def agent(tmp_path: Path, agent_id: str, *, model: str, instructions: str = "") -> ResolvedAgent:
+def agent(
+    tmp_path: Path, agent_id: str, *, model: str, instructions: str = "", name: str | None = None
+) -> ResolvedAgent:
     spec_dir = tmp_path / agent_id
     spec_dir.mkdir(parents=True, exist_ok=True)
     spec = spec_dir / "agent.yaml"
@@ -70,6 +72,7 @@ def agent(tmp_path: Path, agent_id: str, *, model: str, instructions: str = "") 
     instructions_path.write_text(instructions, encoding="utf-8")
     return ResolvedAgent(
         agent_id=agent_id,
+        name=name or agent_id,
         spec=spec,
         instructions=instructions_path,
         model=model,
@@ -141,7 +144,10 @@ async def test_agent_directory_requires_run_permission(
 
     assert response.status_code == status
     if status == 200:
-        assert response.json() == {"items": ["storyboard"], "default": "storyboard"}
+        assert response.json() == {
+            "items": [{"id": "storyboard", "name": "storyboard"}],
+            "default": "storyboard",
+        }
 
 
 async def test_agent_directory_follows_reload_order_and_empty_registry(
@@ -151,17 +157,23 @@ async def test_agent_directory_follows_reload_order_and_empty_registry(
     layer, source, client = build(tmp_path)
     async with client:
         before = await client.get("/conversations/agents")
-        assert before.json() == {"items": ["storyboard"], "default": "storyboard"}
+        assert before.json() == {
+            "items": [{"id": "storyboard", "name": "storyboard"}],
+            "default": "storyboard",
+        }
 
         source.agents = (
-            agent(tmp_path, "exact_replica", model="m"),
+            agent(tmp_path, "replica", model="m", name="完全复刻"),
             agent(tmp_path, "storyboard", model="m"),
         )
         layer.reload()
         changed = await client.get("/conversations/agents")
         assert changed.json() == {
-            "items": ["exact_replica", "storyboard"],
-            "default": "exact_replica",
+            "items": [
+                {"id": "replica", "name": "完全复刻"},
+                {"id": "storyboard", "name": "storyboard"},
+            ],
+            "default": "replica",
         }
 
         source.agents = ()

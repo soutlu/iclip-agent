@@ -51,9 +51,33 @@ def test_single_agent_resolves_spec_and_instructions(tmp_path: Path) -> None:
     (declared,) = load_agent_declarations(path)
 
     assert declared.agent_id == "storyboard"
+    assert declared.name == "storyboard"
     assert declared.spec == (tmp_path / "storyboard" / "agent.yaml").resolve()
     assert declared.instructions == tmp_path / "storyboard" / "instructions.md"
     assert declared.subagents == ()
+
+
+def test_declared_name_is_kept_for_display(tmp_path: Path) -> None:
+    make_agent_dir(tmp_path, "storyboard")
+    path = write_declaration(
+        tmp_path,
+        "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n    model: qwen\n    name: 分镜 Agent\n",
+    )
+
+    (declared,) = load_agent_declarations(path)
+
+    assert (declared.agent_id, declared.name) == ("storyboard", "分镜 Agent")
+
+
+def test_blank_name_is_refused(tmp_path: Path) -> None:
+    make_agent_dir(tmp_path, "storyboard")
+    path = write_declaration(
+        tmp_path,
+        "agent:\n  storyboard:\n    spec: storyboard/agent.yaml\n    model: qwen\n    name: ''\n",
+    )
+
+    with pytest.raises(ValidationError):
+        load_agent_declarations(path)
 
 
 def test_instructions_absent_is_none(tmp_path: Path) -> None:

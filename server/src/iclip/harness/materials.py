@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from pydantic_ai import ModelRetry
 
 from iclip.harness.media import media_kind_label
@@ -46,4 +48,19 @@ async def require_material(
         )
 
 
-__all__ = ["require_http", "require_material"]
+async def require_materials(
+    ledger: MaterialLedger,
+    namespace: str,
+    urls: Iterable[str],
+    *,
+    kind: MaterialKind,
+    what: str,
+) -> None:
+    """逐个校验一组素材地址：HTTP(S)，且是当前会话里该类型的素材。"""
+
+    for url in urls:
+        require_http(url, what=what)
+        await require_material(ledger, namespace, url, kind=kind, what=what)
+
+
+__all__ = ["require_http", "require_material", "require_materials"]

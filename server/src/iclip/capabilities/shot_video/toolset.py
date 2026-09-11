@@ -28,12 +28,13 @@ from iclip.capabilities.shot_video.generation import (
 from iclip.capabilities.shot_video.ports import ImageRequest
 from iclip.capabilities.shot_video.prompt import assemble_anchor_prompt, assemble_grid_prompt
 from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE
-from iclip.capabilities.video_understanding import video_doc_path
+from iclip.capabilities.video_document import video_doc_path
 from iclip.common.tool_args import JsonText
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
-from iclip.harness.materials import require_http, require_material
-from iclip.platform.file_store.store import FileStore, QuotaExceeded
+from iclip.harness.files import write_or_retry
+from iclip.harness.materials import require_materials
+from iclip.platform.file_store.store import FileStore
 from iclip.platform.material_ledger.store import Material
 from iclip.platform.transcript.display import media_grid
 
@@ -89,7 +90,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             files, namespace, video_url=video_url, rows=rows
         )
         if not reused:
-            await self._write(
+            await write_or_retry(
                 files,
                 namespace,
                 EXTRACTION_PATH,
@@ -248,11 +249,10 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
     async def _validate_video_url(self, ctx: RunContext[Any], video_url: str) -> None:
         """取帧收的视频地址。参数表与工具逐字一致，官方按它调。"""
 
-        require_http(video_url, what="视频地址")
-        await require_material(
+        await require_materials(
             self._cap.ledger,
             self._cap.space.resolve(ctx),
-            video_url,
+            (video_url,),
             kind="video",
             what="视频地址",
         )
@@ -272,16 +272,13 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """
 
         _ = (frames, global_reference, target_aspect)
-        namespace = self._cap.space.resolve(ctx)
-        for url in reference_images:
-            require_http(url, what="参考图地址")
-            await require_material(
-                self._cap.ledger,
-                namespace,
-                url,
-                kind="image",
-                what="参考图地址",
-            )
+        await require_materials(
+            self._cap.ledger,
+            self._cap.space.resolve(ctx),
+            reference_images,
+            kind="image",
+            what="参考图地址",
+        )
 
     async def _register(self, namespace: str, urls: Sequence[str], *, failure_message: str) -> None:
         """登记生成出来的地址；登记失败不要求模型重新出图。"""
@@ -296,12 +293,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """把本能力落下的图片地址记进台账，模型下一步才交得回来。"""
 
         await self._cap.ledger.record(namespace, [Material(url=url, kind="image") for url in urls])
-
-    async def _write(self, files: FileStore, namespace: str, path: str, content: str) -> None:
-        try:
-            await files.write(namespace, path, content)
-        except QuotaExceeded as exc:
-            raise ModelRetry(f"工作区写不下 {path}：{exc} 用 delete_file 清掉不用的文件。") from exc
 
     def _workspace(self, ctx: RunContext[AgentDepsT]) -> tuple[FileStore, str]:
         """这次运行的文件存储与命名空间。命名空间算不出来就让它抛，不退回公共的。"""
