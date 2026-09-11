@@ -1,17 +1,7 @@
 /** 结构化分镜工作台；查询参数保存组与帧位置，草稿局部更新后整份保存。 */
 
-import { useQueryClient } from '@tanstack/react-query'
-import type { ConversationFileEnvelope } from '@/shared/api/generated/types.gen'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
 import { copyText as writeClipboard } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
@@ -19,7 +9,6 @@ import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import {
-  workspaceQueryKeys,
   useWorkbenchSelection,
   useWorkspaceFile,
   type ArtifactRendererProps,
@@ -37,6 +26,7 @@ import { FrameImageEditor } from '../image-edit/frame-image-editor'
 import type { FrameEditTarget } from '../image-edit/image-edit-types'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH } from '../shots'
 import { useShotGenerations } from '../storyboard.api'
+import { useGenerationGate } from '../use-generation-gate'
 import { useShotsDraft } from '../use-shots-draft'
 import { useVideoGeneration } from '../use-video-generation'
 import { ConflictDialog, ReaderNotice, SaveStatus } from './draft-status'
@@ -64,26 +54,7 @@ export function StoryboardReader(props: ArtifactRendererProps) {
 
 function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps) {
   const path = artifact.source.kind === 'file' ? artifact.source.path : SHOTS_PATH
-  const queryClient = useQueryClient()
-  const [preparing, setPreparing] = useState(false)
-  const prepareRef = useRef({ busy: false, mounted: true })
-  useEffect(() => {
-    const lifetime = prepareRef.current
-    lifetime.mounted = true
-    return () => {
-      lifetime.mounted = false
-    }
-  }, [])
-  const [uploadingGroups, setUploadingGroups] = useState<ReadonlySet<number>>(() => new Set())
-  const onUploadingChange = useCallback((group: number, uploading: boolean) => {
-    setUploadingGroups((current) => {
-      if (current.has(group) === uploading) return current
-      const next = new Set(current)
-      if (uploading) next.add(group)
-      else next.delete(group)
-      return next
-    })
-  }, [])
+  const gate = useGenerationGate()
   const file = useWorkspaceFile(conversationId, path)
   const generations = useShotGenerations(conversationId)
   const video = useVideoGeneration(conversationId)
@@ -220,34 +191,24 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   // 出片发的是描述的当前版本；还在存或没存下就先别发，免得发出去的和文件里的不一样。
   // 原因不另写一句：左边的保存状态已经在说。
   const generateDisabled =
-    preparing ||
-    uploadingGroups.size > 0 ||
+    gate.preparing ||
+    gate.uploading ||
     draft.state.kind === 'conflict' ||
     video.options.model === undefined ||
     draft.state.kind === 'saving' ||
     draft.state.kind === 'error' ||
     video.submitting.includes(shot.index)
-  const generate = async () => {
-    if (prepareRef.current.busy || uploadingGroups.size > 0) return
-    prepareRef.current.busy = true
-    setPreparing(true)
-    try {
-      if (!(await draft.saveNow()) || !prepareRef.current.mounted) return
-      const saved = queryClient.getQueryData<ConversationFileEnvelope>(
-        workspaceQueryKeys.file(conversationId, path),
-      )
-      const document = saved === undefined ? null : parseShotsDocument(saved.file.content)
-      const current = document?.shots.find((item) => item.index === shot.index)
-      if (current === undefined || document === null) {
+  const generate = () =>
+    gate.run(async (mounted) => {
+      const saved = await draft.saveNow()
+      if (saved === null || !mounted()) return
+      const current = saved.shots.find((item) => item.index === shot.index)
+      if (current === undefined) {
         toast.error('无法读取已保存的镜头组，请重新打开后生成')
         return
       }
-      await video.submit(current, document.aspect_ratio)
-    } finally {
-      prepareRef.current.busy = false
-      if (prepareRef.current.mounted) setPreparing(false)
-    }
-  }
+      await video.submit(current, saved.aspect_ratio)
+    })
   const onScroll = () => {
     const element = pagesRef.current
     if (element === null) return
@@ -302,7 +263,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
             models={video.models}
             onChange={video.setOptions}
             onGenerate={() => void generate()}
-            submitting={preparing || video.submitting.includes(shot.index)}
+            submitting={gate.preparing || video.submitting.includes(shot.index)}
             unavailable={video.modelsUnavailable ? '视频模型读不到' : undefined}
             value={video.options}
           />
@@ -316,7 +277,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
           >
             {shots.map((item, offset) => (
               <ReaderPage
-                editingDisabled={preparing}
+                editingDisabled={gate.preparing}
                 aspect_ratio={document.aspect_ratio}
                 onUpdateShot={(updater) => draft.updateShot(item.index, updater)}
                 onReplaceFrame={(frame, previousUrl, url) => {
@@ -324,7 +285,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                   recordUpload(item.index, frame, url)
                 }}
                 onUploaded={(frame, url) => recordUpload(item.index, frame, url)}
-                onUploadingChange={onUploadingChange}
+                onUploadingChange={gate.onUploadingChange}
                 onEditFrame={(frame, sourceUrl) => {
                   imageEditTriggerRef.current =
                     window.document.activeElement instanceof HTMLElement

@@ -149,7 +149,7 @@ export function ReaderPage({
       : contents.filter((item) => item.frameNumbers.includes(frameNumber))
   const sharedCaption =
     sharing.length > 1
-      ? `@Image${frameNumber} · ${sharing.map((item) => (item.timelineIndex === undefined ? item.title : `镜头 ${item.timelineIndex + 1}`)).join('、')}共用`
+      ? `@Image${frameNumber} · ${sharing.map((item) => (item.timelineIndex === undefined ? item.title : `镜头 ${item.timelineIndex + 1}`)).join('、')} 共用`
       : undefined
   const editorLabel =
     content.timelineIndex === undefined ? content.title : `镜头 ${content.timelineIndex + 1} 的描述`
@@ -221,7 +221,7 @@ export function ReaderPage({
               </h3>
               {content.prompt === undefined ? null : (
                 <IconButton
-                  label={content.id === 'global' ? '复制全局设定' : '复制镜头正文'}
+                  label={content.kind === 'global' ? '复制全局设定' : '复制镜头正文'}
                   name="copy"
                   size="sm"
                   onClick={() =>

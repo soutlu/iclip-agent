@@ -127,7 +127,7 @@ const replaceText = async (editor: HTMLElement, text: string) => {
   pasteTextIntoComposer(editor, text)
 }
 
-describe('StoryboardReader', () => {
+describe('StoryboardReader 全局设定与参考图', () => {
   beforeEach(() => {
     vi.stubGlobal('createImageBitmap', async () => ({ close: () => {}, height: 800, width: 600 }))
   })

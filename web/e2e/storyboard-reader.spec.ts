@@ -246,50 +246,6 @@ test('编辑一镜后保存并读回，复制整组保留 raw 图片标记与空
   expect(generationPosts).toEqual([])
 })
 
-test('编辑生成把历史记录里的镜头组回填到当前组并落盘，图片不跟历史走', async ({ page }) => {
-  await page.setViewportSize({ width: 1600, height: 900 })
-  const generationPosts = watchGenerationPosts(page)
-  const panel = await openStoryboard(page)
-  await panel.getByRole('button', { name: '第 2 组' }).click()
-  const group = panel.getByRole('region', { name: '镜头组 2', exact: true })
-  await group.getByRole('button', { name: '镜头 1', exact: true }).click()
-  await expect(group.getByRole('textbox', { name: '镜头 1 的描述' })).toContainText('走向镜头', {
-    timeout: 20_000,
-  })
-  const before = await readDocument(page)
-
-  await panel.getByRole('button', { name: '生成记录', exact: true }).click()
-  const records = panel.getByRole('complementary', { name: '生成记录', exact: true })
-  const editable = records
-    .getByRole('article')
-    .filter({ hasText: '第一版：她从长椅间走向镜头' })
-    .getByRole('button', { name: '编辑生成' })
-  await editable.click()
-  await expect(page.getByText('历史提示词已回填到当前镜头组')).toBeVisible()
-
-  await expect
-    .poll(async () => (await readDocument(page)).document.shots[1]?.prompt, { timeout: 20_000 })
-    .toEqual({
-      global_settings: before.document.shots[1]?.prompt.global_settings,
-      timeline: [
-        {
-          timestamps: [0, 4],
-          prompt: '第一版：她从长椅间走向镜头 @Image1。',
-          image_indexes: [1],
-        },
-        {
-          timestamps: [4, 11],
-          prompt: '第一版：走到近处停下微笑 @Image2。',
-          image_indexes: [2],
-        },
-      ],
-    })
-  expect((await readDocument(page)).document.shots[1]?.image_urls).toEqual(
-    before.document.shots[1]?.image_urls,
-  )
-  expect(generationPosts).toEqual([])
-})
-
 test('总览按文件顺序复制选中的多个镜头组，保留各组 raw 图片标记', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 })
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])

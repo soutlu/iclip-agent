@@ -29,6 +29,8 @@ const clearBusinessQueries = async (): Promise<void> => {
   queryClient.removeQueries(BUSINESS_QUERIES)
 }
 
+/** 身份探测兼做换人清场：身份变了先清业务缓存再返回。放在 queryFn 而不是 onSuccess，
+ * 因为 ensureSessionUser 与 useUser 共用它，且清场必须发生在新身份进缓存之前。 */
 const fetchCurrentUser = async (context?: { signal: AbortSignal }): Promise<null | CueAuthUser> => {
   let user: null | CueAuthUser
   try {
