@@ -225,7 +225,7 @@ async def test_sweep_settles_an_expired_lease_and_wakes_the_queue(engine: AsyncE
     runner, _step_store, queue = build_runner(engine, says("轮到我了"), store=store)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
-    first = await queue.submit(
+    first, _ = await queue.submit(
         prompt_id="prm_a",
         conversation_id=conversation_id,
         agent_id=AGENT_ID,
@@ -235,7 +235,7 @@ async def test_sweep_settles_an_expired_lease_and_wakes_the_queue(engine: AsyncE
         now=now,
         locked_by=DEAD,
     )
-    second = await queue.submit(
+    second, _ = await queue.submit(
         prompt_id="prm_b",
         conversation_id=conversation_id,
         agent_id=AGENT_ID,
@@ -684,7 +684,7 @@ async def test_only_the_running_row_carries_a_lease(engine: AsyncEngine) -> None
         )
         for prompt_id, said in (("prm_head", "先做这个"), ("prm_tail", "再做那个"))
     ]
-    head, tail = rows
+    (head, _), (tail, _) = rows
     assert head.locked_by == LOCKED_BY
     assert head.heartbeat_at is not None
     assert (tail.locked_by, tail.heartbeat_at) == (None, None)
@@ -754,15 +754,84 @@ async def test_attach_run_writes_nothing_when_the_lease_moved_on(engine: AsyncEn
     assert (await queue.get_by_run("r-stale")) is None
 
 
-async def test_resubmitting_the_same_prompt_id_does_not_start_a_second_run(
+@pytest.mark.parametrize("same_worker", [True, False], ids=["same-worker", "other-worker"])
+@pytest.mark.parametrize("concurrent", [False, True], ids=["retry-running", "concurrent"])
+async def test_repeated_prompt_receipts_do_not_run_the_model_twice(
+    engine: AsyncEngine, same_worker: bool, concurrent: bool
+) -> None:
+    """消息回执丢失后重试，或两个 worker 同时受理，均只能执行一次模型请求。"""
+
+    entered, gate = asyncio.Event(), asyncio.Event()
+    model_requests = 0
+
+    async def stream(
+        _messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        nonlocal model_requests
+        model_requests += 1
+        entered.set()
+        await gate.wait()
+        yield "只执行一次"
+
+    model = FunctionModel(stream_function=stream)
+
+    def service(locked_by: str) -> TranscriptService:
+        store = TranscriptStore()
+        runner, step_store, queue = build_runner(engine, model, store=store, locked_by=locked_by)
+        return TranscriptService(
+            store=store,
+            history=TranscriptHistory(step_store, queue),
+            queue=queue,
+            runner=runner,
+            context_limits={AGENT_ID: MAX_CONTEXT_TOKENS},
+            record_materials=records_nothing,
+        )
+
+    first = service("w-first")
+    retry = first if same_worker else service("w-second")
+    services = [first] if same_worker else [first, retry]
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    async def submit(target: TranscriptService) -> str:
+        received = await target.submit(
+            prompt_id="prm_same_receipt",
+            conversation_id=conversation_id,
+            agent_id=AGENT_ID,
+            owner_user_id=OWNER,
+            user_name="luke",
+            content=(TextContent(text="开始创作"),),
+        )
+        return received.prompt_id
+
+    try:
+        if concurrent:
+            received = await asyncio.gather(submit(first), submit(retry))
+            await asyncio.wait_for(entered.wait(), timeout=5)
+        else:
+            initial = await submit(first)
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            received = [initial, await submit(retry)]
+        assert received == ["prm_same_receipt", "prm_same_receipt"]
+        gate.set()
+        await drained(first.queue, conversation_id)
+    finally:
+        gate.set()
+        await asyncio.gather(*(target.runner.shutdown() for target in services))
+
+    assert model_requests == 1
+    runs = await first.history.store.list_runs(conversation_id=conversation_id)
+    assert len(runs) == 1
+
+
+async def test_resubmitting_the_same_prompt_id_returns_the_existing_row(
     engine: AsyncEngine,
 ) -> None:
 
     queue = JobQueue(engine)
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
-    for _ in range(2):
-        await queue.submit(
+    for expected_created in (True, False):
+        row, created = await queue.submit(
             prompt_id="prm_same",
             conversation_id=conversation_id,
             agent_id=AGENT_ID,
@@ -772,6 +841,8 @@ async def test_resubmitting_the_same_prompt_id_does_not_start_a_second_run(
             now=now,
             locked_by=LOCKED_BY,
         )
+        assert row.prompt_id == "prm_same"
+        assert created is expected_created
     view = await queue.view(conversation_id)
     assert view.active is not None
     assert view.queued == ()
@@ -816,7 +887,7 @@ async def test_the_same_prompt_id_submitted_twice_at_once_lands_as_one_row(
     conversation_id = f"c-{uuid.uuid4().hex[:8]}"
     now = datetime.now(UTC)
 
-    async def once() -> JobRow:
+    async def once() -> tuple[JobRow, bool]:
         return await queue.submit(
             prompt_id="prm_doubled",
             conversation_id=conversation_id,
@@ -828,9 +899,10 @@ async def test_the_same_prompt_id_submitted_twice_at_once_lands_as_one_row(
             locked_by=LOCKED_BY,
         )
 
-    first, second = await asyncio.gather(once(), once())
+    (first, first_created), (second, second_created) = await asyncio.gather(once(), once())
 
     assert (first.prompt_id, second.prompt_id) == ("prm_doubled", "prm_doubled")
+    assert first_created != second_created
     view = await queue.view(conversation_id)
     assert view.active is not None
     assert view.queued == ()

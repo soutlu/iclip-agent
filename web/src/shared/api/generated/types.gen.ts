@@ -404,6 +404,22 @@ export type ConversationActivityOut = {
 }
 
 /**
+ * ConversationAgentsOut
+ *
+ * 当前可发起对话的顶层 Agent；默认项取声明顺序的第一项，空目录为 None。
+ */
+export type ConversationAgentsOut = {
+  /**
+   * Default
+   */
+  default: string | null
+  /**
+   * Items
+   */
+  items: Array<string>
+}
+
+/**
  * ConversationCollectionIn
  *
  * 把这段对话放进某个合集，或者拿出来（给 ``null``）。
@@ -3275,6 +3291,23 @@ export type CreateConversationConversationsPostResponses = {
 
 export type CreateConversationConversationsPostResponse =
   CreateConversationConversationsPostResponses[keyof CreateConversationConversationsPostResponses]
+
+export type ListAgentsConversationsAgentsGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/conversations/agents'
+}
+
+export type ListAgentsConversationsAgentsGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: ConversationAgentsOut
+}
+
+export type ListAgentsConversationsAgentsGetResponse =
+  ListAgentsConversationsAgentsGetResponses[keyof ListAgentsConversationsAgentsGetResponses]
 
 export type AuditConversationsConversationsAuditGetData = {
   body?: never

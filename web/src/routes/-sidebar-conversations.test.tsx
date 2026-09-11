@@ -2,7 +2,12 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
-import { addMockCollection, addMockConversation, mockAuthUser } from '@/testing/mocks/handlers'
+import {
+  addMockCollection,
+  addMockConversation,
+  addMockTask,
+  mockAuthUser,
+} from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { SidebarConversations } from './-sidebar-conversations'
@@ -32,14 +37,147 @@ const workChanged = (
   payload: { pending_interaction: 'none', ...payload },
 })
 
-const render = async (initialPath = '/') => {
-  server.use(http.get('*/api/users/me', () => HttpResponse.json({ user: mockAuthUser })))
+const render = async (initialPath = '/', permissions = mockAuthUser.permissions) => {
+  server.use(
+    http.get('*/api/users/me', () => HttpResponse.json({ user: { ...mockAuthUser, permissions } })),
+  )
   const user = userEvent.setup()
   const { router, socket } = await renderWithProviders(<SidebarConversations />, { initialPath })
   return { router, socket, user }
 }
 
 describe('SidebarConversations', () => {
+  it('首次请求期间显示加载，失败后显示错误并可重试，不误报空列表', async () => {
+    let finishRequest: ((response: Response) => void) | undefined
+    const firstResponse = new Promise<Response>((resolve) => {
+      finishRequest = resolve
+    })
+    let attempts = 0
+    server.use(
+      http.get('*/api/conversations', () => {
+        attempts += 1
+        return attempts === 1
+          ? firstResponse
+          : HttpResponse.json({
+              collections: [],
+              ungroupedCount: 0,
+              ungrouped: { items: [], nextCursor: null },
+            })
+      }),
+    )
+    const { user } = await render()
+    expect(await screen.findByText('正在加载对话…')).toBeVisible()
+    expect(screen.queryByText('还没有对话')).not.toBeInTheDocument()
+    finishRequest?.(HttpResponse.json({ detail: '对话服务暂不可用' }, { status: 503 }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('对话服务暂不可用')
+    expect(screen.queryByText('还没有对话')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '重新加载对话' }))
+
+    expect(await screen.findByText('还没有对话')).toBeVisible()
+    expect(screen.getByText('还没有合集')).toBeVisible()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('缺少 agent:read 时明确提示无权限，不查询侧栏或误报空列表', async () => {
+    const listed: string[] = []
+    server.events.on('request:start', ({ request }) => {
+      if (new URL(request.url).pathname === '/api/conversations') listed.push(request.url)
+    })
+    await render('/', ['tasks:read'])
+
+    expect(await screen.findByText('当前账号没有查看对话权限')).toBeVisible()
+    expect(listed).toEqual([])
+    expect(screen.queryByText('还没有对话')).not.toBeInTheDocument()
+  })
+
+  it('只读用户能打开对话，但没有重命名、归属、删除和合集管理入口', async () => {
+    const collection = addMockCollection('只读合集')
+    const conversation = addMockConversation('可阅读的对话')
+    const { router, user } = await render('/', ['agent:read', 'collections:read'])
+
+    await user.click(await screen.findByRole('link', { name: conversation.title }))
+    expect(router.state.location.pathname).toBe(`/c/${conversation.id}`)
+    expect(
+      screen.queryByRole('button', { name: `${conversation.title} 的更多操作` }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: `${collection.name} 的操作` }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '新建合集' })).not.toBeInTheDocument()
+  })
+
+  it('服务端拒绝读取时显示权限错误，不把拒绝解释为空列表', async () => {
+    server.use(
+      http.get('*/api/conversations', () =>
+        HttpResponse.json({ detail: '权限已变更' }, { status: 403 }),
+      ),
+    )
+    await render()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('当前账号没有查看对话权限')
+    expect(screen.queryByRole('button', { name: '任务 (0)' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新加载对话' })).toBeEnabled()
+  })
+
+  it('没有候选读取权限时保留现有关联，禁止误改且不请求候选接口', async () => {
+    const collection = addMockCollection('现有关联')
+    const task = addMockTask('现有需求单')
+    const conversation = addMockConversation('保持归属')
+    conversation.collectionId = collection.id
+    conversation.taskId = task.id
+    const candidateRequests: string[] = []
+    server.events.on('request:start', ({ request }) => {
+      const path = new URL(request.url).pathname
+      if (path === '/api/collections' || path === '/api/tasks') candidateRequests.push(path)
+    })
+    const { user } = await render('/', ['agent:read', 'agent:run'])
+    await user.click(await screen.findByRole('button', { name: '现有关联 (1)' }))
+    await user.click(screen.getByRole('button', { name: '保持归属 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '归属' }))
+    const dialog = await screen.findByRole('dialog', { name: '对话归属' })
+
+    const collectionSelect = within(dialog).getByRole('combobox', { name: '合集' })
+    const taskSelect = within(dialog).getByRole('combobox', { name: '需求单' })
+    expect(collectionSelect).toBeDisabled()
+    expect(collectionSelect).toHaveValue(collection.id)
+    expect(taskSelect).toBeDisabled()
+    expect(taskSelect).toHaveValue(task.id)
+    expect(within(dialog).getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(candidateRequests).toEqual([])
+  })
+
+  it('候选读取失败时只禁用失败字段，重新加载成功后允许选择', async () => {
+    const collection = addMockCollection('可选合集')
+    addMockConversation('等待候选')
+    let failed = true
+    server.use(
+      http.get('*/api/collections', () =>
+        failed
+          ? HttpResponse.json({ detail: '合集暂不可用' }, { status: 503 })
+          : HttpResponse.json({ items: [collection] }),
+      ),
+    )
+    const { user } = await render()
+    await user.click(await screen.findByRole('button', { name: '等待候选 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '归属' }))
+    const dialog = await screen.findByRole('dialog', { name: '对话归属' })
+    await within(dialog).findByText('读取合集失败，请重试')
+    expect(within(dialog).getByRole('combobox', { name: '合集' })).toBeDisabled()
+    await waitFor(() =>
+      expect(within(dialog).getByRole('combobox', { name: '需求单' })).toBeEnabled(),
+    )
+
+    failed = false
+    await user.click(within(dialog).getByRole('button', { name: '重新加载合集' }))
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole('combobox', { name: '合集' })).toBeEnabled(),
+    )
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: '合集' }), collection.id)
+    expect(within(dialog).getByRole('button', { name: '保存' })).toBeEnabled()
+  })
+
   it('筛选片接线到服务端：进行中只剩在跑的，已完成只剩跑完的', async () => {
     addMockConversation('还没跑过', new Date(Date.UTC(2026, 7, 29, 0, 0)).toISOString())
     const running = addMockConversation('在跑', new Date(Date.UTC(2026, 7, 29, 0, 1)).toISOString())
@@ -109,21 +247,72 @@ describe('SidebarConversations', () => {
     expect(screen.queryByRole('button', { name: '展开显示更多合集' })).not.toBeInTheDocument()
   })
 
-  it('取更多失败时那一行变回「展开显示」，还能再点', async () => {
-    seedConversations(21)
-    server.use(
-      http.get('*/api/conversations/ungrouped', () =>
-        HttpResponse.json({ detail: '后端炸了' }, { status: 500 }),
-      ),
-    )
-    const { user } = await render()
-    const expand = await screen.findByRole('button', { name: '展开显示更多对话' })
+  it.each(['ungrouped', 'collection'])(
+    '%s 分页失败保留已读内容，原位置重试后接上剩余对话',
+    async (bucket) => {
+      const collection = bucket === 'collection' ? addMockCollection('分页合集') : null
+      const count = collection ? 11 : 21
+      const rows = seedConversations(count, collection?.id)
+      let failed = true
+      server.use(
+        http.get(
+          collection
+            ? `*/api/conversations/by-collection/${collection.id}`
+            : '*/api/conversations/ungrouped',
+          () =>
+            failed
+              ? HttpResponse.json({ detail: '下一页暂不可用' }, { status: 503 })
+              : HttpResponse.json({ items: rows.slice(0, 1), nextCursor: null }),
+        ),
+      )
+      const { user } = await render()
+      if (collection)
+        await user.click(
+          await screen.findByRole('button', { name: `${collection.name} (${count})` }),
+        )
+      await user.click(await screen.findByRole('button', { name: /展开显示.*更多对话/ }))
 
-    await user.click(expand)
+      expect(await screen.findByRole('alert')).toHaveTextContent('下一页暂不可用')
+      expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(count - 1)
+      failed = false
+      await user.click(screen.getByRole('button', { name: /重试加载.*更多对话/ }))
 
-    await waitFor(() => expect(expand).toBeEnabled())
-    expect(expand).toBeVisible()
-  })
+      await waitFor(() =>
+        expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(count),
+      )
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /更多对话/ })).not.toBeInTheDocument()
+    },
+  )
+
+  it.each(['ungrouped', 'collection'])(
+    '%s 下一页与首页重叠时，每段对话只展示一次',
+    async (bucket) => {
+      const collection = bucket === 'collection' ? addMockCollection('分页合集') : null
+      const count = collection ? 11 : 21
+      const rows = seedConversations(count, collection?.id)
+      server.use(
+        http.get(
+          collection
+            ? `*/api/conversations/by-collection/${collection.id}`
+            : '*/api/conversations/ungrouped',
+          () => HttpResponse.json({ items: rows.slice(0, 2).reverse(), nextCursor: null }),
+        ),
+      )
+      const { user } = await render()
+      if (collection)
+        await user.click(
+          await screen.findByRole('button', { name: `${collection.name} (${count})` }),
+        )
+      await user.click(await screen.findByRole('button', { name: /展开显示.*更多对话/ }))
+
+      await waitFor(() =>
+        expect(screen.getAllByRole('link', { name: /^第\d+段$/ })).toHaveLength(count),
+      )
+      expect(screen.getAllByRole('link', { name: '第1段' })).toHaveLength(1)
+      expect(screen.getByRole('link', { name: '第0段' })).toBeVisible()
+    },
+  )
 
   it('归属弹窗把对话移进合集后，侧栏跟着变', async () => {
     const collection = addMockCollection('夏季亚麻系列')

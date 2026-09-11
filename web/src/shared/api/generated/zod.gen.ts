@@ -201,6 +201,16 @@ export const zConversationActivityOut = z.object({
 })
 
 /**
+ * ConversationAgentsOut
+ *
+ * 当前可发起对话的顶层 Agent；默认项取声明顺序的第一项，空目录为 None。
+ */
+export const zConversationAgentsOut = z.object({
+  default: z.string().nullable(),
+  items: z.array(z.string()),
+})
+
+/**
  * ConversationCollectionIn
  *
  * 把这段对话放进某个合集，或者拿出来（给 ``null``）。
@@ -1526,6 +1536,11 @@ export const zCreateConversationConversationsPostBody = zConversationIn
  * Successful Response
  */
 export const zCreateConversationConversationsPostResponse = zConversationEnvelope
+
+/**
+ * Successful Response
+ */
+export const zListAgentsConversationsAgentsGetResponse = zConversationAgentsOut
 
 export const zAuditConversationsConversationsAuditGetQuery = z.object({
   ownerUserId: z.uuid().nullish(),

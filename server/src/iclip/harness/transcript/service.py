@@ -75,7 +75,7 @@ class TranscriptService:
                 raise ValidationFailed("附件地址必须是 http(s) 地址")
         # 入队前登记附件，确保排队期间也可被工具引用。
         await self.record_materials(owner_user_id, conversation_id, content)
-        row = await self.queue.submit(
+        row, created = await self.queue.submit(
             prompt_id=prompt_id,
             conversation_id=conversation_id,
             agent_id=agent_id,
@@ -85,7 +85,8 @@ class TranscriptService:
             now=datetime.now(UTC),
             locked_by=self.runner.locked_by,
         )
-        await self.runner.submit(row)
+        if created:
+            await self.runner.submit(row)
         return row.as_entity()
 
     async def abort(self, conversation_id: str, prompt_id: str) -> None:

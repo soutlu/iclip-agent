@@ -272,7 +272,7 @@ async def submit_text(
     """提交一条消息并交给 runner；content 给了就用它，不给就是一段文字。"""
 
     prompt_id = f"prm_{uuid.uuid4().hex[:8]}"
-    row = await queue.submit(
+    row, _ = await queue.submit(
         prompt_id=prompt_id,
         conversation_id=conversation_id,
         agent_id=AGENT_ID,

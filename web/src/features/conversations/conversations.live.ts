@@ -8,52 +8,51 @@ import { conversationsQueryKeys, type Conversation } from './conversations.api'
 type RowPatch = { title: string } | { activity: Conversation['activity'] }
 
 /** 在侧栏顶层订阅一次全局会话更新。 */
-export const useLiveConversations = (): void => {
+export const useLiveConversations = (enabled = true): void => {
   const connection = use(TranscriptConnectionContext)
   if (connection === null) throw new Error('useLiveConversations 要在 TranscriptProvider 里用')
   const queryClient = useQueryClient()
 
-  useEffect(
-    () =>
-      connection.watchSessions((update) => {
-        if (update.kind === 'reconnected') {
-          // 全局帧不支持补发；重连后丢弃额外分页并刷新拓扑，恢复一致状态。
-          queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
-          void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
-          return
-        }
+  useEffect(() => {
+    if (!enabled) return
+    return connection.watchSessions((update) => {
+      if (update.kind === 'reconnected') {
+        // 全局帧不支持补发；重连后丢弃额外分页并刷新拓扑，恢复一致状态。
+        queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
+        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+        return
+      }
 
-        const patch: RowPatch =
-          update.kind === 'title'
-            ? { title: update.title }
-            : {
-                activity: {
-                  busy: update.busy,
-                  lastTurnReason: update.lastTurnReason,
-                  pendingInteraction: update.pendingInteraction,
-                },
-              }
-        queryClient.setQueriesData({ queryKey: conversationsQueryKeys.all }, (data: unknown) =>
-          patchConversation(data, update.conversationId, patch),
-        )
+      const patch: RowPatch =
+        update.kind === 'title'
+          ? { title: update.title }
+          : {
+              activity: {
+                busy: update.busy,
+                lastTurnReason: update.lastTurnReason,
+                pendingInteraction: update.pendingInteraction,
+              },
+            }
+      queryClient.setQueriesData({ queryKey: conversationsQueryKeys.all }, (data: unknown) =>
+        patchConversation(data, update.conversationId, patch),
+      )
 
-        if (update.kind !== 'activity') return
+      if (update.kind !== 'activity') return
 
-        if (!update.busy && update.lastTurnReason === 'completed') {
-          // 运行完成后重拉拓扑以获取 lastRunId，供未读标记比较；额外分页随之清除。
-          queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
-          void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
-          return
-        }
+      if (!update.busy && update.lastTurnReason === 'completed') {
+        // 运行完成后重拉拓扑以获取 lastRunId，供未读标记比较；额外分页随之清除。
+        queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
+        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+        return
+      }
 
-        // 状态变化可能改变筛选归属，仅让服务端重算非 all 列表。
-        queryClient.removeQueries({ predicate: (query) => filtered(query.queryKey, 'more') })
-        void queryClient.invalidateQueries({
-          predicate: (query) => filtered(query.queryKey, 'sidebar'),
-        })
-      }),
-    [connection, queryClient],
-  )
+      // 状态变化可能改变筛选归属，仅让服务端重算非 all 列表。
+      queryClient.removeQueries({ predicate: (query) => filtered(query.queryKey, 'more') })
+      void queryClient.invalidateQueries({
+        predicate: (query) => filtered(query.queryKey, 'sidebar'),
+      })
+    })
+  }, [connection, enabled, queryClient])
 }
 
 const filtered = (queryKey: readonly unknown[], bucket: 'more' | 'sidebar') =>

@@ -1,5 +1,5 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CueUserMenu } from '@/features/auth'
 import { ConversationSearchDialog } from '@/features/conversations'
 import { useUser } from '@/shared/auth'
@@ -23,18 +23,66 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const [searchOpen, setSearchOpen] = useState(false)
-  const { data: user } = useUser()
+  const session = useUser()
+  const { data: user } = session
   const requireLogin = useLoginPrompt()
-  // 收起时只剩页头左上角一个普通图标钮，不浮、不带阴影；页头按 ShellChrome 给它留位。
+  const canRead = Boolean(user?.permissions.includes('agent:read'))
+  const canStart = Boolean(user?.permissions.includes('agent:run'))
+  const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
+
+  const startNew = useCallback(() => {
+    if (session.isPending) return
+    if (!user) return requireLogin()
+    if (!canStart) return
+    setSearchOpen(false)
+    void navigate({ to: '/' })
+  }, [canStart, navigate, requireLogin, session.isPending, user])
+
+  const openSearch = useCallback(() => {
+    if (session.isPending) return
+    if (!user) return requireLogin()
+    if (canRead) setSearchOpen(true)
+  }, [canRead, requireLogin, session.isPending, user])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.repeat ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.shiftKey
+      )
+        return
+      if (event.key.toLowerCase() === 'k' && !event.altKey) {
+        event.preventDefault()
+        openSearch()
+      } else if (event.altKey && (event.code === 'KeyN' || event.key.toLowerCase() === 'n')) {
+        // 避开浏览器的新窗口快捷键；code 兼容 macOS Option 键改变字符。
+        event.preventDefault()
+        startNew()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [openSearch, startNew])
+
+  const searchDialog = (
+    <ConversationSearchDialog onOpenChange={setSearchOpen} open={searchOpen && canRead} />
+  )
+  // 收起时只保留页头展开钮；搜索弹窗仍可由快捷键打开。
   if (collapsed) {
     return (
-      <IconButton
-        className="layer-sidebar fixed top-2 left-3"
-        label="展开侧边栏"
-        name="panel-left"
-        onClick={() => onCollapsedChange(false)}
-        size="md"
-      />
+      <>
+        <IconButton
+          className="layer-sidebar fixed top-2 left-3"
+          label="展开侧边栏"
+          name="panel-left"
+          onClick={() => onCollapsedChange(false)}
+          size="md"
+        />
+        {searchDialog}
+      </>
     )
   }
 
@@ -66,27 +114,53 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
       <nav aria-label="会话操作" className="flex flex-col gap-0.5 px-3 pt-2">
         <SidebarAction
           icon="chat-new"
-          kbd="⌘N"
+          kbd="⌘⌥N"
           label="新建任务"
-          onClick={user ? () => navigate({ to: '/' }) : requireLogin}
+          disabled={session.isPending || Boolean(user && !canStart)}
+          onClick={startNew}
+          shortcut="Meta+Alt+N Control+Alt+N"
+          title={user && !canStart ? '当前账号没有新建任务权限' : '新建任务（⌘/Ctrl+Alt+N）'}
         />
         <SidebarAction
           icon="search"
           kbd="⌘K"
           label="搜索"
-          onClick={user ? () => setSearchOpen(true) : requireLogin}
+          disabled={session.isPending || Boolean(user && !canRead)}
+          onClick={openSearch}
+          shortcut="Meta+K Control+K"
+          title={user && !canRead ? '当前账号没有查看对话权限' : '搜索对话（⌘/Ctrl+K）'}
         />
         <SidebarAction
           active={pathname === '/tasks'}
           icon="task"
           label="需求单"
+          disabled={session.isPending || Boolean(user && !canReadTasks)}
           onClick={user ? () => navigate({ to: '/tasks' }) : requireLogin}
+          title={user && !canReadTasks ? '当前账号没有查看需求单权限' : undefined}
         />
         <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />
       </nav>
 
       {/* 未登录时保留弹性空间，使账户区保持底部对齐。 */}
-      {user ? (
+      {session.isPending ? (
+        <p className="min-h-0 flex-1 px-3 pt-4 text-body-sm text-on-surface-faint" role="status">
+          正在确认登录状态…
+        </p>
+      ) : session.isError ? (
+        <div className="min-h-0 flex-1 px-3 pt-4">
+          <p className="text-body-sm text-error" role="alert">
+            读取登录状态失败
+          </p>
+          <button
+            className={cn(SIDEBAR_ROW_CLASS, 'mt-2')}
+            disabled={session.isFetching}
+            onClick={() => void session.refetch()}
+            type="button"
+          >
+            {session.isFetching ? '重试中…' : '重试读取登录状态'}
+          </button>
+        </div>
+      ) : user ? (
         <SidebarConversations />
       ) : (
         <div className="min-h-0 flex-1 px-3 pt-4">
@@ -114,27 +188,45 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
         )}
         <IconButton label="设置" name="settings" size="md" />
       </div>
-
-      <ConversationSearchDialog onOpenChange={setSearchOpen} open={searchOpen} />
+      {searchDialog}
     </aside>
   )
 }
 
 type SidebarActionProps = {
   active?: boolean
+  disabled?: boolean
   icon: IconName
   kbd?: string
   label: string
   onClick?: (() => void) | undefined
+  shortcut?: string
+  title?: string | undefined
 }
 
-function SidebarAction({ active = false, icon, kbd, label, onClick }: SidebarActionProps) {
+function SidebarAction({
+  active = false,
+  disabled = false,
+  icon,
+  kbd,
+  label,
+  onClick,
+  shortcut,
+  title,
+}: SidebarActionProps) {
   return (
     <button
       aria-current={active ? 'page' : undefined}
       aria-label={label}
-      className={cn(SIDEBAR_ROW_CLASS, 'group w-full', active && 'bg-state-active font-medium')}
+      aria-keyshortcuts={shortcut}
+      className={cn(
+        SIDEBAR_ROW_CLASS,
+        'group w-full disabled:cursor-not-allowed disabled:opacity-50',
+        active && 'bg-state-active font-medium',
+      )}
+      disabled={disabled}
       onClick={onClick}
+      title={title}
       type="button"
     >
       <Icon className="text-on-surface" decorative name={icon} size="md" />

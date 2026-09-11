@@ -13,6 +13,7 @@ export {
   mintPromptId,
   submitPrompt,
   useStartConversation,
+  useConversationAgents,
   useDeleteConversation,
   useMoreConversations,
   useRenameConversation,
