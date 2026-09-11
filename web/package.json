@@ -9,7 +9,8 @@
   "packageManager": "pnpm@11.25.0",
   "scripts": {
     "build": "tsc -b && vite build",
-    "ci:check": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm lint:dead && pnpm contract:check && pnpm typecheck && pnpm test",
+    "ci:check": "pnpm ci:static && pnpm typecheck && pnpm test",
+    "ci:static": "pnpm format:check && pnpm lint && pnpm lint:design && pnpm lint:dead && pnpm contract:check",
     "contract:check": "node scripts/check-openapi-contract.mjs",
     "contract:generate": "openapi-ts -f openapi-ts.config.js",
     "dev": "bash scripts/start-dev.sh",
