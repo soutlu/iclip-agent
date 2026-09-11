@@ -1,0 +1,51 @@
+name: setup-web
+description: 安装 pnpm、Node 与 web 依赖；按需准备带缓存的 Playwright Chromium。
+
+inputs:
+  playwright:
+    description: 为 true 时安装 Playwright Chromium 及系统依赖。
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      # 使用 packageManager 指定的完整发布包，避免 npm 引导安装。
+      shell: bash
+      working-directory: web
+      run: |
+        version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
+        mkdir -p "$HOME/.pnpm-bin"
+        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
+        chmod +x "$HOME/.pnpm-bin/pnpm"
+        echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+        cache: pnpm
+        cache-dependency-path: web/pnpm-lock.yaml
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+      working-directory: web
+    - name: Playwright version
+      if: inputs.playwright == 'true'
+      id: playwright
+      shell: bash
+      working-directory: web
+      run: echo "version=$(pnpm exec playwright --version | sed 's/^Version //')" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      if: inputs.playwright == 'true'
+      id: browsers
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+    - name: Install Playwright browser
+      if: inputs.playwright == 'true' && steps.browsers.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: web
+      run: pnpm exec playwright install --with-deps chromium
+    - name: Install Playwright system deps
+      if: inputs.playwright == 'true' && steps.browsers.outputs.cache-hit == 'true'
+      shell: bash
+      working-directory: web
+      run: pnpm exec playwright install-deps chromium

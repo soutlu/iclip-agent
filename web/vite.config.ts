@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
 import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import tailwindcss from '@tailwindcss/vite'
@@ -19,30 +20,37 @@ const MOCK_SERVICE_WORKER_PATH = path.resolve(
   'node_modules/msw/lib/mockServiceWorker.js',
 )
 
-/** mock 模式的入口等待 MSW 就绪后再加载应用。 */
+/** mock 模式的入口等待 MSW 就绪后再加载应用；构建时要在脚本标签被收集前替换，所以放在 pre。 */
 const developmentApplicationEntryPlugin = (): Plugin => ({
-  apply: 'serve',
   name: 'cue-development-application-entry',
-  transformIndexHtml(html) {
-    return html.replace(APPLICATION_ENTRY, DEVELOPMENT_APPLICATION_ENTRY)
+  transformIndexHtml: {
+    handler: (html) => html.replace(APPLICATION_ENTRY, DEVELOPMENT_APPLICATION_ENTRY),
+    order: 'pre',
   },
 })
 
-/** 仅开发服务器提供 MSW worker，避免进入生产 public 产物。 */
-const mockServiceWorkerPlugin = (): Plugin => ({
-  apply: 'serve',
-  configureServer(server) {
-    server.middlewares.use((request, response, next) => {
-      if (request.url?.split('?')[0] !== '/mockServiceWorker.js') {
-        next()
-        return
-      }
+const serveMockServiceWorker = (
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void,
+) => {
+  if (request.url?.split('?')[0] !== '/mockServiceWorker.js') {
+    next()
+    return
+  }
 
-      const workerSource = readFileSync(MOCK_SERVICE_WORKER_PATH)
-      response.statusCode = 200
-      response.setHeader('Content-Type', 'application/javascript; charset=utf-8')
-      response.end(workerSource)
-    })
+  response.statusCode = 200
+  response.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+  response.end(readFileSync(MOCK_SERVICE_WORKER_PATH))
+}
+
+/** 只在 mock 模式下由 dev/preview 服务器提供 MSW worker，不进入 public 与生产产物。 */
+const mockServiceWorkerPlugin = (): Plugin => ({
+  configurePreviewServer(server) {
+    server.middlewares.use(serveMockServiceWorker)
+  },
+  configureServer(server) {
+    server.middlewares.use(serveMockServiceWorker)
   },
   name: 'cue-mock-service-worker',
 })
@@ -52,6 +60,8 @@ export default defineConfig(({ mode }) => {
   const useBrowserMocks = profile.browserMocks !== 'disabled'
 
   return {
+    // mock 构建只供 e2e 的 preview 使用，与生产产物分目录，互不覆盖。
+    build: useBrowserMocks ? { outDir: 'dist-mock' } : {},
     plugins: [
       ...(useBrowserMocks ? [developmentApplicationEntryPlugin(), mockServiceWorkerPlugin()] : []),
       // tanstackRouter 必须在 react 插件之前
@@ -59,7 +69,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
     ],
-    preview: { proxy: apiProxy },
+    preview: profile.proxyBackend ? { proxy: apiProxy } : {},
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, './src'),

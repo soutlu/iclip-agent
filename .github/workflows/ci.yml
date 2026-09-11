@@ -1,5 +1,10 @@
 name: ci
 
+# 结构：changes 判定 PR 触及哪一端；每端拆成「静态检查」与「测试」两个 job；checks 把结果映射到
+# 分支保护要求的四个名称（server、server-tests、web、web-e2e），一个名称只对应一个 job，失败能直接定位。
+# 新增一端时：changes 加路径分类与输出、加对应 job、checks 矩阵加一行，再到仓库设置登记保护名称。
+# 已知限制：被跳过的矩阵 job 在界面上显示为字面量名称（如 `server tests (${{ matrix.suite }})`），GitHub 不展开。
+
 permissions:
   contents: read
 
@@ -33,31 +38,60 @@ jobs:
         run: |
           server=true
           web=true
-          # 只缩小 PR 的范围；合入后全跑，公共文件和未知路径也全跑。
+          # 只缩小 PR 的范围；合入后全跑。纯文档不跑任何一端；公共文件和未知路径两端全跑。
+          # server/ 下的 Markdown（SKILL.md 等）是运行时读取的，所以先按目录归类再看后缀。
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             if git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-files"; then
               server=false
               web=false
               while IFS= read -r -d '' path; do
                 case "$path" in
-                  server/*) server=true ;;
-                  web/*) web=true ;;
-                  *) server=true; web=true ;;
+                  server/*) scope=server ;;
+                  web/*|design-system.html) scope=web ;;
+                  docs/*|*.md|.claude/*|.gitignore|.pre-commit-config.yaml) scope=docs ;;
+                  *) scope=all ;;
                 esac
+                case "$scope" in
+                  server) server=true ;;
+                  web) web=true ;;
+                  all) server=true; web=true ;;
+                esac
+                printf '%-6s %s\n' "$scope" "$path"
               done < "$RUNNER_TEMP/ci-changed-files"
             else
               echo "::warning::无法确定 PR 变更范围，执行两端完整检查"
             fi
           fi
+          echo "server=$server web=$web"
           echo "server=$server" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
 
-  server:
-    name: server (${{ matrix.suite }})
+  server_checks:
+    name: server checks
     needs: changes
     if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.suite == 'checks' && 15 || 30 }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-server
+      - name: Run checks
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pyright
+          uv run tach check
+          uv run pytest tests/unit -m unit
+
+  server_tests:
+    name: server tests (${{ matrix.suite }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: server
@@ -65,13 +99,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - suite: checks
-            command: |
-              uv run ruff check .
-              uv run ruff format --check .
-              uv run pyright
-              uv run tach check
-              uv run pytest tests/unit -m unit
           - suite: runtime
             command: >-
               uv run pytest tests/integration_no_llm/agents tests/integration_no_llm/generation
@@ -83,9 +110,9 @@ jobs:
               --ignore=tests/integration_no_llm/agents --ignore=tests/integration_no_llm/generation
               -m integration_no_llm --durations=10
     services:
+      # 每个分片独占一个实例。
       postgres:
-        # 静态检查不启动数据库；集成分片各自独占一个实例。
-        image: ${{ matrix.suite != 'checks' && 'postgres:16' || '' }}
+        image: postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -98,13 +125,11 @@ jobs:
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
     steps:
       - uses: actions/checkout@v7
-      # setup-uv 不提供浮动大版本标签。
-      - uses: astral-sh/setup-uv@v10.0.1
-      - run: uv sync --locked
+      - uses: ./.github/actions/setup-server
       - name: Install ffmpeg
         if: matrix.suite == 'domains'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-      - name: Run checks
+      - name: Run tests
         run: ${{ matrix.command }}
       - name: Contract check
         if: matrix.suite == 'domains'
@@ -115,12 +140,12 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
         run: uv run alembic upgrade head
 
-  web:
-    name: web (${{ matrix.task }})
+  web_checks:
+    name: web checks (${{ matrix.task }})
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.browser && 20 || 15 }}
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -132,52 +157,50 @@ jobs:
             command: pnpm ci:static && pnpm build
           - task: tests
             command: pnpm test
-          - task: e2e-1
-            browser: true
-            command: pnpm test:e2e --shard=1/2
-          - task: e2e-2
-            browser: true
-            command: pnpm test:e2e --shard=2/2
     steps:
       - uses: actions/checkout@v7
-      - name: Install pnpm
-        # 使用 packageManager 指定的完整发布包，避免 npm 引导安装。
-        run: |
-          version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
-          mkdir -p "$HOME/.pnpm-bin"
-          curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
-          chmod +x "$HOME/.pnpm-bin/pnpm"
-          echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - name: Playwright version
-        if: matrix.browser
-        id: playwright
-        run: echo "version=$(pnpm exec playwright --version | sed 's/^Version //')" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        if: matrix.browser
-        id: browsers
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - name: Install Playwright browser
-        if: matrix.browser && steps.browsers.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-      - name: Install Playwright system deps
-        if: matrix.browser && steps.browsers.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
+      - uses: ./.github/actions/setup-web
       - name: Run checks
         run: ${{ matrix.command }}
 
-  # 同一应用的检查统一汇总，保留四个分支保护名称。
+  web_e2e:
+    name: web e2e (${{ matrix.shard }}/2)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-web
+        with:
+          playwright: 'true'
+      # playwright.config.ts 在 CI 下先做 mock 构建再起 preview，见该文件说明。
+      - name: Run e2e
+        run: pnpm test:e2e --shard=${{ matrix.shard }}/2
+      # 失败或重试过的用例留有 trace（retain-on-failure），全绿时目录里只有 .last-run.json，不上传。
+      - name: Upload Playwright traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-e2e-${{ matrix.shard }}
+          path: |
+            web/test-results
+            !web/test-results/.last-run.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # 分支保护只认这四个名称；被 changes 跳过的一端在这里按「应跳过且已跳过」放行。
   checks:
     name: ${{ matrix.name }}
     if: always()
-    needs: [changes, server, web]
+    needs: [changes, server_checks, server_tests, web_checks, web_e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -186,19 +209,24 @@ jobs:
         include:
           - name: server
             scope: server
+            job: server_checks
           - name: server-tests
             scope: server
+            job: server_tests
           - name: web
             scope: web
+            job: web_checks
           - name: web-e2e
             scope: web
+            job: web_e2e
     steps:
-      - name: Require selected checks
+      - name: Require selected check
         env:
           SCOPE_RESULT: ${{ needs.changes.result }}
           REQUIRED: ${{ needs.changes.outputs[matrix.scope] }}
-          RESULT: ${{ needs[matrix.scope].result }}
+          RESULT: ${{ needs[matrix.job].result }}
         run: |
+          echo "changes=$SCOPE_RESULT required=$REQUIRED ${{ matrix.job }}=$RESULT"
           test "$SCOPE_RESULT" = success
           if [ "$REQUIRED" = true ]; then
             test "$RESULT" = success

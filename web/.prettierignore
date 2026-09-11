@@ -1,4 +1,5 @@
 dist/
+dist-mock/
 coverage/
 pnpm-lock.yaml
 src/routeTree.gen.ts

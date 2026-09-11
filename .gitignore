@@ -17,6 +17,7 @@ node_modules/
 # 仓库放在外挂卷时 pnpm 会把 store 建在项目旁边
 .pnpm-store/
 web/dist/
+web/dist-mock/
 web/test-results/
 web/playwright-report/
 web/coverage/
