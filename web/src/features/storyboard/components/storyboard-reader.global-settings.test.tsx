@@ -53,7 +53,8 @@ const provide = (document = fixture) => {
   const events: string[] = []
   server.use(
     http.get('*/api/conversations/:conversationId/workspace/file', ({ request }) => {
-      expect(new URL(request.url).searchParams.get('path')).toBe(PATH)
+      if (new URL(request.url).searchParams.get('path') !== PATH)
+        return HttpResponse.json({ detail: '文件不存在' }, { status: 404 })
       return HttpResponse.json({ file: { path: PATH, content: JSON.stringify(stored), version } })
     }),
     http.put('*/api/conversations/:conversationId/workspace/file', async ({ request }) => {

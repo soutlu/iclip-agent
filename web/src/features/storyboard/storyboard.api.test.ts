@@ -149,6 +149,7 @@ describe('uploadFrameImage', () => {
   const decode = vi.fn<typeof createImageBitmap>()
   const close = vi.fn()
   let signedBody: unknown
+  let uploadHeaders: Record<string, string | null> | undefined
 
   const imageFile = (type = 'image/png', size = 4) =>
     new File([new Uint8Array(size)], '本地图片.png', { type })
@@ -156,6 +157,7 @@ describe('uploadFrameImage', () => {
   beforeEach(() => {
     requests.length = 0
     signedBody = undefined
+    uploadHeaders = undefined
     close.mockReset()
     decode.mockReset().mockResolvedValue({ close, height: 1200, width: 800 })
     vi.stubGlobal('createImageBitmap', decode)
@@ -175,8 +177,10 @@ describe('uploadFrameImage', () => {
         })
       }),
       http.put(uploadUrl, ({ request }) => {
-        expect(request.headers.get('Content-Type')).toBe('image/png')
-        expect(request.headers.get('x-upload-token')).toBe('test-ticket')
+        uploadHeaders = {
+          'Content-Type': request.headers.get('Content-Type'),
+          'x-upload-token': request.headers.get('x-upload-token'),
+        }
         return new HttpResponse(null, { status: 200 })
       }),
       http.post('*/api/assets/:assetId', () =>
@@ -210,6 +214,7 @@ describe('uploadFrameImage', () => {
     expect(decode).toHaveBeenCalledWith(file)
     expect(close).toHaveBeenCalledOnce()
     expect(signedBody).toEqual({ contentType: type, height, width })
+    expect(uploadHeaders).toEqual({ 'Content-Type': 'image/png', 'x-upload-token': 'test-ticket' })
     expect(requests).toEqual([
       'POST /api/uploads/sign',
       `PUT /mock-oss/${assetId}`,
