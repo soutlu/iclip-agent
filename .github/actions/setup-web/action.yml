@@ -1,0 +1,26 @@
+name: Setup web
+description: Install pnpm, Node.js, and web dependencies
+
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      shell: bash
+      working-directory: web
+      # 从发布页下载 packageManager 指定版本，避免额外的 npm 引导安装。
+      run: |
+        version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
+        mkdir -p "$HOME/.pnpm-bin"
+        # 启动器依赖同目录 dist/，须解压完整发布包。
+        curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
+        chmod +x "$HOME/.pnpm-bin/pnpm"
+        echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+        cache: pnpm
+        cache-dependency-path: web/pnpm-lock.yaml
+    - name: Install
+      shell: bash
+      working-directory: web
+      run: pnpm install --frozen-lockfile

@@ -15,8 +15,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 静态检查、单元测试与文档不需要数据库或媒体依赖。
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      server: ${{ steps.scope.outputs.server }}
+      web: ${{ steps.scope.outputs.web }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Docs check (链接与 make 目标存在)
+        run: python3 scripts/check-docs.py
+      - name: Select application checks
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/ci-scope.sh
+
+  # 静态检查和单元测试不需要数据库或媒体依赖。
   server:
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -38,12 +59,12 @@ jobs:
         run: uv run tach check
       - name: Unit tests
         run: uv run pytest tests/unit -m unit
-      - name: Docs check (链接与 make 目标存在)
-        run: python3 ../scripts/check-docs.py
 
   # 每个分片独占 runner 和 Postgres；作业内串行，避免清表夹具互相干扰。
   server-integration:
     name: server-integration (${{ matrix.suite }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     # 单测挂死时的最后一道闸；单个用例的上限见 pyproject 的 pytest timeout。
     timeout-minutes: 30
@@ -98,20 +119,10 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
         run: uv run alembic upgrade head
 
-  # 保留分支保护要求的检查名称；失败、取消或跳过均不能汇总成成功。
-  server-tests:
-    if: always()
-    needs: server-integration
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require all integration shards
-        env:
-          RESULT: ${{ needs.server-integration.result }}
-        run: test "$RESULT" = success
-
   # 静态检查和测试使用独立 runner，避免把约一分钟的两段工作串行相加。
   web-checks:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -123,22 +134,7 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
-      - name: Install pnpm
-        # 从发布页下载 packageManager 指定版本，避免额外的 npm 引导安装。
-        run: |
-          version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
-          mkdir -p "$HOME/.pnpm-bin"
-          # 启动器依赖同目录 dist/，须解压完整发布包。
-          curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
-          chmod +x "$HOME/.pnpm-bin/pnpm"
-          echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-web
       - name: Static checks
         if: matrix.task == 'static'
         run: pnpm ci:static
@@ -150,19 +146,10 @@ jobs:
         if: matrix.task == 'tests'
         run: pnpm test
 
-  web:
-    if: always()
-    needs: web-checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require static checks and tests
-        env:
-          RESULT: ${{ needs.web-checks.result }}
-        run: test "$RESULT" = success
-
   # Playwright 按测试用例分为两片；每片保持既有的 3 workers 和浏览器缓存。
   web-e2e-shards:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -174,20 +161,7 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
-      - name: Install pnpm
-        run: |
-          version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
-          mkdir -p "$HOME/.pnpm-bin"
-          curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
-          chmod +x "$HOME/.pnpm-bin/pnpm"
-          echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-web
       - name: Playwright version
         id: playwright
         run: echo "version=$(pnpm exec playwright --version | sed 's/^Version //')" >> "$GITHUB_OUTPUT"
@@ -205,13 +179,37 @@ jobs:
       - name: e2e (browser MSW as backend)
         run: pnpm test:e2e --shard=${{ matrix.shard }}/2
 
-  web-e2e:
+  # 汇总检查保留分支保护名称；仅明确不适用的任务允许跳过。
+  checks:
+    name: ${{ matrix.name }}
     if: always()
-    needs: web-e2e-shards
+    needs: [changes, server-integration, web-checks, web-e2e-shards]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server-tests
+            scope: server
+            job: server-integration
+          - name: web
+            scope: web
+            job: web-checks
+          - name: web-e2e
+            scope: web
+            job: web-e2e-shards
     steps:
-      - name: Require all browser shards
+      - name: Require selected checks
         env:
-          RESULT: ${{ needs.web-e2e-shards.result }}
-        run: test "$RESULT" = success
+          SCOPE_RESULT: ${{ needs.changes.result }}
+          REQUIRED: ${{ needs.changes.outputs[matrix.scope] }}
+          RESULT: ${{ needs[matrix.job].result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          if [ "$REQUIRED" = true ]; then
+            test "$RESULT" = success
+          else
+            test "$REQUIRED" = false
+            test "$RESULT" = skipped
+          fi
