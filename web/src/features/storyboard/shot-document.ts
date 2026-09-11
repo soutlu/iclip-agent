@@ -1,7 +1,7 @@
 /** 结构化分镜文件、局部编辑与文本导出；保留字段身份和原始正文。 */
 
 import { z } from 'zod'
-import { MAX_REFERENCE_IMAGES, splitPrompt, type ShotTimeline } from './shots'
+import { MAX_REFERENCE_IMAGES } from './shots'
 
 const nonblank = z.string().refine((value) => value.trim().length > 0, '内容不能为空')
 const timestamp = z.number().nonnegative()
@@ -184,19 +184,6 @@ export const formatShotPrompt = (shot: Shot): string => {
 export const formatShotPrompts = (shots: readonly Shot[]): string =>
   shots.map((shot) => `镜头组 ${shot.index}\n${formatShotPrompt(shot)}`).join('\n\n')
 
-/** 镜头边界和图片归属直接取文件字段；文本分段只供行内帧标记展示。 */
-export const splitShotTimeline = (shot: Shot): ShotTimeline => ({
-  preamble: shot.prompt.global_settings,
-  scenes: shot.prompt.timeline.map((item, position) => ({
-    endSeconds: item.timestamps[1],
-    frameNumbers: [...item.image_indexes],
-    id: position.toString(),
-    scene: position + 1,
-    segments: splitPrompt(item.prompt),
-    startSeconds: item.timestamps[0],
-  })),
-})
-
 const SENTENCE_END = /[。；！？!?;]/
 
 /** 只读标题从镜头正文取首句，文件中的正文保持原样。 */
@@ -218,5 +205,3 @@ export const promptTitle = (prompt: string): string | undefined => {
 
 export const shotName = (shot: Shot): string =>
   promptTitle(shot.prompt.timeline[0]?.prompt ?? '') ?? `镜头组 ${shot.index}`
-
-export { firstFrameOfScene, sceneOfFrame } from './shots'

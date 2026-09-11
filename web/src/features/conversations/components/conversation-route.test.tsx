@@ -414,7 +414,7 @@ describe('ConversationRoute', () => {
     ).toBeNull()
   })
 
-  it('点「重新生成」打 :regenerate 端点，新一轮走推送回流', async () => {
+  it('点「重新生成」提交末轮的 :regenerate 请求', async () => {
     const user = userEvent.setup()
     await renderConversation()
     await screen.findByText(TAIL_TEXT)
@@ -498,18 +498,24 @@ describe('ConversationRoute', () => {
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('')
   })
 
-  it('对话在忙时「重新生成」置灰', async () => {
+  it('对话在忙时「修改」和「重新生成」都不可用', async () => {
     const { socket } = await renderConversation()
     await screen.findByText(TAIL_TEXT)
 
-    const button = within(screen.getByLabelText('第 2 轮')).getByRole('button', {
+    const latestTurn = within(screen.getByLabelText('第 2 轮'))
+    const regenerate = latestTurn.getByRole('button', {
       name: '重新生成',
     })
-    expect(button).toBeEnabled()
+    const edit = latestTurn.getByRole('button', { name: '修改' })
+    expect(regenerate).toBeEnabled()
+    expect(edit).toBeEnabled()
 
     socket.deliver(opsFrame([runningPrompt('p-run')], 11))
 
-    await waitFor(() => expect(button).toBeDisabled())
+    await waitFor(() => {
+      expect(regenerate).toBeDisabled()
+      expect(edit).toBeDisabled()
+    })
   })
 
   it('重新生成被服务端拒了（409）时把它给的中文文案弹出来', async () => {

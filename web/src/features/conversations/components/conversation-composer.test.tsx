@@ -1,14 +1,27 @@
-/** 同时挂载真实工作台与输入框，验证它们通过 shared/workbench 共享选中引用。 */
+/** 同时挂载真实工作台与会话页，验证选中引用的展示与消息提交。 */
 
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { StoryboardPanel } from '@/features/storyboard'
 import type { ArtifactRendererProps } from '@/shared/workbench'
 import { pasteTextIntoComposer } from '@/testing/editor'
+import { server } from '@/testing/mocks/server'
 import { seedMockWorkspace, SHOTS_MOCK_PATH } from '@/testing/mocks/workspace'
 import { renderWithProviders } from '@/testing/render'
-import { ConversationComposer } from './conversation-composer'
+import { ConversationRoute } from './conversation-route'
+
+// jsdom 不支持 Lottie 的 canvas 探测；此处只验证引用与发送行为。
+vi.mock('lottie-web/build/player/lottie_light', () => ({
+  default: {
+    loadAnimation: () => ({
+      addEventListener: () => undefined,
+      destroy: () => undefined,
+      removeEventListener: () => undefined,
+    }),
+  },
+}))
 
 const CONVERSATION_ID = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
 
@@ -21,20 +34,15 @@ const artifact: ArtifactRendererProps['artifact'] = {
 
 const renderChatWithWorkbench = async (initialPath = '/?shot=2') => {
   seedMockWorkspace(CONVERSATION_ID)
-  const onSend = vi.fn(() => Promise.resolve())
   const rendered = await renderWithProviders(
     <>
       <StoryboardPanel artifact={artifact} conversationId={CONVERSATION_ID} />
-      <ConversationComposer
-        contextTokens={undefined}
-        maxContextTokens={undefined}
-        onSend={onSend}
-      />
+      <ConversationRoute conversationId={CONVERSATION_ID} />
     </>,
     { initialPath },
   )
   await screen.findByRole('region', { name: '镜头组 2' })
-  return { ...rendered, onSend }
+  return rendered
 }
 
 describe('ConversationComposer 上的引用芯片', () => {
@@ -73,16 +81,28 @@ describe('ConversationComposer 上的引用芯片', () => {
     expect(await screen.findByText('镜头组 2 · 全局设定 · @Image1')).toBeVisible()
   })
 
-  it('带引用发送：每条引用一行前缀拼在正文前面，发完芯片收掉', async () => {
-    const { onSend } = await renderChatWithWorkbench('/?shot=2&content=scene:2&frame=3')
+  it('带引用发送：提交的正文包含引用前缀，发送成功后芯片收掉', async () => {
+    let submittedContent: unknown
+    server.use(
+      http.post(`*/api/conversations/${CONVERSATION_ID}/prompts`, async ({ request }) => {
+        const body = (await request.json()) as { content: unknown; prompt_id: string }
+        submittedContent = body.content
+        return HttpResponse.json({
+          createdAt: '2026-08-31T03:00:00Z',
+          promptId: body.prompt_id,
+          status: 'running',
+        })
+      }),
+    )
+    await renderChatWithWorkbench('/?shot=2&content=scene:2&frame=3')
     await screen.findByText('镜头组 2 · 镜头 2 · @Image3')
 
     pasteTextIntoComposer(screen.getByLabelText('输入消息'), '这一帧的光再暖一点')
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() =>
-      expect(onSend).toHaveBeenCalledWith([
-        { kind: 'text', text: '针对镜头组 2 的镜头 2（参考图 @Image3）：\n这一帧的光再暖一点' },
+      expect(submittedContent).toEqual([
+        { type: 'text', text: '针对镜头组 2 的镜头 2（参考图 @Image3）：\n这一帧的光再暖一点' },
       ]),
     )
     await waitFor(() =>

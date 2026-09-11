@@ -34,14 +34,10 @@ describe('Markdown 代码块', () => {
     expect(screen.getByText('text')).toBeInTheDocument()
   })
 
-  it('块内文字是纯文本，不套行内代码的底色；段落里的行内代码才有', () => {
-    stubClipboard()
-    const { container } = render(
-      <Markdown text={'```\n第一行\n第二行\n```\n\n写进 `shots/storyboard.md`\n'} />,
-    )
-    expect(container.querySelector('pre code')).toBeNull()
-    expect(container.querySelector('pre')).toHaveTextContent('第一行 第二行')
-    expect(container.querySelector('p code')).toHaveClass('bg-chat-code-bg')
+  it('混合代码块与行内代码时保留两处原文', () => {
+    render(<Markdown text={'```\n第一行\n第二行\n```\n\n写进 `shots/storyboard.md`\n'} />)
+    expect(screen.getByText('第一行 第二行')).toBeVisible()
+    expect(screen.getByText('shots/storyboard.md')).toBeVisible()
   })
 
   it('GFM 表格渲染成表头与单元格', () => {

@@ -1,11 +1,8 @@
 import { appendContentImage, insertContentReference } from './shot-content'
 import { describe, expect, it } from 'vitest'
 import {
-  firstFrameOfScene,
   parseShotsDocument,
-  sceneOfFrame,
   shotName,
-  splitShotTimeline,
   type Shot,
   type ShotsDocument,
   extractImageIndexes,
@@ -14,7 +11,6 @@ import {
   updateTimelinePrompt,
   validateShot,
 } from './shot-document'
-import { splitPrompt } from './shots'
 
 const shot: Shot = {
   image_urls: ['a.png', 'b.png'],
@@ -237,77 +233,5 @@ describe('shotName', () => {
 
   it('第一镜只含帧记号时用组序号起名', () => {
     expect(shotName(withBody('@Image1 @Image2', [1, 2], 3))).toBe('镜头组 3')
-  })
-})
-
-describe('splitShotTimeline', () => {
-  const timeline = splitShotTimeline(shot)
-
-  it('全局设定单独显示，保留原始空白且不计入镜头数量', () => {
-    expect(timeline.preamble).toBe(shot.prompt.global_settings)
-    expect(timeline.scenes).toHaveLength(3)
-  })
-
-  it('镜头序号按数组位置生成，起止时间直接取 timestamps', () => {
-    expect(timeline.scenes.map((scene) => scene.scene)).toEqual([1, 2, 3])
-    expect(timeline.scenes.map((scene) => [scene.startSeconds, scene.endSeconds])).toEqual([
-      [0, 3.5],
-      [4.25, 8.5],
-      [8.5, 9],
-    ])
-  })
-
-  it('图片顺序来自 image_indexes，首帧不按图片编号排序', () => {
-    expect(timeline.scenes.map((scene) => scene.frameNumbers)).toEqual([[2, 1], [1], []])
-    expect(timeline.scenes.map(firstFrameOfScene)).toEqual([2, 1, undefined])
-  })
-
-  it('正文只拆帧记号，保留行首空格和末尾换行', () => {
-    expect(timeline.scenes[0]?.segments.map(({ id: _id, ...segment }) => segment)).toEqual([
-      { kind: 'text', text: '  开场，她站在门厅 ' },
-      { kind: 'frame', number: 2 },
-      { kind: 'text', text: '，转身看向屋内 ' },
-      { kind: 'frame', number: 1 },
-      { kind: 'text', text: '。\n' },
-    ])
-  })
-
-  it('正文中的时间线样式文字不创建额外镜头或覆盖结构化时间戳', () => {
-    const source = '字幕道具内容：\n[20–25秒｜镜头9]\n这仍是同一镜头的正文 @Image1。'
-    const projected = splitShotTimeline(withBody(source, [1]))
-
-    expect(projected.scenes).toHaveLength(1)
-    expect(projected.scenes[0]).toMatchObject({ scene: 1, startSeconds: 0, endSeconds: 6 })
-    expect(projected.scenes[0]?.segments.map(({ id: _id, ...segment }) => segment)).toEqual(
-      splitPrompt(source).map(({ id: _id, ...segment }) => segment),
-    )
-  })
-
-  it('正文相同的多个镜头仍有独立标识', () => {
-    const repeated = splitShotTimeline({
-      ...shot,
-      prompt: {
-        ...shot.prompt,
-        timeline: [
-          { timestamps: [0, 2], prompt: '同样的镜头 @Image1。', image_indexes: [1] },
-          { timestamps: [2, 4], prompt: '同样的镜头 @Image1。', image_indexes: [1] },
-        ],
-      },
-    })
-    expect(new Set(repeated.scenes.map((scene) => scene.id)).size).toBe(2)
-  })
-
-  it('无帧镜头仍保留正文，且没有首帧', () => {
-    const scene = timeline.scenes[2]
-    expect(scene?.frameNumbers).toEqual([])
-    expect(scene?.segments).toEqual([{ id: 't0', kind: 'text', text: '只有旁白，没有图片引用。' }])
-    expect(scene && firstFrameOfScene(scene)).toBeUndefined()
-  })
-
-  it('同一帧关联多个镜头时反查首个关联镜头，未知帧没有关联', () => {
-    expect(timeline.scenes.filter((scene) => scene.frameNumbers.includes(1))).toHaveLength(2)
-    expect(sceneOfFrame(timeline, 1)?.scene).toBe(1)
-    expect(sceneOfFrame(timeline, 2)?.scene).toBe(1)
-    expect(sceneOfFrame(timeline, 9)).toBeUndefined()
   })
 })

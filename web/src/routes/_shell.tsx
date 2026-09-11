@@ -5,22 +5,18 @@ import { LoginDialog } from '@/features/auth'
 import { cn } from '@/shared/lib/utils'
 import { ShellChromeContext } from '@/shared/shell'
 import { WorkbenchLayoutProvider } from '@/shared/workbench'
-import { APP_RESIZE_HANDLE_WIDTH, AppResizeHandle } from './-app-resize-handle'
+import { AppResizeHandle } from './-app-resize-handle'
 import { AppRightPanel } from './-app-right-panel'
+import {
+  clampWidth,
+  COMPACT_MAX,
+  resolveShellLayout,
+  SIDEBAR_WIDTH,
+  WORKBENCH_WIDTH,
+} from './-app-shell-layout'
 import { AppSidebar } from './-app-sidebar'
 import { LoginPromptProvider } from './-login-prompt'
 import { useStoredWidth } from './-use-stored-width'
-
-// 数值与 design-system.html 的 --layout-app-* 对齐；可拖宽度需在 JS 中计算并排空间。
-const SIDEBAR_DEFAULT = 264
-const SIDEBAR_MIN = 200
-const SIDEBAR_MAX = 400
-const WORKBENCH_DEFAULT = 820
-const WORKBENCH_MIN = 560
-const CHAT_MIN = 400
-const COMPACT_MAX = 600
-
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 // SSO 失败通过 ssoError 查询参数触发登录弹窗。
 const ShellSearchSchema = z.object({
@@ -42,8 +38,8 @@ function AppShell() {
     () => !window.matchMedia(`(min-width: ${COMPACT_MAX}px)`).matches,
   )
   const [panelVisible, setPanelVisible] = useState(false)
-  const sidebar = useStoredWidth('sidebar-width', SIDEBAR_DEFAULT)
-  const workbench = useStoredWidth('workbench-width', WORKBENCH_DEFAULT)
+  const sidebar = useStoredWidth('sidebar-width', SIDEBAR_WIDTH.default)
+  const workbench = useStoredWidth('workbench-width', WORKBENCH_WIDTH.default)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 
   useEffect(() => {
@@ -56,14 +52,12 @@ function AppShell() {
   const dragOriginRef = useRef(0)
   const dragValueRef = useRef(0)
 
-  const sidebarWidth = clamp(sidebar.width, SIDEBAR_MIN, SIDEBAR_MAX)
-  const compact = viewport < COMPACT_MAX
-  const occupiedBySidebar = sidebarCollapsed || compact ? 0 : sidebarWidth + APP_RESIZE_HANDLE_WIDTH
-  // 并排时两条拖柄都占列宽；紧凑屏侧栏覆盖主区，不占并排空间。
-  const availableForWorkbench = viewport - occupiedBySidebar - CHAT_MIN - APP_RESIZE_HANDLE_WIDTH
-  const sideBySide = availableForWorkbench >= WORKBENCH_MIN
-  const workbenchMax = Math.max(WORKBENCH_MIN, availableForWorkbench)
-  const workbenchWidth = clamp(workbench.width, WORKBENCH_MIN, workbenchMax)
+  const { sidebarWidth, compact, sideBySide, workbenchMax, workbenchWidth } = resolveShellLayout({
+    viewport,
+    sidebarCollapsed,
+    sidebarWidth: sidebar.width,
+    workbenchWidth: workbench.width,
+  })
 
   const handleLoginOpenChange = useCallback(
     (open: boolean) => {
@@ -103,17 +97,17 @@ function AppShell() {
           {sidebarCollapsed || compact ? null : (
             <AppResizeHandle
               label="调整侧栏宽度"
-              max={SIDEBAR_MAX}
-              min={SIDEBAR_MIN}
+              max={SIDEBAR_WIDTH.max}
+              min={SIDEBAR_WIDTH.min}
               onReset={() => {
-                sidebar.setWidth(SIDEBAR_DEFAULT)
-                sidebar.persist(SIDEBAR_DEFAULT)
+                sidebar.setWidth(SIDEBAR_WIDTH.default)
+                sidebar.persist(SIDEBAR_WIDTH.default)
               }}
               onResize={(delta) => {
-                dragValueRef.current = clamp(
+                dragValueRef.current = clampWidth(
                   dragOriginRef.current + delta,
-                  SIDEBAR_MIN,
-                  SIDEBAR_MAX,
+                  SIDEBAR_WIDTH.min,
+                  SIDEBAR_WIDTH.max,
                 )
                 sidebar.setWidth(dragValueRef.current)
               }}
@@ -141,16 +135,16 @@ function AppShell() {
               <AppResizeHandle
                 label="调整面板宽度"
                 max={workbenchMax}
-                min={WORKBENCH_MIN}
+                min={WORKBENCH_WIDTH.min}
                 onReset={() => {
-                  workbench.setWidth(WORKBENCH_DEFAULT)
-                  workbench.persist(WORKBENCH_DEFAULT)
+                  workbench.setWidth(WORKBENCH_WIDTH.default)
+                  workbench.persist(WORKBENCH_WIDTH.default)
                 }}
                 // 面板左侧拖柄向右移动时宽度减小，位移取反。
                 onResize={(delta) => {
-                  dragValueRef.current = clamp(
+                  dragValueRef.current = clampWidth(
                     dragOriginRef.current - delta,
-                    WORKBENCH_MIN,
+                    WORKBENCH_WIDTH.min,
                     workbenchMax,
                   )
                   workbench.setWidth(dragValueRef.current)

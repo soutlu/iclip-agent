@@ -2,9 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/shared/lib/utils'
-
-/** 拖柄占据的实际列宽，同时供壳计算并排空间。 */
-export const APP_RESIZE_HANDLE_WIDTH = 4
+import { APP_RESIZE_HANDLE_WIDTH } from './-app-shell-layout'
 
 const KEY_STEP = 16
 

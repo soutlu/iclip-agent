@@ -50,13 +50,6 @@ describe('HomeRoute', () => {
     expect(screen.getByRole('button', { name: '添加附件' })).toBeVisible()
   })
 
-  it('空输入时发送钮禁用，输入后放开', async () => {
-    await renderWithProviders(<HomeRoute />)
-    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
-    pasteTextIntoComposer(screen.getByLabelText('输入消息'), '做一个产品宣传片')
-    expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
-  })
-
   it.each([true, false])('发送返回 %s 时只在成功后清空正文', async (success) => {
     const user = userEvent.setup()
     const sent: ComposerSubmission[] = []

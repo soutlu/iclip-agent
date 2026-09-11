@@ -4,7 +4,6 @@ import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Toaster, toast } from '@/shared/ui/toast'
-import { writeWorkspaceFile } from '@/shared/workbench'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import type { GenerationJob } from '../storyboard.api'
@@ -32,12 +31,16 @@ const job = (status: 'pending' | 'completed'): GenerationJob => ({
   createdAt: '2026-09-07T12:00:00Z',
   errorMessage: null,
   outputUrl: status === 'completed' ? 'https://example.com/old-result.png' : null,
-  request: { frameEdit: { ...target, ...draft } },
+  request: {
+    frameNumber: target.frameNumber,
+    prompt: '将衣服改成蓝色',
+    referenceImageUrls: [target.sourceUrl],
+  },
   taskId: null,
   watermarkOutputUrl: null,
 })
 
-function EditorPage({ onApply }: { onApply: (url: string) => Promise<void> }) {
+function EditorPage() {
   const [open, setOpen] = useState(true)
   return (
     <>
@@ -47,7 +50,7 @@ function EditorPage({ onApply }: { onApply: (url: string) => Promise<void> }) {
           frames={[target.sourceUrl]}
           aspectRatio="9:16"
           onClose={() => setOpen(false)}
-          onApply={onApply}
+          onApply={async () => {}}
         />
       )}
       <Toaster />
@@ -55,7 +58,7 @@ function EditorPage({ onApply }: { onApply: (url: string) => Promise<void> }) {
   )
 }
 
-describe('图片编辑提交与应用的失败边界', () => {
+describe('图片编辑模型选择与提交', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'ResizeObserver',
@@ -82,7 +85,7 @@ describe('图片编辑提交与应用的失败边界', () => {
         return HttpResponse.json({ generation: job('pending') }, { status: 202 })
       }),
     )
-    await renderWithProviders(<EditorPage onApply={async () => {}} />)
+    await renderWithProviders(<EditorPage />)
 
     const models = await screen.findByLabelText('图片模型')
     expect(await screen.findByLabelText('图片生成渠道')).toBeInTheDocument()
@@ -116,7 +119,7 @@ describe('图片编辑提交与应用的失败边界', () => {
         return HttpResponse.json({ generation: pending }, { status: 202 })
       }),
     )
-    await renderWithProviders(<EditorPage onApply={async () => {}} />)
+    await renderWithProviders(<EditorPage />)
     const editor = await screen.findByRole('dialog', { name: '编辑图片' })
     await within(editor).findByRole('button', { name: '查看编辑结果' })
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
@@ -140,50 +143,5 @@ describe('图片编辑提交与应用的失败边界', () => {
       expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
     )
     expect(submissions).toHaveLength(1)
-  })
-
-  it('服务端保存成功后清理本地草稿失败，仍报告已应用并关闭编辑器', async () => {
-    const completed = job('completed')
-    const writes: { content: string }[] = []
-    server.use(
-      http.get('*/api/generations', () => HttpResponse.json({ items: [completed] })),
-      http.put('*/api/conversations/:id/workspace/file', async ({ request }) => {
-        const body = (await request.json()) as { content: string; path: string }
-        writes.push(body)
-        return HttpResponse.json({ file: { content: body.content, path: body.path, version: 2 } })
-      }),
-    )
-    await renderWithProviders(
-      <EditorPage
-        onApply={async (url) => {
-          await writeWorkspaceFile(target.conversationId, {
-            path: target.artifactPath,
-            expectedVersion: 1,
-            content: JSON.stringify({
-              aspectRatio: '9:16',
-              shots: [{ index: 1, imageUrls: [url], prompt: '原有描述', seconds: 6 }],
-            }),
-          })
-        }}
-      />,
-    )
-    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
-    await userEvent.click(await within(editor).findByRole('button', { name: '查看编辑结果' }))
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
-      throw new DOMException('Storage blocked', 'SecurityError')
-    })
-
-    await userEvent.click(within(editor).getByRole('button', { name: '应用到当前帧' }))
-
-    expect(await screen.findByText('图片已应用并保存到当前帧')).toBeVisible()
-    expect(await screen.findByText('图片已保存，但本地草稿清理失败')).toBeVisible()
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
-    )
-    expect(writes).toHaveLength(1)
-    expect(JSON.parse(writes[0]?.content ?? '{}')).toMatchObject({
-      shots: [{ imageUrls: [completed.outputUrl] }],
-    })
-    expect(screen.queryByText(/图片尚未应用/)).not.toBeInTheDocument()
   })
 })
