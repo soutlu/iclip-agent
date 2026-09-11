@@ -18,6 +18,7 @@ from iclip.capabilities.shot_document import (
     validate_shots_document,
     validate_video_shot_requests,
 )
+from tests.helpers.shot_document import shots_document
 
 FIRST_IMAGE = "https://cdn.test/first.jpg"
 SECOND_IMAGE = "https://cdn.test/second.jpg"
@@ -407,3 +408,87 @@ def test_aspect_rejects_broken_text(value: str) -> None:
 
 def test_aspect_parses() -> None:
     assert parse_aspect("16:9") == pytest.approx(16 / 9)
+
+
+def test_written_back_table_accepts_the_current_document_format() -> None:
+
+    validate_shots_document(shots_document())
+
+
+def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
+    """素材来源校验约束模型生成；用户写回仅校验文档形状。"""
+
+    validate_shots_document(
+        shots_document(
+            shots=[
+                json.loads(shots_document())["shots"][0]
+                | {"image_urls": ["https://别处.test/x.jpg"]}
+            ]
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("{不是 json", "不是合法的 JSON"),
+        ("[]", "根必须是一个对象"),
+        (json.dumps({"aspect_ratio": "9:16"}), "shots"),
+        (shots_document(aspect_ratio="竖版"), "画幅"),
+        (json.dumps({"aspect_ratio": "9:16", "shots": [{"index": 1}]}), "prompt"),
+        (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"index": 2}]),
+            "连续编号",
+        ),
+        (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"seconds": 31}]),
+            "4-30",
+        ),
+        (
+            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"image_urls": []}]),
+            "@Image1",
+        ),
+        (
+            shots_document(
+                shots=[json.loads(shots_document())["shots"][0] | {"image_urls": ["  "]}]
+            ),
+            "空地址",
+        ),
+        (
+            shots_document(
+                shots=[
+                    json.loads(shots_document())["shots"][0]
+                    | {
+                        "prompt": {
+                            "global_settings": "人物与门厅保持一致。",
+                            "timeline": [
+                                {
+                                    "timestamps": [0, 8],
+                                    "prompt": "她走进门厅 @Image2。",
+                                    "image_indexes": [2],
+                                }
+                            ],
+                        }
+                    }
+                ]
+            ),
+            "@Image2",
+        ),
+    ],
+    ids=[
+        "bad-json",
+        "not-object",
+        "no-shots",
+        "bad-aspect",
+        "bad-row",
+        "index-gap",
+        "seconds",
+        "reference-without-images",
+        "blank-url",
+        "image-ref",
+    ],
+)
+def test_written_back_table_is_rejected_with_the_reason(content: str, message: str) -> None:
+
+    with pytest.raises(ValueError, match=message):
+        validate_shots_document(content)

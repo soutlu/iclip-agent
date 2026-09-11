@@ -78,7 +78,8 @@ def test_the_contract_placeholder_config_still_loads() -> None:
 
     assert config.app.name
     assert config.media_generation is not None, "占位配置要开着媒体生成，路由才齐"
-    assert config.shot_video is not None, "占位配置要开着镜头素材，路由才齐"
+    assert config.video is not None, "占位配置要开着视频拆解"
+    assert config.shot_video is not None, "占位配置要开着取帧与出图"
     assert config.models, "至少要声明一个模型"
 
 
@@ -364,82 +365,102 @@ def test_media_generation_without_a_bucket_fails_loudly(
         resolve_settings(config)
 
 
-SHOT_VIDEO = """
-shot_video:
+VIDEO_SECTION = """
+video:
   understanding_model: seed-vision
   understanding_thinking: medium
   understanding_fps: 5
+"""
+
+SHOT_VIDEO = """
+shot_video:
   dev_attempts: 2
   pro_attempts: 1
 """
 
-SHOT_VIDEO_ENV = {
+VIDEO_ENV = {
     "VIDEO_UNDERSTANDING_URL": "https://vision.test/responses",
     "VIDEO_UNDERSTANDING_API_KEY": "ark",
 }
 
 
-def _shot_video_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _video_env(monkeypatch: pytest.MonkeyPatch) -> None:
     _media_env(monkeypatch)
-    for name, value in SHOT_VIDEO_ENV.items():
+    for name, value in VIDEO_ENV.items():
         monkeypatch.setenv(name, value)
 
 
-def test_shot_video_off_when_understanding_url_empty(
+def test_video_off_when_understanding_url_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """未配置视频解析地址时关闭能力；agent 引用未启用能力由装配阶段拒绝。"""
+    """未配置视频解析地址时关闭 video；取帧与出图的节奏段照常解析。"""
 
-    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
-    _shot_video_env(monkeypatch)
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION + SHOT_VIDEO))
+    _video_env(monkeypatch)
     monkeypatch.delenv("VIDEO_UNDERSTANDING_URL")
+    settings = resolve_settings(config)
 
-    assert resolve_settings(config).shot_video is None
+    assert settings.video is None
+    assert settings.shot_video is not None
 
 
-def test_shot_video_resolves_shape_and_credentials(
+def test_video_resolves_shape_and_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
-    _shot_video_env(monkeypatch)
-    shot = resolve_settings(config).shot_video
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION + SHOT_VIDEO))
+    _video_env(monkeypatch)
+    settings = resolve_settings(config)
 
-    assert shot is not None
-    assert shot.understanding_url == "https://vision.test/responses"
-    assert shot.understanding_model == "seed-vision", "对方的模型名来自 YAML"
-    assert shot.understanding_thinking == "medium"
-    assert shot.understanding_fps == 5
-    assert (shot.dev_attempts, shot.pro_attempts) == (2, 1)
+    assert settings.video is not None
+    assert settings.video.understanding_url == "https://vision.test/responses"
+    assert settings.video.understanding_model == "seed-vision", "对方的模型名来自 YAML"
+    assert settings.video.understanding_thinking == "medium"
+    assert settings.video.understanding_fps == 5
+    assert settings.shot_video is not None
+    assert (settings.shot_video.dev_attempts, settings.shot_video.pro_attempts) == (2, 1)
 
 
-def test_shot_video_half_configured_fails_loudly(
+def test_video_half_configured_fails_loudly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
-    _shot_video_env(monkeypatch)
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION))
+    _video_env(monkeypatch)
     monkeypatch.delenv("VIDEO_UNDERSTANDING_API_KEY")
     with pytest.raises(ValidationError, match="VIDEO_UNDERSTANDING_API_KEY"):
         resolve_settings(config)
 
 
-def test_video_understanding_resolves_without_media_generation(
+def test_shot_tools_enabled_when_generation_and_bucket_are_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION + SHOT_VIDEO))
+    _video_env(monkeypatch)
+    settings = resolve_settings(config)
 
-    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
-    _shot_video_env(monkeypatch)
+    assert settings.shot_tools_missing == ()
+    assert settings.shot_tools_enabled
+
+
+def test_video_resolves_without_media_generation_and_names_what_shot_video_lacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION + SHOT_VIDEO))
+    _video_env(monkeypatch)
     monkeypatch.delenv("VIDEO_SUBMIT_URL")
     settings = resolve_settings(config)
+
     assert settings.media_generation is None
+    assert settings.video is not None
     assert settings.shot_video is not None
-    assert settings.shot_video.understanding_model == "seed-vision"
+    assert settings.shot_tools_missing == ("VIDEO_SUBMIT_URL",)
+    assert not settings.shot_tools_enabled
 
 
-def test_video_understanding_without_generation_still_requires_credentials(
+def test_video_without_generation_still_requires_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config = load_runtime_config(write(tmp_path, VALID + MEDIA + SHOT_VIDEO))
-    _shot_video_env(monkeypatch)
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION))
+    _video_env(monkeypatch)
     monkeypatch.delenv("VIDEO_SUBMIT_URL")
     monkeypatch.delenv("VIDEO_UNDERSTANDING_API_KEY")
     with pytest.raises(ValidationError, match="VIDEO_UNDERSTANDING_API_KEY"):
@@ -449,10 +470,15 @@ def test_video_understanding_without_generation_still_requires_credentials(
 def test_shot_video_section_absent_means_off(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config = load_runtime_config(write(tmp_path, VALID + MEDIA))
-    _shot_video_env(monkeypatch)
+    """没写 shot_video 段就不装取帧与出图，也不算缺东西。"""
 
-    assert resolve_settings(config).shot_video is None
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION))
+    _video_env(monkeypatch)
+    settings = resolve_settings(config)
+
+    assert settings.shot_video is None
+    assert settings.shot_tools_missing == ()
+    assert not settings.shot_tools_enabled
 
 
 PRODUCT_CATALOG_ENV = {

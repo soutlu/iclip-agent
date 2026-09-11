@@ -42,9 +42,9 @@ Agent 声明文件必须存在；不启用 Agent 时写 `agent: {}`。`spec` 必
 
 skill 与 capability 都按 Agent 显式挂载，子代理不继承主代理的挂载。skill 正文由 Harness 按需加载，reference 由随库挂载的 `get_skill_reference` 读取。capability 的实例和挂载依赖集中在 [app/capability_table.py](../server/src/iclip/app/capability_table.py)，工具声明规则见 [tool-design.md](tool-design.md)。
 
-`exact_replica` 提供参考视频解析和镜头组 prompt 交付，依赖 `workspace`，使用 `shot_video` 配置段中的视频理解参数与 `VIDEO_UNDERSTANDING_*` 环境变量，可在未启用媒体生成、对象存储和 ffmpeg 时独立装配；`shot_video` 提供取帧与出图，另需媒体生成、对象存储和 ffmpeg，这套是否启用由 `ResolvedSettings.shot_tools_enabled` 判定，ffmpeg 检查与能力登记都按它取用。两条流的工具名称独立，共同交付 `video_shot.json`，文件写回只登记一套校验，形状与前端约定见 [contract/conventions.md](../contract/conventions.md#6-对话-conversations)。
+`video` 提供参考视频拆解（`video_parser`）与镜头组 prompt 表交付（`write_video_shots`），依赖 `workspace`；由 `video` 配置段与 `VIDEO_UNDERSTANDING_*` 环境变量启用，不需要媒体生成、对象存储和 ffmpeg。`shot_video` 提供取帧与出图，依赖 `workspace` 与 `video`；由 `shot_video` 配置段启用，另需媒体生成、对象存储和 ffmpeg，三者是否齐由 `ResolvedSettings.shot_tools_enabled` 一处判定：ffmpeg 检查按它执行，能力表只在它成立时收到 `shot_video`。`video_shot.json` 的形状与前端约定见 [contract/conventions.md](../contract/conventions.md#6-对话-conversations)。
 
-两个能力包不互相依赖，共用件是 `capabilities/` 下的两个模块：[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验规则，[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议与方舟适配器；后者的实例由组合根建一份注入两处。
+能力包之间不 import，共用件放 `capabilities/` 下不带工具的模块：[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验规则，供 `video` 的交付工具与对话域的文件写回共用；[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议、方舟适配器与拆解文档路径，`shot_video` 只用路径函数定位 `video` 写下的文档。划分标准：模型看得见的东西（工具名、docstring、参数 schema、验证器措辞、display 表、指令）留在各自包内，换 agent 就可以不同；模型看不见、换 agent 也不允许有差异的机制（素材台账校验、工作区写入与配额处理、文档结构）下沉到 `harness/` 或这类共用模块，不在包之间复制。
 
 模型适配集中在 [harness/models.py](../server/src/iclip/harness/models.py)，同名模型复用实例。provider 选择交给官方 `infer_model`；`api: responses` 使用本仓的 Responses 子类。模型参数转换不进入业务模块或工具。
 
