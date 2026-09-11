@@ -19,6 +19,7 @@ from iclip.app.capability_table import (
     build_display_registry,
     resolve_capabilities,
 )
+from iclip.capabilities.exact_replica.capability import ExactReplica
 from iclip.capabilities.shot_video.capability import ShotVideo
 from iclip.capabilities.shot_video.generation import IMAGE_MODEL
 from iclip.capabilities.shot_video.ports import (
@@ -174,11 +175,13 @@ def test_the_display_registry_covers_every_mounted_tool(
         "get_skill_reference",
         "list_files",
         "load_capability",
+        "parse_reference_video",
         "plan_shot_frames",
         "read_file",
         "search_files",
         "video_parser",
         "write_file",
+        "write_replica_shots",
         "write_video_shots",
     ]
 
@@ -370,4 +373,41 @@ def test_shot_video_refuses_to_mount_when_its_image_model_is_not_wired(
             http_client=idle_client(),
             shot_video=shot_video_settings,
             image_models=frozenset({"别的一家"}),
+        )
+
+
+def test_exact_replica_mounts_without_generation_or_object_store(
+    shot_video_settings: ResolvedShotVideo,
+) -> None:
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
+        http_client=idle_client(),
+        shot_video=shot_video_settings,
+    )
+    resolved = resolve_capabilities(
+        ("workspace", "exact_replica"), table=built, declared_by="agent exact-replica"
+    )
+    assert [type(capability) for capability in resolved] == [Workspace, ExactReplica]
+    assert "shot_video" not in built
+    replica = resolved[1]
+    assert isinstance(replica, ExactReplica)
+    assert set(replica.get_toolset().tools) == {"parse_reference_video", "write_replica_shots"}
+    display = build_display_registry(built)
+    assert "parse_reference_video" in display.entries
+    assert "write_replica_shots" in display.entries
+    assert "generate_shot_frames" not in display.entries
+    with pytest.raises(RuntimeError, match=r"没挂 'workspace'"):
+        resolve_capabilities(("exact_replica",), table=built, declared_by="agent exact-replica")
+
+
+def test_exact_replica_is_unavailable_without_understanding() -> None:
+    built = build_capability_table(
+        workspace_store=FakeFileStore(),
+        material_ledger=FakeMaterialLedger(),
+        http_client=idle_client(),
+    )
+    with pytest.raises(RuntimeError, match="未登记的 capability 'exact_replica'"):
+        resolve_capabilities(
+            ("workspace", "exact_replica"), table=built, declared_by="agent exact-replica"
         )

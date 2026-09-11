@@ -36,19 +36,20 @@ describe('HomeRoute', () => {
     expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
   })
 
-  it('发送把话与选中的 agent 一起交出去，并清空输入框', async () => {
+  it.each([
+    ['通用助手', 'assistant'],
+    ['完全复刻', 'exact-replica'],
+  ])('选择%s后发送对应 Agent，并清空输入框', async (label, agentId) => {
     const user = userEvent.setup()
     const sent: { agentId: string }[] = []
     await renderWithProviders(<HomeRoute onSend={(input) => sent.push(input)} />)
 
     await user.click(screen.getByRole('button', { name: /分镜 Agent/ }))
-    await user.click(await screen.findByRole('menuitem', { name: '通用助手' }))
+    await user.click(await screen.findByRole('menuitem', { name: label }))
     pasteTextIntoComposer(screen.getByLabelText('输入消息'), '做一个产品宣传片')
     await user.click(screen.getByRole('button', { name: '发送' }))
 
-    expect(sent).toEqual([
-      { agentId: 'assistant', parts: [{ kind: 'text', text: '做一个产品宣传片' }] },
-    ])
+    expect(sent).toEqual([{ agentId, parts: [{ kind: 'text', text: '做一个产品宣传片' }] }])
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('')
   })
 })

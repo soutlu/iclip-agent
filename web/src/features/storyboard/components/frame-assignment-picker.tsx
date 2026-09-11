@@ -5,6 +5,7 @@ import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
 
 type FrameAssignmentPickerProps = {
   open: boolean
+  canUpload: boolean
   frames: readonly string[]
   onPickExisting: (number: number, url: string) => void
   onUpload: (file: File) => Promise<void>
@@ -12,6 +13,7 @@ type FrameAssignmentPickerProps = {
 }
 
 export function FrameAssignmentPicker({
+  canUpload,
   frames,
   onClose,
   onPickExisting,
@@ -28,6 +30,7 @@ export function FrameAssignmentPicker({
           actions={
             <>
               <Button
+                disabled={!canUpload}
                 leadingIcon="add-file"
                 onClick={() => uploadRef.current?.click()}
                 size="md"
@@ -36,6 +39,7 @@ export function FrameAssignmentPicker({
                 上传图片
               </Button>
               <input
+                disabled={!canUpload}
                 accept={FRAME_IMAGE_ACCEPT}
                 aria-label="选择要上传的图片"
                 className="hidden"

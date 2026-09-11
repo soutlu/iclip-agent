@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 import httpx
 from pydantic import ValidationError
 
+from iclip.capabilities.exact_replica.capability import ExactReplica
 from iclip.capabilities.shot_video.capability import GenerationPolicy, shot_video_capability
-from iclip.capabilities.shot_video.generation import IMAGE_MODEL
-from iclip.capabilities.shot_video.parser import ArkVideoUnderstanding
 from iclip.capabilities.shot_video.ports import (
     ImageJob,
     ImageRequest,
     InvalidImageRequest,
     ObjectWriteFailed,
 )
+from iclip.capabilities.video_understanding import ArkVideoUnderstanding
 from iclip.capabilities.workspace.capability import workspace_capability
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.capabilities.workspace.scope import workspace_namespace
@@ -36,9 +37,6 @@ from iclip.platform.transcript.display import ToolDisplayRegistry, ToolDisplaySo
 
 CapabilityTable = Mapping[str, AgentCapabilities]
 """能力名称对应一组实例；同一声明可挂载多项能力，运行状态由 for_run 克隆隔离。"""
-
-REQUIRES: Mapping[str, tuple[str, ...]] = {"shot_video": ("workspace",)}
-"""能力挂载依赖；shot_video 的文档与台账需要 workspace 工具访问，装配时统一校验。"""
 
 
 class GenerationsAdapter:
@@ -163,7 +161,11 @@ def build_capability_table(
     shot_video: ResolvedShotVideo | None = None,
     image_models: frozenset[str] = frozenset(),
 ) -> CapabilityTable:
-    """装配已启用的能力。shot_video 依赖完整的生成服务与对象存储；缺失时不登记该名称。"""
+    """按拿到的运行对象登记能力名：材料齐了就登记，缺了就跳过。
+
+    「取帧与出图这套算不算启用」由 ``ResolvedSettings.shot_tools_enabled`` 判定，本函数只按
+    组合根递进来的对象是否为空取用，不重算那个条件。
+    """
 
     # 文件生产与读取共用 FileSpace，避免命名空间不一致。
     space = FileSpace(store=workspace_store, namespace=workspace_namespace)
@@ -174,13 +176,21 @@ def build_capability_table(
             ),
         ),
     }
-    if shot_video is not None and generation_service is not None and object_store is not None:
-        if IMAGE_MODEL not in image_models:
-            # 出图把用哪家钉在代码里，配置没接这家就是每次出图都失败，起不来比跑起来好。
-            raise RuntimeError(
-                f"出图工具要 {IMAGE_MODEL}，但 media_generation.image.models 里没有它；"
-                f"已接入的是 {'、'.join(sorted(image_models)) or '（空）'}"
-            )
+    if shot_video is None:
+        return table
+    # 两条流拆解同一个上游接口，共用一个适配器实例。
+    understanding = ArkVideoUnderstanding(
+        http_client,
+        url=shot_video.understanding_url,
+        api_key=shot_video.understanding_api_key,
+        model=shot_video.understanding_model,
+        thinking=shot_video.understanding_thinking,
+        fps=shot_video.understanding_fps,
+    )
+    table["exact_replica"] = (
+        ExactReplica[Any](space=space, ledger=material_ledger, understanding=understanding),
+    )
+    if generation_service is not None and object_store is not None:
         table["shot_video"] = (
             shot_video_capability(
                 space=space,
@@ -188,15 +198,9 @@ def build_capability_table(
                 generations=GenerationsAdapter(generation_service),
                 objects=ObjectWriterAdapter(object_store),
                 paths=MEDIA_PATHS,
-                understanding=ArkVideoUnderstanding(
-                    http_client,
-                    url=shot_video.understanding_url,
-                    api_key=shot_video.understanding_api_key,
-                    model=shot_video.understanding_model,
-                    thinking=shot_video.understanding_thinking,
-                    fps=shot_video.understanding_fps,
-                ),
+                understanding=understanding,
                 client=http_client,
+                image_models=image_models,
                 policy=GenerationPolicy(
                     poll_interval_seconds=shot_video.poll_interval_seconds,
                     dev_attempts=shot_video.dev_attempts,
@@ -228,7 +232,10 @@ def build_display_registry(table: CapabilityTable) -> ToolDisplayRegistry:
 def resolve_capabilities(
     names: Sequence[str], *, table: CapabilityTable, declared_by: str
 ) -> AgentCapabilities:
-    """按名字取能力；名字没登记、或少挂了它要求同挂的名字，即报错（装配期 fail fast）。"""
+    """按名字取能力；名字没登记、或少挂了它要求同挂的名字，即报错（装配期 fail fast）。
+
+    同挂要求由能力自己的 ``REQUIRES`` 类属性声明，没声明就是不要求。
+    """
 
     resolved: AgentCapabilities = ()
     for name in names:
@@ -238,7 +245,12 @@ def resolve_capabilities(
             raise RuntimeError(
                 f"{declared_by} 引用了未登记的 capability {name!r}；已登记的有: {known}"
             )
-        missing = [required for required in REQUIRES.get(name, ()) if required not in names]
+        required = (
+            requirement
+            for capability in found
+            for requirement in getattr(capability, "REQUIRES", ())
+        )
+        missing = [requirement for requirement in required if requirement not in names]
         if missing:
             raise RuntimeError(
                 f"{declared_by} 挂了 capability {name!r} 却没挂 {', '.join(map(repr, missing))}——"
@@ -249,7 +261,6 @@ def resolve_capabilities(
 
 
 __all__ = [
-    "REQUIRES",
     "CapabilityTable",
     "GenerationsAdapter",
     "ObjectWriterAdapter",

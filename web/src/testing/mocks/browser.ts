@@ -1,7 +1,7 @@
 import { setupWorker } from 'msw/browser'
 import { addMockCollection, addMockConversation, handlers } from './handlers'
 import { markMockAwaitingApproval, markMockJustFinished } from './transcript'
-import { seedMockWorkspace } from './workspace'
+import { seedMockReplicaWorkspace, seedMockWorkspace } from './workspace'
 
 // 演示数据仅在浏览器侧初始化，避免影响每例清空存储的单测。
 const DEMO_CONVERSATIONS = [
@@ -42,6 +42,9 @@ if (withShots !== undefined) {
 // 独立的无图草稿用于演示先编辑正文、再补充第一张图片。
 const withoutImages = addMockConversation('无图分镜草稿', new Date().toISOString())
 seedMockWorkspace(withoutImages.id, { withoutImages: true })
+
+const replica = addMockConversation('乐福鞋 · 完全复刻', new Date().toISOString())
+seedMockReplicaWorkspace(replica.id)
 
 // 两个会话归入示例合集，其余保持未分组。
 const linen = addMockCollection('夏季亚麻系列')

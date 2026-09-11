@@ -251,7 +251,7 @@ export function EditReferences({
         </ol>
       ) : null}
       <p className="mt-2 text-caption leading-relaxed text-on-surface-muted">
-        选择要提交的图片并调整顺序；系统不会自动补图。
+        默认使用当前原图；需要其他参考时再添加图片，可调整提交顺序。
       </p>
       <DialogRoot open={pickerOpen} onOpenChange={setPickerOpen}>
         <DialogSurface aria-describedby={undefined} className="max-w-2xl">

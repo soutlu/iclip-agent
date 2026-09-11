@@ -1,7 +1,7 @@
 /** 结构化分镜文件、局部编辑与文本导出；保留字段身份和原始正文。 */
 
 import { z } from 'zod'
-import { splitPrompt, type ShotTimeline } from './shots'
+import { MAX_REFERENCE_IMAGES, splitPrompt, type ShotTimeline } from './shots'
 
 const nonblank = z.string().refine((value) => value.trim().length > 0, '内容不能为空')
 const timestamp = z.number().nonnegative()
@@ -20,7 +20,7 @@ const timelineItemSchema = z.strictObject({
 
 const shotSchema = z
   .strictObject({
-    image_urls: z.array(nonblank),
+    image_urls: z.array(nonblank).max(MAX_REFERENCE_IMAGES),
     index: z.int().positive(),
     prompt: z.strictObject({
       global_settings: nonblank,
@@ -151,7 +151,7 @@ export const updateTimelinePrompt = (shot: Shot, position: number, prompt: strin
 }
 
 /** 有效选区内插入引用；文本已经变化或未指定选区时追加末尾。 */
-const insertReferenceText = (
+export const insertReferenceText = (
   prompt: string,
   number: number,
   insertion?: PromptInsertion,
@@ -168,32 +168,6 @@ const insertReferenceText = (
     return prompt.slice(0, insertion.start) + reference + prompt.slice(insertion.end)
   }
   return prompt + (prompt.length === 0 || /\s$/.test(prompt) ? '' : ' ') + reference
-}
-
-export const insertFrameReference = (
-  shot: Shot,
-  position: number,
-  number: number,
-  insertion?: PromptInsertion,
-): Shot => {
-  const item = shot.prompt.timeline[position]
-  if (item === undefined) throw new Error('这个镜头已不存在，请重新选择')
-  if (!Number.isInteger(number) || number < 1 || number > shot.image_urls.length) {
-    throw new Error('这张图片已不存在，请重新选择')
-  }
-  return updateTimelinePrompt(shot, position, insertReferenceText(item.prompt, number, insertion))
-}
-
-/** 新图只追加，正文引用和派生编号在同一个草稿操作中更新。 */
-export const appendShotFrame = (
-  shot: Shot,
-  position: number,
-  url: string,
-  insertion?: PromptInsertion,
-): Shot => {
-  if (url.trim() === '') throw new Error('图片地址不能为空')
-  const images = [...shot.image_urls, url]
-  return insertFrameReference({ ...shot, image_urls: images }, position, images.length, insertion)
 }
 
 const OUTPUT_CONSTRAINT = '不要生成字幕，不要生成背景音乐。'

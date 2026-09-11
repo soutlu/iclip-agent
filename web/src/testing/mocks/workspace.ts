@@ -322,6 +322,61 @@ export const seedMockWorkspace = (
   ])
 }
 
+/** 全局参考图为主的分镜示例；两条流共用文件路径和工作台。 */
+export const seedMockReplicaWorkspace = (conversationId: string) => {
+  const frames = httpFrames()
+  const document = {
+    aspect_ratio: '9:16',
+    shots: [
+      {
+        index: 1,
+        seconds: 12,
+        image_urls: Array.from(
+          { length: 30 },
+          (_, index) => `${[frames.a, frames.b, frames.c][index % 3]}?reference=${index + 1}`,
+        ),
+        prompt: {
+          global_settings:
+            '人物、产品与场景保持一致，自然窗光，镜头之间硬切。参考图：' +
+            Array.from({ length: 30 }, (_, index) => `@Image${index + 1}`).join('、') +
+            '。',
+          timeline: [
+            {
+              timestamps: [0, 4],
+              prompt: '开场，全景平视，人物坐在门厅长椅上，双手托起棕色乐福鞋。',
+              image_indexes: [],
+            },
+            {
+              timestamps: [4, 8],
+              prompt: '硬切，近景侧拍，人物缓慢转动乐福鞋，展示鞋面与侧边缝线。',
+              image_indexes: [],
+            },
+            {
+              timestamps: [8, 12],
+              prompt: '硬切，低角度特写，人物穿上乐福鞋，向前迈出两步。',
+              image_indexes: [],
+            },
+          ],
+        },
+      },
+    ],
+  }
+  workspaces.set(
+    conversationId,
+    new Map([
+      [
+        SHOTS_MOCK_PATH,
+        {
+          content: JSON.stringify(document, null, 2),
+          updatedAt: new Date().toISOString(),
+          version: 1,
+        },
+      ],
+    ]),
+  )
+  generations.set(conversationId, [])
+}
+
 /** 修改第 2 组描述并递增版本；不存在工作区时返回 false。 */
 export const touchMockShots = (conversationId: string): boolean => {
   const files = workspaces.get(conversationId)

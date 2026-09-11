@@ -45,6 +45,11 @@
   transition-timing-function: var(--ease);
 }
 
+/* ProseMirror 在行尾行内节点后插入的光标占位图；preflight 把 img 设成块级，会把光标挤到下一行。 */
+.ProseMirror img.ProseMirror-separator {
+  display: inline;
+}
+
 /* 伪元素扩展至 ≥48×48 触控热区；调用方提供定位上下文，overflow-hidden 会裁切热区。 */
 .hit-48::after {
   border-radius: inherit;

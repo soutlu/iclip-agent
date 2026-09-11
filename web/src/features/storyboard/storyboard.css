@@ -89,7 +89,7 @@
 .storyboard-strip {
   display: flex;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   align-items: stretch;
   gap: 4px;
   overflow-x: auto;
@@ -167,6 +167,16 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
+/* 只固定标题本身，长图组的末端仍能同时看到标题和图片数量。 */
+.storyboard-scene-title {
+  position: sticky;
+  left: 6px;
+  flex: 0 1 auto;
+  max-width: calc(100cqw - var(--storyboard-frame-width) - 52px);
+}
+.storyboard-scene-active {
+  background: var(--color-primary);
+}
 .storyboard-scene-active .storyboard-scene-caption {
   background: var(--color-primary);
   color: var(--color-on-primary);
@@ -213,13 +223,6 @@
     gap: 12px;
     padding: 12px;
   }
-  /* 窄面板放不下并排的组操作，让胶片条独占一行，缩略图才有完整宽度。 */
-  .storyboard-filmstrip {
-    flex-wrap: wrap;
-  }
-  .storyboard-strip {
-    flex: 1 1 100%;
-  }
   .storyboard-group-actions {
     max-width: none;
   }
@@ -228,8 +231,6 @@
   .storyboard-add-frame,
   .storyboard-open-prompt {
     width: 32px;
-    height: var(--control-height-lg);
-    align-self: flex-end;
   }
   .storyboard-preview {
     grid-template-columns: minmax(0, 1fr);
@@ -282,4 +283,10 @@
     border-top: 0.5px solid var(--color-chat-hairline);
     border-left-width: 0;
   }
+}
+
+/* 无参考图时正文占满预览，保留工作台原有尺寸与滚动边界。 */
+.storyboard-preview.storyboard-preview-text {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }

@@ -7,6 +7,7 @@ import json
 import uuid
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, RunRecord, StepEvent
@@ -475,22 +476,23 @@ async def test_workspace_file_can_be_written_back_with_the_version_it_was_read_a
     assert absent.status_code == 409
 
 
+@pytest.mark.parametrize("path", ["video_shot.json"])
 async def test_workspace_file_write_checks_the_document_on_its_path(
-    client: httpx.AsyncClient, pg_url: str
+    client: httpx.AsyncClient, pg_url: str, path: str
 ) -> None:
-    """写回沿用交付形状校验；非规范路径可能绕过 video_shot.json 校验，必须拒绝。"""
+    """写回沿用交付形状校验；非规范路径可能绕过分镜文档校验，必须拒绝。"""
 
     user_id = await login_as_editor(client, pg_url)
     mine = (await create(client, title="这段")).json()["conversation"]["id"]
     frame_url = "https://cdn.test/frames/s1-1.jpg"
     await seed_workspace_files(
-        pg_url, f"{user_id}/{mine}", {"video_shot.json": shots_document(image_url=frame_url)}
+        pg_url, f"{user_id}/{mine}", {path: shots_document(image_url=frame_url)}
     )
 
     swapped = await client.put(
         f"{URL}/{mine}/workspace/file",
         json={
-            "path": "video_shot.json",
+            "path": path,
             "content": shots_document(image_url="https://cdn.test/另一张.jpg"),
             "expectedVersion": 1,
         },
@@ -500,7 +502,7 @@ async def test_workspace_file_write_checks_the_document_on_its_path(
     broken = await client.put(
         f"{URL}/{mine}/workspace/file",
         json={
-            "path": "video_shot.json",
+            "path": path,
             "content": shots_document(image_url=frame_url, index=2),
             "expectedVersion": 2,
         },
@@ -513,7 +515,7 @@ async def test_workspace_file_write_checks_the_document_on_its_path(
     mismatched = await client.put(
         f"{URL}/{mine}/workspace/file",
         json={
-            "path": "video_shot.json",
+            "path": path,
             "content": json.dumps(mismatched_document, ensure_ascii=False),
             "expectedVersion": 2,
         },
@@ -524,14 +526,14 @@ async def test_workspace_file_write_checks_the_document_on_its_path(
     sneaky = await client.put(
         f"{URL}/{mine}/workspace/file",
         json={
-            "path": "/video_shot.json",
+            "path": f"/{path}",
             "content": shots_document(image_url=frame_url),
             "expectedVersion": 2,
         },
     )
     assert sneaky.status_code == 422
 
-    unchanged = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "video_shot.json"})
+    unchanged = await client.get(f"{URL}/{mine}/workspace/file", params={"path": path})
     assert unchanged.json()["file"] == swapped.json()["file"]
 
 
@@ -560,6 +562,35 @@ async def test_workspace_file_accepts_a_group_without_reference_images(
     assert written.json()["file"] == expected
     read = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "video_shot.json"})
     assert read.json()["file"] == expected
+
+
+async def test_workspace_file_rejects_more_than_thirty_reference_images(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """统一文件写回检查图片上限，拒绝后保留原文。"""
+
+    count = 31
+
+    user_id = await login_as_editor(client, pg_url)
+    mine = (await create(client, title="复刻镜头组")).json()["conversation"]["id"]
+    original = shots_document(image_url="https://cdn.test/frames/s1-1.jpg")
+    await seed_workspace_files(pg_url, f"{user_id}/{mine}", {"video_shot.json": original})
+    document = json.loads(original)
+    shot = document["shots"][0]
+    shot["image_urls"] = [
+        f"https://cdn.test/frames/s1-{index}.jpg" for index in range(1, count + 1)
+    ]
+    content = json.dumps(document, ensure_ascii=False)
+
+    rejected = await client.put(
+        f"{URL}/{mine}/workspace/file",
+        json={"path": "video_shot.json", "content": content, "expectedVersion": 1},
+    )
+
+    assert rejected.status_code == 422, rejected.text
+    assert "image_urls" in rejected.json()["detail"]
+    kept = await client.get(f"{URL}/{mine}/workspace/file", params={"path": "video_shot.json"})
+    assert kept.json()["file"]["content"] == original
 
 
 async def test_workspace_file_write_is_owner_only(

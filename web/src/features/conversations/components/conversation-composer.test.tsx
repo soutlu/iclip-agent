@@ -41,47 +41,53 @@ describe('ConversationComposer 上的引用芯片', () => {
   it('工作台选中哪一组，输入框上就出现那一条', async () => {
     await renderChatWithWorkbench()
 
-    expect(await screen.findByText('镜头组 2')).toBeVisible()
+    expect(await screen.findByText('镜头组 2 · 全局设定 · @Image1')).toBeVisible()
 
     await userEvent.click(screen.getByRole('button', { name: '第 3 组' }))
 
-    expect(await screen.findByText('镜头组 3')).toBeVisible()
-    expect(screen.queryByText('镜头组 2')).not.toBeInTheDocument()
+    expect(await screen.findByText('镜头组 3 · 全局设定 · @Image1')).toBeVisible()
+    expect(screen.queryByText('镜头组 2 · 全局设定 · @Image1')).not.toBeInTheDocument()
   })
 
   it('选中一帧时引用连帧号一起带上', async () => {
-    await renderChatWithWorkbench('/?shot=2&frame=3')
+    await renderChatWithWorkbench('/?shot=2&content=scene:2&frame=3')
 
-    expect(await screen.findByText('镜头组 2 · 帧 @3')).toBeVisible()
+    expect(await screen.findByText('镜头组 2 · 镜头 2 · @Image3')).toBeVisible()
   })
 
   it('× 掉的芯片不会自己补回来，换了选中才重新出现', async () => {
     await renderChatWithWorkbench()
-    await screen.findByText('镜头组 2')
+    await screen.findByText('镜头组 2 · 全局设定 · @Image1')
 
-    await userEvent.click(screen.getByRole('button', { name: '不再引用 镜头组 2' }))
-    await waitFor(() => expect(screen.queryByText('镜头组 2')).not.toBeInTheDocument())
+    await userEvent.click(
+      screen.getByRole('button', { name: '不再引用 镜头组 2 · 全局设定 · @Image1' }),
+    )
+    await waitFor(() =>
+      expect(screen.queryByText('镜头组 2 · 全局设定 · @Image1')).not.toBeInTheDocument(),
+    )
 
     await userEvent.click(screen.getByRole('button', { name: '第 1 组' }))
-    await screen.findByText('镜头组 1')
+    await screen.findByText('镜头组 1 · 全局设定 · @Image1')
     await userEvent.click(screen.getByRole('button', { name: '第 2 组' }))
 
-    expect(await screen.findByText('镜头组 2')).toBeVisible()
+    expect(await screen.findByText('镜头组 2 · 全局设定 · @Image1')).toBeVisible()
   })
 
   it('带引用发送：每条引用一行前缀拼在正文前面，发完芯片收掉', async () => {
-    const { onSend } = await renderChatWithWorkbench('/?shot=2&frame=3')
-    await screen.findByText('镜头组 2 · 帧 @3')
+    const { onSend } = await renderChatWithWorkbench('/?shot=2&content=scene:2&frame=3')
+    await screen.findByText('镜头组 2 · 镜头 2 · @Image3')
 
     pasteTextIntoComposer(screen.getByLabelText('输入消息'), '这一帧的光再暖一点')
     await userEvent.click(screen.getByRole('button', { name: '发送' }))
 
     await waitFor(() =>
       expect(onSend).toHaveBeenCalledWith([
-        { kind: 'text', text: '针对镜头组 2 的帧 @3：\n这一帧的光再暖一点' },
+        { kind: 'text', text: '针对镜头组 2 的镜头 2（参考图 @Image3）：\n这一帧的光再暖一点' },
       ]),
     )
-    await waitFor(() => expect(screen.queryByText('镜头组 2 · 帧 @3')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText('镜头组 2 · 镜头 2 · @Image3')).not.toBeInTheDocument(),
+    )
   })
 
   it('从只读总览定位镜头组后，输入框同步当前组引用', async () => {
@@ -91,7 +97,7 @@ describe('ConversationComposer 上的引用芯片', () => {
     await userEvent.click(within(sheet).getByRole('button', { name: '查看镜头组 3' }))
 
     await waitFor(() => expect(screen.queryByRole('complementary')).not.toBeInTheDocument())
-    expect(await screen.findByText('镜头组 3')).toBeVisible()
-    expect(screen.queryByText('镜头组 2')).not.toBeInTheDocument()
+    expect(await screen.findByText('镜头组 3 · 全局设定 · @Image1')).toBeVisible()
+    expect(screen.queryByText('镜头组 2 · 全局设定 · @Image1')).not.toBeInTheDocument()
   })
 })

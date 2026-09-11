@@ -67,7 +67,9 @@ const provideJobs = () => {
 }
 
 const renderReader = () =>
-  renderWithProviders(<StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />)
+  renderWithProviders(<StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />, {
+    initialPath: '/?content=scene:1',
+  })
 
 describe('图片编辑结果应用', () => {
   beforeEach(() => {

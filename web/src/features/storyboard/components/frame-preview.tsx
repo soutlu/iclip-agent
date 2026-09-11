@@ -1,6 +1,6 @@
 /** 以帧号和地址为 key 挂载；切换图片即丢弃旧上传，点击与拖放共用替换流程。 */
 
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useEffectEvent, useRef, useState, type DragEvent } from 'react'
 import { Icon } from '@/shared/icons'
 import { IconButton } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
@@ -16,6 +16,7 @@ type FramePreviewProps = {
   onEdit?: (() => void) | undefined
   onUpload: (file: File) => Promise<string>
   onReplace: (url: string) => void
+  onUploadingChange: (uploading: boolean) => void
 }
 
 export function FramePreview({
@@ -25,6 +26,7 @@ export function FramePreview({
   onOpen,
   onEdit,
   onReplace,
+  onUploadingChange,
   onUpload,
   url,
 }: FramePreviewProps) {
@@ -66,6 +68,12 @@ export function FramePreview({
       if (upload.active) setUploading(false)
     }
   }
+
+  const reportUploading = useEffectEvent(onUploadingChange)
+  useEffect(() => {
+    reportUploading(uploading)
+    return () => reportUploading(false)
+  }, [uploading])
 
   const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
   const onDragEnter = (event: DragEvent<HTMLDivElement>) => {

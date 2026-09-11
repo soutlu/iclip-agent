@@ -26,6 +26,7 @@ from pydantic_ai.usage import RunUsage
 from structlog.testing import capture_logs
 from structlog.typing import EventDict
 
+from iclip.capabilities.shot_document import SHOTS_PATH, VideoShotRequest, validate_shots_document
 from iclip.capabilities.shot_video.capability import (
     CAPABILITY_ID,
     GenerationPolicy,
@@ -33,23 +34,21 @@ from iclip.capabilities.shot_video.capability import (
     shot_video_capability,
 )
 from iclip.capabilities.shot_video.delivery import (
-    SHOTS_PATH,
     FrameRequest,
-    VideoShotRequest,
-    validate_video_shots_document,
 )
-from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_path
+from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH
 from iclip.capabilities.shot_video.generation import (
     ANCHOR_ASPECT,
     GRID_RESOLUTION,
     IMAGE_MODEL,
 )
-from iclip.capabilities.shot_video.parser import (
+from iclip.capabilities.shot_video.toolset import ShotVideoToolset
+from iclip.capabilities.video_understanding import (
     SYSTEM_PROMPT,
     ArkVideoUnderstanding,
     VideoUnderstandingError,
+    video_doc_path,
 )
-from iclip.capabilities.shot_video.toolset import ShotVideoToolset
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.generation.module import IMAGE_MODEL_SPECS
@@ -163,6 +162,7 @@ def capability(
         paths=MEDIA_PATHS,
         understanding=understanding,
         client=None,  # type: ignore[arg-type]  # 本测试不调用素材下载。
+        image_models=frozenset({IMAGE_MODEL}),
         policy=FAST,
     )
 
@@ -378,6 +378,7 @@ async def test_files_land_in_the_normalized_namespace(
         paths=MEDIA_PATHS,
         understanding=understanding,
         client=None,  # type: ignore[arg-type]  # 本测试不调用素材下载。
+        image_models=frozenset({IMAGE_MODEL}),
         policy=FAST,
     ).get_toolset()
     assert isinstance(toolset, ShotVideoToolset)
@@ -842,6 +843,7 @@ async def test_generate_stays_on_dev_when_pro_is_off(
         paths=MEDIA_PATHS,
         understanding=FakeUnderstanding(),
         client=None,  # type: ignore[arg-type]
+        image_models=frozenset({IMAGE_MODEL}),
         policy=GenerationPolicy(
             poll_interval_seconds=0.001, dev_attempts=2, pro_attempts=0, backoff_seconds=0.001
         ),
@@ -885,6 +887,7 @@ async def test_generate_timeout_is_a_brief_failure_and_logs_the_record(
         paths=MEDIA_PATHS,
         understanding=FakeUnderstanding(),
         client=None,  # type: ignore[arg-type]
+        image_models=frozenset({IMAGE_MODEL}),
         policy=GenerationPolicy(
             poll_interval_seconds=0.001,
             dev_attempts=1,
@@ -999,7 +1002,7 @@ async def test_delivered_table_lands_in_the_workspace(
     for row in expected_rows:
         row["prompt"]["timeline"][0]["image_indexes"] = [1]
     assert document == {"aspect_ratio": "9:16", "shots": expected_rows}
-    validate_video_shots_document(stored.content)
+    validate_shots_document(stored.content)
 
 
 async def test_delivered_table_accepts_a_group_without_reference_images(
@@ -1022,7 +1025,7 @@ async def test_delivered_table_accepts_a_group_without_reference_images(
     expected = shot.model_dump(mode="json")
     expected["prompt"]["timeline"][0]["image_indexes"] = []
     assert json.loads(stored.content) == {"aspect_ratio": "9:16", "shots": [expected]}
-    validate_video_shots_document(stored.content)
+    validate_shots_document(stored.content)
 
 
 @pytest.mark.parametrize(
@@ -1238,7 +1241,7 @@ async def test_stringified_nested_input_is_parsed_on_the_agent_path(
     assert refusals == []
     stored = await files.read(NAMESPACE, SHOTS_PATH)
     assert stored is not None
-    validate_video_shots_document(stored.content)
+    validate_shots_document(stored.content)
     parsed = [log for log in logs if log["event"] == "工具参数以字符串传入，已解析"]
     assert [log["field"] for log in parsed] == [field]
 
@@ -1322,13 +1325,13 @@ def shots_document(**overrides: Any) -> str:
 
 def test_written_back_table_accepts_the_current_document_format() -> None:
 
-    validate_video_shots_document(shots_document())
+    validate_shots_document(shots_document())
 
 
 def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
     """素材来源校验约束模型生成；用户写回仅校验文档形状。"""
 
-    validate_video_shots_document(
+    validate_shots_document(
         shots_document(
             shots=[
                 json.loads(shots_document())["shots"][0]
@@ -1401,7 +1404,7 @@ def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
 def test_written_back_table_is_rejected_with_the_reason(content: str, message: str) -> None:
 
     with pytest.raises(ValueError, match=message):
-        validate_video_shots_document(content)
+        validate_shots_document(content)
 
 
 def test_the_pinned_image_model_can_do_what_the_frame_tools_ask_for() -> None:
