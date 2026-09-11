@@ -41,11 +41,15 @@ const SEARCH_LIMIT = 50
 /** running 为正在运行，done 为至少结束过一轮；未发送过消息的对话仅属于 all。 */
 export type ConversationListState = 'all' | 'running' | 'done'
 
+const MORE_KEY = ['conversations', 'more'] as const
+
 export const conversationsQueryKeys = {
   all: ['conversations'] as const,
   agents: ['conversation-agents'] as const,
+  /** 用户手动展开的额外分页；拓扑刷新时整体丢弃。 */
+  moreAll: MORE_KEY,
   more: (bucket: string, cursor: string, state: ConversationListState) =>
-    ['conversations', 'more', bucket, cursor, state] as const,
+    [...MORE_KEY, bucket, cursor, state] as const,
   search: (keyword: string) => ['conversations', 'search', keyword] as const,
   /** 未传 state 时作为所有筛选的缓存键前缀。 */
   sidebar: (state?: ConversationListState): readonly string[] =>
@@ -162,7 +166,7 @@ export const useStartConversation = (
     },
     onSettled: async () => {
       // 创建成功、首条消息失败时，侧栏也应能看到这段已存在的对话。
-      queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
+      queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
       await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
     },
   })
@@ -329,7 +333,7 @@ export const useSetConversationMembership = (
     },
     onSettled: async () => {
       // 两个独立归属请求可能部分成功；失败也复核服务端实际状态。
-      queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
+      queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
       await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
     },
     onSuccess: onSaved,

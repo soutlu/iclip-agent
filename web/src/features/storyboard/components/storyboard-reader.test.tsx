@@ -849,7 +849,7 @@ describe('StoryboardReader', () => {
     provide(shared)
     await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
-    expect(within(page).getByText('@Image2 · 镜头 1、镜头 2共用')).toBeVisible()
+    expect(within(page).getByText('@Image2 · 镜头 1、镜头 2 共用')).toBeVisible()
     expect(within(page).queryByText(/镜头 1、2、3 共用/)).not.toBeInTheDocument()
   })
 

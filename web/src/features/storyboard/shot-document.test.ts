@@ -1,4 +1,10 @@
-import { appendContentImage, insertContentReference } from './shot-content'
+import {
+  appendContentImage,
+  decodeContentId,
+  encodeContentId,
+  insertContentReference,
+  type ShotContentRef,
+} from './shot-content'
 import { describe, expect, it } from 'vitest'
 import {
   parseShotsDocument,
@@ -233,5 +239,19 @@ describe('shotName', () => {
 
   it('第一镜只含帧记号时用组序号起名', () => {
     expect(shotName(withBody('@Image1 @Image2', [1, 2], 3))).toBe('镜头组 3')
+  })
+})
+
+describe('内容 id 编解码', () => {
+  it.each([
+    { kind: 'global' },
+    { kind: 'unreferenced' },
+    { kind: 'scene', scene: 3 },
+  ] satisfies ShotContentRef[])('往返 $kind', (ref) => {
+    expect(decodeContentId(encodeContentId(ref))).toEqual(ref)
+  })
+
+  it.each(['', 'scene:0', 'scene:01', 'scene:x', 'Global', 'scene:1 '])('拒绝 %j', (id) => {
+    expect(decodeContentId(id)).toBeUndefined()
   })
 })

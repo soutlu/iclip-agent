@@ -54,13 +54,16 @@ const COLLECTIONS_PER_STEP = 10
 // 任务区使用固定落点 ID，合集使用自身 UUID。
 const UNGROUPED = 'ungrouped'
 
+/** 改对话（重命名、删除、拖动归属）要有 agent:run；用到的组件自己读，不逐层传。 */
+const useCanWrite = () => (useUser().data?.permissions ?? []).includes('agent:run')
+
 /** 任务区和合集内容使用服务端分页，合集列表在前端切片；拖动成功后刷新拓扑。 */
 export function SidebarConversations() {
   const queryClient = useQueryClient()
   const session = useUser()
   const permissions = session.data?.permissions ?? []
   const canRead = permissions.includes('agent:read')
-  const canWrite = permissions.includes('agent:run')
+  const canWrite = useCanWrite()
   const canManageCollections = permissions.includes('collections:write')
   const canReadCollections = permissions.includes('collections:read')
   const canReadTasks = permissions.includes('tasks:read')
@@ -89,7 +92,7 @@ export function SidebarConversations() {
 
   const refreshSidebar = () => {
     // 拓扑刷新时丢弃额外分页，避免每个已加载页分别重新请求。
-    queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
+    queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
     void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
   }
 
@@ -174,7 +177,6 @@ export function SidebarConversations() {
         </ChipGroup>
 
         <UngroupedSection
-          canWrite={canWrite}
           count={topology.data?.ungroupedCount ?? 0}
           dragging={dragging}
           onChanged={refreshSidebar}
@@ -200,7 +202,6 @@ export function SidebarConversations() {
             <CollectionGroup
               key={collection.id}
               canManage={canManageCollections}
-              canWrite={canWrite}
               collection={collection}
               dragging={dragging}
               onChanged={refreshSidebar}
@@ -224,6 +225,7 @@ export function SidebarConversations() {
           {allCollections.length > visibleCollections.length && (
             <ExpandRow
               label="展开显示更多合集"
+              retryLabel="重试加载更多合集"
               onExpand={() => setShownCollections((shown) => shown + COLLECTIONS_PER_STEP)}
             />
           )}
@@ -280,7 +282,6 @@ export function SidebarConversations() {
 }
 
 function UngroupedSection({
-  canWrite,
   count,
   dragging,
   onChanged,
@@ -288,7 +289,6 @@ function UngroupedSection({
   page,
   state,
 }: {
-  canWrite: boolean
   count: number
   dragging: string | null
   onChanged: () => void
@@ -296,6 +296,7 @@ function UngroupedSection({
   page: ConversationPage
   state: ConversationListState
 }) {
+  const canWrite = useCanWrite()
   const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED, disabled: !canWrite })
   const more = useMoreConversations({ state }, page.nextCursor)
   const items = uniqueConversations([
@@ -310,7 +311,6 @@ function UngroupedSection({
         <div className="flex flex-col gap-0.5">
           {items.map((conversation) => (
             <ConversationRow
-              canWrite={canWrite}
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
@@ -323,6 +323,7 @@ function UngroupedSection({
             <ExpandRow
               error={more.error}
               label="展开显示更多对话"
+              retryLabel="重试加载更多对话"
               loading={more.isFetching}
               onExpand={() => void more.fetchNextPage()}
             />
@@ -436,11 +437,13 @@ function ExpandRow({
   label,
   loading = false,
   onExpand,
+  retryLabel,
 }: {
   error?: unknown
   label: string
   loading?: boolean
   onExpand: () => void
+  retryLabel: string
 }) {
   return (
     <>
@@ -450,7 +453,7 @@ function ExpandRow({
         </p>
       )}
       <button
-        aria-label={error != null ? label.replace('展开显示', '重试加载') : label}
+        aria-label={error != null ? retryLabel : label}
         className={cn(
           ROW_CLASS,
           'w-full justify-start text-body-sm text-on-surface-faint ui-focus',
@@ -467,7 +470,6 @@ function ExpandRow({
 
 type CollectionGroupProps = {
   canManage: boolean
-  canWrite: boolean
   collection: SidebarCollection
   dragging: string | null
   onChanged: () => void
@@ -479,7 +481,6 @@ type CollectionGroupProps = {
 
 function CollectionGroup({
   canManage,
-  canWrite,
   collection,
   dragging,
   onChanged,
@@ -489,6 +490,7 @@ function CollectionGroup({
   state,
 }: CollectionGroupProps) {
   const [open, setOpen] = useState(false)
+  const canWrite = useCanWrite()
   const { isOver, setNodeRef } = useDroppable({ id: collection.id, disabled: !canWrite })
   const more = useMoreConversations(
     { collectionId: collection.id, state },
@@ -545,7 +547,6 @@ function CollectionGroup({
         <div className="flex flex-col gap-0.5 pl-6">
           {items.map((conversation) => (
             <ConversationRow
-              canWrite={canWrite}
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
@@ -562,6 +563,7 @@ function CollectionGroup({
             <ExpandRow
               error={more.error}
               label={`展开显示 ${collection.name} 里更多对话`}
+              retryLabel={`重试加载 ${collection.name} 里更多对话`}
               loading={more.isFetching}
               onExpand={() => void more.fetchNextPage()}
             />
@@ -616,18 +618,17 @@ const ROW_STATUS_MARK: Record<
 }
 
 function ConversationRow({
-  canWrite,
   conversation,
   dragging,
   onChanged,
   onOpenMembership,
 }: {
-  canWrite: boolean
   conversation: Conversation
   dragging: boolean
   onChanged: () => void
   onOpenMembership: () => void
 }) {
+  const canWrite = useCanWrite()
   const { listeners, setNodeRef, transform } = useDraggable({
     disabled: !canWrite,
     data: { collectionId: conversation.collectionId },

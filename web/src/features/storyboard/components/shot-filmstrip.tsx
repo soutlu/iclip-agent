@@ -81,7 +81,7 @@ export function ShotFilmstrip({
                   onClick={() => onSelect(scene.id)}
                   type="button"
                 >
-                  {scene.id === 'global' ? <Icon decorative name="file" size="md" /> : '无帧'}
+                  {scene.kind === 'global' ? <Icon decorative name="file" size="md" /> : '无帧'}
                 </button>
               ) : (
                 visibleFrames.map((number) => (

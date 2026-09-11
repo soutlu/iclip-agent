@@ -99,6 +99,7 @@ describe('图片编辑结果应用', () => {
     let persisted = originalDocument()
     let version = 1
     const writes: ShotsDocument[] = []
+    const staleVersions: number[] = []
     let release = () => {}
     const savingA = new Promise<void>((resolve) => {
       release = resolve
@@ -115,7 +116,7 @@ describe('图片编辑结果应用', () => {
           await savingA
           return HttpResponse.json({ detail: '保存暂时失败' }, { status: 503 })
         }
-        expect(body.expectedVersion).toBe(version)
+        if (body.expectedVersion !== version) staleVersions.push(body.expectedVersion)
         persisted = document
         version += 1
         return HttpResponse.json({ file: { path: PATH, content: body.content, version } })
@@ -163,6 +164,7 @@ describe('图片编辑结果应用', () => {
       CANDIDATE_B,
     )
     expect(writes.filter((item) => item.shots[0]?.image_urls[0] === CANDIDATE_A)).toHaveLength(1)
+    expect(staleVersions).toEqual([])
   })
 
   it('编辑器打开后原图被外部修改时，拒绝应用并保留外部图片', async () => {

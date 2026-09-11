@@ -1,13 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { CollectionFormDialog, CollectionPicker } from '@/features/collections'
+import { CollectionFormDialog, CollectionPicker, useCollections } from '@/features/collections'
 import {
   conversationsQueryKeys,
   useConversationAgents,
-  useSidebarTopology,
   useStartConversation,
-  type SidebarTopology,
 } from '@/features/conversations'
 import { HomeRoute } from '@/features/home'
 import { useUser } from '@/shared/auth'
@@ -30,13 +28,11 @@ export function HomePage() {
   } | null>(null)
   const [newCollectionName, setNewCollectionName] = useState<string | null>(null)
   const canRun = user?.permissions.includes('agent:run') ?? false
-  const canReadCollections =
-    (user?.permissions.includes('agent:read') && user.permissions.includes('collections:read')) ??
-    false
+  const canReadCollections = user?.permissions.includes('collections:read') ?? false
   const canWriteCollections = user?.permissions.includes('collections:write') ?? false
   const agents = useConversationAgents(canRun)
-  const topology = useSidebarTopology(canReadCollections, 'all')
-  const collections = topology.data?.collections ?? []
+  const collectionsQuery = useCollections(canReadCollections)
+  const collections = collectionsQuery.data ?? []
   const chosenCollectionId =
     chosenCollection && chosenCollection.ownerUserId === user?.id ? chosenCollection.id : null
   const chooseCollection = (id: string | null) =>
@@ -129,11 +125,13 @@ export function HomePage() {
         collectionPicker={
           <CollectionPicker
             disabled={!canReadCollections || start.isPending}
-            error={topology.isError ? topology.error.message : null}
-            loading={canReadCollections && topology.isPending}
+            error={collectionsQuery.isError ? collectionsQuery.error.message : null}
+            loading={canReadCollections && collectionsQuery.isPending}
             onChange={chooseCollection}
-            onCreate={canWriteCollections && topology.data ? setNewCollectionName : undefined}
-            onRetry={() => void topology.refetch()}
+            onCreate={
+              canWriteCollections && collectionsQuery.data ? setNewCollectionName : undefined
+            }
+            onRetry={() => void collectionsQuery.refetch()}
             options={collections}
             value={collectionId}
           />
@@ -148,27 +146,8 @@ export function HomePage() {
           if (!open) setNewCollectionName(null)
         }}
         onSaved={(collection) => {
-          // 用创建回执补齐缓存，避免侧栏刷新前立即发送时丢失新合集归属。
-          queryClient.setQueriesData<SidebarTopology>(
-            { queryKey: conversationsQueryKeys.sidebar() },
-            (current) =>
-              current
-                ? {
-                    ...current,
-                    collections: [
-                      {
-                        id: collection.id,
-                        name: collection.name,
-                        updatedAt: collection.updatedAt,
-                        conversationCount: 0,
-                        page: { items: [], nextCursor: null },
-                      },
-                      ...current.collections.filter((item) => item.id !== collection.id),
-                    ],
-                  }
-                : current,
-          )
           chooseCollection(collection.id)
+          // 侧栏的合集列表来自对话拓扑，新建后让它重拉。
           void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
         }}
         open={newCollectionName !== null}

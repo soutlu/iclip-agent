@@ -78,7 +78,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     dirty: new Set<number>(),
     latest: null as Base | null,
     conflicts: new Set<number>(),
-    inFlight: null as Promise<boolean> | null,
+    inFlight: null as Promise<ShotsDocument | null> | null,
     timer: null as ReturnType<typeof setTimeout> | null,
   })
 
@@ -112,19 +112,21 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     })
   }, [])
 
-  const saveNow = useCallback((): Promise<boolean> => {
+  /** 立刻写回；返回此刻已落盘的文档，保存失败、有冲突或尚未读到文件时为 null。 */
+  const saveNow = useCallback((): Promise<ShotsDocument | null> => {
     const book = ledgerRef.current
     clearTimer()
     if (book.inFlight !== null) return book.inFlight
     if (book.latest !== null) {
       showConflict()
-      return Promise.resolve(false)
+      return Promise.resolve(null)
     }
-    if (book.base === null) return Promise.resolve(false)
-    if (book.edited === null || book.dirty.size === 0) return Promise.resolve(true)
+    if (book.base === null) return Promise.resolve(null)
+    if (book.edited === null || book.dirty.size === 0) return Promise.resolve(book.base.document)
 
-    const run = async (): Promise<boolean> => {
+    const run = async (): Promise<ShotsDocument | null> => {
       let rebased = false
+      let landed: ShotsDocument | null = null
       while (book.edited !== null && book.dirty.size > 0 && book.base !== null) {
         const mine = book.edited
         const base = book.base
@@ -132,7 +134,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
         if (problem !== undefined) {
           clearTimer()
           setState({ kind: 'error', message: problem })
-          return false
+          return null
         }
         setState({ kind: 'saving' })
         try {
@@ -142,6 +144,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
             path,
           })
           book.base = { document: mine, version: saved.file.version }
+          landed = mine
           // 请求中的快照已落盘。后续编辑仍以最新草稿为准，不能被这次响应清除。
           const current = book.edited ?? mine
           book.dirty = changedShots(mine, current)
@@ -155,7 +158,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
               kind: 'error',
               message: error instanceof Error ? error.message : '保存失败',
             })
-            return false
+            return null
           }
           const latestFile = await queryClient.fetchQuery({
             queryFn: ({ signal }) => readWorkspaceFile(conversationId, path, signal),
@@ -166,7 +169,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
           if (latestDocument === null) {
             clearTimer()
             setState({ kind: 'error', message: '最新文件格式不正确，草稿已保留' })
-            return false
+            return null
           }
           const latest: Base = { document: latestDocument, version: latestFile.file.version }
           const current = book.edited ?? mine
@@ -176,7 +179,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
             book.conflicts = conflicts
             clearTimer()
             showConflict()
-            return false
+            return null
           }
           const merged = replay(latest.document, current, book.dirty)
           book.base = latest
@@ -188,19 +191,19 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
       }
       clearTimer()
       setState({ kind: 'saved' })
-      return true
+      return landed
     }
 
     book.inFlight = run()
       .catch((error: unknown) => {
         clearTimer()
         setState({ kind: 'error', message: error instanceof Error ? error.message : '保存失败' })
-        return false
+        return null
       })
       .finally(() => {
         book.inFlight = null
       })
-      .then((saved) => saved && book.dirty.size === 0)
+      .then((landed) => (landed !== null && book.dirty.size === 0 ? landed : null))
     return book.inFlight
   }, [clearTimer, conversationId, path, queryClient, showConflict])
 
@@ -276,7 +279,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
       const target = current === undefined ? undefined : shotOf(current, index)
       const replaced = target?.image_urls[frame - 1] !== url
       if (replaced) replaceFrame(index, frame, previousUrl, url)
-      if (!(await saveNow())) {
+      if ((await saveNow()) === null) {
         const currentDraft = book.edited
         const currentShot = currentDraft === null ? undefined : shotOf(currentDraft, index)
         // 保存期间发生的文字编辑和其它图片变化不属于本次失败，不能整份回滚。

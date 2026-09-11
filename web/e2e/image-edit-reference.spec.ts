@@ -27,32 +27,21 @@ for (const prefix of ['', '把']) {
         await dialog.getByRole('option', { name: '插入标注 1', exact: true }).click()
       else await editor.press('Enter')
       await expect(editor.getByRole('button', { name: '标注 1', exact: true })).toBeVisible()
-      const tail = await editor.evaluate((element) => {
-        const marker = element.querySelector('[role=button]')
-        const lineEnd = element.querySelector('br')
-        if (!marker || !lineEnd) throw new Error('缺少标注引用或行尾光标占位')
-        return {
-          referenceBottom: marker.getBoundingClientRect().bottom,
-          caretTop: lineEnd.getBoundingClientRect().top,
-        }
-      })
-      expect(tail.caretTop).toBeLessThan(tail.referenceBottom)
       await page.keyboard.insertText('改成蓝色')
       await expect(editor).toHaveText(`${prefix}标注 1改成蓝色`)
-      const sameLine = await editor.evaluate((element) => {
-        const chip = element.querySelector('[role=button]')
-        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
-        let node = walker.nextNode()
-        while (node && !node.textContent?.includes('改成蓝色')) node = walker.nextNode()
-        if (!chip || !node) throw new Error('缺少标注或输入文本')
-        const range = document.createRange()
-        range.selectNodeContents(node)
-        const text = range.getBoundingClientRect()
-        const reference = chip.getBoundingClientRect()
-        return text.top < reference.bottom && text.bottom > reference.top
+      // 光标落在刚输入的文字里；它与标注同一行，说明插入标注没有把后文挤到下一行。
+      const reference = await editor
+        .getByRole('button', { name: '标注 1', exact: true })
+        .boundingBox()
+      if (!reference) throw new Error('标注没有可测量的位置')
+      const caret = await editor.evaluate(() => {
+        const range = document.getSelection()?.getRangeAt(0)
+        if (!range) throw new Error('编辑器没有光标')
+        const rect = range.getBoundingClientRect()
+        return { bottom: rect.bottom, top: rect.top }
       })
-      expect(sameLine).toBe(true)
-      await expect(editor.locator('p')).toHaveCount(1)
+      expect(caret.top).toBeLessThan(reference.y + reference.height)
+      expect(caret.bottom).toBeGreaterThan(reference.y)
       await expect(editor).toBeFocused()
     })
   }

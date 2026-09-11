@@ -97,7 +97,7 @@ const renderDraft = async () => {
 const saveDraft = async (result: { current: ReturnType<typeof useShotsDraft> }) => {
   let saved = false
   await act(async () => {
-    saved = await result.current.saveNow()
+    saved = (await result.current.saveNow()) !== null
   })
   return saved
 }
@@ -132,7 +132,7 @@ describe('分镜草稿整份写回与版本冲突', () => {
       return undefined
     })
     const result = await renderDraft()
-    let saving: Promise<boolean> | undefined
+    let saving: Promise<ShotsDocument | null> | undefined
     const first = changedBody(initial, 1, '第一次修改')
     const both = changedBody(first, 2, '请求发出后的第二次修改')
     try {
@@ -161,7 +161,7 @@ describe('分镜草稿整份写回与版本冲突', () => {
 
       await act(async () => {
         secondReply.release()
-        expect(await saving).toBe(true)
+        expect(await saving).not.toBeNull()
       })
       await waitFor(() => expect(result.current.state.kind).toBe('saved'))
       expect(result.current.hasUnsavedChanges).toBe(false)

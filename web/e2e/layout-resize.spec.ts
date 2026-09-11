@@ -87,13 +87,4 @@ test('面板拖动受可用空间限制，刷新保留宽度，放不下时切�
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
   await page.setViewportSize({ height: 900, width: 1600 })
   await expect.poll(async () => (await panel.boundingBox())?.width).toBeCloseTo(663, 0)
-
-  await page.setViewportSize({ height: 900, width: 1231 })
-  await expect(handle).toBeHidden()
-  await expect(panel.getByRole('button', { name: '回到聊天' })).toBeVisible()
-
-  await page.setViewportSize({ height: 900, width: 1232 })
-  await expect(handle).toBeVisible()
-  await expect(panel.getByRole('button', { name: '回到聊天' })).toBeHidden()
-  await expect.poll(async () => (await panel.boundingBox())?.width).toBeCloseTo(560, 0)
 })

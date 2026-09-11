@@ -18,8 +18,6 @@ vi.mock('lottie-web/build/player/lottie_light', () => ({
   },
 }))
 
-const LOGIN_DRAFT_KEY = 'cue.home.login-draft'
-
 beforeEach(() => {
   window.sessionStorage.clear()
 })
@@ -72,7 +70,6 @@ describe('HomeRoute', () => {
       },
     ])
     expect(screen.getByLabelText('输入消息').textContent).toBe(success ? '' : '做一个产品宣传片')
-    expect(window.sessionStorage.getItem(LOGIN_DRAFT_KEY)).toBeNull()
   })
 
   it('发送仍在等待结果时保留输入，并阻止重复发送', async () => {
@@ -115,16 +112,13 @@ describe('HomeRoute', () => {
       <HomeRoute preserveForLogin onSend={async () => false} />,
     )
     pasteTextIntoComposer(screen.getByLabelText('输入消息'), '登录后继续制作产品宣传片')
-    expect(window.sessionStorage.getItem(LOGIN_DRAFT_KEY)).toBeNull()
     await user.click(screen.getByRole('button', { name: '发送' }))
-    expect(window.sessionStorage.getItem(LOGIN_DRAFT_KEY)).toBe('登录后继续制作产品宣传片')
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('登录后继续制作产品宣传片')
     guest.unmount()
 
     const returned = await renderWithProviders(<HomeRoute />)
     expect(screen.getByLabelText('输入消息')).toHaveTextContent('登录后继续制作产品宣传片')
     expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
-    expect(window.sessionStorage.getItem(LOGIN_DRAFT_KEY)).toBeNull()
     returned.unmount()
 
     await renderWithProviders(<HomeRoute />)

@@ -18,7 +18,7 @@ export const useLiveConversations = (enabled = true): void => {
     return connection.watchSessions((update) => {
       if (update.kind === 'reconnected') {
         // 全局帧不支持补发；重连后丢弃额外分页并刷新拓扑，恢复一致状态。
-        queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
+        queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
         void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
         return
       }
@@ -41,7 +41,7 @@ export const useLiveConversations = (enabled = true): void => {
 
       if (!update.busy && update.lastTurnReason === 'completed') {
         // 运行完成后重拉拓扑以获取 lastRunId，供未读标记比较；额外分页随之清除。
-        queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
+        queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
         void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
         return
       }
