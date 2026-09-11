@@ -1,15 +1,13 @@
-"""使用内存替身验证镜头素材工具、生成重试与能力装配；ffmpeg 执行由集成测试覆盖。"""
+"""使用内存替身验证取帧与出图工具、生成重试与能力装配；ffmpeg 执行由集成测试覆盖。"""
 
 from __future__ import annotations
 
 import inspect
 import json
 import uuid
-from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
-import httpx
 import pytest
 from pydantic_ai import Agent, ModelRetry, ToolFailed
 from pydantic_ai.messages import (
@@ -24,18 +22,14 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import RunContext
 from pydantic_ai.usage import RunUsage
 from structlog.testing import capture_logs
-from structlog.typing import EventDict
 
-from iclip.capabilities.shot_document import SHOTS_PATH, VideoShotRequest, validate_shots_document
 from iclip.capabilities.shot_video.capability import (
     CAPABILITY_ID,
     GenerationPolicy,
     ShotVideo,
     shot_video_capability,
 )
-from iclip.capabilities.shot_video.delivery import (
-    FrameRequest,
-)
+from iclip.capabilities.shot_video.delivery import FrameRequest
 from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH
 from iclip.capabilities.shot_video.generation import (
     ANCHOR_ASPECT,
@@ -43,12 +37,8 @@ from iclip.capabilities.shot_video.generation import (
     IMAGE_MODEL,
 )
 from iclip.capabilities.shot_video.toolset import ShotVideoToolset
-from iclip.capabilities.video_understanding import (
-    SYSTEM_PROMPT,
-    ArkVideoUnderstanding,
-    VideoUnderstandingError,
-    video_doc_path,
-)
+from iclip.capabilities.video.capability import Video
+from iclip.capabilities.video_understanding import video_doc_path
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.generation.module import IMAGE_MODEL_SPECS
@@ -152,7 +142,6 @@ def capability(
     materials: FakeMaterialLedger,
     generations: FakeGenerations,
     objects: FakeObjects,
-    understanding: FakeUnderstanding,
 ) -> ShotVideo[object]:
     return shot_video_capability(
         space=FileSpace(store=files, namespace=workspace_namespace),
@@ -160,7 +149,6 @@ def capability(
         generations=generations,
         objects=objects,
         paths=MEDIA_PATHS,
-        understanding=understanding,
         client=None,  # type: ignore[arg-type]  # 本测试不调用素材下载。
         image_models=frozenset({IMAGE_MODEL}),
         policy=FAST,
@@ -223,64 +211,10 @@ async def test_every_tool_reaches_the_model(capability: ShotVideo[object]) -> No
 
     agent = Agent(FunctionModel(script), capabilities=[capability])
     await agent.run("看看你有什么", deps=make_deps())
-    assert seen == [
-        "generate_anchor_sheet",
-        "generate_shot_frames",
-        "plan_shot_frames",
-        "video_parser",
-        "write_video_shots",
-    ]
+    assert seen == ["generate_anchor_sheet", "generate_shot_frames", "plan_shot_frames"]
 
 
-async def test_structured_shot_input_schema_reaches_the_model(
-    capability: ShotVideo[object],
-) -> None:
-    seen: dict[str, Any] = {}
-
-    def script(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-        _ = messages
-        tool = next(tool for tool in info.function_tools if tool.name == "write_video_shots")
-        seen["schema"] = tool.parameters_json_schema
-        seen["description"] = tool.description
-        return ModelResponse(parts=[TextPart("好")])
-
-    await Agent(FunctionModel(script), capabilities=[capability]).run("看看参数", deps=make_deps())
-
-    schema = seen["schema"]
-    assert set(schema["properties"]) == {"aspect_ratio", "shots"}
-    assert set(schema["required"]) == {"aspect_ratio", "shots"}
-    definitions = schema["$defs"]
-    shot = definitions["VideoShotRequest"]
-    assert set(shot["properties"]) == {"index", "prompt", "seconds", "image_urls"}
-    assert set(shot["required"]) == set(shot["properties"])
-    assert shot["properties"]["prompt"] == {"$ref": "#/$defs/VideoShotPrompt"}
-    assert shot["properties"]["image_urls"]["type"] == "array"
-    assert shot["properties"]["image_urls"].get("minItems", 0) == 0
-    prompt = definitions["VideoShotPrompt"]
-    assert prompt["type"] == "object"
-    assert set(prompt["properties"]) == {"global_settings", "timeline"}
-    assert set(prompt["required"]) == set(prompt["properties"])
-    assert prompt["additionalProperties"] is False
-    assert prompt["properties"]["timeline"]["minItems"] == 1
-    timeline_item = definitions["TimelineItem"]
-    assert set(timeline_item["properties"]) == {"timestamps", "prompt"}
-    assert set(timeline_item["required"]) == set(timeline_item["properties"])
-    assert timeline_item["additionalProperties"] is False
-    timestamps = timeline_item["properties"]["timestamps"]
-    assert timestamps["type"] == "array"
-    assert timestamps["minItems"] == timestamps["maxItems"] == 2
-    assert timestamps["items"]["type"] == "number"
-    assert timestamps["items"]["minimum"] == 0
-    assert (
-        seen["description"].splitlines()[0]
-        == "提交镜头组 prompt 表；每次提交全部镜头组，替换已有的。"
-    )
-
-
-@pytest.mark.parametrize(
-    "tool_name",
-    ["video_parser", "plan_shot_frames", "generate_shot_frames", "write_video_shots"],
-)
+@pytest.mark.parametrize("tool_name", ["plan_shot_frames", "generate_shot_frames"])
 def test_scope_rules_are_mounted_on_the_tool(
     tools: ShotVideoToolset[object], tool_name: str
 ) -> None:
@@ -292,42 +226,27 @@ def test_scope_rules_are_mounted_on_the_tool(
 def test_every_tool_has_a_display(capability: ShotVideo[object]) -> None:
 
     drawn = ToolDisplayRegistry.merged(capability.display_table()).entries
-    assert sorted(drawn) == [
-        "generate_anchor_sheet",
-        "generate_shot_frames",
-        "plan_shot_frames",
-        "video_parser",
-        "write_video_shots",
-    ]
+    assert sorted(drawn) == ["generate_anchor_sheet", "generate_shot_frames", "plan_shot_frames"]
     # 标题是书面动宾短语，主语是镜头号；张数进结果角标，不进标题。
     assert drawn["generate_shot_frames"].draw(
         {"frames": [{"no": "S2-1"}, {"no": "S1-3"}, {"no": "S2-2"}]}
     ) == GenericDisplay(summary="生成画面", detail="镜头 1、2")
     assert drawn["generate_shot_frames"].draw(None) == GenericDisplay(summary="生成画面")
-    assert drawn["write_video_shots"].draw({}) == GenericDisplay(
-        summary="保存分镜", detail=SHOTS_PATH
-    )
-    assert drawn["video_parser"].draw({"video_url": VIDEO}) == GenericDisplay(
-        summary="拆解视频", detail="ref.mp4"
-    )
-    assert drawn["video_parser"].draw({}) == GenericDisplay(summary="拆解视频")
     assert drawn["plan_shot_frames"].draw({"video_url": VIDEO}) == GenericDisplay(
         summary="提取候选帧", detail="ref.mp4"
     )
     assert drawn["generate_anchor_sheet"].draw({}) == GenericDisplay(summary="生成设定图")
 
 
-def test_only_the_three_media_tools_pick_a_renderer(capability: ShotVideo[object]) -> None:
+def test_every_media_tool_picks_a_renderer(capability: ShotVideo[object]) -> None:
 
     views = ToolDisplayRegistry.merged(capability.display_table())
     for tool_name in ("plan_shot_frames", "generate_shot_frames", "generate_anchor_sheet"):
         assert views.view_of(tool_name) == "media_grid"
-    for tool_name in ("video_parser", "write_video_shots"):
-        assert views.view_of(tool_name) is None
 
 
 async def test_an_out_of_scope_address_is_refused_on_the_agent_path(
-    capability: ShotVideo[object], understanding: FakeUnderstanding
+    capability: ShotVideo[object], files: FakeFileStore
 ) -> None:
     """通过真实 Agent 确认未登记地址在工具执行前被拒绝。"""
 
@@ -336,7 +255,7 @@ async def test_an_out_of_scope_address_is_refused_on_the_agent_path(
             return ModelResponse(
                 parts=[
                     ToolCallPart(
-                        "video_parser",
+                        "plan_shot_frames",
                         {"video_url": "https://cdn.test/made-up.mp4"},
                         tool_call_id="c1",
                     )
@@ -355,78 +274,32 @@ async def test_an_out_of_scope_address_is_refused_on_the_agent_path(
     ]
     assert len(refusals) == 1
     assert "不是这段对话里的素材" in refusals[0].model_response()
-    assert understanding.calls == []
+    assert await files.entries(NAMESPACE) == []
 
 
 async def test_missing_run_identity_is_a_bug_not_a_retry(tools: ShotVideoToolset[object]) -> None:
     """deps 类型错误属于装配故障，模型重试无法修复。"""
 
     with pytest.raises(RuntimeError, match="AgentRunDeps"):
-        await tools.video_parser(make_context(object()), VIDEO)
-
-
-async def test_files_land_in_the_normalized_namespace(
-    objects: FakeObjects, understanding: FakeUnderstanding, files: FakeFileStore
-) -> None:
-    """共享 FileSpace 的能力必须使用归一化命名空间，否则工作区工具无法读取产物。"""
-
-    toolset = shot_video_capability(
-        space=FileSpace(store=files, namespace=lambda _ctx: f"{USER}//thread-1"),
-        ledger=FakeMaterialLedger(),
-        generations=FakeGenerations(),
-        objects=objects,
-        paths=MEDIA_PATHS,
-        understanding=understanding,
-        client=None,  # type: ignore[arg-type]  # 本测试不调用素材下载。
-        image_models=frozenset({IMAGE_MODEL}),
-        policy=FAST,
-    ).get_toolset()
-    assert isinstance(toolset, ShotVideoToolset)
-
-    await toolset.video_parser(make_context(make_deps()), VIDEO)
-    assert await files.read(NAMESPACE, video_doc_path(VIDEO)) is not None
-
-
-async def test_parse_writes_the_document_and_returns_its_path(
-    tools: ShotVideoToolset[object],
-    ctx: RunContext[object],
-    understanding: FakeUnderstanding,
-    files: FakeFileStore,
-) -> None:
-    """拆解文档持久化供后续工具读取，返回路径以避免重复占用上下文。"""
-
-    result = await tools.video_parser(ctx, VIDEO)
-    assert video_doc_path(VIDEO) in result
-    assert understanding.calls == [VIDEO]
-    stored = await files.read(NAMESPACE, video_doc_path(VIDEO))
-    assert stored is not None
-    assert stored.content == DOCUMENT
+        await tools.plan_shot_frames(make_context(object()), VIDEO)
 
 
 async def test_parse_and_plan_agree_on_where_the_document_lives(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], understanding: FakeUnderstanding
-) -> None:
-    """使用无时间码文档触发解析错误，以确认取帧工具读取了拆解工具写入的文件。"""
-
-    understanding.document = "## 4、逐镜拉片表\n没有任何时间码\n"
-    await tools.video_parser(ctx, VIDEO)
-    with pytest.raises(ModelRetry, match="解析失败"):
-        await tools.plan_shot_frames(ctx, VIDEO)
-
-
-def test_document_path_survives_two_videos_of_the_same_name() -> None:
-
-    assert video_doc_path("https://a.test/ref.mp4") != video_doc_path("https://b.test/ref.mp4")
-
-
-async def test_parse_translates_failure(
     tools: ShotVideoToolset[object],
     ctx: RunContext[object],
-    understanding: FakeUnderstanding,
+    files: FakeFileStore,
+    materials: FakeMaterialLedger,
 ) -> None:
-    understanding.error = VideoUnderstandingError("接口连不上")
-    with pytest.raises(ModelRetry, match="连不上"):
-        await tools.video_parser(ctx, VIDEO)
+    """取帧工具按同一路径读到 video 能力写下的拆解文档；用无时间码文档触发解析错误来确认。"""
+
+    video = Video[object](
+        space=FileSpace(store=files, namespace=workspace_namespace),
+        ledger=materials,
+        understanding=FakeUnderstanding(document="## 4、逐镜拉片表\n没有任何时间码\n"),
+    )
+    await video.get_toolset().video_parser(ctx, VIDEO)
+    with pytest.raises(ModelRetry, match="解析失败"):
+        await tools.plan_shot_frames(ctx, VIDEO)
 
 
 @pytest.mark.parametrize("url", ["ref.mp4", "file:///etc/passwd", "ftp://host/a.mp4"])
@@ -434,23 +307,22 @@ async def test_tools_only_take_http_urls(
     tools: ShotVideoToolset[object], ctx: RunContext[object], url: str
 ) -> None:
     with pytest.raises(ModelRetry, match="http"):
-        await check_args(tools, "video_parser", ctx, video_url=url)
+        await check_args(tools, "plan_shot_frames", ctx, video_url=url)
 
 
-@pytest.mark.parametrize("tool_name", ["video_parser", "plan_shot_frames"])
-async def test_video_tools_refuse_an_address_the_conversation_never_had(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], tool_name: str
+async def test_plan_refuses_an_address_the_conversation_never_had(
+    tools: ShotVideoToolset[object], ctx: RunContext[object]
 ) -> None:
     """素材范围校验必须先于视频下载，避免请求未登记的地址。"""
 
     with pytest.raises(ModelRetry, match="不是这段对话里的素材") as failure:
-        await check_args(tools, tool_name, ctx, video_url="https://cdn.test/made-up.mp4")
+        await check_args(tools, "plan_shot_frames", ctx, video_url="https://cdn.test/made-up.mp4")
 
     # 不回显未登记地址，避免重试消息将其引入素材上下文。
     assert "made-up" not in str(failure.value)
 
 
-async def test_video_tools_refuse_an_image_the_user_sent(
+async def test_plan_refuses_an_image_the_user_sent(
     tools: ShotVideoToolset[object], ctx: RunContext[object], materials: FakeMaterialLedger
 ) -> None:
 
@@ -497,109 +369,6 @@ async def test_reference_images_take_an_address_the_tools_wrote_down(
     await call(frame)
     with pytest.raises(ModelRetry, match="不是这段对话里的素材"):
         await call("https://bucket.oss-cn-hangzhou.aliyuncs.com/shot-frames/k/S9-9.jpg")
-
-
-def ark(
-    handler: Callable[[httpx.Request], httpx.Response],
-    *,
-    thinking: str | None = None,
-    fps: float | None = None,
-) -> ArkVideoUnderstanding:
-    return ArkVideoUnderstanding(
-        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        url="https://vision.test/responses",
-        api_key="ark",
-        model="seed-vision",
-        thinking=thinking,
-        fps=fps,
-    )
-
-
-def responses_body(status: str = "completed", text: str = "## 4、逐镜拉片表\n……") -> dict[str, Any]:
-    """包含 reasoning 和 message 的成功响应。"""
-
-    return {
-        "status": status,
-        "output": [
-            {"type": "reasoning", "content": []},
-            {"type": "message", "content": [{"type": "output_text", "text": text}]},
-        ],
-    }
-
-
-async def test_parser_takes_the_output_text_and_skips_reasoning() -> None:
-    understanding = ark(lambda _: httpx.Response(200, json=responses_body()))
-    assert await understanding.parse(VIDEO) == "## 4、逐镜拉片表\n……"
-
-
-@pytest.mark.parametrize("status", ["incomplete", "in_progress", "failed"])
-async def test_parser_refuses_a_response_that_did_not_finish(status: str) -> None:
-    """输出被截断时接口仍可能返回 200，需校验完成状态以避免交付残缺镜头表。"""
-
-    understanding = ark(lambda _: httpx.Response(200, json=responses_body(status=status)))
-    with pytest.raises(VideoUnderstandingError, match=status):
-        await understanding.parse(VIDEO)
-
-
-async def test_parser_refuses_an_empty_document() -> None:
-    understanding = ark(lambda _: httpx.Response(200, json={"status": "completed", "output": []}))
-    with pytest.raises(VideoUnderstandingError, match="没给出正文"):
-        await understanding.parse(VIDEO)
-
-
-async def test_parser_reports_the_upstream_error_body() -> None:
-    understanding = ark(
-        lambda _: httpx.Response(400, json={"error": {"message": "video_url 取不到"}})
-    )
-    with pytest.raises(VideoUnderstandingError, match="400"):
-        await understanding.parse(VIDEO)
-
-
-async def test_parser_refuses_a_non_json_body() -> None:
-    understanding = ark(lambda _: httpx.Response(200, text="<html>502</html>"))
-    with pytest.raises(VideoUnderstandingError, match="不是 JSON"):
-        await understanding.parse(VIDEO)
-
-
-async def test_parser_sends_the_video_as_a_native_part() -> None:
-
-    seen: dict[str, Any] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.update(json.loads(request.content))
-        assert request.headers["Authorization"] == "Bearer ark"
-        return httpx.Response(200, json=responses_body())
-
-    await ark(handler).parse(VIDEO)
-    roles = [message["role"] for message in seen["input"]]
-    assert roles == ["system", "user"]
-    assert seen["input"][0]["content"][0]["text"] == SYSTEM_PROMPT
-    assert seen["input"][1]["content"][0] == {"type": "input_video", "video_url": VIDEO}
-    assert seen["model"] == "seed-vision"
-    assert "reasoning" not in seen, "没配思考强度就不发这个参数，交给对方默认档"
-
-
-async def test_parser_sends_the_configured_reasoning_effort() -> None:
-    seen: dict[str, Any] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.update(json.loads(request.content))
-        return httpx.Response(200, json=responses_body())
-
-    await ark(handler, thinking="medium").parse(VIDEO)
-    assert seen["reasoning"] == {"effort": "medium"}
-
-
-async def test_parser_sends_the_configured_fps_on_the_video_part() -> None:
-
-    seen: dict[str, Any] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.update(json.loads(request.content))
-        return httpx.Response(200, json=responses_body())
-
-    await ark(handler, fps=5).parse(VIDEO)
-    assert seen["input"][1]["content"][0] == {"type": "input_video", "video_url": VIDEO, "fps": 5}
 
 
 async def test_plan_needs_the_document_first(
@@ -841,7 +610,6 @@ async def test_generate_stays_on_dev_when_pro_is_off(
         generations=generations,
         objects=objects,
         paths=MEDIA_PATHS,
-        understanding=FakeUnderstanding(),
         client=None,  # type: ignore[arg-type]
         image_models=frozenset({IMAGE_MODEL}),
         policy=GenerationPolicy(
@@ -885,7 +653,6 @@ async def test_generate_timeout_is_a_brief_failure_and_logs_the_record(
         generations=generations,
         objects=objects,
         paths=MEDIA_PATHS,
-        understanding=FakeUnderstanding(),
         client=None,  # type: ignore[arg-type]
         image_models=frozenset({IMAGE_MODEL}),
         policy=GenerationPolicy(
@@ -946,306 +713,6 @@ async def test_anchor_sheet_submits_a_full_square_grid_without_references(
     assert request.prompt.startswith("1. Core Command")
 
 
-FRAME_URL = "https://cdn.test/frames/s1-1.jpg"
-OTHER_FRAME_URL = "https://cdn.test/frames/s2-1.jpg"
-
-
-def one_shot(**overrides: Any) -> VideoShotRequest:
-    fields: dict[str, Any] = {
-        "index": 1,
-        "prompt": {
-            "global_settings": "人物与门厅保持一致。",
-            "timeline": [
-                {"timestamps": [0, 8], "prompt": "全景，平视，固定，她走进门厅 @Image1。"}
-            ],
-        },
-        "seconds": 8,
-        "image_urls": [FRAME_URL],
-    }
-    return VideoShotRequest(**{**fields, **overrides})
-
-
-async def deliver(
-    tools: ShotVideoToolset[object],
-    ctx: RunContext[object],
-    files: FakeFileStore,
-    shots: list[VideoShotRequest],
-    *,
-    aspect_ratio: str = "9:16",
-) -> str:
-    """直接调用交付工具体，取给模型的那份；地址范围校验由独立用例覆盖。"""
-
-    _ = files
-    delivered = await tools.write_video_shots(ctx, aspect_ratio, shots)
-    assert isinstance(delivered.return_value, str)
-    return delivered.return_value
-
-
-async def test_delivered_table_lands_in_the_workspace(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
-) -> None:
-
-    shots = [one_shot(), one_shot(index=2, seconds=12, image_urls=[FRAME_URL, OTHER_FRAME_URL])]
-    result = await deliver(
-        tools,
-        ctx,
-        files,
-        shots,
-    )
-
-    assert SHOTS_PATH in result
-    assert "20 秒" in result
-    stored = await files.read(NAMESPACE, SHOTS_PATH)
-    assert stored is not None
-    document = json.loads(stored.content)
-    expected_rows = [shot.model_dump(mode="json") for shot in shots]
-    for row in expected_rows:
-        row["prompt"]["timeline"][0]["image_indexes"] = [1]
-    assert document == {"aspect_ratio": "9:16", "shots": expected_rows}
-    validate_shots_document(stored.content)
-
-
-async def test_delivered_table_accepts_a_group_without_reference_images(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
-) -> None:
-    shot = one_shot(
-        prompt={
-            "global_settings": "人物与门厅保持一致。",
-            "timeline": [{"timestamps": [0, 8], "prompt": " 她走进门厅。\n"}],
-        },
-        image_urls=[],
-    )
-    await check_args(tools, "write_video_shots", ctx, aspect_ratio="9:16", shots=[shot])
-
-    result = await deliver(tools, ctx, files, [shot])
-
-    assert SHOTS_PATH in result
-    stored = await files.read(NAMESPACE, SHOTS_PATH)
-    assert stored is not None
-    expected = shot.model_dump(mode="json")
-    expected["prompt"]["timeline"][0]["image_indexes"] = []
-    assert json.loads(stored.content) == {"aspect_ratio": "9:16", "shots": [expected]}
-    validate_shots_document(stored.content)
-
-
-@pytest.mark.parametrize(
-    ("shots", "message"),
-    [
-        ([], "一条都没有"),
-        ([one_shot(index=2)], "连续编号"),
-        (
-            [
-                one_shot(
-                    prompt={
-                        "global_settings": "人物与门厅保持一致。",
-                        "timeline": [{"timestamps": [0, 8], "prompt": "   "}],
-                    }
-                )
-            ],
-            "prompt 为空",
-        ),
-        ([one_shot(seconds=3)], "4-30"),
-        ([one_shot(seconds=31)], "4-30"),
-        ([one_shot(image_urls=[])], "@Image1"),
-        (
-            [
-                one_shot(
-                    prompt={
-                        "global_settings": "人物与门厅保持一致。",
-                        "timeline": [{"timestamps": [0, 8], "prompt": "她走进门厅 @Image2。"}],
-                    }
-                )
-            ],
-            "@Image2",
-        ),
-    ],
-)
-async def test_delivery_rejects_the_whole_table(
-    tools: ShotVideoToolset[object],
-    ctx: RunContext[object],
-    files: FakeFileStore,
-    shots: list[VideoShotRequest],
-    message: str,
-) -> None:
-
-    with pytest.raises(ModelRetry, match=message):
-        await deliver(tools, ctx, files, shots)
-    assert await files.read(NAMESPACE, SHOTS_PATH) is None
-
-
-async def test_invalid_later_group_preserves_the_complete_existing_file(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
-) -> None:
-    original = shots_document()
-    written = await files.write(NAMESPACE, SHOTS_PATH, original)
-    shots = [one_shot(seconds=12), one_shot(index=2, image_urls=[])]
-
-    with pytest.raises(ModelRetry, match=r"镜头组 2.*@Image1"):
-        await deliver(tools, ctx, files, shots)
-
-    stored = await files.read(NAMESPACE, SHOTS_PATH)
-    assert stored is not None
-    assert (stored.content, stored.version) == (original, written.version)
-
-
-async def test_delivery_rejects_a_bad_aspect_ratio(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], files: FakeFileStore
-) -> None:
-    with pytest.raises(ModelRetry, match="画幅"):
-        await deliver(tools, ctx, files, [one_shot()], aspect_ratio="竖版")
-    assert await files.read(NAMESPACE, SHOTS_PATH) is None
-
-
-async def test_delivery_accepts_a_frame_url_the_tools_wrote_down(
-    tools: ShotVideoToolset[object], ctx: RunContext[object], materials: FakeMaterialLedger
-) -> None:
-
-    materials.rows[(NAMESPACE, FRAME_URL)] = Material(url=FRAME_URL, kind="image")
-    await check_args(tools, "write_video_shots", ctx, aspect_ratio="9:16", shots=[one_shot()])
-
-
-async def test_delivery_rejects_a_made_up_frame_url(
-    tools: ShotVideoToolset[object], ctx: RunContext[object]
-) -> None:
-    """拒绝未登记帧地址，错误仅提示合法来源，不回显该地址。"""
-
-    with pytest.raises(ModelRetry, match="不要自己拼。") as rejected:
-        await check_args(
-            tools,
-            "write_video_shots",
-            ctx,
-            aspect_ratio="9:16",
-            shots=[one_shot(image_urls=["https://cdn.test/编的.jpg"])],
-        )
-    assert "编的" not in str(rejected.value), "被拒的地址不回显，否则重试一次就洗成素材了"
-
-
-async def test_delivery_rejects_a_frame_url_that_is_not_http(
-    tools: ShotVideoToolset[object], ctx: RunContext[object]
-) -> None:
-    with pytest.raises(ModelRetry, match="http"):
-        await check_args(
-            tools,
-            "write_video_shots",
-            ctx,
-            aspect_ratio="9:16",
-            shots=[one_shot(image_urls=["frames/s1-1.jpg"])],
-        )
-
-
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        "0-8s 她走进门厅 @Image1。",
-        {
-            "global_settings": "人物与门厅保持一致。",
-            "timeline": [
-                {"timestamps": [0, 5], "prompt": "她走进门厅 @Image1。"},
-                {"timestamps": [4, 8], "prompt": "她停下脚步 @Image1。"},
-            ],
-        },
-    ],
-    ids=["string-prompt", "overlapping-timeline"],
-)
-async def test_invalid_shot_input_keeps_the_existing_file_on_the_agent_path(
-    capability: ShotVideo[object],
-    files: FakeFileStore,
-    materials: FakeMaterialLedger,
-    prompt: object,
-) -> None:
-    original = shots_document()
-    await files.write(NAMESPACE, SHOTS_PATH, original)
-    materials.rows[(NAMESPACE, FRAME_URL)] = Material(url=FRAME_URL, kind="image")
-    shot = one_shot().model_dump()
-    shot["prompt"] = prompt
-
-    def call_once(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
-        if len(messages) == 1:
-            return ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        "write_video_shots",
-                        {"aspect_ratio": "9:16", "shots": [shot]},
-                        tool_call_id="c1",
-                    )
-                ]
-            )
-        return ModelResponse(parts=[TextPart("好")])
-
-    result = await Agent(FunctionModel(call_once), capabilities=[capability]).run(
-        "提交镜头组", deps=make_deps()
-    )
-    refusals = [
-        part
-        for message in result.all_messages()
-        for part in message.parts
-        if isinstance(part, RetryPromptPart) and part.tool_name == "write_video_shots"
-    ]
-    assert len(refusals) == 1
-    stored = await files.read(NAMESPACE, SHOTS_PATH)
-    assert stored is not None
-    assert stored.content == original
-
-
-async def run_delivery_once(
-    capability: ShotVideo[object], shots: object
-) -> tuple[list[RetryPromptPart], list[EventDict]]:
-    """让模型只调一次交付工具，返回它收到的退回单与本次的日志。"""
-
-    def call_once(messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
-        if len(messages) == 1:
-            return ModelResponse(
-                parts=[
-                    ToolCallPart(
-                        "write_video_shots",
-                        {"aspect_ratio": "9:16", "shots": shots},
-                        tool_call_id="c1",
-                    )
-                ]
-            )
-        return ModelResponse(parts=[TextPart("好")])
-
-    with capture_logs() as logs:
-        result = await Agent(FunctionModel(call_once), capabilities=[capability]).run(
-            "提交镜头组", deps=make_deps()
-        )
-    refusals = [
-        part
-        for message in result.all_messages()
-        for part in message.parts
-        if isinstance(part, RetryPromptPart) and part.tool_name == "write_video_shots"
-    ]
-    return refusals, logs
-
-
-@pytest.mark.parametrize("field", ["shots", "prompt"])
-async def test_stringified_nested_input_is_parsed_on_the_agent_path(
-    capability: ShotVideo[object],
-    files: FakeFileStore,
-    materials: FakeMaterialLedger,
-    field: str,
-) -> None:
-    """弱模型把嵌套结构整体序列化成字符串时照常交付，并留一条可数的日志。"""
-
-    materials.rows[(NAMESPACE, FRAME_URL)] = Material(url=FRAME_URL, kind="image")
-    shot = one_shot().model_dump()
-    shots: object
-    if field == "prompt":
-        shot["prompt"] = json.dumps(shot["prompt"], ensure_ascii=False)
-        shots = [shot]
-    else:
-        shots = json.dumps([shot], ensure_ascii=False)
-
-    refusals, logs = await run_delivery_once(capability, shots)
-
-    assert refusals == []
-    stored = await files.read(NAMESPACE, SHOTS_PATH)
-    assert stored is not None
-    validate_shots_document(stored.content)
-    parsed = [log for log in logs if log["event"] == "工具参数以字符串传入，已解析"]
-    assert [log["field"] for log in parsed] == [field]
-
-
 async def test_stringified_frames_are_parsed_on_the_agent_path(
     capability: ShotVideo[object],
     files: FakeFileStore,
@@ -1285,126 +752,6 @@ async def test_stringified_frames_are_parsed_on_the_agent_path(
     assert refusals == []
     parsed = [log for log in logs if log["event"] == "工具参数以字符串传入，已解析"]
     assert [log["field"] for log in parsed] == ["frames"]
-
-
-async def test_a_string_that_is_not_json_is_refused_and_keeps_the_file(
-    capability: ShotVideo[object], files: FakeFileStore
-) -> None:
-    original = shots_document()
-    await files.write(NAMESPACE, SHOTS_PATH, original)
-
-    refusals, _ = await run_delivery_once(capability, "index: 1, seconds: 8")
-
-    assert len(refusals) == 1
-    stored = await files.read(NAMESPACE, SHOTS_PATH)
-    assert stored is not None
-    assert stored.content == original
-
-
-def shots_document(**overrides: Any) -> str:
-    """工作区文件校验入口接受的有效镜头组 prompt 表。"""
-
-    row: dict[str, Any] = {
-        "index": 1,
-        "prompt": {
-            "global_settings": "人物与门厅保持一致。",
-            "timeline": [
-                {
-                    "timestamps": [0, 8],
-                    "prompt": "全景，平视，固定，她走进门厅 @Image1。",
-                    "image_indexes": [1],
-                }
-            ],
-        },
-        "seconds": 8,
-        "image_urls": [FRAME_URL],
-    }
-    document: dict[str, Any] = {"aspect_ratio": "9:16", "shots": [row]}
-    return json.dumps({**document, **overrides}, ensure_ascii=False)
-
-
-def test_written_back_table_accepts_the_current_document_format() -> None:
-
-    validate_shots_document(shots_document())
-
-
-def test_written_back_table_does_not_ask_where_the_urls_came_from() -> None:
-    """素材来源校验约束模型生成；用户写回仅校验文档形状。"""
-
-    validate_shots_document(
-        shots_document(
-            shots=[
-                json.loads(shots_document())["shots"][0]
-                | {"image_urls": ["https://别处.test/x.jpg"]}
-            ]
-        )
-    )
-
-
-@pytest.mark.parametrize(
-    ("content", "message"),
-    [
-        ("{不是 json", "不是合法的 JSON"),
-        ("[]", "根必须是一个对象"),
-        (json.dumps({"aspect_ratio": "9:16"}), "shots"),
-        (shots_document(aspect_ratio="竖版"), "画幅"),
-        (json.dumps({"aspect_ratio": "9:16", "shots": [{"index": 1}]}), "prompt"),
-        (
-            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"index": 2}]),
-            "连续编号",
-        ),
-        (
-            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"seconds": 31}]),
-            "4-30",
-        ),
-        (
-            shots_document(shots=[json.loads(shots_document())["shots"][0] | {"image_urls": []}]),
-            "@Image1",
-        ),
-        (
-            shots_document(
-                shots=[json.loads(shots_document())["shots"][0] | {"image_urls": ["  "]}]
-            ),
-            "空地址",
-        ),
-        (
-            shots_document(
-                shots=[
-                    json.loads(shots_document())["shots"][0]
-                    | {
-                        "prompt": {
-                            "global_settings": "人物与门厅保持一致。",
-                            "timeline": [
-                                {
-                                    "timestamps": [0, 8],
-                                    "prompt": "她走进门厅 @Image2。",
-                                    "image_indexes": [2],
-                                }
-                            ],
-                        }
-                    }
-                ]
-            ),
-            "@Image2",
-        ),
-    ],
-    ids=[
-        "bad-json",
-        "not-object",
-        "no-shots",
-        "bad-aspect",
-        "bad-row",
-        "index-gap",
-        "seconds",
-        "reference-without-images",
-        "blank-url",
-        "image-ref",
-    ],
-)
-def test_written_back_table_is_rejected_with_the_reason(content: str, message: str) -> None:
-
-    with pytest.raises(ValueError, match=message):
-        validate_shots_document(content)
 
 
 def test_the_pinned_image_model_can_do_what_the_frame_tools_ask_for() -> None:

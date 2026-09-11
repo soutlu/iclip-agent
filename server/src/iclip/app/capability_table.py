@@ -9,7 +9,6 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from iclip.capabilities.exact_replica.capability import ExactReplica
 from iclip.capabilities.shot_video.capability import GenerationPolicy, shot_video_capability
 from iclip.capabilities.shot_video.ports import (
     ImageJob,
@@ -17,12 +16,13 @@ from iclip.capabilities.shot_video.ports import (
     InvalidImageRequest,
     ObjectWriteFailed,
 )
+from iclip.capabilities.video.capability import Video
 from iclip.capabilities.video_understanding import ArkVideoUnderstanding
 from iclip.capabilities.workspace.capability import workspace_capability
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.common.errors import ValidationFailed
-from iclip.config import ResolvedShotVideo
+from iclip.config import ResolvedShotVideo, ResolvedVideo
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.domains.generation.service import GenerationService
@@ -158,13 +158,14 @@ def build_capability_table(
     http_client: httpx.AsyncClient,
     generation_service: GenerationService | None = None,
     object_store: PublicObjectStore | None = None,
+    video: ResolvedVideo | None = None,
     shot_video: ResolvedShotVideo | None = None,
     image_models: frozenset[str] = frozenset(),
 ) -> CapabilityTable:
-    """按拿到的运行对象登记能力名：材料齐了就登记，缺了就跳过。
+    """按组合根递进来的运行值登记能力名，没给的不登记。
 
-    「取帧与出图这套算不算启用」由 ``ResolvedSettings.shot_tools_enabled`` 判定，本函数只按
-    组合根递进来的对象是否为空取用，不重算那个条件。
+    ``shot_video`` 由组合根按 ``ResolvedSettings.shot_tools_enabled`` 决定是否传入；传了却缺
+    媒体生成或对象存储是装配错误，直接报。
     """
 
     # 文件生产与读取共用 FileSpace，避免命名空间不一致。
@@ -176,21 +177,26 @@ def build_capability_table(
             ),
         ),
     }
-    if shot_video is None:
-        return table
-    # 两条流拆解同一个上游接口，共用一个适配器实例。
-    understanding = ArkVideoUnderstanding(
-        http_client,
-        url=shot_video.understanding_url,
-        api_key=shot_video.understanding_api_key,
-        model=shot_video.understanding_model,
-        thinking=shot_video.understanding_thinking,
-        fps=shot_video.understanding_fps,
-    )
-    table["exact_replica"] = (
-        ExactReplica[Any](space=space, ledger=material_ledger, understanding=understanding),
-    )
-    if generation_service is not None and object_store is not None:
+    if video is not None:
+        table["video"] = (
+            Video[Any](
+                space=space,
+                ledger=material_ledger,
+                understanding=ArkVideoUnderstanding(
+                    http_client,
+                    url=video.understanding_url,
+                    api_key=video.understanding_api_key,
+                    model=video.understanding_model,
+                    thinking=video.understanding_thinking,
+                    fps=video.understanding_fps,
+                ),
+            ),
+        )
+    if shot_video is not None:
+        if generation_service is None or object_store is None:
+            raise RuntimeError(
+                "装配 shot_video 要有媒体生成服务与对象存储；组合根应按 shot_tools_enabled 决定是否传入"
+            )
         table["shot_video"] = (
             shot_video_capability(
                 space=space,
@@ -198,7 +204,6 @@ def build_capability_table(
                 generations=GenerationsAdapter(generation_service),
                 objects=ObjectWriterAdapter(object_store),
                 paths=MEDIA_PATHS,
-                understanding=understanding,
                 client=http_client,
                 image_models=image_models,
                 policy=GenerationPolicy(

@@ -19,7 +19,6 @@ from iclip.app.capability_table import (
     build_display_registry,
     resolve_capabilities,
 )
-from iclip.capabilities.exact_replica.capability import ExactReplica
 from iclip.capabilities.shot_video.capability import ShotVideo
 from iclip.capabilities.shot_video.generation import IMAGE_MODEL
 from iclip.capabilities.shot_video.ports import (
@@ -27,10 +26,11 @@ from iclip.capabilities.shot_video.ports import (
     InvalidImageRequest,
     ObjectWriteFailed,
 )
+from iclip.capabilities.video.capability import Video
 from iclip.capabilities.workspace.capability import Workspace
 from iclip.capabilities.workspace.ports import ImageInfo, MediaProbeFailed
 from iclip.common.errors import ValidationFailed
-from iclip.config import ResolvedShotVideo
+from iclip.config import ResolvedShotVideo, ResolvedVideo
 from iclip.domains.generation.models import GenerationJob
 from iclip.domains.generation.schemas import ImageGenerationIn
 from iclip.domains.generation.service import GenerationService
@@ -51,13 +51,19 @@ def idle_client() -> httpx.AsyncClient:
 
 
 @pytest.fixture
-def shot_video_settings() -> ResolvedShotVideo:
-    return ResolvedShotVideo(
+def video_settings() -> ResolvedVideo:
+    return ResolvedVideo(
         understanding_url="https://vision.test/responses",
         understanding_api_key="ark",
         understanding_model="seed-vision",
         understanding_thinking="medium",
         understanding_fps=5,
+    )
+
+
+@pytest.fixture
+def shot_video_settings() -> ResolvedShotVideo:
+    return ResolvedShotVideo(
         poll_interval_seconds=5.0,
         dev_attempts=2,
         pro_attempts=1,
@@ -68,13 +74,13 @@ def shot_video_settings() -> ResolvedShotVideo:
 
 
 @pytest.fixture
-def video() -> Capability[object]:
-    return Capability[object](id="video", instructions="按镜头表干活。")
+def dummy() -> Capability[object]:
+    return Capability[object](id="dummy", instructions="按镜头表干活。")
 
 
 @pytest.fixture
-def table(video: Capability[object]) -> CapabilityTable:
-    return {"video": (video,)}
+def table(dummy: Capability[object]) -> CapabilityTable:
+    return {"dummy": (dummy,)}
 
 
 def test_unknown_name_fails_loudly(table: CapabilityTable) -> None:
@@ -83,8 +89,8 @@ def test_unknown_name_fails_loudly(table: CapabilityTable) -> None:
         resolve_capabilities(("shots",), table=table, declared_by="agent storyboard")
 
 
-def test_registered_name_resolves(video: Capability[object], table: CapabilityTable) -> None:
-    assert resolve_capabilities(("video",), table=table, declared_by="agent storyboard") == (video,)
+def test_registered_name_resolves(dummy: Capability[object], table: CapabilityTable) -> None:
+    assert resolve_capabilities(("dummy",), table=table, declared_by="agent storyboard") == (dummy,)
 
 
 def test_nothing_declared_mounts_nothing(table: CapabilityTable) -> None:
@@ -102,7 +108,7 @@ def test_workspace_is_registered_under_its_declaration_name() -> None:
     assert [type(capability) for capability in resolved] == [Workspace]
 
 
-def test_shot_video_needs_its_whole_backing() -> None:
+def test_shot_video_is_not_registered_unless_the_composition_root_passes_it() -> None:
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
@@ -114,26 +120,43 @@ def test_shot_video_needs_its_whole_backing() -> None:
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
 
 
-def test_shot_video_is_registered_when_backed(shot_video_settings: ResolvedShotVideo) -> None:
+def test_shot_video_passed_without_its_backing_is_an_assembly_error(
+    shot_video_settings: ResolvedShotVideo,
+) -> None:
+    """是否启用由 ResolvedSettings.shot_tools_enabled 判；传进来却缺生成或对象存储是组合根的错。"""
+
+    with pytest.raises(RuntimeError, match="shot_tools_enabled"):
+        build_capability_table(
+            workspace_store=FakeFileStore(),
+            material_ledger=FakeMaterialLedger(),
+            http_client=idle_client(),
+            shot_video=shot_video_settings,
+        )
+
+
+def test_shot_video_is_registered_when_backed(
+    video_settings: ResolvedVideo, shot_video_settings: ResolvedShotVideo
+) -> None:
     built = build_capability_table(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
         http_client=idle_client(),
+        video=video_settings,
         shot_video=shot_video_settings,
         image_models=frozenset({IMAGE_MODEL}),
     )
     resolved = resolve_capabilities(
-        ("workspace", "shot_video"), table=built, declared_by="agent storyboard"
+        ("workspace", "video", "shot_video"), table=built, declared_by="agent storyboard"
     )
-    assert [type(capability) for capability in resolved] == [Workspace, ShotVideo]
+    assert [type(capability) for capability in resolved] == [Workspace, Video, ShotVideo]
 
 
-def test_shot_video_without_workspace_fails_at_assembly(
-    shot_video_settings: ResolvedShotVideo,
+def test_shot_video_without_workspace_and_video_fails_at_assembly(
+    video_settings: ResolvedVideo, shot_video_settings: ResolvedShotVideo
 ) -> None:
-    """镜头素材产物依赖工作区工具读取，缺少工作区能力须在装配时拒绝。"""
+    """取帧读 video 写的拆解文档、产物靠工作区工具读取，少挂任一个都在装配时拒绝。"""
 
     built = build_capability_table(
         workspace_store=FakeFileStore(),
@@ -141,15 +164,20 @@ def test_shot_video_without_workspace_fails_at_assembly(
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
         http_client=idle_client(),
+        video=video_settings,
         shot_video=shot_video_settings,
         image_models=frozenset({IMAGE_MODEL}),
     )
-    with pytest.raises(RuntimeError, match=r"没挂 'workspace'.*agents\.yaml"):
+    with pytest.raises(RuntimeError, match=r"没挂 'workspace', 'video'.*agents\.yaml"):
         resolve_capabilities(("shot_video",), table=built, declared_by="agent storyboard")
+    with pytest.raises(RuntimeError, match=r"没挂 'video'.*agents\.yaml"):
+        resolve_capabilities(
+            ("workspace", "shot_video"), table=built, declared_by="agent storyboard"
+        )
 
 
 def test_the_display_registry_covers_every_mounted_tool(
-    shot_video_settings: ResolvedShotVideo,
+    video_settings: ResolvedVideo, shot_video_settings: ResolvedShotVideo
 ) -> None:
     """合并 display 表时需包含不在能力名称表中的 skill 和子代理工具。"""
 
@@ -159,6 +187,7 @@ def test_the_display_registry_covers_every_mounted_tool(
         generation_service=cast("GenerationService", object()),
         object_store=FakeObjects(),
         http_client=idle_client(),
+        video=video_settings,
         shot_video=shot_video_settings,
         image_models=frozenset({IMAGE_MODEL}),
     )
@@ -175,13 +204,11 @@ def test_the_display_registry_covers_every_mounted_tool(
         "get_skill_reference",
         "list_files",
         "load_capability",
-        "parse_reference_video",
         "plan_shot_frames",
         "read_file",
         "search_files",
         "video_parser",
         "write_file",
-        "write_replica_shots",
         "write_video_shots",
     ]
 
@@ -376,38 +403,31 @@ def test_shot_video_refuses_to_mount_when_its_image_model_is_not_wired(
         )
 
 
-def test_exact_replica_mounts_without_generation_or_object_store(
-    shot_video_settings: ResolvedShotVideo,
-) -> None:
+def test_video_mounts_without_generation_or_object_store(video_settings: ResolvedVideo) -> None:
     built = build_capability_table(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         http_client=idle_client(),
-        shot_video=shot_video_settings,
+        video=video_settings,
     )
-    resolved = resolve_capabilities(
-        ("workspace", "exact_replica"), table=built, declared_by="agent exact-replica"
-    )
-    assert [type(capability) for capability in resolved] == [Workspace, ExactReplica]
+    resolved = resolve_capabilities(("workspace", "video"), table=built, declared_by="agent video")
+    assert [type(capability) for capability in resolved] == [Workspace, Video]
     assert "shot_video" not in built
-    replica = resolved[1]
-    assert isinstance(replica, ExactReplica)
-    assert set(replica.get_toolset().tools) == {"parse_reference_video", "write_replica_shots"}
+    video = resolved[1]
+    assert isinstance(video, Video)
+    assert set(video.get_toolset().tools) == {"video_parser", "write_video_shots"}
     display = build_display_registry(built)
-    assert "parse_reference_video" in display.entries
-    assert "write_replica_shots" in display.entries
+    assert {"video_parser", "write_video_shots"} <= set(display.entries)
     assert "generate_shot_frames" not in display.entries
     with pytest.raises(RuntimeError, match=r"没挂 'workspace'"):
-        resolve_capabilities(("exact_replica",), table=built, declared_by="agent exact-replica")
+        resolve_capabilities(("video",), table=built, declared_by="agent video")
 
 
-def test_exact_replica_is_unavailable_without_understanding() -> None:
+def test_video_is_unavailable_without_understanding() -> None:
     built = build_capability_table(
         workspace_store=FakeFileStore(),
         material_ledger=FakeMaterialLedger(),
         http_client=idle_client(),
     )
-    with pytest.raises(RuntimeError, match="未登记的 capability 'exact_replica'"):
-        resolve_capabilities(
-            ("workspace", "exact_replica"), table=built, declared_by="agent exact-replica"
-        )
+    with pytest.raises(RuntimeError, match="未登记的 capability 'video'"):
+        resolve_capabilities(("workspace", "video"), table=built, declared_by="agent video")

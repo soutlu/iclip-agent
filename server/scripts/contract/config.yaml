@@ -38,12 +38,15 @@ media_generation:
   poll_interval_seconds: 5 # 状态查询间隔，固定轮询
   job_timeout_seconds: 3600 # 提交后等待终态的上限
 
-shot_video:
-  # VIDEO_UNDERSTANDING_URL 为空时不注册 shot_video；启用后须同时启用媒体生成。
+video:
+  # VIDEO_UNDERSTANDING_URL 为空时不注册 video。
   understanding_model: doubao-seed-2-0-lite-260428 # 供应方模型名
   understanding_thinking: medium # minimal / low / medium / high；省略时使用供应方默认值
   # 采样帧率范围 0.2–5；提高帧率有助于识别快速剪辑点，同时增加视频 token 消耗。
   understanding_fps: 5
+
+shot_video:
+  # 写出这一段即启用取帧与出图；须同时启用媒体生成与对象存储，并在 PATH 上有 ffmpeg。
   # 出图先使用 dev 渠道，耗尽 dev_attempts 后转 pro；成功后停止重试。
   poll_interval_seconds: 5 # 结果轮询间隔
   dev_attempts: 2
