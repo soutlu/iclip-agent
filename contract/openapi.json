@@ -757,6 +757,36 @@
         "title": "ConversationActivityOut",
         "type": "object"
       },
+      "ConversationAgentsOut": {
+        "additionalProperties": false,
+        "description": "当前可发起对话的顶层 Agent；默认项取声明顺序的第一项，空目录为 None。",
+        "properties": {
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "default"
+        ],
+        "title": "ConversationAgentsOut",
+        "type": "object"
+      },
       "ConversationCollectionIn": {
         "additionalProperties": false,
         "description": "把这段对话放进某个合集，或者拿出来（给 ``null``）。\n\n单独一个端点而不是并进改名那个 PATCH：那样「没给这个字段」和「要清空它」在 JSON\n里长得一样，分不出来。",
@@ -6065,6 +6095,28 @@
           }
         },
         "summary": "Create Conversation",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/conversations/agents": {
+      "get": {
+        "description": "读取当前装配的顶层 Agent ID，按声明顺序返回；热重载后下次请求即见新目录。",
+        "operationId": "list_agents_conversations_agents_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationAgentsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Agents",
         "tags": [
           "conversations"
         ]

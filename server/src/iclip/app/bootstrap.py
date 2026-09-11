@@ -436,6 +436,7 @@ def build_app(
 
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
+        agents=live_agents(agent_layer),
         purge_derived=conversation_workspace.purge,
         list_collections=list_owner_collections,
         list_derived_files=conversation_workspace.list_files,

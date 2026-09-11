@@ -1,11 +1,11 @@
-"""对话 HTTP 端点。读操作使用 agent:read，写操作使用 agent:run。
+"""对话 HTTP 端点。对话读取使用 agent:read，Agent 目录和写操作使用 agent:run。
 
 不可见对话返回 404；治理者可跨属主读取，写入仍限属主。"""
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Annotated
 
@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from iclip.domains.conversations.models import Conversation
 from iclip.domains.conversations.schemas import (
+    ConversationAgentsOut,
     ConversationCollectionIn,
     ConversationEnvelope,
     ConversationFileContentOut,
@@ -39,7 +40,9 @@ from iclip.domains.conversations.service import (
 from iclip.domains.identity.public import Principal, require_permission
 
 
-def create_conversations_router(service: ConversationService) -> APIRouter:
+def create_conversations_router(
+    service: ConversationService, *, agents: Mapping[str, object]
+) -> APIRouter:
     router = APIRouter(prefix="/conversations", tags=["conversations"])
 
     # 活动状态独立于对话记录，在序列化前批量读取。
@@ -53,6 +56,15 @@ def create_conversations_router(service: ConversationService) -> APIRouter:
 
     async def _page_out(page: ConversationPage) -> ConversationPageOut:
         return ConversationPageOut(items=await _outs(page.items), next_cursor=page.next_cursor)
+
+    @router.get("/agents", response_model=ConversationAgentsOut)
+    async def list_agents(
+        _: Annotated[Principal, Depends(require_permission("agent:run"))],
+    ) -> ConversationAgentsOut:
+        """读取当前装配的顶层 Agent ID，按声明顺序返回；热重载后下次请求即见新目录。"""
+
+        items = list(agents)
+        return ConversationAgentsOut(items=items, default=items[0] if items else None)
 
     @router.post("", response_model=ConversationEnvelope, status_code=201)
     async def create_conversation(

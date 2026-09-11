@@ -1,4 +1,5 @@
 import { useRouter } from '@tanstack/react-router'
+import type { QueryFilters } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { configureAuth } from 'react-query-auth'
 import { ApiError } from '@/shared/api/client'
@@ -18,21 +19,39 @@ export const USER_QUERY_KEY = ['auth', 'current-user'] as const
 // SSO 整页跳转期间暂存站内返回路径。
 const SSO_NEXT_STORAGE_KEY = 'cue_sso_next'
 
-const fetchCurrentUser = async (): Promise<null | CueAuthUser> => {
+const BUSINESS_QUERIES: QueryFilters = {
+  predicate: (query) => query.queryKey[0] !== 'auth',
+}
+
+/** 身份改变前丢弃旧账号的数据，也阻止尚未完成的查询重新写回缓存。 */
+const clearBusinessQueries = async (): Promise<void> => {
+  await queryClient.cancelQueries(BUSINESS_QUERIES)
+  queryClient.removeQueries(BUSINESS_QUERIES)
+}
+
+const fetchCurrentUser = async (context?: { signal: AbortSignal }): Promise<null | CueAuthUser> => {
+  let user: null | CueAuthUser
   try {
     // 登录态探测的 401 不触发全局会话复核，避免守卫递归。
-    return await getCurrentCueUser()
+    user = await getCurrentCueUser()
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      return null
-    }
-
-    throw error
+    if (!(error instanceof ApiError && error.status === 401)) throw error
+    user = null
   }
+
+  // 登录或退出可取消旧身份探测，迟到的响应不能清理新账号的数据。
+  context?.signal.throwIfAborted()
+  const previous = queryClient.getQueryData<null | CueAuthUser>(USER_QUERY_KEY)
+  if ((previous?.id ?? null) !== (user?.id ?? null)) {
+    await clearBusinessQueries()
+  }
+  context?.signal.throwIfAborted()
+  return user
 }
 
 const loginWithPassword = async (request: CueLoginRequest): Promise<CueAuthUser> => {
   await loginCueUser(request)
+  await queryClient.cancelQueries({ queryKey: USER_QUERY_KEY, exact: true })
 
   const user = await fetchCurrentUser()
 
@@ -43,9 +62,15 @@ const loginWithPassword = async (request: CueLoginRequest): Promise<CueAuthUser>
   return user
 }
 
+const logout = async (): Promise<void> => {
+  await logoutCueUser()
+  await queryClient.cancelQueries({ queryKey: USER_QUERY_KEY, exact: true })
+  await clearBusinessQueries()
+}
+
 const auth = configureAuth<null | CueAuthUser, ApiError, CueLoginRequest, CueLoginRequest>({
   loginFn: loginWithPassword,
-  logoutFn: logoutCueUser,
+  logoutFn: logout,
   registerFn: () => Promise.reject(new Error('Cue 不提供自助注册')),
   userFn: fetchCurrentUser,
   userKey: [...USER_QUERY_KEY],
@@ -138,6 +163,7 @@ export const consumeSsoNextPath = (): null | string => {
 /** 仅通过 useCompleteSsoLogin 暴露换会话流程，确保同步重算路由守卫。 */
 const completeSsoLogin = async (jwt: string): Promise<CueAuthUser> => {
   await completeSsoCallback(jwt)
+  await queryClient.cancelQueries({ queryKey: USER_QUERY_KEY, exact: true })
 
   const user = await fetchCurrentUser()
 

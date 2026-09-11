@@ -8,6 +8,7 @@ const noContentSchema = z.unknown()
 
 const collectionEnvelopeSchema = zCollectionEnvelope.transform((payload) => payload.collection)
 const collectionsPageSchema = zCollectionsPageOut.transform((payload) => payload.items)
+export type Collection = z.output<typeof collectionEnvelopeSchema>
 
 // 请求后端允许的最大合集数。
 const LIST_LIMIT = 100
@@ -21,15 +22,16 @@ const collectionsQueryKeys = {
 export const useCollections = (enabled: boolean) =>
   useQuery({
     enabled,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch(`/collections?limit=${LIST_LIMIT}`, collectionsPageSchema, {
+        signal,
         cache: 'no-store',
         fallbackErrorMessage: '读取合集失败',
       }),
     queryKey: collectionsQueryKeys.list(),
   })
 
-export const useSaveCollection = (onSaved: () => void) => {
+export const useSaveCollection = (onSaved: (collection: Collection) => void) => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ collectionId, name }: { collectionId?: string | undefined; name: string }) =>
@@ -42,9 +44,9 @@ export const useSaveCollection = (onSaved: () => void) => {
           method: collectionId ? 'PATCH' : 'POST',
         },
       ),
-    onSuccess: async () => {
+    onSuccess: async (collection) => {
       await queryClient.invalidateQueries({ queryKey: collectionsQueryKeys.all })
-      onSaved()
+      onSaved(collection)
     },
   })
 }

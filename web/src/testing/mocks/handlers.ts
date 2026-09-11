@@ -214,6 +214,10 @@ export const handlers = [
   http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
 
   // 模拟 ILIKE 的大小写不敏感标题搜索，按最近活动排序。
+  http.get('*/api/conversations/agents', () =>
+    HttpResponse.json({ items: ['storyboard', 'exact-replica'], default: 'storyboard' }),
+  ),
+
   http.get('*/api/conversations/search', ({ request }) => {
     const keyword = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase()
     const items = [...mockConversations]
@@ -247,7 +251,10 @@ export const handlers = [
 
   http.post('*/api/conversations', async ({ request }) => {
     const body = zConversationIn.parse(await request.json())
+    const existing = mockConversations.find((item) => item.id === body.id)
+    if (existing) return HttpResponse.json({ conversation: existing })
     const conversation = addMockConversation(body.title ?? '新对话')
+    if (body.id) conversation.id = body.id
     conversation.agentId = body.agentId
     conversation.taskId = body.taskId ?? null
     conversation.collectionId = body.collectionId ?? null

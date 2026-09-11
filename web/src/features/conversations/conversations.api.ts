@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef } from 'react'
 import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
 import type { PromptContentPart } from '@/shared/transcript/vendor'
@@ -8,6 +9,7 @@ import { type ComposerPart, readyAttachment } from '@/shared/ui/composer'
 import { mediaDisplayName } from '@/shared/ui/media-preview'
 import {
   zApproveConversationsConversationIdInteractionsInteractionIdPostResponse,
+  zConversationAgentsOut,
   zConversationEnvelope,
   zConversationPageOut,
   zConversationsPageOut,
@@ -41,6 +43,7 @@ export type ConversationListState = 'all' | 'running' | 'done'
 
 export const conversationsQueryKeys = {
   all: ['conversations'] as const,
+  agents: ['conversation-agents'] as const,
   more: (bucket: string, cursor: string, state: ConversationListState) =>
     ['conversations', 'more', bucket, cursor, state] as const,
   search: (keyword: string) => ['conversations', 'search', keyword] as const,
@@ -48,6 +51,19 @@ export const conversationsQueryKeys = {
   sidebar: (state?: ConversationListState): readonly string[] =>
     state === undefined ? ['conversations', 'sidebar'] : ['conversations', 'sidebar', state],
 }
+
+/** 仅提供当前服务实际装配的顶层 Agent；顺序和默认项由服务端定义。 */
+export const useConversationAgents = (enabled: boolean) =>
+  useQuery({
+    enabled,
+    queryKey: conversationsQueryKeys.agents,
+    queryFn: ({ signal }) =>
+      apiFetch('/conversations/agents', zConversationAgentsOut, {
+        signal,
+        cache: 'no-store',
+        fallbackErrorMessage: '读取 Agent 列表失败',
+      }),
+  })
 
 /** 服务端按标题搜索当前用户的全部对话，按最近活动排序。 */
 export const searchConversations = async (keyword: string): Promise<Conversation[]> =>
@@ -61,8 +77,9 @@ export const searchConversations = async (keyword: string): Promise<Conversation
 export const useSidebarTopology = (enabled: boolean, state: ConversationListState) =>
   useQuery({
     enabled,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch(`/conversations?state=${state}`, zSidebarOut, {
+        signal,
         cache: 'no-store',
         fallbackErrorMessage: '读取对话列表失败',
       }),
@@ -76,13 +93,13 @@ export const useMoreConversations = (
 ) => {
   return useInfiniteQuery({
     queryKey: conversationsQueryKeys.more(collectionId ?? 'ungrouped', cursor ?? '', state),
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       apiFetch(
         `${
           collectionId ? `/conversations/by-collection/${collectionId}` : '/conversations/ungrouped'
         }?cursor=${encodeURIComponent(pageParam)}&state=${state}`,
         zConversationPageOut,
-        { cache: 'no-store', fallbackErrorMessage: '加载更多对话失败' },
+        { signal, cache: 'no-store', fallbackErrorMessage: '加载更多对话失败' },
       ),
     initialPageParam: cursor ?? '',
     getNextPageParam: (last: z.output<typeof zConversationPageOut>) => last.nextCursor,
@@ -90,7 +107,7 @@ export const useMoreConversations = (
   })
 }
 
-/** 创建服务端编号的对话；可同时指定需求单和合集归属。 */
+/** 创建对话；调用方可提供幂等编号、需求单和合集归属。 */
 export const createConversation = async (
   body: z.input<typeof zConversationIn>,
 ): Promise<Conversation> =>
@@ -100,21 +117,52 @@ export const createConversation = async (
     method: 'POST',
   })
 
-/** 客户端 promptId 用于服务端幂等去重；回执丢失时须复用同一 ID 重试。 */
-export const useStartConversation = (onCreated: (conversationId: string) => void) => {
+type StartConversationInput = {
+  agentId: string
+  collectionId: string | null
+  parts: readonly ComposerPart[]
+}
+
+/** 相同提交重试复用两个幂等编号；首条消息成功后才离开首页。 */
+export const useStartConversation = (
+  ownerUserId: string | null,
+  onCreated: (conversationId: string) => void,
+) => {
   const queryClient = useQueryClient()
+  const attemptRef = useRef<{
+    fingerprint: string
+    conversationId: string
+    promptId: string
+    conversation?: Conversation
+  } | null>(null)
   return useMutation({
-    mutationFn: async ({ agentId, parts }: { agentId: string; parts: readonly ComposerPart[] }) => {
-      const conversation = await createConversation({ agentId })
-      // 先进入会话页再提交消息，订阅与基线加载无需等待提交回执。
-      onCreated(conversation.id)
-      await submitPrompt(conversation.id, {
-        content: partsContent(parts),
-        promptId: mintPromptId(),
-      })
-      return conversation
+    mutationFn: async ({ agentId, collectionId, parts }: StartConversationInput) => {
+      const content = partsContent(parts)
+      const fingerprint = JSON.stringify({ ownerUserId, agentId, collectionId, content })
+      if (attemptRef.current?.fingerprint !== fingerprint) {
+        attemptRef.current = { fingerprint, conversationId: mintUuid(), promptId: mintPromptId() }
+      }
+      const current = attemptRef.current
+      try {
+        const conversation =
+          current.conversation ??
+          (await createConversation({ agentId, collectionId, id: current.conversationId }))
+        current.conversation = conversation
+        await submitPrompt(conversation.id, { content, promptId: current.promptId })
+        return conversation
+      } catch (error) {
+        // 已删除的对话 ID 不能再使用；仅在明确 404 后允许下一次主动提交另建对话。
+        if (error instanceof ApiError && error.status === 404) attemptRef.current = null
+        throw error
+      }
     },
-    onSuccess: async () => {
+    onSuccess: (conversation) => {
+      attemptRef.current = null
+      onCreated(conversation.id)
+    },
+    onSettled: async () => {
+      // 创建成功、首条消息失败时，侧栏也应能看到这段已存在的对话。
+      queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
       await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
     },
   })
@@ -247,29 +295,44 @@ type Membership = {
 }
 
 /** 两处归属分别调用端点；保存后由调用方刷新拓扑。 */
-export const useSetConversationMembership = (onSaved: () => void) => {
+export const useSetConversationMembership = (
+  onSaved: () => void,
+  onUpdated?: (conversation: Conversation) => void,
+) => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ collectionId, conversationId, taskId }: Membership) => {
       if (collectionId !== undefined) {
-        await apiFetch(`/conversations/${conversationId}/collection`, conversationEnvelopeSchema, {
-          body: { collectionId },
-          fallbackErrorMessage: '移动对话失败',
-          method: 'PUT',
-        })
+        const updated = await apiFetch(
+          `/conversations/${conversationId}/collection`,
+          conversationEnvelopeSchema,
+          {
+            body: { collectionId },
+            fallbackErrorMessage: '移动对话失败',
+            method: 'PUT',
+          },
+        )
+        onUpdated?.(updated)
       }
       if (taskId !== undefined) {
-        await apiFetch(`/conversations/${conversationId}/task`, conversationEnvelopeSchema, {
-          body: { taskId },
-          fallbackErrorMessage: '关联需求单失败',
-          method: 'PUT',
-        })
+        const updated = await apiFetch(
+          `/conversations/${conversationId}/task`,
+          conversationEnvelopeSchema,
+          {
+            body: { taskId },
+            fallbackErrorMessage: '关联需求单失败',
+            method: 'PUT',
+          },
+        )
+        onUpdated?.(updated)
       }
     },
-    onSuccess: async () => {
+    onSettled: async () => {
+      // 两个独立归属请求可能部分成功；失败也复核服务端实际状态。
+      queryClient.removeQueries({ queryKey: ['conversations', 'more'] })
       await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-      onSaved()
     },
+    onSuccess: onSaved,
   })
 }
 

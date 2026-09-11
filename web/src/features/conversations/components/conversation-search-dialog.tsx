@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { type RefObject, useEffect, useRef, useState } from 'react'
 import { ApiError } from '@/shared/api/client'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
@@ -30,13 +31,19 @@ export function ConversationSearchDialog({ onOpenChange, open }: ConversationSea
           title="搜索对话"
         />
         {/* 关闭时卸载，重置下次输入并停止订阅搜索。 */}
-        {open ? <SearchPanel inputRef={inputRef} /> : null}
+        {open ? <SearchPanel inputRef={inputRef} onNavigate={() => onOpenChange(false)} /> : null}
       </DialogSurface>
     </DialogRoot>
   )
 }
 
-function SearchPanel({ inputRef }: { inputRef: RefObject<HTMLInputElement | null> }) {
+function SearchPanel({
+  inputRef,
+  onNavigate,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>
+  onNavigate: () => void
+}) {
   const [keyword, setKeyword] = useState('')
   const [submitted, setSubmitted] = useState('')
 
@@ -65,7 +72,7 @@ function SearchPanel({ inputRef }: { inputRef: RefObject<HTMLInputElement | null
         />
       </div>
       <DialogBody className="flex min-h-30 flex-col gap-0.5 pt-0">
-        <SearchResults keyword={submitted} query={results} />
+        <SearchResults keyword={submitted} onNavigate={onNavigate} query={results} />
       </DialogBody>
     </>
   )
@@ -73,10 +80,11 @@ function SearchPanel({ inputRef }: { inputRef: RefObject<HTMLInputElement | null
 
 type SearchResultsProps = {
   keyword: string
+  onNavigate: () => void
   query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof searchConversations>>>>
 }
 
-function SearchResults({ keyword, query }: SearchResultsProps) {
+function SearchResults({ keyword, onNavigate, query }: SearchResultsProps) {
   if (!keyword) return <Hint>输入关键词搜索你的对话</Hint>
   if (query.isPending) return <Hint>搜索中…</Hint>
   if (query.isError) {
@@ -87,11 +95,15 @@ function SearchResults({ keyword, query }: SearchResultsProps) {
   return (
     <ul aria-label="搜索结果" className="flex flex-col gap-0.5">
       {query.data.map((conversation) => (
-        <li
-          key={conversation.id}
-          className="truncate rounded-sm px-2 py-2 text-body text-on-surface"
-        >
-          {conversation.title}
+        <li key={conversation.id}>
+          <Link
+            className="block ui-state truncate rounded-sm px-2 py-2 text-body text-on-surface ui-focus"
+            onClick={onNavigate}
+            params={{ conversationId: conversation.id }}
+            to="/c/$conversationId"
+          >
+            {conversation.title}
+          </Link>
         </li>
       ))}
     </ul>

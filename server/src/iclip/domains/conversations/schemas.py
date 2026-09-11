@@ -25,6 +25,13 @@ class CamelModel(BaseModel):
 Title = Annotated[str, Field(min_length=1, max_length=MAX_TITLE_CHARS)]
 
 
+class ConversationAgentsOut(CamelModel):
+    """当前可发起对话的顶层 Agent；默认项取声明顺序的第一项，空目录为 None。"""
+
+    items: list[str]
+    default: str | None
+
+
 class ConversationIn(CamelModel):
     """新建一段对话。不给名字就用默认名。
 
@@ -196,6 +203,7 @@ __all__ = [
     "MAX_AGENT_ID_CHARS",
     "MAX_TITLE_CHARS",
     "ConversationActivityOut",
+    "ConversationAgentsOut",
     "ConversationCollectionIn",
     "ConversationEnvelope",
     "ConversationFileContentOut",

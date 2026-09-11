@@ -26,6 +26,8 @@ import {
   type SidebarTopology,
 } from '@/features/conversations'
 import { useTaskOptions } from '@/features/tasks'
+import { ApiError } from '@/shared/api/client'
+import { useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { cn } from '@/shared/lib/utils'
@@ -55,9 +57,16 @@ const UNGROUPED = 'ungrouped'
 /** 任务区和合集内容使用服务端分页，合集列表在前端切片；拖动成功后刷新拓扑。 */
 export function SidebarConversations() {
   const queryClient = useQueryClient()
+  const session = useUser()
+  const permissions = session.data?.permissions ?? []
+  const canRead = permissions.includes('agent:read')
+  const canWrite = permissions.includes('agent:run')
+  const canManageCollections = permissions.includes('collections:write')
+  const canReadCollections = permissions.includes('collections:read')
+  const canReadTasks = permissions.includes('tasks:read')
   const [state, setState] = useState<ConversationListState>('all')
-  const topology = useSidebarTopology(true, state)
-  useLiveConversations()
+  const topology = useSidebarTopology(canRead, state)
+  useLiveConversations(canRead)
   useRecordOpened(topology.data)
   const [shownCollections, setShownCollections] = useState(COLLECTIONS_PER_STEP)
   const [dragging, setDragging] = useState<string | null>(null)
@@ -75,8 +84,8 @@ export function SidebarConversations() {
     open: boolean
   }>({ open: false })
 
-  const collections = useCollections(membership.open)
-  const tasks = useTaskOptions(membership.open)
+  const collections = useCollections(membership.open && canReadCollections)
+  const tasks = useTaskOptions(membership.open && canReadTasks)
 
   const refreshSidebar = () => {
     // 拓扑刷新时丢弃额外分页，避免每个已加载页分别重新请求。
@@ -104,7 +113,7 @@ export function SidebarConversations() {
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     setDragging(null)
     swallowClickAfterDrag(String(active.id))
-    if (!over) return
+    if (!canWrite || !over) return
     const from = (active.data.current as { collectionId: string | null } | undefined)?.collectionId
     const to = over.id === UNGROUPED ? null : String(over.id)
     if (from === to) return
@@ -121,6 +130,26 @@ export function SidebarConversations() {
   const anyBusy =
     (topology.data?.ungrouped.items ?? []).some((one) => one.activity.busy) ||
     allCollections.some((one) => one.page.items.some((row) => row.activity.busy))
+
+  if (session.isPending) return <SidebarFeedback>正在确认登录状态…</SidebarFeedback>
+  if (session.isError)
+    return (
+      <SidebarFeedback error loading={session.isFetching} onRetry={() => void session.refetch()}>
+        读取登录状态失败
+      </SidebarFeedback>
+    )
+  if (!canRead) return <SidebarFeedback>当前账号没有查看对话权限</SidebarFeedback>
+  if (topology.isPending) return <SidebarFeedback>正在加载对话…</SidebarFeedback>
+  if (topology.isError)
+    return (
+      <SidebarFeedback error loading={topology.isFetching} onRetry={() => void topology.refetch()}>
+        {topology.error instanceof ApiError && topology.error.status === 403
+          ? '当前账号没有查看对话权限'
+          : topology.error instanceof ApiError
+            ? topology.error.message
+            : '读取对话列表失败，请重试'}
+      </SidebarFeedback>
+    )
 
   return (
     <DndContext
@@ -145,6 +174,7 @@ export function SidebarConversations() {
         </ChipGroup>
 
         <UngroupedSection
+          canWrite={canWrite}
           count={topology.data?.ungroupedCount ?? 0}
           dragging={dragging}
           onChanged={refreshSidebar}
@@ -154,17 +184,23 @@ export function SidebarConversations() {
         />
 
         <SidebarSection
-          action={{
-            icon: 'add',
-            label: '新建合集',
-            onClick: () => setCollectionForm({ open: true }),
-          }}
+          action={
+            canManageCollections
+              ? {
+                  icon: 'add',
+                  label: '新建合集',
+                  onClick: () => setCollectionForm({ open: true }),
+                }
+              : undefined
+          }
           count={allCollections.length}
           title="合集"
         >
           {visibleCollections.map((collection) => (
             <CollectionGroup
               key={collection.id}
+              canManage={canManageCollections}
+              canWrite={canWrite}
               collection={collection}
               dragging={dragging}
               onChanged={refreshSidebar}
@@ -207,6 +243,28 @@ export function SidebarConversations() {
         open={collectionDelete.open}
       />
       <ConversationMembershipDialog
+        collectionUnavailable={
+          !canReadCollections
+            ? '当前账号没有查看合集权限'
+            : collections.isPending
+              ? '正在加载合集…'
+              : collections.isError
+                ? '读取合集失败，请重试'
+                : undefined
+        }
+        taskUnavailable={
+          !canReadTasks
+            ? '当前账号没有查看需求单权限'
+            : tasks.isPending
+              ? '正在加载需求单…'
+              : tasks.isError
+                ? '读取需求单失败，请重试'
+                : undefined
+        }
+        {...(canReadCollections && collections.isError
+          ? { onRetryCollections: () => void collections.refetch() }
+          : {})}
+        {...(canReadTasks && tasks.isError ? { onRetryTasks: () => void tasks.refetch() } : {})}
         collectionOptions={(collections.data ?? []).map((item) => ({
           id: item.id,
           label: item.name,
@@ -222,6 +280,7 @@ export function SidebarConversations() {
 }
 
 function UngroupedSection({
+  canWrite,
   count,
   dragging,
   onChanged,
@@ -229,6 +288,7 @@ function UngroupedSection({
   page,
   state,
 }: {
+  canWrite: boolean
   count: number
   dragging: string | null
   onChanged: () => void
@@ -236,9 +296,12 @@ function UngroupedSection({
   page: ConversationPage
   state: ConversationListState
 }) {
-  const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED })
+  const { isOver, setNodeRef } = useDroppable({ id: UNGROUPED, disabled: !canWrite })
   const more = useMoreConversations({ state }, page.nextCursor)
-  const items = [...page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
+  const items = uniqueConversations([
+    ...page.items,
+    ...(more.data?.pages.flatMap((one) => one.items) ?? []),
+  ])
   const hasMore = more.data ? more.hasNextPage : Boolean(page.nextCursor)
 
   return (
@@ -247,6 +310,7 @@ function UngroupedSection({
         <div className="flex flex-col gap-0.5">
           {items.map((conversation) => (
             <ConversationRow
+              canWrite={canWrite}
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
@@ -254,9 +318,10 @@ function UngroupedSection({
               onOpenMembership={() => onOpenMembership(conversation)}
             />
           ))}
-          {items.length === 0 && <EmptyHint>还没有对话</EmptyHint>}
+          {items.length === 0 && <EmptyHint>{emptyConversations(state)}</EmptyHint>}
           {hasMore && (
             <ExpandRow
+              error={more.error}
               label="展开显示更多对话"
               loading={more.isFetching}
               onExpand={() => void more.fetchNextPage()}
@@ -269,7 +334,7 @@ function UngroupedSection({
 }
 
 type SidebarSectionProps = {
-  action?: { icon: IconName; label: string; onClick: () => void }
+  action?: { icon: IconName; label: string; onClick: () => void } | undefined
   children: React.ReactNode
   count: number
   title: string
@@ -319,30 +384,90 @@ function EmptyHint({ children }: { children: string }) {
   return <p className="px-3 py-1 text-body-sm text-on-surface-faint">{children}</p>
 }
 
-/** 加载失败后保留展开入口以便重试；错误由调用链展示。 */
+function SidebarFeedback({
+  children,
+  error = false,
+  loading = false,
+  onRetry,
+}: {
+  children: string
+  error?: boolean
+  loading?: boolean
+  onRetry?: () => void
+}) {
+  return (
+    <div className="min-h-0 flex-1 px-3 pt-4">
+      <p
+        className={cn('text-body-sm', error ? 'text-error' : 'text-on-surface-faint')}
+        role={error ? 'alert' : 'status'}
+      >
+        {children}
+      </p>
+      {onRetry && (
+        <button
+          className={cn(ROW_CLASS, 'mt-2 ui-focus')}
+          disabled={loading}
+          onClick={onRetry}
+          type="button"
+        >
+          {loading ? '重试中…' : '重新加载对话'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+const emptyConversations = (state: ConversationListState) =>
+  state === 'running' ? '没有进行中的对话' : state === 'done' ? '没有已完成的对话' : '还没有对话'
+
+/** 页边界可因活动时间变化重叠，保留首页优先的第一条记录。 */
+const uniqueConversations = (items: readonly Conversation[]): Conversation[] => {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false
+    seen.add(item.id)
+    return true
+  })
+}
+
+/** 分页失败保留已加载内容，并在原入口显示原因和重试。 */
 function ExpandRow({
+  error,
   label,
   loading = false,
   onExpand,
 }: {
+  error?: unknown
   label: string
   loading?: boolean
   onExpand: () => void
 }) {
   return (
-    <button
-      aria-label={label}
-      className={cn(ROW_CLASS, 'w-full justify-start text-body-sm text-on-surface-faint ui-focus')}
-      disabled={loading}
-      onClick={onExpand}
-      type="button"
-    >
-      {loading ? '加载中…' : '展开显示'}
-    </button>
+    <>
+      {error != null && (
+        <p className="px-3 py-1 text-body-sm text-error" role="alert">
+          {error instanceof ApiError ? error.message : '加载更多对话失败，请重试'}
+        </p>
+      )}
+      <button
+        aria-label={error != null ? label.replace('展开显示', '重试加载') : label}
+        className={cn(
+          ROW_CLASS,
+          'w-full justify-start text-body-sm text-on-surface-faint ui-focus',
+        )}
+        disabled={loading}
+        onClick={onExpand}
+        type="button"
+      >
+        {loading ? '加载中…' : error != null ? '重试加载' : '展开显示'}
+      </button>
+    </>
   )
 }
 
 type CollectionGroupProps = {
+  canManage: boolean
+  canWrite: boolean
   collection: SidebarCollection
   dragging: string | null
   onChanged: () => void
@@ -353,6 +478,8 @@ type CollectionGroupProps = {
 }
 
 function CollectionGroup({
+  canManage,
+  canWrite,
   collection,
   dragging,
   onChanged,
@@ -362,12 +489,15 @@ function CollectionGroup({
   state,
 }: CollectionGroupProps) {
   const [open, setOpen] = useState(false)
-  const { isOver, setNodeRef } = useDroppable({ id: collection.id })
+  const { isOver, setNodeRef } = useDroppable({ id: collection.id, disabled: !canWrite })
   const more = useMoreConversations(
     { collectionId: collection.id, state },
     collection.page.nextCursor,
   )
-  const items = [...collection.page.items, ...(more.data?.pages.flatMap((one) => one.items) ?? [])]
+  const items = uniqueConversations([
+    ...collection.page.items,
+    ...(more.data?.pages.flatMap((one) => one.items) ?? []),
+  ])
   const hasMore = more.data ? more.hasNextPage : Boolean(collection.page.nextCursor)
 
   return (
@@ -395,24 +525,27 @@ function CollectionGroup({
             size="sm"
           />
         </button>
-        <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
-          <MenuRoot>
-            <MenuTrigger asChild>
-              <IconButton label={`${collection.name} 的操作`} name="more" size="xs" />
-            </MenuTrigger>
-            <MenuSurface align="start">
-              <MenuItem onSelect={onRename}>重命名</MenuItem>
-              <MenuItem destructive onSelect={onDelete}>
-                删除
-              </MenuItem>
-            </MenuSurface>
-          </MenuRoot>
-        </div>
+        {canManage && (
+          <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
+            <MenuRoot>
+              <MenuTrigger asChild>
+                <IconButton label={`${collection.name} 的操作`} name="more" size="xs" />
+              </MenuTrigger>
+              <MenuSurface align="start">
+                <MenuItem onSelect={onRename}>重命名</MenuItem>
+                <MenuItem destructive onSelect={onDelete}>
+                  删除
+                </MenuItem>
+              </MenuSurface>
+            </MenuRoot>
+          </div>
+        )}
       </div>
       {open && (
         <div className="flex flex-col gap-0.5 pl-6">
           {items.map((conversation) => (
             <ConversationRow
+              canWrite={canWrite}
               key={conversation.id}
               conversation={conversation}
               dragging={dragging === conversation.id}
@@ -420,9 +553,14 @@ function CollectionGroup({
               onOpenMembership={() => onOpenMembership(conversation)}
             />
           ))}
-          {items.length === 0 && <EmptyHint>这个合集还是空的</EmptyHint>}
+          {items.length === 0 && (
+            <EmptyHint>
+              {state === 'all' ? '这个合集还是空的' : emptyConversations(state)}
+            </EmptyHint>
+          )}
           {hasMore && (
             <ExpandRow
+              error={more.error}
               label={`展开显示 ${collection.name} 里更多对话`}
               loading={more.isFetching}
               onExpand={() => void more.fetchNextPage()}
@@ -478,17 +616,20 @@ const ROW_STATUS_MARK: Record<
 }
 
 function ConversationRow({
+  canWrite,
   conversation,
   dragging,
   onChanged,
   onOpenMembership,
 }: {
+  canWrite: boolean
   conversation: Conversation
   dragging: boolean
   onChanged: () => void
   onOpenMembership: () => void
 }) {
   const { listeners, setNodeRef, transform } = useDraggable({
+    disabled: !canWrite,
     data: { collectionId: conversation.collectionId },
     id: conversation.id,
   })
@@ -520,7 +661,7 @@ function ConversationRow({
       style={
         transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined
       }
-      {...(editing ? {} : listeners)}
+      {...(editing || !canWrite ? {} : listeners)}
     >
       {editing ? (
         <input
@@ -567,7 +708,7 @@ function ConversationRow({
           {formatRelativeTime(conversation.updatedAt)}
         </span>
       )}
-      {!editing && (
+      {!editing && canWrite && (
         <div className={cn(ROW_TRAILING_SHOWN, 'shrink-0 items-center')}>
           <MenuRoot>
             <MenuTrigger asChild>

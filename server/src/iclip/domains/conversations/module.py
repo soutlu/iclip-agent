@@ -34,6 +34,7 @@ class ConversationsModule:
 def build_conversations_module(
     repo: ConversationRepository,
     *,
+    agents: Mapping[str, object],
     purge_derived: PurgeDerived,
     list_collections: ListCollections,
     list_derived_files: ListDerivedFiles,
@@ -61,7 +62,7 @@ def build_conversations_module(
         conversation_ids_by_state=conversation_ids_by_state,
     )
     return ConversationsModule(
-        routers=(create_conversations_router(service),),
+        routers=(create_conversations_router(service, agents=agents),),
         service=service,
     )
 

@@ -134,7 +134,7 @@ async def test_a_queued_prompt_outranks_the_finished_turn(engine: AsyncEngine) -
 
 
 async def _plant(queue: JobQueue, conversation_id: str, text_: str, *, now: datetime) -> str:
-    row = await queue.submit(
+    row, _ = await queue.submit(
         prompt_id=f"prm_{uuid.uuid4().hex[:8]}",
         conversation_id=conversation_id,
         agent_id=AGENT_ID,
