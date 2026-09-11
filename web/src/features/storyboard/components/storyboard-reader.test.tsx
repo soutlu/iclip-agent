@@ -441,6 +441,38 @@ describe('StoryboardReader', () => {
     expect(requests.filter((request) => request.method !== 'GET')).toEqual([])
   })
 
+  it('生成任务帧到了立刻重拉记录，不等轮询', async () => {
+    provide()
+    let served = 0
+    server.use(
+      http.get('*/api/generations', () => {
+        served += 1
+        const finished = {
+          ...runningJob,
+          outputUrl: 'https://example.com/new.mp4',
+          status: 'completed',
+        }
+        return HttpResponse.json({ items: [served === 1 ? runningJob : finished] })
+      }),
+    )
+    const { socket } = await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+    await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    expect(await within(records).findByText('生成中…')).toBeVisible()
+
+    act(() => {
+      socket.deliver({
+        type: 'event.generation.changed',
+        session_id: CONVERSATION_ID,
+        payload: { id: runningJob.id, kind: 'video', status: 'completed', shot_index: 1 },
+      })
+    })
+
+    expect(await within(records).findByText('生成完成')).toBeVisible()
+    expect(served).toBe(2)
+  })
+
   it.each([
     { action: '关闭生成记录', items: jobs, label: '记录列表关闭' },
     { action: '返回分镜', items: [], label: '空态返回分镜' },

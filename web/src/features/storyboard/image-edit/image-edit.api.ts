@@ -11,8 +11,16 @@ import type { GenerationJob } from '../storyboard.api'
 import { isRunningStatus } from '../shots'
 import type { EditInstruction, FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
+/** 本对话全部参考帧编辑记录的查询前缀；按格的键挂在它下面，失效前缀即失效全部。 */
+export const imageEditConversationKey = (conversationId: string) =>
+  ['frame-edits', conversationId] as const
+
 export const imageEditQueryKey = (target: FrameEditTarget) =>
-  ['frame-edits', target.conversationId, target.shotIndex, target.frameNumber] as const
+  [
+    ...imageEditConversationKey(target.conversationId),
+    target.shotIndex,
+    target.frameNumber,
+  ] as const
 
 export function useImageEditJobs(target: FrameEditTarget) {
   return useInfiniteQuery({
@@ -33,6 +41,7 @@ export function useImageEditJobs(target: FrameEditTarget) {
       })
     },
     getNextPageParam: (page) => (page.items.length >= 20 ? page.items.at(-1)?.id : undefined),
+    // 状态跳转帧到了由 useLiveGenerations 立刻失效；有任务在跑时仍每 5 秒轮询兜底。
     refetchInterval: ({ state }) =>
       state.data?.pages.some((page) => page.items.some((job) => isRunningStatus(job.status)))
         ? 5000

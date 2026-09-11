@@ -249,7 +249,7 @@ describe('TranscriptConnection', () => {
     expect(sent[0]?.payload?.['transcript_since']).toEqual({ main: 7 })
   })
 
-  it('两种全局帧都不看订阅：一段都没订也收得到', () => {
+  it('全局帧都不看订阅：一段都没订也收得到', () => {
     const connection = connect([])
     const seen: SessionUpdate[] = []
     connection.watchSessions((update) => seen.push(update))
@@ -269,6 +269,16 @@ describe('TranscriptConnection', () => {
       session_id: 'c9',
       payload: { busy: false, pending_interaction: 'none', last_turn_reason: 'failed' },
     })
+    socket.deliver({
+      type: 'event.generation.changed',
+      session_id: 'c9',
+      payload: { id: 'job-1', kind: 'image', status: 'submitted', shot_index: 2, frame_number: 3 },
+    })
+    // 任务没有来源对话时信封上没有 session_id，空的归属字段服务端整个省略。
+    socket.deliver({
+      type: 'event.generation.changed',
+      payload: { id: 'job-2', kind: 'video', status: 'failed' },
+    })
 
     expect(seen).toEqual([
       { conversationId: 'c9', kind: 'title', title: '夜景延时素材生成' },
@@ -285,6 +295,24 @@ describe('TranscriptConnection', () => {
         kind: 'activity',
         lastTurnReason: 'failed',
         pendingInteraction: 'none',
+      },
+      {
+        conversationId: 'c9',
+        frameNumber: 3,
+        jobId: 'job-1',
+        jobKind: 'image',
+        kind: 'generation',
+        shotIndex: 2,
+        status: 'submitted',
+      },
+      {
+        conversationId: null,
+        frameNumber: null,
+        jobId: 'job-2',
+        jobKind: 'video',
+        kind: 'generation',
+        shotIndex: null,
+        status: 'failed',
       },
     ])
   })
