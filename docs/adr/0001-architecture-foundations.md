@@ -1,6 +1,7 @@
 # ADR-0001: 架构地基——三环分层、Agent 配置化、DB-based 运行、双主体与技术栈
 
 - 状态：已接受（2026-08-18）
+- 前端原 ADR-0001 的同源 SPA 与无 BFF 决策归入 §5；登录交互仍由[前端登录 ADR](../../web/docs/adr/0002-login-dialog-no-login-page.md) 定义。
 
 ## 决策
 
@@ -31,12 +32,15 @@ Agent 在代码/配置里初始化，**运行事实全部落 Postgres**：运行
 | 选型 | 理由 |
 |---|---|
 | Python + uv | 项目版本要求由 `pyproject.toml` 声明，依赖解析结果写入 lockfile |
+| Vite + React + TanStack Router / Query | 不需要 SSR；同源 SPA 直接使用后端会话，不增设 BFF |
 | FastAPI + fastapi-users | 账号生命周期 + OAuth 关联是验证过的强项；「自己写」指业务代码，不禁用成熟库 |
 | pydantic-settings（YAML 源） | 配置声明集中一处；`*_env` 间接引用与交叉引用校验为薄校验层，密钥只在环境变量 |
 | SQLAlchemy 2 async + Alembic + asyncpg | 标准组合；表结构只经人工 `alembic upgrade head` 演进，启动期不建表 |
 | pyright strict + ruff + tach | 静态门禁自第一行代码闭合 |
 | structlog | 结构化日志：事件 + 字段；标准库来源经 ProcessorFormatter 走同一条链；级别与格式来自配置 |
 | **不引入 Redis / 独立队列服务** | 全部跨 worker 正确性由 Postgres 承载；Redis broker 要做到等价还得加一层 outbox。生成队列由 [ADR-0004](0004-generation-queue-in-postgres.md) 的 procrastinate 承载，表仍在 Postgres 里 |
+
+旧 BFF 只在后端与前端两套 cookie 之间转换；同源部署可以直接使用后端 HttpOnly 会话，由生产反向代理承担路径转发与 WebSocket 支持。认证与代理约定见[跨端合同](../../contract/conventions.md#1-部署与路由路径)，真实后端与 mock 环境的隔离要求见[前端开发约定](../../web/AGENTS.md)。
 
 ### 6. 引擎升级纪律
 

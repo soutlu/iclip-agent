@@ -4,17 +4,17 @@
 
 ## 组件与状态
 
-- 优先复用 `src/shared/ui/`。局部组件和 Hook 留在 feature，形成跨 feature 的稳定复用后再提取。
+- 优先复用 `src/shared/ui/`。
 - 组件 props 使用显式类型；类型靠近使用处，跨模块复用时再提取。通过判别字段或结构化校验收窄类型，先处理空值分支。
 - 列表 key 使用稳定业务标识。className 组合使用 `cn()`；多变体样式用 `cva` 声明。
-- 数据获取使用现有 API helper；可取消的查询传递 `AbortSignal`。自定义 Hook 使用 `use*` 命名，返回值保持稳定结构。
+- 可取消的查询传递 `AbortSignal`。自定义 Hook 使用 `use*` 命名，返回值保持稳定结构。
 - 主题由 `src/app/theme.ts` 统一作用于 `<html>` 的 `.dark`；组件使用主题 token，不各自维护主题状态。
 - toast 使用 `@/shared/ui/toast`；进退场动画使用 `tw-animate-css` 的 `animate-in` / `animate-out`，时长与曲线取设计系统 token，不另写一套 toast 或进退场 keyframes。
 
 ## 内容与可访问性
 
 - UI 文案使用中文，代码标识符使用英文。面向用户的界面不泄露 raw tool name、`member_id`、skill name、reference path 或原始 JSON 参数。
-- 使用语义化元素；图标的可访问名称和装饰属性通过 `Icon` 的 `label` / `decorative` 表达。图片 alt 描述内容，装饰图片使用空 alt。
+- 使用语义化元素。图片 alt 描述内容，装饰图片使用空 alt。
 - 交互后的加载、错误、焦点与禁用状态遵守设计系统；组件的行为与可访问语义保持一致。
 
 ## 测试
