@@ -1,6 +1,5 @@
 name: ci
 
-# 公开仓最小权限：CI 只需读代码，防止 fork PR 借 token 写仓库
 permissions:
   contents: read
 
@@ -9,7 +8,6 @@ on:
     branches: [main, develop]
   pull_request:
 
-# 同一分支再推一次就取消上一轮，不排队等旧结果。
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -25,64 +23,69 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Docs check (链接与 make 目标存在)
+      - name: Docs check
         run: python3 scripts/check-docs.py
       - name: Select application checks
         id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: bash .github/scripts/ci-scope.sh
+        run: |
+          server=true
+          web=true
+          # 只缩小 PR 的范围；合入后全跑，公共文件和未知路径也全跑。
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            if git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-files"; then
+              server=false
+              web=false
+              while IFS= read -r -d '' path; do
+                case "$path" in
+                  server/*) server=true ;;
+                  web/*) web=true ;;
+                  *) server=true; web=true ;;
+                esac
+              done < "$RUNNER_TEMP/ci-changed-files"
+            else
+              echo "::warning::无法确定 PR 变更范围，执行两端完整检查"
+            fi
+          fi
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
 
-  # 静态检查和单元测试不需要数据库或媒体依赖。
   server:
+    name: server (${{ matrix.suite }})
     needs: changes
     if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ matrix.suite == 'checks' && 15 || 30 }}
     defaults:
       run:
         working-directory: server
-    steps:
-      - uses: actions/checkout@v7
-      # 上游不提供浮动的大版本标签，须使用完整版本号。
-      - uses: astral-sh/setup-uv@v10.0.1
-      - name: Sync dependencies (lockfile 精确 pin)
-        run: uv sync --locked
-      - name: Lint
-        run: uv run ruff check .
-      - name: Format check
-        run: uv run ruff format --check .
-      - name: Typecheck
-        run: uv run pyright
-      - name: Architecture graph
-        run: uv run tach check
-      - name: Unit tests
-        run: uv run pytest tests/unit -m unit
-
-  # 每个分片独占 runner 和 Postgres；作业内串行，避免清表夹具互相干扰。
-  server-integration:
-    name: server-integration (${{ matrix.suite }})
-    needs: changes
-    if: needs.changes.outputs.server == 'true'
-    runs-on: ubuntu-latest
-    # 单测挂死时的最后一道闸；单个用例的上限见 pyproject 的 pytest timeout。
-    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
+          - suite: checks
+            command: |
+              uv run ruff check .
+              uv run ruff format --check .
+              uv run pyright
+              uv run tach check
+              uv run pytest tests/unit -m unit
           - suite: runtime
-            pytest_args: tests/integration_no_llm/agents tests/integration_no_llm/generation
-          # 根目录减去 runtime：新测试目录默认包含在此分片，不会漏跑。
+            command: >-
+              uv run pytest tests/integration_no_llm/agents tests/integration_no_llm/generation
+              -m integration_no_llm --durations=10
+          # 根目录减去 runtime，新增测试自动纳入。
           - suite: domains
-            pytest_args: >-
-              tests/integration_no_llm
-              --ignore=tests/integration_no_llm/agents
-              --ignore=tests/integration_no_llm/generation
+            command: >-
+              uv run pytest tests/integration_no_llm
+              --ignore=tests/integration_no_llm/agents --ignore=tests/integration_no_llm/generation
+              -m integration_no_llm --durations=10
     services:
       postgres:
-        image: postgres:16
+        # 静态检查不启动数据库；集成分片各自独占一个实例。
+        image: ${{ matrix.suite != 'checks' && 'postgres:16' || '' }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -90,121 +93,111 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      # 显式配置测试库，连接失败时测试报错而非跳过。
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
-    defaults:
-      run:
-        working-directory: server
     steps:
       - uses: actions/checkout@v7
+      # setup-uv 不提供浮动大版本标签。
       - uses: astral-sh/setup-uv@v10.0.1
-      - name: Sync dependencies (lockfile 精确 pin)
-        run: uv sync --locked
-      - name: Install ffmpeg (媒体用例与合同导出共用)
+      - run: uv sync --locked
+      - name: Install ffmpeg
         if: matrix.suite == 'domains'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-      - name: Integration tests (real Postgres)
-        run: uv run pytest ${{ matrix.pytest_args }} -m integration_no_llm --durations=10
-      - name: Contract check (openapi.json 与后端一致)
+      - name: Run checks
+        run: ${{ matrix.command }}
+      - name: Contract check
         if: matrix.suite == 'domains'
         run: uv run python scripts/dump_openapi.py --check
-      - name: Alembic to head against service Postgres
+      - name: Migration check
         if: matrix.suite == 'domains'
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
         run: uv run alembic upgrade head
 
-  # 静态检查和测试使用独立 runner，避免把约一分钟的两段工作串行相加。
-  web-checks:
+  web:
+    name: web (${{ matrix.task }})
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        task: [static, tests]
+    timeout-minutes: ${{ matrix.browser && 20 || 15 }}
     defaults:
       run:
         working-directory: web
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-web
-      - name: Static checks
-        if: matrix.task == 'static'
-        run: pnpm ci:static
-      # build 包含完整 tsc -b；同一作业无需再单独执行 typecheck。
-      - name: Typecheck and build
-        if: matrix.task == 'static'
-        run: pnpm build
-      - name: Vitest
-        if: matrix.task == 'tests'
-        run: pnpm test
-
-  # Playwright 按测试用例分为两片；每片保持既有的 3 workers 和浏览器缓存。
-  web-e2e-shards:
-    needs: changes
-    if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-    defaults:
-      run:
-        working-directory: web
+        include:
+          - task: static
+            command: pnpm ci:static && pnpm build
+          - task: tests
+            command: pnpm test
+          - task: e2e-1
+            browser: true
+            command: pnpm test:e2e --shard=1/2
+          - task: e2e-2
+            browser: true
+            command: pnpm test:e2e --shard=2/2
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-web
+      - name: Install pnpm
+        # 使用 packageManager 指定的完整发布包，避免 npm 引导安装。
+        run: |
+          version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
+          mkdir -p "$HOME/.pnpm-bin"
+          curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
+          chmod +x "$HOME/.pnpm-bin/pnpm"
+          echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - name: Playwright version
+        if: matrix.browser
         id: playwright
         run: echo "version=$(pnpm exec playwright --version | sed 's/^Version //')" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
+        if: matrix.browser
         id: browsers
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - name: Install Playwright browser
-        if: steps.browsers.outputs.cache-hit != 'true'
+        if: matrix.browser && steps.browsers.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
-      - name: Install Playwright system deps (浏览器已缓存)
-        if: steps.browsers.outputs.cache-hit == 'true'
+      - name: Install Playwright system deps
+        if: matrix.browser && steps.browsers.outputs.cache-hit == 'true'
         run: pnpm exec playwright install-deps chromium
-      - name: e2e (browser MSW as backend)
-        run: pnpm test:e2e --shard=${{ matrix.shard }}/2
+      - name: Run checks
+        run: ${{ matrix.command }}
 
-  # 汇总检查保留分支保护名称；仅明确不适用的任务允许跳过。
+  # 同一应用的检查统一汇总，保留四个分支保护名称。
   checks:
     name: ${{ matrix.name }}
     if: always()
-    needs: [changes, server-integration, web-checks, web-e2e-shards]
+    needs: [changes, server, web]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
         include:
+          - name: server
+            scope: server
           - name: server-tests
             scope: server
-            job: server-integration
           - name: web
             scope: web
-            job: web-checks
           - name: web-e2e
             scope: web
-            job: web-e2e-shards
     steps:
       - name: Require selected checks
         env:
           SCOPE_RESULT: ${{ needs.changes.result }}
           REQUIRED: ${{ needs.changes.outputs[matrix.scope] }}
-          RESULT: ${{ needs[matrix.job].result }}
+          RESULT: ${{ needs[matrix.scope].result }}
         run: |
           test "$SCOPE_RESULT" = success
           if [ "$REQUIRED" = true ]; then
