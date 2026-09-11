@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FakeSocket } from '@/testing/ws'
 import { TranscriptConnection, type SessionUpdate, type TranscriptOps } from './connection'
@@ -62,7 +62,7 @@ describe('TranscriptConnection', () => {
     return connection
   }
 
-  beforeEach(() => {
+  afterEach(() => {
     vi.useRealTimers()
   })
 
@@ -141,12 +141,16 @@ describe('TranscriptConnection', () => {
     vi.useRealTimers()
   })
 
-  it('服务端说这段订不上，就不再留着它', () => {
+  it('服务端拒绝的对话不再收批次，重连后也不重订', () => {
+    vi.useFakeTimers()
     const connection = connect(['c1'])
     let refused = false
     connection.subscribe('c-gone', {
       onReset: () => {},
-      onOps: () => true,
+      onOps: (_agent, list) => {
+        received.push(['c-gone', list])
+        return true
+      },
       onNotFound: () => {
         refused = true
       },
@@ -158,6 +162,17 @@ describe('TranscriptConnection', () => {
     expect(refused).toBe(true)
     socket.deliver(ops(1, 'c-gone'))
     expect(received).toHaveLength(0)
+
+    socket.onclose?.()
+    vi.advanceTimersByTime(2_000)
+    socket.deliver(HELLO)
+
+    expect(
+      socket
+        .frames()
+        .filter((frame) => frame.type === 'subscribe_v2')
+        .map((frame) => frame.payload?.['session_id']),
+    ).toEqual(['c1', 'c-gone', 'c1'])
   })
 
   it('档位随订阅上行，调高之后重订并把水位照旧带上', () => {

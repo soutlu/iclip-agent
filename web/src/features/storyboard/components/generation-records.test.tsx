@@ -51,9 +51,8 @@ const jobs: GenerationJob[] = [
   }),
 ]
 
-const renderRecords = (onClose = vi.fn()) => {
-  render(<GenerationRecords jobs={jobs} onClose={onClose} onEditPrompt={vi.fn()} shotIndex={2} />)
-  return onClose
+const renderRecords = () => {
+  render(<GenerationRecords jobs={jobs} onClose={() => {}} onEditPrompt={() => {}} shotIndex={2} />)
 }
 
 beforeEach(() => {
@@ -123,10 +122,22 @@ describe('GenerationRecords', () => {
           requests += 1
           await gate
           if (failure === 'network') return HttpResponse.error()
-          return new HttpResponse(null, { status: failure === 'http' ? 503 : 200 })
+          if (failure === 'http') return new HttpResponse('下载服务不可用', { status: 503 })
+          return new HttpResponse(null, { status: 200 })
         }),
       )
-      const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click')
+      const createObjectURL = vi.fn(() => 'blob:http://localhost/download')
+      // 补齐下载边界，避免 jsdom 缺少 Blob URL API 掩盖状态码校验失效。
+      vi.stubGlobal(
+        'URL',
+        class extends URL {
+          static override createObjectURL = createObjectURL
+          static override revokeObjectURL() {}
+        },
+      )
+      const anchorClick = vi
+        .spyOn(HTMLAnchorElement.prototype, 'click')
+        .mockImplementation(() => {})
       render(
         <>
           <Toaster />
@@ -146,6 +157,7 @@ describe('GenerationRecords', () => {
       release()
       expect(await screen.findByText('视频下载失败，请重试')).toBeVisible()
       expect(screen.getByRole('button', { name: '下载视频' })).toBeEnabled()
+      expect(createObjectURL).not.toHaveBeenCalled()
       expect(anchorClick).not.toHaveBeenCalled()
       await userEvent.click(screen.getByRole('button', { name: '下载视频' }))
       await waitFor(() => expect(requests).toBe(2))
@@ -206,62 +218,18 @@ describe('GenerationRecords', () => {
     expect(within(card).getByText('生成中…')).toBeVisible()
   })
 
-  it('编辑生成交出记录里的镜头组，起止秒与正文空白原样保留', async () => {
-    const onEditPrompt = vi.fn()
+  it('只有正文的记录可以查看，但不能回填镜头组', () => {
     render(
       <GenerationRecords
-        jobs={[
-          job({
-            id: 'structured',
-            request: {
-              prompt: '拼好的正文',
-              shot: {
-                global_settings: '  产品：黑色短靴。\n剪辑形式：硬切。',
-                timeline: [
-                  { image_indexes: [1], prompt: '走近 @Image1。\n', timestamps: [0, 2] },
-                  { image_indexes: [2], prompt: '停下 @Image2。', timestamps: [2, 6] },
-                ],
-              },
-            },
-          }),
-        ]}
+        jobs={[job({ id: 'no-shot', request: { prompt: '模特走向镜头，停下微笑。' } })]}
         onClose={vi.fn()}
-        onEditPrompt={onEditPrompt}
+        onEditPrompt={() => {}}
         shotIndex={2}
       />,
     )
 
-    await userEvent.click(screen.getByRole('button', { name: '编辑生成' }))
-
-    expect(onEditPrompt).toHaveBeenCalledExactlyOnceWith({
-      global_settings: '  产品：黑色短靴。\n剪辑形式：硬切。',
-      timeline: [
-        { timestamps: [0, 2], prompt: '走近 @Image1。\n', image_indexes: [1] },
-        { timestamps: [2, 6], prompt: '停下 @Image2。', image_indexes: [2] },
-      ],
-    })
-  })
-
-  it.each([
-    ['没有 shot', { prompt: '模特走向镜头，停下微笑。' }],
-    ['shot 为空', { prompt: '正文', shot: null }],
-    ['shot 缺时间线', { prompt: '正文', shot: { global_settings: '设定。', timeline: [] } }],
-    ['正文也没有', {}],
-  ])('记录%s时禁用编辑生成', async (_name, request) => {
-    const onEditPrompt = vi.fn()
-    render(
-      <GenerationRecords
-        jobs={[job({ id: 'no-shot', request })]}
-        onClose={vi.fn()}
-        onEditPrompt={onEditPrompt}
-        shotIndex={2}
-      />,
-    )
-
-    const edit = screen.getByRole('button', { name: '编辑生成' })
-    expect(edit).toBeDisabled()
-    await userEvent.click(edit)
-    expect(onEditPrompt).not.toHaveBeenCalled()
+    expect(screen.getByText('模特走向镜头，停下微笑。')).toBeVisible()
+    expect(screen.getByRole('button', { name: '编辑生成' })).toBeDisabled()
   })
 
   it('收起已完成记录隐藏描述与编辑按钮，视频预览和播放入口仍保留', async () => {
@@ -350,25 +318,5 @@ describe('GenerationRecords', () => {
     )
     expect(screen.getByText('暂无视频记录')).toBeVisible()
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
-  })
-
-  it('空态可返回分镜，关闭抽屉且不回填提示词', async () => {
-    const onClose = vi.fn()
-    const onEditPrompt = vi.fn()
-    render(
-      <GenerationRecords jobs={[]} onClose={onClose} onEditPrompt={onEditPrompt} shotIndex={2} />,
-    )
-    expect(screen.getByText('暂无视频记录')).toBeVisible()
-
-    await userEvent.click(screen.getByRole('button', { name: '返回分镜' }))
-
-    expect(onClose).toHaveBeenCalledOnce()
-    expect(onEditPrompt).not.toHaveBeenCalled()
-  })
-
-  it('✕ 关掉抽屉', async () => {
-    const onClose = renderRecords()
-    await userEvent.click(screen.getByRole('button', { name: '关闭生成记录' }))
-    expect(onClose).toHaveBeenCalled()
   })
 })

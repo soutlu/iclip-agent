@@ -100,8 +100,12 @@ describe('resolveImageOptions', () => {
   })
 
   it('画幅这家出不了就换成出得了的那家', () => {
-    const resolved = resolveImageOptions([SEEDREAM, NANO], '4:5', WANTED)
+    const resolved = resolveImageOptions([SEEDREAM, NANO], '4:5', {
+      ...WANTED,
+      model: 'seedream_v5_pro',
+    })
     expect(resolved.model?.model).toBe('nano_banana_pro')
+    expect(resolved.aspectUnsupported).toBe(false)
   })
 
   it('一家都出不了这个画幅时报出来，而不是挑一家去撞 422', () => {

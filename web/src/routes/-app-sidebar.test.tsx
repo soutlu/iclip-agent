@@ -20,8 +20,7 @@ const loginAsUser = () =>
 
 /** 测试壳持有折叠状态，与应用壳的状态归属一致。 */
 function SidebarHarness() {
-  // matchMedia 替身恒为 false，模拟紧凑屏初始折叠。
-  const [collapsed, setCollapsed] = useState(() => !window.matchMedia('(min-width: 600px)').matches)
+  const [collapsed, setCollapsed] = useState(true)
   return <AppSidebar collapsed={collapsed} onCollapsedChange={setCollapsed} />
 }
 
@@ -34,7 +33,7 @@ const renderSidebar = (requireLogin = vi.fn(), initialPath = '/') =>
   )
 
 describe('AppSidebar', () => {
-  it('jsdom 视为紧凑屏：默认折叠为浮出展开钮，点开展开侧栏', async () => {
+  it('折叠时显示展开按钮，点开后显示侧栏操作', async () => {
     const user = userEvent.setup()
     await renderSidebar()
 
@@ -49,7 +48,7 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('button', { name: '资料库' })).toBeVisible()
   })
 
-  it('展开后可再折叠回浮出按钮', async () => {
+  it('展开后可再次折叠，只保留展开按钮', async () => {
     const user = userEvent.setup()
     await renderSidebar()
 

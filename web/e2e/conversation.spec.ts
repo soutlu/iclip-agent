@@ -105,14 +105,22 @@ test('在会话页发一条：气泡先出来，回复跟着长出来', async ({
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
   await expect(page.getByText('第 1 个问题')).toBeVisible()
 
+  // 首次订阅会启动演示轮；末轮完成且会话空闲时才允许重新生成。
+  const demoTurn = page.getByRole('article').filter({ hasText: '把这段素材拆一下' })
+  await expect(demoTurn.getByRole('button', { name: '重新生成', exact: true })).toBeEnabled({
+    timeout: 15_000,
+  })
+
   await page.getByLabel('输入消息').fill('再补两个镜头')
   await page.getByRole('button', { name: '发送' }).click()
 
   await expect(page.getByText('再补两个镜头')).toBeVisible()
   await expect(page.getByLabel('输入消息')).toHaveText('')
 
+  const submittedTurn = page.getByRole('article').filter({ hasText: '再补两个镜头' })
+  await expect(submittedTurn).toHaveCount(1)
+  await expect(submittedTurn.getByText('镜头表已经更新。')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('再补两个镜头')).toHaveCount(1)
-  await expect(page.getByText('镜头表已经更新。').last()).toBeVisible({ timeout: 15_000 })
 })
 
 test('首页发一条：新建对话并跳进会话页', async ({ page }) => {

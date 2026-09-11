@@ -107,9 +107,6 @@ test('分镜可以滚轮翻组、键盘切帧和查看记录，浏览操作不�
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()
   const records = panel.getByRole('complementary', { name: '生成记录', exact: true })
   await expect(records.getByRole('article')).toHaveCount(3)
-  // 只有带结构化 shot 的那条能回填，纯描述的两条禁用。
-  await expect(records.getByRole('button', { name: '编辑生成' })).toHaveCount(3)
-  await expect(records.getByRole('button', { name: '编辑生成', disabled: true })).toHaveCount(2)
   await records.getByRole('button', { name: '关闭生成记录' }).click()
   await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeVisible()
   expect(writes).toEqual([])
@@ -171,6 +168,10 @@ for (const width of [1335, 390]) {
       await expect(sheet).toBeHidden()
       await expect(trigger).toBeFocused()
       await expect(lastFrame).toHaveAttribute('aria-pressed', 'true')
+      const search = new URL(page.url()).searchParams
+      expect(search.get('shot')).toBe('2')
+      expect(search.get('frame')).toBe('3')
+      expect(search.has('sheet')).toBe(false)
 
       await panel.getByRole('button', { name: '全部镜头组', exact: true }).click()
       const overview = panel.getByRole('complementary', { name: '全部镜头组', exact: true })

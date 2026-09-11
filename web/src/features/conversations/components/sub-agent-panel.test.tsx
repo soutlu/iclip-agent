@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import {
   MOCK_CHILD_AGENT,
-  MOCK_CHILD_REPLY,
   MOCK_CHILD_TASK,
   MOCK_HISTORY_CHILD,
   MOCK_HISTORY_DELEGATE_CALL,
@@ -45,7 +44,6 @@ describe('SubAgentPanel', () => {
     expect(screen.getByText(MOCK_CHILD_AGENT)).toBeVisible()
     expect(screen.getByText('完成')).toBeVisible()
     expect(asked).toBe(MOCK_HISTORY_CHILD)
-    expect(MOCK_CHILD_REPLY).toContain('S3-1')
   })
 
   it('子代理不属于这段对话（404）：说明读不到，给重试钮', async () => {

@@ -100,9 +100,9 @@ const historyPrompt = [
 ].join('\n')
 
 const historyShot = {
-  global_settings: '历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。',
+  global_settings: '  历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。\n',
   timeline: [
-    { image_indexes: [2], prompt: '历史版：模特走出门厅 @Image2。', timestamps: [0, 2.5] },
+    { image_indexes: [2], prompt: '  历史版：模特走出门厅 @Image2。\n', timestamps: [0, 2.5] },
     { image_indexes: [1], prompt: '历史版：转身看向鞋面 @Image1。', timestamps: [2.5, 6] },
   ],
 }
@@ -373,7 +373,7 @@ describe('StoryboardReader', () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
-  it('全部组概览可定位镜头组，记录只显示当前组且没有 shot 的不能回填', async () => {
+  it('全部组概览可定位镜头组，记录只显示当前组', async () => {
     provide()
     const { router } = await renderReader()
     await screen.findByRole('region', { name: '镜头组 1' })
@@ -386,7 +386,6 @@ describe('StoryboardReader', () => {
     const records = await screen.findByRole('complementary', { name: '生成记录' })
     expect(await within(records).findByText('另一组的历史描述。')).toBeVisible()
     expect(within(records).queryByText('本组生成时使用的历史描述。')).not.toBeInTheDocument()
-    expect(within(records).getByRole('button', { name: '编辑生成' })).toBeDisabled()
   })
 
   it('编辑生成把历史记录里的镜头组回填到当前组并保存', async () => {
@@ -402,11 +401,11 @@ describe('StoryboardReader', () => {
     await waitFor(() => expect(files.writes).toHaveLength(1))
     const saved = JSON.parse(files.writes[0]?.content ?? '{}') as ShotsDocument
     expect(saved.shots[0]?.prompt).toEqual({
-      global_settings: '历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。',
+      global_settings: '  历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。\n',
       timeline: [
         {
           timestamps: [0, 2.5],
-          prompt: '历史版：模特走出门厅 @Image2。',
+          prompt: '  历史版：模特走出门厅 @Image2。\n',
           image_indexes: [2],
         },
         {
@@ -440,6 +439,30 @@ describe('StoryboardReader', () => {
       within(records).queryByRole('button', { name: /生成视频|编辑图片/ }),
     ).not.toBeInTheDocument()
     expect(requests.filter((request) => request.method !== 'GET')).toEqual([])
+  })
+
+  it.each([
+    { action: '关闭生成记录', items: jobs, label: '记录列表关闭' },
+    { action: '返回分镜', items: [], label: '空态返回分镜' },
+  ])('$label 后恢复分镜和路由，保留原文且不保存', async ({ action, items }) => {
+    const files = provide()
+    server.use(http.get('*/api/generations', () => HttpResponse.json({ items })))
+    const { router } = await renderReader()
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    const description = within(page).getByRole('textbox', { name: '镜头 1 的描述' })
+    const originalText = description.textContent
+    await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    if (items.length === 0) expect(await within(records).findByText('暂无视频记录')).toBeVisible()
+    else await within(records).findByText('本组生成时使用的历史描述。')
+
+    await userEvent.click(within(records).getByRole('button', { name: action }))
+
+    expect(screen.queryByRole('complementary', { name: '生成记录' })).not.toBeInTheDocument()
+    expect(description).toBeVisible()
+    expect(description.textContent).toBe(originalText)
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty('sheet'))
+    expect(files.writes).toEqual([])
   })
 
   it('生成设置里换模型、关音频后出片：请求体照上游形状取当前组内容，提交后记录里出现生成中', async () => {

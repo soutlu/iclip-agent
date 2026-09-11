@@ -283,6 +283,7 @@ function frameEquals(a: TranscriptFrame, b: TranscriptFrame): boolean {
       a.view === b.view &&
       a.input === b.input &&
       a.output === b.output &&
+      a.metadata === b.metadata &&
       a.display === b.display &&
       a.error === b.error &&
       a.inputText === b.inputText &&
