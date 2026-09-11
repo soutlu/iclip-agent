@@ -9,6 +9,8 @@ from iclip.config.agents import (
     load_agent_declarations,
 )
 from iclip.config.models import (
+    OSS_BUCKET_ENV,
+    VIDEO_SUBMIT_URL_ENV,
     AgentRunsSection,
     AppSection,
     DbSection,
@@ -37,6 +39,8 @@ from iclip.config.models import (
 )
 
 __all__ = [
+    "OSS_BUCKET_ENV",
+    "VIDEO_SUBMIT_URL_ENV",
     "AgentRunsSection",
     "AgentSection",
     "AgentsDeclaration",

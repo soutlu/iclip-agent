@@ -205,7 +205,7 @@ const delayedUpload = () => {
   return release
 }
 
-const renderReader = (initialPath = '/?shot=1') =>
+const renderReader = (initialPath = '/?shot=1&content=scene:1') =>
   renderWithProviders(
     <>
       <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />
@@ -256,7 +256,7 @@ describe('StoryboardReader', () => {
         .map((button) => button.getAttribute('aria-label')),
     ).toEqual(['预览第 2 帧', '预览第 1 帧'])
     expect(within(first).getByText('2.5s')).toBeVisible()
-    expect(within(navigationOf(page)).getAllByRole('group')).toHaveLength(3)
+    expect(within(navigationOf(page)).getAllByRole('group')).toHaveLength(5)
   })
 
   it('共用帧时明确选择第二镜，切缩略帧、帧标记和箭头仍保留该镜头', async () => {
@@ -265,7 +265,9 @@ describe('StoryboardReader', () => {
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     const navigation = navigationOf(page)
     await userEvent.click(within(navigation).getByRole('button', { name: '镜头 2' }))
-    await waitFor(() => expect(router.state.location.search).toEqual({ shot: 1, frame: 2 }))
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ shot: 1, content: 'scene:2', frame: 2 }),
+    )
     const second = within(navigation).getByRole('group', { name: '镜头 2' })
     await userEvent.click(within(second).getByRole('button', { name: '预览第 1 帧' }))
     expect(within(page).getByRole('textbox', { name: '镜头 2 的描述' })).toHaveTextContent(
@@ -287,44 +289,48 @@ describe('StoryboardReader', () => {
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     const navigation = navigationOf(page)
     await userEvent.click(within(navigation).getByRole('button', { name: '镜头 3' }))
-    await waitFor(() => expect(router.state.location.search).toEqual({ shot: 1 }))
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ shot: 1, content: 'scene:3' }),
+    )
     expect(within(page).getByRole('textbox', { name: '镜头 3 的描述' })).toHaveTextContent(
       '这里保留旁白',
     )
     expect(within(page).queryByRole('button', { name: '打开原图' })).not.toBeInTheDocument()
-    await userEvent.click(within(navigation).getByRole('button', { name: '预览第 3 帧' }))
+    await userEvent.click(within(navigation).getByRole('button', { name: '未引用' }))
     expect(within(page).getByRole('img', { name: '镜头组 1 第 3 帧' })).toHaveAttribute(
       'src',
       'https://example.com/unassigned.png',
     )
     expect(within(page).queryByRole('textbox', { name: /镜头 \d 的描述/ })).not.toBeInTheDocument()
     await act(async () => {
-      await router.navigate({ href: '/?shot=1&frame=1' })
+      await router.navigate({ href: '/?shot=1&content=scene:1&frame=1' })
     })
     expect(within(page).getByRole('textbox', { name: '镜头 1 的描述' })).toBeVisible()
   })
 
-  it('帧箭头和键盘组导航同步地址，换组时使用该组自己的帧编号', async () => {
+  it('帧箭头沿当前内容引用顺序导航，换组时默认选中全局设定', async () => {
     provide()
-    const { router } = await renderReader('/?shot=1&frame=2')
+    const { router } = await renderReader('/?shot=1&content=scene:1&frame=2')
     const page = await screen.findByRole('region', { name: '镜头组 1' })
-    await userEvent.click(within(page).getByRole('button', { name: '上一帧' }))
-    await waitFor(() => expect(router.state.location.search).toEqual({ shot: 1, frame: 1 }))
-    expect(within(page).getByRole('button', { name: '上一帧' })).toBeDisabled()
+    await userEvent.click(within(page).getByRole('button', { name: '下一帧' }))
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ shot: 1, content: 'scene:1', frame: 1 }),
+    )
+    expect(within(page).getByRole('button', { name: '下一帧' })).toBeDisabled()
     screen.getByRole('button', { name: '第 1 组' }).focus()
     await userEvent.keyboard('{ArrowDown}')
     await waitFor(() => expect(router.state.location.search).toEqual({ shot: 2 }))
     expect(screen.getByRole('button', { name: '第 2 组' })).toHaveAttribute('aria-current', 'true')
     expect(
-      within(screen.getByRole('region', { name: '镜头组 2' })).getByRole('img', {
-        name: '镜头组 2 第 1 帧',
+      within(screen.getByRole('region', { name: '镜头组 2' })).getByRole('textbox', {
+        name: '全局设定',
       }),
-    ).toHaveAttribute('src', 'https://example.com/other-group.png')
+    ).toBeVisible()
   })
 
   it('查看原图并关闭后返回原来的帧', async () => {
     provide()
-    await renderReader('/?shot=1&frame=1')
+    await renderReader('/?shot=1&content=scene:1&frame=1')
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     const trigger = within(page).getByRole('button', { name: '打开原图' })
     await userEvent.click(trigger)
@@ -337,7 +343,7 @@ describe('StoryboardReader', () => {
 
   it('完整提示词展示原始全局设定、时间戳和正文，并按原顺序显示全部参考图', async () => {
     provide()
-    const { router } = await renderReader('/?shot=1&frame=2')
+    const { router } = await renderReader('/?shot=1&content=scene:1&frame=2')
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     const trigger = within(page).getByRole('button', { name: '完整提示词' })
     await userEvent.click(trigger)
@@ -354,9 +360,16 @@ describe('StoryboardReader', () => {
         .getAllByRole('img')
         .map((image) => image.getAttribute('src')),
     ).toEqual(original?.image_urls)
-    expect(router.state.location.search).toEqual({ shot: 1, frame: 2, sheet: 'prompt' })
+    expect(router.state.location.search).toEqual({
+      shot: 1,
+      content: 'scene:1',
+      frame: 2,
+      sheet: 'prompt',
+    })
     await userEvent.click(within(sheet).getByRole('button', { name: '收起完整提示词' }))
-    await waitFor(() => expect(router.state.location.search).toEqual({ shot: 1, frame: 2 }))
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ shot: 1, content: 'scene:1', frame: 2 }),
+    )
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
@@ -518,7 +531,7 @@ describe('StoryboardReader', () => {
     expect(screen.getByRole('button', { name: '生成视频' })).toBeDisabled()
   })
 
-  it('刷新文件后失效的镜头引用按新时间线重新定位，保留当前帧地址参数', async () => {
+  it('刷新文件后保留所选镜头，失效的图片选择使用该镜头当前引用', async () => {
     provide()
     const { queryClient, router } = await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
@@ -551,12 +564,12 @@ describe('StoryboardReader', () => {
         queryKey: workspaceQueryKeys.file(CONVERSATION_ID, PATH),
       })
     })
-    expect(await within(page).findByRole('textbox', { name: '镜头 1 的描述' })).toBeVisible()
-    expect(within(page).getByRole('img', { name: '镜头组 1 第 2 帧' })).toHaveAttribute(
+    expect(await within(page).findByRole('textbox', { name: '镜头 2 的描述' })).toBeVisible()
+    expect(within(page).getByRole('img', { name: '镜头组 1 第 1 帧' })).toHaveAttribute(
       'src',
-      'https://example.com/new.png',
+      'https://example.com/one.png',
     )
-    expect(router.state.location.search).toEqual({ shot: 1, frame: 2 })
+    expect(router.state.location.search).toEqual({ shot: 1, content: 'scene:2', frame: 2 })
   })
 
   it('小数时间段的胶片条显示 5.9 秒，不暴露浮点计算尾差', async () => {
@@ -592,7 +605,7 @@ describe('StoryboardReader', () => {
 
   it('编辑当前镜头更新派生引用，删除全部引用后仍可编辑、撤销，其他字段保持原值', async () => {
     const files = provide()
-    await renderReader('/?shot=1&frame=2')
+    await renderReader('/?shot=1&content=scene:1&frame=2')
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     await userEvent.click(within(navigationOf(page)).getByRole('button', { name: '镜头 2' }))
     const editor = within(page).getByRole('textbox', { name: '镜头 2 的描述' })
@@ -813,7 +826,7 @@ describe('StoryboardReader', () => {
     provide(shared)
     await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
-    expect(within(page).getByText('@Image2 · 镜头 1、2 共用')).toBeVisible()
+    expect(within(page).getByText('@Image2 · 镜头 1、镜头 2共用')).toBeVisible()
     expect(within(page).queryByText(/镜头 1、2、3 共用/)).not.toBeInTheDocument()
   })
 

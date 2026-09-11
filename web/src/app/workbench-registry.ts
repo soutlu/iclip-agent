@@ -7,7 +7,7 @@ import { ArtifactRegistry } from '@/shared/workbench'
 
 export const workbenchRegistry = new ArtifactRegistry()
 
-// 分镜是唯一自动展开面板的产物：agent 交付 video_shot.json 那一刻面板打开。
+// 镜头产物交付后自动展开对应面板。
 workbenchRegistry.register({
   autoOpen: true,
   component: StoryboardPanel,

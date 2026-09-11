@@ -43,7 +43,7 @@ VIDEO_SUBMIT_URL_ENV: Final = "VIDEO_SUBMIT_URL"
 """媒体生成的总开关：这个地址为空即整项关闭。"""
 
 VIDEO_UNDERSTANDING_URL_ENV: Final = "VIDEO_UNDERSTANDING_URL"
-"""镜头素材能力的总开关：这个地址为空即整项关闭（`shot_video` 不登记）。"""
+"""视频拆解的总开关：这个地址为空即两条创作流都关闭（`exact_replica`、`shot_video` 不登记）。"""
 
 PRODUCT_CATALOG_DATABASE_URL_ENV: Final = "PRODUCT_CATALOG_DATABASE_URL"
 """PDM 款目录的总开关：这个连接串为空即爆款视频的降级不可用。"""
@@ -512,6 +512,19 @@ class ResolvedSettings:
     log_level: str
     log_format: Literal["console", "json"]
 
+    @property
+    def shot_tools_enabled(self) -> bool:
+        """取帧与出图这套是否可用：拆解、媒体生成、对象存储三者都在才算。
+
+        只有拆解时仍可装配完全复刻。ffmpeg 检查与能力登记都按这个判断，不各自重算。
+        """
+
+        return (
+            self.shot_video is not None
+            and self.media_generation is not None
+            and self.object_store is not None
+        )
+
 
 def _from_env[EnvT: EnvSettings](cls: type[EnvT]) -> EnvT:
     """通过环境变量构造设置，集中适配与字段构造签名不同的加载方式。"""
@@ -567,18 +580,11 @@ def _resolve_media_generation(
     )
 
 
-def _resolve_shot_video(
-    section: ShotVideoSection | None, *, generation_on: bool
-) -> ResolvedShotVideo | None:
-    """按声明与环境开关解析镜头能力；开启时必须同时启用媒体生成与对象存储。"""
+def _resolve_shot_video(section: ShotVideoSection | None) -> ResolvedShotVideo | None:
+    """按声明与视频理解开关解析；媒体生成依赖由完整镜头能力装配检查。"""
 
     if section is None or not _switched_on(VIDEO_UNDERSTANDING_URL_ENV):
         return None
-    if not generation_on:
-        raise RuntimeError(
-            f"配了 {VIDEO_UNDERSTANDING_URL_ENV} 但媒体生成没开：镜头素材能力的出图与"
-            f"对象存储都走生成那一套，要么补上 {VIDEO_SUBMIT_URL_ENV}，要么把它清空"
-        )
     env = _from_env(VideoUnderstandingEnv)
     return ResolvedShotVideo(
         understanding_url=env.url,
@@ -638,9 +644,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
         sso=sso,
         object_store=object_store,
         media_generation=media_generation,
-        shot_video=_resolve_shot_video(
-            config.shot_video, generation_on=media_generation is not None
-        ),
+        shot_video=_resolve_shot_video(config.shot_video),
         product_catalog=_resolve_product_catalog(),
         models=tuple(
             ResolvedModel(

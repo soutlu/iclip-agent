@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Any, ClassVar, Final
 
 import httpx
 from pydantic_ai.agent.abstract import AgentInstructions
@@ -13,16 +13,16 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.tools import AgentDepsT
 from pydantic_ai.toolsets import AgentToolset
 
-from iclip.capabilities.shot_video.delivery import SHOTS_PATH
+from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.extraction import FrameExtractor
-from iclip.capabilities.shot_video.generation import FrameGenerator, GenerationPolicy
+from iclip.capabilities.shot_video.generation import IMAGE_MODEL, FrameGenerator, GenerationPolicy
 from iclip.capabilities.shot_video.ports import (
     ImageGenerations,
     PublicObjectWriter,
     ShotVideoPaths,
-    VideoUnderstanding,
 )
 from iclip.capabilities.shot_video.toolset import ShotVideoToolset
+from iclip.capabilities.video_understanding import VideoUnderstanding
 from iclip.platform.file_store.store import FileSpace
 from iclip.platform.material_ledger.store import MaterialLedger
 from iclip.platform.transcript.display import (
@@ -40,6 +40,9 @@ CAPABILITY_ID: Final = "shot_video"
 @dataclass
 class ShotVideo(AbstractCapability[AgentDepsT]):
     """镜头素材工具集。"""
+
+    REQUIRES: ClassVar[tuple[str, ...]] = ("workspace",)
+    """产物与台账要靠 workspace 的文件工具让模型读到，装配期一并校验。"""
 
     space: FileSpace
     """产物存储与命名空间，必须由组合根提供与工作区能力相同的 FileSpace。"""
@@ -118,10 +121,17 @@ def shot_video_capability(
     paths: ShotVideoPaths,
     understanding: VideoUnderstanding,
     client: httpx.AsyncClient,
+    image_models: frozenset[str],
     policy: GenerationPolicy | None = None,
 ) -> ShotVideo[Any]:
-    """装配素材提取与生成服务。"""
+    """装配素材提取与生成服务。缺少出图要用的模型即拒绝装配。"""
 
+    if IMAGE_MODEL not in image_models:
+        # 出图把用哪家钉在代码里，配置没接这家就是每次出图都失败，起不来比跑起来好。
+        raise RuntimeError(
+            f"出图工具要 {IMAGE_MODEL}，但 media_generation.image.models 里没有它；"
+            f"已接入的是 {'、'.join(sorted(image_models)) or '（空）'}"
+        )
     return ShotVideo[Any](
         space=space,
         ledger=ledger,

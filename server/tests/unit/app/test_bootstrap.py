@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from iclip.app.agent_layer import CurrentAgentLayer
 from iclip.app.bootstrap import AnnouncingFileStore, build_app
 from iclip.config import (
     AppSection,
@@ -23,6 +25,7 @@ from iclip.config import (
     ResolvedAgent,
     RuntimeConfig,
     SecuritySection,
+    ShotVideoSection,
     SsoSection,
     VideoGenerationSection,
 )
@@ -213,3 +216,24 @@ async def test_a_namespace_without_a_conversation_id_announces_nothing() -> None
 
     assert written.version == 1, "文件照样写下去了"
     assert live.announced == []
+
+
+def test_exact_replica_agent_builds_without_generation_oss_or_ffmpeg(
+    base_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OSS_BUCKET", "")
+    monkeypatch.setenv("VIDEO_SUBMIT_URL", "")
+    monkeypatch.setenv("VIDEO_UNDERSTANDING_URL", "https://vision.test/responses")
+    monkeypatch.setenv("VIDEO_UNDERSTANDING_API_KEY", "test-key")
+    monkeypatch.setattr("iclip.app.bootstrap.ffmpeg_available", lambda: False)
+    config = minimal_config().model_copy(
+        update={"shot_video": ShotVideoSection(understanding_model="vision")}
+    )
+    declaration = replace(
+        declared_agent(tmp_path),
+        agent_id="exact-replica",
+        capabilities=("workspace", "exact_replica"),
+    )
+    app = build_app(config, agents=(declaration,), engine=engine(), models={"m": TestModel()})
+    layer: CurrentAgentLayer = app.state.agent_layer
+    assert layer.current.registry.ids == ("exact-replica",)

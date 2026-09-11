@@ -68,7 +68,7 @@ export function FrameImageEditor({
       return { draft: loadEditDraft(target), error: null }
     } catch {
       return {
-        draft: emptyEditDraft(),
+        draft: emptyEditDraft(target),
         error: '本地编辑草稿读取失败，请重新开始或从编辑记录恢复输入',
       }
     }
@@ -149,7 +149,7 @@ export function FrameImageEditor({
     setSubmitting(true)
     setOperationError(null)
     try {
-      // 仅用户显式选中的标注图需要导出；原图和其他参考图不自动加入。
+      // 仅用户选中的标注图需要导出；普通图片直接使用列表中的地址。
       const references: EditReference[] = []
       for (const reference of draft.references) {
         references.push(
@@ -409,7 +409,7 @@ export function FrameImageEditor({
                   type="button"
                   className="ml-2 underline ui-focus"
                   onClick={() => {
-                    setDraft(emptyEditDraft())
+                    setDraft(emptyEditDraft(target))
                     setDraftError(null)
                   }}
                 >

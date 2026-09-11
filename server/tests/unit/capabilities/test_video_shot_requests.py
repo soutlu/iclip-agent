@@ -10,11 +10,13 @@ import pytest
 from pydantic import ValidationError
 from pydantic_ai import ModelRetry
 
-from iclip.capabilities.shot_video.delivery import (
+from iclip.capabilities.shot_document import (
+    AspectError,
     VideoShotRequest,
     build_video_shots_document,
+    parse_aspect,
+    validate_shots_document,
     validate_video_shot_requests,
-    validate_video_shots_document,
 )
 
 FIRST_IMAGE = "https://cdn.test/first.jpg"
@@ -296,7 +298,7 @@ def test_document_only_adds_image_indexes_in_first_appearance_order_per_group() 
     expected[1]["prompt"]["timeline"][0]["image_indexes"] = [1]
     assert document.model_dump(mode="json") == {"aspect_ratio": "9:16", "shots": expected}
     assert [shot.model_dump(mode="json") for shot in requests] == before
-    validate_video_shots_document(document.model_dump_json())
+    validate_shots_document(document.model_dump_json())
 
 
 def test_document_preserves_decimal_timestamp_values_in_json() -> None:
@@ -362,7 +364,7 @@ def file_document(*, item_overrides: dict[str, Any] | None = None) -> str:
 )
 def test_file_image_indexes_must_exactly_match_prompt_references(indexes: list[Any]) -> None:
     with pytest.raises(ValueError, match="image_indexes"):
-        validate_video_shots_document(file_document(item_overrides={"image_indexes": indexes}))
+        validate_shots_document(file_document(item_overrides={"image_indexes": indexes}))
 
 
 def test_file_requires_image_indexes_on_every_timeline_item() -> None:
@@ -370,7 +372,7 @@ def test_file_requires_image_indexes_on_every_timeline_item() -> None:
     del document["shots"][0]["prompt"]["timeline"][0]["image_indexes"]
 
     with pytest.raises(ValueError, match="image_indexes"):
-        validate_video_shots_document(json.dumps(document, ensure_ascii=False))
+        validate_shots_document(json.dumps(document, ensure_ascii=False))
 
 
 @pytest.mark.parametrize("image_urls", [[], [FIRST_IMAGE, SECOND_IMAGE]])
@@ -382,7 +384,7 @@ def test_file_allows_empty_image_indexes_when_the_prompt_has_no_references(
     )
     document["shots"][0]["image_urls"] = image_urls
 
-    validate_video_shots_document(json.dumps(document, ensure_ascii=False))
+    validate_shots_document(json.dumps(document, ensure_ascii=False))
 
 
 def test_file_rejects_camel_case_document_fields() -> None:
@@ -392,4 +394,16 @@ def test_file_rejects_camel_case_document_fields() -> None:
     shot["imageUrls"] = shot.pop("image_urls")
 
     with pytest.raises(ValueError, match=r"aspect_ratio|aspectRatio"):
-        validate_video_shots_document(json.dumps(document, ensure_ascii=False))
+        validate_shots_document(json.dumps(document, ensure_ascii=False))
+
+
+@pytest.mark.parametrize(
+    "value", ["9", "9:16:1", "a:b", "0:16", "9:0", "-9:16", ""], ids=lambda v: v or "empty"
+)
+def test_aspect_rejects_broken_text(value: str) -> None:
+    with pytest.raises(AspectError):
+        parse_aspect(value)
+
+
+def test_aspect_parses() -> None:
+    assert parse_aspect("16:9") == pytest.approx(16 / 9)

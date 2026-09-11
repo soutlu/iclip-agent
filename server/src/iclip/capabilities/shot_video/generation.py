@@ -11,12 +11,12 @@ import httpx
 import structlog
 from pydantic_ai import ModelRetry, ToolFailed
 
+from iclip.capabilities.shot_document import AspectError, parse_aspect
 from iclip.capabilities.shot_video import ffmpeg
 from iclip.capabilities.shot_video.grid import (
     GridError,
     fit_box_to_aspect,
     grid_cell_boxes,
-    parse_aspect,
     scale_box,
 )
 from iclip.capabilities.shot_video.ports import (
@@ -122,7 +122,7 @@ class FrameGenerator:
             job_failure(job, message=failure_message, reason="生成记录未携带结果 URL")
         try:
             cells = await self._slice_grid(grid_url, aspect=aspect)
-        except (ffmpeg.MediaError, GridError) as exc:
+        except (ffmpeg.MediaError, GridError, AspectError) as exc:
             job_failure(job, message=failure_message, reason=str(exc))
         if len(cells) != GRID_CELLS:
             job_failure(job, message=failure_message, reason="整图切格数量异常")

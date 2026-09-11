@@ -21,7 +21,7 @@
 
 依赖图与框架引用边界以 [tach.toml](../server/tach.toml) 和 [架构测试](../server/tests/unit/architecture/test_architecture.py) 为准。业务模块按职责拆文件，不要求每个模块凑齐固定文件模板。
 
-能力包之间不互相 import。确需共享的技术协议下沉到 `platform/`，由组合根注入同一个实例；协议随实际调用需求定义，不提前建立抽象层。
+能力包之间不互相 import。确需共享的技术协议下沉到 `platform/`，由组合根注入同一个实例；共用的产物形状与校验规则会用到 `pydantic_ai`（框架围栏只放 `harness/` 与 `capabilities/`），放在 `capabilities/` 下不带工具的模块里。协议随实际调用需求定义，不提前建立抽象层。
 
 存储适配跟随使用其协议的模块：业务自有表放对应模块的 `infra_sql.py`，外部只读库用独立适配器；官方 StepPersistence 的 Postgres 实现在 `harness/step_store_pg.py`。数据库 engine 只由组合根创建。
 
@@ -41,6 +41,10 @@
 Agent 声明文件必须存在；不启用 Agent 时写 `agent: {}`。`spec` 必须指向现存文件，文件内容可以为空；同目录的 `instructions.md` 自动加载。主 Agent ID 来自声明键，子 Agent 名称来自 spec 所在目录名；声明的名称、模型覆盖 spec 对应字段，关闭磁盘自动扫描。
 
 skill 与 capability 都按 Agent 显式挂载，子代理不继承主代理的挂载。skill 正文由 Harness 按需加载，reference 由随库挂载的 `get_skill_reference` 读取。capability 的实例和挂载依赖集中在 [app/capability_table.py](../server/src/iclip/app/capability_table.py)，工具声明规则见 [tool-design.md](tool-design.md)。
+
+`exact_replica` 提供参考视频解析和镜头组 prompt 交付，依赖 `workspace`，使用 `shot_video` 配置段中的视频理解参数与 `VIDEO_UNDERSTANDING_*` 环境变量，可在未启用媒体生成、对象存储和 ffmpeg 时独立装配；`shot_video` 提供取帧与出图，另需媒体生成、对象存储和 ffmpeg，这套是否启用由 `ResolvedSettings.shot_tools_enabled` 判定，ffmpeg 检查与能力登记都按它取用。两条流的工具名称独立，共同交付 `video_shot.json`，文件写回只登记一套校验，形状与前端约定见 [contract/conventions.md](../contract/conventions.md#6-对话-conversations)。
+
+两个能力包不互相依赖，共用件是 `capabilities/` 下的两个模块：[shot_document.py](../server/src/iclip/capabilities/shot_document.py) 持有镜头组表的结构与校验规则，[video_understanding.py](../server/src/iclip/capabilities/video_understanding.py) 持有视频拆解协议与方舟适配器；后者的实例由组合根建一份注入两处。
 
 模型适配集中在 [harness/models.py](../server/src/iclip/harness/models.py)，同名模型复用实例。provider 选择交给官方 `infer_model`；`api: responses` 使用本仓的 Responses 子类。模型参数转换不进入业务模块或工具。
 

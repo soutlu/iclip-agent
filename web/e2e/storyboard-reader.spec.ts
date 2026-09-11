@@ -251,6 +251,7 @@ test('编辑生成把历史记录里的镜头组回填到当前组并落盘，�
   const panel = await openStoryboard(page)
   await panel.getByRole('button', { name: '第 2 组' }).click()
   const group = panel.getByRole('region', { name: '镜头组 2', exact: true })
+  await group.getByRole('button', { name: '镜头 1', exact: true }).click()
   await expect(group.getByRole('textbox', { name: '镜头 1 的描述' })).toContainText('走向镜头', {
     timeout: 20_000,
   })
@@ -334,6 +335,7 @@ test('无图分镜上传首图后关联到另一镜，替换共享图片只改�
   const group = panel.getByRole('region', { name: '镜头组 1', exact: true })
   const initial = await readDocument(page)
   expect(initial.document.shots[0]?.image_urls).toEqual([])
+  await group.getByRole('button', { name: '镜头 1', exact: true }).click()
   await expect(group.getByRole('textbox', { name: '镜头 1 的描述' })).toContainText('展示正面')
   await page.screenshot({
     animations: 'disabled',
@@ -419,6 +421,7 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
   const panel = await openStoryboard(page)
   await panel.getByRole('button', { name: '第 3 组' }).click()
   const group = panel.getByRole('region', { name: '镜头组 3', exact: true })
+  await group.getByRole('button', { name: '镜头 1', exact: true }).click()
   await expect(group.getByRole('textbox', { name: '镜头 1 的描述' })).toContainText('低角度拍鞋面')
   const before = await readDocument(page)
   const third = before.document.shots[2]

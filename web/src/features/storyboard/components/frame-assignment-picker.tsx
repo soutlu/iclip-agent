@@ -5,6 +5,8 @@ import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
 
 type FrameAssignmentPickerProps = {
   open: boolean
+  canUpload: boolean
+  disabled: boolean
   frames: readonly string[]
   onPickExisting: (number: number, url: string) => void
   onUpload: (file: File) => Promise<void>
@@ -12,6 +14,8 @@ type FrameAssignmentPickerProps = {
 }
 
 export function FrameAssignmentPicker({
+  canUpload,
+  disabled,
   frames,
   onClose,
   onPickExisting,
@@ -28,6 +32,7 @@ export function FrameAssignmentPicker({
           actions={
             <>
               <Button
+                disabled={disabled || !canUpload}
                 leadingIcon="add-file"
                 onClick={() => uploadRef.current?.click()}
                 size="md"
@@ -36,13 +41,14 @@ export function FrameAssignmentPicker({
                 上传图片
               </Button>
               <input
+                disabled={disabled || !canUpload}
                 accept={FRAME_IMAGE_ACCEPT}
                 aria-label="选择要上传的图片"
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0]
                   event.target.value = ''
-                  if (file !== undefined) void onUpload(file)
+                  if (!disabled && file !== undefined) void onUpload(file)
                 }}
                 ref={uploadRef}
                 type="file"
@@ -64,6 +70,7 @@ export function FrameAssignmentPicker({
                 {references.map(({ number, url }) => (
                   <li key={number}>
                     <button
+                      disabled={disabled}
                       aria-label={`关联第 ${number} 张图片`}
                       className="relative block aspect-[9/16] w-full cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface-container ui-focus"
                       onClick={() => onPickExisting(number, url)}

@@ -36,6 +36,8 @@ make setup
 
 模型表、agent 与 skill 不进仓库：把一份 `server/configs/`（`config.yaml`）与 `server/agents/`（`agents.yaml`、各 agent 目录、`skills/`）放到本机对应位置，两个目录已在 .gitignore。`agents.yaml` 声明启用的 Agent。默认 `storyboard` 需要镜头素材、媒体生成、视频理解与对象存储依赖；仅运行基础对话时，可移除这条 Agent 声明及 `config.yaml` 的 `shot_video` 段，启动后在首页 Agent 菜单选择「通用助手」。改这两个目录里的文件保存即生效，不用重启。
 
+只需视频解析与 prompt 交付时，可为 Agent 挂载 `workspace` 和 `exact_replica`；启用条件见[能力装配](docs/architecture.md#2-配置与装配)。
+
 ### 3. 迁移并启动
 
 确认 PostgreSQL 可用后，在仓库根目录执行。已有数据库升级前先备份。

@@ -13,15 +13,13 @@ from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import FunctionToolset
 
+from iclip.capabilities.shot_document import VideoShotRequest, deliver_shots
 from iclip.capabilities.shot_video.delivery import (
-    SHOTS_PATH,
     FrameRequest,
-    VideoShotRequest,
-    build_video_shots_document,
     resolve_cells,
     resolve_requests,
 )
-from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH, video_doc_path
+from iclip.capabilities.shot_video.extraction import EXTRACTION_PATH
 from iclip.capabilities.shot_video.generation import (
     ANCHOR_ASPECT,
     GRID_RESOLUTION,
@@ -31,13 +29,14 @@ from iclip.capabilities.shot_video.generation import (
 from iclip.capabilities.shot_video.ports import ImageRequest
 from iclip.capabilities.shot_video.prompt import assemble_anchor_prompt, assemble_grid_prompt
 from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE
+from iclip.capabilities.video_understanding import video_doc_path
 from iclip.common.tool_args import JsonText
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
 from iclip.harness.materials import require_http, require_material
 from iclip.platform.file_store.store import FileStore, QuotaExceeded
 from iclip.platform.material_ledger.store import Material
-from iclip.platform.transcript.display import media_grid, tool_note
+from iclip.platform.transcript.display import media_grid
 
 _logger = structlog.stdlib.get_logger(__name__)
 
@@ -288,23 +287,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """
 
         files, namespace = self._workspace(ctx)
-        document = build_video_shots_document(aspect_ratio, shots)
-        await self._write(
-            files,
-            namespace,
-            SHOTS_PATH,
-            document.model_dump_json(indent=2),
-        )
-        group_count = len(document.shots)
-        shot_count = sum(len(shot.prompt.timeline) for shot in document.shots)
-        seconds = sum(shot.seconds for shot in document.shots)
-        return ToolReturn(
-            return_value=(
-                f"镜头组 prompt 表已交付到 {SHOTS_PATH}："
-                f"{group_count} 个镜头组，{shot_count} 个镜头，合计 {seconds} 秒。"
-            ),
-            metadata=tool_note(chip=f"{group_count} 组 · {shot_count} 镜 · {seconds} 秒"),
-        )
+        return await deliver_shots(files, namespace, aspect_ratio=aspect_ratio, shots=shots)
 
     async def _validate_video_url(self, ctx: RunContext[Any], video_url: str) -> None:
         """拆片与取帧收的视频地址。参数表与这两件工具逐字一致，官方按它调。"""

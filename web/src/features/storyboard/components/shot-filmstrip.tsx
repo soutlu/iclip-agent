@@ -3,30 +3,23 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { cn } from '@/shared/lib/utils'
 
-type Scene = {
-  id: number
-  number: number
-  title: string
-  seconds: number
-  frameNumbers: readonly number[]
-}
+import type { ShotContent } from '../shot-content'
+import { Icon } from '@/shared/icons'
 
 type ShotFilmstripProps = {
-  scenes: readonly Scene[]
-  activeScene: number | undefined
-  frameNumber: number
+  contents: readonly ShotContent[]
+  activeContent: string
+  frameNumber: number | undefined
   frames: readonly string[]
-  onPickFrame: (number: number) => void
-  onPickScene: (index: number, frame?: number) => void
+  onSelect: (content: string, frame?: number) => void
 }
 
 export function ShotFilmstrip({
-  activeScene,
+  activeContent,
   frameNumber,
   frames,
-  onPickFrame,
-  onPickScene,
-  scenes,
+  onSelect,
+  contents,
 }: ShotFilmstripProps) {
   const stripRef = useRef<HTMLElement | null>(null)
   // 只滚动胶片条，避免 scrollIntoView 带动外层镜头组翻页。
@@ -50,26 +43,20 @@ export function ShotFilmstrip({
       strip.removeEventListener('transitionend', revealFrame)
       window.removeEventListener('resize', revealFrame)
     }
-  }, [activeScene, frameNumber])
-
-  const unassigned = frames.flatMap((_, index) =>
-    scenes.some((scene) => scene.frameNumbers.includes(index + 1)) ? [] : [index + 1],
-  )
+  }, [activeContent, frameNumber])
 
   return (
-    <nav
-      aria-label={scenes.length === 0 ? '本组全部帧' : '本组镜头'}
-      className="storyboard-strip"
-      ref={stripRef}
-    >
-      {scenes.map((scene) => {
-        const active = scene.id === activeScene
+    <nav aria-label="本组镜头" className="storyboard-strip" ref={stripRef}>
+      {contents.map((scene) => {
+        const active = scene.id === activeContent
         const first = scene.frameNumbers[0]
         const visibleFrames = active ? scene.frameNumbers : scene.frameNumbers.slice(0, 1)
         return (
           <div
             aria-current={active}
-            aria-label={`镜头 ${scene.number}`}
+            aria-label={
+              scene.timelineIndex === undefined ? scene.title : `镜头 ${scene.timelineIndex + 1}`
+            }
             className={cn(
               'storyboard-scene',
               active && 'storyboard-scene-active',
@@ -84,68 +71,63 @@ export function ShotFilmstrip({
             <div className="storyboard-scene-frames">
               {visibleFrames.length === 0 ? (
                 <button
-                  aria-label={`镜头 ${scene.number}`}
+                  aria-label={
+                    scene.timelineIndex === undefined
+                      ? scene.title
+                      : `镜头 ${scene.timelineIndex + 1}`
+                  }
                   className="storyboard-thumbnail grid cursor-pointer place-items-center bg-surface-container text-caption text-on-surface-faint ui-focus"
-                  onClick={() => onPickScene(scene.id)}
+                  aria-pressed={active}
+                  onClick={() => onSelect(scene.id)}
                   type="button"
                 >
-                  无帧
+                  {scene.id === 'global' ? <Icon decorative name="file" size="md" /> : '无帧'}
                 </button>
               ) : (
                 visibleFrames.map((number) => (
                   <button
-                    aria-label={active ? `预览第 ${number} 帧` : `镜头 ${scene.number}`}
+                    aria-label={
+                      active
+                        ? `预览第 ${number} 帧`
+                        : scene.timelineIndex === undefined
+                          ? scene.title
+                          : `镜头 ${scene.timelineIndex + 1}`
+                    }
                     aria-pressed={active ? number === frameNumber : undefined}
                     className="storyboard-thumbnail relative cursor-pointer overflow-hidden bg-surface-container ui-focus"
                     key={number}
-                    onClick={() => onPickScene(scene.id, number)}
+                    onClick={() => onSelect(scene.id, number)}
                     type="button"
                   >
                     <img
-                      alt={number === first ? `镜头 ${scene.number} 首帧` : `第 ${number} 帧`}
+                      alt={number === first ? `${scene.title} 首图` : `第 ${number} 帧`}
                       className="size-full object-cover"
                       src={frames[number - 1]}
                     />
-                    {active && scene.frameNumbers.length > 1 ? (
+                    {scene.frameNumbers.length > 1 ? (
                       <span className="storyboard-frame-label">@{number}</span>
                     ) : null}
                   </button>
                 ))
               )}
-              <span className="storyboard-scene-duration">
-                {Math.round(scene.seconds * 10) / 10}s
-              </span>
+              {scene.seconds === undefined ? null : (
+                <span className="storyboard-scene-duration">
+                  {Math.round(scene.seconds * 10) / 10}s
+                </span>
+              )}
             </div>
             <div className="storyboard-scene-caption" title={scene.title}>
-              <span className="storyboard-scene-number">{scene.number}</span>
-              <span className="min-w-0 flex-1 truncate">{scene.title}</span>
-              {active && scene.frameNumbers.length > 1 ? (
-                <span className="shrink-0">{scene.frameNumbers.length} 帧</span>
+              {scene.timelineIndex === undefined ? null : (
+                <span className="storyboard-scene-number">{scene.timelineIndex + 1}</span>
+              )}
+              <span className="storyboard-scene-title min-w-0 truncate">{scene.title}</span>
+              {scene.frameNumbers.length > 1 ? (
+                <span className="ml-auto shrink-0">{scene.frameNumbers.length} 张</span>
               ) : null}
             </div>
           </div>
         )
       })}
-      {unassigned.map((number) => (
-        <button
-          aria-label={`预览第 ${number} 帧`}
-          aria-pressed={number === frameNumber}
-          className="storyboard-scene cursor-pointer overflow-hidden text-left ui-focus"
-          key={`unassigned-${number}`}
-          onClick={() => onPickFrame(number)}
-          type="button"
-        >
-          <img
-            alt={`第 ${number} 帧`}
-            className="storyboard-thumbnail object-cover"
-            src={frames[number - 1]}
-          />
-          <span className="storyboard-scene-caption">
-            @{number}
-            {scenes.length > 0 ? ' · 未关联镜头' : ''}
-          </span>
-        </button>
-      ))}
     </nav>
   )
 }

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from iclip.capabilities.shot_video.delivery import validate_video_shots_document
+from iclip.capabilities.shot_document import validate_shots_document
 from iclip.capabilities.workspace.scope import namespace_for
 from iclip.common.errors import Conflict, ValidationFailed
 from iclip.domains.conversations.service import DerivedFile, DerivedFileContent
@@ -113,7 +113,7 @@ async def validate_video_shots(owner: uuid.UUID, conversation_id: uuid.UUID, con
 
     _ = (owner, conversation_id)
     try:
-        validate_video_shots_document(content)
+        validate_shots_document(content)
     except ValueError as exc:
         raise ValidationFailed(str(exc)) from exc
 
