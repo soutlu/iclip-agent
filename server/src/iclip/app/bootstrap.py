@@ -34,6 +34,7 @@ from iclip.app.conversation_workspace import (
     ConversationWorkspace,
     validate_video_shots,
 )
+from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
@@ -226,11 +227,14 @@ def _generation_module(
     database_url: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
+    live: LiveConnections,
 ) -> GenerationModule:
-    """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。"""
+    """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。
+
+    仓库包一层状态广播：受理与队列共用这一个实例，状态每跳一格都经它落库。"""
 
     return build_generation_module(
-        SqlGenerationRepository(engine),
+        AnnouncingGenerationRepository(SqlGenerationRepository(engine), live),
         video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
@@ -351,6 +355,7 @@ def build_app(
             database_url=settings.database_url,
             object_store=public_objects,
             queue_connector=queue_connector,
+            live=live_connections,
         )
         if settings.media_generation is not None and public_objects is not None
         else None

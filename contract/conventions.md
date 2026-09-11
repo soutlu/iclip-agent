@@ -130,17 +130,19 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 #### 全局帧
 
-两帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
+这几帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
 
 | 帧 | 体 | 什么时候发 |
 |---|---|---|
 | `session.meta.updated` | `{session_id, title}` | 标题变了（自动起名或用户改名） |
 | `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | 对话运行活动发生变化 |
+| `event.generation.changed` | `session_id` 在信封上（任务没有来源对话时省略），payload `{id, kind, status, shot_index, frame_number}`；后两项为空时省略 | 生成任务的业务状态每跳一格：`pending` / `submitting` / `submitted` / `completed` / `failed` |
 
 - **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。
 - `event.session.work_changed` 的 `last_turn_reason` 只在 `busy: false` 的那几帧上有：帧一律
   `exclude_none`，没有结局时那一项整个不出现（列表行上是 `null`，见 §6）。
-- **两帧都是易失通知**，客户端据此更新列表；断线期间的变化不补发，重连后须重拉列表，从 `ConversationOut.title` 与 `activity` 对齐当前事实。
+- **都是易失通知**，客户端据此更新列表；断线期间的变化不补发，重连后须重拉列表，从 `ConversationOut.title` 与 `activity` 对齐当前事实。
+- `event.generation.changed` 不带结果地址，只说哪条任务跳到了哪个状态；收到就重拉 §11 的列表。`kind` 与 `status` 的词汇同 `GenerationOut`，列表接口是事实源，客户端保留轮询兜底。
 - 一条跑完接着起下一条会先发 idle 再发 busy。
 
 #### 文件订阅
@@ -306,6 +308,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ## 11. 媒体生成 (Generations)
 
 两种生成各有自己的提交地址：`POST /generations/video` 与 `POST /generations/image`。受理即 `202`，此时还没发给上游；上游的拒绝会变成记录里的 `failed`，由调用方查状态看到。
+
+业务状态每跳一格，属主连着的每条 WebSocket 都收到一帧 `event.generation.changed`（见 §5 全局帧）；帧易失且不带结果，`GET /generations` 与任务查询接口仍是事实源，浏览器在有运行中任务时保留轮询兜底。
 
 ### 归属标签 `user_name`
 

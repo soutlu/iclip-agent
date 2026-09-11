@@ -76,7 +76,7 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
   return receipt.task_id
 }
 
-/** 服务端未推送生成进度；存在运行任务时每 5 秒轮询，全部结束后停止。 */
+/** 状态跳转帧到了由 useLiveGenerations 立刻失效；存在运行任务时仍每 5 秒轮询兜底，全部结束后停止。 */
 export const generationsRefetchInterval = (items: readonly { status: string }[]): number | false =>
   items.some((item) => isRunningStatus(item.status)) ? POLL_MS : false
 

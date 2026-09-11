@@ -22,6 +22,8 @@ export const useLiveConversations = (enabled = true): void => {
         void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
         return
       }
+      // 生成任务帧归分镜页消费，侧栏行上没有它的字段。
+      if (update.kind === 'generation') return
 
       const patch: RowPatch =
         update.kind === 'title'

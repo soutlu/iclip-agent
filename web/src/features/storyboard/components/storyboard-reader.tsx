@@ -28,6 +28,7 @@ import { aspectRatioStyle, isRunningStatus, SHOTS_PATH } from '../shots'
 import { useShotGenerations } from '../storyboard.api'
 import { useGenerationGate } from '../use-generation-gate'
 import { useShotsDraft } from '../use-shots-draft'
+import { useLiveGenerations } from '../use-live-generations'
 import { useVideoGeneration } from '../use-video-generation'
 import { ConflictDialog, ReaderNotice, SaveStatus } from './draft-status'
 import { GenerationRecords } from './generation-records'
@@ -57,6 +58,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const gate = useGenerationGate()
   const file = useWorkspaceFile(conversationId, path)
   const generations = useShotGenerations(conversationId)
+  useLiveGenerations(conversationId)
   const video = useVideoGeneration(conversationId)
   const [imageEditTarget, setImageEditTarget] = useState<FrameEditTarget | null>(null)
   const imageEditTriggerRef = useRef<HTMLElement | null>(null)
