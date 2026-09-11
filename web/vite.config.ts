@@ -8,7 +8,7 @@ import { createSameOriginApiProxy } from './vite/api-proxy'
 import { resolveDevServerProfile } from './vite/dev-server-profile'
 
 // dev/preview 同源代理：去掉 /api 前缀后转发到后端（后端路由挂根路径）。
-// 生产环境反代（nginx）必须保持同一 rewrite 语义，见 docs/adr/0001。
+// 生产环境反代（nginx）必须保持同一 rewrite 语义，见 ../contract/conventions.md。
 const backendProxyTarget = process.env.VITE_BACKEND_PROXY_TARGET ?? 'http://127.0.0.1:7788'
 const apiProxy = createSameOriginApiProxy(backendProxyTarget)
 

@@ -4,7 +4,7 @@ Vite + React SPA，使用 TanStack Router、TanStack Query 和 Tailwind CSS。�
 
 ## 开发入口
 
-整套联调从[仓库 README](../README.md)开始；前端命令和验证要求见 [AGENTS.md](AGENTS.md)。
+整套联调与文档地图从[仓库 README](../README.md)开始；前端命令和验证要求见 [AGENTS.md](AGENTS.md)。
 
 ## 启动参数
 
@@ -16,16 +16,6 @@ HOST=127.0.0.1 PORT=3015 VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:7789 pnpm de
 
 `VITE_BACKEND_PROXY_TARGET` 不从 `.env` 文件读取。`pnpm dev:mock` 固定使用 `mock` mode 和端口 3014，不连接后端；需要自定义 mock 端口时运行 `VITE_MODE=mock PORT=3015 pnpm dev`。
 
-## 文档
-
-| 文档                                        | 内容                       |
-| ------------------------------------------- | -------------------------- |
-| [实现规范](docs/frontend-implementation.md) | 组件、状态、可访问性与测试 |
-| [领域上下文](../docs/CONTEXT.md)            | 跨端共用的术语和不变量     |
-| [跨端合同](../contract/conventions.md)      | OpenAPI 以外的交互约定     |
-| [设计系统](../design-system.html)           | 全局视觉、交互与 token     |
-| [架构决策](docs/adr/)                       | 同源 SPA 与登录交互决策    |
-
 ## 目录
 
 | 路径                                  | 职责                                                                                      |
@@ -35,7 +25,6 @@ HOST=127.0.0.1 PORT=3015 VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:7789 pnpm de
 | `src/features/`                       | 登录、首页、合集、会话、需求单与分镜业务模块                                              |
 | `src/shared/api/`                     | REST 客户端与后端合同生成物                                                               |
 | `src/shared/auth/`                    | 会话与权限能力                                                                            |
-| `src/shared/config/`                  | 浏览器环境变量入口                                                                        |
 | `src/shared/icons/`、`src/shared/ui/` | 图标与共用 UI 组件                                                                        |
 | `src/shared/transcript/`              | 对话协议、订阅与投影；vendor 维护要求见[目录说明](src/shared/transcript/vendor/README.md) |
 | `src/shared/workbench/`               | 产物面板宿主、布局与选择状态                                                              |
@@ -46,6 +35,4 @@ HOST=127.0.0.1 PORT=3015 VITE_BACKEND_PROXY_TARGET=http://127.0.0.1:7789 pnpm de
 
 ## 分镜工作台
 
-两条创作流共同交付 `video_shot.json`，由产物注册表按完整路径匹配同一个分镜工作台。每组先展示全局设定，再展示时间线镜头；选中项在底部原位展开其引用图片，最多支持本组 30 张图片，超出宽度横向滚动。全局设定不带镜头编号或时长，无图片时仍可直接编辑正文。
-
-查询参数 `content` 记录全局设定（`global`）、具体镜头（`scene:1` 起）或未引用图片（`unreferenced`），`frame` 只记录该项内的图片选择，不用图片反推镜头。添加引用修改当前正文，替换图片保留编号；生成前先完成保存，上传中、保存失败或冲突未解决时不提交生成。
+分镜工作台用于查看和编辑 Agent 交付的分镜、发起媒体生成。宿主与产品行为见 [ADR-0009](../docs/adr/0009-storyboard-workbench.md)，文件写回与生成约定见[跨端合同](../contract/conventions.md)。

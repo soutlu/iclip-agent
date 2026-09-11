@@ -2,7 +2,7 @@
 
 - 状态：已接受（2026-09-07）
 - 收窄 **[CONTEXT.md](../CONTEXT.md)** 不变量 8：客户端铸的 id 从「只做幂等键」扩到需求单与对话，归属与权限仍不由它决定。
-- 合同 [contract/conventions.md](../../contract/conventions.md) §6 对话与 §9 需求单：`POST` 接受 `id`，幂等命中答 `200`；需求单另接受创建时的 `status`。
+- 合同 [§6 对话](../../contract/conventions.md#6-对话-conversations)与 [§8 需求单](../../contract/conventions.md#8-创作需求单-tasks)：`POST` 接受 `id`，幂等命中答 `200`；需求单另接受创建时的 `status`。
 
 ## 背景
 

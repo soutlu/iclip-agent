@@ -1,7 +1,8 @@
 # ADR-0006: agent 运行跨进程中断续跑
 
 - 状态：已接受（2026-09-01）
-- 取代 **[ADR-0005](0005-transcript-protocol.md)** §4「一次 run 就是一轮」，以及它取舍里的「接受运行活在起它的那个进程里」与「排队中的行不跨重启」。
+- 取代 **[ADR-0005](0005-transcript-protocol.md)** 原先「一次 run 就是一轮」「运行活在起它的那个进程里」与「排队中的行不跨重启」的决策。
+- 决策 1 的运行写入守卫由 **[ADR-0008](0008-activity-from-agent-jobs.md#5-fence-加-attempt)** 修订。
 - **[ADR-0001](0001-architecture-foundations.md)**：Postgres 是唯一事实源，是本文的前提。
 - **[ADR-0004](0004-generation-queue-in-postgres.md)**：那一份是外部生成任务的排期；本文是 agent 运行的票据。两边都是「事实在自己的表里，排期机械另算」，但这里的排期机械不用 procrastinate（见取舍）。
 
@@ -24,7 +25,7 @@
 
 - 一条 prompt 变成 `running` 时写上 `locked_by`（进程启动时铸的 id）与 `heartbeat_at`；运行期间每 `heartbeat_seconds` 刷一次心跳。
 - 清扫每 `sweep_seconds` 一次，启动时先跑一次：`heartbeat_at` 落后超过 `lease_seconds` 的 `running` 行判中断；有 `queued` 而没人占着的对话叫醒队首。等审批的行没有心跳，清扫跳过。
-- fence 用 `locked_by`：心跳、`attach_run`、`finish` 都只改 `locked_by` 等于自己的行；改到 0 行说明行已被接管，运行自行取消。插话行没有租约，随它递进的那次 run 定结局。
+- fence 的持有者与 `attempt` 校验规则见 [ADR-0008 决策 5](0008-activity-from-agent-jobs.md#5-fence-加-attempt)；改到 0 行说明行已被接管，运行自行取消。插话行没有租约，随它递进的那次 run 定结局。
 - `attempt` 只在「中断后重新认领」时加一（租约过期被接管、优雅关停释放后被下一条命认领），审批续跑不加。到 `max_attempts` 判 `failed`，中断原因记在行上。三个周期与 `max_attempts` 在 `config.yaml` 的 `agent_runs` 段。
 - 优雅关停：在跑的走第一方取消（at-failure 快照因此落库），行释放租约、留在 `running`；排队行原样留着。
 
