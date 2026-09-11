@@ -9,6 +9,7 @@ import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
 
 type FramePreviewProps = {
   aspectRatio: string
+  disabled: boolean
   caption?: string | undefined
   name: string
   url: string | undefined
@@ -21,6 +22,7 @@ type FramePreviewProps = {
 
 export function FramePreview({
   aspectRatio,
+  disabled,
   caption,
   name,
   onOpen,
@@ -46,7 +48,7 @@ export function FramePreview({
 
   const replaceFromFiles = async (files: readonly File[]) => {
     const upload = uploadRef.current
-    if (upload.busy) return
+    if (disabled || upload.busy) return
     if (url === undefined) {
       toast.error('当前镜头还没有可替换的图片')
       return
@@ -80,12 +82,13 @@ export function FramePreview({
     if (!hasFiles(event)) return
     event.preventDefault()
     dragDepthRef.current += 1
-    if (!uploadRef.current.busy && url !== undefined) setDragOver(true)
+    if (!disabled && !uploadRef.current.busy && url !== undefined) setDragOver(true)
   }
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!hasFiles(event)) return
     event.preventDefault()
-    event.dataTransfer.dropEffect = uploadRef.current.busy || url === undefined ? 'none' : 'copy'
+    event.dataTransfer.dropEffect =
+      disabled || uploadRef.current.busy || url === undefined ? 'none' : 'copy'
   }
   const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
     if (!hasFiles(event)) return
@@ -99,7 +102,7 @@ export function FramePreview({
     event.preventDefault()
     dragDepthRef.current = 0
     setDragOver(false)
-    if (uploadRef.current.busy) return
+    if (disabled || uploadRef.current.busy) return
     if ([...event.dataTransfer.items].some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
       toast.error('请拖入一张图片文件，不支持文件夹')
       return
@@ -143,7 +146,7 @@ export function FramePreview({
           <div className="storyboard-frame-tools">
             {onEdit === undefined ? null : (
               <IconButton
-                disabled={uploading}
+                disabled={disabled || uploading}
                 label="编辑图片"
                 title="编辑图片"
                 name="edit-image"
@@ -152,7 +155,7 @@ export function FramePreview({
               />
             )}
             <IconButton
-              disabled={uploading}
+              disabled={disabled || uploading}
               label="替换图片"
               name="image"
               onClick={() => inputRef.current?.click()}
@@ -163,7 +166,7 @@ export function FramePreview({
               accept={FRAME_IMAGE_ACCEPT}
               aria-label="选择替换图片"
               className="hidden"
-              disabled={uploading}
+              disabled={disabled || uploading}
               onChange={(event) => {
                 const files = [...(event.target.files ?? [])]
                 event.target.value = ''

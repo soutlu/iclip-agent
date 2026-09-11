@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +11,14 @@ import type { ShotsDocument } from '../shot-document'
 import { StoryboardReader } from './storyboard-reader'
 
 const PATH = 'video_shot.json'
+const CONVERSATION_ID = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
+const deferred = () => {
+  let release = () => {}
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { promise, release }
+}
 const artifact: ArtifactRendererProps['artifact'] = {
   id: `file:${PATH}`,
   source: { kind: 'file', path: PATH, version: 1 },
@@ -39,6 +47,7 @@ const provide = (document = fixture) => {
   let stored = structuredClone(document)
   let version = 1
   let saveError = false
+  let saveDelay: Promise<void> | undefined
   const writes: { content: string; path: string }[] = []
   const submissions: unknown[] = []
   const events: string[] = []
@@ -54,6 +63,7 @@ const provide = (document = fixture) => {
         expectedVersion: number
       }
       writes.push(body)
+      await saveDelay
       if (saveError) return HttpResponse.json({ detail: '写入暂时不可用' }, { status: 503 })
       if (body.expectedVersion !== version)
         return HttpResponse.json({ detail: '版本冲突' }, { status: 409 })
@@ -76,6 +86,16 @@ const provide = (document = fixture) => {
     writes,
     submissions,
     events,
+    delaySave: (delay: Promise<void>) => {
+      saveDelay = delay
+    },
+    removeLastScene: () => {
+      stored.shots = stored.shots.map((shot) => ({
+        ...shot,
+        prompt: { ...shot.prompt, timeline: shot.prompt.timeline.slice(0, -1) },
+      }))
+      version += 1
+    },
     stored: () => stored,
     failSave: () => {
       saveError = true
@@ -96,7 +116,7 @@ const provide = (document = fixture) => {
 const renderReader = () =>
   renderWithProviders(
     <>
-      <StoryboardReader artifact={artifact} conversationId="ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d" />
+      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />
       <Toaster />
     </>,
     { initialPath: '/?shot=1' },
@@ -128,6 +148,7 @@ describe('StoryboardReader', () => {
     expect(screen.getByRole('textbox', { name: '全局设定' })).toBeVisible()
     expect(state.writes).toEqual([])
     await userEvent.click(within(nav).getByRole('button', { name: '镜头 1' }))
+    expect(within(nav).getByRole('button', { name: '镜头 1' })).toHaveFocus()
     expect(within(global).getAllByRole('button')).toHaveLength(1)
     expect(screen.getByRole('textbox', { name: '镜头 1 的描述' })).toHaveTextContent(
       '展示者拿起产品。',
@@ -315,5 +336,110 @@ describe('StoryboardReader', () => {
     await userEvent.click(screen.getByRole('button', { name: '生成视频' }))
     await waitFor(() => expect(state.submissions).toHaveLength(1))
     expect(state.submissions[0]).toMatchObject({ shot: state.stored().shots[0]?.prompt })
+  })
+  it.each(['外部路由切换', '远端移除镜头'])(
+    '上传期间%s 后恢复操作，迟到图片不回填',
+    async (change) => {
+      const state = provide()
+      const upload = deferred()
+      const registered = deferred()
+      server.use(
+        http.put('*/mock-oss/:assetId', async () => {
+          await upload.promise
+          return new HttpResponse(null, { status: 200 })
+        }),
+      )
+      const onResponse = ({ request }: { request: Request }) => {
+        if (request.method === 'POST' && request.url.includes('/api/assets/')) registered.release()
+      }
+      server.events.on('response:mocked', onResponse)
+      try {
+        const { router, queryClient } = await renderReader()
+        await userEvent.click(await screen.findByRole('button', { name: '镜头 2' }))
+        await userEvent.click(screen.getByRole('button', { name: '添加图片' }))
+        await userEvent.upload(
+          screen.getByLabelText('选择要上传的图片'),
+          new File(['late'], 'late.png', { type: 'image/png' }),
+        )
+        expect(screen.getByRole('button', { name: '生成视频' })).toBeDisabled()
+        await act(async () => {
+          if (change === '外部路由切换')
+            await router.navigate({
+              to: '/',
+              search: (previous) => ({ ...previous, shot: 1, content: 'global' }),
+            })
+          else {
+            state.removeLastScene()
+            await queryClient.invalidateQueries()
+          }
+        })
+        expect(await screen.findByRole('textbox', { name: '全局设定' })).toBeVisible()
+        await waitFor(() => expect(screen.getByRole('button', { name: '添加图片' })).toBeEnabled())
+        expect(screen.getByRole('button', { name: '生成视频' })).toBeEnabled()
+        await act(async () => {
+          upload.release()
+          await registered.promise
+        })
+        // 等过自动保存窗口，确认旧请求没有产生迟到的草稿写入。
+        await act(() => new Promise<void>((resolve) => setTimeout(resolve, 900)))
+        expect(state.writes).toEqual([])
+        expect(state.stored().shots[0]?.image_urls).toEqual(fixture.shots[0]?.image_urls)
+        await userEvent.click(screen.getByRole('button', { name: '生成视频' }))
+        await waitFor(() => expect(state.submissions).toHaveLength(1))
+        expect(state.submissions[0]).toMatchObject({
+          shot: state.stored().shots[0]?.prompt,
+          reference_image_urls: fixture.shots[0]?.image_urls,
+        })
+      } finally {
+        upload.release()
+        server.events.removeListener('response:mocked', onResponse)
+      }
+    },
+  )
+  it('生成等待保存时不能新增或替换图片，保存后提交原参考图并恢复操作', async () => {
+    const state = provide()
+    const save = deferred()
+    state.delaySave(save.promise)
+    let uploads = 0
+    const onRequest = ({ request }: { request: Request }) => {
+      if (request.method === 'POST' && request.url.includes('/uploads/sign')) uploads += 1
+    }
+    server.events.on('request:start', onRequest)
+    try {
+      await renderReader()
+      await replaceText(
+        await screen.findByRole('textbox', { name: '全局设定' }),
+        '准备生成的设定 @Image1 与 @Image2。',
+      )
+      const replacementInput = screen.getByLabelText('选择替换图片')
+      await userEvent.click(screen.getByRole('button', { name: '生成视频' }))
+      await waitFor(() => expect(state.writes).toHaveLength(1))
+      expect(state.submissions).toEqual([])
+      const addImage = screen.getByRole('button', { name: '添加图片' })
+      expect(addImage).toBeDisabled()
+      expect(screen.getByRole('button', { name: '替换图片' })).toBeDisabled()
+      await userEvent.click(addImage)
+      expect(screen.queryByRole('dialog', { name: '添加图片' })).not.toBeInTheDocument()
+      // 模拟原生文件选择器迟到返回；即使 change 到达已禁用的 input，也不能启动上传。
+      fireEvent.change(replacementInput, {
+        target: { files: [new File(['late'], 'late.png', { type: 'image/png' })] },
+      })
+      await act(async () => {
+        save.release()
+      })
+      await waitFor(() => expect(state.submissions).toHaveLength(1))
+      expect(uploads).toBe(0)
+      expect(state.submissions[0]).toMatchObject({
+        shot: state.stored().shots[0]?.prompt,
+        reference_image_urls: fixture.shots[0]?.image_urls,
+      })
+      expect(state.writes).toHaveLength(1)
+      await waitFor(() => expect(screen.getByRole('button', { name: '添加图片' })).toBeEnabled())
+      await userEvent.click(screen.getByRole('button', { name: '添加图片' }))
+      expect(await screen.findByRole('dialog', { name: '添加图片' })).toBeVisible()
+    } finally {
+      save.release()
+      server.events.removeListener('request:start', onRequest)
+    }
   })
 })

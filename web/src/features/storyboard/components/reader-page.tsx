@@ -25,6 +25,7 @@ type ReaderPageProps = {
   aspect_ratio: string
   content: string | undefined
   frame: number | undefined
+  editingDisabled: boolean
   onUpdateShot: (updater: (current: Shot) => Shot) => Shot | undefined
   onReplaceFrame: (frame: number, previousUrl: string, url: string) => void
   onUploaded: (frame: number, url: string) => void
@@ -38,6 +39,7 @@ type ReaderPageProps = {
 export function ReaderPage({
   aspect_ratio,
   content: requestedContent,
+  editingDisabled,
   frame,
   onEditFrame,
   onOpenPrompt,
@@ -50,7 +52,6 @@ export function ReaderPage({
   shot,
 }: ReaderPageProps) {
   const contents = shotContents(shot)
-  // 全局设定永远存在；失效的选择回到组级入口，图片不反推内容身份。
   const content = contents.find((item) => item.id === requestedContent) ?? contents[0]
   const frameNumber =
     frame !== undefined && content.frameNumbers.includes(frame) ? frame : content.frameNumbers[0]
@@ -59,26 +60,30 @@ export function ReaderPage({
   const [width = 0, height = 0] = aspect_ratio.split(':').map(Number)
   const editorRef = useRef<PromptEditorHandle | null>(null)
   const uploadRevisionRef = useRef(0)
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [uploading, setUploading] = useState(false)
+  const targetKey = JSON.stringify([shot.index, content.id])
+  const [pickerTarget, setPickerTarget] = useState<string | null>(null)
+  const [uploadTarget, setUploadTarget] = useState<string | null>(null)
+  // 操作只属于发起它的内容；外部切换目标时立即恢复新目标的可操作状态。
+  const pickerOpen = pickerTarget === targetKey
+  const uploading = uploadTarget === targetKey
   const [replacing, setReplacing] = useState(false)
   const reportUploading = useEffectEvent((busy: boolean) => onUploadingChange(shot.index, busy))
   useEffect(() => {
     reportUploading(uploading || replacing)
     return () => reportUploading(false)
   }, [uploading, replacing])
-  const targetKey = JSON.stringify([shot.index, content.id])
-
   useEffect(() => {
     return () => {
       uploadRevisionRef.current += 1
+      setUploadTarget(null)
+      setPickerTarget(null)
     }
   }, [targetKey])
 
   const select = (id: string, number?: number) => {
     uploadRevisionRef.current += 1
-    setUploading(false)
-    setPickerOpen(false)
+    setUploadTarget(null)
+    setPickerTarget(null)
     onSelect(id, number)
   }
   const selectImage = (number: number) => {
@@ -104,6 +109,7 @@ export function ReaderPage({
     return updated
   }
   const pickExisting = (number: number, previousUrl: string) => {
+    if (editingDisabled) return
     try {
       const insertion = editorRef.current?.getInsertion()
       updateTarget((current) => {
@@ -117,10 +123,10 @@ export function ReaderPage({
     }
   }
   const upload = async (file: File) => {
-    if (uploading) return
+    if (editingDisabled || uploading) return
     const revision = ++uploadRevisionRef.current
-    setUploading(true)
-    setPickerOpen(false)
+    setUploadTarget(targetKey)
+    setPickerTarget(null)
     try {
       const newUrl = await uploadFrameImage(file)
       if (revision !== uploadRevisionRef.current) return
@@ -134,7 +140,7 @@ export function ReaderPage({
       if (revision === uploadRevisionRef.current)
         toast.error(error instanceof Error ? error.message : '上传失败')
     } finally {
-      if (revision === uploadRevisionRef.current) setUploading(false)
+      if (revision === uploadRevisionRef.current) setUploadTarget(null)
     }
   }
   const sharing =
@@ -181,6 +187,7 @@ export function ReaderPage({
         >
           {url === undefined || frameNumber === undefined ? null : (
             <FramePreview
+              disabled={editingDisabled}
               aspectRatio={aspect_ratio}
               caption={sharedCaption}
               key={`${content.id}:${frameNumber}:${url}`}
@@ -230,6 +237,7 @@ export function ReaderPage({
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <PromptEditor
+                  readOnly={editingDisabled}
                   aria-label={editorLabel}
                   frames={shot.image_urls}
                   highlighted={frameNumber}
@@ -268,8 +276,8 @@ export function ReaderPage({
           title="添加图片"
           type="button"
           className="storyboard-add-frame grid shrink-0 cursor-pointer place-items-center rounded-xs border-[0.5px] border-chat-hairline bg-surface-container text-on-surface-faint ui-focus disabled:cursor-default disabled:opacity-50"
-          disabled={content.prompt === undefined || uploading}
-          onClick={() => setPickerOpen(true)}
+          disabled={editingDisabled || content.prompt === undefined || uploading}
+          onClick={() => setPickerTarget(targetKey)}
         >
           <Icon decorative name="add" size="md" />
         </button>
@@ -289,8 +297,9 @@ export function ReaderPage({
         ) : null}
       </div>
       <FrameAssignmentPicker
+        disabled={editingDisabled}
         frames={shot.image_urls}
-        onClose={() => setPickerOpen(false)}
+        onClose={() => setPickerTarget(null)}
         onPickExisting={pickExisting}
         onUpload={upload}
         open={pickerOpen}

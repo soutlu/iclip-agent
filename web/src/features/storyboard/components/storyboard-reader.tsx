@@ -316,6 +316,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
           >
             {shots.map((item, offset) => (
               <ReaderPage
+                editingDisabled={preparing}
                 aspect_ratio={document.aspect_ratio}
                 onUpdateShot={(updater) => draft.updateShot(item.index, updater)}
                 onReplaceFrame={(frame, previousUrl, url) => {
