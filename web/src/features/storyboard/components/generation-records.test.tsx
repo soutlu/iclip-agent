@@ -12,8 +12,8 @@ const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
   errorMessage: null,
   kind: 'video',
   outputUrl: null,
+  metadata: { path: 'video_shot.json', shot: 2 },
   request: {},
-  shotIndex: 2,
   status: 'completed',
   taskId: null,
   watermarkOutputUrl: null,
@@ -40,14 +40,18 @@ const jobs: GenerationJob[] = [
     request: { prompt: '第三版：脚步放慢。' },
     status: 'submitted',
   }),
-  job({ id: 'other-shot', request: { prompt: '别的组。' }, shotIndex: 3 }),
+  job({
+    id: 'other-shot',
+    metadata: { path: 'video_shot.json', shot: 3 },
+    request: { prompt: '别的组。' },
+  }),
   job({
     createdAt: new Date(2026, 8, 1, 9, 30).toISOString(),
     id: 'img',
     kind: 'image',
     outputUrl: 'frame.png',
+    metadata: null,
     request: { prompt: '出镜头帧：门厅全景。' },
-    shotIndex: null,
   }),
 ]
 
@@ -310,7 +314,7 @@ describe('GenerationRecords', () => {
   it('只有图片或其它组的视频时，当前组仍显示空态', () => {
     render(
       <GenerationRecords
-        jobs={jobs.filter((item) => item.kind === 'image' || item.shotIndex === 3)}
+        jobs={jobs.filter((item) => item.kind === 'image' || item.id === 'other-shot')}
         onClose={vi.fn()}
         onEditPrompt={vi.fn()}
         shotIndex={2}

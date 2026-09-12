@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from typing import Any, Final
 
 from sqlalchemy import (
@@ -10,7 +11,6 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     MetaData,
     Table,
     Text,
@@ -54,7 +54,8 @@ generation_jobs_table = Table(
     Column("api_key_id", Uuid, nullable=True),
     # 不关联对话外键，删除对话后仍保留生成来源。
     Column("conversation_id", Uuid, nullable=True),
-    Column("shot_index", Integer, nullable=True),
+    # 调用方自带的坐标标签，只做包含匹配，不解析；不建索引，筛选总在按对话缩小之后。
+    Column("metadata", JSONB, nullable=True),
     # 需求单同样不建外键：它是归属标签，删单不抹生成记录。
     Column("task_id", Uuid, nullable=True),
     Column("kind", Text, nullable=False),
@@ -97,7 +98,7 @@ class SqlGenerationRepository:
                             owner_user_id=job.owner_user_id,
                             api_key_id=job.api_key_id,
                             conversation_id=job.conversation_id,
-                            shot_index=job.shot_index,
+                            metadata=job.metadata,
                             task_id=job.task_id,
                             kind=job.kind,
                             provider=job.provider,
@@ -142,8 +143,7 @@ class SqlGenerationRepository:
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: str | None = None,
-        shot_index: int | None = None,
-        frame_number: int | None = None,
+        metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
@@ -154,10 +154,8 @@ class SqlGenerationRepository:
             stmt = stmt.where(_JOBS.task_id == task_id)
         if kind is not None:
             stmt = stmt.where(_JOBS.kind == kind)
-        if shot_index is not None:
-            stmt = stmt.where(_JOBS.shot_index == shot_index)
-        if frame_number is not None:
-            stmt = stmt.where(_JOBS.request["frameNumber"].astext == str(frame_number))
+        if metadata is not None:
+            stmt = stmt.where(_JOBS.metadata.contains(dict(metadata)))
         if before is not None:
             anchor = await self.get(before, owner=owner)
             stmt = stmt.where(tuple_(_JOBS.created_at, _JOBS.id) < (anchor.created_at, anchor.id))
@@ -298,7 +296,7 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         owner_user_id=row["owner_user_id"],
         api_key_id=row["api_key_id"],
         conversation_id=row["conversation_id"],
-        shot_index=row["shot_index"],
+        metadata=row["metadata"],
         task_id=row["task_id"],
         kind=kind,
         provider=row["provider"],

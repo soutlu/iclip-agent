@@ -422,9 +422,9 @@ export const zGenerationOut = z.object({
   errorMessage: z.string().nullable(),
   id: z.uuid(),
   kind: z.string(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
   outputUrl: z.string().nullable(),
   request: z.record(z.string(), z.unknown()),
-  shotIndex: z.int().nullable(),
   status: z.string(),
   taskId: z.uuid().nullable(),
   watermarkOutputUrl: z.string().nullable(),
@@ -461,12 +461,11 @@ export const zImageGenerationIn = z.object({
   aspectRatio: z.enum(['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']),
   channel: z.enum(['dev', 'pro']).nullish(),
   conversationId: z.uuid().nullish(),
-  frameNumber: z.int().gte(1).nullish(),
+  metadata: z.record(z.string(), z.unknown()).nullish(),
   model: z.string().min(1).max(200).nullish(),
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
   resolution: z.enum(['1k', '2k', '4k']).optional().default('1k'),
-  shotIndex: z.int().gte(1).nullish(),
   taskId: z.uuid().nullish(),
   userName: z.string().min(1).max(200).nullish(),
 })
@@ -1342,7 +1341,7 @@ export const zVideoShotIn = z.object({
 /**
  * VideoGenerationIn
  *
- * 一次视频生成的输入。字段照上游异步接口，外加三个归属字段与结构化的 ``shot``。
+ * 一次视频生成的输入。字段照上游异步接口，外加归属字段、坐标 ``metadata`` 与结构化的 ``shot``。
  *
  * 只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1、``shot``
  * 自身对得上（图片引用不越界、编号与正文一致）。画幅、分辨率、时长范围、素材规格由上游
@@ -1352,6 +1351,7 @@ export const zVideoGenerationIn = z.object({
   aspect_ratio: z.string().min(1).max(20).nullish(),
   conversation_id: z.uuid().nullish(),
   generate_audio: z.boolean().nullish(),
+  metadata: z.record(z.string(), z.unknown()).nullish(),
   model: z.string().min(1).max(200),
   prompt: z.string().min(1).max(4000).nullish(),
   provider_options: z.record(z.string(), z.unknown()).nullish(),
@@ -1361,7 +1361,6 @@ export const zVideoGenerationIn = z.object({
   resolution: z.string().min(1).max(50).nullish(),
   seconds: z.int().gte(-1).nullish(),
   shot: zVideoShotIn.nullish(),
-  shot_index: z.int().gte(1).nullish(),
   task_id: z.uuid().nullish(),
   user_name: z.string().min(1).max(200).nullish(),
 })
@@ -1821,8 +1820,7 @@ export const zListGenerationsGenerationsGetQuery = z.object({
   conversationId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
   kind: z.enum(['image', 'video']).nullish(),
-  shotIndex: z.int().gte(1).nullish(),
-  frameNumber: z.int().gte(1).nullish(),
+  metadata: z.string().nullish(),
   before: z.uuid().nullish(),
 })
 

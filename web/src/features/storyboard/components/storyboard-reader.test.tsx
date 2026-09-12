@@ -70,7 +70,7 @@ const jobs: GenerationJob[] = [
     kind: 'video',
     outputUrl: 'https://example.com/take.mp4',
     request: { prompt: '本组生成时使用的历史描述。' },
-    shotIndex: 1,
+    metadata: { path: PATH, shot: 1 },
     status: 'completed',
     taskId: null,
     watermarkOutputUrl: null,
@@ -82,7 +82,7 @@ const jobs: GenerationJob[] = [
     kind: 'video',
     outputUrl: null,
     request: { prompt: '另一组的历史描述。' },
-    shotIndex: 2,
+    metadata: { path: PATH, shot: 2 },
     status: 'completed',
     taskId: null,
     watermarkOutputUrl: null,
@@ -114,7 +114,7 @@ const editableJob: GenerationJob = {
   kind: 'video',
   outputUrl: 'https://example.com/history.mp4',
   request: { prompt: historyPrompt, shot: historyShot },
-  shotIndex: 1,
+  metadata: { path: PATH, shot: 1 },
   status: 'completed',
   taskId: null,
   watermarkOutputUrl: null,
@@ -128,7 +128,7 @@ const runningJob: GenerationJob = {
   kind: 'video',
   outputUrl: null,
   request: { prompt: '刚提交的这一版。' },
-  shotIndex: 1,
+  metadata: { path: PATH, shot: 1 },
   status: 'submitted',
   taskId: null,
   watermarkOutputUrl: null,
@@ -468,7 +468,12 @@ describe('StoryboardReader', () => {
       socket.deliver({
         type: 'event.generation.changed',
         session_id: CONVERSATION_ID,
-        payload: { id: runningJob.id, kind: 'video', status: 'completed', shot_index: 1 },
+        payload: {
+          id: runningJob.id,
+          kind: 'video',
+          status: 'completed',
+          metadata: { path: PATH, shot: 1 },
+        },
       })
     })
 
@@ -484,8 +489,8 @@ describe('StoryboardReader', () => {
       errorMessage: null,
       kind: 'image',
       outputUrl: null,
-      request: { frameNumber: 2, prompt: '换个颜色', referenceImageUrls: [] },
-      shotIndex: 1,
+      metadata: { frame: 2, path: PATH, shot: 1 },
+      request: { prompt: '换个颜色', referenceImageUrls: [] },
       status: 'pending',
       taskId: null,
       watermarkOutputUrl: null,
@@ -520,8 +525,7 @@ describe('StoryboardReader', () => {
           id: imageJob.id,
           kind: 'image',
           status: 'completed',
-          shot_index: 1,
-          frame_number: 2,
+          metadata: { frame: 2, path: PATH, shot: 1 },
         },
       })
     })
@@ -609,7 +613,7 @@ describe('StoryboardReader', () => {
         reference_image_urls: firstShot.image_urls,
         seconds: firstShot.seconds,
         shot: firstShot.prompt,
-        shot_index: 1,
+        metadata: { path: PATH, shot: 1 },
       },
     ])
     expect(await screen.findByText('生成中 1')).toBeVisible()

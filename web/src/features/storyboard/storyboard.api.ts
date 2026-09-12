@@ -10,6 +10,7 @@ import {
   zVideoSubmitOut,
 } from '@/shared/api/generated/zod.gen'
 import type { zGenerationOut } from '@/shared/api/generated/zod.gen'
+import { storyboardMetadata } from './generation-metadata'
 import type { Shot } from './shot-document'
 import { isRunningStatus } from './shots'
 
@@ -38,6 +39,8 @@ export const useVideoModels = () =>
 
 export type VideoGenerationInput = {
   conversationId: string
+  /** 分镜文件路径，与镜头组一起写进任务坐标 metadata（ADR-0020）。 */
+  path: string
   aspectRatio: string
   model: string
   generateAudio: boolean
@@ -62,11 +65,11 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
     aspect_ratio: input.aspectRatio,
     conversation_id: input.conversationId,
     generate_audio: input.generateAudio,
+    metadata: storyboardMetadata(input.path, input.shot.index),
     model: input.model,
     reference_image_urls: [...input.shot.image_urls],
     seconds: input.shot.seconds,
     shot,
-    shot_index: input.shot.index,
   }
   const receipt = await apiFetch('/generations/video', zVideoSubmitOut, {
     body,

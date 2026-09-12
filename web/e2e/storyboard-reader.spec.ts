@@ -406,7 +406,7 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
     reference_image_urls: third.image_urls,
     seconds: third.seconds,
     shot: third.prompt,
-    shot_index: 3,
+    metadata: { path: 'video_shot.json', shot: 3 },
   })
   await expect(panel.getByText('生成中 1', { exact: true })).toBeVisible()
 

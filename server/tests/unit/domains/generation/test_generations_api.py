@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
@@ -346,16 +347,44 @@ async def test_bad_image_request_shapes_are_rejected(body: dict[str, object]) ->
     assert response.status_code == 422
 
 
-async def test_a_frame_number_without_a_shot_is_rejected_at_intake() -> None:
-    """帧号只在镜头组内有意义。这条只在受理时查：来源字段落列，读回持久化请求时看不到。"""
+async def test_oversized_metadata_is_rejected_at_intake() -> None:
+    """坐标是标签不是仓库：序列化超过上限就拒，两种生成同一条线。"""
 
-    body = {**IMAGE_BODY, "frameNumber": 2}
     app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:submit"))
     async with client(app) as http:
-        rejected = await http.post("/generations/image", json=body)
-        accepted = await http.post("/generations/image", json={**body, "shotIndex": 3})
-    assert rejected.status_code == 422
-    assert accepted.status_code == 202
+        image = await http.post(
+            "/generations/image", json={**IMAGE_BODY, "metadata": {"note": "x" * 2001}}
+        )
+        video = await http.post(
+            "/generations/video", json={**VIDEO_BODY, "metadata": {"note": "x" * 2001}}
+        )
+        fits = await http.post(
+            "/generations/image", json={**IMAGE_BODY, "metadata": {"path": "a.json", "shot": 1}}
+        )
+    assert (image.status_code, video.status_code, fits.status_code) == (422, 422, 202)
+
+
+async def test_metadata_filter_is_containment_and_bad_filters_are_422() -> None:
+    """``metadata`` 是调用方的坐标：按包含匹配筛，服务端不读键；查询串里不是 JSON 对象就是 422。"""
+
+    owner = uuid.uuid4()
+    coordinate = {"path": "video_shot.json", "shot": 1, "frame": 2}
+    hit = make_job(image_request(metadata=coordinate), owner_user_id=owner, metadata=coordinate)
+    sibling = {**coordinate, "frame": 3}
+    other = make_job(image_request(metadata=sibling), owner_user_id=owner, metadata=sibling)
+    untagged = make_job(owner_user_id=owner)
+    repo = InMemoryGenerationRepository([hit, other, untagged])
+    app = build_test_app(repo, granted=principal("generation:read", user_id=owner))
+    async with client(app) as http:
+        by_frame = await http.get(
+            "/generations", params={"metadata": json.dumps({"shot": 1, "frame": 2})}
+        )
+        by_shot = await http.get("/generations", params={"metadata": json.dumps({"shot": 1})})
+        not_json = await http.get("/generations", params={"metadata": "not json"})
+        not_object = await http.get("/generations", params={"metadata": "[1]"})
+    assert [item["id"] for item in by_frame.json()["items"]] == [str(hit.id)]
+    assert {item["id"] for item in by_shot.json()["items"]} == {str(hit.id), str(other.id)}
+    assert (not_json.status_code, not_object.status_code) == (422, 422)
 
 
 @pytest.mark.parametrize(
@@ -398,7 +427,7 @@ async def test_owner_reads_own_generation_and_manager_reads_everyones() -> None:
 
 
 async def test_origin_lands_on_columns_not_in_the_stored_request() -> None:
-    """归属字段单独存列，不包含在供应商请求 JSON 中；三个字段两种生成都收。"""
+    """归属字段单独存列，不包含在供应商请求 JSON 中；三个字段两种生成都收，坐标原样回读。"""
 
     conversation_id, task_id = uuid.uuid4(), uuid.uuid4()
     repo = InMemoryGenerationRepository()
@@ -409,7 +438,7 @@ async def test_origin_lands_on_columns_not_in_the_stored_request() -> None:
             json={
                 **VIDEO_BODY,
                 "conversation_id": str(conversation_id),
-                "shot_index": 3,
+                "metadata": {"path": "video_shot.json", "shot": 3},
                 "task_id": str(task_id),
             },
         )
@@ -418,12 +447,15 @@ async def test_origin_lands_on_columns_not_in_the_stored_request() -> None:
             "generation"
         ]
 
-    assert (record["shotIndex"], record["taskId"]) == (3, str(task_id))
-    assert {"conversation_id", "shot_index", "task_id"}.isdisjoint(record["request"])
+    assert (record["metadata"], record["taskId"]) == (
+        {"path": "video_shot.json", "shot": 3},
+        str(task_id),
+    )
+    assert {"conversation_id", "metadata", "task_id"}.isdisjoint(record["request"])
     stored = only_job(repo)
-    assert (stored.conversation_id, stored.shot_index, stored.task_id) == (
+    assert (stored.conversation_id, stored.metadata, stored.task_id) == (
         conversation_id,
-        3,
+        {"path": "video_shot.json", "shot": 3},
         task_id,
     )
 

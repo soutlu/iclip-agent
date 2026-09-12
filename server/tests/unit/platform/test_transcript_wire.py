@@ -21,11 +21,12 @@ def test_a_generation_frame_omits_empty_origin_fields_on_the_wire() -> None:
     }
 
 
-def test_a_generation_frame_keeps_its_origin_when_known() -> None:
+def test_a_generation_frame_carries_the_callers_metadata_verbatim() -> None:
+    coordinate = {"path": "video_shot.json", "shot": 1, "frame": 3}
     frame = GenerationChanged(
         session_id="c-1",
         payload=GenerationChangedPayload(
-            id="job-2", kind="image", status="completed", shot_index=1, frame_number=3
+            id="job-2", kind="image", status="completed", metadata=coordinate
         ),
     )
 
@@ -36,6 +37,5 @@ def test_a_generation_frame_keeps_its_origin_when_known() -> None:
         "id": "job-2",
         "kind": "image",
         "status": "completed",
-        "shot_index": 1,
-        "frame_number": 3,
+        "metadata": coordinate,
     }

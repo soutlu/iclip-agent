@@ -25,14 +25,13 @@ const draft: FrameEditDraft = {
 }
 const job = (status: 'pending' | 'completed'): GenerationJob => ({
   id: crypto.randomUUID(),
-  shotIndex: target.shotIndex,
+  metadata: { frame: target.frameNumber, path: target.artifactPath, shot: target.shotIndex },
   kind: 'image',
   status,
   createdAt: '2026-09-07T12:00:00Z',
   errorMessage: null,
   outputUrl: status === 'completed' ? 'https://example.com/old-result.png' : null,
   request: {
-    frameNumber: target.frameNumber,
     prompt: '将衣服改成蓝色',
     referenceImageUrls: [target.sourceUrl],
   },

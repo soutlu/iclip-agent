@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from typing import Any, Protocol
 
 from iclip.domains.generation.models import GenerationJob, GenerationStatus
@@ -27,12 +28,12 @@ class GenerationRepository(Protocol):
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: str | None = None,
-        shot_index: int | None = None,
-        frame_number: int | None = None,
+        metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
-        """按创建时间倒序列出；``conversation_id`` / ``task_id`` 给了就只要那段对话、那张需求单下面的。"""
+        """按创建时间倒序列出；``conversation_id`` / ``task_id`` 给了就只要那段对话、那张需求单下面的，
+        ``metadata`` 给了就只要坐标包含这些键值的（JSONB ``@>``）。"""
         ...
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:

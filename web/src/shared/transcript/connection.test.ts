@@ -272,7 +272,12 @@ describe('TranscriptConnection', () => {
     socket.deliver({
       type: 'event.generation.changed',
       session_id: 'c9',
-      payload: { id: 'job-1', kind: 'image', status: 'submitted', shot_index: 2, frame_number: 3 },
+      payload: {
+        id: 'job-1',
+        kind: 'image',
+        status: 'submitted',
+        metadata: { path: 'video_shot.json', shot: 2, frame: 3 },
+      },
     })
     // 任务没有来源对话时信封上没有 session_id，空的归属字段服务端整个省略。
     socket.deliver({
@@ -298,20 +303,18 @@ describe('TranscriptConnection', () => {
       },
       {
         conversationId: 'c9',
-        frameNumber: 3,
         jobId: 'job-1',
         jobKind: 'image',
         kind: 'generation',
-        shotIndex: 2,
+        metadata: { frame: 3, path: 'video_shot.json', shot: 2 },
         status: 'submitted',
       },
       {
         conversationId: null,
-        frameNumber: null,
         jobId: 'job-2',
         jobKind: 'video',
         kind: 'generation',
-        shotIndex: null,
+        metadata: null,
         status: 'failed',
       },
     ])

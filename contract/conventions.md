@@ -136,7 +136,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 |---|---|---|
 | `session.meta.updated` | `{session_id, title}` | 标题变了（自动起名或用户改名） |
 | `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | 对话运行活动发生变化 |
-| `event.generation.changed` | `session_id` 在信封上（任务没有来源对话时省略），payload `{id, kind, status, shot_index, frame_number}`；后两项为空时省略 | 生成任务的业务状态每跳一格：`pending` / `submitting` / `submitted` / `completed` / `failed` |
+| `event.generation.changed` | `session_id` 在信封上（任务没有来源对话时省略），payload `{id, kind, status, metadata}`；`metadata` 是调用方自带的坐标原样带出，为空时省略 | 生成任务的业务状态每跳一格：`pending` / `submitting` / `submitted` / `completed` / `failed` |
 
 - **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。
 - `event.session.work_changed` 的 `last_turn_reason` 只在 `busy: false` 的那几帧上有：帧一律
@@ -317,7 +317,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 视频：镜像上游异步接口
 
-- `POST /generations/video` 的请求体照上游视频异步接口（`model`、`prompt`、`user_name`、`reference_image_urls`、`reference_video_urls`、`reference_audio_urls`、`generate_audio`、`resolution`、`aspect_ratio`、`seconds`、`provider_options`），外加三个归属字段 `conversation_id`、`shot_index`、`task_id`（需求单 id）与结构化的 `shot`。响应是 `{"task_id"}`，值是本系统这条生成记录的 id；请求体里的 `task_id` 是需求单 id，两者是两个层级。
+- `POST /generations/video` 的请求体照上游视频异步接口（`model`、`prompt`、`user_name`、`reference_image_urls`、`reference_video_urls`、`reference_audio_urls`、`generate_audio`、`resolution`、`aspect_ratio`、`seconds`、`provider_options`），外加归属字段 `conversation_id`、`task_id`（需求单 id）、调用方自带的坐标 `metadata`（见下文「参考帧图片编辑」）与结构化的 `shot`。响应是 `{"task_id"}`，值是本系统这条生成记录的 id；请求体里的 `task_id` 是需求单 id，两者是两个层级。
 - 正文二选一：直接给 `prompt`，或给 `shot`（与分镜文件 `video_shot.json` 里 `shots[].prompt` 同形：`global_settings` 加 `timeline[]`，每镜 `timestamps: [起, 止]`、`prompt`、`image_indexes`）由服务端拼成 `prompt`。时间线规则与分镜交付相同：结束晚于开始、第一镜从 0 起、各镜按先后排不重叠。拼法：全局设定、空一行、每镜一行 `[起–止秒｜镜头N] 正文`（起止照给的，保留到毫秒），末尾一行 `不要生成字幕，不要生成背景音乐。`。两者都不给、都给但不一致、`@ImageN` 超出 `reference_image_urls` 的张数、`image_indexes` 与正文里 `@Image` 的出现顺序不一致、拼出的正文超过 4000 字，都是 `422`。记录的 `request` 里 `shot` 与拼好的 `prompt` 都在；发给上游的只有 `prompt`，`shot` 不转发。
 - `model` 必填，只接受运行配置 `config.yaml` 中 `media_generation.video.allowed_models` 列出的模型，`GET /generations/video-models` 给出允许表与默认值；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
 - 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
@@ -334,6 +334,6 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 参考帧图片编辑
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
-- `frameNumber` 是这次出图要顶替镜头组里的第几帧，只作标签供筛选；给了它就必须给 `shotIndex`，否则返回 `422`。服务端不按它定位文档，也不校验那一帧当前是什么。
-- `GET /generations` 的类型、对话、需求单、镜头组和帧筛选在分页截断前执行，归属范围不因筛选扩大。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
+- `metadata` 是调用方自己的坐标标签：JSON 对象，两种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读键、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。分镜页写 `{"path": <分镜文件路径>, "shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`），决策见 [ADR-0020](../docs/adr/0020-generation-metadata.md)。
+- `GET /generations` 的类型、对话、需求单与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"shot":1,"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。

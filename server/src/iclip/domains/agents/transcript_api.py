@@ -236,8 +236,7 @@ class LiveConnections:
         job_id: uuid.UUID,
         kind: str,
         status: str,
-        shot_index: int | None,
-        frame_number: int | None,
+        metadata: Mapping[str, Any] | None,
     ) -> None:
         """向属主的连接广播生成任务状态跳转；只收基础字段，不依赖生成域类型。"""
 
@@ -249,8 +248,7 @@ class LiveConnections:
                     id=str(job_id),
                     kind=kind,
                     status=status,
-                    shot_index=shot_index,
-                    frame_number=frame_number,
+                    metadata=None if metadata is None else dict(metadata),
                 ),
             ),
         )

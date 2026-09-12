@@ -23,6 +23,7 @@ import {
   type Shot,
 } from '../shot-document'
 import { frameBadges, frameJobKey, latestFrameJobs } from '../frame-status'
+import { readStoryboardMetadata } from '../generation-metadata'
 import { FrameImageEditor } from '../image-edit/frame-image-editor'
 import { useFrameImageJobs } from '../image-edit/image-edit.api'
 import type { FrameEditTarget } from '../image-edit/image-edit-types'
@@ -64,7 +65,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   useLiveGenerations(conversationId)
   // 关过编辑器就算看过那一格的终态；只记本次会话，刷新后没看过的终态会再出现一次。
   const [seenFrameJobs, setSeenFrameJobs] = useState<ReadonlySet<string>>(() => new Set())
-  const video = useVideoGeneration(conversationId)
+  const video = useVideoGeneration(conversationId, path)
   const [imageEditTarget, setImageEditTarget] = useState<FrameEditTarget | null>(null)
   const imageEditTriggerRef = useRef<HTMLElement | null>(null)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
@@ -77,8 +78,8 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
     [savedContent],
   )
   const latestFrameJob = useMemo(
-    () => latestFrameJobs(frameJobs.data?.items ?? []),
-    [frameJobs.data],
+    () => latestFrameJobs(frameJobs.data?.items ?? [], path),
+    [frameJobs.data, path],
   )
   // 根据已落盘地址判断上传是否仍未保存，避免一次较早请求成功就清除后来上传的提示。
   const appliedUpload =
@@ -195,9 +196,15 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
     return <ReaderNotice text="文件格式不对，读不出镜头组" />
   }
 
-  const jobs = generations.data?.items ?? []
+  // 只看这份分镜文件的记录；坐标读不出来的（别的调用方写的）不算。
+  const jobs = (generations.data?.items ?? []).filter(
+    (job) => readStoryboardMetadata(job)?.path === path,
+  )
   const activeCount = jobs.filter(
-    (job) => job.kind === 'video' && job.shotIndex === shot.index && isRunningStatus(job.status),
+    (job) =>
+      job.kind === 'video' &&
+      readStoryboardMetadata(job)?.shot === shot.index &&
+      isRunningStatus(job.status),
   ).length
   // 出片发的是描述的当前版本；还在存或没存下就先别发，免得发出去的和文件里的不一样。
   // 原因不另写一句：左边的保存状态已经在说。
