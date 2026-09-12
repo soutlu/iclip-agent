@@ -445,7 +445,10 @@ describe('StoryboardReader', () => {
     provide()
     let served = 0
     server.use(
-      http.get('*/api/generations', () => {
+      http.get('*/api/generations', ({ request }) => {
+        // 只数视频列表的重拉；帧上的图片查询走同一端点，另有用例覆盖。
+        if (new URL(request.url).searchParams.get('kind') === 'image')
+          return HttpResponse.json({ items: [] })
         served += 1
         const finished = {
           ...runningJob,
@@ -471,6 +474,76 @@ describe('StoryboardReader', () => {
 
     expect(await within(records).findByText('生成完成')).toBeVisible()
     expect(served).toBe(2)
+  })
+
+  it('参考帧的图片任务挂在帧上：先排队，推送后变成有新结果，看过编辑器就清掉', async () => {
+    provide()
+    const imageJob: GenerationJob = {
+      id: 'c3d4e5f6-7a8b-4c9d-8e0f-1a2b3c4d5e6f',
+      createdAt: '2026-09-01T10:05:00Z',
+      errorMessage: null,
+      kind: 'image',
+      outputUrl: null,
+      request: { frameNumber: 2, prompt: '换个颜色', referenceImageUrls: [] },
+      shotIndex: 1,
+      status: 'pending',
+      taskId: null,
+      watermarkOutputUrl: null,
+    }
+    let imageReads = 0
+    server.use(
+      http.get('*/api/generations', ({ request }) => {
+        if (new URL(request.url).searchParams.get('kind') !== 'image')
+          return HttpResponse.json({ items: jobs })
+        imageReads += 1
+        const finished = {
+          ...imageJob,
+          outputUrl: 'https://example.com/edited.png',
+          status: 'completed',
+        }
+        return HttpResponse.json({ items: [imageReads === 1 ? imageJob : finished] })
+      }),
+    )
+    const { socket } = await renderReader()
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    expect(await within(page).findByText('排队中')).toBeVisible()
+    expect(
+      within(navigationOf(page)).getByRole('button', { name: '预览第 2 帧（排队中）' }),
+    ).toBeVisible()
+    expect(within(navigationOf(page)).getByRole('button', { name: '预览第 1 帧' })).toBeVisible()
+
+    act(() => {
+      socket.deliver({
+        type: 'event.generation.changed',
+        session_id: CONVERSATION_ID,
+        payload: {
+          id: imageJob.id,
+          kind: 'image',
+          status: 'completed',
+          shot_index: 1,
+          frame_number: 2,
+        },
+      })
+    })
+
+    const view = await within(page).findByRole('button', { name: '有新结果 · 查看' })
+    expect(
+      within(navigationOf(page)).getByRole('button', { name: '预览第 2 帧（有新结果）' }),
+    ).toBeVisible()
+    await userEvent.click(view)
+    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
+    expect(within(editor).getByText('镜头组 1 · 帧 @2')).toBeVisible()
+    await userEvent.click(within(editor).getByRole('button', { name: '关闭图片编辑' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+    )
+
+    expect(within(page).queryByRole('button', { name: '有新结果 · 查看' })).not.toBeInTheDocument()
+    expect(within(navigationOf(page)).getByRole('button', { name: '预览第 2 帧' })).toBeVisible()
+    // 点开它的角标已经不在了，焦点退回这一帧的编辑入口，不掉到 body。
+    await waitFor(() =>
+      expect(within(page).getByRole('button', { name: '编辑图片' })).toHaveFocus(),
+    )
   })
 
   it.each([

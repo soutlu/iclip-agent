@@ -290,3 +290,16 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
+/* 缩略图右上角的任务角标；左下是 @N，左上是时长。 */
+.storyboard-frame-status {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-container-lowest);
+  pointer-events: none;
+}

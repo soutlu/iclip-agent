@@ -68,3 +68,57 @@ test('普通编辑只填写要求即可提交当前原图', async ({ page }) => 
     prompt: '将衣服改成蓝色',
   })
 })
+
+for (const width of [1600, 390]) {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test(`提交后关掉编辑器 ${width}px ${colorScheme}：帧上先显示生成中再变成有新结果，点开看过即清`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 })
+      await page.emulateMedia({ colorScheme })
+      await page.goto('/')
+      await login(page)
+      await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+      if (width === 390) await page.getByRole('button', { name: '打开右侧面板' }).click()
+      const group = page.getByRole('region', { name: '镜头组 1', exact: true })
+      await group.getByRole('button', { name: '镜头 1', exact: true }).click()
+      const filmstrip = group.getByRole('navigation', { name: '本组镜头', exact: true })
+      await group.getByRole('img', { name: '镜头组 1 第 1 帧' }).hover()
+      await group.getByRole('button', { name: '编辑图片', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: '编辑图片', exact: true })
+      await dialog.getByRole('textbox', { name: '修改要求', exact: true }).fill('将衣服改成蓝色')
+      await dialog.getByRole('button', { name: '生成编辑结果', exact: true }).click()
+      await dialog.getByRole('button', { name: '关闭图片编辑', exact: true }).click()
+      await expect(dialog).toBeHidden()
+
+      // 关掉编辑器后帧上仍能看到任务在跑；mock 三秒后出图，前端每五秒问一次。
+      await expect(group.getByText('生成中', { exact: true })).toBeVisible()
+      await expect(
+        filmstrip.getByRole('button', { name: '预览第 1 帧（生成中）', exact: true }),
+      ).toBeVisible()
+      await page.screenshot({
+        animations: 'disabled',
+        path: `../.artifacts/design-qa/storyboard-reader/frame-image-running-${width}-${colorScheme}.png`,
+      })
+      const view = group.getByRole('button', { name: '有新结果 · 查看', exact: true })
+      await expect(view).toBeVisible({ timeout: 15_000 })
+      await expect(
+        filmstrip.getByRole('button', { name: '预览第 1 帧（有新结果）', exact: true }),
+      ).toBeVisible()
+      await page.screenshot({
+        animations: 'disabled',
+        path: `../.artifacts/design-qa/storyboard-reader/frame-image-result-${width}-${colorScheme}.png`,
+      })
+
+      await view.click()
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByRole('button', { name: '查看编辑结果', exact: true })).toBeVisible()
+      await dialog.getByRole('button', { name: '关闭图片编辑', exact: true }).click()
+      await expect(dialog).toBeHidden()
+      await expect(view).toBeHidden()
+      await expect(
+        filmstrip.getByRole('button', { name: '预览第 1 帧', exact: true }),
+      ).toBeVisible()
+    })
+  }
+}

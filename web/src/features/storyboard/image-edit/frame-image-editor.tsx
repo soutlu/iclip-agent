@@ -10,7 +10,7 @@ import { DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { Select } from '@/shared/ui/field'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
-import { isRunningStatus } from '../shots'
+import { isRunningStatus, phaseOfStatus, type GenerationPhase } from '../shots'
 import type { GenerationJob } from '../storyboard.api'
 import { AnnotationCanvas } from './annotation-canvas'
 import { exportAnnotatedImage } from './annotation-export'
@@ -18,6 +18,7 @@ import { EditInstructionEditor } from './edit-instruction-editor'
 import { EditReferences } from './edit-references'
 import { editDraftError, editDraftKey, emptyEditDraft, loadEditDraft } from './image-edit-draft'
 import {
+  imageEditConversationKey,
   imageEditQueryKey,
   parseEditPrompt,
   readSubmittedImages,
@@ -46,6 +47,13 @@ const restoredReference =
             .split('/')
             .at(-1) ?? '图片'),
   })
+
+const RECORD_PHASE: Record<GenerationPhase, string> = {
+  done: '已生成',
+  failed: '失败',
+  queued: '排队中',
+  running: '生成中',
+}
 
 type FrameImageEditorProps = {
   target: FrameEditTarget
@@ -191,7 +199,10 @@ export function FrameImageEditor({
           }
         },
       )
-      void queryClient.invalidateQueries({ queryKey: imageEditQueryKey(target) })
+      // 失效到对话前缀：分镜页帧上的角标也读这个前缀，新任务才会立刻冒出来。
+      void queryClient.invalidateQueries({
+        queryKey: imageEditConversationKey(target.conversationId),
+      })
       toast.success('图片编辑已提交，可以关闭窗口，稍后查看结果')
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : '图片编辑提交失败')
@@ -425,7 +436,9 @@ export function FrameImageEditor({
             {selectedJob && isRunningStatus(selectedJob.status) ? (
               <p role="status" className="flex items-center gap-2 text-body-sm text-primary">
                 <Icon decorative name="loading" className="animate-spin" size="sm" />
-                图片生成中，关闭窗口后仍会继续
+                {phaseOfStatus(selectedJob.status) === 'queued'
+                  ? '图片排队中，关闭窗口后仍会继续'
+                  : '图片生成中，关闭窗口后仍会继续'}
               </p>
             ) : null}
             {selectedJob?.status === 'failed' ? (
@@ -473,12 +486,7 @@ export function FrameImageEditor({
                         if (job.status === 'completed') setMode('result')
                       }}
                     >
-                      {job.status === 'completed'
-                        ? '已生成'
-                        : isRunningStatus(job.status)
-                          ? '生成中'
-                          : '失败'}{' '}
-                      · {formatDateTime(job.createdAt)}
+                      {RECORD_PHASE[phaseOfStatus(job.status)]} · {formatDateTime(job.createdAt)}
                     </button>
                     <button
                       className="shrink-0 rounded-xs text-primary ui-focus disabled:opacity-40"

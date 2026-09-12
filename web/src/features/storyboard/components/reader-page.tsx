@@ -6,6 +6,7 @@ import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import type { LightboxMedia } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
+import type { FrameBadge } from '../frame-status'
 import { type Shot } from '../shot-document'
 import {
   shotContents,
@@ -25,6 +26,8 @@ type ReaderPageProps = {
   aspect_ratio: string
   content: string | undefined
   frame: number | undefined
+  /** 本组每帧最新图片任务的角标，由工作台按对话级列表算好给下来。 */
+  frameBadges: ReadonlyMap<number, FrameBadge>
   editingDisabled: boolean
   onUpdateShot: (updater: (current: Shot) => Shot) => Shot | undefined
   onReplaceFrame: (frame: number, previousUrl: string, url: string) => void
@@ -41,6 +44,7 @@ export function ReaderPage({
   content: requestedContent,
   editingDisabled,
   frame,
+  frameBadges,
   onEditFrame,
   onOpenPrompt,
   onSelect,
@@ -187,6 +191,7 @@ export function ReaderPage({
         >
           {url === undefined || frameNumber === undefined ? null : (
             <FramePreview
+              badge={frameBadges.get(frameNumber)}
               disabled={editingDisabled}
               aspectRatio={aspect_ratio}
               caption={sharedCaption}
@@ -266,6 +271,7 @@ export function ReaderPage({
       <div className="storyboard-filmstrip flex shrink-0 items-stretch gap-1 border-t-[0.5px] border-chat-hairline pt-3">
         <ShotFilmstrip
           activeContent={content.id}
+          badges={frameBadges}
           frameNumber={frameNumber}
           frames={shot.image_urls}
           onSelect={select}
