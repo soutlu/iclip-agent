@@ -4,13 +4,17 @@ import { useEffect, useEffectEvent, useRef, useState, type DragEvent } from 'rea
 import { Icon } from '@/shared/icons'
 import { IconButton } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
+import { frameBadgeText, type FrameBadge } from '../frame-status'
 import { aspectRatioStyle } from '../shots'
 import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
+import { FrameBadgeIcon } from './frame-badge'
 
 type FramePreviewProps = {
   aspectRatio: string
   disabled: boolean
   caption?: string | undefined
+  /** 这一帧最新图片任务的状态；没有任务或已经看过就不给。 */
+  badge?: FrameBadge | undefined
   name: string
   url: string | undefined
   onOpen: () => void
@@ -22,6 +26,7 @@ type FramePreviewProps = {
 
 export function FramePreview({
   aspectRatio,
+  badge,
   disabled,
   caption,
   name,
@@ -143,9 +148,30 @@ export function FramePreview({
               {caption}
             </p>
           )}
+          {badge === undefined ? null : badge.kind === 'result' && onEdit !== undefined ? (
+            <button
+              className="absolute top-2 left-2 flex cursor-pointer items-center gap-1.5 rounded-xs bg-surface-container-lowest px-2 py-1 text-caption text-on-surface ui-focus disabled:cursor-default"
+              disabled={disabled || uploading}
+              onClick={onEdit}
+              type="button"
+            >
+              <FrameBadgeIcon badge={badge} size="sm" />
+              有新结果 · 查看
+            </button>
+          ) : (
+            <p
+              className="pointer-events-none absolute top-2 left-2 flex items-center gap-1.5 rounded-xs bg-surface-container-lowest px-2 py-1 text-caption text-on-surface"
+              role={badge.kind === 'failed' ? 'alert' : 'status'}
+            >
+              <FrameBadgeIcon badge={badge} size="sm" />
+              {frameBadgeText(badge)}
+              {badge.kind === 'failed' && badge.message !== null ? `：${badge.message}` : ''}
+            </p>
+          )}
           <div className="storyboard-frame-tools">
             {onEdit === undefined ? null : (
               <IconButton
+                data-frame-edit=""
                 disabled={disabled || uploading}
                 label="编辑图片"
                 title="编辑图片"

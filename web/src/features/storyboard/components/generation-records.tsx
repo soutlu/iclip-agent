@@ -12,25 +12,22 @@ import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import type { Shot } from '../shot-document'
-import { isRunningStatus } from '../shots'
+import { phaseOfStatus, type GenerationPhase } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
 
-type JobPhase = 'running' | 'done' | 'failed'
-
-const PHASE: Record<JobPhase, { icon: IconName; text: string; className: string; spin: string }> = {
+const PHASE: Record<
+  GenerationPhase,
+  { icon: IconName; text: string; className: string; spin: string }
+> = {
   done: { className: 'text-chat-status-success', icon: 'success', spin: '', text: '生成完成' },
   failed: { className: 'text-chat-status-error', icon: 'failed', spin: '', text: '生成失败' },
+  queued: { className: 'text-chat-status-running', icon: 'duration', spin: '', text: '排队中…' },
   running: {
     className: 'text-chat-status-running',
     icon: 'loading',
     spin: 'animate-spin',
     text: '生成中…',
   },
-}
-
-const phaseOf = (job: GenerationJob): JobPhase => {
-  if (job.status === 'completed') return 'done'
-  return isRunningStatus(job.status) ? 'running' : 'failed'
 }
 
 /** request 是不透明 JSON，仅展示字符串 prompt。 */
@@ -112,7 +109,7 @@ type RecordCardProps = {
 
 function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   const [open, setOpen] = useState(true)
-  const phase = phaseOf(job)
+  const phase = phaseOfStatus(job.status)
   const prompt = promptOf(job)
   // 只有带结构化 shot 的记录能回填镜头组；接口调用方自己写的正文只能看。
   const history = historyShotOf(job)
@@ -160,7 +157,7 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
       ) : null}
 
       {/* 后端仅提供状态，使用不定进度指示。 */}
-      {phase === 'running' ? (
+      {phase === 'queued' || phase === 'running' ? (
         <div className="h-1 overflow-hidden rounded-full bg-surface-container-high">
           <div className="h-full w-1/3 animate-pulse rounded-full bg-on-surface-faint/48" />
         </div>

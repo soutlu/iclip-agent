@@ -22,7 +22,9 @@ import {
   validateShot,
   type Shot,
 } from '../shot-document'
+import { frameBadges, frameJobKey, latestFrameJobs } from '../frame-status'
 import { FrameImageEditor } from '../image-edit/frame-image-editor'
+import { useFrameImageJobs } from '../image-edit/image-edit.api'
 import type { FrameEditTarget } from '../image-edit/image-edit-types'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH } from '../shots'
 import { useShotGenerations } from '../storyboard.api'
@@ -58,7 +60,10 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const gate = useGenerationGate()
   const file = useWorkspaceFile(conversationId, path)
   const generations = useShotGenerations(conversationId)
+  const frameJobs = useFrameImageJobs(conversationId)
   useLiveGenerations(conversationId)
+  // 关过编辑器就算看过那一格的终态；只记本次会话，刷新后没看过的终态会再出现一次。
+  const [seenFrameJobs, setSeenFrameJobs] = useState<ReadonlySet<string>>(() => new Set())
   const video = useVideoGeneration(conversationId)
   const [imageEditTarget, setImageEditTarget] = useState<FrameEditTarget | null>(null)
   const imageEditTriggerRef = useRef<HTMLElement | null>(null)
@@ -70,6 +75,10 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   const savedDocument = useMemo(
     () => (savedContent === undefined ? null : parseShotsDocument(savedContent)),
     [savedContent],
+  )
+  const latestFrameJob = useMemo(
+    () => latestFrameJobs(frameJobs.data?.items ?? []),
+    [frameJobs.data],
   )
   // 根据已落盘地址判断上传是否仍未保存，避免一次较早请求成功就清除后来上传的提示。
   const appliedUpload =
@@ -303,6 +312,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                 }}
                 content={offset + 1 === position ? search.content : undefined}
                 frame={offset + 1 === position ? search.frame : undefined}
+                frameBadges={frameBadges(item, latestFrameJob, seenFrameJobs)}
                 key={`${item.index}-${offset + 1 === position ? 'active' : 'inactive'}`}
                 onOpenPrompt={(trigger) => {
                   sheetTriggerRef.current = trigger
@@ -415,8 +425,24 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
           frames={shots.find((item) => item.index === imageEditTarget.shotIndex)?.image_urls ?? []}
           aspectRatio={document.aspect_ratio}
           onClose={() => {
+            const latest = latestFrameJob.get(
+              frameJobKey(imageEditTarget.shotIndex, imageEditTarget.frameNumber),
+            )
+            // 还在跑的那条不算看过，落定后照样要在帧上冒出来。
+            if (latest !== undefined && !isRunningStatus(latest.status))
+              setSeenFrameJobs((current) => new Set(current).add(latest.id))
             setImageEditTarget(null)
-            requestAnimationFrame(() => imageEditTriggerRef.current?.focus())
+            requestAnimationFrame(() => {
+              const trigger = imageEditTriggerRef.current
+              if (trigger?.isConnected) trigger.focus()
+              // 从「有新结果」角标点开的，关掉时角标已经清掉，焦点退回这一帧的编辑入口。
+              else
+                window.document
+                  .querySelector<HTMLElement>(
+                    `[aria-label="镜头组 ${imageEditTarget.shotIndex}"] [data-frame-edit]`,
+                  )
+                  ?.focus()
+            })
           }}
           onApply={(url) =>
             draft.applyFrame(

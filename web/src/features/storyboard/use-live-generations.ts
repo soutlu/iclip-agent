@@ -21,6 +21,7 @@ export const useLiveGenerations = (conversationId: string): void => {
       void queryClient.invalidateQueries({
         queryKey: storyboardQueryKeys.generations(conversationId),
       })
+      // frame-edits 前缀下挂着分镜页的对话级图片列表和编辑器按格的列表，一次失效两边都重拉。
       void queryClient.invalidateQueries({ queryKey: imageEditConversationKey(conversationId) })
     })
   }, [connection, conversationId, queryClient])

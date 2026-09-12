@@ -102,7 +102,7 @@ describe('图片编辑模型选择与提交', () => {
     expect(submissions[0]?.['channel']).toBeUndefined()
   })
 
-  it('POST 成功后草稿暂存与记录刷新失败，仍显示新任务生成中且不提供旧结果应用', async () => {
+  it('POST 成功后草稿暂存与记录刷新失败，仍显示新任务排队中且不提供旧结果应用', async () => {
     const completed = job('completed')
     const pending = job('pending')
     const submissions: unknown[] = []
@@ -130,7 +130,7 @@ describe('图片编辑模型选择与提交', () => {
 
     expect(await screen.findByText('图片编辑已提交，可以关闭窗口，稍后查看结果')).toBeVisible()
     expect(await screen.findByText('编辑草稿无法暂存，关闭页面前请先提交生成')).toBeVisible()
-    expect(await within(editor).findByText('图片生成中，关闭窗口后仍会继续')).toBeVisible()
+    expect(await within(editor).findByText('图片排队中，关闭窗口后仍会继续')).toBeVisible()
     await userEvent.click(within(editor).getByText(/^编辑记录/))
     expect(await within(editor).findByText(/记录刷新失败/)).toBeVisible()
     expect(submissions).toHaveLength(1)
