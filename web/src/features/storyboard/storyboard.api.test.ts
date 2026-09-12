@@ -144,8 +144,8 @@ describe('generationsRefetchInterval', () => {
 })
 
 describe('uploadFrameImage', () => {
-  const assetId = 'f40a7a4b-90ec-438b-8bf0-9bde53a290fc'
-  const uploadUrl = `http://localhost/mock-oss/${assetId}`
+  const uploadId = 'f40a7a4b-90ec-438b-8bf0-9bde53a290fc'
+  const uploadUrl = `http://localhost/mock-oss/${uploadId}`
   const assetUrl = 'https://assets.example.com/replacement.png'
   const requests: string[] = []
   const decode = vi.fn<typeof createImageBitmap>()
@@ -170,7 +170,7 @@ describe('uploadFrameImage', () => {
       http.post('*/api/uploads/sign', async ({ request }) => {
         signedBody = await request.json()
         return HttpResponse.json({
-          assetId,
+          uploadId,
           upload: {
             expiresAt: '2026-09-06T12:00:00Z',
             headers: { 'Content-Type': 'image/png', 'x-upload-token': 'test-ticket' },
@@ -185,18 +185,8 @@ describe('uploadFrameImage', () => {
         }
         return new HttpResponse(null, { status: 200 })
       }),
-      http.post('*/api/assets/:assetId', () =>
-        HttpResponse.json({
-          asset: {
-            assetType: 'image',
-            contentType: 'image/png',
-            createdAt: '2026-09-06T10:00:00Z',
-            creatorUserId: '427f8cd9-8016-4f54-a581-812447e97fdc',
-            id: assetId,
-            sizeBytes: 4,
-            url: assetUrl,
-          },
-        }),
+      http.post('*/api/uploads/:uploadId/confirm', () =>
+        HttpResponse.json({ contentType: 'image/png', sizeBytes: 4, url: assetUrl }),
       ),
     )
   })
@@ -207,7 +197,7 @@ describe('uploadFrameImage', () => {
     ['image/jpeg', 300, 6000, 4],
     ['image/png', 6000, 300, 16 * 1024 * 1024],
     ['image/webp', 800, 1200, 4],
-  ])('用解码尺寸签名，直传后才登记 %s 图片', async (type, width, height, size) => {
+  ])('用解码尺寸签名，直传后才确认 %s 图片', async (type, width, height, size) => {
     decode.mockResolvedValue({ close, height, width })
     const file = imageFile(type, size)
 
@@ -219,8 +209,8 @@ describe('uploadFrameImage', () => {
     expect(uploadHeaders).toEqual({ 'Content-Type': 'image/png', 'x-upload-token': 'test-ticket' })
     expect(requests).toEqual([
       'POST /api/uploads/sign',
-      `PUT /mock-oss/${assetId}`,
-      `POST /api/assets/${assetId}`,
+      `PUT /mock-oss/${uploadId}`,
+      `POST /api/uploads/${uploadId}/confirm`,
     ])
   })
 
@@ -266,25 +256,25 @@ describe('uploadFrameImage', () => {
     expect(requests).toEqual(['POST /api/uploads/sign'])
   })
 
-  it('OSS 上传失败时不登记素材', async () => {
+  it('OSS 上传失败时不去确认', async () => {
     server.use(http.put(uploadUrl, () => new HttpResponse(null, { status: 503 })))
 
     await expect(uploadFrameImage(imageFile())).rejects.toThrow('上传失败：503')
-    expect(requests).toEqual(['POST /api/uploads/sign', `PUT /mock-oss/${assetId}`])
+    expect(requests).toEqual(['POST /api/uploads/sign', `PUT /mock-oss/${uploadId}`])
   })
 
-  it('素材登记失败时不返回上传地址', async () => {
+  it('确认失败时不返回上传地址', async () => {
     server.use(
-      http.post('*/api/assets/:assetId', () =>
-        HttpResponse.json({ detail: '图片登记失败' }, { status: 422 }),
+      http.post('*/api/uploads/:uploadId/confirm', () =>
+        HttpResponse.json({ detail: '图片确认失败' }, { status: 422 }),
       ),
     )
 
-    await expect(uploadFrameImage(imageFile())).rejects.toThrow('图片登记失败')
+    await expect(uploadFrameImage(imageFile())).rejects.toThrow('图片确认失败')
     expect(requests).toEqual([
       'POST /api/uploads/sign',
-      `PUT /mock-oss/${assetId}`,
-      `POST /api/assets/${assetId}`,
+      `PUT /mock-oss/${uploadId}`,
+      `POST /api/uploads/${uploadId}/confirm`,
     ])
   })
 })

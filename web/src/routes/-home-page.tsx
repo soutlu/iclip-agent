@@ -121,7 +121,7 @@ export function HomePage() {
             </MenuSurface>
           </MenuRoot>
         }
-        attachmentsEnabled={user?.permissions.includes('assets:write') ?? false}
+        attachmentsEnabled={user?.permissions.includes('uploads:write') ?? false}
         collectionPicker={
           <CollectionPicker
             disabled={!canReadCollections || start.isPending}

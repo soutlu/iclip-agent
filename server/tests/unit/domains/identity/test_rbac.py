@@ -33,7 +33,7 @@ def test_viewer_is_read_only_plus_agent_read() -> None:
     assert ROLE_PERMISSIONS["viewer"] == {
         "collections:read",
         "tasks:read",
-        "assets:read",
+        "inspirations:read",
         "generation:read",
         "agent:read",
     }

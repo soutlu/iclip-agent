@@ -20,7 +20,7 @@ async def test_register_login_me_logout_round_trip(client: httpx.AsyncClient) ->
     assert set(user["permissions"]) == {
         "collections:read",
         "tasks:read",
-        "assets:read",
+        "inspirations:read",
         "generation:read",
         "agent:read",
     }

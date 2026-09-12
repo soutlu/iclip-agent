@@ -197,7 +197,7 @@ const delayedUpload = () => {
     release = resolve
   })
   server.use(
-    http.put('*/mock-oss/:assetId', async () => {
+    http.put('*/mock-oss/:uploadId', async () => {
       await pending
       return new HttpResponse(null, { status: 200 })
     }),
@@ -867,7 +867,7 @@ describe('StoryboardReader', () => {
       const release = delayedUpload()
       let registered = 0
       server.events.on('response:mocked', ({ request }) => {
-        if (request.method === 'POST' && request.url.includes('/api/assets/')) registered += 1
+        if (request.method === 'POST' && request.url.endsWith('/confirm')) registered += 1
       })
       await renderReader()
       const page = await screen.findByRole('region', { name: '镜头组 1' })
@@ -988,7 +988,7 @@ describe('StoryboardReader', () => {
 
   it.each(['新增', '替换'])('%s上传失败保留原文件和图片，不安排分镜保存', async (mode) => {
     const files = provide()
-    server.use(http.put('*/mock-oss/:assetId', () => new HttpResponse(null, { status: 503 })))
+    server.use(http.put('*/mock-oss/:uploadId', () => new HttpResponse(null, { status: 503 })))
     await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     if (mode === '新增') {
@@ -1010,7 +1010,7 @@ describe('StoryboardReader', () => {
     const release = delayedUpload()
     let registered = 0
     server.events.on('response:mocked', ({ request }) => {
-      if (request.method === 'POST' && request.url.includes('/api/assets/')) registered += 1
+      if (request.method === 'POST' && request.url.endsWith('/confirm')) registered += 1
     })
     const { queryClient } = await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })

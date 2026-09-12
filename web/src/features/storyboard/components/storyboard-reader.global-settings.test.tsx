@@ -317,7 +317,7 @@ describe('StoryboardReader 全局设定与参考图', () => {
       release = resolve
     })
     server.use(
-      http.put('*/mock-oss/:assetId', async () => {
+      http.put('*/mock-oss/:uploadId', async () => {
         await pending
         return new HttpResponse(null, { status: 200 })
       }),
@@ -345,13 +345,13 @@ describe('StoryboardReader 全局设定与参考图', () => {
       const upload = deferred()
       const registered = deferred()
       server.use(
-        http.put('*/mock-oss/:assetId', async () => {
+        http.put('*/mock-oss/:uploadId', async () => {
           await upload.promise
           return new HttpResponse(null, { status: 200 })
         }),
       )
       const onResponse = ({ request }: { request: Request }) => {
-        if (request.method === 'POST' && request.url.includes('/api/assets/')) registered.release()
+        if (request.method === 'POST' && request.url.endsWith('/confirm')) registered.release()
       }
       server.events.on('response:mocked', onResponse)
       try {

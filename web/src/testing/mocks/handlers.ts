@@ -29,8 +29,8 @@ export const mockAuthUser = {
     'agent:run',
     'generation:read',
     'generation:submit',
-    'assets:read',
-    'assets:write',
+    'inspirations:read',
+    'uploads:write',
     'collections:read',
     'collections:write',
     'tasks:read',
@@ -430,52 +430,43 @@ export const handlers = [
     return HttpResponse.json({ task })
   }),
 
-  // 签名、直传与登记共用上传类型记录，保持登记响应与签名一致。
+  // 签名、直传与确认共用上传类型记录，保持确认响应与签名一致。
   http.post('*/api/uploads/sign', async ({ request }) => {
     const body = (await request.json()) as { contentType: string }
-    const assetId = crypto.randomUUID()
-    mockUploads.set(assetId, body.contentType)
+    const uploadId = crypto.randomUUID()
+    mockUploads.set(uploadId, body.contentType)
     return HttpResponse.json({
-      assetId,
+      uploadId,
       upload: {
         expiresAt: new Date(Date.now() + 3600_000).toISOString(),
         headers: { 'Content-Type': body.contentType },
-        url: `http://localhost/mock-oss/${assetId}`,
+        url: `http://localhost/mock-oss/${uploadId}`,
       },
     })
   }),
 
-  http.put('*/mock-oss/:assetId', async ({ params, request }) => {
-    mockUploadBytes.set(String(params['assetId']), {
+  http.put('*/mock-oss/:uploadId', async ({ params, request }) => {
+    mockUploadBytes.set(String(params['uploadId']), {
       body: await request.arrayBuffer(),
       contentType: request.headers.get('Content-Type') ?? 'application/octet-stream',
     })
     return new HttpResponse(null, { status: 200 })
   }),
-  http.get('*/mock-oss/:assetId', ({ params }) => {
-    const media = mockUploadBytes.get(String(params['assetId']))
+  http.get('*/mock-oss/:uploadId', ({ params }) => {
+    const media = mockUploadBytes.get(String(params['uploadId']))
     return media
       ? new HttpResponse(media.body, { headers: { 'Content-Type': media.contentType } })
       : new HttpResponse(null, { status: 404 })
   }),
 
-  http.post('*/api/assets/:assetId', ({ params }) => {
-    const assetId = params['assetId'] as string
-    const contentType = mockUploads.get(assetId) ?? 'image/png'
-    return HttpResponse.json(
-      {
-        asset: {
-          assetType: contentType.startsWith('video/') ? 'video' : 'image',
-          contentType,
-          createdAt: new Date().toISOString(),
-          creatorUserId: mockAuthUser.id,
-          id: assetId,
-          sizeBytes: 1024,
-          url: `http://localhost/mock-oss/${assetId}`,
-        },
-      },
-      { status: 201 },
-    )
+  http.post('*/api/uploads/:uploadId/confirm', ({ params }) => {
+    const uploadId = params['uploadId'] as string
+    const contentType = mockUploads.get(uploadId) ?? 'image/png'
+    return HttpResponse.json({
+      contentType,
+      sizeBytes: 1024,
+      url: `http://localhost/mock-oss/${uploadId}`,
+    })
   }),
 
   ...workspaceHandlers,

@@ -7,25 +7,15 @@ import { renderWithProviders } from '@/testing/render'
 import { TaskMediaField } from './task-media-field'
 
 describe('TaskMediaField', () => {
-  const assetId = 'f40a7a4b-90ec-438b-8bf0-9bde53a290fc'
-  const uploadUrl = `http://localhost/mock-oss/${assetId}`
+  const uploadId = 'f40a7a4b-90ec-438b-8bf0-9bde53a290fc'
+  const uploadUrl = `http://localhost/mock-oss/${uploadId}`
   const assetUrl = 'https://assets.example.com/uploaded.png'
   const oldUrl = 'https://assets.example.com/old.png'
   const changes: string[][] = []
   const busy: boolean[] = []
   const imageFile = (name = '商品.png') => new File(['image'], name, { type: 'image/png' })
-  const envelope = () =>
-    HttpResponse.json({
-      asset: {
-        assetType: 'image',
-        contentType: 'image/png',
-        createdAt: '2026-09-06T10:00:00Z',
-        creatorUserId: '427f8cd9-8016-4f54-a581-812447e97fdc',
-        id: assetId,
-        sizeBytes: 5,
-        url: assetUrl,
-      },
-    })
+  const confirmed = () =>
+    HttpResponse.json({ contentType: 'image/png', sizeBytes: 5, url: assetUrl })
 
   beforeEach(() => {
     changes.length = 0
@@ -37,7 +27,7 @@ describe('TaskMediaField', () => {
     server.use(
       http.post('*/api/uploads/sign', () =>
         HttpResponse.json({
-          assetId,
+          uploadId,
           upload: {
             expiresAt: '2026-09-06T12:00:00Z',
             headers: { 'Content-Type': 'image/png' },
@@ -46,7 +36,7 @@ describe('TaskMediaField', () => {
         }),
       ),
       http.put(uploadUrl, () => new HttpResponse(null, { status: 200 })),
-      http.post('*/api/assets/:assetId', envelope),
+      http.post('*/api/uploads/:uploadId/confirm', confirmed),
     )
   })
 
@@ -92,14 +82,14 @@ describe('TaskMediaField', () => {
     await waitFor(() => expect(changes).toEqual([[assetUrl]]))
 
     server.use(
-      http.post('*/api/assets/:assetId', () =>
-        HttpResponse.json({ detail: '视频登记失败' }, { status: 422 }),
+      http.post('*/api/uploads/:uploadId/confirm', () =>
+        HttpResponse.json({ detail: '视频确认失败' }, { status: 422 }),
       ),
     )
     fireEvent.drop(screen.getByRole('group', { name: '参考视频' }), {
       dataTransfer: { files: [video], items: [], types: ['Files'] },
     })
-    expect(await screen.findByRole('alert')).toHaveTextContent('视频登记失败')
+    expect(await screen.findByRole('alert')).toHaveTextContent('视频确认失败')
     expect(changes).toEqual([[assetUrl]])
     expect(screen.getByRole('button', { name: '预览参考视频 1' })).toBeVisible()
   })
@@ -157,10 +147,10 @@ describe('TaskMediaField', () => {
     })
     let registering = false
     server.use(
-      http.post('*/api/assets/:assetId', async () => {
+      http.post('*/api/uploads/:uploadId/confirm', async () => {
         registering = true
         await pending
-        return envelope()
+        return confirmed()
       }),
     )
     const { unmount } = await renderWithProviders(

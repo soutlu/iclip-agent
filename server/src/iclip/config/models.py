@@ -37,7 +37,7 @@ SSO_BASE_URL_ENV: Final = "SSO_BASE_URL"
 """SSO 的总开关：这个地址为空即整项关闭。"""
 
 OSS_BUCKET_ENV: Final = "OSS_BUCKET"
-"""公开对象存储的总开关：桶名为空即整项关闭（``/uploads/*`` 与 ``/assets/*`` 不挂载）。"""
+"""公开对象存储的总开关：桶名为空即整项关闭（``/uploads/*`` 不挂载）。"""
 
 VIDEO_SUBMIT_URL_ENV: Final = "VIDEO_SUBMIT_URL"
 """媒体生成的总开关：这个地址为空即整项关闭。"""

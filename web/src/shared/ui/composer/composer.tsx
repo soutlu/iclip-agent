@@ -35,7 +35,7 @@ type ComposerProps = {
   /** 运行时替换为停止按钮，不受空输入的发送禁用条件影响。 */
   busy?: boolean
   onStop?: (() => void) | undefined
-  /** 由调用方根据登录态与 assets:write 决定上传入口是否可用。 */
+  /** 由调用方根据登录态与 uploads:write 决定上传入口是否可用。 */
   attachmentsEnabled?: boolean
   /** 工作台引用独立于 PM 文档与撤销栈，发送时由调用方转换为正文。 */
   references?: readonly { id: string; label: string; onRemove: () => void }[]

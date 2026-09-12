@@ -323,29 +323,23 @@ describe('TasksRoute', () => {
     })
     server.use(
       http.post('*/api/uploads/sign', () => {
-        const assetId = ids[signed++]
+        const uploadId = ids[signed++]
         return HttpResponse.json({
-          assetId,
+          uploadId,
           upload: {
             expiresAt: '2026-10-01T00:00:00Z',
             headers: {},
-            url: `http://localhost/mock-oss/${assetId}`,
+            url: `http://localhost/mock-oss/${uploadId}`,
           },
         })
       }),
-      http.post('*/api/assets/:assetId', async ({ params }) => {
-        const id = String(params['assetId'])
+      http.post('*/api/uploads/:uploadId/confirm', async ({ params }) => {
+        const id = String(params['uploadId'])
         await (id === ids[0] ? productReady : modelReady)
         return HttpResponse.json({
-          asset: {
-            id,
-            assetType: 'image',
-            contentType: 'image/png',
-            createdAt: new Date().toISOString(),
-            creatorUserId: mockAuthUser.id,
-            sizeBytes: 100,
-            url: `http://localhost/mock-oss/${id}`,
-          },
+          contentType: 'image/png',
+          sizeBytes: 100,
+          url: `http://localhost/mock-oss/${id}`,
         })
       }),
     )

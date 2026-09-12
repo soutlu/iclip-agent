@@ -200,8 +200,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 附件
 
-- 附件通过 `content` 的图片或视频 part 提交，只收 HTTP(S) URL；其他地址返回 `422`。本地文件先直传得到公开地址（§10），不要求先登记素材库。
-- 附件提交会登记对话素材；普通正文 URL、面板文件内容与素材库登记均不会代替这一步，精确匹配与类型规则见 [CONTEXT.md](../docs/CONTEXT.md)。
+- 附件通过 `content` 的图片或视频 part 提交，只收 HTTP(S) URL；其他地址返回 `422`。本地文件先直传换成公开地址（§10）。
+- 附件提交会登记对话素材；普通正文 URL 与面板文件内容都不会代替这一步，精确匹配与类型规则见 [CONTEXT.md](../docs/CONTEXT.md)。
 - 图片输入保留原图引用；仅支持缩放的地址附带缩放像素，其他图片及视频保留媒体引用，内容由相应工具读取。提交成功不保证外部 URL 在后续读取时可用。
 
 ## 7. 合集 (Collections)
@@ -275,7 +275,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 9. 爆款视频查询 (Inspirations)
 
-`POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `assets:read`。
+`POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `inspirations:read`。
 
 - `styleNos` 使用 **PDM 款号**。WMS 编号只在数据入库时用于对齐数仓，不出现在接口上。
 - 只返回可下载的自家副本地址（`videoUrls`），按 `sortBy` 降序。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
@@ -285,25 +285,18 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 数据是随迁移灌入的一次性快照，不自动更新；接口不连任何外部库。已知边界见 [CONTEXT.md](../docs/CONTEXT.md)。
 - 未配置 PDM 款目录库时接口照常提供，但降级整级失效，未精确命中的款一律 `none`；这属于能力缺失，服务启动时会告警。
 
-## 10. 素材上传 (Assets)
+## 10. 上传 (Uploads)
 
-上传分两步：`POST /uploads/sign` 领一个 `assetId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /assets/{assetId}` 登记。外部地址上的东西（产品图、爆款库的视频）走 `POST /assets/import` **转存**进本仓对象存储再登记。
+上传分两步：`POST /uploads/sign` 领一个 `uploadId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /uploads/{uploadId}/confirm` 确认，拿回 `{ url, contentType, sizeBytes }`。服务端不登记上传：没有素材 id、没有列表，交回的 `url` 就是这个文件从此以后的身份，与别处出现的 URL 没有区别。决策见 [ADR-0022](../docs/adr/0022-uploads-without-registry.md)。
 
-**权限**：`POST /uploads/sign`、`POST /assets/{assetId}`、`POST /assets/import` 需要 `assets:write`；`GET /assets`、`GET /assets/{assetId}` 需要 `assets:read`。
+**权限**：两步都需要 `uploads:write`。
 
-- `creatorUserId` 是查询维度；素材的共享范围见 [CONTEXT.md](../docs/CONTEXT.md)。
-- `GET /assets` 最近登记的在前。
-- **`upload.headers` 必须原样带上。** `Content-Type` 被签进了签名里，换一个值去 PUT 会被对象存储拒掉（`403`）。
-- **`expiresAt` 之前必须发起上传**。过期后重新调用 `sign`，会拿到新的 `assetId`。
-- **登记之前那个 `assetId` 还不是一份素材**，`GET /assets/{id}` 会 `404`。
-- **登记可以重复调**：第二次返回同一行（还是 `201`）。
-- 类型、大小和图片尺寸边界以 [素材规则](../server/src/iclip/domains/assets/models.py) 为准。直传图片在 `sign` 时校验客户端声明的宽高；登记时按桶中对象校验类型和大小。登记失败不代表已上传字节已删除。
-- 桶内没有对应对象时登记返回 `409`；签名成功本身不代表上传完成。
-- **`url` 是由对象 key 拼出来的，不是存的。不要把 `url` 当作素材的身份**，`id` 才是。
-- 转存的 **`assetId` 由源地址算出来**：同一个地址转存多少次都是同一行，第二次连请求都不往上游发；上游原地换了图不会跟着更新。
-- 转存按下载响应的 Content-Type 选择允许的媒体类型，大小按实际下载字节计算，图片解码后校验尺寸。取不回来、类型不收或图片校验不通过返回 `422`。
-- 转存**不跟随重定向**：`3xx` 直接当取不回来。
-- 素材库登记不会登记对话素材；把素材地址作为附件提交后，agent 才能按对话素材规则引用（§6）。
+- **`upload.headers` 必须原样带上。** `Content-Type` 与审计用的 `x-oss-meta-*`（上传者、API key）都签进了签名里，少一个、改一个去 PUT 都会被对象存储拒掉（`403`）。
+- **`expiresAt` 之前必须发起上传**。过期后重新调用 `sign`，会拿到新的 `uploadId`。
+- 类型、大小和图片尺寸边界以 [上传规则](../server/src/iclip/domains/uploads/models.py) 为准。直传图片在 `sign` 时校验客户端声明的宽高；`confirm` 按桶中对象校验类型和大小，不合格返回 `422`，字节仍留在桶里。
+- 桶内没有对应对象时 `confirm` 返回 `409`；签名成功本身不代表上传完成。
+- **`confirm` 可以重复调**：每次都按桶里的对象重新回答，结果一样。
+- 上传不会登记对话素材；把地址作为附件提交后，agent 才能按对话素材规则引用（§6）。
 
 ## 11. 媒体生成 (Generations)
 

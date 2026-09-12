@@ -52,7 +52,7 @@
 
 ### 5. 用户上传的帧走素材路径
 
-面板「上传一张当帧」复用聊天附件那三步：`POST /uploads/sign` 直传许可 → 浏览器 PUT 进桶 → `POST /assets/{asset_id}` 登记。它是一份素材，不是产物，不进工作区，不给素材表加对话归属。登记返回的地址由前端插进该组 `image_urls`，重排编号后整份 PUT。
+面板「上传一张当帧」复用聊天附件那三步：`POST /uploads/sign` 直传许可 → 浏览器 PUT 进桶 → `POST /assets/{asset_id}` 登记。它是一份素材，不是产物，不进工作区，不给素材表加对话归属。登记返回的地址由前端插进该组 `image_urls`，重排编号后整份 PUT。2026-09-12 修订：登记改为无状态的 `POST /uploads/{uploadId}/confirm`，素材表下线，见 [ADR-0022](0022-uploads-without-registry.md)。
 
 ### 6. 分镜工作台的产品行为
 

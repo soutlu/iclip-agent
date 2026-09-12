@@ -93,42 +93,6 @@ export const zApprovalRequest = z.object({
 })
 
 /**
- * AssetImportIn
- *
- * 要转存哪个外部地址。
- */
-export const zAssetImportIn = z.object({
-  url: z.string().min(1).max(2048),
-})
-
-/**
- * AssetOut
- */
-export const zAssetOut = z.object({
-  assetType: z.enum(['image', 'video']),
-  contentType: z.string(),
-  createdAt: z.iso.datetime(),
-  creatorUserId: z.uuid(),
-  id: z.uuid(),
-  sizeBytes: z.int(),
-  url: z.string(),
-})
-
-/**
- * AssetEnvelope
- */
-export const zAssetEnvelope = z.object({
-  asset: zAssetOut,
-})
-
-/**
- * AssetsPageOut
- */
-export const zAssetsPageOut = z.object({
-  items: z.array(zAssetOut),
-})
-
-/**
  * AttachmentSource
  */
 export const zAttachmentSource = z.object({
@@ -918,11 +882,23 @@ export const zTurnUsage = z.object({
 })
 
 /**
+ * UploadConfirmedOut
+ *
+ * 确认后交回的地址与桶里读到的事实；``url`` 从此就是这个文件的身份。
+ */
+export const zUploadConfirmedOut = z.object({
+  contentType: z.string(),
+  sizeBytes: z.int(),
+  url: z.string(),
+})
+
+/**
  * UploadInstruction
  *
  * 浏览器照着它直传：往 ``url`` 发一个 PUT，headers 原样带上。
  *
- * ``headers`` 里的 Content-Type 被签进签名里了，换一个 OSS 那边就验签不过。
+ * ``headers`` 全部签进了签名里：Content-Type 限制类型，``x-oss-meta-*`` 记上传者与
+ * key。少一个、改一个，OSS 那边就验签不过。
  */
 export const zUploadInstruction = z.object({
   expiresAt: z.iso.datetime(),
@@ -947,13 +923,12 @@ export const zUploadSignIn = z.object({
  *
  * 一次直传的许可：先拿到名字，再去传。
  *
- * ``assetId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它
- * 叫什么」达成一致。此时它还不是一份素材，是一个**没兑现的登记名额**——登记之前
- * ``GET /assets/{id}`` 一律 404。
+ * ``uploadId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它
+ * 叫什么」达成一致。它只用来确认这一次上传，不是任何东西的身份。
  */
 export const zUploadTicketOut = z.object({
-  assetId: z.uuid(),
   upload: zUploadInstruction,
+  uploadId: z.uuid(),
 })
 
 /**
@@ -1424,42 +1399,6 @@ export const zRevokeKeyApiKeysKeyIdDeletePath = z.object({
  * Successful Response
  */
 export const zRevokeKeyApiKeysKeyIdDeleteResponse = z.void()
-
-export const zListAssetsAssetsGetQuery = z.object({
-  creatorUserId: z.uuid().nullish(),
-  assetType: z.enum(['image', 'video']).nullish(),
-  limit: z.int().gte(1).lte(100).optional().default(20),
-})
-
-/**
- * Successful Response
- */
-export const zListAssetsAssetsGetResponse = zAssetsPageOut
-
-export const zImportAssetAssetsImportPostBody = zAssetImportIn
-
-/**
- * Successful Response
- */
-export const zImportAssetAssetsImportPostResponse = zAssetEnvelope
-
-export const zGetAssetAssetsAssetIdGetPath = z.object({
-  asset_id: z.uuid(),
-})
-
-/**
- * Successful Response
- */
-export const zGetAssetAssetsAssetIdGetResponse = zAssetEnvelope
-
-export const zRegisterAssetAssetsAssetIdPostPath = z.object({
-  asset_id: z.uuid(),
-})
-
-/**
- * Successful Response
- */
-export const zRegisterAssetAssetsAssetIdPostResponse = zAssetEnvelope
 
 export const zAuthCookieLoginAuthLoginPostBody = zBodyAuthCookieLoginAuthLoginPost
 
@@ -1965,6 +1904,15 @@ export const zSignUploadUploadsSignPostBody = zUploadSignIn
  * Successful Response
  */
 export const zSignUploadUploadsSignPostResponse = zUploadTicketOut
+
+export const zConfirmUploadUploadsUploadIdConfirmPostPath = z.object({
+  upload_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zConfirmUploadUploadsUploadIdConfirmPostResponse = zUploadConfirmedOut
 
 export const zListUsersUsersGetQuery = z.object({
   page: z.int().gte(1).optional().default(1),

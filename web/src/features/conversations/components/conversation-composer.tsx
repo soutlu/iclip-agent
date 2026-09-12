@@ -1,4 +1,4 @@
-/** 工作台引用按 prefix 逐行拼到正文前（ADR-0009 决策 6）；附件入口由 assets:write 权限控制。 */
+/** 工作台引用按 prefix 逐行拼到正文前（ADR-0009 决策 6）；附件入口由 uploads:write 权限控制。 */
 
 import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@/shared/auth'
@@ -101,7 +101,7 @@ export function ConversationComposer({
         </div>
       )}
       <Composer
-        attachmentsEnabled={user?.permissions.includes('assets:write') ?? false}
+        attachmentsEnabled={user?.permissions.includes('uploads:write') ?? false}
         busy={busy}
         dense
         onStop={onStop}

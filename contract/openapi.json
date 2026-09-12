@@ -433,104 +433,6 @@
         "title": "ApprovalRequest",
         "type": "object"
       },
-      "AssetEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "asset": {
-            "$ref": "#/components/schemas/AssetOut"
-          }
-        },
-        "required": [
-          "asset"
-        ],
-        "title": "AssetEnvelope",
-        "type": "object"
-      },
-      "AssetImportIn": {
-        "additionalProperties": false,
-        "description": "要转存哪个外部地址。",
-        "properties": {
-          "url": {
-            "maxLength": 2048,
-            "minLength": 1,
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "url"
-        ],
-        "title": "AssetImportIn",
-        "type": "object"
-      },
-      "AssetOut": {
-        "additionalProperties": false,
-        "properties": {
-          "assetType": {
-            "enum": [
-              "image",
-              "video"
-            ],
-            "title": "Assettype",
-            "type": "string"
-          },
-          "contentType": {
-            "title": "Contenttype",
-            "type": "string"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "title": "Createdat",
-            "type": "string"
-          },
-          "creatorUserId": {
-            "format": "uuid",
-            "title": "Creatoruserid",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "sizeBytes": {
-            "title": "Sizebytes",
-            "type": "integer"
-          },
-          "url": {
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "assetType",
-          "url",
-          "contentType",
-          "sizeBytes",
-          "creatorUserId",
-          "createdAt"
-        ],
-        "title": "AssetOut",
-        "type": "object"
-      },
-      "AssetsPageOut": {
-        "additionalProperties": false,
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/AssetOut"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "AssetsPageOut",
-        "type": "object"
-      },
       "AttachmentSource": {
         "additionalProperties": false,
         "properties": {
@@ -4328,9 +4230,34 @@
         "title": "TurnUsage",
         "type": "object"
       },
+      "UploadConfirmedOut": {
+        "additionalProperties": false,
+        "description": "确认后交回的地址与桶里读到的事实；``url`` 从此就是这个文件的身份。",
+        "properties": {
+          "contentType": {
+            "title": "Contenttype",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "title": "Sizebytes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "contentType",
+          "sizeBytes"
+        ],
+        "title": "UploadConfirmedOut",
+        "type": "object"
+      },
       "UploadInstruction": {
         "additionalProperties": false,
-        "description": "浏览器照着它直传：往 ``url`` 发一个 PUT，headers 原样带上。\n\n``headers`` 里的 Content-Type 被签进签名里了，换一个 OSS 那边就验签不过。",
+        "description": "浏览器照着它直传：往 ``url`` 发一个 PUT，headers 原样带上。\n\n``headers`` 全部签进了签名里：Content-Type 限制类型，``x-oss-meta-*`` 记上传者与\nkey。少一个、改一个，OSS 那边就验签不过。",
         "properties": {
           "expiresAt": {
             "format": "date-time",
@@ -4406,19 +4333,19 @@
       },
       "UploadTicketOut": {
         "additionalProperties": false,
-        "description": "一次直传的许可：先拿到名字，再去传。\n\n``assetId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它\n叫什么」达成一致。此时它还不是一份素材，是一个**没兑现的登记名额**——登记之前\n``GET /assets/{id}`` 一律 404。",
+        "description": "一次直传的许可：先拿到名字，再去传。\n\n``uploadId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它\n叫什么」达成一致。它只用来确认这一次上传，不是任何东西的身份。",
         "properties": {
-          "assetId": {
-            "format": "uuid",
-            "title": "Assetid",
-            "type": "string"
-          },
           "upload": {
             "$ref": "#/components/schemas/UploadInstruction"
+          },
+          "uploadId": {
+            "format": "uuid",
+            "title": "Uploadid",
+            "type": "string"
           }
         },
         "required": [
-          "assetId",
+          "uploadId",
           "upload"
         ],
         "title": "UploadTicketOut",
@@ -5362,215 +5289,6 @@
           }
         },
         "summary": "Revoke Key"
-      }
-    },
-    "/assets": {
-      "get": {
-        "operationId": "list_assets_assets_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "creatorUserId",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Creatoruserid"
-            }
-          },
-          {
-            "in": "query",
-            "name": "assetType",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "image",
-                    "video"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Assettype"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AssetsPageOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Assets",
-        "tags": [
-          "assets"
-        ]
-      }
-    },
-    "/assets/import": {
-      "post": {
-        "description": "把一个外部地址上的东西转存进我们的桶并登记，返回带新地址的那一行。\n\n同一个地址重复调用返回同一行（也还是 201），不会在桶里搬第二份。",
-        "operationId": "import_asset_assets_import_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssetImportIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AssetEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Import Asset",
-        "tags": [
-          "assets"
-        ]
-      }
-    },
-    "/assets/{asset_id}": {
-      "get": {
-        "operationId": "get_asset_assets__asset_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "asset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Asset Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AssetEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Asset",
-        "tags": [
-          "assets"
-        ]
-      },
-      "post": {
-        "description": "登记一份已经直传上来的素材。没有请求体：事实全部从桶里读。\n\n重复登记返回同一行（也还是 201）——客户端断线重试是正常路径，让它区分「这次\n是不是我建的」没有意义。",
-        "operationId": "register_asset_assets__asset_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "asset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Asset Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AssetEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Register Asset",
-        "tags": [
-          "assets"
-        ]
       }
     },
     "/auth/login": {
@@ -8193,6 +7911,7 @@
     },
     "/uploads/sign": {
       "post": {
+        "description": "发一条限时直传地址；上传者与 key 一起签进请求头，随对象存进桶。",
         "operationId": "sign_upload_uploads_sign_post",
         "requestBody": {
           "content": {
@@ -8227,6 +7946,50 @@
           }
         },
         "summary": "Sign Upload",
+        "tags": [
+          "uploads"
+        ]
+      }
+    },
+    "/uploads/{upload_id}/confirm": {
+      "post": {
+        "description": "按桶里的对象核对类型与大小，只交回地址。没有请求体，可重复调。",
+        "operationId": "confirm_upload_uploads__upload_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadConfirmedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Upload",
         "tags": [
           "uploads"
         ]

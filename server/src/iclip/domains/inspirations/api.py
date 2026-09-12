@@ -1,4 +1,4 @@
-"""按 PDM 款号只读查询爆款视频，使用 assets:read 权限。
+"""按 PDM 款号只读查询爆款视频，使用 inspirations:read 权限。
 
 数据是随迁移灌入的快照，路由无条件挂载；没有可用参考时返回空列表，不是 404。"""
 
@@ -24,7 +24,7 @@ def create_inspirations_router(service: InspirationService) -> APIRouter:
     @router.post("/videos/search", response_model=VideoSearchOut)
     async def search_videos(
         body: VideoSearchIn,
-        _principal: Annotated[Principal, Depends(require_permission("assets:read"))],
+        _principal: Annotated[Principal, Depends(require_permission("inspirations:read"))],
     ) -> VideoSearchOut:
         result = await service.search_videos(
             body.style_nos,

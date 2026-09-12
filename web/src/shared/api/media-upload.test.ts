@@ -4,8 +4,8 @@ import { server } from '@/testing/mocks/server'
 import { uploadMediaFile } from './media-upload'
 
 describe('uploadMediaFile 视频', () => {
-  const assetId = 'f40a7a4b-90ec-438b-8bf0-9bde53a290fc'
-  const uploadUrl = `http://localhost/mock-oss/${assetId}`
+  const uploadId = 'f40a7a4b-90ec-438b-8bf0-9bde53a290fc'
+  const uploadUrl = `http://localhost/mock-oss/${uploadId}`
   const assetUrl = 'https://assets.example.com/reference.mp4'
   const requests: string[] = []
   let signedBody: unknown
@@ -26,7 +26,7 @@ describe('uploadMediaFile 视频', () => {
       http.post('*/api/uploads/sign', async ({ request }) => {
         signedBody = await request.json()
         return HttpResponse.json({
-          assetId,
+          uploadId,
           upload: {
             expiresAt: '2026-09-06T12:00:00Z',
             headers: { 'Content-Type': 'video/mp4' },
@@ -35,18 +35,8 @@ describe('uploadMediaFile 视频', () => {
         })
       }),
       http.put(uploadUrl, () => new HttpResponse(null, { status: 200 })),
-      http.post('*/api/assets/:assetId', () =>
-        HttpResponse.json({
-          asset: {
-            assetType: 'video',
-            contentType: 'video/mp4',
-            createdAt: '2026-09-06T10:00:00Z',
-            creatorUserId: '427f8cd9-8016-4f54-a581-812447e97fdc',
-            id: assetId,
-            sizeBytes: 5,
-            url: assetUrl,
-          },
-        }),
+      http.post('*/api/uploads/:uploadId/confirm', () =>
+        HttpResponse.json({ contentType: 'video/mp4', sizeBytes: 5, url: assetUrl }),
       ),
     )
   })
@@ -54,13 +44,13 @@ describe('uploadMediaFile 视频', () => {
   it.each([
     ['video/mp4', 5],
     ['video/quicktime', 512 * 1024 * 1024],
-  ])('上传 %s 后登记并返回永久地址，尺寸保留空值', async (type, size) => {
+  ])('上传 %s 后确认并返回永久地址，尺寸保留空值', async (type, size) => {
     await expect(uploadMediaFile(videoFile(type, size), 'video')).resolves.toBe(assetUrl)
     expect(signedBody).toEqual({ contentType: type, height: null, width: null })
     expect(requests).toEqual([
       'POST /api/uploads/sign',
-      `PUT /mock-oss/${assetId}`,
-      `POST /api/assets/${assetId}`,
+      `PUT /mock-oss/${uploadId}`,
+      `POST /api/uploads/${uploadId}/confirm`,
     ])
   })
 

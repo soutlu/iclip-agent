@@ -43,14 +43,14 @@ class MediaPaths:
 
         return f"{OSS_ROOT}/anchor-sheets/{job_id}/{index}.jpg"
 
-    def upload(self, *, asset_id: uuid.UUID, ext: str) -> str:
+    def upload(self, *, upload_id: uuid.UUID, ext: str) -> str:
 
-        return f"{OSS_ROOT}/uploads/{asset_id}.{ext}"
+        return f"{OSS_ROOT}/uploads/{upload_id}.{ext}"
 
-    def upload_prefix(self, *, asset_id: uuid.UUID) -> str:
-        """按 assetId 查找上传对象；扩展名从桶读取，不接受客户端声明。"""
+    def upload_prefix(self, *, upload_id: uuid.UUID) -> str:
+        """按 uploadId 查找上传对象；扩展名从桶读取，不接受客户端声明。"""
 
-        return f"{OSS_ROOT}/uploads/{asset_id}."
+        return f"{OSS_ROOT}/uploads/{upload_id}."
 
 
 MEDIA_PATHS: Final = MediaPaths()
