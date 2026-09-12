@@ -280,7 +280,7 @@ test('无图分镜上传首图后关联到另一镜，替换共享图片只改�
   page.on('request', (request) => {
     if (
       request.method() === 'POST' &&
-      /\/api\/(?:uploads\/sign|assets\/[^/]+)$/.test(new URL(request.url()).pathname)
+      /\/api\/uploads\/(?:sign|[^/]+\/confirm)$/.test(new URL(request.url()).pathname)
     ) {
       uploadRequests.push(new URL(request.url()).pathname)
     }
@@ -318,7 +318,7 @@ test('无图分镜上传首图后关联到另一镜，替换共享图片只改�
   expect(uploadedShot.prompt.timeline[0]?.prompt).toContain('@Image1')
   expect(uploadedShot.prompt.timeline[1]).toEqual(initial.document.shots[0]?.prompt.timeline[1])
   expect(uploadRequests.filter((path) => path === '/api/uploads/sign')).toHaveLength(1)
-  expect(uploadRequests.filter((path) => path.startsWith('/api/assets/'))).toHaveLength(1)
+  expect(uploadRequests.filter((path) => path.endsWith('/confirm'))).toHaveLength(1)
 
   await group.getByRole('button', { name: '镜头 2', exact: true }).click()
   await group.getByRole('button', { name: '添加图片', exact: true }).click()

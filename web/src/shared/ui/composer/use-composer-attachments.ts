@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
-import { zAssetEnvelope, zUploadTicketOut } from '@/shared/api/generated/zod.gen'
+import { zUploadConfirmedOut, zUploadTicketOut } from '@/shared/api/generated/zod.gen'
 
 /** image / video 可提交给 prompt；file 不被上传签名接受，停留在 error。 */
 export type ComposerAttachmentKind = 'file' | 'image' | 'video'
@@ -156,7 +156,7 @@ export const useComposerAttachments = () => {
         patch(entry.attId, { progress: ratio })
       })
 
-      const envelope = await apiFetch(`/assets/${ticket.assetId}`, zAssetEnvelope, {
+      const confirmed = await apiFetch(`/uploads/${ticket.uploadId}/confirm`, zUploadConfirmedOut, {
         fallbackErrorMessage: '上传失败',
         method: 'POST',
       })
@@ -168,10 +168,10 @@ export const useComposerAttachments = () => {
         // 上传后将预览替换为公网地址，保证本地 URL 回收后仍可查看。
         next.set(entry.attId, {
           ...current,
-          previewUrl: envelope.asset.url,
+          previewUrl: confirmed.url,
           progress: undefined,
           status: 'ready',
-          url: envelope.asset.url,
+          url: confirmed.url,
         })
         return next
       })

@@ -229,16 +229,17 @@ async def test_find_object_survives_a_network_blip() -> None:
     assert found.object_key == KEY
 
 
-def test_signed_put_binds_the_content_type_and_keeps_slashes() -> None:
-    """Content-Type 必须参与签名；key 中的斜杠须保留，避免上传为含 %2F 的其他对象。"""
+def test_signed_put_binds_every_header_and_keeps_slashes() -> None:
+    """Content-Type 与审计头都必须原样参与签名；key 中的斜杠须保留，避免上传为含 %2F 的其他对象。"""
 
     bucket = FakeBucket()
-    url = store(bucket).sign_put(object_key=KEY, content_type="image/png")
+    wanted = {"Content-Type": "image/png", "x-oss-meta-uploader": "3c1e"}
+    url = store(bucket).sign_put(object_key=KEY, headers=wanted)
 
     assert url.endswith("?signed")
     method, key, expires, headers, slash_safe = bucket.signed[0]
     assert (method, key) == ("PUT", KEY)
-    assert headers == {"Content-Type": "image/png"}
+    assert headers == wanted
     assert slash_safe is True
     assert expires > 0
 
@@ -246,7 +247,14 @@ def test_signed_put_binds_the_content_type_and_keeps_slashes() -> None:
 def test_signed_put_refuses_keys_outside_the_namespace() -> None:
     bucket = FakeBucket()
     with pytest.raises(ValueError, match=OSS_ROOT):
-        store(bucket).sign_put(object_key="uploads/a.png", content_type="image/png")
+        store(bucket).sign_put(object_key="uploads/a.png", headers={"Content-Type": "image/png"})
+    assert bucket.signed == []
+
+
+def test_signed_put_refuses_a_blank_content_type() -> None:
+    bucket = FakeBucket()
+    with pytest.raises(ValueError, match="内容类型"):
+        store(bucket).sign_put(object_key=KEY, headers={"Content-Type": " "})
     assert bucket.signed == []
 
 

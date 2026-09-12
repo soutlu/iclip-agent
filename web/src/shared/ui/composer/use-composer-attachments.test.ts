@@ -21,7 +21,7 @@ describe('useComposerAttachments', () => {
     delete (URL as unknown as Record<string, unknown>)['revokeObjectURL']
   })
 
-  it('走完上传管线：uploading → ready，地址来自登记回包', async () => {
+  it('走完上传管线：uploading → ready，地址来自确认回包', async () => {
     const { result } = renderHook(() => useComposerAttachments())
 
     const attId = mint(result, imageFile())

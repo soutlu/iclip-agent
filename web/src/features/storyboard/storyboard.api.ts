@@ -97,5 +97,5 @@ export const useShotGenerations = (conversationId: string) =>
 
 export const FRAME_IMAGE_ACCEPT = MEDIA_IMAGE_ACCEPT
 
-/** 上传并登记本地图片，返回可用于分镜引用的素材地址。 */
+/** 上传并确认本地图片，返回可用于分镜引用的地址。 */
 export const uploadFrameImage = (file: File): Promise<string> => uploadMediaFile(file, 'image')

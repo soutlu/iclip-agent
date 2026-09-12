@@ -215,69 +215,6 @@ export type ApprovalRequest = {
 }
 
 /**
- * AssetEnvelope
- */
-export type AssetEnvelope = {
-  asset: AssetOut
-}
-
-/**
- * AssetImportIn
- *
- * 要转存哪个外部地址。
- */
-export type AssetImportIn = {
-  /**
-   * Url
-   */
-  url: string
-}
-
-/**
- * AssetOut
- */
-export type AssetOut = {
-  /**
-   * Assettype
-   */
-  assetType: 'image' | 'video'
-  /**
-   * Contenttype
-   */
-  contentType: string
-  /**
-   * Createdat
-   */
-  createdAt: string
-  /**
-   * Creatoruserid
-   */
-  creatorUserId: string
-  /**
-   * Id
-   */
-  id: string
-  /**
-   * Sizebytes
-   */
-  sizeBytes: number
-  /**
-   * Url
-   */
-  url: string
-}
-
-/**
- * AssetsPageOut
- */
-export type AssetsPageOut = {
-  /**
-   * Items
-   */
-  items: Array<AssetOut>
-}
-
-/**
  * AttachmentSource
  */
 export type AttachmentSource = {
@@ -2236,11 +2173,32 @@ export type TurnUsage = {
 }
 
 /**
+ * UploadConfirmedOut
+ *
+ * 确认后交回的地址与桶里读到的事实；``url`` 从此就是这个文件的身份。
+ */
+export type UploadConfirmedOut = {
+  /**
+   * Contenttype
+   */
+  contentType: string
+  /**
+   * Sizebytes
+   */
+  sizeBytes: number
+  /**
+   * Url
+   */
+  url: string
+}
+
+/**
  * UploadInstruction
  *
  * 浏览器照着它直传：往 ``url`` 发一个 PUT，headers 原样带上。
  *
- * ``headers`` 里的 Content-Type 被签进签名里了，换一个 OSS 那边就验签不过。
+ * ``headers`` 全部签进了签名里：Content-Type 限制类型，``x-oss-meta-*`` 记上传者与
+ * key。少一个、改一个，OSS 那边就验签不过。
  */
 export type UploadInstruction = {
   /**
@@ -2288,16 +2246,15 @@ export type UploadSignIn = {
  *
  * 一次直传的许可：先拿到名字，再去传。
  *
- * ``assetId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它
- * 叫什么」达成一致。此时它还不是一份素材，是一个**没兑现的登记名额**——登记之前
- * ``GET /assets/{id}`` 一律 404。
+ * ``uploadId`` 在字节落地之前就发下来，因为传这个副作用发生之前，双方必须先就「它
+ * 叫什么」达成一致。它只用来确认这一次上传，不是任何东西的身份。
  */
 export type UploadTicketOut = {
-  /**
-   * Assetid
-   */
-  assetId: string
   upload: UploadInstruction
+  /**
+   * Uploadid
+   */
+  uploadId: string
 }
 
 /**
@@ -2817,136 +2774,6 @@ export type RevokeKeyApiKeysKeyIdDeleteResponses = {
 
 export type RevokeKeyApiKeysKeyIdDeleteResponse =
   RevokeKeyApiKeysKeyIdDeleteResponses[keyof RevokeKeyApiKeysKeyIdDeleteResponses]
-
-export type ListAssetsAssetsGetData = {
-  body?: never
-  path?: never
-  query?: {
-    /**
-     * Creatoruserid
-     */
-    creatorUserId?: string | null
-    /**
-     * Assettype
-     */
-    assetType?: 'image' | 'video' | null
-    /**
-     * Limit
-     */
-    limit?: number
-  }
-  url: '/assets'
-}
-
-export type ListAssetsAssetsGetErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type ListAssetsAssetsGetError = ListAssetsAssetsGetErrors[keyof ListAssetsAssetsGetErrors]
-
-export type ListAssetsAssetsGetResponses = {
-  /**
-   * Successful Response
-   */
-  200: AssetsPageOut
-}
-
-export type ListAssetsAssetsGetResponse =
-  ListAssetsAssetsGetResponses[keyof ListAssetsAssetsGetResponses]
-
-export type ImportAssetAssetsImportPostData = {
-  body: AssetImportIn
-  path?: never
-  query?: never
-  url: '/assets/import'
-}
-
-export type ImportAssetAssetsImportPostErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type ImportAssetAssetsImportPostError =
-  ImportAssetAssetsImportPostErrors[keyof ImportAssetAssetsImportPostErrors]
-
-export type ImportAssetAssetsImportPostResponses = {
-  /**
-   * Successful Response
-   */
-  201: AssetEnvelope
-}
-
-export type ImportAssetAssetsImportPostResponse =
-  ImportAssetAssetsImportPostResponses[keyof ImportAssetAssetsImportPostResponses]
-
-export type GetAssetAssetsAssetIdGetData = {
-  body?: never
-  path: {
-    /**
-     * Asset Id
-     */
-    asset_id: string
-  }
-  query?: never
-  url: '/assets/{asset_id}'
-}
-
-export type GetAssetAssetsAssetIdGetErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type GetAssetAssetsAssetIdGetError =
-  GetAssetAssetsAssetIdGetErrors[keyof GetAssetAssetsAssetIdGetErrors]
-
-export type GetAssetAssetsAssetIdGetResponses = {
-  /**
-   * Successful Response
-   */
-  200: AssetEnvelope
-}
-
-export type GetAssetAssetsAssetIdGetResponse =
-  GetAssetAssetsAssetIdGetResponses[keyof GetAssetAssetsAssetIdGetResponses]
-
-export type RegisterAssetAssetsAssetIdPostData = {
-  body?: never
-  path: {
-    /**
-     * Asset Id
-     */
-    asset_id: string
-  }
-  query?: never
-  url: '/assets/{asset_id}'
-}
-
-export type RegisterAssetAssetsAssetIdPostErrors = {
-  /**
-   * Validation Error
-   */
-  422: HttpValidationError
-}
-
-export type RegisterAssetAssetsAssetIdPostError =
-  RegisterAssetAssetsAssetIdPostErrors[keyof RegisterAssetAssetsAssetIdPostErrors]
-
-export type RegisterAssetAssetsAssetIdPostResponses = {
-  /**
-   * Successful Response
-   */
-  201: AssetEnvelope
-}
-
-export type RegisterAssetAssetsAssetIdPostResponse =
-  RegisterAssetAssetsAssetIdPostResponses[keyof RegisterAssetAssetsAssetIdPostResponses]
 
 export type AuthCookieLoginAuthLoginPostData = {
   body: BodyAuthCookieLoginAuthLoginPost
@@ -4649,6 +4476,38 @@ export type SignUploadUploadsSignPostResponses = {
 
 export type SignUploadUploadsSignPostResponse =
   SignUploadUploadsSignPostResponses[keyof SignUploadUploadsSignPostResponses]
+
+export type ConfirmUploadUploadsUploadIdConfirmPostData = {
+  body?: never
+  path: {
+    /**
+     * Upload Id
+     */
+    upload_id: string
+  }
+  query?: never
+  url: '/uploads/{upload_id}/confirm'
+}
+
+export type ConfirmUploadUploadsUploadIdConfirmPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ConfirmUploadUploadsUploadIdConfirmPostError =
+  ConfirmUploadUploadsUploadIdConfirmPostErrors[keyof ConfirmUploadUploadsUploadIdConfirmPostErrors]
+
+export type ConfirmUploadUploadsUploadIdConfirmPostResponses = {
+  /**
+   * Successful Response
+   */
+  200: UploadConfirmedOut
+}
+
+export type ConfirmUploadUploadsUploadIdConfirmPostResponse =
+  ConfirmUploadUploadsUploadIdConfirmPostResponses[keyof ConfirmUploadUploadsUploadIdConfirmPostResponses]
 
 export type ListUsersUsersGetData = {
   body?: never

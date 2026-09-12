@@ -320,8 +320,8 @@ class MemoryObjectStore:
         self.objects[object_key] = (content, content_type)
         return self.public_url(object_key)
 
-    def sign_put(self, *, object_key: str, content_type: str) -> str:
-        return f"{self.base}/{object_key}?signed-for={content_type}"
+    def sign_put(self, *, object_key: str, headers: Mapping[str, str]) -> str:
+        return f"{self.base}/{object_key}?signed-for={headers['Content-Type']}"
 
     async def find_object(self, *, prefix: str) -> StoredObject | None:
         found = [key for key in self.objects if key.startswith(prefix)]

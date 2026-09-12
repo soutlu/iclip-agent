@@ -49,8 +49,6 @@ from iclip.config import (
 )
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.agents.transcript_api import LiveConnections, create_transcript_router
-from iclip.domains.assets.infra_sql import SqlAssetRepository
-from iclip.domains.assets.module import build_assets_module
 from iclip.domains.collections.infra_sql import SqlCollectionRepository
 from iclip.domains.collections.module import build_collections_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
@@ -80,6 +78,7 @@ from iclip.domains.inspirations.service import NoStyleDirectory
 from iclip.domains.products.catalog_pg import PgStyleDirectory
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
+from iclip.domains.uploads.module import build_uploads_module
 from iclip.harness.agents import DELEGATE_TOOL
 from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.models import BuiltModels
@@ -448,11 +447,7 @@ def build_app(
         conversation_ids_by_state=conversation_ids_by_state,
     )
     tasks = build_tasks_module(SqlTaskRepository(active_engine))
-    assets = (
-        build_assets_module(SqlAssetRepository(active_engine), public_objects)
-        if public_objects is not None
-        else None
-    )
+    uploads = build_uploads_module(public_objects) if public_objects is not None else None
     job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = live_context_limits(agent_layer)
 
@@ -552,7 +547,7 @@ def build_app(
         app.include_router(router)
     for router in generation.routers if generation is not None else ():
         app.include_router(router)
-    for router in assets.routers if assets is not None else ():
+    for router in uploads.routers if uploads is not None else ():
         app.include_router(router)
     for router in inspirations.routers:
         app.include_router(router)

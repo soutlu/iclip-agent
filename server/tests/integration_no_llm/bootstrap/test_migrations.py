@@ -5,6 +5,7 @@ _MODULE_METADATA 必须包含所有自有表模块的元数据，确保迁移对
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,7 +15,6 @@ from alembic.config import Config as AlembicConfig
 from sqlalchemy import MetaData, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from iclip.domains.assets.infra_sql import metadata_obj as assets_metadata
 from iclip.domains.collections.infra_sql import metadata_obj as collections_metadata
 from iclip.domains.conversations.infra_sql import metadata_obj as conversations_metadata
 from iclip.domains.generation.infra_sql import metadata_obj as generation_metadata
@@ -24,7 +24,6 @@ from iclip.domains.tasks.infra_sql import metadata_obj as tasks_metadata
 
 _MODULE_METADATA: tuple[MetaData, ...] = (
     Base.metadata,
-    assets_metadata,
     conversations_metadata,
     generation_metadata,
     collections_metadata,
@@ -166,4 +165,73 @@ async def test_soft_delete_migration_rebuilds_tombstones_from_agent_jobs(migrate
     assert (tombstone["created_at"], tombstone["updated_at"]) == (first_at, last_at)
     assert tombstone["deleted_at"] is not None
     assert by_id[alive]["deleted_at"] is None
+    assert registry is False
+
+
+BEFORE_UPLOADS = "4c7d9e1f2a68"
+"""0003：权限还叫 assets:*、media_assets 还在的那一版。"""
+
+
+def _permissions(value: object) -> list[str]:
+    """JSONB 经 text() 查询回来可能是已解码的列表，也可能是原文。"""
+
+    return list(json.loads(value) if isinstance(value, str) else value)  # type: ignore[arg-type]
+
+
+async def test_uploads_migration_renames_permissions_and_drops_the_registry(
+    migrated_pg: str,
+) -> None:
+    """0004：两个 JSONB 数组里的旧权限名改成新名，别的权限不动；media_assets 没了。"""
+
+    cfg = _alembic(migrated_pg)
+    owner, key_id = uuid.uuid4(), uuid.uuid4()
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_UPLOADS)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO iclip.users (id, email, hashed_password, is_active, is_superuser, "
+                    "is_verified, display_name, avatar_url, roles, direct_permissions, city, "
+                    "job_title, departments) VALUES (:id, :email, 'x', true, false, true, '改名属主', "
+                    "'', '[]', '[\"assets:read\", \"tasks:read\"]', '', '', '[]')"
+                ),
+                {"id": owner, "email": f"{owner}@example.com"},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO iclip.api_keys (id, owner_user_id, name, token_hash, token_prefix, "
+                    "permissions) VALUES (:id, :owner, 'ci', :hash, 'ick_test', "
+                    '\'["assets:write", "assets:read"]\')'
+                ),
+                {"id": key_id, "owner": owner, "hash": uuid.uuid4().hex},
+            )
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+
+        async with engine.connect() as conn:
+            direct = (
+                await conn.execute(
+                    text("SELECT direct_permissions FROM iclip.users WHERE id = :id"), {"id": owner}
+                )
+            ).scalar_one()
+            granted = (
+                await conn.execute(
+                    text("SELECT permissions FROM iclip.api_keys WHERE id = :id"), {"id": key_id}
+                )
+            ).scalar_one()
+            registry = await conn.run_sync(
+                lambda sync_conn: inspect(sync_conn).has_table("media_assets", schema=DB_SCHEMA)
+            )
+    finally:
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM iclip.api_keys WHERE id = :id"), {"id": key_id})
+            await conn.execute(text("DELETE FROM iclip.users WHERE id = :id"), {"id": owner})
+        await engine.dispose()
+
+    assert sorted(_permissions(direct)) == ["inspirations:read", "tasks:read"]
+    assert sorted(_permissions(granted)) == ["inspirations:read", "uploads:write"]
     assert registry is False
