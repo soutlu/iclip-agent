@@ -13,7 +13,7 @@
 
 `config.yaml` 的 `models` 段、`conversations.title_model` 与 `agents/` 目录下的一切（`agents.yaml`、`agent.yaml`、`instructions.md`、`SKILL.md`、references）构成一层，由 [app/agent_layer.py](../../server/src/iclip/app/agent_layer.py) 一次装配成不可变对象：模型实例表、agent 注册表、上下文窗口表、标题生成函数。运行驱动、transcript 服务与对话模块拿到的是「读当前层」的视图，不直接持有注册表。
 
-其余配置段（`db`、`security`、`sso`、`media_generation`、`shot_video`、`agent_runs`、`ops`）与全部环境变量在启动期冻结。它们决定连接池、队列、路由与中间件，替换等于重建进程。
+其余配置段（`db`、`security`、`sso`、`media_generation`、`video`、`shot_video`、`agent_runs`、`ops`）与全部环境变量在启动期冻结。它们决定连接池、队列、路由与中间件，替换等于重建进程。
 
 ### 2. 触发与结果
 

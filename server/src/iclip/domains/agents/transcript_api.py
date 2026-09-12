@@ -38,6 +38,8 @@ from iclip.platform.transcript.wire import (
     FsChanged,
     FsChangeEntry,
     FsChangePayload,
+    GenerationChanged,
+    GenerationChangedPayload,
     OpsCatchup,
     OpsPayload,
     Ping,
@@ -181,7 +183,7 @@ def _subscribed_agents(spec: Mapping[str, TranscriptGrade]) -> tuple[str, ...]:
 class LiveConnections:
     """当前进程的 WebSocket 连接集合。
 
-    标题与活动广播不依赖对话订阅，按握手主体的属主隔离。多 worker 各自持有连接集合，
+    标题、活动与生成任务广播不依赖对话订阅，按握手主体的属主隔离。多 worker 各自持有连接集合，
     未收到广播的客户端需重新读取数据库状态。"""
 
     def __init__(self) -> None:
@@ -222,6 +224,31 @@ class LiveConnections:
                     busy=busy,
                     pending_interaction=pending_interaction,
                     last_turn_reason=last_turn_reason,
+                ),
+            ),
+        )
+
+    def announce_generation_changed(
+        self,
+        owner: uuid.UUID,
+        conversation_id: uuid.UUID | None,
+        *,
+        job_id: uuid.UUID,
+        kind: str,
+        status: str,
+        metadata: Mapping[str, Any] | None,
+    ) -> None:
+        """向属主的连接广播生成任务状态跳转；只收基础字段，不依赖生成域类型。"""
+
+        self._announce(
+            owner,
+            GenerationChanged(
+                session_id=None if conversation_id is None else str(conversation_id),
+                payload=GenerationChangedPayload(
+                    id=str(job_id),
+                    kind=kind,
+                    status=status,
+                    metadata=None if metadata is None else dict(metadata),
                 ),
             ),
         )

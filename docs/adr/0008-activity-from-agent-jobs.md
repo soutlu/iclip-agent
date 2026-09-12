@@ -44,7 +44,7 @@ kimi 网页版（`apps/kimi-code/dist-web` 构建产物）的形状：会话列�
 
 - **接受一条跑完接着起下一条时帧先 idle 再 busy。** 不在 `finish` 里跳过 idle：关停途中不接队首，那时行真的空闲，不发帧侧栏就一直转到下次重拉。
 - **接受帧只到同一进程上的连接。** `LiveConnections` 每进程一份，与 ADR-0006「不做跨进程实时状态」一致；列表行是事实源。
-- **不带 `main_turn_active`。** 没有后台任务与子 agent，它恒等于 `busy`。
+- **不带 `main_turn_active`。** 对话活动按本文的票据规则计算；子代理的独立运行流见 [ADR-0012](0012-subagent-transcript.md)。
 - **帧名对齐 kimi，信封不带 `seq` / `epoch`。** 全局帧不进日志，补不了也不必补。
 - **`session.meta.updated` 不改名。** 改名那一帧与本文无关。
 - **筛选的 id 集在应用层算好再传 `IN` 列表。** 一个人的对话数有限；conversations 域不跨 schema 查票据表。

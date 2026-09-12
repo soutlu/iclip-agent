@@ -11,21 +11,23 @@ import {
 } from '@/shared/ui/dialog'
 import { Input } from '@/shared/ui/field'
 import { toast } from '@/shared/ui/toast'
-import { useSaveCollection } from '../collections.api'
+import { useSaveCollection, type Collection } from '../collections.api'
 
 const MAX_NAME_CHARS = 200
 
 type CollectionFormDialogProps = {
   /** 提供 collection 时编辑原名，否则新建。 */
   collection?: { id: string; name: string } | undefined
+  initialName?: string
   onOpenChange: (open: boolean) => void
-  /** 保存后由调用方刷新侧栏拓扑。 */
-  onSaved: () => void
+  /** 返回服务端合集，供调用方选中它并刷新侧栏拓扑。 */
+  onSaved: (collection: Collection) => void
   open: boolean
 }
 
 export function CollectionFormDialog({
   collection,
+  initialName = '',
   onOpenChange,
   onSaved,
   open,
@@ -43,6 +45,7 @@ export function CollectionFormDialog({
           <CollectionForm
             key={collection?.id ?? 'create'}
             collection={collection}
+            initialName={initialName}
             onOpenChange={onOpenChange}
             onSaved={onSaved}
           />
@@ -54,20 +57,21 @@ export function CollectionFormDialog({
 
 function CollectionForm({
   collection,
+  initialName,
   onOpenChange,
   onSaved,
 }: Omit<CollectionFormDialogProps, 'open'>) {
-  const [name, setName] = useState(collection?.name ?? '')
-  const saveMutation = useSaveCollection(() => {
+  const [name, setName] = useState(collection?.name ?? initialName ?? '')
+  const saveMutation = useSaveCollection((saved) => {
     toast.success(collection ? '已重命名' : '合集已新建')
-    onSaved()
+    onSaved(saved)
     onOpenChange(false)
   })
 
   const trimmed = name.trim()
   const unchanged = trimmed === (collection?.name ?? '')
   const submit = () => {
-    if (!trimmed || unchanged) return
+    if (!trimmed || unchanged || saveMutation.isPending) return
     saveMutation.mutate(
       { collectionId: collection?.id, name: trimmed },
       {
@@ -91,9 +95,10 @@ function CollectionForm({
             aria-label="合集名称"
             className="h-(--control-height-sm) rounded-sm border-border"
             maxLength={MAX_NAME_CHARS}
+            disabled={saveMutation.isPending}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') submit()
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit()
             }}
             placeholder="给这个合集起个名字"
             value={name}

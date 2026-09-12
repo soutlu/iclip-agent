@@ -25,9 +25,9 @@ from iclip.config import (
     ResolvedAgent,
     RuntimeConfig,
     SecuritySection,
-    ShotVideoSection,
     SsoSection,
     VideoGenerationSection,
+    VideoSection,
 )
 from iclip.domains.agents.transcript_api import LiveConnections
 from tests.helpers.file_store import FakeFileStore
@@ -53,6 +53,7 @@ def declared_agent(tmp_path: Path) -> ResolvedAgent:
     spec.write_text("", encoding="utf-8")
     return ResolvedAgent(
         agent_id=AGENT_ID,
+        name=AGENT_ID,
         spec=spec,
         instructions=None,
         model="m",
@@ -218,7 +219,7 @@ async def test_a_namespace_without_a_conversation_id_announces_nothing() -> None
     assert live.announced == []
 
 
-def test_exact_replica_agent_builds_without_generation_oss_or_ffmpeg(
+def test_video_agent_builds_without_generation_oss_or_ffmpeg(
     base_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OSS_BUCKET", "")
@@ -227,13 +228,11 @@ def test_exact_replica_agent_builds_without_generation_oss_or_ffmpeg(
     monkeypatch.setenv("VIDEO_UNDERSTANDING_API_KEY", "test-key")
     monkeypatch.setattr("iclip.app.bootstrap.ffmpeg_available", lambda: False)
     config = minimal_config().model_copy(
-        update={"shot_video": ShotVideoSection(understanding_model="vision")}
+        update={"video": VideoSection(understanding_model="vision")}
     )
     declaration = replace(
-        declared_agent(tmp_path),
-        agent_id="exact-replica",
-        capabilities=("workspace", "exact_replica"),
+        declared_agent(tmp_path), agent_id="video-only", capabilities=("workspace", "video")
     )
     app = build_app(config, agents=(declaration,), engine=engine(), models={"m": TestModel()})
     layer: CurrentAgentLayer = app.state.agent_layer
-    assert layer.current.registry.ids == ("exact-replica",)
+    assert layer.current.registry.ids == ("video-only",)

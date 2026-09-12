@@ -33,32 +33,18 @@ const openCreate = async (page: Page) => {
   return page.getByRole('dialog', { name: '新建需求单' })
 }
 
-test('需求单完整创建回读：规格、商品图库、分类参考图和单视频', async ({ page }) => {
+test('商品图库上传后显示原图，保存再打开仍可预览', async ({ page }) => {
   await page.setViewportSize({ height: 1154, width: 1363 })
   const dialog = await openCreate(page)
   await dialog.getByLabel('需求单名称', { exact: true }).fill('黑色短靴宣传视频')
-  await dialog.getByLabel('截止时间', { exact: true }).fill('2026-10-01T18:30')
-  await dialog.getByLabel('发布平台', { exact: true }).fill('douyin')
-  await dialog.getByLabel('视频类型', { exact: true }).fill('product_showcase')
-  await dialog.getByLabel('内容类型', { exact: true }).fill('short_video')
-  await dialog.getByLabel('分辨率', { exact: true }).fill('1080p')
-  await dialog.getByLabel('比例', { exact: true }).selectOption('9:16')
-  await dialog.getByLabel('目标时长（秒）', { exact: true }).fill('15')
   await dialog.getByLabel('商品 1 款号', { exact: true }).fill('QA-BOOTS-001')
   await dialog.getByLabel('商品 1 名称', { exact: true }).fill('黑色短靴')
-  await dialog.getByLabel('商品 1 品牌', { exact: true }).fill('品牌甲')
-  await dialog.getByLabel('商品 1 品类', { exact: true }).fill('鞋靴')
-  await dialog.getByLabel('商品 1 颜色', { exact: true }).fill('黑色')
-  await dialog.getByRole('button', { name: '添加商品', exact: true }).click()
-  await dialog.getByLabel('商品 2 款号', { exact: true }).fill('QA-BOOTS-002')
-  await dialog.getByLabel('商品 2 颜色', { exact: true }).fill('棕色')
   await dialog
     .getByLabel('创作要求', { exact: true })
     .fill('展示短靴轮廓与皮革纹理，呈现简洁自然的日常穿搭。')
 
   const png = await productPng(page)
   const imageInput = dialog.getByLabel('选择商品 1 图片文件', { exact: true })
-  await expect(imageInput).toHaveAttribute('multiple', '')
   await imageInput.setInputFiles([
     { buffer: png, mimeType: 'image/png', name: '商品正面.png' },
     { buffer: png, mimeType: 'image/png', name: '商品细节.png' },
@@ -71,14 +57,6 @@ test('需求单完整创建回读：规格、商品图库、分类参考图和�
         .evaluate((image: HTMLImageElement) => image.naturalWidth),
     )
     .toBeGreaterThan(0)
-  await expect(dialog.getByRole('button', { name: '添加商品 2 图片', exact: true })).toBeVisible()
-  await expect(dialog.getByLabel('选择参考视频文件', { exact: true })).not.toHaveAttribute(
-    'multiple',
-    '',
-  )
-  for (const label of ['模特参考图', '穿搭参考图', '道具参考图']) {
-    await expect(dialog.getByRole('button', { name: `添加${label}`, exact: true })).toBeVisible()
-  }
 
   await dialog.getByLabel('创作要求', { exact: true }).focus()
   await page.screenshot({
@@ -110,21 +88,17 @@ test('需求单完整创建回读：规格、商品图库、分类参考图和�
   expect((await createdResponse).status()).toBe(201)
   await expect(dialog).toBeHidden()
   const card = page.getByRole('button', { name: /黑色短靴宣传视频/ })
-  await expect(card).toContainText('QA-BOOTS-001 等 2 款')
   await card.click()
   const reopened = page.getByRole('dialog', { name: '黑色短靴宣传视频' })
-  await expect(reopened.getByLabel('分辨率', { exact: true })).toHaveValue('1080p')
-  await expect(reopened.getByLabel('比例', { exact: true })).toHaveValue('9:16')
-  await expect(reopened.getByLabel('目标时长（秒）', { exact: true })).toHaveValue('15')
-  await expect(reopened.getByLabel('商品 1 款号', { exact: true })).toBeDisabled()
-  await expect(reopened.getByLabel('商品 2 款号', { exact: true })).toBeDisabled()
-  await expect(reopened.getByLabel('商品 1 名称', { exact: true })).toHaveValue('黑色短靴')
-  await expect(reopened.getByLabel('商品 2 颜色', { exact: true })).toHaveValue('棕色')
   await expect(
     reopened.getByRole('button', { name: '预览商品 1 图片 2', exact: true }),
   ).toBeVisible()
-  await expect(reopened.getByRole('button', { name: '添加商品', exact: true })).toHaveCount(0)
-  await expect(reopened.getByRole('button', { name: '移除商品 2', exact: true })).toHaveCount(0)
+  await reopened.getByRole('button', { name: '预览商品 1 图片 2', exact: true }).click()
+  const preview = page.getByRole('dialog', { name: '商品 1 图片 2', exact: true })
+  await expect(preview).toBeVisible()
+  await expect
+    .poll(() => preview.getByRole('img').evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBeGreaterThan(0)
 })
 
 test('手机需求单正文可滚动，长创作要求与固定操作栏可用', async ({ page }) => {

@@ -133,7 +133,7 @@ class ConversationRepository(Protocol):
         ...
 
     async def delete(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> None:
-        """删掉这一行。已经不在了就抛 ``NotFound``。"""
+        """标记删除：行留着占住 id，之后任何读写都当它不存在。已删或本来就没有都抛 ``NotFound``。"""
         ...
 
     async def touch_run(

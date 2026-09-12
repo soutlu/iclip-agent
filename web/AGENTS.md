@@ -13,7 +13,7 @@
 | `pnpm ci:check`                     | 格式、lint、设计系统、死代码、合同、类型与单测检查    |
 | `pnpm verify`                       | `ci:check` 加生产构建，不含 e2e                       |
 | `pnpm test`                         | Vitest 单测与组件测试                                 |
-| `pnpm test:e2e`                     | Playwright，自动启动 `dev:mock`                       |
+| `pnpm test:e2e`                     | Playwright；本地起 `dev:mock`，CI 用 `preview:mock`   |
 | `pnpm build` / `pnpm serve`         | 生产构建 / 构建后本地预览                             |
 | `pnpm contract:generate`            | 从后端合同生成类型与 zod；修改顺序见根开发约定        |
 | `pnpm format` / `pnpm format:check` | Prettier 格式化 / 检查                                |

@@ -12,8 +12,8 @@ PERMISSIONS: tuple[str, ...] = (
     "collections:write",
     "tasks:read",
     "tasks:write",
-    "assets:read",
-    "assets:write",
+    "inspirations:read",
+    "uploads:write",
     "generation:read",
     "generation:submit",
     "analytics:read",
@@ -27,7 +27,7 @@ _VIEWER = frozenset(
     {
         "collections:read",
         "tasks:read",
-        "assets:read",
+        "inspirations:read",
         "generation:read",
         "agent:read",
     }

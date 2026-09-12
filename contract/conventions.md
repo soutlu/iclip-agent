@@ -11,7 +11,7 @@
 ## 2. 双主体认证 (Dual Principals)
 
 - **浏览器会话**：使用后端设置的 HttpOnly Cookie `iclip_session`，浏览器自动携带；前端 JavaScript 不读取、存储或转发这个会话凭证，也不代持 API Key。
-- **SSO 回调票据**：落地页接收查询参数 `jwt`，仅交给同源 `GET /auth/sso/callback` 验证并建立上述会话，随后以 replace 导航离开票据 URL。票据不作为后续 API 的认证头，不存入浏览器持久存储。
+- **SSO 回调票据**：前端落地页读取 `jwt_token`（兼容 `jwt`），再通过同源 `GET /auth/sso/callback?jwt=...` 交给后端验证并建立上述会话，随后以 replace 导航离开票据 URL。票据不作为后续 API 的认证头，不存入浏览器持久存储。
 - **登录态**：以 `GET /users/me` 为准；`401` 表示未登录或会话失效，前端不从 SSO 票据或本地标记推断已登录。
 - **机器端调用方**：基于 Bearer Token 的无状态调用（请求头携带 `Authorization: Bearer <token>`）。明文形态不构成合同，服务端按哈希查表认证，不从前缀判断。
   - 明文仅在成功创建的响应中返回一次；权限语义见 [CONTEXT.md](../docs/CONTEXT.md)。
@@ -130,17 +130,19 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 #### 全局帧
 
-两帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
+这几帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
 
 | 帧 | 体 | 什么时候发 |
 |---|---|---|
 | `session.meta.updated` | `{session_id, title}` | 标题变了（自动起名或用户改名） |
 | `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | 对话运行活动发生变化 |
+| `event.generation.changed` | `session_id` 在信封上（任务没有来源对话时省略），payload `{id, kind, status, metadata}`；`metadata` 是调用方自带的坐标原样带出，为空时省略 | 生成任务的业务状态每跳一格：`pending` / `submitting` / `submitted` / `completed` / `failed` |
 
 - **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。
 - `event.session.work_changed` 的 `last_turn_reason` 只在 `busy: false` 的那几帧上有：帧一律
   `exclude_none`，没有结局时那一项整个不出现（列表行上是 `null`，见 §6）。
-- **两帧都是易失通知**，客户端据此更新列表；断线期间的变化不补发，重连后须重拉列表，从 `ConversationOut.title` 与 `activity` 对齐当前事实。
+- **都是易失通知**，客户端据此更新列表；断线期间的变化不补发，重连后须重拉列表，从 `ConversationOut.title` 与 `activity` 对齐当前事实。
+- `event.generation.changed` 不带结果地址，只说哪条任务跳到了哪个状态；收到就重拉 §11 的列表。`kind` 与 `status` 的词汇同 `GenerationOut`，列表接口是事实源，客户端保留轮询兜底。
 - 一条跑完接着起下一条会先发 idle 再发 busy。
 
 #### 文件订阅
@@ -180,7 +182,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
   - `expectedVersion` 是读到那一份的版本号，对不上是 `409`（文件不存在时任何版本都对不上，同样 `409`——不替调用方新建）。写成功后版本加一。
   - `path` 必须是文件列表里那个写法（规范形式），`/video_shot.json` 这种是 `422`。
   - `video_shot.json` 复用镜头表形状校验，不合法返回 `422`。面板写入不校验地址来源，也不把地址登记成对话素材；用户要让 agent 使用新地址，须以附件提交。
-  - 两条创作流共同交付 `video_shot.json`，每组 `image_urls` 支持 0–30 张，超限返回 `422`。完全复刻工具提交时要求至少一张参考图；文件写回共用上述规则。
+  - `video_shot.json` 由 `write_video_shots` 整份交付，每组 `image_urls` 支持 0–30 张；工具提交与文件写回共用这条上限，超限分别返回重试提示与 `422`。
 
 ### 两处归属
 
@@ -198,8 +200,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 附件
 
-- 附件通过 `content` 的图片或视频 part 提交，只收 HTTP(S) URL；其他地址返回 `422`。本地文件先直传得到公开地址（§10），不要求先登记素材库。
-- 附件提交会登记对话素材；普通正文 URL、面板文件内容与素材库登记均不会代替这一步，精确匹配与类型规则见 [CONTEXT.md](../docs/CONTEXT.md)。
+- 附件通过 `content` 的图片或视频 part 提交，只收 HTTP(S) URL；其他地址返回 `422`。本地文件先直传换成公开地址（§10）。
+- 附件提交会登记对话素材；普通正文 URL 与面板文件内容都不会代替这一步，精确匹配与类型规则见 [CONTEXT.md](../docs/CONTEXT.md)。
 - 图片输入保留原图引用；仅支持缩放的地址附带缩放像素，其他图片及视频保留媒体引用，内容由相应工具读取。提交成功不保证外部 URL 在后续读取时可用。
 
 ## 7. 合集 (Collections)
@@ -273,7 +275,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 9. 爆款视频查询 (Inspirations)
 
-`POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `assets:read`。
+`POST /inspirations/videos/search` 按款搜爆款视频，只读、零副作用。权限 `inspirations:read`。
 
 - `styleNos` 使用 **PDM 款号**。WMS 编号只在数据入库时用于对齐数仓，不出现在接口上。
 - 只返回可下载的自家副本地址（`videoUrls`），按 `sortBy` 降序。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
@@ -283,29 +285,24 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 数据是随迁移灌入的一次性快照，不自动更新；接口不连任何外部库。已知边界见 [CONTEXT.md](../docs/CONTEXT.md)。
 - 未配置 PDM 款目录库时接口照常提供，但降级整级失效，未精确命中的款一律 `none`；这属于能力缺失，服务启动时会告警。
 
-## 10. 素材上传 (Assets)
+## 10. 上传 (Uploads)
 
-上传分两步：`POST /uploads/sign` 领一个 `assetId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /assets/{assetId}` 登记。外部地址上的东西（产品图、爆款库的视频）走 `POST /assets/import` **转存**进本仓对象存储再登记。
+上传分两步：`POST /uploads/sign` 领一个 `uploadId` 和一条限时直传地址，浏览器直接把字节 PUT 到对象存储，再 `POST /uploads/{uploadId}/confirm` 确认，拿回 `{ url, contentType, sizeBytes }`。服务端不登记上传：没有素材 id、没有列表，交回的 `url` 就是这个文件从此以后的身份，与别处出现的 URL 没有区别。决策见 [ADR-0022](../docs/adr/0022-uploads-without-registry.md)。
 
-**权限**：`POST /uploads/sign`、`POST /assets/{assetId}`、`POST /assets/import` 需要 `assets:write`；`GET /assets`、`GET /assets/{assetId}` 需要 `assets:read`。
+**权限**：两步都需要 `uploads:write`。
 
-- `creatorUserId` 是查询维度；素材的共享范围见 [CONTEXT.md](../docs/CONTEXT.md)。
-- `GET /assets` 最近登记的在前。
-- **`upload.headers` 必须原样带上。** `Content-Type` 被签进了签名里，换一个值去 PUT 会被对象存储拒掉（`403`）。
-- **`expiresAt` 之前必须发起上传**。过期后重新调用 `sign`，会拿到新的 `assetId`。
-- **登记之前那个 `assetId` 还不是一份素材**，`GET /assets/{id}` 会 `404`。
-- **登记可以重复调**：第二次返回同一行（还是 `201`）。
-- 类型、大小和图片尺寸边界以 [素材规则](../server/src/iclip/domains/assets/models.py) 为准。直传图片在 `sign` 时校验客户端声明的宽高；登记时按桶中对象校验类型和大小。登记失败不代表已上传字节已删除。
-- 桶内没有对应对象时登记返回 `409`；签名成功本身不代表上传完成。
-- **`url` 是由对象 key 拼出来的，不是存的。不要把 `url` 当作素材的身份**，`id` 才是。
-- 转存的 **`assetId` 由源地址算出来**：同一个地址转存多少次都是同一行，第二次连请求都不往上游发；上游原地换了图不会跟着更新。
-- 转存按下载响应的 Content-Type 选择允许的媒体类型，大小按实际下载字节计算，图片解码后校验尺寸。取不回来、类型不收或图片校验不通过返回 `422`。
-- 转存**不跟随重定向**：`3xx` 直接当取不回来。
-- 素材库登记不会登记对话素材；把素材地址作为附件提交后，agent 才能按对话素材规则引用（§6）。
+- **`upload.headers` 必须原样带上。** `Content-Type` 与审计用的 `x-oss-meta-*`（上传者、API key）都签进了签名里，少一个、改一个去 PUT 都会被对象存储拒掉（`403`）。
+- **`expiresAt` 之前必须发起上传**。过期后重新调用 `sign`，会拿到新的 `uploadId`。
+- 类型、大小和图片尺寸边界以 [上传规则](../server/src/iclip/domains/uploads/models.py) 为准。直传图片在 `sign` 时校验客户端声明的宽高；`confirm` 按桶中对象校验类型和大小，不合格返回 `422`，字节仍留在桶里。
+- 桶内没有对应对象时 `confirm` 返回 `409`；签名成功本身不代表上传完成。
+- **`confirm` 可以重复调**：每次都按桶里的对象重新回答，结果一样。
+- 上传不会登记对话素材；把地址作为附件提交后，agent 才能按对话素材规则引用（§6）。
 
 ## 11. 媒体生成 (Generations)
 
 两种生成各有自己的提交地址：`POST /generations/video` 与 `POST /generations/image`。受理即 `202`，此时还没发给上游；上游的拒绝会变成记录里的 `failed`，由调用方查状态看到。
+
+业务状态每跳一格，属主连着的每条 WebSocket 都收到一帧 `event.generation.changed`（见 §5 全局帧）；帧易失且不带结果，`GET /generations` 与任务查询接口仍是事实源，浏览器在有运行中任务时保留轮询兜底。
 
 ### 归属标签 `user_name`
 
@@ -313,7 +310,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 视频：镜像上游异步接口
 
-- `POST /generations/video` 的请求体照上游视频异步接口（`model`、`prompt`、`user_name`、`reference_image_urls`、`reference_video_urls`、`reference_audio_urls`、`generate_audio`、`resolution`、`aspect_ratio`、`seconds`、`provider_options`），外加三个归属字段 `conversation_id`、`shot_index`、`task_id`（需求单 id）与结构化的 `shot`。响应是 `{"task_id"}`，值是本系统这条生成记录的 id；请求体里的 `task_id` 是需求单 id，两者是两个层级。
+- `POST /generations/video` 的请求体照上游视频异步接口（`model`、`prompt`、`user_name`、`reference_image_urls`、`reference_video_urls`、`reference_audio_urls`、`generate_audio`、`resolution`、`aspect_ratio`、`seconds`、`provider_options`），外加归属字段 `conversation_id`、`task_id`（需求单 id）、调用方自带的坐标 `metadata`（见下文「参考帧图片编辑」）与结构化的 `shot`。响应是 `{"task_id"}`，值是本系统这条生成记录的 id；请求体里的 `task_id` 是需求单 id，两者是两个层级。
 - 正文二选一：直接给 `prompt`，或给 `shot`（与分镜文件 `video_shot.json` 里 `shots[].prompt` 同形：`global_settings` 加 `timeline[]`，每镜 `timestamps: [起, 止]`、`prompt`、`image_indexes`）由服务端拼成 `prompt`。时间线规则与分镜交付相同：结束晚于开始、第一镜从 0 起、各镜按先后排不重叠。拼法：全局设定、空一行、每镜一行 `[起–止秒｜镜头N] 正文`（起止照给的，保留到毫秒），末尾一行 `不要生成字幕，不要生成背景音乐。`。两者都不给、都给但不一致、`@ImageN` 超出 `reference_image_urls` 的张数、`image_indexes` 与正文里 `@Image` 的出现顺序不一致、拼出的正文超过 4000 字，都是 `422`。记录的 `request` 里 `shot` 与拼好的 `prompt` 都在；发给上游的只有 `prompt`，`shot` 不转发。
 - `model` 必填，只接受运行配置 `config.yaml` 中 `media_generation.video.allowed_models` 列出的模型，`GET /generations/video-models` 给出允许表与默认值；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
 - 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
@@ -330,6 +327,6 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 参考帧图片编辑
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
-- `frameNumber` 是这次出图要顶替镜头组里的第几帧，只作标签供筛选；给了它就必须给 `shotIndex`，否则返回 `422`。服务端不按它定位文档，也不校验那一帧当前是什么。
-- `GET /generations` 的类型、对话、需求单、镜头组和帧筛选在分页截断前执行，归属范围不因筛选扩大。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
+- `metadata` 是调用方自己的坐标标签：JSON 对象，两种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读键、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。分镜页写 `{"path": <分镜文件路径>, "shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`），决策见 [ADR-0020](../docs/adr/0020-generation-metadata.md)。
+- `GET /generations` 的类型、对话、需求单与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"shot":1,"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。

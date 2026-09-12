@@ -1,8 +1,8 @@
 # ADR-0017: 需求单与对话的 id 可由调用方铸，期限不再是下发前提
 
-- 状态：已接受（2026-09-07）
+- 状态：已接受（2026-09-07；2026-09-12 修订：决策 2 的 id 保留改由对话行自身的 `deleted_at` 承担，`conversation_ids` 表下线，见 [ADR-0021](0021-conversation-soft-delete.md)）
 - 收窄 **[CONTEXT.md](../CONTEXT.md)** 不变量 8：客户端铸的 id 从「只做幂等键」扩到需求单与对话，归属与权限仍不由它决定。
-- 合同 [contract/conventions.md](../../contract/conventions.md) §6 对话与 §9 需求单：`POST` 接受 `id`，幂等命中答 `200`；需求单另接受创建时的 `status`。
+- 合同 [§6 对话](../../contract/conventions.md#6-对话-conversations)与 [§8 需求单](../../contract/conventions.md#8-创作需求单-tasks)：`POST` 接受 `id`，幂等命中答 `200`；需求单另接受创建时的 `status`。
 
 ## 背景
 
@@ -23,7 +23,7 @@
 ### 2. id 不是身份凭证
 
 - 对话有属主：命中的那一段属于别人时抛 `NotFound`，与按 id 读别人的对话同一个口径，不泄露它存不存在，更不把它交给撞上 id 的人。
-- 对话删除后，运行历史仍按原对话 ID 保留，所以 ID 不得重新分配给任何人。`iclip.conversation_ids` 只存已经成功使用的 UUID，不随对话或用户删除；重用已删除对话的 ID 返回 `404`。创建失败时事务回滚，不占用 ID。
+- 对话删除后，运行历史仍按原对话 ID 保留，所以 ID 不得重新分配给任何人。`iclip.conversation_ids` 只存已经成功使用的 UUID，不随对话或用户删除；重用已删除对话的 ID 返回 `404`。创建失败时事务回滚，不占用 ID。2026-09-12 修订：保留表下线，对话行改为标记 `deleted_at` 留在原表占住 id，语义不变，见 [ADR-0021](0021-conversation-soft-delete.md)。
 - 需求单没有属主（持 `tasks:read` 可见全部），所以幂等命中直接答复已有那一张；创建者仍取自登录身份，请求体带 `creatorUserId` 照旧 `422`。
 - 主键冲突从「归属引用不存在」里分了出来：对话仓储原先把所有 `IntegrityError` 都当成外键缺失，现在主键交给幂等分支，剩下的才是需求单或合集不存在。
 

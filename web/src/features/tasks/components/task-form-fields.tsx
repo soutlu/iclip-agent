@@ -53,7 +53,7 @@ type TaskFormFieldsProps = {
   onUploadingChange: (field: string, busy: boolean) => void
 }
 
-/** 创作内容直接编辑合同 inputs；媒体字段只接收上传完成并登记后的 URL。 */
+/** 创作内容直接编辑合同 inputs；媒体字段只接收上传完成并确认后的 URL。 */
 export function TaskFormFields({
   editable,
   form,

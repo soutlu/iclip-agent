@@ -23,6 +23,7 @@ from iclip.app.agent_layer import (
     LayerDeps,
     ReloadSource,
     build_agent_layer,
+    live_agent_directory,
     live_agents,
     live_context_limits,
     live_title_generator,
@@ -33,13 +34,12 @@ from iclip.app.conversation_workspace import (
     ConversationWorkspace,
     validate_video_shots,
 )
+from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
 from iclip.common.errors import DomainError
 from iclip.config import (
-    OSS_BUCKET_ENV,
-    VIDEO_SUBMIT_URL_ENV,
     ObjectStoreEnv,
     ResolvedAgent,
     ResolvedMediaGeneration,
@@ -49,8 +49,6 @@ from iclip.config import (
 )
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.agents.transcript_api import LiveConnections, create_transcript_router
-from iclip.domains.assets.infra_sql import SqlAssetRepository
-from iclip.domains.assets.module import build_assets_module
 from iclip.domains.collections.infra_sql import SqlCollectionRepository
 from iclip.domains.collections.module import build_collections_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
@@ -80,6 +78,7 @@ from iclip.domains.inspirations.service import NoStyleDirectory
 from iclip.domains.products.catalog_pg import PgStyleDirectory
 from iclip.domains.tasks.infra_sql import SqlTaskRepository
 from iclip.domains.tasks.module import build_tasks_module
+from iclip.domains.uploads.module import build_uploads_module
 from iclip.harness.agents import DELEGATE_TOOL
 from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.models import BuiltModels
@@ -227,11 +226,14 @@ def _generation_module(
     database_url: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
+    live: LiveConnections,
 ) -> GenerationModule:
-    """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。"""
+    """将配置解析结果转换为生成域的运行设置，保持业务域与配置层隔离。
+
+    仓库包一层状态广播：受理与队列共用这一个实例，状态每跳一格都经它落库。"""
 
     return build_generation_module(
-        SqlGenerationRepository(engine),
+        AnnouncingGenerationRepository(SqlGenerationRepository(engine), live),
         video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
@@ -316,18 +318,10 @@ def build_app(
     # 素材、生成与镜头能力依赖同一对象存储，先完成装配。
     public_objects = _object_store(settings.object_store, object_store)
     _require_ffmpeg(settings.shot_tools_enabled)
-    if settings.shot_video is not None and not settings.shot_tools_enabled:
-        # 只剩完全复刻能挂上。声明了 shot_video 的 Agent 会在解析能力名时报错，这里先点名缺什么。
+    if settings.shot_tools_missing:
+        # 声明了 shot_video 的 Agent 会在解析能力名时报错，这里先点名缺什么。
         _logger.warning(
-            "只启用了完全复刻，取帧与出图不可用",
-            missing=[
-                name
-                for name, present in (
-                    (VIDEO_SUBMIT_URL_ENV, settings.media_generation is not None),
-                    (OSS_BUCKET_ENV, settings.object_store is not None),
-                )
-                if not present
-            ],
+            "配了 shot_video 段但取帧与出图装不起来", missing=list(settings.shot_tools_missing)
         )
     # 图片信息查询、素材下载与拆解请求共用 HTTP 连接池。
     http_client = httpx.AsyncClient(follow_redirects=True)
@@ -360,6 +354,7 @@ def build_app(
             database_url=settings.database_url,
             object_store=public_objects,
             queue_connector=queue_connector,
+            live=live_connections,
         )
         if settings.media_generation is not None and public_objects is not None
         else None
@@ -419,7 +414,8 @@ def build_app(
         generation_service=generation.service if generation is not None else None,
         image_models=generation.image_models if generation is not None else frozenset(),
         object_store=public_objects,
-        shot_video=settings.shot_video,
+        video=settings.video,
+        shot_video=settings.shot_video if settings.shot_tools_enabled else None,
     )
     # 实时与历史共用显示注册表，保证工具卡渲染一致。
     tool_displays = build_display_registry(capability_table)
@@ -436,6 +432,7 @@ def build_app(
 
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
+        list_agents=live_agent_directory(agent_layer),
         purge_derived=conversation_workspace.purge,
         list_collections=list_owner_collections,
         list_derived_files=conversation_workspace.list_files,
@@ -450,11 +447,7 @@ def build_app(
         conversation_ids_by_state=conversation_ids_by_state,
     )
     tasks = build_tasks_module(SqlTaskRepository(active_engine))
-    assets = (
-        build_assets_module(SqlAssetRepository(active_engine), public_objects)
-        if public_objects is not None
-        else None
-    )
+    uploads = build_uploads_module(public_objects) if public_objects is not None else None
     job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = live_context_limits(agent_layer)
 
@@ -554,7 +547,7 @@ def build_app(
         app.include_router(router)
     for router in generation.routers if generation is not None else ():
         app.include_router(router)
-    for router in assets.routers if assets is not None else ():
+    for router in uploads.routers if uploads is not None else ():
         app.include_router(router)
     for router in inspirations.routers:
         app.include_router(router)

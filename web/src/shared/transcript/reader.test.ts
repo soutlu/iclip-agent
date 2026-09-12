@@ -128,11 +128,11 @@ describe('TranscriptReader', () => {
   })
 
   it('批次号跳了就不落地，去补缺的那几批', async () => {
+    const requestedSince: (string | null)[] = []
     server.use(
       http.get('*/api/conversations/c1/transcript', () => HttpResponse.json(mockTranscriptPage())),
       http.get('*/api/conversations/c1/transcript/ops', ({ request }) => {
-        const since = new URL(request.url).searchParams.get('since_seq')
-        expect(since).toBe('10')
+        requestedSince.push(new URL(request.url).searchParams.get('since_seq'))
         return HttpResponse.json({
           agent_id: 'main',
           batches: [
@@ -156,6 +156,7 @@ describe('TranscriptReader', () => {
     await vi.waitFor(() => {
       expect(textOf(reader)).toContain(`${TAIL_TEXT}甲乙`)
     })
+    expect(requestedSince).toEqual(['10'])
   })
 
   it('补回来的批次里带着块，一样落得下去', async () => {

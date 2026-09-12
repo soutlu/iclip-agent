@@ -20,8 +20,7 @@ const loginAsUser = () =>
 
 /** 测试壳持有折叠状态，与应用壳的状态归属一致。 */
 function SidebarHarness() {
-  // matchMedia 替身恒为 false，模拟紧凑屏初始折叠。
-  const [collapsed, setCollapsed] = useState(() => !window.matchMedia('(min-width: 600px)').matches)
+  const [collapsed, setCollapsed] = useState(true)
   return <AppSidebar collapsed={collapsed} onCollapsedChange={setCollapsed} />
 }
 
@@ -34,7 +33,7 @@ const renderSidebar = (requireLogin = vi.fn(), initialPath = '/') =>
   )
 
 describe('AppSidebar', () => {
-  it('jsdom 视为紧凑屏：默认折叠为浮出展开钮，点开展开侧栏', async () => {
+  it('折叠时显示展开按钮，点开后显示侧栏操作', async () => {
     const user = userEvent.setup()
     await renderSidebar()
 
@@ -49,7 +48,7 @@ describe('AppSidebar', () => {
     expect(screen.getByRole('button', { name: '资料库' })).toBeVisible()
   })
 
-  it('展开后可再折叠回浮出按钮', async () => {
+  it('展开后可再次折叠，只保留展开按钮', async () => {
     const user = userEvent.setup()
     await renderSidebar()
 
@@ -99,6 +98,78 @@ describe('AppSidebar', () => {
     await user.click(screen.getByRole('button', { name: '新建任务' }))
 
     expect(router.state.location.pathname).toBe('/')
+  })
+
+  it.each(['Meta', 'Control'])(
+    '侧栏收起时 %s+K 打开搜索，选中结果跳转并关闭弹窗',
+    async (modifier) => {
+      loginAsUser()
+      const conversation = addMockConversation('待找回的广告')
+      const user = userEvent.setup()
+      const { router } = await renderSidebar()
+      await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+      await screen.findByRole('button', { name: '用户菜单' })
+      await user.click(screen.getByRole('button', { name: '折叠侧边栏' }))
+
+      await user.keyboard(`{${modifier}>}k{/${modifier}}`)
+      const dialog = await screen.findByRole('dialog', { name: '搜索对话' })
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+      await user.type(within(dialog).getByRole('textbox', { name: '搜索对话' }), '广告')
+      const result = await within(dialog).findByRole('link', { name: conversation.title })
+
+      if (modifier === 'Meta') {
+        await user.click(result)
+      } else {
+        await user.tab()
+        expect(result).toHaveFocus()
+        await user.keyboard('{Enter}')
+      }
+
+      await waitFor(() => expect(router.state.location.pathname).toBe(`/c/${conversation.id}`))
+      expect(screen.queryByRole('dialog', { name: '搜索对话' })).not.toBeInTheDocument()
+    },
+  )
+
+  it.each(['Meta', 'Control'])('%s+Alt+N 在已登录时回首页，不展开已折叠侧栏', async (modifier) => {
+    loginAsUser()
+    const conversation = addMockConversation('当前对话')
+    const user = userEvent.setup()
+    const { router } = await renderSidebar(vi.fn(), `/c/${conversation.id}`)
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+    await screen.findByRole('button', { name: '用户菜单' })
+    await user.click(screen.getByRole('button', { name: '折叠侧边栏' }))
+
+    await user.keyboard(`{${modifier}>}{Alt>}n{/Alt}{/${modifier}}`)
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'))
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  })
+
+  it('没有对话读写权限时禁用对应入口，快捷键也不打开搜索或离开当前页', async () => {
+    server.use(
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({
+          user: {
+            ...mockAuthUser,
+            permissions: ['tasks:read'],
+          },
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    const { router } = await renderSidebar(vi.fn(), '/tasks')
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+    await screen.findByRole('button', { name: '用户菜单' })
+
+    expect(screen.getByRole('button', { name: '搜索' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '新建任务' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '需求单' })).toBeEnabled()
+    expect(screen.getByText('当前账号没有查看对话权限')).toBeVisible()
+    await user.keyboard('{Control>}k{/Control}')
+    await user.keyboard('{Control>}{Alt>}n{/Alt}{/Control}')
+
+    expect(screen.queryByRole('dialog', { name: '搜索对话' })).not.toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/tasks')
   })
 })
 

@@ -62,38 +62,77 @@ describe('TasksRoute', () => {
     expect(within(mine).queryByText('夏季新品视频')).not.toBeInTheDocument()
   })
 
-  it('完整创建后回读创作规格和多款商品，时长比例与分辨率均保留', async () => {
+  it('创建后回读规格、多款商品、分类参考图与单视频，字段归属保持一致', async () => {
+    vi.stubGlobal('createImageBitmap', async () => ({
+      close: () => {},
+      height: 800,
+      width: 600,
+    }))
     const user = userEvent.setup()
     await renderLoggedIn()
 
     await user.click(await screen.findByRole('button', { name: '新建需求单' }))
     const dialog = await screen.findByRole('dialog')
-    await user.type(within(dialog).getByLabelText('需求单名称'), '新品测评视频')
-    await user.type(within(dialog).getByLabelText('商品 1 款号'), 'SBPU24001W')
-    await user.type(within(dialog).getByLabelText('商品 1 名称'), '轻薄防晒衣')
-    await user.type(within(dialog).getByLabelText('商品 1 品牌'), '品牌甲')
-    await user.type(within(dialog).getByLabelText('商品 1 品类'), '外套')
-    await user.type(within(dialog).getByLabelText('商品 1 颜色'), '白色')
+    const fillText = async (label: string, value: string) => {
+      await user.click(within(dialog).getByLabelText(label))
+      await user.paste(value)
+    }
+    await fillText('需求单名称', '新品测评视频')
+    fireEvent.change(within(dialog).getByLabelText('截止时间'), {
+      target: { value: '2026-10-01T18:30' },
+    })
+    await fillText('商品 1 款号', 'SBPU24001W')
+    await fillText('商品 1 名称', '轻薄防晒衣')
+    await fillText('商品 1 品牌', '品牌甲')
+    await fillText('商品 1 品类', '外套')
+    await fillText('商品 1 颜色', '白色')
     expect(within(dialog).queryByRole('button', { name: '移除商品 1' })).not.toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
     await user.click(within(dialog).getByRole('button', { name: '添加商品' }))
-    await user.type(within(dialog).getByLabelText('商品 3 款号'), 'SBPU24003W')
+    await fillText('商品 3 款号', 'SBPU24003W')
     await user.click(within(dialog).getByRole('button', { name: '移除商品 2' }))
     expect(within(dialog).getByLabelText('商品 2 款号')).toHaveValue('SBPU24003W')
     expect(within(dialog).queryByLabelText('商品 3 款号')).not.toBeInTheDocument()
-    await user.type(within(dialog).getByLabelText('发布平台'), 'douyin')
-    await user.type(within(dialog).getByLabelText('视频类型'), 'product_showcase')
-    await user.type(within(dialog).getByLabelText('内容类型'), 'short_video')
+    await fillText('发布平台', 'douyin')
+    await fillText('视频类型', 'product_showcase')
+    await fillText('内容类型', 'short_video')
     expect(within(dialog).getByLabelText('发布平台')).toHaveValue('抖音')
     expect(within(dialog).getByLabelText('视频类型')).toHaveValue('产品展示')
     expect(within(dialog).getByLabelText('内容类型')).toHaveValue('短视频')
-    await user.type(within(dialog).getByLabelText('分辨率'), '1080p')
+    await fillText('分辨率', '1080p')
     await user.selectOptions(within(dialog).getByLabelText('比例'), '9:16')
     await user.type(within(dialog).getByLabelText('目标时长（秒）'), '15')
-    await user.type(within(dialog).getByLabelText('创作要求'), '展示面料的轻薄透气')
+    await fillText('创作要求', '展示面料的轻薄透气')
+
+    const uploadReferenceImage = async (label: string) => {
+      await user.upload(
+        within(dialog).getByLabelText(`选择${label}文件`),
+        new File(['image'], `${label}.png`, { type: 'image/png' }),
+      )
+      const image = await within(dialog).findByRole<HTMLImageElement>('img', { name: `${label} 1` })
+      return image.src
+    }
+    const modelUrl = await uploadReferenceImage('模特参考图')
+    const outfitUrl = await uploadReferenceImage('穿搭参考图')
+    const propUrl = await uploadReferenceImage('道具参考图')
+    const productUrl = await uploadReferenceImage('商品 2 图片')
+    await user.upload(
+      within(dialog).getByLabelText('选择参考视频文件'),
+      new File(['video'], '参考.mp4', { type: 'video/mp4' }),
+    )
+    await user.click(await within(dialog).findByRole('button', { name: '预览参考视频 1' }))
+    const videoUrl = screen.getByLabelText<HTMLVideoElement>('参考视频 1', {
+      selector: 'video',
+    }).src
+    await user.click(
+      within(screen.getByRole('dialog', { name: '参考视频 1' })).getByRole('button', {
+        name: '关闭预览',
+      }),
+    )
     await user.click(within(dialog).getByRole('button', { name: '创建需求单' }))
 
     expect(await screen.findByText('新品测评视频')).toBeVisible()
+    expect(mockTasks[0]?.deadline).toBe(new Date('2026-10-01T18:30').toISOString())
     expect(mockTasks[0]?.inputs).toEqual({
       video_spec: {
         platform: 'douyin',
@@ -118,17 +157,20 @@ describe('TasksRoute', () => {
           brand: '',
           category: '',
           color_name: '',
-          image_oss_urls: [],
+          image_oss_urls: [productUrl],
         },
       ],
-      reference_image_oss_urls: { model: [], outfit: [], prop: [] },
-      reference_video_oss_url: null,
+      reference_image_oss_urls: { model: [modelUrl], outfit: [outfitUrl], prop: [propUrl] },
+      reference_video_oss_url: videoUrl,
       creative_requirement: '展示面料的轻薄透气',
     })
     expect(screen.getByText(/SBPU24001W 等 2 款/)).toBeVisible()
     await user.click(screen.getByText('新品测评视频'))
     const reopened = await screen.findByRole('dialog')
+    expect(within(reopened).getByLabelText('截止时间')).toHaveValue('2026-10-01T18:30')
     expect(within(reopened).getByLabelText('商品 1 名称')).toHaveValue('轻薄防晒衣')
+    expect(within(reopened).getByLabelText('商品 1 品牌')).toHaveValue('品牌甲')
+    expect(within(reopened).getByLabelText('商品 1 品类')).toHaveValue('外套')
     expect(within(reopened).getByLabelText('商品 1 颜色')).toHaveValue('白色')
     expect(within(reopened).getByLabelText('商品 2 款号')).toBeDisabled()
     expect(within(reopened).getByLabelText('商品 2 名称')).toBeEnabled()
@@ -137,6 +179,31 @@ describe('TasksRoute', () => {
     expect(within(reopened).getByLabelText('目标时长（秒）')).toHaveValue(15)
     expect(within(reopened).getByLabelText('分辨率')).toHaveValue('1080p')
     expect(within(reopened).getByLabelText('比例')).toHaveValue('9:16')
+    expect(within(reopened).getByLabelText('发布平台')).toHaveValue('抖音')
+    expect(within(reopened).getByLabelText('视频类型')).toHaveValue('产品展示')
+    expect(within(reopened).getByLabelText('内容类型')).toHaveValue('短视频')
+    expect(within(reopened).getByLabelText('创作要求')).toHaveValue('展示面料的轻薄透气')
+    expect(within(reopened).getByRole('img', { name: '商品 2 图片 1' })).toHaveAttribute(
+      'src',
+      productUrl,
+    )
+    expect(within(reopened).getByRole('img', { name: '模特参考图 1' })).toHaveAttribute(
+      'src',
+      modelUrl,
+    )
+    expect(within(reopened).getByRole('img', { name: '穿搭参考图 1' })).toHaveAttribute(
+      'src',
+      outfitUrl,
+    )
+    expect(within(reopened).getByRole('img', { name: '道具参考图 1' })).toHaveAttribute(
+      'src',
+      propUrl,
+    )
+    await user.click(within(reopened).getByRole('button', { name: '预览参考视频 1' }))
+    expect(screen.getByLabelText('参考视频 1', { selector: 'video' })).toHaveAttribute(
+      'src',
+      videoUrl,
+    )
   })
 
   it('认领 published 需求单后出现在我的需求单', async () => {
@@ -256,29 +323,23 @@ describe('TasksRoute', () => {
     })
     server.use(
       http.post('*/api/uploads/sign', () => {
-        const assetId = ids[signed++]
+        const uploadId = ids[signed++]
         return HttpResponse.json({
-          assetId,
+          uploadId,
           upload: {
             expiresAt: '2026-10-01T00:00:00Z',
             headers: {},
-            url: `http://localhost/mock-oss/${assetId}`,
+            url: `http://localhost/mock-oss/${uploadId}`,
           },
         })
       }),
-      http.post('*/api/assets/:assetId', async ({ params }) => {
-        const id = String(params['assetId'])
+      http.post('*/api/uploads/:uploadId/confirm', async ({ params }) => {
+        const id = String(params['uploadId'])
         await (id === ids[0] ? productReady : modelReady)
         return HttpResponse.json({
-          asset: {
-            id,
-            assetType: 'image',
-            contentType: 'image/png',
-            createdAt: new Date().toISOString(),
-            creatorUserId: mockAuthUser.id,
-            sizeBytes: 100,
-            url: `http://localhost/mock-oss/${id}`,
-          },
+          contentType: 'image/png',
+          sizeBytes: 100,
+          url: `http://localhost/mock-oss/${id}`,
         })
       }),
     )

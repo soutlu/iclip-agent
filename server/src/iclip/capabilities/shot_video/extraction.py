@@ -34,7 +34,6 @@ from iclip.capabilities.shot_video.shots import (
     parse_shot_rows,
     sample_rows,
 )
-from iclip.capabilities.video_understanding import VideoUnderstanding, VideoUnderstandingError
 from iclip.platform.file_store.store import FileStore
 
 EXTRACTION_PATH: Final = "frames/extraction.json"
@@ -44,27 +43,18 @@ _JPEG: Final = "image/jpeg"
 
 
 class FrameExtractor:
-    """生成拆解文档和取帧台账。"""
+    """按拆解文档抽帧、拼板并维护取帧台账。"""
 
     def __init__(
         self,
         *,
-        understanding: VideoUnderstanding,
         client: httpx.AsyncClient,
         paths: ShotVideoPaths,
         objects: PublicObjectWriter,
     ) -> None:
-        self._understanding = understanding
         self._client = client
         self._paths = paths
         self._objects = objects
-
-    async def parse(self, video_url: str) -> str:
-
-        try:
-            return await self._understanding.parse(video_url)
-        except VideoUnderstandingError as exc:
-            raise ModelRetry(f"这段视频没拆解成功：{exc}") from exc
 
     async def shot_rows(
         self, files: FileStore, namespace: str, doc_path: str

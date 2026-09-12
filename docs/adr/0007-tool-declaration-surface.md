@@ -23,7 +23,7 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 ### 2. 范围规则写在 `args_validator` 里
 
 - 单工具的范围规则放在 `args_validator`，不写在工具体里。素材来源与类型校验按 [ADR-0010](0010-materials-ledger.md) 查询持久台账；skill reference 的验证器限制可读的已挂载 skill 与 Markdown 类型。
-- 验证器抛 `ModelRetry` 表示「参数能改」，抛 `ToolFailed` 表示「这次不行、别重试」，抛 `ApprovalRequired(metadata=...)` 表示「要人点头」；`metadata` 随 `DeferredToolRequests` 带出去给审批卡。
+- 验证器区分可修正参数、执行失败与审批请求，具体异常及 metadata 用法见[工具规范](../tool-design.md#3-登记与范围校验)。
 - 属主隔离不在验证器里：审批与验证都不是授权边界，按 `deps` 里的身份做的数据隔离留在工具体与存储层。
 
 ### 3. 跨工具的规则只有一个落点
@@ -38,19 +38,18 @@ pydantic-ai 2.37 已有与此对应的公开接口：`FunctionToolset.add_functi
 ### 5. 界面画法归工具所有者
 
 - 每个 capability 自带「工具名 → 参数 → display」的表，由工具所有者维护。`platform/transcript/display.py` 只留 display 的类型与合表协议；组合根把各能力的表合成一份，同一实例递给实时（`projector.py`）与历史（`from_messages.py`）两条路。
-- display 的 `kind` 只取 kimi `packages/protocol/src/display.ts` 里已有的：`file_io`、`search`、`url_fetch`、`skill_call`、`agent_call`、`generic`。不自造 kind；kimi 合同里的可选字段（`file_io` 的 `content` / `before` / `after`、`generic` 的 `detail`）能填就填。
-- `generic.summary` 是标题、`detail` 是主语，写法与词表见 `docs/tool-design.md` §4；数字不进标题。
+- display 沿用既有协议类型，不自造 kind；可选字段有对应事实时再填。类型与字段以 [display 协议](../../server/src/iclip/platform/transcript/display.py) 为准，标题与角标写法见[工具规范](../tool-design.md#4-输出与展示)。
 - 帧上的 `view`（协议已有）由服务端给出，前端按它选渲染器，不认工具名；给不出就不给，前端走 generic。
 
 ### 6. 给人看的结果走 `ToolReturn.metadata`
 
 - 需要给人看结构化结果的工具返回 `ToolReturn(return_value=给模型的原样, metadata=给人看的形状)`。`metadata` 不进模型上下文，随 `ToolReturnPart` 落库，实时与历史两条路读同一个字段，原样放进工具帧。
-- `metadata` 的形状由 `view` 决定：`file_content`、`search_results`、`media_grid` 各一种；没有 `view` 的工具只带角标（`ToolNote`）。形状与构造函数列在 `docs/tool-design.md` §4，新形状先加 view 再加形状。
+- `metadata` 的形状由 `view` 决定；没有 `view` 的工具只带角标（`ToolNote`）。形状与构造函数集中在 [display 协议](../../server/src/iclip/platform/transcript/display.py)，新形状先声明 view。
 - 角标文字由工具写好放进 metadata（`media_grid.note`、`ToolNote.chip`），前端不从 output 或参数里拼。
 
 ### 7. 模型面输出的上限
 
-- 一次工具返回给模型的文本不超过 50,000 字符。超出的在源头处理：写进工作区，返回路径与摘要。`video_parser` 是这个写法的现成例子。
+- 模型面输出在源头限界；上限与超限处理统一见[工具规范](../tool-design.md#4-输出与展示)。
 - 工具在源头限界，当前不挂 harness `ToolOutputLimits`。若引入该兜底，使用 `Spill(then=Truncate())`，spill store 必须实现官方 `OverflowStore` 协议并落在 Postgres，不用默认本地盘。
 
 ### 8. `ReadMediaFile` 归 workspace

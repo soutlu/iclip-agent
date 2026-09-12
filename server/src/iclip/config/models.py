@@ -37,13 +37,13 @@ SSO_BASE_URL_ENV: Final = "SSO_BASE_URL"
 """SSO 的总开关：这个地址为空即整项关闭。"""
 
 OSS_BUCKET_ENV: Final = "OSS_BUCKET"
-"""公开对象存储的总开关：桶名为空即整项关闭（``/uploads/*`` 与 ``/assets/*`` 不挂载）。"""
+"""公开对象存储的总开关：桶名为空即整项关闭（``/uploads/*`` 不挂载）。"""
 
 VIDEO_SUBMIT_URL_ENV: Final = "VIDEO_SUBMIT_URL"
 """媒体生成的总开关：这个地址为空即整项关闭。"""
 
 VIDEO_UNDERSTANDING_URL_ENV: Final = "VIDEO_UNDERSTANDING_URL"
-"""视频拆解的总开关：这个地址为空即两条创作流都关闭（`exact_replica`、`shot_video` 不登记）。"""
+"""视频拆解的总开关：这个地址为空即 `video` 不登记。"""
 
 PRODUCT_CATALOG_DATABASE_URL_ENV: Final = "PRODUCT_CATALOG_DATABASE_URL"
 """PDM 款目录的总开关：这个连接串为空即爆款视频的降级不可用。"""
@@ -260,12 +260,8 @@ class MediaGenerationSection(ConfigSection):
     job_timeout_seconds: int = Field(default=3600, ge=1)
 
 
-class ShotVideoSection(ConfigSection):
-    """镜头素材能力里对方约定的取值与节奏。地址与 key 在 ``VideoUnderstandingEnv``。
-
-    这项能力**建立在媒体生成之上**：出图走生成域，帧与切格产物落生成用的那个公
-    开对象存储。所以生成没开的时候它也装不起来。
-    """
+class VideoSection(ConfigSection):
+    """视频拆解对方约定的取值。地址与 key 在 ``VideoUnderstandingEnv``。"""
 
     understanding_model: str
     """拆解视频用对方哪个模型。"""
@@ -278,6 +274,14 @@ class ShotVideoSection(ConfigSection):
 
     快剪片一秒切两三刀，每秒只看一帧就看不见剪辑点，时间码全压在整秒上。方舟只收
     0.2-5，装配期就拦住。
+    """
+
+
+class ShotVideoSection(ConfigSection):
+    """取帧与出图的节奏与渠道重试；写出这一段即启用。
+
+    这项能力**建立在媒体生成之上**：出图走生成域，帧与切格产物落生成用的那个公
+    开对象存储。所以生成没开的时候它也装不起来。
     """
 
     poll_interval_seconds: float = Field(default=5.0, gt=0)
@@ -357,6 +361,7 @@ class RuntimeConfig(BaseSettings):
     security: SecuritySection
     sso: SsoSection
     media_generation: MediaGenerationSection | None = None
+    video: VideoSection | None = None
     shot_video: ShotVideoSection | None = None
     models: dict[str, ModelSection] = Field(default_factory=dict[str, ModelSection])
     conversations: ConversationsSection = ConversationsSection()
@@ -435,14 +440,20 @@ class ResolvedMediaGeneration:
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedShotVideo:
-    """镜头素材能力的运行值。"""
+class ResolvedVideo:
+    """视频拆解的运行值。"""
 
     understanding_url: str
     understanding_api_key: str
     understanding_model: str
     understanding_thinking: ArkReasoningEffort | None
     understanding_fps: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedShotVideo:
+    """取帧与出图的运行值。"""
+
     poll_interval_seconds: float
     dev_attempts: int
     pro_attempts: int
@@ -502,6 +513,7 @@ class ResolvedSettings:
     sso: ResolvedSso | None
     object_store: ObjectStoreEnv | None
     media_generation: ResolvedMediaGeneration | None
+    video: ResolvedVideo | None
     shot_video: ResolvedShotVideo | None
     product_catalog: ResolvedProductCatalog | None
     models: tuple[ResolvedModel, ...]
@@ -513,17 +525,25 @@ class ResolvedSettings:
     log_format: Literal["console", "json"]
 
     @property
-    def shot_tools_enabled(self) -> bool:
-        """取帧与出图这套是否可用：拆解、媒体生成、对象存储三者都在才算。
+    def shot_tools_missing(self) -> tuple[str, ...]:
+        """写了 ``shot_video`` 段却装不起取帧与出图时，缺的环境变量名；空即齐了。"""
 
-        只有拆解时仍可装配完全复刻。ffmpeg 检查与能力登记都按这个判断，不各自重算。
-        """
-
-        return (
-            self.shot_video is not None
-            and self.media_generation is not None
-            and self.object_store is not None
+        if self.shot_video is None:
+            return ()
+        return tuple(
+            name
+            for name, present in (
+                (VIDEO_SUBMIT_URL_ENV, self.media_generation is not None),
+                (OSS_BUCKET_ENV, self.object_store is not None),
+            )
+            if not present
         )
+
+    @property
+    def shot_tools_enabled(self) -> bool:
+        """取帧与出图是否可用；ffmpeg 检查与能力登记都按这一处判断。"""
+
+        return self.shot_video is not None and not self.shot_tools_missing
 
 
 def _from_env[EnvT: EnvSettings](cls: type[EnvT]) -> EnvT:
@@ -580,18 +600,27 @@ def _resolve_media_generation(
     )
 
 
-def _resolve_shot_video(section: ShotVideoSection | None) -> ResolvedShotVideo | None:
-    """按声明与视频理解开关解析；媒体生成依赖由完整镜头能力装配检查。"""
+def _resolve_video(section: VideoSection | None) -> ResolvedVideo | None:
+    """按声明与视频理解开关解析。"""
 
     if section is None or not _switched_on(VIDEO_UNDERSTANDING_URL_ENV):
         return None
     env = _from_env(VideoUnderstandingEnv)
-    return ResolvedShotVideo(
+    return ResolvedVideo(
         understanding_url=env.url,
         understanding_api_key=env.api_key,
         understanding_model=section.understanding_model,
         understanding_thinking=section.understanding_thinking,
         understanding_fps=section.understanding_fps,
+    )
+
+
+def _resolve_shot_video(section: ShotVideoSection | None) -> ResolvedShotVideo | None:
+    """按声明解析取帧与出图的节奏；媒体生成与对象存储是否齐由 ``shot_tools_missing`` 判。"""
+
+    if section is None:
+        return None
+    return ResolvedShotVideo(
         poll_interval_seconds=section.poll_interval_seconds,
         dev_attempts=section.dev_attempts,
         pro_attempts=section.pro_attempts,
@@ -644,6 +673,7 @@ def resolve_settings(config: RuntimeConfig) -> ResolvedSettings:
         sso=sso,
         object_store=object_store,
         media_generation=media_generation,
+        video=_resolve_video(config.video),
         shot_video=_resolve_shot_video(config.shot_video),
         product_catalog=_resolve_product_catalog(),
         models=tuple(

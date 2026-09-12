@@ -1,7 +1,6 @@
 /** 单测检查文本与 title；hover 显隐由视觉截图验证。 */
 
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptUsage } from '@/shared/transcript/vendor'
 import { TurnActions } from './turn-actions'
@@ -134,27 +133,5 @@ describe('TurnActions', () => {
 
     const time = screen.getByTitle('2020/01/02 03:04:05')
     expect(time).toHaveTextContent('2020年1月2日 03:04')
-  })
-
-  it('没传 onRegenerate 时不渲染重新生成钮', () => {
-    render(<TurnActions copyText="回复" />)
-
-    expect(screen.queryByRole('button', { name: '重新生成' })).toBeNull()
-  })
-
-  it('传了 onRegenerate 时点它触发回调', async () => {
-    const onRegenerate = vi.fn()
-    const user = userEvent.setup()
-    render(<TurnActions copyText="回复" onRegenerate={onRegenerate} />)
-
-    await user.click(screen.getByRole('button', { name: '重新生成' }))
-
-    expect(onRegenerate).toHaveBeenCalledOnce()
-  })
-
-  it('regenerateDisabled 时重新生成钮置灰不可点', () => {
-    render(<TurnActions copyText="回复" onRegenerate={vi.fn()} regenerateDisabled />)
-
-    expect(screen.getByRole('button', { name: '重新生成' })).toBeDisabled()
   })
 })

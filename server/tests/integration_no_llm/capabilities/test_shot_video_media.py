@@ -38,7 +38,7 @@ from iclip.capabilities.shot_video.ports import ObjectWriteFailed
 from iclip.capabilities.shot_video.toolset import (
     ShotVideoToolset,
 )
-from iclip.capabilities.video_understanding import video_doc_path
+from iclip.capabilities.video_document import video_doc_path
 from iclip.capabilities.workspace.scope import workspace_namespace
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.models import Principal
@@ -51,7 +51,7 @@ from iclip.platform.object_store.layout import MEDIA_PATHS
 from iclip.platform.transcript.ops import MAIN_AGENT_ID, TextContent, ToolFrame
 from tests.helpers.file_store import FakeFileStore
 from tests.helpers.material_ledger import FakeMaterialLedger
-from tests.helpers.shot_video import FakeGenerations, FakeObjects, FakeUnderstanding, Outcome
+from tests.helpers.shot_video import FakeGenerations, FakeObjects, Outcome
 
 pytestmark = pytest.mark.skipif(not ffmpeg_available(), reason="本机 PATH 上没有 ffmpeg/ffprobe")
 
@@ -217,7 +217,6 @@ def make_tools(
         generations=generations or FakeGenerations(),
         objects=objects,
         paths=MEDIA_PATHS,
-        understanding=FakeUnderstanding(),
         client=client,
         image_models=frozenset({IMAGE_MODEL}),
         policy=FAST,

@@ -6,12 +6,14 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -48,12 +50,14 @@ MAX_PROMPT_CHARS: Final = 4000
 MAX_REFERENCE_URLS: Final = 16
 MAX_MODEL_CHARS: Final = 200
 MAX_USER_NAME_CHARS: Final = 200
+MAX_METADATA_CHARS: Final = 2000
+"""``metadata`` 序列化后的长度上限：它是调用方的坐标标签，不是存东西的地方。"""
 
-ORIGIN_FIELDS: Final = frozenset({"conversation_id", "shot_index", "task_id"})
+ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata"})
 """归属字段：落表上自己的列，不进 ``request`` JSON。
 
-它们不是发给 provider 的参数，而是「这一行属于谁」——按对话、需求单查生成记录要走索引，
-藏在 JSON 里就只能全表扫。"""
+它们不是发给 provider 的参数，而是「这一行属于谁、为谁出的」：对话与需求单按索引查；
+``metadata`` 是调用方自带的坐标，服务端原样存、按包含匹配筛，不读里面的键。"""
 
 NOT_FORWARDED_FIELDS: Final = ORIGIN_FIELDS | frozenset({"shot"})
 """发给上游时去掉的字段：归属字段是我们自己的；``shot`` 已经拼成 ``prompt``，上游只认正文。
@@ -89,6 +93,16 @@ def _http_only(urls: list[str]) -> list[str]:
         if not url.startswith(("http://", "https://")):
             raise ValueError(f"[{index}] 必须是 http:// 或 https:// 地址")
     return urls
+
+
+def _bounded_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    if len(json.dumps(value, ensure_ascii=False, default=str)) > MAX_METADATA_CHARS:
+        raise ValueError(f"metadata 序列化后不能超过 {MAX_METADATA_CHARS} 字符")
+    return value
+
+
+Metadata = Annotated[dict[str, Any], AfterValidator(_bounded_metadata)]
+"""调用方自己的坐标标签，服务端不解释。分镜页写 ``{"path", "shot", "frame"}``，形状归前端定。"""
 
 
 def _nonblank(text: str) -> str:
@@ -170,7 +184,7 @@ def _check_image_references(shot: VideoShotIn, available: int) -> None:
 
 
 class VideoGenerationIn(SnakeModel):
-    """一次视频生成的输入。字段照上游异步接口，外加三个归属字段与结构化的 ``shot``。
+    """一次视频生成的输入。字段照上游异步接口，外加归属字段、坐标 ``metadata`` 与结构化的 ``shot``。
 
     只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1、``shot``
     自身对得上（图片引用不越界、编号与正文一致）。画幅、分辨率、时长范围、素材规格由上游
@@ -200,9 +214,9 @@ class VideoGenerationIn(SnakeModel):
     """各家私有参数的透传口，白名单由上游校验。"""
 
     conversation_id: uuid.UUID | None = None
-    shot_index: Annotated[int, Field(ge=1)] | None = None
     task_id: uuid.UUID | None = None
     """需求单 id。只做归属与筛选，不校验它与对话的挂载关系。"""
+    metadata: Metadata | None = None
 
     _check_urls = field_validator(
         "reference_image_urls", "reference_video_urls", "reference_audio_urls"
@@ -251,12 +265,9 @@ class ImageGenerationIn(CamelModel):
     resolution: IMAGE_RESOLUTIONS = "1k"
     reference_image_urls: Annotated[list[str], Field(max_length=IMAGE_MAX_REFERENCES)] = []
 
-    frame_number: int | None = Field(default=None, ge=1)
-    """要顶替镜头组里的第几帧。服务端只当标签存着供筛选，不解析、不定位。"""
-
     conversation_id: uuid.UUID | None = None
-    shot_index: Annotated[int, Field(ge=1)] | None = None
     task_id: uuid.UUID | None = None
+    metadata: Metadata | None = None
 
     _check_urls = field_validator("reference_image_urls")(_http_only)
 
@@ -299,7 +310,7 @@ class GenerationOut(CamelModel):
     kind: str
     status: str
     request: dict[str, Any]
-    shot_index: int | None
+    metadata: dict[str, Any] | None
     task_id: uuid.UUID | None
     output_url: str | None
     watermark_output_url: str | None
@@ -314,7 +325,7 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         kind=job.kind,
         status=job.status,
         request=request_to_payload(job.request),
-        shot_index=job.shot_index,
+        metadata=job.metadata,
         task_id=job.task_id,
         output_url=job.output_url,
         watermark_output_url=job.watermark_output_url,
@@ -421,6 +432,7 @@ __all__ = [
     "IMAGE_MAX_REFERENCES",
     "KIND_IMAGE",
     "KIND_VIDEO",
+    "MAX_METADATA_CHARS",
     "MAX_MODEL_CHARS",
     "MAX_PROMPT_CHARS",
     "MAX_REFERENCE_URLS",
@@ -435,6 +447,7 @@ __all__ = [
     "ImageGenerationIn",
     "ImageModelOut",
     "ImageModelsOut",
+    "Metadata",
     "VideoGenerationIn",
     "VideoModelsOut",
     "VideoShotIn",

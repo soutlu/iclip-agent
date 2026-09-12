@@ -7,12 +7,37 @@ import {
   zImageGenerationIn,
   zImageModelsOut,
 } from '@/shared/api/generated/zod.gen'
-import type { GenerationJob } from '../storyboard.api'
+import { metadataFilterParam, storyboardMetadata } from '../generation-metadata'
+import { generationsRefetchInterval, type GenerationJob } from '../storyboard.api'
 import { isRunningStatus } from '../shots'
 import type { EditInstruction, FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
+/** 本对话全部参考帧编辑记录的查询前缀；按格的键挂在它下面，失效前缀即失效全部。 */
+export const imageEditConversationKey = (conversationId: string) =>
+  ['frame-edits', conversationId] as const
+
 export const imageEditQueryKey = (target: FrameEditTarget) =>
-  ['frame-edits', target.conversationId, target.shotIndex, target.frameNumber] as const
+  [
+    ...imageEditConversationKey(target.conversationId),
+    target.shotIndex,
+    target.frameNumber,
+  ] as const
+
+/** 本对话最近的图片任务，给分镜页在帧上挂状态用。
+ *
+ * 键就是按格查询的前缀，一次失效两边一起重拉；倒序取 100 条够用，在跑的任务一定是最近的。
+ * 状态跳转帧到了由 useLiveGenerations 立刻失效；有任务在跑时仍每 5 秒轮询兜底。 */
+export const useFrameImageJobs = (conversationId: string) =>
+  useQuery({
+    queryKey: imageEditConversationKey(conversationId),
+    queryFn: ({ signal }) =>
+      apiFetch(
+        `/generations?conversationId=${conversationId}&kind=image&limit=100`,
+        zGenerationsPageOut,
+        { signal, fallbackErrorMessage: '读取图片任务失败' },
+      ),
+    refetchInterval: ({ state }) => generationsRefetchInterval(state.data?.items ?? []),
+  })
 
 export function useImageEditJobs(target: FrameEditTarget) {
   return useInfiniteQuery({
@@ -22,8 +47,9 @@ export function useImageEditJobs(target: FrameEditTarget) {
       const params = new URLSearchParams({
         conversationId: target.conversationId,
         kind: 'image',
-        shotIndex: String(target.shotIndex),
-        frameNumber: String(target.frameNumber),
+        metadata: metadataFilterParam(
+          storyboardMetadata(target.artifactPath, target.shotIndex, target.frameNumber),
+        ),
         limit: '20',
       })
       if (pageParam !== undefined) params.set('before', pageParam)
@@ -33,6 +59,9 @@ export function useImageEditJobs(target: FrameEditTarget) {
       })
     },
     getNextPageParam: (page) => (page.items.length >= 20 ? page.items.at(-1)?.id : undefined),
+    // 编辑器按需打开，页面上的角标可能已经知道任务落定了；打开就重拉，不吃全局 30 秒的新鲜期。
+    staleTime: 0,
+    // 状态跳转帧到了由 useLiveGenerations 立刻失效；有任务在跑时仍每 5 秒轮询兜底。
     refetchInterval: ({ state }) =>
       state.data?.pages.some((page) => page.items.some((job) => isRunningStatus(job.status)))
         ? 5000
@@ -177,8 +206,7 @@ export async function submitImageEdit(
   // 不带 userName：浏览器会话由服务端填登录用户名。
   const body = zImageGenerationIn.parse({
     conversationId: target.conversationId,
-    shotIndex: target.shotIndex,
-    frameNumber: target.frameNumber,
+    metadata: storyboardMetadata(target.artifactPath, target.shotIndex, target.frameNumber),
     ...options,
     prompt: compileEditPrompt(draft),
     referenceImageUrls: draft.references.map((reference) => reference.url),

@@ -13,7 +13,7 @@ TitleKind = Literal["default", "generated", "custom"]
 
 @dataclass(frozen=True, slots=True)
 class Conversation:
-    """一段对话的持久事实行。"""
+    """一段对话的持久事实行。已删除的行只在存储层占住 id，不会进入领域层。"""
 
     id: uuid.UUID
     owner_user_id: uuid.UUID

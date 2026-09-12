@@ -129,6 +129,30 @@ class SessionWorkChanged(_Envelope):
     payload: SessionWorkPayload
 
 
+class GenerationChangedPayload(_Envelope):
+    """``kind`` 与 ``status`` 是生成域的词，这里只当字符串转发，与列表接口 ``GenerationOut`` 同一套。"""
+
+    id: str
+    kind: str
+    status: str
+    metadata: dict[str, Any] | None = None
+
+
+class GenerationChanged(_Envelope):
+    """某条生成任务的业务状态跳了一格。
+
+    与 ``event.session.work_changed`` 同一类：**不看订阅，按属主发给这个人连着的每一条连接**。
+    分镜页与参考帧编辑器都按对话查列表，帧只说「哪条、跳到哪」，不带结果地址——收到就重拉列表。
+    ``session_id`` 在信封上，与其余 ``event.*`` 一致；没有来源对话的任务这一项省略。
+
+    **易失**：掉了就是掉了。列表接口是事实源，客户端保留轮询兜底，帧只负责「不必等下一次重拉」。
+    """
+
+    type: Literal["event.generation.changed"] = "event.generation.changed"
+    session_id: str | None = None
+    payload: GenerationChangedPayload
+
+
 class FsChangeEntry(_Envelope):
     path: str
     change: Literal["created", "modified", "deleted"]
@@ -188,6 +212,7 @@ ServerFrame = Annotated[
     | TranscriptOps
     | SessionMetaUpdated
     | SessionWorkChanged
+    | GenerationChanged
     | FsChanged
     | Ack
     | Ping,
@@ -367,6 +392,8 @@ __all__ = [
     "FsChangeEntry",
     "FsChangePayload",
     "FsChanged",
+    "GenerationChanged",
+    "GenerationChangedPayload",
     "OpsBatchOut",
     "OpsCatchup",
     "OpsPayload",

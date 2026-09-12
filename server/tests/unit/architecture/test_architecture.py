@@ -21,7 +21,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "domains/inspirations/api.py",
         "domains/collections/api.py",
         "domains/tasks/api.py",
-        "domains/assets/api.py",
+        "domains/uploads/api.py",
         "domains/identity/middleware.py",
         "domains/identity/accounts.py",
         "main.py",
@@ -41,7 +41,7 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
     ("fastapi_users", "fastapi_users_db_sqlalchemy"): ("domains/identity/",),
     ("openai",): ("harness/models.py",),
     ("oss2",): ("platform/object_store/",),
-    ("PIL",): ("capabilities/shot_video/board.py", "domains/assets/images.py"),
+    ("PIL",): ("capabilities/shot_video/board.py",),
     # 队列实现、连接器类型与组合根需要直接引用 procrastinate。
     ("procrastinate",): (
         "domains/generation/queue.py",

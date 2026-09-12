@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import { zAssetEnvelope, zUploadTicketOut } from './generated/zod.gen'
+import { zUploadConfirmedOut, zUploadTicketOut } from './generated/zod.gen'
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const VIDEO_TYPES = ['video/mp4', 'video/quicktime']
@@ -29,7 +29,7 @@ const mediaDimensions = async (file: File, kind: 'image' | 'video') => {
   return { height, width }
 }
 
-/** 签名、直传并登记素材；仅在登记成功后返回可持久化的素材 URL。 */
+/** 签名、直传并确认；服务端按桶里的对象核对通过后才返回可持久化的地址。 */
 export const uploadMediaFile = async (file: File, kind: 'image' | 'video'): Promise<string> => {
   const dimensions = await mediaDimensions(file, kind)
   const ticket = await apiFetch('/uploads/sign', zUploadTicketOut, {
@@ -43,9 +43,9 @@ export const uploadMediaFile = async (file: File, kind: 'image' | 'video'): Prom
     method: ticket.upload.method,
   })
   if (!response.ok) throw new Error(`上传失败：${response.status}`)
-  const envelope = await apiFetch(`/assets/${ticket.assetId}`, zAssetEnvelope, {
+  const confirmed = await apiFetch(`/uploads/${ticket.uploadId}/confirm`, zUploadConfirmedOut, {
     fallbackErrorMessage: '上传失败',
     method: 'POST',
   })
-  return envelope.asset.url
+  return confirmed.url
 }

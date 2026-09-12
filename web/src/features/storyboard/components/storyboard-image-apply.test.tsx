@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Toaster, toast } from '@/shared/ui/toast'
 import { workspaceQueryKeys, type ArtifactRendererProps } from '@/shared/workbench'
 import { pasteTextIntoComposer } from '@/testing/editor'
 import { server } from '@/testing/mocks/server'
@@ -39,12 +40,12 @@ const originalDocument = (): ShotsDocument => ({
 const completedJob = (outputUrl: string, createdAt: string): GenerationJob => ({
   id: crypto.randomUUID(),
   kind: 'image',
-  shotIndex: 1,
+  metadata: { frame: 1, path: PATH, shot: 1 },
   createdAt,
   status: 'completed',
   outputUrl,
   errorMessage: null,
-  request: { frameNumber: 1, prompt: '修改颜色', referenceImageUrls: [ORIGINAL] },
+  request: { prompt: '修改颜色', referenceImageUrls: [ORIGINAL] },
   taskId: null,
   watermarkOutputUrl: null,
 })
@@ -67,9 +68,13 @@ const provideJobs = () => {
 }
 
 const renderReader = () =>
-  renderWithProviders(<StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />, {
-    initialPath: '/?content=scene:1',
-  })
+  renderWithProviders(
+    <>
+      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />
+      <Toaster />
+    </>,
+    { initialPath: '/?content=scene:1' },
+  )
 
 describe('图片编辑结果应用', () => {
   beforeEach(() => {
@@ -84,12 +89,17 @@ describe('图片编辑结果应用', () => {
     )
     provideJobs()
   })
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    toast.dismiss()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
 
   it('应用 A 保存失败后恢复原图，保留描述并允许直接改选 B 保存', async () => {
     let persisted = originalDocument()
     let version = 1
     const writes: ShotsDocument[] = []
+    const staleVersions: number[] = []
     let release = () => {}
     const savingA = new Promise<void>((resolve) => {
       release = resolve
@@ -106,7 +116,7 @@ describe('图片编辑结果应用', () => {
           await savingA
           return HttpResponse.json({ detail: '保存暂时失败' }, { status: 503 })
         }
-        expect(body.expectedVersion).toBe(version)
+        if (body.expectedVersion !== version) staleVersions.push(body.expectedVersion)
         persisted = document
         version += 1
         return HttpResponse.json({ file: { path: PATH, content: body.content, version } })
@@ -154,6 +164,7 @@ describe('图片编辑结果应用', () => {
       CANDIDATE_B,
     )
     expect(writes.filter((item) => item.shots[0]?.image_urls[0] === CANDIDATE_A)).toHaveLength(1)
+    expect(staleVersions).toEqual([])
   })
 
   it('编辑器打开后原图被外部修改时，拒绝应用并保留外部图片', async () => {
@@ -193,6 +204,58 @@ describe('图片编辑结果应用', () => {
       'src',
       CANDIDATE_A,
     )
+  })
+
+  it('服务端保存成功后清理本地草稿失败，仍保留应用结果并关闭编辑器', async () => {
+    const initial = originalDocument()
+    let persisted = initial
+    let version = 1
+    const writes: ShotsDocument[] = []
+    const writeTargets: { path: string; expectedVersion: number }[] = []
+    server.use(
+      http.get('*/api/conversations/:id/workspace/file', () =>
+        HttpResponse.json({ file: { path: PATH, content: JSON.stringify(persisted), version } }),
+      ),
+      http.put('*/api/conversations/:id/workspace/file', async ({ request }) => {
+        const body = (await request.json()) as {
+          content: string
+          expectedVersion: number
+          path: string
+        }
+        writeTargets.push({ path: body.path, expectedVersion: body.expectedVersion })
+        persisted = JSON.parse(body.content) as ShotsDocument
+        writes.push(persisted)
+        version += 1
+        return HttpResponse.json({ file: { path: PATH, content: body.content, version } })
+      }),
+    )
+    await renderReader()
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    await userEvent.click(within(page).getByRole('button', { name: '编辑图片' }))
+    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
+    await userEvent.click(await within(editor).findByRole('button', { name: '查看编辑结果' }))
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('Storage blocked', 'SecurityError')
+    })
+
+    await userEvent.click(within(editor).getByRole('button', { name: '应用到当前帧' }))
+
+    expect(await screen.findByText('图片已应用并保存到当前帧')).toBeVisible()
+    expect(await screen.findByText('图片已保存，但本地草稿清理失败')).toBeVisible()
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+    )
+    expect(writes).toHaveLength(1)
+    expect(writeTargets).toEqual([{ path: PATH, expectedVersion: 1 }])
+    expect(persisted).toEqual({
+      ...initial,
+      shots: [{ ...initial.shots[0], image_urls: [CANDIDATE_A] }],
+    })
+    expect(within(page).getByRole('img', { name: '镜头组 1 第 1 帧' })).toHaveAttribute(
+      'src',
+      CANDIDATE_A,
+    )
+    expect(screen.queryByText(/图片尚未应用/)).not.toBeInTheDocument()
   })
 
   it('关闭编辑器后焦点回到入口按钮', async () => {

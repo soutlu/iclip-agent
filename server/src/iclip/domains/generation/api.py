@@ -5,17 +5,21 @@
 
 from __future__ import annotations
 
+import json
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import TypeAdapter, ValidationError
 
+from iclip.common.errors import ValidationFailed
 from iclip.domains.generation.schemas import (
     GenerationEnvelope,
     GenerationsPageOut,
     ImageGenerationIn,
     ImageModelOut,
     ImageModelsOut,
+    Metadata,
     VideoGenerationIn,
     VideoModelsOut,
     VideoSubmitOut,
@@ -35,7 +39,7 @@ def create_generations_router(service: GenerationService) -> APIRouter:
         body: VideoGenerationIn,
         principal: Annotated[Principal, Depends(require_permission("generation:submit"))],
     ) -> VideoSubmitOut:
-        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / shot_index / task_id。
+        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata。
 
         正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里
         两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可
@@ -68,19 +72,23 @@ def create_generations_router(service: GenerationService) -> APIRouter:
         conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
         kind: Literal["image", "video"] | None = None,
-        shot_index: Annotated[int | None, Query(alias="shotIndex", ge=1)] = None,
-        frame_number: Annotated[int | None, Query(alias="frameNumber", ge=1)] = None,
+        metadata: Annotated[
+            str | None,
+            Query(description="JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义"),
+        ] = None,
         before: uuid.UUID | None = None,
     ) -> GenerationsPageOut:
-        """给了 ``conversationId`` / ``taskId`` 就只列那段对话、那张需求单下面的记录，可见性口径不变。"""
+        """给了 ``conversationId`` / ``taskId`` 就只列那段对话、那张需求单下面的记录，可见性口径不变。
+
+        ``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。
+        """
 
         jobs = await service.list_recent(
             principal,
             limit=limit,
             conversation_id=conversation_id,
             kind=kind,
-            shot_index=shot_index,
-            frame_number=frame_number,
+            metadata=_metadata_filter(metadata),
             task_id=task_id,
             before=before,
         )
@@ -135,6 +143,26 @@ def create_generations_router(service: GenerationService) -> APIRouter:
         return GenerationEnvelope(generation=generation_out(job))
 
     return router
+
+
+_METADATA_FILTER = TypeAdapter(Metadata)
+
+
+def _metadata_filter(raw: str | None) -> dict[str, Any] | None:
+    """查询串里的 ``metadata`` 必须是 JSON 对象，长度与请求体里的同一上限；否则按请求形状错误拒绝。"""
+
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except ValueError as exc:
+        raise ValidationFailed(f"metadata 不是合法 JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValidationFailed("metadata 必须是 JSON 对象")
+    try:
+        return _METADATA_FILTER.validate_python(parsed)
+    except ValidationError as exc:
+        raise ValidationFailed(str(exc.errors()[0]["msg"])) from exc
 
 
 __all__ = ["create_generations_router"]

@@ -70,7 +70,7 @@ const jobs: GenerationJob[] = [
     kind: 'video',
     outputUrl: 'https://example.com/take.mp4',
     request: { prompt: '本组生成时使用的历史描述。' },
-    shotIndex: 1,
+    metadata: { path: PATH, shot: 1 },
     status: 'completed',
     taskId: null,
     watermarkOutputUrl: null,
@@ -82,7 +82,7 @@ const jobs: GenerationJob[] = [
     kind: 'video',
     outputUrl: null,
     request: { prompt: '另一组的历史描述。' },
-    shotIndex: 2,
+    metadata: { path: PATH, shot: 2 },
     status: 'completed',
     taskId: null,
     watermarkOutputUrl: null,
@@ -100,9 +100,9 @@ const historyPrompt = [
 ].join('\n')
 
 const historyShot = {
-  global_settings: '历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。',
+  global_settings: '  历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。\n',
   timeline: [
-    { image_indexes: [2], prompt: '历史版：模特走出门厅 @Image2。', timestamps: [0, 2.5] },
+    { image_indexes: [2], prompt: '  历史版：模特走出门厅 @Image2。\n', timestamps: [0, 2.5] },
     { image_indexes: [1], prompt: '历史版：转身看向鞋面 @Image1。', timestamps: [2.5, 6] },
   ],
 }
@@ -114,7 +114,7 @@ const editableJob: GenerationJob = {
   kind: 'video',
   outputUrl: 'https://example.com/history.mp4',
   request: { prompt: historyPrompt, shot: historyShot },
-  shotIndex: 1,
+  metadata: { path: PATH, shot: 1 },
   status: 'completed',
   taskId: null,
   watermarkOutputUrl: null,
@@ -128,7 +128,7 @@ const runningJob: GenerationJob = {
   kind: 'video',
   outputUrl: null,
   request: { prompt: '刚提交的这一版。' },
-  shotIndex: 1,
+  metadata: { path: PATH, shot: 1 },
   status: 'submitted',
   taskId: null,
   watermarkOutputUrl: null,
@@ -197,7 +197,7 @@ const delayedUpload = () => {
     release = resolve
   })
   server.use(
-    http.put('*/mock-oss/:assetId', async () => {
+    http.put('*/mock-oss/:uploadId', async () => {
       await pending
       return new HttpResponse(null, { status: 200 })
     }),
@@ -373,7 +373,7 @@ describe('StoryboardReader', () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
-  it('全部组概览可定位镜头组，记录只显示当前组且没有 shot 的不能回填', async () => {
+  it('全部组概览可定位镜头组，记录只显示当前组', async () => {
     provide()
     const { router } = await renderReader()
     await screen.findByRole('region', { name: '镜头组 1' })
@@ -386,7 +386,6 @@ describe('StoryboardReader', () => {
     const records = await screen.findByRole('complementary', { name: '生成记录' })
     expect(await within(records).findByText('另一组的历史描述。')).toBeVisible()
     expect(within(records).queryByText('本组生成时使用的历史描述。')).not.toBeInTheDocument()
-    expect(within(records).getByRole('button', { name: '编辑生成' })).toBeDisabled()
   })
 
   it('编辑生成把历史记录里的镜头组回填到当前组并保存', async () => {
@@ -402,11 +401,11 @@ describe('StoryboardReader', () => {
     await waitFor(() => expect(files.writes).toHaveLength(1))
     const saved = JSON.parse(files.writes[0]?.content ?? '{}') as ShotsDocument
     expect(saved.shots[0]?.prompt).toEqual({
-      global_settings: '历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。',
+      global_settings: '  历史版参考锁定：人物和产品保持一致。\n剪辑形式：硬切。\n',
       timeline: [
         {
           timestamps: [0, 2.5],
-          prompt: '历史版：模特走出门厅 @Image2。',
+          prompt: '  历史版：模特走出门厅 @Image2。\n',
           image_indexes: [2],
         },
         {
@@ -440,6 +439,139 @@ describe('StoryboardReader', () => {
       within(records).queryByRole('button', { name: /生成视频|编辑图片/ }),
     ).not.toBeInTheDocument()
     expect(requests.filter((request) => request.method !== 'GET')).toEqual([])
+  })
+
+  it('生成任务帧到了立刻重拉记录，不等轮询', async () => {
+    provide()
+    let served = 0
+    server.use(
+      http.get('*/api/generations', ({ request }) => {
+        // 只数视频列表的重拉；帧上的图片查询走同一端点，另有用例覆盖。
+        if (new URL(request.url).searchParams.get('kind') === 'image')
+          return HttpResponse.json({ items: [] })
+        served += 1
+        const finished = {
+          ...runningJob,
+          outputUrl: 'https://example.com/new.mp4',
+          status: 'completed',
+        }
+        return HttpResponse.json({ items: [served === 1 ? runningJob : finished] })
+      }),
+    )
+    const { socket } = await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+    await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    expect(await within(records).findByText('生成中…')).toBeVisible()
+
+    act(() => {
+      socket.deliver({
+        type: 'event.generation.changed',
+        session_id: CONVERSATION_ID,
+        payload: {
+          id: runningJob.id,
+          kind: 'video',
+          status: 'completed',
+          metadata: { path: PATH, shot: 1 },
+        },
+      })
+    })
+
+    expect(await within(records).findByText('生成完成')).toBeVisible()
+    expect(served).toBe(2)
+  })
+
+  it('参考帧的图片任务挂在帧上：先排队，推送后变成有新结果，看过编辑器就清掉', async () => {
+    provide()
+    const imageJob: GenerationJob = {
+      id: 'c3d4e5f6-7a8b-4c9d-8e0f-1a2b3c4d5e6f',
+      createdAt: '2026-09-01T10:05:00Z',
+      errorMessage: null,
+      kind: 'image',
+      outputUrl: null,
+      metadata: { frame: 2, path: PATH, shot: 1 },
+      request: { prompt: '换个颜色', referenceImageUrls: [] },
+      status: 'pending',
+      taskId: null,
+      watermarkOutputUrl: null,
+    }
+    let imageReads = 0
+    server.use(
+      http.get('*/api/generations', ({ request }) => {
+        if (new URL(request.url).searchParams.get('kind') !== 'image')
+          return HttpResponse.json({ items: jobs })
+        imageReads += 1
+        const finished = {
+          ...imageJob,
+          outputUrl: 'https://example.com/edited.png',
+          status: 'completed',
+        }
+        return HttpResponse.json({ items: [imageReads === 1 ? imageJob : finished] })
+      }),
+    )
+    const { socket } = await renderReader()
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    expect(await within(page).findByText('排队中')).toBeVisible()
+    expect(
+      within(navigationOf(page)).getByRole('button', { name: '预览第 2 帧（排队中）' }),
+    ).toBeVisible()
+    expect(within(navigationOf(page)).getByRole('button', { name: '预览第 1 帧' })).toBeVisible()
+
+    act(() => {
+      socket.deliver({
+        type: 'event.generation.changed',
+        session_id: CONVERSATION_ID,
+        payload: {
+          id: imageJob.id,
+          kind: 'image',
+          status: 'completed',
+          metadata: { frame: 2, path: PATH, shot: 1 },
+        },
+      })
+    })
+
+    const view = await within(page).findByRole('button', { name: '有新结果 · 查看' })
+    expect(
+      within(navigationOf(page)).getByRole('button', { name: '预览第 2 帧（有新结果）' }),
+    ).toBeVisible()
+    await userEvent.click(view)
+    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
+    expect(within(editor).getByText('镜头组 1 · 帧 @2')).toBeVisible()
+    await userEvent.click(within(editor).getByRole('button', { name: '关闭图片编辑' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+    )
+
+    expect(within(page).queryByRole('button', { name: '有新结果 · 查看' })).not.toBeInTheDocument()
+    expect(within(navigationOf(page)).getByRole('button', { name: '预览第 2 帧' })).toBeVisible()
+    // 点开它的角标已经不在了，焦点退回这一帧的编辑入口，不掉到 body。
+    await waitFor(() =>
+      expect(within(page).getByRole('button', { name: '编辑图片' })).toHaveFocus(),
+    )
+  })
+
+  it.each([
+    { action: '关闭生成记录', items: jobs, label: '记录列表关闭' },
+    { action: '返回分镜', items: [], label: '空态返回分镜' },
+  ])('$label 后恢复分镜和路由，保留原文且不保存', async ({ action, items }) => {
+    const files = provide()
+    server.use(http.get('*/api/generations', () => HttpResponse.json({ items })))
+    const { router } = await renderReader()
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    const description = within(page).getByRole('textbox', { name: '镜头 1 的描述' })
+    const originalText = description.textContent
+    await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    if (items.length === 0) expect(await within(records).findByText('暂无视频记录')).toBeVisible()
+    else await within(records).findByText('本组生成时使用的历史描述。')
+
+    await userEvent.click(within(records).getByRole('button', { name: action }))
+
+    expect(screen.queryByRole('complementary', { name: '生成记录' })).not.toBeInTheDocument()
+    expect(description).toBeVisible()
+    expect(description.textContent).toBe(originalText)
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty('sheet'))
+    expect(files.writes).toEqual([])
   })
 
   it('生成设置里换模型、关音频后出片：请求体照上游形状取当前组内容，提交后记录里出现生成中', async () => {
@@ -481,7 +613,7 @@ describe('StoryboardReader', () => {
         reference_image_urls: firstShot.image_urls,
         seconds: firstShot.seconds,
         shot: firstShot.prompt,
-        shot_index: 1,
+        metadata: { path: PATH, shot: 1 },
       },
     ])
     expect(await screen.findByText('生成中 1')).toBeVisible()
@@ -735,7 +867,7 @@ describe('StoryboardReader', () => {
       const release = delayedUpload()
       let registered = 0
       server.events.on('response:mocked', ({ request }) => {
-        if (request.method === 'POST' && request.url.includes('/api/assets/')) registered += 1
+        if (request.method === 'POST' && request.url.endsWith('/confirm')) registered += 1
       })
       await renderReader()
       const page = await screen.findByRole('region', { name: '镜头组 1' })
@@ -826,7 +958,7 @@ describe('StoryboardReader', () => {
     provide(shared)
     await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
-    expect(within(page).getByText('@Image2 · 镜头 1、镜头 2共用')).toBeVisible()
+    expect(within(page).getByText('@Image2 · 镜头 1、镜头 2 共用')).toBeVisible()
     expect(within(page).queryByText(/镜头 1、2、3 共用/)).not.toBeInTheDocument()
   })
 
@@ -856,7 +988,7 @@ describe('StoryboardReader', () => {
 
   it.each(['新增', '替换'])('%s上传失败保留原文件和图片，不安排分镜保存', async (mode) => {
     const files = provide()
-    server.use(http.put('*/mock-oss/:assetId', () => new HttpResponse(null, { status: 503 })))
+    server.use(http.put('*/mock-oss/:uploadId', () => new HttpResponse(null, { status: 503 })))
     await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     if (mode === '新增') {
@@ -878,7 +1010,7 @@ describe('StoryboardReader', () => {
     const release = delayedUpload()
     let registered = 0
     server.events.on('response:mocked', ({ request }) => {
-      if (request.method === 'POST' && request.url.includes('/api/assets/')) registered += 1
+      if (request.method === 'POST' && request.url.endsWith('/confirm')) registered += 1
     })
     const { queryClient } = await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })

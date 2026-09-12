@@ -3,19 +3,24 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { cn } from '@/shared/lib/utils'
 
+import { frameBadgeText, type FrameBadge } from '../frame-status'
 import type { ShotContent } from '../shot-content'
 import { Icon } from '@/shared/icons'
+import { FrameBadgeIcon } from './frame-badge'
 
 type ShotFilmstripProps = {
   contents: readonly ShotContent[]
   activeContent: string
   frameNumber: number | undefined
   frames: readonly string[]
+  /** 按帧号挂的图片任务角标。 */
+  badges: ReadonlyMap<number, FrameBadge>
   onSelect: (content: string, frame?: number) => void
 }
 
 export function ShotFilmstrip({
   activeContent,
+  badges,
   frameNumber,
   frames,
   onSelect,
@@ -81,34 +86,43 @@ export function ShotFilmstrip({
                   onClick={() => onSelect(scene.id)}
                   type="button"
                 >
-                  {scene.id === 'global' ? <Icon decorative name="file" size="md" /> : '无帧'}
+                  {scene.kind === 'global' ? <Icon decorative name="file" size="md" /> : '无帧'}
                 </button>
               ) : (
-                visibleFrames.map((number) => (
-                  <button
-                    aria-label={
-                      active
-                        ? `预览第 ${number} 帧`
-                        : scene.timelineIndex === undefined
-                          ? scene.title
-                          : `镜头 ${scene.timelineIndex + 1}`
-                    }
-                    aria-pressed={active ? number === frameNumber : undefined}
-                    className="storyboard-thumbnail relative cursor-pointer overflow-hidden bg-surface-container ui-focus"
-                    key={number}
-                    onClick={() => onSelect(scene.id, number)}
-                    type="button"
-                  >
-                    <img
-                      alt={number === first ? `${scene.title} 首图` : `第 ${number} 帧`}
-                      className="size-full object-cover"
-                      src={frames[number - 1]}
-                    />
-                    {scene.frameNumbers.length > 1 ? (
-                      <span className="storyboard-frame-label">@{number}</span>
-                    ) : null}
-                  </button>
-                ))
+                visibleFrames.map((number) => {
+                  const badge = badges.get(number)
+                  const label = active
+                    ? `预览第 ${number} 帧`
+                    : scene.timelineIndex === undefined
+                      ? scene.title
+                      : `镜头 ${scene.timelineIndex + 1}`
+                  return (
+                    <button
+                      aria-label={
+                        badge === undefined ? label : `${label}（${frameBadgeText(badge)}）`
+                      }
+                      aria-pressed={active ? number === frameNumber : undefined}
+                      className="storyboard-thumbnail relative cursor-pointer overflow-hidden bg-surface-container ui-focus"
+                      key={number}
+                      onClick={() => onSelect(scene.id, number)}
+                      type="button"
+                    >
+                      <img
+                        alt={number === first ? `${scene.title} 首图` : `第 ${number} 帧`}
+                        className="size-full object-cover"
+                        src={frames[number - 1]}
+                      />
+                      {scene.frameNumbers.length > 1 ? (
+                        <span className="storyboard-frame-label">@{number}</span>
+                      ) : null}
+                      {badge === undefined ? null : (
+                        <span className="storyboard-frame-status">
+                          <FrameBadgeIcon badge={badge} size="xs" />
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
               )}
               {scene.seconds === undefined ? null : (
                 <span className="storyboard-scene-duration">

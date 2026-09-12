@@ -34,9 +34,9 @@ make setup
 
 在仓库根目录创建 `.env`。必需变量及各能力的启用条件见 [配置模型](server/src/iclip/config/models.py) 与 [后端装配说明](docs/architecture.md#2-配置与装配)；启动时会列出缺失的必需变量名。数据库地址必须指向开发库，密钥不入库。
 
-模型表、agent 与 skill 不进仓库：把一份 `server/configs/`（`config.yaml`）与 `server/agents/`（`agents.yaml`、各 agent 目录、`skills/`）放到本机对应位置，两个目录已在 .gitignore。`agents.yaml` 声明启用的 Agent。默认 `storyboard` 需要镜头素材、媒体生成、视频理解与对象存储依赖；仅运行基础对话时，可移除这条 Agent 声明及 `config.yaml` 的 `shot_video` 段，启动后在首页 Agent 菜单选择「通用助手」。改这两个目录里的文件保存即生效，不用重启。
+模型表、agent 与 skill 不进仓库：把一份 `server/configs/`（`config.yaml`）与 `server/agents/`（`agents.yaml`、各 agent 目录、`skills/`）放到本机对应位置，两个目录已在 .gitignore。`agents.yaml` 声明启用的 Agent。默认 `storyboard` 挂载 `workspace`、`video` 与 `shot_video`，需要视频理解、媒体生成与对象存储；仅运行基础对话时，可移除这条 Agent 声明及 `config.yaml` 的 `video`、`shot_video` 段，另声明一条不挂这些能力的 Agent。首页 Agent 菜单显示声明里的 `name`，没写就显示 ID。改这两个目录里的文件保存即生效，不用重启。
 
-只需视频解析与 prompt 交付时，可为 Agent 挂载 `workspace` 和 `exact_replica`；启用条件见[能力装配](docs/architecture.md#2-配置与装配)。
+只需视频拆解与 prompt 交付时，可为 Agent 只挂载 `workspace` 和 `video`；启用条件见[能力装配](docs/architecture.md#2-配置与装配)。
 
 ### 3. 迁移并启动
 

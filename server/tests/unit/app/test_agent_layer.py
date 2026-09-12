@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import uuid
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import httpx
@@ -22,6 +23,8 @@ from iclip.config import (
     SsoSection,
 )
 from iclip.config.models import ConversationsSection
+from iclip.domains.identity.middleware import PrincipalResolver
+from iclip.domains.identity.models import Principal
 
 MODEL_KEY_ENV = "TEST_MODEL_KEY"
 
@@ -58,7 +61,9 @@ def config(models: dict[str, ModelSection], *, cookie_name: str = "iclip_session
     )
 
 
-def agent(tmp_path: Path, agent_id: str, *, model: str, instructions: str = "") -> ResolvedAgent:
+def agent(
+    tmp_path: Path, agent_id: str, *, model: str, instructions: str = "", name: str | None = None
+) -> ResolvedAgent:
     spec_dir = tmp_path / agent_id
     spec_dir.mkdir(parents=True, exist_ok=True)
     spec = spec_dir / "agent.yaml"
@@ -67,6 +72,7 @@ def agent(tmp_path: Path, agent_id: str, *, model: str, instructions: str = "") 
     instructions_path.write_text(instructions, encoding="utf-8")
     return ResolvedAgent(
         agent_id=agent_id,
+        name=name or agent_id,
         spec=spec,
         instructions=instructions_path,
         model=model,
@@ -99,6 +105,81 @@ def build(tmp_path: Path) -> tuple[CurrentAgentLayer, _Source, httpx.AsyncClient
     layer: CurrentAgentLayer = app.state.agent_layer
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
     return layer, source, client
+
+
+def grant_permissions(monkeypatch: pytest.MonkeyPatch, *permissions: str) -> None:
+    """身份解析使用替身，路由仍执行真实权限检查；无需连接账号数据库。"""
+
+    principal = Principal(
+        kind="user",
+        user_id=uuid.uuid4(),
+        permissions=frozenset(permissions),
+        audit_label="tester",
+    )
+
+    async def resolve(
+        _self: PrincipalResolver, _headers: Mapping[str, str], _cookies: Mapping[str, str]
+    ) -> Principal:
+        return principal
+
+    monkeypatch.setattr(PrincipalResolver, "resolve", resolve)
+
+
+@pytest.mark.parametrize(
+    ("permission", "status"), [(None, 401), ("agent:read", 403), ("agent:run", 200)]
+)
+async def test_agent_directory_requires_run_permission(
+    base_env: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    permission: str | None,
+    status: int,
+) -> None:
+    if permission is not None:
+        grant_permissions(monkeypatch, permission)
+    _, _, client = build(tmp_path)
+
+    async with client:
+        response = await client.get("/conversations/agents")
+
+    assert response.status_code == status
+    if status == 200:
+        assert response.json() == {
+            "items": [{"id": "storyboard", "name": "storyboard"}],
+            "default": "storyboard",
+        }
+
+
+async def test_agent_directory_follows_reload_order_and_empty_registry(
+    base_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grant_permissions(monkeypatch, "agent:run")
+    layer, source, client = build(tmp_path)
+    async with client:
+        before = await client.get("/conversations/agents")
+        assert before.json() == {
+            "items": [{"id": "storyboard", "name": "storyboard"}],
+            "default": "storyboard",
+        }
+
+        source.agents = (
+            agent(tmp_path, "replica", model="m", name="完全复刻"),
+            agent(tmp_path, "storyboard", model="m"),
+        )
+        layer.reload()
+        changed = await client.get("/conversations/agents")
+        assert changed.json() == {
+            "items": [
+                {"id": "replica", "name": "完全复刻"},
+                {"id": "storyboard", "name": "storyboard"},
+            ],
+            "default": "replica",
+        }
+
+        source.agents = ()
+        layer.reload()
+        empty = await client.get("/conversations/agents")
+        assert empty.json() == {"items": [], "default": None}
 
 
 def test_reload_swaps_agents_and_reuses_unchanged_models(base_env: None, tmp_path: Path) -> None:

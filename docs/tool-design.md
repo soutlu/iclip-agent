@@ -51,11 +51,6 @@
 - 数字（行数、张数、字节、命中数、渠道）一律放 metadata 的角标，不进标题。
 - 前端为 `file_io`、`search`、`url_fetch`、`skill_call`、`agent_call` 各配一个同写法的标题，活动组摘要沿用同一套词。
 
-给用户的结构化结果放 `ToolReturn(return_value=给模型的内容, metadata=给用户的内容)`。metadata 随工具结果持久化，不进入模型上下文，形状由登记的 `view` 决定：
+给用户的结构化结果放 `ToolReturn(return_value=给模型的内容, metadata=给用户的内容)`。metadata 随工具结果持久化，不进入模型上下文；形状与构造函数以 [display 模块](../server/src/iclip/platform/transcript/display.py) 为准，不重复维护字段表。
 
-- `file_content`：`{"path", "lines", "truncated"}`，正文仍在 output 里，不重复。
-- `search_results`：`{"query", "matches": [{"file", "line", "text"}], "truncated"}`。
-- `media_grid`：`{"items": [{"url", "caption"}], "note"?}`，`note` 是角标原文（几张、哪个渠道），由工具写好。
-- 没有 `view` 的工具只能带 `ToolNote`：`{"chip"?}` 或 `{"added", "removed"}`；`"body": "none"` 表示结果正文不给展开。
-
-构造函数在 display 模块：`file_content`、`search_results`、`media_grid`、`tool_note`、`diff_note`。前端按 `view` 选择结果渲染器、按形状取角标，不按工具名判断。
+前端按登记的 `view` 选择结果渲染器，不按工具名判断；没有 `view` 的工具只能带 `ToolNote`。角标文字由工具写入 metadata，前端不从 output 或参数推导；正文不在 metadata 重复存储。

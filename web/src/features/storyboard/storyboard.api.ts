@@ -10,6 +10,7 @@ import {
   zVideoSubmitOut,
 } from '@/shared/api/generated/zod.gen'
 import type { zGenerationOut } from '@/shared/api/generated/zod.gen'
+import { storyboardMetadata } from './generation-metadata'
 import type { Shot } from './shot-document'
 import { isRunningStatus } from './shots'
 
@@ -38,6 +39,8 @@ export const useVideoModels = () =>
 
 export type VideoGenerationInput = {
   conversationId: string
+  /** 分镜文件路径，与镜头组一起写进任务坐标 metadata（ADR-0020）。 */
+  path: string
   aspectRatio: string
   model: string
   generateAudio: boolean
@@ -62,11 +65,11 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
     aspect_ratio: input.aspectRatio,
     conversation_id: input.conversationId,
     generate_audio: input.generateAudio,
+    metadata: storyboardMetadata(input.path, input.shot.index),
     model: input.model,
     reference_image_urls: [...input.shot.image_urls],
     seconds: input.shot.seconds,
     shot,
-    shot_index: input.shot.index,
   }
   const receipt = await apiFetch('/generations/video', zVideoSubmitOut, {
     body,
@@ -76,7 +79,7 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
   return receipt.task_id
 }
 
-/** 服务端未推送生成进度；存在运行任务时每 5 秒轮询，全部结束后停止。 */
+/** 状态跳转帧到了由 useLiveGenerations 立刻失效；存在运行任务时仍每 5 秒轮询兜底，全部结束后停止。 */
 export const generationsRefetchInterval = (items: readonly { status: string }[]): number | false =>
   items.some((item) => isRunningStatus(item.status)) ? POLL_MS : false
 
@@ -94,5 +97,5 @@ export const useShotGenerations = (conversationId: string) =>
 
 export const FRAME_IMAGE_ACCEPT = MEDIA_IMAGE_ACCEPT
 
-/** 上传并登记本地图片，返回可用于分镜引用的素材地址。 */
+/** 上传并确认本地图片，返回可用于分镜引用的地址。 */
 export const uploadFrameImage = (file: File): Promise<string> => uploadMediaFile(file, 'image')

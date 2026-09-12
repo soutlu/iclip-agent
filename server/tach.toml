@@ -51,7 +51,7 @@ path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
 [[modules]]
-path = "iclip.domains.assets"
+path = "iclip.domains.uploads"
 depends_on = [
     "iclip.common",
     "iclip.platform.object_store",
@@ -81,7 +81,12 @@ depends_on = []
 
 [[modules]]
 path = "iclip.harness"
-depends_on = ["iclip.common", "iclip.platform.material_ledger", "iclip.platform.transcript"]
+depends_on = [
+    "iclip.common",
+    "iclip.platform.file_store",
+    "iclip.platform.material_ledger",
+    "iclip.platform.transcript",
+]
 
 [[modules]]
 path = "iclip.capabilities"
@@ -108,7 +113,7 @@ depends_on = [
     "iclip.config",
     "iclip.domains.identity",
     "iclip.domains.agents",
-    "iclip.domains.assets",
+    "iclip.domains.uploads",
     "iclip.domains.conversations",
     "iclip.domains.generation",
     "iclip.domains.inspirations",

@@ -44,6 +44,7 @@ describe('submitVideoGeneration', () => {
         conversationId,
         generateAudio: false,
         model: 'wan3.0-video',
+        path: 'video_shot.json',
         shot,
       }),
     ).resolves.toBe('4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c')
@@ -61,7 +62,7 @@ describe('submitVideoGeneration', () => {
           { image_indexes: [1, 2], prompt: '走向镜头 @Image1，停下 @Image2。', timestamps: [0, 6] },
         ],
       },
-      shot_index: 2,
+      metadata: { path: 'video_shot.json', shot: 2 },
     })
   })
 
@@ -78,6 +79,7 @@ describe('submitVideoGeneration', () => {
         conversationId,
         generateAudio: true,
         model: 'x',
+        path: 'video_shot.json',
         shot,
       }),
     ).rejects.toThrow('视频生成仅支持模型 moyu-seedance-2-5')
@@ -91,8 +93,8 @@ describe('historyShotOf', () => {
     id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
     kind: 'video',
     outputUrl: null,
+    metadata: { path: 'video_shot.json', shot: 2 },
     request,
-    shotIndex: 2,
     status: 'completed',
     taskId: null,
     watermarkOutputUrl: null,
@@ -142,13 +144,14 @@ describe('generationsRefetchInterval', () => {
 })
 
 describe('uploadFrameImage', () => {
-  const assetId = 'f40a7a4b-90ec-438b-8bf0-9bde53a290fc'
-  const uploadUrl = `http://localhost/mock-oss/${assetId}`
+  const uploadId = 'f40a7a4b-90ec-438b-8bf0-9bde53a290fc'
+  const uploadUrl = `http://localhost/mock-oss/${uploadId}`
   const assetUrl = 'https://assets.example.com/replacement.png'
   const requests: string[] = []
   const decode = vi.fn<typeof createImageBitmap>()
   const close = vi.fn()
   let signedBody: unknown
+  let uploadHeaders: Record<string, string | null> | undefined
 
   const imageFile = (type = 'image/png', size = 4) =>
     new File([new Uint8Array(size)], '本地图片.png', { type })
@@ -156,6 +159,7 @@ describe('uploadFrameImage', () => {
   beforeEach(() => {
     requests.length = 0
     signedBody = undefined
+    uploadHeaders = undefined
     close.mockReset()
     decode.mockReset().mockResolvedValue({ close, height: 1200, width: 800 })
     vi.stubGlobal('createImageBitmap', decode)
@@ -166,7 +170,7 @@ describe('uploadFrameImage', () => {
       http.post('*/api/uploads/sign', async ({ request }) => {
         signedBody = await request.json()
         return HttpResponse.json({
-          assetId,
+          uploadId,
           upload: {
             expiresAt: '2026-09-06T12:00:00Z',
             headers: { 'Content-Type': 'image/png', 'x-upload-token': 'test-ticket' },
@@ -175,22 +179,14 @@ describe('uploadFrameImage', () => {
         })
       }),
       http.put(uploadUrl, ({ request }) => {
-        expect(request.headers.get('Content-Type')).toBe('image/png')
-        expect(request.headers.get('x-upload-token')).toBe('test-ticket')
+        uploadHeaders = {
+          'Content-Type': request.headers.get('Content-Type'),
+          'x-upload-token': request.headers.get('x-upload-token'),
+        }
         return new HttpResponse(null, { status: 200 })
       }),
-      http.post('*/api/assets/:assetId', () =>
-        HttpResponse.json({
-          asset: {
-            assetType: 'image',
-            contentType: 'image/png',
-            createdAt: '2026-09-06T10:00:00Z',
-            creatorUserId: '427f8cd9-8016-4f54-a581-812447e97fdc',
-            id: assetId,
-            sizeBytes: 4,
-            url: assetUrl,
-          },
-        }),
+      http.post('*/api/uploads/:uploadId/confirm', () =>
+        HttpResponse.json({ contentType: 'image/png', sizeBytes: 4, url: assetUrl }),
       ),
     )
   })
@@ -201,7 +197,7 @@ describe('uploadFrameImage', () => {
     ['image/jpeg', 300, 6000, 4],
     ['image/png', 6000, 300, 16 * 1024 * 1024],
     ['image/webp', 800, 1200, 4],
-  ])('用解码尺寸签名，直传后才登记 %s 图片', async (type, width, height, size) => {
+  ])('用解码尺寸签名，直传后才确认 %s 图片', async (type, width, height, size) => {
     decode.mockResolvedValue({ close, height, width })
     const file = imageFile(type, size)
 
@@ -210,10 +206,11 @@ describe('uploadFrameImage', () => {
     expect(decode).toHaveBeenCalledWith(file)
     expect(close).toHaveBeenCalledOnce()
     expect(signedBody).toEqual({ contentType: type, height, width })
+    expect(uploadHeaders).toEqual({ 'Content-Type': 'image/png', 'x-upload-token': 'test-ticket' })
     expect(requests).toEqual([
       'POST /api/uploads/sign',
-      `PUT /mock-oss/${assetId}`,
-      `POST /api/assets/${assetId}`,
+      `PUT /mock-oss/${uploadId}`,
+      `POST /api/uploads/${uploadId}/confirm`,
     ])
   })
 
@@ -259,25 +256,25 @@ describe('uploadFrameImage', () => {
     expect(requests).toEqual(['POST /api/uploads/sign'])
   })
 
-  it('OSS 上传失败时不登记素材', async () => {
+  it('OSS 上传失败时不去确认', async () => {
     server.use(http.put(uploadUrl, () => new HttpResponse(null, { status: 503 })))
 
     await expect(uploadFrameImage(imageFile())).rejects.toThrow('上传失败：503')
-    expect(requests).toEqual(['POST /api/uploads/sign', `PUT /mock-oss/${assetId}`])
+    expect(requests).toEqual(['POST /api/uploads/sign', `PUT /mock-oss/${uploadId}`])
   })
 
-  it('素材登记失败时不返回上传地址', async () => {
+  it('确认失败时不返回上传地址', async () => {
     server.use(
-      http.post('*/api/assets/:assetId', () =>
-        HttpResponse.json({ detail: '图片登记失败' }, { status: 422 }),
+      http.post('*/api/uploads/:uploadId/confirm', () =>
+        HttpResponse.json({ detail: '图片确认失败' }, { status: 422 }),
       ),
     )
 
-    await expect(uploadFrameImage(imageFile())).rejects.toThrow('图片登记失败')
+    await expect(uploadFrameImage(imageFile())).rejects.toThrow('图片确认失败')
     expect(requests).toEqual([
       'POST /api/uploads/sign',
-      `PUT /mock-oss/${assetId}`,
-      `POST /api/assets/${assetId}`,
+      `PUT /mock-oss/${uploadId}`,
+      `POST /api/uploads/${uploadId}/confirm`,
     ])
   })
 })

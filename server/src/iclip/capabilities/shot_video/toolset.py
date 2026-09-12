@@ -1,4 +1,4 @@
-"""镜头素材工具注册、输入来源校验与工作区编排。"""
+"""取帧与出图工具注册、输入来源校验与工作区编排。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT, RunContext, Tool
 from pydantic_ai.toolsets import FunctionToolset
 
-from iclip.capabilities.shot_document import VideoShotRequest, deliver_shots
 from iclip.capabilities.shot_video.delivery import (
     FrameRequest,
     resolve_cells,
@@ -29,12 +28,13 @@ from iclip.capabilities.shot_video.generation import (
 from iclip.capabilities.shot_video.ports import ImageRequest
 from iclip.capabilities.shot_video.prompt import assemble_anchor_prompt, assemble_grid_prompt
 from iclip.capabilities.shot_video.shots import CELL_ID_SHAPE
-from iclip.capabilities.video_understanding import video_doc_path
+from iclip.capabilities.video_document import video_doc_path
 from iclip.common.tool_args import JsonText
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.identity.public import Principal
-from iclip.harness.materials import require_http, require_material
-from iclip.platform.file_store.store import FileStore, QuotaExceeded
+from iclip.harness.files import write_or_retry
+from iclip.harness.materials import require_materials
+from iclip.platform.file_store.store import FileStore
 from iclip.platform.material_ledger.store import Material
 from iclip.platform.transcript.display import media_grid
 
@@ -45,26 +45,19 @@ if TYPE_CHECKING:
 
 
 class ShotVideoToolset(FunctionToolset[AgentDepsT]):
-    """五件工具。参数的范围规则挂在登记处的验证器上，工具体只做本职。
+    """三件工具。参数的范围规则挂在登记处的验证器上，工具体只做本职。
 
-    五件都经 ``Tool`` 登记，不走 ``add_function``：后者的参数表由 pyright 从函数推，收 ``ctx``
+    三件都经 ``Tool`` 登记，不走 ``add_function``：后者的参数表由 pyright 从函数推，收 ``ctx``
     的工具会把 ``ctx`` 也算进参数表，于是任何一个签名正确的验证器都被判不兼容。
     代价是工具集级别的默认值（``strict`` / ``sequential`` / ``requires_approval`` / ``timeout``
-    等）不再套到这五件上——这里只传 ``id``，所以现在没有差别；将来在 ``super().__init__``
-    上加一个默认值，它对这五件会静默失效。
+    等）不再套到这三件上——这里只传 ``id``，所以现在没有差别；将来在 ``super().__init__``
+    上加一个默认值，它对这三件会静默失效。
     """
 
     def __init__(self, capability: ShotVideo[AgentDepsT]) -> None:
         # 工具集复用能力 id，供 durable execution 识别。
         super().__init__(id=capability.id)
         self._cap = capability
-        self.add_tool(
-            Tool(
-                self.video_parser,
-                name="video_parser",
-                args_validator=self._validate_video_url,
-            )
-        )
         self.add_tool(
             Tool(
                 self.plan_shot_frames,
@@ -80,26 +73,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             )
         )
         self.add_tool(Tool(self.generate_anchor_sheet, name="generate_anchor_sheet"))
-        self.add_tool(
-            Tool(
-                self.write_video_shots,
-                name="write_video_shots",
-                args_validator=self._validate_shot_delivery,
-            )
-        )
-
-    async def video_parser(self, ctx: RunContext[AgentDepsT], video_url: str) -> str:
-        """拆解参考视频，把拆解内容写进文件，返回它的路径。
-
-        Args:
-            video_url: 参考视频地址。
-        """
-
-        files, namespace = self._workspace(ctx)
-        path = video_doc_path(video_url)
-        content = await self._cap.extractor.parse(video_url)
-        await self._write(files, namespace, path, content)
-        return f"视频解析完毕，文档在 {path}。"
 
     async def plan_shot_frames(
         self, ctx: RunContext[AgentDepsT], video_url: str
@@ -117,7 +90,7 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             files, namespace, video_url=video_url, rows=rows
         )
         if not reused:
-            await self._write(
+            await write_or_retry(
                 files,
                 namespace,
                 EXTRACTION_PATH,
@@ -273,30 +246,13 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
             metadata=media_grid(zip(cut.urls, descriptions, strict=True), note=f"{len(images)} 格"),
         )
 
-    async def write_video_shots(
-        self,
-        ctx: RunContext[AgentDepsT],
-        aspect_ratio: str,
-        shots: Annotated[list[VideoShotRequest], JsonText],
-    ) -> ToolReturn[str]:
-        """提交镜头组 prompt 表；每次提交全部镜头组，替换已有的。
-
-        Args:
-            aspect_ratio: 目标画幅，如 ``9:16``。
-            shots: 按顺序排列的全部镜头组；以 JSON 数组传入，不要整体序列化成字符串。
-        """
-
-        files, namespace = self._workspace(ctx)
-        return await deliver_shots(files, namespace, aspect_ratio=aspect_ratio, shots=shots)
-
     async def _validate_video_url(self, ctx: RunContext[Any], video_url: str) -> None:
-        """拆片与取帧收的视频地址。参数表与这两件工具逐字一致，官方按它调。"""
+        """取帧收的视频地址。参数表与工具逐字一致，官方按它调。"""
 
-        require_http(video_url, what="视频地址")
-        await require_material(
+        await require_materials(
             self._cap.ledger,
             self._cap.space.resolve(ctx),
-            video_url,
+            (video_url,),
             kind="video",
             what="视频地址",
         )
@@ -316,37 +272,13 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """
 
         _ = (frames, global_reference, target_aspect)
-        namespace = self._cap.space.resolve(ctx)
-        for url in reference_images:
-            require_http(url, what="参考图地址")
-            await require_material(
-                self._cap.ledger,
-                namespace,
-                url,
-                kind="image",
-                what="参考图地址",
-            )
-
-    async def _validate_shot_delivery(
-        self, ctx: RunContext[Any], aspect_ratio: str, shots: list[VideoShotRequest]
-    ) -> None:
-        """交付收的镜头帧地址。参数表与工具逐字一致，官方按它调。
-
-        只判地址来源；形状（编号、秒数、``@ImageN``）要先看整份表才判得了，留在工具体里。
-        """
-
-        _ = aspect_ratio
-        namespace = self._cap.space.resolve(ctx)
-        for shot in shots:
-            for url in shot.image_urls:
-                require_http(url, what="镜头帧地址")
-                await require_material(
-                    self._cap.ledger,
-                    namespace,
-                    url,
-                    kind="image",
-                    what="镜头帧地址",
-                )
+        await require_materials(
+            self._cap.ledger,
+            self._cap.space.resolve(ctx),
+            reference_images,
+            kind="image",
+            what="参考图地址",
+        )
 
     async def _register(self, namespace: str, urls: Sequence[str], *, failure_message: str) -> None:
         """登记生成出来的地址；登记失败不要求模型重新出图。"""
@@ -361,12 +293,6 @@ class ShotVideoToolset(FunctionToolset[AgentDepsT]):
         """把本能力落下的图片地址记进台账，模型下一步才交得回来。"""
 
         await self._cap.ledger.record(namespace, [Material(url=url, kind="image") for url in urls])
-
-    async def _write(self, files: FileStore, namespace: str, path: str, content: str) -> None:
-        try:
-            await files.write(namespace, path, content)
-        except QuotaExceeded as exc:
-            raise ModelRetry(f"工作区写不下 {path}：{exc} 用 delete_file 清掉不用的文件。") from exc
 
     def _workspace(self, ctx: RunContext[AgentDepsT]) -> tuple[FileStore, str]:
         """这次运行的文件存储与命名空间。命名空间算不出来就让它抛，不退回公共的。"""

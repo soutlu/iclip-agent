@@ -1,6 +1,10 @@
 name: ci
 
-# 公开仓最小权限：CI 只需读代码，防止 fork PR 借 token 写仓库
+# 结构：changes 判定 PR 触及哪一端；每端拆成「静态检查」与「测试」两个 job；checks 把结果映射到
+# 分支保护要求的四个名称（server、server-tests、web、web-e2e），一个名称只对应一个 job，失败能直接定位。
+# 新增一端时：changes 加路径分类与输出、加对应 job、checks 矩阵加一行，再到仓库设置登记保护名称。
+# 已知限制：被跳过的矩阵 job 在界面上显示为字面量名称（如 `server tests (${{ matrix.suite }})`），GitHub 不展开。
+
 permissions:
   contents: read
 
@@ -9,14 +13,63 @@ on:
     branches: [main, develop]
   pull_request:
 
-# 同一分支再推一次就取消上一轮，不排队等旧结果。
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # 静态检查、单元测试、合同与文档：不需要数据库，几十秒跑完。
-  server:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      server: ${{ steps.scope.outputs.server }}
+      web: ${{ steps.scope.outputs.web }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Docs check
+        run: python3 scripts/check-docs.py
+      - name: Select application checks
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          server=true
+          web=true
+          # 只缩小 PR 的范围；合入后全跑。纯文档不跑任何一端；公共文件和未知路径两端全跑。
+          # server/ 下的 Markdown（SKILL.md 等）是运行时读取的，所以先按目录归类再看后缀。
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            if git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-files"; then
+              server=false
+              web=false
+              while IFS= read -r -d '' path; do
+                case "$path" in
+                  server/*) scope=server ;;
+                  web/*|design-system.html) scope=web ;;
+                  docs/*|*.md|.claude/*|.gitignore|.pre-commit-config.yaml) scope=docs ;;
+                  *) scope=all ;;
+                esac
+                case "$scope" in
+                  server) server=true ;;
+                  web) web=true ;;
+                  all) server=true; web=true ;;
+                esac
+                printf '%-6s %s\n' "$scope" "$path"
+              done < "$RUNNER_TEMP/ci-changed-files"
+            else
+              echo "::warning::无法确定 PR 变更范围，执行两端完整检查"
+            fi
+          fi
+          echo "server=$server web=$web"
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+
+  server_checks:
+    name: server checks
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -24,33 +77,40 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v7
-      # 上游不提供浮动的大版本标签，须使用完整版本号。
-      - uses: astral-sh/setup-uv@v10.0.1
-      - name: Sync dependencies (lockfile 精确 pin)
-        run: uv sync --locked
-      - name: Lint
-        run: uv run ruff check .
-      - name: Format check
-        run: uv run ruff format --check .
-      - name: Typecheck
-        run: uv run pyright
-      - name: Architecture graph
-        run: uv run tach check
-      - name: Unit tests
-        run: uv run pytest -m unit
-      - name: Install ffmpeg (导出合同装配 app 时 shot_video 检查它)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-      - name: Contract check (openapi.json 与后端一致)
-        run: uv run python scripts/dump_openapi.py --check
-      - name: Docs check (链接与 make 目标存在)
-        run: python3 ../scripts/check-docs.py
+      - uses: ./.github/actions/setup-server
+      - name: Run checks
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pyright
+          uv run tach check
+          uv run pytest tests/unit -m unit
 
-  # 要真 Postgres 的集成用例与迁移，和上面并行跑。
-  server-tests:
+  server_tests:
+    name: server tests (${{ matrix.suite }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
-    # 单测挂死时的最后一道闸；单个用例的上限见 pyproject 的 pytest timeout。
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: server
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: runtime
+            command: >-
+              uv run pytest tests/integration_no_llm/agents tests/integration_no_llm/generation
+              -m integration_no_llm --durations=10
+          # 根目录减去 runtime，新增测试自动纳入。
+          - suite: domains
+            command: >-
+              uv run pytest tests/integration_no_llm
+              --ignore=tests/integration_no_llm/agents --ignore=tests/integration_no_llm/generation
+              -m integration_no_llm --durations=10
     services:
+      # 每个分片独占一个实例。
       postgres:
         image: postgres:16
         env:
@@ -60,95 +120,117 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      # 显式配置测试库，连接失败时测试报错而非跳过。
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
-    defaults:
-      run:
-        working-directory: server
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.0.1
-      - name: Sync dependencies (lockfile 精确 pin)
-        run: uv sync --locked
-      - name: Install ffmpeg (媒体用例要真取帧切格)
+      - uses: ./.github/actions/setup-server
+      - name: Install ffmpeg
+        if: matrix.suite == 'domains'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-      - name: Integration tests (real Postgres)
-        run: uv run pytest -m integration_no_llm
-      - name: Alembic to head against service Postgres
+      - name: Run tests
+        run: ${{ matrix.command }}
+      - name: Contract check
+        if: matrix.suite == 'domains'
+        run: uv run python scripts/dump_openapi.py --check
+      - name: Migration check
+        if: matrix.suite == 'domains'
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/iclip_test
         run: uv run alembic upgrade head
 
-  web:
+  web_checks:
+    name: web checks (${{ matrix.task }})
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: web
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - task: static
+            command: pnpm ci:static && pnpm build
+          - task: tests
+            command: pnpm test
     steps:
       - uses: actions/checkout@v7
-      - name: Install pnpm
-        # 从发布页下载 packageManager 指定版本，避免额外的 npm 引导安装。
-        run: |
-          version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
-          mkdir -p "$HOME/.pnpm-bin"
-          # 启动器依赖同目录 dist/，须解压完整发布包。
-          curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
-          chmod +x "$HOME/.pnpm-bin/pnpm"
-          echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - name: Install
-        run: pnpm install --frozen-lockfile
-      - name: ci:check
-        run: pnpm ci:check
-      - name: Build
-        run: pnpm build
+      - uses: ./.github/actions/setup-web
+      - name: Run checks
+        run: ${{ matrix.command }}
 
-  # e2e 要浏览器与开发服务器，单独一个作业和 ci:check 并行；浏览器按 Playwright 版本缓存。
-  web-e2e:
+  web_e2e:
+    name: web e2e (${{ matrix.shard }}/2)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
       run:
         working-directory: web
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v7
-      - name: Install pnpm
+      - uses: ./.github/actions/setup-web
+        with:
+          playwright: 'true'
+      # playwright.config.ts 在 CI 下先做 mock 构建再起 preview，见该文件说明。
+      - name: Run e2e
+        run: pnpm test:e2e --shard=${{ matrix.shard }}/2
+      # 失败或重试过的用例留有 trace（retain-on-failure），全绿时目录里只有 .last-run.json，不上传。
+      - name: Upload Playwright traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-e2e-${{ matrix.shard }}
+          path: |
+            web/test-results
+            !web/test-results/.last-run.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # 分支保护只认这四个名称；被 changes 跳过的一端在这里按「应跳过且已跳过」放行。
+  checks:
+    name: ${{ matrix.name }}
+    if: always()
+    needs: [changes, server_checks, server_tests, web_checks, web_e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server
+            scope: server
+            job: server_checks
+          - name: server-tests
+            scope: server
+            job: server_tests
+          - name: web
+            scope: web
+            job: web_checks
+          - name: web-e2e
+            scope: web
+            job: web_e2e
+    steps:
+      - name: Require selected check
+        env:
+          SCOPE_RESULT: ${{ needs.changes.result }}
+          REQUIRED: ${{ needs.changes.outputs[matrix.scope] }}
+          RESULT: ${{ needs[matrix.job].result }}
         run: |
-          version=$(sed -n 's/.*"packageManager": "pnpm@\(.*\)".*/\1/p' package.json)
-          mkdir -p "$HOME/.pnpm-bin"
-          curl -fsSL "https://github.com/pnpm/pnpm/releases/download/v${version}/pnpm-linux-x64.tar.gz" | tar -xz -C "$HOME/.pnpm-bin"
-          chmod +x "$HOME/.pnpm-bin/pnpm"
-          echo "$HOME/.pnpm-bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - name: Install
-        run: pnpm install --frozen-lockfile
-      - name: Playwright version
-        id: playwright
-        run: echo "version=$(pnpm exec playwright --version | sed 's/^Version //')" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        id: browsers
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - name: Install Playwright browser
-        if: steps.browsers.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-      - name: Install Playwright system deps (浏览器已缓存)
-        if: steps.browsers.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
-      - name: e2e (browser MSW as backend)
-        run: pnpm test:e2e
+          echo "changes=$SCOPE_RESULT required=$REQUIRED ${{ matrix.job }}=$RESULT"
+          test "$SCOPE_RESULT" = success
+          if [ "$REQUIRED" = true ]; then
+            test "$RESULT" = success
+          else
+            test "$REQUIRED" = false
+            test "$RESULT" = skipped
+          fi

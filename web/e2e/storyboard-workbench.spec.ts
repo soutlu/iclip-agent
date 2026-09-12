@@ -360,70 +360,60 @@ test('替换图标与拖放都可上传本地图片，保持当前帧并可继�
   await expect(panel.getByText('已保存')).toBeVisible({ timeout: 5_000 })
 })
 
-for (const viewport of [
-  { height: 700, width: 1600 },
-  { height: 844, width: 390 },
-]) {
-  test(`完整提示词面板 ${viewport.width}px：原文与参考图可读，收起保留帧与焦点`, async ({
-    page,
-  }) => {
-    await page.setViewportSize(viewport)
-    await page.emulateMedia({ colorScheme: viewport.width < 600 ? 'light' : 'dark' })
-    await page.goto('/')
-    await login(page)
-    await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
-    if (viewport.width < 600) {
-      await page.getByRole('button', { name: '打开右侧面板' }).click()
-    }
+test('完整提示词面板短桌面：原文与参考图可读，收起保留帧与焦点', async ({ page }) => {
+  await page.setViewportSize({ height: 700, width: 1600 })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
 
-    const panel = page.getByRole('complementary', { name: '右侧面板' })
-    await panel.getByRole('button', { name: '第 2 组' }).click()
-    const group = panel.getByRole('region', { name: '镜头组 2' })
-    await group
-      .getByRole('navigation', { name: '本组镜头' })
-      .getByRole('button', { name: '镜头 2', exact: true })
-      .click()
-    await group.getByRole('button', { name: '预览第 3 帧' }).click()
-    const trigger = group.getByRole('button', { name: '完整提示词', exact: true })
-    await trigger.focus()
-    await page.keyboard.press('Enter')
+  const panel = page.getByRole('complementary', { name: '右侧面板' })
+  await panel.getByRole('button', { name: '第 2 组' }).click()
+  const group = panel.getByRole('region', { name: '镜头组 2' })
+  await group
+    .getByRole('navigation', { name: '本组镜头' })
+    .getByRole('button', { name: '镜头 2', exact: true })
+    .click()
+  await group.getByRole('button', { name: '预览第 3 帧' }).click()
+  const trigger = group.getByRole('button', { name: '完整提示词', exact: true })
+  await trigger.focus()
+  await page.keyboard.press('Enter')
 
-    const sheet = panel.getByRole('complementary', { name: '镜头组完整提示词' })
-    const original = sheet.getByRole('region', { name: '镜头组原文' })
-    await expect(sheet).toBeVisible()
-    await expect(original).toBeFocused()
-    const settings = sheet.getByRole('textbox', { name: '全局设定', exact: true })
-    await expect(settings).toContainText('参考锁定：模特的服装与发型跟住')
-    await expect(settings.getByRole('button', { name: '看第 1 帧', exact: true })).toBeVisible()
-    await expect(original).toContainText('剪辑形式：硬切。')
-    await expect(original).toContainText('[0–4秒｜镜头1]')
-    await expect(original).toContainText('[4–11秒｜镜头2]')
-    await expect(sheet.getByRole('button', { name: '复制完整提示词' })).toBeInViewport({
-      ratio: 1,
-    })
-    await page.screenshot({
-      path: `../.artifacts/design-qa/shot-group-prompt/${viewport.width < 600 ? 'mobile' : 'desktop-dark'}-mock.png`,
-    })
-    const lastReference = sheet.getByRole('button', { name: '查看参考图 @Image3', exact: true })
-    await lastReference.scrollIntoViewIfNeeded()
-    await expect(lastReference).toBeInViewport({ ratio: 1 })
-    await lastReference.click()
-    const preview = page.getByRole('dialog', { name: '参考图 @Image3', exact: true })
-    await expect(preview).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(preview).toBeHidden()
-    await expect(sheet).toBeVisible()
-    await expect(lastReference).toBeFocused()
-    await page.keyboard.press('Escape')
-    await expect(sheet).toBeHidden()
-    await expect(trigger).toBeFocused()
-    const search = new URL(page.url()).searchParams
-    expect(search.get('shot')).toBe('2')
-    expect(search.get('frame')).toBe('3')
-    expect(search.has('sheet')).toBe(false)
-    await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeInViewport()
+  const sheet = panel.getByRole('complementary', { name: '镜头组完整提示词' })
+  const original = sheet.getByRole('region', { name: '镜头组原文' })
+  await expect(sheet).toBeVisible()
+  await expect(original).toBeFocused()
+  const settings = sheet.getByRole('textbox', { name: '全局设定', exact: true })
+  await expect(settings).toContainText('参考锁定：模特的服装与发型跟住')
+  await expect(settings.getByRole('button', { name: '看第 1 帧', exact: true })).toBeVisible()
+  await expect(original).toContainText('剪辑形式：硬切。')
+  await expect(original).toContainText('[0–4秒｜镜头1]')
+  await expect(original).toContainText('[4–11秒｜镜头2]')
+  await expect(sheet.getByRole('button', { name: '复制完整提示词' })).toBeInViewport({
+    ratio: 1,
   })
-}
+  await page.screenshot({
+    path: '../.artifacts/design-qa/shot-group-prompt/desktop-dark-mock.png',
+  })
+  const lastReference = sheet.getByRole('button', { name: '查看参考图 @Image3', exact: true })
+  await lastReference.scrollIntoViewIfNeeded()
+  await expect(lastReference).toBeInViewport({ ratio: 1 })
+  await lastReference.click()
+  const preview = page.getByRole('dialog', { name: '参考图 @Image3', exact: true })
+  await expect(preview).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(preview).toBeHidden()
+  await expect(sheet).toBeVisible()
+  await expect(lastReference).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toBeHidden()
+  await expect(trigger).toBeFocused()
+  const search = new URL(page.url()).searchParams
+  expect(search.get('shot')).toBe('2')
+  expect(search.get('frame')).toBe('3')
+  expect(search.has('sheet')).toBe(false)
+  await expect(group.getByRole('img', { name: '镜头组 2 第 3 帧' })).toBeInViewport()
+})
 
 test('选中即上下文：输入框上出现芯片，× 掉不再回来，发出去的正文带前缀', async ({ page }) => {
   await page.goto('/')

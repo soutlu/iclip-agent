@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import quote, urlsplit
@@ -28,7 +28,7 @@ SIGNED_PUT_EXPIRES_SECONDS = 3600
 
 @dataclass(frozen=True, slots=True)
 class StoredObject:
-    """从桶读取的对象元信息，作为素材登记的事实来源。"""
+    """从桶读取的对象元信息，确认上传时的事实来源。"""
 
     object_key: str
     content_type: str
@@ -50,8 +50,9 @@ class PublicObjectStore(Protocol):
 class SignedUploadStore(Protocol):
     """浏览器直传所需的签名、对象查询和 URL 构造端口。"""
 
-    def sign_put(self, *, object_key: str, content_type: str) -> str:
-        """生成限时 PUT URL，并将 Content-Type 纳入签名，限制上传类型。"""
+    def sign_put(self, *, object_key: str, headers: Mapping[str, str]) -> str:
+        """生成限时 PUT URL，``headers`` 全部签进去：Content-Type 限制上传类型，
+        ``x-oss-meta-*`` 记审计；客户端必须原样带上。"""
         ...
 
     async def find_object(self, *, prefix: str) -> StoredObject | None:
@@ -98,11 +99,11 @@ class OssObjectStore:
         await asyncio.to_thread(self._put, key, content, content_type)
         return self.public_url(key)
 
-    def sign_put(self, *, object_key: str, content_type: str) -> str:
+    def sign_put(self, *, object_key: str, headers: Mapping[str, str]) -> str:
         """本地计算限时 PUT 签名，不发送网络请求。"""
 
         key = _validate_object_key(object_key)
-        if not content_type.strip():
+        if not headers.get("Content-Type", "").strip():
             raise ValueError("预签名 PUT 必须指定内容类型")
         try:
             return str(
@@ -110,7 +111,7 @@ class OssObjectStore:
                     "PUT",
                     key,
                     SIGNED_PUT_EXPIRES_SECONDS,
-                    headers={"Content-Type": content_type},
+                    headers=dict(headers),
                     # 保留 key 中的斜杠，避免编码后上传到其他对象名。
                     slash_safe=True,
                 )

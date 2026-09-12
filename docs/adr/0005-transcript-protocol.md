@@ -1,6 +1,7 @@
 # ADR-0005: 对话协议换成 kimi code 的 transcript
 
 - 状态：已接受（2026-08-31）。轮与 run 的关系改由 **[ADR-0006](0006-durable-runs.md)** 定（一轮 = 一条 prompt，可跨多次 run）；工具帧的 `metadata` 字段是本仓对 kimi 帧的扩展，见 **[ADR-0007](0007-tool-declaration-surface.md)** 决策 6；照抄字段的填充口径与加字段规则见 **[ADR-0013](0013-transcript-protocol-freeze.md)**
+- 本文原先关于压缩改写消息的说明由 **[ADR-0011](0011-context-compaction.md)** 替代：保留完整历史，仅通过摘要边界改变模型窗口。
 - **[ADR-0001](0001-architecture-foundations.md)**：Postgres 是唯一事实源，是本文的前提。
 
 ## 决策
@@ -9,7 +10,7 @@ kimi code 的 transcript 协议把三件事收在协议里：结构化的轮 / �
 
 ### 1. transcript 是投影，不是第二个事实源
 
-持久事实只有官方 `StepPersistence` 存的那份消息历史。已经跑完的轮子从消息现推，正在跑的那一轮在进程内存里。所以没有「transcript 表」，也就没有它和消息历史漂开的可能——上下文压缩会改写消息，物化过的 transcript 会当场对不上。
+持久事实只有官方 `StepPersistence` 存的那份消息历史。已经跑完的轮子从消息现推，正在跑的那一轮在进程内存里。所以没有「transcript 表」，也就没有它和消息历史漂开的可能。
 
 代价是两条路必须给出逐字相同的结构，这由一组对齐测试钉住。
 

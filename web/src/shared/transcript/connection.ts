@@ -1,4 +1,4 @@
-/** 参考 Kimi 客户端，一条连接按 session_id 分派多段对话；改名与活动全局帧经 watchSessions 分发。重连携带各 agent 的已应用水位。 */
+/** 参考 Kimi 客户端，一条连接按 session_id 分派多段对话；改名、活动与生成任务全局帧经 watchSessions 分发。重连携带各 agent 的已应用水位。 */
 
 import { z } from 'zod'
 
@@ -52,6 +52,14 @@ const workChangedSchema = z.object({
   last_turn_reason: z.enum(['completed', 'failed', 'aborted']).nullable().optional(),
 })
 
+// session_id 位于信封，任务没有来源对话时省略；metadata 是调用方自带的坐标原样带出，为空时服务端整个省略字段。
+const generationChangedSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  status: z.string(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
 // session_id 位于信封；版本与写入者从重新读取的文件获取。
 const fsChangedSchema = z.object({
   changes: z.array(
@@ -76,6 +84,17 @@ export type SessionUpdate =
       pendingInteraction: 'none' | 'approval' | 'question'
       /** 未提供结束原因时为 null。 */
       lastTurnReason: 'completed' | 'failed' | 'aborted' | null
+    }
+  | {
+      kind: 'generation'
+      /** 任务没有来源对话时为 null。 */
+      conversationId: string | null
+      jobId: string
+      /** 生成种类与业务状态照 GenerationOut 的词汇原样转发。 */
+      jobKind: string
+      status: string
+      /** 调用方自带的坐标，原样转发；由消费方自己解释。 */
+      metadata: Record<string, unknown> | null
     }
   | { kind: 'reconnected' }
 
@@ -317,6 +336,19 @@ export class TranscriptConnection {
           kind: 'activity',
           lastTurnReason: parsed.data.last_turn_reason ?? null,
           pendingInteraction: parsed.data.pending_interaction,
+        })
+        return
+      }
+      case 'event.generation.changed': {
+        const parsed = generationChangedSchema.safeParse(frame.payload)
+        if (!parsed.success) return
+        this.announce({
+          conversationId: typeof frame.session_id === 'string' ? frame.session_id : null,
+          jobId: parsed.data.id,
+          jobKind: parsed.data.kind,
+          kind: 'generation',
+          metadata: parsed.data.metadata ?? null,
+          status: parsed.data.status,
         })
         return
       }

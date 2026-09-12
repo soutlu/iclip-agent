@@ -16,6 +16,7 @@
 
 # vite
 /dist/
+/dist-mock/
 /out/
 
 # production

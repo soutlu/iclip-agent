@@ -40,11 +40,25 @@ test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   await page.waitForTimeout(1200)
 
   await page.screenshot({ path: `${SHOT_DIR}/home-light.png`, fullPage: true })
+  await page.getByRole('button', { name: '关联合集：未关联合集' }).click()
+  await page.screenshot({
+    path: `${SHOT_DIR}/home-collection-light.png`,
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await page.keyboard.press('Escape')
 
   await page.emulateMedia({ colorScheme: 'dark' })
   // 等待主题切换与交互色过渡完成。
   await page.waitForTimeout(400)
   await page.screenshot({ path: `${SHOT_DIR}/home-dark.png`, fullPage: true })
+  await page.getByRole('button', { name: '关联合集：未关联合集' }).click()
+  await page.screenshot({
+    path: `${SHOT_DIR}/home-collection-dark.png`,
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await page.keyboard.press('Escape')
   await page.emulateMedia({ colorScheme: 'light' })
 
   await page.getByRole('button', { name: '折叠侧边栏' }).click()
@@ -60,8 +74,21 @@ test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   // 折叠初态只在挂载时读取断点，调整视口后重载；MSW 会话会随重载清空，需重新登录。
   await page.reload()
   await login(page)
+  await page.getByRole('button', { name: '折叠侧边栏' }).click()
   await expect(page.getByRole('heading', { name: 'Cue' })).toBeVisible()
   await page.screenshot({ path: `${SHOT_DIR}/home-mobile.png`, fullPage: true })
+  await page.getByRole('button', { name: '关联合集：未关联合集' }).click()
+  await page.screenshot({
+    path: `${SHOT_DIR}/home-collection-mobile.png`,
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.screenshot({
+    path: `${SHOT_DIR}/home-collection-mobile-dark.png`,
+    fullPage: true,
+    animations: 'disabled',
+  })
 })
 
 test('首页 composer 附件视觉验收：内联 pill 与悬停卡', async ({ page }) => {

@@ -99,7 +99,7 @@ async def test_video_submit_sends_protocol_payload_and_key(
             reference_audio_urls=["https://example.test/reference.wav"],
             generate_audio=generate_audio,
             conversation_id=uuid.uuid4(),
-            shot_index=2,
+            metadata={"path": "video_shot.json", "shot": 2},
             task_id=uuid.uuid4(),
         )
     )
@@ -421,8 +421,7 @@ async def test_image_edit_sends_the_urls_in_the_order_the_caller_gave() -> None:
         channel="dev",
         prompt="把【输入图片 2 中的标注 1】的杯子换成红色",
         reference_image_urls=["https://cdn.test/frame.png", "https://cdn.test/annotated.png"],
-        shot_index=3,
-        frame_number=2,
+        metadata={"path": "video_shot.json", "shot": 3, "frame": 2},
     )
     sent: dict[str, object] = {}
 

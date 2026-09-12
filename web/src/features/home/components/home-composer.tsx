@@ -1,81 +1,82 @@
-import { useRef, useState } from 'react'
-import { useUser } from '@/shared/auth'
-import { Icon } from '@/shared/icons'
-import { cn } from '@/shared/lib/utils'
+import { useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 import type { ComposerHandle, ComposerSubmission } from '@/shared/ui/composer'
 import { Composer } from '@/shared/ui/composer'
-import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
+import { toast } from '@/shared/ui/toast'
 
-/** Agent ID 必须与 server/agents/agents.yaml 的键一致。 */
-const AGENTS = [
-  { id: 'storyboard', label: '分镜 Agent' },
-  { id: 'exact-replica', label: '完全复刻' },
-  { id: 'assistant', label: '通用助手' },
-] as const
+const LOGIN_DRAFT_KEY = 'cue.home.login-draft'
 
-type HomeComposerProps = {
-  /** 未提供回调时不提交内容。 */
-  onSend?: ((input: { agentId: string; parts: ComposerSubmission['parts'] }) => void) | undefined
+export type HomeComposerProps = {
+  agentPicker?: ReactNode
+  attachmentsEnabled?: boolean | undefined
+  collectionPicker?: ReactNode
+  /** 返回 true 后清空输入；失败提示与登录流程由路由负责。 */
+  onSend?: ((submission: ComposerSubmission) => Promise<boolean>) | undefined
+  /** 游客发送前仅暂存正文，供整页登录返回后恢复。 */
+  preserveForLogin?: boolean | undefined
   sending?: boolean | undefined
 }
 
-/** 附件入口由 assets:write 控制；逐条确认尚无后端 permission_mode 合同。 */
-export function HomeComposer({ onSend, sending = false }: HomeComposerProps) {
+/** 仅装配输入卡；运行目标、合集、权限与发送流程由路由传入。 */
+export function HomeComposer({
+  agentPicker,
+  attachmentsEnabled = false,
+  collectionPicker,
+  onSend,
+  preserveForLogin = false,
+  sending = false,
+}: HomeComposerProps) {
   const composerRef = useRef<ComposerHandle>(null)
-  const [agent, setAgent] = useState<(typeof AGENTS)[number]>(AGENTS[0])
-  const { data: user } = useUser()
+  const submittingRef = useRef(false)
 
-  const send = (submission: ComposerSubmission) => {
-    if (onSend === undefined) return
-    composerRef.current?.clear()
-    onSend({ agentId: agent.id, parts: submission.parts })
+  useEffect(() => {
+    try {
+      const text = window.sessionStorage.getItem(LOGIN_DRAFT_KEY)
+      if (text === null) return
+      composerRef.current?.restore({ media: [], parts: [{ kind: 'text', text }], text })
+      window.sessionStorage.removeItem(LOGIN_DRAFT_KEY)
+    } catch {
+      toast.error('浏览器无法读取或清理登录前的草稿，请检查输入内容')
+    }
+  }, [])
+
+  const send = async (submission: ComposerSubmission) => {
+    if (onSend === undefined || sending || submittingRef.current) return
+    if (preserveForLogin) {
+      try {
+        window.sessionStorage.setItem(LOGIN_DRAFT_KEY, submission.text)
+      } catch {
+        toast.error('浏览器无法暂存输入，请复制内容后再登录')
+        return
+      }
+    }
+    submittingRef.current = true
+    try {
+      if (await onSend(submission)) {
+        composerRef.current?.clear()
+        try {
+          window.sessionStorage.removeItem(LOGIN_DRAFT_KEY)
+        } catch {
+          toast.error('消息已发送，但浏览器无法清理登录前的草稿')
+        }
+      }
+    } finally {
+      submittingRef.current = false
+    }
   }
 
   return (
     <div>
       <Composer
-        attachmentsEnabled={user?.permissions.includes('assets:write') ?? false}
-        leading={
-          <button
-            className={cn(
-              'inline-flex h-(--control-height-md) ui-state cursor-pointer items-center gap-1.5 rounded-full px-3 ui-focus',
-              'text-body-sm text-on-surface-variant',
-            )}
-            type="button"
-          >
-            <Icon decorative name="confirm" size="sm" />
-            逐条确认
-          </button>
-        }
-        onSubmit={send}
+        attachmentsEnabled={attachmentsEnabled}
+        onSubmit={(submission) => {
+          void send(submission)
+        }}
         ref={composerRef}
         sending={sending}
-        trailing={
-          <MenuRoot>
-            <MenuTrigger
-              className={cn(
-                'inline-flex h-(--control-height-md) ui-state cursor-pointer items-center gap-1 rounded-full px-2 ui-focus',
-                'text-body font-medium text-on-surface',
-              )}
-            >
-              {agent.label}
-              <Icon className="text-on-surface-variant" decorative name="expand" size="sm" />
-            </MenuTrigger>
-            <MenuSurface align="end">
-              {AGENTS.map((option) => (
-                <MenuItem key={option.id} onSelect={() => setAgent(option)}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </MenuSurface>
-          </MenuRoot>
-        }
+        trailing={agentPicker}
       />
-      <div className="mx-3 -mt-3 flex items-center gap-1.5 rounded-b-xl bg-surface-container-low px-3 pt-4 pb-2 text-body-sm text-on-surface-variant">
-        <Icon decorative name="folder" size="sm" />
-        未关联合集
-        <Icon decorative name="expand" size="sm" />
-      </div>
+      {collectionPicker}
     </div>
   )
 }

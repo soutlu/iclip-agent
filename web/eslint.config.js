@@ -44,6 +44,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist',
+      'dist-mock',
       'coverage',
       'public',
       'src/routeTree.gen.ts',

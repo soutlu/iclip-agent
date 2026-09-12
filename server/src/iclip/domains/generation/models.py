@@ -48,8 +48,8 @@ class GenerationJob:
     finished_at: datetime | None
     conversation_id: uuid.UUID | None = None
     """生成来源对话。无对话上下文时为空；不设外键，删除对话后仍保留来源。"""
-    shot_index: int | None = None
-    """对应 video_shot.json 的镜头组 index；非镜头组生成时为空。"""
+    metadata: dict[str, Any] | None = None
+    """调用方自带的坐标标签（分镜页写 ``{"path", "shot", "frame"}``），服务端不解释。"""
     task_id: uuid.UUID | None = None
     """需求单 id，调用方给的归属标签；不设外键，只做筛选。"""
     watermark_output_url: str | None = None

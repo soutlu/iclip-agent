@@ -49,7 +49,7 @@ test('双击侧栏拖柄恢复默认宽', async ({ page }) => {
   await expect.poll(async () => (await sidebar.boundingBox())?.width).toBeCloseTo(264, 0)
 })
 
-test('打开工作台之后聊天与面板之间也有一道拖柄', async ({ page }) => {
+test('面板拖动受可用空间限制，刷新保留宽度，放不下时切成覆盖模式', async ({ page }) => {
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
@@ -71,4 +71,20 @@ test('打开工作台之后聊天与面板之间也有一道拖柄', async ({ pa
   await page.mouse.up()
 
   await expect.poll(async () => (await panel.boundingBox())?.width).toBeCloseTo(740, 0)
+
+  await page.setViewportSize({ height: 900, width: 1335 })
+  await expect.poll(async () => (await panel.boundingBox())?.width).toBeCloseTo(663, 0)
+  for (const label of ['调整侧栏宽度', '调整面板宽度']) {
+    await expect
+      .poll(async () => (await page.getByRole('button', { name: label }).boundingBox())?.width)
+      .toBe(4)
+  }
+  // 面板已占满可用空间，继续扩大仍停在上限，并持久化最终可见宽度。
+  await handle.press('ArrowLeft')
+  await page.reload()
+  // MSW 刷新后重置登录与演示会话，重新进入工作台；放宽视口以区分持久化值和默认值。
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  await page.setViewportSize({ height: 900, width: 1600 })
+  await expect.poll(async () => (await panel.boundingBox())?.width).toBeCloseTo(663, 0)
 })
