@@ -34,6 +34,6 @@
 ## 取舍
 
 - **接受**：`metadata` 没有类型，服务端拦不住写错键的调用方。分镜页在前端 zod 校验，读不出坐标的记录就当没有坐标。
-- **接受**：存量回填假设所有旧记录都来自 `video_shot.json`。这是仓库里唯一的分镜文件路径（web 的 `SHOTS_PATH`），迁移 `0002_generation_metadata` 按它写 `path`。
+- **接受**：存量回填假设所有旧记录都来自 `video_shot.json`。这是仓库里唯一的分镜文件路径（web 的 `SHOTS_PATH`），迁移 `0002_generation_metadata` 按它写 `path`。2026-09-12 修订：0002 把 `frameNumber` 为 null 的图片任务也回填成了只有 `path` 的坐标，`0005_generation_metadata_cleanup` 把这种值清成 NULL。
 - **接受**：内存替身的包含匹配只做顶层键相等；Postgres 的 `@>` 对嵌套对象是递归包含。分镜页的坐标是平的，替身不模拟嵌套。
 - **不做**：把 `conversation_id`、`task_id` 也并进 `metadata`。它们有索引、有跨域查询语义，是真正的归属；坐标只是调用方的备注。
