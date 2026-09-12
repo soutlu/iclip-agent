@@ -7,12 +7,14 @@ import json
 import uuid
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, RunRecord, StepEvent
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from iclip.common.errors import NotFound
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
 from iclip.domains.conversations.schemas import DEFAULT_TITLE
 from iclip.harness.step_store_pg import PgStepStore
@@ -331,6 +333,49 @@ async def test_delete_takes_the_workspace_with_it(client: httpx.AsyncClient, pg_
 
     assert left == [f"{user_id}/{kept}"]
     assert materials == [f"{user_id}/{kept}"]
+
+
+async def test_deleted_conversation_is_a_tombstone_no_read_or_write_sees(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """删除只标记 deleted_at：行留着占住 id，仓储的每个读口与写口都当它不存在。"""
+
+    owner = uuid.UUID(await login_as_editor(client, pg_url))
+    conversation_id = uuid.UUID((await create(client)).json()["conversation"]["id"])
+    assert (await client.delete(f"{URL}/{conversation_id}")).status_code == 204
+    assert (await client.delete(f"{URL}/{conversation_id}")).status_code == 404
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.connect() as conn:
+            deleted_at = (
+                await conn.execute(
+                    text("SELECT deleted_at FROM iclip.conversations WHERE id = :id"),
+                    {"id": conversation_id},
+                )
+            ).scalar_one()
+        assert deleted_at is not None
+
+        repo = SqlConversationRepository(engine)
+        for viewer in (owner, None):
+            with pytest.raises(NotFound):
+                await repo.get(conversation_id, owner=viewer)
+        assert await repo.list_for_owner(owner=owner, limit=10) == ()
+        assert await repo.list_ungrouped(owner=owner, limit=10) == ()
+        assert await repo.count_ungrouped(owner=owner) == 0
+        assert await repo.list_audit(owner=owner, limit=10) == ()
+
+        with pytest.raises(NotFound):
+            await repo.rename(conversation_id, owner=owner, title="改不了")
+        with pytest.raises(NotFound):
+            await repo.set_task(conversation_id, owner=owner, task_id=None)
+        with pytest.raises(NotFound):
+            await repo.touch_run(conversation_id, owner=owner, agent_id=AGENT_ID, run_id="run-1")
+        with pytest.raises(NotFound):
+            await repo.delete(conversation_id, owner=owner)
+        assert await repo.apply_generated_title(conversation_id, title="起不了名") is False
+    finally:
+        await engine.dispose()
 
 
 async def test_unknown_conversation_is_404(client: httpx.AsyncClient, pg_url: str) -> None:

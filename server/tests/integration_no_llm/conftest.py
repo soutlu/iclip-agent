@@ -46,8 +46,7 @@ def _no_real_model_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 
 TEST_SECRET = "test-secret-0123456789-0123456789-xyz"
 
-# ID 保留表没有级联外键；应用测试仍需显式清理它，隔离不同用例的状态。
-_APP_TABLES = (*IDENTITY_TABLES, "iclip.conversation_ids")
+_APP_TABLES = IDENTITY_TABLES
 
 
 @pytest.fixture(scope="session")

@@ -1,4 +1,6 @@
-"""对话的 Postgres 仓储。使用数据库时钟，避免实例钟差影响最近活动排序。"""
+"""对话的 Postgres 仓储。使用数据库时钟，避免实例钟差影响最近活动排序。
+
+删除只标记 ``deleted_at``：行留着占住 id，每条读写都只看活着的行。"""
 
 from __future__ import annotations
 
@@ -17,7 +19,6 @@ from sqlalchemy import (
     Text,
     Uuid,
     and_,
-    delete,
     func,
     or_,
     select,
@@ -37,21 +38,15 @@ DB_SCHEMA: Final = "iclip"
 
 metadata_obj = MetaData(schema=DB_SCHEMA)
 
-# 不关联用户或对话外键：业务行删除后仍须阻止 ID 重新绑定保留的运行历史。
-conversation_ids_table = Table(
-    "conversation_ids",
-    metadata_obj,
-    Column("id", Uuid, primary_key=True),
-)
-
 conversations_table = Table(
     "conversations",
     metadata_obj,
     Column("id", Uuid, primary_key=True),
+    # RESTRICT：已删对话的行也占着 id，删用户不能顺手把它们带走。
     Column(
         "owner_user_id",
         Uuid,
-        ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="cascade"),
+        ForeignKey(f"{DB_SCHEMA}.users.id", ondelete="restrict"),
         nullable=False,
     ),
     Column("agent_id", Text, nullable=False),
@@ -73,28 +68,35 @@ conversations_table = Table(
     ),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("deleted_at", DateTime(timezone=True), nullable=True),
 )
 
 _ROWS = conversations_table.c
+_LIVE = _ROWS.deleted_at.is_(None)
 
-# 首列覆盖 owner_user_id 查询，无需另建单列索引。
-Index("ix_conversations_owner_recent", _ROWS.owner_user_id, _ROWS.updated_at.desc())
+# 索引都只收活着的行；首列覆盖 owner_user_id 查询，无需另建单列索引。
+Index(
+    "ix_conversations_owner_recent",
+    _ROWS.owner_user_id,
+    _ROWS.updated_at.desc(),
+    postgresql_where=_LIVE,
+)
 
 # 审计分页使用 updated_at 与 id 的复合游标。
-Index("ix_conversations_updated", _ROWS.updated_at.desc(), _ROWS.id.desc())
+Index("ix_conversations_updated", _ROWS.updated_at.desc(), _ROWS.id.desc(), postgresql_where=_LIVE)
 
-# 部分索引排除无归属记录；需求单尝试按 created_at 升序排列。
+# 再排除无归属记录；需求单尝试按 created_at 升序排列。
 Index(
     "ix_conversations_task",
     _ROWS.task_id,
     _ROWS.created_at,
-    postgresql_where=_ROWS.task_id.isnot(None),
+    postgresql_where=and_(_ROWS.task_id.isnot(None), _LIVE),
 )
 Index(
     "ix_conversations_collection",
     _ROWS.collection_id,
     _ROWS.updated_at.desc(),
-    postgresql_where=_ROWS.collection_id.isnot(None),
+    postgresql_where=and_(_ROWS.collection_id.isnot(None), _LIVE),
 )
 
 
@@ -151,12 +153,7 @@ class SqlConversationRepository:
         self._engine = engine
 
     async def create_if_absent(self, conversation: Conversation) -> tuple[Conversation, bool]:
-        claim_id = (
-            pg_insert(conversation_ids_table)
-            .values(id=conversation.id)
-            .on_conflict_do_nothing(index_elements=[conversation_ids_table.c.id])
-            .returning(conversation_ids_table.c.id)
-        )
+        # 主键冲突不报错、不写入；剩下的 IntegrityError 只会是需求单或合集不存在。
         statement = (
             pg_insert(conversations_table)
             .values(
@@ -171,27 +168,22 @@ class SqlConversationRepository:
                 created_at=func.now(),
                 updated_at=func.now(),
             )
+            .on_conflict_do_nothing(index_elements=[_ROWS.id])
             .returning(*conversations_table.c)
         )
         try:
             async with self._engine.begin() as conn:
-                claimed = (await conn.execute(claim_id)).scalar_one_or_none()
-                # 认领与业务插入共用事务：失败不占用 ID，并发重发只允许一个新建。
-                row = (
-                    (await conn.execute(statement)).mappings().one()
-                    if claimed is not None
-                    else None
-                )
+                row = (await conn.execute(statement)).mappings().one_or_none()
         except IntegrityError as exc:
             raise _reject_missing_reference(exc) from exc
         if row is None:
-            # ID 已用过：只返回属主仍存在的对话；已删除或属于别人均为 NotFound。
+            # id 已用过：只答复自己还活着的那一段；已删除或属于别人均为 NotFound。
             return await self.get(conversation.id, owner=conversation.owner_user_id), False
         return _row(row), True
 
     async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:
         statement = select(conversations_table).where(
-            _ROWS.id == conversation_id, *owner_conditions(_ROWS.owner_user_id, owner)
+            _ROWS.id == conversation_id, _LIVE, *owner_conditions(_ROWS.owner_user_id, owner)
         )
         async with self._engine.connect() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
@@ -202,7 +194,7 @@ class SqlConversationRepository:
     async def list_for_owner(
         self, *, owner: uuid.UUID, limit: int, title_contains: str | None = None
     ) -> tuple[Conversation, ...]:
-        conditions = [_ROWS.owner_user_id == owner]
+        conditions = [_ROWS.owner_user_id == owner, _LIVE]
         if title_contains is not None:
             # autoescape：标题里出现 % 或 _ 时当普通字符，不当通配符
             conditions.append(_ROWS.title.icontains(title_contains, autoescape=True))
@@ -238,7 +230,9 @@ class SqlConversationRepository:
         statement = (
             select(func.count())
             .select_from(conversations_table)
-            .where(_ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None), *_only(only_ids))
+            .where(
+                _ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None), _LIVE, *_only(only_ids)
+            )
         )
         async with self._engine.connect() as conn:
             return int((await conn.execute(statement)).scalar_one())
@@ -270,7 +264,7 @@ class SqlConversationRepository:
 
         statement = (
             select(conversations_table)
-            .where(*conditions, *_after(after))
+            .where(*conditions, _LIVE, *_after(after))
             .order_by(_ROWS.updated_at.desc(), _ROWS.id.desc())
             .limit(limit)
         )
@@ -299,6 +293,7 @@ class SqlConversationRepository:
             .where(
                 _ROWS.owner_user_id == owner,
                 _ROWS.collection_id.in_(collection_ids),
+                _LIVE,
                 # 窗口计数前完成筛选，保证总数与返回记录使用相同范围。
                 *_only(only_ids),
             )
@@ -331,7 +326,7 @@ class SqlConversationRepository:
     ) -> tuple[Conversation, ...]:
         statement = (
             select(conversations_table)
-            .where(_ROWS.task_id == task_id, _ROWS.owner_user_id == owner)
+            .where(_ROWS.task_id == task_id, _ROWS.owner_user_id == owner, _LIVE)
             .order_by(_ROWS.created_at)
         )
         async with self._engine.connect() as conn:
@@ -348,7 +343,7 @@ class SqlConversationRepository:
         limit: int,
         after: PageCursor | None = None,
     ) -> tuple[Conversation, ...]:
-        conditions: list[ColumnElement[bool]] = []
+        conditions: list[ColumnElement[bool]] = [_LIVE]
         if owner is not None:
             conditions.append(_ROWS.owner_user_id == owner)
         if task_id is not None:
@@ -386,7 +381,7 @@ class SqlConversationRepository:
 
         statement = (
             update(conversations_table)
-            .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner)
+            .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner, _LIVE)
             .values(**values, updated_at=func.now())
             .returning(*conversations_table.c)
         )
@@ -402,7 +397,7 @@ class SqlConversationRepository:
     async def apply_generated_title(self, conversation_id: uuid.UUID, *, title: str) -> bool:
         statement = (
             update(conversations_table)
-            .where(_ROWS.id == conversation_id, _ROWS.title_kind == "default")
+            .where(_ROWS.id == conversation_id, _ROWS.title_kind == "default", _LIVE)
             .values(title=title, title_kind="generated")
             .returning(_ROWS.id)
         )
@@ -415,7 +410,7 @@ class SqlConversationRepository:
     ) -> Conversation:
         statement = (
             update(conversations_table)
-            .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner)
+            .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner, _LIVE)
             .values(title=title, title_kind="custom", updated_at=func.now())
             .returning(*conversations_table.c)
         )
@@ -427,8 +422,9 @@ class SqlConversationRepository:
 
     async def delete(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> None:
         statement = (
-            delete(conversations_table)
-            .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner)
+            update(conversations_table)
+            .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner, _LIVE)
+            .values(deleted_at=func.now())
             .returning(_ROWS.id)
         )
         async with self._engine.begin() as conn:
@@ -446,6 +442,7 @@ class SqlConversationRepository:
                 _ROWS.id == conversation_id,
                 _ROWS.owner_user_id == owner,
                 _ROWS.agent_id == agent_id,
+                _LIVE,
             )
             .values(last_run_id=run_id, updated_at=func.now())
             .returning(_ROWS.id)
