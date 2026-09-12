@@ -464,7 +464,7 @@ class ConversationService:
         return await self._repo.set_task(conversation_id, owner=principal.user_id, task_id=task_id)
 
     async def delete(self, principal: Principal, conversation_id: uuid.UUID) -> None:
-        """先清理派生数据，再删除对话记录。
+        """先清理派生数据，再把对话标记删除。
 
         两者无法共用事务；清理中断时保留对话以便重试，避免产生失去归属的派生数据。"""
 
