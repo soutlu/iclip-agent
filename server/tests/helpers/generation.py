@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -89,7 +90,7 @@ def make_job(
     created_at: datetime | None = None,
     owner_user_id: uuid.UUID | None = None,
     conversation_id: uuid.UUID | None = None,
-    shot_index: int | None = None,
+    metadata: dict[str, Any] | None = None,
     task_id: uuid.UUID | None = None,
     output_url: str | None = None,
     watermark_output_url: str | None = None,
@@ -103,7 +104,7 @@ def make_job(
         owner_user_id=owner_user_id or uuid.uuid4(),
         api_key_id=None,
         conversation_id=conversation_id,
-        shot_index=shot_index,
+        metadata=metadata,
         task_id=task_id,
         kind=payload.kind,
         provider=provider
@@ -149,8 +150,7 @@ class InMemoryGenerationRepository:
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: str | None = None,
-        shot_index: int | None = None,
-        frame_number: int | None = None,
+        metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
@@ -161,18 +161,14 @@ class InMemoryGenerationRepository:
             and (conversation_id is None or job.conversation_id == conversation_id)
             and (task_id is None or job.task_id == task_id)
         ]
-        rows = [
-            job
-            for job in rows
-            if (kind is None or job.kind == kind)
-            and (shot_index is None or job.shot_index == shot_index)
-        ]
-        if frame_number is not None:
+        rows = [job for job in rows if kind is None or job.kind == kind]
+        if metadata is not None:
+            # 顶层键相等。Postgres 的 @> 对嵌套对象是递归包含，分镜页的坐标是平的，这里不模拟嵌套。
             rows = [
                 job
                 for job in rows
-                if isinstance(job.request, ImageGenerationIn)
-                and job.request.frame_number == frame_number
+                if job.metadata is not None
+                and all(job.metadata.get(key) == value for key, value in metadata.items())
             ]
         if before is not None:
             anchor = await self.get(before, owner=owner)

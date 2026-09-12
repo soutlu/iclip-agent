@@ -1,5 +1,6 @@
 /** 分镜页帧上的图片任务状态：每格只看最新一条；在跑的一直显示，终态看过一次就清。 */
 
+import { readStoryboardMetadata } from './generation-metadata'
 import type { Shot } from './shot-document'
 import { phaseOfStatus } from './shots'
 import type { GenerationJob } from './storyboard.api'
@@ -25,15 +26,17 @@ export const frameJobKey = (shotIndex: number, frameNumber: number) => `${shotIn
 const newestFirst = (left: GenerationJob, right: GenerationJob) =>
   right.createdAt.localeCompare(left.createdAt)
 
-/** 每格最新一条图片任务。视频任务和没标镜头组、帧号的记录落不到格上，跳过。 */
+/** 这份分镜文件每格最新一条图片任务。视频任务、别的文件的、坐标里没帧号的都落不到格上，跳过。 */
 export const latestFrameJobs = (
   jobs: readonly GenerationJob[],
+  path: string,
 ): ReadonlyMap<string, GenerationJob> => {
   const latest = new Map<string, GenerationJob>()
   for (const job of [...jobs].sort(newestFirst)) {
-    const frameNumber = job.request['frameNumber']
-    if (job.kind !== 'image' || job.shotIndex === null || typeof frameNumber !== 'number') continue
-    const key = frameJobKey(job.shotIndex, frameNumber)
+    const at = readStoryboardMetadata(job)
+    if (job.kind !== 'image' || at === undefined || at.path !== path || at.frame === undefined)
+      continue
+    const key = frameJobKey(at.shot, at.frame)
     if (!latest.has(key)) latest.set(key, job)
   }
   return latest

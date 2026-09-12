@@ -49,7 +49,7 @@
 一段对话给人看的记录：轮（一条用户消息引发的全部运行）→ 步（一次模型响应）→ 块（正文、思考、工具卡等）。它是运行事实的投影，不能反向充当运行事实源。协议与断线恢复见 [跨端约定](../contract/conventions.md#5-agent-对话-transcript)。
 
 **生成任务（Generation Job）**：
-一次媒体生成的持久事实：发起者（含 API key 身份）、归属标签 `user_name`、请求参数、状态和结果，可归档到对话、镜头组与需求单。生成任务的业务状态与 provider 的原始状态分别记录；排队与提交机制见 [architecture.md](architecture.md)。视频的对外接口镜像上游异步接口，决策见 [ADR-0018](adr/0018-video-generation-mirrors-upstream.md)。
+一次媒体生成的持久事实：发起者（含 API key 身份）、归属标签 `user_name`、请求参数、状态和结果，可归档到对话与需求单，并可带调用方自带的坐标标签 `metadata`（分镜页用它记镜头组与帧，服务端不解释，见 [ADR-0020](adr/0020-generation-metadata.md)）。生成任务的业务状态与 provider 的原始状态分别记录；排队与提交机制见 [architecture.md](architecture.md)。视频的对外接口镜像上游异步接口，决策见 [ADR-0018](adr/0018-video-generation-mirrors-upstream.md)。
 
 **生成结果（Generation Output）**：
 一次成功生成对外给出的地址。图片是转存成本系统的公开对象后才算数（网关给的是会过期的签名地址），转存不成功这次生成就是失败，不留网关的地址。视频存上游发布好的两个稳定地址（原片与水印版），缺任一份这次生成就是失败。

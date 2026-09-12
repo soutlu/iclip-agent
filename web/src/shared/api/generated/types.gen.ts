@@ -827,6 +827,12 @@ export type GenerationOut = {
    */
   kind: string
   /**
+   * Metadata
+   */
+  metadata: {
+    [key: string]: unknown
+  } | null
+  /**
    * Outputurl
    */
   outputUrl: string | null
@@ -836,10 +842,6 @@ export type GenerationOut = {
   request: {
     [key: string]: unknown
   }
-  /**
-   * Shotindex
-   */
-  shotIndex: number | null
   /**
    * Status
    */
@@ -904,9 +906,11 @@ export type ImageGenerationIn = {
    */
   conversationId?: string | null
   /**
-   * Framenumber
+   * Metadata
    */
-  frameNumber?: number | null
+  metadata?: {
+    [key: string]: unknown
+  } | null
   /**
    * Model
    */
@@ -923,10 +927,6 @@ export type ImageGenerationIn = {
    * Resolution
    */
   resolution?: '1k' | '2k' | '4k'
-  /**
-   * Shotindex
-   */
-  shotIndex?: number | null
   /**
    * Taskid
    */
@@ -2515,7 +2515,7 @@ export type VideoContent = {
 /**
  * VideoGenerationIn
  *
- * 一次视频生成的输入。字段照上游异步接口，外加三个归属字段与结构化的 ``shot``。
+ * 一次视频生成的输入。字段照上游异步接口，外加归属字段、坐标 ``metadata`` 与结构化的 ``shot``。
  *
  * 只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1、``shot``
  * 自身对得上（图片引用不越界、编号与正文一致）。画幅、分辨率、时长范围、素材规格由上游
@@ -2534,6 +2534,12 @@ export type VideoGenerationIn = {
    * Generate Audio
    */
   generate_audio?: boolean | null
+  /**
+   * Metadata
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
   /**
    * Model
    */
@@ -2569,10 +2575,6 @@ export type VideoGenerationIn = {
    */
   seconds?: number | null
   shot?: VideoShotIn | null
-  /**
-   * Shot Index
-   */
-  shot_index?: number | null
   /**
    * Task Id
    */
@@ -4133,13 +4135,11 @@ export type ListGenerationsGenerationsGetData = {
      */
     kind?: 'image' | 'video' | null
     /**
-     * Shotindex
+     * Metadata
+     *
+     * JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义
      */
-    shotIndex?: number | null
-    /**
-     * Framenumber
-     */
-    frameNumber?: number | null
+    metadata?: string | null
     /**
      * Before
      */

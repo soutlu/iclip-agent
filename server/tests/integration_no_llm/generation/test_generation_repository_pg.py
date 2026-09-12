@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import text
@@ -20,7 +21,7 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTING,
     GenerationJob,
 )
-from iclip.domains.generation.schemas import GenerationRequest, ImageGenerationIn
+from iclip.domains.generation.schemas import GenerationRequest
 from tests.helpers.generation import image_request, make_job, video_request
 from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 
@@ -202,21 +203,21 @@ async def test_origin_round_trips_and_filters_by_conversation(engine: AsyncEngin
             video_request(),
             owner_user_id=owner,
             conversation_id=conversation_id,
-            shot_index=3,
+            metadata={"path": "video_shot.json", "shot": 3},
             task_id=task_id,
         )
     )
     await insert_job(repo, owner)
 
-    assert (tagged.conversation_id, tagged.shot_index, tagged.task_id) == (
+    assert (tagged.conversation_id, tagged.metadata, tagged.task_id) == (
         conversation_id,
-        3,
+        {"path": "video_shot.json", "shot": 3},
         task_id,
     )
     read_back = await repo.get(tagged.id, owner=owner)
-    assert (read_back.conversation_id, read_back.shot_index, read_back.task_id) == (
+    assert (read_back.conversation_id, read_back.metadata, read_back.task_id) == (
         conversation_id,
-        3,
+        {"path": "video_shot.json", "shot": 3},
         task_id,
     )
 
@@ -240,27 +241,35 @@ async def test_deleting_the_owner_takes_their_generations_with_it(
         await repo.get(job.id, owner=None)
 
 
-async def test_frame_number_json_filtering_pagination_and_owner_scope(engine: AsyncEngine) -> None:
-    """帧号存在 request JSON 里，筛选走 JSONB 路径，且在分页截断之前生效。"""
+async def test_metadata_containment_filtering_pagination_and_owner_scope(
+    engine: AsyncEngine,
+) -> None:
+    """坐标存 JSONB 列，筛选走 ``@>`` 包含匹配，且在分页截断之前生效。"""
 
-    def edit(frame_number: int) -> ImageGenerationIn:
-        return image_request(shot_index=1, frame_number=frame_number)
+    def coordinate(frame: int) -> dict[str, Any]:
+        return {"path": "video_shot.json", "shot": 1, "frame": frame}
+
+    def edit(frame: int, owner_id: uuid.UUID) -> GenerationJob:
+        return make_job(
+            image_request(metadata=coordinate(frame)),
+            owner_user_id=owner_id,
+            metadata=coordinate(frame),
+        )
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
     other = await make_user(engine)
-    first = await repo.create(make_job(edit(1), owner_user_id=owner, shot_index=1))
-    second = await repo.create(make_job(edit(1), owner_user_id=owner, shot_index=1))
-    await repo.create(make_job(edit(2), owner_user_id=owner, shot_index=1))
-    foreign = await repo.create(make_job(edit(1), owner_user_id=other, shot_index=1))
+    first = await repo.create(edit(1, owner))
+    second = await repo.create(edit(1, owner))
+    await repo.create(edit(2, owner))
+    foreign = await repo.create(edit(1, other))
 
     async def page_before(before: uuid.UUID | None = None) -> tuple[GenerationJob, ...]:
         return await repo.list_for_owner(
             owner=owner,
             limit=1,
             kind="image",
-            shot_index=1,
-            frame_number=1,
+            metadata={"shot": 1, "frame": 1},
             before=before,
         )
 

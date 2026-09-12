@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from iclip.domains.agents.transcript_api import LiveConnections
 from iclip.domains.generation.models import GenerationJob, GenerationStatus
 from iclip.domains.generation.repository import GenerationRepository
-from iclip.domains.generation.schemas import ImageGenerationIn
 
 
 class AnnouncingGenerationRepository:
@@ -35,8 +35,7 @@ class AnnouncingGenerationRepository:
         limit: int,
         conversation_id: uuid.UUID | None = None,
         kind: str | None = None,
-        shot_index: int | None = None,
-        frame_number: int | None = None,
+        metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
@@ -45,8 +44,7 @@ class AnnouncingGenerationRepository:
             limit=limit,
             conversation_id=conversation_id,
             kind=kind,
-            shot_index=shot_index,
-            frame_number=frame_number,
+            metadata=metadata,
             task_id=task_id,
             before=before,
         )
@@ -124,16 +122,13 @@ class AnnouncingGenerationRepository:
         )
 
     def _announce(self, job: GenerationJob) -> GenerationJob:
-        request = job.request
         self._live.announce_generation_changed(
             job.owner_user_id,
             job.conversation_id,
             job_id=job.id,
             kind=job.kind,
             status=job.status,
-            shot_index=job.shot_index,
-            # 帧号只有图片请求带，存在请求快照里；视频没有这一项。
-            frame_number=request.frame_number if isinstance(request, ImageGenerationIn) else None,
+            metadata=job.metadata,
         )
         return job
 

@@ -178,7 +178,7 @@ describe('StoryboardReader 全局设定与参考图', () => {
     expect(state.submissions[0]).toMatchObject({
       shot: state.stored().shots[0]?.prompt,
       reference_image_urls: fixture.shots[0]?.image_urls,
-      shot_index: 1,
+      metadata: { path: PATH, shot: 1 },
     })
   })
   it('保存合并远端画幅变化后生成使用已落盘的新画幅', async () => {

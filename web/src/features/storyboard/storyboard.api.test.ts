@@ -44,6 +44,7 @@ describe('submitVideoGeneration', () => {
         conversationId,
         generateAudio: false,
         model: 'wan3.0-video',
+        path: 'video_shot.json',
         shot,
       }),
     ).resolves.toBe('4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c')
@@ -61,7 +62,7 @@ describe('submitVideoGeneration', () => {
           { image_indexes: [1, 2], prompt: '走向镜头 @Image1，停下 @Image2。', timestamps: [0, 6] },
         ],
       },
-      shot_index: 2,
+      metadata: { path: 'video_shot.json', shot: 2 },
     })
   })
 
@@ -78,6 +79,7 @@ describe('submitVideoGeneration', () => {
         conversationId,
         generateAudio: true,
         model: 'x',
+        path: 'video_shot.json',
         shot,
       }),
     ).rejects.toThrow('视频生成仅支持模型 moyu-seedance-2-5')
@@ -91,8 +93,8 @@ describe('historyShotOf', () => {
     id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
     kind: 'video',
     outputUrl: null,
+    metadata: { path: 'video_shot.json', shot: 2 },
     request,
-    shotIndex: 2,
     status: 'completed',
     taskId: null,
     watermarkOutputUrl: null,

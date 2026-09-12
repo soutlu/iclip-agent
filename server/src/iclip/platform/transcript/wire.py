@@ -135,8 +135,7 @@ class GenerationChangedPayload(_Envelope):
     id: str
     kind: str
     status: str
-    shot_index: int | None = None
-    frame_number: int | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class GenerationChanged(_Envelope):

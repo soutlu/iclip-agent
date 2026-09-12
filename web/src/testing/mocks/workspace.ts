@@ -184,7 +184,7 @@ type MockJob = {
   outputUrl?: string
   prompt: string
   request?: Record<string, unknown>
-  shotIndex?: number
+  metadata?: Record<string, unknown>
   status: 'completed' | 'failed' | 'submitted'
   watermarkOutputUrl?: string
 }
@@ -196,7 +196,7 @@ const job = (spec: MockJob) => ({
   kind: spec.kind ?? 'video',
   outputUrl: spec.outputUrl ?? null,
   request: spec.request ?? { prompt: spec.prompt },
-  shotIndex: spec.shotIndex ?? null,
+  metadata: spec.metadata ?? null,
   status: spec.status,
   taskId: null,
   watermarkOutputUrl: spec.watermarkOutputUrl ?? null,
@@ -273,7 +273,7 @@ export const seedMockWorkspace = (
       id: '4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c',
       outputUrl: VIDEO_URL,
       prompt: '模特走向镜头，停下微笑，暖光。',
-      shotIndex: 3,
+      metadata: { path: SHOTS_MOCK_PATH, shot: 3 },
       status: 'completed',
       watermarkOutputUrl: VIDEO_URL,
     }),
@@ -284,7 +284,7 @@ export const seedMockWorkspace = (
       // 带结构化 shot 的记录可以回填镜头组；纯描述的那两条只能看不能回填。
       prompt: assembleShotPrompt(HISTORY_SHOT),
       request: { prompt: assembleShotPrompt(HISTORY_SHOT), shot: HISTORY_SHOT },
-      shotIndex: 2,
+      metadata: { path: SHOTS_MOCK_PATH, shot: 2 },
       status: 'completed',
       watermarkOutputUrl: VIDEO_URL,
     }),
@@ -293,14 +293,14 @@ export const seedMockWorkspace = (
       errorMessage: '上游返回了空结果，换个描述再试一次。',
       id: '6c304182-1c30-4e41-9eab-3f4a5b6c7d8e',
       prompt: '第 2 组第二版：加一个低头看包的动作。',
-      shotIndex: 2,
+      metadata: { path: SHOTS_MOCK_PATH, shot: 2 },
       status: 'failed',
     }),
     job({
       createdAt: '2026-09-01T12:20:00Z',
       id: '7d415293-2d41-4f52-afbc-4a5b6c7d8e9f',
       prompt: '第 2 组第三版：脚步放慢，收尾停在微笑上。',
-      shotIndex: 2,
+      metadata: { path: SHOTS_MOCK_PATH, shot: 2 },
       status: 'submitted',
     }),
     job({
@@ -594,13 +594,15 @@ export const workspaceHandlers = [
     const conversationId = params.get('conversationId')
     let items = conversationId === null ? [] : (generations.get(conversationId) ?? [])
     const kind = params.get('kind')
-    const shotIndex = params.get('shotIndex')
-    const frameNumber = params.get('frameNumber')
+    const rawMetadata = params.get('metadata')
+    // 与后端同一口径：metadata 是一段 JSON 对象，按顶层键包含匹配。
+    const metadata =
+      rawMetadata === null ? null : (JSON.parse(rawMetadata) as Record<string, unknown>)
     items = items.filter(
       (item) =>
         (kind === null || item.kind === kind) &&
-        (shotIndex === null || item.shotIndex === Number(shotIndex)) &&
-        (frameNumber === null || item.request['frameNumber'] === Number(frameNumber)),
+        (metadata === null ||
+          Object.entries(metadata).every(([key, value]) => item.metadata?.[key] === value)),
     )
     items = [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     const before = params.get('before')
@@ -617,7 +619,7 @@ export const workspaceHandlers = [
       prompt: body.prompt,
       request: { ...body },
       conversationId: body.conversationId ?? null,
-      shotIndex: body.shotIndex ?? null,
+      metadata: body.metadata ?? null,
       outputUrl: (workspaceFrames.get(body.conversationId ?? '') ?? DATA_FRAMES).c,
     })
     return HttpResponse.json({ generation: created }, { status: 202 })
@@ -636,7 +638,7 @@ export const workspaceHandlers = [
       prompt,
       request: { ...body, prompt },
       conversationId: body.conversation_id ?? null,
-      shotIndex: body.shot_index ?? null,
+      metadata: body.metadata ?? null,
       outputUrl: VIDEO_URL,
       watermarkOutputUrl: VIDEO_URL,
     })
@@ -650,7 +652,7 @@ function acceptGeneration(spec: {
   prompt: string
   request: Record<string, unknown>
   conversationId: string | null
-  shotIndex: number | null
+  metadata: Record<string, unknown> | null
   outputUrl: string
   watermarkOutputUrl?: string
 }) {
@@ -660,7 +662,7 @@ function acceptGeneration(spec: {
     kind: spec.kind,
     prompt: spec.prompt,
     request: spec.request,
-    ...(spec.shotIndex === null ? {} : { shotIndex: spec.shotIndex }),
+    ...(spec.metadata === null ? {} : { metadata: spec.metadata }),
     status: 'submitted',
   })
   if (spec.conversationId !== null) {

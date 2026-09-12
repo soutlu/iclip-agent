@@ -11,6 +11,7 @@ import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
+import { readStoryboardMetadata } from '../generation-metadata'
 import type { Shot } from '../shot-document'
 import { phaseOfStatus, type GenerationPhase } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
@@ -53,7 +54,7 @@ export function GenerationRecords({
   shotIndex,
 }: GenerationRecordsProps) {
   const listed = jobs
-    .filter((job) => job.kind === 'video' && job.shotIndex === shotIndex)
+    .filter((job) => job.kind === 'video' && readStoryboardMetadata(job)?.shot === shotIndex)
     .sort(newestFirst)
 
   return (

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -63,9 +64,6 @@ class GenerationService:
     async def submit_image(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
         """受理一次图片生成。选定哪家、哪个渠道在这里定死，队列等待期间的配置变化不影响它。"""
 
-        # 只在受理时查：来源字段落表上的列，读回持久化请求时看不到它们。
-        if request.frame_number is not None and request.shot_index is None:
-            raise ValidationFailed("给了 frameNumber 就必须给 shotIndex")
         _require_user_name(request.user_name)
         settled, model = self._settle_image_model(request)
         return await self._accept(principal, settled, provider=model)
@@ -83,7 +81,7 @@ class GenerationService:
             owner_user_id=principal.user_id,
             api_key_id=principal.api_key_id,
             conversation_id=request.conversation_id,
-            shot_index=request.shot_index,
+            metadata=request.metadata,
             task_id=request.task_id,
             kind=request.kind,
             provider=provider,
@@ -172,8 +170,7 @@ class GenerationService:
         limit: int = 20,
         conversation_id: uuid.UUID | None = None,
         kind: str | None = None,
-        shot_index: int | None = None,
-        frame_number: int | None = None,
+        metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
@@ -186,8 +183,7 @@ class GenerationService:
             limit=limit,
             conversation_id=conversation_id,
             kind=kind,
-            shot_index=shot_index,
-            frame_number=frame_number,
+            metadata=metadata,
             task_id=task_id,
             before=before,
         )

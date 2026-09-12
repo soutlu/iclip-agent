@@ -40,12 +40,12 @@ const originalDocument = (): ShotsDocument => ({
 const completedJob = (outputUrl: string, createdAt: string): GenerationJob => ({
   id: crypto.randomUUID(),
   kind: 'image',
-  shotIndex: 1,
+  metadata: { frame: 1, path: PATH, shot: 1 },
   createdAt,
   status: 'completed',
   outputUrl,
   errorMessage: null,
-  request: { frameNumber: 1, prompt: '修改颜色', referenceImageUrls: [ORIGINAL] },
+  request: { prompt: '修改颜色', referenceImageUrls: [ORIGINAL] },
   taskId: null,
   watermarkOutputUrl: null,
 })

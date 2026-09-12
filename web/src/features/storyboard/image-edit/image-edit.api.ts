@@ -7,6 +7,7 @@ import {
   zImageGenerationIn,
   zImageModelsOut,
 } from '@/shared/api/generated/zod.gen'
+import { metadataFilterParam, storyboardMetadata } from '../generation-metadata'
 import { generationsRefetchInterval, type GenerationJob } from '../storyboard.api'
 import { isRunningStatus } from '../shots'
 import type { EditInstruction, FrameEditDraft, FrameEditTarget } from './image-edit-types'
@@ -46,8 +47,9 @@ export function useImageEditJobs(target: FrameEditTarget) {
       const params = new URLSearchParams({
         conversationId: target.conversationId,
         kind: 'image',
-        shotIndex: String(target.shotIndex),
-        frameNumber: String(target.frameNumber),
+        metadata: metadataFilterParam(
+          storyboardMetadata(target.artifactPath, target.shotIndex, target.frameNumber),
+        ),
         limit: '20',
       })
       if (pageParam !== undefined) params.set('before', pageParam)
@@ -204,8 +206,7 @@ export async function submitImageEdit(
   // 不带 userName：浏览器会话由服务端填登录用户名。
   const body = zImageGenerationIn.parse({
     conversationId: target.conversationId,
-    shotIndex: target.shotIndex,
-    frameNumber: target.frameNumber,
+    metadata: storyboardMetadata(target.artifactPath, target.shotIndex, target.frameNumber),
     ...options,
     prompt: compileEditPrompt(draft),
     referenceImageUrls: draft.references.map((reference) => reference.url),

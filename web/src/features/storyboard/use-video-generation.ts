@@ -7,7 +7,7 @@ import type { Shot } from './shot-document'
 import { storyboardQueryKeys, submitVideoGeneration, useVideoModels } from './storyboard.api'
 import { DEFAULT_GENERATE_AUDIO, type VideoGenerationOptions } from './video-generation-options'
 
-export const useVideoGeneration = (conversationId: string) => {
+export const useVideoGeneration = (conversationId: string, path: string) => {
   const queryClient = useQueryClient()
   const models = useVideoModels()
   const [submitting, setSubmitting] = useState<readonly number[]>([])
@@ -33,6 +33,7 @@ export const useVideoGeneration = (conversationId: string) => {
         conversationId,
         generateAudio: options.generateAudio,
         model,
+        path,
         shot,
       })
       void queryClient.invalidateQueries({

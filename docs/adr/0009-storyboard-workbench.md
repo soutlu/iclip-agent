@@ -44,7 +44,7 @@
 
 ### 4. 生成任务归属到对话
 
-- `generation_jobs` 加两列，都可空、不建外键：`conversation_id`、`shot_index`；索引 `(conversation_id, created_at)`。`GET /generations` 加 `conversationId` 过滤。2026-09-09 修订：再加需求单归属 `task_id` 与对应索引、过滤，见 [ADR-0018](0018-video-generation-mirrors-upstream.md)。
+- `generation_jobs` 加两列，都可空、不建外键：`conversation_id`、`shot_index`；索引 `(conversation_id, created_at)`。`GET /generations` 加 `conversationId` 过滤。2026-09-09 修订：再加需求单归属 `task_id` 与对应索引、过滤，见 [ADR-0018](0018-video-generation-mirrors-upstream.md)。2026-09-12 修订：`shot_index` 列并入调用方自带的 `metadata`，见 [ADR-0020](0020-generation-metadata.md)。
 - 面板发起的生成三列都填；工具发起的生成填 `conversation_id`（`deps` 里有），`shot_index` 留空。
 - 同一组多次生成就是多条任务行，不持久化「当前用哪条」。面板默认显示该组最新一条完成的视频。
 - 视频结果原先与图片一样转存进本系统的桶，2026-09-09 起改为直接存上游发布好的地址，见 [ADR-0018](0018-video-generation-mirrors-upstream.md)。

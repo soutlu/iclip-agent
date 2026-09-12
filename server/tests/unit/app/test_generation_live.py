@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.domains.agents.transcript_api import LiveConnections
 from iclip.domains.generation.models import STATUS_SUBMITTED, STATUS_SUBMITTING
 from tests.helpers.generation import InMemoryGenerationRepository, image_request, make_job
 
-Announced = tuple[uuid.UUID, uuid.UUID | None, uuid.UUID, str, str, int | None, int | None]
+Announced = tuple[uuid.UUID, uuid.UUID | None, uuid.UUID, str, str, Mapping[str, Any] | None]
+
+SHOT = {"path": "video_shot.json", "shot": 2}
+FRAME = {"path": "video_shot.json", "shot": 1, "frame": 3}
 
 
 class _RecordingConnections(LiveConnections):
@@ -27,19 +32,16 @@ class _RecordingConnections(LiveConnections):
         job_id: uuid.UUID,
         kind: str,
         status: str,
-        shot_index: int | None,
-        frame_number: int | None,
+        metadata: Mapping[str, Any] | None,
     ) -> None:
-        self.announced.append(
-            (owner, conversation_id, job_id, kind, status, shot_index, frame_number)
-        )
+        self.announced.append((owner, conversation_id, job_id, kind, status, metadata))
 
 
 async def test_every_status_transition_of_a_video_job_is_announced_to_its_owner() -> None:
     live = _RecordingConnections()
     repo = AnnouncingGenerationRepository(InMemoryGenerationRepository(), live)
     owner, conversation_id = uuid.uuid4(), uuid.uuid4()
-    job = make_job(owner_user_id=owner, conversation_id=conversation_id, shot_index=2)
+    job = make_job(owner_user_id=owner, conversation_id=conversation_id, metadata=SHOT)
 
     await repo.create(job)
     await repo.mark_submitting(job.id)
@@ -55,29 +57,21 @@ async def test_every_status_transition_of_a_video_job_is_announced_to_its_owner(
         watermark_output_url="https://cdn.test/take-wm.mp4",
     )
 
-    statuses = [
-        (status, shot_index, frame_number)
-        for *_, status, shot_index, frame_number in live.announced
-    ]
-    assert statuses == [
-        ("pending", 2, None),
-        ("submitting", 2, None),
-        ("submitted", 2, None),
-        ("completed", 2, None),
+    assert [(status, metadata) for *_, status, metadata in live.announced] == [
+        ("pending", SHOT),
+        ("submitting", SHOT),
+        ("submitted", SHOT),
+        ("completed", SHOT),
     ], "record_progress 只更新 provider 原始状态，不算一跳"
     assert {(one[0], one[1], one[2], one[3]) for one in live.announced} == {
         (owner, conversation_id, job.id, "video")
     }
 
 
-async def test_an_image_job_carries_its_frame_number_and_a_failure_is_announced_once() -> None:
+async def test_an_image_job_carries_its_metadata_and_a_failure_is_announced_once() -> None:
     live = _RecordingConnections()
     repo = AnnouncingGenerationRepository(InMemoryGenerationRepository(), live)
-    job = make_job(
-        image_request(frame_number=3, shot_index=1),
-        status=STATUS_SUBMITTED,
-        shot_index=1,
-    )
+    job = make_job(image_request(metadata=FRAME), status=STATUS_SUBMITTED, metadata=FRAME)
     await repo.create(job)
 
     missed = await repo.mark_failed(
@@ -92,12 +86,9 @@ async def test_an_image_job_carries_its_frame_number_and_a_failure_is_announced_
 
     assert missed is None
     assert failed is not None and failed.status == "failed"
-    assert [
-        (status, shot_index, frame_number)
-        for *_, status, shot_index, frame_number in live.announced
-    ] == [
-        ("submitted", 1, 3),
-        ("failed", 1, 3),
+    assert [(status, metadata) for *_, status, metadata in live.announced] == [
+        ("submitted", FRAME),
+        ("failed", FRAME),
     ], "状态守卫没命中的那次不发帧"
 
 
@@ -108,4 +99,4 @@ async def test_a_job_without_a_conversation_still_announces_to_its_owner() -> No
 
     await repo.create(job)
 
-    assert live.announced == [(job.owner_user_id, None, job.id, "video", "pending", None, None)]
+    assert live.announced == [(job.owner_user_id, None, job.id, "video", "pending", None)]

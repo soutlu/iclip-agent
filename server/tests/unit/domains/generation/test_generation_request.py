@@ -11,6 +11,7 @@ from iclip.domains.generation.schemas import (
     IMAGE_MAX_REFERENCES,
     KIND_IMAGE,
     KIND_VIDEO,
+    MAX_METADATA_CHARS,
     ImageGenerationIn,
     VideoGenerationIn,
     request_from_payload,
@@ -77,7 +78,6 @@ def test_stored_payload_keeps_each_kinds_own_field_names() -> None:
         "aspectRatio",
         "resolution",
         "referenceImageUrls",
-        "frameNumber",
     }
 
 
@@ -85,14 +85,27 @@ def test_a_stored_request_reads_back_without_its_origin_columns() -> None:
     """归属字段落列不落 JSON，所以读回时看不到——校验不能建在这条路上。"""
 
     task_id = uuid.uuid4()
-    image = request_to_payload(image_request(shot_index=1, frame_number=2, task_id=task_id))
-    assert {"shotIndex", "taskId", "conversationId"}.isdisjoint(image)
+    coordinate = {"path": "video_shot.json", "shot": 1, "frame": 2}
+    image = request_to_payload(image_request(metadata=coordinate, task_id=task_id))
+    assert {"metadata", "taskId", "conversationId"}.isdisjoint(image)
     restored = request_from_payload(KIND_IMAGE, image)
     assert isinstance(restored, ImageGenerationIn)
-    assert restored.frame_number == 2
+    assert restored.metadata is None, "坐标落列，读回的请求里没有它"
 
-    video = request_to_payload(video_request(conversation_id=uuid.uuid4(), task_id=task_id))
-    assert {"conversation_id", "shot_index", "task_id"}.isdisjoint(video)
+    video = request_to_payload(
+        video_request(conversation_id=uuid.uuid4(), task_id=task_id, metadata={"shot": 3})
+    )
+    assert {"conversation_id", "metadata", "task_id"}.isdisjoint(video)
+
+
+def test_metadata_is_bounded_but_otherwise_opaque() -> None:
+    """服务端不读键：任意形状都收，只拦超长。"""
+
+    assert image_request(metadata={"anything": {"nested": [1, 2]}}).metadata == {
+        "anything": {"nested": [1, 2]}
+    }
+    with pytest.raises(ValueError, match="metadata"):
+        video_request(metadata={"note": "x" * MAX_METADATA_CHARS})
 
 
 def test_unknown_kind_is_rejected() -> None:
