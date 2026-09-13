@@ -29,11 +29,12 @@
 
 ### 5. 分镜页的形状归前端
 
-分镜页写 `{"path": <分镜文件路径>, "shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`。形状在 `web/src/features/storyboard/generation-metadata.ts` 一处定义并校验，生成记录抽屉、帧角标、编辑器按格查询都从这里读。换一个调用方（API key、别的页面）可以写自己的形状，生成域不需要知道。
+分镜页写 `{"path": <分镜文件路径>, "shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；图片编辑另带 `sourceUrl`，记这次改的是哪张图——底图未必还在分镜里，这一帧出现过的图要靠它从任务列表重新拼出来。按坐标筛选时不带 `sourceUrl`。形状在 `web/src/features/storyboard/generation-metadata.ts` 一处定义并校验，生成记录抽屉、帧角标、编辑器按格查询都从这里读。换一个调用方（API key、别的页面）可以写自己的形状，生成域不需要知道。
 
 ## 取舍
 
 - **接受**：`metadata` 没有类型，服务端拦不住写错键的调用方。分镜页在前端 zod 校验，读不出坐标的记录就当没有坐标。
+- **接受**：`sourceUrl` 是 2026-09-13 加的，此前的图片编辑记录没有这一项，翻不出它们的底图。不回填：底图当时是哪张，事后推不出来。
 - **接受**：存量回填假设所有旧记录都来自 `video_shot.json`。这是仓库里唯一的分镜文件路径（web 的 `SHOTS_PATH`），迁移 `0002_generation_metadata` 按它写 `path`。2026-09-12 修订：0002 把 `frameNumber` 为 null 的图片任务也回填成了只有 `path` 的坐标，`0005_generation_metadata_cleanup` 把这种值清成 NULL。
 - **接受**：内存替身的包含匹配只做顶层键相等；Postgres 的 `@>` 对嵌套对象是递归包含。分镜页的坐标是平的，替身不模拟嵌套。
 - **不做**：把 `conversation_id`、`task_id` 也并进 `metadata`。它们有索引、有跨域查询语义，是真正的归属；坐标只是调用方的备注。
