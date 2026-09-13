@@ -36,7 +36,7 @@ from iclip.harness.agents import DELEGATE_TOOL
 from iclip.harness.jobs import JobQueue, JobRow
 from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.transcript.history import TranscriptHistory
-from iclip.harness.transcript.runner import ConversationRunner
+from iclip.harness.transcript.runner import ConversationRunner, RunStarted
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
@@ -182,6 +182,7 @@ def make_runner(
     locked_by: str = LOCKED_BY,
     max_attempts: int = 2,
     context_limits: Mapping[str, int] | None = None,
+    on_run_started: RunStarted | None = None,
 ) -> tuple[ConversationRunner, PgStepStore, JobQueue]:
     """按生产接法装 runner；context_limits 不给就按 AGENT_ID 开一个窗口。"""
 
@@ -205,6 +206,7 @@ def make_runner(
         sweep_seconds=15,
         max_attempts=max_attempts,
         locked_by=locked_by,
+        on_run_started=on_run_started,
         display=display,
     )
     return runner, step_store, queue
@@ -220,6 +222,7 @@ def build_runner(
     max_attempts: int = 2,
     display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
     context_limits: Mapping[str, int] | None = None,
+    on_run_started: RunStarted | None = None,
 ) -> tuple[ConversationRunner, PgStepStore, JobQueue]:
     """一个主 agent、一个假模型的 runner。"""
 
@@ -242,11 +245,17 @@ def build_runner(
         locked_by=locked_by,
         max_attempts=max_attempts,
         context_limits=context_limits,
+        on_run_started=on_run_started,
     )
 
 
 def approval_runner(
-    engine: AsyncEngine, store: TranscriptStore, *, reply: str = "改完了", calls: int = 1
+    engine: AsyncEngine,
+    store: TranscriptStore,
+    *,
+    reply: str = "改完了",
+    calls: int = 1,
+    on_run_started: RunStarted | None = None,
 ) -> tuple[ConversationRunner, PgStepStore, JobQueue]:
     """装配待审批工具；首个请求调用工具，后续请求返回文本。"""
 
@@ -255,6 +264,7 @@ def approval_runner(
         calls_then_says("write_file", reply, calls=calls),
         store=store,
         tools=[Tool(wrote, name="write_file", requires_approval=True)],
+        on_run_started=on_run_started,
     )
 
 

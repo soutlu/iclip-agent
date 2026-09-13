@@ -72,10 +72,13 @@ from iclip.platform.transcript.ops import (
 _logger = structlog.stdlib.get_logger(__name__)
 
 DepsFor = Callable[[JobRow], Awaitable[Any]]
+"""为消息构造运行依赖；身份固定为消息入队时的属主，由组合根提供具体依赖。"""
 
 TurnEnded = Callable[[JobRow], Awaitable[None]]
 """由组合根注入的轮次完成回调；异常仅记录，不影响已持久化的运行结果。"""
-"""为消息构造运行依赖；身份固定为消息入队时的属主，由组合根提供具体依赖。"""
+
+RunStarted = Callable[[JobRow, str], Awaitable[None]]
+"""每次顶层 run 挂上租约后调用一次，带新 run_id；异常仅记录；子代理运行不经这里。"""
 
 
 def _now() -> datetime:
@@ -196,6 +199,7 @@ class ConversationRunner:
         compaction_keep_messages: int = 20,
         locked_by: str | None = None,
         on_turn_ended: TurnEnded | None = None,
+        on_run_started: RunStarted | None = None,
         display: ToolDisplayRegistry = ToolDisplayRegistry.EMPTY,
     ) -> None:
         self._agents = agents
@@ -216,6 +220,7 @@ class ConversationRunner:
         # 公开租约持有者 id，供提交入口写入租约。
         self.locked_by = locked_by or uuid.uuid4().hex
         self._on_turn_ended = on_turn_ended
+        self._on_run_started = on_run_started
         self._active: dict[str, _Active] = {}
         self._closing = False
         # 持有任务强引用，避免仅被 asyncio 弱引用的运行任务被回收。
@@ -543,6 +548,16 @@ class ConversationRunner:
         except Exception:
             _logger.exception("这一轮的收尾动作没做完", prompt_id=row.prompt_id)
 
+    async def _run_started(self, row: JobRow, run_id: str) -> None:
+        """执行 run 挂上租约后的附带动作，异常仅记录。"""
+
+        if self._on_run_started is None:
+            return
+        try:
+            await self._on_run_started(row, run_id)
+        except Exception:
+            _logger.exception("这次运行的开场动作没做完", prompt_id=row.prompt_id, run_id=run_id)
+
     async def _settle(self, active: _Active | None, *, status: JobStatus) -> None:
         """先将未消费插话退回队列，再更新已消费项的终态。
 
@@ -586,11 +601,14 @@ class ConversationRunner:
         ordinal = len(turns) + 1 if resumed is None else resumed + 1
         turn_id = f"t{ordinal}"
         run_id = f"{row.agent_id}-{uuid.uuid4().hex[:8]}"
-        await self._queue.attach_run(
+        attached = await self._queue.attach_run(
             row.prompt_id, run_id, locked_by=self.locked_by, attempt=row.attempt
         )
         if row.run_id is not None:
             await self._queue.adopt_steered(row.run_id, run_id)
+        # 租约已不在手上的运行会被心跳取消，不在对话上留痕。
+        if attached:
+            await self._run_started(row, run_id)
 
         active = _Active(
             prompt_id=row.prompt_id,
@@ -800,4 +818,4 @@ class ConversationRunner:
         )
 
 
-__all__ = ["ConversationRunner", "ConversationSnapshots", "DepsFor", "TurnEnded"]
+__all__ = ["ConversationRunner", "ConversationSnapshots", "DepsFor", "RunStarted", "TurnEnded"]
