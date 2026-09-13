@@ -33,12 +33,15 @@ function PickerControls({
   const [loadError, setLoadError] = useState(error)
   return (
     <AuditSearchPicker
-      error={loadError}
       label={label}
       onChange={setValue}
-      onRetry={() => setLoadError(undefined)}
-      options={options}
       selectedLabel={selectedLabel}
+      source={{
+        error: loadError,
+        isPending: false,
+        onRetry: () => setLoadError(undefined),
+        options,
+      }}
       value={value}
       withAvatars={label === '用户'}
     />

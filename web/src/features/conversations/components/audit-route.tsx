@@ -15,32 +15,29 @@ import {
   type ConversationStatus,
 } from '../conversation-status'
 import type { Conversation } from '../conversations.api'
-import { AuditFiltersBar, type TaskOption } from './audit-filters'
+import { AuditFiltersBar } from './audit-filters'
+import type { PickerSource } from './audit-search-picker'
 
 type AuditRouteProps = {
-  /** 需求单候选由路由层查询，feature 之间不直接互引。 */
-  tasks: readonly TaskOption[]
-  tasksPending?: boolean
-  tasksError?: string | undefined
-  onTasksRetry?: () => void
-  taskFilterEnabled?: boolean
+  /** 需求单候选由路由层查询，feature 之间不直接互引；null 表示当前账号没有 tasks:read 权限。 */
+  tasks: PickerSource | null
 }
 
-export function AuditRoute({
-  tasks,
-  tasksPending = false,
-  tasksError,
-  onTasksRetry,
-  taskFilterEnabled = true,
-}: AuditRouteProps) {
+export function AuditRoute({ tasks }: AuditRouteProps) {
   const [filters, setFilters] = useState<AuditFilters>(DEFAULT_AUDIT_FILTERS)
   const directory = useUsersDirectory(true)
+  const users: PickerSource = {
+    error: directory.error,
+    isPending: directory.isPending,
+    onRetry: () => void directory.refetch(),
+    options: directory.users.map((user) => ({ id: user.id, label: user.displayName })),
+  }
   const query = useAuditConversations(filters, true)
   const rows = query.data?.pages.flatMap((page) => page.items) ?? []
   const latest = query.data?.pages.at(-1)
   const totals =
     latest === undefined ? undefined : { runningTotal: latest.runningTotal, total: latest.total }
-  const taskLabels = new Map(tasks.map((task) => [task.id, task.label]))
+  const taskLabels = new Map((tasks?.options ?? []).map((task) => [task.id, task.label]))
 
   return (
     <main
@@ -52,16 +49,9 @@ export function AuditRoute({
         <AuditFiltersBar
           filters={filters}
           onChange={setFilters}
-          onTasksRetry={onTasksRetry}
-          onUsersRetry={() => void directory.refetch()}
-          taskFilterEnabled={taskFilterEnabled}
           tasks={tasks}
-          tasksError={tasksError}
-          tasksPending={tasksPending}
           totals={totals}
-          users={directory.users}
-          usersError={directory.error}
-          usersPending={directory.isPending}
+          users={users}
         />
 
         <section aria-label="对话列表" className="flex flex-col">

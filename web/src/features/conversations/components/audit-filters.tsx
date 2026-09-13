@@ -1,5 +1,4 @@
 import { useRef, useState, type ComponentPropsWithRef } from 'react'
-import type { DirectoryUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
@@ -7,22 +6,14 @@ import { PopupRoot, PopupSurface, PopupTrigger } from '@/shared/ui/popup'
 import { auditDateLabel } from '../audit-dates'
 import type { AuditFilters } from '../audit.api'
 import { AuditDatePicker } from './audit-date-picker'
-import { AuditSearchPicker } from './audit-search-picker'
-
-export type TaskOption = { id: string; label: string }
+import { AuditSearchPicker, type PickerSource } from './audit-search-picker'
 
 type AuditFiltersBarProps = {
   filters: AuditFilters
   onChange: (next: AuditFilters) => void
-  users: readonly DirectoryUser[]
-  usersPending: boolean
-  usersError: string | undefined
-  onUsersRetry: () => void
-  tasks: readonly TaskOption[]
-  tasksPending: boolean
-  tasksError: string | undefined
-  onTasksRetry: (() => void) | undefined
-  taskFilterEnabled: boolean
+  users: PickerSource
+  /** null 表示当前账号没有 tasks:read 权限，需求单触发器禁用。 */
+  tasks: PickerSource | null
   /** 两个总数来自最新一页；还没拿到时不显示。 */
   totals: { runningTotal: number; total: number } | undefined
 }
@@ -36,20 +27,7 @@ const STATUS_OPTIONS = [
 ] as const
 
 /** 一体筛选条只协调弹层与已应用条件；搜索词、临时日期保留在各选择器内。 */
-export function AuditFiltersBar({
-  filters,
-  onChange,
-  users,
-  usersPending,
-  usersError,
-  onUsersRetry,
-  tasks,
-  tasksPending,
-  tasksError,
-  onTasksRetry,
-  taskFilterEnabled,
-  totals,
-}: AuditFiltersBarProps) {
+export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: AuditFiltersBarProps) {
   const [openFilter, setOpenFilter] = useState<OpenFilter>(null)
   const userTriggerRef = useRef<HTMLButtonElement>(null)
   const taskTriggerRef = useRef<HTMLButtonElement>(null)
@@ -57,11 +35,11 @@ export function AuditFiltersBar({
   const userLabel =
     filters.ownerUserId === null
       ? '用户'
-      : (users.find((user) => user.id === filters.ownerUserId)?.displayName ?? '已选用户')
+      : (users.options.find((user) => user.id === filters.ownerUserId)?.label ?? '已选用户')
   const taskLabel =
     filters.taskId === null
       ? '需求单'
-      : (tasks.find((task) => task.id === filters.taskId)?.label ?? '已选需求单')
+      : (tasks?.options.find((task) => task.id === filters.taskId)?.label ?? '已选需求单')
 
   const apply = (patch: Partial<AuditFilters>) => {
     const triggerRefs = { user: userTriggerRef, task: taskTriggerRef, time: timeTriggerRef }
@@ -122,13 +100,10 @@ export function AuditFiltersBar({
           >
             {openFilter === 'user' ? (
               <AuditSearchPicker
-                error={usersError}
-                isPending={usersPending}
                 label="用户"
                 onChange={(ownerUserId) => apply({ ownerUserId })}
-                onRetry={onUsersRetry}
-                options={users.map((user) => ({ id: user.id, label: user.displayName }))}
                 selectedLabel={userLabel}
+                source={users}
                 value={filters.ownerUserId}
                 withAvatars
               />
@@ -140,12 +115,12 @@ export function AuditFiltersBar({
           <PopupTrigger asChild>
             <FilterTrigger
               aria-label={`需求单：${taskLabel}`}
-              disabled={!taskFilterEnabled}
+              disabled={tasks === null}
               icon="task"
               label={taskLabel}
               ref={taskTriggerRef}
               selected={filters.taskId !== null}
-              title={taskFilterEnabled ? taskLabel : '当前账号没有查看需求单权限'}
+              title={tasks === null ? '当前账号没有查看需求单权限' : taskLabel}
             />
           </PopupTrigger>
           <PopupSurface
@@ -156,15 +131,12 @@ export function AuditFiltersBar({
             showArrow
             sideOffset={6}
           >
-            {openFilter === 'task' ? (
+            {openFilter === 'task' && tasks !== null ? (
               <AuditSearchPicker
-                error={tasksError}
-                isPending={tasksPending}
                 label="需求单"
                 onChange={(taskId) => apply({ taskId })}
-                onRetry={onTasksRetry}
-                options={tasks}
                 selectedLabel={taskLabel}
+                source={tasks}
                 value={filters.taskId}
               />
             ) : null}

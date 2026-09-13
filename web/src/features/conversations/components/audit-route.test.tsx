@@ -44,7 +44,9 @@ const render = async (tasks: readonly { id: string; label: string }[] = []) => {
   const rendered = await renderWithProviders(
     <>
       <LiveFrames />
-      <AuditRoute tasks={tasks} />
+      <AuditRoute
+        tasks={{ error: undefined, isPending: false, onRetry: undefined, options: tasks }}
+      />
     </>,
   )
   return { ...rendered, user }
