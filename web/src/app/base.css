@@ -243,7 +243,8 @@
   --color-btn-hover: var(--color-state-hover);
   --color-media-stack-bg: color-mix(in srgb, var(--color-glass-base) 92%, transparent);
   --color-media-stack-bg-hover: var(--color-glass-base);
-  --color-popup-bg: rgba(251, 253, 248, 0.98);
+  /* 浮层底由玻璃基色派生，不带色相；深色随 glass-base 换成 n17。 */
+  --color-popup-bg: color-mix(in srgb, var(--color-glass-base) 98%, transparent);
   --color-dot: color-mix(in srgb, var(--nv70) 28%, transparent);
   --color-dot-pattern: color-mix(in srgb, var(--nv70) 12%, transparent);
   --color-border: var(--color-hairline);
@@ -622,7 +623,6 @@
   --color-background: var(--color-surface);
   --color-top-layer: var(--n17);
   --color-glass-base: var(--n17);
-  --color-popup-bg: rgba(27, 33, 29, 0.98);
   --color-danger-border: var(--e60);
   --color-danger-text: var(--e80);
   --color-thumb-fallback: var(--n30);
