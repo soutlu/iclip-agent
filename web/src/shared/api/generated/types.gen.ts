@@ -592,6 +592,9 @@ export type ConversationTaskIn = {
  * ConversationsAuditOut
  *
  * 审计列表。``nextCursor`` 为空表示没有更多了。
+ *
+ * 两个数字都是真总数，不随翻页变：``total`` 是当前筛选下一共几段，``runningTotal`` 是同一组
+ * 属主 / 需求单 / 时间筛选下此刻在跑的几段（不受 ``state`` 影响）。
  */
 export type ConversationsAuditOut = {
   /**
@@ -602,6 +605,14 @@ export type ConversationsAuditOut = {
    * Nextcursor
    */
   nextCursor: string | null
+  /**
+   * Runningtotal
+   */
+  runningTotal: number
+  /**
+   * Total
+   */
+  total: number
 }
 
 /**
@@ -1881,6 +1892,10 @@ export type TranscriptPage = {
    */
   items: Array<TranscriptTurn>
   meta?: TranscriptMeta
+  /**
+   * Owner User Id
+   */
+  owner_user_id?: string | null
   /**
    * Pending Interactions
    */
@@ -3174,6 +3189,10 @@ export type AuditConversationsConversationsAuditGetData = {
      * Until
      */
     until?: string | null
+    /**
+     * State
+     */
+    state?: 'all' | 'running' | 'done'
     /**
      * Limit
      */

@@ -1005,7 +1005,8 @@ async def test_an_append_riding_the_turn_does_not_hide_the_approval(
     }
 
 
-async def test_conversations_split_into_running_and_done(engine: AsyncEngine) -> None:
+async def test_busy_conversations_are_the_ones_holding_a_job(engine: AsyncEngine) -> None:
+    """此刻占着的对话按属主或全平台取；跑完的、没跑过的都不在里面。"""
 
     queue = JobQueue(engine)
     now = datetime.now(UTC)
@@ -1025,9 +1026,9 @@ async def test_conversations_split_into_running_and_done(engine: AsyncEngine) ->
         )
     await queue.finish("prm_b", status="completed", now=now, locked_by=LOCKED_BY, attempt=0)
 
-    assert await queue.conversation_ids(OWNER, "running") == frozenset({running_id})
-    assert await queue.conversation_ids(OWNER, "done") == frozenset({done_id})
-    assert await queue.conversation_ids(uuid.uuid4(), "running") == frozenset()
+    assert await queue.busy_conversation_ids(OWNER) == frozenset({running_id})
+    assert await queue.busy_conversation_ids(None) == frozenset({running_id})
+    assert await queue.busy_conversation_ids(uuid.uuid4()) == frozenset()
     assert await queue.activities((untouched_id,)) == {untouched_id: IDLE}
 
 

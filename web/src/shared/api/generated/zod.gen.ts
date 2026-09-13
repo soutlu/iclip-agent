@@ -314,10 +314,15 @@ export const zConversationTaskIn = z.object({
  * ConversationsAuditOut
  *
  * 审计列表。``nextCursor`` 为空表示没有更多了。
+ *
+ * 两个数字都是真总数，不随翻页变：``total`` 是当前筛选下一共几段，``runningTotal`` 是同一组
+ * 属主 / 需求单 / 时间筛选下此刻在跑的几段（不受 ``state`` 影响）。
  */
 export const zConversationsAuditOut = z.object({
   items: z.array(zConversationOut),
   nextCursor: z.string().nullable(),
+  runningTotal: z.int(),
+  total: z.int(),
 })
 
 /**
@@ -1184,6 +1189,7 @@ export const zTranscriptPage = z.object({
   interactions: z.array(zInteraction).optional().default([]),
   items: z.array(zTranscriptTurn),
   meta: zTranscriptMeta.optional().default({}),
+  owner_user_id: z.string().nullish(),
   pending_interactions: z.array(z.string()).optional().default([]),
   prompts: z.array(zPrompt).optional().default([]),
   seq: z.int(),
@@ -1495,6 +1501,7 @@ export const zAuditConversationsConversationsAuditGetQuery = z.object({
   taskId: z.uuid().nullish(),
   since: z.iso.datetime().nullish(),
   until: z.iso.datetime().nullish(),
+  state: z.enum(['all', 'running', 'done']).optional().default('all'),
   limit: z.int().gte(1).lte(100).optional().default(20),
   cursor: z.string().nullish(),
 })

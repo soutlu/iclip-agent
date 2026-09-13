@@ -98,7 +98,7 @@ class SessionMetaPayload(_Envelope):
 class SessionMetaUpdated(_Envelope):
     """某段对话的标题变了。
 
-    **这一帧不看订阅，发给每一条连着的连接**（协议里它属于全局事件那一类）。侧栏列着几十段
+    **这一帧不看订阅，发给属主与治理者连着的每一条连接**（协议里它属于全局事件那一类）。侧栏列着几十段
     对话却一段都没订，按订阅发的话它永远收不到改名。
     """
 
@@ -115,7 +115,7 @@ class SessionWorkPayload(_Envelope):
 class SessionWorkChanged(_Envelope):
     """某段对话「在忙什么」变了。
 
-    与 ``session.meta.updated`` 同一类：**不看订阅，发给这个人连着的每一条连接**。侧栏列着几十段
+    与 ``session.meta.updated`` 同一类：**不看订阅，发给属主与治理者连着的每一条连接**。侧栏列着几十段
     对话却一段都没订，按订阅发的话它永远收不到角标。
 
     ``session_id`` 在信封上而不在 payload 里，与协议其余 ``event.*`` 一致。
@@ -141,7 +141,7 @@ class GenerationChangedPayload(_Envelope):
 class GenerationChanged(_Envelope):
     """某条生成任务的业务状态跳了一格。
 
-    与 ``event.session.work_changed`` 同一类：**不看订阅，按属主发给这个人连着的每一条连接**。
+    与 ``event.session.work_changed`` 同一类：**不看订阅，发给属主与治理者连着的每一条连接**。
     分镜页与参考帧编辑器都按对话查列表，帧只说「哪条、跳到哪」，不带结果地址——收到就重拉列表。
     ``session_id`` 在信封上，与其余 ``event.*`` 一致；没有来源对话的任务这一项省略。
 
@@ -169,7 +169,7 @@ class FsChanged(_Event):
     """某段对话的工作区文件变了，照 kimi 的 ``event.fs.changed``。
 
     **只发给用 ``watch_fs_add`` 订了这段对话这个路径的连接**，不是全局帧：文件变动只有正看着
-    它的那一页关心。帧上不带版本与写入者——收到就重读那个文件，版本在文件上；是不是自己刚写
+    它的那一页关心。能订、能收的是属主与治理者的连接，与全局帧同一范围。帧上不带版本与写入者——收到就重读那个文件，版本在文件上；是不是自己刚写
     的由客户端记自己写回时拿到的版本号来判。
 
     **易失**：掉了就是掉了。文件列表接口才是事实源，这一帧只负责「不必等下一次重拉」。
@@ -304,6 +304,9 @@ class TranscriptPage(_Envelope):
     meta: TranscriptMeta = TranscriptMeta()
     title: str = ""
     """标题位于信封顶层，避免被协议 meta schema 丢弃；后续更新通过 session.meta.updated 发送。"""
+    owner_user_id: str | None = None
+    """属主，与 ``title`` 一样是 REST 端点贴上的信封字段：会话页据此判断这是不是自己的对话。
+    引擎侧不认识对话表，直接由引擎生成的页（场景金样）没有它。"""
     agents: tuple[AgentDescriptor, ...] = ()
     pending_interactions: tuple[str, ...] = ()
     seq: int

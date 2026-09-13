@@ -390,11 +390,10 @@ def build_app(
             for one, state in ((one, states[str(one)]) for one in conversation_ids)
         }
 
-    async def conversation_ids_by_state(
-        owner: uuid.UUID, state: Literal["running", "done"]
-    ) -> frozenset[uuid.UUID]:
+    async def busy_conversation_ids(owner: uuid.UUID | None) -> frozenset[uuid.UUID]:
+        """票据表里的对话 id 是文本，转回对话域的 uuid；None 是全平台。"""
 
-        return frozenset(uuid.UUID(one) for one in await job_queue.conversation_ids(owner, state))
+        return frozenset(uuid.UUID(one) for one in await job_queue.busy_conversation_ids(owner))
 
     def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
         """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
@@ -444,7 +443,7 @@ def build_app(
         generate_title=live_title_generator(agent_layer),
         announce_title=live_connections.announce_title,
         activities_of=activities_of,
-        conversation_ids_by_state=conversation_ids_by_state,
+        busy_conversation_ids=busy_conversation_ids,
     )
     tasks = build_tasks_module(SqlTaskRepository(active_engine))
     uploads = build_uploads_module(public_objects) if public_objects is not None else None

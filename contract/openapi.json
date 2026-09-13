@@ -1078,7 +1078,7 @@
       },
       "ConversationsAuditOut": {
         "additionalProperties": false,
-        "description": "审计列表。``nextCursor`` 为空表示没有更多了。",
+        "description": "审计列表。``nextCursor`` 为空表示没有更多了。\n\n两个数字都是真总数，不随翻页变：``total`` 是当前筛选下一共几段，``runningTotal`` 是同一组\n属主 / 需求单 / 时间筛选下此刻在跑的几段（不受 ``state`` 影响）。",
         "properties": {
           "items": {
             "items": {
@@ -1097,11 +1097,21 @@
               }
             ],
             "title": "Nextcursor"
+          },
+          "runningTotal": {
+            "title": "Runningtotal",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
           }
         },
         "required": [
           "items",
-          "nextCursor"
+          "nextCursor",
+          "total",
+          "runningTotal"
         ],
         "title": "ConversationsAuditOut",
         "type": "object"
@@ -3519,6 +3529,17 @@
             "$ref": "#/components/schemas/TranscriptMeta",
             "default": {}
           },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
           "pending_interactions": {
             "default": [],
             "items": {
@@ -5851,7 +5872,7 @@
     },
     "/conversations/audit": {
       "get": {
-        "description": "治理者查全平台的对话：按人、按单、按时间段筛，最近活动的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上。",
+        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态筛，最近活动的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上；\n``state`` 的三值与侧栏同一口径。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
         "operationId": "audit_conversations_conversations_audit_get",
         "parameters": [
           {
@@ -5920,6 +5941,21 @@
                 }
               ],
               "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "running",
+                "done"
+              ],
+              "title": "State",
+              "type": "string"
             }
           },
           {

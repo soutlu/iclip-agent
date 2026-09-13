@@ -65,10 +65,20 @@ async def open_task(client: httpx.AsyncClient) -> str:
 
 
 async def plant_job(
-    pg_url: str, *, owner: str, conversation_id: str, status: str, prompt_id: str
+    pg_url: str,
+    *,
+    owner: str,
+    conversation_id: str,
+    status: str,
+    prompt_id: str,
+    ran: bool = True,
 ) -> None:
-    """直接插入任务状态供侧栏筛选使用；本测试未装配 Agent。"""
+    """直接插入任务状态供筛选用例使用；本测试未装配 Agent。
 
+    ``ran`` 为真时 run 已挂上：票据行带 run_id，对话行也照 ``begin_run`` 那样记下最近一次 run
+    与活动时间。为假是 run 还没挂上就结束的行（run_id 为空），对话上没有留痕。"""
+
+    run_id = f"{AGENT_ID}-{prompt_id}" if ran else None
     engine = create_async_engine(pg_url)
     try:
         async with engine.begin() as conn:
@@ -86,10 +96,18 @@ async def plant_job(
                     "agent_id": AGENT_ID,
                     "owner": owner,
                     "status": status,
-                    "run_id": f"{AGENT_ID}-{prompt_id}",
+                    "run_id": run_id,
                     "finished_at": None if status == "running" else datetime.now(UTC),
                 },
             )
+            if run_id is not None:
+                await conn.execute(
+                    text(
+                        "UPDATE iclip.conversations SET last_run_id = :run_id, updated_at = now() "
+                        "WHERE id = CAST(:id AS uuid)"
+                    ),
+                    {"run_id": run_id, "id": conversation_id},
+                )
     finally:
         await engine.dispose()
 
@@ -276,6 +294,7 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
     collection_id = await open_collection(client, "在跑的那些")
     running = await open_conversation(client, title="正在跑", collectionId=collection_id)
     done = await open_conversation(client, title="跑完了")
+    stillborn = await open_conversation(client, title="run 还没挂上就失败了")
     await open_conversation(client, title="还没发过消息")
     await plant_job(
         pg_url,
@@ -291,12 +310,21 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
         status="completed",
         prompt_id="prm_state_done",
     )
+    # 从没在对话上留下 run 的失败行：既不算在跑，也不算跑完，只在 all 里。
+    await plant_job(
+        pg_url,
+        owner=owner,
+        conversation_id=str(stillborn["id"]),
+        status="failed",
+        prompt_id="prm_state_stillborn",
+        ran=False,
+    )
 
     everything = (await client.get(CONVERSATIONS)).json()
     only_running = (await client.get(CONVERSATIONS, params={"state": "running"})).json()
     only_done = (await client.get(CONVERSATIONS, params={"state": "done"})).json()
 
-    assert everything["ungroupedCount"] == 2
+    assert everything["ungroupedCount"] == 3
     assert only_running["collections"][0]["conversationCount"] == 1
     assert [item["id"] for item in only_running["collections"][0]["page"]["items"]] == [
         running["id"]
@@ -399,22 +427,51 @@ async def test_audit_is_governor_only_and_filters(
     owner = await login_as_editor(client, pg_url)
     task_id = await open_task(client)
     on_task = await open_conversation(client, taskId=task_id, title="挂单的")
-    await open_conversation(client, title="没挂单的")
+    loose = await open_conversation(client, title="没挂单的")
+    await plant_job(
+        pg_url,
+        owner=owner,
+        conversation_id=str(on_task["id"]),
+        status="completed",
+        prompt_id="prm_audit_done",
+    )
+    await plant_job(
+        pg_url,
+        owner=owner,
+        conversation_id=str(loose["id"]),
+        status="running",
+        prompt_id="prm_audit_running",
+    )
     assert (await client.get(AUDIT)).status_code == 403
 
     async with make_client(app) as governor:
         await login_as_root(governor, pg_url)
         await open_conversation(governor, title="治理者自己的")
 
-        everything = (await governor.get(AUDIT)).json()["items"]
-        assert len(everything) == 3
-        assert {item["ownerUserId"] for item in everything} == {owner, everything[0]["ownerUserId"]}
+        everything = (await governor.get(AUDIT)).json()
+        assert len(everything["items"]) == 3
+        assert {item["ownerUserId"] for item in everything["items"]} == {
+            owner,
+            everything["items"][0]["ownerUserId"],
+        }
+        assert (everything["total"], everything["runningTotal"]) == (3, 1)
 
-        by_person = (await governor.get(AUDIT, params={"ownerUserId": owner})).json()["items"]
-        assert {item["ownerUserId"] for item in by_person} == {owner}
+        running = (await governor.get(AUDIT, params={"state": "running"})).json()
+        assert [item["id"] for item in running["items"]] == [loose["id"]]
+        assert (running["total"], running["runningTotal"]) == (1, 1)
 
-        by_task = (await governor.get(AUDIT, params={"taskId": task_id})).json()["items"]
-        assert [item["id"] for item in by_task] == [on_task["id"]]
+        done = (await governor.get(AUDIT, params={"state": "done"})).json()
+        assert [item["id"] for item in done["items"]] == [on_task["id"]]
+        # runningTotal 不看 state：同一范围里在跑的还是那一段。
+        assert (done["total"], done["runningTotal"]) == (1, 1)
+
+        by_person = (await governor.get(AUDIT, params={"ownerUserId": owner})).json()
+        assert {item["ownerUserId"] for item in by_person["items"]} == {owner}
+        assert (by_person["total"], by_person["runningTotal"]) == (2, 1)
+
+        by_task = (await governor.get(AUDIT, params={"taskId": task_id})).json()
+        assert [item["id"] for item in by_task["items"]] == [on_task["id"]]
+        assert (by_task["total"], by_task["runningTotal"]) == (1, 0)
 
         future = (datetime.now(UTC) + timedelta(days=1)).isoformat()
         assert (await governor.get(AUDIT, params={"since": future})).json()["items"] == []
@@ -442,6 +499,8 @@ async def test_audit_pages_by_cursor(app: FastAPI, client: httpx.AsyncClient, pg
         assert second["nextCursor"] is None
         ids = [item["id"] for item in [*first["items"], *second["items"]]]
         assert len(set(ids)) == 3
+        # 总数是筛选范围的，不是这一页的。
+        assert (first["total"], second["total"]) == (3, 3)
 
         assert (await governor.get(AUDIT, params={"cursor": "坏掉的"})).status_code == 422
 
@@ -450,14 +509,17 @@ async def test_governor_reads_other_peoples_history(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
 
-    await login_as_editor(client, pg_url)
+    owner = await login_as_editor(client, pg_url)
     conversation_id = str((await open_conversation(client))["id"])
 
     async with make_client(app) as governor:
         await login_as_root(governor, pg_url)
-        assert (
-            await governor.get(f"{CONVERSATIONS}/{conversation_id}/transcript")
-        ).status_code == 200
+        page = await governor.get(f"{CONVERSATIONS}/{conversation_id}/transcript")
+        assert page.status_code == 200, page.text
+        # 会话页据此判断这不是自己的对话；治理者与属主读到的是同一个属主。
+        assert page.json()["owner_user_id"] == owner
+        own = await client.get(f"{CONVERSATIONS}/{conversation_id}/transcript")
+        assert own.json()["owner_user_id"] == owner
         assert (
             await governor.get(f"{CONVERSATIONS}/{conversation_id}/workspace/files")
         ).status_code == 200

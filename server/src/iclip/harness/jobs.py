@@ -338,17 +338,22 @@ class JobQueue:
         )
         return {one: activity_of(decisive.get(one)) for one in conversation_ids}
 
-    async def conversation_ids(
-        self, owner_user_id: uuid.UUID, state: Literal["running", "done"]
-    ) -> frozenset[str]:
-        """查询属主的活跃会话与已运行会话；从未运行的会话不在结果中。"""
+    async def busy_conversation_ids(self, owner_user_id: uuid.UUID | None) -> frozenset[str]:
+        """此刻被占着（running / awaiting）的会话；owner 为 None 时查全平台。
 
-        decisive = await self._decisive(agent_jobs_table.c.owner_user_id == owner_user_id)
-        return frozenset(
-            conversation_id
-            for conversation_id, status in decisive.items()
-            if activity_of(status).busy == (state == "running")
+        走 ``uq_agent_jobs_one_running_per_conversation`` 那个部分索引，结果只有正在跑的那几段；
+        「已完成」不在这里算，对话表自己的 ``last_run_id`` 就是跑过的证据。
+        """
+
+        stmt = (
+            select(agent_jobs_table.c.conversation_id)
+            .distinct()
+            .where(agent_jobs_table.c.status.in_(_ACTIVE))
         )
+        if owner_user_id is not None:
+            stmt = stmt.where(agent_jobs_table.c.owner_user_id == owner_user_id)
+        async with self._engine.connect() as conn:
+            return frozenset((await conn.execute(stmt)).scalars().all())
 
     async def _decisive(self, scope: ColumnElement[bool]) -> dict[str, JobStatus]:
         """优先取占用会话的行，否则取最近结束的运行。
