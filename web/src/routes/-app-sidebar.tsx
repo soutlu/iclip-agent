@@ -93,7 +93,7 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   return (
     <aside
       className={cn(
-        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r-[0.5px] border-border bg-primary/3',
+        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r-[0.5px] border-border bg-background',
         'max-sm:fixed max-sm:top-0 max-sm:left-0 max-sm:shadow-[var(--shadow-2)] sm:sticky sm:top-0',
       )}
     >
@@ -239,7 +239,7 @@ function SidebarAction({
       className={cn(
         SIDEBAR_ROW_CLASS,
         'group w-full disabled:cursor-not-allowed disabled:opacity-50',
-        active && 'bg-primary/8 font-medium text-primary',
+        active && 'bg-state-active font-medium',
       )}
       disabled={disabled}
       onClick={onClick}

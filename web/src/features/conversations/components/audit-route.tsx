@@ -140,19 +140,13 @@ function AuditRow({ conversation, ownerName, taskLabel }: AuditRowProps) {
   return (
     <li className="border-b-[0.5px] border-border/70 last:border-b-0">
       <Link
-        className={cn(
-          'group flex min-h-20 ui-state items-center gap-3 rounded-md px-2 py-4 text-on-surface ui-focus sm:gap-4 sm:px-3',
-          status === 'running' && 'bg-primary/4',
-        )}
+        className="group flex min-h-20 ui-state items-center gap-3 rounded-md px-2 py-4 text-on-surface ui-focus sm:gap-4 sm:px-3"
         params={{ conversationId: conversation.id }}
         to="/c/$conversationId"
       >
         <span
           aria-hidden
-          className={cn(
-            'grid size-8 shrink-0 place-items-center rounded-full bg-secondary-container/60 text-body font-medium text-on-secondary-container',
-            status === 'running' && 'bg-primary/10 text-primary',
-          )}
+          className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary-container/60 text-body font-medium text-on-secondary-container"
         >
           {owner.trim().charAt(0).toUpperCase()}
         </span>
@@ -211,10 +205,7 @@ function ConversationStatusMark({ status }: { status: ConversationStatus }) {
   }
   const tag = STATUS_TAGS[status]
   return (
-    <Tag
-      className={cn('shrink-0 rounded-full', status === 'running' && 'bg-primary/8 text-primary')}
-      variant={tag.variant}
-    >
+    <Tag className="shrink-0 rounded-full" variant={tag.variant}>
       <Icon
         className={cn(status === 'running' && 'animate-spin')}
         decorative

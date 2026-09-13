@@ -77,7 +77,7 @@ export function AuditFiltersBar({
   }
 
   return (
-    <div className="flex min-h-14 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-primary/4 p-2">
+    <div className="flex min-h-14 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-surface-container-low p-2">
       <ChipGroup
         aria-label="对话状态"
         className="gap-1"
@@ -90,7 +90,7 @@ export function AuditFiltersBar({
       >
         {STATUS_OPTIONS.map((option) => (
           <FilterChip
-            className="h-9 border-transparent bg-transparent px-4 text-body data-[state=on]:bg-surface-container-lowest data-[state=on]:text-primary data-[state=on]:shadow-[var(--shadow-1)]"
+            className="h-9 border-transparent bg-transparent px-4 text-body data-[state=on]:bg-surface-container-lowest data-[state=on]:shadow-[var(--shadow-1)]"
             key={option.value}
             value={option.value}
           >
@@ -220,7 +220,8 @@ function FilterTrigger({ icon, label, selected, className, ...props }: FilterTri
   return (
     <button
       className={cn(
-        'inline-flex h-10 min-w-0 ui-state cursor-pointer items-center gap-2 rounded-sm px-3 text-body text-on-surface ui-focus data-[state=open]:bg-primary/8 data-[state=open]:text-primary',
+        'inline-flex h-10 min-w-0 ui-state cursor-pointer items-center gap-2 rounded-sm px-3 text-body text-on-surface ui-focus data-[state=open]:bg-state-active',
+        // 主色文字只表示「已应用非默认条件」，展开态与选中底都走中性状态层。
         selected && 'text-primary',
         className,
       )}

@@ -166,14 +166,14 @@ export function AuditDatePicker({ value, onChange }: AuditDatePickerProps) {
     <div className="p-4">
       <ChipGroup
         aria-label="时间范围"
-        className="flex-nowrap gap-1 rounded-full bg-state-hover p-1"
+        className="flex-nowrap gap-1 rounded-full bg-surface-container-low p-1"
         onValueChange={selectRange}
         type="single"
         value={activeRange}
       >
         {(['7d', '30d', 'custom'] as const).map((range) => (
           <FilterChip
-            className="min-w-0 flex-1 justify-center border-0 bg-transparent px-1 text-body font-normal data-[state=on]:bg-top-layer data-[state=on]:text-primary data-[state=on]:shadow-[var(--shadow-1)]"
+            className="min-w-0 flex-1 justify-center border-0 bg-transparent px-1 text-body font-normal data-[state=on]:bg-top-layer data-[state=on]:shadow-[var(--shadow-1)]"
             key={range}
             value={range}
           >
@@ -238,7 +238,7 @@ export function AuditDatePicker({ value, onChange }: AuditDatePickerProps) {
                           <span
                             aria-hidden
                             className={cn(
-                              'absolute inset-x-0 top-1/2 h-9 -translate-y-1/2 bg-primary/8',
+                              'absolute inset-x-0 top-1/2 h-9 -translate-y-1/2 bg-state-active',
                               isStart && 'left-1/2',
                               isEnd && 'right-1/2',
                               column === 0 && 'rounded-l-full',

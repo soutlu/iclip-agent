@@ -126,8 +126,9 @@ export function AuditSearchPicker({
               aria-selected={selected}
               className={cn(
                 'flex min-h-10 w-full ui-state cursor-pointer items-center gap-2.5 rounded-sm px-3 py-2.5 text-left text-body ui-focus',
+                selected && 'bg-state-active',
+                // 活动项写在选中态之后，键盘停在已选行时仍能看出焦点位置。
                 option.id === activeId && 'bg-state-focus',
-                selected && 'bg-primary/8',
               )}
               id={`${listId}-${option.id}`}
               key={option.id}
@@ -145,10 +146,7 @@ export function AuditSearchPicker({
               {withAvatars ? (
                 <span
                   aria-hidden
-                  className={cn(
-                    'flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-container-high text-label',
-                    selected && 'bg-primary-container/70 text-primary',
-                  )}
+                  className="flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-container-high text-label"
                 >
                   {Array.from(option.label.trim())[0]?.toLocaleUpperCase()}
                 </span>
