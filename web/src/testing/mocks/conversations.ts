@@ -7,6 +7,7 @@ export type MockConversation = {
     busy: boolean
     lastTurnReason: 'completed' | 'failed' | 'aborted' | null
     pendingInteraction: 'none' | 'approval' | 'question'
+    videoGeneration: 'none' | 'queued' | 'running'
   }
   agentId: string
   collectionId: string | null
@@ -27,7 +28,12 @@ export const addMockConversation = (
   ownerUserId = mockAuthUser.id,
 ) => {
   const conversation: MockConversation = {
-    activity: { busy: false, lastTurnReason: null, pendingInteraction: 'none' },
+    activity: {
+      busy: false,
+      lastTurnReason: null,
+      pendingInteraction: 'none',
+      videoGeneration: 'none',
+    },
     agentId: 'storyboard',
     collectionId: null,
     createdAt: updatedAt,

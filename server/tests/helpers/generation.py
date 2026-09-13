@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,8 +13,10 @@ from iclip.domains.generation.models import (
     STATUS_PENDING,
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
+    TERMINAL_STATUSES,
     GenerationJob,
     GenerationStatus,
+    InFlightPhase,
 )
 from iclip.domains.generation.provider import (
     ProviderError,
@@ -259,6 +261,21 @@ class InMemoryGenerationRepository:
             provider_status=provider_status,
             provider_snapshot=provider_snapshot,
         )
+
+    async def in_flight_by_conversation(
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+    ) -> Mapping[uuid.UUID, InFlightPhase]:
+        phases: dict[uuid.UUID, InFlightPhase] = {}
+        for job in self.jobs.values():
+            if job.conversation_id not in conversation_ids or job.kind != kind:
+                continue
+            if job.status in TERMINAL_STATUSES or job.conversation_id is None:
+                continue
+            if job.status != STATUS_PENDING or phases.get(job.conversation_id) is None:
+                phases[job.conversation_id] = (
+                    "queued" if job.status == STATUS_PENDING else "running"
+                )
+        return phases
 
     def _replace(self, job_id: uuid.UUID, **values: Any) -> GenerationJob:
         from dataclasses import replace

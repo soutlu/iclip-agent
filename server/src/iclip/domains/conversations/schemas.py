@@ -86,6 +86,8 @@ class ConversationActivityOut(CamelModel):
     busy: bool
     pending_interaction: Literal["none", "approval", "question"]
     last_turn_reason: Literal["completed", "failed", "aborted"] | None = None
+    video_generation: Literal["none", "queued", "running"]
+    """还没跑完的视频出片到哪一步；与轮次是否在跑互不蕴含。"""
 
 
 class ConversationOut(CamelModel):
@@ -207,6 +209,7 @@ def conversation_out(conversation: Conversation, activity: ConversationActivity)
             busy=activity.busy,
             pending_interaction=activity.pending_interaction,
             last_turn_reason=activity.last_turn_reason,
+            video_generation=activity.video_generation,
         ),
     )
 

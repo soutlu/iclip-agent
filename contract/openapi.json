@@ -650,11 +650,21 @@
             ],
             "title": "Pendinginteraction",
             "type": "string"
+          },
+          "videoGeneration": {
+            "enum": [
+              "none",
+              "queued",
+              "running"
+            ],
+            "title": "Videogeneration",
+            "type": "string"
           }
         },
         "required": [
           "busy",
-          "pendingInteraction"
+          "pendingInteraction",
+          "videoGeneration"
         ],
         "title": "ConversationActivityOut",
         "type": "object"

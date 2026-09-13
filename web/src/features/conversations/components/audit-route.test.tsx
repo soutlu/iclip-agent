@@ -19,8 +19,18 @@ function LiveFrames() {
   return null
 }
 
-const RUNNING = { busy: true, lastTurnReason: null, pendingInteraction: 'none' } as const
-const COMPLETED = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' } as const
+const RUNNING = {
+  busy: true,
+  lastTurnReason: null,
+  pendingInteraction: 'none',
+  videoGeneration: 'none',
+} as const
+const COMPLETED = {
+  busy: false,
+  lastTurnReason: 'completed',
+  pendingInteraction: 'none',
+  videoGeneration: 'none',
+} as const
 
 /** session_id 位于信封；运行帧省略 last_turn_reason。 */
 const workChanged = (

@@ -195,8 +195,18 @@ describe('SidebarConversations', () => {
     addMockConversation('还没跑过', new Date(Date.UTC(2026, 7, 29, 0, 0)).toISOString())
     const running = addMockConversation('在跑', new Date(Date.UTC(2026, 7, 29, 0, 1)).toISOString())
     const done = addMockConversation('跑完了', new Date(Date.UTC(2026, 7, 29, 0, 2)).toISOString())
-    running.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'none' }
-    done.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
+    running.activity = {
+      busy: true,
+      lastTurnReason: null,
+      pendingInteraction: 'none',
+      videoGeneration: 'none',
+    }
+    done.activity = {
+      busy: false,
+      lastTurnReason: 'completed',
+      pendingInteraction: 'none',
+      videoGeneration: 'none',
+    }
     // 记录实际请求，验证筛选参数传递到服务端。
     const listed: string[] = []
     server.events.on('request:start', ({ request }) => {
@@ -358,6 +368,46 @@ describe('SidebarConversations', () => {
     expect(screen.queryByText('第0段')).not.toBeInTheDocument()
   })
 
+  it('行上带着出片在跑就画摄像机角标；视频帧到了重拉列表，跑完角标收掉，与轮次角标互不干扰', async () => {
+    const [conversation] = seedConversations(1)
+    const id = conversation?.id ?? ''
+    if (conversation !== undefined) {
+      conversation.activity = {
+        busy: true,
+        lastTurnReason: null,
+        pendingInteraction: 'none',
+        videoGeneration: 'queued',
+      }
+    }
+    const { socket } = await render()
+    expect(await screen.findByLabelText('视频排队中')).toBeVisible()
+    expect(screen.getByLabelText('进行中')).toBeVisible()
+
+    // 轮次帧只改轮次那几项，不把行上的出片状态冲掉；收场后的重拉也返回同一事实。
+    if (conversation !== undefined) {
+      conversation.activity = { ...conversation.activity, busy: false, lastTurnReason: 'completed' }
+    }
+    socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
+    await waitFor(() => expect(screen.queryByLabelText('进行中')).not.toBeInTheDocument())
+    expect(screen.getByLabelText('视频排队中')).toBeVisible()
+
+    if (conversation !== undefined) conversation.activity.videoGeneration = 'running'
+    socket.deliver({
+      type: 'event.generation.changed',
+      session_id: id,
+      payload: { id: crypto.randomUUID(), kind: 'video', status: 'submitted' },
+    })
+    expect(await screen.findByLabelText('视频生成中')).toBeVisible()
+
+    if (conversation !== undefined) conversation.activity.videoGeneration = 'none'
+    socket.deliver({
+      type: 'event.generation.changed',
+      session_id: id,
+      payload: { id: crypto.randomUUID(), kind: 'video', status: 'completed' },
+    })
+    await waitFor(() => expect(screen.queryByLabelText('视频生成中')).not.toBeInTheDocument())
+  })
+
   it('服务端说这段对话跑起来了，那一行就转圈；跑完了转圈收掉', async () => {
     const [conversation] = seedConversations(1)
     const { socket } = await render()
@@ -391,6 +441,7 @@ describe('SidebarConversations', () => {
         busy: false,
         lastTurnReason: 'completed',
         pendingInteraction: 'none',
+        videoGeneration: 'none',
       }
     }
     socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
@@ -402,7 +453,12 @@ describe('SidebarConversations', () => {
   it('从没打开过的对话不画未读点：行上带的 completed 与收场帧都不算', async () => {
     const done = addMockConversation('跑完了')
     done.lastRunId = 'run-1'
-    done.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
+    done.activity = {
+      busy: false,
+      lastTurnReason: 'completed',
+      pendingInteraction: 'none',
+      videoGeneration: 'none',
+    }
     const { socket } = await render()
     await screen.findByText('跑完了')
 
@@ -427,6 +483,7 @@ describe('SidebarConversations', () => {
         busy: false,
         lastTurnReason: 'completed',
         pendingInteraction: 'none',
+        videoGeneration: 'none',
       }
     }
     socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
@@ -451,6 +508,7 @@ describe('SidebarConversations', () => {
         busy: false,
         lastTurnReason: 'completed',
         pendingInteraction: 'none',
+        videoGeneration: 'none',
       }
     }
     socket.deliver(workChanged(id, { busy: false, last_turn_reason: 'completed' }))
@@ -475,13 +533,23 @@ describe('SidebarConversations', () => {
 
   it('筛「进行中」时一段对话收场，重拉之后它不在这一档里了', async () => {
     const conversation = addMockConversation('在跑')
-    conversation.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'none' }
+    conversation.activity = {
+      busy: true,
+      lastTurnReason: null,
+      pendingInteraction: 'none',
+      videoGeneration: 'none',
+    }
     const { socket, user } = await render()
 
     await user.click(await screen.findByRole('radio', { name: '进行中' }))
     expect(await screen.findByRole('link', { name: '在跑' })).toBeVisible()
 
-    conversation.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
+    conversation.activity = {
+      busy: false,
+      lastTurnReason: 'completed',
+      pendingInteraction: 'none',
+      videoGeneration: 'none',
+    }
     socket.deliver(workChanged(conversation.id, { busy: false, last_turn_reason: 'completed' }))
 
     await waitFor(() =>

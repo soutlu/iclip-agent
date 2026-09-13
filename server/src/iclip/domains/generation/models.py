@@ -21,6 +21,9 @@ STATUS_FAILED: Final = "failed"
 
 TERMINAL_STATUSES: Final = frozenset({STATUS_COMPLETED, STATUS_FAILED})
 
+InFlightPhase = Literal["queued", "running"]
+"""一批还没跑完的任务给人看的阶段：全在本系统排队是 queued，有一条已交给上游就是 running。"""
+
 
 @dataclass(frozen=True, slots=True)
 class GenerationJob:
@@ -66,4 +69,5 @@ __all__ = [
     "GenerationJob",
     "GenerationKind",
     "GenerationStatus",
+    "InFlightPhase",
 ]

@@ -671,6 +671,16 @@ function ConversationRow({
           <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
         </Link>
       )}
+      {/* 出片在跑与轮次在跑互不蕴含，两个角标可以同时出现；跑完与失败在分镜页看。 */}
+      <StatusBadge
+        detail="完成后分镜页会更新结果"
+        kind="video"
+        status={
+          conversation.activity.videoGeneration === 'none'
+            ? 'idle'
+            : conversation.activity.videoGeneration
+        }
+      />
       {needsAttention(status) && <StatusBadge kind="conversation" status={status} />}
       {showUnread && (
         <span aria-label="未读" className="size-1.5 shrink-0 rounded-full bg-primary" role="img" />

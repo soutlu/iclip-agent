@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from iclip.domains.agents.transcript_api import LiveConnections
-from iclip.domains.generation.models import GenerationJob, GenerationStatus
+from iclip.domains.generation.models import GenerationJob, GenerationStatus, InFlightPhase
 from iclip.domains.generation.repository import GenerationRepository
 
 
@@ -120,6 +120,11 @@ class AnnouncingGenerationRepository:
         return await self._inner.record_progress(
             job_id, provider_status=provider_status, provider_snapshot=provider_snapshot
         )
+
+    async def in_flight_by_conversation(
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+    ) -> Mapping[uuid.UUID, InFlightPhase]:
+        return await self._inner.in_flight_by_conversation(conversation_ids, kind=kind)
 
     def _announce(self, job: GenerationJob) -> GenerationJob:
         self._live.announce_generation_changed(
