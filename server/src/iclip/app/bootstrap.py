@@ -65,6 +65,7 @@ from iclip.domains.generation.module import (
     build_generation_module,
 )
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
+from iclip.domains.generation.schemas import KIND_VIDEO
 from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
@@ -378,14 +379,20 @@ def build_app(
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
     ) -> Mapping[uuid.UUID, ConversationActivity]:
-        """将引擎活动投影转换为对话活动模型。"""
+        """引擎的运行活动加上生成域的在途出片，拼成对话活动模型；两个域在这里才见面。"""
 
         states = await job_queue.activities([str(one) for one in conversation_ids])
+        videos = (
+            await generation.service.in_flight_by_conversation(conversation_ids, kind=KIND_VIDEO)
+            if generation is not None
+            else {}
+        )
         return {
             one: ConversationActivity(
                 busy=state.busy,
                 pending_interaction=state.pending_interaction,
                 last_turn_reason=state.last_turn_reason,
+                video_generation=videos.get(one, "none"),
             )
             for one, state in ((one, states[str(one)]) for one in conversation_ids)
         }

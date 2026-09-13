@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
 from iclip.common.errors import NotFound, ValidationFailed
-from iclip.domains.generation.models import STATUS_PENDING, GenerationJob
+from iclip.domains.generation.models import STATUS_PENDING, GenerationJob, InFlightPhase
 from iclip.domains.generation.provider import ImageModelSpec
 from iclip.domains.generation.queue import GenerationQueue
 from iclip.domains.generation.repository import GenerationRepository
@@ -162,6 +162,13 @@ class GenerationService:
         if job.kind != KIND_VIDEO:
             raise NotFound(f"没有这个视频任务: {job_id}")
         return job
+
+    async def in_flight_by_conversation(
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+    ) -> Mapping[uuid.UUID, InFlightPhase]:
+        """给对话侧栏用：这些对话下还没跑完的某类任务各到哪一步。可见性由对话那边判过，这里不再按属主筛。"""
+
+        return await self._repo.in_flight_by_conversation(conversation_ids, kind=kind)
 
     async def list_recent(
         self,

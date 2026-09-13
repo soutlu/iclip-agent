@@ -162,6 +162,7 @@ export const zConversationActivityOut = z.object({
   busy: z.boolean(),
   lastTurnReason: z.enum(['completed', 'failed', 'aborted']).nullish(),
   pendingInteraction: z.enum(['none', 'approval', 'question']),
+  videoGeneration: z.enum(['none', 'queued', 'running']),
 })
 
 /**

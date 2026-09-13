@@ -6,7 +6,10 @@ import { useUser } from '@/shared/auth'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { conversationsQueryKeys, type Conversation } from './conversations.api'
 
-type RowPatch = { title: string } | { activity: Conversation['activity'] }
+/** 活动帧只带轮次那三件事实，视频出片的一项保留行上原值，由重拉刷新。 */
+type ActivityPatch = Omit<Conversation['activity'], 'videoGeneration'>
+
+type RowPatch = { title: string } | { activity: ActivityPatch }
 
 /** 在侧栏顶层订阅一次全局会话更新；治理者还会收到别人对话的帧。 */
 export const useLiveConversations = (enabled = true): void => {
@@ -25,8 +28,18 @@ export const useLiveConversations = (enabled = true): void => {
         void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.auditAll })
         return
       }
-      // 生成任务帧归分镜页消费，列表行上没有它的字段。
-      if (update.kind === 'generation') return
+      if (update.kind === 'generation') {
+        // 帧上只有单条任务的状态，行上要的是这段对话的汇总，算不出来就重拉。
+        // 图片任务不上侧栏；别人的对话不在自己的侧栏里，不为它重拉。
+        if (update.jobKind !== 'video' || update.conversationId === null) return
+        const owner = ownerOf(queryClient, update.conversationId)
+        if (owner !== undefined && owner !== userId) return
+        // 与收场重拉同一套：丢掉额外分页，只重拉拓扑与全部对话页，不让每个已展开分页各自再请求一次。
+        queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
+        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
+        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.auditAll })
+        return
+      }
 
       const patch: RowPatch =
         update.kind === 'title'
@@ -109,7 +122,10 @@ const patchConversation = (node: unknown, conversationId: string, patch: RowPatc
 
   const fields = node as Record<string, unknown>
   if (fields['id'] === conversationId && 'activity' in fields) {
-    return unchanged(fields, patch) ? node : { ...fields, ...patch }
+    if (unchanged(fields, patch)) return node
+    if ('title' in patch) return { ...fields, ...patch }
+    const current = fields['activity'] as Conversation['activity']
+    return { ...fields, activity: { ...current, ...patch.activity } }
   }
 
   const entries = Object.entries(fields).map(

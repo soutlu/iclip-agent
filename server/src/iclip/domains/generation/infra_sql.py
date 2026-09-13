@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 from sqlalchemy import (
@@ -27,11 +27,13 @@ from iclip.common.errors import NotFound
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
     STATUS_FAILED,
+    STATUS_PENDING,
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
     GenerationJob,
     GenerationKind,
     GenerationStatus,
+    InFlightPhase,
 )
 from iclip.domains.generation.schemas import request_from_payload, request_to_payload
 from iclip.platform.db.ownership import scope_to_owner
@@ -163,6 +165,29 @@ class SqlGenerationRepository:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt.limit(limit))).mappings().all()
         return tuple(_job_from_row(row) for row in rows)
+
+    async def in_flight_by_conversation(
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+    ) -> Mapping[uuid.UUID, InFlightPhase]:
+        if not conversation_ids:
+            return {}
+        # 一段对话下只要有一条已交给上游就算 running；全部还在本系统排队才是 queued。
+        running = func.bool_or(_JOBS.status != STATUS_PENDING)
+        stmt = (
+            select(_JOBS.conversation_id, running)
+            .where(
+                _JOBS.conversation_id.in_(list(conversation_ids)),
+                _JOBS.kind == kind,
+                _JOBS.status.in_([STATUS_PENDING, STATUS_SUBMITTING, STATUS_SUBMITTED]),
+            )
+            .group_by(_JOBS.conversation_id)
+        )
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(stmt)).all()
+        return {
+            conversation_id: "running" if is_running else "queued"
+            for conversation_id, is_running in rows
+        }
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
         return await self._update(job_id, status=STATUS_SUBMITTING, updated_at=func.now())

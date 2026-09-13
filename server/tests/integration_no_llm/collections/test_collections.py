@@ -337,6 +337,7 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
         "busy": False,
         "pendingInteraction": "none",
         "lastTurnReason": "completed",
+        "videoGeneration": "none",
     }
 
     paged_done = await client.get(f"{CONVERSATIONS}/ungrouped", params={"state": "done"})

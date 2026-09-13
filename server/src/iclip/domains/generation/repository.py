@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
-from iclip.domains.generation.models import GenerationJob, GenerationStatus
+from iclip.domains.generation.models import GenerationJob, GenerationStatus, InFlightPhase
 
 
 class GenerationRepository(Protocol):
@@ -85,6 +85,13 @@ class GenerationRepository(Protocol):
         provider_snapshot: dict[str, Any],
     ) -> GenerationJob:
         """保存本次 Provider 状态；后续查询时间由队列管理。"""
+        ...
+
+    async def in_flight_by_conversation(
+        self, conversation_ids: Sequence[uuid.UUID], *, kind: str
+    ) -> Mapping[uuid.UUID, InFlightPhase]:
+        """这些对话下还没跑完的某类任务各到哪一步；一条都没有的对话不在结果里。不按属主过滤，
+        调用方给的对话本来就是它能看的。"""
         ...
 
 

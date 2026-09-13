@@ -280,3 +280,37 @@ async def test_metadata_containment_filtering_pagination_and_owner_scope(
     assert await page_before(before=first.id) == ()
     with pytest.raises(NotFound):
         await page_before(before=foreign.id)
+
+
+async def test_in_flight_by_conversation_summarises_unfinished_video_jobs(
+    engine: AsyncEngine,
+) -> None:
+    """侧栏角标要的摘要：全在排队是 queued，有一条交给上游就是 running，跑完的和图片不算。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    queued_only, running, settled, images_only = (uuid.uuid4() for _ in range(4))
+
+    await repo.create(make_job(video_request(), owner_user_id=owner, conversation_id=queued_only))
+    await repo.create(make_job(video_request(), owner_user_id=owner, conversation_id=running))
+    submitted = await repo.create(
+        make_job(video_request(), owner_user_id=owner, conversation_id=running)
+    )
+    await repo.mark_submitting(submitted.id)
+    finished = await repo.create(
+        make_job(video_request(), owner_user_id=owner, conversation_id=settled)
+    )
+    await repo.mark_completed(
+        finished.id,
+        output_url="https://cdn.example.test/a.mp4",
+        provider_status="succeeded",
+        provider_snapshot={},
+    )
+    await repo.create(make_job(image_request(), owner_user_id=owner, conversation_id=images_only))
+
+    phases = await repo.in_flight_by_conversation(
+        [queued_only, running, settled, images_only, uuid.uuid4()], kind="video"
+    )
+
+    assert phases == {queued_only: "queued", running: "running"}
+    assert await repo.in_flight_by_conversation([], kind="video") == {}

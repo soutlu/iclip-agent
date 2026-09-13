@@ -338,6 +338,10 @@ export type ConversationActivityOut = {
    * Pendinginteraction
    */
   pendingInteraction: 'none' | 'approval' | 'question'
+  /**
+   * Videogeneration
+   */
+  videoGeneration: 'none' | 'queued' | 'running'
 }
 
 /**

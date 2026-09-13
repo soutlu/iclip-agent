@@ -185,7 +185,7 @@ type MockJob = {
   prompt: string
   request?: Record<string, unknown>
   metadata?: Record<string, unknown>
-  status: 'completed' | 'failed' | 'submitted'
+  status: 'completed' | 'failed' | 'pending' | 'submitted'
   watermarkOutputUrl?: string
 }
 
@@ -319,6 +319,17 @@ export const seedMockWorkspace = (
       prompt: '出镜头帧：近景微笑。',
       status: 'completed',
     }),
+    // 演示在途的图片编辑：第 2 组第 3 帧已在上游跑。静态种子，不会自己跑完；分镜页据此画帧角标。
+    // 只挂在「预览第 N 帧」这种非镜头首帧上：首帧按钮叫「镜头 N」，带角标后名字会变，e2e 按精确名找它。
+    job({
+      createdAt: '2026-09-01T12:50:00Z',
+      id: 'c296ace8-7296-44a7-84f1-9fa0b1c2d3e4',
+      kind: 'image',
+      prompt: '背景换成傍晚的暖光。',
+      request: { prompt: '背景换成傍晚的暖光。', referenceImageUrls: [frames.a] },
+      metadata: { path: SHOTS_MOCK_PATH, shot: 2, frame: 3 },
+      status: 'submitted',
+    }),
   ])
 }
 
@@ -374,7 +385,18 @@ export const seedMockReplicaWorkspace = (conversationId: string) => {
       ],
     ]),
   )
-  generations.set(conversationId, [])
+  // 第 5 张参考图的编辑还在本系统排队，演示帧上的「排队中」角标；静态种子，不会自己跑完。
+  generations.set(conversationId, [
+    job({
+      createdAt: '2026-09-01T12:45:00Z',
+      id: 'b1859bd7-6185-4396-b3f0-8e9fa0b1c2d3',
+      kind: 'image',
+      prompt: '把鞋换成米白色。',
+      request: { prompt: '把鞋换成米白色。', referenceImageUrls: [`${frames.b}?reference=5`] },
+      metadata: { path: SHOTS_MOCK_PATH, shot: 1, frame: 5 },
+      status: 'pending',
+    }),
+  ])
 }
 
 /** 修改第 2 组描述并递增版本；不存在工作区时返回 false。 */
