@@ -1,5 +1,11 @@
 import { setupWorker } from 'msw/browser'
-import { addMockCollection, addMockConversation, addMockUser, handlers } from './handlers'
+import {
+  addMockCollection,
+  addMockConversation,
+  addMockUser,
+  handlers,
+  mockGovernor,
+} from './handlers'
 import { markMockAwaitingApproval, markMockJustFinished } from './transcript'
 import { seedMockReplicaWorkspace, seedMockWorkspace } from './workspace'
 
@@ -68,6 +74,23 @@ const linen = addMockCollection('夏季亚麻系列')
 seeded.slice(1, 3).forEach((conversation) => {
   conversation.collectionId = linen.id
 })
+
+// 治理者自己的对话：用 governor 登录时侧栏不至于是空的，分镜工作台与在途角标也能演示；
+// 「全部对话」里连同别人的一起看。
+const governorShots = addMockConversation(
+  '治理者 · 秋冬企划样片',
+  new Date(Date.now() - 30 * 60_000).toISOString(),
+  mockGovernor.id,
+)
+seedMockWorkspace(governorShots.id, { httpFrames: true })
+governorShots.activity = { ...governorShots.activity, videoGeneration: 'running' }
+const governorDone = addMockConversation(
+  '治理者 · 门店陈列参考',
+  new Date(Date.now() - 4 * 3600_000).toISOString(),
+  mockGovernor.id,
+)
+governorDone.activity = { ...governorDone.activity, lastTurnReason: 'completed' }
+governorDone.lastRunId = 'run-governor-1'
 
 // 别人的对话：测试用户的侧栏看不到，用 governor 登录后在「全部对话」里看，点进去是只读。
 const wang = addMockUser('小王')
