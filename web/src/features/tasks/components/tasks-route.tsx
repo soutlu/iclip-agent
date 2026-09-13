@@ -26,7 +26,7 @@ export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
   })
   const allTasks = useQuery({
     enabled: Boolean(user),
-    queryFn: listAllTasks,
+    queryFn: ({ signal }) => listAllTasks(signal),
     queryKey: tasksQueryKeys.list('all'),
   })
 

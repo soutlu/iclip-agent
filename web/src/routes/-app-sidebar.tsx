@@ -11,7 +11,7 @@ import { SidebarConversations } from './-sidebar-conversations'
 
 // 侧栏行共用 ui-state 与 ui-focus，尺寸由调用方控制。
 const SIDEBAR_ROW_CLASS =
-  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-3 py-2 ui-focus text-body text-on-surface'
+  'flex ui-state cursor-pointer items-center gap-3 rounded-sm px-3 py-2.5 ui-focus text-body text-on-surface'
 
 type AppSidebarProps = {
   collapsed: boolean
@@ -93,11 +93,11 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   return (
     <aside
       className={cn(
-        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r-[0.5px] border-border bg-background',
+        'layer-sidebar flex h-dvh w-(--layout-app-sidebar-width) shrink-0 flex-col border-r-[0.5px] border-border bg-primary/3',
         'max-sm:fixed max-sm:top-0 max-sm:left-0 max-sm:shadow-[var(--shadow-2)] sm:sticky sm:top-0',
       )}
     >
-      <div className="flex items-center gap-2 px-3 pt-3 pb-1">
+      <div className="flex items-center gap-3 px-5 pt-5 pb-3">
         <span
           aria-hidden
           className="grid size-(--control-height-md) shrink-0 place-items-center rounded-sm bg-primary font-home-display text-title font-semibold text-on-primary italic"
@@ -115,7 +115,7 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
         />
       </div>
 
-      <nav aria-label="会话操作" className="flex flex-col gap-0.5 px-3 pt-2">
+      <nav aria-label="会话操作" className="flex flex-col gap-1 px-4 pt-2">
         <SidebarAction
           icon="chat-new"
           kbd="⌘⌥N"
@@ -180,9 +180,14 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 border-t-[0.5px] border-border px-3 py-2">
+      <div className="flex items-center justify-between gap-3 border-t-[0.5px] border-border px-5 py-3">
         {user ? (
-          <CueUserMenu align="top-start" />
+          <>
+            <CueUserMenu align="top-start" />
+            <span className="min-w-0 flex-1 truncate text-body text-on-surface">
+              {user.displayName || user.username || '用户'}
+            </span>
+          </>
         ) : (
           <button
             aria-label="登录"
@@ -234,14 +239,14 @@ function SidebarAction({
       className={cn(
         SIDEBAR_ROW_CLASS,
         'group w-full disabled:cursor-not-allowed disabled:opacity-50',
-        active && 'bg-state-active font-medium',
+        active && 'bg-primary/8 font-medium text-primary',
       )}
       disabled={disabled}
       onClick={onClick}
       title={title}
       type="button"
     >
-      <Icon className="text-on-surface" decorative name={icon} size="md" />
+      <Icon decorative name={icon} size="md" />
       <span aria-hidden className="min-w-0 flex-1 truncate text-left">
         {label}
       </span>
