@@ -4,6 +4,7 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import type { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import { zConversationsAuditOut } from '@/shared/api/generated/zod.gen'
+import { parseLocalDate } from './audit-dates'
 import { conversationsQueryKeys, type ConversationListState } from './conversations.api'
 
 /** 时间筛选作用在 updatedAt 上；custom 时读 since / until 两个本地日期。 */
@@ -33,20 +34,6 @@ export type AuditPage = z.output<typeof zConversationsAuditOut>
 const PAGE_LIMIT = 50
 const DAY_MS = 24 * 60 * 60_000
 
-/** 把 YYYY-MM-DD 当本地日期读；endOfDay 取当天最后一毫秒。裸日期直接发过去会被当成 UTC 零点，差八小时。 */
-const localDay = (date: string, endOfDay: boolean): Date | null => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
-  if (match === null) return null
-  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
-  const value = new Date(year, month - 1, day)
-  // Date 会把 13 月、40 日往后滚成合法日期，往回对一次才算真日期。
-  if (value.getFullYear() !== year || value.getMonth() !== month - 1 || value.getDate() !== day) {
-    return null
-  }
-  if (endOfDay) value.setHours(23, 59, 59, 999)
-  return value
-}
-
 /** 组查询串；now 可注入方便测试。 */
 export const auditSearchParams = (
   filters: AuditFilters,
@@ -62,8 +49,10 @@ export const auditSearchParams = (
     const days = filters.range === '7d' ? 7 : 30
     params.set('since', new Date(now.getTime() - days * DAY_MS).toISOString())
   } else if (filters.range === 'custom') {
-    const since = filters.since === null ? null : localDay(filters.since, false)
-    const until = filters.until === null ? null : localDay(filters.until, true)
+    const since = filters.since === null ? null : parseLocalDate(filters.since)
+    const until = filters.until === null ? null : parseLocalDate(filters.until)
+    // 日期范围包含结束日全天，按用户的本地时区转成接口时间戳。
+    until?.setHours(23, 59, 59, 999)
     if (since !== null) params.set('since', since.toISOString())
     if (until !== null) params.set('until', until.toISOString())
   }
@@ -71,12 +60,17 @@ export const auditSearchParams = (
   return params
 }
 
-const fetchAuditPage = (filters: AuditFilters, cursor: string | null): Promise<AuditPage> =>
+const fetchAuditPage = (
+  filters: AuditFilters,
+  cursor: string | null,
+  signal: AbortSignal,
+): Promise<AuditPage> =>
   apiFetch(
     `/conversations/audit?${auditSearchParams(filters, cursor).toString()}`,
     zConversationsAuditOut,
     {
       fallbackErrorMessage: '读取全部对话失败',
+      signal,
     },
   )
 
@@ -84,7 +78,7 @@ const fetchAuditPage = (filters: AuditFilters, cursor: string | null): Promise<A
 export const useAuditConversations = (filters: AuditFilters, enabled: boolean) =>
   useInfiniteQuery({
     enabled,
-    queryFn: ({ pageParam }) => fetchAuditPage(filters, pageParam),
+    queryFn: ({ pageParam, signal }) => fetchAuditPage(filters, pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (last: AuditPage) => last.nextCursor,
     queryKey: conversationsQueryKeys.audit(filters),

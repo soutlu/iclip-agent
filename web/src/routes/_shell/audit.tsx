@@ -18,6 +18,15 @@ export const Route = createFileRoute('/_shell/audit')({
 /** 需求单候选在路由层取：conversations 与 tasks 两个 feature 不直接互引；没有 tasks:read 就不问。 */
 function AuditIndexRoute() {
   const { data: user } = useUser()
-  const tasks = useTaskOptions(Boolean(user?.permissions.includes('tasks:read')))
-  return <AuditRoute tasks={tasks.data ?? []} />
+  const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
+  const tasks = useTaskOptions(canReadTasks)
+  return (
+    <AuditRoute
+      onTasksRetry={() => void tasks.refetch()}
+      taskFilterEnabled={canReadTasks}
+      tasks={tasks.data ?? []}
+      tasksError={tasks.error?.message}
+      tasksPending={canReadTasks && tasks.isPending}
+    />
+  )
 }

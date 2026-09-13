@@ -187,10 +187,18 @@ export const handlers = [
   // mock 不启用 SSO，以 404 表示路由未挂载。
   http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
 
-  // 名册一页给全：两个登录账号在前，其余按加入顺序。
-  http.get('*/api/users', () => {
+  // 两个登录账号在前，其余按加入顺序，按名册接口分页。
+  http.get('*/api/users', ({ request }) => {
+    const query = new URL(request.url).searchParams
+    const page = Number(query.get('page') ?? 1)
+    const pageSize = Number(query.get('pageSize') ?? 200)
     const items = [mockAuthUser, mockGovernor, ...mockUsers]
-    return HttpResponse.json({ items, page: 1, pageSize: 200, total: items.length })
+    return HttpResponse.json({
+      items: items.slice((page - 1) * pageSize, page * pageSize),
+      page,
+      pageSize,
+      total: items.length,
+    })
   }),
 
   // 治理者的全平台列表：两个总数不随翻页变，state 用与侧栏同一口径。
