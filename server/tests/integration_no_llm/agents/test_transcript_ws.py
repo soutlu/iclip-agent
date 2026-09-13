@@ -25,6 +25,7 @@ from tests.helpers.ws import (
     drain_turn,
     open_conversation,
     sign_in,
+    sign_in_as,
     subscribe,
     until,
 )
@@ -400,3 +401,70 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
                 "pendingInteraction": "none",
                 "lastTurnReason": "completed",
             }
+
+
+def test_governor_receives_other_peoples_frames_and_a_stranger_receives_none(
+    ws_agent_app: FastAPI, pg_url: str
+) -> None:
+    """治理者的连接收全平台的活动、标题与文件变更帧，也能订别人的对话；别的普通用户一帧都收不到。"""
+
+    with TestClient(ws_agent_app) as tc:
+        owner = sign_in_as(tc, pg_url, username="luke", roles=("editor",))
+        stranger = sign_in_as(tc, pg_url, username="mia", roles=("editor",))
+        governor = sign_in_as(tc, pg_url, username="gov", roles=("root",))
+        conversation_id = open_conversation(tc, headers=owner)
+        mine = open_conversation(tc, headers=stranger)
+        owner_id = tc.get("/users/me", headers=owner).json()["user"]["id"]
+        asyncio.run(_seed_file(pg_url, f"{owner_id}/{conversation_id}", "提纲.md", "三幕"))
+
+        with (
+            tc.websocket_connect("/ws", headers=governor) as gov_ws,
+            tc.websocket_connect("/ws", headers=stranger) as other_ws,
+        ):
+            assert gov_ws.receive_json()["type"] == "server_hello"
+            assert other_ws.receive_json()["type"] == "server_hello"
+            subscribe(gov_ws, conversation_id, grade="turn")
+            assert until(gov_ws, "transcript.reset")["session_id"] == conversation_id
+            assert _watch(gov_ws, conversation_id, "提纲.md")["code"] == 0
+            assert _watch(other_ws, conversation_id, "提纲.md")["code"] == 40401
+
+            sent = tc.post(
+                f"/conversations/{conversation_id}/prompts",
+                json={"prompt_id": "prm_gov_watch", "content": [{"type": "text", "text": "走"}]},
+                headers=owner,
+            )
+            assert sent.status_code == 200, sent.text
+            busy = until(gov_ws, "event.session.work_changed")
+            assert (busy["session_id"], busy["payload"]["busy"]) == (conversation_id, True)
+            idle = until(gov_ws, "event.session.work_changed")
+            assert idle["payload"]["busy"] is False
+
+            renamed = tc.patch(
+                f"/conversations/{conversation_id}", json={"title": "改了名"}, headers=owner
+            )
+            assert renamed.status_code == 200, renamed.text
+            title = until(gov_ws, "session.meta.updated")
+            assert title["payload"] == {"session_id": conversation_id, "title": "改了名"}
+
+            written = tc.put(
+                f"/conversations/{conversation_id}/workspace/file",
+                json={"path": "提纲.md", "content": "四幕", "expectedVersion": 1},
+                headers=owner,
+            )
+            assert written.status_code == 200, written.text
+            changed = until(gov_ws, "event.fs.changed")
+            assert changed["session_id"] == conversation_id
+
+            # 陌生人的连接：上面几件事一帧都没到。帧按序入队，这里订一下自己的对话，
+            # 跳过心跳后收到的第一帧就该是这一帧的回执。
+            other_ws.send_json(
+                {
+                    "type": "watch_fs_add",
+                    "id": "w-mine",
+                    "payload": {"session_id": mine, "paths": ["提纲.md"]},
+                }
+            )
+            frame = other_ws.receive_json()
+            while frame["type"] == "ping":
+                frame = other_ws.receive_json()
+            assert (frame["type"], frame["id"]) == ("ack", "w-mine")

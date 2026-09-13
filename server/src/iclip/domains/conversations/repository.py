@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from iclip.domains.conversations.models import Conversation
 
@@ -25,6 +25,26 @@ class PageCursor:
 
     updated_at: datetime
     conversation_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class StateFilter:
+    """列表的 ``state`` 筛选。``running`` 是 ``busy`` 里那几段；``done`` 是 ``last_run_id`` 非空且不在 ``busy`` 里。
+
+    ``busy`` 是此刻占着的对话，由调用方按属主或全平台算好传进来。``all`` 不需要它：传 ``None`` 即不筛。"""
+
+    state: Literal["running", "done"]
+    busy: frozenset[uuid.UUID]
+
+
+@dataclass(frozen=True, slots=True)
+class AuditFilter:
+    """审计的筛选范围，列表与计数共用；四项都可以不给。``since`` / ``until`` 作用在 ``updated_at`` 上。"""
+
+    owner: uuid.UUID | None = None
+    task_id: uuid.UUID | None = None
+    since: datetime | None = None
+    until: datetime | None = None
 
 
 class ConversationRepository(Protocol):
@@ -54,17 +74,15 @@ class ConversationRepository(Protocol):
         owner: uuid.UUID,
         limit: int,
         after: PageCursor | None = None,
-        only_ids: frozenset[uuid.UUID] | None = None,
+        state: StateFilter | None = None,
     ) -> tuple[Conversation, ...]:
         """按最近活动倒序列出这个人没进合集的对话，从 ``after`` 之后接着给。
 
-        ``only_ids`` 把结果限定在这几段对话里（列表的 ``state`` 筛选），``None`` 即不限定。
+        ``state`` 是列表的状态筛选，``None`` 即不限定。
         """
         ...
 
-    async def count_ungrouped(
-        self, *, owner: uuid.UUID, only_ids: frozenset[uuid.UUID] | None = None
-    ) -> int:
+    async def count_ungrouped(self, *, owner: uuid.UUID, state: StateFilter | None = None) -> int:
         """返回符合条件的未分类对话总数，不受分页限制。"""
         ...
 
@@ -75,7 +93,7 @@ class ConversationRepository(Protocol):
         collection_id: uuid.UUID,
         limit: int,
         after: PageCursor | None = None,
-        only_ids: frozenset[uuid.UUID] | None = None,
+        state: StateFilter | None = None,
     ) -> tuple[Conversation, ...]:
         """按最近活动倒序分页。不存在或不可见的合集均返回空结果，见 contract/conventions.md §6。"""
         ...
@@ -86,7 +104,7 @@ class ConversationRepository(Protocol):
         owner: uuid.UUID,
         collection_ids: tuple[uuid.UUID, ...],
         per_collection: int,
-        only_ids: frozenset[uuid.UUID] | None = None,
+        state: StateFilter | None = None,
     ) -> tuple[CollectionConversations, ...]:
         """批量返回各合集的对话总数与最近对话，由同一条 SQL 计算。"""
         ...
@@ -99,15 +117,17 @@ class ConversationRepository(Protocol):
 
     async def list_audit(
         self,
+        scope: AuditFilter,
         *,
-        owner: uuid.UUID | None = None,
-        task_id: uuid.UUID | None = None,
-        since: datetime | None = None,
-        until: datetime | None = None,
+        state: StateFilter | None = None,
         limit: int,
         after: PageCursor | None = None,
     ) -> tuple[Conversation, ...]:
-        """跨属主列出对话，按最近活动倒序。四个筛选条件都可以不给，可以任意组合。"""
+        """跨属主列出对话，按最近活动倒序。``scope`` 与 ``state`` 可以任意组合。"""
+        ...
+
+    async def count_audit(self, scope: AuditFilter, *, state: StateFilter | None = None) -> int:
+        """同一组筛选下的总条数，不受翻页影响；条件拼装与 ``list_audit`` 共用。"""
         ...
 
     async def apply_generated_title(self, conversation_id: uuid.UUID, *, title: str) -> bool:

@@ -11,7 +11,7 @@ from iclip.domains.conversations.repository import ConversationRepository
 from iclip.domains.conversations.service import (
     ActivitiesOf,
     AnnounceTitle,
-    ConversationIdsByState,
+    BusyConversationIds,
     ConversationService,
     GenerateTitle,
     ListAgents,
@@ -45,7 +45,7 @@ def build_conversations_module(
     generate_title: GenerateTitle,
     announce_title: AnnounceTitle,
     activities_of: ActivitiesOf,
-    conversation_ids_by_state: ConversationIdsByState,
+    busy_conversation_ids: BusyConversationIds,
 ) -> ConversationsModule:
     """外部依赖由组合根注入，协议定义见 service.py。"""
 
@@ -60,7 +60,7 @@ def build_conversations_module(
         generate_title=generate_title,
         announce_title=announce_title,
         activities_of=activities_of,
-        conversation_ids_by_state=conversation_ids_by_state,
+        busy_conversation_ids=busy_conversation_ids,
     )
     return ConversationsModule(
         routers=(create_conversations_router(service, agents=list_agents),),

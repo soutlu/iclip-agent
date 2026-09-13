@@ -65,6 +65,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 - `GET /conversations/{id}/transcript` 默认取最新轮次；`before_turn` 向旧翻，`after_turn` 取指定轮之后的内容，两者不能同时给。`has_more` 始终表示当前页之前还有更旧轮次，不是向新翻页的结束标志。
   `agent_id` 默认 `main`；给子代理的 id（工具卡 `agentRefs` 里那个）就读它那条流，`agents` 名册与主页同一份。不属于这段对话的 id 是 `404`，带路径分隔符的是 `422`。
+  响应顶层带两个信封字段（不在 `meta` 里，那是协议形状）：`title` 给首屏显示，`owner_user_id` 让会话页判断这是不是自己的对话、要不要只读。金样里没有 `owner_user_id`（它由 REST 端点贴上，引擎不认识对话表），客户端按可选解析。
 - `GET /conversations/{id}/transcript/ops?since_seq=` 补断线期间漏掉的批次，`agent_id` 同上。
   `complete: false` 表示要的批次已经出了窗口，整页重拉。
 - `GET /conversations/{id}/prompts` 当前排程：`{active, queued}`。
@@ -130,7 +131,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 #### 全局帧
 
-这几帧**都不看订阅**：发给这个人当时连着的每一条连接，一段都没订也收得到。
+这几帧**都不看订阅**：发给属主当时连着的每一条连接，一段都没订也收得到；治理者的连接收全平台每一段对话的这几帧。
 
 | 帧 | 体 | 什么时候发 |
 |---|---|---|
@@ -138,7 +139,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 | `event.session.work_changed` | `session_id` 在信封上，payload `{busy, pending_interaction, last_turn_reason}` | 对话运行活动发生变化 |
 | `event.generation.changed` | `session_id` 在信封上（任务没有来源对话时省略），payload `{id, kind, status, metadata}`；`metadata` 是调用方自带的坐标原样带出，为空时省略 | 生成任务的业务状态每跳一格：`pending` / `submitting` / `submitted` / `completed` / `failed` |
 
-- **按属主派发**，不是见者有份：连接归谁由它握手时的主体定。
+- **发给属主和治理者**，不是见者有份：连接归谁由它握手时的主体定；持 `users:manage` 的连接收全平台的帧。权限按握手时快照，吊销后要重连才生效。
 - `event.session.work_changed` 的 `last_turn_reason` 只在 `busy: false` 的那几帧上有：帧一律
   `exclude_none`，没有结局时那一项整个不出现（列表行上是 `null`，见 §6）。
 - **都是易失通知**，客户端据此更新列表；断线期间的变化不补发，重连后须重拉列表，从 `ConversationOut.title` 与 `activity` 对齐当前事实。
@@ -157,6 +158,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 订的是文件就要路径一样；订的是目录，`recursive` 为假只看直接子项，为真看整棵。空串是工作区根：`recursive` 为真就是整个工作区。
 - 帧上不带版本与写入者：收到就重读那个文件，`version` 在文件上；是不是自己刚写的由客户端记自己写回拿到的版本号来判。
 - 工具与面板写文件都会触发通知。通知易失，重连后重拉文件列表对齐。
+- 能订、能收的范围同全局帧：属主自己的连接，和持 `users:manage` 的治理者连接；别的普通用户订它是 `40401`。
 
 ## 6. 对话 (Conversations)
 
@@ -165,7 +167,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `POST /conversations` 的 `id` 可由调用方给，缺省由服务端生成。带 `id` 重发同一个值**不新建第二段对话**，答复已有那一段并把状态码降为 `200`（新建仍 `201`）；这个 id 属于别人的对话时是 `404`，与按 id 读别人的对话一致。对话删除后 ID 仍保留，任何人重用都返回 `404`；新对话必须换一个 ID。
 - `GET /conversations` 返回自己的侧栏拓扑：合集及各自第一页对话、未分组合的第一页对话。对话按最近活动倒序，空合集也保留。
 - **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
-- `GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}` 都收 `state`，三值 `all`（默认）/ `running` / `done`。`running` 是有轮次正在跑（含等审批），`done` 是没在跑而且跑完过至少一轮；从没发过消息的对话两边都不在，只出现在 `all` 里。`ungroupedCount` 与每个合集的 `conversationCount` 按同一个筛选算。
+- `GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}` 都收 `state`，三值 `all`（默认）/ `running` / `done`。`running` 是有轮次正在跑（含等审批），`done` 是跑过至少一次（`lastRunId` 非空）而且此刻没在跑；从没跑过的对话两边都不在，只出现在 `all` 里。`ungroupedCount` 与每个合集的 `conversationCount` 按同一个筛选算；审计接口的 `state` 同一口径。
 - 往下滑加载更多：`GET /conversations/ungrouped?cursor=` 与 `GET /conversations/by-collection/{collectionId}?cursor=`，都返回 `{ items, nextCursor }`。`cursor` 原样回传上一页的 `nextCursor`（把它当不透明字符串），为 `null` 表示没有更多了；形状不对是 `422`。
 - **`by-collection` 不区分「合集不存在」「合集是别人的」「合集是空的」**，三种都给一页空的；这是只列自己对话的工作台接口。
 - `GET /conversations/search?q=` 按标题搜自己的对话，返回扁平列表，最近活动的排在前面；`GET /conversations/by-task/{taskId}` 按开始时间正序。
@@ -174,8 +176,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - **标题服务端自动起，只成功写入一次**：配置标题模型时，轮次结束后尝试起名；
   用户自己改过名（`PATCH`，或者开对话时就给了 `title`）的一律不碰。起不出来就还叫默认名，下一
   轮跑完再试，不报错。改名与自动起名都会发一帧 `session.meta.updated`（见 §5 全局帧）。
-- 会话页首屏的标题在 `GET /transcript` 响应的顶层 `title` 上——**不在 `meta` 里**（那是协议形状，
-  加字段会被客户端静默丢掉）。之后的变化只走推送，不用轮询。
+- 会话页首屏的标题与属主在 `GET /transcript` 响应的顶层 `title` 与 `owner_user_id` 上——**不在 `meta` 里**（那是协议形状，
+  加字段会被客户端静默丢掉）。标题之后的变化只走推送，不用轮询。
 - 普通用户访问其他人的对话返回 `404`。按需求单列尝试只列自己的；治理者读权限见下文。
 - `PUT /conversations/{id}/workspace/file` 整份覆盖一个文件，体是 `{ path, content, expectedVersion }`，答复形状同 `GET .../workspace/file`。
   - **只有属主能写**：看不见的对话仍是 `404`，治理者看得见但写入是 `403`。
@@ -194,7 +196,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 治理者使用 `users:manage` 扩大读取范围，操作本身所需的 `agent:read` / `agent:run` 仍须具备。其他人的改名、换归属、删除、发消息路径返回 `404`；工作区覆盖写入返回 `403`。
 
-- `GET /conversations/audit` 列全平台的对话，按最近活动倒序。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `updatedAt` 上），可任意组合；没有 `users:manage` 是 `403`。
+- `GET /conversations/audit` 列全平台的对话，按最近活动倒序。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `updatedAt` 上）与 `state`（三值同上），可任意组合；没有 `users:manage` 是 `403`。
+- 响应带两个真总数，都不随翻页变：`total` 是当前筛选下一共几段，`runningTotal` 是同一组属主 / 需求单 / 时间筛选下此刻在跑的几段（不受 `state` 影响）。
 - 翻页给 `limit` 与 `cursor`：`cursor` 原样回传响应里的 `nextCursor`，为 `null` 表示没有更多了。自己编一个形状不对的是 `422`。
 - `GET /conversations/{id}/transcript`、`.../transcript/ops`、`.../prompts`、`.../status`、`.../workspace/files`、`.../workspace/file` 允许治理者跨属主读取；`GET /conversations` 与 `GET /conversations/search` 对治理者也只列自己的对话。
 
