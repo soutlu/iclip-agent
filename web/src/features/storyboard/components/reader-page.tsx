@@ -36,7 +36,8 @@ type ReaderPageProps = {
   onSelect: (content: string, frame?: number) => void
   onOpenPrompt: (trigger: HTMLElement) => void
   onPreview: (media: LightboxMedia, trigger: HTMLElement) => void
-  onEditFrame: (frame: number, sourceUrl: string) => void
+  /** 打开这一帧的编辑器；`open` 决定进去先看哪张：铅笔进底图，角标进那条新结果。 */
+  onEditFrame: (frame: number, open: { kind: 'draft' } | { kind: 'result'; jobId: string }) => void
 }
 
 export function ReaderPage({
@@ -198,7 +199,8 @@ export function ReaderPage({
               key={`${content.id}:${frameNumber}:${url}`}
               name={`镜头组 ${shot.index} 第 ${frameNumber} 帧`}
               url={url}
-              onEdit={() => onEditFrame(frameNumber, url)}
+              onEdit={() => onEditFrame(frameNumber, { kind: 'draft' })}
+              onOpenResult={(jobId) => onEditFrame(frameNumber, { kind: 'result', jobId })}
               onOpen={() =>
                 onPreview(
                   { kind: 'image', name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`, url },

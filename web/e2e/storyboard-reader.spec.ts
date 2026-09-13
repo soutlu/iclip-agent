@@ -431,9 +431,10 @@ test('帧工具里的编辑图片打开编辑器，关闭后焦点回到入口',
   await group.getByRole('img', { name: '镜头组 1 第 1 帧' }).hover()
   const entry = group.getByRole('button', { name: '编辑图片', exact: true })
   await entry.click()
-  const editor = page.getByRole('dialog', { name: '编辑图片', exact: true })
+  const editor = page.getByRole('dialog', { name: /^编辑图片/ })
   await expect(editor).toBeVisible()
-  await expect(editor.getByText('镜头组 1 · 帧 @1')).toBeVisible()
+  await expect(editor).toHaveAccessibleName('编辑图片 · 镜头组 1 · 帧 @1')
+  await expect(editor.getByRole('group', { name: '这一帧的图片', exact: true })).toBeVisible()
   await expect(editor.getByLabel('图片模型', { exact: true })).toBeVisible()
   await page.screenshot({
     animations: 'disabled',

@@ -16,7 +16,7 @@ for (const prefix of ['', '把']) {
       await group.getByRole('button', { name: '镜头 1', exact: true }).click()
       await group.getByRole('img', { name: '镜头组 1 第 1 帧' }).hover()
       await group.getByRole('button', { name: '编辑图片', exact: true }).click()
-      const dialog = page.getByRole('dialog', { name: '编辑图片', exact: true })
+      const dialog = page.getByRole('dialog', { name: /^编辑图片/ })
       await dialog.getByRole('button', { name: '点标注', exact: true }).click()
       await dialog.getByRole('group', { name: '图片标注画布', exact: true }).click()
       const editor = dialog.getByRole('textbox', { name: '修改要求', exact: true })
@@ -47,7 +47,7 @@ for (const prefix of ['', '把']) {
   }
 }
 
-test('普通编辑只填写要求即可提交当前原图', async ({ page }) => {
+test('普通编辑只填写要求即可提交编辑底图', async ({ page }) => {
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
@@ -57,7 +57,7 @@ test('普通编辑只填写要求即可提交当前原图', async ({ page }) => 
   const sourceUrl = await original.getAttribute('src')
   await original.hover()
   await group.getByRole('button', { name: '编辑图片', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '编辑图片', exact: true })
+  const dialog = page.getByRole('dialog', { name: /^编辑图片/ })
   await dialog.getByRole('textbox', { name: '修改要求', exact: true }).fill('将衣服改成蓝色')
   const submission = page.waitForRequest(
     (request) => request.url().endsWith('/api/generations/image') && request.method() === 'POST',
@@ -85,7 +85,7 @@ for (const width of [1600, 390]) {
       const filmstrip = group.getByRole('navigation', { name: '本组镜头', exact: true })
       await group.getByRole('img', { name: '镜头组 1 第 1 帧' }).hover()
       await group.getByRole('button', { name: '编辑图片', exact: true }).click()
-      const dialog = page.getByRole('dialog', { name: '编辑图片', exact: true })
+      const dialog = page.getByRole('dialog', { name: /^编辑图片/ })
       await dialog.getByRole('textbox', { name: '修改要求', exact: true }).fill('将衣服改成蓝色')
       await dialog.getByRole('button', { name: '生成编辑结果', exact: true }).click()
       await dialog.getByRole('button', { name: '关闭图片编辑', exact: true }).click()
@@ -112,7 +112,13 @@ for (const width of [1600, 390]) {
 
       await view.click()
       await expect(dialog).toBeVisible()
-      await expect(dialog.getByRole('button', { name: '查看编辑结果', exact: true })).toBeVisible()
+      // 从角标进来直接落在那条结果上：画布显示结果图，应用就能点。
+      await expect(dialog.getByRole('img', { name: '图片编辑结果', exact: true })).toBeVisible()
+      await expect(dialog.getByRole('button', { name: '应用到当前帧', exact: true })).toBeEnabled()
+      await page.screenshot({
+        animations: 'disabled',
+        path: `../.artifacts/design-qa/frame-image-editor/strip-${width}-${colorScheme}.png`,
+      })
       await dialog.getByRole('button', { name: '关闭图片编辑', exact: true }).click()
       await expect(dialog).toBeHidden()
       await expect(view).toBeHidden()

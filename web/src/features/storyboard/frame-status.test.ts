@@ -84,7 +84,8 @@ describe('frameBadges', () => {
 
   it('完成且结果不是当前帧才算有新结果；已采用或看过就不显示', () => {
     const fresh = job({})
-    expect(badgesOf(fresh).get(1)).toEqual({ kind: 'result' })
+    // 带上任务号，点角标才能直接打开编辑器看这条结果。
+    expect(badgesOf(fresh).get(1)).toEqual({ kind: 'result', jobId: fresh.id })
     expect(badgesOf(fresh, [fresh.id]).has(1)).toBe(false)
     expect(badgesOf(job({ outputUrl: ORIGINAL })).has(1)).toBe(false)
     expect(badgesOf(job({ outputUrl: null })).has(1)).toBe(false)

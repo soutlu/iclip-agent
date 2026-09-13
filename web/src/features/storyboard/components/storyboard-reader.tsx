@@ -66,7 +66,12 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   // 关过编辑器就算看过那一格的终态；只记本次会话，刷新后没看过的终态会再出现一次。
   const [seenFrameJobs, setSeenFrameJobs] = useState<ReadonlySet<string>>(() => new Set())
   const video = useVideoGeneration(conversationId, path)
-  const [imageEditTarget, setImageEditTarget] = useState<FrameEditTarget | null>(null)
+  // 打开时先选中哪一条由入口决定；target 本身不带图，应用之后这一格换了图它也不用变。
+  const [imageEdit, setImageEdit] = useState<{
+    target: FrameEditTarget
+    initialKey?: string | undefined
+  } | null>(null)
+  const imageEditTarget = imageEdit?.target ?? null
   const imageEditTriggerRef = useRef<HTMLElement | null>(null)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
   const [uploadedSources, setUploadedSources] = useState<
@@ -306,17 +311,19 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                 }}
                 onUploaded={(frame, url) => recordUpload(item.index, frame, url)}
                 onUploadingChange={gate.onUploadingChange}
-                onEditFrame={(frame, sourceUrl) => {
+                onEditFrame={(frame, open) => {
                   imageEditTriggerRef.current =
                     window.document.activeElement instanceof HTMLElement
                       ? window.document.activeElement
                       : null
-                  setImageEditTarget({
-                    conversationId,
-                    artifactPath: path,
-                    shotIndex: item.index,
-                    frameNumber: frame,
-                    sourceUrl,
+                  setImageEdit({
+                    target: {
+                      conversationId,
+                      artifactPath: path,
+                      shotIndex: item.index,
+                      frameNumber: frame,
+                    },
+                    ...(open.kind === 'result' ? { initialKey: open.jobId } : {}),
                   })
                 }}
                 content={offset + 1 === position ? search.content : undefined}
@@ -432,12 +439,13 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
         </div>
       </div>
       <MediaLightbox media={media} onClose={closePreview} />
-      {imageEditTarget === null ? null : (
+      {imageEdit === null || imageEditTarget === null ? null : (
         <FrameImageEditor
           key={JSON.stringify(imageEditTarget)}
           target={imageEditTarget}
           frames={shots.find((item) => item.index === imageEditTarget.shotIndex)?.image_urls ?? []}
           aspectRatio={document.aspect_ratio}
+          initialKey={imageEdit.initialKey}
           onClose={() => {
             const latest = latestFrameJob.get(
               frameJobKey(imageEditTarget.shotIndex, imageEditTarget.frameNumber),
@@ -445,7 +453,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
             // 还在跑的那条不算看过，落定后照样要在帧上冒出来。
             if (latest !== undefined && !isRunningStatus(latest.status))
               setSeenFrameJobs((current) => new Set(current).add(latest.id))
-            setImageEditTarget(null)
+            setImageEdit(null)
             requestAnimationFrame(() => {
               const trigger = imageEditTriggerRef.current
               if (trigger?.isConnected) trigger.focus()
@@ -458,11 +466,11 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                   ?.focus()
             })
           }}
-          onApply={(url) =>
+          onApply={(previousUrl, url) =>
             draft.applyFrame(
               imageEditTarget.shotIndex,
               imageEditTarget.frameNumber,
-              imageEditTarget.sourceUrl,
+              previousUrl,
               url,
             )
           }

@@ -19,6 +19,8 @@ type FramePreviewProps = {
   url: string | undefined
   onOpen: () => void
   onEdit?: (() => void) | undefined
+  /** 点角标看这条新结果；与 `onEdit` 同一个编辑器，只是打开时选中的图不同。 */
+  onOpenResult?: ((jobId: string) => void) | undefined
   onUpload: (file: File) => Promise<string>
   onReplace: (url: string) => void
   onUploadingChange: (uploading: boolean) => void
@@ -32,6 +34,7 @@ export function FramePreview({
   name,
   onOpen,
   onEdit,
+  onOpenResult,
   onReplace,
   onUploadingChange,
   onUpload,
@@ -148,11 +151,11 @@ export function FramePreview({
               {caption}
             </p>
           )}
-          {badge === undefined ? null : badge.kind === 'result' && onEdit !== undefined ? (
+          {badge === undefined ? null : badge.kind === 'result' && onOpenResult !== undefined ? (
             <button
               className="absolute top-2 left-2 flex cursor-pointer rounded-full ui-focus disabled:cursor-default"
               disabled={disabled || uploading}
-              onClick={onEdit}
+              onClick={() => onOpenResult(badge.jobId)}
               type="button"
             >
               <StatusBadge

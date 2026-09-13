@@ -1,5 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { editDraftError, editDraftKey, emptyEditDraft, loadEditDraft } from './image-edit-draft'
+import { beforeEach, describe, expect, it } from 'vitest'
+import {
+  draftOf,
+  editDraftError,
+  editDraftKey,
+  emptyEditDraft,
+  isEmptyDraft,
+  loadEditDrafts,
+} from './image-edit-draft'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
 const target: FrameEditTarget = {
@@ -7,55 +14,67 @@ const target: FrameEditTarget = {
   artifactPath: 'video_shot.json',
   shotIndex: 1,
   frameNumber: 1,
-  sourceUrl: 'https://example.com/original.png',
 }
+const BASE = 'https://example.com/original.png'
+const OTHER = 'https://example.com/result.png'
 
-const nativeRandomUUID = crypto.randomUUID
-const withRandomUUID = (value: unknown) => {
-  Object.defineProperty(crypto, 'randomUUID', { value, configurable: true, writable: true })
-}
+const store = (drafts: Record<string, FrameEditDraft>) =>
+  sessionStorage.setItem(editDraftKey(target), JSON.stringify(drafts))
 
 describe('未提交图片编辑草稿', () => {
   beforeEach(() => sessionStorage.clear())
-  afterEach(() => withRandomUUID(nativeRandomUUID))
 
-  it('公网 IP 走 HTTP 时也能建出带原图的空草稿', () => {
-    withRandomUUID(undefined)
+  it('每张底图各存各的，互不串台', () => {
+    const onBase: FrameEditDraft = {
+      annotations: [],
+      instructions: [{ kind: 'text', text: '改成蓝色' }],
+      references: [{ id: 'base', kind: 'image', url: BASE, label: '编辑底图' }],
+    }
+    store({ [BASE]: onBase })
+    const drafts = loadEditDrafts(target)
 
-    const draft = emptyEditDraft(target)
-
-    expect(draft.references).toEqual([
-      { id: expect.any(String), kind: 'image', url: target.sourceUrl, label: '当前原图' },
-    ])
-    expect(draft.references[0]?.id).not.toBe('')
+    expect(draftOf(drafts, BASE)).toEqual(onBase)
+    expect(draftOf(drafts, OTHER)).toEqual(emptyEditDraft(OTHER))
   })
 
-  it('没有选图的草稿恢复时带入当前原图并保留修改要求', () => {
-    sessionStorage.setItem(
-      editDraftKey(target),
-      JSON.stringify({
+  it('空草稿反复算出同一份，底图芯片的指向不会变', () => {
+    expect(emptyEditDraft(BASE)).toEqual(emptyEditDraft(BASE))
+    expect(isEmptyDraft(emptyEditDraft(BASE))).toBe(true)
+    expect(
+      isEmptyDraft({ ...emptyEditDraft(BASE), instructions: [{ kind: 'text', text: '改' }] }),
+    ).toBe(false)
+  })
+
+  it('没有选图的草稿恢复时带回底图并保留修改要求', () => {
+    store({
+      [BASE]: {
         annotations: [],
         instructions: [{ kind: 'text', text: '改成蓝色' }],
         references: [],
-      }),
-    )
-    const restored = loadEditDraft(target)
-    expect(restored.references).toEqual([
-      expect.objectContaining({ url: target.sourceUrl, kind: 'image' }),
-    ])
+      },
+    })
+
+    const restored = draftOf(loadEditDrafts(target), BASE)
+
+    expect(restored.references).toEqual([expect.objectContaining({ url: BASE, kind: 'image' })])
     expect(restored.instructions).toEqual([{ kind: 'text', text: '改成蓝色' }])
     expect(editDraftError(restored)).toBeNull()
+  })
+
+  it('读坏的草稿抛出来，由调用方决定怎么提示', () => {
+    sessionStorage.setItem(editDraftKey(target), JSON.stringify({ [BASE]: { annotations: 1 } }))
+    expect(() => loadEditDrafts(target)).toThrow()
   })
 
   it('超长修改要求完整恢复，提交前提示缩短而不丢失草稿', () => {
     const draft: FrameEditDraft = {
       annotations: [],
       instructions: [{ kind: 'text', text: '长'.repeat(5000) }],
-      references: [{ id: 'original', kind: 'image', url: target.sourceUrl, label: '原图' }],
+      references: [{ id: 'base', kind: 'image', url: BASE, label: '编辑底图' }],
     }
-    sessionStorage.setItem(editDraftKey(target), JSON.stringify(draft))
+    store({ [BASE]: draft })
 
-    const restored = loadEditDraft(target)
+    const restored = draftOf(loadEditDrafts(target), BASE)
 
     expect(restored).toEqual(draft)
     expect(editDraftError(restored)).not.toBeNull()
@@ -77,11 +96,11 @@ describe('未提交图片编辑草稿', () => {
         { kind: 'text', text: '换成' },
         { kind: 'referenceImage', id: reference.id },
       ],
-      references: [{ id: 'original', kind: 'image', url: target.sourceUrl, label: '原图' }],
+      references: [{ id: 'base', kind: 'image', url: BASE, label: '编辑底图' }],
     }
-    sessionStorage.setItem(editDraftKey(target), JSON.stringify(draft))
+    store({ [BASE]: draft })
 
-    const restored = loadEditDraft(target)
+    const restored = draftOf(loadEditDrafts(target), BASE)
 
     expect(restored.instructions).toEqual(draft.instructions)
     expect(editDraftError(restored)).not.toBeNull()
