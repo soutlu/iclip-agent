@@ -163,7 +163,7 @@ for (const width of [1335, 390]) {
       path: `../.artifacts/design-qa/reuse-video-preview/records-${width}-dark.png`,
     })
 
-    const completed = records.getByRole('article').filter({ hasText: '生成完成' })
+    const completed = records.getByRole('article').filter({ hasText: '已完成' })
     await expect(records.locator('video')).toHaveCount(0)
     await completed.getByRole('button', { name: '收起这条记录' }).click()
     const play = completed.getByRole('button', { name: '播放视频' })

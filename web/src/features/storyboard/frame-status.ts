@@ -1,5 +1,6 @@
 /** 分镜页帧上的图片任务状态：每格只看最新一条；在跑的一直显示，终态看过一次就清。 */
 
+import type { MediaBadgeStatus } from '@/shared/ui/status-badge'
 import { readStoryboardMetadata } from './generation-metadata'
 import type { Shot } from './shot-document'
 import { phaseOfStatus } from './shots'
@@ -20,6 +21,10 @@ const TEXT: Record<FrameBadge['kind'], string> = {
 
 /** 角标的文字，胶片条的可访问名与主预览的提示共用一套词。 */
 export const frameBadgeText = (badge: FrameBadge): string => TEXT[badge.kind]
+
+/** 新结果就是跑完了的图片任务，画成已完成的样子，文字仍说「有新结果」。 */
+export const frameBadgeStatus = (badge: FrameBadge): MediaBadgeStatus =>
+  badge.kind === 'result' ? 'completed' : badge.kind
 
 export const frameJobKey = (shotIndex: number, frameNumber: number) => `${shotIndex}:${frameNumber}`
 

@@ -3,17 +3,12 @@
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useUsersDirectory } from '@/shared/auth'
-import { Icon, type IconName } from '@/shared/icons'
+import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
-import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
-import { Tag } from '@/shared/ui/tag'
+import { StatusBadge } from '@/shared/ui/status-badge'
 import { DEFAULT_AUDIT_FILTERS, useAuditConversations, type AuditFilters } from '../audit.api'
-import {
-  CONVERSATION_STATUS_LABELS,
-  conversationStatus,
-  type ConversationStatus,
-} from '../conversation-status'
+import { conversationStatus } from '../conversation-status'
 import type { Conversation } from '../conversations.api'
 import { AuditFiltersBar } from './audit-filters'
 import type { PickerSource } from './audit-search-picker'
@@ -145,7 +140,12 @@ function AuditRow({ conversation, ownerName, taskLabel }: AuditRowProps) {
             <span className="min-w-0 truncate text-title font-medium" title={conversation.title}>
               {conversation.title}
             </span>
-            <ConversationStatusMark status={status} />
+            {/* 多数行是已完成，只给个对勾；其余状态带文字直接读出来。 */}
+            <StatusBadge
+              appearance={status === 'completed' ? 'icon' : 'label'}
+              kind="conversation"
+              status={status}
+            />
           </span>
           <span className="flex min-w-0 items-center gap-2 text-body-sm text-on-surface-variant">
             <span className="max-w-32 truncate" title={owner}>
@@ -168,41 +168,5 @@ function AuditRow({ conversation, ownerName, taskLabel }: AuditRowProps) {
         <Icon className="-rotate-90 text-on-surface-faint" decorative name="expand" size="sm" />
       </Link>
     </li>
-  )
-}
-
-const STATUS_TAGS: Record<
-  Exclude<ConversationStatus, 'idle' | 'completed'>,
-  { icon: IconName; variant: 'soft' | 'running' | 'success' | 'error' }
-> = {
-  aborted: { icon: 'stopped', variant: 'soft' },
-  approval: { icon: 'warning', variant: 'running' },
-  failed: { icon: 'failed', variant: 'error' },
-  question: { icon: 'warning', variant: 'running' },
-  running: { icon: 'loading', variant: 'success' },
-}
-
-function ConversationStatusMark({ status }: { status: ConversationStatus }) {
-  if (status === 'idle') return null
-  const label = CONVERSATION_STATUS_LABELS[status]
-  if (status === 'completed') {
-    return (
-      <span className="inline-flex shrink-0 text-primary" title={label}>
-        <Icon decorative name="success" size="sm" />
-        <span className="sr-only">{label}</span>
-      </span>
-    )
-  }
-  const tag = STATUS_TAGS[status]
-  return (
-    <Tag className="shrink-0 rounded-full" variant={tag.variant}>
-      <Icon
-        className={cn(status === 'running' && 'animate-spin')}
-        decorative
-        name={tag.icon}
-        size="xs"
-      />
-      {label}
-    </Tag>
   )
 }

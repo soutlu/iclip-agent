@@ -9,10 +9,10 @@ import {
   useCollections,
 } from '@/features/collections'
 import {
-  CONVERSATION_STATUS_MARKS,
   ConversationMembershipDialog,
   conversationStatus,
   conversationsQueryKeys,
+  needsAttention,
   useDeleteConversation,
   useMoreConversations,
   useRenameConversation,
@@ -35,6 +35,7 @@ import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
 import { MenuItem, MenuRoot, MenuSeparator, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
+import { StatusBadge } from '@/shared/ui/status-badge'
 import { toast } from '@/shared/ui/toast'
 
 // 状态层作用于整行及尾部按钮；内部标题按钮只负责焦点环。
@@ -621,10 +622,6 @@ function ConversationRow({
   const unread = useUnread(conversation, active)
   const status = conversationStatus(conversation.activity)
   // 行尾只画还需要人看一眼的状态；跑完没看过的用小点，其余什么都不画。
-  const mark =
-    status === 'approval' || status === 'question' || status === 'running' || status === 'failed'
-      ? CONVERSATION_STATUS_MARKS[status]
-      : undefined
   const showUnread = unread && status === 'completed'
 
   const commitRename = (value: string) => {
@@ -674,14 +671,7 @@ function ConversationRow({
           <span className="min-w-0 flex-1 truncate text-left">{conversation.title}</span>
         </Link>
       )}
-      {mark && (
-        <Icon
-          className={cn('shrink-0', mark.className)}
-          label={mark.label}
-          name={mark.name}
-          size="xs"
-        />
-      )}
+      {needsAttention(status) && <StatusBadge kind="conversation" status={status} />}
       {showUnread && (
         <span aria-label="未读" className="size-1.5 shrink-0 rounded-full bg-primary" role="img" />
       )}

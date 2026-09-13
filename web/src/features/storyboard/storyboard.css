@@ -296,8 +296,8 @@
   top: 4px;
   right: 4px;
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   place-items: center;
   border-radius: var(--radius-xs);
   background: var(--color-surface-container-lowest);

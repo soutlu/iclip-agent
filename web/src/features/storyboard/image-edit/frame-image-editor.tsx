@@ -49,7 +49,7 @@ const restoredReference =
   })
 
 const RECORD_PHASE: Record<GenerationPhase, string> = {
-  done: '已生成',
+  completed: '已生成',
   failed: '失败',
   queued: '排队中',
   running: '生成中',

@@ -3,10 +3,10 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { cn } from '@/shared/lib/utils'
 
-import { frameBadgeText, type FrameBadge } from '../frame-status'
+import { frameBadgeStatus, frameBadgeText, type FrameBadge } from '../frame-status'
 import type { ShotContent } from '../shot-content'
 import { Icon } from '@/shared/icons'
-import { FrameBadgeIcon } from './frame-badge'
+import { StatusBadge } from '@/shared/ui/status-badge'
 
 type ShotFilmstripProps = {
   contents: readonly ShotContent[]
@@ -117,7 +117,11 @@ export function ShotFilmstrip({
                       ) : null}
                       {badge === undefined ? null : (
                         <span className="storyboard-frame-status">
-                          <FrameBadgeIcon badge={badge} size="xs" />
+                          <StatusBadge
+                            kind="image"
+                            status={frameBadgeStatus(badge)}
+                            text={frameBadgeText(badge)}
+                          />
                         </span>
                       )}
                     </button>
