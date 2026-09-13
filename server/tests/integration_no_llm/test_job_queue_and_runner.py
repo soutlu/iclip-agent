@@ -712,7 +712,7 @@ async def test_attach_run_maps_every_run_to_its_prompt(engine: AsyncEngine) -> N
             now=now,
             locked_by=LOCKED_BY,
         )
-    await queue.attach_run("prm_mine", "r-first", locked_by=LOCKED_BY, attempt=0)
+    assert await queue.attach_run("prm_mine", "r-first", locked_by=LOCKED_BY, attempt=0) is True
     await queue.attach_run("prm_mine", "r-second", locked_by=LOCKED_BY, attempt=0)
     await queue.attach_run("prm_yours", "r-other", locked_by=LOCKED_BY, attempt=0)
 
@@ -745,9 +745,10 @@ async def test_attach_run_writes_nothing_when_the_lease_moved_on(engine: AsyncEn
         locked_by=LOCKED_BY,
     )
 
-    await queue.attach_run("prm_fenced", "r-stale", locked_by="w-other", attempt=0)
+    attached = await queue.attach_run("prm_fenced", "r-stale", locked_by="w-other", attempt=0)
 
     row = await queue.get("prm_fenced")
+    assert attached is False
     assert row is not None
     assert row.run_id is None
     assert await queue.prompt_of_runs("c-fenced") == {}
@@ -1493,6 +1494,51 @@ async def test_a_tool_needing_approval_ends_the_run_and_parks_the_prompt(
     }
 
     await runner.shutdown()
+
+
+async def test_every_run_start_is_reported_once_with_its_run_id(engine: AsyncEngine) -> None:
+    """首跑与审批续跑各报一次，带的 run_id 就是记进运行映射的那两个。"""
+
+    started: list[tuple[str, str]] = []
+
+    async def note(row: JobRow, run_id: str) -> None:
+        started.append((row.prompt_id, run_id))
+
+    store = TranscriptStore()
+    runner, _, queue = approval_runner(engine, store, on_run_started=note)
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await submit_text(runner, queue, conversation_id, "把这个文件改掉")
+    await awaits(queue, prompt_id)
+    await runner.approve(conversation_id, "apr_call_1", approved=True)
+    await drained(queue, conversation_id)
+    await runner.shutdown()
+
+    assert [prompt for prompt, _ in started] == [prompt_id, prompt_id]
+    assert sorted(run for _, run in started) == sorted(await queue.prompt_of_runs(conversation_id))
+
+
+async def test_a_failing_run_start_hook_does_not_stop_the_run(engine: AsyncEngine) -> None:
+    """开场动作只是记账，它抛错运行照常跑完。"""
+
+    async def explode(_row: JobRow, _run_id: str) -> None:
+        raise RuntimeError("对话行不见了")
+
+    store = TranscriptStore()
+    runner, step_store, queue = build_runner(
+        engine, says("写好了"), store=store, on_run_started=explode
+    )
+    conversation_id = f"c-{uuid.uuid4().hex[:8]}"
+
+    prompt_id = await submit_text(runner, queue, conversation_id, "写三个镜头")
+    await drained(queue, conversation_id)
+    await runner.shutdown()
+
+    row = await queue.get(prompt_id)
+    assert row is not None
+    assert row.status == "completed"
+    derived = (await TranscriptHistory(step_store, queue).read(conversation_id)).turns
+    assert derived[0].steps[0].frames[0].text == "写好了"  # pyright: ignore[reportAttributeAccessIssue]
 
 
 async def test_approving_resumes_the_same_turn(engine: AsyncEngine) -> None:

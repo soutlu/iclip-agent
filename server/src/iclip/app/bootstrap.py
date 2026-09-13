@@ -456,6 +456,16 @@ def build_app(
 
         await conversations.service.name_after_turn(uuid.UUID(row.conversation_id), row.text)
 
+    async def note_run_started(row: JobRow, run_id: str) -> None:
+        """run 开始时记到对话上：最近一次 run 与最近活动时间。"""
+
+        await conversations.service.begin_run(
+            owner=row.owner_user_id,
+            agent_id=row.agent_id,
+            conversation_id=row.conversation_id,
+            run_id=run_id,
+        )
+
     async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
         """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。"""
 
@@ -489,6 +499,7 @@ def build_app(
             compaction_max_fraction=settings.compaction.max_fraction,
             compaction_keep_messages=settings.compaction.keep_messages,
             on_turn_ended=name_conversation,
+            on_run_started=note_run_started,
             display=tool_displays,
         ),
     )

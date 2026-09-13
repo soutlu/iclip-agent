@@ -410,8 +410,10 @@ class JobQueue:
 
     async def attach_run(
         self, prompt_id: str, run_id: str, *, locked_by: str, attempt: int
-    ) -> None:
-        """持租写入最近 run_id 与完整运行映射；两项更新同事务提交，避免 transcript 错分轮次。"""
+    ) -> bool:
+        """持租写入最近 run_id 与完整运行映射；两项更新同事务提交，避免 transcript 错分轮次。
+
+        返回是否仍持有租约；失租时什么都不写。"""
 
         claim = (
             update(agent_jobs_table)
@@ -420,12 +422,13 @@ class JobQueue:
         )
         async with self._engine.begin() as conn:
             if (await conn.execute(claim)).rowcount != 1:
-                return
+                return False
             await conn.execute(
                 insert(agent_job_runs_table).values(
                     run_id=run_id, prompt_id=prompt_id, started_at=func.now()
                 )
             )
+        return True
 
     async def finish(
         self, prompt_id: str, *, status: JobStatus, now: datetime, locked_by: str, attempt: int
