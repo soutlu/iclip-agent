@@ -86,7 +86,7 @@ describe('AuditRoute', () => {
     expect(await rowOf('我的片')).toHaveTextContent('未运行')
     expect(await rowOf('我的片')).toHaveTextContent('测试用户')
     expect(await rowOf('跑完的片')).toHaveTextContent('已完成')
-    expect(screen.getByRole('status')).toHaveTextContent('1 段在跑 · 共 3 段')
+    expect(screen.getByRole('status', { name: '对话总数' })).toHaveTextContent('1 段在跑 · 共 3 段')
   })
 
   it('切「已完成」交给服务端筛：只剩跑完的，总数跟着变，在跑数不变', async () => {
@@ -101,7 +101,7 @@ describe('AuditRoute', () => {
     )
     expect(await rowOf('跑完的片')).toBeVisible()
     expect(screen.queryByRole('link', { name: /我的片/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('1 段在跑 · 共 1 段')
+    expect(screen.getByRole('status', { name: '对话总数' })).toHaveTextContent('1 段在跑 · 共 1 段')
   })
 
   it('属主菜单里选人，列表只剩那个人的，片子上写着选了谁', async () => {
@@ -117,7 +117,7 @@ describe('AuditRoute', () => {
     )
     expect(await rowOf('小王的秋季片')).toBeVisible()
     expect(screen.getByRole('button', { name: '属主：小王' })).toBeVisible()
-    expect(screen.getByRole('status')).toHaveTextContent('1 段在跑 · 共 2 段')
+    expect(screen.getByRole('status', { name: '对话总数' })).toHaveTextContent('1 段在跑 · 共 2 段')
   })
 
   it('别人对话的活动帧当场改状态列并重拉总数；没见过的 id 重拉后多出一行', async () => {
@@ -126,20 +126,28 @@ describe('AuditRoute', () => {
     theirs.ownerUserId = other.id
     const { socket } = await render()
     expect(await rowOf('小王的秋季片')).toHaveTextContent('未运行')
-    expect(screen.getByRole('status')).toHaveTextContent('0 段在跑 · 共 1 段')
+    expect(screen.getByRole('status', { name: '对话总数' })).toHaveTextContent('0 段在跑 · 共 1 段')
 
     // 先改 MSW 里的事实，推送后的重拉才与就地补丁一致。
     theirs.activity = RUNNING
     socket.deliver(workChanged(theirs.id, { busy: true }))
     expect(await rowOf('小王的秋季片')).toHaveTextContent('进行中')
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 段在跑 · 共 1 段'))
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: '对话总数' })).toHaveTextContent(
+        '1 段在跑 · 共 1 段',
+      ),
+    )
 
     const fresh = addMockConversation('刚开的片')
     fresh.ownerUserId = other.id
     fresh.activity = RUNNING
     socket.deliver(workChanged(fresh.id, { busy: true }))
     expect(await rowOf('刚开的片')).toHaveTextContent('进行中')
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('2 段在跑 · 共 2 段'))
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: '对话总数' })).toHaveTextContent(
+        '2 段在跑 · 共 2 段',
+      ),
+    )
   })
 
   it('一页五十段，点「展开显示更多对话」接下一页，已显示计数跟着走', async () => {

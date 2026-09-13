@@ -134,7 +134,11 @@ export function AuditFiltersBar({
         </MenuRoot>
 
         {totals === undefined ? null : (
-          <p className="ml-auto text-body-sm text-on-surface-variant" role="status">
+          <p
+            aria-label="对话总数"
+            className="ml-auto text-body-sm text-on-surface-variant"
+            role="status"
+          >
             <strong className="font-medium text-on-surface">{totals.runningTotal}</strong> 段在跑 ·
             共 <strong className="font-medium text-on-surface">{totals.total}</strong> 段
           </p>

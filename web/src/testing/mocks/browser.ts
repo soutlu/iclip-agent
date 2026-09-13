@@ -1,5 +1,5 @@
 import { setupWorker } from 'msw/browser'
-import { addMockCollection, addMockConversation, handlers } from './handlers'
+import { addMockCollection, addMockConversation, addMockUser, handlers } from './handlers'
 import { markMockAwaitingApproval, markMockJustFinished } from './transcript'
 import { seedMockReplicaWorkspace, seedMockWorkspace } from './workspace'
 
@@ -51,5 +51,17 @@ const linen = addMockCollection('夏季亚麻系列')
 seeded.slice(1, 3).forEach((conversation) => {
   conversation.collectionId = linen.id
 })
+
+// 别人的对话：测试用户的侧栏看不到，用 governor 登录后在「全部对话」里看，点进去是只读。
+const wang = addMockUser('小王')
+const wangRunning = addMockConversation('小王 · 秋季新品短片', new Date().toISOString(), wang.id)
+wangRunning.activity = { busy: true, lastTurnReason: null, pendingInteraction: 'none' }
+const wangDone = addMockConversation(
+  '小王 · 通勤鞋开箱',
+  new Date(Date.now() - 2 * 3600_000).toISOString(),
+  wang.id,
+)
+wangDone.activity = { busy: false, lastTurnReason: 'completed', pendingInteraction: 'none' }
+wangDone.lastRunId = 'run-wang-1'
 
 export const worker = setupWorker(...handlers)

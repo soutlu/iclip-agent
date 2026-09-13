@@ -29,7 +29,8 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const canRead = Boolean(user?.permissions.includes('agent:read'))
   const canStart = Boolean(user?.permissions.includes('agent:run'))
   const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
-  const canGovern = Boolean(user?.permissions.includes('users:manage'))
+  // 全部对话接口同时要 users:manage 与 agent:read（合同 §6）。
+  const canGovern = canRead && Boolean(user?.permissions.includes('users:manage'))
   // 全局帧订阅挂在侧栏顶层：折叠时对话区不渲染，全部对话页与会话页仍要靠它刷新列表缓存。
   useLiveConversations(canRead)
 

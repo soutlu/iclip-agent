@@ -26,3 +26,14 @@ export const mockAuthUser = {
   roles: ['editor'],
   username: 'tester',
 }
+
+/** 治理者账号：用 governor 登录 mock 就是它，多一个 users:manage，看得到全部对话与别人的会话页。 */
+export const mockGovernor = {
+  ...mockAuthUser,
+  displayName: '治理者',
+  email: 'governor@example.com',
+  id: '4b9d2e7a-1c3f-4a5b-8d6e-2f7a9c1b3d5e',
+  permissions: [...mockAuthUser.permissions, 'users:manage'],
+  roles: ['root'],
+  username: 'governor',
+}
