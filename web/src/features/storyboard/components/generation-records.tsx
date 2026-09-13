@@ -166,7 +166,7 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
 
       {open && onEditPrompt !== undefined ? (
         <Button
-          className="w-full border-[0.5px] border-chat-hairline bg-primary/4 text-primary"
+          className="w-full border-[0.5px] border-chat-hairline bg-surface-container-low text-primary"
           disabled={history === undefined}
           leadingIcon="edit"
           onClick={() => {

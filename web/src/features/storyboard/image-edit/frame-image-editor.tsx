@@ -282,7 +282,7 @@ export function FrameImageEditor({
                   aria-pressed={mode === value}
                   className={cn(
                     'rounded-sm px-3 py-2 text-body-sm ui-focus disabled:opacity-40',
-                    mode === value ? 'bg-primary/8 text-primary' : 'text-on-surface-muted',
+                    mode === value ? 'bg-state-active text-primary' : 'text-on-surface-muted',
                   )}
                   onClick={() => setMode(value)}
                 >

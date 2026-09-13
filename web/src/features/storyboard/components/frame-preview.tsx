@@ -205,7 +205,7 @@ export function FramePreview({
         </>
       )}
       {dragOver && !uploading ? (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center border-2 border-primary bg-primary/12">
+        <div className="pointer-events-none absolute inset-0 grid place-items-center border-2 border-primary bg-primary-container-soft">
           <span className="rounded-xs bg-surface-container-lowest px-3 py-2 text-body-sm text-on-surface">
             松开替换当前图片
           </span>
