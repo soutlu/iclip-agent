@@ -6,7 +6,7 @@ describe('phaseOfStatus', () => {
     ['pending', 'queued'],
     ['submitting', 'running'],
     ['submitted', 'running'],
-    ['completed', 'done'],
+    ['completed', 'completed'],
     ['failed', 'failed'],
   ])('%s 给人看是 %s', (status, phase) => {
     expect(phaseOfStatus(status)).toBe(phase)

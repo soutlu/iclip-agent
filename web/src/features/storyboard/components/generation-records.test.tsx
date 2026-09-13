@@ -98,8 +98,8 @@ describe('GenerationRecords', () => {
   it('三种状态各写清楚，失败的把服务端原话摆出来', () => {
     renderRecords()
 
-    expect(screen.getByText('生成中…')).toBeVisible()
-    expect(screen.getByText('生成完成')).toBeVisible()
+    expect(screen.getByText('生成中')).toBeVisible()
+    expect(screen.getByText('已完成')).toBeVisible()
     expect(screen.getByText('生成失败')).toBeVisible()
     expect(screen.getByText('上游返回了空结果。')).toBeVisible()
   })
@@ -219,7 +219,7 @@ describe('GenerationRecords', () => {
     await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
 
     expect(within(card).queryByText('第三版：脚步放慢。')).not.toBeInTheDocument()
-    expect(within(card).getByText('生成中…')).toBeVisible()
+    expect(within(card).getByText('生成中')).toBeVisible()
   })
 
   it('只有正文的记录可以查看，但不能回填镜头组', () => {

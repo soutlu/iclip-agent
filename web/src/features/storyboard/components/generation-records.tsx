@@ -3,33 +3,19 @@
 import { Tooltip } from 'radix-ui'
 import { useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Icon, type IconName } from '@/shared/icons'
+import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { fileNameOfUrl, videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
+import { StatusBadge } from '@/shared/ui/status-badge'
 import { toast } from '@/shared/ui/toast'
 import { readStoryboardMetadata } from '../generation-metadata'
 import type { Shot } from '../shot-document'
-import { phaseOfStatus, type GenerationPhase } from '../shots'
+import { phaseOfStatus } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
-
-const PHASE: Record<
-  GenerationPhase,
-  { icon: IconName; text: string; className: string; spin: string }
-> = {
-  done: { className: 'text-chat-status-success', icon: 'success', spin: '', text: '生成完成' },
-  failed: { className: 'text-chat-status-error', icon: 'failed', spin: '', text: '生成失败' },
-  queued: { className: 'text-chat-status-running', icon: 'duration', spin: '', text: '排队中…' },
-  running: {
-    className: 'text-chat-status-running',
-    icon: 'loading',
-    spin: 'animate-spin',
-    text: '生成中…',
-  },
-}
 
 /** request 是不透明 JSON，仅展示字符串 prompt。 */
 const promptOf = (job: GenerationJob): string | undefined => {
@@ -118,17 +104,12 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   return (
     <article className="flex shrink-0 flex-col gap-2.5 overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface p-3">
       <div className="flex items-center gap-2">
-        <span
-          className={cn('flex shrink-0 items-center gap-1.5 text-body-sm', PHASE[phase].className)}
-        >
-          <Icon className={PHASE[phase].spin} decorative name={PHASE[phase].icon} size="md" />
-          {PHASE[phase].text}
-        </span>
+        <StatusBadge appearance="label" kind="video" status={phase} />
         <span className="flex-1" />
         <time className="min-w-0 text-caption text-on-surface-muted" dateTime={job.createdAt}>
           {formatDateTime(job.createdAt)}
         </time>
-        {phase === 'done' && job.outputUrl !== null ? (
+        {phase === 'completed' && job.outputUrl !== null ? (
           <RecordDownload url={job.outputUrl} watermarkUrl={job.watermarkOutputUrl} />
         ) : null}
         <IconButton
@@ -141,7 +122,7 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
         />
       </div>
 
-      {phase === 'done' && job.outputUrl !== null ? (
+      {phase === 'completed' && job.outputUrl !== null ? (
         <RecordVideo key={job.outputUrl} url={job.outputUrl} />
       ) : null}
 

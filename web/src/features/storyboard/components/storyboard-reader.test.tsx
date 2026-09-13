@@ -480,7 +480,7 @@ describe('StoryboardReader', () => {
     await screen.findByRole('region', { name: '镜头组 1' })
     await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
     const records = await screen.findByRole('complementary', { name: '生成记录' })
-    expect(await within(records).findByText('生成中…')).toBeVisible()
+    expect(await within(records).findByText('生成中')).toBeVisible()
 
     act(() => {
       socket.deliver({
@@ -495,7 +495,7 @@ describe('StoryboardReader', () => {
       })
     })
 
-    expect(await within(records).findByText('生成完成')).toBeVisible()
+    expect(await within(records).findByText('已完成')).toBeVisible()
     expect(served).toBe(2)
   })
 
@@ -638,7 +638,7 @@ describe('StoryboardReader', () => {
     expect(screen.getByRole('button', { name: '生成设置：wan3.0-video，音频关闭' })).toBeVisible()
     await user.click(screen.getByRole('button', { name: '生成记录' }))
     const records = await screen.findByRole('complementary', { name: '生成记录' })
-    expect(await within(records).findByText('生成中…')).toBeVisible()
+    expect(await within(records).findByText('生成中')).toBeVisible()
   })
 
   it('服务端拒收出片时提示原话，不刷新记录', async () => {

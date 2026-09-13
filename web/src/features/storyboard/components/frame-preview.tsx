@@ -3,11 +3,11 @@
 import { useEffect, useEffectEvent, useRef, useState, type DragEvent } from 'react'
 import { Icon } from '@/shared/icons'
 import { IconButton } from '@/shared/ui/button'
+import { StatusBadge } from '@/shared/ui/status-badge'
 import { toast } from '@/shared/ui/toast'
-import { frameBadgeText, type FrameBadge } from '../frame-status'
+import { frameBadgeStatus, frameBadgeText, type FrameBadge } from '../frame-status'
 import { aspectRatioStyle } from '../shots'
 import { FRAME_IMAGE_ACCEPT } from '../storyboard.api'
-import { FrameBadgeIcon } from './frame-badge'
 
 type FramePreviewProps = {
   aspectRatio: string
@@ -150,22 +150,34 @@ export function FramePreview({
           )}
           {badge === undefined ? null : badge.kind === 'result' && onEdit !== undefined ? (
             <button
-              className="absolute top-2 left-2 flex cursor-pointer items-center gap-1.5 rounded-xs bg-surface-container-lowest px-2 py-1 text-caption text-on-surface ui-focus disabled:cursor-default"
+              className="absolute top-2 left-2 flex cursor-pointer rounded-full ui-focus disabled:cursor-default"
               disabled={disabled || uploading}
               onClick={onEdit}
               type="button"
             >
-              <FrameBadgeIcon badge={badge} size="sm" />
-              有新结果 · 查看
+              <StatusBadge
+                appearance="label"
+                kind="image"
+                status={frameBadgeStatus(badge)}
+                text="有新结果 · 查看"
+              />
             </button>
           ) : (
             <p
-              className="pointer-events-none absolute top-2 left-2 flex items-center gap-1.5 rounded-xs bg-surface-container-lowest px-2 py-1 text-caption text-on-surface"
+              className="pointer-events-none absolute top-2 left-2 flex items-center gap-1.5"
               role={badge.kind === 'failed' ? 'alert' : 'status'}
             >
-              <FrameBadgeIcon badge={badge} size="sm" />
-              {frameBadgeText(badge)}
-              {badge.kind === 'failed' && badge.message !== null ? `：${badge.message}` : ''}
+              <StatusBadge
+                appearance="label"
+                kind="image"
+                status={frameBadgeStatus(badge)}
+                text={frameBadgeText(badge)}
+              />
+              {badge.kind === 'failed' && badge.message !== null ? (
+                <span className="rounded-full bg-surface-container-lowest px-2 py-1 text-caption text-on-surface">
+                  {badge.message}
+                </span>
+              ) : null}
             </p>
           )}
           <div className="storyboard-frame-tools">

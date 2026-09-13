@@ -1,0 +1,89 @@
+/* 状态角标的叠标几何。颜色与字号由组件的 token 类给，这里只放尺寸与定位。
+   20px 占位里放 16px 主图形；叠标盒 8×8 贴右下角，中心落在主图形坐标 (15px, 14px)。
+   主图形用径向渐变 mask 在叠标周围挖 1.5px 空隙，因此不依赖所在底色。 */
+
+.status-badge-glyph {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  place-items: center;
+}
+
+.status-badge-glyph[data-marker] > .status-badge-main {
+  mask: radial-gradient(circle at 15px 14px, transparent 5.5px, black 6px);
+}
+
+.status-badge-marker {
+  position: absolute;
+  right: -1px;
+  bottom: 0;
+  display: grid;
+  width: 8px;
+  height: 8px;
+  place-items: center;
+  border-radius: var(--radius-full);
+}
+
+.status-badge-marker > svg {
+  width: 8px;
+  height: 8px;
+}
+
+/* 对勾与叉：实色小圆取外层的语义色，里面的图形用配对的 on 色抠出。
+   底色写在外层、抠出色写在 svg 上：同一元素里 currentcolor 会先被 color 改掉。 */
+.status-badge-marker:is([data-marker='check'], [data-marker='close']) {
+  background: currentcolor;
+}
+
+.status-badge-marker:is([data-marker='check'], [data-marker='close']) > svg {
+  width: 5px;
+  height: 5px;
+  color: var(--status-badge-marker-ink);
+  stroke-width: 3;
+}
+
+.status-badge-marker[data-marker='dot'] {
+  right: 0.5px;
+  bottom: 1.5px;
+  width: 5px;
+  height: 5px;
+  background: currentcolor;
+}
+
+/* 纯图标时叠标底色是语义色，抠出色取它的 on 色；带文字时叠标底色是容器文字色，抠出色取容器底。 */
+.status-badge[data-tone='neutral'] {
+  --status-badge-marker-ink: var(--color-on-secondary);
+}
+.status-badge[data-tone='success'] {
+  --status-badge-marker-ink: var(--color-on-primary);
+}
+.status-badge[data-tone='warning'] {
+  --status-badge-marker-ink: var(--color-on-warning);
+}
+.status-badge[data-tone='danger'] {
+  --status-badge-marker-ink: var(--color-on-error);
+}
+.status-badge[data-tone='neutral'][data-appearance='label'] {
+  --status-badge-marker-ink: var(--color-secondary-container);
+}
+.status-badge[data-tone='success'][data-appearance='label'] {
+  --status-badge-marker-ink: var(--color-primary-container);
+}
+.status-badge[data-tone='warning'][data-appearance='label'] {
+  --status-badge-marker-ink: var(--color-warning-container);
+}
+.status-badge[data-tone='danger'][data-appearance='label'] {
+  --status-badge-marker-ink: var(--color-error-container);
+}
+
+@media (forced-colors: active) {
+  .status-badge[data-appearance='label'] {
+    border: 1px solid currentcolor;
+  }
+
+  .status-badge-marker {
+    outline: 1px solid CanvasText;
+  }
+}

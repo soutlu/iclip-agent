@@ -413,9 +413,9 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()
   const records = panel.getByRole('complementary', { name: '生成记录', exact: true })
   await expect(records.getByRole('article')).toHaveCount(2)
-  await expect(records.getByText('生成中…')).toBeVisible()
+  await expect(records.getByText('生成中')).toBeVisible()
   // mock 三秒后出片，前端每五秒问一次。
-  await expect(records.getByText('生成中…')).toBeHidden({ timeout: 15_000 })
+  await expect(records.getByText('生成中')).toBeHidden({ timeout: 15_000 })
   await expect(records.getByRole('button', { name: '下载视频' })).toHaveCount(2)
   await records.getByRole('button', { name: '下载视频' }).first().click()
   await expect(page.getByRole('menuitem', { name: '下载原片' })).toBeVisible()

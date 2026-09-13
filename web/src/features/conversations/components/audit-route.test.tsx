@@ -108,7 +108,8 @@ describe('AuditRoute', () => {
     expect(await within(theirs).findByText('小王')).toBeVisible()
     expect(theirs).toHaveTextContent('秋季新品')
     expect(await rowOf('我的片')).toHaveTextContent('测试用户')
-    expect(await rowOf('跑完的片')).toHaveTextContent('已完成')
+    // 跑完的只给个对勾角标，不占文字位。
+    expect(within(await rowOf('跑完的片')).getByRole('img', { name: '已完成' })).toBeVisible()
     expectTotals(1, 3)
   })
 

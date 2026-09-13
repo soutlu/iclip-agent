@@ -7,7 +7,7 @@ export type {
 } from './conversations.api'
 export { useLiveConversations } from './conversations.live'
 export { recordSeenRun, useSeenRun } from './conversations.unread'
-export { CONVERSATION_STATUS_MARKS, conversationStatus } from './conversation-status'
+export { conversationStatus, needsAttention } from './conversation-status'
 export {
   createConversation,
   conversationsQueryKeys,
