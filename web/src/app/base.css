@@ -144,15 +144,15 @@
   --color-on-error-container: var(--e10);
 
   /* Surface 系：背景、文字、边框 */
-  --color-surface: var(--n98); /* #F6FBF4 页面背景（M3-2023 surface=N98） */
-  --color-on-surface: var(--n10); /* #171D19 主文字 16.33:1 */
-  --color-surface-variant: var(--nv90); /* #DCE5DC 弱底 */
-  --color-on-surface-variant: var(--nv30); /* #404942 次级文字 8.90:1 */
-  --color-on-surface-muted: var(--nv40); /* #586059 第三档文字 6.14:1（nv50 白底 4.36:1 不达标） */
+  --color-surface: var(--n98); /* #F9F9F9 页面背景（M3-2023 surface=N98） */
+  --color-on-surface: var(--n10); /* #1C1C1C 主文字 16.19:1 */
+  --color-surface-variant: var(--nv90); /* #E2E2E2 弱底 */
+  --color-on-surface-variant: var(--nv30); /* #474747 次级文字 8.82:1 */
+  --color-on-surface-muted: var(--nv40); /* #5E5E5E 第三档文字（nv50 白底 4.48:1 不达标） */
   /* 弱文字需在白色、container-low、container 三种浅底上保持 ≥4.5:1 对比度。 */
   --color-on-surface-faint: color-mix(in srgb, var(--color-on-surface) 62%, transparent);
-  --color-outline: var(--nv50); /* #717972 强边框/输入框 */
-  --color-outline-variant: var(--nv80); /* #C0C9C0 默认边框 */
+  --color-outline: var(--nv50); /* #777777 强边框/输入框 */
+  --color-outline-variant: var(--nv80); /* #C6C6C6 默认边框 */
   /* 全站发丝线：墨色透明档，深浅随 on-surface 自动换向；所有 *-border 别名指这里 */
   --color-hairline: color-mix(in srgb, var(--color-on-surface) 13%, transparent);
   --color-surface-container-lowest: var(--n100); /* #FFFFFF 卡片 */
@@ -162,7 +162,7 @@
   --color-surface-container-highest: var(--n90);
 
   /* 反色与辅助 */
-  --color-inverse-surface: var(--n20); /* #2C322D 深色按钮/toast */
+  --color-inverse-surface: var(--n20); /* #303030 深色按钮/toast */
   --color-inverse-on-surface: var(--n95);
   --color-inverse-primary: var(--p80);
   --color-scrim: var(--n0);
@@ -317,7 +317,7 @@
     transparent
   );
   --color-ring-highlight: color-mix(in srgb, var(--color-primary) 70%, transparent);
-  --color-focus-ring: var(--color-primary); /* 键盘焦点全局指示（白底 6.48:1） */
+  --color-focus-ring: var(--color-primary); /* 键盘焦点全局指示（白底 6.43:1） */
   --color-thumb-fallback: var(--n80);
   --color-badge-border: var(--color-hairline);
 
@@ -583,7 +583,7 @@
 
 /* 深色仅覆盖语义色与直接取色板的领域 token；引用语义色的别名自动跟随。 */
 .dark {
-  /* 深色主色使用 60 档，文字对比度为 5.86:1。 */
+  /* 深色主色使用 60 档，在页面底上的对比度为 5.83:1。 */
   --color-primary: var(--p60);
   --color-primary-hover: var(--p70);
   --color-on-primary: var(--p10);
