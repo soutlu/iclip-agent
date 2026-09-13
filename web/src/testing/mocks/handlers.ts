@@ -7,119 +7,53 @@ import {
   zTaskInputsOutput,
   type zTaskOut,
 } from '@/shared/api/generated/zod.gen'
+import { mockAuthUser, mockGovernor } from './auth-user'
+import {
+  addMockCollection,
+  addMockConversation,
+  mockCollections,
+  mockConversations,
+  resetMockConversations,
+  type MockConversation,
+} from './conversations'
 import { transcriptHandlers } from './transcript'
 import { workspaceHandlers } from './workspace'
 
 // MSW handlers 由单测与 dev:mock 共用；普通 dev 不注册。响应字段以 contract/openapi.json 为准。
 
-export const mockAuthUser = {
-  avatarUrl: '',
-  city: '',
-  createdAt: null,
-  departments: [],
-  directPermissions: [],
-  displayName: '测试用户',
-  email: 'tester@example.com',
-  id: '0f7f4c1e-8a3b-4d0e-9c2a-6b1d2e3f4a5b',
-  isActive: true,
-  jobTitle: '',
-  lastLoginAt: null,
-  permissions: [
-    'agent:read',
-    'agent:run',
-    'generation:read',
-    'generation:submit',
-    'inspirations:read',
-    'uploads:write',
-    'collections:read',
-    'collections:write',
-    'tasks:read',
-    'tasks:write',
-  ],
-  roles: ['editor'],
-  username: 'tester',
+export {
+  addMockCollection,
+  addMockConversation,
+  mockAuthUser,
+  mockCollections,
+  mockConversations,
+  mockGovernor,
+  resetMockConversations,
 }
 
-// 会话状态由登录更新；页面刷新和单测清理后重置为未登录。
-let sessionActive = false
+type MockUser = typeof mockAuthUser
+
+// 登录的是谁由登录接口决定：governor 是治理者，其余用户名都是测试用户；页面刷新和单测清理后重置为未登录。
+let currentUser: MockUser | null = null
+
+/** 列表按属主过滤时用的身份；单测常用 server.use 直接给 /users/me 答复而不走登录，此时按测试用户算。 */
+const activeUserId = () => (currentUser ?? mockAuthUser).id
 
 // 按 assetId 记录签名时的 contentType，登记响应复用此信息。
 const mockUploads = new Map<string, string>()
 const mockUploadBytes = new Map<string, { body: ArrayBuffer; contentType: string }>()
 
 export const resetMockSession = () => {
-  sessionActive = false
+  currentUser = null
   mockUploads.clear()
   mockUploadBytes.clear()
 }
 
-// 内存对话遵循 ConversationOut，标题搜索不区分大小写。
-type MockConversation = {
-  activity: {
-    busy: boolean
-    lastTurnReason: 'completed' | 'failed' | 'aborted' | null
-    pendingInteraction: 'none' | 'approval' | 'question'
-  }
-  agentId: string
-  collectionId: string | null
-  createdAt: string
-  id: string
-  lastRunId: string | null
-  ownerUserId: string
-  taskId: string | null
-  title: string
-  updatedAt: string
-}
-
-export const mockConversations: MockConversation[] = []
-
-export const addMockConversation = (title: string, updatedAt = new Date().toISOString()) => {
-  const conversation: MockConversation = {
-    activity: { busy: false, lastTurnReason: null, pendingInteraction: 'none' },
-    agentId: 'storyboard',
-    collectionId: null,
-    createdAt: updatedAt,
-    id: crypto.randomUUID(),
-    lastRunId: null,
-    ownerUserId: mockAuthUser.id,
-    taskId: null,
-    title,
-    updatedAt,
-  }
-  mockConversations.push(conversation)
-  return conversation
-}
-
-export const resetMockConversations = () => {
-  mockConversations.length = 0
-  mockCollections.length = 0
-}
-
-type MockCollection = {
-  createdAt: string
-  id: string
-  name: string
-  ownerUserId: string
-  updatedAt: string
-}
-
-export const mockCollections: MockCollection[] = []
-
-export const addMockCollection = (name: string) => {
-  const now = new Date().toISOString()
-  const collection: MockCollection = {
-    createdAt: now,
-    id: crypto.randomUUID(),
-    name,
-    ownerUserId: mockAuthUser.id,
-    updatedAt: now,
-  }
-  mockCollections.push(collection)
-  return collection
-}
-
 const SIDEBAR_PER_COLLECTION = 10
 const SIDEBAR_UNGROUPED = 20
+
+/** 登录人自己的对话；工作台接口只列这些。 */
+const mine = () => mockConversations.filter((item) => item.ownerUserId === activeUserId())
 
 const byRecent = (a: MockConversation, b: MockConversation) =>
   b.updatedAt.localeCompare(a.updatedAt)
@@ -192,26 +126,85 @@ export const resetMockTasks = () => {
   mockTasks.length = 0
 }
 
+/** 名册里两个登录账号之外的其他人；治理视图用它把 ownerUserId 翻成名字。 */
+export const mockUsers: MockUser[] = []
+
+export const addMockUser = (displayName: string, id = crypto.randomUUID()) => {
+  const user: MockUser = {
+    ...mockAuthUser,
+    displayName,
+    email: `${id.slice(0, 8)}@example.com`,
+    id,
+    permissions: ['agent:read', 'agent:run'],
+    roles: ['editor'],
+    username: id.slice(0, 8),
+  }
+  mockUsers.push(user)
+  return user
+}
+
+export const resetMockUsers = () => {
+  mockUsers.length = 0
+}
+
+/** 属主、需求单与时间三个筛选先切出范围，state 再在范围内挑；runningTotal 只看范围。 */
+const auditScope = (query: URLSearchParams) => {
+  const owner = query.get('ownerUserId')
+  const taskId = query.get('taskId')
+  const since = query.get('since')
+  const until = query.get('until')
+  return [...mockConversations]
+    .sort(byRecent)
+    .filter(
+      (item) =>
+        (owner === null || item.ownerUserId === owner) &&
+        (taskId === null || item.taskId === taskId) &&
+        (since === null || item.updatedAt >= since) &&
+        (until === null || item.updatedAt <= until),
+    )
+}
+
 export const handlers = [
   // /users/me 是会话事实源，未登录时返回 401。
   http.get('*/api/users/me', () =>
-    sessionActive
-      ? HttpResponse.json({ user: mockAuthUser })
+    currentUser
+      ? HttpResponse.json({ user: currentUser })
       : new HttpResponse(null, { status: 401 }),
   ),
 
-  http.post('*/api/auth/login', () => {
-    sessionActive = true
+  // 登录是 OAuth2 表单（username / password），不是 JSON。
+  http.post('*/api/auth/login', async ({ request }) => {
+    const form = new URLSearchParams(await request.text())
+    currentUser = form.get('username') === mockGovernor.username ? mockGovernor : mockAuthUser
     return new HttpResponse(null, { status: 204 })
   }),
 
   http.post('*/api/auth/logout', () => {
-    sessionActive = false
+    currentUser = null
     return new HttpResponse(null, { status: 204 })
   }),
 
   // mock 不启用 SSO，以 404 表示路由未挂载。
   http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
+
+  // 名册一页给全：两个登录账号在前，其余按加入顺序。
+  http.get('*/api/users', () => {
+    const items = [mockAuthUser, mockGovernor, ...mockUsers]
+    return HttpResponse.json({ items, page: 1, pageSize: 200, total: items.length })
+  }),
+
+  // 治理者的全平台列表：两个总数不随翻页变，state 用与侧栏同一口径。
+  http.get('*/api/conversations/audit', ({ request }) => {
+    const query = new URL(request.url).searchParams
+    const scoped = auditScope(query)
+    const rows = scoped.filter((item) => inState(item, query.get('state')))
+    const limit = Number(query.get('limit') ?? 20)
+    return HttpResponse.json({
+      ...pageOf(after(rows, query.get('cursor')), limit),
+      runningTotal: scoped.filter((item) => item.activity.busy).length,
+      total: rows.length,
+    })
+  }),
 
   // 模拟 ILIKE 的大小写不敏感标题搜索，按最近活动排序。
   http.get('*/api/conversations/agents', () =>
@@ -224,9 +217,10 @@ export const handlers = [
     }),
   ),
 
+  // 侧栏、搜索与分页都只列自己的对话，治理者也一样（合同 §6）；全平台的走 audit。
   http.get('*/api/conversations/search', ({ request }) => {
     const keyword = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase()
-    const items = [...mockConversations]
+    const items = mine()
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .filter((item) => !keyword || item.title.toLowerCase().includes(keyword))
     return HttpResponse.json({ items })
@@ -235,7 +229,9 @@ export const handlers = [
   // 分页游标使用 updatedAt|id；前端将其视为不透明值。
   http.get('*/api/conversations', ({ request }) => {
     const state = new URL(request.url).searchParams.get('state')
-    const sorted = [...mockConversations].sort(byRecent).filter((item) => inState(item, state))
+    const sorted = mine()
+      .sort(byRecent)
+      .filter((item) => inState(item, state))
     const ungrouped = sorted.filter((item) => item.collectionId === null)
     return HttpResponse.json({
       collections: [...mockCollections]
@@ -259,7 +255,7 @@ export const handlers = [
     const body = zConversationIn.parse(await request.json())
     const existing = mockConversations.find((item) => item.id === body.id)
     if (existing) return HttpResponse.json({ conversation: existing })
-    const conversation = addMockConversation(body.title ?? '新对话')
+    const conversation = addMockConversation(body.title ?? '新对话', undefined, activeUserId())
     if (body.id) conversation.id = body.id
     conversation.agentId = body.agentId
     conversation.taskId = body.taskId ?? null
@@ -269,7 +265,7 @@ export const handlers = [
 
   http.get('*/api/conversations/ungrouped', ({ request }) => {
     const query = new URL(request.url).searchParams
-    const rows = [...mockConversations]
+    const rows = mine()
       .sort(byRecent)
       .filter((item) => item.collectionId === null && inState(item, query.get('state')))
     return HttpResponse.json(pageOf(after(rows, query.get('cursor')), SIDEBAR_UNGROUPED))
@@ -277,7 +273,7 @@ export const handlers = [
 
   http.get('*/api/conversations/by-collection/:collectionId', ({ params, request }) => {
     const query = new URL(request.url).searchParams
-    const rows = [...mockConversations]
+    const rows = mine()
       .sort(byRecent)
       .filter(
         (item) => item.collectionId === params['collectionId'] && inState(item, query.get('state')),

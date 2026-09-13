@@ -56,7 +56,7 @@ export function StoryboardReader(props: ArtifactRendererProps) {
   return <StoryboardWorkspace key={`${props.conversationId}:${path}`} {...props} />
 }
 
-function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps) {
+function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRendererProps) {
   const path = artifact.source.kind === 'file' ? artifact.source.path : SHOTS_PATH
   const gate = useGenerationGate()
   const file = useWorkspaceFile(conversationId, path)
@@ -207,8 +207,10 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
       isRunningStatus(job.status),
   ).length
   // 出片发的是描述的当前版本；还在存或没存下就先别发，免得发出去的和文件里的不一样。
-  // 原因不另写一句：左边的保存状态已经在说。
+  // 原因不另写一句：左边的保存状态已经在说。只读时整页的编辑与生成入口一起收起。
+  const editingDisabled = readOnly || gate.preparing
   const generateDisabled =
+    readOnly ||
     gate.preparing ||
     gate.uploading ||
     draft.state.kind === 'conflict' ||
@@ -295,7 +297,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
           >
             {shots.map((item, offset) => (
               <ReaderPage
-                editingDisabled={gate.preparing}
+                editingDisabled={editingDisabled}
                 aspect_ratio={document.aspect_ratio}
                 onUpdateShot={(updater) => draft.updateShot(item.index, updater)}
                 onReplaceFrame={(frame, previousUrl, url) => {
@@ -369,6 +371,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                     prompt: { ...current.prompt, global_settings: text },
                   }))
                 }
+                readOnly={editingDisabled}
                 shot={shot}
               />
             </ReaderOverlay>
@@ -407,16 +410,20 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                 <GenerationRecords
                   jobs={jobs}
                   onClose={closeSheet}
-                  onEditPrompt={(prompt) => {
-                    const problem = validateShot({ ...shot, prompt })
-                    if (problem !== undefined) {
-                      toast.error(problem)
-                      return
-                    }
-                    draft.updateShot(shot.index, (current) => ({ ...current, prompt }))
-                    closeSheet()
-                    toast('历史提示词已回填到当前镜头组')
-                  }}
+                  onEditPrompt={
+                    readOnly
+                      ? undefined
+                      : (prompt) => {
+                          const problem = validateShot({ ...shot, prompt })
+                          if (problem !== undefined) {
+                            toast.error(problem)
+                            return
+                          }
+                          draft.updateShot(shot.index, (current) => ({ ...current, prompt }))
+                          closeSheet()
+                          toast('历史提示词已回填到当前镜头组')
+                        }
+                  }
                   shotIndex={shot.index}
                 />
               )}
@@ -525,6 +532,7 @@ type PromptReadingProps = {
   onClose: () => void
   onPreview: Preview
   onChangeGlobalSettings: (text: string) => void
+  readOnly: boolean
 }
 
 function PromptReading({
@@ -532,6 +540,7 @@ function PromptReading({
   onClose,
   onPreview,
   onChangeGlobalSettings,
+  readOnly,
   shot,
 }: PromptReadingProps) {
   return (
@@ -567,6 +576,7 @@ function PromptReading({
             aria-label="全局设定"
             frames={shot.image_urls}
             onChange={onChangeGlobalSettings}
+            readOnly={readOnly}
             value={shot.prompt.global_settings}
             onPickFrame={(number) => {
               const url = shot.image_urls[number - 1]

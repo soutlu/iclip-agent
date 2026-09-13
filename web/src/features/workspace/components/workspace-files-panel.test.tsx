@@ -32,7 +32,7 @@ const renderPanel = (initialPath = `/c/${CONVERSATION_ID}`) => {
   registry.register(shotsEntry)
   return renderWithProviders(
     <WorkbenchRegistryProvider registry={registry}>
-      <WorkspaceFilesPanel artifact={artifact} conversationId={CONVERSATION_ID} />
+      <WorkspaceFilesPanel artifact={artifact} conversationId={CONVERSATION_ID} readOnly={false} />
     </WorkbenchRegistryProvider>,
     { initialPath },
   )

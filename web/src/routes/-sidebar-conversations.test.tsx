@@ -8,9 +8,16 @@ import {
   addMockTask,
   mockAuthUser,
 } from '@/testing/mocks/handlers'
+import { useLiveConversations } from '@/features/conversations'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { SidebarConversations } from './-sidebar-conversations'
+
+/** 全局帧订阅在应用里挂在 AppSidebar 顶层；这里照样在对话区外面挂一次，帧才进得了缓存。 */
+function LiveFrames() {
+  useLiveConversations()
+  return null
+}
 
 /** 按分钟递增活动时间，验证列表倒序。 */
 const seedConversations = (count: number, collectionId: string | null = null) =>
@@ -42,7 +49,13 @@ const render = async (initialPath = '/', permissions = mockAuthUser.permissions)
     http.get('*/api/users/me', () => HttpResponse.json({ user: { ...mockAuthUser, permissions } })),
   )
   const user = userEvent.setup()
-  const { router, socket } = await renderWithProviders(<SidebarConversations />, { initialPath })
+  const { router, socket } = await renderWithProviders(
+    <>
+      <LiveFrames />
+      <SidebarConversations />
+    </>,
+    { initialPath },
+  )
   return { router, socket, user }
 }
 
