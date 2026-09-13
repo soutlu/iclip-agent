@@ -28,6 +28,10 @@ export const frameBadgeStatus = (badge: FrameBadge): MediaBadgeStatus =>
 
 export const frameJobKey = (shotIndex: number, frameNumber: number) => `${shotIndex}:${frameNumber}`
 
+/** 这条任务的结果已经是这一帧在用的那张。地址原样比，不做规范化：分镜里存的就是确认后的地址。 */
+export const isAppliedResult = (job: GenerationJob, currentUrl: string): boolean =>
+  job.outputUrl !== null && job.outputUrl === currentUrl
+
 const newestFirst = (left: GenerationJob, right: GenerationJob) =>
   right.createdAt.localeCompare(left.createdAt)
 
@@ -63,7 +67,7 @@ export const frameBadges = (
     else if (seen.has(job.id)) return
     else if (phase === 'failed') {
       badges.set(frameNumber, { kind: 'failed', message: job.errorMessage })
-    } else if (job.outputUrl !== null && job.outputUrl !== url) {
+    } else if (job.outputUrl !== null && !isAppliedResult(job, url)) {
       badges.set(frameNumber, { kind: 'result' })
     }
   })

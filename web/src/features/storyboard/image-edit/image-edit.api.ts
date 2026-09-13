@@ -7,7 +7,7 @@ import {
   zImageGenerationIn,
   zImageModelsOut,
 } from '@/shared/api/generated/zod.gen'
-import { metadataFilterParam, storyboardMetadata } from '../generation-metadata'
+import { frameEditMetadata, metadataFilterParam, storyboardMetadata } from '../generation-metadata'
 import { generationsRefetchInterval, type GenerationJob } from '../storyboard.api'
 import { isRunningStatus } from '../shots'
 import type { EditInstruction, FrameEditDraft, FrameEditTarget } from './image-edit-types'
@@ -206,7 +206,12 @@ export async function submitImageEdit(
   // 不带 userName：浏览器会话由服务端填登录用户名。
   const body = zImageGenerationIn.parse({
     conversationId: target.conversationId,
-    metadata: storyboardMetadata(target.artifactPath, target.shotIndex, target.frameNumber),
+    metadata: frameEditMetadata(
+      target.artifactPath,
+      target.shotIndex,
+      target.frameNumber,
+      target.sourceUrl,
+    ),
     ...options,
     prompt: compileEditPrompt(draft),
     referenceImageUrls: draft.references.map((reference) => reference.url),
