@@ -6,7 +6,7 @@ import { keymap } from 'prosemirror-keymap'
 import type { Node as PMNode } from 'prosemirror-model'
 import { EditorState, Selection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { collectAttachmentIds, composerSchema, readComposerText } from './editor-schema'
 import type {
   ComposerAttachmentKind,
@@ -59,14 +59,15 @@ export const useComposerEditor = ({
   const [empty, setEmpty] = useState(true)
   const [attIds, setAttIds] = useState<readonly string[]>([])
 
-  // 编辑器只建一次，变化中的回调与状态经 ref 读最新值
+  // 编辑器只建一次，变化中的回调与状态经 ref 读最新值；在提交阶段同步，
+  // 保证 Enter 的发送门控与已渲染的发送按钮状态一致，不留可用却发不出去的空档。
   const attachmentsRef = useRef(attachments)
   const canSendRef = useRef(canSend)
   const onSubmitRef = useRef(onSubmit)
   const attachmentsEnabledRef = useRef(attachmentsEnabled)
   const registerPillHostRef = useRef(registerPillHost)
   const unregisterPillHostRef = useRef(unregisterPillHost)
-  useEffect(() => {
+  useLayoutEffect(() => {
     attachmentsRef.current = attachments
     canSendRef.current = canSend
     onSubmitRef.current = onSubmit
