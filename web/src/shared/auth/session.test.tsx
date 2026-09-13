@@ -3,7 +3,7 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { workbenchRegistry } from '@/app/workbench-registry'
 import { routeTree } from '@/routeTree.gen'
 import { queryClient } from '@/shared/api/query-client'
@@ -13,17 +13,6 @@ import { addMockCollection, addMockConversation, mockAuthUser } from '@/testing/
 import { server } from '@/testing/mocks/server'
 import { FakeSocket, SERVER_HELLO } from '@/testing/ws'
 import { refreshSessionUser } from './session'
-
-// jsdom 不支持装饰动画的 canvas，业务组件与身份请求保持真实。
-vi.mock('lottie-web/build/player/lottie_light', () => ({
-  default: {
-    loadAnimation: () => ({
-      addEventListener: () => undefined,
-      destroy: () => undefined,
-      removeEventListener: () => undefined,
-    }),
-  },
-}))
 
 const accountA = { ...mockAuthUser, username: 'account-a', displayName: '账号甲' }
 const accountB = {

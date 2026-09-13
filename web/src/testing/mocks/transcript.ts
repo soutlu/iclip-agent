@@ -1,6 +1,7 @@
 /** MSW 同时模拟 REST 历史、WebSocket 批次和消息提交；单测可覆盖端点以固定场景。 */
 
 import { http, HttpResponse, ws } from 'msw'
+import { mockConversationOwner } from './conversations'
 import { SHOTS_MOCK_PATH, touchMockShots } from './workspace'
 
 const HISTORY_TURNS = 2
@@ -245,6 +246,7 @@ export const mockChildPage = (conversationId: string, childId: string) => ({
   interactions: [],
   items: [childTurn(childId)],
   meta: { activity: children.get(childId)?.done === false ? 'turn' : 'idle' },
+  owner_user_id: mockConversationOwner(conversationId),
   pending_interactions: [],
   prompts: [],
   seq: seqOf.get(streamKey(conversationId, childId)) ?? HISTORY_SEQ,
@@ -269,6 +271,8 @@ export const mockTranscriptPage = (conversationId = '') => {
       activity: awaiting ? 'turn' : 'idle',
       agent: { contextTokens: 32768, contextUsage: 0.03125, maxContextTokens: 1048576 },
     },
+    // 属主照对话行上的来；没有对话行时按测试用户算，只读用例在测试里改这个字段。
+    owner_user_id: mockConversationOwner(conversationId),
     pending_interactions: awaiting ? [APPROVAL_INTERACTION_ID] : [],
     prompts: awaiting
       ? [

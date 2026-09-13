@@ -11,11 +11,12 @@ const IN_FLIGHT = new Set(['pending', 'submitting', 'submitted'])
 
 export const isRunningStatus = (status: string): boolean => IN_FLIGHT.has(status)
 
-export type GenerationPhase = 'queued' | 'running' | 'done' | 'failed'
+/** 与状态角标的媒体状态同词，可直接传给它画。 */
+export type GenerationPhase = 'queued' | 'running' | 'completed' | 'failed'
 
 /** 业务状态到给人看的阶段：pending 还在本系统排队，submitting / submitted 已交给上游在跑。 */
 export const phaseOfStatus = (status: string): GenerationPhase => {
   if (status === 'pending') return 'queued'
-  if (status === 'completed') return 'done'
+  if (status === 'completed') return 'completed'
   return isRunningStatus(status) ? 'running' : 'failed'
 }

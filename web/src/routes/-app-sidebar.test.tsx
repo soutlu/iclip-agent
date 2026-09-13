@@ -171,6 +171,30 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('dialog', { name: '搜索对话' })).not.toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/tasks')
   })
+
+  it('只有带 users:manage 的账号看得到「全部对话」入口，点了去 /audit', async () => {
+    loginAsUser()
+    const user = userEvent.setup()
+    const plain = await renderSidebar()
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+    await screen.findByRole('button', { name: '用户菜单' })
+    expect(screen.queryByRole('button', { name: '全部对话' })).not.toBeInTheDocument()
+    plain.unmount()
+
+    server.use(
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({
+          user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
+        }),
+      ),
+    )
+    const { router } = await renderSidebar()
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
+    await screen.findByRole('button', { name: '用户菜单' })
+    await user.click(await screen.findByRole('button', { name: '全部对话' }))
+
+    expect(router.state.location.pathname).toBe('/audit')
+  })
 })
 
 describe('AppSidebar 对话区', () => {

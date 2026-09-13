@@ -52,7 +52,7 @@ lifespan 启动运行驱动与已启用的生成队列；关停时先停止后�
 
 ## 3. 身份与模块协作
 
-HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，授权由入口与业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
+HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只解析，授权由入口与业务用例执行；WebSocket 入口另行校验 Origin，订阅时校验对话可见性。全局帧（标题、活动、生成任务）与文件变更帧发给属主的连接和持 `users:manage` 的治理者连接，范围在握手时按主体权限定下。SSO callback 完成验证、账号关联与本地 cookie 签发；配置 PMS 时同步用户资料，失败即终止登录。后续普通请求不再调用 SSO/PMS。
 
 运行通过 `AgentRunDeps` 向工具传递可信主体与对话 ID，业务含义和权限约束见 [CONTEXT.md](CONTEXT.md)。harness 只传递 deps，不解包业务字段；工具所需服务由组合根闭包注入，不放进 deps。客户端 state 不作为运行身份或服务来源。
 

@@ -1,7 +1,12 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
-import { resetMockConversations, resetMockSession, resetMockTasks } from './mocks/handlers'
+import {
+  resetMockConversations,
+  resetMockSession,
+  resetMockTasks,
+  resetMockUsers,
+} from './mocks/handlers'
 import { server } from './mocks/server'
 import { resetMockWorkspace } from './mocks/workspace'
 
@@ -42,6 +47,7 @@ afterEach(() => {
   resetMockConversations()
   resetMockSession()
   resetMockTasks()
+  resetMockUsers()
   resetMockWorkspace()
   cleanup()
 })

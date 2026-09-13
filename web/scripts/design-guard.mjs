@@ -132,6 +132,12 @@ const RULES = [
     re: /(?:^|[\s'"`])(?:focus:)?outline-none/g,
   },
   {
+    id: 'primary-opacity-wash',
+    desc: '主色透明叠层铺底（选中 / 展开 / 工具栏底用 state-active、state-focus、surface-container-*，真正的强调用 primary-container 系列实色 token）',
+    ext: ['.ts', '.tsx'],
+    re: /(?:^|[\s'"`:])bg-primary(?:-container(?:-solid|-soft)?)?\/\d+/g,
+  },
+  {
     id: 'invalid-design-allow',
     desc: '豁免没写原因（写成 design-allow -- 为什么绕不开）',
     ext: ['.css', '.ts', '.tsx'],

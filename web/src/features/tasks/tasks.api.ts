@@ -17,10 +17,12 @@ export const tasksQueryKeys = {
   detail: (taskId: string) => ['tasks', 'detail', taskId] as const,
 }
 
-export const listAllTasks = async (): Promise<Task[]> =>
+/** 读取全平台最近 100 张需求单；现有接口不提供分页游标。 */
+export const listAllTasks = async (signal?: AbortSignal): Promise<Task[]> =>
   apiFetch('/tasks?limit=100', tasksPageSchema, {
     cache: 'no-store',
     fallbackErrorMessage: '读取需求单列表失败',
+    signal: signal ?? null,
   })
 
 /** 查询当前用户认领的需求单，服务端从会话取身份。 */
@@ -34,7 +36,7 @@ export const listMyTasks = async (): Promise<Task[]> =>
 export const useTaskOptions = (enabled: boolean) =>
   useQuery({
     enabled,
-    queryFn: listAllTasks,
+    queryFn: ({ signal }) => listAllTasks(signal),
     queryKey: tasksQueryKeys.list('all'),
     select: (tasks) => tasks.map((task) => ({ id: task.id, label: task.title })),
   })

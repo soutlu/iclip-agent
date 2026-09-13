@@ -7,6 +7,7 @@ export type {
 } from './conversations.api'
 export { useLiveConversations } from './conversations.live'
 export { recordSeenRun, useSeenRun } from './conversations.unread'
+export { conversationStatus, needsAttention } from './conversation-status'
 export {
   createConversation,
   conversationsQueryKeys,
@@ -20,6 +21,8 @@ export {
   useSetConversationMembership,
   useSidebarTopology,
 } from './conversations.api'
+export { AuditRoute } from './components/audit-route'
+export type { PickerSource } from './components/audit-search-picker'
 export { ConversationMembershipDialog } from './components/conversation-membership-dialog'
 export { ConversationRoute } from './components/conversation-route'
 export { ConversationSearchDialog } from './components/conversation-search-dialog'

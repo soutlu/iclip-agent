@@ -1,7 +1,7 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { CueUserMenu } from '@/features/auth'
-import { ConversationSearchDialog } from '@/features/conversations'
+import { ConversationSearchDialog, useLiveConversations } from '@/features/conversations'
 import { useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
@@ -11,7 +11,7 @@ import { SidebarConversations } from './-sidebar-conversations'
 
 // 侧栏行共用 ui-state 与 ui-focus，尺寸由调用方控制。
 const SIDEBAR_ROW_CLASS =
-  'flex ui-state cursor-pointer items-center gap-2 rounded-sm px-3 py-2 ui-focus text-body text-on-surface'
+  'flex ui-state cursor-pointer items-center gap-3 rounded-sm px-3 py-2.5 ui-focus text-body text-on-surface'
 
 type AppSidebarProps = {
   collapsed: boolean
@@ -29,6 +29,10 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const canRead = Boolean(user?.permissions.includes('agent:read'))
   const canStart = Boolean(user?.permissions.includes('agent:run'))
   const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
+  // 全部对话接口同时要 users:manage 与 agent:read（合同 §6）。
+  const canGovern = canRead && Boolean(user?.permissions.includes('users:manage'))
+  // 全局帧订阅挂在侧栏顶层：折叠时对话区不渲染，全部对话页与会话页仍要靠它刷新列表缓存。
+  useLiveConversations(canRead)
 
   const startNew = useCallback(() => {
     if (session.isPending) return
@@ -93,7 +97,7 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
         'max-sm:fixed max-sm:top-0 max-sm:left-0 max-sm:shadow-[var(--shadow-2)] sm:sticky sm:top-0',
       )}
     >
-      <div className="flex items-center gap-2 px-3 pt-3 pb-1">
+      <div className="flex items-center gap-3 px-5 pt-5 pb-3">
         <span
           aria-hidden
           className="grid size-(--control-height-md) shrink-0 place-items-center rounded-sm bg-primary font-home-display text-title font-semibold text-on-primary italic"
@@ -111,7 +115,7 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
         />
       </div>
 
-      <nav aria-label="会话操作" className="flex flex-col gap-0.5 px-3 pt-2">
+      <nav aria-label="会话操作" className="flex flex-col gap-1 px-4 pt-2">
         <SidebarAction
           icon="chat-new"
           kbd="⌘⌥N"
@@ -138,6 +142,14 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
           onClick={user ? () => navigate({ to: '/tasks' }) : requireLogin}
           title={user && !canReadTasks ? '当前账号没有查看需求单权限' : undefined}
         />
+        {canGovern ? (
+          <SidebarAction
+            active={pathname === '/audit'}
+            icon="preview"
+            label="全部对话"
+            onClick={() => void navigate({ to: '/audit' })}
+          />
+        ) : null}
         <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />
       </nav>
 
@@ -168,9 +180,14 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 border-t-[0.5px] border-border px-3 py-2">
+      <div className="flex items-center justify-between gap-3 border-t-[0.5px] border-border px-5 py-3">
         {user ? (
-          <CueUserMenu align="top-start" />
+          <>
+            <CueUserMenu align="top-start" />
+            <span className="min-w-0 flex-1 truncate text-body text-on-surface">
+              {user.displayName || user.username || '用户'}
+            </span>
+          </>
         ) : (
           <button
             aria-label="登录"
@@ -229,7 +246,7 @@ function SidebarAction({
       title={title}
       type="button"
     >
-      <Icon className="text-on-surface" decorative name={icon} size="md" />
+      <Icon decorative name={icon} size="md" />
       <span aria-hidden className="min-w-0 flex-1 truncate text-left">
         {label}
       </span>

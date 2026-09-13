@@ -86,6 +86,8 @@ class ConversationActivityOut(CamelModel):
     busy: bool
     pending_interaction: Literal["none", "approval", "question"]
     last_turn_reason: Literal["completed", "failed", "aborted"] | None = None
+    video_generation: Literal["none", "queued", "running"]
+    """还没跑完的视频出片到哪一步；与轮次是否在跑互不蕴含。"""
 
 
 class ConversationOut(CamelModel):
@@ -143,10 +145,16 @@ class SidebarOut(CamelModel):
 
 
 class ConversationsAuditOut(CamelModel):
-    """审计列表。``nextCursor`` 为空表示没有更多了。"""
+    """审计列表。``nextCursor`` 为空表示没有更多了。
+
+    两个数字都是真总数，不随翻页变：``total`` 是当前筛选下一共几段，``runningTotal`` 是同一组
+    属主 / 需求单 / 时间筛选下此刻在跑的几段（不受 ``state`` 影响）。
+    """
 
     items: list[ConversationOut]
     next_cursor: str | None
+    total: int
+    running_total: int
 
 
 class ConversationFileOut(CamelModel):
@@ -201,6 +209,7 @@ def conversation_out(conversation: Conversation, activity: ConversationActivity)
             busy=activity.busy,
             pending_interaction=activity.pending_interaction,
             last_turn_reason=activity.last_turn_reason,
+            video_generation=activity.video_generation,
         ),
     )
 

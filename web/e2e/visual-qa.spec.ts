@@ -35,11 +35,21 @@ test('会话页视觉验收：浅色 / 深色 / 运行中', async ({ page }) => 
 test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   await page.goto('/')
   await login(page)
-  await expect(page.getByRole('heading', { name: 'Cue' })).toBeAttached()
-  // 等待 Lottie JSON 加载和入场动画完成。
-  await page.waitForTimeout(1200)
+  // 展开后 aria-label 会变成「收起鞋盒」，用前缀匹配保持定位稳定。
+  const mascot = page.getByRole('button', { name: /鞋盒/ })
+  await expect(mascot).toHaveAccessibleName('展开鞋盒，展示鞋履与服装')
+  // 等待入场动画完成。
+  await page.waitForTimeout(600)
 
   await page.screenshot({ path: `${SHOT_DIR}/home-light.png`, fullPage: true })
+  // 悬停展开鞋盒，等 300ms 的展开动画走完。
+  await mascot.hover()
+  await expect(mascot).toHaveAttribute('aria-expanded', 'true')
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: `${SHOT_DIR}/home-mascot-expanded.png`, fullPage: true })
+  await page.mouse.move(0, 0)
+  await expect(mascot).toHaveAttribute('aria-expanded', 'false')
+  await page.waitForTimeout(400)
   await page.getByRole('button', { name: '关联合集：未关联合集' }).click()
   await page.screenshot({
     path: `${SHOT_DIR}/home-collection-light.png`,
@@ -75,7 +85,7 @@ test('首页视觉验收：浅色 / 深色 / 移动', async ({ page }) => {
   await page.reload()
   await login(page)
   await page.getByRole('button', { name: '折叠侧边栏' }).click()
-  await expect(page.getByRole('heading', { name: 'Cue' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '展开鞋盒，展示鞋履与服装' })).toBeVisible()
   await page.screenshot({ path: `${SHOT_DIR}/home-mobile.png`, fullPage: true })
   await page.getByRole('button', { name: '关联合集：未关联合集' }).click()
   await page.screenshot({

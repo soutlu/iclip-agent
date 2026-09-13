@@ -14,11 +14,13 @@ type PromptQueueProps = {
   prompts: readonly QueueItem[]
   /** 仅运行中的轮次支持立即追加。 */
   canSteer: boolean
+  /** 看别人的对话：队列只展示，没有追加与撤回。 */
+  readOnly: boolean
   onSteer: (promptId: string) => void
   onDiscard: (promptId: string) => void
 }
 
-export function PromptQueue({ canSteer, onDiscard, onSteer, prompts }: PromptQueueProps) {
+export function PromptQueue({ canSteer, onDiscard, onSteer, prompts, readOnly }: PromptQueueProps) {
   if (prompts.length === 0) return null
 
   return (
@@ -29,12 +31,13 @@ export function PromptQueue({ canSteer, onDiscard, onSteer, prompts }: PromptQue
       </p>
       {prompts.map((prompt, index) => (
         <QueueRow
-          canSteer={canSteer}
+          canSteer={canSteer && !readOnly}
           first={index === 0}
           key={prompt.promptId}
           onDiscard={onDiscard}
           onSteer={onSteer}
           prompt={prompt}
+          readOnly={readOnly}
         />
       ))}
     </section>
@@ -45,11 +48,12 @@ type QueueRowProps = {
   prompt: QueueItem
   first: boolean
   canSteer: boolean
+  readOnly: boolean
   onSteer: (promptId: string) => void
   onDiscard: (promptId: string) => void
 }
 
-function QueueRow({ canSteer, first, onDiscard, onSteer, prompt }: QueueRowProps) {
+function QueueRow({ canSteer, first, onDiscard, onSteer, prompt, readOnly }: QueueRowProps) {
   const { clampable, ref } = useClampable(3, prompt.text)
 
   return (
@@ -107,14 +111,16 @@ function QueueRow({ canSteer, first, onDiscard, onSteer, prompt }: QueueRowProps
             下一条
           </span>
         ) : null}
-        <button
-          aria-label="撤回"
-          className="grid size-[22px] shrink-0 cursor-pointer place-items-center rounded-xs text-chat-muted-text opacity-0 ui-focus transition-[opacity,color,background-color] ui-motion-s group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-danger-bg hover:text-danger-text"
-          onClick={() => onDiscard(prompt.promptId)}
-          type="button"
-        >
-          <Icon decorative name="close" size="xs" />
-        </button>
+        {readOnly ? null : (
+          <button
+            aria-label="撤回"
+            className="grid size-[22px] shrink-0 cursor-pointer place-items-center rounded-xs text-chat-muted-text opacity-0 ui-focus transition-[opacity,color,background-color] ui-motion-s group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-danger-bg hover:text-danger-text"
+            onClick={() => onDiscard(prompt.promptId)}
+            type="button"
+          >
+            <Icon decorative name="close" size="xs" />
+          </button>
+        )}
       </div>
     </div>
   )

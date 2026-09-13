@@ -205,10 +205,10 @@ const delayedUpload = () => {
   return release
 }
 
-const renderReader = (initialPath = '/?shot=1&content=scene:1') =>
+const renderReader = (initialPath = '/?shot=1&content=scene:1', readOnly = false) =>
   renderWithProviders(
     <>
-      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />
+      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} readOnly={readOnly} />
       <Toaster />
     </>,
     {
@@ -388,6 +388,24 @@ describe('StoryboardReader', () => {
     expect(within(records).queryByText('本组生成时使用的历史描述。')).not.toBeInTheDocument()
   })
 
+  it('只读时生成、正文编辑与历史回填的入口全部收起，不写工作区', async () => {
+    const files = provide()
+    server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [editableJob] })))
+    await renderReader('/?shot=1&content=scene:1', true)
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+
+    expect(screen.getByRole('button', { name: '生成视频' })).toBeDisabled()
+    expect(within(page).getByRole('textbox', { name: '镜头 1 的描述' })).toHaveAttribute(
+      'contenteditable',
+      'false',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    expect(await within(records).findByText(/历史版参考锁定/)).toBeVisible()
+    expect(within(records).queryByRole('button', { name: '编辑生成' })).toBeNull()
+    expect(files.writes).toEqual([])
+  })
+
   it('编辑生成把历史记录里的镜头组回填到当前组并保存', async () => {
     const files = provide()
     server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [editableJob] })))
@@ -462,7 +480,7 @@ describe('StoryboardReader', () => {
     await screen.findByRole('region', { name: '镜头组 1' })
     await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
     const records = await screen.findByRole('complementary', { name: '生成记录' })
-    expect(await within(records).findByText('生成中…')).toBeVisible()
+    expect(await within(records).findByText('生成中')).toBeVisible()
 
     act(() => {
       socket.deliver({
@@ -477,7 +495,7 @@ describe('StoryboardReader', () => {
       })
     })
 
-    expect(await within(records).findByText('生成完成')).toBeVisible()
+    expect(await within(records).findByText('已完成')).toBeVisible()
     expect(served).toBe(2)
   })
 
@@ -535,11 +553,17 @@ describe('StoryboardReader', () => {
       within(navigationOf(page)).getByRole('button', { name: '预览第 2 帧（有新结果）' }),
     ).toBeVisible()
     await userEvent.click(view)
-    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
-    expect(within(editor).getByText('镜头组 1 · 帧 @2')).toBeVisible()
+    const editor = await screen.findByRole('dialog', { name: '编辑图片 · 镜头组 1 · 帧 @2' })
+    // 从角标进来直接落在那条结果上，不是落在标注画布上。
+    await waitFor(() =>
+      expect(
+        within(editor).getByRole('group', { name: '这一帧的图片' }).querySelector('[aria-pressed]'),
+      ).toBeTruthy(),
+    )
+    expect(within(editor).getByRole('img', { name: '图片编辑结果' })).toBeVisible()
     await userEvent.click(within(editor).getByRole('button', { name: '关闭图片编辑' }))
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('dialog', { name: /^编辑图片/ })).not.toBeInTheDocument(),
     )
 
     expect(within(page).queryByRole('button', { name: '有新结果 · 查看' })).not.toBeInTheDocument()
@@ -620,7 +644,7 @@ describe('StoryboardReader', () => {
     expect(screen.getByRole('button', { name: '生成设置：wan3.0-video，音频关闭' })).toBeVisible()
     await user.click(screen.getByRole('button', { name: '生成记录' }))
     const records = await screen.findByRole('complementary', { name: '生成记录' })
-    expect(await within(records).findByText('生成中…')).toBeVisible()
+    expect(await within(records).findByText('生成中')).toBeVisible()
   })
 
   it('服务端拒收出片时提示原话，不刷新记录', async () => {

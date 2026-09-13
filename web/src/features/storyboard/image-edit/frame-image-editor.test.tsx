@@ -16,40 +16,41 @@ const target: FrameEditTarget = {
   artifactPath: 'video_shot.json',
   shotIndex: 1,
   frameNumber: 1,
-  sourceUrl: 'https://example.com/original.png',
 }
+const BASE = 'https://example.com/original.png'
+const RESULT = 'https://example.com/old-result.png'
 const draft: FrameEditDraft = {
   annotations: [],
   instructions: [{ kind: 'text', text: '将衣服改成蓝色' }],
-  references: [{ id: 'original', kind: 'image', url: target.sourceUrl, label: '原图' }],
+  references: [{ id: 'base', kind: 'image', url: BASE, label: '编辑底图' }],
 }
-const job = (status: 'pending' | 'completed'): GenerationJob => ({
+const job = (over: Partial<GenerationJob> = {}): GenerationJob => ({
   id: crypto.randomUUID(),
-  metadata: { frame: target.frameNumber, path: target.artifactPath, shot: target.shotIndex },
+  metadata: { frame: 1, path: target.artifactPath, shot: 1, sourceUrl: BASE },
   kind: 'image',
-  status,
+  status: 'pending',
   createdAt: '2026-09-07T12:00:00Z',
   errorMessage: null,
-  outputUrl: status === 'completed' ? 'https://example.com/old-result.png' : null,
-  request: {
-    prompt: '将衣服改成蓝色',
-    referenceImageUrls: [target.sourceUrl],
-  },
+  outputUrl: null,
+  request: { prompt: '将衣服改成蓝色', referenceImageUrls: [BASE] },
   taskId: null,
   watermarkOutputUrl: null,
+  ...over,
 })
 
-function EditorPage() {
+function EditorPage({ initialKey }: { initialKey?: string }) {
   const [open, setOpen] = useState(true)
+  const [frames, setFrames] = useState([BASE])
   return (
     <>
       {open && (
         <FrameImageEditor
           target={target}
-          frames={[target.sourceUrl]}
+          frames={frames}
           aspectRatio="9:16"
+          initialKey={initialKey}
           onClose={() => setOpen(false)}
-          onApply={async () => {}}
+          onApply={async (_previous, url) => setFrames([url])}
         />
       )}
       <Toaster />
@@ -57,7 +58,7 @@ function EditorPage() {
   )
 }
 
-describe('图片编辑模型选择与提交', () => {
+describe('图片编辑器', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'ResizeObserver',
@@ -67,7 +68,7 @@ describe('图片编辑模型选择与提交', () => {
       },
     )
     sessionStorage.clear()
-    sessionStorage.setItem(editDraftKey(target), JSON.stringify(draft))
+    sessionStorage.setItem(editDraftKey(target), JSON.stringify({ [BASE]: draft }))
   })
   afterEach(() => {
     // Toaster 是模块级单例，上一条用例弹出的提示不清掉会串进下一条。
@@ -81,7 +82,7 @@ describe('图片编辑模型选择与提交', () => {
     server.use(
       http.post('*/api/generations/image', async ({ request }) => {
         submissions.push((await request.json()) as Record<string, unknown>)
-        return HttpResponse.json({ generation: job('pending') }, { status: 202 })
+        return HttpResponse.json({ generation: job() }, { status: 202 })
       }),
     )
     await renderWithProviders(<EditorPage />)
@@ -99,12 +100,12 @@ describe('图片编辑模型选择与提交', () => {
     await waitFor(() => expect(submissions).toHaveLength(1))
     expect(submissions[0]?.['model']).toBe('seedream_v5_pro')
     expect(submissions[0]?.['channel']).toBeUndefined()
+    expect(submissions[0]?.['metadata']).toMatchObject({ sourceUrl: BASE })
   })
 
-  it('POST 成功后草稿暂存与记录刷新失败，仍显示新任务排队中且不提供旧结果应用', async () => {
-    const completed = job('completed')
-    const pending = job('pending')
-    const submissions: unknown[] = []
+  it('提交后新任务占一格并自动选中；草稿暂存与记录刷新都失败也不挡着看在途任务', async () => {
+    const completed = job({ status: 'completed', outputUrl: RESULT })
+    const pending = job()
     let reads = 0
     server.use(
       http.get('*/api/generations', () => {
@@ -113,34 +114,62 @@ describe('图片编辑模型选择与提交', () => {
           ? HttpResponse.json({ items: [completed] })
           : HttpResponse.json({ detail: '记录刷新失败' }, { status: 503 })
       }),
-      http.post('*/api/generations/image', async ({ request }) => {
-        submissions.push(await request.json())
-        return HttpResponse.json({ generation: pending }, { status: 202 })
-      }),
+      http.post('*/api/generations/image', () =>
+        HttpResponse.json({ generation: pending }, { status: 202 }),
+      ),
     )
     await renderWithProviders(<EditorPage />)
-    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
-    await within(editor).findByRole('button', { name: '查看编辑结果' })
+    const editor = await screen.findByRole('dialog')
+    const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
+    await within(strip).findByRole('button', { name: /^结果 · / })
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('Storage full', 'QuotaExceededError')
     })
 
     await userEvent.click(within(editor).getByRole('button', { name: '生成编辑结果' }))
 
-    expect(await screen.findByText('图片编辑已提交，可以关闭窗口，稍后查看结果')).toBeVisible()
     expect(await screen.findByText('编辑草稿无法暂存，关闭页面前请先提交生成')).toBeVisible()
-    expect(await within(editor).findByText('图片排队中，关闭窗口后仍会继续')).toBeVisible()
-    await userEvent.click(within(editor).getByText(/^编辑记录/))
+    const queued = await within(strip).findByRole('button', { name: /^排队中 · / })
+    expect(queued).toHaveAttribute('aria-pressed', 'true')
+    expect(await within(editor).findByText('图片排队中，关掉窗口也会继续')).toBeVisible()
     expect(await within(editor).findByText(/记录刷新失败/)).toBeVisible()
-    expect(submissions).toHaveLength(1)
-    expect(within(editor).queryByRole('button', { name: '应用到当前帧' })).not.toBeInTheDocument()
-    expect(within(editor).queryByRole('button', { name: '查看编辑结果' })).not.toBeInTheDocument()
-    expect(within(editor).getByRole('button', { name: '编辑结果' })).toBeDisabled()
-    expect(within(editor).queryByText(/图片编辑提交失败/)).not.toBeInTheDocument()
-    await userEvent.click(within(editor).getByRole('button', { name: '关闭图片编辑' }))
+    // 在途任务没有产出，应用照旧在原位但按不动。
+    expect(within(editor).getByRole('button', { name: '应用到当前帧' })).toBeDisabled()
+  })
+
+  it('从帧上的新结果进来就选中它，应用之后窗口留着且那张成了当前帧', async () => {
+    const completed = job({ status: 'completed', outputUrl: RESULT })
+    server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [completed] })))
+    await renderWithProviders(<EditorPage initialKey={completed.id} />)
+
+    const editor = await screen.findByRole('dialog')
+    const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+      expect(within(strip).getByRole('button', { name: /^结果 · / })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
     )
-    expect(submissions).toHaveLength(1)
+    expect(within(editor).getByRole('img', { name: '图片编辑结果' })).toHaveAttribute('src', RESULT)
+
+    const apply = within(editor).getByRole('button', { name: '应用到当前帧' })
+    expect(apply).toBeEnabled()
+    await userEvent.click(apply)
+
+    expect(await screen.findByText('已应用到当前帧')).toBeVisible()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(within(strip).getByRole('button', { name: '当前帧' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    )
+    // 折进当前帧格之后不再是一张「还没应用」的结果，应用按不动了。
+    expect(within(editor).getByRole('button', { name: '应用到当前帧' })).toBeDisabled()
+    expect(within(strip).queryByRole('button', { name: /^结果 · / })).not.toBeInTheDocument()
+    // 被换下来的那张留在条里，选中它就能换回去。
+    const previous = within(strip).getByRole('button', { name: /^上一版 · / })
+    await userEvent.click(previous)
+    expect(within(editor).getByRole('button', { name: '应用到当前帧' })).toBeEnabled()
   })
 })

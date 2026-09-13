@@ -36,7 +36,7 @@ const renderChatWithWorkbench = async (initialPath = '/?shot=2') => {
   seedMockWorkspace(CONVERSATION_ID)
   const rendered = await renderWithProviders(
     <>
-      <StoryboardPanel artifact={artifact} conversationId={CONVERSATION_ID} />
+      <StoryboardPanel artifact={artifact} conversationId={CONVERSATION_ID} readOnly={false} />
       <ConversationRoute conversationId={CONVERSATION_ID} />
     </>,
     { initialPath },

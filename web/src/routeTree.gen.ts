@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
+import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellTasksRouteImport } from './routes/_shell/tasks'
 import { Route as ShellCConversationIdRouteImport } from './routes/_shell/c.$conversationId'
 import { Route as AuthSsoLandingRouteImport } from './routes/auth.sso.landing'
@@ -22,6 +23,11 @@ const ShellRoute = ShellRouteImport.update({
 const ShellIndexRoute = ShellIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellAuditRoute = ShellAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellTasksRoute = ShellTasksRouteImport.update({
@@ -42,11 +48,13 @@ const AuthSsoLandingRoute = AuthSsoLandingRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
+  '/audit': typeof ShellAuditRoute
   '/tasks': typeof ShellTasksRoute
   '/c/$conversationId': typeof ShellCConversationIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
 export interface FileRoutesByTo {
+  '/audit': typeof ShellAuditRoute
   '/tasks': typeof ShellTasksRoute
   '/': typeof ShellIndexRoute
   '/c/$conversationId': typeof ShellCConversationIdRoute
@@ -55,6 +63,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
+  '/_shell/audit': typeof ShellAuditRoute
   '/_shell/tasks': typeof ShellTasksRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/c/$conversationId': typeof ShellCConversationIdRoute
@@ -62,12 +71,14 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/tasks' | '/c/$conversationId' | '/auth/sso/landing'
+  fullPaths:
+    '/' | '/audit' | '/tasks' | '/c/$conversationId' | '/auth/sso/landing'
   fileRoutesByTo: FileRoutesByTo
-  to: '/tasks' | '/' | '/c/$conversationId' | '/auth/sso/landing'
+  to: '/audit' | '/tasks' | '/' | '/c/$conversationId' | '/auth/sso/landing'
   id:
     | '__root__'
     | '/_shell'
+    | '/_shell/audit'
     | '/_shell/tasks'
     | '/_shell/'
     | '/_shell/c/$conversationId'
@@ -95,6 +106,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellIndexRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/audit': {
+      id: '/_shell/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof ShellAuditRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/tasks': {
       id: '/_shell/tasks'
       path: '/tasks'
@@ -120,12 +138,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface ShellRouteChildren {
+  ShellAuditRoute: typeof ShellAuditRoute
   ShellTasksRoute: typeof ShellTasksRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellCConversationIdRoute: typeof ShellCConversationIdRoute
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
+  ShellAuditRoute: ShellAuditRoute,
   ShellTasksRoute: ShellTasksRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellCConversationIdRoute: ShellCConversationIdRoute,

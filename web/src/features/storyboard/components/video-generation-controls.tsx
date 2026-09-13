@@ -22,7 +22,7 @@ export function VideoGenerationControls({ models, onChange, value }: VideoGenera
         >
           {models.map((model) => (
             <RadioGroup.Item
-              className="flex h-(--control-height-sm) min-w-0 flex-1 ui-state cursor-pointer items-center justify-center gap-1 rounded-xs border border-transparent px-2 text-body whitespace-nowrap text-on-surface ui-focus data-[state=checked]:border-primary/20 data-[state=checked]:bg-primary/10 data-[state=checked]:text-primary"
+              className="flex h-(--control-height-sm) min-w-0 flex-1 ui-state cursor-pointer items-center justify-center gap-1 rounded-xs border border-transparent px-2 text-body whitespace-nowrap text-on-surface ui-focus data-[state=checked]:border-primary/20 data-[state=checked]:bg-state-active data-[state=checked]:text-primary"
               key={model}
               value={model}
             >

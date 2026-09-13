@@ -163,24 +163,32 @@ def create_conversations_router(service: ConversationService, *, agents: ListAge
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        state: ListState = "all",
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         cursor: str | None = None,
     ) -> ConversationsAuditOut:
-        """治理者查全平台的对话：按人、按单、按时间段筛，最近活动的排前面。
+        """治理者查全平台的对话：按人、按单、按时间段、按状态筛，最近活动的排前面。
 
-        没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上。
+        没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上；
+        ``state`` 的三值与侧栏同一口径。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。
         """
 
-        found, next_cursor = await service.audit(
+        page = await service.audit(
             principal,
             owner_user_id=owner_user_id,
             task_id=task_id,
             since=since,
             until=until,
+            state=state,
             limit=limit,
             cursor=cursor,
         )
-        return ConversationsAuditOut(items=await _outs(found), next_cursor=next_cursor)
+        return ConversationsAuditOut(
+            items=await _outs(page.items),
+            next_cursor=page.next_cursor,
+            total=page.total,
+            running_total=page.running_total,
+        )
 
     @router.get("/by-task/{task_id}", response_model=ConversationsPageOut)
     async def list_task_attempts(

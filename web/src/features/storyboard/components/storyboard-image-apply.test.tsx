@@ -67,10 +67,18 @@ const provideJobs = () => {
   )
 }
 
+/** 缩略图条里第几张结果；条按时间倒序，0 是最新的 A。 */
+async function resultSlot(strip: HTMLElement, position: number): Promise<HTMLElement> {
+  const slots = await within(strip).findAllByRole('button', { name: /^结果 · / })
+  const slot = slots[position]
+  if (!slot) throw new Error(`缺少第 ${position + 1} 个候选结果`)
+  return slot
+}
+
 const renderReader = () =>
   renderWithProviders(
     <>
-      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />
+      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} readOnly={false} />
       <Toaster />
     </>,
     { initialPath: '/?content=scene:1' },
@@ -128,14 +136,15 @@ describe('图片编辑结果应用', () => {
     description.focus()
     pasteTextIntoComposer(description, '同时修改的描述')
     await userEvent.click(within(page).getByRole('button', { name: '编辑图片' }))
-    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
-    await userEvent.click(await within(editor).findByRole('button', { name: '查看编辑结果' }))
+    const editor = await screen.findByRole('dialog', { name: /^编辑图片/ })
+    const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
+    await userEvent.click(await resultSlot(strip, 0))
     await userEvent.click(within(editor).getByRole('button', { name: '应用到当前帧' }))
     try {
       await waitFor(() =>
         expect(writes.some((item) => item.shots[0]?.image_urls[0] === CANDIDATE_A)).toBe(true),
       )
-      expect(screen.getByRole('dialog', { name: '编辑图片' })).toBeVisible()
+      expect(screen.getByRole('dialog', { name: /^编辑图片/ })).toBeVisible()
       expect(persisted.shots[0]?.image_urls).toEqual([ORIGINAL])
     } finally {
       release()
@@ -144,25 +153,25 @@ describe('图片编辑结果应用', () => {
     expect(
       within(page).getByRole('img', { name: '镜头组 1 第 1 帧', hidden: true }),
     ).toHaveAttribute('src', ORIGINAL)
-    await userEvent.click(within(editor).getByText(/编辑记录/))
-    const records = within(editor).getAllByRole('button', { name: /已生成/ })
-    const second = records[1]
-    if (!second) throw new Error('缺少第二个候选结果')
-    await userEvent.click(second)
+    await userEvent.click(await resultSlot(strip, 1))
     expect(within(editor).getByRole('img', { name: '图片编辑结果' })).toHaveAttribute(
       'src',
       CANDIDATE_B,
     )
     await userEvent.click(within(editor).getByRole('button', { name: '应用到当前帧' }))
+    // 应用完窗口留着，B 成了当前帧那一格。
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+      expect(within(strip).getByRole('button', { name: '当前帧' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
     )
     expect(persisted.shots[0]?.image_urls).toEqual([CANDIDATE_B])
     expect(persisted.shots[0]?.prompt.timeline[0]?.prompt).toContain('同时修改的描述')
-    expect(within(page).getByRole('img', { name: '镜头组 1 第 1 帧' })).toHaveAttribute(
-      'src',
-      CANDIDATE_B,
-    )
+    // 编辑器还开着，分镜页在它后面，取图要带 hidden。
+    expect(
+      within(page).getByRole('img', { name: '镜头组 1 第 1 帧', hidden: true }),
+    ).toHaveAttribute('src', CANDIDATE_B)
     expect(writes.filter((item) => item.shots[0]?.image_urls[0] === CANDIDATE_A)).toHaveLength(1)
     expect(staleVersions).toEqual([])
   })
@@ -183,8 +192,9 @@ describe('图片编辑结果应用', () => {
     const { queryClient } = await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     await userEvent.click(within(page).getByRole('button', { name: '编辑图片' }))
-    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
-    await userEvent.click(await within(editor).findByRole('button', { name: '查看编辑结果' }))
+    const editor = await screen.findByRole('dialog', { name: /^编辑图片/ })
+    const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
+    await userEvent.click(await resultSlot(strip, 0))
     const externalUrl = 'https://example.com/external.png'
     persisted = {
       ...persisted,
@@ -206,7 +216,7 @@ describe('图片编辑结果应用', () => {
     )
   })
 
-  it('服务端保存成功后清理本地草稿失败，仍保留应用结果并关闭编辑器', async () => {
+  it('应用只写这一份分镜，成功后窗口留着，结果落到帧上', async () => {
     const initial = originalDocument()
     let persisted = initial
     let version = 1
@@ -232,29 +242,29 @@ describe('图片编辑结果应用', () => {
     await renderReader()
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     await userEvent.click(within(page).getByRole('button', { name: '编辑图片' }))
-    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
-    await userEvent.click(await within(editor).findByRole('button', { name: '查看编辑结果' }))
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
-      throw new DOMException('Storage blocked', 'SecurityError')
-    })
+    const editor = await screen.findByRole('dialog', { name: /^编辑图片/ })
+    const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
+    await userEvent.click(await resultSlot(strip, 0))
 
     await userEvent.click(within(editor).getByRole('button', { name: '应用到当前帧' }))
 
-    expect(await screen.findByText('图片已应用并保存到当前帧')).toBeVisible()
-    expect(await screen.findByText('图片已保存，但本地草稿清理失败')).toBeVisible()
+    expect(await screen.findByText('已应用到当前帧')).toBeVisible()
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+      expect(within(strip).getByRole('button', { name: '当前帧' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
     )
+    expect(screen.getByRole('dialog', { name: /^编辑图片/ })).toBeVisible()
     expect(writes).toHaveLength(1)
     expect(writeTargets).toEqual([{ path: PATH, expectedVersion: 1 }])
     expect(persisted).toEqual({
       ...initial,
       shots: [{ ...initial.shots[0], image_urls: [CANDIDATE_A] }],
     })
-    expect(within(page).getByRole('img', { name: '镜头组 1 第 1 帧' })).toHaveAttribute(
-      'src',
-      CANDIDATE_A,
-    )
+    expect(
+      within(page).getByRole('img', { name: '镜头组 1 第 1 帧', hidden: true }),
+    ).toHaveAttribute('src', CANDIDATE_A)
     expect(screen.queryByText(/图片尚未应用/)).not.toBeInTheDocument()
   })
 
@@ -269,11 +279,10 @@ describe('图片编辑结果应用', () => {
     const page = await screen.findByRole('region', { name: '镜头组 1' })
     const entry = within(page).getByRole('button', { name: '编辑图片' })
     await userEvent.click(entry)
-    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
-    expect(within(editor).getByText('镜头组 1 · 帧 @1')).toBeVisible()
+    const editor = await screen.findByRole('dialog', { name: '编辑图片 · 镜头组 1 · 帧 @1' })
     await userEvent.click(within(editor).getByRole('button', { name: '关闭图片编辑' }))
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('dialog', { name: /^编辑图片/ })).not.toBeInTheDocument(),
     )
     await waitFor(() => expect(entry).toHaveFocus())
   })

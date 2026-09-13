@@ -65,6 +65,7 @@ from iclip.domains.generation.module import (
     build_generation_module,
 )
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
+from iclip.domains.generation.schemas import KIND_VIDEO
 from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
@@ -378,23 +379,28 @@ def build_app(
     async def activities_of(
         conversation_ids: Sequence[uuid.UUID],
     ) -> Mapping[uuid.UUID, ConversationActivity]:
-        """将引擎活动投影转换为对话活动模型。"""
+        """引擎的运行活动加上生成域的在途出片，拼成对话活动模型；两个域在这里才见面。"""
 
         states = await job_queue.activities([str(one) for one in conversation_ids])
+        videos = (
+            await generation.service.in_flight_by_conversation(conversation_ids, kind=KIND_VIDEO)
+            if generation is not None
+            else {}
+        )
         return {
             one: ConversationActivity(
                 busy=state.busy,
                 pending_interaction=state.pending_interaction,
                 last_turn_reason=state.last_turn_reason,
+                video_generation=videos.get(one, "none"),
             )
             for one, state in ((one, states[str(one)]) for one in conversation_ids)
         }
 
-    async def conversation_ids_by_state(
-        owner: uuid.UUID, state: Literal["running", "done"]
-    ) -> frozenset[uuid.UUID]:
+    async def busy_conversation_ids(owner: uuid.UUID | None) -> frozenset[uuid.UUID]:
+        """票据表里的对话 id 是文本，转回对话域的 uuid；None 是全平台。"""
 
-        return frozenset(uuid.UUID(one) for one in await job_queue.conversation_ids(owner, state))
+        return frozenset(uuid.UUID(one) for one in await job_queue.busy_conversation_ids(owner))
 
     def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
         """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
@@ -444,7 +450,7 @@ def build_app(
         generate_title=live_title_generator(agent_layer),
         announce_title=live_connections.announce_title,
         activities_of=activities_of,
-        conversation_ids_by_state=conversation_ids_by_state,
+        busy_conversation_ids=busy_conversation_ids,
     )
     tasks = build_tasks_module(SqlTaskRepository(active_engine))
     uploads = build_uploads_module(public_objects) if public_objects is not None else None
@@ -455,6 +461,16 @@ def build_app(
         """轮次结束后调用对话命名用例，连接引擎模型与对话条件更新。"""
 
         await conversations.service.name_after_turn(uuid.UUID(row.conversation_id), row.text)
+
+    async def note_run_started(row: JobRow, run_id: str) -> None:
+        """run 开始时记到对话上：最近一次 run 与最近活动时间。"""
+
+        await conversations.service.begin_run(
+            owner=row.owner_user_id,
+            agent_id=row.agent_id,
+            conversation_id=row.conversation_id,
+            run_id=run_id,
+        )
 
     async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
         """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。"""
@@ -489,6 +505,7 @@ def build_app(
             compaction_max_fraction=settings.compaction.max_fraction,
             compaction_keep_messages=settings.compaction.keep_messages,
             on_turn_ended=name_conversation,
+            on_run_started=note_run_started,
             display=tool_displays,
         ),
     )

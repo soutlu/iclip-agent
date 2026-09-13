@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from iclip.common.errors import NotFound
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
+from iclip.domains.conversations.repository import AuditFilter
 from iclip.domains.conversations.schemas import DEFAULT_TITLE
 from iclip.harness.step_store_pg import PgStepStore
 from tests.integration_no_llm.conftest import (
@@ -363,7 +364,8 @@ async def test_deleted_conversation_is_a_tombstone_no_read_or_write_sees(
         assert await repo.list_for_owner(owner=owner, limit=10) == ()
         assert await repo.list_ungrouped(owner=owner, limit=10) == ()
         assert await repo.count_ungrouped(owner=owner) == 0
-        assert await repo.list_audit(owner=owner, limit=10) == ()
+        assert await repo.list_audit(AuditFilter(owner=owner), limit=10) == ()
+        assert await repo.count_audit(AuditFilter(owner=owner)) == 0
 
         with pytest.raises(NotFound):
             await repo.rename(conversation_id, owner=owner, title="改不了")

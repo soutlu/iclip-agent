@@ -40,6 +40,8 @@ class ConversationActivity:
     pending_interaction: Literal["none", "approval", "question"] = "none"
     last_turn_reason: Literal["completed", "failed", "aborted"] | None = None
     """最近结束轮次的结果；从未完成轮次时为 None。"""
+    video_generation: Literal["none", "queued", "running"] = "none"
+    """这段对话下还没跑完的视频出片到哪一步；跑完与失败在分镜页看，这里不记。"""
 
 
 IDLE_ACTIVITY = ConversationActivity()

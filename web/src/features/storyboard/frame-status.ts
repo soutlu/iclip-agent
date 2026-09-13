@@ -1,5 +1,6 @@
 /** 分镜页帧上的图片任务状态：每格只看最新一条；在跑的一直显示，终态看过一次就清。 */
 
+import type { MediaBadgeStatus } from '@/shared/ui/status-badge'
 import { readStoryboardMetadata } from './generation-metadata'
 import type { Shot } from './shot-document'
 import { phaseOfStatus } from './shots'
@@ -9,7 +10,8 @@ export type FrameBadge =
   | { kind: 'queued' }
   | { kind: 'running' }
   | { kind: 'failed'; message: string | null }
-  | { kind: 'result' }
+  /** 点它直接打开编辑器看这条结果，所以要带上是哪条任务。 */
+  | { kind: 'result'; jobId: string }
 
 const TEXT: Record<FrameBadge['kind'], string> = {
   failed: '生成失败',
@@ -21,7 +23,15 @@ const TEXT: Record<FrameBadge['kind'], string> = {
 /** 角标的文字，胶片条的可访问名与主预览的提示共用一套词。 */
 export const frameBadgeText = (badge: FrameBadge): string => TEXT[badge.kind]
 
+/** 新结果就是跑完了的图片任务，画成已完成的样子，文字仍说「有新结果」。 */
+export const frameBadgeStatus = (badge: FrameBadge): MediaBadgeStatus =>
+  badge.kind === 'result' ? 'completed' : badge.kind
+
 export const frameJobKey = (shotIndex: number, frameNumber: number) => `${shotIndex}:${frameNumber}`
+
+/** 这条任务的结果已经是这一帧在用的那张。地址原样比，不做规范化：分镜里存的就是确认后的地址。 */
+export const isAppliedResult = (job: GenerationJob, currentUrl: string): boolean =>
+  job.outputUrl !== null && job.outputUrl === currentUrl
 
 const newestFirst = (left: GenerationJob, right: GenerationJob) =>
   right.createdAt.localeCompare(left.createdAt)
@@ -58,8 +68,8 @@ export const frameBadges = (
     else if (seen.has(job.id)) return
     else if (phase === 'failed') {
       badges.set(frameNumber, { kind: 'failed', message: job.errorMessage })
-    } else if (job.outputUrl !== null && job.outputUrl !== url) {
-      badges.set(frameNumber, { kind: 'result' })
+    } else if (job.outputUrl !== null && !isAppliedResult(job, url)) {
+      badges.set(frameNumber, { kind: 'result', jobId: job.id })
     }
   })
   return badges

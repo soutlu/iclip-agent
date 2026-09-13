@@ -79,6 +79,9 @@ HEARTBEAT_MISS_LIMIT = 2
 MAX_EVENT_BUFFER = 2048
 """多对话共享的连接出站缓冲上限；溢出时断开并要求重连补批，避免阻塞运行。"""
 
+MANAGE_PERMISSION = "users:manage"
+"""治理者：看得见全平台的对话，全局帧与文件变更帧也都收；写入仍只属主能做。"""
+
 _CLIENT_FRAME = TypeAdapter[Any](ClientFrame)
 
 
@@ -151,6 +154,16 @@ class Transcripts(Protocol):
     def unpin(self, conversation_id: str) -> None: ...
 
 
+class ConversationHeader(Protocol):
+    """会话页首屏要贴在信封顶层的两项。"""
+
+    @property
+    def title(self) -> str: ...
+
+    @property
+    def owner_user_id(self) -> uuid.UUID: ...
+
+
 class Conversations(Protocol):
     """对话可见性与 Agent 绑定查询协议。"""
 
@@ -158,8 +171,8 @@ class Conversations(Protocol):
         """读取可见对话的 Agent id；writing=True 时仅允许属主，不可见时抛 NotFound。"""
         ...
 
-    async def title_of(self, principal: Principal, conversation_id: str) -> str:
-        """读取可见对话标题，不可见时抛 NotFound。"""
+    async def header_of(self, principal: Principal, conversation_id: str) -> ConversationHeader:
+        """读取可见对话的标题与属主，不可见时抛 NotFound。"""
         ...
 
 
@@ -183,8 +196,8 @@ def _subscribed_agents(spec: Mapping[str, TranscriptGrade]) -> tuple[str, ...]:
 class LiveConnections:
     """当前进程的 WebSocket 连接集合。
 
-    标题、活动与生成任务广播不依赖对话订阅，按握手主体的属主隔离。多 worker 各自持有连接集合，
-    未收到广播的客户端需重新读取数据库状态。"""
+    标题、活动与生成任务广播不依赖对话订阅，发给属主的连接和治理者的连接，范围由握手主体定。
+    多 worker 各自持有连接集合，未收到广播的客户端需重新读取数据库状态。"""
 
     def __init__(self) -> None:
         self._connections: set[_Connection] = set()
@@ -196,7 +209,7 @@ class LiveConnections:
         self._connections.discard(connection)
 
     def announce_title(self, owner: uuid.UUID, conversation_id: uuid.UUID, title: str) -> None:
-        """向属主的连接广播标题更新。"""
+        """向属主与治理者的连接广播标题更新。"""
 
         self._announce(
             owner,
@@ -214,7 +227,7 @@ class LiveConnections:
         pending_interaction: Literal["none", "approval", "question"],
         last_turn_reason: Literal["completed", "failed", "aborted"] | None,
     ) -> None:
-        """向属主的连接广播活动状态；使用基础字段避免依赖引擎类型。"""
+        """向属主与治理者的连接广播活动状态；使用基础字段避免依赖引擎类型。"""
 
         self._announce(
             owner,
@@ -238,7 +251,7 @@ class LiveConnections:
         status: str,
         metadata: Mapping[str, Any] | None,
     ) -> None:
-        """向属主的连接广播生成任务状态跳转；只收基础字段，不依赖生成域类型。"""
+        """向属主与治理者的连接广播生成任务状态跳转；只收基础字段，不依赖生成域类型。"""
 
         self._announce(
             owner,
@@ -261,16 +274,16 @@ class LiveConnections:
         path: str,
         change: Literal["created", "modified", "deleted"] = "modified",
     ) -> None:
-        """通知属主的连接，仅发送给通过 watch_fs_add 订阅对应路径的连接。"""
+        """通知属主与治理者的连接，仅发送给通过 watch_fs_add 订阅对应路径的连接。"""
 
         for connection in tuple(self._connections):
-            if connection.belongs_to(owner):
+            if connection.receives(owner):
                 connection.offer_fs_change(str(conversation_id), path, change)
 
     def _announce(self, owner: uuid.UUID, frame: Any) -> None:
         # 回调可能移除连接，遍历副本避免迭代集合被修改。
         for connection in tuple(self._connections):
-            if connection.belongs_to(owner):
+            if connection.receives(owner):
                 connection.offer(frame)
 
 
@@ -431,8 +444,9 @@ def create_transcript_router(
             after_turn=after_turn,
             page_size=page_size,
         )
+        header = await conversations.header_of(principal, conversation_id)
         return page.model_copy(
-            update={"title": await conversations.title_of(principal, conversation_id)}
+            update={"title": header.title, "owner_user_id": str(header.owner_user_id)}
         )
 
     @router.get("/transcript/ops", response_model=OpsCatchup)
@@ -672,10 +686,12 @@ class _Connection:
     def _listening(self, conversation_id: str) -> bool:
         return any(key[0] == conversation_id for key in self._listeners)
 
-    def belongs_to(self, owner: uuid.UUID) -> bool:
-        """按握手主体的属主判断广播接收范围。"""
+    def receives(self, owner: uuid.UUID) -> bool:
+        """全局帧与文件变更帧发给谁：属主自己的连接，和治理者的连接。
 
-        return self._principal.user_id == owner
+        权限按握手时的主体快照，吊销后要重连才生效。"""
+
+        return self._principal.user_id == owner or self._principal.has(MANAGE_PERMISSION)
 
     def offer(self, frame: Any) -> None:
         """加入出站队列，容量不足时标记溢出。"""
@@ -800,7 +816,9 @@ async def _serve(
 __all__ = [
     "HEARTBEAT_MISS_LIMIT",
     "HEARTBEAT_SECONDS",
+    "MANAGE_PERMISSION",
     "MAX_EVENT_BUFFER",
+    "ConversationHeader",
     "Conversations",
     "LiveConnections",
     "Transcripts",

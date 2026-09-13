@@ -2,6 +2,7 @@
 
 - 状态：已接受（2026-09-02）
 - 取代 `harness/transcript/activity.py` 原先的进程内聚合（PR #135），并修订 **[ADR-0006](0006-durable-runs.md)** 决策 1 的 fence 条件。
+- 决策 2 的派发范围、决策 3 的 `done` 口径与取舍里「筛选的 id 集在应用层算好」那句，由 **[ADR-0023](0023-governor-live-frames-and-done-state.md)** 修订。
 - **[ADR-0001](0001-architecture-foundations.md)**：Postgres 是唯一事实源，是本文的前提。
 - **[ADR-0006](0006-durable-runs.md)** 决策 4：等审批记在票据行上（`awaiting`），是本文成立的条件。
 

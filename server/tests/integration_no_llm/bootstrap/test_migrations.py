@@ -311,3 +311,123 @@ async def test_metadata_cleanup_migration_nulls_path_only_coordinates(migrated_p
     assert found[path_only] is None
     assert _jsonb(found[with_shot]) == {"path": "video_shot.json", "shot": 2}
     assert found[none] is None
+
+
+BEFORE_LAST_RUN_BACKFILL = "2d6f8a1b4c07"
+"""0005：last_run_id 还没从运行映射回填的那一版。"""
+
+
+async def test_last_run_backfill_takes_the_latest_run_and_keeps_later_renames(
+    migrated_pg: str,
+) -> None:
+    """0006：活着的对话记下最近一次 run，过时的值也重算；updated_at 只往后推；没跑过的与已删的不动。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    ran_twice, renamed_after, never_ran, deleted = (uuid.uuid4() for _ in range(4))
+    opened_at = datetime(2026, 9, 1, 8, 0, tzinfo=UTC)
+    first_run_at = datetime(2026, 9, 2, 9, 0, tzinfo=UTC)
+    second_run_at = datetime(2026, 9, 3, 10, 0, tzinfo=UTC)
+    renamed_at = datetime(2026, 9, 4, 11, 0, tzinfo=UTC)
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_LAST_RUN_BACKFILL)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO iclip.users (id, email, hashed_password, is_active, is_superuser, "
+                    "is_verified, display_name, avatar_url, roles, direct_permissions, city, "
+                    "job_title, departments) VALUES (:id, :email, 'x', true, false, true, '回填属主', "
+                    "'', '[]', '[]', '', '', '[]')"
+                ),
+                {"id": owner, "email": f"{owner}@example.com"},
+            )
+            conversations = (
+                (ran_twice, opened_at, "backfill-stale", None),
+                (renamed_after, renamed_at, None, None),
+                (never_ran, opened_at, None, None),
+                (deleted, opened_at, None, renamed_at),
+            )
+            for conversation_id, updated_at, last_run_id, deleted_at in conversations:
+                await conn.execute(
+                    text(
+                        "INSERT INTO iclip.conversations (id, owner_user_id, agent_id, title, "
+                        "last_run_id, created_at, updated_at, deleted_at) VALUES (:id, :owner, "
+                        "'storyboard', '一段', :last_run_id, :created_at, :updated_at, :deleted_at)"
+                    ),
+                    {
+                        "id": conversation_id,
+                        "owner": owner,
+                        "last_run_id": last_run_id,
+                        "created_at": opened_at,
+                        "updated_at": updated_at,
+                        "deleted_at": deleted_at,
+                    },
+                )
+            runs = (
+                (ran_twice, "backfill-p1", "backfill-r1", first_run_at),
+                (ran_twice, "backfill-p2", "backfill-r2", second_run_at),
+                (renamed_after, "backfill-p3", "backfill-r3", first_run_at),
+                (deleted, "backfill-p4", "backfill-r4", first_run_at),
+            )
+            for conversation_id, prompt_id, run_id, started_at in runs:
+                await conn.execute(
+                    text(
+                        "INSERT INTO agent_runtime.agent_jobs (prompt_id, conversation_id, agent_id, "
+                        "owner_user_id, user_name, content, status, run_id, created_at, finished_at) "
+                        "VALUES (:prompt_id, :conversation_id, 'storyboard', :owner, 'tester', '', "
+                        "'done', :run_id, :started_at, :started_at)"
+                    ),
+                    {
+                        "prompt_id": prompt_id,
+                        "conversation_id": str(conversation_id),
+                        "owner": owner,
+                        "run_id": run_id,
+                        "started_at": started_at,
+                    },
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO agent_runtime.agent_job_runs (run_id, prompt_id, started_at) "
+                        "VALUES (:run_id, :prompt_id, :started_at)"
+                    ),
+                    {"run_id": run_id, "prompt_id": prompt_id, "started_at": started_at},
+                )
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        "SELECT id, last_run_id, updated_at FROM iclip.conversations "
+                        "WHERE owner_user_id = :owner"
+                    ),
+                    {"owner": owner},
+                )
+            ).mappings()
+            by_id = {row["id"]: (row["last_run_id"], row["updated_at"]) for row in rows}
+    finally:
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM agent_runtime.agent_job_runs WHERE run_id LIKE 'backfill-%'")
+            )
+            await conn.execute(
+                text("DELETE FROM agent_runtime.agent_jobs WHERE prompt_id LIKE 'backfill-%'")
+            )
+            await conn.execute(
+                text("DELETE FROM iclip.conversations WHERE owner_user_id = :owner"),
+                {"owner": owner},
+            )
+            await conn.execute(text("DELETE FROM iclip.users WHERE id = :owner"), {"owner": owner})
+        await engine.dispose()
+
+    assert by_id == {
+        ran_twice: ("backfill-r2", second_run_at),
+        renamed_after: ("backfill-r3", renamed_at),
+        never_ran: (None, opened_at),
+        deleted: (None, opened_at),
+    }

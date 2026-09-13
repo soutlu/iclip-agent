@@ -350,8 +350,8 @@
 @import '../shared/ui/composer/composer.css';
 @import '../shared/ui/media-preview/media-preview.css';
 @import '../shared/ui/field/field.css';
-@import '../shared/ui/hero/hero.css';
 @import '../shared/ui/markdown/markdown.css';
+@import '../shared/ui/status-badge/status-badge.css';
 @import '../features/auth/auth.css';
 @import '../features/tasks/tasks.css';
 @import '../features/conversations/conversations.css';

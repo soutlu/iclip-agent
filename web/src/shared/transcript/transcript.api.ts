@@ -22,6 +22,8 @@ export interface TranscriptBaseline {
   hasMoreOlder: boolean
   /** 初始标题来自基线，后续改名由 session.meta.updated 推送。 */
   title: string
+  /** 属主；治理者看别人的对话时与登录人不同，页面据此进入只读。 */
+  ownerUserId: string | null
 }
 
 /** complete 为 false 表示批次已超出日志窗口，需重拉基线。 */
@@ -78,7 +80,13 @@ export const fetchTranscriptBaseline = async (
       todos: [],
     }),
   ) as AgentTranscriptSnapshot
-  return { hasMoreOlder: page.has_more, seq: page.seq, snapshot, title: page.title }
+  return {
+    hasMoreOlder: page.has_more,
+    ownerUserId: page.owner_user_id ?? null,
+    seq: page.seq,
+    snapshot,
+    title: page.title,
+  }
 }
 
 export const fetchTranscriptCatchup = async (

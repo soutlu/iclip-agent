@@ -9,6 +9,7 @@ import {
 import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { TranscriptProvider } from '@/shared/transcript/transcript-provider'
+import { TooltipProvider } from '@/shared/ui/tooltip'
 import { WorkbenchSelectionProvider } from '@/shared/workbench'
 import { FakeSocket, SERVER_HELLO } from './ws'
 
@@ -34,7 +35,9 @@ export const renderWithProviders = async (ui: ReactNode, { initialPath = '/' } =
     <QueryClientProvider client={queryClient}>
       <TranscriptProvider createSocket={() => socket as unknown as WebSocket}>
         <WorkbenchSelectionProvider>
-          <RouterProvider router={router} />
+          <TooltipProvider>
+            <RouterProvider router={router} />
+          </TooltipProvider>
         </WorkbenchSelectionProvider>
       </TranscriptProvider>
     </QueryClientProvider>,

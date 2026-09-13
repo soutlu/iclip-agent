@@ -1,7 +1,14 @@
+import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
-import { compileEditPrompt, parseEditPrompt, resolveImageOptions } from './image-edit.api'
+import { server } from '@/testing/mocks/server'
+import {
+  compileEditPrompt,
+  parseEditPrompt,
+  resolveImageOptions,
+  submitImageEdit,
+} from './image-edit.api'
 import type { ImageModel } from './image-edit.api'
-import type { FrameEditDraft } from './image-edit-types'
+import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
 const draft = (): FrameEditDraft => ({
   annotations: [
@@ -16,7 +23,7 @@ const draft = (): FrameEditDraft => ({
     { kind: 'text', text: '的材质。' },
   ],
   references: [
-    { id: 'r1', kind: 'image', url: 'https://cdn.test/frame.png', label: '当前原图' },
+    { id: 'r1', kind: 'image', url: 'https://cdn.test/frame.png', label: '编辑底图' },
     { id: 'r2', kind: 'annotated', url: 'https://cdn.test/annotated.png', label: '当前标注图' },
     { id: 'r3', kind: 'image', url: 'https://cdn.test/jacket.png', label: 'jacket.png' },
   ],
@@ -54,6 +61,61 @@ describe('parseEditPrompt', () => {
   it('编号超出图片张数就当普通文字留着，不造出指向空处的芯片', () => {
     expect(parseEditPrompt('参考@图片9', draft().references)).toEqual([
       { kind: 'text', text: '参考@图片9' },
+    ])
+  })
+})
+
+const target: FrameEditTarget = {
+  conversationId: 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d',
+  artifactPath: 'video_shot.json',
+  shotIndex: 2,
+  frameNumber: 3,
+}
+
+describe('submitImageEdit', () => {
+  it('坐标里带上这次改的是哪张图，参考图与编译好的正文照发', async () => {
+    let body: Record<string, unknown> = {}
+    server.use(
+      http.post('*/api/generations/image', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(
+          {
+            generation: {
+              createdAt: '2026-09-13T02:00:00Z',
+              errorMessage: null,
+              id: '4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c',
+              kind: 'image',
+              metadata: body['metadata'],
+              outputUrl: null,
+              request: {},
+              status: 'queued',
+              taskId: null,
+              watermarkOutputUrl: null,
+            },
+          },
+          { status: 202 },
+        )
+      }),
+    )
+
+    const job = await submitImageEdit(target, draft(), 'https://cdn.test/frame.png', {
+      aspectRatio: '9:16',
+      model: 'nano_banana_pro',
+      resolution: '2k',
+      channel: 'dev',
+    })
+
+    expect(job.status).toBe('queued')
+    expect(body['metadata']).toEqual({
+      path: 'video_shot.json',
+      shot: 2,
+      frame: 3,
+      sourceUrl: 'https://cdn.test/frame.png',
+    })
+    expect(body['referenceImageUrls']).toEqual([
+      'https://cdn.test/frame.png',
+      'https://cdn.test/annotated.png',
+      'https://cdn.test/jacket.png',
     ])
   })
 })

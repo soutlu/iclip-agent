@@ -116,6 +116,8 @@ async def _fresh_engine(url: str):
     engine = create_async_engine(url)
     async with engine.begin() as conn:
         await truncate_clean(conn, _APP_TABLES, cascade=True)
+        # 治理视图会查全平台占着的对话；runner 用例留在票据表里的行不能混进来。
+        await truncate_clean(conn, ("agent_runtime.agent_jobs", "agent_runtime.agent_job_runs"))
     return engine
 
 

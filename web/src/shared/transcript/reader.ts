@@ -38,6 +38,8 @@ export interface TranscriptView {
   pendingInteractions: readonly TranscriptInteraction[]
   /** 初始标题取基线，后续由 session.meta.updated 更新。 */
   title: string
+  /** 属主取基线；基线未到时为 null。 */
+  ownerUserId: string | null
   /** loading 表示等待基线；读取失败或无法对齐时为 error。 */
   status: 'loading' | 'ready' | 'error'
   /** 是否存在更早的历史轮次。 */
@@ -51,6 +53,7 @@ const EMPTY_VIEW: TranscriptView = {
   hasMoreOlder: false,
   items: [],
   maxContextTokens: undefined,
+  ownerUserId: null,
   pendingInteractions: [],
   prompts: [],
   status: 'loading',
@@ -221,6 +224,7 @@ export class TranscriptReader {
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
           maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,
+          ownerUserId: baseline.ownerUserId,
           pendingInteractions: this.pendingInteractions(),
           prompts: [...this.transcript.getPrompts().values()],
           status: 'ready',

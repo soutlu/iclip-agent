@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Cue · mmt 手工矢量版</title>
+    <link rel="stylesheet" href="./preview.css" />
+    <script src="./cue-mmt.js" defer></script>
+    <script src="./preview-svg.js" defer></script>
+  </head>
+  <body data-background="light">
+    <header class="page-header">
+      <a class="signature" href="./">Cue <span>×</span> mmt</a>
+      <span class="edition">手工矢量版 · SVG</span>
+    </header>
+    <main>
+      <section class="conversation" aria-label="对话空状态预览">
+        <button class="mascot-trigger" id="mascot-trigger" type="button" aria-label="展开鞋盒，展示鞋履与服装" aria-expanded="false" aria-describedby="interaction-hint">
+          {{CUE_SVG}}
+        </button>
+        <p id="load-status" role="status">正在加载动画…</p>
+        <p class="empty-message">还没有消息 —— 在下方输入开始对话</p>
+        <div class="composer">
+          <textarea aria-label="对话输入预览" placeholder="有什么新创意？" rows="2"></textarea>
+          <div class="composer-bottom">
+            <span class="composer-note">让灵感开始成片</span>
+            <span class="send-decoration" aria-hidden="true">↑</span>
+          </div>
+        </div>
+        <p class="interaction-hint" id="interaction-hint">悬停展开 · 移开收起 · 点击固定展开</p>
+      </section>
+      <section class="preview-controls" aria-label="动画预览控制">
+        <div class="playback-controls" role="group" aria-label="播放方式">
+          <button type="button" data-mode="interactive" aria-pressed="true">交互</button>
+          <button type="button" data-mode="loop" aria-pressed="false">循环播放</button>
+          <span class="divider" aria-hidden="true"></span>
+          <button type="button" id="show-idle">首帧</button>
+          <button type="button" id="show-expanded">尾帧</button>
+        </div>
+        <div class="background-controls" role="group" aria-label="画布背景">
+          <button type="button" data-background="light" aria-pressed="true" aria-label="浅色背景"><span class="swatch swatch-light"></span></button>
+          <button type="button" data-background="dark" aria-pressed="false" aria-label="深色背景"><span class="swatch swatch-dark"></span></button>
+          <button type="button" data-background="grid" aria-pressed="false" aria-label="透明网格背景"><span class="swatch swatch-grid"></span></button>
+        </div>
+        <label class="progress-control" for="progress">展开进度 <input id="progress" type="range" min="0" max="100" value="0" step="1" /><output id="progress-output" for="progress">0%</output></label>
+      </section>
+      <details class="asset-review">
+        <summary>查看手工矢量素材</summary>
+        <div class="asset-grid">
+          <figure><img src="./assets/svg/sneaker.svg" alt="蓝白运动鞋" /><figcaption>运动鞋</figcaption></figure>
+          <figure><img src="./assets/svg/heel.svg" alt="珊瑚色高跟鞋" /><figcaption>高跟鞋</figcaption></figure>
+          <figure><img src="./assets/svg/kids.svg" alt="黄色童鞋" /><figcaption>童鞋</figcaption></figure>
+          <figure><img src="./assets/svg/slide.svg" alt="蓝色拖鞋" /><figcaption>拖鞋</figcaption></figure>
+          <figure><img src="./assets/svg/top.svg" alt="奶白色与青色短袖上衣" /><figcaption>上衣</figcaption></figure>
+        </div>
+      </details>
+    </main>
+    <footer><span id="playback-status">等待加载</span><a href="./animation/build/cue-mmt-vector-refined.riv" download>下载 .riv</a></footer>
+  </body>
+</html>

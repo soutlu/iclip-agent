@@ -44,6 +44,8 @@ export interface Artifact {
 export interface ArtifactRendererProps {
   conversationId: string
   artifact: Artifact
+  /** 看别人的对话时为 true，渲染器要收起所有会写工作区或提交任务的入口。 */
+  readOnly: boolean
   selection?: unknown
   composerBridge?: unknown
 }

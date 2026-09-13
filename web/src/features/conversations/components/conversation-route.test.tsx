@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
+import { addMockUser, mockAuthUser } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { mockTranscriptPage } from '@/testing/mocks/transcript'
 import { pasteTextIntoComposer } from '@/testing/editor'
@@ -75,13 +76,14 @@ const APPROVAL_TURN = {
   turnId: 'ta',
 }
 
-/** 渲染前替换基线为等待审批状态。 */
-const serveApprovalPage = () => {
+/** 渲染前替换基线为等待审批状态；ownerUserId 可换成别人，用来演治理者看别人的对话。 */
+const serveApprovalPage = (ownerUserId = mockAuthUser.id) => {
   const page = mockTranscriptPage()
   server.use(
     http.get('*/api/conversations/c1/transcript', () =>
       HttpResponse.json({
         ...page,
+        owner_user_id: ownerUserId,
         interactions: [
           {
             interactionId: 'appr_1',
@@ -832,6 +834,45 @@ describe('ConversationRoute', () => {
     expect(await screen.findByText('1 个任务等待发送')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '立即发送到当前回合' })).toBeNull()
     expect(screen.getByText('等你审批后继续')).toBeInTheDocument()
+  })
+
+  it('治理者看别人的对话是只读：页头标属主，没有输入框、修改与重新生成，审批和队列只展示', async () => {
+    const other = addMockUser('小王')
+    server.use(
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({
+          user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
+        }),
+      ),
+    )
+    let decided = false
+    server.use(
+      http.post('*/api/conversations/c1/interactions/:interactionId', () => {
+        decided = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    serveApprovalPage(other.id)
+    const user = userEvent.setup()
+    const { socket } = await renderConversation()
+
+    expect(await screen.findByText('只读 · 小王 的对话')).toBeVisible()
+    expect(screen.getByRole('note', { name: '只读说明' })).toHaveTextContent('小王')
+    expect(screen.getByRole('link', { name: '回到全部对话' })).toHaveAttribute('href', '/audit')
+    expect(screen.queryByLabelText('输入消息')).toBeNull()
+    expect(screen.queryByRole('button', { name: '重新生成' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '修改' })).toBeNull()
+
+    const card = screen.getByRole('region', { name: '等你审批' })
+    expect(within(card).queryByRole('button', { name: '同意' })).toBeNull()
+    expect(within(card).getByText('等属主来决定')).toBeVisible()
+    await user.keyboard('1')
+
+    socket.deliver(opsFrame([queuedPrompt('p-queued', '顺便配个音')], 11))
+    expect(await screen.findByText('1 个任务等待发送')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '立即发送到当前回合' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '撤回' })).toBeNull()
+    expect(decided).toBe(false)
   })
 
   it('标题来自基线，服务端起了新名字就当场换掉', async () => {

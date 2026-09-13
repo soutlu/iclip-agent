@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from typing import Final
 
 from sqlalchemy import (
@@ -19,6 +18,7 @@ from sqlalchemy import (
     Text,
     Uuid,
     and_,
+    false,
     func,
     or_,
     select,
@@ -31,7 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.conversations.models import Conversation
-from iclip.domains.conversations.repository import CollectionConversations, PageCursor
+from iclip.domains.conversations.repository import (
+    AuditFilter,
+    CollectionConversations,
+    PageCursor,
+    StateFilter,
+)
 from iclip.platform.db.ownership import owner_conditions
 
 DB_SCHEMA: Final = "iclip"
@@ -128,10 +133,32 @@ def _after(cursor: PageCursor | None) -> list[ColumnElement[bool]]:
     ]
 
 
-def _only(only_ids: frozenset[uuid.UUID] | None) -> list[ColumnElement[bool]]:
-    """None 不限制 id；其余集合用于活动状态筛选。"""
+def _state_conditions(state: StateFilter | None) -> list[ColumnElement[bool]]:
+    """``running`` 只留 busy 里的；``done`` 要跑过（``last_run_id`` 非空）且不在 busy 里；None 不筛。
 
-    return [] if only_ids is None else [_ROWS.id.in_(only_ids)]
+    busy 为空时 ``running`` 直接为假，不渲染空 ``IN``；``id`` 是主键，``NOT IN`` 不会碰到 NULL。"""
+
+    if state is None:
+        return []
+    if state.state == "running":
+        return [_ROWS.id.in_(state.busy)] if state.busy else [false()]
+    ran = _ROWS.last_run_id.is_not(None)
+    return [ran, _ROWS.id.not_in(state.busy)] if state.busy else [ran]
+
+
+def _audit_conditions(scope: AuditFilter, state: StateFilter | None) -> list[ColumnElement[bool]]:
+    """列表与两个计数共用同一组条件，三个数字才对得上；``_LIVE`` 由各查询自己加。"""
+
+    conditions = _state_conditions(state)
+    if scope.owner is not None:
+        conditions.append(_ROWS.owner_user_id == scope.owner)
+    if scope.task_id is not None:
+        conditions.append(_ROWS.task_id == scope.task_id)
+    if scope.since is not None:
+        conditions.append(_ROWS.updated_at >= scope.since)
+    if scope.until is not None:
+        conditions.append(_ROWS.updated_at <= scope.until)
+    return conditions
 
 
 def _reject_missing_reference(error: IntegrityError) -> ValidationFailed:
@@ -214,24 +241,25 @@ class SqlConversationRepository:
         owner: uuid.UUID,
         limit: int,
         after: PageCursor | None = None,
-        only_ids: frozenset[uuid.UUID] | None = None,
+        state: StateFilter | None = None,
     ) -> tuple[Conversation, ...]:
         return await self._page(
             _ROWS.owner_user_id == owner,
             _ROWS.collection_id.is_(None),
-            *_only(only_ids),
+            *_state_conditions(state),
             limit=limit,
             after=after,
         )
 
-    async def count_ungrouped(
-        self, *, owner: uuid.UUID, only_ids: frozenset[uuid.UUID] | None = None
-    ) -> int:
+    async def count_ungrouped(self, *, owner: uuid.UUID, state: StateFilter | None = None) -> int:
         statement = (
             select(func.count())
             .select_from(conversations_table)
             .where(
-                _ROWS.owner_user_id == owner, _ROWS.collection_id.is_(None), _LIVE, *_only(only_ids)
+                _ROWS.owner_user_id == owner,
+                _ROWS.collection_id.is_(None),
+                _LIVE,
+                *_state_conditions(state),
             )
         )
         async with self._engine.connect() as conn:
@@ -244,12 +272,12 @@ class SqlConversationRepository:
         collection_id: uuid.UUID,
         limit: int,
         after: PageCursor | None = None,
-        only_ids: frozenset[uuid.UUID] | None = None,
+        state: StateFilter | None = None,
     ) -> tuple[Conversation, ...]:
         return await self._page(
             _ROWS.owner_user_id == owner,
             _ROWS.collection_id == collection_id,
-            *_only(only_ids),
+            *_state_conditions(state),
             limit=limit,
             after=after,
         )
@@ -278,7 +306,7 @@ class SqlConversationRepository:
         owner: uuid.UUID,
         collection_ids: tuple[uuid.UUID, ...],
         per_collection: int,
-        only_ids: frozenset[uuid.UUID] | None = None,
+        state: StateFilter | None = None,
     ) -> tuple[CollectionConversations, ...]:
         if not collection_ids:
             return ()
@@ -295,7 +323,7 @@ class SqlConversationRepository:
                 _ROWS.collection_id.in_(collection_ids),
                 _LIVE,
                 # 窗口计数前完成筛选，保证总数与返回记录使用相同范围。
-                *_only(only_ids),
+                *_state_conditions(state),
             )
             .subquery()
         )
@@ -335,33 +363,22 @@ class SqlConversationRepository:
 
     async def list_audit(
         self,
+        scope: AuditFilter,
         *,
-        owner: uuid.UUID | None = None,
-        task_id: uuid.UUID | None = None,
-        since: datetime | None = None,
-        until: datetime | None = None,
+        state: StateFilter | None = None,
         limit: int,
         after: PageCursor | None = None,
     ) -> tuple[Conversation, ...]:
-        conditions: list[ColumnElement[bool]] = [_LIVE]
-        if owner is not None:
-            conditions.append(_ROWS.owner_user_id == owner)
-        if task_id is not None:
-            conditions.append(_ROWS.task_id == task_id)
-        if since is not None:
-            conditions.append(_ROWS.updated_at >= since)
-        if until is not None:
-            conditions.append(_ROWS.updated_at <= until)
-        conditions.extend(_after(after))
+        return await self._page(*_audit_conditions(scope, state), limit=limit, after=after)
+
+    async def count_audit(self, scope: AuditFilter, *, state: StateFilter | None = None) -> int:
         statement = (
-            select(conversations_table)
-            .where(*conditions)
-            .order_by(_ROWS.updated_at.desc(), _ROWS.id.desc())
-            .limit(limit)
+            select(func.count())
+            .select_from(conversations_table)
+            .where(_LIVE, *_audit_conditions(scope, state))
         )
         async with self._engine.connect() as conn:
-            rows = (await conn.execute(statement)).mappings().all()
-        return tuple(_row(row) for row in rows)
+            return int((await conn.execute(statement)).scalar_one())
 
     async def set_collection(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, collection_id: uuid.UUID | None

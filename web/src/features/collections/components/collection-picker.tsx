@@ -1,10 +1,18 @@
-import { useId, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import { useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
-import { Input } from '@/shared/ui/field'
 import { PopupRoot, PopupSurface, PopupTrigger } from '@/shared/ui/popup'
+import {
+  SearchListInput,
+  SearchListOptionContent,
+  SearchListOptions,
+  SearchListRoot,
+  SearchListStatus,
+  useSearchList,
+  type SearchListOption,
+  type SearchListOptionState,
+} from '@/shared/ui/search-list'
 
 export type CollectionOption = { id: string; name: string }
 
@@ -90,41 +98,13 @@ function PickerContent({
   options,
   value,
 }: CollectionPickerProps) {
-  const [query, setQuery] = useState('')
-  const [activeIndex, setActiveIndex] = useState(-1)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const listRef = useRef<HTMLDivElement>(null)
   const openingDialogRef = useRef(false)
-  const listId = useId()
-  const search = query.trim()
   const selected = options.find((option) => option.id === value)
-  const matches = search
-    ? options.filter((option) =>
-        option.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
-      )
-    : [...(selected ? [selected] : []), ...options.filter((option) => option.id !== value)]
-  const activeOption = matches[activeIndex]
-
-  const moveTo = (index: number) => {
-    setActiveIndex(index)
-    listRef.current
-      ?.querySelectorAll('[role="option"]')
-      [index]?.scrollIntoView({ block: 'nearest' })
-  }
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (disabled || event.nativeEvent.isComposing || !matches.length) return
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      const next =
-        event.key === 'ArrowDown'
-          ? (activeIndex + 1) % matches.length
-          : (activeIndex <= 0 ? matches.length : activeIndex) - 1
-      moveTo(next)
-    } else if (event.key === 'Enter' && activeOption) {
-      event.preventDefault()
-      onChange(activeOption.id)
-    }
-  }
+  // 当前合集置顶，其余保持接口给的最近更新顺序。
+  const choices = [
+    ...(selected ? [selected] : []),
+    ...options.filter((option) => option.id !== value),
+  ].map((option) => ({ id: option.id, label: option.name }))
 
   return (
     <PopupSurface
@@ -136,158 +116,122 @@ function PickerContent({
         // 新建弹窗接管焦点，避免弹层关闭时又把焦点移回选择器。
         if (openingDialogRef.current) event.preventDefault()
       }}
-      onOpenAutoFocus={(event) => {
-        event.preventDefault()
-        inputRef.current?.focus()
-      }}
       sideOffset={8}
       side="bottom"
     >
-      <div className="shrink-0 px-1 pt-1 pb-2">
-        <h2 className="mb-3 text-body-sm font-semibold">关联合集</h2>
-        <Input
-          aria-activedescendant={activeOption ? `${listId}-${activeOption.id}` : undefined}
-          aria-autocomplete="list"
-          aria-controls={listId}
-          aria-expanded
-          aria-label="搜索合集"
-          disabled={disabled}
-          leadingIcon="search"
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setActiveIndex(-1)
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="搜索合集"
-          ref={inputRef}
-          role="combobox"
-          trailingAction={
-            query ? (
-              <IconButton
-                disabled={disabled}
-                label="清空搜索"
-                name="close"
-                onClick={() => {
-                  setQuery('')
-                  setActiveIndex(-1)
-                  inputRef.current?.focus()
-                }}
-                size="xs"
-              />
-            ) : null
-          }
-          value={query}
-          wrapperClassName="h-(--control-height-md) rounded-sm px-2.5"
+      <SearchListRoot
+        disabled={disabled}
+        error={error ?? undefined}
+        onSelect={onChange}
+        options={choices}
+        pending={loading}
+        value={value}
+      >
+        <h2 className="px-1 pt-1 text-body-sm font-semibold">关联合集</h2>
+        <SearchListInput
+          label="搜索合集"
+          trailingAction={<ClearSearchButton disabled={disabled} />}
         />
-      </div>
-      <div className="max-h-72 shrink-0 overflow-y-auto overscroll-contain" ref={listRef}>
-        {loading ? (
-          <p className="px-3 py-9 text-center text-body-sm text-on-surface-variant" role="status">
-            正在加载合集…
-          </p>
-        ) : error ? (
-          <div className="px-3 py-6 text-center">
-            <p className="text-body-sm text-error" role="alert">
-              {error}
-            </p>
-            {onRetry ? (
-              <button
-                className="mt-2 ui-state rounded-sm px-3 py-1.5 text-body-sm text-primary ui-focus disabled:cursor-not-allowed disabled:text-disabled-text"
-                disabled={disabled}
-                onClick={onRetry}
-                type="button"
-              >
-                重新加载
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        <div aria-busy={loading} aria-label="合集" id={listId} role="listbox">
-          {matches.map((option, index) => (
-            <div key={option.id} role="presentation">
-              {!search && ((selected && index === 1) || (!selected && index === 0)) ? (
-                <p className="px-2 pt-2 pb-1 text-caption text-on-surface-variant">最近更新</p>
-              ) : null}
-              <button
-                aria-selected={option.id === value}
-                className={cn(
-                  'flex h-10 w-full ui-state items-center gap-2.5 rounded-sm px-2 text-left text-body-sm ui-focus disabled:cursor-not-allowed disabled:text-disabled-text',
-                  option.id === value && 'bg-primary-container/50 text-on-primary-container',
-                  index === activeIndex && 'bg-surface-container-high',
-                )}
-                id={`${listId}-${option.id}`}
-                disabled={disabled}
-                onClick={() => onChange(option.id)}
-                role="option"
-                tabIndex={-1}
-                title={option.name}
-                type="button"
-              >
-                <Icon className="shrink-0" decorative name="folder" size="md" />
-                <span className="min-w-0 flex-1 truncate">
-                  <MatchedName name={option.name} search={search} />
-                </span>
-                {option.id === value ? (
-                  <Icon className="shrink-0 text-primary" decorative name="check" size="md" />
-                ) : null}
-              </button>
-            </div>
-          ))}
-        </div>
-        {!loading && !error && !matches.length ? (
-          <div className="px-3 py-9 text-center" role="status">
-            <p className="text-body-sm">{search ? '没有找到相关合集' : '暂无可选合集'}</p>
-            <p className="mt-2 text-caption text-on-surface-variant">
-              {search
-                ? onCreate
-                  ? '试试其他名称，或新建一个合集'
-                  : '试试其他名称'
-                : onCreate
-                  ? '新建一个合集，整理你的创作对话'
-                  : '你可以先不关联合集，直接开始创作'}
-            </p>
-          </div>
-        ) : null}
-      </div>
-      <div className="mt-2 shrink-0 border-t border-border pt-1">
-        <button
-          className="flex h-10 w-full ui-state items-center gap-2.5 rounded-sm px-2 text-left text-body-sm ui-focus disabled:cursor-not-allowed disabled:text-disabled-text"
+        <SearchListOptions label="合集" renderOption={renderCollectionOption} />
+        <SearchListStatus
+          label="合集"
+          onRetry={onRetry}
+          renderEmpty={(query) => <EmptyHint canCreate={onCreate !== undefined} query={query} />}
+        />
+        <PickerFooter
           disabled={disabled}
-          onClick={() => onChange(null)}
-          type="button"
-        >
-          <Icon decorative name="folder" size="md" />
-          <span className="flex-1">不关联合集</span>
-          {value === null ? <Icon decorative name="check" size="md" /> : null}
-        </button>
-        {onCreate ? (
-          <button
-            className="flex h-10 w-full ui-state items-center gap-2.5 rounded-sm px-2 text-left text-body-sm text-primary ui-focus disabled:cursor-not-allowed disabled:text-disabled-text"
-            disabled={disabled}
-            onClick={() => {
-              openingDialogRef.current = true
-              onCreate(search)
-            }}
-            title={search ? `新建“${search}”` : undefined}
-            type="button"
-          >
-            <Icon className="shrink-0" decorative name="add" size="md" />
-            <span className="truncate">{search ? `新建“${search}”` : '新建合集'}</span>
-          </button>
-        ) : null}
-      </div>
+          onClear={() => onChange(null)}
+          onCreate={
+            onCreate
+              ? (name) => {
+                  openingDialogRef.current = true
+                  onCreate(name)
+                }
+              : undefined
+          }
+          unassigned={value === null}
+        />
+      </SearchListRoot>
     </PopupSurface>
   )
 }
 
-function MatchedName({ name, search }: { name: string; search: string }) {
-  const start = name.toLocaleLowerCase().indexOf(search.toLocaleLowerCase())
-  if (!search || start < 0) return name
+const renderCollectionOption = (option: SearchListOption, { selected }: SearchListOptionState) => (
+  <SearchListOptionContent
+    leading={<Icon className="shrink-0" decorative name="folder" size="md" />}
+    option={option}
+    selected={selected}
+  />
+)
+
+function ClearSearchButton({ disabled }: { disabled: boolean | undefined }) {
+  const { query, setQuery, focusInput } = useSearchList()
+  if (!query) return null
+  return (
+    <IconButton
+      disabled={disabled}
+      label="清空搜索"
+      name="close"
+      onClick={() => {
+        setQuery('')
+        focusInput()
+      }}
+      size="xs"
+    />
+  )
+}
+
+function EmptyHint({ canCreate, query }: { canCreate: boolean; query: string }) {
   return (
     <>
-      {name.slice(0, start)}
-      <span className="font-medium text-primary">{name.slice(start, start + search.length)}</span>
-      {name.slice(start + search.length)}
+      <p className="text-body-sm text-on-surface">{query ? '没有找到相关合集' : '暂无可选合集'}</p>
+      <p className="mt-2 text-caption">
+        {query
+          ? canCreate
+            ? '试试其他名称，或新建一个合集'
+            : '试试其他名称'
+          : canCreate
+            ? '新建一个合集，整理你的创作对话'
+            : '你可以先不关联合集，直接开始创作'}
+      </p>
     </>
+  )
+}
+
+type PickerFooterProps = {
+  disabled: boolean | undefined
+  unassigned: boolean
+  onClear: () => void
+  onCreate: ((initialName: string) => void) | undefined
+}
+
+// 与共享列表的选项行同一尺寸，让页脚的图标与文字和上方选项对齐。
+const FOOTER_ROW_CLASS =
+  'flex min-h-10 w-full ui-state cursor-pointer items-center gap-2.5 rounded-sm px-3 py-2.5 text-left text-body ui-focus disabled:cursor-not-allowed disabled:text-disabled-text'
+
+/** 不关联与新建两个入口；新建把当前搜索词带进表单。 */
+function PickerFooter({ disabled, unassigned, onClear, onCreate }: PickerFooterProps) {
+  const { query } = useSearchList()
+  const search = query.trim()
+  return (
+    <div className="shrink-0 border-t border-border pt-1">
+      <button className={FOOTER_ROW_CLASS} disabled={disabled} onClick={onClear} type="button">
+        <Icon decorative name="folder" size="md" />
+        <span className="flex-1">不关联合集</span>
+        {unassigned ? <Icon decorative name="check" size="md" /> : null}
+      </button>
+      {onCreate ? (
+        <button
+          className={cn(FOOTER_ROW_CLASS, 'text-primary')}
+          disabled={disabled}
+          onClick={() => onCreate(search)}
+          title={search ? `新建“${search}”` : undefined}
+          type="button"
+        >
+          <Icon className="shrink-0" decorative name="add" size="md" />
+          <span className="truncate">{search ? `新建“${search}”` : '新建合集'}</span>
+        </button>
+      ) : null}
+    </div>
   )
 }

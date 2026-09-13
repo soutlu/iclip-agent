@@ -1,6 +1,9 @@
 /** 标题来自 transcript 基线与推送；侧栏拓扑仅包含各列表首页，无法覆盖全部历史对话。 */
 
+import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { useUsersDirectory } from '@/shared/auth'
+import { useConversationReadOnly } from '@/shared/transcript/use-conversation-read-only'
 import { useSessionTitles } from '@/shared/transcript/use-session-titles'
 import { useTranscript } from '@/shared/transcript/use-transcript'
 import type { PromptContentPart, ToolCallFrame, TranscriptTurn } from '@/shared/transcript/vendor'
@@ -9,6 +12,7 @@ import { cn } from '@/shared/lib/utils'
 import { useShellChrome } from '@/shared/shell'
 import { Button } from '@/shared/ui/button'
 import type { ComposerPart } from '@/shared/ui/composer'
+import { Tag } from '@/shared/ui/tag'
 import { toast } from '@/shared/ui/toast'
 import { claimed, sameContent, type PendingPrompt } from '../claims'
 import {
@@ -70,6 +74,10 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
   const { titleOf } = useSessionTitles()
   const title = titleOf(conversationId) ?? view.title
+  // 只读只发生在治理者看别人的对话时，名册接口也只有治理者能读。
+  const readOnly = useConversationReadOnly(view)
+  const { nameOf } = useUsersDirectory(readOnly)
+  const ownerName = view.ownerUserId === null ? undefined : nameOf(view.ownerUserId)
   const chrome = useShellChrome()
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
   const [inFlightPromptId, setInFlightPromptId] = useState<string | null>(null)
@@ -200,6 +208,12 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
         )}
       >
         <h1 className="truncate text-body font-medium text-on-surface">{title}</h1>
+        {readOnly ? (
+          <Tag className="ml-3 shrink-0" variant="soft">
+            <Icon decorative name="preview" size="xs" />
+            {ownerName === undefined ? '只读' : `只读 · ${ownerName} 的对话`}
+          </Tag>
+        ) : null}
       </header>
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
@@ -235,7 +249,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
                 key={turn.turnId}
                 latest={turn.turnId === latestTurn?.turnId}
                 onEdit={
-                  turn.turnId === latestTurn?.turnId
+                  !readOnly && turn.turnId === latestTurn?.turnId
                     ? () =>
                         setEditingTurn({
                           content: turn.content,
@@ -245,7 +259,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
                     : undefined
                 }
                 onRegenerate={
-                  turn.turnId === latestTurn?.turnId
+                  !readOnly && turn.turnId === latestTurn?.turnId
                     ? () => act(regeneratePrompt(conversationId, turn.turnId))
                     : undefined
                 }
@@ -271,6 +285,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
                 promptId: prompt.promptId,
                 text: promptText(prompt.content),
               }))}
+              readOnly={readOnly}
             />
             {showEmptyState ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
@@ -316,26 +331,48 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               interactionId={approval.interactionId}
               key={approval.interactionId}
               onRefresh={refresh}
+              readOnly={readOnly}
             />
           )}
-          <ConversationComposer
-            awaitingApproval={approval !== undefined}
-            busy={running !== undefined}
-            contextTokens={view.contextTokens}
-            editing={
-              editing === null
-                ? undefined
-                : { ordinal: editing.ordinal, parts: composerParts(editing.content) }
-            }
-            maxContextTokens={view.maxContextTokens}
-            onCancelEdit={() => setEditingTurn(null)}
-            onSend={send}
-            onStop={
-              running === undefined
-                ? undefined
-                : () => act(abortPrompt(conversationId, running.promptId))
-            }
-          />
+          {readOnly ? (
+            <p
+              aria-label="只读说明"
+              className="flex items-center justify-between gap-3 rounded-lg border-[0.5px] border-chat-hairline bg-top-layer px-4 py-3 text-body-sm text-chat-secondary-text"
+              role="note"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Icon decorative name="preview" size="sm" />
+                <span className="truncate">
+                  这是{ownerName === undefined ? '别人' : ` ${ownerName} `}的对话，只能查看
+                </span>
+              </span>
+              <Link
+                className="shrink-0 rounded-xs text-primary ui-focus hover:underline"
+                to="/audit"
+              >
+                回到全部对话
+              </Link>
+            </p>
+          ) : (
+            <ConversationComposer
+              awaitingApproval={approval !== undefined}
+              busy={running !== undefined}
+              contextTokens={view.contextTokens}
+              editing={
+                editing === null
+                  ? undefined
+                  : { ordinal: editing.ordinal, parts: composerParts(editing.content) }
+              }
+              maxContextTokens={view.maxContextTokens}
+              onCancelEdit={() => setEditingTurn(null)}
+              onSend={send}
+              onStop={
+                running === undefined
+                  ? undefined
+                  : () => act(abortPrompt(conversationId, running.promptId))
+              }
+            />
+          )}
         </div>
       </div>
     </main>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -290,3 +291,41 @@ async def test_status_answers_an_api_key_holder(app: FastAPI, pg_url: str) -> No
     assert got.status_code == 200, got.text
     assert got.json() == {"status": "completed"}
     assert denied.status_code == 403
+
+
+async def _run_of(pg_url: str, prompt_id: str) -> str:
+
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.connect() as conn:
+            return str(
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT run_id FROM agent_runtime.agent_job_runs WHERE prompt_id = :p"
+                        ),
+                        {"p": prompt_id},
+                    )
+                ).scalar_one()
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_a_run_is_recorded_on_the_conversation(app: FastAPI, pg_url: str) -> None:
+    """跑过一次后对话行记下这次 run，最近活动时间跟着推前；侧栏排序、未读小点与审计时间筛选都靠它。"""
+
+    async with make_client(app) as client:
+        await _sign_in(client, pg_url)
+        created = await client.post("/conversations", json={"agentId": AGENT_ID})
+        opened = created.json()["conversation"]
+        sent = await client.post(
+            f"/conversations/{opened['id']}/prompts",
+            json={"prompt_id": "prm_mark", "content": [{"type": "text", "text": "走"}]},
+        )
+        assert sent.status_code == 200, sent.text
+        await settled(client, opened["id"])
+        (after,) = (await client.get("/conversations/search")).json()["items"]
+
+    assert after["lastRunId"] == await _run_of(pg_url, "prm_mark")
+    assert datetime.fromisoformat(after["updatedAt"]) > datetime.fromisoformat(opened["updatedAt"])

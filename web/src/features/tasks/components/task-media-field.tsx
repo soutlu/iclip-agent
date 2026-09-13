@@ -237,7 +237,7 @@ export function TaskMediaField({
           <p className="text-body-sm text-on-surface-faint">未添加</p>
         )}
         {dragOver && !blocked && (
-          <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-sm bg-primary-container/90 text-body-sm text-on-primary-container">
+          <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-sm bg-primary-container text-body-sm text-on-primary-container">
             松开{kind === 'video' && value.length > 0 ? '替换视频' : '添加素材'}
           </div>
         )}

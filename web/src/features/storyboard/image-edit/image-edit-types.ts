@@ -17,12 +17,12 @@ export type EditReference = {
   url: string
   label: string
 }
+/** 编辑器开在哪一格。底图不在里面：它随选中的图变，应用之后这一格的图也会变。 */
 export type FrameEditTarget = {
   conversationId: string
   artifactPath: string
   shotIndex: number
   frameNumber: number
-  sourceUrl: string
 }
 export type FrameEditDraft = {
   annotations: ImageAnnotation[]

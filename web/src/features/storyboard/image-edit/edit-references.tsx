@@ -12,7 +12,7 @@ type EditReferencesProps = {
   references: EditReference[]
   frames: readonly string[]
   currentFrame: number
-  sourceUrl: string
+  baseUrl: string
   hasAnnotations: boolean
   disabled: boolean
   onChange: (references: EditReference[]) => void
@@ -25,7 +25,7 @@ export function EditReferences({
   references,
   frames,
   currentFrame,
-  sourceUrl,
+  baseUrl,
   hasAnnotations,
   disabled,
   onChange,
@@ -130,7 +130,7 @@ export function EditReferences({
       <div
         className={cn(
           'image-edit-dropzone rounded-sm border border-dashed border-outline-variant bg-surface-container-lowest',
-          dragOver && 'border-primary bg-primary/4',
+          dragOver && 'border-primary bg-primary-container-soft',
         )}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes('Files')) return
@@ -203,7 +203,7 @@ export function EditReferences({
                 aria-label={`预览参考图 ${index + 1}`}
               >
                 <img
-                  src={reference.kind === 'annotated' ? sourceUrl : reference.url}
+                  src={reference.kind === 'annotated' ? baseUrl : reference.url}
                   alt={reference.label}
                   className="size-full object-cover"
                 />
@@ -251,7 +251,7 @@ export function EditReferences({
         </ol>
       ) : null}
       <p className="mt-2 text-caption leading-relaxed text-on-surface-muted">
-        默认使用当前原图；需要其他参考时再添加图片，可调整提交顺序。
+        默认使用编辑底图；需要其他参考时再添加图片，可调整提交顺序。
       </p>
       <DialogRoot open={pickerOpen} onOpenChange={setPickerOpen}>
         <DialogSurface aria-describedby={undefined} className="max-w-2xl">
@@ -264,11 +264,11 @@ export function EditReferences({
                 disabled={
                   locked ||
                   references.length >= 10 ||
-                  references.some((item) => item.kind === 'image' && item.url === sourceUrl)
+                  references.some((item) => item.kind === 'image' && item.url === baseUrl)
                 }
-                onClick={() => append({ kind: 'image', url: sourceUrl, label: '当前原图' })}
+                onClick={() => append({ kind: 'image', url: baseUrl, label: '编辑底图' })}
               >
-                加入当前原图
+                加入编辑底图
               </Button>
               <Button
                 size="md"
@@ -279,7 +279,7 @@ export function EditReferences({
                   references.length >= 10 ||
                   references.some((item) => item.kind === 'annotated')
                 }
-                onClick={() => append({ kind: 'annotated', url: sourceUrl, label: '当前标注图' })}
+                onClick={() => append({ kind: 'annotated', url: baseUrl, label: '当前标注图' })}
               >
                 加入当前标注图
               </Button>

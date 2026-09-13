@@ -8,7 +8,12 @@ import type { Conversation } from '../conversations.api'
 import { ConversationSearchDialog } from './conversation-search-dialog'
 
 const conversation: Conversation = {
-  activity: { busy: false, lastTurnReason: null, pendingInteraction: 'none' },
+  activity: {
+    busy: false,
+    lastTurnReason: null,
+    pendingInteraction: 'none',
+    videoGeneration: 'none',
+  },
   agentId: 'storyboard',
   collectionId: null,
   createdAt: '2026-08-01T00:00:00Z',

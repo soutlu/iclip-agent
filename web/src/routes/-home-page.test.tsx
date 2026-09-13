@@ -1,24 +1,13 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { pasteTextIntoComposer } from '@/testing/editor'
 import { mockAuthUser, mockCollections, mockConversations } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { HomePage } from './-home-page'
 import { LoginPromptProvider } from './-login-prompt'
-
-// jsdom 无 canvas；只替换装饰动画依赖。
-vi.mock('lottie-web/build/player/lottie_light', () => ({
-  default: {
-    loadAnimation: () => ({
-      addEventListener: () => undefined,
-      destroy: () => undefined,
-      removeEventListener: () => undefined,
-    }),
-  },
-}))
 
 const renderHome = async () => {
   const rendered = await renderWithProviders(

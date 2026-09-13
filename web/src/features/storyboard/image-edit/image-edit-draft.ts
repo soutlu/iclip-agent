@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import { mintUuid } from '@/shared/lib/uuid'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
 // 编辑器内部的形状，不进 HTTP：提交时只发编译好的 prompt 与图片地址。
 const idSchema = z.string().min(1).max(100)
+const urlSchema = z.string().min(1).max(4096)
 const draftSchema = z.object({
   annotations: z
     .array(
@@ -29,7 +29,7 @@ const draftSchema = z.object({
     .array(
       z.object({
         id: idSchema,
-        url: z.string().min(1).max(4096),
+        url: urlSchema,
         kind: z.enum(['image', 'annotated']),
         label: z.string().min(1).max(200),
       }),
@@ -37,21 +37,49 @@ const draftSchema = z.object({
     .max(10),
 })
 
-export const emptyEditDraft = (target: FrameEditTarget): FrameEditDraft => ({
+/** 一格上每张底图各一份草稿：圈画在哪张图上，修改要求里的芯片就指着那张图上的圈。
+ * 换底图等于换一套输入，不能混用。 */
+const draftsSchema = z.record(urlSchema, draftSchema)
+
+export type FrameEditDrafts = z.infer<typeof draftsSchema>
+
+/** 底图在图片列表里的固定身份：空草稿要能反复算出同一份，芯片才不会每次渲染换个指向。 */
+const BASE_REFERENCE_ID = 'base'
+
+export const emptyEditDraft = (baseUrl: string): FrameEditDraft => ({
   annotations: [],
   instructions: [],
-  references: [{ id: mintUuid(), kind: 'image', url: target.sourceUrl, label: '当前原图' }],
+  references: [{ id: BASE_REFERENCE_ID, kind: 'image', url: baseUrl, label: '编辑底图' }],
 })
-export const editDraftKey = (target: FrameEditTarget) => `cue:frame-edit:${JSON.stringify(target)}`
-export function loadEditDraft(target: FrameEditTarget): FrameEditDraft {
+
+/** 草稿按格存，不按底图地址：应用之后这一格换了图，别的底图上没提交完的输入还在。 */
+export const editDraftKey = (target: FrameEditTarget) =>
+  `cue:frame-edit:${target.conversationId}:${target.artifactPath}:${target.shotIndex}:${target.frameNumber}`
+
+export function loadEditDrafts(target: FrameEditTarget): FrameEditDrafts {
   const raw = sessionStorage.getItem(editDraftKey(target))
-  if (raw === null) return emptyEditDraft(target)
-  const parsed = draftSchema.safeParse(JSON.parse(raw))
+  if (raw === null) return {}
+  const parsed = draftsSchema.safeParse(JSON.parse(raw))
   if (!parsed.success) throw new Error('本地图片编辑草稿无法读取')
-  return parsed.data.references.length === 0
-    ? { ...parsed.data, references: emptyEditDraft(target).references }
-    : parsed.data
+  return parsed.data
 }
+
+/** 取这张底图的草稿；没写过就现开一份，图片列表里先放上底图自己。
+ * 存着的那份被删空了图片也把底图带回来，不然恢复出来的草稿提交不了。 */
+export function draftOf(drafts: FrameEditDrafts, baseUrl: string): FrameEditDraft {
+  const stored = drafts[baseUrl]
+  if (stored === undefined) return emptyEditDraft(baseUrl)
+  return stored.references.length === 0
+    ? { ...stored, references: emptyEditDraft(baseUrl).references }
+    : stored
+}
+
+/** 空草稿不落盘：一格上的图会越攒越多，而画笔标注很占地方。 */
+export const isEmptyDraft = (draft: FrameEditDraft): boolean =>
+  draft.annotations.length === 0 &&
+  draft.instructions.length === 0 &&
+  draft.references.length === 1 &&
+  draft.references[0]?.kind === 'image'
 
 export function editDraftError(draft: FrameEditDraft): string | null {
   if (draft.annotations.length > 50) return '每张图片最多添加 50 个标注'

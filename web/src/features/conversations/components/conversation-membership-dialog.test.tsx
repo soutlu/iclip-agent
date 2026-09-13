@@ -16,7 +16,12 @@ const TASK_A = '33333333-3333-4333-8333-333333333333'
 const TASK_B = '44444444-4444-4444-8444-444444444444'
 
 const conversation = (): Conversation => ({
-  activity: { busy: false, lastTurnReason: null, pendingInteraction: 'none' },
+  activity: {
+    busy: false,
+    lastTurnReason: null,
+    pendingInteraction: 'none',
+    videoGeneration: 'none',
+  },
   agentId: 'storyboard',
   collectionId: COLLECTION_A,
   createdAt: '2026-09-11T00:00:00Z',

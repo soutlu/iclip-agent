@@ -15,8 +15,10 @@ from iclip.domains.conversations.models import (
     ConversationActivity,
 )
 from iclip.domains.conversations.repository import (
+    AuditFilter,
     ConversationRepository,
     PageCursor,
+    StateFilter,
 )
 from iclip.domains.conversations.schemas import DEFAULT_TITLE
 from iclip.domains.identity.public import Principal
@@ -30,7 +32,7 @@ SIDEBAR_UNGROUPED = 20
 SIDEBAR_PER_COLLECTION = 10
 
 ListState = Literal["all", "running", "done"]
-"""列表状态筛选；从未运行的对话仅属于 all。"""
+"""列表状态筛选：``running`` 是此刻占着的，``done`` 是跑过（``last_run_id`` 非空）且没在跑的；从未运行的对话仅属于 all。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,10 +58,10 @@ ListAgents = Callable[[], AgentDirectory]
 ActivitiesOf = Callable[[Sequence[uuid.UUID]], Awaitable[Mapping[uuid.UUID, ConversationActivity]]]
 """批量读取引擎侧活动信息，由组合根注入；未返回的 id 使用 IDLE_ACTIVITY。"""
 
-ConversationIdsByState = Callable[
-    [uuid.UUID, Literal["running", "done"]], Awaitable[frozenset[uuid.UUID]]
-]
-"""按属主与活动状态查询对话 id；从未运行的对话不属于 running 或 done。"""
+BusyConversationIds = Callable[[uuid.UUID | None], Awaitable[frozenset[uuid.UUID]]]
+"""此刻在跑（含等审批）的对话 id；给属主就按属主算，给 None 算全平台。
+
+「已完成」不另查：跑过至少一次（``last_run_id`` 非空）且不在这个集合里就是。"""
 
 GenerateTitle = Callable[[str], Awaitable[str | None]]
 """由组合根注入的标题生成器；返回 None 表示本次不生成标题。"""
@@ -67,7 +69,7 @@ GenerateTitle = Callable[[str], Awaitable[str | None]]
 AnnounceTitle = Callable[[uuid.UUID, uuid.UUID, str], None]
 """同步广播标题更新，参数为 (属主, 对话 id, 标题)。
 
-广播不依赖对话订阅，必须按属主隔离；仅写入出站队列，不等待回执。"""
+广播不依赖对话订阅，发给属主与治理者的连接；仅写入出站队列，不等待回执。"""
 
 PurgeDerived = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """删除对话派生数据，参数为 (属主, 对话 id)；存储与命名空间由注入实现负责。"""
@@ -158,6 +160,16 @@ class ConversationPage:
     next_cursor: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class AuditPage:
+    """审计的一页，外加两个不随翻页变的真总数：当前筛选下共几段、同一范围内此刻几段在跑。"""
+
+    items: tuple[Conversation, ...]
+    next_cursor: str | None
+    total: int
+    running_total: int
+
+
 def _page(items: tuple[Conversation, ...], *, limit: int) -> ConversationPage:
     """满页时生成下一页游标，避免额外查询；最后一页恰好满额时允许下一页为空。"""
 
@@ -201,11 +213,11 @@ class ConversationService:
         generate_title: GenerateTitle,
         announce_title: AnnounceTitle,
         activities_of: ActivitiesOf,
-        conversation_ids_by_state: ConversationIdsByState,
+        busy_conversation_ids: BusyConversationIds,
     ) -> None:
         self._repo = repo
         self._activities_of = activities_of
-        self._ids_by_state = conversation_ids_by_state
+        self._busy_conversation_ids = busy_conversation_ids
         self._purge_derived = purge_derived
         self._generate_title = generate_title
         self._announce_title = announce_title
@@ -318,12 +330,12 @@ class ConversationService:
             owner=principal.user_id, limit=limit, title_contains=keyword or None
         )
 
-    async def _only(self, principal: Principal, state: ListState) -> frozenset[uuid.UUID] | None:
-        """返回状态筛选对应的 id 集合；all 返回 None，不限制 id。"""
+    async def _state_filter(self, state: ListState, owner: uuid.UUID) -> StateFilter | None:
+        """all 不筛；running / done 都只要「此刻占着的」那个小集合，其余靠 ``last_run_id`` 判。"""
 
         if state == "all":
             return None
-        return await self._ids_by_state(principal.user_id, state)
+        return StateFilter(state=state, busy=await self._busy_conversation_ids(owner))
 
     async def sidebar(
         self, principal: Principal, *, state: ListState = "all"
@@ -331,14 +343,11 @@ class ConversationService:
         """返回侧栏合集元信息、对话总数及第一页，保留空合集。条数与分页使用相同状态筛选。"""
 
         collections = await self._list_collections(principal.user_id)
-        only_ids = await self._only(principal, state)
-        if only_ids is not None and not only_ids:
-            return tuple((item, 0, _page((), limit=SIDEBAR_PER_COLLECTION)) for item in collections)
         found = await self._repo.list_by_collections(
             owner=principal.user_id,
             collection_ids=tuple(item.id for item in collections),
             per_collection=SIDEBAR_PER_COLLECTION,
-            only_ids=only_ids,
+            state=await self._state_filter(state, principal.user_id),
         )
         by_id = {group.collection_id: group for group in found}
         return tuple(
@@ -356,24 +365,20 @@ class ConversationService:
     async def ungrouped_count(self, principal: Principal, *, state: ListState = "all") -> int:
         """返回符合状态筛选的未分类对话总数。"""
 
-        only_ids = await self._only(principal, state)
-        if only_ids is not None and not only_ids:
-            return 0
-        return await self._repo.count_ungrouped(owner=principal.user_id, only_ids=only_ids)
+        return await self._repo.count_ungrouped(
+            owner=principal.user_id, state=await self._state_filter(state, principal.user_id)
+        )
 
     async def ungrouped(
         self, principal: Principal, *, cursor: str | None = None, state: ListState = "all"
     ) -> ConversationPage:
         """按最近活动倒序分页读取自己的未分类对话。"""
 
-        only_ids = await self._only(principal, state)
-        if only_ids is not None and not only_ids:
-            return _page((), limit=SIDEBAR_UNGROUPED)
         items = await self._repo.list_ungrouped(
             owner=principal.user_id,
             limit=SIDEBAR_UNGROUPED,
             after=_decode_cursor(cursor),
-            only_ids=only_ids,
+            state=await self._state_filter(state, principal.user_id),
         )
         return _page(items, limit=SIDEBAR_UNGROUPED)
 
@@ -387,15 +392,12 @@ class ConversationService:
     ) -> ConversationPage:
         """分页读取合集内的对话；不存在或不可见的合集均返回空页。"""
 
-        only_ids = await self._only(principal, state)
-        if only_ids is not None and not only_ids:
-            return _page((), limit=SIDEBAR_PER_COLLECTION)
         items = await self._repo.list_in_collection(
             owner=principal.user_id,
             collection_id=collection_id,
             limit=SIDEBAR_PER_COLLECTION,
             after=_decode_cursor(cursor),
-            only_ids=only_ids,
+            state=await self._state_filter(state, principal.user_id),
         )
         return _page(items, limit=SIDEBAR_PER_COLLECTION)
 
@@ -407,25 +409,36 @@ class ConversationService:
         task_id: uuid.UUID | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
+        state: ListState = "all",
         limit: int = 20,
         cursor: str | None = None,
-    ) -> tuple[tuple[Conversation, ...], str | None]:
-        """治理者按最近活动倒序分页查询全平台对话。"""
+    ) -> AuditPage:
+        """治理者按最近活动倒序分页查询全平台对话，附当前筛选下的总数与在跑数。
+
+        给了 ``owner_user_id`` 时占着的集合按该属主算，不给才算全平台；busy 集只取一次，
+        列表与两个计数才对得上。"""
 
         if not principal.has(MANAGE_PERMISSION):
             raise PermissionDenied("只有治理者能查全部对话")
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
+        scope = AuditFilter(
+            owner=owner_user_id, task_id=task_id, since=_as_utc(since), until=_as_utc(until)
+        )
+        busy = await self._busy_conversation_ids(owner_user_id)
+        chosen = None if state == "all" else StateFilter(state=state, busy=busy)
         found = await self._repo.list_audit(
-            owner=owner_user_id,
-            task_id=task_id,
-            since=_as_utc(since),
-            until=_as_utc(until),
-            limit=limit,
-            after=_decode_cursor(cursor),
+            scope, state=chosen, limit=limit, after=_decode_cursor(cursor)
         )
         page = _page(found, limit=limit)
-        return page.items, page.next_cursor
+        return AuditPage(
+            items=page.items,
+            next_cursor=page.next_cursor,
+            total=await self._repo.count_audit(scope, state=chosen),
+            running_total=await self._repo.count_audit(
+                scope, state=StateFilter(state="running", busy=busy)
+            ),
+        )
 
     async def rename(
         self, principal: Principal, conversation_id: uuid.UUID, *, title: str
@@ -490,13 +503,12 @@ class ConversationService:
         conversation = await self._repo.get(_as_conversation_id(conversation_id), owner=owner)
         return conversation.agent_id
 
-    async def title_of(self, principal: Principal, conversation_id: str) -> str:
-        """读取可见对话的当前标题；后续更新经 session.meta.updated 推送。"""
+    async def header_of(self, principal: Principal, conversation_id: str) -> Conversation:
+        """读取可见对话的整行，给会话页首屏贴标题与属主；后续改名经 session.meta.updated 推送。"""
 
-        conversation = await self._repo.get(
+        return await self._repo.get(
             _as_conversation_id(conversation_id), owner=self._readable_by(principal)
         )
-        return conversation.title
 
 
 __all__ = [
@@ -509,8 +521,9 @@ __all__ = [
     "ActivitiesOf",
     "AgentDirectory",
     "AgentEntry",
+    "AuditPage",
+    "BusyConversationIds",
     "CollectionInfo",
-    "ConversationIdsByState",
     "ConversationService",
     "DerivedFile",
     "DerivedFileContent",

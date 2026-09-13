@@ -56,7 +56,7 @@ export function StoryboardReader(props: ArtifactRendererProps) {
   return <StoryboardWorkspace key={`${props.conversationId}:${path}`} {...props} />
 }
 
-function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps) {
+function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRendererProps) {
   const path = artifact.source.kind === 'file' ? artifact.source.path : SHOTS_PATH
   const gate = useGenerationGate()
   const file = useWorkspaceFile(conversationId, path)
@@ -66,7 +66,12 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
   // 关过编辑器就算看过那一格的终态；只记本次会话，刷新后没看过的终态会再出现一次。
   const [seenFrameJobs, setSeenFrameJobs] = useState<ReadonlySet<string>>(() => new Set())
   const video = useVideoGeneration(conversationId, path)
-  const [imageEditTarget, setImageEditTarget] = useState<FrameEditTarget | null>(null)
+  // 打开时先选中哪一条由入口决定；target 本身不带图，应用之后这一格换了图它也不用变。
+  const [imageEdit, setImageEdit] = useState<{
+    target: FrameEditTarget
+    initialKey?: string | undefined
+  } | null>(null)
+  const imageEditTarget = imageEdit?.target ?? null
   const imageEditTriggerRef = useRef<HTMLElement | null>(null)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
   const [uploadedSources, setUploadedSources] = useState<
@@ -207,8 +212,10 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
       isRunningStatus(job.status),
   ).length
   // 出片发的是描述的当前版本；还在存或没存下就先别发，免得发出去的和文件里的不一样。
-  // 原因不另写一句：左边的保存状态已经在说。
+  // 原因不另写一句：左边的保存状态已经在说。只读时整页的编辑与生成入口一起收起。
+  const editingDisabled = readOnly || gate.preparing
   const generateDisabled =
+    readOnly ||
     gate.preparing ||
     gate.uploading ||
     draft.state.kind === 'conflict' ||
@@ -295,7 +302,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
           >
             {shots.map((item, offset) => (
               <ReaderPage
-                editingDisabled={gate.preparing}
+                editingDisabled={editingDisabled}
                 aspect_ratio={document.aspect_ratio}
                 onUpdateShot={(updater) => draft.updateShot(item.index, updater)}
                 onReplaceFrame={(frame, previousUrl, url) => {
@@ -304,17 +311,19 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                 }}
                 onUploaded={(frame, url) => recordUpload(item.index, frame, url)}
                 onUploadingChange={gate.onUploadingChange}
-                onEditFrame={(frame, sourceUrl) => {
+                onEditFrame={(frame, open) => {
                   imageEditTriggerRef.current =
                     window.document.activeElement instanceof HTMLElement
                       ? window.document.activeElement
                       : null
-                  setImageEditTarget({
-                    conversationId,
-                    artifactPath: path,
-                    shotIndex: item.index,
-                    frameNumber: frame,
-                    sourceUrl,
+                  setImageEdit({
+                    target: {
+                      conversationId,
+                      artifactPath: path,
+                      shotIndex: item.index,
+                      frameNumber: frame,
+                    },
+                    ...(open.kind === 'result' ? { initialKey: open.jobId } : {}),
                   })
                 }}
                 content={offset + 1 === position ? search.content : undefined}
@@ -369,6 +378,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                     prompt: { ...current.prompt, global_settings: text },
                   }))
                 }
+                readOnly={editingDisabled}
                 shot={shot}
               />
             </ReaderOverlay>
@@ -407,16 +417,20 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                 <GenerationRecords
                   jobs={jobs}
                   onClose={closeSheet}
-                  onEditPrompt={(prompt) => {
-                    const problem = validateShot({ ...shot, prompt })
-                    if (problem !== undefined) {
-                      toast.error(problem)
-                      return
-                    }
-                    draft.updateShot(shot.index, (current) => ({ ...current, prompt }))
-                    closeSheet()
-                    toast('历史提示词已回填到当前镜头组')
-                  }}
+                  onEditPrompt={
+                    readOnly
+                      ? undefined
+                      : (prompt) => {
+                          const problem = validateShot({ ...shot, prompt })
+                          if (problem !== undefined) {
+                            toast.error(problem)
+                            return
+                          }
+                          draft.updateShot(shot.index, (current) => ({ ...current, prompt }))
+                          closeSheet()
+                          toast('历史提示词已回填到当前镜头组')
+                        }
+                  }
                   shotIndex={shot.index}
                 />
               )}
@@ -425,12 +439,13 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
         </div>
       </div>
       <MediaLightbox media={media} onClose={closePreview} />
-      {imageEditTarget === null ? null : (
+      {imageEdit === null || imageEditTarget === null ? null : (
         <FrameImageEditor
           key={JSON.stringify(imageEditTarget)}
           target={imageEditTarget}
           frames={shots.find((item) => item.index === imageEditTarget.shotIndex)?.image_urls ?? []}
           aspectRatio={document.aspect_ratio}
+          initialKey={imageEdit.initialKey}
           onClose={() => {
             const latest = latestFrameJob.get(
               frameJobKey(imageEditTarget.shotIndex, imageEditTarget.frameNumber),
@@ -438,7 +453,7 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
             // 还在跑的那条不算看过，落定后照样要在帧上冒出来。
             if (latest !== undefined && !isRunningStatus(latest.status))
               setSeenFrameJobs((current) => new Set(current).add(latest.id))
-            setImageEditTarget(null)
+            setImageEdit(null)
             requestAnimationFrame(() => {
               const trigger = imageEditTriggerRef.current
               if (trigger?.isConnected) trigger.focus()
@@ -451,11 +466,11 @@ function StoryboardWorkspace({ artifact, conversationId }: ArtifactRendererProps
                   ?.focus()
             })
           }}
-          onApply={(url) =>
+          onApply={(previousUrl, url) =>
             draft.applyFrame(
               imageEditTarget.shotIndex,
               imageEditTarget.frameNumber,
-              imageEditTarget.sourceUrl,
+              previousUrl,
               url,
             )
           }
@@ -525,6 +540,7 @@ type PromptReadingProps = {
   onClose: () => void
   onPreview: Preview
   onChangeGlobalSettings: (text: string) => void
+  readOnly: boolean
 }
 
 function PromptReading({
@@ -532,6 +548,7 @@ function PromptReading({
   onClose,
   onPreview,
   onChangeGlobalSettings,
+  readOnly,
   shot,
 }: PromptReadingProps) {
   return (
@@ -567,6 +584,7 @@ function PromptReading({
             aria-label="全局设定"
             frames={shot.image_urls}
             onChange={onChangeGlobalSettings}
+            readOnly={readOnly}
             value={shot.prompt.global_settings}
             onPickFrame={(number) => {
               const url = shot.image_urls[number - 1]
