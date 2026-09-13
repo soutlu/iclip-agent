@@ -23,7 +23,7 @@ const draft = (): FrameEditDraft => ({
     { kind: 'text', text: '的材质。' },
   ],
   references: [
-    { id: 'r1', kind: 'image', url: 'https://cdn.test/frame.png', label: '当前原图' },
+    { id: 'r1', kind: 'image', url: 'https://cdn.test/frame.png', label: '编辑底图' },
     { id: 'r2', kind: 'annotated', url: 'https://cdn.test/annotated.png', label: '当前标注图' },
     { id: 'r3', kind: 'image', url: 'https://cdn.test/jacket.png', label: 'jacket.png' },
   ],
@@ -70,7 +70,6 @@ const target: FrameEditTarget = {
   artifactPath: 'video_shot.json',
   shotIndex: 2,
   frameNumber: 3,
-  sourceUrl: 'https://cdn.test/frame.png',
 }
 
 describe('submitImageEdit', () => {
@@ -99,7 +98,7 @@ describe('submitImageEdit', () => {
       }),
     )
 
-    const job = await submitImageEdit(target, draft(), {
+    const job = await submitImageEdit(target, draft(), 'https://cdn.test/frame.png', {
       aspectRatio: '9:16',
       model: 'nano_banana_pro',
       resolution: '2k',

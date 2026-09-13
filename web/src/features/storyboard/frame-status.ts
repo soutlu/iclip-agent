@@ -10,7 +10,8 @@ export type FrameBadge =
   | { kind: 'queued' }
   | { kind: 'running' }
   | { kind: 'failed'; message: string | null }
-  | { kind: 'result' }
+  /** 点它直接打开编辑器看这条结果，所以要带上是哪条任务。 */
+  | { kind: 'result'; jobId: string }
 
 const TEXT: Record<FrameBadge['kind'], string> = {
   failed: '生成失败',
@@ -68,7 +69,7 @@ export const frameBadges = (
     else if (phase === 'failed') {
       badges.set(frameNumber, { kind: 'failed', message: job.errorMessage })
     } else if (job.outputUrl !== null && !isAppliedResult(job, url)) {
-      badges.set(frameNumber, { kind: 'result' })
+      badges.set(frameNumber, { kind: 'result', jobId: job.id })
     }
   })
   return badges

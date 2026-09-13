@@ -553,11 +553,17 @@ describe('StoryboardReader', () => {
       within(navigationOf(page)).getByRole('button', { name: '预览第 2 帧（有新结果）' }),
     ).toBeVisible()
     await userEvent.click(view)
-    const editor = await screen.findByRole('dialog', { name: '编辑图片' })
-    expect(within(editor).getByText('镜头组 1 · 帧 @2')).toBeVisible()
+    const editor = await screen.findByRole('dialog', { name: '编辑图片 · 镜头组 1 · 帧 @2' })
+    // 从角标进来直接落在那条结果上，不是落在标注画布上。
+    await waitFor(() =>
+      expect(
+        within(editor).getByRole('group', { name: '这一帧的图片' }).querySelector('[aria-pressed]'),
+      ).toBeTruthy(),
+    )
+    expect(within(editor).getByRole('img', { name: '图片编辑结果' })).toBeVisible()
     await userEvent.click(within(editor).getByRole('button', { name: '关闭图片编辑' }))
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: '编辑图片' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('dialog', { name: /^编辑图片/ })).not.toBeInTheDocument(),
     )
 
     expect(within(page).queryByRole('button', { name: '有新结果 · 查看' })).not.toBeInTheDocument()
