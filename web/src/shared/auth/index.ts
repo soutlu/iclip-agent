@@ -10,4 +10,4 @@ export {
   useLogout,
   useUser,
 } from './session'
-export { useUsersDirectory, type DirectoryUser } from './users.api'
+export { useUsersDirectory } from './users.api'

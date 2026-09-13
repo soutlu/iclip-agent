@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { AuditRoute } from '@/features/conversations'
+import { AuditRoute, type PickerSource } from '@/features/conversations'
 import { useTaskOptions } from '@/features/tasks'
 import { ensureSessionUser, useUser } from '@/shared/auth'
 
@@ -20,13 +20,13 @@ function AuditIndexRoute() {
   const { data: user } = useUser()
   const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
   const tasks = useTaskOptions(canReadTasks)
-  return (
-    <AuditRoute
-      onTasksRetry={() => void tasks.refetch()}
-      taskFilterEnabled={canReadTasks}
-      tasks={tasks.data ?? []}
-      tasksError={tasks.error?.message}
-      tasksPending={canReadTasks && tasks.isPending}
-    />
-  )
+  const source: PickerSource | null = canReadTasks
+    ? {
+        error: tasks.error?.message,
+        isPending: tasks.isPending,
+        onRetry: () => void tasks.refetch(),
+        options: tasks.data ?? [],
+      }
+    : null
+  return <AuditRoute tasks={source} />
 }
