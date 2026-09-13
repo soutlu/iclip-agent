@@ -50,6 +50,12 @@ if (withShots !== undefined) {
   withShots.activity = { ...withShots.activity, videoGeneration: 'running' }
 }
 
+// 「亚麻衬衫二剪」没有工作区，只在侧栏演示「出片还在排队」的角标；放在未分组区，一打开就看得见。
+const queuedVideo = seeded[3]
+if (queuedVideo !== undefined) {
+  queuedVideo.activity = { ...queuedVideo.activity, videoGeneration: 'queued' }
+}
+
 // 独立的无图草稿用于演示先编辑正文、再补充第一张图片。
 const withoutImages = addMockConversation('无图分镜草稿', new Date().toISOString())
 seedMockWorkspace(withoutImages.id, { withoutImages: true })
