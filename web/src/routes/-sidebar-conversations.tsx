@@ -9,10 +9,11 @@ import {
   useCollections,
 } from '@/features/collections'
 import {
+  CONVERSATION_STATUS_MARKS,
   ConversationMembershipDialog,
+  conversationStatus,
   conversationsQueryKeys,
   useDeleteConversation,
-  useLiveConversations,
   useMoreConversations,
   useRenameConversation,
   recordSeenRun,
@@ -69,7 +70,6 @@ export function SidebarConversations() {
   const canReadTasks = permissions.includes('tasks:read')
   const [state, setState] = useState<ConversationListState>('all')
   const topology = useSidebarTopology(canRead, state)
-  useLiveConversations(canRead)
   useRecordOpened(topology.data)
   const [shownCollections, setShownCollections] = useState(COLLECTIONS_PER_STEP)
   const [dragging, setDragging] = useState<string | null>(null)
@@ -574,17 +574,6 @@ function CollectionGroup({
   )
 }
 
-type RowStatus = 'approval' | 'question' | 'running' | 'failed' | 'unread' | 'idle'
-
-/** 状态优先级：待审批、待回答、运行、失败、完成未读、空闲。 */
-const rowStatus = (activity: Conversation['activity'], unread: boolean): RowStatus => {
-  if (activity.pendingInteraction === 'approval') return 'approval'
-  if (activity.pendingInteraction === 'question') return 'question'
-  if (activity.busy) return 'running'
-  if (activity.lastTurnReason === 'failed') return 'failed'
-  return unread && activity.lastTurnReason === 'completed' ? 'unread' : 'idle'
-}
-
 /** 在拓扑层记录当前对话，避免折叠行未渲染时漏记；运行中记录 null，结束后记录 lastRunId。 */
 const useRecordOpened = (topology: SidebarTopology | undefined): void => {
   const openedId = useParams({ select: (params) => params.conversationId, strict: false })
@@ -605,16 +594,6 @@ const findRow = (topology: SidebarTopology, conversationId: string): Conversatio
 const useUnread = (conversation: Conversation, active: boolean): boolean => {
   const seenRun = useSeenRun(conversation.id)
   return !active && seenRun !== undefined && seenRun !== conversation.lastRunId
-}
-
-const ROW_STATUS_MARK: Record<
-  Exclude<RowStatus, 'idle' | 'unread'>,
-  { className: string; label: string; name: IconName }
-> = {
-  approval: { className: 'text-warning', label: '等待审批', name: 'warning' },
-  failed: { className: 'text-chat-status-error', label: '上次失败', name: 'failed' },
-  question: { className: 'text-warning', label: '等待回答', name: 'warning' },
-  running: { className: 'animate-spin text-primary', label: '进行中', name: 'loading' },
 }
 
 function ConversationRow({
@@ -640,8 +619,13 @@ function ConversationRow({
   const rename = useRenameConversation(onChanged)
   const remove = useDeleteConversation(onChanged)
   const unread = useUnread(conversation, active)
-  const status = rowStatus(conversation.activity, unread)
-  const mark = status === 'idle' || status === 'unread' ? undefined : ROW_STATUS_MARK[status]
+  const status = conversationStatus(conversation.activity)
+  // 行尾只画还需要人看一眼的状态；跑完没看过的用小点，其余什么都不画。
+  const mark =
+    status === 'approval' || status === 'question' || status === 'running' || status === 'failed'
+      ? CONVERSATION_STATUS_MARKS[status]
+      : undefined
+  const showUnread = unread && status === 'completed'
 
   const commitRename = (value: string) => {
     setEditing(false)
@@ -698,7 +682,7 @@ function ConversationRow({
           size="xs"
         />
       )}
-      {status === 'unread' && (
+      {showUnread && (
         <span aria-label="未读" className="size-1.5 shrink-0 rounded-full bg-primary" role="img" />
       )}
       {!editing && (

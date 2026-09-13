@@ -117,7 +117,7 @@ const provide = (document = fixture) => {
 const renderReader = () =>
   renderWithProviders(
     <>
-      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />
+      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} readOnly={false} />
       <Toaster />
     </>,
     { initialPath: '/?shot=1' },

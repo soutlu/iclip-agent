@@ -42,10 +42,14 @@ const SEARCH_LIMIT = 50
 export type ConversationListState = 'all' | 'running' | 'done'
 
 const MORE_KEY = ['conversations', 'more'] as const
+const AUDIT_KEY = ['conversations', 'audit'] as const
 
 export const conversationsQueryKeys = {
   all: ['conversations'] as const,
   agents: ['conversation-agents'] as const,
+  /** 治理者的全部对话，按筛选条件分键；auditAll 作前缀整体失效。 */
+  audit: (filters: object) => [...AUDIT_KEY, filters] as const,
+  auditAll: AUDIT_KEY,
   /** 用户手动展开的额外分页；拓扑刷新时整体丢弃。 */
   moreAll: MORE_KEY,
   more: (bucket: string, cursor: string, state: ConversationListState) =>

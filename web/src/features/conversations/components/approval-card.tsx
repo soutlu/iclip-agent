@@ -17,6 +17,8 @@ type ApprovalCardProps = {
   frame: ToolCallFrame | undefined
   /** 决定与服务端状态冲突时刷新内容。 */
   onRefresh: () => void
+  /** 看别人的对话：只展示在等什么，按钮与数字快捷键都不接。 */
+  readOnly: boolean
 }
 
 const DECISION_LABELS = { approved: '已同意', rejected: '已拒绝' } as const
@@ -31,6 +33,7 @@ export function ApprovalCard({
   frame,
   interactionId,
   onRefresh,
+  readOnly,
 }: ApprovalCardProps) {
   const card = toolCard(frame?.display, frame?.view)
   const change = fileChangeOf(frame?.display)
@@ -59,7 +62,7 @@ export function ApprovalCard({
   }
 
   const decide = (approved: boolean) => {
-    if (settled || sending) return
+    if (readOnly || settled || sending) return
     void respond(approved)
   }
 
@@ -95,6 +98,8 @@ export function ApprovalCard({
             <Icon decorative name="check" size="sm" />
             {DECISION_LABELS[decision]}
           </p>
+        ) : readOnly ? (
+          <p className="text-caption text-chat-muted-text">等属主来决定</p>
         ) : (
           <>
             <p className="text-caption text-chat-muted-text">按 1 同意，按 2 拒绝</p>

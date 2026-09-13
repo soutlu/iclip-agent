@@ -1,7 +1,7 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { CueUserMenu } from '@/features/auth'
-import { ConversationSearchDialog } from '@/features/conversations'
+import { ConversationSearchDialog, useLiveConversations } from '@/features/conversations'
 import { useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
@@ -29,6 +29,9 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
   const canRead = Boolean(user?.permissions.includes('agent:read'))
   const canStart = Boolean(user?.permissions.includes('agent:run'))
   const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
+  const canGovern = Boolean(user?.permissions.includes('users:manage'))
+  // 全局帧订阅挂在侧栏顶层：折叠时对话区不渲染，全部对话页与会话页仍要靠它刷新列表缓存。
+  useLiveConversations(canRead)
 
   const startNew = useCallback(() => {
     if (session.isPending) return
@@ -138,6 +141,14 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
           onClick={user ? () => navigate({ to: '/tasks' }) : requireLogin}
           title={user && !canReadTasks ? '当前账号没有查看需求单权限' : undefined}
         />
+        {canGovern ? (
+          <SidebarAction
+            active={pathname === '/audit'}
+            icon="preview"
+            label="全部对话"
+            onClick={() => void navigate({ to: '/audit' })}
+          />
+        ) : null}
         <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />
       </nav>
 

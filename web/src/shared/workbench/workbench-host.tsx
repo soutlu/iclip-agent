@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { use, useEffect, useMemo, useState } from 'react'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
+import { useConversationReadOnly } from '@/shared/transcript/use-conversation-read-only'
 import { useTranscript } from '@/shared/transcript/use-transcript'
 import type { TranscriptItem } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
@@ -110,6 +111,7 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
   const files = useWorkspaceFiles(conversationId)
   // 与聊天页共用同一个主流读取器（按会话与 agent 登记），这里再订不会踢掉它的订阅。
   const { view } = useTranscript(conversationId)
+  const readOnly = useConversationReadOnly(view)
   const frames = useMemo(() => toolFrames(view.items), [view.items])
   // 用户的折叠选择只在聊天没有新的「打开面板」请求之前有效；点了派活卡的「查看」就按默认重新打开。
   const { openToken } = useWorkbenchSelection()
@@ -239,7 +241,12 @@ export function WorkbenchHost({ conversationId }: WorkbenchHostProps) {
             {actions}
           </div>
           <TabsContent className="flex min-h-0 flex-1 flex-col" value={selected.id}>
-            <Renderer artifact={selected} conversationId={conversationId} key={selected.id} />
+            <Renderer
+              artifact={selected}
+              conversationId={conversationId}
+              key={selected.id}
+              readOnly={readOnly}
+            />
           </TabsContent>
         </TabsRoot>
       )}

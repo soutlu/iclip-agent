@@ -205,10 +205,10 @@ const delayedUpload = () => {
   return release
 }
 
-const renderReader = (initialPath = '/?shot=1&content=scene:1') =>
+const renderReader = (initialPath = '/?shot=1&content=scene:1', readOnly = false) =>
   renderWithProviders(
     <>
-      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />
+      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} readOnly={readOnly} />
       <Toaster />
     </>,
     {
@@ -386,6 +386,24 @@ describe('StoryboardReader', () => {
     const records = await screen.findByRole('complementary', { name: '生成记录' })
     expect(await within(records).findByText('另一组的历史描述。')).toBeVisible()
     expect(within(records).queryByText('本组生成时使用的历史描述。')).not.toBeInTheDocument()
+  })
+
+  it('只读时生成、正文编辑与历史回填的入口全部收起，不写工作区', async () => {
+    const files = provide()
+    server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [editableJob] })))
+    await renderReader('/?shot=1&content=scene:1', true)
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+
+    expect(screen.getByRole('button', { name: '生成视频' })).toBeDisabled()
+    expect(within(page).getByRole('textbox', { name: '镜头 1 的描述' })).toHaveAttribute(
+      'contenteditable',
+      'false',
+    )
+    await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    expect(await within(records).findByText(/历史版参考锁定/)).toBeVisible()
+    expect(within(records).queryByRole('button', { name: '编辑生成' })).toBeNull()
+    expect(files.writes).toEqual([])
   })
 
   it('编辑生成把历史记录里的镜头组回填到当前组并保存', async () => {

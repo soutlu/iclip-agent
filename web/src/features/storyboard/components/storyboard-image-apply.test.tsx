@@ -70,7 +70,7 @@ const provideJobs = () => {
 const renderReader = () =>
   renderWithProviders(
     <>
-      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} />
+      <StoryboardReader artifact={artifact} conversationId={CONVERSATION_ID} readOnly={false} />
       <Toaster />
     </>,
     { initialPath: '/?content=scene:1' },

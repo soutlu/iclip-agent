@@ -7,38 +7,13 @@ import {
   zTaskInputsOutput,
   type zTaskOut,
 } from '@/shared/api/generated/zod.gen'
+import { mockAuthUser } from './auth-user'
 import { transcriptHandlers } from './transcript'
 import { workspaceHandlers } from './workspace'
 
 // MSW handlers 由单测与 dev:mock 共用；普通 dev 不注册。响应字段以 contract/openapi.json 为准。
 
-export const mockAuthUser = {
-  avatarUrl: '',
-  city: '',
-  createdAt: null,
-  departments: [],
-  directPermissions: [],
-  displayName: '测试用户',
-  email: 'tester@example.com',
-  id: '0f7f4c1e-8a3b-4d0e-9c2a-6b1d2e3f4a5b',
-  isActive: true,
-  jobTitle: '',
-  lastLoginAt: null,
-  permissions: [
-    'agent:read',
-    'agent:run',
-    'generation:read',
-    'generation:submit',
-    'inspirations:read',
-    'uploads:write',
-    'collections:read',
-    'collections:write',
-    'tasks:read',
-    'tasks:write',
-  ],
-  roles: ['editor'],
-  username: 'tester',
-}
+export { mockAuthUser }
 
 // 会话状态由登录更新；页面刷新和单测清理后重置为未登录。
 let sessionActive = false
@@ -192,6 +167,46 @@ export const resetMockTasks = () => {
   mockTasks.length = 0
 }
 
+type MockUser = typeof mockAuthUser
+
+/** 名册里除登录人之外的其他人；治理视图用它把 ownerUserId 翻成名字。 */
+export const mockUsers: MockUser[] = []
+
+export const addMockUser = (displayName: string, id = crypto.randomUUID()) => {
+  const user: MockUser = {
+    ...mockAuthUser,
+    displayName,
+    email: `${id.slice(0, 8)}@example.com`,
+    id,
+    permissions: ['agent:read', 'agent:run'],
+    roles: ['editor'],
+    username: id.slice(0, 8),
+  }
+  mockUsers.push(user)
+  return user
+}
+
+export const resetMockUsers = () => {
+  mockUsers.length = 0
+}
+
+/** 属主、需求单与时间三个筛选先切出范围，state 再在范围内挑；runningTotal 只看范围。 */
+const auditScope = (query: URLSearchParams) => {
+  const owner = query.get('ownerUserId')
+  const taskId = query.get('taskId')
+  const since = query.get('since')
+  const until = query.get('until')
+  return [...mockConversations]
+    .sort(byRecent)
+    .filter(
+      (item) =>
+        (owner === null || item.ownerUserId === owner) &&
+        (taskId === null || item.taskId === taskId) &&
+        (since === null || item.updatedAt >= since) &&
+        (until === null || item.updatedAt <= until),
+    )
+}
+
 export const handlers = [
   // /users/me 是会话事实源，未登录时返回 401。
   http.get('*/api/users/me', () =>
@@ -212,6 +227,25 @@ export const handlers = [
 
   // mock 不启用 SSO，以 404 表示路由未挂载。
   http.get('*/api/auth/sso/authorize', () => new HttpResponse(null, { status: 404 })),
+
+  // 名册一页给全：登录人排第一，其余按加入顺序。
+  http.get('*/api/users', () => {
+    const items = [mockAuthUser, ...mockUsers]
+    return HttpResponse.json({ items, page: 1, pageSize: 200, total: items.length })
+  }),
+
+  // 治理者的全平台列表：两个总数不随翻页变，state 用与侧栏同一口径。
+  http.get('*/api/conversations/audit', ({ request }) => {
+    const query = new URL(request.url).searchParams
+    const scoped = auditScope(query)
+    const rows = scoped.filter((item) => inState(item, query.get('state')))
+    const limit = Number(query.get('limit') ?? 20)
+    return HttpResponse.json({
+      ...pageOf(after(rows, query.get('cursor')), limit),
+      runningTotal: scoped.filter((item) => item.activity.busy).length,
+      total: rows.length,
+    })
+  }),
 
   // 模拟 ILIKE 的大小写不敏感标题搜索，按最近活动排序。
   http.get('*/api/conversations/agents', () =>
