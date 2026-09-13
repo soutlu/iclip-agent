@@ -130,7 +130,7 @@ export function EditReferences({
       <div
         className={cn(
           'image-edit-dropzone rounded-sm border border-dashed border-outline-variant bg-surface-container-lowest',
-          dragOver && 'border-primary bg-primary/4',
+          dragOver && 'border-primary bg-primary-container-soft',
         )}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes('Files')) return
