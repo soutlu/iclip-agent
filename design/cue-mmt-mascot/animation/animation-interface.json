@@ -1,0 +1,246 @@
+{
+  "artboard": "Cue Unboxing",
+  "defaultStateMachine": "Showcase",
+  "viewModel": "CueMascot",
+  "size": [
+    1200,
+    600
+  ],
+  "fps": 60,
+  "durationSeconds": 3.55,
+  "loopAnimation": "Unbox",
+  "motion": {
+    "revealFrames": 18,
+    "revealMilliseconds": 300.0,
+    "foldFrames": 13,
+    "foldMilliseconds": 216.66666666666669,
+    "transitionMilliseconds": {
+      "open": 300,
+      "close": 217
+    },
+    "interruptible": true,
+    "synchronizedObjects": true,
+    "easing": [
+      0.3,
+      0.15,
+      0.7,
+      0.85
+    ],
+    "movingMouthAnchor": {
+      "local": [
+        56,
+        -24
+      ],
+      "closed": [
+        744.68,
+        288.28
+      ],
+      "opened": [
+        273.0,
+        391.0
+      ]
+    }
+  },
+  "stateMachines": [
+    "Showcase",
+    "Interactive",
+    "Preview"
+  ],
+  "properties": {
+    "mode": {
+      "type": "number",
+      "default": 0,
+      "values": {
+        "0": "automatic loop",
+        "1": "expanded boolean interaction",
+        "2": "progress preview"
+      }
+    },
+    "expanded": {
+      "type": "boolean",
+      "default": false
+    },
+    "progress": {
+      "type": "number",
+      "min": 0,
+      "max": 100,
+      "default": 0
+    },
+    "textColor": {
+      "type": "color",
+      "default": "FF171818",
+      "dark": "FFF4F1E9"
+    }
+  },
+  "productAssets": [
+    {
+      "slug": "sneaker",
+      "file": "../assets/svg/sneaker.svg",
+      "center": [
+        534,
+        313
+      ],
+      "visibleLimit": [
+        306,
+        210
+      ],
+      "node": "Sneaker hero pose",
+      "ready": true,
+      "opticalLayoutBounds": [
+        44,
+        234,
+        1214,
+        1018
+      ],
+      "scale": 0.26153846153846155,
+      "representation": "hand-authored native Rive paths with solid fills and linear gradients",
+      "sourceCanvasSize": [
+        1254,
+        1254
+      ],
+      "sourceAlphaBounds": [
+        31,
+        53,
+        1220,
+        1182
+      ]
+    },
+    {
+      "slug": "slide",
+      "file": "../assets/svg/slide.svg",
+      "center": [
+        722,
+        403
+      ],
+      "visibleLimit": [
+        200,
+        122
+      ],
+      "node": "Slide foreground pose",
+      "ready": true,
+      "opticalLayoutBounds": [
+        105,
+        378,
+        1211,
+        943
+      ],
+      "scale": 0.18083182640144665,
+      "representation": "hand-authored native Rive paths with solid fills and linear gradients",
+      "sourceCanvasSize": [
+        1254,
+        1254
+      ],
+      "sourceAlphaBounds": [
+        73,
+        53,
+        1216,
+        1182
+      ]
+    },
+    {
+      "slug": "kids",
+      "file": "../assets/svg/kids.svg",
+      "center": [
+        894,
+        369
+      ],
+      "visibleLimit": [
+        141,
+        128
+      ],
+      "node": "Kids accent pose",
+      "ready": true,
+      "opticalLayoutBounds": [
+        72,
+        163,
+        1197,
+        1114
+      ],
+      "scale": 0.12533333333333332,
+      "representation": "hand-authored native Rive paths with solid fills and linear gradients",
+      "sourceCanvasSize": [
+        1254,
+        1254
+      ],
+      "sourceAlphaBounds": [
+        33,
+        159,
+        1222,
+        1180
+      ]
+    },
+    {
+      "slug": "heel",
+      "file": "../assets/svg/heel.svg",
+      "center": [
+        696,
+        208
+      ],
+      "visibleLimit": [
+        165,
+        190
+      ],
+      "node": "Heel accent pose",
+      "ready": true,
+      "opticalLayoutBounds": [
+        167,
+        82,
+        1149,
+        1159
+      ],
+      "scale": 0.1680244399185336,
+      "representation": "hand-authored native Rive paths with solid fills and linear gradients",
+      "sourceCanvasSize": [
+        1254,
+        1254
+      ],
+      "sourceAlphaBounds": [
+        49,
+        49,
+        1196,
+        1228
+      ]
+    },
+    {
+      "slug": "top",
+      "file": "../assets/svg/top.svg",
+      "center": [
+        915,
+        258
+      ],
+      "visibleLimit": [
+        331,
+        264
+      ],
+      "node": "Top hero pose",
+      "ready": true,
+      "opticalLayoutBounds": [
+        99,
+        150,
+        1203,
+        1155
+      ],
+      "scale": 0.2626865671641791,
+      "representation": "hand-authored native Rive paths with solid fills and linear gradients",
+      "sourceCanvasSize": [
+        1254,
+        1254
+      ],
+      "sourceAlphaBounds": [
+        0,
+        145,
+        1207,
+        1190
+      ]
+    }
+  ],
+  "missingArtwork": [],
+  "hasScripts": false,
+  "usesImageClipping": false,
+  "background": "transparent",
+  "sourceFont": "SourceSerif4-SemiboldItalic.ttf, exact outlines at its original default optical size",
+  "hasBitmapAssets": false,
+  "hasFontAssets": false,
+  "hasTextObjects": false,
+  "wordmarkProvenance": "wordmark-provenance.json"
+}

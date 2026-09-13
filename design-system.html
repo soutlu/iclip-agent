@@ -738,6 +738,7 @@
                 <div class="motion-row"><code>--ease-accel · 退场</code><span>cubic-bezier(0.3, 0, 1, 1)</span><b>accel</b></div>
               </div>
               <p class="type-source-note">动效表达状态与空间变化，遵循系统减少动态效果的偏好。</p>
+              <p class="type-source-note">首页吉祥物 hero（<code>web/src/shared/ui/hero</code>）是内联 SVG，画板 2:1、容器宽 <code>min(640px, 92vw)</code>；悬停展开 300ms、收起 217ms 与缓动曲线烤在素材里，不走 <code>--dur-*</code>，减少动态效果时定格展开态。Cue 字标用 <code>currentColor</code> 取 <code>--color-on-surface</code>，源文件与重建脚本在 <code>design/cue-mmt-mascot</code>。</p>
             </div>
             <div class="scale-group">
               <h3>Elevation tokens</h3>

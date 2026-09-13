@@ -7,17 +7,6 @@ import { pasteTextIntoComposer } from '@/testing/editor'
 import { renderWithProviders } from '@/testing/render'
 import { HomeRoute } from './home-route'
 
-// jsdom 缺少 Lottie 所需 canvas，替换装饰动画以验证标题与输入卡。
-vi.mock('lottie-web/build/player/lottie_light', () => ({
-  default: {
-    loadAnimation: () => ({
-      addEventListener: () => undefined,
-      destroy: () => undefined,
-      removeEventListener: () => undefined,
-    }),
-  },
-}))
-
 beforeEach(() => {
   window.sessionStorage.clear()
 })
@@ -36,7 +25,8 @@ describe('HomeRoute', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Cue' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Cue' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开鞋盒，展示鞋履与服装' })).toBeVisible()
     expect(screen.getByLabelText('输入消息')).toBeVisible()
     expect(screen.queryByRole('button', { name: '添加附件' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '选择 Agent' })).toBeVisible()

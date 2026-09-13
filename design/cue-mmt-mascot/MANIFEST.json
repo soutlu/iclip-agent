@@ -1,0 +1,140 @@
+{
+  "name": "Cue mmt hand-authored vector mascot",
+  "approvedOn": "2026-09-13",
+  "defaultEntry": "index.html",
+  "representations": [
+    "native SVG paths and gradients",
+    "native Rive paths and gradients"
+  ],
+  "runtimeDependencies": {
+    "svg": "none beyond browser APIs",
+    "rive": "Rive runtime installed separately"
+  },
+  "runtimeTimingMs": {
+    "open": 300,
+    "close": 217
+  },
+  "svgBytes": 63794,
+  "riveBytes": 68648,
+  "productSvgBytes": 39132,
+  "bitmapAssets": 0,
+  "embeddedFontAssets": 0,
+  "userApprovedVisualArtifactsUnchanged": true,
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 7316,
+      "sha256": "1e835e863c787099123b060557512bd234d2ee1261c675d4f7a854c46f01d973"
+    },
+    {
+      "path": "animation/animation-interface.json",
+      "bytes": 4781,
+      "sha256": "501812f0419ad845778d37f7f24ac61f89766aa2dd9790ba0a9bdc7ca1e421d0"
+    },
+    {
+      "path": "animation/build/cue-mmt-vector-refined.riv",
+      "bytes": 68648,
+      "sha256": "90f25665fe45fe5d1bf036efa945e96f296a3237210414b60d17a66a9f4fddfd"
+    },
+    {
+      "path": "animation/build_vector.py",
+      "bytes": 14132,
+      "sha256": "0254b27c4c4c60a9cd1b5b5d81445976fbf00eb470ef13c8d56c9742b6b7fd1d"
+    },
+    {
+      "path": "animation/compile-report.json",
+      "bytes": 1194,
+      "sha256": "0d435017c7a05a931847306ff7ae6b8ba152a6a20b730bafd4f6a9691395c819"
+    },
+    {
+      "path": "animation/layout.xml",
+      "bytes": 197310,
+      "sha256": "192b317b857312242c39491af7a03230aa5ea2ac6ddcb4154a52a727db9e83dd"
+    },
+    {
+      "path": "animation/rive.yaml",
+      "bytes": 127,
+      "sha256": "1544669fe3b81b327c1d9ce29e63f8a2c8fde7af08e375c7fe47799cb7b07463"
+    },
+    {
+      "path": "animation/scene.rml",
+      "bytes": 351256,
+      "sha256": "88f5f93858c0412140540c5b82cf6effd955e6bbe1bbb22c7bf7d3f2c06bf207"
+    },
+    {
+      "path": "animation/vector-build.json",
+      "bytes": 2544,
+      "sha256": "0e629b97627ae30a70f1aa9d67e537aeee73cbc4a08811a3935673875c546b31"
+    },
+    {
+      "path": "animation/wordmark-provenance.json",
+      "bytes": 1299,
+      "sha256": "e3aa451b646126d6541aeebfe16bfd3121b83083e7b7b83dc536b81b282b690a"
+    },
+    {
+      "path": "assets/svg/heel.svg",
+      "bytes": 7332,
+      "sha256": "2d3b0721f8810c71ec810815f0730e8eb2ee0e2f68853ce6ed7cc096a42820d1"
+    },
+    {
+      "path": "assets/svg/kids.svg",
+      "bytes": 9942,
+      "sha256": "7c7b01179ab1986da0a9728a172284b4fe114f7f21d28e49d559d98735eecc61"
+    },
+    {
+      "path": "assets/svg/slide.svg",
+      "bytes": 3967,
+      "sha256": "bbd1927649593babe3e21273ebf0a254e9200976dce5d99d90e7a0f4d65a8d52"
+    },
+    {
+      "path": "assets/svg/sneaker.svg",
+      "bytes": 8888,
+      "sha256": "6567481c39d636f496fc06af23dddbc98c6281102c5940d78bccd1e36fb5d6d7"
+    },
+    {
+      "path": "assets/svg/top.svg",
+      "bytes": 9003,
+      "sha256": "526d8bc712c1c72a26d3bfc6f0dc62417ab8d547d8b4fa2d6876b10e4ee2862a"
+    },
+    {
+      "path": "build_svg.py",
+      "bytes": 10700,
+      "sha256": "fe470abb4b51418c2fc89de4cf9cf914361f2f66d82a04f9eaf4f8c79e532093"
+    },
+    {
+      "path": "cue-mmt.js",
+      "bytes": 4834,
+      "sha256": "ad97148c3480ae14881e005a6f2337ef01204d539b411393dd05605ee818d85b"
+    },
+    {
+      "path": "cue-mmt.svg",
+      "bytes": 63794,
+      "sha256": "524aea73e063aee17e872ce34398936c33ef940d421d85f51c01c1af68b7c1a6"
+    },
+    {
+      "path": "index.html",
+      "bytes": 67599,
+      "sha256": "31e9da637930b3309cdca7515f2ba72b2d9185b75d4c672f49a70c5de0dbbcec"
+    },
+    {
+      "path": "index.template.html",
+      "bytes": 3808,
+      "sha256": "e9dc4d4ffdc4aa0ecc82ce74715b460311a67aa18070da4844aa447329b056d9"
+    },
+    {
+      "path": "licenses/Source-Serif-OFL.md",
+      "bytes": 4491,
+      "sha256": "c21d7293d87b6d7ab1d0229a2f55b77f33a7613a6a4e66f6693d68d7d8d09464"
+    },
+    {
+      "path": "preview-svg.js",
+      "bytes": 4135,
+      "sha256": "98880e74bb3d809621a992b9adbdfd4eb7a6f6c29ebe20668ee6fa7234e85ce0"
+    },
+    {
+      "path": "preview.css",
+      "bytes": 5984,
+      "sha256": "f340890a87018a111987e0750c9e1596e6928abc3016c10a13b03a9063251be7"
+    }
+  ]
+}

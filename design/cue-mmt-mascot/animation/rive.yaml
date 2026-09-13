@@ -1,0 +1,7 @@
+name: cue-mmt-vector-refined
+main: Cue Unboxing
+exclude:
+  - build
+logs:
+  file: build/rive.log
+  problems: build/problems.log
