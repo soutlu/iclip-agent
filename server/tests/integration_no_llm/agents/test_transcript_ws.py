@@ -400,6 +400,7 @@ def test_activity_frames_reach_a_connection_that_subscribed_nothing(
                 "busy": False,
                 "pendingInteraction": "none",
                 "lastTurnReason": "completed",
+                "videoGeneration": "none",
             }
 
 
