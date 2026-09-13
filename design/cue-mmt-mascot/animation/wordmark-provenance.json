@@ -1,0 +1,52 @@
+{
+  "sourceFont": "SourceSerif4-SemiboldItalic.ttf",
+  "sourceFontSha256": "32be5ee5d632de015365c16f92f20f770308167998afc59e0cd5e553bd78a15f",
+  "fontSize": 255.0,
+  "unitsPerEm": 1000,
+  "fontAxes": {
+    "opsz": 20.0
+  },
+  "shaper": "HarfBuzz via uharfbuzz 0.56.1",
+  "direction": "ltr",
+  "script": "Latn",
+  "glyphs": [
+    {
+      "glyph": "C",
+      "glyphId": 4,
+      "cluster": 0,
+      "x": 0.0,
+      "y": 0.0,
+      "advance": 150.705,
+      "advanceFontUnits": 591
+    },
+    {
+      "glyph": "u",
+      "glyphId": 48,
+      "cluster": 1,
+      "x": 150.705,
+      "y": 0.0,
+      "advance": 147.135,
+      "advanceFontUnits": 577
+    },
+    {
+      "glyph": "e",
+      "glyphId": 32,
+      "cluster": 2,
+      "x": 297.84000000000003,
+      "y": 0.0,
+      "advance": 111.94500000000001,
+      "advanceFontUnits": 439
+    }
+  ],
+  "advance": 409.785,
+  "contours": 4,
+  "vertices": 112,
+  "textColorBinding": {
+    "sourcePathIds": "0:30-0:35",
+    "propertyKey": 37
+  },
+  "coordinateConversion": "x = font x * 255 / 1000; y = -font y * 255 / 1000; baseline unchanged",
+  "fontAssetEmbedded": false,
+  "sourceSceneSha256": "3d7e99a3665b0a47aa24dadb04e367f9a55e15c7df924ac5b1637a68c3731b20",
+  "motionGraphSha256": "02c367476d8ad4eed61c7f3182329f549fba22d6dc93d92dc1cfd9eb5233148c"
+}

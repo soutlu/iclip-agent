@@ -1,59 +1,73 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { KeyboardEvent, PointerEvent } from 'react'
 import { cn } from '@/shared/lib/utils'
-
-const ANIMATION_PATH = '/lottie/hero.json'
+import { CueMascot } from './cue-mascot'
+import mascotMarkup from './cue-mmt.svg?raw'
 
 type HeroAnimationProps = {
   className?: string
 }
 
-/** hero.css 覆盖 Lottie 呈现属性以切换深色；JS 动画单独处理 reduced-motion。动态导入避免模块加载时探测 canvas，并拆分播放器代码。 */
-export function HeroAnimation({ className }: HeroAnimationProps) {
-  const hostRef = useRef<HTMLDivElement>(null)
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
+/** 首页吉祥物：内联 cue-mmt.svg，悬停展开、移开收起、点击固定、Escape 收起；减少动态效果时定格在展开态。Cue 字标用 currentColor，随主题变色。 */
+export function HeroAnimation({ className }: HeroAnimationProps) {
+  const hostRef = useRef<HTMLButtonElement>(null)
+  const mascotRef = useRef<CueMascot | null>(null)
+  const [expanded, setExpanded] = useState(prefersReducedMotion)
+  const [pinned, setPinned] = useState(false)
+
+  // SVG 是构建期静态资源，挂载时注入；按钮不带 React 子节点，React 不会覆盖它。
   useEffect(() => {
     const host = hostRef.current
-
-    if (!host) {
-      return
-    }
-
-    let animation:
-      | {
-          addEventListener: (name: 'DOMLoaded', callback: () => void) => void
-          removeEventListener: (name: 'DOMLoaded', callback: () => void) => void
-          destroy: () => void
-        }
-      | undefined
-    let cancelled = false
-
-    // 裁剪值来自原图内容包围盒；更换插画时须重新测量。
-    const cropViewBox = () => {
-      host.querySelector('svg')?.setAttribute('viewBox', '600 850 7832 4666')
-    }
-
-    void import('lottie-web/build/player/lottie_light').then(({ default: lottie }) => {
-      if (cancelled) {
-        return
-      }
-
-      animation = lottie.loadAnimation({
-        autoplay: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        container: host,
-        loop: true,
-        path: ANIMATION_PATH,
-        renderer: 'svg',
-      })
-      animation.addEventListener('DOMLoaded', cropViewBox)
-    })
-
+    if (!host) return
+    host.innerHTML = mascotMarkup
+    const svg = host.querySelector('svg')
+    if (!svg) return
+    const mascot = new CueMascot(svg)
+    mascotRef.current = mascot
     return () => {
-      cancelled = true
-      animation?.removeEventListener('DOMLoaded', cropViewBox)
-      animation?.destroy()
+      mascot.destroy()
+      mascotRef.current = null
+      host.replaceChildren()
     }
   }, [])
 
-  // 预留与裁剪 viewBox 一致的宽高比，避免加载后布局偏移。
-  return <div ref={hostRef} aria-hidden className={cn('cue-hero aspect-[7832/4666]', className)} />
+  useEffect(() => {
+    mascotRef.current?.setExpanded(expanded)
+  }, [expanded])
+
+  const hoverStart = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== 'touch') setExpanded(true)
+  }
+  const hoverEnd = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== 'touch' && !pinned) setExpanded(false)
+  }
+  const toggle = () => {
+    setPinned(!pinned)
+    setExpanded(!pinned)
+  }
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'Escape') {
+      setPinned(false)
+      setExpanded(false)
+    }
+  }
+
+  return (
+    <button
+      ref={hostRef}
+      aria-expanded={expanded}
+      aria-label={expanded ? '收起鞋盒' : '展开鞋盒，展示鞋履与服装'}
+      className={cn(
+        'block aspect-[2/1] cursor-pointer rounded-lg text-on-surface ui-focus [&_svg]:block [&_svg]:size-full',
+        className,
+      )}
+      onClick={toggle}
+      onKeyDown={onKeyDown}
+      onPointerEnter={hoverStart}
+      onPointerLeave={hoverEnd}
+      type="button"
+    />
+  )
 }

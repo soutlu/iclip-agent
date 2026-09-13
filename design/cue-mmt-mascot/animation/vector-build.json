@@ -1,0 +1,110 @@
+{
+  "representation": "hand-authored native Rive paths with solid fills and linear gradients",
+  "resourceCounts": {
+    "Image": 0,
+    "ImageAsset": 0,
+    "FontAsset": 0,
+    "Text": 0,
+    "TextStylePaint": 0,
+    "SVGAsset": 0,
+    "ScriptAsset": 0
+  },
+  "geometryCounts": {
+    "Shape": 132,
+    "PointsPath": 127,
+    "StraightVertex": 159,
+    "CubicDetachedVertex": 790,
+    "LinearGradient": 91,
+    "GradientStop": 222
+  },
+  "motionGraphSha256": "02c367476d8ad4eed61c7f3182329f549fba22d6dc93d92dc1cfd9eb5233148c",
+  "motionGraphUnchanged": true,
+  "products": [
+    {
+      "slug": "sneaker",
+      "file": "../assets/svg/sneaker.svg",
+      "artworkNodeId": "0:149",
+      "viewBox": [
+        0,
+        0,
+        1254,
+        1254
+      ],
+      "shapes": 22,
+      "linearGradients": 19,
+      "contours": 22,
+      "vertices": 184,
+      "svgBytes": 8888,
+      "svgSha256": "6567481c39d636f496fc06af23dddbc98c6281102c5940d78bccd1e36fb5d6d7"
+    },
+    {
+      "slug": "slide",
+      "file": "../assets/svg/slide.svg",
+      "artworkNodeId": "0:153",
+      "viewBox": [
+        0,
+        0,
+        1254,
+        1254
+      ],
+      "shapes": 8,
+      "linearGradients": 8,
+      "contours": 8,
+      "vertices": 71,
+      "svgBytes": 3967,
+      "svgSha256": "bbd1927649593babe3e21273ebf0a254e9200976dce5d99d90e7a0f4d65a8d52"
+    },
+    {
+      "slug": "kids",
+      "file": "../assets/svg/kids.svg",
+      "artworkNodeId": "0:157",
+      "viewBox": [
+        0,
+        0,
+        1254,
+        1254
+      ],
+      "shapes": 22,
+      "linearGradients": 19,
+      "contours": 22,
+      "vertices": 179,
+      "svgBytes": 9942,
+      "svgSha256": "7c7b01179ab1986da0a9728a172284b4fe114f7f21d28e49d559d98735eecc61"
+    },
+    {
+      "slug": "heel",
+      "file": "../assets/svg/heel.svg",
+      "artworkNodeId": "0:161",
+      "viewBox": [
+        0,
+        0,
+        1254,
+        1254
+      ],
+      "shapes": 16,
+      "linearGradients": 14,
+      "contours": 16,
+      "vertices": 105,
+      "svgBytes": 7332,
+      "svgSha256": "2d3b0721f8810c71ec810815f0730e8eb2ee0e2f68853ce6ed7cc096a42820d1"
+    },
+    {
+      "slug": "top",
+      "file": "../assets/svg/top.svg",
+      "artworkNodeId": "0:165",
+      "viewBox": [
+        0,
+        0,
+        1254,
+        1254
+      ],
+      "shapes": 20,
+      "linearGradients": 20,
+      "contours": 20,
+      "vertices": 117,
+      "svgBytes": 9003,
+      "svgSha256": "526d8bc712c1c72a26d3bfc6f0dc62417ab8d547d8b4fa2d6876b10e4ee2862a"
+    }
+  ],
+  "rmlBytes": 351256
+}
