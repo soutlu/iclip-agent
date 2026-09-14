@@ -77,7 +77,7 @@ describe('图片编辑器', () => {
     vi.unstubAllGlobals()
   })
 
-  it('换成没有渠道轴的模型后，渠道那栏不再渲染，档位也收敛到它支持的范围', async () => {
+  it('生成设置里可以切换渠道，换成没有渠道轴的模型后提交不再携带渠道', async () => {
     const submissions: Record<string, unknown>[] = []
     server.use(
       http.post('*/api/generations/image', async ({ request }) => {
@@ -88,19 +88,28 @@ describe('图片编辑器', () => {
     await renderWithProviders(<EditorPage />)
 
     const models = await screen.findByLabelText('图片模型')
-    expect(await screen.findByLabelText('图片生成渠道')).toBeInTheDocument()
+    const generate = screen.getByRole('button', { name: '生成图片' })
+    expect(screen.queryByRole('menuitemradio', { name: 'pro' })).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: '更多生成设置' }))
+    const channels = await screen.findByRole('group', { name: '图片生成渠道' })
+    expect(within(channels).getByRole('menuitemradio', { name: 'dev' })).toBeChecked()
+    await userEvent.click(within(channels).getByRole('menuitemradio', { name: 'pro' }))
+    await userEvent.click(generate)
+    await waitFor(() => expect(submissions).toHaveLength(1))
+    expect(submissions[0]?.['channel']).toBe('pro')
 
+    await waitFor(() => expect(models).toBeEnabled())
     await userEvent.selectOptions(models, 'seedream_v5_pro')
 
-    await waitFor(() => expect(screen.queryByLabelText('图片生成渠道')).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '更多生成设置' })).not.toBeInTheDocument()
     const resolutions = within(screen.getByLabelText('图片分辨率')).getAllByRole('option')
     expect(resolutions.map((option) => option.textContent)).toEqual(['1K', '2K'])
 
-    await userEvent.click(screen.getByRole('button', { name: '生成编辑结果' }))
-    await waitFor(() => expect(submissions).toHaveLength(1))
-    expect(submissions[0]?.['model']).toBe('seedream_v5_pro')
-    expect(submissions[0]?.['channel']).toBeUndefined()
-    expect(submissions[0]?.['metadata']).toMatchObject({ sourceUrl: BASE })
+    await userEvent.click(generate)
+    await waitFor(() => expect(submissions).toHaveLength(2))
+    expect(submissions[1]?.['model']).toBe('seedream_v5_pro')
+    expect(submissions[1]?.['channel']).toBeUndefined()
+    expect(submissions[1]?.['metadata']).toMatchObject({ sourceUrl: BASE })
   })
 
   it('提交后新任务占一格并自动选中；草稿暂存与记录刷新都失败也不挡着看在途任务', async () => {
@@ -126,15 +135,14 @@ describe('图片编辑器', () => {
       throw new DOMException('Storage full', 'QuotaExceededError')
     })
 
-    await userEvent.click(within(editor).getByRole('button', { name: '生成编辑结果' }))
+    await userEvent.click(within(editor).getByRole('button', { name: '生成图片' }))
 
     expect(await screen.findByText('编辑草稿无法暂存，关闭页面前请先提交生成')).toBeVisible()
     const queued = await within(strip).findByRole('button', { name: /^排队中 · / })
     expect(queued).toHaveAttribute('aria-pressed', 'true')
-    expect(await within(editor).findByText('图片排队中，关掉窗口也会继续')).toBeVisible()
+    expect(await within(editor).findByRole('status')).toBeVisible()
     expect(await within(editor).findByText(/记录刷新失败/)).toBeVisible()
-    // 在途任务没有产出，应用照旧在原位但按不动。
-    expect(within(editor).getByRole('button', { name: '应用到当前帧' })).toBeDisabled()
+    expect(within(editor).queryByRole('button', { name: '应用到当前帧' })).not.toBeInTheDocument()
   })
 
   it('从帧上的新结果进来就选中它，应用之后窗口留着且那张成了当前帧', async () => {
@@ -164,12 +172,120 @@ describe('图片编辑器', () => {
         'true',
       ),
     )
-    // 折进当前帧格之后不再是一张「还没应用」的结果，应用按不动了。
-    expect(within(editor).getByRole('button', { name: '应用到当前帧' })).toBeDisabled()
+    // 折进当前帧格之后不再是一张「还没应用」的结果。
+    expect(within(editor).queryByRole('button', { name: '应用到当前帧' })).not.toBeInTheDocument()
     expect(within(strip).queryByRole('button', { name: /^结果 · / })).not.toBeInTheDocument()
     // 被换下来的那张留在条里，选中它就能换回去。
     const previous = within(strip).getByRole('button', { name: /^上一版 · / })
     await userEvent.click(previous)
     expect(within(editor).getByRole('button', { name: '应用到当前帧' })).toBeEnabled()
+  })
+
+  it.each(['pending', 'submitted'] as const)('任务处于 %s 时仍能提交新的编辑', async (status) => {
+    const existing = job({ status })
+    const submitted = job({ createdAt: '2026-09-07T12:01:00Z' })
+    const submissions: Record<string, unknown>[] = []
+    server.use(
+      http.get('*/api/generations', () =>
+        HttpResponse.json({ items: submissions.length === 0 ? [existing] : [submitted, existing] }),
+      ),
+      http.post('*/api/generations/image', async ({ request }) => {
+        submissions.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json({ generation: submitted }, { status: 202 })
+      }),
+    )
+    await renderWithProviders(<EditorPage initialKey={existing.id} />)
+
+    const editor = await screen.findByRole('dialog')
+    const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
+    const selected = await within(strip).findByRole('button', { name: /^(排队中|生成中) · / })
+    expect(selected).toHaveAttribute('aria-pressed', 'true')
+    expect(within(editor).getByRole('status')).toBeVisible()
+    expect(within(editor).getByRole('img', { name: '本次编辑底图' })).toHaveAttribute('src', BASE)
+    expect(within(editor).queryByRole('button', { name: '应用到当前帧' })).not.toBeInTheDocument()
+    const generate = within(editor).getByRole('button', { name: '生成图片' })
+    await waitFor(() => expect(generate).toBeEnabled())
+
+    await userEvent.click(generate)
+
+    await waitFor(() => expect(submissions).toHaveLength(1))
+    await waitFor(() =>
+      expect(within(strip).getAllByRole('button', { name: /^(排队中|生成中) · / })).toHaveLength(2),
+    )
+    expect(selected).toHaveAttribute('aria-pressed', 'false')
+    const next = within(strip)
+      .getAllByRole('button', { name: /^排队中 · / })
+      .find((button) => button !== selected)
+    expect(next).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it.each(['图像服务拒绝了请求（400）: {"detail":"invalid reference image"}', null])(
+    '失败状态按需展开原始错误，不把详情直接铺在预览区：%s',
+    async (errorMessage) => {
+      const failed = job({ status: 'failed', errorMessage })
+      server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [failed] })))
+      await renderWithProviders(<EditorPage initialKey={failed.id} />)
+
+      const editor = await screen.findByRole('dialog')
+      const alert = await within(editor).findByRole('alert')
+      expect(alert).toBeVisible()
+      expect(within(editor).getByRole('img', { name: '本次编辑底图' })).toHaveAttribute('src', BASE)
+      expect(within(editor).queryByRole('button', { name: '应用到当前帧' })).not.toBeInTheDocument()
+      if (errorMessage === null) {
+        expect(within(editor).queryByText('查看详情')).not.toBeInTheDocument()
+      } else {
+        const error = within(editor).getByText(errorMessage)
+        expect(error).not.toBeVisible()
+        await userEvent.click(within(editor).getByText('查看详情'))
+        expect(error).toBeVisible()
+        await userEvent.click(within(editor).getByText('查看详情'))
+        expect(error).not.toBeVisible()
+      }
+      await userEvent.click(within(editor).getByRole('button', { name: '返回当前帧' }))
+      const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
+      expect(within(strip).getByRole('button', { name: '当前帧' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+    },
+  )
+
+  it('从历史菜单恢复输入后回到底图，再次提交保留那次的要求和参考图片', async () => {
+    const references = [BASE, 'https://example.com/reference.png']
+    const prompt = '保留人物，背景换成傍晚的暖光'
+    const completed = job({
+      status: 'completed',
+      outputUrl: RESULT,
+      request: { prompt, referenceImageUrls: references },
+    })
+    const submissions: Record<string, unknown>[] = []
+    server.use(
+      http.get('*/api/generations', () => HttpResponse.json({ items: [completed] })),
+      http.post('*/api/generations/image', async ({ request }) => {
+        submissions.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json({ generation: job() }, { status: 202 })
+      }),
+    )
+    await renderWithProviders(<EditorPage initialKey={completed.id} />)
+
+    const editor = await screen.findByRole('dialog')
+    await within(editor).findByRole('img', { name: '图片编辑结果' })
+    expect(screen.queryByRole('menuitem', { name: '恢复这次的输入' })).not.toBeInTheDocument()
+    await userEvent.click(within(editor).getByRole('button', { name: '图片历史操作' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: '恢复这次的输入' }))
+
+    const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
+    expect(within(strip).getByRole('button', { name: '当前帧' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(editor).getByRole('textbox', { name: '修改要求' })).toHaveTextContent(prompt)
+    await userEvent.click(within(editor).getByRole('button', { name: '生成图片' }))
+    await waitFor(() => expect(submissions).toHaveLength(1))
+    expect(submissions[0]).toMatchObject({
+      prompt,
+      referenceImageUrls: references,
+      metadata: { sourceUrl: BASE },
+    })
   })
 })
