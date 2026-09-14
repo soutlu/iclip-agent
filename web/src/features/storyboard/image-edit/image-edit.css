@@ -12,10 +12,6 @@
   padding: 20px 24px;
 }
 
-.image-edit-header > div:first-child {
-  min-width: 0;
-}
-
 .image-edit-header h2 {
   overflow: visible;
   font-size: var(--text-title);
@@ -198,6 +194,10 @@ p.image-edit-photo {
 }
 
 .image-edit-history {
+  /* 缩略图格边长；条两侧留出的空白容得下选中格的描边。 */
+  --image-edit-slot: 76px;
+  --image-edit-strip-gutter: 3px;
+
   display: flex;
   min-width: 0;
   flex: none;
@@ -211,12 +211,12 @@ p.image-edit-photo {
   flex: 1;
   gap: 12px;
   overflow-x: auto;
-  padding: 3px 3px 4px;
+  padding: var(--image-edit-strip-gutter) var(--image-edit-strip-gutter) 4px;
 }
 
 .image-edit-entry {
   display: flex;
-  width: 76px;
+  width: var(--image-edit-slot);
   min-width: 0;
   flex: none;
   flex-direction: column;
@@ -231,11 +231,15 @@ p.image-edit-photo {
   color: var(--color-on-surface);
 }
 
+.image-edit-entry:disabled {
+  cursor: default;
+}
+
 .image-edit-slot {
   position: relative;
   display: block;
-  width: 76px;
-  height: 76px;
+  width: var(--image-edit-slot);
+  height: var(--image-edit-slot);
   overflow: hidden;
   border-radius: var(--radius-md);
   background: var(--color-surface-container-low);
@@ -272,16 +276,20 @@ p.image-edit-photo {
 }
 
 .image-edit-slot-more {
-  min-height: 76px;
+  min-height: var(--image-edit-slot);
   justify-content: center;
   background: var(--color-surface-container-low);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
 
+/* 与缩略图格垂直居中对齐：按钮多高都对得上，不靠算好的上边距。 */
 .image-edit-history-actions {
+  display: flex;
+  height: var(--image-edit-slot);
   flex: none;
-  padding-top: 23px;
+  align-items: center;
+  margin-top: var(--image-edit-strip-gutter);
 }
 
 .image-edit-right {
@@ -328,13 +336,7 @@ p.image-edit-photo {
   gap: 12px;
 }
 
-.image-edit-model-option,
-.image-edit-resolution-option {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
-
+/* 两个就地选择器的外观由共享 Select 的 inline 变体给，这里只排它们在这一行里的宽度。 */
 .image-edit-model-option {
   flex: 1;
 }
@@ -345,42 +347,6 @@ p.image-edit-photo {
 
 .image-edit-settings-controls > button {
   flex: none;
-}
-
-.image-edit-option {
-  display: block;
-  width: 100%;
-  height: var(--control-height-md);
-  padding: 0 24px 0 0;
-  border: 0;
-  border-radius: var(--radius-xs);
-  appearance: none;
-  background: transparent;
-  box-shadow: none;
-  color: var(--color-on-surface);
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.image-edit-option:disabled {
-  color: var(--color-disabled-text);
-  cursor: default;
-}
-
-.image-edit-option option {
-  background: var(--color-surface-container-lowest);
-  color: var(--color-on-surface);
-}
-
-.image-edit-option-chevron {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  color: var(--color-on-surface-muted);
-  translate: 0 -50%;
-  pointer-events: none;
 }
 
 .image-edit-primary-action {
@@ -409,10 +375,6 @@ p.image-edit-photo {
 
 .image-edit-instruction-input p + p {
   margin-top: 8px;
-}
-
-.image-edit-canvas-slot[hidden] {
-  display: none;
 }
 
 .image-edit-canvas {

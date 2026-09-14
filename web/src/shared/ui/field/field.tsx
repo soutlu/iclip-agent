@@ -1,3 +1,4 @@
+import { cva, type VariantProps } from 'class-variance-authority'
 import type { ComponentPropsWithRef, ReactNode } from 'react'
 import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
@@ -67,11 +68,37 @@ export function Textarea({ className, rows = 2, ...props }: ComponentPropsWithRe
   )
 }
 
-export function Select({ className, ...props }: ComponentPropsWithRef<'select'>) {
+// inline 变体没有原生下拉箭头（appearance-none），由外壳补一个；两者必须成对出现。
+const selectVariants = cva(cn(FIELD_TEXT, 'w-full ui-focus'), {
+  variants: {
+    variant: {
+      outlined: cn(FIELD_SURFACE, 'h-(--control-height-xl)'),
+      inline:
+        'h-(--control-height-md) cursor-pointer appearance-none rounded-xs border-0 bg-transparent pr-6 text-ellipsis disabled:cursor-default disabled:text-disabled-text [&_option]:bg-surface-container-lowest [&_option]:text-on-surface',
+    },
+  },
+  defaultVariants: { variant: 'outlined' },
+})
+
+type SelectProps = ComponentPropsWithRef<'select'> &
+  VariantProps<typeof selectVariants> & {
+    /** inline 变体的外壳，由它承担在父布局里的尺寸。 */
+    wrapperClassName?: string
+  }
+
+export function Select({ className, variant, wrapperClassName, ...props }: SelectProps) {
+  const field = <select className={cn(selectVariants({ variant }), className)} {...props} />
+  if (variant !== 'inline') return field
+
   return (
-    <select
-      className={cn(FIELD_SURFACE, FIELD_TEXT, 'h-(--control-height-xl) ui-focus', className)}
-      {...props}
-    />
+    <span className={cn('relative inline-block min-w-0', wrapperClassName)}>
+      {field}
+      <Icon
+        className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 text-on-surface-muted"
+        decorative
+        name="expand"
+        size="sm"
+      />
+    </span>
   )
 }

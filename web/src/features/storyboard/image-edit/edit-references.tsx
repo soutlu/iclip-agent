@@ -7,6 +7,7 @@ import { Button, IconButton } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { MenuItem, MenuRoot, MenuSeparator, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
+import { MAX_EDIT_REFERENCES } from './image-edit-draft'
 import type { EditReference } from './image-edit-types'
 import './edit-references.css'
 
@@ -49,12 +50,9 @@ export function EditReferences({
     .map((url, index) => ({ url, number: index + 1 }))
     .filter((frame) => frame.number !== currentFrame)
 
+  // 上限由上传前的预检与选择器按钮的禁用挡住，这里只管去重。
   const append = (reference: Omit<EditReference, 'id'>) => {
     const current = latestRef.current
-    if (current.length >= 10) {
-      toast.error('每次最多提交 10 张图片')
-      return
-    }
     if (
       current.some((item) =>
         reference.kind === 'annotated'
@@ -70,8 +68,8 @@ export function EditReferences({
 
   const upload = async (files: readonly File[]) => {
     if (locked || uploadRef.current || files.length === 0) return
-    if (files.length + latestRef.current.length > 10) {
-      toast.error('每次最多提交 10 张图片')
+    if (files.length + latestRef.current.length > MAX_EDIT_REFERENCES) {
+      toast.error(`每次最多提交 ${MAX_EDIT_REFERENCES} 张图片`)
       return
     }
     uploadRef.current = true
@@ -117,7 +115,9 @@ export function EditReferences({
       <div className="image-edit-reference-heading">
         <h3 className="text-body font-medium">
           参考图片{' '}
-          <span className="text-caption text-on-surface-muted">{references.length}/10</span>
+          <span className="text-caption text-on-surface-muted">
+            {references.length}/{MAX_EDIT_REFERENCES}
+          </span>
         </h3>
         <Button
           className="px-0 text-on-surface-muted"
@@ -236,7 +236,7 @@ export function EditReferences({
           <li className="image-edit-reference-item">
             <button
               className="image-edit-reference-add ui-focus"
-              disabled={locked || references.length >= 10}
+              disabled={locked || references.length >= MAX_EDIT_REFERENCES}
               onClick={() => fileRef.current?.click()}
               type="button"
               aria-label="添加参考图片"
@@ -279,7 +279,7 @@ export function EditReferences({
                 variant="outlined"
                 disabled={
                   locked ||
-                  references.length >= 10 ||
+                  references.length >= MAX_EDIT_REFERENCES ||
                   references.some((item) => item.kind === 'image' && item.url === baseUrl)
                 }
                 onClick={() => append({ kind: 'image', url: baseUrl, label: '编辑底图' })}
@@ -292,7 +292,7 @@ export function EditReferences({
                 disabled={
                   locked ||
                   !hasAnnotations ||
-                  references.length >= 10 ||
+                  references.length >= MAX_EDIT_REFERENCES ||
                   references.some((item) => item.kind === 'annotated')
                 }
                 onClick={() => append({ kind: 'annotated', url: baseUrl, label: '当前标注图' })}
@@ -312,7 +312,7 @@ export function EditReferences({
                   )}
                   disabled={
                     locked ||
-                    references.length >= 10 ||
+                    references.length >= MAX_EDIT_REFERENCES ||
                     references.some((item) => item.kind === 'image' && item.url === url)
                   }
                   onClick={() => append({ kind: 'image', url, label: `帧 @${number}` })}

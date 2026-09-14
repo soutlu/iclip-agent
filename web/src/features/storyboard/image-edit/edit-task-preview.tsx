@@ -4,6 +4,7 @@ import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { phaseOfStatus } from '../shots'
 import type { StripEntry } from './edit-history'
+import { editTaskLook } from './edit-task-status'
 
 type EditTaskPreviewProps = {
   entry: Extract<StripEntry, { kind: 'pending' | 'failed' }>
@@ -22,6 +23,7 @@ export function EditTaskPreview({
   const [imageFailed, setImageFailed] = useState(false)
   const failed = entry.kind === 'failed'
   const queued = phaseOfStatus(entry.job.status) === 'queued'
+  const look = editTaskLook(entry)
   const errorMessage = entry.job.errorMessage?.trim()
 
   return (
@@ -43,11 +45,11 @@ export function EditTaskPreview({
             <Icon
               className={cn(
                 'image-edit-task-icon',
-                failed ? 'text-error' : 'text-primary',
-                !failed && !queued && 'motion-safe:animate-spin',
+                look.tone,
+                look.spin && 'motion-safe:animate-spin',
               )}
               decorative
-              name={failed ? 'alert' : queued ? 'duration' : 'loading'}
+              name={look.icon}
             />
             <h3 className="mt-4 text-title font-medium">
               {failed ? '这次没有生成成功' : queued ? '图片正在排队' : '正在生成图片'}

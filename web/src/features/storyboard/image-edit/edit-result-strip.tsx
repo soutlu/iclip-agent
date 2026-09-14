@@ -6,10 +6,13 @@ import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
 import { phaseOfStatus } from '../shots'
 import { entryBaseUrl, type StripEntry } from './edit-history'
+import { editTaskLook } from './edit-task-status'
 
 type EditResultStripProps = {
   entries: readonly StripEntry[]
   currentUrl: string
+  /** 上传、提交、应用期间锁住整条：这几段窗口里换底图会把结果写进上一张图的草稿。 */
+  disabled: boolean
   selectedKey: string
   onSelect: (key: string) => void
   hasMore: boolean
@@ -43,6 +46,7 @@ function entryName(entry: StripEntry): string {
 export function EditResultStrip({
   entries,
   currentUrl,
+  disabled,
   selectedKey,
   onSelect,
   hasMore,
@@ -54,13 +58,14 @@ export function EditResultStrip({
     <div className="image-edit-history">
       <div aria-label="这一帧的图片" className="image-edit-strip" role="group">
         {entries.map((entry) => {
-          const task = entry.kind === 'pending' || entry.kind === 'failed'
-          const phase = task ? phaseOfStatus(entry.job.status) : null
+          const look =
+            entry.kind === 'pending' || entry.kind === 'failed' ? editTaskLook(entry) : null
           return (
             <button
               aria-label={entryName(entry)}
               aria-pressed={entry.key === selectedKey}
               className="image-edit-entry ui-focus"
+              disabled={disabled}
               key={entry.key}
               onClick={() => onSelect(entry.key)}
               type="button"
@@ -75,21 +80,12 @@ export function EditResultStrip({
                   src={entryBaseUrl(entry, currentUrl)}
                   loading="lazy"
                 />
-                {task ? (
+                {look ? (
                   <span className="image-edit-slot-state">
                     <Icon
-                      className={cn(
-                        entry.kind === 'failed' ? 'text-error' : 'text-primary',
-                        phase === 'running' && 'motion-safe:animate-spin',
-                      )}
+                      className={cn(look.tone, look.spin && 'motion-safe:animate-spin')}
                       decorative
-                      name={
-                        entry.kind === 'failed'
-                          ? 'alert'
-                          : phase === 'queued'
-                            ? 'duration'
-                            : 'loading'
-                      }
+                      name={look.icon}
                       size="lg"
                     />
                   </span>
@@ -102,7 +98,7 @@ export function EditResultStrip({
         {hasMore ? (
           <button
             className="image-edit-entry image-edit-slot-more ui-focus"
-            disabled={loadingMore}
+            disabled={disabled || loadingMore}
             onClick={onLoadMore}
             type="button"
           >

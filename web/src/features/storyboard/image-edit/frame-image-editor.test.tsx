@@ -58,6 +58,24 @@ function EditorPage({ initialKey }: { initialKey?: string }) {
   )
 }
 
+const UPLOADED = 'https://example.com/uploaded.png'
+const imageFile = () => new File(['image'], '参考.png', { type: 'image/png' })
+
+/** 卡在确认那一步的参考图上传；调用返回的开关才放行。 */
+function stallUpload() {
+  let release = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  server.use(
+    http.post('*/api/uploads/:uploadId/confirm', async () => {
+      await held
+      return HttpResponse.json({ contentType: 'image/png', sizeBytes: 5, url: UPLOADED })
+    }),
+  )
+  return () => release()
+}
+
 describe('图片编辑器', () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -66,6 +84,10 @@ describe('图片编辑器', () => {
         observe() {}
         disconnect() {}
       },
+    )
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn().mockResolvedValue({ close: vi.fn(), height: 1200, width: 800 }),
     )
     sessionStorage.clear()
     sessionStorage.setItem(editDraftKey(target), JSON.stringify({ [BASE]: draft }))
@@ -249,6 +271,69 @@ describe('图片编辑器', () => {
       )
     },
   )
+
+  it('参考图上传期间换不了底图，传完的图落在发起上传的那张底图的草稿里', async () => {
+    const completed = job({ status: 'completed', outputUrl: RESULT })
+    server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [completed] })))
+    const release = stallUpload()
+    await renderWithProviders(<EditorPage />)
+    const editor = await screen.findByRole('dialog')
+    const strip = within(editor).getByRole('group', { name: '这一帧的图片' })
+    const result = await within(strip).findByRole('button', { name: /^结果 · / })
+
+    await userEvent.upload(within(editor).getByLabelText('上传参考图片'), imageFile())
+    await waitFor(() => expect(result).toBeDisabled())
+    await userEvent.click(result)
+    expect(within(strip).getByRole('button', { name: '当前帧' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    release()
+    const uploaded = { name: /^引用参考图 2 · 参考\.png$/ }
+    expect(await within(editor).findByRole('button', uploaded)).toBeVisible()
+
+    // 换到结果那一格是另一张底图，它的草稿里没有刚上传的图；换回来又在。
+    await userEvent.click(result)
+    await waitFor(() =>
+      expect(within(editor).queryByRole('button', uploaded)).not.toBeInTheDocument(),
+    )
+    await userEvent.click(within(strip).getByRole('button', { name: '当前帧' }))
+    expect(within(editor).getByRole('button', uploaded)).toBeVisible()
+  })
+
+  it('上传没完时关不掉窗口，提示等待完成', async () => {
+    const release = stallUpload()
+    await renderWithProviders(<EditorPage />)
+    const editor = await screen.findByRole('dialog')
+    await userEvent.upload(within(editor).getByLabelText('上传参考图片'), imageFile())
+
+    await userEvent.click(within(editor).getByRole('button', { name: '关闭图片编辑' }))
+
+    expect(await screen.findByText('请等待上传或保存完成')).toBeVisible()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    release()
+    expect(
+      await within(editor).findByRole('button', { name: /^引用参考图 2 · 参考\.png$/ }),
+    ).toBeVisible()
+  })
+
+  it('参考图上传失败给出原因，图片列表不变且可以再试', async () => {
+    server.use(
+      http.post('*/api/uploads/sign', () =>
+        HttpResponse.json({ detail: '对象存储暂时不可用' }, { status: 503 }),
+      ),
+    )
+    await renderWithProviders(<EditorPage />)
+    const editor = await screen.findByRole('dialog')
+
+    await userEvent.upload(within(editor).getByLabelText('上传参考图片'), imageFile())
+
+    expect(await screen.findByText(/对象存储暂时不可用/)).toBeVisible()
+    const references = within(editor).getByRole('list', { name: '提交图片顺序' })
+    expect(within(references).getAllByRole('img')).toHaveLength(1)
+    expect(within(editor).getByRole('button', { name: '添加参考图片' })).toBeEnabled()
+  })
 
   it('从历史菜单恢复输入后回到底图，再次提交保留那次的要求和参考图片', async () => {
     const references = [BASE, 'https://example.com/reference.png']

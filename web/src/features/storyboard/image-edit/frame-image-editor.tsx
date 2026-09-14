@@ -78,12 +78,15 @@ export function FrameImageEditor({
     requestId: number
   } | null>(null)
   const [preview, setPreview] = useState<EditReference | null>(null)
+  // 记地址而不是布尔：换一条结果就该重新试着加载那张图。
+  const [brokenResult, setBrokenResult] = useState<string | null>(null)
   const [wantedModel, setWantedModel] = useState<string>()
   const [wantedChannel, setWantedChannel] = useState<ImageChannel>('dev')
   const [wantedResolution, setWantedResolution] = useState<ImageResolution>('2k')
-  const [submitting, setSubmitting] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [applying, setApplying] = useState(false)
+  // 三段互斥的写操作：同一时刻只可能有一段在跑，编辑器其余部分按 busy 一起锁住。
+  const [operation, setOperation] = useState<'idle' | 'uploading' | 'submitting' | 'applying'>(
+    'idle',
+  )
   const [operationError, setOperationError] = useState<string | null>(null)
   const [canvasRevision, setCanvasRevision] = useState(0)
   // 用户确认过的当前帧，应用时拿它当替换凭据。
@@ -116,7 +119,7 @@ export function FrameImageEditor({
   const selected = entries.find((entry) => entry.key === selectedKey) ?? entries[0]
   const baseUrl = selected === undefined ? '' : entryBaseUrl(selected, currentUrl ?? '')
   const draft = useMemo(() => draftOf(drafts.drafts, baseUrl), [drafts.drafts, baseUrl])
-  const busy = submitting || uploading || applying
+  const busy = operation !== 'idle'
   const problem = editDraftError(draft)
   const canApply =
     selected?.kind === 'image' && currentUrl !== undefined && selected.url !== currentUrl
@@ -149,7 +152,7 @@ export function FrameImageEditor({
       return
     }
     activeRef.current = true
-    setSubmitting(true)
+    setOperation('submitting')
     setOperationError(null)
     try {
       // 仅用户选中的标注图需要导出；普通图片直接使用列表中的地址。
@@ -198,14 +201,14 @@ export function FrameImageEditor({
       setOperationError(error instanceof Error ? error.message : '图片编辑提交失败')
     } finally {
       activeRef.current = false
-      setSubmitting(false)
+      setOperation('idle')
     }
   }
   const apply = async () => {
     if (!canApply || busy || activeRef.current) return
     const applied = selected.url
     activeRef.current = true
-    setApplying(true)
+    setOperation('applying')
     setOperationError(null)
     try {
       await onApply(acknowledgedRef.current ?? currentUrl, applied)
@@ -220,7 +223,7 @@ export function FrameImageEditor({
       setOperationError(error instanceof Error ? error.message : '图片尚未应用，请重试')
     } finally {
       activeRef.current = false
-      setApplying(false)
+      setOperation('idle')
     }
   }
 
@@ -306,9 +309,19 @@ export function FrameImageEditor({
                 onReturnToCurrent={() => select(CURRENT_KEY)}
               />
             ) : selected?.kind === 'image' ? (
-              <div className="image-edit-photo">
-                <img alt="图片编辑结果" src={selected.url} />
-              </div>
+              brokenResult === selected.url ? (
+                <p className="image-edit-photo text-body-sm text-on-surface-muted">
+                  这张图暂时无法显示
+                </p>
+              ) : (
+                <div className="image-edit-photo">
+                  <img
+                    alt="图片编辑结果"
+                    src={selected.url}
+                    onError={() => setBrokenResult(selected.url)}
+                  />
+                </div>
+              )
             ) : (
               <div className="image-edit-canvas-slot">
                 <AnnotationCanvas
@@ -326,6 +339,7 @@ export function FrameImageEditor({
             <EditResultStrip
               entries={entries}
               currentUrl={currentUrl ?? ''}
+              disabled={busy}
               selectedKey={selected?.key ?? CURRENT_KEY}
               onSelect={select}
               hasMore={jobsQuery.hasNextPage}
@@ -389,7 +403,8 @@ export function FrameImageEditor({
                 hasAnnotations={draft.annotations.length > 0}
                 disabled={busy}
                 onChange={(references) => changeDraft({ ...draft, references })}
-                onBusyChange={setUploading}
+                // 参考图上传只会从空闲态发起，结束时直接回到空闲。
+                onBusyChange={(uploading) => setOperation(uploading ? 'uploading' : 'idle')}
                 onInsertReference={(id) => insert('referenceImage', id)}
                 onPreview={previewReference}
               />
@@ -445,7 +460,7 @@ export function FrameImageEditor({
                 <Button
                   className="image-edit-primary-action"
                   disabled={busy}
-                  loading={applying}
+                  loading={operation === 'applying'}
                   onClick={() => void apply()}
                 >
                   应用到当前帧
@@ -457,7 +472,7 @@ export function FrameImageEditor({
                 disabled={
                   busy || drafts.error !== null || model === undefined || currentUrl === undefined
                 }
-                loading={submitting}
+                loading={operation === 'submitting'}
                 onClick={() => void submit()}
               >
                 生成图片

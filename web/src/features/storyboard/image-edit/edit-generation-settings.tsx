@@ -1,4 +1,3 @@
-import { Icon } from '@/shared/icons'
 import { IconButton } from '@/shared/ui/button'
 import { Select } from '@/shared/ui/field'
 import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
@@ -40,42 +39,38 @@ export function EditGenerationSettings({
   return (
     <div className="image-edit-settings">
       <div className="image-edit-settings-controls">
-        <span className="image-edit-model-option">
-          <Select
-            aria-label="图片模型"
-            className="image-edit-option"
-            disabled={disabled || models.length === 0}
-            value={model?.model ?? ''}
-            onChange={(event) => onModelChange(event.target.value)}
-          >
-            {models.length === 0 ? <option value="">读取模型中…</option> : null}
-            {models.map((item) => {
-              const usable = item.aspectRatios.includes(aspectRatio)
-              return (
-                <option key={item.model} value={item.model} disabled={!usable}>
-                  {usable ? item.label : `${item.label}（不支持 ${aspectRatio}）`}
-                </option>
-              )
-            })}
-          </Select>
-          <Icon className="image-edit-option-chevron" decorative name="expand" size="sm" />
-        </span>
-        <span className="image-edit-resolution-option">
-          <Select
-            aria-label="图片分辨率"
-            className="image-edit-option"
-            disabled={disabled || resolution === undefined}
-            value={resolution ?? ''}
-            onChange={(event) => onResolutionChange(event.target.value as ImageResolution)}
-          >
-            {model?.resolutions.map((value) => (
-              <option key={value} value={value}>
-                {value.toUpperCase()}
+        <Select
+          aria-label="图片模型"
+          disabled={disabled || models.length === 0}
+          value={model?.model ?? ''}
+          variant="inline"
+          wrapperClassName="image-edit-model-option"
+          onChange={(event) => onModelChange(event.target.value)}
+        >
+          {models.length === 0 ? <option value="">读取模型中…</option> : null}
+          {models.map((item) => {
+            const usable = item.aspectRatios.includes(aspectRatio)
+            return (
+              <option key={item.model} value={item.model} disabled={!usable}>
+                {usable ? item.label : `${item.label}（不支持 ${aspectRatio}）`}
               </option>
-            ))}
-          </Select>
-          <Icon className="image-edit-option-chevron" decorative name="expand" size="sm" />
-        </span>
+            )
+          })}
+        </Select>
+        <Select
+          aria-label="图片分辨率"
+          disabled={disabled || resolution === undefined}
+          value={resolution ?? ''}
+          variant="inline"
+          wrapperClassName="image-edit-resolution-option"
+          onChange={(event) => onResolutionChange(event.target.value as ImageResolution)}
+        >
+          {model?.resolutions.map((value) => (
+            <option key={value} value={value}>
+              {value.toUpperCase()}
+            </option>
+          ))}
+        </Select>
         {channel !== undefined ? (
           <MenuRoot>
             <MenuTrigger asChild>

@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
+/** 一次编辑提交给模型的图片上限，编辑器的提示、禁用与终校共用。 */
+export const MAX_EDIT_REFERENCES = 10
+
 // 编辑器内部的形状，不进 HTTP：提交时只发编译好的 prompt 与图片地址。
 const idSchema = z.string().min(1).max(100)
 const urlSchema = z.string().min(1).max(4096)
@@ -34,7 +37,7 @@ const draftSchema = z.object({
         label: z.string().min(1).max(200),
       }),
     )
-    .max(10),
+    .max(MAX_EDIT_REFERENCES),
 })
 
 /** 一格上每张底图各一份草稿：圈画在哪张图上，修改要求里的芯片就指着那张图上的圈。
@@ -96,7 +99,8 @@ export function editDraftError(draft: FrameEditDraft): string | null {
     return '修改要求不能超过 4000 字'
 
   if (draft.references.length === 0) return '请先选择要提交给模型的图片'
-  if (draft.references.length > 10) return '每次最多提交 10 张图片'
+  if (draft.references.length > MAX_EDIT_REFERENCES)
+    return `每次最多提交 ${MAX_EDIT_REFERENCES} 张图片`
   if (draft.instructions.every((part) => part.kind === 'text' && part.text.trim() === ''))
     return '请填写修改要求'
   for (const part of draft.instructions) {
