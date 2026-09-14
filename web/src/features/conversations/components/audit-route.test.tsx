@@ -123,6 +123,32 @@ describe('AuditRoute', () => {
     expectTotals(1, 3)
   })
 
+  it('缺省不列已删的；切「已删除」只剩墓碑，行上标出删除时间', async () => {
+    const { other } = seedThree()
+    const gone = addMockConversation('删掉的片', '2026-09-03T00:00:00Z')
+    gone.ownerUserId = other.id
+    gone.deletedAt = '2026-09-04T00:00:00Z'
+    const { user } = await render()
+    await rowOf('小王的秋季片')
+    expect(screen.queryByRole('link', { name: /删掉的片/ })).not.toBeInTheDocument()
+    expectTotals(1, 3)
+
+    await user.click(screen.getByRole('radio', { name: '已删除' }))
+
+    const row = await rowOf('删掉的片')
+    expect(row).toHaveTextContent('已删除 ·')
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: /小王的秋季片/ })).not.toBeInTheDocument(),
+    )
+    expectTotals(0, 1)
+
+    await user.click(screen.getByRole('radio', { name: '不限' }))
+    await waitFor(() =>
+      expect(within(screen.getByRole('list')).getAllByRole('link')).toHaveLength(4),
+    )
+    expectTotals(1, 4)
+  })
+
   it('关闭用户浮层后立即重开时清空临时搜索词，重新展示完整候选', async () => {
     seedThree()
     const { user } = await render()

@@ -171,22 +171,6 @@ class PgFileStore:
             ).first()
         return deleted is not None
 
-    async def purge_namespace(self, namespace: str) -> int:
-        """宿主删除会话时清空命名空间；不向模型的 FileStore 协议暴露。
-
-        需持写锁，防止并发 upsert 在清空后重建文件。
-        """
-
-        table = workspace_files_table
-        async with self._engine.begin() as conn:
-            await self._lock(conn, namespace)
-            deleted = (
-                await conn.execute(
-                    delete(table).where(table.c.namespace == namespace).returning(table.c.path)
-                )
-            ).all()
-        return len(deleted)
-
     async def entries(self, namespace: str, *, prefix: str = "") -> Sequence[FileEntry]:
         table = workspace_files_table
         conditions = [table.c.namespace == namespace]

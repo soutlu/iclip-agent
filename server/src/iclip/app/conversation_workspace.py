@@ -1,4 +1,4 @@
-"""对话与工作区的适配：文件读写、素材登记、派生数据清理及文档校验。"""
+"""对话与工作区的适配：文件读写、素材登记及文档校验。"""
 
 from __future__ import annotations
 
@@ -29,13 +29,6 @@ class ConversationWorkspace:
         self._store = store
         self._announcing = announcing
         self._ledger = ledger
-
-    async def purge(self, owner: uuid.UUID, conversation_id: uuid.UUID) -> None:
-        """清理对话工作区与素材台账。"""
-
-        namespace = namespace_for(owner, str(conversation_id))
-        await self._store.purge_namespace(namespace)
-        await self._ledger.purge_namespace(namespace)
 
     async def record_materials(
         self, owner: uuid.UUID, conversation_id: str, content: Sequence[PromptContent]

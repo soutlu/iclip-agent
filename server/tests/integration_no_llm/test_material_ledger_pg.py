@@ -87,19 +87,6 @@ async def test_lookup_is_scoped_to_the_namespace(ledger: PgMaterialLedger, names
     assert await ledger.lookup(str(uuid.uuid4()), VIDEO) is None
 
 
-async def test_purge_only_clears_its_own_namespace(
-    ledger: PgMaterialLedger, namespace: str
-) -> None:
-    other = str(uuid.uuid4())
-    await ledger.record(namespace, [Material(url=VIDEO, kind="video")])
-    await ledger.record(other, [Material(url=VIDEO, kind="video")])
-
-    await ledger.purge_namespace(namespace)
-
-    assert await ledger.lookup(namespace, VIDEO) is None
-    assert await ledger.lookup(other, VIDEO) is not None
-
-
 async def test_recording_nothing_is_a_no_op(ledger: PgMaterialLedger, namespace: str) -> None:
     """空素材列表必须跳过 INSERT，避免生成缺少 VALUES 的无效语句。"""
 

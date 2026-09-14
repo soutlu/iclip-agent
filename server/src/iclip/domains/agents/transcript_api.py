@@ -155,13 +155,16 @@ class Transcripts(Protocol):
 
 
 class ConversationHeader(Protocol):
-    """会话页首屏要贴在信封顶层的两项。"""
+    """会话页首屏要贴在信封顶层的三项。"""
 
     @property
     def title(self) -> str: ...
 
     @property
     def owner_user_id(self) -> uuid.UUID: ...
+
+    @property
+    def deleted_at(self) -> datetime | None: ...
 
 
 class Conversations(Protocol):
@@ -446,7 +449,11 @@ def create_transcript_router(
         )
         header = await conversations.header_of(principal, conversation_id)
         return page.model_copy(
-            update={"title": header.title, "owner_user_id": str(header.owner_user_id)}
+            update={
+                "title": header.title,
+                "owner_user_id": str(header.owner_user_id),
+                "deleted_at": None if header.deleted_at is None else header.deleted_at.isoformat(),
+            }
         )
 
     @router.get("/transcript/ops", response_model=OpsCatchup)

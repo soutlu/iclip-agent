@@ -4,10 +4,16 @@ import { auditSearchParams, DEFAULT_AUDIT_FILTERS } from './audit.api'
 const NOW = new Date('2026-09-12T08:00:00Z')
 
 describe('auditSearchParams', () => {
-  it('默认筛选只带 state 与 limit，全部时间不带 since / until', () => {
+  it('默认筛选只带 state、deleted 与 limit，全部时间不带 since / until', () => {
     const params = auditSearchParams(DEFAULT_AUDIT_FILTERS, null, NOW)
-    expect([...params.keys()].sort()).toEqual(['limit', 'state'])
+    expect([...params.keys()].sort()).toEqual(['deleted', 'limit', 'state'])
     expect(params.get('state')).toBe('all')
+    expect(params.get('deleted')).toBe('live')
+  })
+
+  it('删没删的三值原样带上', () => {
+    const params = auditSearchParams({ ...DEFAULT_AUDIT_FILTERS, deleted: 'deleted' }, null, NOW)
+    expect(params.get('deleted')).toBe('deleted')
   })
 
   it.each([

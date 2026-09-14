@@ -270,6 +270,7 @@ export const zConversationOut = z.object({
   agentId: z.string(),
   collectionId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
+  deletedAt: z.iso.datetime().nullable(),
   id: z.uuid(),
   lastRunId: z.string().nullable(),
   ownerUserId: z.uuid(),
@@ -1186,6 +1187,7 @@ export const zTranscriptTurn = z.object({
 export const zTranscriptPage = z.object({
   agent_id: z.string(),
   agents: z.array(zAgentDescriptor).optional().default([]),
+  deleted_at: z.string().nullish(),
   has_more: z.boolean(),
   interactions: z.array(zInteraction).optional().default([]),
   items: z.array(zTranscriptTurn),
@@ -1503,6 +1505,7 @@ export const zAuditConversationsConversationsAuditGetQuery = z.object({
   since: z.iso.datetime().nullish(),
   until: z.iso.datetime().nullish(),
   state: z.enum(['all', 'running', 'done']).optional().default('all'),
+  deleted: z.enum(['live', 'deleted', 'all']).optional().default('live'),
   limit: z.int().gte(1).lte(100).optional().default(20),
   cursor: z.string().nullish(),
 })

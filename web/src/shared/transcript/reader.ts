@@ -40,6 +40,8 @@ export interface TranscriptView {
   title: string
   /** 属主取基线；基线未到时为 null。 */
   ownerUserId: string | null
+  /** 属主删掉它的时刻，取基线；活着的对话与基线未到时为 null。 */
+  deletedAt: string | null
   /** loading 表示等待基线；读取失败或无法对齐时为 error。 */
   status: 'loading' | 'ready' | 'error'
   /** 是否存在更早的历史轮次。 */
@@ -50,6 +52,7 @@ export interface TranscriptView {
 const EMPTY_VIEW: TranscriptView = {
   activity: 'unknown',
   contextTokens: undefined,
+  deletedAt: null,
   hasMoreOlder: false,
   items: [],
   maxContextTokens: undefined,
@@ -221,6 +224,7 @@ export class TranscriptReader {
         this.snapshot = {
           activity: this.transcript.getMeta().activity ?? 'unknown',
           contextTokens: this.transcript.getMeta().agent?.contextTokens,
+          deletedAt: baseline.deletedAt,
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
           maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,

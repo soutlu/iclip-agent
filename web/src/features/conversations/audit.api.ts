@@ -10,8 +10,12 @@ import { conversationsQueryKeys, type ConversationListState } from './conversati
 /** 时间筛选作用在 updatedAt 上；custom 时读 since / until 两个本地日期。 */
 export type AuditRange = '7d' | '30d' | 'all' | 'custom'
 
+/** 删没删：缺省只看活着的，deleted 只看属主删掉的，all 都看。 */
+export type AuditDeleted = 'live' | 'deleted' | 'all'
+
 export interface AuditFilters {
   state: ConversationListState
+  deleted: AuditDeleted
   ownerUserId: string | null
   taskId: string | null
   range: AuditRange
@@ -21,6 +25,7 @@ export interface AuditFilters {
 }
 
 export const DEFAULT_AUDIT_FILTERS: AuditFilters = {
+  deleted: 'live',
   ownerUserId: null,
   range: 'all',
   since: null,
@@ -42,6 +47,7 @@ export const auditSearchParams = (
 ): URLSearchParams => {
   const params = new URLSearchParams()
   params.set('state', filters.state)
+  params.set('deleted', filters.deleted)
   params.set('limit', String(PAGE_LIMIT))
   if (filters.ownerUserId !== null) params.set('ownerUserId', filters.ownerUserId)
   if (filters.taskId !== null) params.set('taskId', filters.taskId)

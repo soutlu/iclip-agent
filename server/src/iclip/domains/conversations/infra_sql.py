@@ -1,6 +1,7 @@
 """对话的 Postgres 仓储。使用数据库时钟，避免实例钟差影响最近活动排序。
 
-删除只标记 ``deleted_at``：行留着占住 id，每条读写都只看活着的行。"""
+删除只标记 ``deleted_at``：行留着占住 id。除治理者的审计列表与 ``include_deleted`` 直读，
+每条读写都只看活着的行。"""
 
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ from iclip.domains.conversations.models import Conversation
 from iclip.domains.conversations.repository import (
     AuditFilter,
     CollectionConversations,
+    DeletedFilter,
     PageCursor,
     StateFilter,
 )
@@ -78,8 +80,9 @@ conversations_table = Table(
 
 _ROWS = conversations_table.c
 _LIVE = _ROWS.deleted_at.is_(None)
+_DELETED = _ROWS.deleted_at.is_not(None)
 
-# 索引都只收活着的行；首列覆盖 owner_user_id 查询，无需另建单列索引。
+# 属主视角的索引都只收活着的行；首列覆盖 owner_user_id 查询，无需另建单列索引。
 Index(
     "ix_conversations_owner_recent",
     _ROWS.owner_user_id,
@@ -87,8 +90,8 @@ Index(
     postgresql_where=_LIVE,
 )
 
-# 审计分页使用 updated_at 与 id 的复合游标。
-Index("ix_conversations_updated", _ROWS.updated_at.desc(), _ROWS.id.desc(), postgresql_where=_LIVE)
+# 审计分页使用 updated_at 与 id 的复合游标；审计能查墓碑，所以这一个索引收全部行。
+Index("ix_conversations_updated", _ROWS.updated_at.desc(), _ROWS.id.desc())
 
 # 再排除无归属记录；需求单尝试按 created_at 升序排列。
 Index(
@@ -117,6 +120,7 @@ def _row(mapping: RowMapping) -> Conversation:
         collection_id=mapping["collection_id"],
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
+        deleted_at=mapping["deleted_at"],
     )
 
 
@@ -146,10 +150,20 @@ def _state_conditions(state: StateFilter | None) -> list[ColumnElement[bool]]:
     return [ran, _ROWS.id.not_in(state.busy)] if state.busy else [ran]
 
 
-def _audit_conditions(scope: AuditFilter, state: StateFilter | None) -> list[ColumnElement[bool]]:
-    """列表与两个计数共用同一组条件，三个数字才对得上；``_LIVE`` 由各查询自己加。"""
+def _deleted_conditions(deleted: DeletedFilter) -> list[ColumnElement[bool]]:
+    """``live`` / ``deleted`` 各取一边，``all`` 不筛。"""
 
-    conditions = _state_conditions(state)
+    if deleted == "live":
+        return [_LIVE]
+    if deleted == "deleted":
+        return [_DELETED]
+    return []
+
+
+def _audit_conditions(scope: AuditFilter, state: StateFilter | None) -> list[ColumnElement[bool]]:
+    """列表与两个计数共用同一组条件，三个数字才对得上；墓碑收不收由 ``scope.deleted`` 决定。"""
+
+    conditions = [*_deleted_conditions(scope.deleted), *_state_conditions(state)]
     if scope.owner is not None:
         conditions.append(_ROWS.owner_user_id == scope.owner)
     if scope.task_id is not None:
@@ -208,9 +222,17 @@ class SqlConversationRepository:
             return await self.get(conversation.id, owner=conversation.owner_user_id), False
         return _row(row), True
 
-    async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:
+    async def get(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        owner: uuid.UUID | None,
+        include_deleted: bool = False,
+    ) -> Conversation:
         statement = select(conversations_table).where(
-            _ROWS.id == conversation_id, _LIVE, *owner_conditions(_ROWS.owner_user_id, owner)
+            _ROWS.id == conversation_id,
+            *([] if include_deleted else [_LIVE]),
+            *owner_conditions(_ROWS.owner_user_id, owner),
         )
         async with self._engine.connect() as conn:
             row = (await conn.execute(statement)).mappings().one_or_none()
@@ -246,6 +268,7 @@ class SqlConversationRepository:
         return await self._page(
             _ROWS.owner_user_id == owner,
             _ROWS.collection_id.is_(None),
+            _LIVE,
             *_state_conditions(state),
             limit=limit,
             after=after,
@@ -277,6 +300,7 @@ class SqlConversationRepository:
         return await self._page(
             _ROWS.owner_user_id == owner,
             _ROWS.collection_id == collection_id,
+            _LIVE,
             *_state_conditions(state),
             limit=limit,
             after=after,
@@ -288,11 +312,11 @@ class SqlConversationRepository:
         limit: int,
         after: PageCursor | None,
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序分页，共用于侧栏未分类区和合集区。"""
+        """按最近活动倒序分页，共用于侧栏两区与审计；墓碑收不收由调用方放进 ``conditions``。"""
 
         statement = (
             select(conversations_table)
-            .where(*conditions, _LIVE, *_after(after))
+            .where(*conditions, *_after(after))
             .order_by(_ROWS.updated_at.desc(), _ROWS.id.desc())
             .limit(limit)
         )
@@ -375,7 +399,7 @@ class SqlConversationRepository:
         statement = (
             select(func.count())
             .select_from(conversations_table)
-            .where(_LIVE, *_audit_conditions(scope, state))
+            .where(*_audit_conditions(scope, state))
         )
         async with self._engine.connect() as conn:
             return int((await conn.execute(statement)).scalar_one())

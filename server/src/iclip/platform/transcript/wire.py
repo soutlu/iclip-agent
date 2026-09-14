@@ -307,6 +307,8 @@ class TranscriptPage(_Envelope):
     owner_user_id: str | None = None
     """属主，与 ``title`` 一样是 REST 端点贴上的信封字段：会话页据此判断这是不是自己的对话。
     引擎侧不认识对话表，直接由引擎生成的页（场景金样）没有它。"""
+    deleted_at: str | None = None
+    """属主删掉这段对话的 ISO 时刻，同样由 REST 端点贴上；只有治理者复盘墓碑时非空。"""
     agents: tuple[AgentDescriptor, ...] = ()
     pending_interactions: tuple[str, ...] = ()
     seq: int

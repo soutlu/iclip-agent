@@ -320,7 +320,9 @@ BEFORE_LAST_RUN_BACKFILL = "2d6f8a1b4c07"
 async def test_last_run_backfill_takes_the_latest_run_and_keeps_later_renames(
     migrated_pg: str,
 ) -> None:
-    """0006：活着的对话记下最近一次 run，过时的值也重算；updated_at 只往后推；没跑过的与已删的不动。"""
+    """0006：活着的对话记下最近一次 run，过时的值也重算；updated_at 只往后推；没跑过的不动。
+
+    0006 跳过的墓碑由 0007 用同一条规则补上，一起升到 head 后两边的值一样。"""
 
     cfg = _alembic(migrated_pg)
     owner = uuid.uuid4()
@@ -429,5 +431,5 @@ async def test_last_run_backfill_takes_the_latest_run_and_keeps_later_renames(
         ran_twice: ("backfill-r2", second_run_at),
         renamed_after: ("backfill-r3", renamed_at),
         never_ran: (None, opened_at),
-        deleted: (None, opened_at),
+        deleted: ("backfill-r4", first_run_at),
     }
