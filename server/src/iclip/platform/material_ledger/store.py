@@ -28,7 +28,5 @@ class MaterialLedger(Protocol):
 
     async def lookup(self, namespace: str, url: str) -> Material | None: ...
 
-    async def purge_namespace(self, namespace: str) -> None: ...
-
 
 __all__ = ["Material", "MaterialKind", "MaterialLedger"]

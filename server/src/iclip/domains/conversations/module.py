@@ -17,7 +17,6 @@ from iclip.domains.conversations.service import (
     ListAgents,
     ListCollections,
     ListDerivedFiles,
-    PurgeDerived,
     ReadDerivedFile,
     WorkspaceDocumentValidator,
     WriteDerivedFile,
@@ -36,7 +35,6 @@ def build_conversations_module(
     repo: ConversationRepository,
     *,
     list_agents: ListAgents,
-    purge_derived: PurgeDerived,
     list_collections: ListCollections,
     list_derived_files: ListDerivedFiles,
     read_derived_file: ReadDerivedFile,
@@ -51,7 +49,6 @@ def build_conversations_module(
 
     service = ConversationService(
         repo,
-        purge_derived=purge_derived,
         list_collections=list_collections,
         list_derived_files=list_derived_files,
         read_derived_file=read_derived_file,

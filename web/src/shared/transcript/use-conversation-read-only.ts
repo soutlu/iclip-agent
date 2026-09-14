@@ -1,8 +1,9 @@
 import { useUser } from '@/shared/auth'
 import type { TranscriptView } from './reader'
 
-/** 对话已就绪且属主不是登录人时只读；治理者看别人的对话就是这种情况。基线未到不算只读。 */
+/** 对话已就绪，且属主不是登录人或对话已被删时只读；两种情况都只有治理者复盘会遇到。基线未到不算只读。 */
 export const useConversationReadOnly = (view: TranscriptView): boolean => {
   const { data: user } = useUser()
-  return view.status === 'ready' && user != null && view.ownerUserId !== user.id
+  if (view.status !== 'ready' || user == null) return false
+  return view.ownerUserId !== user.id || view.deletedAt !== null
 }

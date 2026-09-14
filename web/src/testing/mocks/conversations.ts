@@ -12,6 +12,7 @@ export type MockConversation = {
   agentId: string
   collectionId: string | null
   createdAt: string
+  deletedAt: string | null
   id: string
   lastRunId: string | null
   ownerUserId: string
@@ -37,6 +38,7 @@ export const addMockConversation = (
     agentId: 'storyboard',
     collectionId: null,
     createdAt: updatedAt,
+    deletedAt: null,
     id: crypto.randomUUID(),
     lastRunId: null,
     ownerUserId,

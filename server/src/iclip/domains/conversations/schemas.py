@@ -101,6 +101,8 @@ class ConversationOut(CamelModel):
     collection_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None
+    """属主删掉它的时刻。只有治理者审计带 ``deleted`` 筛选时才会见到非空值。"""
     activity: ConversationActivityOut
 
 
@@ -205,6 +207,7 @@ def conversation_out(conversation: Conversation, activity: ConversationActivity)
         collection_id=conversation.collection_id,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
+        deleted_at=conversation.deleted_at,
         activity=ConversationActivityOut(
             busy=activity.busy,
             pending_interaction=activity.pending_interaction,

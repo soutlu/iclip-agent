@@ -11,7 +11,6 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     Table,
     Text,
-    delete,
     func,
     select,
 )
@@ -72,13 +71,6 @@ class PgMaterialLedger:
         if row is None:
             return None
         return Material(url=url, kind=cast(MaterialKind, row[0]))
-
-    async def purge_namespace(self, namespace: str) -> None:
-        """由宿主在删除会话时清理命名空间素材。"""
-
-        table = materials_table
-        async with self._engine.begin() as conn:
-            await conn.execute(delete(table).where(table.c.namespace == namespace))
 
 
 __all__ = ["DB_SCHEMA", "PgMaterialLedger", "materials_table", "metadata_obj"]

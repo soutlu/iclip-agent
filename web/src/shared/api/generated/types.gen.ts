@@ -529,6 +529,10 @@ export type ConversationOut = {
    */
   createdAt: string
   /**
+   * Deletedat
+   */
+  deletedAt: string | null
+  /**
    * Id
    */
   id: string
@@ -1884,6 +1888,10 @@ export type TranscriptPage = {
    */
   agents?: Array<AgentDescriptor>
   /**
+   * Deleted At
+   */
+  deleted_at?: string | null
+  /**
    * Has More
    */
   has_more: boolean
@@ -3197,6 +3205,10 @@ export type AuditConversationsConversationsAuditGetData = {
      * State
      */
     state?: 'all' | 'running' | 'done'
+    /**
+     * Deleted
+     */
+    deleted?: 'live' | 'deleted' | 'all'
     /**
      * Limit
      */

@@ -12,6 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Response
 
 from iclip.domains.conversations.models import Conversation
+from iclip.domains.conversations.repository import DeletedFilter
 from iclip.domains.conversations.schemas import (
     ConversationAgentOut,
     ConversationAgentsOut,
@@ -164,13 +165,15 @@ def create_conversations_router(service: ConversationService, *, agents: ListAge
         since: datetime | None = None,
         until: datetime | None = None,
         state: ListState = "all",
+        deleted: DeletedFilter = "live",
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         cursor: str | None = None,
     ) -> ConversationsAuditOut:
-        """治理者查全平台的对话：按人、按单、按时间段、按状态筛，最近活动的排前面。
+        """治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近活动的排前面。
 
         没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上；
-        ``state`` 的三值与侧栏同一口径。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。
+        ``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，
+        ``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。
         """
 
         page = await service.audit(
@@ -180,6 +183,7 @@ def create_conversations_router(service: ConversationService, *, agents: ListAge
             since=since,
             until=until,
             state=state,
+            deleted=deleted,
             limit=limit,
             cursor=cursor,
         )

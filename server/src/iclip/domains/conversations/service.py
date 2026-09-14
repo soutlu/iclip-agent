@@ -17,6 +17,7 @@ from iclip.domains.conversations.models import (
 from iclip.domains.conversations.repository import (
     AuditFilter,
     ConversationRepository,
+    DeletedFilter,
     PageCursor,
     StateFilter,
 )
@@ -70,9 +71,6 @@ AnnounceTitle = Callable[[uuid.UUID, uuid.UUID, str], None]
 """同步广播标题更新，参数为 (属主, 对话 id, 标题)。
 
 广播不依赖对话订阅，发给属主与治理者的连接；仅写入出站队列，不等待回执。"""
-
-PurgeDerived = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
-"""删除对话派生数据，参数为 (属主, 对话 id)；存储与命名空间由注入实现负责。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,7 +202,6 @@ class ConversationService:
         self,
         repo: ConversationRepository,
         *,
-        purge_derived: PurgeDerived,
         list_collections: ListCollections,
         list_derived_files: ListDerivedFiles,
         read_derived_file: ReadDerivedFile,
@@ -218,7 +215,6 @@ class ConversationService:
         self._repo = repo
         self._activities_of = activities_of
         self._busy_conversation_ids = busy_conversation_ids
-        self._purge_derived = purge_derived
         self._generate_title = generate_title
         self._announce_title = announce_title
         self._list_collections = list_collections
@@ -235,17 +231,19 @@ class ConversationService:
         known = await self._activities_of(conversation_ids)
         return {one: known.get(one, IDLE_ACTIVITY) for one in conversation_ids}
 
-    def _readable_by(self, principal: Principal) -> uuid.UUID | None:
-        """治理者返回 None，取消读取时的属主过滤。"""
+    async def _readable(self, principal: Principal, conversation_id: uuid.UUID) -> Conversation:
+        """读路径的可见范围：治理者读得到所有人的对话，含属主已删的墓碑；其他人只见自己活着的。"""
 
-        return None if principal.has(MANAGE_PERMISSION) else principal.user_id
+        if principal.has(MANAGE_PERMISSION):
+            return await self._repo.get(conversation_id, owner=None, include_deleted=True)
+        return await self._repo.get(conversation_id, owner=principal.user_id)
 
     async def files(
         self, principal: Principal, conversation_id: uuid.UUID
     ) -> Sequence[DerivedFile]:
         """列出可见对话的工作区文件；治理者可跨属主读取。"""
 
-        conversation = await self._repo.get(conversation_id, owner=self._readable_by(principal))
+        conversation = await self._readable(principal, conversation_id)
         return await self._list_derived_files(conversation.owner_user_id, conversation.id)
 
     async def file(
@@ -253,7 +251,7 @@ class ConversationService:
     ) -> DerivedFileContent:
         """读取工作区文件；不可见对话或不存在的文件均返回 404。"""
 
-        conversation = await self._repo.get(conversation_id, owner=self._readable_by(principal))
+        conversation = await self._readable(principal, conversation_id)
         found = await self._read_derived_file(conversation.owner_user_id, conversation.id, path)
         if found is None:
             raise NotFound("这段对话里没有这个文件")
@@ -270,9 +268,12 @@ class ConversationService:
     ) -> DerivedFileContent:
         """覆盖属主的工作区文件。不可见对话返回 404，可见但非属主返回 403。"""
 
-        conversation = await self._repo.get(conversation_id, owner=self._readable_by(principal))
+        conversation = await self._readable(principal, conversation_id)
         if conversation.owner_user_id != principal.user_id:
             raise PermissionDenied("只有属主能改这段对话的工作区文件")
+        # 治理者读得到自己删掉的对话，但墓碑对谁都是只读的。
+        if conversation.deleted_at is not None:
+            raise PermissionDenied("已删除的对话不能再改")
         validate = self._document_validators.get(path)
         if validate is not None:
             await validate(conversation.owner_user_id, conversation.id, content)
@@ -410,20 +411,25 @@ class ConversationService:
         since: datetime | None = None,
         until: datetime | None = None,
         state: ListState = "all",
+        deleted: DeletedFilter = "live",
         limit: int = 20,
         cursor: str | None = None,
     ) -> AuditPage:
         """治理者按最近活动倒序分页查询全平台对话，附当前筛选下的总数与在跑数。
 
         给了 ``owner_user_id`` 时占着的集合按该属主算，不给才算全平台；busy 集只取一次，
-        列表与两个计数才对得上。"""
+        列表与两个计数才对得上。``deleted`` 决定属主删掉的墓碑收不收，这是唯一列得出墓碑的口。"""
 
         if not principal.has(MANAGE_PERMISSION):
             raise PermissionDenied("只有治理者能查全部对话")
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
         scope = AuditFilter(
-            owner=owner_user_id, task_id=task_id, since=_as_utc(since), until=_as_utc(until)
+            owner=owner_user_id,
+            task_id=task_id,
+            since=_as_utc(since),
+            until=_as_utc(until),
+            deleted=deleted,
         )
         busy = await self._busy_conversation_ids(owner_user_id)
         chosen = None if state == "all" else StateFilter(state=state, busy=busy)
@@ -477,13 +483,9 @@ class ConversationService:
         return await self._repo.set_task(conversation_id, owner=principal.user_id, task_id=task_id)
 
     async def delete(self, principal: Principal, conversation_id: uuid.UUID) -> None:
-        """先清理派生数据，再把对话标记删除。
+        """把对话标记删除。工作区与素材台账留着，治理者复盘时还要看。"""
 
-        两者无法共用事务；清理中断时保留对话以便重试，避免产生失去归属的派生数据。"""
-
-        conversation = await self._repo.get(conversation_id, owner=principal.user_id)
-        await self._purge_derived(conversation.owner_user_id, conversation.id)
-        await self._repo.delete(conversation.id, owner=principal.user_id)
+        await self._repo.delete(conversation_id, owner=principal.user_id)
 
     async def begin_run(
         self, *, owner: uuid.UUID, agent_id: str, conversation_id: str, run_id: str
@@ -497,18 +499,17 @@ class ConversationService:
     async def agent_of(self, principal: Principal, conversation_id: str, *, writing: bool) -> str:
         """从可见对话中读取 Agent，拒绝由调用方指定 Agent 绕过对话绑定。
 
-        读取允许治理者跨属主访问；写入始终限定属主。"""
+        读取允许治理者跨属主访问，含已删的墓碑；写入始终限定属主活着的对话。"""
 
-        owner = principal.user_id if writing else self._readable_by(principal)
-        conversation = await self._repo.get(_as_conversation_id(conversation_id), owner=owner)
-        return conversation.agent_id
+        parsed = _as_conversation_id(conversation_id)
+        if writing:
+            return (await self._repo.get(parsed, owner=principal.user_id)).agent_id
+        return (await self._readable(principal, parsed)).agent_id
 
     async def header_of(self, principal: Principal, conversation_id: str) -> Conversation:
-        """读取可见对话的整行，给会话页首屏贴标题与属主；后续改名经 session.meta.updated 推送。"""
+        """读取可见对话的整行，给会话页首屏贴标题、属主与删除时刻；后续改名经 session.meta.updated 推送。"""
 
-        return await self._repo.get(
-            _as_conversation_id(conversation_id), owner=self._readable_by(principal)
-        )
+        return await self._readable(principal, _as_conversation_id(conversation_id))
 
 
 __all__ = [
@@ -531,7 +532,6 @@ __all__ = [
     "ListCollections",
     "ListDerivedFiles",
     "ListState",
-    "PurgeDerived",
     "ReadDerivedFile",
     "WorkspaceDocumentValidator",
     "WriteDerivedFile",

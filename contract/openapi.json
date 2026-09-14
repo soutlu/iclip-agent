@@ -959,6 +959,18 @@
             "title": "Createdat",
             "type": "string"
           },
+          "deletedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deletedat"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -1012,6 +1024,7 @@
           "collectionId",
           "createdAt",
           "updatedAt",
+          "deletedAt",
           "activity"
         ],
         "title": "ConversationOut",
@@ -3516,6 +3529,17 @@
             "title": "Agents",
             "type": "array"
           },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
           "has_more": {
             "title": "Has More",
             "type": "boolean"
@@ -5882,7 +5906,7 @@
     },
     "/conversations/audit": {
       "get": {
-        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态筛，最近活动的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上；\n``state`` 的三值与侧栏同一口径。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
+        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近活动的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上；\n``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，\n``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
         "operationId": "audit_conversations_conversations_audit_get",
         "parameters": [
           {
@@ -5965,6 +5989,21 @@
                 "done"
               ],
               "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deleted",
+            "required": false,
+            "schema": {
+              "default": "live",
+              "enum": [
+                "live",
+                "deleted",
+                "all"
+              ],
+              "title": "Deleted",
               "type": "string"
             }
           },

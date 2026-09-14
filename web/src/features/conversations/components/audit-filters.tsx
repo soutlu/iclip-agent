@@ -26,6 +26,16 @@ const STATUS_OPTIONS = [
   { value: 'done', label: '已完成' },
 ] as const
 
+/** 「不限」而不是再写一个「全部」，两组 chip 挨着时不混。 */
+const DELETED_OPTIONS = [
+  { value: 'live', label: '未删除' },
+  { value: 'deleted', label: '已删除' },
+  { value: 'all', label: '不限' },
+] as const
+
+const CHIP_CLASS =
+  'h-9 border-transparent bg-transparent px-4 text-body data-[state=on]:bg-surface-container-lowest data-[state=on]:shadow-[var(--shadow-1)]'
+
 /** 一体筛选条只协调弹层与已应用条件；搜索词、临时日期保留在各选择器内。 */
 export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: AuditFiltersBarProps) {
   const [openFilter, setOpenFilter] = useState<OpenFilter>(null)
@@ -67,11 +77,26 @@ export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: Aud
         value={filters.state}
       >
         {STATUS_OPTIONS.map((option) => (
-          <FilterChip
-            className="h-9 border-transparent bg-transparent px-4 text-body data-[state=on]:bg-surface-container-lowest data-[state=on]:shadow-[var(--shadow-1)]"
-            key={option.value}
-            value={option.value}
-          >
+          <FilterChip className={CHIP_CLASS} key={option.value} value={option.value}>
+            {option.label}
+          </FilterChip>
+        ))}
+      </ChipGroup>
+
+      <span aria-hidden className="mx-1 h-5 w-px bg-border max-sm:hidden" />
+
+      <ChipGroup
+        aria-label="删除状态"
+        className="gap-1"
+        onValueChange={(value) => {
+          const option = DELETED_OPTIONS.find((option) => option.value === value)
+          if (option) apply({ deleted: option.value })
+        }}
+        type="single"
+        value={filters.deleted}
+      >
+        {DELETED_OPTIONS.map((option) => (
+          <FilterChip className={CHIP_CLASS} key={option.value} value={option.value}>
             {option.label}
           </FilterChip>
         ))}

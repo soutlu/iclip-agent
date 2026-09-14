@@ -76,13 +76,14 @@ const APPROVAL_TURN = {
   turnId: 'ta',
 }
 
-/** 渲染前替换基线为等待审批状态；ownerUserId 可换成别人，用来演治理者看别人的对话。 */
-const serveApprovalPage = (ownerUserId = mockAuthUser.id) => {
+/** 渲染前替换基线为等待审批状态；ownerUserId 可换成别人、deletedAt 可给时刻，用来演治理者复盘。 */
+const serveApprovalPage = (ownerUserId = mockAuthUser.id, deletedAt: string | null = null) => {
   const page = mockTranscriptPage()
   server.use(
     http.get('*/api/conversations/c1/transcript', () =>
       HttpResponse.json({
         ...page,
+        deleted_at: deletedAt,
         owner_user_id: ownerUserId,
         interactions: [
           {
@@ -873,6 +874,30 @@ describe('ConversationRoute', () => {
     expect(screen.queryByRole('button', { name: '立即发送到当前回合' })).toBeNull()
     expect(screen.queryByRole('button', { name: '撤回' })).toBeNull()
     expect(decided).toBe(false)
+  })
+
+  it('治理者看已删的对话也是只读，页头与说明都标出已删除；自己删的也一样', async () => {
+    const other = addMockUser('小王')
+    server.use(
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({
+          user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
+        }),
+      ),
+    )
+    serveApprovalPage(other.id, '2026-09-04T00:00:00Z')
+    const first = await renderConversation()
+
+    expect(await screen.findByText('已删除 · 小王 的对话')).toBeVisible()
+    expect(screen.getByRole('note', { name: '只读说明' })).toHaveTextContent('小王 已删除的对话')
+    expect(screen.queryByLabelText('输入消息')).toBeNull()
+    first.unmount()
+
+    serveApprovalPage(mockAuthUser.id, '2026-09-04T00:00:00Z')
+    await renderConversation()
+
+    expect(await screen.findByText('已删除 · 测试用户 的对话')).toBeVisible()
+    expect(screen.queryByLabelText('输入消息')).toBeNull()
   })
 
   it('标题来自基线，服务端起了新名字就当场换掉', async () => {

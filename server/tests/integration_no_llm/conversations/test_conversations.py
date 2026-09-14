@@ -1,4 +1,4 @@
-"""验证对话 HTTP 契约、归属和删除时的工作区清理；无需装配 Agent。"""
+"""验证对话 HTTP 契约、归属和删除后的墓碑可见性；无需装配 Agent。"""
 
 from __future__ import annotations
 
@@ -273,73 +273,62 @@ async def test_another_users_conversation_is_invisible(
     assert (renamed.status_code, removed.status_code) == (404, 404)
 
 
-async def test_delete_takes_the_workspace_with_it(client: httpx.AsyncClient, pg_url: str) -> None:
-    """工作区与素材台账按命名空间归属会话且没有外键，级联删除须由应用保证。"""
+async def test_delete_keeps_the_workspace_for_review(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """工作区与素材台账随墓碑留下：治理者复盘已删对话时还要看分镜稿与素材来源。"""
 
     user_id = await login_as_editor(client, pg_url)
-    kept = (await create(client, title="留着的")).json()["conversation"]["id"]
     doomed = (await create(client, title="要删的")).json()["conversation"]["id"]
+    namespace = f"{user_id}/{doomed}"
 
     engine = create_async_engine(pg_url)
     try:
         async with engine.begin() as conn:
-            for conversation_id in (kept, doomed):
-                await conn.execute(
-                    text(
-                        "INSERT INTO agent_runtime.workspace_files "
-                        "(namespace, path, content, version, created_at, updated_at) "
-                        "VALUES (:ns, '分镜.md', '稿子', 1, now(), now())"
-                    ),
-                    {"ns": f"{user_id}/{conversation_id}"},
-                )
-                await conn.execute(
-                    text(
-                        "INSERT INTO agent_runtime.materials (namespace, url, kind) "
-                        "VALUES (:ns, 'https://cdn.test/style.jpg', 'image')"
-                    ),
-                    {"ns": f"{user_id}/{conversation_id}"},
-                )
+            await conn.execute(
+                text(
+                    "INSERT INTO agent_runtime.workspace_files "
+                    "(namespace, path, content, version, created_at, updated_at) "
+                    "VALUES (:ns, '分镜.md', '稿子', 1, now(), now())"
+                ),
+                {"ns": namespace},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO agent_runtime.materials (namespace, url, kind) "
+                    "VALUES (:ns, 'https://cdn.test/style.jpg', 'image')"
+                ),
+                {"ns": namespace},
+            )
 
         assert (await client.delete(f"{URL}/{doomed}")).status_code == 204
 
         async with engine.connect() as conn:
-            left = (
-                (
-                    await conn.execute(
-                        text(
-                            "SELECT namespace FROM agent_runtime.workspace_files "
-                            "WHERE namespace LIKE :prefix"
-                        ),
-                        {"prefix": f"{user_id}/%"},
-                    )
+            files = (
+                await conn.execute(
+                    text(
+                        "SELECT count(*) FROM agent_runtime.workspace_files WHERE namespace = :ns"
+                    ),
+                    {"ns": namespace},
                 )
-                .scalars()
-                .all()
-            )
+            ).scalar_one()
             materials = (
-                (
-                    await conn.execute(
-                        text(
-                            "SELECT namespace FROM agent_runtime.materials "
-                            "WHERE namespace LIKE :prefix"
-                        ),
-                        {"prefix": f"{user_id}/%"},
-                    )
+                await conn.execute(
+                    text("SELECT count(*) FROM agent_runtime.materials WHERE namespace = :ns"),
+                    {"ns": namespace},
                 )
-                .scalars()
-                .all()
-            )
+            ).scalar_one()
     finally:
         await engine.dispose()
 
-    assert left == [f"{user_id}/{kept}"]
-    assert materials == [f"{user_id}/{kept}"]
+    assert (files, materials) == (1, 1)
 
 
-async def test_deleted_conversation_is_a_tombstone_no_read_or_write_sees(
+async def test_deleted_conversation_is_a_tombstone_only_governor_reads_see(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """删除只标记 deleted_at：行留着占住 id，仓储的每个读口与写口都当它不存在。"""
+    """删除只标记 deleted_at：行留着占住 id。属主的读口与所有写口都当它不存在；
+    只有 ``include_deleted`` 直读与带 ``deleted`` 的审计能读到它。"""
 
     owner = uuid.UUID(await login_as_editor(client, pg_url))
     conversation_id = uuid.UUID((await create(client)).json()["conversation"]["id"])
@@ -348,24 +337,25 @@ async def test_deleted_conversation_is_a_tombstone_no_read_or_write_sees(
 
     engine = create_async_engine(pg_url)
     try:
-        async with engine.connect() as conn:
-            deleted_at = (
-                await conn.execute(
-                    text("SELECT deleted_at FROM iclip.conversations WHERE id = :id"),
-                    {"id": conversation_id},
-                )
-            ).scalar_one()
-        assert deleted_at is not None
-
         repo = SqlConversationRepository(engine)
         for viewer in (owner, None):
             with pytest.raises(NotFound):
                 await repo.get(conversation_id, owner=viewer)
+        tombstone = await repo.get(conversation_id, owner=None, include_deleted=True)
+        assert tombstone.deleted_at is not None
         assert await repo.list_for_owner(owner=owner, limit=10) == ()
         assert await repo.list_ungrouped(owner=owner, limit=10) == ()
         assert await repo.count_ungrouped(owner=owner) == 0
-        assert await repo.list_audit(AuditFilter(owner=owner), limit=10) == ()
-        assert await repo.count_audit(AuditFilter(owner=owner)) == 0
+
+        live, deleted, everything = (
+            AuditFilter(owner=owner, deleted=choice) for choice in ("live", "deleted", "all")
+        )
+        assert await repo.list_audit(live, limit=10) == ()
+        assert await repo.count_audit(live) == 0
+        assert await repo.list_audit(deleted, limit=10) == (tombstone,)
+        assert await repo.count_audit(deleted) == 1
+        assert await repo.list_audit(everything, limit=10) == (tombstone,)
+        assert await repo.count_audit(everything) == 1
 
         with pytest.raises(NotFound):
             await repo.rename(conversation_id, owner=owner, title="改不了")

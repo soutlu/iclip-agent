@@ -7,6 +7,7 @@ import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { Button } from '@/shared/ui/button'
 import { StatusBadge } from '@/shared/ui/status-badge'
+import { Tag } from '@/shared/ui/tag'
 import { DEFAULT_AUDIT_FILTERS, useAuditConversations, type AuditFilters } from '../audit.api'
 import { conversationStatus } from '../conversation-status'
 import type { Conversation } from '../conversations.api'
@@ -146,6 +147,14 @@ function AuditRow({ conversation, ownerName, taskLabel }: AuditRowProps) {
               kind="conversation"
               status={status}
             />
+            {conversation.deletedAt === null ? null : (
+              <Tag variant="soft">
+                <Icon decorative name="delete" size="xs" />
+                <time dateTime={conversation.deletedAt}>
+                  已删除 · {formatRelativeTime(conversation.deletedAt)}
+                </time>
+              </Tag>
+            )}
           </span>
           <span className="flex min-w-0 items-center gap-2 text-body-sm text-on-surface-variant">
             <span className="max-w-32 truncate" title={owner}>
