@@ -55,6 +55,7 @@ describe('submitVideoGeneration', () => {
       generate_audio: false,
       model: 'wan3.0-video',
       reference_image_urls: shot.image_urls,
+      resolution: '720p',
       seconds: 6,
       shot: {
         global_settings: '人物保持一致。',
