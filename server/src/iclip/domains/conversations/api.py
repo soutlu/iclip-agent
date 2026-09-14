@@ -12,7 +12,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Response
 
 from iclip.domains.conversations.models import Conversation
-from iclip.domains.conversations.repository import DeletedFilter
 from iclip.domains.conversations.schemas import (
     ConversationAgentOut,
     ConversationAgentsOut,
@@ -37,6 +36,7 @@ from iclip.domains.conversations.schemas import (
 from iclip.domains.conversations.service import (
     ConversationPage,
     ConversationService,
+    DeletedFilter,
     ListAgents,
     ListState,
 )
