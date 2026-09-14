@@ -5,8 +5,10 @@ import { cn } from '@/shared/lib/utils'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
+import { MenuItem, MenuRoot, MenuSeparator, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import type { EditReference } from './image-edit-types'
+import './edit-references.css'
 
 type EditReferencesProps = {
   references: EditReference[]
@@ -112,26 +114,23 @@ export function EditReferences({
 
   return (
     <section className="image-edit-references" aria-label="参考图片">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="image-edit-reference-heading">
         <h3 className="text-body font-medium">
-          输入图片{' '}
+          参考图片{' '}
           <span className="text-caption text-on-surface-muted">{references.length}/10</span>
         </h3>
         <Button
+          className="px-0 text-on-surface-muted"
           disabled={locked}
-          leadingIcon="grid"
           onClick={() => setPickerOpen(true)}
           size="md"
-          variant="outlined"
+          variant="ghost"
         >
           选择参考帧
         </Button>
       </div>
       <div
-        className={cn(
-          'image-edit-dropzone rounded-sm border border-dashed border-outline-variant bg-surface-container-lowest',
-          dragOver && 'border-primary bg-primary-container-soft',
-        )}
+        className={cn('image-edit-reference-drop', dragOver && 'image-edit-reference-drop-active')}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes('Files')) return
           event.preventDefault()
@@ -141,42 +140,11 @@ export function EditReferences({
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
       >
-        <button
-          className="flex w-full cursor-pointer flex-col items-center gap-1 rounded-sm px-4 py-4 ui-focus disabled:cursor-default"
-          disabled={locked || references.length >= 10}
-          onClick={() => fileRef.current?.click()}
-          type="button"
-        >
-          <Icon
-            decorative
-            name={uploading ? 'loading' : 'add-file'}
-            className={uploading ? 'animate-spin' : ''}
-            size="lg"
-          />
-          <span className="text-body-sm">{uploading ? '正在上传参考图…' : '拖放图片到这里'}</span>
-          <span className="text-caption text-on-surface-muted">或点击上传</span>
-        </button>
-        <input
-          ref={fileRef}
-          className="hidden"
-          type="file"
-          multiple
-          accept={MEDIA_IMAGE_ACCEPT}
-          aria-label="上传参考图片"
-          disabled={locked}
-          onChange={(event) => {
-            const files = [...(event.target.files ?? [])]
-            event.target.value = ''
-            void upload(files)
-          }}
-        />
-      </div>
-      {references.length > 0 ? (
-        <ol className="mt-3 grid grid-cols-3 gap-2" aria-label="提交图片顺序">
+        <ol className="image-edit-reference-list" aria-label="提交图片顺序">
           {references.map((reference, index) => (
             <li
               key={reference.id}
-              className="group relative min-w-0"
+              className="image-edit-reference-item"
               draggable={!locked}
               onDragStart={(event) => {
                 event.dataTransfer.setData('application/x-cue-edit-reference', reference.id)
@@ -197,7 +165,7 @@ export function EditReferences({
               }}
             >
               <button
-                className="relative block aspect-square w-full cursor-zoom-in overflow-hidden rounded-sm bg-surface-container ui-focus"
+                className="image-edit-reference-photo ui-focus"
                 onClick={() => onPreview(reference)}
                 type="button"
                 aria-label={`预览参考图 ${index + 1}`}
@@ -205,6 +173,7 @@ export function EditReferences({
                 <img
                   src={reference.kind === 'annotated' ? baseUrl : reference.url}
                   alt={reference.label}
+                  draggable={false}
                   className="size-full object-cover"
                 />
                 {reference.kind === 'annotated' ? (
@@ -213,45 +182,92 @@ export function EditReferences({
                   </span>
                 ) : null}
               </button>
-              <IconButton
-                disabled={locked}
-                label={`移除参考图 ${index + 1}`}
-                name="close"
-                size="xs"
-                className="absolute top-1 right-1 bg-surface-container-lowest/96"
-                onClick={() => onChange(references.filter((item) => item.id !== reference.id))}
-              />
+              <MenuRoot>
+                <MenuTrigger asChild>
+                  <IconButton
+                    className="image-edit-reference-menu"
+                    disabled={locked}
+                    label={`参考图 ${index + 1} 更多操作`}
+                    name="more"
+                    size="sm"
+                  />
+                </MenuTrigger>
+                <MenuSurface align="end">
+                  <MenuItem
+                    aria-label={`参考图 ${index + 1} 向前移`}
+                    disabled={locked || index === 0}
+                    icon="back"
+                    onSelect={() => move(reference.id, index - 1)}
+                  >
+                    向前移
+                  </MenuItem>
+                  <MenuItem
+                    aria-label={`参考图 ${index + 1} 向后移`}
+                    disabled={locked || index === references.length - 1}
+                    icon="next"
+                    onSelect={() => move(reference.id, index + 1)}
+                  >
+                    向后移
+                  </MenuItem>
+                  <MenuSeparator />
+                  <MenuItem
+                    aria-label={`移除参考图 ${index + 1}`}
+                    destructive
+                    disabled={locked}
+                    icon="delete"
+                    onSelect={() => onChange(references.filter((item) => item.id !== reference.id))}
+                  >
+                    移除图片
+                  </MenuItem>
+                </MenuSurface>
+              </MenuRoot>
               <button
-                className="mt-1 w-full truncate rounded-xs text-center text-caption text-on-surface-muted ui-focus"
-                title={reference.label}
+                className="image-edit-reference-name ui-focus"
+                aria-label={`引用参考图 ${index + 1} · ${reference.label}`}
+                title={`引用参考图 ${index + 1} · ${reference.label}`}
                 onClick={() => onInsertReference(reference.id)}
                 disabled={locked}
                 type="button"
               >
-                参考图 {index + 1} · {reference.label}
+                @{index + 1} · {reference.label}
               </button>
-              <div className="flex justify-center gap-2">
-                <IconButton
-                  disabled={locked || index === 0}
-                  label={`参考图 ${index + 1} 向前移`}
-                  name="back"
-                  size="xs"
-                  onClick={() => move(reference.id, index - 1)}
-                />
-                <IconButton
-                  disabled={locked || index === references.length - 1}
-                  label={`参考图 ${index + 1} 向后移`}
-                  name="next"
-                  size="xs"
-                  onClick={() => move(reference.id, index + 1)}
-                />
-              </div>
             </li>
           ))}
+          <li className="image-edit-reference-item">
+            <button
+              className="image-edit-reference-add ui-focus"
+              disabled={locked || references.length >= 10}
+              onClick={() => fileRef.current?.click()}
+              type="button"
+              aria-label="添加参考图片"
+            >
+              <Icon
+                decorative
+                name={uploading ? 'loading' : 'add'}
+                className={uploading ? 'motion-safe:animate-spin' : ''}
+                size="lg"
+              />
+              <span>{uploading ? '上传中…' : '添加图片'}</span>
+            </button>
+          </li>
         </ol>
-      ) : null}
+        <input
+          ref={fileRef}
+          className="hidden"
+          type="file"
+          multiple
+          accept={MEDIA_IMAGE_ACCEPT}
+          aria-label="上传参考图片"
+          disabled={locked}
+          onChange={(event) => {
+            const files = [...(event.target.files ?? [])]
+            event.target.value = ''
+            void upload(files)
+          }}
+        />
+      </div>
       <p className="mt-2 text-caption leading-relaxed text-on-surface-muted">
-        默认使用编辑底图；需要其他参考时再添加图片，可调整提交顺序。
+        可拖入图片，点击名称插入引用
       </p>
       <DialogRoot open={pickerOpen} onOpenChange={setPickerOpen}>
         <DialogSurface aria-describedby={undefined} className="max-w-2xl">

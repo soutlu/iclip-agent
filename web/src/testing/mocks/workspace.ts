@@ -330,6 +330,29 @@ export const seedMockWorkspace = (
       metadata: { path: SHOTS_MOCK_PATH, shot: 2, frame: 3 },
       status: 'submitted',
     }),
+    // 同一帧较早的失败记录，用于检查编辑器长错误详情，不改变最新的在途状态。
+    job({
+      createdAt: '2026-09-01T12:40:00Z',
+      id: 'd3a7bdc9-9528-446e-8b73-8f64b0d5c812',
+      kind: 'image',
+      prompt: '保留人物，背景换成傍晚的暖光。',
+      request: {
+        prompt: '保留人物，背景换成傍晚的暖光。',
+        referenceImageUrls: [frames.a],
+      },
+      metadata: { path: SHOTS_MOCK_PATH, shot: 2, frame: 3, sourceUrl: frames.a },
+      status: 'failed',
+      errorMessage: [
+        '图像服务未能完成编辑（400）：参考图片校验失败。',
+        '请确认图片内容清晰、格式受支持，再重新提交。此次请求没有生成可用图片。',
+        ...Array.from(
+          { length: 6 },
+          (_, index) =>
+            `详情 ${index + 1}：参考图片解析未通过，请保留这段服务响应供排查；修改要求与原始图片仍然保留。`,
+        ),
+        `diagnostic_code=${'IMAGE_REFERENCE_VALIDATION_'.repeat(6)}`,
+      ].join('\n'),
+    }),
   ])
 }
 

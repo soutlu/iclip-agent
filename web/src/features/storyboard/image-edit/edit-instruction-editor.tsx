@@ -176,7 +176,7 @@ export function EditInstructionEditor(props: Props) {
         'aria-label': '修改要求',
         'aria-multiline': 'true',
         class:
-          'image-edit-instruction-input min-h-32 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-t-md px-4 pt-4 pb-2 text-body leading-loose',
+          'image-edit-instruction-input min-h-32 max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-4 pt-4 pb-2 text-body leading-loose',
       },
       editable: () => !latestRef.current.disabled,
       nodeViews: { reference: (node) => new ReferenceView(node, () => latestRef.current, views) },
@@ -286,7 +286,7 @@ export function EditInstructionEditor(props: Props) {
     })
   }, [menu, menuId, filtered.length])
   return (
-    <div className="image-edit-instruction-editor relative rounded-md border border-border bg-surface-container-lowest">
+    <div className="image-edit-instruction-editor relative rounded-lg bg-surface-container-low">
       <div ref={hostRef} />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-1 pb-3">
         <button
@@ -309,7 +309,6 @@ export function EditInstructionEditor(props: Props) {
         >
           @ 插入引用
         </button>
-        <span className="text-caption text-on-surface-muted">输入 @ 引用标注或参考图</span>
       </div>
       {menu !== null && (
         <div

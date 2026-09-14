@@ -39,9 +39,10 @@ describe('未提交图片编辑草稿', () => {
 
   it('空草稿反复算出同一份，底图芯片的指向不会变', () => {
     expect(emptyEditDraft(BASE)).toEqual(emptyEditDraft(BASE))
-    expect(isEmptyDraft(emptyEditDraft(BASE))).toBe(true)
+    expect(isEmptyDraft(emptyEditDraft(BASE), BASE)).toBe(true)
+    expect(isEmptyDraft(emptyEditDraft(OTHER), BASE)).toBe(false)
     expect(
-      isEmptyDraft({ ...emptyEditDraft(BASE), instructions: [{ kind: 'text', text: '改' }] }),
+      isEmptyDraft({ ...emptyEditDraft(BASE), instructions: [{ kind: 'text', text: '改' }] }, BASE),
     ).toBe(false)
   })
 

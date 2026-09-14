@@ -1,0 +1,100 @@
+.image-edit-reference-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.image-edit-reference-drop {
+  border-radius: var(--radius-md);
+  transition: background-color var(--dur-s) var(--ease-decel);
+}
+
+.image-edit-reference-drop-active {
+  background: var(--color-primary-container-soft);
+}
+
+.image-edit-reference-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 88px);
+  align-items: start;
+  gap: 12px;
+}
+
+.image-edit-reference-item {
+  position: relative;
+  min-width: 0;
+}
+
+.image-edit-reference-photo,
+.image-edit-reference-add {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  aspect-ratio: 1;
+}
+
+.image-edit-reference-photo {
+  background: var(--color-surface-container);
+  cursor: zoom-in;
+}
+
+.image-edit-reference-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-surface-container-lowest) 96%, transparent);
+}
+
+.image-edit-reference-name {
+  display: block;
+  width: 100%;
+  min-height: var(--control-height-sm);
+  overflow: hidden;
+  border-radius: var(--radius-xs);
+  color: var(--color-on-surface-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.image-edit-reference-add {
+  flex-direction: column;
+  gap: 6px;
+  background: var(--color-surface-container-low);
+  color: var(--color-on-surface-muted);
+  font-size: var(--text-body-sm);
+  line-height: var(--text-body-sm--line-height);
+  cursor: pointer;
+  transition: background-color var(--dur-s) var(--ease-decel);
+}
+
+.image-edit-reference-add:hover:not(:disabled) {
+  background: var(--color-surface-container-high);
+}
+
+.image-edit-reference-name:hover:not(:disabled) {
+  color: var(--color-primary);
+}
+
+.image-edit-reference-add:disabled,
+.image-edit-reference-name:disabled {
+  cursor: default;
+  opacity: var(--state-disabled-content);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-edit-reference-drop,
+  .image-edit-reference-add {
+    transition: none;
+  }
+}

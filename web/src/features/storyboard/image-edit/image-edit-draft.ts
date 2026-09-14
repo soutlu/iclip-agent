@@ -74,12 +74,13 @@ export function draftOf(drafts: FrameEditDrafts, baseUrl: string): FrameEditDraf
     : stored
 }
 
-/** 空草稿不落盘：一格上的图会越攒越多，而画笔标注很占地方。 */
-export const isEmptyDraft = (draft: FrameEditDraft): boolean =>
+/** 只有仍使用底图的默认输入可省略；尚未填写要求的替代参考图也属于用户草稿。 */
+export const isEmptyDraft = (draft: FrameEditDraft, baseUrl: string): boolean =>
   draft.annotations.length === 0 &&
   draft.instructions.length === 0 &&
   draft.references.length === 1 &&
-  draft.references[0]?.kind === 'image'
+  draft.references[0]?.kind === 'image' &&
+  draft.references[0].url === baseUrl
 
 export function editDraftError(draft: FrameEditDraft): string | null {
   if (draft.annotations.length > 50) return '每张图片最多添加 50 个标注'
