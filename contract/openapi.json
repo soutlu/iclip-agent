@@ -6976,6 +6976,7 @@
             "name": "turn_id",
             "required": true,
             "schema": {
+              "pattern": "^[A-Za-z0-9._-]{1,128}$",
               "title": "Turn Id",
               "type": "string"
             }

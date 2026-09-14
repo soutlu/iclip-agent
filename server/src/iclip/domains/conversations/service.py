@@ -136,18 +136,15 @@ def _as_utc(moment: datetime | None) -> datetime | None:
 
 
 def _as_conversation_id(raw: str) -> uuid.UUID:
-    """仅接受规范 UUID 字符串，非法输入统一抛 NotFound。
+    """把字符串形态的对话 id 解析成 UUID，解析不了统一抛 NotFound。
 
-    工作区与实时状态直接使用原字符串作为标识，必须拒绝同一 UUID 的非规范写法，
-    避免产生重复命名空间及无法清理的派生数据。"""
+    入口层（REST 路径参数与 WS 帧）已经把两种写法规范化，工作区与实时状态只见到一种拼写；
+    这里只负责字符串到 UUID 的交接，不再复校一遍写法。"""
 
     try:
-        parsed = uuid.UUID(raw)
+        return uuid.UUID(raw)
     except ValueError as exc:
         raise NotFound("没有这段对话") from exc
-    if str(parsed) != raw:
-        raise NotFound("没有这段对话")
-    return parsed
 
 
 @dataclass(frozen=True, slots=True)
@@ -490,7 +487,7 @@ class ConversationService:
     async def begin_run(
         self, *, owner: uuid.UUID, agent_id: str, conversation_id: str, run_id: str
     ) -> None:
-        """核对规范对话 id、属主和 Agent 后记录运行。"""
+        """解析对话 id、核对属主与 Agent 后记录运行。"""
 
         await self._repo.touch_run(
             _as_conversation_id(conversation_id), owner=owner, agent_id=agent_id, run_id=run_id
