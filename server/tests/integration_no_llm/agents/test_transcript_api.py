@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -91,6 +92,23 @@ async def test_sending_to_someone_elses_conversation_is_not_found(
             json={"prompt_id": "prm_other", "content": [{"type": "text", "text": "走"}]},
         )
     assert sent.status_code == 404
+
+
+async def test_a_dashless_conversation_id_reaches_the_same_conversation(
+    app: FastAPI, pg_url: str
+) -> None:
+    """对话 id 的两种写法指向同一段：机器调用方用无横线 UUID 建的对话要能继续访问。"""
+
+    dashless = uuid.uuid4().hex
+    async with make_client(app) as client:
+        await _sign_in(client, pg_url)
+        created = await client.post("/conversations", json={"id": dashless, "agentId": AGENT_ID})
+        assert created.status_code == 201, created.text
+        # 对外始终发规范写法，无横线只是入口处认得。
+        assert created.json()["conversation"]["id"] == str(uuid.UUID(dashless))
+        status = await client.get(f"/conversations/{dashless}/status")
+
+    assert status.status_code == 200, status.text
 
 
 async def test_send_then_read_it_back(app: FastAPI, pg_url: str) -> None:
