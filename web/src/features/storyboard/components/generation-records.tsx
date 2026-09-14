@@ -98,6 +98,8 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   const [open, setOpen] = useState(true)
   const phase = phaseOfStatus(job.status)
   const prompt = promptOf(job)
+  const requestedModel = job.request['model']
+  const model = typeof requestedModel === 'string' ? requestedModel.trim() : ''
   // 只有带结构化 shot 的记录能回填镜头组；接口调用方自己写的正文只能看。
   const history = historyShotOf(job)
 
@@ -128,7 +130,12 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
 
       {open ? (
         <div className="flex flex-col gap-1.5">
-          <p className="text-label text-on-surface-muted">视频描述</p>
+          <div className="flex min-w-0 items-center justify-between gap-3 text-label text-on-surface-muted">
+            <p className="shrink-0">视频描述</p>
+            <span className="min-w-0 truncate text-right" title={model || undefined}>
+              模型 · {model || '未记录'}
+            </span>
+          </div>
           {prompt === undefined ? null : (
             <p className="line-clamp-3 text-body-sm text-on-surface">{prompt}</p>
           )}
