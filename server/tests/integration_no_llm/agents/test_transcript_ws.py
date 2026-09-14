@@ -204,6 +204,34 @@ def test_subscribing_to_a_conversation_you_cannot_see_is_refused(
             assert until(ws, "transcript.reset")["session_id"] == mine
 
 
+def test_subscribing_with_a_dashless_conversation_id_receives_frames(
+    ws_agent_app: FastAPI, pg_url: str
+) -> None:
+    """WS 与 REST 收同样两种写法：无横线 id 订得上，回发一律是规范写法。"""
+
+    with TestClient(ws_agent_app) as tc:
+        sign_in(tc, pg_url)
+        conversation_id = open_conversation(tc)
+        dashless = uuid.UUID(conversation_id).hex
+
+        with tc.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["type"] == "server_hello"
+            subscribe(ws, dashless)
+
+            # 客户端按 session_id 分流，全局帧与 REST 只给规范写法，回发不能多出第二种拼写。
+            assert until(ws, "transcript.reset")["session_id"] == conversation_id
+            assert until(ws, "ack")["payload"]["accepted"] == [conversation_id]
+
+            sent = tc.post(
+                f"/conversations/{dashless}/prompts",
+                json={"prompt_id": "prm_dashless", "content": [{"type": "text", "text": "走"}]},
+            )
+            assert sent.status_code == 200, sent.text
+            assert until(ws, "transcript.ops")["session_id"] == conversation_id
+
+            _settled(tc, conversation_id)
+
+
 def test_cross_origin_upgrade_is_refused(
     ws_agent_app: FastAPI, pg_url: str, caplog: pytest.LogCaptureFixture
 ) -> None:

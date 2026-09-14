@@ -1710,7 +1710,7 @@ export const zRegenerateConversationsConversationIdTurnsTurnIdRegeneratePostBody
   zRegenerateBody.nullable()
 
 export const zRegenerateConversationsConversationIdTurnsTurnIdRegeneratePostPath = z.object({
-  turn_id: z.string(),
+  turn_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
   conversation_id: z.uuid(),
 })
 
