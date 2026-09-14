@@ -223,13 +223,15 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
     draft.state.kind === 'saving' ||
     draft.state.kind === 'error' ||
     video.submitting.includes(shot.index)
+  // 改过之后原因就过期了，等下一次出片再说；存盘状态那一格有自己的提示，不重复说。
+  const submitError = draft.hasUnsavedChanges ? undefined : video.errorOf(shot.index)
   const generate = () =>
     gate.run(async (mounted) => {
       const saved = await draft.saveNow()
       if (saved === null || !mounted()) return
       const current = saved.shots.find((item) => item.index === shot.index)
       if (current === undefined) {
-        toast.error('无法读取已保存的镜头组，请重新打开后生成')
+        video.reportError(shot.index, '无法读取已保存的镜头组，请重新打开后生成')
         return
       }
       await video.submit(current, saved.aspect_ratio)
@@ -283,6 +285,15 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
               <span className="ml-1 text-primary">生成中 {activeCount}</span>
             ) : null}
           </Button>
+          {submitError === undefined ? null : (
+            <span
+              className="min-w-0 shrink truncate text-body-sm text-error"
+              role="alert"
+              title={submitError}
+            >
+              {submitError}
+            </span>
+          )}
           <VideoGenerationButton
             disabled={generateDisabled}
             models={video.models}

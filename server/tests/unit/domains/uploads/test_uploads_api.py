@@ -9,14 +9,12 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
 
-from iclip.common.errors import DomainError
+from iclip.app.errors import install_error_handlers
 from iclip.domains.identity.models import Principal
 from iclip.domains.uploads.api import create_uploads_router
 from iclip.domains.uploads.models import MAX_BYTES, MAX_LONG_EDGE_PIXELS, MIN_SHORT_EDGE_PIXELS
 from iclip.domains.uploads.service import API_KEY_HEADER, UPLOADER_HEADER, UploadService
-from iclip.platform.http import status_code_for
 from tests.helpers.uploads import FakeBucket
 
 
@@ -41,9 +39,7 @@ def build_test_app(bucket: FakeBucket, *, granted: Principal | None) -> FastAPI:
             request.state.principal = granted
         return await call_next(request)
 
-    @app.exception_handler(DomainError)
-    async def _domain_error(_request: Request, exc: DomainError) -> JSONResponse:
-        return JSONResponse(status_code=status_code_for(exc), content={"detail": str(exc)})
+    install_error_handlers(app)
 
     app.include_router(create_uploads_router(UploadService(bucket)))
     return app

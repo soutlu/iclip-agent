@@ -5,17 +5,16 @@ from __future__ import annotations
 import asyncio
 import signal
 import uuid
-from collections.abc import AsyncGenerator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 import procrastinate
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from iclip.app.agent_layer import (
@@ -34,11 +33,12 @@ from iclip.app.conversation_workspace import (
     ConversationWorkspace,
     validate_video_shots,
 )
+from iclip.app.errors import install_error_handlers
 from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.common.errors import DomainError, NotFound
+from iclip.common.errors import NotFound
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -96,7 +96,6 @@ from iclip.platform.file_store.store import (
     SearchResult,
     StoredFile,
 )
-from iclip.platform.http import status_code_for
 from iclip.platform.material_ledger.pg import PgMaterialLedger
 from iclip.platform.object_store.oss import (
     OssObjectStore,
@@ -181,6 +180,32 @@ class AnnouncingFileStore:
 
     async def search(self, namespace: str, query: str, *, limit: int) -> SearchResult:
         return await self._inner.search(namespace, query, limit=limit)
+
+
+def _openapi_with_string_validation_error(app: FastAPI) -> Callable[[], dict[str, Any]]:
+    """让文档里的 422 与实际返回一致：字符串信封，不是 FastAPI 默认的逐条列表。
+
+    路由没声明 422 时 FastAPI 自动注入 ``HTTPValidationError``，改不了声明只能改成品；
+    合同由 ``scripts/dump_openapi.py`` 从这里导出，前端类型跟着走。
+    """
+
+    default_openapi = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        document = default_openapi()
+        schemas = document.get("components", {}).get("schemas", {})
+        if "HTTPValidationError" in schemas:
+            schemas["HTTPValidationError"] = {
+                "description": "请求校验失败，与领域错误同一个信封。",
+                "properties": {"detail": {"title": "Detail", "type": "string"}},
+                "required": ["detail"],
+                "title": "HTTPValidationError",
+                "type": "object",
+            }
+            schemas.pop("ValidationError", None)
+        return document
+
+    return openapi
 
 
 def _install_hup_reload(agent_layer: CurrentAgentLayer) -> bool:
@@ -560,12 +585,8 @@ def build_app(
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
-    @app.exception_handler(DomainError)
-    async def _domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
-        return JSONResponse(
-            status_code=status_code_for(exc),
-            content={"detail": str(exc) or type(exc).__name__},
-        )
+    install_error_handlers(app)
+    app.openapi = _openapi_with_string_validation_error(app)  # type: ignore[method-assign]
 
     @app.get("/healthz")
     async def healthz() -> dict[str, object]:

@@ -8,9 +8,8 @@ from collections.abc import Awaitable, Callable
 import httpx
 import pytest
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
 
-from iclip.common.errors import DomainError
+from iclip.app.errors import install_error_handlers
 from iclip.domains.identity.models import Principal
 from iclip.domains.tasks.api import create_tasks_router
 from iclip.domains.tasks.models import (
@@ -20,7 +19,6 @@ from iclip.domains.tasks.models import (
     STATUS_WITHDRAWN,
 )
 from iclip.domains.tasks.service import TaskService
-from iclip.platform.http import status_code_for
 from tests.helpers.tasks import (
     STYLE_NO,
     InMemoryTaskRepository,
@@ -65,9 +63,7 @@ def build_test_app(
             request.state.principal = granted
         return await call_next(request)
 
-    @app.exception_handler(DomainError)
-    async def _domain_error(_request: Request, exc: DomainError) -> JSONResponse:
-        return JSONResponse(status_code=status_code_for(exc), content={"detail": str(exc)})
+    install_error_handlers(app)
 
     app.include_router(create_tasks_router(TaskService(repo)))
     return app

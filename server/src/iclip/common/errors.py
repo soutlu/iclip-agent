@@ -1,7 +1,7 @@
 """领域错误分类学。
 
 各域 service 只抛这些类型；HTTP 状态码映射见 platform/http.py，
-FastAPI 异常处理器安装在组合根。
+FastAPI 异常处理器见 app/errors.py。
 """
 
 from __future__ import annotations
