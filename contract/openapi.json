@@ -6419,21 +6419,21 @@
         "parameters": [
           {
             "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
-              "title": "Conversation Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "interaction_id",
             "required": true,
             "schema": {
               "pattern": "^[A-Za-z0-9._-]{1,128}$",
               "title": "Interaction Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
               "type": "string"
             }
           }
@@ -6479,7 +6479,7 @@
             "name": "conversation_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "format": "uuid",
               "title": "Conversation Id",
               "type": "string"
             }
@@ -6522,7 +6522,7 @@
             "name": "conversation_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "format": "uuid",
               "title": "Conversation Id",
               "type": "string"
             }
@@ -6574,21 +6574,21 @@
         "parameters": [
           {
             "in": "path",
-            "name": "conversation_id",
-            "required": true,
-            "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
-              "title": "Conversation Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "prompt_id",
             "required": true,
             "schema": {
               "pattern": "^[A-Za-z0-9._-]{1,128}$",
               "title": "Prompt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
               "type": "string"
             }
           }
@@ -6625,7 +6625,7 @@
             "name": "conversation_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "format": "uuid",
               "title": "Conversation Id",
               "type": "string"
             }
@@ -6673,7 +6673,7 @@
             "name": "conversation_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "format": "uuid",
               "title": "Conversation Id",
               "type": "string"
             }
@@ -6771,7 +6771,7 @@
             "name": "conversation_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "format": "uuid",
               "title": "Conversation Id",
               "type": "string"
             }
@@ -6871,7 +6871,7 @@
             "name": "conversation_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "format": "uuid",
               "title": "Conversation Id",
               "type": "string"
             }
@@ -6934,20 +6934,20 @@
         "parameters": [
           {
             "in": "path",
-            "name": "conversation_id",
+            "name": "turn_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
-              "title": "Conversation Id",
+              "title": "Turn Id",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "turn_id",
+            "name": "conversation_id",
             "required": true,
             "schema": {
-              "title": "Turn Id",
+              "format": "uuid",
+              "title": "Conversation Id",
               "type": "string"
             }
           }
@@ -7157,7 +7157,7 @@
             "name": "conversation_id",
             "required": true,
             "schema": {
-              "pattern": "^[A-Za-z0-9._-]{1,128}$",
+              "format": "uuid",
               "title": "Conversation Id",
               "type": "string"
             }

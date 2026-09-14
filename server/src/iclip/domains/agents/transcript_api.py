@@ -176,7 +176,20 @@ class Conversations(Protocol):
         ...
 
 
-ConversationId = Annotated[str, Path(pattern=r"^[A-Za-z0-9._-]{1,128}$")]
+ProtocolId = Annotated[str, Path(pattern=r"^[A-Za-z0-9._-]{1,128}$")]
+"""协议里由客户端铸的路径标识：消息 id 与交互 id，不是 UUID（轮 id 长 ``t1`` 这样）。"""
+
+
+def _canonical_conversation_id(conversation_id: uuid.UUID) -> str:
+    """路径上的对话 id 按 UUID 解析后规范化。
+
+    调用方写不写横线都命中同一段对话，而工作区与实时状态只见到一种拼写
+    （见 ``ConversationService`` 对规范写法的要求）。"""
+
+    return str(conversation_id)
+
+
+ConversationId = Annotated[str, Depends(_canonical_conversation_id)]
 
 _AGENT_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 """协议的 agent id 形状：主 agent 是 main，子代理是它的 run id。"""
@@ -348,7 +361,7 @@ def create_transcript_router(
     @router.post("/prompts/{prompt_id}:abort", status_code=204)
     async def abort(
         conversation_id: ConversationId,
-        prompt_id: ConversationId,
+        prompt_id: ProtocolId,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> None:
         """停掉一条消息。排队的直接撤，在跑的发第一方取消让它自己收尾。"""
@@ -405,7 +418,7 @@ def create_transcript_router(
     @router.post("/interactions/{interaction_id}", status_code=204)
     async def approve(
         conversation_id: ConversationId,
-        interaction_id: ConversationId,
+        interaction_id: ProtocolId,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
         body: ApprovalRequest,
     ) -> None:
