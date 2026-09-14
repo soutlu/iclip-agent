@@ -38,7 +38,7 @@ from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.common.errors import DomainError
+from iclip.common.errors import DomainError, NotFound
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -456,20 +456,33 @@ def build_app(
     job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = live_context_limits(agent_layer)
 
+    # 删除不中止在跑的 run（ADR-0024），删掉那一刻在跑或排队的几轮收尾时对话已是墓碑：
+    # 这是预期内的常态，记一条 info 就够，不让 runner 的兜底打成带栈的 exception。
+
     async def name_conversation(row: JobRow) -> None:
         """轮次结束后调用对话命名用例，连接引擎模型与对话条件更新。"""
 
-        await conversations.service.name_after_turn(uuid.UUID(row.conversation_id), row.text)
+        try:
+            await conversations.service.name_after_turn(uuid.UUID(row.conversation_id), row.text)
+        except NotFound:
+            _logger.info("对话已删除，跳过自动起名", conversation_id=row.conversation_id)
 
     async def note_run_started(row: JobRow, run_id: str) -> None:
         """run 开始时记到对话上：最近一次 run 与最近活动时间。"""
 
-        await conversations.service.begin_run(
-            owner=row.owner_user_id,
-            agent_id=row.agent_id,
-            conversation_id=row.conversation_id,
-            run_id=run_id,
-        )
+        try:
+            await conversations.service.begin_run(
+                owner=row.owner_user_id,
+                agent_id=row.agent_id,
+                conversation_id=row.conversation_id,
+                run_id=run_id,
+            )
+        except NotFound:
+            _logger.info(
+                "对话已删除，这次运行不再记到对话上",
+                conversation_id=row.conversation_id,
+                run_id=run_id,
+            )
 
     async def deps_for_prompt(row: JobRow) -> AgentRunDeps:
         """按队列记录的属主重建运行主体，以开跑时的账号状态和权限执行。"""

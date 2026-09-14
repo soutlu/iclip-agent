@@ -31,7 +31,8 @@ const jobs: GenerationJob[] = [
     createdAt: new Date(2026, 8, 1, 11, 40).toISOString(),
     errorMessage: '上游返回了空结果。',
     id: 'b',
-    request: { prompt: '第二版：加一个低头动作。' },
+    // 空白的模型名与缺失同样算没记。
+    request: { prompt: '第二版：加一个低头动作。', model: '  ' },
     status: 'failed',
   }),
   job({

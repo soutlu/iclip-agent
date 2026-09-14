@@ -2,7 +2,7 @@
 
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { useUsersDirectory } from '@/shared/auth'
+import { useUser, useUsersDirectory } from '@/shared/auth'
 import { useConversationReadOnly } from '@/shared/transcript/use-conversation-read-only'
 import { useSessionTitles } from '@/shared/transcript/use-session-titles'
 import { useTranscript } from '@/shared/transcript/use-transcript'
@@ -76,10 +76,19 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
   const title = titleOf(conversationId) ?? view.title
   // 只读只发生在治理者复盘别人的或已删的对话时，名册接口也只有治理者能读。
   const readOnly = useConversationReadOnly(view)
+  const { data: user } = useUser()
   const { nameOf } = useUsersDirectory(readOnly)
   const ownerName = view.ownerUserId === null ? undefined : nameOf(view.ownerUserId)
   const deleted = view.deletedAt !== null
   const readOnlyLabel = deleted ? '已删除' : '只读'
+  // 治理者看自己删掉的对话也是只读；主语是自己就不写成第三人称。
+  const ownMine = view.ownerUserId !== null && view.ownerUserId === user?.id
+  const ownerPhrase = ownMine
+    ? '自己的对话'
+    : ownerName === undefined
+      ? undefined
+      : `${ownerName} 的对话`
+  const noteSubject = ownMine ? '自己' : ownerName === undefined ? '别人' : ` ${ownerName} `
   const chrome = useShellChrome()
   const [pending, setPending] = useState<readonly PendingPrompt[]>([])
   const [inFlightPromptId, setInFlightPromptId] = useState<string | null>(null)
@@ -213,7 +222,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
         {readOnly ? (
           <Tag className="ml-3 shrink-0" variant="soft">
             <Icon decorative name="preview" size="xs" />
-            {ownerName === undefined ? readOnlyLabel : `${readOnlyLabel} · ${ownerName} 的对话`}
+            {ownerPhrase === undefined ? readOnlyLabel : `${readOnlyLabel} · ${ownerPhrase}`}
           </Tag>
         ) : null}
       </header>
@@ -345,7 +354,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               <span className="flex min-w-0 items-center gap-2">
                 <Icon decorative name="preview" size="sm" />
                 <span className="truncate">
-                  这是{ownerName === undefined ? '别人' : ` ${ownerName} `}
+                  这是{noteSubject}
                   {deleted ? '已删除的对话' : '的对话'}，只能查看
                 </span>
               </span>

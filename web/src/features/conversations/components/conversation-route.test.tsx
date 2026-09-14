@@ -876,7 +876,7 @@ describe('ConversationRoute', () => {
     expect(decided).toBe(false)
   })
 
-  it('治理者看已删的对话也是只读，页头与说明都标出已删除；自己删的也一样', async () => {
+  it('治理者看已删的对话也是只读，页头与说明都标出已删除；自己删的主语写「自己」', async () => {
     const other = addMockUser('小王')
     server.use(
       http.get('*/api/users/me', () =>
@@ -896,7 +896,8 @@ describe('ConversationRoute', () => {
     serveApprovalPage(mockAuthUser.id, '2026-09-04T00:00:00Z')
     await renderConversation()
 
-    expect(await screen.findByText('已删除 · 测试用户 的对话')).toBeVisible()
+    expect(await screen.findByText('已删除 · 自己的对话')).toBeVisible()
+    expect(screen.getByRole('note', { name: '只读说明' })).toHaveTextContent('这是自己已删除的对话')
     expect(screen.queryByLabelText('输入消息')).toBeNull()
   })
 

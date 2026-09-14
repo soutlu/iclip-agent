@@ -526,6 +526,7 @@ __all__ = [
     "BusyConversationIds",
     "CollectionInfo",
     "ConversationService",
+    "DeletedFilter",
     "DerivedFile",
     "DerivedFileContent",
     "ListAgents",
