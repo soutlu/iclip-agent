@@ -226,10 +226,7 @@ class LiveConnections:
     """当前进程的 WebSocket 连接集合。
 
     标题、活动与生成任务广播不依赖对话订阅，发给属主的连接和治理者的连接，范围由握手主体定。
-    多 worker 各自持有连接集合，未收到广播的客户端需重新读取数据库状态。
-
-    这些帧不挂在某段订阅上，``session_id`` 一律是规范写法；按订阅投递的帧另见
-    ``_Connection`` 对订阅写法的回显。"""
+    多 worker 各自持有连接集合，未收到广播的客户端需重新读取数据库状态。"""
 
     def __init__(self) -> None:
         self._connections: set[_Connection] = set()
@@ -536,10 +533,8 @@ class _Connection:
 
     同步监听回调仅写入有界出站队列，避免慢客户端阻塞运行；缓冲溢出时断开以便重连补批。
 
-    订阅与文件监听一律按规范写法记账（实时状态、pin 与文件变更通知都只认这一种拼写），回发的
-    ``session_id`` 则用客户端订阅时的原写法：客户端按自己发出去的那个字符串分流（connection.ts
-    的 subscriptions / fsWatches 以它为键，``ack`` 的 ``not_found`` 也按它比对），换成规范写法
-    会让用无横线 id 订阅的客户端把帧全丢掉。同一段对话换写法重订，以最后一次为准。"""
+    帧里的对话 id 两种写法都收，订阅、文件监听与回发的 ``session_id`` 一律用规范写法：客户端按
+    ``session_id`` 分流，全局帧与 REST 也只给这一种拼写，多一种会让同一段对话在客户端裂成两份。"""
 
     def __init__(
         self,
@@ -559,8 +554,6 @@ class _Connection:
         self._grades: dict[tuple[str, str], TranscriptGrade] = {}
         # 文件订阅按对话记录路径与递归标记，独立于 Transcript 订阅。
         self._watches: dict[str, dict[str, bool]] = {}
-        # 规范写法 -> 客户端订阅时用的写法，回发帧按它还原。
-        self._spellings: dict[str, str] = {}
         self._last_inbound = datetime.now(UTC)
         self._frame_seq = 0
 
@@ -640,7 +633,6 @@ class _Connection:
             # 看不见的对话保留连接上的其他订阅。
             await self._outbound.put(Ack(id=frame.id, code=40401, msg="会话不存在"))
             return
-        self._spellings[conversation_id] = frame.payload.session_id
         watched = self._watches.setdefault(conversation_id, {})
         for path in frame.payload.paths:
             watched[path] = frame.payload.recursive
@@ -679,19 +671,22 @@ class _Connection:
         self.offer(
             FsChanged(
                 seq=self._frame_seq,
-                session_id=self._spellings.get(conversation_id, conversation_id),
+                session_id=conversation_id,
                 timestamp=datetime.now(UTC).isoformat(),
                 payload=FsChangePayload(changes=(FsChangeEntry(path=path, change=change),)),
             )
         )
 
     async def _subscribe(self, frame: Subscribe) -> None:
-        asked = frame.payload.session_id
-        conversation_id = await self._visible(asked)
+        conversation_id = await self._visible(frame.payload.session_id)
         if conversation_id is None:
             # 不泄露不可见对话的存在性，也不影响连接上的其他订阅。
+            # 拒了的写法没有规范形式，回执里原样带回客户端问的那个。
             await self._outbound.put(
-                Ack(id=frame.id, payload=SubscribeAckPayload(not_found=(asked,)))
+                Ack(
+                    id=frame.id,
+                    payload=SubscribeAckPayload(not_found=(frame.payload.session_id,)),
+                )
             )
             return
         agent_ids = _subscribed_agents(frame.payload.transcript)
@@ -702,11 +697,11 @@ class _Connection:
                     Ack(id=frame.id, code=404, msg=f"agent not in session: {agent_id}")
                 )
                 return
-        # 整帧确定生效后再记写法：被拒的帧不改动已有订阅，也不该改动它的回显。
-        self._spellings[conversation_id] = asked
         for agent_id in agent_ids:
             await self._subscribe_agent(conversation_id, agent_id, frame.payload)
-        await self._outbound.put(Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(asked,))))
+        await self._outbound.put(
+            Ack(id=frame.id, payload=SubscribeAckPayload(accepted=(conversation_id,)))
+        )
 
     async def _owns(self, conversation_id: str, agent_id: str) -> bool:
         try:
@@ -796,17 +791,16 @@ class _Connection:
 
         self._frame_seq += 1
         stamped = datetime.now(UTC).isoformat()
-        session_id = self._spellings.get(conversation_id, conversation_id)
         if isinstance(payload, ResetPayload):
             return TranscriptReset(
                 seq=self._frame_seq,
-                session_id=session_id,
+                session_id=conversation_id,
                 timestamp=stamped,
                 payload=payload,
             )
         return TranscriptOps(
             seq=self._frame_seq,
-            session_id=session_id,
+            session_id=conversation_id,
             timestamp=stamped,
             payload=payload,
         )
