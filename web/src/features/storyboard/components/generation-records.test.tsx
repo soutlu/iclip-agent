@@ -25,7 +25,7 @@ const jobs: GenerationJob[] = [
     createdAt: new Date(2026, 8, 1, 10, 4).toISOString(),
     id: 'a',
     outputUrl: 'take-1.mp4',
-    request: { prompt: '第一版：走向镜头。' },
+    request: { prompt: '第一版：走向镜头。', model: 'wan3.0-video' },
   }),
   job({
     createdAt: new Date(2026, 8, 1, 11, 40).toISOString(),
@@ -37,7 +37,7 @@ const jobs: GenerationJob[] = [
   job({
     createdAt: new Date(2026, 8, 1, 12, 20).toISOString(),
     id: 'c',
-    request: { prompt: '第三版：脚步放慢。' },
+    request: { prompt: '第三版：脚步放慢。', model: 'moyu-seedance-2-5' },
     status: 'submitted',
   }),
   job({
@@ -92,6 +92,12 @@ describe('GenerationRecords', () => {
       '第三版：脚步放慢。',
       '第二版：加一个低头动作。',
       '第一版：走向镜头。',
+    ])
+    const cards = screen.getAllByRole('article')
+    expect(cards.map((card) => within(card).getByText(/^模型 · /).textContent)).toEqual([
+      '模型 · moyu-seedance-2-5',
+      '模型 · 未记录',
+      '模型 · wan3.0-video',
     ])
   })
 
@@ -219,6 +225,7 @@ describe('GenerationRecords', () => {
     await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
 
     expect(within(card).queryByText('第三版：脚步放慢。')).not.toBeInTheDocument()
+    expect(within(card).queryByText('模型 · moyu-seedance-2-5')).not.toBeInTheDocument()
     expect(within(card).getByText('生成中')).toBeVisible()
   })
 
