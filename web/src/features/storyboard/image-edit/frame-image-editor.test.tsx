@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
@@ -333,6 +333,39 @@ describe('图片编辑器', () => {
     const references = within(editor).getByRole('list', { name: '提交图片顺序' })
     expect(within(references).getAllByRole('img')).toHaveLength(1)
     expect(within(editor).getByRole('button', { name: '添加参考图片' })).toBeEnabled()
+  })
+
+  it('拖进参考图片区就地上传，事件带着 defaultPrevented 冒到 window 供聊天遮罩收尾', async () => {
+    await renderWithProviders(<EditorPage />)
+    const editor = await screen.findByRole('dialog')
+    const zone = within(editor).getByRole('list', { name: '提交图片顺序' }).parentElement
+    expect(zone).not.toBeNull()
+
+    // 聊天输入框的遮罩挂在 window 上，靠这三个事件冒泡回来才关得掉。
+    const seen: { type: string; prevented: boolean }[] = []
+    const record = (event: Event) =>
+      seen.push({ type: event.type, prevented: event.defaultPrevented })
+    for (const type of ['dragenter', 'dragover', 'drop']) window.addEventListener(type, record)
+
+    const file = imageFile()
+    const dataTransfer = {
+      files: [file],
+      items: [{ kind: 'file', type: file.type, webkitGetAsEntry: () => null }],
+      types: ['Files'],
+    }
+    fireEvent.dragEnter(zone as HTMLElement, { dataTransfer })
+    fireEvent.dragOver(zone as HTMLElement, { dataTransfer })
+    fireEvent.drop(zone as HTMLElement, { dataTransfer })
+    for (const type of ['dragenter', 'dragover', 'drop']) window.removeEventListener(type, record)
+
+    expect(seen).toEqual([
+      { type: 'dragenter', prevented: true },
+      { type: 'dragover', prevented: true },
+      { type: 'drop', prevented: true },
+    ])
+    expect(
+      await within(editor).findByRole('button', { name: /^引用参考图 2 · 参考\.png$/ }),
+    ).toBeVisible()
   })
 
   it('从历史菜单恢复输入后回到底图，再次提交保留那次的要求和参考图片', async () => {

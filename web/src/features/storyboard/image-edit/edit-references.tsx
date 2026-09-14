@@ -98,10 +98,11 @@ export function EditReferences({
     next.splice(to, 0, item)
     onChange(next)
   }
+  const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes('Files')) return
+    if (!hasFiles(event)) return
+    // 保留冒泡以清理全局拖放状态，defaultPrevented 表明此处已接管上传。
     event.preventDefault()
-    event.stopPropagation()
     setDragOver(false)
     if ([...event.dataTransfer.items].some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
       toast.error('请拖入图片文件，不支持文件夹')
@@ -131,10 +132,14 @@ export function EditReferences({
       </div>
       <div
         className={cn('image-edit-reference-drop', dragOver && 'image-edit-reference-drop-active')}
-        onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes('Files')) return
+        onDragEnter={(event) => {
+          if (!hasFiles(event)) return
           event.preventDefault()
-          event.stopPropagation()
+          if (!locked) setDragOver(true)
+        }}
+        onDragOver={(event) => {
+          if (!hasFiles(event)) return
+          event.preventDefault()
           if (!locked) setDragOver(true)
         }}
         onDragLeave={() => setDragOver(false)}
