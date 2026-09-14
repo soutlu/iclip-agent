@@ -416,6 +416,15 @@ export const zGenerationsPageOut = z.object({
 })
 
 /**
+ * HTTPValidationError
+ *
+ * 请求校验失败，与领域错误同一个信封。
+ */
+export const zHttpValidationError = z.object({
+  detail: z.string(),
+})
+
+/**
  * ImageContent
  */
 export const zImageContent = z.object({
@@ -1010,24 +1019,6 @@ export const zUsersPageOut = z.object({
 })
 
 /**
- * ValidationError
- */
-export const zValidationError = z.object({
-  ctx: z.record(z.string(), z.unknown()).optional(),
-  input: z.unknown().optional(),
-  loc: z.array(z.union([z.string(), z.int()])),
-  msg: z.string(),
-  type: z.string(),
-})
-
-/**
- * HTTPValidationError
- */
-export const zHttpValidationError = z.object({
-  detail: z.array(zValidationError).optional(),
-})
-
-/**
  * VideoContent
  */
 export const zVideoContent = z.object({
@@ -1339,9 +1330,9 @@ export const zVideoGenerationIn = z.object({
   model: z.string().min(1).max(200),
   prompt: z.string().min(1).max(4000).nullish(),
   provider_options: z.record(z.string(), z.unknown()).nullish(),
-  reference_audio_urls: z.array(z.string()).max(16).optional().default([]),
-  reference_image_urls: z.array(z.string()).max(16).optional().default([]),
-  reference_video_urls: z.array(z.string()).max(16).optional().default([]),
+  reference_audio_urls: z.array(z.string()).max(30).optional().default([]),
+  reference_image_urls: z.array(z.string()).max(30).optional().default([]),
+  reference_video_urls: z.array(z.string()).max(30).optional().default([]),
   resolution: z.string().min(1).max(50).nullish(),
   seconds: z.int().gte(-1).nullish(),
   shot: zVideoShotIn.nullish(),

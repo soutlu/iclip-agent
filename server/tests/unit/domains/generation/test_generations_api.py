@@ -10,9 +10,8 @@ from dataclasses import replace
 import httpx
 import pytest
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
 
-from iclip.common.errors import DomainError
+from iclip.app.errors import install_error_handlers
 from iclip.domains.generation.api import create_generations_router
 from iclip.domains.generation.models import (
     STATUS_COMPLETED,
@@ -27,7 +26,6 @@ from iclip.domains.generation.provider import ImageModelSpec
 from iclip.domains.generation.seedream import SPEC as SEEDREAM_SPEC
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.models import Principal
-from iclip.platform.http import status_code_for
 from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
@@ -91,9 +89,7 @@ def build_test_app(
             request.state.principal = granted
         return await call_next(request)
 
-    @app.exception_handler(DomainError)
-    async def _domain_error(_request: Request, exc: DomainError) -> JSONResponse:
-        return JSONResponse(status_code=status_code_for(exc), content={"detail": str(exc)})
+    install_error_handlers(app)
 
     queue, _ = build_queue(repo)
     if broken_queue:
@@ -210,6 +206,39 @@ async def test_video_submit_rejects_fields_we_do_not_take(extra: dict[str, objec
     async with client(app) as http:
         response = await http.post("/generations/video", json={**VIDEO_BODY, **extra})
     assert response.status_code == 422
+
+
+async def test_reference_urls_stop_at_the_same_count_the_shot_file_allows() -> None:
+    """分镜文件一组能挂 30 张帧图，出片就得收得下 30 张：存得下却发不出去是我们自己的口径打架。"""
+
+    app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:submit"))
+    urls = [f"https://cdn.test/{index}.png" for index in range(31)]
+    async with client(app) as http:
+        fits = await http.post(
+            "/generations/video", json={**VIDEO_BODY, "reference_image_urls": urls[:30]}
+        )
+        too_many = await http.post(
+            "/generations/video", json={**VIDEO_BODY, "reference_image_urls": urls}
+        )
+
+    assert fits.status_code == 202, fits.text
+    assert too_many.status_code == 422
+    assert too_many.json()["detail"].startswith("reference_image_urls: ")
+
+
+async def test_request_validation_errors_use_the_same_string_envelope() -> None:
+    """校验失败也走 ``{"detail": "<字段路径>: <原因>"}``，调用方读同一个字段就够。"""
+
+    app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:submit"))
+    async with client(app) as http:
+        response = await http.post(
+            "/generations/video", json={**VIDEO_BODY, "reference_image_urls": ["ftp://cdn/a.png"]}
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "reference_image_urls: [0] 必须是 http:// 或 https:// 地址"
+    }
 
 
 SHOT_BODY = {

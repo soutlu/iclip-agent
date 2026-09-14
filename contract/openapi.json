@@ -1472,15 +1472,16 @@
         "type": "object"
       },
       "HTTPValidationError": {
+        "description": "请求校验失败，与领域错误同一个信封。",
         "properties": {
           "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
             "title": "Detail",
-            "type": "array"
+            "type": "string"
           }
         },
+        "required": [
+          "detail"
+        ],
         "title": "HTTPValidationError",
         "type": "object"
       },
@@ -4734,46 +4735,6 @@
         "title": "UsersPageOut",
         "type": "object"
       },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
-        "type": "object"
-      },
       "VideoContent": {
         "additionalProperties": false,
         "properties": {
@@ -4881,7 +4842,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 16,
+            "maxItems": 30,
             "title": "Reference Audio Urls",
             "type": "array"
           },
@@ -4890,7 +4851,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 16,
+            "maxItems": 30,
             "title": "Reference Image Urls",
             "type": "array"
           },
@@ -4899,7 +4860,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 16,
+            "maxItems": 30,
             "title": "Reference Video Urls",
             "type": "array"
           },

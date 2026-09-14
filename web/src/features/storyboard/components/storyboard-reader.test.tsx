@@ -648,7 +648,7 @@ describe('StoryboardReader', () => {
     expect(await within(records).findByText('生成中')).toBeVisible()
   })
 
-  it('服务端拒收出片时提示原话，不刷新记录', async () => {
+  it('服务端拒收出片时在出片按钮旁提示原话，不弹全局提示、不刷新记录', async () => {
     provide()
     let reads = 0
     server.use(
@@ -668,7 +668,11 @@ describe('StoryboardReader', () => {
 
     await userEvent.click(generate)
 
-    expect(await screen.findByText(/视频生成仅支持模型 moyu-seedance-2-5/)).toBeVisible()
+    // 提示留在工作台顶栏、挨着出片按钮；全局 toast 弹在视口底部会压住聊天输入区。
+    // 存盘状态那一格出错时也是 alert，按文案取，别挑到别人的。
+    const alert = await screen.findByRole('alert', { name: /视频生成仅支持模型/ })
+    expect(alert.parentElement).toContainElement(generate)
+    expect(window.document.querySelector('[data-sonner-toast]')).toBeNull()
     expect(reads).toBe(readsBefore)
     await waitFor(() => expect(generate).toBeEnabled())
   })

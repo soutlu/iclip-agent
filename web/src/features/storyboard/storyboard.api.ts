@@ -78,7 +78,7 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
   }
   const receipt = await apiFetch('/generations/video', zVideoSubmitOut, {
     body,
-    fallbackErrorMessage: '出片没发出去',
+    fallbackErrorMessage: '视频提交失败',
     method: 'POST',
   })
   return receipt.task_id

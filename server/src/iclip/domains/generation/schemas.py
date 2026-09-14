@@ -47,7 +47,9 @@ IMAGE_RESOLUTIONS = Literal["1k", "2k", "4k"]
 IMAGE_MAX_REFERENCES: Final = 10
 """图像编辑接口的参考图上限。超了在提交之前就拒，不浪费一次付费调用。"""
 MAX_PROMPT_CHARS: Final = 4000
-MAX_REFERENCE_URLS: Final = 16
+MAX_REFERENCE_URLS: Final = 30
+"""每类参考素材最多几个地址。与分镜文件一组镜头的帧图上限（capabilities 的
+``MAX_REFERENCE_IMAGES``）取同一个数：文件里存得下的一组，出片就必须发得出去。"""
 MAX_MODEL_CHARS: Final = 200
 MAX_USER_NAME_CHARS: Final = 200
 MAX_METADATA_CHARS: Final = 2000
