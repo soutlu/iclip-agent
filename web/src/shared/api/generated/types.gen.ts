@@ -824,12 +824,14 @@ export type GenerationsPageOut = {
 
 /**
  * HTTPValidationError
+ *
+ * 请求校验失败，与领域错误同一个信封。
  */
 export type HttpValidationError = {
   /**
    * Detail
    */
-  detail?: Array<ValidationError>
+  detail: string
 }
 
 /**
@@ -2455,34 +2457,6 @@ export type UsersPageOut = {
    * Total
    */
   total: number
-}
-
-/**
- * ValidationError
- */
-export type ValidationError = {
-  /**
-   * Context
-   */
-  ctx?: {
-    [key: string]: unknown
-  }
-  /**
-   * Input
-   */
-  input?: unknown
-  /**
-   * Location
-   */
-  loc: Array<string | number>
-  /**
-   * Message
-   */
-  msg: string
-  /**
-   * Error Type
-   */
-  type: string
 }
 
 /**

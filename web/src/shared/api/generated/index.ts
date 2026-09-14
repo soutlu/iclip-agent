@@ -380,7 +380,6 @@ export type {
   UserPatchIn,
   UserRead,
   UsersPageOut,
-  ValidationError,
   VideoContent,
   VideoGenerationIn,
   VideoModelsOut,
