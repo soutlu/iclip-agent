@@ -37,14 +37,21 @@ class StateFilter:
     busy: frozenset[uuid.UUID]
 
 
+DeletedFilter = Literal["live", "deleted", "all"]
+"""审计的删除筛选：``live`` 只看活着的，``deleted`` 只看属主删掉的墓碑，``all`` 两者都收。"""
+
+
 @dataclass(frozen=True, slots=True)
 class AuditFilter:
-    """审计的筛选范围，列表与计数共用；四项都可以不给。``since`` / ``until`` 作用在 ``updated_at`` 上。"""
+    """审计的筛选范围，列表与计数共用；前四项都可以不给。``since`` / ``until`` 作用在 ``updated_at`` 上。
+
+    ``deleted`` 决定墓碑进不进结果：这是唯一能读到已删对话的列表口。"""
 
     owner: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     since: datetime | None = None
     until: datetime | None = None
+    deleted: DeletedFilter = "live"
 
 
 class ConversationRepository(Protocol):
@@ -58,8 +65,16 @@ class ConversationRepository(Protocol):
         已使用的 id 永不重新分配，避免新对话接上保留的运行历史。"""
         ...
 
-    async def get(self, conversation_id: uuid.UUID, *, owner: uuid.UUID | None) -> Conversation:
-        """按 id 读一行；不是这个人的一律抛 ``NotFound``（不泄露它存不存在）。"""
+    async def get(
+        self,
+        conversation_id: uuid.UUID,
+        *,
+        owner: uuid.UUID | None,
+        include_deleted: bool = False,
+    ) -> Conversation:
+        """按 id 读一行；不是这个人的一律抛 ``NotFound``（不泄露它存不存在）。
+
+        ``include_deleted`` 只给治理者的读路径用：为真时墓碑也读得出来；缺省当它不存在。"""
         ...
 
     async def list_for_owner(
@@ -153,7 +168,8 @@ class ConversationRepository(Protocol):
         ...
 
     async def delete(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> None:
-        """标记删除：行留着占住 id，之后任何读写都当它不存在。已删或本来就没有都抛 ``NotFound``。"""
+        """标记删除：行留着占住 id，之后除治理者按 ``include_deleted`` 读，任何读写都当它不存在。
+        已删或本来就没有都抛 ``NotFound``。"""
         ...
 
     async def touch_run(

@@ -404,6 +404,7 @@ test('选模型出片：请求照上游形状取当前组，记录先生成中�
     generate_audio: false,
     model: 'wan3.0-video',
     reference_image_urls: third.image_urls,
+    resolution: '720p',
     seconds: third.seconds,
     shot: third.prompt,
     metadata: { path: 'video_shot.json', shot: 3 },

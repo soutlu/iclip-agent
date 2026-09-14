@@ -535,6 +535,99 @@ async def test_governor_reads_other_peoples_history(
         ).status_code == 404
 
 
+async def test_audit_lists_deleted_conversations_on_request(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """``deleted`` 三值：缺省只看活着的，``deleted`` 只看墓碑，``all`` 都看；三个数字同一口径。"""
+
+    owner = await login_as_editor(client, pg_url)
+    alive = await open_conversation(client, title="还在的")
+    gone = await open_conversation(client, title="删掉的")
+    await plant_job(
+        pg_url,
+        owner=owner,
+        conversation_id=str(gone["id"]),
+        status="failed",
+        prompt_id="prm_audit_gone",
+    )
+    assert (await client.delete(f"{CONVERSATIONS}/{gone['id']}")).status_code == 204
+
+    async with make_client(app) as governor:
+        await login_as_root(governor, pg_url)
+
+        live = (await governor.get(AUDIT)).json()
+        assert [item["id"] for item in live["items"]] == [alive["id"]]
+        assert live["items"][0]["deletedAt"] is None
+        assert (live["total"], live["runningTotal"]) == (1, 0)
+
+        deleted = (await governor.get(AUDIT, params={"deleted": "deleted"})).json()
+        assert [item["id"] for item in deleted["items"]] == [gone["id"]]
+        assert deleted["items"][0]["deletedAt"] is not None
+        assert (deleted["total"], deleted["runningTotal"]) == (1, 0)
+
+        # 墓碑跑过一次，state=done 也把它算进去。
+        done = (await governor.get(AUDIT, params={"deleted": "deleted", "state": "done"})).json()
+        assert [item["id"] for item in done["items"]] == [gone["id"]]
+
+        everything = (await governor.get(AUDIT, params={"deleted": "all"})).json()
+        assert {item["id"] for item in everything["items"]} == {alive["id"], gone["id"]}
+        assert everything["total"] == 2
+
+        assert (await governor.get(AUDIT, params={"deleted": "trashed"})).status_code == 422
+
+
+async def test_governor_reviews_a_deleted_conversation_read_only(
+    app: FastAPI, client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """治理者读得到墓碑的 transcript 与工作区，信封带 deleted_at；属主与写路径仍是 404。"""
+
+    owner = await login_as_editor(client, pg_url)
+    conversation_id = str((await open_conversation(client))["id"])
+    engine = create_async_engine(pg_url)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO agent_runtime.workspace_files "
+                    "(namespace, path, content, version, created_at, updated_at) "
+                    "VALUES (:ns, '分镜.md', '稿子', 1, now(), now())"
+                ),
+                {"ns": f"{owner}/{conversation_id}"},
+            )
+    finally:
+        await engine.dispose()
+    assert (await client.delete(f"{CONVERSATIONS}/{conversation_id}")).status_code == 204
+    assert (await client.get(f"{CONVERSATIONS}/{conversation_id}/transcript")).status_code == 404
+
+    async with make_client(app) as governor:
+        await login_as_root(governor, pg_url)
+        page = await governor.get(f"{CONVERSATIONS}/{conversation_id}/transcript")
+        assert page.status_code == 200, page.text
+        assert page.json()["owner_user_id"] == owner
+        assert page.json()["deleted_at"] is not None
+        files = await governor.get(f"{CONVERSATIONS}/{conversation_id}/workspace/files")
+        assert [entry["path"] for entry in files.json()["files"]] == ["分镜.md"]
+        assert (
+            await governor.patch(f"{CONVERSATIONS}/{conversation_id}", json={"title": "我来改"})
+        ).status_code == 404
+        assert (
+            await governor.post(
+                f"{CONVERSATIONS}/{conversation_id}/prompts",
+                json={"prompt_id": "prm_gov_gone", "content": [{"type": "text", "text": "替你发"}]},
+            )
+        ).status_code == 404
+
+        # 治理者自己删掉的对话也读得到，但墓碑对谁都是只读的。
+        own = str((await open_conversation(governor, title="自己删的"))["id"])
+        assert (await governor.delete(f"{CONVERSATIONS}/{own}")).status_code == 204
+        assert (await governor.get(f"{CONVERSATIONS}/{own}/transcript")).status_code == 200
+        written = await governor.put(
+            f"{CONVERSATIONS}/{own}/workspace/file",
+            json={"path": "提纲.md", "content": "补一笔", "expectedVersion": 0},
+        )
+        assert written.status_code == 403
+
+
 async def test_deleting_collection_only_clears_the_column(
     client: httpx.AsyncClient, pg_url: str
 ) -> None:

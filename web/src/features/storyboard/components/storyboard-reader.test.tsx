@@ -635,6 +635,7 @@ describe('StoryboardReader', () => {
         generate_audio: false,
         model: 'wan3.0-video',
         reference_image_urls: firstShot.image_urls,
+        resolution: '720p',
         seconds: firstShot.seconds,
         shot: firstShot.prompt,
         metadata: { path: PATH, shot: 1 },

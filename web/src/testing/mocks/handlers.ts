@@ -147,8 +147,9 @@ export const resetMockUsers = () => {
   mockUsers.length = 0
 }
 
-/** 属主、需求单与时间三个筛选先切出范围，state 再在范围内挑；runningTotal 只看范围。 */
+/** 删没删、属主、需求单与时间先切出范围，state 再在范围内挑；runningTotal 只看范围。 */
 const auditScope = (query: URLSearchParams) => {
+  const deleted = query.get('deleted') ?? 'live'
   const owner = query.get('ownerUserId')
   const taskId = query.get('taskId')
   const since = query.get('since')
@@ -157,6 +158,7 @@ const auditScope = (query: URLSearchParams) => {
     .sort(byRecent)
     .filter(
       (item) =>
+        (deleted === 'all' || (item.deletedAt !== null) === (deleted === 'deleted')) &&
         (owner === null || item.ownerUserId === owner) &&
         (taskId === null || item.taskId === taskId) &&
         (since === null || item.updatedAt >= since) &&

@@ -529,6 +529,10 @@ export type ConversationOut = {
    */
   createdAt: string
   /**
+   * Deletedat
+   */
+  deletedAt: string | null
+  /**
    * Id
    */
   id: string
@@ -1884,6 +1888,10 @@ export type TranscriptPage = {
    */
   agents?: Array<AgentDescriptor>
   /**
+   * Deleted At
+   */
+  deleted_at?: string | null
+  /**
    * Has More
    */
   has_more: boolean
@@ -3198,6 +3206,10 @@ export type AuditConversationsConversationsAuditGetData = {
      */
     state?: 'all' | 'running' | 'done'
     /**
+     * Deleted
+     */
+    deleted?: 'live' | 'deleted' | 'all'
+    /**
      * Limit
      */
     limit?: number
@@ -3474,13 +3486,13 @@ export type ApproveConversationsConversationIdInteractionsInteractionIdPostData 
   body: ApprovalRequest
   path: {
     /**
-     * Conversation Id
-     */
-    conversation_id: string
-    /**
      * Interaction Id
      */
     interaction_id: string
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
   }
   query?: never
   url: '/conversations/{conversation_id}/interactions/{interaction_id}'
@@ -3574,13 +3586,13 @@ export type AbortConversationsConversationIdPromptsPromptIdAbortPostData = {
   body?: never
   path: {
     /**
-     * Conversation Id
-     */
-    conversation_id: string
-    /**
      * Prompt Id
      */
     prompt_id: string
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
   }
   query?: never
   url: '/conversations/{conversation_id}/prompts/{prompt_id}:abort'
@@ -3799,13 +3811,13 @@ export type RegenerateConversationsConversationIdTurnsTurnIdRegeneratePostData =
   body?: RegenerateBody | null
   path: {
     /**
-     * Conversation Id
-     */
-    conversation_id: string
-    /**
      * Turn Id
      */
     turn_id: string
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
   }
   query?: never
   url: '/conversations/{conversation_id}/turns/{turn_id}:regenerate'

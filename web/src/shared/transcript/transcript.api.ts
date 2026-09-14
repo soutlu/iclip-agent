@@ -24,6 +24,8 @@ export interface TranscriptBaseline {
   title: string
   /** 属主；治理者看别人的对话时与登录人不同，页面据此进入只读。 */
   ownerUserId: string | null
+  /** 属主删掉这段对话的时刻；只有治理者复盘墓碑时非空，页面据此只读并标注。 */
+  deletedAt: string | null
 }
 
 /** complete 为 false 表示批次已超出日志窗口，需重拉基线。 */
@@ -81,6 +83,7 @@ export const fetchTranscriptBaseline = async (
     }),
   ) as AgentTranscriptSnapshot
   return {
+    deletedAt: page.deleted_at ?? null,
     hasMoreOlder: page.has_more,
     ownerUserId: page.owner_user_id ?? null,
     seq: page.seq,

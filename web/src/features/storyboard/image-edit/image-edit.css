@@ -1,87 +1,382 @@
 .image-edit-dialog {
-  width: min(1240px, calc(100vw - 48px));
-  max-width: 1240px;
-  height: min(880px, calc(100dvh - 48px));
+  width: min(1200px, calc(100vw - 48px));
+  max-width: 1200px;
+  height: min(840px, calc(100dvh - 48px));
   max-height: calc(100dvh - 48px);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-2xl);
 }
+
+.image-edit-header {
+  align-items: center;
+  border: 0;
+  padding: 20px 24px;
+}
+
+.image-edit-header h2 {
+  overflow: visible;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  white-space: normal;
+}
+
+.image-edit-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
 .image-edit-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr);
+  min-width: 0;
   min-height: 0;
   flex: 1;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr);
+  gap: 28px;
+  padding: 0 24px 24px;
 }
+
 .image-edit-left {
   display: flex;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: var(--color-surface-container);
-  border-right: 1px solid var(--color-outline-variant);
+  gap: 16px;
 }
-.image-edit-strip {
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 8px 12px;
-  background: var(--color-surface-container-lowest);
-}
-.image-edit-slot {
+
+.image-edit-photo,
+.image-edit-task-preview,
+.image-edit-canvas-slot {
   position: relative;
-  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
   overflow: hidden;
-  width: 76px;
-  flex: none;
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-container-low);
+}
+
+.image-edit-photo {
+  display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--color-outline-variant);
+}
+
+p.image-edit-photo {
+  padding: 24px;
+  overflow-wrap: anywhere;
+}
+
+.image-edit-photo img,
+.image-edit-task-source {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.image-edit-task-source {
+  position: absolute;
+  inset: 0;
+}
+
+.image-edit-source-label {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: var(--z-local-1);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-media-stack-bg);
+  color: var(--color-on-surface-variant);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.image-edit-source-unavailable {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  left: 16px;
+  color: var(--color-on-surface-muted);
+  font-size: var(--text-body-sm);
+  line-height: var(--text-body-sm--line-height);
+  text-align: center;
+}
+
+.image-edit-task-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--color-chip-bg-glass);
+}
+
+.image-edit-task-status {
+  display: flex;
+  width: min(100%, 340px);
+  max-height: 100%;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  padding: 28px 24px;
+  border-radius: var(--radius-2xl);
+  background: var(--color-media-stack-bg);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(16px);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.image-edit-task-icon {
+  width: 32px;
+  height: 32px;
+  margin-inline: auto;
+}
+
+.image-edit-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+}
+
+.image-edit-error-details {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.image-edit-error-details[open] {
+  flex-basis: 100%;
+}
+
+.image-edit-error-details summary {
+  display: flex;
+  width: max-content;
+  min-height: var(--control-height-md);
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-inline: auto;
+  padding: 0 12px;
   border-radius: var(--radius-sm);
-  aspect-ratio: 4 / 3;
-  background: var(--color-surface-container);
+  color: var(--color-on-surface);
+  font-size: var(--text-body-sm);
+  line-height: var(--text-body-sm--line-height);
+  list-style: none;
   cursor: pointer;
 }
-.image-edit-slot-on {
-  border-color: var(--color-primary);
-  box-shadow: inset 0 0 0 1px var(--color-primary);
+
+.image-edit-error-details summary::-webkit-details-marker {
+  display: none;
 }
+
+.image-edit-error-details[open] summary svg {
+  rotate: 180deg;
+}
+
+.image-edit-error-message {
+  max-height: min(200px, 26dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-low);
+  color: var(--color-on-surface-variant);
+  font-size: var(--text-body-sm);
+  line-height: var(--text-body-sm--line-height);
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.image-edit-history {
+  /* 缩略图格边长；条两侧留出的空白容得下选中格的描边。 */
+  --image-edit-slot: 76px;
+  --image-edit-strip-gutter: 3px;
+
+  display: flex;
+  min-width: 0;
+  flex: none;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.image-edit-strip {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  gap: 12px;
+  overflow-x: auto;
+  padding: var(--image-edit-strip-gutter) var(--image-edit-strip-gutter) 4px;
+}
+
+.image-edit-entry {
+  display: flex;
+  width: var(--image-edit-slot);
+  min-width: 0;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-md);
+  color: var(--color-on-surface-muted);
+  cursor: pointer;
+}
+
+.image-edit-entry[aria-pressed='true'] {
+  color: var(--color-on-surface);
+}
+
+.image-edit-entry:disabled {
+  cursor: default;
+}
+
+.image-edit-slot {
+  position: relative;
+  display: block;
+  width: var(--image-edit-slot);
+  height: var(--image-edit-slot);
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-low);
+}
+
+.image-edit-slot-on {
+  outline: 1px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .image-edit-slot-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.image-edit-slot-blank {
+
+.image-edit-slot-state {
+  position: absolute;
+  inset: 0;
   display: flex;
-  width: 100%;
-  height: 100%;
   align-items: center;
   justify-content: center;
-  background: var(--color-state-active);
+  background: var(--color-chip-bg-glass);
 }
-.image-edit-slot-flag {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  padding: 0 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-secondary-container);
-  color: var(--color-on-secondary-container);
+
+.image-edit-entry-label {
+  width: 100%;
+  overflow: hidden;
   font-size: var(--text-caption);
-  line-height: 1.6;
+  line-height: var(--text-caption--line-height);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .image-edit-slot-more {
-  flex-direction: column;
-  gap: 2px;
-  color: var(--color-on-surface-muted);
+  min-height: var(--image-edit-slot);
+  justify-content: center;
+  background: var(--color-surface-container-low);
   font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
-.image-edit-canvas-slot {
-  position: relative;
+
+/* 与缩略图格垂直居中对齐：按钮多高都对得上，不靠算好的上边距。 */
+.image-edit-history-actions {
+  display: flex;
+  height: var(--image-edit-slot);
+  flex: none;
+  align-items: center;
+  margin-top: var(--image-edit-strip-gutter);
+}
+
+.image-edit-right {
+  display: flex;
+  min-width: 0;
   min-height: 0;
+  flex-direction: column;
+  gap: 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 3px 3px;
+  overscroll-behavior: contain;
+}
+
+.image-edit-inputs {
+  display: flex;
+  min-width: 0;
+  flex: none;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.image-edit-submit-area {
+  display: flex;
+  min-width: 0;
+  flex: none;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+  overflow-wrap: anywhere;
+}
+
+.image-edit-settings {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.image-edit-settings-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 两个就地选择器的外观由共享 Select 的 inline 变体给，这里只排它们在这一行里的宽度。 */
+.image-edit-model-option {
   flex: 1;
 }
-.image-edit-canvas-slot[hidden] {
-  display: none;
+
+.image-edit-resolution-option {
+  flex: 0 0 64px;
 }
+
+.image-edit-settings-controls > button {
+  flex: none;
+}
+
+.image-edit-primary-action {
+  width: 100%;
+  height: 48px;
+  flex: none;
+  border-radius: var(--radius-full);
+  font-size: var(--text-body);
+}
+
+.image-edit-instruction-editor {
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-container-low);
+}
+
+.image-edit-instruction-editor:focus-within {
+  outline: var(--state-focus-ring) solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.image-edit-instruction-input:focus {
+  /* design-allow -- 整个编辑器共享外层 focus-within 焦点环。 */
+  outline: none;
+}
+
+.image-edit-instruction-input p + p {
+  margin-top: 8px;
+}
+
 .image-edit-canvas {
   position: relative;
   display: flex;
@@ -89,27 +384,36 @@
   height: 100%;
   min-height: 0;
 }
+
 .image-edit-canvas-toolbar {
   position: absolute;
   top: 16px;
   left: 12px;
+  z-index: var(--z-local-1);
   display: flex;
+  max-height: calc(100% - 32px);
   flex-direction: column;
   align-items: center;
   gap: 5px;
+  overflow-y: auto;
   padding: 7px;
-  border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-container-lowest);
+  border-radius: var(--radius-md);
+  background: var(--color-media-stack-bg);
   box-shadow: var(--shadow-1);
-  z-index: var(--z-local-1);
 }
+
 .image-edit-canvas-toolbar-divider {
   width: 100%;
   height: 1px;
+  flex: none;
   margin: 3px 0;
   background: var(--color-outline-variant);
 }
+
+.image-edit-canvas-toolbar > button {
+  flex: none;
+}
+
 .image-edit-canvas-viewport {
   position: relative;
   width: 100%;
@@ -118,6 +422,7 @@
   min-height: 0;
   margin-left: 72px;
 }
+
 .image-edit-canvas-source,
 .image-edit-canvas-surface {
   position: absolute;
@@ -126,36 +431,36 @@
   width: 100%;
   object-fit: contain;
 }
+
 .image-edit-canvas-surface {
   touch-action: none;
 }
-.image-edit-photo {
-  min-height: 0;
-  flex: 1;
+
+.image-edit-annotation-actions {
+  position: absolute;
+  z-index: var(--z-local-1);
   display: flex;
-}
-.image-edit-photo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.image-edit-right {
-  display: flex;
-  min-height: 0;
-  flex-direction: column;
-  gap: 22px;
-  overflow-y: auto;
-  padding: 22px;
-}
-.image-edit-footer {
-  display: flex;
-  flex-shrink: 0;
+  min-height: var(--control-height-xl);
   align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 16px 22px;
-  border-top: 1px solid var(--color-outline-variant);
+  gap: 8px;
+  padding: 4px 8px 4px 12px;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-lowest);
+  box-shadow: var(--shadow-2);
 }
+
+.image-edit-annotation:focus-visible {
+  outline: var(--state-focus-ring) solid var(--color-focus-ring);
+  outline-offset: 4px;
+}
+
+.image-edit-canvas-surface:focus:not(:focus-visible),
+.image-edit-annotation:focus:not(:focus-visible) {
+  /* design-allow -- 鼠标聚焦不画浏览器默认框；键盘使用 ui-focus / :focus-visible 焦点环。 */
+  outline: none;
+}
+
 @media (max-width: 760px) {
   .image-edit-dialog {
     inset: 0;
@@ -163,81 +468,59 @@
     height: 100dvh;
     max-width: none;
     max-height: none;
+    border-radius: var(--radius-none);
+    translate: none;
     transform: none;
-    border-radius: 0;
   }
+
+  .image-edit-header {
+    padding: 16px;
+  }
+
   .image-edit-body {
     display: flex;
     flex-direction: column;
+    gap: 24px;
+    overflow-x: hidden;
     overflow-y: auto;
+    padding: 0 16px 24px;
   }
+
   .image-edit-left {
-    flex-shrink: 0;
-    height: 46dvh;
-    min-height: 280px;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-outline-variant);
+    height: 52dvh;
+    min-height: 340px;
+    flex: none;
   }
+
+  .image-edit-task-overlay {
+    padding: 16px;
+  }
+
+  .image-edit-task-status {
+    gap: 12px;
+    padding: 20px 16px;
+  }
+
+  .image-edit-right {
+    min-height: auto;
+    flex: none;
+    overflow: visible;
+    padding: 3px;
+  }
+
+  .image-edit-submit-area {
+    margin-top: 0;
+  }
+
   .image-edit-canvas-toolbar {
-    left: 6px;
     top: 8px;
+    left: 6px;
+    max-height: calc(100% - 16px);
     gap: 2px;
     padding: 4px;
-    max-height: calc(100% - 16px);
-    overflow-y: auto;
   }
+
   .image-edit-canvas-viewport {
     margin-left: 54px;
   }
-  .image-edit-right {
-    min-height: auto;
-    overflow: visible;
-    gap: 18px;
-    padding: 18px;
-  }
-  .image-edit-footer {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 18px;
-  }
-  .image-edit-footer > div {
-    justify-content: flex-end;
-  }
-}
-
-.image-edit-instruction-editor:focus-within {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px var(--color-primary);
-}
-.image-edit-instruction-input:focus {
-  /* design-allow -- 外层 focus-within 使用主色边框与焦点环，输入区共享同一焦点指示。 */
-  outline: none;
-}
-.image-edit-instruction-input p + p {
-  margin-top: 8px;
-}
-
-.image-edit-annotation-actions {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 4px 8px 4px 12px;
-  border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-container-lowest);
-  box-shadow: var(--shadow-2);
-  z-index: var(--z-local-1);
-}
-.image-edit-annotation:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 4px;
-}
-
-.image-edit-canvas-surface:focus:not(:focus-visible),
-.image-edit-annotation:focus:not(:focus-visible) {
-  /* design-allow -- 鼠标聚焦不画浏览器默认框；键盘仍由 ui-focus / :focus-visible 提供清晰焦点环。 */
-  outline: none;
 }

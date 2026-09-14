@@ -155,13 +155,16 @@ class Transcripts(Protocol):
 
 
 class ConversationHeader(Protocol):
-    """会话页首屏要贴在信封顶层的两项。"""
+    """会话页首屏要贴在信封顶层的三项。"""
 
     @property
     def title(self) -> str: ...
 
     @property
     def owner_user_id(self) -> uuid.UUID: ...
+
+    @property
+    def deleted_at(self) -> datetime | None: ...
 
 
 class Conversations(Protocol):
@@ -176,7 +179,33 @@ class Conversations(Protocol):
         ...
 
 
-ConversationId = Annotated[str, Path(pattern=r"^[A-Za-z0-9._-]{1,128}$")]
+ProtocolId = Annotated[str, Path(pattern=r"^[A-Za-z0-9._-]{1,128}$")]
+"""协议里由客户端铸的路径标识：消息 id、交互 id 与轮 id，不是 UUID（轮 id 长 ``t1`` 这样）。"""
+
+
+def _canonical_conversation_id(conversation_id: uuid.UUID) -> str:
+    """路径上的对话 id 按 UUID 解析后规范化。
+
+    调用方写不写横线都命中同一段对话，而工作区与实时状态只见到一种拼写
+    （见 ``ConversationService`` 对规范写法的要求）。"""
+
+    return str(conversation_id)
+
+
+ConversationId = Annotated[str, Depends(_canonical_conversation_id)]
+
+
+def _canonical_session_id(session_id: str) -> str | None:
+    """WS 帧里的对话 id 按 UUID 解析后规范化；不是 UUID 就是 ``None``。
+
+    与 REST 路径同一条规则，无横线写法照样命中那段对话；调用方按 ``None`` 走不可见的同一个
+    应答，不区分「写法不对」和「看不见」。"""
+
+    try:
+        return str(uuid.UUID(session_id))
+    except ValueError:
+        return None
+
 
 _AGENT_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 """协议的 agent id 形状：主 agent 是 main，子代理是它的 run id。"""
@@ -348,7 +377,7 @@ def create_transcript_router(
     @router.post("/prompts/{prompt_id}:abort", status_code=204)
     async def abort(
         conversation_id: ConversationId,
-        prompt_id: ConversationId,
+        prompt_id: ProtocolId,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> None:
         """停掉一条消息。排队的直接撤，在跑的发第一方取消让它自己收尾。"""
@@ -359,7 +388,7 @@ def create_transcript_router(
     @router.post("/turns/{turn_id}:regenerate", response_model=Prompt)
     async def regenerate(
         conversation_id: ConversationId,
-        turn_id: str,
+        turn_id: ProtocolId,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
         body: RegenerateBody | None = None,
     ) -> Prompt:
@@ -405,7 +434,7 @@ def create_transcript_router(
     @router.post("/interactions/{interaction_id}", status_code=204)
     async def approve(
         conversation_id: ConversationId,
-        interaction_id: ConversationId,
+        interaction_id: ProtocolId,
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
         body: ApprovalRequest,
     ) -> None:
@@ -446,7 +475,11 @@ def create_transcript_router(
         )
         header = await conversations.header_of(principal, conversation_id)
         return page.model_copy(
-            update={"title": header.title, "owner_user_id": str(header.owner_user_id)}
+            update={
+                "title": header.title,
+                "owner_user_id": str(header.owner_user_id),
+                "deleted_at": None if header.deleted_at is None else header.deleted_at.isoformat(),
+            }
         )
 
     @router.get("/transcript/ops", response_model=OpsCatchup)
@@ -498,7 +531,10 @@ def create_transcript_router(
 class _Connection:
     """多对话 WebSocket 连接。各对话独立监听，帧通过 session_id 分流。
 
-    同步监听回调仅写入有界出站队列，避免慢客户端阻塞运行；缓冲溢出时断开以便重连补批。"""
+    同步监听回调仅写入有界出站队列，避免慢客户端阻塞运行；缓冲溢出时断开以便重连补批。
+
+    帧里的对话 id 两种写法都收，订阅、文件监听与回发的 ``session_id`` 一律用规范写法：客户端按
+    ``session_id`` 分流，全局帧与 REST 也只给这一种拼写，多一种会让同一段对话在客户端裂成两份。"""
 
     def __init__(
         self,
@@ -561,26 +597,40 @@ class _Connection:
         if isinstance(frame, Subscribe):
             await self._subscribe(frame)
         elif isinstance(frame, Unsubscribe):
-            self._unlisten(frame.payload.session_id, frame.payload.agent_ids)
+            # 退订本就幂等，写法不对的 id 记账里必然没有，撤不到什么照样回执。
+            raw = frame.payload.session_id
+            self._unlisten(_canonical_session_id(raw) or raw, frame.payload.agent_ids)
             await self._outbound.put(Ack(id=frame.id))
         elif isinstance(frame, WatchFsAdd):
             await self._watch_fs(frame)
         elif isinstance(frame, WatchFsRemove):
-            watched = self._watches.get(frame.payload.session_id, {})
+            raw = frame.payload.session_id
+            conversation_id = _canonical_session_id(raw) or raw
+            watched = self._watches.get(conversation_id, {})
             for path in frame.payload.paths:
                 watched.pop(path, None)
             if not watched:
-                self._watches.pop(frame.payload.session_id, None)
-            await self._outbound.put(
-                Ack(id=frame.id, payload=self._watch_ack(frame.payload.session_id))
-            )
+                self._watches.pop(conversation_id, None)
+            await self._outbound.put(Ack(id=frame.id, payload=self._watch_ack(conversation_id)))
 
-    async def _watch_fs(self, frame: WatchFsAdd) -> None:
-        conversation_id = frame.payload.session_id
+    async def _visible(self, session_id: str) -> str | None:
+        """帧里的对话 id 规范化并核可见性，拿不到就是 ``None``。
+
+        写法不是 UUID、对话不存在、对当前主体不可见，三者同一个结果，不泄露存在性。"""
+
+        conversation_id = _canonical_session_id(session_id)
+        if conversation_id is None:
+            return None
         try:
             await self._conversations.agent_of(self._principal, conversation_id, writing=False)
         except DomainError:
-            # 不可见与不存在使用相同响应，保留连接上的其他订阅。
+            return None
+        return conversation_id
+
+    async def _watch_fs(self, frame: WatchFsAdd) -> None:
+        conversation_id = await self._visible(frame.payload.session_id)
+        if conversation_id is None:
+            # 看不见的对话保留连接上的其他订阅。
             await self._outbound.put(Ack(id=frame.id, code=40401, msg="会话不存在"))
             return
         watched = self._watches.setdefault(conversation_id, {})
@@ -628,13 +678,15 @@ class _Connection:
         )
 
     async def _subscribe(self, frame: Subscribe) -> None:
-        conversation_id = frame.payload.session_id
-        try:
-            await self._conversations.agent_of(self._principal, conversation_id, writing=False)
-        except DomainError:
+        conversation_id = await self._visible(frame.payload.session_id)
+        if conversation_id is None:
             # 不泄露不可见对话的存在性，也不影响连接上的其他订阅。
+            # 拒了的写法没有规范形式，回执里原样带回客户端问的那个。
             await self._outbound.put(
-                Ack(id=frame.id, payload=SubscribeAckPayload(not_found=(conversation_id,)))
+                Ack(
+                    id=frame.id,
+                    payload=SubscribeAckPayload(not_found=(frame.payload.session_id,)),
+                )
             )
             return
         agent_ids = _subscribed_agents(frame.payload.transcript)

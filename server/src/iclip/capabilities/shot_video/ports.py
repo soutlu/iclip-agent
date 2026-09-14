@@ -32,7 +32,7 @@ class ImageRequest:
     """替谁出的图：运行依赖里带的归属标签，上游按它落表对账。"""
     reference_image_urls: tuple[str, ...] = ()
     conversation_id: str | None = None
-    """生成来源对话 id，由生成域校验并持久化。"""
+    """生成来源对话 id。生成域只把它当归档标签落列，不校验对话是否存在或可见。"""
 
 
 @dataclass(frozen=True, slots=True)

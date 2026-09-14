@@ -13,7 +13,7 @@ TitleKind = Literal["default", "generated", "custom"]
 
 @dataclass(frozen=True, slots=True)
 class Conversation:
-    """一段对话的持久事实行。已删除的行只在存储层占住 id，不会进入领域层。"""
+    """一段对话的持久事实行。已删除的行只经治理者的读路径进入领域层，属主与所有写路径都当它不存在。"""
 
     id: uuid.UUID
     owner_user_id: uuid.UUID
@@ -30,6 +30,8 @@ class Conversation:
     """可修改的合集归属；为空时未分类。"""
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
+    """属主删除它的时刻；活着的对话为空。"""
 
 
 @dataclass(frozen=True, slots=True)

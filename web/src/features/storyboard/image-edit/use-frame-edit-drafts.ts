@@ -47,7 +47,7 @@ export function useFrameEditDrafts(target: FrameEditTarget): FrameEditDraftStore
     drafts,
     updateDraft: (baseUrl, draft) =>
       setDrafts((current) => {
-        if (isEmptyDraft(draft)) {
+        if (isEmptyDraft(draft, baseUrl)) {
           const { [baseUrl]: _dropped, ...rest } = current
           return rest
         }

@@ -270,6 +270,7 @@ export const zConversationOut = z.object({
   agentId: z.string(),
   collectionId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
+  deletedAt: z.iso.datetime().nullable(),
   id: z.uuid(),
   lastRunId: z.string().nullable(),
   ownerUserId: z.uuid(),
@@ -1186,6 +1187,7 @@ export const zTranscriptTurn = z.object({
 export const zTranscriptPage = z.object({
   agent_id: z.string(),
   agents: z.array(zAgentDescriptor).optional().default([]),
+  deleted_at: z.string().nullish(),
   has_more: z.boolean(),
   interactions: z.array(zInteraction).optional().default([]),
   items: z.array(zTranscriptTurn),
@@ -1503,6 +1505,7 @@ export const zAuditConversationsConversationsAuditGetQuery = z.object({
   since: z.iso.datetime().nullish(),
   until: z.iso.datetime().nullish(),
   state: z.enum(['all', 'running', 'done']).optional().default('all'),
+  deleted: z.enum(['live', 'deleted', 'all']).optional().default('live'),
   limit: z.int().gte(1).lte(100).optional().default(20),
   cursor: z.string().nullish(),
 })
@@ -1592,8 +1595,8 @@ export const zSetConversationCollectionConversationsConversationIdCollectionPutR
 export const zApproveConversationsConversationIdInteractionsInteractionIdPostBody = zApprovalRequest
 
 export const zApproveConversationsConversationIdInteractionsInteractionIdPostPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
   interaction_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 /**
@@ -1602,7 +1605,7 @@ export const zApproveConversationsConversationIdInteractionsInteractionIdPostPat
 export const zApproveConversationsConversationIdInteractionsInteractionIdPostResponse = z.void()
 
 export const zQueueViewConversationsConversationIdPromptsGetPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 /**
@@ -1613,7 +1616,7 @@ export const zQueueViewConversationsConversationIdPromptsGetResponse = zPromptQu
 export const zSubmitConversationsConversationIdPromptsPostBody = zPromptSubmission
 
 export const zSubmitConversationsConversationIdPromptsPostPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 /**
@@ -1622,8 +1625,8 @@ export const zSubmitConversationsConversationIdPromptsPostPath = z.object({
 export const zSubmitConversationsConversationIdPromptsPostResponse = zPrompt
 
 export const zAbortConversationsConversationIdPromptsPromptIdAbortPostPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
   prompt_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 /**
@@ -1634,7 +1637,7 @@ export const zAbortConversationsConversationIdPromptsPromptIdAbortPostResponse =
 export const zSteerConversationsConversationIdPromptsSteerPostBody = zSteerRequest
 
 export const zSteerConversationsConversationIdPromptsSteerPostPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 /**
@@ -1643,7 +1646,7 @@ export const zSteerConversationsConversationIdPromptsSteerPostPath = z.object({
 export const zSteerConversationsConversationIdPromptsSteerPostResponse = z.void()
 
 export const zRunStatusConversationsConversationIdStatusGetPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 /**
@@ -1663,7 +1666,7 @@ export const zSetConversationTaskConversationsConversationIdTaskPutPath = z.obje
 export const zSetConversationTaskConversationsConversationIdTaskPutResponse = zConversationEnvelope
 
 export const zPageConversationsConversationIdTranscriptGetPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 export const zPageConversationsConversationIdTranscriptGetQuery = z.object({
@@ -1683,7 +1686,7 @@ export const zPageConversationsConversationIdTranscriptGetQuery = z.object({
 export const zPageConversationsConversationIdTranscriptGetResponse = zTranscriptPage
 
 export const zCatchupConversationsConversationIdTranscriptOpsGetPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 export const zCatchupConversationsConversationIdTranscriptOpsGetQuery = z.object({
@@ -1707,8 +1710,8 @@ export const zRegenerateConversationsConversationIdTurnsTurnIdRegeneratePostBody
   zRegenerateBody.nullable()
 
 export const zRegenerateConversationsConversationIdTurnsTurnIdRegeneratePostPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
-  turn_id: z.string(),
+  turn_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 /**
@@ -1754,7 +1757,7 @@ export const zListConversationFilesConversationsConversationIdWorkspaceFilesGetR
   zConversationFilesOut
 
 export const zAbortConversationConversationsConversationIdAbortPostPath = z.object({
-  conversation_id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
+  conversation_id: z.uuid(),
 })
 
 /**

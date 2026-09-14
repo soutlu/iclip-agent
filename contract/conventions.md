@@ -164,6 +164,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 **权限**：会话列表、搜索、审计和工作区读取需要 `agent:read`；创建、修改、删除与工作区写入需要 `agent:run`。Transcript 的历史、消息队列与订阅另按 §5，需要 `agent:run`。
 
+- 对话 id 是 UUID，请求体、路径和 §5 的 WebSocket 帧带不带横线都收（`e1e53ab6ec97...` 与 `e1e53ab6-ec97-...` 指向同一段）；服务端一律以带横线的规范写法答复与存储，WS 帧上的 `session_id` 同样只发规范写法。不是 UUID 的写法在 REST 上是 `422`，在 WS 上与看不见的对话同一个待遇（订阅进 `ack` 的 `not_found`，原样带回问的那个串；文件订阅是 `40401`）。
 - `POST /conversations` 的 `id` 可由调用方给，缺省由服务端生成。带 `id` 重发同一个值**不新建第二段对话**，答复已有那一段并把状态码降为 `200`（新建仍 `201`）；这个 id 属于别人的对话时是 `404`，与按 id 读别人的对话一致。对话删除后 ID 仍保留，任何人重用都返回 `404`；新对话必须换一个 ID。
 - `GET /conversations` 返回自己的侧栏拓扑：合集及各自第一页对话、未分组合的第一页对话。对话按最近活动倒序，空合集也保留。
 - **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
@@ -196,8 +197,9 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 治理者使用 `users:manage` 扩大读取范围，操作本身所需的 `agent:read` / `agent:run` 仍须具备。其他人的改名、换归属、删除、发消息路径返回 `404`；工作区覆盖写入返回 `403`。
 
-- `GET /conversations/audit` 列全平台的对话，按最近活动倒序。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `updatedAt` 上）与 `state`（三值同上），可任意组合；没有 `users:manage` 是 `403`。
-- 响应带两个真总数，都不随翻页变：`total` 是当前筛选下一共几段，`runningTotal` 是同一组属主 / 需求单 / 时间筛选下此刻在跑的几段（不受 `state` 影响）。
+- `GET /conversations/audit` 列全平台的对话，按最近活动倒序。筛选 `ownerUserId`、`taskId`、`since`、`until`（后两个作用在 `updatedAt` 上）、`state`（三值同上）与 `deleted`（`live` 缺省只看活着的，`deleted` 只看属主删掉的，`all` 都看），可任意组合；没有 `users:manage` 是 `403`。
+- 响应带两个真总数，都不随翻页变：`total` 是当前筛选下一共几段，`runningTotal` 是同一组属主 / 需求单 / 时间 / 删没删筛选下此刻在跑的几段（不受 `state` 影响）。
+- 已删对话是墓碑：行上 `deletedAt` 非空，只有带 `deleted` 的审计列表能列出它。治理者按 id 读它的 transcript、工作区文件与订阅都照常，`GET /transcript` 顶层多一个可选 `deleted_at`；属主与其他人读它都是 `404`；对话自身的写路径（改名、换归属、再删、发消息、改工作区文件）对谁都关着，一律 `404`，只有治理者对自己墓碑的工作区覆盖写入是 `403`（这个口子先读整行再判属主，分得出「看得见但不能改」；其余写路径是带属主条件的单条更新，分不出）。生成任务的 `conversationId` 只是归档标签，不校验对话，见 §11。
 - 翻页给 `limit` 与 `cursor`：`cursor` 原样回传响应里的 `nextCursor`，为 `null` 表示没有更多了。自己编一个形状不对的是 `422`。
 - `GET /conversations/{id}/transcript`、`.../transcript/ops`、`.../prompts`、`.../status`、`.../workspace/files`、`.../workspace/file` 允许治理者跨属主读取；`GET /conversations` 与 `GET /conversations/search` 对治理者也只列自己的对话。
 

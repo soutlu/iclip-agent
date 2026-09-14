@@ -17,10 +17,17 @@ import type { Shot } from '../shot-document'
 import { phaseOfStatus } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
 
-/** request 是不透明 JSON，仅展示字符串 prompt。 */
+/** request 是不透明 JSON，只从里面读两个字串来展示：prompt 与 model。 */
 const promptOf = (job: GenerationJob): string | undefined => {
   const prompt = job.request['prompt']
   return typeof prompt === 'string' ? prompt : undefined
+}
+
+/** 历史请求用的模型名；缺失或空白视为没记。 */
+const modelOf = (job: GenerationJob): string | undefined => {
+  const model = job.request['model']
+  const trimmed = typeof model === 'string' ? model.trim() : ''
+  return trimmed === '' ? undefined : trimmed
 }
 
 const newestFirst = (left: GenerationJob, right: GenerationJob) =>
@@ -98,6 +105,7 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
   const [open, setOpen] = useState(true)
   const phase = phaseOfStatus(job.status)
   const prompt = promptOf(job)
+  const model = modelOf(job)
   // 只有带结构化 shot 的记录能回填镜头组；接口调用方自己写的正文只能看。
   const history = historyShotOf(job)
 
@@ -128,7 +136,12 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
 
       {open ? (
         <div className="flex flex-col gap-1.5">
-          <p className="text-label text-on-surface-muted">视频描述</p>
+          <div className="flex min-w-0 items-center justify-between gap-3 text-label text-on-surface-muted">
+            <p className="shrink-0">视频描述</p>
+            <span className="min-w-0 truncate text-right" title={model}>
+              模型 · {model ?? '未记录'}
+            </span>
+          </div>
           {prompt === undefined ? null : (
             <p className="line-clamp-3 text-body-sm text-on-surface">{prompt}</p>
           )}

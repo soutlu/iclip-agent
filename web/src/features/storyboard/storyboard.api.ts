@@ -20,6 +20,9 @@ const PAGE_LIMIT = 100
 
 const POLL_MS = 5000
 
+/** 出片固定的分辨率。视频模型清单只给模型名、不给各家支持的档位，前端做不出下拉，就定一档。 */
+const VIDEO_RESOLUTION = '720p'
+
 export const storyboardQueryKeys = {
   generations: (conversationId: string) => ['generations', { conversationId }] as const,
   videoModels: ['generations', 'video-models'] as const,
@@ -57,8 +60,9 @@ export const historyShotOf = (job: GenerationJob): Shot['prompt'] | undefined =>
 
 /** 提交一次出片：镜头组与参考图照分镜当前这一版，字段名照上游异步接口（snake_case）。
  *
- * shot 就是分镜文件里这一组的 prompt 原样，正文由服务端拼，这里不发 prompt。不带 user_name：
- * 浏览器会话由服务端填登录用户名。回执只有任务号，记录本身靠刷新列表拿到。 */
+ * shot 就是分镜文件里这一组的 prompt 原样，正文由服务端拼，这里不发 prompt。分辨率不跟分镜走，
+ * 见 `VIDEO_RESOLUTION`。不带 user_name：浏览器会话由服务端填登录用户名。回执只有任务号，
+ * 记录本身靠刷新列表拿到。 */
 export const submitVideoGeneration = async (input: VideoGenerationInput): Promise<string> => {
   const shot: VideoShotIn = input.shot.prompt
   const body: VideoGenerationIn = {
@@ -68,6 +72,7 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
     metadata: storyboardMetadata(input.path, input.shot.index),
     model: input.model,
     reference_image_urls: [...input.shot.image_urls],
+    resolution: VIDEO_RESOLUTION,
     seconds: input.shot.seconds,
     shot,
   }

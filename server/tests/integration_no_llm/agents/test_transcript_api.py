@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -91,6 +92,54 @@ async def test_sending_to_someone_elses_conversation_is_not_found(
             json={"prompt_id": "prm_other", "content": [{"type": "text", "text": "走"}]},
         )
     assert sent.status_code == 404
+
+
+async def test_a_dashless_conversation_id_reaches_the_same_conversation(
+    app: FastAPI, pg_url: str
+) -> None:
+    """对话 id 的两种写法指向同一段：机器调用方用无横线 UUID 建的对话要能继续访问。"""
+
+    dashless = uuid.uuid4().hex
+    async with make_client(app) as client:
+        await _sign_in(client, pg_url)
+        created = await client.post("/conversations", json={"id": dashless, "agentId": AGENT_ID})
+        assert created.status_code == 201, created.text
+        # 对外始终发规范写法，无横线只是入口处认得。
+        assert created.json()["conversation"]["id"] == str(uuid.UUID(dashless))
+        status = await client.get(f"/conversations/{dashless}/status")
+
+    assert status.status_code == 200, status.text
+
+
+async def test_a_dashless_conversation_id_can_send_a_prompt(app: FastAPI, pg_url: str) -> None:
+    """线上故障那条链路：无横线 id 建完对话直接发消息，受理后按同一段对话读得回来。"""
+
+    dashless = uuid.uuid4().hex
+    async with make_client(app) as client:
+        await _sign_in(client, pg_url)
+        created = await client.post("/conversations", json={"id": dashless, "agentId": AGENT_ID})
+        assert created.status_code == 201, created.text
+        sent = await client.post(
+            f"/conversations/{dashless}/prompts",
+            json={"prompt_id": "prm_dashless", "content": [{"type": "text", "text": "走"}]},
+        )
+        assert sent.status_code == 200, sent.text
+
+        await settled(client, dashless)
+        page = (await client.get(f"/conversations/{dashless}/transcript")).json()
+
+    assert [turn["turnId"] for turn in page["items"]] == ["t1"]
+    assert page["items"][0]["content"] == [{"type": "text", "text": "走"}]
+
+
+async def test_a_conversation_id_that_is_not_a_uuid_is_rejected(app: FastAPI, pg_url: str) -> None:
+    """路径上的对话 id 按 UUID 解析：形状不对是 422，不进到可见性判断。"""
+
+    async with make_client(app) as client:
+        await _sign_in(client, pg_url)
+        status = await client.get("/conversations/not-a-uuid/status")
+
+    assert status.status_code == 422, status.text
 
 
 async def test_send_then_read_it_back(app: FastAPI, pg_url: str) -> None:
