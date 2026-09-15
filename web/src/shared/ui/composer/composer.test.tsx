@@ -8,6 +8,7 @@ import {
   pasteFilesIntoComposer,
   pasteTextIntoComposer,
 } from '@/testing/editor'
+import { serializePromptContent } from '@/shared/lib/prompt-clipboard'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { Composer } from './composer'
@@ -116,9 +117,10 @@ describe('Composer', () => {
     const url = 'https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'
     await renderWithProviders(<Composer attachmentsEnabled onSubmit={onSubmit} />)
 
+    // 粘的就是气泡复制出的那串文本，带缩进与换行。
     pasteTextIntoComposer(
       editor(),
-      JSON.stringify([
+      serializePromptContent([
         { text: '照这条再跑一次：', type: 'text' },
         { source: { kind: 'url', url }, type: 'image' },
       ]),
