@@ -509,6 +509,10 @@ export type ConversationIn = {
    * Title
    */
   title?: string | null
+  /**
+   * Username
+   */
+  userName?: string | null
 }
 
 /**
@@ -1432,6 +1436,10 @@ export type TaskCreateIn = {
    * Title
    */
   title: string
+  /**
+   * Username
+   */
+  userName?: string | null
 }
 
 /**

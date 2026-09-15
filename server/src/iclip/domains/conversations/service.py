@@ -22,7 +22,7 @@ from iclip.domains.conversations.repository import (
     StateFilter,
 )
 from iclip.domains.conversations.schemas import DEFAULT_TITLE
-from iclip.domains.identity.public import Principal
+from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
 
 MAX_LIST_LIMIT = 100
 MANAGE_PERMISSION = "users:manage"
@@ -103,6 +103,9 @@ class CollectionInfo:
 
 ListCollections = Callable[[uuid.UUID], Awaitable[Sequence[CollectionInfo]]]
 """按最近修改时间倒序读取属主的合集元信息；实现由组合根注入。"""
+
+ClaimTask = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
+"""对话挂上需求单就是有人在做了：以 (需求单 id, 对话属主) 认领它。实现由组合根注入。"""
 
 
 ListDerivedFiles = Callable[[uuid.UUID, uuid.UUID], Awaitable[Sequence[DerivedFile]]]
@@ -200,6 +203,7 @@ class ConversationService:
         repo: ConversationRepository,
         *,
         list_collections: ListCollections,
+        claim_task: ClaimTask,
         list_derived_files: ListDerivedFiles,
         read_derived_file: ReadDerivedFile,
         write_derived_file: WriteDerivedFile,
@@ -210,6 +214,7 @@ class ConversationService:
         busy_conversation_ids: BusyConversationIds,
     ) -> None:
         self._repo = repo
+        self._claim_task = claim_task
         self._activities_of = activities_of
         self._busy_conversation_ids = busy_conversation_ids
         self._generate_title = generate_title
@@ -229,10 +234,13 @@ class ConversationService:
         return {one: known.get(one, IDLE_ACTIVITY) for one in conversation_ids}
 
     async def _readable(self, principal: Principal, conversation_id: uuid.UUID) -> Conversation:
-        """读路径的可见范围：治理者读得到所有人的对话，含属主已删的墓碑；其他人只见自己活着的。"""
+        """读路径的可见范围：治理者读得到所有人的对话，含属主已删的墓碑；替人办事的钥匙
+        读得到所有人活着的对话；其他人只见自己活着的。"""
 
         if principal.has(MANAGE_PERMISSION):
             return await self._repo.get(conversation_id, owner=None, include_deleted=True)
+        if principal.kind == "api_key" and principal.has(ACT_AS_PERMISSION):
+            return await self._repo.get(conversation_id, owner=None)
         return await self._repo.get(conversation_id, owner=principal.user_id)
 
     async def files(
@@ -290,10 +298,11 @@ class ConversationService:
     ) -> tuple[Conversation, bool]:
         """创建一段对话，返回它与「本次是否新建」；可选归属是否存在由外键约束校验。
 
-        ``conversation_id`` 由调用方铸时按它幂等：重发同一个 id 返回已有那一段。"""
+        ``conversation_id`` 由调用方铸时按它幂等：重发同一个 id 返回已有那一段。
+        新建时挂了需求单，就以属主认领那张单。"""
 
         now = datetime.now(UTC)
-        return await self._repo.create_if_absent(
+        conversation, created = await self._repo.create_if_absent(
             Conversation(
                 id=conversation_id or uuid.uuid4(),
                 owner_user_id=principal.user_id,
@@ -308,6 +317,9 @@ class ConversationService:
                 updated_at=now,
             )
         )
+        if created and task_id is not None:
+            await self._claim_task(task_id, principal.user_id)
+        return conversation, created
 
     async def list_for_task(
         self, principal: Principal, task_id: uuid.UUID
@@ -475,9 +487,15 @@ class ConversationService:
     async def set_task(
         self, principal: Principal, conversation_id: uuid.UUID, *, task_id: uuid.UUID | None
     ) -> Conversation:
-        """设置或清空需求单归属。尝试顺序按对话创建时间计算，重新关联不会改变创建时间。"""
+        """设置或清空需求单归属。尝试顺序按对话创建时间计算，重新关联不会改变创建时间。
+        挂上的那张单由属主认领；摘掉不动认领记录。"""
 
-        return await self._repo.set_task(conversation_id, owner=principal.user_id, task_id=task_id)
+        conversation = await self._repo.set_task(
+            conversation_id, owner=principal.user_id, task_id=task_id
+        )
+        if task_id is not None:
+            await self._claim_task(task_id, principal.user_id)
+        return conversation
 
     async def delete(self, principal: Principal, conversation_id: uuid.UUID) -> None:
         """把对话标记删除。工作区与素材台账留着，治理者复盘时还要看。"""
@@ -521,6 +539,7 @@ __all__ = [
     "AgentEntry",
     "AuditPage",
     "BusyConversationIds",
+    "ClaimTask",
     "CollectionInfo",
     "ConversationService",
     "DeletedFilter",

@@ -20,7 +20,7 @@ from iclip.domains.generation.schemas import (
     ImageGenerationIn,
     VideoGenerationIn,
 )
-from iclip.domains.identity.public import Principal
+from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
 
 _logger = structlog.stdlib.get_logger(__name__)
 
@@ -204,9 +204,11 @@ def _require_user_name(user_name: str | None) -> None:
 
 
 def _owner_scope(principal: Principal) -> uuid.UUID | None:
-    """治理者（``users:manage``）看全部，其余人只看自己的。"""
+    """治理者（``users:manage``）与替人办事的钥匙（``users:act_as``）看全部，其余人只看自己的。"""
 
     if principal.has("users:manage"):
+        return None
+    if principal.kind == "api_key" and principal.has(ACT_AS_PERMISSION):
         return None
     return principal.user_id
 

@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from iclip.domains.identity.public import Principal, require_permission
+from iclip.domains.identity.public import ActAs, Principal, require_permission
 from iclip.domains.tasks.models import TaskStatus
 from iclip.domains.tasks.schemas import (
     DEFAULT_LIST_LIMIT,
@@ -21,7 +21,7 @@ from iclip.domains.tasks.schemas import (
 from iclip.domains.tasks.service import TaskService
 
 
-def create_tasks_router(service: TaskService) -> APIRouter:
+def create_tasks_router(service: TaskService, *, act_as: ActAs) -> APIRouter:
     router = APIRouter(prefix="/tasks", tags=["tasks"])
 
     @router.post("", response_model=TaskEnvelope, status_code=201)
@@ -32,6 +32,7 @@ def create_tasks_router(service: TaskService) -> APIRouter:
     ) -> TaskEnvelope:
         """建一张需求单。带 ``id`` 重发时不新建，答复已有那一张并把状态码降为 200。"""
 
+        principal = await act_as(principal, body.user_name)
         task, created = await service.create(principal, body)
         if not created:
             response.status_code = 200

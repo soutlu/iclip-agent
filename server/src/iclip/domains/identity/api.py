@@ -223,6 +223,8 @@ def create_sso_router(
                     await manager.get_by_email(email)
                 except UserNotExists:
                     is_new_account = True
+                    # 钥匙替这个人建过占位账号的话就认领它，之前替他提交的记录都在他名下。
+                    await manager.adopt_placeholder(session.name, email)
             # fastapi-users 的 oauth_callback 泛型 self 绑定过窄（UOAP 不变型），
             # User 实际满足 OAuth 协议（持有 oauth_accounts relationship）。
             user = await manager.oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]

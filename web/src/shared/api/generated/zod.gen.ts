@@ -260,6 +260,7 @@ export const zConversationIn = z.object({
   id: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
   title: z.string().min(1).max(200).nullish(),
+  userName: z.string().nullish(),
 })
 
 /**
@@ -723,6 +724,7 @@ export const zTaskCreateIn = z.object({
   priority: z.int().gte(0).lte(100).optional().default(0),
   status: z.enum(['draft', 'published']).optional().default('draft'),
   title: z.string().min(1).max(200),
+  userName: z.string().nullish(),
 })
 
 /**

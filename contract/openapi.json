@@ -924,6 +924,17 @@
               }
             ],
             "title": "Title"
+          },
+          "userName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
           }
         },
         "required": [
@@ -2662,6 +2673,17 @@
             "minLength": 1,
             "title": "Title",
             "type": "string"
+          },
+          "userName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
           }
         },
         "required": [

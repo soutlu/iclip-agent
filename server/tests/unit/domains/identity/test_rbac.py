@@ -25,6 +25,7 @@ def test_editor_lacks_exactly_root_only_permissions() -> None:
     assert frozenset(PERMISSIONS) - ROLE_PERMISSIONS["editor"] == {
         "analytics:read",
         "users:manage",
+        "users:act_as",
         "api_keys:issue",
     }
 

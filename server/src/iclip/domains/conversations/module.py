@@ -12,6 +12,7 @@ from iclip.domains.conversations.service import (
     ActivitiesOf,
     AnnounceTitle,
     BusyConversationIds,
+    ClaimTask,
     ConversationService,
     GenerateTitle,
     ListAgents,
@@ -21,6 +22,7 @@ from iclip.domains.conversations.service import (
     WorkspaceDocumentValidator,
     WriteDerivedFile,
 )
+from iclip.domains.identity.public import ActAs
 
 
 @dataclass(frozen=True)
@@ -34,8 +36,10 @@ class ConversationsModule:
 def build_conversations_module(
     repo: ConversationRepository,
     *,
+    act_as: ActAs,
     list_agents: ListAgents,
     list_collections: ListCollections,
+    claim_task: ClaimTask,
     list_derived_files: ListDerivedFiles,
     read_derived_file: ReadDerivedFile,
     write_derived_file: WriteDerivedFile,
@@ -50,6 +54,7 @@ def build_conversations_module(
     service = ConversationService(
         repo,
         list_collections=list_collections,
+        claim_task=claim_task,
         list_derived_files=list_derived_files,
         read_derived_file=read_derived_file,
         write_derived_file=write_derived_file,
@@ -60,7 +65,7 @@ def build_conversations_module(
         busy_conversation_ids=busy_conversation_ids,
     )
     return ConversationsModule(
-        routers=(create_conversations_router(service, agents=list_agents),),
+        routers=(create_conversations_router(service, agents=list_agents, act_as=act_as),),
         service=service,
     )
 

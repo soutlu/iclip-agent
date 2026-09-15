@@ -72,6 +72,7 @@ from iclip.domains.identity.infra_sql import DB_SCHEMA
 from iclip.domains.identity.middleware import PrincipalMiddleware
 from iclip.domains.identity.module import SsoRuntime, build_identity_module
 from iclip.domains.identity.pms import PmsUserClient
+from iclip.domains.identity.public import ActAs
 from iclip.domains.identity.sso import SsoVerifier
 from iclip.domains.inspirations.infra_sql import PgInspirationVideos
 from iclip.domains.inspirations.module import build_inspirations_module
@@ -249,6 +250,7 @@ def _generation_module(
     settings: ResolvedMediaGeneration,
     engine: AsyncEngine,
     *,
+    act_as: ActAs,
     database_url: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
@@ -260,6 +262,7 @@ def _generation_module(
 
     return build_generation_module(
         AnnouncingGenerationRepository(SqlGenerationRepository(engine), live),
+        act_as=act_as,
         video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
@@ -377,6 +380,7 @@ def build_app(
         _generation_module(
             settings.media_generation,
             active_engine,
+            act_as=identity.act_as,
             database_url=settings.database_url,
             object_store=public_objects,
             queue_connector=queue_connector,
@@ -461,10 +465,13 @@ def build_app(
         source=reload_source,
     )
 
+    tasks = build_tasks_module(SqlTaskRepository(active_engine), act_as=identity.act_as)
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
+        act_as=identity.act_as,
         list_agents=live_agent_directory(agent_layer),
         list_collections=list_owner_collections,
+        claim_task=tasks.service.claim,
         list_derived_files=conversation_workspace.list_files,
         read_derived_file=conversation_workspace.read_file,
         write_derived_file=conversation_workspace.write_file,
@@ -476,7 +483,6 @@ def build_app(
         activities_of=activities_of,
         busy_conversation_ids=busy_conversation_ids,
     )
-    tasks = build_tasks_module(SqlTaskRepository(active_engine))
     uploads = build_uploads_module(public_objects) if public_objects is not None else None
     job_queue = JobQueue(active_engine, on_activity=on_activity)
     context_limits = live_context_limits(agent_layer)
@@ -611,6 +617,7 @@ def build_app(
         create_transcript_router(
             transcripts,
             conversations.service,
+            act_as=identity.act_as,
             allowed_origins=settings.security.cors_allow_origins,
             live=live_connections,
         )
