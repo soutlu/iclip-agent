@@ -10,10 +10,38 @@ test.use({ viewport: { width: 1600, height: 1120 }, colorScheme: 'light' })
 
 const timeline = (page: Page) => page.getByRole('region', { name: '视频编辑时间线', exact: true })
 const history = (page: Page) => page.getByRole('dialog', { name: '版本与任务', exact: true })
+const versionTrigger = (page: Page) =>
+  timeline(page).getByRole('button', { name: '切换版本', exact: true })
+const versionMenu = (page: Page) => page.getByRole('menu', { name: '视频版本', exact: true })
 const taskOf = (dialog: Locator, version: string) =>
   dialog
     .locator('details')
     .filter({ has: dialog.page().locator('summary').filter({ hasText: version }) })
+
+async function openVersions(page: Page) {
+  await versionTrigger(page).click()
+  await expect(versionMenu(page)).toBeVisible()
+  return versionMenu(page)
+}
+
+async function closeVersions(page: Page) {
+  await page.keyboard.press('Escape')
+  await expect(versionMenu(page)).toBeHidden()
+  await expect(versionTrigger(page)).toBeFocused()
+}
+
+async function chooseVersion(page: Page, label: string) {
+  const menu = await openVersions(page)
+  await menu.getByRole('menuitemradio', { name: label, exact: true }).click()
+  await expect(menu).toBeHidden()
+  await expect(versionTrigger(page)).toHaveText(label)
+}
+
+async function expectVersionCount(page: Page, count: number) {
+  const menu = await openVersions(page)
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(count)
+  await closeVersions(page)
+}
 
 async function openHistory(page: Page) {
   await page.getByRole('button', { name: '历史', exact: true }).click()
@@ -59,9 +87,9 @@ test('完成记录进入视频编辑页，原视频与返回记录位置保留',
 test('原片与累计版本对齐，选段、键盘调整、缩放、版本切换与参考图片可操作', async ({ page }) => {
   await page.goto('/video-editor/demo')
   const editorTimeline = timeline(page)
-  const version = editorTimeline.getByRole('combobox', { name: '时间线版本' })
+  const version = versionTrigger(page)
   const playhead = editorTimeline.getByRole('slider', { name: '时间线播放位置' })
-  await expect(version).toHaveValue('v3')
+  await expect(version).toHaveText('V3')
   await expect(playhead).toHaveAttribute('max', '17')
   await expect(
     editorTimeline.getByRole('button', { name: '修改 00:04.00 至 00:08.00，来源 V2' }),
@@ -72,10 +100,10 @@ test('原片与累计版本对齐，选段、键盘调整、缩放、版本切�
   await expect(
     editorTimeline.getByRole('button', { name: '修改 00:13.00 至 00:15.00，来源 V3' }),
   ).toBeVisible()
-  await version.selectOption({ label: 'V2' })
+  await chooseVersion(page, 'V2')
   await expect(playhead).toHaveAttribute('max', '15')
   await expect(editorTimeline.getByText('无对应原片', { exact: true })).toHaveCount(0)
-  await version.selectOption({ label: 'V3' })
+  await chooseVersion(page, 'V3')
   await expect(editorTimeline.getByText('无对应原片', { exact: true })).toBeVisible()
 
   await page.getByRole('spinbutton', { name: '开始时间（秒）' }).fill('11')
@@ -107,6 +135,30 @@ test('原片与累计版本对齐，选段、键盘调整、缩放、版本切�
   await expect(preview).toBeVisible()
   await preview.getByRole('button', { name: '关闭', exact: true }).click()
   await page.screenshot({ path: `${SHOT_DIR}/desktop.png`, animations: 'disabled' })
+  await chooseVersion(page, 'V2')
+  const menu = await openVersions(page)
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(3)
+  await expect(menu.getByRole('menuitemradio', { name: '原片', exact: true })).toContainText('15s')
+  await expect(menu.getByRole('menuitemradio', { name: 'V2', exact: true })).toContainText(
+    '基于原片 · 15s',
+  )
+  await expect(menu.getByRole('menuitemradio', { name: 'V3', exact: true })).toContainText(
+    '基于 V2 · 17s',
+  )
+  await expect(menu.getByRole('menuitemradio', { name: 'V2', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await expect(menu.getByRole('menuitemradio', { name: 'V3', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  )
+  await page.screenshot({ path: `${SHOT_DIR}/version-menu.png`, animations: 'disabled' })
+  await closeVersions(page)
+  await openVersions(page)
+  await menu.getByRole('menuitem', { name: '历史', exact: true }).click()
+  await expect(history(page)).toBeVisible()
+  await history(page).getByRole('button', { name: '关闭版本与任务' }).click()
   await references.getByRole('button', { name: '移除参考图 video-editor-demo.webp' }).click()
   await expect(references.getByRole('img')).toHaveCount(0)
 })
@@ -124,9 +176,7 @@ test('生成任务从排队到预览与采用，继续延长继承此前全部�
   const task = await readyTask(page, 'V4')
   await page.screenshot({ path: `${SHOT_DIR}/history.png`, animations: 'disabled' })
   await task.getByRole('button', { name: '预览', exact: true }).click()
-  await expect(
-    timeline(page).getByRole('combobox', { name: '时间线版本' }).locator('option:checked'),
-  ).toHaveText('V4')
+  await expect(versionTrigger(page)).toHaveText('V4')
   await expect(
     page.getByRole('group', { name: '预览版本' }).getByRole('button', { name: 'V4', exact: true }),
   ).toBeVisible()
@@ -170,9 +220,7 @@ test('失败及取消不会增加可用版本，原片和已有版本保留', as
   await failed.locator('summary').click()
   await expect(failed.getByText(/模拟生成失败/)).toBeVisible()
   await dialog.getByRole('button', { name: '关闭版本与任务' }).click()
-  await expect(
-    timeline(page).getByRole('combobox', { name: '时间线版本' }).getByRole('option'),
-  ).toHaveCount(3)
+  await expectVersionCount(page, 3)
 
   await page.getByRole('combobox', { name: '编辑模型' }).selectOption('demo')
   await page.getByRole('button', { name: '生成', exact: true }).click()
@@ -181,9 +229,7 @@ test('失败及取消不会增加可用版本，原片和已有版本保留', as
   await active.getByRole('button', { name: '取消模拟任务' }).click()
   await expect(active.locator('summary')).toContainText('已取消')
   await cancelDialog.getByRole('button', { name: '关闭版本与任务' }).click()
-  await expect(
-    timeline(page).getByRole('combobox', { name: '时间线版本' }).getByRole('option'),
-  ).toHaveCount(3)
+  await expectVersionCount(page, 3)
   await expect(timeline(page).getByRole('slider', { name: '时间线播放位置' })).toHaveAttribute(
     'max',
     '17',
@@ -237,15 +283,13 @@ test('新增区间可切回版本，离页生成继续，采用较短原片后�
   await expect(page).toHaveURL('/')
   await page.goBack()
   await expect(page).toHaveURL('/video-editor/demo')
-  await expect(editorTimeline.getByRole('combobox', { name: '时间线版本' })).toHaveValue('v3')
+  await expect(versionTrigger(page)).toHaveText('V3')
   await expect(page.getByRole('spinbutton', { name: '开始时间（秒）' })).toHaveValue('8')
   const readySummary = page.getByRole('button', { name: 'V4 · 待预览', exact: true })
   await expect(readySummary).toBeVisible({ timeout: 12_000 })
-  await expect(
-    editorTimeline
-      .getByRole('combobox', { name: '时间线版本' })
-      .getByRole('option', { name: 'V4', exact: true }),
-  ).toHaveCount(1)
+  const versions = await openVersions(page)
+  await expect(versions.getByRole('menuitemradio', { name: 'V4', exact: true })).toBeVisible()
+  await closeVersions(page)
 
   await readySummary.click()
   const task = taskOf(history(page), 'V4')
@@ -265,7 +309,7 @@ test('新增区间可切回版本，离页生成继续，采用较短原片后�
     .getByRole('button', { name: '原片 原始视频', exact: true })
     .locator('..')
   await originalRow.getByRole('button', { name: '采用', exact: true }).click()
-  await expect(editorTimeline.getByRole('combobox', { name: '时间线版本' })).toHaveValue('original')
+  await expect(versionTrigger(page)).toHaveText('原片')
   await expect(playhead).toHaveAttribute('max', '15')
   await expect(playhead).toHaveValue('15')
   const start = Number(await page.getByRole('spinbutton', { name: '开始时间（秒）' }).inputValue())

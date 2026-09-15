@@ -4,7 +4,6 @@
   flex-direction: column;
   flex: 1;
   min-width: 0;
-  border-top: 1px solid var(--color-outline-variant);
   color: var(--color-on-surface);
 }
 
@@ -20,33 +19,22 @@
 
 .editor-timeline-toolbar {
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 0;
+  gap: 12px;
+  padding: 2px 0 10px;
 }
 
 .editor-timeline-heading {
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 .editor-timeline-heading h2 {
   font-size: var(--text-title);
-  font-weight: 600;
-}
-.editor-timeline-heading > span {
-  color: var(--color-on-surface-muted);
-  font-size: var(--text-label);
+  font-weight: 500;
+  white-space: nowrap;
 }
 .editor-timeline-tools {
-  gap: 8px;
-}
-
-.editor-timeline-version {
-  height: var(--control-height-sm);
-  min-width: 84px;
-  padding: 0 10px;
-  border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius-xs);
-  background: var(--color-surface);
-  font-size: var(--text-body-sm);
+  gap: 2px;
+  flex-shrink: 0;
 }
 
 .editor-timeline-tools button:disabled {
@@ -379,14 +367,17 @@
 }
 .editor-timeline-ancestor button {
   min-height: 30px;
-  padding: 0 10px;
-  border-radius: var(--radius-xs);
+  margin: 0 6px;
+  padding: 0 2px;
+  border-bottom: 1px solid transparent;
+  border-radius: var(--radius-none);
+  color: var(--color-on-surface-muted);
   white-space: nowrap;
   cursor: pointer;
 }
 .editor-timeline-ancestor button[aria-current] {
-  background: var(--color-primary-container);
-  color: var(--color-on-primary-container);
+  border-bottom-color: var(--color-primary);
+  color: var(--color-primary);
 }
 .editor-timeline-ancestor > svg {
   color: var(--color-on-surface-muted);
@@ -397,11 +388,8 @@
     gap: 8px;
     flex-wrap: wrap;
   }
-  .editor-timeline-heading > span {
-    display: none;
-  }
   .editor-timeline-tools {
-    gap: 4px;
+    gap: 0;
   }
   .editor-timeline-viewport {
     grid-template-columns: 60px minmax(0, 1fr);

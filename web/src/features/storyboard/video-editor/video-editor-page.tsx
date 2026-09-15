@@ -218,22 +218,35 @@ function EditorWorkspace({ source }: { source: EditorSource }) {
             onPromptChange={(prompt) => patch({ prompt })}
             references={session.references}
             onReferencesChange={(references) => patch({ references })}
+            footer={
+              <div className="ve-generation-controls">
+                {' '}
+                <span className="ve-model-picker">
+                  <select
+                    className="ve-model"
+                    aria-label="编辑模型"
+                    value={session.model}
+                    onChange={(event) => patch({ model: event.currentTarget.value })}
+                  >
+                    <option value="" disabled>
+                      选择模型
+                    </option>
+                    <option value="demo">演示模型</option>
+                    <option value="demo-failure">演示模型 · 失败场景</option>
+                  </select>
+                  <Icon decorative name="expand" size="sm" />
+                </span>
+                <Button
+                  trailingIcon="send-up"
+                  className="ve-generate"
+                  disabled={!canGenerate}
+                  onClick={generate}
+                >
+                  {activeTask ? '生成中…' : '生成'}
+                </Button>
+              </div>
+            }
           />
-          <select
-            className="ve-model"
-            aria-label="编辑模型"
-            value={session.model}
-            onChange={(event) => patch({ model: event.currentTarget.value })}
-          >
-            <option value="" disabled>
-              选择模型
-            </option>
-            <option value="demo">演示模型</option>
-            <option value="demo-failure">演示模型 · 失败场景</option>
-          </select>
-          <Button className="ve-generate" disabled={!canGenerate} onClick={generate}>
-            {activeTask ? '生成中…' : '生成'}
-          </Button>
           {latestTask ? (
             <button
               className="ve-task-summary"

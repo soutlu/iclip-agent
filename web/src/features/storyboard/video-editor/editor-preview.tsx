@@ -132,23 +132,25 @@ export function EditorPreview({
       </video>
       <div className="ve-preview-tabs" role="group" aria-label="预览版本">
         <button
-          aria-pressed={original}
-          className={cn('ve-preview-tab', original && 'is-active')}
+          aria-pressed={original || version?.id === 'original'}
+          className={cn('ve-preview-tab', (original || version?.id === 'original') && 'is-active')}
           onClick={() => setOriginal(true)}
           type="button"
         >
           <Icon decorative name="video" size="sm" />
           原片
         </button>
-        <button
-          aria-pressed={!original}
-          className={cn('ve-preview-tab', !original && 'is-active')}
-          onClick={() => setOriginal(false)}
-          type="button"
-        >
-          <Icon decorative name="video" size="sm" />
-          {version?.label ?? '预览'}
-        </button>
+        {version && version.id !== 'original' ? (
+          <button
+            aria-pressed={!original}
+            className={cn('ve-preview-tab', !original && 'is-active')}
+            onClick={() => setOriginal(false)}
+            type="button"
+          >
+            <Icon decorative name="video" size="sm" />
+            {version?.label ?? '预览'}
+          </button>
+        ) : null}
       </div>
       <span className="ve-ratio">{ratio}</span>
       {original && noOriginal ? (

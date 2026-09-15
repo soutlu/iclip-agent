@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
@@ -10,6 +10,7 @@ export type EditorReference = { id: string; name: string; url: string }
 
 type EditorComposerProps = {
   prompt: string
+  footer?: ReactNode
   onPromptChange: (value: string) => void
   references: readonly EditorReference[]
   onReferencesChange: (references: EditorReference[]) => void
@@ -37,6 +38,7 @@ function readReference(file: File): Promise<EditorReference> {
 
 export function EditorComposer({
   prompt,
+  footer,
   onPromptChange,
   references,
   onReferencesChange,
@@ -157,6 +159,7 @@ export function EditorComposer({
           />
         </button>
       </div>
+      {footer}
       <input
         accept="image/png,image/jpeg,image/webp,image/gif"
         aria-label="选择参考图片"

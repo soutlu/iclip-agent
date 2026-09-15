@@ -8,6 +8,7 @@ import {
   type EditorVersion,
   type TimelineSegment,
 } from './editor-model'
+import { EditorVersionMenu } from './editor-version-menu'
 import './editor-timeline.css'
 
 type TimeRange = { start: number; end: number }
@@ -153,21 +154,15 @@ export function EditorTimeline({
       <header className="editor-timeline-toolbar">
         <div className="editor-timeline-heading">
           <h2>时间线</h2>
-          <span>与原片对齐</span>
+          <EditorVersionMenu
+            onHistory={onHistory}
+            onVersionChange={onVersionChange}
+            posterUrl={posterUrl}
+            version={version}
+            versions={versions}
+          />
         </div>
-        <div className="editor-timeline-tools">
-          <select
-            aria-label="时间线版本"
-            className="editor-timeline-version ui-focus"
-            onChange={(event) => onVersionChange(event.target.value)}
-            value={version.id}
-          >
-            {versions.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.label}
-              </option>
-            ))}
-          </select>
+        <div aria-label="时间线缩放" className="editor-timeline-tools" role="group">
           <IconButton
             disabled={zoomIndex === 0}
             label="缩小时间线"
