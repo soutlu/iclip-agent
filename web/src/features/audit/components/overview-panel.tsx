@@ -251,7 +251,15 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
         className="flex flex-col gap-3 rounded-lg bg-surface-container-lowest p-5 shadow-[var(--shadow-1)]"
       >
         <header className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-title font-medium text-on-surface">异常</h3>
+          <h3 className="flex items-baseline gap-2 text-title font-medium text-on-surface">
+            异常
+            {/* 概览只拿了第一页，还有下一页时说清这是「最近一批」，不当总数。 */}
+            {anomalies.hasNextPage ? (
+              <span className="text-body-sm font-normal text-on-surface-variant">
+                只数了最近 {anomalyItems.length} 条
+              </span>
+            ) : null}
+          </h3>
           <Button onClick={onOpenAnomalies} size="md" trailingIcon="next" variant="ghost">
             查看全部
           </Button>
