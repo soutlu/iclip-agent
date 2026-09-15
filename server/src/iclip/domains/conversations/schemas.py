@@ -54,6 +54,9 @@ class ConversationIn(CamelModel):
     title: Title | None = None
     task_id: uuid.UUID | None = None
     collection_id: uuid.UUID | None = None
+    user_name: str | None = None
+    """替谁开这段对话。持 ``users:act_as`` 的 API key 按它定属主；其余钥匙照旧记在
+    自己名下；浏览器会话只能写自己的用户名。"""
 
 
 class ConversationRename(CamelModel):

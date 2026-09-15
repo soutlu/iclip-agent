@@ -24,6 +24,7 @@ from fastapi_users.exceptions import UserAlreadyExists
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from starlette.requests import Request
 
+from iclip.domains.identity.acting import is_placeholder_email
 from iclip.domains.identity.infra_sql import (
     OAuthAccount,
     SessionFactory,
@@ -93,6 +94,15 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         response: Response | None = None,
     ) -> None:
         await self._user_db.update(user, {"last_login_at": datetime.now(UTC)})
+
+    async def adopt_placeholder(self, username: str, email: str) -> bool:
+        """SSO 首登认领同名占位账号：把占位邮箱换成真邮箱，随后 oauth_callback 按邮箱关联到它。"""
+
+        row = await self._get_by_username(username)
+        if row is None or not is_placeholder_email(row.email):
+            return False
+        await self._user_db.update(row, {"email": email})
+        return True
 
     async def _get_by_username(self, username: str) -> User | None:
         return await get_user_row_by_username(self._user_db.session, username)

@@ -124,6 +124,11 @@ class TaskService:
             raise Conflict(_CONFLICT_RACED)
         return confirmed
 
+    async def claim(self, task_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        """对话挂上需求单就算认领：待认领或进行中的单记下这个人，其余状态不动也不报错。"""
+
+        await self._repo.confirm(task_id, user_id=user_id)
+
     async def withdraw(self, task_id: uuid.UUID) -> Task:
         """将 published 或 confirmed 转为 withdrawn 终态。"""
 

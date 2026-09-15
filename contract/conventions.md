@@ -15,6 +15,7 @@
 - **登录态**：以 `GET /users/me` 为准；`401` 表示未登录或会话失效，前端不从 SSO 票据或本地标记推断已登录。
 - **机器端调用方**：基于 Bearer Token 的无状态调用（请求头携带 `Authorization: Bearer <token>`）。明文形态不构成合同，服务端按哈希查表认证，不从前缀判断。
   - 明文仅在成功创建的响应中返回一次；权限语义见 [CONTEXT.md](../docs/CONTEXT.md)。
+- **替人办事**：持 `users:act_as` 的 API key 在 `POST /conversations`（`userName`）、`POST /tasks`（`userName`）、`POST /conversations/{id}/prompts`（`user_name`）与 `POST /generations/*`（`user_name` / `userName`）的请求体里指名，那次请求的属主、创建者、认领人就是那个人；系统里没有他时服务端先建一个只有用户名的占位账号。没有这个权限的 key 照旧记在 key 属主名下，名字只是发往上游的标签。这样的 key 读对话与生成记录不限属主。浏览器会话在这些字段里只能写自己的用户名，写别人是 `422`。
 
 ## 3. 数据载荷与格式 (Payload Formatting)
 
@@ -224,7 +225,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - **可见性**：需求单没有属主，谁有 `tasks:read` 谁就看得见全部；看得见但不让改返回 `403`，`404` 只意味着这张单子不存在。
 - `GET /tasks` 最近改动的排在前面。
 - `PUT /tasks/{id}` 是**整体覆盖**，不是局部合并。
-- **创建者取自登录身份**，请求体里带 `creatorUserId` 一类字段一律 `422`。
+- **创建者取自执行主体**：登录身份，或持 `users:act_as` 的 key 在 `userName` 里指名的人（见 §2）。请求体里带 `creatorUserId` 一类字段一律 `422`。
 - `POST /tasks` 的 `id` 与 `status` 可由调用方给：`id` 缺省由服务端生成，`status` 只接受 `draft`（缺省）与 `published`。带 `id` 重发同一个值**不新建第二张单**，答复已有那一张并把状态码降为 `200`（新建仍 `201`）。两项只在创建时接受，`PUT` 带上它们是 `422`。
 
 ### 创作输入与商品
@@ -247,7 +248,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 认领
 
 - `POST /tasks/{id}/confirm` 记下调用者认领了这张单。**一张单可以被多个人认领**，同一个人重复认领不多记一次。
-- **认领人取自登录身份**，请求体与查询参数都不接收 user id。
+- **对话挂上需求单就是认领**：`POST /conversations` 带 `taskId`，或 `PUT /conversations/{id}/task` 给非空 id，都以对话属主认领那张单，`published` 推到 `confirmed`；单子是 `draft` 或 `withdrawn` 时挂得上但不认领、不报错。摘掉对话不清认领记录。
+- **认领人取自执行主体**，请求体与查询参数都不接收 user id。
 - `assigneeUserIds` 按认领先后排序；`withdraw` 不清空它。
 - 已是 `confirmed` 的单再被认领，`updatedAt` 不变，`GET /tasks` 的排序位置不动。
 - `GET /tasks?claimedBy=me` 只回调用者认领过的单；`claimedBy` 只接受 `me`，其他值 `422`。
@@ -286,8 +288,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 只返回可下载的自家副本地址（`videoUrls`），按 `sortBy` 降序。**排序与截断都在服务端做**：换一个 `sortBy` 是换一批样本，不是把同一批本地重排。
 - **绝大多数结果是替身。** 自己有爆款视频的款只占少数，因此本款没有视频时按「同品牌同类目 → 同类目」逐级放宽。`matches` 逐款给出 `exact` / `sameBrandCategory` / `sameCategory` / `none`；除 `exact` 外，属于这个款的链接都不是它自己的视频。
 - **`filters` 不影响降级。** 五个下限只筛最终结果；门槛把本款的视频筛空，不等于这个款没有视频，仍判 `exact`，不去找替身。
-- 款号在 PDM 款目录中查不到、或该款没有品类，都落 `none`，不是 404。全部落空时返回空 `videoUrls`，仍是 `200`。
-- 数据是随迁移灌入的一次性快照，不自动更新；接口不连任何外部库。已知边界见 [CONTEXT.md](../docs/CONTEXT.md)。
+- 未精确命中本地快照的款，在 PDM 款目录中查不到、或缺少品类／品牌归属时，落 `none`，不是 404。全部落空时返回空 `videoUrls`，仍是 `200`。
+- 视频数据是随迁移灌入的一次性快照，不自动更新；请求不访问原始视频库。同类匹配所需的款归属从外部 PDM 款目录读取。已知边界见 [CONTEXT.md](../docs/CONTEXT.md)。
 - 未配置 PDM 款目录库时接口照常提供，但降级整级失效，未精确命中的款一律 `none`；这属于能力缺失，服务启动时会告警。
 
 ## 10. 上传 (Uploads)

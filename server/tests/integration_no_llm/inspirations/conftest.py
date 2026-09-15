@@ -27,9 +27,8 @@ DROP TABLE IF EXISTS pdm_styles CASCADE;
 _INSERT_STYLE = text(
     "INSERT INTO pdm_styles"
     " (pdm_entity_id, product_number, style_wms, source_status,"
-    "  product_category_id, attributes)"
-    " VALUES (:entity_id, :style_no, :style_no, 'effective', :category_id,"
-    "         cast(:attributes as json))"
+    "  product_category_id, brand)"
+    " VALUES (:entity_id, :style_no, :style_no, 'effective', :category_id, :brand_code)"
 )
 
 _INSERT_VIDEO = text(
@@ -109,7 +108,6 @@ async def seed_style(
 ) -> None:
     """登记一个款的品类与品牌归属。``None`` 表示上游缺这一项。"""
 
-    attributes = "{}" if brand_code is None else f'{{"brand": "{brand_code}"}}'
     async with engine.begin() as conn:
         await conn.execute(
             _INSERT_STYLE,
@@ -117,7 +115,7 @@ async def seed_style(
                 "entity_id": entity_id if entity_id is not None else abs(hash(style_no)) % 10**9,
                 "style_no": style_no,
                 "category_id": category_id,
-                "attributes": attributes,
+                "brand_code": brand_code,
             },
         )
 

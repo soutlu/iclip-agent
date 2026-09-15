@@ -25,7 +25,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from iclip.domains.inspirations.models import MetricFilters, SortKey, StyleGroup
+from iclip.domains.inspirations.models import MetricFilters, SortKey
+from iclip.domains.products.public import StyleGrouping
 
 DB_SCHEMA: Final = "iclip"
 
@@ -86,18 +87,18 @@ class PgInspirationVideos:
         return frozenset(rows)
 
     async def groups_with_videos(
-        self, groups: Sequence[StyleGroup]
+        self, category_ids: Sequence[int]
     ) -> tuple[frozenset[tuple[int, str]], frozenset[int]]:
-        """这些品类／品牌组合里，哪些有视频可以拿来当替身。
+        """这些品类中，哪些品类／品牌组合有视频可以拿来当替身。
 
         一次查询同时回答两级：``(品类, 品牌)`` 与仅按品类。
         """
 
-        if not groups:
+        if not category_ids:
             return frozenset(), frozenset()
         statement = (
             select(_ROWS.category_id, _ROWS.brand_code)
-            .where(_ROWS.category_id.in_([group.category_id for group in groups]))
+            .where(_ROWS.category_id.in_(list(category_ids)))
             .distinct()
         )
         async with self._engine.connect() as conn:
@@ -109,7 +110,7 @@ class PgInspirationVideos:
         self,
         *,
         style_nos: Sequence[str],
-        brand_categories: Sequence[StyleGroup],
+        brand_categories: Sequence[StyleGrouping],
         categories: Sequence[int],
         filters: MetricFilters,
         sort_by: SortKey,
@@ -117,8 +118,7 @@ class PgInspirationVideos:
     ) -> tuple[str, ...]:
         """取这些范围内表现最好的若干条可下载地址。
 
-        三个范围求并集后一次排序：替身与本款视频在同一个序里比较，与旧实现分批取
-        回再内存重排等价，但截断由数据库执行。
+        三个范围求并集后一次排序：替身与本款视频在同一个序里比较，截断由数据库执行。
         """
 
         scopes = _scopes(style_nos, brand_categories, categories)
@@ -139,7 +139,7 @@ class PgInspirationVideos:
 
 def _scopes(
     style_nos: Sequence[str],
-    brand_categories: Sequence[StyleGroup],
+    brand_categories: Sequence[StyleGrouping],
     categories: Sequence[int],
 ) -> ColumnElement[bool] | None:
     """把三级匹配范围合成一个 WHERE 条件；三者皆空时返回 ``None``。"""

@@ -1,9 +1,7 @@
 """爆款视频领域模型。
 
-一个款自己有没有爆款视频是稀缺的：全量在架款里只有约 3% 命中。因此「这个款没有
-视频就退到同品牌同类目、再退到同类目」不是兜底分支，而是绝大多数请求实际走的
-主路径——匹配层级必须随结果一起交给调用方，否则它分不清手里的链接是本款的还是
-替身的。"""
+本款没有视频时，按同品牌同类目、同类目逐级取替身。
+匹配层级随结果返回，供调用方区分本款视频与替身。"""
 
 from __future__ import annotations
 
@@ -34,14 +32,6 @@ class MetricFilters:
 
 
 @dataclass(frozen=True, slots=True)
-class StyleGroup:
-    """一个款在 PDM 中的品类与品牌，降级时按这两维逐级放宽。"""
-
-    category_id: int
-    brand_code: str
-
-
-@dataclass(frozen=True, slots=True)
 class StyleMatch:
     """一个入参款最终选择的匹配层级。"""
 
@@ -61,7 +51,6 @@ __all__ = [
     "MatchLevel",
     "MetricFilters",
     "SortKey",
-    "StyleGroup",
     "StyleMatch",
     "VideoSearchResult",
 ]

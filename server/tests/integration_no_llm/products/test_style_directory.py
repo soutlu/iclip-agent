@@ -1,4 +1,4 @@
-"""验证 PDM 款目录的批量归属解析：过滤规则、缺失处理与脏数据容错。"""
+"""验证 PDM 款目录的批量归属解析、有效行过滤与归属缺失处理。"""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ DROP TABLE IF EXISTS pdm_styles CASCADE;
 _INSERT = text(
     "INSERT INTO pdm_styles"
     " (pdm_entity_id, product_number, style_wms, source_status, product_category_id,"
-    "  attributes, is_active, is_source_deleted)"
+    "  brand, is_active, is_source_deleted)"
     " VALUES (:entity_id, :style_no, :style_no, 'effective', :category_id,"
-    "         cast(:attributes as json), :is_active, :deleted)"
+    "         :brand_code, :is_active, :deleted)"
 )
 
 
@@ -43,7 +43,7 @@ async def seed(
     style_no: str,
     entity_id: int,
     category_id: int | None = 70,
-    attributes: str = '{"brand": "3"}',
+    brand_code: str | None = "3",
     is_active: bool = True,
     deleted: bool = False,
 ) -> None:
@@ -54,7 +54,7 @@ async def seed(
                 "entity_id": entity_id,
                 "style_no": style_no,
                 "category_id": category_id,
-                "attributes": attributes,
+                "brand_code": brand_code,
                 "is_active": is_active,
                 "deleted": deleted,
             },
@@ -62,6 +62,8 @@ async def seed(
 
 
 async def test_resolves_category_and_brand(engine: AsyncEngine) -> None:
+    """品牌来自独立列，attributes 保留新库的空对象形状。"""
+
     await seed(engine, style_no="SNMT241M", entity_id=1)
 
     found = await PgStyleDirectory(engine).resolve(["SNMT241M"])
@@ -93,32 +95,20 @@ async def test_missing_grouping_is_dropped(engine: AsyncEngine) -> None:
     """缺品类或缺品牌的款圈选不出同类款，不返回半个归属。"""
 
     await seed(engine, style_no="NO-CATEGORY", entity_id=4, category_id=None)
-    await seed(engine, style_no="NO-BRAND", entity_id=5, attributes="{}")
-    await seed(engine, style_no="BLANK-BRAND", entity_id=6, attributes='{"brand": "  "}')
+    await seed(engine, style_no="NO-BRAND", entity_id=5, brand_code=None)
+    await seed(engine, style_no="EMPTY-BRAND", entity_id=6, brand_code="")
+    await seed(engine, style_no="BLANK-BRAND", entity_id=7, brand_code="  ")
 
-    found = await PgStyleDirectory(engine).resolve(["NO-CATEGORY", "NO-BRAND", "BLANK-BRAND"])
+    found = await PgStyleDirectory(engine).resolve(
+        ["NO-CATEGORY", "NO-BRAND", "EMPTY-BRAND", "BLANK-BRAND"]
+    )
 
     assert found == {}
 
 
-async def test_null_byte_in_attributes_does_not_break_the_query(engine: AsyncEngine) -> None:
-    """上游把 \\u0000 写进了 attributes：json 存得下，取成 text 会整条查询报错。"""
-
-    await seed(
-        engine,
-        style_no="DIRTY",
-        entity_id=7,
-        attributes='{"development_year": "\\u00002\\u00004", "brand": "1"}',
-    )
-
-    found = await PgStyleDirectory(engine).resolve(["DIRTY"])
-
-    assert found["DIRTY"].brand_code == "1"
-
-
 async def test_resolves_a_batch_in_one_call(engine: AsyncEngine) -> None:
     await seed(engine, style_no="A", entity_id=8, category_id=70)
-    await seed(engine, style_no="B", entity_id=9, category_id=88, attributes='{"brand": "1"}')
+    await seed(engine, style_no="B", entity_id=9, category_id=88, brand_code="1")
 
     found = await PgStyleDirectory(engine).resolve(["A", "B", "MISSING"])
 

@@ -10,6 +10,7 @@ from iclip.domains.identity.accounts import (
     build_jwt_strategy,
     make_user_manager_context,
 )
+from iclip.domains.identity.acting import ActAs
 from iclip.domains.identity.api import (
     create_account_routers,
     create_api_keys_router,
@@ -50,6 +51,8 @@ class IdentityModule:
     service: IdentityService
     users: SqlUserRepository
     api_keys: SqlApiKeyRepository
+    act_as: ActAs
+    """写入口拿到请求体后调它一次，钥匙替人办事就在这一步换属主。"""
 
 
 def build_identity_module(
@@ -106,6 +109,7 @@ def build_identity_module(
         service=service,
         users=users,
         api_keys=api_keys,
+        act_as=ActAs(users),
     )
 
 

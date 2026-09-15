@@ -6,11 +6,13 @@ config 的 db_schema 必须与此一致，组合根启动期校验）。
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import datetime
 from typing import Any
 
 import structlog
+from fastapi_users.password import PasswordHelper
 from fastapi_users_db_sqlalchemy import (
     SQLAlchemyBaseOAuthAccountTableUUID,
     SQLAlchemyBaseUserTableUUID,
@@ -18,6 +20,7 @@ from fastapi_users_db_sqlalchemy import (
 from fastapi_users_db_sqlalchemy.generics import GUID
 from sqlalchemy import DateTime, ForeignKey, MetaData, String, func, select
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, relationship
 
@@ -217,6 +220,32 @@ class SqlUserRepository:
             row = await session.get(User, user_id)
             if row is not None:
                 row.last_login_at = at
+
+    async def ensure_by_name(self, username: str, *, email: str) -> uuid.UUID:
+        async with self._sessions() as session:
+            found = await get_user_row_by_username(session, username)
+            if found is not None:
+                return found.id
+        try:
+            async with self._sessions() as session, session.begin():
+                # 占位账号：没有角色，密码是随机的谁也不知道；本人 SSO 登录时按用户名认领。
+                placeholder = User(
+                    email=email,
+                    hashed_password=PasswordHelper().hash(secrets.token_urlsafe(32)),
+                    username=username,
+                    display_name=username,
+                    roles=[],
+                )
+                session.add(placeholder)
+                await session.flush()
+                return placeholder.id
+        except IntegrityError:
+            # 两个请求同时报同一个名字，只有一个建得成，另一个重查就有了。
+            async with self._sessions() as session:
+                found = await get_user_row_by_username(session, username)
+                if found is None:
+                    raise
+                return found.id
 
     async def sync_sso_profile(
         self,
