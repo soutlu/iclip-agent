@@ -359,6 +359,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               </span>
               <Link
                 className="shrink-0 rounded-xs text-primary ui-focus hover:underline"
+                search={{ tab: 'all' }}
                 to="/audit"
               >
                 回到全部对话

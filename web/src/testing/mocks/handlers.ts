@@ -7,6 +7,7 @@ import {
   zTaskInputsOutput,
   type zTaskOut,
 } from '@/shared/api/generated/zod.gen'
+import { auditHandlers } from './audit'
 import { mockAuthUser, mockGovernor } from './auth-user'
 import {
   addMockCollection,
@@ -478,4 +479,6 @@ export const handlers = [
   ...workspaceHandlers,
 
   ...transcriptHandlers,
+
+  ...auditHandlers,
 ]

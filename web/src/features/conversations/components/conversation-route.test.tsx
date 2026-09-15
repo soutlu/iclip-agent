@@ -859,7 +859,10 @@ describe('ConversationRoute', () => {
 
     expect(await screen.findByText('只读 · 小王 的对话')).toBeVisible()
     expect(screen.getByRole('note', { name: '只读说明' })).toHaveTextContent('小王')
-    expect(screen.getByRole('link', { name: '回到全部对话' })).toHaveAttribute('href', '/audit')
+    expect(screen.getByRole('link', { name: '回到全部对话' })).toHaveAttribute(
+      'href',
+      '/audit?tab=all',
+    )
     expect(screen.queryByLabelText('输入消息')).toBeNull()
     expect(screen.queryByRole('button', { name: '重新生成' })).toBeNull()
     expect(screen.queryByRole('button', { name: '修改' })).toBeNull()
