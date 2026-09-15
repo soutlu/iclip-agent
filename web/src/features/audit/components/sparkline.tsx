@@ -1,5 +1,6 @@
 /** 指标卡角上的迷你趋势线：只画形状，不画刻度；少于两个点不画。 */
 
+import { Line, LineChart, ReferenceDot, XAxis, YAxis } from 'recharts'
 import { cn } from '@/shared/lib/utils'
 
 type SparklineProps = {
@@ -7,38 +8,42 @@ type SparklineProps = {
   className?: string
 }
 
+const SERIES = 'var(--color-chart-1)'
 const WIDTH = 96
 const HEIGHT = 28
-const PAD = 2
+const MARGIN = { top: 3, right: 3, bottom: 3, left: 3 }
 
 export function Sparkline({ values, className }: SparklineProps) {
   if (values.length < 2) return null
-  const max = Math.max(...values)
-  const min = Math.min(...values)
-  const span = max - min || 1
-  const step = (WIDTH - PAD * 2) / (values.length - 1)
-  const points = values.map((value, index) => {
-    const x = PAD + index * step
-    const y = HEIGHT - PAD - ((value - min) / span) * (HEIGHT - PAD * 2)
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  })
-  const last = points.at(-1)?.split(',') ?? []
+  const data = values.map((value, index) => ({ index, value }))
+  const last = data[data.length - 1]
 
   return (
-    <svg
-      aria-hidden
-      className={cn('block h-7 w-24 shrink-0 text-primary', className)}
-      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-    >
-      <polyline
-        fill="none"
-        points={points.join(' ')}
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-      />
-      <circle cx={last[0]} cy={last[1]} fill="currentColor" r={2.5} />
-    </svg>
+    <span aria-hidden className={cn('block h-7 w-24 shrink-0', className)}>
+      {/* 装饰性小图：关掉 Recharts 的无障碍层，不然 aria-hidden 里会多出一个能聚焦的 application。 */}
+      <LineChart
+        accessibilityLayer={false}
+        data={data}
+        height={HEIGHT}
+        margin={MARGIN}
+        width={WIDTH}
+      >
+        <XAxis dataKey="index" hide type="number" />
+        <YAxis domain={['dataMin', 'dataMax']} hide />
+        <Line
+          activeDot={false}
+          dataKey="value"
+          dot={false}
+          isAnimationActive={false}
+          stroke={SERIES}
+          strokeLinecap="round"
+          strokeWidth={2}
+          type="monotone"
+        />
+        {last === undefined ? null : (
+          <ReferenceDot fill={SERIES} r={2.5} stroke="none" x={last.index} y={last.value} />
+        )}
+      </LineChart>
+    </span>
   )
 }

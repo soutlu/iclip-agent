@@ -63,27 +63,39 @@ describe('整页要登录的那几页', () => {
     expect(await screen.findByLabelText('输入消息')).toBeVisible()
   })
 
-  it('审计页只放治理者进：没登录或没有 users:manage 都回首页', async () => {
-    const anonymous = await renderAt('/audit')
-    expect(anonymous.state.location.pathname).toBe('/')
+  it.each(['/audit', '/conversations'])(
+    '%s 只放治理者进：没登录或没有 users:manage 都回首页',
+    async (path) => {
+      const anonymous = await renderAt(path)
+      expect(anonymous.state.location.pathname).toBe('/')
 
-    queryClient.clear()
-    loginAs(mockAuthUser.permissions)
-    const plain = await renderAt('/audit')
-    expect(plain.state.location.pathname).toBe('/')
-  })
+      queryClient.clear()
+      loginAs(mockAuthUser.permissions)
+      const plain = await renderAt(path)
+      expect(plain.state.location.pathname).toBe('/')
+    },
+  )
 
-  it('治理者进审计页的全部对话标签，看到别人的对话与属主名', async () => {
+  it('治理者进全部对话页，看到别人的对话与属主名', async () => {
     loginAs([...mockAuthUser.permissions, 'users:manage'])
     const other = addMockUser('小王')
     addMockConversation('小王的秋季片').ownerUserId = other.id
 
-    const router = await renderAt('/audit?tab=all')
+    const router = await renderAt('/conversations')
+
+    expect(router.state.location.pathname).toBe('/conversations')
+    expect(await screen.findByRole('main', { name: '全部对话' })).toBeVisible()
+    expect(await screen.findByRole('link', { name: /小王的秋季片/ })).toBeVisible()
+    expect(screen.getByText('小王')).toBeVisible()
+  })
+
+  it('治理者进审计页，看到总览', async () => {
+    loginAs([...mockAuthUser.permissions, 'users:manage'])
+
+    const router = await renderAt('/audit')
 
     expect(router.state.location.pathname).toBe('/audit')
     expect(await screen.findByRole('main', { name: '审计' })).toBeVisible()
-    expect(await screen.findByRole('region', { name: '全部对话' })).toBeVisible()
-    expect(await screen.findByRole('link', { name: /小王的秋季片/ })).toBeVisible()
-    expect(screen.getByText('小王')).toBeVisible()
+    expect(await screen.findByRole('article', { name: '成片件数' })).toBeVisible()
   })
 })

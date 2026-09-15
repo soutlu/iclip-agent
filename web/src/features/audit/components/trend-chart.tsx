@@ -1,9 +1,20 @@
-/** 单序列趋势图：柱或线，一条 y 轴、三根浅网格、按时段的 x 刻度，悬停出一格说明。
+/** 单序列趋势图：柱或线，一条 y 轴、浅网格、按时段的 x 刻度，悬停出一格说明。
 
-手写 SVG，不引图表库；要换库时只动这一个组件。 */
+Recharts 画，颜色全走 token 变量，深浅主题跟着换；要换图表库时只动这一个组件。 */
 
-import { useId, useState } from 'react'
-import { cn } from '@/shared/lib/utils'
+import { useId } from 'react'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  Tooltip,
+  XAxis,
+  YAxis,
+  type TooltipContentProps,
+} from 'recharts'
 
 export type TrendPoint = {
   key: string
@@ -25,20 +36,15 @@ type TrendChartProps = {
   description?: string
 }
 
-const WIDTH = 640
-const HEIGHT = 220
-const MARGIN = { top: 16, right: 12, bottom: 28, left: 44 }
-const PLOT_W = WIDTH - MARGIN.left - MARGIN.right
-const PLOT_H = HEIGHT - MARGIN.top - MARGIN.bottom
-const GRID_ROWS = 3
-
-/** 让顶部刻度落在整数上：往上取到 1、2、5 × 10ⁿ 的整倍。 */
-const niceCeil = (value: number): number => {
-  if (value <= 0) return 1
-  const power = 10 ** Math.floor(Math.log10(value))
-  const unit = value / power
-  const step = unit <= 1 ? 1 : unit <= 2 ? 2 : unit <= 5 ? 5 : 10
-  return step * power
+const SERIES = 'var(--color-chart-1)'
+const GRID = 'var(--color-border)'
+const TICK = { fill: 'var(--color-on-surface-muted)', fontSize: 'var(--text-caption)' }
+const MARGIN = { top: 8, right: 8, bottom: 0, left: 0 }
+const DOT = {
+  fill: SERIES,
+  r: 3.5,
+  stroke: 'var(--color-surface-container-lowest)',
+  strokeWidth: 2,
 }
 
 export function TrendChart({
@@ -50,22 +56,44 @@ export function TrendChart({
   max,
   description,
 }: TrendChartProps) {
-  const [hovered, setHovered] = useState<number | null>(null)
   const titleId = useId()
-  const values = points.map((point) => point.value ?? 0)
-  const top = max ?? niceCeil(Math.max(...values, baseline ?? 0, 0))
-  const slot = points.length === 0 ? PLOT_W : PLOT_W / points.length
-  const y = (value: number) => MARGIN.top + PLOT_H - (Math.min(value, top) / top) * PLOT_H
-  const xCenter = (index: number) => MARGIN.left + slot * index + slot / 2
-  const barWidth = Math.max(4, Math.min(28, slot * 0.6))
-  const labelEvery = Math.max(1, Math.ceil(points.length / 8))
-  const linePath = points
-    .map((point, index) =>
-      point.value === null ? null : `${xCenter(index).toFixed(1)},${y(point.value).toFixed(1)}`,
-    )
-    .filter((part): part is string => part !== null)
-    .join(' ')
-  const hoveredPoint = hovered === null ? undefined : points[hovered]
+  const domain: [number, number | 'auto'] = [0, max ?? 'auto']
+  // 有上限的比率按四等分给刻度（0 / 25% / 50% / 75% / 100%），不让 Recharts 自己凑出 35%、70% 这种数。
+  const tickProps =
+    max === undefined ? { tickCount: 4 } : { ticks: [0, max / 4, max / 2, (max * 3) / 4, max] }
+  const tooltip = (props: TooltipContentProps) => <TrendTooltip {...props} format={format} />
+  const axes = (
+    <>
+      <CartesianGrid stroke={GRID} strokeDasharray="3 5" vertical={false} />
+      <XAxis
+        axisLine={false}
+        dataKey="label"
+        interval="preserveStartEnd"
+        minTickGap={24}
+        tick={TICK}
+        tickLine={false}
+        tickMargin={8}
+      />
+      <YAxis
+        allowDecimals={max !== undefined}
+        axisLine={false}
+        domain={domain}
+        tick={TICK}
+        tickFormatter={format}
+        tickLine={false}
+        width="auto"
+        {...tickProps}
+      />
+      {baseline === undefined ? null : (
+        <ReferenceLine
+          stroke="var(--color-on-surface-variant)"
+          strokeDasharray="6 4"
+          strokeWidth={1.5}
+          y={baseline}
+        />
+      )}
+    </>
+  )
 
   return (
     <figure
@@ -76,139 +104,76 @@ export function TrendChart({
         <h3 className="text-title font-medium text-on-surface" id={titleId}>
           {title}
         </h3>
-        <span
-          aria-live="polite"
-          className="min-h-5 truncate text-body-sm text-on-surface-variant tabular-nums"
-        >
-          {hoveredPoint === undefined
-            ? description
-            : `${hoveredPoint.label} · ${hoveredPoint.value === null ? '无数据' : format(hoveredPoint.value)}`}
-        </span>
+        {description === undefined ? null : (
+          <span className="truncate text-body-sm text-on-surface-variant">{description}</span>
+        )}
       </figcaption>
       {points.length === 0 ? (
-        <p className="grid h-40 place-items-center text-body text-on-surface-variant">
+        <p className="grid h-52 place-items-center text-body text-on-surface-variant">
           这个范围里没有数据
         </p>
-      ) : (
-        <svg
-          aria-label={`${title}趋势图`}
-          className="block h-auto w-full"
-          onMouseLeave={() => setHovered(null)}
-          role="img"
-          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+      ) : kind === 'bar' ? (
+        <BarChart
+          className="h-52 w-full"
+          data={points}
+          margin={MARGIN}
+          responsive
+          title={`${title}趋势图`}
         >
-          {Array.from({ length: GRID_ROWS + 1 }, (_, row) => {
-            const value = (top / GRID_ROWS) * row
-            const gy = y(value)
-            return (
-              <g key={row}>
-                <line
-                  className="stroke-border/70"
-                  strokeDasharray={row === 0 ? undefined : '3 5'}
-                  strokeWidth={1}
-                  x1={MARGIN.left}
-                  x2={WIDTH - MARGIN.right}
-                  y1={gy}
-                  y2={gy}
-                />
-                <text
-                  className="fill-on-surface-muted text-caption tabular-nums"
-                  textAnchor="end"
-                  x={MARGIN.left - 8}
-                  y={gy + 4}
-                >
-                  {format(value)}
-                </text>
-              </g>
-            )
-          })}
-          {baseline === undefined ? null : (
-            <line
-              className="stroke-on-surface-variant"
-              strokeDasharray="6 4"
-              strokeWidth={1.5}
-              x1={MARGIN.left}
-              x2={WIDTH - MARGIN.right}
-              y1={y(baseline)}
-              y2={y(baseline)}
-            />
-          )}
-          {kind === 'line' && linePath.length > 0 ? (
-            <polyline
-              className="stroke-primary"
-              fill="none"
-              points={linePath}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-            />
-          ) : null}
-          {points.map((point, index) => {
-            const cx = xCenter(index)
-            const active = hovered === index
-            return (
-              <g
-                key={point.key}
-                onMouseEnter={() => setHovered(index)}
-                onFocus={() => setHovered(index)}
-                onBlur={() => setHovered(null)}
-                tabIndex={-1}
-              >
-                <title>{`${point.label}：${point.value === null ? '无数据' : format(point.value)}`}</title>
-                <rect
-                  fill="transparent"
-                  height={PLOT_H}
-                  width={slot}
-                  x={MARGIN.left + slot * index}
-                  y={MARGIN.top}
-                />
-                {active ? (
-                  <rect
-                    className="fill-state-hover"
-                    height={PLOT_H}
-                    rx={4}
-                    width={slot}
-                    x={MARGIN.left + slot * index}
-                    y={MARGIN.top}
-                  />
-                ) : null}
-                {kind === 'bar' && point.value !== null ? (
-                  <rect
-                    className={cn(
-                      'fill-primary ui-motion-s',
-                      !active && hovered !== null && 'opacity-60',
-                    )}
-                    height={Math.max(0, MARGIN.top + PLOT_H - y(point.value))}
-                    rx={4}
-                    width={barWidth}
-                    x={cx - barWidth / 2}
-                    y={y(point.value)}
-                  />
-                ) : null}
-                {kind === 'line' && point.value !== null ? (
-                  <circle
-                    className="fill-primary stroke-surface-container-lowest ui-motion-s"
-                    cx={cx}
-                    cy={y(point.value)}
-                    r={active ? 6 : 3.5}
-                    strokeWidth={2}
-                  />
-                ) : null}
-                {index % labelEvery === 0 || index === points.length - 1 ? (
-                  <text
-                    className="fill-on-surface-muted text-caption tabular-nums"
-                    textAnchor="middle"
-                    x={cx}
-                    y={HEIGHT - 8}
-                  >
-                    {point.label}
-                  </text>
-                ) : null}
-              </g>
-            )
-          })}
-        </svg>
+          {axes}
+          <Tooltip
+            content={tooltip}
+            cursor={{ fill: 'var(--color-state-hover)', radius: 4 }}
+            isAnimationActive={false}
+          />
+          <Bar
+            activeBar={{ fill: SERIES }}
+            dataKey="value"
+            fill={SERIES}
+            isAnimationActive={false}
+            maxBarSize={28}
+            radius={[4, 4, 0, 0]}
+          />
+        </BarChart>
+      ) : (
+        <LineChart
+          className="h-52 w-full"
+          data={points}
+          margin={MARGIN}
+          responsive
+          title={`${title}趋势图`}
+        >
+          {axes}
+          <Tooltip
+            content={tooltip}
+            cursor={{ stroke: GRID, strokeWidth: 1 }}
+            isAnimationActive={false}
+          />
+          <Line
+            activeDot={{ ...DOT, r: 6 }}
+            dataKey="value"
+            dot={DOT}
+            isAnimationActive={false}
+            stroke={SERIES}
+            strokeLinecap="round"
+            strokeWidth={2}
+            type="monotone"
+          />
+        </LineChart>
       )}
     </figure>
+  )
+}
+
+type TrendTooltipProps = TooltipContentProps & { format: (value: number) => string }
+
+/** 一格说明：时段 · 数值；Recharts 默认的白底框不跟主题，这里自己画。 */
+function TrendTooltip({ active, payload, format }: TrendTooltipProps) {
+  const point = payload[0]?.payload as TrendPoint | undefined
+  if (!active || point === undefined) return null
+  return (
+    <div className="rounded-xs bg-inverse-surface px-2 py-1 text-label text-inverse-on-surface tabular-nums shadow-[var(--shadow-2)]">
+      {point.label} · {point.value === null ? '无数据' : format(point.value)}
+    </div>
   )
 }

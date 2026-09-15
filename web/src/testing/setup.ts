@@ -24,6 +24,21 @@ if (!window.matchMedia) {
   })
 }
 
+// jsdom 没有 ResizeObserver；图表容器靠它量尺寸，这里给一个不回调的空实现，图表按初始尺寸画。
+if (typeof window.ResizeObserver === 'undefined') {
+  class NoopResizeObserver {
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  }
+  // 可改写：个别测试会用 vi.stubGlobal 换成自己的实现。
+  Object.defineProperty(window, 'ResizeObserver', {
+    configurable: true,
+    value: NoopResizeObserver,
+    writable: true,
+  })
+}
+
 // 提供空几何结果，满足 ProseMirror 选区 API；jsdom 不执行真实滚动。
 const noRects = () => ({ length: 0, item: () => null }) as unknown as DOMRectList
 const zeroRect = () =>
