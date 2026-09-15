@@ -1,6 +1,7 @@
 # ADR-0020：生成任务的坐标由调用方以 `metadata` 自带，生成域不认识分镜
 
 - 状态：已接受（2026-09-12）
+- 修订（2026-09-15）：视频请求增加 `shot_index`，是 `metadata.shot` 的别名，受理时折进 `metadata`；服务端仍不读 `metadata` 里的键，只是替不写坐标的调用方写这一个。
 - 关联：[ADR-0009](0009-storyboard-workbench.md)（决策里 `generation_jobs` 加 `shot_index` 列的部分由本文修订）、[ADR-0018](0018-video-generation-mirrors-upstream.md)（`task_id` 落列不变）、[ADR-0004](0004-generation-queue-in-postgres.md)（排队与状态机不变）
 
 ## 背景

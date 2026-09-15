@@ -2542,6 +2542,10 @@ export type VideoGenerationIn = {
   seconds?: number | null
   shot?: VideoShotIn | null
   /**
+   * Shot Index
+   */
+  shot_index?: number | null
+  /**
    * Task Id
    */
   task_id?: string | null

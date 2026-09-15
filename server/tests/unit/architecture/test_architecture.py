@@ -33,6 +33,8 @@ FRAMEWORK_FENCES: dict[tuple[str, ...], tuple[str, ...]] = {
         "app/",
         # StepPersistence 协议后端归属使用该协议的 harness。
         "harness/step_store_pg.py",
+        # 对话用量台账的 Postgres 实现，同样归属 harness，表在 agent_runtime schema。
+        "harness/usage_ledger_pg.py",
         # prompt 队列归属运行驱动，使用 agent_runtime schema。
         "harness/jobs.py",
         # 外部只读表使用独立适配器；infra_sql.py 仅表示模块自有表。

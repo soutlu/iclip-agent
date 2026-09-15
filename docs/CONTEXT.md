@@ -49,6 +49,9 @@
 **Transcript**：
 一段对话给人看的记录：轮（一条用户消息引发的全部运行）→ 步（一次模型响应）→ 块（正文、思考、工具卡等）。它是运行事实的投影，不能反向充当运行事实源。协议与断线恢复见 [跨端约定](../contract/conventions.md#5-agent-对话-transcript)。
 
+**对话用量（Conversation Usage）**：
+一段对话在每个模型上累计的模型响应次数与四类 token（普通输入、缓存读、缓存写、输出），模型每答一次累加一行，不逐次落行。归属对话取运行依赖里继承的对话 id，子代理的用量记到同一段对话；需求单粒度沿对话当下挂的需求单汇总。只覆盖 Agent 运行里的模型请求，标题生成、压缩摘要与视频理解不计。决策见 [ADR-0026](adr/0026-conversation-usage-ledger.md)。
+
 **生成任务（Generation Job）**：
 一次媒体生成的持久事实：发起者（含 API key 身份）、归属标签 `user_name`、请求参数、状态和结果，可归档到对话与需求单，并可带调用方自带的坐标标签 `metadata`（分镜页用它记镜头组与帧，服务端不解释，见 [ADR-0020](adr/0020-generation-metadata.md)）。生成任务的业务状态与 provider 的原始状态分别记录；排队与提交机制见 [architecture.md](architecture.md)。视频的对外接口镜像上游异步接口，决策见 [ADR-0018](adr/0018-video-generation-mirrors-upstream.md)。
 

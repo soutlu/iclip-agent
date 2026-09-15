@@ -55,11 +55,12 @@ MAX_USER_NAME_CHARS: Final = 200
 MAX_METADATA_CHARS: Final = 2000
 """``metadata`` 序列化后的长度上限：它是调用方的坐标标签，不是存东西的地方。"""
 
-ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata"})
+ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata", "shot_index"})
 """归属字段：落表上自己的列，不进 ``request`` JSON。
 
 它们不是发给 provider 的参数，而是「这一行属于谁、为谁出的」：对话与需求单按索引查；
-``metadata`` 是调用方自带的坐标，服务端原样存、按包含匹配筛，不读里面的键。"""
+``metadata`` 是调用方自带的坐标，服务端原样存、按包含匹配筛，不读里面的键；
+``shot_index`` 是 ``metadata.shot`` 的别名，受理时折进 ``metadata``，本身不落任何地方。"""
 
 NOT_FORWARDED_FIELDS: Final = ORIGIN_FIELDS | frozenset({"shot"})
 """发给上游时去掉的字段：归属字段是我们自己的；``shot`` 已经拼成 ``prompt``，上游只认正文。
@@ -219,10 +220,18 @@ class VideoGenerationIn(SnakeModel):
     task_id: uuid.UUID | None = None
     """需求单 id。只做归属与筛选，不校验它与对话的挂载关系。"""
     metadata: Metadata | None = None
+    shot_index: Annotated[int, Field(ge=0)] | None = None
+    """第几镜。外部调用方不写 ``metadata``，给这个数就等于写了 ``metadata.shot``。"""
 
     _check_urls = field_validator(
         "reference_image_urls", "reference_video_urls", "reference_audio_urls"
     )(_http_only)
+
+    @model_validator(mode="after")
+    def _fold_shot_index_into_metadata(self) -> VideoGenerationIn:
+        if self.shot_index is not None:
+            object.__setattr__(self, "metadata", {**(self.metadata or {}), "shot": self.shot_index})
+        return self
 
     @model_validator(mode="after")
     def _assemble_prompt_from_shot(self) -> VideoGenerationIn:

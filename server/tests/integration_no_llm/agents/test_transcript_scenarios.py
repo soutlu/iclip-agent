@@ -58,6 +58,7 @@ from tests.helpers.runtime import (
     build_runner,
     calls_then_says,
     delegates,
+    discarding_usage_ledger,
     drained,
     first_run_messages,
     make_runner,
@@ -685,6 +686,7 @@ def subagent_runner(
     registry = build_agent_registry(
         definitions,
         step_store=step_store,
+        usage_ledger=discarding_usage_ledger(),
         models=models,
         subagent_mirror=SubAgentMirror(
             live=store, display=DISPLAYS, profiles=subagent_profiles(definitions, models)

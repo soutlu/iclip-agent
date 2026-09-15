@@ -4921,6 +4921,18 @@
               }
             ]
           },
+          "shot_index": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shot Index"
+          },
           "task_id": {
             "anyOf": [
               {
