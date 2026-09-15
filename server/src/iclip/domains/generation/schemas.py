@@ -34,10 +34,20 @@ from iclip.domains.generation.shot_prompt import (
 if TYPE_CHECKING:  # 只为类型：真导入会和 models.py 成环
     from iclip.domains.generation.models import GenerationJob
 
-GenerationKind = Literal["video", "image"]
+GenerationKind = Literal["video", "image", "clip"]
 
 KIND_VIDEO: Final = "video"
 KIND_IMAGE: Final = "image"
+KIND_CLIP: Final = "clip"
+"""本地 ffmpeg 加工出来的视频：编辑用的参考片段与拼出来的成片，不经任何外部 provider。"""
+
+ClipPurpose = Literal["reference", "master"]
+
+CLIP_REFERENCE: Final = "reference"
+"""只有它要分支判断（裁一段、不重编码）；另一个取值由 ClipPurpose 声明。"""
+
+MAX_CLIP_SEGMENTS: Final = 50
+"""一条成片最多由多少段拼成。每编辑一次多一段，够用且挡住畸形请求。"""
 
 IMAGE_ASPECT_RATIOS = Literal[
     "1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
@@ -283,11 +293,52 @@ class ImageGenerationIn(CamelModel):
     _check_urls = field_validator("reference_image_urls")(_http_only)
 
 
-GenerationRequest = VideoGenerationIn | ImageGenerationIn
+class ClipSegmentIn(CamelModel):
+    """从一条视频里取 ``[start, end)`` 这一段，单位秒。"""
+
+    url: str
+    start: float = Field(ge=0)
+    end: float
+
+    @model_validator(mode="after")
+    def _usable_range(self) -> ClipSegmentIn:
+        if not self.url.startswith(("http://", "https://")):
+            # 这个地址会被服务端拿去下载，放行别的 scheme 等于开一个任意文件读取入口。
+            raise ValueError("url 必须是 http:// 或 https:// 地址")
+        if self.end <= self.start:
+            raise ValueError("end 必须大于 start")
+        return self
+
+
+class ClipIn(CamelModel):
+    """一次本地视频加工：按顺序裁出各段拼成一条，产物是本系统桶里的公开地址。
+
+    ``reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段，不重编码
+    （起点因此落在最近的关键帧上，产物可能比区间略长）；``master`` 是拼出来的成片，各段
+    参数互不相同，一律重编码对齐。两者存在不同前缀下，成片不进过期规则。"""
+
+    kind: ClassVar[GenerationKind] = KIND_CLIP
+
+    purpose: ClipPurpose
+    segments: Annotated[list[ClipSegmentIn], Field(min_length=1, max_length=MAX_CLIP_SEGMENTS)]
+
+    conversation_id: uuid.UUID | None = None
+    task_id: uuid.UUID | None = None
+    metadata: Metadata | None = None
+
+    @model_validator(mode="after")
+    def _reference_is_one_cut(self) -> ClipIn:
+        if self.purpose == CLIP_REFERENCE and len(self.segments) != 1:
+            raise ValueError("参考片段只能在一条完整视频上裁一段")
+        return self
+
+
+GenerationRequest = VideoGenerationIn | ImageGenerationIn | ClipIn
 
 _ADAPTERS: Final = {
     KIND_VIDEO: TypeAdapter(VideoGenerationIn),
     KIND_IMAGE: TypeAdapter(ImageGenerationIn),
+    KIND_CLIP: TypeAdapter(ClipIn),
 }
 
 
@@ -406,11 +457,33 @@ def video_task_out(job: GenerationJob) -> VideoTaskOut:
     )
 
 
+class VideoEditOut(CamelModel):
+    """这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。"""
+
+    prompt_prefix: str | None = None
+    """拼在正文最前面的编辑意图词。万相没有开关参数，靠正文里的意图词路由到编辑。"""
+
+    provider_options: dict[str, str] | None = None
+    """并进请求 ``provider_options`` 的键值。Seedance 2.5 靠它显式声明编辑子任务。"""
+
+    min_seconds: float
+    max_seconds: float
+    """参考视频单段的时长上下限。选段超出这个范围上游会拒，调用方照它限制选段。"""
+
+
+class VideoModelOut(CamelModel):
+    """一个视频模型：id，以及支不支持视频编辑、怎么触发。"""
+
+    model: str
+    edit: VideoEditOut | None = None
+    """不支持视频编辑的模型为空。"""
+
+
 class VideoModelsOut(CamelModel):
-    """接入了哪几个视频模型。只有模型 id，下拉直接显示它。"""
+    """接入了哪几个视频模型与各自的编辑能力，按配置声明顺序。"""
 
     default: str
-    items: list[str]
+    items: list[VideoModelOut]
 
 
 class ImageModelOut(CamelModel):
@@ -440,9 +513,12 @@ class GenerationsPageOut(CamelModel):
 
 
 __all__ = [
+    "CLIP_REFERENCE",
     "IMAGE_MAX_REFERENCES",
+    "KIND_CLIP",
     "KIND_IMAGE",
     "KIND_VIDEO",
+    "MAX_CLIP_SEGMENTS",
     "MAX_METADATA_CHARS",
     "MAX_MODEL_CHARS",
     "MAX_PROMPT_CHARS",
@@ -450,6 +526,9 @@ __all__ = [
     "MAX_USER_NAME_CHARS",
     "NOT_FORWARDED_FIELDS",
     "ORIGIN_FIELDS",
+    "ClipIn",
+    "ClipPurpose",
+    "ClipSegmentIn",
     "GenerationEnvelope",
     "GenerationKind",
     "GenerationOut",
@@ -459,7 +538,9 @@ __all__ = [
     "ImageModelOut",
     "ImageModelsOut",
     "Metadata",
+    "VideoEditOut",
     "VideoGenerationIn",
+    "VideoModelOut",
     "VideoModelsOut",
     "VideoShotIn",
     "VideoShotTimelineItemIn",
