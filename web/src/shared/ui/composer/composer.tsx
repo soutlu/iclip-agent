@@ -4,6 +4,7 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'r
 import type { ReactNode, Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '@/shared/icons'
+import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { Tag } from '@/shared/ui/tag'
@@ -60,6 +61,7 @@ export function Composer({
   const attachments = useComposerAttachments()
   const [pillHosts, setPillHosts] = useState<readonly ComposerPillHost[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const registerPillHost = useCallback((host: ComposerPillHost) => {
@@ -129,30 +131,32 @@ export function Composer({
   useEffect(() => {
     if (!attachmentsEnabled) return
     let depth = 0
-    const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') === true
+    // 别处的拖放区（帧图片、弹窗）用 preventDefault 接管文件，聊天入口让出遮罩与上传；
+    // 但正文里的 ProseMirror 自己也会 preventDefault，那是自家地盘，遮罩要照常亮着。
+    const claimedElsewhere = (event: DragEvent) =>
+      event.defaultPrevented &&
+      !(event.target instanceof Node && rootRef.current?.contains(event.target) === true)
     const onDragEnter = (event: DragEvent) => {
-      if (!hasFiles(event)) return
+      if (!hasDraggedFiles(event)) return
       depth += 1
-      setDragOver(!event.defaultPrevented)
-      if (event.defaultPrevented) return
-      event.preventDefault()
+      setDragOver(!claimedElsewhere(event))
+      if (!event.defaultPrevented) event.preventDefault()
     }
     const onDragOver = (event: DragEvent) => {
-      if (!hasFiles(event)) return
-      // 局部拖放区域用 preventDefault 接管文件，聊天入口让出遮罩与上传。
-      setDragOver(!event.defaultPrevented)
-      if (event.defaultPrevented) return
-      event.preventDefault() // dragover 必须 preventDefault 才能接收 drop。
+      if (!hasDraggedFiles(event)) return
+      setDragOver(!claimedElsewhere(event))
+      if (!event.defaultPrevented) event.preventDefault() // dragover 不 preventDefault 收不到 drop。
     }
     const onDragLeave = (event: DragEvent) => {
-      if (!hasFiles(event)) return
+      if (!hasDraggedFiles(event)) return
       depth = Math.max(0, depth - 1)
       if (depth === 0) setDragOver(false)
     }
     const onDrop = (event: DragEvent) => {
       depth = 0
       setDragOver(false)
-      if (event.defaultPrevented || !hasFiles(event)) return
+      // 正文里的 drop 由编辑器自己按落点插入，这里只收落在别处的。
+      if (event.defaultPrevented || !hasDraggedFiles(event)) return
       event.preventDefault()
       const { dataTransfer } = event
       if (dataTransfer === null) return
@@ -187,6 +191,7 @@ export function Composer({
         dragOver && 'bg-primary-container-soft',
         className,
       )}
+      ref={rootRef}
     >
       {references.length > 0 ? (
         <div aria-label="引用" className="flex flex-wrap items-center gap-1.5 px-3 pt-3">

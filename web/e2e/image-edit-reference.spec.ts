@@ -214,3 +214,68 @@ for (const width of [1600, 390]) {
     })
   }
 }
+
+test('往编辑器拖本地图片：参考图片区就地上传，其余位置拒收，背后的聊天框始终不亮遮罩也不收附件', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await page.goto('/')
+  await login(page)
+  await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
+  const group = page.getByRole('region', { name: '镜头组 1', exact: true })
+  await group.getByRole('button', { name: '镜头 1', exact: true }).click()
+  await group.getByRole('img', { name: '镜头组 1 第 1 帧' }).hover()
+  await group.getByRole('button', { name: '编辑图片', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: /^编辑图片/ })
+  const referenceList = dialog.getByRole('list', { name: '提交图片顺序' })
+  await expect(referenceList.getByRole('img')).toHaveCount(1)
+  await expect(dialog.getByRole('button', { name: '添加参考图片', exact: true })).toBeEnabled()
+  const overlay = page.getByText('松开鼠标添加附件')
+
+  // 上传前会校验图片尺寸（短边至少 300），画一张够大的。
+  const png = Buffer.from(
+    await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 600
+      canvas.height = 800
+      canvas.getContext('2d')?.fillRect(0, 0, canvas.width, canvas.height)
+      return canvas.toDataURL('image/png').split(',')[1] ?? ''
+    }),
+    'base64',
+  )
+  await page.context().route('http://localhost/mock-oss/**', async (route) => {
+    if (route.request().method() === 'GET')
+      await route.fulfill({ body: png, contentType: 'image/png' })
+    else await route.continue()
+  })
+  const fileDrag = (name: string) =>
+    page.evaluateHandle(
+      ([bytes, fileName]) => {
+        const transfer = new DataTransfer()
+        transfer.items.add(new File([new Uint8Array(bytes)], fileName, { type: 'image/png' }))
+        return transfer
+      },
+      [Array.from(png), name] as const,
+    )
+
+  // 落在参考图片区：就地上传，聊天遮罩从头到尾不亮。
+  const zoneTarget = dialog.getByRole('button', { name: '预览参考图 1', exact: true })
+  const accepted = await fileDrag('拖入参考.png')
+  await zoneTarget.dispatchEvent('dragenter', { dataTransfer: accepted })
+  await zoneTarget.dispatchEvent('dragover', { dataTransfer: accepted })
+  await expect(overlay).toBeHidden()
+  await zoneTarget.dispatchEvent('drop', { dataTransfer: accepted })
+  await expect(referenceList.getByRole('img')).toHaveCount(2)
+  await expect(overlay).toBeHidden()
+
+  // 落在「修改要求」输入框：弹窗拒收，文件不会跑进背后的聊天输入框。
+  const editor = dialog.getByRole('textbox', { name: '修改要求', exact: true })
+  const refused = await fileDrag('误投.png')
+  await editor.dispatchEvent('dragenter', { dataTransfer: refused })
+  await editor.dispatchEvent('dragover', { dataTransfer: refused })
+  await expect(overlay).toBeHidden()
+  await editor.dispatchEvent('drop', { dataTransfer: refused })
+  await expect(referenceList.getByRole('img')).toHaveCount(2)
+  await expect(page.getByText('误投.png')).toHaveCount(0)
+  await expect(overlay).toBeHidden()
+})
