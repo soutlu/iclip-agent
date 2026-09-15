@@ -70,6 +70,7 @@ HTTP 与 WebSocket 由 `PrincipalMiddleware` 统一解析身份。中间件只�
 | `public` 生成任务调度表 | procrastinate；DDL 随 Alembic 迁移维护 |
 | `iclip` 爆款视频快照 | `domains/inspirations/infra_sql.py`；数据随迁移灌入，运行时只读不刷新 |
 | PDM 款目录外部库 | `domains/products/catalog_pg.py`，独立连接池设置会话级只读 |
+| 审计报表（跨 `iclip` 与 `agent_runtime` 五张表的只读聚合） | `domains/audit/reports_pg.py`；不建表、不写入，列被改动时由它的集成测试先红（[ADR-0027](adr/0027-audit-reports.md)） |
 
 表结构只经 [Alembic 迁移](../server/migrations/versions/) 演进，命令见 [AGENTS.md](../AGENTS.md)。新增表与迁移的对账范围、人工核对要求见 [测试规范](test-design.md#3-postgres-测试环境)。
 
