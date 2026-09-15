@@ -14,12 +14,12 @@ import type { Conversation } from '../conversations.api'
 import { AuditFiltersBar } from './audit-filters'
 import type { PickerSource } from '@/shared/ui/search-picker'
 
-type AuditRouteProps = {
+type ConversationsRouteProps = {
   /** 需求单候选由路由层查询，feature 之间不直接互引；null 表示当前账号没有 tasks:read 权限。 */
   tasks: PickerSource | null
 }
 
-export function AuditRoute({ tasks }: AuditRouteProps) {
+export function ConversationsRoute({ tasks }: ConversationsRouteProps) {
   const [filters, setFilters] = useState<AuditFilters>(DEFAULT_AUDIT_FILTERS)
   const directory = useUsersDirectory(true)
   const users: PickerSource = {
@@ -36,9 +36,12 @@ export function AuditRoute({ tasks }: AuditRouteProps) {
   const taskLabels = new Map((tasks?.options ?? []).map((task) => [task.id, task.label]))
 
   return (
-    // 页面外框（滚动、留白）由审计路由给，这里只是其中一个标签页。
-    <section aria-label="全部对话" className="flex flex-col gap-4 sm:gap-5">
-      <div className="flex flex-col gap-4 sm:gap-5">
+    <main
+      aria-label="全部对话"
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-surface-container-lowest"
+    >
+      {/* 预留应用壳中侧栏展开按钮的空间。 */}
+      <div className="mx-auto flex w-full max-w-360 flex-col gap-4 px-4 pt-12 pb-10 sm:gap-5 sm:px-7">
         <AuditFiltersBar
           filters={filters}
           onChange={setFilters}
@@ -107,7 +110,7 @@ export function AuditRoute({ tasks }: AuditRouteProps) {
           ) : null}
         </section>
       </div>
-    </section>
+    </main>
   )
 }
 

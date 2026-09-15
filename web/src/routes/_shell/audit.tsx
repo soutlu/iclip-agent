@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { z } from 'zod'
 import {
@@ -9,54 +9,36 @@ import {
   OverviewPanel,
   type AuditScope,
 } from '@/features/audit'
-import { AuditRoute } from '@/features/conversations'
-import { useTaskOptions } from '@/features/tasks'
-import { ensureSessionUser, useUser, useUsersDirectory } from '@/shared/auth'
+import { useUsersDirectory } from '@/shared/auth'
 import type { PickerSource } from '@/shared/ui/search-picker'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from '@/shared/ui/tabs'
+import { requireGovernor } from '../-require-governor'
+import { useTaskPickerSource } from '../-use-task-picker-source'
 
 const TABS = [
   { value: 'overview', label: '总览' },
   { value: 'conversations', label: '对话明细' },
   { value: 'anomalies', label: '异常' },
-  { value: 'all', label: '全部对话' },
 ] as const
 
 const AuditSearchSchema = z.object({
-  tab: z.enum(['overview', 'conversations', 'anomalies', 'all']).optional().catch(undefined),
+  tab: z.enum(['overview', 'conversations', 'anomalies']).optional().catch(undefined),
 })
 
-// 审计页是治理者的页：接口同时要 users:manage 与 agent:read（合同 §6、§12），没登录或权限不够都回首页。
 export const Route = createFileRoute('/_shell/audit')({
-  beforeLoad: async () => {
-    const user = await ensureSessionUser()
-    const permissions = user?.permissions ?? []
-    if (!permissions.includes('users:manage') || !permissions.includes('agent:read')) {
-      throw redirect({ to: '/' })
-    }
-  },
+  beforeLoad: requireGovernor,
   component: AuditPage,
   validateSearch: AuditSearchSchema,
 })
 
-/** 路由层组合两个 feature：报表三块共用一份筛选；全部对话保留自己的筛选条。需求单候选在这里取，两个 feature 不互引。 */
+/** 三个标签共用一份筛选；人和需求单的候选在路由层取，feature 之间不互引。 */
 function AuditPage() {
   const { tab = 'overview' } = Route.useSearch()
   const navigate = Route.useNavigate()
-  const { data: user } = useUser()
-  const canReadTasks = Boolean(user?.permissions.includes('tasks:read'))
-  const tasks = useTaskOptions(canReadTasks)
+  const taskSource = useTaskPickerSource()
   const directory = useUsersDirectory(true)
   const [scope, setScope] = useState<AuditScope>(DEFAULT_AUDIT_SCOPE)
 
-  const taskSource: PickerSource | null = canReadTasks
-    ? {
-        error: tasks.error?.message,
-        isPending: tasks.isPending,
-        onRetry: () => void tasks.refetch(),
-        options: tasks.data ?? [],
-      }
-    : null
   // 报表按上游归属的用户名归人，候选的 id 用用户名；没有用户名的账号不会出现在报表里，也不列。
   const userSource: PickerSource = {
     error: directory.error,
@@ -71,7 +53,7 @@ function AuditPage() {
       item.username === null ? [] : [[item.username, item.displayName] as const],
     ),
   )
-  const taskTitles = new Map((tasks.data ?? []).map((task) => [task.id, task.label]))
+  const taskTitles = new Map((taskSource?.options ?? []).map((task) => [task.id, task.label]))
   const nameOf = (userName: string) => displayNameByUsername.get(userName)
   const taskTitleOf = (taskId: string) => taskTitles.get(taskId)
 
@@ -104,14 +86,7 @@ function AuditPage() {
             </TabsList>
           </header>
 
-          {tab === 'all' ? null : (
-            <AuditScopeBar
-              onChange={setScope}
-              scope={scope}
-              tasks={taskSource}
-              users={userSource}
-            />
-          )}
+          <AuditScopeBar onChange={setScope} scope={scope} tasks={taskSource} users={userSource} />
 
           <TabsContent className="flex flex-col ui-focus" value="overview">
             <OverviewPanel
@@ -125,9 +100,6 @@ function AuditPage() {
           </TabsContent>
           <TabsContent className="flex flex-col ui-focus" value="anomalies">
             <AnomaliesPanel nameOf={nameOf} scope={scope} taskTitleOf={taskTitleOf} />
-          </TabsContent>
-          <TabsContent className="flex flex-col ui-focus" value="all">
-            <AuditRoute tasks={taskSource} />
           </TabsContent>
         </TabsRoot>
       </div>

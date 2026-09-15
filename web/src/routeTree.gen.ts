@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
+import { Route as ShellConversationsRouteImport } from './routes/_shell/conversations'
 import { Route as ShellTasksRouteImport } from './routes/_shell/tasks'
 import { Route as VideoEditorJobIdRouteImport } from './routes/video-editor.$jobId'
 import { Route as ShellCConversationIdRouteImport } from './routes/_shell/c.$conversationId'
@@ -29,6 +30,11 @@ const ShellIndexRoute = ShellIndexRouteImport.update({
 const ShellAuditRoute = ShellAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellConversationsRoute = ShellConversationsRouteImport.update({
+  id: '/conversations',
+  path: '/conversations',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellTasksRoute = ShellTasksRouteImport.update({
@@ -55,6 +61,7 @@ const AuthSsoLandingRoute = AuthSsoLandingRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/audit': typeof ShellAuditRoute
+  '/conversations': typeof ShellConversationsRoute
   '/tasks': typeof ShellTasksRoute
   '/video-editor/$jobId': typeof VideoEditorJobIdRoute
   '/c/$conversationId': typeof ShellCConversationIdRoute
@@ -62,6 +69,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/audit': typeof ShellAuditRoute
+  '/conversations': typeof ShellConversationsRoute
   '/tasks': typeof ShellTasksRoute
   '/video-editor/$jobId': typeof VideoEditorJobIdRoute
   '/': typeof ShellIndexRoute
@@ -72,6 +80,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
   '/_shell/audit': typeof ShellAuditRoute
+  '/_shell/conversations': typeof ShellConversationsRoute
   '/_shell/tasks': typeof ShellTasksRoute
   '/video-editor/$jobId': typeof VideoEditorJobIdRoute
   '/_shell/': typeof ShellIndexRoute
@@ -83,6 +92,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/audit'
+    | '/conversations'
     | '/tasks'
     | '/video-editor/$jobId'
     | '/c/$conversationId'
@@ -90,6 +100,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/audit'
+    | '/conversations'
     | '/tasks'
     | '/video-editor/$jobId'
     | '/'
@@ -99,6 +110,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_shell'
     | '/_shell/audit'
+    | '/_shell/conversations'
     | '/_shell/tasks'
     | '/video-editor/$jobId'
     | '/_shell/'
@@ -135,6 +147,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellAuditRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/conversations': {
+      id: '/_shell/conversations'
+      path: '/conversations'
+      fullPath: '/conversations'
+      preLoaderRoute: typeof ShellConversationsRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/tasks': {
       id: '/_shell/tasks'
       path: '/tasks'
@@ -168,6 +187,7 @@ declare module '@tanstack/react-router' {
 
 interface ShellRouteChildren {
   ShellAuditRoute: typeof ShellAuditRoute
+  ShellConversationsRoute: typeof ShellConversationsRoute
   ShellTasksRoute: typeof ShellTasksRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellCConversationIdRoute: typeof ShellCConversationIdRoute
@@ -175,6 +195,7 @@ interface ShellRouteChildren {
 
 const ShellRouteChildren: ShellRouteChildren = {
   ShellAuditRoute: ShellAuditRoute,
+  ShellConversationsRoute: ShellConversationsRoute,
   ShellTasksRoute: ShellTasksRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellCConversationIdRoute: ShellCConversationIdRoute,
