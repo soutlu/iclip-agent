@@ -354,7 +354,13 @@ describe('StoryboardReader', () => {
     )
     const second = within(sheet).getByRole('region', { name: '镜头 2 原文' })
     expect(within(second).getByRole('heading').textContent).toBe('[3.25–5秒｜镜头2]')
-    expect(second.querySelector('p')?.textContent).toBe(original?.prompt.timeline[1]?.prompt)
+    const secondPrompt = within(second).getByRole('textbox', { name: '镜头 2 的描述' })
+    expect(secondPrompt).toHaveTextContent('共用同一帧继续动作 @2，再次看向 @1。')
+    expect(
+      within(secondPrompt)
+        .getAllByRole('button')
+        .map((chip) => chip.getAttribute('aria-label')),
+    ).toEqual(['看第 2 帧', '看第 1 帧'])
     expect(
       within(within(sheet).getByRole('region', { name: '本组参考图' }))
         .getAllByRole('img')
@@ -399,6 +405,14 @@ describe('StoryboardReader', () => {
       'contenteditable',
       'false',
     )
+    await userEvent.click(within(page).getByRole('button', { name: '完整提示词' }))
+    const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+    for (const name of ['全局设定', '镜头 1 的描述', '镜头 2 的描述', '镜头 3 的描述'])
+      expect(within(sheet).getByRole('textbox', { name })).toHaveAttribute(
+        'contenteditable',
+        'false',
+      )
+    await userEvent.click(within(sheet).getByRole('button', { name: '收起完整提示词' }))
     await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
     const records = await screen.findByRole('complementary', { name: '生成记录' })
     expect(await within(records).findByText(/历史版参考锁定/)).toBeVisible()
@@ -835,6 +849,37 @@ describe('StoryboardReader', () => {
         '\n[3.25–5秒｜镜头2] 共用同一帧继续动作 @Image2，再次看向 @Image1。\n' +
         '[5–6秒｜镜头3] 这里保留旁白，没有图片引用。\n' +
         '不要生成字幕，不要生成背景音乐。',
+    )
+  })
+
+  it('完整面板逐段编辑镜头正文，各段互不干扰且引用编号随正文重算', async () => {
+    const user = userEvent.setup()
+    const files = provide()
+    await renderReader()
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    await user.click(within(page).getByRole('button', { name: '完整提示词' }))
+    const sheet = await screen.findByRole('complementary', { name: '镜头组完整提示词' })
+    await replaceText(
+      within(sheet).getByRole('textbox', { name: '镜头 2 的描述' }),
+      '改后的第二镜 @Image1。',
+    )
+    await replaceText(
+      within(sheet).getByRole('textbox', { name: '镜头 3 的描述' }),
+      '改后的第三镜。',
+    )
+    await screen.findByText('已保存', undefined, { timeout: 3000 })
+    const saved = files.snapshot().shots[0]
+    expect(saved?.prompt.timeline[1]).toEqual({
+      image_indexes: [1],
+      prompt: '改后的第二镜 @Image1。',
+      timestamps: [3.25, 5],
+    })
+    expect(saved?.prompt.timeline[2]?.prompt).toBe('改后的第三镜。')
+    expect(saved?.prompt.timeline[0]).toEqual(document.shots[0]?.prompt.timeline[0])
+    expect(saved?.prompt.global_settings).toBe(document.shots[0]?.prompt.global_settings)
+    // 改别的段不会重建这一段的编辑器，正文留在原处。
+    expect(within(sheet).getByRole('textbox', { name: '镜头 2 的描述' })).toHaveTextContent(
+      '改后的第二镜 @1。',
     )
   })
 

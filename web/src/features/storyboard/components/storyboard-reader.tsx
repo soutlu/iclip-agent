@@ -37,7 +37,7 @@ import { useVideoGeneration } from '../use-video-generation'
 import { ConflictDialog, ReaderNotice, SaveStatus } from './draft-status'
 import { GenerationRecords } from './generation-records'
 import { ReaderPage } from './reader-page'
-import { shotContents } from '../shot-content'
+import { encodeContentId, shotContents, updateContentPrompt } from '../shot-content'
 import { PromptEditor } from './prompt-editor'
 import { VideoGenerationButton } from './video-generation-button'
 
@@ -370,12 +370,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                 aspect_ratio={document.aspect_ratio}
                 onClose={closeSheet}
                 onPreview={setMedia}
-                onChangeGlobalSettings={(text) =>
-                  draft.updateShot(shot.index, (current) => ({
-                    ...current,
-                    prompt: { ...current.prompt, global_settings: text },
-                  }))
-                }
+                onUpdateShot={(updater) => draft.updateShot(shot.index, updater)}
                 readOnly={editingDisabled}
                 shot={shot}
               />
@@ -536,7 +531,7 @@ type PromptReadingProps = {
   aspect_ratio: string
   onClose: () => void
   onPreview: Preview
-  onChangeGlobalSettings: (text: string) => void
+  onUpdateShot: (updater: (current: Shot) => Shot) => void
   readOnly: boolean
 }
 
@@ -544,10 +539,17 @@ function PromptReading({
   aspect_ratio,
   onClose,
   onPreview,
-  onChangeGlobalSettings,
+  onUpdateShot,
   readOnly,
   shot,
 }: PromptReadingProps) {
+  // 全组一次展开，每段正文各自写回；写入路径与单页视图共用 updateContentPrompt。
+  const changePrompt = (id: string) => (text: string) =>
+    onUpdateShot((current) => updateContentPrompt(current, id, text))
+  const previewFrame = (number: number) => {
+    const url = shot.image_urls[number - 1]
+    if (url !== undefined) onPreview({ kind: 'image', name: `参考图 @Image${number}`, url })
+  }
   return (
     <>
       <header className="flex shrink-0 items-center justify-between gap-3 border-b-[0.5px] border-chat-hairline px-5 py-4">
@@ -580,23 +582,24 @@ function PromptReading({
           <PromptEditor
             aria-label="全局设定"
             frames={shot.image_urls}
-            onChange={onChangeGlobalSettings}
+            onChange={changePrompt(encodeContentId({ kind: 'global' }))}
             readOnly={readOnly}
             value={shot.prompt.global_settings}
-            onPickFrame={(number) => {
-              const url = shot.image_urls[number - 1]
-              if (url !== undefined)
-                onPreview({ kind: 'image', name: `参考图 @Image${number}`, url })
-            }}
+            onPickFrame={previewFrame}
           />
           {shot.prompt.timeline.map((item, index) => (
             <section aria-label={`镜头 ${index + 1} 原文`} key={item.timestamps.join(':')}>
               <h4 className="mb-2 text-label text-on-surface-faint">
                 [{item.timestamps[0]}–{item.timestamps[1]}秒｜镜头{index + 1}]
               </h4>
-              <p className="text-body leading-relaxed wrap-anywhere whitespace-pre-wrap text-on-surface">
-                {item.prompt}
-              </p>
+              <PromptEditor
+                aria-label={`镜头 ${index + 1} 的描述`}
+                frames={shot.image_urls}
+                onChange={changePrompt(encodeContentId({ kind: 'scene', scene: index + 1 }))}
+                onPickFrame={previewFrame}
+                readOnly={readOnly}
+                value={item.prompt}
+              />
             </section>
           ))}
         </div>
