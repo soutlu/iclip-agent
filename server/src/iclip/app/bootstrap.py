@@ -90,6 +90,8 @@ from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner
 from iclip.harness.transcript.service import TranscriptService
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.usage_ledger import UsageLedger
+from iclip.harness.usage_ledger_pg import PgConversationUsage
 from iclip.platform.file_store.pg import PgFileStore
 from iclip.platform.file_store.store import (
     FileEntry,
@@ -207,6 +209,12 @@ def _openapi_with_string_validation_error(app: FastAPI) -> Callable[[], dict[str
         return document
 
     return openapi
+
+
+def _conversation_of(deps: object) -> str | None:
+    """用量记到运行依赖里继承的对话上；不是本系统的运行依赖就不记。"""
+
+    return deps.conversation_id if isinstance(deps, AgentRunDeps) else None
 
 
 def _install_hup_reload(agent_layer: CurrentAgentLayer) -> bool:
@@ -394,6 +402,9 @@ def build_app(
     step_store = PgStepStore(
         active_engine, max_snapshots_per_run=settings.agent_runs.max_snapshots_per_run
     )
+    usage_ledger = UsageLedger(
+        store=PgConversationUsage(active_engine), conversation_of=_conversation_of
+    )
     collection_repo = SqlCollectionRepository(active_engine)
     collections = build_collections_module(collection_repo)
 
@@ -457,7 +468,11 @@ def build_app(
     transcript_store = TranscriptStore()
     # 模型表与 agent 注册表是运行期可整体替换的一层；下面各处拿的都是读当前层的视图。
     layer_deps = LayerDeps(
-        table=capability_table, step_store=step_store, live=transcript_store, display=tool_displays
+        table=capability_table,
+        step_store=step_store,
+        usage_ledger=usage_ledger,
+        live=transcript_store,
+        display=tool_displays,
     )
     agent_layer = CurrentAgentLayer(
         build_agent_layer(settings, agents, layer_deps, models=models),

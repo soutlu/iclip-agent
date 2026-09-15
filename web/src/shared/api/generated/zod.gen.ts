@@ -1338,6 +1338,7 @@ export const zVideoGenerationIn = z.object({
   resolution: z.string().min(1).max(50).nullish(),
   seconds: z.int().gte(-1).nullish(),
   shot: zVideoShotIn.nullish(),
+  shot_index: z.int().gte(0).nullish(),
   task_id: z.uuid().nullish(),
   user_name: z.string().min(1).max(200).nullish(),
 })
