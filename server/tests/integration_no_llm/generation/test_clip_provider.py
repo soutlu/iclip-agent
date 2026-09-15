@@ -56,7 +56,8 @@ def sources() -> dict[str, bytes]:
         root = Path(tmp)
         return {
             BASE_URL: _synthesize(root / "base.mp4", size="320x240", seconds=4, audio=True),
-            EDITED_URL: _synthesize(root / "edited.mp4", size="160x120", seconds=2, audio=False),
+            # 照实测：模型还回来的片段比原片大（720×960 进去，834×1112 出来），同比例。
+            EDITED_URL: _synthesize(root / "edited.mp4", size="480x360", seconds=2, audio=False),
         }
 
 
@@ -90,9 +91,11 @@ async def test_reference_cut_lands_under_the_expiring_prefix(sources: dict[str, 
     assert 1.0 <= seconds <= 2.1, seconds
 
 
-async def test_master_concat_keeps_the_largest_frame_size_and_total_length(
+async def test_master_concat_aligns_to_the_original_and_keeps_total_length(
     sources: dict[str, bytes],
 ) -> None:
+    """换进去的那段画幅更大，成片仍照原片——原片贡献的时长更长。"""
+
     key, content = await _render(
         {
             "purpose": "master",
@@ -111,7 +114,9 @@ async def test_master_concat_keeps_the_largest_frame_size_and_total_length(
         path = Path(tmp) / "out.mp4"
         path.write_bytes(content)
         profile = await probe_video(path)
-    assert (profile.width, profile.height) == (320, 240), "取画幅最大的那条，不被小片段拉低"
+    assert (profile.width, profile.height) == (320, 240), (
+        "对齐到原片；照「画幅最大的那条」会变成 480×360"
+    )
     assert profile.has_audio, "有一段带音轨就出音轨，没音轨的那段补静音"
 
 

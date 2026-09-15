@@ -139,18 +139,22 @@ class FfmpegClipProvider:
 
 
 async def _target_profile(cuts: Sequence[MediaCut]) -> VideoProfile:
-    """拼接的目标参数取画幅最大的那条素材，有一条带音轨就出音轨。
+    """成片对齐到原片：画幅与帧率照贡献时长最长的那条素材，有一条带音轨就出音轨。
 
-    不取「第一段」或「上一版」：模型还回来的片段画幅未必与原片一致，跟着它走会让成片一版
-    比一版小。取最大的，任何一段都不会被放大。"""
+    模型还回来的片段与原片同比例，但分辨率档位与帧率不保证相同（实测 720×960 25fps 的输入
+    还回来是 834×1112 24fps）。成片该保持原片的规格，插进去的片段缩放去适配它——一次编辑只
+    换掉其中一段，原片在成片里总是占大头，按时长认它不用调用方多传一个字段。"""
 
-    profiles = [await probe_video(source) for source in {cut.source for cut in cuts}]
-    largest = max(profiles, key=lambda item: item.width * item.height)
+    durations: dict[Path, float] = {}
+    for cut in cuts:
+        durations[cut.source] = durations.get(cut.source, 0.0) + cut.duration
+    profiles = {source: await probe_video(source) for source in durations}
+    original = profiles[max(durations, key=lambda source: durations[source])]
     return VideoProfile(
-        width=largest.width,
-        height=largest.height,
-        frame_rate=largest.frame_rate,
-        has_audio=any(profile.has_audio for profile in profiles),
+        width=original.width,
+        height=original.height,
+        frame_rate=original.frame_rate,
+        has_audio=any(profile.has_audio for profile in profiles.values()),
     )
 
 
