@@ -45,9 +45,11 @@ ffmpeg 占 CPU，别的提交队列都在等网络。按 ADR-0004 §3「谁会�
 
 ### 7. 模型的编辑能力由配置声明
 
-`media_generation.video.allowed_models` 换成 `models`，每个模型可以声明 `edit`：`prompt_prefix`（靠正文意图词路由的那种）、`provider_options`（显式声明子任务的那种）、参考视频单段的时长上下限。`GET /generations/video-models` 原样转述。
+`media_generation.video.allowed_models` 换成 `models`，每个模型可以声明 `edit`：`prompt_prefix`（靠正文意图词路由的那种）与 `provider_options`（显式声明子任务的那种）。`GET /generations/video-models` 原样转述。
 
-调用方直接调 `POST /generations/video`，所以「这家怎么触发编辑」必须有人告诉它。放配置而不是放前端：上游改词、加模型只要改配置重启，不用发版；而这仍然守着 ADR-0018 §2——我们只转述声明，不自己判模型能力，时长限制也只是告诉调用方，超了由上游拒。
+调用方直接调 `POST /generations/video`，所以「这家怎么触发编辑」必须有人告诉它——上游没有任何接口交代这件事。放配置而不是放前端：上游改词、加模型只要改配置重启，不用发版。
+
+**只声明「怎么调用」，不声明素材规格。** 参考视频的时长、大小、格式上游自己就拦，照 ADR-0018 §2 不在这里复制一份：复制只会漂，而且配旧了会挡住本来合法的请求，比不挡更糟。
 
 ## 取舍
 

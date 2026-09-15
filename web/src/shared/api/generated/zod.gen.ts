@@ -1452,8 +1452,6 @@ export const zOpsCatchup = z.object({
  * 这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。
  */
 export const zVideoEditOut = z.object({
-  maxSeconds: z.number(),
-  minSeconds: z.number(),
   promptPrefix: z.string().nullish(),
   providerOptions: z.record(z.string(), z.string()).nullish(),
 })

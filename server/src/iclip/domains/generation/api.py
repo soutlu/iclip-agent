@@ -142,8 +142,6 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
                         provider_options=(
                             None if spec.provider_options is None else dict(spec.provider_options)
                         ),
-                        min_seconds=spec.min_seconds,
-                        max_seconds=spec.max_seconds,
                     ),
                 )
                 for name, spec in models

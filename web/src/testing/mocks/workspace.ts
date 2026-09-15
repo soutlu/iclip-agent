@@ -634,21 +634,11 @@ export const workspaceHandlers = [
         { model: 'moyu-seedance-2-0', edit: null },
         {
           model: 'moyu-seedance-2-5',
-          edit: {
-            promptPrefix: null,
-            providerOptions: { omni_reference_task_type: 'edit' },
-            minSeconds: 2,
-            maxSeconds: 30,
-          },
+          edit: { promptPrefix: null, providerOptions: { omni_reference_task_type: 'edit' } },
         },
         {
           model: 'wan3.0-video',
-          edit: {
-            promptPrefix: '编辑视频，',
-            providerOptions: null,
-            minSeconds: 1,
-            maxSeconds: 15,
-          },
+          edit: { promptPrefix: '编辑视频，', providerOptions: null },
         },
       ],
     }),

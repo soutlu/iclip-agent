@@ -5507,14 +5507,6 @@
         "additionalProperties": false,
         "description": "这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。",
         "properties": {
-          "maxSeconds": {
-            "title": "Maxseconds",
-            "type": "number"
-          },
-          "minSeconds": {
-            "title": "Minseconds",
-            "type": "number"
-          },
           "promptPrefix": {
             "anyOf": [
               {
@@ -5541,10 +5533,6 @@
             "title": "Provideroptions"
           }
         },
-        "required": [
-          "minSeconds",
-          "maxSeconds"
-        ],
         "title": "VideoEditOut",
         "type": "object"
       },

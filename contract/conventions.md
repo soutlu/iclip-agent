@@ -321,7 +321,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 正文二选一：直接给 `prompt`，或给 `shot`（与分镜文件 `video_shot.json` 里 `shots[].prompt` 同形：`global_settings` 加 `timeline[]`，每镜 `timestamps: [起, 止]`、`prompt`、`image_indexes`）由服务端拼成 `prompt`。时间线规则与分镜交付相同：结束晚于开始、第一镜从 0 起、各镜按先后排不重叠。拼法：全局设定、空一行、每镜一行 `[起–止秒｜镜头N] 正文`（起止照给的，保留到毫秒），末尾一行 `不要生成字幕，不要生成背景音乐。`。两者都不给、都给但不一致、`@ImageN` 超出 `reference_image_urls` 的张数、`image_indexes` 与正文里 `@Image` 的出现顺序不一致、拼出的正文超过 4000 字，都是 `422`。记录的 `request` 里 `shot` 与拼好的 `prompt` 都在；发给上游的只有 `prompt`，`shot` 不转发。
 - 三类参考素材地址各自最多 30 个，与分镜文件里一组镜头的帧图上限同一个数；只收 http(s) 地址，超出或写别的 scheme 是 `422`。
 - `model` 必填，只接受运行配置 `config.yaml` 中 `media_generation.video.models` 声明的模型；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
-- `GET /generations/video-models` 给出默认模型与允许表，每项带 `model` 与 `edit`。`edit` 为 `null` 表示这个模型不做视频编辑；非空时 `promptPrefix` 拼在正文最前面、`providerOptions` 并进请求的 `provider_options`（给了哪项加哪项），`minSeconds` / `maxSeconds` 是上游对参考视频单段的时长要求。各家的触发方式不同，声明在配置里，调用方照它拼请求，不需要认识具体是哪家；这些限制本系统不拦，超了由上游判。
+- `GET /generations/video-models` 给出默认模型与允许表，每项带 `model` 与 `edit`。`edit` 为 `null` 表示这个模型不做视频编辑；非空时 `promptPrefix` 拼在正文最前面、`providerOptions` 并进请求的 `provider_options`，给了哪项加哪项。各家的触发方式不同，声明在配置里，调用方照它拼请求，不需要认识具体是哪家。它只说「怎么调用」：参考素材的时长、大小、格式限制上游自己就拦，这里不复制一份。
 - 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
 - `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，拿图片记录的 id 来查是 `404`。
 - 视频成功时存的是上游发布好的两个地址，不转存；缺任一份这次生成判失败。

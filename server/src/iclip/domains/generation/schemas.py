@@ -466,10 +466,6 @@ class VideoEditOut(CamelModel):
     provider_options: dict[str, str] | None = None
     """并进请求 ``provider_options`` 的键值。Seedance 2.5 靠它显式声明编辑子任务。"""
 
-    min_seconds: float
-    max_seconds: float
-    """参考视频单段的时长上下限。选段超出这个范围上游会拒，调用方照它限制选段。"""
-
 
 class VideoModelOut(CamelModel):
     """一个视频模型：id，以及支不支持视频编辑、怎么触发。"""

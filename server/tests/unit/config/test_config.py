@@ -257,8 +257,6 @@ media_generation:
       seedance:
         edit:
           provider_options: {task_type: edit}
-          min_seconds: 2
-          max_seconds: 30
       seedance-other: {}
   image:
     env: test
@@ -288,14 +286,8 @@ MEDIA_ENV = {
         pytest.param("    models: {}", id="一个模型都没声明"),
         pytest.param("    models:\n      other: {}", id="默认模型不在声明里"),
         pytest.param(
-            "    models:\n      seedance:\n        edit:\n"
-            "          min_seconds: 2\n          max_seconds: 30",
+            "    models:\n      seedance:\n        edit: {}",
             id="声明了 edit 却没说怎么触发",
-        ),
-        pytest.param(
-            "    models:\n      seedance:\n        edit:\n"
-            "          prompt_prefix: 编辑视频，\n          min_seconds: 30\n          max_seconds: 2",
-            id="时长上限小于下限",
         ),
     ],
 )

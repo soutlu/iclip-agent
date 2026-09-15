@@ -42,17 +42,12 @@ from tests.helpers.identity import InMemoryUserRepository
 from tests.unit.domains.generation.test_generation_queue import build_queue
 
 VIDEO_EDIT = VideoEditSpec(
-    prompt_prefix=None,
-    provider_options={"omni_reference_task_type": "edit"},
-    min_seconds=2,
-    max_seconds=30,
+    prompt_prefix=None, provider_options={"omni_reference_task_type": "edit"}
 )
 VIDEO_MODELS: dict[str, VideoEditSpec | None] = {
     "moyu-seedance-2-0": None,
     "moyu-seedance-2-5": VIDEO_EDIT,
-    "wan3.0-video": VideoEditSpec(
-        prompt_prefix="编辑视频，", provider_options=None, min_seconds=1, max_seconds=15
-    ),
+    "wan3.0-video": VideoEditSpec(prompt_prefix="编辑视频，", provider_options=None),
 }
 
 VIDEO_BODY = {
@@ -645,18 +640,11 @@ async def test_video_models_endpoint_lists_the_configured_models() -> None:
                 "edit": {
                     "promptPrefix": None,
                     "providerOptions": {"omni_reference_task_type": "edit"},
-                    "minSeconds": 2.0,
-                    "maxSeconds": 30.0,
                 },
             },
             {
                 "model": "wan3.0-video",
-                "edit": {
-                    "promptPrefix": "编辑视频，",
-                    "providerOptions": None,
-                    "minSeconds": 1.0,
-                    "maxSeconds": 15.0,
-                },
+                "edit": {"promptPrefix": "编辑视频，", "providerOptions": None},
             },
         ],
     }, "编辑怎么触发由配置声明，调用方照它拼请求"

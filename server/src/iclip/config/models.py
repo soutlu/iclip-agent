@@ -206,19 +206,17 @@ class VideoEditSection(ConfigSection):
 
     上游各家的触发方式不同：万相没有开关参数，靠正文里的意图词路由，用 ``prompt_prefix``；
     Seedance 2.5 用 ``provider_options`` 显式声明子任务。给了哪一项，调用方就加哪一项。
-    时长上下限是上游对参考视频单段的要求，本系统不拦，只告诉调用方。"""
+
+    只声明「怎么调用」，不声明素材规格：参考视频的时长、大小、格式限制上游自己就拦，照
+    ADR-0018 §2 不在这里复制一份。"""
 
     prompt_prefix: Annotated[str, StringConstraints(min_length=1)] | None = None
     provider_options: dict[str, str] | None = None
-    min_seconds: float = Field(gt=0)
-    max_seconds: float = Field(gt=0)
 
     @model_validator(mode="after")
     def _usable(self) -> VideoEditSection:
         if self.prompt_prefix is None and not self.provider_options:
             raise ValueError("edit 至少要给 prompt_prefix 或 provider_options 其中一项")
-        if self.max_seconds < self.min_seconds:
-            raise ValueError("edit.max_seconds 不能小于 edit.min_seconds")
         return self
 
 
@@ -456,8 +454,6 @@ class ResolvedVideoEdit:
 
     prompt_prefix: str | None
     provider_options: Mapping[str, str] | None
-    min_seconds: float
-    max_seconds: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -637,8 +633,6 @@ def _resolve_media_generation(
                 else ResolvedVideoEdit(
                     prompt_prefix=model.edit.prompt_prefix,
                     provider_options=model.edit.provider_options,
-                    min_seconds=model.edit.min_seconds,
-                    max_seconds=model.edit.max_seconds,
                 ),
             )
             for name, model in section.video.models.items()

@@ -2874,14 +2874,6 @@ export type VideoContent = {
  */
 export type VideoEditOut = {
   /**
-   * Maxseconds
-   */
-  maxSeconds: number
-  /**
-   * Minseconds
-   */
-  minSeconds: number
-  /**
    * Promptprefix
    */
   promptPrefix?: string | null

@@ -42,13 +42,12 @@ class VideoEditSpec:
     """一个视频模型怎么做视频编辑。上游各家的触发方式不同，声明在配置里，这里只转述。
 
     两家的差别就在这两项：万相没有开关参数，靠正文里的意图词路由；Seedance 2.5 用
-    ``provider_options`` 显式声明子任务，给它塞正文前缀反而多余。给了哪一项就加哪一项。"""
+    ``provider_options`` 显式声明子任务，给它塞正文前缀反而多余。给了哪一项就加哪一项。
+
+    只说「怎么调用」。参考视频的时长、大小、格式上游自己就拦，照 ADR-0018 §2 不复制。"""
 
     prompt_prefix: str | None
     provider_options: Mapping[str, str] | None
-    min_seconds: float
-    max_seconds: float
-    """参考视频单段的时长上下限。上游按模型判，这里只把限制告诉调用方，不自己拦。"""
 
 
 @dataclass(frozen=True, slots=True)

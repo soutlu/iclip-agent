@@ -286,8 +286,6 @@ def _generation_module(
             else VideoEditSpec(
                 prompt_prefix=model.edit.prompt_prefix,
                 provider_options=model.edit.provider_options,
-                min_seconds=model.edit.min_seconds,
-                max_seconds=model.edit.max_seconds,
             )
             for model in settings.video_models
         },
