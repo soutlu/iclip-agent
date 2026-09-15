@@ -631,7 +631,7 @@ def _resolve_shot_video(section: ShotVideoSection | None) -> ResolvedShotVideo |
 
 
 def _resolve_product_catalog() -> ResolvedProductCatalog | None:
-    """按数据库连接开关解析产品目录与图片公开前缀。"""
+    """按数据库连接开关解析可选的 PDM 款目录。"""
 
     if not _switched_on(PRODUCT_CATALOG_DATABASE_URL_ENV):
         return None

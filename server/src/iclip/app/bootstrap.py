@@ -632,7 +632,6 @@ def build_app(
     app.state.agent_layer = agent_layer
     app.state.conversations = conversations
     app.state.generation = generation
-    app.state.inspirations = inspirations
     app.state.collections = collections
     app.state.tasks = tasks
     return app

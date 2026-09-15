@@ -16,8 +16,6 @@ class InspirationsModule:
     routers: tuple[Any, ...]
     """使用 Any 隔离 Web 框架类型。"""
 
-    service: InspirationService
-
 
 def build_inspirations_module(
     videos: PgInspirationVideos, styles: StyleDirectory
@@ -25,7 +23,7 @@ def build_inspirations_module(
     """仓储与产品资料目录由组合根注入。"""
 
     service = InspirationService(videos, styles)
-    return InspirationsModule(routers=(create_inspirations_router(service),), service=service)
+    return InspirationsModule(routers=(create_inspirations_router(service),))
 
 
 __all__ = ["InspirationsModule", "build_inspirations_module"]
