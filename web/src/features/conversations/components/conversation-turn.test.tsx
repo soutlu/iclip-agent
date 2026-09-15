@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parsePromptContent } from '@/shared/lib/prompt-clipboard'
 import type { PromptContentPart, TranscriptTurn } from '@/shared/transcript/vendor'
 import { ConversationTurn } from './conversation-turn'
 import { UserBubble } from './user-bubble'
@@ -48,24 +49,32 @@ describe('UserBubble', () => {
     expect(screen.getByRole('button', { name: '收起' })).toBeInTheDocument()
   })
 
-  it('气泡下有复制钮：复制的是文字 part 原样接起来的正文；没给 onEdit 就没有修改钮', async () => {
+  it('气泡下有复制钮：纯文字消息复制的是文字 part 原样接起来的正文；没给 onEdit 就没有修改钮', async () => {
     // 在 user-event 初始化后安装剪贴板替身，避免被其覆盖。
     const user = userEvent.setup()
     const writeText = stubClipboard()
-    render(
-      <UserBubble
-        content={[
-          text('先看这张图：'),
-          image('https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'),
-          text('\n说明它写了什么'),
-        ]}
-      />,
-    )
+    render(<UserBubble content={[text('先看这句：'), text('\n还有这句')]} />)
 
     await user.click(screen.getByRole('button', { name: '复制消息' }))
 
-    expect(writeText).toHaveBeenCalledWith('先看这张图：\n说明它写了什么')
+    expect(writeText).toHaveBeenCalledWith('先看这句：\n还有这句')
     expect(screen.queryByRole('button', { name: '修改' })).toBeNull()
+  })
+
+  it('带附件的消息复制成接口 content，粘回输入框能连附件一起还原', async () => {
+    const user = userEvent.setup()
+    const writeText = stubClipboard()
+    const content = [
+      text('先看这张图：'),
+      image('https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'),
+      text('\n说明它写了什么'),
+    ]
+    render(<UserBubble content={content} />)
+
+    await user.click(screen.getByRole('button', { name: '复制消息' }))
+
+    const copied = writeText.mock.calls[0]?.[0] as string
+    expect(parsePromptContent(copied)).toEqual(content)
   })
 
   it('图夹在两句话中间：芯片就画在那两句话中间，头部是这张图的缩略图', () => {
