@@ -2,6 +2,7 @@
 
 import { useEffect, useEffectEvent, useRef, useState, type DragEvent } from 'react'
 import { Icon } from '@/shared/icons'
+import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { IconButton } from '@/shared/ui/button'
 import { StatusBadge } from '@/shared/ui/status-badge'
 import { toast } from '@/shared/ui/toast'
@@ -72,7 +73,8 @@ export function FramePreview({
       const nextUrl = await onUpload(file)
       if (upload.active) onReplace(nextUrl)
     } catch (error) {
-      if (upload.active) toast.error(error instanceof Error ? error.message : '上传失败')
+      // 切走之后结果可以不要，失败必须让人知道。
+      toast.error(error instanceof Error ? error.message : '上传失败')
     } finally {
       upload.busy = false
       if (upload.active) setUploading(false)
@@ -85,27 +87,26 @@ export function FramePreview({
     return () => reportUploading(false)
   }, [uploading])
 
-  const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
   const onDragEnter = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
+    if (!hasDraggedFiles(event)) return
     event.preventDefault()
     dragDepthRef.current += 1
     if (!disabled && !uploadRef.current.busy && url !== undefined) setDragOver(true)
   }
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
+    if (!hasDraggedFiles(event)) return
     event.preventDefault()
     event.dataTransfer.dropEffect =
       disabled || uploadRef.current.busy || url === undefined ? 'none' : 'copy'
   }
   const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
+    if (!hasDraggedFiles(event)) return
     event.preventDefault()
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
     if (dragDepthRef.current === 0) setDragOver(false)
   }
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
+    if (!hasDraggedFiles(event)) return
     // 全局监听器仍需清理聊天拖放遮罩，通过 defaultPrevented 告知它此处已接管。
     event.preventDefault()
     dragDepthRef.current = 0

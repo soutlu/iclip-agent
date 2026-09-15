@@ -241,6 +241,29 @@ describe('Composer', () => {
     expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
   })
 
+  it('拖到正文上方时编辑器自己的 preventDefault 不算别处接管，遮罩照常亮着', async () => {
+    await renderWithProviders(<Composer attachmentsEnabled onSubmit={vi.fn()} />)
+    const file = imageFile()
+    const dataTransfer = {
+      files: [file],
+      items: [{ kind: 'file', type: file.type, webkitGetAsEntry: () => null }],
+      types: ['Files'],
+    }
+
+    // ProseMirror 对可编辑区的 dragenter / dragover 一律 preventDefault，再冒到 window。
+    const enter = createEvent.dragEnter(editor(), { dataTransfer })
+    enter.preventDefault()
+    fireEvent(editor(), enter)
+    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+    const over = createEvent.dragOver(editor(), { dataTransfer })
+    over.preventDefault()
+    fireEvent(editor(), over)
+    expect(screen.getByText('松开鼠标添加附件')).toBeInTheDocument()
+
+    fireEvent.dragLeave(editor(), { dataTransfer })
+    expect(screen.queryByText('松开鼠标添加附件')).not.toBeInTheDocument()
+  })
+
   it('attachmentsEnabled 未给时：没有附件入口，拖入也不出遮罩', async () => {
     const onSubmit = vi.fn()
     await renderWithProviders(<Composer onSubmit={onSubmit} />)

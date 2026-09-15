@@ -191,7 +191,7 @@ const replaceText = async (editor: HTMLElement, text: string) => {
   await userEvent.keyboard('{Control>}a{/Control}')
   pasteTextIntoComposer(editor, text)
 }
-const delayedUpload = () => {
+const delayedUpload = (status = 200) => {
   let release = () => {}
   const pending = new Promise<void>((resolve) => {
     release = resolve
@@ -199,7 +199,7 @@ const delayedUpload = () => {
   server.use(
     http.put('*/mock-oss/:uploadId', async () => {
       await pending
-      return new HttpResponse(null, { status: 200 })
+      return new HttpResponse(null, { status })
     }),
   )
   return release
@@ -917,6 +917,26 @@ describe('StoryboardReader', () => {
       expect(files.snapshot()).toEqual(document)
     },
   )
+
+  it.each(['新增', '替换'])('%s上传期间切换镜头组，上传失败仍然提示且不保存', async (mode) => {
+    const files = provide()
+    const release = delayedUpload(503)
+    await renderReader()
+    const page = await screen.findByRole('region', { name: '镜头组 1' })
+    if (mode === '新增') {
+      await userEvent.click(within(page).getByRole('button', { name: '添加图片' }))
+      await userEvent.upload(screen.getByLabelText('选择要上传的图片'), imageFile())
+    } else await userEvent.upload(within(page).getByLabelText('选择替换图片'), imageFile())
+    await within(page).findByRole('status')
+    await userEvent.click(screen.getByRole('button', { name: '第 2 组' }))
+    await act(async () => {
+      release()
+    })
+    expect(await screen.findByText('上传失败：503')).toBeVisible()
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 900)))
+    expect(files.writes).toEqual([])
+    expect(files.snapshot()).toEqual(document)
+  })
 
   it('替换共享编号只改该地址，保存失败保留新图草稿，重试不重新上传', async () => {
     const files = provide()

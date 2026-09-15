@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { MEDIA_IMAGE_ACCEPT, MEDIA_VIDEO_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
+import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
@@ -99,26 +100,25 @@ export function TaskMediaField({
     }
   }
 
-  const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
   const onDragEnter = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
+    if (!hasDraggedFiles(event)) return
     event.preventDefault()
     dragDepthRef.current += 1
     if (!blocked) setDragOver(true)
   }
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
+    if (!hasDraggedFiles(event)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = blocked ? 'none' : 'copy'
   }
   const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
+    if (!hasDraggedFiles(event)) return
     event.preventDefault()
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
     if (dragDepthRef.current === 0) setDragOver(false)
   }
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
+    if (!hasDraggedFiles(event)) return
     // 保留冒泡以清理全局拖放状态，defaultPrevented 表明此字段已接管上传。
     event.preventDefault()
     dragDepthRef.current = 0
