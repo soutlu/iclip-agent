@@ -1,6 +1,8 @@
 import { fireEvent, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { renderWithProviders } from '@/testing/render'
 import { docToInstructions, instructionsToDoc } from './edit-instruction-doc'
 import { EditInstructionEditor } from './edit-instruction-editor'
@@ -97,6 +99,37 @@ describe('EditInstructionEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: '插入引用' }))
     fireEvent.keyDown(editor, { key: 'Escape' })
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('在弹窗里 Esc 只关引用菜单，弹窗留着', async () => {
+    const onOpenChange = vi.fn()
+    await renderWithProviders(
+      <DialogRoot open onOpenChange={onOpenChange}>
+        <DialogSurface aria-describedby={undefined}>
+          <DialogHeader closeLabel="关闭" title="编辑图片" />
+          <EditInstructionEditor
+            value={[]}
+            onChange={() => {}}
+            annotations={annotations}
+            references={references}
+            onSelectAnnotation={() => {}}
+            onPreviewReference={() => {}}
+          />
+        </DialogSurface>
+      </DialogRoot>,
+    )
+    const editor = screen.getByRole('textbox', { name: '修改要求' })
+    editor.focus()
+    paste(editor, '@')
+    expect(screen.getByRole('listbox', { name: '选择引用' })).toBeInTheDocument()
+
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    // 菜单已关，再按一次才轮到弹窗。
+    await userEvent.keyboard('{Escape}')
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('排序仅改变参考图编号；移除后失效，不绑定另一张同编号图片', async () => {

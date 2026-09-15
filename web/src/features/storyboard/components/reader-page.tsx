@@ -35,7 +35,7 @@ type ReaderPageProps = {
   onUploadingChange: (group: number, uploading: boolean) => void
   onSelect: (content: string, frame?: number) => void
   onOpenPrompt: (trigger: HTMLElement) => void
-  onPreview: (media: LightboxMedia, trigger: HTMLElement) => void
+  onPreview: (media: LightboxMedia) => void
   /** 打开这一帧的编辑器；`open` 决定进去先看哪张：铅笔进底图，角标进那条新结果。 */
   onEditFrame: (frame: number, open: { kind: 'draft' } | { kind: 'result'; jobId: string }) => void
 }
@@ -202,12 +202,7 @@ export function ReaderPage({
               onEdit={() => onEditFrame(frameNumber, { kind: 'draft' })}
               onOpenResult={(jobId) => onEditFrame(frameNumber, { kind: 'result', jobId })}
               onOpen={() =>
-                onPreview(
-                  { kind: 'image', name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`, url },
-                  window.document.activeElement instanceof HTMLElement
-                    ? window.document.activeElement
-                    : window.document.body,
-                )
+                onPreview({ kind: 'image', name: `镜头组 ${shot.index} 第 ${frameNumber} 帧`, url })
               }
               onReplace={(newUrl) => onReplaceFrame(frameNumber, url, newUrl)}
               onUpload={uploadFrameImage}

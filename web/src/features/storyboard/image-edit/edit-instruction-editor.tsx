@@ -6,6 +6,7 @@ import { EditorState } from 'prosemirror-state'
 import { EditorView, type NodeView } from 'prosemirror-view'
 import { useEffect, useId, useRef, useState } from 'react'
 import { cn } from '@/shared/lib/utils'
+import { useEscapeAheadOfDialog } from '@/shared/ui/dialog'
 import { docToInstructions, instructionNode, instructionsToDoc } from './edit-instruction-doc'
 import type { EditInstruction, EditReference, ImageAnnotation } from './image-edit-types'
 
@@ -143,6 +144,8 @@ export function EditInstructionEditor(props: Props) {
     menuRef.current = next
     setMenu(next)
   }
+  // 引用菜单开着时 Escape 只关菜单；编辑器在弹窗里，这一步要抢在弹窗自己关掉之前。
+  useEscapeAheadOfDialog(menu !== null, () => updateMenu(null))
   function insert(reference: Reference, range?: { from: number; to: number }) {
     const view = viewRef.current
     if (view === null || latestRef.current.disabled) return
@@ -207,11 +210,6 @@ export function EditInstructionEditor(props: Props) {
         const items = choices(latestRef.current).filter((item) =>
           item.label.includes(current.query),
         )
-        if (event.key === 'Escape') {
-          event.stopPropagation()
-          updateMenu(null)
-          return true
-        }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           const step = event.key === 'ArrowDown' ? 1 : -1
           updateMenu({

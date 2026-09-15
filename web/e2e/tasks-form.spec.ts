@@ -99,6 +99,20 @@ test('商品图库上传后显示原图，保存再打开仍可预览', async ({
   await expect
     .poll(() => preview.getByRole('img').evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBeGreaterThan(0)
+  // 预览铺满整个视口而不是被困在需求单弹窗的矩形里。
+  const viewport = page.viewportSize()
+  if (viewport === null) throw new Error('需要固定视口尺寸核对预览范围')
+  expect(await preview.boundingBox()).toMatchObject({ x: 0, y: 0, ...viewport })
+  await page.screenshot({ animations: 'disabled', path: `${SHOT_DIR}/preview-over-dialog.png` })
+  // Esc 与点暗区都只关预览；需求单弹窗和填了一半的表单还在。
+  await page.keyboard.press('Escape')
+  await expect(preview).toBeHidden()
+  await expect(reopened).toBeVisible()
+  await reopened.getByRole('button', { name: '预览商品 1 图片 2', exact: true }).click()
+  await expect(preview).toBeVisible()
+  await page.mouse.click(8, viewport.height - 8)
+  await expect(preview).toBeHidden()
+  await expect(reopened).toBeVisible()
 })
 
 test('手机需求单正文可滚动，长创作要求与固定操作栏可用', async ({ page }) => {
