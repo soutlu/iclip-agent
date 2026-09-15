@@ -3,10 +3,8 @@ import { useRef } from 'react'
 import { z } from 'zod'
 import { ApiError, apiFetch } from '@/shared/api/client'
 import type { PromptContentPart } from '@/shared/transcript/vendor'
-import { fileNameOfUrl } from '@/shared/lib/media-url'
 import { mintUuid } from '@/shared/lib/uuid'
-import { type ComposerPart, readyAttachment } from '@/shared/ui/composer'
-import { mediaDisplayName } from '@/shared/ui/media-preview'
+import type { ComposerPart } from '@/shared/ui/composer'
 import {
   zApproveConversationsConversationIdInteractionsInteractionIdPostResponse,
   zConversationAgentsOut,
@@ -239,21 +237,6 @@ export const respondInteraction = async (
     { body: { approved }, fallbackErrorMessage: '提交决定失败', method: 'POST' },
   )
 }
-
-/** 恢复已发消息时复用媒体地址并标记为就绪，保持 part 顺序。 */
-export const composerParts = (content: readonly PromptContentPart[]): ComposerPart[] =>
-  content.map((part) =>
-    part.type === 'text'
-      ? { kind: 'text', text: part.text }
-      : {
-          kind: 'media',
-          media: readyAttachment({
-            kind: part.type,
-            name: mediaDisplayName({ kind: part.type, name: fileNameOfUrl(part.source.url) }),
-            url: part.source.url,
-          }),
-        },
-  )
 
 /** 服务端替换末轮并重新运行；新轮经推送更新，409 与 404 原样交给调用方。 */
 export const regeneratePrompt = async (

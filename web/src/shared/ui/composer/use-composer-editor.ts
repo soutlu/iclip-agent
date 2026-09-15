@@ -7,10 +7,13 @@ import type { Node as PMNode } from 'prosemirror-model'
 import { EditorState, Selection } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { parsePromptContent } from '@/shared/lib/prompt-clipboard'
 import { collectAttachmentIds, composerSchema, readComposerText } from './editor-schema'
+import { composerParts } from './prompt-parts'
 import type {
   ComposerAttachmentKind,
   ComposerAttachments,
+  ComposerPart,
   ComposerSubmission,
 } from './use-composer-attachments'
 
@@ -108,6 +111,42 @@ export const useComposerEditor = ({
     view.focus()
   }
 
+  /** 在光标处按 parts 顺序插入正文与附件，替换选区；空文字段跳过，schema 不接受空文本节点。 */
+  const insertParts = (parts: readonly ComposerPart[]) => {
+    const view = viewRef.current
+    if (view === null) return
+    const nodes = parts.flatMap((part) =>
+      part.kind === 'text'
+        ? part.text === ''
+          ? []
+          : [composerSchema.text(part.text)]
+        : [
+            nodeType('attachment').create({
+              attId: part.media.attId,
+              kind: part.media.kind,
+              name: part.media.name,
+            }),
+          ],
+    )
+    if (nodes.length === 0) return
+    attachmentsRef.current.restoreEntries(
+      parts.flatMap((part) => (part.kind === 'media' ? [part.media] : [])),
+    )
+    const insert = (from: number, to: number) => {
+      const tr = view.state.tr.replaceWith(from, to, nodes)
+      tr.setSelection(Selection.near(tr.doc.resolve(tr.mapping.map(from)))).scrollIntoView()
+      view.dispatch(tr)
+    }
+    const { from, to } = view.state.selection
+    try {
+      insert(from, to)
+    } catch {
+      const end = Math.max(1, view.state.doc.content.size - 1)
+      insert(end, end)
+    }
+    view.focus()
+  }
+
   /** 清空文档后由 syncReferences 回收附件条目。 */
   const clearDoc = () => {
     const view = viewRef.current
@@ -148,8 +187,10 @@ export const useComposerEditor = ({
 
   // PM 粘贴处理器经 ref 调用最新 insertFiles，外层拖放复用同一操作。
   const insertFilesRef = useRef(insertFiles)
+  const insertPartsRef = useRef(insertParts)
   useEffect(() => {
     insertFilesRef.current = insertFiles
+    insertPartsRef.current = insertParts
   })
 
   // dense 仅在挂载时读取，两个页面各自使用固定编辑器形态。
@@ -188,9 +229,16 @@ export const useComposerEditor = ({
       handlePaste(_view, event) {
         if (!attachmentsEnabledRef.current) return false
         const files = [...(event.clipboardData?.files ?? [])]
-        if (files.length === 0) return false
+        if (files.length > 0) {
+          event.preventDefault()
+          insertFilesRef.current(files)
+          return true
+        }
+        // 从气泡复制来的消息原样还原正文与附件；认不出就交还给 PM 当普通文字粘。
+        const content = parsePromptContent(event.clipboardData?.getData('text/plain') ?? '')
+        if (content === null) return false
         event.preventDefault()
-        insertFilesRef.current(files)
+        insertPartsRef.current(composerParts(content))
         return true
       },
       handleDrop(view, event) {

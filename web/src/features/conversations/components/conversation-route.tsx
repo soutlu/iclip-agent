@@ -11,14 +11,13 @@ import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { useShellChrome } from '@/shared/shell'
 import { Button } from '@/shared/ui/button'
-import type { ComposerPart } from '@/shared/ui/composer'
+import { type ComposerPart, composerParts } from '@/shared/ui/composer'
 import { Tag } from '@/shared/ui/tag'
 import { toast } from '@/shared/ui/toast'
 import { claimed, sameContent, type PendingPrompt } from '../claims'
 import {
   abortPrompt,
   mintPromptId,
-  composerParts,
   partsContent,
   promptMedia,
   promptText,
