@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
-import { formatLocalDate } from '../audit-dates'
+import { formatLocalDate } from '@/shared/lib/date-range'
 
 type DateRangeCalendarProps = {
   /** 区间起点；只选了起点时终点为 null，网格按单个端点渲染。 */

@@ -3,10 +3,10 @@ import { Icon, type IconName } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
 import { PopupRoot, PopupSurface, PopupTrigger } from '@/shared/ui/popup'
-import { auditDateLabel } from '../audit-dates'
+import { dateRangeLabel } from '@/shared/lib/date-range'
 import type { AuditFilters } from '../audit.api'
-import { AuditDatePicker } from './audit-date-picker'
-import { AuditSearchPicker, type PickerSource } from './audit-search-picker'
+import { DateRangePicker } from '@/shared/ui/date-range-picker'
+import { SearchPicker, type PickerSource } from '@/shared/ui/search-picker'
 
 type AuditFiltersBarProps = {
   filters: AuditFilters
@@ -124,7 +124,7 @@ export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: Aud
             sideOffset={6}
           >
             {openFilter === 'user' ? (
-              <AuditSearchPicker
+              <SearchPicker
                 label="用户"
                 onChange={(ownerUserId) => apply({ ownerUserId })}
                 selectedLabel={userLabel}
@@ -157,7 +157,7 @@ export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: Aud
             sideOffset={6}
           >
             {openFilter === 'task' && tasks !== null ? (
-              <AuditSearchPicker
+              <SearchPicker
                 label="需求单"
                 onChange={(taskId) => apply({ taskId })}
                 selectedLabel={taskLabel}
@@ -171,9 +171,9 @@ export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: Aud
         <PopupRoot onOpenChange={(open) => changeOpen('time', open)} open={openFilter === 'time'}>
           <PopupTrigger asChild>
             <FilterTrigger
-              aria-label={`时间：${auditDateLabel(filters)}`}
+              aria-label={`时间：${dateRangeLabel(filters)}`}
               icon="duration"
-              label={auditDateLabel(filters)}
+              label={dateRangeLabel(filters)}
               ref={timeTriggerRef}
               selected={filters.range !== 'all'}
             />
@@ -186,7 +186,7 @@ export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: Aud
             showArrow
             sideOffset={6}
           >
-            {openFilter === 'time' ? <AuditDatePicker onChange={apply} value={filters} /> : null}
+            {openFilter === 'time' ? <DateRangePicker onChange={apply} value={filters} /> : null}
           </PopupSurface>
         </PopupRoot>
       </div>
