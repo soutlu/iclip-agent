@@ -98,7 +98,7 @@ async def test_master_concat_keeps_the_largest_frame_size_and_total_length(
             "purpose": "master",
             "segments": [
                 {"url": BASE_URL, "start": 0, "end": 1},
-                {"url": EDITED_URL, "start": 0, "end": 2},
+                {"url": EDITED_URL, "start": 0.3, "end": 1.7},
                 {"url": BASE_URL, "start": 3, "end": 4},
             ],
         },
@@ -106,7 +106,7 @@ async def test_master_concat_keeps_the_largest_frame_size_and_total_length(
     )
 
     assert key.startswith("iclip/agent/video-masters/"), "成片长期保留，不进过期规则"
-    assert 3.7 <= await _duration_seconds(content) <= 4.3, "总长是各段之和"
+    assert 3.1 <= await _duration_seconds(content) <= 3.7, "总长是各段之和"
     with TemporaryDirectory(prefix="clip-probe-") as tmp:
         path = Path(tmp) / "out.mp4"
         path.write_bytes(content)

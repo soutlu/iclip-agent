@@ -213,7 +213,10 @@ async def cut_concat(cuts: Sequence[MediaCut], *, profile: VideoProfile, dest: P
     """按顺序裁出各段并拼成一条，一次解码重编码对齐到 ``profile``。
 
     各段来自不同素材、参数互不相同，所以走 ``concat`` 滤镜而不是 concat 分离器——后者要求
-    各输入参数一致。``profile`` 要音轨而某一段没有时，那一段配一条等长静音。"""
+    各输入参数一致。``profile`` 要音轨而某一段没有时，那一段配一条等长静音。
+
+    哪几段没有音轨在这里自己探一遍（每个源几十毫秒），不要调用方随 ``MediaCut`` 带进来：
+    那会把「记住各段有没有音轨」变成调用方的义务，记错就是一条拼不出来的滤镜图。"""
 
     if not cuts:
         raise MediaError("没有要拼的片段")
