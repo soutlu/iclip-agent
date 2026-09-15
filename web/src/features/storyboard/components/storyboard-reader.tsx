@@ -6,6 +6,7 @@ import { Icon } from '@/shared/icons'
 import { copyText as writeClipboard } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
+import { isBehindModal } from '@/shared/ui/dialog'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import {
@@ -46,7 +47,7 @@ type ReaderSearch = {
   sheet?: 'all' | 'prompt' | 'records' | undefined
   shot?: number | undefined
 }
-type Preview = (media: LightboxMedia, trigger: HTMLElement) => void
+type Preview = (media: LightboxMedia) => void
 
 const pageOfScroll = (element: HTMLElement): number | undefined =>
   element.clientHeight > 0 ? Math.round(element.scrollTop / element.clientHeight) + 1 : undefined
@@ -109,7 +110,6 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   const pagesRef = useRef<HTMLDivElement | null>(null)
   const scrollTargetRef = useRef<number | null>(null)
   const sheetTriggerRef = useRef<HTMLElement | null>(null)
-  const previewTriggerRef = useRef<HTMLElement | null>(null)
   const [media, setMedia] = useState<LightboxMedia | null>(null)
   const document = draft.document
   const shots = document?.shots ?? []
@@ -168,16 +168,6 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   const openSheet = (sheet: NonNullable<ReaderSearch['sheet']>, trigger: HTMLElement) => {
     sheetTriggerRef.current = trigger
     go({ sheet })
-  }
-
-  const preview: Preview = (next, trigger) => {
-    previewTriggerRef.current = trigger
-    setMedia(next)
-  }
-
-  const closePreview = () => {
-    setMedia(null)
-    requestAnimationFrame(() => previewTriggerRef.current?.focus())
   }
 
   useEffect(() => {
@@ -250,10 +240,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
 
   return (
     <>
-      <div
-        className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden"
-        inert={media !== null}
-      >
+      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 px-4 pt-2 pb-1">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <SaveStatus
@@ -346,7 +333,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                   go({ sheet: 'prompt', shot: offset + 1 })
                 }}
                 onSelect={(content, frame) => go({ content, frame, shot: offset + 1 })}
-                onPreview={preview}
+                onPreview={setMedia}
                 shot={item}
               />
             ))}
@@ -382,7 +369,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
               <PromptReading
                 aspect_ratio={document.aspect_ratio}
                 onClose={closeSheet}
-                onPreview={preview}
+                onPreview={setMedia}
                 onChangeGlobalSettings={(text) =>
                   draft.updateShot(shot.index, (current) => ({
                     ...current,
@@ -449,7 +436,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
           ) : null}
         </div>
       </div>
-      <MediaLightbox media={media} onClose={closePreview} />
+      <MediaLightbox media={media} onClose={() => setMedia(null)} />
       {imageEdit === null || imageEditTarget === null ? null : (
         <FrameImageEditor
           key={JSON.stringify(imageEditTarget)}
@@ -513,15 +500,14 @@ function ReaderOverlay({ children, className, label, onClose }: ReaderOverlayPro
       ref.current?.querySelector<HTMLElement>('button')
     target?.focus()
   }, [])
-  // 监听只挂一次。跟着 onClose 重挂会排到预览弹层的监听之后：弹层先关、焦点回到抽屉里，
-  // 这里再看到的就是「没有弹层、焦点在抽屉内」，会把抽屉也一起关掉。
+  // 预览灯箱与编辑弹窗都是 Radix 模态：它们接住的 Escape 带着 defaultPrevented，抽屉据此让位。
   const close = useEffectEvent(onClose)
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (
         event.key !== 'Escape' ||
         event.defaultPrevented ||
-        document.querySelector('[aria-modal="true"]') !== null ||
+        isBehindModal(ref.current) ||
         !ref.current?.contains(document.activeElement)
       )
         return
@@ -600,12 +586,7 @@ function PromptReading({
             onPickFrame={(number) => {
               const url = shot.image_urls[number - 1]
               if (url !== undefined)
-                onPreview(
-                  { kind: 'image', name: `参考图 @Image${number}`, url },
-                  window.document.activeElement instanceof HTMLElement
-                    ? window.document.activeElement
-                    : window.document.body,
-                )
+                onPreview({ kind: 'image', name: `参考图 @Image${number}`, url })
             }}
           />
           {shot.prompt.timeline.map((item, index) => (
@@ -637,11 +618,8 @@ function PromptReading({
                     <button
                       aria-label={`查看参考图 @Image${number}`}
                       className="block w-full cursor-zoom-in overflow-hidden rounded-xs bg-surface-container ui-focus"
-                      onClick={(event) =>
-                        onPreview(
-                          { kind: 'image', name: `参考图 @Image${number}`, url },
-                          event.currentTarget,
-                        )
+                      onClick={() =>
+                        onPreview({ kind: 'image', name: `参考图 @Image${number}`, url })
                       }
                       type="button"
                     >

@@ -1,11 +1,12 @@
 /** 审批与工具卡共用 display 合同（ADR-0007 决策 5）；两个正式按钮，数字键 1 / 2 是快捷方式。 */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '@/shared/api/client'
 import type { ToolCallFrame } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
+import { isBehindModal } from '@/shared/ui/dialog'
 import { toast } from '@/shared/ui/toast'
 import { respondInteraction } from '../conversations.api'
 import { fileChangeOf, toolCard, type FileChange } from './tool-display'
@@ -37,6 +38,7 @@ export function ApprovalCard({
 }: ApprovalCardProps) {
   const card = toolCard(frame?.display, frame?.view)
   const change = fileChangeOf(frame?.display)
+  const cardRef = useRef<HTMLElement | null>(null)
   const [decision, setDecision] = useState<keyof typeof DECISION_LABELS | null>(null)
   const [sending, setSending] = useState(false)
   // 卡片移除由服务端 pending 集合决定；interactionId 变化时由父组件 key 重置本地决定。
@@ -69,7 +71,8 @@ export function ApprovalCard({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== '1' && event.key !== '2') return
-      if (inEditor(event.target)) return
+      // 弹窗盖着这张卡时数字键是打给弹窗的，不能替看不见的审批做决定。
+      if (event.defaultPrevented || inEditor(event.target) || isBehindModal(cardRef.current)) return
       decide(event.key === '1')
     }
     window.addEventListener('keydown', onKey)
@@ -80,6 +83,7 @@ export function ApprovalCard({
     <section
       aria-label="等你审批"
       className="mb-2 flex animate-in flex-col rounded-lg border-[0.5px] border-chat-hairline bg-chat-card-bg shadow-[var(--shadow-2)] duration-(--dur-m) ease-(--ease-decel) fade-in slide-in-from-bottom-2"
+      ref={cardRef}
     >
       <header className="flex min-w-0 items-baseline gap-2 px-4 pt-3">
         <h2 className="shrink-0 text-body font-medium text-chat-message-text">{card.label}</h2>

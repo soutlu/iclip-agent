@@ -2,7 +2,6 @@
 
 import { Tooltip } from 'radix-ui'
 import { useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { fileNameOfUrl, videoSnapshotUrl } from '@/shared/lib/media-url'
@@ -264,7 +263,6 @@ function DownloadTooltip({ children, label }: { children: ReactNode; label: stri
 }
 
 function RecordVideo({ url }: { url: string }) {
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
   const [viewing, setViewing] = useState(false)
   const poster = videoSnapshotUrl(url, 640)
 
@@ -274,7 +272,6 @@ function RecordVideo({ url }: { url: string }) {
         aria-label="播放视频"
         className="relative grid aspect-[2/1] w-full cursor-pointer place-items-center overflow-hidden rounded-sm bg-surface-container ui-focus"
         onClick={() => setViewing(true)}
-        ref={triggerRef}
         type="button"
       >
         {poster === undefined ? null : (
@@ -289,19 +286,10 @@ function RecordVideo({ url }: { url: string }) {
           <Icon className="fill-current" decorative name="play" size="md" />
         </span>
       </button>
-      {viewing
-        ? // 与对话附件使用同一个播放器；挂到 body，避免被记录抽屉的动画与裁剪限制。
-          createPortal(
-            <MediaLightbox
-              media={{ kind: 'video', name: '生成的视频', url }}
-              onClose={() => {
-                setViewing(false)
-                triggerRef.current?.focus()
-              }}
-            />,
-            document.body,
-          )
-        : null}
+      <MediaLightbox
+        media={viewing ? { kind: 'video', name: '生成的视频', url } : null}
+        onClose={() => setViewing(false)}
+      />
     </>
   )
 }
