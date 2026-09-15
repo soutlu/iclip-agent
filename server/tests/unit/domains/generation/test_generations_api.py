@@ -803,6 +803,9 @@ async def test_clip_submit_keeps_coordinates_out_of_the_request_payload() -> Non
         ),
         pytest.param([{"url": "file:///etc/passwd", "start": 0, "end": 1}], id="不是 http 地址"),
         pytest.param(
+            [{"url": "https://example.com/" + "a" * 2000, "start": 0, "end": 1}], id="地址过长"
+        ),
+        pytest.param(
             [
                 {"url": "https://example.com/a.mp4", "start": 0, "end": 1},
                 {"url": "https://example.com/b.mp4", "start": 0, "end": 1},

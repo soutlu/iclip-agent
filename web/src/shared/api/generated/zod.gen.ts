@@ -157,7 +157,7 @@ export const zBodyAuthCookieLoginAuthLoginPost = z.object({
 export const zClipSegmentIn = z.object({
   end: z.number(),
   start: z.number().gte(0),
-  url: z.string(),
+  url: z.string().min(1).max(2000),
 })
 
 /**

@@ -323,7 +323,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `model` 必填，只接受运行配置 `config.yaml` 中 `media_generation.video.models` 声明的模型；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
 - `GET /generations/video-models` 给出默认模型与允许表，每项带 `model` 与 `edit`。`edit` 为 `null` 表示这个模型不做视频编辑；非空时 `promptPrefix` 拼在正文最前面、`providerOptions` 并进请求的 `provider_options`，给了哪项加哪项。各家的触发方式不同，声明在配置里，调用方照它拼请求，不需要认识具体是哪家。它只说「怎么调用」：参考素材的时长、大小、格式限制上游自己就拦，这里不复制一份。
 - 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
-- `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，拿图片记录的 id 来查是 `404`。
+- `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，拿图片记录的 id 来查是 `404`。本系统去上游查状态时带的 `user_name` 查询参数（上游缺它报 400）由服务端从记录里取，调用方不用带。
 - 视频成功时存的是上游发布好的两个地址，不转存；缺任一份这次生成判失败。
 
 ### 本地裁剪拼接

@@ -64,6 +64,8 @@ MAX_MODEL_CHARS: Final = 200
 MAX_USER_NAME_CHARS: Final = 200
 MAX_METADATA_CHARS: Final = 2000
 """``metadata`` 序列化后的长度上限：它是调用方的坐标标签，不是存东西的地方。"""
+MAX_URL_CHARS: Final = 2000
+"""服务端要拿去下载的单个地址的长度上限。"""
 
 ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata", "shot_index"})
 """归属字段：落表上自己的列，不进 ``request`` JSON。
@@ -296,7 +298,7 @@ class ImageGenerationIn(CamelModel):
 class ClipSegmentIn(CamelModel):
     """从一条视频里取 ``[start, end)`` 这一段，单位秒。"""
 
-    url: str
+    url: Annotated[str, Field(min_length=1, max_length=MAX_URL_CHARS)]
     start: float = Field(ge=0)
     end: float
 

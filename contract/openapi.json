@@ -788,6 +788,8 @@
             "type": "number"
           },
           "url": {
+            "maxLength": 2000,
+            "minLength": 1,
             "title": "Url",
             "type": "string"
           }
