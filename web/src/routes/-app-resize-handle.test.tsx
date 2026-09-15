@@ -86,4 +86,15 @@ describe('AppResizeHandle', () => {
 
     expect(deltas).toEqual([])
   })
+
+  it('连按两次拖柄只留一组监听，松开后不再跟着指针跑', () => {
+    const { deltas, handle } = renderHandle()
+
+    fireEvent.pointerDown(handle, { button: 0, clientX: 300 })
+    fireEvent.pointerDown(handle, { button: 0, clientX: 320 })
+    fireEvent.pointerUp(window)
+    fireEvent.pointerMove(window, { clientX: 500 })
+
+    expect(deltas).toEqual([])
+  })
 })

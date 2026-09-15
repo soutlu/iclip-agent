@@ -36,6 +36,9 @@ export function AppResizeHandle({
 
   const startDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return
+    // 上一轮的 pointerup 可能丢失（触屏多指、指针被系统接管），先摘掉旧监听，重复按下即自愈。
+    detachRef.current?.()
+    detachRef.current = null
     const origin = event.clientX
     onResizeStart()
     setDragging(true)
