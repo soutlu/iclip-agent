@@ -1,11 +1,13 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Toaster, toast } from '@/shared/ui/toast'
 import { server } from '@/testing/mocks/server'
+import { renderWithProviders } from '@/testing/render'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GenerationJob } from '../storyboard.api'
 import { GenerationRecords } from './generation-records'
+import { loadEditorSource } from '../video-editor/editor-source'
 
 const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
   createdAt: '2026-09-01T10:00:00Z',
@@ -56,11 +58,15 @@ const jobs: GenerationJob[] = [
   }),
 ]
 
-const renderRecords = () => {
-  render(<GenerationRecords jobs={jobs} onClose={() => {}} onEditPrompt={() => {}} shotIndex={2} />)
+const renderRecords = async () => {
+  return renderWithProviders(
+    <GenerationRecords jobs={jobs} onClose={() => {}} onEditPrompt={() => {}} shotIndex={2} />,
+  )
 }
 
 beforeEach(() => {
+  sessionStorage.clear()
+  vi.stubGlobal('scrollTo', () => {})
   // 下载菜单是 Radix 弹层，定位时要量尺寸；jsdom 没有 ResizeObserver。
   vi.stubGlobal(
     'ResizeObserver',
@@ -79,8 +85,8 @@ afterEach(() => {
 })
 
 describe('GenerationRecords', () => {
-  it('只列本组视频，排除图片和其它组，按时间倒序', () => {
-    renderRecords()
+  it('只列本组视频，排除图片和其它组，按时间倒序', async () => {
+    await renderRecords()
 
     expect(screen.getByRole('heading', { name: '当前镜头组 · 视频' })).toBeVisible()
     expect(screen.getAllByRole('article')).toHaveLength(3)
@@ -102,8 +108,8 @@ describe('GenerationRecords', () => {
     ])
   })
 
-  it('三种状态各写清楚，失败的把服务端原话摆出来', () => {
-    renderRecords()
+  it('三种状态各写清楚，失败的把服务端原话摆出来', async () => {
+    await renderRecords()
 
     expect(screen.getByText('生成中')).toBeVisible()
     expect(screen.getByText('已完成')).toBeVisible()
@@ -112,7 +118,7 @@ describe('GenerationRecords', () => {
   })
 
   it('只有完成且有结果的记录提供下载，折叠后仍可下载', async () => {
-    renderRecords()
+    await renderRecords()
     expect(screen.getAllByRole('button', { name: '下载视频' })).toHaveLength(1)
     const card = screen.getByText('第一版：走向镜头。').closest('article') as HTMLElement
     await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
@@ -149,7 +155,7 @@ describe('GenerationRecords', () => {
       const anchorClick = vi
         .spyOn(HTMLAnchorElement.prototype, 'click')
         .mockImplementation(() => {})
-      render(
+      await renderWithProviders(
         <>
           <Toaster />
           <GenerationRecords
@@ -185,7 +191,7 @@ describe('GenerationRecords', () => {
         return new HttpResponse(null, { status: 503 })
       }),
     )
-    render(
+    await renderWithProviders(
       <>
         <Toaster />
         <GenerationRecords
@@ -214,13 +220,65 @@ describe('GenerationRecords', () => {
     expect(requested[1]).toBe('https://downloads.example.test/clean.mp4')
   })
 
-  it('时刻写成年月日时分', () => {
-    renderRecords()
+  it('完成的视频进入编辑页并保留原片、标题与返回位置', async () => {
+    const { router } = await renderWithProviders(
+      <GenerationRecords jobs={jobs} onClose={() => {}} onEditPrompt={() => {}} shotIndex={2} />,
+      { initialPath: '/c/demo?sheet=records' },
+    )
+    expect(screen.getAllByRole('button', { name: '编辑视频' })).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: '编辑视频' }))
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/video-editor/a'))
+    expect(loadEditorSource('a')).toEqual({
+      jobId: 'a',
+      videoUrl: 'take-1.mp4',
+      title: '第一版：走向镜头。',
+      returnTo: '/c/demo?sheet=records',
+    })
+  })
+
+  it.each([
+    { status: 'submitted', outputUrl: 'take.mp4' },
+    { status: 'failed', outputUrl: 'take.mp4' },
+    { status: 'completed', outputUrl: null },
+    { status: 'completed', outputUrl: '  ' },
+  ] satisfies Partial<GenerationJob>[])(
+    '状态 $status、结果 $outputUrl 不可编辑时没有入口',
+    async (spec) => {
+      await renderWithProviders(
+        <GenerationRecords
+          jobs={[job({ id: 'unavailable', ...spec })]}
+          onClose={() => {}}
+          shotIndex={2}
+        />,
+      )
+      expect(screen.queryByRole('button', { name: '编辑视频' })).not.toBeInTheDocument()
+    },
+  )
+
+  it('不能保存视频来源时留在记录页并提示错误', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    })
+    const { router } = await renderWithProviders(
+      <>
+        <Toaster />
+        <GenerationRecords jobs={jobs} onClose={() => {}} shotIndex={2} />
+      </>,
+      { initialPath: '/c/demo?sheet=records' },
+    )
+    await userEvent.click(screen.getByRole('button', { name: '编辑视频' }))
+    expect(await screen.findByText('无法打开视频编辑，请重试')).toBeVisible()
+    expect(router.state.location.href).toBe('/c/demo?sheet=records')
+  })
+
+  it('时刻写成年月日时分', async () => {
+    await renderRecords()
     expect(screen.getByText('2026-09-01 12:20')).toBeVisible()
   })
 
   it('折叠箭头收起之后隐藏运行中的描述', async () => {
-    renderRecords()
+    await renderRecords()
     const card = screen.getByText('第三版：脚步放慢。').closest('article') as HTMLElement
 
     await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
@@ -230,8 +288,8 @@ describe('GenerationRecords', () => {
     expect(within(card).getByText('生成中')).toBeVisible()
   })
 
-  it('只有正文的记录可以查看，但不能回填镜头组', () => {
-    render(
+  it('只有正文的记录可以查看，但不能回填镜头组', async () => {
+    await renderWithProviders(
       <GenerationRecords
         jobs={[job({ id: 'no-shot', request: { prompt: '模特走向镜头，停下微笑。' } })]}
         onClose={vi.fn()}
@@ -245,7 +303,7 @@ describe('GenerationRecords', () => {
   })
 
   it('收起已完成记录隐藏描述与编辑按钮，视频预览和播放入口仍保留', async () => {
-    renderRecords()
+    await renderRecords()
     const card = screen.getByText('第一版：走向镜头。').closest('article') as HTMLElement
 
     await userEvent.click(within(card).getByRole('button', { name: '收起这条记录' }))
@@ -280,7 +338,7 @@ describe('GenerationRecords', () => {
   ])(
     '$name 默认不挂载视频，点击后在共享预览中播放正确地址，关闭后卸载并归还焦点',
     async ({ url, hasPoster }) => {
-      const { container } = render(
+      const { container } = await renderWithProviders(
         <GenerationRecords
           jobs={[job({ id: 'preview', outputUrl: url })]}
           onClose={vi.fn()}
@@ -319,8 +377,8 @@ describe('GenerationRecords', () => {
     },
   )
 
-  it('只有图片或其它组的视频时，当前组仍显示空态', () => {
-    render(
+  it('只有图片或其它组的视频时，当前组仍显示空态', async () => {
+    await renderWithProviders(
       <GenerationRecords
         jobs={jobs.filter((item) => item.kind === 'image' || item.id === 'other-shot')}
         onClose={vi.fn()}

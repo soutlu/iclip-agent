@@ -1,5 +1,6 @@
 /** 仅展示当前镜头组的视频生成记录。 */
 
+import { useLocation, useNavigate } from '@tanstack/react-router'
 import { Tooltip } from 'radix-ui'
 import { useRef, useState, type ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
@@ -15,6 +16,7 @@ import { readStoryboardMetadata } from '../generation-metadata'
 import type { Shot } from '../shot-document'
 import { phaseOfStatus } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
+import { saveEditorSource } from '../video-editor/editor-source'
 
 /** request 是不透明 JSON，只从里面读两个字串来展示：prompt 与 model。 */
 const promptOf = (job: GenerationJob): string | undefined => {
@@ -101,12 +103,31 @@ type RecordCardProps = {
 }
 
 function RecordCard({ job, onEditPrompt }: RecordCardProps) {
+  const navigate = useNavigate()
+  const location = useLocation()
   const [open, setOpen] = useState(true)
   const phase = phaseOfStatus(job.status)
   const prompt = promptOf(job)
   const model = modelOf(job)
   // 只有带结构化 shot 的记录能回填镜头组；接口调用方自己写的正文只能看。
   const history = historyShotOf(job)
+  const canEditVideo = phase === 'completed' && Boolean(job.outputUrl?.trim())
+
+  const openVideoEditor = async () => {
+    if (!canEditVideo || job.outputUrl === null) return
+    try {
+      saveEditorSource({
+        jobId: job.id,
+        videoUrl: job.outputUrl,
+        posterUrl: videoSnapshotUrl(job.outputUrl, 1280),
+        title: prompt?.trim().slice(0, 32) || '生成的视频',
+        returnTo: location.pathname + location.searchStr,
+      })
+      await navigate({ to: '/video-editor/$jobId', params: { jobId: job.id } })
+    } catch {
+      toast.error('无法打开视频编辑，请重试')
+    }
+  }
 
   return (
     <article className="flex shrink-0 flex-col gap-2.5 overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface p-3">
@@ -157,19 +178,33 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
         </div>
       ) : null}
 
-      {open && onEditPrompt !== undefined ? (
-        <Button
-          className="w-full border-[0.5px] border-chat-hairline bg-surface-container-low text-primary"
-          disabled={history === undefined}
-          leadingIcon="edit"
-          onClick={() => {
-            if (history !== undefined) onEditPrompt(history)
-          }}
-          size="md"
-          variant="ghost"
-        >
-          编辑生成
-        </Button>
+      {open && (onEditPrompt !== undefined || canEditVideo) ? (
+        <div className="flex items-center gap-2">
+          {onEditPrompt !== undefined ? (
+            <Button
+              className="min-w-0 flex-1 border-[0.5px] border-chat-hairline bg-surface-container-low text-primary"
+              disabled={history === undefined}
+              leadingIcon="edit"
+              onClick={() => {
+                if (history !== undefined) onEditPrompt(history)
+              }}
+              size="md"
+              variant="ghost"
+            >
+              编辑生成
+            </Button>
+          ) : null}
+          {canEditVideo ? (
+            <Button
+              className="min-w-0 flex-1 shadow-none"
+              onClick={() => void openVideoEditor()}
+              size="md"
+              trailingIcon="next"
+            >
+              编辑视频
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </article>
   )

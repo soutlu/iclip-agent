@@ -1,0 +1,99 @@
+.video-editor-composer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 224px;
+  padding: 16px;
+  border: 1px solid var(--color-chat-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.video-editor-composer:focus-within,
+.video-editor-composer-dragging {
+  border-color: var(--color-focus-ring);
+}
+
+.video-editor-composer-dragging {
+  background: var(--color-primary-container);
+}
+
+.video-editor-composer-input {
+  flex: 1;
+  width: 100%;
+  min-height: 120px;
+  padding: 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  line-height: 1.7;
+}
+
+.video-editor-composer-input::placeholder {
+  color: var(--color-on-surface-muted);
+}
+
+.video-editor-composer-references {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  max-height: 148px;
+  padding: 2px;
+  overflow-y: auto;
+}
+
+.video-editor-composer-reference {
+  position: relative;
+  flex: 0 0 64px;
+  height: 64px;
+}
+
+.video-editor-composer-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-xs);
+  cursor: zoom-in;
+}
+
+.video-editor-composer-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-editor-composer-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  color: var(--color-on-scrim);
+  background: color-mix(in srgb, var(--color-scrim) 72%, transparent);
+  border-radius: var(--radius-full);
+}
+
+.video-editor-composer-add {
+  position: relative;
+  display: grid;
+  flex: 0 0 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px dashed var(--color-outline-variant);
+  border-radius: var(--radius-xs);
+  color: var(--color-on-surface-muted);
+  cursor: pointer;
+}
+
+.video-editor-composer-add:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.video-editor-composer-add:disabled {
+  cursor: wait;
+}
