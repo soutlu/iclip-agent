@@ -1,7 +1,6 @@
 """外部 PDM 同步库的只读查询，不建表、不迁移、不写入。
 
-只解析款的品类与品牌归属；产品资料查询（图片、颜色、名称）已下线，相应的多表
-聚合与编码到名称的对照表一并移除。"""
+只解析款的品类与品牌编码，供使用方圈选同类款。"""
 
 from __future__ import annotations
 
@@ -13,13 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from iclip.domains.products.models import StyleGrouping
 
-_BRAND_CODE: Final = "replace(attributes::text, '\\u0000', '')::json ->> 'brand'"
-"""上游有款把 ``\\u0000`` 写进了 attributes；json 存得下，取成 text 却会整条查询
-报错，所以取值前先剔除。"""
-
-_RESOLVE_GROUPING: Final = text(f"""
-SELECT product_number, product_category_id, {_BRAND_CODE} AS brand_code
-FROM pdm_styles
+_RESOLVE_GROUPING: Final = text("""
+SELECT product_number, product_category_id, brand AS brand_code
+FROM public.pdm_styles
 WHERE product_number = ANY(:style_nos) AND is_active AND NOT is_source_deleted
 """)
 

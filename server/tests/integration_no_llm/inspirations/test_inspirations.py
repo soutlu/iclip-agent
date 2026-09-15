@@ -132,26 +132,34 @@ async def test_style_without_a_category_cannot_fall_back(
     assert found == {"videoUrls": [], "matches": [{"styleNo": STYLE, "matchLevel": "none"}]}
 
 
-async def test_thresholds_do_not_trigger_a_fallback(
-    client: httpx.AsyncClient, business_engine: AsyncEngine, catalog_engine: AsyncEngine
+@pytest.mark.parametrize(
+    ("matched_style", "match_level"),
+    [(STYLE, "exact"), ("OTHER-NORTIV8", "sameBrandCategory")],
+)
+async def test_thresholds_do_not_change_match_level(
+    client: httpx.AsyncClient,
+    business_engine: AsyncEngine,
+    catalog_engine: AsyncEngine,
+    matched_style: str,
+    match_level: str,
 ) -> None:
-    """门槛把本款的视频筛空，不等于这个款没有视频——仍是 exact，不去找替身。"""
+    """门槛筛空本款或同品牌候选，都不再放宽到指标更高的其他品牌。"""
 
     await register_and_login(client)
     await seed_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
-    await seed_video(business_engine, video_id="601", style_no=STYLE, orders=1)
+    await seed_video(business_engine, video_id="601", style_no=matched_style, orders=1)
     await seed_video(
         business_engine,
         video_id="602",
-        style_no="OTHER-NORTIV8",
+        style_no="OTHER-BRUNO",
         category_id=RUNNING,
-        brand_code=NORTIV8,
+        brand_code=BRUNO,
         orders=500,
     )
 
     found = (await search(client, filters={"minOrders": 100})).json()
 
-    assert found["matches"] == [{"styleNo": STYLE, "matchLevel": "exact"}]
+    assert found["matches"] == [{"styleNo": STYLE, "matchLevel": match_level}]
     assert found["videoUrls"] == []
 
 
@@ -168,20 +176,34 @@ async def test_thresholds_filter_the_result(
     assert found["videoUrls"] == urls_of(["702"])
 
 
-async def test_top_n_and_ordering_are_taken_in_the_database(
+async def test_exact_and_fallback_scopes_share_one_deduplicated_top_n(
     client: httpx.AsyncClient, business_engine: AsyncEngine, catalog_engine: AsyncEngine
 ) -> None:
-    """替身与本款视频在同一个序里比较，截断由数据库执行。"""
+    """本款与两级替身范围重叠时，视频去重后共享排序和 limit。"""
 
     await register_and_login(client)
     await seed_style(catalog_engine, style_no=STYLE, category_id=RUNNING, brand_code=NORTIV8)
-    await seed_video(business_engine, video_id="801", style_no=STYLE, orders=10)
-    await seed_video(business_engine, video_id="802", style_no=STYLE, orders=30)
-    await seed_video(business_engine, video_id="803", style_no=STYLE, orders=20)
+    await seed_style(
+        catalog_engine, style_no="NO-OWN-NORTIV8", category_id=RUNNING, brand_code=NORTIV8
+    )
+    await seed_style(catalog_engine, style_no="NO-OWN-BRUNO", category_id=RUNNING, brand_code=BRUNO)
+    await seed_video(business_engine, video_id="801", style_no=STYLE, orders=20)
+    await seed_video(business_engine, video_id="802", style_no="OTHER-NORTIV8", orders=30)
+    await seed_video(business_engine, video_id="803", style_no="OTHER-NORTIV8", orders=10)
 
-    found = (await search(client, limit=2)).json()
+    found = (
+        await client.post(
+            URL,
+            json={"styleNos": [STYLE, "NO-OWN-NORTIV8", "NO-OWN-BRUNO", STYLE], "limit": 2},
+        )
+    ).json()
 
-    assert found["videoUrls"] == urls_of(["802", "803"])
+    assert found["videoUrls"] == urls_of(["802", "801"])
+    assert found["matches"] == [
+        {"styleNo": STYLE, "matchLevel": "exact"},
+        {"styleNo": "NO-OWN-NORTIV8", "matchLevel": "sameBrandCategory"},
+        {"styleNo": "NO-OWN-BRUNO", "matchLevel": "sameCategory"},
+    ]
 
 
 async def test_sort_by_selects_a_different_sample(
@@ -239,22 +261,28 @@ async def test_request_shape_is_bounded(client: httpx.AsyncClient) -> None:
     assert (await search(client, filters={"minOrders": -1})).status_code == 422
 
 
-async def test_mounted_without_the_product_catalog_but_cannot_fall_back(
+async def test_without_the_product_catalog_returns_exact_but_cannot_fall_back(
     app_without_catalog: FastAPI,
+    business_engine: AsyncEngine,
 ) -> None:
-    """接口始终提供；缺产品资料库时降级整级失效，未命中的款如实返回 none。"""
+    """缺产品资料库时仍返回本款视频，未精确命中的款不能按归属找替身。"""
+
+    await seed_video(business_engine, video_id="1201", style_no=STYLE)
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app_without_catalog), base_url="http://test"
     ) as client:
         await register_and_login(client)
 
-        found = await client.post(URL, json={"styleNos": [STYLE]})
+        found = await client.post(URL, json={"styleNos": [STYLE, "UNKNOWN"]})
 
         assert found.status_code == 200
         assert found.json() == {
-            "videoUrls": [],
-            "matches": [{"styleNo": STYLE, "matchLevel": "none"}],
+            "videoUrls": urls_of(["1201"]),
+            "matches": [
+                {"styleNo": STYLE, "matchLevel": "exact"},
+                {"styleNo": "UNKNOWN", "matchLevel": "none"},
+            ],
         }
 
 

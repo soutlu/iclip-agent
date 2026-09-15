@@ -1,6 +1,4 @@
-"""外部 PDM 同步库的替身表结构。
-
-``pdm_styles`` 被产品资料与爆款视频两处消费，DDL 只在这里声明一份。"""
+"""外部 PDM 同步库的替身表结构，供款目录与爆款视频查询测试共用。"""
 
 from __future__ import annotations
 
@@ -13,6 +11,7 @@ CREATE TABLE pdm_styles (
     style_wms           varchar,
     source_status       varchar NOT NULL,
     product_category_id bigint,
+    brand               varchar,
     attributes          json    NOT NULL DEFAULT '{}'::json,
     is_active           boolean NOT NULL DEFAULT true,
     is_source_deleted   boolean NOT NULL DEFAULT false

@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 
 from iclip.domains.inspirations.infra_sql import PgInspirationVideos
 from iclip.domains.inspirations.models import (
     MatchLevel,
     MetricFilters,
     SortKey,
-    StyleGroup,
     StyleMatch,
     VideoSearchResult,
 )
 from iclip.domains.products.public import StyleDirectory, StyleGrouping
+
+
+@dataclass(frozen=True, slots=True)
+class _FallbackResult:
+    """未命中款的匹配层级，以及去重后的替身查询范围。"""
+
+    levels: Mapping[str, MatchLevel] = field(default_factory=dict)
+    brand_categories: tuple[StyleGrouping, ...] = ()
+    categories: tuple[int, ...] = ()
 
 
 class NoStyleDirectory:
@@ -47,15 +56,13 @@ class InspirationService:
         unresolved = tuple(style_no for style_no in wanted if style_no not in exact)
 
         levels: dict[str, MatchLevel] = {style_no: "exact" for style_no in exact}
-        brand_categories: list[StyleGroup] = []
-        categories: list[int] = []
-        if unresolved:
-            levels |= await self._fall_back(unresolved, brand_categories, categories)
+        fallback = await self._fall_back(unresolved)
+        levels.update(fallback.levels)
 
         urls = await self._videos.find_urls(
             style_nos=sorted(exact),
-            brand_categories=_unique(brand_categories),
-            categories=_unique(categories),
+            brand_categories=fallback.brand_categories,
+            categories=fallback.categories,
             filters=filters,
             sort_by=sort_by,
             limit=limit,
@@ -68,26 +75,23 @@ class InspirationService:
             ),
         )
 
-    async def _fall_back(
-        self,
-        unresolved: Sequence[str],
-        brand_categories: list[StyleGroup],
-        categories: list[int],
-    ) -> dict[str, MatchLevel]:
-        """为没有视频的款逐级挑替身，并把选中的范围累加到查询作用域。
+    async def _fall_back(self, unresolved: Sequence[str]) -> _FallbackResult:
+        """为没有视频的款逐级挑替身，返回匹配层级与查询范围。
 
         入参款在产品资料中查不到，或它所在的品类里没有任何视频，都落到 ``none``：
         这不是错误，只是这次没有可用的参考。
         """
 
-        grouping = await self._styles.resolve(unresolved)
-        groups = {
-            style_no: StyleGroup(category_id=item.category_id, brand_code=item.brand_code)
-            for style_no, item in grouping.items()
-        }
-        pairs, with_videos = await self._videos.groups_with_videos(_unique(groups.values()))
+        if not unresolved:
+            return _FallbackResult()
+
+        groups = await self._styles.resolve(unresolved)
+        category_ids = _unique(group.category_id for group in groups.values())
+        pairs, with_videos = await self._videos.groups_with_videos(category_ids)
 
         levels: dict[str, MatchLevel] = {}
+        brand_categories: list[StyleGrouping] = []
+        categories: list[int] = []
         for style_no in unresolved:
             group = groups.get(style_no)
             if group is None:
@@ -101,7 +105,11 @@ class InspirationService:
                 categories.append(group.category_id)
             else:
                 levels[style_no] = "none"
-        return levels
+        return _FallbackResult(
+            levels=levels,
+            brand_categories=_unique(brand_categories),
+            categories=_unique(categories),
+        )
 
 
 def _unique[ItemT](items: Iterable[ItemT]) -> tuple[ItemT, ...]:
