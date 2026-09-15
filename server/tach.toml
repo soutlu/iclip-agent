@@ -50,6 +50,11 @@ depends_on = ["iclip.common", "iclip.platform.db", "iclip.domains.identity"]
 path = "iclip.domains.tasks"
 depends_on = ["iclip.common", "iclip.domains.identity"]
 
+# 审计报表是跨模块的只读读模型，按表名直接查，不依赖各业务模块（ADR-0027）。
+[[modules]]
+path = "iclip.domains.audit"
+depends_on = ["iclip.common", "iclip.platform.db", "iclip.domains.identity"]
+
 [[modules]]
 path = "iclip.domains.uploads"
 depends_on = [
@@ -120,6 +125,7 @@ depends_on = [
     "iclip.domains.products",
     "iclip.domains.collections",
     "iclip.domains.tasks",
+    "iclip.domains.audit",
     "iclip.harness",
     "iclip.capabilities",
 ]

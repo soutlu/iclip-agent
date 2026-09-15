@@ -49,6 +49,8 @@ from iclip.config import (
 )
 from iclip.domains.agents.public import AgentRunDeps
 from iclip.domains.agents.transcript_api import LiveConnections, create_transcript_router
+from iclip.domains.audit.module import build_audit_module
+from iclip.domains.audit.reports_pg import PgAuditReports
 from iclip.domains.collections.infra_sql import SqlCollectionRepository
 from iclip.domains.collections.module import build_collections_module
 from iclip.domains.conversations.infra_sql import SqlConversationRepository
@@ -481,6 +483,8 @@ def build_app(
     )
 
     tasks = build_tasks_module(SqlTaskRepository(active_engine), act_as=identity.act_as)
+    # 审计报表跨模块只读聚合，直接查表（决策见 ADR-0027）。
+    audit = build_audit_module(PgAuditReports(active_engine))
     conversations = build_conversations_module(
         SqlConversationRepository(active_engine),
         act_as=identity.act_as,
@@ -627,6 +631,8 @@ def build_app(
     for router in collections.routers:
         app.include_router(router)
     for router in tasks.routers:
+        app.include_router(router)
+    for router in audit.routers:
         app.include_router(router)
     app.include_router(
         create_transcript_router(
