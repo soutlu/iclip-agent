@@ -72,7 +72,8 @@ export function FramePreview({
       const nextUrl = await onUpload(file)
       if (upload.active) onReplace(nextUrl)
     } catch (error) {
-      if (upload.active) toast.error(error instanceof Error ? error.message : '上传失败')
+      // 切走之后结果可以不要，失败必须让人知道。
+      toast.error(error instanceof Error ? error.message : '上传失败')
     } finally {
       upload.busy = false
       if (upload.active) setUploading(false)

@@ -142,8 +142,8 @@ export function ReaderPage({
       onUploaded(updated.image_urls.length, newUrl)
       select(content.id, updated.image_urls.length)
     } catch (error) {
-      if (revision === uploadRevisionRef.current)
-        toast.error(error instanceof Error ? error.message : '上传失败')
+      // 切走之后结果可以不要，失败必须让人知道。
+      toast.error(error instanceof Error ? error.message : '上传失败')
     } finally {
       if (revision === uploadRevisionRef.current) setUploadTarget(null)
     }
