@@ -7,7 +7,7 @@ import {
   mintPromptId,
   submitPrompt,
 } from '@/features/conversations'
-import { type TaskCreationDraft, tasksQueryKeys } from '@/features/tasks'
+import type { TaskCreationDraft } from '@/features/tasks'
 
 type CreationAttempt = {
   draft: TaskCreationDraft
@@ -39,8 +39,6 @@ export function useStartTaskCreation() {
         attempt.conversationId = conversation.id
         // 即使首次消息发送失败，也让用户能够从侧栏找到已创建的对话。
         void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
-        // 对话挂上需求单即认领（合同 §8），需求单列表要跟着从「待认领」变成「进行中」。
-        void queryClient.invalidateQueries({ queryKey: tasksQueryKeys.all })
       }
       await submitPrompt(attempt.conversationId, {
         content: attempt.draft.content,

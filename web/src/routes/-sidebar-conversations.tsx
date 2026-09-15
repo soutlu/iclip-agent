@@ -26,7 +26,7 @@ import {
   type SidebarCollection,
   type SidebarTopology,
 } from '@/features/conversations'
-import { useTaskOptions } from '@/features/tasks'
+import { tasksQueryKeys, useTaskOptions } from '@/features/tasks'
 import { ApiError } from '@/shared/api/client'
 import { useUser } from '@/shared/auth'
 import { Icon, type IconName } from '@/shared/icons'
@@ -97,6 +97,13 @@ export function SidebarConversations() {
     void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
   }
 
+  /** 挂上需求单即认领（合同 §8），那张单会从「待认领」变「进行中」，列表与详情跟着刷新。 */
+  const refreshAfterMembership = () => {
+    refreshSidebar()
+    void queryClient.invalidateQueries({ queryKey: tasksQueryKeys.all })
+  }
+
+  // 拖动只改合集归属，不碰需求单。
   const moveMutation = useSetConversationMembership(refreshSidebar)
   const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
 
@@ -274,7 +281,7 @@ export function SidebarConversations() {
         }))}
         conversation={membership.conversation}
         onOpenChange={(open) => setMembership((prev) => ({ ...prev, open }))}
-        onSaved={refreshSidebar}
+        onSaved={refreshAfterMembership}
         open={membership.open}
         taskOptions={tasks.data ?? []}
       />
