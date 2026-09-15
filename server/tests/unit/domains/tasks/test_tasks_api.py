@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI, Request, Response
 
 from iclip.app.errors import install_error_handlers
+from iclip.domains.identity.acting import ActAs
 from iclip.domains.identity.models import Principal
 from iclip.domains.tasks.api import create_tasks_router
 from iclip.domains.tasks.models import (
@@ -19,6 +20,7 @@ from iclip.domains.tasks.models import (
     STATUS_WITHDRAWN,
 )
 from iclip.domains.tasks.service import TaskService
+from tests.helpers.identity import InMemoryUserRepository
 from tests.helpers.tasks import (
     STYLE_NO,
     InMemoryTaskRepository,
@@ -65,7 +67,9 @@ def build_test_app(
 
     install_error_handlers(app)
 
-    app.include_router(create_tasks_router(TaskService(repo)))
+    app.include_router(
+        create_tasks_router(TaskService(repo), act_as=ActAs(InMemoryUserRepository()))
+    )
     return app
 
 

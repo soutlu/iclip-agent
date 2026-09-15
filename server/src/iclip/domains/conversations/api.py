@@ -40,10 +40,12 @@ from iclip.domains.conversations.service import (
     ListAgents,
     ListState,
 )
-from iclip.domains.identity.public import Principal, require_permission
+from iclip.domains.identity.public import ActAs, Principal, require_permission
 
 
-def create_conversations_router(service: ConversationService, *, agents: ListAgents) -> APIRouter:
+def create_conversations_router(
+    service: ConversationService, *, agents: ListAgents, act_as: ActAs
+) -> APIRouter:
     router = APIRouter(prefix="/conversations", tags=["conversations"])
 
     # 活动状态独立于对话记录，在序列化前批量读取。
@@ -78,6 +80,7 @@ def create_conversations_router(service: ConversationService, *, agents: ListAge
     ) -> ConversationEnvelope:
         """开一段对话。带 ``id`` 重发时不新建，答复已有那一段并把状态码降为 200。"""
 
+        principal = await act_as(principal, body.user_name)
         conversation, created = await service.create(
             principal,
             agent_id=body.agent_id,

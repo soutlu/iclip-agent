@@ -28,10 +28,15 @@ from iclip.domains.generation.schemas import (
     video_task_out,
 )
 from iclip.domains.generation.service import GenerationService
-from iclip.domains.identity.public import Principal, require_permission, resolve_user_name
+from iclip.domains.identity.public import (
+    ActAs,
+    Principal,
+    require_permission,
+    resolve_user_name,
+)
 
 
-def create_generations_router(service: GenerationService) -> APIRouter:
+def create_generations_router(service: GenerationService, *, act_as: ActAs) -> APIRouter:
     router = APIRouter(prefix="/generations")
 
     @router.post("/video", response_model=VideoSubmitOut, status_code=202)
@@ -46,10 +51,11 @@ def create_generations_router(service: GenerationService) -> APIRouter:
         省略，填登录用户名。
         """
 
-        request = body.model_copy(
-            update={"user_name": resolve_user_name(principal, body.user_name)}
+        user_name = resolve_user_name(principal, body.user_name)
+        principal = await act_as(principal, user_name)
+        job = await service.submit_video(
+            principal, body.model_copy(update={"user_name": user_name})
         )
-        job = await service.submit_video(principal, request)
         return VideoSubmitOut(task_id=job.id)
 
     @router.post("/image", response_model=GenerationEnvelope, status_code=202)
@@ -59,10 +65,11 @@ def create_generations_router(service: GenerationService) -> APIRouter:
     ) -> GenerationEnvelope:
         """提交一次图片生成。``userName`` 的规则与视频相同。"""
 
-        request = body.model_copy(
-            update={"user_name": resolve_user_name(principal, body.user_name)}
+        user_name = resolve_user_name(principal, body.user_name)
+        principal = await act_as(principal, user_name)
+        job = await service.submit_image(
+            principal, body.model_copy(update={"user_name": user_name})
         )
-        job = await service.submit_image(principal, request)
         return GenerationEnvelope(generation=generation_out(job))
 
     @router.get("", response_model=GenerationsPageOut)

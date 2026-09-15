@@ -165,6 +165,9 @@ class TaskCreateIn(TaskIn):
 
     id: uuid.UUID | None = None
     status: Literal["draft", "published"] = "draft"
+    user_name: str | None = None
+    """替谁提这张单。持 ``users:act_as`` 的 API key 按它定创建者；其余钥匙照旧记在
+    自己名下；浏览器会话只能写自己的用户名。"""
 
 
 class TaskOut(CamelModel):

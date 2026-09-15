@@ -91,6 +91,14 @@ class InMemoryUserRepository:
     async def touch_last_login(self, user_id: uuid.UUID, at: datetime) -> None:
         pass
 
+    async def ensure_by_name(self, username: str, *, email: str) -> uuid.UUID:
+        for account in self.accounts.values():
+            if account.username == username:
+                return account.id
+        placeholder = make_account(username=username, email=email, roles=())
+        self.accounts[placeholder.id] = placeholder
+        return placeholder.id
+
     async def sync_sso_profile(self, user_id: uuid.UUID, **_: object) -> None:
         pass
 

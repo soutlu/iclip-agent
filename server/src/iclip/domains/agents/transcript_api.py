@@ -18,6 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import DomainError
 from iclip.domains.identity.public import (
+    ActAs,
     Principal,
     require_permission,
     resolve_user_name,
@@ -320,6 +321,7 @@ def create_transcript_router(
     transcripts: Transcripts,
     conversations: Conversations,
     *,
+    act_as: ActAs,
     allowed_origins: tuple[str, ...],
     live: LiveConnections,
 ) -> APIRouter:
@@ -346,13 +348,15 @@ def create_transcript_router(
         ``user_name`` 是这条消息替谁发的：API key 调用方必须给，浏览器会话默认是登录用户名。
         """
 
+        user_name = resolve_user_name(principal, body.user_name)
+        principal = await act_as(principal, user_name)
         agent_id = await _writable(principal, conversation_id)
         return await transcripts.submit(
             prompt_id=body.prompt_id,
             conversation_id=conversation_id,
             agent_id=agent_id,
             owner_user_id=principal.user_id,
-            user_name=resolve_user_name(principal, body.user_name),
+            user_name=user_name,
             content=body.content,
         )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from iclip.domains.identity.public import ActAs
 from iclip.domains.tasks.api import create_tasks_router
 from iclip.domains.tasks.repository import TaskRepository
 from iclip.domains.tasks.service import TaskService
@@ -18,11 +19,11 @@ class TasksModule:
     service: TaskService
 
 
-def build_tasks_module(repo: TaskRepository) -> TasksModule:
+def build_tasks_module(repo: TaskRepository, *, act_as: ActAs) -> TasksModule:
     """需求单持久化明确提供的创作输入，不依赖产品库或对象存储。"""
 
     service = TaskService(repo)
-    return TasksModule(routers=(create_tasks_router(service),), service=service)
+    return TasksModule(routers=(create_tasks_router(service, act_as=act_as),), service=service)
 
 
 __all__ = ["TasksModule", "build_tasks_module"]

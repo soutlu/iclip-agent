@@ -31,6 +31,10 @@ class UserRepository(Protocol):
 
     async def touch_last_login(self, user_id: uuid.UUID, at: datetime) -> None: ...
 
+    async def ensure_by_name(self, username: str, *, email: str) -> uuid.UUID:
+        """按用户名找账号，没有就建一个占位账号（无角色、不能登录）；返回其 id。"""
+        ...
+
     async def sync_sso_profile(
         self,
         user_id: uuid.UUID,

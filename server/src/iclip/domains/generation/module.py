@@ -42,6 +42,7 @@ from iclip.domains.generation.video import (
     HttpVideoProvider,
     VideoProviderSettings,
 )
+from iclip.domains.identity.public import ActAs
 from iclip.platform.object_store.oss import PublicObjectStore
 
 
@@ -72,6 +73,7 @@ class GenerationModule:
 def build_generation_module(
     repo: GenerationRepository,
     *,
+    act_as: ActAs,
     video: VideoProviderSettings,
     video_default_model: str,
     video_allowed_models: tuple[str, ...],
@@ -124,7 +126,7 @@ def build_generation_module(
         image_default_model=image_default_model,
     )
     return GenerationModule(
-        routers=(create_generations_router(service),),
+        routers=(create_generations_router(service, act_as=act_as),),
         service=service,
         queue=queue,
         image_models=frozenset(declared),

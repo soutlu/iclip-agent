@@ -102,6 +102,7 @@ class IdentityService:
             permissions=record.permissions,
             audit_label=f"{owner.username or owner.email}#{record.name}",
             username=owner.username,
+            key_name=record.name,
         )
 
     async def get_account(self, user_id: uuid.UUID) -> UserAccount:

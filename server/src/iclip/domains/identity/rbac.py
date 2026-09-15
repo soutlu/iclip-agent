@@ -18,6 +18,7 @@ PERMISSIONS: tuple[str, ...] = (
     "generation:submit",
     "analytics:read",
     "users:manage",
+    "users:act_as",
     "api_keys:issue",
     "agent:read",
     "agent:run",
@@ -32,7 +33,12 @@ _VIEWER = frozenset(
         "agent:read",
     }
 )
-_EDITOR = frozenset(PERMISSIONS) - {"analytics:read", "users:manage", "api_keys:issue"}
+_EDITOR = frozenset(PERMISSIONS) - {
+    "analytics:read",
+    "users:manage",
+    "users:act_as",
+    "api_keys:issue",
+}
 _ROOT = frozenset(PERMISSIONS)
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
