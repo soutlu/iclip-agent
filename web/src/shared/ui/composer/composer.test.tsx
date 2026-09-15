@@ -110,6 +110,33 @@ describe('Composer', () => {
     expect(submission.media[0]?.url).toContain('/mock-oss/')
   })
 
+  it('粘贴复制来的消息：正文与附件一起落回输入框，地址原样复用不再上传', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    const url = 'https://bkt.oss-cn-hangzhou.aliyuncs.com/u/S6-1.jpg'
+    await renderWithProviders(<Composer attachmentsEnabled onSubmit={onSubmit} />)
+
+    pasteTextIntoComposer(
+      editor(),
+      JSON.stringify([
+        { text: '照这条再跑一次：', type: 'text' },
+        { source: { kind: 'url', url }, type: 'image' },
+      ]),
+    )
+
+    expect(screen.getByText('S6-1.jpg')).toBeInTheDocument()
+    expect(editor().textContent).toContain('照这条再跑一次：')
+    expect(sendButton()).toBeEnabled()
+    await user.click(sendButton())
+
+    const submission = onSubmit.mock.calls[0]?.[0] as {
+      media: { kind: string; url: string }[]
+      text: string
+    }
+    expect(submission.text).toBe('照这条再跑一次：')
+    expect(submission.media).toEqual([expect.objectContaining({ kind: 'image', url })])
+  })
+
   it('上传失败：pill 留着，发送一直被挡', async () => {
     const onSubmit = vi.fn()
     server.use(

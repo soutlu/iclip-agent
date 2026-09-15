@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { PromptContentPart } from '@/shared/transcript/vendor'
 import { Icon } from '@/shared/icons'
 import { fileNameOfUrl } from '@/shared/lib/media-url'
+import { serializePromptContent } from '@/shared/lib/prompt-clipboard'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { type LightboxMedia, MediaLightbox } from '@/shared/ui/media-lightbox'
@@ -28,6 +29,12 @@ type UserBubbleProps = {
 
 const plainText = (content: readonly PromptContentPart[]): string =>
   content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+
+/** 带附件的消息复制成接口 content，粘回输入框能连附件一起还原；纯文字消息照旧复制正文。 */
+const copyText = (content: readonly PromptContentPart[]): string =>
+  content.some((part) => part.type !== 'text')
+    ? serializePromptContent(content)
+    : plainText(content)
 
 type MediaPart = Extract<PromptContentPart, { type: 'image' | 'video' }>
 
@@ -71,7 +78,7 @@ export function UserBubble({ className, content, editDisabled = false, onEdit }:
       </div>
       {clampable && expanded ? <div className="mt-1 self-center">{toggle}</div> : null}
       <div className="flex justify-end gap-2 pt-1 opacity-0 transition-opacity ui-motion-s group-hover/bubble:opacity-100 focus-within:opacity-100">
-        <CopyButton label="复制消息" text={plainText(content)} />
+        <CopyButton label="复制消息" text={copyText(content)} />
         {onEdit === undefined ? null : (
           <IconButton
             className="text-chat-muted-text"
