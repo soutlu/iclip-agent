@@ -146,7 +146,7 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
           <SidebarAction
             active={pathname === '/audit'}
             icon="preview"
-            label="全部对话"
+            label="审计"
             onClick={() => void navigate({ to: '/audit' })}
           />
         ) : null}

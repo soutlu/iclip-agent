@@ -12,6 +12,8 @@ const PAGE_SIZE = 200
 export interface DirectoryUser {
   id: string
   displayName: string
+  /** 账号的登录名；上游按它做归属标签（生成记录的 user_name），没有用户名的账号为空。 */
+  username: string | null
 }
 
 /** 逐页读取完整名册；任一页失败或查询取消时抛错，不返回部分名单。 */
@@ -29,6 +31,7 @@ export const fetchUsersDirectory = async (signal?: AbortSignal): Promise<Directo
       ...page.items.map((user) => ({
         displayName: user.displayName || user.username || user.email,
         id: user.id,
+        username: user.username,
       })),
     )
     pageCount = Math.ceil(page.total / PAGE_SIZE)
