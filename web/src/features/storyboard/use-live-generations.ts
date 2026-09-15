@@ -5,6 +5,7 @@ import { use, useEffect } from 'react'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { imageEditConversationKey } from './image-edit/image-edit.api'
 import { storyboardQueryKeys } from './storyboard.api'
+import { videoEditConversationKey } from './video-editor/video-editor.api'
 
 export const useLiveGenerations = (conversationId: string): void => {
   const connection = use(TranscriptConnectionContext)
@@ -23,6 +24,8 @@ export const useLiveGenerations = (conversationId: string): void => {
       })
       // frame-edits 前缀下挂着分镜页的对话级图片列表和编辑器按格的列表，一次失效两边都重拉。
       void queryClient.invalidateQueries({ queryKey: imageEditConversationKey(conversationId) })
+      // 视频编辑链的三条记录（切片、编辑、成片）都走生成队列，跳转也在这个前缀下重拉。
+      void queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) })
     })
   }, [connection, conversationId, queryClient])
 }

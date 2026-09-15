@@ -1,106 +1,87 @@
+/** 修改要求输入框：正文、参考图与页脚（模型、生成）合在一个白框里。参考图选了就直传对象存储。 */
+
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { MEDIA_IMAGE_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
+import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { cn } from '@/shared/lib/utils'
+import { mintUuid } from '@/shared/lib/uuid'
 import { IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
+import { MAX_EDIT_REFERENCES } from '../image-edit/image-edit-draft'
 import './editor-composer.css'
 
-export type EditorReference = { id: string; name: string; url: string }
+export type EditorReference = { id: string; label: string; url: string }
 
 type EditorComposerProps = {
   prompt: string
   footer?: ReactNode
+  disabled: boolean
   onPromptChange: (value: string) => void
   references: readonly EditorReference[]
   onReferencesChange: (references: EditorReference[]) => void
-}
-
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024
-
-/** 参考图仅在浏览器内读取，编辑原型不发起上传。 */
-function readReference(file: File): Promise<EditorReference> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result !== 'string') {
-        reject(new Error('图片读取失败'))
-        return
-      }
-      resolve({ id: crypto.randomUUID(), name: file.name, url: reader.result })
-    }
-    reader.onerror = () => reject(new Error('图片读取失败'))
-    reader.onabort = () => reject(new Error('图片读取已取消'))
-    reader.readAsDataURL(file)
-  })
+  onBusyChange: (busy: boolean) => void
 }
 
 export function EditorComposer({
   prompt,
   footer,
+  disabled,
   onPromptChange,
   references,
   onReferencesChange,
+  onBusyChange,
 }: EditorComposerProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const referencesRef = useRef(references)
-  const [preview, setPreview] = useState<EditorReference | null>(null)
-  const [reading, setReading] = useState(0)
-  const [dragging, setDragging] = useState(false)
-
   useEffect(() => {
     referencesRef.current = references
   }, [references])
-
-  const changeReferences = (next: EditorReference[]) => {
-    referencesRef.current = next
-    onReferencesChange(next)
-  }
+  const [preview, setPreview] = useState<EditorReference | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const locked = disabled || uploading
 
   const addFiles = async (files: readonly File[]) => {
-    const valid = files.filter((file) => {
-      if (!IMAGE_TYPES.has(file.type)) {
-        toast.error('请选择 PNG、JPEG、WebP 或 GIF 图片')
-        return false
-      }
-      if (file.size > MAX_IMAGE_SIZE) {
-        toast.error('每张参考图片不能超过 10 MB')
-        return false
-      }
-      if (file.size === 0) {
-        toast.error('图片文件为空，请重新选择')
-        return false
-      }
-      return true
-    })
-    if (valid.length === 0) return
-    setReading((count) => count + valid.length)
-    const results = await Promise.allSettled(valid.map(readReference))
-    const added: EditorReference[] = []
-    for (const result of results) {
-      if (result.status === 'fulfilled') added.push(result.value)
-      else toast.error('参考图片读取失败，请重新选择')
+    if (locked || files.length === 0) return
+    if (files.length + referencesRef.current.length > MAX_EDIT_REFERENCES) {
+      toast.error(`每次最多带 ${MAX_EDIT_REFERENCES} 张参考图`)
+      return
     }
-    // 文件读取期间仍可移除已有参考图；以最新列表追加，避免恢复已移除的图片。
-    if (added.length > 0) changeReferences([...referencesRef.current, ...added])
-    setReading((count) => count - valid.length)
+    setUploading(true)
+    onBusyChange(true)
+    try {
+      for (const file of files) {
+        // 类型与尺寸由上传通道统一校验，这里不再复制一份规则。
+        const url = await uploadMediaFile(file, 'image')
+        // 上传期间仍可移除已有参考图：按最新列表追加，不把移掉的装回来。
+        const next = [...referencesRef.current, { id: mintUuid(), label: file.name, url }]
+        referencesRef.current = next
+        onReferencesChange(next)
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '参考图上传失败')
+    } finally {
+      setUploading(false)
+      onBusyChange(false)
+    }
   }
 
   return (
     <div
       className={cn('video-editor-composer', dragging && 'video-editor-composer-dragging')}
-      onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes('Files')) return
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'copy'
-        setDragging(true)
-      }}
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false)
       }}
+      onDragOver={(event) => {
+        if (!hasDraggedFiles(event)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = locked ? 'none' : 'copy'
+        if (!locked) setDragging(true)
+      }}
       onDrop={(event) => {
-        if (!event.dataTransfer.types.includes('Files')) return
+        if (!hasDraggedFiles(event)) return
         event.preventDefault()
         setDragging(false)
         void addFiles([...event.dataTransfer.files])
@@ -117,6 +98,7 @@ export function EditorComposer({
       <textarea
         aria-label="修改要求"
         className="video-editor-composer-input text-body text-on-surface"
+        disabled={disabled}
         onChange={(event) => onPromptChange(event.target.value)}
         placeholder="描述你想修改的画面…"
         value={prompt}
@@ -125,55 +107,58 @@ export function EditorComposer({
         {references.map((reference) => (
           <div className="video-editor-composer-reference" key={reference.id}>
             <button
-              aria-label={`预览参考图 ${reference.name}`}
+              aria-label={`预览参考图 ${reference.label}`}
               className="video-editor-composer-photo ui-focus"
               onClick={() => setPreview(reference)}
               type="button"
             >
-              <img alt={reference.name} draggable={false} src={reference.url} />
+              <img alt={reference.label} draggable={false} src={reference.url} />
             </button>
             <IconButton
               className="video-editor-composer-remove"
-              label={`移除参考图 ${reference.name}`}
+              disabled={locked}
+              label={`移除参考图 ${reference.label}`}
               name="close"
               onClick={() =>
-                changeReferences(referencesRef.current.filter((item) => item.id !== reference.id))
+                onReferencesChange(referencesRef.current.filter((item) => item.id !== reference.id))
               }
               size="xs"
             />
           </div>
         ))}
         <button
-          aria-busy={reading > 0}
-          aria-label={reading > 0 ? '正在读取参考图片' : '添加参考图片'}
+          aria-busy={uploading}
+          aria-label={uploading ? '正在上传参考图片' : '添加参考图片'}
           className="video-editor-composer-add hit-48 ui-focus"
-          disabled={reading > 0}
+          disabled={locked || references.length >= MAX_EDIT_REFERENCES}
           onClick={() => inputRef.current?.click()}
           type="button"
         >
           <Icon
-            className={cn(reading > 0 && 'animate-spin')}
+            className={cn(uploading && 'animate-spin')}
             decorative
-            name={reading > 0 ? 'loading' : 'add'}
+            name={uploading ? 'loading' : 'add'}
             size="md"
           />
         </button>
       </div>
       {footer}
       <input
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept={MEDIA_IMAGE_ACCEPT}
         aria-label="选择参考图片"
         className="hidden"
+        disabled={locked}
         multiple
         onChange={(event) => {
-          void addFiles([...(event.target.files ?? [])])
+          const files = [...(event.target.files ?? [])]
           event.target.value = ''
+          void addFiles(files)
         }}
         ref={inputRef}
         type="file"
       />
       <MediaLightbox
-        media={preview === null ? null : { kind: 'image', ...preview }}
+        media={preview === null ? null : { kind: 'image', name: preview.label, url: preview.url }}
         onClose={() => setPreview(null)}
       />
     </div>
