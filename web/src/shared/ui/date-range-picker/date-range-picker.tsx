@@ -1,21 +1,24 @@
 import { useId, useState } from 'react'
+import {
+  dateRangeLabel,
+  formatLocalDate,
+  parseLocalDate,
+  UNBOUNDED_RANGE,
+  type DateRange,
+} from '@/shared/lib/date-range'
 import { ChipGroup, FilterChip } from '@/shared/ui/chip'
-import { auditDateLabel, formatLocalDate, parseLocalDate } from '../audit-dates'
-import type { AuditFilters } from '../audit.api'
 import { DateRangeCalendar } from './date-range-calendar'
 
-type AuditDateValue = Pick<AuditFilters, 'range' | 'since' | 'until'>
-
-type AuditDatePickerProps = {
-  value: AuditDateValue
+type DateRangePickerProps = {
+  value: DateRange
   /** 只交回可应用的范围；自定义只选一端时保持在组件内。 */
-  onChange: (value: AuditDateValue) => void
+  onChange: (value: DateRange) => void
 }
 
-const CLEARED_RANGE: AuditDateValue = { range: 'all', since: null, until: null }
+const CLEARED_RANGE = UNBOUNDED_RANGE
 
 /** 时间浮层内容：快捷范围即选即用，自定义范围选满两端后再应用。 */
-export function AuditDatePicker({ value, onChange }: AuditDatePickerProps) {
+export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const appliedStart =
     value.range === 'custom' && value.since !== null ? parseLocalDate(value.since) : null
   const appliedEnd =
@@ -63,7 +66,7 @@ export function AuditDatePicker({ value, onChange }: AuditDatePickerProps) {
       ? '选择开始日期'
       : end === null
         ? `${start.getMonth() + 1}月${start.getDate()}日 — 选择结束日期`
-        : auditDateLabel({ range: 'custom', since: startKey, until: endKey })
+        : dateRangeLabel({ range: 'custom', since: startKey, until: endKey })
 
   return (
     <div className="p-4">
@@ -80,7 +83,7 @@ export function AuditDatePicker({ value, onChange }: AuditDatePickerProps) {
             key={range}
             value={range}
           >
-            {range === 'custom' ? '自定义' : auditDateLabel({ range, since: null, until: null })}
+            {range === 'custom' ? '自定义' : dateRangeLabel({ range, since: null, until: null })}
           </FilterChip>
         ))}
       </ChipGroup>

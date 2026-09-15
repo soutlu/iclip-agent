@@ -1,7 +1,8 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
-import { AuditRoute, type PickerSource } from '@/features/conversations'
+import { AuditRoute } from '@/features/conversations'
 import { useTaskOptions } from '@/features/tasks'
 import { ensureSessionUser, useUser } from '@/shared/auth'
+import type { PickerSource } from '@/shared/ui/search-picker'
 
 // 全部对话是治理者的页：接口同时要 users:manage 与 agent:read（合同 §6），没登录或权限不够都回首页。
 export const Route = createFileRoute('/_shell/audit')({
