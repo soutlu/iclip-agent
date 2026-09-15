@@ -3,6 +3,7 @@
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useRef } from 'react'
 import { Icon } from '@/shared/icons'
+import { refuseFileDropProps } from '@/shared/ui/dialog'
 
 export type LightboxMedia = { kind: 'image' | 'video'; url: string; name: string }
 
@@ -39,6 +40,7 @@ export function MediaLightbox({ media, onClose }: MediaLightboxProps) {
               event.preventDefault()
               openerRef.current?.focus()
             }}
+            {...refuseFileDropProps}
           >
             <DialogPrimitive.Title className="sr-only">{media.name}</DialogPrimitive.Title>
             <DialogPrimitive.Close

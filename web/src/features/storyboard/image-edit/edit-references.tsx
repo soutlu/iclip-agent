@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { Icon } from '@/shared/icons'
 import { uploadMediaFile, MEDIA_IMAGE_ACCEPT } from '@/shared/api/media-upload'
+import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { cn } from '@/shared/lib/utils'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
@@ -98,10 +99,15 @@ export function EditReferences({
     next.splice(to, 0, item)
     onChange(next)
   }
-  const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
+  // 拖进来先接管：保留冒泡让全局拖放状态收尾，defaultPrevented 表明此处已接管；锁定时标成禁止落点。
+  const claimDrag = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = locked ? 'none' : 'copy'
+    if (!locked) setDragOver(true)
+  }
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasFiles(event)) return
-    // 保留冒泡以清理全局拖放状态，defaultPrevented 表明此处已接管上传。
+    if (!hasDraggedFiles(event)) return
     event.preventDefault()
     setDragOver(false)
     if ([...event.dataTransfer.items].some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
@@ -132,16 +138,8 @@ export function EditReferences({
       </div>
       <div
         className={cn('image-edit-reference-drop', dragOver && 'image-edit-reference-drop-active')}
-        onDragEnter={(event) => {
-          if (!hasFiles(event)) return
-          event.preventDefault()
-          if (!locked) setDragOver(true)
-        }}
-        onDragOver={(event) => {
-          if (!hasFiles(event)) return
-          event.preventDefault()
-          if (!locked) setDragOver(true)
-        }}
+        onDragEnter={claimDrag}
+        onDragOver={claimDrag}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
       >
