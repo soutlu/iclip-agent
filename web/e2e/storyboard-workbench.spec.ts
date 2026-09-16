@@ -183,8 +183,8 @@ for (const width of [1335, 390]) {
     await expect(records.getByRole('dialog')).toHaveCount(0)
     const video = preview.locator('video')
     // mock 的出片是一条 WebM 测试卡（见 testing/mocks/workspace.ts），弹层放的就是记录上那条地址；
-    // dev 下地址没有 hash，构建产物里有。
-    await expect(video).toHaveAttribute('src', /\/sample-video(-[^/]*)?\.webm$/)
+    // dev 下地址没有 hash、带 ?no-inline 查询串，构建产物里有 hash、没查询串。
+    await expect(video).toHaveAttribute('src', /\/sample-video(-[^/?]*)?\.webm(\?.*)?$/)
     await expect(video).toHaveAttribute('controls', '')
     await expect(video).toHaveAttribute('autoplay', '')
     await page.keyboard.press('Escape')
