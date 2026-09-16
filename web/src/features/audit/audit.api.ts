@@ -35,12 +35,12 @@ const ANOMALIES_PAGE = 50
 
 type Window = { since: Date | null; until: Date | null }
 
-/** 时段粒度按窗口跨度定：两周内按天，四个月内按周，再长或不限时间按月。 */
+/** 时段粒度按窗口跨度定：一个半月内按天，四个月内按周，再长或不限时间按月。 */
 export const bucketFor = (scope: DateRange, now: Date = new Date()): Bucket => {
   const { since, until } = dateRangeBounds(scope, now)
   if (since === null) return 'month'
   const days = ((until ?? now).getTime() - since.getTime()) / DAY_MS
-  if (days <= 14) return 'day'
+  if (days <= 45) return 'day'
   return days <= 120 ? 'week' : 'month'
 }
 
@@ -75,13 +75,18 @@ export const summarySearchParams = (
   return params
 }
 
-/** 上一期只要 overall 那一格，不切时段；没有上一期返回 null。 */
+/** 上一期与本期同粒度，逐时段叠在趋势图上作对照；没有上一期返回 null。 */
 export const previousSearchParams = (
   scope: AuditScope,
   now: Date = new Date(),
+  timeZone: string = browserTimeZone(),
 ): URLSearchParams | null => {
   const window = previousWindow(scope, now)
-  return window === null ? null : scopeParams(scope, window)
+  if (window === null) return null
+  const params = scopeParams(scope, window)
+  params.set('bucket', bucketFor(scope, now))
+  params.set('timezone', timeZone)
+  return params
 }
 
 export const conversationsSearchParams = (
@@ -123,7 +128,7 @@ const fetchSummary = (params: URLSearchParams, signal: AbortSignal) =>
     signal,
   })
 
-/** 本期汇总与上一期的 overall；上一期只在有界的时间范围下请求。 */
+/** 本期与上一期两份同粒度汇总；上一期只在有界的时间范围下请求。 */
 export const useAuditSummary = (scope: AuditScope) => {
   const current = useQuery({
     queryFn: ({ signal }) => fetchSummary(summarySearchParams(scope), signal),
@@ -134,7 +139,6 @@ export const useAuditSummary = (scope: AuditScope) => {
     queryFn: ({ signal }) =>
       fetchSummary(previousSearchParams(scope) ?? new URLSearchParams(), signal),
     queryKey: auditQueryKeys.previous(scope),
-    select: (summary) => summary.overall,
   })
   return { current, previous }
 }

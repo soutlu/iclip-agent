@@ -1,10 +1,10 @@
-/** 指标卡角上的迷你趋势线：只画形状，不画刻度；少于两个点不画。 */
+/** 指标卡角上的迷你趋势线：只画形状，不画刻度；少于两个点不画，没数据的期断开而不是贴底。 */
 
 import { Line, LineChart, ReferenceDot, XAxis, YAxis } from 'recharts'
 import { cn } from '@/shared/lib/utils'
 
 type SparklineProps = {
-  values: readonly number[]
+  values: readonly (number | null)[]
   className?: string
 }
 
@@ -14,9 +14,9 @@ const HEIGHT = 28
 const MARGIN = { top: 3, right: 3, bottom: 3, left: 3 }
 
 export function Sparkline({ values, className }: SparklineProps) {
-  if (values.length < 2) return null
+  if (values.filter((value) => value !== null).length < 2) return null
   const data = values.map((value, index) => ({ index, value }))
-  const last = data[data.length - 1]
+  const last = data.filter((point) => point.value !== null).at(-1)
 
   return (
     <span aria-hidden className={cn('block h-7 w-24 shrink-0', className)}>
@@ -40,7 +40,7 @@ export function Sparkline({ values, className }: SparklineProps) {
           strokeWidth={2}
           type="monotone"
         />
-        {last === undefined ? null : (
+        {last === undefined || last.value === null ? null : (
           <ReferenceDot fill={SERIES} r={2.5} stroke="none" x={last.index} y={last.value} />
         )}
       </LineChart>

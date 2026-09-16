@@ -51,9 +51,19 @@ describe('OverviewPanel', () => {
     const cycle = screen.getByRole('article', { name: '交付周期' })
     expect(within(cycle).getAllByText(/小时$/).length).toBeGreaterThan(0)
 
+    const spreads = screen.getByRole('region', { name: '耗时分布' })
+    expect(within(spreads).getAllByRole('rowheader')).toHaveLength(3)
+    expect(within(spreads).getByRole('rowheader', { name: /交付周期/ })).toBeVisible()
+    expect(within(spreads).getByRole('rowheader', { name: /上游段/ })).toBeVisible()
+
+    for (const title of ['成片件数', '一次通过率', '每镜次数', '交付周期中位数']) {
+      expect(screen.getByRole('figure', { name: title })).toBeVisible()
+    }
+
     const byUser = screen.getByRole('region', { name: '按人' })
     expect(within(byUser).getByText('测试用户')).toBeVisible()
     expect(within(byUser).getByText('治理者')).toBeVisible()
+    expect(within(byUser).getByRole('columnheader', { name: '运行次数' })).toBeVisible()
     const byTask = screen.getByRole('region', { name: '按需求单' })
     expect(within(byTask).getAllByRole('row')).toHaveLength(2)
 
@@ -77,7 +87,9 @@ describe('OverviewPanel', () => {
     server.use(
       http.get('*/api/audit/summary', ({ request }) => {
         const query = new URL(request.url).searchParams
-        windows.push(query.has('bucket') ? 'current' : 'previous')
+        // 两期都带 bucket，近 30 天只有上一期带右端点。
+        const isPrevious = query.has('until')
+        windows.push(isPrevious ? 'previous' : 'current')
         const base = {
           attempts: 0,
           attemptsPerShot: null,
@@ -86,10 +98,11 @@ describe('OverviewPanel', () => {
           deliveredConversations: 0,
           deliveredOrphanConversations: 0,
           deliveredTasks: 0,
-          deliveries: query.has('bucket') ? 12 : 10,
-          firstPassRate: null,
-          firstPassShots: 0,
+          deliveries: isPrevious ? 10 : 12,
+          oneTakeRate: null,
+          oneTakeShots: 0,
           producers: 0,
+          runs: 0,
           shots: 0,
           tokensPerDelivery: null,
           upstreamSeconds: null,

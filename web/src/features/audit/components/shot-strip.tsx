@@ -1,4 +1,4 @@
-/** 一段对话的镜头带：每镜一组点，点数即出片次数，最后一点按是否一次过着色。 */
+/** 一段对话的镜头带：每镜一组点，点数即出片次数，只出一条且成了的镜（一次通过）点上加环。 */
 
 import { cn } from '@/shared/lib/utils'
 import type { ConversationReport } from '../audit.api'
@@ -24,7 +24,7 @@ export function ShotStrip({ shots, retryOver = 2 }: ShotStripProps) {
         const spent = new Date(shot.lastAt).getTime() - new Date(shot.firstAt).getTime()
         return (
           <li
-            aria-label={`第 ${shot.shot} 镜，出了 ${shot.attempts} 次，${shot.firstPass ? '一次通过' : '没有一次通过'}`}
+            aria-label={`第 ${shot.shot} 镜，出了 ${shot.attempts} 次，${shot.oneTake ? '一次通过' : '没有一次通过'}`}
             className="flex items-center gap-2"
             key={shot.shot}
             title={
@@ -44,11 +44,11 @@ export function ShotStrip({ shots, retryOver = 2 }: ShotStripProps) {
                     className={cn(
                       'size-2 rounded-full',
                       isLast
-                        ? shot.firstPass || !excessive
+                        ? shot.oneTake || !excessive
                           ? 'bg-primary'
                           : 'bg-error'
                         : 'bg-outline-variant',
-                      isLast && shot.firstPass && 'ring-2 ring-primary-container',
+                      isLast && shot.oneTake && 'ring-2 ring-primary-container',
                     )}
                     key={index}
                   />

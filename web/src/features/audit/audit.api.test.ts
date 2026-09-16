@@ -18,7 +18,11 @@ const scopeOf = (patch: Partial<AuditScope>): AuditScope => ({ ...DEFAULT_AUDIT_
 describe('时段粒度', () => {
   it.each([
     { scope: scopeOf({ range: '7d' }), bucket: 'day' },
-    { scope: scopeOf({ range: '30d' }), bucket: 'week' },
+    { scope: scopeOf({ range: '30d' }), bucket: 'day' },
+    {
+      scope: scopeOf({ range: 'custom', since: '2026-06-01', until: '2026-09-01' }),
+      bucket: 'week',
+    },
     {
       scope: scopeOf({ range: 'custom', since: '2026-03-01', until: '2026-09-01' }),
       bucket: 'month',
@@ -53,14 +57,17 @@ describe('汇总查询串', () => {
 })
 
 describe('上一期', () => {
-  it('是同样长度、紧挨着往前的一段，不切时段', () => {
+  it('是同样长度、紧挨着往前的一段，按本期的粒度切时段', () => {
     const window = previousWindow(scopeOf({ range: '30d' }), NOW)
     expect(window).toEqual({
       since: new Date(NOW.getTime() - 60 * DAY_MS),
       until: new Date(NOW.getTime() - 30 * DAY_MS),
     })
-    const params = previousSearchParams(scopeOf({ range: '30d' }), NOW)
-    expect(params?.has('bucket')).toBe(false)
+    const params = previousSearchParams(scopeOf({ range: '30d' }), NOW, 'Asia/Shanghai')
+    expect(params?.get('since')).toBe(new Date(NOW.getTime() - 60 * DAY_MS).toISOString())
+    expect(params?.get('until')).toBe(new Date(NOW.getTime() - 30 * DAY_MS).toISOString())
+    expect(params?.get('bucket')).toBe('day')
+    expect(params?.get('timezone')).toBe('Asia/Shanghai')
   })
 
   it('自定义区间照区间长度往前推', () => {

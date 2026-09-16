@@ -75,7 +75,7 @@ const reportOf = (conversation: MockConversation, index: number): Report => {
     return {
       attempts,
       firstAt: firstAt.toISOString(),
-      firstPass: attempts === 1,
+      oneTake: attempts === 1,
       lastAt: new Date(firstAt.getTime() + (attempts - 1) * 12 * 60_000).toISOString(),
       shot: shotIndex + 1,
     }
@@ -92,9 +92,10 @@ const reportOf = (conversation: MockConversation, index: number): Report => {
     deliveredOrphanConversations: conversation.taskId === null ? 1 : 0,
     deliveredTasks: conversation.taskId === null ? 0 : 1,
     deliveries: 1,
-    firstPassRate: shots.filter((shot) => shot.firstPass).length / shotCount,
-    firstPassShots: shots.filter((shot) => shot.firstPass).length,
+    oneTakeRate: shots.filter((shot) => shot.oneTake).length / shotCount,
+    oneTakeShots: shots.filter((shot) => shot.oneTake).length,
     producers: 1,
+    runs: 1 + (index % 3),
     shots: shotCount,
     tokensPerDelivery: usage.totalTokens,
     upstreamSeconds: { avg: 540, median: 540, p90: 600 },
@@ -121,7 +122,7 @@ const aggregate = (reports: Report[]): Metrics => {
     reports.reduce((total, r) => total + pick(r.metrics), 0)
   const shots = sum((m) => m.shots)
   const attempts = sum((m) => m.attempts)
-  const firstPassShots = sum((m) => m.firstPassShots)
+  const oneTakeShots = sum((m) => m.oneTakeShots)
   const usage = usageOf(
     sum((m) => m.usage.inputTokens),
     sum((m) => m.usage.cacheReadTokens),
@@ -141,9 +142,10 @@ const aggregate = (reports: Report[]): Metrics => {
     deliveredOrphanConversations: orphans,
     deliveredTasks,
     deliveries,
-    firstPassRate: shots === 0 ? null : firstPassShots / shots,
-    firstPassShots,
+    oneTakeRate: shots === 0 ? null : oneTakeShots / shots,
+    oneTakeShots,
     producers: new Set(reports.map((r) => r.userName)).size,
+    runs: sum((m) => m.runs),
     shots,
     tokensPerDelivery: deliveries === 0 ? null : usage.totalTokens / deliveries,
     upstreamSeconds: reports.length === 0 ? null : { avg: 540, median: 540, p90: 600 },
@@ -187,6 +189,26 @@ const periodStart = (iso: string, bucket: string, timeZone: string): string => {
   const local = new Date(Date.UTC(y, m - 1, bucket === 'month' ? 1 : d))
   if (bucket === 'week') local.setUTCDate(local.getUTCDate() - ((local.getUTCDay() + 6) % 7))
   return local.toISOString()
+}
+
+/** 有界时间窗内每一期都列出来，和后端补空期的口径一致；不限时间没有起点，只留有数据的期。 */
+const periodAxis = (query: URLSearchParams, bucket: string, timeZone: string): string[] => {
+  const since = query.get('since')
+  if (since === null) return []
+  const until = query.get('until')
+  const end = periodStart(
+    new Date(new Date(until ?? Date.now()).getTime() - 1).toISOString(),
+    bucket,
+    timeZone,
+  )
+  const axis: string[] = []
+  for (let at = new Date(periodStart(since, bucket, timeZone)); at.toISOString() <= end;) {
+    axis.push(at.toISOString())
+    at = new Date(at)
+    if (bucket === 'month') at.setUTCMonth(at.getUTCMonth() + 1)
+    else at.setUTCDate(at.getUTCDate() + (bucket === 'week' ? 7 : 1))
+  }
+  return axis
 }
 
 const anomaliesFor = (reports: Report[]): Anomaly[] => {
@@ -285,6 +307,11 @@ export const auditHandlers = [
       if (bucket !== null) {
         const start = periodStart(report.deliveredAt, bucket, timeZone)
         byPeriod.set(start, [...(byPeriod.get(start) ?? []), report])
+      }
+    }
+    if (bucket !== null) {
+      for (const start of periodAxis(query, bucket, timeZone)) {
+        if (!byPeriod.has(start)) byPeriod.set(start, [])
       }
     }
     return HttpResponse.json({

@@ -609,8 +609,8 @@ export const zRunStatusOut = z.object({
 export const zShotOut = z.object({
   attempts: z.int(),
   firstAt: z.iso.datetime(),
-  firstPass: z.boolean(),
   lastAt: z.iso.datetime(),
+  oneTake: z.boolean(),
   shot: z.int(),
 })
 
@@ -1059,9 +1059,10 @@ export const zMetricsOut = z.object({
   deliveredOrphanConversations: z.int(),
   deliveredTasks: z.int(),
   deliveries: z.int(),
-  firstPassRate: z.number().nullable(),
-  firstPassShots: z.int(),
+  oneTakeRate: z.number().nullable(),
+  oneTakeShots: z.int(),
   producers: z.int(),
+  runs: z.int(),
   shots: z.int(),
   tokensPerDelivery: z.number().nullable(),
   upstreamSeconds: zSpreadOut.nullable(),

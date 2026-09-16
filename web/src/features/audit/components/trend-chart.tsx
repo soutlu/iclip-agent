@@ -1,4 +1,4 @@
-/** 单序列趋势图：柱或线，一条 y 轴、浅网格、按时段的 x 刻度，悬停出一格说明。
+/** 趋势图：柱或线，一条 y 轴、浅网格、按时段的 x 刻度，悬停出一格说明；给了上一期就叠一条淡的对照序列。
 
 Recharts 画，颜色全走 token 变量，深浅主题跟着换；要换图表库时只动这一个组件。 */
 
@@ -29,6 +29,8 @@ type TrendChartProps = {
   kind: 'bar' | 'line'
   /** 数值怎么写成字，刻度与悬停共用。 */
   format: (value: number) => string
+  /** 上一期同粒度的值，按下标对齐 points；长度不齐的位置当没数据。 */
+  previous?: readonly (number | null)[] | undefined
   /** 画一条基准线（如每镜次数的 1.0）；越接近它越好。 */
   baseline?: number
   /** 比率一类的上限，让 y 轴顶在 1 而不是最大值。 */
@@ -36,10 +38,15 @@ type TrendChartProps = {
   description?: string
 }
 
+/** 图上的一行：本期的值加上一期对齐过来的值。 */
+type TrendRow = TrendPoint & { previous: number | null }
+
 const SERIES = 'var(--color-chart-1)'
+const BEFORE = 'var(--color-chart-2)'
 const GRID = 'var(--color-border)'
 const TICK = { fill: 'var(--color-on-surface-muted)', fontSize: 'var(--text-caption)' }
 const MARGIN = { top: 8, right: 8, bottom: 0, left: 0 }
+const DASH = '5 4'
 const DOT = {
   fill: SERIES,
   r: 3.5,
@@ -52,16 +59,24 @@ export function TrendChart({
   points,
   kind,
   format,
+  previous,
   baseline,
   max,
   description,
 }: TrendChartProps) {
   const titleId = useId()
+  const withBefore = previous !== undefined
+  const rows: TrendRow[] = points.map((point, index) => ({
+    ...point,
+    previous: previous?.[index] ?? null,
+  }))
   const domain: [number, number | 'auto'] = [0, max ?? 'auto']
   // 有上限的比率按四等分给刻度（0 / 25% / 50% / 75% / 100%），不让 Recharts 自己凑出 35%、70% 这种数。
   const tickProps =
     max === undefined ? { tickCount: 4 } : { ticks: [0, max / 4, max / 2, (max * 3) / 4, max] }
-  const tooltip = (props: TooltipContentProps) => <TrendTooltip {...props} format={format} />
+  const tooltip = (props: TooltipContentProps) => (
+    <TrendTooltip {...props} format={format} withBefore={withBefore} />
+  )
   const axes = (
     <>
       <CartesianGrid stroke={GRID} strokeDasharray="3 5" vertical={false} />
@@ -100,13 +115,33 @@ export function TrendChart({
       aria-labelledby={titleId}
       className="flex min-w-0 flex-col gap-2 rounded-lg bg-surface-container-lowest p-5 shadow-[var(--shadow-1)]"
     >
-      <figcaption className="flex items-baseline justify-between gap-3">
+      <figcaption className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h3 className="text-title font-medium text-on-surface" id={titleId}>
           {title}
         </h3>
-        {description === undefined ? null : (
-          <span className="truncate text-body-sm text-on-surface-variant">{description}</span>
-        )}
+        <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-body-sm text-on-surface-variant">
+          {description === undefined ? null : <span className="truncate">{description}</span>}
+          {withBefore ? (
+            <span className="flex items-center gap-3">
+              <span className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="h-0.5 w-4 rounded-full"
+                  style={{ background: SERIES }}
+                />
+                本期
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="w-4 border-t-2 border-dashed"
+                  style={{ borderColor: BEFORE }}
+                />
+                上期
+              </span>
+            </span>
+          ) : null}
+        </span>
       </figcaption>
       {points.length === 0 ? (
         <p className="grid h-52 place-items-center text-body text-on-surface-variant">
@@ -115,7 +150,7 @@ export function TrendChart({
       ) : kind === 'bar' ? (
         <BarChart
           className="h-52 w-full"
-          data={points}
+          data={rows}
           margin={MARGIN}
           responsive
           title={`${title}趋势图`}
@@ -126,6 +161,19 @@ export function TrendChart({
             cursor={{ fill: 'var(--color-state-hover)', radius: 4 }}
             isAnimationActive={false}
           />
+          {/* 上期柱在左、本期柱在右，按时间先后并排。 */}
+          {withBefore ? (
+            <Bar
+              activeBar={false}
+              dataKey="previous"
+              fill="none"
+              isAnimationActive={false}
+              maxBarSize={28}
+              radius={[4, 4, 0, 0]}
+              stroke={BEFORE}
+              strokeDasharray={DASH}
+            />
+          ) : null}
           <Bar
             activeBar={{ fill: SERIES }}
             dataKey="value"
@@ -138,7 +186,7 @@ export function TrendChart({
       ) : (
         <LineChart
           className="h-52 w-full"
-          data={points}
+          data={rows}
           margin={MARGIN}
           responsive
           title={`${title}趋势图`}
@@ -149,6 +197,19 @@ export function TrendChart({
             cursor={{ stroke: GRID, strokeWidth: 1 }}
             isAnimationActive={false}
           />
+          {withBefore ? (
+            <Line
+              activeDot={false}
+              dataKey="previous"
+              dot={false}
+              isAnimationActive={false}
+              stroke={BEFORE}
+              strokeDasharray={DASH}
+              strokeLinecap="round"
+              strokeWidth={2}
+              type="monotone"
+            />
+          ) : null}
           <Line
             activeDot={{ ...DOT, r: 6 }}
             dataKey="value"
@@ -165,15 +226,29 @@ export function TrendChart({
   )
 }
 
-type TrendTooltipProps = TooltipContentProps & { format: (value: number) => string }
+type TrendTooltipProps = TooltipContentProps & {
+  format: (value: number) => string
+  withBefore: boolean
+}
 
-/** 一格说明：时段 · 数值；Recharts 默认的白底框不跟主题，这里自己画。 */
-function TrendTooltip({ active, payload, format }: TrendTooltipProps) {
-  const point = payload[0]?.payload as TrendPoint | undefined
-  if (!active || point === undefined) return null
+/** 一格说明：时段加本期数值，有对照时再给一行上期；Recharts 默认的白底框不跟主题，这里自己画。 */
+function TrendTooltip({ active, payload, format, withBefore }: TrendTooltipProps) {
+  const row = payload[0]?.payload as TrendRow | undefined
+  if (!active || row === undefined) return null
+  const read = (value: number | null) => (value === null ? '无数据' : format(value))
   return (
-    <div className="rounded-xs bg-inverse-surface px-2 py-1 text-label text-inverse-on-surface tabular-nums shadow-[var(--shadow-2)]">
-      {point.label} · {point.value === null ? '无数据' : format(point.value)}
+    <div className="flex flex-col rounded-xs bg-inverse-surface px-2 py-1 text-label text-inverse-on-surface tabular-nums shadow-[var(--shadow-2)]">
+      {withBefore ? (
+        <>
+          <span>{row.label}</span>
+          <span>本期 {read(row.value)}</span>
+          <span>上期 {read(row.previous)}</span>
+        </>
+      ) : (
+        <span>
+          {row.label} · {read(row.value)}
+        </span>
+      )}
     </div>
   )
 }
