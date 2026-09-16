@@ -34,6 +34,8 @@ import { useGenerationGate } from '../use-generation-gate'
 import { useShotsDraft } from '../use-shots-draft'
 import { useLiveGenerations } from '../use-live-generations'
 import { useVideoGeneration } from '../use-video-generation'
+import { editCountsByRoot } from '../video-editor/edit-chain'
+import { VideoEditor } from '../video-editor/video-editor'
 import { ConflictDialog, ReaderNotice, SaveStatus } from './draft-status'
 import { GenerationRecords } from './generation-records'
 import { ReaderPage } from './reader-page'
@@ -46,6 +48,8 @@ type ReaderSearch = {
   frame?: number | undefined
   sheet?: 'all' | 'prompt' | 'records' | undefined
   shot?: number | undefined
+  /** 视频编辑器开在哪条出片记录上；换组就关掉。 */
+  video?: string | undefined
 }
 type Preview = (media: LightboxMedia) => void
 
@@ -155,7 +159,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   const go = (next: ReaderSearch) => {
     const cleared =
       next.shot !== undefined && next.shot !== position
-        ? { content: undefined, frame: undefined }
+        ? { content: undefined, frame: undefined, video: undefined }
         : {}
     void navigate({ replace: true, search: { ...search, ...cleared, ...next }, to: '.' })
   }
@@ -192,9 +196,12 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   }
 
   // 只看这份分镜文件的记录；坐标读不出来的（别的调用方写的）不算。
-  const jobs = (generations.data?.items ?? []).filter(
-    (job) => readStoryboardMetadata(job)?.path === path,
-  )
+  const allJobs = generations.data?.items ?? []
+  const jobs = allJobs.filter((job) => readStoryboardMetadata(job)?.path === path)
+  // 编辑结果不带分镜坐标，抽屉里不单列；数一下折进原片那张卡。
+  const editCounts = editCountsByRoot(allJobs)
+  const videoEditRoot =
+    search.video === undefined ? undefined : allJobs.find((job) => job.id === search.video)
   const activeCount = jobs.filter(
     (job) =>
       job.kind === 'video' &&
@@ -408,8 +415,10 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                 </>
               ) : (
                 <GenerationRecords
+                  editCounts={editCounts}
                   jobs={jobs}
                   onClose={closeSheet}
+                  onEditVideo={readOnly ? undefined : (job) => go({ video: job.id })}
                   onEditPrompt={
                     readOnly
                       ? undefined
@@ -432,6 +441,17 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
         </div>
       </div>
       <MediaLightbox media={media} onClose={() => setMedia(null)} />
+      {search.video === undefined ? null : (
+        <VideoEditor
+          conversationId={conversationId}
+          loading={generations.isPending}
+          onClose={() => go({ video: undefined })}
+          root={videoEditRoot}
+          shotIndex={
+            videoEditRoot === undefined ? undefined : readStoryboardMetadata(videoEditRoot)?.shot
+          }
+        />
+      )}
       {imageEdit === null || imageEditTarget === null ? null : (
         <FrameImageEditor
           key={JSON.stringify(imageEditTarget)}

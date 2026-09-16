@@ -7,7 +7,6 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GenerationJob } from '../storyboard.api'
 import { GenerationRecords } from './generation-records'
-import { loadEditorSource } from '../video-editor/editor-source'
 
 const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
   createdAt: '2026-09-01T10:00:00Z',
@@ -60,12 +59,17 @@ const jobs: GenerationJob[] = [
 
 const renderRecords = async () => {
   return renderWithProviders(
-    <GenerationRecords jobs={jobs} onClose={() => {}} onEditPrompt={() => {}} shotIndex={2} />,
+    <GenerationRecords
+      jobs={jobs}
+      onClose={() => {}}
+      onEditPrompt={() => {}}
+      onEditVideo={() => {}}
+      shotIndex={2}
+    />,
   )
 }
 
 beforeEach(() => {
-  sessionStorage.clear()
   vi.stubGlobal('scrollTo', () => {})
   // 下载菜单是 Radix 弹层，定位时要量尺寸；jsdom 没有 ResizeObserver。
   vi.stubGlobal(
@@ -220,21 +224,23 @@ describe('GenerationRecords', () => {
     expect(requested[1]).toBe('https://downloads.example.test/clean.mp4')
   })
 
-  it('完成的视频进入编辑页并保留原片、标题与返回位置', async () => {
-    const { router } = await renderWithProviders(
-      <GenerationRecords jobs={jobs} onClose={() => {}} onEditPrompt={() => {}} shotIndex={2} />,
-      { initialPath: '/c/demo?sheet=records' },
+  it('只有完成且有结果的记录能进编辑，把那条记录交给调用方，并显示已编辑几次', async () => {
+    const onEditVideo = vi.fn()
+    await renderWithProviders(
+      <GenerationRecords
+        editCounts={new Map([['a', 2]])}
+        jobs={jobs}
+        onClose={() => {}}
+        onEditPrompt={() => {}}
+        onEditVideo={onEditVideo}
+        shotIndex={2}
+      />,
     )
-    expect(screen.getAllByRole('button', { name: '编辑视频' })).toHaveLength(1)
-    await userEvent.click(screen.getByRole('button', { name: '编辑视频' }))
-
-    await waitFor(() => expect(router.state.location.pathname).toBe('/video-editor/a'))
-    expect(loadEditorSource('a')).toEqual({
-      jobId: 'a',
-      videoUrl: 'take-1.mp4',
-      title: '第一版：走向镜头。',
-      returnTo: '/c/demo?sheet=records',
-    })
+    const button = screen.getByRole('button', { name: /^编辑视频/ })
+    expect(screen.getAllByRole('button', { name: /^编辑视频/ })).toHaveLength(1)
+    expect(button).toHaveTextContent('已编辑 2 次')
+    await userEvent.click(button)
+    expect(onEditVideo).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
   })
 
   it.each([
@@ -249,27 +255,17 @@ describe('GenerationRecords', () => {
         <GenerationRecords
           jobs={[job({ id: 'unavailable', ...spec })]}
           onClose={() => {}}
+          onEditVideo={() => {}}
           shotIndex={2}
         />,
       )
-      expect(screen.queryByRole('button', { name: '编辑视频' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^编辑视频/ })).not.toBeInTheDocument()
     },
   )
 
-  it('不能保存视频来源时留在记录页并提示错误', async () => {
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new DOMException('Quota exceeded', 'QuotaExceededError')
-    })
-    const { router } = await renderWithProviders(
-      <>
-        <Toaster />
-        <GenerationRecords jobs={jobs} onClose={() => {}} shotIndex={2} />
-      </>,
-      { initialPath: '/c/demo?sheet=records' },
-    )
-    await userEvent.click(screen.getByRole('button', { name: '编辑视频' }))
-    expect(await screen.findByText('无法打开视频编辑，请重试')).toBeVisible()
-    expect(router.state.location.href).toBe('/c/demo?sheet=records')
+  it('只读时没有编辑视频入口', async () => {
+    await renderWithProviders(<GenerationRecords jobs={jobs} onClose={() => {}} shotIndex={2} />)
+    expect(screen.queryByRole('button', { name: /^编辑视频/ })).not.toBeInTheDocument()
   })
 
   it('时刻写成年月日时分', async () => {

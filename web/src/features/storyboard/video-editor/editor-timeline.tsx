@@ -1,168 +1,136 @@
+/** 时间线：上轨是基底里对应的内容，下轨是当前这一版；在版本上拖手柄选段，方向键微调。 */
+
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
-import {
-  durationOf,
-  timelineSegments,
-  type EditorVersion,
-  type TimelineSegment,
-} from './editor-model'
-import { EditorVersionMenu } from './editor-version-menu'
+import type { ChainVersion, LaidOutSegment } from './edit-chain'
+import { EditorVersionMenu, type VersionMenuEntry } from './editor-version-menu'
+import { roundSeconds, timeLabel } from './time-label'
+import { clampRange, MIN_RANGE_SECONDS, type TimeRange } from './time-range'
 import './editor-timeline.css'
 
-type TimeRange = { start: number; end: number }
+const ZOOM_LEVELS = [1, 1.5, 2, 3, 4] as const
+const TICK_STEPS = [0.1, 0.25, 0.5, 1, 2, 3, 5, 10, 15, 30, 60]
 
 type EditorTimelineProps = {
-  version: EditorVersion
-  versions: readonly EditorVersion[]
-  posterUrl: string | undefined
+  /** 当前看的这一版叫什么。 */
+  label: string
+  segments: readonly LaidOutSegment[]
+  duration: number
+  /** 它基于哪一版；根没有。 */
+  base: ChainVersion | undefined
+  baseDuration: number | undefined
+  /** 版本菜单里能选的：各版与已能预览的编辑。 */
+  entries: readonly VersionMenuEntry[]
+  selectedKey: string
+  /** 从根到当前版本的来源链。 */
+  ancestors: readonly ChainVersion[]
+  posterOf: (url: string) => string | undefined
   currentTime: number
-  selection: TimeRange
+  /** 空表示看的是编辑预览，不能在上面选段。 */
+  selection: TimeRange | null
   onSeek: (time: number) => void
   onSelectionChange: (range: TimeRange) => void
-  onVersionChange: (id: string) => void
+  onSelect: (key: string) => void
   onHistory: () => void
 }
 
-const ZOOM_LEVELS = [1, 1.5, 2, 3, 4] as const
-
-function clockLabel(time: number): string {
-  const minutes = Math.floor(time / 60)
-    .toString()
-    .padStart(2, '0')
-  const seconds = (time % 60).toFixed(2).padStart(5, '0')
-  return `${minutes}:${seconds}`
-}
-
-function ancestorChain(
-  version: EditorVersion,
-  versions: readonly EditorVersion[],
-): EditorVersion[] {
-  const chain: EditorVersion[] = []
-  const seen = new Set<string>()
-  let current: EditorVersion | undefined = version
-  while (current && !seen.has(current.id)) {
-    chain.push(current)
-    seen.add(current.id)
-    const parentId: string | null = current.parentId
-    current = versions.find((candidate) => candidate.id === parentId)
-  }
-  return chain.reverse()
-}
-
-function SegmentFrames({
-  segment,
-  posterUrl,
-  zoom,
-}: {
-  segment: TimelineSegment
-  posterUrl: string | undefined
-  zoom: number
-}) {
-  if (!posterUrl) {
+function SegmentFrames({ poster, count }: { poster: string | undefined; count: number }) {
+  if (poster === undefined) {
     return (
-      <span className="editor-timeline-empty">
+      <span className="video-editor-timeline-empty">
         <Icon decorative name="video" size="md" />
       </span>
     )
   }
-  const count = Math.max(1, Math.min(48, Math.ceil((segment.duration * zoom) / 1.2)))
-  const frames = Array.from({ length: count }, (_, index) => index / count)
   return (
-    <span aria-hidden="true" className="editor-timeline-frames">
-      {frames.map((offset) => (
-        <img alt="" draggable={false} key={offset} src={posterUrl} />
+    <span aria-hidden="true" className="video-editor-timeline-frames">
+      {Array.from({ length: count }, (_, at) => (
+        <img alt="" draggable={false} key={at} src={poster} />
       ))}
     </span>
   )
 }
 
-/** Compare a complete version with the original on the current version's playback clock. */
 export function EditorTimeline({
-  version,
-  versions,
-  posterUrl,
+  label,
+  segments,
+  duration,
+  base,
+  baseDuration,
+  entries,
+  selectedKey,
+  ancestors,
+  posterOf,
   currentTime,
   selection,
   onSeek,
   onSelectionChange,
-  onVersionChange,
+  onSelect,
   onHistory,
 }: EditorTimelineProps) {
   const [zoomIndex, setZoomIndex] = useState(0)
   const contentRef = useRef<HTMLDivElement>(null)
-  const duration = durationOf(version)
-  const segments = timelineSegments(version)
-  const lastMappedId = segments.filter((segment) => segment.sourceEnd !== null).at(-1)?.id
   const zoom = ZOOM_LEVELS[zoomIndex] ?? 1
-  const ancestors = ancestorChain(version, versions)
-  const original = ancestors.find((candidate) => candidate.parentId === null)
-  const minimumRange = Math.min(0.1, duration)
   const boundedTime = Math.max(0, Math.min(duration, currentTime))
+  const lastBase = segments.filter((segment) => segment.role === 'base').at(-1)
   const tickTarget = duration / (8 * zoom)
-  const tickStep =
-    [0.1, 0.25, 0.5, 1, 2, 3, 5, 10, 15, 30, 60].find((step) => step >= tickTarget) ??
-    Math.ceil(tickTarget / 60) * 60
+  const tickStep = TICK_STEPS.find((step) => step >= tickTarget) ?? Math.ceil(tickTarget / 60) * 60
   const ticks = Array.from(
     { length: Math.ceil(duration / tickStep) },
-    (_, index) => index * tickStep,
+    (_, at) => at * tickStep,
   ).filter((time) => time < duration - tickStep * 0.35)
   ticks.push(duration)
+  const percent = (time: number) => `${(time / duration) * 100}%`
+  const frameCount = (segment: LaidOutSegment) =>
+    Math.max(1, Math.min(48, Math.ceil((segment.duration * zoom) / 1.2)))
 
-  const changeBoundary = (boundary: 'start' | 'end', value: number) => {
-    const rounded = Math.round(value * 100) / 100
-    onSelectionChange(
-      boundary === 'start'
-        ? {
-            start: Math.max(0, Math.min(selection.end - minimumRange, rounded)),
-            end: selection.end,
-          }
-        : {
-            start: selection.start,
-            end: Math.min(duration, Math.max(selection.start + minimumRange, rounded)),
-          },
-    )
+  const changeBoundary = (boundary: keyof TimeRange, value: number) => {
+    if (selection === null) return
+    onSelectionChange(clampRange({ ...selection, [boundary]: value }, duration))
   }
 
-  const dragBoundary = (event: PointerEvent<HTMLButtonElement>, boundary: 'start' | 'end') => {
+  const dragBoundary = (event: PointerEvent<HTMLButtonElement>, boundary: keyof TimeRange) => {
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
     const bounds = contentRef.current?.getBoundingClientRect()
-    if (!bounds || bounds.width === 0) return
+    if (bounds === undefined || bounds.width === 0) return
     changeBoundary(boundary, ((event.clientX - bounds.left) / bounds.width) * duration)
   }
 
-  const keyBoundary = (event: KeyboardEvent<HTMLButtonElement>, boundary: 'start' | 'end') => {
+  const keyBoundary = (event: KeyboardEvent<HTMLButtonElement>, boundary: keyof TimeRange) => {
+    if (selection === null) return
     const step = event.shiftKey ? 1 : 0.1
     const current = selection[boundary]
-    const values: Record<string, number> = {
+    const targets: Record<string, number> = {
       ArrowLeft: current - step,
       ArrowDown: current - step,
       ArrowRight: current + step,
       ArrowUp: current + step,
-      Home: boundary === 'start' ? 0 : selection.start + minimumRange,
-      End: boundary === 'start' ? selection.end - minimumRange : duration,
+      Home: boundary === 'start' ? 0 : selection.start + MIN_RANGE_SECONDS,
+      End: boundary === 'start' ? selection.end - MIN_RANGE_SECONDS : duration,
     }
-    const next = values[event.key]
+    const next = targets[event.key]
     if (next === undefined) return
     event.preventDefault()
     changeBoundary(boundary, next)
   }
 
   return (
-    <section aria-label="视频编辑时间线" className="editor-timeline">
-      <header className="editor-timeline-toolbar">
-        <div className="editor-timeline-heading">
-          <h2>时间线</h2>
+    <section aria-label="视频编辑时间线" className="video-editor-timeline">
+      <header className="video-editor-timeline-toolbar">
+        <div className="video-editor-timeline-heading">
+          <h3>时间线</h3>
           <EditorVersionMenu
+            entries={entries}
+            label={label}
             onHistory={onHistory}
-            onVersionChange={onVersionChange}
-            posterUrl={posterUrl}
-            version={version}
-            versions={versions}
+            onSelect={onSelect}
+            posterOf={posterOf}
+            selectedKey={selectedKey}
           />
         </div>
-        <div aria-label="时间线缩放" className="editor-timeline-tools" role="group">
+        <div aria-label="时间线缩放" className="video-editor-timeline-tools" role="group">
           <IconButton
             disabled={zoomIndex === 0}
             label="缩小时间线"
@@ -189,49 +157,49 @@ export function EditorTimeline({
         </div>
       </header>
 
-      <div className="editor-timeline-viewport">
-        <div aria-hidden="true" className="editor-timeline-labels">
-          <div className="editor-timeline-ruler-spacer" />
-          <div className="editor-timeline-track-label">
+      <div className="video-editor-timeline-viewport">
+        <div aria-hidden="true" className="video-editor-timeline-labels">
+          <div className="video-editor-timeline-ruler-spacer" />
+          <div className="video-editor-timeline-track-label">
             <Icon decorative name="locked" size="md" />
             <div>
-              <strong>原片</strong>
-              <span>{original ? `${durationOf(original)}s` : '—'}</span>
+              <strong>{base?.label ?? '原片'}</strong>
+              <span>{baseDuration === undefined ? '—' : `${roundSeconds(baseDuration)}s`}</span>
             </div>
           </div>
-          <div className="editor-timeline-track-label editor-timeline-current-label">
+          <div className="video-editor-timeline-track-label video-editor-timeline-current-label">
             <Icon decorative name="video" size="md" />
             <div>
-              <strong>{version.label}</strong>
-              <span>{Number(duration.toFixed(2))}s</span>
+              <strong>{label}</strong>
+              <span>{roundSeconds(duration)}s</span>
             </div>
           </div>
         </div>
         <div
           aria-label="时间线轨道，放大后可横向滚动"
-          className="editor-timeline-scroll"
+          className="video-editor-timeline-scroll"
           role="region"
         >
           <div
-            className="editor-timeline-content"
+            className="video-editor-timeline-content"
             ref={contentRef}
             style={{ minWidth: `${640 * zoom}px` }}
           >
-            <div className="editor-timeline-ruler">
+            <div className="video-editor-timeline-ruler">
               {ticks.map((time) => (
                 <span
                   aria-hidden="true"
-                  className={cn('editor-timeline-tick', time === duration && 'is-last')}
+                  className={cn('video-editor-timeline-tick', time === duration && 'is-last')}
                   key={time}
-                  style={{ left: `${(time / duration) * 100}%` }}
+                  style={{ left: percent(time) }}
                 >
-                  {Number(time.toFixed(2))}s
+                  {roundSeconds(time)}s
                 </span>
               ))}
               <input
                 aria-label="时间线播放位置"
-                aria-valuetext={clockLabel(boundedTime)}
-                className="editor-timeline-seek"
+                aria-valuetext={timeLabel(boundedTime)}
+                className="video-editor-timeline-seek"
                 max={duration}
                 min={0}
                 onChange={(event) => onSeek(Number(event.target.value))}
@@ -242,36 +210,39 @@ export function EditorTimeline({
             </div>
 
             <div
-              aria-label="原片对应内容"
-              className="editor-timeline-track editor-timeline-source-track"
+              aria-label="基底对应内容"
+              className="video-editor-timeline-track video-editor-timeline-source-track"
             >
               {segments.map((segment) => (
                 <div
                   className={cn(
-                    'editor-timeline-source-segment',
-                    segment.sourceStart === null && 'is-gap',
+                    'video-editor-timeline-source-segment',
+                    segment.role === 'edited' && 'is-gap',
                   )}
-                  key={segment.id}
-                  style={{ width: `${(segment.duration / duration) * 100}%` }}
+                  key={`${segment.mediaUrl}:${segment.at}`}
+                  style={{ width: percent(segment.duration) }}
                   title={
-                    segment.sourceStart === null
-                      ? '新增内容，无对应原片'
-                      : `原片 ${clockLabel(segment.sourceStart)} — ${clockLabel(segment.sourceEnd ?? segment.sourceStart)}`
+                    segment.role === 'edited'
+                      ? '这一段换成了编辑结果'
+                      : `${base?.label ?? '原片'} ${timeLabel(segment.start)} — ${timeLabel(segment.end)}`
                   }
                 >
-                  {segment.sourceStart === null ? (
-                    <span className="editor-timeline-gap">无对应原片</span>
+                  {segment.role === 'edited' ? (
+                    <span className="video-editor-timeline-gap">编辑结果</span>
                   ) : (
                     <>
-                      <SegmentFrames posterUrl={posterUrl} segment={segment} zoom={zoom} />
-                      <span className="editor-timeline-source-time">
-                        {Number(segment.sourceStart.toFixed(2))}s
+                      <SegmentFrames
+                        count={frameCount(segment)}
+                        poster={posterOf(segment.mediaUrl)}
+                      />
+                      <span className="video-editor-timeline-source-time">
+                        {roundSeconds(segment.start)}s
                       </span>
-                      {segment.id === lastMappedId && segment.sourceEnd !== null && (
-                        <span className="editor-timeline-source-time is-end">
-                          {Number(segment.sourceEnd.toFixed(2))}s
+                      {segment === lastBase ? (
+                        <span className="video-editor-timeline-source-time is-end">
+                          {roundSeconds(segment.end)}s
                         </span>
-                      )}
+                      ) : null}
                     </>
                   )}
                 </div>
@@ -279,83 +250,87 @@ export function EditorTimeline({
             </div>
 
             <div
-              aria-label={`${version.label} 完整视频`}
-              className="editor-timeline-track editor-timeline-current-track"
+              aria-label={`${label} 完整视频`}
+              className="video-editor-timeline-track video-editor-timeline-current-track"
             >
               {segments.map((segment) => {
-                const originLabel = versions.find(
-                  (candidate) => candidate.id === segment.originVersionId,
-                )?.label
-                const action =
-                  segment.changeKind === 'extend'
-                    ? `+${Number(segment.duration.toFixed(2))}s`
-                    : '修改'
+                const range = { start: segment.at, end: segment.at + segment.duration }
                 const isSelected =
-                  segment.currentStart === selection.start && segment.currentEnd === selection.end
+                  selection !== null &&
+                  range.start === selection.start &&
+                  range.end === selection.end
                 return (
                   <button
-                    aria-label={`${segment.changeKind === 'original' ? '原片内容' : action} ${clockLabel(segment.currentStart)} 至 ${clockLabel(segment.currentEnd)}${originLabel ? `，来源 ${originLabel}` : ''}`}
-                    aria-pressed={isSelected}
-                    className={cn('editor-timeline-segment ui-focus', `is-${segment.changeKind}`)}
-                    key={segment.id}
+                    aria-label={`${segment.role === 'edited' ? '编辑结果' : '原片内容'} ${timeLabel(range.start)} 至 ${timeLabel(range.end)}`}
+                    aria-pressed={selection === null ? undefined : isSelected}
+                    className={cn(
+                      'video-editor-timeline-segment ui-focus',
+                      segment.role === 'edited' && 'is-edited',
+                    )}
+                    key={`${segment.mediaUrl}:${segment.at}`}
                     onClick={() => {
-                      onSelectionChange({ start: segment.currentStart, end: segment.currentEnd })
-                      onSeek(segment.currentStart)
+                      if (selection !== null) onSelectionChange(clampRange(range, duration))
+                      onSeek(range.start)
                     }}
-                    style={{ width: `${(segment.duration / duration) * 100}%` }}
-                    title={segment.prompt}
+                    style={{ width: percent(segment.duration) }}
                     type="button"
                   >
-                    <SegmentFrames posterUrl={posterUrl} segment={segment} zoom={zoom} />
-                    {segment.changeKind !== 'original' && (
-                      <span className="editor-timeline-change-label">
-                        {action}
-                        {originLabel ? ` · ${originLabel}` : ''}
-                      </span>
-                    )}
+                    <SegmentFrames
+                      count={frameCount(segment)}
+                      poster={posterOf(segment.mediaUrl)}
+                    />
+                    {segment.role === 'edited' ? (
+                      <span className="video-editor-timeline-change-label">编辑结果</span>
+                    ) : null}
                   </button>
                 )
               })}
-              <div
-                className="editor-timeline-selection"
-                style={{
-                  left: `${(selection.start / duration) * 100}%`,
-                  width: `${((selection.end - selection.start) / duration) * 100}%`,
-                }}
-              />
-              {(['start', 'end'] as const).map((boundary) => (
-                <button
-                  aria-label={boundary === 'start' ? '选段开始时间' : '选段结束时间'}
-                  aria-valuemax={boundary === 'start' ? selection.end - minimumRange : duration}
-                  aria-valuemin={boundary === 'start' ? 0 : selection.start + minimumRange}
-                  aria-valuenow={selection[boundary]}
-                  aria-valuetext={clockLabel(selection[boundary])}
-                  className={cn('editor-timeline-handle ui-focus', `is-${boundary}`)}
-                  key={boundary}
-                  onKeyDown={(event) => keyBoundary(event, boundary)}
-                  onPointerDown={(event) => {
-                    event.preventDefault()
-                    event.currentTarget.focus()
-                    event.currentTarget.setPointerCapture(event.pointerId)
-                  }}
-                  onPointerMove={(event) => dragBoundary(event, boundary)}
-                  onPointerUp={(event) => {
-                    if (event.currentTarget.hasPointerCapture(event.pointerId))
-                      event.currentTarget.releasePointerCapture(event.pointerId)
-                  }}
-                  role="slider"
-                  style={{ left: `${(selection[boundary] / duration) * 100}%` }}
-                  title={`${boundary === 'start' ? '开始' : '结束'} ${clockLabel(selection[boundary])}；方向键微调，Shift 加速`}
-                  type="button"
-                >
-                  <span />
-                </button>
-              ))}
+              {selection === null ? null : (
+                <>
+                  <div
+                    className="video-editor-timeline-selection"
+                    style={{
+                      left: percent(selection.start),
+                      width: percent(selection.end - selection.start),
+                    }}
+                  />
+                  {(['start', 'end'] as const).map((boundary) => (
+                    <button
+                      aria-label={boundary === 'start' ? '选段开始时间' : '选段结束时间'}
+                      aria-valuemax={
+                        boundary === 'start' ? selection.end - MIN_RANGE_SECONDS : duration
+                      }
+                      aria-valuemin={boundary === 'start' ? 0 : selection.start + MIN_RANGE_SECONDS}
+                      aria-valuenow={selection[boundary]}
+                      aria-valuetext={timeLabel(selection[boundary])}
+                      className={cn('video-editor-timeline-handle ui-focus', `is-${boundary}`)}
+                      key={boundary}
+                      onKeyDown={(event) => keyBoundary(event, boundary)}
+                      onPointerDown={(event) => {
+                        event.preventDefault()
+                        event.currentTarget.focus()
+                        event.currentTarget.setPointerCapture(event.pointerId)
+                      }}
+                      onPointerMove={(event) => dragBoundary(event, boundary)}
+                      onPointerUp={(event) => {
+                        if (event.currentTarget.hasPointerCapture(event.pointerId))
+                          event.currentTarget.releasePointerCapture(event.pointerId)
+                      }}
+                      role="slider"
+                      style={{ left: percent(selection[boundary]) }}
+                      title={`${boundary === 'start' ? '开始' : '结束'} ${timeLabel(selection[boundary])}；方向键微调，Shift 加速`}
+                      type="button"
+                    >
+                      <span />
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
             <div
               aria-hidden="true"
-              className="editor-timeline-playhead"
-              style={{ left: `${(boundedTime / duration) * 100}%` }}
+              className="video-editor-timeline-playhead"
+              style={{ left: percent(boundedTime) }}
             >
               <span
                 className={cn(
@@ -363,30 +338,29 @@ export function EditorTimeline({
                   boundedTime / duration > 0.92 && 'at-end',
                 )}
               >
-                {clockLabel(boundedTime)}
+                {timeLabel(boundedTime)}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      <footer className="editor-timeline-footer">
-        <div className="editor-timeline-legend">
-          <span className="is-modify">修改</span>
-          <span className="is-extend">延长</span>
+      <footer className="video-editor-timeline-footer">
+        <div className="video-editor-timeline-legend">
+          <span className="is-edited">编辑结果</span>
         </div>
-        <nav aria-label="当前版本来源" className="editor-timeline-ancestors">
-          {ancestors.map((ancestor) => (
-            <span className="editor-timeline-ancestor" key={ancestor.id}>
+        <nav aria-label="当前版本来源" className="video-editor-timeline-ancestors">
+          {ancestors.map((ancestor, at) => (
+            <span className="video-editor-timeline-ancestor" key={ancestor.key}>
               <button
-                aria-current={ancestor.id === version.id ? 'step' : undefined}
+                aria-current={at === ancestors.length - 1 ? 'step' : undefined}
                 className="ui-focus"
-                onClick={() => onVersionChange(ancestor.id)}
+                onClick={() => onSelect(ancestor.key)}
                 type="button"
               >
                 {ancestor.label}
               </button>
-              {ancestor.id !== version.id && <Icon decorative name="next" size="sm" />}
+              {at < ancestors.length - 1 ? <Icon decorative name="next" size="sm" /> : null}
             </span>
           ))}
         </nav>

@@ -14,7 +14,6 @@ import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as ShellAuditRouteImport } from './routes/_shell/audit'
 import { Route as ShellConversationsRouteImport } from './routes/_shell/conversations'
 import { Route as ShellTasksRouteImport } from './routes/_shell/tasks'
-import { Route as VideoEditorJobIdRouteImport } from './routes/video-editor.$jobId'
 import { Route as ShellCConversationIdRouteImport } from './routes/_shell/c.$conversationId'
 import { Route as AuthSsoLandingRouteImport } from './routes/auth.sso.landing'
 
@@ -42,11 +41,6 @@ const ShellTasksRoute = ShellTasksRouteImport.update({
   path: '/tasks',
   getParentRoute: () => ShellRoute,
 } as any)
-const VideoEditorJobIdRoute = VideoEditorJobIdRouteImport.update({
-  id: '/video-editor/$jobId',
-  path: '/video-editor/$jobId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ShellCConversationIdRoute = ShellCConversationIdRouteImport.update({
   id: '/c/$conversationId',
   path: '/c/$conversationId',
@@ -63,7 +57,6 @@ export interface FileRoutesByFullPath {
   '/audit': typeof ShellAuditRoute
   '/conversations': typeof ShellConversationsRoute
   '/tasks': typeof ShellTasksRoute
-  '/video-editor/$jobId': typeof VideoEditorJobIdRoute
   '/c/$conversationId': typeof ShellCConversationIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
 }
@@ -71,7 +64,6 @@ export interface FileRoutesByTo {
   '/audit': typeof ShellAuditRoute
   '/conversations': typeof ShellConversationsRoute
   '/tasks': typeof ShellTasksRoute
-  '/video-editor/$jobId': typeof VideoEditorJobIdRoute
   '/': typeof ShellIndexRoute
   '/c/$conversationId': typeof ShellCConversationIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
@@ -82,7 +74,6 @@ export interface FileRoutesById {
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/conversations': typeof ShellConversationsRoute
   '/_shell/tasks': typeof ShellTasksRoute
-  '/video-editor/$jobId': typeof VideoEditorJobIdRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/c/$conversationId': typeof ShellCConversationIdRoute
   '/auth/sso/landing': typeof AuthSsoLandingRoute
@@ -94,7 +85,6 @@ export interface FileRouteTypes {
     | '/audit'
     | '/conversations'
     | '/tasks'
-    | '/video-editor/$jobId'
     | '/c/$conversationId'
     | '/auth/sso/landing'
   fileRoutesByTo: FileRoutesByTo
@@ -102,7 +92,6 @@ export interface FileRouteTypes {
     | '/audit'
     | '/conversations'
     | '/tasks'
-    | '/video-editor/$jobId'
     | '/'
     | '/c/$conversationId'
     | '/auth/sso/landing'
@@ -112,7 +101,6 @@ export interface FileRouteTypes {
     | '/_shell/audit'
     | '/_shell/conversations'
     | '/_shell/tasks'
-    | '/video-editor/$jobId'
     | '/_shell/'
     | '/_shell/c/$conversationId'
     | '/auth/sso/landing'
@@ -120,7 +108,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
-  VideoEditorJobIdRoute: typeof VideoEditorJobIdRoute
   AuthSsoLandingRoute: typeof AuthSsoLandingRoute
 }
 
@@ -161,13 +148,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellTasksRouteImport
       parentRoute: typeof ShellRoute
     }
-    '/video-editor/$jobId': {
-      id: '/video-editor/$jobId'
-      path: '/video-editor/$jobId'
-      fullPath: '/video-editor/$jobId'
-      preLoaderRoute: typeof VideoEditorJobIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_shell/c/$conversationId': {
       id: '/_shell/c/$conversationId'
       path: '/c/$conversationId'
@@ -205,7 +185,6 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
-  VideoEditorJobIdRoute: VideoEditorJobIdRoute,
   AuthSsoLandingRoute: AuthSsoLandingRoute,
 }
 export const routeTree = rootRouteImport

@@ -1,4 +1,4 @@
-.editor-version-trigger {
+.video-editor-version-trigger {
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -14,20 +14,20 @@
   cursor: pointer;
 }
 
-.editor-version-trigger > span:not(.editor-version-thumbnail) {
+.video-editor-version-trigger > span:not(.video-editor-version-thumbnail) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.editor-version-trigger > svg {
+.video-editor-version-trigger > svg {
   margin-left: auto;
   flex-shrink: 0;
   color: var(--color-on-surface-muted);
 }
 
-.editor-version-thumbnail {
+.video-editor-version-thumbnail {
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -39,13 +39,13 @@
   color: var(--color-on-surface-muted);
 }
 
-.editor-version-thumbnail img {
+.video-editor-version-thumbnail img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.editor-version-menu {
+.video-editor-version-menu {
   width: 280px;
   max-width: calc(100vw - 32px);
   max-height: min(360px, var(--radix-dropdown-menu-content-available-height));
@@ -57,7 +57,7 @@
   backdrop-filter: none;
 }
 
-.editor-version-menu-header {
+.video-editor-version-menu-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -68,7 +68,7 @@
   font-size: var(--text-label);
 }
 
-.editor-version-history {
+.video-editor-version-history {
   height: var(--control-height-sm);
   gap: 6px;
   padding: 0 4px;
@@ -76,7 +76,7 @@
   font-size: var(--text-label);
 }
 
-.editor-version-options {
+.video-editor-version-options {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -85,7 +85,7 @@
   scrollbar-width: thin;
 }
 
-.editor-version-option {
+.video-editor-version-option {
   justify-content: flex-start;
   flex-shrink: 0;
   gap: 12px;
@@ -95,32 +95,32 @@
   border-radius: var(--radius-sm);
 }
 
-.editor-version-option .editor-version-thumbnail {
+.video-editor-version-option .video-editor-version-thumbnail {
   width: 44px;
   height: 40px;
 }
 
-.editor-version-option[data-state='checked'] {
+.video-editor-version-option[data-state='checked'] {
   background: var(--color-surface-container-low);
 }
 
-.editor-version-option[data-highlighted] {
+.video-editor-version-option[data-highlighted] {
   background: var(--color-surface-container);
 }
 
-.editor-version-option > svg {
+.video-editor-version-option > svg {
   margin-left: auto;
   flex-shrink: 0;
 }
 
-.editor-version-copy {
+.video-editor-version-copy {
   display: flex;
   flex-direction: column;
   min-width: 0;
   gap: 3px;
 }
 
-.editor-version-copy strong {
+.video-editor-version-copy strong {
   overflow: hidden;
   color: var(--color-on-surface);
   font-size: var(--text-body);
@@ -130,11 +130,11 @@
   white-space: nowrap;
 }
 
-.editor-version-option[data-state='checked'] .editor-version-copy strong {
+.video-editor-version-option[data-state='checked'] .video-editor-version-copy strong {
   color: var(--color-primary);
 }
 
-.editor-version-copy > span {
+.video-editor-version-copy > span {
   overflow: hidden;
   color: var(--color-on-surface-muted);
   font-size: var(--text-label);

@@ -1,6 +1,5 @@
 /** 仅展示当前镜头组的视频生成记录。 */
 
-import { useLocation, useNavigate } from '@tanstack/react-router'
 import { Tooltip } from 'radix-ui'
 import { useRef, useState, type ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
@@ -16,7 +15,6 @@ import { readStoryboardMetadata } from '../generation-metadata'
 import type { Shot } from '../shot-document'
 import { phaseOfStatus } from '../shots'
 import { historyShotOf, type GenerationJob } from '../storyboard.api'
-import { saveEditorSource } from '../video-editor/editor-source'
 
 /** request 是不透明 JSON，只从里面读两个字串来展示：prompt 与 model。 */
 const promptOf = (job: GenerationJob): string | undefined => {
@@ -37,14 +35,19 @@ const newestFirst = (left: GenerationJob, right: GenerationJob) =>
 type GenerationRecordsProps = {
   shotIndex: number
   jobs: readonly GenerationJob[]
+  /** 每条出片被成功编辑过几次；编辑结果自己不进这张列表。 */
+  editCounts?: ReadonlyMap<string, number> | undefined
   onClose: () => void
   onEditPrompt?: ((prompt: Shot['prompt']) => void) | undefined
+  onEditVideo?: ((job: GenerationJob) => void) | undefined
 }
 
 export function GenerationRecords({
+  editCounts,
   jobs,
   onClose,
   onEditPrompt,
+  onEditVideo,
   shotIndex,
 }: GenerationRecordsProps) {
   const listed = jobs
@@ -90,7 +93,15 @@ export function GenerationRecords({
             <div className="min-h-8 flex-[1.4]" />
           </div>
         ) : (
-          listed.map((job) => <RecordCard job={job} key={job.id} onEditPrompt={onEditPrompt} />)
+          listed.map((job) => (
+            <RecordCard
+              editCount={editCounts?.get(job.id) ?? 0}
+              job={job}
+              key={job.id}
+              onEditPrompt={onEditPrompt}
+              onEditVideo={onEditVideo}
+            />
+          ))
         )}
       </div>
     </div>
@@ -99,35 +110,21 @@ export function GenerationRecords({
 
 type RecordCardProps = {
   job: GenerationJob
+  editCount: number
   onEditPrompt?: ((prompt: Shot['prompt']) => void) | undefined
+  onEditVideo?: ((job: GenerationJob) => void) | undefined
 }
 
-function RecordCard({ job, onEditPrompt }: RecordCardProps) {
-  const navigate = useNavigate()
-  const location = useLocation()
+function RecordCard({ job, editCount, onEditPrompt, onEditVideo }: RecordCardProps) {
   const [open, setOpen] = useState(true)
   const phase = phaseOfStatus(job.status)
   const prompt = promptOf(job)
   const model = modelOf(job)
   // 只有带结构化 shot 的记录能回填镜头组；接口调用方自己写的正文只能看。
   const history = historyShotOf(job)
-  const canEditVideo = phase === 'completed' && Boolean(job.outputUrl?.trim())
-
-  const openVideoEditor = async () => {
-    if (!canEditVideo || job.outputUrl === null) return
-    try {
-      saveEditorSource({
-        jobId: job.id,
-        videoUrl: job.outputUrl,
-        posterUrl: videoSnapshotUrl(job.outputUrl, 1280),
-        title: prompt?.trim().slice(0, 32) || '生成的视频',
-        returnTo: location.pathname + location.searchStr,
-      })
-      await navigate({ to: '/video-editor/$jobId', params: { jobId: job.id } })
-    } catch {
-      toast.error('无法打开视频编辑，请重试')
-    }
-  }
+  // 编辑要在一条完整视频上切段，只有出了片的记录才有的编。
+  const canEditVideo =
+    onEditVideo !== undefined && phase === 'completed' && Boolean(job.outputUrl?.trim())
 
   return (
     <article className="flex shrink-0 flex-col gap-2.5 overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface p-3">
@@ -197,11 +194,14 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
           {canEditVideo ? (
             <Button
               className="min-w-0 flex-1 shadow-none"
-              onClick={() => void openVideoEditor()}
+              onClick={() => onEditVideo(job)}
               size="md"
               trailingIcon="next"
             >
               编辑视频
+              {editCount > 0 ? (
+                <span className="text-caption opacity-80">已编辑 {editCount} 次</span>
+              ) : null}
             </Button>
           ) : null}
         </div>

@@ -1,3 +1,5 @@
+/** 时间线上的版本切换菜单：各版与已能预览的编辑，带缩略图、基于哪一版、时长。 */
+
 import { useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
 import {
@@ -8,51 +10,67 @@ import {
   MenuSurface,
   MenuTrigger,
 } from '@/shared/ui/menu'
-import { durationOf, type EditorVersion } from './editor-model'
+import { roundSeconds } from './time-label'
 import './editor-version-menu.css'
 
+export type VersionMenuEntry = {
+  key: string
+  label: string
+  /** 基于哪一版；根没有。 */
+  baseLabel: string | undefined
+  /** 还没合成的编辑预览带阶段说明。 */
+  note: string | undefined
+  mediaUrl: string
+  duration: number | undefined
+}
+
 type EditorVersionMenuProps = {
-  version: EditorVersion
-  versions: readonly EditorVersion[]
-  posterUrl: string | undefined
-  onVersionChange: (id: string) => void
+  entries: readonly VersionMenuEntry[]
+  selectedKey: string
+  label: string
+  posterOf: (url: string) => string | undefined
+  onSelect: (key: string) => void
   onHistory: () => void
 }
 
-function VersionThumbnail({ posterUrl }: { posterUrl: string | undefined }) {
+function VersionThumbnail({ poster }: { poster: string | undefined }) {
   return (
-    <span aria-hidden="true" className="editor-version-thumbnail">
-      {posterUrl ? (
-        <img alt="" draggable={false} src={posterUrl} />
-      ) : (
+    <span aria-hidden="true" className="video-editor-version-thumbnail">
+      {poster === undefined ? (
         <Icon decorative name="video" size="sm" />
+      ) : (
+        <img alt="" draggable={false} src={poster} />
       )}
     </span>
   )
 }
 
 export function EditorVersionMenu({
-  version,
-  versions,
-  posterUrl,
-  onVersionChange,
+  entries,
+  selectedKey,
+  label,
+  posterOf,
+  onSelect,
   onHistory,
 }: EditorVersionMenuProps) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const historyRequestedRef = useRef(false)
+  const selected = entries.find((entry) => entry.key === selectedKey)
 
   return (
     <MenuRoot onOpenChange={setOpen} open={open}>
       <MenuTrigger asChild>
         <button
           aria-label="切换版本"
-          className="editor-version-trigger ui-focus"
+          className="video-editor-version-trigger ui-focus"
           ref={triggerRef}
           type="button"
         >
-          <VersionThumbnail posterUrl={posterUrl} />
-          <span>{version.label}</span>
+          <VersionThumbnail
+            poster={selected === undefined ? undefined : posterOf(selected.mediaUrl)}
+          />
+          <span>{label}</span>
           <Icon decorative name="expand" size="sm" />
         </button>
       </MenuTrigger>
@@ -60,23 +78,23 @@ export function EditorVersionMenu({
         align="start"
         aria-label="视频版本"
         aria-labelledby={undefined}
-        className="editor-version-menu"
+        className="video-editor-version-menu"
         collisionPadding={16}
         onCloseAutoFocus={(event) => {
           if (!historyRequestedRef.current) return
           event.preventDefault()
           historyRequestedRef.current = false
-          // The dialog opens after the menu closes, with its return-focus target restored.
+          // 菜单关完再开历史对话框，它的返回焦点才落回这个触发按钮。
           triggerRef.current?.focus()
           onHistory()
         }}
         side="top"
         sideOffset={10}
       >
-        <div className="editor-version-menu-header">
+        <div className="video-editor-version-menu-header">
           <span>版本</span>
           <MenuItem
-            className="editor-version-history"
+            className="video-editor-version-history"
             icon="history"
             onSelect={() => {
               historyRequestedRef.current = true
@@ -87,31 +105,33 @@ export function EditorVersionMenu({
           </MenuItem>
         </div>
         <MenuRadioGroup
-          className="editor-version-options"
-          onValueChange={onVersionChange}
-          value={version.id}
+          className="video-editor-version-options"
+          onValueChange={onSelect}
+          value={selectedKey}
         >
-          {[...versions].reverse().map((candidate) => {
-            const parent = versions.find((item) => item.id === candidate.parentId)
-            return (
-              <MenuRadioItem
-                aria-label={candidate.label}
-                className="editor-version-option"
-                key={candidate.id}
-                textValue={candidate.label}
-                value={candidate.id}
-              >
-                <VersionThumbnail posterUrl={posterUrl} />
-                <span className="editor-version-copy">
-                  <strong>{candidate.label}</strong>
-                  <span>
-                    {parent ? `基于${parent.label === '原片' ? '' : ' '}${parent.label} · ` : ''}
-                    {Number(durationOf(candidate).toFixed(2))}s
-                  </span>
+          {[...entries].reverse().map((entry) => (
+            <MenuRadioItem
+              aria-label={entry.label}
+              className="video-editor-version-option"
+              key={entry.key}
+              textValue={entry.label}
+              value={entry.key}
+            >
+              <VersionThumbnail poster={posterOf(entry.mediaUrl)} />
+              <span className="video-editor-version-copy">
+                <strong>{entry.label}</strong>
+                <span>
+                  {[
+                    entry.baseLabel === undefined ? undefined : `基于 ${entry.baseLabel}`,
+                    entry.note,
+                    entry.duration === undefined ? undefined : `${roundSeconds(entry.duration)}s`,
+                  ]
+                    .filter((part) => part !== undefined)
+                    .join(' · ')}
                 </span>
-              </MenuRadioItem>
-            )
-          })}
+              </span>
+            </MenuRadioItem>
+          ))}
         </MenuRadioGroup>
       </MenuSurface>
     </MenuRoot>
