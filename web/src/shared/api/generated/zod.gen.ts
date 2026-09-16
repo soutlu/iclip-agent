@@ -1447,33 +1447,13 @@ export const zOpsCatchup = z.object({
 })
 
 /**
- * VideoEditOut
- *
- * 这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。
- */
-export const zVideoEditOut = z.object({
-  promptPrefix: z.string().nullish(),
-  providerOptions: z.record(z.string(), z.string()).nullish(),
-})
-
-/**
- * VideoModelOut
- *
- * 一个视频模型：id，以及支不支持视频编辑、怎么触发。
- */
-export const zVideoModelOut = z.object({
-  edit: zVideoEditOut.nullish(),
-  model: z.string(),
-})
-
-/**
  * VideoModelsOut
  *
- * 接入了哪几个视频模型与各自的编辑能力，按配置声明顺序。
+ * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
  */
 export const zVideoModelsOut = z.object({
   default: z.string(),
-  items: z.array(zVideoModelOut),
+  items: z.array(z.string()),
 })
 
 /**

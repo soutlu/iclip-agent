@@ -22,7 +22,7 @@ from iclip.domains.generation.models import (
     GenerationJob,
 )
 from iclip.domains.generation.nano_banana import SPEC as NANO_SPEC
-from iclip.domains.generation.provider import ImageModelSpec, VideoEditSpec
+from iclip.domains.generation.provider import ImageModelSpec
 from iclip.domains.generation.schemas import request_to_payload
 from iclip.domains.generation.seedream import SPEC as SEEDREAM_SPEC
 from iclip.domains.generation.service import GenerationService
@@ -41,14 +41,7 @@ from tests.helpers.generation import (
 from tests.helpers.identity import InMemoryUserRepository
 from tests.unit.domains.generation.test_generation_queue import build_queue
 
-VIDEO_EDIT = VideoEditSpec(
-    prompt_prefix=None, provider_options={"omni_reference_task_type": "edit"}
-)
-VIDEO_MODELS: dict[str, VideoEditSpec | None] = {
-    "moyu-seedance-2-0": None,
-    "moyu-seedance-2-5": VIDEO_EDIT,
-    "wan3.0-video": VideoEditSpec(prompt_prefix="编辑视频，", provider_options=None),
-}
+VIDEO_MODELS = ("moyu-seedance-2-0", "moyu-seedance-2-5", "wan3.0-video")
 
 VIDEO_BODY = {
     "model": "moyu-seedance-2-5",
@@ -115,7 +108,7 @@ def build_test_app(
         video_provider_name="video_api",
         clip_provider_name="ffmpeg",
         video_default_model="moyu-seedance-2-5",
-        video_models=VIDEO_MODELS,
+        video_allowed_models=VIDEO_MODELS,
         image_models=image_models if image_models is not None else IMAGE_MODELS,
         image_default_model="nano_banana_pro",
     )
@@ -631,23 +624,9 @@ async def test_video_models_endpoint_lists_the_configured_models() -> None:
         response = await http.get("/generations/video-models")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "default": "moyu-seedance-2-5",
-        "items": [
-            {"model": "moyu-seedance-2-0", "edit": None},
-            {
-                "model": "moyu-seedance-2-5",
-                "edit": {
-                    "promptPrefix": None,
-                    "providerOptions": {"omni_reference_task_type": "edit"},
-                },
-            },
-            {
-                "model": "wan3.0-video",
-                "edit": {"promptPrefix": "编辑视频，", "providerOptions": None},
-            },
-        ],
-    }, "编辑怎么触发由配置声明，调用方照它拼请求"
+    assert response.json() == {"default": "moyu-seedance-2-5", "items": list(VIDEO_MODELS)}, (
+        "只有模型 id；哪个能编辑、怎么触发由前端按名字认"
+    )
     async with client(build_test_app(InMemoryGenerationRepository(), granted=principal())) as http:
         assert (await http.get("/generations/video-models")).status_code == 403
 

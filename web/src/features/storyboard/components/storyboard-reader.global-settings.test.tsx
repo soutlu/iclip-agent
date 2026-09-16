@@ -76,7 +76,7 @@ const provide = (document = fixture) => {
     http.get('*/api/generations', () => HttpResponse.json({ items: [] })),
     http.get('*/api/generations/video-models', () =>
       HttpResponse.json({
-        items: [{ model: 'seedance_2.0', edit: null }],
+        items: ['seedance_2.0'],
         default: 'seedance_2.0',
       }),
     ),

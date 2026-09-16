@@ -21,8 +21,7 @@ export const useVideoGeneration = (conversationId: string, path: string) => {
     model: undefined,
   })
   // 选过的模型不在允许表里（配置改了）就退回默认，不用副作用改 state。
-  // 出片只认模型 id；每个模型自报的编辑能力由视频编辑器读，这里用不上。
-  const items = (models.data?.items ?? []).map((item) => item.model)
+  const items = models.data?.items ?? []
   const model =
     wanted.model !== undefined && items.includes(wanted.model) ? wanted.model : models.data?.default
   const options: VideoGenerationOptions = { generateAudio: wanted.generateAudio, model }

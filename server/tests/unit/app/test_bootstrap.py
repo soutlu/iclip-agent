@@ -27,7 +27,6 @@ from iclip.config import (
     SecuritySection,
     SsoSection,
     VideoGenerationSection,
-    VideoModelSection,
     VideoSection,
 )
 from iclip.domains.agents.transcript_api import LiveConnections
@@ -121,9 +120,7 @@ def config_with_media() -> RuntimeConfig:
     return minimal_config().model_copy(
         update={
             "media_generation": MediaGenerationSection(
-                video=VideoGenerationSection(
-                    model="seedance", models={"seedance": VideoModelSection()}
-                ),
+                video=VideoGenerationSection(model="seedance", allowed_models=("seedance",)),
                 image=ImageGenerationSection(
                     env="test",
                     default="nano_banana_pro",

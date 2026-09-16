@@ -21,9 +21,7 @@ from iclip.domains.generation.schemas import (
     ImageModelOut,
     ImageModelsOut,
     Metadata,
-    VideoEditOut,
     VideoGenerationIn,
-    VideoModelOut,
     VideoModelsOut,
     VideoSubmitOut,
     VideoTaskOut,
@@ -124,29 +122,12 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     async def list_video_models(
         principal: Annotated[Principal, Depends(require_permission("generation:read"))],
     ) -> VideoModelsOut:
-        """接入了哪几个视频模型与默认那个，以及各自支不支持视频编辑，来自运行配置。
+        """接入了哪几个视频模型与默认那个，来自运行配置。
 
-        编辑怎么触发（正文前缀还是 ``provider_options``）各家不同，声明在配置里；调用方
-        照它拼请求，不需要认识具体是哪家。"""
+        哪个模型能做视频编辑、怎么触发，由调用方按模型名自己认；服务端不替它拼任何东西。"""
 
         default, models = service.video_models()
-        return VideoModelsOut(
-            default=default,
-            items=[
-                VideoModelOut(
-                    model=name,
-                    edit=None
-                    if spec is None
-                    else VideoEditOut(
-                        prompt_prefix=spec.prompt_prefix,
-                        provider_options=(
-                            None if spec.provider_options is None else dict(spec.provider_options)
-                        ),
-                    ),
-                )
-                for name, spec in models
-            ],
-        )
+        return VideoModelsOut(default=default, items=list(models))
 
     @router.get("/image-models", response_model=ImageModelsOut)
     async def list_image_models(

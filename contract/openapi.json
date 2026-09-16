@@ -5505,39 +5505,6 @@
         "title": "VideoContent",
         "type": "object"
       },
-      "VideoEditOut": {
-        "additionalProperties": false,
-        "description": "这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。",
-        "properties": {
-          "promptPrefix": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Promptprefix"
-          },
-          "providerOptions": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Provideroptions"
-          }
-        },
-        "title": "VideoEditOut",
-        "type": "object"
-      },
       "VideoGenerationIn": {
         "additionalProperties": false,
         "description": "一次视频生成的输入。字段照上游异步接口，外加归属字段、坐标 ``metadata`` 与结构化的 ``shot``。\n\n只拦本系统能判的：模型在允许表里（受理层）、地址是 http(s)、秒数不小于 -1、``shot``\n自身对得上（图片引用不越界、编号与正文一致）。画幅、分辨率、时长范围、素材规格由上游\n按模型判，这里不复制一份。",
@@ -5727,34 +5694,9 @@
         "title": "VideoGenerationIn",
         "type": "object"
       },
-      "VideoModelOut": {
-        "additionalProperties": false,
-        "description": "一个视频模型：id，以及支不支持视频编辑、怎么触发。",
-        "properties": {
-          "edit": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/VideoEditOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "model": {
-            "title": "Model",
-            "type": "string"
-          }
-        },
-        "required": [
-          "model"
-        ],
-        "title": "VideoModelOut",
-        "type": "object"
-      },
       "VideoModelsOut": {
         "additionalProperties": false,
-        "description": "接入了哪几个视频模型与各自的编辑能力，按配置声明顺序。",
+        "description": "接入了哪几个视频模型。只有模型 id，下拉直接显示它。",
         "properties": {
           "default": {
             "title": "Default",
@@ -5762,7 +5704,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/VideoModelOut"
+              "type": "string"
             },
             "title": "Items",
             "type": "array"
@@ -8745,7 +8687,7 @@
     },
     "/generations/video-models": {
       "get": {
-        "description": "接入了哪几个视频模型与默认那个，以及各自支不支持视频编辑，来自运行配置。\n\n编辑怎么触发（正文前缀还是 ``provider_options``）各家不同，声明在配置里；调用方\n照它拼请求，不需要认识具体是哪家。",
+        "description": "接入了哪几个视频模型与默认那个，来自运行配置。\n\n哪个模型能做视频编辑、怎么触发，由调用方按模型名自己认；服务端不替它拼任何东西。",
         "operationId": "list_video_models_generations_video_models_get",
         "responses": {
           "200": {
