@@ -53,7 +53,7 @@ export function MetricsTable({
         <span className="text-body-sm text-on-surface-variant">{rows.length} 行</span>
       </header>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-120 border-collapse text-body">
+        <table className="w-full min-w-140 border-collapse text-body">
           <thead>
             <tr className="text-left text-body-sm text-on-surface-variant">
               <th className="px-5 py-2 font-normal" scope="col">
@@ -61,7 +61,7 @@ export function MetricsTable({
               </th>
               {columns.map((column) => (
                 <th
-                  className="px-3 py-2 text-right font-normal whitespace-nowrap"
+                  className="px-2 py-2 text-right font-normal whitespace-nowrap"
                   key={column.key}
                   scope="col"
                   title={column.hint}
@@ -100,7 +100,7 @@ export function MetricsTable({
                       >
                         {index + 1}
                       </span>
-                      <span className="flex min-w-0 flex-col">
+                      <span className="flex min-w-0 grow flex-col">
                         <span className="truncate font-medium text-on-surface" title={row.name}>
                           {row.name}
                         </span>
@@ -109,32 +109,31 @@ export function MetricsTable({
                             {row.meta}
                           </span>
                         )}
+                        {barColumn?.bar === undefined ? null : (
+                          <span
+                            aria-hidden
+                            className="mt-1.5 block h-1 overflow-hidden rounded-full bg-surface-container"
+                          >
+                            <span
+                              className="block h-full rounded-full bg-primary"
+                              style={{
+                                width: `${Math.round((barColumn.bar(row.metrics) / barMax) * 100)}%`,
+                              }}
+                            />
+                          </span>
+                        )}
                       </span>
                     </span>
                   </th>
                   {columns.map((column) => (
                     <td
-                      className="px-3 py-3 text-right whitespace-nowrap text-on-surface tabular-nums"
+                      className={cn(
+                        'px-2 py-3 text-right whitespace-nowrap text-on-surface tabular-nums',
+                        column.bar !== undefined && 'font-medium',
+                      )}
                       key={column.key}
                     >
-                      {column.bar === undefined ? (
-                        column.render(row.metrics)
-                      ) : (
-                        <span className="inline-flex items-center justify-end gap-2">
-                          <span
-                            aria-hidden
-                            className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-surface-container sm:block"
-                          >
-                            <span
-                              className="block h-full rounded-full bg-primary"
-                              style={{
-                                width: `${Math.round((column.bar(row.metrics) / barMax) * 100)}%`,
-                              }}
-                            />
-                          </span>
-                          <span className="min-w-8 font-medium">{column.render(row.metrics)}</span>
-                        </span>
-                      )}
+                      {column.render(row.metrics)}
                     </td>
                   ))}
                 </tr>

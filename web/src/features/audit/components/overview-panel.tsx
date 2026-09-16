@@ -35,6 +35,7 @@ type OverviewPanelProps = {
 
 const SHOT_NOTE = '只统计带镜号的出片'
 const USAGE_NOTE = '自用量台账上线起累计'
+const SAMPLE_HINT = '上游段不给样本：没留提交时刻的记录不计入这一行'
 
 const RANK_COLUMNS: readonly MetricsColumn[] = [
   {
@@ -45,9 +46,10 @@ const RANK_COLUMNS: readonly MetricsColumn[] = [
     bar: (m) => m.deliveries,
   },
   {
-    key: 'videos',
-    label: '成片视频',
-    render: (m) => formatCount(m.completedVideos),
+    key: 'runs',
+    label: '运行次数',
+    hint: 'agent 运行次数，只跑过没出片的人也在这里',
+    render: (m) => formatCount(m.runs),
   },
   {
     key: 'attempts',
@@ -61,10 +63,14 @@ const RANK_COLUMNS: readonly MetricsColumn[] = [
     render: (m) => formatRate(m.oneTakeRate),
   },
   {
-    key: 'cycle',
-    label: '交付周期',
-    hint: '中位数',
+    key: 'cycleMedian',
+    label: '周期中位',
     render: (m) => formatDuration(m.cycleSeconds?.median ?? null),
+  },
+  {
+    key: 'cycleAvg',
+    label: '周期平均',
+    render: (m) => formatDuration(m.cycleSeconds?.avg ?? null),
   },
   {
     key: 'tokens',
@@ -73,13 +79,45 @@ const RANK_COLUMNS: readonly MetricsColumn[] = [
   },
 ]
 
+/** 耗时分布表的三行：一段口径，从 metrics 上取一组分布与它的样本数。 */
+const SPREAD_ROWS: readonly {
+  key: string
+  label: string
+  hint: string
+  spread: (metrics: Metrics) => Metrics['cycleSeconds']
+  sample: (metrics: Metrics) => number | null
+}[] = [
+  {
+    key: 'cycle',
+    label: '交付周期',
+    hint: '首次运行到最后一条成片',
+    spread: (m) => m.cycleSeconds,
+    sample: (m) => m.deliveredConversations,
+  },
+  {
+    key: 'video',
+    label: '单条出片',
+    hint: '受理到出结果',
+    spread: (m) => m.videoSeconds,
+    sample: (m) => m.completedVideos,
+  },
+  {
+    key: 'upstream',
+    label: '上游段',
+    hint: '提交上游到出结果',
+    spread: (m) => m.upstreamSeconds,
+    sample: () => null,
+  },
+]
+
 export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelProps) {
   const { current, previous } = useAuditSummary(scope)
   const anomalies = useAuditAnomalies(scope, null)
   const summary = current.data
   const overall = summary?.overall
-  const before = previous.data
+  const before = previous.data?.overall
   const series = summary?.series ?? []
+  const beforeSeries = previous.data?.series ?? []
   const bucket = bucketFor(scope)
   const pending = current.isPending
 
@@ -101,6 +139,17 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
 
   const trendOf = (pick: (metrics: Metrics) => number | null) =>
     series.length >= 2 ? series.map((period) => pick(period.metrics) ?? 0) : undefined
+
+  const pointsOf = (pick: (metrics: Metrics) => number | null) =>
+    series.map((period) => ({
+      key: period.periodStart,
+      label: formatPeriodLabel(period.periodStart, bucket),
+      value: pick(period.metrics),
+    }))
+
+  /** 上一期同粒度的一条序列，按下标叠在本期上；没有上一期就不画对照。 */
+  const beforeOf = (pick: (metrics: Metrics) => number | null) =>
+    beforeSeries.length === 0 ? undefined : beforeSeries.map((period) => pick(period.metrics))
 
   const anomalyItems = anomalies.data?.pages.flatMap((page) => page.items) ?? []
   const anomalyCounts = new Map<AnomalyKind, number>()
@@ -161,16 +210,81 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
         />
       </section>
 
+      <section
+        aria-busy={pending}
+        aria-label="耗时分布"
+        className="flex min-w-0 flex-col rounded-lg bg-surface-container-lowest shadow-[var(--shadow-1)]"
+      >
+        <header className="px-5 pt-5 pb-3">
+          <h3 className="text-title font-medium text-on-surface">耗时分布</h3>
+        </header>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-120 border-collapse text-body">
+            <thead>
+              <tr className="text-left text-body-sm text-on-surface-variant">
+                <th className="px-5 py-2 font-normal" scope="col">
+                  口径
+                </th>
+                {['平均', '中位', '最慢一成（P90）'].map((label) => (
+                  <th
+                    className="px-3 py-2 text-right font-normal whitespace-nowrap"
+                    key={label}
+                    scope="col"
+                  >
+                    {label}
+                  </th>
+                ))}
+                <th
+                  className="px-5 py-2 text-right font-normal whitespace-nowrap"
+                  scope="col"
+                  title={SAMPLE_HINT}
+                >
+                  样本
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {SPREAD_ROWS.map((row) => {
+                const spread = overall === undefined ? null : row.spread(overall)
+                const sample = overall === undefined ? null : row.sample(overall)
+                return (
+                  <tr className="border-t-[0.5px] border-border/70" key={row.key}>
+                    <th className="px-5 py-3 text-left font-normal" scope="row">
+                      <span className="flex min-w-0 flex-col">
+                        <span className="font-medium text-on-surface">{row.label}</span>
+                        <span className="text-body-sm text-on-surface-variant">{row.hint}</span>
+                      </span>
+                    </th>
+                    {[
+                      { key: 'avg', seconds: spread?.avg },
+                      { key: 'median', seconds: spread?.median },
+                      { key: 'p90', seconds: spread?.p90 },
+                    ].map((cell) => (
+                      <td
+                        className="px-3 py-3 text-right whitespace-nowrap text-on-surface tabular-nums"
+                        key={cell.key}
+                      >
+                        {formatDuration(cell.seconds ?? null)}
+                      </td>
+                    ))}
+                    <td className="px-5 py-3 text-right whitespace-nowrap text-on-surface-variant tabular-nums">
+                      {sample === null || spread === null ? EMPTY : formatCount(sample)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section aria-label="趋势" className="grid gap-4 lg:grid-cols-2">
         <TrendChart
           description="按时段的成片件数"
           format={(value) => formatCount(Math.round(value))}
           kind="bar"
-          points={series.map((period) => ({
-            key: period.periodStart,
-            label: formatPeriodLabel(period.periodStart, bucket),
-            value: period.metrics.deliveries,
-          }))}
+          points={pointsOf((m) => m.deliveries)}
+          previous={beforeOf((m) => m.deliveries)}
           title="成片件数"
         />
         <TrendChart
@@ -178,69 +292,95 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
           format={(value) => `${Math.round(value * 100)}%`}
           kind="line"
           max={1}
-          points={series.map((period) => ({
-            key: period.periodStart,
-            label: formatPeriodLabel(period.periodStart, bucket),
-            value: period.metrics.oneTakeRate,
-          }))}
+          points={pointsOf((m) => m.oneTakeRate)}
+          previous={beforeOf((m) => m.oneTakeRate)}
           title="一次通过率"
+        />
+        <TrendChart
+          baseline={1}
+          description="每镜平均出片次数"
+          format={formatTimes}
+          kind="line"
+          points={pointsOf((m) => m.attemptsPerShot)}
+          previous={beforeOf((m) => m.attemptsPerShot)}
+          title="每镜次数"
+        />
+        <TrendChart
+          description="首次运行到最后一条成片"
+          format={formatDuration}
+          kind="line"
+          points={pointsOf((m) => m.cycleSeconds?.median ?? null)}
+          previous={beforeOf((m) => m.cycleSeconds?.median ?? null)}
+          title="交付周期中位数"
         />
       </section>
 
-      <section aria-label="模型消耗" className="grid gap-4 sm:grid-cols-3">
-        <StatTile
-          delta={compareWithPrevious(
-            overall?.usage.totalTokens ?? null,
-            before?.usage.totalTokens ?? null,
-            { lowerIsBetter: true },
-          )}
-          label="模型 token"
-          note={USAGE_NOTE}
-          pending={pending}
-          sub={overall === undefined ? undefined : `${formatCount(overall.usage.requests)} 次请求`}
-          value={overall === undefined ? EMPTY : formatTokens(overall.usage.totalTokens)}
-        />
-        <article
-          aria-label="缓存命中率"
-          className="flex min-w-0 flex-col gap-3 rounded-lg bg-surface-container-lowest p-5 shadow-[var(--shadow-1)]"
-        >
-          <h3 className="text-body text-on-surface-variant">缓存命中率</h3>
-          <p className="text-headline-lg font-semibold tracking-tight text-on-surface tabular-nums">
-            {formatRate(overall?.usage.cacheHitRate ?? null)}
-          </p>
-          <div
+      <section aria-label="模型消耗" className="flex flex-col gap-4">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatTile
+            delta={compareWithPrevious(
+              overall?.usage.totalTokens ?? null,
+              before?.usage.totalTokens ?? null,
+              { lowerIsBetter: true },
+            )}
+            label="模型 token"
+            note={USAGE_NOTE}
+            pending={pending}
+            sub={
+              overall === undefined ? undefined : `${formatCount(overall.usage.requests)} 次请求`
+            }
+            value={overall === undefined ? EMPTY : formatTokens(overall.usage.totalTokens)}
+          />
+          <article
             aria-label="缓存命中率"
-            aria-valuemax={100}
-            aria-valuemin={0}
-            aria-valuenow={Math.round((overall?.usage.cacheHitRate ?? 0) * 100)}
-            className="h-1.5 overflow-hidden rounded-full bg-surface-container"
-            role="meter"
+            className="flex min-w-0 flex-col gap-3 rounded-lg bg-surface-container-lowest p-5 shadow-[var(--shadow-1)]"
           >
-            <span
-              className="block h-full rounded-full bg-primary ui-motion-m"
-              style={{ width: `${Math.round((overall?.usage.cacheHitRate ?? 0) * 100)}%` }}
-            />
-          </div>
-          <p className="text-body-sm text-on-surface-variant">
-            {overall === undefined
-              ? '缓存读取占全部输入的比例'
-              : `缓存读取 ${formatTokens(overall.usage.cacheReadTokens)} · 新输入 ${formatTokens(overall.usage.inputTokens)}`}
-          </p>
-        </article>
-        <StatTile
-          delta={compareWithPrevious(
-            overall?.tokensPerDelivery ?? null,
-            before?.tokensPerDelivery ?? null,
-            { lowerIsBetter: true },
-          )}
-          label="每件成片 token"
-          pending={pending}
-          sub="出一件片烧多少"
-          value={
-            overall?.tokensPerDelivery == null
-              ? EMPTY
-              : formatTokens(Math.round(overall.tokensPerDelivery))
-          }
+            <h3 className="text-body text-on-surface-variant">缓存命中率</h3>
+            <p className="text-headline-lg font-semibold tracking-tight text-on-surface tabular-nums">
+              {formatRate(overall?.usage.cacheHitRate ?? null)}
+            </p>
+            <div
+              aria-label="缓存命中率"
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={Math.round((overall?.usage.cacheHitRate ?? 0) * 100)}
+              className="h-1.5 overflow-hidden rounded-full bg-surface-container"
+              role="meter"
+            >
+              <span
+                className="block h-full rounded-full bg-primary ui-motion-m"
+                style={{ width: `${Math.round((overall?.usage.cacheHitRate ?? 0) * 100)}%` }}
+              />
+            </div>
+            <p className="text-body-sm text-on-surface-variant">
+              {overall === undefined
+                ? '缓存读取占全部输入的比例'
+                : `缓存读取 ${formatTokens(overall.usage.cacheReadTokens)} · 新输入 ${formatTokens(overall.usage.inputTokens)}`}
+            </p>
+          </article>
+          <StatTile
+            delta={compareWithPrevious(
+              overall?.tokensPerDelivery ?? null,
+              before?.tokensPerDelivery ?? null,
+              { lowerIsBetter: true },
+            )}
+            label="每件成片 token"
+            pending={pending}
+            sub="出一件片烧多少"
+            value={
+              overall?.tokensPerDelivery == null
+                ? EMPTY
+                : formatTokens(Math.round(overall.tokensPerDelivery))
+            }
+          />
+        </div>
+        <TrendChart
+          description="按时段的 token 消耗"
+          format={formatTokens}
+          kind="bar"
+          points={pointsOf((m) => m.usage.totalTokens)}
+          previous={beforeOf((m) => m.usage.totalTokens)}
+          title="模型 token"
         />
       </section>
 
@@ -295,7 +435,7 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
         <MetricsTable
           caption="按人"
           columns={RANK_COLUMNS}
-          empty="这个范围里没有人出过片"
+          empty="这个范围里没有人出过片，也没人跑过"
           nameLabel="人"
           pending={pending}
           rows={(summary?.users ?? []).map((row) => ({

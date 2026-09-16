@@ -191,6 +191,26 @@ const periodStart = (iso: string, bucket: string, timeZone: string): string => {
   return local.toISOString()
 }
 
+/** 有界时间窗内每一期都列出来，和后端补空期的口径一致；不限时间没有起点，只留有数据的期。 */
+const periodAxis = (query: URLSearchParams, bucket: string, timeZone: string): string[] => {
+  const since = query.get('since')
+  if (since === null) return []
+  const until = query.get('until')
+  const end = periodStart(
+    new Date(new Date(until ?? Date.now()).getTime() - 1).toISOString(),
+    bucket,
+    timeZone,
+  )
+  const axis: string[] = []
+  for (let at = new Date(periodStart(since, bucket, timeZone)); at.toISOString() <= end;) {
+    axis.push(at.toISOString())
+    at = new Date(at)
+    if (bucket === 'month') at.setUTCMonth(at.getUTCMonth() + 1)
+    else at.setUTCDate(at.getUTCDate() + (bucket === 'week' ? 7 : 1))
+  }
+  return axis
+}
+
 const anomaliesFor = (reports: Report[]): Anomaly[] => {
   const p90 = spread(reports.map((r) => r.metrics.cycleSeconds?.median ?? 0))?.p90 ?? 0
   const base = (report: Report) => ({
@@ -287,6 +307,11 @@ export const auditHandlers = [
       if (bucket !== null) {
         const start = periodStart(report.deliveredAt, bucket, timeZone)
         byPeriod.set(start, [...(byPeriod.get(start) ?? []), report])
+      }
+    }
+    if (bucket !== null) {
+      for (const start of periodAxis(query, bucket, timeZone)) {
+        if (!byPeriod.has(start)) byPeriod.set(start, [])
       }
     }
     return HttpResponse.json({
