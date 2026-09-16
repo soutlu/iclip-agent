@@ -125,7 +125,13 @@ class FfmpegClipProvider:
             nonlocal live
             if not live:
                 return
-            live = await self._report_stage(job_id, stage)
+            try:
+                live = await self._report_stage(job_id, stage)
+            except Exception as exc:
+                # 阶段词只是给人看的：写不进去就不写了，不能让它把一条能出结果的加工判成失败。
+                live = False
+                _logger.warning("阶段上报失败，这次加工不再上报", job_id=job_id, error=str(exc))
+                return
             if not live:
                 _logger.info("加工任务已有结论，不再上报阶段", job_id=job_id, stage=stage)
 
