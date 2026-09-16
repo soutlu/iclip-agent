@@ -11,6 +11,7 @@ import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
+import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import type { VideoEditMetadata } from '../generation-metadata'
 import { useVideoModels, type GenerationJob } from '../storyboard.api'
@@ -443,27 +444,37 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                 disabled={busy}
                 footer={
                   <div className="video-editor-generation-controls">
-                    <span className="video-editor-model-picker">
-                      <select
+                    <MenuRoot>
+                      <MenuTrigger asChild>
+                        <button
+                          aria-label="编辑模型"
+                          className="video-editor-model ui-focus"
+                          disabled={busy || models.length === 0}
+                          title={model}
+                          type="button"
+                        >
+                          <span>{model ?? '没有支持编辑的模型'}</span>
+                          <Icon decorative name="expand" size="sm" />
+                        </button>
+                      </MenuTrigger>
+                      <MenuSurface
+                        align="start"
                         aria-label="编辑模型"
-                        className="video-editor-model"
-                        disabled={busy || models.length === 0}
-                        onChange={(event) => setWantedModel(event.currentTarget.value)}
-                        value={model ?? ''}
+                        aria-labelledby={undefined}
+                        className="video-editor-model-menu"
+                        collisionPadding={16}
+                        side="top"
+                        sideOffset={8}
                       >
-                        {models.length === 0 ? (
-                          <option disabled value="">
-                            没有支持编辑的模型
-                          </option>
-                        ) : null}
-                        {models.map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))}
-                      </select>
-                      <Icon decorative name="expand" size="sm" />
-                    </span>
+                        <MenuRadioGroup onValueChange={setWantedModel} value={model ?? ''}>
+                          {models.map((item) => (
+                            <MenuRadioItem key={item} value={item}>
+                              {item}
+                            </MenuRadioItem>
+                          ))}
+                        </MenuRadioGroup>
+                      </MenuSurface>
+                    </MenuRoot>
                     <Button
                       className="video-editor-generate"
                       disabled={!canGenerate}

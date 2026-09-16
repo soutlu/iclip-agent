@@ -206,34 +206,43 @@
   gap: 16px;
   padding-top: 6px;
 }
-.video-editor-model-picker {
+.video-editor-model {
   display: inline-flex;
   position: relative;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
   max-width: calc(100% - 110px);
-  align-items: center;
-}
-.video-editor-model-picker > svg {
-  position: absolute;
-  right: 4px;
-  pointer-events: none;
-  color: var(--color-on-surface-muted);
-}
-.video-editor-model {
-  appearance: none;
-  min-width: 0;
-  width: 100%;
-  height: 36px;
-  padding: 0 28px 0 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-on-surface-muted);
-  cursor: pointer;
-  text-overflow: ellipsis;
-}
-.video-editor-model option {
-  background: var(--color-surface);
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-chat-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-lowest);
   color: var(--color-on-surface);
+  cursor: pointer;
+}
+.video-editor-model > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-editor-model > svg {
+  flex-shrink: 0;
+  color: var(--color-on-surface-muted);
+}
+.video-editor-model:hover:not(:disabled),
+.video-editor-model[data-state='open'] {
+  background: var(--color-surface-container-low);
+}
+.video-editor-model:disabled {
+  opacity: var(--state-disabled-content);
+  cursor: not-allowed;
+}
+.video-editor-model-menu {
+  max-width: calc(100vw - 32px);
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  overflow-y: auto;
 }
 .video-editor-generate {
   width: auto;
@@ -355,16 +364,12 @@
   object-fit: cover;
   border-radius: var(--radius-xs);
 }
-.video-editor :is(button, a, select, input, textarea):focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 3px;
-}
 .video-editor .video-editor-composer-input:focus-visible {
   outline: none;
 }
-.video-editor-composer:focus-within {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 3px;
+.video-editor-composer:has(> .video-editor-composer-input:focus-visible) {
+  outline: var(--state-focus-ring) solid var(--color-focus-ring);
+  outline-offset: var(--state-focus-offset);
 }
 @media (max-width: 839px) {
   .video-editor-dialog {

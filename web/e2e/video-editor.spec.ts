@@ -31,6 +31,18 @@ test('从生成记录打开编辑器：切段、生成、预览、合成成为�
     timeout: STEP_TIMEOUT,
   })
 
+  const modelPicker = dialog.getByRole('button', { name: '编辑模型', exact: true })
+  await modelPicker.click()
+  await expect(page.getByRole('menuitemradio', { name: 'moyu-seedance-2-5' })).toBeChecked()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await expect(modelPicker).toHaveText('wan3.0-video')
+  await expect(modelPicker).toBeFocused()
+  await modelPicker.press('ArrowDown')
+  await expect(page.getByRole('menuitemradio', { name: 'wan3.0-video' })).toBeChecked()
+  await page.keyboard.press('Escape')
+  await expect(modelPicker).toBeFocused()
+
   await dialog.getByLabel('开始时间（秒）').fill('1')
   await dialog.getByLabel('结束时间（秒）').fill('4')
   await dialog.getByRole('textbox', { name: '修改要求' }).fill('换成浅灰背景，保留运镜。')
@@ -52,10 +64,9 @@ test('从生成记录打开编辑器：切段、生成、预览、合成成为�
   // 参考片段切好后自动发编辑任务：结果跟着片段时长走，起点按片段实际时长反算（mock 片段 3 秒，恰好等长）。
   const edit = (await editRequest).postDataJSON() as Record<string, unknown>
   expect(edit).toMatchObject({
-    model: 'moyu-seedance-2-5',
-    prompt: '换成浅灰背景，保留运镜。',
+    model: 'wan3.0-video',
+    prompt: '编辑视频，换成浅灰背景，保留运镜。',
     seconds: -1,
-    provider_options: { omni_reference_task_type: 'edit' },
     metadata: { editStart: 1, editEnd: 4 },
   })
   expect(edit['reference_video_urls']).toEqual([expect.stringContaining('.webm')])
@@ -119,9 +130,15 @@ test('桌面、移动与深色布局各留一张截图', async ({ page }) => {
   await expect(dialog.getByRole('region', { name: '视频编辑时间线' })).toBeVisible({
     timeout: STEP_TIMEOUT,
   })
+  await dialog.getByRole('button', { name: '编辑模型', exact: true }).click()
+  await expect(page.getByRole('menuitemradio', { name: 'wan3.0-video' })).toBeVisible()
+  await page.screenshot({ path: `${SHOT_DIR}/model-menu-light.png`, animations: 'disabled' })
+  await page.keyboard.press('Escape')
   await page.screenshot({ path: `${SHOT_DIR}/desktop-light.png`, animations: 'disabled' })
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.screenshot({ path: `${SHOT_DIR}/desktop-dark.png`, animations: 'disabled' })
+  await dialog.getByRole('button', { name: '编辑模型', exact: true }).click()
+  await page.screenshot({ path: `${SHOT_DIR}/model-menu-dark.png`, animations: 'disabled' })
 })
 
 test('移动布局：对话框内部自己滚，页面不横向溢出', async ({ page }) => {
@@ -131,6 +148,12 @@ test('移动布局：对话框内部自己滚，页面不横向溢出', async ({
     timeout: STEP_TIMEOUT,
   })
   await page.screenshot({ path: `${SHOT_DIR}/mobile-light.png`, animations: 'disabled' })
+  await dialog
+    .getByRole('textbox', { name: '修改要求' })
+    .fill('按参考图调整背景和光线，保留鞋款细节与原有运镜，避免改变商品颜色和画面主体的位置。')
+  await dialog.getByRole('button', { name: '编辑模型', exact: true }).click()
+  await expect(page.getByRole('menuitemradio', { name: 'wan3.0-video' })).toBeVisible()
+  await page.screenshot({ path: `${SHOT_DIR}/model-menu-mobile.png`, animations: 'disabled' })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })
 
