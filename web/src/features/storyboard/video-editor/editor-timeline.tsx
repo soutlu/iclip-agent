@@ -7,7 +7,7 @@ import { Button, IconButton } from '@/shared/ui/button'
 import type { ChainVersion, LaidOutSegment } from './edit-chain'
 import { EditorVersionMenu, type VersionMenuEntry } from './editor-version-menu'
 import { roundSeconds, timeLabel } from './time-label'
-import { clampRange, MIN_RANGE_SECONDS, type TimeRange } from './time-range'
+import { MIN_RANGE_SECONDS, type TimeRange } from './time-range'
 import './editor-timeline.css'
 
 const ZOOM_LEVELS = [1, 1.5, 2, 3, 4] as const
@@ -31,7 +31,7 @@ type EditorTimelineProps = {
   /** 空表示看的是编辑预览，不能在上面选段。 */
   selection: TimeRange | null
   onSeek: (time: number) => void
-  onSelectionChange: (range: TimeRange) => void
+  onSelectionChange: (range: TimeRange, boundary: keyof TimeRange) => void
   onSelect: (key: string) => void
   onHistory: () => void
 }
@@ -88,7 +88,7 @@ export function EditorTimeline({
 
   const changeBoundary = (boundary: keyof TimeRange, value: number) => {
     if (selection === null) return
-    onSelectionChange(clampRange({ ...selection, [boundary]: value }, duration))
+    onSelectionChange({ ...selection, [boundary]: value }, boundary)
   }
 
   const dragBoundary = (event: PointerEvent<HTMLButtonElement>, boundary: keyof TimeRange) => {
@@ -124,26 +124,25 @@ export function EditorTimeline({
           <EditorVersionMenu
             entries={entries}
             label={label}
-            onHistory={onHistory}
             onSelect={onSelect}
             posterOf={posterOf}
             selectedKey={selectedKey}
           />
         </div>
-        <div aria-label="时间线缩放" className="video-editor-timeline-tools" role="group">
+        <div aria-label="时间线操作" className="video-editor-timeline-tools" role="group">
           <IconButton
             disabled={zoomIndex === 0}
             label="缩小时间线"
             name="zoom-out"
             onClick={() => setZoomIndex((current) => Math.max(0, current - 1))}
-            size="sm"
+            size="md"
           />
           <IconButton
             disabled={zoomIndex === ZOOM_LEVELS.length - 1}
             label="放大时间线"
             name="add"
             onClick={() => setZoomIndex((current) => Math.min(ZOOM_LEVELS.length - 1, current + 1))}
-            size="sm"
+            size="md"
           />
           <IconButton
             label="时间线适应宽度"
@@ -152,8 +151,11 @@ export function EditorTimeline({
               setZoomIndex(0)
               contentRef.current?.parentElement?.scrollTo({ left: 0 })
             }}
-            size="sm"
+            size="md"
           />
+          <Button onClick={onHistory} size="md" trailingIcon="next" variant="ghost">
+            历史
+          </Button>
         </div>
       </header>
 
@@ -269,8 +271,8 @@ export function EditorTimeline({
                     )}
                     key={`${segment.mediaUrl}:${segment.at}`}
                     onClick={() => {
-                      if (selection !== null) onSelectionChange(clampRange(range, duration))
-                      onSeek(range.start)
+                      if (selection !== null) onSelectionChange(range, 'start')
+                      else onSeek(range.start)
                     }}
                     style={{ width: percent(segment.duration) }}
                     type="button"
@@ -310,11 +312,14 @@ export function EditorTimeline({
                         event.preventDefault()
                         event.currentTarget.focus()
                         event.currentTarget.setPointerCapture(event.pointerId)
+                        onSelectionChange(selection, boundary)
                       }}
                       onPointerMove={(event) => dragBoundary(event, boundary)}
                       onPointerUp={(event) => {
-                        if (event.currentTarget.hasPointerCapture(event.pointerId))
+                        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                          dragBoundary(event, boundary)
                           event.currentTarget.releasePointerCapture(event.pointerId)
+                        }
                       }}
                       role="slider"
                       style={{ left: percent(selection[boundary]) }}
@@ -364,9 +369,6 @@ export function EditorTimeline({
             </span>
           ))}
         </nav>
-        <Button leadingIcon="history" onClick={onHistory} size="md" variant="ghost">
-          历史
-        </Button>
       </footer>
     </section>
   )

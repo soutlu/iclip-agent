@@ -1,4 +1,4 @@
-/** 修改要求输入框：正文、参考图与页脚（模型、生成）合在一个白框里。参考图选了就直传对象存储。 */
+/** 修改要求与参考图放在输入区，上传和生成设置放在下方工具栏。参考图选了就直传对象存储。 */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { MEDIA_IMAGE_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
@@ -70,7 +70,7 @@ export function EditorComposer({
 
   return (
     <div
-      className={cn('video-editor-composer', dragging && 'video-editor-composer-dragging')}
+      className="video-editor-composer-layout"
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false)
       }}
@@ -95,37 +95,43 @@ export function EditorComposer({
         void addFiles(images)
       }}
     >
-      <textarea
-        aria-label="修改要求"
-        className="video-editor-composer-input text-body text-on-surface"
-        disabled={disabled}
-        onChange={(event) => onPromptChange(event.target.value)}
-        placeholder="描述你想修改的画面…"
-        value={prompt}
-      />
-      <div aria-label="参考图片" className="video-editor-composer-references" role="group">
-        {references.map((reference) => (
-          <div className="video-editor-composer-reference" key={reference.id}>
-            <button
-              aria-label={`预览参考图 ${reference.label}`}
-              className="video-editor-composer-photo ui-focus"
-              onClick={() => setPreview(reference)}
-              type="button"
-            >
-              <img alt={reference.label} draggable={false} src={reference.url} />
-            </button>
-            <IconButton
-              className="video-editor-composer-remove"
-              disabled={locked}
-              label={`移除参考图 ${reference.label}`}
-              name="close"
-              onClick={() =>
-                onReferencesChange(referencesRef.current.filter((item) => item.id !== reference.id))
-              }
-              size="xs"
-            />
-          </div>
-        ))}
+      <div className={cn('video-editor-composer', dragging && 'video-editor-composer-dragging')}>
+        <textarea
+          aria-label="修改要求"
+          className="video-editor-composer-input text-body text-on-surface"
+          disabled={disabled}
+          onChange={(event) => onPromptChange(event.target.value)}
+          placeholder="描述你想修改的画面…"
+          value={prompt}
+        />
+        <div aria-label="参考图片" className="video-editor-composer-references" role="group">
+          {references.map((reference) => (
+            <div className="video-editor-composer-reference" key={reference.id}>
+              <button
+                aria-label={`预览参考图 ${reference.label}`}
+                className="video-editor-composer-photo ui-focus"
+                onClick={() => setPreview(reference)}
+                type="button"
+              >
+                <img alt={reference.label} draggable={false} src={reference.url} />
+              </button>
+              <IconButton
+                className="video-editor-composer-remove"
+                disabled={locked}
+                label={`移除参考图 ${reference.label}`}
+                name="close"
+                onClick={() =>
+                  onReferencesChange(
+                    referencesRef.current.filter((item) => item.id !== reference.id),
+                  )
+                }
+                size="xs"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="video-editor-composer-actions">
         <button
           aria-busy={uploading}
           aria-label={uploading ? '正在上传参考图片' : '添加参考图片'}
@@ -141,8 +147,8 @@ export function EditorComposer({
             size="md"
           />
         </button>
+        {footer}
       </div>
-      {footer}
       <input
         accept={MEDIA_IMAGE_ACCEPT}
         aria-label="选择参考图片"

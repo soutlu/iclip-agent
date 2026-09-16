@@ -68,14 +68,6 @@
   font-size: var(--text-label);
 }
 
-.video-editor-version-history {
-  height: var(--control-height-sm);
-  gap: 6px;
-  padding: 0 4px;
-  color: var(--color-on-surface-variant);
-  font-size: var(--text-label);
-}
-
 .video-editor-version-options {
   display: flex;
   flex-direction: column;

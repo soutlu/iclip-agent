@@ -11,6 +11,7 @@ import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
+import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import type { VideoEditMetadata } from '../generation-metadata'
 import { useVideoModels, type GenerationJob } from '../storyboard.api'
@@ -26,11 +27,12 @@ import {
   type PendingEdit,
 } from './edit-chain'
 import { EditorComposer, type EditorReference } from './editor-composer'
+import { EditorGenerationStatus } from './editor-generation-status'
 import { EditorPreview, type EditorPreviewHandle } from './editor-preview'
 import { EditorTimeline } from './editor-timeline'
 import type { VersionMenuEntry } from './editor-version-menu'
 import { roundSeconds } from './time-label'
-import { clampRange, type TimeRange } from './time-range'
+import { clampRange, MIN_RANGE_SECONDS, type TimeRange } from './time-range'
 import { useMediaDurations } from './use-media-durations'
 import { useStableValue } from './use-stable-value'
 import {
@@ -275,13 +277,23 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     setSelectedKey(key)
     setOperationError(null)
   }
-  const changeRange = (next: TimeRange) => {
-    setSelection(next)
+  const changeRange = (next: TimeRange, boundary: keyof TimeRange) => {
+    if (duration === undefined) return
+    // 调整起点只收紧这一端，不能把已有终点向后推。
+    const bounded = clampRange(
+      boundary === 'start'
+        ? { ...next, start: Math.min(next.start, next.end - MIN_RANGE_SECONDS) }
+        : next,
+      duration,
+    )
+    if (bounded === undefined) return
+    setSelection(bounded)
     setOperationError(null)
+    previewRef.current?.previewAt(bounded[boundary], boundary)
   }
   const changeBoundary = (boundary: keyof TimeRange, value: number) => {
     if (range === undefined || duration === undefined || !Number.isFinite(value)) return
-    changeRange(clampRange({ ...range, [boundary]: value }, duration))
+    changeRange({ ...range, [boundary]: value }, boundary)
   }
 
   const generate = async () => {
@@ -401,10 +413,11 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
               original={base === undefined ? undefined : originalLaid}
               poster={selected === undefined ? undefined : posterOf(laid?.[0]?.mediaUrl ?? '')}
               ref={previewRef}
+              selection={range ?? null}
             />
             <section aria-label="编辑选段" className="video-editor-inspector">
               <div className="video-editor-inspector-heading">
-                <h3>编辑</h3>
+                <h3>编辑片段</h3>
               </div>
               <div className="video-editor-range">
                 <Icon decorative name="duration" size="sm" />
@@ -443,27 +456,37 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                 disabled={busy}
                 footer={
                   <div className="video-editor-generation-controls">
-                    <span className="video-editor-model-picker">
-                      <select
+                    <MenuRoot>
+                      <MenuTrigger asChild>
+                        <button
+                          aria-label="编辑模型"
+                          className="video-editor-model ui-focus"
+                          disabled={busy || models.length === 0}
+                          title={model}
+                          type="button"
+                        >
+                          <span>{model ?? '没有支持编辑的模型'}</span>
+                          <Icon decorative name="expand" size="sm" />
+                        </button>
+                      </MenuTrigger>
+                      <MenuSurface
+                        align="start"
                         aria-label="编辑模型"
-                        className="video-editor-model"
-                        disabled={busy || models.length === 0}
-                        onChange={(event) => setWantedModel(event.currentTarget.value)}
-                        value={model ?? ''}
+                        aria-labelledby={undefined}
+                        className="video-editor-model-menu"
+                        collisionPadding={16}
+                        side="top"
+                        sideOffset={8}
                       >
-                        {models.length === 0 ? (
-                          <option disabled value="">
-                            没有支持编辑的模型
-                          </option>
-                        ) : null}
-                        {models.map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))}
-                      </select>
-                      <Icon decorative name="expand" size="sm" />
-                    </span>
+                        <MenuRadioGroup onValueChange={setWantedModel} value={model ?? ''}>
+                          {models.map((item) => (
+                            <MenuRadioItem key={item} value={item}>
+                              {item}
+                            </MenuRadioItem>
+                          ))}
+                        </MenuRadioGroup>
+                      </MenuSurface>
+                    </MenuRoot>
                     <Button
                       className="video-editor-generate"
                       disabled={!canGenerate}
@@ -484,6 +507,13 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                 prompt={prompt}
                 references={references}
               />
+              {selectedVersion !== undefined &&
+              duration !== undefined &&
+              duration < MIN_RANGE_SECONDS ? (
+                <p className="video-editor-muted" role="status">
+                  视频不足 1 秒，无法选择编辑片段。
+                </p>
+              ) : null}
               {selected?.kind === 'pending' ? (
                 <p className="video-editor-muted">
                   正在看的是 {selected.label} 的预览；要继续编辑，先切回某一版。
@@ -523,29 +553,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                   参考片段读不到，请重新选段生成
                 </p>
               ) : null}
-              {latestEdit === undefined ? null : (
-                <button
-                  aria-live="polite"
-                  className="video-editor-task-summary"
-                  onClick={() => setHistoryOpen(true)}
-                  type="button"
-                >
-                  <Icon
-                    className={isActive(latestEdit) ? 'animate-spin' : ''}
-                    decorative
-                    name={
-                      isActive(latestEdit)
-                        ? 'loading'
-                        : latestEdit.stage === 'failed'
-                          ? 'failed'
-                          : 'check'
-                    }
-                    size="sm"
-                  />
-                  {latestEdit.label} · {STAGE_LABEL[latestEdit.stage]}
-                  <Icon decorative name="next" size="sm" />
-                </button>
-              )}
+              {latestEdit === undefined ? null : <EditorGenerationStatus edit={latestEdit} />}
             </section>
           </div>
           {selected !== undefined &&
@@ -562,7 +570,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
               entries={menuEntries}
               label={selected.label}
               onHistory={() => setHistoryOpen(true)}
-              onSeek={(time) => previewRef.current?.seek(time)}
+              onSeek={(time) => previewRef.current?.previewAt(time)}
               onSelect={select}
               onSelectionChange={changeRange}
               posterOf={posterOf}

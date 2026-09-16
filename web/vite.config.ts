@@ -29,11 +29,10 @@ const developmentApplicationEntryPlugin = (): Plugin => ({
   },
 })
 
-const serveMockServiceWorker = (
-  request: IncomingMessage,
-  response: ServerResponse,
-  next: () => void,
-) => {
+const serveMockAssets = (request: IncomingMessage, response: ServerResponse, next: () => void) => {
+  // MSW 转发 no-cors 视频请求会丢掉 Range；静态服务仍支持分段读取，显式声明后浏览器才能 seek。
+  if (request.url?.split('?')[0]?.endsWith('.webm')) response.setHeader('Accept-Ranges', 'bytes')
+
   if (request.url?.split('?')[0] !== '/mockServiceWorker.js') {
     next()
     return
@@ -47,10 +46,10 @@ const serveMockServiceWorker = (
 /** 只在 mock 模式下由 dev/preview 服务器提供 MSW worker，不进入 public 与生产产物。 */
 const mockServiceWorkerPlugin = (): Plugin => ({
   configurePreviewServer(server) {
-    server.middlewares.use(serveMockServiceWorker)
+    server.middlewares.use(serveMockAssets)
   },
   configureServer(server) {
-    server.middlewares.use(serveMockServiceWorker)
+    server.middlewares.use(serveMockAssets)
   },
   name: 'cue-mock-service-worker',
 })
