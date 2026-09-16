@@ -15,6 +15,7 @@ const failedJob: GenerationJob = {
   outputUrl: null,
   request: {},
   taskId: null,
+  durationMs: null,
   watermarkOutputUrl: null,
 }
 

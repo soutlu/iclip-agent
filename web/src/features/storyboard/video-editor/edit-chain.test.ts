@@ -23,6 +23,7 @@ const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
   request: {},
   status: 'completed',
   taskId: null,
+  durationMs: null,
   watermarkOutputUrl: null,
   ...spec,
 })

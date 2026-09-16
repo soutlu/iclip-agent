@@ -452,6 +452,7 @@ export const zAppendOp = z.object({
  */
 export const zGenerationOut = z.object({
   createdAt: z.iso.datetime(),
+  durationMs: z.int().nullable(),
   errorMessage: z.string().nullable(),
   id: z.uuid(),
   kind: z.string(),

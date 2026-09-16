@@ -34,6 +34,7 @@ const job = (over: Partial<GenerationJob> = {}): GenerationJob => ({
   outputUrl: null,
   request: { prompt: '将衣服改成蓝色', referenceImageUrls: [BASE] },
   taskId: null,
+  durationMs: null,
   watermarkOutputUrl: null,
   ...over,
 })
