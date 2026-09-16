@@ -14,10 +14,24 @@ const STEP_STATES: Record<StepState, string> = {
   failed: '失败',
 }
 
+/** 后端报的加工阶段按用途换成文案；没报（还在排队、或这个词没见过）就回落。 */
+const CUTTING_TITLES: Partial<Record<string, string>> = {
+  processing: '正在截取参考片段',
+  uploading: '正在上传参考片段',
+}
+const COMPOSING_TITLES: Partial<Record<string, string>> = {
+  fetching: '正在取素材',
+  processing: '正在编码成片',
+  uploading: '正在上传成片',
+}
+
 function describeProgress(edit: PendingEdit) {
   switch (edit.stage) {
     case 'cutting':
-      return { step: 0, title: '正在准备参考片段' }
+      return {
+        step: 0,
+        title: CUTTING_TITLES[edit.reference?.clipStage ?? ''] ?? '正在准备参考片段',
+      }
     case 'cut':
       return { step: 1, title: '准备提交视频生成' }
     case 'generating':
@@ -25,7 +39,10 @@ function describeProgress(edit: PendingEdit) {
     case 'ready':
       return { step: 2, title: '待预览' }
     case 'composing':
-      return { step: 2, title: '正在合成成片' }
+      return {
+        step: 2,
+        title: COMPOSING_TITLES[edit.master?.clipStage ?? ''] ?? '正在合成成片',
+      }
     case 'failed': {
       const step =
         edit.master !== undefined && edit.master.status !== 'completed'

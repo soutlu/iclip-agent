@@ -98,6 +98,7 @@ async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngin
     running = await repo.record_progress(
         job.id, provider_status="running", provider_snapshot={"status": "running"}
     )
+    assert running is not None
     assert running.provider_status == "running"
     assert running.status == STATUS_SUBMITTED, "还在跑不改状态"
 
@@ -108,6 +109,7 @@ async def test_state_transitions_round_trip_through_the_table(engine: AsyncEngin
         provider_status="succeeded",
         provider_snapshot={"status": "succeeded"},
     )
+    assert completed is not None
     assert completed.finished_at is not None
     assert completed.watermark_output_url == "https://cdn.test/v-wm.mp4"
     assert completed.submitted_at == submitted.submitted_at, "别把发出去的时刻改成拿到结果的时刻"
@@ -128,6 +130,7 @@ async def test_sync_result_backfills_the_submitted_moment(engine: AsyncEngine) -
         provider_snapshot={},
         provider_task_id="img-1",
     )
+    assert completed is not None
     assert completed.provider_task_id == "img-1", "对账 id 错过这一步就永远没人写它"
     assert completed.submitted_at is not None
 
@@ -159,6 +162,67 @@ async def test_status_guard_never_overwrites_a_real_result(engine: AsyncEngine) 
     assert stored.status == STATUS_COMPLETED
     assert stored.output_url == "https://cdn.test/out.png"
     assert stored.error_code is None
+
+
+async def test_a_late_result_cannot_revive_a_job_that_was_already_failed(
+    engine: AsyncEngine,
+) -> None:
+    """反向也要守住：heal 按心跳判失联不等于原来那次真死了，它回来时不能把失败改回成功。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    job = await insert_job(repo, owner, image_request())
+
+    await repo.mark_submitting(job.id)
+    await repo.mark_failed(
+        job.id, error_code="SUBMIT_INTERRUPTED", error_message="不知道发出去没有"
+    )
+
+    missed = await repo.mark_completed(
+        job.id,
+        output_url="https://cdn.test/late.png",
+        provider_status="succeeded",
+        provider_snapshot={},
+        only_if_status=STATUS_SUBMITTING,
+    )
+    assert missed is None, "状态已经不是 submitting，这次写入必须一行都不动"
+
+    stored = await repo.get(job.id, owner=owner)
+    assert stored.status == STATUS_FAILED
+    assert stored.output_url is None
+
+
+async def test_stage_reports_keep_the_snapshot_and_stop_at_a_conclusion(
+    engine: AsyncEngine,
+) -> None:
+    """阶段上报只写 provider_status：带上快照会把完成时那次写打掉。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    job = await insert_job(repo, owner, image_request())
+
+    await repo.mark_submitting(job.id)
+    reported = await repo.record_progress(
+        job.id, provider_status="processing", only_if_status=STATUS_SUBMITTING
+    )
+    assert reported is not None
+    assert reported.provider_status == "processing"
+    assert reported.provider_snapshot is None, "没给快照就不动它"
+
+    await repo.mark_completed(
+        job.id,
+        output_url="https://cdn.test/out.mp4",
+        provider_status="completed",
+        provider_snapshot={"durationMs": 4213},
+    )
+    late = await repo.record_progress(
+        job.id, provider_status="uploading", only_if_status=STATUS_SUBMITTING
+    )
+    assert late is None, "已有结论，迟到的阶段上报不许改它"
+
+    stored = await repo.get(job.id, owner=owner)
+    assert stored.provider_status == "completed"
+    assert stored.provider_snapshot == {"durationMs": 4213}
 
 
 async def test_status_guard_lets_the_write_through_when_it_matches(engine: AsyncEngine) -> None:

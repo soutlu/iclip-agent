@@ -451,6 +451,7 @@ export const zAppendOp = z.object({
  * URL；来源对话不写回去——查的时候本来就是按它查的。
  */
 export const zGenerationOut = z.object({
+  clipStage: z.enum(['fetching', 'processing', 'uploading']).nullable(),
   createdAt: z.iso.datetime(),
   durationMs: z.int().nullable(),
   errorMessage: z.string().nullable(),

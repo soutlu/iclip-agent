@@ -222,8 +222,11 @@ class InMemoryGenerationRepository:
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
-    ) -> GenerationJob:
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
         current = self.jobs[job_id]
+        if only_if_status is not None and current.status != only_if_status:
+            return None
         return self._replace(
             job_id,
             status=STATUS_COMPLETED,
@@ -267,13 +270,13 @@ class InMemoryGenerationRepository:
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
-    ) -> GenerationJob:
-        return self._replace(
-            job_id,
-            provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
-        )
+        provider_snapshot: dict[str, Any] | None = None,
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
+        if only_if_status is not None and self.jobs[job_id].status != only_if_status:
+            return None
+        extra = {} if provider_snapshot is None else {"provider_snapshot": provider_snapshot}
+        return self._replace(job_id, provider_status=provider_status, **extra)
 
     async def in_flight_by_conversation(
         self, conversation_ids: Sequence[uuid.UUID], *, kind: str

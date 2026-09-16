@@ -20,6 +20,7 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTED,
     STATUS_SUBMITTING,
     GenerationJob,
+    GenerationStatus,
 )
 from iclip.domains.generation.nano_banana import SPEC as NANO_SPEC
 from iclip.domains.generation.provider import ImageModelSpec
@@ -555,6 +556,38 @@ async def test_clip_reports_the_probed_duration_from_its_snapshot() -> None:
 
     assert body["durationMs"] == 4213
     assert "providerSnapshot" not in body, "只挑这一个键出来，快照本身仍不外露"
+
+
+async def test_in_flight_clip_reports_the_stage_it_is_on() -> None:
+    job = make_job(clip_request(), provider="ffmpeg", status=STATUS_SUBMITTING)
+    job = replace(job, provider_status="uploading")
+    repo = InMemoryGenerationRepository([job])
+    owner = principal("generation:read", user_id=job.owner_user_id)
+    async with client(build_test_app(repo, granted=owner)) as http:
+        body = (await http.get(f"/generations/{job.id}")).json()["generation"]
+
+    assert body["clipStage"] == "uploading"
+
+
+@pytest.mark.parametrize(
+    ("status", "provider_status", "why"),
+    [
+        (STATUS_PENDING, None, "还在排队，阶段由 status 表达"),
+        (STATUS_FAILED, "uploading", "收尾不写 provider_status，列里会留着最后上报的那个词"),
+        (STATUS_SUBMITTING, "whatever", "没见过的词不外露"),
+    ],
+)
+async def test_clip_stage_is_empty_unless_it_is_a_known_in_flight_stage(
+    status: GenerationStatus, provider_status: str | None, why: str
+) -> None:
+    job = make_job(clip_request(), provider="ffmpeg", status=status)
+    job = replace(job, provider_status=provider_status)
+    repo = InMemoryGenerationRepository([job])
+    owner = principal("generation:read", user_id=job.owner_user_id)
+    async with client(build_test_app(repo, granted=owner)) as http:
+        body = (await http.get(f"/generations/{job.id}")).json()["generation"]
+
+    assert body["clipStage"] is None, why
 
 
 async def test_clip_without_a_probed_duration_reports_nothing() -> None:

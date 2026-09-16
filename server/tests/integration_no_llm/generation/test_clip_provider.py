@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import subprocess
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -14,6 +16,7 @@ import pytest
 
 from iclip.domains.generation.clip import FfmpegClipProvider
 from iclip.domains.generation.provider import ProviderError
+from iclip.domains.generation.schemas import ClipStage
 from iclip.platform.media.ffmpeg import (
     ffmpeg_available,
     probe_duration_ms,
@@ -82,6 +85,29 @@ def sources() -> dict[str, bytes]:
         }
 
 
+@dataclass
+class _Stages:
+    """记下 provider 报了哪些阶段。``live=False`` 模拟这条任务已经不在提交中。"""
+
+    seen: list[ClipStage] = field(default_factory=list)
+    live: bool = True
+
+    async def report(self, job_id: uuid.UUID, stage: ClipStage) -> bool:
+        self.seen.append(stage)
+        return self.live
+
+
+def _provider(
+    store: MemoryObjectStore,
+    *,
+    stages: _Stages | None = None,
+    transport: httpx.MockTransport | None = None,
+) -> FfmpegClipProvider:
+    return FfmpegClipProvider(
+        object_store=store, report_stage=(stages or _Stages()).report, transport=transport
+    )
+
+
 async def _submit(
     provider: FfmpegClipProvider, store: MemoryObjectStore, **request_kwargs: object
 ) -> tuple[str, bytes]:
@@ -100,8 +126,7 @@ async def _render(
     """跑一次成片加工：素材由 httpx 替身喂。"""
 
     store = MemoryObjectStore()
-    provider = FfmpegClipProvider(object_store=store, transport=_client(sources))
-    return await _submit(provider, store, **request_kwargs)
+    return await _submit(_provider(store, transport=_client(sources)), store, **request_kwargs)
 
 
 async def _duration_seconds(content: bytes) -> float:
@@ -113,7 +138,7 @@ async def _duration_seconds(content: bytes) -> float:
 
 async def test_reference_cut_lands_under_the_expiring_prefix(sources: dict[str, bytes]) -> None:
     store = MemoryObjectStore()
-    provider = FfmpegClipProvider(object_store=store)
+    provider = _provider(store)
     async with serving({"base.mp4": sources[BASE_URL]}) as server:
         key, content = await _submit(
             provider, store, segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}]
@@ -133,7 +158,7 @@ async def test_reference_cut_reads_the_index_and_the_selection_only() -> None:
     with TemporaryDirectory(prefix="clip-fixture-") as tmp:
         body = _synthesize_noise(Path(tmp) / "noise.mp4", seconds=4)
     store = MemoryObjectStore()
-    provider = FfmpegClipProvider(object_store=store)
+    provider = _provider(store)
     async with serving({"noise.mp4": body}) as server:
         _, content = await _submit(
             provider, store, segments=[{"url": server.url("noise.mp4"), "start": 3, "end": 4}]
@@ -151,7 +176,7 @@ async def test_reference_cut_still_works_when_the_source_ignores_range(
     """源不支持 Range 时退化为顺序读：慢，但 moov 在头部仍出正确产物。"""
 
     store = MemoryObjectStore()
-    provider = FfmpegClipProvider(object_store=store)
+    provider = _provider(store)
     async with serving({"base.mp4": sources[BASE_URL]}, ranges=False) as server:
         _, content = await _submit(
             provider, store, segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}]
@@ -163,7 +188,7 @@ async def test_reference_cut_still_works_when_the_source_ignores_range(
 async def test_reference_cut_fails_without_retry_when_the_source_is_gone() -> None:
     """签名过期、对象没了都归这一档：读取与裁剪交错，分不出取素材和加工两步。"""
 
-    provider = FfmpegClipProvider(object_store=MemoryObjectStore())
+    provider = _provider(MemoryObjectStore())
     async with serving({}) as server:
         job = make_job(
             clip_request(segments=[{"url": server.url("gone.mp4"), "start": 1, "end": 2}]),
@@ -231,10 +256,64 @@ async def test_master_still_aligns_to_the_original_when_the_edit_covers_most_of_
     )
 
 
+async def test_reference_reports_processing_then_uploading(sources: dict[str, bytes]) -> None:
+    """参考片段没有取素材这一步：它是边读边切的。"""
+
+    store = MemoryObjectStore()
+    stages = _Stages()
+    async with serving({"base.mp4": sources[BASE_URL]}) as server:
+        await _submit(
+            _provider(store, stages=stages),
+            store,
+            segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}],
+        )
+
+    assert stages.seen == ["processing", "uploading"]
+
+
+async def test_master_reports_fetching_then_processing_then_uploading(
+    sources: dict[str, bytes],
+) -> None:
+    """成片三步都有：下素材、探规格算取素材，重编码算加工。"""
+
+    store = MemoryObjectStore()
+    stages = _Stages()
+    await _submit(
+        _provider(store, stages=stages, transport=_client(sources)),
+        store,
+        purpose="master",
+        segments=[
+            {"url": BASE_URL, "start": 0, "end": 1},
+            {"url": EDITED_URL, "start": 0, "end": 1},
+        ],
+    )
+
+    assert stages.seen == ["fetching", "processing", "uploading"]
+
+
+async def test_stops_reporting_once_the_job_has_a_conclusion_but_still_finishes(
+    sources: dict[str, bytes],
+) -> None:
+    """上报被拒（这条已经有结论了）就不再报，活照样干完——产物落在按任务 id 定好的 key 上。"""
+
+    store = MemoryObjectStore()
+    stages = _Stages(live=False)
+    async with serving({"base.mp4": sources[BASE_URL]}) as server:
+        key, content = await _submit(
+            _provider(store, stages=stages),
+            store,
+            segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}],
+        )
+
+    assert stages.seen == ["processing"], "第一次就被拒，后面不再报"
+    assert key.startswith("iclip/agent/video-clips/")
+    assert 1.0 <= await _duration_seconds(content) <= 2.1
+
+
 async def test_master_source_that_cannot_be_fetched_fails_without_retry() -> None:
     """成片仍是先下到本地，取不到素材有自己的错误码。"""
 
-    provider = FfmpegClipProvider(object_store=MemoryObjectStore(), transport=_client({}))
+    provider = _provider(MemoryObjectStore(), transport=_client({}))
     job = make_job(
         clip_request(
             purpose="master",

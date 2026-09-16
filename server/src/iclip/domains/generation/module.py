@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -10,7 +11,8 @@ import httpx
 import procrastinate
 
 from iclip.domains.generation.api import create_generations_router
-from iclip.domains.generation.clip import FfmpegClipProvider
+from iclip.domains.generation.clip import FfmpegClipProvider, ReportClipStage
+from iclip.domains.generation.models import STATUS_SUBMITTING
 from iclip.domains.generation.nano_banana import (
     PROVIDER_NAME as NANO_BANANA_PRO,
 )
@@ -28,6 +30,7 @@ from iclip.domains.generation.queue import (
     ProviderLane,
 )
 from iclip.domains.generation.repository import GenerationRepository
+from iclip.domains.generation.schemas import ClipStage
 from iclip.domains.generation.seedream import (
     PROVIDER_NAME as SEEDREAM_V5_PRO,
 )
@@ -101,7 +104,9 @@ def build_generation_module(
         )
     settings = queue_settings or GenerationQueueSettings()
     video_provider = HttpVideoProvider(video, transport=video_transport)
-    clip_provider = FfmpegClipProvider(object_store=object_store)
+    clip_provider = FfmpegClipProvider(
+        object_store=object_store, report_stage=_clip_stage_reporter(repo)
+    )
     image_providers = [
         _image_provider(model, env=image_env, object_store=object_store, transport=image_transport)
         for model in image_models
@@ -143,6 +148,21 @@ IMAGE_MODEL_SPECS: Final[Mapping[str, ImageModelSpec]] = {
     SEEDREAM_V5_PRO: SEEDREAM_V5_PRO_SPEC,
 }
 """有适配器的那几家图片模型及其能力声明。加一家＝这里一行，加一支 _image_provider 分支。"""
+
+
+def _clip_stage_reporter(repo: GenerationRepository) -> ReportClipStage:
+    """把 provider 报的阶段落到 provider_status 上，provider 自己不碰数据库。
+
+    只在提交中更新，返回这条是不是还在提交中。不带快照：快照整份覆盖写，捎带上会把完成时
+    那次写打掉。"""
+
+    async def report(job_id: uuid.UUID, stage: ClipStage) -> bool:
+        updated = await repo.record_progress(
+            job_id, provider_status=stage, only_if_status=STATUS_SUBMITTING
+        )
+        return updated is not None
+
+    return report
 
 
 def _image_provider(
