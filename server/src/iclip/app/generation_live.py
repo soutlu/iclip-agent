@@ -15,8 +15,9 @@ class AnnouncingGenerationRepository:
     """包在 ``GenerationRepository`` 外面：每次业务状态跳转写成功，就向属主广播一帧。
 
     受理落 ``pending`` 也算一跳，agent 发起的出图才会在页面上冒出来。``record_progress`` 只更新
-    provider 原始状态、不改业务状态，不发帧，否则每次轮询上游都会喊一声；``mark_failed`` 带状态
-    守卫没命中时返回 None，也不发帧。"""
+    provider 原始状态、不改业务状态，不发帧，否则每次轮询上游都会喊一声——clip 的阶段词也走它，
+    所以最多晚一轮轮询才被看到；``mark_failed`` 与 ``mark_completed`` 带状态守卫没命中时返回
+    None，也不发帧。"""
 
     def __init__(self, inner: GenerationRepository, live: LiveConnections) -> None:
         self._inner = inner
@@ -78,17 +79,18 @@ class AnnouncingGenerationRepository:
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
-    ) -> GenerationJob:
-        return self._announce(
-            await self._inner.mark_completed(
-                job_id,
-                output_url=output_url,
-                provider_status=provider_status,
-                provider_snapshot=provider_snapshot,
-                provider_task_id=provider_task_id,
-                watermark_output_url=watermark_output_url,
-            )
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
+        job = await self._inner.mark_completed(
+            job_id,
+            output_url=output_url,
+            provider_status=provider_status,
+            provider_snapshot=provider_snapshot,
+            provider_task_id=provider_task_id,
+            watermark_output_url=watermark_output_url,
+            only_if_status=only_if_status,
         )
+        return None if job is None else self._announce(job)
 
     async def mark_failed(
         self,
@@ -115,10 +117,14 @@ class AnnouncingGenerationRepository:
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
-    ) -> GenerationJob:
+        provider_snapshot: dict[str, Any] | None = None,
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
         return await self._inner.record_progress(
-            job_id, provider_status=provider_status, provider_snapshot=provider_snapshot
+            job_id,
+            provider_status=provider_status,
+            provider_snapshot=provider_snapshot,
+            only_if_status=only_if_status,
         )
 
     async def in_flight_by_conversation(

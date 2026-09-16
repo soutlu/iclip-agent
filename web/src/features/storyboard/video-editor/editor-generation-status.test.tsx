@@ -15,6 +15,7 @@ const failedJob: GenerationJob = {
   outputUrl: null,
   request: {},
   taskId: null,
+  clipStage: null,
   durationMs: null,
   watermarkOutputUrl: null,
 }
@@ -73,6 +74,28 @@ describe('EditorGenerationStatus', () => {
     expect(
       within(status).queryByRole('listitem', { name: '结果预览，已完成' }),
     ).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { stage: 'cutting', job: 'reference', clipStage: 'processing', text: '正在截取参考片段' },
+    { stage: 'cutting', job: 'reference', clipStage: 'uploading', text: '正在上传参考片段' },
+    { stage: 'composing', job: 'master', clipStage: 'fetching', text: '正在取素材' },
+    { stage: 'composing', job: 'master', clipStage: 'processing', text: '正在编码成片' },
+    { stage: 'composing', job: 'master', clipStage: 'uploading', text: '正在上传成片' },
+  ] as const)('$stage 显示后端报的加工阶段：$text', async ({ stage, job, clipStage, text }) => {
+    const running: GenerationJob = { ...failedJob, status: 'submitting', clipStage }
+    await renderWithProviders(<EditorGenerationStatus edit={edit({ stage, [job]: running })} />)
+
+    expect(screen.getByRole('status', { name: '视频编辑进度' })).toHaveTextContent(text)
+  })
+
+  it.each([
+    { stage: 'cutting', text: '正在准备参考片段' },
+    { stage: 'composing', text: '正在合成成片' },
+  ] as const)('$stage 没有阶段可读时回落到原文案', async ({ stage, text }) => {
+    await renderWithProviders(<EditorGenerationStatus edit={edit({ stage })} />)
+
+    expect(screen.getByRole('status', { name: '视频编辑进度' })).toHaveTextContent(text)
   })
 
   it.each([

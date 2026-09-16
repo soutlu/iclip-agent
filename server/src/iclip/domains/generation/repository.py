@@ -60,8 +60,11 @@ class GenerationRepository(Protocol):
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
-    ) -> GenerationJob:
-        """记录成功终态。同步生成在此保存回执 id，并补齐尚未写入的 submitted_at。"""
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
+        """记录成功终态。同步生成在此保存回执 id，并补齐尚未写入的 submitted_at。
+
+        指定 only_if_status 时原子校验状态，不匹配返回 None，避免覆盖并发写入的结果。"""
         ...
 
     async def mark_failed(
@@ -82,9 +85,13 @@ class GenerationRepository(Protocol):
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
-    ) -> GenerationJob:
-        """保存本次 Provider 状态；后续查询时间由队列管理。"""
+        provider_snapshot: dict[str, Any] | None = None,
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
+        """保存本次 Provider 状态；后续查询时间由队列管理。
+
+        省略 snapshot 时不动原快照——它整份覆盖写，clip 上报阶段时带上会把完成时那次写打掉。
+        指定 only_if_status 时原子校验状态，不匹配返回 None，表示这条已经不在预期状态上。"""
         ...
 
     async def in_flight_by_conversation(

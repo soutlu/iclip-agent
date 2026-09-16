@@ -209,6 +209,8 @@ const job = (spec: MockJob) => ({
   status: spec.status,
   taskId: null,
   durationMs: spec.durationMs ?? null,
+  // 这里的加工是瞬时的，没有在途阶段可报。
+  clipStage: null,
   watermarkOutputUrl: spec.watermarkOutputUrl ?? null,
 })
 

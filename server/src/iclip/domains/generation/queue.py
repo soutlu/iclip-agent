@@ -198,7 +198,15 @@ class GenerationQueue:
             submission = await lane.provider.submit(job)
         except ProviderError as exc:
             # 提交阶段忽略 retryable 标记，防止请求已受理时重复计费。
-            await self._repo.mark_failed(job.id, error_code=exc.code, error_message=str(exc))
+            self._settled(
+                job,
+                await self._repo.mark_failed(
+                    job.id,
+                    error_code=exc.code,
+                    error_message=str(exc),
+                    only_if_status=STATUS_SUBMITTING,
+                ),
+            )
             _logger.warning(
                 "生成任务提交失败",
                 job_id=job.id,
@@ -210,12 +218,16 @@ class GenerationQueue:
 
         if submission.output_url is not None:
             # 同步接口没有轮询阶段，完成时同时保存回执任务 id。
-            await self._repo.mark_completed(
-                job.id,
-                output_url=submission.output_url,
-                provider_status=submission.provider_status,
-                provider_snapshot=submission.raw,
-                provider_task_id=submission.provider_task_id,
+            self._settled(
+                job,
+                await self._repo.mark_completed(
+                    job.id,
+                    output_url=submission.output_url,
+                    provider_status=submission.provider_status,
+                    provider_snapshot=submission.raw,
+                    provider_task_id=submission.provider_task_id,
+                    only_if_status=STATUS_SUBMITTING,
+                ),
             )
             return
 
@@ -238,11 +250,15 @@ class GenerationQueue:
             _logger.info("生成任务已有结论，不再轮询", job_id=job.id, status=job.status)
             return
         if self._timed_out(job):
-            await self._repo.mark_failed(
-                job.id,
-                error_code="PROVIDER_TIMEOUT",
-                error_message=(
-                    f"提交后 {self._settings.job_timeout_seconds} 秒仍无终态，按超时收尾"
+            self._settled(
+                job,
+                await self._repo.mark_failed(
+                    job.id,
+                    error_code="PROVIDER_TIMEOUT",
+                    error_message=(
+                        f"提交后 {self._settings.job_timeout_seconds} 秒仍无终态，按超时收尾"
+                    ),
+                    only_if_status=STATUS_SUBMITTED,
                 ),
             )
             return
@@ -257,25 +273,41 @@ class GenerationQueue:
         except ProviderError as exc:
             if exc.retryable:
                 raise
-            await self._repo.mark_failed(job.id, error_code=exc.code, error_message=str(exc))
+            self._settled(
+                job,
+                await self._repo.mark_failed(
+                    job.id,
+                    error_code=exc.code,
+                    error_message=str(exc),
+                    only_if_status=STATUS_SUBMITTED,
+                ),
+            )
             return
 
         if progress.outcome == "succeeded" and progress.output_url is not None:
-            await self._repo.mark_completed(
-                job.id,
-                output_url=progress.output_url,
-                watermark_output_url=progress.watermark_output_url,
-                provider_status=progress.provider_status,
-                provider_snapshot=progress.raw,
+            self._settled(
+                job,
+                await self._repo.mark_completed(
+                    job.id,
+                    output_url=progress.output_url,
+                    watermark_output_url=progress.watermark_output_url,
+                    provider_status=progress.provider_status,
+                    provider_snapshot=progress.raw,
+                    only_if_status=STATUS_SUBMITTED,
+                ),
             )
             return
         if progress.outcome == "failed":
-            await self._repo.mark_failed(
-                job.id,
-                error_code=progress.error_code or "PROVIDER_FAILED",
-                error_message=progress.error_message or "provider 报告生成失败",
-                provider_status=progress.provider_status,
-                provider_snapshot=progress.raw,
+            self._settled(
+                job,
+                await self._repo.mark_failed(
+                    job.id,
+                    error_code=progress.error_code or "PROVIDER_FAILED",
+                    error_message=progress.error_message or "provider 报告生成失败",
+                    provider_status=progress.provider_status,
+                    provider_snapshot=progress.raw,
+                    only_if_status=STATUS_SUBMITTED,
+                ),
             )
             return
 
@@ -283,6 +315,7 @@ class GenerationQueue:
             job.id,
             provider_status=progress.provider_status,
             provider_snapshot=progress.raw,
+            only_if_status=STATUS_SUBMITTED,
         )
         raise StillRunning(f"{job.id} 还在跑（{progress.provider_status}）")
 
@@ -389,6 +422,15 @@ class GenerationQueue:
             _logger.info("生成任务在收尾之前已有结论，不改它", job_id=job.id)
             return
         _logger.warning("生成任务提交中断，已判失败", job_id=job.id)
+
+    def _settled(self, job: GenerationJob, written: GenerationJob | None) -> None:
+        """终态写入没命中状态守卫就记一条：别的执行已经给它下了结论，这次不覆盖。
+
+        会撞上的是 heal 按心跳判 worker 失联后重排出的那一次执行——失联不等于进程死了，
+        原来那次可能还在跑 ffmpeg 或等上游，回来时这一行已经有结论了。"""
+
+        if written is None:
+            _logger.info("生成任务在收尾之前已有结论，不改它", job_id=job.id)
 
     def _timed_out(self, job: GenerationJob) -> bool:
         started = job.submitted_at or job.created_at

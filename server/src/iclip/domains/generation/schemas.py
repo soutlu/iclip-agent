@@ -10,7 +10,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Literal
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Literal, get_args
 
 from pydantic import (
     AfterValidator,
@@ -49,6 +49,22 @@ CLIP_REFERENCE: Final = "reference"
 MAX_CLIP_SEGMENTS: Final = 50
 """一条成片最多由多少段拼成。编辑链里一条成片只有基底前段、编辑片段、基底后段三段，这个上限
 只是挡畸形请求。"""
+
+ClipStage = Literal["fetching", "processing", "uploading"]
+"""clip 任务在途时跑到哪一步，加工时上报，落在 provider_status 上。
+
+排队由 ``status == "pending"`` 表达，终态由 status 表达，都不另给词。参考片段没有取素材
+这一步——它是边读边切的。"""
+
+CLIP_FETCHING: Final = "fetching"
+"""取素材：下载各段的源，以及探它们的规格。"""
+CLIP_PROCESSING: Final = "processing"
+"""加工：裁一段，或者拼起来重编码。"""
+CLIP_UPLOADING: Final = "uploading"
+"""上传：把产物交给对象存储。"""
+
+CLIP_STAGES: Final[tuple[ClipStage, ...]] = get_args(ClipStage)
+"""能对外露出的阶段词。列里出现别的值就当没有，不把任意 provider 状态转给调用方。"""
 
 IMAGE_ASPECT_RATIOS = Literal[
     "1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
@@ -396,6 +412,8 @@ class GenerationOut(CamelModel):
 
     参考片段按关键帧下刀，产物比请求的区间长，长多少只有量产物才知道。调用方要靠它反算
     实际起点，所以由服务端量好交出来，不必在浏览器里再开一个播放器去探。"""
+    clip_stage: ClipStage | None
+    """在途的本地加工跑到哪一步；排队中、已有结论、以及别的 kind 都为空。"""
     created_at: datetime
 
 
@@ -411,6 +429,7 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         watermark_output_url=job.watermark_output_url,
         error_message=job.error_message,
         duration_ms=_duration_ms(job),
+        clip_stage=_clip_stage(job),
         created_at=job.created_at,
     )
 
@@ -422,6 +441,17 @@ def _duration_ms(job: GenerationJob) -> int | None:
         return None
     value = (job.provider_snapshot or {}).get("durationMs")
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _clip_stage(job: GenerationJob) -> ClipStage | None:
+    """在途的本地加工跑到哪一步。
+
+    只在 submitting 时认：收尾写终态时不带 provider_status，那一列会留着最后上报的阶段词，
+    照它读会让一条已失败的记录看着还在上传。"""
+
+    if job.kind != KIND_CLIP or job.status != "submitting":
+        return None
+    return next((stage for stage in CLIP_STAGES if stage == job.provider_status), None)
 
 
 class VideoSubmitOut(SnakeModel):
@@ -519,7 +549,10 @@ class GenerationsPageOut(CamelModel):
 
 
 __all__ = [
+    "CLIP_FETCHING",
+    "CLIP_PROCESSING",
     "CLIP_REFERENCE",
+    "CLIP_UPLOADING",
     "IMAGE_MAX_REFERENCES",
     "KIND_CLIP",
     "KIND_IMAGE",
@@ -535,6 +568,7 @@ __all__ = [
     "ClipIn",
     "ClipPurpose",
     "ClipSegmentIn",
+    "ClipStage",
     "GenerationEnvelope",
     "GenerationKind",
     "GenerationOut",
