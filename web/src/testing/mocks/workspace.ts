@@ -2,10 +2,14 @@
 
 import { http, HttpResponse } from 'msw'
 import type {
+  ClipIn,
   ImageGenerationIn,
   VideoGenerationIn,
   VideoShotIn,
 } from '@/shared/api/generated/types.gen'
+// no-inline：这两条要作为地址进请求体、进 <video src>，不能被构建按小文件内联成 data URI。
+import sampleEditedUrl from '../fixtures/sample-edited.webm?no-inline'
+import sampleVideoUrl from '../fixtures/sample-video.webm?no-inline'
 
 /** 本地 data URL 帧，避免网络依赖。 */
 const FRAME_A =
@@ -31,8 +35,11 @@ const httpFrames = (): MockFrames => {
   return { a: url('a'), b: url('b'), c: url('c') }
 }
 
-/** 仅含 ftyp 盒的 MP4 占位地址，避免视频元素请求外网。 */
-const VIDEO_URL = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE='
+/** 出片与成片都放这条 6 秒的测试卡；编辑结果与参考片段放另一条 3 秒的彩条，切换时看得出来。
+ *
+ * 用 WebM 不用 MP4：Playwright 自带的 Chromium 没有 H.264 解码器，mp4 连时长都读不出来。 */
+const VIDEO_URL = sampleVideoUrl
+const EDITED_URL = sampleEditedUrl
 
 const PREAMBLE = ['参考锁定：模特的服装与发型跟住 @Image1。', '剪辑形式：硬切。'].join('\n')
 
@@ -180,7 +187,7 @@ type MockJob = {
   createdAt: string
   errorMessage?: string
   id: string
-  kind?: 'video' | 'image'
+  kind?: 'video' | 'image' | 'clip'
   outputUrl?: string
   prompt: string
   request?: Record<string, unknown>
@@ -626,11 +633,21 @@ export const workspaceHandlers = [
     }),
   ),
 
-  // 视频模型只有 id，允许表照服务端配置。
+  // 允许表照服务端配置；edit 为空表示这个模型不做视频编辑。
   http.get('*/api/generations/video-models', () =>
     HttpResponse.json({
       default: 'moyu-seedance-2-5',
-      items: ['moyu-seedance-2-0', 'moyu-seedance-2-5', 'wan3.0-video'],
+      items: [
+        { model: 'moyu-seedance-2-0', edit: null },
+        {
+          model: 'moyu-seedance-2-5',
+          edit: { promptPrefix: null, providerOptions: { omni_reference_task_type: 'edit' } },
+        },
+        {
+          model: 'wan3.0-video',
+          edit: { promptPrefix: '编辑视频，', providerOptions: null },
+        },
+      ],
     }),
   ),
 
@@ -678,22 +695,41 @@ export const workspaceHandlers = [
     if (typeof prompt !== 'string') {
       return HttpResponse.json({ detail: 'prompt 与 shot 至少传一个' }, { status: 422 })
     }
+    // 带参考视频的是编辑：结果是另一条视频，与原片不同。
+    const editing = (body.reference_video_urls?.length ?? 0) > 0
     const created = acceptGeneration({
       kind: 'video',
       prompt,
       request: { ...body, prompt },
       conversationId: body.conversation_id ?? null,
       metadata: body.metadata ?? null,
-      outputUrl: VIDEO_URL,
-      watermarkOutputUrl: VIDEO_URL,
+      outputUrl: editing ? EDITED_URL : VIDEO_URL,
+      watermarkOutputUrl: editing ? EDITED_URL : VIDEO_URL,
     })
     return HttpResponse.json({ task_id: created.id }, { status: 202 })
+  }),
+
+  // 本地裁剪拼接：切参考片段与合成成片同一个端点，回执是整条记录。这里切不了视频，产物用现成的两条代替。
+  http.post('*/api/generations/clips', async ({ request }) => {
+    const body = (await request.json()) as ClipIn
+    if (!Array.isArray(body.segments) || body.segments.length === 0) {
+      return HttpResponse.json({ detail: 'segments 至少一段' }, { status: 422 })
+    }
+    const created = acceptGeneration({
+      kind: 'clip',
+      prompt: '',
+      request: { purpose: body.purpose, segments: body.segments },
+      conversationId: body.conversationId ?? null,
+      metadata: body.metadata ?? null,
+      outputUrl: body.purpose === 'reference' ? EDITED_URL : VIDEO_URL,
+    })
+    return HttpResponse.json({ generation: created }, { status: 202 })
   }),
 ]
 
 /** 受理一条生成记录并在固定延迟后把它标成完成，与真实后端的「先受理、后台出结果」同形。 */
 function acceptGeneration(spec: {
-  kind: 'image' | 'video'
+  kind: 'image' | 'video' | 'clip'
   prompt: string
   request: Record<string, unknown>
   conversationId: string | null

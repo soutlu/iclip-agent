@@ -47,6 +47,7 @@ from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.titles import title_generator
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.harness.transcript.subagents import SubAgentMirror
+from iclip.harness.usage_ledger import UsageLedger
 from iclip.platform.transcript.display import ToolDisplayRegistry
 
 _logger = structlog.stdlib.get_logger(__name__)
@@ -67,6 +68,7 @@ class LayerDeps:
 
     table: CapabilityTable
     step_store: PgStepStore
+    usage_ledger: UsageLedger
     live: TranscriptStore
     display: ToolDisplayRegistry
 
@@ -208,6 +210,7 @@ def build_agent_layer(
     registry = build_agent_registry(
         definitions,
         step_store=deps.step_store,
+        usage_ledger=deps.usage_ledger,
         models=built_models,
         subagent_mirror=SubAgentMirror(
             live=deps.live,

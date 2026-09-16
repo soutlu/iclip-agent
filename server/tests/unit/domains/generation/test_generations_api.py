@@ -22,7 +22,8 @@ from iclip.domains.generation.models import (
     GenerationJob,
 )
 from iclip.domains.generation.nano_banana import SPEC as NANO_SPEC
-from iclip.domains.generation.provider import ImageModelSpec
+from iclip.domains.generation.provider import ImageModelSpec, VideoEditSpec
+from iclip.domains.generation.schemas import request_to_payload
 from iclip.domains.generation.seedream import SPEC as SEEDREAM_SPEC
 from iclip.domains.generation.service import GenerationService
 from iclip.domains.identity.acting import ActAs
@@ -31,6 +32,7 @@ from tests.helpers.generation import (
     SHOT_IMAGE_URLS,
     SHOT_PROMPT,
     InMemoryGenerationRepository,
+    clip_request,
     image_request,
     make_job,
     video_request,
@@ -39,7 +41,14 @@ from tests.helpers.generation import (
 from tests.helpers.identity import InMemoryUserRepository
 from tests.unit.domains.generation.test_generation_queue import build_queue
 
-VIDEO_MODELS = ("moyu-seedance-2-0", "moyu-seedance-2-5", "wan3.0-video")
+VIDEO_EDIT = VideoEditSpec(
+    prompt_prefix=None, provider_options={"omni_reference_task_type": "edit"}
+)
+VIDEO_MODELS: dict[str, VideoEditSpec | None] = {
+    "moyu-seedance-2-0": None,
+    "moyu-seedance-2-5": VIDEO_EDIT,
+    "wan3.0-video": VideoEditSpec(prompt_prefix="编辑视频，", provider_options=None),
+}
 
 VIDEO_BODY = {
     "model": "moyu-seedance-2-5",
@@ -104,8 +113,9 @@ def build_test_app(
         repo,
         queue,
         video_provider_name="video_api",
+        clip_provider_name="ffmpeg",
         video_default_model="moyu-seedance-2-5",
-        video_allowed_models=VIDEO_MODELS,
+        video_models=VIDEO_MODELS,
         image_models=image_models if image_models is not None else IMAGE_MODELS,
         image_default_model="nano_banana_pro",
     )
@@ -621,7 +631,23 @@ async def test_video_models_endpoint_lists_the_configured_models() -> None:
         response = await http.get("/generations/video-models")
 
     assert response.status_code == 200
-    assert response.json() == {"default": "moyu-seedance-2-5", "items": list(VIDEO_MODELS)}
+    assert response.json() == {
+        "default": "moyu-seedance-2-5",
+        "items": [
+            {"model": "moyu-seedance-2-0", "edit": None},
+            {
+                "model": "moyu-seedance-2-5",
+                "edit": {
+                    "promptPrefix": None,
+                    "providerOptions": {"omni_reference_task_type": "edit"},
+                },
+            },
+            {
+                "model": "wan3.0-video",
+                "edit": {"promptPrefix": "编辑视频，", "providerOptions": None},
+            },
+        ],
+    }, "编辑怎么触发由配置声明，调用方照它拼请求"
     async with client(build_test_app(InMemoryGenerationRepository(), granted=principal())) as http:
         assert (await http.get("/generations/video-models")).status_code == 403
 
@@ -703,3 +729,128 @@ async def test_image_models_endpoint_needs_read_permission() -> None:
     app = build_test_app(InMemoryGenerationRepository(), granted=principal())
     async with client(app) as http:
         assert (await http.get("/generations/image-models")).status_code == 403
+
+
+# --- 本地视频加工 ------------------------------------------------------------
+
+CLIP_BODY = {
+    "purpose": "reference",
+    "segments": [{"url": "https://example.com/base.mp4", "start": 4, "end": 8}],
+}
+
+MASTER_BODY = {
+    "purpose": "master",
+    "segments": [
+        {"url": "https://example.com/base.mp4", "start": 0, "end": 4},
+        {"url": "https://example.com/edited.mp4", "start": 0, "end": 4.3},
+        {"url": "https://example.com/base.mp4", "start": 8, "end": 15},
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    ("body", "purpose"),
+    [(CLIP_BODY, "reference"), (MASTER_BODY, "master")],
+    ids=["参考片段", "成片"],
+)
+async def test_clip_submit_accepts_and_persists_pending_without_calling_ffmpeg(
+    body: Mapping[str, object], purpose: str
+) -> None:
+    repo = InMemoryGenerationRepository()
+    app = build_test_app(repo, granted=principal("generation:submit"))
+    async with client(app) as http:
+        response = await http.post("/generations/clips", json=dict(body))
+
+    assert response.status_code == 202, response.text
+    stored = only_job(repo)
+    assert (stored.status, stored.kind, stored.provider) == (STATUS_PENDING, "clip", "ffmpeg")
+    payload = stored.request.model_dump()
+    assert payload["purpose"] == purpose
+    assert len(payload["segments"]) == len(body["segments"])  # type: ignore[arg-type]
+    assert response.json()["generation"]["outputUrl"] is None, "受理时还没加工"
+
+
+async def test_clip_submit_keeps_coordinates_out_of_the_request_payload() -> None:
+    repo = InMemoryGenerationRepository()
+    conversation = uuid.uuid4()
+    app = build_test_app(repo, granted=principal("generation:submit"))
+    async with client(app) as http:
+        response = await http.post(
+            "/generations/clips",
+            json={
+                **CLIP_BODY,
+                "conversationId": str(conversation),
+                "metadata": {"path": "video_shot.json", "shot": 2, "rootJob": "abc"},
+            },
+        )
+
+    assert response.status_code == 202, response.text
+    stored = only_job(repo)
+    assert stored.conversation_id == conversation
+    assert stored.metadata == {"path": "video_shot.json", "shot": 2, "rootJob": "abc"}
+    persisted = request_to_payload(stored.request)
+    assert "metadata" not in persisted and "conversationId" not in persisted, (
+        "坐标与归属落自己的列，不进 request JSON"
+    )
+
+
+@pytest.mark.parametrize(
+    "segments",
+    [
+        pytest.param([], id="一段都没有"),
+        pytest.param(
+            [{"url": "https://example.com/a.mp4", "start": 4, "end": 4}], id="结束不晚于开始"
+        ),
+        pytest.param([{"url": "file:///etc/passwd", "start": 0, "end": 1}], id="不是 http 地址"),
+        pytest.param(
+            [{"url": "https://example.com/" + "a" * 2000, "start": 0, "end": 1}], id="地址过长"
+        ),
+        pytest.param(
+            [
+                {"url": "https://example.com/a.mp4", "start": 0, "end": 1},
+                {"url": "https://example.com/b.mp4", "start": 0, "end": 1},
+            ],
+            id="参考片段裁了不止一段",
+        ),
+    ],
+)
+async def test_clip_submit_rejects_unusable_segments_before_persisting(
+    segments: list[dict[str, object]],
+) -> None:
+    repo = InMemoryGenerationRepository()
+    # 错误路径若仍尝试入队，坏队列会让这条用例失败。
+    app = build_test_app(repo, granted=principal("generation:submit"), broken_queue=True)
+    async with client(app) as http:
+        response = await http.post(
+            "/generations/clips", json={"purpose": "reference", "segments": segments}
+        )
+
+    assert response.status_code == 422, response.text
+    assert repo.jobs == {}
+
+
+async def test_clip_submit_requires_the_submit_permission() -> None:
+    app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:read"))
+    async with client(app) as http:
+        assert (await http.post("/generations/clips", json=CLIP_BODY)).status_code == 403
+
+
+async def test_clip_jobs_are_listed_under_their_own_kind() -> None:
+    repo = InMemoryGenerationRepository()
+    owner = uuid.uuid4()
+    repo.jobs = {
+        job.id: job
+        for job in (
+            make_job(clip_request(), provider="ffmpeg", owner_user_id=owner),
+            make_job(video_request(), provider="video_api", owner_user_id=owner),
+        )
+    }
+    app = build_test_app(repo, granted=principal("generation:read", user_id=owner))
+    async with client(app) as http:
+        clips = await http.get("/generations?kind=clip")
+        videos = await http.get("/generations?kind=video")
+
+    assert [item["kind"] for item in clips.json()["items"]] == ["clip"]
+    assert [item["kind"] for item in videos.json()["items"]] == ["video"], (
+        "裁剪拼接的产物不混进出片记录"
+    )

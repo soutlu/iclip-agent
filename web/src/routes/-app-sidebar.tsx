@@ -143,12 +143,20 @@ export function AppSidebar({ collapsed, onCollapsedChange }: AppSidebarProps) {
           title={user && !canReadTasks ? '当前账号没有查看需求单权限' : undefined}
         />
         {canGovern ? (
-          <SidebarAction
-            active={pathname === '/audit'}
-            icon="preview"
-            label="全部对话"
-            onClick={() => void navigate({ to: '/audit' })}
-          />
+          <>
+            <SidebarAction
+              active={pathname === '/conversations'}
+              icon="preview"
+              label="全部对话"
+              onClick={() => void navigate({ to: '/conversations' })}
+            />
+            <SidebarAction
+              active={pathname === '/audit'}
+              icon="chart"
+              label="审计"
+              onClick={() => void navigate({ to: '/audit' })}
+            />
+          </>
         ) : null}
         <SidebarAction icon="library" label="资料库" onClick={user ? undefined : requireLogin} />
       </nav>

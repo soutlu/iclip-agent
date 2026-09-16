@@ -15,6 +15,8 @@ const ConversationSearchSchema = z.object({
   sheet: z.enum(['all', 'prompt', 'records']).optional().catch(undefined),
   shot: z.int().positive().optional().catch(undefined),
   take: z.string().optional().catch(undefined),
+  /** 视频编辑器开在哪条出片记录上（编辑链的根）。 */
+  video: z.string().min(1).optional().catch(undefined),
 })
 
 // 会话为私有内容，未登录或会话失效时由路由守卫返回首页。

@@ -67,6 +67,71 @@ export type AgentStatusMeta = {
 }
 
 /**
+ * AnomaliesOut
+ */
+export type AnomaliesOut = {
+  /**
+   * Items
+   */
+  items: Array<AnomalyOut>
+  /**
+   * Nextcursor
+   */
+  nextCursor: string | null
+}
+
+/**
+ * AnomalyOut
+ */
+export type AnomalyOut = {
+  /**
+   * At
+   */
+  at: string
+  /**
+   * Conversationid
+   */
+  conversationId: string | null
+  /**
+   * Generationid
+   */
+  generationId: string | null
+  /**
+   * Kind
+   */
+  kind:
+    | 'retry'
+    | 'idle'
+    | 'slow'
+    | 'stuck'
+    | 'spend'
+    | 'task_stuck'
+    | 'deleted'
+    | 'no_task'
+    | 'missing_shot'
+  /**
+   * Shot
+   */
+  shot: number | null
+  /**
+   * Taskid
+   */
+  taskId: string | null
+  /**
+   * Threshold
+   */
+  threshold: number | null
+  /**
+   * Username
+   */
+  userName: string | null
+  /**
+   * Value
+   */
+  value: number | null
+}
+
+/**
  * ApiKeyCreateIn
  */
 export type ApiKeyCreateIn = {
@@ -233,6 +298,20 @@ export type AttachmentSource = {
 }
 
 /**
+ * AuditConversationsOut
+ */
+export type AuditConversationsOut = {
+  /**
+   * Items
+   */
+  items: Array<ConversationAuditOut>
+  /**
+   * Nextcursor
+   */
+  nextCursor: string | null
+}
+
+/**
  * Body_auth_cookie_login_auth_login_post
  */
 export type BodyAuthCookieLoginAuthLoginPost = {
@@ -260,6 +339,60 @@ export type BodyAuthCookieLoginAuthLoginPost = {
    * Username
    */
   username: string
+}
+
+/**
+ * ClipIn
+ *
+ * 一次本地视频加工：按顺序裁出各段拼成一条，产物是本系统桶里的公开地址。
+ *
+ * ``reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段，不重编码
+ * （起点因此落在最近的关键帧上，产物可能比区间略长）；``master`` 是拼出来的成片，各段
+ * 参数互不相同，一律重编码对齐。两者存在不同前缀下，成片不进过期规则。
+ */
+export type ClipIn = {
+  /**
+   * Conversationid
+   */
+  conversationId?: string | null
+  /**
+   * Metadata
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Purpose
+   */
+  purpose: 'reference' | 'master'
+  /**
+   * Segments
+   */
+  segments: Array<ClipSegmentIn>
+  /**
+   * Taskid
+   */
+  taskId?: string | null
+}
+
+/**
+ * ClipSegmentIn
+ *
+ * 从一条视频里取 ``[start, end)`` 这一段，单位秒。
+ */
+export type ClipSegmentIn = {
+  /**
+   * End
+   */
+  end: number
+  /**
+   * Start
+   */
+  start: number
+  /**
+   * Url
+   */
+  url: string
 }
 
 /**
@@ -374,6 +507,55 @@ export type ConversationAgentsOut = {
    * Items
    */
   items: Array<ConversationAgentOut>
+}
+
+/**
+ * ConversationAuditOut
+ *
+ * 一段有成片的对话；指标与镜、用量都是这段对话的全量。
+ */
+export type ConversationAuditOut = {
+  /**
+   * Conversationid
+   */
+  conversationId: string
+  /**
+   * Deletedat
+   */
+  deletedAt: string | null
+  /**
+   * Deliveredat
+   */
+  deliveredAt: string
+  metrics: MetricsOut
+  /**
+   * Owneruserid
+   */
+  ownerUserId: string
+  /**
+   * Shots
+   */
+  shots: Array<ShotOut>
+  /**
+   * Startedat
+   */
+  startedAt: string
+  /**
+   * Taskid
+   */
+  taskId: string | null
+  /**
+   * Title
+   */
+  title: string
+  /**
+   * Usage
+   */
+  usage: Array<ModelUsageOut>
+  /**
+   * Username
+   */
+  userName: string | null
 }
 
 /**
@@ -1040,6 +1222,77 @@ export type MetricFiltersIn = {
 }
 
 /**
+ * MetricsOut
+ *
+ * 一格指标。每一层都是这个形状，见合同 §12。
+ */
+export type MetricsOut = {
+  /**
+   * Attempts
+   */
+  attempts: number
+  /**
+   * Attemptspershot
+   */
+  attemptsPerShot: number | null
+  /**
+   * Completedvideos
+   */
+  completedVideos: number
+  cycleSeconds: SpreadOut | null
+  /**
+   * Deliveredconversations
+   */
+  deliveredConversations: number
+  /**
+   * Deliveredorphanconversations
+   */
+  deliveredOrphanConversations: number
+  /**
+   * Deliveredtasks
+   */
+  deliveredTasks: number
+  /**
+   * Deliveries
+   */
+  deliveries: number
+  /**
+   * Firstpassrate
+   */
+  firstPassRate: number | null
+  /**
+   * Firstpassshots
+   */
+  firstPassShots: number
+  /**
+   * Producers
+   */
+  producers: number
+  /**
+   * Shots
+   */
+  shots: number
+  /**
+   * Tokensperdelivery
+   */
+  tokensPerDelivery: number | null
+  upstreamSeconds: SpreadOut | null
+  usage: UsageOut
+  videoSeconds: SpreadOut | null
+}
+
+/**
+ * ModelUsageOut
+ */
+export type ModelUsageOut = {
+  /**
+   * Modelname
+   */
+  modelName: string
+  usage: UsageOut
+}
+
+/**
  * NoticeFrame
  */
 export type NoticeFrame = {
@@ -1117,6 +1370,17 @@ export type OpsCatchup = {
    * Latest Seq
    */
   latest_seq: number
+}
+
+/**
+ * PeriodMetricsOut
+ */
+export type PeriodMetricsOut = {
+  metrics: MetricsOut
+  /**
+   * Periodstart
+   */
+  periodStart: string
 }
 
 /**
@@ -1239,6 +1503,32 @@ export type RunStatusOut = {
 }
 
 /**
+ * ShotOut
+ */
+export type ShotOut = {
+  /**
+   * Attempts
+   */
+  attempts: number
+  /**
+   * Firstat
+   */
+  firstAt: string
+  /**
+   * Firstpass
+   */
+  firstPass: boolean
+  /**
+   * Lastat
+   */
+  lastAt: string
+  /**
+   * Shot
+   */
+  shot: number
+}
+
+/**
  * SidebarCollectionOut
  *
  * 侧栏里的一个合集：元信息、里面一共几段，加第一页对话。
@@ -1283,6 +1573,26 @@ export type SidebarOut = {
    * Ungroupedcount
    */
   ungroupedCount: number
+}
+
+/**
+ * SpreadOut
+ *
+ * 时长分布，单位秒。
+ */
+export type SpreadOut = {
+  /**
+   * Avg
+   */
+  avg: number
+  /**
+   * Median
+   */
+  median: number
+  /**
+   * P90
+   */
+  p90: number
 }
 
 /**
@@ -1406,6 +1716,25 @@ export type StyleMatchOut = {
 }
 
 /**
+ * SummaryOut
+ */
+export type SummaryOut = {
+  overall: MetricsOut
+  /**
+   * Series
+   */
+  series: Array<PeriodMetricsOut> | null
+  /**
+   * Tasks
+   */
+  tasks: Array<TaskMetricsOut>
+  /**
+   * Users
+   */
+  users: Array<UserMetricsOut>
+}
+
+/**
  * TaskCreateIn
  *
  * 创建需求单；输入形状与整体更新一致，另可指定 id 与落单状态。
@@ -1515,6 +1844,21 @@ export type TaskInputsOutput = {
    */
   reference_video_oss_url: string | null
   video_spec: TaskVideoSpecOutput
+}
+
+/**
+ * TaskMetricsOut
+ */
+export type TaskMetricsOut = {
+  metrics: MetricsOut
+  /**
+   * Taskid
+   */
+  taskId: string
+  /**
+   * Title
+   */
+  title: string
 }
 
 /**
@@ -2295,6 +2639,40 @@ export type UploadTicketOut = {
 }
 
 /**
+ * UsageOut
+ */
+export type UsageOut = {
+  /**
+   * Cachehitrate
+   */
+  cacheHitRate: number | null
+  /**
+   * Cachereadtokens
+   */
+  cacheReadTokens: number
+  /**
+   * Cachewritetokens
+   */
+  cacheWriteTokens: number
+  /**
+   * Inputtokens
+   */
+  inputTokens: number
+  /**
+   * Outputtokens
+   */
+  outputTokens: number
+  /**
+   * Requests
+   */
+  requests: number
+  /**
+   * Totaltokens
+   */
+  totalTokens: number
+}
+
+/**
  * UserCreate
  */
 export type UserCreate = {
@@ -2329,6 +2707,17 @@ export type UserCreate = {
  */
 export type UserEnvelope = {
   user: UserOut
+}
+
+/**
+ * UserMetricsOut
+ */
+export type UserMetricsOut = {
+  metrics: MetricsOut
+  /**
+   * Username
+   */
+  userName: string
 }
 
 /**
@@ -2479,6 +2868,24 @@ export type VideoContent = {
 }
 
 /**
+ * VideoEditOut
+ *
+ * 这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。
+ */
+export type VideoEditOut = {
+  /**
+   * Promptprefix
+   */
+  promptPrefix?: string | null
+  /**
+   * Provideroptions
+   */
+  providerOptions?: {
+    [key: string]: string
+  } | null
+}
+
+/**
  * VideoGenerationIn
  *
  * 一次视频生成的输入。字段照上游异步接口，外加归属字段、坐标 ``metadata`` 与结构化的 ``shot``。
@@ -2542,6 +2949,10 @@ export type VideoGenerationIn = {
   seconds?: number | null
   shot?: VideoShotIn | null
   /**
+   * Shot Index
+   */
+  shot_index?: number | null
+  /**
    * Task Id
    */
   task_id?: string | null
@@ -2552,9 +2963,22 @@ export type VideoGenerationIn = {
 }
 
 /**
+ * VideoModelOut
+ *
+ * 一个视频模型：id，以及支不支持视频编辑、怎么触发。
+ */
+export type VideoModelOut = {
+  edit?: VideoEditOut | null
+  /**
+   * Model
+   */
+  model: string
+}
+
+/**
  * VideoModelsOut
  *
- * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
+ * 接入了哪几个视频模型与各自的编辑能力，按配置声明顺序。
  */
 export type VideoModelsOut = {
   /**
@@ -2564,7 +2988,7 @@ export type VideoModelsOut = {
   /**
    * Items
    */
-  items: Array<string>
+  items: Array<VideoModelOut>
 }
 
 /**
@@ -2783,6 +3207,192 @@ export type RevokeKeyApiKeysKeyIdDeleteResponses = {
 
 export type RevokeKeyApiKeysKeyIdDeleteResponse =
   RevokeKeyApiKeysKeyIdDeleteResponses[keyof RevokeKeyApiKeysKeyIdDeleteResponses]
+
+export type AnomaliesAuditAnomaliesGetData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Since
+     */
+    since?: string | null
+    /**
+     * Until
+     */
+    until?: string | null
+    /**
+     * Username
+     */
+    userName?: string | null
+    /**
+     * Taskid
+     */
+    taskId?: string | null
+    /**
+     * Kind
+     */
+    kind?: Array<
+      | 'retry'
+      | 'idle'
+      | 'slow'
+      | 'stuck'
+      | 'spend'
+      | 'task_stuck'
+      | 'deleted'
+      | 'no_task'
+      | 'missing_shot'
+    > | null
+    /**
+     * Retryover
+     */
+    retryOver?: number
+    /**
+     * Idlehours
+     */
+    idleHours?: number
+    /**
+     * Stuckhours
+     */
+    stuckHours?: number
+    /**
+     * Taskconversations
+     */
+    taskConversations?: number
+    /**
+     * Limit
+     */
+    limit?: number
+    /**
+     * Cursor
+     */
+    cursor?: string | null
+  }
+  url: '/audit/anomalies'
+}
+
+export type AnomaliesAuditAnomaliesGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type AnomaliesAuditAnomaliesGetError =
+  AnomaliesAuditAnomaliesGetErrors[keyof AnomaliesAuditAnomaliesGetErrors]
+
+export type AnomaliesAuditAnomaliesGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: AnomaliesOut
+}
+
+export type AnomaliesAuditAnomaliesGetResponse =
+  AnomaliesAuditAnomaliesGetResponses[keyof AnomaliesAuditAnomaliesGetResponses]
+
+export type ConversationsAuditConversationsGetData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Since
+     */
+    since?: string | null
+    /**
+     * Until
+     */
+    until?: string | null
+    /**
+     * Username
+     */
+    userName?: string | null
+    /**
+     * Taskid
+     */
+    taskId?: string | null
+    /**
+     * Limit
+     */
+    limit?: number
+    /**
+     * Cursor
+     */
+    cursor?: string | null
+  }
+  url: '/audit/conversations'
+}
+
+export type ConversationsAuditConversationsGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ConversationsAuditConversationsGetError =
+  ConversationsAuditConversationsGetErrors[keyof ConversationsAuditConversationsGetErrors]
+
+export type ConversationsAuditConversationsGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: AuditConversationsOut
+}
+
+export type ConversationsAuditConversationsGetResponse =
+  ConversationsAuditConversationsGetResponses[keyof ConversationsAuditConversationsGetResponses]
+
+export type SummaryAuditSummaryGetData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Since
+     */
+    since?: string | null
+    /**
+     * Until
+     */
+    until?: string | null
+    /**
+     * Username
+     */
+    userName?: string | null
+    /**
+     * Taskid
+     */
+    taskId?: string | null
+    /**
+     * Bucket
+     */
+    bucket?: 'day' | 'week' | 'month' | null
+    /**
+     * Timezone
+     */
+    timezone?: string
+  }
+  url: '/audit/summary'
+}
+
+export type SummaryAuditSummaryGetErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SummaryAuditSummaryGetError =
+  SummaryAuditSummaryGetErrors[keyof SummaryAuditSummaryGetErrors]
+
+export type SummaryAuditSummaryGetResponses = {
+  /**
+   * Successful Response
+   */
+  200: SummaryOut
+}
+
+export type SummaryAuditSummaryGetResponse =
+  SummaryAuditSummaryGetResponses[keyof SummaryAuditSummaryGetResponses]
 
 export type AuthCookieLoginAuthLoginPostData = {
   body: BodyAuthCookieLoginAuthLoginPost
@@ -3977,7 +4587,7 @@ export type ListGenerationsGenerationsGetData = {
     /**
      * Kind
      */
-    kind?: 'image' | 'video' | null
+    kind?: 'image' | 'video' | 'clip' | null
     /**
      * Metadata
      *
@@ -4011,6 +4621,33 @@ export type ListGenerationsGenerationsGetResponses = {
 
 export type ListGenerationsGenerationsGetResponse =
   ListGenerationsGenerationsGetResponses[keyof ListGenerationsGenerationsGetResponses]
+
+export type SubmitClipGenerationsClipsPostData = {
+  body: ClipIn
+  path?: never
+  query?: never
+  url: '/generations/clips'
+}
+
+export type SubmitClipGenerationsClipsPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SubmitClipGenerationsClipsPostError =
+  SubmitClipGenerationsClipsPostErrors[keyof SubmitClipGenerationsClipsPostErrors]
+
+export type SubmitClipGenerationsClipsPostResponses = {
+  /**
+   * Successful Response
+   */
+  202: GenerationEnvelope
+}
+
+export type SubmitClipGenerationsClipsPostResponse =
+  SubmitClipGenerationsClipsPostResponses[keyof SubmitClipGenerationsClipsPostResponses]
 
 export type SubmitImageGenerationsImagePostData = {
   body: ImageGenerationIn

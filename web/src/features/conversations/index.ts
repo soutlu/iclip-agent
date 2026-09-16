@@ -21,8 +21,7 @@ export {
   useSetConversationMembership,
   useSidebarTopology,
 } from './conversations.api'
-export { AuditRoute } from './components/audit-route'
-export type { PickerSource } from './components/audit-search-picker'
+export { ConversationsRoute } from './components/conversations-route'
 export { ConversationMembershipDialog } from './components/conversation-membership-dialog'
 export { ConversationRoute } from './components/conversation-route'
 export { ConversationSearchDialog } from './components/conversation-search-dialog'

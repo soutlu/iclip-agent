@@ -359,7 +359,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
               </span>
               <Link
                 className="shrink-0 rounded-xs text-primary ui-focus hover:underline"
-                to="/audit"
+                to="/conversations"
               >
                 回到全部对话
               </Link>

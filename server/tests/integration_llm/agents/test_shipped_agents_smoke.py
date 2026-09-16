@@ -20,6 +20,7 @@ from iclip.harness.agents import (
 from iclip.harness.models import ModelSpec, build_models
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.harness.transcript.subagents import SubAgentMirror
+from tests.helpers.runtime import discarding_usage_ledger
 
 SERVER_DIR = Path(__file__).resolve().parents[3]
 
@@ -53,6 +54,7 @@ def shipped_registry() -> AgentRegistry:
             for agent in declared
         ),
         step_store=InMemoryStepStore(),
+        usage_ledger=discarding_usage_ledger(),
         models=build_models(
             tuple(
                 ModelSpec(

@@ -172,13 +172,14 @@ describe('AppSidebar', () => {
     expect(router.state.location.pathname).toBe('/tasks')
   })
 
-  it('只有带 users:manage 的账号看得到「全部对话」入口，点了去 /audit', async () => {
+  it('只有带 users:manage 的账号看得到「全部对话」「审计」入口，分别去 /conversations 与 /audit', async () => {
     loginAsUser()
     const user = userEvent.setup()
     const plain = await renderSidebar()
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
     await screen.findByRole('button', { name: '用户菜单' })
     expect(screen.queryByRole('button', { name: '全部对话' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '审计' })).not.toBeInTheDocument()
     plain.unmount()
 
     server.use(
@@ -192,7 +193,9 @@ describe('AppSidebar', () => {
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
     await screen.findByRole('button', { name: '用户菜单' })
     await user.click(await screen.findByRole('button', { name: '全部对话' }))
+    expect(router.state.location.pathname).toBe('/conversations')
 
+    await user.click(await screen.findByRole('button', { name: '审计' }))
     expect(router.state.location.pathname).toBe('/audit')
   })
 })

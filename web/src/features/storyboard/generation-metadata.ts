@@ -38,6 +38,31 @@ export const readStoryboardMetadata = (job: {
   return parsed.success ? parsed.data : undefined
 }
 
+/** 视频编辑链的坐标。三条记录（参考片段、编辑结果、成片）共用同一组键，靠 `editId` 串成一次编辑。
+ *
+ * 不带 `path` / `shot`：编辑结果不是这一镜的出片，抽屉与审计都不该把它算进去。
+ * `editStart` 在编辑结果与成片上记的是实际值——参考片段按关键帧切，起点会落在用户选的位置之前，
+ * 提交编辑任务那一刻按片段实际时长反算出来写进去；合成只读它，不回头碰会过期的参考片段。 */
+const videoEditMetadataSchema = z.object({
+  /** 编辑链的根：最初那条出片记录。链查询按它筛。 */
+  rootJob: z.string().min(1),
+  /** 这次编辑基于哪条完整视频（根或某条成片）。 */
+  baseJob: z.string().min(1),
+  editId: z.string().min(1),
+  editStart: z.number().min(0),
+  editEnd: z.number().positive(),
+})
+
+export type VideoEditMetadata = z.infer<typeof videoEditMetadataSchema>
+
+export const readVideoEditMetadata = (job: {
+  metadata: Record<string, unknown> | null
+}): VideoEditMetadata | undefined => {
+  const parsed = videoEditMetadataSchema.safeParse(job.metadata)
+  return parsed.success ? parsed.data : undefined
+}
+
 /** 列表接口的 `metadata` 查询参数：一段 JSON 对象，服务端按包含匹配筛。 */
-export const metadataFilterParam = (filter: Partial<StoryboardMetadata>): string =>
-  JSON.stringify(filter)
+export const metadataFilterParam = (
+  filter: Partial<StoryboardMetadata> | Pick<VideoEditMetadata, 'rootJob'>,
+): string => JSON.stringify(filter)
