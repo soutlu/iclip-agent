@@ -32,8 +32,11 @@ MAX_VIDEO_BYTES = 512 * 1024 * 1024
 MAX_IMAGE_BYTES = 64 * 1024 * 1024
 """下载大小上限，限制 worker 的内存与临时文件占用。"""
 
-_VIDEO_CODEC = ("-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p")
-"""重编码目标：H.264 视觉无损档，浏览器与上游都认。"""
+_VIDEO_CODEC = ("-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p")
+"""重编码目标：H.264 视觉无损档，浏览器与上游都认。
+
+比视觉无损档多留一档（18 → 16，体积涨约四分之一）：编辑链上每出一版都要把整条重编一遍，
+下一版是在上一版的产物上再编，损失会累积。"""
 
 _AUDIO_CODEC = ("-c:a", "aac", "-b:a", "192k")
 _AUDIO_RATE = 48000
@@ -232,7 +235,10 @@ async def cut_concat(cuts: Sequence[MediaCut], *, profile: VideoProfile, dest: P
         inputs += ["-i", str(cut.source)]
         chains.append(
             f"[{index}:v]trim=start={cut.start:.3f}:end={cut.end:.3f},setpts=PTS-STARTPTS,"
-            f"scale={profile.width}:{profile.height}:force_original_aspect_ratio=decrease,"
+            # 模型还回来的片段分辨率档位比原片高，这一步多半在下采样，lanczos 比默认的
+            # bicubic 留得住细节，代价可以忽略。
+            f"scale={profile.width}:{profile.height}:force_original_aspect_ratio=decrease"
+            f":flags=lanczos,"
             f"pad={profile.width}:{profile.height}:(ow-iw)/2:(oh-ih)/2,"
             f"fps={profile.frame_rate},format=yuv420p,setsar=1[v{index}]"
         )
