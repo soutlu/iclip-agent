@@ -18,8 +18,12 @@ import { IconButton } from '@/shared/ui/button'
 import { toast } from '@/shared/ui/toast'
 import { locateClock, totalDuration, type LaidOutSegment } from './edit-chain'
 import { timeLabel } from './time-label'
+import type { TimeRange } from './time-range'
 
-export type EditorPreviewHandle = { seek: (clock: number) => void }
+export type EditorPreviewHandle = {
+  /** 暂停并切回当前编辑版本；右边界显示区间内侧的画面，游标仍标记准确边界。 */
+  previewAt: (clock: number, boundary?: keyof TimeRange) => void
+}
 
 type Slot = 0 | 1
 const SLOTS: readonly { id: string; slot: Slot }[] = [
@@ -30,6 +34,8 @@ const SLOTS: readonly { id: string; slot: Slot }[] = [
 /** 到段尾前多少秒就切下一段；rAF 一帧约 16ms，留两帧余量。 */
 const SWITCH_AHEAD = 0.03
 const FRAME_STEP = 1 / 25
+/** 右开区间的定位偏移，仅避免跳进下一段，不代表素材的帧时长。 */
+const END_PREVIEW_OFFSET = 0.001
 
 type Props = {
   /** 当前看的这一版（或拼好的编辑预览）；`undefined` 是素材时长还没读到。换选中项时换一个新数组。 */
@@ -39,6 +45,8 @@ type Props = {
   original: readonly LaidOutSegment[] | undefined
   poster: string | undefined
   currentTime: number
+  /** 当前版本的选区；null 时完整播放，原片对比不使用这个范围。 */
+  selection: TimeRange | null
   onTime: (clock: number) => void
   ref: Ref<EditorPreviewHandle>
 }
@@ -49,6 +57,7 @@ export function EditorPreview({
   original,
   poster,
   currentTime,
+  selection,
   onTime,
   ref,
 }: Props) {
@@ -56,6 +65,14 @@ export function EditorPreview({
   const elementsRef = useRef<[HTMLVideoElement | null, HTMLVideoElement | null]>([null, null])
   // 元数据还没到就先记下要跳到哪；同一槽只留最后一次，旧的跳转不会在加载完之后倒回去。
   const pendingSeekRef = useRef<[number | null, number | null]>([null, null])
+  // 切源后应用最新定位；段列表身份防止旧请求落到另一个版本。
+  const pendingPreviewRef = useRef<{
+    segments: readonly LaidOutSegment[]
+    clock: number
+    boundary: keyof TimeRange | undefined
+  } | null>(null)
+  // 拖动开始时同步撤销播放，不必等下一次 render 的 effect 清理。
+  const stopPlaybackRef = useRef<(() => void) | null>(null)
   // 效果里报时钟走的是它，拿到的永远是最新的 onTime；事件处理器里直接调 onTime。
   const emitTime = useEffectEvent((clock: number) => onTime(clock))
   const [showOriginal, setShowOriginal] = useState(false)
@@ -68,6 +85,10 @@ export function EditorPreview({
   const onOriginal = showOriginal && original !== undefined
   const segments = onOriginal ? original : current
   const duration = segments === undefined ? 0 : totalDuration(segments)
+  const playbackRange = !onOriginal && selection !== null ? selection : { start: 0, end: duration }
+  // 选区显示到百分之一秒，末端可能被四舍五入到真实时长之外。
+  const playbackStart = Math.min(duration, playbackRange.start)
+  const playbackEnd = Math.min(duration, playbackRange.end)
   // 换了一组段就回到开头：播放位置是跟着段列表走的派生状态，在渲染里对齐，不等一帧。
   const [shown, setShown] = useState(segments)
   if (shown !== segments) {
@@ -97,12 +118,54 @@ export function EditorPreview({
     [],
   )
 
-  // 换了一组段：主槽装第一段，副槽预载第二段。
+  const seek = (clock: number, boundary?: keyof TimeRange) => {
+    if (segments === undefined) return
+    const boundedClock = Math.min(duration, Math.max(0, clock))
+    const mediaClock =
+      boundary === 'end' ? Math.max(0, boundedClock - END_PREVIEW_OFFSET) : boundedClock
+    const located = locateClock(segments, mediaClock)
+    const segment = located === undefined ? undefined : segments[located.index]
+    if (located === undefined || segment === undefined) return
+    if (located.index !== index) setIndex(located.index)
+    load(active, segment, located.offset)
+    onTime(boundedClock)
+  }
+  const seekFromEffect = useEffectEvent(seek)
+
+  const pause = () => {
+    // 先撤销这一轮播放，再 pause，避免未完成的 play() 被中断后误报加载失败。
+    stopPlaybackRef.current?.()
+    for (const element of elementsRef.current) element?.pause()
+    setPlaying(false)
+  }
+
+  useImperativeHandle(ref, () => ({
+    previewAt(clock, boundary) {
+      pause()
+      if (current === undefined) return
+      if (onOriginal) {
+        pendingPreviewRef.current = { segments: current, clock, boundary }
+        setShowOriginal(false)
+      } else {
+        seek(clock, boundary)
+      }
+    },
+  }))
+
+  // 切源默认回到开头；从原片切回编辑版本时，先应用最后一次边界定位。
   useEffect(() => {
-    emitTime(0)
-    if (segments?.[0] !== undefined) load(0, segments[0], 0)
-    if (segments?.[1] !== undefined) load(1, segments[1], 0)
-  }, [segments, load])
+    const pending = pendingPreviewRef.current
+    pendingPreviewRef.current = null
+    if (segments === undefined) {
+      emitTime(0)
+      return
+    }
+    if (pending !== null && pending.segments === segments) {
+      seekFromEffect(pending.clock, pending.boundary)
+    } else {
+      seekFromEffect(0)
+    }
+  }, [segments])
 
   // 主槽换段之后，把再下一段预载进腾出来的那个槽。
   useEffect(() => {
@@ -113,53 +176,59 @@ export function EditorPreview({
   useEffect(() => {
     const element = elementsRef.current[active]
     const segment = segments?.[index]
-    if (element === null || segment === undefined) return
-    if (!playing) {
+    if (element === null || segments === undefined || segment === undefined || !playing) return
+
+    let cancelled = false
+    let frame = 0
+    const stop = () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
       element.pause()
-      return
+      if (stopPlaybackRef.current === stop) stopPlaybackRef.current = null
     }
+    stopPlaybackRef.current = stop
     void element.play().catch(() => {
+      if (cancelled) return
+      stop()
       setPlaying(false)
       setFailed(true)
     })
-    let frame = 0
+
     const tick = () => {
+      if (cancelled) return
       const now = element.currentTime
-      emitTime(segment.at + Math.min(segment.duration, Math.max(0, now - segment.start)))
-      if (element.ended || now >= segment.end - SWITCH_AHEAD) {
-        const next = index + 1
-        if (segments === undefined || next >= segments.length) {
-          setPlaying(false)
-          emitTime(duration)
-        } else {
-          setActive(active === 0 ? 1 : 0)
-          setIndex(next)
-        }
+      const clock = segment.at + Math.min(segment.duration, Math.max(0, now - segment.start))
+      const segmentEnd = segment.at + segment.duration
+      if (
+        clock >= playbackEnd ||
+        (element.ended && (playbackEnd <= segmentEnd || index === segments.length - 1))
+      ) {
+        stop()
+        setPlaying(false)
+        seekFromEffect(playbackEnd, 'end')
+        return
+      }
+      emitTime(clock)
+      // 选段终点在本段内时继续等到终点，不能被提前换段逻辑带到下一段。
+      if (segmentEnd < playbackEnd && (element.ended || now >= segment.end - SWITCH_AHEAD)) {
+        stop()
+        setActive(active === 0 ? 1 : 0)
+        setIndex(index + 1)
         return
       }
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
-    return () => {
-      cancelAnimationFrame(frame)
-      element.pause()
-    }
-  }, [playing, index, active, segments, duration])
-
-  const seek = (clock: number) => {
-    if (segments === undefined) return
-    const located = locateClock(segments, clock)
-    const segment = located === undefined ? undefined : segments[located.index]
-    if (located === undefined || segment === undefined) return
-    if (located.index !== index) setIndex(located.index)
-    load(active, segment, located.offset)
-    onTime(Math.min(duration, Math.max(0, clock)))
-  }
-  useImperativeHandle(ref, () => ({ seek }))
+    return stop
+  }, [playing, index, active, segments, playbackEnd])
 
   const step = (direction: 1 | -1) => {
-    setPlaying(false)
-    seek(currentTime + direction * FRAME_STEP)
+    pause()
+    const clock = Math.min(
+      playbackEnd,
+      Math.max(playbackStart, currentTime + direction * FRAME_STEP),
+    )
+    seek(clock, clock === playbackEnd ? 'end' : undefined)
   }
 
   return (
@@ -202,7 +271,10 @@ export function EditorPreview({
             (onOriginal || original === undefined) && 'is-active',
           )}
           disabled={original === undefined}
-          onClick={() => setShowOriginal(true)}
+          onClick={() => {
+            pause()
+            setShowOriginal(true)
+          }}
           type="button"
         >
           <Icon decorative name="video" size="sm" />
@@ -212,7 +284,10 @@ export function EditorPreview({
           <button
             aria-pressed={!onOriginal}
             className={cn('video-editor-preview-tab', !onOriginal && 'is-active')}
-            onClick={() => setShowOriginal(false)}
+            onClick={() => {
+              pause()
+              setShowOriginal(false)
+            }}
             type="button"
           >
             <Icon decorative name="video" size="sm" />
@@ -256,8 +331,12 @@ export function EditorPreview({
           label={playing ? '暂停' : '播放'}
           name={playing ? 'pause' : 'play'}
           onClick={() => {
-            if (!playing && currentTime >= duration) seek(0)
-            setPlaying(!playing)
+            if (playing) {
+              pause()
+              return
+            }
+            if (currentTime < playbackStart || currentTime >= playbackEnd) seek(playbackStart)
+            setPlaying(true)
           }}
           size="sm"
         />

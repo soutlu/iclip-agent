@@ -1,15 +1,7 @@
 /** 时间线上的版本切换菜单：各版与已能预览的编辑，带缩略图、基于哪一版、时长。 */
 
-import { useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
-import {
-  MenuItem,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuRoot,
-  MenuSurface,
-  MenuTrigger,
-} from '@/shared/ui/menu'
+import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { roundSeconds } from './time-label'
 import './editor-version-menu.css'
 
@@ -30,7 +22,6 @@ type EditorVersionMenuProps = {
   label: string
   posterOf: (url: string) => string | undefined
   onSelect: (key: string) => void
-  onHistory: () => void
 }
 
 function VersionThumbnail({ poster }: { poster: string | undefined }) {
@@ -51,20 +42,15 @@ export function EditorVersionMenu({
   label,
   posterOf,
   onSelect,
-  onHistory,
 }: EditorVersionMenuProps) {
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const historyRequestedRef = useRef(false)
   const selected = entries.find((entry) => entry.key === selectedKey)
 
   return (
-    <MenuRoot onOpenChange={setOpen} open={open}>
+    <MenuRoot>
       <MenuTrigger asChild>
         <button
           aria-label="切换版本"
           className="video-editor-version-trigger ui-focus"
-          ref={triggerRef}
           type="button"
         >
           <VersionThumbnail
@@ -80,29 +66,11 @@ export function EditorVersionMenu({
         aria-labelledby={undefined}
         className="video-editor-version-menu"
         collisionPadding={16}
-        onCloseAutoFocus={(event) => {
-          if (!historyRequestedRef.current) return
-          event.preventDefault()
-          historyRequestedRef.current = false
-          // 菜单关完再开历史对话框，它的返回焦点才落回这个触发按钮。
-          triggerRef.current?.focus()
-          onHistory()
-        }}
         side="top"
         sideOffset={10}
       >
         <div className="video-editor-version-menu-header">
           <span>版本</span>
-          <MenuItem
-            className="video-editor-version-history"
-            icon="history"
-            onSelect={() => {
-              historyRequestedRef.current = true
-              setOpen(false)
-            }}
-          >
-            历史
-          </MenuItem>
         </div>
         <MenuRadioGroup
           className="video-editor-version-options"

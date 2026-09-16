@@ -1,16 +1,16 @@
 .video-editor-dialog {
-  width: min(1280px, calc(100vw - 48px));
-  max-width: 1280px;
-  height: min(900px, calc(100dvh - 48px));
-  max-height: calc(100dvh - 48px);
-  border-radius: var(--radius-2xl);
+  width: min(1480px, calc(100vw - 32px));
+  max-width: 1480px;
+  height: min(1000px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
+  border-radius: var(--radius-lg);
   background: var(--color-surface-container-lowest);
 }
 
 .video-editor-header {
   align-items: center;
   border: 0;
-  padding: 20px 32px 8px;
+  padding: 12px 20px;
 }
 
 .video-editor-header h2 {
@@ -32,7 +32,7 @@
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  padding: 0 32px 24px;
+  padding: 0 20px 20px;
   overflow-y: auto;
   color: var(--color-on-surface);
   font-size: var(--text-body);
@@ -47,10 +47,9 @@
 }
 .video-editor-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 2.15fr) minmax(320px, 1fr);
-  gap: 32px;
-  height: clamp(300px, 40dvh, 520px);
-  min-height: 0;
+  grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
+  gap: 20px;
+  min-height: clamp(460px, calc(100dvh - 440px), 620px);
   flex-shrink: 0;
 }
 .video-editor-preview {
@@ -74,18 +73,20 @@
 }
 .video-editor-preview-tabs {
   position: absolute;
-  top: 20px;
-  left: 20px;
+  top: 12px;
+  left: 12px;
   display: flex;
-  border: 0;
+  border: 1px solid color-mix(in srgb, var(--color-on-scrim) 20%, transparent);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .video-editor-preview-tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 9px 18px;
+  min-width: 84px;
+  padding: 10px 18px;
   background: color-mix(in srgb, var(--color-scrim) 84%, var(--color-on-scrim));
   cursor: pointer;
   font-size: var(--text-body);
@@ -150,9 +151,15 @@
 .video-editor-inspector {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
   min-height: 0;
+  padding: 20px;
+  border: 1px solid var(--color-chat-hairline);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-container-lowest);
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .video-editor-inspector-heading {
   display: flex;
@@ -166,11 +173,11 @@
 .video-editor-range {
   display: flex;
   align-items: center;
-  gap: 10px;
-  align-self: flex-start;
+  flex-shrink: 0;
+  gap: 8px;
   padding: 2px 10px;
-  border-radius: var(--radius-full);
-  background: transparent;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-low);
   color: var(--color-on-surface-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -202,63 +209,62 @@
 .video-editor-generation-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-top: 6px;
-}
-.video-editor-model-picker {
-  display: inline-flex;
-  position: relative;
+  flex: 1;
   min-width: 0;
-  max-width: calc(100% - 110px);
-  align-items: center;
-}
-.video-editor-model-picker > svg {
-  position: absolute;
-  right: 4px;
-  pointer-events: none;
-  color: var(--color-on-surface-muted);
+  gap: 10px;
 }
 .video-editor-model {
-  appearance: none;
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-  width: 100%;
-  height: 36px;
-  padding: 0 28px 0 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-on-surface-muted);
-  cursor: pointer;
-  text-overflow: ellipsis;
-}
-.video-editor-model option {
-  background: var(--color-surface);
+  max-width: calc(100% - 96px);
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-chat-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-lowest);
   color: var(--color-on-surface);
+  cursor: pointer;
+}
+.video-editor-model > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-editor-model > svg {
+  flex-shrink: 0;
+  color: var(--color-on-surface-muted);
+}
+.video-editor-model:hover:not(:disabled),
+.video-editor-model[data-state='open'] {
+  background: var(--color-surface-container-low);
+}
+.video-editor-model:disabled {
+  opacity: var(--state-disabled-content);
+  cursor: not-allowed;
+}
+.video-editor-model-menu {
+  max-width: calc(100vw - 32px);
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  overflow-y: auto;
 }
 .video-editor-generate {
   width: auto;
-  min-width: 94px;
+  min-width: 86px;
   height: 40px;
+  margin-left: auto;
+  padding: 0 14px;
   flex-shrink: 0;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
   box-shadow: none;
 }
 .video-editor-generate:disabled {
   background: var(--color-secondary-container);
   color: var(--color-on-surface-muted);
   opacity: 0.65;
-}
-.video-editor-task-summary {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  color: var(--color-primary);
-  font-size: var(--text-label);
-  cursor: pointer;
-  min-height: 20px;
-}
-.video-editor-task-summary > svg:last-child {
-  margin-left: auto;
 }
 .video-editor-timeline-loading {
   padding: 60px;
@@ -355,18 +361,26 @@
   object-fit: cover;
   border-radius: var(--radius-xs);
 }
-.video-editor :is(button, a, select, input, textarea):focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 3px;
-}
 .video-editor .video-editor-composer-input:focus-visible {
   outline: none;
 }
-.video-editor-composer:focus-within {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 3px;
+.video-editor-composer:has(> .video-editor-composer-input:focus-visible) {
+  outline: var(--state-focus-ring) solid var(--color-focus-ring);
+  outline-offset: var(--state-focus-offset);
 }
-@media (max-width: 839px) {
+@media (min-width: 1000px) and (max-height: 850px) {
+  .video-editor-inspector {
+    gap: 8px;
+    padding: 16px;
+  }
+  .video-editor-composer {
+    padding: 12px;
+  }
+  .video-editor-composer-input {
+    min-height: 64px;
+  }
+}
+@media (max-width: 999px) {
   .video-editor-dialog {
     width: calc(100vw - 16px);
     height: calc(100dvh - 16px);
@@ -389,6 +403,8 @@
   }
   .video-editor-inspector {
     min-height: 390px;
+    padding: 16px;
+    overflow: visible;
   }
   .video-editor-transport {
     gap: 0;
