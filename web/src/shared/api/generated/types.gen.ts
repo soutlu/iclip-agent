@@ -2868,24 +2868,6 @@ export type VideoContent = {
 }
 
 /**
- * VideoEditOut
- *
- * 这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。
- */
-export type VideoEditOut = {
-  /**
-   * Promptprefix
-   */
-  promptPrefix?: string | null
-  /**
-   * Provideroptions
-   */
-  providerOptions?: {
-    [key: string]: string
-  } | null
-}
-
-/**
  * VideoGenerationIn
  *
  * 一次视频生成的输入。字段照上游异步接口，外加归属字段、坐标 ``metadata`` 与结构化的 ``shot``。
@@ -2963,22 +2945,9 @@ export type VideoGenerationIn = {
 }
 
 /**
- * VideoModelOut
- *
- * 一个视频模型：id，以及支不支持视频编辑、怎么触发。
- */
-export type VideoModelOut = {
-  edit?: VideoEditOut | null
-  /**
-   * Model
-   */
-  model: string
-}
-
-/**
  * VideoModelsOut
  *
- * 接入了哪几个视频模型与各自的编辑能力，按配置声明顺序。
+ * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
  */
 export type VideoModelsOut = {
   /**
@@ -2988,7 +2957,7 @@ export type VideoModelsOut = {
   /**
    * Items
    */
-  items: Array<VideoModelOut>
+  items: Array<string>
 }
 
 /**

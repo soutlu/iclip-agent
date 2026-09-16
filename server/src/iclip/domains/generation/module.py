@@ -21,11 +21,7 @@ from iclip.domains.generation.nano_banana import (
     NanoBananaImageProvider,
     NanoBananaSettings,
 )
-from iclip.domains.generation.provider import (
-    GenerationProvider,
-    ImageModelSpec,
-    VideoEditSpec,
-)
+from iclip.domains.generation.provider import GenerationProvider, ImageModelSpec
 from iclip.domains.generation.queue import (
     GenerationQueue,
     GenerationQueueSettings,
@@ -81,7 +77,7 @@ def build_generation_module(
     act_as: ActAs,
     video: VideoProviderSettings,
     video_default_model: str,
-    video_models: Mapping[str, VideoEditSpec | None],
+    video_allowed_models: tuple[str, ...],
     image_models: Sequence[ImageModelConfig],
     image_default_model: str,
     image_env: str,
@@ -130,7 +126,7 @@ def build_generation_module(
         video_provider_name=video_provider.name,
         clip_provider_name=clip_provider.name,
         video_default_model=video_default_model,
-        video_models=video_models,
+        video_allowed_models=video_allowed_models,
         image_models={name: IMAGE_MODEL_SPECS[name] for name in declared},
         image_default_model=image_default_model,
     )

@@ -253,11 +253,7 @@ MEDIA = """
 media_generation:
   video:
     model: seedance
-    models:
-      seedance:
-        edit:
-          provider_options: {task_type: edit}
-      seedance-other: {}
+    allowed_models: [seedance, seedance-other]
   image:
     env: test
     default: nano_banana_pro
@@ -280,20 +276,9 @@ MEDIA_ENV = {
 }
 
 
-@pytest.mark.parametrize(
-    "models",
-    [
-        pytest.param("    models: {}", id="一个模型都没声明"),
-        pytest.param("    models:\n      other: {}", id="默认模型不在声明里"),
-        pytest.param(
-            "    models:\n      seedance:\n        edit: {}",
-            id="声明了 edit 却没说怎么触发",
-        ),
-    ],
-)
-def test_video_model_selection_rejects_invalid_configuration(tmp_path: Path, models: str) -> None:
-    head, _, _ = MEDIA.partition("    models:")
-    media = head + models + "\n" + MEDIA.partition("  image:")[1] + MEDIA.partition("  image:")[2]
+@pytest.mark.parametrize("allowed", ["[]", "[other]", "[seedance, '   ']"])
+def test_video_model_selection_rejects_invalid_configuration(tmp_path: Path, allowed: str) -> None:
+    media = MEDIA.replace("[seedance, seedance-other]", allowed)
     with pytest.raises(ValidationError):
         load_runtime_config(write(tmp_path, VALID + media))
 
@@ -324,10 +309,7 @@ def test_media_generation_resolves_both_providers_and_store(
 
     assert media is not None
     assert media.video_model == "seedance", "对方的模型名来自 YAML"
-    assert [model.name for model in media.video_models] == ["seedance", "seedance-other"]
-    edit = media.video_models[0].edit
-    assert edit is not None and edit.provider_options == {"task_type": "edit"}
-    assert media.video_models[1].edit is None, "没声明 edit 的模型不支持视频编辑"
+    assert media.video_allowed_models == ("seedance", "seedance-other")
     assert [(model.name, model.api_base, model.concurrency) for model in media.image_models] == [
         ("nano_banana_pro", "https://image.test/atlas/nano-banana-pro", 4)
     ], "网关根地址与声明的路由段在这一层拼好"

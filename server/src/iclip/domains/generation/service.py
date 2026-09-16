@@ -11,7 +11,7 @@ import structlog
 
 from iclip.common.errors import NotFound, ValidationFailed
 from iclip.domains.generation.models import STATUS_PENDING, GenerationJob, InFlightPhase
-from iclip.domains.generation.provider import ImageModelSpec, VideoEditSpec
+from iclip.domains.generation.provider import ImageModelSpec
 from iclip.domains.generation.queue import GenerationQueue
 from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import (
@@ -39,7 +39,7 @@ class GenerationService:
         video_provider_name: str,
         clip_provider_name: str,
         video_default_model: str,
-        video_models: Mapping[str, VideoEditSpec | None],
+        video_allowed_models: tuple[str, ...],
         image_models: Mapping[str, ImageModelSpec],
         image_default_model: str,
     ) -> None:
@@ -52,15 +52,15 @@ class GenerationService:
         self._video_provider_name = video_provider_name
         self._clip_provider_name = clip_provider_name
         self._video_default_model = video_default_model
-        self._video_models = video_models
+        self._video_allowed_models = video_allowed_models
         self._image_models = image_models
         self._image_default_model = image_default_model
 
     async def submit_video(self, principal: Principal, request: VideoGenerationIn) -> GenerationJob:
         """受理一次视频生成。模型必须在允许表里；其余字段原样转发给上游，由它按模型判。"""
 
-        if request.model not in self._video_models:
-            raise ValidationFailed(f"视频生成仅支持模型 {'、'.join(self._video_models)}")
+        if request.model not in self._video_allowed_models:
+            raise ValidationFailed(f"视频生成仅支持模型 {'、'.join(self._video_allowed_models)}")
         _require_user_name(request.user_name)
         return await self._accept(principal, request, provider=self._video_provider_name)
 
@@ -148,10 +148,10 @@ class GenerationService:
         channel = request.channel or (spec.channels[0] if spec.channels else None)
         return request.model_copy(update={"model": model, "channel": channel}), model
 
-    def video_models(self) -> tuple[str, tuple[tuple[str, VideoEditSpec | None], ...]]:
-        """默认视频模型与允许表，按配置声明顺序；不支持视频编辑的那几个 spec 为空。"""
+    def video_models(self) -> tuple[str, tuple[str, ...]]:
+        """默认视频模型与允许表，按配置声明顺序。"""
 
-        return self._video_default_model, tuple(self._video_models.items())
+        return self._video_default_model, self._video_allowed_models
 
     def image_models(self) -> tuple[str, tuple[tuple[str, ImageModelSpec], ...]]:
         """默认模型与装配表里那几家的声明，按声明顺序。"""

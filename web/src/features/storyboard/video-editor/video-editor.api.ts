@@ -1,13 +1,11 @@
 /** 视频编辑的三次提交与链查询。切与合成走本地裁剪端点，编辑走出片端点（ADR-0028）。 */
 
 import { useQuery } from '@tanstack/react-query'
-import type { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import type { ClipIn, VideoGenerationIn } from '@/shared/api/generated/types.gen'
 import {
   zGenerationEnvelope,
   zGenerationsPageOut,
-  type zVideoModelsOut,
   zVideoSubmitOut,
 } from '@/shared/api/generated/zod.gen'
 import { metadataFilterParam, type VideoEditMetadata } from '../generation-metadata'
@@ -42,11 +40,27 @@ export const useVideoEditChain = (conversationId: string, rootJob: string) =>
     refetchInterval: ({ state }) => generationsRefetchInterval(state.data?.items ?? []),
   })
 
-export type VideoModel = z.infer<typeof zVideoModelsOut>['items'][number]
+/** 编辑时请求里要多带的东西：正文前缀，或并进 `provider_options` 的键值。 */
+export type EditTrigger = {
+  promptPrefix?: string
+  providerOptions?: Record<string, string>
+}
 
-/** 声明了怎么触发编辑的那几个模型；`edit` 为空的做不了编辑，下拉里不列。 */
-export const editableModels = (models: readonly VideoModel[]): VideoModel[] =>
-  models.filter((model) => model.edit !== null && model.edit !== undefined)
+/** 哪个模型能做视频编辑、怎么触发。上游没有接口交代这件事，服务端也不管，按模型名认（ADR-0028 §7）。
+ * 按片段匹配：同一个模型在网关上有 `moyu-` / `mmt-` 两种前缀。 */
+const EDIT_TRIGGERS: readonly { matches: RegExp; trigger: EditTrigger }[] = [
+  // Seedance 2.5 靠 provider_options 显式声明编辑子任务，不认正文里的意图词。
+  { matches: /seedance-2-5/, trigger: { providerOptions: { omni_reference_task_type: 'edit' } } },
+  // 万相 3.0 没有开关参数，靠正文开头的意图词路由到编辑。
+  { matches: /wan3/, trigger: { promptPrefix: '编辑视频，' } },
+]
+
+export const editTriggerOf = (model: string): EditTrigger | undefined =>
+  EDIT_TRIGGERS.find((entry) => entry.matches.test(model))?.trigger
+
+/** 允许表里前端认得怎么触发编辑的那几个；别的做不了编辑，下拉里不列。 */
+export const editableModels = (models: readonly string[]): string[] =>
+  models.filter((model) => editTriggerOf(model) !== undefined)
 
 type Origin = {
   conversationId: string
@@ -80,27 +94,24 @@ export const submitReferenceClip = async (
  * 浏览器会话由服务端填登录用户名。回执只有任务号。 */
 export const submitVideoEdit = async (
   input: Origin & {
-    model: VideoModel
+    model: string
     prompt: string
     referenceVideoUrl: string
     referenceImageUrls: readonly string[]
   },
 ): Promise<string> => {
-  const edit = input.model.edit
-  if (edit === null || edit === undefined)
-    throw new Error(`模型 ${input.model.model} 不支持视频编辑`)
+  const edit = editTriggerOf(input.model)
+  if (edit === undefined) throw new Error(`模型 ${input.model} 不支持视频编辑`)
   const body: VideoGenerationIn = {
     conversation_id: input.conversationId,
     task_id: input.taskId,
     metadata: input.metadata,
-    model: input.model.model,
+    model: input.model,
     prompt: `${edit.promptPrefix ?? ''}${input.prompt}`,
     reference_video_urls: [input.referenceVideoUrl],
     reference_image_urls: [...input.referenceImageUrls],
     seconds: -1,
-    ...(edit.providerOptions === null || edit.providerOptions === undefined
-      ? {}
-      : { provider_options: edit.providerOptions }),
+    ...(edit.providerOptions === undefined ? {} : { provider_options: edit.providerOptions }),
   }
   const receipt = await apiFetch('/generations/video', zVideoSubmitOut, {
     method: 'POST',

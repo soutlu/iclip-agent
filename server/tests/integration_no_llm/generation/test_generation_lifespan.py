@@ -15,7 +15,6 @@ from iclip.config import (
     MediaGenerationSection,
     RuntimeConfig,
     VideoGenerationSection,
-    VideoModelSection,
 )
 from tests.helpers.generation import MemoryObjectStore
 from tests.integration_no_llm.conftest import make_runtime_config
@@ -37,9 +36,7 @@ def config_with_media() -> RuntimeConfig:
     return make_runtime_config().model_copy(
         update={
             "media_generation": MediaGenerationSection(
-                video=VideoGenerationSection(
-                    model="seedance", models={"seedance": VideoModelSection()}
-                ),
+                video=VideoGenerationSection(model="seedance", allowed_models=("seedance",)),
                 image=ImageGenerationSection(
                     env="test",
                     default="nano_banana_pro",

@@ -6,7 +6,6 @@ EnvSettings 字段别名是环境变量清单，缺失时聚合报告变量名�
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Final, Literal
@@ -201,42 +200,20 @@ ArkReasoningEffort = Literal["minimal", "low", "medium", "high"]
 """方舟支持的思考强度；启动时拒绝其他值，避免上游静默使用默认档。"""
 
 
-class VideoEditSection(ConfigSection):
-    """这个视频模型怎么做视频编辑。
-
-    上游各家的触发方式不同：万相没有开关参数，靠正文里的意图词路由，用 ``prompt_prefix``；
-    Seedance 2.5 用 ``provider_options`` 显式声明子任务。给了哪一项，调用方就加哪一项。
-
-    只声明「怎么调用」，不声明素材规格：参考视频的时长、大小、格式限制上游自己就拦，照
-    ADR-0018 §2 不在这里复制一份。"""
-
-    prompt_prefix: Annotated[str, StringConstraints(min_length=1)] | None = None
-    provider_options: dict[str, str] | None = None
-
-    @model_validator(mode="after")
-    def _usable(self) -> VideoEditSection:
-        if self.prompt_prefix is None and not self.provider_options:
-            raise ValueError("edit 至少要给 prompt_prefix 或 provider_options 其中一项")
-        return self
-
-
-class VideoModelSection(ConfigSection):
-    """一个视频模型。``edit`` 省略表示它不支持视频编辑。"""
-
-    edit: VideoEditSection | None = None
-
-
 class VideoGenerationSection(ConfigSection):
-    """新视频生成能选哪几个模型、默认哪个。归属标签 user_name 随每次请求来，不在配置里。"""
+    """新视频生成允许选择的模型与默认模型。归属标签 user_name 随每次请求来，不在配置里。
+
+    只是允许表。哪个模型能做视频编辑、怎么触发，是调用方（前端）按模型名自己认的，不在这里声明。"""
 
     model: str
-    models: dict[str, VideoModelSection] = Field(min_length=1)
-    """键名即模型 id，按声明顺序对外输出。"""
+    allowed_models: tuple[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)], ...
+    ] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _default_model_is_allowed(self) -> VideoGenerationSection:
-        if self.model not in self.models:
-            raise ValueError("video.model 必须是 video.models 里的一个")
+        if self.model not in self.allowed_models:
+            raise ValueError("video.model 必须包含在 video.allowed_models 中")
         return self
 
 
@@ -449,22 +426,6 @@ class ResolvedImageModel:
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedVideoEdit:
-    """一个视频模型的编辑能力运行值。"""
-
-    prompt_prefix: str | None
-    provider_options: Mapping[str, str] | None
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedVideoModel:
-    """一个视频模型的运行值。``edit`` 为空表示它不支持视频编辑。"""
-
-    name: str
-    edit: ResolvedVideoEdit | None
-
-
-@dataclass(frozen=True, slots=True)
 class ResolvedMediaGeneration:
     """媒体生成的运行值：env 里的地址凭证 + YAML 里的取值与节奏。"""
 
@@ -472,7 +433,7 @@ class ResolvedMediaGeneration:
     video_status_base_url: str
     video_api_key: str
     video_model: str
-    video_models: tuple[ResolvedVideoModel, ...]
+    video_allowed_models: tuple[str, ...]
     image_models: tuple[ResolvedImageModel, ...]
     image_default_model: str
     image_env: str
@@ -625,18 +586,7 @@ def _resolve_media_generation(
         video_status_base_url=env.video_status_base_url,
         video_api_key=env.video_api_key,
         video_model=section.video.model,
-        video_models=tuple(
-            ResolvedVideoModel(
-                name=name,
-                edit=None
-                if model.edit is None
-                else ResolvedVideoEdit(
-                    prompt_prefix=model.edit.prompt_prefix,
-                    provider_options=model.edit.provider_options,
-                ),
-            )
-            for name, model in section.video.models.items()
-        ),
+        video_allowed_models=section.video.allowed_models,
         image_models=tuple(
             ResolvedImageModel(
                 name=name,

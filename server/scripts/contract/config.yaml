@@ -19,18 +19,11 @@ media_generation:
   # VIDEO_SUBMIT_URL 为空时关闭生成路由与后台队列；启用后须提供生成接口与对象存储凭证。
   video:
     model: mmt-seedance-2-5 # 默认模型，显式指定 mmt 名称以固定供应商
-    # 键名即模型 id，按声明顺序对外输出。edit 声明这个模型怎么触发视频编辑，省略即不支持：
-    # provider_options 是显式声明子任务的那种，prompt_prefix 是靠正文意图词路由的那种。
-    # 只写怎么调用；参考素材的时长、大小、格式限制上游自己拦，这里不复制。
-    models:
-      mmt-seedance-2-0: {}
-      mmt-seedance-2-5:
-        edit:
-          provider_options:
-            omni_reference_task_type: edit
-      wan3.0-video-prime:
-        edit:
-          prompt_prefix: "编辑视频，"
+    # 只是允许表。哪个模型能做视频编辑、怎么触发，前端按模型名自己认，这里不声明。
+    allowed_models:
+      - mmt-seedance-2-0
+      - mmt-seedance-2-5
+      - wan3.0-video-prime
   image:
     env: prod # 网关按调用方标识与这一项一起判这次调用合不合法
     default: nano_banana_pro # 请求省略 model 时用哪家

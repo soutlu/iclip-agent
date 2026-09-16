@@ -41,7 +41,6 @@ import {
   useVideoEditChain,
   videoEditChainKey,
   videoEditConversationKey,
-  type VideoModel,
 } from './video-editor.api'
 import './video-editor.css'
 
@@ -61,7 +60,7 @@ const PROGRESS: readonly EditStage[] = ['cutting', 'generating', 'ready', 'compo
 const progressOf = (stage: EditStage) => PROGRESS.indexOf(stage === 'cut' ? 'cutting' : stage)
 const isActive = (edit: PendingEdit) => edit.stage !== 'ready' && edit.stage !== 'failed'
 
-type EditDraft = { prompt: string; model: VideoModel; references: EditorReference[] }
+type EditDraft = { prompt: string; model: string; references: EditorReference[] }
 
 type Selected =
   | { kind: 'version'; key: string; label: string; version: ChainVersion }
@@ -137,8 +136,8 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
 
   // 选过的模型不在允许表里（配置改了）就退回默认；默认模型不支持编辑就取第一个支持的。
   const model =
-    models.find((item) => item.model === wantedModel) ??
-    models.find((item) => item.model === modelsQuery.data?.default) ??
+    models.find((item) => item === wantedModel) ??
+    models.find((item) => item === modelsQuery.data?.default) ??
     models[0]
 
   // 切好没发、又不是本次会话发起的编辑，草稿已经没了，不展示。
@@ -450,7 +449,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                         className="video-editor-model"
                         disabled={busy || models.length === 0}
                         onChange={(event) => setWantedModel(event.currentTarget.value)}
-                        value={model?.model ?? ''}
+                        value={model ?? ''}
                       >
                         {models.length === 0 ? (
                           <option disabled value="">
@@ -458,8 +457,8 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                           </option>
                         ) : null}
                         {models.map((item) => (
-                          <option key={item.model} value={item.model}>
-                            {item.model}
+                          <option key={item} value={item}>
+                            {item}
                           </option>
                         ))}
                       </select>

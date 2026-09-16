@@ -470,29 +470,11 @@ def video_task_out(job: GenerationJob) -> VideoTaskOut:
     )
 
 
-class VideoEditOut(CamelModel):
-    """这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。"""
-
-    prompt_prefix: str | None = None
-    """拼在正文最前面的编辑意图词。万相没有开关参数，靠正文里的意图词路由到编辑。"""
-
-    provider_options: dict[str, str] | None = None
-    """并进请求 ``provider_options`` 的键值。Seedance 2.5 靠它显式声明编辑子任务。"""
-
-
-class VideoModelOut(CamelModel):
-    """一个视频模型：id，以及支不支持视频编辑、怎么触发。"""
-
-    model: str
-    edit: VideoEditOut | None = None
-    """不支持视频编辑的模型为空。"""
-
-
 class VideoModelsOut(CamelModel):
-    """接入了哪几个视频模型与各自的编辑能力，按配置声明顺序。"""
+    """接入了哪几个视频模型。只有模型 id，下拉直接显示它。"""
 
     default: str
-    items: list[VideoModelOut]
+    items: list[str]
 
 
 class ImageModelOut(CamelModel):
@@ -547,9 +529,7 @@ __all__ = [
     "ImageModelOut",
     "ImageModelsOut",
     "Metadata",
-    "VideoEditOut",
     "VideoGenerationIn",
-    "VideoModelOut",
     "VideoModelsOut",
     "VideoShotIn",
     "VideoShotTimelineItemIn",
