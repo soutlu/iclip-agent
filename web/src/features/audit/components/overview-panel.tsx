@@ -137,8 +137,9 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
     )
   }
 
+  // 后端补齐了空期：计数是 0、比率与分布是 null，null 交给迷你趋势断开，不当 0 画。
   const trendOf = (pick: (metrics: Metrics) => number | null) =>
-    series.length >= 2 ? series.map((period) => pick(period.metrics) ?? 0) : undefined
+    series.length >= 2 ? series.map((period) => pick(period.metrics)) : undefined
 
   const pointsOf = (pick: (metrics: Metrics) => number | null) =>
     series.map((period) => ({
@@ -380,7 +381,7 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
           kind="bar"
           points={pointsOf((m) => m.usage.totalTokens)}
           previous={beforeOf((m) => m.usage.totalTokens)}
-          title="模型 token"
+          title="模型 token 趋势"
         />
       </section>
 

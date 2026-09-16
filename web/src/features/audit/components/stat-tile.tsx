@@ -12,7 +12,8 @@ type StatTileProps = {
   /** 大数下面的一句补充，如「越接近 1 越好」或「最慢一成 2.1 小时」。 */
   sub?: ReactNode
   delta?: Delta | null
-  trend?: readonly number[] | undefined
+  /** 迷你趋势的各期值；没数据的期给 null，画成断开而不是 0。 */
+  trend?: readonly (number | null)[] | undefined
   /** 角标：数据口径的诚实说明。 */
   note?: string
   pending?: boolean
