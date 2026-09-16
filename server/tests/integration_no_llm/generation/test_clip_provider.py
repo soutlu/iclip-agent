@@ -87,13 +87,18 @@ def sources() -> dict[str, bytes]:
 
 @dataclass
 class _Stages:
-    """记下 provider 报了哪些阶段。``live=False`` 模拟这条任务已经不在提交中。"""
+    """记下 provider 报了哪些阶段。
+
+    ``live=False`` 模拟这条任务已经不在提交中；``broken`` 模拟写库失败。"""
 
     seen: list[ClipStage] = field(default_factory=list)
     live: bool = True
+    broken: bool = False
 
     async def report(self, job_id: uuid.UUID, stage: ClipStage) -> bool:
         self.seen.append(stage)
+        if self.broken:
+            raise RuntimeError("数据库连接抖了一下")
         return self.live
 
 
@@ -307,6 +312,25 @@ async def test_stops_reporting_once_the_job_has_a_conclusion_but_still_finishes(
 
     assert stages.seen == ["processing"], "第一次就被拒，后面不再报"
     assert key.startswith("iclip/agent/video-clips/")
+    assert 1.0 <= await _duration_seconds(content) <= 2.1
+
+
+async def test_a_broken_stage_report_does_not_fail_the_job(sources: dict[str, bytes]) -> None:
+    """阶段词只是给人看的：写不进去就不写了。
+
+    让它抛出去会穿过队列的 ProviderError 捕获进重试策略，下一次执行见 submitting 就判
+    SUBMIT_INTERRUPTED——一条能出结果的加工被一次展示用的写库失败判死。"""
+
+    store = MemoryObjectStore()
+    stages = _Stages(broken=True)
+    async with serving({"base.mp4": sources[BASE_URL]}) as server:
+        _, content = await _submit(
+            _provider(store, stages=stages),
+            store,
+            segments=[{"url": server.url("base.mp4"), "start": 1, "end": 2}],
+        )
+
+    assert stages.seen == ["processing"], "第一次就炸，后面不再报"
     assert 1.0 <= await _duration_seconds(content) <= 2.1
 
 

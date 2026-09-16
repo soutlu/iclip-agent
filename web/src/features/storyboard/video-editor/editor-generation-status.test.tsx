@@ -90,6 +90,16 @@ describe('EditorGenerationStatus', () => {
   })
 
   it.each([
+    { stage: 'cutting', job: 'reference', text: '等待切片' },
+    { stage: 'composing', job: 'master', text: '等待合成' },
+  ] as const)('$stage 还在本系统排队时说清是在等：$text', async ({ stage, job, text }) => {
+    const queued: GenerationJob = { ...failedJob, status: 'pending' }
+    await renderWithProviders(<EditorGenerationStatus edit={edit({ stage, [job]: queued })} />)
+
+    expect(screen.getByRole('status', { name: '视频编辑进度' })).toHaveTextContent(text)
+  })
+
+  it.each([
     { stage: 'cutting', text: '正在准备参考片段' },
     { stage: 'composing', text: '正在合成成片' },
   ] as const)('$stage 没有阶段可读时回落到原文案', async ({ stage, text }) => {
