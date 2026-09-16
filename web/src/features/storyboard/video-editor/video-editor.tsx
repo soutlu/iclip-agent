@@ -130,7 +130,8 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
   // 三段互斥的写操作加上传参考图；任一在跑时整个编辑器一起锁。
   const [operation, setOperation] = useState<'idle' | 'uploading' | 'cutting' | 'composing'>('idle')
   const [operationError, setOperationError] = useState<string | null>(null)
-  // 参考片段切好就自动发编辑任务；记下发过的，轮询回来之前不重发。
+  // 参考片段切好就自动发编辑任务；一个 editId 只自动发一次，提交失败也不再自动重发（那会
+  // 变成一渲染一次的重试风暴），用户重选一段就是重来。
   const submittedRef = useRef(new Set<string>())
   const busy = operation !== 'idle'
 

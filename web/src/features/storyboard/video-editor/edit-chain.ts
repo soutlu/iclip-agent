@@ -74,6 +74,9 @@ const promptOf = (job: GenerationJob | undefined): string | undefined => {
 const newest = (jobs: readonly GenerationJob[]): GenerationJob | undefined =>
   [...jobs].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
 
+const coordsOf = (job: GenerationJob | undefined): VideoEditMetadata | undefined =>
+  job === undefined ? undefined : readVideoEditMetadata(job)
+
 type EditGroup = {
   coords: VideoEditMetadata
   reference: GenerationJob | undefined
@@ -109,9 +112,8 @@ const groupEdits = (jobs: readonly GenerationJob[]): Map<string, EditGroup> => {
       editId,
       {
         // 坐标以编辑结果为准：它记的 editStart 是按片段实际时长反算的，参考片段上是用户选的。
-        coords:
-          readVideoEditMetadata(bucket.video[0] ?? bucket.master[0] ?? { metadata: null }) ??
-          bucket.coords,
+        // 同一 editId 重发过就跟着展示的那条（最新的）取，别一条显示、一条给坐标。
+        coords: coordsOf(newest(bucket.video)) ?? coordsOf(newest(bucket.master)) ?? bucket.coords,
         reference: newest(bucket.reference),
         video: newest(bucket.video),
         master: newest(bucket.master),
@@ -287,7 +289,8 @@ export const composeSegments = (
 ): { url: string; start: number; end: number }[] =>
   segments.map((segment) => ({ url: segment.mediaUrl, start: segment.start, end: segment.end }))
 
-/** 参考片段按关键帧切，多出来的在开头：结束点是准的，起点按实际时长往前推。 */
+/** 参考片段按关键帧切，多出来的主要在开头（尾部也会因 B 帧延迟多几帧）：起点按实际时长往前推，
+ * 是差几帧的近似值。 */
 export const actualEditStart = (editEnd: number, clipDuration: number): number =>
   Math.max(0, Math.round((editEnd - clipDuration) * 1000) / 1000)
 
