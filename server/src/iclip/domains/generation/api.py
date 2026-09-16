@@ -14,6 +14,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from iclip.common.errors import ValidationFailed
 from iclip.domains.generation.schemas import (
+    ClipIn,
     GenerationEnvelope,
     GenerationsPageOut,
     ImageGenerationIn,
@@ -58,6 +59,21 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         )
         return VideoSubmitOut(task_id=job.id)
 
+    @router.post("/clips", response_model=GenerationEnvelope, status_code=202)
+    async def submit_clip(
+        body: ClipIn,
+        principal: Annotated[Principal, Depends(require_permission("generation:submit"))],
+    ) -> GenerationEnvelope:
+        """提交一次本地视频加工：按 ``segments`` 的顺序裁出各段拼成一条，产物存进本系统的桶。
+
+        ``purpose=reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段、
+        不重编码；``purpose=master`` 是拼出来的成片，一律重编码对齐参数。不经外部服务，
+        不计费，也没有 ``userName``。
+        """
+
+        job = await service.submit_clip(principal, body)
+        return GenerationEnvelope(generation=generation_out(job))
+
     @router.post("/image", response_model=GenerationEnvelope, status_code=202)
     async def submit_image(
         body: ImageGenerationIn,
@@ -78,7 +94,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
-        kind: Literal["image", "video"] | None = None,
+        kind: Literal["image", "video", "clip"] | None = None,
         metadata: Annotated[
             str | None,
             Query(description="JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义"),
@@ -106,7 +122,9 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
     async def list_video_models(
         principal: Annotated[Principal, Depends(require_permission("generation:read"))],
     ) -> VideoModelsOut:
-        """接入了哪几个视频模型与默认那个，来自运行配置。"""
+        """接入了哪几个视频模型与默认那个，来自运行配置。
+
+        哪个模型能做视频编辑、怎么触发，由调用方按模型名自己认；服务端不替它拼任何东西。"""
 
         default, models = service.video_models()
         return VideoModelsOut(default=default, items=list(models))

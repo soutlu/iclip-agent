@@ -11,7 +11,7 @@ import {
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import { useLiveConversations } from '../conversations.live'
-import { AuditRoute } from './audit-route'
+import { ConversationsRoute } from './conversations-route'
 
 /** 全局帧订阅在应用里挂在侧栏顶层；页面自己不订，这里照壳的样子在外面挂一次。 */
 function LiveFrames() {
@@ -54,7 +54,7 @@ const render = async (tasks: readonly { id: string; label: string }[] = []) => {
   const rendered = await renderWithProviders(
     <>
       <LiveFrames />
-      <AuditRoute
+      <ConversationsRoute
         tasks={{ error: undefined, isPending: false, onRetry: undefined, options: tasks }}
       />
     </>,
@@ -102,7 +102,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('AuditRoute', () => {
+describe('ConversationsRoute', () => {
   it('按最近活动倒序列出全平台对话，保留用户、已关联需求单与运行总数', async () => {
     const { task } = seedThree()
     await render([{ id: task.id, label: task.title }])

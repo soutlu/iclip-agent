@@ -4,24 +4,18 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import type { z } from 'zod'
 import { apiFetch } from '@/shared/api/client'
 import { zConversationsAuditOut } from '@/shared/api/generated/zod.gen'
-import { parseLocalDate } from './audit-dates'
+import { dateRangeBounds, type DateRange } from '@/shared/lib/date-range'
 import { conversationsQueryKeys, type ConversationListState } from './conversations.api'
-
-/** 时间筛选作用在 updatedAt 上；custom 时读 since / until 两个本地日期。 */
-export type AuditRange = '7d' | '30d' | 'all' | 'custom'
 
 /** 删没删：缺省只看活着的，deleted 只看属主删掉的，all 都看。 */
 export type AuditDeleted = 'live' | 'deleted' | 'all'
 
-export interface AuditFilters {
+/** 时间范围作用在 updatedAt 上。 */
+export interface AuditFilters extends DateRange {
   state: ConversationListState
   deleted: AuditDeleted
   ownerUserId: string | null
   taskId: string | null
-  range: AuditRange
-  /** 本地日期，YYYY-MM-DD；只在 range 为 custom 时生效。 */
-  since: string | null
-  until: string | null
 }
 
 export const DEFAULT_AUDIT_FILTERS: AuditFilters = {
@@ -37,7 +31,6 @@ export const DEFAULT_AUDIT_FILTERS: AuditFilters = {
 export type AuditPage = z.output<typeof zConversationsAuditOut>
 
 const PAGE_LIMIT = 50
-const DAY_MS = 24 * 60 * 60_000
 
 /** 组查询串；now 可注入方便测试。 */
 export const auditSearchParams = (
@@ -51,17 +44,9 @@ export const auditSearchParams = (
   params.set('limit', String(PAGE_LIMIT))
   if (filters.ownerUserId !== null) params.set('ownerUserId', filters.ownerUserId)
   if (filters.taskId !== null) params.set('taskId', filters.taskId)
-  if (filters.range === '7d' || filters.range === '30d') {
-    const days = filters.range === '7d' ? 7 : 30
-    params.set('since', new Date(now.getTime() - days * DAY_MS).toISOString())
-  } else if (filters.range === 'custom') {
-    const since = filters.since === null ? null : parseLocalDate(filters.since)
-    const until = filters.until === null ? null : parseLocalDate(filters.until)
-    // 日期范围包含结束日全天，按用户的本地时区转成接口时间戳。
-    until?.setHours(23, 59, 59, 999)
-    if (since !== null) params.set('since', since.toISOString())
-    if (until !== null) params.set('until', until.toISOString())
-  }
+  const { since, until } = dateRangeBounds(filters, now)
+  if (since !== null) params.set('since', since.toISOString())
+  if (until !== null) params.set('until', until.toISOString())
   if (cursor !== null) params.set('cursor', cursor)
   return params
 }

@@ -92,6 +92,7 @@ def _load_agent(
     name: str,
     model: Model,
     step_store: StepStore,
+    usage_ledger: AgentCapability[Any],
     accepts_deferred: bool,
     extra: Sequence[AgentCapability[Any]] = (),
     persistence_metadata: Mapping[str, str] | None = None,
@@ -101,6 +102,7 @@ def _load_agent(
     顶层与子代理都不设 agent_name，落库 run id 与消息 run_id 一致；子代理的名字放 metadata。
     审批工具仅挂顶层 Agent，并通过 accepts_deferred 启用 DeferredToolRequests。
     StepPersistence.run_id 保持为空，由 for_run 按运行计算，以支持并发复用能力实例。
+    用量台账每个 Agent 都挂，同一个实例共用。
     """
 
     return Agent.from_spec(
@@ -112,6 +114,7 @@ def _load_agent(
         retries={"tools": TOOL_RETRIES},
         capabilities=[
             StepPersistence(store=step_store, metadata=dict(persistence_metadata or {})),
+            usage_ledger,
             *extra,
         ],
     )
@@ -151,6 +154,7 @@ def _thinking_effort(model: Model) -> str | None:
 def _build_subagents(
     definitions: Sequence[SubAgentDefinition],
     step_store: StepStore,
+    usage_ledger: AgentCapability[Any],
     models: BuiltModels,
     mirror: AgentCapability[Any],
     profiles: Mapping[str, Mapping[str, str]],
@@ -164,6 +168,7 @@ def _build_subagents(
                     name=sub.name,
                     model=_pick_model(models, sub.model, declared_by=f"子 agent {sub.name}"),
                     step_store=step_store,
+                    usage_ledger=usage_ledger,
                     accepts_deferred=False,
                     extra=sub.capabilities,
                     persistence_metadata=profiles[sub.name],
@@ -214,10 +219,14 @@ def build_agent_registry(
     definitions: Sequence[AgentDefinition],
     *,
     step_store: StepStore,
+    usage_ledger: AgentCapability[Any],
     models: BuiltModels,
     subagent_mirror: AgentCapability[Any],
 ) -> AgentRegistry:
-    """根据声明与注入依赖装配 Agent；subagent_mirror 由组合根构造，挂到每个子代理运行上。"""
+    """根据声明与注入依赖装配 Agent。
+
+    subagent_mirror 挂到每个子代理运行上，usage_ledger 挂到每个 Agent 上，两者都由组合根构造。
+    """
 
     profiles = subagent_profiles(definitions, models)
     agents: dict[str, Agent[Any, Any]] = {}
@@ -228,13 +237,19 @@ def build_agent_registry(
             name=definition.agent_id,
             model=_pick_model(models, definition.model, declared_by=f"agent {definition.agent_id}"),
             step_store=step_store,
+            usage_ledger=usage_ledger,
             accepts_deferred=True,
             extra=(
                 *definition.capabilities,
                 *(
                     [
                         _build_subagents(
-                            definition.subagents, step_store, models, subagent_mirror, profiles
+                            definition.subagents,
+                            step_store,
+                            usage_ledger,
+                            models,
+                            subagent_mirror,
+                            profiles,
                         )
                     ]
                     if definition.subagents

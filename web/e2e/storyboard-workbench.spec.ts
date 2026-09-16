@@ -4,6 +4,9 @@ import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 import { login } from './login'
 
+/** mock 出片用的测试卡源文件；下载回来的字节要和它一致。 */
+const SAMPLE_VIDEO = new URL('../src/testing/fixtures/sample-video.webm', import.meta.url)
+
 // 在浏览器验证 scroll-snap 翻组；视口需容纳 264px 侧栏、400px 聊天和 560px 面板。
 test.use({ viewport: { height: 900, width: 1600 } })
 
@@ -179,10 +182,9 @@ for (const width of [1335, 390]) {
     })
     await expect(records.getByRole('dialog')).toHaveCount(0)
     const video = preview.locator('video')
-    await expect(video).toHaveAttribute(
-      'src',
-      'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE=',
-    )
+    // mock 的出片是一条 WebM 测试卡（见 testing/mocks/workspace.ts），弹层放的就是记录上那条地址；
+    // dev 下地址没有 hash、带 ?no-inline 查询串，构建产物里有 hash、没查询串。
+    await expect(video).toHaveAttribute('src', /\/sample-video(-[^/?]*)?\.webm(\?.*)?$/)
     await expect(video).toHaveAttribute('controls', '')
     await expect(video).toHaveAttribute('autoplay', '')
     await page.keyboard.press('Escape')
@@ -490,12 +492,11 @@ for (const width of [1335, 390]) {
       await menu.getByRole('menuitem', { name: '下载原片' }).click()
       const download = await saved
       expect(await download.failure()).toBeNull()
-      expect(download.suggestedFilename()).toMatch(/^生成的视频(?:\.mp4)?$/)
+      // 文件名取自地址（mock 的出片是构建产物里那条 WebM 测试卡），字节要和源文件一致。
+      expect(download.suggestedFilename()).toMatch(/^sample-video(-[^/]*)?\.webm$/)
       const path = await download.path()
       expect(path).not.toBeNull()
-      expect(await readFile(path)).toEqual(
-        Buffer.from('AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDE=', 'base64'),
-      )
+      expect(await readFile(path)).toEqual(await readFile(SAMPLE_VIDEO))
       await expect(records).toBeVisible()
       await expect(downloadButton).toBeEnabled()
       await expect(records.locator('video')).toHaveCount(0)
@@ -503,7 +504,7 @@ for (const width of [1335, 390]) {
       await downloadButton.press('Enter')
       const savedMarked = page.waitForEvent('download')
       await menu.getByRole('menuitem', { name: '下载水印版' }).click()
-      expect((await savedMarked).suggestedFilename()).toMatch(/^生成的视频（水印版）(?:\.mp4)?$/)
+      expect((await savedMarked).suggestedFilename()).toMatch(/^sample-video(-[^/]*)?\.webm$/)
       await expect(downloadButton).toBeEnabled()
     })
   }

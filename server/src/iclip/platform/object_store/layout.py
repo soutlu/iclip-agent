@@ -26,9 +26,15 @@ class MediaPaths:
 
         return f"{OSS_ROOT}/generated-images/{job_id}.{ext}"
 
-    def generated_video(self, *, job_id: uuid.UUID, ext: str) -> str:
+    def video_clip(self, *, job_id: uuid.UUID, ext: str) -> str:
+        """编辑时切出来的参考片段，是中间素材；桶上按这一层前缀配过期规则。"""
 
-        return f"{OSS_ROOT}/generated-videos/{job_id}.{ext}"
+        return f"{OSS_ROOT}/video-clips/{job_id}.{ext}"
+
+    def video_master(self, *, job_id: uuid.UUID, ext: str) -> str:
+        """拼出来的成片，长期保留，不进过期规则。"""
+
+        return f"{OSS_ROOT}/video-masters/{job_id}.{ext}"
 
     def shot_board(self, *, extraction_key: str, index: int) -> str:
         """按取帧键分目录，使同一视频与镜头表复用预览板。"""

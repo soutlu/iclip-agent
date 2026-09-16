@@ -307,7 +307,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ## 11. 媒体生成 (Generations)
 
-两种生成各有自己的提交地址：`POST /generations/video` 与 `POST /generations/image`。受理即 `202`，此时还没发给上游；上游的拒绝会变成记录里的 `failed`，由调用方查状态看到。
+三条提交地址：`POST /generations/video`、`POST /generations/image` 与 `POST /generations/clips`（本地裁剪拼接，不经外部服务）。受理即 `202`，此时还没开始干活；上游的拒绝会变成记录里的 `failed`，由调用方查状态看到。`kind` 相应有三种：`video`、`image`、`clip`。
 
 业务状态每跳一格，属主连着的每条 WebSocket 都收到一帧 `event.generation.changed`（见 §5 全局帧）；帧易失且不带结果，`GET /generations` 与任务查询接口仍是事实源，浏览器在有运行中任务时保留轮询兜底。
 
@@ -317,13 +317,22 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 ### 视频：镜像上游异步接口
 
-- `POST /generations/video` 的请求体照上游视频异步接口（`model`、`prompt`、`user_name`、`reference_image_urls`、`reference_video_urls`、`reference_audio_urls`、`generate_audio`、`resolution`、`aspect_ratio`、`seconds`、`provider_options`），外加归属字段 `conversation_id`、`task_id`（需求单 id）、调用方自带的坐标 `metadata`（见下文「参考帧图片编辑」）与结构化的 `shot`。响应是 `{"task_id"}`，值是本系统这条生成记录的 id；请求体里的 `task_id` 是需求单 id，两者是两个层级。
+- `POST /generations/video` 的请求体照上游视频异步接口（`model`、`prompt`、`user_name`、`reference_image_urls`、`reference_video_urls`、`reference_audio_urls`、`generate_audio`、`resolution`、`aspect_ratio`、`seconds`、`provider_options`），外加归属字段 `conversation_id`、`task_id`（需求单 id）、调用方自带的坐标 `metadata`（见下文「参考帧图片编辑」）、`metadata.shot` 的别名 `shot_index` 与结构化的 `shot`。响应是 `{"task_id"}`，值是本系统这条生成记录的 id；请求体里的 `task_id` 是需求单 id，两者是两个层级。
 - 正文二选一：直接给 `prompt`，或给 `shot`（与分镜文件 `video_shot.json` 里 `shots[].prompt` 同形：`global_settings` 加 `timeline[]`，每镜 `timestamps: [起, 止]`、`prompt`、`image_indexes`）由服务端拼成 `prompt`。时间线规则与分镜交付相同：结束晚于开始、第一镜从 0 起、各镜按先后排不重叠。拼法：全局设定、空一行、每镜一行 `[起–止秒｜镜头N] 正文`（起止照给的，保留到毫秒），末尾一行 `不要生成字幕，不要生成背景音乐。`。两者都不给、都给但不一致、`@ImageN` 超出 `reference_image_urls` 的张数、`image_indexes` 与正文里 `@Image` 的出现顺序不一致、拼出的正文超过 4000 字，都是 `422`。记录的 `request` 里 `shot` 与拼好的 `prompt` 都在；发给上游的只有 `prompt`，`shot` 不转发。
 - 三类参考素材地址各自最多 30 个，与分镜文件里一组镜头的帧图上限同一个数；只收 http(s) 地址，超出或写别的 scheme 是 `422`。
-- `model` 必填，只接受运行配置 `config.yaml` 中 `media_generation.video.allowed_models` 列出的模型，`GET /generations/video-models` 给出允许表与默认值；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
+- `model` 必填，只接受运行配置 `config.yaml` 中 `media_generation.video.allowed_models` 声明的模型；其余字段原样转发，画幅、时长范围、分辨率、素材规格由上游按模型判，本系统不复制那套规则。不在允许范围内的模型返回 `422`，不创建任务、不入队。
+- `GET /generations/video-models` 给出默认模型与允许表，只有模型 id。哪个模型能做视频编辑、编辑时要给上游加什么（正文前缀或 `provider_options`），由调用方按模型名自己认（ADR-0028 §7）；服务端不替任何模型拼任何东西。
 - 上游会丢弃的 `session_id` 与废弃别名 `image_urls` 在这里是未知字段，返回 `422`。
-- `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，拿图片记录的 id 来查是 `404`。
+- `GET /generations/video/{task_id}` 照上游任务查询的形状：`task_id`、`type: "video"`、`status`、`result`、`error`、`created_at`。`status` 用上游的词：`queued`（已受理未提交）、`running`（提交中或等结果）、`succeeded`（带 `result.output_url` 与 `result.watermark_output_url`）、`failed`（带 `error.code` 与 `error.message`）。可见性与 `GET /generations/{id}` 相同，拿图片记录的 id 来查是 `404`。本系统去上游查状态时带的 `user_name` 查询参数（上游缺它报 400）由服务端从记录里取，调用方不用带。
 - 视频成功时存的是上游发布好的两个地址，不转存；缺任一份这次生成判失败。
+
+### 本地裁剪拼接
+
+- `POST /generations/clips` 按 `segments` 的顺序从各条视频里裁出 `[start, end)` 并拼成一条，产物存进本系统的桶。响应是 `GenerationEnvelope`，受理时 `outputUrl` 还是 `null`；完成后经 `GET /generations/{id}` 拿地址。不经任何外部服务、不计费，也没有 `userName`。
+- `purpose` 两种。`reference` 是编辑时切给模型看的参考片段：只能在一条完整视频上裁一段（给了不止一段是 `422`），不重编码，因此起点会落到 `start` 之前最近的那个关键帧上，产物可能比请求的区间长，多出来的在开头，调用方按产物实际时长自己对齐。`master` 是拼出来的成片：各段参数互不相同，一律重编码；画幅与帧率对齐到原片（按贡献时长认，一次编辑只换掉其中一段，原片总是占大头），模型还回来的片段缩放去适配它，有一段带音轨就出音轨、没音轨的段补静音。
+- 两种产物存在不同前缀下：参考片段是中间素材，桶上按前缀配过期规则；成片长期保留。
+- `segments` 至少一段、最多 50 段，`end` 必须晚于 `start`，`url` 只收 http(s)；违反是 `422`，不创建任务、不入队。归属字段 `conversationId`、`taskId` 与坐标 `metadata` 与另两种生成同义。
+- 取不到素材是 `MEDIA_SOURCE_UNREACHABLE`，ffmpeg 处理失败是 `MEDIA_PROCESS_FAILED`，存不进桶是 `OUTPUT_STORE_FAILED`；都是终态，不自动重试——本地加工不计费，重发一次即可。
 
 ### 图片
 
@@ -335,6 +344,16 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 参考帧图片编辑
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
-- `metadata` 是调用方自己的坐标标签：JSON 对象，两种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读键、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。分镜页写 `{"path": <分镜文件路径>, "shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`），决策见 [ADR-0020](../docs/adr/0020-generation-metadata.md)。
+- `metadata` 是调用方自己的坐标标签：JSON 对象，两种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读键、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。分镜页写 `{"path": <分镜文件路径>, "shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`），决策见 [ADR-0020](../docs/adr/0020-generation-metadata.md)。视频请求另收 `shot_index`（非负整数）：它是 `metadata.shot` 的别名，受理时折进 `metadata`，不落 `request`、不发上游；不写 `metadata` 的调用方给它就够了。
 - `GET /generations` 的类型、对话、需求单与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"shot":1,"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。
+
+## 12. 审计报表 (Audit)
+
+治理者看产量、成功率、耗时与模型消耗的三个只读端点，都要 `users:manage`，否则 `403`。口径的定义见 [CONTEXT.md「审计口径」](../docs/CONTEXT.md#术语)，决策见 [ADR-0027](../docs/adr/0027-audit-reports.md)。
+
+- 三个端点共用筛选 `since` / `until`（左闭右开）、`userName`、`taskId`。时间窗作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数与一次通过看该镜首次出片时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。`since` 不早于 `until` 是 `422`。
+- 每一格指标都是同一个 `metrics` 形状：`deliveries`（成片件数 = `deliveredTasks` + `deliveredOrphanConversations`）、`completedVideos`、`producers`、`shots` / `attempts` / `firstPassShots` 与派生的 `attemptsPerShot`、`firstPassRate`、`deliveredConversations`、三组秒数分布 `cycleSeconds` / `videoSeconds` / `upstreamSeconds`（各带 `avg`、`median`、`p90`，没有样本为 `null`）、`usage`（五个 token 计数、`totalTokens`、`cacheHitRate`）与 `tokensPerDelivery`。分母为零的比率是 `null`。
+- `GET /audit/summary` 返回 `overall`（整个筛选范围一格）、`users[]`（每人一行，成片件数多的在前）、`tasks[]`（每张有动静的需求单一行，带 `title`；没挂需求单的对话不在这里）。给 `bucket`（`day` / `week` / `month`）时多返回 `series[]`，每期一行带 `periodStart`，按 `timezone`（IANA 名，缺省 `UTC`）切；不给 `bucket` 时 `series` 为 `null`。时区名不认识是 `422`。
+- `GET /audit/conversations` 列有成片的对话，最后成片晚的排前面；时间窗作用在最后成片时刻上，每行的 `metrics`、`shots[]`（镜号、次数、是否一次通过、首末时刻）与 `usage[]`（按模型）都是这段对话的全量。`userName` 是这段对话归属的人，`startedAt` 是首次运行（没有运行就是对话创建）。属主删掉的对话照列，`deletedAt` 非空。翻页 `limit` 与 `cursor`，规则同 §6 审计列表。
+- `GET /audit/anomalies` 列异常，按发生时刻倒序，翻页同上。`kind` 可重复给以只看某几种：`retry`（单镜生成次数超过 `retryOver`，缺省 2）、`idle`（有运行、无成片、最近活动距今超过 `idleHours`，缺省 24）、`slow`（交付周期超过筛选范围内的 P90）、`stuck`（视频停在 `submitted` 超过 `stuckHours`，缺省 1）、`spend`（对话总 token 超过筛选范围内的 P95）、`task_stuck`（需求单挂了至少 `taskConversations` 段对话、缺省 3，且没有成片）、`deleted`（属主删掉的对话，`value` 是它的成片数）、`no_task`（有成片却没挂需求单的对话）、`missing_shot`（没带数字 `metadata.shot` 的视频，调用方接入退化的信号）。每行带 `kind`、`at`、`value`、`threshold` 与按需带的 `conversationId` / `taskId` / `userName` / `shot` / `generationId`。P90 / P95 按当前筛选范围现算，样本少时会抖。

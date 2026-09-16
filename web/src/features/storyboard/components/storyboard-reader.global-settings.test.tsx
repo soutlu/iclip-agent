@@ -75,7 +75,10 @@ const provide = (document = fixture) => {
     }),
     http.get('*/api/generations', () => HttpResponse.json({ items: [] })),
     http.get('*/api/generations/video-models', () =>
-      HttpResponse.json({ items: ['seedance_2.0'], default: 'seedance_2.0' }),
+      HttpResponse.json({
+        items: ['seedance_2.0'],
+        default: 'seedance_2.0',
+      }),
     ),
     http.post('*/api/generations/video', async ({ request }) => {
       submissions.push(await request.json())

@@ -38,10 +38,12 @@ from iclip.harness.step_store_pg import PgStepStore
 from iclip.harness.transcript.history import TranscriptHistory
 from iclip.harness.transcript.runner import ConversationRunner, RunStarted
 from iclip.harness.transcript.store import TranscriptStore
+from iclip.harness.usage_ledger import UsageLedger
 from iclip.platform.transcript.display import ToolDisplayRegistry
 from iclip.platform.transcript.ops import (
     MAIN_AGENT_ID,
     PromptContent,
+    StepUsage,
     TextContent,
     ToolFrame,
     TranscriptTurn,
@@ -54,6 +56,17 @@ LOCKED_BY = "w-test"
 """固定当前 runner 的租约属主，便于直接模拟租约转移。"""
 DEAD = "w-dead"
 """模拟已退出进程的租约属主，不再更新心跳。"""
+
+
+class _DiscardingUsageStore:
+    async def add(self, *, conversation_id: str, model_name: str, usage: StepUsage) -> None:
+        return None
+
+
+def discarding_usage_ledger() -> UsageLedger:
+    """装配要求每个 Agent 都挂用量台账；这里的测试不看记了什么。"""
+
+    return UsageLedger(store=_DiscardingUsageStore(), conversation_of=lambda _deps: "conversation")
 
 
 def new_conversation_id() -> str:

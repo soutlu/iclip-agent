@@ -29,7 +29,10 @@ from iclip.harness.agents import (
 )
 from iclip.harness.transcript.store import TranscriptStore
 from iclip.harness.transcript.subagents import SubAgentMirror
+from iclip.harness.usage_ledger import UsageLedger
 from iclip.platform.transcript.display import AgentCallDisplay
+from iclip.platform.transcript.ops import StepUsage
+from tests.helpers.runtime import discarding_usage_ledger
 
 SPEC = "model: test\n"
 
@@ -123,7 +126,11 @@ def test_subagent_profiles_refuse_one_name_with_two_models(tmp_path: Path) -> No
 
 def test_empty_definitions_yield_empty_registry() -> None:
     registry = build_agent_registry(
-        (), step_store=store(), models=models(), subagent_mirror=mirror()
+        (),
+        step_store=store(),
+        models=models(),
+        subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     assert registry.ids == ()
@@ -140,6 +147,7 @@ def test_agent_id_overrides_spec_name(tmp_path: Path) -> None:
         step_store=store(),
         models=models(),
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     assert registry.ids == ("storyboard", "producer")
@@ -169,6 +177,7 @@ async def test_instructions_file_merged(tmp_path: Path) -> None:
         step_store=store(),
         models=models(),
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     assert await sent_instructions(registry, "storyboard") == "写镜头表。"
@@ -189,6 +198,7 @@ async def test_blank_instructions_file_injects_nothing(tmp_path: Path) -> None:
         step_store=store(),
         models=models(),
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     assert await sent_instructions(registry, "a") is None
@@ -226,6 +236,7 @@ async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
         step_store=store(),
         models=models(),
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     seen: list[str] = []
@@ -238,6 +249,60 @@ async def test_subagents_expose_delegate_tool(tmp_path: Path) -> None:
         await drive(registry, "producer")
 
     assert DELEGATE_TOOL in seen
+
+
+async def test_the_usage_ledger_is_attached_to_the_agent_and_its_subagents(tmp_path: Path) -> None:
+    """顶层与子代理各自的模型响应都进同一本台账，模型名取各自配置的模型。"""
+
+    recorded: list[tuple[str, str]] = []
+
+    class Recording:
+        async def add(self, *, conversation_id: str, model_name: str, usage: StepUsage) -> None:
+            recorded.append((conversation_id, model_name))
+
+    async def parent_delegates(
+        messages: list[ModelMessage], _info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        if len(messages) == 1:
+            yield {
+                0: DeltaToolCall(
+                    name="delegate_task",
+                    json_args='{"agent_name": "shot-writer", "task": "写三个镜头"}',
+                )
+            }
+        else:
+            yield "done"
+
+    async def child_answers(_messages: list[ModelMessage], _info: AgentInfo) -> AsyncIterator[str]:
+        yield "done"
+
+    registry = build_agent_registry(
+        (
+            AgentDefinition(
+                agent_id="producer",
+                spec=make_spec(tmp_path, "producer"),
+                model="parent-model",
+                subagents=(
+                    SubAgentDefinition(
+                        name="shot-writer",
+                        spec=make_spec(tmp_path, "shot-writer"),
+                        model="child-model",
+                    ),
+                ),
+            ),
+        ),
+        step_store=store(),
+        models={
+            "parent-model": FunctionModel(stream_function=parent_delegates, model_name="parent-m"),
+            "child-model": FunctionModel(stream_function=child_answers, model_name="child-m"),
+        },
+        subagent_mirror=mirror(),
+        usage_ledger=UsageLedger(store=Recording(), conversation_of=lambda _deps: "c1"),
+    )
+
+    await drive(registry, "producer")
+
+    assert sorted(recorded) == [("c1", "child-m"), ("c1", "parent-m"), ("c1", "parent-m")]
 
 
 def test_the_delegate_tool_has_a_display() -> None:
@@ -282,6 +347,7 @@ async def test_stream_records_parent_and_subagent_runs(tmp_path: Path) -> None:
         step_store=step_store,
         models=models(),
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     with registry.agents["producer"].override(model=FunctionModel(stream_function=delegate_once)):
@@ -355,6 +421,7 @@ async def test_subagent_only_gets_the_capabilities_declared_for_it(tmp_path: Pat
             "recorder": FunctionModel(stream_function=child_records),
         },
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     with registry.agents["producer"].override(
@@ -388,6 +455,7 @@ async def test_run_deps_reach_the_tool(tmp_path: Path) -> None:
         step_store=store(),
         models=models(),
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     events = await drive(registry, "storyboard", deps=Caller("经运行驱动"))
@@ -418,6 +486,7 @@ async def test_tools_get_more_than_one_chance_to_correct_their_arguments(tmp_pat
         step_store=store(),
         models={MODEL_NAME: FunctionModel(call_it)},
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     with pytest.raises(UnexpectedModelBehavior, match=f"max retries count of {TOOL_RETRIES}"):
@@ -433,6 +502,7 @@ def test_unknown_model_name_fails_at_assembly(tmp_path: Path) -> None:
             step_store=store(),
             models=models(),
             subagent_mirror=mirror(),
+            usage_ledger=discarding_usage_ledger(),
         )
 
 
@@ -452,6 +522,7 @@ def test_unknown_subagent_model_name_fails_at_assembly(tmp_path: Path) -> None:
             step_store=store(),
             models=models(),
             subagent_mirror=mirror(),
+            usage_ledger=discarding_usage_ledger(),
         )
 
 
@@ -463,6 +534,7 @@ def test_spec_model_field_is_overridden(tmp_path: Path) -> None:
         step_store=store(),
         models=models(),
         subagent_mirror=mirror(),
+        usage_ledger=discarding_usage_ledger(),
     )
 
     assert isinstance(registry.agents["storyboard"].model, TestModel)

@@ -12,14 +12,14 @@ import { DEFAULT_AUDIT_FILTERS, useAuditConversations, type AuditFilters } from 
 import { conversationStatus } from '../conversation-status'
 import type { Conversation } from '../conversations.api'
 import { AuditFiltersBar } from './audit-filters'
-import type { PickerSource } from './audit-search-picker'
+import type { PickerSource } from '@/shared/ui/search-picker'
 
-type AuditRouteProps = {
+type ConversationsRouteProps = {
   /** 需求单候选由路由层查询，feature 之间不直接互引；null 表示当前账号没有 tasks:read 权限。 */
   tasks: PickerSource | null
 }
 
-export function AuditRoute({ tasks }: AuditRouteProps) {
+export function ConversationsRoute({ tasks }: ConversationsRouteProps) {
   const [filters, setFilters] = useState<AuditFilters>(DEFAULT_AUDIT_FILTERS)
   const directory = useUsersDirectory(true)
   const users: PickerSource = {

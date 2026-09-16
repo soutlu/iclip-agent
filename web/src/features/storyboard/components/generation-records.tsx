@@ -35,14 +35,19 @@ const newestFirst = (left: GenerationJob, right: GenerationJob) =>
 type GenerationRecordsProps = {
   shotIndex: number
   jobs: readonly GenerationJob[]
+  /** 每条出片被成功编辑过几次；编辑结果自己不进这张列表。 */
+  editCounts?: ReadonlyMap<string, number> | undefined
   onClose: () => void
   onEditPrompt?: ((prompt: Shot['prompt']) => void) | undefined
+  onEditVideo?: ((job: GenerationJob) => void) | undefined
 }
 
 export function GenerationRecords({
+  editCounts,
   jobs,
   onClose,
   onEditPrompt,
+  onEditVideo,
   shotIndex,
 }: GenerationRecordsProps) {
   const listed = jobs
@@ -88,7 +93,15 @@ export function GenerationRecords({
             <div className="min-h-8 flex-[1.4]" />
           </div>
         ) : (
-          listed.map((job) => <RecordCard job={job} key={job.id} onEditPrompt={onEditPrompt} />)
+          listed.map((job) => (
+            <RecordCard
+              editCount={editCounts?.get(job.id) ?? 0}
+              job={job}
+              key={job.id}
+              onEditPrompt={onEditPrompt}
+              onEditVideo={onEditVideo}
+            />
+          ))
         )}
       </div>
     </div>
@@ -97,16 +110,21 @@ export function GenerationRecords({
 
 type RecordCardProps = {
   job: GenerationJob
+  editCount: number
   onEditPrompt?: ((prompt: Shot['prompt']) => void) | undefined
+  onEditVideo?: ((job: GenerationJob) => void) | undefined
 }
 
-function RecordCard({ job, onEditPrompt }: RecordCardProps) {
+function RecordCard({ job, editCount, onEditPrompt, onEditVideo }: RecordCardProps) {
   const [open, setOpen] = useState(true)
   const phase = phaseOfStatus(job.status)
   const prompt = promptOf(job)
   const model = modelOf(job)
   // 只有带结构化 shot 的记录能回填镜头组；接口调用方自己写的正文只能看。
   const history = historyShotOf(job)
+  // 编辑要在一条完整视频上切段，只有出了片的记录才有的编。
+  const canEditVideo =
+    onEditVideo !== undefined && phase === 'completed' && Boolean(job.outputUrl?.trim())
 
   return (
     <article className="flex shrink-0 flex-col gap-2.5 overflow-hidden rounded-sm border-[0.5px] border-chat-hairline bg-surface p-3">
@@ -157,19 +175,36 @@ function RecordCard({ job, onEditPrompt }: RecordCardProps) {
         </div>
       ) : null}
 
-      {open && onEditPrompt !== undefined ? (
-        <Button
-          className="w-full border-[0.5px] border-chat-hairline bg-surface-container-low text-primary"
-          disabled={history === undefined}
-          leadingIcon="edit"
-          onClick={() => {
-            if (history !== undefined) onEditPrompt(history)
-          }}
-          size="md"
-          variant="ghost"
-        >
-          编辑生成
-        </Button>
+      {open && (onEditPrompt !== undefined || canEditVideo) ? (
+        <div className="flex items-center gap-2">
+          {onEditPrompt !== undefined ? (
+            <Button
+              className="min-w-0 flex-1 border-[0.5px] border-chat-hairline bg-surface-container-low text-primary"
+              disabled={history === undefined}
+              leadingIcon="edit"
+              onClick={() => {
+                if (history !== undefined) onEditPrompt(history)
+              }}
+              size="md"
+              variant="ghost"
+            >
+              编辑生成
+            </Button>
+          ) : null}
+          {canEditVideo ? (
+            <Button
+              className="min-w-0 flex-1 shadow-none"
+              onClick={() => onEditVideo(job)}
+              size="md"
+              trailingIcon="next"
+            >
+              编辑视频
+              {editCount > 0 ? (
+                <span className="text-caption opacity-80">已编辑 {editCount} 次</span>
+              ) : null}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </article>
   )

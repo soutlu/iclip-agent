@@ -16,6 +16,7 @@ from iclip.domains.generation.queue import GenerationQueue
 from iclip.domains.generation.repository import GenerationRepository
 from iclip.domains.generation.schemas import (
     KIND_VIDEO,
+    ClipIn,
     GenerationRequest,
     ImageGenerationIn,
     VideoGenerationIn,
@@ -36,6 +37,7 @@ class GenerationService:
         queue: GenerationQueue,
         *,
         video_provider_name: str,
+        clip_provider_name: str,
         video_default_model: str,
         video_allowed_models: tuple[str, ...],
         image_models: Mapping[str, ImageModelSpec],
@@ -48,6 +50,7 @@ class GenerationService:
         self._repo = repo
         self._queue = queue
         self._video_provider_name = video_provider_name
+        self._clip_provider_name = clip_provider_name
         self._video_default_model = video_default_model
         self._video_allowed_models = video_allowed_models
         self._image_models = image_models
@@ -60,6 +63,11 @@ class GenerationService:
             raise ValidationFailed(f"视频生成仅支持模型 {'、'.join(self._video_allowed_models)}")
         _require_user_name(request.user_name)
         return await self._accept(principal, request, provider=self._video_provider_name)
+
+    async def submit_clip(self, principal: Principal, request: ClipIn) -> GenerationJob:
+        """受理一次本地视频加工。不经外部服务、不计费，除了请求自身没有别的门槛。"""
+
+        return await self._accept(principal, request, provider=self._clip_provider_name)
 
     async def submit_image(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
         """受理一次图片生成。选定哪家、哪个渠道在这里定死，队列等待期间的配置变化不影响它。"""

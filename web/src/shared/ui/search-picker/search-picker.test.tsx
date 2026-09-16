@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { renderWithProviders } from '@/testing/render'
-import { AuditSearchPicker } from './audit-search-picker'
+import { SearchPicker } from './search-picker'
 
 const USERS = [
   { id: 'tester', label: '测试用户' },
@@ -32,7 +32,7 @@ function PickerControls({
   const [value, setValue] = useState(initialValue)
   const [loadError, setLoadError] = useState(error)
   return (
-    <AuditSearchPicker
+    <SearchPicker
       label={label}
       onChange={setValue}
       selectedLabel={selectedLabel}
@@ -48,8 +48,8 @@ function PickerControls({
   )
 }
 
-// 搜索、键盘与状态展示由 shared/ui/search-list 的测试覆盖，这里只看审计筛选自己的语义。
-describe('AuditSearchPicker', () => {
+// 搜索、键盘与状态展示由 shared/ui/search-list 的测试覆盖，这里只看选择器自己的语义。
+describe('SearchPicker', () => {
   it('选择选项应用筛选，再次选择当前项清除筛选', async () => {
     const user = userEvent.setup()
     await renderWithProviders(<PickerControls />)

@@ -1,18 +1,16 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DateRange } from '@/shared/lib/date-range'
 import { renderWithProviders } from '@/testing/render'
-import type { AuditFilters } from '../audit.api'
-import { AuditDatePicker } from './audit-date-picker'
+import { DateRangePicker } from './date-range-picker'
 
-type AuditDateValue = Pick<AuditFilters, 'range' | 'since' | 'until'>
+const UNFILTERED: DateRange = { range: 'all', since: null, until: null }
 
-const UNFILTERED: AuditDateValue = { range: 'all', since: null, until: null }
-
-const renderPicker = async (value: AuditDateValue = UNFILTERED) => {
-  const applied: AuditDateValue[] = []
+const renderPicker = async (value: DateRange = UNFILTERED) => {
+  const applied: DateRange[] = []
   await renderWithProviders(
-    <AuditDatePicker onChange={(next) => applied.push(next)} value={value} />,
+    <DateRangePicker onChange={(next) => applied.push(next)} value={value} />,
   )
   return { applied, user: userEvent.setup() }
 }
@@ -26,7 +24,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('AuditDatePicker', () => {
+describe('DateRangePicker', () => {
   it('自定义先在本地选起点，跨月选满终点后才应用区间', async () => {
     const { applied, user } = await renderPicker()
 

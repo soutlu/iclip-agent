@@ -16,7 +16,7 @@ export type PickerSource = {
   onRetry: (() => void) | undefined
 }
 
-type AuditSearchPickerProps = {
+type SearchPickerProps = {
   source: PickerSource
   value: string | null
   /** 当前已选项移出候选时继续显示的名称。 */
@@ -27,15 +27,15 @@ type AuditSearchPickerProps = {
   withAvatars?: boolean
 }
 
-/** 治理者筛选用的单选搜索列表：再次选择当前项即清除条件，弹层开关由外层管理。 */
-export function AuditSearchPicker({
+/** 筛选用的单选搜索列表：再次选择当前项即清除条件，弹层开关由外层管理。 */
+export function SearchPicker({
   source,
   value,
   selectedLabel,
   onChange,
   label,
   withAvatars = false,
-}: AuditSearchPickerProps) {
+}: SearchPickerProps) {
   const { options, isPending, error, onRetry } = source
   // 候选刷新或移除后，已生效的条件仍需有一个可再次选择的清除入口。
   const choices =

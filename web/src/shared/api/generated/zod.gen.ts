@@ -32,6 +32,39 @@ export const zAgentStatusMeta = z.object({
 })
 
 /**
+ * AnomalyOut
+ */
+export const zAnomalyOut = z.object({
+  at: z.iso.datetime(),
+  conversationId: z.uuid().nullable(),
+  generationId: z.uuid().nullable(),
+  kind: z.enum([
+    'retry',
+    'idle',
+    'slow',
+    'stuck',
+    'spend',
+    'task_stuck',
+    'deleted',
+    'no_task',
+    'missing_shot',
+  ]),
+  shot: z.int().nullable(),
+  taskId: z.uuid().nullable(),
+  threshold: z.number().nullable(),
+  userName: z.string().nullable(),
+  value: z.number().nullable(),
+})
+
+/**
+ * AnomaliesOut
+ */
+export const zAnomaliesOut = z.object({
+  items: z.array(zAnomalyOut),
+  nextCursor: z.string().nullable(),
+})
+
+/**
  * ApiKeyCreateIn
  */
 export const zApiKeyCreateIn = z.object({
@@ -114,6 +147,34 @@ export const zBodyAuthCookieLoginAuthLoginPost = z.object({
   password: z.string(),
   scope: z.string().optional().default(''),
   username: z.string(),
+})
+
+/**
+ * ClipSegmentIn
+ *
+ * 从一条视频里取 ``[start, end)`` 这一段，单位秒。
+ */
+export const zClipSegmentIn = z.object({
+  end: z.number(),
+  start: z.number().gte(0),
+  url: z.string().min(1).max(2000),
+})
+
+/**
+ * ClipIn
+ *
+ * 一次本地视频加工：按顺序裁出各段拼成一条，产物是本系统桶里的公开地址。
+ *
+ * ``reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段，不重编码
+ * （起点因此落在最近的关键帧上，产物可能比区间略长）；``master`` 是拼出来的成片，各段
+ * 参数互不相同，一律重编码对齐。两者存在不同前缀下，成片不进过期规则。
+ */
+export const zClipIn = z.object({
+  conversationId: z.uuid().nullish(),
+  metadata: z.record(z.string(), z.unknown()).nullish(),
+  purpose: z.enum(['reference', 'master']),
+  segments: z.array(zClipSegmentIn).min(1).max(50),
+  taskId: z.uuid().nullish(),
 })
 
 /**
@@ -543,6 +604,17 @@ export const zRunStatusOut = z.object({
 })
 
 /**
+ * ShotOut
+ */
+export const zShotOut = z.object({
+  attempts: z.int(),
+  firstAt: z.iso.datetime(),
+  firstPass: z.boolean(),
+  lastAt: z.iso.datetime(),
+  shot: z.int(),
+})
+
+/**
  * SidebarCollectionOut
  *
  * 侧栏里的一个合集：元信息、里面一共几段，加第一页对话。
@@ -569,6 +641,17 @@ export const zSidebarOut = z.object({
   collections: z.array(zSidebarCollectionOut),
   ungrouped: zConversationPageOut,
   ungroupedCount: z.int(),
+})
+
+/**
+ * SpreadOut
+ *
+ * 时长分布，单位秒。
+ */
+export const zSpreadOut = z.object({
+  avg: z.number(),
+  median: z.number(),
+  p90: z.number(),
 })
 
 /**
@@ -950,6 +1033,95 @@ export const zUploadTicketOut = z.object({
 })
 
 /**
+ * UsageOut
+ */
+export const zUsageOut = z.object({
+  cacheHitRate: z.number().nullable(),
+  cacheReadTokens: z.int(),
+  cacheWriteTokens: z.int(),
+  inputTokens: z.int(),
+  outputTokens: z.int(),
+  requests: z.int(),
+  totalTokens: z.int(),
+})
+
+/**
+ * MetricsOut
+ *
+ * 一格指标。每一层都是这个形状，见合同 §12。
+ */
+export const zMetricsOut = z.object({
+  attempts: z.int(),
+  attemptsPerShot: z.number().nullable(),
+  completedVideos: z.int(),
+  cycleSeconds: zSpreadOut.nullable(),
+  deliveredConversations: z.int(),
+  deliveredOrphanConversations: z.int(),
+  deliveredTasks: z.int(),
+  deliveries: z.int(),
+  firstPassRate: z.number().nullable(),
+  firstPassShots: z.int(),
+  producers: z.int(),
+  shots: z.int(),
+  tokensPerDelivery: z.number().nullable(),
+  upstreamSeconds: zSpreadOut.nullable(),
+  usage: zUsageOut,
+  videoSeconds: zSpreadOut.nullable(),
+})
+
+/**
+ * ModelUsageOut
+ */
+export const zModelUsageOut = z.object({
+  modelName: z.string(),
+  usage: zUsageOut,
+})
+
+/**
+ * ConversationAuditOut
+ *
+ * 一段有成片的对话；指标与镜、用量都是这段对话的全量。
+ */
+export const zConversationAuditOut = z.object({
+  conversationId: z.uuid(),
+  deletedAt: z.iso.datetime().nullable(),
+  deliveredAt: z.iso.datetime(),
+  metrics: zMetricsOut,
+  ownerUserId: z.uuid(),
+  shots: z.array(zShotOut),
+  startedAt: z.iso.datetime(),
+  taskId: z.uuid().nullable(),
+  title: z.string(),
+  usage: z.array(zModelUsageOut),
+  userName: z.string().nullable(),
+})
+
+/**
+ * AuditConversationsOut
+ */
+export const zAuditConversationsOut = z.object({
+  items: z.array(zConversationAuditOut),
+  nextCursor: z.string().nullable(),
+})
+
+/**
+ * PeriodMetricsOut
+ */
+export const zPeriodMetricsOut = z.object({
+  metrics: zMetricsOut,
+  periodStart: z.iso.datetime(),
+})
+
+/**
+ * TaskMetricsOut
+ */
+export const zTaskMetricsOut = z.object({
+  metrics: zMetricsOut,
+  taskId: z.uuid(),
+  title: z.string(),
+})
+
+/**
  * UserCreate
  */
 export const zUserCreate = z.object({
@@ -959,6 +1131,24 @@ export const zUserCreate = z.object({
   is_verified: z.boolean().nullish().default(false),
   password: z.string(),
   username: z.string().nullish(),
+})
+
+/**
+ * UserMetricsOut
+ */
+export const zUserMetricsOut = z.object({
+  metrics: zMetricsOut,
+  userName: z.string(),
+})
+
+/**
+ * SummaryOut
+ */
+export const zSummaryOut = z.object({
+  overall: zMetricsOut,
+  series: z.array(zPeriodMetricsOut).nullable(),
+  tasks: z.array(zTaskMetricsOut),
+  users: z.array(zUserMetricsOut),
 })
 
 /**
@@ -1338,6 +1528,7 @@ export const zVideoGenerationIn = z.object({
   resolution: z.string().min(1).max(50).nullish(),
   seconds: z.int().gte(-1).nullish(),
   shot: zVideoShotIn.nullish(),
+  shot_index: z.int().gte(0).nullish(),
   task_id: z.uuid().nullish(),
   user_name: z.string().min(1).max(200).nullish(),
 })
@@ -1401,6 +1592,67 @@ export const zRevokeKeyApiKeysKeyIdDeletePath = z.object({
  * Successful Response
  */
 export const zRevokeKeyApiKeysKeyIdDeleteResponse = z.void()
+
+export const zAnomaliesAuditAnomaliesGetQuery = z.object({
+  since: z.iso.datetime().nullish(),
+  until: z.iso.datetime().nullish(),
+  userName: z.string().max(150).nullish(),
+  taskId: z.uuid().nullish(),
+  kind: z
+    .array(
+      z.enum([
+        'retry',
+        'idle',
+        'slow',
+        'stuck',
+        'spend',
+        'task_stuck',
+        'deleted',
+        'no_task',
+        'missing_shot',
+      ]),
+    )
+    .nullish(),
+  retryOver: z.int().gte(1).optional().default(2),
+  idleHours: z.int().gte(1).optional().default(24),
+  stuckHours: z.int().gte(1).optional().default(1),
+  taskConversations: z.int().gte(1).optional().default(3),
+  limit: z.int().gte(1).lte(100).optional().default(20),
+  cursor: z.string().nullish(),
+})
+
+/**
+ * Successful Response
+ */
+export const zAnomaliesAuditAnomaliesGetResponse = zAnomaliesOut
+
+export const zConversationsAuditConversationsGetQuery = z.object({
+  since: z.iso.datetime().nullish(),
+  until: z.iso.datetime().nullish(),
+  userName: z.string().max(150).nullish(),
+  taskId: z.uuid().nullish(),
+  limit: z.int().gte(1).lte(100).optional().default(20),
+  cursor: z.string().nullish(),
+})
+
+/**
+ * Successful Response
+ */
+export const zConversationsAuditConversationsGetResponse = zAuditConversationsOut
+
+export const zSummaryAuditSummaryGetQuery = z.object({
+  since: z.iso.datetime().nullish(),
+  until: z.iso.datetime().nullish(),
+  userName: z.string().max(150).nullish(),
+  taskId: z.uuid().nullish(),
+  bucket: z.enum(['day', 'week', 'month']).nullish(),
+  timezone: z.string().max(64).optional().default('UTC'),
+})
+
+/**
+ * Successful Response
+ */
+export const zSummaryAuditSummaryGetResponse = zSummaryOut
 
 export const zAuthCookieLoginAuthLoginPostBody = zBodyAuthCookieLoginAuthLoginPost
 
@@ -1762,7 +2014,7 @@ export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
   conversationId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
-  kind: z.enum(['image', 'video']).nullish(),
+  kind: z.enum(['image', 'video', 'clip']).nullish(),
   metadata: z.string().nullish(),
   before: z.uuid().nullish(),
 })
@@ -1771,6 +2023,13 @@ export const zListGenerationsGenerationsGetQuery = z.object({
  * Successful Response
  */
 export const zListGenerationsGenerationsGetResponse = zGenerationsPageOut
+
+export const zSubmitClipGenerationsClipsPostBody = zClipIn
+
+/**
+ * Successful Response
+ */
+export const zSubmitClipGenerationsClipsPostResponse = zGenerationEnvelope
 
 export const zSubmitImageGenerationsImagePostBody = zImageGenerationIn
 

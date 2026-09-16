@@ -98,6 +98,21 @@ def test_a_stored_request_reads_back_without_its_origin_columns() -> None:
     assert {"conversation_id", "metadata", "task_id"}.isdisjoint(video)
 
 
+def test_shot_index_is_an_alias_for_metadata_shot() -> None:
+    """外部调用方不写 metadata，只给第几镜；受理时折进坐标，落表与分镜页写的同一个键。"""
+
+    folded = video_request(shot_index=2)
+    assert folded.metadata == {"shot": 2}
+    assert "shot_index" not in request_to_payload(folded), "别名不落 request，坐标已在 metadata"
+
+    merged = video_request(shot_index=2, metadata={"path": "video_shot.json"})
+    assert merged.metadata == {"path": "video_shot.json", "shot": 2}
+
+    assert video_request(metadata={"shot": 3}).metadata == {"shot": 3}, "不传别名时坐标原样"
+    with pytest.raises(ValueError, match="shot_index"):
+        video_request(shot_index=-1)
+
+
 def test_metadata_is_bounded_but_otherwise_opaque() -> None:
     """服务端不读键：任意形状都收，只拦超长。"""
 
