@@ -286,6 +286,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
         : next,
       duration,
     )
+    if (bounded === undefined) return
     setSelection(bounded)
     setOperationError(null)
     previewRef.current?.previewAt(bounded[boundary], boundary)
@@ -506,6 +507,13 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                 prompt={prompt}
                 references={references}
               />
+              {selectedVersion !== undefined &&
+              duration !== undefined &&
+              duration < MIN_RANGE_SECONDS ? (
+                <p className="video-editor-muted" role="status">
+                  视频不足 1 秒，无法选择编辑片段。
+                </p>
+              ) : null}
               {selected?.kind === 'pending' ? (
                 <p className="video-editor-muted">
                   正在看的是 {selected.label} 的预览；要继续编辑，先切回某一版。
