@@ -7,8 +7,9 @@ import type {
   VideoGenerationIn,
   VideoShotIn,
 } from '@/shared/api/generated/types.gen'
-import sampleEditedUrl from '../fixtures/sample-edited.webm?url'
-import sampleVideoUrl from '../fixtures/sample-video.webm?url'
+// no-inline：这两条要作为地址进请求体、进 <video src>，不能被构建按小文件内联成 data URI。
+import sampleEditedUrl from '../fixtures/sample-edited.webm?no-inline'
+import sampleVideoUrl from '../fixtures/sample-video.webm?no-inline'
 
 /** 本地 data URL 帧，避免网络依赖。 */
 const FRAME_A =
