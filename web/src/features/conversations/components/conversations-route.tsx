@@ -1,26 +1,27 @@
-/** 全平台对话列表：筛选由服务端执行，状态与总数由应用壳的全局订阅刷新。 */
+/** 全平台对话列表：筛选由服务端执行，条件存在地址栏由路由层下发，状态与总数由应用壳的全局订阅刷新。 */
 
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
 import { useUsersDirectory } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { Button } from '@/shared/ui/button'
 import { StatusBadge } from '@/shared/ui/status-badge'
 import { Tag } from '@/shared/ui/tag'
-import { DEFAULT_AUDIT_FILTERS, useAuditConversations, type AuditFilters } from '../audit.api'
+import { useAuditConversations, type AuditFilters } from '../audit.api'
 import { conversationStatus } from '../conversation-status'
 import type { Conversation } from '../conversations.api'
 import { AuditFiltersBar } from './audit-filters'
 import type { PickerSource } from '@/shared/ui/search-picker'
 
 type ConversationsRouteProps = {
+  /** 当前筛选条件与写回，由路由层落在查询参数上。 */
+  filters: AuditFilters
+  onFiltersChange: (next: AuditFilters) => void
   /** 需求单候选由路由层查询，feature 之间不直接互引；null 表示当前账号没有 tasks:read 权限。 */
   tasks: PickerSource | null
 }
 
-export function ConversationsRoute({ tasks }: ConversationsRouteProps) {
-  const [filters, setFilters] = useState<AuditFilters>(DEFAULT_AUDIT_FILTERS)
+export function ConversationsRoute({ filters, onFiltersChange, tasks }: ConversationsRouteProps) {
   const directory = useUsersDirectory(true)
   const users: PickerSource = {
     error: directory.error,
@@ -44,7 +45,7 @@ export function ConversationsRoute({ tasks }: ConversationsRouteProps) {
       <div className="mx-auto flex w-full max-w-360 flex-col gap-4 px-4 pt-12 pb-10 sm:gap-5 sm:px-7">
         <AuditFiltersBar
           filters={filters}
-          onChange={setFilters}
+          onChange={onFiltersChange}
           tasks={tasks}
           totals={totals}
           users={users}

@@ -143,8 +143,10 @@ export const useAuditSummary = (scope: AuditScope) => {
   return { current, previous }
 }
 
+/** 缓存留 30 分钟：点进一段对话看上一阵再退回明细表，已展开的分页不该缩回第一页。 */
 export const useAuditConversationReports = (scope: AuditScope) =>
   useInfiniteQuery({
+    gcTime: 30 * 60_000,
     queryFn: ({ pageParam, signal }) =>
       apiFetch(
         `/audit/conversations?${conversationsSearchParams(scope, pageParam).toString()}`,

@@ -65,10 +65,14 @@ const fetchAuditPage = (
     },
   )
 
-/** 一页 50 段；两个总数每页都带，取最新一页的即可。 */
+/**
+ * 一页 50 段；两个总数每页都带，取最新一页的即可。
+ * 缓存留 30 分钟：治理者点进一段对话看上一阵再退回列表，已展开的分页不该缩回第一页。
+ */
 export const useAuditConversations = (filters: AuditFilters, enabled: boolean) =>
   useInfiniteQuery({
     enabled,
+    gcTime: 30 * 60_000,
     queryFn: ({ pageParam, signal }) => fetchAuditPage(filters, pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (last: AuditPage) => last.nextCursor,

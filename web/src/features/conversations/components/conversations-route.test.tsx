@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addMockConversation,
@@ -10,6 +11,7 @@ import {
 } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
+import { DEFAULT_AUDIT_FILTERS, type AuditFilters } from '../audit.api'
 import { useLiveConversations } from '../conversations.live'
 import { ConversationsRoute } from './conversations-route'
 
@@ -42,6 +44,22 @@ const workChanged = (
   payload: { pending_interaction: 'none', ...payload },
 })
 
+/** 筛选条件在应用里由路由存在查询参数上；这里照样在外面持有一份，只测列表本身的行为。 */
+function StatefulConversationsRoute({
+  tasks,
+}: {
+  tasks: readonly { id: string; label: string }[]
+}) {
+  const [filters, setFilters] = useState<AuditFilters>(DEFAULT_AUDIT_FILTERS)
+  return (
+    <ConversationsRoute
+      filters={filters}
+      onFiltersChange={setFilters}
+      tasks={{ error: undefined, isPending: false, onRetry: undefined, options: tasks }}
+    />
+  )
+}
+
 const render = async (tasks: readonly { id: string; label: string }[] = []) => {
   server.use(
     http.get('*/api/users/me', () =>
@@ -54,9 +72,7 @@ const render = async (tasks: readonly { id: string; label: string }[] = []) => {
   const rendered = await renderWithProviders(
     <>
       <LiveFrames />
-      <ConversationsRoute
-        tasks={{ error: undefined, isPending: false, onRetry: undefined, options: tasks }}
-      />
+      <StatefulConversationsRoute tasks={tasks} />
     </>,
   )
   return { ...rendered, user }

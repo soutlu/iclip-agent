@@ -14,13 +14,29 @@ test('治理者从侧栏进「全部对话」，看到别人在跑的对话，�
   await expect(running).toContainText('小王')
   await expect(page.getByRole('status', { name: '对话总数' })).toContainText('进行中')
 
+  // 筛出小王，进出一段对话后仍该停在这一屏：页面上的返回按钮和浏览器后退都算。
+  await page.getByRole('button', { name: '用户：用户', exact: true }).click()
+  const search = page.getByRole('combobox', { name: '搜索用户' })
+  await search.fill('小王')
+  await search.press('ArrowDown')
+  await search.press('Enter')
+  await expect(page).toHaveURL(/\/conversations\?ownerUserId=/)
+  const filteredUrl = page.url()
+
   await running.click()
   await expect(page).toHaveURL(/\/c\//)
   await expect(page.getByText('只读 · 小王 的对话')).toBeVisible()
   await expect(page.getByLabel('输入消息')).toBeHidden()
 
   await page.getByRole('link', { name: '回到全部对话' }).click()
-  await expect(page).toHaveURL('/conversations')
+  await expect(page).toHaveURL(filteredUrl)
+  await expect(page.getByRole('button', { name: '用户：小王', exact: true })).toBeVisible()
+
+  await running.click()
+  await expect(page).toHaveURL(/\/c\//)
+  await page.goBack()
+  await expect(page).toHaveURL(filteredUrl)
+  await expect(page.getByRole('button', { name: '用户：小王', exact: true })).toBeVisible()
 })
 
 test('全部对话的筛选在窄屏和深色主题下可用，关闭后保留键盘焦点', async ({ page }) => {

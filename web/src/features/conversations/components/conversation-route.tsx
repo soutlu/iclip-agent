@@ -1,7 +1,6 @@
 /** 标题来自 transcript 基线与推送；侧栏拓扑仅包含各列表首页，无法覆盖全部历史对话。 */
 
-import { Link } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useUser, useUsersDirectory } from '@/shared/auth'
 import { useConversationReadOnly } from '@/shared/transcript/use-conversation-read-only'
 import { useSessionTitles } from '@/shared/transcript/use-session-titles'
@@ -60,6 +59,8 @@ const hasAssistantOutput = (turn: TranscriptTurn | undefined): boolean =>
 
 type ConversationRouteProps = {
   conversationId: string
+  /** 只读说明条右侧的返回入口；去哪由路由层决定，只在只读时露出。 */
+  backLink?: ReactNode
 }
 
 /** 保留原内容用于校验末轮身份；重新生成可能复用轮号。 */
@@ -69,7 +70,7 @@ type EditingTurn = {
   content: readonly PromptContentPart[]
 }
 
-export function ConversationRoute({ conversationId }: ConversationRouteProps) {
+export function ConversationRoute({ conversationId, backLink }: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
   const { titleOf } = useSessionTitles()
   const title = titleOf(conversationId) ?? view.title
@@ -357,12 +358,7 @@ export function ConversationRoute({ conversationId }: ConversationRouteProps) {
                   {deleted ? '已删除的对话' : '的对话'}，只能查看
                 </span>
               </span>
-              <Link
-                className="shrink-0 rounded-xs text-primary ui-focus hover:underline"
-                to="/conversations"
-              >
-                回到全部对话
-              </Link>
+              {backLink}
             </p>
           ) : (
             <ConversationComposer
