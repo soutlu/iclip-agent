@@ -27,11 +27,12 @@ import {
   type PendingEdit,
 } from './edit-chain'
 import { EditorComposer, type EditorReference } from './editor-composer'
+import { EditorGenerationStatus } from './editor-generation-status'
 import { EditorPreview, type EditorPreviewHandle } from './editor-preview'
 import { EditorTimeline } from './editor-timeline'
 import type { VersionMenuEntry } from './editor-version-menu'
 import { roundSeconds } from './time-label'
-import { clampRange, type TimeRange } from './time-range'
+import { clampRange, MIN_RANGE_SECONDS, type TimeRange } from './time-range'
 import { useMediaDurations } from './use-media-durations'
 import { useStableValue } from './use-stable-value'
 import {
@@ -276,13 +277,22 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     setSelectedKey(key)
     setOperationError(null)
   }
-  const changeRange = (next: TimeRange) => {
-    setSelection(next)
+  const changeRange = (next: TimeRange, boundary: keyof TimeRange) => {
+    if (duration === undefined) return
+    // 调整起点只收紧这一端，不能把已有终点向后推。
+    const bounded = clampRange(
+      boundary === 'start'
+        ? { ...next, start: Math.min(next.start, next.end - MIN_RANGE_SECONDS) }
+        : next,
+      duration,
+    )
+    setSelection(bounded)
     setOperationError(null)
+    previewRef.current?.previewAt(bounded[boundary], boundary)
   }
   const changeBoundary = (boundary: keyof TimeRange, value: number) => {
     if (range === undefined || duration === undefined || !Number.isFinite(value)) return
-    changeRange(clampRange({ ...range, [boundary]: value }, duration))
+    changeRange({ ...range, [boundary]: value }, boundary)
   }
 
   const generate = async () => {
@@ -402,10 +412,11 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
               original={base === undefined ? undefined : originalLaid}
               poster={selected === undefined ? undefined : posterOf(laid?.[0]?.mediaUrl ?? '')}
               ref={previewRef}
+              selection={range ?? null}
             />
             <section aria-label="编辑选段" className="video-editor-inspector">
               <div className="video-editor-inspector-heading">
-                <h3>编辑</h3>
+                <h3>编辑片段</h3>
               </div>
               <div className="video-editor-range">
                 <Icon decorative name="duration" size="sm" />
@@ -534,29 +545,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                   参考片段读不到，请重新选段生成
                 </p>
               ) : null}
-              {latestEdit === undefined ? null : (
-                <button
-                  aria-live="polite"
-                  className="video-editor-task-summary"
-                  onClick={() => setHistoryOpen(true)}
-                  type="button"
-                >
-                  <Icon
-                    className={isActive(latestEdit) ? 'animate-spin' : ''}
-                    decorative
-                    name={
-                      isActive(latestEdit)
-                        ? 'loading'
-                        : latestEdit.stage === 'failed'
-                          ? 'failed'
-                          : 'check'
-                    }
-                    size="sm"
-                  />
-                  {latestEdit.label} · {STAGE_LABEL[latestEdit.stage]}
-                  <Icon decorative name="next" size="sm" />
-                </button>
-              )}
+              {latestEdit === undefined ? null : <EditorGenerationStatus edit={latestEdit} />}
             </section>
           </div>
           {selected !== undefined &&
@@ -573,7 +562,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
               entries={menuEntries}
               label={selected.label}
               onHistory={() => setHistoryOpen(true)}
-              onSeek={(time) => previewRef.current?.seek(time)}
+              onSeek={(time) => previewRef.current?.previewAt(time)}
               onSelect={select}
               onSelectionChange={changeRange}
               posterOf={posterOf}

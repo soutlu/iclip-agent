@@ -1,0 +1,122 @@
+.video-editor-generation-status {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-chat-hairline);
+}
+
+.video-editor-generation-status-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-on-surface);
+  font-size: var(--text-body);
+}
+
+.video-editor-generation-status-header > svg {
+  flex-shrink: 0;
+  color: var(--color-primary);
+}
+
+.video-editor-generation-status-header > strong {
+  font-weight: 500;
+}
+
+.video-editor-generation-status-version {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-container);
+  color: var(--color-on-surface-variant);
+  font-size: var(--text-label);
+}
+
+.video-editor-generation-status-detail {
+  margin: 0;
+  color: var(--color-on-surface-muted);
+  font-size: var(--text-label);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.video-editor-generation-status-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.video-editor-generation-status-steps > li {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-on-surface-muted);
+  font-size: var(--text-label);
+  white-space: nowrap;
+}
+
+.video-editor-generation-status-steps > li:last-child {
+  flex: 0 0 auto;
+}
+
+.video-editor-generation-status-steps > li:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  min-width: 8px;
+  height: 1px;
+  margin-left: 1px;
+  background: var(--color-chat-hairline);
+}
+
+.video-editor-generation-status-steps > li[data-state='completed']::after {
+  background: var(--color-primary);
+}
+
+.video-editor-generation-status-step-mark {
+  display: grid;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid var(--color-chat-hairline);
+  border-radius: var(--radius-full);
+  font-size: var(--text-label);
+}
+
+.video-editor-generation-status-steps > li[data-state='completed'],
+.video-editor-generation-status-steps > li[data-state='current'] {
+  color: var(--color-primary);
+}
+
+.video-editor-generation-status-steps
+  > li[data-state='completed']
+  .video-editor-generation-status-step-mark {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.video-editor-generation-status-steps
+  > li[data-state='current']
+  .video-editor-generation-status-step-mark {
+  border-color: var(--color-primary);
+}
+
+.video-editor-generation-status[data-state='failed'] .video-editor-generation-status-header > svg,
+.video-editor-generation-status-steps > li[data-state='failed'] {
+  color: var(--color-error);
+}
+
+.video-editor-generation-status-steps
+  > li[data-state='failed']
+  .video-editor-generation-status-step-mark {
+  border-color: transparent;
+  background: var(--color-error-container);
+}

@@ -1,13 +1,22 @@
+.video-editor-composer-layout {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 196px;
+}
+
 .video-editor-composer {
   display: flex;
-  flex: 1;
+  flex: 1 0 auto;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
-  min-height: 224px;
-  padding: 22px;
+  min-height: 144px;
+  padding: 16px;
   border: 1px solid var(--color-chat-hairline);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-container-lowest);
 }
 
@@ -23,7 +32,7 @@
 .video-editor-composer-input {
   flex: 1;
   width: 100%;
-  min-height: 120px;
+  min-height: 80px;
   padding: 0;
   resize: none;
   border: 0;
@@ -42,15 +51,19 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  max-height: 148px;
+  max-height: 112px;
   padding: 2px;
   overflow-y: auto;
 }
 
+.video-editor-composer-references:empty {
+  display: none;
+}
+
 .video-editor-composer-reference {
   position: relative;
-  flex: 0 0 64px;
-  height: 64px;
+  flex: 0 0 80px;
+  height: 88px;
 }
 
 .video-editor-composer-photo {
@@ -77,6 +90,14 @@
   border-radius: var(--radius-full);
 }
 
+.video-editor-composer-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+  min-width: 0;
+}
+
 .video-editor-composer-add {
   position: relative;
   display: grid;
@@ -84,9 +105,9 @@
   height: 40px;
   place-items: center;
   border: 1px solid var(--color-chat-hairline);
-  background: var(--color-surface-container-lowest);
-  border-radius: var(--radius-full);
-  color: var(--color-on-surface-muted);
+  background: var(--color-surface-container-low);
+  border-radius: var(--radius-sm);
+  color: var(--color-on-surface);
   cursor: pointer;
 }
 
