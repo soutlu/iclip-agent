@@ -1,7 +1,7 @@
 """本地视频加工适配器：按 segment 列表裁剪拼接，产物存进本系统的桶。
 
 不经任何外部服务，一次调用出结果，没有轮询阶段，也不涉及计费——失败重发就是了。
-参考片段与成片走同一套操作，差别只在重不重编码、存哪个前缀。"""
+参考片段与成片的差别有三处：怎么取素材、重不重编码、存哪个前缀。"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from iclip.platform.media.ffmpeg import (
     MediaError,
     VideoProfile,
     cut_concat,
-    cut_copy,
+    cut_copy_url,
     download,
     probe_duration_ms,
     probe_video,
@@ -49,6 +49,10 @@ class FfmpegClipProvider:
         object_store: PublicObjectStore,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        """``transport`` 只作用于成片那条路径。
+
+        参考片段由 ffmpeg 自己发 http 请求按需读，替身拦不到它——测试得起一个真服务。"""
+
         self._object_store = object_store
         self._transport = transport
 
@@ -95,26 +99,43 @@ class FfmpegClipProvider:
         )
 
     async def _render(self, request: ClipIn) -> bytes:
-        """取素材、裁剪拼接，返回成品字节。临时目录在退出时清掉。"""
+        """加工出成品并返回字节。临时目录在退出时清掉。
+
+        两种用途取素材的方式不同：参考片段只要一条视频里的一段，交给 ffmpeg 按需远程读；
+        成片要把好几段拼起来，滤镜图会在编码期来回读各路输入，仍然先下到本地。"""
 
         with TemporaryDirectory(prefix="iclip-clip-") as tmp:
             root = Path(tmp)
-            sources = await self._fetch_sources(request.segments, root)
-            cuts = [
-                MediaCut(source=sources[segment.url], start=segment.start, end=segment.end)
-                for segment in request.segments
-            ]
             dest = root / f"out.{_EXT}"
             try:
                 if request.purpose == CLIP_REFERENCE:
-                    await cut_copy(cuts[0], dest=dest)
+                    await self._render_reference(request, dest=dest)
                 else:
-                    await cut_concat(cuts, profile=await _target_profile(cuts), dest=dest)
+                    await self._render_master(request, root=root, dest=dest)
             except MediaError as exc:
                 raise ProviderError(
                     f"视频加工失败: {exc}", code="MEDIA_PROCESS_FAILED", retryable=False
                 ) from exc
             return dest.read_bytes()
+
+    async def _render_reference(self, request: ClipIn, *, dest: Path) -> None:
+        """按需读远程视频，裁出唯一那一段。
+
+        读取与裁剪交错进行，分不出「取素材」和「加工」，所以取不到素材（签名过期、404）
+        也归 MEDIA_PROCESS_FAILED，原因写在错误消息里。"""
+
+        segment = request.segments[0]
+        await cut_copy_url(segment.url, start=segment.start, end=segment.end, dest=dest)
+
+    async def _render_master(self, request: ClipIn, *, root: Path, dest: Path) -> None:
+        """取齐各段素材，按顺序裁出来拼成一条，一次重编码对齐到原片。"""
+
+        sources = await self._fetch_sources(request.segments, root)
+        cuts = [
+            MediaCut(source=sources[segment.url], start=segment.start, end=segment.end)
+            for segment in request.segments
+        ]
+        await cut_concat(cuts, profile=await _target_profile(cuts), dest=dest)
 
     async def _fetch_sources(
         self, segments: Sequence[ClipSegmentIn], root: Path

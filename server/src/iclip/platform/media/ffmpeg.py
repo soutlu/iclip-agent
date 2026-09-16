@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Final
 
 import httpx
 
@@ -21,12 +22,30 @@ _DOWNLOAD_CHUNK = 256 * 1024
 
 PROBE_TIMEOUT_SECONDS = 30.0
 CUT_TIMEOUT_SECONDS = 120.0
-"""按关键帧裁一段不重编码，耗时只有 IO。"""
+"""按关键帧裁一段不重编码，耗时只有 IO——远程输入还要算上按需读那几段的网络往返。"""
 
 ENCODE_TIMEOUT_SECONDS = 900.0
 """拼接要整条重编码的超时上限。"""
 
 DOWNLOAD_TIMEOUT_SECONDS = 300.0
+
+REMOTE_READ_TIMEOUT_SECONDS = 30.0
+"""远程输入单次读写的等待上限，整段仍受 CUT_TIMEOUT_SECONDS 约束。"""
+
+_REMOTE_INPUT: Final = (
+    # ffmpeg 按内容探测格式，一份伪装成 mp4 的播放列表会让 HLS 解复用器去跟里面的地址。
+    "-protocol_whitelist",
+    "http,https,tcp,tls",
+    "-rw_timeout",
+    str(int(REMOTE_READ_TIMEOUT_SECONDS * 1_000_000)),
+    "-reconnect",
+    "1",
+    "-reconnect_on_network_error",
+    "1",
+    "-reconnect_delay_max",
+    "5",
+)
+"""远程输入在 ``-i`` 之前要带的选项。"""
 
 MAX_VIDEO_BYTES = 512 * 1024 * 1024
 MAX_IMAGE_BYTES = 64 * 1024 * 1024
@@ -180,37 +199,53 @@ def _positive_fraction(value: str) -> bool:
         return False
 
 
-async def cut_copy(cut: MediaCut, *, dest: Path) -> None:
-    """裁出一段，不重编码。
+async def cut_copy_url(url: str, *, start: float, end: float, dest: Path) -> None:
+    """按需读远程视频并裁出一段，不重编码，只取选区需要的字节。
 
     ``-c copy`` 只能在关键帧处下刀：起点会落到 ``start`` 之前最近的那个关键帧，产物因此
     比请求的区间长，多出来的主要在开头；``-t`` 按解码顺序截，尾部也会因 B 帧延迟多出几帧。
-    调用方按产物实际时长反算的起点是差几帧的近似值，不在这里为对齐再解一遍码。"""
+    调用方按产物实际时长反算的起点是差几帧的近似值，不在这里为对齐再解一遍码。
 
-    _check_cut(cut)
-    await run(
-        [
-            "ffmpeg",
-            "-v",
-            "error",
-            "-y",
-            "-ss",
-            f"{cut.start:.3f}",
-            "-i",
-            str(cut.source),
-            "-t",
-            f"{cut.duration:.3f}",
-            "-c",
-            "copy",
-            "-avoid_negative_ts",
-            "make_zero",
-            "-movflags",
-            "+faststart",
-            str(dest),
-        ],
-        timeout=CUT_TIMEOUT_SECONDS,
-    )
-    _check_output(dest)
+    ffmpeg 自己用 Range 读索引与选区（实测传约三成）。源忽略 Range 时退化为顺序读：moov
+    在文件头部仍能出正确产物，在尾部则退出码为 0 却不产出内容，由产物检查判失败。读取量
+    由索引、关键帧和选区决定，选区接近整片时也接近整片，所以不设流量上限。
+
+    地址非法、区间无效、网络失败、超时或产物无效抛 MediaError；消息里的地址去掉查询串，
+    签名不进日志。超时与取消都先 kill 再 wait，不留子进程。"""
+
+    if not url.startswith(("http://", "https://")):
+        raise MediaError(f"要裁的地址不是 http(s): {_safe_url(url)}")
+    duration = end - start
+    if start < 0 or duration <= 0:
+        raise MediaError(f"片段区间无效: [{start}, {end})")
+    try:
+        await run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-y",
+                "-ss",
+                f"{start:.3f}",
+                *_REMOTE_INPUT,
+                "-i",
+                url,
+                "-t",
+                f"{duration:.3f}",
+                "-c",
+                "copy",
+                "-avoid_negative_ts",
+                "make_zero",
+                "-movflags",
+                "+faststart",
+                str(dest),
+            ],
+            timeout=CUT_TIMEOUT_SECONDS,
+        )
+    except MediaError as exc:
+        # run() 把 ffmpeg 的 stderr 原样带进消息，而它报 403/404/超时时会写出整条地址。
+        raise MediaError(str(exc).replace(url, _safe_url(url))) from exc
+    _check_output(dest, max_bytes=MAX_VIDEO_BYTES)
 
 
 async def cut_concat(cuts: Sequence[MediaCut], *, profile: VideoProfile, dest: Path) -> None:
@@ -276,7 +311,7 @@ async def cut_concat(cuts: Sequence[MediaCut], *, profile: VideoProfile, dest: P
         args += ["-map", "[outa]", *_AUDIO_CODEC]
     args += [*_VIDEO_CODEC, "-movflags", "+faststart", str(dest)]
     await run(args, timeout=ENCODE_TIMEOUT_SECONDS)
-    _check_output(dest)
+    _check_output(dest, max_bytes=MAX_VIDEO_BYTES)
 
 
 def _check_cut(cut: MediaCut) -> None:
@@ -286,9 +321,20 @@ def _check_cut(cut: MediaCut) -> None:
         raise MediaError(f"片段区间无效: [{cut.start}, {cut.end})")
 
 
-def _check_output(dest: Path) -> None:
-    if not dest.is_file() or dest.stat().st_size == 0:
+def _safe_url(url: str) -> str:
+    """去掉查询串的地址：签名参数不进日志，也不进对外错误。"""
+
+    return url.split("?", 1)[0]
+
+
+def _check_output(dest: Path, *, max_bytes: int) -> None:
+    """产物必须存在、非空，且不超过读进内存的上限。"""
+
+    size = dest.stat().st_size if dest.is_file() else 0
+    if size == 0:
         raise MediaError(f"ffmpeg 没产出内容: {dest.name}")
+    if size > max_bytes:
+        raise MediaError(f"产物 {size} 字节，超过 {max_bytes} 字节的上限: {dest.name}")
 
 
 async def run(args: list[str], *, timeout: float) -> bytes:
@@ -325,11 +371,12 @@ __all__ = [
     "MAX_IMAGE_BYTES",
     "MAX_VIDEO_BYTES",
     "PROBE_TIMEOUT_SECONDS",
+    "REMOTE_READ_TIMEOUT_SECONDS",
     "MediaCut",
     "MediaError",
     "VideoProfile",
     "cut_concat",
-    "cut_copy",
+    "cut_copy_url",
     "download",
     "fetched",
     "ffmpeg_available",
