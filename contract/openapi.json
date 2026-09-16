@@ -1735,10 +1735,37 @@
         "additionalProperties": false,
         "description": "一次生成对外的样子。\n\n只给调用方用得上的：图在哪、跑到哪一步、失败了给人看什么。provider 名称、原始\n快照、租约与各段时间戳都是排队与排障的内部机制，快照里还带着 provider 的签名\nURL；来源对话不写回去——查的时候本来就是按它查的。",
         "properties": {
+          "clipStage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fetching",
+                  "processing",
+                  "uploading"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clipstage"
+          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
             "type": "string"
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
           },
           "errorMessage": {
             "anyOf": [
@@ -1826,6 +1853,8 @@
           "outputUrl",
           "watermarkOutputUrl",
           "errorMessage",
+          "durationMs",
+          "clipStage",
           "createdAt"
         ],
         "title": "GenerationOut",

@@ -1,5 +1,6 @@
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
+import type { GenerationJob } from '../storyboard.api'
 import type { PendingEdit } from './edit-chain'
 import './editor-generation-status.css'
 
@@ -14,10 +15,30 @@ const STEP_STATES: Record<StepState, string> = {
   failed: '失败',
 }
 
+/** 本地加工的处境换成文案：`queued` 是还在本系统排队，其余是后端报的加工阶段。 */
+const CUTTING_TITLES: Partial<Record<string, string>> = {
+  queued: '等待切片',
+  processing: '正在截取参考片段',
+  uploading: '正在上传参考片段',
+}
+const COMPOSING_TITLES: Partial<Record<string, string>> = {
+  queued: '等待合成',
+  fetching: '正在取素材',
+  processing: '正在编码成片',
+  uploading: '正在上传成片',
+}
+
+/** 排队中还没人动它，阶段词要到提交中才有；读不到就让调用方回落。 */
+const titleOf = (job: GenerationJob | undefined, titles: Partial<Record<string, string>>) =>
+  titles[job?.status === 'pending' ? 'queued' : (job?.clipStage ?? '')]
+
 function describeProgress(edit: PendingEdit) {
   switch (edit.stage) {
     case 'cutting':
-      return { step: 0, title: '正在准备参考片段' }
+      return {
+        step: 0,
+        title: titleOf(edit.reference, CUTTING_TITLES) ?? '正在准备参考片段',
+      }
     case 'cut':
       return { step: 1, title: '准备提交视频生成' }
     case 'generating':
@@ -25,7 +46,10 @@ function describeProgress(edit: PendingEdit) {
     case 'ready':
       return { step: 2, title: '待预览' }
     case 'composing':
-      return { step: 2, title: '正在合成成片' }
+      return {
+        step: 2,
+        title: titleOf(edit.master, COMPOSING_TITLES) ?? '正在合成成片',
+      }
     case 'failed': {
       const step =
         edit.master !== undefined && edit.master.status !== 'completed'

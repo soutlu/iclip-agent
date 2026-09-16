@@ -12,6 +12,8 @@ const job = (over: Partial<GenerationJob> & { id: string; createdAt: string }): 
   metadata: { path: 'video_shot.json', shot: 1, frame: 1 },
   request: {},
   taskId: null,
+  clipStage: null,
+  durationMs: null,
   watermarkOutputUrl: null,
   ...over,
 })

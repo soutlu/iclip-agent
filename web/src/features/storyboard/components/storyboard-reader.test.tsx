@@ -73,6 +73,8 @@ const jobs: GenerationJob[] = [
     metadata: { path: PATH, shot: 1 },
     status: 'completed',
     taskId: null,
+    clipStage: null,
+    durationMs: null,
     watermarkOutputUrl: null,
   },
   {
@@ -85,6 +87,8 @@ const jobs: GenerationJob[] = [
     metadata: { path: PATH, shot: 2 },
     status: 'completed',
     taskId: null,
+    clipStage: null,
+    durationMs: null,
     watermarkOutputUrl: null,
   },
 ]
@@ -117,6 +121,8 @@ const editableJob: GenerationJob = {
   metadata: { path: PATH, shot: 1 },
   status: 'completed',
   taskId: null,
+  clipStage: null,
+  durationMs: null,
   watermarkOutputUrl: null,
 }
 
@@ -131,6 +137,8 @@ const runningJob: GenerationJob = {
   metadata: { path: PATH, shot: 1 },
   status: 'submitted',
   taskId: null,
+  clipStage: null,
+  durationMs: null,
   watermarkOutputUrl: null,
 }
 
@@ -525,6 +533,8 @@ describe('StoryboardReader', () => {
       request: { prompt: '换个颜色', referenceImageUrls: [] },
       status: 'pending',
       taskId: null,
+      clipStage: null,
+      durationMs: null,
       watermarkOutputUrl: null,
     }
     let imageReads = 0

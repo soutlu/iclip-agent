@@ -47,6 +47,8 @@ const completedJob = (outputUrl: string, createdAt: string): GenerationJob => ({
   errorMessage: null,
   request: { prompt: '修改颜色', referenceImageUrls: [ORIGINAL] },
   taskId: null,
+  clipStage: null,
+  durationMs: null,
   watermarkOutputUrl: null,
 })
 

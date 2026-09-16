@@ -219,7 +219,8 @@ class SqlGenerationRepository:
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
-    ) -> GenerationJob:
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
         values: dict[str, Any] = {
             "status": STATUS_COMPLETED,
             "output_url": output_url,
@@ -233,6 +234,8 @@ class SqlGenerationRepository:
         }
         if provider_task_id is not None:
             values["provider_task_id"] = provider_task_id
+        if only_if_status is not None:
+            return await self._update_if(job_id, only_if_status, **values)
         return await self._update(job_id, **values)
 
     async def mark_failed(
@@ -265,14 +268,18 @@ class SqlGenerationRepository:
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
-    ) -> GenerationJob:
-        return await self._update(
-            job_id,
-            provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
-            updated_at=func.now(),
-        )
+        provider_snapshot: dict[str, Any] | None = None,
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
+        values: dict[str, Any] = {
+            "provider_status": provider_status,
+            "updated_at": func.now(),
+        }
+        if provider_snapshot is not None:
+            values["provider_snapshot"] = provider_snapshot
+        if only_if_status is not None:
+            return await self._update_if(job_id, only_if_status, **values)
+        return await self._update(job_id, **values)
 
     async def _update_if(
         self, job_id: uuid.UUID, expected: GenerationStatus, **values: Any

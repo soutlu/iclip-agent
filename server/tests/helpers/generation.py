@@ -100,6 +100,7 @@ def make_job(
     status: GenerationStatus = STATUS_PENDING,
     provider: str | None = None,
     provider_task_id: str | None = None,
+    provider_snapshot: dict[str, Any] | None = None,
     submitted_at: datetime | None = None,
     created_at: datetime | None = None,
     owner_user_id: uuid.UUID | None = None,
@@ -127,7 +128,7 @@ def make_job(
         status=status,
         provider_task_id=provider_task_id,
         provider_status=None,
-        provider_snapshot=None,
+        provider_snapshot=provider_snapshot,
         output_url=output_url,
         watermark_output_url=watermark_output_url,
         error_code=error_code,
@@ -221,8 +222,11 @@ class InMemoryGenerationRepository:
         provider_snapshot: dict[str, Any],
         provider_task_id: str | None = None,
         watermark_output_url: str | None = None,
-    ) -> GenerationJob:
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
         current = self.jobs[job_id]
+        if only_if_status is not None and current.status != only_if_status:
+            return None
         return self._replace(
             job_id,
             status=STATUS_COMPLETED,
@@ -266,13 +270,13 @@ class InMemoryGenerationRepository:
         job_id: uuid.UUID,
         *,
         provider_status: str,
-        provider_snapshot: dict[str, Any],
-    ) -> GenerationJob:
-        return self._replace(
-            job_id,
-            provider_status=provider_status,
-            provider_snapshot=provider_snapshot,
-        )
+        provider_snapshot: dict[str, Any] | None = None,
+        only_if_status: GenerationStatus | None = None,
+    ) -> GenerationJob | None:
+        if only_if_status is not None and self.jobs[job_id].status != only_if_status:
+            return None
+        extra = {} if provider_snapshot is None else {"provider_snapshot": provider_snapshot}
+        return self._replace(job_id, provider_status=provider_status, **extra)
 
     async def in_flight_by_conversation(
         self, conversation_ids: Sequence[uuid.UUID], *, kind: str

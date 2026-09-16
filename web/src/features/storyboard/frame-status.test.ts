@@ -20,6 +20,8 @@ const job = (overrides: Partial<GenerationJob>): GenerationJob => ({
   outputUrl: EDITED,
   request: { prompt: '换色' },
   taskId: null,
+  clipStage: null,
+  durationMs: null,
   watermarkOutputUrl: null,
   ...overrides,
 })

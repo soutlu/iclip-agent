@@ -194,6 +194,8 @@ type MockJob = {
   metadata?: Record<string, unknown>
   status: 'completed' | 'failed' | 'pending' | 'submitted'
   watermarkOutputUrl?: string
+  /** 产物实际多长；只有本系统自己加工出来的（clip）有。 */
+  durationMs?: number
 }
 
 const job = (spec: MockJob) => ({
@@ -206,6 +208,9 @@ const job = (spec: MockJob) => ({
   metadata: spec.metadata ?? null,
   status: spec.status,
   taskId: null,
+  durationMs: spec.durationMs ?? null,
+  // 这里的加工是瞬时的，没有在途阶段可报。
+  clipStage: null,
   watermarkOutputUrl: spec.watermarkOutputUrl ?? null,
 })
 
@@ -712,6 +717,10 @@ export const workspaceHandlers = [
       conversationId: body.conversationId ?? null,
       metadata: body.metadata ?? null,
       outputUrl: body.purpose === 'reference' ? EDITED_URL : VIDEO_URL,
+      // 真实后端裁完自己探一遍；这里切不了视频，按请求的区间算，关键帧多出来的几帧忽略。
+      durationMs: Math.round(
+        body.segments.reduce((total, segment) => total + (segment.end - segment.start), 0) * 1000,
+      ),
     })
     return HttpResponse.json({ generation: created }, { status: 202 })
   }),
@@ -726,6 +735,7 @@ function acceptGeneration(spec: {
   metadata: Record<string, unknown> | null
   outputUrl: string
   watermarkOutputUrl?: string
+  durationMs?: number
 }) {
   const created = job({
     createdAt: new Date().toISOString(),
@@ -742,6 +752,8 @@ function acceptGeneration(spec: {
   const timer = setTimeout(() => {
     created.outputUrl = spec.outputUrl
     created.watermarkOutputUrl = spec.watermarkOutputUrl ?? null
+    // 时长和产物地址一起落，与真实后端同一次写入。
+    created.durationMs = spec.durationMs ?? null
     created.status = 'completed'
     timers.delete(timer)
   }, VIDEO_DONE_MS)

@@ -1,26 +1,34 @@
-/** 全平台对话列表：筛选由服务端执行，状态与总数由应用壳的全局订阅刷新。 */
+/** 全平台对话列表：筛选由服务端执行，条件存在地址栏由路由层下发，状态与总数由应用壳的全局订阅刷新。 */
 
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
 import { useUsersDirectory } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { Button } from '@/shared/ui/button'
 import { StatusBadge } from '@/shared/ui/status-badge'
 import { Tag } from '@/shared/ui/tag'
-import { DEFAULT_AUDIT_FILTERS, useAuditConversations, type AuditFilters } from '../audit.api'
+import { useAuditConversations, type AuditFilters } from '../audit.api'
 import { conversationStatus } from '../conversation-status'
 import type { Conversation } from '../conversations.api'
 import { AuditFiltersBar } from './audit-filters'
 import type { PickerSource } from '@/shared/ui/search-picker'
 
 type ConversationsRouteProps = {
+  /** 当前筛选条件与写回，由路由层落在查询参数上。 */
+  filters: AuditFilters
+  onFiltersChange: (next: AuditFilters) => void
+  /** 在本页点开某段对话，供路由层记下从哪一屏进去的；新标签页打开不算。 */
+  onOpen?: (conversationId: string) => void
   /** 需求单候选由路由层查询，feature 之间不直接互引；null 表示当前账号没有 tasks:read 权限。 */
   tasks: PickerSource | null
 }
 
-export function ConversationsRoute({ tasks }: ConversationsRouteProps) {
-  const [filters, setFilters] = useState<AuditFilters>(DEFAULT_AUDIT_FILTERS)
+export function ConversationsRoute({
+  filters,
+  onFiltersChange,
+  onOpen,
+  tasks,
+}: ConversationsRouteProps) {
   const directory = useUsersDirectory(true)
   const users: PickerSource = {
     error: directory.error,
@@ -44,7 +52,7 @@ export function ConversationsRoute({ tasks }: ConversationsRouteProps) {
       <div className="mx-auto flex w-full max-w-360 flex-col gap-4 px-4 pt-12 pb-10 sm:gap-5 sm:px-7">
         <AuditFiltersBar
           filters={filters}
-          onChange={setFilters}
+          onChange={onFiltersChange}
           tasks={tasks}
           totals={totals}
           users={users}
@@ -83,6 +91,7 @@ export function ConversationsRoute({ tasks }: ConversationsRouteProps) {
                 <AuditRow
                   conversation={conversation}
                   key={conversation.id}
+                  onOpen={onOpen}
                   ownerName={directory.nameOf(conversation.ownerUserId)}
                   taskLabel={
                     conversation.taskId === null ? undefined : taskLabels.get(conversation.taskId)
@@ -116,17 +125,23 @@ export function ConversationsRoute({ tasks }: ConversationsRouteProps) {
 
 type AuditRowProps = {
   conversation: Conversation
+  onOpen: ((conversationId: string) => void) | undefined
   ownerName: string | undefined
   taskLabel: string | undefined
 }
 
-function AuditRow({ conversation, ownerName, taskLabel }: AuditRowProps) {
+function AuditRow({ conversation, onOpen, ownerName, taskLabel }: AuditRowProps) {
   const owner = ownerName ?? '未知用户'
   const status = conversationStatus(conversation.activity)
   return (
     <li className="border-b-[0.5px] border-border/70 last:border-b-0">
       <Link
         className="group flex min-h-20 ui-state items-center gap-3 rounded-md px-2 py-4 text-on-surface ui-focus sm:gap-4 sm:px-3"
+        onClick={(event) => {
+          // 带修饰键是在新标签页打开，本页仍停在列表，不算从这一屏点进去了。
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+          onOpen?.(conversation.id)
+        }}
         params={{ conversationId: conversation.id }}
         to="/c/$conversationId"
       >

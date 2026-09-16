@@ -170,13 +170,19 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
   const urls = useMemo(() => {
     const seen = new Set<string>()
     for (const version of chain.versions) seen.add(version.mediaUrl)
-    for (const edit of chain.pending) {
+    for (const edit of chain.pending)
       for (const segment of edit.preview ?? []) seen.add(segment.mediaUrl)
-      if (edit.reference?.outputUrl != null) seen.add(edit.reference.outputUrl)
-    }
     return [...seen]
   }, [chain])
-  const durations = useMediaDurations(urls)
+  // 本系统加工出来的视频（参考片段与成片）时长由后端量好随记录返回，不用再开播放器去探。
+  const clipDurations = useMemo(() => {
+    const known: Record<string, number> = {}
+    for (const job of chainQuery.data?.items ?? [])
+      if (job.kind === 'clip' && job.outputUrl !== null && job.durationMs !== null)
+        known[job.outputUrl] = job.durationMs / 1000
+    return known
+  }, [chainQuery.data])
+  const durations = useMediaDurations(urls, clipDurations)
   // 轮询每次都重建版本对象，段列表按内容稳定住，播放器才不会被无谓地归零。
   const laid = useStableValue(
     selected === undefined
@@ -240,20 +246,20 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     void queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) })
   }
 
-  // 第二步：参考片段切好、时长读到了，就按实际时长反算起点，把片段交给模型。
+  // 第二步：参考片段切好了，按后端报的实际时长反算起点，把片段交给模型。
   useEffect(() => {
     for (const edit of chain.pending) {
       const clipUrl = edit.reference?.outputUrl
+      const clipMs = edit.reference?.durationMs
       const draft = drafts[edit.key]
       if (edit.stage !== 'cut' || clipUrl == null || draft === undefined) continue
       if (submittedRef.current.has(edit.key)) continue
-      const clipDuration = durations[clipUrl]
-      // 读不到时长的片段发不了，错误在渲染里按时长表直接推出来，不在这里写状态。
-      if (clipDuration === undefined || clipDuration === null) continue
+      // 没带时长的片段发不了，错误在渲染里按记录直接推出来，不在这里写状态。
+      if (clipMs == null) continue
       submittedRef.current.add(edit.key)
       const metadata: VideoEditMetadata = {
         ...edit.coords,
-        editStart: actualEditStart(edit.coords.editEnd, clipDuration),
+        editStart: actualEditStart(edit.coords.editEnd, clipMs / 1000),
       }
       submitVideoEdit({
         conversationId,
@@ -271,7 +277,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
           setOperationError(error instanceof Error ? error.message : '视频编辑提交失败')
         })
     }
-  }, [chain.pending, drafts, durations, conversationId, root.taskId, queryClient])
+  }, [chain.pending, drafts, conversationId, root.taskId, queryClient])
 
   const select = (key: string) => {
     setSelectedKey(key)
@@ -363,11 +369,12 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
 
   const canGenerate =
     !busy && selectedVersion !== undefined && range !== undefined && model !== undefined
-  const clipUnreadable = pending.some(
+  // 切好了却没带时长：反算不出起点，这次编辑发不出去。正常不会发生，不静默卡着。
+  const clipDurationMissing = pending.some(
     (edit) =>
       edit.stage === 'cut' &&
       edit.reference?.outputUrl != null &&
-      durations[edit.reference.outputUrl] === null,
+      edit.reference.durationMs == null,
   )
   const canCompose = (edit: PendingEdit) =>
     !busy &&
@@ -548,9 +555,9 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                   {operationError}
                 </p>
               )}
-              {clipUnreadable ? (
+              {clipDurationMissing ? (
                 <p className="text-body-sm text-error" role="alert">
-                  参考片段读不到，请重新选段生成
+                  参考片段没记下时长，请重新选段生成
                 </p>
               ) : null}
               {latestEdit === undefined ? null : <EditorGenerationStatus edit={latestEdit} />}

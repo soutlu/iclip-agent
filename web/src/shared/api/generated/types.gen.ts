@@ -953,9 +953,17 @@ export type GenerationEnvelope = {
  */
 export type GenerationOut = {
   /**
+   * Clipstage
+   */
+  clipStage: 'fetching' | 'processing' | 'uploading' | null
+  /**
    * Createdat
    */
   createdAt: string
+  /**
+   * Durationms
+   */
+  durationMs: number | null
   /**
    * Errormessage
    */
