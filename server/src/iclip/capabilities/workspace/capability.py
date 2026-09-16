@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, Final, Literal
 
+import structlog
 from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
 from pydantic_ai.agent.abstract import AgentInstructions
@@ -53,6 +54,8 @@ from iclip.platform.transcript.display import (
     tool_note,
     url_filename,
 )
+
+_logger = structlog.stdlib.get_logger(__name__)
 
 CAPABILITY_ID: Final = "workspace"
 """能力与工具集共用的稳定 id，用于识别 for_run 克隆及 durable execution 工具集。"""
@@ -467,14 +470,17 @@ class WorkspaceToolset(FunctionToolset[AgentDepsT]):
         try:
             info = await self._capability.probe.image_info(url)
         except MediaProbeFailed as exc:
-            raise ModelRetry(f"这张图读不了（{exc}）；换一个对话里出现过的图片地址。") from exc
+            # 读不到不是模型能改的，不引导它换地址，避免它反复重试同一张。
+            _logger.warning("读图失败", url=url, reason=str(exc))
+            raise ModelRetry(f"图片无法读取（{exc}）。") from exc
         # 使用 OSS 参数执行缩放裁切，模型下载交付地址；素材 tag 保留原图地址。
         try:
             delivered, clause, advice = self._deliver(
                 url, info, region=region, full_resolution=full_resolution
             )
         except ValueError as exc:
-            raise ModelRetry(f"这张图读不了（{exc}）") from exc
+            _logger.warning("读图失败", url=url, reason=str(exc))
+            raise ModelRetry(f"图片无法读取（{exc}）。") from exc
         summary = (
             f"原图 {info.width}×{info.height} 像素，{info.media_type}，"
             f"{_bytes_label(info.size_bytes)}；{clause}。{advice}"
