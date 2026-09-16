@@ -1,7 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect } from 'react'
 import { ConversationsRoute } from '@/features/conversations'
-import { rememberConversationsSearch } from '../-conversations-return'
+import { rememberReturn } from '../-conversations-return'
 import {
   conversationsSearchSchema,
   filtersFromSearch,
@@ -22,14 +21,13 @@ function ConversationsPage() {
   const navigate = Route.useNavigate()
   const tasks = useTaskPickerSource()
 
-  // 对话页的返回按钮是一次新跳转而非后退，拿不到历史里的地址，只能由列表把当前筛选留下。
-  useEffect(() => rememberConversationsSearch(search), [search])
-
   return (
     <ConversationsRoute
       filters={filtersFromSearch(search)}
       // 改筛选是换视图不是换页面，替换当前历史记录，免得后退键要按很多次才出得去。
       onFiltersChange={(next) => void navigate({ replace: true, search: searchFromFilters(next) })}
+      // 对话页的返回按钮是一次新跳转而非后退，拿不到历史里的地址，进哪段对话时就把这一屏留下。
+      onOpen={(conversationId) => rememberReturn(conversationId, search)}
       tasks={tasks}
     />
   )

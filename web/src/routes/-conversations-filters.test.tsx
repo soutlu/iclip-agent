@@ -54,6 +54,9 @@ describe('全部对话的筛选条件', () => {
 
     await user.click(row)
     await waitFor(() => expect(router.state.location.pathname).toBe(`/c/${theirs.id}`))
+    // 返回按钮认这段对话是从这一屏点进去的；换一段就没这条记录。
+    expect(conversationsReturnSearch(theirs.id)).toEqual({ ownerUserId: other.id })
+    expect(conversationsReturnSearch('别的对话')).toEqual({})
 
     router.history.back()
 
@@ -63,7 +66,7 @@ describe('全部对话的筛选条件', () => {
     expect(screen.queryByRole('link', { name: /自己的冬季片/ })).toBeNull()
   })
 
-  it('改筛选换地址不堆历史记录，并留给对话页的返回按钮', async () => {
+  it('改筛选只换地址不堆历史记录', async () => {
     signedInAsGovernor()
     addMockConversation('自己的冬季片', '2026-09-03T00:00:00Z')
     const user = userEvent.setup()
@@ -74,7 +77,6 @@ describe('全部对话的筛选条件', () => {
     await user.click(screen.getByRole('radio', { name: '进行中' }))
 
     await waitFor(() => expect(router.state.location.search).toEqual({ state: 'running' }))
-    await waitFor(() => expect(conversationsReturnSearch()).toEqual({ state: 'running' }))
     expect(router.history.length).toBe(1)
   })
 })

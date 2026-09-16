@@ -43,10 +43,10 @@ function ConversationIndexRoute() {
   return (
     <ConversationRoute
       backLink={
-        // 这是一次新跳转而非后退，带上列表留下的筛选，回去仍是刚才那一屏。
+        // 这是一次新跳转而非后退：从列表点进来的带上那一屏的筛选，别处进来的回默认视图。
         <Link
           className="shrink-0 rounded-xs text-primary ui-focus hover:underline"
-          search={conversationsReturnSearch()}
+          search={conversationsReturnSearch(conversationId)}
           to="/conversations"
         >
           回到全部对话
