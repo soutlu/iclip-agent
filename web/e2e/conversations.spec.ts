@@ -39,6 +39,22 @@ test('治理者从侧栏进「全部对话」，看到别人在跑的对话，�
   await expect(page.getByRole('button', { name: '用户：小王', exact: true })).toBeVisible()
 })
 
+test('不是从全部对话点进来的会话，返回按钮回默认视图', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-09-13T20:00:00Z'))
+  await page.goto('/')
+  await login(page, 'governor')
+
+  await page.getByRole('button', { name: '审计', exact: true }).click()
+  await page.getByRole('tab', { name: '对话明细' }).click()
+  const row = page.getByRole('listitem').filter({ hasText: '小王' }).first()
+  await row.getByRole('link').first().click()
+  await expect(page).toHaveURL(/\/c\//)
+  await expect(page.getByRole('note', { name: '只读说明' })).toBeVisible()
+
+  await page.getByRole('link', { name: '回到全部对话' }).click()
+  await expect(page).toHaveURL('/conversations')
+})
+
 test('全部对话的筛选在窄屏和深色主题下可用，关闭后保留键盘焦点', async ({ page }) => {
   const screenshotDir = '../.artifacts/design-qa/audit-polish'
   await page.setViewportSize({ width: 1524, height: 1032 })

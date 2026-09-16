@@ -17,11 +17,18 @@ type ConversationsRouteProps = {
   /** 当前筛选条件与写回，由路由层落在查询参数上。 */
   filters: AuditFilters
   onFiltersChange: (next: AuditFilters) => void
+  /** 在本页点开某段对话，供路由层记下从哪一屏进去的；新标签页打开不算。 */
+  onOpen?: (conversationId: string) => void
   /** 需求单候选由路由层查询，feature 之间不直接互引；null 表示当前账号没有 tasks:read 权限。 */
   tasks: PickerSource | null
 }
 
-export function ConversationsRoute({ filters, onFiltersChange, tasks }: ConversationsRouteProps) {
+export function ConversationsRoute({
+  filters,
+  onFiltersChange,
+  onOpen,
+  tasks,
+}: ConversationsRouteProps) {
   const directory = useUsersDirectory(true)
   const users: PickerSource = {
     error: directory.error,
@@ -84,6 +91,7 @@ export function ConversationsRoute({ filters, onFiltersChange, tasks }: Conversa
                 <AuditRow
                   conversation={conversation}
                   key={conversation.id}
+                  onOpen={onOpen}
                   ownerName={directory.nameOf(conversation.ownerUserId)}
                   taskLabel={
                     conversation.taskId === null ? undefined : taskLabels.get(conversation.taskId)
@@ -117,17 +125,23 @@ export function ConversationsRoute({ filters, onFiltersChange, tasks }: Conversa
 
 type AuditRowProps = {
   conversation: Conversation
+  onOpen: ((conversationId: string) => void) | undefined
   ownerName: string | undefined
   taskLabel: string | undefined
 }
 
-function AuditRow({ conversation, ownerName, taskLabel }: AuditRowProps) {
+function AuditRow({ conversation, onOpen, ownerName, taskLabel }: AuditRowProps) {
   const owner = ownerName ?? '未知用户'
   const status = conversationStatus(conversation.activity)
   return (
     <li className="border-b-[0.5px] border-border/70 last:border-b-0">
       <Link
         className="group flex min-h-20 ui-state items-center gap-3 rounded-md px-2 py-4 text-on-surface ui-focus sm:gap-4 sm:px-3"
+        onClick={(event) => {
+          // 带修饰键是在新标签页打开，本页仍停在列表，不算从这一屏点进去了。
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+          onOpen?.(conversation.id)
+        }}
         params={{ conversationId: conversation.id }}
         to="/c/$conversationId"
       >
