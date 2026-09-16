@@ -1257,17 +1257,21 @@ export type MetricsOut = {
    */
   deliveries: number
   /**
-   * Firstpassrate
+   * Onetakerate
    */
-  firstPassRate: number | null
+  oneTakeRate: number | null
   /**
-   * Firstpassshots
+   * Onetakeshots
    */
-  firstPassShots: number
+  oneTakeShots: number
   /**
    * Producers
    */
   producers: number
+  /**
+   * Runs
+   */
+  runs: number
   /**
    * Shots
    */
@@ -1515,13 +1519,13 @@ export type ShotOut = {
    */
   firstAt: string
   /**
-   * Firstpass
-   */
-  firstPass: boolean
-  /**
    * Lastat
    */
   lastAt: string
+  /**
+   * Onetake
+   */
+  oneTake: boolean
   /**
    * Shot
    */

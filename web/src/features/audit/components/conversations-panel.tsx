@@ -144,7 +144,7 @@ function ConversationRow({ report, nameOf, taskTitleOf }: ConversationRowProps) 
           <dl className="flex flex-wrap gap-x-4 gap-y-1 text-body-sm text-on-surface-variant lg:hidden">
             <Stat label="成片" value={formatCount(metrics.completedVideos)} />
             <Stat label="每镜" value={formatTimes(metrics.attemptsPerShot)} />
-            <Stat label="一次通过" value={formatRate(metrics.firstPassRate)} />
+            <Stat label="一次通过" value={formatRate(metrics.oneTakeRate)} />
             <Stat label="周期" value={formatDuration(metrics.cycleSeconds?.median ?? null)} />
             <Stat label="token" value={formatTokens(metrics.usage.totalTokens)} />
           </dl>
@@ -153,7 +153,7 @@ function ConversationRow({ report, nameOf, taskTitleOf }: ConversationRowProps) 
         <Cell emphasis={metrics.attemptsPerShot !== null && metrics.attemptsPerShot > 2}>
           {formatTimes(metrics.attemptsPerShot)}
         </Cell>
-        <Cell>{formatRate(metrics.firstPassRate)}</Cell>
+        <Cell>{formatRate(metrics.oneTakeRate)}</Cell>
         <Cell>{formatDuration(metrics.cycleSeconds?.median ?? null)}</Cell>
         <Cell>{formatTokens(metrics.usage.totalTokens)}</Cell>
         <button

@@ -1,6 +1,6 @@
 """审计报表的 Postgres 查询：跨 ``iclip.*`` 与 ``agent_runtime.*`` 五张表只读聚合，不建表、不写入。
 
-同一份指标 SQL 服务全体、人、需求单、时段、对话五个维度，差别只在四段 CTE 各自的分组键
+同一份指标 SQL 服务全体、人、需求单、时段、对话五个维度，差别只在五段 CTE 各自的分组键
 表达式（``_DIMENSIONS``）——各指标的时间锚点不同，键要在各自的 CTE 里算。键表达式是本文件
 的常量，不来自外部输入；外部输入一律走绑定参数。"""
 
@@ -73,10 +73,18 @@ shots AS (
            count(*) AS attempts,
            min(v.created_at) AS first_at,
            max(v.created_at) AS last_at,
-           (array_agg(v.status ORDER BY v.created_at, v.id))[1] = 'completed' AS first_pass,
+           count(*) = 1 AND bool_and(v.status = 'completed') AS one_take,
            (array_agg(v.user_name ORDER BY v.created_at, v.id))[1] AS user_name
     FROM videos v
     GROUP BY v.conversation_id, v.shot, v.task_id
+)"""
+
+# 运行按发起人归属，不经 person；需求单从对话取。
+_RUNS: Final = """
+runs AS (
+    SELECT j.created_at, j.user_name, c.id AS conversation_id, c.task_id
+    FROM agent_runtime.agent_jobs j
+    JOIN iclip.conversations c ON c.id::text = j.conversation_id
 )"""
 
 _CYCLES: Final = """
@@ -124,8 +132,19 @@ def _spread(expr: str, prefix: str) -> str:
            percentile_cont(0.9) WITHIN GROUP (ORDER BY {expr}) AS {prefix}_p90"""
 
 
+# 时段维度把有界时间窗内的每一期都列进 keys，没数据的期计数为 0、分布为 NULL；
+# 不限时间没有起点，只列有数据的期。上界减一微秒，until 恰在期首时不多出一期。
+_PERIOD_AXIS: Final = """
+    UNION SELECT axis FROM generate_series(
+        date_trunc(CAST(:bucket AS text), CAST(:since AS timestamptz), CAST(:timezone AS text)),
+        date_trunc(CAST(:bucket AS text),
+                   COALESCE(CAST(:until AS timestamptz), now()) - interval '1 microsecond',
+                   CAST(:timezone AS text)),
+        CAST('1 ' || CAST(:bucket AS text) AS interval),
+        CAST(:timezone AS text)) AS axis"""
+
 _METRICS: Final = f"""
-WITH {_VIDEOS}, {_PERSON}, {_SHOTS}, {_CYCLES}, {_USAGE},
+WITH {_VIDEOS}, {_PERSON}, {_SHOTS}, {_RUNS}, {_CYCLES}, {_USAGE},
 completed AS (
     SELECT {{k_video}} AS k,
            count(*) AS completed_videos,
@@ -145,11 +164,20 @@ shot_metrics AS (
     SELECT {{k_shot}} AS k,
            count(*) AS shots,
            sum(s.attempts) AS attempts,
-           count(*) FILTER (WHERE s.first_pass) AS first_pass_shots
+           count(*) FILTER (WHERE s.one_take) AS one_take_shots
     FROM shots s
     WHERE TRUE
     {_WINDOW.format(anchor="s.first_at")}
     {_FILTERS.format(t="s")}
+    GROUP BY 1
+),
+run_metrics AS (
+    SELECT {{k_run}} AS k,
+           count(*) AS runs
+    FROM runs r
+    WHERE TRUE
+    {_WINDOW.format(anchor="r.created_at")}
+    {_FILTERS.format(t="r")}
     GROUP BY 1
 ),
 cycle_metrics AS (
@@ -176,19 +204,21 @@ usage_metrics AS (
     GROUP BY 1
 ),
 keys AS (
-    SELECT k FROM completed UNION SELECT k FROM shot_metrics
-    UNION SELECT k FROM cycle_metrics UNION SELECT k FROM usage_metrics
+    SELECT k FROM completed UNION SELECT k FROM shot_metrics UNION SELECT k FROM run_metrics
+    UNION SELECT k FROM cycle_metrics UNION SELECT k FROM usage_metrics{{axis}}
 )
 SELECT keys.k,
        c.completed_videos, c.delivered_tasks, c.delivered_orphan_conversations, c.producers,
        c.video_avg, c.video_median, c.video_p90,
        c.upstream_avg, c.upstream_median, c.upstream_p90,
-       s.shots, s.attempts, s.first_pass_shots,
+       s.shots, s.attempts, s.one_take_shots,
+       r.runs,
        y.delivered_conversations, y.cycle_avg, y.cycle_median, y.cycle_p90,
        u.requests, u.input_tokens, u.cache_read_tokens, u.cache_write_tokens, u.output_tokens
 FROM keys
 LEFT JOIN completed c ON c.k = keys.k
 LEFT JOIN shot_metrics s ON s.k = keys.k
+LEFT JOIN run_metrics r ON r.k = keys.k
 LEFT JOIN cycle_metrics y ON y.k = keys.k
 LEFT JOIN usage_metrics u ON u.k = keys.k
 WHERE keys.k IS NOT NULL
@@ -198,36 +228,45 @@ ORDER BY keys.k
 
 @dataclass(frozen=True, slots=True)
 class _Dimension:
-    """一个维度在四段 CTE 里各自的分组键表达式。"""
+    """一个维度在五段 CTE 里各自的分组键表达式；``axis`` 是补进 keys 的空期。"""
 
     k_video: str
     k_shot: str
+    k_run: str
     k_cycle: str
     k_usage: str
+    axis: str = ""
 
     def sql(self) -> str:
         return _METRICS.format(
-            k_video=self.k_video, k_shot=self.k_shot, k_cycle=self.k_cycle, k_usage=self.k_usage
+            k_video=self.k_video,
+            k_shot=self.k_shot,
+            k_run=self.k_run,
+            k_cycle=self.k_cycle,
+            k_usage=self.k_usage,
+            axis=self.axis,
         )
 
 
 def _same(column: str) -> _Dimension:
-    return _Dimension(f"v.{column}", f"s.{column}", f"y.{column}", f"u.{column}")
+    return _Dimension(f"v.{column}", f"s.{column}", f"r.{column}", f"y.{column}", f"u.{column}")
 
 
 _BUCKET: Final = "date_trunc(CAST(:bucket AS text), {anchor}, CAST(:timezone AS text))"
 
 _DIMENSIONS: Final[Mapping[str, _Dimension]] = {
-    # 全体用非空常量做键，四段才能按键对上。
-    "overall": _Dimension("'all'", "'all'", "'all'", "'all'"),
+    # 全体用非空常量做键，五段才能按键对上。
+    "overall": _Dimension("'all'", "'all'", "'all'", "'all'", "'all'"),
     "user": _same("user_name"),
     "task": _same("task_id"),
     "conversation": _same("conversation_id"),
     "period": _Dimension(
         _BUCKET.format(anchor="v.finished_at"),
         _BUCKET.format(anchor="s.first_at"),
+        _BUCKET.format(anchor="r.created_at"),
         _BUCKET.format(anchor="y.delivered_at"),
         _BUCKET.format(anchor="u.last_at"),
+        axis=_PERIOD_AXIS,
     ),
 }
 _METRICS_SQL: Final = {name: text(dimension.sql()) for name, dimension in _DIMENSIONS.items()}
@@ -251,7 +290,7 @@ LIMIT :limit
 
 _SHOTS_OF: Final = text(f"""
 WITH {_VIDEOS}, {_SHOTS}
-SELECT s.conversation_id, s.shot, s.attempts, s.first_pass, s.first_at, s.last_at
+SELECT s.conversation_id, s.shot, s.attempts, s.one_take, s.first_at, s.last_at
 FROM shots s
 WHERE s.conversation_id = ANY(CAST(:ids AS uuid[]))
 ORDER BY s.conversation_id, s.shot
@@ -470,7 +509,8 @@ def _metrics_of(row: RowMapping) -> Metrics:
         producers=_int(row["producers"]),
         shots=_int(row["shots"]),
         attempts=_int(row["attempts"]),
-        first_pass_shots=_int(row["first_pass_shots"]),
+        one_take_shots=_int(row["one_take_shots"]),
+        runs=_int(row["runs"]),
         delivered_conversations=_int(row["delivered_conversations"]),
         cycle_seconds=_spread_of(row, "cycle"),
         video_seconds=_spread_of(row, "video"),
@@ -479,10 +519,10 @@ def _metrics_of(row: RowMapping) -> Metrics:
     )
 
 
-def _rank(metrics: Metrics) -> tuple[int, int]:
-    """人与需求单的排序：成片件数多的在前，再看成片视频条数。"""
+def _rank(metrics: Metrics) -> tuple[int, int, int]:
+    """人与需求单的排序：成片件数多的在前，再看成片视频条数，最后看运行次数。"""
 
-    return (-metrics.deliveries, -metrics.completed_videos)
+    return (-metrics.deliveries, -metrics.completed_videos, -metrics.runs)
 
 
 class PgAuditReports:
@@ -562,7 +602,7 @@ class PgAuditReports:
                 ShotReport(
                     shot=int(row["shot"]),
                     attempts=int(row["attempts"]),
-                    first_pass=bool(row["first_pass"]),
+                    one_take=bool(row["one_take"]),
                     first_at=row["first_at"],
                     last_at=row["last_at"],
                 )

@@ -1,8 +1,9 @@
 """审计报表的领域模型：筛选范围、一组指标、按维度分行的指标、对话明细与异常。
 
 口径（与 docs/CONTEXT.md「审计口径」一致）：视频只算带数字 ``metadata.shot`` 且挂着对话的
-那些行；成片件数按「需求单一件、无单对话各一件」数；镜的身份是（对话，镜号）；交付周期是
-一段对话从首次运行到最后一条成片。比率都在这里由原始计数派生，分母为零时是 ``None``。"""
+那些行；成片件数按「需求单一件、无单对话各一件」数；镜的身份是（对话，镜号），只出了一条
+且成了算一次通过；运行按发起人数 ``agent_jobs``；交付周期是一段对话从首次运行到最后一条
+成片。比率都在这里由原始计数派生，分母为零时是 ``None``。"""
 
 from __future__ import annotations
 
@@ -112,7 +113,8 @@ class Metrics:
     producers: int
     shots: int
     attempts: int
-    first_pass_shots: int
+    one_take_shots: int
+    runs: int
     delivered_conversations: int
     cycle_seconds: Spread | None
     video_seconds: Spread | None
@@ -130,8 +132,10 @@ class Metrics:
         return self.attempts / self.shots if self.shots else None
 
     @property
-    def first_pass_rate(self) -> float | None:
-        return self.first_pass_shots / self.shots if self.shots else None
+    def one_take_rate(self) -> float | None:
+        """一次通过率：只出了一条且成了的镜占全部镜的比例。"""
+
+        return self.one_take_shots / self.shots if self.shots else None
 
     @property
     def tokens_per_delivery(self) -> float | None:
@@ -145,7 +149,8 @@ EMPTY_METRICS: Final = Metrics(
     producers=0,
     shots=0,
     attempts=0,
-    first_pass_shots=0,
+    one_take_shots=0,
+    runs=0,
     delivered_conversations=0,
     cycle_seconds=None,
     video_seconds=None,
@@ -177,7 +182,7 @@ class PeriodMetrics:
 class ShotReport:
     shot: int
     attempts: int
-    first_pass: bool
+    one_take: bool
     first_at: datetime
     last_at: datetime
 

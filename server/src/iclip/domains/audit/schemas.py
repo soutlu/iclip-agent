@@ -59,9 +59,12 @@ class MetricsOut(CamelModel):
     producers: int
     shots: int
     attempts: int
-    first_pass_shots: int
+    one_take_shots: int
+    """只出了一条且成了的镜数。"""
     attempts_per_shot: float | None
-    first_pass_rate: float | None
+    one_take_rate: float | None
+    runs: int
+    """agent 运行次数，按发起人归属。"""
     delivered_conversations: int
     cycle_seconds: SpreadOut | None
     """对话交付周期：首次运行到最后一条成片。"""
@@ -100,7 +103,7 @@ class SummaryOut(CamelModel):
 class ShotOut(CamelModel):
     shot: int
     attempts: int
-    first_pass: bool
+    one_take: bool
     first_at: datetime
     last_at: datetime
 
@@ -175,9 +178,10 @@ def metrics_out(metrics: Metrics) -> MetricsOut:
         producers=metrics.producers,
         shots=metrics.shots,
         attempts=metrics.attempts,
-        first_pass_shots=metrics.first_pass_shots,
+        one_take_shots=metrics.one_take_shots,
         attempts_per_shot=metrics.attempts_per_shot,
-        first_pass_rate=metrics.first_pass_rate,
+        one_take_rate=metrics.one_take_rate,
+        runs=metrics.runs,
         delivered_conversations=metrics.delivered_conversations,
         cycle_seconds=spread_out(metrics.cycle_seconds),
         video_seconds=spread_out(metrics.video_seconds),
@@ -203,7 +207,7 @@ def _shot_out(shot: ShotReport) -> ShotOut:
     return ShotOut(
         shot=shot.shot,
         attempts=shot.attempts,
-        first_pass=shot.first_pass,
+        one_take=shot.one_take,
         first_at=shot.first_at,
         last_at=shot.last_at,
     )

@@ -9,6 +9,7 @@ import json
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -27,6 +28,7 @@ from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 BASE = datetime.now(UTC).replace(microsecond=0)
 SHAN = "Shan.Hu"
 DONNIE = "Donnie.Liu"
+EDNA = "Edna.Li"
 
 
 def ago(**delta: float) -> datetime:
@@ -34,7 +36,7 @@ def ago(**delta: float) -> datetime:
 
 
 class Seed:
-    """一组固定的数据：两个人、两张需求单、八段对话、七条带镜号的视频与一条没镜号的。"""
+    """一组固定的数据：三个人（一个只跑过没出片）、两张需求单、八段对话、八条带镜号的视频与一条没镜号的。"""
 
     def __init__(self) -> None:
         self.shan = uuid.uuid4()
@@ -189,7 +191,8 @@ class Seed:
                     },
                 )
 
-            # C1：Shan 在需求单下聊了一轮，镜 1 一次过，镜 2 失败一次、成两次；另有一条没镜号。
+            # C1：Shan 在需求单下聊了一轮，镜 1 成了又重出一条（也成了），镜 2 失败一次、成两次；
+            # 另有一条没镜号。两镜都不算一次通过。
             await conversation(
                 self.c1,
                 owner=self.shan,
@@ -206,6 +209,15 @@ class Seed:
                 created_at=ago(minutes=100),
                 submitted_at=ago(minutes=99),
                 finished_at=ago(minutes=90),
+            )
+            await video(
+                self.c1,
+                user_name=SHAN,
+                shot=1,
+                status="completed",
+                created_at=ago(minutes=95),
+                submitted_at=ago(minutes=94),
+                finished_at=ago(minutes=85),
             )
             await video(
                 self.c1,
@@ -345,7 +357,7 @@ class Seed:
             )
             await agent_job(self.c4, user_name=DONNIE, at=ago(hours=49))
 
-            # C5：属主删掉了。
+            # C5：Edna 替 Shan 跑了一轮就被属主删掉了；Edna 只有这一次运行，没有成片也没有用量。
             await conversation(
                 self.c5,
                 owner=self.shan,
@@ -354,6 +366,7 @@ class Seed:
                 updated_at=ago(hours=1),
                 deleted_at=ago(hours=1),
             )
+            await agent_job(self.c5, user_name=EDNA, at=ago(minutes=90))
 
             # 卡住的单：三段对话都没出片，也没跑过。
             for _ in range(3):
@@ -393,29 +406,31 @@ def reports(engine: AsyncEngine) -> PgAuditReports:
 async def test_overall_counts_every_metric_on_its_own_anchor(
     reports: PgAuditReports, seed: Seed
 ) -> None:
-    """成片件数按「需求单一件、无单对话一件」；镜含失败与悬挂的尝试；周期缺运行时从对话创建起算。"""
+    """成片件数按「需求单一件、无单对话一件」；镜含失败与悬挂的尝试，成了又重出的不算一次通过；
+    运行含已删对话的；周期缺运行时从对话创建起算。"""
 
     overall = await reports.overall(Scope())
 
-    assert overall.completed_videos == 5
+    assert overall.completed_videos == 6
     assert (overall.delivered_tasks, overall.delivered_orphan_conversations) == (1, 1)
     assert overall.deliveries == 2
     assert overall.producers == 2
-    assert (overall.shots, overall.attempts, overall.first_pass_shots) == (5, 7, 3)
-    assert overall.attempts_per_shot == pytest.approx(7 / 5)
-    assert overall.first_pass_rate == pytest.approx(3 / 5)
+    assert (overall.shots, overall.attempts, overall.one_take_shots) == (5, 8, 2)
+    assert overall.attempts_per_shot == pytest.approx(8 / 5)
+    assert overall.one_take_rate == pytest.approx(2 / 5)
+    assert overall.runs == 4
     assert overall.delivered_conversations == 3
     assert overall.cycle_seconds is not None
     assert (overall.cycle_seconds.avg, overall.cycle_seconds.median) == (5200, 4800)
     assert overall.cycle_seconds.p90 == pytest.approx(6720)
     assert overall.video_seconds is not None
     assert (overall.video_seconds.avg, overall.video_seconds.median, overall.video_seconds.p90) == (
-        1800,
+        1600,
         600,
         3600,
     )
     assert overall.upstream_seconds is not None
-    assert overall.upstream_seconds.avg == 1740
+    assert overall.upstream_seconds.avg == 1540
     assert (
         overall.usage.requests,
         overall.usage.input_tokens,
@@ -428,13 +443,14 @@ async def test_overall_counts_every_metric_on_its_own_anchor(
 
 
 async def test_window_applies_to_each_metric_anchor(reports: PgAuditReports, seed: Seed) -> None:
-    """近两小时：只剩 C1 的三条成片、两镜、一段周期与两行用量。"""
+    """近两小时：只剩 C1 的四条成片、两镜、一段周期与两行用量；运行数左闭，恰在 since 的 C1 那轮算进来。"""
 
     recent = await reports.overall(Scope(since=ago(hours=2)))
 
-    assert recent.completed_videos == 3
+    assert recent.completed_videos == 4
     assert (recent.delivered_tasks, recent.delivered_orphan_conversations) == (1, 0)
-    assert (recent.shots, recent.attempts, recent.first_pass_shots) == (2, 4, 1)
+    assert (recent.shots, recent.attempts, recent.one_take_shots) == (2, 5, 0)
+    assert recent.runs == 2
     assert recent.delivered_conversations == 1
     assert recent.cycle_seconds is not None and recent.cycle_seconds.avg == 4800
     assert recent.usage.requests == 5
@@ -452,21 +468,26 @@ async def test_empty_scope_is_all_zeros(reports: PgAuditReports, seed: Seed) -> 
 async def test_by_user_attributes_videos_by_request_and_conversations_by_latest_run(
     reports: PgAuditReports, seed: Seed
 ) -> None:
-    """视频归 ``request.user_name``；对话归最近一轮运行的人，没跑过就归最近一条视频的人。"""
+    """视频归 ``request.user_name``；对话归最近一轮运行的人，没跑过就归最近一条视频的人；
+    运行归发起人，只跑过没出片的人也占一行。"""
 
     rows = await reports.by_user(Scope())
 
-    assert [row.user_name for row in rows] == [SHAN, DONNIE]
-    shan, donnie = (row.metrics for row in rows)
-    assert (shan.completed_videos, shan.deliveries) == (4, 2)
-    assert (shan.shots, shan.attempts, shan.first_pass_shots) == (3, 5, 2)
+    assert [row.user_name for row in rows] == [SHAN, DONNIE, EDNA]
+    shan, donnie, edna = (row.metrics for row in rows)
+    assert (shan.completed_videos, shan.deliveries) == (5, 2)
+    assert (shan.shots, shan.attempts, shan.one_take_shots) == (3, 6, 1)
+    assert shan.runs == 2
     assert shan.delivered_conversations == 2
     assert shan.usage.requests == 7
     assert (donnie.completed_videos, donnie.deliveries) == (1, 1)
-    assert (donnie.shots, donnie.attempts, donnie.first_pass_shots) == (2, 2, 1)
+    assert (donnie.shots, donnie.attempts, donnie.one_take_shots) == (2, 2, 1)
+    assert donnie.runs == 1
     assert donnie.delivered_conversations == 1
     assert donnie.cycle_seconds is not None and donnie.cycle_seconds.avg == 7200
     assert donnie.usage.requests == 0
+    assert (edna.runs, edna.deliveries, edna.shots, edna.usage.requests) == (1, 0, 0, 0)
+    assert edna.cycle_seconds is None
 
 
 async def test_by_task_lists_only_tasks_with_activity(reports: PgAuditReports, seed: Seed) -> None:
@@ -476,8 +497,9 @@ async def test_by_task_lists_only_tasks_with_activity(reports: PgAuditReports, s
 
     assert [(row.task_id, row.title) for row in rows] == [(seed.task, "夏季连衣裙")]
     task = rows[0].metrics
-    assert (task.completed_videos, task.deliveries, task.producers) == (4, 1, 2)
-    assert (task.shots, task.attempts, task.first_pass_shots) == (4, 6, 2)
+    assert (task.completed_videos, task.deliveries, task.producers) == (5, 1, 2)
+    assert (task.shots, task.attempts, task.one_take_shots) == (4, 7, 1)
+    assert task.runs == 2
     assert task.delivered_conversations == 2
     assert task.usage.requests == 5
 
@@ -489,10 +511,42 @@ async def test_by_period_buckets_in_the_given_timezone(reports: PgAuditReports, 
 
     assert rows and all(row.period_start.astimezone(shanghai).hour == 0 for row in rows)
     assert [row.period_start for row in rows] == sorted(row.period_start for row in rows)
-    assert sum(row.metrics.completed_videos for row in rows) == 5
+    assert sum(row.metrics.completed_videos for row in rows) == 6
     assert sum(row.metrics.shots for row in rows) == 5
+    assert sum(row.metrics.runs for row in rows) == 4
     assert sum(row.metrics.delivered_conversations for row in rows) == 3
     assert sum(row.metrics.usage.requests for row in rows) == 7
+
+
+async def test_by_period_fills_every_bucket_of_a_bounded_window(
+    reports: PgAuditReports, seed: Seed
+) -> None:
+    """有界时间窗内每一期都占一行，没动静的期计数为 0、分布为空；不限时间只列有数据的期。"""
+
+    shanghai = ZoneInfo("Asia/Shanghai")
+    since = ago(days=3)
+
+    rows = await reports.by_period(Scope(since=since), bucket="day", timezone="Asia/Shanghai")
+
+    starts = [row.period_start.astimezone(shanghai) for row in rows]
+    assert len(starts) == 4
+    assert starts[0].date() == since.astimezone(shanghai).date()
+    assert all(later - earlier == timedelta(days=1) for earlier, later in pairwise(starts))
+    assert sum(row.metrics.completed_videos for row in rows) == 6
+    assert sum(row.metrics.runs for row in rows) == 4
+    quiet = [row.metrics for row in rows if row.metrics.completed_videos == 0]
+    assert all(m.cycle_seconds is None and m.video_seconds is None for m in quiet)
+
+    sparse = await reports.by_period(Scope(), bucket="day", timezone="Asia/Shanghai")
+
+    assert len(sparse) <= len(rows)
+    assert all(
+        row.metrics.completed_videos
+        or row.metrics.shots
+        or row.metrics.runs
+        or row.metrics.usage.requests
+        for row in sparse
+    )
 
 
 async def test_conversations_carry_whole_conversation_detail_and_page_by_cursor(
@@ -504,15 +558,15 @@ async def test_conversations_carry_whole_conversation_detail_and_page_by_cursor(
     c1, c2 = first_page
     assert (c1.user_name, c1.task_id, c1.started_at) == (SHAN, seed.task, seed.c1_agent_job_at)
     assert c1.delivered_at == ago(minutes=40)
-    assert c1.metrics.completed_videos == 3
+    assert (c1.metrics.completed_videos, c1.metrics.runs) == (4, 1)
     assert c1.metrics.cycle_seconds is not None and c1.metrics.cycle_seconds.avg == 4800
-    assert [(shot.shot, shot.attempts, shot.first_pass) for shot in c1.shots] == [
-        (1, 1, True),
+    assert [(shot.shot, shot.attempts, shot.one_take) for shot in c1.shots] == [
+        (1, 2, False),
         (2, 3, False),
     ]
     assert [(item.model_name, item.usage.requests) for item in c1.usage] == [("m-a", 4), ("m-b", 1)]
     assert (c2.user_name, c2.started_at) == (DONNIE, seed.c2_created_at)
-    assert [(shot.shot, shot.attempts, shot.first_pass) for shot in c2.shots] == [
+    assert [(shot.shot, shot.attempts, shot.one_take) for shot in c2.shots] == [
         (1, 1, True),
         (2, 1, False),
     ]
