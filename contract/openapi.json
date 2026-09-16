@@ -2325,7 +2325,7 @@
             "title": "Deliveries",
             "type": "integer"
           },
-          "firstPassRate": {
+          "oneTakeRate": {
             "anyOf": [
               {
                 "type": "number"
@@ -2334,14 +2334,18 @@
                 "type": "null"
               }
             ],
-            "title": "Firstpassrate"
+            "title": "Onetakerate"
           },
-          "firstPassShots": {
-            "title": "Firstpassshots",
+          "oneTakeShots": {
+            "title": "Onetakeshots",
             "type": "integer"
           },
           "producers": {
             "title": "Producers",
+            "type": "integer"
+          },
+          "runs": {
+            "title": "Runs",
             "type": "integer"
           },
           "shots": {
@@ -2391,9 +2395,10 @@
           "producers",
           "shots",
           "attempts",
-          "firstPassShots",
+          "oneTakeShots",
           "attemptsPerShot",
-          "firstPassRate",
+          "oneTakeRate",
+          "runs",
           "deliveredConversations",
           "cycleSeconds",
           "videoSeconds",
@@ -2885,14 +2890,14 @@
             "title": "Firstat",
             "type": "string"
           },
-          "firstPass": {
-            "title": "Firstpass",
-            "type": "boolean"
-          },
           "lastAt": {
             "format": "date-time",
             "title": "Lastat",
             "type": "string"
+          },
+          "oneTake": {
+            "title": "Onetake",
+            "type": "boolean"
           },
           "shot": {
             "title": "Shot",
@@ -2902,7 +2907,7 @@
         "required": [
           "shot",
           "attempts",
-          "firstPass",
+          "oneTake",
           "firstAt",
           "lastAt"
         ],

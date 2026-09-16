@@ -58,7 +58,7 @@ const RANK_COLUMNS: readonly MetricsColumn[] = [
   {
     key: 'firstPass',
     label: '一次通过',
-    render: (m) => formatRate(m.firstPassRate),
+    render: (m) => formatRate(m.oneTakeRate),
   },
   {
     key: 'cycle',
@@ -135,15 +135,13 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
           value={formatTimes(overall?.attemptsPerShot ?? null)}
         />
         <StatTile
-          delta={compareWithPrevious(overall?.firstPassRate ?? null, before?.firstPassRate)}
+          delta={compareWithPrevious(overall?.oneTakeRate ?? null, before?.oneTakeRate)}
           label="一次通过率"
           note={SHOT_NOTE}
           pending={pending}
-          sub={
-            overall === undefined ? undefined : `${overall.firstPassShots} / ${overall.shots} 镜`
-          }
-          trend={trendOf((m) => m.firstPassRate)}
-          value={formatRate(overall?.firstPassRate ?? null)}
+          sub={overall === undefined ? undefined : `${overall.oneTakeShots} / ${overall.shots} 镜`}
+          trend={trendOf((m) => m.oneTakeRate)}
+          value={formatRate(overall?.oneTakeRate ?? null)}
         />
         <StatTile
           delta={compareWithPrevious(
@@ -176,14 +174,14 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
           title="成片件数"
         />
         <TrendChart
-          description="首条即成功的镜占比"
+          description="只出了一条就成的镜占比"
           format={(value) => `${Math.round(value * 100)}%`}
           kind="line"
           max={1}
           points={series.map((period) => ({
             key: period.periodStart,
             label: formatPeriodLabel(period.periodStart, bucket),
-            value: period.metrics.firstPassRate,
+            value: period.metrics.oneTakeRate,
           }))}
           title="一次通过率"
         />
