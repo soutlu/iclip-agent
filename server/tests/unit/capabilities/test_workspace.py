@@ -626,20 +626,26 @@ async def test_region_and_full_resolution_are_mutually_exclusive() -> None:
 
 
 async def test_an_unreachable_image_is_refused_before_the_model_sees_it() -> None:
-    """在模型接收图片前拒绝探测失败的地址，避免错误延迟到模型供应商。"""
+    """在模型接收图片前拒绝探测失败的地址，避免错误延迟到模型供应商。
 
-    with pytest.raises(ModelRetry, match="读不了") as failure:
+    读不到不是模型能改的，提示里只报原因：引导它换地址会让它反复重试同一张。
+    """
+
+    with capture_logs() as logs, pytest.raises(ModelRetry, match="图片无法读取") as failure:
         await read_tools(FakeProbe(error="地址访问不到")).read_media_file(
             make_context(make_deps()), OSS_IMAGE
         )
 
-    assert "换一个对话里出现过的图片地址" in str(failure.value)
+    assert "地址访问不到" in str(failure.value)
+    assert "换一个" not in str(failure.value)
+    failures = [log for log in logs if log["event"] == "读图失败"]
+    assert [(log["url"], log["reason"]) for log in failures] == [(OSS_IMAGE, "地址访问不到")]
 
 
 async def test_an_address_that_cannot_carry_scaling_is_refused() -> None:
     """不支持缩放参数的地址不能满足图片尺寸限制。"""
 
-    with pytest.raises(ModelRetry, match="读不了"):
+    with pytest.raises(ModelRetry, match="图片无法读取"):
         await read_tools(FakeProbe()).read_media_file(
             make_context(make_deps()), "https://cdn.test/no-extension"
         )
