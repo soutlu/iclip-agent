@@ -28,6 +28,7 @@ from iclip.platform.media.ffmpeg import (
     cut_concat,
     cut_copy,
     download,
+    probe_duration_ms,
     probe_video,
 )
 from iclip.platform.object_store.layout import MEDIA_PATHS
@@ -139,17 +140,20 @@ class FfmpegClipProvider:
 
 
 async def _target_profile(cuts: Sequence[MediaCut]) -> VideoProfile:
-    """成片对齐到原片：画幅与帧率照贡献时长最长的那条素材，有一条带音轨就出音轨。
+    """成片对齐到原片：画幅与帧率照整条最长的那条素材，有一条带音轨就出音轨。
 
     模型还回来的片段与原片同比例，但分辨率档位与帧率不保证相同（实测 720×960 25fps 的输入
-    还回来是 834×1112 24fps）。成片该保持原片的规格，插进去的片段缩放去适配它——一次编辑只
-    换掉其中一段，原片在成片里总是占大头，按时长认它不用调用方多传一个字段。"""
+    还回来是 834×1112 24fps）。成片该保持原片的规格，插进去的片段缩放去适配它。哪条是原片
+    按素材整条时长认：原片是完整的一条，模型还回来的只有被编辑那一段的长度，所以不管编辑
+    区间选了多长，原片都更长——按各段在成片里贡献的时长认不行，区间超过一半就会认反。
+    整条一样长（整片都被编辑）再看贡献时长。这样不用调用方多传一个字段。"""
 
-    durations: dict[Path, float] = {}
+    contributed: dict[Path, float] = {}
     for cut in cuts:
-        durations[cut.source] = durations.get(cut.source, 0.0) + cut.duration
-    profiles = {source: await probe_video(source) for source in durations}
-    original = profiles[max(durations, key=lambda source: durations[source])]
+        contributed[cut.source] = contributed.get(cut.source, 0.0) + cut.duration
+    lengths = {source: await probe_duration_ms(source) for source in contributed}
+    profiles = {source: await probe_video(source) for source in contributed}
+    original = profiles[max(contributed, key=lambda source: (lengths[source], contributed[source]))]
     return VideoProfile(
         width=original.width,
         height=original.height,

@@ -181,7 +181,8 @@ async def cut_copy(cut: MediaCut, *, dest: Path) -> None:
     """裁出一段，不重编码。
 
     ``-c copy`` 只能在关键帧处下刀：起点会落到 ``start`` 之前最近的那个关键帧，产物因此
-    可能比请求的区间略长，多出来的在开头。调用方按产物实际时长自己对齐。"""
+    比请求的区间长，多出来的主要在开头；``-t`` 按解码顺序截，尾部也会因 B 帧延迟多出几帧。
+    调用方按产物实际时长反算的起点是差几帧的近似值，不在这里为对齐再解一遍码。"""
 
     _check_cut(cut)
     await run(
@@ -300,6 +301,11 @@ async def run(args: list[str], *, timeout: float) -> bytes:
         process.kill()
         await process.wait()
         raise MediaError(f"{args[0]} 超过 {timeout:.0f} 秒还没结束") from None
+    except asyncio.CancelledError:
+        # 任务被取消（队列关停）时不能把 ffmpeg 留成孤儿：一次重编码能占满 CPU 十几分钟。
+        process.kill()
+        await process.wait()
+        raise
     if process.returncode != 0:
         detail = stderr.decode(errors="replace")[:_STDERR_LIMIT]
         raise MediaError(f"{args[0]} 失败（退出码 {process.returncode}）: {detail}")

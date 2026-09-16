@@ -120,6 +120,32 @@ async def test_master_concat_aligns_to_the_original_and_keeps_total_length(
     assert profile.has_audio, "有一段带音轨就出音轨，没音轨的那段补静音"
 
 
+async def test_master_still_aligns_to_the_original_when_the_edit_covers_most_of_it(
+    sources: dict[str, bytes],
+) -> None:
+    """编辑区间超过一半：换进去的那段在成片里占大头，成片仍照原片——原片整条更长。"""
+
+    _, content = await _render(
+        {
+            "purpose": "master",
+            "segments": [
+                {"url": BASE_URL, "start": 0, "end": 0.5},
+                {"url": EDITED_URL, "start": 0, "end": 2},
+                {"url": BASE_URL, "start": 3.5, "end": 4},
+            ],
+        },
+        sources,
+    )
+
+    with TemporaryDirectory(prefix="clip-probe-") as tmp:
+        path = Path(tmp) / "out.mp4"
+        path.write_bytes(content)
+        profile = await probe_video(path)
+    assert (profile.width, profile.height) == (320, 240), (
+        "按贡献时长认原片会认成 480×360 的编辑片段"
+    )
+
+
 async def test_source_that_cannot_be_fetched_fails_without_retry(
     sources: dict[str, bytes],
 ) -> None:

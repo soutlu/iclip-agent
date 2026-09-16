@@ -47,7 +47,8 @@ CLIP_REFERENCE: Final = "reference"
 """只有它要分支判断（裁一段、不重编码）；另一个取值由 ClipPurpose 声明。"""
 
 MAX_CLIP_SEGMENTS: Final = 50
-"""一条成片最多由多少段拼成。每编辑一次多一段，够用且挡住畸形请求。"""
+"""一条成片最多由多少段拼成。编辑链里一条成片只有基底前段、编辑片段、基底后段三段，这个上限
+只是挡畸形请求。"""
 
 IMAGE_ASPECT_RATIOS = Literal[
     "1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
@@ -105,9 +106,15 @@ MediaUrls = Annotated[list[str], Field(max_length=MAX_REFERENCE_URLS)]
 
 def _http_only(urls: list[str]) -> list[str]:
     for index, url in enumerate(urls):
-        if not url.startswith(("http://", "https://")):
+        if not _is_http(url):
             raise ValueError(f"[{index}] 必须是 http:// 或 https:// 地址")
     return urls
+
+
+def _is_http(url: str) -> bool:
+    """服务端会拿去下载的地址只放行 http(s)：放行别的 scheme 等于开一个任意文件读取入口。"""
+
+    return url.startswith(("http://", "https://"))
 
 
 def _bounded_metadata(value: dict[str, Any]) -> dict[str, Any]:
@@ -302,11 +309,15 @@ class ClipSegmentIn(CamelModel):
     start: float = Field(ge=0)
     end: float
 
+    @field_validator("url")
+    @classmethod
+    def _downloadable(cls, url: str) -> str:
+        if not _is_http(url):
+            raise ValueError("必须是 http:// 或 https:// 地址")
+        return url
+
     @model_validator(mode="after")
-    def _usable_range(self) -> ClipSegmentIn:
-        if not self.url.startswith(("http://", "https://")):
-            # 这个地址会被服务端拿去下载，放行别的 scheme 等于开一个任意文件读取入口。
-            raise ValueError("url 必须是 http:// 或 https:// 地址")
+    def _end_after_start(self) -> ClipSegmentIn:
         if self.end <= self.start:
             raise ValueError("end 必须大于 start")
         return self
