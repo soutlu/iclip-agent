@@ -342,6 +342,60 @@ export type BodyAuthCookieLoginAuthLoginPost = {
 }
 
 /**
+ * ClipIn
+ *
+ * 一次本地视频加工：按顺序裁出各段拼成一条，产物是本系统桶里的公开地址。
+ *
+ * ``reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段，不重编码
+ * （起点因此落在最近的关键帧上，产物可能比区间略长）；``master`` 是拼出来的成片，各段
+ * 参数互不相同，一律重编码对齐。两者存在不同前缀下，成片不进过期规则。
+ */
+export type ClipIn = {
+  /**
+   * Conversationid
+   */
+  conversationId?: string | null
+  /**
+   * Metadata
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Purpose
+   */
+  purpose: 'reference' | 'master'
+  /**
+   * Segments
+   */
+  segments: Array<ClipSegmentIn>
+  /**
+   * Taskid
+   */
+  taskId?: string | null
+}
+
+/**
+ * ClipSegmentIn
+ *
+ * 从一条视频里取 ``[start, end)`` 这一段，单位秒。
+ */
+export type ClipSegmentIn = {
+  /**
+   * End
+   */
+  end: number
+  /**
+   * Start
+   */
+  start: number
+  /**
+   * Url
+   */
+  url: string
+}
+
+/**
  * CollectionEnvelope
  */
 export type CollectionEnvelope = {
@@ -2814,6 +2868,24 @@ export type VideoContent = {
 }
 
 /**
+ * VideoEditOut
+ *
+ * 这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。
+ */
+export type VideoEditOut = {
+  /**
+   * Promptprefix
+   */
+  promptPrefix?: string | null
+  /**
+   * Provideroptions
+   */
+  providerOptions?: {
+    [key: string]: string
+  } | null
+}
+
+/**
  * VideoGenerationIn
  *
  * 一次视频生成的输入。字段照上游异步接口，外加归属字段、坐标 ``metadata`` 与结构化的 ``shot``。
@@ -2891,9 +2963,22 @@ export type VideoGenerationIn = {
 }
 
 /**
+ * VideoModelOut
+ *
+ * 一个视频模型：id，以及支不支持视频编辑、怎么触发。
+ */
+export type VideoModelOut = {
+  edit?: VideoEditOut | null
+  /**
+   * Model
+   */
+  model: string
+}
+
+/**
  * VideoModelsOut
  *
- * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
+ * 接入了哪几个视频模型与各自的编辑能力，按配置声明顺序。
  */
 export type VideoModelsOut = {
   /**
@@ -2903,7 +2988,7 @@ export type VideoModelsOut = {
   /**
    * Items
    */
-  items: Array<string>
+  items: Array<VideoModelOut>
 }
 
 /**
@@ -4502,7 +4587,7 @@ export type ListGenerationsGenerationsGetData = {
     /**
      * Kind
      */
-    kind?: 'image' | 'video' | null
+    kind?: 'image' | 'video' | 'clip' | null
     /**
      * Metadata
      *
@@ -4536,6 +4621,33 @@ export type ListGenerationsGenerationsGetResponses = {
 
 export type ListGenerationsGenerationsGetResponse =
   ListGenerationsGenerationsGetResponses[keyof ListGenerationsGenerationsGetResponses]
+
+export type SubmitClipGenerationsClipsPostData = {
+  body: ClipIn
+  path?: never
+  query?: never
+  url: '/generations/clips'
+}
+
+export type SubmitClipGenerationsClipsPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SubmitClipGenerationsClipsPostError =
+  SubmitClipGenerationsClipsPostErrors[keyof SubmitClipGenerationsClipsPostErrors]
+
+export type SubmitClipGenerationsClipsPostResponses = {
+  /**
+   * Successful Response
+   */
+  202: GenerationEnvelope
+}
+
+export type SubmitClipGenerationsClipsPostResponse =
+  SubmitClipGenerationsClipsPostResponses[keyof SubmitClipGenerationsClipsPostResponses]
 
 export type SubmitImageGenerationsImagePostData = {
   body: ImageGenerationIn

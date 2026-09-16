@@ -397,6 +397,8 @@ missing_shot AS (
     FROM iclip.generation_jobs g
     LEFT JOIN iclip.conversations c ON c.id = g.conversation_id
     WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') IS DISTINCT FROM 'number'
+      -- 视频编辑的结果按 ADR-0020 §5 只带编辑链坐标、不带镜头组，不算缺坐标。
+      AND NOT COALESCE(jsonb_exists(g.metadata, 'rootJob'), false)
     {_WINDOW.format(anchor="g.created_at")}
       AND (CAST(:user_name AS text) IS NULL OR g.request->>'user_name' = CAST(:user_name AS text))
       AND (CAST(:task_id AS uuid) IS NULL OR c.task_id = CAST(:task_id AS uuid))

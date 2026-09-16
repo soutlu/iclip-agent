@@ -21,6 +21,10 @@ path = "iclip.platform.file_store"
 depends_on = []
 
 [[modules]]
+path = "iclip.platform.media"
+depends_on = []
+
+[[modules]]
 path = "iclip.platform.material_ledger"
 depends_on = []
 
@@ -68,6 +72,7 @@ path = "iclip.domains.generation"
 depends_on = [
     "iclip.common",
     "iclip.platform.db",
+    "iclip.platform.media",
     "iclip.platform.object_store",
     "iclip.domains.identity",
 ]
@@ -99,6 +104,7 @@ depends_on = [
     "iclip.common",
     "iclip.platform.file_store",
     "iclip.platform.material_ledger",
+    "iclip.platform.media",
     "iclip.platform.transcript",
     "iclip.harness",
     "iclip.domains.identity",

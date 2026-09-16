@@ -66,6 +66,7 @@ from iclip.domains.generation.module import (
     ImageModelConfig,
     build_generation_module,
 )
+from iclip.domains.generation.provider import VideoEditSpec
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
 from iclip.domains.generation.schemas import KIND_VIDEO
 from iclip.domains.generation.video import VideoProviderSettings
@@ -279,7 +280,15 @@ def _generation_module(
             api_key=settings.video_api_key,
         ),
         video_default_model=settings.video_model,
-        video_allowed_models=settings.video_allowed_models,
+        video_models={
+            model.name: None
+            if model.edit is None
+            else VideoEditSpec(
+                prompt_prefix=model.edit.prompt_prefix,
+                provider_options=model.edit.provider_options,
+            )
+            for model in settings.video_models
+        },
         image_models=tuple(
             ImageModelConfig(
                 name=model.name, api_base=model.api_base, concurrency=model.concurrency

@@ -1,4 +1,4 @@
-"""媒体生成模块装配。图片按配置里声明的那几家逐个装，视频固定一家。"""
+"""媒体生成模块装配。图片按配置里声明的那几家逐个装，视频固定一家，本地裁剪拼接一家。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import httpx
 import procrastinate
 
 from iclip.domains.generation.api import create_generations_router
+from iclip.domains.generation.clip import FfmpegClipProvider
 from iclip.domains.generation.nano_banana import (
     PROVIDER_NAME as NANO_BANANA_PRO,
 )
@@ -20,7 +21,11 @@ from iclip.domains.generation.nano_banana import (
     NanoBananaImageProvider,
     NanoBananaSettings,
 )
-from iclip.domains.generation.provider import GenerationProvider, ImageModelSpec
+from iclip.domains.generation.provider import (
+    GenerationProvider,
+    ImageModelSpec,
+    VideoEditSpec,
+)
 from iclip.domains.generation.queue import (
     GenerationQueue,
     GenerationQueueSettings,
@@ -76,7 +81,7 @@ def build_generation_module(
     act_as: ActAs,
     video: VideoProviderSettings,
     video_default_model: str,
-    video_allowed_models: tuple[str, ...],
+    video_models: Mapping[str, VideoEditSpec | None],
     image_models: Sequence[ImageModelConfig],
     image_default_model: str,
     image_env: str,
@@ -88,8 +93,8 @@ def build_generation_module(
 ) -> GenerationModule:
     """装配 Provider 与队列；transport 支持测试替身，queue_connector 由组合根选择数据库驱动。
 
-    对象存储只给图片用：图片网关给的是会过期的签名地址，要转存；视频上游给的是它自己
-    发布好的稳定地址，直接存。"""
+    对象存储给图片与本地视频加工用：图片网关给的是会过期的签名地址，要转存；裁剪拼接的
+    产物本来就是我们自己造的。视频上游给的是它自己发布好的稳定地址，不转存。"""
 
     if not image_models:
         raise RuntimeError("媒体生成开着却一家图片模型都没声明")
@@ -100,6 +105,7 @@ def build_generation_module(
         )
     settings = queue_settings or GenerationQueueSettings()
     video_provider = HttpVideoProvider(video, transport=video_transport)
+    clip_provider = FfmpegClipProvider(object_store=object_store)
     image_providers = [
         _image_provider(model, env=image_env, object_store=object_store, transport=image_transport)
         for model in image_models
@@ -108,6 +114,8 @@ def build_generation_module(
         repo,
         lanes=(
             ProviderLane(video_provider, settings.video_submit_concurrency),
+            # 裁剪拼接是 CPU 活，和只等网络的提交分开排，免得它把别人的槽位占满。
+            ProviderLane(clip_provider, settings.clip_concurrency),
             *(
                 ProviderLane(provider, model.concurrency)
                 for provider, model in zip(image_providers, image_models, strict=True)
@@ -120,8 +128,9 @@ def build_generation_module(
         repo,
         queue,
         video_provider_name=video_provider.name,
+        clip_provider_name=clip_provider.name,
         video_default_model=video_default_model,
-        video_allowed_models=video_allowed_models,
+        video_models=video_models,
         image_models={name: IMAGE_MODEL_SPECS[name] for name in declared},
         image_default_model=image_default_model,
     )

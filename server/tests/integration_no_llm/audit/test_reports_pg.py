@@ -130,7 +130,10 @@ class Seed:
                 submitted_at: datetime | None = None,
                 finished_at: datetime | None = None,
                 video_id: uuid.UUID | None = None,
+                metadata: dict[str, object] | None = None,
             ) -> None:
+                if metadata is None and shot is not None:
+                    metadata = {"shot": shot}
                 await conn.execute(
                     text(
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
@@ -148,7 +151,7 @@ class Seed:
                             {"model": "m", "prompt": "p", "user_name": user_name}
                         ),
                         "status": status,
-                        "metadata": None if shot is None else json.dumps({"shot": shot}),
+                        "metadata": None if metadata is None else json.dumps(metadata),
                         "created_at": created_at,
                         "submitted_at": submitted_at,
                         "finished_at": finished_at,
@@ -238,6 +241,22 @@ class Seed:
                 created_at=ago(minutes=10),
                 finished_at=ago(minutes=5),
                 video_id=self.missing_shot_video,
+            )
+            # 视频编辑的结果：只带编辑链坐标、没有镜头组，不该算成缺坐标。
+            await video(
+                self.c1,
+                user_name=SHAN,
+                shot=None,
+                status="completed",
+                created_at=ago(minutes=8),
+                finished_at=ago(minutes=4),
+                metadata={
+                    "rootJob": str(self.missing_shot_video),
+                    "baseJob": str(self.missing_shot_video),
+                    "editId": "e1",
+                    "editStart": 1,
+                    "editEnd": 4,
+                },
             )
             await usage(
                 self.c1,

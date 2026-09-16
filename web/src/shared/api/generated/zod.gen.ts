@@ -150,6 +150,34 @@ export const zBodyAuthCookieLoginAuthLoginPost = z.object({
 })
 
 /**
+ * ClipSegmentIn
+ *
+ * 从一条视频里取 ``[start, end)`` 这一段，单位秒。
+ */
+export const zClipSegmentIn = z.object({
+  end: z.number(),
+  start: z.number().gte(0),
+  url: z.string().min(1).max(2000),
+})
+
+/**
+ * ClipIn
+ *
+ * 一次本地视频加工：按顺序裁出各段拼成一条，产物是本系统桶里的公开地址。
+ *
+ * ``reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段，不重编码
+ * （起点因此落在最近的关键帧上，产物可能比区间略长）；``master`` 是拼出来的成片，各段
+ * 参数互不相同，一律重编码对齐。两者存在不同前缀下，成片不进过期规则。
+ */
+export const zClipIn = z.object({
+  conversationId: z.uuid().nullish(),
+  metadata: z.record(z.string(), z.unknown()).nullish(),
+  purpose: z.enum(['reference', 'master']),
+  segments: z.array(zClipSegmentIn).min(1).max(50),
+  taskId: z.uuid().nullish(),
+})
+
+/**
  * CollectionIn
  *
  * 新建或改名。名字必填——没名字的口袋没法认。
@@ -1419,13 +1447,33 @@ export const zOpsCatchup = z.object({
 })
 
 /**
+ * VideoEditOut
+ *
+ * 这个模型怎么做视频编辑。给了哪一项就照着加，调用方不需要认识具体是哪家。
+ */
+export const zVideoEditOut = z.object({
+  promptPrefix: z.string().nullish(),
+  providerOptions: z.record(z.string(), z.string()).nullish(),
+})
+
+/**
+ * VideoModelOut
+ *
+ * 一个视频模型：id，以及支不支持视频编辑、怎么触发。
+ */
+export const zVideoModelOut = z.object({
+  edit: zVideoEditOut.nullish(),
+  model: z.string(),
+})
+
+/**
  * VideoModelsOut
  *
- * 接入了哪几个视频模型。只有模型 id，下拉直接显示它。
+ * 接入了哪几个视频模型与各自的编辑能力，按配置声明顺序。
  */
 export const zVideoModelsOut = z.object({
   default: z.string(),
-  items: z.array(z.string()),
+  items: z.array(zVideoModelOut),
 })
 
 /**
@@ -1986,7 +2034,7 @@ export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),
   conversationId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
-  kind: z.enum(['image', 'video']).nullish(),
+  kind: z.enum(['image', 'video', 'clip']).nullish(),
   metadata: z.string().nullish(),
   before: z.uuid().nullish(),
 })
@@ -1995,6 +2043,13 @@ export const zListGenerationsGenerationsGetQuery = z.object({
  * Successful Response
  */
 export const zListGenerationsGenerationsGetResponse = zGenerationsPageOut
+
+export const zSubmitClipGenerationsClipsPostBody = zClipIn
+
+/**
+ * Successful Response
+ */
+export const zSubmitClipGenerationsClipsPostResponse = zGenerationEnvelope
 
 export const zSubmitImageGenerationsImagePostBody = zImageGenerationIn
 
