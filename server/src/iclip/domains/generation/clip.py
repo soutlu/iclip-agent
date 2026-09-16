@@ -68,7 +68,7 @@ class FfmpegClipProvider:
                 code="REQUEST_KIND_MISMATCH",
                 retryable=False,
             )
-        content = await self._render(request)
+        content, duration_ms = await self._render(request)
         key = (
             MEDIA_PATHS.video_clip(job_id=job.id, ext=_EXT)
             if request.purpose == CLIP_REFERENCE
@@ -87,7 +87,7 @@ class FfmpegClipProvider:
         return ProviderSubmission(
             provider_task_id=str(job.id),
             provider_status="completed",
-            raw={"purpose": request.purpose, "segments": len(request.segments)},
+            raw={"purpose": request.purpose, "durationMs": duration_ms},
             output_url=url,
         )
 
@@ -98,11 +98,14 @@ class FfmpegClipProvider:
             retryable=False,
         )
 
-    async def _render(self, request: ClipIn) -> bytes:
-        """加工出成品并返回字节。临时目录在退出时清掉。
+    async def _render(self, request: ClipIn) -> tuple[bytes, int]:
+        """加工出成品，返回字节与实际时长（毫秒）。临时目录在退出时清掉。
 
         两种用途取素材的方式不同：参考片段只要一条视频里的一段，交给 ffmpeg 按需远程读；
-        成片要把好几段拼起来，滤镜图会在编码期来回读各路输入，仍然先下到本地。"""
+        成片要把好几段拼起来，滤镜图会在编码期来回读各路输入，仍然先下到本地。
+
+        时长在这里探：参考片段按关键帧下刀，产物比请求的区间长，长多少只有量产物才知道，
+        而产物是我们造的，这里就是权威——调用方不必再自己想办法量一遍。"""
 
         with TemporaryDirectory(prefix="iclip-clip-") as tmp:
             root = Path(tmp)
@@ -112,11 +115,12 @@ class FfmpegClipProvider:
                     await self._render_reference(request, dest=dest)
                 else:
                     await self._render_master(request, root=root, dest=dest)
+                duration_ms = await probe_duration_ms(dest)
             except MediaError as exc:
                 raise ProviderError(
                     f"视频加工失败: {exc}", code="MEDIA_PROCESS_FAILED", retryable=False
                 ) from exc
-            return dest.read_bytes()
+            return dest.read_bytes(), duration_ms
 
     async def _render_reference(self, request: ClipIn, *, dest: Path) -> None:
         """按需读远程视频，裁出唯一那一段。

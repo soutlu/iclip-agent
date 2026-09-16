@@ -391,6 +391,11 @@ class GenerationOut(CamelModel):
     watermark_output_url: str | None
     """视频的水印版地址；图片没有这一份，恒为空。"""
     error_message: str | None
+    duration_ms: int | None
+    """产物实际多长；只有本系统自己加工出来的视频知道，别的恒为空。
+
+    参考片段按关键帧下刀，产物比请求的区间长，长多少只有量产物才知道。调用方要靠它反算
+    实际起点，所以由服务端量好交出来，不必在浏览器里再开一个播放器去探。"""
     created_at: datetime
 
 
@@ -405,8 +410,18 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         output_url=job.output_url,
         watermark_output_url=job.watermark_output_url,
         error_message=job.error_message,
+        duration_ms=_duration_ms(job),
         created_at=job.created_at,
     )
+
+
+def _duration_ms(job: GenerationJob) -> int | None:
+    """从快照里取产物时长。快照整份都是 provider 自己的形状，只认这一个键。"""
+
+    if job.kind != KIND_CLIP:
+        return None
+    value = (job.provider_snapshot or {}).get("durationMs")
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 class VideoSubmitOut(SnakeModel):

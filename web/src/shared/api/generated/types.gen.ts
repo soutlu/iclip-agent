@@ -957,6 +957,10 @@ export type GenerationOut = {
    */
   createdAt: string
   /**
+   * Durationms
+   */
+  durationMs: number | null
+  /**
    * Errormessage
    */
   errorMessage: string | null

@@ -1740,6 +1740,17 @@
             "title": "Createdat",
             "type": "string"
           },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
+          },
           "errorMessage": {
             "anyOf": [
               {
@@ -1826,6 +1837,7 @@
           "outputUrl",
           "watermarkOutputUrl",
           "errorMessage",
+          "durationMs",
           "createdAt"
         ],
         "title": "GenerationOut",
