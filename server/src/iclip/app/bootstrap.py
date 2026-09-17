@@ -460,7 +460,7 @@ def build_app(
                 str(source_id), ordinal=turn, target_conversation_id=str(target_id)
             )
             if plan is None:
-                # 先数过轮数才拷的贝，走到这儿说明源对话在这期间又跑了一轮。
+                # 先数过轮数才动手拷的，走到这儿说明源对话在这期间又跑了一轮。
                 raise Conflict("这段对话刚刚又跑了一轮，重新挑一个分叉点")
             await plan.commit()
 

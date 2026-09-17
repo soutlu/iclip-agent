@@ -126,9 +126,9 @@ class ConversationOut(CamelModel):
     updated_at: datetime
     deleted_at: datetime | None
     """属主删掉它的时刻。只有治理者审计带 ``deleted`` 筛选时才会见到非空值。"""
-    forked_from: uuid.UUID | None = None
+    forked_from: uuid.UUID | None
     """从哪段对话分叉来的；不是分叉来的为空。前端据此画血缘提示。"""
-    fork_turn: int | None = None
+    fork_turn: int | None
     """分叉自源对话的第几轮，从 1 数。与 ``forkedFrom`` 同时有值。"""
     activity: ConversationActivityOut
 

@@ -1479,6 +1479,8 @@
           "createdAt",
           "updatedAt",
           "deletedAt",
+          "forkedFrom",
+          "forkTurn",
           "activity"
         ],
         "title": "ConversationOut",
