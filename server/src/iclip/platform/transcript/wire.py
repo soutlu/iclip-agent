@@ -309,6 +309,10 @@ class TranscriptPage(_Envelope):
     引擎侧不认识对话表，直接由引擎生成的页（场景金样）没有它。"""
     deleted_at: str | None = None
     """属主删掉这段对话的 ISO 时刻，同样由 REST 端点贴上；只有治理者复盘墓碑时非空。"""
+    forked_from: str | None = None
+    """这段对话分叉自哪一段，同样由 REST 端点贴上；会话页据此画血缘提示，不是分叉来的为空。"""
+    fork_turn: int | None = None
+    """分叉自源对话的第几轮，与 ``forked_from`` 同时有值。"""
     agents: tuple[AgentDescriptor, ...] = ()
     pending_interactions: tuple[str, ...] = ()
     seq: int

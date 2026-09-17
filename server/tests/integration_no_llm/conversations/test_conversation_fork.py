@@ -167,6 +167,9 @@ async def test_fork_carries_history_and_workspace_and_leaves_the_source_alone(
 
     history = await client.get(f"{URL}/{copy['id']}/transcript")
     assert history.status_code == 200, history.text
+    assert (history.json()["forked_from"], history.json()["fork_turn"]) == (source, 2), (
+        "会话页首屏靠这两项画血缘提示"
+    )
     turns = history.json()["items"]
     assert [turn["content"] for turn in turns] == [
         [{"type": "text", "text": "第一句"}],

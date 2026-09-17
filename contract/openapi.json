@@ -4334,6 +4334,28 @@
             ],
             "title": "Deleted At"
           },
+          "fork_turn": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fork Turn"
+          },
+          "forked_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forked From"
+          },
           "has_more": {
             "title": "Has More",
             "type": "boolean"
