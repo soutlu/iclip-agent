@@ -3,10 +3,12 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
+import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { copyText as writeClipboard } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { isBehindModal } from '@/shared/ui/dialog'
+import { Select } from '@/shared/ui/field'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import {
@@ -31,6 +33,7 @@ import type { FrameEditTarget } from '../image-edit/image-edit-types'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH } from '../shots'
 import { useShotGenerations } from '../storyboard.api'
 import { useGenerationGate } from '../use-generation-gate'
+import { supportsAspectRatio } from '../video-model-support'
 import { useShotsDraft } from '../use-shots-draft'
 import { useLiveGenerations } from '../use-live-generations'
 import { useVideoGeneration } from '../use-video-generation'
@@ -222,6 +225,11 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
     video.submitting.includes(shot.index)
   // 改过之后原因就过期了，等下一次出片再说；存盘状态那一格有自己的提示，不重复说。
   const submitError = draft.hasUnsavedChanges ? undefined : video.errorOf(shot.index)
+  // 选中的模型做不了这份分镜的画幅：只提醒，不拦——真拒还是由上游拒（ADR-0018）。
+  const aspectMismatch = supportsAspectRatio(video.options.model, document.aspect_ratio)
+    ? undefined
+    : `${video.options.model} 做不了 ${document.aspect_ratio}`
+  const generateNotice = submitError ?? aspectMismatch
   const generate = () =>
     gate.run(async (mounted) => {
       const saved = await draft.saveNow()
@@ -250,6 +258,30 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 px-4 pt-2 pb-1">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <Select
+              aria-label="画幅"
+              disabled={editingDisabled}
+              onChange={(event) => draft.updateAspectRatio(event.target.value)}
+              value={document.aspect_ratio}
+              variant="inline"
+            >
+              {/* agent 可以写任何 宽:高，不在档位里的也要照原样显示得出来。 */}
+              {ASPECT_RATIOS.some((ratio) => ratio === document.aspect_ratio) ? null : (
+                <option value={document.aspect_ratio}>{document.aspect_ratio}</option>
+              )}
+              {ASPECT_RATIOS.map((ratio) => {
+                const usable = supportsAspectRatio(video.options.model, ratio)
+                // 选中的那个不加后缀：收起来的下拉只显示它，长文案会把顶栏挤下去；
+                // 它正好不被支持时，出片按钮旁边那句提示已经在说了。
+                const label =
+                  usable || ratio === document.aspect_ratio ? ratio : `${ratio}（不支持）`
+                return (
+                  <option disabled={!usable} key={ratio} value={ratio}>
+                    {label}
+                  </option>
+                )
+              })}
+            </Select>
             <SaveStatus
               state={draft.state}
               hasUnsavedChanges={draft.hasUnsavedChanges}
@@ -279,13 +311,13 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
               <span className="ml-1 text-primary">生成中 {activeCount}</span>
             ) : null}
           </Button>
-          {submitError === undefined ? null : (
+          {generateNotice === undefined ? null : (
             <span
               className="min-w-0 shrink truncate text-body-sm text-error"
               role="alert"
-              title={submitError}
+              title={generateNotice}
             >
-              {submitError}
+              {generateNotice}
             </span>
           )}
           <VideoGenerationButton

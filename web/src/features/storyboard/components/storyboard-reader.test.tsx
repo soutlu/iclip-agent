@@ -672,6 +672,48 @@ describe('StoryboardReader', () => {
     expect(await within(records).findByText('生成中')).toBeVisible()
   })
 
+  it('改画幅写回分镜、出片带上新画幅；画幅按选中的模型标不支持，但不替用户改也不拦', async () => {
+    const files = provide()
+    const user = userEvent.setup()
+    const posted: { aspect_ratio?: string; model?: string }[] = []
+    server.use(
+      http.post('*/api/generations/video', async ({ request }) => {
+        posted.push((await request.json()) as { aspect_ratio?: string; model?: string })
+        return HttpResponse.json({ task_id: runningJob.id }, { status: 202 })
+      }),
+    )
+    await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+
+    const aspect = await screen.findByLabelText<HTMLSelectElement>('画幅')
+    const option = (value: string) =>
+      within(aspect).getByRole<HTMLOptionElement>('option', { name: new RegExp(`^${value}`) })
+    // 默认的 seedance 做得了 21:9，选得动。
+    expect(option('21:9')).not.toBeDisabled()
+    await user.selectOptions(aspect, '21:9')
+    await waitFor(() => expect(files.writes).toHaveLength(1))
+    expect(files.snapshot().aspect_ratio).toBe('21:9')
+
+    // 换成做不了 21:9 的万相：模型照选不误，画幅那一项标上不支持，出片按钮旁提醒但不禁用。
+    await user.click(await screen.findByRole('button', { name: /^生成设置：moyu-seedance-2-5/ }))
+    const settings = await screen.findByRole('dialog', { name: '生成设置' })
+    const wan = within(settings).getByRole('radio', { name: 'wan3.0-video' })
+    expect(wan).toBeEnabled()
+    await user.click(wan)
+    await user.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '生成设置' })).not.toBeInTheDocument(),
+    )
+    expect(option('21:9')).toBeDisabled()
+    expect(await screen.findByRole('alert', { name: 'wan3.0-video 做不了 21:9' })).toBeVisible()
+
+    const generate = screen.getByRole('button', { name: '生成视频' })
+    expect(generate).toBeEnabled()
+    await user.click(generate)
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ aspect_ratio: '21:9', model: 'wan3.0-video' })
+  })
+
   it('服务端拒收出片时在出片按钮旁提示原话，不弹全局提示、不刷新记录', async () => {
     provide()
     let reads = 0
