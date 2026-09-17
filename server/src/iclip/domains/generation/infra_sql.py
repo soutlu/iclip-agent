@@ -16,6 +16,8 @@ from sqlalchemy import (
     Text,
     Uuid,
     func,
+    literal,
+    null,
     select,
     tuple_,
 )
@@ -35,7 +37,11 @@ from iclip.domains.generation.models import (
     GenerationStatus,
     InFlightPhase,
 )
-from iclip.domains.generation.schemas import request_from_payload, request_to_payload
+from iclip.domains.generation.schemas import (
+    KIND_CLIP,
+    request_from_payload,
+    request_to_payload,
+)
 from iclip.platform.db.ownership import scope_to_owner
 
 DB_SCHEMA: Final = "iclip"
@@ -165,6 +171,37 @@ class SqlGenerationRepository:
         async with self._engine.connect() as conn:
             rows = (await conn.execute(stmt.limit(limit))).mappings().all()
         return tuple(_job_from_row(row) for row in rows)
+
+    async def copy_completed_to_fork(
+        self,
+        *,
+        source_conversation_id: uuid.UUID,
+        target_conversation_id: uuid.UUID,
+        owner: uuid.UUID,
+        task_id: uuid.UUID | None,
+    ) -> int:
+        # 一条 INSERT ... SELECT：出片记录可能上百条，不来回搬到进程里。
+        copied = {
+            "id": func.gen_random_uuid(),
+            "owner_user_id": literal(owner, Uuid),
+            "api_key_id": null(),
+            "conversation_id": literal(target_conversation_id, Uuid),
+            "task_id": null() if task_id is None else literal(task_id, Uuid),
+        }
+        columns = list(generation_jobs_table.c.keys())
+        source = select(
+            *(copied.get(name, generation_jobs_table.c[name]) for name in columns)
+        ).where(
+            _JOBS.conversation_id == source_conversation_id,
+            _JOBS.status == STATUS_COMPLETED,
+            # 编辑链整条不带：链上各条靠 metadata.rootJob 认根，根在副本里换了 id，拷过去
+            # 也连不回去，只会变成谁都查不着的行。本地加工的产物全在链上，一并排除。
+            _JOBS.kind != KIND_CLIP,
+            ~func.coalesce(func.jsonb_exists(_JOBS.metadata, "rootJob"), False),
+        )
+        async with self._engine.begin() as conn:
+            result = await conn.execute(generation_jobs_table.insert().from_select(columns, source))
+        return result.rowcount
 
     async def in_flight_by_conversation(
         self, conversation_ids: Sequence[uuid.UUID], *, kind: str

@@ -676,3 +676,66 @@ async def test_anomalies_respect_scope_filters(reports: PgAuditReports, seed: Se
     # 长的那段超过 P90；用量只有 C1 一罐，超不过自己的 P95。
     assert {item.kind for item in by_donnie} == {"idle", "stuck"}
     assert {item.kind for item in in_task} == {"retry", "idle", "slow", "stuck", "missing_shot"}
+
+
+async def test_forks_do_not_count_toward_any_metric(
+    reports: PgAuditReports, seed: Seed, engine: AsyncEngine
+) -> None:
+    """副本带着源对话拷来的出片记录，算进去会把原作者的产量重计一遍；它自己跑的也是试验数据。"""
+
+    before = await reports.overall(Scope())
+    fork_id = uuid.uuid4()
+    at = ago(hours=1)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO iclip.conversations (id, owner_user_id, agent_id, title, task_id,"
+                " created_at, updated_at, forked_from, fork_turn)"
+                " VALUES (:id, :owner, 'agent', '副本', :task_id, :at, :at, :source, 1)"
+            ),
+            {"id": fork_id, "owner": seed.shan, "task_id": seed.task, "at": at, "source": seed.c1},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id, metadata,"
+                " kind, provider, request, status, output_url, created_at, updated_at,"
+                " submitted_at, finished_at)"
+                " VALUES (:id, :owner, :conversation_id, :metadata, 'video', 'p',"
+                " :request, 'completed', 'https://example.test/copy.mp4', :at, :at, :at, :at)"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "owner": seed.shan,
+                "conversation_id": fork_id,
+                "metadata": json.dumps({"shot": 1}),
+                "request": json.dumps({"kind": "video", "user_name": SHAN}),
+                "at": at,
+            },
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.agent_jobs (prompt_id, conversation_id, agent_id,"
+                " owner_user_id, user_name, content, status, created_at, finished_at)"
+                " VALUES (:prompt_id, :conversation_id, 'agent', :owner, :user_name, '',"
+                " 'done', :at, :at)"
+            ),
+            {
+                "prompt_id": str(uuid.uuid4()),
+                "conversation_id": str(fork_id),
+                "owner": seed.shan,
+                "user_name": SHAN,
+                "at": at,
+            },
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runtime.conversation_usage (conversation_id, model_name,"
+                " requests, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens,"
+                " first_at, last_at)"
+                " VALUES (:conversation_id, 'test-model', 9, 900, 90, 9, 90, :at, :at)"
+            ),
+            {"conversation_id": str(fork_id), "at": at},
+        )
+
+    after = await reports.overall(Scope())
+    assert after == before

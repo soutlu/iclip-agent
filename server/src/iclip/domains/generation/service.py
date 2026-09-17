@@ -56,6 +56,26 @@ class GenerationService:
         self._image_models = image_models
         self._image_default_model = image_default_model
 
+    async def copy_to_fork(
+        self,
+        *,
+        source_conversation_id: uuid.UUID,
+        target_conversation_id: uuid.UUID,
+        owner: uuid.UUID,
+        task_id: uuid.UUID | None,
+    ) -> int:
+        """把源对话已出片的记录复制到副本名下，返回复制了几条。
+
+        不收 Principal：授权在对话域做完了——能分叉就说明这个人读得到源对话，也读得到
+        它的出片记录。复制只落记录，不排队、不调 Provider、不产生对外调用。"""
+
+        return await self._repo.copy_completed_to_fork(
+            source_conversation_id=source_conversation_id,
+            target_conversation_id=target_conversation_id,
+            owner=owner,
+            task_id=task_id,
+        )
+
     async def submit_video(self, principal: Principal, request: VideoGenerationIn) -> GenerationJob:
         """受理一次视频生成。模型必须在允许表里；其余字段原样转发给上游，由它按模型判。"""
 

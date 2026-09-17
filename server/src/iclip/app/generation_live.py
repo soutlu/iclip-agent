@@ -50,6 +50,22 @@ class AnnouncingGenerationRepository:
             before=before,
         )
 
+    async def copy_completed_to_fork(
+        self,
+        *,
+        source_conversation_id: uuid.UUID,
+        target_conversation_id: uuid.UUID,
+        owner: uuid.UUID,
+        task_id: uuid.UUID | None,
+    ) -> int:
+        # 不发帧：副本的对话行还没落库，这一刻没人订阅得了它。
+        return await self._inner.copy_completed_to_fork(
+            source_conversation_id=source_conversation_id,
+            target_conversation_id=target_conversation_id,
+            owner=owner,
+            task_id=task_id,
+        )
+
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
         return self._announce(await self._inner.mark_submitting(job_id))
 

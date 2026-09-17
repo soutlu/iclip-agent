@@ -38,7 +38,8 @@ from iclip.app.generation_live import AnnouncingGenerationRepository
 from iclip.app.logging import configure_logging
 from iclip.capabilities.shot_document import SHOTS_PATH
 from iclip.capabilities.shot_video.ffmpeg import ffmpeg_available
-from iclip.common.errors import NotFound
+from iclip.capabilities.workspace.scope import namespace_for
+from iclip.common.errors import Conflict, NotFound
 from iclip.config import (
     ObjectStoreEnv,
     ResolvedAgent,
@@ -444,6 +445,65 @@ def build_app(
 
         return frozenset(uuid.UUID(one) for one in await job_queue.busy_conversation_ids(owner))
 
+    class _ForkTranscript:
+        """把对话域的分叉用例接到 agent 引擎的历史读写上；``transcript_history`` 在下面才装好。"""
+
+        async def idle(self, conversation_id: uuid.UUID) -> bool:
+            view = await job_queue.view(str(conversation_id))
+            return view.active is None and not view.queued
+
+        async def turn_count(self, conversation_id: uuid.UUID) -> int:
+            return await transcript_history.turn_count(str(conversation_id))
+
+        async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> None:
+            plan = await transcript_history.plan_fork(
+                str(source_id), ordinal=turn, target_conversation_id=str(target_id)
+            )
+            if plan is None:
+                # 先数过轮数才拷的贝，走到这儿说明源对话在这期间又跑了一轮。
+                raise Conflict("这段对话刚刚又跑了一轮，重新挑一个分叉点")
+            await plan.commit()
+
+    async def copy_conversation_workspace(
+        *,
+        source_owner: uuid.UUID,
+        source_id: uuid.UUID,
+        target_owner: uuid.UUID,
+        target_id: uuid.UUID,
+    ) -> None:
+        """工作区文件与素材台账整份搬进副本的命名空间。
+
+        走 FileStore 的写入口而不是裸 SQL：容量上限与路径校验对副本照旧生效。不走会发帧的
+        那一层——副本的对话行还没落库，这一刻没人订阅得了它。"""
+
+        source = namespace_for(source_owner, str(source_id))
+        target = namespace_for(target_owner, str(target_id))
+        for entry in await workspace_store.entries(source):
+            found = await workspace_store.read(source, entry.path)
+            if found is None:
+                # 列得出来却读不出来，只可能是绕过存储写进去的非规范路径：不静默少拷一个文件。
+                raise RuntimeError(f"工作区列出了 {entry.path} 却读不出来，这段对话的文件存坏了")
+            await workspace_store.write(target, entry.path, found.content)
+        await material_ledger.record(target, await material_ledger.list_all(source))
+
+    async def copy_conversation_generations(
+        *,
+        source_id: uuid.UUID,
+        target_id: uuid.UUID,
+        owner: uuid.UUID,
+        task_id: uuid.UUID | None,
+    ) -> int:
+        """副本的结果条来自这一步；没开媒体生成就没有出片记录可拷。"""
+
+        if generation is None:
+            return 0
+        return await generation.service.copy_to_fork(
+            source_conversation_id=source_id,
+            target_conversation_id=target_id,
+            owner=owner,
+            task_id=task_id,
+        )
+
     def on_activity(conversation_id: str, owner: uuid.UUID, state: ActivityState) -> None:
         """同步向属主连接广播活动变化，避免 await 使连续状态通知乱序。"""
 
@@ -501,6 +561,9 @@ def build_app(
         announce_title=live_connections.announce_title,
         activities_of=activities_of,
         busy_conversation_ids=busy_conversation_ids,
+        fork_transcript=_ForkTranscript(),
+        copy_workspace=copy_conversation_workspace,
+        copy_generations=copy_conversation_generations,
     )
     uploads = build_uploads_module(public_objects) if public_objects is not None else None
     job_queue = JobQueue(active_engine, on_activity=on_activity)

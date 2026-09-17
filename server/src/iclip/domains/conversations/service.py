@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, Protocol
 
-from iclip.common.errors import NotFound, PermissionDenied, ValidationFailed
+from iclip.common.errors import Conflict, NotFound, PermissionDenied, ValidationFailed
 from iclip.domains.conversations.models import (
     IDLE_ACTIVITY,
     Conversation,
@@ -21,7 +21,7 @@ from iclip.domains.conversations.repository import (
     PageCursor,
     StateFilter,
 )
-from iclip.domains.conversations.schemas import DEFAULT_TITLE
+from iclip.domains.conversations.schemas import DEFAULT_TITLE, MAX_TITLE_CHARS
 from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
 
 MAX_LIST_LIMIT = 100
@@ -108,6 +108,58 @@ ClaimTask = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """对话挂上需求单就是有人在做了：以 (需求单 id, 对话属主) 认领它。实现由组合根注入。"""
 
 
+class ForkTranscript(Protocol):
+    """副本起点的读写，由组合根接到 agent 引擎上。副本不复制运行记录，只写一张种子快照。"""
+
+    async def idle(self, conversation_id: uuid.UUID) -> bool:
+        """这段对话此刻没有在跑、也没有排队的消息。
+
+        与重新生成同一个口径，比对话活动里的 ``busy`` 更严：排队中的那条一旦起跑就会写新快照，
+        轮号跟着变，分叉点会指到别的地方去。"""
+        ...
+
+    async def turn_count(self, conversation_id: uuid.UUID) -> int:
+        """源对话一共几轮；越界的分叉点在拷贝任何东西之前就被挡掉。"""
+        ...
+
+    async def seed(self, *, source_id: uuid.UUID, target_id: uuid.UUID, turn: int) -> None:
+        """把源对话截到第 ``turn`` 轮的消息写成副本的第一张快照。
+
+        消息里的 run_id 照抄源对话：副本靠它们回源查每轮的终态与子代理，不另存一份。"""
+        ...
+
+
+class CopyConversationWorkspace(Protocol):
+    """把源对话的工作区文件与素材台账整份拷进副本。
+
+    命名空间是「属主/对话 id」，所以两端的属主都要给。素材必须跟着拷：不拷的话副本续跑时，
+    受素材约束的工具会把源对话里那些地址当成没登记过而拒绝。"""
+
+    async def __call__(
+        self,
+        *,
+        source_owner: uuid.UUID,
+        source_id: uuid.UUID,
+        target_owner: uuid.UUID,
+        target_id: uuid.UUID,
+    ) -> None: ...
+
+
+class CopyConversationGenerations(Protocol):
+    """把源对话已出片的记录复制到副本名下，返回复制了几条。
+
+    分镜页的结果条按对话 id 查出片记录，不拷它副本打开就是空的。"""
+
+    async def __call__(
+        self,
+        *,
+        source_id: uuid.UUID,
+        target_id: uuid.UUID,
+        owner: uuid.UUID,
+        task_id: uuid.UUID | None,
+    ) -> int: ...
+
+
 ListDerivedFiles = Callable[[uuid.UUID, uuid.UUID], Awaitable[Sequence[DerivedFile]]]
 """列出工作区文件，参数为 (属主, 对话 id)。"""
 
@@ -136,6 +188,13 @@ def _as_utc(moment: datetime | None) -> datetime | None:
     if moment is None or moment.tzinfo is not None:
         return moment
     return moment.replace(tzinfo=UTC)
+
+
+def _fork_title(source_title: str, turn: int) -> str:
+    """副本的默认名字：源标题加一个说明血缘的后缀，超长时截源标题那一半。"""
+
+    suffix = f"（分叉 · 第 {turn} 轮）"
+    return source_title[: MAX_TITLE_CHARS - len(suffix)] + suffix
 
 
 def _as_conversation_id(raw: str) -> uuid.UUID:
@@ -212,9 +271,15 @@ class ConversationService:
         announce_title: AnnounceTitle,
         activities_of: ActivitiesOf,
         busy_conversation_ids: BusyConversationIds,
+        fork_transcript: ForkTranscript,
+        copy_workspace: CopyConversationWorkspace,
+        copy_generations: CopyConversationGenerations,
     ) -> None:
         self._repo = repo
         self._claim_task = claim_task
+        self._fork_transcript = fork_transcript
+        self._copy_workspace = copy_workspace
+        self._copy_generations = copy_generations
         self._activities_of = activities_of
         self._busy_conversation_ids = busy_conversation_ids
         self._generate_title = generate_title
@@ -320,6 +385,66 @@ class ConversationService:
         if created and task_id is not None:
             await self._claim_task(task_id, principal.user_id)
         return conversation, created
+
+    async def fork(
+        self,
+        principal: Principal,
+        source_id: uuid.UUID,
+        *,
+        turn: int,
+        title: str | None = None,
+        agent_id: str | None = None,
+        collection_id: uuid.UUID | None = None,
+    ) -> Conversation:
+        """从源对话的第 ``turn`` 轮分叉出一段属于调用者的新对话；源对话只读。
+
+        可见范围与其他读路径一致，所以治理者连墓碑也能分叉。源没闲下来就拒绝：那时最新快照
+        可能是半截的，轮号会变。
+
+        副本不挂源的需求单：挂上就是认领，那会动到别人的单子。
+
+        落库分四步，各自独立提交，对话行最后写。中途失败的副本进不了任何对话列表，也读不出
+        transcript；拷进去的出片记录按属主仍查得到，是查得到却没人用的孤儿行。
+        """
+
+        source = await self._readable(principal, source_id)
+        if not await self._fork_transcript.idle(source_id):
+            raise Conflict("这段对话还有没跑完的消息，等它收完尾再分叉")
+        turns = await self._fork_transcript.turn_count(source_id)
+        if turns == 0:
+            raise ValidationFailed("这段对话还没跑过，没有可分叉的轮次")
+        if turn > turns:
+            raise ValidationFailed(f"这段对话只有 {turns} 轮，分不出第 {turn} 轮")
+        target_id = uuid.uuid4()
+        now = datetime.now(UTC)
+        await self._copy_workspace(
+            source_owner=source.owner_user_id,
+            source_id=source_id,
+            target_owner=principal.user_id,
+            target_id=target_id,
+        )
+        await self._copy_generations(
+            source_id=source_id, target_id=target_id, owner=principal.user_id, task_id=None
+        )
+        await self._fork_transcript.seed(source_id=source_id, target_id=target_id, turn=turn)
+        conversation, _ = await self._repo.create_if_absent(
+            Conversation(
+                id=target_id,
+                owner_user_id=principal.user_id,
+                agent_id=agent_id or source.agent_id,
+                title=title or _fork_title(source.title, turn),
+                # 自动起名不碰这个标题：它已经标明了血缘。
+                title_kind="custom",
+                last_run_id=None,
+                task_id=None,
+                collection_id=collection_id,
+                created_at=now,
+                updated_at=now,
+                forked_from=source_id,
+                fork_turn=turn,
+            )
+        )
+        return conversation
 
     async def list_for_task(
         self, principal: Principal, task_id: uuid.UUID
