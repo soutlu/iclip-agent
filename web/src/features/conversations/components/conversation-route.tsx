@@ -23,6 +23,7 @@ import {
   regeneratePrompt,
   steerPrompt,
   submitPrompt,
+  useForkConversation,
 } from '../conversations.api'
 import { ApprovalCard } from './approval-card'
 import { ConversationComposer } from './conversation-composer'
@@ -61,6 +62,10 @@ type ConversationRouteProps = {
   conversationId: string
   /** 只读说明条右侧的返回入口；去哪由路由层决定，只在只读时露出。 */
   backLink?: ReactNode
+  /** 分叉成功后去副本；导航归路由层，不给回调就没有分叉入口。 */
+  onForked?: (conversationId: string) => void
+  /** 血缘提示里回源对话的链接，由路由层按源 id 造。 */
+  sourceLink?: (conversationId: string) => ReactNode
 }
 
 /** 保留原内容用于校验末轮身份；重新生成可能复用轮号。 */
@@ -70,7 +75,12 @@ type EditingTurn = {
   content: readonly PromptContentPart[]
 }
 
-export function ConversationRoute({ conversationId, backLink }: ConversationRouteProps) {
+export function ConversationRoute({
+  conversationId,
+  backLink,
+  onForked,
+  sourceLink,
+}: ConversationRouteProps) {
   const { view, refresh } = useTranscript(conversationId)
   const { titleOf } = useSessionTitles()
   const title = titleOf(conversationId) ?? view.title
@@ -199,6 +209,11 @@ export function ConversationRoute({ conversationId, backLink }: ConversationRout
     })
   }
 
+  const fork = useForkConversation((forked) => {
+    toast.success('已分叉，接着在副本里跑')
+    onForked?.(forked)
+  })
+
   const scrollToBottom = () => {
     const scroller = scrollerRef.current
     if (scroller === null) return
@@ -268,6 +283,13 @@ export function ConversationRoute({ conversationId, backLink }: ConversationRout
                           turnId: turn.turnId,
                         })
                     : undefined
+                }
+                // 分叉不写源对话，别人的、已删的都分得动，所以不受 readOnly 限制。
+                forkDisabled={conversationBusy || fork.isPending}
+                onFork={
+                  onForked === undefined
+                    ? undefined
+                    : () => act(fork.start({ conversationId, turn: turn.ordinal }))
                 }
                 onRegenerate={
                   !readOnly && turn.turnId === latestTurn?.turnId
@@ -344,6 +366,22 @@ export function ConversationRoute({ conversationId, backLink }: ConversationRout
               onRefresh={refresh}
               readOnly={readOnly}
             />
+          )}
+          {view.forkedFrom === null || sourceLink === undefined ? null : (
+            <p
+              aria-label="分叉来源"
+              className="flex items-center justify-between gap-3 rounded-lg border-[0.5px] border-chat-hairline bg-top-layer px-4 py-3 text-body-sm text-chat-secondary-text"
+              role="note"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Icon decorative name="fork" size="sm" />
+                <span className="truncate">
+                  这段是分叉出来的副本，历史截到源对话第 {view.forkTurn}{' '}
+                  轮；工作区与出片记录是分叉那一刻的那一份
+                </span>
+              </span>
+              {sourceLink(view.forkedFrom)}
+            </p>
           )}
           {readOnly ? (
             <p

@@ -327,6 +327,37 @@ export const useSetConversationMembership = (
   })
 }
 
+/** 从某一轮岔出一段自己的对话。源对话不变，副本带着截到那一轮的历史、工作区与已出片的记录。
+ *
+ * 副本 id 由服务端铸、没有幂等键，重发就是第二段。成功之后不复位标记：那一刻请求已经回来、
+ * 按钮又能点了，但页面还在跳去副本的路上，这个窗口里再点一下就是第二段。失败才放开重试。 */
+export const useForkConversation = (onForked: (conversationId: string) => void) => {
+  const queryClient = useQueryClient()
+  const inFlightRef = useRef(false)
+  const mutation = useMutation({
+    mutationFn: ({ conversationId, turn }: { conversationId: string; turn: number }) =>
+      apiFetch(`/conversations/${conversationId}:fork`, conversationEnvelopeSchema, {
+        body: { turn },
+        fallbackErrorMessage: '分叉失败',
+        method: 'POST',
+      }),
+    onError: () => {
+      inFlightRef.current = false
+    },
+    onSuccess: async (conversation) => {
+      queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
+      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
+      onForked(conversation.id)
+    },
+  })
+  const start = (input: { conversationId: string; turn: number }): Promise<void> => {
+    if (inFlightRef.current) return Promise.resolve()
+    inFlightRef.current = true
+    return mutation.mutateAsync(input).then(() => undefined)
+  }
+  return { isPending: mutation.isPending, start }
+}
+
 export const useRenameConversation = (onSaved: () => void) => {
   const queryClient = useQueryClient()
   return useMutation({

@@ -15,6 +15,9 @@ type ConversationTurnProps = {
   /** 仅在末轮且对话空闲时提供重新生成回调。 */
   onRegenerate?: (() => void) | undefined
   regenerateDisabled?: boolean | undefined
+  /** 每一轮都能分叉；对话在忙时由调用方置灰。 */
+  onFork?: (() => void) | undefined
+  forkDisabled?: boolean | undefined
   /** 仅为末轮提供修改开场输入的回调。 */
   onEdit?: (() => void) | undefined
   editDisabled?: boolean | undefined
@@ -25,8 +28,10 @@ const isSettled = (turn: TranscriptTurn) => turn.state !== 'running' && turn.sta
 /** 按轮 memo，避免流式更新重渲历史轮次。 */
 export const ConversationTurn = memo(function ConversationTurn({
   editDisabled,
+  forkDisabled,
   latest = false,
   onEdit,
+  onFork,
   onRegenerate,
   regenerateDisabled,
   turn,
@@ -74,6 +79,8 @@ export const ConversationTurn = memo(function ConversationTurn({
         <TurnActions
           copyText={copyText}
           endedAt={turn.endedAt}
+          forkDisabled={forkDisabled}
+          onFork={onFork}
           onRegenerate={onRegenerate}
           regenerateDisabled={regenerateDisabled}
           revealed={latest}

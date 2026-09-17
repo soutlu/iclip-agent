@@ -80,6 +80,9 @@ type TurnActionsProps = {
   /** 未提供回调时隐藏按钮；调用方负责末轮与空闲状态判断。 */
   onRegenerate?: (() => void) | undefined
   regenerateDisabled?: boolean | undefined
+  /** 未提供回调时隐藏按钮。每一轮都能分叉，不限末轮。 */
+  onFork?: (() => void) | undefined
+  forkDisabled?: boolean | undefined
   /** 最新一轮常驻；历史轮只在悬停或聚焦时露出。 */
   revealed?: boolean | undefined
 }
@@ -87,6 +90,8 @@ type TurnActionsProps = {
 export function TurnActions({
   copyText,
   endedAt,
+  forkDisabled = false,
+  onFork,
   onRegenerate,
   regenerateDisabled = false,
   revealed = false,
@@ -110,6 +115,18 @@ export function TurnActions({
             onClick={onRegenerate}
             size="xs"
             title="重新生成"
+            variant="standard"
+          />
+        )}
+        {onFork === undefined ? null : (
+          <IconButton
+            className="text-chat-muted-text"
+            disabled={forkDisabled}
+            label="从这里分叉"
+            name="fork"
+            onClick={onFork}
+            size="xs"
+            title="从这里分叉：复制到这一轮为止，接着自己跑"
             variant="standard"
           />
         )}

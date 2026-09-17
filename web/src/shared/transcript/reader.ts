@@ -42,6 +42,9 @@ export interface TranscriptView {
   ownerUserId: string | null
   /** 属主删掉它的时刻，取基线；活着的对话与基线未到时为 null。 */
   deletedAt: string | null
+  /** 分叉来源与分叉点，取基线；不是分叉来的与基线未到时为 null。 */
+  forkedFrom: string | null
+  forkTurn: number | null
   /** loading 表示等待基线；读取失败或无法对齐时为 error。 */
   status: 'loading' | 'ready' | 'error'
   /** 是否存在更早的历史轮次。 */
@@ -53,6 +56,8 @@ const EMPTY_VIEW: TranscriptView = {
   activity: 'unknown',
   contextTokens: undefined,
   deletedAt: null,
+  forkTurn: null,
+  forkedFrom: null,
   hasMoreOlder: false,
   items: [],
   maxContextTokens: undefined,
@@ -225,6 +230,8 @@ export class TranscriptReader {
           activity: this.transcript.getMeta().activity ?? 'unknown',
           contextTokens: this.transcript.getMeta().agent?.contextTokens,
           deletedAt: baseline.deletedAt,
+          forkTurn: baseline.forkTurn,
+          forkedFrom: baseline.forkedFrom,
           hasMoreOlder: baseline.hasMoreOlder,
           items: this.transcript.getItems(),
           maxContextTokens: this.transcript.getMeta().agent?.maxContextTokens,

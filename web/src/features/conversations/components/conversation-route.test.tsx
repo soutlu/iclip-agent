@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
+import { addMockConversation } from '@/testing/mocks/conversations'
 import { addMockUser, mockAuthUser } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
 import { mockTranscriptPage } from '@/testing/mocks/transcript'
@@ -873,6 +874,74 @@ describe('ConversationRoute', () => {
     expect(screen.queryByRole('button', { name: '立即发送到当前回合' })).toBeNull()
     expect(screen.queryByRole('button', { name: '撤回' })).toBeNull()
     expect(decided).toBe(false)
+  })
+
+  it('分叉不写源对话，所以只读地看着别人的也分得动；点一下把这一轮交给后端并跳到副本', async () => {
+    const other = addMockUser('小王')
+    server.use(
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({
+          user: { ...mockAuthUser, permissions: [...mockAuthUser.permissions, 'users:manage'] },
+        }),
+      ),
+    )
+    let asked: { turn: number } | null = null
+    let calls = 0
+    // 合同上这几个 id 都是 UUID；副本的 id 由服务端铸，测试里铸一个当它的答复。
+    const copy = addMockConversation('开场那段（分叉 · 第 2 轮）')
+    server.use(
+      http.post('*/api/conversations/c1:fork', async ({ request }) => {
+        calls += 1
+        asked = (await request.json()) as { turn: number }
+        return HttpResponse.json(
+          { conversation: { ...copy, forkTurn: asked.turn, forkedFrom: crypto.randomUUID() } },
+          { status: 201 },
+        )
+      }),
+    )
+    const forked = vi.fn()
+    const user = userEvent.setup()
+    const page = mockTranscriptPage()
+    server.use(
+      http.get('*/api/conversations/c1/transcript', () =>
+        HttpResponse.json({ ...page, owner_user_id: other.id }),
+      ),
+    )
+    await renderWithProviders(<ConversationRoute conversationId="c1" onForked={forked} />)
+
+    expect(await screen.findByText('只读 · 小王 的对话')).toBeVisible()
+    const buttons = await screen.findAllByRole('button', { name: '从这里分叉' })
+    const button = buttons[buttons.length - 1] as HTMLElement
+    // 副本的 id 由服务端铸、没有幂等键；请求回来了但还没跳走的那一瞬再点一下，不能开出两段。
+    await user.dblClick(button)
+
+    await waitFor(() => expect(forked).toHaveBeenCalledWith(copy.id))
+    expect(calls).toBe(1)
+    // mockTranscriptPage 的基线有两轮，点最后一轮的按钮。
+    expect(asked).toEqual({ turn: 2 })
+  })
+
+  it('副本页给一条血缘提示，带着源对话的入口', async () => {
+    const source = crypto.randomUUID()
+    const page = mockTranscriptPage()
+    server.use(
+      http.get('*/api/conversations/c1/transcript', () =>
+        HttpResponse.json({ ...page, fork_turn: 2, forked_from: source }),
+      ),
+    )
+    await renderWithProviders(
+      <ConversationRoute
+        conversationId="c1"
+        sourceLink={(sourceId) => <a href={`/c/${sourceId}`}>看源对话</a>}
+      />,
+    )
+
+    const note = await screen.findByRole('note', { name: '分叉来源' })
+    expect(note).toHaveTextContent('历史截到源对话第 2 轮')
+    expect(within(note).getByRole('link', { name: '看源对话' })).toHaveAttribute(
+      'href',
+      `/c/${source}`,
+    )
   })
 
   it('治理者看已删的对话也是只读，页头与说明都标出已删除；自己删的主语写「自己」', async () => {
