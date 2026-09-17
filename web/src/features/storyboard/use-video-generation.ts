@@ -8,8 +8,9 @@ import { useRef, useState } from 'react'
 import type { Shot } from './shot-document'
 import { storyboardQueryKeys, submitVideoGeneration, useVideoModels } from './storyboard.api'
 import { DEFAULT_GENERATE_AUDIO, type VideoGenerationOptions } from './video-generation-options'
+import { supportsAspectRatio } from './video-model-support'
 
-export const useVideoGeneration = (conversationId: string, path: string) => {
+export const useVideoGeneration = (conversationId: string, path: string, aspectRatio: string) => {
   const queryClient = useQueryClient()
   const models = useVideoModels()
   const [submitting, setSubmitting] = useState<readonly number[]>([])
@@ -20,10 +21,14 @@ export const useVideoGeneration = (conversationId: string, path: string) => {
     generateAudio: DEFAULT_GENERATE_AUDIO,
     model: undefined,
   })
-  // 选过的模型不在允许表里（配置改了）就退回默认，不用副作用改 state。
+  // 选过的模型不在允许表里（配置改了）、或做不了这份分镜的画幅，就换一个，不用副作用改 state。
   const items = models.data?.items ?? []
-  const model =
-    wanted.model !== undefined && items.includes(wanted.model) ? wanted.model : models.data?.default
+  const usable = (name: string | undefined): name is string =>
+    name !== undefined && items.includes(name) && supportsAspectRatio(name, aspectRatio)
+  const fallback = usable(models.data?.default)
+    ? models.data.default
+    : items.find((item) => supportsAspectRatio(item, aspectRatio))
+  const model = usable(wanted.model) ? wanted.model : fallback
   const options: VideoGenerationOptions = { generateAudio: wanted.generateAudio, model }
 
   const submit = async (shot: Shot, aspectRatio: string) => {
@@ -59,8 +64,13 @@ export const useVideoGeneration = (conversationId: string, path: string) => {
     /** 这一组上次出片失败的原因；换组就不显示，不用清。 */
     errorOf: (index: number) => (failure?.index === index ? failure.message : undefined),
     models: items,
-    modelsUnavailable: models.isError,
     options,
+    /** 模型清单读不到、或没有模型做得了这份分镜的画幅时给用户看的原因；正常时没有。 */
+    unavailable: models.isError
+      ? '视频模型读不到'
+      : model === undefined && items.length > 0
+        ? `暂无模型支持 ${aspectRatio}`
+        : undefined,
     /** 出片路上、提交之前就失败的（例如取不到已保存的镜头组），走同一条提示通道。 */
     reportError: (index: number, message: string) => setFailure({ index, message }),
     setOptions: setWanted,

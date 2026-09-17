@@ -197,6 +197,51 @@ describe('分镜草稿整份写回与版本冲突', () => {
     expect(result.current.hasUnsavedChanges).toBe(false)
   })
 
+  it('改画幅与改镜头组各自记账，409 重放时两处都带到最新版本上', async () => {
+    const initial = initialDocument()
+    const workspace = serveWorkspace(initial)
+    const result = await renderDraft()
+    const latest = changedBody(initial, 3, '服务端更新第三组')
+    workspace.publish(latest)
+    act(() => {
+      result.current.updateAspectRatio('16:9')
+      result.current.updateShot(1, (shot) => withBody(shot, '本地更新第一组'))
+    })
+
+    expect(await saveDraft(result)).toBe(true)
+
+    const expected = { ...changedBody(latest, 1, '本地更新第一组'), aspect_ratio: '16:9' }
+    expect(workspace.read()).toEqual({ document: expected, version: 3 })
+    expect(result.current.document).toEqual(expected)
+    expect(result.current.hasUnsavedChanges).toBe(false)
+  })
+
+  it('画幅被别人改过时进同一个冲突弹窗，选最新的只放弃画幅', async () => {
+    const initial = initialDocument()
+    const workspace = serveWorkspace(initial)
+    const result = await renderDraft()
+    const latest = { ...initial, aspect_ratio: '1:1' }
+    workspace.publish(latest)
+    act(() => {
+      result.current.updateAspectRatio('16:9')
+      result.current.updateShot(3, (shot) => withBody(shot, '不冲突的第三组草稿'))
+    })
+
+    expect(await saveDraft(result)).toBe(false)
+    expect(result.current.state).toMatchObject({
+      kind: 'conflict',
+      shots: [],
+      aspect: { mine: '16:9', theirs: '1:1' },
+    })
+
+    act(() => result.current.resolveConflict('theirs'))
+
+    await waitFor(() => expect(result.current.state.kind).toBe('saved'))
+    const expected = changedBody(latest, 3, '不冲突的第三组草稿')
+    expect(workspace.read()).toEqual({ document: expected, version: 3 })
+    expect(result.current.document).toEqual(expected)
+  })
+
   it('409 同组冲突选择最新内容时，只放弃冲突组并续存其它组的草稿', async () => {
     const initial = initialDocument()
     const workspace = serveWorkspace(initial)

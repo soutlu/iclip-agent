@@ -3,10 +3,12 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
+import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { copyText as writeClipboard } from '@/shared/lib/clipboard'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { isBehindModal } from '@/shared/ui/dialog'
+import { Select } from '@/shared/ui/field'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 import { toast } from '@/shared/ui/toast'
 import {
@@ -70,7 +72,6 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   useLiveGenerations(conversationId)
   // 关过编辑器就算看过那一格的终态；只记本次会话，刷新后没看过的终态会再出现一次。
   const [seenFrameJobs, setSeenFrameJobs] = useState<ReadonlySet<string>>(() => new Set())
-  const video = useVideoGeneration(conversationId, path)
   // 打开时先选中哪一条由入口决定；target 本身不带图，应用之后这一格换了图它也不用变。
   const [imageEdit, setImageEdit] = useState<{
     target: FrameEditTarget
@@ -79,6 +80,8 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   const imageEditTarget = imageEdit?.target ?? null
   const imageEditTriggerRef = useRef<HTMLElement | null>(null)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
+  // 能选哪个模型跟着草稿里的画幅走，所以要排在草稿之后。
+  const video = useVideoGeneration(conversationId, path, draft.document?.aspect_ratio ?? '')
   const [uploadedSources, setUploadedSources] = useState<
     { group: number; frame: number; url: string }[]
   >([])
@@ -250,6 +253,23 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 px-4 pt-2 pb-1">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <Select
+              aria-label="画幅"
+              disabled={editingDisabled}
+              onChange={(event) => draft.updateAspectRatio(event.target.value)}
+              value={document.aspect_ratio}
+              variant="inline"
+            >
+              {/* agent 可以写任何 宽:高，不在档位里的也要照原样显示得出来。 */}
+              {ASPECT_RATIOS.some((ratio) => ratio === document.aspect_ratio) ? null : (
+                <option value={document.aspect_ratio}>{document.aspect_ratio}</option>
+              )}
+              {ASPECT_RATIOS.map((ratio) => (
+                <option key={ratio} value={ratio}>
+                  {ratio}
+                </option>
+              ))}
+            </Select>
             <SaveStatus
               state={draft.state}
               hasUnsavedChanges={draft.hasUnsavedChanges}
@@ -289,12 +309,13 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
             </span>
           )}
           <VideoGenerationButton
+            aspectRatio={document.aspect_ratio}
             disabled={generateDisabled}
             models={video.models}
             onChange={video.setOptions}
             onGenerate={() => void generate()}
             submitting={gate.preparing || video.submitting.includes(shot.index)}
-            unavailable={video.modelsUnavailable ? '视频模型读不到' : undefined}
+            unavailable={video.unavailable}
             value={video.options}
           />
         </div>

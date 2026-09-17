@@ -1,14 +1,24 @@
 import { RadioGroup, Switch } from 'radix-ui'
 import { Icon } from '@/shared/icons'
 import type { VideoGenerationOptions } from '../video-generation-options'
+import { supportsAspectRatio } from '../video-model-support'
 
 type VideoGenerationControlsProps = {
   models: readonly string[]
+  /** 这份分镜的画幅；做不了它的模型选不了。 */
+  aspectRatio: string
   value: VideoGenerationOptions
   onChange: (value: VideoGenerationOptions) => void
 }
 
-export function VideoGenerationControls({ models, onChange, value }: VideoGenerationControlsProps) {
+export function VideoGenerationControls({
+  aspectRatio,
+  models,
+  onChange,
+  value,
+}: VideoGenerationControlsProps) {
+  const blocked = models.filter((model) => !supportsAspectRatio(model, aspectRatio))
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -22,7 +32,8 @@ export function VideoGenerationControls({ models, onChange, value }: VideoGenera
         >
           {models.map((model) => (
             <RadioGroup.Item
-              className="flex h-(--control-height-sm) min-w-0 flex-1 ui-state cursor-pointer items-center justify-center gap-1 rounded-xs border border-transparent px-2 text-body whitespace-nowrap text-on-surface ui-focus data-[state=checked]:border-primary/20 data-[state=checked]:bg-state-active data-[state=checked]:text-primary"
+              className="flex h-(--control-height-sm) min-w-0 flex-1 ui-state cursor-pointer items-center justify-center gap-1 rounded-xs border border-transparent px-2 text-body whitespace-nowrap text-on-surface ui-focus disabled:cursor-default disabled:text-disabled-text data-[state=checked]:border-primary/20 data-[state=checked]:bg-state-active data-[state=checked]:text-primary"
+              disabled={blocked.includes(model)}
               key={model}
               value={model}
             >
@@ -33,6 +44,12 @@ export function VideoGenerationControls({ models, onChange, value }: VideoGenera
             </RadioGroup.Item>
           ))}
         </RadioGroup.Root>
+        {/* 原因单独一行说：并进选项名会把这排模型撑出弹层。 */}
+        {blocked.length === 0 ? null : (
+          <p className="text-body-sm text-on-surface-muted">
+            {blocked.join('、')} 做不了 {aspectRatio}
+          </p>
+        )}
       </div>
       <div className="flex items-center justify-between gap-4 border-t-[0.5px] border-chat-hairline pt-4">
         <span className="text-body text-on-surface">生成音频</span>

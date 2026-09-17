@@ -222,7 +222,7 @@ describe('StoryboardReader 全局设定与参考图', () => {
     await replaceText(await screen.findByRole('textbox', { name: '镜头 1 的描述' }), '本地动作。')
     state.changeRemote()
     await userEvent.click(screen.getByRole('button', { name: '生成视频' }))
-    const dialog = await screen.findByRole('dialog', { name: '这一组有别的改动' })
+    const dialog = await screen.findByRole('dialog', { name: '这份分镜有别的改动' })
     expect(state.submissions).toEqual([])
     await userEvent.click(within(dialog).getByRole('button', { name: '留我的' }))
     await waitFor(() =>

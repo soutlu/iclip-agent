@@ -62,21 +62,26 @@ export function ConflictDialog({
   resolve: (choice: 'mine' | 'theirs') => void
 }) {
   const conflicts = state.kind === 'conflict' ? state.shots : []
+  const aspect = state.kind === 'conflict' ? state.aspect : undefined
   const removed = conflicts.some((conflict) => conflict.theirs === undefined)
+  const changed = [
+    ...(aspect === undefined ? [] : [`画幅（你选了 ${aspect.mine}，最新是 ${aspect.theirs}）`]),
+    ...(conflicts.length === 0 ? [] : [`第 ${conflicts.map((item) => item.index).join('、')} 组`]),
+  ].join('，')
   return (
     <DialogRoot
       onOpenChange={(open) => !open && resolve('theirs')}
       open={state.kind === 'conflict'}
     >
-      <DialogSurface aria-label="这一组有别的改动">
-        <DialogHeader closeLabel="关闭（用最新的）" title="这一组有别的改动">
-          第 {conflicts.map((conflict) => conflict.index).join('、')} 组在你编辑时被更新了。
+      <DialogSurface aria-label="这份分镜有别的改动">
+        <DialogHeader closeLabel="关闭（用最新的）" title="这份分镜有别的改动">
+          {changed}在你编辑时被更新了。
         </DialogHeader>
         <DialogBody>
           <p className="text-body text-on-surface">
             {removed
-              ? '原镜头组已被移除，当前修改不能覆盖到其它镜头组。采用最新版本只会放弃冲突组的修改。'
-              : '选择保留你的修改，或采用这些镜头组的最新版本；其它组的草稿会保留。'}
+              ? '原镜头组已被移除，当前修改不能覆盖到其它镜头组。采用最新版本只会放弃冲突处的修改。'
+              : '选择保留你的修改，或采用最新版本；没冲突的草稿会保留。'}
           </p>
         </DialogBody>
         <DialogFooter>
