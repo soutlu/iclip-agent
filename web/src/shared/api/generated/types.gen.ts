@@ -663,6 +663,33 @@ export type ConversationFilesOut = {
 }
 
 /**
+ * ConversationForkIn
+ *
+ * 从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。
+ *
+ * 对话 id 由服务端铸：分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，
+ * 没有可供幂等重放的位置。
+ */
+export type ConversationForkIn = {
+  /**
+   * Agentid
+   */
+  agentId?: string | null
+  /**
+   * Collectionid
+   */
+  collectionId?: string | null
+  /**
+   * Title
+   */
+  title?: string | null
+  /**
+   * Turn
+   */
+  turn: number
+}
+
+/**
  * ConversationIn
  *
  * 新建一段对话。不给名字就用默认名。
@@ -718,6 +745,14 @@ export type ConversationOut = {
    * Deletedat
    */
   deletedAt: string | null
+  /**
+   * Forkturn
+   */
+  forkTurn?: number | null
+  /**
+   * Forkedfrom
+   */
+  forkedFrom?: string | null
   /**
    * Id
    */
@@ -2257,6 +2292,14 @@ export type TranscriptPage = {
    * Deleted At
    */
   deleted_at?: string | null
+  /**
+   * Fork Turn
+   */
+  fork_turn?: number | null
+  /**
+   * Forked From
+   */
+  forked_from?: string | null
   /**
    * Has More
    */
@@ -4548,6 +4591,38 @@ export type AbortConversationConversationsConversationIdAbortPostResponses = {
 
 export type AbortConversationConversationsConversationIdAbortPostResponse =
   AbortConversationConversationsConversationIdAbortPostResponses[keyof AbortConversationConversationsConversationIdAbortPostResponses]
+
+export type ForkConversationConversationsConversationIdForkPostData = {
+  body: ConversationForkIn
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}:fork'
+}
+
+export type ForkConversationConversationsConversationIdForkPostErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type ForkConversationConversationsConversationIdForkPostError =
+  ForkConversationConversationsConversationIdForkPostErrors[keyof ForkConversationConversationsConversationIdForkPostErrors]
+
+export type ForkConversationConversationsConversationIdForkPostResponses = {
+  /**
+   * Successful Response
+   */
+  201: ConversationEnvelope
+}
+
+export type ForkConversationConversationsConversationIdForkPostResponse =
+  ForkConversationConversationsConversationIdForkPostResponses[keyof ForkConversationConversationsConversationIdForkPostResponses]
 
 export type ListGenerationsGenerationsGetData = {
   body?: never
