@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { cumulativePass, foldTail, gini, lorenzPoints } from './attempt-distribution'
+import {
+  cumulativePass,
+  foldTail,
+  gini,
+  lorenzPoints,
+  topShareOfAttempts,
+} from './attempt-distribution'
 import type { AttemptBucket } from './audit.api'
 
 /** 五个镜：1、1、1、2、5 次，共 10 次出片。手算过的一组，改口径时这组数会先红。 */
@@ -68,6 +74,26 @@ describe('集中度', () => {
     ]
 
     expect(gini(foldTail(tailHeavy))).toBeLessThan(gini(tailHeavy) ?? 0)
+  })
+})
+
+describe('最费劲那一成', () => {
+  it('切点正好落在档位边界上就直接取那个点', () => {
+    // 五个镜里最费劲的一个（20%）出了 5 次，占 10 次里的一半。
+    expect(topShareOfAttempts(FIVE, 0.2)).toBeCloseTo(0.5, 6)
+  })
+
+  it('切点落在档位内部按镜数等分插值', () => {
+    // 一成是半个镜：那个出五次的镜按镜数折半，得 2.5 次，占 25%。
+    expect(topShareOfAttempts(FIVE, 0.1)).toBeCloseTo(0.25, 6)
+  })
+
+  it('各镜次数一致时，一成的镜就消耗一成的次数', () => {
+    expect(topShareOfAttempts([{ attempts: 2, shots: 10 }], 0.1)).toBeCloseTo(0.1, 6)
+  })
+
+  it('没有镜时没有结论', () => {
+    expect(topShareOfAttempts([], 0.1)).toBeNull()
   })
 })
 
