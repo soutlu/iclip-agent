@@ -100,7 +100,7 @@ describe('OverviewPanel', () => {
     expect(await within(anomalies).findByText('反复重试')).toBeVisible()
   })
 
-  it('出片次数那段给出累计通过曲线与集中度', async () => {
+  it('出片次数那段给出分布曲线与集中度结论', async () => {
     seed()
     server.use(
       http.get('*/api/audit/summary', () =>
@@ -122,22 +122,23 @@ describe('OverviewPanel', () => {
       <OverviewPanel nameOf={nameOf} onOpenAnomalies={() => {}} scope={ALL_TIME} />,
     )
 
-    const section = await screen.findByRole('region', { name: '出片次数' })
-    const concentration = within(section).getByRole('figure', { name: '算力花在谁身上' })
-    await waitFor(() => expect(within(concentration).getByText('0.36')).toBeVisible())
-    expect(within(section).getByRole('figure', { name: '累计通过曲线' })).toBeVisible()
-    // 队尾那一档：出了五次的那一个镜占两成镜，却吃掉一半的出片次数。
-    expect(
-      within(concentration).getByText(/出片最多的 20.0% 的镜，吃掉了 50.0% 的次数/),
-    ).toBeVisible()
+    const section = await screen.findByRole('region', { name: '出片次数分析' })
+    const concentration = within(section).getByRole('figure', { name: '出片次数集中度' })
+    // 最费劲的一成是半个出五次的镜，按镜数折半得 2.5 次，占十次里的 25%。
+    await waitFor(() => expect(within(concentration).getByText('25%')).toBeVisible())
+    expect(within(concentration).getByText('出片次数最多的 10% 的镜占全部次数')).toBeVisible()
+
+    const curve = within(section).getByRole('figure', { name: '出片次数分布' })
+    expect(within(curve).getByText('一次完成 60% · 两次以内 80%')).toBeVisible()
 
     await userEvent.click(within(concentration).getByText('看数字'))
-    // 前 60% 的镜（三个一次过的）只吃掉 30% 的出片次数。
-    expect(within(concentration).getByRole('cell', { name: '60.0%' })).toBeVisible()
-    expect(within(concentration).getByRole('cell', { name: '30.0%' })).toBeVisible()
+    // 分档表按档位列，末档是「5 次以上」：一个镜、五次，占十次里的一半。
+    const tail = within(concentration).getByRole('row', { name: /5 次以上/ })
+    expect(within(tail).getByRole('cell', { name: '50%' })).toBeVisible()
+    expect(within(concentration).getByText(/集中度 0.36/)).toBeVisible()
   })
 
-  it('所有镜花的次数一样时不摆空表格', async () => {
+  it('各镜次数一致时不摆空表格', async () => {
     seed()
     server.use(
       http.get('*/api/audit/summary', () =>
@@ -154,10 +155,9 @@ describe('OverviewPanel', () => {
       <OverviewPanel nameOf={nameOf} onOpenAnomalies={() => {}} scope={ALL_TIME} />,
     )
 
-    const section = await screen.findByRole('region', { name: '出片次数' })
-    const concentration = within(section).getByRole('figure', { name: '算力花在谁身上' })
-    await waitFor(() => expect(within(concentration).getByText('0.00')).toBeVisible())
-    expect(within(concentration).getByText('每个镜花的出片次数都一样')).toBeVisible()
+    const section = await screen.findByRole('region', { name: '出片次数分析' })
+    const concentration = within(section).getByRole('figure', { name: '出片次数集中度' })
+    await waitFor(() => expect(within(concentration).getByText('各镜出片次数一致')).toBeVisible())
     expect(within(concentration).queryByText('看数字')).not.toBeInTheDocument()
   })
 

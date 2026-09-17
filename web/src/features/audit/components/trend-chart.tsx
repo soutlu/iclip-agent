@@ -20,6 +20,8 @@ export type TrendPoint = {
   key: string
   /** x 轴刻度文字。 */
   label: string
+  /** 悬停里代替 label 的说法；刻度要短，悬停可以说全。 */
+  tooltipLabel?: string
   value: number | null
 }
 
@@ -39,6 +41,8 @@ type TrendChartProps = {
   curve?: 'monotone' | 'step'
   /** 悬停时在数值下面补一行小字，如样本数；返回空就不加这一行。 */
   detail?: (point: TrendPoint) => string | undefined
+  /** 没有数据时的一句话，缺省是按时段取数的说法。 */
+  empty?: string
   description?: string
 }
 
@@ -68,6 +72,7 @@ export function TrendChart({
   max,
   curve = 'monotone',
   detail,
+  empty = '这个范围里没有数据',
   description,
 }: TrendChartProps) {
   const titleId = useId()
@@ -151,9 +156,7 @@ export function TrendChart({
         </span>
       </figcaption>
       {points.length === 0 ? (
-        <p className="grid h-52 place-items-center text-body text-on-surface-variant">
-          这个范围里没有数据
-        </p>
+        <p className="grid h-52 place-items-center text-body text-on-surface-variant">{empty}</p>
       ) : kind === 'bar' ? (
         <BarChart
           className="h-52 w-full"
@@ -245,17 +248,18 @@ function TrendTooltip({ active, payload, format, withBefore, detail }: TrendTool
   if (!active || row === undefined) return null
   const read = (value: number | null) => (value === null ? '无数据' : format(value))
   const note = detail?.(row)
+  const caption = row.tooltipLabel ?? row.label
   return (
     <div className="flex flex-col rounded-xs bg-inverse-surface px-2 py-1 text-label text-inverse-on-surface tabular-nums shadow-[var(--shadow-2)]">
       {withBefore ? (
         <>
-          <span>{row.label}</span>
+          <span>{caption}</span>
           <span>本期 {read(row.value)}</span>
           <span>上期 {read(row.previous)}</span>
         </>
       ) : (
         <span>
-          {row.label} · {read(row.value)}
+          {caption} · {read(row.value)}
         </span>
       )}
       {note === undefined ? null : <span className="opacity-80">{note}</span>}

@@ -42,6 +42,50 @@ export const foldTail = (buckets: readonly AttemptBucket[], cap = 5): AttemptBuc
   return folded
 }
 
+/** 分档表的一行。 */
+export type DistributionRow = {
+  attempts: number
+  /** 末档并了「这么多次及以上」，显示时要写成「N 次以上」。 */
+  atLeast: boolean
+  shots: number
+  /** 这一档消耗的出片次数占全部次数的比例。 */
+  attemptShare: number
+}
+
+/** 分档表：档位、镜数与这一档消耗的次数比例。
+ *
+ * 末档的次数按原始分布实际加总——折尾只是把档位并起来，档里的镜各出了多少次不能按 ``cap`` 算。 */
+export const distributionRows = (buckets: readonly AttemptBucket[], cap = 5): DistributionRow[] => {
+  const sorted = byAttempts(buckets)
+  const total = sorted.reduce((sum, bucket) => sum + bucket.attempts * bucket.shots, 0)
+  if (total === 0) return []
+  const rows: DistributionRow[] = []
+  let tailShots = 0
+  let tailAttempts = 0
+  for (const bucket of sorted) {
+    if (bucket.attempts >= cap) {
+      tailShots += bucket.shots
+      tailAttempts += bucket.attempts * bucket.shots
+      continue
+    }
+    rows.push({
+      attempts: bucket.attempts,
+      atLeast: false,
+      shots: bucket.shots,
+      attemptShare: (bucket.attempts * bucket.shots) / total,
+    })
+  }
+  if (tailShots > 0) {
+    rows.push({
+      attempts: cap,
+      atLeast: true,
+      shots: tailShots,
+      attemptShare: tailAttempts / total,
+    })
+  }
+  return rows
+}
+
 /** 累计通过曲线。中间没有镜的档位补零，不然阶梯会跳过空档——所以调用方先折尾，别喂原始分布。 */
 export const cumulativePass = (buckets: readonly AttemptBucket[]): PassPoint[] => {
   const sorted = byAttempts(buckets)
@@ -76,7 +120,30 @@ export const lorenzPoints = (buckets: readonly AttemptBucket[]): LorenzPoint[] =
   return points
 }
 
-/** 集中度（基尼系数）：0 是每个镜花的次数一样，越大越集中在个别镜。
+/** 出片次数最多的那 ``topShare`` 的镜，消耗了多少比例的出片次数。
+ *
+ * 取固定切片（缺省一成）而不是队尾那一档：队尾可能只有一个镜，比例小得没有意义，也没法跨期比。
+ * 切点落在某一档内部时按这一档线性插值——档内每个镜的次数相同，插值就是按镜数等分。 */
+export const topShareOfAttempts = (
+  buckets: readonly AttemptBucket[],
+  topShare = 0.1,
+): number | null => {
+  const points = lorenzPoints(buckets)
+  if (points.length < 2) return null
+  const cut = 1 - topShare
+  for (const [previous, current] of points
+    .slice(0, -1)
+    .map((p, i) => [p, points[i + 1]] as const)) {
+    if (current === undefined || current.shotShare < cut) continue
+    const span = current.shotShare - previous.shotShare
+    const ratio = span === 0 ? 1 : (cut - previous.shotShare) / span
+    const atCut = previous.attemptShare + ratio * (current.attemptShare - previous.attemptShare)
+    return 1 - atCut
+  }
+  return null
+}
+
+/** 集中度（基尼系数）：0 为各镜一致，数值越大越集中于少数镜。
  *
  * 只吃未折叠的原始分布——折过尾的分布把长尾压成一档，算出来偏小。 */
 export const gini = (buckets: readonly AttemptBucket[]): number | null => {
