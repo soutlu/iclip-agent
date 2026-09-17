@@ -672,6 +672,38 @@ describe('StoryboardReader', () => {
     expect(await within(records).findByText('生成中')).toBeVisible()
   })
 
+  it('改画幅写回分镜、出片带上新画幅，做不了这个画幅的模型选不了', async () => {
+    const files = provide()
+    const user = userEvent.setup()
+    const posted: { aspect_ratio?: string; model?: string }[] = []
+    server.use(
+      http.post('*/api/generations/video', async ({ request }) => {
+        posted.push((await request.json()) as { aspect_ratio?: string; model?: string })
+        return HttpResponse.json({ task_id: runningJob.id }, { status: 202 })
+      }),
+    )
+    await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+
+    await user.selectOptions(screen.getByLabelText('画幅'), '21:9')
+    await waitFor(() => expect(files.writes).toHaveLength(1))
+    expect(files.snapshot().aspect_ratio).toBe('21:9')
+
+    // 万相做不了 21:9：选项禁用并在下面说明原因，当前选中的模型自动换成做得了的那个。
+    await user.click(await screen.findByRole('button', { name: /^生成设置：moyu-seedance-2-5/ }))
+    const settings = await screen.findByRole('dialog', { name: '生成设置' })
+    expect(within(settings).getByRole('radio', { name: 'wan3.0-video' })).toBeDisabled()
+    expect(within(settings).getByText('wan3.0-video 做不了 21:9')).toBeVisible()
+    await user.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: '生成设置' })).not.toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: '生成视频' }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ aspect_ratio: '21:9', model: 'moyu-seedance-2-5' })
+  })
+
   it('服务端拒收出片时在出片按钮旁提示原话，不弹全局提示、不刷新记录', async () => {
     provide()
     let reads = 0

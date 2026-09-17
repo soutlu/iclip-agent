@@ -1,5 +1,6 @@
 import { useId, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Icon } from '@/shared/icons'
+import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { IconButton } from '@/shared/ui/button'
 import { Input, Select, Textarea } from '@/shared/ui/field'
 import type { Task } from '../tasks.api'
@@ -31,14 +32,6 @@ const PRODUCT_ATTRIBUTES: readonly {
     value: (p) => p.color_name,
     patch: (color_name) => ({ color_name }),
   },
-]
-const RATIO_OPTIONS: readonly NonNullable<VideoSpec['aspect_ratio']>[] = [
-  '1:1',
-  '3:4',
-  '4:3',
-  '9:16',
-  '16:9',
-  '21:9',
 ]
 const REFERENCE_FIELDS = [
   { key: 'model', label: '模特参考图' },
@@ -175,12 +168,12 @@ export function TaskFormFields({
               value={inputs.video_spec.aspect_ratio ?? ''}
               onChange={(event) =>
                 patchVideo({
-                  aspect_ratio: RATIO_OPTIONS.find((ratio) => ratio === event.target.value) ?? null,
+                  aspect_ratio: ASPECT_RATIOS.find((ratio) => ratio === event.target.value) ?? null,
                 })
               }
             >
               <option value="">未指定</option>
-              {RATIO_OPTIONS.map((ratio) => (
+              {ASPECT_RATIOS.map((ratio) => (
                 <option key={ratio} value={ratio}>
                   {ratio}
                 </option>

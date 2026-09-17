@@ -14,12 +14,20 @@ import {
 const SAVE_DELAY_MS = 800
 
 export type ShotConflict = { index: number; mine: Shot | undefined; theirs: Shot | undefined }
+export type AspectConflict = { mine: string; theirs: string }
 export type SaveState =
   | { kind: 'idle' }
   | { kind: 'saving' }
   | { kind: 'saved' }
   | { kind: 'error'; message: string }
-  | { kind: 'conflict'; shots: ShotConflict[] }
+  | { kind: 'conflict'; shots: ShotConflict[]; aspect?: AspectConflict }
+
+/** 脏数据与冲突按「改了哪一处」记：镜头组用编号，整份分镜的画幅用这个键。 */
+const ASPECT_KEY = 'aspect_ratio'
+type DirtyKey = number | typeof ASPECT_KEY
+
+const shotKeys = (keys: ReadonlySet<DirtyKey>): number[] =>
+  [...keys].filter((key): key is number => key !== ASPECT_KEY)
 
 type Base = { version: number; document: ShotsDocument }
 type UseShotsDraftOptions = {
@@ -34,33 +42,45 @@ const shotOf = (document: ShotsDocument, index: number) =>
 const sameShot = (left: Shot | undefined, right: Shot | undefined) =>
   JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
 
-const changedShots = (base: ShotsDocument, document: ShotsDocument) =>
-  new Set(
+const changedKeys = (base: ShotsDocument, document: ShotsDocument) => {
+  const keys = new Set<DirtyKey>(
     document.shots.flatMap((shot) =>
       sameShot(shot, shotOf(base, shot.index)) ? [] : [shot.index],
     ),
   )
+  if (base.aspect_ratio !== document.aspect_ratio) keys.add(ASPECT_KEY)
+  return keys
+}
 
-const replay = (latest: ShotsDocument, mine: ShotsDocument, dirty: ReadonlySet<number>) => ({
+const replay = (latest: ShotsDocument, mine: ShotsDocument, dirty: ReadonlySet<DirtyKey>) => ({
   ...latest,
+  aspect_ratio: dirty.has(ASPECT_KEY) ? mine.aspect_ratio : latest.aspect_ratio,
   shots: latest.shots.map((shot) =>
     dirty.has(shot.index) ? (shotOf(mine, shot.index) ?? shot) : shot,
   ),
 })
 
-const conflictingShots = (
+const conflictingKeys = (
   base: ShotsDocument,
   latest: ShotsDocument,
   mine: ShotsDocument,
-  dirty: ReadonlySet<number>,
-) =>
-  new Set(
-    [...dirty].filter(
+  dirty: ReadonlySet<DirtyKey>,
+) => {
+  const keys = new Set<DirtyKey>(
+    shotKeys(dirty).filter(
       (index) =>
         !sameShot(shotOf(latest, index), shotOf(base, index)) &&
         !sameShot(shotOf(latest, index), shotOf(mine, index)),
     ),
   )
+  if (
+    dirty.has(ASPECT_KEY) &&
+    latest.aspect_ratio !== base.aspect_ratio &&
+    latest.aspect_ratio !== mine.aspect_ratio
+  )
+    keys.add(ASPECT_KEY)
+  return keys
+}
 
 /** 调用方按对话与文件路径挂载，避免不同文件共用一个编辑生命周期。 */
 export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptions) => {
@@ -75,9 +95,9 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
   const ledgerRef = useRef({
     base: null as Base | null,
     edited: null as ShotsDocument | null,
-    dirty: new Set<number>(),
+    dirty: new Set<DirtyKey>(),
     latest: null as Base | null,
-    conflicts: new Set<number>(),
+    conflicts: new Set<DirtyKey>(),
     inFlight: null as Promise<ShotsDocument | null> | null,
     timer: null as ReturnType<typeof setTimeout> | null,
   })
@@ -104,11 +124,14 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     const mine = book.edited
     setState({
       kind: 'conflict',
-      shots: [...book.conflicts].map((index) => ({
+      shots: shotKeys(book.conflicts).map((index) => ({
         index,
         mine: shotOf(mine, index),
         theirs: shotOf(latest, index),
       })),
+      ...(book.conflicts.has(ASPECT_KEY)
+        ? { aspect: { mine: mine.aspect_ratio, theirs: latest.aspect_ratio } }
+        : {}),
     })
   }, [])
 
@@ -147,7 +170,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
           landed = mine
           // 请求中的快照已落盘。后续编辑仍以最新草稿为准，不能被这次响应清除。
           const current = book.edited ?? mine
-          book.dirty = changedShots(mine, current)
+          book.dirty = changedKeys(mine, current)
           book.edited = book.dirty.size === 0 ? null : current
           setEdited(book.edited)
           queryClient.setQueryData(workspaceQueryKeys.file(conversationId, path), saved)
@@ -173,7 +196,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
           }
           const latest: Base = { document: latestDocument, version: latestFile.file.version }
           const current = book.edited ?? mine
-          const conflicts = conflictingShots(base.document, latest.document, current, book.dirty)
+          const conflicts = conflictingKeys(base.document, latest.document, current, book.dirty)
           if (conflicts.size > 0) {
             book.latest = latest
             book.conflicts = conflicts
@@ -183,7 +206,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
           }
           const merged = replay(latest.document, current, book.dirty)
           book.base = latest
-          book.dirty = changedShots(latest.document, merged)
+          book.dirty = changedKeys(latest.document, merged)
           book.edited = book.dirty.size === 0 ? null : merged
           setEdited(book.edited)
           rebased = true
@@ -207,6 +230,35 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     return book.inFlight
   }, [clearTimer, conversationId, path, queryClient, showConflict])
 
+  /** 把一处改动记进草稿：标脏、有待处理的最新版本先对账，没冲突才排下一次延迟保存。 */
+  const commit = useCallback(
+    (document: ShotsDocument, key: DirtyKey) => {
+      const book = ledgerRef.current
+      book.edited = document
+      book.dirty.add(key)
+      setEdited(document)
+      clearTimer()
+      if (book.latest !== null && book.base !== null) {
+        const latest = book.latest
+        book.conflicts = conflictingKeys(book.base.document, latest.document, document, book.dirty)
+        if (book.conflicts.size > 0) {
+          showConflict()
+          return
+        }
+        // 冲突期间也可能收到其它组的上传结果；始终重新对账，不能绕过同组冲突。
+        const merged = replay(latest.document, document, book.dirty)
+        book.base = latest
+        book.latest = null
+        book.dirty = changedKeys(latest.document, merged)
+        book.edited = book.dirty.size === 0 ? null : merged
+        setEdited(book.edited)
+      }
+      setState(book.inFlight === null ? { kind: 'idle' } : { kind: 'saving' })
+      book.timer = setTimeout(() => void saveNow(), SAVE_DELAY_MS)
+    },
+    [clearTimer, saveNow, showConflict],
+  )
+
   const updateShot = useCallback(
     (index: number, update: (current: Shot) => Shot): Shot | undefined => {
       const book = ledgerRef.current
@@ -219,36 +271,24 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
       const next = update(shot)
       if (sameShot(shot, next)) return next
       if (next.index !== index) throw new Error('编辑不能更改镜头组编号')
-      const document = {
-        ...current,
-        shots: current.shots.map((item) => (item.index === index ? next : item)),
-      }
-      book.edited = document
-      book.dirty.add(index)
-      setEdited(document)
-      clearTimer()
-      if (book.latest !== null && book.base !== null) {
-        const latest = book.latest
-        book.conflicts = conflictingShots(book.base.document, latest.document, document, book.dirty)
-        if (book.conflicts.size > 0) {
-          showConflict()
-          return next
-        }
-        // 冲突期间也可能收到其它组的上传结果；始终重新对账，不能绕过同组冲突。
-        const merged = replay(latest.document, document, book.dirty)
-        book.base = latest
-        book.latest = null
-        book.dirty = changedShots(latest.document, merged)
-        book.edited = book.dirty.size === 0 ? null : merged
-        setEdited(book.edited)
-      }
-      {
-        setState(book.inFlight === null ? { kind: 'idle' } : { kind: 'saving' })
-        book.timer = setTimeout(() => void saveNow(), SAVE_DELAY_MS)
-      }
+      commit(
+        { ...current, shots: current.shots.map((item) => (item.index === index ? next : item)) },
+        index,
+      )
       return next
     },
-    [clearTimer, saveNow, showConflict],
+    [commit],
+  )
+
+  /** 画幅是整份分镜的声明，和镜头正文走同一条草稿链路，只是脏数据记在文档级的键上。 */
+  const updateAspectRatio = useCallback(
+    (aspectRatio: string) => {
+      const book = ledgerRef.current
+      const current = book.edited ?? book.base?.document
+      if (current === undefined || current.aspect_ratio === aspectRatio) return
+      commit({ ...current, aspect_ratio: aspectRatio }, ASPECT_KEY)
+    },
+    [commit],
   )
 
   const replaceFrame = useCallback(
@@ -326,8 +366,10 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
       const mine = book.edited
       if (latest === null || mine === null) return
       if (choice === 'theirs') {
-        for (const index of book.conflicts) book.dirty.delete(index)
-      } else if ([...book.dirty].some((index) => shotOf(latest.document, index) === undefined)) {
+        for (const key of book.conflicts) book.dirty.delete(key)
+      } else if (
+        shotKeys(book.dirty).some((index) => shotOf(latest.document, index) === undefined)
+      ) {
         setState({
           kind: 'error',
           message: '原镜头组已从最新文件移除，无法按原编号覆盖；草稿已保留',
@@ -338,7 +380,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
       book.latest = null
       book.conflicts.clear()
       book.base = latest
-      book.dirty = changedShots(latest.document, merged)
+      book.dirty = changedKeys(latest.document, merged)
       book.edited = book.dirty.size === 0 ? null : merged
       setEdited(book.edited)
       setState({ kind: 'idle' })
@@ -359,6 +401,7 @@ export const useShotsDraft = ({ conversationId, file, path }: UseShotsDraftOptio
     document: edited ?? parsed,
     hasUnsavedChanges: edited !== null,
     state,
+    updateAspectRatio,
     updateShot,
     replaceFrame,
     resolveConflict,
