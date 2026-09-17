@@ -7,8 +7,9 @@ import type {
   VideoGenerationIn,
   VideoShotIn,
 } from '@/shared/api/generated/types.gen'
-// no-inline：这两条要作为地址进请求体、进 <video src>，不能被构建按小文件内联成 data URI。
+// no-inline：这几条要作为地址进请求体、进 <video src>，不能被构建按小文件内联成 data URI。
 import sampleEditedUrl from '../fixtures/sample-edited.webm?no-inline'
+import sampleWideUrl from '../fixtures/sample-video-wide.webm?no-inline'
 import sampleVideoUrl from '../fixtures/sample-video.webm?no-inline'
 
 /** 本地 data URL 帧，避免网络依赖。 */
@@ -40,6 +41,8 @@ const httpFrames = (): MockFrames => {
  * 用 WebM 不用 MP4：Playwright 自带的 Chromium 没有 H.264 解码器，mp4 连时长都读不出来。 */
 const VIDEO_URL = sampleVideoUrl
 const EDITED_URL = sampleEditedUrl
+/** 第 3 组那条成片改用同样 6 秒的横版测试卡：预览黑框是固定比例，横版才会露出上下黑边。 */
+const WIDE_VIDEO_URL = sampleWideUrl
 
 const PREAMBLE = ['参考锁定：模特的服装与发型跟住 @Image1。', '剪辑形式：硬切。'].join('\n')
 
@@ -283,11 +286,11 @@ export const seedMockWorkspace = (
     job({
       createdAt: '2026-09-01T10:04:00Z',
       id: '4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c',
-      outputUrl: VIDEO_URL,
+      outputUrl: WIDE_VIDEO_URL,
       prompt: '模特走向镜头，停下微笑，暖光。',
       metadata: { path: SHOTS_MOCK_PATH, shot: 3 },
       status: 'completed',
-      watermarkOutputUrl: VIDEO_URL,
+      watermarkOutputUrl: WIDE_VIDEO_URL,
     }),
     job({
       createdAt: '2026-09-01T11:10:00Z',

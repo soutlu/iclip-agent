@@ -7,14 +7,15 @@ import { login } from './login'
 const STEP_TIMEOUT = 15_000
 const SHOT_DIR = '../.artifacts/design-qa/video-editor'
 
-const openEditor = async (page: Page, mobile = false) => {
+/** 第 2 组那条成片是竖版，第 3 组是横版，预览黑框的黑边只在横版上出现。 */
+const openEditor = async (page: Page, mobile = false, group = 2) => {
   await page.goto('/')
   await login(page)
   await page.getByRole('link', { name: '夜景延时素材生成', exact: true }).click()
   // 紧凑屏右侧面板默认收着，编辑器挂在面板里，得先打开它。
   if (mobile) await page.getByRole('button', { name: '打开右侧面板' }).click()
   const panel = page.getByRole('complementary', { name: '右侧面板' })
-  await panel.getByRole('button', { name: '第 2 组' }).click()
+  await panel.getByRole('button', { name: `第 ${group} 组` }).click()
   await panel.getByRole('button', { name: '生成记录', exact: true }).click()
   const records = panel.getByRole('complementary', { name: '生成记录' })
   await records.getByRole('button', { name: /^编辑视频/ }).click()
@@ -376,6 +377,34 @@ test('移动布局：对话框内部自己滚，页面不横向溢出', async ({
   await page.screenshot({ path: `${SHOT_DIR}/generation-mobile.png`, animations: 'disabled' })
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+})
+
+test('横版素材：播放控件贴住画面底边，不落进黑边', async ({ page }) => {
+  // 高一点的视口才让 16:9 在固定比例的黑框里露出足够宽的上下黑边。
+  await page.setViewportSize({ width: 1303, height: 1006 })
+  const dialog = await openEditor(page, false, 3)
+  await expect(dialog.getByRole('region', { name: '视频编辑时间线' })).toBeVisible({
+    timeout: STEP_TIMEOUT,
+  })
+  await expect(dialog.getByText('16:9', { exact: true })).toBeVisible()
+
+  const picture = await dialog.getByLabel('视频播放器', { exact: true }).evaluate((element) => {
+    const media = element as HTMLVideoElement
+    const box = media.getBoundingClientRect()
+    // contain 后画面居中，上下各留 (box.height - drawn) / 2 的黑边
+    const drawn = Math.min(box.height, (box.width * media.videoHeight) / media.videoWidth)
+    return { boxHeight: box.height, drawn, bottom: box.top + (box.height + drawn) / 2 }
+  })
+  // 黑边不够宽就说明这条用例没测到该测的东西
+  expect(picture.boxHeight - picture.drawn).toBeGreaterThan(48)
+
+  await page.screenshot({ path: `${SHOT_DIR}/wide-desktop.png`, animations: 'disabled' })
+
+  const pill = await dialog.getByRole('group', { name: '播放控件' }).boundingBox()
+  expect(pill).not.toBeNull()
+  if (pill === null) throw new Error('播放控件尚未布局')
+  expect(pill.y + pill.height).toBeLessThanOrEqual(picture.bottom)
+  expect(pill.y + pill.height).toBeGreaterThan(picture.bottom - 40)
 })
 
 test('只有生成的记录才能进编辑；关掉编辑器回到生成记录，地址里不再带 video', async ({ page }) => {

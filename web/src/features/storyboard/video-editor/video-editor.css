@@ -63,6 +63,8 @@
   justify-content: center;
   min-height: 0;
   isolation: isolate;
+  /* 播放胶囊靠 cq 单位量黑边，子元素全是绝对定位，尺寸包含不改变布局 */
+  container-type: size;
 }
 .video-editor-video {
   position: absolute;
@@ -105,7 +107,8 @@
 }
 .video-editor-transport {
   position: absolute;
-  bottom: 16px;
+  /* 贴画面底而不是黑框底：16px 之外再让开 contain 留出的那条黑边 */
+  bottom: calc(16px + (100cqh - min(100cqh, 100cqw / var(--preview-ratio, 0.5625))) / 2);
   left: 50%;
   transform: translateX(-50%);
   display: flex;

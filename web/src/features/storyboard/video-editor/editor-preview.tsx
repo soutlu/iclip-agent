@@ -10,6 +10,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type CSSProperties,
   type Ref,
 } from 'react'
 import { Icon } from '@/shared/icons'
@@ -81,7 +82,8 @@ export function EditorPreview({
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(true)
   const [failed, setFailed] = useState(false)
-  const [ratio, setRatio] = useState('9:16')
+  // 画面宽高比：角标文案与播放胶囊避让黑边都用它，元数据到达前按竖版算。
+  const [aspect, setAspect] = useState(9 / 16)
   const onOriginal = showOriginal && original !== undefined
   const segments = onOriginal ? original : current
   const duration = segments === undefined ? 0 : totalDuration(segments)
@@ -232,7 +234,12 @@ export function EditorPreview({
   }
 
   return (
-    <div aria-label="视频预览" className="video-editor-preview" ref={stageRef}>
+    <div
+      aria-label="视频预览"
+      className="video-editor-preview"
+      ref={stageRef}
+      style={{ '--preview-ratio': aspect } as CSSProperties}
+    >
       {SLOTS.map(({ id, slot }) => (
         // eslint-disable-next-line jsx-a11y-x/media-has-caption -- 生成的视频没有字幕轨，不装样子
         <video
@@ -249,7 +256,9 @@ export function EditorPreview({
           }}
           onLoadedMetadata={(event) => {
             const media = event.currentTarget
-            if (slot === active) setRatio(media.videoWidth > media.videoHeight ? '16:9' : '9:16')
+            if (slot === active && media.videoWidth > 0 && media.videoHeight > 0) {
+              setAspect(media.videoWidth / media.videoHeight)
+            }
             const target = pendingSeekRef.current[slot]
             if (target === null) return
             pendingSeekRef.current[slot] = null
@@ -295,7 +304,7 @@ export function EditorPreview({
           </button>
         )}
       </div>
-      <span className="video-editor-ratio">{ratio}</span>
+      <span className="video-editor-ratio">{aspect > 1 ? '16:9' : '9:16'}</span>
       {segments === undefined ? (
         <div className="video-editor-preview-message" role="status">
           <Icon decorative name="video" size="lg" />
@@ -318,7 +327,7 @@ export function EditorPreview({
           </button>
         </div>
       ) : null}
-      <div className="video-editor-transport">
+      <div aria-label="播放控件" className="video-editor-transport" role="group">
         <IconButton
           disabled={segments === undefined}
           label="上一帧"
