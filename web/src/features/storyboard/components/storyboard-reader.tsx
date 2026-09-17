@@ -33,6 +33,7 @@ import type { FrameEditTarget } from '../image-edit/image-edit-types'
 import { aspectRatioStyle, isRunningStatus, SHOTS_PATH } from '../shots'
 import { useShotGenerations } from '../storyboard.api'
 import { useGenerationGate } from '../use-generation-gate'
+import { supportsAspectRatio } from '../video-model-support'
 import { useShotsDraft } from '../use-shots-draft'
 import { useLiveGenerations } from '../use-live-generations'
 import { useVideoGeneration } from '../use-video-generation'
@@ -72,6 +73,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   useLiveGenerations(conversationId)
   // 关过编辑器就算看过那一格的终态；只记本次会话，刷新后没看过的终态会再出现一次。
   const [seenFrameJobs, setSeenFrameJobs] = useState<ReadonlySet<string>>(() => new Set())
+  const video = useVideoGeneration(conversationId, path)
   // 打开时先选中哪一条由入口决定；target 本身不带图，应用之后这一格换了图它也不用变。
   const [imageEdit, setImageEdit] = useState<{
     target: FrameEditTarget
@@ -80,8 +82,6 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   const imageEditTarget = imageEdit?.target ?? null
   const imageEditTriggerRef = useRef<HTMLElement | null>(null)
   const draft = useShotsDraft({ conversationId, path, file: file.data?.file })
-  // 能选哪个模型跟着草稿里的画幅走，所以要排在草稿之后。
-  const video = useVideoGeneration(conversationId, path, draft.document?.aspect_ratio ?? '')
   const [uploadedSources, setUploadedSources] = useState<
     { group: number; frame: number; url: string }[]
   >([])
@@ -225,6 +225,11 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
     video.submitting.includes(shot.index)
   // 改过之后原因就过期了，等下一次出片再说；存盘状态那一格有自己的提示，不重复说。
   const submitError = draft.hasUnsavedChanges ? undefined : video.errorOf(shot.index)
+  // 选中的模型做不了这份分镜的画幅：只提醒，不拦——真拒还是由上游拒（ADR-0018）。
+  const aspectMismatch = supportsAspectRatio(video.options.model, document.aspect_ratio)
+    ? undefined
+    : `${video.options.model} 做不了 ${document.aspect_ratio}`
+  const generateNotice = submitError ?? aspectMismatch
   const generate = () =>
     gate.run(async (mounted) => {
       const saved = await draft.saveNow()
@@ -264,11 +269,18 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
               {ASPECT_RATIOS.some((ratio) => ratio === document.aspect_ratio) ? null : (
                 <option value={document.aspect_ratio}>{document.aspect_ratio}</option>
               )}
-              {ASPECT_RATIOS.map((ratio) => (
-                <option key={ratio} value={ratio}>
-                  {ratio}
-                </option>
-              ))}
+              {ASPECT_RATIOS.map((ratio) => {
+                const usable = supportsAspectRatio(video.options.model, ratio)
+                // 选中的那个不加后缀：收起来的下拉只显示它，长文案会把顶栏挤下去；
+                // 它正好不被支持时，出片按钮旁边那句提示已经在说了。
+                const label =
+                  usable || ratio === document.aspect_ratio ? ratio : `${ratio}（不支持）`
+                return (
+                  <option disabled={!usable} key={ratio} value={ratio}>
+                    {label}
+                  </option>
+                )
+              })}
             </Select>
             <SaveStatus
               state={draft.state}
@@ -299,23 +311,22 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
               <span className="ml-1 text-primary">生成中 {activeCount}</span>
             ) : null}
           </Button>
-          {submitError === undefined ? null : (
+          {generateNotice === undefined ? null : (
             <span
               className="min-w-0 shrink truncate text-body-sm text-error"
               role="alert"
-              title={submitError}
+              title={generateNotice}
             >
-              {submitError}
+              {generateNotice}
             </span>
           )}
           <VideoGenerationButton
-            aspectRatio={document.aspect_ratio}
             disabled={generateDisabled}
             models={video.models}
             onChange={video.setOptions}
             onGenerate={() => void generate()}
             submitting={gate.preparing || video.submitting.includes(shot.index)}
-            unavailable={video.unavailable}
+            unavailable={video.modelsUnavailable ? '视频模型读不到' : undefined}
             value={video.options}
           />
         </div>
