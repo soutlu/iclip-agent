@@ -8,7 +8,9 @@ const UNSUPPORTED: readonly { matches: RegExp; aspectRatios: readonly string[] }
   { matches: /wan3/, aspectRatios: ['21:9'] },
 ]
 
-export const supportsAspectRatio = (model: string, aspectRatio: string): boolean =>
+/** 还没选出模型（清单在读或读不到）时一律放行，不要把所有画幅都灰掉。 */
+export const supportsAspectRatio = (model: string | undefined, aspectRatio: string): boolean =>
+  model === undefined ||
   !UNSUPPORTED.some(
     (entry) => entry.matches.test(model) && entry.aspectRatios.includes(aspectRatio),
   )

@@ -6,10 +6,8 @@ import { VideoGenerationControls } from './video-generation-controls'
 
 type VideoGenerationButtonProps = {
   models: readonly string[]
-  /** 这份分镜的画幅；做不了它的模型选不了。 */
-  aspectRatio: string
   value: VideoGenerationOptions
-  /** 模型清单读不到、或没有模型做得了这个画幅时给用户看的原因；还在读就不传。 */
+  /** 模型清单读不到时给用户看的原因；还在读就不传。 */
   unavailable?: string | undefined
   onChange: (value: VideoGenerationOptions) => void
   onGenerate: () => void
@@ -19,7 +17,6 @@ type VideoGenerationButtonProps = {
 
 /** 出片入口：左半边是生成设置（模型、音频），右半边提交。放在顶栏，高度跟旁边的按钮一致。 */
 export function VideoGenerationButton({
-  aspectRatio,
   disabled,
   models,
   submitting,
@@ -75,12 +72,7 @@ export function VideoGenerationButton({
         sideOffset={8}
       >
         <h3 className="text-body font-medium text-on-surface-variant">生成设置</h3>
-        <VideoGenerationControls
-          aspectRatio={aspectRatio}
-          models={models}
-          onChange={onChange}
-          value={value}
-        />
+        <VideoGenerationControls models={models} onChange={onChange} value={value} />
       </PopupSurface>
     </PopupRoot>
   )
