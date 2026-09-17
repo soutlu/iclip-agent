@@ -267,99 +267,18 @@
   opacity: 0.65;
 }
 .video-editor-timeline-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
   padding: 60px;
   color: var(--color-on-surface-muted);
   text-align: center;
-}
-.video-editor-history {
-  max-width: 680px;
-}
-.video-editor-section-label {
-  font-size: var(--text-title);
-  font-weight: 600;
-  margin: 24px 0 8px;
-}
-.video-editor-section-label:first-child {
-  margin-top: 0;
-}
-.video-editor-history-version {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--color-chat-hairline);
-  min-height: 52px;
-}
-.video-editor-version-link {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-  flex: 1;
-  min-height: 44px;
-  text-align: left;
-}
-.video-editor-version-link span {
-  color: var(--color-on-surface-muted);
-  font-size: var(--text-label);
-}
-.video-editor-version-link[aria-current='true'] {
-  color: var(--color-primary);
 }
 .video-editor-muted {
   color: var(--color-on-surface-muted);
   font-size: var(--text-body);
   line-height: 1.6;
-}
-.video-editor-task {
-  border-bottom: 1px solid var(--color-chat-hairline);
-  padding: 14px 0;
-}
-.video-editor-task summary {
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--text-body);
-}
-.video-editor-task summary span:last-child {
-  font-size: var(--text-label);
-}
-.video-editor-task-details {
-  padding-top: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.video-editor-task-stages {
-  display: flex;
-  gap: 20px;
-  color: var(--color-on-surface-muted);
-  font-size: var(--text-label);
-  flex-wrap: wrap;
-}
-.video-editor-task-stages li {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.video-editor-task-stages li[data-active='true'] {
-  color: var(--color-primary);
-}
-.video-editor-task-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.video-editor-task-references {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.video-editor-task-references img {
-  width: 56px;
-  height: 56px;
-  object-fit: cover;
-  border-radius: var(--radius-xs);
 }
 .video-editor .video-editor-composer-input:focus-visible {
   outline: none;

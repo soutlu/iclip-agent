@@ -238,7 +238,6 @@ test('从生成记录打开编辑器：切段、生成、预览、合成成为�
   const summary = dialog.getByRole('status', { name: '视频编辑进度' })
   await expect(summary).toHaveText(/正在生成视频/, { timeout: STEP_TIMEOUT })
   await page.screenshot({ path: `${SHOT_DIR}/generation-running.png`, animations: 'disabled' })
-  const openHistory = dialog.getByRole('button', { name: '历史', exact: true })
   await expect(summary).toHaveText(/待预览/, { timeout: STEP_TIMEOUT })
   await expect(summary.getByRole('listitem', { name: '结果预览，当前阶段' })).toHaveAttribute(
     'aria-current',
@@ -259,15 +258,9 @@ test('从生成记录打开编辑器：切段、生成、预览、合成成为�
   await page.screenshot({ path: `${SHOT_DIR}/generation-laptop.png`, animations: 'disabled' })
   await expect(summary).toBeInViewport({ ratio: 1 })
   await page.setViewportSize({ width: 1600, height: 1120 })
-  await openHistory.click()
-  const history = page.getByRole('dialog', { name: '版本与任务', exact: true })
-  await expect(history).toBeVisible()
 
+  // 结果回来就把视线挪到它的预览上，不用自己去找。
   // 预览拼好的整条：原片放到 1 秒就该切到编辑结果那条，时钟接着走。
-  const task = history.locator('details').filter({ hasText: 'V2' })
-  await task.locator('summary').click()
-  await task.getByRole('button', { name: '预览', exact: true }).click()
-  await expect(history).toBeHidden()
   await expect(dialog.getByRole('button', { name: '切换版本', exact: true })).toHaveText('V2')
   await expect(dialog.getByRole('region', { name: '视频编辑时间线' })).toBeVisible({
     timeout: STEP_TIMEOUT,
@@ -301,14 +294,11 @@ test('从生成记录打开编辑器：切段、生成、预览、合成成为�
   await expect(dialog.getByRole('button', { name: '暂停', exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: '暂停', exact: true }).click()
 
-  await openHistory.click()
-  await expect(history).toBeVisible()
   const masterRequest = page.waitForRequest(
     (request) => request.url().endsWith('/api/generations/clips') && request.method() === 'POST',
   )
-  // 待预览的任务默认收着，展开才有操作。
-  await task.locator('summary').click()
-  const compose = task.getByRole('button', { name: '合成成片', exact: true })
+  // 看着哪一条，工具栏那个按钮就管哪一条：看的是待预览的编辑，它就是「合成成片」。
+  const compose = dialog.getByRole('button', { name: '合成成片', exact: true })
   await expect(compose).toBeEnabled({ timeout: STEP_TIMEOUT })
   await compose.click()
   const master = (await masterRequest).postDataJSON() as { purpose: string; segments: unknown[] }
@@ -319,15 +309,14 @@ test('从生成记录打开编辑器：切段、生成、预览、合成成为�
     expect.objectContaining({ start: 0, end: 3 }),
     expect.objectContaining({ start: 4, end: 6 }),
   ])
-  await expect(history).toBeHidden()
 
-  // 成片落地后 V2 从「生成任务」挪进「版本」，基于 V1；合成中那条同名，所以认的是版本区的这一条。
-  await openHistory.click()
-  await expect(history.getByRole('button', { name: 'V2 基于 V1', exact: true })).toBeVisible({
-    timeout: STEP_TIMEOUT,
-  })
-  await history.getByRole('button', { name: 'V2 基于 V1', exact: true }).click()
-  await expect(history).toBeHidden()
+  // 成片落地后 V2 成为新版本，选中态不跳走，同一个位置的按钮从「合成成片」翻成「下载」。
+  const downloadButton = dialog.getByRole('button', { name: '下载', exact: true })
+  await expect(downloadButton).toBeVisible({ timeout: STEP_TIMEOUT })
+  await expect(dialog.getByRole('button', { name: '切换版本', exact: true })).toHaveText('V2')
+  const download = page.waitForEvent('download')
+  await downloadButton.click()
+  expect((await download).suggestedFilename()).toBeTruthy()
   const previewTabs = dialog.getByRole('group', { name: '预览版本' })
   const versionTab = previewTabs.getByRole('button', { name: 'V2', exact: true })
   await expect(versionTab).toHaveAttribute('aria-pressed', 'true')
