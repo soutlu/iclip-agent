@@ -748,11 +748,11 @@ export type ConversationOut = {
   /**
    * Forkturn
    */
-  forkTurn?: number | null
+  forkTurn: number | null
   /**
    * Forkedfrom
    */
-  forkedFrom?: string | null
+  forkedFrom: string | null
   /**
    * Id
    */
