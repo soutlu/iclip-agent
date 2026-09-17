@@ -1,16 +1,16 @@
 /** 仅展示当前镜头组的视频生成记录。 */
 
 import { Tooltip } from 'radix-ui'
-import { useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useMediaDownload } from '@/shared/api/media-download'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
-import { fileNameOfUrl, videoSnapshotUrl } from '@/shared/lib/media-url'
+import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { StatusBadge } from '@/shared/ui/status-badge'
-import { toast } from '@/shared/ui/toast'
 import { readStoryboardMetadata } from '../generation-metadata'
 import type { Shot } from '../shot-document'
 import { phaseOfStatus } from '../shots'
@@ -212,41 +212,10 @@ function RecordCard({ job, editCount, onEditPrompt, onEditVideo }: RecordCardPro
 
 type RecordDownloadProps = { url: string; watermarkUrl: string | null }
 
-/** 只有原片时点了就下；上游也给了水印版时先选哪一份。两份共用一个忙碌态，下载中不接第二次点击。 */
+/** 只有原片时点了就下；上游也给了水印版时先选哪一份。 */
 function RecordDownload({ url, watermarkUrl }: RecordDownloadProps) {
-  const activeRef = useRef(false)
-  const [downloading, setDownloading] = useState(false)
+  const { downloading, download } = useMediaDownload()
   const label = downloading ? '正在准备下载…' : '下载视频'
-
-  const download = async (target: string, fallbackName: string) => {
-    if (activeRef.current) return
-    activeRef.current = true
-    setDownloading(true)
-    try {
-      const response = await fetch(target)
-      if (!response.ok) throw new Error(`Download failed: ${response.status}`)
-      const blob = await response.blob()
-      if (blob.size === 0) throw new Error('Empty download')
-      const filename = fileNameOfUrl(target) || fallbackName
-      const objectUrl = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      try {
-        anchor.href = objectUrl
-        anchor.download = filename
-        document.body.append(anchor)
-        anchor.click()
-      } finally {
-        anchor.remove()
-        // 给浏览器接管下载留出时间，再释放大文件的临时 URL。
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
-      }
-    } catch {
-      toast.error('视频下载失败，请重试')
-    } finally {
-      activeRef.current = false
-      setDownloading(false)
-    }
-  }
 
   const trigger = (
     <IconButton

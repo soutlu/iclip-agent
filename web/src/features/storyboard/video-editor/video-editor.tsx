@@ -6,6 +6,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMediaDownload } from '@/shared/api/media-download'
 import { Icon } from '@/shared/icons'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { mintUuid } from '@/shared/lib/uuid'
@@ -25,6 +26,7 @@ import {
   type ChainVersion,
   type EditStage,
   type PendingEdit,
+  type PlaySegment,
 } from './edit-chain'
 import { EditorComposer, type EditorReference } from './editor-composer'
 import { EditorGenerationStatus } from './editor-generation-status'
@@ -57,9 +59,6 @@ const STAGE_LABEL: Record<EditStage, string> = {
   composing: '合成中',
   failed: '失败',
 }
-/** 历史里进度条的四格；`cut` 归在切片那格里，它只是切完还没发出去。 */
-const PROGRESS: readonly EditStage[] = ['cutting', 'generating', 'ready', 'composing']
-const progressOf = (stage: EditStage) => PROGRESS.indexOf(stage === 'cut' ? 'cutting' : stage)
 const isActive = (edit: PendingEdit) => edit.stage !== 'ready' && edit.stage !== 'failed'
 
 type EditDraft = { prompt: string; model: string; references: EditorReference[] }
@@ -126,7 +125,6 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
   const [prompt, setPrompt] = useState('')
   const [references, setReferences] = useState<EditorReference[]>([])
   const [wantedModel, setWantedModel] = useState<string>()
-  const [historyOpen, setHistoryOpen] = useState(false)
   const [drafts, setDrafts] = useState<Readonly<Record<string, EditDraft>>>({})
   // 三段互斥的写操作加上传参考图；任一在跑时整个编辑器一起锁。
   const [operation, setOperation] = useState<'idle' | 'uploading' | 'cutting' | 'composing'>('idle')
@@ -134,6 +132,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
   // 参考片段切好就自动发编辑任务；一个 editId 只自动发一次，提交失败也不再自动重发（那会
   // 变成一渲染一次的重试风暴），用户重选一段就是重来。
   const submittedRef = useRef(new Set<string>())
+  const { downloading, download } = useMediaDownload()
   const busy = operation !== 'idle'
 
   // 选过的模型不在允许表里（配置改了）就退回默认；默认模型不支持编辑就取第一个支持的。
@@ -159,6 +158,15 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
       ? undefined
       : { kind: 'version', key: latest.key, label: latest.label, version: latest }
   }, [chain.versions, previewable, selectedKey])
+  const selectedKind = selected?.kind
+  // 编辑结果一回来就把视线挪到它的预览上——合成按钮就在那里。一条只挪一次，正看着别的编辑时不抢；
+  // 关掉重开也会落在等着合成的那条上，而不是根。渲染期调整状态，不绕一轮 effect。
+  const [revealed, setRevealed] = useState<readonly string[]>([])
+  const fresh = previewable.find((edit) => edit.stage === 'ready' && !revealed.includes(edit.key))
+  if (fresh !== undefined) {
+    setRevealed((current) => (current.includes(fresh.key) ? current : [...current, fresh.key]))
+    if (selectedKind === 'version') setSelectedKey(fresh.key)
+  }
   const selectedVersion = selected?.kind === 'version' ? selected.version : undefined
   const base =
     selected === undefined
@@ -183,16 +191,18 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     return known
   }, [chainQuery.data])
   const durations = useMediaDurations(urls, clipDurations)
-  // 轮询每次都重建版本对象，段列表按内容稳定住，播放器才不会被无谓地归零。
-  const laid = useStableValue(
+  const currentSegments: PlaySegment[] | undefined =
     selected === undefined
       ? undefined
-      : layoutSegments(
-          selected.kind === 'version'
-            ? [{ mediaUrl: selected.version.mediaUrl, start: 0, role: 'base' }]
-            : (selected.edit.preview ?? []),
-          durations,
-        ),
+      : selected.kind === 'version'
+        ? [{ mediaUrl: selected.version.mediaUrl, start: 0, role: 'base' }]
+        : (selected.edit.preview ?? [])
+  // 探过了却读不出时长：预览与合成都做不了，要说出来，不静默卡在占位文案上。
+  const unreadable = (segments: readonly PlaySegment[] | undefined) =>
+    segments?.some((segment) => durations[segment.mediaUrl] === null) ?? false
+  // 轮询每次都重建版本对象，段列表按内容稳定住，播放器才不会被无谓地归零。
+  const laid = useStableValue(
+    currentSegments === undefined ? undefined : layoutSegments(currentSegments, durations),
   )
   const originalLaid = useStableValue(
     base === undefined
@@ -234,7 +244,9 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
           chain.versions,
           selected.kind === 'version' ? selected.version : selected.edit.base,
         )
-  const latestEdit = pending.find(isActive) ?? pending.at(-1)
+  // 状态面板跟着看的那条走：选中了某条编辑就说它，否则说最要紧的那条。
+  const shownEdit =
+    selected?.kind === 'pending' ? selected.edit : (pending.find(isActive) ?? pending.at(-1))
 
   const seedJob = (job: GenerationJob) => {
     queryClient.setQueryData<{ items: GenerationJob[] }>(
@@ -358,7 +370,6 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
           segments: composeSegments(segments),
         }),
       )
-      setHistoryOpen(false)
       toast.success('已提交合成，完成后会成为新版本')
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : '合成任务提交失败')
@@ -381,6 +392,39 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     edit.preview !== undefined &&
     layoutSegments(edit.preview, durations) !== undefined &&
     (edit.stage === 'ready' || (edit.stage === 'failed' && edit.master !== undefined))
+  // 等着合成，却因为读不到时长按不下去：按钮只会灰着，原因得另外说一句。只在看着那条时说，
+  // 它正好和灰着的按钮同时在屏幕上。
+  const composeBlocked =
+    selected?.kind === 'pending' &&
+    selected.edit.stage === 'ready' &&
+    unreadable(selected.edit.preview)
+
+  /** 时间线上那个主按钮：看某一版就下载它，看编辑预览就把它合成成片。 */
+  const action =
+    selected === undefined ? undefined : selected.kind === 'version' ? (
+      <Button
+        leadingIcon="download"
+        loading={downloading}
+        onClick={() => void download(selected.version.mediaUrl, '生成的视频')}
+        size="md"
+        variant="ghost"
+      >
+        下载
+      </Button>
+    ) : (
+      <Button
+        disabled={!canCompose(selected.edit)}
+        loading={operation === 'composing' || selected.edit.stage === 'composing'}
+        onClick={() => void compose(selected.edit)}
+        size="md"
+      >
+        {selected.edit.stage === 'composing'
+          ? '合成中'
+          : selected.edit.master === undefined
+            ? '合成成片'
+            : '重新合成'}
+      </Button>
+    )
 
   return (
     <DialogRoot
@@ -560,7 +604,12 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                   参考片段没记下时长，请重新选段生成
                 </p>
               ) : null}
-              {latestEdit === undefined ? null : <EditorGenerationStatus edit={latestEdit} />}
+              {composeBlocked ? (
+                <p className="text-body-sm text-error" role="alert">
+                  读不到编辑结果的时长，无法合成；关掉编辑器重开可再试一次
+                </p>
+              ) : null}
+              {shownEdit === undefined ? null : <EditorGenerationStatus edit={shownEdit} />}
             </section>
           </div>
           {selected !== undefined &&
@@ -568,6 +617,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
           duration !== undefined &&
           duration > 0 ? (
             <EditorTimeline
+              action={action}
               ancestors={ancestors}
               // 根自己就是原片：上轨照样摆它。
               base={base ?? selectedVersion}
@@ -576,7 +626,6 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
               duration={duration}
               entries={menuEntries}
               label={selected.label}
-              onHistory={() => setHistoryOpen(true)}
               onSeek={(time) => previewRef.current?.previewAt(time)}
               onSelect={select}
               onSelectionChange={changeRange}
@@ -586,156 +635,17 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
               selection={selectedVersion === undefined ? null : (range ?? null)}
             />
           ) : (
-            <div className="video-editor-timeline-loading" role="status">
-              读到视频时长后即可选择片段
+            // 时长读不出来时时间线摆不出来，但当前这一版该能下载，按钮跟着占位一起摆。
+            <div className="video-editor-timeline-loading">
+              <p role="status">
+                {unreadable(currentSegments)
+                  ? '读不到视频时长，无法预览与选段；关掉编辑器重开可再试一次'
+                  : '读到视频时长后即可选择片段'}
+              </p>
+              {action}
             </div>
           )}
-          <EditorHistory
-            canCompose={canCompose}
-            composing={operation === 'composing'}
-            onCompose={(edit) => void compose(edit)}
-            onOpenChange={setHistoryOpen}
-            onSelect={(key) => {
-              select(key)
-              setHistoryOpen(false)
-            }}
-            open={historyOpen}
-            pending={pending}
-            selectedKey={selected?.key}
-            versions={chain.versions}
-          />
         </div>
-      </DialogSurface>
-    </DialogRoot>
-  )
-}
-
-type HistoryProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  versions: readonly ChainVersion[]
-  pending: readonly PendingEdit[]
-  selectedKey: string | undefined
-  composing: boolean
-  canCompose: (edit: PendingEdit) => boolean
-  onSelect: (key: string) => void
-  onCompose: (edit: PendingEdit) => void
-}
-
-/** 提交过的那一批参考图，给历史里看一眼。 */
-const submittedImages = (job: GenerationJob | undefined): string[] => {
-  const urls = job?.request['reference_image_urls']
-  return Array.isArray(urls) ? urls.filter((url) => typeof url === 'string') : []
-}
-
-/** 这次编辑用的模型；request 是不透明 JSON，只认字串。 */
-const modelOf = (job: GenerationJob | undefined): string | undefined => {
-  const model = job?.request['model']
-  return typeof model === 'string' ? model : undefined
-}
-
-function EditorHistory({
-  open,
-  onOpenChange,
-  versions,
-  pending,
-  selectedKey,
-  composing,
-  canCompose,
-  onSelect,
-  onCompose,
-}: HistoryProps) {
-  return (
-    <DialogRoot onOpenChange={onOpenChange} open={open}>
-      <DialogSurface aria-describedby={undefined} className="video-editor-history">
-        <DialogHeader closeLabel="关闭版本与任务" title="版本与任务" />
-        <DialogBody>
-          <h3 className="video-editor-section-label">版本</h3>
-          {versions.map((version) => {
-            const baseLabel = versions.find((item) => item.key === version.edit?.baseKey)?.label
-            return (
-              <div className="video-editor-history-version" key={version.key}>
-                <button
-                  aria-current={selectedKey === version.key ? 'true' : undefined}
-                  className="video-editor-version-link"
-                  onClick={() => onSelect(version.key)}
-                  type="button"
-                >
-                  <Icon decorative name="video" size="sm" />
-                  {version.label}
-                  <span>{baseLabel === undefined ? '原始视频' : `基于 ${baseLabel}`}</span>
-                </button>
-              </div>
-            )
-          })}
-          <h3 className="video-editor-section-label">生成任务</h3>
-          {pending.length === 0 ? (
-            <p className="video-editor-muted">暂无任务。选一段、写下修改要求后生成。</p>
-          ) : (
-            [...pending].reverse().map((edit) => (
-              <details className="video-editor-task" key={edit.key} open={isActive(edit)}>
-                <summary>
-                  <span>{edit.label}</span>
-                  <span className={edit.stage === 'failed' ? 'text-error' : ''}>
-                    {STAGE_LABEL[edit.stage]}
-                  </span>
-                </summary>
-                <div className="video-editor-task-details">
-                  <ol aria-label={`${edit.label} 生成进度`} className="video-editor-task-stages">
-                    {PROGRESS.map((stage, at) => (
-                      <li data-active={progressOf(edit.stage) === at} key={stage}>
-                        <Icon
-                          decorative
-                          name={
-                            progressOf(edit.stage) === at && isActive(edit)
-                              ? 'loading'
-                              : progressOf(edit.stage) > at || edit.stage === 'ready'
-                                ? 'check'
-                                : 'ellipse'
-                          }
-                          size="sm"
-                        />
-                        {STAGE_LABEL[stage]}
-                      </li>
-                    ))}
-                  </ol>
-                  <p className="video-editor-muted">
-                    修改 {roundSeconds(edit.coords.editStart)}–{roundSeconds(edit.coords.editEnd)}s
-                    · 基于 {edit.base.label}
-                    {modelOf(edit.video) === undefined ? '' : ` · 模型 ${modelOf(edit.video)}`}
-                  </p>
-                  {edit.prompt === undefined ? null : <p>{edit.prompt}</p>}
-                  {submittedImages(edit.video).length > 0 ? (
-                    <div className="video-editor-task-references">
-                      {submittedImages(edit.video).map((url) => (
-                        <img alt="参考图" key={url} src={url} />
-                      ))}
-                    </div>
-                  ) : null}
-                  {edit.error === undefined ? null : <p className="text-error">{edit.error}</p>}
-                  <div className="video-editor-task-actions">
-                    {edit.preview === undefined ? null : (
-                      <Button onClick={() => onSelect(edit.key)} size="md" variant="ghost">
-                        预览
-                      </Button>
-                    )}
-                    {edit.stage === 'ready' ||
-                    (edit.stage === 'failed' && edit.master !== undefined) ? (
-                      <Button
-                        disabled={!canCompose(edit)}
-                        loading={composing}
-                        onClick={() => onCompose(edit)}
-                        size="md"
-                      >
-                        {edit.master === undefined ? '合成成片' : '重新合成'}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </details>
-            ))
-          )}
-        </DialogBody>
       </DialogSurface>
     </DialogRoot>
   )

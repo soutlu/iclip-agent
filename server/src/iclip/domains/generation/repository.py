@@ -36,6 +36,25 @@ class GenerationRepository(Protocol):
         ``metadata`` 给了就只要坐标包含这些键值的（JSONB ``@>``）。"""
         ...
 
+    async def copy_completed_to_fork(
+        self,
+        *,
+        source_conversation_id: uuid.UUID,
+        target_conversation_id: uuid.UUID,
+        owner: uuid.UUID,
+        task_id: uuid.UUID | None,
+    ) -> int:
+        """把源对话已出片的记录复制到副本名下，返回复制了几条。
+
+        只取 ``completed``：只有它带输出地址，其余状态拷过去是死行。视频编辑链整条不带——
+        链上各条靠 ``metadata.rootJob`` 认根，根在副本里换了新 id，拷过去也连不回去；本地加工
+        的参考片段还配了桶上的过期规则，拷过去迟早是死地址。新行换新 id 与新对话，
+        属主记复制的人（结果条按属主可见性查），``api_key_id`` 清空（这次不是钥匙发起的）。
+        ``request``（含 ``user_name``）、``metadata`` 与四个时间戳原样保留：坐标是结果条的定位键，
+        时间戳决定同一坐标下哪条算最新，改了就把副本后来自己出的片压下去。
+        """
+        ...
+
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
         """在调用 Provider 前持久化 submitting，使恢复流程能识别提交结果未知的任务。"""
         ...

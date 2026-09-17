@@ -18,6 +18,8 @@ const conversation: Conversation = {
   collectionId: null,
   createdAt: '2026-08-01T00:00:00Z',
   deletedAt: null,
+  forkTurn: null,
+  forkedFrom: null,
   id: '6d80645b-f17b-4eab-a5d2-6c72214f35f3',
   lastRunId: null,
   ownerUserId: '0f7f4c1e-8a3b-4d0e-9c2a-6b1d2e3f4a5b',

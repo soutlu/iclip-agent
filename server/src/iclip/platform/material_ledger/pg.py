@@ -72,5 +72,21 @@ class PgMaterialLedger:
             return None
         return Material(url=url, kind=cast(MaterialKind, row[0]))
 
+    async def list_all(self, namespace: str) -> tuple[Material, ...]:
+        """整份读出一个命名空间的素材，供组合根在分叉时搬进副本。
+
+        不进 ``MaterialLedger`` 协议：那份契约是给能力用的，能力只按 URL 精确查。"""
+
+        table = materials_table
+        async with self._engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    select(table.c.url, table.c.kind)
+                    .where(table.c.namespace == namespace)
+                    .order_by(table.c.created_at, table.c.url)
+                )
+            ).all()
+        return tuple(Material(url=row[0], kind=cast(MaterialKind, row[1])) for row in rows)
+
 
 __all__ = ["DB_SCHEMA", "PgMaterialLedger", "materials_table", "metadata_obj"]

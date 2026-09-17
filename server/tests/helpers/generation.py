@@ -24,6 +24,7 @@ from iclip.domains.generation.provider import (
     ProviderSubmission,
 )
 from iclip.domains.generation.schemas import (
+    KIND_CLIP,
     KIND_VIDEO,
     ClipIn,
     GenerationRequest,
@@ -192,6 +193,35 @@ class InMemoryGenerationRepository:
             ]
         rows.sort(key=lambda job: (job.created_at, job.id), reverse=True)
         return tuple(rows[:limit])
+
+    async def copy_completed_to_fork(
+        self,
+        *,
+        source_conversation_id: uuid.UUID,
+        target_conversation_id: uuid.UUID,
+        owner: uuid.UUID,
+        task_id: uuid.UUID | None,
+    ) -> int:
+        from dataclasses import replace
+
+        copied = [
+            replace(
+                job,
+                id=uuid.uuid4(),
+                owner_user_id=owner,
+                api_key_id=None,
+                conversation_id=target_conversation_id,
+                task_id=task_id,
+            )
+            for job in list(self.jobs.values())
+            if job.conversation_id == source_conversation_id
+            and job.status == STATUS_COMPLETED
+            and job.kind != KIND_CLIP
+            and "rootJob" not in (job.metadata or {})
+        ]
+        for job in copied:
+            self.jobs[job.id] = job
+        return len(copied)
 
     async def mark_submitting(self, job_id: uuid.UUID) -> GenerationJob:
         return self._replace(job_id, status=STATUS_SUBMITTING)

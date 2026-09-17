@@ -293,6 +293,19 @@ def drop_last_turn(
     return kept, tuple(run_id for run_id, _ in turns[-1])
 
 
+def keep_turns(
+    messages: Sequence[ModelMessage], prompt_of_run: Mapping[str, str], *, ordinal: int
+) -> list[ModelMessage]:
+    """只留下前 ``ordinal`` 轮的消息，轮内次序与 run_id 都不变。越界轮号由调用方先挡掉。
+
+    压缩摘要边界不特殊处理：它落在某一轮里，跟着那一轮一起留或一起走，续跑的模型窗口
+    与源对话在同一位置看到同一份摘要。
+    """
+
+    turns = _group_by_turn(messages, prompt_of_run)
+    return [message for segments in turns[:ordinal] for _, group in segments for message in group]
+
+
 def run_state_from_events(events: Sequence[StepEvent]) -> TurnState:
     """将持久化结束事件映射为终态。run_failed 按 RunCancelled/CancelledError 区分取消；缺事件视为失败。"""
 
@@ -770,6 +783,7 @@ __all__ = [
     "TurnState",
     "approvals_from_messages",
     "drop_last_turn",
+    "keep_turns",
     "run_error_from_events",
     "run_ids_from_messages",
     "run_state_from_events",

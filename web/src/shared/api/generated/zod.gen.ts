@@ -308,6 +308,21 @@ export const zConversationFilesOut = z.object({
 })
 
 /**
+ * ConversationForkIn
+ *
+ * 从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。
+ *
+ * 对话 id 由服务端铸：分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，
+ * 没有可供幂等重放的位置。
+ */
+export const zConversationForkIn = z.object({
+  agentId: z.string().min(1).max(128).nullish(),
+  collectionId: z.uuid().nullish(),
+  title: z.string().min(1).max(200).nullish(),
+  turn: z.int().gte(1),
+})
+
+/**
  * ConversationIn
  *
  * 新建一段对话。不给名字就用默认名。
@@ -333,6 +348,8 @@ export const zConversationOut = z.object({
   collectionId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   deletedAt: z.iso.datetime().nullable(),
+  forkTurn: z.int().nullable(),
+  forkedFrom: z.uuid().nullable(),
   id: z.uuid(),
   lastRunId: z.string().nullable(),
   ownerUserId: z.uuid(),
@@ -1374,6 +1391,8 @@ export const zTranscriptPage = z.object({
   agent_id: z.string(),
   agents: z.array(zAgentDescriptor).optional().default([]),
   deleted_at: z.string().nullish(),
+  fork_turn: z.int().nullish(),
+  forked_from: z.string().nullish(),
   has_more: z.boolean(),
   interactions: z.array(zInteraction).optional().default([]),
   items: z.array(zTranscriptTurn),
@@ -2012,6 +2031,17 @@ export const zAbortConversationConversationsConversationIdAbortPostPath = z.obje
  * Successful Response
  */
 export const zAbortConversationConversationsConversationIdAbortPostResponse = z.void()
+
+export const zForkConversationConversationsConversationIdForkPostBody = zConversationForkIn
+
+export const zForkConversationConversationsConversationIdForkPostPath = z.object({
+  conversation_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zForkConversationConversationsConversationIdForkPostResponse = zConversationEnvelope
 
 export const zListGenerationsGenerationsGetQuery = z.object({
   limit: z.int().gte(1).lte(100).optional().default(20),

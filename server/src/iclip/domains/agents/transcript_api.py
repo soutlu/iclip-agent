@@ -156,7 +156,7 @@ class Transcripts(Protocol):
 
 
 class ConversationHeader(Protocol):
-    """会话页首屏要贴在信封顶层的三项。"""
+    """会话页首屏要贴在信封顶层的几项。"""
 
     @property
     def title(self) -> str: ...
@@ -166,6 +166,12 @@ class ConversationHeader(Protocol):
 
     @property
     def deleted_at(self) -> datetime | None: ...
+
+    @property
+    def forked_from(self) -> uuid.UUID | None: ...
+
+    @property
+    def fork_turn(self) -> int | None: ...
 
 
 class Conversations(Protocol):
@@ -483,6 +489,8 @@ def create_transcript_router(
                 "title": header.title,
                 "owner_user_id": str(header.owner_user_id),
                 "deleted_at": None if header.deleted_at is None else header.deleted_at.isoformat(),
+                "forked_from": None if header.forked_from is None else str(header.forked_from),
+                "fork_turn": header.fork_turn,
             }
         )
 

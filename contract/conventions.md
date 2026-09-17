@@ -188,6 +188,19 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
   - `video_shot.json` 复用镜头表形状校验，不合法返回 `422`。面板写入不校验地址来源，也不把地址登记成对话素材；用户要让 agent 使用新地址，须以附件提交。
   - `video_shot.json` 由 `write_video_shots` 整份交付，每组 `image_urls` 支持 0–30 张；工具提交与文件写回共用这条上限，超限分别返回重试提示与 `422`。
 
+### 分叉
+
+`POST /conversations/{id}:fork` 从看得见的某段对话的第 `turn` 轮岔出一段新对话，归调用者所有。源对话一个字节都不改，所以它只要 `agent:run`（写自己）加上对源的读可见性：**人人能分叉自己的，治理者能分叉任何人的，包括墓碑**。副本的 id 由服务端铸，不收调用方铸的 id——分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，没有可供幂等重放的位置。
+
+- 体是 `{ turn, title?, agentId?, collectionId? }`。`turn` 从 1 数，这一轮含在副本里；`agentId` 不给就沿用源的，给了就换一个用于对照试跑；`title` 不给就是源标题加「（分叉 · 第 N 轮）」，并按用户自定义记，自动起名不再碰它。
+- 源看不见是 `404`，`turn` 越界或源从没跑过是 `422`，源还有没跑完的消息（在跑、等审批或排队）是 `409`。
+- 答复形状同 `POST /conversations`，行上多两个字段：`forkedFrom`（源对话 id）与 `forkTurn`（分叉自第几轮），不是分叉来的对话两个都是 `null`。副本再分叉时 `forkedFrom` 指它的直接上游。会话页首屏另从 `GET /transcript` 的顶层拿 `forked_from` 与 `fork_turn`（照 §5 的协议命名，与 `owner_user_id`、`deleted_at` 同一处）。
+- **拷过去的**：截到第 `turn` 轮的对话历史、工作区文件（版本从 1 起）、素材台账、已出片的根记录。**不拷的**：运行记录（副本拿原 run id 回源查终态与子代理）、视频编辑链（链上各条靠 `metadata.rootJob` 认根，根在副本里换了 id）、本地加工的参考片段（桶上配了过期规则）、源的需求单归属（挂上就等于替别人认领）。
+- **工作区文件与出片记录没有逐轮历史**，拷的是分叉那一刻的那一份。从第 3 轮分叉，agent 的上下文停在第 3 轮，但它读到的 `video_shot.json` 可能是第 6 轮写的。
+- **继承来的轮不能重新生成**：副本下没有它们对应的消息记录，`:regenerate` 返回 `404`。副本上发过一条新消息之后，那一轮照常可重新生成。源对话里跨多次运行的一轮（审批后恢复、续跑）在副本里会拆成多轮显示。
+- 媒体字节不复制：两边的地址指向同一批对象，编辑只会按新任务 id 产出新地址，不覆盖也不删除。
+- 副本不进审计报表（见 §12）。
+
 ### 两处归属
 
 - 归属关系见 [CONTEXT.md](../docs/CONTEXT.md)。`taskId` 用 `PUT .../task` 改，`collectionId` 用 `PUT .../collection` 改，给 `null` 就是摘掉。
@@ -352,6 +365,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 
 治理者看产量、成功率、耗时与模型消耗的三个只读端点，都要 `users:manage`，否则 `403`。口径的定义见 [CONTEXT.md「审计口径」](../docs/CONTEXT.md#术语)，决策见 [ADR-0027](../docs/adr/0027-audit-reports.md)。
 
+- **分叉出来的副本一律不进这三个端点**：它带着源对话拷来的出片记录，算进去会把原作者的产量重计一遍；副本自己跑出来的也是试验数据。分叉见 §6。
 - 三个端点共用筛选 `since` / `until`（左闭右开）、`userName`、`taskId`。时间窗作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数与一次通过看该镜首次出片时刻，运行看发起时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。`since` 不早于 `until` 是 `422`。
 - 每一格指标都是同一个 `metrics` 形状：`deliveries`（成片件数 = `deliveredTasks` + `deliveredOrphanConversations`）、`completedVideos`、`producers`、`shots` / `attempts` / `oneTakeShots`（只出了一条且成了的镜）与派生的 `attemptsPerShot`、`oneTakeRate`、`runs`（agent 运行次数，归发起人）、`deliveredConversations`、三组秒数分布 `cycleSeconds` / `videoSeconds` / `upstreamSeconds`（各带 `avg`、`median`、`p90`，没有样本为 `null`）、`usage`（五个 token 计数、`totalTokens`、`cacheHitRate`）与 `tokensPerDelivery`。分母为零的比率是 `null`。
 - `GET /audit/summary` 返回 `overall`（整个筛选范围一格）、`users[]`（每人一行，成片件数多的在前；只跑过没出片的人也占一行）、`tasks[]`（每张有动静的需求单一行，带 `title`；没挂需求单的对话不在这里）。给 `bucket`（`day` / `week` / `month`）时多返回 `series[]`，每期一行带 `periodStart`，按 `timezone`（IANA 名，缺省 `UTC`）切：给了 `since` 时从 `since` 所在期到 `until`（缺省此刻）所在期每期都有一行，没动静的期计数为 0、比率与分布为 `null`；没给 `since` 只列有数据的期。不给 `bucket` 时 `series` 为 `null`。时区名不认识是 `422`。

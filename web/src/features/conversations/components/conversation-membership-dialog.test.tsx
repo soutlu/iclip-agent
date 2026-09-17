@@ -26,6 +26,8 @@ const conversation = (): Conversation => ({
   collectionId: COLLECTION_A,
   createdAt: '2026-09-11T00:00:00Z',
   deletedAt: null,
+  forkTurn: null,
+  forkedFrom: null,
   id: '55555555-5555-4555-8555-555555555555',
   lastRunId: null,
   ownerUserId: '66666666-6666-4666-8666-666666666666',
