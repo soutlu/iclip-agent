@@ -127,6 +127,23 @@ describe('TurnActions', () => {
     )
   })
 
+  it('没给分叉回调时不出分叉按钮', () => {
+    render(<TurnActions copyText="回复" />)
+
+    expect(screen.queryByRole('button', { name: '从这里分叉' })).toBeNull()
+  })
+
+  it('分叉按钮点一下把这一轮交给回调，忙的时候按不动', () => {
+    const onFork = vi.fn()
+    const { rerender } = render(<TurnActions copyText="回复" onFork={onFork} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '从这里分叉' }))
+    expect(onFork).toHaveBeenCalledTimes(1)
+
+    rerender(<TurnActions copyText="回复" forkDisabled onFork={onFork} />)
+    expect(screen.getByRole('button', { name: '从这里分叉' })).toBeDisabled()
+  })
+
   it('跨自然年完成的时刻补年份', () => {
     const ended = new Date(2020, 0, 2, 3, 4, 5)
     render(<TurnActions copyText="回复" endedAt={ended.toISOString()} />)

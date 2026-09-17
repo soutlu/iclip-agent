@@ -26,6 +26,10 @@ export interface TranscriptBaseline {
   ownerUserId: string | null
   /** 属主删掉这段对话的时刻；只有治理者复盘墓碑时非空，页面据此只读并标注。 */
   deletedAt: string | null
+  /** 这段对话分叉自哪一段；不是分叉来的为 null。 */
+  forkedFrom: string | null
+  /** 分叉自源对话的第几轮；与 forkedFrom 同时有值。 */
+  forkTurn: number | null
 }
 
 /** complete 为 false 表示批次已超出日志窗口，需重拉基线。 */
@@ -84,6 +88,8 @@ export const fetchTranscriptBaseline = async (
   ) as AgentTranscriptSnapshot
   return {
     deletedAt: page.deleted_at ?? null,
+    forkedFrom: page.forked_from ?? null,
+    forkTurn: page.fork_turn ?? null,
     hasMoreOlder: page.has_more,
     ownerUserId: page.owner_user_id ?? null,
     seq: page.seq,

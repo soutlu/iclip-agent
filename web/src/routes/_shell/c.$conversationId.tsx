@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect, useParams } from '@tanstack/react-router'
+import { createFileRoute, Link, redirect, useNavigate, useParams } from '@tanstack/react-router'
 import { z } from 'zod'
 import { ConversationRoute } from '@/features/conversations'
 import { shotContentIdSchema } from '@/features/storyboard'
@@ -40,6 +40,7 @@ export const Route = createFileRoute('/_shell/c/$conversationId')({
 
 function ConversationIndexRoute() {
   const { conversationId } = Route.useParams()
+  const navigate = useNavigate()
   return (
     <ConversationRoute
       backLink={
@@ -54,6 +55,18 @@ function ConversationIndexRoute() {
       }
       conversationId={conversationId}
       key={conversationId}
+      onForked={(forked) => {
+        void navigate({ params: { conversationId: forked }, to: '/c/$conversationId' })
+      }}
+      sourceLink={(sourceId) => (
+        <Link
+          className="shrink-0 rounded-xs text-primary ui-focus hover:underline"
+          params={{ conversationId: sourceId }}
+          to="/c/$conversationId"
+        >
+          看源对话
+        </Link>
+      )}
     />
   )
 }
