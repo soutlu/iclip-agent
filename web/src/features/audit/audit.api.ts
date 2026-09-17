@@ -8,6 +8,7 @@ import { dateRangeBounds, type DateRange } from '@/shared/lib/date-range'
 
 export type Summary = z.output<typeof zSummaryOut>
 export type Metrics = Summary['overall']
+export type AttemptBucket = Summary['attemptDistribution'][number]
 export type ConversationReportsPage = z.output<typeof zAuditConversationsOut>
 export type ConversationReport = ConversationReportsPage['items'][number]
 export type AnomaliesPage = z.output<typeof zAnomaliesOut>

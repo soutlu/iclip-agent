@@ -3,7 +3,8 @@
 口径（与 docs/CONTEXT.md「审计口径」一致）：视频只算带数字 ``metadata.shot`` 且挂着对话的
 那些行；成片件数按「需求单一件、无单对话各一件」数；镜的身份是（对话，镜号），只出了一条
 且成了算一次通过；运行按发起人数 ``agent_jobs``；交付周期是一段对话从首次运行到最后一条
-成片。比率都在这里由原始计数派生，分母为零时是 ``None``。"""
+成片。出片次数分布按镜上的出片记录数分档，不看终态——出过视频就算这一镜有了结果。比率都
+在这里由原始计数派生，分母为零时是 ``None``。"""
 
 from __future__ import annotations
 
@@ -160,6 +161,14 @@ EMPTY_METRICS: Final = Metrics(
 
 
 @dataclass(frozen=True, slots=True)
+class AttemptBucket:
+    """出片次数正好是 ``attempts`` 次的镜有多少个。次数按镜上全部出片记录数，不看终态。"""
+
+    attempts: int
+    shots: int
+
+
+@dataclass(frozen=True, slots=True)
 class UserMetrics:
     user_name: str
     metrics: Metrics
@@ -248,6 +257,7 @@ __all__ = [
     "Anomaly",
     "AnomalyCursor",
     "AnomalyKind",
+    "AttemptBucket",
     "Bucket",
     "ConversationCursor",
     "ConversationReport",

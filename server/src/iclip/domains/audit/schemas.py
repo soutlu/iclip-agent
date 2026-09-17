@@ -11,6 +11,7 @@ from pydantic.alias_generators import to_camel
 from iclip.domains.audit.models import (
     Anomaly,
     AnomalyKind,
+    AttemptBucket,
     ConversationReport,
     Metrics,
     ModelUsage,
@@ -92,12 +93,21 @@ class PeriodMetricsOut(CamelModel):
     metrics: MetricsOut
 
 
+class AttemptBucketOut(CamelModel):
+    """出片次数正好是 ``attempts`` 次的镜有多少个。"""
+
+    attempts: int
+    shots: int
+
+
 class SummaryOut(CamelModel):
     overall: MetricsOut
     users: list[UserMetricsOut]
     tasks: list[TaskMetricsOut]
     series: list[PeriodMetricsOut] | None
     """只在给了 ``bucket`` 时有。"""
+    attempt_distribution: list[AttemptBucketOut]
+    """出片次数分布，次数少的在前，不封顶；只给全体一档。"""
 
 
 class ShotOut(CamelModel):
@@ -191,6 +201,10 @@ def metrics_out(metrics: Metrics) -> MetricsOut:
     )
 
 
+def attempt_bucket_out(item: AttemptBucket) -> AttemptBucketOut:
+    return AttemptBucketOut(attempts=item.attempts, shots=item.shots)
+
+
 def user_metrics_out(item: UserMetrics) -> UserMetricsOut:
     return UserMetricsOut(user_name=item.user_name, metrics=metrics_out(item.metrics))
 
@@ -250,6 +264,7 @@ def anomaly_out(anomaly: Anomaly) -> AnomalyOut:
 __all__ = [
     "AnomaliesOut",
     "AnomalyOut",
+    "AttemptBucketOut",
     "AuditConversationsOut",
     "ConversationAuditOut",
     "MetricsOut",
@@ -262,6 +277,7 @@ __all__ = [
     "UsageOut",
     "UserMetricsOut",
     "anomaly_out",
+    "attempt_bucket_out",
     "conversation_out",
     "metrics_out",
     "period_metrics_out",

@@ -9,6 +9,7 @@ from iclip.domains.audit.models import (
     Anomaly,
     AnomalyCursor,
     AnomalyKind,
+    AttemptBucket,
     Bucket,
     ConversationCursor,
     ConversationReport,
@@ -38,6 +39,10 @@ class AuditReports(Protocol):
         self, scope: Scope, *, bucket: Bucket, timezone: str
     ) -> Sequence[PeriodMetrics]:
         """按 ``timezone`` 的日 / 周 / 月切时段，每段一行，早的排前面。"""
+        ...
+
+    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucket]:
+        """出片次数分布，次数少的排前面；时间窗作用在该镜首次出片时刻上。不封顶。"""
         ...
 
     async def conversations(

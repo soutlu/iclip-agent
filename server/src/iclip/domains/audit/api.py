@@ -14,6 +14,7 @@ from iclip.domains.audit.schemas import (
     AuditConversationsOut,
     SummaryOut,
     anomaly_out,
+    attempt_bucket_out,
     conversation_out,
     metrics_out,
     period_metrics_out,
@@ -42,6 +43,9 @@ def create_audit_router(service: AuditService) -> APIRouter:
     ) -> SummaryOut:
         """全体一格、每人一行、每单一行；给 ``bucket`` 再多一条按 ``timezone`` 切的时段序列。
 
+        ``attemptDistribution`` 是全体的出片次数分布，次数按镜上的出片记录数分档、不封顶，
+        锚点与每镜次数一样看该镜首次出片时刻；按人、按需求单的行上没有这份数据。
+
         ``since`` / ``until`` 作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数看
         该镜首次出片时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。
         """
@@ -62,6 +66,7 @@ def create_audit_router(service: AuditService) -> APIRouter:
             series=None
             if found.series is None
             else [period_metrics_out(item) for item in found.series],
+            attempt_distribution=[attempt_bucket_out(item) for item in found.attempt_distribution],
         )
 
     @router.get("/conversations", response_model=AuditConversationsOut)

@@ -16,6 +16,7 @@ from iclip.domains.audit.models import (
     Anomaly,
     AnomalyCursor,
     AnomalyKind,
+    AttemptBucket,
     Bucket,
     ConversationCursor,
     ConversationReport,
@@ -75,6 +76,13 @@ def anomaly(kind: AnomalyKind, at: datetime, ref: str) -> Anomaly:
     )
 
 
+ATTEMPT_ROWS: Sequence[AttemptBucket] = (
+    AttemptBucket(attempts=1, shots=62),
+    AttemptBucket(attempts=2, shots=24),
+    AttemptBucket(attempts=5, shots=2),
+)
+
+
 @dataclass
 class RecordingReports:
     """记下每次调用的参数，按需要回放固定结果。"""
@@ -100,6 +108,10 @@ class RecordingReports:
     ) -> Sequence[PeriodMetrics]:
         self.calls.append(("by_period", (scope, bucket, timezone)))
         return []
+
+    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucket]:
+        self.calls.append(("attempt_distribution", scope))
+        return ATTEMPT_ROWS
 
     async def conversations(
         self, scope: Scope, *, limit: int, after: ConversationCursor | None
@@ -136,6 +148,8 @@ async def test_summary_normalises_the_window_and_only_buckets_on_request() -> No
     bucketed = await service.summary(GOVERNOR, bucket="day", timezone="Asia/Shanghai")
 
     assert plain.series is None and bucketed.series == []
+    assert plain.attempt_distribution == ATTEMPT_ROWS
+    assert ("attempt_distribution", Scope()) in reports.calls
     scopes = [scope for name, scope in reports.calls if name == "overall"]
     assert scopes[0] == Scope(
         since=datetime(2026, 9, 1, tzinfo=UTC), until=datetime(2026, 9, 2, tzinfo=UTC)

@@ -35,6 +35,10 @@ type TrendChartProps = {
   baseline?: number
   /** 比率一类的上限，让 y 轴顶在 1 而不是最大值。 */
   max?: number
+  /** 线型：缺省平滑；累计分布一类的阶梯量用 step，值在这一档内保持不变。 */
+  curve?: 'monotone' | 'step'
+  /** 悬停时在数值下面补一行小字，如样本数；返回空就不加这一行。 */
+  detail?: (point: TrendPoint) => string | undefined
   description?: string
 }
 
@@ -62,6 +66,8 @@ export function TrendChart({
   previous,
   baseline,
   max,
+  curve = 'monotone',
+  detail,
   description,
 }: TrendChartProps) {
   const titleId = useId()
@@ -74,8 +80,9 @@ export function TrendChart({
   // 有上限的比率按四等分给刻度（0 / 25% / 50% / 75% / 100%），不让 Recharts 自己凑出 35%、70% 这种数。
   const tickProps =
     max === undefined ? { tickCount: 4 } : { ticks: [0, max / 4, max / 2, (max * 3) / 4, max] }
+  const lineType = curve === 'step' ? 'stepAfter' : 'monotone'
   const tooltip = (props: TooltipContentProps) => (
-    <TrendTooltip {...props} format={format} withBefore={withBefore} />
+    <TrendTooltip {...props} detail={detail} format={format} withBefore={withBefore} />
   )
   const axes = (
     <>
@@ -207,7 +214,7 @@ export function TrendChart({
               strokeDasharray={DASH}
               strokeLinecap="round"
               strokeWidth={2}
-              type="monotone"
+              type={lineType}
             />
           ) : null}
           <Line
@@ -218,7 +225,7 @@ export function TrendChart({
             stroke={SERIES}
             strokeLinecap="round"
             strokeWidth={2}
-            type="monotone"
+            type={lineType}
           />
         </LineChart>
       )}
@@ -229,13 +236,15 @@ export function TrendChart({
 type TrendTooltipProps = TooltipContentProps & {
   format: (value: number) => string
   withBefore: boolean
+  detail?: ((point: TrendPoint) => string | undefined) | undefined
 }
 
 /** 一格说明：时段加本期数值，有对照时再给一行上期；Recharts 默认的白底框不跟主题，这里自己画。 */
-function TrendTooltip({ active, payload, format, withBefore }: TrendTooltipProps) {
+function TrendTooltip({ active, payload, format, withBefore, detail }: TrendTooltipProps) {
   const row = payload[0]?.payload as TrendRow | undefined
   if (!active || row === undefined) return null
   const read = (value: number | null) => (value === null ? '无数据' : format(value))
+  const note = detail?.(row)
   return (
     <div className="flex flex-col rounded-xs bg-inverse-surface px-2 py-1 text-label text-inverse-on-surface tabular-nums shadow-[var(--shadow-2)]">
       {withBefore ? (
@@ -249,6 +258,7 @@ function TrendTooltip({ active, payload, format, withBefore }: TrendTooltipProps
           {row.label} · {read(row.value)}
         </span>
       )}
+      {note === undefined ? null : <span className="opacity-80">{note}</span>}
     </div>
   )
 }
