@@ -22,7 +22,14 @@ import {
   formatTimes,
   formatTokens,
 } from '../format'
-import { cumulativePass, foldTail, gini, lorenzPoints } from '../attempt-distribution'
+import {
+  cumulativePass,
+  distributionRows,
+  foldTail,
+  gini,
+  lorenzPoints,
+  topShareOfAttempts,
+} from '../attempt-distribution'
 import { ConcentrationChart } from './concentration-chart'
 import { MetricsTable, type MetricsColumn } from './metrics-table'
 import { StatTile } from './stat-tile'
@@ -160,12 +167,17 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
   const distribution = summary?.attemptDistribution ?? []
   const beforeDistribution = previous.data?.attemptDistribution ?? []
   const pass = cumulativePass(foldTail(distribution, ATTEMPT_CAP))
-  const passPoints = pass.map((point) => ({
-    key: String(point.attempts),
-    // 折尾后的末档装着「cap 次及以上」，标签照这个说。
-    label: point.attempts === ATTEMPT_CAP ? `${ATTEMPT_CAP} 次以上` : `第 ${point.attempts} 次`,
-    value: point.cumulative,
-  }))
+  const passPoints = pass.map((point) => {
+    // 折尾后的末档装着「cap 次及以上」，标签与悬停都照这个说，不能写成「以内完成」。
+    const tail = point.attempts === ATTEMPT_CAP
+    const label = tail ? `${ATTEMPT_CAP} 次以上` : `${point.attempts} 次`
+    return {
+      key: String(point.attempts),
+      label,
+      tooltipLabel: tail ? label : `${label}以内完成`,
+      value: point.cumulative,
+    }
+  })
   const beforePassAt = new Map(
     cumulativePass(foldTail(beforeDistribution, ATTEMPT_CAP)).map((point) => [
       point.attempts,
@@ -176,15 +188,26 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
     beforeDistribution.length === 0
       ? undefined
       : passPoints.map((point) => beforePassAt.get(Number(point.key)) ?? null)
+  // 末档一定收在 100%，「尚有 N 镜未完成」在那里恒为 0，不写。
   const attemptNotes = new Map(
-    pass.map((point) => [
+    pass.map((point, index) => [
       String(point.attempts),
-      `这一档 ${point.shots} 镜 · 进到这一次还有 ${point.entering} 镜`,
+      index === pass.length - 1
+        ? `本档 ${point.shots} 镜`
+        : `本档 ${point.shots} 镜 · 尚有 ${point.entering - point.shots} 镜未完成`,
     ]),
   )
+  const passSummary =
+    pass.length < 2
+      ? undefined
+      : `一次完成 ${Math.round((pass[0]?.cumulative ?? 0) * 100)}% · 两次以内 ${Math.round(
+          (pass[1]?.cumulative ?? 0) * 100,
+        )}%`
   const lorenz = lorenzPoints(distribution)
+  const rows = distributionRows(distribution, ATTEMPT_CAP)
+  const topShare = topShareOfAttempts(distribution)
+  const beforeTopShare = topShareOfAttempts(beforeDistribution)
   const concentration = gini(distribution)
-  const beforeConcentration = gini(beforeDistribution)
 
   const anomalyItems = anomalies.data?.pages.flatMap((page) => page.items) ?? []
   const anomalyCounts = new Map<AnomalyKind, number>()
@@ -313,23 +336,26 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
         </div>
       </section>
 
-      <section aria-label="出片次数" className="grid gap-4 lg:grid-cols-2">
+      <section aria-label="出片次数分析" className="grid gap-4 lg:grid-cols-2">
         <TrendChart
           curve="step"
-          description="出了这么多次以内就收工的镜占比"
+          description={passSummary ?? '出到第 n 次为止已完成的镜占比'}
           detail={(point) => attemptNotes.get(point.key)}
+          empty="该时段无出片记录"
           format={(value) => `${Math.round(value * 100)}%`}
           kind="line"
           max={1}
           points={passPoints}
           previous={beforePass}
-          title="累计通过曲线"
+          title="出片次数分布"
         />
         <ConcentrationChart
-          before={beforeConcentration}
+          beforeTopShare={beforeTopShare}
           concentration={concentration}
           points={lorenz}
-          title="算力花在谁身上"
+          rows={rows}
+          topShare={topShare}
+          title="出片次数集中度"
         />
       </section>
 
