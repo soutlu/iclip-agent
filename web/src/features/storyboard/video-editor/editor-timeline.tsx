@@ -1,9 +1,9 @@
 /** 时间线：上轨是基底里对应的内容，下轨是当前这一版；在版本上拖手柄选段，方向键微调。 */
 
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
-import { Button, IconButton } from '@/shared/ui/button'
+import { IconButton } from '@/shared/ui/button'
 import type { ChainVersion, LaidOutSegment } from './edit-chain'
 import { EditorVersionMenu, type VersionMenuEntry } from './editor-version-menu'
 import { roundSeconds, timeLabel } from './time-label'
@@ -33,7 +33,8 @@ type EditorTimelineProps = {
   onSeek: (time: number) => void
   onSelectionChange: (range: TimeRange, boundary: keyof TimeRange) => void
   onSelect: (key: string) => void
-  onHistory: () => void
+  /** 工具栏最右那个主按钮：看某一版是下载，看编辑预览是合成。 */
+  action: ReactNode
 }
 
 function SegmentFrames({ poster, count }: { poster: string | undefined; count: number }) {
@@ -68,7 +69,7 @@ export function EditorTimeline({
   onSeek,
   onSelectionChange,
   onSelect,
-  onHistory,
+  action,
 }: EditorTimelineProps) {
   const [zoomIndex, setZoomIndex] = useState(0)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -153,9 +154,7 @@ export function EditorTimeline({
             }}
             size="md"
           />
-          <Button onClick={onHistory} size="md" trailingIcon="next" variant="ghost">
-            历史
-          </Button>
+          {action}
         </div>
       </header>
 
