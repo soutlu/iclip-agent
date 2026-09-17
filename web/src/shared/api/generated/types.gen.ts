@@ -298,6 +298,22 @@ export type AttachmentSource = {
 }
 
 /**
+ * AttemptBucketOut
+ *
+ * 出片次数正好是 ``attempts`` 次的镜有多少个。
+ */
+export type AttemptBucketOut = {
+  /**
+   * Attempts
+   */
+  attempts: number
+  /**
+   * Shots
+   */
+  shots: number
+}
+
+/**
  * AuditConversationsOut
  */
 export type AuditConversationsOut = {
@@ -1766,6 +1782,10 @@ export type StyleMatchOut = {
  * SummaryOut
  */
 export type SummaryOut = {
+  /**
+   * Attemptdistribution
+   */
+  attemptDistribution: Array<AttemptBucketOut>
   overall: MetricsOut
   /**
    * Series

@@ -22,6 +22,8 @@ import {
   formatTimes,
   formatTokens,
 } from '../format'
+import { cumulativePass, foldTail, gini, lorenzPoints } from '../attempt-distribution'
+import { ConcentrationChart } from './concentration-chart'
 import { MetricsTable, type MetricsColumn } from './metrics-table'
 import { StatTile } from './stat-tile'
 import { TrendChart } from './trend-chart'
@@ -36,6 +38,8 @@ type OverviewPanelProps = {
 const SHOT_NOTE = '只统计带镜号的出片'
 const USAGE_NOTE = '自用量台账上线起累计'
 const SAMPLE_HINT = '上游段不给样本：没留提交时刻的记录不计入这一行'
+/** 出片次数画到第几档为止，再多的并成「N 次以上」。 */
+const ATTEMPT_CAP = 5
 
 const RANK_COLUMNS: readonly MetricsColumn[] = [
   {
@@ -151,6 +155,36 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
   /** 上一期同粒度的一条序列，按下标叠在本期上；没有上一期就不画对照。 */
   const beforeOf = (pick: (metrics: Metrics) => number | null) =>
     beforeSeries.length === 0 ? undefined : beforeSeries.map((period) => pick(period.metrics))
+
+  // 出片次数：折尾只为画图，本期与上期折到同一档位才能按下标对齐；集中度一律吃未折叠的原始分布。
+  const distribution = summary?.attemptDistribution ?? []
+  const beforeDistribution = previous.data?.attemptDistribution ?? []
+  const pass = cumulativePass(foldTail(distribution, ATTEMPT_CAP))
+  const passPoints = pass.map((point) => ({
+    key: String(point.attempts),
+    // 折尾后的末档装着「cap 次及以上」，标签照这个说。
+    label: point.attempts === ATTEMPT_CAP ? `${ATTEMPT_CAP} 次以上` : `第 ${point.attempts} 次`,
+    value: point.cumulative,
+  }))
+  const beforePassAt = new Map(
+    cumulativePass(foldTail(beforeDistribution, ATTEMPT_CAP)).map((point) => [
+      point.attempts,
+      point.cumulative,
+    ]),
+  )
+  const beforePass =
+    beforeDistribution.length === 0
+      ? undefined
+      : passPoints.map((point) => beforePassAt.get(Number(point.key)) ?? null)
+  const attemptNotes = new Map(
+    pass.map((point) => [
+      String(point.attempts),
+      `这一档 ${point.shots} 镜 · 进到这一次还有 ${point.entering} 镜`,
+    ]),
+  )
+  const lorenz = lorenzPoints(distribution)
+  const concentration = gini(distribution)
+  const beforeConcentration = gini(beforeDistribution)
 
   const anomalyItems = anomalies.data?.pages.flatMap((page) => page.items) ?? []
   const anomalyCounts = new Map<AnomalyKind, number>()
@@ -277,6 +311,26 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section aria-label="出片次数" className="grid gap-4 lg:grid-cols-2">
+        <TrendChart
+          curve="step"
+          description="出了这么多次以内就收工的镜占比"
+          detail={(point) => attemptNotes.get(point.key)}
+          format={(value) => `${Math.round(value * 100)}%`}
+          kind="line"
+          max={1}
+          points={passPoints}
+          previous={beforePass}
+          title="累计通过曲线"
+        />
+        <ConcentrationChart
+          before={beforeConcentration}
+          concentration={concentration}
+          points={lorenz}
+          title="算力花在谁身上"
+        />
       </section>
 
       <section aria-label="趋势" className="grid gap-4 lg:grid-cols-2">

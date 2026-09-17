@@ -621,6 +621,26 @@
         "title": "AttachmentSource",
         "type": "object"
       },
+      "AttemptBucketOut": {
+        "additionalProperties": false,
+        "description": "出片次数正好是 ``attempts`` 次的镜有多少个。",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "shots": {
+            "title": "Shots",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attempts",
+          "shots"
+        ],
+        "title": "AttemptBucketOut",
+        "type": "object"
+      },
       "AuditConversationsOut": {
         "additionalProperties": false,
         "properties": {
@@ -3329,6 +3349,13 @@
       "SummaryOut": {
         "additionalProperties": false,
         "properties": {
+          "attemptDistribution": {
+            "items": {
+              "$ref": "#/components/schemas/AttemptBucketOut"
+            },
+            "title": "Attemptdistribution",
+            "type": "array"
+          },
           "overall": {
             "$ref": "#/components/schemas/MetricsOut"
           },
@@ -3365,7 +3392,8 @@
           "overall",
           "users",
           "tasks",
-          "series"
+          "series",
+          "attemptDistribution"
         ],
         "title": "SummaryOut",
         "type": "object"
@@ -6541,7 +6569,7 @@
     },
     "/audit/summary": {
       "get": {
-        "description": "全体一格、每人一行、每单一行；给 ``bucket`` 再多一条按 ``timezone`` 切的时段序列。\n\n``since`` / ``until`` 作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数看\n该镜首次出片时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。",
+        "description": "全体一格、每人一行、每单一行；给 ``bucket`` 再多一条按 ``timezone`` 切的时段序列。\n\n``attemptDistribution`` 是全体的出片次数分布，次数按镜上的出片记录数分档、不封顶，\n锚点与每镜次数一样看该镜首次出片时刻；按人、按需求单的行上没有这份数据。\n\n``since`` / ``until`` 作用在各指标自己的锚点上：成片与视频耗时看完成时刻，每镜次数看\n该镜首次出片时刻，交付周期看最后成片时刻，模型用量整段对话按最后记账时刻归期。",
         "operationId": "summary_audit_summary_get",
         "parameters": [
           {

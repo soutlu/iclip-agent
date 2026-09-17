@@ -34,6 +34,7 @@ export type {
   ApproveConversationsConversationIdInteractionsInteractionIdPostResponse,
   ApproveConversationsConversationIdInteractionsInteractionIdPostResponses,
   AttachmentSource,
+  AttemptBucketOut,
   AuditConversationsConversationsAuditGetData,
   AuditConversationsConversationsAuditGetError,
   AuditConversationsConversationsAuditGetErrors,

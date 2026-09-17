@@ -278,6 +278,19 @@ const anomaliesFor = (reports: Report[]): Anomaly[] => {
   return found.sort((a, b) => b.at.localeCompare(a.at))
 }
 
+/** 出片次数分布：所有镜按次数分档，次数少的在前，不封顶。 */
+const distributionOf = (reports: Report[]) => {
+  const shotsAt = new Map<number, number>()
+  for (const report of reports) {
+    for (const shot of report.shots) {
+      shotsAt.set(shot.attempts, (shotsAt.get(shot.attempts) ?? 0) + 1)
+    }
+  }
+  return [...shotsAt.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([attempts, shots]) => ({ attempts, shots }))
+}
+
 const page = <T>(items: T[], query: URLSearchParams, key: (item: T) => string) => {
   const cursor = query.get('cursor')
   const limit = Number(query.get('limit') ?? 20)
@@ -315,6 +328,7 @@ export const auditHandlers = [
       }
     }
     return HttpResponse.json({
+      attemptDistribution: distributionOf(reports),
       overall: aggregate(reports),
       series:
         bucket === null

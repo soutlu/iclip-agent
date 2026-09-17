@@ -22,6 +22,35 @@ const ALL_TIME: AuditScope = { ...DEFAULT_AUDIT_SCOPE, range: 'all' }
 
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60_000).toISOString()
 
+/** 全零的一格指标，给只关心某一段的用例当底座。 */
+const EMPTY_METRICS = {
+  attempts: 0,
+  attemptsPerShot: null,
+  completedVideos: 0,
+  cycleSeconds: null,
+  deliveredConversations: 0,
+  deliveredOrphanConversations: 0,
+  deliveredTasks: 0,
+  deliveries: 0,
+  oneTakeRate: null,
+  oneTakeShots: 0,
+  producers: 0,
+  runs: 0,
+  shots: 0,
+  tokensPerDelivery: null,
+  upstreamSeconds: null,
+  usage: {
+    cacheHitRate: null,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    requests: 0,
+    totalTokens: 0,
+  },
+  videoSeconds: null,
+}
+
 /** 三段对话：第三段（下标 2）镜 2 会试三次；第二段没挂需求单；第一段是治理者的。 */
 const seed = () => {
   const first = addMockConversation('秋季新品短片', hoursAgo(2), mockGovernor.id)
@@ -71,6 +100,67 @@ describe('OverviewPanel', () => {
     expect(await within(anomalies).findByText('反复重试')).toBeVisible()
   })
 
+  it('出片次数那段给出累计通过曲线与集中度', async () => {
+    seed()
+    server.use(
+      http.get('*/api/audit/summary', () =>
+        HttpResponse.json({
+          // 五个镜：1、1、1、2、5 次，集中度 0.36。
+          attemptDistribution: [
+            { attempts: 1, shots: 3 },
+            { attempts: 2, shots: 1 },
+            { attempts: 5, shots: 1 },
+          ],
+          overall: EMPTY_METRICS,
+          series: null,
+          tasks: [],
+          users: [],
+        }),
+      ),
+    )
+    await renderWithProviders(
+      <OverviewPanel nameOf={nameOf} onOpenAnomalies={() => {}} scope={ALL_TIME} />,
+    )
+
+    const section = await screen.findByRole('region', { name: '出片次数' })
+    const concentration = within(section).getByRole('figure', { name: '算力花在谁身上' })
+    await waitFor(() => expect(within(concentration).getByText('0.36')).toBeVisible())
+    expect(within(section).getByRole('figure', { name: '累计通过曲线' })).toBeVisible()
+    // 队尾那一档：出了五次的那一个镜占两成镜，却吃掉一半的出片次数。
+    expect(
+      within(concentration).getByText(/出片最多的 20.0% 的镜，吃掉了 50.0% 的次数/),
+    ).toBeVisible()
+
+    await userEvent.click(within(concentration).getByText('看数字'))
+    // 前 60% 的镜（三个一次过的）只吃掉 30% 的出片次数。
+    expect(within(concentration).getByRole('cell', { name: '60.0%' })).toBeVisible()
+    expect(within(concentration).getByRole('cell', { name: '30.0%' })).toBeVisible()
+  })
+
+  it('所有镜花的次数一样时不摆空表格', async () => {
+    seed()
+    server.use(
+      http.get('*/api/audit/summary', () =>
+        HttpResponse.json({
+          attemptDistribution: [{ attempts: 2, shots: 7 }],
+          overall: EMPTY_METRICS,
+          series: null,
+          tasks: [],
+          users: [],
+        }),
+      ),
+    )
+    await renderWithProviders(
+      <OverviewPanel nameOf={nameOf} onOpenAnomalies={() => {}} scope={ALL_TIME} />,
+    )
+
+    const section = await screen.findByRole('region', { name: '出片次数' })
+    const concentration = within(section).getByRole('figure', { name: '算力花在谁身上' })
+    await waitFor(() => expect(within(concentration).getByText('0.00')).toBeVisible())
+    expect(within(concentration).getByText('每个镜花的出片次数都一样')).toBeVisible()
+    expect(within(concentration).queryByText('看数字')).not.toBeInTheDocument()
+  })
+
   it('不限时间没有上一期，头条卡不出「较上期」', async () => {
     seed()
     await renderWithProviders(
@@ -90,34 +180,14 @@ describe('OverviewPanel', () => {
         // 两期都带 bucket，近 30 天只有上一期带右端点。
         const isPrevious = query.has('until')
         windows.push(isPrevious ? 'previous' : 'current')
-        const base = {
-          attempts: 0,
-          attemptsPerShot: null,
-          completedVideos: 0,
-          cycleSeconds: null,
-          deliveredConversations: 0,
-          deliveredOrphanConversations: 0,
-          deliveredTasks: 0,
-          deliveries: isPrevious ? 10 : 12,
-          oneTakeRate: null,
-          oneTakeShots: 0,
-          producers: 0,
-          runs: 0,
-          shots: 0,
-          tokensPerDelivery: null,
-          upstreamSeconds: null,
-          usage: {
-            cacheHitRate: null,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-            requests: 0,
-            totalTokens: 0,
-          },
-          videoSeconds: null,
-        }
-        return HttpResponse.json({ overall: base, series: [], tasks: [], users: [] })
+        const base = { ...EMPTY_METRICS, deliveries: isPrevious ? 10 : 12 }
+        return HttpResponse.json({
+          attemptDistribution: [],
+          overall: base,
+          series: [],
+          tasks: [],
+          users: [],
+        })
       }),
     )
     await renderWithProviders(

@@ -20,6 +20,7 @@ from iclip.domains.audit.models import (
     Anomaly,
     AnomalyCursor,
     AnomalyKind,
+    AttemptBucket,
     Bucket,
     ConversationCursor,
     ConversationReport,
@@ -278,6 +279,19 @@ _DIMENSIONS: Final[Mapping[str, _Dimension]] = {
 _METRICS_SQL: Final = {name: text(dimension.sql()) for name, dimension in _DIMENSIONS.items()}
 
 _TASK_TITLES: Final = text("SELECT id, title FROM iclip.tasks WHERE id = ANY(CAST(:ids AS uuid[]))")
+
+# 出片次数分布：每镜一条记录，按次数分档。时间锚点与每镜次数一致，看该镜首次出片时刻。
+# 不封顶，累计通过曲线与集中度都在前端从这份原始分布算，SQL 只负责分档计数。
+_ATTEMPTS: Final = text(f"""
+WITH {_VIDEOS}, {_SHOTS}
+SELECT s.attempts, count(*) AS shots
+FROM shots s
+WHERE TRUE
+{_WINDOW.format(anchor="s.first_at")}
+{_FILTERS.format(t="s")}
+GROUP BY s.attempts
+ORDER BY s.attempts
+""")
 
 _CONVERSATIONS: Final = text(f"""
 WITH {_VIDEOS}, {_PERSON}, {_CYCLES}
@@ -581,6 +595,13 @@ class PgAuditReports:
         params = {**_scope_params(scope), "bucket": bucket, "timezone": timezone}
         rows = await self._metrics("period", params)
         return [PeriodMetrics(period_start=row["k"], metrics=_metrics_of(row)) for row in rows]
+
+    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucket]:
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(_ATTEMPTS, _scope_params(scope))).mappings().all()
+        return [
+            AttemptBucket(attempts=_int(row["attempts"]), shots=_int(row["shots"])) for row in rows
+        ]
 
     async def conversations(
         self, scope: Scope, *, limit: int, after: ConversationCursor | None

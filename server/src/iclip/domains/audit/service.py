@@ -15,6 +15,7 @@ from iclip.domains.audit.models import (
     Anomaly,
     AnomalyCursor,
     AnomalyKind,
+    AttemptBucket,
     Bucket,
     ConversationCursor,
     ConversationReport,
@@ -38,6 +39,8 @@ class Summary:
     users: Sequence[UserMetrics]
     tasks: Sequence[TaskMetrics]
     series: Sequence[PeriodMetrics] | None
+    attempt_distribution: Sequence[AttemptBucket]
+    """出片次数分布，只给全体一档；按人、按需求单的行上没有这份数据。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +158,7 @@ class AuditService:
             users=await self._reports.by_user(scope),
             tasks=await self._reports.by_task(scope),
             series=series,
+            attempt_distribution=await self._reports.attempt_distribution(scope),
         )
 
     async def conversations(

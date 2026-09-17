@@ -135,6 +135,16 @@ export const zAttachmentSource = z.object({
 })
 
 /**
+ * AttemptBucketOut
+ *
+ * 出片次数正好是 ``attempts`` 次的镜有多少个。
+ */
+export const zAttemptBucketOut = z.object({
+  attempts: z.int(),
+  shots: z.int(),
+})
+
+/**
  * Body_auth_cookie_login_auth_login_post
  */
 export const zBodyAuthCookieLoginAuthLoginPost = z.object({
@@ -1165,6 +1175,7 @@ export const zUserMetricsOut = z.object({
  * SummaryOut
  */
 export const zSummaryOut = z.object({
+  attemptDistribution: z.array(zAttemptBucketOut),
   overall: zMetricsOut,
   series: z.array(zPeriodMetricsOut).nullable(),
   tasks: z.array(zTaskMetricsOut),

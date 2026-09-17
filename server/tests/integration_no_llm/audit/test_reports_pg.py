@@ -465,6 +465,23 @@ async def test_empty_scope_is_all_zeros(reports: PgAuditReports, seed: Seed) -> 
     assert nothing.usage.requests == 0
 
 
+async def test_attempt_distribution_buckets_shots_by_their_attempt_count(
+    reports: PgAuditReports, seed: Seed
+) -> None:
+    """五个镜分三档：三个一次的、一个两次的、一个三次的。次数含失败与悬挂的尝试，
+    窗口与筛选跟每镜次数同锚点，看该镜首次出片时刻。"""
+
+    everything = await reports.attempt_distribution(Scope())
+    recent = await reports.attempt_distribution(Scope(since=ago(hours=2)))
+    by_donnie = await reports.attempt_distribution(Scope(user_name=DONNIE))
+    nobody = await reports.attempt_distribution(Scope(user_name="Nobody"))
+
+    assert [(row.attempts, row.shots) for row in everything] == [(1, 3), (2, 1), (3, 1)]
+    assert [(row.attempts, row.shots) for row in recent] == [(2, 1), (3, 1)]
+    assert [(row.attempts, row.shots) for row in by_donnie] == [(1, 2)]
+    assert nobody == []
+
+
 async def test_by_user_attributes_videos_by_request_and_conversations_by_latest_run(
     reports: PgAuditReports, seed: Seed
 ) -> None:
