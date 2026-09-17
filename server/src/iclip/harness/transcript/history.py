@@ -20,6 +20,7 @@ from iclip.harness.transcript.from_messages import (
     TurnState,
     approvals_from_messages,
     drop_last_turn,
+    keep_turns,
     run_error_from_events,
     run_ids_from_messages,
     run_state_from_events,
@@ -213,6 +214,37 @@ class TranscriptHistory:
                 )
         return tuple(children)
 
+    async def turn_count(self, conversation_id: str) -> int:
+        """这段对话一共几轮。分叉在动手拷贝之前用它挡掉越界的分叉点。"""
+
+        snapshot = await self.store.latest_conversation_snapshot(
+            conversation_id=conversation_id, include_interrupted=True
+        )
+        messages = [] if snapshot is None else snapshot.messages
+        of_run = await self.prompt_runs.prompt_of_runs(conversation_id)
+        return len(turn_run_ids(messages, of_run))
+
+    async def plan_fork(
+        self, conversation_id: str, *, ordinal: int, target_conversation_id: str
+    ) -> ForkSeed | None:
+        """规划一次分叉，不写库；轮号越界返回 None。
+
+        消息里的 run_id 原样保留：副本不复制运行记录，靠这些 id 回源查终态与子代理。
+        """
+
+        snapshot = await self.store.latest_conversation_snapshot(
+            conversation_id=conversation_id, include_interrupted=True
+        )
+        messages = [] if snapshot is None else snapshot.messages
+        of_run = await self.prompt_runs.prompt_of_runs(conversation_id)
+        if not 1 <= ordinal <= len(turn_run_ids(messages, of_run)):
+            return None
+        return ForkSeed(
+            store=self.store,
+            conversation_id=target_conversation_id,
+            kept=keep_turns(messages, of_run, ordinal=ordinal),
+        )
+
     async def plan_rewind(self, conversation_id: str, *, ordinal: int) -> TurnRewind | None:
         """从同一快照验证并规划末轮截断，不写库；非末轮返回 None。
 
@@ -239,6 +271,28 @@ def _ended(events: Sequence[StepEvent]) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
+class ForkSeed:
+    """尚未落库的分叉起点：截到某一轮的消息，等着写成副本的第一张快照。"""
+
+    store: ConversationSnapshots
+    conversation_id: str
+    """副本的对话 id，不是源的。"""
+    kept: list[ModelMessage]
+
+    async def commit(self) -> None:
+        """把起点存成副本的快照；这张快照的 run_id 不参与消息分轮，与截断保存同一口径。"""
+
+        await self.store.save_snapshot(
+            ContinuableSnapshot(
+                run_id=f"fork-{uuid.uuid4().hex[:8]}",
+                step_index=0,
+                messages=self.kept,
+                conversation_id=self.conversation_id,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class TurnRewind:
     """尚未落库的截断计划，run_ids 为末轮包含的运行。"""
 
@@ -260,4 +314,10 @@ class TurnRewind:
         )
 
 
-__all__ = ["ConversationSnapshots", "PromptRunsSource", "TranscriptHistory", "TurnRewind"]
+__all__ = [
+    "ConversationSnapshots",
+    "ForkSeed",
+    "PromptRunsSource",
+    "TranscriptHistory",
+    "TurnRewind",
+]

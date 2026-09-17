@@ -21,8 +21,8 @@ from iclip.domains.generation.models import (
     STATUS_SUBMITTING,
     GenerationJob,
 )
-from iclip.domains.generation.schemas import GenerationRequest
-from tests.helpers.generation import image_request, make_job, video_request
+from iclip.domains.generation.schemas import GenerationRequest, VideoGenerationIn
+from tests.helpers.generation import clip_request, image_request, make_job, video_request
 from tests.helpers.pg import IDENTITY_TABLES, truncate_clean
 
 
@@ -378,3 +378,112 @@ async def test_in_flight_by_conversation_summarises_unfinished_video_jobs(
 
     assert phases == {queued_only: "queued", running: "running"}
     assert await repo.in_flight_by_conversation([], kind="video") == {}
+
+
+async def _complete(repo: SqlGenerationRepository, job: GenerationJob, url: str) -> GenerationJob:
+    """把一条记录推到终态，使它带上输出地址。"""
+
+    await repo.mark_submitting(job.id)
+    await repo.mark_submitted(
+        job.id, provider_task_id=str(job.id), provider_status="queued", provider_snapshot={}
+    )
+    completed = await repo.mark_completed(
+        job.id, output_url=url, provider_status="succeeded", provider_snapshot={}
+    )
+    assert completed is not None
+    return completed
+
+
+async def test_fork_copy_keeps_coordinates_and_clocks_but_changes_owner(
+    engine: AsyncEngine,
+) -> None:
+    """副本的结果条靠这些列定位：坐标原样、时间戳原样，属主换成分叉的人。"""
+
+    repo = SqlGenerationRepository(engine)
+    author = await make_user(engine)
+    forker = await make_user(engine)
+    source, target = uuid.uuid4(), uuid.uuid4()
+    original = await _complete(
+        repo,
+        await repo.create(
+            make_job(
+                video_request(user_name="小王"),
+                owner_user_id=author,
+                conversation_id=source,
+                metadata={"path": "/video_shot.json", "shot": 2},
+            )
+        ),
+        "https://example.test/shot-2.mp4",
+    )
+
+    assert (
+        await repo.copy_completed_to_fork(
+            source_conversation_id=source,
+            target_conversation_id=target,
+            owner=forker,
+            task_id=None,
+        )
+        == 1
+    )
+
+    copied = (await repo.list_for_owner(owner=forker, limit=10, conversation_id=target))[0]
+    assert copied.id != original.id
+    assert copied.owner_user_id == forker
+    assert copied.api_key_id is None
+    assert copied.conversation_id == target
+    assert copied.metadata == {"path": "/video_shot.json", "shot": 2}
+    assert copied.output_url == original.output_url
+    assert copied.created_at == original.created_at, "时间戳改了会把副本自己出的片压下去"
+    assert copied.finished_at == original.finished_at
+    assert isinstance(copied.request, VideoGenerationIn)
+    assert copied.request.user_name == "小王", "请求是发往上游的输入快照，不改口径"
+    # 源那条一个字没动。
+    assert (await repo.get(original.id, owner=author)).conversation_id == source
+
+
+async def test_fork_copy_skips_unfinished_clips_and_the_edit_chain(engine: AsyncEngine) -> None:
+    """只有已出片的根记录进副本：在途的没地址，参考片段会过期，编辑链认不回新的根。"""
+
+    repo = SqlGenerationRepository(engine)
+    owner = await make_user(engine)
+    source, target = uuid.uuid4(), uuid.uuid4()
+    root = await _complete(
+        repo,
+        await repo.create(
+            make_job(
+                video_request(), owner_user_id=owner, conversation_id=source, metadata={"shot": 1}
+            )
+        ),
+        "https://example.test/root.mp4",
+    )
+    await repo.create(make_job(video_request(), owner_user_id=owner, conversation_id=source))
+    await _complete(
+        repo,
+        await repo.create(make_job(clip_request(), owner_user_id=owner, conversation_id=source)),
+        "https://example.test/ref.mp4",
+    )
+    await _complete(
+        repo,
+        await repo.create(
+            make_job(
+                video_request(),
+                owner_user_id=owner,
+                conversation_id=source,
+                metadata={"rootJob": str(root.id)},
+            )
+        ),
+        "https://example.test/edited.mp4",
+    )
+
+    assert (
+        await repo.copy_completed_to_fork(
+            source_conversation_id=source,
+            target_conversation_id=target,
+            owner=owner,
+            task_id=None,
+        )
+        == 1
+    )
+
+    copied = await repo.list_for_owner(owner=owner, limit=10, conversation_id=target)
+    assert [job.metadata for job in copied] == [{"shot": 1}]

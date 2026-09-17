@@ -22,6 +22,7 @@ from iclip.domains.conversations.schemas import (
     ConversationFileOut,
     ConversationFilesOut,
     ConversationFileWriteIn,
+    ConversationForkIn,
     ConversationIn,
     ConversationOut,
     ConversationPageOut,
@@ -91,6 +92,27 @@ def create_conversations_router(
         )
         if not created:
             response.status_code = 200
+        return ConversationEnvelope(conversation=await _out(conversation))
+
+    @router.post("/{conversation_id}:fork", response_model=ConversationEnvelope, status_code=201)
+    async def fork_conversation(
+        conversation_id: uuid.UUID,
+        body: ConversationForkIn,
+        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+    ) -> ConversationEnvelope:
+        """从看得见的某段对话的第 ``turn`` 轮分叉出一段自己的对话，源对话不变。
+
+        源看不见是 404，正在跑是 409，轮号越界是 422。副本的 id 由服务端铸。
+        """
+
+        conversation = await service.fork(
+            principal,
+            conversation_id,
+            turn=body.turn,
+            title=body.title,
+            agent_id=body.agent_id,
+            collection_id=body.collection_id,
+        )
         return ConversationEnvelope(conversation=await _out(conversation))
 
     @router.get("", response_model=SidebarOut)

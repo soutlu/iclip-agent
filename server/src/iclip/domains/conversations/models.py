@@ -32,6 +32,10 @@ class Conversation:
     updated_at: datetime
     deleted_at: datetime | None = None
     """属主删除它的时刻；活着的对话为空。"""
+    forked_from: uuid.UUID | None = None
+    """分叉来源对话；不是分叉来的为空。与 ``fork_turn`` 同时有值。"""
+    fork_turn: int | None = None
+    """分叉自源对话的第几轮，从 1 数。与 ``forked_from`` 同时有值。"""
 
 
 @dataclass(frozen=True, slots=True)

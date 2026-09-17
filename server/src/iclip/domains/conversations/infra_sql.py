@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     MetaData,
     Table,
     Text,
@@ -76,6 +77,14 @@ conversations_table = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("deleted_at", DateTime(timezone=True), nullable=True),
+    # RESTRICT：被分叉过的行不因别处的删除动作消失；源对话本来也只会软删。
+    Column(
+        "forked_from",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.conversations.id", ondelete="restrict"),
+        nullable=True,
+    ),
+    Column("fork_turn", Integer, nullable=True),
 )
 
 _ROWS = conversations_table.c
@@ -121,6 +130,8 @@ def _row(mapping: RowMapping) -> Conversation:
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
         deleted_at=mapping["deleted_at"],
+        forked_from=mapping["forked_from"],
+        fork_turn=mapping["fork_turn"],
     )
 
 
@@ -208,6 +219,8 @@ class SqlConversationRepository:
                 collection_id=conversation.collection_id,
                 created_at=func.now(),
                 updated_at=func.now(),
+                forked_from=conversation.forked_from,
+                fork_turn=conversation.fork_turn,
             )
             .on_conflict_do_nothing(index_elements=[_ROWS.id])
             .returning(*conversations_table.c)

@@ -39,6 +39,9 @@ from iclip.domains.audit.models import (
 # 公共 CTE。videos 是全部口径的基础：只认带数字 metadata.shot 且挂着对话的视频行，
 # 需求单从对话取；person 给每段对话定一个人：最近一轮运行的 user_name，没有运行
 # 就取最近一条视频的。
+# 分叉出来的副本一律不进报表（``forked_from`` 非空）：它带着源对话拷来的出片记录，
+# 算进去会把原作者的产量重计一遍，副本自己跑的也是试验数据。挡在 videos / person / runs
+# 三个根 CTE 上，其余口径都从它们派生。
 # ---------------------------------------------------------------------------
 
 _VIDEOS: Final = """
@@ -50,6 +53,7 @@ videos AS (
     FROM iclip.generation_jobs g
     JOIN iclip.conversations c ON c.id = g.conversation_id
     WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') = 'number'
+      AND c.forked_from IS NULL
 )"""
 
 _PERSON: Final = """
@@ -65,6 +69,7 @@ person AS (
                 ORDER BY v.created_at DESC, v.id DESC LIMIT 1)
            ) AS user_name
     FROM iclip.conversations c
+    WHERE c.forked_from IS NULL
 )"""
 
 _SHOTS: Final = """
@@ -85,6 +90,7 @@ runs AS (
     SELECT j.created_at, j.user_name, c.id AS conversation_id, c.task_id
     FROM agent_runtime.agent_jobs j
     JOIN iclip.conversations c ON c.id::text = j.conversation_id
+    WHERE c.forked_from IS NULL
 )"""
 
 _CYCLES: Final = """
@@ -438,6 +444,8 @@ missing_shot AS (
     WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') IS DISTINCT FROM 'number'
       -- 视频编辑的结果按 ADR-0020 §5 只带编辑链坐标、不带镜头组，不算缺坐标。
       AND NOT COALESCE(jsonb_exists(g.metadata, 'rootJob'), false)
+      -- 挂在副本下的记录不算异常；没挂对话的孤儿记录照旧要算，所以放过 c 整行为空的。
+      AND c.forked_from IS NULL
     {_WINDOW.format(anchor="g.created_at")}
       AND (CAST(:user_name AS text) IS NULL OR g.request->>'user_name' = CAST(:user_name AS text))
       AND (CAST(:task_id AS uuid) IS NULL OR c.task_id = CAST(:task_id AS uuid))

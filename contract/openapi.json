@@ -1232,6 +1232,60 @@
         "title": "ConversationFilesOut",
         "type": "object"
       },
+      "ConversationForkIn": {
+        "additionalProperties": false,
+        "description": "从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。\n\n对话 id 由服务端铸：分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，\n没有可供幂等重放的位置。",
+        "properties": {
+          "agentId": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agentid"
+          },
+          "collectionId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collectionid"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "turn": {
+            "minimum": 1.0,
+            "title": "Turn",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turn"
+        ],
+        "title": "ConversationForkIn",
+        "type": "object"
+      },
       "ConversationIn": {
         "additionalProperties": false,
         "description": "新建一段对话。不给名字就用默认名。\n\n两处归属都可以先不给，之后再挂（见 ``ConversationTaskIn`` 与\n``ConversationCollectionIn``）。",
@@ -1348,6 +1402,29 @@
             ],
             "title": "Deletedat"
           },
+          "forkTurn": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forkturn"
+          },
+          "forkedFrom": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forkedfrom"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -1402,6 +1479,8 @@
           "createdAt",
           "updatedAt",
           "deletedAt",
+          "forkedFrom",
+          "forkTurn",
           "activity"
         ],
         "title": "ConversationOut",
@@ -4256,6 +4335,28 @@
               }
             ],
             "title": "Deleted At"
+          },
+          "fork_turn": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fork Turn"
+          },
+          "forked_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forked From"
           },
           "has_more": {
             "title": "Has More",
@@ -8447,6 +8548,60 @@
         "summary": "Abort Conversation",
         "tags": [
           "transcript"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}:fork": {
+      "post": {
+        "description": "从看得见的某段对话的第 ``turn`` 轮分叉出一段自己的对话，源对话不变。\n\n源看不见是 404，正在跑是 409，轮号越界是 422。副本的 id 由服务端铸。",
+        "operationId": "fork_conversation_conversations__conversation_id__fork_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationForkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fork Conversation",
+        "tags": [
+          "conversations"
         ]
       }
     },

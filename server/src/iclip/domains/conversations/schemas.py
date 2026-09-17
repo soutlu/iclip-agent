@@ -59,6 +59,26 @@ class ConversationIn(CamelModel):
     自己名下；浏览器会话只能写自己的用户名。"""
 
 
+class ConversationForkIn(CamelModel):
+    """从源对话的第 ``turn`` 轮分叉出一段新对话，归调用者所有。
+
+    对话 id 由服务端铸：分叉先把工作区、素材与出片记录拷进新命名空间，最后才落对话行，
+    没有可供幂等重放的位置。
+    """
+
+    turn: Annotated[int, Field(ge=1)]
+    """从源对话的第几轮分叉，从 1 数。这一轮包含在副本里。"""
+
+    title: Title | None = None
+    """副本的名字。不给就沿用源标题加个后缀。"""
+
+    agent_id: Annotated[str, Field(min_length=1, max_length=MAX_AGENT_ID_CHARS)] | None = None
+    """副本用哪个 Agent 跑。不给就沿用源对话的，给了就换一个，用于对照试跑。"""
+
+    collection_id: uuid.UUID | None = None
+    """把副本直接放进自己的某个合集。源对话的合集不会带过来。"""
+
+
 class ConversationRename(CamelModel):
     title: Title
 
@@ -106,6 +126,10 @@ class ConversationOut(CamelModel):
     updated_at: datetime
     deleted_at: datetime | None
     """属主删掉它的时刻。只有治理者审计带 ``deleted`` 筛选时才会见到非空值。"""
+    forked_from: uuid.UUID | None
+    """从哪段对话分叉来的；不是分叉来的为空。前端据此画血缘提示。"""
+    fork_turn: int | None
+    """分叉自源对话的第几轮，从 1 数。与 ``forkedFrom`` 同时有值。"""
     activity: ConversationActivityOut
 
 
@@ -211,6 +235,8 @@ def conversation_out(conversation: Conversation, activity: ConversationActivity)
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
         deleted_at=conversation.deleted_at,
+        forked_from=conversation.forked_from,
+        fork_turn=conversation.fork_turn,
         activity=ConversationActivityOut(
             busy=activity.busy,
             pending_interaction=activity.pending_interaction,
@@ -233,6 +259,7 @@ __all__ = [
     "ConversationFileOut",
     "ConversationFileWriteIn",
     "ConversationFilesOut",
+    "ConversationForkIn",
     "ConversationIn",
     "ConversationOut",
     "ConversationPageOut",

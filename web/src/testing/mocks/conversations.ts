@@ -13,6 +13,8 @@ export type MockConversation = {
   collectionId: string | null
   createdAt: string
   deletedAt: string | null
+  forkTurn: number | null
+  forkedFrom: string | null
   id: string
   lastRunId: string | null
   ownerUserId: string
@@ -39,6 +41,8 @@ export const addMockConversation = (
     collectionId: null,
     createdAt: updatedAt,
     deletedAt: null,
+    forkTurn: null,
+    forkedFrom: null,
     id: crypto.randomUUID(),
     lastRunId: null,
     ownerUserId,
