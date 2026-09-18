@@ -699,7 +699,7 @@ function ConversationRow({
       />
       {needsAttention(status) && <StatusBadge kind="conversation" status={status} />}
       {completed && (
-        <Icon className="shrink-0 text-on-surface-faint" label="已完成" name="check" size="sm" />
+        <Icon className="shrink-0 text-primary" label="已完成" name="success" size="sm" />
       )}
       {showUnread && (
         <span aria-label="未读" className="size-1.5 shrink-0 rounded-full bg-primary" role="img" />
