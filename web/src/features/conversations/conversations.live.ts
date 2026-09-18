@@ -9,7 +9,8 @@ import { conversationsQueryKeys, type Conversation } from './conversations.api'
 /** 活动帧只带轮次那三件事实，视频出片的一项保留行上原值，由重拉刷新。 */
 type ActivityPatch = Omit<Conversation['activity'], 'videoGeneration'>
 
-type RowPatch = { title: string } | { activity: ActivityPatch }
+/** 出片帧算不出行上的汇总，能确定的只有「这活儿又动起来了」这一件。 */
+type RowPatch = { title: string } | { activity: ActivityPatch } | { completedAt: null }
 
 /** 在侧栏顶层订阅一次全局会话更新；治理者还会收到别人对话的帧。 */
 export const useLiveConversations = (enabled = true): void => {
@@ -29,11 +30,19 @@ export const useLiveConversations = (enabled = true): void => {
         return
       }
       if (update.kind === 'generation') {
-        // 帧上只有单条任务的状态，行上要的是这段对话的汇总，算不出来就重拉。
-        // 图片任务不上侧栏；别人的对话不在自己的侧栏里，不为它重拉。
-        if (update.jobKind !== 'video' || update.conversationId === null) return
-        const owner = ownerOf(queryClient, update.conversationId)
+        // 别人的对话不在自己的侧栏里，不为它改行也不为它重拉。
+        const conversationId = update.conversationId
+        if (conversationId === null) return
+        const owner = ownerOf(queryClient, conversationId)
         if (owner !== undefined && owner !== userId) return
+
+        // 对话里还有出片任务在动就谈不上收尾，与后端受理时抹掉标记同步（ADR-0031）。
+        queryClient.setQueriesData({ queryKey: conversationsQueryKeys.all }, (data: unknown) =>
+          patchConversation(data, conversationId, { completedAt: null }),
+        )
+
+        // 帧上只有单条任务的状态，行上要的是这段对话的视频汇总，算不出来就重拉；图片与切段不上侧栏。
+        if (update.jobKind !== 'video') return
         // 与收场重拉同一套：丢掉额外分页，只重拉拓扑与全部对话页，不让每个已展开分页各自再请求一次。
         queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
         void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
@@ -123,9 +132,14 @@ const patchConversation = (node: unknown, conversationId: string, patch: RowPatc
   const fields = node as Record<string, unknown>
   if (fields['id'] === conversationId && 'activity' in fields) {
     if (unchanged(fields, patch)) return node
-    if ('title' in patch) return { ...fields, ...patch }
+    if ('title' in patch || 'completedAt' in patch) return { ...fields, ...patch }
     const current = fields['activity'] as Conversation['activity']
-    return { ...fields, activity: { ...current, ...patch.activity } }
+    // 开跑与收尾互斥，后端 touch_run 抹标记不发帧，这里照同一条不变量补上（ADR-0031）。
+    return {
+      ...fields,
+      ...(patch.activity.busy ? { completedAt: null } : {}),
+      activity: { ...current, ...patch.activity },
+    }
   }
 
   const entries = Object.entries(fields).map(
@@ -136,7 +150,9 @@ const patchConversation = (node: unknown, conversationId: string, patch: RowPatc
 
 const unchanged = (fields: Record<string, unknown>, patch: RowPatch): boolean => {
   if ('title' in patch) return fields['title'] === patch.title
+  if ('completedAt' in patch) return fields['completedAt'] === null
   const current = fields['activity'] as Conversation['activity'] | undefined
+  if (patch.activity.busy && fields['completedAt'] !== null) return false
   return (
     current?.busy === patch.activity.busy &&
     current.pendingInteraction === patch.activity.pendingInteraction &&

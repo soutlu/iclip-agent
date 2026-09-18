@@ -269,6 +269,15 @@ export const zConversationCollectionIn = z.object({
 })
 
 /**
+ * ConversationCompletionIn
+ *
+ * 标记这段对话收尾了，或者取消（给 ``false``）。与两处归属同理，单独一个端点。
+ */
+export const zConversationCompletionIn = z.object({
+  completed: z.boolean(),
+})
+
+/**
  * ConversationFileContentOut
  */
 export const zConversationFileContentOut = z.object({
@@ -356,6 +365,7 @@ export const zConversationOut = z.object({
   activity: zConversationActivityOut,
   agentId: z.string(),
   collectionId: z.uuid().nullable(),
+  completedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   deletedAt: z.iso.datetime().nullable(),
   forkTurn: z.int().nullable(),
@@ -1757,7 +1767,7 @@ export const zRenameCollectionCollectionsCollectionIdPatchPath = z.object({
 export const zRenameCollectionCollectionsCollectionIdPatchResponse = zCollectionEnvelope
 
 export const zReadSidebarConversationsGetQuery = z.object({
-  state: z.enum(['all', 'running', 'done']).optional().default('all'),
+  state: z.enum(['all', 'running', 'done', 'open']).optional().default('all'),
 })
 
 /**
@@ -1782,7 +1792,7 @@ export const zAuditConversationsConversationsAuditGetQuery = z.object({
   taskId: z.uuid().nullish(),
   since: z.iso.datetime().nullish(),
   until: z.iso.datetime().nullish(),
-  state: z.enum(['all', 'running', 'done']).optional().default('all'),
+  state: z.enum(['all', 'running', 'done', 'open']).optional().default('all'),
   deleted: z.enum(['live', 'deleted', 'all']).optional().default('live'),
   limit: z.int().gte(1).lte(100).optional().default(20),
   cursor: z.string().nullish(),
@@ -1799,7 +1809,7 @@ export const zListCollectionConversationsConversationsByCollectionCollectionIdGe
 
 export const zListCollectionConversationsConversationsByCollectionCollectionIdGetQuery = z.object({
   cursor: z.string().nullish(),
-  state: z.enum(['all', 'running', 'done']).optional().default('all'),
+  state: z.enum(['all', 'running', 'done', 'open']).optional().default('all'),
 })
 
 /**
@@ -1829,7 +1839,7 @@ export const zSearchConversationsConversationsSearchGetResponse = zConversations
 
 export const zListUngroupedConversationsUngroupedGetQuery = z.object({
   cursor: z.string().nullish(),
-  state: z.enum(['all', 'running', 'done']).optional().default('all'),
+  state: z.enum(['all', 'running', 'done', 'open']).optional().default('all'),
 })
 
 /**
@@ -1868,6 +1878,19 @@ export const zSetConversationCollectionConversationsConversationIdCollectionPutP
  * Successful Response
  */
 export const zSetConversationCollectionConversationsConversationIdCollectionPutResponse =
+  zConversationEnvelope
+
+export const zSetConversationCompletionConversationsConversationIdCompletionPutBody =
+  zConversationCompletionIn
+
+export const zSetConversationCompletionConversationsConversationIdCompletionPutPath = z.object({
+  conversation_id: z.uuid(),
+})
+
+/**
+ * Successful Response
+ */
+export const zSetConversationCompletionConversationsConversationIdCompletionPutResponse =
   zConversationEnvelope
 
 export const zApproveConversationsConversationIdInteractionsInteractionIdPostBody = zApprovalRequest

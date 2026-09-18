@@ -77,6 +77,16 @@ def api_key(*permissions: str) -> Principal:
     )
 
 
+class ClearedCompletions:
+    """替身：记下受理出片后回调取消了哪些对话的收尾标记。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+    async def record(self, conversation_id: uuid.UUID, owner: uuid.UUID) -> None:
+        self.calls.append((conversation_id, owner))
+
+
 def build_test_app(
     repo: InMemoryGenerationRepository,
     *,
@@ -85,6 +95,8 @@ def build_test_app(
     image_models: Mapping[str, ImageModelSpec] | None = None,
 ) -> FastAPI:
     app = FastAPI()
+    cleared = ClearedCompletions()
+    app.state.cleared_completions = cleared
 
     @app.middleware("http")
     async def _inject_principal(
@@ -112,6 +124,7 @@ def build_test_app(
         video_allowed_models=VIDEO_MODELS,
         image_models=image_models if image_models is not None else IMAGE_MODELS,
         image_default_model="nano_banana_pro",
+        clear_completion=cleared.record,
     )
     app.include_router(create_generations_router(service, act_as=ActAs(InMemoryUserRepository())))
     return app
@@ -835,6 +848,32 @@ async def test_clip_submit_keeps_coordinates_out_of_the_request_payload() -> Non
     assert "metadata" not in persisted and "conversationId" not in persisted, (
         "坐标与归属落自己的列，不进 request JSON"
     )
+
+
+async def test_submit_clears_the_conversation_completion_flag() -> None:
+    """在一段对话里又出片就是又开工了，属主标的收尾标记不该留着（ADR-0031）。"""
+
+    repo = InMemoryGenerationRepository()
+    conversation = uuid.uuid4()
+    owner = uuid.uuid4()
+    app = build_test_app(repo, granted=principal("generation:submit", user_id=owner))
+    async with client(app) as http:
+        response = await http.post(
+            "/generations/clips", json={**CLIP_BODY, "conversationId": str(conversation)}
+        )
+
+    assert response.status_code == 202, response.text
+    assert app.state.cleared_completions.calls == [(conversation, owner)]
+
+
+async def test_submit_without_a_conversation_does_not_call_back() -> None:
+    repo = InMemoryGenerationRepository()
+    app = build_test_app(repo, granted=principal("generation:submit"))
+    async with client(app) as http:
+        response = await http.post("/generations/clips", json=CLIP_BODY)
+
+    assert response.status_code == 202, response.text
+    assert app.state.cleared_completions.calls == []
 
 
 @pytest.mark.parametrize(

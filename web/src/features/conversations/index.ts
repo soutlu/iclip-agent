@@ -19,6 +19,7 @@ export {
   useDeleteConversation,
   useMoreConversations,
   useRenameConversation,
+  useSetConversationCompletion,
   useSetConversationMembership,
   useSidebarTopology,
 } from './conversations.api'

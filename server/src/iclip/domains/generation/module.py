@@ -41,7 +41,7 @@ from iclip.domains.generation.seedream import (
     SeedreamImageProvider,
     SeedreamSettings,
 )
-from iclip.domains.generation.service import GenerationService
+from iclip.domains.generation.service import ClearCompletion, GenerationService
 from iclip.domains.generation.video import (
     HttpVideoProvider,
     VideoProviderSettings,
@@ -78,6 +78,7 @@ def build_generation_module(
     repo: GenerationRepository,
     *,
     act_as: ActAs,
+    clear_completion: ClearCompletion,
     video: VideoProviderSettings,
     video_default_model: str,
     video_allowed_models: tuple[str, ...],
@@ -134,6 +135,7 @@ def build_generation_module(
         video_allowed_models=video_allowed_models,
         image_models={name: IMAGE_MODEL_SPECS[name] for name in declared},
         image_default_model=image_default_model,
+        clear_completion=clear_completion,
     )
     return GenerationModule(
         routers=(create_generations_router(service, act_as=act_as),),

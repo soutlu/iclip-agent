@@ -590,6 +590,18 @@ export type ConversationCollectionIn = {
 }
 
 /**
+ * ConversationCompletionIn
+ *
+ * 标记这段对话收尾了，或者取消（给 ``false``）。与两处归属同理，单独一个端点。
+ */
+export type ConversationCompletionIn = {
+  /**
+   * Completed
+   */
+  completed: boolean
+}
+
+/**
  * ConversationEnvelope
  */
 export type ConversationEnvelope = {
@@ -753,6 +765,10 @@ export type ConversationOut = {
    * Collectionid
    */
   collectionId: string | null
+  /**
+   * Completedat
+   */
+  completedAt: string | null
   /**
    * Createdat
    */
@@ -3748,7 +3764,7 @@ export type ReadSidebarConversationsGetData = {
     /**
      * State
      */
-    state?: 'all' | 'running' | 'done'
+    state?: 'all' | 'running' | 'done' | 'open'
   }
   url: '/conversations'
 }
@@ -3840,7 +3856,7 @@ export type AuditConversationsConversationsAuditGetData = {
     /**
      * State
      */
-    state?: 'all' | 'running' | 'done'
+    state?: 'all' | 'running' | 'done' | 'open'
     /**
      * Deleted
      */
@@ -3893,7 +3909,7 @@ export type ListCollectionConversationsConversationsByCollectionCollectionIdGetD
     /**
      * State
      */
-    state?: 'all' | 'running' | 'done'
+    state?: 'all' | 'running' | 'done' | 'open'
   }
   url: '/conversations/by-collection/{collection_id}'
 }
@@ -3997,7 +4013,7 @@ export type ListUngroupedConversationsUngroupedGetData = {
     /**
      * State
      */
-    state?: 'all' | 'running' | 'done'
+    state?: 'all' | 'running' | 'done' | 'open'
   }
   url: '/conversations/ungrouped'
 }
@@ -4117,6 +4133,38 @@ export type SetConversationCollectionConversationsConversationIdCollectionPutRes
 
 export type SetConversationCollectionConversationsConversationIdCollectionPutResponse =
   SetConversationCollectionConversationsConversationIdCollectionPutResponses[keyof SetConversationCollectionConversationsConversationIdCollectionPutResponses]
+
+export type SetConversationCompletionConversationsConversationIdCompletionPutData = {
+  body: ConversationCompletionIn
+  path: {
+    /**
+     * Conversation Id
+     */
+    conversation_id: string
+  }
+  query?: never
+  url: '/conversations/{conversation_id}/completion'
+}
+
+export type SetConversationCompletionConversationsConversationIdCompletionPutErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError
+}
+
+export type SetConversationCompletionConversationsConversationIdCompletionPutError =
+  SetConversationCompletionConversationsConversationIdCompletionPutErrors[keyof SetConversationCompletionConversationsConversationIdCompletionPutErrors]
+
+export type SetConversationCompletionConversationsConversationIdCompletionPutResponses = {
+  /**
+   * Successful Response
+   */
+  200: ConversationEnvelope
+}
+
+export type SetConversationCompletionConversationsConversationIdCompletionPutResponse =
+  SetConversationCompletionConversationsConversationIdCompletionPutResponses[keyof SetConversationCompletionConversationsConversationIdCompletionPutResponses]
 
 export type ApproveConversationsConversationIdInteractionsInteractionIdPostData = {
   body: ApprovalRequest

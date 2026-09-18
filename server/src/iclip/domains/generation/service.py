@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,6 +27,9 @@ _logger = structlog.stdlib.get_logger(__name__)
 
 MAX_LIST_LIMIT = 100
 
+ClearCompletion = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
+"""按 (对话 id, 属主) 取消那段对话的收尾标记；实现由组合根注入，本域不认识对话表。"""
+
 
 class GenerationService:
     """生成请求受理与记录查询。"""
@@ -42,6 +45,7 @@ class GenerationService:
         video_allowed_models: tuple[str, ...],
         image_models: Mapping[str, ImageModelSpec],
         image_default_model: str,
+        clear_completion: ClearCompletion,
     ) -> None:
         """收下装配期确定的模型集合；此层不持有或调用 Provider 实例。
 
@@ -55,6 +59,7 @@ class GenerationService:
         self._video_allowed_models = video_allowed_models
         self._image_models = image_models
         self._image_default_model = image_default_model
+        self._clear_completion = clear_completion
 
     async def copy_to_fork(
         self,
@@ -138,7 +143,23 @@ class GenerationService:
             )
             _logger.exception("生成任务排队失败", job_id=created.id)
             raise
+        await self._note_conversation_active(created)
         return created
+
+    async def _note_conversation_active(self, job: GenerationJob) -> None:
+        """出片提交就是又在这段对话里开工了，收尾标记不该留着（ADR-0031）。
+
+        归档标签指向的对话不校验，对话域按属主自己判；这一步失败只记日志——受理已经成立，
+        不能因为一个标记回滚。"""
+
+        if job.conversation_id is None:
+            return
+        try:
+            await self._clear_completion(job.conversation_id, job.owner_user_id)
+        except Exception:
+            _logger.warning(
+                "取消对话收尾标记失败", job_id=job.id, conversation_id=job.conversation_id
+            )
 
     def _settle_image_model(self, request: ImageGenerationIn) -> tuple[ImageGenerationIn, str]:
         """把这次要用哪家、哪个渠道定下来写进请求，并把选定的那家单独交回去当 provider 列。
