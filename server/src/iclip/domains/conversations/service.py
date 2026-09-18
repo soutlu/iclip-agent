@@ -640,7 +640,8 @@ class ConversationService:
     async def clear_completed(self, conversation_id: uuid.UUID, owner: uuid.UUID) -> None:
         """属主在这段对话里又干活了（如提交出片），收尾标记不再成立。
 
-        供别的域在受理成功后回调：对话不存在、已删或不是这个人的都当没发生，不影响调用方。"""
+        供别的域在受理成功后回调：对话不存在、已删或不是这个人的都当没发生，不影响调用方。
+        标记本来就是空时照样写一次：提交出片本身就是活动，`updated_at` 该跟着走。"""
 
         try:
             await self._repo.set_completed(conversation_id, owner=owner, completed=False)

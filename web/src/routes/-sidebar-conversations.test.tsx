@@ -237,6 +237,21 @@ describe('SidebarConversations', () => {
     await waitFor(() => expect(screen.queryByLabelText('已完成')).not.toBeInTheDocument())
   })
 
+  it('标了完成又开跑：角标随开跑帧收掉，不等这一轮跑完', async () => {
+    const [conversation] = seedConversations(1)
+    const { socket, user } = await render()
+
+    await user.click(await screen.findByRole('button', { name: '第0段 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '标记完成' }))
+    expect(await screen.findByLabelText('已完成')).toBeVisible()
+
+    // 后端 touch_run 抹掉标记但不发帧，行上要照开跑与收尾互斥自己收掉（ADR-0031）。
+    socket.deliver(workChanged(conversation?.id ?? '', { busy: true }))
+
+    expect(await screen.findByLabelText('进行中')).toBeVisible()
+    await waitFor(() => expect(screen.queryByLabelText('已完成')).not.toBeInTheDocument())
+  })
+
   it('任务区：第一页 20 条，点「展开显示」把剩下的接上来', async () => {
     seedConversations(21)
     const { user } = await render()

@@ -318,6 +318,7 @@ async def test_sidebar_keeps_creation_order_after_edits(
 
 
 async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: str) -> None:
+    """running 只看此刻在不在跑；跑完的活动事实照旧，但不由它决定收尾（ADR-0031）。"""
 
     owner = await login_as_editor(client, pg_url)
     collection_id = await open_collection(client, "在跑的那些")
@@ -358,7 +359,8 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
         running["id"]
     ]
     assert (only_running["ungroupedCount"], only_running["ungrouped"]["items"]) == (0, [])
-    assert everything["ungrouped"]["items"][-1]["activity"] == {
+    ran = next(item for item in everything["ungrouped"]["items"] if item["id"] == done["id"])
+    assert ran["activity"] == {
         "busy": False,
         "pendingInteraction": "none",
         "lastTurnReason": "completed",
