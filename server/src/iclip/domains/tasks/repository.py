@@ -33,7 +33,7 @@ class TaskRepository(Protocol):
         assignee_user_id: uuid.UUID | None = None,
         limit: int,
     ) -> tuple[Task, ...]:
-        """按最近修改时间倒序返回需求单，可按状态和认领人筛选。"""
+        """按建立时间倒序返回需求单，可按状态和认领人筛选。"""
         ...
 
     async def save(

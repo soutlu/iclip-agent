@@ -22,7 +22,7 @@ class CollectionRepository(Protocol):
     async def list_recent(
         self, *, owner: uuid.UUID | None, limit: int, offset: int = 0
     ) -> tuple[Collection, ...]:
-        """按最近改动倒序列出合集。"""
+        """按建立时间倒序列出合集。"""
         ...
 
     async def rename(

@@ -10,7 +10,7 @@ import { conversationsQueryKeys, type ConversationListState } from './conversati
 /** 删没删：缺省只看活着的，deleted 只看属主删掉的，all 都看。 */
 export type AuditDeleted = 'live' | 'deleted' | 'all'
 
-/** 时间范围作用在 updatedAt 上。 */
+/** 时间范围作用在 createdAt 上，与列表排序同一列。 */
 export interface AuditFilters extends DateRange {
   state: ConversationListState
   deleted: AuditDeleted

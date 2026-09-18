@@ -697,7 +697,7 @@ function ConversationRow({
           aria-hidden
           className={cn('shrink-0 text-caption text-on-surface-faint', ROW_TRAILING_HIDDEN)}
         >
-          {formatRelativeTime(conversation.updatedAt)}
+          {formatRelativeTime(conversation.createdAt)}
         </span>
       )}
       {!editing && canWrite && (

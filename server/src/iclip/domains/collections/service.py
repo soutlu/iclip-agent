@@ -52,7 +52,7 @@ class CollectionService:
     async def list_recent(
         self, principal: Principal, *, scope: Scope = "me", limit: int = 20, offset: int = 0
     ) -> tuple[Collection, ...]:
-        """按最近修改时间倒序返回合集；scope="all" 需要治理权限。"""
+        """按建立时间倒序返回合集；scope="all" 需要治理权限。"""
 
         return await self._repo.list_recent(
             owner=self._visible_to(principal, scope=scope),

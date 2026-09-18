@@ -102,7 +102,7 @@ class CollectionInfo:
 
 
 ListCollections = Callable[[uuid.UUID], Awaitable[Sequence[CollectionInfo]]]
-"""按最近修改时间倒序读取属主的合集元信息；实现由组合根注入。"""
+"""按建立时间倒序读取属主的合集元信息；实现由组合根注入。"""
 
 ClaimTask = Callable[[uuid.UUID, uuid.UUID], Awaitable[None]]
 """对话挂上需求单就是有人在做了：以 (需求单 id, 对话属主) 认领它。实现由组合根注入。"""
@@ -237,7 +237,7 @@ def _page(items: tuple[Conversation, ...], *, limit: int) -> ConversationPage:
 
 def _encode_cursor(conversation: Conversation) -> str:
 
-    return f"{conversation.updated_at.isoformat()}|{conversation.id}"
+    return f"{conversation.created_at.isoformat()}|{conversation.id}"
 
 
 def _decode_cursor(cursor: str | None) -> PageCursor | None:
@@ -248,7 +248,7 @@ def _decode_cursor(cursor: str | None) -> PageCursor | None:
     stamp, _, raw_id = cursor.partition("|")
     try:
         return PageCursor(
-            updated_at=datetime.fromisoformat(stamp), conversation_id=uuid.UUID(raw_id)
+            created_at=datetime.fromisoformat(stamp), conversation_id=uuid.UUID(raw_id)
         )
     except ValueError as exc:
         raise ValidationFailed("cursor 不是一个有效的翻页位置") from exc
@@ -450,14 +450,14 @@ class ConversationService:
     async def list_for_task(
         self, principal: Principal, task_id: uuid.UUID
     ) -> tuple[Conversation, ...]:
-        """按创建时间正序返回自己的需求单对话；需求单公开不扩大对话可见范围。"""
+        """按建立时间倒序返回自己的需求单对话；需求单公开不扩大对话可见范围。"""
 
         return await self._repo.list_for_task(task_id=task_id, owner=principal.user_id)
 
     async def search(
         self, principal: Principal, *, limit: int = 20, title_query: str | None = None
     ) -> tuple[Conversation, ...]:
-        """在数据库中按标题筛选，再按最近活动倒序截取，确保可搜索全部历史。"""
+        """在数据库中按标题筛选，再按建立时间倒序截取，确保可搜索全部历史。"""
 
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ValidationFailed(f"limit 必须在 1 到 {MAX_LIST_LIMIT} 之间")
@@ -508,7 +508,7 @@ class ConversationService:
     async def ungrouped(
         self, principal: Principal, *, cursor: str | None = None, state: ListState = "all"
     ) -> ConversationPage:
-        """按最近活动倒序分页读取自己的未分类对话。"""
+        """按建立时间倒序分页读取自己的未分类对话。"""
 
         items = await self._repo.list_ungrouped(
             owner=principal.user_id,
@@ -550,7 +550,7 @@ class ConversationService:
         limit: int = 20,
         cursor: str | None = None,
     ) -> AuditPage:
-        """治理者按最近活动倒序分页查询全平台对话，附当前筛选下的总数与在跑数。
+        """治理者按建立时间倒序分页查询全平台对话，附当前筛选下的总数与在跑数。
 
         给了 ``owner_user_id`` 时占着的集合按该属主算，不给才算全平台；busy 集只取一次，
         列表与两个计数才对得上。``deleted`` 决定属主删掉的墓碑收不收，这是唯一列得出墓碑的口。"""

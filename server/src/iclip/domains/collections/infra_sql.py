@@ -49,8 +49,9 @@ collections_table = Table(
 
 _ROWS = collections_table.c
 
-Index("ix_collections_owner_recent", _ROWS.owner_user_id, _ROWS.updated_at.desc())
-Index("ix_collections_updated", _ROWS.updated_at.desc())
+# 列表按 (created_at, id) 倒序（ADR-0030）；属主视角与治理者的全量视图各一个。
+Index("ix_collections_owner_created", _ROWS.owner_user_id, _ROWS.created_at.desc(), _ROWS.id.desc())
+Index("ix_collections_created", _ROWS.created_at.desc(), _ROWS.id.desc())
 
 
 def _row(mapping: RowMapping) -> Collection:
@@ -105,7 +106,7 @@ class SqlCollectionRepository:
         statement = (
             select(collections_table)
             .where(*_scope(owner))
-            .order_by(_ROWS.updated_at.desc(), _ROWS.id)
+            .order_by(_ROWS.created_at.desc(), _ROWS.id.desc())
             .limit(limit)
             .offset(offset)
         )

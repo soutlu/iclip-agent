@@ -288,6 +288,35 @@ async def test_sidebar_groups_by_collection(client: httpx.AsyncClient, pg_url: s
     assert [item["id"] for item in sidebar["ungrouped"]["items"]] == [loose["id"]]
 
 
+async def test_sidebar_keeps_creation_order_after_edits(
+    client: httpx.AsyncClient, pg_url: str
+) -> None:
+    """两区都按建立时间倒序：改名、挂需求单这类后续操作不把对话换到别的位置。"""
+
+    await login_as_editor(client, pg_url)
+    collection_id = await open_collection(client, "春季系列")
+    early = await open_conversation(client, title="合集里先建的", collectionId=collection_id)
+    late = await open_conversation(client, title="合集里后建的", collectionId=collection_id)
+    loose_early = await open_conversation(client, title="先建的没归类")
+    loose_late = await open_conversation(client, title="后建的没归类")
+
+    renamed = await client.patch(f"{CONVERSATIONS}/{early['id']}", json={"title": "改了名"})
+    assert renamed.status_code == 200, renamed.text
+    task_id = await open_task(client)
+    attached = await client.put(
+        f"{CONVERSATIONS}/{loose_early['id']}/task", json={"taskId": task_id}
+    )
+    assert attached.status_code == 200, attached.text
+
+    sidebar = (await client.get(CONVERSATIONS)).json()
+    group = next(item for item in sidebar["collections"] if item["id"] == collection_id)
+    assert [item["id"] for item in group["page"]["items"]] == [late["id"], early["id"]]
+    assert [item["id"] for item in sidebar["ungrouped"]["items"]] == [
+        loose_late["id"],
+        loose_early["id"],
+    ]
+
+
 async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: str) -> None:
 
     owner = await login_as_editor(client, pg_url)
@@ -661,7 +690,7 @@ async def test_deleting_draft_task_only_clears_the_column(
 async def test_attempts_of_a_task_are_listed_in_order_and_stay_private(
     app: FastAPI, client: httpx.AsyncClient, pg_url: str
 ) -> None:
-    """按开始时间列出需求单的个人创作；跨用户记录仅通过审计端点访问。"""
+    """按建立时间倒序列出需求单的个人创作；跨用户记录仅通过审计端点访问。"""
 
     await login_as_editor(client, pg_url)
     task_id = await open_task(client)
@@ -671,7 +700,7 @@ async def test_attempts_of_a_task_are_listed_in_order_and_stay_private(
 
     listed = await client.get(f"{CONVERSATIONS}/by-task/{task_id}")
     assert listed.status_code == 200
-    assert [item["id"] for item in listed.json()["items"]] == [first["id"], second["id"]]
+    assert [item["id"] for item in listed.json()["items"]] == [second["id"], first["id"]]
 
     async with make_client(app) as other:
         await login_as_editor(other, pg_url, username="mia")
