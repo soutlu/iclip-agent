@@ -99,6 +99,7 @@ const seedThree = () => {
   done.ownerUserId = other.id
   done.activity = COMPLETED
   done.lastRunId = 'run-1'
+  done.completedAt = '2026-08-31T00:00:00Z'
   return { other, task, theirs }
 }
 
@@ -183,7 +184,7 @@ describe('ConversationsRoute', () => {
     expect(screen.getByRole('option', { name: '治理者' })).toBeVisible()
   })
 
-  it('切「已完成」交给服务端筛：只剩跑完的，总数跟着变，在跑数不变', async () => {
+  it('切「已完成」交给服务端筛：只剩属主标过的，总数跟着变，在跑数不变', async () => {
     seedThree()
     const { user } = await render()
     await rowOf('小王的秋季片')

@@ -37,7 +37,8 @@ const conversationEnvelopeSchema = zConversationEnvelope.transform(
 const SEARCH_LIMIT = 50
 
 /** running 为正在运行，done 为至少结束过一轮；未发送过消息的对话仅属于 all。 */
-export type ConversationListState = 'all' | 'running' | 'done'
+/** 侧栏与全部对话页共用：``open`` / ``done`` 看属主标没标收尾，``running`` 是此刻在跑的那几段。 */
+export type ConversationListState = 'all' | 'open' | 'done' | 'running'
 
 const MORE_KEY = ['conversations', 'more'] as const
 const AUDIT_KEY = ['conversations', 'audit'] as const
@@ -366,6 +367,23 @@ export const useRenameConversation = (onSaved: () => void) => {
         body: { title },
         fallbackErrorMessage: '重命名失败',
         method: 'PATCH',
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })
+      onSaved()
+    },
+  })
+}
+
+/** 属主标记这段对话收尾了或取消；服务端不会自己标，属主再动手会自动取消。 */
+export const useSetConversationCompletion = (onSaved: () => void) => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ completed, conversationId }: { completed: boolean; conversationId: string }) =>
+      apiFetch(`/conversations/${conversationId}/completion`, conversationEnvelopeSchema, {
+        body: { completed },
+        fallbackErrorMessage: '标记完成失败',
+        method: 'PUT',
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.all })

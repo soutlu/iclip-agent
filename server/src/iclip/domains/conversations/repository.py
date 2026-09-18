@@ -31,11 +31,12 @@ class PageCursor:
 
 @dataclass(frozen=True, slots=True)
 class StateFilter:
-    """列表的 ``state`` 筛选。``running`` 是 ``busy`` 里那几段；``done`` 是 ``last_run_id`` 非空且不在 ``busy`` 里。
+    """列表的 ``state`` 筛选。``done`` / ``open`` 看属主标记的收尾时刻；``running`` 是 ``busy`` 里那几段。
 
-    ``busy`` 是此刻占着的对话，由调用方按属主或全平台算好传进来。``all`` 不需要它：传 ``None`` 即不筛。"""
+    ``busy`` 只有 ``running`` 用得上，是此刻占着的对话，由调用方按属主或全平台算好传进来；
+    另两个取值传空集即可。``all`` 不需要筛选器：传 ``None``。"""
 
-    state: Literal["running", "done"]
+    state: Literal["running", "done", "open"]
     busy: frozenset[uuid.UUID]
 
 
@@ -169,6 +170,12 @@ class ConversationRepository(Protocol):
         """设置或清空需求单归属，返回更新后的记录。"""
         ...
 
+    async def set_completed(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, completed: bool
+    ) -> Conversation:
+        """标记或取消属主的收尾标记，返回更新后的记录；不是这个人的对话抛 ``NotFound``。"""
+        ...
+
     async def delete(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> None:
         """标记删除：行留着占住 id，之后除治理者按 ``include_deleted`` 读，任何读写都当它不存在。
         已删或本来就没有都抛 ``NotFound``。"""
@@ -177,7 +184,7 @@ class ConversationRepository(Protocol):
     async def touch_run(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, agent_id: str, run_id: str
     ) -> None:
-        """更新 last_run_id 与 updated_at，同时核对属主和 agent_id。
+        """更新 last_run_id 与 updated_at、抹掉收尾标记，同时核对属主和 agent_id。
 
         工作区仅按属主与对话隔离，必须校验 agent_id，防止其他 Agent 使用该工作区。"""
         ...

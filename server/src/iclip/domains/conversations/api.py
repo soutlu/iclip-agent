@@ -16,6 +16,7 @@ from iclip.domains.conversations.schemas import (
     ConversationAgentOut,
     ConversationAgentsOut,
     ConversationCollectionIn,
+    ConversationCompletionIn,
     ConversationEnvelope,
     ConversationFileContentOut,
     ConversationFileEnvelope,
@@ -319,6 +320,19 @@ def create_conversations_router(
         principal: Annotated[Principal, Depends(require_permission("agent:run"))],
     ) -> ConversationEnvelope:
         conversation = await service.set_task(principal, conversation_id, task_id=body.task_id)
+        return ConversationEnvelope(conversation=await _out(conversation))
+
+    @router.put("/{conversation_id}/completion", response_model=ConversationEnvelope)
+    async def set_conversation_completion(
+        conversation_id: uuid.UUID,
+        body: ConversationCompletionIn,
+        principal: Annotated[Principal, Depends(require_permission("agent:run"))],
+    ) -> ConversationEnvelope:
+        """属主标记这段对话收尾了，或取消标记。机器不会自己标（ADR-0031）。"""
+
+        conversation = await service.set_completed(
+            principal, conversation_id, completed=body.completed
+        )
         return ConversationEnvelope(conversation=await _out(conversation))
 
     @router.delete("/{conversation_id}", status_code=204)

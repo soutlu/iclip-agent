@@ -1128,6 +1128,21 @@
         "title": "ConversationCollectionIn",
         "type": "object"
       },
+      "ConversationCompletionIn": {
+        "additionalProperties": false,
+        "description": "标记这段对话收尾了，或者取消（给 ``false``）。与两处归属同理，单独一个端点。",
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "completed"
+        ],
+        "title": "ConversationCompletionIn",
+        "type": "object"
+      },
       "ConversationEnvelope": {
         "additionalProperties": false,
         "properties": {
@@ -1405,6 +1420,18 @@
             ],
             "title": "Collectionid"
           },
+          "completedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
@@ -1499,6 +1526,7 @@
           "createdAt",
           "updatedAt",
           "deletedAt",
+          "completedAt",
           "forkedFrom",
           "forkTurn",
           "activity"
@@ -7162,7 +7190,8 @@
               "enum": [
                 "all",
                 "running",
-                "done"
+                "done",
+                "open"
               ],
               "title": "State",
               "type": "string"
@@ -7341,7 +7370,8 @@
               "enum": [
                 "all",
                 "running",
-                "done"
+                "done",
+                "open"
               ],
               "title": "State",
               "type": "string"
@@ -7459,7 +7489,8 @@
               "enum": [
                 "all",
                 "running",
-                "done"
+                "done",
+                "open"
               ],
               "title": "State",
               "type": "string"
@@ -7631,7 +7662,8 @@
               "enum": [
                 "all",
                 "running",
-                "done"
+                "done",
+                "open"
               ],
               "title": "State",
               "type": "string"
@@ -7801,6 +7833,60 @@
           }
         },
         "summary": "Set Conversation Collection",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/conversations/{conversation_id}/completion": {
+      "put": {
+        "description": "属主标记这段对话收尾了，或取消标记。机器不会自己标（ADR-0031）。",
+        "operationId": "set_conversation_completion_conversations__conversation_id__completion_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationCompletionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Conversation Completion",
         "tags": [
           "conversations"
         ]
