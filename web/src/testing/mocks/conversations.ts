@@ -11,6 +11,7 @@ export type MockConversation = {
   }
   agentId: string
   collectionId: string | null
+  completedAt: string | null
   createdAt: string
   deletedAt: string | null
   forkTurn: number | null
@@ -39,6 +40,7 @@ export const addMockConversation = (
     },
     agentId: 'storyboard',
     collectionId: null,
+    completedAt: null,
     createdAt: updatedAt,
     deletedAt: null,
     forkTurn: null,

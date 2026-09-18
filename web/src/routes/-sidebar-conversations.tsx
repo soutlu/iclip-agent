@@ -18,6 +18,7 @@ import {
   useRenameConversation,
   recordSeenRun,
   useSeenRun,
+  useSetConversationCompletion,
   useSetConversationMembership,
   useSidebarTopology,
   type Conversation,
@@ -177,8 +178,8 @@ export function SidebarConversations() {
           value={state}
         >
           <FilterChip value="all">全部</FilterChip>
-          <FilterChip value="running">
-            进行中
+          <FilterChip value="open">
+            未完成
             {anyBusy && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />}
           </FilterChip>
           <FilterChip value="done">已完成</FilterChip>
@@ -427,7 +428,13 @@ function SidebarFeedback({
 }
 
 const emptyConversations = (state: ConversationListState) =>
-  state === 'running' ? '没有进行中的对话' : state === 'done' ? '没有已完成的对话' : '还没有对话'
+  state === 'open'
+    ? '没有未完成的对话'
+    : state === 'done'
+      ? '没有标记完成的对话'
+      : state === 'running'
+        ? '没有进行中的对话'
+        : '还没有对话'
 
 /** 页边界可因活动时间变化重叠，保留首页优先的第一条记录。 */
 const uniqueConversations = (items: readonly Conversation[]): Conversation[] => {
@@ -626,6 +633,8 @@ function ConversationRow({
   const [editing, setEditing] = useState(false)
   const rename = useRenameConversation(onChanged)
   const remove = useDeleteConversation(onChanged)
+  const completion = useSetConversationCompletion(onChanged)
+  const completed = conversation.completedAt !== null
   const unread = useUnread(conversation, active)
   const status = conversationStatus(conversation.activity)
   // 行尾只画还需要人看一眼的状态；跑完没看过的用小点，其余什么都不画。
@@ -689,6 +698,9 @@ function ConversationRow({
         }
       />
       {needsAttention(status) && <StatusBadge kind="conversation" status={status} />}
+      {completed && (
+        <Icon className="shrink-0 text-on-surface-faint" label="已完成" name="check" size="sm" />
+      )}
       {showUnread && (
         <span aria-label="未读" className="size-1.5 shrink-0 rounded-full bg-primary" role="img" />
       )}
@@ -712,6 +724,17 @@ function ConversationRow({
               </MenuItem>
               <MenuItem icon="folder" onSelect={onOpenMembership}>
                 归属
+              </MenuItem>
+              <MenuItem
+                icon="check"
+                onSelect={() =>
+                  completion.mutate(
+                    { completed: !completed, conversationId: conversation.id },
+                    { onError: (error) => toast.error(error.message) },
+                  )
+                }
+              >
+                {completed ? '取消完成' : '标记完成'}
               </MenuItem>
               <MenuSeparator />
               <MenuItem

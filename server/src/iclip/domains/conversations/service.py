@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, Protocol
 
+import structlog
+
 from iclip.common.errors import Conflict, NotFound, PermissionDenied, ValidationFailed
 from iclip.domains.conversations.models import (
     IDLE_ACTIVITY,
@@ -24,6 +26,8 @@ from iclip.domains.conversations.repository import (
 from iclip.domains.conversations.schemas import DEFAULT_TITLE, MAX_TITLE_CHARS
 from iclip.domains.identity.public import ACT_AS_PERMISSION, Principal
 
+_logger = structlog.stdlib.get_logger(__name__)
+
 MAX_LIST_LIMIT = 100
 MANAGE_PERMISSION = "users:manage"
 """治理者可读取所有对话及工作区文件；写入仍限属主。"""
@@ -32,8 +36,8 @@ SIDEBAR_COLLECTIONS = 100
 SIDEBAR_UNGROUPED = 20
 SIDEBAR_PER_COLLECTION = 10
 
-ListState = Literal["all", "running", "done"]
-"""列表状态筛选：``running`` 是此刻占着的，``done`` 是跑过（``last_run_id`` 非空）且没在跑的；从未运行的对话仅属于 all。"""
+ListState = Literal["all", "running", "done", "open"]
+"""列表状态筛选：``done`` / ``open`` 看属主标没标收尾（ADR-0031），两者互补；``running`` 是此刻占着的那几段。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,11 +471,12 @@ class ConversationService:
         )
 
     async def _state_filter(self, state: ListState, owner: uuid.UUID) -> StateFilter | None:
-        """all 不筛；running / done 都只要「此刻占着的」那个小集合，其余靠 ``last_run_id`` 判。"""
+        """all 不筛；done / open 只看库里的收尾标记，只有 running 才需要算「此刻占着的」那个集合。"""
 
         if state == "all":
             return None
-        return StateFilter(state=state, busy=await self._busy_conversation_ids(owner))
+        busy = await self._busy_conversation_ids(owner) if state == "running" else frozenset()
+        return StateFilter(state=state, busy=busy)
 
     async def sidebar(
         self, principal: Principal, *, state: ListState = "all"
@@ -622,6 +627,25 @@ class ConversationService:
         if task_id is not None:
             await self._claim_task(task_id, principal.user_id)
         return conversation
+
+    async def set_completed(
+        self, principal: Principal, conversation_id: uuid.UUID, *, completed: bool
+    ) -> Conversation:
+        """标记或取消属主的收尾标记。机器不会自己标；属主再动手会自动取消（ADR-0031）。"""
+
+        return await self._repo.set_completed(
+            conversation_id, owner=principal.user_id, completed=completed
+        )
+
+    async def clear_completed(self, conversation_id: uuid.UUID, owner: uuid.UUID) -> None:
+        """属主在这段对话里又干活了（如提交出片），收尾标记不再成立。
+
+        供别的域在受理成功后回调：对话不存在、已删或不是这个人的都当没发生，不影响调用方。"""
+
+        try:
+            await self._repo.set_completed(conversation_id, owner=owner, completed=False)
+        except NotFound:
+            _logger.debug("对话不可见，跳过取消收尾标记", conversation_id=str(conversation_id))
 
     async def delete(self, principal: Principal, conversation_id: uuid.UUID) -> None:
         """把对话标记删除。工作区与素材台账留着，治理者复盘时还要看。"""

@@ -351,7 +351,6 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
 
     everything = (await client.get(CONVERSATIONS)).json()
     only_running = (await client.get(CONVERSATIONS, params={"state": "running"})).json()
-    only_done = (await client.get(CONVERSATIONS, params={"state": "done"})).json()
 
     assert everything["ungroupedCount"] == 3
     assert only_running["collections"][0]["conversationCount"] == 1
@@ -359,22 +358,51 @@ async def test_sidebar_filters_by_run_state(client: httpx.AsyncClient, pg_url: s
         running["id"]
     ]
     assert (only_running["ungroupedCount"], only_running["ungrouped"]["items"]) == (0, [])
-    assert only_done["collections"][0]["conversationCount"] == 0
-    assert only_done["ungroupedCount"] == 1
-    assert [item["id"] for item in only_done["ungrouped"]["items"]] == [done["id"]]
-    assert only_done["ungrouped"]["items"][0]["activity"] == {
+    assert everything["ungrouped"]["items"][-1]["activity"] == {
         "busy": False,
         "pendingInteraction": "none",
         "lastTurnReason": "completed",
         "videoGeneration": "none",
-    }
+    }, "跑完的那段活动事实照旧，只是不再被 done 筛出来"
+
+
+async def test_sidebar_filters_by_completion(client: httpx.AsyncClient, pg_url: str) -> None:
+    """done / open 看属主标没标收尾，与跑没跑过无关（ADR-0031）。"""
+
+    await login_as_editor(client, pg_url)
+    collection_id = await open_collection(client, "收尾了的那些")
+    in_collection = await open_conversation(
+        client, title="合集里收尾的", collectionId=collection_id
+    )
+    loose = await open_conversation(client, title="没归类收尾的")
+    await open_conversation(client, title="还在弄")
+
+    for conversation in (in_collection, loose):
+        marked = await client.put(
+            f"{CONVERSATIONS}/{conversation['id']}/completion", json={"completed": True}
+        )
+        assert marked.status_code == 200, marked.text
+        assert marked.json()["conversation"]["completedAt"] is not None
+
+    only_done = (await client.get(CONVERSATIONS, params={"state": "done"})).json()
+    only_open = (await client.get(CONVERSATIONS, params={"state": "open"})).json()
+
+    assert only_done["collections"][0]["conversationCount"] == 1
+    assert [item["id"] for item in only_done["ungrouped"]["items"]] == [loose["id"]]
+    assert (only_open["ungroupedCount"], only_open["collections"][0]["conversationCount"]) == (1, 0)
 
     paged_done = await client.get(f"{CONVERSATIONS}/ungrouped", params={"state": "done"})
-    assert [item["id"] for item in paged_done.json()["items"]] == [done["id"]]
-    in_collection = await client.get(
+    assert [item["id"] for item in paged_done.json()["items"]] == [loose["id"]]
+    in_collection_done = await client.get(
         f"{CONVERSATIONS}/by-collection/{collection_id}", params={"state": "done"}
     )
-    assert in_collection.json()["items"] == []
+    assert [item["id"] for item in in_collection_done.json()["items"]] == [in_collection["id"]]
+
+    cleared = await client.put(
+        f"{CONVERSATIONS}/{loose['id']}/completion", json={"completed": False}
+    )
+    assert cleared.json()["conversation"]["completedAt"] is None
+    assert (await client.get(CONVERSATIONS, params={"state": "done"})).json()["ungroupedCount"] == 0
 
 
 async def test_sidebar_only_shows_my_own(
@@ -490,6 +518,10 @@ async def test_audit_is_governor_only_and_filters(
         assert [item["id"] for item in running["items"]] == [loose["id"]]
         assert (running["total"], running["runningTotal"]) == (1, 1)
 
+        marked = await client.put(
+            f"{CONVERSATIONS}/{on_task['id']}/completion", json={"completed": True}
+        )
+        assert marked.status_code == 200, marked.text
         done = (await governor.get(AUDIT, params={"state": "done"})).json()
         assert [item["id"] for item in done["items"]] == [on_task["id"]]
         # runningTotal 不看 state：同一范围里在跑的还是那一段。
@@ -579,6 +611,8 @@ async def test_audit_lists_deleted_conversations_on_request(
         status="failed",
         prompt_id="prm_audit_gone",
     )
+    marked = await client.put(f"{CONVERSATIONS}/{gone['id']}/completion", json={"completed": True})
+    assert marked.status_code == 200, marked.text
     assert (await client.delete(f"{CONVERSATIONS}/{gone['id']}")).status_code == 204
 
     async with make_client(app) as governor:
@@ -594,7 +628,7 @@ async def test_audit_lists_deleted_conversations_on_request(
         assert deleted["items"][0]["deletedAt"] is not None
         assert (deleted["total"], deleted["runningTotal"]) == (1, 0)
 
-        # 墓碑跑过一次，state=done 也把它算进去。
+        # 删之前标过收尾的墓碑，state=done 也把它算进去。
         done = (await governor.get(AUDIT, params={"deleted": "deleted", "state": "done"})).json()
         assert [item["id"] for item in done["items"]] == [gone["id"]]
 

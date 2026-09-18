@@ -77,6 +77,7 @@ conversations_table = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("deleted_at", DateTime(timezone=True), nullable=True),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
     # RESTRICT：被分叉过的行不因别处的删除动作消失；源对话本来也只会软删。
     Column(
         "forked_from",
@@ -136,6 +137,7 @@ def _row(mapping: RowMapping) -> Conversation:
         created_at=mapping["created_at"],
         updated_at=mapping["updated_at"],
         deleted_at=mapping["deleted_at"],
+        completed_at=mapping["completed_at"],
         forked_from=mapping["forked_from"],
         fork_turn=mapping["fork_turn"],
     )
@@ -159,16 +161,17 @@ def _after(cursor: PageCursor | None) -> list[ColumnElement[bool]]:
 
 
 def _state_conditions(state: StateFilter | None) -> list[ColumnElement[bool]]:
-    """``running`` 只留 busy 里的；``done`` 要跑过（``last_run_id`` 非空）且不在 busy 里；None 不筛。
+    """``done`` / ``open`` 按属主标记筛（ADR-0031）；``running`` 只留 busy 里的；None 不筛。
 
-    busy 为空时 ``running`` 直接为假，不渲染空 ``IN``；``id`` 是主键，``NOT IN`` 不会碰到 NULL。"""
+    busy 为空时 ``running`` 直接为假，不渲染空 ``IN``。"""
 
     if state is None:
         return []
-    if state.state == "running":
-        return [_ROWS.id.in_(state.busy)] if state.busy else [false()]
-    ran = _ROWS.last_run_id.is_not(None)
-    return [ran, _ROWS.id.not_in(state.busy)] if state.busy else [ran]
+    if state.state == "done":
+        return [_ROWS.completed_at.is_not(None)]
+    if state.state == "open":
+        return [_ROWS.completed_at.is_(None)]
+    return [_ROWS.id.in_(state.busy)] if state.busy else [false()]
 
 
 def _deleted_conditions(deleted: DeletedFilter) -> list[ColumnElement[bool]]:
@@ -478,6 +481,21 @@ class SqlConversationRepository:
             raise NotFound("没有这段对话")
         return _row(row)
 
+    async def set_completed(
+        self, conversation_id: uuid.UUID, *, owner: uuid.UUID, completed: bool
+    ) -> Conversation:
+        statement = (
+            update(conversations_table)
+            .where(_ROWS.id == conversation_id, _ROWS.owner_user_id == owner, _LIVE)
+            .values(completed_at=func.now() if completed else None, updated_at=func.now())
+            .returning(*conversations_table.c)
+        )
+        async with self._engine.begin() as conn:
+            row = (await conn.execute(statement)).mappings().one_or_none()
+        if row is None:
+            raise NotFound("没有这段对话")
+        return _row(row)
+
     async def delete(self, conversation_id: uuid.UUID, *, owner: uuid.UUID) -> None:
         statement = (
             update(conversations_table)
@@ -493,7 +511,7 @@ class SqlConversationRepository:
     async def touch_run(
         self, conversation_id: uuid.UUID, *, owner: uuid.UUID, agent_id: str, run_id: str
     ) -> None:
-        # agent_id 仅用于匹配，不能改写对话绑定。
+        # agent_id 仅用于匹配，不能改写对话绑定。属主又开跑就不再算收尾（ADR-0031）。
         statement = (
             update(conversations_table)
             .where(
@@ -502,7 +520,7 @@ class SqlConversationRepository:
                 _ROWS.agent_id == agent_id,
                 _LIVE,
             )
-            .values(last_run_id=run_id, updated_at=func.now())
+            .values(last_run_id=run_id, updated_at=func.now(), completed_at=None)
             .returning(_ROWS.id)
         )
         async with self._engine.begin() as conn:

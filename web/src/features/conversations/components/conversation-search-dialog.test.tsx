@@ -16,6 +16,7 @@ const conversation: Conversation = {
   },
   agentId: 'storyboard',
   collectionId: null,
+  completedAt: null,
   createdAt: '2026-08-01T00:00:00Z',
   deletedAt: null,
   forkTurn: null,

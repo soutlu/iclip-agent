@@ -191,22 +191,14 @@ describe('SidebarConversations', () => {
     expect(within(dialog).getByRole('button', { name: '保存' })).toBeEnabled()
   })
 
-  it('筛选片接线到服务端：进行中只剩在跑的，已完成只剩跑完的', async () => {
-    addMockConversation('还没跑过', new Date(Date.UTC(2026, 7, 29, 0, 0)).toISOString())
-    const running = addMockConversation('在跑', new Date(Date.UTC(2026, 7, 29, 0, 1)).toISOString())
-    const done = addMockConversation('跑完了', new Date(Date.UTC(2026, 7, 29, 0, 2)).toISOString())
-    running.activity = {
-      busy: true,
-      lastTurnReason: null,
-      pendingInteraction: 'none',
-      videoGeneration: 'none',
-    }
-    done.activity = {
-      busy: false,
-      lastTurnReason: 'completed',
-      pendingInteraction: 'none',
-      videoGeneration: 'none',
-    }
+  it('筛选片接线到服务端：未完成与已完成按属主标记分开，两档合起来是全部', async () => {
+    addMockConversation('还在弄', new Date(Date.UTC(2026, 7, 29, 0, 0)).toISOString())
+    addMockConversation('也还在弄', new Date(Date.UTC(2026, 7, 29, 0, 1)).toISOString())
+    const finished = addMockConversation(
+      '收尾了',
+      new Date(Date.UTC(2026, 7, 29, 0, 2)).toISOString(),
+    )
+    finished.completedAt = new Date(Date.UTC(2026, 7, 29, 1, 0)).toISOString()
     // 记录实际请求，验证筛选参数传递到服务端。
     const listed: string[] = []
     server.events.on('request:start', ({ request }) => {
@@ -216,19 +208,33 @@ describe('SidebarConversations', () => {
 
     expect(await screen.findByRole('button', { name: '任务 (3)' })).toBeVisible()
 
-    await user.click(screen.getByRole('radio', { name: '进行中' }))
+    await user.click(screen.getByRole('radio', { name: '未完成' }))
 
-    expect(await screen.findByRole('link', { name: '在跑' })).toBeVisible()
-    expect(await screen.findByRole('button', { name: '任务 (1)' })).toBeVisible()
-    expect(screen.queryByRole('link', { name: '跑完了' })).not.toBeInTheDocument()
-    expect(listed.at(-1)).toContain('state=running')
+    expect(await screen.findByRole('link', { name: '还在弄' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: '任务 (2)' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '收尾了' })).not.toBeInTheDocument()
+    expect(listed.at(-1)).toContain('state=open')
 
     await user.click(screen.getByRole('radio', { name: '已完成' }))
 
-    expect(await screen.findByRole('link', { name: '跑完了' })).toBeVisible()
-    expect(screen.queryByRole('link', { name: '在跑' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: '还没跑过' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: '收尾了' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '还在弄' })).not.toBeInTheDocument()
     expect(listed.at(-1)).toContain('state=done')
+  })
+
+  it('行菜单标记完成：角标出现，再点一次取消', async () => {
+    addMockConversation('春季鞋款分镜', new Date(Date.UTC(2026, 7, 29, 0, 0)).toISOString())
+    const { user } = await render()
+
+    await user.click(await screen.findByRole('button', { name: '春季鞋款分镜 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '标记完成' }))
+
+    expect(await screen.findByLabelText('已完成')).toBeVisible()
+
+    await user.click(await screen.findByRole('button', { name: '春季鞋款分镜 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '取消完成' }))
+
+    await waitFor(() => expect(screen.queryByLabelText('已完成')).not.toBeInTheDocument())
   })
 
   it('任务区：第一页 20 条，点「展开显示」把剩下的接上来', async () => {
@@ -531,29 +537,19 @@ describe('SidebarConversations', () => {
     expect(await screen.findByLabelText('进行中')).toBeVisible()
   })
 
-  it('筛「进行中」时一段对话收场，重拉之后它不在这一档里了', async () => {
-    const conversation = addMockConversation('在跑')
-    conversation.activity = {
-      busy: true,
-      lastTurnReason: null,
-      pendingInteraction: 'none',
-      videoGeneration: 'none',
-    }
-    const { socket, user } = await render()
+  it('筛「未完成」时把一段标成完成，重拉之后它不在这一档里了', async () => {
+    const conversation = addMockConversation('还在弄')
+    const { user } = await render()
 
-    await user.click(await screen.findByRole('radio', { name: '进行中' }))
-    expect(await screen.findByRole('link', { name: '在跑' })).toBeVisible()
+    await user.click(await screen.findByRole('radio', { name: '未完成' }))
+    expect(await screen.findByRole('link', { name: '还在弄' })).toBeVisible()
 
-    conversation.activity = {
-      busy: false,
-      lastTurnReason: 'completed',
-      pendingInteraction: 'none',
-      videoGeneration: 'none',
-    }
-    socket.deliver(workChanged(conversation.id, { busy: false, last_turn_reason: 'completed' }))
+    await user.click(await screen.findByRole('button', { name: '还在弄 的更多操作' }))
+    await user.click(await screen.findByRole('menuitem', { name: '标记完成' }))
 
     await waitFor(() =>
-      expect(screen.queryByRole('link', { name: '在跑' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('link', { name: '还在弄' })).not.toBeInTheDocument(),
     )
+    expect(conversation.completedAt).not.toBeNull()
   })
 })

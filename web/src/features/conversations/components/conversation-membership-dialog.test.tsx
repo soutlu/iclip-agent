@@ -24,6 +24,7 @@ const conversation = (): Conversation => ({
   },
   agentId: 'storyboard',
   collectionId: COLLECTION_A,
+  completedAt: null,
   createdAt: '2026-09-11T00:00:00Z',
   deletedAt: null,
   forkTurn: null,

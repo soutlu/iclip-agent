@@ -99,6 +99,12 @@ class ConversationTaskIn(CamelModel):
     task_id: uuid.UUID | None
 
 
+class ConversationCompletionIn(CamelModel):
+    """标记这段对话收尾了，或者取消（给 ``false``）。与两处归属同理，单独一个端点。"""
+
+    completed: bool
+
+
 class ConversationActivityOut(CamelModel):
     """这段对话此刻在忙什么。侧栏据此画角标。
 
@@ -126,6 +132,8 @@ class ConversationOut(CamelModel):
     updated_at: datetime
     deleted_at: datetime | None
     """属主删掉它的时刻。只有治理者审计带 ``deleted`` 筛选时才会见到非空值。"""
+    completed_at: datetime | None
+    """属主标记这活儿收尾的时刻；没标过为空。属主再动手会被抹回空。"""
     forked_from: uuid.UUID | None
     """从哪段对话分叉来的；不是分叉来的为空。前端据此画血缘提示。"""
     fork_turn: int | None
@@ -235,6 +243,7 @@ def conversation_out(conversation: Conversation, activity: ConversationActivity)
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
         deleted_at=conversation.deleted_at,
+        completed_at=conversation.completed_at,
         forked_from=conversation.forked_from,
         fork_turn=conversation.fork_turn,
         activity=ConversationActivityOut(

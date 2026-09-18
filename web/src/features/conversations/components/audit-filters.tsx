@@ -20,10 +20,12 @@ type AuditFiltersBarProps = {
 
 type OpenFilter = 'user' | 'task' | 'time' | null
 
+// 治理者既要看谁手上还没收尾，也要看此刻谁在跑，所以这里比侧栏多一档「进行中」。
 const STATUS_OPTIONS = [
   { value: 'all', label: '全部' },
-  { value: 'running', label: '进行中' },
+  { value: 'open', label: '未完成' },
   { value: 'done', label: '已完成' },
+  { value: 'running', label: '进行中' },
 ] as const
 
 /** 「不限」而不是再写一个「全部」，两组 chip 挨着时不混。 */

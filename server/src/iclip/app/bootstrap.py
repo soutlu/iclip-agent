@@ -69,6 +69,7 @@ from iclip.domains.generation.module import (
 )
 from iclip.domains.generation.queue import GenerationQueueSettings, queue_dsn
 from iclip.domains.generation.schemas import KIND_VIDEO
+from iclip.domains.generation.service import ClearCompletion
 from iclip.domains.generation.video import VideoProviderSettings
 from iclip.domains.identity.accounts import CookieAuthSettings
 from iclip.domains.identity.infra_sql import DB_SCHEMA
@@ -262,6 +263,7 @@ def _generation_module(
     engine: AsyncEngine,
     *,
     act_as: ActAs,
+    clear_completion: ClearCompletion,
     database_url: str,
     object_store: PublicObjectStore,
     queue_connector: procrastinate.BaseConnector | None,
@@ -274,6 +276,7 @@ def _generation_module(
     return build_generation_module(
         AnnouncingGenerationRepository(SqlGenerationRepository(engine), live),
         act_as=act_as,
+        clear_completion=clear_completion,
         video=VideoProviderSettings(
             submit_url=settings.video_submit_url,
             status_base_url=settings.video_status_base_url,
@@ -386,12 +389,20 @@ def build_app(
         workspace_store, announcing_workspace_store, material_ledger
     )
 
+    async def clear_conversation_completion(conversation_id: uuid.UUID, owner: uuid.UUID) -> None:
+        """出片提交即在这段对话里又开工了，收尾标记不再成立（ADR-0031）。
+
+        对话模块在下面才装配好，这里靠闭包在调用时才取；两个域仍互不引用。"""
+
+        await conversations.service.clear_completed(conversation_id, owner)
+
     # 镜头能力依赖生成服务，须先于 Agent 装配。
     generation = (
         _generation_module(
             settings.media_generation,
             active_engine,
             act_as=identity.act_as,
+            clear_completion=clear_conversation_completion,
             database_url=settings.database_url,
             object_store=public_objects,
             queue_connector=queue_connector,

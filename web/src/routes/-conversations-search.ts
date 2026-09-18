@@ -10,7 +10,7 @@ export const conversationsSearchSchema = z.object({
   ownerUserId: z.string().min(1).optional().catch(undefined),
   range: z.enum(['7d', '30d', 'all', 'custom']).optional().catch(undefined),
   since: z.string().regex(LOCAL_DATE).optional().catch(undefined),
-  state: z.enum(['all', 'running', 'done']).optional().catch(undefined),
+  state: z.enum(['all', 'open', 'done', 'running']).optional().catch(undefined),
   taskId: z.string().min(1).optional().catch(undefined),
   until: z.string().regex(LOCAL_DATE).optional().catch(undefined),
 })

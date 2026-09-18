@@ -32,6 +32,8 @@ class Conversation:
     updated_at: datetime
     deleted_at: datetime | None = None
     """属主删除它的时刻；活着的对话为空。"""
+    completed_at: datetime | None = None
+    """属主标记这活儿收尾的时刻；没标过为空。属主再动手（开跑新一轮、提交出片）自动抹回空。"""
     forked_from: uuid.UUID | None = None
     """分叉来源对话；不是分叉来的为空。与 ``fork_turn`` 同时有值。"""
     fork_turn: int | None = None

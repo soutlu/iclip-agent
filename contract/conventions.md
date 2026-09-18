@@ -170,7 +170,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - `POST /conversations` 的 `id` 可由调用方给，缺省由服务端生成。带 `id` 重发同一个值**不新建第二段对话**，答复已有那一段并把状态码降为 `200`（新建仍 `201`）；这个 id 属于别人的对话时是 `404`，与按 id 读别人的对话一致。对话删除后 ID 仍保留，任何人重用都返回 `404`；新对话必须换一个 ID。
 - `GET /conversations` 返回自己的侧栏拓扑：合集及各自第一页对话、未分组合的第一页对话。合集与对话都按 §3 的排序规则，空合集也保留。
 - **两个数字是真总数**：`ungroupedCount` 与每个合集的 `conversationCount`，与这一页给了几条无关。
-- `GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}` 都收 `state`，三值 `all`（默认）/ `running` / `done`。`running` 是有轮次正在跑（含等审批），`done` 是跑过至少一次（`lastRunId` 非空）而且此刻没在跑；从没跑过的对话两边都不在，只出现在 `all` 里。`ungroupedCount` 与每个合集的 `conversationCount` 按同一个筛选算；审计接口的 `state` 同一口径。
+- `GET /conversations`、`GET /conversations/ungrouped`、`GET /conversations/by-collection/{id}` 都收 `state`，四值 `all`（默认）/ `open` / `done` / `running`。`done` 是属主标了收尾（`completedAt` 非空）、`open` 是没标，两者互补合起来就是 `all`；`running` 是此刻有轮次在跑（含等审批），与前两者不同层、可以和它们交叉。`ungroupedCount` 与每个合集的 `conversationCount` 按同一个筛选算；审计接口的 `state` 同一口径。
 - 往下滑加载更多：`GET /conversations/ungrouped?cursor=` 与 `GET /conversations/by-collection/{collectionId}?cursor=`，都返回 `{ items, nextCursor }`。`cursor` 原样回传上一页的 `nextCursor`（把它当不透明字符串），为 `null` 表示没有更多了；形状不对是 `422`。
 - **`by-collection` 不区分「合集不存在」「合集是别人的」「合集是空的」**，三种都给一页空的；这是只列自己对话的工作台接口。
 - `GET /conversations/search?q=` 按标题搜自己的对话，返回扁平列表；`GET /conversations/by-task/{taskId}` 列自己在这张单下的尝试，最后一次排在最前。两者都按 §3 的排序规则。
@@ -207,6 +207,12 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 - 归属关系见 [CONTEXT.md](../docs/CONTEXT.md)。`taskId` 用 `PUT .../task` 改，`collectionId` 用 `PUT .../collection` 改，给 `null` 就是摘掉。
 - 需求单下的尝试按对话 `createdAt` 排，事后补挂不改变这个次序。
 - 两处都给不存在的 id 是 `422`。
+
+### 收尾标记
+
+- `PUT /conversations/{id}/completion` 收 `{ "completed": true | false }`，标记或取消属主对这段对话的收尾判断，答复整行。标记时刻在 `completedAt` 上，没标过是 `null`。
+- **只有属主按得动，服务端不会自己标**：一轮跑完、一次出片完成都不写它。反过来属主再动手就自动抹掉——发消息开跑新一轮，或者在这段对话下提交任何一次出片（§11），`completedAt` 都回到 `null`。
+- 标完照旧在列表里，位置不变（§3），只是 `state=done` 筛得到它。
 
 ### 治理者复盘
 
@@ -324,6 +330,8 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 三条提交地址：`POST /generations/video`、`POST /generations/image` 与 `POST /generations/clips`（本地裁剪拼接，不经外部服务）。受理即 `202`，此时还没开始干活；上游的拒绝会变成记录里的 `failed`，由调用方查状态看到。`kind` 相应有三种：`video`、`image`、`clip`。
 
 业务状态每跳一格，属主连着的每条 WebSocket 都收到一帧 `event.generation.changed`（见 §5 全局帧）；帧易失且不带结果，`GET /generations` 与任务查询接口仍是事实源，浏览器在有运行中任务时保留轮询兜底。
+
+带 `conversationId` 的提交还有一个副作用：那段对话若属于提交者且标过收尾，`completedAt` 被抹回 `null`（§6）——又出片就是又开工了。不属于提交者或对话不在了都当没发生，不影响受理。
 
 ### 归属标签 `user_name`
 

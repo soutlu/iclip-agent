@@ -71,7 +71,8 @@ const pageOf = (rows: MockConversation[], limit: number) => {
 /** 筛选与后端一致：running 包含待审批，done 要求已结束且至少运行过一轮；计数使用相同筛选。 */
 const inState = (item: MockConversation, state: string | null) => {
   if (state === 'running') return item.activity.busy
-  if (state === 'done') return !item.activity.busy && item.activity.lastTurnReason !== null
+  if (state === 'done') return item.completedAt !== null
+  if (state === 'open') return item.completedAt === null
   return true
 }
 
@@ -308,6 +309,18 @@ export const handlers = [
     if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
     const body = (await request.json()) as { taskId: string | null }
     Object.assign(conversation, { taskId: body.taskId, updatedAt: new Date().toISOString() })
+    return HttpResponse.json({ conversation })
+  }),
+
+  http.put('*/api/conversations/:conversationId/completion', async ({ params, request }) => {
+    const conversation = mockConversations.find((item) => item.id === params['conversationId'])
+    if (!conversation) return HttpResponse.json({ detail: '没有这段对话' }, { status: 404 })
+    const body = (await request.json()) as { completed: boolean }
+    const now = new Date().toISOString()
+    Object.assign(conversation, {
+      completedAt: body.completed ? now : null,
+      updatedAt: now,
+    })
     return HttpResponse.json({ conversation })
   }),
 
