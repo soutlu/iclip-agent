@@ -176,8 +176,8 @@ function AuditRow({ conversation, onOpen, ownerName, taskLabel }: AuditRowProps)
               {owner}
             </span>
             <span aria-hidden>·</span>
-            <time className="shrink-0" dateTime={conversation.updatedAt}>
-              {formatRelativeTime(conversation.updatedAt)}
+            <time className="shrink-0" dateTime={conversation.createdAt}>
+              {formatRelativeTime(conversation.createdAt)}
             </time>
             {taskLabel === undefined ? null : (
               <>

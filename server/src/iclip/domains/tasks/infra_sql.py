@@ -70,7 +70,8 @@ tasks_table = Table(
 
 _ROWS = tasks_table.c
 
-Index("ix_tasks_updated", _ROWS.updated_at.desc())
+# 列表按 (created_at, id) 倒序（ADR-0030）。
+Index("ix_tasks_created", _ROWS.created_at.desc(), _ROWS.id.desc())
 
 # 联合主键保证认领幂等；撤回需求单时保留认领记录。
 task_assignees_table = Table(
@@ -158,7 +159,7 @@ class SqlTaskRepository:
         assignee_user_id: uuid.UUID | None = None,
         limit: int,
     ) -> tuple[Task, ...]:
-        statement = select(tasks_table).order_by(_ROWS.updated_at.desc(), _ROWS.id.desc())
+        statement = select(tasks_table).order_by(_ROWS.created_at.desc(), _ROWS.id.desc())
         if status is not None:
             statement = statement.where(_ROWS.status == status)
         if assignee_user_id is not None:

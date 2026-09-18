@@ -7261,7 +7261,7 @@
     },
     "/conversations/audit": {
       "get": {
-        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近活动的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上；\n``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，\n``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
+        "description": "治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。\n\n没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在建立时刻上，与排序同一列——\n同页报表按各指标自己的事件时刻分期，两边不是同一批对话（ADR-0030）；\n``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，\n``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。",
         "operationId": "audit_conversations_conversations_audit_get",
         "parameters": [
           {
@@ -7496,7 +7496,7 @@
     },
     "/conversations/by-task/{task_id}": {
       "get": {
-        "description": "列出自己在这张需求单下的尝试，按开始时间正序。\n\n路径写成 ``/conversations/by-task/{id}`` 而不是 ``/tasks/{id}/conversations``：\n这是对话这一侧的查询，只看得到自己的那几段——挂在需求单下面会让人以为看到的是\n全部。查别人的走 ``/conversations/audit?taskId=``。",
+        "description": "列出自己在这张需求单下的尝试，最后一次排在最前。\n\n路径写成 ``/conversations/by-task/{id}`` 而不是 ``/tasks/{id}/conversations``：\n这是对话这一侧的查询，只看得到自己的那几段——挂在需求单下面会让人以为看到的是\n全部。查别人的走 ``/conversations/audit?taskId=``。",
         "operationId": "list_task_attempts_conversations_by_task__task_id__get",
         "parameters": [
           {
@@ -7540,7 +7540,7 @@
     },
     "/conversations/search": {
       "get": {
-        "description": "按标题搜自己的对话，最近活动的排前面。筛选在库里做，搜得到全部历史。",
+        "description": "按标题搜自己的对话，最近建的排前面。筛选在库里做，搜得到全部历史。",
         "operationId": "search_conversations_conversations_search_get",
         "parameters": [
           {

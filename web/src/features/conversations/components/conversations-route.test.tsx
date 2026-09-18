@@ -271,9 +271,9 @@ describe('ConversationsRoute', () => {
       expect(within(taskPicker).getByRole('combobox', { name: '搜索需求单' })).toHaveFocus(),
     )
 
-    const timeTrigger = screen.getByRole('button', { name: '时间：时间' })
+    const timeTrigger = screen.getByRole('button', { name: '建立时间' })
     await user.click(timeTrigger)
-    expect(await screen.findByRole('dialog', { name: '选择时间范围' })).toBeVisible()
+    expect(await screen.findByRole('dialog', { name: '选择建立时间范围' })).toBeVisible()
     expect(screen.queryByRole('dialog', { name: '选择需求单' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
 

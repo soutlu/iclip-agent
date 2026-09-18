@@ -12,7 +12,7 @@ from iclip.domains.conversations.models import Conversation
 
 @dataclass(frozen=True, slots=True)
 class CollectionConversations:
-    """合集的对话总数与最近对话。"""
+    """合集的对话总数与最新建立的几段对话。"""
 
     collection_id: uuid.UUID
     total: int
@@ -21,9 +21,11 @@ class CollectionConversations:
 
 @dataclass(frozen=True, slots=True)
 class PageCursor:
-    """使用上一页末行的排序键分页，避免 offset 的深分页开销与插入造成的位置漂移。"""
+    """使用上一页末行的排序键分页，避免 offset 的深分页开销与插入造成的位置漂移。
 
-    updated_at: datetime
+    排序键是 ``(created_at, id)``：两者一起唯一，同一时刻建的行才不会漏取或重复。"""
+
+    created_at: datetime
     conversation_id: uuid.UUID
 
 
@@ -43,7 +45,7 @@ DeletedFilter = Literal["live", "deleted", "all"]
 
 @dataclass(frozen=True, slots=True)
 class AuditFilter:
-    """审计的筛选范围，列表与计数共用；前四项都可以不给。``since`` / ``until`` 作用在 ``updated_at`` 上。
+    """审计的筛选范围，列表与计数共用；前四项都可以不给。``since`` / ``until`` 作用在 ``created_at`` 上。
 
     ``deleted`` 决定墓碑进不进结果：这是唯一能读到已删对话的列表口。"""
 
@@ -80,7 +82,7 @@ class ConversationRepository(Protocol):
     async def list_for_owner(
         self, *, owner: uuid.UUID, limit: int, title_contains: str | None = None
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序列出这个人的对话；给了 ``title_contains`` 就只留标题含它的（不分大小写）。"""
+        """按建立时间倒序列出这个人的对话；给了 ``title_contains`` 就只留标题含它的（不分大小写）。"""
         ...
 
     async def list_ungrouped(
@@ -91,7 +93,7 @@ class ConversationRepository(Protocol):
         after: PageCursor | None = None,
         state: StateFilter | None = None,
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序列出这个人没进合集的对话，从 ``after`` 之后接着给。
+        """按建立时间倒序列出这个人没进合集的对话，从 ``after`` 之后接着给。
 
         ``state`` 是列表的状态筛选，``None`` 即不限定。
         """
@@ -110,7 +112,7 @@ class ConversationRepository(Protocol):
         after: PageCursor | None = None,
         state: StateFilter | None = None,
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序分页。不存在或不可见的合集均返回空结果，见 contract/conventions.md §6。"""
+        """按建立时间倒序分页。不存在或不可见的合集均返回空结果，见 contract/conventions.md §6。"""
         ...
 
     async def list_by_collections(
@@ -121,13 +123,13 @@ class ConversationRepository(Protocol):
         per_collection: int,
         state: StateFilter | None = None,
     ) -> tuple[CollectionConversations, ...]:
-        """批量返回各合集的对话总数与最近对话，由同一条 SQL 计算。"""
+        """批量返回各合集的对话总数与最新建立的几段，由同一条 SQL 计算。"""
         ...
 
     async def list_for_task(
         self, *, task_id: uuid.UUID, owner: uuid.UUID
     ) -> tuple[Conversation, ...]:
-        """按创建时间正序返回属主在需求单下的对话，此顺序定义尝试次序。"""
+        """按建立时间倒序返回属主在需求单下的对话，最后一次尝试排在最前。"""
         ...
 
     async def list_audit(
@@ -138,7 +140,7 @@ class ConversationRepository(Protocol):
         limit: int,
         after: PageCursor | None = None,
     ) -> tuple[Conversation, ...]:
-        """跨属主列出对话，按最近活动倒序。``scope`` 与 ``state`` 可以任意组合。"""
+        """跨属主列出对话，按建立时间倒序。``scope`` 与 ``state`` 可以任意组合。"""
         ...
 
     async def count_audit(self, scope: AuditFilter, *, state: StateFilter | None = None) -> int:

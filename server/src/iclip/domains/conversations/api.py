@@ -177,7 +177,7 @@ def create_conversations_router(
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         q: Annotated[str | None, Query(max_length=200)] = None,
     ) -> ConversationsPageOut:
-        """按标题搜自己的对话，最近活动的排前面。筛选在库里做，搜得到全部历史。"""
+        """按标题搜自己的对话，最近建的排前面。筛选在库里做，搜得到全部历史。"""
 
         found = await service.search(principal, limit=limit, title_query=q)
         return ConversationsPageOut(items=await _outs(found))
@@ -194,9 +194,10 @@ def create_conversations_router(
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
         cursor: str | None = None,
     ) -> ConversationsAuditOut:
-        """治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近活动的排前面。
+        """治理者查全平台的对话：按人、按单、按时间段、按状态、按删没删筛，最近建的排前面。
 
-        没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在「最近活动」那个时刻上；
+        没有 ``users:manage`` 就 403。``since`` / ``until`` 作用在建立时刻上，与排序同一列——
+        同页报表按各指标自己的事件时刻分期，两边不是同一批对话（ADR-0030）；
         ``state`` 的三值与侧栏同一口径；``deleted`` 缺省只看活着的，``deleted`` 只看属主删掉的，
         ``all`` 都看。``total`` 与 ``runningTotal`` 是真总数，不随翻页变。
         """
@@ -224,7 +225,7 @@ def create_conversations_router(
         task_id: uuid.UUID,
         principal: Annotated[Principal, Depends(require_permission("agent:read"))],
     ) -> ConversationsPageOut:
-        """列出自己在这张需求单下的尝试，按开始时间正序。
+        """列出自己在这张需求单下的尝试，最后一次排在最前。
 
         路径写成 ``/conversations/by-task/{id}`` 而不是 ``/tasks/{id}/conversations``：
         这是对话这一侧的查询，只看得到自己的那几段——挂在需求单下面会让人以为看到的是
