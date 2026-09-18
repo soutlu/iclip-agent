@@ -36,6 +36,10 @@ const DELETED_OPTIONS = [
 const CHIP_CLASS =
   'h-9 border-transparent bg-transparent px-4 text-body data-[state=on]:bg-surface-container-lowest data-[state=on]:shadow-[var(--shadow-1)]'
 
+/** 这一页筛的是对话建立时间，与报表页按各指标事件时刻分期的「时间」不是一回事，未选时写明这一点。 */
+const createdRangeLabel = (filters: AuditFilters): string =>
+  filters.range === 'all' ? '建立时间' : `建立时间：${dateRangeLabel(filters)}`
+
 /** 一体筛选条只协调弹层与已应用条件；搜索词、临时日期保留在各选择器内。 */
 export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: AuditFiltersBarProps) {
   const [openFilter, setOpenFilter] = useState<OpenFilter>(null)
@@ -171,16 +175,16 @@ export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: Aud
         <PopupRoot onOpenChange={(open) => changeOpen('time', open)} open={openFilter === 'time'}>
           <PopupTrigger asChild>
             <FilterTrigger
-              aria-label={`时间：${dateRangeLabel(filters)}`}
+              aria-label={createdRangeLabel(filters)}
               icon="duration"
-              label={dateRangeLabel(filters)}
+              label={createdRangeLabel(filters)}
               ref={timeTriggerRef}
               selected={filters.range !== 'all'}
             />
           </PopupTrigger>
           <PopupSurface
             align="end"
-            aria-label="选择时间范围"
+            aria-label="选择建立时间范围"
             className="w-84 max-w-[calc(100vw-24px)] rounded-lg"
             collisionPadding={12}
             showArrow

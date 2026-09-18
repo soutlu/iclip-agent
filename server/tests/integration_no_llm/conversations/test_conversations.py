@@ -221,14 +221,16 @@ async def test_title_can_be_given_at_creation(client: httpx.AsyncClient, pg_url:
     assert opened.json()["conversation"]["title"] == "第三幕"
 
 
-async def test_list_is_most_recent_first(client: httpx.AsyncClient, pg_url: str) -> None:
+async def test_list_is_newest_first(client: httpx.AsyncClient, pg_url: str) -> None:
+    """按建立时间倒序；改名这类后续操作不把对话换到别的位置。"""
+
     await login_as_editor(client, pg_url)
     first = (await create(client, title="早的")).json()["conversation"]
     await create(client, title="晚的")
     await client.patch(f"{URL}/{first['id']}", json={"title": "又动过的"})
 
     listed = await client.get(SEARCH)
-    assert [item["title"] for item in listed.json()["items"]] == ["又动过的", "晚的"]
+    assert [item["title"] for item in listed.json()["items"]] == ["晚的", "又动过的"]
 
 
 async def test_list_can_be_searched_by_title(client: httpx.AsyncClient, pg_url: str) -> None:

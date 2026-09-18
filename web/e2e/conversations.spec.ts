@@ -87,15 +87,18 @@ test('全部对话的筛选在窄屏和深色主题下可用，关闭后保留�
   await page.getByRole('option', { name: '小王', exact: true }).click()
   await expect(audit.getByRole('link')).toHaveCount(11)
 
-  const timeTrigger = page.getByRole('button', { name: '时间：时间', exact: true })
+  const timeTrigger = page.getByRole('button', { name: '建立时间', exact: true })
   await timeTrigger.click()
   await page.getByRole('radio', { name: '自定义', exact: true }).click()
   await page.getByRole('button', { name: '2026年9月8日', exact: true }).click()
   await expect(audit.getByRole('link')).toHaveCount(11)
   await page.getByRole('button', { name: '2026年9月12日', exact: true }).click()
-  const selectedTime = page.getByRole('button', { name: '时间：9月8日 — 9月12日', exact: true })
+  const selectedTime = page.getByRole('button', {
+    name: '建立时间：9月8日 — 9月12日',
+    exact: true,
+  })
   await selectedTime.click()
-  const calendar = page.getByRole('dialog', { name: '选择时间范围' })
+  const calendar = page.getByRole('dialog', { name: '选择建立时间范围' })
   await expect(calendar.getByRole('gridcell', { selected: true })).toHaveCount(5)
   await page.screenshot({ path: `${screenshotDir}/mobile-calendar.png`, animations: 'disabled' })
   await page.keyboard.press('Escape')

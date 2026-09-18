@@ -1,4 +1,4 @@
-"""对话的 Postgres 仓储。使用数据库时钟，避免实例钟差影响最近活动排序。
+"""对话的 Postgres 仓储。使用数据库时钟，避免实例钟差影响排序与游标。
 
 删除只标记 ``deleted_at``：行留着占住 id。除治理者的审计列表与 ``include_deleted`` 直读，
 每条读写都只看活着的行。"""
@@ -91,18 +91,23 @@ _ROWS = conversations_table.c
 _LIVE = _ROWS.deleted_at.is_(None)
 _DELETED = _ROWS.deleted_at.is_not(None)
 
-# 属主视角的索引都只收活着的行；首列覆盖 owner_user_id 查询，无需另建单列索引。
+# 列表一律按 (created_at, id) 倒序（ADR-0030），索引都带上这两列以同时支撑排序与游标。
+# 属主视角的索引只收活着的行；首列覆盖 owner_user_id 查询，无需另建单列索引。
 Index(
-    "ix_conversations_owner_recent",
+    "ix_conversations_owner_created",
     _ROWS.owner_user_id,
-    _ROWS.updated_at.desc(),
+    _ROWS.created_at.desc(),
+    _ROWS.id.desc(),
     postgresql_where=_LIVE,
 )
 
-# 审计分页使用 updated_at 与 id 的复合游标；审计能查墓碑，所以这一个索引收全部行。
+# 审计能查墓碑，所以它的游标索引收全部行。
+Index("ix_conversations_created", _ROWS.created_at.desc(), _ROWS.id.desc())
+
+# 审计报表的 idle 指标按最近活动筛（ADR-0027），是 updated_at 仅剩的读路径。
 Index("ix_conversations_updated", _ROWS.updated_at.desc(), _ROWS.id.desc())
 
-# 再排除无归属记录；需求单尝试按 created_at 升序排列。
+# 再排除无归属记录；需求单下的尝试倒序扫这个升序索引。
 Index(
     "ix_conversations_task",
     _ROWS.task_id,
@@ -112,7 +117,8 @@ Index(
 Index(
     "ix_conversations_collection",
     _ROWS.collection_id,
-    _ROWS.updated_at.desc(),
+    _ROWS.created_at.desc(),
+    _ROWS.id.desc(),
     postgresql_where=and_(_ROWS.collection_id.isnot(None), _LIVE),
 )
 
@@ -135,15 +141,19 @@ def _row(mapping: RowMapping) -> Conversation:
     )
 
 
+# 全站列表的排序键（ADR-0030）。改这里必须同时改 ``_after``，两者不同源会漏取或重复记录。
+_ORDER: Final = (_ROWS.created_at.desc(), _ROWS.id.desc())
+
+
 def _after(cursor: PageCursor | None) -> list[ColumnElement[bool]]:
-    """按时间和 id 的复合排序键续页，避免跳过时间相同的记录。"""
+    """按 ``(created_at, id)`` 的复合排序键续页，避免跳过同一时刻建的记录。"""
 
     if cursor is None:
         return []
     return [
         or_(
-            _ROWS.updated_at < cursor.updated_at,
-            and_(_ROWS.updated_at == cursor.updated_at, _ROWS.id < cursor.conversation_id),
+            _ROWS.created_at < cursor.created_at,
+            and_(_ROWS.created_at == cursor.created_at, _ROWS.id < cursor.conversation_id),
         )
     ]
 
@@ -180,9 +190,9 @@ def _audit_conditions(scope: AuditFilter, state: StateFilter | None) -> list[Col
     if scope.task_id is not None:
         conditions.append(_ROWS.task_id == scope.task_id)
     if scope.since is not None:
-        conditions.append(_ROWS.updated_at >= scope.since)
+        conditions.append(_ROWS.created_at >= scope.since)
     if scope.until is not None:
-        conditions.append(_ROWS.updated_at <= scope.until)
+        conditions.append(_ROWS.created_at <= scope.until)
     return conditions
 
 
@@ -260,12 +270,7 @@ class SqlConversationRepository:
         if title_contains is not None:
             # autoescape：标题里出现 % 或 _ 时当普通字符，不当通配符
             conditions.append(_ROWS.title.icontains(title_contains, autoescape=True))
-        statement = (
-            select(conversations_table)
-            .where(*conditions)
-            .order_by(_ROWS.updated_at.desc())
-            .limit(limit)
-        )
+        statement = select(conversations_table).where(*conditions).order_by(*_ORDER).limit(limit)
         async with self._engine.connect() as conn:
             rows = (await conn.execute(statement)).mappings().all()
         return tuple(_row(row) for row in rows)
@@ -325,12 +330,12 @@ class SqlConversationRepository:
         limit: int,
         after: PageCursor | None,
     ) -> tuple[Conversation, ...]:
-        """按最近活动倒序分页，共用于侧栏两区与审计；墓碑收不收由调用方放进 ``conditions``。"""
+        """按建立时间倒序分页，共用于侧栏两区与审计；墓碑收不收由调用方放进 ``conditions``。"""
 
         statement = (
             select(conversations_table)
             .where(*conditions, *_after(after))
-            .order_by(_ROWS.updated_at.desc(), _ROWS.id.desc())
+            .order_by(*_ORDER)
             .limit(limit)
         )
         async with self._engine.connect() as conn:
@@ -348,10 +353,9 @@ class SqlConversationRepository:
         if not collection_ids:
             return ()
         total = func.count().over(partition_by=_ROWS.collection_id).label("total")
+        # 排名与 ``_page`` 用同一个排序键，合集首屏与「展开更多」才接得上。
         rank = (
-            func.row_number()
-            .over(partition_by=_ROWS.collection_id, order_by=_ROWS.updated_at.desc())
-            .label("rank")
+            func.row_number().over(partition_by=_ROWS.collection_id, order_by=_ORDER).label("rank")
         )
         ranked = (
             select(conversations_table, total, rank)
@@ -392,7 +396,7 @@ class SqlConversationRepository:
         statement = (
             select(conversations_table)
             .where(_ROWS.task_id == task_id, _ROWS.owner_user_id == owner, _LIVE)
-            .order_by(_ROWS.created_at)
+            .order_by(*_ORDER)
         )
         async with self._engine.connect() as conn:
             rows = (await conn.execute(statement)).mappings().all()
