@@ -255,8 +255,11 @@ class VideoGenerationIn(SnakeModel):
     task_id: uuid.UUID | None = None
     """需求单 id。只做归属与筛选，不校验它与对话的挂载关系。"""
     metadata: Metadata | None = None
-    shot_index: Annotated[int, Field(ge=0)] | None = None
-    """第几镜。外部调用方不写 ``metadata``，给这个数就等于写了 ``metadata.shot``。"""
+    shot_index: Annotated[int, Field(ge=1)] | None = None
+    """第几镜，从 1 起。外部调用方不写 ``metadata``，给这个数就等于写了 ``metadata.shot``。
+
+    下界跟着分镜文件走：那里的 ``shots[].index`` 就是从 1 数的。收下 0 只会落一条读不出
+    镜头组的记录——服务端不报错，分镜页永远不显示。"""
 
     _check_urls = field_validator(
         "reference_image_urls", "reference_video_urls", "reference_audio_urls"
