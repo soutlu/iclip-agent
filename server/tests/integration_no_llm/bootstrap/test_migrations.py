@@ -248,7 +248,9 @@ BEFORE_METADATA_CLEANUP = "9e3a7c5b2d41"
 
 
 async def test_metadata_cleanup_migration_nulls_path_only_coordinates(migrated_pg: str) -> None:
-    """0005：只有 path 没有 shot 的坐标清成 NULL，带 shot 的与本来就是 NULL 的不动。"""
+    """0005：只有 path 没有 shot 的坐标清成 NULL，带 shot 的与本来就是 NULL 的不动。
+
+    0012 随后把 path 从留下来的坐标里删掉，所以升到 head 之后带 shot 的那条只剩 `{"shot": 2}`。"""
 
     cfg = _alembic(migrated_pg)
     owner = uuid.uuid4()
@@ -309,8 +311,92 @@ async def test_metadata_cleanup_migration_nulls_path_only_coordinates(migrated_p
         await engine.dispose()
 
     assert found[path_only] is None
-    assert _jsonb(found[with_shot]) == {"path": "video_shot.json", "shot": 2}
+    assert _jsonb(found[with_shot]) == {"shot": 2}
     assert found[none] is None
+
+
+BEFORE_METADATA_PATH_DROP = "8d1c5f26ba34"
+"""0011：坐标里还带着 path 的那一版。"""
+
+
+async def test_path_drop_migration_keeps_the_other_coordinate_keys(migrated_pg: str) -> None:
+    """0012：坐标里的 path 一律删掉，别的键原样留着；删完空了的置 NULL。"""
+
+    cfg = _alembic(migrated_pg)
+    owner = uuid.uuid4()
+    video, frame_edit, gateway, video_edit, path_only = (uuid.uuid4() for _ in range(5))
+    engine = create_async_engine(migrated_pg)
+    try:
+        await engine.dispose()
+        command.downgrade(cfg, BEFORE_METADATA_PATH_DROP)
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO iclip.users (id, email, hashed_password, is_active, is_superuser, "
+                    "is_verified, display_name, avatar_url, roles, direct_permissions, city, "
+                    "job_title, departments) VALUES (:id, :email, 'x', true, false, true, '清理属主', "
+                    "'', '[]', '[]', '', '', '[]')"
+                ),
+                {"id": owner, "email": f"{owner}@example.com"},
+            )
+            rows = (
+                (video, '{"path": "video_shot.json", "shot": 2}'),
+                (
+                    frame_edit,
+                    '{"path": "video_shot.json", "shot": 1, "frame": 3, '
+                    '"sourceUrl": "https://cdn.test/a.png"}',
+                ),
+                # 只发 shot_index 的调用方与视频编辑链本来就没有 path。
+                (gateway, '{"shot": 5}'),
+                (video_edit, '{"rootJob": "r", "baseJob": "r", "editId": "e"}'),
+                # 0005 之后不该再有这种行；NULLIF 兜的就是它。
+                (path_only, '{"path": "video_shot.json"}'),
+            )
+            for job_id, metadata in rows:
+                await conn.execute(
+                    text(
+                        "INSERT INTO iclip.generation_jobs (id, owner_user_id, kind, provider, "
+                        "request, status, metadata, created_at, updated_at) VALUES (:id, :owner, "
+                        "'video', 'test', '{}', 'pending', CAST(:metadata AS jsonb), now(), now())"
+                    ),
+                    {"id": job_id, "owner": owner, "metadata": metadata},
+                )
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+
+        async with engine.connect() as conn:
+            found = {
+                row["id"]: row["metadata"]
+                for row in (
+                    await conn.execute(
+                        text(
+                            "SELECT id, metadata FROM iclip.generation_jobs "
+                            "WHERE id = ANY(CAST(:ids AS uuid[]))"
+                        ),
+                        {"ids": [video, frame_edit, gateway, video_edit, path_only]},
+                    )
+                ).mappings()
+            }
+    finally:
+        await engine.dispose()
+        command.upgrade(cfg, "head")
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM iclip.generation_jobs WHERE owner_user_id = :owner"),
+                {"owner": owner},
+            )
+            await conn.execute(text("DELETE FROM iclip.users WHERE id = :owner"), {"owner": owner})
+        await engine.dispose()
+
+    assert _jsonb(found[video]) == {"shot": 2}
+    assert _jsonb(found[frame_edit]) == {
+        "shot": 1,
+        "frame": 3,
+        "sourceUrl": "https://cdn.test/a.png",
+    }
+    assert _jsonb(found[gateway]) == {"shot": 5}
+    assert _jsonb(found[video_edit]) == {"rootJob": "r", "baseJob": "r", "editId": "e"}
+    assert found[path_only] is None
 
 
 BEFORE_LAST_RUN_BACKFILL = "2d6f8a1b4c07"
