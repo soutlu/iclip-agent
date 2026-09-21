@@ -172,10 +172,7 @@ export function TaskMediaField({
               'relative',
               kind === 'video'
                 ? 'w-full'
-                : cn(
-                    'overflow-hidden rounded-md bg-surface-container-low',
-                    compact ? 'size-20' : 'size-28',
-                  ),
+                : 'max-w-full shrink-0 overflow-hidden rounded-md bg-surface-container-low',
             )}
             key={url}
           >
@@ -188,13 +185,16 @@ export function TaskMediaField({
             ) : (
               <button
                 aria-label={`预览${name} ${index + 1}`}
-                className="size-full cursor-zoom-in overflow-hidden rounded-md ui-focus"
+                className="block max-w-full cursor-zoom-in overflow-hidden rounded-md ui-focus"
                 onClick={() => setPreview({ kind, name: `${name} ${index + 1}`, url })}
                 type="button"
               >
                 <img
                   alt={`${name} ${index + 1}`}
-                  className="size-full object-contain"
+                  className={cn(
+                    'block h-auto w-auto max-w-full',
+                    compact ? 'max-h-20' : 'max-h-24',
+                  )}
                   draggable={false}
                   src={url}
                 />
@@ -224,7 +224,7 @@ export function TaskMediaField({
                 ? 'h-10 w-full text-body-sm'
                 : compact
                   ? 'size-20 flex-col text-caption'
-                  : 'size-28 flex-col text-body-sm',
+                  : 'size-24 flex-col text-body-sm',
             )}
             disabled={blocked}
             onClick={() => inputRef.current?.click()}

@@ -124,26 +124,47 @@
 .task-form-basics {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-  gap: 20px;
+  gap: 12px 16px;
 }
 
 .task-form-specs,
 .task-form-references {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 12px 16px;
 }
 
 .task-form-product {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 12px 16px;
 }
 
 .task-form-product-attributes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+/* 视频按自身比例收边，创作要求并排；小屏回到单列。 */
+.task-form-story {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr);
   gap: 20px;
+}
+
+.task-form-story .task-video-preview {
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
+}
+
+.task-form-story .task-video-preview video {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 192px;
 }
 
 @media (max-width: 599px) {
@@ -153,6 +174,7 @@
     gap: 16px;
   }
 
+  .task-form-story,
   .task-form-basics,
   .task-form-product,
   .task-form-product-attributes {

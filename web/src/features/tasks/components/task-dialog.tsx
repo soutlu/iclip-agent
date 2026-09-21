@@ -277,7 +277,7 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
 
   return (
     <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
-      <DialogBody className="px-6 pt-5 pb-6">
+      <DialogBody className="px-6 pt-3 pb-5">
         <TaskFormFields
           form={form}
           // 上传中不增减商品：图片字段按位置挂载，删一款会让还在传的那一款换位置。

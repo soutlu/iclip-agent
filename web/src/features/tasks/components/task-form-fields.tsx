@@ -1,11 +1,12 @@
-import { useId, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Icon } from '@/shared/icons'
 import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { IconButton } from '@/shared/ui/button'
-import { Input, Select, Textarea } from '@/shared/ui/field'
+import { Input, Textarea } from '@/shared/ui/field'
 import type { Task } from '../tasks.api'
 import { PLATFORM_OPTIONS, VIDEO_TYPE_OPTIONS, CONTENT_TYPE_OPTIONS } from '../task-video-options'
 import { TaskMediaField } from './task-media-field'
+import { TaskSpecPicker } from './task-spec-picker'
 import { emptyProduct, type TaskFormState, type TaskProduct } from './task-form-state'
 
 type TaskInputs = Task['inputs']
@@ -98,7 +99,7 @@ export function TaskFormFields({
     }))
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <div className="task-form-basics">
         <Field label="需求单名称" required>
           <Input
@@ -130,7 +131,8 @@ export function TaskFormFields({
 
       <Section title="视频规格">
         <div className="task-form-specs">
-          <SuggestedField
+          <TaskSpecPicker
+            allowCustom
             label="发布平台"
             value={inputs.video_spec.platform}
             disabled={!editable('platform')}
@@ -138,7 +140,8 @@ export function TaskFormFields({
             options={PLATFORM_OPTIONS}
             onChange={(platform) => patchVideo({ platform })}
           />
-          <SuggestedField
+          <TaskSpecPicker
+            allowCustom
             label="视频类型"
             value={inputs.video_spec.video_type}
             disabled={!editable('video_type')}
@@ -146,7 +149,8 @@ export function TaskFormFields({
             options={VIDEO_TYPE_OPTIONS}
             onChange={(video_type) => patchVideo({ video_type })}
           />
-          <SuggestedField
+          <TaskSpecPicker
+            allowCustom
             label="内容类型"
             value={inputs.video_spec.content_type}
             disabled={!editable('content_type')}
@@ -154,7 +158,8 @@ export function TaskFormFields({
             options={CONTENT_TYPE_OPTIONS}
             onChange={(content_type) => patchVideo({ content_type })}
           />
-          <SuggestedField
+          <TaskSpecPicker
+            allowCustom
             label="分辨率"
             value={inputs.video_spec.resolution}
             disabled={!editable('resolution')}
@@ -162,26 +167,18 @@ export function TaskFormFields({
             options={[{ value: '1080p', label: '1080p' }]}
             onChange={(resolution) => patchVideo({ resolution })}
           />
-          <Field label="比例">
-            <Select
-              aria-label="比例"
-              className={CONTROL}
-              disabled={!editable('aspect_ratio')}
-              value={inputs.video_spec.aspect_ratio ?? ''}
-              onChange={(event) =>
-                patchVideo({
-                  aspect_ratio: ASPECT_RATIOS.find((ratio) => ratio === event.target.value) ?? null,
-                })
-              }
-            >
-              <option value="">未指定</option>
-              {ASPECT_RATIOS.map((ratio) => (
-                <option key={ratio} value={ratio}>
-                  {ratio}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <TaskSpecPicker
+            label="比例"
+            disabled={!editable('aspect_ratio')}
+            value={inputs.video_spec.aspect_ratio ?? ''}
+            options={[
+              { value: '', label: '未指定' },
+              ...ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: ratio })),
+            ]}
+            onChange={(value) =>
+              patchVideo({ aspect_ratio: ASPECT_RATIOS.find((ratio) => ratio === value) ?? null })
+            }
+          />
           <Field label="目标时长（秒）">
             <Input
               aria-label="目标时长（秒）"
@@ -210,7 +207,7 @@ export function TaskFormFields({
           return (
             <div
               aria-label={ordinal}
-              className="flex min-w-0 flex-col gap-4 rounded-lg bg-surface-container-low/50 p-4"
+              className="flex min-w-0 flex-col gap-2.5 rounded-lg bg-surface-container-low/50 p-3"
               key={key}
               role="group"
             >
@@ -306,6 +303,9 @@ export function TaskFormFields({
             />
           ))}
         </div>
+      </Section>
+
+      <div className="task-form-story">
         <TaskMediaField
           label="参考视频"
           kind="video"
@@ -315,23 +315,22 @@ export function TaskFormFields({
           onUploadingChange={(busy) => onUploadingChange('video', busy)}
           onChange={(urls) => patchInputs({ reference_video_oss_url: urls[0] ?? null })}
         />
-      </Section>
-
-      <Field label="创作要求">
-        <Textarea
-          aria-label="创作要求"
-          className="task-form-control resize-y rounded-md border-transparent bg-surface-container-low ui-focus-inline"
-          rows={3}
-          disabled={!editable('creative_requirement')}
-          maxLength={4000}
-          placeholder="描述创作目标、风格偏好、目标受众和输出要求"
-          value={inputs.creative_requirement}
-          onChange={(event) => patchInputs({ creative_requirement: event.target.value })}
-        />
-        <span className="self-end text-caption text-on-surface-variant">
-          {inputs.creative_requirement.length}/4000
-        </span>
-      </Field>
+        <Field label="创作要求">
+          <Textarea
+            aria-label="创作要求"
+            className="task-form-control min-h-48 resize-y rounded-md border-transparent bg-surface-container-low ui-focus-inline"
+            rows={6}
+            disabled={!editable('creative_requirement')}
+            maxLength={4000}
+            placeholder="描述创作目标、风格偏好、目标受众和输出要求"
+            value={inputs.creative_requirement}
+            onChange={(event) => patchInputs({ creative_requirement: event.target.value })}
+          />
+          <span className="self-end text-caption text-on-surface-variant">
+            {inputs.creative_requirement.length}/4000
+          </span>
+        </Field>
+      </div>
     </div>
   )
 }
@@ -346,7 +345,7 @@ function Field({
   required?: boolean
 }) {
   return (
-    <label className="flex min-w-0 flex-col gap-2">
+    <label className="flex min-w-0 flex-col gap-1">
       <span className="text-body-sm font-medium text-on-surface-variant">
         {label}
         {required && <span className="text-error"> *</span>}
@@ -358,50 +357,9 @@ function Field({
 
 function Section({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <section className="flex min-w-0 flex-col gap-4" aria-label={title}>
+    <section className="flex min-w-0 flex-col gap-3" aria-label={title}>
       <h3 className="text-title font-semibold text-on-surface">{title}</h3>
       {children}
     </section>
-  )
-}
-
-function SuggestedField({
-  label,
-  options,
-  ...props
-}: {
-  label: string
-  options: readonly { value: string; label: string }[]
-  value: string
-  disabled: boolean
-  placeholder: string
-  onChange: (value: string) => void
-}) {
-  const id = useId()
-  return (
-    <Field label={label}>
-      <Input
-        aria-label={label}
-        className={CONTROL}
-        disabled={props.disabled}
-        list={id}
-        maxLength={200}
-        placeholder={props.placeholder}
-        value={options.find((option) => option.value === props.value)?.label ?? props.value}
-        onChange={(event) =>
-          props.onChange(
-            options.find((option) => option.label === event.target.value)?.value ??
-              event.target.value,
-          )
-        }
-      />
-      <datalist id={id}>
-        {options.map((option) => (
-          <option key={option.value} value={option.label}>
-            {option.label}
-          </option>
-        ))}
-      </datalist>
-    </Field>
   )
 }
