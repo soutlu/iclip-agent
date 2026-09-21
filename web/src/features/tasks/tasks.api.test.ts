@@ -1,9 +1,11 @@
 import { waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
-import { addMockTask } from '@/testing/mocks/handlers'
+import { z } from 'zod'
+import { apiFetch } from '@/shared/api/client'
+import { addMockTask, mockGovernor } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
-import { listAllTasks } from './tasks.api'
+import { claimTask, listAllTasks, listMyTasks } from './tasks.api'
 
 describe('listAllTasks', () => {
   it('按接口上限读取全平台需求单，不带认领人过滤', async () => {
@@ -50,5 +52,21 @@ describe('listAllTasks', () => {
 
     await rejection
     expect(pendingRequest?.signal.aborted).toBe(true)
+  })
+})
+
+describe('mock 需求单认领身份', () => {
+  it('治理者认领后在自己的需求单中可见，重复认领不会添加其他用户', async () => {
+    const task = addMockTask('治理者认领的需求')
+    task.status = 'published'
+    await apiFetch('/auth/login', z.unknown(), {
+      method: 'POST',
+      body: new URLSearchParams({ username: 'governor', password: 'mock' }),
+      fallbackErrorMessage: '模拟登录失败',
+    })
+    await claimTask(task.id)
+    await claimTask(task.id)
+    expect(task.assigneeUserIds).toEqual([mockGovernor.id])
+    await expect(listMyTasks()).resolves.toEqual([task])
   })
 })

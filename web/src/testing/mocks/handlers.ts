@@ -434,7 +434,7 @@ export const handlers = [
       return HttpResponse.json({ detail: '这张单认领不了' }, { status: 409 })
     }
     if (!task.assigneeUserIds.includes(activeUserId())) {
-      task.assigneeUserIds.push(mockAuthUser.id)
+      task.assigneeUserIds.push(activeUserId())
     }
     Object.assign(task, { status: 'confirmed', updatedAt: new Date().toISOString() })
     return HttpResponse.json({ task })
