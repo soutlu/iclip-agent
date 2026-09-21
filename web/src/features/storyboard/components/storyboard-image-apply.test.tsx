@@ -40,7 +40,7 @@ const originalDocument = (): ShotsDocument => ({
 const completedJob = (outputUrl: string, createdAt: string): GenerationJob => ({
   id: crypto.randomUUID(),
   kind: 'image',
-  metadata: { frame: 1, path: PATH, shot: 1 },
+  metadata: { frame: 1, shot: 1 },
   createdAt,
   status: 'completed',
   outputUrl,

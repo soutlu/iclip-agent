@@ -9,7 +9,7 @@ const job = (over: Partial<GenerationJob> & { id: string; createdAt: string }): 
   status: 'completed',
   errorMessage: null,
   outputUrl: null,
-  metadata: { path: 'video_shot.json', shot: 1, frame: 1 },
+  metadata: { shot: 1, frame: 1 },
   request: {},
   taskId: null,
   clipStage: null,
@@ -52,7 +52,6 @@ describe('frameImageEntries', () => {
           createdAt: '2026-09-13T02:00:00Z',
           outputUrl: 'https://cdn.test/b.png',
           metadata: {
-            path: 'video_shot.json',
             shot: 1,
             frame: 1,
             sourceUrl: 'https://cdn.test/gone.png',
@@ -77,7 +76,6 @@ describe('frameImageEntries', () => {
           createdAt: '2026-09-13T03:00:00Z',
           outputUrl: 'https://cdn.test/c.png',
           metadata: {
-            path: 'video_shot.json',
             shot: 1,
             frame: 1,
             sourceUrl: 'https://cdn.test/b.png',
@@ -122,7 +120,6 @@ describe('entryBaseUrl', () => {
           createdAt: '2026-09-13T04:00:00Z',
           status: 'submitted',
           metadata: {
-            path: 'video_shot.json',
             shot: 1,
             frame: 1,
             sourceUrl: 'https://cdn.test/base.png',

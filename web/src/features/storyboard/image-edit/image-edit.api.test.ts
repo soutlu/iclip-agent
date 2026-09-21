@@ -67,7 +67,6 @@ describe('parseEditPrompt', () => {
 
 const target: FrameEditTarget = {
   conversationId: 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d',
-  artifactPath: 'video_shot.json',
   shotIndex: 2,
   frameNumber: 3,
 }
@@ -109,7 +108,6 @@ describe('submitImageEdit', () => {
 
     expect(job.status).toBe('queued')
     expect(body['metadata']).toEqual({
-      path: 'video_shot.json',
       shot: 2,
       frame: 3,
       sourceUrl: 'https://cdn.test/frame.png',

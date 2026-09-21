@@ -3,7 +3,6 @@
 import { z } from 'zod'
 
 const storyboardMetadataSchema = z.object({
-  path: z.string().min(1),
   shot: z.int().positive(),
   frame: z.int().positive().optional(),
   /** 图片编辑这次改的是哪张图。存量记录没有，读不出就当不知道。 */
@@ -13,22 +12,18 @@ const storyboardMetadataSchema = z.object({
 export type StoryboardMetadata = z.infer<typeof storyboardMetadataSchema>
 
 /** 提交时写进请求体的坐标；视频出片按镜头组，不带 frame。 */
-export const storyboardMetadata = (
-  path: string,
-  shot: number,
-  frame?: number,
-): StoryboardMetadata => (frame === undefined ? { path, shot } : { frame, path, shot })
+export const storyboardMetadata = (shot: number, frame?: number): StoryboardMetadata =>
+  frame === undefined ? { shot } : { frame, shot }
 
 /** 图片编辑的坐标：除了这一格，还记下这次改的是哪张图。
  *
  * 底图不一定还在分镜里——它可能是上一轮没落盘的编辑结果，也可能已经被后来的编辑覆盖。
  * 记下来，这一帧出现过的图才能从任务列表里重新拼出来。筛选时不带这一项。 */
 export const frameEditMetadata = (
-  path: string,
   shot: number,
   frame: number,
   sourceUrl: string,
-): StoryboardMetadata => ({ ...storyboardMetadata(path, shot, frame), sourceUrl })
+): StoryboardMetadata => ({ ...storyboardMetadata(shot, frame), sourceUrl })
 
 /** 记录里的坐标；不是分镜页写的形状（别的调用方写的、或没写）就当没有坐标。 */
 export const readStoryboardMetadata = (job: {
@@ -40,7 +35,7 @@ export const readStoryboardMetadata = (job: {
 
 /** 视频编辑链的坐标。三条记录（参考片段、编辑结果、成片）共用同一组键，靠 `editId` 串成一次编辑。
  *
- * 不带 `path` / `shot`：编辑结果不是这一镜的出片，抽屉与审计都不该把它算进去。
+ * 不带 `shot`：编辑结果不是这一镜的出片，抽屉与审计都不该把它算进去。
  * `editStart` 在编辑结果与成片上记的是实际值——参考片段按关键帧切，起点会落在用户选的位置之前，
  * 提交编辑任务那一刻按片段实际时长反算出来写进去；合成只读它，不回头碰会过期的参考片段。 */
 const videoEditMetadataSchema = z.object({

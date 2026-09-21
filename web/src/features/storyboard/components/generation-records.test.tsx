@@ -13,7 +13,7 @@ const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
   errorMessage: null,
   kind: 'video',
   outputUrl: null,
-  metadata: { path: 'video_shot.json', shot: 2 },
+  metadata: { shot: 2 },
   request: {},
   status: 'completed',
   taskId: null,
@@ -46,7 +46,7 @@ const jobs: GenerationJob[] = [
   }),
   job({
     id: 'other-shot',
-    metadata: { path: 'video_shot.json', shot: 3 },
+    metadata: { shot: 3 },
     request: { prompt: '别的组。' },
   }),
   job({

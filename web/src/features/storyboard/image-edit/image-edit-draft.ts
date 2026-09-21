@@ -57,7 +57,7 @@ export const emptyEditDraft = (baseUrl: string): FrameEditDraft => ({
 
 /** 草稿按格存，不按底图地址：应用之后这一格换了图，别的底图上没提交完的输入还在。 */
 export const editDraftKey = (target: FrameEditTarget) =>
-  `cue:frame-edit:${target.conversationId}:${target.artifactPath}:${target.shotIndex}:${target.frameNumber}`
+  `cue:frame-edit:${target.conversationId}:${target.shotIndex}:${target.frameNumber}`
 
 export function loadEditDrafts(target: FrameEditTarget): FrameEditDrafts {
   const raw = sessionStorage.getItem(editDraftKey(target))

@@ -3,12 +3,10 @@ import { frameBadges, latestFrameJobs } from './frame-status'
 import type { Shot } from './shot-document'
 import type { GenerationJob } from './storyboard.api'
 
-const PATH = 'video_shot.json'
 const ORIGINAL = 'https://example.com/original.png'
 const EDITED = 'https://example.com/edited.png'
 
-const at = (shot: number, frame?: number) =>
-  frame === undefined ? { path: PATH, shot } : { frame, path: PATH, shot }
+const at = (shot: number, frame?: number) => (frame === undefined ? { shot } : { frame, shot })
 
 const job = (overrides: Partial<GenerationJob>): GenerationJob => ({
   id: crypto.randomUUID(),
@@ -42,24 +40,20 @@ describe('latestFrameJobs', () => {
     const newer = job({ id: 'newer', createdAt: '2026-09-07T11:00:00Z' })
     const other = job({ id: 'other', metadata: at(2, 2) })
 
-    const latest = latestFrameJobs([older, other, newer], PATH)
+    const latest = latestFrameJobs([older, other, newer])
 
     expect(latest.get('1:1')?.id).toBe('newer')
     expect(latest.get('2:2')?.id).toBe('other')
     expect(latest.size).toBe(2)
   })
 
-  it('视频任务、别的分镜文件的、坐标里没帧号或没坐标的都落不到格上', () => {
-    const latest = latestFrameJobs(
-      [
-        job({ kind: 'video' }),
-        job({ metadata: { frame: 1, path: 'other.json', shot: 1 } }),
-        job({ metadata: at(1) }),
-        job({ metadata: null }),
-        job({ metadata: { batch: 'x' } }),
-      ],
-      PATH,
-    )
+  it('视频任务、坐标里没帧号或没坐标的都落不到格上', () => {
+    const latest = latestFrameJobs([
+      job({ kind: 'video' }),
+      job({ metadata: at(1) }),
+      job({ metadata: null }),
+      job({ metadata: { batch: 'x' } }),
+    ])
 
     expect(latest.size).toBe(0)
   })
@@ -67,7 +61,7 @@ describe('latestFrameJobs', () => {
 
 describe('frameBadges', () => {
   const badgesOf = (item: GenerationJob, seen: string[] = []) =>
-    frameBadges(shot, latestFrameJobs([item], PATH), new Set(seen))
+    frameBadges(shot, latestFrameJobs([item]), new Set(seen))
 
   it.each([
     ['pending', 'queued'],
