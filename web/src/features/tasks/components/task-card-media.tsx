@@ -72,10 +72,10 @@ export function TaskCardReferences({
 
   if (!images.length) return null
   return (
-    <div className="task-card-references absolute right-1 left-1 flex items-center gap-1 rounded-sm bg-scrim/45 p-1 backdrop-blur-sm">
+    <div className="task-card-references absolute right-2 left-2 flex items-center gap-1">
       {edges.previous && (
         <IconButton
-          className="shrink-0 text-on-scrim"
+          className="shrink-0 rounded-full bg-on-scrim text-scrim shadow-1"
           label="向左滚动参考图"
           name="back"
           size="xs"
@@ -84,7 +84,7 @@ export function TaskCardReferences({
       )}
       <div
         aria-label="商品与参考图"
-        className="task-card-reference-strip flex min-w-0 flex-1 gap-1 overflow-x-auto overscroll-x-contain"
+        className="task-card-reference-strip flex min-w-0 flex-1 gap-1 overflow-x-auto overscroll-x-contain py-1"
         onScroll={updateEdges}
         ref={stripRef}
       >
@@ -92,7 +92,7 @@ export function TaskCardReferences({
           <button
             key={image.src}
             aria-label={`打开需求详情：${image.alt}`}
-            className="h-7 shrink-0 cursor-pointer overflow-hidden rounded-xs bg-surface-container-low ui-focus"
+            className="shrink-0 cursor-pointer overflow-hidden rounded-xs bg-on-scrim p-px shadow-1 ui-focus"
             onClick={onOpen}
             type="button"
           >
@@ -102,7 +102,7 @@ export function TaskCardReferences({
       </div>
       {edges.next && (
         <IconButton
-          className="shrink-0 text-on-scrim"
+          className="shrink-0 rounded-full bg-on-scrim text-scrim shadow-1"
           label="向右滚动参考图"
           name="next"
           size="xs"
