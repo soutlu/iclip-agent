@@ -13,7 +13,6 @@ import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
 const target: FrameEditTarget = {
   conversationId: 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d',
-  artifactPath: 'video_shot.json',
   shotIndex: 1,
   frameNumber: 1,
 }
@@ -26,7 +25,7 @@ const draft: FrameEditDraft = {
 }
 const job = (over: Partial<GenerationJob> = {}): GenerationJob => ({
   id: crypto.randomUUID(),
-  metadata: { frame: 1, path: target.artifactPath, shot: 1, sourceUrl: BASE },
+  metadata: { frame: 1, shot: 1, sourceUrl: BASE },
   kind: 'image',
   status: 'pending',
   createdAt: '2026-09-07T12:00:00Z',

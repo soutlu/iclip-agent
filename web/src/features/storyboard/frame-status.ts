@@ -36,16 +36,14 @@ export const isAppliedResult = (job: GenerationJob, currentUrl: string): boolean
 const newestFirst = (left: GenerationJob, right: GenerationJob) =>
   right.createdAt.localeCompare(left.createdAt)
 
-/** 这份分镜文件每格最新一条图片任务。视频任务、别的文件的、坐标里没帧号的都落不到格上，跳过。 */
+/** 每格最新一条图片任务。视频任务、坐标里没帧号的都落不到格上，跳过。 */
 export const latestFrameJobs = (
   jobs: readonly GenerationJob[],
-  path: string,
 ): ReadonlyMap<string, GenerationJob> => {
   const latest = new Map<string, GenerationJob>()
   for (const job of [...jobs].sort(newestFirst)) {
     const at = readStoryboardMetadata(job)
-    if (job.kind !== 'image' || at === undefined || at.path !== path || at.frame === undefined)
-      continue
+    if (job.kind !== 'image' || at === undefined || at.frame === undefined) continue
     const key = frameJobKey(at.shot, at.frame)
     if (!latest.has(key)) latest.set(key, job)
   }

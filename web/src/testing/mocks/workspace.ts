@@ -288,7 +288,7 @@ export const seedMockWorkspace = (
       id: '4a1e2f60-9a1e-4c2f-9c8b-1d2e3f4a5b6c',
       outputUrl: WIDE_VIDEO_URL,
       prompt: '模特走向镜头，停下微笑，暖光。',
-      metadata: { path: SHOTS_MOCK_PATH, shot: 3 },
+      metadata: { shot: 3 },
       status: 'completed',
       watermarkOutputUrl: WIDE_VIDEO_URL,
     }),
@@ -299,7 +299,7 @@ export const seedMockWorkspace = (
       // 带结构化 shot 的记录可以回填镜头组；纯描述的那两条只能看不能回填。
       prompt: assembleShotPrompt(HISTORY_SHOT),
       request: { prompt: assembleShotPrompt(HISTORY_SHOT), shot: HISTORY_SHOT },
-      metadata: { path: SHOTS_MOCK_PATH, shot: 2 },
+      metadata: { shot: 2 },
       status: 'completed',
       watermarkOutputUrl: VIDEO_URL,
     }),
@@ -308,14 +308,14 @@ export const seedMockWorkspace = (
       errorMessage: '上游返回了空结果，换个描述再试一次。',
       id: '6c304182-1c30-4e41-9eab-3f4a5b6c7d8e',
       prompt: '第 2 组第二版：加一个低头看包的动作。',
-      metadata: { path: SHOTS_MOCK_PATH, shot: 2 },
+      metadata: { shot: 2 },
       status: 'failed',
     }),
     job({
       createdAt: '2026-09-01T12:20:00Z',
       id: '7d415293-2d41-4f52-afbc-4a5b6c7d8e9f',
       prompt: '第 2 组第三版：脚步放慢，收尾停在微笑上。',
-      metadata: { path: SHOTS_MOCK_PATH, shot: 2 },
+      metadata: { shot: 2 },
       status: 'submitted',
     }),
     job({
@@ -342,7 +342,7 @@ export const seedMockWorkspace = (
       kind: 'image',
       prompt: '背景换成傍晚的暖光。',
       request: { prompt: '背景换成傍晚的暖光。', referenceImageUrls: [frames.a] },
-      metadata: { path: SHOTS_MOCK_PATH, shot: 2, frame: 3 },
+      metadata: { shot: 2, frame: 3 },
       status: 'submitted',
     }),
     // 同一帧较早的失败记录，用于检查编辑器长错误详情，不改变最新的在途状态。
@@ -355,7 +355,7 @@ export const seedMockWorkspace = (
         prompt: '保留人物，背景换成傍晚的暖光。',
         referenceImageUrls: [frames.a],
       },
-      metadata: { path: SHOTS_MOCK_PATH, shot: 2, frame: 3, sourceUrl: frames.a },
+      metadata: { shot: 2, frame: 3, sourceUrl: frames.a },
       status: 'failed',
       errorMessage: [
         '图像服务未能完成编辑（400）：参考图片校验失败。',
@@ -431,7 +431,7 @@ export const seedMockReplicaWorkspace = (conversationId: string) => {
       kind: 'image',
       prompt: '把鞋换成米白色。',
       request: { prompt: '把鞋换成米白色。', referenceImageUrls: [`${frames.b}?reference=5`] },
-      metadata: { path: SHOTS_MOCK_PATH, shot: 1, frame: 5 },
+      metadata: { shot: 1, frame: 5 },
       status: 'pending',
     }),
   ])

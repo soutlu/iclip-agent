@@ -42,8 +42,6 @@ export const useVideoModels = () =>
 
 export type VideoGenerationInput = {
   conversationId: string
-  /** 分镜文件路径，与镜头组一起写进任务坐标 metadata（ADR-0020）。 */
-  path: string
   aspectRatio: string
   model: string
   generateAudio: boolean
@@ -69,7 +67,7 @@ export const submitVideoGeneration = async (input: VideoGenerationInput): Promis
     aspect_ratio: input.aspectRatio,
     conversation_id: input.conversationId,
     generate_audio: input.generateAudio,
-    metadata: storyboardMetadata(input.path, input.shot.index),
+    metadata: storyboardMetadata(input.shot.index),
     model: input.model,
     reference_image_urls: [...input.shot.image_urls],
     resolution: VIDEO_RESOLUTION,

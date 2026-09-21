@@ -276,7 +276,7 @@ describe('TranscriptConnection', () => {
         id: 'job-1',
         kind: 'image',
         status: 'submitted',
-        metadata: { path: 'video_shot.json', shot: 2, frame: 3 },
+        metadata: { shot: 2, frame: 3 },
       },
     })
     // 任务没有来源对话时信封上没有 session_id，空的归属字段服务端整个省略。
@@ -306,7 +306,7 @@ describe('TranscriptConnection', () => {
         jobId: 'job-1',
         jobKind: 'image',
         kind: 'generation',
-        metadata: { frame: 3, path: 'video_shot.json', shot: 2 },
+        metadata: { frame: 3, shot: 2 },
         status: 'submitted',
       },
       {
