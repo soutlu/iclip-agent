@@ -45,24 +45,58 @@ const openGallery = async (page: Page) => {
         if (!response.ok) throw new Error(`测试数据准备失败：${path} (${response.status})`)
         return response.json() as Promise<unknown>
       }
-      const signed = (await post('/api/uploads/sign', {
-        contentType: 'image/png',
-        fileName: '商品.png',
-        sizeBytes: bytes.length,
-      })) as { uploadId: string; upload: { url: string; headers: Record<string, string> } }
-      const upload = await fetch(signed.upload.url, {
-        method: 'PUT',
-        headers: signed.upload.headers,
-        body: new Uint8Array(bytes),
+      const uploadImage = async (imageBytes = bytes) => {
+        const signed = (await post('/api/uploads/sign', {
+          contentType: 'image/png',
+          fileName: '商品.png',
+          sizeBytes: imageBytes.length,
+        })) as { uploadId: string; upload: { url: string; headers: Record<string, string> } }
+        const upload = await fetch(signed.upload.url, {
+          method: 'PUT',
+          headers: signed.upload.headers,
+          body: new Uint8Array(imageBytes),
+        })
+        if (!upload.ok) throw new Error(`测试图片上传失败 (${upload.status})`)
+        return (await post(`/api/uploads/${signed.uploadId}/confirm`)) as { url: string }
+      }
+      const image = await uploadImage()
+      // 非方形样本能发现缩略图意外被固定宽高拉伸或裁切。
+      const canvas = document.createElement('canvas')
+      canvas.width = 80
+      canvas.height = 40
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('浏览器不支持生成参考图样本')
+      context.fillStyle = '#b9c8b9'
+      context.fillRect(0, 0, 80, 40)
+      context.fillStyle = '#385943'
+      context.fillRect(10, 10, 60, 20)
+      const wideBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error('参考图样本生成失败'))),
+          'image/png',
+        )
       })
-      if (!upload.ok) throw new Error(`测试图片上传失败 (${upload.status})`)
-      const image = (await post(`/api/uploads/${signed.uploadId}/confirm`)) as { url: string }
+      const wideImage = await uploadImage([...new Uint8Array(await wideBlob.arrayBuffer())])
+      const references = [
+        wideImage,
+        ...(await Promise.all(Array.from({ length: 8 }, () => uploadImage()))),
+      ]
 
       const create = async (title: string, index: number, claimed: boolean) => {
         const created = (await post('/api/tasks', {
           title,
           inputs: {
             creative_requirement: '展示商品原有轮廓与细节，保留调用方填写的需求名称。',
+            video_spec: {
+              platform: 'douyin',
+              video_type: 'product_showcase',
+              content_type: 'short_video',
+            },
+            reference_image_oss_urls: {
+              model: index === 1 ? references.map((reference) => reference.url) : [],
+              outfit: [],
+              prop: [],
+            },
             products: Array.from({ length: index === 1 ? 4 : 1 }, (_, productIndex) => ({
               style_no: `QA-${claimed ? 'MINE' : 'ALL'}-${index}-${productIndex}`,
               name: ['黑色乐福鞋', '细带凉鞋', '白色运动鞋'][index % 3],
@@ -159,6 +193,45 @@ test('认领画廊可展开、搜索全部已加载需求，并保留详情与�
   await expect(page).toHaveURL('/tasks')
 })
 
+test('参考缩略图覆盖在主图内，保持原图比例，左右滚动与打开详情独立', async ({ page }) => {
+  await page.setViewportSize({ width: 1335, height: 1197 })
+  await openGallery(page)
+  const mine = page.getByRole('region', { name: '我的需求单' })
+  const card = mine.getByRole('button', { name: `查看需求：${MY_TITLES[1]}`, exact: true })
+  const wrapper = card.locator('..')
+  const strip = wrapper.getByLabel('商品与参考图', { exact: true })
+  const thumbnails = strip.getByRole('button', { name: /^打开需求详情：/ })
+  await expect(thumbnails).toHaveCount(9)
+  const image = thumbnails.first().getByRole('img')
+  await expect
+    .poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
+    .toBeGreaterThan(0)
+  const coverBounds = await boundsOf(card.getByRole('img').first())
+  const thumbnailBounds = await boundsOf(image)
+  expect(thumbnailBounds.height).toBe(28)
+  expect(thumbnailBounds.y).toBeGreaterThan(coverBounds.y)
+  expect(thumbnailBounds.y + thumbnailBounds.height).toBeLessThan(
+    coverBounds.y + coverBounds.height,
+  )
+  const ratio = await image.evaluate(
+    (element: HTMLImageElement) => element.naturalWidth / element.naturalHeight,
+  )
+  expect(Math.abs(thumbnailBounds.width / thumbnailBounds.height - ratio)).toBeLessThan(0.02)
+  await expect(card.getByRole('button')).toHaveCount(0)
+  await wrapper.getByRole('button', { name: '向右滚动参考图' }).click()
+  await expect.poll(() => strip.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const rightPosition = await strip.evaluate((element) => element.scrollLeft)
+  await wrapper.getByRole('button', { name: '向左滚动参考图' }).click()
+  await expect
+    .poll(() => strip.evaluate((element) => element.scrollLeft))
+    .toBeLessThan(rightPosition)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await thumbnails.first().focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog', { name: MY_TITLES[1], exact: true })).toBeVisible()
+})
+
 for (const viewport of [
   { name: 'desktop', width: 1335, height: 1197 },
   { name: 'mobile', width: 390, height: 844 },
@@ -179,9 +252,14 @@ for (const viewport of [
     const second = await boundsOf(cards.nth(1))
     const third = await boundsOf(cards.nth(2))
     const cover = await boundsOf(cards.first().getByRole('img').first())
-    // 方形商品原图贴合主图区域，避免 contain 在宽容器里留下深色边框。
+    expect(first.width).toBeLessThanOrEqual(196)
     expect(Math.abs(cover.width - first.width)).toBeLessThan(1)
-    expect(Math.abs(cover.width - cover.height)).toBeLessThan(1)
+    expect(cover.height).toBe(180)
+    await expect(cards.first().getByRole('img').first()).toHaveCSS('object-fit', 'cover')
+    await expect(cards.first().getByLabel('发布平台：抖音')).toBeVisible()
+    await expect(cards.first().getByLabel('视频类型：产品展示')).toBeVisible()
+    await expect(cards.first().getByLabel('内容类型：短视频')).toBeVisible()
+    await expect(cards.first().getByText(/^创建于 /)).toBeVisible()
 
     if (viewport.name === 'desktop') {
       expect(Math.abs(first.y - second.y)).toBeLessThan(1)
