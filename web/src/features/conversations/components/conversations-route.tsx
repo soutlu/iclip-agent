@@ -1,5 +1,6 @@
 /** 全平台对话列表：筛选由服务端执行，条件存在地址栏由路由层下发，状态与总数由应用壳的全局订阅刷新。 */
 
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useUsersDirectory } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
@@ -13,6 +14,9 @@ import type { Conversation } from '../conversations.api'
 import { AuditFiltersBar } from './audit-filters'
 import type { PickerSource } from '@/shared/ui/search-picker'
 
+type TaskPreview = { title: string; requirement: string; imageUrl: string | null }
+type TaskPreviewState = 'loading' | 'error' | 'ready' | 'forbidden'
+
 type ConversationsRouteProps = {
   /** 当前筛选条件与写回，由路由层落在查询参数上。 */
   filters: AuditFilters
@@ -21,6 +25,9 @@ type ConversationsRouteProps = {
   onOpen?: (conversationId: string) => void
   /** 需求单候选由路由层查询，feature 之间不直接互引；null 表示当前账号没有 tasks:read 权限。 */
   tasks: PickerSource | null
+  taskPreviews: ReadonlyMap<string, TaskPreview>
+  taskPreviewState: TaskPreviewState
+  taskPreviewRetry?: () => void
 }
 
 export function ConversationsRoute({
@@ -28,6 +35,9 @@ export function ConversationsRoute({
   onFiltersChange,
   onOpen,
   tasks,
+  taskPreviews,
+  taskPreviewState,
+  taskPreviewRetry,
 }: ConversationsRouteProps) {
   const directory = useUsersDirectory(true)
   const users: PickerSource = {
@@ -49,7 +59,15 @@ export function ConversationsRoute({
       className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-surface-container-lowest"
     >
       {/* 预留应用壳中侧栏展开按钮的空间。 */}
-      <div className="mx-auto flex w-full max-w-360 flex-col gap-4 px-4 pt-12 pb-10 sm:gap-5 sm:px-7">
+      <div className="mx-auto flex w-full max-w-360 flex-col gap-6 px-4 pt-12 pb-10 sm:gap-8 sm:px-8">
+        <header className="flex flex-col gap-2">
+          <h1 className="text-headline-lg font-semibold tracking-tight text-on-surface">
+            全部对话
+          </h1>
+          <p className="text-body text-on-surface-variant">
+            查看所有用户的创作要求、运行状态与关联需求单
+          </p>
+        </header>
         <AuditFiltersBar
           filters={filters}
           onChange={onFiltersChange}
@@ -58,7 +76,26 @@ export function ConversationsRoute({
           users={users}
         />
 
+        {taskPreviewState === 'error' ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-body text-error">
+            <span>部分需求单读取失败，已读取的内容仍可查看。</span>
+            <Button onClick={taskPreviewRetry} size="md" variant="ghost">
+              重新读取需求单
+            </Button>
+          </div>
+        ) : null}
         <section aria-label="对话列表" className="flex flex-col">
+          <div
+            aria-hidden
+            className="hidden grid-cols-[minmax(0,1fr)_6rem_8rem_10rem_5rem_1rem] gap-4 rounded-sm bg-surface-container-low px-4 py-3 text-body text-on-surface-variant xl:grid"
+          >
+            <span>创作内容</span>
+            <span>属主</span>
+            <span>关联需求单</span>
+            <span>当前状态</span>
+            <span>建立时间</span>
+            <span />
+          </div>
           {query.isPending ? (
             <p
               className="flex items-center justify-center gap-2 py-16 text-body text-on-surface-variant"
@@ -93,6 +130,10 @@ export function ConversationsRoute({
                   key={conversation.id}
                   onOpen={onOpen}
                   ownerName={directory.nameOf(conversation.ownerUserId)}
+                  taskPreviewState={taskPreviewState}
+                  taskPreview={
+                    conversation.taskId === null ? undefined : taskPreviews.get(conversation.taskId)
+                  }
                   taskLabel={
                     conversation.taskId === null ? undefined : taskLabels.get(conversation.taskId)
                   }
@@ -102,7 +143,7 @@ export function ConversationsRoute({
           )}
 
           {totals !== undefined && query.hasNextPage && rows.length > 0 ? (
-            <footer className="flex items-center justify-between gap-4 px-3 py-4 text-body-sm text-on-surface-variant">
+            <footer className="flex items-center justify-between gap-4 px-3 py-4 text-body text-on-surface-variant">
               <span>
                 已显示 {rows.length} / {totals.total}
               </span>
@@ -128,69 +169,164 @@ type AuditRowProps = {
   onOpen: ((conversationId: string) => void) | undefined
   ownerName: string | undefined
   taskLabel: string | undefined
+  taskPreview: TaskPreview | undefined
+  taskPreviewState: TaskPreviewState
 }
 
-function AuditRow({ conversation, onOpen, ownerName, taskLabel }: AuditRowProps) {
+const STATUS_TEXT = {
+  approval: '等待属主审批',
+  question: '等待属主回答',
+  running: '进行中',
+  failed: '最近一轮失败',
+  completed: '最近一轮已结束',
+  aborted: '最近一轮已中止',
+  idle: '暂无运行记录',
+} as const
+
+const PREVIEW_TEXT: Record<TaskPreviewState, string> = {
+  loading: '正在读取需求单…',
+  error: '需求单信息暂不可用',
+  forbidden: '无需求单查看权限',
+  ready: '需求单暂不可用',
+}
+
+function AuditRow({
+  conversation,
+  onOpen,
+  ownerName,
+  taskLabel,
+  taskPreview,
+  taskPreviewState,
+}: AuditRowProps) {
   const owner = ownerName ?? '未知用户'
   const status = conversationStatus(conversation.activity)
+  const requirement =
+    conversation.taskId === null
+      ? '未关联需求单'
+      : taskPreview === undefined
+        ? PREVIEW_TEXT[taskPreviewState]
+        : taskPreview.requirement.trim() || '未填写创作要求'
+  const taskName =
+    conversation.taskId === null
+      ? '未关联'
+      : (taskPreview?.title ?? taskLabel ?? PREVIEW_TEXT[taskPreviewState])
   return (
-    <li className="border-b-[0.5px] border-border/70 last:border-b-0">
+    <li className="border-b border-border/50 last:border-b-0">
       <Link
-        className="group flex min-h-20 ui-state items-center gap-3 rounded-md px-2 py-4 text-on-surface ui-focus sm:gap-4 sm:px-3"
+        className="group grid min-h-28 ui-state grid-cols-[minmax(0,1fr)_1rem] items-center gap-x-4 gap-y-3 rounded-sm px-3 py-4 text-on-surface ui-focus sm:px-4 xl:grid-cols-[minmax(0,1fr)_6rem_8rem_10rem_5rem_1rem]"
         onClick={(event) => {
-          // 带修饰键是在新标签页打开，本页仍停在列表，不算从这一屏点进去了。
+          // 修饰键打开新标签页时，不改变当前页面的返回位置。
           if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
           onOpen?.(conversation.id)
         }}
         params={{ conversationId: conversation.id }}
         to="/c/$conversationId"
       >
-        <span
-          aria-hidden
-          className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary-container/60 text-body font-medium text-on-secondary-container"
-        >
-          {owner.trim().charAt(0).toUpperCase()}
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="min-w-0 truncate text-title font-medium" title={conversation.title}>
+        <span className="flex min-w-0 items-center gap-4">
+          <AuditThumbnail
+            key={taskPreview?.imageUrl ?? 'no-image'}
+            url={taskPreview?.imageUrl ?? null}
+            title={taskPreview?.title ?? conversation.title}
+          />
+          <span className="flex min-w-0 flex-1 flex-col gap-2">
+            <span className="line-clamp-2 text-title font-semibold" title={conversation.title}>
               {conversation.title}
             </span>
-            {/* 多数行是已完成，只给个对勾；其余状态带文字直接读出来。 */}
-            <StatusBadge
-              appearance={status === 'completed' ? 'icon' : 'label'}
-              kind="conversation"
-              status={status}
-            />
+            <span
+              className="line-clamp-2 text-body leading-relaxed text-on-surface-variant"
+              title={requirement}
+            >
+              {requirement}
+            </span>
             {conversation.deletedAt === null ? null : (
-              <Tag variant="soft">
-                <Icon decorative name="delete" size="xs" />
+              <span className="text-caption text-on-surface-variant">
+                <Icon className="mr-1 inline" decorative name="delete" size="xs" />
                 <time dateTime={conversation.deletedAt}>
                   已删除 · {formatRelativeTime(conversation.deletedAt)}
                 </time>
-              </Tag>
-            )}
-          </span>
-          <span className="flex min-w-0 items-center gap-2 text-body-sm text-on-surface-variant">
-            <span className="max-w-32 truncate" title={owner}>
-              {owner}
-            </span>
-            <span aria-hidden>·</span>
-            <time className="shrink-0" dateTime={conversation.createdAt}>
-              {formatRelativeTime(conversation.createdAt)}
-            </time>
-            {taskLabel === undefined ? null : (
-              <>
-                <span aria-hidden>·</span>
-                <span className="truncate" title={taskLabel}>
-                  {taskLabel}
-                </span>
-              </>
+              </span>
             )}
           </span>
         </span>
-        <Icon className="-rotate-90 text-on-surface-faint" decorative name="expand" size="sm" />
+        <span className="col-start-1 flex min-w-0 items-center gap-2 text-body xl:col-start-auto">
+          <span
+            aria-hidden
+            className="grid size-7 shrink-0 place-items-center rounded-full bg-secondary-container/60 text-caption text-on-secondary-container"
+          >
+            {owner.trim().charAt(0).toUpperCase()}
+          </span>
+          <span className="truncate" title={owner}>
+            {owner}
+          </span>
+        </span>
+        <span
+          className="col-start-1 line-clamp-2 text-body text-on-surface-variant xl:col-start-auto"
+          title={taskName}
+        >
+          <span className="xl:hidden">需求单： </span>
+          {taskName}
+        </span>
+        <span className="col-start-1 flex flex-wrap items-start gap-2 xl:col-start-auto xl:flex-col">
+          {status === 'idle' ? (
+            <span className="text-body text-on-surface-variant">{STATUS_TEXT[status]}</span>
+          ) : (
+            <StatusBadge
+              appearance="label"
+              kind="conversation"
+              status={status}
+              text={STATUS_TEXT[status]}
+            />
+          )}
+          {conversation.activity.videoGeneration === 'none' ? null : (
+            <StatusBadge
+              appearance="label"
+              kind="video"
+              status={conversation.activity.videoGeneration}
+              text={
+                conversation.activity.videoGeneration === 'running' ? '视频生成中' : '视频排队中'
+              }
+            />
+          )}
+          {conversation.completedAt === null ? null : <Tag variant="soft">属主已收尾</Tag>}
+        </span>
+        <time
+          className="col-start-1 text-body text-on-surface-variant xl:col-start-auto"
+          dateTime={conversation.createdAt}
+          title={new Date(conversation.createdAt).toLocaleString('zh-CN')}
+        >
+          <span className="xl:hidden">建立于 </span>
+          {formatRelativeTime(conversation.createdAt)}
+        </time>
+        <Icon
+          className="col-start-2 row-start-1 -rotate-90 text-on-surface-faint xl:col-start-auto xl:row-auto"
+          decorative
+          name="expand"
+          size="sm"
+        />
       </Link>
     </li>
+  )
+}
+
+/** 图片只是需求素材；没有图片或加载失败时明确展示空态，不冒充生成产出。 */
+function AuditThumbnail({ url, title }: { url: string | null; title: string }) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <span className="relative flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface-container-low sm:h-20 sm:w-28">
+      {url !== null && !failed ? (
+        <img
+          alt={`${title}的需求素材`}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setFailed(true)}
+          src={url}
+        />
+      ) : (
+        <span className="flex flex-col items-center gap-2 text-on-surface-faint">
+          <Icon decorative name="file" size="lg" />
+          <span className="text-caption">{failed ? '图片不可用' : '暂无图片'}</span>
+        </span>
+      )}
+    </span>
   )
 }

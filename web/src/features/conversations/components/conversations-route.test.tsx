@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { useState } from 'react'
@@ -47,12 +47,16 @@ const workChanged = (
 /** 筛选条件在应用里由路由存在查询参数上；这里照样在外面持有一份，只测列表本身的行为。 */
 function StatefulConversationsRoute({
   tasks,
+  previews = new Map(),
 }: {
   tasks: readonly { id: string; label: string }[]
+  previews?: ReadonlyMap<string, { title: string; requirement: string; imageUrl: string | null }>
 }) {
   const [filters, setFilters] = useState<AuditFilters>(DEFAULT_AUDIT_FILTERS)
   return (
     <ConversationsRoute
+      taskPreviews={previews}
+      taskPreviewState="ready"
       filters={filters}
       onFiltersChange={setFilters}
       tasks={{ error: undefined, isPending: false, onRetry: undefined, options: tasks }}
@@ -135,9 +139,31 @@ describe('ConversationsRoute', () => {
     expect(await within(theirs).findByText('小王')).toBeVisible()
     expect(theirs).toHaveTextContent('秋季新品')
     expect(await rowOf('我的片')).toHaveTextContent('测试用户')
-    // 跑完的只给个对勾角标，不占文字位。
-    expect(within(await rowOf('跑完的片')).getByRole('img', { name: '已完成' })).toBeVisible()
+    expect(await rowOf('跑完的片')).toHaveTextContent('最近一轮已结束')
+    expect(await rowOf('跑完的片')).toHaveTextContent('属主已收尾')
     expectTotals(1, 3)
+  })
+
+  it('空要求与图片失败分别展示空态，保留对话入口', async () => {
+    const { task } = seedThree()
+    await renderWithProviders(
+      <StatefulConversationsRoute
+        tasks={[{ id: task.id, label: task.title }]}
+        previews={
+          new Map([
+            [
+              task.id,
+              { title: task.title, requirement: '', imageUrl: 'https://example.com/product.png' },
+            ],
+          ])
+        }
+      />,
+    )
+    const row = await rowOf('小王的秋季片')
+    expect(row).toHaveTextContent('未填写创作要求')
+    fireEvent.error(within(row).getByRole('img', { name: '秋季新品的需求素材' }))
+    expect(row).toHaveTextContent('图片不可用')
+    expect(row).toHaveAttribute('href', expect.stringContaining('/c/'))
   })
 
   it('缺省不列已删的；切「已删除」只剩墓碑，行上标出删除时间', async () => {
