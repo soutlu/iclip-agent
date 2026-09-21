@@ -13,7 +13,11 @@ const MY_TITLES = [
   '画廊验收｜日常穿搭系列',
   '画廊验收｜秋季新品系列',
 ] as const
-const OTHER_TITLES = ['细带凉鞋创作任务', '方跟短靴创作任务', '乐福鞋创作任务']
+const OTHER_TITLES = [
+  '画廊其他｜细带凉鞋创作任务',
+  '画廊其他｜方跟短靴创作任务',
+  '画廊其他｜乐福鞋创作任务',
+]
 
 test.afterEach(async ({ page }) => {
   expect(await page.pageErrors(), '页面不应出现未捕获异常').toEqual([])
@@ -124,7 +128,9 @@ const openGallery = async (page: Page) => {
   await expect(page.getByRole('region', { name: '我的需求单' })).toBeVisible()
 }
 
-const cardsIn = (region: Locator) => region.getByRole('button', { name: /^查看需求：/ })
+// 只断言本用例准备的需求单，不依赖共享浏览器演示数据的数量。
+const cardsIn = (region: Locator) =>
+  region.getByRole('button', { name: /^查看需求：画廊(?:验收|其他)｜/ })
 
 const boundsOf = async (locator: Locator) => {
   const bounds = await locator.boundingBox()

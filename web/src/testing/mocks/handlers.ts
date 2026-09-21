@@ -372,7 +372,7 @@ export const handlers = [
     const url = new URL(request.url)
     let items = [...mockTasks]
     if (url.searchParams.get('claimedBy') === 'me') {
-      items = items.filter((task) => task.assigneeUserIds.includes(mockAuthUser.id))
+      items = items.filter((task) => task.assigneeUserIds.includes(activeUserId()))
     }
     const status = url.searchParams.get('status')
     if (status) items = items.filter((task) => task.status === status)
@@ -433,8 +433,8 @@ export const handlers = [
     if (task.status !== 'published' && task.status !== 'confirmed') {
       return HttpResponse.json({ detail: '这张单认领不了' }, { status: 409 })
     }
-    if (!task.assigneeUserIds.includes(mockAuthUser.id)) {
-      task.assigneeUserIds.push(mockAuthUser.id)
+    if (!task.assigneeUserIds.includes(activeUserId())) {
+      task.assigneeUserIds.push(activeUserId())
     }
     Object.assign(task, { status: 'confirmed', updatedAt: new Date().toISOString() })
     return HttpResponse.json({ task })
