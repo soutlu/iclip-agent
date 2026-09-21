@@ -70,7 +70,7 @@ const jobs: GenerationJob[] = [
     kind: 'video',
     outputUrl: 'https://example.com/take.mp4',
     request: { prompt: '本组生成时使用的历史描述。' },
-    metadata: { path: PATH, shot: 1 },
+    metadata: { shot: 1 },
     status: 'completed',
     taskId: null,
     clipStage: null,
@@ -84,7 +84,7 @@ const jobs: GenerationJob[] = [
     kind: 'video',
     outputUrl: null,
     request: { prompt: '另一组的历史描述。' },
-    metadata: { path: PATH, shot: 2 },
+    metadata: { shot: 2 },
     status: 'completed',
     taskId: null,
     clipStage: null,
@@ -118,7 +118,7 @@ const editableJob: GenerationJob = {
   kind: 'video',
   outputUrl: 'https://example.com/history.mp4',
   request: { prompt: historyPrompt, shot: historyShot },
-  metadata: { path: PATH, shot: 1 },
+  metadata: { shot: 1 },
   status: 'completed',
   taskId: null,
   clipStage: null,
@@ -134,7 +134,7 @@ const runningJob: GenerationJob = {
   kind: 'video',
   outputUrl: null,
   request: { prompt: '刚提交的这一版。' },
-  metadata: { path: PATH, shot: 1 },
+  metadata: { shot: 1 },
   status: 'submitted',
   taskId: null,
   clipStage: null,
@@ -402,6 +402,40 @@ describe('StoryboardReader', () => {
     expect(within(records).queryByText('本组生成时使用的历史描述。')).not.toBeInTheDocument()
   })
 
+  it('只带镜头组坐标的记录（网关只发 shot_index）照样列在本组抽屉里', async () => {
+    provide()
+    // 服务端把 shot_index 折进 metadata 之后就是这个形状：只有 shot，正文也不是结构化 shot。
+    server.use(
+      http.get('*/api/generations', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'f1f3a6b0-6b1a-4a3e-9f1d-2c5b7a9e0d31',
+              createdAt: '2026-09-01T10:02:00Z',
+              errorMessage: null,
+              kind: 'video',
+              outputUrl: 'https://example.com/task.mp4',
+              request: { prompt: '需求单那边出的片。' },
+              metadata: { shot: 1 },
+              status: 'completed',
+              taskId: null,
+              clipStage: null,
+              durationMs: null,
+              watermarkOutputUrl: null,
+            },
+          ],
+        }),
+      ),
+    )
+    await renderReader()
+    await screen.findByRole('region', { name: '镜头组 1' })
+
+    await userEvent.click(screen.getByRole('button', { name: '生成记录' }))
+
+    const records = await screen.findByRole('complementary', { name: '生成记录' })
+    expect(await within(records).findByText('需求单那边出的片。')).toBeVisible()
+  })
+
   it('只读时生成、正文编辑与历史回填的入口全部收起，不写工作区', async () => {
     const files = provide()
     server.use(http.get('*/api/generations', () => HttpResponse.json({ items: [editableJob] })))
@@ -512,7 +546,7 @@ describe('StoryboardReader', () => {
           id: runningJob.id,
           kind: 'video',
           status: 'completed',
-          metadata: { path: PATH, shot: 1 },
+          metadata: { shot: 1 },
         },
       })
     })
@@ -529,7 +563,7 @@ describe('StoryboardReader', () => {
       errorMessage: null,
       kind: 'image',
       outputUrl: null,
-      metadata: { frame: 2, path: PATH, shot: 1 },
+      metadata: { frame: 2, shot: 1 },
       request: { prompt: '换个颜色', referenceImageUrls: [] },
       status: 'pending',
       taskId: null,
@@ -567,7 +601,7 @@ describe('StoryboardReader', () => {
           id: imageJob.id,
           kind: 'image',
           status: 'completed',
-          metadata: { frame: 2, path: PATH, shot: 1 },
+          metadata: { frame: 2, shot: 1 },
         },
       })
     })
@@ -662,7 +696,7 @@ describe('StoryboardReader', () => {
         resolution: '720p',
         seconds: firstShot.seconds,
         shot: firstShot.prompt,
-        metadata: { path: PATH, shot: 1 },
+        metadata: { shot: 1 },
       },
     ])
     expect(await screen.findByText('生成中 1')).toBeVisible()

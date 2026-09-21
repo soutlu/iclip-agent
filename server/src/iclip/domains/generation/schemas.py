@@ -140,7 +140,7 @@ def _bounded_metadata(value: dict[str, Any]) -> dict[str, Any]:
 
 
 Metadata = Annotated[dict[str, Any], AfterValidator(_bounded_metadata)]
-"""调用方自己的坐标标签，服务端不解释。分镜页写 ``{"path", "shot", "frame"}``，形状归前端定。"""
+"""调用方自己的坐标标签，服务端不解释。分镜页写 ``{"shot", "frame"}``，形状归前端定。"""
 
 
 def _nonblank(text: str) -> str:

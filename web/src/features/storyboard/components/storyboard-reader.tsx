@@ -73,7 +73,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
   useLiveGenerations(conversationId)
   // 关过编辑器就算看过那一格的终态；只记本次会话，刷新后没看过的终态会再出现一次。
   const [seenFrameJobs, setSeenFrameJobs] = useState<ReadonlySet<string>>(() => new Set())
-  const video = useVideoGeneration(conversationId, path)
+  const video = useVideoGeneration(conversationId)
   // 打开时先选中哪一条由入口决定；target 本身不带图，应用之后这一格换了图它也不用变。
   const [imageEdit, setImageEdit] = useState<{
     target: FrameEditTarget
@@ -91,8 +91,8 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
     [savedContent],
   )
   const latestFrameJob = useMemo(
-    () => latestFrameJobs(frameJobs.data?.items ?? [], path),
-    [frameJobs.data, path],
+    () => latestFrameJobs(frameJobs.data?.items ?? []),
+    [frameJobs.data],
   )
   // 根据已落盘地址判断上传是否仍未保存，避免一次较早请求成功就清除后来上传的提示。
   const appliedUpload =
@@ -198,13 +198,12 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
     return <ReaderNotice text="文件格式不对，读不出镜头组" />
   }
 
-  // 只看这份分镜文件的记录；坐标读不出来的（别的调用方写的）不算。
-  const allJobs = generations.data?.items ?? []
-  const jobs = allJobs.filter((job) => readStoryboardMetadata(job)?.path === path)
+  // 本对话全部出片记录，按镜头组挑格子的事交给各消费方——它们都自己读坐标。
+  const jobs = generations.data?.items ?? []
   // 编辑结果不带分镜坐标，抽屉里不单列；数一下折进原片那张卡。
-  const editCounts = editCountsByRoot(allJobs)
+  const editCounts = editCountsByRoot(jobs)
   const videoEditRoot =
-    search.video === undefined ? undefined : allJobs.find((job) => job.id === search.video)
+    search.video === undefined ? undefined : jobs.find((job) => job.id === search.video)
   const activeCount = jobs.filter(
     (job) =>
       job.kind === 'video' &&
@@ -354,12 +353,7 @@ function StoryboardWorkspace({ artifact, conversationId, readOnly }: ArtifactRen
                       ? window.document.activeElement
                       : null
                   setImageEdit({
-                    target: {
-                      conversationId,
-                      artifactPath: path,
-                      shotIndex: item.index,
-                      frameNumber: frame,
-                    },
+                    target: { conversationId, shotIndex: item.index, frameNumber: frame },
                     ...(open.kind === 'result' ? { initialKey: open.jobId } : {}),
                   })
                 }}

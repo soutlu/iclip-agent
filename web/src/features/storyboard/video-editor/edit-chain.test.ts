@@ -40,7 +40,7 @@ const coords = (editId: string, baseJob: string, editStart: number, editEnd: num
 const root = job({
   id: 'root',
   outputUrl: ROOT_URL,
-  metadata: { path: 'video_shot.json', shot: 2 },
+  metadata: { shot: 2 },
   request: { prompt: '原片' },
 })
 
@@ -102,7 +102,7 @@ const chainJobs: GenerationJob[] = [
     metadata: coords('e4', 'root', 0, 3),
   }),
   // 坐标读不出来的、基底不在链里的，都不算。
-  job({ id: 'stray', metadata: { path: 'video_shot.json', shot: 2 } }),
+  job({ id: 'stray', metadata: { shot: 2 } }),
   job({ id: 'orphan', metadata: coords('e9', 'elsewhere', 0, 1), outputUrl: 'x' }),
 ]
 

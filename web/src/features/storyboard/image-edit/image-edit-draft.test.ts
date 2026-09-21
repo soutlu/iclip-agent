@@ -11,7 +11,6 @@ import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
 
 const target: FrameEditTarget = {
   conversationId: 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d',
-  artifactPath: 'video_shot.json',
   shotIndex: 1,
   frameNumber: 1,
 }

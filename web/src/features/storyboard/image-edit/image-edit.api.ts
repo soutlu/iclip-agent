@@ -47,9 +47,7 @@ export function useImageEditJobs(target: FrameEditTarget) {
       const params = new URLSearchParams({
         conversationId: target.conversationId,
         kind: 'image',
-        metadata: metadataFilterParam(
-          storyboardMetadata(target.artifactPath, target.shotIndex, target.frameNumber),
-        ),
+        metadata: metadataFilterParam(storyboardMetadata(target.shotIndex, target.frameNumber)),
         limit: '20',
       })
       if (pageParam !== undefined) params.set('before', pageParam)
@@ -208,7 +206,7 @@ export async function submitImageEdit(
   // 不带 userName：浏览器会话由服务端填登录用户名。
   const body = zImageGenerationIn.parse({
     conversationId: target.conversationId,
-    metadata: frameEditMetadata(target.artifactPath, target.shotIndex, target.frameNumber, baseUrl),
+    metadata: frameEditMetadata(target.shotIndex, target.frameNumber, baseUrl),
     ...options,
     prompt: compileEditPrompt(draft),
     referenceImageUrls: draft.references.map((reference) => reference.url),

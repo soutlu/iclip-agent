@@ -20,7 +20,6 @@ export type EditReference = {
 /** 编辑器开在哪一格。底图不在里面：它随选中的图变，应用之后这一格的图也会变。 */
 export type FrameEditTarget = {
   conversationId: string
-  artifactPath: string
   shotIndex: number
   frameNumber: number
 }

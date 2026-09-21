@@ -367,7 +367,7 @@ Transcript 沿用协议字段，不统一改名；HTTP 形状仍从 OpenAPI 生�
 ### 参考帧图片编辑
 
 - 图片请求的 `prompt` 由调用方编译成最终文本，服务端原样存进请求快照，不解析也不改写。前端把引用写成 `@图片N` / `@标注N`，编号即图片在本次 `referenceImageUrls` 里的位置。
-- `metadata` 是调用方自己的坐标标签：JSON 对象，两种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读键、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。分镜页写 `{"path": <分镜文件路径>, "shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`），决策见 [ADR-0020](../docs/adr/0020-generation-metadata.md)。视频请求另收 `shot_index`（非负整数）：它是 `metadata.shot` 的别名，受理时折进 `metadata`，不落 `request`、不发上游；不写 `metadata` 的调用方给它就够了。
+- `metadata` 是调用方自己的坐标标签：JSON 对象，两种生成都收，服务端原样存、原样回读（`GenerationOut.metadata`）、不读键、不校验含义，序列化后不超过 2000 字符，超了 `422`。它不进 `request`，也不发上游。分镜页写 `{"shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；这个形状归前端定义（`web/src/features/storyboard/generation-metadata.ts`），决策见 [ADR-0020](../docs/adr/0020-generation-metadata.md)。视频请求另收 `shot_index`（非负整数）：它是 `metadata.shot` 的别名，受理时折进 `metadata`，不落 `request`、不发上游；不写 `metadata` 的调用方给它就够了。
 - `GET /generations` 的类型、对话、需求单与 `metadata` 筛选在分页截断前执行，归属范围不因筛选扩大。`metadata` 在查询串里是一段 JSON 对象（如 `metadata={"shot":1,"frame":2}`），按 JSONB 包含匹配；不是 JSON 对象返回 `422`。使用上一页最后一项的 `id` 作为 `before` 继续读取；按创建时间与 ID 倒序，空列表表示读完。每条记录带 `taskId` 与 `watermarkOutputUrl`，图片的后者恒为 `null`。
 - 生成完成只产生候选图片。应用到参考帧须由用户确认，再经现有工作区文件版本校验保存；既有视频任务和视频结果不随候选生成或采用而改写。
 
