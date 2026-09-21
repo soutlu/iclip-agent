@@ -2,7 +2,6 @@ import { setupWorker } from 'msw/browser'
 import {
   addMockCollection,
   addMockConversation,
-  addMockTask,
   addMockUser,
   handlers,
   mockGovernor,
@@ -114,16 +113,5 @@ wangDone.activity = {
   videoGeneration: 'none',
 }
 wangDone.lastRunId = 'run-wang-1'
-
-// 审计列表展示需求单原文；保留未关联与无图对话，便于检查空态。
-const autumnTask = addMockTask('秋季新品上新')
-autumnTask.inputs.creative_requirement =
-  '为秋季针织新品制作 15 秒竖屏短片，突出柔软面料与日常穿搭，画面自然温暖。'
-wangRunning.taskId = autumnTask.id
-const campaignTask = addMockTask('通勤系列宣传')
-campaignTask.inputs.creative_requirement =
-  '通过城市通勤场景展示商品细节。先整理分镜方案，确认镜头节奏后再提交视频生成。'
-if (awaiting) awaiting.taskId = campaignTask.id
-governorShots.taskId = campaignTask.id
 
 export const worker = setupWorker(...handlers)
