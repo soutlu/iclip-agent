@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useId } from 'react'
 import { Icon } from '@/shared/icons'
-import { cn } from '@/shared/lib/utils'
+import { IconButton } from '@/shared/ui/button'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
-import { formatRelativeTime } from '@/shared/lib/relative-time'
 import type { Task } from '../tasks.api'
+import { TaskCardMedia } from './task-card-media'
 import { TaskStatusTag } from './task-status-tag'
 
 type TaskCardProps = {
@@ -13,60 +13,61 @@ type TaskCardProps = {
   task: Task
 }
 
-/** 卡片只放得下一个款号：多款时用第一款代表整单，带上款数。 */
+/** 保留原列表的款号摘要，多款同时在图片区展示款数与缩略图。 */
 const productsSummary = ([first, ...rest]: Task['inputs']['products']): string => {
   if (!first) return '未填商品'
   return rest.length ? `${first.style_no} 等 ${rest.length + 1} 款` : first.style_no
 }
 
 export function TaskCard({ onClick, onRename, task }: TaskCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
+  const summaryId = useId()
+  const statusId = useId()
+  const summary = productsSummary(task.inputs.products)
 
   return (
-    <div className="group relative">
+    <div className="relative min-w-0">
       <button
-        className={cn(
-          'flex min-h-20 w-full ui-state cursor-pointer items-center gap-3 rounded-md border border-border bg-surface-container-lowest px-4 py-3.5 text-left ui-focus',
-          onRename && 'pr-10',
-        )}
+        aria-describedby={`${summaryId} ${statusId}`}
+        aria-label={`查看需求：${task.title}`}
+        className="task-gallery-card flex h-full w-full min-w-0 cursor-pointer flex-col rounded-md bg-surface-container-lowest text-left ui-focus"
         onClick={onClick}
         type="button"
       >
-        <span
-          aria-hidden
-          className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-container text-on-surface-variant"
-        >
-          <Icon decorative name="task" size="lg" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="min-w-0 truncate text-title font-semibold text-on-surface">
-              {task.title}
-            </span>
-            <span className="shrink-0">
-              <TaskStatusTag status={task.status} />
-            </span>
+        <TaskCardMedia products={task.inputs.products} />
+        <span className="flex w-full min-w-0 flex-1 flex-col gap-1 px-3 pt-3 pb-4">
+          <span
+            className="block truncate text-title font-semibold text-on-surface"
+            title={task.title}
+          >
+            {task.title}
           </span>
-          <span className="mt-1 block truncate text-body-sm text-on-surface-variant">
-            {productsSummary(task.inputs.products)} · 添加于 {formatRelativeTime(task.createdAt)}
+          <span
+            className="block truncate text-body text-on-surface-variant"
+            id={summaryId}
+            title={summary}
+          >
+            {summary}
+          </span>
+          <span className="mt-2 flex items-center justify-between gap-3">
+            <span id={statusId}>
+              <TaskStatusTag appearance="dot" status={task.status} />
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-2 text-body-sm text-on-surface">
+              查看需求
+              <Icon decorative name="next" size="md" />
+            </span>
           </span>
         </span>
       </button>
       {onRename && (
-        <MenuRoot onOpenChange={setMenuOpen} open={menuOpen}>
+        <MenuRoot>
           <MenuTrigger asChild>
-            <button
-              aria-label="更多操作"
-              className={cn(
-                'absolute top-1/2 right-3.5 grid size-6 -translate-y-1/2 ui-state cursor-pointer place-items-center rounded-sm text-on-surface-variant ui-focus',
-                menuOpen
-                  ? 'opacity-100'
-                  : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-              )}
-              type="button"
-            >
-              <Icon decorative name="more" size="md" />
-            </button>
+            <IconButton
+              className="absolute top-2 right-2 bg-surface-container-lowest"
+              label="更多操作"
+              name="more"
+              size="md"
+            />
           </MenuTrigger>
           <MenuSurface align="end">
             <MenuItem onSelect={onRename}>重命名</MenuItem>

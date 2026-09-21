@@ -43,6 +43,26 @@ const renderLoggedIn = async (onStartCreation?: (draft: TaskCreationDraft) => Pr
 
 describe('TasksRoute', () => {
   afterEach(() => vi.unstubAllGlobals())
+  it.each([0, 3])('仅有 %i 张我的需求单时全部展示且无需展开', async (count) => {
+    const tasks = Array.from({ length: count }, (_, index) =>
+      makeTask({
+        assigneeUserIds: [mockAuthUser.id],
+        status: 'confirmed',
+        title: `已认领的需求 ${index + 1}`,
+      }),
+    )
+    mockTasks.push(...tasks, makeTask({ title: '其他需求' }))
+    await renderLoggedIn()
+    await screen.findByText('其他需求')
+
+    const mine = within(screen.getByRole('region', { name: '我的需求单' }))
+    await waitFor(() =>
+      expect(mine.queryAllByRole('button', { name: /^查看需求：/ })).toHaveLength(count),
+    )
+    expect(mine.queryByRole('button', { name: '展开更多' })).not.toBeInTheDocument()
+    expect(mine.queryByRole('button', { name: '收起' })).not.toBeInTheDocument()
+  })
+
   it('渲染两个分区与卡片', async () => {
     mockTasks.push(
       makeTask({ status: 'published', title: '夏季新品视频' }),
