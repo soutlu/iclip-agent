@@ -6,6 +6,7 @@ import {
   handlers,
   mockGovernor,
 } from './handlers'
+import { seedDemoTasks } from './demo-tasks'
 import { markMockAwaitingApproval, markMockJustFinished } from './transcript'
 import { seedMockReplicaWorkspace, seedMockWorkspace } from './workspace'
 
@@ -113,5 +114,15 @@ wangDone.activity = {
   videoGeneration: 'none',
 }
 wangDone.lastRunId = 'run-wang-1'
+
+seedDemoTasks([
+  ...seeded,
+  withoutImages,
+  replica,
+  governorShots,
+  governorDone,
+  wangRunning,
+  wangDone,
+])
 
 export const worker = setupWorker(...handlers)
