@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
@@ -15,7 +15,9 @@ type TasksRouteProps = { onStartCreation?: (draft: TaskCreationDraft) => Promise
 
 export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
   const { data: user } = useUser()
+  const myTasksId = useId()
   const [keyword, setKeyword] = useState('')
+  const [myTasksExpanded, setMyTasksExpanded] = useState(false)
   const [dialog, setDialog] = useState<{ open: boolean; taskId?: string }>({ open: false })
   const [rename, setRename] = useState<{ open: boolean; task?: Task }>({ open: false })
 
@@ -38,6 +40,8 @@ export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
 
   const mine = filter(myTasks.data)
   const all = filter(allTasks.data)
+  const searching = keyword.trim().length > 0
+  const visibleMine = searching || myTasksExpanded ? mine : mine.slice(0, 3)
 
   // 重命名需要 tasks:write，且撤回后的需求单不可编辑。
   const canWrite = Boolean(user?.permissions.includes('tasks:write'))
@@ -71,11 +75,11 @@ export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
           <TaskHero className="h-62 w-auto shrink-0 max-md:hidden" />
         </header>
 
-        <div className="flex flex-col gap-20">
+        <div className="flex flex-col gap-10">
           <section aria-label="我的需求单" className="flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 className="shrink-0 text-title-lg font-semibold text-on-surface">我的需求单</h2>
-              <div className="w-56 shrink-0">
+              <div className="min-w-0 flex-1 sm:max-w-56">
                 <Input
                   aria-label="搜索需求单"
                   leadingIcon="search"
@@ -87,8 +91,8 @@ export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
               </div>
             </div>
             {mine.length > 0 && (
-              <div className="grid-task-cards">
-                {mine.map((task) => (
+              <div className="grid-task-cards" id={myTasksId}>
+                {visibleMine.map((task) => (
                   <TaskCard
                     key={task.id}
                     onClick={() => setDialog({ open: true, taskId: task.id })}
@@ -96,6 +100,21 @@ export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
                     {...renameProps(task)}
                   />
                 ))}
+              </div>
+            )}
+            {!searching && mine.length > 3 && (
+              <div className="flex justify-center pt-2">
+                <Button
+                  aria-controls={myTasksId}
+                  aria-expanded={myTasksExpanded}
+                  className="rounded-full px-6"
+                  onClick={() => setMyTasksExpanded((expanded) => !expanded)}
+                  size="md"
+                  trailingIcon={myTasksExpanded ? 'collapse' : 'expand'}
+                  variant="outlined"
+                >
+                  {myTasksExpanded ? '收起' : '展开更多'}
+                </Button>
               </div>
             )}
           </section>
