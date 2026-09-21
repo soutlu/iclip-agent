@@ -5844,7 +5844,7 @@
           "shot_index": {
             "anyOf": [
               {
-                "minimum": 0.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {

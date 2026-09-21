@@ -109,8 +109,10 @@ def test_shot_index_is_an_alias_for_metadata_shot() -> None:
     assert merged.metadata == {"path": "video_shot.json", "shot": 2}
 
     assert video_request(metadata={"shot": 3}).metadata == {"shot": 3}, "不传别名时坐标原样"
-    with pytest.raises(ValueError, match="shot_index"):
-        video_request(shot_index=-1)
+    # 镜头组从 1 数：0 与负数都不是镜头号，收下只会落一条读不出镜头组的记录。
+    for invalid in (0, -1):
+        with pytest.raises(ValueError, match="shot_index"):
+            video_request(shot_index=invalid)
 
 
 def test_metadata_is_bounded_but_otherwise_opaque() -> None:
