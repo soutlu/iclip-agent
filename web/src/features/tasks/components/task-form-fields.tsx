@@ -4,6 +4,7 @@ import { ASPECT_RATIOS } from '@/shared/lib/aspect-ratio'
 import { IconButton } from '@/shared/ui/button'
 import { Input, Select, Textarea } from '@/shared/ui/field'
 import type { Task } from '../tasks.api'
+import { PLATFORM_OPTIONS, VIDEO_TYPE_OPTIONS, CONTENT_TYPE_OPTIONS } from '../task-video-options'
 import { TaskMediaField } from './task-media-field'
 import { emptyProduct, type TaskFormState, type TaskProduct } from './task-form-state'
 
@@ -133,7 +134,7 @@ export function TaskFormFields({
             value={inputs.video_spec.platform}
             disabled={!editable('platform')}
             placeholder="选择或输入"
-            options={[{ value: 'douyin', label: '抖音' }]}
+            options={PLATFORM_OPTIONS}
             onChange={(platform) => patchVideo({ platform })}
           />
           <SuggestedField
@@ -141,7 +142,7 @@ export function TaskFormFields({
             value={inputs.video_spec.video_type}
             disabled={!editable('video_type')}
             placeholder="选择或输入"
-            options={[{ value: 'product_showcase', label: '产品展示' }]}
+            options={VIDEO_TYPE_OPTIONS}
             onChange={(video_type) => patchVideo({ video_type })}
           />
           <SuggestedField
@@ -149,7 +150,7 @@ export function TaskFormFields({
             value={inputs.video_spec.content_type}
             disabled={!editable('content_type')}
             placeholder="选择或输入"
-            options={[{ value: 'short_video', label: '短视频' }]}
+            options={CONTENT_TYPE_OPTIONS}
             onChange={(content_type) => patchVideo({ content_type })}
           />
           <SuggestedField
