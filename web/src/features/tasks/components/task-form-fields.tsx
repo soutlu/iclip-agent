@@ -11,7 +11,8 @@ import { emptyProduct, type TaskFormState, type TaskProduct } from './task-form-
 type TaskInputs = Task['inputs']
 type VideoSpec = TaskInputs['video_spec']
 
-const CONTROL = 'h-(--control-height-sm) min-w-0 rounded-sm border-border px-3 ui-focus-inline'
+const CONTROL =
+  'task-form-control h-(--control-height-md) min-w-0 rounded-sm border-transparent bg-surface-container-low px-3 ui-focus-inline'
 /** 与合同 inputs.products 的上限一致。 */
 const MAX_PRODUCTS = 20
 const PRODUCT_ATTRIBUTES: readonly {
@@ -97,7 +98,7 @@ export function TaskFormFields({
     }))
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-6">
       <div className="task-form-basics">
         <Field label="需求单名称" required>
           <Input
@@ -209,7 +210,7 @@ export function TaskFormFields({
           return (
             <div
               aria-label={ordinal}
-              className="flex min-w-0 flex-col gap-3 rounded-md border border-border p-4"
+              className="flex min-w-0 flex-col gap-4 rounded-lg bg-surface-container-low/50 p-4"
               key={key}
               role="group"
             >
@@ -319,7 +320,7 @@ export function TaskFormFields({
       <Field label="创作要求">
         <Textarea
           aria-label="创作要求"
-          className="resize-y rounded-sm border-border ui-focus-inline"
+          className="task-form-control resize-y rounded-md border-transparent bg-surface-container-low ui-focus-inline"
           rows={3}
           disabled={!editable('creative_requirement')}
           maxLength={4000}
@@ -345,8 +346,8 @@ function Field({
   required?: boolean
 }) {
   return (
-    <label className="flex min-w-0 flex-col gap-1">
-      <span className="text-body-sm font-medium text-on-surface">
+    <label className="flex min-w-0 flex-col gap-2">
+      <span className="text-body-sm font-medium text-on-surface-variant">
         {label}
         {required && <span className="text-error"> *</span>}
       </span>
@@ -357,11 +358,8 @@ function Field({
 
 function Section({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <section className="flex min-w-0 flex-col gap-3" aria-label={title}>
-      <div className="flex items-center gap-3">
-        <h3 className="shrink-0 text-body font-semibold text-on-surface">{title}</h3>
-        <span className="h-px flex-1 bg-border" />
-      </div>
+    <section className="flex min-w-0 flex-col gap-4" aria-label={title}>
+      <h3 className="text-title font-semibold text-on-surface">{title}</h3>
       {children}
     </section>
   )

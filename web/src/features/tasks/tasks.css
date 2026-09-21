@@ -90,13 +90,35 @@
 
 /* 固定首尾，仅表单正文滚动；三列规格与参考图遵循需求单设计稿。 */
 .task-form-dialog {
-  max-width: 720px;
-  max-height: calc(100dvh - 24px);
+  max-width: 760px;
+  max-height: calc(100dvh - 40px);
   color-scheme: light;
 }
 
 .dark .task-form-dialog {
   color-scheme: dark;
+}
+
+/* 表单用轻背景分隔控件，冻结值保留可读对比；焦点沿用共享字段规范。 */
+.task-form-dialog .task-form-control:disabled {
+  color: var(--color-on-surface-variant);
+  background-color: transparent;
+  border-color: var(--color-border);
+  opacity: 1;
+}
+
+.task-form-dialog .task-form-control:not(:disabled):hover {
+  border-color: var(--color-outline-variant);
+}
+
+.task-form-dialog .task-form-control:focus-within {
+  border-color: var(--color-primary);
+  background-color: var(--color-surface-container-lowest);
+}
+
+.task-form-dialog .task-video-preview {
+  background-color: var(--color-surface-container-low);
+  border-color: transparent;
 }
 
 .task-form-basics {

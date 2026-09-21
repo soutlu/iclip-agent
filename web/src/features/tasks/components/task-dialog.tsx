@@ -112,8 +112,12 @@ export function TaskDialog({ onOpenChange, onStartCreation, open, taskId }: Task
         aria-label={creationDraft ? '发起创作' : isCreate ? '新建需求单' : '需求单详情'}
       >
         <DialogHeader
-          actions={task && !creationDraft ? <TaskStatusTag status={task.status} /> : undefined}
-          className="h-(--layout-dialog-header-height) items-center border-b-0 px-6 py-0"
+          actions={
+            task && !creationDraft ? (
+              <TaskStatusTag appearance="dot" status={task.status} />
+            ) : undefined
+          }
+          className="min-h-16 items-center border-b-border/60 px-6 py-3"
           closeLabel="关闭"
           title={
             creationDraft ? '发起创作' : isCreate ? '新建需求单' : (task?.title ?? '需求单详情')
@@ -273,7 +277,7 @@ function TaskDialogForm({ onOpenChange, onPreview, task }: TaskDialogFormProps) 
 
   return (
     <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
-      <DialogBody className="px-6 pt-2 pb-6">
+      <DialogBody className="px-6 pt-5 pb-6">
         <TaskFormFields
           form={form}
           // 上传中不增减商品：图片字段按位置挂载，删一款会让还在传的那一款换位置。
