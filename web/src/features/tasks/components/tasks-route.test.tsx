@@ -120,7 +120,8 @@ describe('TasksRoute', () => {
     expect(within(dialog).getByLabelText('视频类型')).toHaveValue('产品展示')
     expect(within(dialog).getByLabelText('内容类型')).toHaveValue('短视频')
     await fillText('分辨率', '1080p')
-    await user.selectOptions(within(dialog).getByLabelText('比例'), '9:16')
+    await user.click(within(dialog).getByRole('combobox', { name: '比例' }))
+    await user.click(screen.getByRole('option', { name: '9:16' }))
     await user.type(within(dialog).getByLabelText('目标时长（秒）'), '15')
     await fillText('创作要求', '展示面料的轻薄透气')
 
@@ -198,7 +199,7 @@ describe('TasksRoute', () => {
     expect(within(reopened).queryByRole('button', { name: '移除商品 2' })).not.toBeInTheDocument()
     expect(within(reopened).getByLabelText('目标时长（秒）')).toHaveValue(15)
     expect(within(reopened).getByLabelText('分辨率')).toHaveValue('1080p')
-    expect(within(reopened).getByLabelText('比例')).toHaveValue('9:16')
+    expect(within(reopened).getByRole('combobox', { name: '比例' })).toHaveTextContent('9:16')
     expect(within(reopened).getByLabelText('发布平台')).toHaveValue('抖音')
     expect(within(reopened).getByLabelText('视频类型')).toHaveValue('产品展示')
     expect(within(reopened).getByLabelText('内容类型')).toHaveValue('短视频')

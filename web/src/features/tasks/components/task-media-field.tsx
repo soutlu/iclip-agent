@@ -134,7 +134,12 @@ export function TaskMediaField({
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className="flex min-h-5 items-center gap-3">
-        <span className="text-body-sm text-on-surface-variant">{label}</span>
+        <span className="text-body-sm font-medium text-on-surface-variant">{label}</span>
+        {kind === 'image' && (
+          <span className="text-caption text-on-surface-faint tabular-nums">
+            {value.length}/{limit}
+          </span>
+        )}
         {kind === 'video' && value.length > 0 && !disabled && (
           <button
             aria-label={`替换${name}`}
@@ -167,10 +172,7 @@ export function TaskMediaField({
               'relative',
               kind === 'video'
                 ? 'w-full'
-                : cn(
-                    'overflow-hidden rounded-sm border border-border bg-surface-container-low',
-                    compact ? 'size-20' : 'size-28',
-                  ),
+                : 'max-w-full shrink-0 overflow-hidden rounded-md bg-surface-container-low',
             )}
             key={url}
           >
@@ -183,13 +185,16 @@ export function TaskMediaField({
             ) : (
               <button
                 aria-label={`预览${name} ${index + 1}`}
-                className="size-full cursor-zoom-in overflow-hidden rounded-xs ui-focus"
+                className="block max-w-full cursor-zoom-in overflow-hidden rounded-md ui-focus"
                 onClick={() => setPreview({ kind, name: `${name} ${index + 1}`, url })}
                 type="button"
               >
                 <img
                   alt={`${name} ${index + 1}`}
-                  className="size-full object-contain"
+                  className={cn(
+                    'block h-auto w-auto max-w-full',
+                    compact ? 'max-h-20' : 'max-h-24',
+                  )}
                   draggable={false}
                   src={url}
                 />
@@ -214,12 +219,12 @@ export function TaskMediaField({
           <button
             aria-label={`添加${name}`}
             className={cn(
-              'flex ui-state cursor-pointer items-center justify-center gap-2 rounded-sm border border-dashed border-outline-variant bg-surface text-on-surface-variant ui-focus disabled:cursor-not-allowed',
+              'flex ui-state cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-outline-variant/60 bg-surface-container-low/50 text-on-surface-variant ui-focus disabled:cursor-not-allowed',
               kind === 'video'
                 ? 'h-10 w-full text-body-sm'
                 : compact
                   ? 'size-20 flex-col text-caption'
-                  : 'size-28 flex-col text-body-sm',
+                  : 'size-24 flex-col text-body-sm',
             )}
             disabled={blocked}
             onClick={() => inputRef.current?.click()}
@@ -295,7 +300,7 @@ export function TaskVideoPreview({
   return (
     <button
       aria-label={`预览${name}`}
-      className="relative block h-46 w-full cursor-zoom-in overflow-hidden rounded-sm border border-border bg-surface-container-highest ui-focus ui-focus-inline"
+      className="task-video-preview relative block h-46 w-full cursor-zoom-in overflow-hidden rounded-sm border border-border bg-surface-container-highest ui-focus ui-focus-inline"
       onClick={onOpen}
       type="button"
     >
