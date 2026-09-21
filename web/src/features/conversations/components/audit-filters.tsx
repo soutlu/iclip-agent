@@ -36,7 +36,7 @@ const DELETED_OPTIONS = [
 ] as const
 
 const CHIP_CLASS =
-  'h-9 border-transparent bg-transparent px-4 text-body data-[state=on]:bg-surface-container-lowest data-[state=on]:shadow-[var(--shadow-1)]'
+  'h-9 border-transparent bg-surface-container-low px-4 text-body data-[state=on]:bg-primary data-[state=on]:text-on-primary'
 
 /** 这一页筛的是对话建立时间，与报表页按各指标事件时刻分期的「时间」不是一回事，未选时写明这一点。 */
 const createdRangeLabel = (filters: AuditFilters): string =>
@@ -71,46 +71,8 @@ export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: Aud
   }
 
   return (
-    <div className="flex min-h-14 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-surface-container-low p-2">
-      <ChipGroup
-        aria-label="对话状态"
-        className="gap-1"
-        onValueChange={(value) => {
-          const option = STATUS_OPTIONS.find((option) => option.value === value)
-          if (option) apply({ state: option.value })
-        }}
-        type="single"
-        value={filters.state}
-      >
-        {STATUS_OPTIONS.map((option) => (
-          <FilterChip className={CHIP_CLASS} key={option.value} value={option.value}>
-            {option.label}
-          </FilterChip>
-        ))}
-      </ChipGroup>
-
-      <span aria-hidden className="mx-1 h-5 w-px bg-border max-sm:hidden" />
-
-      <ChipGroup
-        aria-label="删除状态"
-        className="gap-1"
-        onValueChange={(value) => {
-          const option = DELETED_OPTIONS.find((option) => option.value === value)
-          if (option) apply({ deleted: option.value })
-        }}
-        type="single"
-        value={filters.deleted}
-      >
-        {DELETED_OPTIONS.map((option) => (
-          <FilterChip className={CHIP_CLASS} key={option.value} value={option.value}>
-            {option.label}
-          </FilterChip>
-        ))}
-      </ChipGroup>
-
-      <span aria-hidden className="mx-1 h-5 w-px bg-border max-sm:hidden" />
-
-      <div className="flex min-w-0 flex-wrap items-center gap-1 max-sm:w-full">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-4">
+      <div className="flex w-full min-w-0 flex-wrap items-center gap-3">
         <PopupRoot onOpenChange={(open) => changeOpen('user', open)} open={openFilter === 'user'}>
           <PopupTrigger asChild>
             <FilterTrigger
@@ -197,10 +159,44 @@ export function AuditFiltersBar({ filters, onChange, users, tasks, totals }: Aud
         </PopupRoot>
       </div>
 
+      <ChipGroup
+        aria-label="对话状态"
+        className="gap-1"
+        onValueChange={(value) => {
+          const option = STATUS_OPTIONS.find((option) => option.value === value)
+          if (option) apply({ state: option.value })
+        }}
+        type="single"
+        value={filters.state}
+      >
+        {STATUS_OPTIONS.map((option) => (
+          <FilterChip className={CHIP_CLASS} key={option.value} value={option.value}>
+            {option.label}
+          </FilterChip>
+        ))}
+      </ChipGroup>
+
+      <ChipGroup
+        aria-label="删除状态"
+        className="gap-1"
+        onValueChange={(value) => {
+          const option = DELETED_OPTIONS.find((option) => option.value === value)
+          if (option) apply({ deleted: option.value })
+        }}
+        type="single"
+        value={filters.deleted}
+      >
+        {DELETED_OPTIONS.map((option) => (
+          <FilterChip className={CHIP_CLASS} key={option.value} value={option.value}>
+            {option.label}
+          </FilterChip>
+        ))}
+      </ChipGroup>
+
       {totals === undefined ? null : (
         <p
           aria-label="对话总数"
-          className="ml-auto flex shrink-0 items-center gap-1.5 px-2 py-1 text-body-sm whitespace-nowrap text-on-surface-variant"
+          className="ml-auto flex shrink-0 items-center gap-1.5 px-2 py-1 text-body whitespace-nowrap text-on-surface-variant"
           role="status"
         >
           <span aria-hidden className="size-1.5 rounded-full bg-primary" />
@@ -223,7 +219,7 @@ function FilterTrigger({ icon, label, selected, className, ...props }: FilterTri
   return (
     <button
       className={cn(
-        'inline-flex h-10 min-w-0 ui-state cursor-pointer items-center gap-2 rounded-sm px-3 text-body text-on-surface ui-focus data-[state=open]:bg-state-active',
+        'inline-flex h-11 min-w-0 ui-state cursor-pointer items-center gap-2 rounded-md border border-border px-4 text-body text-on-surface ui-focus data-[state=open]:bg-state-active',
         // 主色文字只表示「已应用非默认条件」，展开态与选中底都走中性状态层。
         selected && 'text-primary',
         className,

@@ -41,10 +41,11 @@ export const useTaskOptions = (enabled: boolean) =>
     select: (tasks) => tasks.map((task) => ({ id: task.id, label: task.title })),
   })
 
-export const getTask = async (taskId: string): Promise<Task> =>
+export const getTask = async (taskId: string, signal?: AbortSignal): Promise<Task> =>
   apiFetch(`/tasks/${taskId}`, taskEnvelopeSchema, {
     cache: 'no-store',
     fallbackErrorMessage: '读取需求单失败',
+    signal: signal ?? null,
   })
 
 export const createTask = async (body: TaskCreateIn): Promise<Task> =>

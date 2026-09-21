@@ -5,7 +5,7 @@ export type {
   SidebarCollection,
   SidebarTopology,
 } from './conversations.api'
-export { DEFAULT_AUDIT_FILTERS, type AuditFilters } from './audit.api'
+export { DEFAULT_AUDIT_FILTERS, useAuditConversations, type AuditFilters } from './audit.api'
 export { useLiveConversations } from './conversations.live'
 export { recordSeenRun, useSeenRun } from './conversations.unread'
 export { conversationStatus, needsAttention } from './conversation-status'
