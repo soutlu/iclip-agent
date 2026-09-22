@@ -185,7 +185,7 @@ export const projectEditChain = (
     })
     .sort((left, right) => left.master.createdAt.localeCompare(right.master.createdAt))
   for (const { group, master, mediaUrl } of composed) {
-    const base = versions.find((version) => version.jobId === group.coords.baseJob)
+    const base = versions.find((version) => version.key === (group.coords.baseEdit ?? root.id))
     versions.push({
       key: group.coords.editId,
       jobId: master.id,
@@ -199,7 +199,7 @@ export const projectEditChain = (
   const pending: PendingEdit[] = []
   for (const group of groups.values()) {
     if (composed.some((item) => item.group === group)) continue
-    const base = versions.find((version) => version.jobId === group.coords.baseJob)
+    const base = versions.find((version) => version.key === (group.coords.baseEdit ?? root.id))
     // 基底不在链里（别的根、或根本没出片）：这次编辑无处安放，不展示。
     if (base === undefined) continue
     const { stage, error } = stageOf(group)

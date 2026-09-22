@@ -327,7 +327,8 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     }
     const editId = mintUuid()
     const metadata: VideoEditMetadata = {
-      baseJob: selectedVersion.jobId,
+      // 基于原片时 edit 为空，这一项就不写。
+      ...(selectedVersion.edit === undefined ? {} : { baseEdit: selectedVersion.edit.editId }),
       editId,
       editStart: range.start,
       editEnd: range.end,

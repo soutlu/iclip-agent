@@ -31,7 +31,7 @@ describe('groupConversationVideos', () => {
       job('blank', { outputUrl: '  ' }),
       job('edited', {
         rootJobId: 'original',
-        metadata: { shot: 1, baseJob: 'original', editId: 'edit', editStart: 0, editEnd: 3 },
+        metadata: { shot: 1, editId: 'edit', editStart: 0, editEnd: 3 },
       }),
     ])
 

@@ -15,12 +15,17 @@ from sqlalchemy import (
     Table,
     Text,
     Uuid,
+    Values,
+    and_,
+    column,
     func,
     literal,
     null,
+    or_,
     select,
     text,
     tuple_,
+    values,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine.row import RowMapping
@@ -38,7 +43,12 @@ from iclip.domains.generation.models import (
     GenerationStatus,
     InFlightPhase,
 )
-from iclip.domains.generation.schemas import request_from_payload, request_to_payload
+from iclip.domains.generation.schemas import (
+    CLIP_REFERENCE,
+    KIND_CLIP,
+    request_from_payload,
+    request_to_payload,
+)
 from iclip.platform.db.ownership import scope_to_owner
 
 DB_SCHEMA: Final = "iclip"
@@ -194,25 +204,40 @@ class SqlGenerationRepository:
         owner: uuid.UUID,
         task_id: uuid.UUID | None,
     ) -> int:
-        # 一条 INSERT ... SELECT：出片记录可能上百条，不来回搬到进程里。
-        copied = {
-            "id": func.gen_random_uuid(),
-            "owner_user_id": literal(owner, Uuid),
-            "api_key_id": null(),
-            "conversation_id": literal(target_conversation_id, Uuid),
-            "task_id": null() if task_id is None else literal(task_id, Uuid),
-        }
-        columns = list(generation_jobs_table.c.keys())
-        source = select(
-            *(copied.get(name, generation_jobs_table.c[name]) for name in columns)
-        ).where(
+        eligible = [
             _JOBS.conversation_id == source_conversation_id,
             _JOBS.status == STATUS_COMPLETED,
-            # 衍生记录不带：它们靠原作号认根，根在副本里换了 id，拷过去也连不回去，
-            # 只会变成谁都查不着的行。
-            _JOBS.root_job_id.is_(None),
-        )
+            # 参考片段是切给模型看的中间素材，桶上配了过期规则，成片一出就没用，拷过去迟早是死地址。
+            ~and_(_JOBS.kind == KIND_CLIP, _JOBS.request["purpose"].astext == CLIP_REFERENCE),
+        ]
         async with self._engine.begin() as conn:
+            picked = (await conn.execute(select(_JOBS.id).where(*eligible))).scalars().all()
+            if not picked:
+                return 0
+            # 新旧 id 对照表：衍生记录的原作号要换成新根的 id，只能先把新 id 定下来再拷。
+            # 同一份对照表 join 两次（本行、本行的根），VALUES 不能复用同一个名字。
+            mapping = {old: uuid.uuid4() for old in picked}
+            fresh = _id_values("fresh", mapping)
+            roots = _id_values("fresh_roots", mapping)
+            copied = {
+                "id": fresh.c.new_id,
+                "owner_user_id": literal(owner, Uuid),
+                "api_key_id": null(),
+                "conversation_id": literal(target_conversation_id, Uuid),
+                "task_id": null() if task_id is None else literal(task_id, Uuid),
+                "root_job_id": roots.c.new_id,
+            }
+            columns = list(generation_jobs_table.c.keys())
+            source = (
+                select(*(copied.get(name, generation_jobs_table.c[name]) for name in columns))
+                .select_from(
+                    generation_jobs_table.join(fresh, fresh.c.old_id == _JOBS.id).outerjoin(
+                        roots, roots.c.old_id == _JOBS.root_job_id
+                    )
+                )
+                # 根不在选中集合里的衍生记录不拷，不留悬空的原作号。
+                .where(*eligible, or_(_JOBS.root_job_id.is_(None), roots.c.new_id.is_not(None)))
+            )
             result = await conn.execute(generation_jobs_table.insert().from_select(columns, source))
         return result.rowcount
 
@@ -368,6 +393,14 @@ class SqlGenerationRepository:
         if row is None:
             raise NotFound(f"没有这次生成: {job_id}")
         return _job_from_row(row)
+
+
+def _id_values(name: str, mapping: Mapping[uuid.UUID, uuid.UUID]) -> Values:
+    """把新旧 id 对照表变成一段可 join 的 VALUES：``old_id`` 是源行，``new_id`` 是副本行。"""
+
+    return values(column("old_id", Uuid), column("new_id", Uuid), name=name).data(
+        list(mapping.items())
+    )
 
 
 def _job_from_row(row: RowMapping) -> GenerationJob:

@@ -33,7 +33,7 @@ const edit = (changes: Partial<PendingEdit>): PendingEdit => ({
     edit: undefined,
   },
   stage: 'cutting',
-  coords: { baseJob: 'root', editId: 'edit-1', editStart: 0, editEnd: 3 },
+  coords: { editId: 'edit-1', editStart: 0, editEnd: 3 },
   prompt: undefined,
   error: undefined,
   createdAt: failedJob.createdAt,
