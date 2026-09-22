@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useId, useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
@@ -11,9 +11,12 @@ import { TaskDialog } from './task-dialog'
 import { TaskHero } from './task-hero'
 
 /** 路由负责登录守卫；我的需求单由 claimedBy=me 筛选，认领身份由服务端解析。 */
-type TasksRouteProps = { onStartCreation?: (draft: TaskCreationDraft) => Promise<void> }
+type TasksRouteProps = {
+  onStartCreation?: (draft: TaskCreationDraft) => Promise<void>
+  relatedContent?: (taskId: string) => ReactNode
+}
 
-export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
+export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps = {}) {
   const { data: user } = useUser()
   const myTasksId = useId()
   const [keyword, setKeyword] = useState('')
@@ -137,6 +140,7 @@ export function TasksRoute({ onStartCreation }: TasksRouteProps = {}) {
       </div>
 
       <TaskDialog
+        relatedContent={relatedContent}
         onStartCreation={onStartCreation}
         onOpenChange={(open) => setDialog((prev) => ({ ...prev, open }))}
         open={dialog.open}

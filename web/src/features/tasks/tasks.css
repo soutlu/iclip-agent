@@ -99,6 +99,103 @@
   color-scheme: dark;
 }
 
+.task-detail-layout,
+.task-detail-main,
+.task-related-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* 两个面板各自滚动，需求表单与关联视频共用同一弹窗焦点范围。 */
+.task-detail-dialog {
+  width: calc(100% - 32px);
+  max-width: 1240px;
+  height: calc(100dvh - 40px);
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.task-detail-layout-expanded {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
+  gap: 16px;
+}
+
+.task-detail-layout-expanded .task-detail-main,
+.task-related-panel {
+  overflow: hidden;
+  border-radius: var(--radius-2xl);
+  background-color: var(--color-surface-container-lowest);
+  box-shadow: var(--shadow-3);
+}
+
+.task-related-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 单列时共用外层滚动，避免手机出现两块嵌套的狭窄滚动区。 */
+@media (max-width: 1023px) {
+  .task-detail-dialog {
+    max-width: 760px;
+    overflow: hidden;
+    border-radius: var(--radius-2xl);
+    background-color: var(--color-surface-container-lowest);
+    box-shadow: var(--shadow-3);
+  }
+
+  .task-detail-layout-expanded {
+    display: flex;
+    overflow-y: auto;
+    gap: 0;
+  }
+
+  .task-detail-layout-expanded .task-detail-main,
+  .task-related-panel {
+    flex: none;
+    overflow: visible;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .task-detail-layout-expanded .task-detail-main {
+    display: contents;
+  }
+
+  .task-detail-layout-expanded .task-detail-main > header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-panel);
+    background-color: var(--color-surface-container-lowest);
+  }
+
+  .task-detail-layout-expanded .task-detail-main > form {
+    flex: none;
+  }
+
+  .task-related-panel {
+    border-top: 1px solid var(--color-border);
+  }
+
+  .task-related-body {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 599px) {
+  .task-detail-dialog {
+    width: 100%;
+    height: 92dvh;
+    max-height: 92dvh;
+    border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  }
+}
+
 /* 表单用轻背景分隔控件，冻结值保留可读对比；焦点沿用共享字段规范。 */
 .task-form-dialog .task-form-control:disabled {
   color: var(--color-on-surface-variant);
