@@ -25,6 +25,7 @@ from iclip.domains.audit.models import (
 )
 from iclip.domains.audit.schemas import (
     EMPTY_METRICS,
+    AnomalyCountOut,
     AnomalyOut,
     AttemptBucketOut,
     ConversationAuditOut,
@@ -341,7 +342,7 @@ _ANOMALY_COLUMNS: Final = (
     "kind, at, ref, value, threshold, conversation_id, task_id, user_name, shot, generation_id"
 )
 
-_ANOMALIES: Final = text(f"""
+_ANOMALY_CTES: Final = f"""
 WITH {_VIDEOS}, {_PERSON}, {_SHOTS}, {_CYCLES}, {_USAGE},
 windowed_cycles AS (
     SELECT y.* FROM cycles y
@@ -479,6 +480,10 @@ everything ({_ANOMALY_COLUMNS}) AS (
     UNION ALL SELECT * FROM task_stuck UNION ALL SELECT * FROM deleted
     UNION ALL SELECT * FROM no_task UNION ALL SELECT * FROM missing_shot
 )
+"""
+
+_ANOMALIES: Final = text(f"""
+{_ANOMALY_CTES}
 SELECT {_ANOMALY_COLUMNS}
 FROM everything
 WHERE (CAST(:kinds AS text[]) IS NULL OR kind = ANY(CAST(:kinds AS text[])))
@@ -486,6 +491,15 @@ WHERE (CAST(:kinds AS text[]) IS NULL OR kind = ANY(CAST(:kinds AS text[])))
        OR (at, ref) < (CAST(:after_at AS timestamptz), CAST(:after_ref AS text)))
 ORDER BY at DESC, ref DESC
 LIMIT :limit
+""")
+
+# 同一套判定，只数每种各有几条；种类筛选与翻页不参与。
+_ANOMALY_COUNTS: Final = text(f"""
+{_ANOMALY_CTES}
+SELECT kind, count(*) AS count
+FROM everything
+GROUP BY kind
+ORDER BY count DESC, kind
 """)
 
 
@@ -679,10 +693,7 @@ class PgAuditReports:
     ) -> Sequence[AnomalyOut]:
         params = {
             **_scope_params(scope),
-            "retry_over": thresholds.retry_over,
-            "idle_hours": thresholds.idle_hours,
-            "stuck_hours": thresholds.stuck_hours,
-            "task_conversations": thresholds.task_conversations,
+            **_threshold_params(thresholds),
             "kinds": list(kinds) if kinds is not None else None,
             "after_at": after.at if after else None,
             "after_ref": after.ref if after else None,
@@ -705,6 +716,23 @@ class PgAuditReports:
             )
             for row in rows
         ]
+
+    async def anomaly_counts(
+        self, scope: Scope, thresholds: Thresholds
+    ) -> Sequence[AnomalyCountOut]:
+        params = {**_scope_params(scope), **_threshold_params(thresholds)}
+        async with self._engine.connect() as conn:
+            rows = (await conn.execute(_ANOMALY_COUNTS, params)).mappings().all()
+        return [AnomalyCountOut(kind=row["kind"], count=_int(row["count"])) for row in rows]
+
+
+def _threshold_params(thresholds: Thresholds) -> dict[str, int]:
+    return {
+        "retry_over": thresholds.retry_over,
+        "idle_hours": thresholds.idle_hours,
+        "stuck_hours": thresholds.stuck_hours,
+        "task_conversations": thresholds.task_conversations,
+    }
 
 
 __all__ = ["PgAuditReports"]

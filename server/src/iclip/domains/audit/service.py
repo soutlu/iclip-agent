@@ -113,6 +113,8 @@ class AuditService:
             tasks=list(await self._reports.by_task(scope)),
             series=None if series is None else list(series),
             attempt_distribution=list(await self._reports.attempt_distribution(scope)),
+            # 总览只要各种异常有几条；阈值按缺省算，与异常页不带参数时同一口径。
+            anomaly_counts=list(await self._reports.anomaly_counts(scope, DEFAULT_THRESHOLDS)),
         )
 
     async def conversations(

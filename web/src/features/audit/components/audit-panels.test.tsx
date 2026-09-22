@@ -75,6 +75,7 @@ describe('OverviewPanel', () => {
     server.use(
       http.get('*/api/audit/summary', () =>
         HttpResponse.json({
+          anomalyCounts: [{ count: 3, kind: 'retry' }],
           attemptDistribution: [],
           overall,
           series: null,
@@ -83,24 +84,6 @@ describe('OverviewPanel', () => {
             { metrics: overall, userName: mockAuthUser.username },
             { metrics: EMPTY_METRICS, userName: mockGovernor.username },
           ],
-        }),
-      ),
-      http.get('*/api/audit/anomalies', () =>
-        HttpResponse.json({
-          items: [
-            {
-              at: hoursAgo(1),
-              conversationId: null,
-              generationId: null,
-              kind: 'retry',
-              shot: 2,
-              taskId: TASK_ID,
-              threshold: 2,
-              userName: mockAuthUser.username,
-              value: 3,
-            },
-          ],
-          nextCursor: null,
         }),
       ),
     )
@@ -137,6 +120,7 @@ describe('OverviewPanel', () => {
 
     const anomalies = screen.getByRole('region', { name: '异常概览' })
     expect(await within(anomalies).findByText('反复重试')).toBeVisible()
+    expect(within(anomalies).getByText('3')).toBeVisible()
   })
 
   it('出片次数那段给出分布曲线与集中度结论', async () => {
@@ -144,6 +128,7 @@ describe('OverviewPanel', () => {
     server.use(
       http.get('*/api/audit/summary', () =>
         HttpResponse.json({
+          anomalyCounts: [],
           // 五个镜：1、1、1、2、5 次，集中度 0.36。
           attemptDistribution: [
             { attempts: 1, shots: 3 },
@@ -182,6 +167,7 @@ describe('OverviewPanel', () => {
     server.use(
       http.get('*/api/audit/summary', () =>
         HttpResponse.json({
+          anomalyCounts: [],
           attemptDistribution: [{ attempts: 2, shots: 7 }],
           overall: EMPTY_METRICS,
           series: null,
@@ -221,6 +207,7 @@ describe('OverviewPanel', () => {
         windows.push(isPrevious ? 'previous' : 'current')
         const base = { ...EMPTY_METRICS, deliveries: isPrevious ? 10 : 12 }
         return HttpResponse.json({
+          anomalyCounts: [],
           attemptDistribution: [],
           overall: base,
           series: [],

@@ -4,14 +4,7 @@ import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
 import { Tag } from '@/shared/ui/tag'
 import { ANOMALY_META } from '../anomaly-kinds'
-import {
-  bucketFor,
-  useAuditAnomalies,
-  useAuditSummary,
-  type AnomalyKind,
-  type AuditScope,
-  type Metrics,
-} from '../audit.api'
+import { bucketFor, useAuditSummary, type AuditScope, type Metrics } from '../audit.api'
 import {
   compareWithPrevious,
   EMPTY,
@@ -124,7 +117,6 @@ const SPREAD_ROWS: readonly {
 
 export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelProps) {
   const { current, previous } = useAuditSummary(scope)
-  const anomalies = useAuditAnomalies(scope, null)
   const summary = current.data
   const overall = summary?.overall
   const before = previous.data?.overall
@@ -210,11 +202,8 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
   const beforeTopShare = topShareOfAttempts(beforeDistribution)
   const concentration = gini(distribution)
 
-  const anomalyItems = anomalies.data?.pages.flatMap((page) => page.items) ?? []
-  const anomalyCounts = new Map<AnomalyKind, number>()
-  for (const item of anomalyItems) {
-    anomalyCounts.set(item.kind, (anomalyCounts.get(item.kind) ?? 0) + 1)
-  }
+  // 各种异常有几条由汇总一并给出，与汇总同一份读取状态，不再另拉异常列表的第一页来数。
+  const anomalyCounts = summary?.anomalyCounts ?? []
 
   return (
     <div className="flex flex-col gap-5">
@@ -400,29 +389,21 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
         className="flex flex-col gap-3 rounded-lg bg-surface-container-lowest p-5 shadow-[var(--shadow-1)]"
       >
         <header className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="flex items-baseline gap-2 text-title font-medium text-on-surface">
-            异常
-            {/* 概览只拿了第一页，还有下一页时说清这是「最近一批」，不当总数。 */}
-            {anomalies.hasNextPage ? (
-              <span className="text-body-sm font-normal text-on-surface-variant">
-                只数了最近 {anomalyItems.length} 条
-              </span>
-            ) : null}
-          </h3>
+          <h3 className="text-title font-medium text-on-surface">异常</h3>
           <Button onClick={onOpenAnomalies} size="md" trailingIcon="next" variant="ghost">
             查看全部
           </Button>
         </header>
-        {anomalies.isPending ? (
+        {pending ? (
           <p className="text-body-sm text-on-surface-variant">正在读取…</p>
-        ) : anomalyItems.length === 0 ? (
+        ) : anomalyCounts.length === 0 ? (
           <p className="flex items-center gap-2 text-body text-on-surface-variant">
             <Icon className="text-primary" decorative name="success" size="sm" />
             这个范围里没有异常
           </p>
         ) : (
           <ul aria-label="异常按种类" className="flex flex-wrap gap-2">
-            {[...anomalyCounts.entries()].map(([kind, count]) => (
+            {anomalyCounts.map(({ kind, count }) => (
               <li key={kind}>
                 <Tag
                   variant={

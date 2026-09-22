@@ -377,15 +377,31 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
+  // 与后端同一条排序键：建立时间倒序；同一毫秒建的保持加入顺序，游标是上一页末行的「时刻|id」。
   http.get('*/api/tasks', ({ request }) => {
     const url = new URL(request.url)
-    let items = [...mockTasks]
+    let items = [...mockTasks].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     if (url.searchParams.get('claimedBy') === 'me') {
       items = items.filter((task) => task.assigneeUserIds.includes(activeUserId()))
     }
     const status = url.searchParams.get('status')
     if (status) items = items.filter((task) => task.status === status)
-    return HttpResponse.json({ items })
+    const ids = url.searchParams.getAll('ids')
+    if (ids.length > 0) items = items.filter((task) => ids.includes(task.id))
+    const total = items.length
+    const cursor = url.searchParams.get('cursor')
+    if (cursor) {
+      const index = items.findIndex((task) => `${task.createdAt}|${task.id}` === cursor)
+      items = index < 0 ? items : items.slice(index + 1)
+    }
+    const limit = Number(url.searchParams.get('limit') ?? 20)
+    const page = items.slice(0, limit)
+    const last = page.at(-1)
+    return HttpResponse.json({
+      items: page,
+      nextCursor: page.length === limit && last ? `${last.createdAt}|${last.id}` : null,
+      total,
+    })
   }),
 
   http.post('*/api/tasks', async ({ request }) => {

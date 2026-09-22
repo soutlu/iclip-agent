@@ -1,39 +1,39 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { getTask, listAllTasks, taskPreviewOf, tasksQueryKeys } from '@/features/tasks'
+import { useQueries } from '@tanstack/react-query'
+import { listTasksByIds, taskPreviewOf, tasksQueryKeys, type Task } from '@/features/tasks'
 import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import type { TaskPreview, TaskPreviewState } from '@/shared/lib/task-preview'
 
-/** 复用需求单列表缓存；历史需求单按本页关联 ID 去重补取，不将读取失败视作未关联。 */
-export function useAuditTaskPreviews(taskIds: readonly string[]): {
+/**
+ * 关联到的需求单按 id 批量读取，一组一个请求；读取失败不视作未关联。
+ *
+ * 分组按对话列表的页来：再翻一页只多一组、已有各组的键不变，已读到的预览不会因为新页到来而闪一下；
+ * 一组读失败也只影响那一页的行。一页最多 50 段对话，不会超过接口一次 100 个 id 的上限。
+ */
+export function useAuditTaskPreviews(taskIdGroups: readonly (readonly string[])[]): {
   taskPreviews: ReadonlyMap<string, TaskPreview>
   taskPreviewState: TaskPreviewState
   taskPreviewRetry: () => void
 } {
   const { data: user } = useUser()
   const canReadTasks = hasPermission(user, PERMISSION.tasksRead)
-  const list = useQuery({
-    enabled: canReadTasks,
-    queryFn: ({ signal }) => listAllTasks(signal),
-    queryKey: tasksQueryKeys.list('all'),
-  })
-  const tasks = new Map((list.data ?? []).map((task) => [task.id, task]))
-  const missingIds = [...new Set(taskIds)].filter((id) => !tasks.has(id))
-  const details = useQueries({
-    queries: missingIds.map((id) => ({
-      enabled: canReadTasks && !list.isPending,
-      queryFn: ({ signal }: { signal: AbortSignal }) => getTask(id, signal),
-      queryKey: tasksQueryKeys.detail(id),
+  const groups = taskIdGroups.map((ids) => [...new Set(ids)].sort()).filter((ids) => ids.length > 0)
+  const batches = useQueries({
+    queries: groups.map((ids) => ({
+      enabled: canReadTasks,
+      queryFn: ({ signal }: { signal: AbortSignal }) => listTasksByIds(ids, signal),
+      queryKey: tasksQueryKeys.byIds(ids),
     })),
   })
-  for (const detail of details) {
-    if (detail.data) tasks.set(detail.data.id, detail.data)
+
+  const tasks = new Map<string, Task>()
+  for (const batch of batches) {
+    for (const task of batch.data ?? []) tasks.set(task.id, task)
   }
 
   let taskPreviewState: TaskPreviewState = 'ready'
   if (!canReadTasks) taskPreviewState = 'forbidden'
-  else if (list.isError || details.some((detail) => detail.isError)) taskPreviewState = 'error'
-  else if (list.isPending || details.some((detail) => detail.isPending))
-    taskPreviewState = 'loading'
+  else if (batches.some((batch) => batch.isError)) taskPreviewState = 'error'
+  else if (batches.some((batch) => batch.isPending)) taskPreviewState = 'loading'
 
   return {
     taskPreviews: canReadTasks
@@ -41,9 +41,8 @@ export function useAuditTaskPreviews(taskIds: readonly string[]): {
       : new Map(),
     taskPreviewState,
     taskPreviewRetry: () => {
-      if (list.isError) void list.refetch()
-      for (const detail of details) {
-        if (detail.isError) void detail.refetch()
+      for (const batch of batches) {
+        if (batch.isError) void batch.refetch()
       }
     },
   }

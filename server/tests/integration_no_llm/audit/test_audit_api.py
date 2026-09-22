@@ -43,6 +43,7 @@ async def test_governor_reads_all_three_shapes(client: httpx.AsyncClient, pg_url
     assert overall["deliveries"] == 0 and overall["attemptsPerShot"] is None
     assert overall["cycleSeconds"] is None
     assert overall["usage"]["totalTokens"] == 0 and overall["usage"]["cacheHitRate"] is None
+    assert body["anomalyCounts"] == []
     assert conversations.json() == {"items": [], "nextCursor": None}
     assert anomalies.json() == {"items": [], "nextCursor": None}
 

@@ -81,6 +81,29 @@ export type AnomaliesOut = {
 }
 
 /**
+ * AnomalyCountOut
+ */
+export type AnomalyCountOut = {
+  /**
+   * Count
+   */
+  count: number
+  /**
+   * Kind
+   */
+  kind:
+    | 'retry'
+    | 'idle'
+    | 'slow'
+    | 'stuck'
+    | 'spend'
+    | 'task_stuck'
+    | 'deleted'
+    | 'no_task'
+    | 'missing_shot'
+}
+
+/**
  * AnomalyOut
  *
  * 一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。
@@ -1817,6 +1840,10 @@ export type StyleMatchOut = {
  */
 export type SummaryOut = {
   /**
+   * Anomalycounts
+   */
+  anomalyCounts: Array<AnomalyCountOut>
+  /**
    * Attemptdistribution
    */
   attemptDistribution: Array<AttemptBucketOut>
@@ -2186,12 +2213,22 @@ export type TaskVideoSpecOutput = {
 
 /**
  * TasksPageOut
+ *
+ * 一页需求单。``nextCursor`` 为空即没有更多了；``total`` 是当前筛选下一共几张，不随翻页变。
  */
 export type TasksPageOut = {
   /**
    * Items
    */
   items: Array<TaskOut>
+  /**
+   * Nextcursor
+   */
+  nextCursor: string | null
+  /**
+   * Total
+   */
+  total: number
 }
 
 /**
@@ -5011,9 +5048,17 @@ export type ListTasksTasksGetData = {
      */
     status?: 'draft' | 'published' | 'confirmed' | 'withdrawn' | null
     /**
+     * Ids
+     */
+    ids?: Array<string> | null
+    /**
      * Limit
      */
     limit?: number
+    /**
+     * Cursor
+     */
+    cursor?: string | null
     /**
      * Claimedby
      */

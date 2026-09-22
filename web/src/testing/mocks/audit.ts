@@ -329,7 +329,14 @@ export const auditHandlers = [
         if (!byPeriod.has(start)) byPeriod.set(start, [])
       }
     }
+    const countByKind = new Map<string, number>()
+    for (const anomaly of anomaliesFor(reports)) {
+      countByKind.set(anomaly.kind, (countByKind.get(anomaly.kind) ?? 0) + 1)
+    }
     return HttpResponse.json({
+      anomalyCounts: [...countByKind.entries()]
+        .sort(([kindA, countA], [kindB, countB]) => countB - countA || kindA.localeCompare(kindB))
+        .map(([kind, count]) => ({ count, kind })),
       attemptDistribution: distributionOf(reports),
       overall: aggregate(reports),
       series:

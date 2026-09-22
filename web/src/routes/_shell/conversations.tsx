@@ -23,10 +23,12 @@ function ConversationsPage() {
   const tasks = useTaskPickerSource()
   const filters = filtersFromSearch(search)
   const conversations = useAuditConversations(filters, true)
-  const taskIds = (conversations.data?.pages.flatMap((page) => page.items) ?? []).flatMap((row) =>
-    row.taskId ? [row.taskId] : [],
-  )
-  const { taskPreviews, taskPreviewState, taskPreviewRetry } = useAuditTaskPreviews(taskIds)
+  // 预览按对话列表的页分组批量读取，翻页只新增一组，已有的键不变。
+  const taskIdGroups =
+    conversations.data?.pages.map((page) =>
+      page.items.flatMap((row) => (row.taskId ? [row.taskId] : [])),
+    ) ?? []
+  const { taskPreviews, taskPreviewState, taskPreviewRetry } = useAuditTaskPreviews(taskIdGroups)
 
   return (
     <ConversationsRoute

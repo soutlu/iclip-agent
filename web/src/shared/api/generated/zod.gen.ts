@@ -32,6 +32,24 @@ export const zAgentStatusMeta = z.object({
 })
 
 /**
+ * AnomalyCountOut
+ */
+export const zAnomalyCountOut = z.object({
+  count: z.int(),
+  kind: z.enum([
+    'retry',
+    'idle',
+    'slow',
+    'stuck',
+    'spend',
+    'task_stuck',
+    'deleted',
+    'no_task',
+    'missing_shot',
+  ]),
+})
+
+/**
  * AnomalyOut
  *
  * 一条异常。``ref`` 是「种类:对象」的稳定文本，与 ``at`` 一起构成排序键与游标，不出接口。
@@ -921,9 +939,13 @@ export const zTaskEnvelope = z.object({
 
 /**
  * TasksPageOut
+ *
+ * 一页需求单。``nextCursor`` 为空即没有更多了；``total`` 是当前筛选下一共几张，不随翻页变。
  */
 export const zTasksPageOut = z.object({
   items: z.array(zTaskOut),
+  nextCursor: z.string().nullable(),
+  total: z.int(),
 })
 
 /**
@@ -1190,6 +1212,7 @@ export const zUserMetricsOut = z.object({
  * SummaryOut
  */
 export const zSummaryOut = z.object({
+  anomalyCounts: z.array(zAnomalyCountOut),
   attemptDistribution: z.array(zAttemptBucketOut),
   overall: zMetricsOut,
   series: z.array(zPeriodMetricsOut).nullable(),
@@ -2163,7 +2186,9 @@ export const zSearchVideosInspirationsVideosSearchPostResponse = zVideoSearchOut
 
 export const zListTasksTasksGetQuery = z.object({
   status: z.enum(['draft', 'published', 'confirmed', 'withdrawn']).nullish(),
+  ids: z.array(z.uuid()).nullish(),
   limit: z.int().gte(1).lte(100).optional().default(20),
+  cursor: z.string().nullish(),
   claimedBy: z.string().regex(/^me$/).nullish(),
 })
 
