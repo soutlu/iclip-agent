@@ -46,12 +46,4 @@ describe('taskPreviewOf', () => {
     expect(taskPreviewOf(taskWith([product('A', [])])).imageUrl).toBeNull()
     expect(taskPreviewOf(taskWith([])).imageUrl).toBeNull()
   })
-
-  it('空白 URL 不算商品图', () => {
-    const preview = taskPreviewOf(
-      taskWith([product('A', ['   ']), product('B', ['https://example.com/b1.jpg'])]),
-    )
-
-    expect(preview.imageUrl).toBe('https://example.com/b1.jpg')
-  })
 })

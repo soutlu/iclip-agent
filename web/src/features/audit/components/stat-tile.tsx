@@ -1,6 +1,5 @@
 /** 头条指标卡：一句人话的名字、一个大数、较上期的变化与一条迷你趋势。 */
 
-import type { ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import type { Delta } from '../format'
@@ -9,8 +8,8 @@ import { Sparkline } from './sparkline'
 type StatTileProps = {
   label: string
   value: string
-  /** 大数下面的一句补充，如「越接近 1 越好」或「最慢一成 2.1 小时」。 */
-  sub?: ReactNode
+  /** 大数下面的一句补充，如「越接近 1 越好」或「最慢一成 2.1 小时」；窄卡上最多折两行。 */
+  sub?: string | undefined
   delta?: Delta | null
   /** 迷你趋势的各期值；没数据的期给 null，画成断开而不是 0。 */
   trend?: readonly (number | null)[] | undefined
@@ -99,7 +98,11 @@ export function StatTile({
             <span className="font-normal text-on-surface-variant">较上期</span>
           </span>
         )}
-        {sub === undefined ? null : <span className="min-w-0 truncate">{sub}</span>}
+        {sub === undefined ? null : (
+          <span className="line-clamp-2 min-w-0" title={sub}>
+            {sub}
+          </span>
+        )}
       </footer>
     </article>
   )
