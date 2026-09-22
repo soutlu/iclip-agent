@@ -543,9 +543,15 @@ class ResolvedSettings:
 
     @property
     def shot_tools_enabled(self) -> bool:
-        """取帧与出图是否可用；ffmpeg 检查与能力登记都按这一处判断。"""
+        """取帧与出图是否可用；能力登记按这一处判断。"""
 
         return self.shot_video is not None and not self.shot_tools_missing
+
+    @property
+    def ffmpeg_required(self) -> bool:
+        """是否必须有 ffmpeg：取帧与出图要用，媒体生成带的视频裁剪拼接也要用。"""
+
+        return self.shot_tools_enabled or self.media_generation is not None
 
 
 def _from_env[EnvT: EnvSettings](cls: type[EnvT]) -> EnvT:

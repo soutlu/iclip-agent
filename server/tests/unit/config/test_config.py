@@ -481,6 +481,41 @@ def test_shot_video_section_absent_means_off(
     assert not settings.shot_tools_enabled
 
 
+def test_ffmpeg_required_by_shot_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION + SHOT_VIDEO))
+    _video_env(monkeypatch)
+
+    assert resolve_settings(config).ffmpeg_required
+
+
+def test_ffmpeg_required_by_media_generation_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """没有取帧与出图也要 ffmpeg：媒体生成带着视频裁剪拼接一起装。"""
+
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA))
+    _media_env(monkeypatch)
+    settings = resolve_settings(config)
+
+    assert not settings.shot_tools_enabled
+    assert settings.ffmpeg_required
+
+
+def test_ffmpeg_not_required_without_either(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """写了 shot_video 段但依赖没齐，媒体生成也关着，就没人用 ffmpeg。"""
+
+    config = load_runtime_config(write(tmp_path, VALID + MEDIA + VIDEO_SECTION + SHOT_VIDEO))
+    _video_env(monkeypatch)
+    monkeypatch.delenv("VIDEO_SUBMIT_URL")
+    settings = resolve_settings(config)
+
+    assert settings.media_generation is None
+    assert not settings.shot_tools_enabled
+    assert not settings.ffmpeg_required
+
+
 PRODUCT_CATALOG_ENV = {
     "PRODUCT_CATALOG_DATABASE_URL": "postgresql+asyncpg://reader@catalog.test/catalog",
 }

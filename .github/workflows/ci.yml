@@ -126,8 +126,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-server
+      # 两个分片都要：domains 有镜头素材用例，runtime 有视频裁剪拼接用例。
       - name: Install ffmpeg
-        if: matrix.suite == 'domains'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Run tests
         run: ${{ matrix.command }}

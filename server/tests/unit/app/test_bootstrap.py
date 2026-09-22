@@ -148,6 +148,7 @@ async def test_media_generation_mounts_routes_when_configured(
 
     for name, value in MEDIA_ENVS.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.setattr("iclip.app.bootstrap.ffmpeg_available", lambda: True)
 
     app = build_app(
         config_with_media(),
@@ -158,6 +159,19 @@ async def test_media_generation_mounts_routes_when_configured(
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         assert (await client.get("/generations")).status_code == 401
+
+
+def test_media_generation_without_ffmpeg_fails_at_startup(
+    base_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """视频裁剪拼接跟着媒体生成一起装，缺 ffmpeg 要在启动时就报，不留到队列里才发现。"""
+
+    for name, value in MEDIA_ENVS.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr("iclip.app.bootstrap.ffmpeg_available", lambda: False)
+
+    with pytest.raises(RuntimeError, match="ffmpeg"):
+        build_app(config_with_media(), engine=engine(), models={}, object_store=MemoryObjectStore())
 
 
 def test_media_generation_half_configured_fails_at_startup(
