@@ -21,6 +21,11 @@ export interface DateRange {
 
 export const UNBOUNDED_RANGE: DateRange = { range: 'all', since: null, until: null }
 
+/** 快捷预设往前数的天数；非预设返回 null，供日历高亮这段区间。 */
+export function dateRangePresetDays(range: DateRangePreset): number | null {
+  return isPresetDays(range) ? PRESET_DAYS[range] : null
+}
+
 const DAY_MS = 24 * 60 * 60_000
 
 const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
