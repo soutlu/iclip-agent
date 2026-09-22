@@ -2,6 +2,7 @@
 
 import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
+import { InlineAlert } from '@/shared/ui/inline-alert'
 import { ListError } from '@/shared/ui/list-state'
 import { Tag } from '@/shared/ui/tag'
 import { ANOMALY_META } from '../anomaly-kinds'
@@ -16,14 +17,7 @@ import {
   formatTimes,
   formatTokens,
 } from '../format'
-import {
-  cumulativePass,
-  distributionRows,
-  foldTail,
-  gini,
-  lorenzPoints,
-  topShareOfAttempts,
-} from '../attempt-distribution'
+import { attemptChartModel } from '../attempt-distribution'
 import { ConcentrationChart } from './concentration-chart'
 import { MetricsTable, type MetricsColumn } from './metrics-table'
 import { SpreadTable } from './spread-table'
@@ -145,57 +139,24 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
   const beforeOf = (pick: (metrics: Metrics) => number | null) =>
     beforeSeries.length === 0 ? undefined : beforeSeries.map((period) => pick(period.metrics))
 
-  // 出片次数：折尾只为画图，本期与上期折到同一档位才能按下标对齐；集中度一律吃未折叠的原始分布。
-  const distribution = summary?.attemptDistribution ?? []
-  const beforeDistribution = previous.data?.attemptDistribution ?? []
-  const pass = cumulativePass(foldTail(distribution, ATTEMPT_CAP))
-  const passPoints = pass.map((point) => {
-    // 折尾后的末档装着「cap 次及以上」，标签与悬停都照这个说，不能写成「以内完成」。
-    const tail = point.attempts === ATTEMPT_CAP
-    const label = tail ? `${ATTEMPT_CAP} 次以上` : `${point.attempts} 次`
-    return {
-      key: String(point.attempts),
-      label,
-      tooltipLabel: tail ? label : `${label}以内完成`,
-      value: point.cumulative,
-    }
-  })
-  const beforePassAt = new Map(
-    cumulativePass(foldTail(beforeDistribution, ATTEMPT_CAP)).map((point) => [
-      point.attempts,
-      point.cumulative,
-    ]),
+  const attempts = attemptChartModel(
+    summary?.attemptDistribution ?? [],
+    previous.data?.attemptDistribution ?? [],
+    ATTEMPT_CAP,
   )
-  const beforePass =
-    beforeDistribution.length === 0
-      ? undefined
-      : passPoints.map((point) => beforePassAt.get(Number(point.key)) ?? null)
-  // 末档一定收在 100%，「尚有 N 镜未完成」在那里恒为 0，不写。
-  const attemptNotes = new Map(
-    pass.map((point, index) => [
-      String(point.attempts),
-      index === pass.length - 1
-        ? `本档 ${point.shots} 镜`
-        : `本档 ${point.shots} 镜 · 尚有 ${point.entering - point.shots} 镜未完成`,
-    ]),
-  )
-  const passSummary =
-    pass.length < 2
-      ? undefined
-      : `一次完成 ${Math.round((pass[0]?.cumulative ?? 0) * 100)}% · 两次以内 ${Math.round(
-          (pass[1]?.cumulative ?? 0) * 100,
-        )}%`
-  const lorenz = lorenzPoints(distribution)
-  const rows = distributionRows(distribution, ATTEMPT_CAP)
-  const topShare = topShareOfAttempts(distribution)
-  const beforeTopShare = topShareOfAttempts(beforeDistribution)
-  const concentration = gini(distribution)
 
   // 各种异常有几条由汇总一并给出，与汇总同一份读取状态，不再另拉异常列表的第一页来数。
   const anomalyCounts = summary?.anomalyCounts ?? []
 
   return (
     <div className="flex flex-col gap-5">
+      {/* 上一期只是对照：取不到就说一声，本期照常显示，环比与对照序列留空。 */}
+      {previous.isError ? (
+        <InlineAlert
+          action={{ label: '重试', onClick: () => void previous.refetch() }}
+          message="上一期汇总没读到，暂不显示较上期的变化"
+        />
+      ) : null}
       <section aria-label="头条指标" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           delta={compareWithPrevious(overall?.deliveries ?? null, before?.deliveries)}
@@ -263,22 +224,22 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
       <section aria-label="出片次数分析" className="grid gap-4 lg:grid-cols-2">
         <TrendChart
           curve="step"
-          description={passSummary ?? '出到第 n 次为止已完成的镜占比'}
-          detail={(point) => attemptNotes.get(point.key)}
+          description={attempts.passSummary ?? '出到第 n 次为止已完成的镜占比'}
+          detail={(point) => attempts.notes.get(point.key)}
           empty="该时段无出片记录"
           format={(value) => `${Math.round(value * 100)}%`}
           kind="line"
           max={1}
-          points={passPoints}
-          previous={beforePass}
+          points={attempts.passPoints}
+          previous={attempts.beforePass}
           title="出片次数分布"
         />
         <ConcentrationChart
-          beforeTopShare={beforeTopShare}
-          concentration={concentration}
-          points={lorenz}
-          rows={rows}
-          topShare={topShare}
+          beforeTopShare={attempts.beforeTopShare}
+          concentration={attempts.concentration}
+          points={attempts.lorenz}
+          rows={attempts.rows}
+          topShare={attempts.topShare}
           title="出片次数集中度"
         />
       </section>

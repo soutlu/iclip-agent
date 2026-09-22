@@ -238,6 +238,42 @@ describe('OverviewPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('报表暂时不可用')
     expect(screen.getByRole('button', { name: '重新加载' })).toBeVisible()
   })
+
+  it('上一期读不到时本期照常显示，说明一句并给重试，不出「较上期」', async () => {
+    seed()
+    let previousFails = true
+    server.use(
+      http.get('*/api/audit/summary', ({ request }) => {
+        const isPrevious = new URL(request.url).searchParams.has('until')
+        if (isPrevious && previousFails) {
+          return HttpResponse.json({ detail: '上一期算不出来' }, { status: 503 })
+        }
+        return HttpResponse.json({
+          anomalyCounts: [],
+          attemptDistribution: [],
+          overall: { ...EMPTY_METRICS, deliveries: isPrevious ? 10 : 12 },
+          series: [],
+          tasks: [],
+          users: [],
+        })
+      }),
+    )
+    await renderWithProviders(
+      <OverviewPanel nameOf={nameOf} onOpenAnomalies={() => {}} scope={DEFAULT_AUDIT_SCOPE} />,
+    )
+
+    const deliveries = await screen.findByRole('article', { name: '成片件数' })
+    await waitFor(() => expect(within(deliveries).getByText('12')).toBeVisible())
+    const alert = await screen.findByRole('alert', {}, { timeout: 3000 })
+    expect(alert).toHaveTextContent('上一期汇总没读到')
+    expect(screen.queryByText('较上期')).not.toBeInTheDocument()
+
+    previousFails = false
+    await userEvent.click(within(alert).getByRole('button', { name: '重试' }))
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+    expect(await screen.findByText(/较上期/)).toBeVisible()
+  })
 })
 
 describe('ConversationsPanel', () => {

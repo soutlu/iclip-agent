@@ -14,6 +14,7 @@ import { Tag } from '@/shared/ui/tag'
 import { useAuditConversations, type AuditFilters } from '../audit.api'
 import { conversationStatus } from '../conversation-status'
 import type { Conversation } from '../conversations.api'
+import { taskCellOf } from '../task-cell'
 import { AuditFiltersBar } from './audit-filters'
 import type { PickerSource } from '@/shared/ui/search-picker'
 
@@ -141,13 +142,6 @@ type AuditRowProps = {
   taskPreviewState: TaskPreviewState
 }
 
-const PREVIEW_TEXT: Record<TaskPreviewState, string> = {
-  loading: '正在读取需求单…',
-  error: '需求单信息暂不可用',
-  forbidden: '无需求单查看权限',
-  ready: '需求单暂不可用',
-}
-
 function AuditRow({
   conversation,
   onOpen,
@@ -158,16 +152,12 @@ function AuditRow({
 }: AuditRowProps) {
   const owner = ownerName ?? '未知用户'
   const status = conversationStatus(conversation.activity)
-  const requirement =
-    conversation.taskId === null
-      ? '未关联需求单'
-      : taskPreview === undefined
-        ? PREVIEW_TEXT[taskPreviewState]
-        : taskPreview.requirement.trim() || '未填写创作要求'
-  const taskName =
-    conversation.taskId === null
-      ? '未关联'
-      : (taskPreview?.title ?? taskLabel ?? PREVIEW_TEXT[taskPreviewState])
+  const { requirement, taskName } = taskCellOf(
+    conversation.taskId,
+    taskPreview,
+    taskLabel,
+    taskPreviewState,
+  )
   return (
     <li className="border-b border-border/50 last:border-b-0">
       <Link
