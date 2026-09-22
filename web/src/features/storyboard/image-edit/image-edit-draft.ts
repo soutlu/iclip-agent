@@ -1,8 +1,6 @@
 import { z } from 'zod'
+import { MAX_EDIT_REFERENCES } from '../generation-limits'
 import type { FrameEditDraft, FrameEditTarget } from './image-edit-types'
-
-/** 一次编辑提交给模型的图片上限，编辑器的提示、禁用与终校共用。 */
-export const MAX_EDIT_REFERENCES = 10
 
 // 编辑器内部的形状，不进 HTTP：提交时只发编译好的 prompt 与图片地址。
 const idSchema = z.string().min(1).max(100)

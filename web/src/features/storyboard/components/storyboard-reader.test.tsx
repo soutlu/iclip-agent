@@ -729,9 +729,11 @@ describe('StoryboardReader', () => {
 
     // 提示留在工作台顶栏、挨着出片按钮；全局 toast 弹在视口底部会压住聊天输入区。
     // 存盘状态那一格出错时也是 alert，按文案取，别挑到别人的。
-    const alert = await screen.findByRole('alert', { name: /视频生成仅支持模型/ })
-    expect(alert.parentElement).toContainElement(generate)
-    expect(window.document.querySelector('[data-sonner-toast]')).toBeNull()
+    const toolbar = screen.getByRole('group', { name: '出片工具栏' })
+    expect(await within(toolbar).findByRole('alert', { name: /视频生成仅支持模型/ })).toBeVisible()
+    expect(toolbar).toContainElement(generate)
+    const toasts = screen.queryByRole('region', { name: /Notifications/ })
+    expect(toasts === null ? null : within(toasts).queryByText(/视频生成仅支持模型/)).toBeNull()
     expect(reads).toBe(readsBefore)
     await waitFor(() => expect(generate).toBeEnabled())
   })
