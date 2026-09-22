@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { phaseOfStatus } from '../shots'
 import type { StripEntry } from './edit-history'
 import { editTaskLook } from './edit-task-status'
@@ -29,7 +30,7 @@ export function EditTaskPreview({
   return (
     <div className="image-edit-task-preview">
       {imageFailed ? (
-        <p className="image-edit-source-unavailable">底图暂时无法显示</p>
+        <MediaFallback className="image-edit-source-unavailable" compact kind="image" />
       ) : (
         <img
           alt="本次编辑底图"

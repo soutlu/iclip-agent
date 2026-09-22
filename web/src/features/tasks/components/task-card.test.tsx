@@ -168,17 +168,12 @@ describe('TaskCard', () => {
       />,
     )
 
-    fireEvent.error(
-      within(
-        screen.getByRole('button', { name: '查看需求：秋季新品鞋款视频创作需求单' }),
-      ).getByRole('img', { name: 'SHOE-01 商品图' }),
-    )
+    const card = screen.getByRole('button', { name: '查看需求：秋季新品鞋款视频创作需求单' })
+    fireEvent.error(within(card).getByRole('img', { name: 'SHOE-01 商品图' }))
 
-    expect(screen.getByText('暂无商品图')).toBeVisible()
-    expect(screen.getByRole('img', { name: 'SHOE-01 商品图，商品图加载失败' })).not.toHaveAttribute(
-      'src',
-    )
-    expect(screen.getAllByRole('img')).toHaveLength(5)
+    expect(within(card).getByText('图片加载失败')).toBeVisible()
+    expect(within(card).queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('img')).toHaveLength(4)
   })
 
   it.each(['鼠标', '键盘'])('%s 可打开需求详情，点击参考缩略图同样打开详情', async (input) => {

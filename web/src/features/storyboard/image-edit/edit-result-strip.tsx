@@ -1,9 +1,11 @@
 /** 这一帧出现过的图，挂在画布下沿。只画调用方给的条目，不查数据。 */
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Icon } from '@/shared/icons'
 import { formatDateTime } from '@/shared/lib/date-time'
 import { cn } from '@/shared/lib/utils'
+import { MediaFallback } from '@/shared/ui/media-fallback'
+import { mediaStatusLabel } from '@/shared/ui/status-badge'
 import { phaseOfStatus } from '../shots'
 import { entryBaseUrl, type StripEntry } from './edit-history'
 import { editTaskLook } from './edit-task-status'
@@ -21,19 +23,15 @@ type EditResultStripProps = {
   actions?: ReactNode
 }
 
-/** 只有还没落地的任务才占独立一格；完成的任务已经变成它产出的那张图。 */
-const PHASE_LABEL: Record<'failed' | 'queued' | 'running', string> = {
-  failed: '失败',
-  queued: '排队中',
-  running: '生成中',
-}
-
-/** 没有关联任务的图片曾作为别次编辑的底图保留下来，称为「上一版」。 */
+/**
+ * 没有关联任务的图片曾作为别次编辑的底图保留下来，称为「上一版」。
+ * 只有还没落地的任务才占独立一格，它的词与角标同源；完成的任务已经变成它产出的那张图。
+ */
 function entryLabel(entry: StripEntry): string {
   if (entry.kind === 'current') return '当前帧'
   if (entry.kind === 'image') return entry.job === null ? '上一版' : '结果'
   const phase = phaseOfStatus(entry.job.status)
-  return phase === 'completed' ? '结果' : PHASE_LABEL[phase]
+  return phase === 'completed' ? '结果' : mediaStatusLabel(phase)
 }
 
 /** 用时间补充可访问名，区分同一种状态的多条记录。 */
@@ -41,6 +39,21 @@ function entryName(entry: StripEntry): string {
   if (entry.kind === 'current') return entryLabel(entry)
   const createdAt = entry.kind === 'image' ? entry.createdAt : entry.job.createdAt
   return `${entryLabel(entry)} · ${formatDateTime(createdAt)}`
+}
+
+/** 一格读不出图就只换这一格，整条仍能翻；地址换了由调用点重新挂载重置。 */
+function SlotImage({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return <MediaFallback className="size-full p-1" compact kind="image" />
+  return (
+    <img
+      alt=""
+      className="image-edit-slot-image"
+      loading="lazy"
+      onError={() => setFailed(true)}
+      src={src}
+    />
+  )
 }
 
 export function EditResultStrip({
@@ -60,6 +73,7 @@ export function EditResultStrip({
         {entries.map((entry) => {
           const look =
             entry.kind === 'pending' || entry.kind === 'failed' ? editTaskLook(entry) : null
+          const baseUrl = entryBaseUrl(entry, currentUrl)
           return (
             <button
               aria-label={entryName(entry)}
@@ -74,12 +88,7 @@ export function EditResultStrip({
               <span
                 className={cn('image-edit-slot', entry.key === selectedKey && 'image-edit-slot-on')}
               >
-                <img
-                  alt=""
-                  className="image-edit-slot-image"
-                  src={entryBaseUrl(entry, currentUrl)}
-                  loading="lazy"
-                />
+                <SlotImage key={baseUrl} src={baseUrl} />
                 {look ? (
                   <span className="image-edit-slot-state">
                     <Icon

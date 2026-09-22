@@ -1,9 +1,9 @@
-import { Tooltip } from 'radix-ui'
 import type { ReactNode } from 'react'
 import { useMediaDownload } from '@/shared/api/media-download'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
+import { TooltipContent, TooltipRoot, TooltipTrigger } from '@/shared/ui/tooltip'
 
 type GenerationDownloadProps = { url: string; watermarkUrl: string | null }
 
@@ -44,19 +44,9 @@ export function GenerationDownload({ url, watermarkUrl }: GenerationDownloadProp
 
 function DownloadTooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
-    <Tooltip.Provider delayDuration={300}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
-        <Tooltip.Portal>
-          <Tooltip.Content
-            className="layer-popup rounded-sm bg-inverse-surface px-3 py-2 text-label text-inverse-on-surface shadow-[var(--shadow-1)]"
-            sideOffset={6}
-          >
-            {label}
-            <Tooltip.Arrow className="fill-inverse-surface" />
-          </Tooltip.Content>
-        </Tooltip.Portal>
-      </Tooltip.Root>
-    </Tooltip.Provider>
+    <TooltipRoot>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </TooltipRoot>
   )
 }

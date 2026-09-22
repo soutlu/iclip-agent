@@ -12,6 +12,7 @@ import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
+import { InlineAlert } from '@/shared/ui/inline-alert'
 import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import type { VideoEditMetadata } from '../generation-metadata'
@@ -573,43 +574,23 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                 </p>
               ) : null}
               {modelsQuery.isError ? (
-                <p className="text-body-sm text-error" role="alert">
-                  {modelsQuery.error.message}
-                  <button
-                    className="ml-2 underline ui-focus"
-                    onClick={() => void modelsQuery.refetch()}
-                    type="button"
-                  >
-                    重新加载模型
-                  </button>
-                </p>
+                <InlineAlert
+                  action={{ label: '重新加载模型', onClick: () => void modelsQuery.refetch() }}
+                  message={modelsQuery.error.message}
+                />
               ) : null}
               {chainQuery.isError ? (
-                <p className="text-body-sm text-error" role="alert">
-                  {chainQuery.error.message}
-                  <button
-                    className="ml-2 underline ui-focus"
-                    onClick={() => void chainQuery.refetch()}
-                    type="button"
-                  >
-                    重试
-                  </button>
-                </p>
+                <InlineAlert
+                  action={{ label: '重试', onClick: () => void chainQuery.refetch() }}
+                  message={chainQuery.error.message}
+                />
               ) : null}
-              {operationError === null ? null : (
-                <p className="text-body-sm text-error" role="alert">
-                  {operationError}
-                </p>
-              )}
+              {operationError === null ? null : <InlineAlert message={operationError} />}
               {clipDurationMissing ? (
-                <p className="text-body-sm text-error" role="alert">
-                  参考片段没记下时长，请重新选段生成
-                </p>
+                <InlineAlert message="参考片段没记下时长，请重新选段生成" />
               ) : null}
               {composeBlocked ? (
-                <p className="text-body-sm text-error" role="alert">
-                  读不到编辑结果的时长，无法合成；关掉编辑器重开可再试一次
-                </p>
+                <InlineAlert message="读不到编辑结果的时长，无法合成；关掉编辑器重开可再试一次" />
               ) : null}
               {shownEdit === undefined ? null : <EditorGenerationStatus edit={shownEdit} />}
             </section>

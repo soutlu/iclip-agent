@@ -92,15 +92,12 @@ p.image-edit-photo {
   line-height: var(--text-caption--line-height);
 }
 
+/* 只定位，字号与颜色由占位件自己带。 */
 .image-edit-source-unavailable {
   position: absolute;
   top: 56px;
   right: 16px;
   left: 16px;
-  color: var(--color-on-surface-muted);
-  font-size: var(--text-body-sm);
-  line-height: var(--text-body-sm--line-height);
-  text-align: center;
 }
 
 .image-edit-task-overlay {

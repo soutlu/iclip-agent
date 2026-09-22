@@ -11,6 +11,7 @@ import { HomeRoute } from '@/features/home'
 import { useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import type { ComposerSubmission } from '@/shared/ui/composer'
+import { InlineAlert } from '@/shared/ui/inline-alert'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import { useLoginPrompt } from './-login-prompt'
@@ -102,9 +103,7 @@ export function HomePage() {
             <MenuSurface align="end">
               {agents.isError ? (
                 <>
-                  <p className="max-w-64 px-3 py-2 text-body-sm text-error" role="alert">
-                    {agents.error.message}
-                  </p>
+                  <InlineAlert className="max-w-64 px-3 py-2" message={agents.error.message} />
                   <MenuItem onSelect={() => void agents.refetch()}>重新加载 Agent</MenuItem>
                 </>
               ) : agents.data?.items.length ? (

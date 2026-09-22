@@ -45,6 +45,14 @@ const MEDIA_KIND: Record<'image' | 'video', { icon: IconName; name: string }> = 
   video: { icon: 'video', name: '视频' },
 }
 
+/** 不画角标的地方要说出同一个状态时取这里的词；`idle` 没有词，所以不在入参里。 */
+export const mediaStatusLabel = (status: Exclude<MediaBadgeStatus, 'idle'>): string =>
+  MEDIA[status].label
+
+/** 同上，对话侧的一套。 */
+export const conversationStatusLabel = (status: Exclude<ConversationBadgeStatus, 'idle'>): string =>
+  CONVERSATION[status].label
+
 const MARKER_ICON: Record<Exclude<Marker, 'dot'>, IconName> = {
   check: 'check',
   clock: 'duration',

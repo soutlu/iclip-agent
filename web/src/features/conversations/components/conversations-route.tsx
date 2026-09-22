@@ -6,6 +6,7 @@ import { useUsersDirectory } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
 import { Button } from '@/shared/ui/button'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { StatusBadge } from '@/shared/ui/status-badge'
 import { Tag } from '@/shared/ui/tag'
 import { useAuditConversations, type AuditFilters } from '../audit.api'
@@ -173,16 +174,6 @@ type AuditRowProps = {
   taskPreviewState: TaskPreviewState
 }
 
-const STATUS_TEXT = {
-  approval: '等待属主审批',
-  question: '等待属主回答',
-  running: '进行中',
-  failed: '最近一轮失败',
-  completed: '最近一轮已结束',
-  aborted: '最近一轮已中止',
-  idle: '暂无运行记录',
-} as const
-
 const PREVIEW_TEXT: Record<TaskPreviewState, string> = {
   loading: '正在读取需求单…',
   error: '需求单信息暂不可用',
@@ -268,23 +259,16 @@ function AuditRow({
         </span>
         <span className="col-start-1 flex flex-wrap items-start gap-2 xl:col-start-auto xl:flex-col">
           {status === 'idle' ? (
-            <span className="text-body text-on-surface-variant">{STATUS_TEXT[status]}</span>
+            // 从没跑过没有对应的角标，这一列仍要说出来。
+            <span className="text-body text-on-surface-variant">暂无运行记录</span>
           ) : (
-            <StatusBadge
-              appearance="label"
-              kind="conversation"
-              status={status}
-              text={STATUS_TEXT[status]}
-            />
+            <StatusBadge appearance="label" kind="conversation" status={status} />
           )}
           {conversation.activity.videoGeneration === 'none' ? null : (
             <StatusBadge
               appearance="label"
               kind="video"
               status={conversation.activity.videoGeneration}
-              text={
-                conversation.activity.videoGeneration === 'running' ? '视频生成中' : '视频排队中'
-              }
             />
           )}
           {conversation.completedAt === null ? null : <Tag variant="soft">属主已收尾</Tag>}
@@ -321,10 +305,12 @@ function AuditThumbnail({ url, title }: { url: string | null; title: string }) {
           onError={() => setFailed(true)}
           src={url}
         />
+      ) : failed ? (
+        <MediaFallback className="text-on-surface-faint" kind="image" />
       ) : (
         <span className="flex flex-col items-center gap-2 text-on-surface-faint">
           <Icon decorative name="file" size="lg" />
-          <span className="text-caption">{failed ? '图片不可用' : '暂无图片'}</span>
+          <span className="text-caption">暂无图片</span>
         </span>
       )}
     </span>

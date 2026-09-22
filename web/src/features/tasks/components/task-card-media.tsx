@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'
 import { IconButton } from '@/shared/ui/button'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import type { Task } from '../tasks.api'
 
 type TaskProduct = Task['inputs']['products'][number]
@@ -127,23 +128,23 @@ function ProductImage({
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
   const failed = src !== undefined && failedSrc === src
 
-  if (!src || failed) {
-    const message = failed ? '商品图加载失败' : '暂无商品图'
+  if (failed) return <MediaFallback className="size-full" compact={compact} kind="image" />
+
+  if (!src) {
     return (
       <span
-        aria-label={`${alt}，${message}`}
+        aria-label={`${alt}，暂无商品图`}
         className={cn(
           'flex size-full items-center justify-center text-on-surface-variant',
           compact ? 'gap-1' : 'flex-col gap-2',
         )}
         role="img"
-        title={message}
+        title="暂无商品图"
       >
         <Icon decorative name="image" size={compact ? 'sm' : 'xl'} />
         <span className={compact ? 'text-caption' : 'text-body-sm'}>
           {compact ? '无图' : '暂无商品图'}
         </span>
-        {failed && !compact && <span className="text-caption">图片加载失败</span>}
       </span>
     )
   }

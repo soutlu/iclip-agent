@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { toast } from '@/shared/ui/toast'
 import {
   annotationHandles,
@@ -402,9 +403,9 @@ export function AnnotationCanvas({
           onError={() => setImageFailed(true)}
         />
         {imageFailed && (
-          <p role="alert" className="text-body-sm text-error">
-            原图加载失败，请关闭后重试
-          </p>
+          <div role="alert">
+            <MediaFallback hint="请关闭后重试" kind="image" />
+          </div>
         )}
         {size.width > 0 && !imageFailed && (
           <svg
