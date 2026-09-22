@@ -8,6 +8,7 @@ import { workspaceQueryKeys, type ArtifactRendererProps } from '@/shared/workben
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import type { ShotsDocument } from '../shot-document'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { StoryboardReader } from './storyboard-reader'
 
@@ -63,36 +64,19 @@ const document: ShotsDocument = {
 }
 
 const jobs: GenerationJob[] = [
-  {
+  makeGenerationJob({
     id: 'aba2268d-b27b-4fb5-a592-d952f4483b88',
     createdAt: '2026-09-01T10:00:00Z',
-    errorMessage: null,
-    kind: 'video',
     outputUrl: 'https://example.com/take.mp4',
     request: { prompt: '本组生成时使用的历史描述。' },
     metadata: { shot: 1 },
-    status: 'completed',
-    taskId: null,
-    rootJobId: null,
-    clipStage: null,
-    durationMs: null,
-    watermarkOutputUrl: null,
-  },
-  {
+  }),
+  makeGenerationJob({
     id: 'cdf9d301-fe78-4c9b-a4f7-c936621179f0',
     createdAt: '2026-09-01T10:01:00Z',
-    errorMessage: null,
-    kind: 'video',
-    outputUrl: null,
     request: { prompt: '另一组的历史描述。' },
     metadata: { shot: 2 },
-    status: 'completed',
-    taskId: null,
-    rootJobId: null,
-    clipStage: null,
-    durationMs: null,
-    watermarkOutputUrl: null,
-  },
+  }),
 ]
 
 /** 一条带结构化 shot 的历史记录，可以回填镜头组；正文是服务端从 shot 拼出来的。 */
@@ -113,38 +97,22 @@ const historyShot = {
   ],
 }
 
-const editableJob: GenerationJob = {
+const editableJob = makeGenerationJob({
   id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
   createdAt: '2026-09-01T10:02:00Z',
-  errorMessage: null,
-  kind: 'video',
   outputUrl: 'https://example.com/history.mp4',
   request: { prompt: historyPrompt, shot: historyShot },
   metadata: { shot: 1 },
-  status: 'completed',
-  taskId: null,
-  rootJobId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-}
+})
 
 /** 刚提交、还在跑的那一条，服务端刷新列表时才会出现。 */
-const runningJob: GenerationJob = {
+const runningJob = makeGenerationJob({
   id: 'b7e0f4c2-3d1a-4e5b-9c6d-7e8f9a0b1c2d',
   createdAt: '2026-09-01T10:03:00Z',
-  errorMessage: null,
-  kind: 'video',
-  outputUrl: null,
   request: { prompt: '刚提交的这一版。' },
   metadata: { shot: 1 },
   status: 'submitted',
-  taskId: null,
-  rootJobId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-}
+})
 
 const provide = (content: ShotsDocument | string = document, version = 1) => {
   let stored = typeof content === 'string' ? content : JSON.stringify(content)
@@ -413,21 +381,13 @@ describe('StoryboardReader', () => {
       http.get('*/api/generations', () =>
         HttpResponse.json({
           items: [
-            {
+            makeGenerationJob({
               id: 'f1f3a6b0-6b1a-4a3e-9f1d-2c5b7a9e0d31',
               createdAt: '2026-09-01T10:02:00Z',
-              errorMessage: null,
-              kind: 'video',
               outputUrl: 'https://example.com/task.mp4',
               request: { prompt: '需求单那边出的片。' },
               metadata: { shot: 1 },
-              status: 'completed',
-              taskId: null,
-              rootJobId: null,
-              clipStage: null,
-              durationMs: null,
-              watermarkOutputUrl: null,
-            },
+            }),
           ],
         }),
       ),
@@ -562,21 +522,14 @@ describe('StoryboardReader', () => {
 
   it('参考帧的图片任务挂在帧上：先排队，推送后变成有新结果，看过编辑器就清掉', async () => {
     provide()
-    const imageJob: GenerationJob = {
+    const imageJob = makeGenerationJob({
       id: 'c3d4e5f6-7a8b-4c9d-8e0f-1a2b3c4d5e6f',
       createdAt: '2026-09-01T10:05:00Z',
-      errorMessage: null,
       kind: 'image',
-      outputUrl: null,
       metadata: { frame: 2, shot: 1 },
       request: { prompt: '换个颜色', referenceImageUrls: [] },
       status: 'pending',
-      taskId: null,
-      rootJobId: null,
-      clipStage: null,
-      durationMs: null,
-      watermarkOutputUrl: null,
-    }
+    })
     let imageReads = 0
     server.use(
       http.get('*/api/generations', ({ request }) => {

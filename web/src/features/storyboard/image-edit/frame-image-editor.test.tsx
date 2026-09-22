@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Toaster, toast } from '@/shared/ui/toast'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { FrameImageEditor } from './frame-image-editor'
 import { editDraftKey } from './image-edit-draft'
@@ -23,22 +24,15 @@ const draft: FrameEditDraft = {
   instructions: [{ kind: 'text', text: '将衣服改成蓝色' }],
   references: [{ id: 'base', kind: 'image', url: BASE, label: '编辑底图' }],
 }
-const job = (over: Partial<GenerationJob> = {}): GenerationJob => ({
-  id: crypto.randomUUID(),
-  metadata: { frame: 1, shot: 1, sourceUrl: BASE },
-  kind: 'image',
-  status: 'pending',
-  createdAt: '2026-09-07T12:00:00Z',
-  errorMessage: null,
-  outputUrl: null,
-  request: { prompt: '将衣服改成蓝色', referenceImageUrls: [BASE] },
-  taskId: null,
-  rootJobId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...over,
-})
+const job = (over: Partial<GenerationJob> = {}): GenerationJob =>
+  makeGenerationJob({
+    metadata: { frame: 1, shot: 1, sourceUrl: BASE },
+    kind: 'image',
+    status: 'pending',
+    createdAt: '2026-09-07T12:00:00Z',
+    request: { prompt: '将衣服改成蓝色', referenceImageUrls: [BASE] },
+    ...over,
+  })
 
 function EditorPage({ initialKey }: { initialKey?: string }) {
   const [open, setOpen] = useState(true)

@@ -4,27 +4,20 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { ConversationVideos } from './conversation-videos'
 
 const conversationId = 'ff2c1c0e-6c4f-4f0e-9a2b-0f2f3a4b5c6d'
 
-const job = (index: number, overrides: Partial<GenerationJob> = {}): GenerationJob => ({
-  id: `a82db548-d093-4f54-b71b-${index.toString(16).padStart(12, '0')}`,
-  createdAt: '2026-09-01T10:00:00Z',
-  kind: 'video',
-  status: 'completed',
-  outputUrl: `https://videos.example.test/take-${index}.mp4`,
-  watermarkOutputUrl: null,
-  metadata: { shot: 1 },
-  request: {},
-  taskId: null,
-  rootJobId: null,
-  errorMessage: null,
-  clipStage: null,
-  durationMs: null,
-  ...overrides,
-})
+const job = (index: number, overrides: Partial<GenerationJob> = {}): GenerationJob =>
+  makeGenerationJob({
+    id: `a82db548-d093-4f54-b71b-${index.toString(16).padStart(12, '0')}`,
+    createdAt: '2026-09-01T10:00:00Z',
+    outputUrl: `https://videos.example.test/take-${index}.mp4`,
+    metadata: { shot: 1 },
+    ...overrides,
+  })
 
 beforeEach(() => {
   vi.stubGlobal('scrollTo', () => {})

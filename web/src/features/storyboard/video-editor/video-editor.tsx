@@ -5,44 +5,43 @@
  * 发编辑任务；刷新后草稿没了，那条切好的片段就不再展示，重新选一段就是。 */
 
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMediaDownload } from '@/shared/api/media-download'
-import { Icon } from '@/shared/icons'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
-import { InlineAlert } from '@/shared/ui/inline-alert'
-import { MenuRadioGroup, MenuRadioItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
 import type { VideoEditMetadata } from '../generation-metadata'
 import { useVideoModels, type GenerationJob } from '../storyboard.api'
 import {
-  actualEditStart,
+  EDIT_STAGE_LABEL,
   ancestorsOf,
   composeSegments,
   layoutSegments,
   projectEditChain,
   totalDuration,
   type ChainVersion,
-  type EditStage,
   type PendingEdit,
   type PlaySegment,
 } from './edit-chain'
 import { EditorComposer, type EditorReference } from './editor-composer'
 import { EditorGenerationStatus } from './editor-generation-status'
+import { EditorModelMenu } from './editor-model-menu'
+import { EditorNotices } from './editor-notices'
 import { EditorPreview, type EditorPreviewHandle } from './editor-preview'
+import { EditorRangeFields } from './editor-range-fields'
 import { EditorTimeline } from './editor-timeline'
 import type { VersionMenuEntry } from './editor-version-menu'
-import { roundSeconds } from './time-label'
 import { clampRange, MIN_RANGE_SECONDS, type TimeRange } from './time-range'
+import { useAutoSubmitEdits, type EditDraft } from './use-auto-submit-edits'
 import { useMediaDurations } from './use-media-durations'
 import { useStableValue } from './use-stable-value'
 import {
   editableModels,
+  pickEditModel,
   submitMasterClip,
   submitReferenceClip,
-  submitVideoEdit,
   useVideoEditChain,
   videoEditChainKey,
   videoEditConversationKey,
@@ -50,18 +49,7 @@ import {
 
 const DEFAULT_RANGE_SECONDS = 4
 const posterOf = (url: string) => videoSnapshotUrl(url, 320)
-
-const STAGE_LABEL: Record<EditStage, string> = {
-  cutting: '切片中',
-  cut: '待生成',
-  generating: '生成中',
-  ready: '待预览',
-  composing: '合成中',
-  failed: '失败',
-}
 const isActive = (edit: PendingEdit) => edit.stage !== 'ready' && edit.stage !== 'failed'
-
-type EditDraft = { prompt: string; model: string; references: EditorReference[] }
 
 type Selected =
   | { kind: 'version'; key: string; label: string; version: ChainVersion }
@@ -129,17 +117,9 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
   // 三段互斥的写操作加上传参考图；任一在跑时整个编辑器一起锁。
   const [operation, setOperation] = useState<'idle' | 'uploading' | 'cutting' | 'composing'>('idle')
   const [operationError, setOperationError] = useState<string | null>(null)
-  // 参考片段切好就自动发编辑任务；一个 editId 只自动发一次，提交失败也不再自动重发（那会
-  // 变成一渲染一次的重试风暴），用户重选一段就是重来。
-  const submittedRef = useRef(new Set<string>())
   const { downloading, download } = useMediaDownload()
   const busy = operation !== 'idle'
-
-  // 选过的模型不在允许表里（配置改了）就退回默认；默认模型不支持编辑就取第一个支持的。
-  const model =
-    models.find((item) => item === wantedModel) ??
-    models.find((item) => item === modelsQuery.data?.default) ??
-    models[0]
+  const model = pickEditModel(models, wantedModel, modelsQuery.data?.default)
 
   // 切好没发、又不是本次会话发起的编辑，草稿已经没了，不展示。
   const pending = useMemo(
@@ -231,7 +211,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
       key: edit.key,
       label: edit.label,
       baseLabel: edit.base.label,
-      note: STAGE_LABEL[edit.stage],
+      note: EDIT_STAGE_LABEL[edit.stage],
       mediaUrl: edit.video?.outputUrl ?? edit.base.mediaUrl,
       duration: undefined,
     })),
@@ -258,39 +238,13 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     void queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) })
   }
 
-  // 第二步：参考片段切好了，按后端报的实际时长反算起点，把片段交给模型。
-  useEffect(() => {
-    for (const edit of chain.pending) {
-      const clipUrl = edit.reference?.outputUrl
-      const clipMs = edit.reference?.durationMs
-      const draft = drafts[edit.key]
-      if (edit.stage !== 'cut' || clipUrl == null || draft === undefined) continue
-      if (submittedRef.current.has(edit.key)) continue
-      // 没带时长的片段发不了，错误在渲染里按记录直接推出来，不在这里写状态。
-      if (clipMs == null) continue
-      submittedRef.current.add(edit.key)
-      const metadata: VideoEditMetadata = {
-        ...edit.coords,
-        editStart: actualEditStart(edit.coords.editEnd, clipMs / 1000),
-      }
-      submitVideoEdit({
-        conversationId,
-        taskId: root.taskId,
-        rootJobId: root.id,
-        metadata,
-        model: draft.model,
-        prompt: draft.prompt,
-        referenceVideoUrl: clipUrl,
-        referenceImageUrls: draft.references.map((reference) => reference.url),
-      })
-        .then(() =>
-          queryClient.invalidateQueries({ queryKey: videoEditConversationKey(conversationId) }),
-        )
-        .catch((error: unknown) => {
-          setOperationError(error instanceof Error ? error.message : '视频编辑提交失败')
-        })
-    }
-  }, [chain.pending, drafts, conversationId, root.id, root.taskId, queryClient])
+  // 第二步：参考片段切好了，把片段交给模型。
+  useAutoSubmitEdits({
+    pending: chain.pending,
+    drafts,
+    origin: { conversationId, taskId: root.taskId, rootJobId: root.id },
+    onError: setOperationError,
+  })
 
   const select = (key: string) => {
     setSelectedKey(key)
@@ -383,7 +337,6 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
 
   const canGenerate =
     !busy && selectedVersion !== undefined && range !== undefined && model !== undefined
-  // 切好了却没带时长：反算不出起点，这次编辑发不出去。正常不会发生，不静默卡着。
   const clipDurationMissing = pending.some(
     (edit) =>
       edit.stage === 'cut' &&
@@ -395,8 +348,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     edit.preview !== undefined &&
     layoutSegments(edit.preview, durations) !== undefined &&
     (edit.stage === 'ready' || (edit.stage === 'failed' && edit.master !== undefined))
-  // 等着合成，却因为读不到时长按不下去：按钮只会灰着，原因得另外说一句。只在看着那条时说，
-  // 它正好和灰着的按钮同时在屏幕上。
+  // 只在看着那条时说，它正好和灰着的合成按钮同时在屏幕上。
   const composeBlocked =
     selected?.kind === 'pending' &&
     selected.edit.stage === 'ready' &&
@@ -473,74 +425,22 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
               <div className="video-editor-inspector-heading">
                 <h3>编辑片段</h3>
               </div>
-              <div className="video-editor-range">
-                <Icon decorative name="duration" size="sm" />
-                <label className="sr-only" htmlFor="video-range-start">
-                  开始时间（秒）
-                </label>
-                <input
-                  disabled={range === undefined || busy}
-                  id="video-range-start"
-                  max={duration}
-                  min={0}
-                  onChange={(event) => changeBoundary('start', event.currentTarget.valueAsNumber)}
-                  step={0.1}
-                  type="number"
-                  value={range?.start ?? ''}
-                />
-                <Icon decorative name="next" size="sm" />
-                <label className="sr-only" htmlFor="video-range-end">
-                  结束时间（秒）
-                </label>
-                <input
-                  disabled={range === undefined || busy}
-                  id="video-range-end"
-                  max={duration}
-                  min={0}
-                  onChange={(event) => changeBoundary('end', event.currentTarget.valueAsNumber)}
-                  step={0.1}
-                  type="number"
-                  value={range?.end ?? ''}
-                />
-                <span>
-                  {range === undefined ? '' : `${roundSeconds(range.end - range.start)}s`}
-                </span>
-              </div>
+              <EditorRangeFields
+                disabled={busy}
+                duration={duration}
+                onChange={changeBoundary}
+                range={range}
+              />
               <EditorComposer
                 disabled={busy}
                 footer={
                   <div className="video-editor-generation-controls">
-                    <MenuRoot>
-                      <MenuTrigger asChild>
-                        <button
-                          aria-label="编辑模型"
-                          className="video-editor-model ui-focus"
-                          disabled={busy || models.length === 0}
-                          title={model}
-                          type="button"
-                        >
-                          <span>{model ?? '没有支持编辑的模型'}</span>
-                          <Icon decorative name="expand" size="sm" />
-                        </button>
-                      </MenuTrigger>
-                      <MenuSurface
-                        align="start"
-                        aria-label="编辑模型"
-                        aria-labelledby={undefined}
-                        className="video-editor-model-menu"
-                        collisionPadding={16}
-                        side="top"
-                        sideOffset={8}
-                      >
-                        <MenuRadioGroup onValueChange={setWantedModel} value={model ?? ''}>
-                          {models.map((item) => (
-                            <MenuRadioItem key={item} value={item}>
-                              {item}
-                            </MenuRadioItem>
-                          ))}
-                        </MenuRadioGroup>
-                      </MenuSurface>
-                    </MenuRoot>
+                    <EditorModelMenu
+                      disabled={busy}
+                      model={model}
+                      models={models}
+                      onChange={setWantedModel}
+                    />
                     <Button
                       className="video-editor-generate"
                       disabled={!canGenerate}
@@ -561,37 +461,21 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
                 prompt={prompt}
                 references={references}
               />
-              {selectedVersion !== undefined &&
-              duration !== undefined &&
-              duration < MIN_RANGE_SECONDS ? (
-                <p className="video-editor-muted" role="status">
-                  视频不足 1 秒，无法选择编辑片段。
-                </p>
-              ) : null}
-              {selected?.kind === 'pending' ? (
-                <p className="video-editor-muted">
-                  正在看的是 {selected.label} 的预览；要继续编辑，先切回某一版。
-                </p>
-              ) : null}
-              {modelsQuery.isError ? (
-                <InlineAlert
-                  action={{ label: '重新加载模型', onClick: () => void modelsQuery.refetch() }}
-                  message={modelsQuery.error.message}
-                />
-              ) : null}
-              {chainQuery.isError ? (
-                <InlineAlert
-                  action={{ label: '重试', onClick: () => void chainQuery.refetch() }}
-                  message={chainQuery.error.message}
-                />
-              ) : null}
-              {operationError === null ? null : <InlineAlert message={operationError} />}
-              {clipDurationMissing ? (
-                <InlineAlert message="参考片段没记下时长，请重新选段生成" />
-              ) : null}
-              {composeBlocked ? (
-                <InlineAlert message="读不到编辑结果的时长，无法合成；关掉编辑器重开可再试一次" />
-              ) : null}
+              <EditorNotices
+                chainError={chainQuery.isError ? chainQuery.error.message : undefined}
+                clipDurationMissing={clipDurationMissing}
+                composeBlocked={composeBlocked}
+                modelsError={modelsQuery.isError ? modelsQuery.error.message : undefined}
+                onReloadChain={() => void chainQuery.refetch()}
+                onReloadModels={() => void modelsQuery.refetch()}
+                operationError={operationError}
+                previewing={selected?.kind === 'pending' ? selected.label : undefined}
+                tooShort={
+                  selectedVersion !== undefined &&
+                  duration !== undefined &&
+                  duration < MIN_RANGE_SECONDS
+                }
+              />
               {shownEdit === undefined ? null : <EditorGenerationStatus edit={shownEdit} />}
             </section>
           </div>

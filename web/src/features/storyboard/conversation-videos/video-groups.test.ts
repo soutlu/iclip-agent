@@ -1,23 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { groupConversationVideos } from './video-groups'
 
-const job = (id: string, overrides: Partial<GenerationJob> = {}): GenerationJob => ({
-  id,
-  kind: 'video',
-  status: 'completed',
-  outputUrl: `${id}.mp4`,
-  watermarkOutputUrl: null,
-  metadata: { shot: 1 },
-  createdAt: '2026-09-01T10:00:00Z',
-  request: {},
-  taskId: null,
-  rootJobId: null,
-  errorMessage: null,
-  clipStage: null,
-  durationMs: null,
-  ...overrides,
-})
+const job = (id: string, overrides: Partial<GenerationJob> = {}): GenerationJob =>
+  makeGenerationJob({
+    id,
+    outputUrl: `${id}.mp4`,
+    metadata: { shot: 1 },
+    createdAt: '2026-09-01T10:00:00Z',
+    ...overrides,
+  })
 
 describe('groupConversationVideos', () => {
   it('只收成功、有地址的原始视频，图片、切片和编辑结果均不计入版本', () => {

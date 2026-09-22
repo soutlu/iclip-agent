@@ -39,6 +39,16 @@ export type EditStage =
   | 'composing'
   | 'failed'
 
+/** 各阶段给人看的词；版本菜单里在途编辑的备注用它。 */
+export const EDIT_STAGE_LABEL: Record<EditStage, string> = {
+  cutting: '切片中',
+  cut: '待生成',
+  generating: '生成中',
+  ready: '待预览',
+  composing: '合成中',
+  failed: '失败',
+}
+
 export type PendingEdit = {
   key: string
   /** 合成后会成为第几版；提交时就先叫这个名，和以前的任务列表一致。 */

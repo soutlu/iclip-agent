@@ -5,24 +5,12 @@ import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { GenerationRecords } from './generation-records'
 
-const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
-  createdAt: '2026-09-01T10:00:00Z',
-  errorMessage: null,
-  kind: 'video',
-  outputUrl: null,
-  metadata: { shot: 2 },
-  request: {},
-  status: 'completed',
-  taskId: null,
-  rootJobId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...spec,
-})
+const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
+  makeGenerationJob({ createdAt: '2026-09-01T10:00:00Z', metadata: { shot: 2 }, ...spec })
 
 const jobs: GenerationJob[] = [
   job({

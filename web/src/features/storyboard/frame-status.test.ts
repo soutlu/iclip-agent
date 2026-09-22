@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { frameBadges, latestFrameJobs } from './frame-status'
 import type { Shot } from './shot-document'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from './storyboard.api'
 
 const ORIGINAL = 'https://example.com/original.png'
@@ -8,22 +9,15 @@ const EDITED = 'https://example.com/edited.png'
 
 const at = (shot: number, frame?: number) => (frame === undefined ? { shot } : { frame, shot })
 
-const job = (overrides: Partial<GenerationJob>): GenerationJob => ({
-  id: crypto.randomUUID(),
-  kind: 'image',
-  metadata: at(1, 1),
-  status: 'completed',
-  createdAt: '2026-09-07T12:00:00Z',
-  errorMessage: null,
-  outputUrl: EDITED,
-  request: { prompt: '换色' },
-  taskId: null,
-  rootJobId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...overrides,
-})
+const job = (overrides: Partial<GenerationJob>): GenerationJob =>
+  makeGenerationJob({
+    kind: 'image',
+    metadata: at(1, 1),
+    createdAt: '2026-09-07T12:00:00Z',
+    outputUrl: EDITED,
+    request: { prompt: '换色' },
+    ...overrides,
+  })
 
 const shot: Shot = {
   index: 1,
