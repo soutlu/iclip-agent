@@ -4,6 +4,8 @@ import { uploadMediaFile } from '@/shared/api/media-upload'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
 import { DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
+import { InlineAlert } from '@/shared/ui/inline-alert'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
 import { MenuItem, MenuRoot, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
 import { toast } from '@/shared/ui/toast'
@@ -310,8 +312,8 @@ export function FrameImageEditor({
               />
             ) : selected?.kind === 'image' ? (
               brokenResult === selected.url ? (
-                <p className="image-edit-photo text-body-sm text-on-surface-muted">
-                  这张图暂时无法显示
+                <p className="image-edit-photo">
+                  <MediaFallback kind="image" />
                 </p>
               ) : (
                 <div className="image-edit-photo">
@@ -420,42 +422,24 @@ export function FrameImageEditor({
                 onResolutionChange={setWantedResolution}
               />
               {modelsQuery.isError ? (
-                <p role="alert" className="text-body-sm text-error">
-                  {modelsQuery.error.message}
-                  <button
-                    className="ml-2 underline ui-focus"
-                    type="button"
-                    onClick={() => void modelsQuery.refetch()}
-                  >
-                    重新加载模型
-                  </button>
-                </p>
+                <InlineAlert
+                  action={{ label: '重新加载模型', onClick: () => void modelsQuery.refetch() }}
+                  message={modelsQuery.error.message}
+                />
               ) : null}
               {drafts.error !== null ? (
-                <div role="alert" className="text-body-sm text-error">
-                  {drafts.error}
-                  <button type="button" className="ml-2 underline ui-focus" onClick={drafts.reset}>
-                    重新开始
-                  </button>
-                </div>
+                <InlineAlert
+                  action={{ label: '重新开始', onClick: drafts.reset }}
+                  message={drafts.error}
+                />
               ) : null}
               {jobsQuery.isError ? (
-                <p className="text-body-sm text-error" role="alert">
-                  {jobsQuery.error.message}
-                  <button
-                    type="button"
-                    className="ml-2 underline ui-focus"
-                    onClick={() => void jobsQuery.refetch()}
-                  >
-                    重试
-                  </button>
-                </p>
+                <InlineAlert
+                  action={{ label: '重试', onClick: () => void jobsQuery.refetch() }}
+                  message={jobsQuery.error.message}
+                />
               ) : null}
-              {operationError !== null ? (
-                <p className="text-body-sm text-error" role="alert">
-                  {operationError}
-                </p>
-              ) : null}
+              {operationError !== null ? <InlineAlert message={operationError} /> : null}
               {canApply ? (
                 <Button
                   className="image-edit-primary-action"

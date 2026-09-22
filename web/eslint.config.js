@@ -19,9 +19,9 @@ const LUCIDE_DEEP = ['lucide-react/*']
 
 const RADIX_LOCK = {
   name: 'radix-ui',
-  importNames: ['Dialog', 'DropdownMenu', 'Popover', 'ToggleGroup'],
+  importNames: ['Dialog', 'DropdownMenu', 'Popover', 'ToggleGroup', 'Tooltip'],
   message:
-    '这些 primitive 已有契约组件：Dialog → @/shared/ui/dialog，DropdownMenu → @/shared/ui/menu，ToggleGroup → @/shared/ui/chip，Popover → @/shared/ui/popup',
+    '这些 primitive 已有契约组件：Dialog → @/shared/ui/dialog，DropdownMenu → @/shared/ui/menu，ToggleGroup → @/shared/ui/chip，Popover → @/shared/ui/popup，Tooltip → @/shared/ui/tooltip',
 }
 
 // 语法级禁令（no-restricted-syntax 同名规则整块覆盖，所以各处按需拼这几条）

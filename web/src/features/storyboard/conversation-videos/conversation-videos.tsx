@@ -1,6 +1,7 @@
 import { useRef, useState, type RefObject } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { Button, IconButton } from '@/shared/ui/button'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 import { GenerationDownload } from '../components/generation-download'
 import { useConversationVideos } from './conversation-videos.api'
@@ -157,20 +158,17 @@ function VideoPlayer({ label, ref, url }: VideoPlayerProps) {
         src={url}
       />
       {failed ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface-container p-4">
-          <p className="text-body-sm text-on-surface-muted" role="alert">
-            视频加载失败
-          </p>
-          <Button
-            onClick={() => {
+        <div
+          className="absolute inset-0 grid place-items-center bg-surface-container p-4"
+          role="alert"
+        >
+          <MediaFallback
+            kind="video"
+            onRetry={() => {
               setFailed(false)
               ref.current?.load()
             }}
-            size="md"
-            variant="tonal"
-          >
-            重试播放
-          </Button>
+          />
         </div>
       ) : null}
     </div>

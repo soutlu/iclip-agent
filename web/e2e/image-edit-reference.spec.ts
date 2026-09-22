@@ -94,7 +94,7 @@ for (const width of [1600, 390]) {
         path: `../.artifacts/design-qa/frame-image-editor/pending-${width}-${colorScheme}.png`,
       })
 
-      await history.getByRole('button', { name: /^失败 · / }).click()
+      await history.getByRole('button', { name: /^生成失败 · / }).click()
       const details = dialog.getByText('查看详情', { exact: true })
       await details.focus()
       await expect(details).toBeFocused()

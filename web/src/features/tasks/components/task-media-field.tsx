@@ -4,6 +4,7 @@ import { Icon } from '@/shared/icons'
 import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { videoSnapshotUrl } from '@/shared/lib/media-url'
 import { cn } from '@/shared/lib/utils'
+import { MediaFallback } from '@/shared/ui/media-fallback'
 import { MediaLightbox, type LightboxMedia } from '@/shared/ui/media-lightbox'
 
 type TaskMediaFieldProps = {
@@ -325,9 +326,12 @@ export function TaskVideoPreview({
         </span>
       </span>
       {failed ? (
-        <span className="absolute right-2 bottom-2 left-2 rounded-xs bg-scrim/60 px-2 py-1 text-caption text-on-scrim">
-          视频暂时无法加载，点击打开预览
-        </span>
+        <MediaFallback
+          className="absolute right-2 bottom-2 left-2 rounded-xs bg-scrim/60 px-2 py-1 text-on-scrim"
+          compact
+          hint="点击打开预览"
+          kind="video"
+        />
       ) : durationLabel ? (
         <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-xs bg-scrim/60 px-2 py-0.5 text-caption text-on-scrim">
           {durationLabel}

@@ -139,7 +139,7 @@ describe('ConversationsRoute', () => {
     expect(await within(theirs).findByText('小王')).toBeVisible()
     expect(theirs).toHaveTextContent('秋季新品')
     expect(await rowOf('我的片')).toHaveTextContent('测试用户')
-    expect(await rowOf('跑完的片')).toHaveTextContent('最近一轮已结束')
+    expect(await rowOf('跑完的片')).toHaveTextContent('已完成')
     expect(await rowOf('跑完的片')).toHaveTextContent('属主已收尾')
     expectTotals(1, 3)
   })
@@ -162,7 +162,7 @@ describe('ConversationsRoute', () => {
     const row = await rowOf('小王的秋季片')
     expect(row).toHaveTextContent('未填写创作要求')
     fireEvent.error(within(row).getByRole('img', { name: '秋季新品的需求素材' }))
-    expect(row).toHaveTextContent('图片不可用')
+    expect(row).toHaveTextContent('图片加载失败')
     expect(row).toHaveAttribute('href', expect.stringContaining('/c/'))
   })
 

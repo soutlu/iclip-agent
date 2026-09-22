@@ -8,7 +8,7 @@ import {
 import { ConversationVideos } from '@/features/storyboard'
 import { useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
-import { Button } from '@/shared/ui/button'
+import { InlineAlert } from '@/shared/ui/inline-alert'
 import { StatusBadge } from '@/shared/ui/status-badge'
 
 /** 需求单、对话与出片的组合放在路由层，各 feature 保持自己的查询与展示边界。 */
@@ -53,14 +53,11 @@ function RelatedConversations({
         </p>
       )}
       {query.isError && (
-        <div className="flex flex-wrap items-center gap-2 py-3">
-          <p className="text-body-sm text-error" role="alert">
-            {query.data ? '关联对话刷新失败' : '关联对话加载失败'}
-          </p>
-          <Button variant="ghost" size="md" onClick={() => void query.refetch()}>
-            重试
-          </Button>
-        </div>
+        <InlineAlert
+          action={{ label: '重试', onClick: () => void query.refetch() }}
+          className="py-3"
+          message={query.data ? '关联对话刷新失败' : '关联对话加载失败'}
+        />
       )}
       {!query.isError && query.data?.length === 0 && (
         <p className="py-6 text-body-sm text-on-surface-variant">

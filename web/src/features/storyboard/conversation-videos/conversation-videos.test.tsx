@@ -121,7 +121,7 @@ describe('ConversationVideos', () => {
 
     expect(screen.getByRole('alert')).toBeVisible()
     expect(video).not.toBeVisible()
-    await userEvent.click(screen.getByRole('button', { name: '重试播放' }))
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(load).toHaveBeenCalledOnce()
     expect(load.mock.instances[0]).toBe(video)
     expect(video).toHaveAttribute('src', job(2).outputUrl)
