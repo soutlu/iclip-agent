@@ -232,11 +232,13 @@ def _install_hup_reload(agent_layer: CurrentAgentLayer) -> bool:
     return True
 
 
-def _require_ffmpeg(enabled: bool) -> None:
-    """启动时验证 ffmpeg 与 ffprobe，避免已启用的抽帧工具在调用时才暴露部署缺失。"""
+def _require_ffmpeg(required: bool) -> None:
+    """启动时验证 ffmpeg 与 ffprobe，避免用得上它的功能在调用时才暴露部署缺失。"""
 
-    if enabled and not ffmpeg_available():
-        raise RuntimeError("启用了取帧与出图但 PATH 上找不到 ffmpeg/ffprobe：抽帧与切格都要用它")
+    if required and not ffmpeg_available():
+        raise RuntimeError(
+            "PATH 上找不到 ffmpeg/ffprobe：取帧与出图要用它抽帧切格，视频裁剪拼接要用它切段合成"
+        )
 
 
 def _product_catalog_engine(
@@ -360,7 +362,7 @@ def build_app(
     )
     # 素材、生成与镜头能力依赖同一对象存储，先完成装配。
     public_objects = _object_store(settings.object_store, object_store)
-    _require_ffmpeg(settings.shot_tools_enabled)
+    _require_ffmpeg(settings.ffmpeg_required)
     if settings.shot_tools_missing:
         # 声明了 shot_video 的 Agent 会在解析能力名时报错，这里先点名缺什么。
         _logger.warning(

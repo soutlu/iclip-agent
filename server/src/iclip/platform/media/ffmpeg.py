@@ -341,12 +341,16 @@ async def run(args: list[str], *, timeout: float) -> bytes:
     """执行子进程并返回 stdout；超时先 kill 再 wait。"""
 
     # 禁止读取终端输入，避免后台进程组收到 SIGTTIN 后连同后端一起暂停。
-    process = await asyncio.create_subprocess_exec(
-        *args,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        # 部署缺二进制不能让裸 FileNotFoundError 逃出队列，调用方只认 MediaError。
+        raise MediaError(f"PATH 上找不到 {args[0]}") from None
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
     except TimeoutError:
