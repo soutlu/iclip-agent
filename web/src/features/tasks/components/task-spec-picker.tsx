@@ -1,3 +1,8 @@
+/**
+ * 出片参数的下拉：允许自由输入、按 value 匹配已有选项、弹层自己锚在输入框上。
+ * 这三条和 shared/ui/search-list 的「按 id 选一个候选」不是一回事，所以不并进去。
+ */
+
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { Icon } from '@/shared/icons'
 import { cn } from '@/shared/lib/utils'

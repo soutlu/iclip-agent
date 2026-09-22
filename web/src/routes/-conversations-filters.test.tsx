@@ -45,7 +45,7 @@ afterEach(() => {
 })
 
 describe('全部对话的需求单预览', () => {
-  it('列表中的需求单直接展示创作要求与商品图，历史需求单只补取一次', async () => {
+  it('列表中的需求单直接展示创作要求与商品图，只有参考图的没有缩略图，历史需求单只补取一次', async () => {
     signedInAsGovernor()
     const recent = addMockTask('夏季上新')
     recent.inputs.creative_requirement = '用自然光展示亚麻衬衫的质感'
@@ -76,10 +76,12 @@ describe('全部对话的需求单预览', () => {
       'src',
       'https://example.com/shirt.jpg',
     )
+    // 缩略图只认商品图：这张需求单只有参考图，列表行就不放图。
     for (const title of ['外套尝试一', '外套尝试二']) {
       const row = await screen.findByRole('link', { name: new RegExp(title) })
       expect(await within(row).findByText(historical.inputs.creative_requirement)).toBeVisible()
-      expect(within(row).getByRole('img')).toHaveAttribute('src', 'https://example.com/outfit.jpg')
+      expect(within(row).queryByRole('img')).toBeNull()
+      expect(within(row).getByText('暂无图片')).toBeVisible()
     }
     expect(detailRequests).toEqual([historical.id])
   })

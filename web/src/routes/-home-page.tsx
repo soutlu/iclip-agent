@@ -8,7 +8,7 @@ import {
   useStartConversation,
 } from '@/features/conversations'
 import { HomeRoute } from '@/features/home'
-import { useUser } from '@/shared/auth'
+import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import type { ComposerSubmission } from '@/shared/ui/composer'
 import { InlineAlert } from '@/shared/ui/inline-alert'
@@ -28,9 +28,9 @@ export function HomePage() {
     id: string | null
   } | null>(null)
   const [newCollectionName, setNewCollectionName] = useState<string | null>(null)
-  const canRun = user?.permissions.includes('agent:run') ?? false
-  const canReadCollections = user?.permissions.includes('collections:read') ?? false
-  const canWriteCollections = user?.permissions.includes('collections:write') ?? false
+  const canRun = hasPermission(user, PERMISSION.agentRun)
+  const canReadCollections = hasPermission(user, PERMISSION.collectionsRead)
+  const canWriteCollections = hasPermission(user, PERMISSION.collectionsWrite)
   const agents = useConversationAgents(canRun)
   const collectionsQuery = useCollections(canReadCollections)
   const collections = collectionsQuery.data ?? []
@@ -120,7 +120,7 @@ export function HomePage() {
             </MenuSurface>
           </MenuRoot>
         }
-        attachmentsEnabled={user?.permissions.includes('uploads:write') ?? false}
+        attachmentsEnabled={hasPermission(user, PERMISSION.uploadsWrite)}
         collectionPicker={
           <CollectionPicker
             disabled={!canReadCollections || start.isPending}

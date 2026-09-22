@@ -48,9 +48,10 @@ describe('fetchTaskConversations', () => {
     )
 
     await expect(fetchTaskConversations(TASK_ID, true, signal())).resolves.toEqual([first, second])
+    // state 与列表页共用一个构造器，取的是接口默认的 all。
     expect(requests.map((params) => Object.fromEntries(params))).toEqual([
-      { taskId: TASK_ID, deleted: 'live', limit: '100' },
-      { taskId: TASK_ID, deleted: 'live', limit: '100', cursor: nextCursor },
+      { taskId: TASK_ID, deleted: 'live', limit: '100', state: 'all' },
+      { taskId: TASK_ID, deleted: 'live', limit: '100', state: 'all', cursor: nextCursor },
     ])
   })
 

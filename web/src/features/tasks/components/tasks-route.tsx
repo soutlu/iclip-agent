@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useId, useState, type ReactNode } from 'react'
-import { useUser } from '@/shared/auth'
+import { hasPermission, PERMISSION, useUser } from '@/shared/auth'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/field'
 import type { TaskCreationDraft } from '../task-creation'
@@ -47,7 +47,7 @@ export function TasksRoute({ onStartCreation, relatedContent }: TasksRouteProps 
   const visibleMine = searching || myTasksExpanded ? mine : mine.slice(0, 3)
 
   // 重命名需要 tasks:write，且撤回后的需求单不可编辑。
-  const canWrite = Boolean(user?.permissions.includes('tasks:write'))
+  const canWrite = hasPermission(user, PERMISSION.tasksWrite)
   const renameProps = (task: Task) =>
     canWrite && task.status !== 'withdrawn'
       ? { onRename: () => setRename({ open: true, task }) }

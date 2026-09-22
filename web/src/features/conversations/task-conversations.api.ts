@@ -1,7 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/shared/api/client'
 import { zConversationsAuditOut, zConversationsPageOut } from '@/shared/api/generated/zod.gen'
+import { auditSearchParams, DEFAULT_AUDIT_FILTERS } from './audit.api'
 import { conversationsQueryKeys, type Conversation } from './conversations.api'
+
+/** 关联对话要的是这张需求单下所有还在的对话，一次多取一些少翻几页。 */
+const TASK_PAGE_LIMIT = 100
 
 /** 普通用户读取自己的创作尝试；治理者逐页读取需求单下未删除的全部对话。 */
 export const fetchTaskConversations = async (
@@ -23,11 +27,16 @@ export const fetchTaskConversations = async (
     return page.items
   }
 
-  const params = new URLSearchParams({ taskId, deleted: 'live', limit: '100' })
+  const filters = {
+    ...DEFAULT_AUDIT_FILTERS,
+    deleted: 'live' as const,
+    range: 'all' as const,
+    taskId,
+  }
   const conversations: Conversation[] = []
   let cursor: string | null = null
   do {
-    if (cursor !== null) params.set('cursor', cursor)
+    const params = auditSearchParams(filters, cursor, { limit: TASK_PAGE_LIMIT })
     const page = await apiFetch(
       `/conversations/audit?${params.toString()}`,
       zConversationsAuditOut,
