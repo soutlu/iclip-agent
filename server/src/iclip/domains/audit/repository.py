@@ -6,48 +6,50 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from iclip.domains.audit.models import (
-    Anomaly,
     AnomalyCursor,
     AnomalyKind,
-    AttemptBucket,
     Bucket,
     ConversationCursor,
-    ConversationReport,
-    Metrics,
-    PeriodMetrics,
     Scope,
-    TaskMetrics,
     Thresholds,
-    UserMetrics,
+)
+from iclip.domains.audit.schemas import (
+    AnomalyOut,
+    AttemptBucketOut,
+    ConversationAuditOut,
+    MetricsOut,
+    PeriodMetricsOut,
+    TaskMetricsOut,
+    UserMetricsOut,
 )
 
 
 class AuditReports(Protocol):
-    async def overall(self, scope: Scope) -> Metrics:
+    async def overall(self, scope: Scope) -> MetricsOut:
         """整个筛选范围一格。"""
         ...
 
-    async def by_user(self, scope: Scope) -> Sequence[UserMetrics]:
+    async def by_user(self, scope: Scope) -> Sequence[UserMetricsOut]:
         """每个有动静的人一行，成片件数多的排前面。"""
         ...
 
-    async def by_task(self, scope: Scope) -> Sequence[TaskMetrics]:
+    async def by_task(self, scope: Scope) -> Sequence[TaskMetricsOut]:
         """每张有动静的需求单一行；没挂需求单的对话不在这里。"""
         ...
 
     async def by_period(
         self, scope: Scope, *, bucket: Bucket, timezone: str
-    ) -> Sequence[PeriodMetrics]:
+    ) -> Sequence[PeriodMetricsOut]:
         """按 ``timezone`` 的日 / 周 / 月切时段，每段一行，早的排前面。"""
         ...
 
-    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucket]:
+    async def attempt_distribution(self, scope: Scope) -> Sequence[AttemptBucketOut]:
         """出片次数分布，次数少的排前面；时间窗作用在该镜首次出片时刻上。不封顶。"""
         ...
 
     async def conversations(
         self, scope: Scope, *, limit: int, after: ConversationCursor | None
-    ) -> Sequence[ConversationReport]:
+    ) -> Sequence[ConversationAuditOut]:
         """有成片的对话，最后成片晚的排前面；时间窗作用在最后成片时刻上。"""
         ...
 
@@ -59,7 +61,7 @@ class AuditReports(Protocol):
         kinds: Sequence[AnomalyKind] | None,
         limit: int,
         after: AnomalyCursor | None,
-    ) -> Sequence[Anomaly]:
+    ) -> Sequence[AnomalyOut]:
         """异常按发生时刻倒序；``kinds`` 为 ``None`` 时全部种类都要。"""
         ...
 

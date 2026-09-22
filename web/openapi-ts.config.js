@@ -8,4 +8,7 @@ export default defineConfig({
     postProcess: ['prettier'],
   },
   plugins: ['@hey-api/typescript', 'zod'],
+  // 合同里 readOnly 只标记服务端派生的只读字段（audit 的比率），本系统没有请求体与响应体
+  // 同名不同形的模型，不按读写拆成两套类型。
+  parser: { transforms: { readWrite: false } },
 })
