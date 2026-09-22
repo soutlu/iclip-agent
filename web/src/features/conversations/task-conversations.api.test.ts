@@ -3,7 +3,8 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { addMockConversation } from '@/testing/mocks/handlers'
 import { server } from '@/testing/mocks/server'
-import { fetchTaskConversations } from './task-conversations.api'
+import type { Conversation } from './conversations.api'
+import { fetchTaskConversations, taskConversationsRefetchInterval } from './task-conversations.api'
 
 const TASK_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const signal = () => new AbortController().signal
@@ -114,5 +115,41 @@ describe('fetchTaskConversations', () => {
 
     await rejection
     expect(pendingRequest?.signal.aborted).toBe(true)
+  })
+})
+
+const conversationWith = (activity: Partial<Conversation['activity']>): Conversation => {
+  const row = addMockConversation('关联对话')
+  return { ...row, activity: { ...row.activity, ...activity } }
+}
+
+describe('taskConversationsRefetchInterval', () => {
+  it.each([
+    ['对话在跑', { busy: true }],
+    ['出片排队中', { videoGeneration: 'queued' as const }],
+    ['出片生成中', { videoGeneration: 'running' as const }],
+  ])('%s 时每五秒兜底刷新', (_label, activity) => {
+    expect(
+      taskConversationsRefetchInterval([
+        conversationWith({ busy: false, lastTurnReason: 'completed' }),
+        conversationWith(activity),
+      ]),
+    ).toBe(5000)
+  })
+
+  it('全部对话都闲着时停止轮询', () => {
+    expect(
+      taskConversationsRefetchInterval([
+        conversationWith({ busy: false, lastTurnReason: 'completed' }),
+        conversationWith({ busy: false, lastTurnReason: 'failed', pendingInteraction: 'approval' }),
+      ]),
+    ).toBe(false)
+  })
+
+  it.each([
+    ['还没读到结果', undefined],
+    ['一个对话都没有', []],
+  ])('%s 时不轮询', (_label, conversations) => {
+    expect(taskConversationsRefetchInterval(conversations)).toBe(false)
   })
 })

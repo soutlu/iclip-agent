@@ -125,18 +125,21 @@ describe('ConversationVideos', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('挂载时每五秒发现新结果并默认选择最新版本，卸载后停止轮询', async () => {
+  it('有在途任务时每五秒发现新结果并默认选择最新版本，全部落地后停止轮询', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     let reads = 0
     server.use(
       http.get('*/api/generations', () => {
         reads += 1
-        return HttpResponse.json({ items: reads === 1 ? [job(1)] : [job(1), job(2)] })
+        return HttpResponse.json({
+          items:
+            reads === 1
+              ? [job(1), job(9, { status: 'submitted', outputUrl: null })]
+              : [job(1), job(2)],
+        })
       }),
     )
-    const { unmount } = await renderWithProviders(
-      <ConversationVideos conversationId={conversationId} />,
-    )
+    await renderWithProviders(<ConversationVideos conversationId={conversationId} />)
     expect(await screen.findByLabelText('镜头组 1视频')).toHaveAttribute('src', job(1).outputUrl)
 
     await act(() => vi.advanceTimersByTime(5000))
@@ -144,7 +147,8 @@ describe('ConversationVideos', () => {
     await screen.findByRole('button', { name: '镜头组 1 V2' })
     expect(screen.getByLabelText('镜头组 1视频')).toHaveAttribute('src', job(2).outputUrl)
     expect(reads).toBe(2)
-    unmount()
+
+    // 这一轮起没有在途任务，不再空转。
     await act(() => vi.advanceTimersByTime(5000))
     expect(reads).toBe(2)
   })

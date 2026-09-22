@@ -3,8 +3,17 @@
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { use, useEffect } from 'react'
 import { useUser } from '@/shared/auth'
+import type { SessionUpdate } from '@/shared/transcript/connection'
 import { TranscriptConnectionContext } from '@/shared/transcript/transcript-context'
 import { conversationsQueryKeys, type Conversation } from './conversations.api'
+
+/**
+ * 全部对话页的重拉窗口。
+ *
+ * 治理者收全平台的帧，而这是个无限查询：一次失效要顺序重拉所有已展开的分页，每页后端还跑两条 COUNT。
+ * 窗口尾随而不是每帧重置，持续的帧流下也能按时重拉一次。
+ */
+const AUDIT_REFRESH_WINDOW_MS = 1000
 
 /** 活动帧只带轮次那三件事实，视频出片的一项保留行上原值，由重拉刷新。 */
 type ActivityPatch = Omit<Conversation['activity'], 'videoGeneration'>
@@ -21,12 +30,23 @@ export const useLiveConversations = (enabled = true): void => {
 
   useEffect(() => {
     if (!enabled) return
-    return connection.watchSessions((update) => {
+
+    let auditTimer: ReturnType<typeof setTimeout> | undefined
+    // 三条路共用一个出口：立刻失效与窗口到期的失效撞在一起会互相取消已发出的重拉。
+    const refreshAuditSoon = () => {
+      if (auditTimer !== undefined) return
+      auditTimer = setTimeout(() => {
+        auditTimer = undefined
+        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.auditAll })
+      }, AUDIT_REFRESH_WINDOW_MS)
+    }
+
+    const stop = connection.watchSessions((update) => {
       if (update.kind === 'reconnected') {
         // 全局帧不支持补发；重连后丢弃额外分页并刷新拓扑与全部对话页，恢复一致状态。
         queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
         void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
-        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.auditAll })
+        refreshAuditSoon()
         return
       }
       if (update.kind === 'generation') {
@@ -46,9 +66,12 @@ export const useLiveConversations = (enabled = true): void => {
         // 与收场重拉同一套：丢掉额外分页，只重拉拓扑与全部对话页，不让每个已展开分页各自再请求一次。
         queryClient.removeQueries({ queryKey: conversationsQueryKeys.moreAll })
         void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.sidebar() })
-        void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.auditAll })
+        refreshAuditSoon()
         return
       }
+
+      // 补丁会盖掉行上的旧值，先按缓存里的行判断这一帧值不值得重拉。
+      if (update.kind === 'activity' && needsAuditRefresh(queryClient, update)) refreshAuditSoon()
 
       const patch: RowPatch =
         update.kind === 'title'
@@ -65,9 +88,6 @@ export const useLiveConversations = (enabled = true): void => {
       )
 
       if (update.kind !== 'activity') return
-
-      // 全部对话页的筛选归属与两个总数都由服务端重算；不在缓存里的新对话也靠这次重拉出现。
-      void queryClient.invalidateQueries({ queryKey: conversationsQueryKeys.auditAll })
 
       // 别人的对话不在自己的侧栏里，不为它重拉拓扑；认不出属主的按自己的处理。
       const owner = ownerOf(queryClient, update.conversationId)
@@ -86,7 +106,38 @@ export const useLiveConversations = (enabled = true): void => {
         predicate: (query) => filtered(query.queryKey, 'sidebar'),
       })
     })
+
+    return () => {
+      if (auditTimer !== undefined) clearTimeout(auditTimer)
+      stop()
+    }
   }, [connection, enabled, queryClient, userId])
+}
+
+/**
+ * 全部对话页的筛选归属与两个总数都由服务端重算，值得为这几种帧重拉：
+ * 这段对话在 audit 缓存里还不存在（新对话靠重拉出现）、忙闲相对缓存翻转了、或这一帧是收尾。
+ * 只有待办变化的帧行上补丁就够了。
+ */
+const needsAuditRefresh = (
+  queryClient: QueryClient,
+  update: Extract<SessionUpdate, { kind: 'activity' }>,
+): boolean => {
+  const cached = auditRowOf(queryClient, update.conversationId)
+  if (cached === undefined) return true
+  if (cached.activity.busy !== update.busy) return true
+  return !update.busy && update.lastTurnReason === 'completed'
+}
+
+/** 只在全部对话页的缓存里找；侧栏有、这里没有，正是要靠重拉才出现的那种。 */
+const auditRowOf = (queryClient: QueryClient, conversationId: string): Conversation | undefined => {
+  for (const [, data] of queryClient.getQueriesData({
+    queryKey: conversationsQueryKeys.auditAll,
+  })) {
+    const row = findConversation(data, conversationId)
+    if (row !== undefined) return row
+  }
+  return undefined
 }
 
 const filtered = (queryKey: readonly unknown[], bucket: 'more' | 'sidebar') =>

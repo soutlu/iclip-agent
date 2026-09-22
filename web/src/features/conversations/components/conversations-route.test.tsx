@@ -82,7 +82,11 @@ const render = async (tasks: readonly { id: string; label: string }[] = []) => {
   return { ...rendered, user }
 }
 
-const rowOf = (title: string) => screen.findByRole('link', { name: new RegExp(title) })
+/** 等全局帧引起的重拉时放宽超时：那一路带一秒的去抖窗口（见 conversations.live.ts）。 */
+const AUDIT_REFRESH_TIMEOUT = { timeout: 3000 }
+
+const rowOf = (title: string, options?: { timeout: number }) =>
+  screen.findByRole('link', { name: new RegExp(title) }, options)
 
 const expectTotals = (running: number, total: number) => {
   const totals = screen.getByRole('status', { name: '对话总数' })
@@ -367,14 +371,14 @@ describe('ConversationsRoute', () => {
     await waitFor(() =>
       expect(screen.getByRole('link', { name: /小王的秋季片/ })).toHaveTextContent('进行中'),
     )
-    await waitFor(() => expectTotals(1, 1))
+    await waitFor(() => expectTotals(1, 1), AUDIT_REFRESH_TIMEOUT)
 
     const fresh = addMockConversation('刚开的片')
     fresh.ownerUserId = other.id
     fresh.activity = RUNNING
     socket.deliver(workChanged(fresh.id, { busy: true }))
-    expect(await rowOf('刚开的片')).toHaveTextContent('进行中')
-    await waitFor(() => expectTotals(2, 2))
+    expect(await rowOf('刚开的片', AUDIT_REFRESH_TIMEOUT)).toHaveTextContent('进行中')
+    await waitFor(() => expectTotals(2, 2), AUDIT_REFRESH_TIMEOUT)
   })
 
   it('一页五十段，展开加载剩余对话后移除分页入口', async () => {
