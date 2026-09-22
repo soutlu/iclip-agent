@@ -531,6 +531,24 @@ async def test_list_can_be_filtered_by_conversation_and_by_task() -> None:
     assert len(everything.json()["items"]) == 3, "别人的那条筛不出来，也列不出来"
 
 
+async def test_list_can_be_filtered_by_root_job() -> None:
+    """一条出片名下的衍生记录就是它的编辑链，按原作号一次筛出。"""
+
+    owner_id = uuid.uuid4()
+    root = make_job(video_request(), owner_user_id=owner_id, status=STATUS_COMPLETED)
+    other_root = make_job(video_request(), owner_user_id=owner_id, status=STATUS_COMPLETED)
+    on_chain = make_job(clip_request(root_job_id=root.id), owner_user_id=owner_id)
+    elsewhere = make_job(clip_request(root_job_id=other_root.id), owner_user_id=owner_id)
+    repo = InMemoryGenerationRepository([root, other_root, on_chain, elsewhere])
+
+    owner = principal("generation:read", user_id=owner_id)
+    async with client(build_test_app(repo, granted=owner)) as http:
+        response = await http.get(f"/generations?rootJobId={root.id}")
+
+    (item,) = response.json()["items"]
+    assert (item["id"], item["rootJobId"]) == (str(on_chain.id), str(root.id))
+
+
 async def test_list_rejects_out_of_range_limit() -> None:
     app = build_test_app(InMemoryGenerationRepository(), granted=principal("generation:read"))
     async with client(app) as http:
@@ -804,6 +822,32 @@ MASTER_BODY = {
 }
 
 
+def seed_root(
+    repo: InMemoryGenerationRepository,
+    *,
+    owner: uuid.UUID,
+    conversation: uuid.UUID | None = None,
+) -> GenerationJob:
+    """先放一条已出片的独立记录进去当原作：衍生记录只能挂在它上面。"""
+
+    root = make_job(
+        video_request(),
+        status=STATUS_COMPLETED,
+        owner_user_id=owner,
+        conversation_id=conversation,
+        output_url="https://example.com/root.mp4",
+    )
+    repo.jobs[root.id] = root
+    return root
+
+
+def only_derivative(repo: InMemoryGenerationRepository) -> GenerationJob:
+    """仓储里除原作之外刚受理的那一条。"""
+
+    (job,) = [job for job in repo.jobs.values() if job.root_job_id is not None]
+    return job
+
+
 @pytest.mark.parametrize(
     ("body", "purpose"),
     [(CLIP_BODY, "reference"), (MASTER_BODY, "master")],
@@ -813,53 +857,128 @@ async def test_clip_submit_accepts_and_persists_pending_without_calling_ffmpeg(
     body: Mapping[str, object], purpose: str
 ) -> None:
     repo = InMemoryGenerationRepository()
-    app = build_test_app(repo, granted=principal("generation:submit"))
+    owner = uuid.uuid4()
+    root = seed_root(repo, owner=owner)
+    app = build_test_app(repo, granted=principal("generation:submit", user_id=owner))
     async with client(app) as http:
-        response = await http.post("/generations/clips", json=dict(body))
+        response = await http.post("/generations/clips", json={**body, "rootJobId": str(root.id)})
 
     assert response.status_code == 202, response.text
-    stored = only_job(repo)
+    stored = only_derivative(repo)
     assert (stored.status, stored.kind, stored.provider) == (STATUS_PENDING, "clip", "ffmpeg")
+    assert stored.root_job_id == root.id
     payload = stored.request.model_dump()
     assert payload["purpose"] == purpose
     assert len(payload["segments"]) == len(body["segments"])  # type: ignore[arg-type]
-    assert response.json()["generation"]["outputUrl"] is None, "受理时还没加工"
+    generation = response.json()["generation"]
+    assert generation["outputUrl"] is None, "受理时还没加工"
+    assert generation["rootJobId"] == str(root.id)
 
 
-async def test_clip_submit_keeps_coordinates_out_of_the_request_payload() -> None:
+async def test_clip_submit_keeps_origin_fields_out_of_the_request_payload() -> None:
     repo = InMemoryGenerationRepository()
-    conversation = uuid.uuid4()
-    app = build_test_app(repo, granted=principal("generation:submit"))
+    owner, conversation = uuid.uuid4(), uuid.uuid4()
+    root = seed_root(repo, owner=owner, conversation=conversation)
+    app = build_test_app(repo, granted=principal("generation:submit", user_id=owner))
     async with client(app) as http:
         response = await http.post(
             "/generations/clips",
             json={
                 **CLIP_BODY,
                 "conversationId": str(conversation),
-                "metadata": {"path": "video_shot.json", "shot": 2, "rootJob": "abc"},
+                "rootJobId": str(root.id),
+                "metadata": {"editId": "e1", "editStart": 4},
             },
         )
 
     assert response.status_code == 202, response.text
-    stored = only_job(repo)
+    stored = only_derivative(repo)
     assert stored.conversation_id == conversation
-    assert stored.metadata == {"path": "video_shot.json", "shot": 2, "rootJob": "abc"}
+    assert stored.root_job_id == root.id
+    assert stored.metadata == {"editId": "e1", "editStart": 4}
     persisted = request_to_payload(stored.request)
-    assert "metadata" not in persisted and "conversationId" not in persisted, (
-        "坐标与归属落自己的列，不进 request JSON"
+    assert not {"metadata", "conversationId", "rootJobId"} & persisted.keys(), (
+        "坐标、归属与原作号落自己的列，不进 request JSON"
     )
+
+
+async def test_clip_submit_requires_a_root_job() -> None:
+    """本地加工的产物一律是衍生记录，不带原作号的请求在形状上就拒掉。"""
+
+    repo = InMemoryGenerationRepository()
+    app = build_test_app(repo, granted=principal("generation:submit"))
+    async with client(app) as http:
+        response = await http.post("/generations/clips", json=CLIP_BODY)
+
+    assert response.status_code == 422, response.text
+    assert repo.jobs == {}
+
+
+@pytest.mark.parametrize("flaw", ["不存在", "别人的", "别的对话", "本身是衍生记录"])
+async def test_root_job_must_be_a_visible_independent_record_in_the_same_conversation(
+    flaw: str,
+) -> None:
+    """三种不满足给同一句 422，不区分不存在与不可见；链因此只有一层。"""
+
+    repo = InMemoryGenerationRepository()
+    owner, conversation = uuid.uuid4(), uuid.uuid4()
+    if flaw == "不存在":
+        root_id = uuid.uuid4()
+    elif flaw == "别人的":
+        root_id = seed_root(repo, owner=uuid.uuid4(), conversation=conversation).id
+    elif flaw == "别的对话":
+        root_id = seed_root(repo, owner=owner, conversation=uuid.uuid4()).id
+    else:
+        root = seed_root(repo, owner=owner, conversation=conversation)
+        derivative = make_job(
+            clip_request(root_job_id=root.id),
+            status=STATUS_COMPLETED,
+            owner_user_id=owner,
+            conversation_id=conversation,
+        )
+        repo.jobs[derivative.id] = derivative
+        root_id = derivative.id
+    seeded = set(repo.jobs)
+    app = build_test_app(repo, granted=principal("generation:submit", user_id=owner))
+    async with client(app) as http:
+        response = await http.post(
+            "/generations/clips",
+            json={**CLIP_BODY, "conversationId": str(conversation), "rootJobId": str(root_id)},
+        )
+
+    assert response.status_code == 422, response.text
+    assert "独立记录" in response.json()["detail"]
+    assert set(repo.jobs) == seeded, "拒绝发生在落库之前"
+
+
+async def test_video_submit_marks_an_edit_result_with_its_root_job() -> None:
+    repo = InMemoryGenerationRepository()
+    owner, conversation = uuid.uuid4(), uuid.uuid4()
+    root = seed_root(repo, owner=owner, conversation=conversation)
+    app = build_test_app(repo, granted=principal("generation:submit", user_id=owner))
+    async with client(app) as http:
+        response = await http.post(
+            "/generations/video",
+            json={**VIDEO_BODY, "conversation_id": str(conversation), "root_job_id": str(root.id)},
+        )
+
+    assert response.status_code == 202, response.text
+    stored = only_derivative(repo)
+    assert (stored.kind, stored.root_job_id) == ("video", root.id)
+    assert "root_job_id" not in request_to_payload(stored.request)
 
 
 async def test_submit_clears_the_conversation_completion_flag() -> None:
     """在一段对话里又出片就是又开工了，属主标的收尾标记不该留着（ADR-0031）。"""
 
     repo = InMemoryGenerationRepository()
-    conversation = uuid.uuid4()
-    owner = uuid.uuid4()
+    owner, conversation = uuid.uuid4(), uuid.uuid4()
+    root = seed_root(repo, owner=owner, conversation=conversation)
     app = build_test_app(repo, granted=principal("generation:submit", user_id=owner))
     async with client(app) as http:
         response = await http.post(
-            "/generations/clips", json={**CLIP_BODY, "conversationId": str(conversation)}
+            "/generations/clips",
+            json={**CLIP_BODY, "conversationId": str(conversation), "rootJobId": str(root.id)},
         )
 
     assert response.status_code == 202, response.text
@@ -868,9 +987,13 @@ async def test_submit_clears_the_conversation_completion_flag() -> None:
 
 async def test_submit_without_a_conversation_does_not_call_back() -> None:
     repo = InMemoryGenerationRepository()
-    app = build_test_app(repo, granted=principal("generation:submit"))
+    owner = uuid.uuid4()
+    root = seed_root(repo, owner=owner)
+    app = build_test_app(repo, granted=principal("generation:submit", user_id=owner))
     async with client(app) as http:
-        response = await http.post("/generations/clips", json=CLIP_BODY)
+        response = await http.post(
+            "/generations/clips", json={**CLIP_BODY, "rootJobId": str(root.id)}
+        )
 
     assert response.status_code == 202, response.text
     assert app.state.cleared_completions.calls == []

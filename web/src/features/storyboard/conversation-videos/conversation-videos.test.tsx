@@ -19,6 +19,7 @@ const job = (index: number, overrides: Partial<GenerationJob> = {}): GenerationJ
   metadata: { shot: 1 },
   request: {},
   taskId: null,
+  rootJobId: null,
   errorMessage: null,
   clipStage: null,
   durationMs: null,

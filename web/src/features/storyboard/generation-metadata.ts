@@ -1,4 +1,5 @@
-/** 分镜页写进生成任务 `metadata` 的坐标；服务端只存不读，形状在这里定义并校验（ADR-0020）。 */
+/** 分镜页写进生成任务 `metadata` 的坐标；形状在这里定义并校验（ADR-0020）。
+ * 服务端只认其中的 `shot`（审计按它数镜），其余键只有本页读写。 */
 
 import { z } from 'zod'
 
@@ -33,14 +34,13 @@ export const readStoryboardMetadata = (job: {
   return parsed.success ? parsed.data : undefined
 }
 
-/** 视频编辑链的坐标。三条记录（参考片段、编辑结果、成片）共用同一组键，靠 `editId` 串成一次编辑。
+/** 视频编辑链的坐标。三条记录（参考片段、编辑结果、成片）共用同一组键，靠 `editId` 串成一次编辑；
+ * 它们属于哪条出片不在便签上，在记录的 `rootJobId` 里，链查询也按它筛。
  *
  * 不带 `shot`：编辑结果不是这一镜的出片，抽屉与审计都不该把它算进去。
  * `editStart` 在编辑结果与成片上记的是实际值——参考片段按关键帧切，起点会落在用户选的位置之前，
  * 提交编辑任务那一刻按片段实际时长反算出来写进去；合成只读它，不回头碰会过期的参考片段。 */
 const videoEditMetadataSchema = z.object({
-  /** 编辑链的根：最初那条出片记录。链查询按它筛。 */
-  rootJob: z.string().min(1),
   /** 这次编辑基于哪条完整视频（根或某条成片）。 */
   baseJob: z.string().min(1),
   editId: z.string().min(1),
@@ -58,6 +58,5 @@ export const readVideoEditMetadata = (job: {
 }
 
 /** 列表接口的 `metadata` 查询参数：一段 JSON 对象，服务端按包含匹配筛。 */
-export const metadataFilterParam = (
-  filter: Partial<StoryboardMetadata> | Pick<VideoEditMetadata, 'rootJob'>,
-): string => JSON.stringify(filter)
+export const metadataFilterParam = (filter: Partial<StoryboardMetadata>): string =>
+  JSON.stringify(filter)

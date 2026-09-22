@@ -441,8 +441,8 @@ async def test_fork_copy_keeps_coordinates_and_clocks_but_changes_owner(
     assert (await repo.get(original.id, owner=author)).conversation_id == source
 
 
-async def test_fork_copy_skips_unfinished_clips_and_the_edit_chain(engine: AsyncEngine) -> None:
-    """只有已出片的根记录进副本：在途的没地址，参考片段会过期，编辑链认不回新的根。"""
+async def test_fork_copy_skips_unfinished_jobs_and_derivatives(engine: AsyncEngine) -> None:
+    """只有已出片的独立记录进副本：在途的没地址，衍生记录靠原作号认根、在副本里认不回新的根。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -457,19 +457,21 @@ async def test_fork_copy_skips_unfinished_clips_and_the_edit_chain(engine: Async
         "https://example.test/root.mp4",
     )
     await repo.create(make_job(video_request(), owner_user_id=owner, conversation_id=source))
-    await _complete(
+    reference = await _complete(
         repo,
-        await repo.create(make_job(clip_request(), owner_user_id=owner, conversation_id=source)),
+        await repo.create(
+            make_job(clip_request(root_job_id=root.id), owner_user_id=owner, conversation_id=source)
+        ),
         "https://example.test/ref.mp4",
     )
-    await _complete(
+    edited = await _complete(
         repo,
         await repo.create(
             make_job(
                 video_request(),
                 owner_user_id=owner,
                 conversation_id=source,
-                metadata={"rootJob": str(root.id)},
+                root_job_id=root.id,
             )
         ),
         "https://example.test/edited.mp4",
@@ -486,4 +488,6 @@ async def test_fork_copy_skips_unfinished_clips_and_the_edit_chain(engine: Async
     )
 
     copied = await repo.list_for_owner(owner=owner, limit=10, conversation_id=target)
-    assert [job.metadata for job in copied] == [{"shot": 1}]
+    assert [(job.metadata, job.root_job_id) for job in copied] == [({"shot": 1}, None)]
+    chain = await repo.list_for_owner(owner=owner, limit=10, root_job_id=root.id)
+    assert {job.id for job in chain} == {reference.id, edited.id}, "按原作号一次筛出整条链"

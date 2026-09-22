@@ -19,6 +19,7 @@ from sqlalchemy import (
     literal,
     null,
     select,
+    text,
     tuple_,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -37,11 +38,7 @@ from iclip.domains.generation.models import (
     GenerationStatus,
     InFlightPhase,
 )
-from iclip.domains.generation.schemas import (
-    KIND_CLIP,
-    request_from_payload,
-    request_to_payload,
-)
+from iclip.domains.generation.schemas import request_from_payload, request_to_payload
 from iclip.platform.db.ownership import scope_to_owner
 
 DB_SCHEMA: Final = "iclip"
@@ -66,6 +63,13 @@ generation_jobs_table = Table(
     Column("metadata", JSONB, nullable=True),
     # 需求单同样不建外键：它是归属标签，删单不抹生成记录。
     Column("task_id", Uuid, nullable=True),
+    # 原作号建外键：它不是标签，衍生记录必须挂在一条真实存在的出片上；生成记录从不硬删。
+    Column(
+        "root_job_id",
+        Uuid,
+        ForeignKey(f"{DB_SCHEMA}.generation_jobs.id", name="fk_generation_jobs_root_job"),
+        nullable=True,
+    ),
     Column("kind", Text, nullable=False),
     Column("provider", Text, nullable=False),
     Column("request", JSONB, nullable=False),
@@ -84,6 +88,12 @@ generation_jobs_table = Table(
     Index("ix_generation_jobs_owner_created", "owner_user_id", "created_at"),
     Index("ix_generation_jobs_conversation_created", "conversation_id", "created_at"),
     Index("ix_generation_jobs_task_created", "task_id", "created_at"),
+    # 只索引衍生记录：按原作查链、外键校验都走它，独立记录占大多数、不必进来。
+    Index(
+        "ix_generation_jobs_root_job",
+        "root_job_id",
+        postgresql_where=text("root_job_id IS NOT NULL"),
+    ),
 )
 
 _JOBS = generation_jobs_table.c
@@ -108,6 +118,7 @@ class SqlGenerationRepository:
                             conversation_id=job.conversation_id,
                             metadata=job.metadata,
                             task_id=job.task_id,
+                            root_job_id=job.root_job_id,
                             kind=job.kind,
                             provider=job.provider,
                             request=request_to_payload(job.request),
@@ -153,6 +164,7 @@ class SqlGenerationRepository:
         kind: str | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         stmt = scope_to_owner(select(generation_jobs_table), _JOBS.owner_user_id, owner)
@@ -160,6 +172,8 @@ class SqlGenerationRepository:
             stmt = stmt.where(_JOBS.conversation_id == conversation_id)
         if task_id is not None:
             stmt = stmt.where(_JOBS.task_id == task_id)
+        if root_job_id is not None:
+            stmt = stmt.where(_JOBS.root_job_id == root_job_id)
         if kind is not None:
             stmt = stmt.where(_JOBS.kind == kind)
         if metadata is not None:
@@ -194,10 +208,9 @@ class SqlGenerationRepository:
         ).where(
             _JOBS.conversation_id == source_conversation_id,
             _JOBS.status == STATUS_COMPLETED,
-            # 编辑链整条不带：链上各条靠 metadata.rootJob 认根，根在副本里换了 id，拷过去
-            # 也连不回去，只会变成谁都查不着的行。本地加工的产物全在链上，一并排除。
-            _JOBS.kind != KIND_CLIP,
-            ~func.coalesce(func.jsonb_exists(_JOBS.metadata, "rootJob"), False),
+            # 衍生记录不带：它们靠原作号认根，根在副本里换了 id，拷过去也连不回去，
+            # 只会变成谁都查不着的行。
+            _JOBS.root_job_id.is_(None),
         )
         async with self._engine.begin() as conn:
             result = await conn.execute(generation_jobs_table.insert().from_select(columns, source))
@@ -367,6 +380,7 @@ def _job_from_row(row: RowMapping) -> GenerationJob:
         conversation_id=row["conversation_id"],
         metadata=row["metadata"],
         task_id=row["task_id"],
+        root_job_id=row["root_job_id"],
         kind=kind,
         provider=row["provider"],
         request=request_from_payload(kind, row["request"]),

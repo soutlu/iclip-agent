@@ -765,6 +765,18 @@
             "title": "Purpose",
             "type": "string"
           },
+          "rootJobId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rootjobid"
+          },
           "segments": {
             "items": {
               "$ref": "#/components/schemas/ClipSegmentIn"
@@ -1942,6 +1954,18 @@
             "title": "Request",
             "type": "object"
           },
+          "rootJobId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rootjobid"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -1977,6 +2001,7 @@
           "request",
           "metadata",
           "taskId",
+          "rootJobId",
           "outputUrl",
           "watermarkOutputUrl",
           "errorMessage",
@@ -2133,6 +2158,18 @@
             ],
             "title": "Resolution",
             "type": "string"
+          },
+          "rootJobId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rootjobid"
           },
           "taskId": {
             "anyOf": [
@@ -5819,6 +5856,18 @@
             ],
             "title": "Resolution"
           },
+          "root_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Job Id"
+          },
           "seconds": {
             "anyOf": [
               {
@@ -8721,7 +8770,7 @@
     },
     "/generations": {
       "get": {
-        "description": "给了 ``conversationId`` / ``taskId`` 就只列那段对话、那张需求单下面的记录，可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。",
+        "description": "给了 ``conversationId`` / ``taskId`` / ``rootJobId`` 就只列那段对话、那张需求单、那条出片\n名下的记录，可见性口径不变。\n\n``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。",
         "operationId": "list_generations_generations_get",
         "parameters": [
           {
@@ -8792,7 +8841,26 @@
             }
           },
           {
-            "description": "JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义",
+            "description": "只列这条出片名下的衍生记录（视频编辑链）",
+            "in": "query",
+            "name": "rootJobId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只列这条出片名下的衍生记录（视频编辑链）",
+              "title": "Rootjobid"
+            }
+          },
+          {
+            "description": "JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot",
             "in": "query",
             "name": "metadata",
             "required": false,
@@ -8805,7 +8873,7 @@
                   "type": "null"
                 }
               ],
-              "description": "JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义",
+              "description": "JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot",
               "title": "Metadata"
             }
           },
@@ -8854,7 +8922,7 @@
     },
     "/generations/clips": {
       "post": {
-        "description": "提交一次本地视频加工：按 ``segments`` 的顺序裁出各段拼成一条，产物存进本系统的桶。\n\n``purpose=reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段、\n不重编码；``purpose=master`` 是拼出来的成片，一律重编码对齐参数。不经外部服务，\n不计费，也没有 ``userName``。",
+        "description": "提交一次本地视频加工：按 ``segments`` 的顺序裁出各段拼成一条，产物存进本系统的桶。\n\n``purpose=reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段、\n不重编码；``purpose=master`` 是拼出来的成片，一律重编码对齐参数。不经外部服务，\n不计费，也没有 ``userName``。``rootJobId`` 必填：产物是最初那条出片的衍生记录。",
         "operationId": "submit_clip_generations_clips_post",
         "requestBody": {
           "content": {
@@ -8951,7 +9019,7 @@
     },
     "/generations/video": {
       "post": {
-        "description": "提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata。\n\n正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里\n两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可\n省略，填登录用户名。",
+        "description": "提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata /\nroot_job_id。\n\n正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里\n两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可\n省略，填登录用户名。``root_job_id`` 只有视频编辑的结果才填：最初那条出片的 id，必须是\n同一段对话里的独立记录。",
         "operationId": "submit_video_generations_video_post",
         "requestBody": {
           "content": {

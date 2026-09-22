@@ -199,6 +199,8 @@ type MockJob = {
   watermarkOutputUrl?: string
   /** 产物实际多长；只有本系统自己加工出来的（clip）有。 */
   durationMs?: number
+  /** 原作号：编辑链上的记录指最初那条出片，独立记录不填。 */
+  rootJobId?: string | null
 }
 
 const job = (spec: MockJob) => ({
@@ -211,6 +213,7 @@ const job = (spec: MockJob) => ({
   metadata: spec.metadata ?? null,
   status: spec.status,
   taskId: null,
+  rootJobId: spec.rootJobId ?? null,
   durationMs: spec.durationMs ?? null,
   // 这里的加工是瞬时的，没有在途阶段可报。
   clipStage: null,
@@ -654,6 +657,7 @@ export const workspaceHandlers = [
     const conversationId = params.get('conversationId')
     let items = conversationId === null ? [] : (generations.get(conversationId) ?? [])
     const kind = params.get('kind')
+    const rootJobId = params.get('rootJobId')
     const rawMetadata = params.get('metadata')
     // 与后端同一口径：metadata 是一段 JSON 对象，按顶层键包含匹配。
     const metadata =
@@ -661,6 +665,7 @@ export const workspaceHandlers = [
     items = items.filter(
       (item) =>
         (kind === null || item.kind === kind) &&
+        (rootJobId === null || item.rootJobId === rootJobId) &&
         (metadata === null ||
           Object.entries(metadata).every(([key, value]) => item.metadata?.[key] === value)),
     )
@@ -680,6 +685,7 @@ export const workspaceHandlers = [
       request: { ...body },
       conversationId: body.conversationId ?? null,
       metadata: body.metadata ?? null,
+      rootJobId: body.rootJobId ?? null,
       outputUrl: (workspaceFrames.get(body.conversationId ?? '') ?? DATA_FRAMES).c,
     })
     return HttpResponse.json({ generation: created }, { status: 202 })
@@ -701,6 +707,7 @@ export const workspaceHandlers = [
       request: { ...body, prompt },
       conversationId: body.conversation_id ?? null,
       metadata: body.metadata ?? null,
+      rootJobId: body.root_job_id ?? null,
       outputUrl: editing ? EDITED_URL : VIDEO_URL,
       watermarkOutputUrl: editing ? EDITED_URL : VIDEO_URL,
     })
@@ -719,6 +726,7 @@ export const workspaceHandlers = [
       request: { purpose: body.purpose, segments: body.segments },
       conversationId: body.conversationId ?? null,
       metadata: body.metadata ?? null,
+      rootJobId: body.rootJobId ?? null,
       outputUrl: body.purpose === 'reference' ? EDITED_URL : VIDEO_URL,
       // 真实后端裁完自己探一遍；这里切不了视频，按请求的区间算，关键帧多出来的几帧忽略。
       durationMs: Math.round(
@@ -736,6 +744,7 @@ function acceptGeneration(spec: {
   request: Record<string, unknown>
   conversationId: string | null
   metadata: Record<string, unknown> | null
+  rootJobId: string | null
   outputUrl: string
   watermarkOutputUrl?: string
   durationMs?: number
@@ -747,6 +756,7 @@ function acceptGeneration(spec: {
     prompt: spec.prompt,
     request: spec.request,
     ...(spec.metadata === null ? {} : { metadata: spec.metadata }),
+    rootJobId: spec.rootJobId,
     status: 'submitted',
   })
   if (spec.conversationId !== null) {

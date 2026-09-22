@@ -38,6 +38,7 @@ class AnnouncingGenerationRepository:
         kind: str | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         return await self._inner.list_for_owner(
@@ -47,6 +48,7 @@ class AnnouncingGenerationRepository:
             kind=kind,
             metadata=metadata,
             task_id=task_id,
+            root_job_id=root_job_id,
             before=before,
         )
 

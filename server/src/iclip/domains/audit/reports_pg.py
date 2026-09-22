@@ -53,7 +53,9 @@ videos AS (
            c.task_id
     FROM iclip.generation_jobs g
     JOIN iclip.conversations c ON c.id = g.conversation_id
-    WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') = 'number'
+    -- 出片 = 独立记录（没有原作号）且带数字镜号；视频编辑的衍生记录一律不算。
+    WHERE g.kind = 'video' AND g.root_job_id IS NULL
+      AND jsonb_typeof(g.metadata->'shot') = 'number'
       AND c.forked_from IS NULL
 )"""
 
@@ -456,8 +458,8 @@ missing_shot AS (
     FROM iclip.generation_jobs g
     LEFT JOIN iclip.conversations c ON c.id = g.conversation_id
     WHERE g.kind = 'video' AND jsonb_typeof(g.metadata->'shot') IS DISTINCT FROM 'number'
-      -- 视频编辑的结果按 ADR-0020 §5 只带编辑链坐标、不带镜头组，不算缺坐标。
-      AND NOT COALESCE(jsonb_exists(g.metadata, 'rootJob'), false)
+      -- 只有独立记录才谈漏标；衍生记录本来就不带镜号。
+      AND g.root_job_id IS NULL
       -- 挂在副本下的记录不算异常；没挂对话的孤儿记录照旧要算，所以放过 c 整行为空的。
       AND c.forked_from IS NULL
     {_WINDOW.format(anchor="g.created_at")}

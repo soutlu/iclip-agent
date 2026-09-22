@@ -1,4 +1,4 @@
-import { readVideoEditMetadata } from '../generation-metadata'
+import { readStoryboardMetadata } from '../generation-metadata'
 import type { GenerationJob } from '../storyboard.api'
 
 type ConversationVideo = GenerationJob & { outputUrl: string }
@@ -10,11 +10,12 @@ export type ConversationVideoGroup = {
   videos: ConversationVideo[]
 }
 
+/** 独立记录才是这段对话的出片；编辑链上的衍生记录挂在它的根下面，不单独成组。 */
 const isOriginalVideo = (job: GenerationJob): job is ConversationVideo =>
   job.kind === 'video' &&
   job.status === 'completed' &&
   Boolean(job.outputUrl?.trim()) &&
-  readVideoEditMetadata(job) === undefined
+  job.rootJobId === null
 
 /** 只用正整数镜号归组；没有合法镜号的原始视频各自独立，不能据空坐标推成同一镜。 */
 export const groupConversationVideos = (
@@ -30,8 +31,8 @@ export const groupConversationVideos = (
   const standalone: ConversationVideoGroup[] = []
 
   for (const video of videos) {
-    const shot = video.metadata?.['shot']
-    if (typeof shot !== 'number' || !Number.isSafeInteger(shot) || shot <= 0) {
+    const shot = readStoryboardMetadata(video)?.shot
+    if (shot === undefined) {
       standalone.push({
         id: `video-${video.id}`,
         label: `视频 ${standalone.length + 1}`,

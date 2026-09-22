@@ -87,17 +87,41 @@ class GenerationService:
         if request.model not in self._video_allowed_models:
             raise ValidationFailed(f"视频生成仅支持模型 {'、'.join(self._video_allowed_models)}")
         _require_user_name(request.user_name)
+        await self._check_root(principal, request)
         return await self._accept(principal, request, provider=self._video_provider_name)
 
     async def submit_clip(self, principal: Principal, request: ClipIn) -> GenerationJob:
-        """受理一次本地视频加工。不经外部服务、不计费，除了请求自身没有别的门槛。"""
+        """受理一次本地视频加工。不经外部服务、不计费，门槛只有原作号要给且对得上。"""
 
+        if request.root_job_id is None:
+            raise ValidationFailed("rootJobId 必填：本地加工的产物一律是某条出片的衍生记录")
+        await self._check_root(principal, request)
         return await self._accept(principal, request, provider=self._clip_provider_name)
+
+    async def _check_root(self, principal: Principal, request: GenerationRequest) -> None:
+        """原作号必须指向同一段对话里的一条独立记录，链才只有一层。
+
+        先按主体可见范围读：生成记录的 ``conversation_id`` 只是标签、不按对话验属主，直接按
+        id 查会让人把衍生记录挂到别人的出片上。三种不满足给同一句，不区分不存在与不可见。"""
+
+        if request.root_job_id is None:
+            return
+        try:
+            root = await self._repo.get(request.root_job_id, owner=_owner_scope(principal))
+        except NotFound:
+            root = None
+        if (
+            root is None
+            or root.conversation_id != request.conversation_id
+            or root.root_job_id is not None
+        ):
+            raise ValidationFailed("原作号不是这段对话里的一条独立记录")
 
     async def submit_image(self, principal: Principal, request: ImageGenerationIn) -> GenerationJob:
         """受理一次图片生成。选定哪家、哪个渠道在这里定死，队列等待期间的配置变化不影响它。"""
 
         _require_user_name(request.user_name)
+        await self._check_root(principal, request)
         settled, model = self._settle_image_model(request)
         return await self._accept(principal, settled, provider=model)
 
@@ -116,6 +140,7 @@ class GenerationService:
             conversation_id=request.conversation_id,
             metadata=request.metadata,
             task_id=request.task_id,
+            root_job_id=request.root_job_id,
             kind=request.kind,
             provider=provider,
             request=request,
@@ -228,6 +253,7 @@ class GenerationService:
         kind: str | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         """按时间倒序返回可见记录；归属筛选只收窄，不扩大属主可见范围。"""
@@ -241,6 +267,7 @@ class GenerationService:
             kind=kind,
             metadata=metadata,
             task_id=task_id,
+            root_job_id=root_job_id,
             before=before,
         )
 

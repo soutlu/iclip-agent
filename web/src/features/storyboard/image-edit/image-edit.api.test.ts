@@ -89,6 +89,7 @@ describe('submitImageEdit', () => {
               request: {},
               status: 'queued',
               taskId: null,
+              rootJobId: null,
               clipStage: null,
               durationMs: null,
               watermarkOutputUrl: null,

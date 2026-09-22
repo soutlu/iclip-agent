@@ -52,9 +52,15 @@ class GenerationJob:
     conversation_id: uuid.UUID | None = None
     """生成来源对话。无对话上下文时为空；不设外键，删除对话后仍保留来源。"""
     metadata: dict[str, Any] | None = None
-    """调用方自带的坐标标签（分镜页写 ``{"shot", "frame"}``），服务端不解释。"""
+    """调用方自带的坐标标签（分镜页写 ``{"shot", "frame"}``）。服务端只认 ``shot`` 一个键，
+    审计按它数镜；其余键不读、不校验。"""
     task_id: uuid.UUID | None = None
     """需求单 id，调用方给的归属标签；不设外键，只做筛选。"""
+    root_job_id: uuid.UUID | None = None
+    """原作号：衍生记录指向它所属的那条独立记录，空即独立记录。
+
+    视频编辑的参考片段、编辑结果与成片都写最初那条出片，不写各自基于的版本，所以链只有
+    一层，``root_job_id = A`` 就是 A 名下的全部衍生记录。衍生记录不计审计口径、不进分叉拷贝。"""
     watermark_output_url: str | None = None
     """视频成功时上游发布的水印版地址；图片没有这一份。"""
 

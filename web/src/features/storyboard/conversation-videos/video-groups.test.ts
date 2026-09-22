@@ -12,6 +12,7 @@ const job = (id: string, overrides: Partial<GenerationJob> = {}): GenerationJob 
   createdAt: '2026-09-01T10:00:00Z',
   request: {},
   taskId: null,
+  rootJobId: null,
   errorMessage: null,
   clipStage: null,
   durationMs: null,
@@ -29,14 +30,8 @@ describe('groupConversationVideos', () => {
       job('empty', { outputUrl: null }),
       job('blank', { outputUrl: '  ' }),
       job('edited', {
-        metadata: {
-          shot: 1,
-          rootJob: 'original',
-          baseJob: 'original',
-          editId: 'edit',
-          editStart: 0,
-          editEnd: 3,
-        },
+        rootJobId: 'original',
+        metadata: { shot: 1, baseJob: 'original', editId: 'edit', editStart: 0, editEnd: 3 },
       }),
     ])
 
