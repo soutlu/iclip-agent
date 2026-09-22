@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { apiFetch } from '@/shared/api/client'
 import { zUsersPageOut } from '@/shared/api/generated/zod.gen'
 import { drainPages } from '@/shared/api/paging'
+import type { PickerSource } from '@/shared/ui/search-picker'
 
 // 不以 auth 开头：这是业务缓存，换人登录时要跟其他业务查询一起清掉。
 const USERS_DIRECTORY_KEY = ['users', 'directory'] as const
@@ -47,12 +48,42 @@ export const useUsersDirectory = (enabled: boolean) => {
     () => new Map((query.data ?? []).map((user) => [user.id, user.displayName])),
     [query.data],
   )
+  const byUsername = useMemo(
+    () =>
+      new Map(
+        (query.data ?? []).flatMap((user) =>
+          user.username === null ? [] : [[user.username, user.displayName] as const],
+        ),
+      ),
+    [query.data],
+  )
   const users: readonly DirectoryUser[] = query.data ?? []
   return {
     error: query.error?.message,
     isPending: enabled && query.isPending,
     nameOf: (userId: string) => byId.get(userId),
+    /** 报表按上游归属的用户名归人，用它把用户名翻成显示名。 */
+    nameOfUsername: (username: string) => byUsername.get(username),
     refetch: query.refetch,
     users,
   }
 }
+
+export type UsersDirectory = ReturnType<typeof useUsersDirectory>
+
+/**
+ * 名册投影成选择器候选。候选 id 按账号 id（筛属主）或按用户名（筛上游归属）；
+ * 没有用户名的账号不会出现在报表里，后者就不列它。
+ */
+export const userPickerSourceOf = (
+  directory: UsersDirectory,
+  by: 'id' | 'username',
+): PickerSource => ({
+  error: directory.error,
+  isPending: directory.isPending,
+  onRetry: () => void directory.refetch(),
+  options: directory.users.flatMap((user) => {
+    const id = by === 'id' ? user.id : user.username
+    return id === null ? [] : [{ id, label: user.displayName }]
+  }),
+})

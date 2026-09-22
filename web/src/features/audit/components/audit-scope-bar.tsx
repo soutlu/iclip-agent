@@ -1,9 +1,8 @@
 /** 三个标签页共用的筛选条：时间范围、人、需求单。人的候选 id 是上游归属用的用户名。 */
 
 import { dateRangeLabel } from '@/shared/lib/date-range'
-import { DateRangePicker } from '@/shared/ui/date-range-picker'
-import { FilterBarRoot, FilterPopup, useFilterBar } from '@/shared/ui/filter-bar'
-import { SearchPicker, type PickerSource } from '@/shared/ui/search-picker'
+import { DateRangeFilter, FilterBarRoot, PickerFilter, useFilterBar } from '@/shared/ui/filter-bar'
+import type { PickerSource } from '@/shared/ui/search-picker'
 import type { AuditScope } from '../audit.api'
 
 type AuditScopeBarProps = {
@@ -28,14 +27,6 @@ export function AuditScopeBar(props: AuditScopeBarProps) {
 
 function ScopeFilters({ scope, onChange, users, tasks, trailing }: AuditScopeBarProps) {
   const { close } = useFilterBar()
-  const userLabel =
-    scope.userName === null
-      ? '人'
-      : (users.options.find((user) => user.id === scope.userName)?.label ?? scope.userName)
-  const taskLabel =
-    scope.taskId === null
-      ? '需求单'
-      : (tasks?.options.find((task) => task.id === scope.taskId)?.label ?? '已选需求单')
 
   const apply = (patch: Partial<AuditScope>) => {
     close()
@@ -44,61 +35,41 @@ function ScopeFilters({ scope, onChange, users, tasks, trailing }: AuditScopeBar
 
   return (
     <>
-      <FilterPopup
+      <DateRangeFilter
         className={TRIGGER_CLASS}
-        icon="duration"
-        id="time"
         label={dateRangeLabel(scope)}
+        onChange={apply}
         popupLabel="选择时间范围"
-        selected={scope.range !== 'all'}
         triggerLabel={`时间：${dateRangeLabel(scope)}`}
-        width="w-max max-w-[calc(100vw-24px)] rounded-lg"
-      >
-        <DateRangePicker onChange={apply} value={scope} />
-      </FilterPopup>
+        value={scope}
+      />
 
-      <FilterPopup
+      {/* 上游归属的用户名不一定在名册里，不在时原样显示用户名。 */}
+      <PickerFilter
         className={TRIGGER_CLASS}
+        fallbackLabel={scope.userName ?? '人'}
         icon="user"
         id="user"
-        label={userLabel}
-        popupLabel="选择人"
-        selected={scope.userName !== null}
-        triggerLabel={`人：${userLabel}`}
+        noun="人"
+        onChange={(userName) => apply({ userName })}
+        source={users}
+        value={scope.userName}
         width="w-60"
-      >
-        <SearchPicker
-          label="人"
-          onChange={(userName) => apply({ userName })}
-          selectedLabel={userLabel}
-          source={users}
-          value={scope.userName}
-          withAvatars
-        />
-      </FilterPopup>
+        withAvatars
+      />
 
-      <FilterPopup
+      <PickerFilter
         className={TRIGGER_CLASS}
-        disabled={tasks === null}
+        disabledTitle="当前账号没有查看需求单权限"
+        fallbackLabel="已选需求单"
         icon="task"
         id="task"
-        label={taskLabel}
-        popupLabel="选择需求单"
-        selected={scope.taskId !== null}
-        title={tasks === null ? '当前账号没有查看需求单权限' : taskLabel}
-        triggerLabel={`需求单：${taskLabel}`}
+        noun="需求单"
+        onChange={(taskId) => apply({ taskId })}
+        source={tasks}
+        value={scope.taskId}
         width="w-72"
-      >
-        {tasks === null ? null : (
-          <SearchPicker
-            label="需求单"
-            onChange={(taskId) => apply({ taskId })}
-            selectedLabel={taskLabel}
-            source={tasks}
-            value={scope.taskId}
-          />
-        )}
-      </FilterPopup>
+      />
 
       {trailing === undefined ? null : (
         <div className="ml-auto px-2 py-1 text-body-sm text-on-surface-variant">{trailing}</div>

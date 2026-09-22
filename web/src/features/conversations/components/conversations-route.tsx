@@ -2,11 +2,12 @@
 
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useUsersDirectory } from '@/shared/auth'
+import { userPickerSourceOf, useUsersDirectory } from '@/shared/auth'
 import { Icon } from '@/shared/icons'
 import { formatRelativeTime } from '@/shared/lib/relative-time'
 import type { TaskPreview, TaskPreviewState } from '@/shared/lib/task-preview'
 import { Button } from '@/shared/ui/button'
+import { ListEmpty, ListError, ListPending, LoadMoreFooter } from '@/shared/ui/list-state'
 import { MediaFallback } from '@/shared/ui/media-fallback'
 import { StatusBadge } from '@/shared/ui/status-badge'
 import { Tag } from '@/shared/ui/tag'
@@ -39,12 +40,7 @@ export function ConversationsRoute({
   taskPreviewRetry,
 }: ConversationsRouteProps) {
   const directory = useUsersDirectory(true)
-  const users: PickerSource = {
-    error: directory.error,
-    isPending: directory.isPending,
-    onRetry: () => void directory.refetch(),
-    options: directory.users.map((user) => ({ id: user.id, label: user.displayName })),
-  }
+  const users = userPickerSourceOf(directory, 'id')
   const query = useAuditConversations(filters, true)
   const rows = query.data?.pages.flatMap((page) => page.items) ?? []
   const latest = query.data?.pages.at(-1)
@@ -96,31 +92,11 @@ export function ConversationsRoute({
             <span />
           </div>
           {query.isPending ? (
-            <p
-              className="flex items-center justify-center gap-2 py-16 text-body text-on-surface-variant"
-              role="status"
-            >
-              <Icon className="animate-spin" decorative name="loading" size="sm" />
-              正在读取全部对话
-            </p>
+            <ListPending label="正在读取全部对话" />
           ) : query.isError ? (
-            <div className="flex flex-col items-center gap-3 py-16">
-              <p className="text-body text-error" role="alert">
-                {query.error.message}
-              </p>
-              <Button
-                leadingIcon="refresh"
-                onClick={() => void query.refetch()}
-                size="md"
-                variant="outlined"
-              >
-                重新加载
-              </Button>
-            </div>
+            <ListError message={query.error.message} onRetry={() => void query.refetch()} />
           ) : rows.length === 0 ? (
-            <p className="py-16 text-center text-body text-on-surface-variant">
-              这个筛选下没有对话
-            </p>
+            <ListEmpty>这个筛选下没有对话</ListEmpty>
           ) : (
             <ul className="flex flex-col">
               {rows.map((conversation) => (
@@ -142,20 +118,13 @@ export function ConversationsRoute({
           )}
 
           {totals !== undefined && query.hasNextPage && rows.length > 0 ? (
-            <footer className="flex items-center justify-between gap-4 px-3 py-4 text-body text-on-surface-variant">
-              <span>
-                已显示 {rows.length} / {totals.total}
-              </span>
-              <Button
-                disabled={query.isFetchingNextPage}
-                leadingIcon="expand"
-                onClick={() => void query.fetchNextPage()}
-                size="md"
-                variant="ghost"
-              >
-                {query.isFetchingNextPage ? '正在读取…' : '展开显示更多对话'}
-              </Button>
-            </footer>
+            <LoadMoreFooter
+              isFetching={query.isFetchingNextPage}
+              label="展开显示更多对话"
+              onMore={() => void query.fetchNextPage()}
+              shown={rows.length}
+              total={totals.total}
+            />
           ) : null}
         </section>
       </div>

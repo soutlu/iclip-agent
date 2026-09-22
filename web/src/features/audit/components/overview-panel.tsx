@@ -2,6 +2,7 @@
 
 import { Icon } from '@/shared/icons'
 import { Button } from '@/shared/ui/button'
+import { ListError } from '@/shared/ui/list-state'
 import { Tag } from '@/shared/ui/tag'
 import { ANOMALY_META } from '../anomaly-kinds'
 import { bucketFor, useAuditSummary, type AuditScope, type Metrics } from '../audit.api'
@@ -126,19 +127,7 @@ export function OverviewPanel({ scope, nameOf, onOpenAnomalies }: OverviewPanelP
   const pending = current.isPending
 
   if (current.isError) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-16" role="alert">
-        <p className="text-body text-error">{current.error.message}</p>
-        <Button
-          leadingIcon="refresh"
-          onClick={() => void current.refetch()}
-          size="md"
-          variant="outlined"
-        >
-          重新加载
-        </Button>
-      </div>
-    )
+    return <ListError message={current.error.message} onRetry={() => void current.refetch()} />
   }
 
   // 后端补齐了空期：计数是 0、比率与分布是 null，null 交给迷你趋势断开，不当 0 画。
