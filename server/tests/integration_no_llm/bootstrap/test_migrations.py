@@ -401,7 +401,8 @@ async def test_path_drop_migration_keeps_the_other_coordinate_keys(migrated_pg: 
         "sourceUrl": "https://cdn.test/a.png",
     }
     assert _jsonb(found[gateway]) == {"shot": 5}
-    assert _jsonb(found[video_edit]) == {"baseJob": str(video), "editId": "e"}
+    # 升到 head 还会过 0013 与 0014：rootJob 抄进列，指向根的 baseJob 擦掉，只剩 editId。
+    assert _jsonb(found[video_edit]) == {"editId": "e"}
     assert found[path_only] is None
 
 
@@ -502,8 +503,9 @@ async def test_root_job_migration_lifts_root_job_into_the_column(migrated_pg: st
         await _remove_generation_owner(migrated_pg, owner)
 
     assert found[root] == (None, {"shot": 2}), "独立记录一个字不动"
-    assert found[reference] == (root, {"baseJob": str(root), "editId": "e"})
-    assert found[edited] == (root, {"baseJob": str(root), "editId": "e", "editStart": 1})
+    # 升到 head 还会过 0014：指向根的 baseJob 是「基于原片」，键擦掉。
+    assert found[reference] == (root, {"editId": "e"})
+    assert found[edited] == (root, {"editId": "e", "editStart": 1})
     assert "fk_generation_jobs_root_job" in foreign_keys
     assert _jsonb(restored) == chain, "降级把列写回便签"
 
