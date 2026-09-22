@@ -1,15 +1,14 @@
 /** 修改要求与参考图放在输入区，上传和生成设置放在下方工具栏。参考图选了就直传对象存储。 */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { MEDIA_IMAGE_ACCEPT, uploadMediaFile } from '@/shared/api/media-upload'
+import { useRef, useState, type ReactNode } from 'react'
+import { MEDIA_IMAGE_ACCEPT } from '@/shared/api/media-upload'
 import { Icon } from '@/shared/icons'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
 import { cn } from '@/shared/lib/utils'
 import { mintUuid } from '@/shared/lib/uuid'
 import { IconButton } from '@/shared/ui/button'
 import { MediaLightbox } from '@/shared/ui/media-lightbox'
-import { toast } from '@/shared/ui/toast'
-import { MAX_EDIT_REFERENCES } from '../image-edit/image-edit-draft'
+import { MAX_EDIT_REFERENCES } from '../generation-limits'
+import { useReferenceUploads } from '../use-reference-uploads'
 import './editor-composer.css'
 
 export type EditorReference = { id: string; label: string; url: string }
@@ -34,68 +33,32 @@ export function EditorComposer({
   onBusyChange,
 }: EditorComposerProps) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const referencesRef = useRef(references)
-  useEffect(() => {
-    referencesRef.current = references
-  }, [references])
   const [preview, setPreview] = useState<EditorReference | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [dragging, setDragging] = useState(false)
-  const locked = disabled || uploading
-
-  const addFiles = async (files: readonly File[]) => {
-    if (locked || files.length === 0) return
-    if (files.length + referencesRef.current.length > MAX_EDIT_REFERENCES) {
-      toast.error(`每次最多带 ${MAX_EDIT_REFERENCES} 张参考图`)
-      return
-    }
-    setUploading(true)
-    onBusyChange(true)
-    try {
-      for (const file of files) {
-        // 类型与尺寸由上传通道统一校验，这里不再复制一份规则。
-        const url = await uploadMediaFile(file, 'image')
-        // 上传期间仍可移除已有参考图：按最新列表追加，不把移掉的装回来。
-        const next = [...referencesRef.current, { id: mintUuid(), label: file.name, url }]
-        referencesRef.current = next
-        onReferencesChange(next)
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '参考图上传失败')
-    } finally {
-      setUploading(false)
-      onBusyChange(false)
-    }
-  }
+  const { locked, uploading, dragOver, upload, remove, dragHandlers } =
+    useReferenceUploads<EditorReference>({
+      references,
+      disabled,
+      limit: MAX_EDIT_REFERENCES,
+      tooMany: `每次最多带 ${MAX_EDIT_REFERENCES} 张参考图`,
+      onChange: onReferencesChange,
+      onBusyChange,
+      fromUpload: (file, url) => ({ id: mintUuid(), label: file.name, url }),
+    })
 
   return (
     <div
       className="video-editor-composer-layout"
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false)
-      }}
-      onDragOver={(event) => {
-        if (!hasDraggedFiles(event)) return
-        event.preventDefault()
-        event.dataTransfer.dropEffect = locked ? 'none' : 'copy'
-        if (!locked) setDragging(true)
-      }}
-      onDrop={(event) => {
-        if (!hasDraggedFiles(event)) return
-        event.preventDefault()
-        setDragging(false)
-        void addFiles([...event.dataTransfer.files])
-      }}
+      {...dragHandlers}
       onPaste={(event) => {
         const images = [...event.clipboardData.files].filter((file) =>
           file.type.startsWith('image/'),
         )
         if (images.length === 0) return
         event.preventDefault()
-        void addFiles(images)
+        void upload(images)
       }}
     >
-      <div className={cn('video-editor-composer', dragging && 'video-editor-composer-dragging')}>
+      <div className={cn('video-editor-composer', dragOver && 'video-editor-composer-dragging')}>
         <textarea
           aria-label="修改要求"
           className="video-editor-composer-input text-body text-on-surface"
@@ -120,11 +83,7 @@ export function EditorComposer({
                 disabled={locked}
                 label={`移除参考图 ${reference.label}`}
                 name="close"
-                onClick={() =>
-                  onReferencesChange(
-                    referencesRef.current.filter((item) => item.id !== reference.id),
-                  )
-                }
+                onClick={() => remove(reference.id)}
                 size="xs"
               />
             </div>
@@ -158,7 +117,7 @@ export function EditorComposer({
         onChange={(event) => {
           const files = [...(event.target.files ?? [])]
           event.target.value = ''
-          void addFiles(files)
+          void upload(files)
         }}
         ref={inputRef}
         type="file"

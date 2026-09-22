@@ -1,16 +1,28 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useRef, useState } from 'react'
 import { Icon } from '@/shared/icons'
-import { uploadMediaFile, MEDIA_IMAGE_ACCEPT } from '@/shared/api/media-upload'
-import { hasDraggedFiles } from '@/shared/lib/drag-files'
+import { MEDIA_IMAGE_ACCEPT } from '@/shared/api/media-upload'
 import { cn } from '@/shared/lib/utils'
 import { mintUuid } from '@/shared/lib/uuid'
 import { Button, IconButton } from '@/shared/ui/button'
 import { DialogBody, DialogHeader, DialogRoot, DialogSurface } from '@/shared/ui/dialog'
 import { MenuItem, MenuRoot, MenuSeparator, MenuSurface, MenuTrigger } from '@/shared/ui/menu'
-import { toast } from '@/shared/ui/toast'
-import { MAX_EDIT_REFERENCES } from './image-edit-draft'
+import { MAX_EDIT_REFERENCES } from '../generation-limits'
+import { useReferenceUploads } from '../use-reference-uploads'
 import type { EditReference } from './image-edit-types'
 import './edit-references.css'
+
+/** 去重后配上 id：标注图只留一份，图片按地址认；已有同一张就回 `undefined`。 */
+const withId = (
+  reference: Omit<EditReference, 'id'>,
+  current: readonly EditReference[],
+): EditReference | undefined =>
+  current.some((item) =>
+    reference.kind === 'annotated'
+      ? item.kind === 'annotated'
+      : item.kind === 'image' && item.url === reference.url,
+  )
+    ? undefined
+    : { ...reference, id: mintUuid() }
 
 type EditReferencesProps = {
   references: EditReference[]
@@ -38,56 +50,35 @@ export function EditReferences({
   onPreview,
 }: EditReferencesProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
-  const uploadRef = useRef(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
-  const latestRef = useRef(references)
-  useEffect(() => {
-    latestRef.current = references
-  }, [references])
-  const locked = disabled || uploading
+  const {
+    locked,
+    uploading,
+    dragOver,
+    upload,
+    dragHandlers,
+    latest: latestRef,
+  } = useReferenceUploads<EditReference>({
+    references,
+    disabled,
+    limit: MAX_EDIT_REFERENCES,
+    tooMany: `每次最多提交 ${MAX_EDIT_REFERENCES} 张图片`,
+    onChange,
+    onBusyChange,
+    fromUpload: (file, url, current) =>
+      withId({ kind: 'image', label: file.name.slice(0, 200), url }, current),
+  })
   const otherFrames = frames
     .map((url, index) => ({ url, number: index + 1 }))
     .filter((frame) => frame.number !== currentFrame)
 
-  // 上限由上传前的预检与选择器按钮的禁用挡住，这里只管去重。
+  // 上限由选择器按钮的禁用挡住，这里只管去重。
   const append = (reference: Omit<EditReference, 'id'>) => {
-    const current = latestRef.current
-    if (
-      current.some((item) =>
-        reference.kind === 'annotated'
-          ? item.kind === 'annotated'
-          : item.kind === 'image' && item.url === reference.url,
-      )
-    )
-      return
-    const next = [...current, { ...reference, id: mintUuid() }]
-    latestRef.current = next
-    onChange(next)
-  }
-
-  const upload = async (files: readonly File[]) => {
-    if (locked || uploadRef.current || files.length === 0) return
-    if (files.length + latestRef.current.length > MAX_EDIT_REFERENCES) {
-      toast.error(`每次最多提交 ${MAX_EDIT_REFERENCES} 张图片`)
-      return
-    }
-    uploadRef.current = true
-    setUploading(true)
-    onBusyChange(true)
-    try {
-      for (const file of files) {
-        const url = await uploadMediaFile(file, 'image')
-        append({ kind: 'image', label: file.name.slice(0, 200), url })
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '参考图上传失败')
-    } finally {
-      uploadRef.current = false
-      setUploading(false)
-      onBusyChange(false)
-    }
+    const next = withId(reference, latestRef.current)
+    if (next === undefined) return
+    const list = [...latestRef.current, next]
+    latestRef.current = list
+    onChange(list)
   }
 
   const move = (id: string, to: number) => {
@@ -98,23 +89,6 @@ export function EditReferences({
     if (item === undefined) return
     next.splice(to, 0, item)
     onChange(next)
-  }
-  // 拖进来先接管：保留冒泡让全局拖放状态收尾，defaultPrevented 表明此处已接管；锁定时标成禁止落点。
-  const claimDrag = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = locked ? 'none' : 'copy'
-    if (!locked) setDragOver(true)
-  }
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!hasDraggedFiles(event)) return
-    event.preventDefault()
-    setDragOver(false)
-    if ([...event.dataTransfer.items].some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
-      toast.error('请拖入图片文件，不支持文件夹')
-      return
-    }
-    void upload([...event.dataTransfer.files])
   }
 
   return (
@@ -138,10 +112,7 @@ export function EditReferences({
       </div>
       <div
         className={cn('image-edit-reference-drop', dragOver && 'image-edit-reference-drop-active')}
-        onDragEnter={claimDrag}
-        onDragOver={claimDrag}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
+        {...dragHandlers}
       >
         <ol className="image-edit-reference-list" aria-label="提交图片顺序">
           {references.map((reference, index) => (
