@@ -30,10 +30,12 @@ class GenerationRepository(Protocol):
         kind: str | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         """按创建时间倒序列出；``conversation_id`` / ``task_id`` 给了就只要那段对话、那张需求单下面的，
-        ``metadata`` 给了就只要坐标包含这些键值的（JSONB ``@>``）。"""
+        ``root_job_id`` 给了就只要那条出片名下的衍生记录，``metadata`` 给了就只要坐标包含这些键值的
+        （JSONB ``@>``）。"""
         ...
 
     async def copy_completed_to_fork(
@@ -46,8 +48,8 @@ class GenerationRepository(Protocol):
     ) -> int:
         """把源对话已出片的记录复制到副本名下，返回复制了几条。
 
-        只取 ``completed``：只有它带输出地址，其余状态拷过去是死行。视频编辑链整条不带——
-        链上各条靠 ``metadata.rootJob`` 认根，根在副本里换了新 id，拷过去也连不回去；本地加工
+        只取 ``completed``：只有它带输出地址，其余状态拷过去是死行。衍生记录一律不带——
+        它们靠 ``root_job_id`` 认根，根在副本里换了新 id，拷过去也连不回去；本地加工
         的参考片段还配了桶上的过期规则，拷过去迟早是死地址。新行换新 id 与新对话，
         属主记复制的人（结果条按属主可见性查），``api_key_id`` 清空（这次不是钥匙发起的）。
         ``request``（含 ``user_name``）、``metadata`` 与四个时间戳原样保留：坐标是结果条的定位键，

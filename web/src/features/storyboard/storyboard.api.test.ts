@@ -96,6 +96,7 @@ describe('historyShotOf', () => {
     request,
     status: 'completed',
     taskId: null,
+    rootJobId: null,
     clipStage: null,
     durationMs: null,
     watermarkOutputUrl: null,

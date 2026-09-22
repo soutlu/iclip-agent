@@ -133,17 +133,18 @@ class Seed:
                 finished_at: datetime | None = None,
                 video_id: uuid.UUID | None = None,
                 metadata: dict[str, object] | None = None,
+                root_job_id: uuid.UUID | None = None,
             ) -> None:
                 if metadata is None and shot is not None:
                     metadata = {"shot": shot}
                 await conn.execute(
                     text(
                         "INSERT INTO iclip.generation_jobs (id, owner_user_id, conversation_id,"
-                        " kind, provider, request, status, metadata, created_at, updated_at,"
-                        " submitted_at, finished_at)"
+                        " kind, provider, request, status, metadata, root_job_id, created_at,"
+                        " updated_at, submitted_at, finished_at)"
                         " VALUES (:id, :owner, :conversation_id, 'video', 'test',"
                         " CAST(:request AS jsonb), :status, CAST(:metadata AS jsonb),"
-                        " :created_at, :created_at, :submitted_at, :finished_at)"
+                        " :root_job_id, :created_at, :created_at, :submitted_at, :finished_at)"
                     ),
                     {
                         "id": video_id or uuid.uuid4(),
@@ -154,6 +155,7 @@ class Seed:
                         ),
                         "status": status,
                         "metadata": None if metadata is None else json.dumps(metadata),
+                        "root_job_id": root_job_id,
                         "created_at": created_at,
                         "submitted_at": submitted_at,
                         "finished_at": finished_at,
@@ -254,7 +256,7 @@ class Seed:
                 finished_at=ago(minutes=5),
                 video_id=self.missing_shot_video,
             )
-            # 视频编辑的结果：只带编辑链坐标、没有镜头组，不该算成缺坐标。
+            # 视频编辑的结果：衍生记录没有镜头组，不算出片、也不算缺坐标。
             await video(
                 self.c1,
                 user_name=SHAN,
@@ -262,8 +264,8 @@ class Seed:
                 status="completed",
                 created_at=ago(minutes=8),
                 finished_at=ago(minutes=4),
+                root_job_id=self.missing_shot_video,
                 metadata={
-                    "rootJob": str(self.missing_shot_video),
                     "baseJob": str(self.missing_shot_video),
                     "editId": "e1",
                     "editStart": 1,

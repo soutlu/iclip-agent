@@ -183,6 +183,7 @@ export const zClipIn = z.object({
   conversationId: z.uuid().nullish(),
   metadata: z.record(z.string(), z.unknown()).nullish(),
   purpose: z.enum(['reference', 'master']),
+  rootJobId: z.uuid().nullish(),
   segments: z.array(zClipSegmentIn).min(1).max(50),
   taskId: z.uuid().nullish(),
 })
@@ -497,6 +498,7 @@ export const zGenerationOut = z.object({
   metadata: z.record(z.string(), z.unknown()).nullable(),
   outputUrl: z.string().nullable(),
   request: z.record(z.string(), z.unknown()),
+  rootJobId: z.uuid().nullable(),
   status: z.string(),
   taskId: z.uuid().nullable(),
   watermarkOutputUrl: z.string().nullable(),
@@ -547,6 +549,7 @@ export const zImageGenerationIn = z.object({
   prompt: z.string().min(1).max(4000),
   referenceImageUrls: z.array(z.string()).max(10).optional().default([]),
   resolution: z.enum(['1k', '2k', '4k']).optional().default('1k'),
+  rootJobId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
   userName: z.string().min(1).max(200).nullish(),
 })
@@ -1569,6 +1572,7 @@ export const zVideoGenerationIn = z.object({
   reference_image_urls: z.array(z.string()).max(30).optional().default([]),
   reference_video_urls: z.array(z.string()).max(30).optional().default([]),
   resolution: z.string().min(1).max(50).nullish(),
+  root_job_id: z.uuid().nullish(),
   seconds: z.int().gte(-1).nullish(),
   shot: zVideoShotIn.nullish(),
   shot_index: z.int().gte(1).nullish(),
@@ -2082,6 +2086,7 @@ export const zListGenerationsGenerationsGetQuery = z.object({
   conversationId: z.uuid().nullish(),
   taskId: z.uuid().nullish(),
   kind: z.enum(['image', 'video', 'clip']).nullish(),
+  rootJobId: z.uuid().nullish(),
   metadata: z.string().nullish(),
   before: z.uuid().nullish(),
 })

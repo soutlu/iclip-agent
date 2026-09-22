@@ -382,6 +382,10 @@ export type ClipIn = {
    */
   purpose: 'reference' | 'master'
   /**
+   * Rootjobid
+   */
+  rootJobId?: string | null
+  /**
    * Segments
    */
   segments: Array<ClipSegmentIn>
@@ -1060,6 +1064,10 @@ export type GenerationOut = {
     [key: string]: unknown
   }
   /**
+   * Rootjobid
+   */
+  rootJobId: string | null
+  /**
    * Status
    */
   status: string
@@ -1146,6 +1154,10 @@ export type ImageGenerationIn = {
    * Resolution
    */
   resolution?: '1k' | '2k' | '4k'
+  /**
+   * Rootjobid
+   */
+  rootJobId?: string | null
   /**
    * Taskid
    */
@@ -3017,6 +3029,10 @@ export type VideoGenerationIn = {
    */
   resolution?: string | null
   /**
+   * Root Job Id
+   */
+  root_job_id?: string | null
+  /**
    * Seconds
    */
   seconds?: number | null
@@ -4713,9 +4729,15 @@ export type ListGenerationsGenerationsGetData = {
      */
     kind?: 'image' | 'video' | 'clip' | null
     /**
+     * Rootjobid
+     *
+     * 只列这条出片名下的衍生记录（视频编辑链）
+     */
+    rootJobId?: string | null
+    /**
      * Metadata
      *
-     * JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义
+     * JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot
      */
     metadata?: string | null
     /**

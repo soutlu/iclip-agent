@@ -1,6 +1,7 @@
 # ADR-0027：审计报表是跨模块的只读读模型，直接查表
 
 - 状态：已接受（2026-09-15）
+- 修订（2026-09-22，[ADR-0032](0032-generation-root-job.md)）：出片与 `missing_shot` 的判据加上「独立记录」（`root_job_id IS NULL`），衍生记录不再靠便签键排除。
 - 关联：[ADR-0020](0020-generation-metadata.md)（镜头坐标在 `metadata.shot`）、[ADR-0024](0024-audit-deleted-conversations.md)（治理者能读墓碑）、[ADR-0026](0026-conversation-usage-ledger.md)（对话用量台账）
 - 修订 [CONTEXT.md](../CONTEXT.md) 新增术语「审计口径」；[architecture.md](../architecture.md) 持久化表补一行；合同新增 [§12 审计报表](../../contract/conventions.md#12-审计报表-audit)。
 

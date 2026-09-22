@@ -294,13 +294,12 @@ export const composeSegments = (
 export const actualEditStart = (editEnd: number, clipDuration: number): number =>
   Math.max(0, Math.round((editEnd - clipDuration) * 1000) / 1000)
 
-/** 每条根被成功编辑过几次，给抽屉那张卡显示。编辑结果不带 path/shot，只能靠 rootJob 认。 */
+/** 每条根被成功编辑过几次，给抽屉那张卡显示：数它名下已完成的编辑结果。 */
 export const editCountsByRoot = (jobs: readonly GenerationJob[]): ReadonlyMap<string, number> => {
   const counts = new Map<string, number>()
   for (const job of jobs) {
-    if (job.kind !== 'video' || job.status !== 'completed') continue
-    const root = readVideoEditMetadata(job)?.rootJob
-    if (root !== undefined) counts.set(root, (counts.get(root) ?? 0) + 1)
+    if (job.kind !== 'video' || job.status !== 'completed' || job.rootJobId === null) continue
+    counts.set(job.rootJobId, (counts.get(job.rootJobId) ?? 0) + 1)
   }
   return counts
 }

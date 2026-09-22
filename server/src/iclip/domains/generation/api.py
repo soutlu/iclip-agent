@@ -45,11 +45,13 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         body: VideoGenerationIn,
         principal: Annotated[Principal, Depends(require_permission("generation:submit"))],
     ) -> VideoSubmitOut:
-        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata。
+        """提交一次视频生成。请求体照上游异步接口，外加 conversation_id / task_id / metadata /
+        root_job_id。
 
         正文可以直接给 ``prompt``，也可以给结构化的 ``shot`` 由服务端拼成 ``prompt``；记录里
         两者都存，``shot`` 不发上游。``user_name``：API key 调用方必填、照收；浏览器会话可
-        省略，填登录用户名。
+        省略，填登录用户名。``root_job_id`` 只有视频编辑的结果才填：最初那条出片的 id，必须是
+        同一段对话里的独立记录。
         """
 
         user_name = resolve_user_name(principal, body.user_name)
@@ -68,7 +70,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
 
         ``purpose=reference`` 是编辑时切给模型看的参考片段，只能在一条完整视频上裁一段、
         不重编码；``purpose=master`` 是拼出来的成片，一律重编码对齐参数。不经外部服务，
-        不计费，也没有 ``userName``。
+        不计费，也没有 ``userName``。``rootJobId`` 必填：产物是最初那条出片的衍生记录。
         """
 
         job = await service.submit_clip(principal, body)
@@ -95,13 +97,18 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
         conversation_id: Annotated[uuid.UUID | None, Query(alias="conversationId")] = None,
         task_id: Annotated[uuid.UUID | None, Query(alias="taskId")] = None,
         kind: Literal["image", "video", "clip"] | None = None,
+        root_job_id: Annotated[
+            uuid.UUID | None,
+            Query(alias="rootJobId", description="只列这条出片名下的衍生记录（视频编辑链）"),
+        ] = None,
         metadata: Annotated[
             str | None,
-            Query(description="JSON 对象；只列坐标包含这些键值的记录，服务端不解释键的含义"),
+            Query(description="JSON 对象；只列坐标包含这些键值的记录，服务端只认其中的 shot"),
         ] = None,
         before: uuid.UUID | None = None,
     ) -> GenerationsPageOut:
-        """给了 ``conversationId`` / ``taskId`` 就只列那段对话、那张需求单下面的记录，可见性口径不变。
+        """给了 ``conversationId`` / ``taskId`` / ``rootJobId`` 就只列那段对话、那张需求单、那条出片
+        名下的记录，可见性口径不变。
 
         ``metadata`` 在查询串里是一段 JSON 对象，按包含匹配筛（分镜页拿它按镜头组、按帧查）。
         """
@@ -113,6 +120,7 @@ def create_generations_router(service: GenerationService, *, act_as: ActAs) -> A
             kind=kind,
             metadata=_metadata_filter(metadata),
             task_id=task_id,
+            root_job_id=root_job_id,
             before=before,
         )
         return GenerationsPageOut(items=[generation_out(job) for job in jobs])

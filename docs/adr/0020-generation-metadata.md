@@ -3,6 +3,7 @@
 - 状态：已接受（2026-09-12）
 - 修订（2026-09-15）：视频请求增加 `shot_index`，是 `metadata.shot` 的别名，受理时折进 `metadata`；服务端仍不读 `metadata` 里的键，只是替不写坐标的调用方写这一个。2026-09-21 收紧：下界从 0 改成 1，与分镜文件的 `shots[].index` 同一套编号——按 0 起发的调用方本来就会落一条分镜页读不出镜头组的记录。
 - 修订（2026-09-20）：分镜页的坐标去掉 `path`，只剩 `{"shot"}` / `{"shot", "frame"}`。它是一行常量（仓库里只有一份 `video_shot.json`），却被前端当成必填，于是只发 `shot_index` 的调用方出的片在分镜页一条都显示不出来。存量由迁移 `0012_generation_metadata_drop_path` 清掉，不留读侧兼容。
+- 修订（2026-09-22，[ADR-0032](0032-generation-root-job.md)）：决策 1「不读里面的键」改为「只认 `shot`」——审计按它数镜、`shot_index` 折进它；§5 里编辑链的 `rootJob` 不再是便签键，升为列 `root_job_id`。
 - 关联：[ADR-0009](0009-storyboard-workbench.md)（决策里 `generation_jobs` 加 `shot_index` 列的部分由本文修订）、[ADR-0018](0018-video-generation-mirrors-upstream.md)（`task_id` 落列不变）、[ADR-0004](0004-generation-queue-in-postgres.md)（排队与状态机不变）
 
 ## 背景
@@ -15,7 +16,7 @@
 
 ### 1. 一列不透明的 `metadata`
 
-`generation_jobs` 加 JSONB 可空列 `metadata`，删 `shot_index`。它与 `task_id` 同类，是归属标签：调用方原样写入，服务端原样存、原样回读、不读里面的键、不校验含义。两种生成的请求体都收 `metadata`，`GenerationOut` 顶层回读，`event.generation.changed` 帧的 payload 原样带出。
+`generation_jobs` 加 JSONB 可空列 `metadata`，删 `shot_index`。它与 `task_id` 同类，是归属标签：调用方原样写入，服务端原样存、原样回读、不校验含义。服务端只认其中 `shot` 一个键：受理视频时替带 `shot_index` 的调用方写它，审计按它数镜（ADR-0027）；其余键不读。三种生成的请求体都收 `metadata`，`GenerationOut` 顶层回读，`event.generation.changed` 帧的 payload 原样带出。
 
 ### 2. `request` 只存 provider 输入
 
@@ -33,7 +34,7 @@
 
 分镜页写 `{"shot": <镜头组>, "frame": <第几帧>}`，视频出片不带 `frame`；图片编辑另带 `sourceUrl`，记这次改的是哪张图——底图未必还在分镜里，这一帧出现过的图要靠它从任务列表重新拼出来。按坐标筛选时不带 `sourceUrl`。形状在 `web/src/features/storyboard/generation-metadata.ts` 一处定义并校验，生成记录抽屉、帧角标、编辑器按格查询都从这里读。换一个调用方（API key、别的页面）可以写自己的形状，生成域不需要知道。
 
-视频编辑（ADR-0028）的三条记录——参考片段、编辑结果、成片——写另一组平键 `{"rootJob", "baseJob", "editId", "editStart", "editEnd"}`：`rootJob` 是链的根（最初那条出片），链查询按它筛；`baseJob` 是这次基于的完整视频；`editId` 由前端铸，把三条串成一次编辑；`editStart` / `editEnd` 是相对基底的区间，在编辑结果与成片上记的是按参考片段实际时长反算出来的关键帧起点，不是用户选的那个数。**不带 `shot`**：编辑结果不是这一镜的出片，抽屉与审计都不该把它算进去；抽屉只在原片那张卡上数一下被编辑过几次。同一份文件里定义与校验。
+视频编辑（ADR-0028）的三条记录——参考片段、编辑结果、成片——写另一组平键 `{"baseJob", "editId", "editStart", "editEnd"}`；它们属于哪条出片不在便签上，在记录的原作号 `root_job_id` 列里，链查询按它筛（ADR-0032）。`baseJob` 是这次基于的完整视频；`editId` 由前端铸，把三条串成一次编辑；`editStart` / `editEnd` 是相对基底的区间，在编辑结果与成片上记的是按参考片段实际时长反算出来的关键帧起点，不是用户选的那个数。**不带 `shot`**：编辑结果不是这一镜的出片，抽屉与审计都不该把它算进去；抽屉只在原片那张卡上数一下被编辑过几次。同一份文件里定义与校验。
 
 ## 取舍
 

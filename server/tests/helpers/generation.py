@@ -24,7 +24,6 @@ from iclip.domains.generation.provider import (
     ProviderSubmission,
 )
 from iclip.domains.generation.schemas import (
-    KIND_CLIP,
     KIND_VIDEO,
     ClipIn,
     GenerationRequest,
@@ -56,6 +55,7 @@ def clip_request(**overrides: Any) -> ClipIn:
     fields: dict[str, Any] = {
         "purpose": "reference",
         "segments": [{"url": "https://example.com/base.mp4", "start": 4, "end": 8}],
+        "root_job_id": uuid.uuid4(),
     }
     fields.update(overrides)
     return ClipIn(**fields)
@@ -108,6 +108,7 @@ def make_job(
     conversation_id: uuid.UUID | None = None,
     metadata: dict[str, Any] | None = None,
     task_id: uuid.UUID | None = None,
+    root_job_id: uuid.UUID | None = None,
     output_url: str | None = None,
     watermark_output_url: str | None = None,
     error_code: str | None = None,
@@ -122,6 +123,8 @@ def make_job(
         conversation_id=conversation_id,
         metadata=metadata,
         task_id=task_id,
+        # 与受理时一样从请求上抄原作号；显式给了就以给的为准。
+        root_job_id=root_job_id or payload.root_job_id,
         kind=payload.kind,
         provider=provider
         or (FAKE_VIDEO_PROVIDER if payload.kind == KIND_VIDEO else FAKE_IMAGE_PROVIDER),
@@ -168,6 +171,7 @@ class InMemoryGenerationRepository:
         kind: str | None = None,
         metadata: Mapping[str, Any] | None = None,
         task_id: uuid.UUID | None = None,
+        root_job_id: uuid.UUID | None = None,
         before: uuid.UUID | None = None,
     ) -> tuple[GenerationJob, ...]:
         rows = [
@@ -176,6 +180,7 @@ class InMemoryGenerationRepository:
             if (owner is None or job.owner_user_id == owner)
             and (conversation_id is None or job.conversation_id == conversation_id)
             and (task_id is None or job.task_id == task_id)
+            and (root_job_id is None or job.root_job_id == root_job_id)
         ]
         rows = [job for job in rows if kind is None or job.kind == kind]
         if metadata is not None:
@@ -216,8 +221,7 @@ class InMemoryGenerationRepository:
             for job in list(self.jobs.values())
             if job.conversation_id == source_conversation_id
             and job.status == STATUS_COMPLETED
-            and job.kind != KIND_CLIP
-            and "rootJob" not in (job.metadata or {})
+            and job.root_job_id is None
         ]
         for job in copied:
             self.jobs[job.id] = job

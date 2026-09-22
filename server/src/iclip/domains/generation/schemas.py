@@ -84,12 +84,15 @@ MAX_METADATA_CHARS: Final = 2000
 MAX_URL_CHARS: Final = 2000
 """服务端要拿去下载的单个地址的长度上限。"""
 
-ORIGIN_FIELDS: Final = frozenset({"conversation_id", "task_id", "metadata", "shot_index"})
+ORIGIN_FIELDS: Final = frozenset(
+    {"conversation_id", "task_id", "metadata", "shot_index", "root_job_id"}
+)
 """归属字段：落表上自己的列，不进 ``request`` JSON。
 
 它们不是发给 provider 的参数，而是「这一行属于谁、为谁出的」：对话与需求单按索引查；
-``metadata`` 是调用方自带的坐标，服务端原样存、按包含匹配筛，不读里面的键；
-``shot_index`` 是 ``metadata.shot`` 的别名，受理时折进 ``metadata``，本身不落任何地方。"""
+``root_job_id`` 说这一行是哪条独立记录的衍生；``metadata`` 是调用方自带的坐标，服务端
+原样存、按包含匹配筛，只认 ``shot`` 一个键；``shot_index`` 是 ``metadata.shot`` 的别名，
+受理时折进 ``metadata``，本身不落任何地方。"""
 
 NOT_FORWARDED_FIELDS: Final = ORIGIN_FIELDS | frozenset({"shot"})
 """发给上游时去掉的字段：归属字段是我们自己的；``shot`` 已经拼成 ``prompt``，上游只认正文。
@@ -140,7 +143,8 @@ def _bounded_metadata(value: dict[str, Any]) -> dict[str, Any]:
 
 
 Metadata = Annotated[dict[str, Any], AfterValidator(_bounded_metadata)]
-"""调用方自己的坐标标签，服务端不解释。分镜页写 ``{"shot", "frame"}``，形状归前端定。"""
+"""调用方自己的坐标标签。分镜页写 ``{"shot", "frame"}``，形状归前端定；服务端只认 ``shot``
+一个键（审计按它数镜），其余键不读、不校验。"""
 
 
 def _nonblank(text: str) -> str:
@@ -260,6 +264,9 @@ class VideoGenerationIn(SnakeModel):
 
     下界跟着分镜文件走：那里的 ``shots[].index`` 就是从 1 数的。收下 0 只会落一条读不出
     镜头组的记录——服务端不报错，分镜页永远不显示。"""
+    root_job_id: uuid.UUID | None = None
+    """原作号。视频编辑的结果填最初那条出片的 id，出片本身不填；受理时核对它是同一段对话里
+    的独立记录。"""
 
     _check_urls = field_validator(
         "reference_image_urls", "reference_video_urls", "reference_audio_urls"
@@ -317,6 +324,8 @@ class ImageGenerationIn(CamelModel):
     conversation_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     metadata: Metadata | None = None
+    root_job_id: uuid.UUID | None = None
+    """原作号。分镜页的图片生成与图片编辑都是独立记录，不填；从某条出片上抽出来的图才填它。"""
 
     _check_urls = field_validator("reference_image_urls")(_http_only)
 
@@ -357,6 +366,11 @@ class ClipIn(CamelModel):
     conversation_id: uuid.UUID | None = None
     task_id: uuid.UUID | None = None
     metadata: Metadata | None = None
+    root_job_id: uuid.UUID | None = None
+    """原作号，受理时必填：本地加工的产物一律是某条出片的衍生记录，填最初那条出片的 id。
+
+    模型上可空，因为它是归属字段、落自己的列，持久化的 ``request`` JSON 里没有它，读回时
+    还要过这份校验。"""
 
     @model_validator(mode="after")
     def _reference_is_one_cut(self) -> ClipIn:
@@ -406,6 +420,8 @@ class GenerationOut(CamelModel):
     request: dict[str, Any]
     metadata: dict[str, Any] | None
     task_id: uuid.UUID | None
+    root_job_id: uuid.UUID | None
+    """原作号；空即独立记录。链查询按它筛（``GET /generations?rootJobId=``）。"""
     output_url: str | None
     watermark_output_url: str | None
     """视频的水印版地址；图片没有这一份，恒为空。"""
@@ -428,6 +444,7 @@ def generation_out(job: GenerationJob) -> GenerationOut:
         request=request_to_payload(job.request),
         metadata=job.metadata,
         task_id=job.task_id,
+        root_job_id=job.root_job_id,
         output_url=job.output_url,
         watermark_output_url=job.watermark_output_url,
         error_message=job.error_message,

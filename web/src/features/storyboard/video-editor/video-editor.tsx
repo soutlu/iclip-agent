@@ -275,6 +275,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
       submitVideoEdit({
         conversationId,
         taskId: root.taskId,
+        rootJobId: root.id,
         metadata,
         model: draft.model,
         prompt: draft.prompt,
@@ -288,7 +289,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
           setOperationError(error instanceof Error ? error.message : '视频编辑提交失败')
         })
     }
-  }, [chain.pending, drafts, conversationId, root.taskId, queryClient])
+  }, [chain.pending, drafts, conversationId, root.id, root.taskId, queryClient])
 
   const select = (key: string) => {
     setSelectedKey(key)
@@ -326,7 +327,6 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
     }
     const editId = mintUuid()
     const metadata: VideoEditMetadata = {
-      rootJob: root.id,
       baseJob: selectedVersion.jobId,
       editId,
       editStart: range.start,
@@ -340,6 +340,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
         await submitReferenceClip({
           conversationId,
           taskId: root.taskId,
+          rootJobId: root.id,
           metadata,
           url: selectedVersion.mediaUrl,
           start: range.start,
@@ -365,6 +366,7 @@ function Editor({ conversationId, root, shotIndex, onClose }: EditorProps) {
         await submitMasterClip({
           conversationId,
           taskId: root.taskId,
+          rootJobId: root.id,
           metadata: edit.coords,
           segments: composeSegments(segments),
         }),

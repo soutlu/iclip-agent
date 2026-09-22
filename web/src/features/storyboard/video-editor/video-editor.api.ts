@@ -8,28 +8,24 @@ import {
   zGenerationsPageOut,
   zVideoSubmitOut,
 } from '@/shared/api/generated/zod.gen'
-import { metadataFilterParam, type VideoEditMetadata } from '../generation-metadata'
+import type { VideoEditMetadata } from '../generation-metadata'
 import { generationsRefetchInterval, type GenerationJob } from '../storyboard.api'
 
 /** 本对话全部编辑链的查询前缀；按根的键挂在它下面，状态跳转帧到了一次失效全部。 */
 export const videoEditConversationKey = (conversationId: string) =>
   ['video-edits', conversationId] as const
 
-export const videoEditChainKey = (conversationId: string, rootJob: string) =>
-  [...videoEditConversationKey(conversationId), rootJob] as const
+export const videoEditChainKey = (conversationId: string, rootJobId: string) =>
+  [...videoEditConversationKey(conversationId), rootJobId] as const
 
-/** 一条根下面的编辑记录与成片。不带 kind：参考片段、成片（clip）与编辑结果（video）一次拿回。
+/** 一条根名下的衍生记录：参考片段、成片（clip）与编辑结果（video）一次拿回，按原作号筛。
  *
- * 根自己的坐标里没有 rootJob，不在结果里，由打开编辑器的那条记录传进来。 */
-export const useVideoEditChain = (conversationId: string, rootJob: string) =>
+ * 根自己的原作号是空的，不在结果里，由打开编辑器的那条记录传进来。 */
+export const useVideoEditChain = (conversationId: string, rootJobId: string) =>
   useQuery({
-    queryKey: videoEditChainKey(conversationId, rootJob),
+    queryKey: videoEditChainKey(conversationId, rootJobId),
     queryFn: ({ signal }) => {
-      const params = new URLSearchParams({
-        conversationId,
-        metadata: metadataFilterParam({ rootJob }),
-        limit: '100',
-      })
+      const params = new URLSearchParams({ conversationId, rootJobId, limit: '100' })
       return apiFetch(`/generations?${params}`, zGenerationsPageOut, {
         signal,
         fallbackErrorMessage: '读取编辑记录失败',
@@ -66,6 +62,8 @@ type Origin = {
   conversationId: string
   /** 根记录归属的需求单，三条记录跟着它。 */
   taskId: string | null
+  /** 最初那条出片：三条记录都是它的衍生记录，不管这次基于哪一版。 */
+  rootJobId: string
   metadata: VideoEditMetadata
 }
 
@@ -76,6 +74,7 @@ export const submitReferenceClip = async (
   const body: ClipIn = {
     conversationId: input.conversationId,
     taskId: input.taskId,
+    rootJobId: input.rootJobId,
     metadata: input.metadata,
     purpose: 'reference',
     segments: [{ url: input.url, start: input.start, end: input.end }],
@@ -105,6 +104,7 @@ export const submitVideoEdit = async (
   const body: VideoGenerationIn = {
     conversation_id: input.conversationId,
     task_id: input.taskId,
+    root_job_id: input.rootJobId,
     metadata: input.metadata,
     model: input.model,
     prompt: `${edit.promptPrefix ?? ''}${input.prompt}`,
@@ -128,6 +128,7 @@ export const submitMasterClip = async (
   const body: ClipIn = {
     conversationId: input.conversationId,
     taskId: input.taskId,
+    rootJobId: input.rootJobId,
     metadata: input.metadata,
     purpose: 'master',
     segments: [...input.segments],
