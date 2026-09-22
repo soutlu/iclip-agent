@@ -441,8 +441,8 @@ async def test_fork_copy_keeps_coordinates_and_clocks_but_changes_owner(
     assert (await repo.get(original.id, owner=author)).conversation_id == source
 
 
-async def test_fork_copy_skips_unfinished_jobs_and_derivatives(engine: AsyncEngine) -> None:
-    """只有已出片的独立记录进副本：在途的没地址，衍生记录靠原作号认根、在副本里认不回新的根。"""
+async def test_fork_copy_carries_the_edit_chain_onto_the_new_root(engine: AsyncEngine) -> None:
+    """已完成的独立记录连同它名下的编辑结果与成片一起进副本，原作号换成新根；在途的与参考片段不拷。"""
 
     repo = SqlGenerationRepository(engine)
     owner = await make_user(engine)
@@ -472,9 +472,29 @@ async def test_fork_copy_skips_unfinished_jobs_and_derivatives(engine: AsyncEngi
                 owner_user_id=owner,
                 conversation_id=source,
                 root_job_id=root.id,
+                metadata={"editId": "e1", "editStart": 4, "editEnd": 8},
             )
         ),
         "https://example.test/edited.mp4",
+    )
+    master = await _complete(
+        repo,
+        await repo.create(
+            make_job(
+                clip_request(
+                    purpose="master",
+                    root_job_id=root.id,
+                    segments=[
+                        {"url": "https://example.test/root.mp4", "start": 0, "end": 4},
+                        {"url": "https://example.test/edited.mp4", "start": 0, "end": 4},
+                        {"url": "https://example.test/root.mp4", "start": 8, "end": 15},
+                    ],
+                ),
+                owner_user_id=owner,
+                conversation_id=source,
+            )
+        ),
+        "https://example.test/master.mp4",
     )
 
     assert (
@@ -484,10 +504,21 @@ async def test_fork_copy_skips_unfinished_jobs_and_derivatives(engine: AsyncEngi
             owner=owner,
             task_id=None,
         )
-        == 1
+        == 3
     )
 
     copied = await repo.list_for_owner(owner=owner, limit=10, conversation_id=target)
-    assert [(job.metadata, job.root_job_id) for job in copied] == [({"shot": 1}, None)]
-    chain = await repo.list_for_owner(owner=owner, limit=10, root_job_id=root.id)
-    assert {job.id for job in chain} == {reference.id, edited.id}, "按原作号一次筛出整条链"
+    by_url = {job.output_url: job for job in copied}
+    assert set(by_url) == {root.output_url, edited.output_url, master.output_url}, (
+        "参考片段与在途的没拷"
+    )
+    new_root = by_url[root.output_url]
+    assert new_root.root_job_id is None and new_root.id != root.id
+    for url in (edited.output_url, master.output_url):
+        assert by_url[url].root_job_id == new_root.id, "衍生记录的原作号指向副本里的新根"
+    assert by_url[edited.output_url].metadata == {"editId": "e1", "editStart": 4, "editEnd": 8}
+    chain = await repo.list_for_owner(owner=owner, limit=10, root_job_id=new_root.id)
+    assert {job.output_url for job in chain} == {edited.output_url, master.output_url}
+    # 源对话的链一根没动。
+    original_chain = await repo.list_for_owner(owner=owner, limit=10, root_job_id=root.id)
+    assert {job.id for job in original_chain} == {reference.id, edited.id, master.id}

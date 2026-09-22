@@ -24,6 +24,7 @@ from iclip.domains.generation.provider import (
     ProviderSubmission,
 )
 from iclip.domains.generation.schemas import (
+    CLIP_REFERENCE,
     KIND_VIDEO,
     ClipIn,
     GenerationRequest,
@@ -209,19 +210,26 @@ class InMemoryGenerationRepository:
     ) -> int:
         from dataclasses import replace
 
+        picked = [
+            job
+            for job in list(self.jobs.values())
+            if job.conversation_id == source_conversation_id
+            and job.status == STATUS_COMPLETED
+            and not (isinstance(job.request, ClipIn) and job.request.purpose == CLIP_REFERENCE)
+        ]
+        fresh = {job.id: uuid.uuid4() for job in picked}
         copied = [
             replace(
                 job,
-                id=uuid.uuid4(),
+                id=fresh[job.id],
                 owner_user_id=owner,
                 api_key_id=None,
                 conversation_id=target_conversation_id,
                 task_id=task_id,
+                root_job_id=None if job.root_job_id is None else fresh[job.root_job_id],
             )
-            for job in list(self.jobs.values())
-            if job.conversation_id == source_conversation_id
-            and job.status == STATUS_COMPLETED
-            and job.root_job_id is None
+            for job in picked
+            if job.root_job_id is None or job.root_job_id in fresh
         ]
         for job in copied:
             self.jobs[job.id] = job

@@ -34,8 +34,9 @@ const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
 const derived = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
   job({ rootJobId: 'root', ...spec })
 
-const coords = (editId: string, baseJob: string, editStart: number, editEnd: number) => ({
-  baseJob,
+/** `base` 是基于哪一版：'root' 即原片（便签上不写），否则是那一版成片的 editId。 */
+const coords = (editId: string, base: string, editStart: number, editEnd: number) => ({
+  ...(base === 'root' ? {} : { baseEdit: base }),
   editId,
   editStart,
   editEnd,
@@ -85,7 +86,7 @@ const chainJobs: GenerationJob[] = [
     kind: 'clip',
     createdAt: '2026-09-15T10:04:00Z',
     status: 'submitted',
-    metadata: coords('e2', 'e1-master', 1, 2),
+    metadata: coords('e2', 'e1', 1, 2),
     request: {
       purpose: 'reference',
       segments: [{ url: 'https://oss.example/m1.mp4', start: 1, end: 2 }],
