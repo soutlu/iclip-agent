@@ -1,23 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { entryBaseUrl, frameImageEntries } from './edit-history'
 
 const CURRENT = 'https://cdn.test/current.png'
 
-const job = (over: Partial<GenerationJob> & { id: string; createdAt: string }): GenerationJob => ({
-  kind: 'image',
-  status: 'completed',
-  errorMessage: null,
-  outputUrl: null,
-  metadata: { shot: 1, frame: 1 },
-  request: {},
-  taskId: null,
-  rootJobId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...over,
-})
+const job = (over: Partial<GenerationJob> & { id: string; createdAt: string }): GenerationJob =>
+  makeGenerationJob({ kind: 'image', metadata: { shot: 1, frame: 1 }, ...over })
 
 function at(entries: ReturnType<typeof frameImageEntries>, position: number) {
   const entry = entries[position]

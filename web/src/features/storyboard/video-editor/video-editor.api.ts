@@ -58,6 +58,14 @@ export const editTriggerOf = (model: string): EditTrigger | undefined =>
 export const editableModels = (models: readonly string[]): string[] =>
   models.filter((model) => editTriggerOf(model) !== undefined)
 
+/** 编辑器用哪个模型：选过的不在允许表里（配置改了）就退回默认；默认模型不支持编辑就取第一个支持的。 */
+export const pickEditModel = (
+  models: readonly string[],
+  wanted: string | undefined,
+  fallback: string | undefined,
+): string | undefined =>
+  models.find((item) => item === wanted) ?? models.find((item) => item === fallback) ?? models[0]
+
 type Origin = {
   conversationId: string
   /** 根记录归属的需求单，三条记录跟着它。 */

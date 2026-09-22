@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import { server } from '@/testing/mocks/server'
 import type { Shot } from './shot-document'
 import {
@@ -86,21 +87,13 @@ describe('submitVideoGeneration', () => {
 })
 
 describe('historyShotOf', () => {
-  const job = (request: Record<string, unknown>): GenerationJob => ({
-    createdAt: '2026-09-01T10:00:00Z',
-    errorMessage: null,
-    id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
-    kind: 'video',
-    outputUrl: null,
-    metadata: { shot: 2 },
-    request,
-    status: 'completed',
-    taskId: null,
-    rootJobId: null,
-    clipStage: null,
-    durationMs: null,
-    watermarkOutputUrl: null,
-  })
+  const job = (request: Record<string, unknown>): GenerationJob =>
+    makeGenerationJob({
+      createdAt: '2026-09-01T10:00:00Z',
+      id: 'e5b1c0de-6c1e-4f1a-9b3d-8c0a1f2e3d40',
+      metadata: { shot: 2 },
+      request,
+    })
 
   it('记录里的 shot 与分镜文件的 prompt 同形，起止秒与间隙原样取回', () => {
     const history = {

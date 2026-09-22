@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import {
   actualEditStart,
@@ -14,21 +15,8 @@ import {
 
 const ROOT_URL = 'https://oss.example/root.mp4'
 
-const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob => ({
-  createdAt: '2026-09-15T10:00:00Z',
-  errorMessage: null,
-  kind: 'video',
-  metadata: null,
-  outputUrl: null,
-  request: {},
-  status: 'completed',
-  taskId: null,
-  rootJobId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-  ...spec,
-})
+const job = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>
+  makeGenerationJob({ createdAt: '2026-09-15T10:00:00Z', ...spec })
 
 /** 链上的记录：原作号一律指根，不管这次基于哪一版。 */
 const derived = (spec: Partial<GenerationJob> & { id: string }): GenerationJob =>

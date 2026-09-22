@@ -1,25 +1,17 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderWithProviders } from '@/testing/render'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import type { PendingEdit } from './edit-chain'
 import { EditorGenerationStatus } from './editor-generation-status'
 
-const failedJob: GenerationJob = {
+const failedJob: GenerationJob = makeGenerationJob({
   id: 'failed-job',
-  kind: 'video',
   status: 'failed',
-  createdAt: '2026-09-16T10:00:00Z',
   errorMessage: '上游服务暂时不可用',
-  metadata: null,
-  outputUrl: null,
-  request: {},
-  taskId: null,
   rootJobId: 'root',
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-}
+})
 
 const edit = (changes: Partial<PendingEdit>): PendingEdit => ({
   key: 'edit-1',

@@ -8,6 +8,7 @@ import { pasteTextIntoComposer } from '@/testing/editor'
 import { server } from '@/testing/mocks/server'
 import { renderWithProviders } from '@/testing/render'
 import type { ShotsDocument } from '../shot-document'
+import { makeGenerationJob } from '@/testing/generation-job'
 import type { GenerationJob } from '../storyboard.api'
 import { StoryboardReader } from './storyboard-reader'
 
@@ -37,21 +38,14 @@ const originalDocument = (): ShotsDocument => ({
   ],
 })
 
-const completedJob = (outputUrl: string, createdAt: string): GenerationJob => ({
-  id: crypto.randomUUID(),
-  kind: 'image',
-  metadata: { frame: 1, shot: 1 },
-  createdAt,
-  status: 'completed',
-  outputUrl,
-  errorMessage: null,
-  request: { prompt: '修改颜色', referenceImageUrls: [ORIGINAL] },
-  taskId: null,
-  rootJobId: null,
-  clipStage: null,
-  durationMs: null,
-  watermarkOutputUrl: null,
-})
+const completedJob = (outputUrl: string, createdAt: string): GenerationJob =>
+  makeGenerationJob({
+    kind: 'image',
+    metadata: { frame: 1, shot: 1 },
+    createdAt,
+    outputUrl,
+    request: { prompt: '修改颜色', referenceImageUrls: [ORIGINAL] },
+  })
 
 const provideJobs = () => {
   const jobs = [
